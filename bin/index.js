@@ -35,7 +35,7 @@ async function runTest(testConfig, speed, spinner) {
     if (testConfig.backend_url) payload.backend_url = testConfig.backend_url;
     if (testConfig.action_url) payload.action_url = testConfig.action_url;
     if (testConfig.test_entrypoint) payload.test_entrypoint = testConfig.test_entrypoint;
-
+    console.log(testConfig.local);
     spinner.text = `Running test ${testConfig.id}... (Sending request)`;
     const response = await axios.post(url, payload, {
       headers: {

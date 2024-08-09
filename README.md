@@ -26,6 +26,29 @@ test_ids:
 
 Run the workflow:
 
+## Configuration Options:
+
+### Speed:
+- `speed`: Controls the execution speed of the tests.
+  - `1`: Slow
+  - `2`: Normal (default)
+  - `3`: Fast (fastest)
+
+### Parallel Execution:
+- `parallel`: Determines if tests should run in parallel or sequentially.
+  - `true`: Run tests in parallel
+  - `false`: Run tests sequentially (default)
+
+### Test Configuration:
+Each test in the `test_ids` array can have the following options:
+- `id`: The unique identifier for the test (required)
+- `get_downloads`: Whether to retrieve downloads from the test
+- `local`: Set to `true` for local test execution
+- `backend_url`: Specify a custom backend URL for the test
+- `action_url`: Provide a specific action URL for the test
+- `test_entrypoint`: Set a custom entry point for the test
+
+
 ```bash
 revyl run workflow.yml
 ```
