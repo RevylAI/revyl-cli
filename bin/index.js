@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import yaml from 'js-yaml';
 import axios from 'axios';
 import ora from 'ora';
+import cliCursor from 'cli-cursor';
 
 
 // Load environment variables
@@ -18,39 +19,59 @@ dotenv.config();
 const usage = chalk.blue("\nUsage: revyl <command> [options]\n"
   + boxen(chalk.green("\n" + "Revyl CLI Tool" + "\n"), {padding: 1, borderColor: 'green', dimBorder: true}) + "\n");
 
-
-async function runTest(testId, speed) {
+async function runTest(testConfig, speed, spinner) {
   const REVYL_API_KEY = process.env.REVYL_API_KEY;
   const url = process.env.REVYL_API_URL || 'https://device.cognisim.io/execute_test_id';
 
-  const spinner = ora(`Running test ${testId}... \n`).start();
-
   try {
-    const response = await axios.post(url, { 
-      test_id: testId,
-      speed: speed // Send the speed value directly
-    }, {
+    const payload = {
+      test_id: testConfig.id,
+      speed: speed
+    };
+
+    // Only include optional fields if they exist in testConfig
+    if (testConfig.get_downloads !== undefined) payload.get_downloads = testConfig.get_downloads;
+    if (testConfig.local !== undefined) payload.local = testConfig.local;
+    if (testConfig.backend_url) payload.backend_url = testConfig.backend_url;
+    if (testConfig.action_url) payload.action_url = testConfig.action_url;
+    if (testConfig.test_entrypoint) payload.test_entrypoint = testConfig.test_entrypoint;
+
+    spinner.text = `Running test ${testConfig.id}... (Sending request)`;
+    const response = await axios.post(url, payload, {
       headers: {
         'Authorization': `Bearer ${REVYL_API_KEY}`,
         'Content-Type': 'application/json'
       }
     });
 
+    spinner.text = `Running test ${testConfig.id}... (Processing response)`;
+  
     if (response.data && response.data.success) {
-      spinner.succeed(chalk.green(`Test ${testId} ran successfully`));
-      return { testId, success: true, result: response.data };
+      spinner.succeed(chalk.green(`Test ${testConfig.id} ran successfully`));
+      return { testId: testConfig.id, success: true, result: response.data };
     } else {
-      spinner.fail(chalk.red(`Test ${testId} failed`));
-      return { testId, success: false, result: response.data };
+      spinner.fail(chalk.red(`Test ${testConfig.id} failed`));
+      console.log('Response data (failure):', JSON.stringify(response.data, null, 2));
+      return { testId: testConfig.id, success: false, result: response.data };
     }
   } catch (error) {
-    spinner.fail(chalk.red(`Error running test ${testId}:`, error.message));
-    return { testId, success: false, error: error.message };
+    spinner.fail(chalk.red(`Error running test ${testConfig.id}: ${error.message}`));
+    if (error.response) {
+      console.log('Error response data:', JSON.stringify(error.response.data, null, 2));
+      console.log('Error response status:', error.response.status);
+      console.log('Error response headers:', JSON.stringify(error.response.headers, null, 2));
+    } else if (error.request) {
+      console.log('Error request:', error.request);
+    } else {
+      console.log('Error message:', error.message);
+    }
+    console.log('Error config:', JSON.stringify(error.config, null, 2));
+    return { testId: testConfig.id, success: false, error: error.message };
   }
 }
 
 async function executeWorkflow(workflowData) {
-  const speed = workflowData.speed || 2; // Default to speed 2 if not specified
+  const speed = workflowData.speed || 2;
   const parallel = workflowData.parallel || false;
 
   console.log(chalk.cyan(`Executing workflow: ${workflowData.name} (v${workflowData.version})`));
@@ -58,51 +79,40 @@ async function executeWorkflow(workflowData) {
   console.log(chalk.cyan(`Speed: ${speed}`));
   console.log(chalk.cyan(`Parallel: ${parallel}`));
 
-  console.log(chalk.yellow('Running tests:'));
+  console.log(chalk.yellow('\nRunning tests:'));
 
   try {
     const testResults = [];
-    //const spinners = workflowData.test_ids.map(testId => ora(`Running test ${testId}...`).start());
+    cliCursor.hide();
 
     if (parallel) {
-      const results = await Promise.all(workflowData.test_ids.map((testId, index) => {
-        return runTest(testId, speed).then(result => {
-          if (result.success) {
-            spinners[index].succeed(chalk.green(`Test ${testId} ran successfully`));
-          } else {
-            spinners[index].fail(chalk.red(`Test ${testId} failed`));
-            if (result.error) {
-              spinners[index].fail(chalk.red(`Error: ${result.error}`));
-            }
-          }
-          return result;
-        }).catch(error => {
-          spinners[index].fail(chalk.red(`Error running test ${testId}: ${error.message}`));
-          return { testId, success: false, error: error.message };
-        });
-      }));
+      const spinners = workflowData.test_ids.map(testConfig => {
+        const spinner = ora(`Running test ${testConfig.id}...`).start();
+        spinner.indent = 2;
+        return spinner;
+      });
+
+      const results = await Promise.all(workflowData.test_ids.map((testConfig, index) => 
+        runTest(testConfig, speed, spinners[index])
+      ));
       testResults.push(...results);
     } else {
-      for (const [index, testId] of workflowData.test_ids.entries()) {
-        const result = await runTest(testId, speed);
-        if (result.success) {
-          spinners[index].succeed(chalk.green(`Test ${testId} ran successfully`));
-        } else {
-          spinners[index].fail(chalk.red(`Test ${testId} failed`));
-          if (result.error) {
-            spinners[index].fail(chalk.red(`Error: ${result.error}`));
-          }
-        }
+      for (const testConfig of workflowData.test_ids) {
+        const spinner = ora(`Running test ${testConfig.id}...`).start();
+        spinner.indent = 2;
+        const result = await runTest(testConfig, speed, spinner);
         testResults.push(result);
       }
     }
+
+    cliCursor.show();
 
     console.log(chalk.yellow('\nTest Results Summary:'));
     testResults.forEach(result => {
       if (result.success) {
         console.log(chalk.green(`Test ${result.testId}: Passed`));
       } else {
-        console.log(chalk.red(`Test ${result.testId}: Failed`));
+        //console.log(chalk.red(`Test ${result.testId}: Failed`));
         if (result.error) {
           console.log(chalk.red(`  Error: ${result.error}`));
         }
@@ -117,7 +127,9 @@ async function executeWorkflow(workflowData) {
     }
   } catch (error) {
     console.error(chalk.red('Error executing workflow:', error.message));
-  }
+  } finally {
+    cliCursor.show();
+  } 
 }
 
 yargs(hideBin(process.argv))
