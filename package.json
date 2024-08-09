@@ -1,0 +1,25 @@
+{
+  "name": "revyl-cli",
+  "version": "1.0.0",
+  "description": "",
+  "main": "bin/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "bin": {
+    "revyl": "./bin/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.3",
+    "boxen": "^8.0.1",
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.5",
+    "enumify": "^2.0.0",
+    "js-yaml": "^4.1.0",
+    "ora": "^8.0.1",
+    "yargs": "^17.7.2"
+  }
+}
