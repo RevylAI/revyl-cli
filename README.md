@@ -34,6 +34,25 @@ revyl init
 revyl test login-flow
 ```
 
+## Team Quick Start (Internal)
+
+For team members working from the monorepo:
+
+```bash
+# Clone and build
+git pull
+cd revyl-cli
+make build
+
+# Add to PATH (optional, for current session)
+export PATH="$PATH:$(pwd)/build"
+
+# Or use directly
+./build/revyl --help
+./build/revyl auth login
+./build/revyl --dev test my-test  # Against local backend
+```
+
 ## Commands
 
 ### Authentication
@@ -81,6 +100,27 @@ revyl tests list              # Show all tests with sync status
 revyl tests sync              # Push local changes to remote
 revyl tests pull              # Pull remote changes to local
 revyl tests diff login-flow   # Show diff between local and remote
+```
+
+### Diagnostics
+
+```bash
+revyl doctor    # Check CLI health, connectivity, auth status
+revyl ping      # Test API connectivity
+revyl upgrade   # Check for and install CLI updates
+```
+
+### Global Flags
+
+These flags are available on all commands:
+
+```bash
+--debug       # Enable debug logging
+--dev         # Use local development servers
+--json        # Output as JSON (where supported)
+--quiet / -q  # Suppress non-essential output
+--dry-run     # Preview actions without executing (build upload, tests push/pull)
+--config / -c # Path to config file (default: .revyl/config.yaml)
 ```
 
 ## Project Configuration
