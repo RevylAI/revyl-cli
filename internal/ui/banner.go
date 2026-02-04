@@ -51,15 +51,6 @@ func PrintBanner(version string) {
 	fmt.Println()
 }
 
-// PrintMiniBanner prints a smaller banner for commands.
-func PrintMiniBanner() {
-	styledBanner := lipgloss.NewStyle().
-		Foreground(Purple).
-		Bold(true).
-		Render("revyl")
-	fmt.Println(styledBanner)
-}
-
 // GetHelpText returns the formatted help text for the CLI.
 func GetHelpText() string {
 	purple := lipgloss.NewStyle().Foreground(Purple).Bold(true)

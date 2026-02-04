@@ -60,10 +60,9 @@ func CreateTest(ctx context.Context, apiKey string, params CreateTestParams) (*C
 
 	var tasks []interface{}
 
-	// If YAML content provided, validate and parse it
-	// Note: YAML validation is handled by the yaml package
-	// For now, we pass empty tasks and let the browser editor handle it
-	// Future: Parse YAML and convert to tasks
+	// YAML validation is handled by the yaml package for fast local feedback.
+	// The backend is responsible for parsing YAML content and converting it to tasks.
+	// We pass empty tasks here; if YAML content was provided, the backend will process it.
 
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
 	resp, err := client.CreateTest(ctx, &api.CreateTestRequest{

@@ -165,6 +165,32 @@ make generate
 make test
 ```
 
+### Running Tests
+
+The CLI includes unit tests and sanity tests to ensure command registration and basic functionality.
+
+```bash
+# Run all tests
+make test
+
+# Run tests with verbose output
+go test -v ./...
+
+# Run tests with coverage report
+make test-coverage
+
+# Quick compile and vet check (used by pre-commit)
+make check
+
+# Run specific test file
+go test -v ./cmd/revyl/main_test.go
+
+# Run tests matching a pattern
+go test -v ./... -run TestRootCommand
+```
+
+The pre-commit hook automatically runs `go build`, `gofmt`, and `go vet` on staged Go files to catch issues early.
+
 ## Local Development with Hot Reload
 
 This section covers how to develop and test the CLI against local backend services.

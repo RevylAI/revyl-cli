@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -33,13 +32,25 @@ const (
 
 	// DefaultTimeout is the default HTTP request timeout.
 	DefaultTimeout = 30 * time.Second
+
+	// DefaultMaxRetries is the default number of retry attempts for transient failures.
+	DefaultMaxRetries = 3
+
+	// DefaultRetryBaseDelay is the base delay for exponential backoff.
+	DefaultRetryBaseDelay = 500 * time.Millisecond
+
+	// DefaultRetryMaxDelay is the maximum delay between retries.
+	DefaultRetryMaxDelay = 10 * time.Second
 )
 
 // Client is the Revyl API client.
 type Client struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
+	baseURL       string
+	apiKey        string
+	httpClient    *http.Client
+	maxRetries    int
+	retryBaseDelay time.Duration
+	retryMaxDelay  time.Duration
 }
 
 // NewClient creates a new API client using production URLs.
@@ -56,6 +67,9 @@ func NewClient(apiKey string) *Client {
 		httpClient: &http.Client{
 			Timeout: DefaultTimeout,
 		},
+		maxRetries:     DefaultMaxRetries,
+		retryBaseDelay: DefaultRetryBaseDelay,
+		retryMaxDelay:  DefaultRetryMaxDelay,
 	}
 }
 
@@ -75,6 +89,9 @@ func NewClientWithDevMode(apiKey string, devMode bool) *Client {
 		httpClient: &http.Client{
 			Timeout: DefaultTimeout,
 		},
+		maxRetries:     DefaultMaxRetries,
+		retryBaseDelay: DefaultRetryBaseDelay,
+		retryMaxDelay:  DefaultRetryMaxDelay,
 	}
 }
 
@@ -93,6 +110,9 @@ func NewClientWithBaseURL(apiKey, baseURL string) *Client {
 		httpClient: &http.Client{
 			Timeout: DefaultTimeout,
 		},
+		maxRetries:     DefaultMaxRetries,
+		retryBaseDelay: DefaultRetryBaseDelay,
+		retryMaxDelay:  DefaultRetryMaxDelay,
 	}
 }
 
@@ -130,36 +150,136 @@ func (e *APIError) Error() string {
 
 // doRequest performs an HTTP request with authentication.
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
-	url := c.baseURL + path
+	return c.doRequestWithRetry(ctx, method, path, body)
+}
 
-	var bodyReader io.Reader
-	if body != nil {
-		jsonBody, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+// isRetryableError checks if an error or status code should trigger a retry.
+//
+// Parameters:
+//   - err: The error from the HTTP request (may be nil)
+//   - statusCode: The HTTP status code (0 if request failed)
+//
+// Returns:
+//   - bool: True if the request should be retried
+func isRetryableError(err error, statusCode int) bool {
+	// Retry on network errors
+	if err != nil {
+		return true
+	}
+
+	// Retry on server errors (5xx) and rate limiting (429)
+	if statusCode >= 500 || statusCode == 429 {
+		return true
+	}
+
+	return false
+}
+
+// calculateBackoff calculates the delay for the next retry attempt using exponential backoff.
+//
+// Parameters:
+//   - attempt: The current attempt number (0-indexed)
+//   - baseDelay: The base delay duration
+//   - maxDelay: The maximum delay duration
+//
+// Returns:
+//   - time.Duration: The delay before the next retry
+func calculateBackoff(attempt int, baseDelay, maxDelay time.Duration) time.Duration {
+	// Exponential backoff: baseDelay * 2^attempt
+	delay := baseDelay * time.Duration(1<<uint(attempt))
+	if delay > maxDelay {
+		delay = maxDelay
+	}
+	return delay
+}
+
+// doRequestWithRetry performs an HTTP request with retry logic for transient failures.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - method: HTTP method (GET, POST, etc.)
+//   - path: API path (appended to base URL)
+//   - body: Request body (will be JSON marshaled)
+//
+// Returns:
+//   - *http.Response: The HTTP response
+//   - error: Any error that occurred
+func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
+	var lastErr error
+	var lastResp *http.Response
+
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		// Check context cancellation before each attempt
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
-		bodyReader = bytes.NewReader(jsonBody)
+
+		// Wait before retry (skip on first attempt)
+		if attempt > 0 {
+			delay := calculateBackoff(attempt-1, c.retryBaseDelay, c.retryMaxDelay)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		// Build the request
+		reqURL := c.baseURL + path
+
+		var bodyReader io.Reader
+		if body != nil {
+			jsonBody, err := json.Marshal(body)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal request body: %w", err)
+			}
+			bodyReader = bytes.NewReader(jsonBody)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "revyl-cli/1.0")
+
+		// Set source tracking header
+		// X-Revyl-Client identifies the client type (cli maps to "api" source in DB)
+		req.Header.Set("X-Revyl-Client", "cli")
+
+		// Execute the request
+		resp, err := c.httpClient.Do(req)
+
+		// Check if we should retry
+		statusCode := 0
+		if resp != nil {
+			statusCode = resp.StatusCode
+		}
+
+		if !isRetryableError(err, statusCode) || attempt == c.maxRetries {
+			// Return the response (success or non-retryable error)
+			if err != nil {
+				return nil, fmt.Errorf("request failed: %w", err)
+			}
+			return resp, nil
+		}
+
+		// Close the response body before retrying to avoid resource leaks
+		if resp != nil {
+			resp.Body.Close()
+		}
+
+		lastErr = err
+		lastResp = resp
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	// All retries exhausted
+	if lastErr != nil {
+		return nil, fmt.Errorf("request failed after %d retries: %w", c.maxRetries, lastErr)
 	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "revyl-cli/1.0")
-
-	// Set source tracking header
-	// X-Revyl-Client identifies the client type (cli maps to "api" source in DB)
-	req.Header.Set("X-Revyl-Client", "cli")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-
-	return resp, nil
+	return lastResp, nil
 }
 
 // parseResponse parses the response body into the target struct.
@@ -167,7 +287,14 @@ func parseResponse(resp *http.Response, target interface{}) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return &APIError{
+				StatusCode: resp.StatusCode,
+				Message:    "failed to read error response body",
+				Detail:     readErr.Error(),
+			}
+		}
 
 		// Try to parse structured error response
 		// Supports multiple common error field names
@@ -176,7 +303,8 @@ func parseResponse(resp *http.Response, target interface{}) error {
 			Detail  string `json:"detail"`
 			Message string `json:"message"`
 		}
-		json.Unmarshal(body, &errResp)
+		// Ignore JSON parse errors - we'll fall back to raw body
+		_ = json.Unmarshal(body, &errResp)
 
 		// Build error message from available fields
 		message := errResp.Error
@@ -373,7 +501,10 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 	defer uploadResp.Body.Close()
 
 	if uploadResp.StatusCode >= 400 {
-		body, _ := io.ReadAll(uploadResp.Body)
+		body, readErr := io.ReadAll(uploadResp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("upload failed with status %d (failed to read response: %v)", uploadResp.StatusCode, readErr)
+		}
 		return nil, fmt.Errorf("upload failed with status %d: %s", uploadResp.StatusCode, string(body))
 	}
 
@@ -590,70 +721,6 @@ func (c *Client) ValidateAPIKey(ctx context.Context) (*ValidateAPIKeyResponse, e
 
 // StreamUploadBuild uploads a build using streaming (alternative to presigned URL).
 //
-// Parameters:
-//   - ctx: Context for cancellation
-//   - req: The upload request
-//
-// Returns:
-//   - *UploadBuildResponse: The upload response
-//   - error: Any error that occurred
-func (c *Client) StreamUploadBuild(ctx context.Context, req *UploadBuildRequest) (*UploadBuildResponse, error) {
-	file, err := os.Open(req.FilePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
-	}
-	defer file.Close()
-
-	// Create multipart form
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	// Add file
-	part, err := writer.CreateFormFile("file", filepath.Base(req.FilePath))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create form file: %w", err)
-	}
-	if _, err := io.Copy(part, file); err != nil {
-		return nil, fmt.Errorf("failed to copy file: %w", err)
-	}
-
-	// Add version
-	if err := writer.WriteField("version", req.Version); err != nil {
-		return nil, fmt.Errorf("failed to write version field: %w", err)
-	}
-
-	// Add metadata
-	if req.Metadata != nil {
-		metadataJSON, _ := json.Marshal(req.Metadata)
-		if err := writer.WriteField("metadata", string(metadataJSON)); err != nil {
-			return nil, fmt.Errorf("failed to write metadata field: %w", err)
-		}
-	}
-
-	writer.Close()
-
-	url := fmt.Sprintf("%s/api/v1/builds/vars/%s/versions/stream-upload", c.baseURL, req.BuildVarID)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("upload failed: %w", err)
-	}
-
-	var result UploadBuildResponse
-	if err := parseResponse(resp, &result); err != nil {
-		return nil, err
-	}
-
-	return &result, nil
-}
-
 // SimpleTest represents a lightweight test item for listing.
 // This is a CLI-specific type that's simpler than the generated SimpleTestItem.
 type SimpleTest struct {
@@ -916,6 +983,76 @@ func (c *Client) CreateWorkflow(ctx context.Context, req *CLICreateWorkflowReque
 	}
 
 	var result CLICreateWorkflowResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// CLITestStatusResponse represents the status of a test execution.
+// This is a CLI-specific type that matches the backend TestStatusResponse schema.
+type CLITestStatusResponse struct {
+	// ID is the execution task ID.
+	ID string `json:"id"`
+
+	// TestID is the test definition ID.
+	TestID string `json:"test_id"`
+
+	// Status is the current execution status (queued, running, completed, failed, etc.).
+	Status string `json:"status"`
+
+	// Progress is the completion percentage (0-100).
+	Progress float64 `json:"progress"`
+
+	// CurrentStep is the description of the current step being executed.
+	CurrentStep string `json:"current_step,omitempty"`
+
+	// CurrentStepIndex is the 0-based index of the current step.
+	CurrentStepIndex int `json:"current_step_index"`
+
+	// TotalSteps is the total number of steps in the test.
+	TotalSteps int `json:"total_steps"`
+
+	// StepsCompleted is the number of steps that have been completed.
+	StepsCompleted int `json:"steps_completed"`
+
+	// ErrorMessage contains the error message if the test failed.
+	ErrorMessage string `json:"error_message,omitempty"`
+
+	// Success indicates whether the test passed (nil if not yet complete).
+	Success *bool `json:"success,omitempty"`
+
+	// WorkflowRunID is the parent workflow run ID if this test is part of a workflow.
+	WorkflowRunID string `json:"workflow_run_id,omitempty"`
+
+	// StartedAt is when the test execution started.
+	StartedAt string `json:"started_at,omitempty"`
+
+	// CompletedAt is when the test execution completed.
+	CompletedAt string `json:"completed_at,omitempty"`
+
+	// ExecutionTimeSeconds is the total execution time in seconds.
+	ExecutionTimeSeconds float64 `json:"execution_time_seconds,omitempty"`
+}
+
+// GetTestStatus retrieves the current status of a test execution.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - taskID: The execution task ID
+//
+// Returns:
+//   - *CLITestStatusResponse: The current test status
+//   - error: Any error that occurred
+func (c *Client) GetTestStatus(ctx context.Context, taskID string) (*CLITestStatusResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/tests/get_test_execution_task?task_id=%s", taskID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLITestStatusResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}

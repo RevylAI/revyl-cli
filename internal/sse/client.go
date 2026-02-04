@@ -377,6 +377,8 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 	defer ticker.Stop()
 
 	var lastStatus *TestStatus
+	var consecutiveErrors int
+	const maxConsecutiveErrors = 10
 
 	for {
 		select {
@@ -389,6 +391,10 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 		case <-ticker.C:
 			req, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
 			if err != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive errors creating request (last: %v)", err)
+				}
 				continue
 			}
 
@@ -396,6 +402,10 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 
 			resp, err := client.Do(req)
 			if err != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive network errors (last: %v)", err)
+				}
 				continue
 			}
 
@@ -417,9 +427,16 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 
 			if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
 				resp.Body.Close()
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive decode errors (last: %v)", err)
+				}
 				continue
 			}
 			resp.Body.Close()
+
+			// Reset consecutive errors on successful response
+			consecutiveErrors = 0
 
 			// Convert progress from 0.0-1.0 to 0-100 if needed
 			progressPercent := int(statusResp.Progress)
@@ -676,6 +693,8 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 	defer ticker.Stop()
 
 	var lastStatus *WorkflowStatus
+	var consecutiveErrors int
+	const maxConsecutiveErrors = 10
 
 	for {
 		select {
@@ -688,6 +707,10 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 		case <-ticker.C:
 			req, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
 			if err != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive errors creating request (last: %v)", err)
+				}
 				continue
 			}
 
@@ -695,6 +718,10 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 
 			resp, err := client.Do(req)
 			if err != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive network errors (last: %v)", err)
+				}
 				continue
 			}
 
@@ -710,9 +737,16 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 
 			if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
 				resp.Body.Close()
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive decode errors (last: %v)", err)
+				}
 				continue
 			}
 			resp.Body.Close()
+
+			// Reset consecutive errors on successful response
+			consecutiveErrors = 0
 
 			status := &WorkflowStatus{
 				TaskID:         taskID,

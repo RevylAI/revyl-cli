@@ -75,11 +75,13 @@ var (
 	createTestNoOpen   bool
 	createTestNoSync   bool
 	createTestForce    bool
+	createTestDryRun   bool
 
 	// Workflow creation flags
 	createWorkflowTests  string
 	createWorkflowNoOpen bool
 	createWorkflowNoSync bool
+	createWorkflowDryRun bool
 )
 
 func init() {
@@ -92,11 +94,13 @@ func init() {
 	createTestCmd.Flags().BoolVar(&createTestNoOpen, "no-open", false, "Skip opening browser to test editor")
 	createTestCmd.Flags().BoolVar(&createTestNoSync, "no-sync", false, "Skip adding test to .revyl/config.yaml")
 	createTestCmd.Flags().BoolVar(&createTestForce, "force", false, "Update existing test if name already exists")
+	createTestCmd.Flags().BoolVar(&createTestDryRun, "dry-run", false, "Show what would be created without creating")
 
 	// Workflow creation flags
 	createWorkflowCmd.Flags().StringVar(&createWorkflowTests, "tests", "", "Comma-separated test names or IDs to include")
 	createWorkflowCmd.Flags().BoolVar(&createWorkflowNoOpen, "no-open", false, "Skip opening browser to workflow editor")
 	createWorkflowCmd.Flags().BoolVar(&createWorkflowNoSync, "no-sync", false, "Skip adding workflow to .revyl/config.yaml")
+	createWorkflowCmd.Flags().BoolVar(&createWorkflowDryRun, "dry-run", false, "Show what would be created without creating")
 }
 
 // runCreateTest creates a new test on the server and adds it to the local config.
@@ -172,8 +176,29 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	if buildVarID == "" && cfg.Build.Variants != nil {
 		if variant, ok := cfg.Build.Variants[platform]; ok && variant.BuildVarID != "" {
 			buildVarID = variant.BuildVarID
-			ui.PrintInfo("Using build variable from config: %s", buildVarID)
+			if !createTestDryRun {
+				ui.PrintInfo("Using build variable from config: %s", buildVarID)
+			}
 		}
+	}
+
+	// Handle dry-run mode
+	if createTestDryRun {
+		ui.Println()
+		ui.PrintInfo("Dry-run mode - showing what would be created:")
+		ui.Println()
+		ui.PrintInfo("  Test Name:    %s", testName)
+		ui.PrintInfo("  Platform:     %s", platform)
+		if buildVarID != "" {
+			ui.PrintInfo("  Build Var ID: %s", buildVarID)
+		} else {
+			ui.PrintInfo("  Build Var ID: (none)")
+		}
+		ui.PrintInfo("  Add to Config: %v", !createTestNoSync)
+		ui.PrintInfo("  Open Browser:  %v", !createTestNoOpen)
+		ui.Println()
+		ui.PrintSuccess("Dry-run complete - no changes made")
+		return nil
 	}
 
 	// Create API client with dev mode support
@@ -401,6 +426,27 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 				testIDs = append(testIDs, name)
 			}
 		}
+	}
+
+	// Handle dry-run mode
+	if createWorkflowDryRun {
+		ui.Println()
+		ui.PrintInfo("Dry-run mode - showing what would be created:")
+		ui.Println()
+		ui.PrintInfo("  Workflow Name: %s", workflowName)
+		if len(testIDs) > 0 {
+			ui.PrintInfo("  Tests:         %d test(s)", len(testIDs))
+			for _, id := range testIDs {
+				ui.PrintDim("    - %s", id)
+			}
+		} else {
+			ui.PrintInfo("  Tests:         (none - add in browser)")
+		}
+		ui.PrintInfo("  Add to Config: %v", !createWorkflowNoSync)
+		ui.PrintInfo("  Open Browser:  %v", !createWorkflowNoOpen)
+		ui.Println()
+		ui.PrintSuccess("Dry-run complete - no changes made")
+		return nil
 	}
 
 	ui.Println()

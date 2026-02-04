@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"golang.org/x/term"
 )
 
 // Prompt displays a prompt and reads user input.
@@ -28,29 +26,6 @@ func Prompt(message string) (string, error) {
 	}
 
 	return strings.TrimSpace(input), nil
-}
-
-// PromptPassword displays a prompt and reads password input (hidden).
-//
-// Parameters:
-//   - message: The prompt message to display
-//
-// Returns:
-//   - string: The user's input
-//   - error: Any error that occurred
-func PromptPassword(message string) (string, error) {
-	fmt.Printf("%s ", InfoStyle.Render(message))
-
-	// Read password without echo
-	password, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println() // New line after password input
-
-	if err != nil {
-		// Fallback to regular input if terminal not available
-		return Prompt("")
-	}
-
-	return string(password), nil
 }
 
 // PromptConfirm displays a yes/no confirmation prompt.

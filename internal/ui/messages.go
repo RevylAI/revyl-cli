@@ -10,12 +10,38 @@ import (
 	"github.com/revyl/cli/internal/status"
 )
 
+// quietMode controls whether non-essential output is suppressed.
+// Set via SetQuietMode() based on the --quiet flag.
+var quietMode bool
+
+// SetQuietMode enables or disables quiet mode.
+// When enabled, informational messages are suppressed; only errors and final results are shown.
+//
+// Parameters:
+//   - quiet: true to enable quiet mode, false to disable
+func SetQuietMode(quiet bool) {
+	quietMode = quiet
+}
+
+// IsQuietMode returns whether quiet mode is enabled.
+//
+// Returns:
+//   - bool: true if quiet mode is enabled
+func IsQuietMode() bool {
+	return quietMode
+}
+
 // Println prints an empty line.
+// Respects quiet mode - suppressed when quiet.
 func Println() {
+	if quietMode {
+		return
+	}
 	fmt.Println()
 }
 
 // PrintSuccess prints a success message.
+// Always printed, even in quiet mode (considered essential output).
 //
 // Parameters:
 //   - format: Printf format string
@@ -26,6 +52,7 @@ func PrintSuccess(format string, args ...interface{}) {
 }
 
 // PrintError prints an error message.
+// Always printed, even in quiet mode (considered essential output).
 //
 // Parameters:
 //   - format: Printf format string
@@ -36,6 +63,7 @@ func PrintError(format string, args ...interface{}) {
 }
 
 // PrintWarning prints a warning message.
+// Always printed, even in quiet mode (considered essential output).
 //
 // Parameters:
 //   - format: Printf format string
@@ -46,69 +74,59 @@ func PrintWarning(format string, args ...interface{}) {
 }
 
 // PrintInfo prints an informational message.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - format: Printf format string
 //   - args: Printf arguments
 func PrintInfo(format string, args ...interface{}) {
+	if quietMode {
+		return
+	}
 	msg := fmt.Sprintf(format, args...)
 	fmt.Println(InfoStyle.Render(msg))
 }
 
 // PrintDim prints a dimmed message.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - format: Printf format string
 //   - args: Printf arguments
 func PrintDim(format string, args ...interface{}) {
+	if quietMode {
+		return
+	}
 	msg := fmt.Sprintf(format, args...)
 	fmt.Println(DimStyle.Render(msg))
 }
 
 // PrintLink prints a clickable link.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - label: The link label
 //   - url: The URL
 func PrintLink(label, url string) {
+	if quietMode {
+		return
+	}
 	fmt.Printf("%s %s\n", DimStyle.Render(label+":"), LinkStyle.Render(url))
 }
 
 // PrintBox prints content in a styled box.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - title: Box title
 //   - content: Box content
 func PrintBox(title, content string) {
+	if quietMode {
+		return
+	}
 	titleStyled := BoxTitleStyle.Render(title)
 	box := BoxStyle.Render(titleStyled + "\n" + content)
 	fmt.Println(box)
-}
-
-// PrintTableHeader prints a table header row.
-//
-// Parameters:
-//   - columns: Column names
-func PrintTableHeader(columns ...string) {
-	var cells []string
-	for _, col := range columns {
-		cells = append(cells, TableHeaderStyle.Render(col))
-	}
-	fmt.Println(strings.Join(cells, ""))
-	// Print separator
-	fmt.Println(DimStyle.Render(strings.Repeat("─", 80)))
-}
-
-// PrintTableRow prints a table data row.
-//
-// Parameters:
-//   - values: Cell values
-func PrintTableRow(values ...string) {
-	var cells []string
-	for _, val := range values {
-		cells = append(cells, TableCellStyle.Render(val))
-	}
-	fmt.Println(strings.Join(cells, ""))
 }
 
 // PrintDiff prints a diff with syntax highlighting.
