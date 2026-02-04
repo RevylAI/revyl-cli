@@ -18,7 +18,7 @@ func TestRootCommandInitialization(t *testing.T) {
 	// List of all expected subcommands
 	expectedCommands := []string{
 		"version", "auth", "init", "create", "open",
-		"build", "run", "test", "workflow", "tests", "docs",
+		"build", "run", "test", "workflow", "tests", "cancel", "docs",
 		"mcp", "schema", "doctor", "ping", "upgrade",
 	}
 

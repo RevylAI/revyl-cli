@@ -41,11 +41,38 @@ var testCmd = &cobra.Command{
 This is the main command for the typical development workflow.
 It combines 'revyl build upload' and 'revyl run test' into one command.
 
-Examples:
-  revyl test login-flow                 # Full workflow with default build
-  revyl test login-flow --variant release
-  revyl test login-flow --skip-build    # Skip build, use existing artifact
-  revyl test login-flow --json          # Output results as JSON`,
+IMPORTANT: Use the test NAME or UUID, NOT a file path!
+  - CORRECT: revyl test login-flow
+  - WRONG:   revyl test login-flow.yaml
+  - WRONG:   revyl test .revyl/tests/login-flow.yaml
+
+Test names are defined in .revyl/config.yaml under the 'tests:' section.
+Run 'revyl tests list' to see available test names.
+
+BUILD VARIANTS:
+  Build variants are defined in .revyl/config.yaml under 'build.variants:'.
+  Use --variant to select which build configuration to use.
+
+  Example config:
+    build:
+      variants:
+        android:
+          command: "./gradlew assembleDebug"
+          output: "app/build/outputs/apk/debug/app-debug.apk"
+        ios-skip-login:
+          command: "npx eas build --local --profile skip-login"
+          output: "build/app.tar.gz"
+
+PREREQUISITES:
+  - Authenticated: revyl auth login (or set REVYL_API_KEY env var)
+  - Project initialized: revyl init
+
+EXAMPLES:
+  revyl test login-flow                    # Full workflow with default build
+  revyl test login-flow --variant android  # Use android build variant
+  revyl test login-flow --variant ios-skip-login  # Use ios-skip-login variant
+  revyl test login-flow --skip-build       # Skip build, use existing artifact
+  revyl test login-flow --json             # Output results as JSON`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFullTest,
 }

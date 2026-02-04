@@ -50,8 +50,16 @@ var runTestCmd = &cobra.Command{
 	Short: "Run a test by name or ID",
 	Long: `Run a test by its alias name (from .revyl/config.yaml) or UUID.
 
+IMPORTANT: Use the test NAME or UUID, NOT a file path!
+  - CORRECT: revyl run test login-flow
+  - WRONG:   revyl run test login-flow.yaml
+  - WRONG:   revyl run test .revyl/tests/login-flow.yaml
+
+Test names are defined in .revyl/config.yaml under the 'tests:' section.
+Run 'revyl tests list' to see available test names.
+
 PREREQUISITES:
-  - Authenticated: revyl auth login
+  - Authenticated: revyl auth login (or set REVYL_API_KEY env var)
   - Project initialized: revyl init (optional, for aliases)
 
 OUTPUT:
@@ -77,8 +85,18 @@ var runWorkflowCmd = &cobra.Command{
 	Short: "Run a workflow by name or ID",
 	Long: `Run a workflow by its alias name (from .revyl/config.yaml) or UUID.
 
+IMPORTANT: Use the workflow NAME or UUID, NOT a file path!
+  - CORRECT: revyl run workflow smoke-tests
+  - WRONG:   revyl run workflow smoke-tests.yaml
+
+Workflow names are defined in .revyl/config.yaml under the 'workflows:' section.
+Run 'revyl tests remote' to see available workflows.
+
+To build before running, use --build flag:
+  revyl run workflow smoke-tests --build --variant android
+
 PREREQUISITES:
-  - Authenticated: revyl auth login
+  - Authenticated: revyl auth login (or set REVYL_API_KEY env var)
   - Project initialized: revyl init (optional, for aliases)
 
 OUTPUT:
@@ -90,9 +108,11 @@ EXIT CODES:
   1 - One or more tests failed
 
 EXAMPLES:
-  revyl run workflow smoke-tests      # By alias from .revyl/config.yaml
-  revyl run workflow abc123-def456... # By UUID
-  revyl run workflow smoke-tests --output  # JSON output for CI/CD`,
+  revyl run workflow smoke-tests              # By alias from .revyl/config.yaml
+  revyl run workflow abc123-def456...         # By UUID
+  revyl run workflow smoke-tests --output     # JSON output for CI/CD
+  revyl run workflow smoke-tests --build      # Build first, then run
+  revyl run workflow smoke-tests --build --variant android  # Build with variant`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkflowExec,
 }

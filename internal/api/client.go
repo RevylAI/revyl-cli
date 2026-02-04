@@ -1091,3 +1091,51 @@ func (c *Client) GetTestStatus(ctx context.Context, taskID string) (*CLITestStat
 
 	return &result, nil
 }
+
+// CancelTest cancels a running test execution.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - taskID: The execution task ID to cancel
+//
+// Returns:
+//   - *CancelTestResponse: The cancellation response
+//   - error: Any error that occurred
+func (c *Client) CancelTest(ctx context.Context, taskID string) (*CancelTestResponse, error) {
+	resp, err := c.doRequest(ctx, "POST",
+		fmt.Sprintf("/api/v1/execution/tests/status/cancel/%s", taskID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CancelTestResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// CancelWorkflow cancels a running workflow execution.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - taskID: The workflow task ID to cancel
+//
+// Returns:
+//   - *WorkflowCancelResponse: The cancellation response
+//   - error: Any error that occurred
+func (c *Client) CancelWorkflow(ctx context.Context, taskID string) (*WorkflowCancelResponse, error) {
+	resp, err := c.doRequest(ctx, "POST",
+		fmt.Sprintf("/api/v1/workflows/status/cancel/%s", taskID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result WorkflowCancelResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
