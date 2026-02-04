@@ -1,0 +1,39 @@
+{
+  "name": "@revyl/cli",
+  "version": "0.1.0",
+  "description": "Revyl CLI - AI-powered mobile app testing",
+  "keywords": [
+    "revyl",
+    "mobile",
+    "testing",
+    "e2e",
+    "automation",
+    "ios",
+    "android"
+  ],
+  "homepage": "https://revyl.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RevylAI/revyl-cli"
+  },
+  "license": "MIT",
+  "author": "Revyl <support@revyl.ai>",
+  "bin": {
+    "revyl": "bin/revyl.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

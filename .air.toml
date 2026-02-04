@@ -1,0 +1,55 @@
+# Air configuration for hot reload development
+# https://github.com/air-verse/air
+#
+# For internal developers with backend access:
+#   - Types are regenerated from the running backend before each build
+#   - Falls back to cached spec if backend is not running
+#
+# For external contributors:
+#   - Uses the committed openapi.json (cached spec)
+#   - No backend access required
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # Pre-build: Try to fetch fresh types from backend, fall back to cached spec
+  # This allows internal devs to get fresh types while external contributors use cached
+  pre_cmd = ["./scripts/generate-types.sh --fetch 2>/dev/null || ./scripts/generate-types.sh 2>/dev/null || true"]
+  # Build command
+  cmd = "go build -o ./tmp/revyl ./cmd/revyl"
+  # Binary to run
+  bin = "./tmp/revyl"
+  # Watch these extensions
+  include_ext = ["go"]
+  # Exclude directories
+  exclude_dir = ["tmp", "build", "vendor", "node_modules", ".git"]
+  # Exclude files
+  exclude_file = []
+  # Exclude regex - exclude generated files to avoid rebuild loops
+  exclude_regex = ["_test.go", "generated.go"]
+  # Delay before rebuild (ms)
+  delay = 500
+  # Stop old binary before building
+  stop_on_error = true
+  # Send interrupt signal before kill
+  send_interrupt = true
+  # Kill delay (ms)
+  kill_delay = 500
+
+[log]
+  # Show log time
+  time = false
+  # Main log only
+  main_only = false
+
+[color]
+  # Customize colors
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  # Delete tmp directory on exit
+  clean_on_exit = true

@@ -1,0 +1,560 @@
+// Package main provides tests management commands.
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/spf13/cobra"
+
+	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/sync"
+	"github.com/revyl/cli/internal/ui"
+	"github.com/revyl/cli/internal/yaml"
+)
+
+// testsCmd is the parent command for test management.
+var testsCmd = &cobra.Command{
+	Use:   "tests",
+	Short: "Manage test definitions",
+	Long: `Manage local and remote test definitions.
+
+Commands:
+  list     - List tests with sync status (requires project config)
+  remote   - List all tests in your organization
+  validate - Validate YAML test files (dry-run)
+  push     - Push local changes to remote
+  pull     - Pull remote changes to local
+  diff     - Show diff between local and remote
+
+To create a new test, use: revyl create test <name>`,
+}
+
+// testsListCmd lists tests with sync status.
+var testsListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List tests with sync status",
+	Long: `List all tests showing local and remote versions.
+
+Shows sync status:
+  synced      - Local and remote are in sync
+  modified    - Local has changes not pushed
+  outdated    - Remote has changes not pulled
+  local-only  - Test exists only locally
+  remote-only - Test exists only on remote`,
+	RunE: runTestsList,
+}
+
+// testsPushCmd pushes local changes to remote.
+var testsPushCmd = &cobra.Command{
+	Use:   "push [name]",
+	Short: "Push local changes to remote",
+	Long: `Push local test changes to the Revyl server.
+
+If a test name is provided, only that test is pushed.
+Otherwise, all modified tests are pushed.
+
+Examples:
+  revyl tests push              # Push all modified tests
+  revyl tests push login-flow   # Push specific test
+  revyl tests push --force      # Force overwrite remote`,
+	RunE: runTestsPush,
+}
+
+// testsPullCmd pulls remote changes to local.
+var testsPullCmd = &cobra.Command{
+	Use:   "pull [name]",
+	Short: "Pull remote changes to local",
+	Long: `Pull test changes from the Revyl server.
+
+If a test name is provided, only that test is pulled.
+Otherwise, all outdated tests are pulled.
+
+Examples:
+  revyl tests pull              # Pull all outdated tests
+  revyl tests pull login-flow   # Pull specific test
+  revyl tests pull --force      # Force overwrite local`,
+	RunE: runTestsPull,
+}
+
+// testsDiffCmd shows diff between local and remote.
+var testsDiffCmd = &cobra.Command{
+	Use:   "diff <name>",
+	Short: "Show diff between local and remote",
+	Long:  `Show the differences between local and remote versions of a test.`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTestsDiff,
+}
+
+// testsRemoteCmd lists all tests in the organization.
+var testsRemoteCmd = &cobra.Command{
+	Use:   "remote",
+	Short: "List all tests in your organization",
+	Long: `List all tests available in your Revyl organization.
+
+This shows all tests regardless of local project configuration.
+Useful for discovering tests or working without a local .revyl/config.yaml.
+
+Examples:
+  revyl tests remote                  # List all tests
+  revyl tests remote --limit 20       # Limit results
+  revyl tests remote --platform ios   # Filter by platform`,
+	RunE: runTestsRemote,
+}
+
+// testsValidateCmd validates YAML test files.
+var testsValidateCmd = &cobra.Command{
+	Use:   "validate <file> [files...]",
+	Short: "Validate YAML test files (dry-run)",
+	Long: `Validate YAML test files without creating or running them.
+
+This command checks the YAML syntax and schema compliance, reporting
+any errors or warnings. Use this to verify test files before committing
+or running them.
+
+VALIDATES:
+  - YAML syntax
+  - Required fields (name, platform, build.name, blocks)
+  - Block type validity (instructions, validation, extraction, manual, if, while, code_execution)
+  - Manual step_type validity (wait, open_app, kill_app, go_home, navigate, set_location)
+  - Variable definitions before use ({{variable-name}} syntax)
+  - Platform values (ios/android only)
+
+EXIT CODES:
+  0 - All files valid
+  1 - One or more files invalid
+
+EXAMPLES:
+  revyl tests validate test.yaml           # Validate single file
+  revyl tests validate tests/*.yaml        # Validate multiple files
+  revyl tests validate --output test.yaml  # JSON output for CI/CD`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runTestsValidate,
+}
+
+var (
+	testsForce         bool
+	testsLimit         int
+	testsPlatform      string
+	validateOutputJSON bool
+)
+
+func init() {
+	testsCmd.AddCommand(testsListCmd)
+	testsCmd.AddCommand(testsRemoteCmd)
+	testsCmd.AddCommand(testsValidateCmd)
+	testsCmd.AddCommand(testsPushCmd)
+	testsCmd.AddCommand(testsPullCmd)
+	testsCmd.AddCommand(testsDiffCmd)
+
+	testsPushCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite remote")
+	testsPullCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite local")
+
+	testsRemoteCmd.Flags().IntVar(&testsLimit, "limit", 50, "Maximum number of tests to return")
+	testsRemoteCmd.Flags().StringVar(&testsPlatform, "platform", "", "Filter by platform (android, ios)")
+
+	testsValidateCmd.Flags().BoolVar(&validateOutputJSON, "output", false, "Output results as JSON")
+}
+
+// runTestsList lists tests with sync status.
+func runTestsList(cmd *cobra.Command, args []string) error {
+	// Check authentication
+	authMgr := auth.NewManager()
+	creds, err := authMgr.GetCredentials()
+	if err != nil || creds.APIKey == "" {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+
+	// Load project config
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	if err != nil {
+		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		return err
+	}
+
+	// Load local tests
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	localTests, err := config.LoadLocalTests(testsDir)
+	if err != nil {
+		ui.PrintWarning("Could not load local tests: %v", err)
+		localTests = make(map[string]*config.LocalTest)
+	}
+
+	// Fetch remote test info
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	resolver := sync.NewResolver(client, cfg, localTests)
+
+	ui.StartSpinner("Fetching test status...")
+	statuses, err := resolver.GetAllStatuses(cmd.Context())
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to fetch test status: %v", err)
+		return err
+	}
+
+	if len(statuses) == 0 {
+		ui.PrintInfo("No tests found")
+		ui.PrintInfo("Add test aliases to .revyl/config.yaml or create tests in .revyl/tests/")
+		return nil
+	}
+
+	ui.Println()
+
+	// Create table with dynamic column widths
+	table := ui.NewTable("NAME", "STATUS", "LOCAL", "REMOTE", "LAST SYNC")
+	table.SetMinWidth(0, 15) // NAME
+	table.SetMinWidth(1, 10) // STATUS
+
+	for _, s := range statuses {
+		localVer := "-"
+		if s.LocalVersion > 0 {
+			localVer = fmt.Sprintf("v%d", s.LocalVersion)
+		}
+		remoteVer := "-"
+		if s.RemoteVersion > 0 {
+			remoteVer = fmt.Sprintf("v%d", s.RemoteVersion)
+		}
+		table.AddRow(s.Name, s.Status.String(), localVer, remoteVer, s.LastSync)
+	}
+
+	table.Render()
+	return nil
+}
+
+// runTestsPush pushes local changes to remote.
+func runTestsPush(cmd *cobra.Command, args []string) error {
+	// Check authentication
+	authMgr := auth.NewManager()
+	creds, err := authMgr.GetCredentials()
+	if err != nil || creds.APIKey == "" {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+
+	// Load project config
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	if err != nil {
+		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		return err
+	}
+
+	// Load local tests
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	localTests, err := config.LoadLocalTests(testsDir)
+	if err != nil {
+		ui.PrintWarning("Could not load local tests: %v", err)
+		return err
+	}
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	resolver := sync.NewResolver(client, cfg, localTests)
+
+	var testName string
+	if len(args) > 0 {
+		testName = args[0]
+	}
+
+	ui.StartSpinner("Pushing tests...")
+	results, err := resolver.SyncToRemote(cmd.Context(), testName, testsDir, testsForce)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Push failed: %v", err)
+		return err
+	}
+
+	ui.Println()
+	for _, r := range results {
+		if r.Error != nil {
+			ui.PrintError("%s: %v", r.Name, r.Error)
+		} else if r.Conflict {
+			ui.PrintWarning("%s: conflict detected (use --force to overwrite)", r.Name)
+		} else {
+			ui.PrintSuccess("%s: pushed to v%d", r.Name, r.NewVersion)
+		}
+	}
+
+	return nil
+}
+
+// runTestsPull pulls remote changes to local.
+func runTestsPull(cmd *cobra.Command, args []string) error {
+	// Check authentication
+	authMgr := auth.NewManager()
+	creds, err := authMgr.GetCredentials()
+	if err != nil || creds.APIKey == "" {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+
+	// Load project config
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	if err != nil {
+		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		return err
+	}
+
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	localTests, err := config.LoadLocalTests(testsDir)
+	if err != nil {
+		localTests = make(map[string]*config.LocalTest)
+	}
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	resolver := sync.NewResolver(client, cfg, localTests)
+
+	var testName string
+	if len(args) > 0 {
+		testName = args[0]
+	}
+
+	ui.StartSpinner("Pulling tests...")
+	results, err := resolver.PullFromRemote(cmd.Context(), testName, testsDir, testsForce)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Pull failed: %v", err)
+		return err
+	}
+
+	ui.Println()
+	for _, r := range results {
+		if r.Error != nil {
+			ui.PrintError("%s: %v", r.Name, r.Error)
+		} else if r.Conflict {
+			ui.PrintWarning("%s: local changes would be overwritten (use --force)", r.Name)
+		} else {
+			ui.PrintSuccess("%s: pulled v%d", r.Name, r.NewVersion)
+		}
+	}
+
+	return nil
+}
+
+// runTestsDiff shows diff between local and remote.
+func runTestsDiff(cmd *cobra.Command, args []string) error {
+	testName := args[0]
+
+	// Check authentication
+	authMgr := auth.NewManager()
+	creds, err := authMgr.GetCredentials()
+	if err != nil || creds.APIKey == "" {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+
+	// Load project config
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	if err != nil {
+		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		return err
+	}
+
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	localTests, err := config.LoadLocalTests(testsDir)
+	if err != nil {
+		localTests = make(map[string]*config.LocalTest)
+	}
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	resolver := sync.NewResolver(client, cfg, localTests)
+
+	ui.StartSpinner("Fetching diff...")
+	diff, err := resolver.GetDiff(cmd.Context(), testName)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to get diff: %v", err)
+		return err
+	}
+
+	if diff == "" {
+		ui.PrintInfo("No differences found")
+		return nil
+	}
+
+	ui.Println()
+	ui.PrintDiff(diff)
+
+	return nil
+}
+
+// runTestsRemote lists all tests in the organization.
+//
+// Parameters:
+//   - cmd: The cobra command being executed
+//   - args: Command line arguments (unused)
+//
+// Returns:
+//   - error: Any error that occurred while listing tests
+func runTestsRemote(cmd *cobra.Command, args []string) error {
+	// Check authentication
+	authMgr := auth.NewManager()
+	creds, err := authMgr.GetCredentials()
+	if err != nil || creds.APIKey == "" {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+
+	// Create API client with dev mode support
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+
+	ui.StartSpinner("Fetching tests from organization...")
+	result, err := client.ListOrgTests(cmd.Context(), testsLimit, 0)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to fetch tests: %v", err)
+		return err
+	}
+
+	if len(result.Tests) == 0 {
+		ui.PrintInfo("No tests found in your organization")
+		ui.PrintInfo("Create tests at https://app.revyl.ai")
+		return nil
+	}
+
+	// Filter by platform if specified
+	tests := result.Tests
+	if testsPlatform != "" {
+		filtered := make([]api.SimpleTest, 0)
+		for _, t := range tests {
+			if t.Platform == testsPlatform {
+				filtered = append(filtered, t)
+			}
+		}
+		tests = filtered
+	}
+
+	if len(tests) == 0 {
+		ui.PrintInfo("No tests found for platform: %s", testsPlatform)
+		return nil
+	}
+
+	ui.Println()
+	ui.PrintInfo("Tests in your organization (%d total):", result.Count)
+	ui.Println()
+
+	// Create table with dynamic column widths
+	table := ui.NewTable("NAME", "PLATFORM", "ID")
+	table.SetMinWidth(0, 25) // NAME - ensure readable width
+	table.SetMinWidth(1, 8)  // PLATFORM
+	table.SetMinWidth(2, 36) // ID - UUIDs are 36 chars
+
+	for _, t := range tests {
+		table.AddRow(t.Name, t.Platform, t.ID)
+	}
+
+	table.Render()
+
+	if result.Count > len(tests) {
+		ui.Println()
+		ui.PrintDim("Showing %d of %d tests. Use --limit to see more.", len(tests), result.Count)
+	}
+
+	return nil
+}
+
+// runTestsValidate validates YAML test files.
+//
+// Parameters:
+//   - cmd: The cobra command being executed
+//   - args: File paths to validate
+//
+// Returns:
+//   - error: Returns error if any file is invalid
+func runTestsValidate(cmd *cobra.Command, args []string) error {
+	allValid := true
+	var results []map[string]interface{}
+
+	for _, file := range args {
+		result, err := yaml.ValidateYAMLFile(file)
+		if err != nil {
+			if validateOutputJSON {
+				results = append(results, map[string]interface{}{
+					"file":  file,
+					"valid": false,
+					"error": err.Error(),
+				})
+			} else {
+				ui.PrintError("%s: %v", file, err)
+			}
+			allValid = false
+			continue
+		}
+
+		if validateOutputJSON {
+			resultMap := map[string]interface{}{
+				"file":  file,
+				"valid": result.Valid,
+			}
+			if len(result.Errors) > 0 {
+				resultMap["errors"] = result.Errors
+			}
+			if len(result.Warnings) > 0 {
+				resultMap["warnings"] = result.Warnings
+			}
+			results = append(results, resultMap)
+		} else {
+			if result.Valid {
+				ui.PrintSuccess("%s: Valid", file)
+				for _, w := range result.Warnings {
+					ui.PrintWarning("  Warning: %s", w)
+				}
+			} else {
+				ui.PrintError("%s: Invalid", file)
+				for _, e := range result.Errors {
+					ui.PrintError("  %s", e)
+				}
+				for _, w := range result.Warnings {
+					ui.PrintWarning("  Warning: %s", w)
+				}
+			}
+		}
+
+		if !result.Valid {
+			allValid = false
+		}
+	}
+
+	if validateOutputJSON {
+		data, _ := json.MarshalIndent(results, "", "  ")
+		fmt.Println(string(data))
+	}
+
+	if !allValid {
+		return fmt.Errorf("validation failed")
+	}
+	return nil
+}
