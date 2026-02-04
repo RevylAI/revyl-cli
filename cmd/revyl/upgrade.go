@@ -66,10 +66,10 @@ type UpgradeResult struct {
 }
 
 var (
-	upgradeCheckOnly   bool
-	upgradeForce       bool
-	upgradeOutputJSON  bool
-	upgradePrerelease  bool
+	upgradeCheckOnly  bool
+	upgradeForce      bool
+	upgradeOutputJSON bool
+	upgradePrerelease bool
 )
 
 // upgradeCmd checks for and installs CLI updates.

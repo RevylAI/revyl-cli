@@ -64,6 +64,7 @@ func init() {
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(testCmd)
+	rootCmd.AddCommand(workflowCmd)
 	rootCmd.AddCommand(testsCmd)
 	rootCmd.AddCommand(docsCmd)
 	rootCmd.AddCommand(mcpCmd)

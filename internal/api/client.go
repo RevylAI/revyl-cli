@@ -1036,6 +1036,38 @@ type CLITestStatusResponse struct {
 	ExecutionTimeSeconds float64 `json:"execution_time_seconds,omitempty"`
 }
 
+// Workflow represents a workflow definition.
+type Workflow struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Tests    []string `json:"tests,omitempty"`
+	Schedule string   `json:"schedule,omitempty"`
+}
+
+// GetWorkflow retrieves a workflow by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow ID
+//
+// Returns:
+//   - *Workflow: The workflow data
+//   - error: Any error that occurred
+func (c *Client) GetWorkflow(ctx context.Context, workflowID string) (*Workflow, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/workflows/get_workflow_by_id/%s", workflowID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result Workflow
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // GetTestStatus retrieves the current status of a test execution.
 //
 // Parameters:

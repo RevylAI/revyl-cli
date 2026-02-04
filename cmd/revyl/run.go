@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/sse"
@@ -95,14 +98,16 @@ EXAMPLES:
 }
 
 var (
-	runRetries        int
-	runBuildVersionID string
-	runNoWait         bool
-	runOpen           bool
-	runTimeout        int
-	runOutputJSON     bool
-	runGitHubActions  bool
-	runVerbose        bool
+	runRetries         int
+	runBuildVersionID  string
+	runNoWait          bool
+	runOpen            bool
+	runTimeout         int
+	runOutputJSON      bool
+	runGitHubActions   bool
+	runVerbose         bool
+	runWorkflowBuild   bool
+	runWorkflowVariant string
 )
 
 func init() {
@@ -127,6 +132,8 @@ func init() {
 	runWorkflowCmd.Flags().BoolVar(&runOutputJSON, "output", false, "Output results as JSON")
 	runWorkflowCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	runWorkflowCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
+	runWorkflowCmd.Flags().BoolVar(&runWorkflowBuild, "build", false, "Build and upload before running workflow")
+	runWorkflowCmd.Flags().StringVar(&runWorkflowVariant, "variant", "", "Build variant to use (requires --build)")
 }
 
 // runTestExec executes a test using the shared execution package.
@@ -308,10 +315,37 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 
 	// Resolve workflow ID from alias for display
 	workflowID := workflowNameOrID
+	_, isAlias := false, false
 	if cfg != nil {
 		if id, ok := cfg.Workflows[workflowNameOrID]; ok {
 			workflowID = id
+			isAlias = true
 			ui.PrintInfo("Resolved '%s' to workflow ID: %s", workflowNameOrID, workflowID)
+		}
+	}
+
+	// Get dev mode flag
+	devMode, _ := cmd.Flags().GetBool("dev")
+
+	// Validate workflow exists before building (fail fast) - only if --build is set
+	if runWorkflowBuild && !isAlias {
+		if !isValidUUID(workflowNameOrID) {
+			// Not an alias and not a UUID - likely a typo
+			availableWorkflows := getWorkflowNames(cfg.Workflows)
+			errMsg := fmt.Sprintf("workflow '%s' not found in config", workflowNameOrID)
+			if len(availableWorkflows) > 0 {
+				errMsg += fmt.Sprintf(". Available workflows: %v", availableWorkflows)
+			}
+			errMsg += "\n\nHint: Run 'revyl tests remote' to see all available tests/workflows."
+			ui.PrintError(errMsg)
+			return fmt.Errorf("workflow not found")
+		}
+		// It's a UUID format - verify it exists via API before building
+		validationClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+		_, err := validationClient.GetWorkflow(cmd.Context(), workflowID)
+		if err != nil {
+			ui.PrintError("workflow '%s' not found: %v", workflowNameOrID, err)
+			return fmt.Errorf("workflow not found")
 		}
 	}
 
@@ -323,12 +357,86 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Retries: %d", runRetries)
 	}
 
-	// Get dev mode flag
-	devMode, _ := cmd.Flags().GetBool("dev")
 	if devMode {
 		ui.PrintInfo("Mode: Development (localhost)")
 	}
 	ui.Println()
+
+	// Handle --build flag: build and upload before running workflow
+	if runWorkflowBuild {
+		if cfg == nil {
+			ui.PrintError("Project not initialized. Run 'revyl init' first.")
+			return fmt.Errorf("project not initialized")
+		}
+
+		buildCfg := cfg.Build
+		var variant config.BuildVariant
+
+		if runWorkflowVariant != "" {
+			var ok bool
+			variant, ok = cfg.Build.Variants[runWorkflowVariant]
+			if !ok {
+				ui.PrintError("Unknown build variant: %s", runWorkflowVariant)
+				return fmt.Errorf("unknown variant: %s", runWorkflowVariant)
+			}
+			buildCfg.Command = variant.Command
+			buildCfg.Output = variant.Output
+		}
+
+		if buildCfg.Command == "" {
+			ui.PrintError("No build command configured. Check .revyl/config.yaml")
+			return fmt.Errorf("no build command")
+		}
+
+		// Step 1: Build
+		ui.PrintBox("Building", buildCfg.Command)
+
+		startTime := time.Now()
+		runner := build.NewRunner(cwd)
+
+		err = runner.Run(buildCfg.Command, func(line string) {
+			ui.PrintDim("  %s", line)
+		})
+
+		buildDuration := time.Since(startTime)
+
+		if err != nil {
+			ui.Println()
+			ui.PrintError("Build failed: %v", err)
+			return err
+		}
+
+		ui.PrintSuccess("Build completed in %s", buildDuration.Round(time.Second))
+		ui.Println()
+
+		// Step 2: Upload
+		artifactPath := filepath.Join(cwd, buildCfg.Output)
+		if _, err := os.Stat(artifactPath); os.IsNotExist(err) {
+			ui.PrintError("Build artifact not found: %s", buildCfg.Output)
+			return fmt.Errorf("artifact not found")
+		}
+
+		buildVersionStr := build.GenerateVersionString()
+		metadata := build.CollectMetadata(cwd, buildCfg.Command, runWorkflowVariant, buildDuration)
+
+		ui.PrintBox("Uploading", filepath.Base(buildCfg.Output))
+
+		client := api.NewClientWithDevMode(creds.APIKey, devMode)
+		result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
+			BuildVarID: variant.BuildVarID,
+			Version:    buildVersionStr,
+			FilePath:   artifactPath,
+			Metadata:   metadata,
+		})
+
+		if err != nil {
+			ui.PrintError("Upload failed: %v", err)
+			return err
+		}
+
+		ui.PrintSuccess("Uploaded: %s", result.Version)
+		ui.Println()
+	}
 
 	// Use shared execution logic
 	ui.StartSpinner("Starting workflow execution...")

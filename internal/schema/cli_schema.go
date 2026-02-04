@@ -159,17 +159,45 @@ func getCommonWorkflows() []Workflow {
 			},
 		},
 		{
-			Name:        "Run existing test",
-			Description: "Build, upload, and run a test",
+			Name:        "Build and run single test",
+			Description: "Build, upload, and run a test (full pipeline)",
 			Steps: []string{
 				"revyl test <name>",
+				"# Or with a specific build variant:",
+				"revyl test <name> --variant android",
 			},
 		},
 		{
-			Name:        "Run without building",
+			Name:        "Build and run workflow",
+			Description: "Build, upload, and run a workflow (multiple tests)",
+			Steps: []string{
+				"revyl workflow <name>",
+				"# Or with a specific build variant:",
+				"revyl workflow <name> --variant android",
+			},
+		},
+		{
+			Name:        "Run test without building",
 			Description: "Run a test using existing build",
 			Steps: []string{
 				"revyl run test <name>",
+			},
+		},
+		{
+			Name:        "Run workflow without building",
+			Description: "Run a workflow using existing build",
+			Steps: []string{
+				"revyl run workflow <name>",
+			},
+		},
+		{
+			Name:        "Run workflow with optional build",
+			Description: "Run a workflow, optionally building first",
+			Steps: []string{
+				"# Without build:",
+				"revyl run workflow <name>",
+				"# With build:",
+				"revyl run workflow <name> --build --variant android",
 			},
 		},
 		{
@@ -177,6 +205,8 @@ func getCommonWorkflows() []Workflow {
 			Description: "Run tests in CI with JSON output",
 			Steps: []string{
 				"revyl run test <name> --output",
+				"# Or for workflows:",
+				"revyl run workflow <name> --output",
 			},
 		},
 		{
@@ -328,14 +358,33 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	// Quick reference
 	sb.WriteString("## Quick Reference\n\n")
 	sb.WriteString("```\n")
-	sb.WriteString("revyl auth login          # Authenticate\n")
-	sb.WriteString("revyl init                # Initialize project\n")
-	sb.WriteString("revyl create test <name>  # Create new test\n")
-	sb.WriteString("revyl test <name>         # Build and run test\n")
-	sb.WriteString("revyl run test <name>     # Run without building\n")
-	sb.WriteString("revyl tests validate <f>  # Validate YAML\n")
-	sb.WriteString("revyl schema              # Get this schema\n")
+	sb.WriteString("revyl auth login              # Authenticate\n")
+	sb.WriteString("revyl init                    # Initialize project\n")
+	sb.WriteString("revyl create test <name>      # Create new test\n")
+	sb.WriteString("revyl test <name>             # Build and run single test\n")
+	sb.WriteString("revyl workflow <name>         # Build and run workflow (multiple tests)\n")
+	sb.WriteString("revyl run test <name>         # Run test without building\n")
+	sb.WriteString("revyl run workflow <name>     # Run workflow without building\n")
+	sb.WriteString("revyl run workflow <n> --build # Run workflow with build\n")
+	sb.WriteString("revyl tests validate <f>      # Validate YAML\n")
+	sb.WriteString("revyl schema                  # Get this schema\n")
 	sb.WriteString("```\n\n")
+
+	// Command comparison
+	sb.WriteString("## Command Comparison\n\n")
+	sb.WriteString("| Command | Builds? | Runs |\n")
+	sb.WriteString("|---------|---------|------|\n")
+	sb.WriteString("| `revyl test <name>` | Yes | Single test |\n")
+	sb.WriteString("| `revyl workflow <name>` | Yes | Workflow (multiple tests) |\n")
+	sb.WriteString("| `revyl run test <name>` | No | Single test |\n")
+	sb.WriteString("| `revyl run workflow <name>` | No | Workflow |\n")
+	sb.WriteString("| `revyl run workflow <name> --build` | Yes | Workflow |\n")
+	sb.WriteString("\n")
+
+	// Early validation note
+	sb.WriteString("## Early Validation\n\n")
+	sb.WriteString("The CLI validates test/workflow existence BEFORE starting expensive build operations.\n")
+	sb.WriteString("If a test or workflow doesn't exist, you'll get an immediate error with available options.\n\n")
 
 	// CLI Commands section
 	sb.WriteString("## CLI Commands\n\n")

@@ -21,14 +21,14 @@ import (
 
 // TestResult represents the JSON output for the test command.
 type TestResult struct {
-	Success     bool   `json:"success"`
-	TaskID      string `json:"task_id"`
-	TestID      string `json:"test_id"`
-	TestName    string `json:"test_name"`
-	Status      string `json:"status"`
-	ReportURL   string `json:"report_url"`
-	Duration    string `json:"duration,omitempty"`
-	Error       string `json:"error,omitempty"`
+	Success      bool   `json:"success"`
+	TaskID       string `json:"task_id"`
+	TestID       string `json:"test_id"`
+	TestName     string `json:"test_name"`
+	Status       string `json:"status"`
+	ReportURL    string `json:"report_url"`
+	Duration     string `json:"duration,omitempty"`
+	Error        string `json:"error,omitempty"`
 	BuildVersion string `json:"build_version,omitempty"`
 }
 
@@ -110,8 +110,45 @@ func runFullTest(cmd *cobra.Command, args []string) error {
 
 	// Resolve test ID from alias
 	testID := testNameOrID
-	if id, ok := cfg.Tests[testNameOrID]; ok {
-		testID = id
+	_, isAlias := cfg.Tests[testNameOrID]
+	if isAlias {
+		testID = cfg.Tests[testNameOrID]
+	}
+
+	// Validate test exists before building (fail fast)
+	if !isAlias {
+		if !isValidUUID(testNameOrID) {
+			// Not an alias and not a UUID - likely a typo or wrong command
+			availableTests := getTestNames(cfg.Tests)
+			errMsg := fmt.Sprintf("test '%s' not found in config", testNameOrID)
+			if len(availableTests) > 0 {
+				errMsg += fmt.Sprintf(". Available tests: %v", availableTests)
+			}
+			errMsg += "\n\nHint: Did you mean 'revyl tests list' to list all tests?"
+
+			if jsonOutput {
+				outputTestResult(TestResult{Success: false, Error: errMsg})
+				return fmt.Errorf("test not found")
+			}
+			ui.PrintError(errMsg)
+			return fmt.Errorf("test not found")
+		}
+		// It's a UUID format - verify it exists via API before building (unless skipping build)
+		if !testSkipBuild {
+			// Create client early to validate test exists
+			devMode, _ := cmd.Flags().GetBool("dev")
+			validationClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+			_, err := validationClient.GetTest(cmd.Context(), testID)
+			if err != nil {
+				errMsg := fmt.Sprintf("test '%s' not found: %v", testNameOrID, err)
+				if jsonOutput {
+					outputTestResult(TestResult{Success: false, Error: errMsg})
+					return fmt.Errorf("test not found")
+				}
+				ui.PrintError(errMsg)
+				return fmt.Errorf("test not found")
+			}
+		}
 	}
 
 	// Determine build config
