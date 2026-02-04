@@ -5,6 +5,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -216,6 +218,47 @@ type TestBlock struct {
 	VariableName string `yaml:"variable_name,omitempty" json:"variable_name,omitempty"`
 }
 
+// ComputeTestChecksum computes a SHA-256 checksum of the test definition.
+//
+// This function serializes the test definition to YAML and computes a hash,
+// which is used to detect local modifications to test files.
+//
+// Parameters:
+//   - test: The test definition to compute checksum for
+//
+// Returns:
+//   - string: Hex-encoded SHA-256 checksum, or empty string on error
+func ComputeTestChecksum(test *TestDefinition) string {
+	if test == nil {
+		return ""
+	}
+
+	data, err := yaml.Marshal(test)
+	if err != nil {
+		return ""
+	}
+
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
+}
+
+// HasLocalChanges returns true if the test content differs from the stored checksum.
+//
+// This method compares the current content checksum against the stored checksum
+// to detect if the user has modified the test file since the last sync.
+//
+// Returns:
+//   - bool: True if content has changed, false if unchanged or no checksum stored
+func (t *LocalTest) HasLocalChanges() bool {
+	if t.Meta.Checksum == "" {
+		// No checksum stored, assume no changes (legacy file or new test)
+		return false
+	}
+
+	currentChecksum := ComputeTestChecksum(&t.Test)
+	return currentChecksum != t.Meta.Checksum
+}
+
 // LoadLocalTests loads all local test definitions from a directory.
 //
 // Parameters:
@@ -278,6 +321,9 @@ func LoadLocalTest(path string) (*LocalTest, error) {
 
 // SaveLocalTest saves a local test definition.
 //
+// This function computes and stores a checksum of the test content before saving,
+// which is used to detect local modifications on subsequent loads.
+//
 // Parameters:
 //   - path: Path to save the test YAML file
 //   - test: The test definition to save
@@ -285,6 +331,9 @@ func LoadLocalTest(path string) (*LocalTest, error) {
 // Returns:
 //   - error: Any error that occurred during saving
 func SaveLocalTest(path string, test *LocalTest) error {
+	// Compute and store checksum of test content before saving
+	test.Meta.Checksum = ComputeTestChecksum(&test.Test)
+
 	data, err := yaml.Marshal(test)
 	if err != nil {
 		return fmt.Errorf("failed to marshal test: %w", err)

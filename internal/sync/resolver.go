@@ -190,20 +190,24 @@ func (r *Resolver) getTestStatus(ctx context.Context, name string) (*TestSyncSta
 
 	status.RemoteVersion = remoteTest.Version
 
+	// Check for local modifications using checksum-based detection
+	hasLocalChanges := hasLocal && localTest.HasLocalChanges()
+
 	// Determine sync status
 	if !hasLocal {
 		status.Status = StatusRemoteOnly
-	} else if localTest.Meta.LocalVersion == localTest.Meta.RemoteVersion &&
-		localTest.Meta.RemoteVersion == remoteTest.Version {
-		status.Status = StatusSynced
-	} else if localTest.Meta.LocalVersion > localTest.Meta.RemoteVersion &&
-		localTest.Meta.RemoteVersion == remoteTest.Version {
+	} else if hasLocalChanges && remoteTest.Version > localTest.Meta.RemoteVersion {
+		// Both local content changed AND remote has newer version = conflict
+		status.Status = StatusConflict
+	} else if hasLocalChanges {
+		// Local content changed (detected via checksum mismatch)
 		status.Status = StatusModified
-	} else if localTest.Meta.LocalVersion == localTest.Meta.RemoteVersion &&
-		remoteTest.Version > localTest.Meta.RemoteVersion {
+	} else if remoteTest.Version > localTest.Meta.RemoteVersion {
+		// Remote has newer version, no local changes
 		status.Status = StatusOutdated
 	} else {
-		status.Status = StatusConflict
+		// Checksums match and versions are in sync
+		status.Status = StatusSynced
 	}
 
 	return status, nil
@@ -355,9 +359,10 @@ func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string
 	for name, remoteID := range testsToPull {
 		result := SyncResult{Name: name}
 
-		// Check for local changes
+		// Check for local changes using checksum-based detection
 		if local, ok := r.localTests[name]; ok && !force {
-			if local.Meta.LocalVersion > local.Meta.RemoteVersion {
+			if local.HasLocalChanges() {
+				// Local content has been modified - don't overwrite without force
 				result.Conflict = true
 				results = append(results, result)
 				continue
