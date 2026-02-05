@@ -51,15 +51,6 @@ func PrintBanner(version string) {
 	fmt.Println()
 }
 
-// PrintMiniBanner prints a smaller banner for commands.
-func PrintMiniBanner() {
-	styledBanner := lipgloss.NewStyle().
-		Foreground(Purple).
-		Bold(true).
-		Render("revyl")
-	fmt.Println(styledBanner)
-}
-
 // GetHelpText returns the formatted help text for the CLI.
 func GetHelpText() string {
 	purple := lipgloss.NewStyle().Foreground(Purple).Bold(true)
@@ -75,7 +66,8 @@ func GetHelpText() string {
   %s      Create a new test
   %s  Create a new workflow
   %s         Open a test in browser
-  %s       Build, upload, and run a test
+  %s         Run a test
+  %s  Build, upload, and run a test
   %s    Run a workflow (collection of tests)
 
 %s
@@ -84,7 +76,7 @@ func GetHelpText() string {
 
 %s
   %s              List and manage test definitions
-  %s   Validate YAML test files (dry-run)
+  %s      Validate YAML test files (dry-run)
   %s            List and manage app builds
 
 %s  https://docs.revyl.com
@@ -97,14 +89,15 @@ func GetHelpText() string {
 		purple.Render("revyl create test <name>"),
 		purple.Render("revyl create workflow <name>"),
 		purple.Render("revyl open test <name>"),
-		purple.Render("revyl test <name>"),
+		purple.Render("revyl run test <name>"),
+		purple.Render("revyl run test <name> --build"),
 		purple.Render("revyl run workflow <name>"),
 		purple.Render("AI/LLM Integration:"),
 		purple.Render("revyl mcp serve"),
 		purple.Render("revyl schema"),
 		purple.Render("Management:"),
-		purple.Render("revyl tests"),
-		purple.Render("revyl tests validate"),
+		purple.Render("revyl test"),
+		purple.Render("revyl test validate"),
 		purple.Render("revyl build"),
 		purple.Render("Docs: "),
 		purple.Render("Help: "),
