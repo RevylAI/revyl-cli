@@ -17,23 +17,6 @@ import (
 	"github.com/revyl/cli/internal/yaml"
 )
 
-// testsCmd is the parent command for test management.
-var testsCmd = &cobra.Command{
-	Use:   "tests",
-	Short: "Manage test definitions",
-	Long: `Manage local and remote test definitions.
-
-Commands:
-  list     - List tests with sync status (requires project config)
-  remote   - List all tests in your organization
-  validate - Validate YAML test files (dry-run)
-  push     - Push local changes to remote
-  pull     - Pull remote changes to local
-  diff     - Show diff between local and remote
-
-To create a new test, use: revyl create test <name>`,
-}
-
 // testsListCmd lists tests with sync status.
 var testsListCmd = &cobra.Command{
 	Use:   "list",
@@ -148,13 +131,6 @@ var (
 )
 
 func init() {
-	testsCmd.AddCommand(testsListCmd)
-	testsCmd.AddCommand(testsRemoteCmd)
-	testsCmd.AddCommand(testsValidateCmd)
-	testsCmd.AddCommand(testsPushCmd)
-	testsCmd.AddCommand(testsPullCmd)
-	testsCmd.AddCommand(testsDiffCmd)
-
 	testsPushCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite remote")
 	testsPushCmd.Flags().BoolVar(&testsPushDryRun, "dry-run", false, "Show what would be pushed without pushing")
 

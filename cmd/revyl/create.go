@@ -19,6 +19,7 @@ import (
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
 	"github.com/revyl/cli/internal/interactive"
 	"github.com/revyl/cli/internal/ui"
+	"github.com/revyl/cli/internal/yaml"
 )
 
 // createCmd is the parent command for creating resources.
@@ -46,10 +47,15 @@ This command creates a test on the Revyl server and adds it to your
 local .revyl/config.yaml. The browser opens to the test editor where
 you can define the test steps.
 
+FROM FILE:
+  Use --from-file to create a test from a YAML definition file.
+  The file is copied to .revyl/tests/ and pushed to the server.
+
 Examples:
   revyl create test login-flow --platform android
   revyl create test checkout --platform ios --build-var <id>
-  revyl create test onboarding --platform android --no-open`,
+  revyl create test onboarding --platform android --no-open
+  revyl create test login-flow --from-file login-flow.yaml`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCreateTest,
 }
@@ -82,6 +88,7 @@ var (
 	createTestNoSync   bool
 	createTestForce    bool
 	createTestDryRun   bool
+	createTestFromFile string
 
 	// Hot reload flags for test creation
 	createTestHotReload         bool
@@ -110,6 +117,7 @@ func init() {
 	createTestCmd.Flags().BoolVar(&createTestNoSync, "no-sync", false, "Skip adding test to .revyl/config.yaml")
 	createTestCmd.Flags().BoolVar(&createTestForce, "force", false, "Update existing test if name already exists")
 	createTestCmd.Flags().BoolVar(&createTestDryRun, "dry-run", false, "Show what would be created without creating")
+	createTestCmd.Flags().StringVar(&createTestFromFile, "from-file", "", "Create test from YAML file (copies to .revyl/tests/ and pushes)")
 
 	// Hot reload flags for test creation
 	createTestCmd.Flags().BoolVar(&createTestHotReload, "hotreload", false, "Create test with hot reload (adds NAVIGATE step, starts dev server)")
@@ -136,6 +144,11 @@ func init() {
 // Returns:
 //   - error: Any error that occurred during test creation
 func runCreateTest(cmd *cobra.Command, args []string) error {
+	// If --from-file is specified, copy to .revyl/tests/ and use push workflow
+	if createTestFromFile != "" {
+		return runCreateTestFromFile(cmd, args)
+	}
+
 	// If interactive mode is enabled, use the interactive flow
 	if createTestInteractive {
 		return runCreateTestInteractive(cmd, args)
@@ -369,9 +382,107 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 
 	ui.Println()
 	ui.PrintInfo("Next: Define your test steps in the browser, then run with:")
-	ui.PrintDim("  revyl test %s", testName)
+	ui.PrintDim("  revyl run test %s", testName)
 
 	return nil
+}
+
+// runCreateTestFromFile creates a test from a YAML file.
+//
+// This function:
+//  1. Validates the YAML file
+//  2. Copies it to .revyl/tests/<name>.yaml
+//  3. Uses the existing push workflow to sync to remote
+//
+// Parameters:
+//   - cmd: The cobra command being executed
+//   - args: Command line arguments (test name)
+//
+// Returns:
+//   - error: Any error that occurred during test creation
+func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
+	testName := args[0]
+
+	// Validate the YAML file first
+	validationResult, err := yaml.ValidateYAMLFile(createTestFromFile)
+	if err != nil {
+		ui.PrintError("Failed to read YAML file: %v", err)
+		return err
+	}
+
+	if !validationResult.Valid {
+		ui.PrintError("YAML validation failed:")
+		for _, e := range validationResult.Errors {
+			ui.PrintError("  %s", e)
+		}
+		return fmt.Errorf("validation failed")
+	}
+
+	// Show warnings if any
+	for _, w := range validationResult.Warnings {
+		ui.PrintWarning("  %s", w)
+	}
+
+	// Get current directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Handle dry-run mode
+	if createTestDryRun {
+		ui.Println()
+		ui.PrintInfo("Dry-run mode - YAML validation passed:")
+		ui.Println()
+		ui.PrintInfo("  Source:      %s", createTestFromFile)
+		ui.PrintInfo("  Destination: .revyl/tests/%s.yaml", testName)
+		ui.PrintInfo("  Test Name:   %s", testName)
+		ui.Println()
+		ui.PrintSuccess("Dry-run complete - YAML is valid, no changes made")
+		return nil
+	}
+
+	// Ensure .revyl/tests directory exists
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	if err := os.MkdirAll(testsDir, 0755); err != nil {
+		ui.PrintError("Failed to create tests directory: %v", err)
+		return err
+	}
+
+	// Copy the file to .revyl/tests/<name>.yaml
+	destPath := filepath.Join(testsDir, testName+".yaml")
+
+	// Check if destination already exists
+	if _, err := os.Stat(destPath); err == nil && !createTestForce {
+		ui.PrintError("Test file already exists: %s", destPath)
+		ui.PrintInfo("Use --force to overwrite.")
+		return fmt.Errorf("file already exists")
+	}
+
+	// Read source file
+	content, err := os.ReadFile(createTestFromFile)
+	if err != nil {
+		ui.PrintError("Failed to read source file: %v", err)
+		return err
+	}
+
+	// Write to destination
+	if err := os.WriteFile(destPath, content, 0644); err != nil {
+		ui.PrintError("Failed to copy file: %v", err)
+		return err
+	}
+
+	ui.PrintSuccess("Copied to %s", destPath)
+
+	// Now delegate to the push command
+	ui.Println()
+	ui.PrintInfo("Pushing test to remote...")
+
+	// Set up the push flags
+	testsForce = createTestForce
+
+	// Call the push function directly
+	return runTestsPush(cmd, []string{testName})
 }
 
 // runCreateTestWithHotReload creates a test with hot reload enabled.
@@ -517,29 +628,71 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 
 	ui.PrintInfo("Creating test '%s' with NAVIGATE step...", testName)
 
-	// Create test on server
-	ui.StartSpinner("Creating test on server...")
-	createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
-		Name:       testName,
-		Platform:   platform,
-		Tasks:      tasks,
-		BuildVarID: buildVarID,
-		OrgID:      creds.OrgID,
-	})
-	ui.StopSpinner()
-
-	if err != nil {
-		ui.PrintError("Failed to create test: %v", err)
-		return err
+	// Check if test with same name already exists in the organization
+	var existingTestID string
+	testsResp, err := client.ListOrgTests(cmd.Context(), 100, 0)
+	if err == nil {
+		for _, t := range testsResp.Tests {
+			if t.Name == testName {
+				existingTestID = t.ID
+				break
+			}
+		}
 	}
 
-	ui.PrintSuccess("Created test: %s (id: %s)", testName, createResp.ID)
+	var testID string
+
+	if existingTestID != "" {
+		if !createTestForce {
+			ui.PrintError("A test named '%s' already exists (id: %s)", testName, existingTestID)
+			ui.Println()
+			ui.PrintInfo("To open the existing test, run:")
+			ui.PrintDim("  revyl open test %s", testName)
+			ui.Println()
+			ui.PrintInfo("Or use --force to update the existing test.")
+			return fmt.Errorf("test already exists")
+		}
+		// Use existing test
+		ui.PrintInfo("Using existing test '%s' (id: %s)", testName, existingTestID)
+		testID = existingTestID
+
+		// Update the test's tasks with the new NAVIGATE step
+		ui.StartSpinner("Updating test with hot reload step...")
+		_, err := client.UpdateTest(cmd.Context(), &api.UpdateTestRequest{
+			TestID:     existingTestID,
+			BuildVarID: buildVarID,
+			Force:      true,
+		})
+		ui.StopSpinner()
+
+		if err != nil {
+			ui.PrintWarning("Failed to update test: %v", err)
+		}
+	} else {
+		// Create test on server
+		ui.StartSpinner("Creating test on server...")
+		createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
+			Name:       testName,
+			Platform:   platform,
+			Tasks:      tasks,
+			BuildVarID: buildVarID,
+			OrgID:      creds.OrgID,
+		})
+		ui.StopSpinner()
+
+		if err != nil {
+			ui.PrintError("Failed to create test: %v", err)
+			return err
+		}
+		testID = createResp.ID
+		ui.PrintSuccess("Created test: %s (id: %s)", testName, testID)
+	}
 
 	// Add to config
 	if cfg.Tests == nil {
 		cfg.Tests = make(map[string]string)
 	}
-	cfg.Tests[testName] = createResp.ID
+	cfg.Tests[testName] = testID
 
 	// Ensure .revyl directory exists
 	revylDir := filepath.Join(cwd, ".revyl")
@@ -554,7 +707,7 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 	}
 
 	// Open browser to test execute page
-	executeURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(devMode), createResp.ID)
+	executeURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(devMode), testID)
 
 	ui.Println()
 	if !createTestNoOpen {
@@ -840,29 +993,75 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 	// Create API client
 	client := api.NewClientWithDevMode(creds.APIKey, devMode)
 
-	ui.Println()
-	ui.PrintInfo("Creating test '%s' (%s)...", testName, platform)
-
-	// Create test on server with empty tasks
-	ui.StartSpinner("Creating test on server...")
-	createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
-		Name:       testName,
-		Platform:   platform,
-		Tasks:      []interface{}{},
-		BuildVarID: buildVarID,
-		OrgID:      creds.OrgID,
-	})
-	ui.StopSpinner()
-
-	if err != nil {
-		ui.PrintError("Failed to create test: %v", err)
-		return err
+	// Check if test with same name already exists in the organization
+	var existingTestID string
+	testsResp, err := client.ListOrgTests(cmd.Context(), 100, 0)
+	if err == nil {
+		for _, t := range testsResp.Tests {
+			if t.Name == testName {
+				existingTestID = t.ID
+				break
+			}
+		}
 	}
 
-	ui.PrintSuccess("Created test: %s (id: %s)", testName, createResp.ID)
+	ui.Println()
+
+	var testID string
+
+	if existingTestID != "" {
+		if !createTestForce {
+			ui.PrintError("A test named '%s' already exists (id: %s)", testName, existingTestID)
+			ui.Println()
+			ui.PrintInfo("To open the existing test, run:")
+			ui.PrintDim("  revyl open test %s", testName)
+			ui.Println()
+			ui.PrintInfo("Or use --force to update the existing test.")
+			return fmt.Errorf("test already exists")
+		}
+		// Use existing test
+		ui.PrintInfo("Using existing test '%s' (id: %s)", testName, existingTestID)
+		testID = existingTestID
+
+		// Update the test's build_var_id if we have one
+		if buildVarID != "" {
+			ui.StartSpinner("Updating test build variable...")
+			_, err := client.UpdateTest(cmd.Context(), &api.UpdateTestRequest{
+				TestID:     existingTestID,
+				BuildVarID: buildVarID,
+				Force:      true,
+			})
+			ui.StopSpinner()
+
+			if err != nil {
+				ui.PrintWarning("Failed to update build variable: %v", err)
+			}
+		}
+	} else {
+		ui.PrintInfo("Creating test '%s' (%s)...", testName, platform)
+
+		// Create test on server with empty tasks
+		ui.StartSpinner("Creating test on server...")
+		createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
+			Name:       testName,
+			Platform:   platform,
+			Tasks:      []interface{}{},
+			BuildVarID: buildVarID,
+			OrgID:      creds.OrgID,
+		})
+		ui.StopSpinner()
+
+		if err != nil {
+			ui.PrintError("Failed to create test: %v", err)
+			return err
+		}
+
+		testID = createResp.ID
+		ui.PrintSuccess("Created test: %s (id: %s)", testName, testID)
+	}
 
 	// Add to config
-	cfg.Tests[testName] = createResp.ID
+	cfg.Tests[testName] = testID
 
 	// Ensure .revyl directory exists
 	revylDir := filepath.Join(cwd, ".revyl")
@@ -880,7 +1079,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 
 	// Create interactive session
 	sessionConfig := interactive.SessionConfig{
-		TestID:   createResp.ID,
+		TestID:   testID,
 		TestName: testName,
 		Platform: platform,
 		APIKey:   creds.APIKey,

@@ -45,11 +45,12 @@ func BuildYAML(testID, platform string, steps []StepRecord) string {
 
 // writeStep writes a single step to the YAML builder.
 func writeStep(sb *strings.Builder, step *StepRecord) {
-	sb.WriteString(fmt.Sprintf("  - type: %s\n", step.Type))
+	sb.WriteString(fmt.Sprintf("  - type: %s\n", step.BlockType))
+	sb.WriteString(fmt.Sprintf("    step_type: %s\n", step.StepType))
 
-	// Write instruction with proper quoting
+	// Write step_description with proper quoting
 	instruction := escapeYAMLString(step.Instruction)
-	sb.WriteString(fmt.Sprintf("    instruction: %s\n", instruction))
+	sb.WriteString(fmt.Sprintf("    step_description: %s\n", instruction))
 
 	// Add comment with execution result if available
 	if step.Success != nil {
@@ -116,8 +117,9 @@ func escapeYAMLString(s string) string {
 //   - map[string]interface{}: The block representation
 func BuildBlock(step *StepRecord) map[string]interface{} {
 	block := map[string]interface{}{
-		"type":        step.Type,
-		"instruction": step.Instruction,
+		"type":             step.BlockType,
+		"step_type":        step.StepType,
+		"step_description": step.Instruction,
 	}
 
 	return block
@@ -182,11 +184,25 @@ func ParseYAMLSteps(content string) ([]StepRecord, error) {
 			currentStep = &StepRecord{
 				Index: len(steps),
 			}
-			currentStep.Type = strings.TrimSpace(strings.TrimPrefix(trimmed, "- type:"))
+			currentStep.BlockType = strings.TrimSpace(strings.TrimPrefix(trimmed, "- type:"))
 			continue
 		}
 
-		// Check for instruction
+		// Check for step_type
+		if currentStep != nil && strings.HasPrefix(trimmed, "step_type:") {
+			currentStep.StepType = strings.TrimSpace(strings.TrimPrefix(trimmed, "step_type:"))
+			continue
+		}
+
+		// Check for step_description
+		if currentStep != nil && strings.HasPrefix(trimmed, "step_description:") {
+			instruction := strings.TrimSpace(strings.TrimPrefix(trimmed, "step_description:"))
+			// Remove quotes if present
+			instruction = strings.Trim(instruction, "\"'")
+			currentStep.Instruction = instruction
+		}
+
+		// Legacy: Check for instruction (old format)
 		if currentStep != nil && strings.HasPrefix(trimmed, "instruction:") {
 			instruction := strings.TrimSpace(strings.TrimPrefix(trimmed, "instruction:"))
 			// Remove quotes if present

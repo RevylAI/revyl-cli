@@ -24,13 +24,13 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
-// runCmd is the parent command for running tests/workflows without building.
+// runCmd is the parent command for running tests/workflows.
 var runCmd = &cobra.Command{
 	Use:   "run",
-	Short: "Run tests or workflows (without building)",
-	Long: `Run tests or workflows without building first.
+	Short: "Run tests or workflows",
+	Long: `Run tests or workflows.
 
-Use this when you want to run against an existing build version.
+Use --build flag to build and upload before running.
 
 PREREQUISITES:
   - Authenticated: revyl auth login
@@ -46,7 +46,14 @@ OUTPUT:
 
 EXIT CODES:
   0 - Test/workflow passed
-  1 - Test/workflow failed or error`,
+  1 - Test/workflow failed or error
+
+EXAMPLES:
+  revyl run test login-flow                    # Run test without building
+  revyl run test login-flow --build            # Build first, then run
+  revyl run test login-flow --build --variant android  # Build with variant
+  revyl run workflow smoke-tests               # Run workflow without building
+  revyl run workflow smoke-tests --build       # Build first, then run workflow`,
 }
 
 // runTestCmd runs a single test.
@@ -61,7 +68,11 @@ IMPORTANT: Use the test NAME or UUID, NOT a file path!
   - WRONG:   revyl run test .revyl/tests/login-flow.yaml
 
 Test names are defined in .revyl/config.yaml under the 'tests:' section.
-Run 'revyl tests list' to see available test names.
+Run 'revyl test list' to see available test names.
+
+BUILD OPTIONS:
+  --build              Build and upload before running
+  --build --variant X  Build using variant X from config
 
 PREREQUISITES:
   - Authenticated: revyl auth login (or set REVYL_API_KEY env var)
@@ -76,10 +87,12 @@ EXIT CODES:
   1 - Test failed or error
 
 EXAMPLES:
-  revyl run test login-flow           # By alias from .revyl/config.yaml
-  revyl run test abc123-def456...     # By UUID
-  revyl run test login-flow --output  # JSON output for CI/CD
-  revyl run test login-flow -r 3      # With 3 retries`,
+  revyl run test login-flow                    # By alias from .revyl/config.yaml
+  revyl run test abc123-def456...              # By UUID
+  revyl run test login-flow --output           # JSON output for CI/CD
+  revyl run test login-flow -r 3               # With 3 retries
+  revyl run test login-flow --build            # Build first, then run
+  revyl run test login-flow --build --variant android  # Build with variant`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestExec,
 }
@@ -131,12 +144,13 @@ var (
 	runOutputJSON        bool
 	runGitHubActions     bool
 	runVerbose           bool
+	runTestBuild         bool
+	runTestVariant       string
 	runWorkflowBuild     bool
 	runWorkflowVariant   string
 	runHotReload         bool
 	runHotReloadPort     int
 	runHotReloadProvider string
-	runHotReloadVariant  string
 )
 
 func init() {
@@ -152,10 +166,11 @@ func init() {
 	runTestCmd.Flags().BoolVar(&runOutputJSON, "output", false, "Output results as JSON")
 	runTestCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	runTestCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
+	runTestCmd.Flags().BoolVar(&runTestBuild, "build", false, "Build and upload before running test")
+	runTestCmd.Flags().StringVar(&runTestVariant, "variant", "", "Build variant to use (requires --build, or used with --hotreload)")
 	runTestCmd.Flags().BoolVar(&runHotReload, "hotreload", false, "Enable hot reload mode with local dev server")
 	runTestCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
 	runTestCmd.Flags().StringVar(&runHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
-	runTestCmd.Flags().StringVar(&runHotReloadVariant, "variant", "", "Build variant for hot reload (uses build.variants.<name>.build_var_id)")
 
 	// Workflow flags
 	runWorkflowCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
@@ -206,6 +221,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Get dev mode flag
+	devMode, _ := cmd.Flags().GetBool("dev")
+
 	ui.PrintBanner(version)
 	ui.PrintInfo("Running Test")
 	ui.Println()
@@ -217,12 +235,86 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Build Version: %s", runBuildVersionID)
 	}
 
-	// Get dev mode flag
-	devMode, _ := cmd.Flags().GetBool("dev")
 	if devMode {
 		ui.PrintInfo("Mode: Development (localhost)")
 	}
 	ui.Println()
+
+	// Handle --build flag: build and upload before running test
+	if runTestBuild {
+		if cfg == nil {
+			ui.PrintError("Project not initialized. Run 'revyl init' first.")
+			return fmt.Errorf("project not initialized")
+		}
+
+		buildCfg := cfg.Build
+		var variant config.BuildVariant
+
+		if runTestVariant != "" {
+			var ok bool
+			variant, ok = cfg.Build.Variants[runTestVariant]
+			if !ok {
+				ui.PrintError("Unknown build variant: %s", runTestVariant)
+				return fmt.Errorf("unknown variant: %s", runTestVariant)
+			}
+			buildCfg.Command = variant.Command
+			buildCfg.Output = variant.Output
+		}
+
+		if buildCfg.Command == "" {
+			ui.PrintError("No build command configured. Check .revyl/config.yaml")
+			return fmt.Errorf("no build command")
+		}
+
+		// Step 1: Build
+		ui.PrintBox("Building", buildCfg.Command)
+
+		startTime := time.Now()
+		runner := build.NewRunner(cwd)
+
+		err = runner.Run(buildCfg.Command, func(line string) {
+			ui.PrintDim("  %s", line)
+		})
+
+		buildDuration := time.Since(startTime)
+
+		if err != nil {
+			ui.Println()
+			ui.PrintError("Build failed: %v", err)
+			return err
+		}
+
+		ui.PrintSuccess("Build completed in %s", buildDuration.Round(time.Second))
+		ui.Println()
+
+		// Step 2: Upload
+		artifactPath := filepath.Join(cwd, buildCfg.Output)
+		if _, err := os.Stat(artifactPath); os.IsNotExist(err) {
+			ui.PrintError("Build artifact not found: %s", buildCfg.Output)
+			return fmt.Errorf("artifact not found")
+		}
+
+		buildVersionStr := build.GenerateVersionString()
+		metadata := build.CollectMetadata(cwd, buildCfg.Command, runTestVariant, buildDuration)
+
+		ui.PrintBox("Uploading", filepath.Base(buildCfg.Output))
+
+		client := api.NewClientWithDevMode(creds.APIKey, devMode)
+		result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
+			BuildVarID: variant.BuildVarID,
+			Version:    buildVersionStr,
+			FilePath:   artifactPath,
+			Metadata:   metadata,
+		})
+
+		if err != nil {
+			ui.PrintError("Upload failed: %v", err)
+			return err
+		}
+
+		ui.PrintSuccess("Uploaded: %s", result.Version)
+		ui.Println()
+	}
 
 	// Use shared execution logic with CLI-specific progress callback
 	ui.StartSpinner("Starting test execution...")
@@ -686,45 +778,45 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		// 1. Explicit --build-version-id flag
 		buildVersionID = runBuildVersionID
 		buildSource = "explicit"
-	} else if runHotReloadVariant != "" {
+	} else if runTestVariant != "" {
 		// 2. --variant flag: lookup from build.variants and get latest version
-		variant, ok := cfg.Build.Variants[runHotReloadVariant]
+		variant, ok := cfg.Build.Variants[runTestVariant]
 		if !ok {
-			ui.PrintError("Build variant '%s' not found in config.", runHotReloadVariant)
+			ui.PrintError("Build variant '%s' not found in config.", runTestVariant)
 			ui.Println()
 			ui.PrintInfo("Available variants:")
 			for name := range cfg.Build.Variants {
 				ui.PrintDim("  - %s", name)
 			}
-			return fmt.Errorf("variant not found: %s", runHotReloadVariant)
+			return fmt.Errorf("variant not found: %s", runTestVariant)
 		}
 		if variant.BuildVarID == "" {
-			ui.PrintError("Build variant '%s' has no build_var_id configured.", runHotReloadVariant)
+			ui.PrintError("Build variant '%s' has no build_var_id configured.", runTestVariant)
 			ui.Println()
 			ui.PrintInfo("Add build_var_id to your config:")
 			ui.PrintDim("  build:")
 			ui.PrintDim("    variants:")
-			ui.PrintDim("      %s:", runHotReloadVariant)
+			ui.PrintDim("      %s:", runTestVariant)
 			ui.PrintDim("        build_var_id: \"<your-build-var-id>\"")
-			return fmt.Errorf("variant missing build_var_id: %s", runHotReloadVariant)
+			return fmt.Errorf("variant missing build_var_id: %s", runTestVariant)
 		}
 
 		// Create API client to get latest version
 		client := api.NewClientWithDevMode(creds.APIKey, devMode)
 		latestVersion, err := client.GetLatestBuildVersion(cmd.Context(), variant.BuildVarID)
 		if err != nil {
-			ui.PrintError("Failed to get latest build version for variant '%s': %v", runHotReloadVariant, err)
+			ui.PrintError("Failed to get latest build version for variant '%s': %v", runTestVariant, err)
 			return err
 		}
 		if latestVersion == nil {
-			ui.PrintError("No build versions found for variant '%s'.", runHotReloadVariant)
+			ui.PrintError("No build versions found for variant '%s'.", runTestVariant)
 			ui.Println()
 			ui.PrintInfo("Upload a build first:")
-			ui.PrintDim("  revyl build upload <file> --name %s", runHotReloadVariant)
-			return fmt.Errorf("no builds for variant: %s", runHotReloadVariant)
+			ui.PrintDim("  revyl build upload <file> --name %s", runTestVariant)
+			return fmt.Errorf("no builds for variant: %s", runTestVariant)
 		}
 		buildVersionID = latestVersion.ID
-		buildSource = fmt.Sprintf("variant:%s", runHotReloadVariant)
+		buildSource = fmt.Sprintf("variant:%s", runTestVariant)
 	} else if providerCfg.DevClientBuildID != "" {
 		// 3. Fall back to config
 		buildVersionID = providerCfg.DevClientBuildID

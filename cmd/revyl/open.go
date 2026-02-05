@@ -567,6 +567,9 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 		DevMode:  devMode,
 	}
 
+	// Track hot reload manager for cleanup
+	var hotReloadManager *hotreload.Manager
+
 	// If hot reload is also enabled, get the deep link URL
 	if openTestHotReload && cfg.HotReload.IsConfigured() {
 		registry := hotreload.DefaultRegistry()
@@ -576,15 +579,29 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 				providerCfg.Port = openTestHotReloadPort
 			}
 
-			manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
-			result, err := manager.Start(cmd.Context())
+			hotReloadManager = hotreload.NewManager(provider.Name(), providerCfg, cwd)
+			hotReloadManager.SetLogCallback(func(msg string) {
+				ui.PrintDim("  %s", msg)
+			})
+
+			result, err := hotReloadManager.Start(cmd.Context())
 			if err == nil {
 				sessionConfig.HotReloadURL = result.DeepLinkURL
 				ui.PrintInfo("Hot reload enabled: %s", result.DeepLinkURL)
+				ui.Println()
 			} else {
 				ui.PrintWarning("Hot reload setup failed: %v", err)
+				hotReloadManager = nil // Clear reference since start failed
 			}
 		}
+	}
+
+	// Ensure hot reload manager is cleaned up on exit
+	if hotReloadManager != nil {
+		defer func() {
+			ui.PrintInfo("Stopping hot reload...")
+			hotReloadManager.Stop()
+		}()
 	}
 
 	session := interactive.NewSession(sessionConfig)
@@ -597,8 +614,9 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 		return runOpenHeadlessSession(ctx, session)
 	}
 
-	// Create and run REPL
+	// Create and run REPL with hot reload manager for coordinated cleanup
 	repl := interactive.NewREPL(session)
+	repl.SetHotReloadManager(hotReloadManager)
 
 	return repl.Run(ctx)
 }

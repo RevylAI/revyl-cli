@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/config"
 )
 
 // SessionState represents the current state of an interactive session.
@@ -45,8 +46,11 @@ type StepRecord struct {
 	// ID is the unique identifier for this step.
 	ID string
 
-	// Type is the step type (instruction, validation, wait, navigate, etc.).
-	Type string
+	// BlockType is the block type (instructions, manual, validation).
+	BlockType string
+
+	// StepType is the step type (instruction, validation, wait, navigate, etc.).
+	StepType string
 
 	// Instruction is the natural language instruction.
 	Instruction string
@@ -395,13 +399,13 @@ func (s *Session) handleMessages() {
 //
 // Parameters:
 //   - ctx: Context for cancellation
-//   - stepType: The step type (instruction, validation, etc.)
+//   - cmdType: The command type (determines block type and step type)
 //   - instruction: The natural language instruction
 //
 // Returns:
 //   - *StepRecord: The step result
 //   - error: Any error that occurred
-func (s *Session) ExecuteStep(ctx context.Context, stepType, instruction string) (*StepRecord, error) {
+func (s *Session) ExecuteStep(ctx context.Context, cmdType CommandType, instruction string) (*StepRecord, error) {
 	s.mu.Lock()
 	if s.state != StateReady {
 		s.mu.Unlock()
@@ -415,13 +419,18 @@ func (s *Session) ExecuteStep(ctx context.Context, stepType, instruction string)
 
 	s.setState(StateExecuting)
 
-	// Create step definition
+	// Get block type and step type from command type
+	blockType := GetBlockType(cmdType)
+	stepType := GetStepType(cmdType)
+
+	// Create step definition with proper block format
 	step := api.StepDefinition{
-		ID:          stepID,
-		Type:        stepType,
-		Instruction: instruction,
-		Index:       stepIndex,
-		Timeout:     int(s.config.StepTimeout.Seconds()),
+		ID:              stepID,
+		Type:            blockType,
+		StepType:        stepType,
+		StepDescription: instruction,
+		Index:           stepIndex,
+		Timeout:         int(s.config.StepTimeout.Seconds()),
 	}
 
 	// Send step execution command
@@ -440,7 +449,8 @@ func (s *Session) ExecuteStep(ctx context.Context, stepType, instruction string)
 	// Create step record
 	record := &StepRecord{
 		ID:           stepID,
-		Type:         stepType,
+		BlockType:    blockType,
+		StepType:     stepType,
 		Instruction:  instruction,
 		Index:        stepIndex,
 		Success:      result.Success,
@@ -490,8 +500,9 @@ func (s *Session) syncToBackend(ctx context.Context) error {
 	blocks := make([]map[string]interface{}, len(steps))
 	for i, step := range steps {
 		blocks[i] = map[string]interface{}{
-			"type":        step.Type,
-			"instruction": step.Instruction,
+			"type":             step.BlockType,
+			"step_type":        step.StepType,
+			"step_description": step.Instruction,
 		}
 	}
 
@@ -596,6 +607,14 @@ func (s *Session) GetPlatform() string {
 	return s.config.Platform
 }
 
+// GetTestName returns the test name for this session.
+//
+// Returns:
+//   - string: The test name
+func (s *Session) GetTestName() string {
+	return s.config.TestName
+}
+
 // GetFrontendURL returns the URL to view this session in the frontend.
 // The URL includes both testUid and workflowRunId so the frontend can
 // join the existing session instead of starting a new one.
@@ -603,10 +622,7 @@ func (s *Session) GetPlatform() string {
 // Returns:
 //   - string: The frontend URL with query parameters
 func (s *Session) GetFrontendURL() string {
-	baseURL := "https://app.revyl.com"
-	if s.config.DevMode {
-		baseURL = "http://localhost:3000"
-	}
+	baseURL := config.GetAppURL(s.config.DevMode)
 
 	s.mu.RLock()
 	workflowRunID := s.workflowRunID
@@ -614,4 +630,13 @@ func (s *Session) GetFrontendURL() string {
 
 	return fmt.Sprintf("%s/tests/execute?testUid=%s&workflowRunId=%s",
 		baseURL, s.config.TestID, workflowRunID)
+}
+
+// GetHotReloadURL returns the hot reload deep link URL for this session.
+// Returns an empty string if hot reload is not configured.
+//
+// Returns:
+//   - string: The hot reload deep link URL, or empty string if not configured
+func (s *Session) GetHotReloadURL() string {
+	return s.config.HotReloadURL
 }

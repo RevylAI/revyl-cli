@@ -239,10 +239,8 @@ func (m *Monitor) monitorTestSSE(ctx context.Context, taskID, testID string, onP
 	for {
 		select {
 		case <-ctx.Done():
-			if lastStatus != nil {
-				return lastStatus, nil
-			}
-			return nil, ctx.Err()
+			// Always return the context error when cancelled, even if we have a last status
+			return lastStatus, ctx.Err()
 
 		case err := <-errs:
 			if err != nil {
@@ -383,10 +381,8 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 	for {
 		select {
 		case <-ctx.Done():
-			if lastStatus != nil {
-				return lastStatus, nil
-			}
-			return nil, ctx.Err()
+			// Always return the context error when cancelled, even if we have a last status
+			return lastStatus, ctx.Err()
 
 		case <-ticker.C:
 			req, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
@@ -560,10 +556,8 @@ func (m *Monitor) monitorWorkflowSSE(ctx context.Context, taskID, workflowID str
 	for {
 		select {
 		case <-ctx.Done():
-			if lastStatus != nil {
-				return lastStatus, nil
-			}
-			return nil, ctx.Err()
+			// Always return the context error when cancelled, even if we have a last status
+			return lastStatus, ctx.Err()
 
 		case err := <-errs:
 			if err != nil {
@@ -699,10 +693,8 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 	for {
 		select {
 		case <-ctx.Done():
-			if lastStatus != nil {
-				return lastStatus, nil
-			}
-			return nil, ctx.Err()
+			// Always return the context error when cancelled, even if we have a last status
+			return lastStatus, ctx.Err()
 
 		case <-ticker.C:
 			req, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)

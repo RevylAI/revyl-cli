@@ -102,11 +102,14 @@ type StepDefinition struct {
 	// ID is a unique identifier for this step.
 	ID string `json:"id"`
 
-	// Type is the step type (instruction, validation, wait, navigate, etc.).
+	// Type is the block type (instructions, manual, validation).
 	Type string `json:"type"`
 
-	// Instruction is the natural language instruction for the step.
-	Instruction string `json:"instruction"`
+	// StepType is the specific step type (instruction, navigate, wait, etc.).
+	StepType string `json:"step_type"`
+
+	// StepDescription is the natural language instruction for the step.
+	StepDescription string `json:"step_description"`
 
 	// Index is the step index in the test sequence.
 	Index int `json:"index"`
@@ -115,16 +118,17 @@ type StepDefinition struct {
 	Timeout int `json:"timeout,omitempty"`
 }
 
-// StepStreamMessage represents a STEP_STREAM response from the worker.
+// StepStreamMessage represents a STEP_EXECUTION response from the worker.
 // Contains the result of step execution.
+// Note: Despite the name, this handles STEP_EXECUTION events from the backend.
 type StepStreamMessage struct {
-	// EventType is "STEP_STREAM".
+	// EventType is "STEP_EXECUTION".
 	EventType string `json:"event_type"`
 
 	// StepID is the ID of the executed step.
 	StepID string `json:"step_id"`
 
-	// Status is the execution status (running, completed, failed).
+	// Status is the execution status (started, in_progress, completed, error, canceled).
 	Status string `json:"status"`
 
 	// Success indicates if the step passed.
@@ -471,8 +475,9 @@ func (c *WorkerWSClient) WaitForStepResult(ctx context.Context, stepID string, t
 				return nil, fmt.Errorf("connection closed")
 			}
 
-			// Check if this is a STEP_STREAM message for our step
-			if msg.EventType == "STEP_STREAM" {
+			// Check if this is a STEP_EXECUTION message for our step
+			// The backend sends event_type: "STEP_EXECUTION" with status values from StepExecutionStatus enum
+			if msg.EventType == "STEP_EXECUTION" {
 				var stepResult StepStreamMessage
 				if err := json.Unmarshal(msg.Raw, &stepResult); err != nil {
 					continue
@@ -480,7 +485,8 @@ func (c *WorkerWSClient) WaitForStepResult(ctx context.Context, stepID string, t
 
 				if stepResult.StepID == stepID {
 					// Check if this is a terminal status
-					if stepResult.Status == "completed" || stepResult.Status == "failed" {
+					// Backend uses: "completed", "error", "canceled" (from StepExecutionStatus enum)
+					if stepResult.Status == "completed" || stepResult.Status == "error" || stepResult.Status == "canceled" {
 						return &stepResult, nil
 					}
 				}

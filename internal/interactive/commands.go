@@ -131,6 +131,23 @@ var stepTypeCommands = map[CommandType]bool{
 //   - *ParsedCommand: The parsed command
 //   - error: Any parsing error
 func ParseCommand(input string) (*ParsedCommand, error) {
+	return ParseCommandWithDefaults(input, "")
+}
+
+// ParseCommandWithDefaults parses user input into a command with optional defaults.
+//
+// This function extends ParseCommand by allowing default values for certain commands.
+// For example, when hotReloadURL is provided, the 'navigate' command without arguments
+// will use that URL as the default destination.
+//
+// Parameters:
+//   - input: The raw user input string
+//   - hotReloadURL: Optional default URL for the navigate command (empty string to disable)
+//
+// Returns:
+//   - *ParsedCommand: The parsed command
+//   - error: Any parsing error
+func ParseCommandWithDefaults(input string, hotReloadURL string) (*ParsedCommand, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return nil, fmt.Errorf("empty input")
@@ -146,7 +163,7 @@ func ParseCommand(input string) (*ParsedCommand, error) {
 
 	// Check if first word is a reserved command
 	if cmdType, ok := reservedCommands[firstWord]; ok {
-		return parseReservedCommand(cmdType, words[1:], input)
+		return parseReservedCommandWithDefaults(cmdType, words[1:], input, hotReloadURL)
 	}
 
 	// Default: treat entire input as instruction
@@ -159,6 +176,11 @@ func ParseCommand(input string) (*ParsedCommand, error) {
 
 // parseReservedCommand parses a reserved command with its arguments.
 func parseReservedCommand(cmdType CommandType, args []string, raw string) (*ParsedCommand, error) {
+	return parseReservedCommandWithDefaults(cmdType, args, raw, "")
+}
+
+// parseReservedCommandWithDefaults parses a reserved command with its arguments and optional defaults.
+func parseReservedCommandWithDefaults(cmdType CommandType, args []string, raw string, hotReloadURL string) (*ParsedCommand, error) {
 	cmd := &ParsedCommand{
 		Type: cmdType,
 		Args: args,
@@ -181,11 +203,17 @@ func parseReservedCommand(cmdType CommandType, args []string, raw string) (*Pars
 		cmd.Instruction = strings.Join(args, " ")
 
 	case CommandNavigate:
-		// navigate <url or deep link>
+		// navigate [url or deep link]
+		// If no URL provided and hot reload URL is available, use that as default
 		if len(args) == 0 {
-			return nil, fmt.Errorf("navigate requires a URL or deep link (e.g., 'navigate myapp://home')")
+			if hotReloadURL != "" {
+				cmd.Instruction = hotReloadURL
+			} else {
+				return nil, fmt.Errorf("navigate requires a URL or deep link (e.g., 'navigate myapp://home')")
+			}
+		} else {
+			cmd.Instruction = strings.Join(args, " ")
 		}
-		cmd.Instruction = strings.Join(args, " ")
 
 	case CommandOpenApp:
 		// open-app <bundle_id>
@@ -255,6 +283,61 @@ func GetStepType(cmdType CommandType) string {
 	}
 }
 
+// GetBlockType returns the block type for a given command type.
+//
+// Block types are the high-level categories used by the backend schema:
+//   - "instructions": Regular action steps (tap, type, swipe, etc.)
+//   - "manual": System-level actions (navigate, wait, open_app, etc.)
+//   - "validation": Assertion/verification steps
+//
+// Parameters:
+//   - cmdType: The command type
+//
+// Returns:
+//   - string: The block type for the backend
+func GetBlockType(cmdType CommandType) string {
+	switch cmdType {
+	case CommandNavigate, CommandWait, CommandBack, CommandHome, CommandOpenApp, CommandKillApp:
+		return "manual"
+	case CommandValidation:
+		return "validation"
+	default:
+		return "instructions"
+	}
+}
+
+// StepTypeToCommandType converts a step type string back to a CommandType.
+//
+// This is used when replaying steps from recorded history.
+//
+// Parameters:
+//   - stepType: The step type string (e.g., "navigate", "instruction")
+//
+// Returns:
+//   - CommandType: The corresponding command type
+func StepTypeToCommandType(stepType string) CommandType {
+	switch stepType {
+	case "instruction":
+		return CommandInstruction
+	case "validation":
+		return CommandValidation
+	case "wait":
+		return CommandWait
+	case "navigate":
+		return CommandNavigate
+	case "back":
+		return CommandBack
+	case "go_home":
+		return CommandHome
+	case "open_app":
+		return CommandOpenApp
+	case "kill_app":
+		return CommandKillApp
+	default:
+		return CommandInstruction
+	}
+}
+
 // HelpText returns the help text for interactive mode.
 //
 // Returns:
@@ -278,6 +361,7 @@ STEP COMMANDS (create test steps):
   navigate <url>         Navigate to a URL or deep link
                          Example: navigate myapp://settings
                          Example: navigate https://example.com
+                         In hot reload mode: just type 'navigate' to open the dev app
 
   back                   Press the back button
   home                   Press the home button

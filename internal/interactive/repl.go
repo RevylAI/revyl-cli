@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/revyl/cli/internal/hotreload"
 )
 
 // REPL handles the interactive command loop.
@@ -30,6 +31,14 @@ type REPL struct {
 
 	// styles contains the UI styles.
 	styles *REPLStyles
+
+	// hotReloadManager is the optional hot reload manager for cleanup.
+	// When set, the REPL will stop the hot reload manager on exit.
+	hotReloadManager *hotreload.Manager
+
+	// hotReloadURL is the deep link URL for hot reload mode.
+	// When set, the 'navigate' command without arguments will use this URL.
+	hotReloadURL string
 }
 
 // REPLStyles contains the styling for REPL output.
@@ -57,6 +66,15 @@ type REPLStyles struct {
 
 	// Header is the style for headers.
 	Header lipgloss.Style
+
+	// Running is the style for running/executing state.
+	Running lipgloss.Style
+
+	// Action is the style for action descriptions.
+	Action lipgloss.Style
+
+	// Duration is the style for duration text.
+	Duration lipgloss.Style
 }
 
 // NewREPLStyles creates default REPL styles.
@@ -65,14 +83,17 @@ type REPLStyles struct {
 //   - *REPLStyles: The default styles
 func NewREPLStyles() *REPLStyles {
 	return &REPLStyles{
-		Prompt:    lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Bold(true),
-		Success:   lipgloss.NewStyle().Foreground(lipgloss.Color("42")),
-		Error:     lipgloss.NewStyle().Foreground(lipgloss.Color("196")),
-		Info:      lipgloss.NewStyle().Foreground(lipgloss.Color("39")),
-		Dim:       lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
-		StepIndex: lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Bold(true),
-		StepType:  lipgloss.NewStyle().Foreground(lipgloss.Color("214")),
-		Header:    lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Bold(true).Underline(true),
+		Prompt:    lipgloss.NewStyle().Foreground(lipgloss.Color("#9D61FF")).Bold(true),
+		Success:   lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")),
+		Error:     lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")),
+		Info:      lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")),
+		Dim:       lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")),
+		StepIndex: lipgloss.NewStyle().Foreground(lipgloss.Color("#9D61FF")).Bold(true),
+		StepType:  lipgloss.NewStyle().Foreground(lipgloss.Color("#9D61FF")),
+		Header:    lipgloss.NewStyle().Foreground(lipgloss.Color("#9D61FF")).Bold(true).Underline(true),
+		Running:   lipgloss.NewStyle().Foreground(lipgloss.Color("#14B8A6")),
+		Action:    lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF")),
+		Duration:  lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")),
 	}
 }
 
@@ -85,10 +106,31 @@ func NewREPLStyles() *REPLStyles {
 //   - *REPL: A new REPL instance
 func NewREPL(session *Session) *REPL {
 	return &REPL{
-		session: session,
-		reader:  bufio.NewReader(os.Stdin),
-		styles:  NewREPLStyles(),
+		session:      session,
+		reader:       bufio.NewReader(os.Stdin),
+		styles:       NewREPLStyles(),
+		hotReloadURL: session.GetHotReloadURL(),
 	}
+}
+
+// SetHotReloadManager sets the hot reload manager for coordinated cleanup.
+// When set, the REPL will stop the hot reload manager (dev server + tunnel)
+// when the REPL exits.
+//
+// Parameters:
+//   - manager: The hot reload manager to cleanup on exit (can be nil)
+func (r *REPL) SetHotReloadManager(manager *hotreload.Manager) {
+	r.hotReloadManager = manager
+}
+
+// SetHotReloadURL sets the hot reload deep link URL.
+// When set, the 'navigate' command without arguments will use this URL,
+// providing a convenient shortcut to navigate to the hot reload app.
+//
+// Parameters:
+//   - url: The deep link URL for hot reload (e.g., "nof1://expo-development-client/?url=...")
+func (r *REPL) SetHotReloadURL(url string) {
+	r.hotReloadURL = url
 }
 
 // Run starts the REPL loop.
@@ -107,6 +149,13 @@ func (r *REPL) Run(ctx context.Context) error {
 
 	// Ensure cleanup on any exit (including panic)
 	defer func() {
+		// Stop hot reload manager first (dev server + tunnel)
+		if r.hotReloadManager != nil {
+			fmt.Println(r.styles.Info.Render("Stopping hot reload..."))
+			r.hotReloadManager.Stop()
+		}
+
+		// Then stop the session
 		if r.session.State() != StateStopped {
 			fmt.Println(r.styles.Info.Render("Cleaning up..."))
 			_ = r.session.Stop()
@@ -130,9 +179,17 @@ func (r *REPL) Run(ctx context.Context) error {
 		}
 	}()
 
+	// Track if we've shown the ready prompt yet
+	var readyPromptShown atomic.Bool
+
 	// Set up session callbacks
 	r.session.SetOnLog(func(msg string) {
-		fmt.Println(r.styles.Dim.Render("  " + msg))
+		// If we haven't shown the ready prompt yet, just print the log
+		// Otherwise, we need to handle the prompt being on screen
+		if !readyPromptShown.Load() {
+			fmt.Println(r.styles.Dim.Render("  " + msg))
+		}
+		// After ready prompt is shown, logs will be handled by the main loop
 	})
 
 	r.session.SetOnStateChange(func(state SessionState) {
@@ -140,7 +197,7 @@ func (r *REPL) Run(ctx context.Context) error {
 		case StateReady:
 			// Don't print anything, just ready for input
 		case StateExecuting:
-			fmt.Println(r.styles.Info.Render("  Executing..."))
+			// Don't print here - we'll print the instruction in executeStep
 		case StateError:
 			fmt.Println(r.styles.Error.Render("  Session error"))
 		}
@@ -165,6 +222,10 @@ func (r *REPL) Run(ctx context.Context) error {
 	frontendURL := r.session.GetFrontendURL()
 	fmt.Println(r.styles.Info.Render("Live preview: " + frontendURL))
 	fmt.Println()
+
+	// Print a clear ready indicator
+	r.printReadyBanner()
+	readyPromptShown.Store(true)
 
 	// Channel for input lines
 	inputChan := make(chan string)
@@ -230,7 +291,7 @@ func (r *REPL) Run(ctx context.Context) error {
 
 // executeCommand parses and executes a user command.
 func (r *REPL) executeCommand(ctx context.Context, input string) error {
-	cmd, err := ParseCommand(input)
+	cmd, err := ParseCommandWithDefaults(input, r.hotReloadURL)
 	if err != nil {
 		return err
 	}
@@ -278,7 +339,6 @@ func (r *REPL) executeCommand(ctx context.Context, input string) error {
 
 // executeStep executes a step command.
 func (r *REPL) executeStep(ctx context.Context, cmd *ParsedCommand) error {
-	stepType := GetStepType(cmd.Type)
 	instruction := cmd.Instruction
 
 	// For commands without explicit instruction, use the command type
@@ -286,7 +346,18 @@ func (r *REPL) executeStep(ctx context.Context, cmd *ParsedCommand) error {
 		instruction = string(cmd.Type)
 	}
 
-	_, err := r.session.ExecuteStep(ctx, stepType, instruction)
+	// Print execution feedback with clean visual hierarchy
+	stepNum := len(r.session.Steps()) + 1
+	fmt.Println()
+	fmt.Printf("  %s %s\n",
+		r.styles.Running.Render("●"),
+		r.styles.Info.Render(fmt.Sprintf("Step %d", stepNum)))
+	fmt.Printf("    %s %s\n",
+		r.styles.StepType.Render(string(cmd.Type)),
+		r.styles.Dim.Render(instruction))
+	fmt.Printf("    %s\n", r.styles.Running.Render("⋯ executing"))
+
+	_, err := r.session.ExecuteStep(ctx, cmd.Type, instruction)
 	return err
 }
 
@@ -303,9 +374,24 @@ func (r *REPL) handleUndo() error {
 
 // handleSave exports the test to YAML.
 func (r *REPL) handleSave(args []string) error {
-	filename := "test.yaml"
+	steps := r.session.Steps()
+	if len(steps) == 0 {
+		return fmt.Errorf("no steps to save")
+	}
+
+	// Determine filename: use provided arg, or test name, or default
+	var filename string
 	if len(args) > 0 {
 		filename = args[0]
+	} else {
+		// Use test name from session config if available
+		testName := r.session.GetTestName()
+		if testName != "" {
+			// Sanitize test name for filename (replace spaces with hyphens, lowercase)
+			filename = strings.ToLower(strings.ReplaceAll(testName, " ", "-"))
+		} else {
+			filename = "test"
+		}
 	}
 
 	// Ensure .yaml extension
@@ -313,9 +399,12 @@ func (r *REPL) handleSave(args []string) error {
 		filename += ".yaml"
 	}
 
-	steps := r.session.Steps()
-	if len(steps) == 0 {
-		return fmt.Errorf("no steps to save")
+	// Check if file already exists
+	if _, err := os.Stat(filename); err == nil {
+		// File exists - prompt for confirmation or suggest alternative
+		fmt.Printf("  %s File %s already exists\n", r.styles.Error.Render("!"), filename)
+		fmt.Printf("  %s Use 'save <new-filename>' to save with a different name\n", r.styles.Dim.Render("→"))
+		return nil
 	}
 
 	yaml := BuildYAML(r.session.GetTestID(), r.session.GetPlatform(), steps)
@@ -324,7 +413,8 @@ func (r *REPL) handleSave(args []string) error {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 
-	fmt.Println(r.styles.Success.Render(fmt.Sprintf("Saved %d steps to %s", len(steps), filename)))
+	fmt.Println()
+	fmt.Printf("  %s Saved %d steps to %s\n", r.styles.Success.Render("✓"), len(steps), r.styles.Info.Render(filename))
 	return nil
 }
 
@@ -371,7 +461,9 @@ func (r *REPL) handleReplay(ctx context.Context, args []string) error {
 	step := steps[index]
 	fmt.Println(r.styles.Info.Render(fmt.Sprintf("Replaying step %d: %s", index+1, step.Instruction)))
 
-	_, err := r.session.ExecuteStep(ctx, step.Type, step.Instruction)
+	// Convert step type back to command type for replay
+	cmdType := StepTypeToCommandType(step.StepType)
+	_, err := r.session.ExecuteStep(ctx, cmdType, step.Instruction)
 	return err
 }
 
@@ -387,7 +479,9 @@ func (r *REPL) handleRun(ctx context.Context) error {
 	for i, step := range steps {
 		fmt.Println(r.styles.Info.Render(fmt.Sprintf("Step %d/%d: %s", i+1, len(steps), step.Instruction)))
 
-		_, err := r.session.ExecuteStep(ctx, step.Type, step.Instruction)
+		// Convert step type back to command type for execution
+		cmdType := StepTypeToCommandType(step.StepType)
+		_, err := r.session.ExecuteStep(ctx, cmdType, step.Instruction)
 		if err != nil {
 			return fmt.Errorf("step %d failed: %w", i+1, err)
 		}
@@ -404,6 +498,18 @@ func (r *REPL) printWelcome() {
 	fmt.Println()
 	fmt.Println("Type natural language instructions to create test steps.")
 	fmt.Println("Type 'help' for available commands, 'quit' to exit.")
+	if r.hotReloadURL != "" {
+		fmt.Println()
+		fmt.Println(r.styles.Info.Render("Hot reload mode: Type 'navigate' to open the dev app"))
+	}
+	fmt.Println()
+}
+
+// printReadyBanner prints a clear visual indicator that the REPL is ready for input.
+func (r *REPL) printReadyBanner() {
+	fmt.Println(r.styles.Success.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+	fmt.Println(r.styles.Success.Render("  Ready! Enter your first instruction below."))
+	fmt.Println(r.styles.Success.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 	fmt.Println()
 }
 
@@ -434,7 +540,7 @@ func (r *REPL) printSteps() {
 
 	for _, step := range steps {
 		indexStr := r.styles.StepIndex.Render(fmt.Sprintf("%3d.", step.Index+1))
-		typeStr := r.styles.StepType.Render(fmt.Sprintf("[%s]", step.Type))
+		typeStr := r.styles.StepType.Render(fmt.Sprintf("[%s]", step.StepType))
 
 		statusIcon := "○"
 		if step.Success != nil {
@@ -456,22 +562,34 @@ func (r *REPL) printSteps() {
 
 // printStepResult prints the result of a step execution.
 func (r *REPL) printStepResult(step *StepRecord) {
-	if step.Success != nil && *step.Success {
-		fmt.Println(r.styles.Success.Render(fmt.Sprintf("  ✓ Step %d completed (%dms)", step.Index+1, step.Duration)))
-	} else if step.Success != nil && !*step.Success {
-		fmt.Println(r.styles.Error.Render(fmt.Sprintf("  ✗ Step %d failed: %s", step.Index+1, step.Error)))
-	} else {
-		fmt.Println(r.styles.Info.Render(fmt.Sprintf("  ○ Step %d executed", step.Index+1)))
+	// Format duration nicely
+	durationStr := fmt.Sprintf("%dms", step.Duration)
+	if step.Duration >= 1000 {
+		durationStr = fmt.Sprintf("%.1fs", float64(step.Duration)/1000)
 	}
 
-	// Print actions taken
+	// Clear the "executing" line by moving cursor up
+	fmt.Print("\033[1A\033[K") // Move up one line and clear it
+
+	if step.Success != nil && *step.Success {
+		fmt.Printf("    %s %s\n",
+			r.styles.Success.Render("✓ completed"),
+			r.styles.Duration.Render(durationStr))
+	} else if step.Success != nil && !*step.Success {
+		fmt.Printf("    %s\n", r.styles.Error.Render("✗ failed"))
+		fmt.Printf("      %s\n", r.styles.Error.Render(step.Error))
+	} else {
+		fmt.Printf("    %s\n", r.styles.Dim.Render("○ executed"))
+	}
+
+	// Print actions taken with clean formatting
 	if len(step.ActionsTaken) > 0 {
 		for _, action := range step.ActionsTaken {
 			desc := action.Description
 			if desc == "" {
 				desc = action.Type
 			}
-			fmt.Println(r.styles.Dim.Render(fmt.Sprintf("    → %s", desc)))
+			fmt.Printf("      %s %s\n", r.styles.Action.Render("→"), r.styles.Action.Render(desc))
 		}
 	}
 }
