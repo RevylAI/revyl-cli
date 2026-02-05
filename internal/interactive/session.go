@@ -519,6 +519,7 @@ func (s *Session) syncToBackend(ctx context.Context) error {
 	blocks := make([]map[string]interface{}, len(steps))
 	for i, step := range steps {
 		blocks[i] = map[string]interface{}{
+			"id":               step.ID,
 			"type":             step.BlockType,
 			"step_type":        step.StepType,
 			"step_description": step.Instruction,

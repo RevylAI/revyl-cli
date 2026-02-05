@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/url"
 	"sync"
 	"time"
@@ -415,11 +414,6 @@ func (c *WorkerWSClient) SendStepExecution(ctx context.Context, step StepDefinit
 			TestId:       testID,
 			IsSimulation: isSimulation,
 		},
-	}
-
-	// Debug: Log the exact JSON being sent
-	if debugJSON, err := json.MarshalIndent(msg, "", "  "); err == nil {
-		log.Printf("[DEBUG] Sending STEP_EXECUTION message:\n%s", string(debugJSON))
 	}
 
 	if err := c.conn.WriteJSON(msg); err != nil {
