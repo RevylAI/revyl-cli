@@ -2,14 +2,17 @@
 //
 // This package handles dynamic URL resolution for production and development
 // environments, reading port configuration from .env files when in dev mode.
+// It also supports auto-detection of running backend services.
 package config
 
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -20,11 +23,18 @@ const (
 	ProdAppURL = "https://app.revyl.ai"
 
 	// DefaultBackendPort is the fallback port if cognisim_backend/.env is not found.
-	DefaultBackendPort = "8001"
+	DefaultBackendPort = "8000"
 
 	// DefaultFrontendPort is the fallback port if frontend/.env is not found.
 	DefaultFrontendPort = "8002"
+
+	// portCheckTimeout is the timeout for checking if a port is open.
+	portCheckTimeout = 100 * time.Millisecond
 )
+
+// commonBackendPorts are the ports to try when auto-detecting the backend.
+// Order matters - most common ports first.
+var commonBackendPorts = []string{"8000", "8001", "8080", "3000"}
 
 // findMonorepoRoot searches upward from the current directory to find the monorepo root.
 // The root is identified by having a cognisim_backend/ directory.
@@ -81,6 +91,11 @@ func readPortFromEnv(path string) string {
 // Returns:
 //   - string: The backend port number
 func GetBackendPort() string {
+	// First check environment variable override
+	if port := os.Getenv("REVYL_BACKEND_PORT"); port != "" {
+		return port
+	}
+
 	root := findMonorepoRoot()
 	if root == "" {
 		return DefaultBackendPort
@@ -90,6 +105,56 @@ func GetBackendPort() string {
 		return port
 	}
 	return DefaultBackendPort
+}
+
+// GetBackendPortWithAutoDetect reads the PORT from cognisim_backend/.env,
+// and if no server is running on that port, tries common alternative ports.
+// This is useful when the backend might be running on a non-standard port.
+//
+// Returns:
+//   - string: The backend port number (either from config or auto-detected)
+func GetBackendPortWithAutoDetect() string {
+	// First check environment variable override
+	if port := os.Getenv("REVYL_BACKEND_PORT"); port != "" {
+		return port
+	}
+
+	// Try to get port from .env file
+	configuredPort := GetBackendPort()
+
+	// Check if the configured port is actually listening
+	if isPortOpen("localhost", configuredPort) {
+		return configuredPort
+	}
+
+	// Try common ports if configured port isn't responding
+	for _, port := range commonBackendPorts {
+		if port != configuredPort && isPortOpen("localhost", port) {
+			return port
+		}
+	}
+
+	// Fall back to configured port even if not responding
+	// (let the actual request fail with a clear error)
+	return configuredPort
+}
+
+// isPortOpen checks if a TCP port is open on the given host.
+//
+// Parameters:
+//   - host: The hostname to check
+//   - port: The port number to check
+//
+// Returns:
+//   - bool: True if the port is open and accepting connections
+func isPortOpen(host, port string) bool {
+	address := net.JoinHostPort(host, port)
+	conn, err := net.DialTimeout("tcp", address, portCheckTimeout)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }
 
 // GetFrontendPort reads the PORT from frontend/.env.
@@ -110,15 +175,16 @@ func GetFrontendPort() string {
 }
 
 // GetBackendURL returns the backend API URL based on the dev mode setting.
+// In dev mode, it uses auto-detection to find a running backend server.
 //
 // Parameters:
-//   - devMode: If true, returns localhost URL with port from cognisim_backend/.env
+//   - devMode: If true, returns localhost URL with auto-detected port
 //
 // Returns:
 //   - string: The backend API URL
 func GetBackendURL(devMode bool) string {
 	if devMode {
-		return fmt.Sprintf("http://localhost:%s", GetBackendPort())
+		return fmt.Sprintf("http://localhost:%s", GetBackendPortWithAutoDetect())
 	}
 	return ProdBackendURL
 }

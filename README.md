@@ -322,14 +322,15 @@ cd revyl-cli
 
 The `--dev` flag switches all API calls to your local services:
 
-| Service | Production URL | Dev URL (from .env) |
-|---------|----------------|---------------------|
-| Backend API | `https://backend.revyl.ai` | `http://localhost:8001` |
+| Service | Production URL | Dev URL (auto-detected) |
+|---------|----------------|-------------------------|
+| Backend API | `https://backend.revyl.ai` | `http://localhost:8000` (default) |
 | Frontend App | `https://app.revyl.ai` | `http://localhost:8002` |
 
-The CLI automatically reads the `PORT` value from:
-- `cognisim_backend/.env` for backend API calls
-- `frontend/.env` for report/app URLs
+The CLI automatically:
+1. Reads the `PORT` value from `cognisim_backend/.env` and `frontend/.env`
+2. Auto-detects running services on common ports (8000, 8001, 8080, 3000)
+3. Respects `REVYL_BACKEND_PORT` environment variable if set
 
 This means if you change the port in `.env`, the CLI picks it up automatically.
 
