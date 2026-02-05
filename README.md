@@ -85,6 +85,42 @@ revyl run test login-flow
 revyl run workflow smoke-tests
 ```
 
+### Hot Reload (Expo)
+
+Enable rapid iteration by running tests against a local dev server:
+
+```bash
+# One-time setup (auto-detects your project)
+revyl hotreload setup
+
+# Run test with hot reload
+revyl run test login-flow --hotreload --variant ios-dev
+
+# Create test with hot reload session
+revyl create test new-flow --hotreload --variant ios-dev --platform ios
+
+# Open existing test with hot reload
+revyl open test login-flow --hotreload --variant ios-dev
+```
+
+Hot reload:
+- Starts your local Expo dev server
+- Creates a Cloudflare tunnel to expose it
+- Runs tests against your development client build
+- Changes to JS code reflect instantly without rebuilding
+
+Configuration in `.revyl/config.yaml`:
+
+```yaml
+hotreload:
+  default: expo
+  providers:
+    expo:
+      port: 8081
+      app_scheme: myapp
+      # use_exp_prefix: true  # If deep links fail with base scheme
+```
+
 ### Build Management
 
 ```bash

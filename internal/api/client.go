@@ -346,6 +346,9 @@ type ExecuteTestRequest struct {
 	TestID         string `json:"test_id"`
 	Retries        int    `json:"retries,omitempty"`
 	BuildVersionID string `json:"build_version_id,omitempty"`
+	// LaunchURL is the deep link URL for hot reload mode.
+	// When provided, the test will launch the app via this URL instead of the normal app launch.
+	LaunchURL string `json:"launch_url,omitempty"`
 }
 
 // ExecuteTestResponse represents a test execution response.
@@ -1133,6 +1136,204 @@ func (c *Client) CancelWorkflow(ctx context.Context, taskID string) (*WorkflowCa
 	}
 
 	var result WorkflowCancelResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetCloudflareCredentials fetches scoped tunnel credentials from the backend.
+//
+// Security notes:
+//   - Requires valid Revyl API key (user must be authenticated)
+//   - Credentials are scoped to tunnel operations only
+//   - Credentials expire after 1 hour
+//   - Credentials are NOT cached locally
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *CloudflareCredentials: Scoped credentials for tunnel creation
+//   - error: Any error that occurred
+func (c *Client) GetCloudflareCredentials(ctx context.Context) (*CloudflareCredentials, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/tunnels/credentials", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CloudflareCredentials
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// FindDevClientBuilds searches for development client builds in the organization.
+// Looks for build variables with names containing "dev" or "development".
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - platform: Platform filter ("ios", "android", or empty for all)
+//
+// Returns:
+//   - []BuildVar: List of matching build variables
+//   - error: Any error that occurred
+func (c *Client) FindDevClientBuilds(ctx context.Context, platform string) ([]BuildVar, error) {
+	resp, err := c.ListOrgBuildVars(ctx, platform, 1, 100)
+	if err != nil {
+		return nil, err
+	}
+
+	var devBuilds []BuildVar
+	for _, bv := range resp.Items {
+		nameLower := strings.ToLower(bv.Name)
+		if strings.Contains(nameLower, "dev") ||
+			strings.Contains(nameLower, "development") {
+			devBuilds = append(devBuilds, bv)
+		}
+	}
+
+	return devBuilds, nil
+}
+
+// GetLatestBuildVersion retrieves the latest version for a build variable.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - buildVarID: The build variable ID
+//
+// Returns:
+//   - *BuildVersion: The latest build version, or nil if none exist
+//   - error: Any error that occurred
+func (c *Client) GetLatestBuildVersion(ctx context.Context, buildVarID string) (*BuildVersion, error) {
+	versions, err := c.ListBuildVersions(ctx, buildVarID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(versions) == 0 {
+		return nil, nil
+	}
+
+	// Return the first version (API returns sorted by most recent)
+	return &versions[0], nil
+}
+
+// StartDeviceRequest represents a request to start a device session.
+// Used for interactive test creation mode.
+type StartDeviceRequest struct {
+	// Platform is the target platform (ios or android).
+	Platform string `json:"platform"`
+
+	// TestID is the test ID to associate with this device session.
+	// Required unless IsSimulation is true.
+	TestID string `json:"test_id,omitempty"`
+
+	// AppPackage is the bundle ID / package name of the app.
+	AppPackage string `json:"app_package,omitempty"`
+
+	// IsSimulation enables simulation mode (streaming without test execution).
+	IsSimulation bool `json:"is_simulation,omitempty"`
+
+	// RunConfig contains optional execution configuration.
+	RunConfig *TestRunConfig `json:"run_config,omitempty"`
+}
+
+// TestRunConfig contains optional execution configuration.
+type TestRunConfig struct {
+	// MaxRetries is the maximum number of retries for failed steps.
+	MaxRetries int `json:"max_retries,omitempty"`
+
+	// TimeoutSeconds is the maximum execution time in seconds.
+	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+}
+
+// StartDevice starts a device session for interactive test creation.
+// Returns the generated StartDeviceResponse type.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The device start request
+//
+// Returns:
+//   - *StartDeviceResponse: The device start response with workflow run ID
+//   - error: Any error that occurred
+func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*StartDeviceResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/execution/start_device", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result StartDeviceResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetWorkerWSURL retrieves the worker WebSocket URL for a workflow run.
+// The URL may not be immediately available after starting a device.
+// Poll this endpoint until status is "ready".
+// Returns the generated WorkerConnectionResponse type.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowRunID: The workflow run ID from StartDevice
+//
+// Returns:
+//   - *WorkerConnectionResponse: The worker connection info
+//   - error: Any error that occurred
+func (c *Client) GetWorkerWSURL(ctx context.Context, workflowRunID string) (*WorkerConnectionResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/execution/streaming/worker-connection/%s", workflowRunID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result WorkerConnectionResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// CancelDeviceResponse represents the response from cancelling a device session.
+type CancelDeviceResponse struct {
+	// Success indicates whether the cancellation was successful.
+	Success bool `json:"success"`
+
+	// Message contains additional information about the cancellation.
+	Message string `json:"message,omitempty"`
+
+	// WorkflowRunID is the workflow run that was cancelled.
+	WorkflowRunID string `json:"workflow_run_id,omitempty"`
+
+	// DBUpdated indicates whether the database was updated.
+	DBUpdated bool `json:"db_updated,omitempty"`
+}
+
+// CancelDevice cancels a running device session.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowRunID: The workflow run ID to cancel
+//
+// Returns:
+//   - *CancelDeviceResponse: The cancellation response
+//   - error: Any error that occurred
+func (c *Client) CancelDevice(ctx context.Context, workflowRunID string) (*CancelDeviceResponse, error) {
+	resp, err := c.doRequest(ctx, "POST",
+		fmt.Sprintf("/api/v1/execution/device/status/cancel/%s", workflowRunID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CancelDeviceResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}

@@ -2,10 +2,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,6 +18,8 @@ import (
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
+	"github.com/revyl/cli/internal/hotreload"
+	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -118,16 +123,20 @@ EXAMPLES:
 }
 
 var (
-	runRetries         int
-	runBuildVersionID  string
-	runNoWait          bool
-	runOpen            bool
-	runTimeout         int
-	runOutputJSON      bool
-	runGitHubActions   bool
-	runVerbose         bool
-	runWorkflowBuild   bool
-	runWorkflowVariant string
+	runRetries           int
+	runBuildVersionID    string
+	runNoWait            bool
+	runOpen              bool
+	runTimeout           int
+	runOutputJSON        bool
+	runGitHubActions     bool
+	runVerbose           bool
+	runWorkflowBuild     bool
+	runWorkflowVariant   string
+	runHotReload         bool
+	runHotReloadPort     int
+	runHotReloadProvider string
+	runHotReloadVariant  string
 )
 
 func init() {
@@ -143,6 +152,10 @@ func init() {
 	runTestCmd.Flags().BoolVar(&runOutputJSON, "output", false, "Output results as JSON")
 	runTestCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	runTestCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
+	runTestCmd.Flags().BoolVar(&runHotReload, "hotreload", false, "Enable hot reload mode with local dev server")
+	runTestCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
+	runTestCmd.Flags().StringVar(&runHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
+	runTestCmd.Flags().StringVar(&runHotReloadVariant, "variant", "", "Build variant for hot reload (uses build.variants.<name>.build_var_id)")
 
 	// Workflow flags
 	runWorkflowCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
@@ -165,6 +178,11 @@ func init() {
 // Returns:
 //   - error: Any error that occurred, or nil on success
 func runTestExec(cmd *cobra.Command, args []string) error {
+	// Check if hot reload mode is enabled
+	if runHotReload {
+		return runTestWithHotReload(cmd, args)
+	}
+
 	testNameOrID := args[0]
 
 	// Check authentication
@@ -572,4 +590,309 @@ func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 
 	data, _ := json.MarshalIndent(output, "", "  ")
 	fmt.Println(string(data))
+}
+
+// runTestWithHotReload executes a test in hot reload mode.
+//
+// Hot reload mode:
+//  1. Selects the appropriate provider (explicit, default, or auto-detected)
+//  2. Starts a local dev server (Expo, Swift, or Android)
+//  3. Creates a Cloudflare tunnel to expose it
+//  4. Runs the test with a deep link URL to connect to the dev server
+//  5. Keeps the dev server running for rapid iteration
+//
+// Parameters:
+//   - cmd: The cobra command being executed
+//   - args: Command line arguments (test name or ID)
+//
+// Returns:
+//   - error: Any error that occurred, or nil on success
+func runTestWithHotReload(cmd *cobra.Command, args []string) error {
+	testNameOrID := args[0]
+
+	// Check authentication
+	authMgr := auth.NewManager()
+	creds, err := authMgr.GetCredentials()
+	if err != nil || creds.APIKey == "" {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+
+	// Load project config
+	cwd, _ := os.Getwd()
+	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	if err != nil {
+		ui.PrintError("Failed to load project config: %v", err)
+		ui.PrintInfo("Run 'revyl init' to initialize your project.")
+		return fmt.Errorf("project not initialized")
+	}
+
+	// Check hot reload configuration
+	if !cfg.HotReload.IsConfigured() {
+		ui.PrintError("Hot reload not configured.")
+		ui.Println()
+		ui.PrintInfo("To set up hot reload, run:")
+		ui.PrintDim("  revyl hotreload setup")
+		ui.Println()
+		ui.PrintInfo("Or add to .revyl/config.yaml:")
+		ui.Println()
+		ui.PrintDim("  hotreload:")
+		ui.PrintDim("    default: expo")
+		ui.PrintDim("    providers:")
+		ui.PrintDim("      expo:")
+		ui.PrintDim("        dev_client_build_id: \"<your-dev-client-build-id>\"")
+		ui.PrintDim("        app_scheme: \"your-app-scheme\"")
+		ui.PrintDim("        # use_exp_prefix: true  # Set to true if deep links fail with base scheme")
+		ui.Println()
+		return fmt.Errorf("hot reload not configured")
+	}
+
+	// Get dev mode flag
+	devMode, _ := cmd.Flags().GetBool("dev")
+
+	// Select provider using registry
+	registry := hotreload.DefaultRegistry()
+	provider, providerCfg, err := registry.SelectProvider(&cfg.HotReload, runHotReloadProvider, cwd)
+	if err != nil {
+		ui.PrintError("Failed to select provider: %v", err)
+		return err
+	}
+
+	// Defensive nil check for provider config
+	if providerCfg == nil {
+		ui.PrintError("Provider '%s' is not configured.", provider.Name())
+		ui.Println()
+		ui.PrintInfo("Run 'revyl hotreload setup' to configure hot reload.")
+		return fmt.Errorf("provider not configured")
+	}
+
+	// Check if provider is supported
+	if !provider.IsSupported() {
+		ui.PrintError("%s hot reload is not yet supported.", provider.DisplayName())
+		return fmt.Errorf("%s not supported", provider.Name())
+	}
+
+	// Override port if specified via flag
+	if runHotReloadPort != 8081 {
+		providerCfg.Port = runHotReloadPort
+	}
+
+	// Resolve build version ID from flags or config
+	// Priority: --build-version-id > --variant > providerCfg.DevClientBuildID
+	buildVersionID := ""
+	buildSource := ""
+
+	if runBuildVersionID != "" {
+		// 1. Explicit --build-version-id flag
+		buildVersionID = runBuildVersionID
+		buildSource = "explicit"
+	} else if runHotReloadVariant != "" {
+		// 2. --variant flag: lookup from build.variants and get latest version
+		variant, ok := cfg.Build.Variants[runHotReloadVariant]
+		if !ok {
+			ui.PrintError("Build variant '%s' not found in config.", runHotReloadVariant)
+			ui.Println()
+			ui.PrintInfo("Available variants:")
+			for name := range cfg.Build.Variants {
+				ui.PrintDim("  - %s", name)
+			}
+			return fmt.Errorf("variant not found: %s", runHotReloadVariant)
+		}
+		if variant.BuildVarID == "" {
+			ui.PrintError("Build variant '%s' has no build_var_id configured.", runHotReloadVariant)
+			ui.Println()
+			ui.PrintInfo("Add build_var_id to your config:")
+			ui.PrintDim("  build:")
+			ui.PrintDim("    variants:")
+			ui.PrintDim("      %s:", runHotReloadVariant)
+			ui.PrintDim("        build_var_id: \"<your-build-var-id>\"")
+			return fmt.Errorf("variant missing build_var_id: %s", runHotReloadVariant)
+		}
+
+		// Create API client to get latest version
+		client := api.NewClientWithDevMode(creds.APIKey, devMode)
+		latestVersion, err := client.GetLatestBuildVersion(cmd.Context(), variant.BuildVarID)
+		if err != nil {
+			ui.PrintError("Failed to get latest build version for variant '%s': %v", runHotReloadVariant, err)
+			return err
+		}
+		if latestVersion == nil {
+			ui.PrintError("No build versions found for variant '%s'.", runHotReloadVariant)
+			ui.Println()
+			ui.PrintInfo("Upload a build first:")
+			ui.PrintDim("  revyl build upload <file> --name %s", runHotReloadVariant)
+			return fmt.Errorf("no builds for variant: %s", runHotReloadVariant)
+		}
+		buildVersionID = latestVersion.ID
+		buildSource = fmt.Sprintf("variant:%s", runHotReloadVariant)
+	} else if providerCfg.DevClientBuildID != "" {
+		// 3. Fall back to config
+		buildVersionID = providerCfg.DevClientBuildID
+		buildSource = "config"
+	} else {
+		// 4. No build ID available
+		ui.PrintError("No build specified for hot reload.")
+		ui.Println()
+		ui.PrintInfo("Specify a build using one of these options:")
+		ui.PrintDim("  --variant <name>         Use latest from build.variants.<name>")
+		ui.PrintDim("  --build-version-id <id>  Use explicit build version ID")
+		ui.Println()
+		ui.PrintInfo("Or configure dev_client_build_id in .revyl/config.yaml")
+		return fmt.Errorf("no build specified")
+	}
+
+	// Update providerCfg with resolved build ID
+	providerCfg.DevClientBuildID = buildVersionID
+
+	// Validate provider config (now that we have build ID)
+	if err := cfg.HotReload.ValidateProvider(provider.Name()); err != nil {
+		ui.PrintError("Invalid hot reload configuration: %v", err)
+		return err
+	}
+
+	// Resolve test ID from alias for display
+	testID := testNameOrID
+	if id, ok := cfg.Tests[testNameOrID]; ok {
+		testID = id
+		ui.PrintInfo("Resolved '%s' to test ID: %s", testNameOrID, testID)
+	}
+
+	ui.PrintBanner(version)
+	ui.PrintInfo("Hot Reload Mode")
+	ui.Println()
+
+	// Show provider selection info
+	if runHotReloadProvider != "" {
+		ui.PrintInfo("Provider: %s (explicit)", provider.DisplayName())
+	} else if cfg.HotReload.Default != "" {
+		ui.PrintInfo("Provider: %s (default)", provider.DisplayName())
+	} else {
+		ui.PrintInfo("Provider: %s (auto-detected)", provider.DisplayName())
+	}
+	ui.PrintInfo("Dev client: %s (%s)", providerCfg.DevClientBuildID, buildSource)
+	ui.Println()
+
+	// Create hot reload manager
+	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
+	manager.SetLogCallback(func(msg string) {
+		ui.PrintDim("  %s", msg)
+	})
+
+	// Set up signal handling for graceful shutdown
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		ui.Println()
+		ui.PrintInfo("Shutting down...")
+		manager.Stop()
+		cancel()
+	}()
+
+	// Start hot reload (dev server + tunnel)
+	ui.PrintInfo("Starting hot reload...")
+	ui.Println()
+
+	result, err := manager.Start(ctx)
+	if err != nil {
+		ui.PrintError("Failed to start hot reload: %v", err)
+		return err
+	}
+
+	// Ensure cleanup on exit
+	defer manager.Stop()
+
+	ui.Println()
+	ui.PrintSuccess("Hot reload ready!")
+	ui.Println()
+	ui.PrintInfo("Tunnel URL: %s", result.TunnelURL)
+	ui.PrintInfo("Deep Link: %s", result.DeepLinkURL)
+	ui.Println()
+
+	// Run the test with the deep link URL
+	ui.PrintInfo("Running test: %s", testNameOrID)
+	ui.Println()
+
+	ui.StartSpinner("Starting test execution...")
+
+	// Track if we've shown the report link yet
+	reportLinkShown := false
+
+	testResult, err := execution.RunTest(ctx, creds.APIKey, cfg, execution.RunTestParams{
+		TestNameOrID:   testNameOrID,
+		Retries:        runRetries,
+		BuildVersionID: providerCfg.DevClientBuildID,
+		Timeout:        runTimeout,
+		DevMode:        devMode,
+		LaunchURL:      result.DeepLinkURL,
+		OnProgress: func(status *sse.TestStatus) {
+			ui.StopSpinner()
+
+			if !reportLinkShown && status.TaskID != "" {
+				reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(devMode), status.TaskID)
+				ui.PrintLink("Report", reportURL)
+				ui.Println()
+				reportLinkShown = true
+			}
+
+			if runVerbose {
+				ui.PrintVerboseStatus(status.Status, status.Progress, status.CurrentStep,
+					status.CompletedSteps, status.TotalSteps, status.Duration)
+			} else {
+				ui.PrintBasicStatus(status.Status, status.Progress, status.CompletedSteps, status.TotalSteps)
+			}
+		},
+	})
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Test execution failed: %v", err)
+		return err
+	}
+
+	ui.Println()
+
+	// Show final result
+	if testResult.Success {
+		if runOutputJSON || runGitHubActions {
+			outputTestResultJSON(testResult)
+		} else {
+			ui.PrintTestResult(testResult.TestName, "passed", testResult.ReportURL, "")
+			ui.Println()
+			ui.PrintSuccess("Test completed successfully!")
+		}
+	} else {
+		if runOutputJSON || runGitHubActions {
+			outputTestResultJSON(testResult)
+		} else {
+			ui.PrintTestResult(testResult.TestName, "failed", testResult.ReportURL, testResult.ErrorMessage)
+			ui.Println()
+			ui.PrintError("Test failed")
+		}
+	}
+
+	if runOpen {
+		ui.PrintInfo("Opening report in browser...")
+		ui.OpenBrowser(testResult.ReportURL)
+	}
+
+	// Keep hot reload server running for rapid iteration
+	ui.Println()
+	ui.PrintInfo("────────────────────────────────────────────────────────────────")
+	ui.PrintInfo("Hot reload server still running. Make code changes and run again.")
+	ui.PrintInfo("Press Ctrl+C to stop.")
+	ui.PrintInfo("────────────────────────────────────────────────────────────────")
+
+	// Wait for interrupt signal
+	<-sigChan
+
+	if !testResult.Success {
+		return fmt.Errorf("test failed")
+	}
+
+	return nil
 }

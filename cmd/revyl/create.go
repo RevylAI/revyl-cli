@@ -2,16 +2,22 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/hotreload"
+	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
+	"github.com/revyl/cli/internal/interactive"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -77,6 +83,15 @@ var (
 	createTestForce    bool
 	createTestDryRun   bool
 
+	// Hot reload flags for test creation
+	createTestHotReload         bool
+	createTestHotReloadPort     int
+	createTestHotReloadProvider string
+	createTestHotReloadVariant  string
+
+	// Interactive mode flag
+	createTestInteractive bool
+
 	// Workflow creation flags
 	createWorkflowTests  string
 	createWorkflowNoOpen bool
@@ -96,6 +111,15 @@ func init() {
 	createTestCmd.Flags().BoolVar(&createTestForce, "force", false, "Update existing test if name already exists")
 	createTestCmd.Flags().BoolVar(&createTestDryRun, "dry-run", false, "Show what would be created without creating")
 
+	// Hot reload flags for test creation
+	createTestCmd.Flags().BoolVar(&createTestHotReload, "hotreload", false, "Create test with hot reload (adds NAVIGATE step, starts dev server)")
+	createTestCmd.Flags().IntVar(&createTestHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
+	createTestCmd.Flags().StringVar(&createTestHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
+	createTestCmd.Flags().StringVar(&createTestHotReloadVariant, "variant", "", "Build variant for hot reload dev client")
+
+	// Interactive mode flag
+	createTestCmd.Flags().BoolVar(&createTestInteractive, "interactive", false, "Create test interactively with real-time device feedback")
+
 	// Workflow creation flags
 	createWorkflowCmd.Flags().StringVar(&createWorkflowTests, "tests", "", "Comma-separated test names or IDs to include")
 	createWorkflowCmd.Flags().BoolVar(&createWorkflowNoOpen, "no-open", false, "Skip opening browser to workflow editor")
@@ -112,6 +136,16 @@ func init() {
 // Returns:
 //   - error: Any error that occurred during test creation
 func runCreateTest(cmd *cobra.Command, args []string) error {
+	// If interactive mode is enabled, use the interactive flow
+	if createTestInteractive {
+		return runCreateTestInteractive(cmd, args)
+	}
+
+	// If hot reload is enabled, use the hot reload flow
+	if createTestHotReload {
+		return runCreateTestWithHotReload(cmd, args)
+	}
+
 	testName := args[0]
 
 	// Check authentication
@@ -340,6 +374,221 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runCreateTestWithHotReload creates a test with hot reload enabled.
+//
+// This function:
+//  1. Starts the dev server and creates a Cloudflare tunnel
+//  2. Builds a deep link URL for the dev client
+//  3. Creates the test with a NAVIGATE step as the first task
+//  4. Opens the browser to the test editor
+//  5. Keeps the dev server running until Ctrl+C
+//
+// Parameters:
+//   - cmd: The cobra command being executed
+//   - args: Command line arguments (test name)
+//
+// Returns:
+//   - error: Any error that occurred
+func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
+	testName := args[0]
+
+	ui.PrintBanner(version)
+
+	// Check authentication
+	authMgr := auth.NewManager()
+	creds, err := authMgr.GetCredentials()
+	if err != nil || creds.APIKey == "" {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+
+	// Get current directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+
+	// Load project config (required for hot reload)
+	cfg, err := config.LoadProjectConfig(configPath)
+	if err != nil {
+		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		return fmt.Errorf("project not initialized")
+	}
+
+	// Check hot reload configuration
+	if !cfg.HotReload.IsConfigured() {
+		ui.PrintError("Hot reload not configured.")
+		ui.Println()
+		ui.PrintInfo("To set up hot reload, run:")
+		ui.PrintDim("  revyl hotreload setup")
+		return fmt.Errorf("hot reload not configured")
+	}
+
+	// Get dev mode flag
+	devMode, _ := cmd.Flags().GetBool("dev")
+
+	// Select provider using registry
+	registry := hotreload.DefaultRegistry()
+	provider, providerCfg, err := registry.SelectProvider(&cfg.HotReload, createTestHotReloadProvider, cwd)
+	if err != nil {
+		ui.PrintError("Failed to select provider: %v", err)
+		return err
+	}
+
+	if providerCfg == nil {
+		ui.PrintError("Provider '%s' is not configured.", provider.Name())
+		ui.Println()
+		ui.PrintInfo("Run 'revyl hotreload setup' to configure hot reload.")
+		return fmt.Errorf("provider not configured")
+	}
+
+	if !provider.IsSupported() {
+		ui.PrintError("%s hot reload is not yet supported.", provider.DisplayName())
+		return fmt.Errorf("%s not supported", provider.Name())
+	}
+
+	// Override port if specified via flag
+	if createTestHotReloadPort != 8081 {
+		providerCfg.Port = createTestHotReloadPort
+	}
+
+	// Determine platform
+	platform := createTestPlatform
+	if platform == "" {
+		// Prompt user to select platform
+		platformOptions := []string{"android", "ios"}
+		idx, err := ui.PromptSelect("Select platform:", platformOptions)
+		if err != nil {
+			return fmt.Errorf("platform selection cancelled: %w", err)
+		}
+		platform = platformOptions[idx]
+	}
+
+	// Auto-detect build_var_id from config if not provided via flag
+	buildVarID := createTestBuildVar
+	if buildVarID == "" && cfg.Build.Variants != nil {
+		if variant, ok := cfg.Build.Variants[platform]; ok && variant.BuildVarID != "" {
+			buildVarID = variant.BuildVarID
+			ui.PrintInfo("Using build variable from config: %s", buildVarID)
+		}
+	}
+
+	ui.Println()
+	ui.PrintInfo("Starting hot reload for test creation...")
+	ui.Println()
+
+	// Start hot reload manager
+	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
+	manager.SetLogCallback(func(msg string) {
+		ui.PrintDim("  %s", msg)
+	})
+
+	// Create a context that can be cancelled
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	// Start the dev server and tunnel
+	result, err := manager.Start(ctx)
+	if err != nil {
+		ui.PrintError("Failed to start hot reload: %v", err)
+		return err
+	}
+	defer manager.Stop()
+
+	ui.Println()
+	ui.PrintSuccess("Hot reload ready!")
+	ui.Println()
+	ui.PrintInfo("Tunnel URL: %s", result.TunnelURL)
+	ui.PrintInfo("Deep link URL:")
+	ui.PrintDim("  %s", result.DeepLinkURL)
+	ui.Println()
+
+	// Create API client
+	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+
+	// Build tasks array with NAVIGATE step as first task
+	tasks := []map[string]interface{}{
+		{
+			"instruction": fmt.Sprintf("Open deep link to connect to dev server: %s", result.DeepLinkURL),
+		},
+	}
+
+	ui.PrintInfo("Creating test '%s' with NAVIGATE step...", testName)
+
+	// Create test on server
+	ui.StartSpinner("Creating test on server...")
+	createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
+		Name:       testName,
+		Platform:   platform,
+		Tasks:      tasks,
+		BuildVarID: buildVarID,
+		OrgID:      creds.OrgID,
+	})
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to create test: %v", err)
+		return err
+	}
+
+	ui.PrintSuccess("Created test: %s (id: %s)", testName, createResp.ID)
+
+	// Add to config
+	if cfg.Tests == nil {
+		cfg.Tests = make(map[string]string)
+	}
+	cfg.Tests[testName] = createResp.ID
+
+	// Ensure .revyl directory exists
+	revylDir := filepath.Join(cwd, ".revyl")
+	if err := os.MkdirAll(revylDir, 0755); err != nil {
+		ui.PrintWarning("Failed to create .revyl directory: %v", err)
+	} else {
+		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
+			ui.PrintWarning("Failed to update config: %v", err)
+		} else {
+			ui.PrintSuccess("Added to .revyl/config.yaml")
+		}
+	}
+
+	// Open browser to test execute page
+	executeURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(devMode), createResp.ID)
+
+	ui.Println()
+	if !createTestNoOpen {
+		ui.PrintInfo("Opening test editor...")
+		ui.PrintLink("Test", executeURL)
+		if err := ui.OpenBrowser(executeURL); err != nil {
+			ui.PrintWarning("Could not open browser: %v", err)
+			ui.PrintInfo("Open manually: %s", executeURL)
+		}
+	} else {
+		ui.PrintInfo("Test URL: %s", executeURL)
+	}
+
+	ui.Println()
+	ui.PrintSuccess("Hot reload running. Press Ctrl+C to stop.")
+	ui.Println()
+	ui.PrintInfo("To test hot reload:")
+	ui.PrintDim("  1. Run the test from the browser")
+	ui.PrintDim("  2. The first step will open the deep link")
+	ui.PrintDim("  3. Your app will connect to the local dev server")
+	ui.PrintDim("  4. Make changes locally and see them reflected immediately")
+	ui.Println()
+
+	// Wait for interrupt signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
+
+	ui.Println()
+	ui.PrintInfo("Shutting down hot reload...")
+
+	return nil
+}
+
 // runCreateWorkflow creates a new workflow on the server and adds it to the local config.
 //
 // Parameters:
@@ -509,5 +758,243 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("Next: Configure your workflow in the browser, then run with:")
 	ui.PrintDim("  revyl run workflow %s", workflowName)
 
+	return nil
+}
+
+// runCreateTestInteractive creates a test using interactive mode.
+//
+// This function:
+//  1. Creates a test on the server
+//  2. Starts a device session
+//  3. Connects to the worker WebSocket
+//  4. Runs the interactive REPL for step-by-step test creation
+//
+// Parameters:
+//   - cmd: The cobra command being executed
+//   - args: Command line arguments (test name)
+//
+// Returns:
+//   - error: Any error that occurred
+func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
+	testName := args[0]
+
+	ui.PrintBanner(version)
+
+	// Check authentication
+	authMgr := auth.NewManager()
+	creds, err := authMgr.GetCredentials()
+	if err != nil || creds.APIKey == "" {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+
+	// Get current directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+
+	// Load or create project config
+	cfg, err := config.LoadProjectConfig(configPath)
+	if err != nil {
+		ui.PrintWarning("Project not initialized. Run 'revyl init' first for full functionality.")
+		cfg = &config.ProjectConfig{
+			Tests:     make(map[string]string),
+			Workflows: make(map[string]string),
+		}
+	}
+
+	// Ensure maps are initialized
+	if cfg.Tests == nil {
+		cfg.Tests = make(map[string]string)
+	}
+	if cfg.Workflows == nil {
+		cfg.Workflows = make(map[string]string)
+	}
+
+	// Determine platform
+	platform := createTestPlatform
+	if platform == "" {
+		platformOptions := []string{"android", "ios"}
+		idx, err := ui.PromptSelect("Select platform:", platformOptions)
+		if err != nil {
+			return fmt.Errorf("platform selection cancelled: %w", err)
+		}
+		platform = platformOptions[idx]
+	}
+
+	// Auto-detect build_var_id from config if not provided via flag
+	buildVarID := createTestBuildVar
+	if buildVarID == "" && cfg.Build.Variants != nil {
+		if variant, ok := cfg.Build.Variants[platform]; ok && variant.BuildVarID != "" {
+			buildVarID = variant.BuildVarID
+			ui.PrintInfo("Using build variable from config: %s", buildVarID)
+		}
+	}
+
+	// Get dev mode flag
+	devMode, _ := cmd.Flags().GetBool("dev")
+
+	// Create API client
+	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+
+	ui.Println()
+	ui.PrintInfo("Creating test '%s' (%s)...", testName, platform)
+
+	// Create test on server with empty tasks
+	ui.StartSpinner("Creating test on server...")
+	createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
+		Name:       testName,
+		Platform:   platform,
+		Tasks:      []interface{}{},
+		BuildVarID: buildVarID,
+		OrgID:      creds.OrgID,
+	})
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to create test: %v", err)
+		return err
+	}
+
+	ui.PrintSuccess("Created test: %s (id: %s)", testName, createResp.ID)
+
+	// Add to config
+	cfg.Tests[testName] = createResp.ID
+
+	// Ensure .revyl directory exists
+	revylDir := filepath.Join(cwd, ".revyl")
+	if err := os.MkdirAll(revylDir, 0755); err != nil {
+		ui.PrintWarning("Failed to create .revyl directory: %v", err)
+	} else {
+		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
+			ui.PrintWarning("Failed to update config: %v", err)
+		} else {
+			ui.PrintSuccess("Added to .revyl/config.yaml")
+		}
+	}
+
+	ui.Println()
+
+	// Create interactive session
+	sessionConfig := interactive.SessionConfig{
+		TestID:   createResp.ID,
+		TestName: testName,
+		Platform: platform,
+		APIKey:   creds.APIKey,
+		DevMode:  devMode,
+	}
+
+	// If hot reload is also enabled, get the deep link URL
+	if createTestHotReload {
+		hotReloadURL, err := getHotReloadURL(cmd, cfg, cwd)
+		if err != nil {
+			ui.PrintWarning("Hot reload setup failed: %v", err)
+			ui.PrintInfo("Continuing without hot reload...")
+		} else {
+			sessionConfig.HotReloadURL = hotReloadURL
+			ui.PrintInfo("Hot reload enabled: %s", hotReloadURL)
+		}
+	}
+
+	session := interactive.NewSession(sessionConfig)
+
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	// If --no-open is set, run without REPL (just output URL and wait for Ctrl+C)
+	if createTestNoOpen {
+		return runHeadlessSession(ctx, session)
+	}
+
+	// Create and run REPL
+	repl := interactive.NewREPL(session)
+
+	return repl.Run(ctx)
+}
+
+// getHotReloadURL starts hot reload and returns the deep link URL.
+func getHotReloadURL(cmd *cobra.Command, cfg *config.ProjectConfig, cwd string) (string, error) {
+	if !cfg.HotReload.IsConfigured() {
+		return "", fmt.Errorf("hot reload not configured")
+	}
+
+	registry := hotreload.DefaultRegistry()
+	provider, providerCfg, err := registry.SelectProvider(&cfg.HotReload, createTestHotReloadProvider, cwd)
+	if err != nil {
+		return "", err
+	}
+
+	if providerCfg == nil {
+		return "", fmt.Errorf("provider not configured")
+	}
+
+	if !provider.IsSupported() {
+		return "", fmt.Errorf("%s not supported", provider.Name())
+	}
+
+	// Override port if specified
+	if createTestHotReloadPort != 8081 {
+		providerCfg.Port = createTestHotReloadPort
+	}
+
+	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
+
+	result, err := manager.Start(cmd.Context())
+	if err != nil {
+		return "", err
+	}
+
+	return result.DeepLinkURL, nil
+}
+
+// runHeadlessSession starts a device session without the interactive REPL.
+// It outputs the frontend URL and waits for Ctrl+C to stop.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - session: The interactive session to run
+//
+// Returns:
+//   - error: Any error that occurred
+func runHeadlessSession(ctx context.Context, session *interactive.Session) error {
+	// Set up signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	// Start session
+	ui.PrintInfo("Starting device...")
+	if err := session.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start session: %w", err)
+	}
+
+	ui.PrintSuccess("Device ready!")
+	ui.Println()
+
+	// Display frontend URL
+	frontendURL := session.GetFrontendURL()
+	ui.PrintInfo("Live preview: %s", frontendURL)
+	ui.Println()
+	ui.PrintInfo("Press Ctrl+C to stop the session...")
+
+	// Wait for signal
+	select {
+	case <-ctx.Done():
+		ui.Println()
+		ui.PrintInfo("Context cancelled, stopping session...")
+	case sig := <-sigChan:
+		ui.Println()
+		ui.PrintInfo("Received %v, stopping session...", sig)
+	}
+
+	// Stop session
+	if err := session.Stop(); err != nil {
+		ui.PrintWarning("Error stopping session: %v", err)
+	}
+
+	ui.PrintSuccess("Session stopped.")
 	return nil
 }

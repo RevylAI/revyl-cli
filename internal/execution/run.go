@@ -23,6 +23,7 @@ import (
 //   - Timeout: Timeout in seconds (default 3600)
 //   - DevMode: If true, use local development servers
 //   - OnProgress: Optional callback for progress updates
+//   - LaunchURL: Optional deep link URL for hot reload mode
 type RunTestParams struct {
 	TestNameOrID   string
 	Retries        int
@@ -30,6 +31,9 @@ type RunTestParams struct {
 	Timeout        int
 	DevMode        bool
 	OnProgress     func(status *sse.TestStatus)
+	// LaunchURL is the deep link URL for hot reload mode.
+	// When provided, the test will launch the app via this URL instead of the normal app launch.
+	LaunchURL string
 }
 
 // RunTestResult contains the result of a test run.
@@ -96,6 +100,7 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 		TestID:         testID,
 		Retries:        retries,
 		BuildVersionID: params.BuildVersionID,
+		LaunchURL:      params.LaunchURL,
 	})
 	if err != nil {
 		return &RunTestResult{

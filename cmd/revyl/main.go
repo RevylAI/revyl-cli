@@ -73,6 +73,7 @@ func init() {
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(pingCmd)
 	rootCmd.AddCommand(upgradeCmd)
+	rootCmd.AddCommand(hotreloadCmd)
 }
 
 // versionCmd shows version information.
