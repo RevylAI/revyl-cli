@@ -322,12 +322,50 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	// Track if we've shown the report link yet
 	reportLinkShown := false
 
-	result, err := execution.RunTest(cmd.Context(), creds.APIKey, cfg, execution.RunTestParams{
+	// Set up signal handling for graceful cancellation
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	// Track task ID for cancellation
+	var taskID string
+	var cancelled bool
+
+	// Handle signals in background
+	go func() {
+		select {
+		case <-sigChan:
+			ui.StopSpinner()
+			ui.Println()
+			ui.PrintWarning("Cancelling test...")
+			cancelled = true
+			if taskID != "" {
+				cancelClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+				_, cancelErr := cancelClient.CancelTest(context.Background(), taskID)
+				if cancelErr != nil {
+					ui.PrintError("Failed to cancel test: %v", cancelErr)
+				} else {
+					ui.PrintInfo("Test cancellation requested")
+				}
+			}
+			cancel() // Cancel the context to stop monitoring
+		case <-ctx.Done():
+			return
+		}
+	}()
+
+	result, err := execution.RunTest(ctx, creds.APIKey, cfg, execution.RunTestParams{
 		TestNameOrID:   testNameOrID,
 		Retries:        runRetries,
 		BuildVersionID: runBuildVersionID,
 		Timeout:        runTimeout,
 		DevMode:        devMode,
+		OnTaskStarted: func(id string) {
+			taskID = id
+		},
 		OnProgress: func(status *sse.TestStatus) {
 			ui.StopSpinner() // Stop spinner on first progress update
 
@@ -348,6 +386,13 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		},
 	})
 	ui.StopSpinner()
+
+	// Handle cancellation
+	if cancelled {
+		ui.Println()
+		ui.PrintWarning("Test cancelled by user")
+		return fmt.Errorf("test cancelled")
+	}
 
 	if err != nil {
 		ui.PrintError("Test execution failed: %v", err)
@@ -574,11 +619,49 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	// Track if we've shown the report link yet
 	reportLinkShown := false
 
-	result, err := execution.RunWorkflow(cmd.Context(), creds.APIKey, cfg, execution.RunWorkflowParams{
+	// Set up signal handling for graceful cancellation
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	// Track task ID for cancellation
+	var taskID string
+	var cancelled bool
+
+	// Handle signals in background
+	go func() {
+		select {
+		case <-sigChan:
+			ui.StopSpinner()
+			ui.Println()
+			ui.PrintWarning("Cancelling workflow...")
+			cancelled = true
+			if taskID != "" {
+				cancelClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+				_, cancelErr := cancelClient.CancelWorkflow(context.Background(), taskID)
+				if cancelErr != nil {
+					ui.PrintError("Failed to cancel workflow: %v", cancelErr)
+				} else {
+					ui.PrintInfo("Workflow cancellation requested")
+				}
+			}
+			cancel() // Cancel the context to stop monitoring
+		case <-ctx.Done():
+			return
+		}
+	}()
+
+	result, err := execution.RunWorkflow(ctx, creds.APIKey, cfg, execution.RunWorkflowParams{
 		WorkflowNameOrID: workflowNameOrID,
 		Retries:          runRetries,
 		Timeout:          runTimeout,
 		DevMode:          devMode,
+		OnTaskStarted: func(id string) {
+			taskID = id
+		},
 		OnProgress: func(status *sse.WorkflowStatus) {
 			ui.StopSpinner() // Stop spinner on first progress update
 
@@ -599,6 +682,13 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		},
 	})
 	ui.StopSpinner()
+
+	// Handle cancellation
+	if cancelled {
+		ui.Println()
+		ui.PrintWarning("Workflow cancelled by user")
+		return fmt.Errorf("workflow cancelled")
+	}
 
 	if err != nil {
 		ui.PrintError("Workflow execution failed: %v", err)

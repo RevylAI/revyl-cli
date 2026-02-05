@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"sync"
 	"time"
@@ -137,6 +138,15 @@ type StepStreamMessage struct {
 	// Error contains the error message if the step failed.
 	Error string `json:"error,omitempty"`
 
+	// ActionType is the type of action performed (tap, type, swipe, etc.).
+	ActionType string `json:"action_type,omitempty"`
+
+	// ActionValue contains the value for the action (e.g., text typed).
+	ActionValue interface{} `json:"action_value,omitempty"`
+
+	// Result contains the detailed execution result from the backend.
+	Result *StepResult `json:"result,omitempty"`
+
 	// ActionsTaken contains the actions performed during execution.
 	ActionsTaken []ActionTaken `json:"actions_taken,omitempty"`
 
@@ -145,6 +155,48 @@ type StepStreamMessage struct {
 
 	// Duration is the execution time in milliseconds.
 	Duration int64 `json:"duration_ms,omitempty"`
+}
+
+// StepResult contains detailed execution result data from the backend.
+type StepResult struct {
+	// Success indicates if the step passed.
+	Success bool `json:"success,omitempty"`
+
+	// ActionID is the identifier for the action performed.
+	ActionID string `json:"action_id,omitempty"`
+
+	// ActionType is the type of action (tap, type, swipe, etc.).
+	ActionType string `json:"action_type,omitempty"`
+
+	// ActionValue contains the value for the action.
+	ActionValue interface{} `json:"action_value,omitempty"`
+
+	// CurrentStep is a description of the current step being executed.
+	CurrentStep string `json:"current_step,omitempty"`
+
+	// CurrentStepIndex is the index of the current step (0-based).
+	CurrentStepIndex int `json:"current_step_index,omitempty"`
+
+	// TotalSteps is the total number of steps in the execution.
+	TotalSteps int `json:"total_steps,omitempty"`
+
+	// Reasoning contains the AI's reasoning for the action.
+	Reasoning string `json:"reasoning,omitempty"`
+
+	// Error contains any error message.
+	Error string `json:"error,omitempty"`
+
+	// ValidationResult contains the result of a validation step.
+	ValidationResult interface{} `json:"validation_result,omitempty"`
+
+	// ExtractedData contains data extracted during the step.
+	ExtractedData interface{} `json:"extracted_data,omitempty"`
+
+	// StepDuration is the execution time in milliseconds.
+	StepDuration int64 `json:"step_duration,omitempty"`
+
+	// ActionDescription is a human-readable description of the action.
+	ActionDescription string `json:"action_description,omitempty"`
 }
 
 // ActionTaken represents an action performed during step execution.
@@ -365,6 +417,11 @@ func (c *WorkerWSClient) SendStepExecution(ctx context.Context, step StepDefinit
 		},
 	}
 
+	// Debug: Log the exact JSON being sent
+	if debugJSON, err := json.MarshalIndent(msg, "", "  "); err == nil {
+		log.Printf("[DEBUG] Sending STEP_EXECUTION message:\n%s", string(debugJSON))
+	}
+
 	if err := c.conn.WriteJSON(msg); err != nil {
 		return fmt.Errorf("failed to send step execution: %w", err)
 	}
@@ -448,6 +505,10 @@ func (c *WorkerWSClient) Close() error {
 	return nil
 }
 
+// StepProgressCallback is called when step execution progress is received.
+// This allows the caller to display intermediate progress updates.
+type StepProgressCallback func(msg *StepStreamMessage)
+
 // WaitForStepResult waits for a step execution result with timeout.
 //
 // Parameters:
@@ -459,6 +520,22 @@ func (c *WorkerWSClient) Close() error {
 //   - *StepStreamMessage: The step result
 //   - error: Any error that occurred
 func (c *WorkerWSClient) WaitForStepResult(ctx context.Context, stepID string, timeout time.Duration) (*StepStreamMessage, error) {
+	return c.WaitForStepResultWithProgress(ctx, stepID, timeout, nil)
+}
+
+// WaitForStepResultWithProgress waits for a step execution result with timeout,
+// calling the progress callback for intermediate updates.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - stepID: The step ID to wait for
+//   - timeout: Maximum time to wait
+//   - onProgress: Optional callback for progress updates (can be nil)
+//
+// Returns:
+//   - *StepStreamMessage: The step result
+//   - error: Any error that occurred
+func (c *WorkerWSClient) WaitForStepResultWithProgress(ctx context.Context, stepID string, timeout time.Duration, onProgress StepProgressCallback) (*StepStreamMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -475,6 +552,17 @@ func (c *WorkerWSClient) WaitForStepResult(ctx context.Context, stepID string, t
 				return nil, fmt.Errorf("connection closed")
 			}
 
+			// Handle ERROR events from the backend
+			if msg.EventType == "ERROR" {
+				var errorMsg struct {
+					Message string `json:"message"`
+				}
+				if err := json.Unmarshal(msg.Raw, &errorMsg); err == nil && errorMsg.Message != "" {
+					return nil, fmt.Errorf("backend error: %s", errorMsg.Message)
+				}
+				return nil, fmt.Errorf("backend error (unknown)")
+			}
+
 			// Check if this is a STEP_EXECUTION message for our step
 			// The backend sends event_type: "STEP_EXECUTION" with status values from StepExecutionStatus enum
 			if msg.EventType == "STEP_EXECUTION" {
@@ -488,6 +576,11 @@ func (c *WorkerWSClient) WaitForStepResult(ctx context.Context, stepID string, t
 					// Backend uses: "completed", "error", "canceled" (from StepExecutionStatus enum)
 					if stepResult.Status == "completed" || stepResult.Status == "error" || stepResult.Status == "canceled" {
 						return &stepResult, nil
+					}
+
+					// For non-terminal statuses (started, in_progress), call progress callback
+					if onProgress != nil {
+						onProgress(&stepResult)
 					}
 				}
 			}

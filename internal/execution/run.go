@@ -23,6 +23,7 @@ import (
 //   - Timeout: Timeout in seconds (default 3600)
 //   - DevMode: If true, use local development servers
 //   - OnProgress: Optional callback for progress updates
+//   - OnTaskStarted: Optional callback called when task is created (provides task ID for cancellation)
 //   - LaunchURL: Optional deep link URL for hot reload mode
 type RunTestParams struct {
 	TestNameOrID   string
@@ -31,6 +32,9 @@ type RunTestParams struct {
 	Timeout        int
 	DevMode        bool
 	OnProgress     func(status *sse.TestStatus)
+	// OnTaskStarted is called immediately after the test execution is started.
+	// This provides the task ID early, enabling cancellation before monitoring completes.
+	OnTaskStarted func(taskID string)
 	// LaunchURL is the deep link URL for hot reload mode.
 	// When provided, the test will launch the app via this URL instead of the normal app launch.
 	LaunchURL string
@@ -109,6 +113,11 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 		}, nil
 	}
 
+	// Notify caller of task ID immediately for cancellation support
+	if params.OnTaskStarted != nil {
+		params.OnTaskStarted(resp.TaskID)
+	}
+
 	// Monitor execution
 	monitor := sse.NewMonitorWithDevMode(apiKey, timeout, params.DevMode)
 	finalStatus, err := monitor.MonitorTest(ctx, resp.TaskID, testID, params.OnProgress)
@@ -142,12 +151,16 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 //   - Timeout: Timeout in seconds (default 3600)
 //   - DevMode: If true, use local development servers
 //   - OnProgress: Optional callback for progress updates
+//   - OnTaskStarted: Optional callback called when task is created (provides task ID for cancellation)
 type RunWorkflowParams struct {
 	WorkflowNameOrID string
 	Retries          int
 	Timeout          int
 	DevMode          bool
 	OnProgress       func(status *sse.WorkflowStatus)
+	// OnTaskStarted is called immediately after the workflow execution is started.
+	// This provides the task ID early, enabling cancellation before monitoring completes.
+	OnTaskStarted func(taskID string)
 }
 
 // RunWorkflowResult contains the result of a workflow run.
@@ -225,6 +238,11 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 			Success:      false,
 			ErrorMessage: err.Error(),
 		}, nil
+	}
+
+	// Notify caller of task ID immediately for cancellation support
+	if params.OnTaskStarted != nil {
+		params.OnTaskStarted(resp.TaskID)
 	}
 
 	// Monitor execution

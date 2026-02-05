@@ -163,6 +163,18 @@ func PrintVerboseStatus(statusStr string, progress int, currentStep string, comp
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)
 
+	// Special handling for device setup phase
+	statusLower := strings.ToLower(statusStr)
+	if statusLower == "starting" || statusLower == "queued" {
+		displayStatus := "Setting up device..."
+		statusLine := fmt.Sprintf("%s %s", statusIcon, InfoStyle.Render(displayStatus))
+		if duration != "" {
+			statusLine += DimStyle.Render(fmt.Sprintf(" (%s)", duration))
+		}
+		fmt.Println(statusLine)
+		return
+	}
+
 	// Build status line
 	statusLine := fmt.Sprintf("%s %s", statusIcon, InfoStyle.Render(statusStr))
 
@@ -199,6 +211,14 @@ func PrintBasicStatus(statusStr string, progress int, completedSteps, totalSteps
 
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)
+
+	// Special handling for device setup phase
+	statusLower := strings.ToLower(statusStr)
+	if statusLower == "starting" || statusLower == "queued" {
+		statusLine := fmt.Sprintf("%s %s", statusIcon, "Setting up device...")
+		fmt.Print(statusLine)
+		return
+	}
 
 	// Build status line
 	statusLine := fmt.Sprintf("%s %s", statusIcon, statusStr)

@@ -151,6 +151,9 @@ type Session struct {
 	// onStepResult is called when a step execution completes.
 	onStepResult func(*StepRecord)
 
+	// onStepProgress is called when step execution progress is received.
+	onStepProgress func(*api.StepStreamMessage)
+
 	// onLog is called when a log message is received.
 	onLog func(string)
 }
@@ -198,6 +201,17 @@ func (s *Session) SetOnStepResult(callback func(*StepRecord)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onStepResult = callback
+}
+
+// SetOnStepProgress sets the callback for step progress updates.
+// This is called during step execution with intermediate progress information.
+//
+// Parameters:
+//   - callback: Function called when progress is received
+func (s *Session) SetOnStepProgress(callback func(*api.StepStreamMessage)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onStepProgress = callback
 }
 
 // SetOnLog sets the callback for log messages.
@@ -439,8 +453,13 @@ func (s *Session) ExecuteStep(ctx context.Context, cmdType CommandType, instruct
 		return nil, fmt.Errorf("failed to send step: %w", err)
 	}
 
-	// Wait for result
-	result, err := s.wsClient.WaitForStepResult(ctx, stepID, s.config.StepTimeout)
+	// Get progress callback
+	s.mu.RLock()
+	progressCallback := s.onStepProgress
+	s.mu.RUnlock()
+
+	// Wait for result with progress updates
+	result, err := s.wsClient.WaitForStepResultWithProgress(ctx, stepID, s.config.StepTimeout, progressCallback)
 	if err != nil {
 		s.setState(StateReady)
 		return nil, fmt.Errorf("step execution failed: %w", err)

@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/hotreload"
 )
 
@@ -207,8 +208,9 @@ func (r *REPL) Run(ctx context.Context) error {
 		r.printStepResult(step)
 	})
 
-	// Print welcome message
-	r.printWelcome()
+	r.session.SetOnStepProgress(func(msg *api.StepStreamMessage) {
+		r.printStepProgress(msg)
+	})
 
 	// Start the session
 	fmt.Println(r.styles.Info.Render("Starting device..."))
@@ -217,6 +219,9 @@ func (r *REPL) Run(ctx context.Context) error {
 	}
 	fmt.Println(r.styles.Success.Render("Device ready!"))
 	fmt.Println()
+
+	// Print welcome message after device is ready
+	r.printWelcome()
 
 	// Display frontend URL for live preview
 	frontendURL := r.session.GetFrontendURL()
@@ -590,6 +595,63 @@ func (r *REPL) printStepResult(step *StepRecord) {
 				desc = action.Type
 			}
 			fmt.Printf("      %s %s\n", r.styles.Action.Render("→"), r.styles.Action.Render(desc))
+		}
+	}
+}
+
+// printStepProgress prints intermediate progress during step execution.
+func (r *REPL) printStepProgress(msg *api.StepStreamMessage) {
+	// Clear the current "executing" line and print progress
+	fmt.Print("\033[1A\033[K") // Move up one line and clear it
+
+	// Build progress info
+	var progressInfo string
+
+	// Check for action type from the message
+	actionType := msg.ActionType
+	if actionType == "" && msg.Result != nil {
+		actionType = msg.Result.ActionType
+	}
+
+	// Check for current step description from result
+	if msg.Result != nil && msg.Result.CurrentStep != "" {
+		progressInfo = msg.Result.CurrentStep
+	} else if actionType != "" {
+		progressInfo = actionType
+	}
+
+	// Format the status line
+	statusIcon := r.styles.Running.Render("⋯")
+	statusText := "executing"
+
+	if msg.Status == "started" {
+		statusText = "starting"
+	} else if msg.Status == "in_progress" {
+		statusText = "in progress"
+	}
+
+	// Print progress with action info if available
+	if progressInfo != "" {
+		fmt.Printf("    %s %s: %s\n", statusIcon, r.styles.Running.Render(statusText), r.styles.Action.Render(progressInfo))
+	} else {
+		fmt.Printf("    %s %s\n", statusIcon, r.styles.Running.Render(statusText))
+	}
+
+	// Print additional details if available
+	if msg.Result != nil {
+		// Show reasoning if available (helps understand what the AI is thinking)
+		if msg.Result.Reasoning != "" {
+			// Truncate long reasoning
+			reasoning := msg.Result.Reasoning
+			if len(reasoning) > 80 {
+				reasoning = reasoning[:77] + "..."
+			}
+			fmt.Printf("      %s %s\n", r.styles.Dim.Render("💭"), r.styles.Dim.Render(reasoning))
+		}
+
+		// Show action description if available
+		if msg.Result.ActionDescription != "" {
+			fmt.Printf("      %s %s\n", r.styles.Action.Render("→"), r.styles.Action.Render(msg.Result.ActionDescription))
 		}
 	}
 }
