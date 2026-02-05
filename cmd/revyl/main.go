@@ -31,6 +31,10 @@ var rootCmd = &cobra.Command{
 			log.SetLevel(log.DebugLevel)
 			log.Debug("Debug logging enabled")
 		}
+
+		// Set quiet mode from global flag
+		quiet, _ := cmd.Flags().GetBool("quiet")
+		ui.SetQuietMode(quiet)
 	},
 }
 
@@ -48,6 +52,8 @@ func init() {
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug logging")
 	rootCmd.PersistentFlags().Bool("dev", false, "Use local development servers (reads PORT from .env files)")
 	rootCmd.PersistentFlags().StringP("config", "c", "", "Path to config file (default: .revyl/config.yaml)")
+	rootCmd.PersistentFlags().Bool("json", false, "Output results as JSON (where supported)")
+	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-essential output")
 
 	// Add subcommands
 	rootCmd.AddCommand(versionCmd)
@@ -58,10 +64,15 @@ func init() {
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(testCmd)
-	rootCmd.AddCommand(testsCmd)
+	rootCmd.AddCommand(workflowCmd)
+	rootCmd.AddCommand(cancelCmd)
 	rootCmd.AddCommand(docsCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(schemaCmd)
+	rootCmd.AddCommand(doctorCmd)
+	rootCmd.AddCommand(pingCmd)
+	rootCmd.AddCommand(upgradeCmd)
+	rootCmd.AddCommand(hotreloadCmd)
 }
 
 // versionCmd shows version information.

@@ -150,6 +150,17 @@ func extractExamples(example string) []string {
 func getCommonWorkflows() []Workflow {
 	return []Workflow{
 		{
+			Name:        "Check authentication (do this first!)",
+			Description: "Verify you are authenticated before running tests",
+			Steps: []string{
+				"revyl auth status",
+				"# If not authenticated:",
+				"revyl auth login",
+				"# Or set environment variable:",
+				"export REVYL_API_KEY=your-api-key",
+			},
+		},
+		{
 			Name:        "First-time setup",
 			Description: "Set up Revyl for a new project",
 			Steps: []string{
@@ -159,17 +170,67 @@ func getCommonWorkflows() []Workflow {
 			},
 		},
 		{
-			Name:        "Run existing test",
-			Description: "Build, upload, and run a test",
+			Name:        "List available tests",
+			Description: "See what tests are available to run",
 			Steps: []string{
-				"revyl test <name>",
+				"revyl tests list",
+				"# Or see all tests in your organization:",
+				"revyl tests remote",
 			},
 		},
 		{
-			Name:        "Run without building",
-			Description: "Run a test using existing build",
+			Name:        "Build and run single test",
+			Description: "Build, upload, and run a test (full pipeline)",
 			Steps: []string{
+				"# Use test NAME from config, not file path:",
+				"revyl test <name>",
+				"# With a specific build variant:",
+				"revyl test <name> --variant android",
+				"revyl test <name> --variant ios-skip-login",
+			},
+		},
+		{
+			Name:        "Run test with specific build variant",
+			Description: "Use a named build variant from config",
+			Steps: []string{
+				"# List available variants in .revyl/config.yaml under build.variants",
+				"revyl test login-flow --variant android",
+				"revyl test login-flow --variant ios-skip-login",
+				"revyl workflow smoke-tests --variant android",
+			},
+		},
+		{
+			Name:        "Build and run workflow",
+			Description: "Build, upload, and run a workflow (multiple tests)",
+			Steps: []string{
+				"revyl workflow <name>",
+				"# Or with a specific build variant:",
+				"revyl workflow <name> --variant android",
+			},
+		},
+		{
+			Name:        "Run test without building",
+			Description: "Run a test using existing build (no build step)",
+			Steps: []string{
+				"# Use test NAME from config, not file path:",
 				"revyl run test <name>",
+			},
+		},
+		{
+			Name:        "Run workflow without building",
+			Description: "Run a workflow using existing build",
+			Steps: []string{
+				"revyl run workflow <name>",
+			},
+		},
+		{
+			Name:        "Run workflow with optional build",
+			Description: "Run a workflow, optionally building first",
+			Steps: []string{
+				"# Without build:",
+				"revyl run workflow <name>",
+				"# With build:",
+				"revyl run workflow <name> --build --variant android",
 			},
 		},
 		{
@@ -177,13 +238,15 @@ func getCommonWorkflows() []Workflow {
 			Description: "Run tests in CI with JSON output",
 			Steps: []string{
 				"revyl run test <name> --output",
+				"# Or for workflows:",
+				"revyl run workflow <name> --output",
 			},
 		},
 		{
 			Name:        "Validate YAML tests",
 			Description: "Check YAML syntax before committing",
 			Steps: []string{
-				"revyl tests validate tests/*.yaml",
+				"revyl tests validate .revyl/tests/*.yaml",
 			},
 		},
 		{
@@ -325,17 +388,108 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("# Revyl CLI - Complete Reference for LLMs\n\n")
 	sb.WriteString("This document contains everything needed to use the Revyl CLI and generate YAML tests.\n\n")
 
+	// CRITICAL: Prerequisites section - check these FIRST
+	sb.WriteString("## Prerequisites (Check First!)\n\n")
+	sb.WriteString("Before running any test commands, you MUST:\n\n")
+	sb.WriteString("1. **Authenticate**: `revyl auth login` OR set `REVYL_API_KEY` environment variable\n")
+	sb.WriteString("2. **Check status**: `revyl auth status` (verify authentication works)\n")
+	sb.WriteString("3. **Initialize project**: `revyl init` (creates .revyl/config.yaml)\n\n")
+	sb.WriteString("If you get 'REVYL_API_KEY not found', run `revyl auth login` first.\n\n")
+
+	// Key Concepts section - critical for understanding
+	sb.WriteString("## Key Concepts (Important!)\n\n")
+
+	sb.WriteString("### Test Names vs YAML Files vs UUIDs\n\n")
+	sb.WriteString("- **YAML files** (`.revyl/tests/*.yaml`) define test steps - they are NOT passed directly to `run test`\n")
+	sb.WriteString("- **Test names** are aliases defined in `.revyl/config.yaml` under `tests:` section\n")
+	sb.WriteString("- **UUIDs** are the actual test IDs on the Revyl server\n")
+	sb.WriteString("- `revyl run test <name>` uses the NAME from config, NOT a file path\n\n")
+
+	sb.WriteString("Example `.revyl/config.yaml`:\n")
+	sb.WriteString("```yaml\n")
+	sb.WriteString("tests:\n")
+	sb.WriteString("  login-flow: \"abc123-def456-...\"      # alias -> UUID\n")
+	sb.WriteString("  experiments: \"xyz789-...\"            # alias -> UUID\n")
+	sb.WriteString("```\n\n")
+
+	sb.WriteString("To run a test: `revyl run test login-flow` (use the alias name, not the file path)\n\n")
+
+	// Build Variants section
+	sb.WriteString("### Build Variants\n\n")
+	sb.WriteString("Build variants are defined in `.revyl/config.yaml` under `build.variants:`\n\n")
+	sb.WriteString("```yaml\n")
+	sb.WriteString("build:\n")
+	sb.WriteString("  variants:\n")
+	sb.WriteString("    android:\n")
+	sb.WriteString("      command: \"./gradlew assembleDebug\"\n")
+	sb.WriteString("      output: \"app/build/outputs/apk/debug/app-debug.apk\"\n")
+	sb.WriteString("      build_var_id: \"bv_xxx\"\n")
+	sb.WriteString("    ios-skip-login:\n")
+	sb.WriteString("      command: \"npx eas build --local --profile skip-login\"\n")
+	sb.WriteString("      output: \"build/app.tar.gz\"\n")
+	sb.WriteString("      build_var_id: \"bv_yyy\"\n")
+	sb.WriteString("```\n\n")
+	sb.WriteString("To run with a specific variant: `revyl test <name> --variant ios-skip-login`\n\n")
+
+	// Common Mistakes section - prevent errors
+	sb.WriteString("## Common Mistakes (Don't Do This!)\n\n")
+	sb.WriteString("| Wrong | Correct | Why |\n")
+	sb.WriteString("|-------|---------|-----|\n")
+	sb.WriteString("| `revyl run test experiments.yaml` | `revyl run test experiments` | Use test NAME from config, not file path |\n")
+	sb.WriteString("| `revyl run test .revyl/tests/login.yaml` | `revyl run test login-flow` | Use alias name, not file path |\n")
+	sb.WriteString("| Adding `build: name: variant` to YAML | Use `--variant <name>` flag | Build variants are CLI flags, not YAML fields |\n")
+	sb.WriteString("| Running tests before `revyl auth login` | Run `revyl auth login` first | Authentication is required |\n")
+	sb.WriteString("| Pressing Ctrl+C to cancel test | `revyl cancel test <task_id>` | Ctrl+C only stops monitoring, not the test |\n\n")
+
 	// Quick reference
 	sb.WriteString("## Quick Reference\n\n")
 	sb.WriteString("```\n")
-	sb.WriteString("revyl auth login          # Authenticate\n")
-	sb.WriteString("revyl init                # Initialize project\n")
-	sb.WriteString("revyl create test <name>  # Create new test\n")
-	sb.WriteString("revyl test <name>         # Build and run test\n")
-	sb.WriteString("revyl run test <name>     # Run without building\n")
-	sb.WriteString("revyl tests validate <f>  # Validate YAML\n")
-	sb.WriteString("revyl schema              # Get this schema\n")
+	sb.WriteString("revyl auth login              # Authenticate (do this first!)\n")
+	sb.WriteString("revyl auth status             # Check authentication\n")
+	sb.WriteString("revyl init                    # Initialize project\n")
+	sb.WriteString("revyl create test <name>      # Create new test\n")
+	sb.WriteString("revyl test <name>             # Build and run single test\n")
+	sb.WriteString("revyl test <name> --variant X # Build with specific variant\n")
+	sb.WriteString("revyl workflow <name>         # Build and run workflow (multiple tests)\n")
+	sb.WriteString("revyl run test <name>         # Run test without building\n")
+	sb.WriteString("revyl run workflow <name>     # Run workflow without building\n")
+	sb.WriteString("revyl cancel test <task_id>   # Cancel a running test\n")
+	sb.WriteString("revyl cancel workflow <id>    # Cancel a running workflow\n")
+	sb.WriteString("revyl tests list              # List available tests\n")
+	sb.WriteString("revyl tests validate <f>      # Validate YAML syntax\n")
+	sb.WriteString("revyl schema                  # Get this schema\n")
 	sb.WriteString("```\n\n")
+
+	// Command comparison
+	sb.WriteString("## Command Comparison\n\n")
+	sb.WriteString("| Command | Builds? | Runs |\n")
+	sb.WriteString("|---------|---------|------|\n")
+	sb.WriteString("| `revyl test <name>` | Yes | Single test |\n")
+	sb.WriteString("| `revyl test <name> --variant X` | Yes (variant X) | Single test |\n")
+	sb.WriteString("| `revyl workflow <name>` | Yes | Workflow (multiple tests) |\n")
+	sb.WriteString("| `revyl run test <name>` | No | Single test |\n")
+	sb.WriteString("| `revyl run workflow <name>` | No | Workflow |\n")
+	sb.WriteString("| `revyl run workflow <name> --build` | Yes | Workflow |\n")
+	sb.WriteString("\n")
+
+	// Early validation note
+	sb.WriteString("## Early Validation\n\n")
+	sb.WriteString("The CLI validates test/workflow existence BEFORE starting expensive build operations.\n")
+	sb.WriteString("If a test or workflow doesn't exist, you'll get an immediate error with available options.\n\n")
+
+	// Cancelling tests section
+	sb.WriteString("## Cancelling Running Tests\n\n")
+	sb.WriteString("Use `revyl cancel` to stop a running test or workflow:\n\n")
+	sb.WriteString("```\n")
+	sb.WriteString("revyl cancel test <task_id>       # Cancel a running test\n")
+	sb.WriteString("revyl cancel workflow <task_id>   # Cancel a running workflow (and all its tests)\n")
+	sb.WriteString("```\n\n")
+	sb.WriteString("**Where to find the task ID:**\n")
+	sb.WriteString("- CLI output when starting: `Task ID: abc123-def456...`\n")
+	sb.WriteString("- Report URL: `https://app.revyl.ai/tests/report?taskId=abc123...`\n\n")
+	sb.WriteString("**Notes:**\n")
+	sb.WriteString("- If the test/workflow has already completed, failed, or been cancelled, you'll get an error with the current status\n")
+	sb.WriteString("- Pressing Ctrl+C only stops the CLI from monitoring - use `revyl cancel` to actually stop the test on the server\n\n")
 
 	// CLI Commands section
 	sb.WriteString("## CLI Commands\n\n")

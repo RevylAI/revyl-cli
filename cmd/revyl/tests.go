@@ -17,23 +17,6 @@ import (
 	"github.com/revyl/cli/internal/yaml"
 )
 
-// testsCmd is the parent command for test management.
-var testsCmd = &cobra.Command{
-	Use:   "tests",
-	Short: "Manage test definitions",
-	Long: `Manage local and remote test definitions.
-
-Commands:
-  list     - List tests with sync status (requires project config)
-  remote   - List all tests in your organization
-  validate - Validate YAML test files (dry-run)
-  push     - Push local changes to remote
-  pull     - Pull remote changes to local
-  diff     - Show diff between local and remote
-
-To create a new test, use: revyl create test <name>`,
-}
-
 // testsListCmd lists tests with sync status.
 var testsListCmd = &cobra.Command{
 	Use:   "list",
@@ -141,27 +124,36 @@ var (
 	testsLimit         int
 	testsPlatform      string
 	validateOutputJSON bool
+	testsListJSON      bool
+	testsRemoteJSON    bool
+	testsPushDryRun    bool
+	testsPullDryRun    bool
 )
 
 func init() {
-	testsCmd.AddCommand(testsListCmd)
-	testsCmd.AddCommand(testsRemoteCmd)
-	testsCmd.AddCommand(testsValidateCmd)
-	testsCmd.AddCommand(testsPushCmd)
-	testsCmd.AddCommand(testsPullCmd)
-	testsCmd.AddCommand(testsDiffCmd)
-
 	testsPushCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite remote")
+	testsPushCmd.Flags().BoolVar(&testsPushDryRun, "dry-run", false, "Show what would be pushed without pushing")
+
 	testsPullCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite local")
+	testsPullCmd.Flags().BoolVar(&testsPullDryRun, "dry-run", false, "Show what would be pulled without pulling")
 
 	testsRemoteCmd.Flags().IntVar(&testsLimit, "limit", 50, "Maximum number of tests to return")
 	testsRemoteCmd.Flags().StringVar(&testsPlatform, "platform", "", "Filter by platform (android, ios)")
+	testsRemoteCmd.Flags().BoolVar(&testsRemoteJSON, "json", false, "Output results as JSON")
+
+	testsListCmd.Flags().BoolVar(&testsListJSON, "json", false, "Output results as JSON")
 
 	testsValidateCmd.Flags().BoolVar(&validateOutputJSON, "output", false, "Output results as JSON")
 }
 
 // runTestsList lists tests with sync status.
 func runTestsList(cmd *cobra.Command, args []string) error {
+	// Check if --json flag is set (either local or global)
+	jsonOutput := testsListJSON
+	if globalJSON, _ := cmd.Flags().GetBool("json"); globalJSON {
+		jsonOutput = true
+	}
+
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
@@ -186,7 +178,9 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 	testsDir := filepath.Join(cwd, ".revyl", "tests")
 	localTests, err := config.LoadLocalTests(testsDir)
 	if err != nil {
-		ui.PrintWarning("Could not load local tests: %v", err)
+		if !jsonOutput {
+			ui.PrintWarning("Could not load local tests: %v", err)
+		}
 		localTests = make(map[string]*config.LocalTest)
 	}
 
@@ -195,13 +189,35 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 	client := api.NewClientWithDevMode(creds.APIKey, devMode)
 	resolver := sync.NewResolver(client, cfg, localTests)
 
-	ui.StartSpinner("Fetching test status...")
+	if !jsonOutput {
+		ui.StartSpinner("Fetching test status...")
+	}
 	statuses, err := resolver.GetAllStatuses(cmd.Context())
-	ui.StopSpinner()
+	if !jsonOutput {
+		ui.StopSpinner()
+	}
 
 	if err != nil {
 		ui.PrintError("Failed to fetch test status: %v", err)
 		return err
+	}
+
+	if jsonOutput {
+		// Output as JSON
+		output := make([]map[string]interface{}, 0, len(statuses))
+		for _, s := range statuses {
+			item := map[string]interface{}{
+				"name":           s.Name,
+				"status":         s.Status.String(),
+				"local_version":  s.LocalVersion,
+				"remote_version": s.RemoteVersion,
+				"last_sync":      s.LastSync,
+			}
+			output = append(output, item)
+		}
+		data, _ := json.MarshalIndent(output, "", "  ")
+		fmt.Println(string(data))
+		return nil
 	}
 
 	if len(statuses) == 0 {
@@ -272,6 +288,52 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 		testName = args[0]
 	}
 
+	// Handle dry-run mode
+	if testsPushDryRun {
+		ui.StartSpinner("Checking what would be pushed...")
+		statuses, err := resolver.GetAllStatuses(cmd.Context())
+		ui.StopSpinner()
+
+		if err != nil {
+			ui.PrintError("Failed to check status: %v", err)
+			return err
+		}
+
+		ui.Println()
+		ui.PrintInfo("Dry-run mode - showing what would be pushed:")
+		ui.Println()
+
+		var toPush []sync.TestSyncStatus
+		for _, s := range statuses {
+			// Filter by name if specified
+			if testName != "" && s.Name != testName {
+				continue
+			}
+			// Only show tests that would be pushed (modified or local-only)
+			if s.Status == sync.StatusModified || s.Status == sync.StatusLocalOnly {
+				toPush = append(toPush, s)
+			}
+		}
+
+		if len(toPush) == 0 {
+			ui.PrintInfo("No tests to push")
+		} else {
+			for _, s := range toPush {
+				ui.PrintInfo("  %s (%s)", s.Name, s.Status.String())
+				if s.LocalVersion > 0 {
+					ui.PrintDim("    Local version: v%d", s.LocalVersion)
+				}
+				if s.RemoteVersion > 0 {
+					ui.PrintDim("    Remote version: v%d", s.RemoteVersion)
+				}
+			}
+		}
+
+		ui.Println()
+		ui.PrintSuccess("Dry-run complete - no changes made")
+		return nil
+	}
+
 	ui.StartSpinner("Pushing tests...")
 	results, err := resolver.SyncToRemote(cmd.Context(), testName, testsDir, testsForce)
 	ui.StopSpinner()
@@ -330,6 +392,52 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 	var testName string
 	if len(args) > 0 {
 		testName = args[0]
+	}
+
+	// Handle dry-run mode
+	if testsPullDryRun {
+		ui.StartSpinner("Checking what would be pulled...")
+		statuses, err := resolver.GetAllStatuses(cmd.Context())
+		ui.StopSpinner()
+
+		if err != nil {
+			ui.PrintError("Failed to check status: %v", err)
+			return err
+		}
+
+		ui.Println()
+		ui.PrintInfo("Dry-run mode - showing what would be pulled:")
+		ui.Println()
+
+		var toPull []sync.TestSyncStatus
+		for _, s := range statuses {
+			// Filter by name if specified
+			if testName != "" && s.Name != testName {
+				continue
+			}
+			// Only show tests that would be pulled (outdated or remote-only)
+			if s.Status == sync.StatusOutdated || s.Status == sync.StatusRemoteOnly {
+				toPull = append(toPull, s)
+			}
+		}
+
+		if len(toPull) == 0 {
+			ui.PrintInfo("No tests to pull")
+		} else {
+			for _, s := range toPull {
+				ui.PrintInfo("  %s (%s)", s.Name, s.Status.String())
+				if s.LocalVersion > 0 {
+					ui.PrintDim("    Local version: v%d", s.LocalVersion)
+				}
+				if s.RemoteVersion > 0 {
+					ui.PrintDim("    Remote version: v%d", s.RemoteVersion)
+				}
+			}
+		}
+
+		ui.Println()
+		ui.PrintSuccess("Dry-run complete - no changes made")
+		return nil
 	}
 
 	ui.StartSpinner("Pulling tests...")
@@ -418,6 +526,12 @@ func runTestsDiff(cmd *cobra.Command, args []string) error {
 // Returns:
 //   - error: Any error that occurred while listing tests
 func runTestsRemote(cmd *cobra.Command, args []string) error {
+	// Check if --json flag is set (either local or global)
+	jsonOutput := testsRemoteJSON
+	if globalJSON, _ := cmd.Flags().GetBool("json"); globalJSON {
+		jsonOutput = true
+	}
+
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
@@ -430,19 +544,17 @@ func runTestsRemote(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(creds.APIKey, devMode)
 
-	ui.StartSpinner("Fetching tests from organization...")
+	if !jsonOutput {
+		ui.StartSpinner("Fetching tests from organization...")
+	}
 	result, err := client.ListOrgTests(cmd.Context(), testsLimit, 0)
-	ui.StopSpinner()
+	if !jsonOutput {
+		ui.StopSpinner()
+	}
 
 	if err != nil {
 		ui.PrintError("Failed to fetch tests: %v", err)
 		return err
-	}
-
-	if len(result.Tests) == 0 {
-		ui.PrintInfo("No tests found in your organization")
-		ui.PrintInfo("Create tests at https://app.revyl.ai")
-		return nil
 	}
 
 	// Filter by platform if specified
@@ -455,6 +567,24 @@ func runTestsRemote(cmd *cobra.Command, args []string) error {
 			}
 		}
 		tests = filtered
+	}
+
+	if jsonOutput {
+		// Output as JSON
+		output := map[string]interface{}{
+			"tests": tests,
+			"count": len(tests),
+			"total": result.Count,
+		}
+		data, _ := json.MarshalIndent(output, "", "  ")
+		fmt.Println(string(data))
+		return nil
+	}
+
+	if len(result.Tests) == 0 {
+		ui.PrintInfo("No tests found in your organization")
+		ui.PrintInfo("Create tests at https://app.revyl.ai")
+		return nil
 	}
 
 	if len(tests) == 0 {

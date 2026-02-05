@@ -34,6 +34,25 @@ revyl init
 revyl test login-flow
 ```
 
+## Team Quick Start (Internal)
+
+For team members working from the monorepo:
+
+```bash
+# Clone and build
+git pull
+cd revyl-cli
+make build
+
+# Add to PATH (optional, for current session)
+export PATH="$PATH:$(pwd)/build"
+
+# Or use directly
+./build/revyl --help
+./build/revyl auth login
+./build/revyl --dev test my-test  # Against local backend
+```
+
 ## Commands
 
 ### Authentication
@@ -66,6 +85,42 @@ revyl run test login-flow
 revyl run workflow smoke-tests
 ```
 
+### Hot Reload (Expo)
+
+Enable rapid iteration by running tests against a local dev server:
+
+```bash
+# One-time setup (auto-detects your project)
+revyl hotreload setup
+
+# Run test with hot reload
+revyl run test login-flow --hotreload --variant ios-dev
+
+# Create test with hot reload session
+revyl create test new-flow --hotreload --variant ios-dev --platform ios
+
+# Open existing test with hot reload
+revyl open test login-flow --hotreload --variant ios-dev
+```
+
+Hot reload:
+- Starts your local Expo dev server
+- Creates a Cloudflare tunnel to expose it
+- Runs tests against your development client build
+- Changes to JS code reflect instantly without rebuilding
+
+Configuration in `.revyl/config.yaml`:
+
+```yaml
+hotreload:
+  default: expo
+  providers:
+    expo:
+      port: 8081
+      app_scheme: myapp
+      # use_exp_prefix: true  # If deep links fail with base scheme
+```
+
 ### Build Management
 
 ```bash
@@ -81,6 +136,27 @@ revyl tests list              # Show all tests with sync status
 revyl tests sync              # Push local changes to remote
 revyl tests pull              # Pull remote changes to local
 revyl tests diff login-flow   # Show diff between local and remote
+```
+
+### Diagnostics
+
+```bash
+revyl doctor    # Check CLI health, connectivity, auth status
+revyl ping      # Test API connectivity
+revyl upgrade   # Check for and install CLI updates
+```
+
+### Global Flags
+
+These flags are available on all commands:
+
+```bash
+--debug       # Enable debug logging
+--dev         # Use local development servers
+--json        # Output as JSON (where supported)
+--quiet / -q  # Suppress non-essential output
+--dry-run     # Preview actions without executing (build upload, tests push/pull)
+--config / -c # Path to config file (default: .revyl/config.yaml)
 ```
 
 ## Project Configuration
@@ -164,6 +240,32 @@ make generate
 # Run tests
 make test
 ```
+
+### Running Tests
+
+The CLI includes unit tests and sanity tests to ensure command registration and basic functionality.
+
+```bash
+# Run all tests
+make test
+
+# Run tests with verbose output
+go test -v ./...
+
+# Run tests with coverage report
+make test-coverage
+
+# Quick compile and vet check (used by pre-commit)
+make check
+
+# Run specific test file
+go test -v ./cmd/revyl/main_test.go
+
+# Run tests matching a pattern
+go test -v ./... -run TestRootCommand
+```
+
+The pre-commit hook automatically runs `go build`, `gofmt`, and `go vet` on staged Go files to catch issues early.
 
 ## Local Development with Hot Reload
 

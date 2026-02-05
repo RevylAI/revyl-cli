@@ -25,7 +25,7 @@ CMD_DIR := ./cmd/revyl
 BUILD_DIR := ./build
 SCRIPTS_DIR := ./scripts
 
-.PHONY: all build clean test lint fmt deps dev generate install help
+.PHONY: all build clean test lint fmt deps dev generate install help check
 
 ## help: Show this help message
 help:
@@ -38,6 +38,13 @@ help:
 
 ## all: Build the CLI
 all: build
+
+## check: Quick compile and vet check (used by pre-commit)
+check:
+	@echo "Checking Go code..."
+	@$(GOBUILD) ./cmd/revyl/...
+	@$(GOCMD) vet ./...
+	@echo "✅ Go checks passed"
 
 ## build: Build the CLI binary
 build:

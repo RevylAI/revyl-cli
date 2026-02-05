@@ -30,11 +30,14 @@ func StartSpinner(message string) {
 	spinnerActive = true
 	spinnerStop = make(chan struct{})
 
+	// Capture the stop channel in a local variable to avoid race condition
+	stopChan := spinnerStop
+
 	go func() {
 		i := 0
 		for {
 			select {
-			case <-spinnerStop:
+			case <-stopChan:
 				// Clear the spinner line
 				fmt.Printf("\r%s\r", strings.Repeat(" ", len(message)+4))
 				return

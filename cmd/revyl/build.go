@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -81,6 +82,9 @@ var (
 	uploadPlatformFlag string
 	uploadNameFlag     string
 	uploadYesFlag      bool
+	buildListJSON      bool
+	buildUploadJSON    bool
+	buildDryRun        bool
 )
 
 func init() {
@@ -95,9 +99,12 @@ func init() {
 	buildUploadCmd.Flags().StringVar(&uploadPlatformFlag, "platform", "", "Platform to build for (ios, android)")
 	buildUploadCmd.Flags().StringVar(&uploadNameFlag, "name", "", "Name for new build variable (used when creating)")
 	buildUploadCmd.Flags().BoolVarP(&uploadYesFlag, "yes", "y", false, "Automatically confirm prompts (e.g., save to config)")
+	buildUploadCmd.Flags().BoolVar(&buildUploadJSON, "json", false, "Output results as JSON")
+	buildUploadCmd.Flags().BoolVar(&buildDryRun, "dry-run", false, "Show what would be uploaded without uploading")
 
 	buildListCmd.Flags().StringVar(&buildVarIDFlag, "build-var", "", "Build variable ID to list versions for")
 	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org builds")
+	buildListCmd.Flags().BoolVar(&buildListJSON, "json", false, "Output results as JSON")
 }
 
 // runBuildUpload executes the build upload command.
@@ -305,6 +312,29 @@ func runLegacySingleBuild(cmd *cobra.Command, cfg *config.ProjectConfig, configP
 
 	// Collect metadata
 	metadata := build.CollectMetadata(cwd, buildCfg.Command, buildVariant, buildDuration)
+
+	// Handle dry-run mode
+	if buildDryRun {
+		ui.Println()
+		ui.PrintInfo("Dry-run mode - showing what would be uploaded:")
+		ui.Println()
+		ui.PrintInfo("  Artifact:     %s", filepath.Base(artifactPath))
+		ui.PrintInfo("  Version:      %s", versionStr)
+		ui.PrintInfo("  Build Var ID: %s", buildVarID)
+		ui.PrintInfo("  Set Current:  %v", buildSetCurr)
+		if metadata != nil {
+			ui.PrintInfo("  Metadata:")
+			if cmd, ok := metadata["build_command"].(string); ok {
+				ui.PrintDim("    Build Command: %s", cmd)
+			}
+			if variant, ok := metadata["variant"].(string); ok && variant != "" {
+				ui.PrintDim("    Variant: %s", variant)
+			}
+		}
+		ui.Println()
+		ui.PrintSuccess("Dry-run complete - no changes made")
+		return nil
+	}
 
 	ui.Println()
 	ui.StartSpinner("Uploading artifact...")
@@ -579,6 +609,33 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 			ui.PrintInfo("Available variants: %v", getVariantNames(cfg.Build.Variants))
 			return fmt.Errorf("missing platform variant: %s", platform)
 		}
+	}
+
+	// Handle dry-run mode early
+	if buildDryRun {
+		ui.PrintBanner(version)
+		ui.PrintInfo("Dry-run mode - showing what would be uploaded:")
+		ui.Println()
+
+		for _, platform := range platforms {
+			variant := cfg.Build.Variants[platform]
+			versionStr := buildVersion
+			if versionStr == "" {
+				versionStr = build.GenerateVersionString()
+			}
+			versionStr = fmt.Sprintf("%s-%s", versionStr, platform)
+
+			ui.PrintInfo("[%s]", platform)
+			ui.PrintInfo("  Command:      %s", variant.Command)
+			ui.PrintInfo("  Output:       %s", variant.Output)
+			ui.PrintInfo("  Version:      %s", versionStr)
+			ui.PrintInfo("  Build Var ID: %s", variant.BuildVarID)
+			ui.PrintInfo("  Set Current:  %v", buildSetCurr)
+			ui.Println()
+		}
+
+		ui.PrintSuccess("Dry-run complete - no changes made")
+		return nil
 	}
 
 	// Create API client
@@ -1048,6 +1105,27 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	// Collect metadata
 	metadata := build.CollectMetadata(cwd, variant.Command, platform, buildDuration)
 
+	// Handle dry-run mode
+	if buildDryRun {
+		ui.Println()
+		ui.PrintInfo("Dry-run mode - showing what would be uploaded:")
+		ui.Println()
+		ui.PrintInfo("  Platform:     %s", platform)
+		ui.PrintInfo("  Artifact:     %s", filepath.Base(artifactPath))
+		ui.PrintInfo("  Version:      %s", versionStr)
+		ui.PrintInfo("  Build Var ID: %s", buildVarID)
+		ui.PrintInfo("  Set Current:  %v", buildSetCurr)
+		if metadata != nil {
+			ui.PrintInfo("  Metadata:")
+			if cmd, ok := metadata["build_command"].(string); ok {
+				ui.PrintDim("    Build Command: %s", cmd)
+			}
+		}
+		ui.Println()
+		ui.PrintSuccess("Dry-run complete - no changes made")
+		return nil
+	}
+
 	ui.Println()
 	ui.StartSpinner("Uploading artifact...")
 
@@ -1120,13 +1198,34 @@ func runBuildList(cmd *cobra.Command, args []string) error {
 // Returns:
 //   - error: Any error that occurred while listing versions
 func listBuildVersions(cmd *cobra.Command, client *api.Client, buildVarID string) error {
-	ui.StartSpinner("Fetching build versions...")
+	// Check if --json flag is set (either local or global)
+	jsonOutput := buildListJSON
+	if globalJSON, _ := cmd.Flags().GetBool("json"); globalJSON {
+		jsonOutput = true
+	}
+
+	if !jsonOutput {
+		ui.StartSpinner("Fetching build versions...")
+	}
 	versions, err := client.ListBuildVersions(cmd.Context(), buildVarID)
-	ui.StopSpinner()
+	if !jsonOutput {
+		ui.StopSpinner()
+	}
 
 	if err != nil {
 		ui.PrintError("Failed to list versions: %v", err)
 		return err
+	}
+
+	if jsonOutput {
+		output := map[string]interface{}{
+			"build_var_id": buildVarID,
+			"versions":     versions,
+			"count":        len(versions),
+		}
+		data, _ := json.MarshalIndent(output, "", "  ")
+		fmt.Println(string(data))
+		return nil
 	}
 
 	if len(versions) == 0 {
@@ -1164,13 +1263,34 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, buildVarID string
 // Returns:
 //   - error: Any error that occurred while listing build variables
 func listOrgBuildVars(cmd *cobra.Command, client *api.Client) error {
-	ui.StartSpinner("Fetching build variables from organization...")
+	// Check if --json flag is set (either local or global)
+	jsonOutput := buildListJSON
+	if globalJSON, _ := cmd.Flags().GetBool("json"); globalJSON {
+		jsonOutput = true
+	}
+
+	if !jsonOutput {
+		ui.StartSpinner("Fetching build variables from organization...")
+	}
 	result, err := client.ListOrgBuildVars(cmd.Context(), buildPlatform, 1, 50)
-	ui.StopSpinner()
+	if !jsonOutput {
+		ui.StopSpinner()
+	}
 
 	if err != nil {
 		ui.PrintError("Failed to list build variables: %v", err)
 		return err
+	}
+
+	if jsonOutput {
+		output := map[string]interface{}{
+			"build_vars": result.Items,
+			"count":      len(result.Items),
+			"total":      result.Total,
+		}
+		data, _ := json.MarshalIndent(output, "", "  ")
+		fmt.Println(string(data))
+		return nil
 	}
 
 	if len(result.Items) == 0 {
