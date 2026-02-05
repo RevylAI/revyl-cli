@@ -17,7 +17,34 @@ import (
 	"github.com/revyl/cli/internal/yaml"
 )
 
-// testsListCmd lists tests with sync status.
+var (
+	testsForce         bool
+	testsLimit         int
+	testsPlatform      string
+	validateOutputJSON bool
+	testsListJSON      bool
+	testsRemoteJSON    bool
+	testsPushDryRun    bool
+	testsPullDryRun    bool
+)
+
+func init() {
+	// Configure flags for subcommands
+	testsPushCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite remote")
+	testsPushCmd.Flags().BoolVar(&testsPushDryRun, "dry-run", false, "Show what would be pushed without pushing")
+
+	testsPullCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite local")
+	testsPullCmd.Flags().BoolVar(&testsPullDryRun, "dry-run", false, "Show what would be pulled without pulling")
+
+	testsRemoteCmd.Flags().IntVar(&testsLimit, "limit", 50, "Maximum number of tests to return")
+	testsRemoteCmd.Flags().StringVar(&testsPlatform, "platform", "", "Filter by platform (android, ios)")
+	testsRemoteCmd.Flags().BoolVar(&testsRemoteJSON, "json", false, "Output results as JSON")
+
+	testsListCmd.Flags().BoolVar(&testsListJSON, "json", false, "Output results as JSON")
+
+	testsValidateCmd.Flags().BoolVar(&validateOutputJSON, "output", false, "Output results as JSON")
+}
+
 var testsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List tests with sync status",
@@ -117,33 +144,6 @@ EXAMPLES:
   revyl tests validate --output test.yaml  # JSON output for CI/CD`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runTestsValidate,
-}
-
-var (
-	testsForce         bool
-	testsLimit         int
-	testsPlatform      string
-	validateOutputJSON bool
-	testsListJSON      bool
-	testsRemoteJSON    bool
-	testsPushDryRun    bool
-	testsPullDryRun    bool
-)
-
-func init() {
-	testsPushCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite remote")
-	testsPushCmd.Flags().BoolVar(&testsPushDryRun, "dry-run", false, "Show what would be pushed without pushing")
-
-	testsPullCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite local")
-	testsPullCmd.Flags().BoolVar(&testsPullDryRun, "dry-run", false, "Show what would be pulled without pulling")
-
-	testsRemoteCmd.Flags().IntVar(&testsLimit, "limit", 50, "Maximum number of tests to return")
-	testsRemoteCmd.Flags().StringVar(&testsPlatform, "platform", "", "Filter by platform (android, ios)")
-	testsRemoteCmd.Flags().BoolVar(&testsRemoteJSON, "json", false, "Output results as JSON")
-
-	testsListCmd.Flags().BoolVar(&testsListJSON, "json", false, "Output results as JSON")
-
-	testsValidateCmd.Flags().BoolVar(&validateOutputJSON, "output", false, "Output results as JSON")
 }
 
 // runTestsList lists tests with sync status.
