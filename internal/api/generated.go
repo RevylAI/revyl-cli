@@ -209,8 +209,11 @@ const (
 
 // Defines values for WorkerConnectionResponseStatus.
 const (
-	NotReady WorkerConnectionResponseStatus = "not_ready"
-	Ready    WorkerConnectionResponseStatus = "ready"
+	WorkerConnectionResponseStatusCancelled WorkerConnectionResponseStatus = "cancelled"
+	WorkerConnectionResponseStatusFailed    WorkerConnectionResponseStatus = "failed"
+	WorkerConnectionResponseStatusNotReady  WorkerConnectionResponseStatus = "not_ready"
+	WorkerConnectionResponseStatusReady     WorkerConnectionResponseStatus = "ready"
+	WorkerConnectionResponseStatusStopped   WorkerConnectionResponseStatus = "stopped"
 )
 
 // Defines values for WorkflowLastExecutionStatus.
@@ -225,13 +228,13 @@ const (
 
 // Defines values for WorkflowStatus.
 const (
-	Cancelled WorkflowStatus = "cancelled"
-	Completed WorkflowStatus = "completed"
-	Failed    WorkflowStatus = "failed"
-	Queued    WorkflowStatus = "queued"
-	Running   WorkflowStatus = "running"
-	Setup     WorkflowStatus = "setup"
-	Timeout   WorkflowStatus = "timeout"
+	WorkflowStatusCancelled WorkflowStatus = "cancelled"
+	WorkflowStatusCompleted WorkflowStatus = "completed"
+	WorkflowStatusFailed    WorkflowStatus = "failed"
+	WorkflowStatusQueued    WorkflowStatus = "queued"
+	WorkflowStatusRunning   WorkflowStatus = "running"
+	WorkflowStatusSetup     WorkflowStatus = "setup"
+	WorkflowStatusTimeout   WorkflowStatus = "timeout"
 )
 
 // AICodeGenerationDataPoint defines model for AICodeGenerationDataPoint.
@@ -5524,6 +5527,7 @@ type WorkBreakdown struct {
 
 // WorkerConnectionResponse Worker connection information.
 type WorkerConnectionResponse struct {
+	Message       *string                        `json:"message"`
 	Status        WorkerConnectionResponseStatus `json:"status"`
 	WorkerWsUrl   *string                        `json:"worker_ws_url"`
 	WorkflowRunId string                         `json:"workflow_run_id"`

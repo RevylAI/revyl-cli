@@ -27,7 +27,8 @@ var buildCmd = &cobra.Command{
 
 Commands:
   upload  - Build and upload the app
-  list    - List uploaded build versions`,
+  list    - List uploaded build versions
+  delete  - Delete a build variable or specific version`,
 }
 
 // buildUploadCmd builds and uploads the app.
@@ -71,6 +72,22 @@ Examples:
 	RunE: runBuildList,
 }
 
+// buildDeleteCmd deletes a build variable or version.
+var buildDeleteCmd = &cobra.Command{
+	Use:   "delete <name|id>",
+	Short: "Delete a build variable or version",
+	Long: `Delete a build variable (and all versions) or a specific version.
+
+Use --version to delete only a specific version.
+
+Examples:
+  revyl build delete "My App iOS"                 # Delete entire build variable
+  revyl build delete "My App iOS" --version v1.2.3 # Delete specific version only
+  revyl build delete "My App iOS" --force          # Skip confirmation`,
+	Args: cobra.ExactArgs(1),
+	RunE: runDeleteBuild,
+}
+
 var (
 	buildVariant       string
 	buildSkip          bool
@@ -90,6 +107,10 @@ var (
 func init() {
 	buildCmd.AddCommand(buildUploadCmd)
 	buildCmd.AddCommand(buildListCmd)
+	buildCmd.AddCommand(buildDeleteCmd)
+
+	buildDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")
+	buildDeleteCmd.Flags().StringVar(&deleteBuildVersion, "version", "", "Delete specific version only")
 
 	buildUploadCmd.Flags().StringVar(&buildVariant, "variant", "", "Build variant to use (e.g., release, staging)")
 	buildUploadCmd.Flags().BoolVar(&buildSkip, "skip-build", false, "Skip build step, upload existing artifact")
@@ -119,7 +140,7 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -1167,7 +1188,7 @@ func runBuildList(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}

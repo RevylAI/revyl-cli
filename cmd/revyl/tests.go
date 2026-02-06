@@ -69,9 +69,9 @@ If a test name is provided, only that test is pushed.
 Otherwise, all modified tests are pushed.
 
 Examples:
-  revyl tests push              # Push all modified tests
-  revyl tests push login-flow   # Push specific test
-  revyl tests push --force      # Force overwrite remote`,
+  revyl test push              # Push all modified tests
+  revyl test push login-flow   # Push specific test
+  revyl test push --force      # Force overwrite remote`,
 	RunE: runTestsPush,
 }
 
@@ -85,9 +85,9 @@ If a test name is provided, only that test is pulled.
 Otherwise, all outdated tests are pulled.
 
 Examples:
-  revyl tests pull              # Pull all outdated tests
-  revyl tests pull login-flow   # Pull specific test
-  revyl tests pull --force      # Force overwrite local`,
+  revyl test pull              # Pull all outdated tests
+  revyl test pull login-flow   # Pull specific test
+  revyl test pull --force      # Force overwrite local`,
 	RunE: runTestsPull,
 }
 
@@ -110,9 +110,9 @@ This shows all tests regardless of local project configuration.
 Useful for discovering tests or working without a local .revyl/config.yaml.
 
 Examples:
-  revyl tests remote                  # List all tests
-  revyl tests remote --limit 20       # Limit results
-  revyl tests remote --platform ios   # Filter by platform`,
+  revyl test remote                  # List all tests
+  revyl test remote --limit 20       # Limit results
+  revyl test remote --platform ios   # Filter by platform`,
 	RunE: runTestsRemote,
 }
 
@@ -139,9 +139,9 @@ EXIT CODES:
   1 - One or more files invalid
 
 EXAMPLES:
-  revyl tests validate test.yaml           # Validate single file
-  revyl tests validate tests/*.yaml        # Validate multiple files
-  revyl tests validate --output test.yaml  # JSON output for CI/CD`,
+  revyl test validate test.yaml           # Validate single file
+  revyl test validate tests/*.yaml        # Validate multiple files
+  revyl test validate --output test.yaml  # JSON output for CI/CD`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runTestsValidate,
 }
@@ -157,7 +157,7 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -222,7 +222,7 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 
 	if len(statuses) == 0 {
 		ui.PrintInfo("No tests found")
-		ui.PrintInfo("Add test aliases to .revyl/config.yaml or create tests in .revyl/tests/")
+		ui.PrintInfo("Add test aliases to .revyl/config.yaml or run 'revyl test create <name>' to create tests")
 		return nil
 	}
 
@@ -254,7 +254,7 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -362,7 +362,7 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -470,7 +470,7 @@ func runTestsDiff(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -535,7 +535,7 @@ func runTestsRemote(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
