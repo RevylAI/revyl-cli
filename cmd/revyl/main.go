@@ -82,6 +82,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(runCmd) // build→test shortcut: revyl run <name>
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(workflowCmd)

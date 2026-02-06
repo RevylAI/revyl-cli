@@ -9,18 +9,21 @@ import (
 var workflowCmd = &cobra.Command{
 	Use:   "workflow",
 	Short: "Manage workflows",
-	Long: `Manage workflows.
+	Long: `Manage workflows (collections of tests).
+
+For build→run: use "revyl workflow run <name> --build" to build, upload, then run
+all tests in the workflow.
 
 COMMANDS:
-  run     - Run a workflow (use --build to build and upload first)
+  run     - Run a workflow (add --build to build and upload first)
   cancel  - Cancel a running workflow
   create  - Create a new workflow
   delete  - Delete a workflow
   open    - Open a workflow in the browser
 
 EXAMPLES:
-  revyl workflow run smoke-tests              # Run workflow
-  revyl workflow run smoke-tests --build       # Build first, then run
+  revyl workflow run smoke-tests --build   # Build first, then run workflow
+  revyl workflow run smoke-tests           # Run only (no build)
   revyl workflow create regression --tests login,checkout
   revyl workflow delete smoke-tests`,
 }

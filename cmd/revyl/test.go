@@ -11,6 +11,9 @@ var testCmd = &cobra.Command{
 	Short: "Manage test definitions",
 	Long: `Manage local and remote test definitions.
 
+For the common build→test flow, use: revyl run <test-name> (builds then runs).
+For run-only or advanced options (hot reload, specific build), use the run subcommand below.
+
 COMMANDS:
   list      - List tests with sync status
   remote    - List all tests in your organization
@@ -18,33 +21,38 @@ COMMANDS:
   pull      - Pull remote test changes to local
   diff      - Show diff between local and remote
   validate  - Validate YAML test files
-  run       - Run a test
+  run       - Run a test (optionally with --build)
   cancel    - Cancel a running test
   create    - Create a new test
   delete    - Delete a test
   open      - Open a test in the browser
 
 EXAMPLES:
+  revyl run login-flow               # Build and run (recommended)
+  revyl test run login-flow          # Run only (no build)
+  revyl test run login-flow --build  # Explicit build then run
   revyl test list                    # List tests with sync status
-  revyl test run login-flow          # Run a test
-  revyl test run login-flow --build  # Build first, then run
-  revyl test push login-flow         # Push local changes to remote
-  revyl test delete login-flow       # Delete a test`,
+  revyl test push login-flow         # Push local changes to remote`,
 }
 
-// testRunCmd runs a single test.
+// testRunCmd runs a single test (run-only by default; use --build to build first).
 var testRunCmd = &cobra.Command{
 	Use:   "run <name|id>",
 	Short: "Run a test by name or ID",
 	Long: `Run a test by its alias name (from .revyl/config.yaml) or UUID.
+
+By default runs against the last uploaded build. Use --build to build and
+upload first. For the common build→test flow, the shortcut "revyl run <name>"
+builds then runs in one command.
 
 Use the test NAME or UUID, not a file path.
   CORRECT: revyl test run login-flow
   WRONG:   revyl test run login-flow.yaml
 
 EXAMPLES:
-  revyl test run login-flow
-  revyl test run login-flow --build
+  revyl run login-flow               # Build then run (shortcut)
+  revyl test run login-flow          # Run only (no build)
+  revyl test run login-flow --build  # Build then run
   revyl test run login-flow --hotreload --variant ios-dev`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestExec,

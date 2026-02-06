@@ -383,7 +383,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			if len(availableWorkflows) > 0 {
 				errMsg += fmt.Sprintf(". Available workflows: %v", availableWorkflows)
 			}
-			errMsg += "\n\nHint: Run 'revyl tests remote' to see all available tests/workflows."
+			errMsg += "\n\nHint: Run 'revyl test remote' to see all available tests/workflows."
 			ui.PrintError(errMsg)
 			return fmt.Errorf("workflow not found")
 		}
