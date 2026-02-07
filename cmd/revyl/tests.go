@@ -17,7 +17,34 @@ import (
 	"github.com/revyl/cli/internal/yaml"
 )
 
-// testsListCmd lists tests with sync status.
+var (
+	testsForce         bool
+	testsLimit         int
+	testsPlatform      string
+	validateOutputJSON bool
+	testsListJSON      bool
+	testsRemoteJSON    bool
+	testsPushDryRun    bool
+	testsPullDryRun    bool
+)
+
+func init() {
+	// Configure flags for subcommands
+	testsPushCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite remote")
+	testsPushCmd.Flags().BoolVar(&testsPushDryRun, "dry-run", false, "Show what would be pushed without pushing")
+
+	testsPullCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite local")
+	testsPullCmd.Flags().BoolVar(&testsPullDryRun, "dry-run", false, "Show what would be pulled without pulling")
+
+	testsRemoteCmd.Flags().IntVar(&testsLimit, "limit", 50, "Maximum number of tests to return")
+	testsRemoteCmd.Flags().StringVar(&testsPlatform, "platform", "", "Filter by platform (android, ios)")
+	testsRemoteCmd.Flags().BoolVar(&testsRemoteJSON, "json", false, "Output results as JSON")
+
+	testsListCmd.Flags().BoolVar(&testsListJSON, "json", false, "Output results as JSON")
+
+	testsValidateCmd.Flags().BoolVar(&validateOutputJSON, "output", false, "Output results as JSON")
+}
+
 var testsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List tests with sync status",
@@ -42,9 +69,9 @@ If a test name is provided, only that test is pushed.
 Otherwise, all modified tests are pushed.
 
 Examples:
-  revyl tests push              # Push all modified tests
-  revyl tests push login-flow   # Push specific test
-  revyl tests push --force      # Force overwrite remote`,
+  revyl test push              # Push all modified tests
+  revyl test push login-flow   # Push specific test
+  revyl test push --force      # Force overwrite remote`,
 	RunE: runTestsPush,
 }
 
@@ -58,9 +85,9 @@ If a test name is provided, only that test is pulled.
 Otherwise, all outdated tests are pulled.
 
 Examples:
-  revyl tests pull              # Pull all outdated tests
-  revyl tests pull login-flow   # Pull specific test
-  revyl tests pull --force      # Force overwrite local`,
+  revyl test pull              # Pull all outdated tests
+  revyl test pull login-flow   # Pull specific test
+  revyl test pull --force      # Force overwrite local`,
 	RunE: runTestsPull,
 }
 
@@ -83,9 +110,9 @@ This shows all tests regardless of local project configuration.
 Useful for discovering tests or working without a local .revyl/config.yaml.
 
 Examples:
-  revyl tests remote                  # List all tests
-  revyl tests remote --limit 20       # Limit results
-  revyl tests remote --platform ios   # Filter by platform`,
+  revyl test remote                  # List all tests
+  revyl test remote --limit 20       # Limit results
+  revyl test remote --platform ios   # Filter by platform`,
 	RunE: runTestsRemote,
 }
 
@@ -112,38 +139,11 @@ EXIT CODES:
   1 - One or more files invalid
 
 EXAMPLES:
-  revyl tests validate test.yaml           # Validate single file
-  revyl tests validate tests/*.yaml        # Validate multiple files
-  revyl tests validate --output test.yaml  # JSON output for CI/CD`,
+  revyl test validate test.yaml           # Validate single file
+  revyl test validate tests/*.yaml        # Validate multiple files
+  revyl test validate --output test.yaml  # JSON output for CI/CD`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runTestsValidate,
-}
-
-var (
-	testsForce         bool
-	testsLimit         int
-	testsPlatform      string
-	validateOutputJSON bool
-	testsListJSON      bool
-	testsRemoteJSON    bool
-	testsPushDryRun    bool
-	testsPullDryRun    bool
-)
-
-func init() {
-	testsPushCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite remote")
-	testsPushCmd.Flags().BoolVar(&testsPushDryRun, "dry-run", false, "Show what would be pushed without pushing")
-
-	testsPullCmd.Flags().BoolVar(&testsForce, "force", false, "Force overwrite local")
-	testsPullCmd.Flags().BoolVar(&testsPullDryRun, "dry-run", false, "Show what would be pulled without pulling")
-
-	testsRemoteCmd.Flags().IntVar(&testsLimit, "limit", 50, "Maximum number of tests to return")
-	testsRemoteCmd.Flags().StringVar(&testsPlatform, "platform", "", "Filter by platform (android, ios)")
-	testsRemoteCmd.Flags().BoolVar(&testsRemoteJSON, "json", false, "Output results as JSON")
-
-	testsListCmd.Flags().BoolVar(&testsListJSON, "json", false, "Output results as JSON")
-
-	testsValidateCmd.Flags().BoolVar(&validateOutputJSON, "output", false, "Output results as JSON")
 }
 
 // runTestsList lists tests with sync status.
@@ -157,7 +157,7 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -222,7 +222,7 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 
 	if len(statuses) == 0 {
 		ui.PrintInfo("No tests found")
-		ui.PrintInfo("Add test aliases to .revyl/config.yaml or create tests in .revyl/tests/")
+		ui.PrintInfo("Add test aliases to .revyl/config.yaml or run 'revyl test create <name>' to create tests")
 		return nil
 	}
 
@@ -254,7 +254,7 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -362,7 +362,7 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -470,7 +470,7 @@ func runTestsDiff(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -535,7 +535,7 @@ func runTestsRemote(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}

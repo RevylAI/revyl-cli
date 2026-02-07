@@ -20,70 +20,6 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
-// openCmd is the parent command for opening resources in browser.
-var openCmd = &cobra.Command{
-	Use:   "open",
-	Short: "Open tests and workflows in browser",
-	Long: `Open tests and workflows in your default browser.
-
-COMMANDS:
-  test      - Open a test in the browser editor
-  workflow  - Open a workflow in the browser editor
-
-RESOLUTION:
-  Names are resolved from .revyl/config.yaml aliases first.
-  If not found, searches the organization's tests/workflows.
-  UUIDs can be used directly.
-
-EXAMPLES:
-  revyl open test login-flow
-  revyl open workflow smoke-tests`,
-}
-
-// openTestCmd opens a test in the browser.
-var openTestCmd = &cobra.Command{
-	Use:   "test <name>",
-	Short: "Open a test in the browser",
-	Long: `Open a test in your default browser editor.
-
-The test can be specified by:
-  - Name (alias from .revyl/config.yaml)
-  - UUID (direct ID)
-  - Test name (searches organization)
-
-WHAT IT DOES:
-  1. Resolves the test name to an ID
-  2. Opens the test editor in your default browser
-
-EXAMPLES:
-  revyl open test login-flow                    # By alias
-  revyl open test 8ff0bd1b-d42d-4c7b-967c-...   # By UUID
-  revyl open test "My Test Name"                # By name (searches org)`,
-	Args: cobra.ExactArgs(1),
-	RunE: runOpenTest,
-}
-
-// openWorkflowCmd opens a workflow in the browser.
-var openWorkflowCmd = &cobra.Command{
-	Use:   "workflow <name>",
-	Short: "Open a workflow in the browser",
-	Long: `Open a workflow in your default browser editor.
-
-The workflow can be specified by:
-  - Name (alias from .revyl/config.yaml)
-  - UUID (direct ID)
-
-WHAT IT DOES:
-  1. Resolves the workflow name to an ID
-  2. Opens the workflow editor in your default browser
-
-EXAMPLES:
-  revyl open workflow smoke-tests               # By alias
-  revyl open workflow def456-abc123-...         # By UUID`,
-	Args: cobra.ExactArgs(1),
-	RunE: runOpenWorkflow,
-}
-
 var (
 	// Hot reload flags for open test
 	openTestHotReload         bool
@@ -97,23 +33,6 @@ var (
 	// No-open flag (skip opening browser, just output URL)
 	openTestNoOpen bool
 )
-
-func init() {
-	openCmd.AddCommand(openTestCmd)
-	openCmd.AddCommand(openWorkflowCmd)
-
-	// Hot reload flags for open test
-	openTestCmd.Flags().BoolVar(&openTestHotReload, "hotreload", false, "Start hot reload mode (dev server + tunnel)")
-	openTestCmd.Flags().IntVar(&openTestHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
-	openTestCmd.Flags().StringVar(&openTestHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
-	openTestCmd.Flags().StringVar(&openTestHotReloadVariant, "variant", "", "Build variant for hot reload dev client")
-
-	// Interactive mode flag
-	openTestCmd.Flags().BoolVar(&openTestInteractive, "interactive", false, "Edit test interactively with real-time device feedback")
-
-	// No-open flag (skip opening browser, just output URL)
-	openTestCmd.Flags().BoolVar(&openTestNoOpen, "no-open", false, "Skip opening browser (with --interactive: output URL and wait for Ctrl+C)")
-}
 
 // runOpenTest opens a test in the browser.
 //
@@ -139,7 +58,7 @@ func runOpenTest(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -164,7 +83,7 @@ func runOpenTest(cmd *cobra.Command, args []string) error {
 	// If not found in config, check if it looks like a UUID or search via API
 	if testID == "" {
 		// Check if it looks like a UUID (contains dashes and is ~36 chars)
-		if len(testNameOrID) >= 32 {
+		if looksLikeUUID(testNameOrID) {
 			testID = testNameOrID
 		} else {
 			// Search via API
@@ -189,7 +108,7 @@ func runOpenTest(cmd *cobra.Command, args []string) error {
 
 			if testID == "" {
 				ui.PrintError("Test '%s' not found", testNameOrID)
-				ui.PrintInfo("Use 'revyl tests remote' to list available tests")
+				ui.PrintInfo("Use 'revyl test remote' to list available tests")
 				return fmt.Errorf("test not found")
 			}
 		}
@@ -239,7 +158,7 @@ func runOpenTestWithHotReload(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -281,7 +200,7 @@ func runOpenTestWithHotReload(cmd *cobra.Command, args []string) error {
 
 	// If not found in config, check if it looks like a UUID or search via API
 	if testID == "" {
-		if len(testNameOrID) >= 32 {
+		if looksLikeUUID(testNameOrID) {
 			testID = testNameOrID
 		} else {
 			// Search via API
@@ -305,7 +224,7 @@ func runOpenTestWithHotReload(cmd *cobra.Command, args []string) error {
 
 			if testID == "" {
 				ui.PrintError("Test '%s' not found", testNameOrID)
-				ui.PrintInfo("Use 'revyl tests remote' to list available tests")
+				ui.PrintInfo("Use 'revyl test remote' to list available tests")
 				return fmt.Errorf("test not found")
 			}
 		}
@@ -413,7 +332,7 @@ func runOpenWorkflow(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -478,7 +397,7 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -517,7 +436,7 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 
 	// If not found in config, check if it looks like a UUID or search via API
 	if testID == "" {
-		if len(testNameOrID) >= 32 {
+		if looksLikeUUID(testNameOrID) {
 			testID = testNameOrID
 		} else {
 			// Search via API
@@ -539,7 +458,7 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 
 			if testID == "" {
 				ui.PrintError("Test '%s' not found", testNameOrID)
-				ui.PrintInfo("Use 'revyl tests remote' to list available tests")
+				ui.PrintInfo("Use 'revyl test remote' to list available tests")
 				return fmt.Errorf("test not found")
 			}
 		}
@@ -560,11 +479,12 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 
 	// Create interactive session
 	sessionConfig := interactive.SessionConfig{
-		TestID:   testID,
-		TestName: test.Name,
-		Platform: test.Platform,
-		APIKey:   creds.APIKey,
-		DevMode:  devMode,
+		TestID:       testID,
+		TestName:     test.Name,
+		Platform:     test.Platform,
+		APIKey:       creds.APIKey,
+		DevMode:      devMode,
+		IsSimulation: true,
 	}
 
 	// Track hot reload manager for cleanup

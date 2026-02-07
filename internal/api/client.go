@@ -45,10 +45,10 @@ const (
 
 // Client is the Revyl API client.
 type Client struct {
-	baseURL       string
-	apiKey        string
-	httpClient    *http.Client
-	maxRetries    int
+	baseURL        string
+	apiKey         string
+	httpClient     *http.Client
+	maxRetries     int
 	retryBaseDelay time.Duration
 	retryMaxDelay  time.Duration
 }
@@ -1334,6 +1334,141 @@ func (c *Client) CancelDevice(ctx context.Context, workflowRunID string) (*Cance
 	}
 
 	var result CancelDeviceResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteTestResponse represents the response from deleting a test.
+type DeleteTestResponse struct {
+	// ID is the ID of the deleted test.
+	ID string `json:"id"`
+
+	// Message is a success message.
+	Message string `json:"message"`
+}
+
+// DeleteTest deletes a test by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test ID to delete
+//
+// Returns:
+//   - *DeleteTestResponse: The deletion response
+//   - error: Any error that occurred (404 if not found, 403 if not authorized)
+func (c *Client) DeleteTest(ctx context.Context, testID string) (*DeleteTestResponse, error) {
+	resp, err := c.doRequest(ctx, "DELETE",
+		fmt.Sprintf("/api/v1/tests/delete/%s", testID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DeleteTestResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// CLIDeleteWorkflowResponse represents the response from deleting a workflow.
+// This is a CLI-specific type that simplifies the generated DeleteWorkflowResponse.
+type CLIDeleteWorkflowResponse struct {
+	// ID is the ID of the deleted workflow.
+	ID string `json:"id"`
+
+	// Message is a success message.
+	Message string `json:"message"`
+}
+
+// DeleteWorkflow deletes a workflow by ID (soft delete).
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow ID to delete
+//
+// Returns:
+//   - *CLIDeleteWorkflowResponse: The deletion response
+//   - error: Any error that occurred (404 if not found, 403 if not authorized)
+func (c *Client) DeleteWorkflow(ctx context.Context, workflowID string) (*CLIDeleteWorkflowResponse, error) {
+	resp, err := c.doRequest(ctx, "DELETE",
+		fmt.Sprintf("/api/v1/workflows/delete/%s", workflowID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the full response first
+	var fullResult DeleteWorkflowResponse
+	if err := parseResponse(resp, &fullResult); err != nil {
+		return nil, err
+	}
+
+	// Convert to CLI-friendly response
+	return &CLIDeleteWorkflowResponse{
+		ID:      fullResult.Data.Id,
+		Message: fullResult.Message,
+	}, nil
+}
+
+// CLIDeleteBuildVarResponse represents the response from deleting a build variable.
+type CLIDeleteBuildVarResponse struct {
+	// Message is a success message.
+	Message string `json:"message"`
+
+	// DetachedTests is the number of tests that were detached from this build.
+	DetachedTests int `json:"detached_tests,omitempty"`
+}
+
+// DeleteBuildVar deletes a build variable and all its versions.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - buildVarID: The build variable ID to delete
+//
+// Returns:
+//   - *CLIDeleteBuildVarResponse: The deletion response
+//   - error: Any error that occurred (404 if not found, 403 if not authorized)
+func (c *Client) DeleteBuildVar(ctx context.Context, buildVarID string) (*CLIDeleteBuildVarResponse, error) {
+	resp, err := c.doRequest(ctx, "DELETE",
+		fmt.Sprintf("/api/v1/builds/vars/%s", buildVarID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIDeleteBuildVarResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteBuildVersionResponse represents the response from deleting a build version.
+type DeleteBuildVersionResponse struct {
+	// Message is a success message.
+	Message string `json:"message"`
+}
+
+// DeleteBuildVersion deletes a specific build version.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - versionID: The build version ID to delete
+//
+// Returns:
+//   - *DeleteBuildVersionResponse: The deletion response
+//   - error: Any error that occurred (404 if not found, 403 if not authorized)
+func (c *Client) DeleteBuildVersion(ctx context.Context, versionID string) (*DeleteBuildVersionResponse, error) {
+	resp, err := c.doRequest(ctx, "DELETE",
+		fmt.Sprintf("/api/v1/builds/versions/%s", versionID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DeleteBuildVersionResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}

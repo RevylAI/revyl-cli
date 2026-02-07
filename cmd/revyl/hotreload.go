@@ -81,7 +81,7 @@ func runHotreloadSetup(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -221,20 +221,20 @@ func runHotreloadSetup(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("To use hot reload, specify a build at runtime:")
 	ui.Println()
 	ui.PrintInfo("Run a test with hot reload:")
-	ui.PrintDim("  revyl run test <test-name> --hotreload --variant <variant-name>")
+	ui.PrintDim("  revyl test run <test-name> --hotreload --variant <variant-name>")
 	ui.Println()
 	ui.PrintInfo("Create a new test with hot reload:")
-	ui.PrintDim("  revyl create test <test-name> --hotreload --variant <variant-name>")
+	ui.PrintDim("  revyl test create <test-name> --hotreload --variant <variant-name>")
 	ui.Println()
 	ui.PrintInfo("Open an existing test in hot reload mode:")
-	ui.PrintDim("  revyl open test <test-name> --hotreload --variant <variant-name>")
+	ui.PrintDim("  revyl test open <test-name> --hotreload --variant <variant-name>")
 	ui.Println()
 	ui.PrintInfo("Alternative: Use explicit build version ID")
-	ui.PrintDim("  revyl run test <test-name> --hotreload --build-version-id <id>")
+	ui.PrintDim("  revyl test run <test-name> --hotreload --build-version-id <id>")
 	ui.Println()
 	if len(configuredProviders) > 1 {
 		ui.PrintInfo("To specify a provider:")
-		ui.PrintDim("  revyl run test <test-name> --hotreload --provider <provider> --variant <variant>")
+		ui.PrintDim("  revyl test run <test-name> --hotreload --provider <provider> --variant <variant>")
 		ui.Println()
 	}
 	ui.PrintInfo("To configure build variants, add to .revyl/config.yaml:")

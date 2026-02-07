@@ -30,8 +30,11 @@ revyl auth login
 cd your-app
 revyl init
 
-# 3. Run a test
-revyl test login-flow
+# 3. Run a test (builds then runs)
+revyl run login-flow
+
+# Or run a workflow (builds then runs all tests in the workflow)
+revyl run smoke-tests -w
 ```
 
 ## Team Quick Start (Internal)
@@ -74,15 +77,17 @@ revyl init --detect           # Re-run build system detection
 ### Running Tests
 
 ```bash
-# Full workflow: build -> upload -> run
-revyl test login-flow                 # By alias
-revyl test abc123-def456...           # By UUID
-revyl test login-flow --variant release
-revyl test login-flow --skip-build
+# Build then run (recommended — one command)
+revyl run login-flow                     # By alias; builds, uploads, runs
+revyl run login-flow --variant release   # Use a build variant
+revyl run login-flow --no-build          # Skip build; run against last upload
+revyl run smoke-tests -w                 # Build then run workflow (-w = workflow)
+revyl run smoke-tests -w --no-build      # Run workflow without rebuilding
 
-# Just run (no build)
-revyl run test login-flow
-revyl run workflow smoke-tests
+# Run only (no build) or advanced options
+revyl test run login-flow                # Run without rebuilding
+revyl test run login-flow --build        # Explicit build then run
+revyl workflow run smoke-tests --build   # Build then run workflow
 ```
 
 ### Hot Reload (Expo)
@@ -94,13 +99,13 @@ Enable rapid iteration by running tests against a local dev server:
 revyl hotreload setup
 
 # Run test with hot reload
-revyl run test login-flow --hotreload --variant ios-dev
+revyl test run login-flow --hotreload --variant ios-dev
 
 # Create test with hot reload session
-revyl create test new-flow --hotreload --variant ios-dev --platform ios
+revyl test create new-flow --hotreload --variant ios-dev --platform ios
 
 # Open existing test with hot reload
-revyl open test login-flow --hotreload --variant ios-dev
+revyl test open login-flow --hotreload --variant ios-dev
 ```
 
 Hot reload:
@@ -132,10 +137,10 @@ revyl build list                      # List uploaded versions
 ### Test Management
 
 ```bash
-revyl tests list              # Show all tests with sync status
-revyl tests sync              # Push local changes to remote
-revyl tests pull              # Pull remote changes to local
-revyl tests diff login-flow   # Show diff between local and remote
+revyl test list              # Show all tests with sync status
+revyl test push              # Push local changes to remote
+revyl test pull              # Pull remote changes to local
+revyl test diff login-flow   # Show diff between local and remote
 ```
 
 ### Diagnostics
@@ -155,8 +160,7 @@ These flags are available on all commands:
 --dev         # Use local development servers
 --json        # Output as JSON (where supported)
 --quiet / -q  # Suppress non-essential output
---dry-run     # Preview actions without executing (build upload, tests push/pull)
---config / -c # Path to config file (default: .revyl/config.yaml)
+--dry-run     # Preview actions without executing (build upload, test push/pull)
 ```
 
 ## Project Configuration
@@ -310,26 +314,27 @@ cd revyl-cli
 
 # Test against local backend (reads PORT from cognisim_backend/.env)
 ./tmp/revyl --dev auth login
-./tmp/revyl --dev test my-test
-./tmp/revyl --dev run workflow my-workflow
+./tmp/revyl --dev test run my-test
+./tmp/revyl --dev workflow run my-workflow
 
 # Test against production
 ./tmp/revyl auth login
-./tmp/revyl test my-test
+./tmp/revyl test run my-test
 ```
 
 ### How --dev Mode Works
 
 The `--dev` flag switches all API calls to your local services:
 
-| Service | Production URL | Dev URL (from .env) |
-|---------|----------------|---------------------|
-| Backend API | `https://backend.revyl.ai` | `http://localhost:8001` |
+| Service | Production URL | Dev URL (auto-detected) |
+|---------|----------------|-------------------------|
+| Backend API | `https://backend.revyl.ai` | `http://localhost:8000` (default) |
 | Frontend App | `https://app.revyl.ai` | `http://localhost:8002` |
 
-The CLI automatically reads the `PORT` value from:
-- `cognisim_backend/.env` for backend API calls
-- `frontend/.env` for report/app URLs
+The CLI automatically:
+1. Reads the `PORT` value from `cognisim_backend/.env` and `frontend/.env`
+2. Auto-detects running services on common ports (8000, 8001, 8080, 3000)
+3. Respects `REVYL_BACKEND_PORT` environment variable if set
 
 This means if you change the port in `.env`, the CLI picks it up automatically.
 
