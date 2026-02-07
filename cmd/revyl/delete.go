@@ -132,7 +132,7 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle JSON output
-	jsonOutput, _ := cmd.Flags().GetBool("json")
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	if jsonOutput {
 		output := map[string]interface{}{
 			"success":     true,
@@ -233,7 +233,7 @@ func runDeleteWorkflow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle JSON output
-	jsonOutput, _ := cmd.Flags().GetBool("json")
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	if jsonOutput {
 		output := map[string]interface{}{
 			"success":       true,
@@ -352,7 +352,7 @@ func runDeleteBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle JSON output
-	jsonOutput, _ := cmd.Flags().GetBool("json")
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	if jsonOutput {
 		output := map[string]interface{}{
 			"success":        true,
@@ -426,7 +426,7 @@ func deleteSpecificBuildVersion(cmd *cobra.Command, client *api.Client, buildVar
 	}
 
 	// Handle JSON output
-	jsonOutput, _ := cmd.Flags().GetBool("json")
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	if jsonOutput {
 		output := map[string]interface{}{
 			"success":        true,
