@@ -303,7 +303,7 @@ func (r *REPL) executeCommand(ctx context.Context, input string) error {
 
 	switch cmd.Type {
 	case CommandHelp:
-		fmt.Println(HelpText())
+		r.printHelp()
 		return nil
 
 	case CommandQuit:
@@ -328,9 +328,15 @@ func (r *REPL) executeCommand(ctx context.Context, input string) error {
 		return r.handleClear()
 
 	case CommandReplay:
+		if !r.session.IsDeviceReady() {
+			return fmt.Errorf("device is still initializing, please wait...")
+		}
 		return r.handleReplay(ctx, cmd.Args)
 
 	case CommandRun:
+		if !r.session.IsDeviceReady() {
+			return fmt.Errorf("device is still initializing, please wait...")
+		}
 		return r.handleRun(ctx)
 
 	default:
@@ -344,6 +350,10 @@ func (r *REPL) executeCommand(ctx context.Context, input string) error {
 
 // executeStep executes a step command.
 func (r *REPL) executeStep(ctx context.Context, cmd *ParsedCommand) error {
+	if !r.session.IsDeviceReady() {
+		return fmt.Errorf("device is still initializing, please wait...")
+	}
+
 	instruction := cmd.Instruction
 
 	// For commands without explicit instruction, use the command type
@@ -515,6 +525,80 @@ func (r *REPL) printReadyBanner() {
 	fmt.Println(r.styles.Success.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 	fmt.Println(r.styles.Success.Render("  Ready! Enter your first instruction below."))
 	fmt.Println(r.styles.Success.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+	fmt.Println()
+}
+
+// printHelp displays the styled help text with visual hierarchy using lipgloss.
+// Step commands are shown in purple, session commands in teal, examples dimmed.
+func (r *REPL) printHelp() {
+	purple := lipgloss.NewStyle().Foreground(lipgloss.Color("#9D61FF"))
+	teal := lipgloss.NewStyle().Foreground(lipgloss.Color("#14B8A6"))
+	cmd := lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Bold(true)
+	desc := lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
+	example := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+	divider := lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
+
+	line := divider.Render("─────────────────────────────────────────────────────────")
+
+	fmt.Println()
+
+	// Step commands section
+	fmt.Printf("  %s\n", purple.Bold(true).Render("STEP COMMANDS"))
+	fmt.Printf("  %s\n", line)
+	fmt.Println()
+
+	// Natural language instruction
+	fmt.Printf("  %s  %s\n", cmd.Render("<instruction>     "), desc.Render("Natural language action on the device"))
+	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("Tap the Sign In button"))
+	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("Type \"hello@example.com\" in the email field"))
+	fmt.Println()
+
+	// Validate
+	fmt.Printf("  %s  %s\n", cmd.Render("validate <text>   "), desc.Render("Assert something is true on screen"))
+	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("validate Welcome message is visible"))
+	fmt.Println()
+
+	// Wait
+	fmt.Printf("  %s  %s\n", cmd.Render("wait <time/cond>  "), desc.Render("Pause or wait for a condition"))
+	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("wait 3s"))
+	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("wait for loading to complete"))
+	fmt.Println()
+
+	// Navigate
+	fmt.Printf("  %s  %s\n", cmd.Render("navigate <url>    "), desc.Render("Open a URL or deep link"))
+	fmt.Printf("                       %s %s\n", example.Render("→"), example.Render("navigate myapp://settings"))
+	fmt.Println()
+
+	// Simple commands
+	fmt.Printf("  %s  %s\n", cmd.Render("back              "), desc.Render("Press the back button"))
+	fmt.Printf("  %s  %s\n", cmd.Render("home              "), desc.Render("Press the home button"))
+	fmt.Printf("  %s  %s\n", cmd.Render("open-app <id>     "), desc.Render("Launch app by bundle ID"))
+	fmt.Printf("  %s  %s\n", cmd.Render("kill-app [id]     "), desc.Render("Terminate app (current if no ID)"))
+	fmt.Println()
+
+	// Session commands section
+	fmt.Printf("  %s\n", teal.Bold(true).Render("SESSION COMMANDS"))
+	fmt.Printf("  %s\n", line)
+	fmt.Println()
+
+	// Two-column layout for session commands
+	fmt.Printf("  %s %s      %s %s\n",
+		cmd.Render("undo     "), desc.Render("Remove last step"),
+		cmd.Render("list  "), desc.Render("Show all steps"))
+	fmt.Printf("  %s %s      %s %s\n",
+		cmd.Render("save     "), desc.Render("Export to YAML  "),
+		cmd.Render("status"), desc.Render("Session info"))
+	fmt.Printf("  %s %s      %s %s\n",
+		cmd.Render("clear    "), desc.Render("Clear all steps "),
+		cmd.Render("run   "), desc.Render("Execute all"))
+	fmt.Printf("  %s %s      %s %s\n",
+		cmd.Render("replay   "), desc.Render("Re-run a step   "),
+		cmd.Render("quit  "), desc.Render("Exit"))
+	fmt.Println()
+
+	// Tips
+	fmt.Printf("  %s\n", divider.Render("─────────────────────────────────────────────────────────"))
+	fmt.Printf("  %s %s\n", example.Render("tip:"), desc.Render("Steps auto-save after each execution. Use natural language!"))
 	fmt.Println()
 }
 

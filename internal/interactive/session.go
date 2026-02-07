@@ -7,8 +7,10 @@ package interactive
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/revyl/cli/internal/api"
@@ -36,6 +38,9 @@ const (
 
 	// StateStopped indicates the session has stopped.
 	StateStopped SessionState = "stopped"
+
+	// StateReconnecting indicates the session is reconnecting after a WebSocket disconnect.
+	StateReconnecting SessionState = "reconnecting"
 
 	// StateError indicates the session encountered an error.
 	StateError SessionState = "error"
@@ -156,6 +161,10 @@ type Session struct {
 
 	// onLog is called when a log message is received.
 	onLog func(string)
+
+	// deviceReady is true when DEVICE_INIT_STATUS with status "initialized" has been received.
+	// Step commands (device actions) should be rejected until this is true.
+	deviceReady atomic.Bool
 }
 
 // NewSession creates a new interactive session.
@@ -244,6 +253,15 @@ func (s *Session) State() SessionState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.state
+}
+
+// IsDeviceReady returns true when the device has finished initializing (streaming, app setup, etc.).
+// Step commands that perform actions on the device should check this before executing.
+//
+// Returns:
+//   - bool: True if DEVICE_INIT_STATUS with status "initialized" has been received
+func (s *Session) IsDeviceReady() bool {
+	return s.deviceReady.Load()
 }
 
 // Steps returns a copy of the recorded steps.
@@ -369,7 +387,8 @@ func (s *Session) waitForWorkerURL(ctx context.Context) (string, error) {
 	}
 }
 
-// handleMessages processes incoming WebSocket messages.
+// handleMessages processes incoming WebSocket messages. On connection loss it attempts
+// reconnect with backoff and restarts a new handleMessages goroutine on success.
 func (s *Session) handleMessages() {
 	for {
 		select {
@@ -378,13 +397,24 @@ func (s *Session) handleMessages() {
 
 		case err := <-s.wsClient.Errors():
 			if s.onLog != nil {
-				s.onLog(fmt.Sprintf("WebSocket error: %v", err))
+				s.onLog(fmt.Sprintf("Connection lost: %v. Reconnecting...", err))
+			}
+			if s.tryReconnectAndResume() {
+				return // New handleMessages goroutine is running
 			}
 			s.setState(StateError)
 			return
 
 		case msg, ok := <-s.wsClient.Messages():
 			if !ok {
+				// Channel closed (readLoop exited)
+				if s.onLog != nil {
+					s.onLog("Connection closed. Reconnecting...")
+				}
+				if s.tryReconnectAndResume() {
+					return
+				}
+				s.setState(StateError)
 				return
 			}
 
@@ -396,8 +426,14 @@ func (s *Session) handleMessages() {
 				}
 
 			case "DEVICE_INIT_STATUS":
-				if s.onLog != nil {
-					s.onLog("Device initialized")
+				var initStatus struct {
+					Status string `json:"status"`
+				}
+				if err := json.Unmarshal(msg.Raw, &initStatus); err == nil && initStatus.Status == "initialized" {
+					s.deviceReady.Store(true)
+					if s.onLog != nil {
+						s.onLog("Device initialized and ready")
+					}
 				}
 
 			case "CONNECTION":
@@ -407,6 +443,48 @@ func (s *Session) handleMessages() {
 			}
 		}
 	}
+}
+
+// tryReconnectAndResume attempts reconnection with exponential backoff. On success resets
+// deviceReady, starts a new handleMessages goroutine, and returns true. Returns false on failure.
+func (s *Session) tryReconnectAndResume() bool {
+	s.setState(StateReconnecting)
+	const maxAttempts = 5
+	baseDelay := 1 * time.Second
+	maxDelay := 30 * time.Second
+
+	s.mu.RLock()
+	wsURL := s.workerWSURL
+	s.mu.RUnlock()
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if s.ctx.Err() != nil {
+			return false
+		}
+		delay := baseDelay * (1 << attempt)
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+		time.Sleep(delay)
+
+		err := s.wsClient.Reconnect(s.ctx, wsURL)
+		if err == nil {
+			s.deviceReady.Store(false)
+			if s.onLog != nil {
+				s.onLog("Reconnected. Waiting for device to be ready...")
+			}
+			s.setState(StateReady)
+			go s.handleMessages()
+			return true
+		}
+		if s.onLog != nil {
+			s.onLog(fmt.Sprintf("Reconnect attempt %d/%d failed: %v", attempt+1, maxAttempts, err))
+		}
+	}
+	if s.onLog != nil {
+		s.onLog("Failed to reconnect after maximum attempts")
+	}
+	return false
 }
 
 // ExecuteStep executes a step and waits for the result.
@@ -499,6 +577,13 @@ func (s *Session) ExecuteStep(ctx context.Context, cmdType CommandType, instruct
 		}
 	}
 
+	// Broadcast task list to frontend for real-time sync
+	if err := s.broadcastTaskList(ctx); err != nil {
+		if s.onLog != nil {
+			s.onLog(fmt.Sprintf("Warning: failed to broadcast tasks to frontend: %v", err))
+		}
+	}
+
 	s.setState(StateReady)
 	return record, nil
 }
@@ -546,6 +631,32 @@ func (s *Session) syncToBackend(ctx context.Context) error {
 	return nil
 }
 
+// broadcastTaskList sends the current task list to the frontend via WebSocket.
+// This enables real-time sync of steps from CLI to the frontend block editor.
+func (s *Session) broadcastTaskList(ctx context.Context) error {
+	if s.wsClient == nil || !s.wsClient.IsConnected() {
+		return nil // No connection to broadcast to
+	}
+
+	s.mu.RLock()
+	steps := make([]StepRecord, len(s.steps))
+	copy(steps, s.steps)
+	s.mu.RUnlock()
+
+	// Convert steps to blocks format for frontend
+	blocks := make([]map[string]interface{}, len(steps))
+	for i, step := range steps {
+		blocks[i] = map[string]interface{}{
+			"id":               step.ID,
+			"type":             step.BlockType,
+			"step_type":        step.StepType,
+			"step_description": step.Instruction,
+		}
+	}
+
+	return s.wsClient.SendTaskList(ctx, blocks)
+}
+
 // UndoLastStep removes the last step from the session.
 //
 // Returns:
@@ -568,6 +679,13 @@ func (s *Session) UndoLastStep() (*StepRecord, error) {
 	if err := s.syncToBackend(s.ctx); err != nil {
 		if s.onLog != nil {
 			s.onLog(fmt.Sprintf("Warning: failed to sync undo to backend: %v", err))
+		}
+	}
+
+	// Broadcast updated task list to frontend
+	if err := s.broadcastTaskList(s.ctx); err != nil {
+		if s.onLog != nil {
+			s.onLog(fmt.Sprintf("Warning: failed to broadcast undo to frontend: %v", err))
 		}
 	}
 

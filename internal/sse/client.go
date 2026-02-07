@@ -410,14 +410,14 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 			//         total_steps, steps_completed, error_message, status (from device_sessions),
 			//         started_at, completed_at, execution_time_seconds, platform
 			var statusResp struct {
-				Status               string  `json:"status"`                  // From device_sessions
-				Progress             float64 `json:"progress"`                // 0.0-1.0
-				CurrentStep          string  `json:"current_step"`
-				CurrentStepIndex     int     `json:"current_step_index"`
-				TotalSteps           *int    `json:"total_steps"`
-				StepsCompleted       int     `json:"steps_completed"`
-				ErrorMessage         string  `json:"error_message"`
-				Success              *bool   `json:"success"`
+				Status               string   `json:"status"`   // From device_sessions
+				Progress             float64  `json:"progress"` // 0.0-1.0
+				CurrentStep          string   `json:"current_step"`
+				CurrentStepIndex     int      `json:"current_step_index"`
+				TotalSteps           *int     `json:"total_steps"`
+				StepsCompleted       int      `json:"steps_completed"`
+				ErrorMessage         string   `json:"error_message"`
+				Success              *bool    `json:"success"`
 				ExecutionTimeSeconds *float64 `json:"execution_time_seconds"` // From device_sessions
 			}
 

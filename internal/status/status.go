@@ -69,12 +69,12 @@ const (
 
 // terminalStatuses contains all statuses that indicate execution has ended.
 var terminalStatuses = map[string]bool{
-	string(StatusCompleted):    true,
-	string(StatusFailed):       true,
-	string(StatusCancelled):    true,
-	string(StatusTimeout):      true,
-	"success":                  true, // Legacy status value
-	"failure":                  true, // Legacy status value
+	string(StatusCompleted): true,
+	string(StatusFailed):    true,
+	string(StatusCancelled): true,
+	string(StatusTimeout):   true,
+	"success":               true, // Legacy status value
+	"failure":               true, // Legacy status value
 }
 
 // activeStatuses contains all statuses that indicate execution is in progress.

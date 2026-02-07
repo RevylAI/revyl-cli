@@ -329,8 +329,8 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 			},
 		},
 		"variableSystem": map[string]interface{}{
-			"syntax":            "{{variable-name}}",
-			"namingRules":       "kebab-case only, no spaces/underscores/special chars",
+			"syntax":              "{{variable-name}}",
+			"namingRules":         "kebab-case only, no spaces/underscores/special chars",
 			"mustDefineBeforeUse": true,
 		},
 		"bestPractices": map[string]interface{}{

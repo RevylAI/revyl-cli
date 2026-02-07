@@ -115,7 +115,7 @@ var (
 var (
 	// ProgressBarStyle for the progress bar container
 	ProgressBarStyle = lipgloss.NewStyle().
-				Foreground(Purple)
+		Foreground(Purple)
 )
 
 // Diff styles.

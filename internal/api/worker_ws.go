@@ -18,6 +18,13 @@ import (
 // WorkerWSClient handles WebSocket communication with the worker server.
 // Used for interactive test creation to send step execution commands
 // and receive real-time results.
+//
+// Message Routing Architecture:
+// The client uses a demultiplexer pattern to route messages to separate channels
+// based on event type. This prevents race conditions where multiple goroutines
+// compete to read from a single channel:
+//   - stepMessages: receives STEP_EXECUTION and ERROR events (consumed by WaitForStepResult)
+//   - messages: receives all other events like LOG, DEVICE_INIT_STATUS, CONNECTION (consumed by handleMessages)
 type WorkerWSClient struct {
 	// conn is the underlying WebSocket connection.
 	conn *websocket.Conn
@@ -31,8 +38,14 @@ type WorkerWSClient struct {
 	// done signals when the client should stop.
 	done chan struct{}
 
-	// messages receives incoming messages from the worker.
+	// messages receives non-step messages from the worker (LOG, DEVICE_INIT_STATUS, CONNECTION, etc.).
+	// This channel is consumed by the session's handleMessages goroutine.
 	messages chan WorkerMessage
+
+	// stepMessages receives step execution messages (STEP_EXECUTION, ERROR).
+	// This channel is consumed by WaitForStepResultWithProgress to avoid race conditions
+	// with the handleMessages goroutine.
+	stepMessages chan WorkerMessage
 
 	// errors receives connection errors.
 	errors chan error
@@ -231,6 +244,7 @@ func NewWorkerWSClient(workflowRunID string) *WorkerWSClient {
 		workflowRunID: workflowRunID,
 		done:          make(chan struct{}),
 		messages:      make(chan WorkerMessage, 100),
+		stepMessages:  make(chan WorkerMessage, 100),
 		errors:        make(chan error, 10),
 		pingInterval:  25 * time.Second,
 	}
@@ -287,18 +301,83 @@ func (c *WorkerWSClient) Connect(ctx context.Context, wsURL string) error {
 	return nil
 }
 
+// Reconnect establishes a new WebSocket connection after a disconnect.
+// Call this when the connection has been lost (e.g. readLoop exited). Re-initializes
+// the done channel and message channels so new readLoop/pingLoop goroutines have a
+// fresh done signal (avoids using a done channel that was already closed by Close()).
+//
+// Parameters:
+//   - ctx: Context for cancellation (used for dial)
+//   - wsURL: The WebSocket URL to connect to
+//
+// Returns:
+//   - error: Any error that occurred during reconnection
+func (c *WorkerWSClient) Reconnect(ctx context.Context, wsURL string) error {
+	c.mu.Lock()
+	// Close existing connection if any (release resource; readLoop already exited)
+	if c.conn != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+	}
+	c.connected = false
+	// New done channel so new readLoop/pingLoop do not see a previously closed done
+	c.done = make(chan struct{})
+	// Replace channels so consumers (e.g. handleMessages) can read from new ones
+	c.messages = make(chan WorkerMessage, 100)
+	c.stepMessages = make(chan WorkerMessage, 100)
+	c.errors = make(chan error, 10)
+	c.mu.Unlock()
+
+	parsedURL, err := url.Parse(wsURL)
+	if err != nil {
+		return fmt.Errorf("invalid WebSocket URL: %w", err)
+	}
+	if parsedURL.Scheme == "http" {
+		parsedURL.Scheme = "ws"
+	} else if parsedURL.Scheme == "https" {
+		parsedURL.Scheme = "wss"
+	}
+
+	dialer := websocket.Dialer{HandshakeTimeout: 30 * time.Second}
+	conn, _, err := dialer.DialContext(ctx, parsedURL.String(), nil)
+	if err != nil {
+		return fmt.Errorf("WebSocket reconnection failed: %w", err)
+	}
+
+	c.mu.Lock()
+	c.conn = conn
+	c.connected = true
+	c.mu.Unlock()
+
+	go c.readLoop()
+	go c.pingLoop()
+	return nil
+}
+
 // readLoop continuously reads messages from the WebSocket connection.
+// It demultiplexes messages based on EventType to prevent race conditions:
+//   - STEP_EXECUTION and ERROR events go to stepMessages channel
+//   - All other events (LOG, DEVICE_INIT_STATUS, CONNECTION, etc.) go to messages channel
 func (c *WorkerWSClient) readLoop() {
+	// Capture the channels and done at start so defer closes only these, not any
+	// channels created by a concurrent Reconnect().
+	c.mu.Lock()
+	messages := c.messages
+	stepMessages := c.stepMessages
+	done := c.done
+	c.mu.Unlock()
+
 	defer func() {
 		c.mu.Lock()
 		c.connected = false
 		c.mu.Unlock()
-		close(c.messages)
+		close(messages)
+		close(stepMessages)
 	}()
 
 	for {
 		select {
-		case <-c.done:
+		case <-done:
 			return
 		default:
 		}
@@ -306,7 +385,7 @@ func (c *WorkerWSClient) readLoop() {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			select {
-			case <-c.done:
+			case <-done:
 				return
 			case c.errors <- fmt.Errorf("read error: %w", err):
 			default:
@@ -328,22 +407,41 @@ func (c *WorkerWSClient) readLoop() {
 			continue
 		}
 
-		select {
-		case <-c.done:
-			return
-		case c.messages <- msg:
+		// Route messages based on event type to prevent race conditions
+		// between handleMessages goroutine and WaitForStepResultWithProgress
+		switch msg.EventType {
+		case "STEP_EXECUTION", "ERROR":
+			// Step execution messages go to dedicated channel
+			select {
+			case <-done:
+				return
+			case stepMessages <- msg:
+			}
+		default:
+			// All other messages (LOG, DEVICE_INIT_STATUS, CONNECTION, etc.)
+			select {
+			case <-done:
+				return
+			case messages <- msg:
+			}
 		}
 	}
 }
 
 // pingLoop sends periodic ping messages to keep the connection alive.
 func (c *WorkerWSClient) pingLoop() {
+	// Capture done at start so we exit when THIS generation's done is closed,
+	// preventing goroutine leaks during Reconnect().
+	c.mu.Lock()
+	done := c.done
+	c.mu.Unlock()
+
 	ticker := time.NewTicker(c.pingInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-c.done:
+		case <-done:
 			return
 		case <-ticker.C:
 			c.mu.Lock()
@@ -446,6 +544,23 @@ func (c *WorkerWSClient) SendRaw(ctx context.Context, msg interface{}) error {
 	return nil
 }
 
+// SendTaskList sends a TASK_LIST event to broadcast updated tasks to connected clients.
+// This is used to sync steps from CLI to the frontend in real-time.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - tasks: Array of task/block definitions to broadcast
+//
+// Returns:
+//   - error: Any error that occurred during sending
+func (c *WorkerWSClient) SendTaskList(ctx context.Context, tasks []map[string]interface{}) error {
+	msg := map[string]interface{}{
+		"event_type": "TASK_LIST",
+		"tasks":      tasks,
+	}
+	return c.SendRaw(ctx, msg)
+}
+
 // Messages returns the channel for receiving worker messages.
 //
 // Returns:
@@ -472,31 +587,35 @@ func (c *WorkerWSClient) IsConnected() bool {
 	return c.connected
 }
 
-// Close closes the WebSocket connection.
+// Close closes the WebSocket connection and signals readLoop/pingLoop to exit.
+// Safe to call multiple times: only closes the current done channel once (then sets to nil).
+// After Reconnect(), a new done channel exists so Close() can close it again.
 //
 // Returns:
 //   - error: Any error that occurred during close
 func (c *WorkerWSClient) Close() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if !c.connected {
-		return nil
+	done := c.done
+	if done != nil {
+		c.done = nil // prevent double-close of the same channel
 	}
-
-	close(c.done)
 	c.connected = false
+	conn := c.conn
+	c.conn = nil
+	c.mu.Unlock()
 
-	if c.conn != nil {
-		// Send close message
-		_ = c.conn.WriteMessage(
+	if done != nil {
+		close(done)
+	}
+	var closeErr error
+	if conn != nil {
+		_ = conn.WriteMessage(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "client closing"),
 		)
-		return c.conn.Close()
+		closeErr = conn.Close()
 	}
-
-	return nil
+	return closeErr
 }
 
 // StepProgressCallback is called when step execution progress is received.
@@ -520,6 +639,10 @@ func (c *WorkerWSClient) WaitForStepResult(ctx context.Context, stepID string, t
 // WaitForStepResultWithProgress waits for a step execution result with timeout,
 // calling the progress callback for intermediate updates.
 //
+// This method reads from the dedicated stepMessages channel which only receives
+// STEP_EXECUTION and ERROR events, preventing race conditions with the session's
+// handleMessages goroutine that reads from the messages channel.
+//
 // Parameters:
 //   - ctx: Context for cancellation
 //   - stepID: The step ID to wait for
@@ -541,7 +664,7 @@ func (c *WorkerWSClient) WaitForStepResultWithProgress(ctx context.Context, step
 		case err := <-c.errors:
 			return nil, fmt.Errorf("connection error: %w", err)
 
-		case msg, ok := <-c.messages:
+		case msg, ok := <-c.stepMessages:
 			if !ok {
 				return nil, fmt.Errorf("connection closed")
 			}

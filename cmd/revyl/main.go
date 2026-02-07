@@ -6,6 +6,7 @@ package main
 
 import (
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
@@ -40,9 +41,32 @@ var rootCmd = &cobra.Command{
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
+//
+// This function also handles "did you mean" suggestions when users type
+// commands in the wrong order (e.g., "revyl open test" instead of "revyl test open").
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
+		// Check if this is an unknown command error and provide suggestions
+		errStr := err.Error()
+		if strings.Contains(errStr, "unknown command") {
+			// Extract the unknown command from the error message
+			// Error format: unknown command "open" for "revyl"
+			if start := strings.Index(errStr, `unknown command "`); start != -1 {
+				start += len(`unknown command "`)
+				if end := strings.Index(errStr[start:], `"`); end != -1 {
+					unknownCmd := errStr[start : start+end]
+
+					// Get the original args (skip program name)
+					args := os.Args[1:]
+
+					// Try to suggest a correct command
+					if suggestion, found := suggestCorrectCommand(unknownCmd, args, rootCmd); found {
+						printCommandSuggestion(suggestion)
+					}
+				}
+			}
+		}
 		os.Exit(1)
 	}
 }
@@ -51,7 +75,6 @@ func init() {
 	// Global flags
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug logging")
 	rootCmd.PersistentFlags().Bool("dev", false, "Use local development servers (reads PORT from .env files)")
-	rootCmd.PersistentFlags().StringP("config", "c", "", "Path to config file (default: .revyl/config.yaml)")
 	rootCmd.PersistentFlags().Bool("json", false, "Output results as JSON (where supported)")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-essential output")
 
@@ -59,13 +82,10 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(createCmd)
-	rootCmd.AddCommand(openCmd)
+	rootCmd.AddCommand(runCmd) // build→test shortcut: revyl run <name>
 	rootCmd.AddCommand(buildCmd)
-	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(workflowCmd)
-	rootCmd.AddCommand(cancelCmd)
 	rootCmd.AddCommand(docsCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(schemaCmd)

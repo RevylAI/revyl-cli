@@ -49,6 +49,21 @@ func isHexDigit(c byte) bool {
 	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
 
+// looksLikeUUID checks if a string looks like a UUID (36 chars with hyphens at positions 8, 13, 18, 23).
+// Does not validate hex digits; use isValidUUID for strict validation.
+//
+// Parameters:
+//   - s: The string to check
+//
+// Returns:
+//   - bool: True if the string has UUID-like structure
+func looksLikeUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	return s[8] == '-' && s[13] == '-' && s[18] == '-' && s[23] == '-'
+}
+
 // getTestNames returns a sorted slice of test names from the config.
 //
 // Parameters:

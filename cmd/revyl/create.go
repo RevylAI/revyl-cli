@@ -22,64 +22,6 @@ import (
 	"github.com/revyl/cli/internal/yaml"
 )
 
-// createCmd is the parent command for creating resources.
-var createCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Create tests and workflows",
-	Long: `Create new tests and workflows.
-
-Commands:
-  test      - Create a new test and open the editor
-  workflow  - Create a new workflow and open the editor
-
-Examples:
-  revyl create test login-flow --platform android
-  revyl create workflow smoke-tests --tests login-flow,checkout`,
-}
-
-// createTestCmd creates a new test.
-var createTestCmd = &cobra.Command{
-	Use:   "test <name>",
-	Short: "Create a new test",
-	Long: `Create a new test and open the editor.
-
-This command creates a test on the Revyl server and adds it to your
-local .revyl/config.yaml. The browser opens to the test editor where
-you can define the test steps.
-
-FROM FILE:
-  Use --from-file to create a test from a YAML definition file.
-  The file is copied to .revyl/tests/ and pushed to the server.
-
-Examples:
-  revyl create test login-flow --platform android
-  revyl create test checkout --platform ios --build-var <id>
-  revyl create test onboarding --platform android --no-open
-  revyl create test login-flow --from-file login-flow.yaml`,
-	Args: cobra.ExactArgs(1),
-	RunE: runCreateTest,
-}
-
-// createWorkflowCmd creates a new workflow.
-var createWorkflowCmd = &cobra.Command{
-	Use:   "workflow <name>",
-	Short: "Create a new workflow",
-	Long: `Create a new workflow and open the editor.
-
-This command creates a workflow on the Revyl server and adds it to your
-local .revyl/config.yaml. The browser opens to the workflow editor where
-you can configure the workflow.
-
-Use --tests to pre-select tests to include in the workflow.
-
-Examples:
-  revyl create workflow smoke-tests
-  revyl create workflow regression --tests login-flow,checkout,payment
-  revyl create workflow nightly --no-open`,
-	Args: cobra.ExactArgs(1),
-	RunE: runCreateWorkflow,
-}
-
 var (
 	// Test creation flags
 	createTestPlatform string
@@ -105,35 +47,6 @@ var (
 	createWorkflowNoSync bool
 	createWorkflowDryRun bool
 )
-
-func init() {
-	createCmd.AddCommand(createTestCmd)
-	createCmd.AddCommand(createWorkflowCmd)
-
-	// Test creation flags
-	createTestCmd.Flags().StringVar(&createTestPlatform, "platform", "", "Target platform (android, ios)")
-	createTestCmd.Flags().StringVar(&createTestBuildVar, "build-var", "", "Build variable ID to associate with the test")
-	createTestCmd.Flags().BoolVar(&createTestNoOpen, "no-open", false, "Skip opening browser to test editor")
-	createTestCmd.Flags().BoolVar(&createTestNoSync, "no-sync", false, "Skip adding test to .revyl/config.yaml")
-	createTestCmd.Flags().BoolVar(&createTestForce, "force", false, "Update existing test if name already exists")
-	createTestCmd.Flags().BoolVar(&createTestDryRun, "dry-run", false, "Show what would be created without creating")
-	createTestCmd.Flags().StringVar(&createTestFromFile, "from-file", "", "Create test from YAML file (copies to .revyl/tests/ and pushes)")
-
-	// Hot reload flags for test creation
-	createTestCmd.Flags().BoolVar(&createTestHotReload, "hotreload", false, "Create test with hot reload (adds NAVIGATE step, starts dev server)")
-	createTestCmd.Flags().IntVar(&createTestHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
-	createTestCmd.Flags().StringVar(&createTestHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
-	createTestCmd.Flags().StringVar(&createTestHotReloadVariant, "variant", "", "Build variant for hot reload dev client")
-
-	// Interactive mode flag
-	createTestCmd.Flags().BoolVar(&createTestInteractive, "interactive", false, "Create test interactively with real-time device feedback")
-
-	// Workflow creation flags
-	createWorkflowCmd.Flags().StringVar(&createWorkflowTests, "tests", "", "Comma-separated test names or IDs to include")
-	createWorkflowCmd.Flags().BoolVar(&createWorkflowNoOpen, "no-open", false, "Skip opening browser to workflow editor")
-	createWorkflowCmd.Flags().BoolVar(&createWorkflowNoSync, "no-sync", false, "Skip adding workflow to .revyl/config.yaml")
-	createWorkflowCmd.Flags().BoolVar(&createWorkflowDryRun, "dry-run", false, "Show what would be created without creating")
-}
 
 // runCreateTest creates a new test on the server and adds it to the local config.
 //
@@ -164,7 +77,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -382,7 +295,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 
 	ui.Println()
 	ui.PrintInfo("Next: Define your test steps in the browser, then run with:")
-	ui.PrintDim("  revyl run test %s", testName)
+	ui.PrintDim("  revyl test run %s", testName)
 
 	return nil
 }
@@ -508,7 +421,7 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -647,7 +560,7 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 			ui.PrintError("A test named '%s' already exists (id: %s)", testName, existingTestID)
 			ui.Println()
 			ui.PrintInfo("To open the existing test, run:")
-			ui.PrintDim("  revyl open test %s", testName)
+			ui.PrintDim("  revyl test open %s", testName)
 			ui.Println()
 			ui.PrintInfo("Or use --force to update the existing test.")
 			return fmt.Errorf("test already exists")
@@ -756,7 +669,7 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -909,7 +822,7 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 
 	ui.Println()
 	ui.PrintInfo("Next: Configure your workflow in the browser, then run with:")
-	ui.PrintDim("  revyl run workflow %s", workflowName)
+	ui.PrintDim("  revyl workflow run %s", workflowName)
 
 	return nil
 }
@@ -936,7 +849,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -1014,7 +927,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 			ui.PrintError("A test named '%s' already exists (id: %s)", testName, existingTestID)
 			ui.Println()
 			ui.PrintInfo("To open the existing test, run:")
-			ui.PrintDim("  revyl open test %s", testName)
+			ui.PrintDim("  revyl test open %s", testName)
 			ui.Println()
 			ui.PrintInfo("Or use --force to update the existing test.")
 			return fmt.Errorf("test already exists")
@@ -1079,11 +992,12 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 
 	// Create interactive session
 	sessionConfig := interactive.SessionConfig{
-		TestID:   testID,
-		TestName: testName,
-		Platform: platform,
-		APIKey:   creds.APIKey,
-		DevMode:  devMode,
+		TestID:       testID,
+		TestName:     testName,
+		Platform:     platform,
+		APIKey:       creds.APIKey,
+		DevMode:      devMode,
+		IsSimulation: true,
 	}
 
 	// If hot reload is also enabled, get the deep link URL

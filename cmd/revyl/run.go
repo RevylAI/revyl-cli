@@ -24,117 +24,6 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
-// runCmd is the parent command for running tests/workflows.
-var runCmd = &cobra.Command{
-	Use:   "run",
-	Short: "Run tests or workflows",
-	Long: `Run tests or workflows.
-
-Use --build flag to build and upload before running.
-
-PREREQUISITES:
-  - Authenticated: revyl auth login
-  - Project initialized: revyl init (optional, for aliases)
-
-COMMANDS:
-  test      - Run a single test
-  workflow  - Run a workflow (multiple tests)
-
-OUTPUT:
-  - Human-readable progress by default
-  - JSON with --output flag for programmatic use
-
-EXIT CODES:
-  0 - Test/workflow passed
-  1 - Test/workflow failed or error
-
-EXAMPLES:
-  revyl run test login-flow                    # Run test without building
-  revyl run test login-flow --build            # Build first, then run
-  revyl run test login-flow --build --variant android  # Build with variant
-  revyl run workflow smoke-tests               # Run workflow without building
-  revyl run workflow smoke-tests --build       # Build first, then run workflow`,
-}
-
-// runTestCmd runs a single test.
-var runTestCmd = &cobra.Command{
-	Use:   "test <name|id>",
-	Short: "Run a test by name or ID",
-	Long: `Run a test by its alias name (from .revyl/config.yaml) or UUID.
-
-IMPORTANT: Use the test NAME or UUID, NOT a file path!
-  - CORRECT: revyl run test login-flow
-  - WRONG:   revyl run test login-flow.yaml
-  - WRONG:   revyl run test .revyl/tests/login-flow.yaml
-
-Test names are defined in .revyl/config.yaml under the 'tests:' section.
-Run 'revyl test list' to see available test names.
-
-BUILD OPTIONS:
-  --build              Build and upload before running
-  --build --variant X  Build using variant X from config
-
-PREREQUISITES:
-  - Authenticated: revyl auth login (or set REVYL_API_KEY env var)
-  - Project initialized: revyl init (optional, for aliases)
-
-OUTPUT:
-  - Human-readable progress by default
-  - JSON with --output flag for programmatic use
-
-EXIT CODES:
-  0 - Test passed
-  1 - Test failed or error
-
-EXAMPLES:
-  revyl run test login-flow                    # By alias from .revyl/config.yaml
-  revyl run test abc123-def456...              # By UUID
-  revyl run test login-flow --output           # JSON output for CI/CD
-  revyl run test login-flow -r 3               # With 3 retries
-  revyl run test login-flow --build            # Build first, then run
-  revyl run test login-flow --build --variant android  # Build with variant`,
-	Args: cobra.ExactArgs(1),
-	RunE: runTestExec,
-}
-
-// runWorkflowCmd runs a workflow.
-var runWorkflowCmd = &cobra.Command{
-	Use:   "workflow <name|id>",
-	Short: "Run a workflow by name or ID",
-	Long: `Run a workflow by its alias name (from .revyl/config.yaml) or UUID.
-
-IMPORTANT: Use the workflow NAME or UUID, NOT a file path!
-  - CORRECT: revyl run workflow smoke-tests
-  - WRONG:   revyl run workflow smoke-tests.yaml
-
-Workflow names are defined in .revyl/config.yaml under the 'workflows:' section.
-Run 'revyl tests remote' to see available workflows.
-
-To build before running, use --build flag:
-  revyl run workflow smoke-tests --build --variant android
-
-PREREQUISITES:
-  - Authenticated: revyl auth login (or set REVYL_API_KEY env var)
-  - Project initialized: revyl init (optional, for aliases)
-
-OUTPUT:
-  - Human-readable progress by default
-  - JSON with --output flag for programmatic use
-
-EXIT CODES:
-  0 - All tests passed
-  1 - One or more tests failed
-
-EXAMPLES:
-  revyl run workflow smoke-tests              # By alias from .revyl/config.yaml
-  revyl run workflow abc123-def456...         # By UUID
-  revyl run workflow smoke-tests --output     # JSON output for CI/CD
-  revyl run workflow smoke-tests --build      # Build first, then run
-  revyl run workflow smoke-tests --build --variant android  # Build with variant`,
-	Args: cobra.ExactArgs(1),
-	RunE: runWorkflowExec,
-}
-
 var (
 	runRetries           int
 	runBuildVersionID    string
@@ -153,37 +42,6 @@ var (
 	runHotReloadProvider string
 )
 
-func init() {
-	runCmd.AddCommand(runTestCmd)
-	runCmd.AddCommand(runWorkflowCmd)
-
-	// Test flags
-	runTestCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
-	runTestCmd.Flags().StringVarP(&runBuildVersionID, "build-version-id", "b", "", "Specific build version ID")
-	runTestCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after test starts without waiting")
-	runTestCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete")
-	runTestCmd.Flags().IntVarP(&runTimeout, "timeout", "t", 3600, "Timeout in seconds")
-	runTestCmd.Flags().BoolVar(&runOutputJSON, "output", false, "Output results as JSON")
-	runTestCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
-	runTestCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
-	runTestCmd.Flags().BoolVar(&runTestBuild, "build", false, "Build and upload before running test")
-	runTestCmd.Flags().StringVar(&runTestVariant, "variant", "", "Build variant to use (requires --build, or used with --hotreload)")
-	runTestCmd.Flags().BoolVar(&runHotReload, "hotreload", false, "Enable hot reload mode with local dev server")
-	runTestCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
-	runTestCmd.Flags().StringVar(&runHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
-
-	// Workflow flags
-	runWorkflowCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
-	runWorkflowCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after workflow starts without waiting")
-	runWorkflowCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete")
-	runWorkflowCmd.Flags().IntVarP(&runTimeout, "timeout", "t", 3600, "Timeout in seconds")
-	runWorkflowCmd.Flags().BoolVar(&runOutputJSON, "output", false, "Output results as JSON")
-	runWorkflowCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
-	runWorkflowCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
-	runWorkflowCmd.Flags().BoolVar(&runWorkflowBuild, "build", false, "Build and upload before running workflow")
-	runWorkflowCmd.Flags().StringVar(&runWorkflowVariant, "variant", "", "Build variant to use (requires --build)")
-}
-
 // runTestExec executes a test using the shared execution package.
 //
 // Parameters:
@@ -193,6 +51,13 @@ func init() {
 // Returns:
 //   - error: Any error that occurred, or nil on success
 func runTestExec(cmd *cobra.Command, args []string) error {
+	// Honor global --json (root persistent) and local --json
+	if v, _ := cmd.Flags().GetBool("json"); v {
+		runOutputJSON = true
+	}
+	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
+		runOutputJSON = true
+	}
 	// Check if hot reload mode is enabled
 	if runHotReload {
 		return runTestWithHotReload(cmd, args)
@@ -203,7 +68,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -474,12 +339,19 @@ func outputTestResultJSON(result *execution.RunTestResult) {
 // Returns:
 //   - error: Any error that occurred, or nil on success
 func runWorkflowExec(cmd *cobra.Command, args []string) error {
+	// Honor global --json (root persistent) and local --json
+	if v, _ := cmd.Flags().GetBool("json"); v {
+		runOutputJSON = true
+	}
+	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
+		runOutputJSON = true
+	}
 	workflowNameOrID := args[0]
 
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -490,7 +362,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 
 	// Resolve workflow ID from alias for display
 	workflowID := workflowNameOrID
-	_, isAlias := false, false
+	var isAlias bool
 	if cfg != nil {
 		if id, ok := cfg.Workflows[workflowNameOrID]; ok {
 			workflowID = id
@@ -511,7 +383,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			if len(availableWorkflows) > 0 {
 				errMsg += fmt.Sprintf(". Available workflows: %v", availableWorkflows)
 			}
-			errMsg += "\n\nHint: Run 'revyl tests remote' to see all available tests/workflows."
+			errMsg += "\n\nHint: Run 'revyl test remote' to see all available tests/workflows."
 			ui.PrintError(errMsg)
 			return fmt.Errorf("workflow not found")
 		}
@@ -790,12 +662,19 @@ func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 // Returns:
 //   - error: Any error that occurred, or nil on success
 func runTestWithHotReload(cmd *cobra.Command, args []string) error {
+	// Honor global --json (root persistent) and local --json
+	if v, _ := cmd.Flags().GetBool("json"); v {
+		runOutputJSON = true
+	}
+	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
+		runOutputJSON = true
+	}
 	testNameOrID := args[0]
 
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
+	if err != nil || creds == nil || creds.APIKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}

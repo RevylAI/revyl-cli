@@ -15,11 +15,10 @@ func TestRootCommandInitialization(t *testing.T) {
 		t.Fatal("rootCmd is nil")
 	}
 
-	// List of all expected subcommands
+	// List of all expected root subcommands (noun-first: test/workflow/build have run, cancel, create, delete, open as subcommands)
 	expectedCommands := []string{
-		"version", "auth", "init", "create", "open",
-		"build", "run", "test", "workflow", "tests", "cancel", "docs",
-		"mcp", "schema", "doctor", "ping", "upgrade",
+		"version", "auth", "init", "build", "test", "workflow",
+		"docs", "mcp", "schema", "doctor", "ping", "upgrade", "hotreload",
 	}
 
 	// Check each expected command is registered
@@ -43,7 +42,7 @@ func TestRootCommandInitialization(t *testing.T) {
 // consistent CLI behavior (debug mode, JSON output, quiet mode, etc.).
 func TestGlobalFlagsExist(t *testing.T) {
 	// List of all expected global flags
-	flags := []string{"debug", "dev", "config", "json", "quiet"}
+	flags := []string{"debug", "dev", "json", "quiet"}
 
 	// Check each expected flag is registered
 	for _, name := range flags {
