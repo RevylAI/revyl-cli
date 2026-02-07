@@ -479,11 +479,12 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 
 	// Create interactive session
 	sessionConfig := interactive.SessionConfig{
-		TestID:   testID,
-		TestName: test.Name,
-		Platform: test.Platform,
-		APIKey:   creds.APIKey,
-		DevMode:  devMode,
+		TestID:       testID,
+		TestName:     test.Name,
+		Platform:     test.Platform,
+		APIKey:       creds.APIKey,
+		DevMode:      devMode,
+		IsSimulation: true,
 	}
 
 	// Track hot reload manager for cleanup

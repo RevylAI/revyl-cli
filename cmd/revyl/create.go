@@ -992,11 +992,12 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 
 	// Create interactive session
 	sessionConfig := interactive.SessionConfig{
-		TestID:   testID,
-		TestName: testName,
-		Platform: platform,
-		APIKey:   creds.APIKey,
-		DevMode:  devMode,
+		TestID:       testID,
+		TestName:     testName,
+		Platform:     platform,
+		APIKey:       creds.APIKey,
+		DevMode:      devMode,
+		IsSimulation: true,
 	}
 
 	// If hot reload is also enabled, get the deep link URL
