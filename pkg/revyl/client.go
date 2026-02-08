@@ -36,6 +36,8 @@ type Client struct {
 	apiClient *api.Client
 	config    *config.ProjectConfig
 	workDir   string
+	baseURL   string // Custom base URL if set
+	apiKey    string // Store API key for recreating client with custom URL
 }
 
 // Option configures a Client.
@@ -44,17 +46,21 @@ type Option func(*Client) error
 // WithAPIKey sets the API key for authentication.
 func WithAPIKey(apiKey string) Option {
 	return func(c *Client) error {
+		c.apiKey = apiKey
+		// Create client with default URL initially; will be recreated if WithBaseURL is also used
 		c.apiClient = api.NewClient(apiKey)
 		return nil
 	}
 }
 
 // WithBaseURL sets a custom base URL for the API.
+// This option must be applied after WithAPIKey.
 func WithBaseURL(baseURL string) Option {
 	return func(c *Client) error {
-		if c.apiClient != nil {
-			// Recreate with new base URL - need to get API key first
-			return nil
+		c.baseURL = baseURL
+		// Recreate the API client with the custom base URL if we have an API key
+		if c.apiKey != "" {
+			c.apiClient = api.NewClientWithBaseURL(c.apiKey, baseURL)
 		}
 		return nil
 	}
@@ -101,7 +107,13 @@ func NewClient(opts ...Option) (*Client, error) {
 		if err != nil || creds == nil || creds.APIKey == "" {
 			return nil, fmt.Errorf("no API key provided and not authenticated")
 		}
-		c.apiClient = api.NewClient(creds.APIKey)
+		c.apiKey = creds.APIKey
+		// Use custom base URL if set, otherwise use default
+		if c.baseURL != "" {
+			c.apiClient = api.NewClientWithBaseURL(creds.APIKey, c.baseURL)
+		} else {
+			c.apiClient = api.NewClient(creds.APIKey)
+		}
 	}
 
 	// If no work dir, use current directory

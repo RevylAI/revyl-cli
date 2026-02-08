@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -131,8 +132,10 @@ func (s *Server) registerTools() {
 
 	// NEW: create_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "create_test",
-		Description: "Create a new test. Can create from YAML content or just a name (opens browser editor).",
+		Name: "create_test",
+		Description: `Create a new test from YAML content or just a name.
+
+RECOMMENDED: Before creating a test, read the app's source code (screens, components, routes) to understand the real UI labels, navigation flow, and user-facing outcomes. Use get_schema for the YAML format reference.`,
 	}, s.handleCreateTest)
 
 	// NEW: create_workflow tool
@@ -193,10 +196,31 @@ type RunTestOutput struct {
 
 // handleRunTest handles the run_test tool call.
 func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, input RunTestInput) (*mcp.CallToolResult, RunTestOutput, error) {
+	// Validate input
+	if input.TestName == "" {
+		return nil, RunTestOutput{
+			Success:      false,
+			ErrorMessage: "test_name is required",
+		}, nil
+	}
+
+	// Validate retries bounds (1-5)
+	retries := input.Retries
+	if retries < 0 {
+		retries = 1
+	} else if retries > 5 {
+		return nil, RunTestOutput{
+			Success:      false,
+			ErrorMessage: "retries must be between 1 and 5",
+		}, nil
+	} else if retries == 0 {
+		retries = 1 // Default to 1 if not specified
+	}
+
 	// Use shared execution logic
 	result, err := execution.RunTest(ctx, s.apiClient.GetAPIKey(), s.config, execution.RunTestParams{
 		TestNameOrID:   input.TestName,
-		Retries:        input.Retries,
+		Retries:        retries,
 		BuildVersionID: input.BuildVersionID,
 		Timeout:        3600,
 		DevMode:        false,
@@ -240,10 +264,31 @@ type RunWorkflowOutput struct {
 
 // handleRunWorkflow handles the run_workflow tool call.
 func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest, input RunWorkflowInput) (*mcp.CallToolResult, RunWorkflowOutput, error) {
+	// Validate input
+	if input.WorkflowName == "" {
+		return nil, RunWorkflowOutput{
+			Success:      false,
+			ErrorMessage: "workflow_name is required",
+		}, nil
+	}
+
+	// Validate retries bounds (1-5)
+	retries := input.Retries
+	if retries < 0 {
+		retries = 1
+	} else if retries > 5 {
+		return nil, RunWorkflowOutput{
+			Success:      false,
+			ErrorMessage: "retries must be between 1 and 5",
+		}, nil
+	} else if retries == 0 {
+		retries = 1 // Default to 1 if not specified
+	}
+
 	// Use shared execution logic
 	result, err := execution.RunWorkflow(ctx, s.apiClient.GetAPIKey(), s.config, execution.RunWorkflowParams{
 		WorkflowNameOrID: input.WorkflowName,
-		Retries:          input.Retries,
+		Retries:          retries,
 		Timeout:          3600,
 		DevMode:          false,
 		OnProgress:       nil,
@@ -342,11 +387,37 @@ type GetTestStatusOutput struct {
 
 // handleGetTestStatus handles the get_test_status tool call.
 func (s *Server) handleGetTestStatus(ctx context.Context, req *mcp.CallToolRequest, input GetTestStatusInput) (*mcp.CallToolResult, GetTestStatusOutput, error) {
-	// This would typically call an API endpoint to get status
-	// For now, return a placeholder
+	// Validate input
+	if input.TaskID == "" {
+		return nil, GetTestStatusOutput{
+			Status:       "error",
+			ErrorMessage: "task_id is required",
+		}, nil
+	}
+
+	// Call the API to get test status
+	status, err := s.apiClient.GetTestStatus(ctx, input.TaskID)
+	if err != nil {
+		return nil, GetTestStatusOutput{
+			Status:       "error",
+			ErrorMessage: fmt.Sprintf("failed to get test status: %v", err),
+		}, nil
+	}
+
+	// Calculate duration if we have timing info
+	var duration string
+	if status.ExecutionTimeSeconds > 0 {
+		duration = fmt.Sprintf("%.1fs", status.ExecutionTimeSeconds)
+	}
+
 	return nil, GetTestStatusOutput{
-		Status:   "unknown",
-		Progress: 0,
+		Status:         status.Status,
+		Progress:       int(status.Progress),
+		CurrentStep:    status.CurrentStep,
+		CompletedSteps: status.StepsCompleted,
+		TotalSteps:     status.TotalSteps,
+		Duration:       duration,
+		ErrorMessage:   status.ErrorMessage,
 	}, nil
 }
 
@@ -369,6 +440,30 @@ type CreateTestOutput struct {
 
 // handleCreateTest handles the create_test tool call.
 func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest, input CreateTestInput) (*mcp.CallToolResult, CreateTestOutput, error) {
+	// Validate required fields
+	if input.Name == "" {
+		return nil, CreateTestOutput{
+			Success: false,
+			Error:   "name is required",
+		}, nil
+	}
+
+	if input.Platform == "" {
+		return nil, CreateTestOutput{
+			Success: false,
+			Error:   "platform is required (ios or android)",
+		}, nil
+	}
+
+	// Validate platform value
+	platform := strings.ToLower(input.Platform)
+	if platform != "ios" && platform != "android" {
+		return nil, CreateTestOutput{
+			Success: false,
+			Error:   "platform must be 'ios' or 'android'",
+		}, nil
+	}
+
 	// Validate YAML if provided
 	if input.YAMLContent != "" {
 		validationResult := yaml.ValidateYAML(input.YAMLContent)
@@ -382,7 +477,7 @@ func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest,
 
 	result, err := execution.CreateTest(ctx, s.apiClient.GetAPIKey(), execution.CreateTestParams{
 		Name:        input.Name,
-		Platform:    input.Platform,
+		Platform:    platform,
 		YAMLContent: input.YAMLContent,
 		BuildVarID:  input.BuildVarID,
 		DevMode:     false,
@@ -416,6 +511,14 @@ type CreateWorkflowOutput struct {
 
 // handleCreateWorkflow handles the create_workflow tool call.
 func (s *Server) handleCreateWorkflow(ctx context.Context, req *mcp.CallToolRequest, input CreateWorkflowInput) (*mcp.CallToolResult, CreateWorkflowOutput, error) {
+	// Validate required fields
+	if input.Name == "" {
+		return nil, CreateWorkflowOutput{
+			Success: false,
+			Error:   "name is required",
+		}, nil
+	}
+
 	// Get user ID from API key validation
 	userInfo, err := s.apiClient.ValidateAPIKey(ctx)
 	if err != nil {
@@ -538,8 +641,9 @@ type BuildInfo struct {
 
 // ListBuildsOutput defines output for list_builds tool.
 type ListBuildsOutput struct {
-	Builds []BuildInfo `json:"builds"`
-	Total  int         `json:"total"`
+	Builds       []BuildInfo `json:"builds"`
+	Total        int         `json:"total"`
+	ErrorMessage string      `json:"error_message,omitempty"`
 }
 
 // handleListBuilds handles the list_builds tool call.
@@ -552,8 +656,9 @@ func (s *Server) handleListBuilds(ctx context.Context, req *mcp.CallToolRequest,
 	result, err := s.apiClient.ListOrgBuildVars(ctx, input.Platform, 1, limit)
 	if err != nil {
 		return nil, ListBuildsOutput{
-			Builds: []BuildInfo{},
-			Total:  0,
+			Builds:       []BuildInfo{},
+			Total:        0,
+			ErrorMessage: fmt.Sprintf("failed to list builds: %v", err),
 		}, nil
 	}
 
