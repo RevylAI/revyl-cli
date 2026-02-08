@@ -114,6 +114,20 @@ const (
 	FinalFail FallbackTrigger = "final_fail"
 )
 
+// Defines values for FleetSandboxSandboxType.
+const (
+	Container FleetSandboxSandboxType = "container"
+	Dedicated FleetSandboxSandboxType = "dedicated"
+)
+
+// Defines values for FleetSandboxStatus.
+const (
+	Available   FleetSandboxStatus = "available"
+	Claimed     FleetSandboxStatus = "claimed"
+	Maintenance FleetSandboxStatus = "maintenance"
+	Reserved    FleetSandboxStatus = "reserved"
+)
+
 // Defines values for GrounderType.
 const (
 	Auto            GrounderType = "auto"
@@ -195,8 +209,11 @@ const (
 
 // Defines values for WorkerConnectionResponseStatus.
 const (
-	NotReady WorkerConnectionResponseStatus = "not_ready"
-	Ready    WorkerConnectionResponseStatus = "ready"
+	WorkerConnectionResponseStatusCancelled WorkerConnectionResponseStatus = "cancelled"
+	WorkerConnectionResponseStatusFailed    WorkerConnectionResponseStatus = "failed"
+	WorkerConnectionResponseStatusNotReady  WorkerConnectionResponseStatus = "not_ready"
+	WorkerConnectionResponseStatusReady     WorkerConnectionResponseStatus = "ready"
+	WorkerConnectionResponseStatusStopped   WorkerConnectionResponseStatus = "stopped"
 )
 
 // Defines values for WorkflowLastExecutionStatus.
@@ -211,13 +228,13 @@ const (
 
 // Defines values for WorkflowStatus.
 const (
-	Cancelled WorkflowStatus = "cancelled"
-	Completed WorkflowStatus = "completed"
-	Failed    WorkflowStatus = "failed"
-	Queued    WorkflowStatus = "queued"
-	Running   WorkflowStatus = "running"
-	Setup     WorkflowStatus = "setup"
-	Timeout   WorkflowStatus = "timeout"
+	WorkflowStatusCancelled WorkflowStatus = "cancelled"
+	WorkflowStatusCompleted WorkflowStatus = "completed"
+	WorkflowStatusFailed    WorkflowStatus = "failed"
+	WorkflowStatusQueued    WorkflowStatus = "queued"
+	WorkflowStatusRunning   WorkflowStatus = "running"
+	WorkflowStatusSetup     WorkflowStatus = "setup"
+	WorkflowStatusTimeout   WorkflowStatus = "timeout"
 )
 
 // AICodeGenerationDataPoint defines model for AICodeGenerationDataPoint.
@@ -1275,16 +1292,22 @@ type CategoryValue struct {
 	Value    float32 `json:"value"`
 }
 
-// ChartDataPoint defines model for ChartDataPoint.
+// ChartDataPoint Daily aggregated chart data point.
 type ChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -1324,6 +1347,45 @@ type ChildTaskReportInfo struct {
 	TestId               *string  `json:"test_id"`
 	TestName             *string  `json:"test_name"`
 	TotalSteps           *int     `json:"total_steps"`
+}
+
+// ClaimSandboxResponse Response from claiming a sandbox.
+//
+// Attributes:
+//
+//	success: Whether the claim was successful.
+//	sandbox: The claimed sandbox details (if successful).
+//	message: Human-readable status message.
+type ClaimSandboxResponse struct {
+	// Message Status message
+	Message string `json:"message"`
+
+	// Sandbox Represents a virtual machine sandbox in the Fleet pool.
+	//
+	// Sandboxes are Mac Mini VMs that developers can claim for development work.
+	// Each sandbox can host multiple git repositories and worktrees.
+	//
+	// Attributes:
+	//     id: Unique identifier for the sandbox (UUID).
+	//     org_id: Organization ID that owns this sandbox (NULL = shared pool).
+	//     vm_name: VM name (e.g., "sandbox-1").
+	//     hostname: Human-readable hostname for display.
+	//     sandbox_type: Type of sandbox (dedicated machine or container).
+	//     host_identifier: Groups sandboxes running on the same physical host.
+	//     tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+	//     status: Current sandbox state (available, claimed, maintenance, reserved).
+	//     claimed_by: User ID of the developer who claimed this sandbox.
+	//     claimed_at: Timestamp when the sandbox was claimed.
+	//     ssh_user: SSH username for connections (default: revyl-admin).
+	//     ssh_port: SSH port number (default: 22).
+	//     specs: Hardware specifications (cpu_cores, memory_gb, chip).
+	//     tags: Flexible labels for filtering (location, tier, etc.).
+	//     created_at: When the sandbox was added to the pool.
+	//     updated_at: Last modification timestamp.
+	Sandbox *FleetSandbox `json:"sandbox,omitempty"`
+
+	// Success Whether claim succeeded
+	Success bool `json:"success"`
 }
 
 // CleanupLevel Cleanup intensity level for AVD state reset between test runs.
@@ -1562,6 +1624,9 @@ type CopyTestToBenchmarksResponse struct {
 	// Message Human-readable summary of the operation
 	Message string `json:"message"`
 
+	// ModulesCopied Number of modules copied
+	ModulesCopied *int `json:"modules_copied,omitempty"`
+
 	// NewBuildVarId UUID of the newly created build_var
 	NewBuildVarId *string `json:"new_build_var_id"`
 
@@ -1701,6 +1766,40 @@ type CreateTagRequest struct {
 type CreateWorkflowResponse struct {
 	// Data Workflows Base Schema.
 	Data WorkflowsBaseSchema `json:"data"`
+}
+
+// CreateWorktreeRequest Request payload for creating a new worktree.
+//
+// Attributes:
+//
+//	branch: Name for the new branch/worktree.
+//	base_branch: Branch to create the worktree from (default: main).
+//	sandbox_id: Optional specific sandbox to create on (uses claimed if not specified).
+//	repo: Repository name (default: cognisim-monorepo).
+//	copy_env: Whether to copy .env files from local repo.
+//	install_deps: Whether to run dependency installation.
+//	setup_script: Optional custom setup script to run.
+type CreateWorktreeRequest struct {
+	// BaseBranch Base branch to branch from
+	BaseBranch *string `json:"base_branch,omitempty"`
+
+	// Branch New branch name
+	Branch string `json:"branch"`
+
+	// CopyEnv Copy .env files from local
+	CopyEnv *bool `json:"copy_env,omitempty"`
+
+	// InstallDeps Run dependency installation
+	InstallDeps *bool `json:"install_deps,omitempty"`
+
+	// Repo Repository name
+	Repo *string `json:"repo,omitempty"`
+
+	// SandboxId Target sandbox (uses claimed if not specified)
+	SandboxId *string `json:"sandbox_id"`
+
+	// SetupScript Custom setup script
+	SetupScript *string `json:"setup_script"`
 }
 
 // CursorConfigurationStatus Response model for Cursor configuration status.
@@ -2291,6 +2390,269 @@ type ExtractPackageIdResponse struct {
 // - FINAL_FAIL: Only trigger fallback if overall test fails
 type FallbackTrigger string
 
+// FleetAuthValidateResponse Response from validating an API key for Fleet access.
+//
+// Used by FleetDashboard to verify API key and get user info.
+//
+// Attributes:
+//
+//	valid: Whether the API key is valid.
+//	user_id: User ID associated with the key.
+//	email: User's email address.
+//	org_id: Organization ID.
+//	permissions: List of user permissions.
+type FleetAuthValidateResponse struct {
+	// Email User email
+	Email *string `json:"email"`
+
+	// OrgId Organization ID
+	OrgId *string `json:"org_id"`
+
+	// Permissions User permissions
+	Permissions *[]string `json:"permissions"`
+
+	// UserId User ID
+	UserId *string `json:"user_id"`
+
+	// Valid Whether API key is valid
+	Valid bool `json:"valid"`
+}
+
+// FleetDashboardResponse Combined response for the Fleet dashboard view.
+//
+// Provides all data needed to render the main Fleet Dashboard UI
+// in a single API call.
+//
+// Attributes:
+//
+//	status: Pool status summary.
+//	sandboxes: List of all sandboxes.
+//	worktrees: List of worktrees on user's claimed sandbox(es).
+//	claimed_sandbox: The user's currently claimed sandbox (if any).
+//	tunnels: List of active tunnels on user's sandbox(es).
+type FleetDashboardResponse struct {
+	// ClaimedSandbox Represents a virtual machine sandbox in the Fleet pool.
+	//
+	// Sandboxes are Mac Mini VMs that developers can claim for development work.
+	// Each sandbox can host multiple git repositories and worktrees.
+	//
+	// Attributes:
+	//     id: Unique identifier for the sandbox (UUID).
+	//     org_id: Organization ID that owns this sandbox (NULL = shared pool).
+	//     vm_name: VM name (e.g., "sandbox-1").
+	//     hostname: Human-readable hostname for display.
+	//     sandbox_type: Type of sandbox (dedicated machine or container).
+	//     host_identifier: Groups sandboxes running on the same physical host.
+	//     tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+	//     status: Current sandbox state (available, claimed, maintenance, reserved).
+	//     claimed_by: User ID of the developer who claimed this sandbox.
+	//     claimed_at: Timestamp when the sandbox was claimed.
+	//     ssh_user: SSH username for connections (default: revyl-admin).
+	//     ssh_port: SSH port number (default: 22).
+	//     specs: Hardware specifications (cpu_cores, memory_gb, chip).
+	//     tags: Flexible labels for filtering (location, tier, etc.).
+	//     created_at: When the sandbox was added to the pool.
+	//     updated_at: Last modification timestamp.
+	ClaimedSandbox *FleetSandbox `json:"claimed_sandbox,omitempty"`
+
+	// Sandboxes All sandboxes
+	Sandboxes []FleetSandbox `json:"sandboxes"`
+
+	// Status Summary statistics for the Fleet sandbox pool.
+	//
+	// Provides a quick overview of pool availability and usage.
+	//
+	// Attributes:
+	//     total: Total number of sandboxes in the pool.
+	//     available: Number of sandboxes available for claiming.
+	//     claimed: Number of sandboxes currently claimed.
+	//     maintenance: Number of sandboxes under maintenance.
+	Status FleetPoolStatus `json:"status"`
+
+	// Tunnels Active tunnels
+	Tunnels *[]FleetTunnel `json:"tunnels,omitempty"`
+
+	// Worktrees User's worktrees
+	Worktrees *[]FleetWorktree `json:"worktrees,omitempty"`
+}
+
+// FleetPoolStatus Summary statistics for the Fleet sandbox pool.
+//
+// Provides a quick overview of pool availability and usage.
+//
+// Attributes:
+//
+//	total: Total number of sandboxes in the pool.
+//	available: Number of sandboxes available for claiming.
+//	claimed: Number of sandboxes currently claimed.
+//	maintenance: Number of sandboxes under maintenance.
+type FleetPoolStatus struct {
+	// Available Available sandboxes
+	Available int `json:"available"`
+
+	// Claimed Claimed sandboxes
+	Claimed int `json:"claimed"`
+
+	// Maintenance Sandboxes under maintenance
+	Maintenance *int `json:"maintenance,omitempty"`
+
+	// Total Total sandboxes in pool
+	Total int `json:"total"`
+}
+
+// FleetSandbox Represents a virtual machine sandbox in the Fleet pool.
+//
+// Sandboxes are Mac Mini VMs that developers can claim for development work.
+// Each sandbox can host multiple git repositories and worktrees.
+//
+// Attributes:
+//
+//	id: Unique identifier for the sandbox (UUID).
+//	org_id: Organization ID that owns this sandbox (NULL = shared pool).
+//	vm_name: VM name (e.g., "sandbox-1").
+//	hostname: Human-readable hostname for display.
+//	sandbox_type: Type of sandbox (dedicated machine or container).
+//	host_identifier: Groups sandboxes running on the same physical host.
+//	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+//	status: Current sandbox state (available, claimed, maintenance, reserved).
+//	claimed_by: User ID of the developer who claimed this sandbox.
+//	claimed_at: Timestamp when the sandbox was claimed.
+//	ssh_user: SSH username for connections (default: revyl-admin).
+//	ssh_port: SSH port number (default: 22).
+//	specs: Hardware specifications (cpu_cores, memory_gb, chip).
+//	tags: Flexible labels for filtering (location, tier, etc.).
+//	created_at: When the sandbox was added to the pool.
+//	updated_at: Last modification timestamp.
+type FleetSandbox struct {
+	// ClaimedAt When sandbox was claimed
+	ClaimedAt *time.Time `json:"claimed_at"`
+
+	// ClaimedBy User ID of claiming developer
+	ClaimedBy *string `json:"claimed_by"`
+
+	// CreatedAt Creation timestamp
+	CreatedAt *time.Time `json:"created_at"`
+
+	// HostIdentifier Physical host grouping identifier
+	HostIdentifier *string `json:"host_identifier"`
+
+	// Hostname Human-readable hostname
+	Hostname *string `json:"hostname"`
+
+	// Id Unique sandbox identifier (UUID)
+	Id string `json:"id"`
+
+	// OrgId Organization ID (NULL = shared pool)
+	OrgId *string `json:"org_id"`
+
+	// SandboxType Sandbox type (dedicated or container)
+	SandboxType *FleetSandboxSandboxType `json:"sandbox_type,omitempty"`
+
+	// Specs Hardware specs (cpu_cores, memory_gb, chip)
+	Specs *map[string]interface{} `json:"specs"`
+
+	// SshPort SSH port
+	SshPort *int `json:"ssh_port,omitempty"`
+
+	// SshUser SSH username
+	SshUser *string `json:"ssh_user,omitempty"`
+
+	// Status Current sandbox state
+	Status *FleetSandboxStatus `json:"status,omitempty"`
+
+	// Tags Flexible labels for filtering
+	Tags *map[string]interface{} `json:"tags"`
+
+	// TunnelHostname Cloudflare tunnel hostname for SSH
+	TunnelHostname *string `json:"tunnel_hostname"`
+
+	// UpdatedAt Last update timestamp
+	UpdatedAt *time.Time `json:"updated_at"`
+
+	// VmName VM name (e.g., 'sandbox-1')
+	VmName string `json:"vm_name"`
+}
+
+// FleetSandboxSandboxType Sandbox type (dedicated or container)
+type FleetSandboxSandboxType string
+
+// FleetSandboxStatus Current sandbox state
+type FleetSandboxStatus string
+
+// FleetTunnel Represents an active Cloudflare tunnel on a sandbox.
+//
+// Tunnels provide temporary public URLs for accessing services
+// running on sandboxes (e.g., frontend dev server, API).
+//
+// Attributes:
+//
+//	port: Local port being tunneled.
+//	url: Public Cloudflare tunnel URL.
+//	pid: Process ID of the cloudflared process.
+//	branch: Optional worktree branch associated with this tunnel.
+//	sandbox_name: Name of the sandbox hosting this tunnel.
+//	service_name: Human-readable service name (e.g., "frontend", "backend").
+type FleetTunnel struct {
+	// Branch Associated worktree branch
+	Branch *string `json:"branch"`
+
+	// Pid cloudflared process ID
+	Pid int `json:"pid"`
+
+	// Port Local port being tunneled
+	Port int `json:"port"`
+
+	// SandboxName Sandbox VM name
+	SandboxName *string `json:"sandbox_name"`
+
+	// ServiceName Service name
+	ServiceName *string `json:"service_name"`
+
+	// Url Public tunnel URL
+	Url string `json:"url"`
+}
+
+// FleetWorktree Represents a git worktree on a Fleet sandbox.
+//
+// Worktrees allow multiple branches to be checked out simultaneously
+// on the same sandbox, enabling parallel development work.
+//
+// Attributes:
+//
+//	branch: Git branch name for this worktree.
+//	path: Filesystem path on the sandbox.
+//	is_main: Whether this is the main/primary worktree.
+//	repo: Repository name (e.g., "cognisim-monorepo").
+//	sandbox_name: Name of the sandbox hosting this worktree.
+//	sandbox_id: UUID of the sandbox hosting this worktree.
+//	branched_from: Base branch this worktree was created from.
+//	created_at: When the worktree was created.
+type FleetWorktree struct {
+	// Branch Git branch name
+	Branch string `json:"branch"`
+
+	// BranchedFrom Base branch for this worktree
+	BranchedFrom *string `json:"branched_from"`
+
+	// CreatedAt Creation timestamp
+	CreatedAt *time.Time `json:"created_at"`
+
+	// IsMain Is main worktree
+	IsMain *bool `json:"is_main,omitempty"`
+
+	// Path Filesystem path on sandbox
+	Path string `json:"path"`
+
+	// Repo Repository name
+	Repo string `json:"repo"`
+
+	// SandboxId Sandbox UUID
+	SandboxId *string `json:"sandbox_id"`
+
+	// SandboxName Sandbox VM name
+	SandboxName string `json:"sandbox_name"`
+}
+
 // GenerateStateTokenResponse defines model for GenerateStateTokenResponse.
 type GenerateStateTokenResponse struct {
 	StateToken string `json:"state_token"`
@@ -2761,10 +3123,10 @@ type ModulesListResponse struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []ChartDataPoint `json:"data"`
-	MetricType   string           `json:"metric_type"`
-	Repositories []string         `json:"repositories"`
-	RetrievedAt  string           `json:"retrieved_at"`
+	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
+	MetricType   string                                           `json:"metric_type"`
+	Repositories []string                                         `json:"repositories"`
+	RetrievedAt  string                                           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -3137,6 +3499,36 @@ type PullRequest struct {
 	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
+// PushSSHKeyRequest Request payload for pushing an SSH public key to a sandbox.
+//
+// The backend will SSH into the sandbox and add the key to authorized_keys.
+//
+// Attributes:
+//
+//	public_key: The SSH public key content (e.g., "ssh-ed25519 AAAA... user@host").
+type PushSSHKeyRequest struct {
+	// PublicKey SSH public key content
+	PublicKey string `json:"public_key"`
+}
+
+// PushSSHKeyResponse Response from pushing an SSH key to a sandbox.
+//
+// Attributes:
+//
+//	success: Whether the key was successfully added.
+//	message: Human-readable status message.
+//	already_exists: Whether the key was already present.
+type PushSSHKeyResponse struct {
+	// AlreadyExists Whether key was already present
+	AlreadyExists *bool `json:"already_exists,omitempty"`
+
+	// Message Status message
+	Message string `json:"message"`
+
+	// Success Whether key push succeeded
+	Success bool `json:"success"`
+}
+
 // RebelOrgSettings Organization settings for Rebel Bot.
 type RebelOrgSettings struct {
 	CreatedAt        time.Time `json:"created_at"`
@@ -3167,6 +3559,20 @@ type RecentComment struct {
 	Type       string    `json:"type"`
 }
 
+// ReleaseSandboxResponse Response from releasing a sandbox.
+//
+// Attributes:
+//
+//	success: Whether the release was successful.
+//	message: Human-readable status message.
+type ReleaseSandboxResponse struct {
+	// Message Status message
+	Message string `json:"message"`
+
+	// Success Whether release succeeded
+	Success bool `json:"success"`
+}
+
 // RemoveWorkflowFromRuleResponse Response after removing a workflow from a rule.
 type RemoveWorkflowFromRuleResponse struct {
 	// Rule Notification rule with enriched workflow details.
@@ -3191,6 +3597,18 @@ type RepositoryIdentifier struct {
 
 	// Repo Repository name
 	Repo string `json:"repo"`
+}
+
+// ResolveBuildVarsResponse Response model for resolved build vars from workflows.
+type ResolveBuildVarsResponse struct {
+	BuildVars []ResolvedBuildVar `json:"build_vars"`
+}
+
+// ResolvedBuildVar Build variable resolved from workflow tests.
+type ResolvedBuildVar struct {
+	BuildVarId   string `json:"build_var_id"`
+	BuildVarName string `json:"build_var_name"`
+	Platform     string `json:"platform"`
 }
 
 // ResolvedBuildVersion Normalized representation of a resolved build artifact.
@@ -3382,6 +3800,24 @@ type S3UploadResponse struct {
 	Bucket string `json:"bucket"`
 	Key    string `json:"key"`
 	Url    string `json:"url"`
+}
+
+// SSHKeyStatusResponse Response from checking SSH key status on a sandbox.
+//
+// Attributes:
+//
+//	configured: Whether an SSH key is configured for the user.
+//	key_fingerprint: Fingerprint of the configured key (if any).
+//	sandbox_reachable: Whether the sandbox is reachable via SSH.
+type SSHKeyStatusResponse struct {
+	// Configured Whether SSH key is configured
+	Configured bool `json:"configured"`
+
+	// KeyFingerprint Key fingerprint if configured
+	KeyFingerprint *string `json:"key_fingerprint"`
+
+	// SandboxReachable Whether sandbox is reachable
+	SandboxReachable *bool `json:"sandbox_reachable,omitempty"`
 }
 
 // SeatCheckResponse defines model for SeatCheckResponse.
@@ -4486,15 +4922,18 @@ type TestStatistics struct {
 //
 // Status field uses SessionStatus directly (queued, starting, running, etc.).
 type TestStatusResponse struct {
-	CurrentStep      *string   `json:"current_step"`
-	CurrentStepIndex *int      `json:"current_step_index,omitempty"`
-	ErrorMessage     *string   `json:"error_message"`
-	ExecutionErrors  *[]string `json:"execution_errors"`
+	CompletedAt          *time.Time `json:"completed_at"`
+	CurrentStep          *string    `json:"current_step"`
+	CurrentStepIndex     *int       `json:"current_step_index,omitempty"`
+	ErrorMessage         *string    `json:"error_message"`
+	ExecutionErrors      *[]string  `json:"execution_errors"`
+	ExecutionTimeSeconds *float32   `json:"execution_time_seconds"`
 
 	// Id Execution ID (was task_id)
-	Id       string                  `json:"id"`
-	Metadata *map[string]interface{} `json:"metadata"`
-	Progress float32                 `json:"progress"`
+	Id        string                  `json:"id"`
+	Metadata  *map[string]interface{} `json:"metadata"`
+	Progress  float32                 `json:"progress"`
+	StartedAt *time.Time              `json:"started_at"`
 
 	// Status Device session status - the single source of truth for test execution state.
 	//
@@ -5088,6 +5527,7 @@ type WorkBreakdown struct {
 
 // WorkerConnectionResponse Worker connection information.
 type WorkerConnectionResponse struct {
+	Message       *string                        `json:"message"`
 	Status        WorkerConnectionResponseStatus `json:"status"`
 	WorkerWsUrl   *string                        `json:"worker_ws_url"`
 	WorkflowRunId string                         `json:"workflow_run_id"`
@@ -5152,9 +5592,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time                                           `json:"created_at"`
-	Deleted   bool                                                 `json:"deleted"`
+	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time        `json:"created_at"`
+	Deleted   bool              `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -5344,6 +5784,7 @@ type WorkflowExecutionsInsert struct {
 	Duration         *float32                `json:"duration"`
 	Id               string                  `json:"id"`
 	Source           *string                 `json:"source,omitempty"`
+	SourceMetadata   *map[string]interface{} `json:"source_metadata"`
 	StartedAt        *time.Time              `json:"started_at"`
 	Status           string                  `json:"status"`
 	Success          *bool                   `json:"success"`
@@ -5459,8 +5900,12 @@ type WorkflowStatus string
 // WorkflowStatusResponse Response model for workflow status polling that matches frontend expectations.
 type WorkflowStatusResponse struct {
 	CompletedTests      int                     `json:"completed_tests"`
+	Duration            *string                 `json:"duration"`
+	ErrorMessage        *string                 `json:"error_message"`
 	EstimatedCompletion *string                 `json:"estimated_completion"`
+	FailedTests         *int                    `json:"failed_tests,omitempty"`
 	Metadata            *map[string]interface{} `json:"metadata,omitempty"`
+	PassedTests         *int                    `json:"passed_tests,omitempty"`
 	Progress            float32                 `json:"progress"`
 	StartedAt           *string                 `json:"started_at"`
 
@@ -5663,22 +6108,16 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
-// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
-type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
+// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
+type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments"`
+	MedianHours *float32 `json:"median_hours"`
+	P25Hours    *float32 `json:"p25_hours"`
+	P75Hours    *float32 `json:"p75_hours"`
+	TeamAverage *float32 `json:"team_average"`
+	Trend       *string  `json:"trend"`
+	Value       *float32 `json:"value"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.
@@ -6064,6 +6503,41 @@ type BulkExecuteTestsApiV1ExecutionTestsBulkExecutePostParams struct {
 	XCIRepository *string `json:"X-CI-Repository,omitempty"`
 }
 
+// ListSandboxesApiV1FleetSandboxesGetParams defines parameters for ListSandboxesApiV1FleetSandboxesGet.
+type ListSandboxesApiV1FleetSandboxesGetParams struct {
+	OrgOnly *bool `form:"org_only,omitempty" json:"org_only,omitempty"`
+}
+
+// ClaimSandboxApiV1FleetSandboxesClaimPostParams defines parameters for ClaimSandboxApiV1FleetSandboxesClaimPost.
+type ClaimSandboxApiV1FleetSandboxesClaimPostParams struct {
+	AllowMultiple *bool `form:"allow_multiple,omitempty" json:"allow_multiple,omitempty"`
+}
+
+// GetDashboardApiV1FleetSandboxesDashboardGetParams defines parameters for GetDashboardApiV1FleetSandboxesDashboardGet.
+type GetDashboardApiV1FleetSandboxesDashboardGetParams struct {
+	OrgOnly *bool `form:"org_only,omitempty" json:"org_only,omitempty"`
+}
+
+// GetPoolStatusApiV1FleetSandboxesStatusGetParams defines parameters for GetPoolStatusApiV1FleetSandboxesStatusGet.
+type GetPoolStatusApiV1FleetSandboxesStatusGetParams struct {
+	OrgOnly *bool `form:"org_only,omitempty" json:"org_only,omitempty"`
+}
+
+// ReleaseSandboxApiV1FleetSandboxesSandboxIdReleasePostParams defines parameters for ReleaseSandboxApiV1FleetSandboxesSandboxIdReleasePost.
+type ReleaseSandboxApiV1FleetSandboxesSandboxIdReleasePostParams struct {
+	Force *bool `form:"force,omitempty" json:"force,omitempty"`
+}
+
+// ListWorktreesApiV1FleetWorktreesGetParams defines parameters for ListWorktreesApiV1FleetWorktreesGet.
+type ListWorktreesApiV1FleetWorktreesGetParams struct {
+	SandboxId *string `form:"sandbox_id,omitempty" json:"sandbox_id,omitempty"`
+}
+
+// RemoveWorktreeApiV1FleetWorktreesBranchDeleteParams defines parameters for RemoveWorktreeApiV1FleetWorktreesBranchDelete.
+type RemoveWorktreeApiV1FleetWorktreesBranchDeleteParams struct {
+	SandboxId *string `form:"sandbox_id,omitempty" json:"sandbox_id,omitempty"`
+}
+
 // CheckModuleExistsApiV1ModulesCheckExistsGetParams defines parameters for CheckModuleExistsApiV1ModulesCheckExistsGet.
 type CheckModuleExistsApiV1ModulesCheckExistsGetParams struct {
 	Name string `form:"name" json:"name"`
@@ -6171,6 +6645,12 @@ type GetActiveBackfillsApiV1ReviewBackfillActiveGetParams struct {
 // GetOrganizationUsersApiV1ReviewGithubOrganizationUsersGetParams defines parameters for GetOrganizationUsersApiV1ReviewGithubOrganizationUsersGet.
 type GetOrganizationUsersApiV1ReviewGithubOrganizationUsersGetParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ResolveBuildVarsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGetParams defines parameters for ResolveBuildVarsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGet.
+type ResolveBuildVarsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGetParams struct {
+	// WorkflowIds List of workflow IDs
+	WorkflowIds []string `form:"workflow_ids" json:"workflow_ids"`
 }
 
 // HandleOauthCallbackApiV1ReviewSlackOauthCallbackGetParams defines parameters for HandleOauthCallbackApiV1ReviewSlackOauthCallbackGet.
@@ -6480,6 +6960,12 @@ type CreateWorkflowExecutionApiV1ExecutionWorkflowExecutionsPostJSONRequestBody 
 
 // UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatchJSONRequestBody defines body for UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatch for application/json ContentType.
 type UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatchJSONRequestBody = WorkflowExecutionUpdate
+
+// PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPostJSONRequestBody defines body for PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPost for application/json ContentType.
+type PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPostJSONRequestBody = PushSSHKeyRequest
+
+// CreateWorktreeApiV1FleetWorktreesPostJSONRequestBody defines body for CreateWorktreeApiV1FleetWorktreesPost for application/json ContentType.
+type CreateWorktreeApiV1FleetWorktreesPostJSONRequestBody = CreateWorktreeRequest
 
 // CreateApprovalRequestApiV1HitlCreateApprovalRequestPostJSONRequestBody defines body for CreateApprovalRequestApiV1HitlCreateApprovalRequestPost for application/json ContentType.
 type CreateApprovalRequestApiV1HitlCreateApprovalRequestPostJSONRequestBody = HITLApprovalRequest

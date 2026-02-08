@@ -1,0 +1,6 @@
+# Revyl CLI local files
+# Keep credentials out of version control
+credentials.json
+
+# Local overrides (optional)
+config.local.yaml
