@@ -132,8 +132,10 @@ func (s *Server) registerTools() {
 
 	// NEW: create_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "create_test",
-		Description: "Create a new test. Can create from YAML content or just a name (opens browser editor).",
+		Name: "create_test",
+		Description: `Create a new test from YAML content or just a name.
+
+RECOMMENDED: Before creating a test, read the app's source code (screens, components, routes) to understand the real UI labels, navigation flow, and user-facing outcomes. Use get_schema for the YAML format reference.`,
 	}, s.handleCreateTest)
 
 	// NEW: create_workflow tool
