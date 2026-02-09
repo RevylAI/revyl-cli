@@ -8,6 +8,10 @@ const YAMLTestSchema = `# Revyl YAML Test Schema - LLM Reference
 ## Purpose
 This document provides a structured, machine-readable reference for generating Revyl YAML tests programmatically.
 
+## Recommended Approach for AI Test Generation
+
+Before writing test YAML, read the app's source code to understand screen structure, UI element labels, state transitions, and user-facing outcomes. This produces better tests than guessing from descriptions.
+
 ## Critical Behavior for Test Generation
 **IMPORTANT**: When generating tests, DO NOT include manual navigation at the start:
 - **Mobile tests**: Automatically open the app at test start
@@ -164,20 +168,16 @@ For complex flows with indeterminism, use descriptive instructions:
   step_description: "Tap button at coordinates (150, 300)"
 ` + "```" + `
 
-### 2. Use Broad Validations
-When exact UI elements are unknown:
+### 2. Validate Outcomes, Not Transient States
+Validate results, not loading/transition states (spinners, progress text may vanish before capture).
 
-` + "```yaml" + `
-# Good - flexible
-- type: validation
-  step_description: "Verify a success message is shown"
+### 3. Use Broad Validations
+When exact UI elements are unknown, use flexible descriptions like "success message is shown".
 
-# Bad - too specific
-- type: validation
-  step_description: "Verify text 'Order #12345 confirmed' is visible"
-` + "```" + `
+### 4. Use Wait Blocks Sparingly
+Steps have built-in retry logic. Only add waits for known significant delays (after kill_app, system-level pauses).
 
-### 3. Negative Validations
+### 5. Negative Validations
 Verify errors are NOT shown:
 
 ` + "```yaml" + `
@@ -216,13 +216,8 @@ test:
     
     - type: instructions
       step_description: "Tap the Sign In button"
-    
-    # Wait for dashboard to load
-    - type: manual
-      step_type: wait
-      step_description: "2"
-    
-    # Verify dashboard
+
+    # Verify dashboard (built-in retry handles the load time)
     - type: validation
       step_description: "Verify the dashboard screen is displayed"
     
@@ -334,9 +329,11 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 			"mustDefineBeforeUse": true,
 		},
 		"bestPractices": map[string]interface{}{
-			"useHighLevelInstructions": "For complex flows with indeterminism",
-			"useBroadValidations":      "When exact UI elements are unknown",
-			"negativeValidations":      "Verify errors are NOT shown",
+			"useHighLevelInstructions":  "For complex flows with indeterminism",
+			"validateOutcomesNotStates": "Validate meaningful results, not transient loading/transition states",
+			"useBroadValidations":       "When exact UI elements are unknown",
+			"useWaitsSparingly":         "Steps have built-in retry. Only add waits for known significant delays (after kill_app, multi-second animations)",
+			"negativeValidations":       "Verify errors are NOT shown",
 		},
 		"preGenerationChecklist": []string{
 			"Login steps include credentials",
