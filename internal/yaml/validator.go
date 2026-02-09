@@ -395,19 +395,3 @@ func ValidateYAMLFile(path string) (*ValidationResult, error) {
 	}
 	return ValidateYAML(string(content)), nil
 }
-
-// GetTestDefinition parses YAML content and returns the test definition.
-//
-// Parameters:
-//   - content: The YAML content as a string
-//
-// Returns:
-//   - *TestDefinition: Parsed test definition
-//   - error: Parse error
-func GetTestDefinition(content string) (*TestDefinition, error) {
-	var test TestDefinition
-	if err := yaml.Unmarshal([]byte(content), &test); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
-	}
-	return &test, nil
-}
