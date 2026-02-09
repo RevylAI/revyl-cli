@@ -173,9 +173,9 @@ func getCommonWorkflows() []Workflow {
 			Name:        "List available tests",
 			Description: "See what tests are available to run",
 			Steps: []string{
-				"revyl test list",
+				"revyl tests list",
 				"# Or see all tests in your organization:",
-				"revyl test remote",
+				"revyl tests remote",
 			},
 		},
 		{
@@ -246,7 +246,7 @@ func getCommonWorkflows() []Workflow {
 			Name:        "Validate YAML tests",
 			Description: "Check YAML syntax before committing",
 			Steps: []string{
-				"revyl test validate .revyl/tests/*.yaml",
+				"revyl tests validate .revyl/tests/*.yaml",
 			},
 		},
 		{
@@ -455,8 +455,8 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("revyl run workflow <name>     # Run workflow without building\n")
 	sb.WriteString("revyl cancel test <task_id>   # Cancel a running test\n")
 	sb.WriteString("revyl cancel workflow <id>    # Cancel a running workflow\n")
-	sb.WriteString("revyl test list               # List available tests\n")
-	sb.WriteString("revyl test validate <f>       # Validate YAML syntax\n")
+	sb.WriteString("revyl tests list              # List available tests\n")
+	sb.WriteString("revyl tests validate <f>      # Validate YAML syntax\n")
 	sb.WriteString("revyl schema                  # Get this schema\n")
 	sb.WriteString("```\n\n")
 
