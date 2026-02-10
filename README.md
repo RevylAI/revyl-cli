@@ -92,9 +92,9 @@ Running `revyl init` without flags launches an interactive wizard that walks you
 
 1. **Project Setup** -- auto-detects your build system (Gradle, Xcode, Expo, Flutter, React Native), creates `.revyl/` directory and `config.yaml`
 2. **Authentication** -- checks for existing credentials; if missing, opens browser-based login
-3. **Create Apps** -- for each detected platform (iOS/Android), creates or links an app so builds have somewhere to upload
-4. **First Build** -- shows the build upload command for each platform (inline build coming soon)
-5. **Create First Test** -- optionally creates a test and opens it in the browser for editing
+3. **Create Apps** -- select existing apps (with pagination) or create new ones; automatically links if an app with the same name already exists
+4. **First Build** -- build and upload, upload an existing artifact (with manual path override if not found), or skip
+5. **Create First Test** -- creates a test; if the name already exists, offers to link, rename, or skip; auto-syncs YAML to `.revyl/tests/`
 6. **Create Workflow** -- optionally groups tests into a workflow for batch execution
 
 Use `-y` to skip the interactive steps and just generate the config file.
@@ -188,7 +188,7 @@ revyl build delete <app-id> --version <id>  # Delete a specific version
 
 ```bash
 # Test lifecycle
-revyl test create login-flow --platform android   # Create a new test
+revyl test create login-flow --platform android   # Create + auto-sync YAML to .revyl/tests/
 revyl test run login-flow                          # Run a test
 revyl test open login-flow                         # Open test in browser editor
 revyl test delete login-flow                       # Delete a test
@@ -236,7 +236,7 @@ revyl completion powershell | Out-String | Invoke-Expression
 ### Diagnostics & Utilities
 
 ```bash
-revyl doctor     # Check CLI health, connectivity, auth status
+revyl doctor     # Check CLI health, connectivity, auth, sync status
 revyl ping       # Test API connectivity and latency
 revyl upgrade    # Check for and install CLI updates
 revyl version    # Show version, commit, and build date (--json for CI)
@@ -303,6 +303,8 @@ workflows:
 defaults:
   open_browser: true
   timeout: 600
+
+last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 ```
 
 ## CI/CD Integration

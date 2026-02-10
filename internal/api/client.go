@@ -178,23 +178,49 @@ type APIError struct {
 	StatusCode int
 	Message    string
 	Detail     string
+	// Hint is an optional user-facing suggestion (e.g., "Run 'revyl auth login' to re-authenticate").
+	Hint string
 }
 
 // Error returns a human-readable error message.
+// If a hint is available (e.g., for expired sessions), it is appended.
 //
 // Returns:
 //   - string: The error message, with fallback to HTTP status if no message available
 func (e *APIError) Error() string {
+	var base string
 	if e.Message != "" && e.Detail != "" {
-		return fmt.Sprintf("%s: %s", e.Message, e.Detail)
+		base = fmt.Sprintf("%s: %s", e.Message, e.Detail)
+	} else if e.Message != "" {
+		base = e.Message
+	} else if e.Detail != "" {
+		base = e.Detail
+	} else {
+		base = fmt.Sprintf("HTTP %d: %s", e.StatusCode, http.StatusText(e.StatusCode))
 	}
-	if e.Message != "" {
-		return e.Message
+
+	if e.Hint != "" {
+		return base + "\n" + e.Hint
 	}
-	if e.Detail != "" {
-		return e.Detail
+	return base
+}
+
+// authHintForStatus returns a user-facing hint for authentication errors.
+// For 401 responses that indicate an expired or invalid token, it suggests
+// re-authenticating so the user doesn't see a confusing "Invalid API key" message.
+//
+// Parameters:
+//   - statusCode: The HTTP status code
+//   - message: The parsed error message from the response
+//   - detail: The parsed error detail from the response
+//
+// Returns:
+//   - string: A hint message, or empty string if no hint is applicable
+func authHintForStatus(statusCode int, message, detail string) string {
+	if statusCode == 401 {
+		return "Session may have expired. Run 'revyl auth login' to re-authenticate."
 	}
-	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, http.StatusText(e.StatusCode))
+	return ""
 }
 
 // doRequest performs an HTTP request with authentication.
@@ -377,6 +403,7 @@ func parseResponse(resp *http.Response, target interface{}) error {
 			StatusCode: resp.StatusCode,
 			Message:    message,
 			Detail:     detail,
+			Hint:       authHintForStatus(resp.StatusCode, message, detail),
 		}
 	}
 

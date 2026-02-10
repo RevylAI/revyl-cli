@@ -34,6 +34,14 @@ type ProjectConfig struct {
 
 	// HotReload contains hot reload configuration for rapid development iteration.
 	HotReload HotReloadConfig `yaml:"hotreload,omitempty"`
+
+	// LastSyncedAt records when this config was last synced with the server (RFC3339).
+	LastSyncedAt string `yaml:"last_synced_at,omitempty"`
+}
+
+// MarkSynced sets the LastSyncedAt timestamp to now (UTC, RFC3339).
+func (c *ProjectConfig) MarkSynced() {
+	c.LastSyncedAt = time.Now().UTC().Format(time.RFC3339)
 }
 
 // HotReloadConfig contains configuration for hot reload mode.

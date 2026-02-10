@@ -156,6 +156,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	wizardCreateWorkflow(ctx, client, cfg, configPath, testID, testName, userInfo)
 
 	// ── Summary ──────────────────────────────────────────────────────────
+	// Mark config as synced now that all wizard steps have completed.
+	cfg.MarkSynced()
+	_ = config.WriteProjectConfig(configPath, cfg)
+
 	ui.Println()
 
 	// Build summary of what was accomplished.
@@ -330,7 +334,7 @@ func wizardAuth(ctx context.Context, devMode bool) (*api.Client, *api.ValidateAP
 	}
 
 	// Save credentials.
-	if err := mgr.SaveBrowserCredentials(result, 8*time.Hour); err != nil {
+	if err := mgr.SaveBrowserCredentials(result, defaultTokenExpiration); err != nil {
 		ui.PrintWarning("Failed to save credentials: %v", err)
 		// Continue anyway — the token is still usable this session.
 	}
@@ -351,7 +355,7 @@ func wizardAuth(ctx context.Context, devMode bool) (*api.Client, *api.ValidateAP
 		Email:  userInfo.Email,
 		OrgID:  userInfo.OrgID,
 		UserID: userInfo.UserID,
-	}, 8*time.Hour)
+	}, defaultTokenExpiration)
 
 	ui.PrintSuccess("Authenticated as %s", userInfo.Email)
 	return client, userInfo, true
@@ -1129,6 +1133,13 @@ func syncTestYAML(ctx context.Context, client *api.Client, cfg *config.ProjectCo
 	resolver := sync.NewResolver(client, cfg, localTests)
 	results, pullErr := resolver.PullFromRemote(ctx, testName, testsDir, true)
 	if pullErr == nil && len(results) > 0 && results[0].Error == nil {
+		cfg.MarkSynced()
+		// Persist the updated LastSyncedAt timestamp to disk.
+		cwd2, _ := os.Getwd()
+		if cwd2 != "" {
+			configPath := filepath.Join(cwd2, ".revyl", "config.yaml")
+			_ = config.WriteProjectConfig(configPath, cfg)
+		}
 		ui.PrintDim("  Synced to .revyl/tests/%s.yaml", testName)
 	} else {
 		ui.PrintDim("  Run 'revyl test pull %s' to sync test definition", testName)

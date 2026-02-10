@@ -157,6 +157,27 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	result.Checks = append(result.Checks, buildCheck)
 	// Build system is informational only
 
+	// Check 6: Sync Status (requires project config + optional API client)
+	if projectCheck.Status != "error" && projectCheck.Status != "warning" {
+		// Load config for sync check.
+		cwd, _ := os.Getwd()
+		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+		cfg, cfgErr := config.LoadProjectConfig(configPath)
+		if cfgErr == nil {
+			// Try to create an API client for remote verification.
+			var syncClient *api.Client
+			mgr := auth.NewManager()
+			if token, tokenErr := mgr.GetActiveToken(); tokenErr == nil && token != "" {
+				syncClient = api.NewClientWithDevMode(token, devMode)
+			}
+			syncCheck := checkSyncStatus(cmd.Context(), cfg, syncClient)
+			result.Checks = append(result.Checks, syncCheck)
+			if syncCheck.Status == "warning" {
+				result.Issues++
+			}
+		}
+	}
+
 	// Output results
 	if jsonOutput {
 		data, _ := json.MarshalIndent(result, "", "  ")
@@ -531,4 +552,128 @@ func runPing(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// humanizeDuration returns a human-readable duration string.
+//
+// Parameters:
+//   - d: The duration to humanize
+//
+// Returns:
+//   - string: A short human-readable representation (e.g., "just now", "5m", "3h", "7d")
+func humanizeDuration(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}
+
+// checkSyncStatus verifies that local config is in sync with the server by
+// comparing test and workflow IDs against the remote state.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - cfg: The project configuration to verify
+//   - client: Authenticated API client (nil to skip remote verification)
+//
+// Returns:
+//   - DoctorCheck: The check result
+func checkSyncStatus(ctx context.Context, cfg *config.ProjectConfig, client *api.Client) DoctorCheck {
+	check := DoctorCheck{
+		Name:   "Sync Status",
+		Status: "ok",
+	}
+
+	// Show last synced timestamp.
+	if cfg.LastSyncedAt != "" {
+		syncTime, err := time.Parse(time.RFC3339, cfg.LastSyncedAt)
+		if err == nil {
+			age := time.Since(syncTime)
+			check.Message = fmt.Sprintf("Last synced: %s ago", humanizeDuration(age))
+			if age > 7*24*time.Hour {
+				check.Status = "warning"
+				check.Message = fmt.Sprintf("Config may be stale (last synced %s ago)", humanizeDuration(age))
+				check.Details = "Run 'revyl test pull' to refresh"
+			}
+		} else {
+			check.Status = "warning"
+			check.Message = fmt.Sprintf("Invalid last_synced_at timestamp: %s", cfg.LastSyncedAt)
+			check.Details = "Run 'revyl test pull' to reset sync tracking"
+		}
+	} else {
+		check.Message = "Never synced"
+		check.Status = "warning"
+		check.Details = "Run 'revyl test pull' or 'revyl init' to sync"
+	}
+
+	// If no client, skip remote verification.
+	if client == nil {
+		return check
+	}
+
+	var issues []string
+
+	// Compare tests against remote.
+	if len(cfg.Tests) > 0 {
+		remoteTests, err := client.ListOrgTests(ctx, 200, 0)
+		if err == nil {
+			// Tests in config but deleted on server.
+			for name, id := range cfg.Tests {
+				found := false
+				for _, rt := range remoteTests.Tests {
+					if rt.ID == id {
+						found = true
+						break
+					}
+				}
+				if !found {
+					shortID := id
+					if len(shortID) > 8 {
+						shortID = shortID[:8]
+					}
+					issues = append(issues, fmt.Sprintf("Test '%s' (%s...) not found on server", name, shortID))
+				}
+			}
+
+		}
+	}
+
+	// Compare workflows against remote.
+	if len(cfg.Workflows) > 0 {
+		remoteWorkflows, err := client.ListWorkflows(ctx)
+		if err == nil {
+			for name, id := range cfg.Workflows {
+				found := false
+				for _, rw := range remoteWorkflows.Workflows {
+					if rw.ID == id {
+						found = true
+						break
+					}
+				}
+				if !found {
+					shortID := id
+					if len(shortID) > 8 {
+						shortID = shortID[:8]
+					}
+					issues = append(issues, fmt.Sprintf("Workflow '%s' (%s...) not found on server", name, shortID))
+				}
+			}
+		}
+	}
+
+	if len(issues) > 0 {
+		check.Status = "warning"
+		check.Message = fmt.Sprintf("%d sync issue(s) detected", len(issues))
+		check.Details = strings.Join(issues, "\n    ") + "\n    Run 'revyl test pull --all' to reconcile"
+	} else if check.Status == "ok" {
+		check.Message = fmt.Sprintf("In sync (%s)", check.Message)
+	}
+
+	return check
 }

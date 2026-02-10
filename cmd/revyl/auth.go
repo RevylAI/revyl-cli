@@ -19,11 +19,54 @@ import (
 )
 
 const (
-	// defaultTokenExpiration is the default expiration time for browser auth tokens.
-	// PropelAuth tokens typically expire in 30 minutes, but we use a longer duration
-	// since the backend can create extended tokens.
-	defaultTokenExpiration = 8 * time.Hour
+	// defaultTokenExpiration is the fallback expiration for browser auth tokens.
+	// Used only when JWT exp claim extraction fails (see auth/manager.go extractJWTExpiry).
+	// PropelAuth access tokens typically expire in 15-30 minutes; 30 minutes is a
+	// safe conservative default that matches their typical token lifetime.
+	defaultTokenExpiration = 30 * time.Minute
 )
+
+// AuthExpiredError indicates the browser session has expired and the user
+// needs to re-authenticate. Wraps the underlying API error for inspection.
+type AuthExpiredError struct {
+	// Inner is the original API error that triggered the expired-session detection.
+	Inner error
+}
+
+// Error returns a user-friendly message instructing re-authentication.
+func (e *AuthExpiredError) Error() string {
+	return "Session expired. Run 'revyl auth login' to re-authenticate."
+}
+
+// Unwrap returns the wrapped error for errors.Is / errors.As chains.
+func (e *AuthExpiredError) Unwrap() error {
+	return e.Inner
+}
+
+// wrapAuthError inspects an error returned by an API call. If it is a 401
+// and the stored credentials came from browser auth, it returns a friendly
+// AuthExpiredError instead of the raw "Invalid API key" message.
+//
+// Parameters:
+//   - err: The error from an API call (may be nil)
+//
+// Returns:
+//   - error: An AuthExpiredError if the session is expired, otherwise the original error
+func wrapAuthError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var apiErr *api.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
+		mgr := auth.NewManager()
+		creds, _ := mgr.GetCredentials()
+		if creds != nil && creds.AuthMethod == "browser" {
+			return &AuthExpiredError{Inner: err}
+		}
+	}
+	return err
+}
 
 // authCmd is the parent command for authentication operations.
 var authCmd = &cobra.Command{

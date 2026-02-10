@@ -351,6 +351,7 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.Println()
+	pushedCount := 0
 	for _, r := range results {
 		if r.Error != nil {
 			ui.PrintError("%s: %v", r.Name, r.Error)
@@ -358,7 +359,14 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 			ui.PrintWarning("%s: conflict detected (use --force to overwrite)", r.Name)
 		} else {
 			ui.PrintSuccess("%s: pushed to v%d", r.Name, r.NewVersion)
+			pushedCount++
 		}
+	}
+
+	// Update sync timestamp if any tests were pushed successfully.
+	if pushedCount > 0 {
+		cfg.MarkSynced()
+		_ = config.WriteProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"), cfg)
 	}
 
 	return nil
@@ -511,6 +519,12 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 			ui.PrintSuccess("%s: pulled v%d", r.Name, r.NewVersion)
 			pulledCount++
 		}
+	}
+
+	// Update sync timestamp if any tests were pulled successfully.
+	if pulledCount > 0 {
+		cfg.MarkSynced()
+		_ = config.WriteProjectConfig(configPath, cfg)
 	}
 
 	// If not using --all, hint about it when there might be more tests

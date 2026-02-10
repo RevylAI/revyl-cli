@@ -9,10 +9,12 @@
 package auth
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -247,14 +249,23 @@ func (m *Manager) IsAuthenticated() bool {
 
 // SaveBrowserCredentials stores credentials from browser-based authentication.
 //
+// Decodes the JWT to extract the real server-side expiry (`exp` claim) so that
+// IsExpired() accurately reflects when the backend will reject the token.
+// Falls back to the caller-provided expiresIn if JWT decoding fails.
+//
 // Parameters:
 //   - result: The browser auth result containing token and user info
-//   - expiresIn: Duration until the token expires (typically from PropelAuth)
+//   - expiresIn: Fallback duration until the token expires (used if JWT exp extraction fails)
 //
 // Returns:
 //   - error: Any error that occurred during storage
 func (m *Manager) SaveBrowserCredentials(result *BrowserAuthResult, expiresIn time.Duration) error {
+	// Try to extract the real expiry from the JWT; fall back to caller-provided duration.
 	expiresAt := time.Now().Add(expiresIn)
+	if jwtExp, err := extractJWTExpiry(result.Token); err == nil {
+		expiresAt = jwtExp
+	}
+
 	creds := &Credentials{
 		AccessToken: result.Token,
 		ExpiresAt:   &expiresAt,
@@ -264,6 +275,53 @@ func (m *Manager) SaveBrowserCredentials(result *BrowserAuthResult, expiresIn ti
 		AuthMethod:  "browser",
 	}
 	return m.SaveCredentials(creds)
+}
+
+// extractJWTExpiry decodes a JWT (without signature verification) and returns
+// the expiration time from the "exp" claim.
+//
+// JWTs have three base64url-encoded segments separated by dots: header.payload.signature.
+// We only need the payload to read the "exp" claim.
+//
+// Parameters:
+//   - token: A JWT string (e.g., the PropelAuth access token)
+//
+// Returns:
+//   - time.Time: The token's expiration time
+//   - error: If the token is malformed or has no "exp" claim
+func extractJWTExpiry(token string) (time.Time, error) {
+	parts := strings.SplitN(token, ".", 3)
+	if len(parts) < 2 {
+		return time.Time{}, fmt.Errorf("invalid JWT: expected at least 2 dot-separated segments")
+	}
+
+	// Base64url decode the payload (second segment).
+	// Add padding if necessary since JWTs use unpadded base64url.
+	payload := parts[1]
+	switch len(payload) % 4 {
+	case 2:
+		payload += "=="
+	case 3:
+		payload += "="
+	}
+
+	decoded, err := base64.URLEncoding.DecodeString(payload)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to decode JWT payload: %w", err)
+	}
+
+	var claims struct {
+		Exp float64 `json:"exp"`
+	}
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		return time.Time{}, fmt.Errorf("failed to parse JWT claims: %w", err)
+	}
+
+	if claims.Exp == 0 {
+		return time.Time{}, fmt.Errorf("JWT has no exp claim")
+	}
+
+	return time.Unix(int64(claims.Exp), 0), nil
 }
 
 // SaveAPIKeyCredentials stores credentials from API key authentication.
