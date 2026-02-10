@@ -55,6 +55,15 @@ var (
 	LinkStyle = lipgloss.NewStyle().
 			Foreground(Purple).
 			Underline(true)
+
+	// AccentStyle for purple-highlighted elements (numbers, indicators)
+	AccentStyle = lipgloss.NewStyle().
+			Foreground(Purple)
+
+	// BoldInfoStyle for highlighted option labels
+	BoldInfoStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#E5E7EB")).
+			Bold(true)
 )
 
 // Box styles.

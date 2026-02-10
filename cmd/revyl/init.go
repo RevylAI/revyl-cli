@@ -3,9 +3,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -29,7 +31,7 @@ The wizard walks you through:
   1. Project setup — detect build system, create config
   2. Authentication — check or prompt browser login
   3. Create apps — for each detected platform, create or select an app
-  4. First build — (coming soon) build and upload your artifact
+  4. First build — build and upload your artifact
   5. Create first test — create a test on the platform
   6. Create workflow — optionally group tests into a workflow
 
@@ -84,8 +86,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 
 	// ── Step 1/6: Project Setup ──────────────────────────────────────────
-	ui.PrintInfo("Step 1/6: Project Setup")
-	ui.Println()
+	ui.PrintStepHeader(1, 6, "Project Setup")
 
 	cfg, err := wizardProjectSetup(cwd, revylDir, configPath)
 	if err != nil {
@@ -105,9 +106,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// ── Step 2/6: Authentication ─────────────────────────────────────────
-	ui.Println()
-	ui.PrintInfo("Step 2/6: Authentication")
-	ui.Println()
+	ui.PrintStepHeader(2, 6, "Authentication")
 
 	ctx := context.Background()
 	client, userInfo, authOK := wizardAuth(ctx, devMode)
@@ -128,35 +127,49 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// ── Step 3/6: Create Apps ────────────────────────────────────────────
-	ui.Println()
-	ui.PrintInfo("Step 3/6: Create Apps")
-	ui.Println()
+	ui.PrintStepHeader(3, 6, "Create Apps")
 
 	wizardCreateApps(ctx, client, cfg, configPath)
 
-	// ── Step 4/6: First Build (coming soon) ──────────────────────────────
-	ui.Println()
-	ui.PrintInfo("Step 4/6: First Build")
-	ui.Println()
-	wizardFirstBuild(cfg)
+	// Determine if any apps were linked.
+	appsLinked := false
+	for _, plat := range cfg.Build.Platforms {
+		if plat.AppID != "" {
+			appsLinked = true
+			break
+		}
+	}
+
+	// ── Step 4/6: First Build ───────────────────────────────────────────
+	ui.PrintStepHeader(4, 6, "First Build")
+	wizardFirstBuild(ctx, client, cfg, configPath)
 
 	// ── Step 5/6: Create First Test ──────────────────────────────────────
-	ui.Println()
-	ui.PrintInfo("Step 5/6: Create First Test")
-	ui.Println()
+	ui.PrintStepHeader(5, 6, "Create First Test")
 
-	testID := wizardCreateTest(ctx, client, cfg, configPath, devMode, userInfo)
+	testID, testName := wizardCreateTest(ctx, client, cfg, configPath, devMode, userInfo)
 
 	// ── Step 6/6: Create Workflow ────────────────────────────────────────
-	ui.Println()
-	ui.PrintInfo("Step 6/6: Create Workflow")
-	ui.Println()
+	ui.PrintStepHeader(6, 6, "Create Workflow")
 
-	wizardCreateWorkflow(ctx, client, cfg, configPath, testID, userInfo)
+	wizardCreateWorkflow(ctx, client, cfg, configPath, testID, testName, userInfo)
 
 	// ── Summary ──────────────────────────────────────────────────────────
 	ui.Println()
-	printCreatedFiles()
+
+	// Build summary of what was accomplished.
+	summaryItems := []ui.WizardSummaryItem{
+		{Title: "Project Setup", OK: true, Detail: ".revyl/config.yaml"},
+		{Title: "Authentication", OK: authOK},
+		{Title: "Create Apps", OK: appsLinked},
+		{Title: "Create Test", OK: testID != "", Detail: testName},
+	}
+	if userInfo != nil {
+		summaryItems[1].Detail = userInfo.Email
+	}
+	ui.PrintWizardSummary(summaryItems)
+	ui.Println()
+
 	printHotReloadInfo(cwd)
 	printDynamicNextSteps(cfg, authOK, testID)
 
@@ -362,7 +375,7 @@ func wizardCreateApps(ctx context.Context, client *api.Client, cfg *config.Proje
 			continue
 		}
 
-		ui.PrintInfo("Platform: %s", platformKey)
+		fmt.Println(ui.TitleStyle.Render(fmt.Sprintf("Platform: %s", platformKey)))
 
 		// Fetch existing apps for this platform.
 		appsResp, err := client.ListApps(ctx, platformKey, 1, 10)
@@ -374,30 +387,62 @@ func wizardCreateApps(ctx context.Context, client *api.Client, cfg *config.Proje
 		var appID string
 
 		if len(appsResp.Items) > 0 {
-			// Build selection options: existing apps + Create new + Skip.
-			options := make([]string, 0, len(appsResp.Items)+2)
-			for _, app := range appsResp.Items {
-				label := fmt.Sprintf("%s (id: %s)", app.Name, app.ID)
-				options = append(options, label)
-			}
-			options = append(options, "Create new app")
-			options = append(options, "Skip")
+			// Paginated selection loop: shows apps page-by-page with "Show more" option.
+			allApps := make([]api.App, 0, len(appsResp.Items))
+			allApps = append(allApps, appsResp.Items...)
+			page := 1
+			hasMore := appsResp.HasNext
 
-			idx, err := ui.PromptSelect(fmt.Sprintf("Select app for %s:", platformKey), options)
-			if err != nil {
-				ui.PrintWarning("Selection failed: %v", err)
-				continue
-			}
+			for {
+				// Build selection options: accumulated apps + Show more (if available) + Create new + Skip.
+				selectOptions := make([]ui.SelectOption, 0, len(allApps)+3)
+				for _, app := range allApps {
+					selectOptions = append(selectOptions, ui.SelectOption{
+						Label: fmt.Sprintf("%s (id: %s)", app.Name, app.ID),
+					})
+				}
 
-			if idx < len(appsResp.Items) {
-				// User picked an existing app.
-				appID = appsResp.Items[idx].ID
-				ui.PrintSuccess("Linked %s to app %s", platformKey, appsResp.Items[idx].Name)
-			} else if idx == len(appsResp.Items) {
-				// Create new.
-				appID = createAppInteractive(ctx, client, cfg.Project.Name, platformKey)
+				showMoreIdx := -1
+				if hasMore {
+					showMoreIdx = len(selectOptions)
+					selectOptions = append(selectOptions, ui.SelectOption{Label: "Show more..."})
+				}
+
+				createNewIdx := len(selectOptions)
+				selectOptions = append(selectOptions, ui.SelectOption{Label: "Create new app"})
+				selectOptions = append(selectOptions, ui.SelectOption{Label: "Skip"})
+
+				skipIdx := len(selectOptions) - 1
+
+				idx, _, selErr := ui.Select(fmt.Sprintf("Select app for %s:", platformKey), selectOptions, createNewIdx)
+				if selErr != nil {
+					ui.PrintWarning("Selection failed: %v", selErr)
+					break
+				}
+
+				if hasMore && idx == showMoreIdx {
+					// Fetch the next page and append results.
+					page++
+					nextResp, nextErr := client.ListApps(ctx, platformKey, page, 10)
+					if nextErr != nil {
+						ui.PrintWarning("Could not fetch more apps: %v", nextErr)
+						continue
+					}
+					allApps = append(allApps, nextResp.Items...)
+					hasMore = nextResp.HasNext
+					continue
+				}
+
+				if idx == createNewIdx {
+					appID = createAppInteractive(ctx, client, cfg.Project.Name, platformKey)
+				} else if idx == skipIdx {
+					// Skip — no action.
+				} else if idx < len(allApps) {
+					appID = allApps[idx].ID
+					ui.PrintSuccess("Linked %s to app %s", platformKey, allApps[idx].Name)
+				}
+				break
 			}
-			// else: Skip
 		} else {
 			// No existing apps — offer to create one.
 			proceed, err := ui.PromptConfirm(fmt.Sprintf("No apps found for %s. Create one?", platformKey), true)
@@ -435,6 +480,20 @@ func createAppInteractive(ctx context.Context, client *api.Client, defaultName, 
 	ui.StopSpinner()
 
 	if err != nil {
+		// Check if app already exists (409 Conflict) and link to it instead of failing.
+		var apiErr *api.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 409 {
+			ui.PrintDim("App '%s' already exists, looking it up...", name)
+			appsResp, listErr := client.ListApps(ctx, platform, 1, 100)
+			if listErr == nil {
+				for _, app := range appsResp.Items {
+					if app.Name == name {
+						ui.PrintSuccess("Linked to existing app %s (id: %s)", app.Name, app.ID)
+						return app.ID
+					}
+				}
+			}
+		}
 		ui.PrintWarning("Failed to create app: %v", err)
 		return ""
 	}
@@ -444,22 +503,167 @@ func createAppInteractive(ctx context.Context, client *api.Client, defaultName, 
 }
 
 // ---------------------------------------------------------------------------
-// Step 4: First Build (stub)
+// Step 4: First Build
 // ---------------------------------------------------------------------------
 
-// wizardFirstBuild is a placeholder for the build+upload step.
-// The build logic is complex and lives in build.go; we intentionally avoid
-// duplicating it here and instead point the user to the dedicated command.
-func wizardFirstBuild(cfg *config.ProjectConfig) {
+// wizardFirstBuild iterates over configured platforms and offers to build and
+// upload each one. Errors are non-fatal — a failed build/upload prints a
+// warning and continues to the next platform (or next wizard step).
+//
+// Parameters:
+//   - ctx: Context for cancellation and API calls
+//   - client: Authenticated API client for uploading builds
+//   - cfg: Current project configuration (platforms, app IDs)
+//   - configPath: Path to .revyl/config.yaml for potential updates
+func wizardFirstBuild(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, configPath string) {
 	platforms := platformKeys(cfg)
 	if len(platforms) == 0 {
 		ui.PrintDim("No platforms configured — skipping build step")
 		return
 	}
 
-	ui.PrintDim("Build upload coming soon in wizard.")
-	for _, p := range platforms {
-		ui.PrintDim("  Run: revyl build upload --platform %s", p)
+	cwd, err := os.Getwd()
+	if err != nil {
+		ui.PrintWarning("Could not determine working directory: %v", err)
+		return
+	}
+
+	for _, platform := range platforms {
+		platformCfg, ok := cfg.Build.Platforms[platform]
+		if !ok {
+			continue
+		}
+
+		// Check prerequisite: app ID must be set from Step 3.
+		if platformCfg.AppID == "" {
+			ui.PrintDim("Skipping %s — no app linked (run revyl build upload --platform %s later)", platform, platform)
+			continue
+		}
+
+		// Check prerequisite: output path must be configured.
+		if platformCfg.Output == "" {
+			ui.PrintDim("Skipping %s — no output path configured in .revyl/config.yaml", platform)
+			continue
+		}
+
+		// Ask user what to do for this platform.
+		buildOptions := []ui.SelectOption{
+			{Label: "Build and upload"},
+			{Label: "Upload existing artifact"},
+			{Label: "Skip"},
+		}
+		idx, _, promptErr := ui.Select(fmt.Sprintf("What would you like to do for %s?", platform), buildOptions, 0)
+		if promptErr != nil || idx == 2 {
+			ui.PrintDim("  Run later: revyl build upload --platform %s", platform)
+			continue
+		}
+		skipBuild := idx == 1
+
+		// Run the build (if not skipping).
+		var buildDuration time.Duration
+		if !skipBuild {
+			ui.PrintInfo("Building with: %s", platformCfg.Command)
+			ui.Println()
+
+			startTime := time.Now()
+			runner := build.NewRunner(cwd)
+
+			buildErr := runner.Run(platformCfg.Command, func(line string) {
+				ui.PrintDim("  %s", line)
+			})
+
+			buildDuration = time.Since(startTime)
+
+			if buildErr != nil {
+				ui.Println()
+				ui.PrintWarning("Build failed for %s: %v", platform, buildErr)
+				ui.PrintDim("  You can retry later: revyl build upload --platform %s", platform)
+				continue
+			}
+
+			ui.Println()
+			ui.PrintSuccess("Build completed in %s", buildDuration.Round(time.Second))
+		} else {
+			ui.PrintInfo("Skipping build step — uploading existing artifact")
+		}
+
+		// Resolve artifact path.
+		artifactPath, resolveErr := build.ResolveArtifactPath(cwd, platformCfg.Output)
+		if resolveErr != nil {
+			ui.PrintWarning("Artifact not found at default location: %s", platformCfg.Output)
+			customPath, customErr := ui.Prompt(fmt.Sprintf("Enter path to %s artifact (or press Enter to skip):", platform))
+			if customErr != nil || customPath == "" {
+				ui.PrintDim("  You can retry later: revyl build upload --platform %s", platform)
+				continue
+			}
+			artifactPath, resolveErr = build.ResolveArtifactPath(cwd, customPath)
+			if resolveErr != nil {
+				ui.PrintWarning("Artifact not found: %s", customPath)
+				ui.PrintDim("  You can retry later: revyl build upload --platform %s", platform)
+				continue
+			}
+		}
+
+		// Convert tar.gz to zip for iOS builds (EAS produces tar.gz).
+		if build.IsTarGz(artifactPath) {
+			ui.StartSpinner("Extracting .app from tar.gz...")
+			zipPath, extractErr := build.ExtractAppFromTarGz(artifactPath)
+			ui.StopSpinner()
+			if extractErr != nil {
+				ui.PrintWarning("Failed to extract .app from tar.gz: %v", extractErr)
+				ui.PrintDim("  You can retry later: revyl build upload --platform %s", platform)
+				continue
+			}
+			defer os.Remove(zipPath)
+			artifactPath = zipPath
+			ui.PrintSuccess("Converted to: %s", filepath.Base(zipPath))
+		} else if build.IsAppBundle(artifactPath) {
+			// Zip .app directory for iOS builds (Flutter, React Native, Xcode).
+			ui.StartSpinner("Zipping .app bundle...")
+			zipPath, zipErr := build.ZipAppBundle(artifactPath)
+			ui.StopSpinner()
+			if zipErr != nil {
+				ui.PrintWarning("Failed to zip .app bundle: %v", zipErr)
+				ui.PrintDim("  You can retry later: revyl build upload --platform %s", platform)
+				continue
+			}
+			defer os.Remove(zipPath)
+			artifactPath = zipPath
+			ui.PrintSuccess("Created: %s", filepath.Base(zipPath))
+		}
+
+		// Collect build metadata and generate version.
+		metadata := build.CollectMetadata(cwd, platformCfg.Command, platform, buildDuration)
+		versionStr := build.GenerateVersionString()
+
+		ui.Println()
+		ui.PrintInfo("Uploading: %s", filepath.Base(artifactPath))
+		ui.PrintInfo("Build Version: %s", versionStr)
+		ui.Println()
+
+		ui.StartSpinner("Uploading artifact...")
+		result, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
+			AppID:        platformCfg.AppID,
+			Version:      versionStr,
+			FilePath:     artifactPath,
+			Metadata:     metadata,
+			SetAsCurrent: true,
+		})
+		ui.StopSpinner()
+
+		if uploadErr != nil {
+			ui.PrintWarning("Upload failed for %s: %v", platform, uploadErr)
+			ui.PrintDim("  You can retry later: revyl build upload --platform %s", platform)
+			continue
+		}
+
+		ui.Println()
+		ui.PrintSuccess("Upload complete!")
+		ui.PrintKeyValue("App:", platformCfg.AppID)
+		ui.PrintKeyValue("Build Version:", result.Version)
+		if result.VersionID != "" {
+			ui.PrintKeyValue("Build ID:", result.VersionID)
+		}
 	}
 }
 
@@ -468,7 +672,8 @@ func wizardFirstBuild(cfg *config.ProjectConfig) {
 // ---------------------------------------------------------------------------
 
 // wizardCreateTest offers to create a test, saves it in the config, and opens
-// it in the browser. Returns the created test ID (empty if skipped/failed).
+// it in the browser. Returns the created test ID and name (both empty if
+// skipped/failed).
 func wizardCreateTest(
 	ctx context.Context,
 	client *api.Client,
@@ -476,18 +681,18 @@ func wizardCreateTest(
 	configPath string,
 	devMode bool,
 	userInfo *api.ValidateAPIKeyResponse,
-) string {
+) (string, string) {
 	proceed, err := ui.PromptConfirm("Create your first test?", true)
 	if err != nil || !proceed {
 		ui.PrintDim("Skipped test creation")
-		return ""
+		return "", ""
 	}
 
 	// Prompt for test name.
 	testName, err := ui.Prompt("Test name [login]:")
 	if err != nil {
 		ui.PrintWarning("Input error: %v", err)
-		return ""
+		return "", ""
 	}
 	if testName == "" {
 		testName = "login"
@@ -503,7 +708,7 @@ func wizardCreateTest(
 		idx, err := ui.PromptSelect("Select platform:", []string{"ios", "android"})
 		if err != nil {
 			ui.PrintWarning("Selection error: %v", err)
-			return ""
+			return "", ""
 		}
 		if idx == 0 {
 			platform = "ios"
@@ -517,7 +722,7 @@ func wizardCreateTest(
 		idx, err := ui.PromptSelect("Select platform:", platforms)
 		if err != nil {
 			ui.PrintWarning("Selection error: %v", err)
-			return ""
+			return "", ""
 		}
 		platform = platforms[idx]
 	}
@@ -533,41 +738,104 @@ func wizardCreateTest(
 		orgID = userInfo.OrgID
 	}
 
-	// Create the test.
-	ui.StartSpinner("Creating test...")
-	resp, err := client.CreateTest(ctx, &api.CreateTestRequest{
-		Name:     testName,
-		Platform: platform,
-		Tasks:    []interface{}{}, // empty tasks — user will add later
-		AppID:    appID,
-		OrgID:    orgID,
-	})
-	ui.StopSpinner()
+	// Create the test (with retry loop for conflict resolution).
+	for {
+		ui.StartSpinner("Creating test...")
+		resp, err := client.CreateTest(ctx, &api.CreateTestRequest{
+			Name:     testName,
+			Platform: platform,
+			Tasks:    []interface{}{}, // empty tasks — user will add later
+			AppID:    appID,
+			OrgID:    orgID,
+		})
+		ui.StopSpinner()
 
-	if err != nil {
-		ui.PrintWarning("Failed to create test: %v", err)
-		return ""
+		if err != nil {
+			// Detect conflict: 409 from backend, 500 wrapping "already exists",
+			// or raw error string containing "already exists" (fallback).
+			isConflict := false
+			var apiErr *api.APIError
+			if errors.As(err, &apiErr) {
+				isConflict = apiErr.StatusCode == 409 ||
+					(apiErr.StatusCode == 500 && strings.Contains(apiErr.Error(), "already exists"))
+			}
+			if !isConflict {
+				isConflict = strings.Contains(err.Error(), "already exists")
+			}
+
+			if isConflict {
+				ui.PrintWarning("A test named \"%s\" already exists.", testName)
+				conflictOptions := []ui.SelectOption{
+					{Label: "Link to existing test"},
+					{Label: "Rename and create new"},
+					{Label: "Skip"},
+				}
+				idx, _, selErr := ui.Select("What would you like to do?", conflictOptions, 0)
+				if selErr != nil || idx == 2 {
+					ui.PrintDim("Skipped test creation")
+					return "", ""
+				}
+
+				if idx == 0 {
+					// Link to existing test by looking it up by name.
+					listResp, listErr := client.ListOrgTests(ctx, 100, 0)
+					if listErr == nil {
+						for _, t := range listResp.Tests {
+							if t.Name == testName {
+								ui.PrintSuccess("Linked to existing test \"%s\" (id: %s)", t.Name, t.ID)
+								if cfg.Tests == nil {
+									cfg.Tests = make(map[string]string)
+								}
+								cfg.Tests[testName] = t.ID
+								_ = config.WriteProjectConfig(configPath, cfg)
+								return t.ID, testName
+							}
+						}
+					}
+					ui.PrintWarning("Could not find existing test \"%s\"", testName)
+					return "", ""
+				}
+
+				if idx == 1 {
+					// Rename: prompt for a new name and retry.
+					newName, promptErr := ui.Prompt(fmt.Sprintf("New test name [%s]:", testName))
+					if promptErr != nil {
+						ui.PrintWarning("Input error: %v", promptErr)
+						return "", ""
+					}
+					if newName == "" {
+						ui.PrintDim("No name entered, skipping test creation")
+						return "", ""
+					}
+					testName = newName
+					continue // retry with new name
+				}
+			}
+
+			ui.PrintWarning("Failed to create test: %v", err)
+			return "", ""
+		}
+
+		ui.PrintSuccess("Created test \"%s\" (id: %s)", testName, resp.ID)
+
+		// Save to config.
+		if cfg.Tests == nil {
+			cfg.Tests = make(map[string]string)
+		}
+		cfg.Tests[testName] = resp.ID
+		_ = config.WriteProjectConfig(configPath, cfg)
+
+		// Open in browser.
+		appURL := config.GetAppURL(devMode)
+		testURL := fmt.Sprintf("%s/tests/%s", appURL, resp.ID)
+		if openErr := ui.OpenBrowser(testURL); openErr == nil {
+			ui.PrintDim("Opened in browser: %s", testURL)
+		} else {
+			ui.PrintDim("View your test: %s", testURL)
+		}
+
+		return resp.ID, testName
 	}
-
-	ui.PrintSuccess("Created test \"%s\" (id: %s)", testName, resp.ID)
-
-	// Save to config.
-	if cfg.Tests == nil {
-		cfg.Tests = make(map[string]string)
-	}
-	cfg.Tests[testName] = resp.ID
-	_ = config.WriteProjectConfig(configPath, cfg)
-
-	// Open in browser.
-	appURL := config.GetAppURL(devMode)
-	testURL := fmt.Sprintf("%s/tests/%s", appURL, resp.ID)
-	if openErr := ui.OpenBrowser(testURL); openErr == nil {
-		ui.PrintDim("Opened in browser: %s", testURL)
-	} else {
-		ui.PrintDim("View your test: %s", testURL)
-	}
-
-	return resp.ID
 }
 
 // ---------------------------------------------------------------------------
@@ -575,12 +843,22 @@ func wizardCreateTest(
 // ---------------------------------------------------------------------------
 
 // wizardCreateWorkflow offers to group tests into a workflow. Default is No.
+//
+// Parameters:
+//   - ctx: Context for cancellation and API calls
+//   - client: Authenticated API client
+//   - cfg: Current project configuration
+//   - configPath: Path to .revyl/config.yaml
+//   - justCreatedTestID: ID of the test created in Step 5 (empty if skipped)
+//   - justCreatedTestName: Name of the test created in Step 5 (empty if skipped)
+//   - userInfo: Validated user info for ownership
 func wizardCreateWorkflow(
 	ctx context.Context,
 	client *api.Client,
 	cfg *config.ProjectConfig,
 	configPath string,
 	justCreatedTestID string,
+	justCreatedTestName string,
 	userInfo *api.ValidateAPIKeyResponse,
 ) {
 	proceed, err := ui.PromptConfirm("Create a workflow to group tests?", false)
@@ -599,7 +877,7 @@ func wizardCreateWorkflow(
 	}
 
 	// Gather test IDs for the workflow.
-	testIDs := gatherTestIDsForWorkflow(ctx, client, justCreatedTestID)
+	testIDs := gatherTestIDsForWorkflow(ctx, client, justCreatedTestID, justCreatedTestName)
 
 	ownerID := ""
 	orgID := ""
@@ -635,13 +913,26 @@ func wizardCreateWorkflow(
 
 // gatherTestIDsForWorkflow builds the list of test IDs for a new workflow.
 // If we just created a test, it is automatically included. Additionally, the
-// user may pick from existing org tests.
-func gatherTestIDsForWorkflow(ctx context.Context, client *api.Client, justCreatedTestID string) []string {
+// user may pick from existing org tests (capped at 10).
+//
+// Parameters:
+//   - ctx: Context for cancellation and API calls
+//   - client: Authenticated API client
+//   - justCreatedTestID: ID of the just-created test (empty if none)
+//   - justCreatedTestName: Display name of the just-created test (empty if none)
+//
+// Returns:
+//   - []string: Collected test IDs for the workflow
+func gatherTestIDsForWorkflow(ctx context.Context, client *api.Client, justCreatedTestID, justCreatedTestName string) []string {
 	var testIDs []string
 
 	if justCreatedTestID != "" {
 		testIDs = append(testIDs, justCreatedTestID)
-		ui.PrintDim("Including the test you just created")
+		if justCreatedTestName != "" {
+			ui.PrintSuccess("Included: %s (just created)", justCreatedTestName)
+		} else {
+			ui.PrintSuccess("Included the test you just created")
+		}
 	}
 
 	// Offer to add more tests from the org.
@@ -650,7 +941,7 @@ func gatherTestIDsForWorkflow(ctx context.Context, client *api.Client, justCreat
 		return testIDs
 	}
 
-	listResp, err := client.ListOrgTests(ctx, 20, 0)
+	listResp, err := client.ListOrgTests(ctx, 10, 0)
 	if err != nil {
 		ui.PrintWarning("Could not list org tests: %v", err)
 		return testIDs
@@ -676,6 +967,11 @@ func gatherTestIDsForWorkflow(ctx context.Context, client *api.Client, justCreat
 	if len(options) == 0 {
 		ui.PrintDim("No additional tests available")
 		return testIDs
+	}
+
+	// Hint when more tests exist beyond what we fetched.
+	if listResp.Count > 10 {
+		ui.PrintDim("Showing first 10 of %d tests. Use 'revyl workflow edit' to add more.", listResp.Count)
 	}
 
 	options = append(options, "Done — no more tests")

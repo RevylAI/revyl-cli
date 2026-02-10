@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
@@ -161,11 +160,9 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config
@@ -192,7 +189,7 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 
 	// Fetch remote test info
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 	resolver := sync.NewResolver(client, cfg, localTests)
 
 	if !jsonOutput {
@@ -264,11 +261,9 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 // runTestsPush pushes local changes to remote.
 func runTestsPush(cmd *cobra.Command, args []string) error {
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config
@@ -292,7 +287,7 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 	resolver := sync.NewResolver(client, cfg, localTests)
 
 	var testName string
@@ -372,11 +367,9 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 // runTestsPull pulls remote changes to local.
 func runTestsPull(cmd *cobra.Command, args []string) error {
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config
@@ -399,7 +392,7 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// If --all flag is set, discover remote-only tests and add them to config before pulling
 	if testsPullAll && len(args) == 0 {
@@ -535,11 +528,9 @@ func runTestsDiff(cmd *cobra.Command, args []string) error {
 	testName := args[0]
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config
@@ -561,7 +552,7 @@ func runTestsDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 	resolver := sync.NewResolver(client, cfg, localTests)
 
 	ui.StartSpinner("Fetching diff...")
@@ -600,16 +591,14 @@ func runTestsRemote(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Create API client with dev mode support
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	if !jsonOutput {
 		ui.StartSpinner("Fetching tests from organization...")

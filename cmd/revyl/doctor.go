@@ -209,7 +209,7 @@ func checkAuthentication() DoctorCheck {
 	mgr := auth.NewManager()
 	creds, err := mgr.GetCredentials()
 
-	if err != nil || creds == nil || creds.APIKey == "" {
+	if err != nil || creds == nil || !creds.HasValidAuth() {
 		check.Status = "error"
 		check.Message = "Not authenticated"
 		check.Details = "Run 'revyl auth login' to authenticate"
@@ -494,8 +494,9 @@ func runPing(cmd *cobra.Command, args []string) error {
 		// Check if authenticated and validate API key
 		mgr := auth.NewManager()
 		creds, err := mgr.GetCredentials()
-		if err == nil && creds != nil && creds.APIKey != "" {
-			apiClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+		if err == nil && creds != nil && creds.HasValidAuth() {
+			apiToken, _ := mgr.GetActiveToken()
+			apiClient := api.NewClientWithDevMode(apiToken, devMode)
 			apiStart := time.Now()
 			_, apiErr := apiClient.ValidateAPIKey(cmd.Context())
 			apiLatency := time.Since(apiStart)
@@ -514,10 +515,10 @@ func runPing(cmd *cobra.Command, args []string) error {
 	// Check if authenticated and validate API key
 	mgr := auth.NewManager()
 	creds, err := mgr.GetCredentials()
-	if err == nil && creds != nil && creds.APIKey != "" {
-		ui.PrintInfo("Validating API key...")
-
-		client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	if err == nil && creds != nil && creds.HasValidAuth() {
+		ui.PrintInfo("Validating credentials...")
+		apiToken, _ := mgr.GetActiveToken()
+		client := api.NewClientWithDevMode(apiToken, devMode)
 		apiStart := time.Now()
 		_, err := client.ValidateAPIKey(cmd.Context())
 		apiLatency := time.Since(apiStart)

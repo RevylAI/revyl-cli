@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
@@ -137,11 +136,9 @@ func init() {
 //   - error: Any error that occurred during the build/upload process
 func runBuildUpload(cmd *cobra.Command, args []string) error {
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config
@@ -159,7 +156,7 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 
 	// If --platform is specified, run single platform build
 	if uploadPlatformFlag != "" {
-		return runSinglePlatformBuild(cmd, cfg, configPath, creds, uploadPlatformFlag)
+		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, uploadPlatformFlag)
 	}
 
 	// Check if both ios and android platforms exist for concurrent builds
@@ -168,7 +165,7 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 
 	if hasIOS && hasAndroid {
 		// Default: run concurrent builds for both platforms
-		return runConcurrentBuilds(cmd, cfg, configPath, creds)
+		return runConcurrentBuilds(cmd, cfg, configPath, apiKey)
 	}
 
 	// Handle single platform case deterministically
@@ -182,16 +179,16 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	if platformCount == 1 {
 		// Single platform - use it directly
 		for platform := range cfg.Build.Platforms {
-			return runSinglePlatformBuild(cmd, cfg, configPath, creds, platform)
+			return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platform)
 		}
 	}
 
 	// Multiple platforms but not ios+android - prefer ios, then android, then first alphabetically
 	if hasIOS {
-		return runSinglePlatformBuild(cmd, cfg, configPath, creds, "ios")
+		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, "ios")
 	}
 	if hasAndroid {
-		return runSinglePlatformBuild(cmd, cfg, configPath, creds, "android")
+		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, "android")
 	}
 
 	// Multiple custom platforms - pick first alphabetically for determinism
@@ -203,7 +200,7 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 
 	ui.PrintWarning("Multiple platforms configured without --platform flag, using '%s'", platforms[0])
 	ui.PrintInfo("Use --platform to specify which platform to build")
-	return runSinglePlatformBuild(cmd, cfg, configPath, creds, platforms[0])
+	return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platforms[0])
 }
 
 // selectOrCreateAppForPlatform prompts the user to select an existing app or create a new one,
@@ -391,11 +388,11 @@ type BuildResult struct {
 //   - cmd: The cobra command being executed
 //   - cfg: The project configuration
 //   - configPath: Path to the config file
-//   - creds: Authentication credentials
+//   - apiKey: Authentication token for API requests
 //
 // Returns:
 //   - error: Any error that occurred (aggregated from both platforms)
-func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, creds *auth.Credentials) error {
+func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, apiKey string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
@@ -444,7 +441,7 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 
 	// Create API client
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Check and prompt for missing app IDs before starting builds
 	for _, platform := range platforms {
@@ -796,12 +793,12 @@ func createNewAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *config
 //   - cmd: The cobra command being executed
 //   - cfg: The project configuration
 //   - configPath: Path to the config file
-//   - creds: Authentication credentials
+//   - apiKey: Authentication token for API requests
 //   - platform: The platform to build
 //
 // Returns:
 //   - error: Any error that occurred during the build/upload process
-func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, creds *auth.Credentials, platform string) error {
+func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, apiKey string, platform string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
@@ -898,7 +895,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 
 	// Create API client
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Determine app ID from platform config
 	appID := uploadAppFlag
@@ -1036,16 +1033,14 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 //   - error: Any error that occurred while listing builds
 func runBuildList(cmd *cobra.Command, args []string) error {
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Create API client with dev mode support
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Determine app ID from flag or show org apps
 	appID := appIDFlag

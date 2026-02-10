@@ -83,7 +83,12 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
+	if err != nil || creds == nil || !creds.HasValidAuth() {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+	apiKey, err := authMgr.GetActiveToken()
+	if err != nil || apiKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -180,7 +185,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 
 	// Create API client with dev mode support
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Check if test with same name already exists in the organization
 	var existingTestID string
@@ -452,7 +457,12 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
+	if err != nil || creds == nil || !creds.HasValidAuth() {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+	apiKey, err := authMgr.GetActiveToken()
+	if err != nil || apiKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -561,7 +571,7 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 	ui.Println()
 
 	// Create API client
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Build tasks array with NAVIGATE step as first task
 	tasks := []map[string]interface{}{
@@ -706,14 +716,19 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
+	if err != nil || creds == nil || !creds.HasValidAuth() {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+	apiKey, err := authMgr.GetActiveToken()
+	if err != nil || apiKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
 
 	// Create API client with dev mode support
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Ensure UserID is available (may be missing if using REVYL_API_KEY env var)
 	if creds.UserID == "" {
@@ -894,7 +909,12 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 	// Check authentication
 	authMgr := auth.NewManager()
 	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
+	if err != nil || creds == nil || !creds.HasValidAuth() {
+		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
+		return fmt.Errorf("not authenticated")
+	}
+	apiKey, err := authMgr.GetActiveToken()
+	if err != nil || apiKey == "" {
 		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -949,7 +969,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 
 	// Create API client
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Check if test with same name already exists in the organization
 	var existingTestID string
@@ -1040,7 +1060,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 		TestID:       testID,
 		TestName:     testName,
 		Platform:     platform,
-		APIKey:       creds.APIKey,
+		APIKey:       apiKey,
 		DevMode:      devMode,
 		IsSimulation: true,
 	}

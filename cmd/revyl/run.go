@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
@@ -77,11 +76,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	testNameOrID := args[0]
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config for alias resolution
@@ -175,7 +172,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 
 		ui.PrintBox("Uploading", filepath.Base(buildCfg.Output))
 
-		client := api.NewClientWithDevMode(creds.APIKey, devMode)
+		client := api.NewClientWithDevMode(apiKey, devMode)
 		result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
 			AppID:    platformCfg.AppID,
 			Version:  buildVersionStr,
@@ -219,7 +216,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 			ui.PrintWarning("Cancelling test...")
 			cancelled = true
 			if taskID != "" {
-				cancelClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+				cancelClient := api.NewClientWithDevMode(apiKey, devMode)
 				_, cancelErr := cancelClient.CancelTest(context.Background(), taskID)
 				if cancelErr != nil {
 					ui.PrintError("Failed to cancel test: %v", cancelErr)
@@ -233,7 +230,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	result, err := execution.RunTest(ctx, creds.APIKey, cfg, execution.RunTestParams{
+	result, err := execution.RunTest(ctx, apiKey, cfg, execution.RunTestParams{
 		TestNameOrID:   testNameOrID,
 		Retries:        runRetries,
 		BuildVersionID: runBuildID,
@@ -373,11 +370,9 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	workflowNameOrID := args[0]
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config for alias resolution
@@ -417,7 +412,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("workflow not found")
 		}
 		// It's a UUID format - verify it exists via API before building
-		validationClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+		validationClient := api.NewClientWithDevMode(apiKey, devMode)
 		_, err := validationClient.GetWorkflow(cmd.Context(), workflowID)
 		if err != nil {
 			ui.PrintError("workflow '%s' not found: %v", workflowNameOrID, err)
@@ -497,7 +492,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 
 		ui.PrintBox("Uploading", filepath.Base(buildCfg.Output))
 
-		client := api.NewClientWithDevMode(creds.APIKey, devMode)
+		client := api.NewClientWithDevMode(apiKey, devMode)
 		result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
 			AppID:    platformCfg.AppID,
 			Version:  buildVersionStr,
@@ -541,7 +536,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			ui.PrintWarning("Cancelling workflow...")
 			cancelled = true
 			if taskID != "" {
-				cancelClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+				cancelClient := api.NewClientWithDevMode(apiKey, devMode)
 				_, cancelErr := cancelClient.CancelWorkflow(context.Background(), taskID)
 				if cancelErr != nil {
 					ui.PrintError("Failed to cancel workflow: %v", cancelErr)
@@ -555,7 +550,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	result, err := execution.RunWorkflow(ctx, creds.APIKey, cfg, execution.RunWorkflowParams{
+	result, err := execution.RunWorkflow(ctx, apiKey, cfg, execution.RunWorkflowParams{
 		WorkflowNameOrID: workflowNameOrID,
 		Retries:          runRetries,
 		Timeout:          runTimeout,
@@ -714,11 +709,9 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	testNameOrID := args[0]
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config
@@ -813,7 +806,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		}
 
 		// Create API client to get latest version
-		client := api.NewClientWithDevMode(creds.APIKey, devMode)
+		client := api.NewClientWithDevMode(apiKey, devMode)
 		latestVersion, err := client.GetLatestBuildVersion(cmd.Context(), platformCfg.AppID)
 		if err != nil {
 			ui.PrintError("Failed to get latest build version for platform '%s': %v", runTestPlatform, err)
@@ -925,7 +918,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	// Track if we've shown the report link yet
 	reportLinkShown := false
 
-	testResult, err := execution.RunTest(ctx, creds.APIKey, cfg, execution.RunTestParams{
+	testResult, err := execution.RunTest(ctx, apiKey, cfg, execution.RunTestParams{
 		TestNameOrID:   testNameOrID,
 		Retries:        runRetries,
 		BuildVersionID: providerCfg.DevClientBuildID,

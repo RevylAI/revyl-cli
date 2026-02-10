@@ -170,18 +170,19 @@ func runCancelWorkflow(cmd *cobra.Command, args []string) error {
 	return fmt.Errorf("could not cancel workflow: %s", resp.Message)
 }
 
-// getAPIKey retrieves the API key from environment or credentials file.
+// getAPIKey retrieves the active authentication token from environment, browser auth, or credentials file.
+// Supports both browser-based OAuth tokens (AccessToken) and API key authentication.
 //
 // Returns:
-//   - string: The API key
-//   - error: Any error that occurred
+//   - string: The active authentication token
+//   - error: An error if no valid credentials are found
 func getAPIKey() (string, error) {
 	mgr := auth.NewManager()
-	creds, err := mgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
+	token, err := mgr.GetActiveToken()
+	if err != nil || token == "" {
 		ui.PrintError("Not authenticated")
 		ui.PrintInfo("Run 'revyl auth login' to authenticate")
 		return "", fmt.Errorf("not authenticated")
 	}
-	return creds.APIKey, nil
+	return token, nil
 }

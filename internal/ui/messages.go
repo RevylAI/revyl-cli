@@ -158,6 +158,87 @@ func PrintNextSteps(steps []NextStep) {
 	}
 }
 
+// PrintStepHeader prints a prominent step header with horizontal separators.
+// Used by wizard flows (e.g. revyl init) to visually delineate each step.
+// Respects quiet mode - suppressed when quiet.
+//
+// Parameters:
+//   - step: The current step number (1-based)
+//   - total: The total number of steps
+//   - title: The step title (e.g. "Project Setup")
+func PrintStepHeader(step, total int, title string) {
+	if quietMode {
+		return
+	}
+	separator := DimStyle.Render("─────────────────────────────────────────────────")
+	stepNum := AccentStyle.Render(fmt.Sprintf("Step %d/%d", step, total))
+	titleStyled := TitleStyle.Render(title)
+	fmt.Println()
+	fmt.Println(separator)
+	fmt.Printf("%s  %s\n", stepNum, titleStyled)
+	fmt.Println(separator)
+	fmt.Println()
+}
+
+// PrintKeyValue prints a key-value pair with aligned formatting.
+// Useful for structured output like build details and configuration summaries.
+// Respects quiet mode - suppressed when quiet.
+//
+// Parameters:
+//   - key: The label (e.g. "App:", "Build Version:")
+//   - value: The value to display
+func PrintKeyValue(key, value string) {
+	if quietMode {
+		return
+	}
+	keyStyled := DimStyle.Render(fmt.Sprintf("  %-16s", key))
+	fmt.Printf("%s %s\n", keyStyled, InfoStyle.Render(value))
+}
+
+// WizardSummaryItem represents a single step result in the final wizard summary.
+//
+// Fields:
+//   - Title: Short description of the step (e.g. "Authentication")
+//   - OK: Whether the step completed successfully
+//   - Detail: Optional detail string (e.g. app name, test name)
+type WizardSummaryItem struct {
+	Title  string
+	OK     bool
+	Detail string
+}
+
+// PrintWizardSummary prints a boxed summary of all wizard steps at the end of the flow.
+// Each step is shown with a check or cross icon and optional detail.
+// Respects quiet mode - suppressed when quiet.
+//
+// Parameters:
+//   - items: Ordered list of step results to display
+func PrintWizardSummary(items []WizardSummaryItem) {
+	if quietMode || len(items) == 0 {
+		return
+	}
+
+	var lines []string
+	for _, item := range items {
+		var icon, line string
+		if item.OK {
+			icon = SuccessStyle.Render("✓")
+		} else {
+			icon = DimStyle.Render("–")
+		}
+		if item.Detail != "" {
+			line = fmt.Sprintf("%s %s  %s", icon, InfoStyle.Render(item.Title), DimStyle.Render(item.Detail))
+		} else {
+			line = fmt.Sprintf("%s %s", icon, InfoStyle.Render(item.Title))
+		}
+		lines = append(lines, line)
+	}
+
+	content := strings.Join(lines, "\n")
+	box := BoxStyle.Render(BoxTitleStyle.Render("Setup Complete") + "\n" + content)
+	fmt.Println(box)
+}
+
 // PrintDiff prints a diff with syntax highlighting.
 // Respects quiet mode - suppressed when quiet.
 //

@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
@@ -56,11 +55,9 @@ func runOpenTest(cmd *cobra.Command, args []string) error {
 	testNameOrID := args[0]
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Get current directory
@@ -88,7 +85,7 @@ func runOpenTest(cmd *cobra.Command, args []string) error {
 		} else {
 			// Search via API
 			devMode, _ := cmd.Flags().GetBool("dev")
-			client := api.NewClientWithDevMode(creds.APIKey, devMode)
+			client := api.NewClientWithDevMode(apiKey, devMode)
 
 			ui.StartSpinner("Searching for test...")
 			testsResp, err := client.ListOrgTests(cmd.Context(), 100, 0)
@@ -156,11 +153,9 @@ func runOpenTestWithHotReload(cmd *cobra.Command, args []string) error {
 	ui.PrintBanner(version)
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Get current directory
@@ -204,7 +199,7 @@ func runOpenTestWithHotReload(cmd *cobra.Command, args []string) error {
 			testID = testNameOrID
 		} else {
 			// Search via API
-			client := api.NewClientWithDevMode(creds.APIKey, devMode)
+			client := api.NewClientWithDevMode(apiKey, devMode)
 
 			ui.StartSpinner("Searching for test...")
 			testsResp, err := client.ListOrgTests(cmd.Context(), 100, 0)
@@ -330,11 +325,9 @@ func runOpenWorkflow(cmd *cobra.Command, args []string) error {
 	workflowNameOrID := args[0]
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Get current directory
@@ -361,7 +354,7 @@ func runOpenWorkflow(cmd *cobra.Command, args []string) error {
 		} else {
 			// Search via API to verify the workflow exists
 			devMode, _ := cmd.Flags().GetBool("dev")
-			client := api.NewClientWithDevMode(creds.APIKey, devMode)
+			client := api.NewClientWithDevMode(apiKey, devMode)
 
 			ui.StartSpinner("Searching for workflow...")
 			workflowsResp, err := client.ListWorkflows(cmd.Context())
@@ -423,11 +416,9 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 	ui.PrintBanner(version)
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Get current directory
@@ -452,7 +443,7 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 
 	// Create API client
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Resolve test ID
 	var testID string
@@ -510,7 +501,7 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 		TestID:       testID,
 		TestName:     test.Name,
 		Platform:     test.Platform,
-		APIKey:       creds.APIKey,
+		APIKey:       apiKey,
 		DevMode:      devMode,
 		IsSimulation: true,
 	}

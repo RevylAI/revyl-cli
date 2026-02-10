@@ -576,6 +576,11 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 		return nil, err
 	}
 
+	// Backend complete-upload doesn't return version_id; use the presign value.
+	if completeResult.VersionID == "" {
+		completeResult.VersionID = presignResult.VersionID
+	}
+
 	return &completeResult, nil
 }
 
@@ -869,7 +874,7 @@ func (c *Client) ListApps(ctx context.Context, platform string, page, pageSize i
 
 	path := fmt.Sprintf("/api/v1/builds/vars?page=%d&page_size=%d", page, pageSize)
 	if platform != "" {
-		path += "&platform=" + platform
+		path += "&platform=" + normalizePlatform(platform)
 	}
 
 	resp, err := c.doRequest(ctx, "GET", path, nil)
