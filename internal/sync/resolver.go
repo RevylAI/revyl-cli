@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 )
@@ -265,6 +263,12 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				localTest.Meta.LocalVersion = resp.Version
 				localTest.Meta.LastSyncedAt = time.Now().Format(time.RFC3339)
 
+				// Update config Tests map so subsequent operations use the new ID
+				if r.config.Tests == nil {
+					r.config.Tests = make(map[string]string)
+				}
+				r.config.Tests[name] = resp.ID
+
 				// Save updated local test file
 				path := filepath.Join(testsDir, name+".yaml")
 				if saveErr := config.SaveLocalTest(path, localTest); saveErr != nil {
@@ -399,12 +403,12 @@ func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string
 		}
 
 		// Add build info if available
-		if remoteTest.BuildVarID != "" {
-			// Fetch build var name (gracefully handle errors - don't fail the pull)
-			buildVar, err := r.client.GetBuildVar(ctx, remoteTest.BuildVarID)
-			if err == nil && buildVar != nil {
+		if remoteTest.AppID != "" {
+			// Fetch app name (gracefully handle errors - don't fail the pull)
+			app, err := r.client.GetApp(ctx, remoteTest.AppID)
+			if err == nil && app != nil {
 				localTest.Test.Build = config.TestBuildConfig{
-					Name: buildVar.Name,
+					Name: app.Name,
 				}
 			}
 		}
@@ -458,11 +462,20 @@ func (r *Resolver) GetDiff(ctx context.Context, testName string) (string, error)
 		return "", err
 	}
 
-	// Generate simple diff
-	localYAML, _ := yaml.Marshal(localTest.Test)
-	remoteYAML, _ := yaml.Marshal(remoteTest.Tasks)
+	// Generate diff by comparing local blocks with remote tasks.
+	// Both are marshaled to JSON first to get a canonical representation,
+	// since localTest.Test is a structured TestDefinition while
+	// remoteTest.Tasks is a raw interface{} from the API.
+	localJSON, err := json.MarshalIndent(localTest.Test.Blocks, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal local test blocks: %w", err)
+	}
+	remoteJSON, err := json.MarshalIndent(remoteTest.Tasks, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal remote test tasks: %w", err)
+	}
 
-	return generateSimpleDiff(string(localYAML), string(remoteYAML)), nil
+	return generateSimpleDiff(string(localJSON), string(remoteJSON)), nil
 }
 
 // formatTimeAgo formats a timestamp as a human-readable "time ago" string.

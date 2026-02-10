@@ -23,18 +23,18 @@ func GenerateVersionString() string {
 // Parameters:
 //   - workDir: The working directory (used for git commands)
 //   - buildCommand: The build command that was executed
-//   - variant: The build variant name (e.g., "ios", "android", "release")
+//   - platform: The build platform name (e.g., "ios", "android")
 //   - duration: How long the build took
 //
 // Returns:
 //   - map[string]interface{}: A map containing build metadata
-func CollectMetadata(workDir, buildCommand, variant string, duration time.Duration) map[string]interface{} {
+func CollectMetadata(workDir, buildCommand, platform string, duration time.Duration) map[string]interface{} {
 	metadata := make(map[string]interface{})
 
 	// Build info
 	metadata["build_command"] = buildCommand
-	if variant != "" {
-		metadata["variant"] = variant
+	if platform != "" {
+		metadata["platform"] = platform
 	}
 	if duration > 0 {
 		metadata["build_duration_seconds"] = int(duration.Seconds())

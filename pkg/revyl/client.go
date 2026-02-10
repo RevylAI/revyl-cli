@@ -334,8 +334,8 @@ func (c *Client) BuildAndUpload(ctx context.Context) (*BuildResult, error) {
 
 // BuildOptions contains options for building.
 type BuildOptions struct {
-	// Variant is the build variant to use.
-	Variant string
+	// Platform is the build platform key to use (e.g., "ios", "android").
+	Platform string
 	// SkipBuild skips the build step.
 	SkipBuild bool
 	// Version is a custom version string.
@@ -363,15 +363,15 @@ func (c *Client) BuildAndUploadWithOptions(ctx context.Context, opts *BuildOptio
 	}
 
 	buildCfg := c.config.Build
-	var variant config.BuildVariant
-	if opts.Variant != "" {
+	var platformCfg config.BuildPlatform
+	if opts.Platform != "" {
 		var ok bool
-		variant, ok = c.config.Build.Variants[opts.Variant]
+		platformCfg, ok = c.config.Build.Platforms[opts.Platform]
 		if !ok {
-			return nil, fmt.Errorf("unknown variant: %s", opts.Variant)
+			return nil, fmt.Errorf("unknown platform: %s", opts.Platform)
 		}
-		buildCfg.Command = variant.Command
-		buildCfg.Output = variant.Output
+		buildCfg.Command = platformCfg.Command
+		buildCfg.Output = platformCfg.Output
 	}
 
 	// Run build
@@ -390,13 +390,13 @@ func (c *Client) BuildAndUploadWithOptions(ctx context.Context, opts *BuildOptio
 
 	// Upload
 	artifactPath := filepath.Join(c.workDir, buildCfg.Output)
-	metadata := build.CollectMetadata(c.workDir, buildCfg.Command, opts.Variant, 0)
+	metadata := build.CollectMetadata(c.workDir, buildCfg.Command, opts.Platform, 0)
 
 	result, err := c.apiClient.UploadBuild(ctx, &api.UploadBuildRequest{
-		BuildVarID: variant.BuildVarID,
-		Version:    version,
-		FilePath:   artifactPath,
-		Metadata:   metadata,
+		AppID:    platformCfg.AppID,
+		Version:  version,
+		FilePath: artifactPath,
+		Metadata: metadata,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upload failed: %w", err)

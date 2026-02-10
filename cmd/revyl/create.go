@@ -25,7 +25,7 @@ import (
 var (
 	// Test creation flags
 	createTestPlatform string
-	createTestBuildVar string
+	createTestAppID    string
 	createTestNoOpen   bool
 	createTestNoSync   bool
 	createTestForce    bool
@@ -36,7 +36,7 @@ var (
 	createTestHotReload         bool
 	createTestHotReloadPort     int
 	createTestHotReloadProvider string
-	createTestHotReloadVariant  string
+	createTestHotReloadPlatform  string
 
 	// Interactive mode flag
 	createTestInteractive bool
@@ -73,6 +73,12 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	}
 
 	testName := args[0]
+
+	// Validate test name
+	if err := validateResourceName(testName, "test"); err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
 
 	// Check authentication
 	authMgr := auth.NewManager()
@@ -131,15 +137,26 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 		platform = platformOptions[idx]
 	}
 
-	// Auto-detect build_var_id from config if not provided via flag
-	buildVarID := createTestBuildVar
-	if buildVarID == "" && cfg.Build.Variants != nil {
-		if variant, ok := cfg.Build.Variants[platform]; ok && variant.BuildVarID != "" {
-			buildVarID = variant.BuildVarID
+	// Auto-detect app_id from config if not provided via flag
+	appID := createTestAppID
+	if appID == "" && cfg.Build.Platforms != nil {
+		if platformCfg, ok := cfg.Build.Platforms[platform]; ok && platformCfg.AppID != "" {
+			appID = platformCfg.AppID
 			if !createTestDryRun {
-				ui.PrintInfo("Using build variable from config: %s", buildVarID)
+				ui.PrintInfo("Using app from config: %s", appID)
 			}
 		}
+	}
+
+	// Warn the user if no build is configured -- the test won't be runnable without one
+	if appID == "" && !createTestDryRun {
+		ui.Println()
+		ui.PrintWarning("No app configured for platform '%s'.", platform)
+		ui.PrintDim("This test won't be runnable until a build is uploaded and associated.")
+		ui.Println()
+		ui.PrintInfo("To upload a build, run:")
+		ui.PrintDim("  revyl build upload --platform %s", platform)
+		ui.Println()
 	}
 
 	// Handle dry-run mode
@@ -149,10 +166,10 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 		ui.Println()
 		ui.PrintInfo("  Test Name:    %s", testName)
 		ui.PrintInfo("  Platform:     %s", platform)
-		if buildVarID != "" {
-			ui.PrintInfo("  Build Var ID: %s", buildVarID)
+		if appID != "" {
+			ui.PrintInfo("  App ID: %s", appID)
 		} else {
-			ui.PrintInfo("  Build Var ID: (none)")
+			ui.PrintInfo("  App ID: (none)")
 		}
 		ui.PrintInfo("  Add to Config: %v", !createTestNoSync)
 		ui.PrintInfo("  Open Browser:  %v", !createTestNoOpen)
@@ -189,20 +206,20 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 		// Use existing test
 		ui.PrintInfo("Using existing test '%s' (id: %s)", testName, existingTestID)
 
-		// Update the test's build_var_id if we have one
-		if buildVarID != "" {
-			ui.StartSpinner("Updating test build variable...")
+		// Update the test's app_id if we have one
+		if appID != "" {
+			ui.StartSpinner("Updating test app...")
 			_, err := client.UpdateTest(cmd.Context(), &api.UpdateTestRequest{
-				TestID:     existingTestID,
-				BuildVarID: buildVarID,
-				Force:      true,
+				TestID: existingTestID,
+				AppID:  appID,
+				Force:  true,
 			})
 			ui.StopSpinner()
 
 			if err != nil {
-				ui.PrintWarning("Failed to update build variable: %v", err)
+				ui.PrintWarning("Failed to update app: %v", err)
 			} else {
-				ui.PrintSuccess("Updated build variable")
+				ui.PrintSuccess("Updated app")
 			}
 		}
 
@@ -246,11 +263,11 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	// Create test on server with empty tasks
 	ui.StartSpinner("Creating test on server...")
 	createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
-		Name:       testName,
-		Platform:   platform,
-		Tasks:      []interface{}{}, // Empty tasks - user will define in browser
-		BuildVarID: buildVarID,
-		OrgID:      creds.OrgID,
+		Name:     testName,
+		Platform: platform,
+		Tasks:    []interface{}{}, // Empty tasks - user will define in browser
+		AppID:    appID,
+		OrgID:    creds.OrgID,
 	})
 	ui.StopSpinner()
 
@@ -294,8 +311,10 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.Println()
-	ui.PrintInfo("Next: Define your test steps in the browser, then run with:")
-	ui.PrintDim("  revyl test run %s", testName)
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Define steps in browser:", Command: fmt.Sprintf("revyl test open %s", testName)},
+		{Label: "Run your test:", Command: fmt.Sprintf("revyl run %s", testName)},
+	})
 
 	return nil
 }
@@ -315,6 +334,12 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 //   - error: Any error that occurred during test creation
 func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 	testName := args[0]
+
+	// Validate test name
+	if err := validateResourceName(testName, "test"); err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
 
 	// Validate the YAML file first
 	validationResult, err := yaml.ValidateYAMLFile(createTestFromFile)
@@ -416,6 +441,12 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 	testName := args[0]
 
+	// Validate test name
+	if err := validateResourceName(testName, "test"); err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
+
 	ui.PrintBanner(version)
 
 	// Check authentication
@@ -490,12 +521,12 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 		platform = platformOptions[idx]
 	}
 
-	// Auto-detect build_var_id from config if not provided via flag
-	buildVarID := createTestBuildVar
-	if buildVarID == "" && cfg.Build.Variants != nil {
-		if variant, ok := cfg.Build.Variants[platform]; ok && variant.BuildVarID != "" {
-			buildVarID = variant.BuildVarID
-			ui.PrintInfo("Using build variable from config: %s", buildVarID)
+	// Auto-detect app_id from config if not provided via flag
+	appID := createTestAppID
+	if appID == "" && cfg.Build.Platforms != nil {
+		if platformCfg, ok := cfg.Build.Platforms[platform]; ok && platformCfg.AppID != "" {
+			appID = platformCfg.AppID
+			ui.PrintInfo("Using app from config: %s", appID)
 		}
 	}
 
@@ -572,9 +603,9 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 		// Update the test's tasks with the new NAVIGATE step
 		ui.StartSpinner("Updating test with hot reload step...")
 		_, err := client.UpdateTest(cmd.Context(), &api.UpdateTestRequest{
-			TestID:     existingTestID,
-			BuildVarID: buildVarID,
-			Force:      true,
+			TestID: existingTestID,
+			AppID:  appID,
+			Force:  true,
 		})
 		ui.StopSpinner()
 
@@ -585,11 +616,11 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 		// Create test on server
 		ui.StartSpinner("Creating test on server...")
 		createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
-			Name:       testName,
-			Platform:   platform,
-			Tasks:      tasks,
-			BuildVarID: buildVarID,
-			OrgID:      creds.OrgID,
+			Name:     testName,
+			Platform: platform,
+			Tasks:    tasks,
+			AppID:    appID,
+			OrgID:    creds.OrgID,
 		})
 		ui.StopSpinner()
 
@@ -665,6 +696,12 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 //   - error: Any error that occurred during workflow creation
 func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 	workflowName := args[0]
+
+	// Validate workflow name
+	if err := validateResourceName(workflowName, "workflow"); err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
 
 	// Check authentication
 	authMgr := auth.NewManager()
@@ -821,8 +858,10 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.Println()
-	ui.PrintInfo("Next: Configure your workflow in the browser, then run with:")
-	ui.PrintDim("  revyl workflow run %s", workflowName)
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Configure in browser:", Command: fmt.Sprintf("revyl workflow open %s", workflowName)},
+		{Label: "Run workflow:", Command: fmt.Sprintf("revyl workflow run %s", workflowName)},
+	})
 
 	return nil
 }
@@ -843,6 +882,12 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 //   - error: Any error that occurred
 func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 	testName := args[0]
+
+	// Validate test name
+	if err := validateResourceName(testName, "test"); err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
 
 	ui.PrintBanner(version)
 
@@ -891,12 +936,12 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 		platform = platformOptions[idx]
 	}
 
-	// Auto-detect build_var_id from config if not provided via flag
-	buildVarID := createTestBuildVar
-	if buildVarID == "" && cfg.Build.Variants != nil {
-		if variant, ok := cfg.Build.Variants[platform]; ok && variant.BuildVarID != "" {
-			buildVarID = variant.BuildVarID
-			ui.PrintInfo("Using build variable from config: %s", buildVarID)
+	// Auto-detect app_id from config if not provided via flag
+	appID := createTestAppID
+	if appID == "" && cfg.Build.Platforms != nil {
+		if platformCfg, ok := cfg.Build.Platforms[platform]; ok && platformCfg.AppID != "" {
+			appID = platformCfg.AppID
+			ui.PrintInfo("Using app from config: %s", appID)
 		}
 	}
 
@@ -936,18 +981,18 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Using existing test '%s' (id: %s)", testName, existingTestID)
 		testID = existingTestID
 
-		// Update the test's build_var_id if we have one
-		if buildVarID != "" {
-			ui.StartSpinner("Updating test build variable...")
+		// Update the test's app_id if we have one
+		if appID != "" {
+			ui.StartSpinner("Updating test app...")
 			_, err := client.UpdateTest(cmd.Context(), &api.UpdateTestRequest{
-				TestID:     existingTestID,
-				BuildVarID: buildVarID,
-				Force:      true,
+				TestID: existingTestID,
+				AppID:  appID,
+				Force:  true,
 			})
 			ui.StopSpinner()
 
 			if err != nil {
-				ui.PrintWarning("Failed to update build variable: %v", err)
+				ui.PrintWarning("Failed to update app: %v", err)
 			}
 		}
 	} else {
@@ -956,11 +1001,11 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 		// Create test on server with empty tasks
 		ui.StartSpinner("Creating test on server...")
 		createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
-			Name:       testName,
-			Platform:   platform,
-			Tasks:      []interface{}{},
-			BuildVarID: buildVarID,
-			OrgID:      creds.OrgID,
+			Name:     testName,
+			Platform: platform,
+			Tasks:    []interface{}{},
+			AppID:    appID,
+			OrgID:    creds.OrgID,
 		})
 		ui.StopSpinner()
 

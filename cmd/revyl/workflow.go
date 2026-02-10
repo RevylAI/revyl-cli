@@ -39,7 +39,7 @@ Use --build to build and upload before running.
 EXAMPLES:
   revyl workflow run smoke-tests
   revyl workflow run smoke-tests --build
-  revyl workflow run smoke-tests --build --variant android`,
+  revyl workflow run smoke-tests --build --platform android`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkflowExec,
 }
@@ -102,7 +102,7 @@ func init() {
 	workflowRunCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	workflowRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
 	workflowRunCmd.Flags().BoolVar(&runWorkflowBuild, "build", false, "Build and upload before running workflow")
-	workflowRunCmd.Flags().StringVar(&runWorkflowVariant, "variant", "", "Build variant to use (requires --build)")
+	workflowRunCmd.Flags().StringVar(&runWorkflowPlatform, "platform", "", "Platform to use (requires --build)")
 
 	// workflow delete flags
 	workflowDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")

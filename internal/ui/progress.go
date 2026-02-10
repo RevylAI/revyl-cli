@@ -16,10 +16,15 @@ var (
 )
 
 // StartSpinner starts an animated spinner with a message.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - message: The message to display next to the spinner
 func StartSpinner(message string) {
+	if quietMode {
+		return
+	}
+
 	spinnerMu.Lock()
 	defer spinnerMu.Unlock()
 
@@ -129,11 +134,15 @@ func (p *ProgressBar) Complete() {
 }
 
 // UpdateProgress is a convenience function for updating progress display.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - progress: Progress percentage (0-100)
 //   - message: Current step message
 func UpdateProgress(progress int, message string) {
+	if quietMode {
+		return
+	}
 	bar := NewProgressBar(100, 40)
 	bar.Update(progress, message)
 }

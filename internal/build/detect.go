@@ -66,16 +66,16 @@ type DetectedBuild struct {
 	// Platform is the detected platform (ios, android, or empty for both).
 	Platform string
 
-	// Variants contains platform-specific build configurations.
-	Variants map[string]BuildVariant
+	// Platforms contains platform-specific build configurations.
+	Platforms map[string]BuildPlatform
 }
 
-// BuildVariant represents a platform-specific build configuration.
-type BuildVariant struct {
-	// Command is the build command for this variant.
+// BuildPlatform represents a platform-specific build configuration.
+type BuildPlatform struct {
+	// Command is the build command for this platform.
 	Command string
 
-	// Output is the expected output path for this variant.
+	// Output is the expected output path for this platform.
 	Output string
 }
 
@@ -193,23 +193,23 @@ func hasXcodeProject(dir string) bool {
 // detectExpo returns build configuration for an Expo project.
 func detectExpo(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
-		System:   SystemExpo,
-		Variants: make(map[string]BuildVariant),
+		System:    SystemExpo,
+		Platforms: make(map[string]BuildPlatform),
 	}
 
 	// Default to EAS local build commands
-	detected.Variants["ios"] = BuildVariant{
+	detected.Platforms["ios"] = BuildPlatform{
 		Command: "eas build --platform ios --profile development --local --output build/app.tar.gz",
 		Output:  "build/app.tar.gz",
 	}
-	detected.Variants["android"] = BuildVariant{
+	detected.Platforms["android"] = BuildPlatform{
 		Command: "eas build --platform android --profile development --local --output build/app.apk",
 		Output:  "build/app.apk",
 	}
 
 	// Set default command (iOS)
-	detected.Command = detected.Variants["ios"].Command
-	detected.Output = detected.Variants["ios"].Output
+	detected.Command = detected.Platforms["ios"].Command
+	detected.Output = detected.Platforms["ios"].Output
 
 	return detected, nil
 }
@@ -217,24 +217,24 @@ func detectExpo(dir string) (*DetectedBuild, error) {
 // detectReactNative returns build configuration for a React Native project.
 func detectReactNative(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
-		System:   SystemReactNative,
-		Variants: make(map[string]BuildVariant),
+		System:    SystemReactNative,
+		Platforms: make(map[string]BuildPlatform),
 	}
 
 	// iOS build (using xcodebuild)
-	detected.Variants["ios"] = BuildVariant{
+	detected.Platforms["ios"] = BuildPlatform{
 		Command: "cd ios && xcodebuild -workspace *.xcworkspace -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build",
 		Output:  "ios/build/Build/Products/Debug-iphonesimulator/*.app",
 	}
 
 	// Android build (using Gradle)
-	detected.Variants["android"] = BuildVariant{
+	detected.Platforms["android"] = BuildPlatform{
 		Command: "cd android && ./gradlew assembleDebug",
 		Output:  "android/app/build/outputs/apk/debug/app-debug.apk",
 	}
 
-	detected.Command = detected.Variants["android"].Command
-	detected.Output = detected.Variants["android"].Output
+	detected.Command = detected.Platforms["android"].Command
+	detected.Output = detected.Platforms["android"].Output
 
 	return detected, nil
 }
@@ -242,22 +242,22 @@ func detectReactNative(dir string) (*DetectedBuild, error) {
 // detectFlutter returns build configuration for a Flutter project.
 func detectFlutter(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
-		System:   SystemFlutter,
-		Variants: make(map[string]BuildVariant),
+		System:    SystemFlutter,
+		Platforms: make(map[string]BuildPlatform),
 	}
 
-	detected.Variants["ios"] = BuildVariant{
+	detected.Platforms["ios"] = BuildPlatform{
 		Command: "flutter build ios --simulator",
 		Output:  "build/ios/iphonesimulator/*.app",
 	}
 
-	detected.Variants["android"] = BuildVariant{
+	detected.Platforms["android"] = BuildPlatform{
 		Command: "flutter build apk --debug",
 		Output:  "build/app/outputs/flutter-apk/app-debug.apk",
 	}
 
-	detected.Command = detected.Variants["android"].Command
-	detected.Output = detected.Variants["android"].Output
+	detected.Command = detected.Platforms["android"].Command
+	detected.Output = detected.Platforms["android"].Output
 
 	return detected, nil
 }
@@ -265,9 +265,9 @@ func detectFlutter(dir string) (*DetectedBuild, error) {
 // detectXcode returns build configuration for an Xcode project.
 func detectXcode(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
-		System:   SystemXcode,
-		Platform: "ios",
-		Variants: make(map[string]BuildVariant),
+		System:    SystemXcode,
+		Platform:  "ios",
+		Platforms: make(map[string]BuildPlatform),
 	}
 
 	// Find workspace or project
@@ -285,7 +285,7 @@ func detectXcode(dir string) (*DetectedBuild, error) {
 
 	detected.Output = "build/Build/Products/Debug-iphonesimulator/*.app"
 
-	detected.Variants["ios"] = BuildVariant{
+	detected.Platforms["ios"] = BuildPlatform{
 		Command: detected.Command,
 		Output:  detected.Output,
 	}
@@ -296,14 +296,14 @@ func detectXcode(dir string) (*DetectedBuild, error) {
 // detectGradle returns build configuration for a Gradle/Android project.
 func detectGradle(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
-		System:   SystemGradle,
-		Platform: "android",
-		Command:  "./gradlew assembleDebug",
-		Output:   "app/build/outputs/apk/debug/app-debug.apk",
-		Variants: make(map[string]BuildVariant),
+		System:    SystemGradle,
+		Platform:  "android",
+		Command:   "./gradlew assembleDebug",
+		Output:    "app/build/outputs/apk/debug/app-debug.apk",
+		Platforms: make(map[string]BuildPlatform),
 	}
 
-	detected.Variants["android"] = BuildVariant{
+	detected.Platforms["android"] = BuildPlatform{
 		Command: detected.Command,
 		Output:  detected.Output,
 	}
@@ -314,11 +314,11 @@ func detectGradle(dir string) (*DetectedBuild, error) {
 // detectSwift returns build configuration for a Swift Package Manager project.
 func detectSwift(dir string) (*DetectedBuild, error) {
 	detected := &DetectedBuild{
-		System:   SystemSwift,
-		Platform: "ios",
-		Command:  "swift build",
-		Output:   ".build/debug/*",
-		Variants: make(map[string]BuildVariant),
+		System:    SystemSwift,
+		Platform:  "ios",
+		Command:   "swift build",
+		Output:    ".build/debug/*",
+		Platforms: make(map[string]BuildPlatform),
 	}
 
 	return detected, nil

@@ -129,11 +129,44 @@ func PrintBox(title, content string) {
 	fmt.Println(box)
 }
 
+// NextStep represents a single suggested next action for the user.
+//
+// Fields:
+//   - Label: A short description of the action (e.g., "Run your test")
+//   - Command: The CLI command to execute (e.g., "revyl run my-test")
+type NextStep struct {
+	Label   string
+	Command string
+}
+
+// PrintNextSteps prints a styled list of suggested next actions.
+// Respects quiet mode - suppressed when quiet. Callers should also
+// guard against JSON output mode before calling.
+//
+// Parameters:
+//   - steps: Ordered list of suggested next actions (max 2-3 recommended)
+func PrintNextSteps(steps []NextStep) {
+	if quietMode || len(steps) == 0 {
+		return
+	}
+	Println()
+	PrintDim("Next:")
+	for _, s := range steps {
+		fmt.Printf("  %s  %s\n",
+			DimStyle.Render(s.Label),
+			InfoStyle.Render(s.Command))
+	}
+}
+
 // PrintDiff prints a diff with syntax highlighting.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - diff: The diff content
 func PrintDiff(diff string) {
+	if quietMode {
+		return
+	}
 	lines := strings.Split(diff, "\n")
 	for _, line := range lines {
 		switch {
@@ -157,6 +190,10 @@ func PrintDiff(diff string) {
 //   - totalSteps: Total number of steps
 //   - duration: Elapsed duration string
 func PrintVerboseStatus(statusStr string, progress int, currentStep string, completedSteps, totalSteps int, duration string) {
+	if quietMode {
+		return
+	}
+
 	// Clear line and print status
 	fmt.Print("\r\033[K") // Clear current line
 
@@ -244,6 +281,10 @@ func PrintBasicStatus(statusStr string, progress int, completedSteps, totalSteps
 //   - failedTests: Number of failed tests
 //   - duration: Elapsed duration string
 func PrintVerboseWorkflowStatus(statusStr string, completedTests, totalTests, passedTests, failedTests int, duration string) {
+	if quietMode {
+		return
+	}
+
 	// Clear line and print status
 	fmt.Print("\r\033[K") // Clear current line
 
@@ -477,8 +518,13 @@ func padRight(s string, width int) string {
 }
 
 // Render prints the table with calculated column widths.
+// Respects quiet mode - suppressed when quiet.
 // Headers are styled with TableHeaderStyle, cells with TableCellStyle.
 func (t *Table) Render() {
+	if quietMode {
+		return
+	}
+
 	if len(t.Headers) == 0 {
 		return
 	}

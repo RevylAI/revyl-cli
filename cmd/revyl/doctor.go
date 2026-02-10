@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -245,7 +246,7 @@ func checkAPIConnectivity(ctx context.Context, devMode bool) DoctorCheck {
 	}
 
 	baseURL := config.GetBackendURL(devMode)
-	healthURL := baseURL + "/health"
+	healthURL := baseURL + "/health_check"
 
 	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, "GET", healthURL, nil)
@@ -325,7 +326,7 @@ func checkProjectConfig() DoctorCheck {
 		details = append(details, fmt.Sprintf("%d workflow(s)", len(cfg.Workflows)))
 	}
 	if len(details) > 0 {
-		check.Details = fmt.Sprintf("%v", details)
+		check.Details = strings.Join(details, ", ")
 	}
 
 	return check
@@ -397,6 +398,26 @@ func printDoctorResults(result DoctorResult) {
 	} else {
 		ui.PrintSuccess("All checks passed")
 	}
+
+	// Print context-aware next steps based on check results
+	var steps []ui.NextStep
+	for _, check := range result.Checks {
+		switch {
+		case check.Name == "Authentication" && check.Status == "error":
+			steps = append(steps, ui.NextStep{Label: "Authenticate:", Command: "revyl auth login"})
+		case check.Name == "Project Config" && (check.Status == "error" || check.Status == "warning"):
+			steps = append(steps, ui.NextStep{Label: "Initialize project:", Command: "revyl init"})
+		case check.Name == "API Connection" && check.Status == "error":
+			steps = append(steps, ui.NextStep{Label: "Test connectivity:", Command: "revyl ping"})
+		}
+	}
+
+	// If all healthy, suggest running a test
+	if result.Healthy && len(steps) == 0 {
+		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: "revyl run <name>"})
+	}
+
+	ui.PrintNextSteps(steps)
 }
 
 // runPing tests API connectivity with timing.
@@ -409,14 +430,25 @@ func printDoctorResults(result DoctorResult) {
 //   - error: Any error that occurred
 func runPing(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	baseURL := config.GetBackendURL(devMode)
-	healthURL := baseURL + "/health"
+	healthURL := baseURL + "/health_check"
 
-	ui.PrintInfo("Pinging %s...", baseURL)
+	if !jsonOutput {
+		ui.PrintInfo("Pinging %s...", baseURL)
+	}
 
 	start := time.Now()
 	req, err := http.NewRequestWithContext(cmd.Context(), "GET", healthURL, nil)
 	if err != nil {
+		if jsonOutput {
+			data, _ := json.MarshalIndent(map[string]interface{}{
+				"ok":    false,
+				"error": fmt.Sprintf("failed to create request: %v", err),
+			}, "", "  ")
+			fmt.Println(string(data))
+			return nil
+		}
 		ui.PrintError("Failed to create request: %v", err)
 		return err
 	}
@@ -426,14 +458,55 @@ func runPing(cmd *cobra.Command, args []string) error {
 	latency := time.Since(start)
 
 	if err != nil {
+		if jsonOutput {
+			data, _ := json.MarshalIndent(map[string]interface{}{
+				"ok":    false,
+				"error": fmt.Sprintf("connection failed: %v", err),
+			}, "", "  ")
+			fmt.Println(string(data))
+			return nil
+		}
 		ui.PrintError("Connection failed: %v", err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if jsonOutput {
+			data, _ := json.MarshalIndent(map[string]interface{}{
+				"ok":          false,
+				"status_code": resp.StatusCode,
+				"latency_ms":  latency.Milliseconds(),
+			}, "", "  ")
+			fmt.Println(string(data))
+			return nil
+		}
 		ui.PrintWarning("Received status %d (expected 200)", resp.StatusCode)
 		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	if jsonOutput {
+		result := map[string]interface{}{
+			"ok":         true,
+			"latency_ms": latency.Milliseconds(),
+		}
+
+		// Check if authenticated and validate API key
+		mgr := auth.NewManager()
+		creds, err := mgr.GetCredentials()
+		if err == nil && creds != nil && creds.APIKey != "" {
+			apiClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+			apiStart := time.Now()
+			_, apiErr := apiClient.ValidateAPIKey(cmd.Context())
+			apiLatency := time.Since(apiStart)
+
+			result["api_key_valid"] = apiErr == nil
+			result["api_key_latency_ms"] = apiLatency.Milliseconds()
+		}
+
+		data, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(data))
+		return nil
 	}
 
 	ui.PrintSuccess("Connected in %dms", latency.Milliseconds())

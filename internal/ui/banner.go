@@ -24,6 +24,10 @@ const tagline = "Proactive Reliability for Mobile Apps"
 // Parameters:
 //   - version: The CLI version string to display
 func PrintBanner(version string) {
+	if quietMode {
+		return
+	}
+
 	// Style the banner with purple color
 	styledBanner := lipgloss.NewStyle().
 		Foreground(Purple).

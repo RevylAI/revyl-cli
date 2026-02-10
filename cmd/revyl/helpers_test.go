@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// TestIsValidUUID tests the UUID validation function.
-func TestIsValidUUID(t *testing.T) {
+// TestLooksLikeUUID tests the UUID-like structure detection function.
+func TestLooksLikeUUID(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -20,11 +20,6 @@ func TestIsValidUUID(t *testing.T) {
 		{
 			name:     "valid UUID uppercase",
 			input:    "027B91DE-4A21-4BCA-ACFE-32DB2A628F51",
-			expected: true,
-		},
-		{
-			name:     "valid UUID mixed case",
-			input:    "027b91DE-4a21-4BCA-acfe-32DB2a628f51",
 			expected: true,
 		},
 		{
@@ -48,11 +43,6 @@ func TestIsValidUUID(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "invalid characters",
-			input:    "027b91de-4a21-4bca-acfe-32db2a628g51",
-			expected: false,
-		},
-		{
 			name:     "empty string",
 			input:    "",
 			expected: false,
@@ -62,140 +52,71 @@ func TestIsValidUUID(t *testing.T) {
 			input:    "login-flow",
 			expected: false,
 		},
-		{
-			name:     "list (common typo)",
-			input:    "list",
-			expected: false,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isValidUUID(tt.input)
+			result := looksLikeUUID(tt.input)
 			if result != tt.expected {
-				t.Errorf("isValidUUID(%q) = %v, want %v", tt.input, result, tt.expected)
+				t.Errorf("looksLikeUUID(%q) = %v, want %v", tt.input, result, tt.expected)
 			}
 		})
 	}
 }
 
-// TestGetTestNames tests the test names extraction function.
-func TestGetTestNames(t *testing.T) {
+// TestValidateResourceName tests the name validation function.
+func TestValidateResourceName(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    map[string]string
-		expected []string
+		name      string
+		input     string
+		kind      string
+		wantError bool
 	}{
-		{
-			name:     "nil map",
-			input:    nil,
-			expected: []string{},
-		},
-		{
-			name:     "empty map",
-			input:    map[string]string{},
-			expected: []string{},
-		},
-		{
-			name: "single test",
-			input: map[string]string{
-				"login-flow": "abc123",
-			},
-			expected: []string{"login-flow"},
-		},
-		{
-			name: "multiple tests sorted",
-			input: map[string]string{
-				"zebra-test":  "id3",
-				"alpha-test":  "id1",
-				"middle-test": "id2",
-			},
-			expected: []string{"alpha-test", "middle-test", "zebra-test"},
-		},
+		{name: "valid simple name", input: "login-flow", kind: "test", wantError: false},
+		{name: "valid with underscores", input: "login_flow", kind: "test", wantError: false},
+		{name: "valid with numbers", input: "test-123", kind: "test", wantError: false},
+		{name: "valid all digits and letters", input: "abc123def", kind: "test", wantError: false},
+		{name: "empty name", input: "", kind: "test", wantError: true},
+		{name: "has spaces", input: "login flow", kind: "test", wantError: true},
+		{name: "has path separator", input: "tests/login", kind: "test", wantError: true},
+		{name: "has backslash", input: "tests\\login", kind: "test", wantError: true},
+		{name: "ends with .yaml", input: "login-flow.yaml", kind: "test", wantError: true},
+		{name: "ends with .yml", input: "login-flow.yml", kind: "test", wantError: true},
+		{name: "ends with .json", input: "login-flow.json", kind: "test", wantError: true},
+		{name: "uppercase letters", input: "Login-Flow", kind: "test", wantError: true},
+		{name: "special chars", input: "login@flow", kind: "test", wantError: true},
+		{name: "reserved word run", input: "run", kind: "test", wantError: true},
+		{name: "reserved word create", input: "create", kind: "test", wantError: true},
+		{name: "reserved word delete", input: "delete", kind: "test", wantError: true},
+		{name: "reserved word list", input: "list", kind: "test", wantError: true},
+		{name: "reserved word help", input: "help", kind: "test", wantError: true},
+		{name: "workflow kind", input: "smoke-tests", kind: "workflow", wantError: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := getTestNames(tt.input)
-			if len(result) != len(tt.expected) {
-				t.Errorf("getTestNames() returned %d items, want %d", len(result), len(tt.expected))
-				return
-			}
-			for i, name := range result {
-				if name != tt.expected[i] {
-					t.Errorf("getTestNames()[%d] = %q, want %q", i, name, tt.expected[i])
-				}
+			err := validateResourceName(tt.input, tt.kind)
+			if (err != nil) != tt.wantError {
+				t.Errorf("validateResourceName(%q, %q) error = %v, wantError %v", tt.input, tt.kind, err, tt.wantError)
 			}
 		})
 	}
 }
 
-// TestGetWorkflowNames tests the workflow names extraction function.
-func TestGetWorkflowNames(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    map[string]string
-		expected []string
-	}{
-		{
-			name:     "nil map",
-			input:    nil,
-			expected: []string{},
-		},
-		{
-			name:     "empty map",
-			input:    map[string]string{},
-			expected: []string{},
-		},
-		{
-			name: "single workflow",
-			input: map[string]string{
-				"smoke-tests": "wf123",
-			},
-			expected: []string{"smoke-tests"},
-		},
-		{
-			name: "multiple workflows sorted",
-			input: map[string]string{
-				"regression":  "wf3",
-				"smoke-tests": "wf1",
-				"nightly":     "wf2",
-			},
-			expected: []string{"nightly", "regression", "smoke-tests"},
-		},
+// TestValidateResourceNameMaxLength tests that names exceeding the max length are rejected.
+func TestValidateResourceNameMaxLength(t *testing.T) {
+	// Build a name exactly at the limit
+	name := ""
+	for i := 0; i < maxResourceNameLen; i++ {
+		name += "a"
+	}
+	if err := validateResourceName(name, "test"); err != nil {
+		t.Errorf("validateResourceName(128 chars) unexpected error: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := getWorkflowNames(tt.input)
-			if len(result) != len(tt.expected) {
-				t.Errorf("getWorkflowNames() returned %d items, want %d", len(result), len(tt.expected))
-				return
-			}
-			for i, name := range result {
-				if name != tt.expected[i] {
-					t.Errorf("getWorkflowNames()[%d] = %q, want %q", i, name, tt.expected[i])
-				}
-			}
-		})
-	}
-}
-
-// TestIsHexDigit tests the hex digit validation function.
-func TestIsHexDigit(t *testing.T) {
-	// Valid hex digits
-	validChars := "0123456789abcdefABCDEF"
-	for _, c := range validChars {
-		if !isHexDigit(byte(c)) {
-			t.Errorf("isHexDigit(%q) = false, want true", c)
-		}
-	}
-
-	// Invalid characters
-	invalidChars := "ghijklmnopqrstuvwxyzGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()-_=+[]{}|;:',.<>?/`~"
-	for _, c := range invalidChars {
-		if isHexDigit(byte(c)) {
-			t.Errorf("isHexDigit(%q) = true, want false", c)
-		}
+	// One char over
+	name += "a"
+	if err := validateResourceName(name, "test"); err == nil {
+		t.Error("validateResourceName(129 chars) expected error, got nil")
 	}
 }

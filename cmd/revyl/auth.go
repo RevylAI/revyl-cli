@@ -3,8 +3,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -196,6 +199,8 @@ func loginWithBrowser(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error
 	}
 	ui.PrintInfo("Credentials saved to ~/.revyl/credentials.json")
 
+	printAuthNextSteps(cmd)
+
 	return nil
 }
 
@@ -263,6 +268,8 @@ func loginWithAPIKey(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error 
 	}
 	ui.PrintInfo("Credentials saved to ~/.revyl/credentials.json")
 
+	printAuthNextSteps(cmd)
+
 	return nil
 }
 
@@ -290,12 +297,47 @@ var authStatusCmd = &cobra.Command{
 	Short: "Show authentication status",
 	Long:  `Show current authentication status and user information.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
+
 		mgr := auth.NewManager()
 
 		creds, err := mgr.GetCredentials()
 		if err != nil || creds == nil || !creds.HasValidAuth() {
+			if jsonOutput {
+				data, _ := json.MarshalIndent(map[string]interface{}{
+					"authenticated": false,
+				}, "", "  ")
+				fmt.Println(string(data))
+				return nil
+			}
 			ui.PrintWarning("Not authenticated")
 			ui.PrintInfo("Run 'revyl auth login' to authenticate")
+			return nil
+		}
+
+		if jsonOutput {
+			result := map[string]interface{}{
+				"authenticated": true,
+			}
+			if creds.Email != "" {
+				result["email"] = creds.Email
+			}
+			if creds.UserID != "" {
+				result["user_id"] = creds.UserID
+			}
+			if creds.OrgID != "" {
+				result["org_id"] = creds.OrgID
+			}
+			if creds.AuthMethod != "" {
+				result["auth_method"] = creds.AuthMethod
+			}
+			if creds.ExpiresAt != nil {
+				remaining := time.Until(*creds.ExpiresAt)
+				result["expires_in_seconds"] = int(remaining.Seconds())
+				result["expired"] = remaining <= 0
+			}
+			data, _ := json.MarshalIndent(result, "", "  ")
+			fmt.Println(string(data))
 			return nil
 		}
 
@@ -384,6 +426,50 @@ func formatDuration(d time.Duration) string {
 		minuteStr = "minute"
 	}
 	return fmt.Sprintf("%d %s %d %s", hours, hourStr, minutes, minuteStr)
+}
+
+// printAuthNextSteps prints context-aware next steps after a successful login.
+// Checks for project config and suggests the most relevant next action.
+// Respects JSON output mode -- suppressed when --json is set.
+//
+// Parameters:
+//   - cmd: The cobra command being executed (used to check --json flag)
+func printAuthNextSteps(cmd *cobra.Command) {
+	// Guard against JSON output mode per PrintNextSteps contract
+	if jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json"); jsonOutput {
+		return
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+
+	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	if err != nil || cfg == nil {
+		// No config found - suggest init
+		ui.PrintNextSteps([]ui.NextStep{
+			{Label: "Initialize project:", Command: "revyl init"},
+		})
+		return
+	}
+
+	// Config exists - suggest based on state
+	var steps []ui.NextStep
+
+	// If tests exist, suggest running one
+	for alias := range cfg.Tests {
+		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: fmt.Sprintf("revyl run %s", alias)})
+		break
+	}
+
+	// If no tests, suggest creating one or uploading a build
+	if len(cfg.Tests) == 0 {
+		steps = append(steps, ui.NextStep{Label: "Upload a build:", Command: "revyl build upload"})
+		steps = append(steps, ui.NextStep{Label: "Create a test:", Command: "revyl test create <name>"})
+	}
+
+	ui.PrintNextSteps(steps)
 }
 
 func init() {

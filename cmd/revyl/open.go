@@ -25,7 +25,7 @@ var (
 	openTestHotReload         bool
 	openTestHotReloadPort     int
 	openTestHotReloadProvider string
-	openTestHotReloadVariant  string
+	openTestHotReloadPlatform  string
 
 	// Interactive mode flag
 	openTestInteractive bool
@@ -354,9 +354,37 @@ func runOpenWorkflow(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// If not found in config, assume it's an ID
+	// If not found in config, check if it looks like a UUID or search via API
 	if workflowID == "" {
-		workflowID = workflowNameOrID
+		if looksLikeUUID(workflowNameOrID) {
+			workflowID = workflowNameOrID
+		} else {
+			// Search via API to verify the workflow exists
+			devMode, _ := cmd.Flags().GetBool("dev")
+			client := api.NewClientWithDevMode(creds.APIKey, devMode)
+
+			ui.StartSpinner("Searching for workflow...")
+			workflowsResp, err := client.ListWorkflows(cmd.Context())
+			ui.StopSpinner()
+
+			if err != nil {
+				ui.PrintError("Failed to search for workflow: %v", err)
+				return err
+			}
+
+			for _, w := range workflowsResp.Workflows {
+				if w.Name == workflowNameOrID {
+					workflowID = w.ID
+					break
+				}
+			}
+
+			if workflowID == "" {
+				ui.PrintError("Workflow '%s' not found", workflowNameOrID)
+				ui.PrintInfo("Use 'revyl workflow create <name>' to create a new workflow")
+				return fmt.Errorf("workflow not found")
+			}
+		}
 	}
 
 	// Open browser
