@@ -11,7 +11,15 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
+)
+
+const (
+	// defaultTokenExpiration is the default expiration time for browser auth tokens.
+	// PropelAuth tokens typically expire in 30 minutes, but we use a longer duration
+	// since the backend can create extended tokens.
+	defaultTokenExpiration = 8 * time.Hour
 )
 
 // authCmd is the parent command for authentication operations.
@@ -21,118 +29,241 @@ var authCmd = &cobra.Command{
 	Long: `Manage authentication with Revyl.
 
 COMMANDS:
-  login   - Authenticate with Revyl using your API key
+  login   - Authenticate with Revyl (opens browser by default)
   logout  - Remove stored credentials
   status  - Show current authentication status
 
+AUTHENTICATION METHODS:
+  Browser (default): Opens your browser to sign in with your Revyl account
+  API Key (--api-key): Manual API key entry for CI/CD or headless environments
+
 CREDENTIALS:
-  Credentials are stored in ~/.revyl/credentials.json
-  Get your API key from https://app.revyl.ai/settings/api-keys`,
+  Credentials are stored in ~/.revyl/credentials.json`,
 }
 
 // authLoginCmd handles user authentication.
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate with Revyl",
-	Long: `Authenticate with Revyl using your API key.
+	Long: `Authenticate with Revyl.
 
-PREREQUISITES:
-  - Get your API key from https://app.revyl.ai/settings/api-keys
+By default, opens your browser to sign in with your Revyl account.
+Use --api-key flag for manual API key entry (useful for CI/CD).
 
-WHAT IT DOES:
-  1. Prompts for your API key
-  2. Validates the key against the Revyl API
-  3. Stores credentials in ~/.revyl/credentials.json
+BROWSER AUTHENTICATION (default):
+  1. Opens your browser to the Revyl login page
+  2. Sign in with your email/password or SSO
+  3. Authorize the CLI to access your account
+  4. Credentials are automatically saved
 
-NEXT STEPS:
-  - Run 'revyl init' to initialize your project
-  - Run 'revyl test create <name>' to create your first test
+API KEY AUTHENTICATION (--api-key):
+  1. Get your API key from https://app.revyl.ai/settings/api-keys
+  2. Enter the API key when prompted
+  3. Credentials are saved to ~/.revyl/credentials.json
 
 EXAMPLES:
-  revyl auth login        # Interactive login
-  revyl auth status       # Check if already authenticated`,
+  revyl auth login            # Browser-based login (recommended)
+  revyl auth login --api-key  # Manual API key entry
+  revyl auth status           # Check authentication status`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ui.PrintBanner(version)
+
+		// Get flags
+		useAPIKey, _ := cmd.Flags().GetBool("api-key")
+		devMode, _ := cmd.Flags().GetBool("dev")
 
 		// Check if already authenticated
 		mgr := auth.NewManager()
 		creds, err := mgr.GetCredentials()
-		if err == nil && creds != nil && creds.APIKey != "" {
-			displayName := creds.Email
-			if displayName == "" {
-				displayName = creds.UserID
-			}
+		if err == nil && creds != nil && creds.HasValidAuth() {
+			displayName := creds.GetDisplayName()
 			ui.PrintWarning("Already authenticated as %s", displayName)
 			ui.PrintInfo("Run 'revyl auth logout' first to re-authenticate")
 			return nil
 		}
 
-		ui.PrintInfo("Authenticate with Revyl")
-		ui.Println()
-
-		// Prompt for API key (visible input since users typically paste API keys)
-		apiKey, err := ui.Prompt("Enter your API key:")
-		if err != nil {
-			return err
+		if useAPIKey {
+			return loginWithAPIKey(cmd, mgr, devMode)
 		}
-
-		if apiKey == "" {
-			ui.PrintError("API key cannot be empty")
-			return fmt.Errorf("API key cannot be empty")
-		}
-
-		// Validate the API key by making a test request
-		ui.PrintInfo("Validating API key...")
-
-		// Get dev mode flag
-		devMode, _ := cmd.Flags().GetBool("dev")
-		if devMode {
-			ui.PrintInfo("Using local development server")
-		}
-
-		// Create API client and validate the key
-		client := api.NewClientWithDevMode(apiKey, devMode)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		userInfo, err := client.ValidateAPIKey(ctx)
-		if err != nil {
-			var apiErr *api.APIError
-			if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
-				ui.PrintError("Invalid API key")
-				ui.PrintInfo("Get your API key from https://app.revyl.ai/settings/api-keys")
-				return fmt.Errorf("invalid API key")
-			}
-			ui.PrintError("Failed to validate API key: %v", err)
-			return err
-		}
-
-		// Store credentials with user metadata
-		creds = &auth.Credentials{
-			APIKey: apiKey,
-			Email:  userInfo.Email,
-			OrgID:  userInfo.OrgID,
-			UserID: userInfo.UserID,
-		}
-
-		if err := mgr.SaveCredentials(creds); err != nil {
-			ui.PrintError("Failed to save credentials: %v", err)
-			return err
-		}
-
-		ui.Println()
-		if userInfo.Email != "" {
-			ui.PrintSuccess("Successfully authenticated as %s", userInfo.Email)
-		} else {
-			ui.PrintSuccess("Successfully authenticated!")
-		}
-		if userInfo.OrgID != "" {
-			ui.PrintInfo("Organization: %s", userInfo.OrgID)
-		}
-		ui.PrintInfo("Credentials saved to ~/.revyl/credentials.json")
-
-		return nil
+		return loginWithBrowser(cmd, mgr, devMode)
 	},
+}
+
+// loginWithBrowser performs browser-based OAuth authentication.
+//
+// Parameters:
+//   - cmd: The cobra command (for context)
+//   - mgr: The auth manager for storing credentials
+//   - devMode: Whether to use local development URLs
+//
+// Returns:
+//   - error: Any error that occurred during authentication
+func loginWithBrowser(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error {
+	ui.PrintInfo("Opening browser to authenticate...")
+	ui.Println()
+
+	// Get the app URL based on dev mode
+	appURL := config.GetAppURL(devMode)
+	if devMode {
+		ui.PrintInfo("Using local development server: %s", appURL)
+	}
+
+	// Create browser auth handler
+	browserAuth := auth.NewBrowserAuth(auth.BrowserAuthConfig{
+		AppURL:  appURL,
+		Timeout: 5 * time.Minute,
+	})
+
+	// Create context that can be cancelled
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Show waiting message
+	ui.PrintInfo("Waiting for authentication (press Ctrl+C to cancel)...")
+
+	// Perform browser authentication
+	result, err := browserAuth.Authenticate(ctx)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.PrintWarning("Authentication cancelled")
+			return nil
+		}
+		ui.PrintError("Authentication failed: %v", err)
+		ui.Println()
+		ui.PrintInfo("If browser didn't open, try: revyl auth login --api-key")
+		return err
+	}
+
+	// Validate the token by making a test request
+	ui.PrintInfo("Validating credentials...")
+
+	client := api.NewClientWithDevMode(result.Token, devMode)
+	validateCtx, validateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer validateCancel()
+
+	userInfo, err := client.ValidateAPIKey(validateCtx)
+	if err != nil {
+		var apiErr *api.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
+			ui.PrintError("Authentication token is invalid")
+			return fmt.Errorf("invalid authentication token")
+		}
+		ui.PrintError("Failed to validate credentials: %v", err)
+		return err
+	}
+
+	// Save credentials with token expiration
+	if err := mgr.SaveBrowserCredentials(result, defaultTokenExpiration); err != nil {
+		ui.PrintError("Failed to save credentials: %v", err)
+		return err
+	}
+
+	// Update with validated user info (may have more details than callback)
+	// Use GetFileCredentials to bypass env var and get the just-saved credentials
+	creds, err := mgr.GetFileCredentials()
+	if err != nil {
+		// Log warning but don't fail - credentials are saved, just not enriched
+		ui.PrintWarning("Could not enrich credentials with user info: %v", err)
+	} else if creds != nil {
+		updated := false
+		if userInfo.Email != "" && creds.Email != userInfo.Email {
+			creds.Email = userInfo.Email
+			updated = true
+		}
+		if userInfo.OrgID != "" && creds.OrgID != userInfo.OrgID {
+			creds.OrgID = userInfo.OrgID
+			updated = true
+		}
+		if userInfo.UserID != "" && creds.UserID != userInfo.UserID {
+			creds.UserID = userInfo.UserID
+			updated = true
+		}
+		if updated {
+			if err := mgr.SaveCredentials(creds); err != nil {
+				ui.PrintWarning("Could not save enriched credentials: %v", err)
+			}
+		}
+	}
+
+	ui.Println()
+	if userInfo.Email != "" {
+		ui.PrintSuccess("Successfully authenticated as %s", userInfo.Email)
+	} else {
+		ui.PrintSuccess("Successfully authenticated!")
+	}
+	if userInfo.OrgID != "" {
+		ui.PrintInfo("Organization: %s", userInfo.OrgID)
+	}
+	ui.PrintInfo("Credentials saved to ~/.revyl/credentials.json")
+
+	return nil
+}
+
+// loginWithAPIKey performs API key-based authentication.
+//
+// Parameters:
+//   - cmd: The cobra command (for context)
+//   - mgr: The auth manager for storing credentials
+//   - devMode: Whether to use local development URLs
+//
+// Returns:
+//   - error: Any error that occurred during authentication
+func loginWithAPIKey(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error {
+	ui.PrintInfo("Authenticate with API Key")
+	ui.Println()
+
+	if devMode {
+		ui.PrintInfo("Using local development server")
+	}
+
+	// Prompt for API key
+	apiKey, err := ui.Prompt("Enter your API key:")
+	if err != nil {
+		return err
+	}
+
+	if apiKey == "" {
+		ui.PrintError("API key cannot be empty")
+		return fmt.Errorf("API key cannot be empty")
+	}
+
+	// Validate the API key
+	ui.PrintInfo("Validating API key...")
+
+	client := api.NewClientWithDevMode(apiKey, devMode)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	userInfo, err := client.ValidateAPIKey(ctx)
+	if err != nil {
+		var apiErr *api.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
+			ui.PrintError("Invalid API key")
+			ui.PrintInfo("Get your API key from https://app.revyl.ai/settings/api-keys")
+			return fmt.Errorf("invalid API key")
+		}
+		ui.PrintError("Failed to validate API key: %v", err)
+		return err
+	}
+
+	// Save credentials
+	if err := mgr.SaveAPIKeyCredentials(apiKey, userInfo.Email, userInfo.OrgID, userInfo.UserID); err != nil {
+		ui.PrintError("Failed to save credentials: %v", err)
+		return err
+	}
+
+	ui.Println()
+	if userInfo.Email != "" {
+		ui.PrintSuccess("Successfully authenticated as %s", userInfo.Email)
+	} else {
+		ui.PrintSuccess("Successfully authenticated!")
+	}
+	if userInfo.OrgID != "" {
+		ui.PrintInfo("Organization: %s", userInfo.OrgID)
+	}
+	ui.PrintInfo("Credentials saved to ~/.revyl/credentials.json")
+
+	return nil
 }
 
 // authLogoutCmd removes stored credentials.
@@ -162,7 +293,7 @@ var authStatusCmd = &cobra.Command{
 		mgr := auth.NewManager()
 
 		creds, err := mgr.GetCredentials()
-		if err != nil || creds == nil || creds.APIKey == "" {
+		if err != nil || creds == nil || !creds.HasValidAuth() {
 			ui.PrintWarning("Not authenticated")
 			ui.PrintInfo("Run 'revyl auth login' to authenticate")
 			return nil
@@ -181,19 +312,84 @@ var authStatusCmd = &cobra.Command{
 			ui.PrintInfo("Organization: %s", creds.OrgID)
 		}
 
-		// Show masked API key (handle short keys gracefully)
-		if len(creds.APIKey) > 12 {
-			maskedKey := creds.APIKey[:8] + "..." + creds.APIKey[len(creds.APIKey)-4:]
-			ui.PrintInfo("API Key: %s", maskedKey)
-		} else {
-			ui.PrintInfo("API Key: ****")
+		// Show auth method
+		if creds.AuthMethod != "" {
+			ui.PrintInfo("Auth Method: %s", creds.AuthMethod)
+		}
+
+		// Show token expiration for browser auth
+		if creds.ExpiresAt != nil {
+			remaining := time.Until(*creds.ExpiresAt)
+			if remaining > 0 {
+				ui.PrintInfo("Token expires in: %s", formatDuration(remaining))
+			} else {
+				ui.PrintWarning("Token expired - run 'revyl auth login' to re-authenticate")
+			}
+		}
+
+		// Show masked token/key
+		token, _ := mgr.GetActiveToken()
+		if len(token) > 12 {
+			maskedToken := token[:8] + "..." + token[len(token)-4:]
+			if creds.AuthMethod == "api_key" || creds.AuthMethod == "env" {
+				ui.PrintInfo("API Key: %s", maskedToken)
+			} else {
+				ui.PrintInfo("Token: %s", maskedToken)
+			}
+		} else if token != "" {
+			ui.PrintInfo("Token: ****")
 		}
 
 		return nil
 	},
 }
 
+// formatDuration formats a duration in a human-readable way with proper rounding.
+//
+// Parameters:
+//   - d: The duration to format
+//
+// Returns:
+//   - string: A human-readable duration string (e.g., "1 hour 30 minutes")
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return "less than a minute"
+	}
+	if d < time.Hour {
+		minutes := int(d.Minutes() + 0.5) // Round to nearest minute
+		if minutes == 1 {
+			return "1 minute"
+		}
+		return fmt.Sprintf("%d minutes", minutes)
+	}
+
+	// For durations >= 1 hour, show hours and remaining minutes
+	totalMinutes := int(d.Minutes() + 0.5) // Round total to nearest minute
+	hours := totalMinutes / 60
+	minutes := totalMinutes % 60
+
+	if minutes == 0 {
+		if hours == 1 {
+			return "1 hour"
+		}
+		return fmt.Sprintf("%d hours", hours)
+	}
+
+	hourStr := "hours"
+	if hours == 1 {
+		hourStr = "hour"
+	}
+	minuteStr := "minutes"
+	if minutes == 1 {
+		minuteStr = "minute"
+	}
+	return fmt.Sprintf("%d %s %d %s", hours, hourStr, minutes, minuteStr)
+}
+
 func init() {
+	// Add --api-key flag to login command
+	authLoginCmd.Flags().Bool("api-key", false, "Use API key authentication instead of browser")
+
 	authCmd.AddCommand(authLoginCmd)
 	authCmd.AddCommand(authLogoutCmd)
 	authCmd.AddCommand(authStatusCmd)

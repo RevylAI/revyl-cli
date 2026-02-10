@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -163,9 +164,9 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 		return runSinglePlatformBuild(cmd, cfg, configPath, creds, uploadPlatformFlag)
 	}
 
-	// If --variant is specified, use legacy single-platform behavior
+	// If --variant is specified, use it as the platform name
 	if buildVariant != "" {
-		return runLegacySingleBuild(cmd, cfg, configPath, creds)
+		return runSinglePlatformBuild(cmd, cfg, configPath, creds, buildVariant)
 	}
 
 	// Check if both ios and android variants exist for concurrent builds
@@ -177,213 +178,39 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 		return runConcurrentBuilds(cmd, cfg, configPath, creds)
 	}
 
-	// Fall back to legacy single build if only one platform is configured
-	return runLegacySingleBuild(cmd, cfg, configPath, creds)
-}
-
-// runLegacySingleBuild runs the legacy single-platform build using default config.
-//
-// Parameters:
-//   - cmd: The cobra command being executed
-//   - cfg: The project configuration
-//   - configPath: Path to the config file
-//   - creds: Authentication credentials
-//
-// Returns:
-//   - error: Any error that occurred during the build/upload process
-func runLegacySingleBuild(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, creds *auth.Credentials) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
+	// Handle single variant case deterministically
+	variantCount := len(cfg.Build.Variants)
+	if variantCount == 0 {
+		ui.PrintError("No build variants configured")
+		ui.PrintInfo("Please configure build.variants in .revyl/config.yaml")
+		return fmt.Errorf("no build variants configured")
 	}
 
-	// Determine build config
-	buildCfg := cfg.Build
-	var variant config.BuildVariant
-	var variantName string
-	if buildVariant != "" {
-		var ok bool
-		variant, ok = cfg.Build.Variants[buildVariant]
-		if !ok {
-			ui.PrintError("Unknown build variant: %s", buildVariant)
-			ui.PrintInfo("Available variants: %v", getVariantNames(cfg.Build.Variants))
-			return fmt.Errorf("unknown variant: %s", buildVariant)
+	if variantCount == 1 {
+		// Single variant - use it directly
+		for platform := range cfg.Build.Variants {
+			return runSinglePlatformBuild(cmd, cfg, configPath, creds, platform)
 		}
-		variantName = buildVariant
-		buildCfg.Command = variant.Command
-		buildCfg.Output = variant.Output
 	}
 
-	if buildCfg.Command == "" || buildCfg.Output == "" {
-		ui.PrintError("Build configuration incomplete")
-		ui.PrintInfo("Please configure build.command and build.output in .revyl/config.yaml")
-		return fmt.Errorf("incomplete build config")
+	// Multiple variants but not ios+android - prefer ios, then android, then first alphabetically
+	if hasIOS {
+		return runSinglePlatformBuild(cmd, cfg, configPath, creds, "ios")
+	}
+	if hasAndroid {
+		return runSinglePlatformBuild(cmd, cfg, configPath, creds, "android")
 	}
 
-	// Determine platform from command
-	platform := determinePlatform(buildCfg.Command, "")
-
-	ui.PrintBanner(version)
-	ui.PrintInfo("Build and Upload")
-	ui.Println()
-
-	var buildDuration time.Duration
-
-	// Run build if not skipped
-	if !buildSkip {
-		ui.PrintInfo("Building with: %s", buildCfg.Command)
-		ui.Println()
-
-		startTime := time.Now()
-		runner := build.NewRunner(cwd)
-
-		err = runner.Run(buildCfg.Command, func(line string) {
-			ui.PrintDim("  %s", line)
-		})
-
-		buildDuration = time.Since(startTime)
-
-		if err != nil {
-			ui.Println()
-			ui.PrintError("Build failed: %v", err)
-
-			// Check if this is an EAS error with guidance
-			if easErr, ok := err.(*build.EASBuildError); ok {
-				ui.Println()
-				ui.PrintWarning("How to fix:")
-				ui.Println()
-				// Print each line of guidance
-				for _, line := range strings.Split(easErr.Guidance, "\n") {
-					ui.PrintDim("  %s", line)
-				}
-			}
-
-			return err
-		}
-
-		ui.Println()
-		ui.PrintSuccess("Build completed in %s", buildDuration.Round(time.Second))
-	} else {
-		ui.PrintInfo("Skipping build step")
+	// Multiple custom variants - pick first alphabetically for determinism
+	platforms := make([]string, 0, variantCount)
+	for platform := range cfg.Build.Variants {
+		platforms = append(platforms, platform)
 	}
+	sort.Strings(platforms)
 
-	// Check artifact exists
-	artifactPath, err := build.ResolveArtifactPath(cwd, buildCfg.Output)
-	if err != nil {
-		ui.PrintError("Build artifact not found: %s", buildCfg.Output)
-		return fmt.Errorf("artifact not found: %w", err)
-	}
-
-	// Create API client
-	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
-
-	// Determine build variable ID from variant
-	buildVarID := uploadBuildVarFlag
-	if buildVarID == "" && variantName != "" {
-		buildVarID = variant.BuildVarID
-	}
-
-	// If no build var ID, prompt user to select or create one
-	if buildVarID == "" {
-		selectedID, err := selectOrCreateBuildVarForVariant(cmd, client, cfg, configPath, variantName, platform)
-		if err != nil {
-			return err
-		}
-		buildVarID = selectedID
-	}
-
-	// Generate version string if not provided
-	versionStr := buildVersion
-	if versionStr == "" {
-		versionStr = build.GenerateVersionString()
-	}
-
-	ui.Println()
-	ui.PrintInfo("Uploading: %s", filepath.Base(artifactPath))
-	ui.PrintInfo("Version: %s", versionStr)
-
-	// Convert tar.gz to zip for iOS builds (EAS produces tar.gz)
-	if build.IsTarGz(artifactPath) {
-		ui.Println()
-		ui.StartSpinner("Extracting .app from tar.gz...")
-		zipPath, err := build.ExtractAppFromTarGz(artifactPath)
-		ui.StopSpinner()
-		if err != nil {
-			ui.PrintError("Failed to extract .app from tar.gz: %v", err)
-			return err
-		}
-		defer os.Remove(zipPath) // Clean up temp zip after upload
-		artifactPath = zipPath
-		ui.PrintSuccess("Converted to: %s", filepath.Base(zipPath))
-	} else if build.IsAppBundle(artifactPath) {
-		// Zip .app directory for iOS builds (Flutter, React Native, Xcode)
-		ui.Println()
-		ui.StartSpinner("Zipping .app bundle...")
-		zipPath, err := build.ZipAppBundle(artifactPath)
-		ui.StopSpinner()
-		if err != nil {
-			ui.PrintError("Failed to zip .app bundle: %v", err)
-			return err
-		}
-		defer os.Remove(zipPath) // Clean up temp zip after upload
-		artifactPath = zipPath
-		ui.PrintSuccess("Created: %s", filepath.Base(zipPath))
-	}
-
-	// Collect metadata
-	metadata := build.CollectMetadata(cwd, buildCfg.Command, buildVariant, buildDuration)
-
-	// Handle dry-run mode
-	if buildDryRun {
-		ui.Println()
-		ui.PrintInfo("Dry-run mode - showing what would be uploaded:")
-		ui.Println()
-		ui.PrintInfo("  Artifact:     %s", filepath.Base(artifactPath))
-		ui.PrintInfo("  Version:      %s", versionStr)
-		ui.PrintInfo("  Build Var ID: %s", buildVarID)
-		ui.PrintInfo("  Set Current:  %v", buildSetCurr)
-		if metadata != nil {
-			ui.PrintInfo("  Metadata:")
-			if cmd, ok := metadata["build_command"].(string); ok {
-				ui.PrintDim("    Build Command: %s", cmd)
-			}
-			if variant, ok := metadata["variant"].(string); ok && variant != "" {
-				ui.PrintDim("    Variant: %s", variant)
-			}
-		}
-		ui.Println()
-		ui.PrintSuccess("Dry-run complete - no changes made")
-		return nil
-	}
-
-	ui.Println()
-	ui.StartSpinner("Uploading artifact...")
-
-	result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-		BuildVarID:   buildVarID,
-		Version:      versionStr,
-		FilePath:     artifactPath,
-		Metadata:     metadata,
-		SetAsCurrent: buildSetCurr,
-	})
-
-	ui.StopSpinner()
-
-	if err != nil {
-		ui.PrintError("Upload failed: %v", err)
-		return err
-	}
-
-	ui.Println()
-	ui.PrintSuccess("Upload complete!")
-	ui.PrintInfo("Version ID: %s", result.VersionID)
-	ui.PrintInfo("Version: %s", result.Version)
-	if result.PackageID != "" {
-		ui.PrintInfo("Package ID: %s", result.PackageID)
-	}
-
-	return nil
+	ui.PrintWarning("Multiple variants configured without --platform flag, using '%s'", platforms[0])
+	ui.PrintInfo("Use --platform to specify which variant to build")
+	return runSinglePlatformBuild(cmd, cfg, configPath, creds, platforms[0])
 }
 
 // determinePlatform extracts the platform from the build command or flag.
@@ -1013,6 +840,18 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		ui.PrintError("Unknown platform: %s", platform)
 		ui.PrintInfo("Available platforms: %v", getVariantNames(cfg.Build.Variants))
 		return fmt.Errorf("unknown platform: %s", platform)
+	}
+
+	// Validate variant configuration
+	if variant.Output == "" {
+		ui.PrintError("Build output path not configured for %s", platform)
+		ui.PrintInfo("Please configure build.variants.%s.output in .revyl/config.yaml", platform)
+		return fmt.Errorf("incomplete build config: missing output for %s", platform)
+	}
+	if variant.Command == "" && !buildSkip {
+		ui.PrintError("Build command not configured for %s", platform)
+		ui.PrintInfo("Please configure build.variants.%s.command in .revyl/config.yaml, or use --skip-build to upload an existing artifact", platform)
+		return fmt.Errorf("incomplete build config: missing command for %s", platform)
 	}
 
 	ui.PrintBanner(version)

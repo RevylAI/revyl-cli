@@ -228,18 +228,43 @@ defaults:
 
 ## Development
 
-```bash
-# Setup development environment
-./scripts/dev.sh
+### Prerequisites
 
+Install the required development tools:
+
+```bash
+# Install all dev tools at once (recommended)
+make setup
+
+# Or install individually:
+
+# Air - hot reload for Go
+go install github.com/air-verse/air@latest
+
+# oapi-codegen - OpenAPI type generation
+go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
+
+# golangci-lint - linting
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# watchexec - file watcher (optional, macOS)
+brew install watchexec
+```
+
+### Common Commands
+
+```bash
 # Build
 make build
 
 # Run with hot reload
 make dev
 
-# Generate types from OpenAPI
+# Generate types from cached OpenAPI spec
 make generate
+
+# Fetch fresh OpenAPI spec from running backend and generate types
+make generate-fetch
 
 # Run tests
 make test
