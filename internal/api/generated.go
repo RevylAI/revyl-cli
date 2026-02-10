@@ -190,6 +190,7 @@ const (
 	ModuleImport  StepType = "module_import"
 	Navigate      StepType = "navigate"
 	OpenApp       StepType = "open_app"
+	Pinch         StepType = "pinch"
 	Scrape        StepType = "scrape"
 	ScrollDown    StepType = "scroll_down"
 	ScrollUp      StepType = "scroll_up"

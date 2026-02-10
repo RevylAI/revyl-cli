@@ -100,7 +100,7 @@ func init() {
 func runDoctor(cmd *cobra.Command, args []string) error {
 	// Check if --json flag is set (either local or global)
 	jsonOutput := doctorOutputJSON
-	if globalJSON, _ := cmd.Flags().GetBool("json"); globalJSON {
+	if globalJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); globalJSON {
 		jsonOutput = true
 	}
 

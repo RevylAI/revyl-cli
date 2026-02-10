@@ -64,7 +64,7 @@ func runCancelTest(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle JSON output
-	jsonOutput, _ := cmd.Flags().GetBool("json")
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	if jsonOutput {
 		output, err := json.MarshalIndent(resp, "", "  ")
 		if err != nil {
@@ -144,7 +144,7 @@ func runCancelWorkflow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle JSON output
-	jsonOutput, _ := cmd.Flags().GetBool("json")
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	if jsonOutput {
 		output, err := json.MarshalIndent(resp, "", "  ")
 		if err != nil {
