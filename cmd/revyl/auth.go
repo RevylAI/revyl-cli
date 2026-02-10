@@ -101,7 +101,7 @@ EXAMPLES:
 			if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
 				ui.PrintError("Invalid API key")
 				ui.PrintInfo("Get your API key from https://app.revyl.ai/settings/api-keys")
-				return nil
+				return fmt.Errorf("invalid API key")
 			}
 			ui.PrintError("Failed to validate API key: %v", err)
 			return err

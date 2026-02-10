@@ -377,8 +377,9 @@ func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string
 			continue
 		}
 
-		// Convert tasks to blocks
+		// Convert tasks to blocks and strip server-generated IDs
 		blocks := convertTasksToBlocks(remoteTest.Tasks)
+		blocks = stripBlockIDs(blocks)
 
 		// Convert to local format
 		localTest := &config.LocalTest{
@@ -663,6 +664,39 @@ func convertTasksToBlocks(tasks interface{}) []config.TestBlock {
 	}
 
 	return blocks
+}
+
+// stripBlockIDs removes server-generated IDs from blocks recursively.
+//
+// Block IDs are computed server-side from the test_id and the block's
+// semantic path (position in the hierarchy). They should not be stored
+// in local YAML files because:
+//   - IDs are noise for users editing tests
+//   - They cause merge conflicts across branches
+//   - They pollute diffs with irrelevant changes
+//
+// Parameters:
+//   - blocks: The blocks to strip IDs from
+//
+// Returns:
+//   - []config.TestBlock: Blocks with IDs cleared
+func stripBlockIDs(blocks []config.TestBlock) []config.TestBlock {
+	result := make([]config.TestBlock, len(blocks))
+	for i, block := range blocks {
+		result[i] = block
+		result[i].ID = "" // Clear the server-generated ID
+
+		if len(block.Then) > 0 {
+			result[i].Then = stripBlockIDs(block.Then)
+		}
+		if len(block.Else) > 0 {
+			result[i].Else = stripBlockIDs(block.Else)
+		}
+		if len(block.Body) > 0 {
+			result[i].Body = stripBlockIDs(block.Body)
+		}
+	}
+	return result
 }
 
 // ensureDir creates a directory if it doesn't exist.

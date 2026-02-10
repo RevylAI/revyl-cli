@@ -190,6 +190,7 @@ const (
 	ModuleImport  StepType = "module_import"
 	Navigate      StepType = "navigate"
 	OpenApp       StepType = "open_app"
+	Pinch         StepType = "pinch"
 	Scrape        StepType = "scrape"
 	ScrollDown    StepType = "scroll_down"
 	ScrollUp      StepType = "scroll_up"
@@ -360,6 +361,8 @@ type ActiveDeviceSessionItem struct {
 	OrgId            string  `json:"org_id"`
 	OsVersion        *string `json:"os_version"`
 	Platform         string  `json:"platform"`
+	ScreenHeight     *int    `json:"screen_height"`
+	ScreenWidth      *int    `json:"screen_width"`
 	Source           string  `json:"source"`
 	StartedAt        *string `json:"started_at"`
 	Status           string  `json:"status"`
@@ -1292,24 +1295,6 @@ type CategoryValue struct {
 	Value    float32 `json:"value"`
 }
 
-// ChartDataPoint Daily aggregated chart data point.
-type ChartDataPoint struct {
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
-}
-
 // CheckModuleExistsResponse Response model for checking if a module exists
 type CheckModuleExistsResponse struct {
 	Exists bool    `json:"exists"`
@@ -1498,9 +1483,8 @@ type CommentsOverTimeData struct {
 type CompletedTestData struct {
 	// EnhancedTask Enhanced test execution tasks model with tracking fields.
 	//
-	// Note: status, phase, and timing are NOT on this model.
-	// Device_sessions is the source of truth for status AND timing.
-	// Use test_executions_full view to get complete data with these fields.
+	// When queried via test_executions_full view, includes status and timing
+	// from device_sessions (the source of truth for state).
 	EnhancedTask TestExecutionTasksEnhanced `json:"enhanced_task"`
 
 	// ExecutionTime Execution timestamp
@@ -1701,6 +1685,61 @@ type CopyWorkflowToBenchmarksResponse struct {
 	TestsResynced *int `json:"tests_resynced,omitempty"`
 }
 
+// CostAnalysisResponse Response containing cost analysis for a session or execution.
+type CostAnalysisResponse struct {
+	// ByModel Cost breakdown by model
+	ByModel *[]ModelCostBreakdown `json:"by_model,omitempty"`
+
+	// ExecutionId Execution ID if queried by execution
+	ExecutionId *string `json:"execution_id"`
+
+	// SessionId Session ID if queried by session
+	SessionId *string `json:"session_id"`
+
+	// TotalCalls Total number of LLM calls
+	TotalCalls int `json:"total_calls"`
+
+	// TotalCompletionTokens Total completion tokens across all calls
+	TotalCompletionTokens int `json:"total_completion_tokens"`
+
+	// TotalCostUsd Total cost in USD
+	TotalCostUsd float32 `json:"total_cost_usd"`
+
+	// TotalPromptTokens Total prompt tokens across all calls
+	TotalPromptTokens int `json:"total_prompt_tokens"`
+
+	// TotalTokens Total tokens across all calls
+	TotalTokens int `json:"total_tokens"`
+}
+
+// CreateActionRequest Request model for creating a report action (normalized structure).
+type CreateActionRequest struct {
+	ActionData            *map[string]interface{} `json:"action_data"`
+	ActionIndex           int                     `json:"action_index"`
+	ActionType            *string                 `json:"action_type"`
+	AgentDescription      *string                 `json:"agent_description"`
+	CompletedAt           *string                 `json:"completed_at"`
+	IsTerminal            *bool                   `json:"is_terminal,omitempty"`
+	LlmCallId             *string                 `json:"llm_call_id"`
+	Reasoning             *string                 `json:"reasoning"`
+	ReflectionDecision    *string                 `json:"reflection_decision"`
+	ReflectionLlmCallId   *string                 `json:"reflection_llm_call_id"`
+	ReflectionReasoning   *string                 `json:"reflection_reasoning"`
+	ReflectionSuggestion  *string                 `json:"reflection_suggestion"`
+	ScreenshotAfterS3Key  *string                 `json:"screenshot_after_s3_key"`
+	ScreenshotBeforeS3Key *string                 `json:"screenshot_before_s3_key"`
+	StartedAt             *string                 `json:"started_at"`
+	VideoTimestampEnd     *float32                `json:"video_timestamp_end"`
+	VideoTimestampStart   *float32                `json:"video_timestamp_start"`
+}
+
+// CreateActionResponse Response model for action creation.
+type CreateActionResponse struct {
+	Id      string `json:"id"`
+	Message string `json:"message"`
+	Success bool   `json:"success"`
+}
+
 // CreateExpoProjectRequest Request to create a new Expo project configuration.
 type CreateExpoProjectRequest struct {
 	// ProjectId Expo project ID (EAS project UUID)
@@ -1732,6 +1771,27 @@ type CreateModuleRequest struct {
 	Name string `json:"name"`
 }
 
+// CreateReportRequest Request model for creating a report.
+type CreateReportRequest struct {
+	ExecutionId     *string                   `json:"execution_id"`
+	ExpectedStates  *[]map[string]interface{} `json:"expected_states"`
+	OrgId           string                    `json:"org_id"`
+	RunConfig       *map[string]interface{}   `json:"run_config"`
+	S3Bucket        *string                   `json:"s3_bucket"`
+	SessionId       *string                   `json:"session_id"`
+	StartedAt       *string                   `json:"started_at"`
+	TestGoalSummary *string                   `json:"test_goal_summary"`
+	TestId          string                    `json:"test_id"`
+	TestVersionId   *string                   `json:"test_version_id"`
+}
+
+// CreateReportResponse Response model for report creation.
+type CreateReportResponse struct {
+	Id      string `json:"id"`
+	Message string `json:"message"`
+	Success bool   `json:"success"`
+}
+
 // CreateRevylRepoConfigRequest Request model for creating/updating Revyl repo config.
 type CreateRevylRepoConfigRequest struct {
 	BuildPaths    *[]BuildPathConfig `json:"build_paths,omitempty"`
@@ -1754,6 +1814,33 @@ type CreateSlackNotificationRuleRequest struct {
 	NotifyOnSuccess   *bool                 `json:"notify_on_success,omitempty"`
 	NotifyOnTimeout   *bool                 `json:"notify_on_timeout,omitempty"`
 	WorkflowIds       *[]openapi_types.UUID `json:"workflow_ids,omitempty"`
+}
+
+// CreateStepRequest Request model for creating a report step.
+type CreateStepRequest struct {
+	CodeExecutionData   *map[string]interface{} `json:"code_execution_data"`
+	DecisionData        *map[string]interface{} `json:"decision_data"`
+	ExecutionOrder      int                     `json:"execution_order"`
+	ExtractionData      *map[string]interface{} `json:"extraction_data"`
+	LlmCallId           *string                 `json:"llm_call_id"`
+	LoopData            *map[string]interface{} `json:"loop_data"`
+	ManualData          *map[string]interface{} `json:"manual_data"`
+	NodeId              *string                 `json:"node_id"`
+	ParentStepId        *string                 `json:"parent_step_id"`
+	SourceModuleId      *string                 `json:"source_module_id"`
+	StartedAt           *string                 `json:"started_at"`
+	StepDescription     *string                 `json:"step_description"`
+	StepType            string                  `json:"step_type"`
+	ValidationData      *map[string]interface{} `json:"validation_data"`
+	VideoTimestampEnd   *float32                `json:"video_timestamp_end"`
+	VideoTimestampStart *float32                `json:"video_timestamp_start"`
+}
+
+// CreateStepResponse Response model for step creation.
+type CreateStepResponse struct {
+	Id      string `json:"id"`
+	Message string `json:"message"`
+	Success bool   `json:"success"`
 }
 
 // CreateTagRequest Request to create a tag.
@@ -2015,6 +2102,9 @@ type DeviceCleanupConfig struct {
 }
 
 // DeviceMetadata Device metadata captured at runtime for accurate coordinate scaling.
+//
+// This schema is still actively used and stored in the reports.device_metadata
+// column in the database.
 type DeviceMetadata struct {
 	// DeviceType Device type/model (e.g., 'iPhone 16', 'Pixel 7')
 	DeviceType *string `json:"device_type"`
@@ -2056,6 +2146,8 @@ type DeviceSessionUpdate struct {
 	EndedAt       *string `json:"ended_at"`
 	Error         *string `json:"error"`
 	OsVersion     *string `json:"os_version"`
+	ScreenHeight  *int    `json:"screen_height"`
+	ScreenWidth   *int    `json:"screen_width"`
 	StartedAt     *string `json:"started_at"`
 	Status        *string `json:"status"`
 	TraceId       *string `json:"trace_id"`
@@ -3095,6 +3187,27 @@ type ManualTriggerResponse struct {
 	Version        *string `json:"version"`
 }
 
+// ModelCostBreakdown Cost breakdown for a single model.
+type ModelCostBreakdown struct {
+	// CallCount Number of calls to this model
+	CallCount int `json:"call_count"`
+
+	// CompletionTokens Total completion tokens
+	CompletionTokens int `json:"completion_tokens"`
+
+	// CostUsd Total cost in USD
+	CostUsd float32 `json:"cost_usd"`
+
+	// ModelName Name of the LLM model
+	ModelName string `json:"model_name"`
+
+	// PromptTokens Total prompt tokens
+	PromptTokens int `json:"prompt_tokens"`
+
+	// TotalTokens Total tokens (prompt + completion)
+	TotalTokens int `json:"total_tokens"`
+}
+
 // ModuleResponse Response model for a single module
 type ModuleResponse struct {
 	Blocks      []interface{} `json:"blocks"`
@@ -3580,6 +3693,48 @@ type RemoveWorkflowFromRuleResponse struct {
 	Success bool                               `json:"success"`
 }
 
+// ReportV3Response Full report with steps and actions.
+type ReportV3Response struct {
+	BuildVarName        *string                   `json:"build_var_name"`
+	BuildVersion        *string                   `json:"build_version"`
+	CompletedAt         *string                   `json:"completed_at"`
+	CreatedAt           *string                   `json:"created_at"`
+	DeviceMetadata      *map[string]interface{}   `json:"device_metadata"`
+	DeviceModel         *string                   `json:"device_model"`
+	ExecutionId         *string                   `json:"execution_id"`
+	ExpectedStates      *[]map[string]interface{} `json:"expected_states"`
+	FailedSteps         *int                      `json:"failed_steps,omitempty"`
+	Id                  string                    `json:"id"`
+	OrgId               string                    `json:"org_id"`
+	OsVersion           *string                   `json:"os_version"`
+	PassedSteps         *int                      `json:"passed_steps,omitempty"`
+	Platform            *string                   `json:"platform"`
+	RunConfig           *map[string]interface{}   `json:"run_config"`
+	S3Bucket            *string                   `json:"s3_bucket"`
+	ScreenHeight        *int                      `json:"screen_height"`
+	ScreenWidth         *int                      `json:"screen_width"`
+	SessionId           *string                   `json:"session_id"`
+	SessionStatus       *string                   `json:"session_status"`
+	StartedAt           *string                   `json:"started_at"`
+	Steps               *[]map[string]interface{} `json:"steps,omitempty"`
+	Success             *bool                     `json:"success"`
+	TestGoalSummary     *string                   `json:"test_goal_summary"`
+	TestId              string                    `json:"test_id"`
+	TestName            *string                   `json:"test_name"`
+	TestVersionId       *string                   `json:"test_version_id"`
+	TestVersionNumber   *int                      `json:"test_version_number"`
+	Tldr                *map[string]interface{}   `json:"tldr"`
+	TotalSteps          *int                      `json:"total_steps,omitempty"`
+	TotalValidations    *int                      `json:"total_validations,omitempty"`
+	TraceId             *string                   `json:"trace_id"`
+	UpdatedAt           *string                   `json:"updated_at"`
+	ValidationsPassed   *int                      `json:"validations_passed,omitempty"`
+	VideoS3Key          *string                   `json:"video_s3_key"`
+	VideoUrl            *string                   `json:"video_url"`
+	WhepUrl             *string                   `json:"whep_url"`
+	WorkflowExecutionId *string                   `json:"workflow_execution_id"`
+}
+
 // Repository defines model for Repository.
 type Repository struct {
 	AddedAt     string `json:"added_at"`
@@ -3704,6 +3859,9 @@ type RunningTestMetadataContent struct {
 	CoreInfo RunningTestCoreInfo `json:"core_info"`
 
 	// DeviceMetadata Device metadata captured at runtime for accurate coordinate scaling.
+	//
+	// This schema is still actively used and stored in the reports.device_metadata
+	// column in the database.
 	DeviceMetadata *DeviceMetadata `json:"device_metadata,omitempty"`
 
 	// ExecutionTime ISO timestamp when execution started
@@ -4116,7 +4274,10 @@ type StepMetadata struct {
 // They map to TASK_TYPES for routing and ActionType for execution.
 type StepType string
 
-// StreamingReportMetadata Metadata persisted in the database for streaming reports.
+// StreamingReportMetadata DEPRECATED: Metadata persisted in the database for streaming reports.
+//
+// Used only for reading legacy S3 reports. New reports use the
+// reports_v3 database tables directly.
 type StreamingReportMetadata struct {
 	CompletedAt       *time.Time             `json:"completed_at"`
 	CreatedAt         time.Time              `json:"created_at"`
@@ -4135,7 +4296,9 @@ type StreamingReportMetadata struct {
 	Viewable          bool                   `json:"viewable"`
 }
 
-// StreamingStepResult Aggregated step result for downstream analytics.
+// StreamingStepResult DEPRECATED: Aggregated step result for downstream analytics.
+//
+// Used only for reading legacy S3 reports.
 type StreamingStepResult struct {
 	ActionType   *string `json:"action_type"`
 	CacheUsed    *bool   `json:"cache_used,omitempty"`
@@ -4562,9 +4725,8 @@ type TestEnhancedHistoryItem struct {
 
 	// EnhancedTask Enhanced test execution tasks model with tracking fields.
 	//
-	// Note: status, phase, and timing are NOT on this model.
-	// Device_sessions is the source of truth for status AND timing.
-	// Use test_executions_full view to get complete data with these fields.
+	// When queried via test_executions_full view, includes status and timing
+	// from device_sessions (the source of truth for state).
 	EnhancedTask  TestExecutionTasksEnhanced `json:"enhanced_task"`
 	ExecutionTime *string                    `json:"execution_time"`
 	HasReport     *bool                      `json:"has_report,omitempty"`
@@ -4646,14 +4808,15 @@ type TestExecutionTasksBatchResponse struct {
 
 // TestExecutionTasksEnhanced Enhanced test execution tasks model with tracking fields.
 //
-// Note: status, phase, and timing are NOT on this model.
-// Device_sessions is the source of truth for status AND timing.
-// Use test_executions_full view to get complete data with these fields.
+// When queried via test_executions_full view, includes status and timing
+// from device_sessions (the source of truth for state).
 type TestExecutionTasksEnhanced struct {
-	CreatedAt        *time.Time `json:"created_at"`
-	CurrentStep      *string    `json:"current_step"`
-	CurrentStepIndex *int       `json:"current_step_index"`
-	ErrorMessage     *string    `json:"error_message"`
+	CompletedAt          *time.Time `json:"completed_at"`
+	CreatedAt            *time.Time `json:"created_at"`
+	CurrentStep          *string    `json:"current_step"`
+	CurrentStepIndex     *int       `json:"current_step_index"`
+	ErrorMessage         *string    `json:"error_message"`
+	ExecutionTimeSeconds *float32   `json:"execution_time_seconds"`
 
 	// Id Execution ID (primary key)
 	Id                  string                  `json:"id"`
@@ -4662,10 +4825,13 @@ type TestExecutionTasksEnhanced struct {
 	Progress            *float32                `json:"progress,omitempty"`
 	ReportMetadata      *map[string]interface{} `json:"report_metadata"`
 	SessionId           *string                 `json:"session_id"`
+	StartedAt           *time.Time              `json:"started_at"`
+	Status              *string                 `json:"status"`
 	StepsCompleted      *int                    `json:"steps_completed,omitempty"`
 	Success             *bool                   `json:"success"`
 	TestId              string                  `json:"test_id"`
 	TotalSteps          *int                    `json:"total_steps"`
+	TraceId             *string                 `json:"trace_id"`
 	UpdatedAt           *time.Time              `json:"updated_at"`
 	WorkflowExecutionId *string                 `json:"workflow_execution_id"`
 }
@@ -5087,7 +5253,7 @@ type UnifiedReportRequest struct {
 type UnifiedWorkflowReportRequest struct {
 	IncludeVideoMetadata *bool   `json:"include_video_metadata,omitempty"`
 	Token                *string `json:"token"`
-	WorkflowTaskId       string  `json:"workflow_task_id"`
+	WorkflowTaskId       *string `json:"workflow_task_id"`
 }
 
 // UnifiedWorkflowReportResponse Comprehensive response containing all data needed for workflow report page.
@@ -5182,6 +5348,21 @@ type UpdateRebelOrgSettings struct {
 	ResponseLanguage *string `json:"response_language"`
 }
 
+// UpdateReportRequest Request model for updating a report.
+type UpdateReportRequest struct {
+	CompletedAt     *string                   `json:"completed_at"`
+	ExpectedStates  *[]map[string]interface{} `json:"expected_states"`
+	TestGoalSummary *string                   `json:"test_goal_summary"`
+	Tldr            *map[string]interface{}   `json:"tldr"`
+	VideoS3Key      *string                   `json:"video_s3_key"`
+}
+
+// UpdateReportResponse Response model for report update.
+type UpdateReportResponse struct {
+	Message string `json:"message"`
+	Success bool   `json:"success"`
+}
+
 // UpdateSeatsRequest defines model for UpdateSeatsRequest.
 type UpdateSeatsRequest struct {
 	Assignments   []map[string]string `json:"assignments"`
@@ -5210,6 +5391,27 @@ type UpdateSlackNotificationRuleRequest struct {
 	NotifyOnSuccess   *bool                 `json:"notify_on_success"`
 	NotifyOnTimeout   *bool                 `json:"notify_on_timeout"`
 	WorkflowIds       *[]openapi_types.UUID `json:"workflow_ids"`
+}
+
+// UpdateStepRequest Request model for updating a report step.
+type UpdateStepRequest struct {
+	CodeExecutionData   *map[string]interface{} `json:"code_execution_data"`
+	CompletedAt         *string                 `json:"completed_at"`
+	DecisionData        *map[string]interface{} `json:"decision_data"`
+	ExtractionData      *map[string]interface{} `json:"extraction_data"`
+	LlmCallId           *string                 `json:"llm_call_id"`
+	LoopData            *map[string]interface{} `json:"loop_data"`
+	Status              *string                 `json:"status"`
+	StatusReason        *string                 `json:"status_reason"`
+	ValidationData      *map[string]interface{} `json:"validation_data"`
+	VideoTimestampEnd   *float32                `json:"video_timestamp_end"`
+	VideoTimestampStart *float32                `json:"video_timestamp_start"`
+}
+
+// UpdateStepResponse Response model for step update.
+type UpdateStepResponse struct {
+	Message string `json:"message"`
+	Success bool   `json:"success"`
 }
 
 // UpdateTagRequest Request to update a tag.
@@ -5259,21 +5461,6 @@ type UpdateWorkflowScheduleRequest struct {
 	Schedule         string  `json:"schedule"`
 	ScheduleEnabled  bool    `json:"schedule_enabled"`
 	ScheduleTimezone *string `json:"schedule_timezone,omitempty"`
-}
-
-// UploadDeviceMetadataRequest Request model for uploading device metadata.
-type UploadDeviceMetadataRequest struct {
-	// DeviceMetadata Device metadata captured at runtime for accurate coordinate scaling.
-	DeviceMetadata DeviceMetadata `json:"device_metadata"`
-	ManifestUrl    *string        `json:"manifest_url"`
-	TaskId         string         `json:"task_id"`
-}
-
-// UploadDeviceMetadataResponse Response model for device metadata upload.
-type UploadDeviceMetadataResponse struct {
-	DeviceMetadataUrl *string `json:"device_metadata_url"`
-	Message           *string `json:"message"`
-	Success           bool    `json:"success"`
 }
 
 // UserBackfillStatus defines model for UserBackfillStatus.
@@ -5382,18 +5569,6 @@ type VariablesResponse struct {
 	Result []VariableRow `json:"result"`
 }
 
-// VideoMetadataBatchRequest Request model for batch video metadata.
-type VideoMetadataBatchRequest struct {
-	TaskIds []string `json:"task_ids"`
-}
-
-// VideoMetadataBatchResponse Response model for batch video metadata.
-type VideoMetadataBatchResponse struct {
-	FoundCount     int                          `json:"found_count"`
-	RequestedCount int                          `json:"requested_count"`
-	Videos         map[string]VideoMetadataItem `json:"videos"`
-}
-
 // VideoMetadataInfo Video + step metadata for a single task.
 type VideoMetadataInfo struct {
 	Duration float32         `json:"duration"`
@@ -5415,6 +5590,26 @@ type VideoMetadataItem struct {
 	TestName      *string         `json:"test_name"`
 	VideoDuration *float32        `json:"video_duration"`
 	VideoUrl      *string         `json:"video_url"`
+}
+
+// VideoMetadataItemV3 Video metadata for a single execution.
+type VideoMetadataItemV3 struct {
+	Duration    *float32               `json:"duration"`
+	ExecutionId string                 `json:"execution_id"`
+	Platform    *string                `json:"platform"`
+	Steps       *[]VideoMetadataStepV3 `json:"steps,omitempty"`
+	Success     *bool                  `json:"success"`
+	TestName    *string                `json:"test_name"`
+	VideoUrl    *string                `json:"video_url"`
+}
+
+// VideoMetadataStepV3 Lightweight step data for video timeline.
+type VideoMetadataStepV3 struct {
+	Description         *string  `json:"description"`
+	Index               int      `json:"index"`
+	StepType            string   `json:"step_type"`
+	VideoTimestampEnd   *float32 `json:"video_timestamp_end"`
+	VideoTimestampStart *float32 `json:"video_timestamp_start"`
 }
 
 // Viewport Model for viewport dimensions used in browser sessions.
@@ -5592,9 +5787,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time        `json:"created_at"`
-	Deleted   bool              `json:"deleted"`
+	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time                                           `json:"created_at"`
+	Deleted   bool                                                 `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -6120,6 +6315,48 @@ type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
 	Value       *float32 `json:"value"`
 }
 
+// AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest Request model for batch video metadata.
+type AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest struct {
+	TaskIds []string `json:"task_ids"`
+}
+
+// AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse Response model for batch video metadata.
+type AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse struct {
+	FoundCount     int                          `json:"found_count"`
+	RequestedCount int                          `json:"requested_count"`
+	Videos         map[string]VideoMetadataItem `json:"videos"`
+}
+
+// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest Request for batch video metadata.
+type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest struct {
+	ExecutionIds []string `json:"execution_ids"`
+}
+
+// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse Response for batch video metadata.
+type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse struct {
+	FoundCount     int                            `json:"found_count"`
+	RequestedCount int                            `json:"requested_count"`
+	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
+}
+
+// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
+type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
+}
+
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.
 type GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams struct {
 	// OrgId Restrict results to a single organisation
@@ -6553,6 +6790,35 @@ type StreamUnifiedUpdatesApiV1MonitorStreamUnifiedGetParams struct {
 type GetShareableReportLinkByTaskApiV1ReportAsyncRunShareableReportLinkByTaskGetParams struct {
 	TaskId string  `form:"task_id" json:"task_id"`
 	Origin *string `form:"origin,omitempty" json:"origin,omitempty"`
+}
+
+// GetReportByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdGetParams defines parameters for GetReportByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdGet.
+type GetReportByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdGetParams struct {
+	IncludeSteps    *bool `form:"include_steps,omitempty" json:"include_steps,omitempty"`
+	IncludeActions  *bool `form:"include_actions,omitempty" json:"include_actions,omitempty"`
+	IncludeLlmCalls *bool `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
+
+	// Token Public share token for unauthenticated access
+	Token *string `form:"token,omitempty" json:"token,omitempty"`
+}
+
+// GetReportByTokenApiV1ReportsV3ReportsByTokenGetParams defines parameters for GetReportByTokenApiV1ReportsV3ReportsByTokenGet.
+type GetReportByTokenApiV1ReportsV3ReportsByTokenGetParams struct {
+	// Token Public share token
+	Token           string `form:"token" json:"token"`
+	IncludeSteps    *bool  `form:"include_steps,omitempty" json:"include_steps,omitempty"`
+	IncludeActions  *bool  `form:"include_actions,omitempty" json:"include_actions,omitempty"`
+	IncludeLlmCalls *bool  `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
+}
+
+// GetReportApiV1ReportsV3ReportsReportIdGetParams defines parameters for GetReportApiV1ReportsV3ReportsReportIdGet.
+type GetReportApiV1ReportsV3ReportsReportIdGetParams struct {
+	IncludeSteps    *bool `form:"include_steps,omitempty" json:"include_steps,omitempty"`
+	IncludeActions  *bool `form:"include_actions,omitempty" json:"include_actions,omitempty"`
+	IncludeLlmCalls *bool `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
+
+	// Token Public share token for unauthenticated access
+	Token *string `form:"token,omitempty" json:"token,omitempty"`
 }
 
 // GetAiCodeGenerationApiV1ReviewAnalyticsAiCodeGenerationPostParams defines parameters for GetAiCodeGenerationApiV1ReviewAnalyticsAiCodeGenerationPost.
@@ -6991,17 +7257,32 @@ type UploadTrainingImageApiV1ReportAsyncRunTrainingImagePostJSONRequestBody = Tr
 // GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPostJSONRequestBody defines body for GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPost for application/json ContentType.
 type GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPostJSONRequestBody = UnifiedReportRequest
 
-// UploadDeviceMetadataApiV1ReportAsyncRunUploadDeviceMetadataPostJSONRequestBody defines body for UploadDeviceMetadataApiV1ReportAsyncRunUploadDeviceMetadataPost for application/json ContentType.
-type UploadDeviceMetadataApiV1ReportAsyncRunUploadDeviceMetadataPostJSONRequestBody = UploadDeviceMetadataRequest
-
 // GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest
 
 // GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody defines body for GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPost for application/json ContentType.
 type GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody = WorkflowTasksReportBatchRequest
 
 // RunEvalApiV1ReportEvalsRunEvalPostJSONRequestBody defines body for RunEvalApiV1ReportEvalsRunEvalPost for application/json ContentType.
 type RunEvalApiV1ReportEvalsRunEvalPostJSONRequestBody = EvalRequest
+
+// CreateReportApiV1ReportsV3ReportsPostJSONRequestBody defines body for CreateReportApiV1ReportsV3ReportsPost for application/json ContentType.
+type CreateReportApiV1ReportsV3ReportsPostJSONRequestBody = CreateReportRequest
+
+// GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPost for application/json ContentType.
+type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest
+
+// UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody defines body for UpdateReportApiV1ReportsV3ReportsReportIdPatch for application/json ContentType.
+type UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody = UpdateReportRequest
+
+// CreateStepApiV1ReportsV3ReportsReportIdStepsPostJSONRequestBody defines body for CreateStepApiV1ReportsV3ReportsReportIdStepsPost for application/json ContentType.
+type CreateStepApiV1ReportsV3ReportsReportIdStepsPostJSONRequestBody = CreateStepRequest
+
+// UpdateStepApiV1ReportsV3StepsStepIdPatchJSONRequestBody defines body for UpdateStepApiV1ReportsV3StepsStepIdPatch for application/json ContentType.
+type UpdateStepApiV1ReportsV3StepsStepIdPatchJSONRequestBody = UpdateStepRequest
+
+// CreateActionApiV1ReportsV3StepsStepIdActionsPostJSONRequestBody defines body for CreateActionApiV1ReportsV3StepsStepIdActionsPost for application/json ContentType.
+type CreateActionApiV1ReportsV3StepsStepIdActionsPostJSONRequestBody = CreateActionRequest
 
 // GetAiCodeGenerationApiV1ReviewAnalyticsAiCodeGenerationPostJSONRequestBody defines body for GetAiCodeGenerationApiV1ReviewAnalyticsAiCodeGenerationPost for application/json ContentType.
 type GetAiCodeGenerationApiV1ReviewAnalyticsAiCodeGenerationPostJSONRequestBody = UnifiedPRHistoryRequest
