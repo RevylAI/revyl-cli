@@ -5684,11 +5684,11 @@ type VideoMetadataBatchRequest struct {
 	ExecutionIds []string `json:"execution_ids"`
 }
 
-// VideoMetadataBatchResponse Response model for batch video metadata.
+// VideoMetadataBatchResponse Response for batch video metadata.
 type VideoMetadataBatchResponse struct {
-	FoundCount     int                          `json:"found_count"`
-	RequestedCount int                          `json:"requested_count"`
-	Videos         map[string]VideoMetadataItem `json:"videos"`
+	FoundCount     int                            `json:"found_count"`
+	RequestedCount int                            `json:"requested_count"`
+	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
 }
 
 // VideoMetadataInfo Video + step metadata for a single task.
@@ -6442,11 +6442,11 @@ type AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest struct {
 	TaskIds []string `json:"task_ids"`
 }
 
-// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse Response for batch video metadata.
-type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse struct {
-	FoundCount     int                            `json:"found_count"`
-	RequestedCount int                            `json:"requested_count"`
-	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
+// AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse Response model for batch video metadata.
+type AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse struct {
+	FoundCount     int                          `json:"found_count"`
+	RequestedCount int                          `json:"requested_count"`
+	Videos         map[string]VideoMetadataItem `json:"videos"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.

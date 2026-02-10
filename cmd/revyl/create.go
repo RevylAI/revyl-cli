@@ -36,7 +36,7 @@ var (
 	createTestHotReload         bool
 	createTestHotReloadPort     int
 	createTestHotReloadProvider string
-	createTestHotReloadPlatform  string
+	createTestHotReloadPlatform string
 
 	// Interactive mode flag
 	createTestInteractive bool
@@ -243,6 +243,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 					ui.PrintSuccess("Added to .revyl/config.yaml")
 				}
 			}
+			syncTestYAML(cmd.Context(), client, cfg, testName)
 		}
 
 		// Open browser to test execute page unless --no-open is specified
@@ -298,6 +299,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 				ui.PrintSuccess("Added to .revyl/config.yaml")
 			}
 		}
+		syncTestYAML(cmd.Context(), client, cfg, testName)
 	}
 
 	// Open browser to test execute page unless --no-open is specified

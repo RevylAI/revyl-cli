@@ -24,7 +24,7 @@ var (
 	openTestHotReload         bool
 	openTestHotReloadPort     int
 	openTestHotReloadProvider string
-	openTestHotReloadPlatform  string
+	openTestHotReloadPlatform string
 
 	// Interactive mode flag
 	openTestInteractive bool

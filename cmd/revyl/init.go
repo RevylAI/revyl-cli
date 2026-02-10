@@ -18,6 +18,7 @@ import (
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
+	"github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -788,6 +789,7 @@ func wizardCreateTest(
 								}
 								cfg.Tests[testName] = t.ID
 								_ = config.WriteProjectConfig(configPath, cfg)
+								syncTestYAML(ctx, client, cfg, testName)
 								return t.ID, testName
 							}
 						}
@@ -824,6 +826,7 @@ func wizardCreateTest(
 		}
 		cfg.Tests[testName] = resp.ID
 		_ = config.WriteProjectConfig(configPath, cfg)
+		syncTestYAML(ctx, client, cfg, testName)
 
 		// Open in browser.
 		appURL := config.GetAppURL(devMode)
@@ -1102,4 +1105,32 @@ func printDynamicNextSteps(cfg *config.ProjectConfig, authOK bool, testID string
 	}
 
 	ui.PrintNextSteps(steps)
+}
+
+// syncTestYAML pulls a test definition from the server and saves it to .revyl/tests/<name>.yaml.
+// Logs a dim message on success or a fallback hint on failure. Non-fatal.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - client: Authenticated API client
+//   - cfg: Project configuration (must have the test ID already saved in cfg.Tests)
+//   - testName: Name of the test to sync
+func syncTestYAML(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, testName string) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		ui.PrintDim("  Run 'revyl test pull %s' to sync test definition", testName)
+		return
+	}
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	localTests, _ := config.LoadLocalTests(testsDir)
+	if localTests == nil {
+		localTests = make(map[string]*config.LocalTest)
+	}
+	resolver := sync.NewResolver(client, cfg, localTests)
+	results, pullErr := resolver.PullFromRemote(ctx, testName, testsDir, true)
+	if pullErr == nil && len(results) > 0 && results[0].Error == nil {
+		ui.PrintDim("  Synced to .revyl/tests/%s.yaml", testName)
+	} else {
+		ui.PrintDim("  Run 'revyl test pull %s' to sync test definition", testName)
+	}
 }
