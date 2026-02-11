@@ -287,7 +287,10 @@ func runSandboxWorktreeRemove(cmd *cobra.Command, args []string) error {
 var sandboxWorktreeSetupCmd = &cobra.Command{
 	Use:   "setup <branch>",
 	Short: "Re-run setup on an existing worktree",
-	Long: `Re-run the setup script on an existing worktree.
+	Long: `Re-run the setup script on an existing worktree via SSH.
+
+Reads fleet.json from the worktree to find the setup script path
+(e.g. "./scripts/worktree-setup.sh") and executes it.
 
 Useful after pulling new changes that modify setup requirements.
 
@@ -297,7 +300,11 @@ EXAMPLES:
 	RunE: runSandboxWorktreeSetup,
 }
 
-// runSandboxWorktreeSetup re-runs setup via SSH using the 'wts' shell helper.
+// runSandboxWorktreeSetup re-runs the setup script on an existing worktree via SSH.
+//
+// Reads fleet.json from the worktree to discover the setup script path
+// (e.g. "./scripts/worktree-setup.sh") and executes it. Falls back to a
+// warning if no fleet.json or setup script is found.
 //
 // Parameters:
 //   - cmd: The cobra command being executed
@@ -315,7 +322,15 @@ func runSandboxWorktreeSetup(cmd *cobra.Command, args []string) error {
 
 	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 
-	sshCmd := fmt.Sprintf("source ~/.zshrc && wts %s", branch)
+	sshCmd := fmt.Sprintf(
+		`cd ~/workspace/%s && source ~/.zshrc && `+
+			`if [ -f fleet.json ]; then `+
+			`SCRIPT=$(python3 -c "import json; c=json.load(open('fleet.json')); print(c.get('scripts',{}).get('setup',''))" 2>/dev/null); `+
+			`if [ -n "$SCRIPT" ] && [ -f "$SCRIPT" ]; then chmod +x "$SCRIPT" && "$SCRIPT"; `+
+			`else echo "No setup script found in fleet.json"; fi; `+
+			`else echo "No fleet.json found"; fi`,
+		branch,
+	)
 
 	if !jsonOutput {
 		ui.StartSpinner(fmt.Sprintf("Running setup on %s...", branch))

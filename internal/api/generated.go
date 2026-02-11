@@ -156,6 +156,14 @@ const (
 	NormalizedActionBlockTypeValidation    NormalizedActionBlockType = "validation"
 )
 
+// Defines values for RegisterSandboxRequestStatus.
+const (
+	RegisterSandboxRequestStatusAvailable   RegisterSandboxRequestStatus = "available"
+	RegisterSandboxRequestStatusClaimed     RegisterSandboxRequestStatus = "claimed"
+	RegisterSandboxRequestStatusMaintenance RegisterSandboxRequestStatus = "maintenance"
+	RegisterSandboxRequestStatusReserved    RegisterSandboxRequestStatus = "reserved"
+)
+
 // Defines values for SessionStatus.
 const (
 	SessionStatusCancelled SessionStatus = "cancelled"
@@ -204,10 +212,10 @@ const (
 
 // Defines values for UpdateSandboxRequestStatus.
 const (
-	UpdateSandboxRequestStatusAvailable   UpdateSandboxRequestStatus = "available"
-	UpdateSandboxRequestStatusClaimed     UpdateSandboxRequestStatus = "claimed"
-	UpdateSandboxRequestStatusMaintenance UpdateSandboxRequestStatus = "maintenance"
-	UpdateSandboxRequestStatusReserved    UpdateSandboxRequestStatus = "reserved"
+	Available   UpdateSandboxRequestStatus = "available"
+	Claimed     UpdateSandboxRequestStatus = "claimed"
+	Maintenance UpdateSandboxRequestStatus = "maintenance"
+	Reserved    UpdateSandboxRequestStatus = "reserved"
 )
 
 // Defines values for ValidationTypeEnum.
@@ -1303,16 +1311,22 @@ type CategoryValue struct {
 	Value    float32 `json:"value"`
 }
 
-// ChartDataPoint defines model for ChartDataPoint.
+// ChartDataPoint Daily aggregated chart data point.
 type ChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -3275,10 +3289,10 @@ type ModulesListResponse struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []ChartDataPoint `json:"data"`
-	MetricType   string           `json:"metric_type"`
-	Repositories []string         `json:"repositories"`
-	RetrievedAt  string           `json:"retrieved_at"`
+	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
+	MetricType   string                                           `json:"metric_type"`
+	Repositories []string                                         `json:"repositories"`
+	RetrievedAt  string                                           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -3709,6 +3723,95 @@ type RecentComment struct {
 	PrNumber   int       `json:"pr_number"`
 	Repo       string    `json:"repo"`
 	Type       string    `json:"type"`
+}
+
+// RegisterSandboxRequest Request payload for registering (upserting) a sandbox during provisioning.
+//
+// Called by the fleet CLI or Ansible playbook after provisioning a Mac.
+// Upserts into fleet_sandboxes by vm_name so the sandbox is discoverable
+// by the developer CLI and FleetDashboard.
+//
+// Attributes:
+//
+//	vm_name: Unique VM name (e.g., "Revyl-Mac-mini-W641QMFKQR").
+//	hostname: mDNS hostname (e.g., "Revyl-Mac-mini-W641QMFKQR.local").
+//	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+//	ssh_user: SSH username for connections (default: revyl-admin).
+//	ssh_port: SSH port number (default: 22).
+//	status: Initial sandbox status (default: available).
+//	specs: Hardware specifications (cpu_cores, memory_gb, chip).
+//	tags: Flexible labels for filtering (location, tier, etc.).
+type RegisterSandboxRequest struct {
+	// Hostname mDNS hostname
+	Hostname *string `json:"hostname"`
+
+	// Specs Hardware specs (cpu_cores, memory_gb, chip)
+	Specs *map[string]interface{} `json:"specs"`
+
+	// SshPort SSH port
+	SshPort *int `json:"ssh_port,omitempty"`
+
+	// SshUser SSH username
+	SshUser *string `json:"ssh_user,omitempty"`
+
+	// Status Initial sandbox status
+	Status *RegisterSandboxRequestStatus `json:"status,omitempty"`
+
+	// Tags Flexible labels for filtering
+	Tags *map[string]interface{} `json:"tags"`
+
+	// TunnelHostname Cloudflare tunnel hostname for SSH
+	TunnelHostname *string `json:"tunnel_hostname"`
+
+	// VmName Unique VM name (e.g., 'Revyl-Mac-mini-W641QMFKQR')
+	VmName string `json:"vm_name"`
+}
+
+// RegisterSandboxRequestStatus Initial sandbox status
+type RegisterSandboxRequestStatus string
+
+// RegisterSandboxResponse Response from registering a sandbox.
+//
+// Attributes:
+//
+//	success: Whether the registration succeeded.
+//	created: True if a new row was inserted, False if
+//	    an existing row was updated.
+//	sandbox: The registered sandbox data.
+//	message: Human-readable status message.
+type RegisterSandboxResponse struct {
+	// Created True if new row inserted, False if updated
+	Created bool `json:"created"`
+
+	// Message Status message
+	Message string `json:"message"`
+
+	// Sandbox Represents a virtual machine sandbox in the Fleet pool.
+	//
+	// Sandboxes are Mac Mini VMs that developers can claim for development work.
+	// Each sandbox can host multiple git repositories and worktrees.
+	//
+	// Attributes:
+	//     id: Unique identifier for the sandbox (UUID).
+	//     org_id: Organization ID that owns this sandbox (NULL = shared pool).
+	//     vm_name: VM name (e.g., "sandbox-1").
+	//     hostname: Human-readable hostname for display.
+	//     sandbox_type: Type of sandbox (dedicated machine or container).
+	//     host_identifier: Groups sandboxes running on the same physical host.
+	//     tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+	//     status: Current sandbox state (available, claimed, maintenance, reserved).
+	//     claimed_by: User ID of the developer who claimed this sandbox.
+	//     claimed_at: Timestamp when the sandbox was claimed.
+	//     ssh_user: SSH username for connections (default: revyl-admin).
+	//     ssh_port: SSH port number (default: 22).
+	//     specs: Hardware specifications (cpu_cores, memory_gb, chip).
+	//     tags: Flexible labels for filtering (location, tier, etc.).
+	//     created_at: When the sandbox was added to the pool.
+	//     updated_at: Last modification timestamp.
+	Sandbox FleetSandbox `json:"sandbox"`
+
+	// Success Whether registration succeeded
+	Success bool `json:"success"`
 }
 
 // ReleaseSandboxResponse Response from releasing a sandbox.
@@ -5684,9 +5787,9 @@ type VariablesResponse struct {
 	Result []VariableRow `json:"result"`
 }
 
-// VideoMetadataBatchRequest Request for batch video metadata.
+// VideoMetadataBatchRequest Request model for batch video metadata.
 type VideoMetadataBatchRequest struct {
-	ExecutionIds []string `json:"execution_ids"`
+	TaskIds []string `json:"task_ids"`
 }
 
 // VideoMetadataBatchResponse Response for batch video metadata.
@@ -5914,9 +6017,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time                                           `json:"created_at"`
-	Deleted   bool                                                 `json:"deleted"`
+	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time        `json:"created_at"`
+	Deleted   bool              `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -6430,9 +6533,16 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
-// AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest Request model for batch video metadata.
-type AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest struct {
-	TaskIds []string `json:"task_ids"`
+// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
+type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments"`
+	MedianHours *float32 `json:"median_hours"`
+	P25Hours    *float32 `json:"p25_hours"`
+	P75Hours    *float32 `json:"p75_hours"`
+	TeamAverage *float32 `json:"team_average"`
+	Trend       *string  `json:"trend"`
+	Value       *float32 `json:"value"`
 }
 
 // AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse Response model for batch video metadata.
@@ -6442,22 +6552,9 @@ type AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse struct {
 	Videos         map[string]VideoMetadataItem `json:"videos"`
 }
 
-// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
-type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
+// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest Request for batch video metadata.
+type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest struct {
+	ExecutionIds []string `json:"execution_ids"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.
@@ -7341,6 +7438,9 @@ type CreateWorkflowExecutionApiV1ExecutionWorkflowExecutionsPostJSONRequestBody 
 // UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatchJSONRequestBody defines body for UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatch for application/json ContentType.
 type UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatchJSONRequestBody = WorkflowExecutionUpdate
 
+// RegisterSandboxApiV1FleetSandboxesRegisterPostJSONRequestBody defines body for RegisterSandboxApiV1FleetSandboxesRegisterPost for application/json ContentType.
+type RegisterSandboxApiV1FleetSandboxesRegisterPostJSONRequestBody = RegisterSandboxRequest
+
 // UpdateSandboxApiV1FleetSandboxesSandboxIdPatchJSONRequestBody defines body for UpdateSandboxApiV1FleetSandboxesSandboxIdPatch for application/json ContentType.
 type UpdateSandboxApiV1FleetSandboxesSandboxIdPatchJSONRequestBody = UpdateSandboxRequest
 
@@ -7375,7 +7475,7 @@ type UploadTrainingImageApiV1ReportAsyncRunTrainingImagePostJSONRequestBody = Tr
 type GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPostJSONRequestBody = UnifiedReportRequest
 
 // GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
 
 // GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody defines body for GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPost for application/json ContentType.
 type GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody = WorkflowTasksReportBatchRequest
@@ -7387,7 +7487,7 @@ type RunEvalApiV1ReportEvalsRunEvalPostJSONRequestBody = EvalRequest
 type CreateReportApiV1ReportsV3ReportsPostJSONRequestBody = CreateReportRequest
 
 // GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest
 
 // UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody defines body for UpdateReportApiV1ReportsV3ReportsReportIdPatch for application/json ContentType.
 type UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody = UpdateReportRequest
