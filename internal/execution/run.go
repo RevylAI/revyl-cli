@@ -122,9 +122,25 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 	monitor := sse.NewMonitorWithDevMode(apiKey, timeout, params.DevMode)
 	finalStatus, err := monitor.MonitorTest(ctx, resp.TaskID, testID, params.OnProgress)
 	if err != nil {
+		// If we have a valid final status (e.g., cancelled via frontend while context was cancelled),
+		// prefer using it over reporting a generic error
+		if finalStatus != nil && status.IsTerminal(finalStatus.Status) {
+			reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), resp.TaskID)
+			return &RunTestResult{
+				Success:      status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
+				TaskID:       resp.TaskID,
+				TestID:       testID,
+				TestName:     finalStatus.TestName,
+				Status:       finalStatus.Status,
+				Duration:     finalStatus.Duration,
+				ReportURL:    reportURL,
+				ErrorMessage: finalStatus.ErrorMessage,
+			}, nil
+		}
 		return &RunTestResult{
 			Success:      false,
 			TaskID:       resp.TaskID,
+			Status:       "cancelled",
 			ErrorMessage: err.Error(),
 		}, nil
 	}
@@ -249,9 +265,28 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 	monitor := sse.NewMonitorWithDevMode(apiKey, timeout, params.DevMode)
 	finalStatus, err := monitor.MonitorWorkflow(ctx, resp.TaskID, workflowID, params.OnProgress)
 	if err != nil {
+		// If we have a valid final status (e.g., cancelled via frontend while context was cancelled),
+		// prefer using it over reporting a generic error
+		if finalStatus != nil && status.IsTerminal(finalStatus.Status) {
+			reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), resp.TaskID)
+			return &RunWorkflowResult{
+				Success:      status.IsWorkflowSuccess(finalStatus.Status, finalStatus.FailedTests),
+				TaskID:       resp.TaskID,
+				WorkflowID:   workflowID,
+				WorkflowName: finalStatus.WorkflowName,
+				Status:       finalStatus.Status,
+				TotalTests:   finalStatus.TotalTests,
+				PassedTests:  finalStatus.PassedTests,
+				FailedTests:  finalStatus.FailedTests,
+				Duration:     finalStatus.Duration,
+				ReportURL:    reportURL,
+				ErrorMessage: finalStatus.ErrorMessage,
+			}, nil
+		}
 		return &RunWorkflowResult{
 			Success:      false,
 			TaskID:       resp.TaskID,
+			Status:       "cancelled",
 			ErrorMessage: err.Error(),
 		}, nil
 	}

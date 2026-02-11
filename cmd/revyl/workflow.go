@@ -2,8 +2,20 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/spf13/cobra"
+
+	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/ui"
 )
+
+// workflowListJSON controls JSON output for workflow list.
+var workflowListJSON bool
 
 // workflowCmd is the parent command for workflow operations.
 var workflowCmd = &cobra.Command{
@@ -15,6 +27,7 @@ For build→run: use "revyl workflow run <name> --build" to build, upload, then 
 all tests in the workflow.
 
 COMMANDS:
+  list    - List all workflows
   run     - Run a workflow (add --build to build and upload first)
   cancel  - Cancel a running workflow
   create  - Create a new workflow
@@ -22,8 +35,9 @@ COMMANDS:
   open    - Open a workflow in the browser
 
 EXAMPLES:
-  revyl workflow run smoke-tests --build   # Build first, then run workflow
-  revyl workflow run smoke-tests           # Run only (no build)
+  revyl workflow list                        # List all workflows
+  revyl workflow run smoke-tests --build     # Build first, then run workflow
+  revyl workflow run smoke-tests             # Run only (no build)
   revyl workflow create regression --tests login,checkout
   revyl workflow delete smoke-tests`,
 }
@@ -39,9 +53,24 @@ Use --build to build and upload before running.
 EXAMPLES:
   revyl workflow run smoke-tests
   revyl workflow run smoke-tests --build
-  revyl workflow run smoke-tests --build --variant android`,
+  revyl workflow run smoke-tests --build --platform android`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkflowExec,
+}
+
+// workflowListCmd lists all workflows from the API.
+var workflowListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all workflows",
+	Long: `List all workflows in your organization.
+
+Workflows that are also registered in .revyl/config.yaml are marked with their
+local alias name.
+
+EXAMPLES:
+  revyl workflow list
+  revyl workflow list --json`,
+	RunE: runWorkflowList,
 }
 
 // workflowCancelCmd cancels a running workflow.
@@ -87,11 +116,15 @@ var workflowOpenCmd = &cobra.Command{
 }
 
 func init() {
+	workflowCmd.AddCommand(workflowListCmd)
 	workflowCmd.AddCommand(workflowRunCmd)
 	workflowCmd.AddCommand(workflowCancelCmd)
 	workflowCmd.AddCommand(workflowCreateCmd)
 	workflowCmd.AddCommand(workflowDeleteCmd)
 	workflowCmd.AddCommand(workflowOpenCmd)
+
+	// workflow list flags
+	workflowListCmd.Flags().BoolVar(&workflowListJSON, "json", false, "Output results as JSON")
 
 	// workflow run flags (reuse run.go vars)
 	workflowRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
@@ -102,7 +135,7 @@ func init() {
 	workflowRunCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	workflowRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
 	workflowRunCmd.Flags().BoolVar(&runWorkflowBuild, "build", false, "Build and upload before running workflow")
-	workflowRunCmd.Flags().StringVar(&runWorkflowVariant, "variant", "", "Build variant to use (requires --build)")
+	workflowRunCmd.Flags().StringVar(&runWorkflowPlatform, "platform", "", "Platform to use (requires --build)")
 
 	// workflow delete flags
 	workflowDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")
@@ -112,4 +145,113 @@ func init() {
 	workflowCreateCmd.Flags().BoolVar(&createWorkflowNoOpen, "no-open", false, "Skip opening browser to workflow editor")
 	workflowCreateCmd.Flags().BoolVar(&createWorkflowNoSync, "no-sync", false, "Skip adding workflow to .revyl/config.yaml")
 	workflowCreateCmd.Flags().BoolVar(&createWorkflowDryRun, "dry-run", false, "Show what would be created without creating")
+}
+
+// runWorkflowList lists all workflows from the organization API.
+//
+// It fetches workflows from the server and cross-references them with
+// local config aliases to show which workflows are tracked locally.
+//
+// Parameters:
+//   - cmd: The cobra command being executed
+//   - args: Command line arguments (none expected)
+//
+// Returns:
+//   - error: Any error that occurred, or nil on success
+func runWorkflowList(cmd *cobra.Command, args []string) error {
+	// Check if --json flag is set (either local or global)
+	jsonOutput := workflowListJSON
+	if globalJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); globalJSON {
+		jsonOutput = true
+	}
+
+	// Check authentication
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	// Load project config for local alias resolution
+	cwd, _ := os.Getwd()
+	var cfg *config.ProjectConfig
+	if cwd != "" {
+		cfg, _ = config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	}
+
+	// Build a reverse map: workflow UUID -> local alias name
+	aliasForID := make(map[string]string)
+	if cfg != nil && cfg.Workflows != nil {
+		for alias, id := range cfg.Workflows {
+			aliasForID[id] = alias
+		}
+	}
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	if !jsonOutput {
+		ui.StartSpinner("Fetching workflows...")
+	}
+
+	resp, err := client.ListWorkflows(cmd.Context())
+	if !jsonOutput {
+		ui.StopSpinner()
+	}
+
+	if err != nil {
+		ui.PrintError("Failed to list workflows: %v", err)
+		return err
+	}
+
+	if jsonOutput {
+		output := make([]map[string]interface{}, 0, len(resp.Workflows))
+		for _, w := range resp.Workflows {
+			item := map[string]interface{}{
+				"id":   w.ID,
+				"name": w.Name,
+			}
+			if alias, ok := aliasForID[w.ID]; ok {
+				item["local_alias"] = alias
+			}
+			output = append(output, item)
+		}
+		data, _ := json.MarshalIndent(output, "", "  ")
+		fmt.Println(string(data))
+		return nil
+	}
+
+	if len(resp.Workflows) == 0 {
+		ui.PrintInfo("No workflows found")
+		ui.Println()
+		ui.PrintNextSteps([]ui.NextStep{
+			{Label: "Create a workflow:", Command: "revyl workflow create <name>"},
+		})
+		return nil
+	}
+
+	ui.Println()
+	ui.PrintInfo("Workflows (%d)", len(resp.Workflows))
+	ui.Println()
+
+	table := ui.NewTable("NAME", "ID", "LOCAL ALIAS")
+	table.SetMinWidth(0, 20) // NAME
+	table.SetMinWidth(1, 36) // ID (UUID length)
+	table.SetMinWidth(2, 12) // LOCAL ALIAS
+
+	for _, w := range resp.Workflows {
+		alias := "-"
+		if a, ok := aliasForID[w.ID]; ok {
+			alias = a
+		}
+		table.AddRow(w.Name, w.ID, alias)
+	}
+
+	table.Render()
+
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Run a workflow:", Command: "revyl workflow run <name>"},
+		{Label: "Create a workflow:", Command: "revyl workflow create <name>"},
+	})
+
+	return nil
 }

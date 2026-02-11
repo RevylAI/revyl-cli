@@ -15,14 +15,14 @@ import (
 //   - Name: Test name
 //   - Platform: Target platform (ios or android)
 //   - YAMLContent: Optional YAML test definition (if provided, creates with blocks)
-//   - BuildVarID: Optional build variable ID to associate
+//   - AppID: Optional app ID to associate
 //   - OrgID: Organization ID
 //   - DevMode: If true, use local development servers
 type CreateTestParams struct {
 	Name        string
 	Platform    string
 	YAMLContent string
-	BuildVarID  string
+	AppID       string
 	OrgID       string
 	DevMode     bool
 }
@@ -66,11 +66,11 @@ func CreateTest(ctx context.Context, apiKey string, params CreateTestParams) (*C
 
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
 	resp, err := client.CreateTest(ctx, &api.CreateTestRequest{
-		Name:       params.Name,
-		Platform:   params.Platform,
-		Tasks:      tasks,
-		BuildVarID: params.BuildVarID,
-		OrgID:      params.OrgID,
+		Name:     params.Name,
+		Platform: params.Platform,
+		Tasks:    tasks,
+		AppID:    params.AppID,
+		OrgID:    params.OrgID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create test: %w", err)

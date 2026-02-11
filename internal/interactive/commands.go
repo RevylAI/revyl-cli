@@ -174,11 +174,6 @@ func ParseCommandWithDefaults(input string, hotReloadURL string) (*ParsedCommand
 	}, nil
 }
 
-// parseReservedCommand parses a reserved command with its arguments.
-func parseReservedCommand(cmdType CommandType, args []string, raw string) (*ParsedCommand, error) {
-	return parseReservedCommandWithDefaults(cmdType, args, raw, "")
-}
-
 // parseReservedCommandWithDefaults parses a reserved command with its arguments and optional defaults.
 func parseReservedCommandWithDefaults(cmdType CommandType, args []string, raw string, hotReloadURL string) (*ParsedCommand, error) {
 	cmd := &ParsedCommand{

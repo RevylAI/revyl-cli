@@ -122,10 +122,10 @@ const (
 
 // Defines values for FleetSandboxStatus.
 const (
-	Available   FleetSandboxStatus = "available"
-	Claimed     FleetSandboxStatus = "claimed"
-	Maintenance FleetSandboxStatus = "maintenance"
-	Reserved    FleetSandboxStatus = "reserved"
+	FleetSandboxStatusAvailable   FleetSandboxStatus = "available"
+	FleetSandboxStatusClaimed     FleetSandboxStatus = "claimed"
+	FleetSandboxStatusMaintenance FleetSandboxStatus = "maintenance"
+	FleetSandboxStatusReserved    FleetSandboxStatus = "reserved"
 )
 
 // Defines values for GrounderType.
@@ -154,6 +154,14 @@ const (
 	NormalizedActionBlockTypeManual        NormalizedActionBlockType = "manual"
 	NormalizedActionBlockTypeModuleImport  NormalizedActionBlockType = "module_import"
 	NormalizedActionBlockTypeValidation    NormalizedActionBlockType = "validation"
+)
+
+// Defines values for RegisterSandboxRequestStatus.
+const (
+	RegisterSandboxRequestStatusAvailable   RegisterSandboxRequestStatus = "available"
+	RegisterSandboxRequestStatusClaimed     RegisterSandboxRequestStatus = "claimed"
+	RegisterSandboxRequestStatusMaintenance RegisterSandboxRequestStatus = "maintenance"
+	RegisterSandboxRequestStatusReserved    RegisterSandboxRequestStatus = "reserved"
 )
 
 // Defines values for SessionStatus.
@@ -200,6 +208,14 @@ const (
 	Tap           StepType = "tap"
 	Validation    StepType = "validation"
 	Wait          StepType = "wait"
+)
+
+// Defines values for UpdateSandboxRequestStatus.
+const (
+	Available   UpdateSandboxRequestStatus = "available"
+	Claimed     UpdateSandboxRequestStatus = "claimed"
+	Maintenance UpdateSandboxRequestStatus = "maintenance"
+	Reserved    UpdateSandboxRequestStatus = "reserved"
 )
 
 // Defines values for ValidationTypeEnum.
@@ -1295,6 +1311,24 @@ type CategoryValue struct {
 	Value    float32 `json:"value"`
 }
 
+// ChartDataPoint Daily aggregated chart data point.
+type ChartDataPoint struct {
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
+}
+
 // CheckModuleExistsResponse Response model for checking if a module exists
 type CheckModuleExistsResponse struct {
 	Exists bool    `json:"exists"`
@@ -1740,6 +1774,17 @@ type CreateActionResponse struct {
 	Success bool   `json:"success"`
 }
 
+// CreateCLIApiKeyResponse Response from creating a long-lived CLI API key via PropelAuth.
+//
+// Attributes:
+//
+//	api_key_token: The API key token string used for authentication.
+//	api_key_id: The PropelAuth-assigned ID for this API key (used for deletion/rotation).
+type CreateCLIApiKeyResponse struct {
+	ApiKeyId    string `json:"api_key_id"`
+	ApiKeyToken string `json:"api_key_token"`
+}
+
 // CreateExpoProjectRequest Request to create a new Expo project configuration.
 type CreateExpoProjectRequest struct {
 	// ProjectId Expo project ID (EAS project UUID)
@@ -2099,6 +2144,14 @@ type DeviceCleanupConfig struct {
 
 	// UninstallNewApps Uninstall apps that were installed during the test session
 	UninstallNewApps *bool `json:"uninstall_new_apps,omitempty"`
+}
+
+// DeviceLogsDownloadResponse Response model for device logs download URL.
+type DeviceLogsDownloadResponse struct {
+	Compressed    bool   `json:"compressed"`
+	DownloadUrl   string `json:"download_url"`
+	FileSizeBytes *int   `json:"file_size_bytes"`
+	Filename      string `json:"filename"`
 }
 
 // DeviceMetadata Device metadata captured at runtime for accurate coordinate scaling.
@@ -3672,6 +3725,95 @@ type RecentComment struct {
 	Type       string    `json:"type"`
 }
 
+// RegisterSandboxRequest Request payload for registering (upserting) a sandbox during provisioning.
+//
+// Called by the fleet CLI or Ansible playbook after provisioning a Mac.
+// Upserts into fleet_sandboxes by vm_name so the sandbox is discoverable
+// by the developer CLI and FleetDashboard.
+//
+// Attributes:
+//
+//	vm_name: Unique VM name (e.g., "Revyl-Mac-mini-W641QMFKQR").
+//	hostname: mDNS hostname (e.g., "Revyl-Mac-mini-W641QMFKQR.local").
+//	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+//	ssh_user: SSH username for connections (default: revyl-admin).
+//	ssh_port: SSH port number (default: 22).
+//	status: Initial sandbox status (default: available).
+//	specs: Hardware specifications (cpu_cores, memory_gb, chip).
+//	tags: Flexible labels for filtering (location, tier, etc.).
+type RegisterSandboxRequest struct {
+	// Hostname mDNS hostname
+	Hostname *string `json:"hostname"`
+
+	// Specs Hardware specs (cpu_cores, memory_gb, chip)
+	Specs *map[string]interface{} `json:"specs"`
+
+	// SshPort SSH port
+	SshPort *int `json:"ssh_port,omitempty"`
+
+	// SshUser SSH username
+	SshUser *string `json:"ssh_user,omitempty"`
+
+	// Status Initial sandbox status
+	Status *RegisterSandboxRequestStatus `json:"status,omitempty"`
+
+	// Tags Flexible labels for filtering
+	Tags *map[string]interface{} `json:"tags"`
+
+	// TunnelHostname Cloudflare tunnel hostname for SSH
+	TunnelHostname *string `json:"tunnel_hostname"`
+
+	// VmName Unique VM name (e.g., 'Revyl-Mac-mini-W641QMFKQR')
+	VmName string `json:"vm_name"`
+}
+
+// RegisterSandboxRequestStatus Initial sandbox status
+type RegisterSandboxRequestStatus string
+
+// RegisterSandboxResponse Response from registering a sandbox.
+//
+// Attributes:
+//
+//	success: Whether the registration succeeded.
+//	created: True if a new row was inserted, False if
+//	    an existing row was updated.
+//	sandbox: The registered sandbox data.
+//	message: Human-readable status message.
+type RegisterSandboxResponse struct {
+	// Created True if new row inserted, False if updated
+	Created bool `json:"created"`
+
+	// Message Status message
+	Message string `json:"message"`
+
+	// Sandbox Represents a virtual machine sandbox in the Fleet pool.
+	//
+	// Sandboxes are Mac Mini VMs that developers can claim for development work.
+	// Each sandbox can host multiple git repositories and worktrees.
+	//
+	// Attributes:
+	//     id: Unique identifier for the sandbox (UUID).
+	//     org_id: Organization ID that owns this sandbox (NULL = shared pool).
+	//     vm_name: VM name (e.g., "sandbox-1").
+	//     hostname: Human-readable hostname for display.
+	//     sandbox_type: Type of sandbox (dedicated machine or container).
+	//     host_identifier: Groups sandboxes running on the same physical host.
+	//     tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+	//     status: Current sandbox state (available, claimed, maintenance, reserved).
+	//     claimed_by: User ID of the developer who claimed this sandbox.
+	//     claimed_at: Timestamp when the sandbox was claimed.
+	//     ssh_user: SSH username for connections (default: revyl-admin).
+	//     ssh_port: SSH port number (default: 22).
+	//     specs: Hardware specifications (cpu_cores, memory_gb, chip).
+	//     tags: Flexible labels for filtering (location, tier, etc.).
+	//     created_at: When the sandbox was added to the pool.
+	//     updated_at: Last modification timestamp.
+	Sandbox FleetSandbox `json:"sandbox"`
+
+	// Success Whether registration succeeded
+	Success bool `json:"success"`
+}
+
 // ReleaseSandboxResponse Response from releasing a sandbox.
 //
 // Attributes:
@@ -3699,6 +3841,7 @@ type ReportV3Response struct {
 	BuildVersion        *string                   `json:"build_version"`
 	CompletedAt         *string                   `json:"completed_at"`
 	CreatedAt           *string                   `json:"created_at"`
+	DeviceLogsS3Key     *string                   `json:"device_logs_s3_key"`
 	DeviceMetadata      *map[string]interface{}   `json:"device_metadata"`
 	DeviceModel         *string                   `json:"device_model"`
 	ExecutionId         *string                   `json:"execution_id"`
@@ -5351,6 +5494,7 @@ type UpdateRebelOrgSettings struct {
 // UpdateReportRequest Request model for updating a report.
 type UpdateReportRequest struct {
 	CompletedAt     *string                   `json:"completed_at"`
+	DeviceLogsS3Key *string                   `json:"device_logs_s3_key"`
 	ExpectedStates  *[]map[string]interface{} `json:"expected_states"`
 	TestGoalSummary *string                   `json:"test_goal_summary"`
 	Tldr            *map[string]interface{}   `json:"tldr"`
@@ -5361,6 +5505,80 @@ type UpdateReportRequest struct {
 type UpdateReportResponse struct {
 	Message string `json:"message"`
 	Success bool   `json:"success"`
+}
+
+// UpdateSandboxRequest Request payload for updating sandbox properties (admin only).
+//
+// All fields are optional - only provided fields will be updated.
+//
+// Attributes:
+//
+//	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+//	status: Sandbox status (available, claimed, maintenance, reserved).
+//	ssh_user: SSH username for connections.
+//	ssh_port: SSH port number.
+//	specs: Hardware specifications.
+//	tags: Flexible labels for filtering.
+type UpdateSandboxRequest struct {
+	// Specs Hardware specs
+	Specs *map[string]interface{} `json:"specs"`
+
+	// SshPort SSH port
+	SshPort *int `json:"ssh_port"`
+
+	// SshUser SSH username
+	SshUser *string `json:"ssh_user"`
+
+	// Status Sandbox status
+	Status *UpdateSandboxRequestStatus `json:"status"`
+
+	// Tags Flexible labels
+	Tags *map[string]interface{} `json:"tags"`
+
+	// TunnelHostname Cloudflare tunnel hostname for SSH
+	TunnelHostname *string `json:"tunnel_hostname"`
+}
+
+// UpdateSandboxRequestStatus Sandbox status
+type UpdateSandboxRequestStatus string
+
+// UpdateSandboxResponse Response from updating a sandbox.
+//
+// Attributes:
+//
+//	success: Whether the update succeeded.
+//	message: Human-readable status message.
+//	sandbox: Updated sandbox data.
+type UpdateSandboxResponse struct {
+	// Message Status message
+	Message string `json:"message"`
+
+	// Sandbox Represents a virtual machine sandbox in the Fleet pool.
+	//
+	// Sandboxes are Mac Mini VMs that developers can claim for development work.
+	// Each sandbox can host multiple git repositories and worktrees.
+	//
+	// Attributes:
+	//     id: Unique identifier for the sandbox (UUID).
+	//     org_id: Organization ID that owns this sandbox (NULL = shared pool).
+	//     vm_name: VM name (e.g., "sandbox-1").
+	//     hostname: Human-readable hostname for display.
+	//     sandbox_type: Type of sandbox (dedicated machine or container).
+	//     host_identifier: Groups sandboxes running on the same physical host.
+	//     tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+	//     status: Current sandbox state (available, claimed, maintenance, reserved).
+	//     claimed_by: User ID of the developer who claimed this sandbox.
+	//     claimed_at: Timestamp when the sandbox was claimed.
+	//     ssh_user: SSH username for connections (default: revyl-admin).
+	//     ssh_port: SSH port number (default: 22).
+	//     specs: Hardware specifications (cpu_cores, memory_gb, chip).
+	//     tags: Flexible labels for filtering (location, tier, etc.).
+	//     created_at: When the sandbox was added to the pool.
+	//     updated_at: Last modification timestamp.
+	Sandbox *FleetSandbox `json:"sandbox,omitempty"`
+
+	// Success Whether update succeeded
+	Success bool `json:"success"`
 }
 
 // UpdateSeatsRequest defines model for UpdateSeatsRequest.
@@ -5567,6 +5785,18 @@ type VariablesResponse struct {
 
 	// Result List of variable records
 	Result []VariableRow `json:"result"`
+}
+
+// VideoMetadataBatchRequest Request model for batch video metadata.
+type VideoMetadataBatchRequest struct {
+	TaskIds []string `json:"task_ids"`
+}
+
+// VideoMetadataBatchResponse Response for batch video metadata.
+type VideoMetadataBatchResponse struct {
+	FoundCount     int                            `json:"found_count"`
+	RequestedCount int                            `json:"requested_count"`
+	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
 }
 
 // VideoMetadataInfo Video + step metadata for a single task.
@@ -5787,9 +6017,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time                                           `json:"created_at"`
-	Deleted   bool                                                 `json:"deleted"`
+	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time        `json:"created_at"`
+	Deleted   bool              `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -6315,11 +6545,6 @@ type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
 	Value       *float32 `json:"value"`
 }
 
-// AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest Request model for batch video metadata.
-type AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest struct {
-	TaskIds []string `json:"task_ids"`
-}
-
 // AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse Response model for batch video metadata.
 type AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse struct {
 	FoundCount     int                          `json:"found_count"`
@@ -6330,31 +6555,6 @@ type AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse struct {
 // AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest Request for batch video metadata.
 type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest struct {
 	ExecutionIds []string `json:"execution_ids"`
-}
-
-// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse Response for batch video metadata.
-type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse struct {
-	FoundCount     int                            `json:"found_count"`
-	RequestedCount int                            `json:"requested_count"`
-	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
-}
-
-// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
-type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.
@@ -6760,6 +6960,11 @@ type GetPoolStatusApiV1FleetSandboxesStatusGetParams struct {
 	OrgOnly *bool `form:"org_only,omitempty" json:"org_only,omitempty"`
 }
 
+// SetMaintenanceModeApiV1FleetSandboxesSandboxIdMaintenancePostParams defines parameters for SetMaintenanceModeApiV1FleetSandboxesSandboxIdMaintenancePost.
+type SetMaintenanceModeApiV1FleetSandboxesSandboxIdMaintenancePostParams struct {
+	Enable *bool `form:"enable,omitempty" json:"enable,omitempty"`
+}
+
 // ReleaseSandboxApiV1FleetSandboxesSandboxIdReleasePostParams defines parameters for ReleaseSandboxApiV1FleetSandboxesSandboxIdReleasePost.
 type ReleaseSandboxApiV1FleetSandboxesSandboxIdReleasePostParams struct {
 	Force *bool `form:"force,omitempty" json:"force,omitempty"`
@@ -6817,6 +7022,12 @@ type GetReportApiV1ReportsV3ReportsReportIdGetParams struct {
 	IncludeActions  *bool `form:"include_actions,omitempty" json:"include_actions,omitempty"`
 	IncludeLlmCalls *bool `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
 
+	// Token Public share token for unauthenticated access
+	Token *string `form:"token,omitempty" json:"token,omitempty"`
+}
+
+// GetDeviceLogsDownloadUrlApiV1ReportsV3ReportsReportIdDeviceLogsGetParams defines parameters for GetDeviceLogsDownloadUrlApiV1ReportsV3ReportsReportIdDeviceLogsGet.
+type GetDeviceLogsDownloadUrlApiV1ReportsV3ReportsReportIdDeviceLogsGetParams struct {
 	// Token Public share token for unauthenticated access
 	Token *string `form:"token,omitempty" json:"token,omitempty"`
 }
@@ -7227,6 +7438,12 @@ type CreateWorkflowExecutionApiV1ExecutionWorkflowExecutionsPostJSONRequestBody 
 // UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatchJSONRequestBody defines body for UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatch for application/json ContentType.
 type UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatchJSONRequestBody = WorkflowExecutionUpdate
 
+// RegisterSandboxApiV1FleetSandboxesRegisterPostJSONRequestBody defines body for RegisterSandboxApiV1FleetSandboxesRegisterPost for application/json ContentType.
+type RegisterSandboxApiV1FleetSandboxesRegisterPostJSONRequestBody = RegisterSandboxRequest
+
+// UpdateSandboxApiV1FleetSandboxesSandboxIdPatchJSONRequestBody defines body for UpdateSandboxApiV1FleetSandboxesSandboxIdPatch for application/json ContentType.
+type UpdateSandboxApiV1FleetSandboxesSandboxIdPatchJSONRequestBody = UpdateSandboxRequest
+
 // PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPostJSONRequestBody defines body for PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPost for application/json ContentType.
 type PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPostJSONRequestBody = PushSSHKeyRequest
 
@@ -7258,7 +7475,7 @@ type UploadTrainingImageApiV1ReportAsyncRunTrainingImagePostJSONRequestBody = Tr
 type GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPostJSONRequestBody = UnifiedReportRequest
 
 // GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
 
 // GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody defines body for GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPost for application/json ContentType.
 type GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody = WorkflowTasksReportBatchRequest

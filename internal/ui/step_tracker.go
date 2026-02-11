@@ -96,7 +96,7 @@ func (t *StepTracker) Update(status *StepStatus) {
 //   - stepDescription: The description of the completed step
 func (t *StepTracker) printCompletedStep(stepDescription string) {
 	// Clear the current line first (in case there was a status line)
-	fmt.Print("\r\033[K")
+	clearLine()
 	fmt.Println(SuccessStyle.Render("✓ " + stepDescription))
 }
 
@@ -107,7 +107,7 @@ func (t *StepTracker) printCompletedStep(stepDescription string) {
 //   - status: The current step status information
 func (t *StepTracker) printCurrentStatus(status *StepStatus) {
 	// Clear current line
-	fmt.Print("\r\033[K")
+	clearLine()
 
 	// Build status line
 	icon := getStyledStatusIcon(status.Status)
@@ -134,7 +134,7 @@ func (t *StepTracker) Finish() {
 	defer t.mu.Unlock()
 
 	// Clear the in-place status line
-	fmt.Print("\r\033[K")
+	clearLine()
 }
 
 // GetCompletedSteps returns a copy of the completed step descriptions.

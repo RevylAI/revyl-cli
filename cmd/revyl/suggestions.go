@@ -21,18 +21,16 @@ import (
 var subcommandMap = map[string][]string{
 	"open":     {"test", "workflow"},
 	"run":      {"test", "workflow"},
-	"create":   {"test", "workflow"},
-	"delete":   {"test", "workflow"},
+	"create":   {"test", "workflow", "app"},
+	"delete":   {"test", "workflow", "app"},
 	"cancel":   {"test", "workflow"},
-	"list":     {"test"},
+	"list":     {"test", "app"},
 	"remote":   {"test"},
 	"push":     {"test"},
 	"pull":     {"test"},
 	"diff":     {"test"},
 	"validate": {"test"},
 	"setup":    {"hotreload"},
-	"status":   {"hotreload"},
-	"stop":     {"hotreload"},
 }
 
 // suggestCorrectCommand checks if the user typed a subcommand at the wrong level

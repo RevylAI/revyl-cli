@@ -441,7 +441,9 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 
 	ui.Println()
 	ui.PrintSuccess("Successfully upgraded to %s", tagName)
-	ui.PrintInfo("Run 'revyl version' to verify")
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Verify version:", Command: "revyl version"},
+	})
 
 	return nil
 }

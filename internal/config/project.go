@@ -34,6 +34,14 @@ type ProjectConfig struct {
 
 	// HotReload contains hot reload configuration for rapid development iteration.
 	HotReload HotReloadConfig `yaml:"hotreload,omitempty"`
+
+	// LastSyncedAt records when this config was last synced with the server (RFC3339).
+	LastSyncedAt string `yaml:"last_synced_at,omitempty"`
+}
+
+// MarkSynced sets the LastSyncedAt timestamp to now (UTC, RFC3339).
+func (c *ProjectConfig) MarkSynced() {
+	c.LastSyncedAt = time.Now().UTC().Format(time.RFC3339)
 }
 
 // HotReloadConfig contains configuration for hot reload mode.
@@ -59,7 +67,7 @@ type HotReloadConfig struct {
 // ProviderConfig contains configuration for a single hot reload provider.
 type ProviderConfig struct {
 	// DevClientBuildID is the build version ID of the pre-built development client.
-	// Optional: can be specified at runtime via --variant or --build-version-id flags.
+	// Optional: can be specified at runtime via --platform or --build-id flags.
 	DevClientBuildID string `yaml:"dev_client_build_id,omitempty"`
 
 	// Port is the port for the dev server (default varies by provider).
@@ -204,7 +212,7 @@ func (c *HotReloadConfig) ValidateProvider(providerName string) error {
 }
 
 // validateProviderConfig validates a single provider configuration.
-// Note: DevClientBuildID is optional - it can be specified at runtime via --variant or --build-version-id.
+// Note: DevClientBuildID is optional - it can be specified at runtime via --platform or --build-id.
 func (c *HotReloadConfig) validateProviderConfig(name string, cfg *ProviderConfig) error {
 	switch name {
 	case "expo":
@@ -242,20 +250,24 @@ type BuildConfig struct {
 	// Output is the path to the build output artifact.
 	Output string `yaml:"output,omitempty"`
 
-	// Variants contains named build variants.
-	Variants map[string]BuildVariant `yaml:"variants,omitempty"`
+	// Platforms contains platform-specific build configurations keyed by platform name
+	// (e.g. "ios", "android", "ios-dev").
+	Platforms map[string]BuildPlatform `yaml:"platforms,omitempty"`
 }
 
-// BuildVariant represents a named build variant.
-type BuildVariant struct {
-	// Command is the build command for this variant.
+// BuildPlatform represents a platform-specific build configuration.
+//
+// Each entry in build.platforms maps a key (e.g. "ios", "android", "ios-dev")
+// to a build command, output path, and associated Revyl app ID.
+type BuildPlatform struct {
+	// Command is the build command for this platform.
 	Command string `yaml:"command"`
 
-	// Output is the output path for this variant.
+	// Output is the output artifact path for this platform.
 	Output string `yaml:"output"`
 
-	// BuildVarID is the Revyl build variable ID for this variant.
-	BuildVarID string `yaml:"build_var_id,omitempty"`
+	// AppID is the Revyl app ID that stores builds for this platform.
+	AppID string `yaml:"app_id,omitempty"`
 }
 
 // Defaults contains default settings.
@@ -284,6 +296,17 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 	var cfg ProjectConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Guarantee maps are never nil so callers don't need defensive checks
+	if cfg.Tests == nil {
+		cfg.Tests = make(map[string]string)
+	}
+	if cfg.Workflows == nil {
+		cfg.Workflows = make(map[string]string)
+	}
+	if cfg.Build.Platforms == nil {
+		cfg.Build.Platforms = make(map[string]BuildPlatform)
 	}
 
 	return &cfg, nil
@@ -370,7 +393,7 @@ type TestMetadata struct {
 
 // TestBuildConfig contains build configuration for a test.
 type TestBuildConfig struct {
-	// Name is the build variable name.
+	// Name is the app name.
 	Name string `yaml:"name"`
 
 	// PinnedVersion is an optional pinned version.

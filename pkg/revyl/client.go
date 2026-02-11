@@ -219,7 +219,7 @@ func (c *Client) RunTestWithOptions(ctx context.Context, nameOrID string, opts *
 	}
 
 	// Monitor execution
-	monitor := sse.NewMonitor("", opts.Timeout) // API key already in client
+	monitor := sse.NewMonitor(c.apiKey, opts.Timeout)
 	finalStatus, err := monitor.MonitorTest(ctx, resp.TaskID, testID, func(status *sse.TestStatus) {
 		if opts.OnProgress != nil {
 			opts.OnProgress(status.Progress, status.CurrentStep)
@@ -236,7 +236,7 @@ func (c *Client) RunTestWithOptions(ctx context.Context, nameOrID string, opts *
 		Status:       finalStatus.Status,
 		Success:      status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
 		Duration:     finalStatus.Duration,
-		ReportURL:    fmt.Sprintf("%s/tests/report?taskId=%s", config.ProdAppURL, resp.TaskID),
+		ReportURL:    fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(false), resp.TaskID),
 		ErrorMessage: finalStatus.ErrorMessage,
 	}, nil
 }
@@ -291,7 +291,7 @@ func (c *Client) RunWorkflow(ctx context.Context, nameOrID string) (*WorkflowRes
 	}
 
 	// Monitor execution
-	monitor := sse.NewMonitor("", 3600)
+	monitor := sse.NewMonitor(c.apiKey, 3600)
 	finalStatus, err := monitor.MonitorWorkflow(ctx, resp.TaskID, workflowID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("monitoring failed: %w", err)
@@ -306,7 +306,7 @@ func (c *Client) RunWorkflow(ctx context.Context, nameOrID string) (*WorkflowRes
 		PassedTests: finalStatus.PassedTests,
 		FailedTests: finalStatus.FailedTests,
 		Duration:    finalStatus.Duration,
-		ReportURL:   fmt.Sprintf("%s/workflows/report?taskId=%s", config.ProdAppURL, resp.TaskID),
+		ReportURL:   fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(false), resp.TaskID),
 	}, nil
 }
 
@@ -334,8 +334,8 @@ func (c *Client) BuildAndUpload(ctx context.Context) (*BuildResult, error) {
 
 // BuildOptions contains options for building.
 type BuildOptions struct {
-	// Variant is the build variant to use.
-	Variant string
+	// Platform is the build platform key to use (e.g., "ios", "android").
+	Platform string
 	// SkipBuild skips the build step.
 	SkipBuild bool
 	// Version is a custom version string.
@@ -363,15 +363,15 @@ func (c *Client) BuildAndUploadWithOptions(ctx context.Context, opts *BuildOptio
 	}
 
 	buildCfg := c.config.Build
-	var variant config.BuildVariant
-	if opts.Variant != "" {
+	var platformCfg config.BuildPlatform
+	if opts.Platform != "" {
 		var ok bool
-		variant, ok = c.config.Build.Variants[opts.Variant]
+		platformCfg, ok = c.config.Build.Platforms[opts.Platform]
 		if !ok {
-			return nil, fmt.Errorf("unknown variant: %s", opts.Variant)
+			return nil, fmt.Errorf("unknown platform: %s", opts.Platform)
 		}
-		buildCfg.Command = variant.Command
-		buildCfg.Output = variant.Output
+		buildCfg.Command = platformCfg.Command
+		buildCfg.Output = platformCfg.Output
 	}
 
 	// Run build
@@ -390,13 +390,13 @@ func (c *Client) BuildAndUploadWithOptions(ctx context.Context, opts *BuildOptio
 
 	// Upload
 	artifactPath := filepath.Join(c.workDir, buildCfg.Output)
-	metadata := build.CollectMetadata(c.workDir, buildCfg.Command, opts.Variant, 0)
+	metadata := build.CollectMetadata(c.workDir, buildCfg.Command, opts.Platform, 0)
 
 	result, err := c.apiClient.UploadBuild(ctx, &api.UploadBuildRequest{
-		BuildVarID: variant.BuildVarID,
-		Version:    version,
-		FilePath:   artifactPath,
-		Metadata:   metadata,
+		AppID:    platformCfg.AppID,
+		Version:  version,
+		FilePath: artifactPath,
+		Metadata: metadata,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upload failed: %w", err)

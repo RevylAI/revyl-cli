@@ -211,7 +211,14 @@ func GetFrontendPortWithAutoDetect() string {
 }
 
 // GetBackendURL returns the backend API URL based on the dev mode setting.
+// The REVYL_BACKEND_URL environment variable takes highest precedence, allowing
+// the CLI to target staging, preview, or any custom environment.
 // In dev mode, it uses auto-detection to find a running backend server.
+//
+// Precedence (highest to lowest):
+//  1. REVYL_BACKEND_URL environment variable
+//  2. --dev flag (localhost with auto-detected port)
+//  3. Production default (backend.revyl.ai)
 //
 // Parameters:
 //   - devMode: If true, returns localhost URL with auto-detected port
@@ -219,6 +226,9 @@ func GetFrontendPortWithAutoDetect() string {
 // Returns:
 //   - string: The backend API URL
 func GetBackendURL(devMode bool) string {
+	if envURL := os.Getenv("REVYL_BACKEND_URL"); envURL != "" {
+		return strings.TrimRight(envURL, "/")
+	}
 	if devMode {
 		return fmt.Sprintf("http://localhost:%s", GetBackendPortWithAutoDetect())
 	}
@@ -226,7 +236,14 @@ func GetBackendURL(devMode bool) string {
 }
 
 // GetAppURL returns the frontend app URL based on the dev mode setting.
+// The REVYL_APP_URL environment variable takes highest precedence, allowing
+// the CLI to target staging, preview, or any custom environment.
 // In dev mode, it uses auto-detection to find a running frontend server.
+//
+// Precedence (highest to lowest):
+//  1. REVYL_APP_URL environment variable
+//  2. --dev flag (localhost with auto-detected port)
+//  3. Production default (app.revyl.ai)
 //
 // Parameters:
 //   - devMode: If true, returns localhost URL with auto-detected port
@@ -234,8 +251,20 @@ func GetBackendURL(devMode bool) string {
 // Returns:
 //   - string: The frontend app URL
 func GetAppURL(devMode bool) string {
+	if envURL := os.Getenv("REVYL_APP_URL"); envURL != "" {
+		return strings.TrimRight(envURL, "/")
+	}
 	if devMode {
 		return fmt.Sprintf("http://localhost:%s", GetFrontendPortWithAutoDetect())
 	}
 	return ProdAppURL
+}
+
+// HasURLOverride returns true if either REVYL_BACKEND_URL or REVYL_APP_URL
+// environment variables are set, indicating a custom environment target.
+//
+// Returns:
+//   - bool: True if any URL override environment variable is set
+func HasURLOverride() bool {
+	return os.Getenv("REVYL_BACKEND_URL") != "" || os.Getenv("REVYL_APP_URL") != ""
 }

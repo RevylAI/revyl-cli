@@ -44,8 +44,8 @@ func TestSuggestCorrectCommand(t *testing.T) {
 		{
 			name:           "open test with flags",
 			unknownCmd:     "open",
-			allArgs:        []string{"--dev", "open", "test", "peptide-view", "--interactive", "--hotreload", "--variant", "ios-dev"},
-			wantSuggestion: "revyl --dev test open peptide-view --interactive --hotreload --variant ios-dev",
+			allArgs:        []string{"--dev", "open", "test", "peptide-view", "--interactive", "--hotreload", "--platform", "ios-dev"},
+			wantSuggestion: "revyl --dev test open peptide-view --interactive --hotreload --platform ios-dev",
 			wantFound:      true,
 		},
 		{

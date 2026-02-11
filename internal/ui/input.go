@@ -70,7 +70,7 @@ func PromptSelect(message string, options []string) (int, error) {
 	fmt.Println(InfoStyle.Render(message))
 
 	for i, opt := range options {
-		fmt.Printf("  %s %s\n", DimStyle.Render(fmt.Sprintf("[%d]", i+1)), opt)
+		fmt.Printf("    %s %s\n", AccentStyle.Render(fmt.Sprintf("[%d]", i+1)), InfoStyle.Render(opt))
 	}
 
 	for {
@@ -117,15 +117,20 @@ func Select(message string, options []SelectOption, defaultIndex int) (int, stri
 	fmt.Println(InfoStyle.Render(message))
 
 	for i, opt := range options {
-		marker := " "
+		number := AccentStyle.Render(fmt.Sprintf("[%d]", i+1))
 		if i == defaultIndex {
-			marker = "*"
-		}
-		if opt.Description != "" {
-			fmt.Printf("  %s%s %s\n", marker, DimStyle.Render(fmt.Sprintf("[%d]", i+1)), opt.Label)
-			fmt.Printf("      %s\n", DimStyle.Render(opt.Description))
+			marker := AccentStyle.Render(">")
+			label := TitleStyle.Render(opt.Label)
+			fmt.Printf("  %s %s %s\n", marker, number, label)
+			if opt.Description != "" {
+				fmt.Printf("      %s\n", DimStyle.Render(opt.Description))
+			}
 		} else {
-			fmt.Printf("  %s%s %s\n", marker, DimStyle.Render(fmt.Sprintf("[%d]", i+1)), opt.Label)
+			label := InfoStyle.Render(opt.Label)
+			fmt.Printf("    %s %s\n", number, label)
+			if opt.Description != "" {
+				fmt.Printf("      %s\n", DimStyle.Render(opt.Description))
+			}
 		}
 	}
 

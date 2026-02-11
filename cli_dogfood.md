@@ -214,23 +214,26 @@ cd /path/to/your/app
 
 ### Configure .revyl/config.yaml
 
-Edit the generated config to add your test aliases and build variable:
+Edit the generated config to add your test aliases and app:
 
 ```yaml
 project:
-  id: "your-project-id"  # From Revyl dashboard
   name: "nof1"
 
 build:
   system: gradle  # or xcode, expo, flutter, react-native
   command: "./gradlew assembleDebug"
   output: "app/build/outputs/apk/debug/app-debug.apk"
-  build_var_id: "your-build-var-id"  # From Revyl dashboard
-  
-  variants:
-    release:
-      command: "./gradlew assembleRelease"
-      output: "app/build/outputs/apk/release/app-release.apk"
+
+  platforms:
+    android:
+      command: "./gradlew assembleDebug"
+      output: "app/build/outputs/apk/debug/app-debug.apk"
+      app_id: "your-android-app-id"
+    ios:
+      command: "xcodebuild -scheme MyApp ..."
+      output: "build/MyApp.ipa"
+      app_id: "your-ios-app-id"
 
 # Add your test aliases here
 tests:
@@ -251,13 +254,13 @@ defaults:
 
 ```bash
 # Full workflow: build -> upload -> run test
-revyl test login-flow
+revyl run login-flow
 
 # Skip build (use existing artifact)
-revyl test login-flow --skip-build
+revyl run login-flow --no-build
 
-# Use release variant
-revyl test run login-flow --variant release
+# Use a specific platform config
+revyl run login-flow --platform android
 
 # Just run (no build/upload)
 revyl test run login-flow
