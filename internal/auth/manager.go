@@ -42,8 +42,12 @@ type Credentials struct {
 	// UserID is the user's ID (optional).
 	UserID string `json:"user_id,omitempty"`
 
-	// AuthMethod indicates how the user authenticated ("browser" or "api_key").
+	// AuthMethod indicates how the user authenticated ("browser", "api_key", or "browser_api_key").
 	AuthMethod string `json:"auth_method,omitempty"`
+
+	// APIKeyID is the PropelAuth-assigned key ID when a persistent CLI key was created.
+	// Used for key rotation and cleanup on logout.
+	APIKeyID string `json:"api_key_id,omitempty"`
 }
 
 // Manager handles credential storage and retrieval.
@@ -341,6 +345,29 @@ func (m *Manager) SaveAPIKeyCredentials(apiKey, email, orgID, userID string) err
 		OrgID:      orgID,
 		UserID:     userID,
 		AuthMethod: "api_key",
+	}
+	return m.SaveCredentials(creds)
+}
+
+// SaveBrowserAPIKeyCredentials stores credentials from browser-based auth
+// that generated a persistent API key (instead of a short-lived access token).
+// These credentials never expire, providing the same UX as manual API key auth
+// while being created automatically via the browser login flow.
+//
+// Parameters:
+//   - result: The browser auth result containing the API key token and user info
+//   - apiKeyID: The PropelAuth-assigned key ID for rotation/cleanup
+//
+// Returns:
+//   - error: Any error that occurred during storage
+func (m *Manager) SaveBrowserAPIKeyCredentials(result *BrowserAuthResult, apiKeyID string) error {
+	creds := &Credentials{
+		APIKey:     result.Token,
+		Email:      result.Email,
+		OrgID:      result.OrgID,
+		UserID:     result.UserID,
+		AuthMethod: "browser_api_key",
+		APIKeyID:   apiKeyID,
 	}
 	return m.SaveCredentials(creds)
 }

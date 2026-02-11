@@ -61,7 +61,7 @@ func wrapAuthError(err error) error {
 	if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
 		mgr := auth.NewManager()
 		creds, _ := mgr.GetCredentials()
-		if creds != nil && creds.AuthMethod == "browser" {
+		if creds != nil && (creds.AuthMethod == "browser" || creds.AuthMethod == "browser_api_key") {
 			return &AuthExpiredError{Inner: err}
 		}
 	}
@@ -198,10 +198,21 @@ func loginWithBrowser(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error
 		return err
 	}
 
-	// Save credentials with token expiration
-	if err := mgr.SaveBrowserCredentials(result, defaultTokenExpiration); err != nil {
-		ui.PrintError("Failed to save credentials: %v", err)
-		return err
+	// Save credentials — persistent API key or short-lived access token
+	isPersistentKey := result.AuthMethod == "api_key" && result.APIKeyID != ""
+
+	if isPersistentKey {
+		// Backend generated a long-lived API key — store it without expiry
+		if err := mgr.SaveBrowserAPIKeyCredentials(result, result.APIKeyID); err != nil {
+			ui.PrintError("Failed to save credentials: %v", err)
+			return err
+		}
+	} else {
+		// Fallback: short-lived access token (original behaviour)
+		if err := mgr.SaveBrowserCredentials(result, defaultTokenExpiration); err != nil {
+			ui.PrintError("Failed to save credentials: %v", err)
+			return err
+		}
 	}
 
 	// Update with validated user info (may have more details than callback)
@@ -374,7 +385,10 @@ var authStatusCmd = &cobra.Command{
 			if creds.AuthMethod != "" {
 				result["auth_method"] = creds.AuthMethod
 			}
-			if creds.ExpiresAt != nil {
+			if creds.AuthMethod == "browser_api_key" || creds.AuthMethod == "api_key" || creds.AuthMethod == "env" {
+				result["expires_in_seconds"] = nil
+				result["expired"] = false
+			} else if creds.ExpiresAt != nil {
 				remaining := time.Until(*creds.ExpiresAt)
 				result["expires_in_seconds"] = int(remaining.Seconds())
 				result["expired"] = remaining <= 0
@@ -399,11 +413,17 @@ var authStatusCmd = &cobra.Command{
 
 		// Show auth method
 		if creds.AuthMethod != "" {
-			ui.PrintInfo("Auth Method: %s", creds.AuthMethod)
+			displayMethod := creds.AuthMethod
+			if creds.AuthMethod == "browser_api_key" {
+				displayMethod = "browser (persistent key)"
+			}
+			ui.PrintInfo("Auth Method: %s", displayMethod)
 		}
 
 		// Show token expiration for browser auth
-		if creds.ExpiresAt != nil {
+		if creds.AuthMethod == "browser_api_key" || creds.AuthMethod == "api_key" || creds.AuthMethod == "env" {
+			ui.PrintInfo("Token expires: never")
+		} else if creds.ExpiresAt != nil {
 			remaining := time.Until(*creds.ExpiresAt)
 			if remaining > 0 {
 				ui.PrintInfo("Token expires in: %s", formatDuration(remaining))
@@ -416,7 +436,7 @@ var authStatusCmd = &cobra.Command{
 		token, _ := mgr.GetActiveToken()
 		if len(token) > 12 {
 			maskedToken := token[:8] + "..." + token[len(token)-4:]
-			if creds.AuthMethod == "api_key" || creds.AuthMethod == "env" {
+			if creds.AuthMethod == "api_key" || creds.AuthMethod == "env" || creds.AuthMethod == "browser_api_key" {
 				ui.PrintInfo("API Key: %s", maskedToken)
 			} else {
 				ui.PrintInfo("Token: %s", maskedToken)

@@ -281,10 +281,22 @@ func PrintVerboseStatus(statusStr string, progress int, currentStep string, comp
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)
 
-	// Special handling for device setup phase
+	// Special handling for non-running phases (device lifecycle + terminal states)
 	statusLower := strings.ToLower(statusStr)
-	if statusLower == "starting" || statusLower == "queued" {
-		displayStatus := "Setting up device..."
+	var displayStatus string
+	switch statusLower {
+	case "starting", "queued":
+		displayStatus = "Setting up device..."
+	case "verifying":
+		displayStatus = "Verifying results..."
+	case "stopping":
+		displayStatus = "Stopping device..."
+	case "cancelled":
+		displayStatus = "Test cancelled"
+	case "timeout":
+		displayStatus = "Test timed out"
+	}
+	if displayStatus != "" {
 		statusLine := fmt.Sprintf("%s %s", statusIcon, InfoStyle.Render(displayStatus))
 		if duration != "" {
 			statusLine += DimStyle.Render(fmt.Sprintf(" (%s)", duration))
@@ -330,10 +342,23 @@ func PrintBasicStatus(statusStr string, progress int, completedSteps, totalSteps
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)
 
-	// Special handling for device setup phase
+	// Special handling for non-running phases (device lifecycle + terminal states)
 	statusLower := strings.ToLower(statusStr)
-	if statusLower == "starting" || statusLower == "queued" {
-		statusLine := fmt.Sprintf("%s %s", statusIcon, "Setting up device...")
+	var displayStatus string
+	switch statusLower {
+	case "starting", "queued":
+		displayStatus = "Setting up device..."
+	case "verifying":
+		displayStatus = "Verifying results..."
+	case "stopping":
+		displayStatus = "Stopping device..."
+	case "cancelled":
+		displayStatus = "Test cancelled"
+	case "timeout":
+		displayStatus = "Test timed out"
+	}
+	if displayStatus != "" {
+		statusLine := fmt.Sprintf("%s %s", statusIcon, InfoStyle.Render(displayStatus))
 		fmt.Print(statusLine)
 		return
 	}

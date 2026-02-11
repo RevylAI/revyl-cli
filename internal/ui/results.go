@@ -11,7 +11,7 @@ import (
 //
 // Parameters:
 //   - name: Test name
-//   - status: "passed" or "failed"
+//   - status: "passed", "failed", "cancelled", or "timeout"
 //   - reportURL: URL to the test report
 //   - errorMsg: Error message if failed (optional)
 func PrintTestResult(name, status, reportURL, errorMsg string) {
@@ -25,6 +25,12 @@ func PrintTestResult(name, status, reportURL, errorMsg string) {
 	case "failed":
 		statusStyle = StatusFailedStyle
 		statusIcon = "✗"
+	case "cancelled":
+		statusStyle = WarningStyle
+		statusIcon = "⊘"
+	case "timeout":
+		statusStyle = WarningStyle
+		statusIcon = "⏱"
 	default:
 		statusStyle = DimStyle
 		statusIcon = "?"

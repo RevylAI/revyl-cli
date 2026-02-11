@@ -12,6 +12,7 @@ var (
 	spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	spinnerMu     sync.Mutex
 	spinnerStop   chan struct{}
+	spinnerDone   chan struct{} // signals goroutine has finished cleanup
 	spinnerActive bool
 )
 
@@ -34,11 +35,14 @@ func StartSpinner(message string) {
 
 	spinnerActive = true
 	spinnerStop = make(chan struct{})
+	spinnerDone = make(chan struct{})
 
-	// Capture the stop channel in a local variable to avoid race condition
+	// Capture channels in local variables to avoid race conditions
 	stopChan := spinnerStop
+	doneChan := spinnerDone
 
 	go func() {
+		defer close(doneChan) // signal done after cleanup write completes
 		i := 0
 		for {
 			select {
@@ -57,18 +61,25 @@ func StartSpinner(message string) {
 	}()
 }
 
-// StopSpinner stops the current spinner.
+// StopSpinner stops the current spinner and blocks until cleanup is complete.
+// This ensures the spinner's line-clearing write finishes before any subsequent
+// writes to stdout, preventing race conditions with progress display.
 func StopSpinner() {
 	spinnerMu.Lock()
-	defer spinnerMu.Unlock()
 
 	if !spinnerActive {
+		spinnerMu.Unlock()
 		return
 	}
 
 	close(spinnerStop)
 	spinnerActive = false
-	time.Sleep(100 * time.Millisecond) // Allow cleanup
+	doneChan := spinnerDone
+	spinnerMu.Unlock()
+
+	// Block until goroutine cleanup write completes (must be outside lock
+	// since the goroutine doesn't hold the lock during its cleanup Printf).
+	<-doneChan
 }
 
 // ProgressBar represents a progress bar state.

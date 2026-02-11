@@ -317,7 +317,8 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show final result
-	if result.Success {
+	switch {
+	case result.Success:
 		if runOutputJSON || runGitHubActions {
 			outputTestResultJSON(result)
 		} else {
@@ -329,7 +330,26 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 				{Label: "Add to workflow:", Command: fmt.Sprintf("revyl workflow create --tests %s", testNameOrID)},
 			})
 		}
-	} else {
+	case result.Status == "cancelled":
+		if runOutputJSON || runGitHubActions {
+			outputTestResultJSON(result)
+		} else {
+			ui.PrintTestResult(result.TestName, "cancelled", result.ReportURL, "")
+			ui.Println()
+			ui.PrintWarning("Test was cancelled")
+		}
+	case result.Status == "timeout":
+		if runOutputJSON || runGitHubActions {
+			outputTestResultJSON(result)
+		} else {
+			ui.PrintTestResult(result.TestName, "timeout", result.ReportURL, result.ErrorMessage)
+			ui.Println()
+			ui.PrintWarning("Test timed out")
+			ui.PrintNextSteps([]ui.NextStep{
+				{Label: "Re-run with verbose:", Command: fmt.Sprintf("revyl run %s -v", testNameOrID)},
+			})
+		}
+	default:
 		if runOutputJSON || runGitHubActions {
 			outputTestResultJSON(result)
 		} else {
@@ -349,7 +369,14 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 
 	if !result.Success {
-		return fmt.Errorf("test failed")
+		switch result.Status {
+		case "cancelled":
+			return fmt.Errorf("test was cancelled")
+		case "timeout":
+			return fmt.Errorf("test timed out")
+		default:
+			return fmt.Errorf("test failed")
+		}
 	}
 
 	return nil
@@ -984,7 +1011,8 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	ui.Println()
 
 	// Show final result
-	if testResult.Success {
+	switch {
+	case testResult.Success:
 		if runOutputJSON || runGitHubActions {
 			outputTestResultJSON(testResult)
 		} else {
@@ -992,7 +1020,23 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 			ui.Println()
 			ui.PrintSuccess("Test completed successfully!")
 		}
-	} else {
+	case testResult.Status == "cancelled":
+		if runOutputJSON || runGitHubActions {
+			outputTestResultJSON(testResult)
+		} else {
+			ui.PrintTestResult(testResult.TestName, "cancelled", testResult.ReportURL, "")
+			ui.Println()
+			ui.PrintWarning("Test was cancelled")
+		}
+	case testResult.Status == "timeout":
+		if runOutputJSON || runGitHubActions {
+			outputTestResultJSON(testResult)
+		} else {
+			ui.PrintTestResult(testResult.TestName, "timeout", testResult.ReportURL, testResult.ErrorMessage)
+			ui.Println()
+			ui.PrintWarning("Test timed out")
+		}
+	default:
 		if runOutputJSON || runGitHubActions {
 			outputTestResultJSON(testResult)
 		} else {
@@ -1019,7 +1063,14 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	<-sigChan
 
 	if !testResult.Success {
-		return fmt.Errorf("test failed")
+		switch testResult.Status {
+		case "cancelled":
+			return fmt.Errorf("test was cancelled")
+		case "timeout":
+			return fmt.Errorf("test timed out")
+		default:
+			return fmt.Errorf("test failed")
+		}
 	}
 
 	return nil

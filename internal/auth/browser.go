@@ -33,7 +33,7 @@ const (
 
 // BrowserAuthResult contains the result of browser-based authentication.
 type BrowserAuthResult struct {
-	// Token is the access token received from the auth callback.
+	// Token is the access token or API key received from the auth callback.
 	Token string
 
 	// Email is the user's email address (optional).
@@ -44,6 +44,13 @@ type BrowserAuthResult struct {
 
 	// UserID is the user's ID (optional).
 	UserID string
+
+	// APIKeyID is the PropelAuth-assigned key ID when a persistent key was created (optional).
+	// Empty when the callback fell back to a short-lived access token.
+	APIKeyID string
+
+	// AuthMethod indicates how the token was generated ("api_key" for persistent key, empty for access token).
+	AuthMethod string
 
 	// Error contains any error message from the auth flow.
 	Error string
@@ -322,10 +329,12 @@ func (s *callbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 
 	// Build result
 	result := &BrowserAuthResult{
-		Token:  token,
-		Email:  query.Get("email"),
-		OrgID:  query.Get("org_id"),
-		UserID: query.Get("user_id"),
+		Token:      token,
+		Email:      query.Get("email"),
+		OrgID:      query.Get("org_id"),
+		UserID:     query.Get("user_id"),
+		APIKeyID:   query.Get("api_key_id"),
+		AuthMethod: query.Get("auth_method"),
 	}
 
 	// Send success response
