@@ -24,6 +24,10 @@ const tagline = "Proactive Reliability for Mobile Apps"
 // Parameters:
 //   - version: The CLI version string to display
 func PrintBanner(version string) {
+	if quietMode {
+		return
+	}
+
 	// Style the banner with purple color
 	styledBanner := lipgloss.NewStyle().
 		Foreground(Purple).
@@ -51,15 +55,6 @@ func PrintBanner(version string) {
 	fmt.Println()
 }
 
-// PrintMiniBanner prints a smaller banner for commands.
-func PrintMiniBanner() {
-	styledBanner := lipgloss.NewStyle().
-		Foreground(Purple).
-		Bold(true).
-		Render("revyl")
-	fmt.Println(styledBanner)
-}
-
 // GetHelpText returns the formatted help text for the CLI.
 func GetHelpText() string {
 	purple := lipgloss.NewStyle().Foreground(Purple).Bold(true)
@@ -72,20 +67,20 @@ func GetHelpText() string {
 %s
   %s            Authenticate with your Revyl account
   %s                Initialize project configuration
+  %s         Build and run a test (recommended)
+  %s         Run without rebuilding
+  %s         Build and run a workflow
+
+%s
   %s      Create a new test
   %s  Create a new workflow
   %s         Open a test in browser
-  %s       Build, upload, and run a test
-  %s    Run a workflow (collection of tests)
+  %s              List and manage test definitions
+  %s            List and manage app builds
 
 %s
   %s         Start MCP server for AI agent integration
   %s              Output machine-readable CLI schema
-
-%s
-  %s              List and manage test definitions
-  %s   Validate YAML test files (dry-run)
-  %s            List and manage app builds
 
 %s  https://docs.revyl.com
 %s  support@revyl.ai`,
@@ -94,18 +89,18 @@ func GetHelpText() string {
 		purple.Render("Quick Start:"),
 		purple.Render("revyl auth login"),
 		purple.Render("revyl init"),
-		purple.Render("revyl create test <name>"),
-		purple.Render("revyl create workflow <name>"),
-		purple.Render("revyl open test <name>"),
-		purple.Render("revyl test <name>"),
-		purple.Render("revyl run workflow <name>"),
-		purple.Render("AI/LLM Integration:"),
+		purple.Render("revyl run <test-name>"),
+		purple.Render("revyl run <test-name> --no-build"),
+		purple.Render("revyl run <workflow> -w"),
+		purple.Render("More:"),
+		purple.Render("revyl test create <name>"),
+		purple.Render("revyl workflow create <name>"),
+		purple.Render("revyl test open <name>"),
+		purple.Render("revyl test"),
+		purple.Render("revyl build"),
+		purple.Render("AI/LLM:"),
 		purple.Render("revyl mcp serve"),
 		purple.Render("revyl schema"),
-		purple.Render("Management:"),
-		purple.Render("revyl tests"),
-		purple.Render("revyl tests validate"),
-		purple.Render("revyl build"),
 		purple.Render("Docs: "),
 		purple.Render("Help: "),
 	)

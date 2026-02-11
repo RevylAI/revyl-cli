@@ -1,227 +1,168 @@
-// Package main provides the test command for the full build->upload->run workflow.
+// Package main provides the test command for test management.
 package main
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"time"
-
 	"github.com/spf13/cobra"
-
-	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/auth"
-	"github.com/revyl/cli/internal/build"
-	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/sse"
-	"github.com/revyl/cli/internal/status"
-	"github.com/revyl/cli/internal/ui"
 )
 
-// testCmd runs the full workflow: build -> upload -> run test.
+// testCmd is the parent command for test management operations.
 var testCmd = &cobra.Command{
-	Use:   "test <name|id>",
-	Short: "Build, upload, and run a test",
-	Long: `Build the app, upload it, and run a test.
+	Use:   "test",
+	Short: "Manage test definitions",
+	Long: `Manage local and remote test definitions.
 
-This is the main command for the typical development workflow.
-It combines 'revyl build upload' and 'revyl run test' into one command.
+For the common build→test flow, use: revyl run <test-name> (builds then runs).
+For run-only or advanced options (hot reload, specific build), use the run subcommand below.
 
-Examples:
-  revyl test login-flow                 # Full workflow with default build
-  revyl test login-flow --variant release
-  revyl test login-flow --skip-build    # Skip build, use existing artifact`,
-	Args: cobra.ExactArgs(1),
-	RunE: runFullTest,
+COMMANDS:
+  list      - List tests with sync status
+  remote    - List all tests in your organization
+  push      - Push local test changes to remote
+  pull      - Pull remote test changes to local
+  diff      - Show diff between local and remote
+  validate  - Validate YAML test files
+  run       - Run a test (optionally with --build)
+  cancel    - Cancel a running test
+  create    - Create a new test
+  delete    - Delete a test
+  open      - Open a test in the browser
+
+EXAMPLES:
+  revyl run login-flow               # Build and run (recommended)
+  revyl test run login-flow          # Run only (no build)
+  revyl test run login-flow --build  # Explicit build then run
+  revyl test list                    # List tests with sync status
+  revyl test push login-flow         # Push local changes to remote`,
 }
 
-var (
-	testVariant   string
-	testSkipBuild bool
-	testRetries   int
-	testNoWait    bool
-	testOpen      bool
-	testTimeout   int
-)
+// testRunCmd runs a single test (run-only by default; use --build to build first).
+var testRunCmd = &cobra.Command{
+	Use:   "run <name|id>",
+	Short: "Run a test by name or ID",
+	Long: `Run a test by its alias name (from .revyl/config.yaml) or UUID.
+
+By default runs against the last uploaded build. Use --build to build and
+upload first. For the common build→test flow, the shortcut "revyl run <name>"
+builds then runs in one command.
+
+Use the test NAME or UUID, not a file path.
+  CORRECT: revyl test run login-flow
+  WRONG:   revyl test run login-flow.yaml
+
+EXAMPLES:
+  revyl run login-flow               # Build then run (shortcut)
+  revyl test run login-flow          # Run only (no build)
+  revyl test run login-flow --build  # Build then run
+  revyl test run login-flow --hotreload --platform ios-dev`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTestExec,
+}
+
+// testCancelCmd cancels a running test.
+var testCancelCmd = &cobra.Command{
+	Use:   "cancel <task_id>",
+	Short: "Cancel a running test",
+	Long: `Cancel a running test execution by its task ID.
+
+Task ID is shown when you start a test or in the report URL.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runCancelTest,
+}
+
+// testCreateCmd creates a new test.
+var testCreateCmd = &cobra.Command{
+	Use:   "create <name>",
+	Short: "Create a new test",
+	Long: `Create a new test and open the editor.
+
+EXAMPLES:
+  revyl test create login-flow --platform android
+  revyl test create checkout --platform ios`,
+	Args: cobra.ExactArgs(1),
+	RunE: runCreateTest,
+}
+
+// testDeleteCmd deletes a test.
+var testDeleteCmd = &cobra.Command{
+	Use:   "delete <name|id>",
+	Short: "Delete a test",
+	Long: `Delete a test from Revyl and remove local files.
+
+By default removes from remote, local .revyl/tests/<name>.yaml, and config alias.
+Use --remote-only or --local-only to limit scope.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runDeleteTest,
+}
+
+// testOpenCmd opens a test in the browser.
+var testOpenCmd = &cobra.Command{
+	Use:   "open <name>",
+	Short: "Open a test in the browser",
+	Long: `Open a test in your default browser editor.
+
+EXAMPLES:
+  revyl test open login-flow
+  revyl test open login-flow --hotreload`,
+	Args: cobra.ExactArgs(1),
+	RunE: runOpenTest,
+}
 
 func init() {
-	testCmd.Flags().StringVar(&testVariant, "variant", "", "Build variant to use")
-	testCmd.Flags().BoolVar(&testSkipBuild, "skip-build", false, "Skip build step")
-	testCmd.Flags().IntVarP(&testRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
-	testCmd.Flags().BoolVar(&testNoWait, "no-wait", false, "Exit after test starts")
-	testCmd.Flags().BoolVar(&testOpen, "open", true, "Open report in browser when complete")
-	testCmd.Flags().IntVarP(&testTimeout, "timeout", "t", 3600, "Timeout in seconds")
-}
+	// Add management subcommands
+	testCmd.AddCommand(testsListCmd)
+	testCmd.AddCommand(testsRemoteCmd)
+	testCmd.AddCommand(testsValidateCmd)
+	testCmd.AddCommand(testsPushCmd)
+	testCmd.AddCommand(testsPullCmd)
+	testCmd.AddCommand(testsDiffCmd)
+	// Add action subcommands (noun-first)
+	testCmd.AddCommand(testRunCmd)
+	testCmd.AddCommand(testCancelCmd)
+	testCmd.AddCommand(testCreateCmd)
+	testCmd.AddCommand(testDeleteCmd)
+	testCmd.AddCommand(testOpenCmd)
 
-// runFullTest executes the full build->upload->run workflow.
-func runFullTest(cmd *cobra.Command, args []string) error {
-	testNameOrID := args[0]
+	// test run flags
+	testRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
+	testRunCmd.Flags().StringVarP(&runBuildID, "build-id", "b", "", "Specific build version ID")
+	testRunCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after test starts without waiting")
+	testRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete")
+	testRunCmd.Flags().IntVarP(&runTimeout, "timeout", "t", 3600, "Timeout in seconds")
+	testRunCmd.Flags().BoolVar(&runOutputJSON, "json", false, "Output results as JSON")
+	testRunCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
+	testRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
+	testRunCmd.Flags().BoolVar(&runTestBuild, "build", false, "Build and upload before running test")
+	testRunCmd.Flags().StringVar(&runTestPlatform, "platform", "", "Platform to use (requires --build, or used with --hotreload)")
+	testRunCmd.Flags().BoolVar(&runHotReload, "hotreload", false, "Enable hot reload mode with local dev server")
+	testRunCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
+	testRunCmd.Flags().StringVar(&runHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
 
-	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
-	}
+	// test cancel flags (inherits global --json)
 
-	// Load project config
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
+	// test create flags
+	testCreateCmd.Flags().StringVar(&createTestPlatform, "platform", "", "Target platform (android, ios)")
+	testCreateCmd.Flags().StringVar(&createTestAppID, "app", "", "App ID to associate with the test")
+	testCreateCmd.Flags().BoolVar(&createTestNoOpen, "no-open", false, "Skip opening browser to test editor")
+	testCreateCmd.Flags().BoolVar(&createTestNoSync, "no-sync", false, "Skip adding test to .revyl/config.yaml")
+	testCreateCmd.Flags().BoolVar(&createTestForce, "force", false, "Update existing test if name already exists")
+	testCreateCmd.Flags().BoolVar(&createTestDryRun, "dry-run", false, "Show what would be created without creating")
+	testCreateCmd.Flags().StringVar(&createTestFromFile, "from-file", "", "Create test from YAML file (copies to .revyl/tests/ and pushes)")
+	testCreateCmd.Flags().BoolVar(&createTestHotReload, "hotreload", false, "Create test with hot reload (adds NAVIGATE step, starts dev server)")
+	testCreateCmd.Flags().IntVar(&createTestHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
+	testCreateCmd.Flags().StringVar(&createTestHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
+	testCreateCmd.Flags().StringVar(&createTestHotReloadPlatform, "platform-key", "", "Build platform key for hot reload dev client")
+	testCreateCmd.Flags().BoolVar(&createTestInteractive, "interactive", false, "Create test interactively with real-time device feedback")
 
-	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
-	if err != nil {
-		ui.PrintError("Project not initialized. Run 'revyl init' first.")
-		return err
-	}
+	// test delete flags
+	testDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")
+	testDeleteCmd.Flags().BoolVar(&deleteRemoteOnly, "remote-only", false, "Only delete from remote, keep local files")
+	testDeleteCmd.Flags().BoolVar(&deleteLocalOnly, "local-only", false, "Only delete local files, keep remote")
 
-	// Resolve test ID from alias
-	testID := testNameOrID
-	if id, ok := cfg.Tests[testNameOrID]; ok {
-		testID = id
-	}
-
-	// Determine build config
-	buildCfg := cfg.Build
-	var variant config.BuildVariant
-	if testVariant != "" {
-		var ok bool
-		variant, ok = cfg.Build.Variants[testVariant]
-		if !ok {
-			ui.PrintError("Unknown build variant: %s", testVariant)
-			return fmt.Errorf("unknown variant: %s", testVariant)
-		}
-		buildCfg.Command = variant.Command
-		buildCfg.Output = variant.Output
-	}
-
-	ui.PrintBanner(version)
-
-	// Get dev mode flag
-	devMode, _ := cmd.Flags().GetBool("dev")
-	if devMode {
-		ui.PrintInfo("Mode: Development (localhost)")
-		ui.Println()
-	}
-
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
-	var buildVersionID string
-
-	// Step 1: Build (if not skipped)
-	if !testSkipBuild && buildCfg.Command != "" {
-		ui.PrintBox("Building", buildCfg.Command)
-
-		startTime := time.Now()
-		runner := build.NewRunner(cwd)
-
-		err = runner.Run(buildCfg.Command, func(line string) {
-			ui.PrintDim("  %s", line)
-		})
-
-		buildDuration := time.Since(startTime)
-
-		if err != nil {
-			ui.Println()
-			ui.PrintError("Build failed: %v", err)
-			return err
-		}
-
-		ui.PrintSuccess("Build completed in %s", buildDuration.Round(time.Second))
-		ui.Println()
-
-		// Step 2: Upload
-		artifactPath := filepath.Join(cwd, buildCfg.Output)
-		if _, err := os.Stat(artifactPath); os.IsNotExist(err) {
-			ui.PrintError("Build artifact not found: %s", buildCfg.Output)
-			return fmt.Errorf("artifact not found")
-		}
-
-		buildVersion := build.GenerateVersionString()
-		metadata := build.CollectMetadata(cwd, buildCfg.Command, testVariant, buildDuration)
-
-		ui.PrintBox("Uploading", filepath.Base(buildCfg.Output))
-
-		result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-			BuildVarID: variant.BuildVarID,
-			Version:    buildVersion,
-			FilePath:   artifactPath,
-			Metadata:   metadata,
-		})
-
-		if err != nil {
-			ui.PrintError("Upload failed: %v", err)
-			return err
-		}
-
-		buildVersionID = result.VersionID
-		ui.PrintSuccess("Uploaded: %s", result.Version)
-		ui.Println()
-	} else {
-		ui.PrintInfo("Skipping build step")
-		ui.Println()
-	}
-
-	// Step 3: Run test
-	ui.PrintBox("Running", testNameOrID)
-
-	response, err := client.ExecuteTest(cmd.Context(), &api.ExecuteTestRequest{
-		TestID:         testID,
-		Retries:        testRetries,
-		BuildVersionID: buildVersionID,
-	})
-
-	if err != nil {
-		ui.PrintError("Failed to start test: %v", err)
-		return err
-	}
-
-	taskID := response.TaskID
-	reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(devMode), taskID)
-
-	// Show report link immediately so user can follow along
-	ui.PrintLink("Report", reportURL)
-	ui.Println()
-
-	if testNoWait {
-		ui.PrintSuccess("Test queued: %s", taskID)
-		if testOpen {
-			ui.OpenBrowser(reportURL)
-		}
-		return nil
-	}
-
-	// Monitor execution with progress bar
-	monitor := sse.NewMonitorWithDevMode(creds.APIKey, testTimeout, devMode)
-	finalStatus, err := monitor.MonitorTest(cmd.Context(), taskID, testID, func(status *sse.TestStatus) {
-		ui.UpdateProgress(status.Progress, status.CurrentStep)
-	})
-
-	if err != nil {
-		ui.PrintError("Monitoring failed: %v", err)
-		return err
-	}
-
-	ui.Println()
-
-	// Show final result using the shared status package for consistent success determination
-	testPassed := status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage)
-
-	if testPassed {
-		ui.PrintResultBox("Passed", reportURL, finalStatus.Duration)
-	} else {
-		ui.PrintResultBox("Failed", reportURL, finalStatus.Duration)
-		ui.PrintError(finalStatus.ErrorMessage)
-	}
-
-	if testOpen {
-		ui.OpenBrowser(reportURL)
-	}
-
-	if !testPassed {
-		return fmt.Errorf("test failed")
-	}
-
-	return nil
+	// test open flags
+	testOpenCmd.Flags().BoolVar(&openTestHotReload, "hotreload", false, "Start hot reload mode (dev server + tunnel)")
+	testOpenCmd.Flags().IntVar(&openTestHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
+	testOpenCmd.Flags().StringVar(&openTestHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
+	testOpenCmd.Flags().StringVar(&openTestHotReloadPlatform, "platform-key", "", "Build platform key for hot reload dev client")
+	testOpenCmd.Flags().BoolVar(&openTestInteractive, "interactive", false, "Edit test interactively with real-time device feedback")
+	testOpenCmd.Flags().BoolVar(&openTestNoOpen, "no-open", false, "Skip opening browser (with --interactive: output URL and wait for Ctrl+C)")
 }

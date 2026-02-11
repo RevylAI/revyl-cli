@@ -5,8 +5,24 @@
 package ui
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-isatty"
 )
+
+// isTTY reports whether stdout is connected to a terminal.
+// When false, ANSI escape codes should be avoided since output may be piped.
+var isTTY = isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
+
+// clearLine emits an ANSI escape sequence to clear the current line.
+// If stdout is not a TTY, this is a no-op to avoid garbage output in pipes.
+func clearLine() {
+	if isTTY {
+		fmt.Print("\r\033[K")
+	}
+}
 
 // Brand colors for Revyl.
 var (
@@ -20,9 +36,6 @@ var (
 	Green   = lipgloss.Color("#22C55E")
 	Gray    = lipgloss.Color("#6B7280")
 	DimGray = lipgloss.Color("#9CA3AF")
-
-	// Background colors
-	DarkBg = lipgloss.Color("#1F2937")
 )
 
 // Text styles.
@@ -31,10 +44,6 @@ var (
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(Purple)
-
-	// SubtitleStyle for secondary headings
-	SubtitleStyle = lipgloss.NewStyle().
-			Foreground(DimGray)
 
 	// SuccessStyle for success messages
 	SuccessStyle = lipgloss.NewStyle().
@@ -63,11 +72,14 @@ var (
 			Foreground(Purple).
 			Underline(true)
 
-	// CodeStyle for inline code
-	CodeStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F3F4F6")).
-			Background(lipgloss.Color("#374151")).
-			Padding(0, 1)
+	// AccentStyle for purple-highlighted elements (numbers, indicators)
+	AccentStyle = lipgloss.NewStyle().
+			Foreground(Purple)
+
+	// BoldInfoStyle for highlighted option labels
+	BoldInfoStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#E5E7EB")).
+			Bold(true)
 )
 
 // Box styles.
@@ -107,9 +119,6 @@ var (
 	// TableCellStyle for table cells
 	TableCellStyle = lipgloss.NewStyle().
 			Padding(0, 2)
-
-	// TableRowStyle for alternating rows
-	TableRowStyle = lipgloss.NewStyle()
 )
 
 // Status indicator styles.
@@ -125,39 +134,13 @@ var (
 	// StatusRunningStyle for running status
 	StatusRunningStyle = lipgloss.NewStyle().
 				Foreground(Teal)
-
-	// StatusQueuedStyle for queued status
-	StatusQueuedStyle = lipgloss.NewStyle().
-				Foreground(Amber)
-
-	// StatusSyncedStyle for synced status
-	StatusSyncedStyle = lipgloss.NewStyle().
-				Foreground(Green)
-
-	// StatusModifiedStyle for modified status
-	StatusModifiedStyle = lipgloss.NewStyle().
-				Foreground(Amber)
-
-	// StatusOutdatedStyle for outdated status
-	StatusOutdatedStyle = lipgloss.NewStyle().
-				Foreground(Purple)
 )
 
 // Progress bar styles.
 var (
 	// ProgressBarStyle for the progress bar container
 	ProgressBarStyle = lipgloss.NewStyle().
-				Foreground(Purple)
-
-	// ProgressBarFilledStyle for the filled portion
-	ProgressBarFilledStyle = lipgloss.NewStyle().
-				Foreground(Purple).
-				Background(Purple)
-
-	// ProgressBarEmptyStyle for the empty portion
-	ProgressBarEmptyStyle = lipgloss.NewStyle().
-				Foreground(Gray).
-				Background(Gray)
+		Foreground(Purple)
 )
 
 // Diff styles.

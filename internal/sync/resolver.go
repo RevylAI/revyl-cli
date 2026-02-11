@@ -6,16 +6,12 @@ package sync
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
@@ -73,6 +69,8 @@ type TestSyncStatus struct {
 	LastSync string
 	// RemoteID is the test ID on the server.
 	RemoteID string
+	// ErrorMessage contains any error that occurred while determining status.
+	ErrorMessage string
 }
 
 // SyncResult contains the result of a sync operation.
@@ -134,10 +132,11 @@ func (r *Resolver) GetAllStatuses(ctx context.Context) ([]TestSyncStatus, error)
 	for name := range testNames {
 		status, err := r.getTestStatus(ctx, name)
 		if err != nil {
-			// Include error in status
+			// Include error in status - mark as local only but preserve the error message
 			statuses = append(statuses, TestSyncStatus{
-				Name:   name,
-				Status: StatusLocalOnly,
+				Name:         name,
+				Status:       StatusLocalOnly,
+				ErrorMessage: err.Error(),
 			})
 			continue
 		}
@@ -189,20 +188,24 @@ func (r *Resolver) getTestStatus(ctx context.Context, name string) (*TestSyncSta
 
 	status.RemoteVersion = remoteTest.Version
 
+	// Check for local modifications using checksum-based detection
+	hasLocalChanges := hasLocal && localTest.HasLocalChanges()
+
 	// Determine sync status
 	if !hasLocal {
 		status.Status = StatusRemoteOnly
-	} else if localTest.Meta.LocalVersion == localTest.Meta.RemoteVersion &&
-		localTest.Meta.RemoteVersion == remoteTest.Version {
-		status.Status = StatusSynced
-	} else if localTest.Meta.LocalVersion > localTest.Meta.RemoteVersion &&
-		localTest.Meta.RemoteVersion == remoteTest.Version {
+	} else if hasLocalChanges && remoteTest.Version > localTest.Meta.RemoteVersion {
+		// Both local content changed AND remote has newer version = conflict
+		status.Status = StatusConflict
+	} else if hasLocalChanges {
+		// Local content changed (detected via checksum mismatch)
 		status.Status = StatusModified
-	} else if localTest.Meta.LocalVersion == localTest.Meta.RemoteVersion &&
-		remoteTest.Version > localTest.Meta.RemoteVersion {
+	} else if remoteTest.Version > localTest.Meta.RemoteVersion {
+		// Remote has newer version, no local changes
 		status.Status = StatusOutdated
 	} else {
-		status.Status = StatusConflict
+		// Checksums match and versions are in sync
+		status.Status = StatusSynced
 	}
 
 	return status, nil
@@ -259,6 +262,12 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				localTest.Meta.RemoteVersion = resp.Version
 				localTest.Meta.LocalVersion = resp.Version
 				localTest.Meta.LastSyncedAt = time.Now().Format(time.RFC3339)
+
+				// Update config Tests map so subsequent operations use the new ID
+				if r.config.Tests == nil {
+					r.config.Tests = make(map[string]string)
+				}
+				r.config.Tests[name] = resp.ID
 
 				// Save updated local test file
 				path := filepath.Join(testsDir, name+".yaml")
@@ -354,9 +363,10 @@ func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string
 	for name, remoteID := range testsToPull {
 		result := SyncResult{Name: name}
 
-		// Check for local changes
+		// Check for local changes using checksum-based detection
 		if local, ok := r.localTests[name]; ok && !force {
-			if local.Meta.LocalVersion > local.Meta.RemoteVersion {
+			if local.HasLocalChanges() {
+				// Local content has been modified - don't overwrite without force
 				result.Conflict = true
 				results = append(results, result)
 				continue
@@ -371,8 +381,9 @@ func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string
 			continue
 		}
 
-		// Convert tasks to blocks
+		// Convert tasks to blocks and strip server-generated IDs
 		blocks := convertTasksToBlocks(remoteTest.Tasks)
+		blocks = stripBlockIDs(blocks)
 
 		// Convert to local format
 		localTest := &config.LocalTest{
@@ -392,12 +403,12 @@ func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string
 		}
 
 		// Add build info if available
-		if remoteTest.BuildVarID != "" {
-			// Fetch build var name (gracefully handle errors - don't fail the pull)
-			buildVar, err := r.client.GetBuildVar(ctx, remoteTest.BuildVarID)
-			if err == nil && buildVar != nil {
+		if remoteTest.AppID != "" {
+			// Fetch app name (gracefully handle errors - don't fail the pull)
+			app, err := r.client.GetApp(ctx, remoteTest.AppID)
+			if err == nil && app != nil {
 				localTest.Test.Build = config.TestBuildConfig{
-					Name: buildVar.Name,
+					Name: app.Name,
 				}
 			}
 		}
@@ -451,24 +462,20 @@ func (r *Resolver) GetDiff(ctx context.Context, testName string) (string, error)
 		return "", err
 	}
 
-	// Generate simple diff
-	localYAML, _ := yaml.Marshal(localTest.Test)
-	remoteYAML, _ := yaml.Marshal(remoteTest.Tasks)
+	// Generate diff by comparing local blocks with remote tasks.
+	// Both are marshaled to JSON first to get a canonical representation,
+	// since localTest.Test is a structured TestDefinition while
+	// remoteTest.Tasks is a raw interface{} from the API.
+	localJSON, err := json.MarshalIndent(localTest.Test.Blocks, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal local test blocks: %w", err)
+	}
+	remoteJSON, err := json.MarshalIndent(remoteTest.Tasks, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal remote test tasks: %w", err)
+	}
 
-	return generateSimpleDiff(string(localYAML), string(remoteYAML)), nil
-}
-
-// ComputeChecksum computes a SHA256 checksum of test content.
-//
-// Parameters:
-//   - test: The test definition
-//
-// Returns:
-//   - string: The checksum as a hex string
-func ComputeChecksum(test *config.TestDefinition) string {
-	data, _ := yaml.Marshal(test)
-	hash := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(hash[:])
+	return generateSimpleDiff(string(localJSON), string(remoteJSON)), nil
 }
 
 // formatTimeAgo formats a timestamp as a human-readable "time ago" string.
@@ -495,14 +502,154 @@ func formatTimeAgo(timestamp string) string {
 	}
 }
 
-// generateSimpleDiff generates a simple line-by-line diff.
+// generateSimpleDiff generates a unified diff between local and remote content.
+//
+// Parameters:
+//   - local: The local content
+//   - remote: The remote content
+//
+// Returns:
+//   - string: A unified diff format string showing the differences
 func generateSimpleDiff(local, remote string) string {
-	// Simple implementation - in production, use a proper diff library
 	if local == remote {
 		return ""
 	}
 
-	return fmt.Sprintf("--- local\n+++ remote\n@@ changes @@\n-%s\n+%s", local, remote)
+	localLines := strings.Split(local, "\n")
+	remoteLines := strings.Split(remote, "\n")
+
+	// Build the diff output
+	var diff strings.Builder
+	diff.WriteString("--- local\n")
+	diff.WriteString("+++ remote\n")
+
+	// Use a simple line-by-line comparison with context
+	// This is a simplified diff that shows changed, added, and removed lines
+	maxLen := len(localLines)
+	if len(remoteLines) > maxLen {
+		maxLen = len(remoteLines)
+	}
+
+	// Track hunks of changes
+	type hunk struct {
+		localStart  int
+		localCount  int
+		remoteStart int
+		remoteCount int
+		lines       []string
+	}
+
+	var hunks []hunk
+	var currentHunk *hunk
+	contextLines := 3
+
+	i, j := 0, 0
+	for i < len(localLines) || j < len(remoteLines) {
+		if i < len(localLines) && j < len(remoteLines) && localLines[i] == remoteLines[j] {
+			// Lines match - context line
+			if currentHunk != nil {
+				currentHunk.lines = append(currentHunk.lines, " "+localLines[i])
+				currentHunk.localCount++
+				currentHunk.remoteCount++
+			}
+			i++
+			j++
+		} else {
+			// Lines differ - start or continue a hunk
+			if currentHunk == nil {
+				// Start new hunk with context
+				startLocal := i - contextLines
+				if startLocal < 0 {
+					startLocal = 0
+				}
+				startRemote := j - contextLines
+				if startRemote < 0 {
+					startRemote = 0
+				}
+
+				currentHunk = &hunk{
+					localStart:  startLocal + 1, // 1-indexed
+					remoteStart: startRemote + 1,
+				}
+
+				// Add leading context
+				for k := startLocal; k < i; k++ {
+					currentHunk.lines = append(currentHunk.lines, " "+localLines[k])
+					currentHunk.localCount++
+					currentHunk.remoteCount++
+				}
+			}
+
+			// Find the next matching line or end
+			if i < len(localLines) && (j >= len(remoteLines) || !containsLine(remoteLines[j:], localLines[i])) {
+				// Line removed from local
+				currentHunk.lines = append(currentHunk.lines, "-"+localLines[i])
+				currentHunk.localCount++
+				i++
+			} else if j < len(remoteLines) {
+				// Line added in remote
+				currentHunk.lines = append(currentHunk.lines, "+"+remoteLines[j])
+				currentHunk.remoteCount++
+				j++
+			}
+		}
+
+		// Check if we should close the hunk (after enough matching lines)
+		if currentHunk != nil && i < len(localLines) && j < len(remoteLines) {
+			matchCount := 0
+			for k := 0; k < contextLines*2 && i+k < len(localLines) && j+k < len(remoteLines); k++ {
+				if localLines[i+k] == remoteLines[j+k] {
+					matchCount++
+				} else {
+					break
+				}
+			}
+			if matchCount >= contextLines*2 {
+				// Add trailing context and close hunk
+				for k := 0; k < contextLines && i < len(localLines) && j < len(remoteLines); k++ {
+					if localLines[i] == remoteLines[j] {
+						currentHunk.lines = append(currentHunk.lines, " "+localLines[i])
+						currentHunk.localCount++
+						currentHunk.remoteCount++
+						i++
+						j++
+					}
+				}
+				hunks = append(hunks, *currentHunk)
+				currentHunk = nil
+			}
+		}
+	}
+
+	// Close any remaining hunk
+	if currentHunk != nil {
+		hunks = append(hunks, *currentHunk)
+	}
+
+	// Format hunks
+	for _, h := range hunks {
+		diff.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", h.localStart, h.localCount, h.remoteStart, h.remoteCount))
+		for _, line := range h.lines {
+			diff.WriteString(line + "\n")
+		}
+	}
+
+	return diff.String()
+}
+
+// containsLine checks if a line exists in the remaining lines.
+func containsLine(lines []string, target string) bool {
+	// Only look ahead a limited distance to avoid O(n^2) behavior
+	lookAhead := 10
+	if len(lines) < lookAhead {
+		lookAhead = len(lines)
+	}
+	for i := 0; i < lookAhead; i++ {
+		if lines[i] == target {
+			return true
+		}
+	}
+	return false
 }
 
 // convertTasksToBlocks converts the API tasks (interface{}) to []config.TestBlock.
@@ -530,6 +677,39 @@ func convertTasksToBlocks(tasks interface{}) []config.TestBlock {
 	}
 
 	return blocks
+}
+
+// stripBlockIDs removes server-generated IDs from blocks recursively.
+//
+// Block IDs are computed server-side from the test_id and the block's
+// semantic path (position in the hierarchy). They should not be stored
+// in local YAML files because:
+//   - IDs are noise for users editing tests
+//   - They cause merge conflicts across branches
+//   - They pollute diffs with irrelevant changes
+//
+// Parameters:
+//   - blocks: The blocks to strip IDs from
+//
+// Returns:
+//   - []config.TestBlock: Blocks with IDs cleared
+func stripBlockIDs(blocks []config.TestBlock) []config.TestBlock {
+	result := make([]config.TestBlock, len(blocks))
+	for i, block := range blocks {
+		result[i] = block
+		result[i].ID = "" // Clear the server-generated ID
+
+		if len(block.Then) > 0 {
+			result[i].Then = stripBlockIDs(block.Then)
+		}
+		if len(block.Else) > 0 {
+			result[i].Else = stripBlockIDs(block.Else)
+		}
+		if len(block.Body) > 0 {
+			result[i].Body = stripBlockIDs(block.Body)
+		}
+	}
+	return result
 }
 
 // ensureDir creates a directory if it doesn't exist.

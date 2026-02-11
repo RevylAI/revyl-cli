@@ -6,7 +6,7 @@ This guide covers local development, MCP server testing, and dogfooding the Revy
 
 ```bash
 # 1. Build the CLI
-cd /Users/anamhira/Development/hira-cli-init/revyl-cli
+cd revyl-cli
 make build
 
 # 2. Authenticate
@@ -14,17 +14,17 @@ make build
 
 # 3. Initialize a project
 cd /path/to/your/app
-/Users/anamhira/Development/hira-cli-init/revyl-cli/build/revyl init
+/path/to/revyl-cli/build/revyl init
 
 # 4. Run a test
-/Users/anamhira/Development/hira-cli-init/revyl-cli/build/revyl test <test-name>
+/path/to/revyl-cli/build/revyl test run <test-name>
 ```
 
 ## Local Development
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.23+
 - Make
 - watchexec (for hot reload)
 
@@ -99,9 +99,9 @@ revyl-cli/
 │   ├── auth.go         # auth login/logout/status
 │   ├── init.go         # Project initialization
 │   ├── build.go        # build upload/list
-│   ├── run.go          # run test/workflow
-│   ├── test.go         # Full workflow command
-│   ├── tests.go        # tests list/sync/pull
+│   ├── run.go          # test run / workflow run (shared execution)
+│   ├── test.go         # test command and test run/create/delete/open/cancel
+│   ├── tests.go        # test list/push/pull/diff/validate/remote
 │   └── mcp.go          # MCP server command
 ├── internal/
 │   ├── api/            # HTTP client
@@ -147,7 +147,7 @@ Create or edit `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "revyl": {
-      "command": "/Users/anamhira/Development/hira-cli-init/revyl-cli/build/revyl",
+      "command": "/path/to/revyl-cli/build/revyl",
       "args": ["mcp", "serve"],
       "env": {
         "REVYL_API_KEY": "your-api-key-here"
@@ -163,7 +163,7 @@ For development with hot reload, use the tmp binary:
 {
   "mcpServers": {
     "revyl-dev": {
-      "command": "/Users/anamhira/Development/hira-cli-init/revyl-cli/tmp/revyl",
+      "command": "/path/to/revyl-cli/tmp/revyl",
       "args": ["mcp", "serve"],
       "env": {
         "REVYL_API_KEY": "your-api-key-here",
@@ -200,11 +200,11 @@ REVYL_DEBUG=true ./build/revyl mcp serve
 ### Initial Setup
 
 ```bash
-# Navigate to nof1 project
-cd /Users/anamhira/Development/nof1
+# Navigate to your app project
+cd /path/to/your/app
 
 # Initialize Revyl
-/Users/anamhira/Development/hira-cli-init/revyl-cli/build/revyl init
+/path/to/revyl-cli/build/revyl init
 
 # This creates:
 # - .revyl/config.yaml
@@ -214,23 +214,26 @@ cd /Users/anamhira/Development/nof1
 
 ### Configure .revyl/config.yaml
 
-Edit the generated config to add your test aliases and build variable:
+Edit the generated config to add your test aliases and app:
 
 ```yaml
 project:
-  id: "your-project-id"  # From Revyl dashboard
   name: "nof1"
 
 build:
   system: gradle  # or xcode, expo, flutter, react-native
   command: "./gradlew assembleDebug"
   output: "app/build/outputs/apk/debug/app-debug.apk"
-  build_var_id: "your-build-var-id"  # From Revyl dashboard
-  
-  variants:
-    release:
-      command: "./gradlew assembleRelease"
-      output: "app/build/outputs/apk/release/app-release.apk"
+
+  platforms:
+    android:
+      command: "./gradlew assembleDebug"
+      output: "app/build/outputs/apk/debug/app-debug.apk"
+      app_id: "your-android-app-id"
+    ios:
+      command: "xcodebuild -scheme MyApp ..."
+      output: "build/MyApp.ipa"
+      app_id: "your-ios-app-id"
 
 # Add your test aliases here
 tests:
@@ -251,17 +254,17 @@ defaults:
 
 ```bash
 # Full workflow: build -> upload -> run test
-revyl test login-flow
+revyl run login-flow
 
 # Skip build (use existing artifact)
-revyl test login-flow --skip-build
+revyl run login-flow --no-build
 
-# Use release variant
-revyl test login-flow --variant release
+# Use a specific platform config
+revyl run login-flow --platform android
 
 # Just run (no build/upload)
-revyl run test login-flow
-revyl run workflow smoke-tests
+revyl test run login-flow
+revyl workflow run smoke-tests
 ```
 
 ### Using MCP with nof1
@@ -340,7 +343,7 @@ tests:
 revyl auth status
 
 # List tests with sync status
-revyl tests list
+revyl test list
 
 # Show version info
 revyl version

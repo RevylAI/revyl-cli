@@ -14,13 +14,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/revyl/cli/internal/config"
 	statusutil "github.com/revyl/cli/internal/status"
 )
 
 const (
-	// DefaultSSEURL is the default SSE endpoint.
-	DefaultSSEURL = "https://backend.revyl.ai/api/v1/monitor/stream/unified"
+	// sseStreamPath is the SSE streaming endpoint path appended to the backend URL.
+	sseStreamPath = "/api/v1/monitor/stream/unified"
 )
 
 // Monitor handles SSE-based execution monitoring.
@@ -31,7 +32,8 @@ type Monitor struct {
 	backendURL string
 }
 
-// NewMonitor creates a new SSE monitor using production URLs.
+// NewMonitor creates a new SSE monitor using the resolved backend URL.
+// Respects REVYL_BACKEND_URL environment variable for custom environments.
 //
 // Parameters:
 //   - apiKey: The API key for authentication
@@ -40,11 +42,12 @@ type Monitor struct {
 // Returns:
 //   - *Monitor: A new monitor instance
 func NewMonitor(apiKey string, timeout int) *Monitor {
+	backendURL := config.GetBackendURL(false)
 	return &Monitor{
 		apiKey:     apiKey,
 		timeout:    timeout,
-		baseURL:    DefaultSSEURL,
-		backendURL: config.ProdBackendURL,
+		baseURL:    backendURL + sseStreamPath,
+		backendURL: backendURL,
 	}
 }
 
@@ -63,7 +66,7 @@ func NewMonitorWithDevMode(apiKey string, timeout int, devMode bool) *Monitor {
 	return &Monitor{
 		apiKey:     apiKey,
 		timeout:    timeout,
-		baseURL:    backendURL + "/api/v1/monitor/stream/unified",
+		baseURL:    backendURL + sseStreamPath,
 		backendURL: backendURL,
 	}
 }
@@ -171,6 +174,26 @@ type WorkflowTask struct {
 	ErrorMessage   string `json:"error_message"`
 }
 
+// completedTestEnriched is the enriched test data embedded in _with_data SSE events.
+// It corresponds to the backend's CompletedTestData model and carries final execution
+// details such as duration, status, and step-level information via EnhancedTask.
+type completedTestEnriched struct {
+	ID                   string                    `json:"id"`
+	TestUID              string                    `json:"test_uid"`
+	Status               string                    `json:"status"`
+	ExecutionTimeSeconds float64                   `json:"execution_time_seconds"`
+	EnhancedTask         completedTestEnrichedTask `json:"enhanced_task"`
+}
+
+// completedTestEnrichedTask is the nested enhanced_task within completedTestEnriched.
+// It carries step-level execution details and error information.
+type completedTestEnrichedTask struct {
+	TotalSteps     int    `json:"total_steps"`
+	StepsCompleted int    `json:"steps_completed"`
+	ErrorMessage   string `json:"error_message"`
+	Success        *bool  `json:"success"`
+}
+
 // MonitorTest monitors a test execution via SSE.
 //
 // Parameters:
@@ -239,10 +262,8 @@ func (m *Monitor) monitorTestSSE(ctx context.Context, taskID, testID string, onP
 	for {
 		select {
 		case <-ctx.Done():
-			if lastStatus != nil {
-				return lastStatus, nil
-			}
-			return nil, ctx.Err()
+			// Always return the context error when cancelled, even if we have a last status
+			return lastStatus, ctx.Err()
 
 		case err := <-errs:
 			if err != nil {
@@ -293,6 +314,7 @@ func (m *Monitor) handleTestEvent(event SSEEvent, targetTaskID string) *TestStat
 			RunningTests []OrgTestMonitorItem `json:"running_tests"`
 		}
 		if err := json.Unmarshal(event.Data, &data); err != nil {
+			log.Debug("Failed to parse initial_state event for test", "error", err)
 			return nil
 		}
 		for _, test := range data.RunningTests {
@@ -306,6 +328,7 @@ func (m *Monitor) handleTestEvent(event SSEEvent, targetTaskID string) *TestStat
 			Test OrgTestMonitorItem `json:"test"`
 		}
 		if err := json.Unmarshal(event.Data, &data); err != nil {
+			log.Debug("Failed to parse test event", "event", event.Event, "error", err)
 			return nil
 		}
 		if data.Test.ID == targetTaskID || data.Test.TaskID == targetTaskID {
@@ -314,24 +337,91 @@ func (m *Monitor) handleTestEvent(event SSEEvent, targetTaskID string) *TestStat
 
 	case "test_completed", "test_failed", "test_cancelled",
 		"test_completed_with_data", "test_failed_with_data", "test_cancelled_with_data":
-		// Handle completion events
+		// Handle completion events.
+		// Non-_with_data events use {"test": {...}} structure.
+		// _with_data events use flat base_data fields plus an enriched object under a status-specific key:
+		//   - "completed_test": {...}  (for test_completed_with_data)
+		//   - "failed_test": {...}     (for test_failed_with_data)
+		//   - "cancelled_test": {...}  (for test_cancelled_with_data)
 		var data struct {
+			// Non-_with_data events nest the item under "test"
 			Test OrgTestMonitorItem `json:"test"`
+			// _with_data events include flat base_data fields
+			ID       string `json:"id"`
+			TaskID   string `json:"task_id"`
+			TestID   string `json:"test_id"`
+			TestName string `json:"test_name"`
+			Platform string `json:"platform"`
+			// Enriched test data keyed by final status
+			CompletedTest *completedTestEnriched `json:"completed_test"`
+			FailedTest    *completedTestEnriched `json:"failed_test"`
+			CancelledTest *completedTestEnriched `json:"cancelled_test"`
 		}
 		if err := json.Unmarshal(event.Data, &data); err != nil {
+			log.Debug("Failed to parse test completion event", "event", event.Event, "error", err)
 			return nil
 		}
-		if data.Test.ID == targetTaskID || data.Test.TaskID == targetTaskID {
-			status := testMonitorItemToStatus(&data.Test)
-			// Ensure terminal status is set based on event type
-			if strings.HasPrefix(event.Event, "test_completed") {
-				status.Status = "completed"
-			} else if strings.HasPrefix(event.Event, "test_failed") {
-				status.Status = "failed"
-			} else if strings.HasPrefix(event.Event, "test_cancelled") {
-				status.Status = "cancelled"
+		// Match by nested Test or by flat ID/TaskID fields (for _with_data events)
+		testID := data.Test.ID
+		testTaskID := data.Test.TaskID
+		if testID == "" {
+			testID = data.ID
+		}
+		if testTaskID == "" {
+			testTaskID = data.TaskID
+		}
+
+		if testID == targetTaskID || testTaskID == targetTaskID {
+			// Use the nested Test if populated (non-_with_data events), otherwise
+			// build status from flat base_data fields and enriched test data.
+			var s *TestStatus
+			if data.Test.ID != "" {
+				s = testMonitorItemToStatus(&data.Test)
+			} else {
+				s = &TestStatus{
+					TaskID:   testTaskID,
+					TestName: data.TestName,
+				}
+				// Extract duration from the enriched test data if available
+				enriched := data.CompletedTest
+				if enriched == nil {
+					enriched = data.FailedTest
+				}
+				if enriched == nil {
+					enriched = data.CancelledTest
+				}
+				if enriched != nil {
+					if enriched.ExecutionTimeSeconds > 0 {
+						s.Duration = fmt.Sprintf("%.1fs", enriched.ExecutionTimeSeconds)
+					}
+					if enriched.Status != "" {
+						s.Status = enriched.Status
+					}
+					if enriched.EnhancedTask.ErrorMessage != "" {
+						s.ErrorMessage = enriched.EnhancedTask.ErrorMessage
+					}
+					if enriched.EnhancedTask.TotalSteps > 0 {
+						s.TotalSteps = enriched.EnhancedTask.TotalSteps
+						s.CompletedSteps = enriched.EnhancedTask.StepsCompleted
+					}
+					s.Success = enriched.EnhancedTask.Success
+				}
 			}
-			return status
+			// Override status and success from event type to ensure correctness.
+			// The enriched data may carry stale success=true from before cancellation,
+			// so we must override it based on the authoritative event type.
+			if strings.HasPrefix(event.Event, "test_completed") {
+				s.Status = "completed"
+			} else if strings.HasPrefix(event.Event, "test_failed") {
+				s.Status = "failed"
+				falseVal := false
+				s.Success = &falseVal
+			} else if strings.HasPrefix(event.Event, "test_cancelled") {
+				s.Status = "cancelled"
+				falseVal := false
+				s.Success = &falseVal
+			}
+			return s
 		}
 
 	case "heartbeat", "connection_ready":
@@ -349,11 +439,8 @@ func (m *Monitor) handleTestEvent(event SSEEvent, targetTaskID string) *TestStat
 // Returns:
 //   - *TestStatus: The converted test status
 func testMonitorItemToStatus(item *OrgTestMonitorItem) *TestStatus {
-	// Convert progress from 0.0-1.0 to 0-100 if needed
+	// Backend sends progress as 0-100 float. Convert to int directly.
 	progressPercent := int(item.Progress)
-	if item.Progress > 0 && item.Progress <= 1.0 {
-		progressPercent = int(item.Progress * 100)
-	}
 
 	return &TestStatus{
 		TaskID:         item.TaskID,
@@ -377,18 +464,22 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 	defer ticker.Stop()
 
 	var lastStatus *TestStatus
+	var consecutiveErrors int
+	const maxConsecutiveErrors = 10
 
 	for {
 		select {
 		case <-ctx.Done():
-			if lastStatus != nil {
-				return lastStatus, nil
-			}
-			return nil, ctx.Err()
+			// Always return the context error when cancelled, even if we have a last status
+			return lastStatus, ctx.Err()
 
 		case <-ticker.C:
 			req, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
 			if err != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive errors creating request (last: %v)", err)
+				}
 				continue
 			}
 
@@ -396,6 +487,10 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 
 			resp, err := client.Do(req)
 			if err != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive network errors (last: %v)", err)
+				}
 				continue
 			}
 
@@ -404,28 +499,32 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 			//         total_steps, steps_completed, error_message, status (from device_sessions),
 			//         started_at, completed_at, execution_time_seconds, platform
 			var statusResp struct {
-				Status               string  `json:"status"`                  // From device_sessions
-				Progress             float64 `json:"progress"`                // 0.0-1.0
-				CurrentStep          string  `json:"current_step"`
-				CurrentStepIndex     int     `json:"current_step_index"`
-				TotalSteps           *int    `json:"total_steps"`
-				StepsCompleted       int     `json:"steps_completed"`
-				ErrorMessage         string  `json:"error_message"`
-				Success              *bool   `json:"success"`
+				Status               string   `json:"status"`   // From device_sessions
+				Progress             float64  `json:"progress"` // 0.0-1.0
+				CurrentStep          string   `json:"current_step"`
+				CurrentStepIndex     int      `json:"current_step_index"`
+				TotalSteps           *int     `json:"total_steps"`
+				StepsCompleted       int      `json:"steps_completed"`
+				ErrorMessage         string   `json:"error_message"`
+				Success              *bool    `json:"success"`
 				ExecutionTimeSeconds *float64 `json:"execution_time_seconds"` // From device_sessions
 			}
 
 			if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
 				resp.Body.Close()
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive decode errors (last: %v)", err)
+				}
 				continue
 			}
 			resp.Body.Close()
 
-			// Convert progress from 0.0-1.0 to 0-100 if needed
+			// Reset consecutive errors on successful response
+			consecutiveErrors = 0
+
+			// Backend sends progress as 0-100 float. Convert to int directly.
 			progressPercent := int(statusResp.Progress)
-			if statusResp.Progress > 0 && statusResp.Progress <= 1.0 {
-				progressPercent = int(statusResp.Progress * 100)
-			}
 
 			// Format duration
 			duration := ""
@@ -543,10 +642,8 @@ func (m *Monitor) monitorWorkflowSSE(ctx context.Context, taskID, workflowID str
 	for {
 		select {
 		case <-ctx.Done():
-			if lastStatus != nil {
-				return lastStatus, nil
-			}
-			return nil, ctx.Err()
+			// Always return the context error when cancelled, even if we have a last status
+			return lastStatus, ctx.Err()
 
 		case err := <-errs:
 			if err != nil {
@@ -598,6 +695,7 @@ func (m *Monitor) handleWorkflowEvent(event SSEEvent, targetTaskID string) *Work
 			RunningWorkflows []OrgWorkflowMonitorItem `json:"running_workflows"`
 		}
 		if err := json.Unmarshal(event.Data, &data); err != nil {
+			log.Debug("Failed to parse initial_state event for workflow", "error", err)
 			return nil
 		}
 		for _, workflow := range data.RunningWorkflows {
@@ -611,6 +709,7 @@ func (m *Monitor) handleWorkflowEvent(event SSEEvent, targetTaskID string) *Work
 			Workflow OrgWorkflowMonitorItem `json:"workflow"`
 		}
 		if err := json.Unmarshal(event.Data, &data); err != nil {
+			log.Debug("Failed to parse workflow event", "event", event.Event, "error", err)
 			return nil
 		}
 		if data.Workflow.Task.ID == targetTaskID {
@@ -623,6 +722,7 @@ func (m *Monitor) handleWorkflowEvent(event SSEEvent, targetTaskID string) *Work
 			Workflow OrgWorkflowMonitorItem `json:"workflow"`
 		}
 		if err := json.Unmarshal(event.Data, &data); err != nil {
+			log.Debug("Failed to parse workflow completion event", "event", event.Event, "error", err)
 			return nil
 		}
 		if data.Workflow.Task.ID == targetTaskID {
@@ -676,18 +776,22 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 	defer ticker.Stop()
 
 	var lastStatus *WorkflowStatus
+	var consecutiveErrors int
+	const maxConsecutiveErrors = 10
 
 	for {
 		select {
 		case <-ctx.Done():
-			if lastStatus != nil {
-				return lastStatus, nil
-			}
-			return nil, ctx.Err()
+			// Always return the context error when cancelled, even if we have a last status
+			return lastStatus, ctx.Err()
 
 		case <-ticker.C:
 			req, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
 			if err != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive errors creating request (last: %v)", err)
+				}
 				continue
 			}
 
@@ -695,6 +799,10 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 
 			resp, err := client.Do(req)
 			if err != nil {
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive network errors (last: %v)", err)
+				}
 				continue
 			}
 
@@ -710,9 +818,16 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 
 			if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
 				resp.Body.Close()
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					return nil, fmt.Errorf("polling failed: too many consecutive decode errors (last: %v)", err)
+				}
 				continue
 			}
 			resp.Body.Close()
+
+			// Reset consecutive errors on successful response
+			consecutiveErrors = 0
 
 			status := &WorkflowStatus{
 				TaskID:         taskID,
@@ -822,62 +937,4 @@ type SSEEvent struct {
 
 	// Data is the event data.
 	Data json.RawMessage
-}
-
-// TestStartedEvent represents a test_started SSE event.
-type TestStartedEvent struct {
-	TaskID   string `json:"task_id"`
-	TestID   string `json:"test_id"`
-	TestName string `json:"test_name"`
-}
-
-// TestUpdatedEvent represents a test_updated SSE event.
-type TestUpdatedEvent struct {
-	TaskID         string `json:"task_id"`
-	TestID         string `json:"test_id"`
-	Status         string `json:"status"`
-	Progress       int    `json:"progress"`
-	CurrentStep    string `json:"current_step"`
-	CompletedSteps int    `json:"completed_steps"`
-	TotalSteps     int    `json:"total_steps"`
-}
-
-// TestCompletedEvent represents a test_completed SSE event.
-type TestCompletedEvent struct {
-	TaskID       string `json:"task_id"`
-	TestID       string `json:"test_id"`
-	Status       string `json:"status"`
-	Duration     string `json:"duration"`
-	ErrorMessage string `json:"error_message,omitempty"`
-}
-
-// WorkflowStartedEvent represents a workflow_started SSE event.
-type WorkflowStartedEvent struct {
-	TaskID       string `json:"task_id"`
-	WorkflowID   string `json:"workflow_id"`
-	WorkflowName string `json:"workflow_name"`
-	TotalTests   int    `json:"total_tests"`
-}
-
-// WorkflowUpdatedEvent represents a workflow_updated SSE event.
-type WorkflowUpdatedEvent struct {
-	TaskID         string `json:"task_id"`
-	WorkflowID     string `json:"workflow_id"`
-	Status         string `json:"status"`
-	CompletedTests int    `json:"completed_tests"`
-	PassedTests    int    `json:"passed_tests"`
-	FailedTests    int    `json:"failed_tests"`
-	CurrentTest    string `json:"current_test"`
-}
-
-// WorkflowCompletedEvent represents a workflow_completed SSE event.
-type WorkflowCompletedEvent struct {
-	TaskID       string `json:"task_id"`
-	WorkflowID   string `json:"workflow_id"`
-	Status       string `json:"status"`
-	TotalTests   int    `json:"total_tests"`
-	PassedTests  int    `json:"passed_tests"`
-	FailedTests  int    `json:"failed_tests"`
-	Duration     string `json:"duration"`
-	ErrorMessage string `json:"error_message,omitempty"`
 }

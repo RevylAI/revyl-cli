@@ -10,12 +10,38 @@ import (
 	"github.com/revyl/cli/internal/status"
 )
 
+// quietMode controls whether non-essential output is suppressed.
+// Set via SetQuietMode() based on the --quiet flag.
+var quietMode bool
+
+// SetQuietMode enables or disables quiet mode.
+// When enabled, informational messages are suppressed; only errors and final results are shown.
+//
+// Parameters:
+//   - quiet: true to enable quiet mode, false to disable
+func SetQuietMode(quiet bool) {
+	quietMode = quiet
+}
+
+// IsQuietMode returns whether quiet mode is enabled.
+//
+// Returns:
+//   - bool: true if quiet mode is enabled
+func IsQuietMode() bool {
+	return quietMode
+}
+
 // Println prints an empty line.
+// Respects quiet mode - suppressed when quiet.
 func Println() {
+	if quietMode {
+		return
+	}
 	fmt.Println()
 }
 
 // PrintSuccess prints a success message.
+// Always printed, even in quiet mode (considered essential output).
 //
 // Parameters:
 //   - format: Printf format string
@@ -26,6 +52,7 @@ func PrintSuccess(format string, args ...interface{}) {
 }
 
 // PrintError prints an error message.
+// Always printed, even in quiet mode (considered essential output).
 //
 // Parameters:
 //   - format: Printf format string
@@ -36,6 +63,7 @@ func PrintError(format string, args ...interface{}) {
 }
 
 // PrintWarning prints a warning message.
+// Always printed, even in quiet mode (considered essential output).
 //
 // Parameters:
 //   - format: Printf format string
@@ -46,76 +74,180 @@ func PrintWarning(format string, args ...interface{}) {
 }
 
 // PrintInfo prints an informational message.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - format: Printf format string
 //   - args: Printf arguments
 func PrintInfo(format string, args ...interface{}) {
+	if quietMode {
+		return
+	}
 	msg := fmt.Sprintf(format, args...)
 	fmt.Println(InfoStyle.Render(msg))
 }
 
 // PrintDim prints a dimmed message.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - format: Printf format string
 //   - args: Printf arguments
 func PrintDim(format string, args ...interface{}) {
+	if quietMode {
+		return
+	}
 	msg := fmt.Sprintf(format, args...)
 	fmt.Println(DimStyle.Render(msg))
 }
 
 // PrintLink prints a clickable link.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - label: The link label
 //   - url: The URL
 func PrintLink(label, url string) {
+	if quietMode {
+		return
+	}
 	fmt.Printf("%s %s\n", DimStyle.Render(label+":"), LinkStyle.Render(url))
 }
 
 // PrintBox prints content in a styled box.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - title: Box title
 //   - content: Box content
 func PrintBox(title, content string) {
+	if quietMode {
+		return
+	}
 	titleStyled := BoxTitleStyle.Render(title)
 	box := BoxStyle.Render(titleStyled + "\n" + content)
 	fmt.Println(box)
 }
 
-// PrintTableHeader prints a table header row.
+// NextStep represents a single suggested next action for the user.
 //
-// Parameters:
-//   - columns: Column names
-func PrintTableHeader(columns ...string) {
-	var cells []string
-	for _, col := range columns {
-		cells = append(cells, TableHeaderStyle.Render(col))
-	}
-	fmt.Println(strings.Join(cells, ""))
-	// Print separator
-	fmt.Println(DimStyle.Render(strings.Repeat("─", 80)))
+// Fields:
+//   - Label: A short description of the action (e.g., "Run your test")
+//   - Command: The CLI command to execute (e.g., "revyl run my-test")
+type NextStep struct {
+	Label   string
+	Command string
 }
 
-// PrintTableRow prints a table data row.
+// PrintNextSteps prints a styled list of suggested next actions.
+// Respects quiet mode - suppressed when quiet. Callers should also
+// guard against JSON output mode before calling.
 //
 // Parameters:
-//   - values: Cell values
-func PrintTableRow(values ...string) {
-	var cells []string
-	for _, val := range values {
-		cells = append(cells, TableCellStyle.Render(val))
+//   - steps: Ordered list of suggested next actions (max 2-3 recommended)
+func PrintNextSteps(steps []NextStep) {
+	if quietMode || len(steps) == 0 {
+		return
 	}
-	fmt.Println(strings.Join(cells, ""))
+	Println()
+	PrintDim("Next:")
+	for _, s := range steps {
+		fmt.Printf("  %s  %s\n",
+			DimStyle.Render(s.Label),
+			InfoStyle.Render(s.Command))
+	}
+}
+
+// PrintStepHeader prints a prominent step header with horizontal separators.
+// Used by wizard flows (e.g. revyl init) to visually delineate each step.
+// Respects quiet mode - suppressed when quiet.
+//
+// Parameters:
+//   - step: The current step number (1-based)
+//   - total: The total number of steps
+//   - title: The step title (e.g. "Project Setup")
+func PrintStepHeader(step, total int, title string) {
+	if quietMode {
+		return
+	}
+	separator := DimStyle.Render("─────────────────────────────────────────────────")
+	stepNum := AccentStyle.Render(fmt.Sprintf("Step %d/%d", step, total))
+	titleStyled := TitleStyle.Render(title)
+	fmt.Println()
+	fmt.Println(separator)
+	fmt.Printf("%s  %s\n", stepNum, titleStyled)
+	fmt.Println(separator)
+	fmt.Println()
+}
+
+// PrintKeyValue prints a key-value pair with aligned formatting.
+// Useful for structured output like build details and configuration summaries.
+// Respects quiet mode - suppressed when quiet.
+//
+// Parameters:
+//   - key: The label (e.g. "App:", "Build Version:")
+//   - value: The value to display
+func PrintKeyValue(key, value string) {
+	if quietMode {
+		return
+	}
+	keyStyled := DimStyle.Render(fmt.Sprintf("  %-16s", key))
+	fmt.Printf("%s %s\n", keyStyled, InfoStyle.Render(value))
+}
+
+// WizardSummaryItem represents a single step result in the final wizard summary.
+//
+// Fields:
+//   - Title: Short description of the step (e.g. "Authentication")
+//   - OK: Whether the step completed successfully
+//   - Detail: Optional detail string (e.g. app name, test name)
+type WizardSummaryItem struct {
+	Title  string
+	OK     bool
+	Detail string
+}
+
+// PrintWizardSummary prints a boxed summary of all wizard steps at the end of the flow.
+// Each step is shown with a check or cross icon and optional detail.
+// Respects quiet mode - suppressed when quiet.
+//
+// Parameters:
+//   - items: Ordered list of step results to display
+func PrintWizardSummary(items []WizardSummaryItem) {
+	if quietMode || len(items) == 0 {
+		return
+	}
+
+	var lines []string
+	for _, item := range items {
+		var icon, line string
+		if item.OK {
+			icon = SuccessStyle.Render("✓")
+		} else {
+			icon = DimStyle.Render("–")
+		}
+		if item.Detail != "" {
+			line = fmt.Sprintf("%s %s  %s", icon, InfoStyle.Render(item.Title), DimStyle.Render(item.Detail))
+		} else {
+			line = fmt.Sprintf("%s %s", icon, InfoStyle.Render(item.Title))
+		}
+		lines = append(lines, line)
+	}
+
+	content := strings.Join(lines, "\n")
+	box := BoxStyle.Render(BoxTitleStyle.Render("Setup Complete") + "\n" + content)
+	fmt.Println(box)
 }
 
 // PrintDiff prints a diff with syntax highlighting.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - diff: The diff content
 func PrintDiff(diff string) {
+	if quietMode {
+		return
+	}
 	lines := strings.Split(diff, "\n")
 	for _, line := range lines {
 		switch {
@@ -139,11 +271,39 @@ func PrintDiff(diff string) {
 //   - totalSteps: Total number of steps
 //   - duration: Elapsed duration string
 func PrintVerboseStatus(statusStr string, progress int, currentStep string, completedSteps, totalSteps int, duration string) {
+	if quietMode {
+		return
+	}
+
 	// Clear line and print status
-	fmt.Print("\r\033[K") // Clear current line
+	clearLine() // Clear current line
 
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)
+
+	// Special handling for non-running phases (device lifecycle + terminal states)
+	statusLower := strings.ToLower(statusStr)
+	var displayStatus string
+	switch statusLower {
+	case "starting", "queued":
+		displayStatus = "Setting up device..."
+	case "verifying":
+		displayStatus = "Verifying results..."
+	case "stopping":
+		displayStatus = "Stopping device..."
+	case "cancelled":
+		displayStatus = "Test cancelled"
+	case "timeout":
+		displayStatus = "Test timed out"
+	}
+	if displayStatus != "" {
+		statusLine := fmt.Sprintf("%s %s", statusIcon, InfoStyle.Render(displayStatus))
+		if duration != "" {
+			statusLine += DimStyle.Render(fmt.Sprintf(" (%s)", duration))
+		}
+		fmt.Println(statusLine)
+		return
+	}
 
 	// Build status line
 	statusLine := fmt.Sprintf("%s %s", statusIcon, InfoStyle.Render(statusStr))
@@ -173,14 +333,36 @@ func PrintVerboseStatus(statusStr string, progress int, currentStep string, comp
 // Parameters:
 //   - statusStr: Current status string (queued, running, completed, etc.)
 //   - progress: Progress percentage (0-100)
+//   - currentStep: Description of current step being executed
 //   - completedSteps: Number of completed steps
 //   - totalSteps: Total number of steps
-func PrintBasicStatus(statusStr string, progress int, completedSteps, totalSteps int) {
+func PrintBasicStatus(statusStr string, progress int, currentStep string, completedSteps, totalSteps int) {
 	// Clear line
-	fmt.Print("\r\033[K")
+	clearLine()
 
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)
+
+	// Special handling for non-running phases (device lifecycle + terminal states)
+	statusLower := strings.ToLower(statusStr)
+	var displayStatus string
+	switch statusLower {
+	case "starting", "queued":
+		displayStatus = "Setting up device..."
+	case "verifying":
+		displayStatus = "Verifying results..."
+	case "stopping":
+		displayStatus = "Stopping device..."
+	case "cancelled":
+		displayStatus = "Test cancelled"
+	case "timeout":
+		displayStatus = "Test timed out"
+	}
+	if displayStatus != "" {
+		statusLine := fmt.Sprintf("%s %s", statusIcon, InfoStyle.Render(displayStatus))
+		fmt.Print(statusLine)
+		return
+	}
 
 	// Build status line
 	statusLine := fmt.Sprintf("%s %s", statusIcon, statusStr)
@@ -190,6 +372,11 @@ func PrintBasicStatus(statusStr string, progress int, completedSteps, totalSteps
 		statusLine += fmt.Sprintf(" [%d/%d steps]", completedSteps, totalSteps)
 	} else if progress > 0 {
 		statusLine += fmt.Sprintf(" [%d%%]", progress)
+	}
+
+	// Show current step description inline
+	if currentStep != "" {
+		statusLine += DimStyle.Render(fmt.Sprintf(" → %s", currentStep))
 	}
 
 	// Print without newline so it updates in place
@@ -206,8 +393,12 @@ func PrintBasicStatus(statusStr string, progress int, completedSteps, totalSteps
 //   - failedTests: Number of failed tests
 //   - duration: Elapsed duration string
 func PrintVerboseWorkflowStatus(statusStr string, completedTests, totalTests, passedTests, failedTests int, duration string) {
+	if quietMode {
+		return
+	}
+
 	// Clear line and print status
-	fmt.Print("\r\033[K") // Clear current line
+	clearLine() // Clear current line
 
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)
@@ -243,7 +434,7 @@ func PrintVerboseWorkflowStatus(statusStr string, completedTests, totalTests, pa
 //   - totalTests: Total number of tests
 func PrintBasicWorkflowStatus(statusStr string, completedTests, totalTests int) {
 	// Clear line
-	fmt.Print("\r\033[K")
+	clearLine()
 
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)
@@ -439,8 +630,13 @@ func padRight(s string, width int) string {
 }
 
 // Render prints the table with calculated column widths.
+// Respects quiet mode - suppressed when quiet.
 // Headers are styled with TableHeaderStyle, cells with TableCellStyle.
 func (t *Table) Render() {
+	if quietMode {
+		return
+	}
+
 	if len(t.Headers) == 0 {
 		return
 	}

@@ -23,6 +23,8 @@ import (
 //   - Timeout: Timeout in seconds (default 3600)
 //   - DevMode: If true, use local development servers
 //   - OnProgress: Optional callback for progress updates
+//   - OnTaskStarted: Optional callback called when task is created (provides task ID for cancellation)
+//   - LaunchURL: Optional deep link URL for hot reload mode
 type RunTestParams struct {
 	TestNameOrID   string
 	Retries        int
@@ -30,6 +32,12 @@ type RunTestParams struct {
 	Timeout        int
 	DevMode        bool
 	OnProgress     func(status *sse.TestStatus)
+	// OnTaskStarted is called immediately after the test execution is started.
+	// This provides the task ID early, enabling cancellation before monitoring completes.
+	OnTaskStarted func(taskID string)
+	// LaunchURL is the deep link URL for hot reload mode.
+	// When provided, the test will launch the app via this URL instead of the normal app launch.
+	LaunchURL string
 }
 
 // RunTestResult contains the result of a test run.
@@ -96,6 +104,7 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 		TestID:         testID,
 		Retries:        retries,
 		BuildVersionID: params.BuildVersionID,
+		LaunchURL:      params.LaunchURL,
 	})
 	if err != nil {
 		return &RunTestResult{
@@ -104,13 +113,34 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 		}, nil
 	}
 
+	// Notify caller of task ID immediately for cancellation support
+	if params.OnTaskStarted != nil {
+		params.OnTaskStarted(resp.TaskID)
+	}
+
 	// Monitor execution
 	monitor := sse.NewMonitorWithDevMode(apiKey, timeout, params.DevMode)
 	finalStatus, err := monitor.MonitorTest(ctx, resp.TaskID, testID, params.OnProgress)
 	if err != nil {
+		// If we have a valid final status (e.g., cancelled via frontend while context was cancelled),
+		// prefer using it over reporting a generic error
+		if finalStatus != nil && status.IsTerminal(finalStatus.Status) {
+			reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), resp.TaskID)
+			return &RunTestResult{
+				Success:      status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
+				TaskID:       resp.TaskID,
+				TestID:       testID,
+				TestName:     finalStatus.TestName,
+				Status:       finalStatus.Status,
+				Duration:     finalStatus.Duration,
+				ReportURL:    reportURL,
+				ErrorMessage: finalStatus.ErrorMessage,
+			}, nil
+		}
 		return &RunTestResult{
 			Success:      false,
 			TaskID:       resp.TaskID,
+			Status:       "cancelled",
 			ErrorMessage: err.Error(),
 		}, nil
 	}
@@ -137,12 +167,16 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 //   - Timeout: Timeout in seconds (default 3600)
 //   - DevMode: If true, use local development servers
 //   - OnProgress: Optional callback for progress updates
+//   - OnTaskStarted: Optional callback called when task is created (provides task ID for cancellation)
 type RunWorkflowParams struct {
 	WorkflowNameOrID string
 	Retries          int
 	Timeout          int
 	DevMode          bool
 	OnProgress       func(status *sse.WorkflowStatus)
+	// OnTaskStarted is called immediately after the workflow execution is started.
+	// This provides the task ID early, enabling cancellation before monitoring completes.
+	OnTaskStarted func(taskID string)
 }
 
 // RunWorkflowResult contains the result of a workflow run.
@@ -222,13 +256,37 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 		}, nil
 	}
 
+	// Notify caller of task ID immediately for cancellation support
+	if params.OnTaskStarted != nil {
+		params.OnTaskStarted(resp.TaskID)
+	}
+
 	// Monitor execution
 	monitor := sse.NewMonitorWithDevMode(apiKey, timeout, params.DevMode)
 	finalStatus, err := monitor.MonitorWorkflow(ctx, resp.TaskID, workflowID, params.OnProgress)
 	if err != nil {
+		// If we have a valid final status (e.g., cancelled via frontend while context was cancelled),
+		// prefer using it over reporting a generic error
+		if finalStatus != nil && status.IsTerminal(finalStatus.Status) {
+			reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), resp.TaskID)
+			return &RunWorkflowResult{
+				Success:      status.IsWorkflowSuccess(finalStatus.Status, finalStatus.FailedTests),
+				TaskID:       resp.TaskID,
+				WorkflowID:   workflowID,
+				WorkflowName: finalStatus.WorkflowName,
+				Status:       finalStatus.Status,
+				TotalTests:   finalStatus.TotalTests,
+				PassedTests:  finalStatus.PassedTests,
+				FailedTests:  finalStatus.FailedTests,
+				Duration:     finalStatus.Duration,
+				ReportURL:    reportURL,
+				ErrorMessage: finalStatus.ErrorMessage,
+			}, nil
+		}
 		return &RunWorkflowResult{
 			Success:      false,
 			TaskID:       resp.TaskID,
+			Status:       "cancelled",
 			ErrorMessage: err.Error(),
 		}, nil
 	}

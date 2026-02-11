@@ -12,14 +12,20 @@ var (
 	spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	spinnerMu     sync.Mutex
 	spinnerStop   chan struct{}
+	spinnerDone   chan struct{} // signals goroutine has finished cleanup
 	spinnerActive bool
 )
 
 // StartSpinner starts an animated spinner with a message.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - message: The message to display next to the spinner
 func StartSpinner(message string) {
+	if quietMode {
+		return
+	}
+
 	spinnerMu.Lock()
 	defer spinnerMu.Unlock()
 
@@ -29,12 +35,18 @@ func StartSpinner(message string) {
 
 	spinnerActive = true
 	spinnerStop = make(chan struct{})
+	spinnerDone = make(chan struct{})
+
+	// Capture channels in local variables to avoid race conditions
+	stopChan := spinnerStop
+	doneChan := spinnerDone
 
 	go func() {
+		defer close(doneChan) // signal done after cleanup write completes
 		i := 0
 		for {
 			select {
-			case <-spinnerStop:
+			case <-stopChan:
 				// Clear the spinner line
 				fmt.Printf("\r%s\r", strings.Repeat(" ", len(message)+4))
 				return
@@ -49,18 +61,25 @@ func StartSpinner(message string) {
 	}()
 }
 
-// StopSpinner stops the current spinner.
+// StopSpinner stops the current spinner and blocks until cleanup is complete.
+// This ensures the spinner's line-clearing write finishes before any subsequent
+// writes to stdout, preventing race conditions with progress display.
 func StopSpinner() {
 	spinnerMu.Lock()
-	defer spinnerMu.Unlock()
 
 	if !spinnerActive {
+		spinnerMu.Unlock()
 		return
 	}
 
 	close(spinnerStop)
 	spinnerActive = false
-	time.Sleep(100 * time.Millisecond) // Allow cleanup
+	doneChan := spinnerDone
+	spinnerMu.Unlock()
+
+	// Block until goroutine cleanup write completes (must be outside lock
+	// since the goroutine doesn't hold the lock during its cleanup Printf).
+	<-doneChan
 }
 
 // ProgressBar represents a progress bar state.
@@ -115,8 +134,12 @@ func (p *ProgressBar) render() {
 		line += fmt.Sprintf(" %s", styledMsg)
 	}
 
-	// Pad to clear previous content
-	fmt.Printf("%-80s", line)
+	// Pad to clear previous content; use carriage return for in-place update
+	if isTTY {
+		fmt.Printf("\r%-80s", line)
+	} else {
+		fmt.Println(line)
+	}
 }
 
 // Complete marks the progress bar as complete.
@@ -126,11 +149,15 @@ func (p *ProgressBar) Complete() {
 }
 
 // UpdateProgress is a convenience function for updating progress display.
+// Respects quiet mode - suppressed when quiet.
 //
 // Parameters:
 //   - progress: Progress percentage (0-100)
 //   - message: Current step message
 func UpdateProgress(progress int, message string) {
+	if quietMode {
+		return
+	}
 	bar := NewProgressBar(100, 40)
 	bar.Update(progress, message)
 }

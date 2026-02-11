@@ -11,7 +11,7 @@ import (
 //
 // Parameters:
 //   - name: Test name
-//   - status: "passed" or "failed"
+//   - status: "passed", "failed", "cancelled", or "timeout"
 //   - reportURL: URL to the test report
 //   - errorMsg: Error message if failed (optional)
 func PrintTestResult(name, status, reportURL, errorMsg string) {
@@ -25,6 +25,12 @@ func PrintTestResult(name, status, reportURL, errorMsg string) {
 	case "failed":
 		statusStyle = StatusFailedStyle
 		statusIcon = "✗"
+	case "cancelled":
+		statusStyle = WarningStyle
+		statusIcon = "⊘"
+	case "timeout":
+		statusStyle = WarningStyle
+		statusIcon = "⏱"
 	default:
 		statusStyle = DimStyle
 		statusIcon = "?"
@@ -110,33 +116,4 @@ func PrintWorkflowResult(name string, passed, failed, total int, reportURL strin
 
 	// Report URL
 	fmt.Printf("  %s %s\n", DimStyle.Render("Live Report:"), LinkStyle.Render(reportURL))
-}
-
-// PrintStepResult prints a single step result.
-//
-// Parameters:
-//   - stepNum: Step number
-//   - description: Step description
-//   - status: "passed", "failed", or "running"
-func PrintStepResult(stepNum int, description, status string) {
-	var statusStyle lipgloss.Style
-	var statusIcon string
-
-	switch status {
-	case "passed":
-		statusStyle = StatusPassedStyle
-		statusIcon = "✓"
-	case "failed":
-		statusStyle = StatusFailedStyle
-		statusIcon = "✗"
-	case "running":
-		statusStyle = StatusRunningStyle
-		statusIcon = "→"
-	default:
-		statusStyle = DimStyle
-		statusIcon = "○"
-	}
-
-	line := fmt.Sprintf("%s Step %d: %s", statusIcon, stepNum, description)
-	fmt.Println(statusStyle.Render(line))
 }

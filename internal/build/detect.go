@@ -1,751 +1,402 @@
-// Package build provides build system detection and execution.
-//
-// This package handles auto-detecting build systems (Gradle, Xcode, Expo,
-// Flutter, React Native) and executing build commands.
+// Package build provides build execution and artifact management utilities.
 package build
 
 import (
-	"bufio"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 )
 
-// System represents a build system type.
-type System int
+// BuildSystem represents a detected build system type.
+type BuildSystem int
 
 const (
-	// SystemUnknown represents an unknown build system.
-	SystemUnknown System = iota
+	// SystemUnknown indicates the build system could not be detected.
+	SystemUnknown BuildSystem = iota
 
-	// SystemGradle represents a Gradle (Android) project.
-	SystemGradle
-
-	// SystemXcode represents an Xcode (iOS) project.
-	SystemXcode
-
-	// SystemExpo represents an Expo project.
+	// SystemExpo indicates an Expo/React Native project.
 	SystemExpo
 
-	// SystemFlutter represents a Flutter project.
+	// SystemReactNative indicates a React Native project (non-Expo).
+	SystemReactNative
+
+	// SystemFlutter indicates a Flutter project.
 	SystemFlutter
 
-	// SystemReactNative represents a React Native project.
-	SystemReactNative
+	// SystemXcode indicates a native iOS Xcode project.
+	SystemXcode
+
+	// SystemGradle indicates a native Android Gradle project.
+	SystemGradle
+
+	// SystemSwift indicates a Swift Package Manager project.
+	SystemSwift
 )
 
-// String returns the string representation of a build system.
-func (s System) String() string {
+// String returns the human-readable name of the build system.
+func (s BuildSystem) String() string {
 	switch s {
-	case SystemGradle:
-		return "gradle"
-	case SystemXcode:
-		return "xcode"
 	case SystemExpo:
-		return "expo"
-	case SystemFlutter:
-		return "flutter"
+		return "Expo"
 	case SystemReactNative:
-		return "react-native"
+		return "React Native"
+	case SystemFlutter:
+		return "Flutter"
+	case SystemXcode:
+		return "Xcode"
+	case SystemGradle:
+		return "Gradle (Android)"
+	case SystemSwift:
+		return "Swift Package Manager"
 	default:
-		return "unknown"
+		return "Unknown"
 	}
 }
 
 // DetectedBuild contains information about a detected build system.
 type DetectedBuild struct {
-	// System is the detected build system.
-	System System
+	// System is the detected build system type.
+	System BuildSystem
 
 	// Command is the suggested build command.
 	Command string
 
-	// Output is the expected output path.
+	// Output is the expected output artifact path.
 	Output string
 
-	// Platform is the detected platform (ios, android).
+	// Platform is the detected platform (ios, android, or empty for both).
 	Platform string
 
-	// Variants contains detected build variants.
-	Variants map[string]BuildVariant
+	// Platforms contains platform-specific build configurations.
+	Platforms map[string]BuildPlatform
 }
 
-// BuildVariant represents a build variant.
-type BuildVariant struct {
+// BuildPlatform represents a platform-specific build configuration.
+type BuildPlatform struct {
+	// Command is the build command for this platform.
 	Command string
-	Output  string
+
+	// Output is the expected output path for this platform.
+	Output string
 }
 
-// EASBuildError represents a detected EAS build error with guidance.
-// This type is used to provide helpful error messages when EAS builds fail
-// due to common configuration issues like missing credentials.
-type EASBuildError struct {
-	// OriginalError is the original error message from the build.
-	OriginalError string
-
-	// Guidance contains actionable instructions to fix the error.
-	Guidance string
-}
-
-// Error implements the error interface.
-//
-// Returns:
-//   - string: The original error message
-func (e *EASBuildError) Error() string {
-	return e.OriginalError
-}
-
-// detectEASError checks build output for known EAS error patterns and returns
-// helpful guidance if a known error is detected.
+// Detect attempts to detect the build system in the given directory.
 //
 // Parameters:
-//   - output: The captured build output lines
-//   - platform: The target platform (ios, android)
-//
-// Returns:
-//   - *EASBuildError: Error with guidance if detected, nil otherwise
-func detectEASError(output []string, platform string) *EASBuildError {
-	fullOutput := strings.Join(output, "\n")
-
-	// Android keystore not configured
-	if strings.Contains(fullOutput, "Generating a new Keystore is not supported in --non-interactive mode") {
-		return &EASBuildError{
-			OriginalError: "Android keystore not configured",
-			Guidance: `To fix this, you need to set up Android signing credentials:
-
-Option 1: Generate keystore on Expo servers (recommended for first-time setup)
-  Run this command once interactively:
-  $ npx eas build --platform android --profile development
-
-  This will prompt you to generate a keystore and store it on Expo's servers.
-  After this, revyl build upload will work automatically.
-
-Option 2: Use local credentials
-  Create a credentials.json file in your project root:
-  {
-    "android": {
-      "keystore": {
-        "keystorePath": "path/to/your.keystore",
-        "keystorePassword": "your-password",
-        "keyAlias": "your-alias",
-        "keyPassword": "your-key-password"
-      }
-    }
-  }
-
-Learn more: https://docs.expo.dev/app-signing/local-credentials/`,
-		}
-	}
-
-	// iOS provisioning profile issues
-	if platform == "ios" && strings.Contains(fullOutput, "provisioning profile") {
-		return &EASBuildError{
-			OriginalError: "iOS provisioning profile not configured",
-			Guidance: `To fix this, set up iOS signing credentials:
-
-Run this command once interactively:
-  $ npx eas build --platform ios --profile development
-
-This will guide you through Apple Developer account setup.
-
-Learn more: https://docs.expo.dev/app-signing/app-credentials/`,
-		}
-	}
-
-	// iOS distribution certificate issues
-	if platform == "ios" && strings.Contains(fullOutput, "distribution certificate") {
-		return &EASBuildError{
-			OriginalError: "iOS distribution certificate not configured",
-			Guidance: `To fix this, set up iOS signing credentials:
-
-Run this command once interactively:
-  $ npx eas build --platform ios --profile development
-
-This will guide you through Apple Developer account setup.
-
-Learn more: https://docs.expo.dev/app-signing/app-credentials/`,
-		}
-	}
-
-	return nil
-}
-
-// detectPlatformFromCommand extracts the platform from a build command.
-// This is used to provide platform-specific error guidance.
-//
-// Parameters:
-//   - command: The build command to analyze
-//
-// Returns:
-//   - string: The detected platform ("ios", "android", or empty string)
-func detectPlatformFromCommand(command string) string {
-	cmdLower := strings.ToLower(command)
-
-	// Check for explicit platform flags
-	if strings.Contains(cmdLower, "--platform ios") || strings.Contains(cmdLower, "--platform=ios") {
-		return "ios"
-	}
-	if strings.Contains(cmdLower, "--platform android") || strings.Contains(cmdLower, "--platform=android") {
-		return "android"
-	}
-
-	// Check for platform-specific keywords
-	if strings.Contains(cmdLower, "ios") || strings.Contains(cmdLower, "iphonesimulator") ||
-		strings.Contains(cmdLower, "xcodebuild") || strings.Contains(cmdLower, ".xcworkspace") {
-		return "ios"
-	}
-	if strings.Contains(cmdLower, "android") || strings.Contains(cmdLower, "apk") ||
-		strings.Contains(cmdLower, "aab") || strings.Contains(cmdLower, "gradlew") {
-		return "android"
-	}
-
-	return ""
-}
-
-// Detect auto-detects the build system in a directory.
-//
-// Parameters:
-//   - dir: The directory to scan
+//   - dir: The directory to scan for build system indicators
 //
 // Returns:
 //   - *DetectedBuild: Information about the detected build system
 //   - error: Any error that occurred during detection
+//
+// The function checks for various build system indicators in order of specificity:
+// Expo > React Native > Flutter > Xcode > Gradle > Swift
 func Detect(dir string) (*DetectedBuild, error) {
-	// Check for various build systems in order of specificity
-
-	// 1. Check for Expo (app.json with expo key)
-	if detected := detectExpo(dir); detected != nil {
-		return detected, nil
+	// Check for Expo (app.json with expo key, or eas.json)
+	if isExpoProject(dir) {
+		return detectExpo(dir)
 	}
 
-	// 2. Check for Flutter (pubspec.yaml with flutter key)
-	if detected := detectFlutter(dir); detected != nil {
-		return detected, nil
+	// Check for React Native (react-native in package.json)
+	if isReactNativeProject(dir) {
+		return detectReactNative(dir)
 	}
 
-	// 3. Check for React Native (package.json with react-native)
-	if detected := detectReactNative(dir); detected != nil {
-		return detected, nil
+	// Check for Flutter (pubspec.yaml)
+	if fileExists(filepath.Join(dir, "pubspec.yaml")) {
+		return detectFlutter(dir)
 	}
 
-	// 4. Check for Gradle (build.gradle or build.gradle.kts)
-	if detected := detectGradle(dir); detected != nil {
-		return detected, nil
+	// Check for Xcode project
+	if hasXcodeProject(dir) {
+		return detectXcode(dir)
 	}
 
-	// 5. Check for Xcode (*.xcodeproj or *.xcworkspace)
-	if detected := detectXcode(dir); detected != nil {
-		return detected, nil
+	// Check for Gradle (Android)
+	if fileExists(filepath.Join(dir, "build.gradle")) || fileExists(filepath.Join(dir, "build.gradle.kts")) {
+		return detectGradle(dir)
+	}
+
+	// Check for Swift Package Manager
+	if fileExists(filepath.Join(dir, "Package.swift")) {
+		return detectSwift(dir)
 	}
 
 	return &DetectedBuild{System: SystemUnknown}, nil
 }
 
-// detectExpo checks for an Expo project.
-func detectExpo(dir string) *DetectedBuild {
-	appJSONPath := filepath.Join(dir, "app.json")
-	if _, err := os.Stat(appJSONPath); err != nil {
-		return nil
+// isExpoProject checks if the directory contains an Expo project.
+func isExpoProject(dir string) bool {
+	// Check for eas.json (definitive Expo indicator)
+	if fileExists(filepath.Join(dir, "eas.json")) {
+		return true
 	}
 
-	// Check if it's an Expo project by looking for expo in package.json
-	packageJSONPath := filepath.Join(dir, "package.json")
-	data, err := os.ReadFile(packageJSONPath)
-	if err != nil {
-		return nil
-	}
-
-	if !strings.Contains(string(data), "\"expo\"") {
-		return nil
-	}
-
-	// Use EAS Build local commands (expo build:* is deprecated)
-	// Include --non-interactive flag to prevent stdin prompts in CI/automated environments
-	return &DetectedBuild{
-		System:   SystemExpo,
-		Command:  "npx eas build --local --platform ios --profile development --non-interactive",
-		Output:   "build-*.tar.gz",
-		Platform: "ios",
-		Variants: map[string]BuildVariant{
-			"ios": {
-				Command: "npx eas build --local --platform ios --profile development --non-interactive",
-				Output:  "build-*.tar.gz",
-			},
-			"android": {
-				Command: "npx eas build --local --platform android --profile development --non-interactive",
-				Output:  "build-*.apk",
-			},
-		},
-	}
-}
-
-// detectFlutter checks for a Flutter project.
-func detectFlutter(dir string) *DetectedBuild {
-	pubspecPath := filepath.Join(dir, "pubspec.yaml")
-	data, err := os.ReadFile(pubspecPath)
-	if err != nil {
-		return nil
-	}
-
-	if !strings.Contains(string(data), "flutter:") {
-		return nil
-	}
-
-	return &DetectedBuild{
-		System:   SystemFlutter,
-		Command:  "flutter build apk --debug",
-		Output:   "build/app/outputs/flutter-apk/app-debug.apk",
-		Platform: "android",
-		Variants: map[string]BuildVariant{
-			"android-debug": {
-				Command: "flutter build apk --debug",
-				Output:  "build/app/outputs/flutter-apk/app-debug.apk",
-			},
-			"android-release": {
-				Command: "flutter build apk --release",
-				Output:  "build/app/outputs/flutter-apk/app-release.apk",
-			},
-			"ios-debug": {
-				Command: "flutter build ios --debug --simulator",
-				Output:  "build/ios/iphonesimulator/*.app",
-			},
-		},
-	}
-}
-
-// detectReactNative checks for a React Native project.
-func detectReactNative(dir string) *DetectedBuild {
-	packageJSONPath := filepath.Join(dir, "package.json")
-	data, err := os.ReadFile(packageJSONPath)
-	if err != nil {
-		return nil
-	}
-
-	if !strings.Contains(string(data), "\"react-native\"") {
-		return nil
-	}
-
-	// Check for android directory
-	androidDir := filepath.Join(dir, "android")
-	if _, err := os.Stat(androidDir); err == nil {
-		return &DetectedBuild{
-			System:   SystemReactNative,
-			Command:  "cd android && ./gradlew assembleDebug",
-			Output:   "android/app/build/outputs/apk/debug/app-debug.apk",
-			Platform: "android",
-			Variants: map[string]BuildVariant{
-				"android-debug": {
-					Command: "cd android && ./gradlew assembleDebug",
-					Output:  "android/app/build/outputs/apk/debug/app-debug.apk",
-				},
-				"android-release": {
-					Command: "cd android && ./gradlew assembleRelease",
-					Output:  "android/app/build/outputs/apk/release/app-release.apk",
-				},
-			},
+	// Check for app.json with expo configuration
+	appJsonPath := filepath.Join(dir, "app.json")
+	if fileExists(appJsonPath) {
+		content, err := os.ReadFile(appJsonPath)
+		if err == nil {
+			// Simple check for "expo" key in JSON
+			return strings.Contains(string(content), `"expo"`)
 		}
 	}
 
-	// Check for ios directory
-	iosDir := filepath.Join(dir, "ios")
-	if _, err := os.Stat(iosDir); err == nil {
-		return &DetectedBuild{
-			System:   SystemReactNative,
-			Command:  "cd ios && xcodebuild -workspace *.xcworkspace -scheme * -configuration Debug -sdk iphonesimulator",
-			Output:   "ios/build/Build/Products/Debug-iphonesimulator/*.app",
-			Platform: "ios",
-		}
-	}
-
-	return nil
+	return false
 }
 
-// detectGradle checks for a Gradle project.
-func detectGradle(dir string) *DetectedBuild {
-	// Check for build.gradle or build.gradle.kts
-	gradleFile := filepath.Join(dir, "build.gradle")
-	gradleKtsFile := filepath.Join(dir, "build.gradle.kts")
-
-	if _, err := os.Stat(gradleFile); err != nil {
-		if _, err := os.Stat(gradleKtsFile); err != nil {
-			return nil
-		}
+// isReactNativeProject checks if the directory contains a React Native project.
+func isReactNativeProject(dir string) bool {
+	packageJsonPath := filepath.Join(dir, "package.json")
+	if !fileExists(packageJsonPath) {
+		return false
 	}
 
-	// Determine the gradle wrapper path
-	gradlewPath := "./gradlew"
-	if _, err := os.Stat(filepath.Join(dir, "gradlew")); err != nil {
-		gradlewPath = "gradle"
+	content, err := os.ReadFile(packageJsonPath)
+	if err != nil {
+		return false
 	}
 
-	// Try to find the app module output path
-	appBuildGradle := filepath.Join(dir, "app", "build.gradle")
-	if _, err := os.Stat(appBuildGradle); err != nil {
-		appBuildGradle = filepath.Join(dir, "app", "build.gradle.kts")
-	}
-
-	outputPath := "app/build/outputs/apk/debug/app-debug.apk"
-	if _, err := os.Stat(appBuildGradle); err == nil {
-		// Standard Android project structure
-		outputPath = "app/build/outputs/apk/debug/app-debug.apk"
-	}
-
-	return &DetectedBuild{
-		System:   SystemGradle,
-		Command:  gradlewPath + " assembleDebug",
-		Output:   outputPath,
-		Platform: "android",
-		Variants: map[string]BuildVariant{
-			"debug": {
-				Command: gradlewPath + " assembleDebug",
-				Output:  "app/build/outputs/apk/debug/app-debug.apk",
-			},
-			"release": {
-				Command: gradlewPath + " assembleRelease",
-				Output:  "app/build/outputs/apk/release/app-release.apk",
-			},
-		},
-	}
+	return strings.Contains(string(content), `"react-native"`)
 }
 
-// detectXcode checks for an Xcode project.
-func detectXcode(dir string) *DetectedBuild {
-	// Look for .xcworkspace first (preferred)
+// hasXcodeProject checks if the directory contains an Xcode project.
+func hasXcodeProject(dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		return false
 	}
-
-	var workspaceName string
-	var projectName string
 
 	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".xcworkspace") {
-			workspaceName = entry.Name()
-		}
-		if strings.HasSuffix(entry.Name(), ".xcodeproj") {
-			projectName = entry.Name()
+		name := entry.Name()
+		if filepath.Ext(name) == ".xcodeproj" || filepath.Ext(name) == ".xcworkspace" {
+			return true
 		}
 	}
 
-	if workspaceName == "" && projectName == "" {
-		return nil
+	// Check ios subdirectory
+	iosDir := filepath.Join(dir, "ios")
+	if dirExists(iosDir) {
+		entries, err := os.ReadDir(iosDir)
+		if err == nil {
+			for _, entry := range entries {
+				name := entry.Name()
+				if filepath.Ext(name) == ".xcodeproj" || filepath.Ext(name) == ".xcworkspace" {
+					return true
+				}
+			}
+		}
 	}
 
-	// Prefer workspace over project
-	var buildCmd string
+	return false
+}
+
+// detectExpo returns build configuration for an Expo project.
+func detectExpo(dir string) (*DetectedBuild, error) {
+	detected := &DetectedBuild{
+		System:    SystemExpo,
+		Platforms: make(map[string]BuildPlatform),
+	}
+
+	// Default to EAS local build commands
+	detected.Platforms["ios"] = BuildPlatform{
+		Command: "eas build --platform ios --profile development --local --output build/app.tar.gz",
+		Output:  "build/app.tar.gz",
+	}
+	detected.Platforms["android"] = BuildPlatform{
+		Command: "eas build --platform android --profile development --local --output build/app.apk",
+		Output:  "build/app.apk",
+	}
+
+	// Set default command (iOS)
+	detected.Command = detected.Platforms["ios"].Command
+	detected.Output = detected.Platforms["ios"].Output
+
+	return detected, nil
+}
+
+// detectReactNative returns build configuration for a React Native project.
+func detectReactNative(dir string) (*DetectedBuild, error) {
+	detected := &DetectedBuild{
+		System:    SystemReactNative,
+		Platforms: make(map[string]BuildPlatform),
+	}
+
+	// iOS build (using xcodebuild)
+	detected.Platforms["ios"] = BuildPlatform{
+		Command: "cd ios && xcodebuild -workspace *.xcworkspace -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build",
+		Output:  "ios/build/Build/Products/Debug-iphonesimulator/*.app",
+	}
+
+	// Android build (using Gradle)
+	detected.Platforms["android"] = BuildPlatform{
+		Command: "cd android && ./gradlew assembleDebug",
+		Output:  "android/app/build/outputs/apk/debug/app-debug.apk",
+	}
+
+	detected.Command = detected.Platforms["android"].Command
+	detected.Output = detected.Platforms["android"].Output
+
+	return detected, nil
+}
+
+// detectFlutter returns build configuration for a Flutter project.
+func detectFlutter(dir string) (*DetectedBuild, error) {
+	detected := &DetectedBuild{
+		System:    SystemFlutter,
+		Platforms: make(map[string]BuildPlatform),
+	}
+
+	detected.Platforms["ios"] = BuildPlatform{
+		Command: "flutter build ios --simulator",
+		Output:  "build/ios/iphonesimulator/*.app",
+	}
+
+	detected.Platforms["android"] = BuildPlatform{
+		Command: "flutter build apk --debug",
+		Output:  "build/app/outputs/flutter-apk/app-debug.apk",
+	}
+
+	detected.Command = detected.Platforms["android"].Command
+	detected.Output = detected.Platforms["android"].Output
+
+	return detected, nil
+}
+
+// detectXcode returns build configuration for an Xcode project.
+func detectXcode(dir string) (*DetectedBuild, error) {
+	detected := &DetectedBuild{
+		System:    SystemXcode,
+		Platform:  "ios",
+		Platforms: make(map[string]BuildPlatform),
+	}
+
+	// Find workspace or project
+	workspaceName := findXcodeWorkspace(dir)
 	if workspaceName != "" {
-		schemeName := strings.TrimSuffix(workspaceName, ".xcworkspace")
-		buildCmd = fmt.Sprintf("xcodebuild -workspace %s -scheme %s -configuration Debug -sdk iphonesimulator -derivedDataPath build",
-			workspaceName, schemeName)
+		detected.Command = "xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build"
 	} else {
-		schemeName := strings.TrimSuffix(projectName, ".xcodeproj")
-		buildCmd = fmt.Sprintf("xcodebuild -project %s -scheme %s -configuration Debug -sdk iphonesimulator -derivedDataPath build",
-			projectName, schemeName)
-	}
-
-	return &DetectedBuild{
-		System:   SystemXcode,
-		Command:  buildCmd,
-		Output:   "build/Build/Products/Debug-iphonesimulator/*.app",
-		Platform: "ios",
-		Variants: map[string]BuildVariant{
-			"debug": {
-				Command: buildCmd,
-				Output:  "build/Build/Products/Debug-iphonesimulator/*.app",
-			},
-		},
-	}
-}
-
-// Runner executes build commands.
-type Runner struct {
-	workDir string
-}
-
-// NewRunner creates a new build runner.
-//
-// Parameters:
-//   - workDir: The working directory for builds
-//
-// Returns:
-//   - *Runner: A new runner instance
-func NewRunner(workDir string) *Runner {
-	return &Runner{workDir: workDir}
-}
-
-// Run executes a build command.
-//
-// Parameters:
-//   - command: The command to execute
-//   - onOutput: Callback for each line of output
-//
-// Returns:
-//   - error: Any error that occurred during execution
-func (r *Runner) Run(command string, onOutput func(string)) error {
-	// Split command into parts
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		return fmt.Errorf("empty command")
-	}
-
-	// Handle cd commands
-	if parts[0] == "cd" && len(parts) >= 2 {
-		// Find the && separator
-		for i, part := range parts {
-			if part == "&&" {
-				// Change to the directory
-				newDir := filepath.Join(r.workDir, parts[1])
-				r.workDir = newDir
-				// Execute the rest of the command
-				return r.Run(strings.Join(parts[i+1:], " "), onOutput)
-			}
+		projectName := findXcodeProject(dir)
+		if projectName != "" {
+			detected.Command = "xcodebuild -project " + projectName + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build"
+		} else {
+			detected.Command = "xcodebuild -configuration Debug -sdk iphonesimulator -derivedDataPath build"
 		}
 	}
 
-	cmd := exec.Command(parts[0], parts[1:]...)
-	cmd.Dir = r.workDir
+	detected.Output = "build/Build/Products/Debug-iphonesimulator/*.app"
 
-	// Set CI environment variables to ensure non-interactive mode for build tools
-	// CI=1 tells most build tools (including EAS CLI) to run in non-interactive mode
-	// EAS_NO_VCS=1 prevents EAS from requiring git repository checks
-	cmd.Env = append(os.Environ(), "CI=1", "EAS_NO_VCS=1")
+	detected.Platforms["ios"] = BuildPlatform{
+		Command: detected.Command,
+		Output:  detected.Output,
+	}
 
-	// Capture stdout and stderr
-	stdout, err := cmd.StdoutPipe()
+	return detected, nil
+}
+
+// detectGradle returns build configuration for a Gradle/Android project.
+func detectGradle(dir string) (*DetectedBuild, error) {
+	detected := &DetectedBuild{
+		System:    SystemGradle,
+		Platform:  "android",
+		Command:   "./gradlew assembleDebug",
+		Output:    "app/build/outputs/apk/debug/app-debug.apk",
+		Platforms: make(map[string]BuildPlatform),
+	}
+
+	detected.Platforms["android"] = BuildPlatform{
+		Command: detected.Command,
+		Output:  detected.Output,
+	}
+
+	return detected, nil
+}
+
+// detectSwift returns build configuration for a Swift Package Manager project.
+func detectSwift(dir string) (*DetectedBuild, error) {
+	detected := &DetectedBuild{
+		System:    SystemSwift,
+		Platform:  "ios",
+		Command:   "swift build",
+		Output:    ".build/debug/*",
+		Platforms: make(map[string]BuildPlatform),
+	}
+
+	return detected, nil
+}
+
+// findXcodeWorkspace finds an .xcworkspace file in the directory.
+func findXcodeWorkspace(dir string) string {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return fmt.Errorf("failed to create stdout pipe: %w", err)
+		return ""
 	}
 
-	stderr, err := cmd.StderrPipe()
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".xcworkspace" {
+			return entry.Name()
+		}
+	}
+
+	// Check ios subdirectory
+	iosDir := filepath.Join(dir, "ios")
+	entries, err = os.ReadDir(iosDir)
 	if err != nil {
-		return fmt.Errorf("failed to create stderr pipe: %w", err)
+		return ""
 	}
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start command: %w", err)
-	}
-
-	// Collect output for error detection
-	var outputLines []string
-	var outputMu sync.Mutex
-
-	// Read output in goroutines
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			line := scanner.Text()
-			outputMu.Lock()
-			outputLines = append(outputLines, line)
-			outputMu.Unlock()
-			if onOutput != nil {
-				onOutput(line)
-			}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".xcworkspace" {
+			return filepath.Join("ios", entry.Name())
 		}
-	}()
-
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			line := scanner.Text()
-			outputMu.Lock()
-			outputLines = append(outputLines, line)
-			outputMu.Unlock()
-			if onOutput != nil {
-				onOutput(line)
-			}
-		}
-	}()
-
-	// Wait for output readers to finish
-	wg.Wait()
-
-	if err := cmd.Wait(); err != nil {
-		// Check for known EAS errors and provide guidance
-		platform := detectPlatformFromCommand(command)
-		if easErr := detectEASError(outputLines, platform); easErr != nil {
-			return easErr
-		}
-		return fmt.Errorf("command failed: %w", err)
 	}
 
-	return nil
+	return ""
 }
 
-// GenerateVersionString generates a version string for a build.
-//
-// Returns:
-//   - string: A version string like "local-20240115-103045"
-func GenerateVersionString() string {
-	return fmt.Sprintf("local-%s", time.Now().Format("20060102-150405"))
-}
-
-// CollectMetadata collects build metadata.
-//
-// Parameters:
-//   - workDir: The working directory
-//   - command: The build command used
-//   - variant: The build variant (optional)
-//   - duration: The build duration
-//
-// Returns:
-//   - map[string]interface{}: The collected metadata
-func CollectMetadata(workDir, command, variant string, duration time.Duration) map[string]interface{} {
-	metadata := map[string]interface{}{
-		"source": map[string]interface{}{
-			"type":        "local",
-			"machine":     getHostname(),
-			"user":        getUsername(),
-			"working_dir": workDir,
-		},
-		"build": map[string]interface{}{
-			"command":     command,
-			"variant":     variant,
-			"duration_ms": duration.Milliseconds(),
-		},
-		"cli": map[string]interface{}{
-			"version":   "1.0.0",
-			"timestamp": time.Now().Format(time.RFC3339),
-		},
-	}
-
-	// Add git info if available
-	if gitInfo := collectGitInfo(workDir); gitInfo != nil {
-		metadata["git"] = gitInfo
-	}
-
-	return metadata
-}
-
-// collectGitInfo collects git repository information.
-func collectGitInfo(workDir string) map[string]interface{} {
-	// Check if it's a git repo
-	cmd := exec.Command("git", "rev-parse", "--git-dir")
-	cmd.Dir = workDir
-	if err := cmd.Run(); err != nil {
-		return nil
-	}
-
-	info := make(map[string]interface{})
-
-	// Get commit SHA
-	cmd = exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = workDir
-	if output, err := cmd.Output(); err == nil {
-		info["commit"] = strings.TrimSpace(string(output))
-	}
-
-	// Get branch name
-	cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = workDir
-	if output, err := cmd.Output(); err == nil {
-		info["branch"] = strings.TrimSpace(string(output))
-	}
-
-	// Check for uncommitted changes
-	cmd = exec.Command("git", "status", "--porcelain")
-	cmd.Dir = workDir
-	if output, err := cmd.Output(); err == nil {
-		info["dirty"] = len(output) > 0
-	}
-
-	return info
-}
-
-// getHostname returns the machine hostname.
-func getHostname() string {
-	hostname, err := os.Hostname()
+// findXcodeProject finds an .xcodeproj file in the directory.
+func findXcodeProject(dir string) string {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return "unknown"
+		return ""
 	}
-	return hostname
-}
 
-// getUsername returns the current username.
-func getUsername() string {
-	return os.Getenv("USER")
-}
-
-// ResolveArtifactPath resolves a glob pattern to the most recent matching file.
-// This is useful for build outputs that include timestamps (e.g., build-1770083113150.tar.gz).
-//
-// Parameters:
-//   - baseDir: The base directory to search in
-//   - pattern: The glob pattern to match (e.g., "build-*.tar.gz")
-//
-// Returns:
-//   - string: The path to the most recently modified matching file
-//   - error: Any error that occurred, or if no files match
-func ResolveArtifactPath(baseDir, pattern string) (string, error) {
-	fullPattern := filepath.Join(baseDir, pattern)
-
-	// Check if it's a direct path (no glob characters)
-	if !strings.ContainsAny(pattern, "*?[]") {
-		if _, err := os.Stat(fullPattern); err == nil {
-			return fullPattern, nil
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".xcodeproj" {
+			return entry.Name()
 		}
-		return "", fmt.Errorf("file not found: %s", pattern)
 	}
 
-	// Use glob to find matching files
-	matches, err := filepath.Glob(fullPattern)
+	// Check ios subdirectory
+	iosDir := filepath.Join(dir, "ios")
+	entries, err = os.ReadDir(iosDir)
 	if err != nil {
-		return "", fmt.Errorf("invalid glob pattern: %w", err)
+		return ""
 	}
 
-	if len(matches) == 0 {
-		return "", fmt.Errorf("no files matching pattern: %s", pattern)
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".xcodeproj" {
+			return filepath.Join("ios", entry.Name())
+		}
 	}
 
-	// If only one match, return it
-	if len(matches) == 1 {
-		return matches[0], nil
-	}
-
-	// Find the most recently modified file
-	return findMostRecentFile(matches)
+	return ""
 }
 
-// findMostRecentFile returns the path to the most recently modified file from a list.
-//
-// Parameters:
-//   - paths: List of file paths to compare
-//
-// Returns:
-//   - string: The path to the most recently modified file
-//   - error: Any error that occurred
-func findMostRecentFile(paths []string) (string, error) {
-	if len(paths) == 0 {
-		return "", fmt.Errorf("no files provided")
+// fileExists checks if a file exists.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
 	}
+	return !info.IsDir()
+}
 
-	var mostRecent string
-	var mostRecentTime time.Time
-
-	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-
-		if mostRecent == "" || info.ModTime().After(mostRecentTime) {
-			mostRecent = path
-			mostRecentTime = info.ModTime()
-		}
+// dirExists checks if a directory exists.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
 	}
-
-	if mostRecent == "" {
-		return "", fmt.Errorf("could not determine most recent file")
-	}
-
-	return mostRecent, nil
+	return info.IsDir()
 }

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"golang.org/x/term"
 )
 
 // Prompt displays a prompt and reads user input.
@@ -28,29 +26,6 @@ func Prompt(message string) (string, error) {
 	}
 
 	return strings.TrimSpace(input), nil
-}
-
-// PromptPassword displays a prompt and reads password input (hidden).
-//
-// Parameters:
-//   - message: The prompt message to display
-//
-// Returns:
-//   - string: The user's input
-//   - error: Any error that occurred
-func PromptPassword(message string) (string, error) {
-	fmt.Printf("%s ", InfoStyle.Render(message))
-
-	// Read password without echo
-	password, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println() // New line after password input
-
-	if err != nil {
-		// Fallback to regular input if terminal not available
-		return Prompt("")
-	}
-
-	return string(password), nil
 }
 
 // PromptConfirm displays a yes/no confirmation prompt.
@@ -95,7 +70,7 @@ func PromptSelect(message string, options []string) (int, error) {
 	fmt.Println(InfoStyle.Render(message))
 
 	for i, opt := range options {
-		fmt.Printf("  %s %s\n", DimStyle.Render(fmt.Sprintf("[%d]", i+1)), opt)
+		fmt.Printf("    %s %s\n", AccentStyle.Render(fmt.Sprintf("[%d]", i+1)), InfoStyle.Render(opt))
 	}
 
 	for {
@@ -113,4 +88,92 @@ func PromptSelect(message string, options []string) (int, error) {
 
 		return selection - 1, nil
 	}
+}
+
+// SelectOption represents an option in a select prompt.
+type SelectOption struct {
+	// Label is the display text for this option.
+	Label string
+
+	// Value is the value returned when this option is selected.
+	Value string
+
+	// Description is an optional description shown below the label.
+	Description string
+}
+
+// Select prompts the user to select from a list of options with values.
+//
+// Parameters:
+//   - message: The prompt message to display
+//   - options: List of options to choose from
+//   - defaultIndex: Default selection index (0-based), -1 for no default
+//
+// Returns:
+//   - int: Index of selected option
+//   - string: Value of selected option
+//   - error: Any error that occurred
+func Select(message string, options []SelectOption, defaultIndex int) (int, string, error) {
+	fmt.Println(InfoStyle.Render(message))
+
+	for i, opt := range options {
+		number := AccentStyle.Render(fmt.Sprintf("[%d]", i+1))
+		if i == defaultIndex {
+			marker := AccentStyle.Render(">")
+			label := TitleStyle.Render(opt.Label)
+			fmt.Printf("  %s %s %s\n", marker, number, label)
+			if opt.Description != "" {
+				fmt.Printf("      %s\n", DimStyle.Render(opt.Description))
+			}
+		} else {
+			label := InfoStyle.Render(opt.Label)
+			fmt.Printf("    %s %s\n", number, label)
+			if opt.Description != "" {
+				fmt.Printf("      %s\n", DimStyle.Render(opt.Description))
+			}
+		}
+	}
+
+	defaultPrompt := ""
+	if defaultIndex >= 0 && defaultIndex < len(options) {
+		defaultPrompt = fmt.Sprintf(" [%d]", defaultIndex+1)
+	}
+
+	for {
+		input, err := Prompt(fmt.Sprintf("Select option%s:", defaultPrompt))
+		if err != nil {
+			return -1, "", err
+		}
+
+		// Handle empty input with default
+		if input == "" && defaultIndex >= 0 && defaultIndex < len(options) {
+			return defaultIndex, options[defaultIndex].Value, nil
+		}
+
+		var selection int
+		_, err = fmt.Sscanf(input, "%d", &selection)
+		if err != nil || selection < 1 || selection > len(options) {
+			PrintWarning("Please enter a number between 1 and %d", len(options))
+			continue
+		}
+
+		idx := selection - 1
+		return idx, options[idx].Value, nil
+	}
+}
+
+// Confirm prompts the user for a yes/no confirmation.
+// This is an alias for PromptConfirm for convenience.
+//
+// Parameters:
+//   - message: The prompt message to display
+//
+// Returns:
+//   - bool: True if user confirmed, false otherwise
+func Confirm(message string) bool {
+	result, err := PromptConfirm(message, true)
+	if err != nil {
+		return false
+	}
+	return result
 }

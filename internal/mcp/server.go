@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -68,6 +69,10 @@ func NewServer(version string) (*Server, error) {
 		workDir:   workDir,
 		version:   version,
 	}
+
+	// Set the version on the API client so the User-Agent header reflects
+	// the real CLI build version (e.g. "revyl-cli/1.2.3") instead of "revyl-cli/dev".
+	s.apiClient.SetVersion(version)
 
 	// Create MCP server
 	s.mcpServer = mcp.NewServer(
@@ -131,8 +136,10 @@ func (s *Server) registerTools() {
 
 	// NEW: create_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "create_test",
-		Description: "Create a new test. Can create from YAML content or just a name (opens browser editor).",
+		Name: "create_test",
+		Description: `Create a new test from YAML content or just a name.
+
+RECOMMENDED: Before creating a test, read the app's source code (screens, components, routes) to understand the real UI labels, navigation flow, and user-facing outcomes. Use get_schema for the YAML format reference.`,
 	}, s.handleCreateTest)
 
 	// NEW: create_workflow tool
@@ -170,6 +177,60 @@ func (s *Server) registerTools() {
 		Name:        "open_workflow_editor",
 		Description: "Get the URL to open a workflow in the browser editor.",
 	}, s.handleOpenWorkflowEditor)
+
+	// cancel_test tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "cancel_test",
+		Description: "Cancel a running test execution by task ID.",
+	}, s.handleCancelTest)
+
+	// cancel_workflow tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "cancel_workflow",
+		Description: "Cancel a running workflow execution by task ID.",
+	}, s.handleCancelWorkflow)
+
+	// delete_test tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "delete_test",
+		Description: "Delete a test by name (alias from config) or UUID.",
+	}, s.handleDeleteTest)
+
+	// delete_workflow tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "delete_workflow",
+		Description: "Delete a workflow by name (alias from config) or UUID.",
+	}, s.handleDeleteWorkflow)
+
+	// list_remote_tests tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "list_remote_tests",
+		Description: "List all tests in the organization from the remote API (not just local config).",
+	}, s.handleListRemoteTests)
+
+	// list_workflows tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "list_workflows",
+		Description: "List all workflows in the organization from the remote API.",
+	}, s.handleListWorkflows)
+
+	// auth_status tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "auth_status",
+		Description: "Check current authentication status and return user info.",
+	}, s.handleAuthStatus)
+
+	// create_app tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "create_app",
+		Description: "Create a new app for build uploads.",
+	}, s.handleCreateApp)
+
+	// delete_app tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "delete_app",
+		Description: "Delete an app and all its build versions by app ID.",
+	}, s.handleDeleteApp)
 }
 
 // RunTestInput defines the input parameters for the run_test tool.
@@ -193,10 +254,31 @@ type RunTestOutput struct {
 
 // handleRunTest handles the run_test tool call.
 func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, input RunTestInput) (*mcp.CallToolResult, RunTestOutput, error) {
+	// Validate input
+	if input.TestName == "" {
+		return nil, RunTestOutput{
+			Success:      false,
+			ErrorMessage: "test_name is required",
+		}, nil
+	}
+
+	// Validate retries bounds (1-5)
+	retries := input.Retries
+	if retries < 0 {
+		retries = 1
+	} else if retries > 5 {
+		return nil, RunTestOutput{
+			Success:      false,
+			ErrorMessage: "retries must be between 1 and 5",
+		}, nil
+	} else if retries == 0 {
+		retries = 1 // Default to 1 if not specified
+	}
+
 	// Use shared execution logic
 	result, err := execution.RunTest(ctx, s.apiClient.GetAPIKey(), s.config, execution.RunTestParams{
 		TestNameOrID:   input.TestName,
-		Retries:        input.Retries,
+		Retries:        retries,
 		BuildVersionID: input.BuildVersionID,
 		Timeout:        3600,
 		DevMode:        false,
@@ -240,10 +322,31 @@ type RunWorkflowOutput struct {
 
 // handleRunWorkflow handles the run_workflow tool call.
 func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest, input RunWorkflowInput) (*mcp.CallToolResult, RunWorkflowOutput, error) {
+	// Validate input
+	if input.WorkflowName == "" {
+		return nil, RunWorkflowOutput{
+			Success:      false,
+			ErrorMessage: "workflow_name is required",
+		}, nil
+	}
+
+	// Validate retries bounds (1-5)
+	retries := input.Retries
+	if retries < 0 {
+		retries = 1
+	} else if retries > 5 {
+		return nil, RunWorkflowOutput{
+			Success:      false,
+			ErrorMessage: "retries must be between 1 and 5",
+		}, nil
+	} else if retries == 0 {
+		retries = 1 // Default to 1 if not specified
+	}
+
 	// Use shared execution logic
 	result, err := execution.RunWorkflow(ctx, s.apiClient.GetAPIKey(), s.config, execution.RunWorkflowParams{
 		WorkflowNameOrID: input.WorkflowName,
-		Retries:          input.Retries,
+		Retries:          retries,
 		Timeout:          3600,
 		DevMode:          false,
 		OnProgress:       nil,
@@ -342,11 +445,37 @@ type GetTestStatusOutput struct {
 
 // handleGetTestStatus handles the get_test_status tool call.
 func (s *Server) handleGetTestStatus(ctx context.Context, req *mcp.CallToolRequest, input GetTestStatusInput) (*mcp.CallToolResult, GetTestStatusOutput, error) {
-	// This would typically call an API endpoint to get status
-	// For now, return a placeholder
+	// Validate input
+	if input.TaskID == "" {
+		return nil, GetTestStatusOutput{
+			Status:       "error",
+			ErrorMessage: "task_id is required",
+		}, nil
+	}
+
+	// Call the API to get test status
+	status, err := s.apiClient.GetTestStatus(ctx, input.TaskID)
+	if err != nil {
+		return nil, GetTestStatusOutput{
+			Status:       "error",
+			ErrorMessage: fmt.Sprintf("failed to get test status: %v", err),
+		}, nil
+	}
+
+	// Calculate duration if we have timing info
+	var duration string
+	if status.ExecutionTimeSeconds > 0 {
+		duration = fmt.Sprintf("%.1fs", status.ExecutionTimeSeconds)
+	}
+
 	return nil, GetTestStatusOutput{
-		Status:   "unknown",
-		Progress: 0,
+		Status:         status.Status,
+		Progress:       int(status.Progress),
+		CurrentStep:    status.CurrentStep,
+		CompletedSteps: status.StepsCompleted,
+		TotalSteps:     status.TotalSteps,
+		Duration:       duration,
+		ErrorMessage:   status.ErrorMessage,
 	}, nil
 }
 
@@ -355,7 +484,7 @@ type CreateTestInput struct {
 	Name        string `json:"name" jsonschema:"description=Test name"`
 	Platform    string `json:"platform" jsonschema:"description=Target platform (ios or android)"`
 	YAMLContent string `json:"yaml_content,omitempty" jsonschema:"description=Optional YAML test definition. If provided, creates test with these blocks."`
-	BuildVarID  string `json:"build_var_id,omitempty" jsonschema:"description=Build variable ID to associate with test"`
+	AppID       string `json:"app_id,omitempty" jsonschema:"description=App ID to associate with test"`
 }
 
 // CreateTestOutput defines output for create_test tool.
@@ -369,6 +498,30 @@ type CreateTestOutput struct {
 
 // handleCreateTest handles the create_test tool call.
 func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest, input CreateTestInput) (*mcp.CallToolResult, CreateTestOutput, error) {
+	// Validate required fields
+	if input.Name == "" {
+		return nil, CreateTestOutput{
+			Success: false,
+			Error:   "name is required",
+		}, nil
+	}
+
+	if input.Platform == "" {
+		return nil, CreateTestOutput{
+			Success: false,
+			Error:   "platform is required (ios or android)",
+		}, nil
+	}
+
+	// Validate platform value
+	platform := strings.ToLower(input.Platform)
+	if platform != "ios" && platform != "android" {
+		return nil, CreateTestOutput{
+			Success: false,
+			Error:   "platform must be 'ios' or 'android'",
+		}, nil
+	}
+
 	// Validate YAML if provided
 	if input.YAMLContent != "" {
 		validationResult := yaml.ValidateYAML(input.YAMLContent)
@@ -382,9 +535,9 @@ func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest,
 
 	result, err := execution.CreateTest(ctx, s.apiClient.GetAPIKey(), execution.CreateTestParams{
 		Name:        input.Name,
-		Platform:    input.Platform,
+		Platform:    platform,
 		YAMLContent: input.YAMLContent,
-		BuildVarID:  input.BuildVarID,
+		AppID:       input.AppID,
 		DevMode:     false,
 	})
 	if err != nil {
@@ -416,6 +569,14 @@ type CreateWorkflowOutput struct {
 
 // handleCreateWorkflow handles the create_workflow tool call.
 func (s *Server) handleCreateWorkflow(ctx context.Context, req *mcp.CallToolRequest, input CreateWorkflowInput) (*mcp.CallToolResult, CreateWorkflowOutput, error) {
+	// Validate required fields
+	if input.Name == "" {
+		return nil, CreateWorkflowOutput{
+			Success: false,
+			Error:   "name is required",
+		}, nil
+	}
+
 	// Get user ID from API key validation
 	userInfo, err := s.apiClient.ValidateAPIKey(ctx)
 	if err != nil {
@@ -527,7 +688,7 @@ type ListBuildsInput struct {
 	Limit    int    `json:"limit,omitempty" jsonschema:"description=Maximum number of builds to return (default 20)"`
 }
 
-// BuildInfo contains information about a build variable.
+// BuildInfo contains information about an app.
 type BuildInfo struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
@@ -538,8 +699,9 @@ type BuildInfo struct {
 
 // ListBuildsOutput defines output for list_builds tool.
 type ListBuildsOutput struct {
-	Builds []BuildInfo `json:"builds"`
-	Total  int         `json:"total"`
+	Builds       []BuildInfo `json:"builds"`
+	Total        int         `json:"total"`
+	ErrorMessage string      `json:"error_message,omitempty"`
 }
 
 // handleListBuilds handles the list_builds tool call.
@@ -549,11 +711,12 @@ func (s *Server) handleListBuilds(ctx context.Context, req *mcp.CallToolRequest,
 		limit = 20
 	}
 
-	result, err := s.apiClient.ListOrgBuildVars(ctx, input.Platform, 1, limit)
+	result, err := s.apiClient.ListApps(ctx, input.Platform, 1, limit)
 	if err != nil {
 		return nil, ListBuildsOutput{
-			Builds: []BuildInfo{},
-			Total:  0,
+			Builds:       []BuildInfo{},
+			Total:        0,
+			ErrorMessage: fmt.Sprintf("failed to list builds: %v", err),
 		}, nil
 	}
 
@@ -641,5 +804,330 @@ func (s *Server) handleOpenWorkflowEditor(ctx context.Context, req *mcp.CallTool
 		Success:     true,
 		WorkflowID:  result.WorkflowID,
 		WorkflowURL: result.WorkflowURL,
+	}, nil
+}
+
+// --- Cancel tools ---
+
+// CancelTestInput defines input for cancel_test tool.
+type CancelTestInput struct {
+	TaskID string `json:"task_id" jsonschema:"description=The task ID of the running test execution to cancel"`
+}
+
+// CancelTestOutput defines output for cancel_test tool.
+type CancelTestOutput struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleCancelTest handles the cancel_test tool call.
+func (s *Server) handleCancelTest(ctx context.Context, req *mcp.CallToolRequest, input CancelTestInput) (*mcp.CallToolResult, CancelTestOutput, error) {
+	if input.TaskID == "" {
+		return nil, CancelTestOutput{Success: false, Error: "task_id is required"}, nil
+	}
+
+	resp, err := s.apiClient.CancelTest(ctx, input.TaskID)
+	if err != nil {
+		return nil, CancelTestOutput{Success: false, Error: fmt.Sprintf("failed to cancel test: %v", err)}, nil
+	}
+
+	return nil, CancelTestOutput{
+		Success: resp.Success,
+		Message: resp.Message,
+	}, nil
+}
+
+// CancelWorkflowInput defines input for cancel_workflow tool.
+type CancelWorkflowInput struct {
+	TaskID string `json:"task_id" jsonschema:"description=The task ID of the running workflow execution to cancel"`
+}
+
+// CancelWorkflowOutput defines output for cancel_workflow tool.
+type CancelWorkflowOutput struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleCancelWorkflow handles the cancel_workflow tool call.
+func (s *Server) handleCancelWorkflow(ctx context.Context, req *mcp.CallToolRequest, input CancelWorkflowInput) (*mcp.CallToolResult, CancelWorkflowOutput, error) {
+	if input.TaskID == "" {
+		return nil, CancelWorkflowOutput{Success: false, Error: "task_id is required"}, nil
+	}
+
+	resp, err := s.apiClient.CancelWorkflow(ctx, input.TaskID)
+	if err != nil {
+		return nil, CancelWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to cancel workflow: %v", err)}, nil
+	}
+
+	return nil, CancelWorkflowOutput{
+		Success: resp.Success,
+		Message: resp.Message,
+	}, nil
+}
+
+// --- Delete tools ---
+
+// DeleteTestInput defines input for delete_test tool.
+type DeleteTestInput struct {
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"description=Test name (alias from config) or UUID"`
+}
+
+// DeleteTestOutput defines output for delete_test tool.
+type DeleteTestOutput struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleDeleteTest handles the delete_test tool call.
+func (s *Server) handleDeleteTest(ctx context.Context, req *mcp.CallToolRequest, input DeleteTestInput) (*mcp.CallToolResult, DeleteTestOutput, error) {
+	if input.TestNameOrID == "" {
+		return nil, DeleteTestOutput{Success: false, Error: "test_name_or_id is required"}, nil
+	}
+
+	// Resolve name to ID from config
+	testID := input.TestNameOrID
+	if s.config != nil {
+		if id, ok := s.config.Tests[input.TestNameOrID]; ok {
+			testID = id
+		}
+	}
+
+	resp, err := s.apiClient.DeleteTest(ctx, testID)
+	if err != nil {
+		return nil, DeleteTestOutput{Success: false, Error: fmt.Sprintf("failed to delete test: %v", err)}, nil
+	}
+
+	return nil, DeleteTestOutput{
+		Success: true,
+		Message: resp.Message,
+	}, nil
+}
+
+// DeleteWorkflowInput defines input for delete_workflow tool.
+type DeleteWorkflowInput struct {
+	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"description=Workflow name (alias from config) or UUID"`
+}
+
+// DeleteWorkflowOutput defines output for delete_workflow tool.
+type DeleteWorkflowOutput struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleDeleteWorkflow handles the delete_workflow tool call.
+func (s *Server) handleDeleteWorkflow(ctx context.Context, req *mcp.CallToolRequest, input DeleteWorkflowInput) (*mcp.CallToolResult, DeleteWorkflowOutput, error) {
+	if input.WorkflowNameOrID == "" {
+		return nil, DeleteWorkflowOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
+	}
+
+	// Resolve name to ID from config
+	workflowID := input.WorkflowNameOrID
+	if s.config != nil {
+		if id, ok := s.config.Workflows[input.WorkflowNameOrID]; ok {
+			workflowID = id
+		}
+	}
+
+	resp, err := s.apiClient.DeleteWorkflow(ctx, workflowID)
+	if err != nil {
+		return nil, DeleteWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to delete workflow: %v", err)}, nil
+	}
+
+	return nil, DeleteWorkflowOutput{
+		Success: true,
+		Message: resp.Message,
+	}, nil
+}
+
+// --- List tools ---
+
+// ListRemoteTestsInput defines input for list_remote_tests tool.
+type ListRemoteTestsInput struct {
+	Limit  int `json:"limit,omitempty" jsonschema:"description=Maximum number of tests to return (default 50)"`
+	Offset int `json:"offset,omitempty" jsonschema:"description=Offset for pagination (default 0)"`
+}
+
+// RemoteTestInfo contains information about a remote test.
+type RemoteTestInfo struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+	Status   string `json:"status,omitempty"`
+}
+
+// ListRemoteTestsOutput defines output for list_remote_tests tool.
+type ListRemoteTestsOutput struct {
+	Tests []RemoteTestInfo `json:"tests"`
+	Total int              `json:"total"`
+	Error string           `json:"error,omitempty"`
+}
+
+// handleListRemoteTests handles the list_remote_tests tool call.
+func (s *Server) handleListRemoteTests(ctx context.Context, req *mcp.CallToolRequest, input ListRemoteTestsInput) (*mcp.CallToolResult, ListRemoteTestsOutput, error) {
+	limit := input.Limit
+	if limit == 0 {
+		limit = 50
+	}
+
+	resp, err := s.apiClient.ListOrgTests(ctx, limit, input.Offset)
+	if err != nil {
+		return nil, ListRemoteTestsOutput{
+			Tests: []RemoteTestInfo{},
+			Error: fmt.Sprintf("failed to list remote tests: %v", err),
+		}, nil
+	}
+
+	var tests []RemoteTestInfo
+	for _, t := range resp.Tests {
+		tests = append(tests, RemoteTestInfo{
+			ID:       t.ID,
+			Name:     t.Name,
+			Platform: t.Platform,
+		})
+	}
+
+	return nil, ListRemoteTestsOutput{
+		Tests: tests,
+		Total: resp.Count,
+	}, nil
+}
+
+// ListWorkflowsInput defines input for list_workflows tool.
+type ListWorkflowsInput struct{}
+
+// ListWorkflowsOutput defines output for list_workflows tool.
+type ListWorkflowsOutput struct {
+	Workflows []WorkflowInfo `json:"workflows"`
+	Total     int            `json:"total"`
+	Error     string         `json:"error,omitempty"`
+}
+
+// handleListWorkflows handles the list_workflows tool call.
+func (s *Server) handleListWorkflows(ctx context.Context, req *mcp.CallToolRequest, input ListWorkflowsInput) (*mcp.CallToolResult, ListWorkflowsOutput, error) {
+	resp, err := s.apiClient.ListWorkflows(ctx)
+	if err != nil {
+		return nil, ListWorkflowsOutput{
+			Workflows: []WorkflowInfo{},
+			Error:     fmt.Sprintf("failed to list workflows: %v", err),
+		}, nil
+	}
+
+	var workflows []WorkflowInfo
+	for _, w := range resp.Workflows {
+		workflows = append(workflows, WorkflowInfo{
+			Name: w.Name,
+			ID:   w.ID,
+		})
+	}
+
+	return nil, ListWorkflowsOutput{
+		Workflows: workflows,
+		Total:     resp.Count,
+	}, nil
+}
+
+// --- Auth tool ---
+
+// AuthStatusInput defines input for auth_status tool.
+type AuthStatusInput struct{}
+
+// AuthStatusOutput defines output for auth_status tool.
+type AuthStatusOutput struct {
+	Authenticated bool   `json:"authenticated"`
+	Email         string `json:"email,omitempty"`
+	UserID        string `json:"user_id,omitempty"`
+	OrgID         string `json:"org_id,omitempty"`
+	AuthMethod    string `json:"auth_method,omitempty"`
+}
+
+// handleAuthStatus handles the auth_status tool call.
+func (s *Server) handleAuthStatus(ctx context.Context, req *mcp.CallToolRequest, input AuthStatusInput) (*mcp.CallToolResult, AuthStatusOutput, error) {
+	mgr := auth.NewManager()
+	creds, err := mgr.GetCredentials()
+	if err != nil || creds == nil || !creds.HasValidAuth() {
+		return nil, AuthStatusOutput{Authenticated: false}, nil
+	}
+
+	return nil, AuthStatusOutput{
+		Authenticated: true,
+		Email:         creds.Email,
+		UserID:        creds.UserID,
+		OrgID:         creds.OrgID,
+		AuthMethod:    creds.AuthMethod,
+	}, nil
+}
+
+// --- App tools ---
+
+// CreateAppInput defines input for create_app tool.
+type CreateAppInput struct {
+	Name     string `json:"name" jsonschema:"description=App name"`
+	Platform string `json:"platform" jsonschema:"description=Target platform (ios or android)"`
+}
+
+// CreateAppOutput defines output for create_app tool.
+type CreateAppOutput struct {
+	Success bool   `json:"success"`
+	AppID   string `json:"app_id,omitempty"`
+	AppName string `json:"app_name,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleCreateApp handles the create_app tool call.
+func (s *Server) handleCreateApp(ctx context.Context, req *mcp.CallToolRequest, input CreateAppInput) (*mcp.CallToolResult, CreateAppOutput, error) {
+	if input.Name == "" {
+		return nil, CreateAppOutput{Success: false, Error: "name is required"}, nil
+	}
+
+	platform := strings.ToLower(input.Platform)
+	if platform != "ios" && platform != "android" {
+		return nil, CreateAppOutput{Success: false, Error: "platform must be 'ios' or 'android'"}, nil
+	}
+
+	resp, err := s.apiClient.CreateApp(ctx, &api.CreateAppRequest{
+		Name:     input.Name,
+		Platform: platform,
+	})
+	if err != nil {
+		return nil, CreateAppOutput{Success: false, Error: fmt.Sprintf("failed to create app: %v", err)}, nil
+	}
+
+	return nil, CreateAppOutput{
+		Success: true,
+		AppID:   resp.ID,
+		AppName: resp.Name,
+	}, nil
+}
+
+// DeleteAppInput defines input for delete_app tool.
+type DeleteAppInput struct {
+	AppID string `json:"app_id" jsonschema:"description=The UUID of the app to delete"`
+}
+
+// DeleteAppOutput defines output for delete_app tool.
+type DeleteAppOutput struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleDeleteApp handles the delete_app tool call.
+func (s *Server) handleDeleteApp(ctx context.Context, req *mcp.CallToolRequest, input DeleteAppInput) (*mcp.CallToolResult, DeleteAppOutput, error) {
+	if input.AppID == "" {
+		return nil, DeleteAppOutput{Success: false, Error: "app_id is required"}, nil
+	}
+
+	resp, err := s.apiClient.DeleteApp(ctx, input.AppID)
+	if err != nil {
+		return nil, DeleteAppOutput{Success: false, Error: fmt.Sprintf("failed to delete app: %v", err)}, nil
+	}
+
+	return nil, DeleteAppOutput{
+		Success: true,
+		Message: resp.Message,
 	}, nil
 }

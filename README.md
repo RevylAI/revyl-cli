@@ -23,15 +23,49 @@ Download the binary for your platform from [GitHub Releases](https://github.com/
 ## Quick Start
 
 ```bash
-# 1. Authenticate
-revyl auth login
-
-# 2. Initialize your project
+# 1. Initialize your project (guided wizard: auth, detect build system, create apps)
 cd your-app
 revyl init
 
-# 3. Run a test
-revyl test login-flow
+# 2. Upload your first build
+revyl build upload --platform android
+
+# 3. Create a test
+revyl test create login-flow --platform android
+
+# 4. Run it
+revyl run login-flow
+
+# 5. Group tests into a workflow
+revyl workflow create smoke-tests --tests login-flow,checkout
+
+# 6. Run the workflow
+revyl run smoke-tests -w
+```
+
+> **Tip:** `revyl run` can also build and upload automatically (`revyl run login-flow --build`), so steps 2-3 are only needed the first time or when managing things manually.
+
+The `revyl init` wizard walks you through 6 stages (project setup, auth, apps, build, test, workflow).
+Each stage can be skipped by pressing Enter or answering "n" at its prompt.
+Use `revyl init -y` to skip the wizard entirely and just generate a config file.
+
+## Team Quick Start (Internal)
+
+For team members working from the monorepo:
+
+```bash
+# Clone and build
+git pull
+cd revyl-cli
+make build
+
+# Add to PATH (optional, for current session)
+export PATH="$PATH:$(pwd)/build"
+
+# Or use directly
+./build/revyl --help
+./build/revyl auth login
+./build/revyl --dev test my-test  # Against local backend
 ```
 
 ## Commands
@@ -44,43 +78,182 @@ revyl auth logout    # Remove stored credentials
 revyl auth status    # Show authentication status
 ```
 
-### Project Setup
+### Project Setup (Onboarding Wizard)
 
 ```bash
-revyl init                    # Auto-detect build system, create .revyl/
+revyl init                    # Interactive 6-step guided wizard
+revyl init -y                 # Non-interactive: create config and exit
 revyl init --project ID       # Link to existing Revyl project
 revyl init --detect           # Re-run build system detection
+revyl init --force            # Overwrite existing configuration
 ```
+
+Running `revyl init` without flags launches an interactive wizard that walks you through the full setup:
+
+1. **Project Setup** -- auto-detects your build system (Gradle, Xcode, Expo, Flutter, React Native), creates `.revyl/` directory and `config.yaml`
+2. **Authentication** -- checks for existing credentials; if missing, opens browser-based login
+3. **Create Apps** -- select existing apps (with pagination) or create new ones; automatically links if an app with the same name already exists
+4. **First Build** -- build and upload, upload an existing artifact (with manual path override if not found), or skip
+5. **Create First Test** -- creates a test; if the name already exists, offers to link, rename, or skip; auto-syncs YAML to `.revyl/tests/`
+6. **Create Workflow** -- optionally groups tests into a workflow for batch execution
+
+Use `-y` to skip the interactive steps and just generate the config file.
 
 ### Running Tests
 
 ```bash
-# Full workflow: build -> upload -> run
-revyl test login-flow                 # By alias
-revyl test abc123-def456...           # By UUID
-revyl test login-flow --variant release
-revyl test login-flow --skip-build
+# Build then run (recommended — one command)
+revyl run login-flow                      # By alias; builds, uploads, runs
+revyl run login-flow --platform release   # Use a specific platform config
+revyl run login-flow --no-build           # Skip build; run against last upload
+revyl run smoke-tests -w                  # Build then run workflow (-w = workflow)
+revyl run smoke-tests -w --no-build       # Run workflow without rebuilding
 
-# Just run (no build)
-revyl run test login-flow
-revyl run workflow smoke-tests
+# Run only (no build) or advanced options
+revyl test run login-flow                 # Run without rebuilding
+revyl test run login-flow --build         # Explicit build then run
+revyl workflow run smoke-tests --build    # Build then run workflow
+```
+
+#### Advanced Run Flags
+
+```bash
+--retries 3       # Retry on failure (1-5, default 1)
+--build-id <id>   # Run against a specific build version
+--no-wait         # Queue and exit without waiting for results
+--verbose / -v    # Show step-by-step execution progress
+--hotreload       # Run against local dev server (Expo)
+--timeout 600     # Max execution time in seconds
+```
+
+### Hot Reload (Expo)
+
+Enable rapid iteration by running tests against a local dev server:
+
+```bash
+# One-time setup (auto-detects your project)
+revyl hotreload setup
+
+# Run test with hot reload
+revyl test run login-flow --hotreload --platform ios-dev
+
+# Create test with hot reload session
+revyl test create new-flow --hotreload --platform ios-dev
+
+# Open existing test with hot reload
+revyl test open login-flow --hotreload --platform ios-dev
+```
+
+Hot reload:
+- Starts your local Expo dev server
+- Creates a Cloudflare tunnel to expose it
+- Runs tests against your development client build
+- Changes to JS code reflect instantly without rebuilding
+
+Configuration in `.revyl/config.yaml`:
+
+```yaml
+hotreload:
+  default: expo
+  providers:
+    expo:
+      port: 8081
+      app_scheme: myapp
+      # use_exp_prefix: true  # If deep links fail with base scheme
+```
+
+### App Management
+
+An **app** is a named container for your uploaded builds (e.g. "My App Android"). Tests run against an app.
+
+```bash
+revyl app create --name "My App" --platform android   # Create an app
+revyl app list                                         # List all apps
+revyl app list --platform ios                          # Filter by platform
+revyl app delete "My App"                              # Delete an app
 ```
 
 ### Build Management
 
 ```bash
-revyl build upload                    # Build and upload
-revyl build upload --variant release  # Use release variant
-revyl build list                      # List uploaded versions
+revyl build upload                       # Build and upload (--dry-run to preview)
+revyl build upload --platform android    # Build for a specific platform
+revyl build list                         # List uploaded builds
+revyl build list --app <app-id>          # List builds for a specific app
+revyl build delete <app-id>              # Delete a build (all versions)
+revyl build delete <app-id> --version <id>  # Delete a specific version
 ```
 
 ### Test Management
 
 ```bash
-revyl tests list              # Show all tests with sync status
-revyl tests sync              # Push local changes to remote
-revyl tests pull              # Pull remote changes to local
-revyl tests diff login-flow   # Show diff between local and remote
+# Test lifecycle
+revyl test create login-flow --platform android   # Create + auto-sync YAML to .revyl/tests/
+revyl test run login-flow                          # Run a test
+revyl test open login-flow                         # Open test in browser editor
+revyl test delete login-flow                       # Delete a test
+revyl test cancel <task-id>                        # Cancel a running test
+
+# Sync & inspect
+revyl test list                   # Show local tests with sync status
+revyl test remote                 # List all tests in your organization
+revyl test push                   # Push local changes to remote
+revyl test pull                   # Pull remote changes to local
+revyl test diff login-flow        # Show diff between local and remote
+revyl test validate test.yaml     # Validate YAML syntax (--json for CI)
+
+# Per-command flags
+#   --dry-run    Available on: test create, test push, test pull
+#   --hotreload  Available on: test run, test create, test open
+```
+
+### Workflow Management
+
+```bash
+revyl workflow create smoke-tests --tests login-flow,checkout   # Create workflow
+revyl workflow run smoke-tests                                   # Run workflow
+revyl workflow open smoke-tests                                  # Open in browser
+revyl workflow delete smoke-tests                                # Delete workflow
+revyl workflow cancel <task-id>                                  # Cancel running workflow
+```
+
+### Shell Completion
+
+```bash
+# Bash (add to ~/.bashrc)
+source <(revyl completion bash)
+
+# Zsh (add to ~/.zshrc)
+source <(revyl completion zsh)
+
+# Fish
+revyl completion fish | source
+
+# PowerShell
+revyl completion powershell | Out-String | Invoke-Expression
+```
+
+### Diagnostics & Utilities
+
+```bash
+revyl doctor     # Check CLI health, connectivity, auth, sync status
+revyl ping       # Test API connectivity and latency
+revyl upgrade    # Check for and install CLI updates
+revyl version    # Show version, commit, and build date (--json for CI)
+revyl docs       # Open Revyl documentation in browser
+revyl schema     # Display CLI command schema (for integrations)
+revyl mcp serve  # Start MCP server for AI agent integration
+```
+
+### Global Flags
+
+These flags are available on all commands:
+
+```bash
+--debug       # Enable debug logging
+--dev         # Use local development servers
+--json        # Output as JSON (where supported)
+--quiet / -q  # Suppress non-essential output
 ```
 
 ## Project Configuration
@@ -101,19 +274,22 @@ your-app/
 
 ```yaml
 project:
-  id: "proj_abc123"           # Linked Revyl project (optional)
   name: "my-app"
 
 build:
   system: gradle              # Auto-detected
   command: "./gradlew assembleDebug"
   output: "app/build/outputs/apk/debug/app-debug.apk"
-  build_var_id: "bv_xyz789"   # Linked build variable
-  
-  variants:
-    release:
-      command: "./gradlew assembleRelease"
-      output: "app/build/outputs/apk/release/app-release.apk"
+
+  platforms:
+    android:
+      command: "./gradlew assembleDebug"
+      output: "app/build/outputs/apk/debug/app-debug.apk"
+      app_id: "uuid-of-android-app"
+    ios:
+      command: "xcodebuild -scheme MyApp -archivePath ..."
+      output: "build/MyApp.ipa"
+      app_id: "uuid-of-ios-app"
 
 # Test aliases: name -> remote test ID
 tests:
@@ -127,6 +303,8 @@ workflows:
 defaults:
   open_browser: true
   timeout: 600
+
+last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 ```
 
 ## CI/CD Integration
@@ -135,7 +313,7 @@ defaults:
 
 ```yaml
 - name: Run Revyl Test
-  uses: revyl/cli/run-test-v2@v1
+  uses: RevylAI/revyl-gh-action/run-test@main
   with:
     api-key: ${{ secrets.REVYL_API_KEY }}
     test-id: "your-test-id"
@@ -148,22 +326,73 @@ defaults:
 
 ## Development
 
-```bash
-# Setup development environment
-./scripts/dev.sh
+### Prerequisites
 
+Install the required development tools:
+
+```bash
+# Install all dev tools at once (recommended)
+make setup
+
+# Or install individually:
+
+# Air - hot reload for Go
+go install github.com/air-verse/air@latest
+
+# oapi-codegen - OpenAPI type generation
+go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
+
+# golangci-lint - linting
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# watchexec - file watcher (optional, macOS)
+brew install watchexec
+```
+
+### Common Commands
+
+```bash
 # Build
 make build
 
 # Run with hot reload
 make dev
 
-# Generate types from OpenAPI
+# Generate types from cached OpenAPI spec
 make generate
+
+# Fetch fresh OpenAPI spec from running backend and generate types
+make generate-fetch
 
 # Run tests
 make test
 ```
+
+### Running Tests
+
+The CLI includes unit tests and sanity tests to ensure command registration and basic functionality.
+
+```bash
+# Run all tests
+make test
+
+# Run tests with verbose output
+go test -v ./...
+
+# Run tests with coverage report
+make test-coverage
+
+# Quick compile and vet check (used by pre-commit)
+make check
+
+# Run specific test file
+go test -v ./cmd/revyl/main_test.go
+
+# Run tests matching a pattern
+go test -v ./... -run TestRootCommand
+```
+
+The pre-commit hook automatically runs `go build`, `gofmt`, and `go vet` on staged Go files to catch issues early.
 
 ## Local Development with Hot Reload
 
@@ -180,7 +409,7 @@ This section covers how to develop and test the CLI against local backend servic
    ```bash
    # Terminal 1: Start backend (from monorepo root)
    cd cognisim_backend
-   uv run python main.py  # Runs on PORT from .env (default: 8001)
+   uv run python main.py  # Runs on PORT from .env (default: 8000)
 
    # Terminal 2: Start frontend (from monorepo root)
    cd frontend
@@ -208,26 +437,27 @@ cd revyl-cli
 
 # Test against local backend (reads PORT from cognisim_backend/.env)
 ./tmp/revyl --dev auth login
-./tmp/revyl --dev test my-test
-./tmp/revyl --dev run workflow my-workflow
+./tmp/revyl --dev test run my-test
+./tmp/revyl --dev workflow run my-workflow
 
 # Test against production
 ./tmp/revyl auth login
-./tmp/revyl test my-test
+./tmp/revyl test run my-test
 ```
 
 ### How --dev Mode Works
 
 The `--dev` flag switches all API calls to your local services:
 
-| Service | Production URL | Dev URL (from .env) |
-|---------|----------------|---------------------|
-| Backend API | `https://backend.revyl.ai` | `http://localhost:8001` |
+| Service | Production URL | Dev URL (auto-detected) |
+|---------|----------------|-------------------------|
+| Backend API | `https://backend.revyl.ai` | `http://localhost:8000` (default) |
 | Frontend App | `https://app.revyl.ai` | `http://localhost:8002` |
 
-The CLI automatically reads the `PORT` value from:
-- `cognisim_backend/.env` for backend API calls
-- `frontend/.env` for report/app URLs
+The CLI automatically:
+1. Reads the `PORT` value from `cognisim_backend/.env` and `frontend/.env`
+2. Auto-detects running services on common ports (8000, 8001, 8080, 3000)
+3. Respects `REVYL_BACKEND_PORT` environment variable if set
 
 This means if you change the port in `.env`, the CLI picks it up automatically.
 
@@ -256,7 +486,7 @@ cd revyl-cli && air
 - Check Air output for build errors
 
 **Connection refused on localhost?**
-- Verify backend is running: `curl http://localhost:8001/health`
+- Verify backend is running: `curl http://localhost:8000/health`
 - Check the PORT in `cognisim_backend/.env`
 
 **Wrong port being used?**
