@@ -451,6 +451,12 @@ func parseWorktreeList(output string, sb *api.FleetSandbox) []worktreeInfo {
 				current.IsMain = true
 			}
 
+		case line == "detached":
+			// Detached HEAD -- branch will be extracted from path below
+
+		case line == "bare":
+			// Bare repository entry -- branch will be extracted from path below
+
 		case line == "":
 			if current.Path != "" {
 				worktrees = append(worktrees, current)
@@ -462,6 +468,19 @@ func parseWorktreeList(output string, sb *api.FleetSandbox) []worktreeInfo {
 	// Don't forget the last entry
 	if current.Path != "" {
 		worktrees = append(worktrees, current)
+	}
+
+	// Fallback: extract branch from path (last component) when branch is empty.
+	// This handles detached HEAD, bare repo entries, or any other format that
+	// doesn't include "branch refs/heads/...".
+	for i := range worktrees {
+		if worktrees[i].Branch == "" && worktrees[i].Path != "" {
+			parts := strings.Split(worktrees[i].Path, "/")
+			worktrees[i].Branch = parts[len(parts)-1]
+			if worktrees[i].Branch == "main" || worktrees[i].Branch == "staging" {
+				worktrees[i].IsMain = true
+			}
+		}
 	}
 
 	return worktrees
