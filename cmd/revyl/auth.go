@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -45,7 +46,7 @@ WHAT IT DOES:
 
 NEXT STEPS:
   - Run 'revyl init' to initialize your project
-  - Run 'revyl create test <name>' to create your first test
+  - Run 'revyl test create <name>' to create your first test
 
 EXAMPLES:
   revyl auth login        # Interactive login
@@ -77,7 +78,7 @@ EXAMPLES:
 
 		if apiKey == "" {
 			ui.PrintError("API key cannot be empty")
-			return nil
+			return fmt.Errorf("API key cannot be empty")
 		}
 
 		// Validate the API key by making a test request
@@ -100,7 +101,7 @@ EXAMPLES:
 			if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
 				ui.PrintError("Invalid API key")
 				ui.PrintInfo("Get your API key from https://app.revyl.ai/settings/api-keys")
-				return nil
+				return fmt.Errorf("invalid API key")
 			}
 			ui.PrintError("Failed to validate API key: %v", err)
 			return err
