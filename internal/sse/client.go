@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	// DefaultSSEURL is the default SSE endpoint.
-	DefaultSSEURL = "https://backend.revyl.ai/api/v1/monitor/stream/unified"
+	// sseStreamPath is the SSE streaming endpoint path appended to the backend URL.
+	sseStreamPath = "/api/v1/monitor/stream/unified"
 )
 
 // Monitor handles SSE-based execution monitoring.
@@ -32,7 +32,8 @@ type Monitor struct {
 	backendURL string
 }
 
-// NewMonitor creates a new SSE monitor using production URLs.
+// NewMonitor creates a new SSE monitor using the resolved backend URL.
+// Respects REVYL_BACKEND_URL environment variable for custom environments.
 //
 // Parameters:
 //   - apiKey: The API key for authentication
@@ -41,11 +42,12 @@ type Monitor struct {
 // Returns:
 //   - *Monitor: A new monitor instance
 func NewMonitor(apiKey string, timeout int) *Monitor {
+	backendURL := config.GetBackendURL(false)
 	return &Monitor{
 		apiKey:     apiKey,
 		timeout:    timeout,
-		baseURL:    DefaultSSEURL,
-		backendURL: config.ProdBackendURL,
+		baseURL:    backendURL + sseStreamPath,
+		backendURL: backendURL,
 	}
 }
 
@@ -64,7 +66,7 @@ func NewMonitorWithDevMode(apiKey string, timeout int, devMode bool) *Monitor {
 	return &Monitor{
 		apiKey:     apiKey,
 		timeout:    timeout,
-		baseURL:    backendURL + "/api/v1/monitor/stream/unified",
+		baseURL:    backendURL + sseStreamPath,
 		backendURL: backendURL,
 	}
 }

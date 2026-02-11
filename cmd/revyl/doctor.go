@@ -298,7 +298,9 @@ func checkAPIConnectivity(ctx context.Context, devMode bool) DoctorCheck {
 	}
 
 	check.Message = fmt.Sprintf("Connected (latency: %dms)", latency.Milliseconds())
-	if devMode {
+	if config.HasURLOverride() {
+		check.Details = fmt.Sprintf("Using custom environment: %s", baseURL)
+	} else if devMode {
 		check.Details = fmt.Sprintf("Using development server: %s", baseURL)
 	}
 

@@ -370,8 +370,13 @@ var authStatusCmd = &cobra.Command{
 		}
 
 		if jsonOutput {
+			devMode, _ := cmd.Flags().GetBool("dev")
 			result := map[string]interface{}{
 				"authenticated": true,
+			}
+			if config.HasURLOverride() {
+				result["backend_url"] = config.GetBackendURL(devMode)
+				result["app_url"] = config.GetAppURL(devMode)
 			}
 			if creds.Email != "" {
 				result["email"] = creds.Email
@@ -399,6 +404,13 @@ var authStatusCmd = &cobra.Command{
 		}
 
 		ui.PrintSuccess("Authenticated")
+
+		// Show custom environment URLs if overrides are active
+		if config.HasURLOverride() {
+			devMode, _ := cmd.Flags().GetBool("dev")
+			ui.PrintInfo("Backend: %s", config.GetBackendURL(devMode))
+			ui.PrintInfo("App: %s", config.GetAppURL(devMode))
+		}
 
 		// Show user information
 		if creds.Email != "" {

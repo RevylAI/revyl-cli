@@ -236,7 +236,7 @@ func (c *Client) RunTestWithOptions(ctx context.Context, nameOrID string, opts *
 		Status:       finalStatus.Status,
 		Success:      status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
 		Duration:     finalStatus.Duration,
-		ReportURL:    fmt.Sprintf("%s/tests/report?taskId=%s", config.ProdAppURL, resp.TaskID),
+		ReportURL:    fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(false), resp.TaskID),
 		ErrorMessage: finalStatus.ErrorMessage,
 	}, nil
 }
@@ -306,7 +306,7 @@ func (c *Client) RunWorkflow(ctx context.Context, nameOrID string) (*WorkflowRes
 		PassedTests: finalStatus.PassedTests,
 		FailedTests: finalStatus.FailedTests,
 		Duration:    finalStatus.Duration,
-		ReportURL:   fmt.Sprintf("%s/workflows/report?taskId=%s", config.ProdAppURL, resp.TaskID),
+		ReportURL:   fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(false), resp.TaskID),
 	}, nil
 }
 

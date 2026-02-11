@@ -5684,9 +5684,9 @@ type VariablesResponse struct {
 	Result []VariableRow `json:"result"`
 }
 
-// VideoMetadataBatchRequest Request model for batch video metadata.
+// VideoMetadataBatchRequest Request for batch video metadata.
 type VideoMetadataBatchRequest struct {
-	TaskIds []string `json:"task_ids"`
+	ExecutionIds []string `json:"execution_ids"`
 }
 
 // VideoMetadataBatchResponse Response for batch video metadata.
@@ -6430,16 +6430,16 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
+// AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest Request model for batch video metadata.
+type AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest struct {
+	TaskIds []string `json:"task_ids"`
+}
+
 // AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse Response model for batch video metadata.
 type AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse struct {
 	FoundCount     int                          `json:"found_count"`
 	RequestedCount int                          `json:"requested_count"`
 	Videos         map[string]VideoMetadataItem `json:"videos"`
-}
-
-// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest Request for batch video metadata.
-type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest struct {
-	ExecutionIds []string `json:"execution_ids"`
 }
 
 // CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
@@ -7375,7 +7375,7 @@ type UploadTrainingImageApiV1ReportAsyncRunTrainingImagePostJSONRequestBody = Tr
 type GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPostJSONRequestBody = UnifiedReportRequest
 
 // GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest
 
 // GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody defines body for GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPost for application/json ContentType.
 type GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody = WorkflowTasksReportBatchRequest
@@ -7387,7 +7387,7 @@ type RunEvalApiV1ReportEvalsRunEvalPostJSONRequestBody = EvalRequest
 type CreateReportApiV1ReportsV3ReportsPostJSONRequestBody = CreateReportRequest
 
 // GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
 
 // UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody defines body for UpdateReportApiV1ReportsV3ReportsReportIdPatch for application/json ContentType.
 type UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody = UpdateReportRequest

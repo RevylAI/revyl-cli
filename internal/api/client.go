@@ -73,7 +73,8 @@ type Client struct {
 	retryMaxDelay  time.Duration
 }
 
-// NewClient creates a new API client using production URLs.
+// NewClient creates a new API client using the resolved backend URL.
+// Respects REVYL_BACKEND_URL environment variable for custom environments.
 //
 // Parameters:
 //   - apiKey: The API key for authentication
@@ -82,7 +83,7 @@ type Client struct {
 //   - *Client: A new client instance
 func NewClient(apiKey string) *Client {
 	return &Client{
-		baseURL: DefaultBaseURL,
+		baseURL: config.GetBackendURL(false),
 		apiKey:  apiKey,
 		version: defaultVersion,
 		httpClient: &http.Client{
