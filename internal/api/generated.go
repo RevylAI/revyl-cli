@@ -1303,16 +1303,22 @@ type CategoryValue struct {
 	Value    float32 `json:"value"`
 }
 
-// ChartDataPoint defines model for ChartDataPoint.
+// ChartDataPoint Daily aggregated chart data point.
 type ChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -3275,10 +3281,10 @@ type ModulesListResponse struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []ChartDataPoint `json:"data"`
-	MetricType   string           `json:"metric_type"`
-	Repositories []string         `json:"repositories"`
-	RetrievedAt  string           `json:"retrieved_at"`
+	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
+	MetricType   string                                           `json:"metric_type"`
+	Repositories []string                                         `json:"repositories"`
+	RetrievedAt  string                                           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -5684,9 +5690,9 @@ type VariablesResponse struct {
 	Result []VariableRow `json:"result"`
 }
 
-// VideoMetadataBatchRequest Request for batch video metadata.
+// VideoMetadataBatchRequest Request model for batch video metadata.
 type VideoMetadataBatchRequest struct {
-	ExecutionIds []string `json:"execution_ids"`
+	TaskIds []string `json:"task_ids"`
 }
 
 // VideoMetadataBatchResponse Response model for batch video metadata.
@@ -5914,9 +5920,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time                                           `json:"created_at"`
-	Deleted   bool                                                 `json:"deleted"`
+	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time        `json:"created_at"`
+	Deleted   bool              `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -6430,9 +6436,21 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
-// AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest Request model for batch video metadata.
-type AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest struct {
-	TaskIds []string `json:"task_ids"`
+// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
+type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments"`
+	MedianHours *float32 `json:"median_hours"`
+	P25Hours    *float32 `json:"p25_hours"`
+	P75Hours    *float32 `json:"p75_hours"`
+	TeamAverage *float32 `json:"team_average"`
+	Trend       *string  `json:"trend"`
+	Value       *float32 `json:"value"`
+}
+
+// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest Request for batch video metadata.
+type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest struct {
+	ExecutionIds []string `json:"execution_ids"`
 }
 
 // AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse Response for batch video metadata.
@@ -6440,24 +6458,6 @@ type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse struct {
 	FoundCount     int                            `json:"found_count"`
 	RequestedCount int                            `json:"requested_count"`
 	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
-}
-
-// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
-type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.
@@ -7375,7 +7375,7 @@ type UploadTrainingImageApiV1ReportAsyncRunTrainingImagePostJSONRequestBody = Tr
 type GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPostJSONRequestBody = UnifiedReportRequest
 
 // GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
 
 // GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody defines body for GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPost for application/json ContentType.
 type GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody = WorkflowTasksReportBatchRequest
@@ -7387,7 +7387,7 @@ type RunEvalApiV1ReportEvalsRunEvalPostJSONRequestBody = EvalRequest
 type CreateReportApiV1ReportsV3ReportsPostJSONRequestBody = CreateReportRequest
 
 // GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest
 
 // UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody defines body for UpdateReportApiV1ReportsV3ReportsReportIdPatch for application/json ContentType.
 type UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody = UpdateReportRequest
