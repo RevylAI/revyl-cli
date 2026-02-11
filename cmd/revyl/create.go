@@ -32,6 +32,7 @@ var (
 	createTestDryRun   bool
 	createTestFromFile string
 	createTestModules  []string
+	createTestTags     []string
 
 	// Hot reload flags for test creation
 	createTestHotReload         bool
@@ -305,6 +306,21 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.PrintSuccess("Created test: %s (id: %s)", testName, createResp.ID)
+
+	// Assign tags if --tag flags were provided
+	if len(createTestTags) > 0 {
+		ui.StartSpinner("Assigning tags...")
+		_, tagErr := client.SyncTestTags(cmd.Context(), createResp.ID, &api.CLISyncTagsRequest{
+			TagNames: createTestTags,
+		})
+		ui.StopSpinner()
+
+		if tagErr != nil {
+			ui.PrintWarning("Failed to assign tags: %v", tagErr)
+		} else {
+			ui.PrintSuccess("Tagged: %s", strings.Join(createTestTags, ", "))
+		}
+	}
 
 	// Add to config unless --no-sync is specified
 	if !createTestNoSync {
