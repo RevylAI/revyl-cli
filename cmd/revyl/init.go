@@ -10,6 +10,8 @@ import (
 
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/hotreload"
+	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -165,6 +167,43 @@ config.local.yaml
 	ui.PrintInfo("  .revyl/tests/         - Local test definitions")
 	ui.PrintInfo("  .revyl/.gitignore     - Git ignore rules")
 	ui.Println()
+
+	// Check for hot reload compatible providers
+	registry := hotreload.DefaultRegistry()
+	detections := registry.DetectAllProviders(cwd)
+
+	if len(detections) > 0 {
+		// Filter to supported providers
+		var supportedDetections []hotreload.ProviderDetection
+		for _, d := range detections {
+			if d.Provider.IsSupported() {
+				supportedDetections = append(supportedDetections, d)
+			}
+		}
+
+		if len(supportedDetections) > 0 {
+			ui.PrintInfo("Found compatible hot reload provider(s):")
+			for _, d := range supportedDetections {
+				ui.PrintInfo("  • %s (fully supported)", d.Provider.DisplayName())
+			}
+
+			// Show coming soon providers
+			for _, d := range detections {
+				if !d.Provider.IsSupported() {
+					ui.PrintDim("  • %s (coming soon)", d.Provider.DisplayName())
+				}
+			}
+			ui.Println()
+
+			if ui.Confirm("Set up hot reload now?") {
+				ui.Println()
+				ui.PrintInfo("Run 'revyl hotreload setup' to configure hot reload.")
+				ui.PrintInfo("This requires authentication: 'revyl auth login'")
+			}
+			ui.Println()
+		}
+	}
+
 	ui.PrintInfo("Next steps:")
 	ui.PrintInfo("  1. Run 'revyl auth login' to authenticate")
 	ui.PrintInfo("  2. Run 'revyl test <name>' to run a test")
