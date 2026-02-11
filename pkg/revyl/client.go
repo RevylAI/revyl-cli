@@ -219,7 +219,7 @@ func (c *Client) RunTestWithOptions(ctx context.Context, nameOrID string, opts *
 	}
 
 	// Monitor execution
-	monitor := sse.NewMonitor("", opts.Timeout) // API key already in client
+	monitor := sse.NewMonitor(c.apiKey, opts.Timeout)
 	finalStatus, err := monitor.MonitorTest(ctx, resp.TaskID, testID, func(status *sse.TestStatus) {
 		if opts.OnProgress != nil {
 			opts.OnProgress(status.Progress, status.CurrentStep)
@@ -291,7 +291,7 @@ func (c *Client) RunWorkflow(ctx context.Context, nameOrID string) (*WorkflowRes
 	}
 
 	// Monitor execution
-	monitor := sse.NewMonitor("", 3600)
+	monitor := sse.NewMonitor(c.apiKey, 3600)
 	finalStatus, err := monitor.MonitorWorkflow(ctx, resp.TaskID, workflowID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("monitoring failed: %w", err)

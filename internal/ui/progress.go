@@ -134,8 +134,12 @@ func (p *ProgressBar) render() {
 		line += fmt.Sprintf(" %s", styledMsg)
 	}
 
-	// Pad to clear previous content
-	fmt.Printf("%-80s", line)
+	// Pad to clear previous content; use carriage return for in-place update
+	if isTTY {
+		fmt.Printf("\r%-80s", line)
+	} else {
+		fmt.Println(line)
+	}
 }
 
 // Complete marks the progress bar as complete.

@@ -324,31 +324,3 @@ func DiagnoseAndSuggest(result *ConnectivityCheckResult) string {
 
 	return msg.String()
 }
-
-// isNetworkError checks if an error is likely a network-related error.
-func isNetworkError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	errStr := err.Error()
-	networkIndicators := []string{
-		"connection refused",
-		"no such host",
-		"network is unreachable",
-		"timeout",
-		"dial tcp",
-		"dial udp",
-		"i/o timeout",
-		"connection reset",
-		"EOF",
-	}
-
-	for _, indicator := range networkIndicators {
-		if strings.Contains(strings.ToLower(errStr), strings.ToLower(indicator)) {
-			return true
-		}
-	}
-
-	return false
-}

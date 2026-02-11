@@ -285,7 +285,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 				ui.PrintVerboseStatus(status.Status, status.Progress, status.CurrentStep,
 					status.CompletedSteps, status.TotalSteps, status.Duration)
 			} else {
-				ui.PrintBasicStatus(status.Status, status.Progress, status.CompletedSteps, status.TotalSteps)
+				ui.PrintBasicStatus(status.Status, status.Progress, status.CurrentStep, status.CompletedSteps, status.TotalSteps)
 			}
 		},
 	})
@@ -997,7 +997,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 				ui.PrintVerboseStatus(status.Status, status.Progress, status.CurrentStep,
 					status.CompletedSteps, status.TotalSteps, status.Duration)
 			} else {
-				ui.PrintBasicStatus(status.Status, status.Progress, status.CompletedSteps, status.TotalSteps)
+				ui.PrintBasicStatus(status.Status, status.Progress, status.CurrentStep, status.CompletedSteps, status.TotalSteps)
 			}
 		},
 	})

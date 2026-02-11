@@ -276,7 +276,7 @@ func PrintVerboseStatus(statusStr string, progress int, currentStep string, comp
 	}
 
 	// Clear line and print status
-	fmt.Print("\r\033[K") // Clear current line
+	clearLine() // Clear current line
 
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)
@@ -333,11 +333,12 @@ func PrintVerboseStatus(statusStr string, progress int, currentStep string, comp
 // Parameters:
 //   - statusStr: Current status string (queued, running, completed, etc.)
 //   - progress: Progress percentage (0-100)
+//   - currentStep: Description of current step being executed
 //   - completedSteps: Number of completed steps
 //   - totalSteps: Total number of steps
-func PrintBasicStatus(statusStr string, progress int, completedSteps, totalSteps int) {
+func PrintBasicStatus(statusStr string, progress int, currentStep string, completedSteps, totalSteps int) {
 	// Clear line
-	fmt.Print("\r\033[K")
+	clearLine()
 
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)
@@ -373,6 +374,11 @@ func PrintBasicStatus(statusStr string, progress int, completedSteps, totalSteps
 		statusLine += fmt.Sprintf(" [%d%%]", progress)
 	}
 
+	// Show current step description inline
+	if currentStep != "" {
+		statusLine += DimStyle.Render(fmt.Sprintf(" → %s", currentStep))
+	}
+
 	// Print without newline so it updates in place
 	fmt.Print(statusLine)
 }
@@ -392,7 +398,7 @@ func PrintVerboseWorkflowStatus(statusStr string, completedTests, totalTests, pa
 	}
 
 	// Clear line and print status
-	fmt.Print("\r\033[K") // Clear current line
+	clearLine() // Clear current line
 
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)
@@ -428,7 +434,7 @@ func PrintVerboseWorkflowStatus(statusStr string, completedTests, totalTests, pa
 //   - totalTests: Total number of tests
 func PrintBasicWorkflowStatus(statusStr string, completedTests, totalTests int) {
 	// Clear line
-	fmt.Print("\r\033[K")
+	clearLine()
 
 	// Get styled status icon using the shared status package
 	statusIcon := getStyledStatusIcon(statusStr)

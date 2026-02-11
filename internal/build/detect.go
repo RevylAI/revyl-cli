@@ -4,6 +4,7 @@ package build
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // BuildSystem represents a detected build system type.
@@ -137,7 +138,7 @@ func isExpoProject(dir string) bool {
 		content, err := os.ReadFile(appJsonPath)
 		if err == nil {
 			// Simple check for "expo" key in JSON
-			return containsString(string(content), `"expo"`)
+			return strings.Contains(string(content), `"expo"`)
 		}
 	}
 
@@ -156,7 +157,7 @@ func isReactNativeProject(dir string) bool {
 		return false
 	}
 
-	return containsString(string(content), `"react-native"`)
+	return strings.Contains(string(content), `"react-native"`)
 }
 
 // hasXcodeProject checks if the directory contains an Xcode project.
@@ -398,19 +399,4 @@ func dirExists(path string) bool {
 		return false
 	}
 	return info.IsDir()
-}
-
-// containsString checks if a string contains a substring.
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-// containsSubstring is a simple substring check.
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

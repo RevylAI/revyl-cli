@@ -16,10 +16,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os/exec"
-	"runtime"
 	"sync"
 	"time"
+
+	"github.com/revyl/cli/internal/ui"
 )
 
 const (
@@ -118,30 +118,6 @@ func findAvailablePort() (net.Listener, int, error) {
 	return listener, addr.Port, nil
 }
 
-// openBrowser opens the default browser to the specified URL.
-//
-// Parameters:
-//   - url: The URL to open
-//
-// Returns:
-//   - error: Any error during browser launch
-func openBrowser(url string) error {
-	var cmd *exec.Cmd
-
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "linux":
-		cmd = exec.Command("xdg-open", url)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	default:
-		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
-	}
-
-	return cmd.Start()
-}
-
 // Authenticate performs browser-based authentication.
 //
 // This method:
@@ -203,7 +179,7 @@ func (b *BrowserAuth) Authenticate(ctx context.Context) (*BrowserAuthResult, err
 	authURL.RawQuery = query.Encode()
 
 	// Open browser
-	if err := openBrowser(authURL.String()); err != nil {
+	if err := ui.OpenBrowser(authURL.String()); err != nil {
 		return nil, fmt.Errorf("failed to open browser: %w", err)
 	}
 

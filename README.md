@@ -313,7 +313,7 @@ last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 
 ```yaml
 - name: Run Revyl Test
-  uses: revyl/cli/run-test-v2@v1
+  uses: RevylAI/revyl-gh-action/run-test@main
   with:
     api-key: ${{ secrets.REVYL_API_KEY }}
     test-id: "your-test-id"
@@ -409,7 +409,7 @@ This section covers how to develop and test the CLI against local backend servic
    ```bash
    # Terminal 1: Start backend (from monorepo root)
    cd cognisim_backend
-   uv run python main.py  # Runs on PORT from .env (default: 8001)
+   uv run python main.py  # Runs on PORT from .env (default: 8000)
 
    # Terminal 2: Start frontend (from monorepo root)
    cd frontend
@@ -486,7 +486,7 @@ cd revyl-cli && air
 - Check Air output for build errors
 
 **Connection refused on localhost?**
-- Verify backend is running: `curl http://localhost:8001/health`
+- Verify backend is running: `curl http://localhost:8000/health`
 - Check the PORT in `cognisim_backend/.env`
 
 **Wrong port being used?**
