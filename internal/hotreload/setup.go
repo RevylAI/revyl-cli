@@ -49,7 +49,7 @@ type SetupOptions struct {
 //  2. Extracts project information (app scheme, etc.)
 //  3. Returns a SetupResult with the default configuration
 //
-// Note: Build selection is handled at runtime via --variant or --build-version-id flags.
+// Note: Build selection is handled at runtime via --platform or --build-id flags.
 //
 // Parameters:
 //   - ctx: Context for cancellation
@@ -174,7 +174,7 @@ func ApplySetupResult(cfg *config.ProjectConfig, result *SetupResult, setAsDefau
 // ValidateSetupResult checks if a setup result is complete and ready to use.
 //
 // Note: DevClientBuildID is not validated here as it's specified at runtime
-// via --variant or --build-version-id flags.
+// via --platform or --build-id flags.
 //
 // Parameters:
 //   - result: The setup result to validate

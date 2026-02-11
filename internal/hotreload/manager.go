@@ -3,6 +3,7 @@ package hotreload
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/revyl/cli/internal/config"
@@ -290,12 +291,13 @@ func (m *Manager) createDevServer() (DevServer, error) {
 }
 
 // isDownloadNeeded checks if the error indicates cloudflared needs to be downloaded.
+// Returns true only for file-not-found errors; other errors (e.g., permission denied,
+// network errors) should not trigger a re-download.
 func isDownloadNeeded(err error) bool {
 	if err == nil {
 		return false
 	}
-	// Check for file not found or similar errors
-	return true
+	return os.IsNotExist(err)
 }
 
 // GetProviderName returns the provider name.

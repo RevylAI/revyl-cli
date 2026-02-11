@@ -122,10 +122,10 @@ const (
 
 // Defines values for FleetSandboxStatus.
 const (
-	Available   FleetSandboxStatus = "available"
-	Claimed     FleetSandboxStatus = "claimed"
-	Maintenance FleetSandboxStatus = "maintenance"
-	Reserved    FleetSandboxStatus = "reserved"
+	FleetSandboxStatusAvailable   FleetSandboxStatus = "available"
+	FleetSandboxStatusClaimed     FleetSandboxStatus = "claimed"
+	FleetSandboxStatusMaintenance FleetSandboxStatus = "maintenance"
+	FleetSandboxStatusReserved    FleetSandboxStatus = "reserved"
 )
 
 // Defines values for GrounderType.
@@ -154,6 +154,14 @@ const (
 	NormalizedActionBlockTypeManual        NormalizedActionBlockType = "manual"
 	NormalizedActionBlockTypeModuleImport  NormalizedActionBlockType = "module_import"
 	NormalizedActionBlockTypeValidation    NormalizedActionBlockType = "validation"
+)
+
+// Defines values for RegisterSandboxRequestStatus.
+const (
+	RegisterSandboxRequestStatusAvailable   RegisterSandboxRequestStatus = "available"
+	RegisterSandboxRequestStatusClaimed     RegisterSandboxRequestStatus = "claimed"
+	RegisterSandboxRequestStatusMaintenance RegisterSandboxRequestStatus = "maintenance"
+	RegisterSandboxRequestStatusReserved    RegisterSandboxRequestStatus = "reserved"
 )
 
 // Defines values for SessionStatus.
@@ -200,6 +208,14 @@ const (
 	Tap           StepType = "tap"
 	Validation    StepType = "validation"
 	Wait          StepType = "wait"
+)
+
+// Defines values for UpdateSandboxRequestStatus.
+const (
+	Available   UpdateSandboxRequestStatus = "available"
+	Claimed     UpdateSandboxRequestStatus = "claimed"
+	Maintenance UpdateSandboxRequestStatus = "maintenance"
+	Reserved    UpdateSandboxRequestStatus = "reserved"
 )
 
 // Defines values for ValidationTypeEnum.
@@ -791,6 +807,18 @@ type AppLaunchEnvVarsResponse struct {
 // AppPlatform Platform types for apps.
 type AppPlatform string
 
+// AppPlatformCounts Per-platform app counts.
+type AppPlatformCounts struct {
+	// Android Number of Android apps
+	Android *int `json:"android,omitempty"`
+
+	// Ios Number of iOS apps
+	Ios *int `json:"ios,omitempty"`
+
+	// Total Total number of apps across all platforms
+	Total *int `json:"total,omitempty"`
+}
+
 // AppResponse Response model for an app.
 type AppResponse struct {
 	CreatedAt      *time.Time          `json:"created_at"`
@@ -971,8 +999,8 @@ type BodyCreateUploadFileToSupabaseApiV1StorageS3UploadDownloadToSupabaseFilePos
 	UserId     *string            `json:"user_id,omitempty"`
 }
 
-// BodyStreamUploadBuildApiV1BuildsVarsAppIdVersionsStreamUploadPost defines model for Body_stream_upload_build_api_v1_builds_vars__app_id__versions_stream_upload_post.
-type BodyStreamUploadBuildApiV1BuildsVarsAppIdVersionsStreamUploadPost struct {
+// BodyStreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPost defines model for Body_stream_upload_build_api_v1_builds_apps__app_id__builds_stream_upload_post.
+type BodyStreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPost struct {
 	// File The build artifact file to upload
 	File openapi_types.File `json:"file"`
 }
@@ -1738,6 +1766,17 @@ type CreateActionResponse struct {
 	Id      string `json:"id"`
 	Message string `json:"message"`
 	Success bool   `json:"success"`
+}
+
+// CreateCLIApiKeyResponse Response from creating a long-lived CLI API key via PropelAuth.
+//
+// Attributes:
+//
+//	api_key_token: The API key token string used for authentication.
+//	api_key_id: The PropelAuth-assigned ID for this API key (used for deletion/rotation).
+type CreateCLIApiKeyResponse struct {
+	ApiKeyId    string `json:"api_key_id"`
+	ApiKeyToken string `json:"api_key_token"`
 }
 
 // CreateExpoProjectRequest Request to create a new Expo project configuration.
@@ -3521,6 +3560,9 @@ type PaginatedAppsResponse struct {
 	// PageSize Number of items per page
 	PageSize int `json:"page_size"`
 
+	// PlatformCounts Per-platform app counts.
+	PlatformCounts *AppPlatformCounts `json:"platform_counts,omitempty"`
+
 	// Total Total number of apps
 	Total int `json:"total"`
 
@@ -3678,6 +3720,95 @@ type RecentComment struct {
 	PrNumber   int       `json:"pr_number"`
 	Repo       string    `json:"repo"`
 	Type       string    `json:"type"`
+}
+
+// RegisterSandboxRequest Request payload for registering (upserting) a sandbox during provisioning.
+//
+// Called by the fleet CLI or Ansible playbook after provisioning a Mac.
+// Upserts into fleet_sandboxes by vm_name so the sandbox is discoverable
+// by the developer CLI and FleetDashboard.
+//
+// Attributes:
+//
+//	vm_name: Unique VM name (e.g., "Revyl-Mac-mini-W641QMFKQR").
+//	hostname: mDNS hostname (e.g., "Revyl-Mac-mini-W641QMFKQR.local").
+//	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+//	ssh_user: SSH username for connections (default: revyl-admin).
+//	ssh_port: SSH port number (default: 22).
+//	status: Initial sandbox status (default: available).
+//	specs: Hardware specifications (cpu_cores, memory_gb, chip).
+//	tags: Flexible labels for filtering (location, tier, etc.).
+type RegisterSandboxRequest struct {
+	// Hostname mDNS hostname
+	Hostname *string `json:"hostname"`
+
+	// Specs Hardware specs (cpu_cores, memory_gb, chip)
+	Specs *map[string]interface{} `json:"specs"`
+
+	// SshPort SSH port
+	SshPort *int `json:"ssh_port,omitempty"`
+
+	// SshUser SSH username
+	SshUser *string `json:"ssh_user,omitempty"`
+
+	// Status Initial sandbox status
+	Status *RegisterSandboxRequestStatus `json:"status,omitempty"`
+
+	// Tags Flexible labels for filtering
+	Tags *map[string]interface{} `json:"tags"`
+
+	// TunnelHostname Cloudflare tunnel hostname for SSH
+	TunnelHostname *string `json:"tunnel_hostname"`
+
+	// VmName Unique VM name (e.g., 'Revyl-Mac-mini-W641QMFKQR')
+	VmName string `json:"vm_name"`
+}
+
+// RegisterSandboxRequestStatus Initial sandbox status
+type RegisterSandboxRequestStatus string
+
+// RegisterSandboxResponse Response from registering a sandbox.
+//
+// Attributes:
+//
+//	success: Whether the registration succeeded.
+//	created: True if a new row was inserted, False if
+//	    an existing row was updated.
+//	sandbox: The registered sandbox data.
+//	message: Human-readable status message.
+type RegisterSandboxResponse struct {
+	// Created True if new row inserted, False if updated
+	Created bool `json:"created"`
+
+	// Message Status message
+	Message string `json:"message"`
+
+	// Sandbox Represents a virtual machine sandbox in the Fleet pool.
+	//
+	// Sandboxes are Mac Mini VMs that developers can claim for development work.
+	// Each sandbox can host multiple git repositories and worktrees.
+	//
+	// Attributes:
+	//     id: Unique identifier for the sandbox (UUID).
+	//     org_id: Organization ID that owns this sandbox (NULL = shared pool).
+	//     vm_name: VM name (e.g., "sandbox-1").
+	//     hostname: Human-readable hostname for display.
+	//     sandbox_type: Type of sandbox (dedicated machine or container).
+	//     host_identifier: Groups sandboxes running on the same physical host.
+	//     tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+	//     status: Current sandbox state (available, claimed, maintenance, reserved).
+	//     claimed_by: User ID of the developer who claimed this sandbox.
+	//     claimed_at: Timestamp when the sandbox was claimed.
+	//     ssh_user: SSH username for connections (default: revyl-admin).
+	//     ssh_port: SSH port number (default: 22).
+	//     specs: Hardware specifications (cpu_cores, memory_gb, chip).
+	//     tags: Flexible labels for filtering (location, tier, etc.).
+	//     created_at: When the sandbox was added to the pool.
+	//     updated_at: Last modification timestamp.
+	Sandbox FleetSandbox `json:"sandbox"`
+
+	// Success Whether registration succeeded
+	Success bool `json:"success"`
 }
 
 // ReleaseSandboxResponse Response from releasing a sandbox.
@@ -5373,6 +5504,80 @@ type UpdateReportResponse struct {
 	Success bool   `json:"success"`
 }
 
+// UpdateSandboxRequest Request payload for updating sandbox properties (admin only).
+//
+// All fields are optional - only provided fields will be updated.
+//
+// Attributes:
+//
+//	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+//	status: Sandbox status (available, claimed, maintenance, reserved).
+//	ssh_user: SSH username for connections.
+//	ssh_port: SSH port number.
+//	specs: Hardware specifications.
+//	tags: Flexible labels for filtering.
+type UpdateSandboxRequest struct {
+	// Specs Hardware specs
+	Specs *map[string]interface{} `json:"specs"`
+
+	// SshPort SSH port
+	SshPort *int `json:"ssh_port"`
+
+	// SshUser SSH username
+	SshUser *string `json:"ssh_user"`
+
+	// Status Sandbox status
+	Status *UpdateSandboxRequestStatus `json:"status"`
+
+	// Tags Flexible labels
+	Tags *map[string]interface{} `json:"tags"`
+
+	// TunnelHostname Cloudflare tunnel hostname for SSH
+	TunnelHostname *string `json:"tunnel_hostname"`
+}
+
+// UpdateSandboxRequestStatus Sandbox status
+type UpdateSandboxRequestStatus string
+
+// UpdateSandboxResponse Response from updating a sandbox.
+//
+// Attributes:
+//
+//	success: Whether the update succeeded.
+//	message: Human-readable status message.
+//	sandbox: Updated sandbox data.
+type UpdateSandboxResponse struct {
+	// Message Status message
+	Message string `json:"message"`
+
+	// Sandbox Represents a virtual machine sandbox in the Fleet pool.
+	//
+	// Sandboxes are Mac Mini VMs that developers can claim for development work.
+	// Each sandbox can host multiple git repositories and worktrees.
+	//
+	// Attributes:
+	//     id: Unique identifier for the sandbox (UUID).
+	//     org_id: Organization ID that owns this sandbox (NULL = shared pool).
+	//     vm_name: VM name (e.g., "sandbox-1").
+	//     hostname: Human-readable hostname for display.
+	//     sandbox_type: Type of sandbox (dedicated machine or container).
+	//     host_identifier: Groups sandboxes running on the same physical host.
+	//     tunnel_hostname: Cloudflare tunnel hostname for SSH access.
+	//     status: Current sandbox state (available, claimed, maintenance, reserved).
+	//     claimed_by: User ID of the developer who claimed this sandbox.
+	//     claimed_at: Timestamp when the sandbox was claimed.
+	//     ssh_user: SSH username for connections (default: revyl-admin).
+	//     ssh_port: SSH port number (default: 22).
+	//     specs: Hardware specifications (cpu_cores, memory_gb, chip).
+	//     tags: Flexible labels for filtering (location, tier, etc.).
+	//     created_at: When the sandbox was added to the pool.
+	//     updated_at: Last modification timestamp.
+	Sandbox *FleetSandbox `json:"sandbox,omitempty"`
+
+	// Success Whether update succeeded
+	Success bool `json:"success"`
+}
+
 // UpdateSeatsRequest defines model for UpdateSeatsRequest.
 type UpdateSeatsRequest struct {
 	Assignments   []map[string]string `json:"assignments"`
@@ -6351,6 +6556,9 @@ type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse struct {
 
 // CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
 type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
+	// AvgDuration Average execution duration in seconds for this date
+	AvgDuration *int `json:"avg_duration"`
+
 	// Date Date in YYYY-MM-DD format
 	Date string `json:"date"`
 
@@ -6632,29 +6840,23 @@ type DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONBody = st
 // CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody defines parameters for CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatch.
 type CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody = string
 
-// ResolveBuildApiV1BuildsResolvePostParams defines parameters for ResolveBuildApiV1BuildsResolvePost.
-type ResolveBuildApiV1BuildsResolvePostParams struct {
-	// IncludeDownloadUrl Include presigned download URL
-	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
-}
-
-// ListAppsApiV1BuildsVarsGetParams defines parameters for ListAppsApiV1BuildsVarsGet.
-type ListAppsApiV1BuildsVarsGetParams struct {
+// ListAppsApiV1BuildsAppsGetParams defines parameters for ListAppsApiV1BuildsAppsGet.
+type ListAppsApiV1BuildsAppsGetParams struct {
 	// Platform Filter by platform
 	Platform *string `form:"platform,omitempty" json:"platform,omitempty"`
 
 	// Page Page number (1-indexed)
 	Page *int `form:"page,omitempty" json:"page,omitempty"`
 
-	// PageSize Number of items per page (max 100)
+	// PageSize Number of items per page (max 500)
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 
-	// Search Search by build name
+	// Search Search by app name
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 }
 
-// ListBuildsApiV1BuildsVarsAppIdVersionsGetParams defines parameters for ListBuildsApiV1BuildsVarsAppIdVersionsGet.
-type ListBuildsApiV1BuildsVarsAppIdVersionsGetParams struct {
+// ListBuildsApiV1BuildsAppsAppIdBuildsGetParams defines parameters for ListBuildsApiV1BuildsAppsAppIdBuildsGet.
+type ListBuildsApiV1BuildsAppsAppIdBuildsGetParams struct {
 	// IncludeDownloadUrls Include presigned download URLs
 	IncludeDownloadUrls *bool `form:"include_download_urls,omitempty" json:"include_download_urls,omitempty"`
 
@@ -6668,14 +6870,14 @@ type ListBuildsApiV1BuildsVarsAppIdVersionsGetParams struct {
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 }
 
-// StreamUploadBuildApiV1BuildsVarsAppIdVersionsStreamUploadPostParams defines parameters for StreamUploadBuildApiV1BuildsVarsAppIdVersionsStreamUploadPost.
-type StreamUploadBuildApiV1BuildsVarsAppIdVersionsStreamUploadPostParams struct {
+// StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPostParams defines parameters for StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPost.
+type StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPostParams struct {
 	// Version Version string (must be unique)
 	Version string `form:"version" json:"version"`
 }
 
-// CreateBuildVersionUploadUrlApiV1BuildsVarsAppIdVersionsUploadUrlPostParams defines parameters for CreateBuildVersionUploadUrlApiV1BuildsVarsAppIdVersionsUploadUrlPost.
-type CreateBuildVersionUploadUrlApiV1BuildsVarsAppIdVersionsUploadUrlPostParams struct {
+// CreateBuildUploadUrlApiV1BuildsAppsAppIdBuildsUploadUrlPostParams defines parameters for CreateBuildUploadUrlApiV1BuildsAppsAppIdBuildsUploadUrlPost.
+type CreateBuildUploadUrlApiV1BuildsAppsAppIdBuildsUploadUrlPostParams struct {
 	// Version Version string (must be unique)
 	Version string `form:"version" json:"version"`
 
@@ -6683,8 +6885,14 @@ type CreateBuildVersionUploadUrlApiV1BuildsVarsAppIdVersionsUploadUrlPostParams 
 	FileName string `form:"file_name" json:"file_name"`
 }
 
-// GetBuildApiV1BuildsVersionsVersionIdGetParams defines parameters for GetBuildApiV1BuildsVersionsVersionIdGet.
-type GetBuildApiV1BuildsVersionsVersionIdGetParams struct {
+// GetBuildApiV1BuildsBuildsVersionIdGetParams defines parameters for GetBuildApiV1BuildsBuildsVersionIdGet.
+type GetBuildApiV1BuildsBuildsVersionIdGetParams struct {
+	// IncludeDownloadUrl Include presigned download URL
+	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
+}
+
+// ResolveBuildApiV1BuildsResolvePostParams defines parameters for ResolveBuildApiV1BuildsResolvePost.
+type ResolveBuildApiV1BuildsResolvePostParams struct {
 	// IncludeDownloadUrl Include presigned download URL
 	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
 }
@@ -6768,6 +6976,11 @@ type GetDashboardApiV1FleetSandboxesDashboardGetParams struct {
 // GetPoolStatusApiV1FleetSandboxesStatusGetParams defines parameters for GetPoolStatusApiV1FleetSandboxesStatusGet.
 type GetPoolStatusApiV1FleetSandboxesStatusGetParams struct {
 	OrgOnly *bool `form:"org_only,omitempty" json:"org_only,omitempty"`
+}
+
+// SetMaintenanceModeApiV1FleetSandboxesSandboxIdMaintenancePostParams defines parameters for SetMaintenanceModeApiV1FleetSandboxesSandboxIdMaintenancePost.
+type SetMaintenanceModeApiV1FleetSandboxesSandboxIdMaintenancePostParams struct {
+	Enable *bool `form:"enable,omitempty" json:"enable,omitempty"`
 }
 
 // ReleaseSandboxApiV1FleetSandboxesSandboxIdReleasePostParams defines parameters for ReleaseSandboxApiV1FleetSandboxesSandboxIdReleasePost.
@@ -7183,26 +7396,26 @@ type ExtractPackageIdApiV1BinariesTestAppExtractPackageIdPostJSONRequestBody = E
 // GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPostJSONRequestBody defines body for GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPost for application/json ContentType.
 type GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPostJSONRequestBody = AppBinaryUploadRequest
 
+// CreateAppApiV1BuildsAppsPostJSONRequestBody defines body for CreateAppApiV1BuildsAppsPost for application/json ContentType.
+type CreateAppApiV1BuildsAppsPostJSONRequestBody = AppCreateRequest
+
+// UpdateAppApiV1BuildsAppsAppIdPatchJSONRequestBody defines body for UpdateAppApiV1BuildsAppsAppIdPatch for application/json ContentType.
+type UpdateAppApiV1BuildsAppsAppIdPatchJSONRequestBody = AppUpdateRequest
+
+// CreateBuildFromUrlApiV1BuildsAppsAppIdBuildsFromUrlPostJSONRequestBody defines body for CreateBuildFromUrlApiV1BuildsAppsAppIdBuildsFromUrlPost for application/json ContentType.
+type CreateBuildFromUrlApiV1BuildsAppsAppIdBuildsFromUrlPostJSONRequestBody = BuildFromUrlRequest
+
+// StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPostMultipartRequestBody defines body for StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPost for multipart/form-data ContentType.
+type StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPostMultipartRequestBody = BodyStreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPost
+
+// UpdateBuildApiV1BuildsBuildsVersionIdPatchJSONRequestBody defines body for UpdateBuildApiV1BuildsBuildsVersionIdPatch for application/json ContentType.
+type UpdateBuildApiV1BuildsBuildsVersionIdPatchJSONRequestBody = BuildUpdateRequest
+
+// CompleteBuildUploadApiV1BuildsBuildsVersionIdCompleteUploadPostJSONRequestBody defines body for CompleteBuildUploadApiV1BuildsBuildsVersionIdCompleteUploadPost for application/json ContentType.
+type CompleteBuildUploadApiV1BuildsBuildsVersionIdCompleteUploadPostJSONRequestBody = BuildUploadCompleteRequest
+
 // ResolveBuildApiV1BuildsResolvePostJSONRequestBody defines body for ResolveBuildApiV1BuildsResolvePost for application/json ContentType.
 type ResolveBuildApiV1BuildsResolvePostJSONRequestBody = BuildResolutionRequest
-
-// CreateAppApiV1BuildsVarsPostJSONRequestBody defines body for CreateAppApiV1BuildsVarsPost for application/json ContentType.
-type CreateAppApiV1BuildsVarsPostJSONRequestBody = AppCreateRequest
-
-// UpdateAppApiV1BuildsVarsAppIdPatchJSONRequestBody defines body for UpdateAppApiV1BuildsVarsAppIdPatch for application/json ContentType.
-type UpdateAppApiV1BuildsVarsAppIdPatchJSONRequestBody = AppUpdateRequest
-
-// CreateBuildFromUrlApiV1BuildsVarsAppIdVersionsFromUrlPostJSONRequestBody defines body for CreateBuildFromUrlApiV1BuildsVarsAppIdVersionsFromUrlPost for application/json ContentType.
-type CreateBuildFromUrlApiV1BuildsVarsAppIdVersionsFromUrlPostJSONRequestBody = BuildFromUrlRequest
-
-// StreamUploadBuildApiV1BuildsVarsAppIdVersionsStreamUploadPostMultipartRequestBody defines body for StreamUploadBuildApiV1BuildsVarsAppIdVersionsStreamUploadPost for multipart/form-data ContentType.
-type StreamUploadBuildApiV1BuildsVarsAppIdVersionsStreamUploadPostMultipartRequestBody = BodyStreamUploadBuildApiV1BuildsVarsAppIdVersionsStreamUploadPost
-
-// UpdateBuildApiV1BuildsVersionsVersionIdPatchJSONRequestBody defines body for UpdateBuildApiV1BuildsVersionsVersionIdPatch for application/json ContentType.
-type UpdateBuildApiV1BuildsVersionsVersionIdPatchJSONRequestBody = BuildUpdateRequest
-
-// CompleteBuildUploadApiV1BuildsVersionsVersionIdCompleteUploadPostJSONRequestBody defines body for CompleteBuildUploadApiV1BuildsVersionsVersionIdCompleteUploadPost for application/json ContentType.
-type CompleteBuildUploadApiV1BuildsVersionsVersionIdCompleteUploadPostJSONRequestBody = BuildUploadCompleteRequest
 
 // ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody defines body for ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPost for application/json ContentType.
 type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody = TaskID
@@ -7242,6 +7455,12 @@ type CreateWorkflowExecutionApiV1ExecutionWorkflowExecutionsPostJSONRequestBody 
 
 // UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatchJSONRequestBody defines body for UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatch for application/json ContentType.
 type UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatchJSONRequestBody = WorkflowExecutionUpdate
+
+// RegisterSandboxApiV1FleetSandboxesRegisterPostJSONRequestBody defines body for RegisterSandboxApiV1FleetSandboxesRegisterPost for application/json ContentType.
+type RegisterSandboxApiV1FleetSandboxesRegisterPostJSONRequestBody = RegisterSandboxRequest
+
+// UpdateSandboxApiV1FleetSandboxesSandboxIdPatchJSONRequestBody defines body for UpdateSandboxApiV1FleetSandboxesSandboxIdPatch for application/json ContentType.
+type UpdateSandboxApiV1FleetSandboxesSandboxIdPatchJSONRequestBody = UpdateSandboxRequest
 
 // PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPostJSONRequestBody defines body for PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPost for application/json ContentType.
 type PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPostJSONRequestBody = PushSSHKeyRequest

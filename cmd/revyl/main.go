@@ -5,12 +5,15 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -36,6 +39,10 @@ var rootCmd = &cobra.Command{
 		// Set quiet mode from global flag
 		quiet, _ := cmd.Flags().GetBool("quiet")
 		ui.SetQuietMode(quiet)
+
+		// Propagate CLI version to the API package so every client
+		// automatically sends the correct User-Agent header.
+		api.SetDefaultVersion(version)
 	},
 }
 
@@ -83,6 +90,7 @@ func init() {
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(runCmd) // build→test shortcut: revyl run <name>
+	rootCmd.AddCommand(appCmd)
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(workflowCmd)
@@ -93,17 +101,75 @@ func init() {
 	rootCmd.AddCommand(pingCmd)
 	rootCmd.AddCommand(upgradeCmd)
 	rootCmd.AddCommand(hotreloadCmd)
+
+	// Shell completion (built-in Cobra support for bash, zsh, fish, powershell)
+	rootCmd.AddCommand(completionCmd)
+
+	// Internal/dev commands (gated behind --dev flag)
+	rootCmd.AddCommand(sandboxCmd)
+}
+
+// completionCmd generates shell completion scripts.
+var completionCmd = &cobra.Command{
+	Use:   "completion [bash|zsh|fish|powershell]",
+	Short: "Generate shell completion scripts",
+	Long: `Generate shell completion scripts for bash, zsh, fish, or powershell.
+
+EXAMPLES:
+  # Bash (add to ~/.bashrc):
+  source <(revyl completion bash)
+
+  # Zsh (add to ~/.zshrc):
+  source <(revyl completion zsh)
+
+  # Fish:
+  revyl completion fish | source
+
+  # PowerShell:
+  revyl completion powershell | Out-String | Invoke-Expression`,
+	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
+	Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+	DisableFlagsInUseLine: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		switch args[0] {
+		case "bash":
+			return rootCmd.GenBashCompletion(os.Stdout)
+		case "zsh":
+			return rootCmd.GenZshCompletion(os.Stdout)
+		case "fish":
+			return rootCmd.GenFishCompletion(os.Stdout, true)
+		case "powershell":
+			return rootCmd.GenPowerShellCompletionWithDesc(os.Stdout)
+		default:
+			return nil
+		}
+	},
 }
 
 // versionCmd shows version information.
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version information",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
+		jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
+		if jsonOutput {
+			data, err := json.MarshalIndent(map[string]string{
+				"version": version,
+				"commit":  commit,
+				"date":    date,
+			}, "", "  ")
+			if err != nil {
+				return fmt.Errorf("failed to marshal version info: %w", err)
+			}
+			fmt.Println(string(data))
+			return nil
+		}
+
 		ui.PrintBanner(version)
 		ui.PrintInfo("Version: %s", version)
 		ui.PrintInfo("Commit: %s", commit)
 		ui.PrintInfo("Built: %s", date)
+		return nil
 	},
 }
 

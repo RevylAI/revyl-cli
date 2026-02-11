@@ -5,8 +5,24 @@
 package ui
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-isatty"
 )
+
+// isTTY reports whether stdout is connected to a terminal.
+// When false, ANSI escape codes should be avoided since output may be piped.
+var isTTY = isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
+
+// clearLine emits an ANSI escape sequence to clear the current line.
+// If stdout is not a TTY, this is a no-op to avoid garbage output in pipes.
+func clearLine() {
+	if isTTY {
+		fmt.Print("\r\033[K")
+	}
+}
 
 // Brand colors for Revyl.
 var (
@@ -55,6 +71,15 @@ var (
 	LinkStyle = lipgloss.NewStyle().
 			Foreground(Purple).
 			Underline(true)
+
+	// AccentStyle for purple-highlighted elements (numbers, indicators)
+	AccentStyle = lipgloss.NewStyle().
+			Foreground(Purple)
+
+	// BoldInfoStyle for highlighted option labels
+	BoldInfoStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#E5E7EB")).
+			Bold(true)
 )
 
 // Box styles.

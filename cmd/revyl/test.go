@@ -53,7 +53,7 @@ EXAMPLES:
   revyl run login-flow               # Build then run (shortcut)
   revyl test run login-flow          # Run only (no build)
   revyl test run login-flow --build  # Build then run
-  revyl test run login-flow --hotreload --variant ios-dev`,
+  revyl test run login-flow --hotreload --platform ios-dev`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestExec,
 }
@@ -124,7 +124,7 @@ func init() {
 
 	// test run flags
 	testRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
-	testRunCmd.Flags().StringVarP(&runBuildVersionID, "build-version-id", "b", "", "Specific build version ID")
+	testRunCmd.Flags().StringVarP(&runBuildID, "build-id", "b", "", "Specific build version ID")
 	testRunCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after test starts without waiting")
 	testRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete")
 	testRunCmd.Flags().IntVarP(&runTimeout, "timeout", "t", 3600, "Timeout in seconds")
@@ -132,7 +132,7 @@ func init() {
 	testRunCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	testRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
 	testRunCmd.Flags().BoolVar(&runTestBuild, "build", false, "Build and upload before running test")
-	testRunCmd.Flags().StringVar(&runTestVariant, "variant", "", "Build variant to use (requires --build, or used with --hotreload)")
+	testRunCmd.Flags().StringVar(&runTestPlatform, "platform", "", "Platform to use (requires --build, or used with --hotreload)")
 	testRunCmd.Flags().BoolVar(&runHotReload, "hotreload", false, "Enable hot reload mode with local dev server")
 	testRunCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
 	testRunCmd.Flags().StringVar(&runHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
@@ -141,7 +141,7 @@ func init() {
 
 	// test create flags
 	testCreateCmd.Flags().StringVar(&createTestPlatform, "platform", "", "Target platform (android, ios)")
-	testCreateCmd.Flags().StringVar(&createTestBuildVar, "build-var", "", "Build variable ID to associate with the test")
+	testCreateCmd.Flags().StringVar(&createTestAppID, "app", "", "App ID to associate with the test")
 	testCreateCmd.Flags().BoolVar(&createTestNoOpen, "no-open", false, "Skip opening browser to test editor")
 	testCreateCmd.Flags().BoolVar(&createTestNoSync, "no-sync", false, "Skip adding test to .revyl/config.yaml")
 	testCreateCmd.Flags().BoolVar(&createTestForce, "force", false, "Update existing test if name already exists")
@@ -150,7 +150,7 @@ func init() {
 	testCreateCmd.Flags().BoolVar(&createTestHotReload, "hotreload", false, "Create test with hot reload (adds NAVIGATE step, starts dev server)")
 	testCreateCmd.Flags().IntVar(&createTestHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
 	testCreateCmd.Flags().StringVar(&createTestHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
-	testCreateCmd.Flags().StringVar(&createTestHotReloadVariant, "variant", "", "Build variant for hot reload dev client")
+	testCreateCmd.Flags().StringVar(&createTestHotReloadPlatform, "platform-key", "", "Build platform key for hot reload dev client")
 	testCreateCmd.Flags().BoolVar(&createTestInteractive, "interactive", false, "Create test interactively with real-time device feedback")
 
 	// test delete flags
@@ -162,7 +162,7 @@ func init() {
 	testOpenCmd.Flags().BoolVar(&openTestHotReload, "hotreload", false, "Start hot reload mode (dev server + tunnel)")
 	testOpenCmd.Flags().IntVar(&openTestHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
 	testOpenCmd.Flags().StringVar(&openTestHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
-	testOpenCmd.Flags().StringVar(&openTestHotReloadVariant, "variant", "", "Build variant for hot reload dev client")
+	testOpenCmd.Flags().StringVar(&openTestHotReloadPlatform, "platform-key", "", "Build platform key for hot reload dev client")
 	testOpenCmd.Flags().BoolVar(&openTestInteractive, "interactive", false, "Edit test interactively with real-time device feedback")
 	testOpenCmd.Flags().BoolVar(&openTestNoOpen, "no-open", false, "Skip opening browser (with --interactive: output URL and wait for Ctrl+C)")
 }

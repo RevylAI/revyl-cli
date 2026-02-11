@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
@@ -26,7 +25,7 @@ import (
 
 var (
 	runRetries           int
-	runBuildVersionID    string
+	runBuildID           string
 	runNoWait            bool
 	runOpen              bool
 	runTimeout           int
@@ -34,13 +33,19 @@ var (
 	runGitHubActions     bool
 	runVerbose           bool
 	runTestBuild         bool
-	runTestVariant       string
+	runTestPlatform      string
 	runWorkflowBuild     bool
-	runWorkflowVariant   string
+	runWorkflowPlatform  string
 	runHotReload         bool
 	runHotReloadPort     int
 	runHotReloadProvider string
 )
+
+// minRetries is the minimum allowed retry count.
+const minRetries = 1
+
+// maxRetries is the maximum allowed retry count.
+const maxRetries = 5
 
 // runTestExec executes a test using the shared execution package.
 //
@@ -51,6 +56,11 @@ var (
 // Returns:
 //   - error: Any error that occurred, or nil on success
 func runTestExec(cmd *cobra.Command, args []string) error {
+	// Validate retries range
+	if runRetries < minRetries || runRetries > maxRetries {
+		return fmt.Errorf("--retries must be between %d and %d (got %d)", minRetries, maxRetries, runRetries)
+	}
+
 	// Honor global --json (root persistent) and local --json
 	if v, _ := cmd.Flags().GetBool("json"); v {
 		runOutputJSON = true
@@ -66,11 +76,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	testNameOrID := args[0]
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config for alias resolution
@@ -79,15 +87,46 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 
 	// Resolve test ID from alias for display
 	testID := testNameOrID
+	var isAlias bool
 	if cfg != nil {
 		if id, ok := cfg.Tests[testNameOrID]; ok {
 			testID = id
+			isAlias = true
 			ui.PrintInfo("Resolved '%s' to test ID: %s", testNameOrID, testID)
 		}
 	}
 
 	// Get dev mode flag
 	devMode, _ := cmd.Flags().GetBool("dev")
+
+	// Validate test exists before building or executing (fail fast).
+	// If the name was resolved from config, we trust the alias; otherwise
+	// verify the identifier is a valid UUID and optionally probe the API.
+	if !isAlias {
+		if !looksLikeUUID(testID) {
+			// Not an alias and not a UUID -- likely a typo or unregistered name
+			var availableTests []string
+			if cfg != nil && cfg.Tests != nil {
+				for name := range cfg.Tests {
+					availableTests = append(availableTests, name)
+				}
+			}
+			errMsg := fmt.Sprintf("test '%s' not found in config", testNameOrID)
+			if len(availableTests) > 0 {
+				errMsg += fmt.Sprintf(". Available tests: %v", availableTests)
+			}
+			errMsg += "\n\nHint: Run 'revyl test remote' to see all available tests."
+			ui.PrintError(errMsg)
+			return fmt.Errorf("test not found")
+		}
+		// It's a UUID format -- verify it exists via API before building
+		validationClient := api.NewClientWithDevMode(apiKey, devMode)
+		_, err := validationClient.GetTest(cmd.Context(), testID)
+		if err != nil {
+			ui.PrintError("test '%s' not found: %v", testNameOrID, err)
+			return fmt.Errorf("test not found")
+		}
+	}
 
 	ui.PrintBanner(version)
 	ui.PrintInfo("Running Test")
@@ -96,8 +135,8 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if runRetries > 1 {
 		ui.PrintInfo("Retries: %d", runRetries)
 	}
-	if runBuildVersionID != "" {
-		ui.PrintInfo("Build Version: %s", runBuildVersionID)
+	if runBuildID != "" {
+		ui.PrintInfo("Build Version: %s", runBuildID)
 	}
 
 	if devMode {
@@ -113,17 +152,17 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		}
 
 		buildCfg := cfg.Build
-		var variant config.BuildVariant
+		var platformCfg config.BuildPlatform
 
-		if runTestVariant != "" {
+		if runTestPlatform != "" {
 			var ok bool
-			variant, ok = cfg.Build.Variants[runTestVariant]
+			platformCfg, ok = cfg.Build.Platforms[runTestPlatform]
 			if !ok {
-				ui.PrintError("Unknown build variant: %s", runTestVariant)
-				return fmt.Errorf("unknown variant: %s", runTestVariant)
+				ui.PrintError("Unknown platform: %s", runTestPlatform)
+				return fmt.Errorf("unknown platform: %s", runTestPlatform)
 			}
-			buildCfg.Command = variant.Command
-			buildCfg.Output = variant.Output
+			buildCfg.Command = platformCfg.Command
+			buildCfg.Output = platformCfg.Output
 		}
 
 		if buildCfg.Command == "" {
@@ -160,16 +199,16 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		}
 
 		buildVersionStr := build.GenerateVersionString()
-		metadata := build.CollectMetadata(cwd, buildCfg.Command, runTestVariant, buildDuration)
+		metadata := build.CollectMetadata(cwd, buildCfg.Command, runTestPlatform, buildDuration)
 
 		ui.PrintBox("Uploading", filepath.Base(buildCfg.Output))
 
-		client := api.NewClientWithDevMode(creds.APIKey, devMode)
+		client := api.NewClientWithDevMode(apiKey, devMode)
 		result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-			BuildVarID: variant.BuildVarID,
-			Version:    buildVersionStr,
-			FilePath:   artifactPath,
-			Metadata:   metadata,
+			AppID:    platformCfg.AppID,
+			Version:  buildVersionStr,
+			FilePath: artifactPath,
+			Metadata: metadata,
 		})
 
 		if err != nil {
@@ -208,7 +247,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 			ui.PrintWarning("Cancelling test...")
 			cancelled = true
 			if taskID != "" {
-				cancelClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+				cancelClient := api.NewClientWithDevMode(apiKey, devMode)
 				_, cancelErr := cancelClient.CancelTest(context.Background(), taskID)
 				if cancelErr != nil {
 					ui.PrintError("Failed to cancel test: %v", cancelErr)
@@ -222,10 +261,10 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	result, err := execution.RunTest(ctx, creds.APIKey, cfg, execution.RunTestParams{
+	result, err := execution.RunTest(ctx, apiKey, cfg, execution.RunTestParams{
 		TestNameOrID:   testNameOrID,
 		Retries:        runRetries,
-		BuildVersionID: runBuildVersionID,
+		BuildVersionID: runBuildID,
 		Timeout:        runTimeout,
 		DevMode:        devMode,
 		OnTaskStarted: func(id string) {
@@ -246,7 +285,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 				ui.PrintVerboseStatus(status.Status, status.Progress, status.CurrentStep,
 					status.CompletedSteps, status.TotalSteps, status.Duration)
 			} else {
-				ui.PrintBasicStatus(status.Status, status.Progress, status.CompletedSteps, status.TotalSteps)
+				ui.PrintBasicStatus(status.Status, status.Progress, status.CurrentStep, status.CompletedSteps, status.TotalSteps)
 			}
 		},
 	})
@@ -278,21 +317,49 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show final result
-	if result.Success {
+	switch {
+	case result.Success:
 		if runOutputJSON || runGitHubActions {
 			outputTestResultJSON(result)
 		} else {
 			ui.PrintTestResult(result.TestName, "passed", result.ReportURL, "")
 			ui.Println()
 			ui.PrintSuccess("Test completed successfully!")
+			ui.PrintNextSteps([]ui.NextStep{
+				{Label: "View report:", Command: fmt.Sprintf("revyl test open %s", testNameOrID)},
+				{Label: "Add to workflow:", Command: fmt.Sprintf("revyl workflow create --tests %s", testNameOrID)},
+			})
 		}
-	} else {
+	case result.Status == "cancelled":
+		if runOutputJSON || runGitHubActions {
+			outputTestResultJSON(result)
+		} else {
+			ui.PrintTestResult(result.TestName, "cancelled", result.ReportURL, "")
+			ui.Println()
+			ui.PrintWarning("Test was cancelled")
+		}
+	case result.Status == "timeout":
+		if runOutputJSON || runGitHubActions {
+			outputTestResultJSON(result)
+		} else {
+			ui.PrintTestResult(result.TestName, "timeout", result.ReportURL, result.ErrorMessage)
+			ui.Println()
+			ui.PrintWarning("Test timed out")
+			ui.PrintNextSteps([]ui.NextStep{
+				{Label: "Re-run with verbose:", Command: fmt.Sprintf("revyl run %s -v", testNameOrID)},
+			})
+		}
+	default:
 		if runOutputJSON || runGitHubActions {
 			outputTestResultJSON(result)
 		} else {
 			ui.PrintTestResult(result.TestName, "failed", result.ReportURL, result.ErrorMessage)
 			ui.Println()
 			ui.PrintError("Test failed")
+			ui.PrintNextSteps([]ui.NextStep{
+				{Label: "Re-run with verbose:", Command: fmt.Sprintf("revyl run %s -v", testNameOrID)},
+				{Label: "Check builds:", Command: "revyl build list"},
+			})
 		}
 	}
 
@@ -302,7 +369,14 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 
 	if !result.Success {
-		return fmt.Errorf("test failed")
+		switch result.Status {
+		case "cancelled":
+			return fmt.Errorf("test was cancelled")
+		case "timeout":
+			return fmt.Errorf("test timed out")
+		default:
+			return fmt.Errorf("test failed")
+		}
 	}
 
 	return nil
@@ -339,6 +413,11 @@ func outputTestResultJSON(result *execution.RunTestResult) {
 // Returns:
 //   - error: Any error that occurred, or nil on success
 func runWorkflowExec(cmd *cobra.Command, args []string) error {
+	// Validate retries range
+	if runRetries < minRetries || runRetries > maxRetries {
+		return fmt.Errorf("--retries must be between %d and %d (got %d)", minRetries, maxRetries, runRetries)
+	}
+
 	// Honor global --json (root persistent) and local --json
 	if v, _ := cmd.Flags().GetBool("json"); v {
 		runOutputJSON = true
@@ -349,11 +428,9 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	workflowNameOrID := args[0]
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config for alias resolution
@@ -376,9 +453,14 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 
 	// Validate workflow exists before building (fail fast) - only if --build is set
 	if runWorkflowBuild && !isAlias {
-		if !isValidUUID(workflowNameOrID) {
+		if !looksLikeUUID(workflowNameOrID) {
 			// Not an alias and not a UUID - likely a typo
-			availableWorkflows := getWorkflowNames(cfg.Workflows)
+			var availableWorkflows []string
+			if cfg != nil && cfg.Workflows != nil {
+				for name := range cfg.Workflows {
+					availableWorkflows = append(availableWorkflows, name)
+				}
+			}
 			errMsg := fmt.Sprintf("workflow '%s' not found in config", workflowNameOrID)
 			if len(availableWorkflows) > 0 {
 				errMsg += fmt.Sprintf(". Available workflows: %v", availableWorkflows)
@@ -388,7 +470,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("workflow not found")
 		}
 		// It's a UUID format - verify it exists via API before building
-		validationClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+		validationClient := api.NewClientWithDevMode(apiKey, devMode)
 		_, err := validationClient.GetWorkflow(cmd.Context(), workflowID)
 		if err != nil {
 			ui.PrintError("workflow '%s' not found: %v", workflowNameOrID, err)
@@ -417,17 +499,17 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		}
 
 		buildCfg := cfg.Build
-		var variant config.BuildVariant
+		var platformCfg config.BuildPlatform
 
-		if runWorkflowVariant != "" {
+		if runWorkflowPlatform != "" {
 			var ok bool
-			variant, ok = cfg.Build.Variants[runWorkflowVariant]
+			platformCfg, ok = cfg.Build.Platforms[runWorkflowPlatform]
 			if !ok {
-				ui.PrintError("Unknown build variant: %s", runWorkflowVariant)
-				return fmt.Errorf("unknown variant: %s", runWorkflowVariant)
+				ui.PrintError("Unknown platform: %s", runWorkflowPlatform)
+				return fmt.Errorf("unknown platform: %s", runWorkflowPlatform)
 			}
-			buildCfg.Command = variant.Command
-			buildCfg.Output = variant.Output
+			buildCfg.Command = platformCfg.Command
+			buildCfg.Output = platformCfg.Output
 		}
 
 		if buildCfg.Command == "" {
@@ -464,16 +546,16 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		}
 
 		buildVersionStr := build.GenerateVersionString()
-		metadata := build.CollectMetadata(cwd, buildCfg.Command, runWorkflowVariant, buildDuration)
+		metadata := build.CollectMetadata(cwd, buildCfg.Command, runWorkflowPlatform, buildDuration)
 
 		ui.PrintBox("Uploading", filepath.Base(buildCfg.Output))
 
-		client := api.NewClientWithDevMode(creds.APIKey, devMode)
+		client := api.NewClientWithDevMode(apiKey, devMode)
 		result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-			BuildVarID: variant.BuildVarID,
-			Version:    buildVersionStr,
-			FilePath:   artifactPath,
-			Metadata:   metadata,
+			AppID:    platformCfg.AppID,
+			Version:  buildVersionStr,
+			FilePath: artifactPath,
+			Metadata: metadata,
 		})
 
 		if err != nil {
@@ -512,7 +594,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			ui.PrintWarning("Cancelling workflow...")
 			cancelled = true
 			if taskID != "" {
-				cancelClient := api.NewClientWithDevMode(creds.APIKey, devMode)
+				cancelClient := api.NewClientWithDevMode(apiKey, devMode)
 				_, cancelErr := cancelClient.CancelWorkflow(context.Background(), taskID)
 				if cancelErr != nil {
 					ui.PrintError("Failed to cancel workflow: %v", cancelErr)
@@ -526,7 +608,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	result, err := execution.RunWorkflow(ctx, creds.APIKey, cfg, execution.RunWorkflowParams{
+	result, err := execution.RunWorkflow(ctx, apiKey, cfg, execution.RunWorkflowParams{
 		WorkflowNameOrID: workflowNameOrID,
 		Retries:          runRetries,
 		Timeout:          runTimeout,
@@ -598,6 +680,19 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.PrintLink("Report", result.ReportURL)
+
+	if !(runOutputJSON || runGitHubActions) {
+		if result.Success {
+			ui.PrintNextSteps([]ui.NextStep{
+				{Label: "View report:", Command: fmt.Sprintf("revyl workflow open %s", workflowNameOrID)},
+			})
+		} else {
+			ui.PrintNextSteps([]ui.NextStep{
+				{Label: "Re-run workflow:", Command: fmt.Sprintf("revyl workflow run %s", workflowNameOrID)},
+				{Label: "Run verbose:", Command: fmt.Sprintf("revyl workflow run %s -v", workflowNameOrID)},
+			})
+		}
+	}
 
 	if runOpen {
 		ui.PrintInfo("Opening report in browser...")
@@ -672,11 +767,9 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	testNameOrID := args[0]
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config
@@ -739,53 +832,53 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve build version ID from flags or config
-	// Priority: --build-version-id > --variant > providerCfg.DevClientBuildID
+	// Priority: --build-id > --platform > providerCfg.DevClientBuildID
 	buildVersionID := ""
 	buildSource := ""
 
-	if runBuildVersionID != "" {
-		// 1. Explicit --build-version-id flag
-		buildVersionID = runBuildVersionID
+	if runBuildID != "" {
+		// 1. Explicit --build-id flag
+		buildVersionID = runBuildID
 		buildSource = "explicit"
-	} else if runTestVariant != "" {
-		// 2. --variant flag: lookup from build.variants and get latest version
-		variant, ok := cfg.Build.Variants[runTestVariant]
+	} else if runTestPlatform != "" {
+		// 2. --platform flag: lookup from build.platforms and get latest version
+		platformCfg, ok := cfg.Build.Platforms[runTestPlatform]
 		if !ok {
-			ui.PrintError("Build variant '%s' not found in config.", runTestVariant)
+			ui.PrintError("Platform '%s' not found in config.", runTestPlatform)
 			ui.Println()
-			ui.PrintInfo("Available variants:")
-			for name := range cfg.Build.Variants {
+			ui.PrintInfo("Available platforms:")
+			for name := range cfg.Build.Platforms {
 				ui.PrintDim("  - %s", name)
 			}
-			return fmt.Errorf("variant not found: %s", runTestVariant)
+			return fmt.Errorf("platform not found: %s", runTestPlatform)
 		}
-		if variant.BuildVarID == "" {
-			ui.PrintError("Build variant '%s' has no build_var_id configured.", runTestVariant)
+		if platformCfg.AppID == "" {
+			ui.PrintError("Platform '%s' has no app_id configured.", runTestPlatform)
 			ui.Println()
-			ui.PrintInfo("Add build_var_id to your config:")
+			ui.PrintInfo("Add app_id to your config:")
 			ui.PrintDim("  build:")
-			ui.PrintDim("    variants:")
-			ui.PrintDim("      %s:", runTestVariant)
-			ui.PrintDim("        build_var_id: \"<your-build-var-id>\"")
-			return fmt.Errorf("variant missing build_var_id: %s", runTestVariant)
+			ui.PrintDim("    platforms:")
+			ui.PrintDim("      %s:", runTestPlatform)
+			ui.PrintDim("        app_id: \"<your-app-id>\"")
+			return fmt.Errorf("platform missing app_id: %s", runTestPlatform)
 		}
 
 		// Create API client to get latest version
-		client := api.NewClientWithDevMode(creds.APIKey, devMode)
-		latestVersion, err := client.GetLatestBuildVersion(cmd.Context(), variant.BuildVarID)
+		client := api.NewClientWithDevMode(apiKey, devMode)
+		latestVersion, err := client.GetLatestBuildVersion(cmd.Context(), platformCfg.AppID)
 		if err != nil {
-			ui.PrintError("Failed to get latest build version for variant '%s': %v", runTestVariant, err)
+			ui.PrintError("Failed to get latest build version for platform '%s': %v", runTestPlatform, err)
 			return err
 		}
 		if latestVersion == nil {
-			ui.PrintError("No build versions found for variant '%s'.", runTestVariant)
+			ui.PrintError("No build versions found for platform '%s'.", runTestPlatform)
 			ui.Println()
 			ui.PrintInfo("Upload a build first:")
-			ui.PrintDim("  revyl build upload <file> --name %s", runTestVariant)
-			return fmt.Errorf("no builds for variant: %s", runTestVariant)
+			ui.PrintDim("  revyl build upload <file> --name %s", runTestPlatform)
+			return fmt.Errorf("no builds for platform: %s", runTestPlatform)
 		}
 		buildVersionID = latestVersion.ID
-		buildSource = fmt.Sprintf("variant:%s", runTestVariant)
+		buildSource = fmt.Sprintf("platform:%s", runTestPlatform)
 	} else if providerCfg.DevClientBuildID != "" {
 		// 3. Fall back to config
 		buildVersionID = providerCfg.DevClientBuildID
@@ -795,8 +888,8 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		ui.PrintError("No build specified for hot reload.")
 		ui.Println()
 		ui.PrintInfo("Specify a build using one of these options:")
-		ui.PrintDim("  --variant <name>         Use latest from build.variants.<name>")
-		ui.PrintDim("  --build-version-id <id>  Use explicit build version ID")
+		ui.PrintDim("  --platform <name>    Use latest from build.platforms.<name>")
+		ui.PrintDim("  --build-id <id>      Use explicit build version ID")
 		ui.Println()
 		ui.PrintInfo("Or configure dev_client_build_id in .revyl/config.yaml")
 		return fmt.Errorf("no build specified")
@@ -883,7 +976,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	// Track if we've shown the report link yet
 	reportLinkShown := false
 
-	testResult, err := execution.RunTest(ctx, creds.APIKey, cfg, execution.RunTestParams{
+	testResult, err := execution.RunTest(ctx, apiKey, cfg, execution.RunTestParams{
 		TestNameOrID:   testNameOrID,
 		Retries:        runRetries,
 		BuildVersionID: providerCfg.DevClientBuildID,
@@ -904,7 +997,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 				ui.PrintVerboseStatus(status.Status, status.Progress, status.CurrentStep,
 					status.CompletedSteps, status.TotalSteps, status.Duration)
 			} else {
-				ui.PrintBasicStatus(status.Status, status.Progress, status.CompletedSteps, status.TotalSteps)
+				ui.PrintBasicStatus(status.Status, status.Progress, status.CurrentStep, status.CompletedSteps, status.TotalSteps)
 			}
 		},
 	})
@@ -918,7 +1011,8 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	ui.Println()
 
 	// Show final result
-	if testResult.Success {
+	switch {
+	case testResult.Success:
 		if runOutputJSON || runGitHubActions {
 			outputTestResultJSON(testResult)
 		} else {
@@ -926,7 +1020,23 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 			ui.Println()
 			ui.PrintSuccess("Test completed successfully!")
 		}
-	} else {
+	case testResult.Status == "cancelled":
+		if runOutputJSON || runGitHubActions {
+			outputTestResultJSON(testResult)
+		} else {
+			ui.PrintTestResult(testResult.TestName, "cancelled", testResult.ReportURL, "")
+			ui.Println()
+			ui.PrintWarning("Test was cancelled")
+		}
+	case testResult.Status == "timeout":
+		if runOutputJSON || runGitHubActions {
+			outputTestResultJSON(testResult)
+		} else {
+			ui.PrintTestResult(testResult.TestName, "timeout", testResult.ReportURL, testResult.ErrorMessage)
+			ui.Println()
+			ui.PrintWarning("Test timed out")
+		}
+	default:
 		if runOutputJSON || runGitHubActions {
 			outputTestResultJSON(testResult)
 		} else {
@@ -945,6 +1055,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	ui.Println()
 	ui.PrintInfo("────────────────────────────────────────────────────────────────")
 	ui.PrintInfo("Hot reload server still running. Make code changes and run again.")
+	ui.PrintDim("  Re-run:  revyl run %s --hotreload", testNameOrID)
 	ui.PrintInfo("Press Ctrl+C to stop.")
 	ui.PrintInfo("────────────────────────────────────────────────────────────────")
 
@@ -952,7 +1063,14 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	<-sigChan
 
 	if !testResult.Success {
-		return fmt.Errorf("test failed")
+		switch testResult.Status {
+		case "cancelled":
+			return fmt.Errorf("test was cancelled")
+		case "timeout":
+			return fmt.Errorf("test timed out")
+		default:
+			return fmt.Errorf("test failed")
+		}
 	}
 
 	return nil

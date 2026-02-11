@@ -25,7 +25,7 @@ test:
     name: "test-name"           # Required: Test name
     platform: "ios"             # Required: "ios" or "android"
   build:
-    name: "build-variable-name" # Required: Build variable name from Revyl
+    name: "app-name"            # Required: App name from Revyl
     pinned_version: "1.0.0"     # Optional: Pin to specific version
   blocks:                       # Required: At least one block
     - type: "instructions"
@@ -195,7 +195,7 @@ Before generating a test, verify:
 4. [ ] Instructions are specific enough to be actionable
 5. [ ] Test does NOT assume pre-existing app state
 6. [ ] Platform is specified (ios or android)
-7. [ ] Build name matches a configured build variable
+7. [ ] Build name matches a configured app
 
 ## Complete Example
 

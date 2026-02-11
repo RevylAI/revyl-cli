@@ -170,8 +170,11 @@ func ExtractAppFromTarGz(tarGzPath string) (string, error) {
 			return "", fmt.Errorf("failed to read tar entry: %w", err)
 		}
 
-		// Determine the target path
+		// Determine the target path, sanitizing against path traversal attacks
 		targetPath := filepath.Join(tempDir, header.Name)
+		if !strings.HasPrefix(filepath.Clean(targetPath), filepath.Clean(tempDir)+string(os.PathSeparator)) {
+			return "", fmt.Errorf("tar entry %q attempts path traversal outside extraction directory", header.Name)
+		}
 
 		// Check if this is part of a .app bundle
 		if strings.Contains(header.Name, ".app") {

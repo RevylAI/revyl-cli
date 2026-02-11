@@ -26,12 +26,30 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
+// defaultVersion is the package-level CLI version applied to every new Client.
+// Set it once at startup via SetDefaultVersion so all API clients inherit it
+// automatically without callers needing to remember SetVersion on each instance.
+var defaultVersion string
+
+// SetDefaultVersion sets the CLI version string that every newly created Client
+// will use in its User-Agent header. Call this once during startup (e.g. in
+// PersistentPreRun) before any API clients are created.
+//
+// Parameters:
+//   - version: The CLI version (e.g. "1.2.3" or "dev")
+func SetDefaultVersion(version string) {
+	defaultVersion = version
+}
+
 const (
 	// DefaultBaseURL is the default Revyl API base URL.
 	DefaultBaseURL = "https://backend.revyl.ai"
 
 	// DefaultTimeout is the default HTTP request timeout.
 	DefaultTimeout = 30 * time.Second
+
+	// UploadTimeout is the timeout for large file uploads (APKs, IPAs).
+	UploadTimeout = 10 * time.Minute
 
 	// DefaultMaxRetries is the default number of retry attempts for transient failures.
 	DefaultMaxRetries = 3
@@ -47,13 +65,16 @@ const (
 type Client struct {
 	baseURL        string
 	apiKey         string
+	version        string // CLI version string for User-Agent header
 	httpClient     *http.Client
+	uploadClient   *http.Client // Separate client with longer timeout for file uploads
 	maxRetries     int
 	retryBaseDelay time.Duration
 	retryMaxDelay  time.Duration
 }
 
-// NewClient creates a new API client using production URLs.
+// NewClient creates a new API client using the resolved backend URL.
+// Respects REVYL_BACKEND_URL environment variable for custom environments.
 //
 // Parameters:
 //   - apiKey: The API key for authentication
@@ -62,10 +83,14 @@ type Client struct {
 //   - *Client: A new client instance
 func NewClient(apiKey string) *Client {
 	return &Client{
-		baseURL: DefaultBaseURL,
+		baseURL: config.GetBackendURL(false),
 		apiKey:  apiKey,
+		version: defaultVersion,
 		httpClient: &http.Client{
 			Timeout: DefaultTimeout,
+		},
+		uploadClient: &http.Client{
+			Timeout: UploadTimeout,
 		},
 		maxRetries:     DefaultMaxRetries,
 		retryBaseDelay: DefaultRetryBaseDelay,
@@ -86,8 +111,12 @@ func NewClientWithDevMode(apiKey string, devMode bool) *Client {
 	return &Client{
 		baseURL: config.GetBackendURL(devMode),
 		apiKey:  apiKey,
+		version: defaultVersion,
 		httpClient: &http.Client{
 			Timeout: DefaultTimeout,
+		},
+		uploadClient: &http.Client{
+			Timeout: UploadTimeout,
 		},
 		maxRetries:     DefaultMaxRetries,
 		retryBaseDelay: DefaultRetryBaseDelay,
@@ -107,13 +136,34 @@ func NewClientWithBaseURL(apiKey, baseURL string) *Client {
 	return &Client{
 		baseURL: baseURL,
 		apiKey:  apiKey,
+		version: defaultVersion,
 		httpClient: &http.Client{
 			Timeout: DefaultTimeout,
+		},
+		uploadClient: &http.Client{
+			Timeout: UploadTimeout,
 		},
 		maxRetries:     DefaultMaxRetries,
 		retryBaseDelay: DefaultRetryBaseDelay,
 		retryMaxDelay:  DefaultRetryMaxDelay,
 	}
+}
+
+// SetVersion sets the CLI version string used in the User-Agent header.
+//
+// Parameters:
+//   - version: The CLI version (e.g. "1.2.3" or "dev")
+func (c *Client) SetVersion(version string) {
+	c.version = version
+}
+
+// userAgent returns the User-Agent header value including the CLI version.
+func (c *Client) userAgent() string {
+	v := c.version
+	if v == "" {
+		v = "dev"
+	}
+	return "revyl-cli/" + v
 }
 
 // GetAPIKey returns the API key used by this client.
@@ -129,23 +179,49 @@ type APIError struct {
 	StatusCode int
 	Message    string
 	Detail     string
+	// Hint is an optional user-facing suggestion (e.g., "Run 'revyl auth login' to re-authenticate").
+	Hint string
 }
 
 // Error returns a human-readable error message.
+// If a hint is available (e.g., for expired sessions), it is appended.
 //
 // Returns:
 //   - string: The error message, with fallback to HTTP status if no message available
 func (e *APIError) Error() string {
+	var base string
 	if e.Message != "" && e.Detail != "" {
-		return fmt.Sprintf("%s: %s", e.Message, e.Detail)
+		base = fmt.Sprintf("%s: %s", e.Message, e.Detail)
+	} else if e.Message != "" {
+		base = e.Message
+	} else if e.Detail != "" {
+		base = e.Detail
+	} else {
+		base = fmt.Sprintf("HTTP %d: %s", e.StatusCode, http.StatusText(e.StatusCode))
 	}
-	if e.Message != "" {
-		return e.Message
+
+	if e.Hint != "" {
+		return base + "\n" + e.Hint
 	}
-	if e.Detail != "" {
-		return e.Detail
+	return base
+}
+
+// authHintForStatus returns a user-facing hint for authentication errors.
+// For 401 responses that indicate an expired or invalid token, it suggests
+// re-authenticating so the user doesn't see a confusing "Invalid API key" message.
+//
+// Parameters:
+//   - statusCode: The HTTP status code
+//   - message: The parsed error message from the response
+//   - detail: The parsed error detail from the response
+//
+// Returns:
+//   - string: A hint message, or empty string if no hint is applicable
+func authHintForStatus(statusCode int, message, detail string) string {
+	if statusCode == 401 {
+		return "Session may have expired. Run 'revyl auth login' to re-authenticate."
 	}
-	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, http.StatusText(e.StatusCode))
+	return ""
 }
 
 // doRequest performs an HTTP request with authentication.
@@ -243,7 +319,7 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, bo
 
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", "revyl-cli/1.0")
+		req.Header.Set("User-Agent", c.userAgent())
 
 		// Set source tracking header
 		// X-Revyl-Client identifies the client type (cli maps to "api" source in DB)
@@ -328,6 +404,7 @@ func parseResponse(resp *http.Response, target interface{}) error {
 			StatusCode: resp.StatusCode,
 			Message:    message,
 			Detail:     detail,
+			Hint:       authHintForStatus(resp.StatusCode, message, detail),
 		}
 	}
 
@@ -426,7 +503,7 @@ func (c *Client) ExecuteWorkflow(ctx context.Context, req *ExecuteWorkflowReques
 
 // UploadBuildRequest represents a build upload request.
 type UploadBuildRequest struct {
-	BuildVarID   string                 `json:"build_var_id"`
+	AppID        string                 `json:"build_var_id"`
 	Version      string                 `json:"version"`
 	FilePath     string                 `json:"-"`
 	Metadata     map[string]interface{} `json:"metadata,omitempty"`
@@ -456,7 +533,7 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 	// Build URL with query parameters (backend expects version and file_name as query params)
 	uploadURLPath := fmt.Sprintf(
 		"/api/v1/builds/vars/%s/versions/upload-url?version=%s&file_name=%s",
-		req.BuildVarID,
+		req.AppID,
 		url.QueryEscape(req.Version),
 		url.QueryEscape(fileName),
 	)
@@ -497,7 +574,7 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 	uploadReq.Header.Set("Content-Type", presignResult.ContentType)
 	uploadReq.ContentLength = fileInfo.Size()
 
-	uploadResp, err := c.httpClient.Do(uploadReq)
+	uploadResp, err := c.uploadClient.Do(uploadReq)
 	if err != nil {
 		return nil, fmt.Errorf("upload failed: %w", err)
 	}
@@ -527,6 +604,11 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 		return nil, err
 	}
 
+	// Backend complete-upload doesn't return version_id; use the presign value.
+	if completeResult.VersionID == "" {
+		completeResult.VersionID = presignResult.VersionID
+	}
+
 	return &completeResult, nil
 }
 
@@ -541,18 +623,18 @@ type BuildVersion struct {
 	IsCurrent   bool   `json:"is_current,omitempty"`
 }
 
-// ListBuildVersions lists build versions for a build variable.
+// ListBuildVersions lists build versions for an app.
 //
 // Parameters:
 //   - ctx: Context for cancellation
-//   - buildVarID: The build variable ID
+//   - appID: The app ID
 //
 // Returns:
 //   - []BuildVersion: List of build versions
 //   - error: Any error that occurred
-func (c *Client) ListBuildVersions(ctx context.Context, buildVarID string) ([]BuildVersion, error) {
+func (c *Client) ListBuildVersions(ctx context.Context, appID string) ([]BuildVersion, error) {
 	resp, err := c.doRequest(ctx, "GET",
-		fmt.Sprintf("/api/v1/builds/vars/%s/versions", buildVarID), nil)
+		fmt.Sprintf("/api/v1/builds/vars/%s/versions", appID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -599,7 +681,7 @@ type Test struct {
 	Tasks          interface{}            `json:"tasks"`
 	Version        int                    `json:"version"`
 	LastModifiedBy string                 `json:"last_modified_by,omitempty"`
-	BuildVarID     string                 `json:"build_var_id,omitempty"`
+	AppID          string                 `json:"build_var_id,omitempty"`
 	PinnedVersion  string                 `json:"pinned_version,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
@@ -608,7 +690,7 @@ type Test struct {
 type UpdateTestRequest struct {
 	TestID          string      `json:"-"`
 	Tasks           interface{} `json:"tasks,omitempty"`
-	BuildVarID      string      `json:"build_var_id,omitempty"`
+	AppID           string      `json:"build_var_id,omitempty"`
 	ExpectedVersion int         `json:"expected_version,omitempty"`
 	Force           bool        `json:"-"` // Client-side only, not sent to server
 }
@@ -645,11 +727,11 @@ func (c *Client) UpdateTest(ctx context.Context, req *UpdateTestRequest) (*Updat
 
 // CreateTestRequest represents a test creation request.
 type CreateTestRequest struct {
-	Name       string      `json:"name"`
-	Platform   string      `json:"platform"`
-	Tasks      interface{} `json:"tasks"`
-	BuildVarID string      `json:"build_var_id,omitempty"`
-	OrgID      string      `json:"org_id,omitempty"`
+	Name     string      `json:"name"`
+	Platform string      `json:"platform"`
+	Tasks    interface{} `json:"tasks"`
+	AppID    string      `json:"build_var_id,omitempty"`
+	OrgID    string      `json:"org_id,omitempty"`
 }
 
 // CreateTestResponse represents a test creation response.
@@ -772,9 +854,9 @@ func (c *Client) ListOrgTests(ctx context.Context, limit, offset int) (*CLISimpl
 	return &result, nil
 }
 
-// BuildVar represents a build variable in the organization.
-// This is a CLI-specific type that's simpler than the generated BuildVarResponse.
-type BuildVar struct {
+// App represents an app in the organization.
+// This is a CLI-specific type that's simpler than the generated API response types.
+type App struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
 	Platform       string `json:"platform"`
@@ -784,19 +866,19 @@ type BuildVar struct {
 	VersionsCount  int    `json:"versions_count"`
 }
 
-// CLIPaginatedBuildVarsResponse represents a paginated list of build variables.
-// This is a CLI-specific type that uses BuildVar instead of the generated type.
-type CLIPaginatedBuildVarsResponse struct {
-	Items       []BuildVar `json:"items"`
-	Total       int        `json:"total"`
-	Page        int        `json:"page"`
-	PageSize    int        `json:"page_size"`
-	TotalPages  int        `json:"total_pages"`
-	HasNext     bool       `json:"has_next"`
-	HasPrevious bool       `json:"has_previous"`
+// CLIPaginatedAppsResponse represents a paginated list of apps.
+// This is a CLI-specific type that uses App instead of the generated type.
+type CLIPaginatedAppsResponse struct {
+	Items       []App `json:"items"`
+	Total       int   `json:"total"`
+	Page        int   `json:"page"`
+	PageSize    int   `json:"page_size"`
+	TotalPages  int   `json:"total_pages"`
+	HasNext     bool  `json:"has_next"`
+	HasPrevious bool  `json:"has_previous"`
 }
 
-// ListOrgBuildVars fetches all build variables for the authenticated user's organization.
+// ListApps fetches all apps for the authenticated user's organization.
 //
 // Parameters:
 //   - ctx: Context for cancellation
@@ -805,9 +887,9 @@ type CLIPaginatedBuildVarsResponse struct {
 //   - pageSize: Number of items per page (default: 50, max: 100)
 //
 // Returns:
-//   - *CLIPaginatedBuildVarsResponse: Paginated list of build variables
+//   - *CLIPaginatedAppsResponse: Paginated list of apps
 //   - error: Any error that occurred
-func (c *Client) ListOrgBuildVars(ctx context.Context, platform string, page, pageSize int) (*CLIPaginatedBuildVarsResponse, error) {
+func (c *Client) ListApps(ctx context.Context, platform string, page, pageSize int) (*CLIPaginatedAppsResponse, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -820,7 +902,7 @@ func (c *Client) ListOrgBuildVars(ctx context.Context, platform string, page, pa
 
 	path := fmt.Sprintf("/api/v1/builds/vars?page=%d&page_size=%d", page, pageSize)
 	if platform != "" {
-		path += "&platform=" + platform
+		path += "&platform=" + normalizePlatform(platform)
 	}
 
 	resp, err := c.doRequest(ctx, "GET", path, nil)
@@ -828,7 +910,7 @@ func (c *Client) ListOrgBuildVars(ctx context.Context, platform string, page, pa
 		return nil, err
 	}
 
-	var result CLIPaginatedBuildVarsResponse
+	var result CLIPaginatedAppsResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
@@ -836,23 +918,23 @@ func (c *Client) ListOrgBuildVars(ctx context.Context, platform string, page, pa
 	return &result, nil
 }
 
-// GetBuildVar retrieves a build variable by ID.
+// GetApp retrieves an app by ID.
 //
 // Parameters:
 //   - ctx: Context for cancellation
-//   - buildVarID: The build variable ID
+//   - appID: The app ID
 //
 // Returns:
-//   - *BuildVar: The build variable data
+//   - *App: The app data
 //   - error: Any error that occurred
-func (c *Client) GetBuildVar(ctx context.Context, buildVarID string) (*BuildVar, error) {
+func (c *Client) GetApp(ctx context.Context, appID string) (*App, error) {
 	resp, err := c.doRequest(ctx, "GET",
-		fmt.Sprintf("/api/v1/builds/vars/%s", buildVarID), nil)
+		fmt.Sprintf("/api/v1/builds/vars/%s", appID), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var result BuildVar
+	var result App
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
@@ -860,9 +942,9 @@ func (c *Client) GetBuildVar(ctx context.Context, buildVarID string) (*BuildVar,
 	return &result, nil
 }
 
-// CreateBuildVarRequest represents a request to create a new build variable.
-type CreateBuildVarRequest struct {
-	// Name is the display name for the build variable.
+// CreateAppRequest represents a request to create a new app.
+type CreateAppRequest struct {
+	// Name is the display name for the app.
 	Name string `json:"name"`
 
 	// Platform is the target platform (ios or android).
@@ -872,9 +954,9 @@ type CreateBuildVarRequest struct {
 	Description string `json:"description,omitempty"`
 }
 
-// CreateBuildVarResponse represents the response from creating a build variable.
-type CreateBuildVarResponse struct {
-	// ID is the unique identifier for the created build variable.
+// CreateAppResponse represents the response from creating an app.
+type CreateAppResponse struct {
+	// ID is the unique identifier for the created app.
 	ID string `json:"id"`
 
 	// Name is the display name.
@@ -884,18 +966,18 @@ type CreateBuildVarResponse struct {
 	Platform string `json:"platform"`
 }
 
-// CreateBuildVar creates a new build variable in the organization.
+// CreateApp creates a new app in the organization.
 //
 // Parameters:
 //   - ctx: Context for cancellation
 //   - req: The creation request with name, platform, and optional description
 //
 // Returns:
-//   - *CreateBuildVarResponse: The created build variable
+//   - *CreateAppResponse: The created app
 //   - error: Any error that occurred
-func (c *Client) CreateBuildVar(ctx context.Context, req *CreateBuildVarRequest) (*CreateBuildVarResponse, error) {
+func (c *Client) CreateApp(ctx context.Context, req *CreateAppRequest) (*CreateAppResponse, error) {
 	// Normalize platform to match backend enum (iOS, Android)
-	normalizedReq := &CreateBuildVarRequest{
+	normalizedReq := &CreateAppRequest{
 		Name:        req.Name,
 		Platform:    normalizePlatform(req.Platform),
 		Description: req.Description,
@@ -906,7 +988,7 @@ func (c *Client) CreateBuildVar(ctx context.Context, req *CreateBuildVarRequest)
 		return nil, err
 	}
 
-	var result CreateBuildVarResponse
+	var result CreateAppResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
@@ -1047,6 +1129,40 @@ type Workflow struct {
 	Schedule string   `json:"schedule,omitempty"`
 }
 
+// SimpleWorkflow represents a minimal workflow definition for listing.
+type SimpleWorkflow struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// CLIWorkflowListResponse represents the response from the list workflows endpoint.
+type CLIWorkflowListResponse struct {
+	Workflows []SimpleWorkflow `json:"data"`
+	Count     int              `json:"count"`
+}
+
+// ListWorkflows retrieves all workflows for the current organization.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *CLIWorkflowListResponse: The list of workflows
+//   - error: Any error that occurred
+func (c *Client) ListWorkflows(ctx context.Context) (*CLIWorkflowListResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/workflows/get_with_last_status?limit=200&offset=0", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIWorkflowListResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // GetWorkflow retrieves a workflow by ID.
 //
 // Parameters:
@@ -1172,44 +1288,44 @@ func (c *Client) GetCloudflareCredentials(ctx context.Context) (*CloudflareCrede
 }
 
 // FindDevClientBuilds searches for development client builds in the organization.
-// Looks for build variables with names containing "dev" or "development".
+// Looks for apps with names containing "dev" or "development".
 //
 // Parameters:
 //   - ctx: Context for cancellation
 //   - platform: Platform filter ("ios", "android", or empty for all)
 //
 // Returns:
-//   - []BuildVar: List of matching build variables
+//   - []App: List of matching apps
 //   - error: Any error that occurred
-func (c *Client) FindDevClientBuilds(ctx context.Context, platform string) ([]BuildVar, error) {
-	resp, err := c.ListOrgBuildVars(ctx, platform, 1, 100)
+func (c *Client) FindDevClientBuilds(ctx context.Context, platform string) ([]App, error) {
+	resp, err := c.ListApps(ctx, platform, 1, 100)
 	if err != nil {
 		return nil, err
 	}
 
-	var devBuilds []BuildVar
-	for _, bv := range resp.Items {
-		nameLower := strings.ToLower(bv.Name)
+	var devBuilds []App
+	for _, app := range resp.Items {
+		nameLower := strings.ToLower(app.Name)
 		if strings.Contains(nameLower, "dev") ||
 			strings.Contains(nameLower, "development") {
-			devBuilds = append(devBuilds, bv)
+			devBuilds = append(devBuilds, app)
 		}
 	}
 
 	return devBuilds, nil
 }
 
-// GetLatestBuildVersion retrieves the latest version for a build variable.
+// GetLatestBuildVersion retrieves the latest version for an app.
 //
 // Parameters:
 //   - ctx: Context for cancellation
-//   - buildVarID: The build variable ID
+//   - appID: The app ID
 //
 // Returns:
 //   - *BuildVersion: The latest build version, or nil if none exist
 //   - error: Any error that occurred
-func (c *Client) GetLatestBuildVersion(ctx context.Context, buildVarID string) (*BuildVersion, error) {
-	versions, err := c.ListBuildVersions(ctx, buildVarID)
+func (c *Client) GetLatestBuildVersion(ctx context.Context, appID string) (*BuildVersion, error) {
+	versions, err := c.ListBuildVersions(ctx, appID)
 	if err != nil {
 		return nil, err
 	}
@@ -1413,32 +1529,32 @@ func (c *Client) DeleteWorkflow(ctx context.Context, workflowID string) (*CLIDel
 	}, nil
 }
 
-// CLIDeleteBuildVarResponse represents the response from deleting a build variable.
-type CLIDeleteBuildVarResponse struct {
+// CLIDeleteAppResponse represents the response from deleting an app.
+type CLIDeleteAppResponse struct {
 	// Message is a success message.
 	Message string `json:"message"`
 
-	// DetachedTests is the number of tests that were detached from this build.
+	// DetachedTests is the number of tests that were detached from this app.
 	DetachedTests int `json:"detached_tests,omitempty"`
 }
 
-// DeleteBuildVar deletes a build variable and all its versions.
+// DeleteApp deletes an app and all its versions.
 //
 // Parameters:
 //   - ctx: Context for cancellation
-//   - buildVarID: The build variable ID to delete
+//   - appID: The app ID to delete
 //
 // Returns:
-//   - *CLIDeleteBuildVarResponse: The deletion response
+//   - *CLIDeleteAppResponse: The deletion response
 //   - error: Any error that occurred (404 if not found, 403 if not authorized)
-func (c *Client) DeleteBuildVar(ctx context.Context, buildVarID string) (*CLIDeleteBuildVarResponse, error) {
+func (c *Client) DeleteApp(ctx context.Context, appID string) (*CLIDeleteAppResponse, error) {
 	resp, err := c.doRequest(ctx, "DELETE",
-		fmt.Sprintf("/api/v1/builds/vars/%s", buildVarID), nil)
+		fmt.Sprintf("/api/v1/builds/vars/%s", appID), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var result CLIDeleteBuildVarResponse
+	var result CLIDeleteAppResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}

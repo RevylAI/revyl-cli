@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
@@ -79,11 +78,9 @@ func runHotreloadSetup(cmd *cobra.Command, args []string) error {
 	ui.PrintBanner(version)
 
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Get working directory
@@ -104,7 +101,7 @@ func runHotreloadSetup(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 
 	// Create API client
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	ui.PrintInfo("Detecting project types...")
 	ui.Println()
@@ -221,27 +218,27 @@ func runHotreloadSetup(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("To use hot reload, specify a build at runtime:")
 	ui.Println()
 	ui.PrintInfo("Run a test with hot reload:")
-	ui.PrintDim("  revyl test run <test-name> --hotreload --variant <variant-name>")
+	ui.PrintDim("  revyl test run <test-name> --hotreload --platform <platform-name>")
 	ui.Println()
 	ui.PrintInfo("Create a new test with hot reload:")
-	ui.PrintDim("  revyl test create <test-name> --hotreload --variant <variant-name>")
+	ui.PrintDim("  revyl test create <test-name> --hotreload --platform <platform-name>")
 	ui.Println()
 	ui.PrintInfo("Open an existing test in hot reload mode:")
-	ui.PrintDim("  revyl test open <test-name> --hotreload --variant <variant-name>")
+	ui.PrintDim("  revyl test open <test-name> --hotreload --platform <platform-name>")
 	ui.Println()
 	ui.PrintInfo("Alternative: Use explicit build version ID")
-	ui.PrintDim("  revyl test run <test-name> --hotreload --build-version-id <id>")
+	ui.PrintDim("  revyl test run <test-name> --hotreload --build-id <id>")
 	ui.Println()
 	if len(configuredProviders) > 1 {
 		ui.PrintInfo("To specify a provider:")
-		ui.PrintDim("  revyl test run <test-name> --hotreload --provider <provider> --variant <variant>")
+		ui.PrintDim("  revyl test run <test-name> --hotreload --provider <provider> --platform <platform>")
 		ui.Println()
 	}
-	ui.PrintInfo("To configure build variants, add to .revyl/config.yaml:")
+	ui.PrintInfo("To configure build platforms, add to .revyl/config.yaml:")
 	ui.PrintDim("  build:")
-	ui.PrintDim("    variants:")
+	ui.PrintDim("    platforms:")
 	ui.PrintDim("      ios-dev:")
-	ui.PrintDim("        build_var_id: \"<your-build-var-id>\"")
+	ui.PrintDim("        app_id: \"<your-app-id>\"")
 
 	return nil
 }

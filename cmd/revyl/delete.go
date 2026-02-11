@@ -29,6 +29,9 @@ var (
 func runDeleteTest(cmd *cobra.Command, args []string) error {
 	nameOrID := args[0]
 
+	// Determine JSON output mode early so human output can be suppressed
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
+
 	// Get API key
 	apiKey, err := getAPIKey()
 	if err != nil {
@@ -97,7 +100,9 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 			var apiErr *api.APIError
 			if errors.As(err, &apiErr) {
 				if apiErr.StatusCode == 404 {
-					ui.PrintWarning("Test not found on remote (may already be deleted)")
+					if !jsonOutput {
+						ui.PrintWarning("Test not found on remote (may already be deleted)")
+					}
 				} else if apiErr.StatusCode == 403 {
 					ui.PrintError("Permission denied")
 					return fmt.Errorf("not authorized to delete this test")
@@ -107,7 +112,7 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 			} else {
 				return fmt.Errorf("failed to delete test: %w", err)
 			}
-		} else {
+		} else if !jsonOutput {
 			ui.PrintSuccess("Deleted from Revyl")
 		}
 	}
@@ -115,8 +120,10 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 	// Delete local file
 	if !deleteRemoteOnly && localFileExists {
 		if err := os.Remove(localFilePath); err != nil {
-			ui.PrintWarning("Failed to remove local file: %v", err)
-		} else {
+			if !jsonOutput {
+				ui.PrintWarning("Failed to remove local file: %v", err)
+			}
+		} else if !jsonOutput {
 			ui.PrintSuccess("Removed %s", localFilePath)
 		}
 	}
@@ -125,14 +132,15 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 	if !deleteRemoteOnly && hasConfigAlias && cfgErr == nil {
 		delete(cfg.Tests, testName)
 		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-			ui.PrintWarning("Failed to update config: %v", err)
-		} else {
+			if !jsonOutput {
+				ui.PrintWarning("Failed to update config: %v", err)
+			}
+		} else if !jsonOutput {
 			ui.PrintSuccess("Removed alias from .revyl/config.yaml")
 		}
 	}
 
 	// Handle JSON output
-	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	if jsonOutput {
 		output := map[string]interface{}{
 			"success":     true,
@@ -141,19 +149,29 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 			"remote_only": deleteRemoteOnly,
 			"local_only":  deleteLocalOnly,
 		}
-		data, _ := json.MarshalIndent(output, "", "  ")
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON output: %w", err)
+		}
 		fmt.Println(string(data))
 		return nil
 	}
 
 	ui.Println()
 	ui.PrintSuccess("Test \"%s\" deleted successfully.", testName)
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "List tests:", Command: "revyl test list"},
+		{Label: "Create a test:", Command: "revyl test create <name>"},
+	})
 	return nil
 }
 
 // runDeleteWorkflow handles the delete workflow command execution.
 func runDeleteWorkflow(cmd *cobra.Command, args []string) error {
 	nameOrID := args[0]
+
+	// Determine JSON output mode early so human output can be suppressed
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 
 	// Get API key
 	apiKey, err := getAPIKey()
@@ -208,7 +226,9 @@ func runDeleteWorkflow(cmd *cobra.Command, args []string) error {
 		var apiErr *api.APIError
 		if errors.As(err, &apiErr) {
 			if apiErr.StatusCode == 404 {
-				ui.PrintWarning("Workflow not found on remote (may already be deleted)")
+				if !jsonOutput {
+					ui.PrintWarning("Workflow not found on remote (may already be deleted)")
+				}
 			} else if apiErr.StatusCode == 403 {
 				ui.PrintError("Permission denied")
 				return fmt.Errorf("not authorized to delete this workflow")
@@ -218,7 +238,7 @@ func runDeleteWorkflow(cmd *cobra.Command, args []string) error {
 		} else {
 			return fmt.Errorf("failed to delete workflow: %w", err)
 		}
-	} else {
+	} else if !jsonOutput {
 		ui.PrintSuccess("Deleted from Revyl")
 	}
 
@@ -226,33 +246,43 @@ func runDeleteWorkflow(cmd *cobra.Command, args []string) error {
 	if hasConfigAlias && cfgErr == nil {
 		delete(cfg.Workflows, workflowName)
 		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-			ui.PrintWarning("Failed to update config: %v", err)
-		} else {
+			if !jsonOutput {
+				ui.PrintWarning("Failed to update config: %v", err)
+			}
+		} else if !jsonOutput {
 			ui.PrintSuccess("Removed alias from .revyl/config.yaml")
 		}
 	}
 
 	// Handle JSON output
-	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	if jsonOutput {
 		output := map[string]interface{}{
 			"success":       true,
 			"workflow_name": workflowName,
 			"workflow_id":   workflowID,
 		}
-		data, _ := json.MarshalIndent(output, "", "  ")
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON output: %w", err)
+		}
 		fmt.Println(string(data))
 		return nil
 	}
 
 	ui.Println()
 	ui.PrintSuccess("Workflow \"%s\" deleted successfully.", workflowName)
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Create a workflow:", Command: "revyl workflow create <name>"},
+	})
 	return nil
 }
 
 // runDeleteBuild handles the delete build command execution.
 func runDeleteBuild(cmd *cobra.Command, args []string) error {
 	nameOrID := args[0]
+
+	// Determine JSON output mode early so human output can be suppressed
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 
 	// Get API key
 	apiKey, err := getAPIKey()
@@ -274,22 +304,22 @@ func runDeleteBuild(cmd *cobra.Command, args []string) error {
 	cfg, cfgErr := config.LoadProjectConfig(configPath)
 
 	// Resolve name to ID
-	buildVarID, buildVarName, err := resolveBuildVarNameOrID(cmd.Context(), client, nameOrID)
+	appID, appName, err := resolveAppNameOrID(cmd, client, nameOrID)
 	if err != nil {
 		return err
 	}
 
 	// If deleting specific version
 	if deleteBuildVersion != "" {
-		return deleteSpecificBuildVersion(cmd, client, buildVarID, buildVarName, deleteBuildVersion)
+		return deleteSpecificBuildVersion(cmd, client, appID, appName, deleteBuildVersion)
 	}
 
-	// Check if build var is referenced in config
+	// Check if app is referenced in config
 	var configRefs []string
-	if cfg != nil && cfg.Build.Variants != nil {
-		for variantName, variant := range cfg.Build.Variants {
-			if variant.BuildVarID == buildVarID {
-				configRefs = append(configRefs, variantName)
+	if cfg != nil && cfg.Build.Platforms != nil {
+		for platformName, platformCfg := range cfg.Build.Platforms {
+			if platformCfg.AppID == appID {
+				configRefs = append(configRefs, platformName)
 			}
 		}
 	}
@@ -297,10 +327,10 @@ func runDeleteBuild(cmd *cobra.Command, args []string) error {
 	// Show what will be deleted
 	if !deleteForce {
 		ui.Println()
-		ui.PrintInfo("Delete build variable \"%s\"?", buildVarName)
-		ui.PrintDim("  - Remote: will delete build variable and ALL versions")
+		ui.PrintInfo("Delete app \"%s\"?", appName)
+		ui.PrintDim("  - Remote: will delete app and ALL versions")
 		if len(configRefs) > 0 {
-			ui.PrintDim("  - Config: will remove build_var_id from variants: %v", configRefs)
+			ui.PrintDim("  - Config: will remove app_id from platforms: %v", configRefs)
 		}
 
 		ui.Println()
@@ -315,67 +345,79 @@ func runDeleteBuild(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	resp, err := client.DeleteBuildVar(ctx, buildVarID)
+	resp, err := client.DeleteApp(ctx, appID)
 	if err != nil {
 		var apiErr *api.APIError
 		if errors.As(err, &apiErr) {
 			if apiErr.StatusCode == 404 {
-				ui.PrintWarning("Build variable not found on remote (may already be deleted)")
+				if !jsonOutput {
+					ui.PrintWarning("App not found on remote (may already be deleted)")
+				}
 			} else if apiErr.StatusCode == 403 {
 				ui.PrintError("Permission denied")
-				return fmt.Errorf("not authorized to delete this build variable")
+				return fmt.Errorf("not authorized to delete this app")
 			} else {
-				return fmt.Errorf("failed to delete build variable: %w", err)
+				return fmt.Errorf("failed to delete app: %w", err)
 			}
 		} else {
-			return fmt.Errorf("failed to delete build variable: %w", err)
+			return fmt.Errorf("failed to delete app: %w", err)
 		}
-	} else {
+	} else if !jsonOutput {
 		ui.PrintSuccess("Deleted from Revyl")
 		if resp.DetachedTests > 0 {
-			ui.PrintInfo("Detached %d test(s) from this build", resp.DetachedTests)
+			ui.PrintInfo("Detached %d test(s) from this app", resp.DetachedTests)
 		}
 	}
 
 	// Remove from config
 	if len(configRefs) > 0 && cfgErr == nil {
-		for _, variantName := range configRefs {
-			variant := cfg.Build.Variants[variantName]
-			variant.BuildVarID = ""
-			cfg.Build.Variants[variantName] = variant
+		for _, platformName := range configRefs {
+			platformCfg := cfg.Build.Platforms[platformName]
+			platformCfg.AppID = ""
+			cfg.Build.Platforms[platformName] = platformCfg
 		}
 		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-			ui.PrintWarning("Failed to update config: %v", err)
-		} else {
-			ui.PrintSuccess("Removed build_var_id from config variants")
+			if !jsonOutput {
+				ui.PrintWarning("Failed to update config: %v", err)
+			}
+		} else if !jsonOutput {
+			ui.PrintSuccess("Removed app_id from config platforms")
 		}
 	}
 
 	// Handle JSON output
-	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	if jsonOutput {
 		output := map[string]interface{}{
-			"success":        true,
-			"build_var_name": buildVarName,
-			"build_var_id":   buildVarID,
+			"success":  true,
+			"app_name": appName,
+			"app_id":   appID,
 		}
-		data, _ := json.MarshalIndent(output, "", "  ")
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON output: %w", err)
+		}
 		fmt.Println(string(data))
 		return nil
 	}
 
 	ui.Println()
-	ui.PrintSuccess("Build variable \"%s\" deleted successfully.", buildVarName)
+	ui.PrintSuccess("App \"%s\" deleted successfully.", appName)
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Create a new app:", Command: "revyl app create"},
+	})
 	return nil
 }
 
 // deleteSpecificBuildVersion deletes a specific build version.
-func deleteSpecificBuildVersion(cmd *cobra.Command, client *api.Client, buildVarID, buildVarName, versionStr string) error {
+func deleteSpecificBuildVersion(cmd *cobra.Command, client *api.Client, appID, appName, versionStr string) error {
+	// Determine JSON output mode early so human output can be suppressed
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
+
 	// Find the version ID
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	versions, err := client.ListBuildVersions(ctx, buildVarID)
+	versions, err := client.ListBuildVersions(ctx, appID)
 	if err != nil {
 		return fmt.Errorf("failed to list versions: %w", err)
 	}
@@ -389,13 +431,13 @@ func deleteSpecificBuildVersion(cmd *cobra.Command, client *api.Client, buildVar
 	}
 
 	if versionID == "" {
-		return fmt.Errorf("version \"%s\" not found for build \"%s\"", versionStr, buildVarName)
+		return fmt.Errorf("version \"%s\" not found for app \"%s\"", versionStr, appName)
 	}
 
 	// Show what will be deleted
 	if !deleteForce {
 		ui.Println()
-		ui.PrintInfo("Delete version \"%s\" from build \"%s\"?", versionStr, buildVarName)
+		ui.PrintInfo("Delete version \"%s\" from app \"%s\"?", versionStr, appName)
 
 		ui.Println()
 		confirmed, err := ui.PromptConfirm("Are you sure?", false)
@@ -411,7 +453,9 @@ func deleteSpecificBuildVersion(cmd *cobra.Command, client *api.Client, buildVar
 		var apiErr *api.APIError
 		if errors.As(err, &apiErr) {
 			if apiErr.StatusCode == 404 {
-				ui.PrintWarning("Version not found (may already be deleted)")
+				if !jsonOutput {
+					ui.PrintWarning("Version not found (may already be deleted)")
+				}
 			} else if apiErr.StatusCode == 403 {
 				ui.PrintError("Permission denied")
 				return fmt.Errorf("not authorized to delete this version")
@@ -421,27 +465,33 @@ func deleteSpecificBuildVersion(cmd *cobra.Command, client *api.Client, buildVar
 		} else {
 			return fmt.Errorf("failed to delete version: %w", err)
 		}
-	} else {
+	} else if !jsonOutput {
 		ui.PrintSuccess("Deleted version from Revyl")
 	}
 
 	// Handle JSON output
-	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	if jsonOutput {
 		output := map[string]interface{}{
-			"success":        true,
-			"build_var_name": buildVarName,
-			"build_var_id":   buildVarID,
-			"version":        versionStr,
-			"version_id":     versionID,
+			"success":    true,
+			"app_name":   appName,
+			"app_id":     appID,
+			"version":    versionStr,
+			"version_id": versionID,
 		}
-		data, _ := json.MarshalIndent(output, "", "  ")
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON output: %w", err)
+		}
 		fmt.Println(string(data))
 		return nil
 	}
 
 	ui.Println()
 	ui.PrintSuccess("Version \"%s\" deleted successfully.", versionStr)
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Upload a new build:", Command: "revyl build upload"},
+		{Label: "List builds:", Command: fmt.Sprintf("revyl build list --app %s", appID)},
+	})
 	return nil
 }
 
@@ -493,31 +543,6 @@ func resolveWorkflowNameOrID(cfg *config.ProjectConfig, nameOrID string) (workfl
 	}
 
 	return "", "", fmt.Errorf("workflow \"%s\" not found in config (use workflow ID or add alias to .revyl/config.yaml)", nameOrID)
-}
-
-// resolveBuildVarNameOrID resolves a build variable name or ID to both values.
-func resolveBuildVarNameOrID(ctx context.Context, client *api.Client, nameOrID string) (buildVarID, buildVarName string, err error) {
-	// Check if it looks like a UUID
-	if looksLikeUUID(nameOrID) {
-		bv, err := client.GetBuildVar(ctx, nameOrID)
-		if err == nil {
-			return nameOrID, bv.Name, nil
-		}
-	}
-
-	// Search by name
-	result, err := client.ListOrgBuildVars(ctx, "", 1, 100)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to list build variables: %w", err)
-	}
-
-	for _, bv := range result.Items {
-		if bv.Name == nameOrID {
-			return bv.ID, bv.Name, nil
-		}
-	}
-
-	return "", "", fmt.Errorf("build variable \"%s\" not found", nameOrID)
 }
 
 // fileExists checks if a file exists.

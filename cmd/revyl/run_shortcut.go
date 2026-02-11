@@ -36,7 +36,7 @@ EXAMPLES:
   revyl run login-flow --no-build   # Run test without rebuilding
   revyl run smoke-tests -w          # Build, upload, then run workflow
   revyl run smoke-tests -w --no-build   # Run workflow without rebuilding
-  revyl run login-flow --variant release
+  revyl run login-flow --platform release
   revyl run login-flow --open       # Open report when done`,
 	Args: cobra.ExactArgs(1),
 	RunE: runShortcutExec,
@@ -45,13 +45,17 @@ EXAMPLES:
 func init() {
 	runCmd.Flags().BoolVarP(&runShortcutWorkflow, "workflow", "w", false, "Run a workflow instead of a test")
 	runCmd.Flags().BoolVar(&runShortcutNoBuild, "no-build", false, "Skip build step; run against last uploaded build")
-	runCmd.Flags().StringVar(&runTestVariant, "variant", "", "Build variant to use (e.g. release, android)")
+	runCmd.Flags().StringVar(&runTestPlatform, "platform", "", "Platform to use (e.g. release, android)")
 	runCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete")
 	runCmd.Flags().IntVarP(&runTimeout, "timeout", "t", 3600, "Timeout in seconds")
 	runCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
 	runCmd.Flags().BoolVar(&runOutputJSON, "json", false, "Output results as JSON")
 	runCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed output")
 	runCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Queue and exit without waiting for result")
+	runCmd.Flags().StringVarP(&runBuildID, "build-id", "b", "", "Specific build version ID (skips build step)")
+	runCmd.Flags().BoolVar(&runHotReload, "hotreload", false, "Enable hot reload mode with local dev server")
+	runCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
+	runCmd.Flags().StringVar(&runHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
 }
 
 // runShortcutExec runs the root-level "revyl run <name>" command.
@@ -60,7 +64,7 @@ func init() {
 func runShortcutExec(cmd *cobra.Command, args []string) error {
 	if runShortcutWorkflow {
 		runWorkflowBuild = !runShortcutNoBuild
-		runWorkflowVariant = runTestVariant // --variant applies to workflow build too
+		runWorkflowPlatform = runTestPlatform // --platform applies to workflow build too
 		return runWorkflowExec(cmd, args)
 	}
 	runTestBuild = !runShortcutNoBuild

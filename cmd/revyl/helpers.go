@@ -2,55 +2,86 @@
 package main
 
 import (
-	"sort"
+	"fmt"
+	"strings"
+	"unicode"
 )
 
-// isValidUUID checks if a string is a valid UUID format.
-//
-// UUID format: 8-4-4-4-12 hex characters (36 total with dashes)
-// Example: 027b91de-4a21-4bca-acfe-32db2a628f51
-//
-// Parameters:
-//   - s: The string to validate
-//
-// Returns:
-//   - bool: True if the string is a valid UUID format
-func isValidUUID(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
+// maxResourceNameLen is the maximum allowed length for test/workflow names.
+const maxResourceNameLen = 128
 
-	// Check dashes are in the right places
-	if s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
-		return false
-	}
-
-	// Check all other characters are hex digits
-	for i, c := range s {
-		if i == 8 || i == 13 || i == 18 || i == 23 {
-			continue // Skip dash positions
-		}
-		if !isHexDigit(byte(c)) {
-			return false
-		}
-	}
-
-	return true
+// reservedNames are subcommand names that cannot be used as test/workflow names
+// because they collide with Cobra's command resolution.
+var reservedNames = map[string]bool{
+	"run": true, "create": true, "delete": true, "open": true, "cancel": true,
+	"list": true, "remote": true, "push": true, "pull": true, "diff": true,
+	"validate": true, "setup": true, "help": true,
 }
 
-// isHexDigit checks if a byte is a valid hexadecimal digit.
+// validateResourceName checks that a test or workflow name is safe for use as a
+// config key, file name, URL component, and CLI argument.
+//
+// Rules:
+//   - Must be non-empty
+//   - Max 128 characters
+//   - No whitespace
+//   - Only lowercase alphanumeric, hyphens, and underscores
+//   - Cannot collide with a reserved subcommand name
+//   - Cannot look like a file path (contains / or \)
+//   - Cannot end with a known extension (.yaml, .yml, .json)
 //
 // Parameters:
-//   - c: The byte to check
+//   - name: The name to validate
+//   - kind: A human-readable kind label for error messages (e.g. "test", "workflow")
 //
 // Returns:
-//   - bool: True if the byte is 0-9, a-f, or A-F
-func isHexDigit(c byte) bool {
-	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+//   - error: A descriptive error if validation fails, nil otherwise
+func validateResourceName(name, kind string) error {
+	if name == "" {
+		return fmt.Errorf("%s name cannot be empty", kind)
+	}
+
+	if len(name) > maxResourceNameLen {
+		return fmt.Errorf("%s name too long (%d chars, max %d)", kind, len(name), maxResourceNameLen)
+	}
+
+	// Check for whitespace
+	for _, r := range name {
+		if unicode.IsSpace(r) {
+			return fmt.Errorf("%s name cannot contain spaces — use hyphens instead (e.g. 'login-flow')", kind)
+		}
+	}
+
+	// Check for path separators
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("%s name cannot contain path separators — use a plain name (e.g. 'login-flow')", kind)
+	}
+
+	// Check for file extensions
+	lower := strings.ToLower(name)
+	for _, ext := range []string{".yaml", ".yml", ".json"} {
+		if strings.HasSuffix(lower, ext) {
+			return fmt.Errorf("%s name should not include a file extension (got '%s')", kind, name)
+		}
+	}
+
+	// Check allowed character set: a-z 0-9 - _
+	for _, r := range name {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return fmt.Errorf("%s name contains invalid character '%c' — only lowercase letters, numbers, hyphens, and underscores are allowed", kind, r)
+		}
+	}
+
+	// Check reserved words
+	if reservedNames[name] {
+		return fmt.Errorf("'%s' is a reserved command name and cannot be used as a %s name", name, kind)
+	}
+
+	return nil
 }
 
 // looksLikeUUID checks if a string looks like a UUID (36 chars with hyphens at positions 8, 13, 18, 23).
-// Does not validate hex digits; use isValidUUID for strict validation.
+// Does not validate hex digits; use a stricter check if needed.
 //
 // Parameters:
 //   - s: The string to check
@@ -62,44 +93,4 @@ func looksLikeUUID(s string) bool {
 		return false
 	}
 	return s[8] == '-' && s[13] == '-' && s[18] == '-' && s[23] == '-'
-}
-
-// getTestNames returns a sorted slice of test names from the config.
-//
-// Parameters:
-//   - tests: Map of test name to test ID
-//
-// Returns:
-//   - []string: Sorted slice of test names
-func getTestNames(tests map[string]string) []string {
-	if tests == nil {
-		return []string{}
-	}
-
-	names := make([]string, 0, len(tests))
-	for name := range tests {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
-// getWorkflowNames returns a sorted slice of workflow names from the config.
-//
-// Parameters:
-//   - workflows: Map of workflow name to workflow ID
-//
-// Returns:
-//   - []string: Sorted slice of workflow names
-func getWorkflowNames(workflows map[string]string) []string {
-	if workflows == nil {
-		return []string{}
-	}
-
-	names := make([]string, 0, len(workflows))
-	for name := range workflows {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }

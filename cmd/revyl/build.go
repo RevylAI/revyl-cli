@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
@@ -28,7 +28,7 @@ var buildCmd = &cobra.Command{
 Commands:
   upload  - Build and upload the app
   list    - List uploaded build versions
-  delete  - Delete a build variable or specific version`,
+  delete  - Delete an app or specific build version`,
 }
 
 // buildUploadCmd builds and uploads the app.
@@ -37,7 +37,7 @@ var buildUploadCmd = &cobra.Command{
 	Short: "Build and upload the app",
 	Long: `Build the app and upload it to Revyl.
 
-By default, builds both iOS and Android concurrently if both variants are configured.
+By default, builds both iOS and Android concurrently if both platforms are configured.
 Use --platform to build only one platform.
 
 This command will:
@@ -50,8 +50,8 @@ Examples:
   revyl build upload --platform ios     # Build iOS only
   revyl build upload --platform android # Build Android only
   revyl build upload --skip-build       # Upload existing artifacts
-  revyl build upload --build-var <id>   # Upload to specific build variable
-  revyl build upload --name "My App"    # Create build variable with specified name
+  revyl build upload --app <id>         # Upload to specific app
+  revyl build upload --name "My App"    # Create app with specified name
   revyl build upload --name "My App" -y # Create and auto-save to config`,
 	RunE: runBuildUpload,
 }
@@ -62,40 +62,39 @@ var buildListCmd = &cobra.Command{
 	Short: "List uploaded build versions",
 	Long: `List all uploaded build versions.
 
-If a build variable is configured locally, lists versions for that build.
-Otherwise, shows all build variables in your organization.
+If an app is configured locally, lists builds for that app.
+Otherwise, shows all apps in your organization.
 
 Examples:
-  revyl build list                           # List versions (or show org builds)
-  revyl build list --build-var <id>          # List versions for specific build var
-  revyl build list --platform android        # Filter org builds by platform`,
+  revyl build list                           # List builds (or show org apps)
+  revyl build list --app <id>               # List builds for specific app
+  revyl build list --platform android        # Filter org apps by platform`,
 	RunE: runBuildList,
 }
 
-// buildDeleteCmd deletes a build variable or version.
+// buildDeleteCmd deletes an app or build version.
 var buildDeleteCmd = &cobra.Command{
 	Use:   "delete <name|id>",
-	Short: "Delete a build variable or version",
-	Long: `Delete a build variable (and all versions) or a specific version.
+	Short: "Delete an app or build version",
+	Long: `Delete an app (and all build versions) or a specific build version.
 
-Use --version to delete only a specific version.
+Use --version to delete only a specific build version.
 
 Examples:
-  revyl build delete "My App iOS"                 # Delete entire build variable
-  revyl build delete "My App iOS" --version v1.2.3 # Delete specific version only
+  revyl build delete "My App iOS"                 # Delete entire app
+  revyl build delete "My App iOS" --version v1.2.3 # Delete specific build version only
   revyl build delete "My App iOS" --force          # Skip confirmation`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDeleteBuild,
 }
 
 var (
-	buildVariant       string
 	buildSkip          bool
 	buildVersion       string
 	buildSetCurr       bool
-	buildVarIDFlag     string
+	appIDFlag          string
 	buildPlatform      string
-	uploadBuildVarFlag string
+	uploadAppFlag      string
 	uploadPlatformFlag string
 	uploadNameFlag     string
 	uploadYesFlag      bool
@@ -110,21 +109,20 @@ func init() {
 	buildCmd.AddCommand(buildDeleteCmd)
 
 	buildDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")
-	buildDeleteCmd.Flags().StringVar(&deleteBuildVersion, "version", "", "Delete specific version only")
+	buildDeleteCmd.Flags().StringVar(&deleteBuildVersion, "version", "", "Delete specific build version only")
 
-	buildUploadCmd.Flags().StringVar(&buildVariant, "variant", "", "Build variant to use (e.g., release, staging)")
 	buildUploadCmd.Flags().BoolVar(&buildSkip, "skip-build", false, "Skip build step, upload existing artifact")
 	buildUploadCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the upload (default: auto-generated)")
 	buildUploadCmd.Flags().BoolVar(&buildSetCurr, "set-current", false, "Set this version as the current version")
-	buildUploadCmd.Flags().StringVar(&uploadBuildVarFlag, "build-var", "", "Build variable ID to upload to")
+	buildUploadCmd.Flags().StringVar(&uploadAppFlag, "app", "", "App ID to upload to")
 	buildUploadCmd.Flags().StringVar(&uploadPlatformFlag, "platform", "", "Platform to build for (ios, android)")
-	buildUploadCmd.Flags().StringVar(&uploadNameFlag, "name", "", "Name for new build variable (used when creating)")
+	buildUploadCmd.Flags().StringVar(&uploadNameFlag, "name", "", "Name for new app (used when creating)")
 	buildUploadCmd.Flags().BoolVarP(&uploadYesFlag, "yes", "y", false, "Automatically confirm prompts (e.g., save to config)")
 	buildUploadCmd.Flags().BoolVar(&buildUploadJSON, "json", false, "Output results as JSON")
 	buildUploadCmd.Flags().BoolVar(&buildDryRun, "dry-run", false, "Show what would be uploaded without uploading")
 
-	buildListCmd.Flags().StringVar(&buildVarIDFlag, "build-var", "", "Build variable ID to list versions for")
-	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org builds")
+	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App ID to list builds for")
+	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org apps")
 	buildListCmd.Flags().BoolVar(&buildListJSON, "json", false, "Output results as JSON")
 }
 
@@ -138,11 +136,9 @@ func init() {
 //   - error: Any error that occurred during the build/upload process
 func runBuildUpload(cmd *cobra.Command, args []string) error {
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Load project config
@@ -160,324 +156,104 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 
 	// If --platform is specified, run single platform build
 	if uploadPlatformFlag != "" {
-		return runSinglePlatformBuild(cmd, cfg, configPath, creds, uploadPlatformFlag)
+		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, uploadPlatformFlag)
 	}
 
-	// If --variant is specified, use legacy single-platform behavior
-	if buildVariant != "" {
-		return runLegacySingleBuild(cmd, cfg, configPath, creds)
-	}
-
-	// Check if both ios and android variants exist for concurrent builds
-	_, hasIOS := cfg.Build.Variants["ios"]
-	_, hasAndroid := cfg.Build.Variants["android"]
+	// Check if both ios and android platforms exist for concurrent builds
+	_, hasIOS := cfg.Build.Platforms["ios"]
+	_, hasAndroid := cfg.Build.Platforms["android"]
 
 	if hasIOS && hasAndroid {
 		// Default: run concurrent builds for both platforms
-		return runConcurrentBuilds(cmd, cfg, configPath, creds)
+		return runConcurrentBuilds(cmd, cfg, configPath, apiKey)
 	}
 
-	// Fall back to legacy single build if only one platform is configured
-	return runLegacySingleBuild(cmd, cfg, configPath, creds)
+	// Handle single platform case deterministically
+	platformCount := len(cfg.Build.Platforms)
+	if platformCount == 0 {
+		ui.PrintError("No build platforms configured")
+		ui.PrintInfo("Please configure build.platforms in .revyl/config.yaml")
+		return fmt.Errorf("no build platforms configured")
+	}
+
+	if platformCount == 1 {
+		// Single platform - use it directly
+		for platform := range cfg.Build.Platforms {
+			return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platform)
+		}
+	}
+
+	// Multiple platforms but not ios+android - prefer ios, then android, then first alphabetically
+	if hasIOS {
+		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, "ios")
+	}
+	if hasAndroid {
+		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, "android")
+	}
+
+	// Multiple custom platforms - pick first alphabetically for determinism
+	platforms := make([]string, 0, platformCount)
+	for platform := range cfg.Build.Platforms {
+		platforms = append(platforms, platform)
+	}
+	sort.Strings(platforms)
+
+	ui.PrintWarning("Multiple platforms configured without --platform flag, using '%s'", platforms[0])
+	ui.PrintInfo("Use --platform to specify which platform to build")
+	return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platforms[0])
 }
 
-// runLegacySingleBuild runs the legacy single-platform build using default config.
-//
-// Parameters:
-//   - cmd: The cobra command being executed
-//   - cfg: The project configuration
-//   - configPath: Path to the config file
-//   - creds: Authentication credentials
-//
-// Returns:
-//   - error: Any error that occurred during the build/upload process
-func runLegacySingleBuild(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, creds *auth.Credentials) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	// Determine build config
-	buildCfg := cfg.Build
-	var variant config.BuildVariant
-	var variantName string
-	if buildVariant != "" {
-		var ok bool
-		variant, ok = cfg.Build.Variants[buildVariant]
-		if !ok {
-			ui.PrintError("Unknown build variant: %s", buildVariant)
-			ui.PrintInfo("Available variants: %v", getVariantNames(cfg.Build.Variants))
-			return fmt.Errorf("unknown variant: %s", buildVariant)
-		}
-		variantName = buildVariant
-		buildCfg.Command = variant.Command
-		buildCfg.Output = variant.Output
-	}
-
-	if buildCfg.Command == "" || buildCfg.Output == "" {
-		ui.PrintError("Build configuration incomplete")
-		ui.PrintInfo("Please configure build.command and build.output in .revyl/config.yaml")
-		return fmt.Errorf("incomplete build config")
-	}
-
-	// Determine platform from command
-	platform := determinePlatform(buildCfg.Command, "")
-
-	ui.PrintBanner(version)
-	ui.PrintInfo("Build and Upload")
-	ui.Println()
-
-	var buildDuration time.Duration
-
-	// Run build if not skipped
-	if !buildSkip {
-		ui.PrintInfo("Building with: %s", buildCfg.Command)
-		ui.Println()
-
-		startTime := time.Now()
-		runner := build.NewRunner(cwd)
-
-		err = runner.Run(buildCfg.Command, func(line string) {
-			ui.PrintDim("  %s", line)
-		})
-
-		buildDuration = time.Since(startTime)
-
-		if err != nil {
-			ui.Println()
-			ui.PrintError("Build failed: %v", err)
-
-			// Check if this is an EAS error with guidance
-			if easErr, ok := err.(*build.EASBuildError); ok {
-				ui.Println()
-				ui.PrintWarning("How to fix:")
-				ui.Println()
-				// Print each line of guidance
-				for _, line := range strings.Split(easErr.Guidance, "\n") {
-					ui.PrintDim("  %s", line)
-				}
-			}
-
-			return err
-		}
-
-		ui.Println()
-		ui.PrintSuccess("Build completed in %s", buildDuration.Round(time.Second))
-	} else {
-		ui.PrintInfo("Skipping build step")
-	}
-
-	// Check artifact exists
-	artifactPath, err := build.ResolveArtifactPath(cwd, buildCfg.Output)
-	if err != nil {
-		ui.PrintError("Build artifact not found: %s", buildCfg.Output)
-		return fmt.Errorf("artifact not found: %w", err)
-	}
-
-	// Create API client
-	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
-
-	// Determine build variable ID from variant
-	buildVarID := uploadBuildVarFlag
-	if buildVarID == "" && variantName != "" {
-		buildVarID = variant.BuildVarID
-	}
-
-	// If no build var ID, prompt user to select or create one
-	if buildVarID == "" {
-		selectedID, err := selectOrCreateBuildVarForVariant(cmd, client, cfg, configPath, variantName, platform)
-		if err != nil {
-			return err
-		}
-		buildVarID = selectedID
-	}
-
-	// Generate version string if not provided
-	versionStr := buildVersion
-	if versionStr == "" {
-		versionStr = build.GenerateVersionString()
-	}
-
-	ui.Println()
-	ui.PrintInfo("Uploading: %s", filepath.Base(artifactPath))
-	ui.PrintInfo("Version: %s", versionStr)
-
-	// Convert tar.gz to zip for iOS builds (EAS produces tar.gz)
-	if build.IsTarGz(artifactPath) {
-		ui.Println()
-		ui.StartSpinner("Extracting .app from tar.gz...")
-		zipPath, err := build.ExtractAppFromTarGz(artifactPath)
-		ui.StopSpinner()
-		if err != nil {
-			ui.PrintError("Failed to extract .app from tar.gz: %v", err)
-			return err
-		}
-		defer os.Remove(zipPath) // Clean up temp zip after upload
-		artifactPath = zipPath
-		ui.PrintSuccess("Converted to: %s", filepath.Base(zipPath))
-	} else if build.IsAppBundle(artifactPath) {
-		// Zip .app directory for iOS builds (Flutter, React Native, Xcode)
-		ui.Println()
-		ui.StartSpinner("Zipping .app bundle...")
-		zipPath, err := build.ZipAppBundle(artifactPath)
-		ui.StopSpinner()
-		if err != nil {
-			ui.PrintError("Failed to zip .app bundle: %v", err)
-			return err
-		}
-		defer os.Remove(zipPath) // Clean up temp zip after upload
-		artifactPath = zipPath
-		ui.PrintSuccess("Created: %s", filepath.Base(zipPath))
-	}
-
-	// Collect metadata
-	metadata := build.CollectMetadata(cwd, buildCfg.Command, buildVariant, buildDuration)
-
-	// Handle dry-run mode
-	if buildDryRun {
-		ui.Println()
-		ui.PrintInfo("Dry-run mode - showing what would be uploaded:")
-		ui.Println()
-		ui.PrintInfo("  Artifact:     %s", filepath.Base(artifactPath))
-		ui.PrintInfo("  Version:      %s", versionStr)
-		ui.PrintInfo("  Build Var ID: %s", buildVarID)
-		ui.PrintInfo("  Set Current:  %v", buildSetCurr)
-		if metadata != nil {
-			ui.PrintInfo("  Metadata:")
-			if cmd, ok := metadata["build_command"].(string); ok {
-				ui.PrintDim("    Build Command: %s", cmd)
-			}
-			if variant, ok := metadata["variant"].(string); ok && variant != "" {
-				ui.PrintDim("    Variant: %s", variant)
-			}
-		}
-		ui.Println()
-		ui.PrintSuccess("Dry-run complete - no changes made")
-		return nil
-	}
-
-	ui.Println()
-	ui.StartSpinner("Uploading artifact...")
-
-	result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-		BuildVarID:   buildVarID,
-		Version:      versionStr,
-		FilePath:     artifactPath,
-		Metadata:     metadata,
-		SetAsCurrent: buildSetCurr,
-	})
-
-	ui.StopSpinner()
-
-	if err != nil {
-		ui.PrintError("Upload failed: %v", err)
-		return err
-	}
-
-	ui.Println()
-	ui.PrintSuccess("Upload complete!")
-	ui.PrintInfo("Version ID: %s", result.VersionID)
-	ui.PrintInfo("Version: %s", result.Version)
-	if result.PackageID != "" {
-		ui.PrintInfo("Package ID: %s", result.PackageID)
-	}
-
-	return nil
-}
-
-// determinePlatform extracts the platform from the build command or flag.
-//
-// Parameters:
-//   - command: The build command
-//   - platformFlag: The platform flag value
-//
-// Returns:
-//   - string: The platform (ios or android)
-func determinePlatform(command, platformFlag string) string {
-	if platformFlag != "" {
-		return platformFlag
-	}
-
-	// Try to detect from command
-	if strings.Contains(command, "ios") || strings.Contains(command, "iphonesimulator") {
-		return "ios"
-	}
-	if strings.Contains(command, "android") || strings.Contains(command, "apk") || strings.Contains(command, "aab") {
-		return "android"
-	}
-
-	return ""
-}
-
-// selectOrCreateBuildVar prompts the user to select an existing build variable or create a new one.
-// This is a legacy function - prefer selectOrCreateBuildVarForVariant for variant-based configs.
+// selectOrCreateAppForPlatform prompts the user to select an existing app or create a new one,
+// and saves it to the specified platform in the config.
 //
 // Parameters:
 //   - cmd: The cobra command
 //   - client: The API client
 //   - cfg: The project config
 //   - configPath: Path to the config file
+//   - platformName: The platform name to save the app ID to (empty for no save)
 //   - platform: The target platform
 //
 // Returns:
-//   - string: The selected or created build variable ID
+//   - string: The selected or created app ID
 //   - error: Any error that occurred
-func selectOrCreateBuildVar(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, configPath, platform string) (string, error) {
-	return selectOrCreateBuildVarForVariant(cmd, client, cfg, configPath, "", platform)
-}
-
-// selectOrCreateBuildVarForVariant prompts the user to select an existing build variable or create a new one,
-// and saves it to the specified variant in the config.
-//
-// Parameters:
-//   - cmd: The cobra command
-//   - client: The API client
-//   - cfg: The project config
-//   - configPath: Path to the config file
-//   - variantName: The variant name to save the build var ID to (empty for no save)
-//   - platform: The target platform
-//
-// Returns:
-//   - string: The selected or created build variable ID
-//   - error: Any error that occurred
-func selectOrCreateBuildVarForVariant(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, configPath, variantName, platform string) (string, error) {
+func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, configPath, platformName, platform string) (string, error) {
 	ui.Println()
-	ui.PrintWarning("No build variable configured for this project.")
+	ui.PrintWarning("No app configured for this project.")
 	ui.Println()
-	ui.PrintDim("A build variable stores your app builds in Revyl so tests can run against them.")
+	ui.PrintDim("An app stores your builds in Revyl so tests can run against them.")
 	ui.Println()
 
-	// Fetch existing build variables
-	ui.StartSpinner("Fetching build variables...")
-	result, err := client.ListOrgBuildVars(cmd.Context(), platform, 1, 50)
+	// Fetch existing apps
+	ui.StartSpinner("Fetching apps...")
+	result, err := client.ListApps(cmd.Context(), platform, 1, 50)
 	ui.StopSpinner()
 
 	if err != nil {
-		ui.PrintError("Failed to fetch build variables: %v", err)
+		ui.PrintError("Failed to fetch apps: %v", err)
 		return "", err
 	}
 
-	var buildVarID string
+	var appID string
 
-	// If no existing build variables, skip selection and create directly
+	// If no existing apps, skip selection and create directly
 	if len(result.Items) == 0 {
-		ui.PrintInfo("No existing build variables found. Let's create one.")
+		ui.PrintInfo("No existing apps found. Let's create one.")
 		ui.Println()
-		buildVarID, err = createNewBuildVar(cmd, client, cfg, platform)
+		appID, err = createNewApp(cmd, client, cfg, platform)
 		if err != nil {
 			return "", err
 		}
 	} else {
 		// Build options list
 		var options []string
-		for _, bv := range result.Items {
-			options = append(options, fmt.Sprintf("%s (%s)", bv.Name, bv.Platform))
+		for _, app := range result.Items {
+			options = append(options, fmt.Sprintf("%s (%s)", app.Name, app.Platform))
 		}
-		options = append(options, "Create new build variable")
+		options = append(options, "Create new app")
 
 		// Show selection prompt
-		ui.PrintInfo("Select a build variable to upload to:")
+		ui.PrintInfo("Select an app to upload to:")
 		selection, err := ui.PromptSelect("", options)
 		if err != nil {
 			return "", err
@@ -485,12 +261,12 @@ func selectOrCreateBuildVarForVariant(cmd *cobra.Command, client *api.Client, cf
 
 		// If user selected "Create new"
 		if selection == len(result.Items) {
-			buildVarID, err = createNewBuildVar(cmd, client, cfg, platform)
+			appID, err = createNewApp(cmd, client, cfg, platform)
 			if err != nil {
 				return "", err
 			}
 		} else {
-			buildVarID = result.Items[selection].ID
+			appID = result.Items[selection].ID
 			ui.PrintSuccess("Selected: %s", result.Items[selection].Name)
 		}
 	}
@@ -499,17 +275,17 @@ func selectOrCreateBuildVarForVariant(cmd *cobra.Command, client *api.Client, cf
 	save := uploadYesFlag
 	if !save {
 		var err error
-		save, err = ui.PromptConfirm("Save this build variable to .revyl/config.yaml for future uploads?", true)
+		save, err = ui.PromptConfirm("Save this app to .revyl/config.yaml for future uploads?", true)
 		if err != nil {
-			return buildVarID, nil // Continue even if prompt fails
+			return appID, nil // Continue even if prompt fails
 		}
 	}
 
-	if save && variantName != "" {
-		// Save to the variant
-		variant := cfg.Build.Variants[variantName]
-		variant.BuildVarID = buildVarID
-		cfg.Build.Variants[variantName] = variant
+	if save && platformName != "" {
+		// Save to the platform
+		platformCfg := cfg.Build.Platforms[platformName]
+		platformCfg.AppID = appID
+		cfg.Build.Platforms[platformName] = platformCfg
 		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
 			ui.PrintWarning("Failed to save config: %v", err)
 		} else {
@@ -517,10 +293,10 @@ func selectOrCreateBuildVarForVariant(cmd *cobra.Command, client *api.Client, cf
 		}
 	}
 
-	return buildVarID, nil
+	return appID, nil
 }
 
-// createNewBuildVar prompts the user to create a new build variable.
+// createNewApp prompts the user to create a new app.
 //
 // Parameters:
 //   - cmd: The cobra command
@@ -529,11 +305,11 @@ func selectOrCreateBuildVarForVariant(cmd *cobra.Command, client *api.Client, cf
 //   - platform: The suggested platform
 //
 // Returns:
-//   - string: The created build variable ID
+//   - string: The created app ID
 //   - error: Any error that occurred
-func createNewBuildVar(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, platform string) (string, error) {
+func createNewApp(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, platform string) (string, error) {
 	ui.Println()
-	ui.PrintInfo("Creating new build variable...")
+	ui.PrintInfo("Creating new app...")
 	ui.Println()
 
 	// Use --name flag if provided, otherwise prompt
@@ -564,11 +340,11 @@ func createNewBuildVar(cmd *cobra.Command, client *api.Client, cfg *config.Proje
 		ui.PrintInfo("Platform: %s", platform)
 	}
 
-	// Create the build variable
+	// Create the app
 	ui.Println()
-	ui.StartSpinner("Creating build variable...")
+	ui.StartSpinner("Creating app...")
 
-	result, err := client.CreateBuildVar(cmd.Context(), &api.CreateBuildVarRequest{
+	result, err := client.CreateApp(cmd.Context(), &api.CreateAppRequest{
 		Name:     name,
 		Platform: platform,
 	})
@@ -576,7 +352,7 @@ func createNewBuildVar(cmd *cobra.Command, client *api.Client, cfg *config.Proje
 	ui.StopSpinner()
 
 	if err != nil {
-		ui.PrintError("Failed to create build variable: %v", err)
+		ui.PrintError("Failed to create app: %v", err)
 		return "", err
 	}
 
@@ -596,8 +372,8 @@ type BuildResult struct {
 	// Duration is how long the build took.
 	Duration time.Duration
 
-	// BuildVarID is the build variable ID used for upload.
-	BuildVarID string
+	// AppID is the app ID used for upload.
+	AppID string
 
 	// UploadResult contains the upload response.
 	UploadResult *api.UploadBuildResponse
@@ -612,11 +388,11 @@ type BuildResult struct {
 //   - cmd: The cobra command being executed
 //   - cfg: The project configuration
 //   - configPath: Path to the config file
-//   - creds: Authentication credentials
+//   - apiKey: Authentication token for API requests
 //
 // Returns:
 //   - error: Any error that occurred (aggregated from both platforms)
-func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, creds *auth.Credentials) error {
+func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, apiKey string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
@@ -625,10 +401,10 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 	// Validate both platforms exist in config
 	platforms := []string{"ios", "android"}
 	for _, platform := range platforms {
-		if _, ok := cfg.Build.Variants[platform]; !ok {
-			ui.PrintError("Platform variant '%s' not found in config", platform)
-			ui.PrintInfo("Available variants: %v", getVariantNames(cfg.Build.Variants))
-			return fmt.Errorf("missing platform variant: %s", platform)
+		if _, ok := cfg.Build.Platforms[platform]; !ok {
+			ui.PrintError("Platform '%s' not found in config", platform)
+			ui.PrintInfo("Available platforms: %v", getPlatformNames(cfg.Build.Platforms))
+			return fmt.Errorf("missing platform: %s", platform)
 		}
 	}
 
@@ -639,7 +415,7 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 		ui.Println()
 
 		for _, platform := range platforms {
-			variant := cfg.Build.Variants[platform]
+			platformCfg := cfg.Build.Platforms[platform]
 			versionStr := buildVersion
 			if versionStr == "" {
 				versionStr = build.GenerateVersionString()
@@ -647,11 +423,15 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 			versionStr = fmt.Sprintf("%s-%s", versionStr, platform)
 
 			ui.PrintInfo("[%s]", platform)
-			ui.PrintInfo("  Command:      %s", variant.Command)
-			ui.PrintInfo("  Output:       %s", variant.Output)
-			ui.PrintInfo("  Version:      %s", versionStr)
-			ui.PrintInfo("  Build Var ID: %s", variant.BuildVarID)
-			ui.PrintInfo("  Set Current:  %v", buildSetCurr)
+			ui.PrintInfo("  Command:        %s", platformCfg.Command)
+			ui.PrintInfo("  Output:         %s", platformCfg.Output)
+			ui.PrintInfo("  Build Version:  %s", versionStr)
+			if platformCfg.AppID != "" {
+				ui.PrintInfo("  App ID:         %s", platformCfg.AppID)
+			} else {
+				ui.PrintInfo("  App ID:         (not configured)")
+			}
+			ui.PrintInfo("  Set Current:    %v", buildSetCurr)
 			ui.Println()
 		}
 
@@ -661,32 +441,32 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 
 	// Create API client
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Check and prompt for missing build variable IDs before starting builds
+	// Check and prompt for missing app IDs before starting builds
 	for _, platform := range platforms {
-		// Check variant-level build_var_id
-		variant := cfg.Build.Variants[platform]
-		buildVarID := variant.BuildVarID
+		// Check platform-level app_id
+		platformCfg := cfg.Build.Platforms[platform]
+		appID := platformCfg.AppID
 
-		if buildVarID == "" {
+		if appID == "" {
 			ui.Println()
-			ui.PrintWarning("No build variable configured for %s", platform)
-			selectedID, err := selectOrCreateBuildVarForPlatform(cmd, client, cfg, platform)
+			ui.PrintWarning("No app configured for %s", platform)
+			selectedID, err := selectOrCreateAppInteractive(cmd, client, cfg, platform)
 			if err != nil {
 				return err
 			}
-			// Store in variant
-			variant.BuildVarID = selectedID
-			cfg.Build.Variants[platform] = variant
+			// Store in platform config
+			platformCfg.AppID = selectedID
+			cfg.Build.Platforms[platform] = platformCfg
 		}
 	}
 
-	// Save updated config with build var IDs
+	// Save updated config with app IDs
 	if err := config.WriteProjectConfig(configPath, cfg); err != nil {
 		ui.PrintWarning("Failed to save config: %v", err)
 	} else {
-		ui.PrintSuccess("Saved build variable IDs to .revyl/config.yaml")
+		ui.PrintSuccess("Saved app IDs to .revyl/config.yaml")
 	}
 
 	ui.PrintBanner(version)
@@ -739,16 +519,33 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 			errors = append(errors, fmt.Errorf("%s: %w", result.Platform, result.Error))
 		} else {
 			ui.PrintSuccess("[%s] Upload complete!", result.Platform)
-			ui.PrintInfo("  Version: %s", result.UploadResult.Version)
-			ui.PrintInfo("  Version ID: %s", result.UploadResult.VersionID)
+			ui.PrintInfo("  App:             %s", result.AppID)
+			ui.PrintInfo("  Build Version:   %s", result.UploadResult.Version)
+			ui.PrintInfo("  Build ID:        %s", result.UploadResult.VersionID)
 			if result.UploadResult.PackageID != "" {
-				ui.PrintInfo("  Package ID: %s", result.UploadResult.PackageID)
+				ui.PrintInfo("  Package ID:      %s", result.UploadResult.PackageID)
 			}
 		}
 	}
 
 	if len(errors) > 0 {
 		return fmt.Errorf("%d platform(s) failed", len(errors))
+	}
+
+	// Suggest running a test after successful concurrent builds
+	if !buildUploadJSON {
+		if len(cfg.Tests) > 0 {
+			for alias := range cfg.Tests {
+				ui.PrintNextSteps([]ui.NextStep{
+					{Label: "Run a test:", Command: fmt.Sprintf("revyl run %s", alias)},
+				})
+				break
+			}
+		} else {
+			ui.PrintNextSteps([]ui.NextStep{
+				{Label: "Create a test:", Command: "revyl test create <name>"},
+			})
+		}
 	}
 
 	return nil
@@ -769,18 +566,18 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd string, client *api.Client, platform string, outputMu *sync.Mutex) BuildResult {
 	result := BuildResult{Platform: platform}
 
-	variant := cfg.Build.Variants[platform]
+	platformCfg := cfg.Build.Platforms[platform]
 
 	// Build
 	if !buildSkip {
 		outputMu.Lock()
-		ui.PrintInfo("[%s] Building with: %s", platform, variant.Command)
+		ui.PrintInfo("[%s] Building with: %s", platform, platformCfg.Command)
 		outputMu.Unlock()
 
 		startTime := time.Now()
 		runner := build.NewRunner(cwd)
 
-		err := runner.Run(variant.Command, func(line string) {
+		err := runner.Run(platformCfg.Command, func(line string) {
 			outputMu.Lock()
 			ui.PrintDim("  [%s] %s", platform, line)
 			outputMu.Unlock()
@@ -804,16 +601,16 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 	}
 
 	// Resolve artifact path
-	artifactPath, err := build.ResolveArtifactPath(cwd, variant.Output)
+	artifactPath, err := build.ResolveArtifactPath(cwd, platformCfg.Output)
 	if err != nil {
 		result.Error = fmt.Errorf("artifact not found: %w", err)
 		return result
 	}
 	result.ArtifactPath = artifactPath
 
-	// Get build variable ID from variant
-	buildVarID := variant.BuildVarID
-	result.BuildVarID = buildVarID
+	// Get app ID from platform config
+	appID := platformCfg.AppID
+	result.AppID = appID
 
 	// Generate version string with platform suffix
 	versionStr := buildVersion
@@ -861,11 +658,11 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 	}
 
 	// Collect metadata
-	metadata := build.CollectMetadata(cwd, variant.Command, platform, result.Duration)
+	metadata := build.CollectMetadata(cwd, platformCfg.Command, platform, result.Duration)
 
 	// Upload
 	uploadResult, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-		BuildVarID:   buildVarID,
+		AppID:        appID,
 		Version:      versionStr,
 		FilePath:     artifactPath,
 		Metadata:     metadata,
@@ -881,7 +678,7 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 	return result
 }
 
-// selectOrCreateBuildVarForPlatform prompts the user to select or create a build variable for a specific platform.
+// selectOrCreateAppInteractive prompts the user to select or create an app for a specific platform.
 //
 // Parameters:
 //   - cmd: The cobra command
@@ -890,38 +687,38 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 //   - platform: The target platform
 //
 // Returns:
-//   - string: The selected or created build variable ID
+//   - string: The selected or created app ID
 //   - error: Any error that occurred
-func selectOrCreateBuildVarForPlatform(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, platform string) (string, error) {
-	// Fetch existing build variables for this platform
-	ui.StartSpinner(fmt.Sprintf("Fetching %s build variables...", platform))
-	result, err := client.ListOrgBuildVars(cmd.Context(), platform, 1, 50)
+func selectOrCreateAppInteractive(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, platform string) (string, error) {
+	// Fetch existing apps for this platform
+	ui.StartSpinner(fmt.Sprintf("Fetching %s apps...", platform))
+	result, err := client.ListApps(cmd.Context(), platform, 1, 50)
 	ui.StopSpinner()
 
 	if err != nil {
-		ui.PrintError("Failed to fetch build variables: %v", err)
+		ui.PrintError("Failed to fetch apps: %v", err)
 		return "", err
 	}
 
-	var buildVarID string
+	var appID string
 
-	// If no existing build variables for this platform, create directly
+	// If no existing apps for this platform, create directly
 	if len(result.Items) == 0 {
-		ui.PrintInfo("No existing %s build variables found. Creating one...", platform)
-		buildVarID, err = createNewBuildVarForPlatform(cmd, client, cfg, platform)
+		ui.PrintInfo("No existing %s apps found. Creating one...", platform)
+		appID, err = createNewAppForPlatform(cmd, client, cfg, platform)
 		if err != nil {
 			return "", err
 		}
 	} else {
 		// Build options list
 		var options []string
-		for _, bv := range result.Items {
-			options = append(options, fmt.Sprintf("%s (%s)", bv.Name, bv.Platform))
+		for _, app := range result.Items {
+			options = append(options, fmt.Sprintf("%s (%s)", app.Name, app.Platform))
 		}
-		options = append(options, fmt.Sprintf("Create new %s build variable", platform))
+		options = append(options, fmt.Sprintf("Create new %s app", platform))
 
 		// Show selection prompt
-		ui.PrintInfo("Select a build variable for %s:", platform)
+		ui.PrintInfo("Select an app for %s:", platform)
 		selection, err := ui.PromptSelect("", options)
 		if err != nil {
 			return "", err
@@ -929,20 +726,20 @@ func selectOrCreateBuildVarForPlatform(cmd *cobra.Command, client *api.Client, c
 
 		// If user selected "Create new"
 		if selection == len(result.Items) {
-			buildVarID, err = createNewBuildVarForPlatform(cmd, client, cfg, platform)
+			appID, err = createNewAppForPlatform(cmd, client, cfg, platform)
 			if err != nil {
 				return "", err
 			}
 		} else {
-			buildVarID = result.Items[selection].ID
+			appID = result.Items[selection].ID
 			ui.PrintSuccess("Selected: %s", result.Items[selection].Name)
 		}
 	}
 
-	return buildVarID, nil
+	return appID, nil
 }
 
-// createNewBuildVarForPlatform creates a new build variable for a specific platform.
+// createNewAppForPlatform creates a new app for a specific platform.
 //
 // Parameters:
 //   - cmd: The cobra command
@@ -951,9 +748,9 @@ func selectOrCreateBuildVarForPlatform(cmd *cobra.Command, client *api.Client, c
 //   - platform: The target platform
 //
 // Returns:
-//   - string: The created build variable ID
+//   - string: The created app ID
 //   - error: Any error that occurred
-func createNewBuildVarForPlatform(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, platform string) (string, error) {
+func createNewAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, platform string) (string, error) {
 	// Use --name flag if provided, otherwise prompt
 	name := uploadNameFlag
 	if name == "" {
@@ -970,10 +767,10 @@ func createNewBuildVarForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 		ui.PrintInfo("Name: %s", name)
 	}
 
-	// Create the build variable
-	ui.StartSpinner(fmt.Sprintf("Creating %s build variable...", platform))
+	// Create the app
+	ui.StartSpinner(fmt.Sprintf("Creating %s app...", platform))
 
-	result, err := client.CreateBuildVar(cmd.Context(), &api.CreateBuildVarRequest{
+	result, err := client.CreateApp(cmd.Context(), &api.CreateAppRequest{
 		Name:     name,
 		Platform: platform,
 	})
@@ -981,7 +778,7 @@ func createNewBuildVarForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 	ui.StopSpinner()
 
 	if err != nil {
-		ui.PrintError("Failed to create build variable: %v", err)
+		ui.PrintError("Failed to create app: %v", err)
 		return "", err
 	}
 
@@ -996,40 +793,70 @@ func createNewBuildVarForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 //   - cmd: The cobra command being executed
 //   - cfg: The project configuration
 //   - configPath: Path to the config file
-//   - creds: Authentication credentials
+//   - apiKey: Authentication token for API requests
 //   - platform: The platform to build
 //
 // Returns:
 //   - error: Any error that occurred during the build/upload process
-func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, creds *auth.Credentials, platform string) error {
+func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, apiKey string, platform string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	// Get variant for platform
-	variant, ok := cfg.Build.Variants[platform]
+	// Get platform config
+	platformCfg, ok := cfg.Build.Platforms[platform]
 	if !ok {
 		ui.PrintError("Unknown platform: %s", platform)
-		ui.PrintInfo("Available platforms: %v", getVariantNames(cfg.Build.Variants))
+		ui.PrintInfo("Available platforms: %v", getPlatformNames(cfg.Build.Platforms))
 		return fmt.Errorf("unknown platform: %s", platform)
+	}
+
+	// Validate platform configuration
+	if platformCfg.Output == "" {
+		ui.PrintError("Build output path not configured for %s", platform)
+		ui.PrintInfo("Please configure build.platforms.%s.output in .revyl/config.yaml", platform)
+		return fmt.Errorf("incomplete build config: missing output for %s", platform)
+	}
+	if platformCfg.Command == "" && !buildSkip {
+		ui.PrintError("Build command not configured for %s", platform)
+		ui.PrintInfo("Please configure build.platforms.%s.command in .revyl/config.yaml, or use --skip-build to upload an existing artifact", platform)
+		return fmt.Errorf("incomplete build config: missing command for %s", platform)
 	}
 
 	ui.PrintBanner(version)
 	ui.PrintInfo("Build and Upload (%s)", platform)
 	ui.Println()
 
+	// Handle dry-run mode before starting the build
+	if buildDryRun {
+		ui.PrintInfo("Dry-run mode - showing what would be built and uploaded:")
+		ui.Println()
+		ui.PrintInfo("  Platform:       %s", platform)
+		ui.PrintInfo("  Build Command:  %s", platformCfg.Command)
+		ui.PrintInfo("  Output:         %s", platformCfg.Output)
+		if platformCfg.AppID != "" {
+			ui.PrintInfo("  App ID:         %s", platformCfg.AppID)
+		}
+		if buildVersion != "" {
+			ui.PrintInfo("  Build Version:  %s", buildVersion)
+		}
+		ui.Println()
+		ui.PrintSuccess("Dry-run complete - no changes made")
+		return nil
+	}
+
 	var buildDuration time.Duration
 
 	// Run build if not skipped
 	if !buildSkip {
-		ui.PrintInfo("Building with: %s", variant.Command)
+		ui.PrintInfo("Building with: %s", platformCfg.Command)
 		ui.Println()
 
 		startTime := time.Now()
 		runner := build.NewRunner(cwd)
 
-		err = runner.Run(variant.Command, func(line string) {
+		err = runner.Run(platformCfg.Command, func(line string) {
 			ui.PrintDim("  %s", line)
 		})
 
@@ -1060,29 +887,29 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	}
 
 	// Check artifact exists
-	artifactPath, err := build.ResolveArtifactPath(cwd, variant.Output)
+	artifactPath, err := build.ResolveArtifactPath(cwd, platformCfg.Output)
 	if err != nil {
-		ui.PrintError("Build artifact not found: %s", variant.Output)
+		ui.PrintError("Build artifact not found: %s", platformCfg.Output)
 		return fmt.Errorf("artifact not found: %w", err)
 	}
 
 	// Create API client
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Determine build variable ID from variant
-	buildVarID := uploadBuildVarFlag
-	if buildVarID == "" {
-		buildVarID = variant.BuildVarID
+	// Determine app ID from platform config
+	appID := uploadAppFlag
+	if appID == "" {
+		appID = platformCfg.AppID
 	}
 
-	// If no build var ID, prompt user to select or create one
-	if buildVarID == "" {
-		selectedID, err := selectOrCreateBuildVarForVariant(cmd, client, cfg, configPath, platform, platform)
+	// If no app ID, prompt user to select or create one
+	if appID == "" {
+		selectedID, err := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, platform, platform)
 		if err != nil {
 			return err
 		}
-		buildVarID = selectedID
+		appID = selectedID
 	}
 
 	// Generate version string if not provided
@@ -1093,7 +920,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 
 	ui.Println()
 	ui.PrintInfo("Uploading: %s", filepath.Base(artifactPath))
-	ui.PrintInfo("Version: %s", versionStr)
+	ui.PrintInfo("Build Version: %s", versionStr)
 
 	// Convert tar.gz to zip for iOS builds (EAS produces tar.gz)
 	if build.IsTarGz(artifactPath) {
@@ -1124,18 +951,18 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	}
 
 	// Collect metadata
-	metadata := build.CollectMetadata(cwd, variant.Command, platform, buildDuration)
+	metadata := build.CollectMetadata(cwd, platformCfg.Command, platform, buildDuration)
 
 	// Handle dry-run mode
 	if buildDryRun {
 		ui.Println()
 		ui.PrintInfo("Dry-run mode - showing what would be uploaded:")
 		ui.Println()
-		ui.PrintInfo("  Platform:     %s", platform)
-		ui.PrintInfo("  Artifact:     %s", filepath.Base(artifactPath))
-		ui.PrintInfo("  Version:      %s", versionStr)
-		ui.PrintInfo("  Build Var ID: %s", buildVarID)
-		ui.PrintInfo("  Set Current:  %v", buildSetCurr)
+		ui.PrintInfo("  Platform:       %s", platform)
+		ui.PrintInfo("  Artifact:       %s", filepath.Base(artifactPath))
+		ui.PrintInfo("  Build Version:  %s", versionStr)
+		ui.PrintInfo("  App ID:         %s", appID)
+		ui.PrintInfo("  Set Current:    %v", buildSetCurr)
 		if metadata != nil {
 			ui.PrintInfo("  Metadata:")
 			if cmd, ok := metadata["build_command"].(string); ok {
@@ -1151,7 +978,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	ui.StartSpinner("Uploading artifact...")
 
 	result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-		BuildVarID:   buildVarID,
+		AppID:        appID,
 		Version:      versionStr,
 		FilePath:     artifactPath,
 		Metadata:     metadata,
@@ -1167,10 +994,30 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 
 	ui.Println()
 	ui.PrintSuccess("Upload complete!")
-	ui.PrintInfo("Version ID: %s", result.VersionID)
-	ui.PrintInfo("Version: %s", result.Version)
+	ui.PrintInfo("App:             %s", appID)
+	ui.PrintInfo("Build Version:   %s", result.Version)
+	ui.PrintInfo("Build ID:        %s", result.VersionID)
 	if result.PackageID != "" {
-		ui.PrintInfo("Package ID: %s", result.PackageID)
+		ui.PrintInfo("Package ID:      %s", result.PackageID)
+	}
+	ui.Println()
+	ui.PrintDim("To list builds: revyl build list --app %s", appID)
+
+	// Suggest running a test if config has tests
+	if !buildUploadJSON {
+		cfg, cfgErr := config.LoadProjectConfig(configPath)
+		if cfgErr == nil && cfg != nil && len(cfg.Tests) > 0 {
+			for alias := range cfg.Tests {
+				ui.PrintNextSteps([]ui.NextStep{
+					{Label: "Run a test:", Command: fmt.Sprintf("revyl run %s", alias)},
+				})
+				break
+			}
+		} else {
+			ui.PrintNextSteps([]ui.NextStep{
+				{Label: "Create a test:", Command: "revyl test create <name>"},
+			})
+		}
 	}
 
 	return nil
@@ -1186,39 +1033,37 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 //   - error: Any error that occurred while listing builds
 func runBuildList(cmd *cobra.Command, args []string) error {
 	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || creds.APIKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
 	}
 
 	// Create API client with dev mode support
 	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(creds.APIKey, devMode)
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Determine build var ID from flag or show org builds
-	buildVarID := buildVarIDFlag
+	// Determine app ID from flag or show org apps
+	appID := appIDFlag
 
-	// If we have a build var ID, list versions for it
-	if buildVarID != "" {
-		return listBuildVersions(cmd, client, buildVarID)
+	// If we have an app ID, list builds for it
+	if appID != "" {
+		return listBuildVersions(cmd, client, appID)
 	}
 
-	// Otherwise, show all build variables in the organization
-	return listOrgBuildVars(cmd, client)
+	// Otherwise, show all apps in the organization
+	return listOrgApps(cmd, client)
 }
 
-// listBuildVersions lists versions for a specific build variable.
+// listBuildVersions lists versions for a specific app.
 //
 // Parameters:
 //   - cmd: The cobra command being executed
 //   - client: The API client
-//   - buildVarID: The build variable ID to list versions for
+//   - appID: The app ID to list builds for
 //
 // Returns:
-//   - error: Any error that occurred while listing versions
-func listBuildVersions(cmd *cobra.Command, client *api.Client, buildVarID string) error {
+//   - error: Any error that occurred while listing builds
+func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) error {
 	// Check if --json flag is set (either local or global)
 	jsonOutput := buildListJSON
 	if globalJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); globalJSON {
@@ -1226,23 +1071,23 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, buildVarID string
 	}
 
 	if !jsonOutput {
-		ui.StartSpinner("Fetching build versions...")
+		ui.StartSpinner("Fetching builds...")
 	}
-	versions, err := client.ListBuildVersions(cmd.Context(), buildVarID)
+	versions, err := client.ListBuildVersions(cmd.Context(), appID)
 	if !jsonOutput {
 		ui.StopSpinner()
 	}
 
 	if err != nil {
-		ui.PrintError("Failed to list versions: %v", err)
+		ui.PrintError("Failed to list builds: %v", err)
 		return err
 	}
 
 	if jsonOutput {
 		output := map[string]interface{}{
-			"build_var_id": buildVarID,
-			"versions":     versions,
-			"count":        len(versions),
+			"app_id":   appID,
+			"versions": versions,
+			"count":    len(versions),
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(data))
@@ -1250,40 +1095,46 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, buildVarID string
 	}
 
 	if len(versions) == 0 {
-		ui.PrintInfo("No build versions found")
+		ui.PrintInfo("No builds found")
 		return nil
 	}
 
 	ui.Println()
-	ui.PrintInfo("Build Versions:")
+	ui.PrintInfo("Builds:")
 	ui.Println()
 
 	// Create table with dynamic column widths
-	table := ui.NewTable("VERSION", "UPLOADED", "PACKAGE ID", "CURRENT")
+	table := ui.NewTable("VERSION", "BUILD ID", "UPLOADED", "PACKAGE ID", "CURRENT")
 	table.SetMinWidth(0, 10) // VERSION
-	table.SetMinWidth(1, 12) // UPLOADED
+	table.SetMinWidth(1, 36) // BUILD ID - UUIDs are 36 chars
+	table.SetMinWidth(2, 12) // UPLOADED
 
 	for _, v := range versions {
 		current := ""
 		if v.IsCurrent {
 			current = "✓"
 		}
-		table.AddRow(v.Version, v.UploadedAt, v.PackageID, current)
+		table.AddRow(v.Version, v.ID, v.UploadedAt, v.PackageID, current)
 	}
 
 	table.Render()
+
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Upload a new build:", Command: "revyl build upload"},
+	})
+
 	return nil
 }
 
-// listOrgBuildVars lists all build variables in the organization.
+// listOrgApps lists all apps in the organization.
 //
 // Parameters:
 //   - cmd: The cobra command being executed
 //   - client: The API client
 //
 // Returns:
-//   - error: Any error that occurred while listing build variables
-func listOrgBuildVars(cmd *cobra.Command, client *api.Client) error {
+//   - error: Any error that occurred while listing apps
+func listOrgApps(cmd *cobra.Command, client *api.Client) error {
 	// Check if --json flag is set (either local or global)
 	jsonOutput := buildListJSON
 	if globalJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); globalJSON {
@@ -1291,23 +1142,23 @@ func listOrgBuildVars(cmd *cobra.Command, client *api.Client) error {
 	}
 
 	if !jsonOutput {
-		ui.StartSpinner("Fetching build variables from organization...")
+		ui.StartSpinner("Fetching apps from organization...")
 	}
-	result, err := client.ListOrgBuildVars(cmd.Context(), buildPlatform, 1, 50)
+	result, err := client.ListApps(cmd.Context(), buildPlatform, 1, 50)
 	if !jsonOutput {
 		ui.StopSpinner()
 	}
 
 	if err != nil {
-		ui.PrintError("Failed to list build variables: %v", err)
+		ui.PrintError("Failed to list apps: %v", err)
 		return err
 	}
 
 	if jsonOutput {
 		output := map[string]interface{}{
-			"build_vars": result.Items,
-			"count":      len(result.Items),
-			"total":      result.Total,
+			"apps":  result.Items,
+			"count": len(result.Items),
+			"total": result.Total,
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(data))
@@ -1315,44 +1166,43 @@ func listOrgBuildVars(cmd *cobra.Command, client *api.Client) error {
 	}
 
 	if len(result.Items) == 0 {
-		ui.PrintInfo("No build variables found in your organization")
-		ui.PrintInfo("Create build variables at https://app.revyl.ai")
+		ui.PrintInfo("No apps found in your organization")
+		ui.PrintInfo("Create apps at https://app.revyl.ai")
 		return nil
 	}
 
 	ui.Println()
-	ui.PrintInfo("Build Variables in your organization (%d total):", result.Total)
+	ui.PrintInfo("Apps in your organization (%d total):", result.Total)
 	ui.Println()
 
 	// Create table with dynamic column widths
-	table := ui.NewTable("NAME", "PLATFORM", "VERSIONS", "LATEST", "ID")
+	table := ui.NewTable("NAME", "PLATFORM", "BUILDS", "LATEST", "APP ID")
 	table.SetMinWidth(0, 20) // NAME - ensure readable width
 	table.SetMinWidth(1, 8)  // PLATFORM
-	table.SetMinWidth(4, 36) // ID - UUIDs are 36 chars
+	table.SetMinWidth(4, 36) // APP ID - UUIDs are 36 chars
 
-	for _, bv := range result.Items {
+	for _, app := range result.Items {
 		latestVer := "-"
-		if bv.LatestVersion != "" {
-			latestVer = bv.LatestVersion
+		if app.LatestVersion != "" {
+			latestVer = app.LatestVersion
 		}
-		table.AddRow(bv.Name, bv.Platform, fmt.Sprintf("%d", bv.VersionsCount), latestVer, bv.ID)
+		table.AddRow(app.Name, app.Platform, fmt.Sprintf("%d", app.VersionsCount), latestVer, app.ID)
 	}
 
 	table.Render()
 
-	ui.Println()
-	ui.PrintDim("To list versions for a build variable:")
-	ui.PrintDim("  revyl build list --build-var <id>")
-	ui.Println()
-	ui.PrintDim("Or configure build.build_var_id in .revyl/config.yaml")
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "List builds for an app:", Command: "revyl build list --app <id>"},
+		{Label: "Upload a new build:", Command: "revyl build upload"},
+	})
 
 	return nil
 }
 
-// getVariantNames returns a slice of variant names from the variants map.
-func getVariantNames(variants map[string]config.BuildVariant) []string {
-	names := make([]string, 0, len(variants))
-	for name := range variants {
+// getPlatformNames returns a slice of platform names from the platforms map.
+func getPlatformNames(platforms map[string]config.BuildPlatform) []string {
+	names := make([]string, 0, len(platforms))
+	for name := range platforms {
 		names = append(names, name)
 	}
 	return names

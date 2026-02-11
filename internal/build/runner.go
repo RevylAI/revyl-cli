@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // Runner executes build commands in a specified working directory.
@@ -56,7 +57,10 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	}
 
 	// Stream stdout
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			if onOutput != nil {
@@ -68,6 +72,7 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	// Stream stderr and capture for error detection
 	var stderrLines []string
 	go func() {
+		defer wg.Done()
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -79,13 +84,17 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	}()
 
 	// Wait for command to complete
-	if err := cmd.Wait(); err != nil {
+	cmdErr := cmd.Wait()
+	// Wait for goroutines to finish reading all output before accessing stderrLines
+	wg.Wait()
+
+	if cmdErr != nil {
 		// Check for EAS-specific errors
 		stderrOutput := strings.Join(stderrLines, "\n")
 		if easErr := parseEASError(stderrOutput); easErr != nil {
 			return easErr
 		}
-		return fmt.Errorf("command failed: %w", err)
+		return fmt.Errorf("command failed: %w", cmdErr)
 	}
 
 	return nil
