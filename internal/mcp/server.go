@@ -231,6 +231,38 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		Name:        "delete_app",
 		Description: "Delete an app and all its build versions by app ID.",
 	}, s.handleDeleteApp)
+
+	// --- Module tools ---
+
+	// list_modules tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "list_modules",
+		Description: "List all reusable test modules in the organization. Modules are groups of test blocks that can be imported into any test via module_import blocks.",
+	}, s.handleListModules)
+
+	// get_module tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_module",
+		Description: "Get details of a specific module by ID, including its blocks.",
+	}, s.handleGetModule)
+
+	// create_module tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "create_module",
+		Description: "Create a new reusable test module from a list of blocks.",
+	}, s.handleCreateModule)
+
+	// delete_module tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "delete_module",
+		Description: "Delete a module by ID. Returns 409 if the module is in use by tests.",
+	}, s.handleDeleteModule)
+
+	// insert_module_block tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "insert_module_block",
+		Description: "Given a module name or ID, returns a module_import block YAML snippet ready to insert into a test. Use this to compose tests with reusable modules.",
+	}, s.handleInsertModuleBlock)
 }
 
 // RunTestInput defines the input parameters for the run_test tool.
@@ -1129,5 +1161,236 @@ func (s *Server) handleDeleteApp(ctx context.Context, req *mcp.CallToolRequest, 
 	return nil, DeleteAppOutput{
 		Success: true,
 		Message: resp.Message,
+	}, nil
+}
+
+// --- Module tools ---
+
+// ListModulesInput defines input for list_modules tool.
+type ListModulesInput struct {
+	NameFilter string `json:"name_filter,omitempty" jsonschema:"description=Optional filter to search modules by name"`
+}
+
+// ModuleInfo contains information about a module.
+type ModuleInfo struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	BlockCount  int    `json:"block_count"`
+}
+
+// ListModulesOutput defines output for list_modules tool.
+type ListModulesOutput struct {
+	Modules []ModuleInfo `json:"modules"`
+	Total   int          `json:"total"`
+	Error   string       `json:"error,omitempty"`
+}
+
+// handleListModules handles the list_modules tool call.
+func (s *Server) handleListModules(ctx context.Context, req *mcp.CallToolRequest, input ListModulesInput) (*mcp.CallToolResult, ListModulesOutput, error) {
+	resp, err := s.apiClient.ListModules(ctx)
+	if err != nil {
+		return nil, ListModulesOutput{
+			Modules: []ModuleInfo{},
+			Error:   fmt.Sprintf("failed to list modules: %v", err),
+		}, nil
+	}
+
+	var modules []ModuleInfo
+	for _, m := range resp.Result {
+		// Apply name filter if specified
+		if input.NameFilter != "" {
+			nameLower := strings.ToLower(m.Name)
+			filterLower := strings.ToLower(input.NameFilter)
+			if !strings.Contains(nameLower, filterLower) {
+				continue
+			}
+		}
+		modules = append(modules, ModuleInfo{
+			ID:          m.ID,
+			Name:        m.Name,
+			Description: m.Description,
+			BlockCount:  len(m.Blocks),
+		})
+	}
+
+	if modules == nil {
+		modules = []ModuleInfo{}
+	}
+
+	return nil, ListModulesOutput{
+		Modules: modules,
+		Total:   len(modules),
+	}, nil
+}
+
+// GetModuleInput defines input for get_module tool.
+type GetModuleInput struct {
+	ModuleID string `json:"module_id" jsonschema:"description=The UUID of the module to retrieve"`
+}
+
+// GetModuleOutput defines output for get_module tool.
+type GetModuleOutput struct {
+	Success     bool          `json:"success"`
+	ID          string        `json:"id,omitempty"`
+	Name        string        `json:"name,omitempty"`
+	Description string        `json:"description,omitempty"`
+	Blocks      []interface{} `json:"blocks,omitempty"`
+	Error       string        `json:"error,omitempty"`
+}
+
+// handleGetModule handles the get_module tool call.
+func (s *Server) handleGetModule(ctx context.Context, req *mcp.CallToolRequest, input GetModuleInput) (*mcp.CallToolResult, GetModuleOutput, error) {
+	if input.ModuleID == "" {
+		return nil, GetModuleOutput{Success: false, Error: "module_id is required"}, nil
+	}
+
+	resp, err := s.apiClient.GetModule(ctx, input.ModuleID)
+	if err != nil {
+		return nil, GetModuleOutput{Success: false, Error: fmt.Sprintf("failed to get module: %v", err)}, nil
+	}
+
+	return nil, GetModuleOutput{
+		Success:     true,
+		ID:          resp.Result.ID,
+		Name:        resp.Result.Name,
+		Description: resp.Result.Description,
+		Blocks:      resp.Result.Blocks,
+	}, nil
+}
+
+// CreateModuleInput defines input for create_module tool.
+type CreateModuleInput struct {
+	Name        string        `json:"name" jsonschema:"description=Module name"`
+	Description string        `json:"description,omitempty" jsonschema:"description=Optional module description"`
+	Blocks      []interface{} `json:"blocks" jsonschema:"description=Array of test block objects"`
+}
+
+// CreateModuleOutput defines output for create_module tool.
+type CreateModuleOutput struct {
+	Success  bool   `json:"success"`
+	ModuleID string `json:"module_id,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// handleCreateModule handles the create_module tool call.
+func (s *Server) handleCreateModule(ctx context.Context, req *mcp.CallToolRequest, input CreateModuleInput) (*mcp.CallToolResult, CreateModuleOutput, error) {
+	if input.Name == "" {
+		return nil, CreateModuleOutput{Success: false, Error: "name is required"}, nil
+	}
+
+	if len(input.Blocks) == 0 {
+		return nil, CreateModuleOutput{Success: false, Error: "blocks array is required and must not be empty"}, nil
+	}
+
+	resp, err := s.apiClient.CreateModule(ctx, &api.CLICreateModuleRequest{
+		Name:        input.Name,
+		Description: input.Description,
+		Blocks:      input.Blocks,
+	})
+	if err != nil {
+		return nil, CreateModuleOutput{Success: false, Error: fmt.Sprintf("failed to create module: %v", err)}, nil
+	}
+
+	return nil, CreateModuleOutput{
+		Success:  true,
+		ModuleID: resp.Result.ID,
+		Name:     resp.Result.Name,
+	}, nil
+}
+
+// DeleteModuleInput defines input for delete_module tool.
+type DeleteModuleInput struct {
+	ModuleID string `json:"module_id" jsonschema:"description=The UUID of the module to delete"`
+}
+
+// DeleteModuleOutput defines output for delete_module tool.
+type DeleteModuleOutput struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleDeleteModule handles the delete_module tool call.
+func (s *Server) handleDeleteModule(ctx context.Context, req *mcp.CallToolRequest, input DeleteModuleInput) (*mcp.CallToolResult, DeleteModuleOutput, error) {
+	if input.ModuleID == "" {
+		return nil, DeleteModuleOutput{Success: false, Error: "module_id is required"}, nil
+	}
+
+	resp, err := s.apiClient.DeleteModule(ctx, input.ModuleID)
+	if err != nil {
+		return nil, DeleteModuleOutput{Success: false, Error: fmt.Sprintf("failed to delete module: %v", err)}, nil
+	}
+
+	return nil, DeleteModuleOutput{
+		Success: true,
+		Message: resp.Message,
+	}, nil
+}
+
+// InsertModuleBlockInput defines input for insert_module_block tool.
+type InsertModuleBlockInput struct {
+	ModuleNameOrID string `json:"module_name_or_id" jsonschema:"description=Module name or UUID to generate the import block for"`
+}
+
+// InsertModuleBlockOutput defines output for insert_module_block tool.
+type InsertModuleBlockOutput struct {
+	Success         bool   `json:"success"`
+	YAMLSnippet     string `json:"yaml_snippet,omitempty"`
+	ModuleID        string `json:"module_id,omitempty"`
+	ModuleName      string `json:"module_name,omitempty"`
+	BlockType       string `json:"block_type,omitempty"`
+	StepDescription string `json:"step_description,omitempty"`
+	Error           string `json:"error,omitempty"`
+}
+
+// handleInsertModuleBlock handles the insert_module_block tool call.
+func (s *Server) handleInsertModuleBlock(ctx context.Context, req *mcp.CallToolRequest, input InsertModuleBlockInput) (*mcp.CallToolResult, InsertModuleBlockOutput, error) {
+	if input.ModuleNameOrID == "" {
+		return nil, InsertModuleBlockOutput{Success: false, Error: "module_name_or_id is required"}, nil
+	}
+
+	// Resolve module name or ID
+	var moduleID, moduleName string
+
+	// Try as UUID first
+	if len(input.ModuleNameOrID) == 36 {
+		resp, err := s.apiClient.GetModule(ctx, input.ModuleNameOrID)
+		if err == nil {
+			moduleID = resp.Result.ID
+			moduleName = resp.Result.Name
+		}
+	}
+
+	// If not found by ID, search by name
+	if moduleID == "" {
+		listResp, err := s.apiClient.ListModules(ctx)
+		if err != nil {
+			return nil, InsertModuleBlockOutput{Success: false, Error: fmt.Sprintf("failed to list modules: %v", err)}, nil
+		}
+
+		for _, m := range listResp.Result {
+			if strings.EqualFold(m.Name, input.ModuleNameOrID) {
+				moduleID = m.ID
+				moduleName = m.Name
+				break
+			}
+		}
+	}
+
+	if moduleID == "" {
+		return nil, InsertModuleBlockOutput{Success: false, Error: fmt.Sprintf("module '%s' not found", input.ModuleNameOrID)}, nil
+	}
+
+	yamlSnippet := fmt.Sprintf("- type: module_import\n  step_description: \"%s\"\n  module_id: \"%s\"", moduleName, moduleID)
+
+	return nil, InsertModuleBlockOutput{
+		Success:         true,
+		YAMLSnippet:     yamlSnippet,
+		ModuleID:        moduleID,
+		ModuleName:      moduleName,
+		BlockType:       "module_import",
+		StepDescription: moduleName,
 	}, nil
 }

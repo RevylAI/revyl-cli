@@ -85,6 +85,8 @@ func TestValidateResourceName(t *testing.T) {
 		{name: "ends with .json", input: "login-flow.json", kind: "test", wantError: true},
 		{name: "uppercase letters", input: "Login-Flow", kind: "test", wantError: true},
 		{name: "special chars", input: "login@flow", kind: "test", wantError: true},
+		{name: "has parentheses", input: "login(v2)", kind: "test", wantError: true},
+		{name: "has brackets", input: "test[ios]", kind: "test", wantError: true},
 		{name: "reserved word run", input: "run", kind: "test", wantError: true},
 		{name: "reserved word create", input: "create", kind: "test", wantError: true},
 		{name: "reserved word delete", input: "delete", kind: "test", wantError: true},

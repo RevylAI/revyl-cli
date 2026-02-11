@@ -1568,6 +1568,168 @@ type DeleteBuildVersionResponse struct {
 	Message string `json:"message"`
 }
 
+// --- Module API methods ---
+
+// CLIModuleResponse represents a module for CLI display.
+type CLIModuleResponse struct {
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Description string        `json:"description,omitempty"`
+	Blocks      []interface{} `json:"blocks"`
+	CreatedAt   string        `json:"created_at"`
+	UpdatedAt   string        `json:"updated_at"`
+	OrgID       string        `json:"org_id"`
+}
+
+// CLIModulesListResponse represents the response from listing modules.
+type CLIModulesListResponse struct {
+	Message string              `json:"message"`
+	Result  []CLIModuleResponse `json:"result"`
+}
+
+// CLIModuleSingleResponse represents the response from a single module operation.
+type CLIModuleSingleResponse struct {
+	Message string            `json:"message"`
+	Result  CLIModuleResponse `json:"result"`
+}
+
+// CLICreateModuleRequest represents a module creation request.
+type CLICreateModuleRequest struct {
+	Name        string        `json:"name"`
+	Description string        `json:"description,omitempty"`
+	Blocks      []interface{} `json:"blocks"`
+}
+
+// CLIUpdateModuleRequest represents a module update request.
+type CLIUpdateModuleRequest struct {
+	Name        *string        `json:"name,omitempty"`
+	Description *string        `json:"description,omitempty"`
+	Blocks      *[]interface{} `json:"blocks,omitempty"`
+}
+
+// CLIDeleteModuleResponse represents the response from deleting a module.
+type CLIDeleteModuleResponse struct {
+	Message string `json:"message"`
+}
+
+// ListModules fetches all modules for the authenticated user's organization.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *CLIModulesListResponse: List of modules
+//   - error: Any error that occurred
+func (c *Client) ListModules(ctx context.Context) (*CLIModulesListResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/modules/list", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIModulesListResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetModule retrieves a module by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//
+// Returns:
+//   - *CLIModuleSingleResponse: The module data
+//   - error: Any error that occurred
+func (c *Client) GetModule(ctx context.Context, moduleID string) (*CLIModuleSingleResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/modules/%s", moduleID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIModuleSingleResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// CreateModule creates a new module.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The creation request
+//
+// Returns:
+//   - *CLIModuleSingleResponse: The created module
+//   - error: Any error that occurred
+func (c *Client) CreateModule(ctx context.Context, req *CLICreateModuleRequest) (*CLIModuleSingleResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/modules/create", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIModuleSingleResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// UpdateModule updates an existing module.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//   - req: The update request
+//
+// Returns:
+//   - *CLIModuleSingleResponse: The updated module
+//   - error: Any error that occurred
+func (c *Client) UpdateModule(ctx context.Context, moduleID string, req *CLIUpdateModuleRequest) (*CLIModuleSingleResponse, error) {
+	resp, err := c.doRequest(ctx, "PUT",
+		fmt.Sprintf("/api/v1/modules/update/%s", moduleID), req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIModuleSingleResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteModule deletes a module by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//
+// Returns:
+//   - *CLIDeleteModuleResponse: The deletion response
+//   - error: Any error that occurred (409 if module is in use)
+func (c *Client) DeleteModule(ctx context.Context, moduleID string) (*CLIDeleteModuleResponse, error) {
+	resp, err := c.doRequest(ctx, "DELETE",
+		fmt.Sprintf("/api/v1/modules/delete/%s", moduleID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIDeleteModuleResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // DeleteBuildVersion deletes a specific build version.
 //
 // Parameters:

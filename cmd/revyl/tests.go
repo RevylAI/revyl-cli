@@ -13,6 +13,7 @@ import (
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
+	"github.com/revyl/cli/internal/util"
 	"github.com/revyl/cli/internal/yaml"
 )
 
@@ -431,7 +432,16 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 			}
 			for _, t := range remoteTests.Tests {
 				if !existingIDs[t.ID] {
-					cfg.Tests[t.Name] = t.ID
+					sanitizedName := util.SanitizeForFilename(t.Name)
+					if sanitizedName == "" {
+						sanitizedName = fmt.Sprintf("test-%s", t.ID[:8])
+					}
+					// Handle collisions (two tests that sanitize to the same name)
+					finalName := sanitizedName
+					for i := 2; cfg.Tests[finalName] != "" && cfg.Tests[finalName] != t.ID; i++ {
+						finalName = fmt.Sprintf("%s-%d", sanitizedName, i)
+					}
+					cfg.Tests[finalName] = t.ID
 					newCount++
 				}
 			}

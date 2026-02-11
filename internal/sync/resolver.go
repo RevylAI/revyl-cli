@@ -15,6 +15,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/util"
 )
 
 // SyncStatus represents the sync status of a test.
@@ -270,7 +271,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				r.config.Tests[name] = resp.ID
 
 				// Save updated local test file
-				path := filepath.Join(testsDir, name+".yaml")
+				path := filepath.Join(testsDir, util.SanitizeForFilename(name)+".yaml")
 				if saveErr := config.SaveLocalTest(path, localTest); saveErr != nil {
 					// Log but don't fail - the remote sync succeeded
 					result.Error = fmt.Errorf("synced but failed to save local file: %w", saveErr)
@@ -303,7 +304,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				localTest.Meta.LastSyncedAt = time.Now().Format(time.RFC3339)
 
 				// Save updated local test file
-				path := filepath.Join(testsDir, name+".yaml")
+				path := filepath.Join(testsDir, util.SanitizeForFilename(name)+".yaml")
 				if saveErr := config.SaveLocalTest(path, localTest); saveErr != nil {
 					// Log but don't fail - the remote sync succeeded
 					result.Error = fmt.Errorf("synced but failed to save local file: %w", saveErr)
@@ -418,7 +419,7 @@ func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string
 		}
 
 		// Save to file
-		path := filepath.Join(testsDir, name+".yaml")
+		path := filepath.Join(testsDir, util.SanitizeForFilename(name)+".yaml")
 		if err := config.SaveLocalTest(path, localTest); err != nil {
 			result.Error = err
 		} else {

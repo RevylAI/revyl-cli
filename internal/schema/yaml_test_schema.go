@@ -128,6 +128,22 @@ Execute a server-side script.
   variable_name: "result"  # Optional: store result in variable
 ` + "```" + `
 
+### 8. module_import
+Import a reusable module (group of blocks) by its UUID.
+
+Modules are reusable building blocks created via the web UI or CLI.
+When a test runs, module_import blocks are expanded into the module's
+constituent blocks at execution time.
+
+` + "```yaml" + `
+- type: module_import
+  step_description: "Login Flow"     # Module name (for readability)
+  module_id: "abc-123-uuid"          # Required: Module UUID
+` + "```" + `
+
+Use ` + "`revyl module list`" + ` to find available modules and their IDs,
+or ` + "`revyl module insert <name>`" + ` to generate a ready-to-paste snippet.
+
 ## Variable System
 
 ### Syntax
@@ -320,6 +336,14 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 					"type":             "code_execution",
 					"step_description": "string (script UUID, required)",
 					"variable_name":    "string (optional)",
+				},
+			},
+			"module_import": map[string]interface{}{
+				"description": "Import a reusable module (group of blocks) by UUID",
+				"fields": map[string]string{
+					"type":             "module_import",
+					"step_description": "string (module name, for readability)",
+					"module_id":        "string (module UUID, required)",
 				},
 			},
 		},
