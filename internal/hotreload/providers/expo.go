@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/revyl/cli/internal/hotreload"
@@ -121,7 +120,7 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 	e.cmd.Dir = e.WorkDir
 
 	// Set process group so we can kill all child processes
-	e.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setSysProcAttr(e.cmd)
 
 	// Set environment to avoid interactive prompts
 	e.cmd.Env = append(os.Environ(),
@@ -236,9 +235,9 @@ func (e *ExpoDevServer) Stop() error {
 	if e.cmd != nil && e.cmd.Process != nil {
 		pid := e.cmd.Process.Pid
 
-		// Kill the entire process group (negative PID kills the group)
+		// Kill the entire process group
 		// This ensures Metro bundler and all child processes are killed
-		syscall.Kill(-pid, syscall.SIGTERM)
+		killProcessGroup(pid)
 
 		// Wait briefly for graceful shutdown
 		done := make(chan error, 1)
@@ -251,9 +250,9 @@ func (e *ExpoDevServer) Stop() error {
 			// Process exited gracefully
 		case <-time.After(2 * time.Second):
 			// Force kill the process group
-			syscall.Kill(-pid, syscall.SIGKILL)
+			forceKillProcessGroup(pid)
 			// Also try to kill any remaining processes on the port
-			e.killProcessOnPort()
+			killProcessOnPort(e.Port)
 			<-time.After(500 * time.Millisecond)
 		}
 
@@ -261,27 +260,9 @@ func (e *ExpoDevServer) Stop() error {
 	}
 
 	// Final cleanup: ensure nothing is left on the port
-	e.killProcessOnPort()
+	killProcessOnPort(e.Port)
 
 	return nil
-}
-
-// killProcessOnPort kills any process listening on the configured port.
-func (e *ExpoDevServer) killProcessOnPort() {
-	// Use lsof to find and kill any process on the port
-	cmd := exec.Command("lsof", "-ti", fmt.Sprintf(":%d", e.Port))
-	output, err := cmd.Output()
-	if err != nil {
-		return
-	}
-
-	pids := strings.Fields(strings.TrimSpace(string(output)))
-	for _, pidStr := range pids {
-		var pid int
-		if _, err := fmt.Sscanf(pidStr, "%d", &pid); err == nil {
-			syscall.Kill(pid, syscall.SIGKILL)
-		}
-	}
 }
 
 // GetPort returns the port the Expo dev server is listening on.
