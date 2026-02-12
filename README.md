@@ -68,6 +68,18 @@ export PATH="$PATH:$(pwd)/build"
 ./build/revyl --dev test my-test  # Against local backend
 ```
 
+### Sandboxes (Internal)
+
+Fleet sandboxes are Mac Mini VMs with pre-configured iOS simulators and Android emulators. See the [Sandbox Guide](../README.md#sandbox-guide-revyl-cli) in the monorepo README for the full guide.
+
+```bash
+revyl --dev sandbox status                    # Check availability
+revyl --dev sandbox claim                     # Claim a sandbox
+revyl --dev sandbox worktree create feature-x # Create worktree
+revyl --dev sandbox open feature-x            # Open in IDE
+revyl --dev sandbox release                   # Release when done
+```
+
 ## Commands
 
 ### Authentication

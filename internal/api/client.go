@@ -681,7 +681,7 @@ type Test struct {
 	Tasks          interface{}            `json:"tasks"`
 	Version        int                    `json:"version"`
 	LastModifiedBy string                 `json:"last_modified_by,omitempty"`
-	AppID          string                 `json:"build_var_id,omitempty"`
+	AppID          string                 `json:"app_id,omitempty"`
 	PinnedVersion  string                 `json:"pinned_version,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
@@ -690,7 +690,7 @@ type Test struct {
 type UpdateTestRequest struct {
 	TestID          string      `json:"-"`
 	Tasks           interface{} `json:"tasks,omitempty"`
-	AppID           string      `json:"build_var_id,omitempty"`
+	AppID           string      `json:"app_id,omitempty"`
 	ExpectedVersion int         `json:"expected_version,omitempty"`
 	Force           bool        `json:"-"` // Client-side only, not sent to server
 }
@@ -730,7 +730,7 @@ type CreateTestRequest struct {
 	Name     string      `json:"name"`
 	Platform string      `json:"platform"`
 	Tasks    interface{} `json:"tasks"`
-	AppID    string      `json:"build_var_id,omitempty"`
+	AppID    string      `json:"app_id,omitempty"`
 	OrgID    string      `json:"org_id,omitempty"`
 }
 
