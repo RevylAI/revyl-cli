@@ -428,6 +428,9 @@ type TestBlock struct {
 
 	// VariableName is the variable name for extraction blocks.
 	VariableName string `yaml:"variable_name,omitempty" json:"variable_name,omitempty"`
+
+	// ModuleID is the module UUID for module_import blocks.
+	ModuleID string `yaml:"module_id,omitempty" json:"module_id,omitempty"`
 }
 
 // ComputeTestChecksum computes a SHA-256 checksum of the test definition.

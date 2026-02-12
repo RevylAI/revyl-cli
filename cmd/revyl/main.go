@@ -94,6 +94,8 @@ func init() {
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(workflowCmd)
+	rootCmd.AddCommand(moduleCmd)
+	rootCmd.AddCommand(tagCmd)
 	rootCmd.AddCommand(docsCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(schemaCmd)
