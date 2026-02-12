@@ -59,6 +59,7 @@ type Block struct {
 	Then            []Block `yaml:"then,omitempty"`
 	Else            []Block `yaml:"else,omitempty"`
 	Body            []Block `yaml:"body,omitempty"`
+	ModuleID        string  `yaml:"module_id,omitempty"`
 }
 
 // validBlockTypes contains all valid block type values.
@@ -70,6 +71,7 @@ var validBlockTypes = map[string]bool{
 	"if":             true,
 	"while":          true,
 	"code_execution": true,
+	"module_import":  true,
 }
 
 // validStepTypes contains all valid manual step_type values.
@@ -306,6 +308,11 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 				errors = append(errors, fmt.Sprintf("%s (code_execution): Invalid variable_name '%s' - must be kebab-case", blockPath, block.VariableName))
 			}
 			definedVars[block.VariableName] = true
+		}
+
+	case "module_import":
+		if block.ModuleID == "" {
+			errors = append(errors, fmt.Sprintf("%s (module_import): Missing module_id (module UUID)", blockPath))
 		}
 	}
 

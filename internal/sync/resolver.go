@@ -15,6 +15,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/util"
 )
 
 // SyncStatus represents the sync status of a test.
@@ -267,10 +268,14 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				if r.config.Tests == nil {
 					r.config.Tests = make(map[string]string)
 				}
-				r.config.Tests[name] = resp.ID
+				sanitized := util.SanitizeForFilename(name)
+				r.config.Tests[sanitized] = resp.ID
+				if sanitized != name {
+					delete(r.config.Tests, name)
+				}
 
 				// Save updated local test file
-				path := filepath.Join(testsDir, name+".yaml")
+				path := filepath.Join(testsDir, sanitized+".yaml")
 				if saveErr := config.SaveLocalTest(path, localTest); saveErr != nil {
 					// Log but don't fail - the remote sync succeeded
 					result.Error = fmt.Errorf("synced but failed to save local file: %w", saveErr)
@@ -303,10 +308,17 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				localTest.Meta.LastSyncedAt = time.Now().Format(time.RFC3339)
 
 				// Save updated local test file
-				path := filepath.Join(testsDir, name+".yaml")
+				sanitized := util.SanitizeForFilename(name)
+				path := filepath.Join(testsDir, sanitized+".yaml")
 				if saveErr := config.SaveLocalTest(path, localTest); saveErr != nil {
 					// Log but don't fail - the remote sync succeeded
 					result.Error = fmt.Errorf("synced but failed to save local file: %w", saveErr)
+				}
+
+				// Reconcile config key with sanitized filename
+				if sanitized != name {
+					r.config.Tests[sanitized] = remoteID
+					delete(r.config.Tests, name)
 				}
 			}
 		}
@@ -418,11 +430,18 @@ func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string
 		}
 
 		// Save to file
-		path := filepath.Join(testsDir, name+".yaml")
+		sanitized := util.SanitizeForFilename(name)
+		path := filepath.Join(testsDir, sanitized+".yaml")
 		if err := config.SaveLocalTest(path, localTest); err != nil {
 			result.Error = err
 		} else {
 			result.NewVersion = remoteTest.Version
+
+			// Reconcile config key with sanitized filename
+			if sanitized != name {
+				r.config.Tests[sanitized] = remoteID
+				delete(r.config.Tests, name)
+			}
 		}
 
 		results = append(results, result)

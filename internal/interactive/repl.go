@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/hotreload"
+	"github.com/revyl/cli/internal/util"
 )
 
 // REPL handles the interactive command loop.
@@ -402,8 +403,8 @@ func (r *REPL) handleSave(args []string) error {
 		// Use test name from session config if available
 		testName := r.session.GetTestName()
 		if testName != "" {
-			// Sanitize test name for filename (replace spaces with hyphens, lowercase)
-			filename = strings.ToLower(strings.ReplaceAll(testName, " ", "-"))
+			// Sanitize test name for filename
+			filename = util.SanitizeForFilename(testName)
 		} else {
 			filename = "test"
 		}

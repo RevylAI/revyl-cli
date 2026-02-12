@@ -33,6 +33,12 @@ const (
 	ActionBlockTypeValidation    ActionBlockType = "validation"
 )
 
+// Defines values for AppPlatform.
+const (
+	Android AppPlatform = "Android"
+	IOS     AppPlatform = "iOS"
+)
+
 // Defines values for AsyncStatus.
 const (
 	AsyncStatusCancelled    AsyncStatus = "cancelled"
@@ -44,10 +50,13 @@ const (
 	AsyncStatusRunning      AsyncStatus = "running"
 )
 
-// Defines values for BuildPlatform.
+// Defines values for BoundingBoxErrorType.
 const (
-	Android BuildPlatform = "Android"
-	IOS     BuildPlatform = "iOS"
+	BoundingBoxErrorTypeBboxTooLarge      BoundingBoxErrorType = "bbox_too_large"
+	BoundingBoxErrorTypeElementNotVisible BoundingBoxErrorType = "element_not_visible"
+	BoundingBoxErrorTypeNone              BoundingBoxErrorType = "none"
+	BoundingBoxErrorTypePartialOverlap    BoundingBoxErrorType = "partial_overlap"
+	BoundingBoxErrorTypeTargetOutside     BoundingBoxErrorType = "target_outside"
 )
 
 // Defines values for CacheRetryMode.
@@ -128,6 +137,15 @@ const (
 	FleetSandboxStatusReserved    FleetSandboxStatus = "reserved"
 )
 
+// Defines values for GrounderHintErrorType.
+const (
+	GrounderHintErrorTypeEmptySpaceNotDescribed GrounderHintErrorType = "empty_space_not_described"
+	GrounderHintErrorTypeNoVisualCues           GrounderHintErrorType = "no_visual_cues"
+	GrounderHintErrorTypeNone                   GrounderHintErrorType = "none"
+	GrounderHintErrorTypeUiJargon               GrounderHintErrorType = "ui_jargon"
+	GrounderHintErrorTypeWrongElement           GrounderHintErrorType = "wrong_element"
+)
+
 // Defines values for GrounderType.
 const (
 	Auto            GrounderType = "auto"
@@ -138,6 +156,17 @@ const (
 	Qwen3Vl         GrounderType = "qwen3-vl"
 	UiTars          GrounderType = "ui-tars"
 	Unified         GrounderType = "unified"
+)
+
+// Defines values for GroundingErrorType.
+const (
+	GroundingErrorTypeEmptySpace     GroundingErrorType = "empty_space"
+	GroundingErrorTypeEvalFailure    GroundingErrorType = "eval_failure"
+	GroundingErrorTypeNearMiss       GroundingErrorType = "near_miss"
+	GroundingErrorTypeNone           GroundingErrorType = "none"
+	GroundingErrorTypeWrongArea      GroundingErrorType = "wrong_area"
+	GroundingErrorTypeWrongDirection GroundingErrorType = "wrong_direction"
+	GroundingErrorTypeWrongElement   GroundingErrorType = "wrong_element"
 )
 
 // Defines values for HITLApprovalDecisionDecision.
@@ -156,12 +185,35 @@ const (
 	NormalizedActionBlockTypeValidation    NormalizedActionBlockType = "validation"
 )
 
+// Defines values for QualityGrade.
+const (
+	A QualityGrade = "A"
+	B QualityGrade = "B"
+	C QualityGrade = "C"
+	D QualityGrade = "D"
+	F QualityGrade = "F"
+)
+
+// Defines values for ReflectionErrorType.
+const (
+	ReflectionErrorTypeFalseNegative ReflectionErrorType = "false_negative"
+	ReflectionErrorTypeFalsePositive ReflectionErrorType = "false_positive"
+	ReflectionErrorTypeNone          ReflectionErrorType = "none"
+)
+
 // Defines values for RegisterSandboxRequestStatus.
 const (
 	RegisterSandboxRequestStatusAvailable   RegisterSandboxRequestStatus = "available"
 	RegisterSandboxRequestStatusClaimed     RegisterSandboxRequestStatus = "claimed"
 	RegisterSandboxRequestStatusMaintenance RegisterSandboxRequestStatus = "maintenance"
 	RegisterSandboxRequestStatusReserved    RegisterSandboxRequestStatus = "reserved"
+)
+
+// Defines values for ReliabilityEstimate.
+const (
+	High   ReliabilityEstimate = "high"
+	Low    ReliabilityEstimate = "low"
+	Medium ReliabilityEstimate = "medium"
 )
 
 // Defines values for SessionStatus.
@@ -179,35 +231,51 @@ const (
 
 // Defines values for StepType.
 const (
-	Back          StepType = "back"
-	ClearText     StepType = "clear_text"
-	Click         StepType = "click"
-	CodeExecution StepType = "code_execution"
-	Decision      StepType = "decision"
-	DoubleTap     StepType = "double_tap"
-	DownloadFile  StepType = "download_file"
-	Drag          StepType = "drag"
-	End           StepType = "end"
-	Extract       StepType = "extract"
-	GoHome        StepType = "go_home"
-	Input         StepType = "input"
-	Instruction   StepType = "instruction"
-	KillApp       StepType = "kill_app"
-	LongPress     StepType = "long_press"
-	Loop          StepType = "loop"
-	ModuleImport  StepType = "module_import"
-	Navigate      StepType = "navigate"
-	OpenApp       StepType = "open_app"
-	Pinch         StepType = "pinch"
-	Scrape        StepType = "scrape"
-	ScrollDown    StepType = "scroll_down"
-	ScrollUp      StepType = "scroll_up"
-	Select        StepType = "select"
-	SetLocation   StepType = "set_location"
-	Swipe         StepType = "swipe"
-	Tap           StepType = "tap"
-	Validation    StepType = "validation"
-	Wait          StepType = "wait"
+	StepTypeBack          StepType = "back"
+	StepTypeClearText     StepType = "clear_text"
+	StepTypeClick         StepType = "click"
+	StepTypeCodeExecution StepType = "code_execution"
+	StepTypeDecision      StepType = "decision"
+	StepTypeDoubleTap     StepType = "double_tap"
+	StepTypeDownloadFile  StepType = "download_file"
+	StepTypeDrag          StepType = "drag"
+	StepTypeEnd           StepType = "end"
+	StepTypeExtract       StepType = "extract"
+	StepTypeGoHome        StepType = "go_home"
+	StepTypeInput         StepType = "input"
+	StepTypeInstruction   StepType = "instruction"
+	StepTypeKillApp       StepType = "kill_app"
+	StepTypeLongPress     StepType = "long_press"
+	StepTypeLoop          StepType = "loop"
+	StepTypeModuleImport  StepType = "module_import"
+	StepTypeNavigate      StepType = "navigate"
+	StepTypeOpenApp       StepType = "open_app"
+	StepTypePinch         StepType = "pinch"
+	StepTypeScrape        StepType = "scrape"
+	StepTypeScrollDown    StepType = "scroll_down"
+	StepTypeScrollUp      StepType = "scroll_up"
+	StepTypeSelect        StepType = "select"
+	StepTypeSetLocation   StepType = "set_location"
+	StepTypeSwipe         StepType = "swipe"
+	StepTypeTap           StepType = "tap"
+	StepTypeValidation    StepType = "validation"
+	StepTypeWait          StepType = "wait"
+)
+
+// Defines values for SuggestionQualityRating.
+const (
+	Adequate  SuggestionQualityRating = "adequate"
+	Excellent SuggestionQualityRating = "excellent"
+	Good      SuggestionQualityRating = "good"
+	Incorrect SuggestionQualityRating = "incorrect"
+	Poor      SuggestionQualityRating = "poor"
+)
+
+// Defines values for TestEvalReportTestOutcome.
+const (
+	ERROR  TestEvalReportTestOutcome = "ERROR"
+	FAILED TestEvalReportTestOutcome = "FAILED"
+	PASSED TestEvalReportTestOutcome = "PASSED"
 )
 
 // Defines values for UpdateSandboxRequestStatus.
@@ -218,10 +286,27 @@ const (
 	Reserved    UpdateSandboxRequestStatus = "reserved"
 )
 
+// Defines values for ValidationErrorType.
+const (
+	FalseNegative ValidationErrorType = "false_negative"
+	FalsePositive ValidationErrorType = "false_positive"
+	None          ValidationErrorType = "none"
+)
+
 // Defines values for ValidationTypeEnum.
 const (
 	BlocksOnly ValidationTypeEnum = "blocks_only"
 	FullTest   ValidationTypeEnum = "full_test"
+)
+
+// Defines values for WeakestComponent.
+const (
+	WeakestComponentBoundingBox  WeakestComponent = "bounding_box"
+	WeakestComponentGrounderHint WeakestComponent = "grounder_hint"
+	WeakestComponentGrounding    WeakestComponent = "grounding"
+	WeakestComponentInstruction  WeakestComponent = "instruction"
+	WeakestComponentReflection   WeakestComponent = "reflection"
+	WeakestComponentValidation   WeakestComponent = "validation"
 )
 
 // Defines values for WorkerConnectionResponseStatus.
@@ -361,6 +446,13 @@ type ActionBlock_StepType struct {
 
 // ActionBlockType Must be one of: instructions, extraction, manual, validation, code_execution, module_import
 type ActionBlockType string
+
+// ActionStatusResponse Response model for step action endpoints (dismiss, annotate, review).
+type ActionStatusResponse struct {
+	EvalId    *string `json:"eval_id"`
+	Status    string  `json:"status"`
+	StepIndex *string `json:"step_index"`
+}
 
 // ActiveDeviceSessionCountResponse Response model for active device session count.
 type ActiveDeviceSessionCountResponse struct {
@@ -511,18 +603,18 @@ type AdminSummaryMetric struct {
 //	owner: Owner user ID.
 //	created_at: Test creation timestamp.
 //	updated_at: Test update timestamp.
-//	build_var_id: Associated build variable ID.
+//	app_id: Associated app ID.
 //	deleted: Soft delete flag.
 type AdminTestDefinition struct {
-	BuildVarId *string `json:"build_var_id"`
-	CreatedAt  *string `json:"created_at"`
-	Deleted    *bool   `json:"deleted,omitempty"`
-	Id         string  `json:"id"`
-	Name       string  `json:"name"`
-	OrgId      *string `json:"org_id"`
-	Owner      *string `json:"owner"`
-	Platform   *string `json:"platform"`
-	UpdatedAt  *string `json:"updated_at"`
+	AppId     *string `json:"app_id"`
+	CreatedAt *string `json:"created_at"`
+	Deleted   *bool   `json:"deleted,omitempty"`
+	Id        string  `json:"id"`
+	Name      string  `json:"name"`
+	OrgId     *string `json:"org_id"`
+	Owner     *string `json:"owner"`
+	Platform  *string `json:"platform"`
+	UpdatedAt *string `json:"updated_at"`
 }
 
 // AdminTestExecution Test execution data for admin dashboard.
@@ -741,6 +833,18 @@ type AppBinaryUploadResponseWithPackageId struct {
 	UploadUrl string  `json:"upload_url"`
 }
 
+// AppCreateRequest Request model for creating an app.
+type AppCreateRequest struct {
+	// Description Optional description
+	Description *string `json:"description"`
+
+	// Name App name (e.g., 'iOS-Prod', 'Android-Staging')
+	Name string `json:"name"`
+
+	// Platform Platform types for apps.
+	Platform AppPlatform `json:"platform"`
+}
+
 // AppLaunchEnvVarDecryptedRow Decrypted app launch environment variable for client use
 type AppLaunchEnvVarDecryptedRow struct {
 	// CreatedAt Creation timestamp
@@ -790,6 +894,50 @@ type AppLaunchEnvVarsResponse struct {
 
 	// Result List of env var records
 	Result []AppLaunchEnvVarDecryptedRow `json:"result"`
+}
+
+// AppPlatform Platform types for apps.
+type AppPlatform string
+
+// AppPlatformCounts Per-platform app counts.
+type AppPlatformCounts struct {
+	// Android Number of Android apps
+	Android *int `json:"android,omitempty"`
+
+	// Ios Number of iOS apps
+	Ios *int `json:"ios,omitempty"`
+
+	// Total Total number of apps across all platforms
+	Total *int `json:"total,omitempty"`
+}
+
+// AppResponse Response model for an app.
+type AppResponse struct {
+	CreatedAt      *time.Time          `json:"created_at"`
+	CurrentVersion *string             `json:"current_version"`
+	Description    *string             `json:"description"`
+	Id             *openapi_types.UUID `json:"id"`
+	LatestVersion  *string             `json:"latest_version"`
+	Name           *string             `json:"name"`
+	OrgId          *openapi_types.UUID `json:"org_id"`
+	Platform       *string             `json:"platform"`
+	StaticUrl      *string             `json:"static_url"`
+	VersionsCount  *int                `json:"versions_count"`
+}
+
+// AppUpdateRequest Request model for updating an app.
+type AppUpdateRequest struct {
+	// CurrentVersion Current version pointer
+	CurrentVersion *string `json:"current_version"`
+
+	// Description Description
+	Description *string `json:"description"`
+
+	// Name App name
+	Name *string `json:"name"`
+
+	// StaticUrl Static URL for legacy web builds
+	StaticUrl *string `json:"static_url"`
 }
 
 // AssignSeatsRequest defines model for AssignSeatsRequest.
@@ -943,8 +1091,8 @@ type BodyCreateUploadFileToSupabaseApiV1StorageS3UploadDownloadToSupabaseFilePos
 	UserId     *string            `json:"user_id,omitempty"`
 }
 
-// BodyStreamUploadBuildVersionApiV1BuildsVarsBuildVarIdVersionsStreamUploadPost defines model for Body_stream_upload_build_version_api_v1_builds_vars__build_var_id__versions_stream_upload_post.
-type BodyStreamUploadBuildVersionApiV1BuildsVarsBuildVarIdVersionsStreamUploadPost struct {
+// BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost defines model for Body_stream_upload_build_api_v1_apps__app_id__builds_stream_upload_post.
+type BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost struct {
 	// File The build artifact file to upload
 	File openapi_types.File `json:"file"`
 }
@@ -956,21 +1104,70 @@ type BodyUploadToS3ApiV1StorageS3UploadPost struct {
 	TestId     string             `json:"test_id"`
 }
 
-// BuildPathConfig Configuration for a build path.
-type BuildPathConfig struct {
-	BuildVarId string `json:"build_var_id"`
-	Path       string `json:"path"`
-	Platform   string `json:"platform"`
+// BoundingBoxErrorType Types of bounding box errors that can occur.
+type BoundingBoxErrorType string
+
+// BoundingBoxEval Evaluation result for Instructional LLM bounding box accuracy.
+type BoundingBoxEval struct {
+	// Correct Whether the specified bounding box contained the target element
+	Correct bool `json:"correct"`
+
+	// ErrorType Types of bounding box errors that can occur.
+	ErrorType *BoundingBoxErrorType `json:"error_type,omitempty"`
+
+	// Explanation Brief reasoning
+	Explanation *string `json:"explanation"`
+
+	// FallbackUsed True if fallback expansion was needed to find the element
+	FallbackUsed *bool `json:"fallback_used,omitempty"`
+
+	// SpecifiedBbox The bbox specified by Instructional LLM (e.g., 'A2-C4')
+	SpecifiedBbox *string `json:"specified_bbox"`
+
+	// TargetDescription What element the bbox was supposed to contain
+	TargetDescription *string `json:"target_description"`
+
+	// UsedBbox The bbox actually used after fallback expansion
+	UsedBbox *string `json:"used_bbox"`
 }
 
-// BuildPlatform Platform types for builds.
-type BuildPlatform string
+// BuildCreateResponse Response model for creating a build with upload URL.
+type BuildCreateResponse struct {
+	ContentType     string             `json:"content_type"`
+	UploadExpiresAt int                `json:"upload_expires_at"`
+	UploadUrl       string             `json:"upload_url"`
+	Version         string             `json:"version"`
+	VersionId       openapi_types.UUID `json:"version_id"`
+}
+
+// BuildFromUrlRequest Request to create a build by ingesting an artifact from a URL (e.g., Expo EAS).
+type BuildFromUrlRequest struct {
+	// FromUrl Source URL of the artifact to ingest
+	FromUrl string `json:"from_url"`
+
+	// Headers Optional HTTP headers to include when fetching the URL
+	Headers  *map[string]string      `json:"headers"`
+	Metadata *map[string]interface{} `json:"metadata"`
+
+	// SetAsCurrent If True, set this version as the current version for the app
+	SetAsCurrent *bool `json:"set_as_current,omitempty"`
+
+	// Version Version string (must be unique within the app)
+	Version string `json:"version"`
+}
+
+// BuildPathConfig Configuration for a build path.
+type BuildPathConfig struct {
+	AppId    string `json:"app_id"`
+	Path     string `json:"path"`
+	Platform string `json:"platform"`
+}
 
 // BuildResolutionRequest Request to resolve a build for a test.
 type BuildResolutionRequest struct {
 	BuildVarId openapi_types.UUID `json:"build_var_id"`
 
-	// Filters Optional resolution filters matched against version metadata (e.g., pr_number, commit_sha)
+	// Filters Optional resolution filters matched against build metadata (e.g., pr_number, commit_sha)
 	Filters       *map[string]interface{} `json:"filters"`
 	PinnedVersion *string                 `json:"pinned_version"`
 }
@@ -984,89 +1181,14 @@ type BuildResolutionResponse struct {
 	StaticUrl   *string            `json:"static_url"`
 	Version     *string            `json:"version"`
 
-	// VersionId Resolved build version row ID for fetching version details
+	// VersionId Resolved build row ID for fetching build details
 	VersionId *openapi_types.UUID `json:"version_id"`
 }
 
-// BuildUploadCompleteRequest Request to mark upload as complete.
-type BuildUploadCompleteRequest struct {
-	Metadata *map[string]interface{} `json:"metadata"`
-
-	// PackageName Package name
-	PackageName *string            `json:"package_name"`
-	VersionId   openapi_types.UUID `json:"version_id"`
-}
-
-// BuildVarCreateRequest Request model for creating a build variable (alias).
-type BuildVarCreateRequest struct {
-	// Description Optional description
-	Description *string `json:"description"`
-
-	// Name Build alias name (e.g., 'iOS-Prod', 'Android-Staging')
-	Name string `json:"name"`
-
-	// Platform Platform types for builds.
-	Platform BuildPlatform `json:"platform"`
-}
-
-// BuildVarResponse Response model for a build variable.
-type BuildVarResponse struct {
-	CreatedAt      *time.Time          `json:"created_at"`
-	CurrentVersion *string             `json:"current_version"`
-	Description    *string             `json:"description"`
-	Id             *openapi_types.UUID `json:"id"`
-	LatestVersion  *string             `json:"latest_version"`
-	Name           *string             `json:"name"`
-	OrgId          *openapi_types.UUID `json:"org_id"`
-	Platform       *string             `json:"platform"`
-	StaticUrl      *string             `json:"static_url"`
-	VersionsCount  *int                `json:"versions_count"`
-}
-
-// BuildVarUpdateRequest Request model for updating a build variable.
-type BuildVarUpdateRequest struct {
-	// CurrentVersion Current version pointer
-	CurrentVersion *string `json:"current_version"`
-
-	// Description Description
-	Description *string `json:"description"`
-
-	// Name Build alias name
-	Name *string `json:"name"`
-
-	// StaticUrl Static URL for legacy web builds
-	StaticUrl *string `json:"static_url"`
-}
-
-// BuildVersionCreateResponse Response model for creating a build version with upload URL.
-type BuildVersionCreateResponse struct {
-	ContentType     string             `json:"content_type"`
-	UploadExpiresAt int                `json:"upload_expires_at"`
-	UploadUrl       string             `json:"upload_url"`
-	Version         string             `json:"version"`
-	VersionId       openapi_types.UUID `json:"version_id"`
-}
-
-// BuildVersionFromUrlRequest Request to create a build version by ingesting an artifact from a URL (e.g., Expo EAS).
-type BuildVersionFromUrlRequest struct {
-	// FromUrl Source URL of the artifact to ingest
-	FromUrl string `json:"from_url"`
-
-	// Headers Optional HTTP headers to include when fetching the URL
-	Headers  *map[string]string      `json:"headers"`
-	Metadata *map[string]interface{} `json:"metadata"`
-
-	// SetAsCurrent If True, set this version as the current version for the build variable
-	SetAsCurrent *bool `json:"set_as_current,omitempty"`
-
-	// Version Version string (must be unique within the build var)
-	Version string `json:"version"`
-}
-
-// BuildVersionResponse Response model for a build version.
-type BuildVersionResponse struct {
+// BuildResponse Response model for a build (specific artifact/version of an app).
+type BuildResponse struct {
+	AppId       *openapi_types.UUID     `json:"app_id"`
 	ArtifactUrl *string                 `json:"artifact_url"`
-	BuildVarId  *openapi_types.UUID     `json:"build_var_id"`
 	DownloadUrl *string                 `json:"download_url"`
 	Id          *openapi_types.UUID     `json:"id"`
 	Metadata    *map[string]interface{} `json:"metadata,omitempty"`
@@ -1077,15 +1199,24 @@ type BuildVersionResponse struct {
 	WasReused   *bool                   `json:"was_reused"`
 }
 
-// BuildVersionUpdateRequest Request model for updating a build version.
-type BuildVersionUpdateRequest struct {
+// BuildUpdateRequest Request model for updating a build.
+type BuildUpdateRequest struct {
 	Metadata *map[string]interface{} `json:"metadata"`
 
 	// PackageName Package name override
 	PackageName *string `json:"package_name"`
 
-	// Version Rename version string (must be unique within build_var)
+	// Version Rename version string (must be unique within app)
 	Version *string `json:"version"`
+}
+
+// BuildUploadCompleteRequest Request to mark upload as complete.
+type BuildUploadCompleteRequest struct {
+	Metadata *map[string]interface{} `json:"metadata"`
+
+	// PackageName Package name
+	PackageName *string            `json:"package_name"`
+	VersionId   openapi_types.UUID `json:"version_id"`
 }
 
 // BulkDeleteTasksRequest Request to delete multiple tasks.
@@ -1311,16 +1442,25 @@ type CategoryValue struct {
 	Value    float32 `json:"value"`
 }
 
-// ChartDataPoint defines model for ChartDataPoint.
+// ChartDataPoint Daily aggregated chart data point.
 type ChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
+	// AvgDuration Average execution duration in seconds for this date
+	AvgDuration *int `json:"avg_duration"`
+
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -1613,16 +1753,16 @@ type CopyTestToBenchmarksRequest struct {
 //	success: Whether the copy operation completed successfully.
 //	message: Human-readable summary of the operation.
 //	new_test_id: UUID of the newly created test (if successful).
-//	new_build_var_id: UUID of the newly created build_var (if any).
-//	build_versions_copied: Number of build versions copied.
+//	new_app_id: UUID of the newly created app (if any).
+//	builds_copied: Number of builds copied.
 //	env_vars_copied: Number of environment variables copied.
 //	cookies_copied: Number of web cookies copied.
 //	variables_copied: Number of custom variables copied.
 //	scripts_copied: Number of scripts copied.
 //	is_resync: Whether this was a resync of an existing benchmark test.
 type CopyTestToBenchmarksResponse struct {
-	// BuildVersionsCopied Number of build versions copied
-	BuildVersionsCopied *int `json:"build_versions_copied,omitempty"`
+	// BuildsCopied Number of builds copied
+	BuildsCopied *int `json:"builds_copied,omitempty"`
 
 	// CookiesCopied Number of web cookies copied
 	CookiesCopied *int `json:"cookies_copied,omitempty"`
@@ -1639,8 +1779,8 @@ type CopyTestToBenchmarksResponse struct {
 	// ModulesCopied Number of modules copied
 	ModulesCopied *int `json:"modules_copied,omitempty"`
 
-	// NewBuildVarId UUID of the newly created build_var
-	NewBuildVarId *string `json:"new_build_var_id"`
+	// NewAppId UUID of the newly created app
+	NewAppId *string `json:"new_app_id"`
 
 	// NewTestId UUID of the newly created test
 	NewTestId *string `json:"new_test_id"`
@@ -2029,9 +2169,9 @@ type DashboardMetrics struct {
 	TotalWorkflowsWow *float32 `json:"total_workflows_wow"`
 }
 
-// DeleteBuildVarResponse Response after deleting a build variable.
-type DeleteBuildVarResponse struct {
-	// DetachedTests Number of tests that were detached from this build
+// DeleteAppResponse Response after deleting an app.
+type DeleteAppResponse struct {
+	// DetachedTests Number of tests that were detached from this app
 	DetachedTests *int   `json:"detached_tests,omitempty"`
 	Message       string `json:"message"`
 }
@@ -2224,8 +2364,8 @@ type DuplicateTestRequest struct {
 	// CopyVariables Whether to copy custom variables from the original test
 	CopyVariables *bool `json:"copy_variables,omitempty"`
 
-	// NewBuildVarId Build variant ID to assign to the duplicated test. If not provided, keeps original build (or clears if cross-platform).
-	NewBuildVarId *string `json:"new_build_var_id"`
+	// NewAppId App ID to assign to the duplicated test. If not provided, keeps original app (or clears if cross-platform).
+	NewAppId *string `json:"new_app_id"`
 
 	// NewName Name for the duplicated test
 	NewName string `json:"new_name"`
@@ -2311,6 +2451,42 @@ type ErrorImage struct {
 	Url             *string `json:"url"`
 }
 
+// EvalErrorSummary Summary of errors from evaluation.
+type EvalErrorSummary struct {
+	BoundingBoxErrors  *int `json:"bounding_box_errors,omitempty"`
+	GrounderHintErrors *int `json:"grounder_hint_errors,omitempty"`
+	GroundingErrors    *int `json:"grounding_errors,omitempty"`
+	InstructionErrors  *int `json:"instruction_errors,omitempty"`
+	ReflectionErrors   *int `json:"reflection_errors,omitempty"`
+	ValidationErrors   *int `json:"validation_errors,omitempty"`
+}
+
+// EvalQueueItem defines model for EvalQueueItem.
+type EvalQueueItem struct {
+	AnnotatedCount     *int                `json:"annotated_count,omitempty"`
+	CreatedAt          time.Time           `json:"created_at"`
+	ErrorTypes         *map[string]int     `json:"error_types"`
+	FalsePositiveCount *int                `json:"false_positive_count,omitempty"`
+	GroundedSteps      int                 `json:"grounded_steps"`
+	GrounderType       *string             `json:"grounder_type"`
+	GroundingErrors    int                 `json:"grounding_errors"`
+	Id                 openapi_types.UUID  `json:"id"`
+	OrgId              *openapi_types.UUID `json:"org_id"`
+	Platform           *string             `json:"platform"`
+	ReviewStatus       string              `json:"review_status"`
+	TaskId             openapi_types.UUID  `json:"task_id"`
+	TestId             *openapi_types.UUID `json:"test_id"`
+	TestName           *string             `json:"test_name"`
+	TotalSteps         int                 `json:"total_steps"`
+	WorkflowId         *openapi_types.UUID `json:"workflow_id"`
+}
+
+// EvalQueueResponse defines model for EvalQueueResponse.
+type EvalQueueResponse struct {
+	Items []EvalQueueItem `json:"items"`
+	Total int             `json:"total"`
+}
+
 // EvalRequest Request model for running an eval.
 type EvalRequest struct {
 	EnabledJudges map[string]bool `json:"enabled_judges"`
@@ -2319,11 +2495,13 @@ type EvalRequest struct {
 
 // EvalResponse Response model for eval results.
 type EvalResponse struct {
-	Error       *string                 `json:"error"`
-	ErrorImages *[]ErrorImage           `json:"error_images"`
-	LogText     *string                 `json:"log_text"`
-	Report      *map[string]interface{} `json:"report"`
-	Success     bool                    `json:"success"`
+	Error       *string       `json:"error"`
+	ErrorImages *[]ErrorImage `json:"error_images"`
+	LogText     *string       `json:"log_text"`
+
+	// Report Complete evaluation report for a test run.
+	Report  *TestEvalReport `json:"report,omitempty"`
+	Success bool            `json:"success"`
 }
 
 // ExecuteTestAsyncAPIResponse Response for async test execution start.
@@ -2500,7 +2678,7 @@ type ExpoProjectListResponse struct {
 	Projects *[]ExpoProjectDbResponse `json:"projects,omitempty"`
 }
 
-// ExtractBuildPackageIdResponse Response model for extracting package ID for a build version.
+// ExtractBuildPackageIdResponse Response model for extracting package ID for a build.
 type ExtractBuildPackageIdResponse struct {
 	// Error Error message if extraction failed
 	Error *string `json:"error"`
@@ -2696,6 +2874,9 @@ type FleetSandbox struct {
 	// SshUser SSH username
 	SshUser *string `json:"ssh_user,omitempty"`
 
+	// SsmInstanceId AWS SSM managed instance ID for remote command execution
+	SsmInstanceId *string `json:"ssm_instance_id"`
+
 	// Status Current sandbox state
 	Status *FleetSandboxStatus `json:"status,omitempty"`
 
@@ -2792,6 +2973,92 @@ type FleetWorktree struct {
 	SandboxName string `json:"sandbox_name"`
 }
 
+// FlywheelConfigResponse defines model for FlywheelConfigResponse.
+type FlywheelConfigResponse struct {
+	Enabled bool `json:"enabled"`
+}
+
+// FlywheelConfigUpdateRequest defines model for FlywheelConfigUpdateRequest.
+type FlywheelConfigUpdateRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// FlywheelEvalResultResponse Response model for a single flywheel eval result.
+type FlywheelEvalResultResponse struct {
+	AnnotatedCount     *int                  `json:"annotated_count,omitempty"`
+	CreatedAt          *time.Time            `json:"created_at"`
+	DeviceHeight       *int                  `json:"device_height"`
+	DeviceWidth        *int                  `json:"device_width"`
+	EnabledJudges      *map[string]bool      `json:"enabled_judges"`
+	ErrorTypes         *map[string]int       `json:"error_types"`
+	FalsePositiveCount *int                  `json:"false_positive_count,omitempty"`
+	GroundedSteps      *int                  `json:"grounded_steps,omitempty"`
+	GrounderType       *string               `json:"grounder_type"`
+	GroundingErrors    *int                  `json:"grounding_errors,omitempty"`
+	Id                 openapi_types.UUID    `json:"id"`
+	ManifestUrl        *string               `json:"manifest_url"`
+	OrgId              *openapi_types.UUID   `json:"org_id"`
+	Platform           *string               `json:"platform"`
+	ReviewStatus       *string               `json:"review_status,omitempty"`
+	ReviewedAt         *time.Time            `json:"reviewed_at"`
+	ReviewedBy         *string               `json:"reviewed_by"`
+	StepResults        *[]FlywheelStepResult `json:"step_results"`
+	TaskId             openapi_types.UUID    `json:"task_id"`
+	TestId             *openapi_types.UUID   `json:"test_id"`
+	TestName           *string               `json:"test_name"`
+	TotalSteps         *int                  `json:"total_steps,omitempty"`
+	WorkflowId         *openapi_types.UUID   `json:"workflow_id"`
+}
+
+// FlywheelStepImageUrls Image URLs for a flywheel step result.
+type FlywheelStepImageUrls struct {
+	After  *string `json:"after"`
+	Before *string `json:"before"`
+	Tagged *string `json:"tagged"`
+}
+
+// FlywheelStepResult A single step result in a flywheel eval.
+type FlywheelStepResult struct {
+	ActionType       *string `json:"action_type"`
+	ActualElement    *string `json:"actual_element"`
+	AgentDescription *string `json:"agent_description"`
+	Annotated        *bool   `json:"annotated,omitempty"`
+	Correct          *bool   `json:"correct"`
+	Dismissed        *bool   `json:"dismissed,omitempty"`
+	ErrorType        *string `json:"error_type"`
+	Explanation      *string `json:"explanation"`
+
+	// ImageUrls Image URLs for a flywheel step result.
+	ImageUrls       *FlywheelStepImageUrls `json:"image_urls,omitempty"`
+	IsRetry         *bool                  `json:"is_retry,omitempty"`
+	RetryIndex      *int                   `json:"retry_index"`
+	Reviewed        *bool                  `json:"reviewed,omitempty"`
+	StepDescription *string                `json:"step_description"`
+	StepId          *string                `json:"step_id"`
+	StepIndex       int                    `json:"step_index"`
+	Target          *string                `json:"target"`
+	X               *int                   `json:"x"`
+	Y               *int                   `json:"y"`
+}
+
+// FlywheelTriggerRequest Request from CLI to trigger flywheel eval for a completed test.
+type FlywheelTriggerRequest struct {
+	GrounderType *string `json:"grounder_type"`
+	ManifestUrl  *string `json:"manifest_url"`
+	OrgId        *string `json:"org_id"`
+	Platform     *string `json:"platform"`
+	TaskId       string  `json:"task_id"`
+	TestId       *string `json:"test_id"`
+	TestName     *string `json:"test_name"`
+	WorkflowId   *string `json:"workflow_id"`
+}
+
+// FlywheelTriggerResponse defines model for FlywheelTriggerResponse.
+type FlywheelTriggerResponse struct {
+	Accepted bool   `json:"accepted"`
+	Message  string `json:"message"`
+}
+
 // GenerateStateTokenResponse defines model for GenerateStateTokenResponse.
 type GenerateStateTokenResponse struct {
 	StateToken string `json:"state_token"`
@@ -2861,6 +3128,36 @@ type GitHubUser struct {
 	Name      *string `json:"name"`
 }
 
+// GrounderHintErrorType Types of grounder_hint quality errors that can occur.
+type GrounderHintErrorType string
+
+// GrounderHintEval Evaluation result for grounder_hint quality (Moondream-friendliness).
+type GrounderHintEval struct {
+	// AvoidsUiJargon Whether it avoids UI-specific terminology
+	AvoidsUiJargon *bool `json:"avoids_ui_jargon,omitempty"`
+
+	// Correct Whether the grounder_hint is a good Moondream-friendly description
+	Correct bool `json:"correct"`
+
+	// DescribesEmptySpace For INPUT actions: whether it describes the empty area
+	DescribesEmptySpace *bool `json:"describes_empty_space"`
+
+	// ErrorType Types of grounder_hint quality errors that can occur.
+	ErrorType *GrounderHintErrorType `json:"error_type,omitempty"`
+
+	// Explanation Brief reasoning
+	Explanation *string `json:"explanation"`
+
+	// GrounderHint The grounder_hint that was evaluated
+	GrounderHint *string `json:"grounder_hint"`
+
+	// Target The original target for comparison
+	Target *string `json:"target"`
+
+	// UsesVisualCues Whether it describes shapes, colors, or visible text
+	UsesVisualCues *bool `json:"uses_visual_cues,omitempty"`
+}
+
 // GrounderType Unified grounder configuration that determines both approach and model.
 //
 // - UNIFIED: Use instruction LLM for both instruction and grounding (returns coordinates)
@@ -2868,6 +3165,27 @@ type GitHubUser struct {
 // - AUTO: Use GROUNDER_TYPE env var to determine grounder
 // - NULL: Skip grounding (for testing/debugging)
 type GrounderType string
+
+// GroundingErrorType Types of grounding errors that can occur.
+type GroundingErrorType string
+
+// GroundingEval Evaluation result for grounding accuracy.
+type GroundingEval struct {
+	// ActualElement What the click actually hit
+	ActualElement *string `json:"actual_element"`
+
+	// Correct Whether the click landed on the correct element
+	Correct bool `json:"correct"`
+
+	// ErrorType Types of grounding errors that can occur.
+	ErrorType *GroundingErrorType `json:"error_type,omitempty"`
+
+	// Explanation Brief reasoning
+	Explanation *string `json:"explanation"`
+
+	// Target The intended target element
+	Target *string `json:"target"`
+}
 
 // HITLApprovalDecision Request to record approval decision
 type HITLApprovalDecision struct {
@@ -3003,6 +3321,18 @@ type Installation struct {
 	PropelOrgId           string  `json:"propel_org_id"`
 	Status                string  `json:"status"`
 	VerifiedAt            *string `json:"verified_at"`
+}
+
+// InstructionEval Evaluation result for instruction LLM suggestion compliance.
+type InstructionEval struct {
+	// Explanation How well it aligned or why it diverged
+	Explanation *string `json:"explanation"`
+
+	// FollowedSuggestion Whether the instruction LLM followed the reflection suggestion
+	FollowedSuggestion bool `json:"followed_suggestion"`
+
+	// Suggestion The suggestion that was given
+	Suggestion *string `json:"suggestion"`
 }
 
 // InternalSendNotificationRequest Request from workflow runtime to send notifications.
@@ -3217,8 +3547,8 @@ type LocationConfig struct {
 
 // ManualTriggerRequest Request to manually upsert an Expo build to a Revyl build variable.
 type ManualTriggerRequest struct {
-	// BuildVarId Revyl build variable ID to update
-	BuildVarId string `json:"build_var_id"`
+	// AppId Revyl build variable ID to update
+	AppId string `json:"app_id"`
 
 	// ExpoBuildUrl URL to the Expo build artifact
 	ExpoBuildUrl string `json:"expo_build_url"`
@@ -3229,9 +3559,9 @@ type ManualTriggerRequest struct {
 
 // ManualTriggerResponse Response from manual trigger.
 type ManualTriggerResponse struct {
-	BuildVersionId *string `json:"build_version_id"`
-	Message        string  `json:"message"`
-	Version        *string `json:"version"`
+	BuildId *string `json:"build_id"`
+	Message string  `json:"message"`
+	Version *string `json:"version"`
 }
 
 // ModelCostBreakdown Cost breakdown for a single model.
@@ -3275,6 +3605,18 @@ type ModuleSingleResponse struct {
 	Result ModuleResponse `json:"result"`
 }
 
+// ModuleUsageResponse Response model for module usage lookup
+type ModuleUsageResponse struct {
+	Tests []ModuleUsageTestItem `json:"tests"`
+	Total int                   `json:"total"`
+}
+
+// ModuleUsageTestItem A test that uses a specific module
+type ModuleUsageTestItem struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // ModulesListResponse Response model for listing modules
 type ModulesListResponse struct {
 	Message string           `json:"message"`
@@ -3283,10 +3625,10 @@ type ModulesListResponse struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []ChartDataPoint `json:"data"`
-	MetricType   string           `json:"metric_type"`
-	Repositories []string         `json:"repositories"`
-	RetrievedAt  string           `json:"retrieved_at"`
+	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
+	MetricType   string                                           `json:"metric_type"`
+	Repositories []string                                         `json:"repositories"`
+	RetrievedAt  string                                           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -3543,16 +3885,16 @@ type PRReference struct {
 	Repo string `json:"repo"`
 }
 
-// PaginatedBuildVarsResponse Paginated response for build variables.
-type PaginatedBuildVarsResponse struct {
+// PaginatedAppsResponse Paginated response for apps.
+type PaginatedAppsResponse struct {
 	// HasNext Whether there is a next page
 	HasNext bool `json:"has_next"`
 
 	// HasPrevious Whether there is a previous page
 	HasPrevious bool `json:"has_previous"`
 
-	// Items List of build variables for the current page
-	Items *[]BuildVarResponse `json:"items,omitempty"`
+	// Items List of apps for the current page
+	Items *[]AppResponse `json:"items,omitempty"`
 
 	// Page Current page number (1-indexed)
 	Page int `json:"page"`
@@ -3560,23 +3902,26 @@ type PaginatedBuildVarsResponse struct {
 	// PageSize Number of items per page
 	PageSize int `json:"page_size"`
 
-	// Total Total number of build variables
+	// PlatformCounts Per-platform app counts.
+	PlatformCounts *AppPlatformCounts `json:"platform_counts,omitempty"`
+
+	// Total Total number of apps
 	Total int `json:"total"`
 
 	// TotalPages Total number of pages
 	TotalPages int `json:"total_pages"`
 }
 
-// PaginatedBuildVersionsResponse Paginated response for build versions.
-type PaginatedBuildVersionsResponse struct {
+// PaginatedBuildsResponse Paginated response for builds.
+type PaginatedBuildsResponse struct {
 	// HasNext Whether there is a next page
 	HasNext bool `json:"has_next"`
 
 	// HasPrevious Whether there is a previous page
 	HasPrevious bool `json:"has_previous"`
 
-	// Items List of build versions for the current page
-	Items *[]BuildVersionResponse `json:"items,omitempty"`
+	// Items List of builds for the current page
+	Items *[]BuildResponse `json:"items,omitempty"`
 
 	// Page Current page number (1-indexed)
 	Page int `json:"page"`
@@ -3584,24 +3929,24 @@ type PaginatedBuildVersionsResponse struct {
 	// PageSize Number of items per page
 	PageSize int `json:"page_size"`
 
-	// Total Total number of versions
+	// Total Total number of builds
 	Total int `json:"total"`
 
 	// TotalPages Total number of pages
 	TotalPages int `json:"total_pages"`
 }
 
-// PlatformBuild Build configuration for a single platform.
+// PlatformApp App configuration for a single platform.
 //
-// Used to specify a build override for iOS or Android in workflow configurations.
+// Used to specify an app override for iOS or Android in workflow configurations.
 //
 // Attributes:
 //
-//	build_var_id: UUID of the build variable to use.
+//	app_id: UUID of the app to use.
 //	pinned_version: Optional specific version to pin to. If None, uses current/latest.
-type PlatformBuild struct {
-	// BuildVarId Build variable UUID
-	BuildVarId string `json:"build_var_id"`
+type PlatformApp struct {
+	// AppId App UUID
+	AppId string `json:"app_id"`
 
 	// PinnedVersion Optional pinned version string
 	PinnedVersion *string `json:"pinned_version"`
@@ -3689,6 +4034,57 @@ type PushSSHKeyResponse struct {
 	Success bool `json:"success"`
 }
 
+// QualityBreakdown Breakdown of quality score components.
+type QualityBreakdown struct {
+	// BoundingBoxAccuracy Score for bounding box accuracy (0-100)
+	BoundingBoxAccuracy *float32 `json:"bounding_box_accuracy,omitempty"`
+
+	// GroundingAccuracy Score for grounding accuracy (0-100)
+	GroundingAccuracy float32 `json:"grounding_accuracy"`
+
+	// PathEfficiency Score for path efficiency (0-100)
+	PathEfficiency float32 `json:"path_efficiency"`
+
+	// ReflectionAccuracy Score for reflection accuracy (0-100)
+	ReflectionAccuracy float32 `json:"reflection_accuracy"`
+
+	// RetryRate Score for retry rate (0-100)
+	RetryRate float32 `json:"retry_rate"`
+
+	// SuggestionCompliance Score for suggestion compliance (0-100)
+	SuggestionCompliance float32 `json:"suggestion_compliance"`
+}
+
+// QualityGrade Quality grades for test execution.
+type QualityGrade string
+
+// QualityScore Overall quality assessment for a test execution.
+type QualityScore struct {
+	// Breakdown Breakdown of quality score components.
+	Breakdown QualityBreakdown `json:"breakdown"`
+
+	// FalsePositiveReason Reason for false positive flag
+	FalsePositiveReason *string `json:"false_positive_reason"`
+
+	// Grade Quality grades for test execution.
+	Grade QualityGrade `json:"grade"`
+
+	// ImprovementSuggestions Suggestions for improvement
+	ImprovementSuggestions *[]string `json:"improvement_suggestions,omitempty"`
+
+	// IsFalsePositive Whether this might be an accidental success
+	IsFalsePositive *bool `json:"is_false_positive,omitempty"`
+
+	// ReliabilityEstimate Estimate of how reliably this test would pass on re-run.
+	ReliabilityEstimate ReliabilityEstimate `json:"reliability_estimate"`
+
+	// Score Overall quality score (0-100)
+	Score float32 `json:"score"`
+
+	// WeakestComponent Which component was weakest in the test execution.
+	WeakestComponent WeakestComponent `json:"weakest_component"`
+}
+
 // RebelOrgSettings Organization settings for Rebel Bot.
 type RebelOrgSettings struct {
 	CreatedAt        time.Time `json:"created_at"`
@@ -3719,6 +4115,78 @@ type RecentComment struct {
 	Type       string    `json:"type"`
 }
 
+// ReflectionAttemptEval Evaluation of a single reflection/retry attempt within a step.
+type ReflectionAttemptEval struct {
+	// AgentDescription Human-readable action description from Instructional LLM for this retry
+	AgentDescription *string `json:"agent_description"`
+
+	// BoundingBoxEval Evaluation result for Instructional LLM bounding box accuracy.
+	BoundingBoxEval *BoundingBoxEval `json:"bounding_box_eval,omitempty"`
+
+	// GrounderHintEval Evaluation result for grounder_hint quality (Moondream-friendliness).
+	GrounderHintEval *GrounderHintEval `json:"grounder_hint_eval,omitempty"`
+
+	// GroundingEval Evaluation result for grounding accuracy.
+	GroundingEval *GroundingEval `json:"grounding_eval,omitempty"`
+
+	// ImageBase64 Base64 before screenshot (fallback)
+	ImageBase64 *string `json:"image_base64"`
+
+	// ImageUrl URL to before screenshot
+	ImageUrl *string `json:"image_url"`
+
+	// InstructionEval Evaluation result for instruction LLM suggestion compliance.
+	InstructionEval *InstructionEval `json:"instruction_eval,omitempty"`
+
+	// PostActionImageBase64 Base64 after screenshot (fallback)
+	PostActionImageBase64 *string `json:"post_action_image_base64"`
+
+	// PostActionImageUrl URL to after screenshot
+	PostActionImageUrl *string `json:"post_action_image_url"`
+
+	// PrevSuggestion The suggestion from the previous attempt that led to this retry
+	PrevSuggestion *string `json:"prev_suggestion"`
+
+	// Reasoning Instructional LLM's visual analysis and reasoning for this retry
+	Reasoning *string `json:"reasoning"`
+
+	// ReflectionEval Evaluation result for reflection decision.
+	ReflectionEval *ReflectionEval `json:"reflection_eval,omitempty"`
+
+	// RetryIndex Index of this retry (0-based)
+	RetryIndex int `json:"retry_index"`
+
+	// SuggestionEval Evaluation result for reflection suggestion quality.
+	SuggestionEval *SuggestionQualityEval `json:"suggestion_eval,omitempty"`
+
+	// TaggedImageBase64 Base64 tagged screenshot (fallback)
+	TaggedImageBase64 *string `json:"tagged_image_base64"`
+
+	// TaggedImageUrl URL to tagged screenshot (with crosshair)
+	TaggedImageUrl *string `json:"tagged_image_url"`
+}
+
+// ReflectionErrorType Types of reflection errors that can occur.
+type ReflectionErrorType string
+
+// ReflectionEval Evaluation result for reflection decision.
+type ReflectionEval struct {
+	// ActualNextStep What next_step was
+	ActualNextStep *bool `json:"actual_next_step"`
+
+	// Correct Whether the reflection decision (next_step) was correct
+	Correct bool `json:"correct"`
+
+	// ErrorType Types of reflection errors that can occur.
+	ErrorType *ReflectionErrorType `json:"error_type,omitempty"`
+
+	// ExpectedNextStep What next_step should have been
+	ExpectedNextStep *bool `json:"expected_next_step"`
+
+	// Explanation Brief reasoning
+	Explanation *string `json:"explanation"`
+}
+
 // RegisterSandboxRequest Request payload for registering (upserting) a sandbox during provisioning.
 //
 // Called by the fleet CLI or Ansible playbook after provisioning a Mac.
@@ -3747,6 +4215,9 @@ type RegisterSandboxRequest struct {
 
 	// SshUser SSH username
 	SshUser *string `json:"ssh_user,omitempty"`
+
+	// SsmInstanceId AWS SSM managed instance ID (e.g., mi-0123...) for remote command execution
+	SsmInstanceId *string `json:"ssm_instance_id"`
 
 	// Status Initial sandbox status
 	Status *RegisterSandboxRequestStatus `json:"status,omitempty"`
@@ -3822,6 +4293,9 @@ type ReleaseSandboxResponse struct {
 	Success bool `json:"success"`
 }
 
+// ReliabilityEstimate Estimate of how reliably this test would pass on re-run.
+type ReliabilityEstimate string
+
 // RemoveWorkflowFromRuleResponse Response after removing a workflow from a rule.
 type RemoveWorkflowFromRuleResponse struct {
 	// Rule Notification rule with enriched workflow details.
@@ -3831,7 +4305,7 @@ type RemoveWorkflowFromRuleResponse struct {
 
 // ReportV3Response Full report with steps and actions.
 type ReportV3Response struct {
-	BuildVarName        *string                   `json:"build_var_name"`
+	AppName             *string                   `json:"app_name"`
 	BuildVersion        *string                   `json:"build_version"`
 	CompletedAt         *string                   `json:"completed_at"`
 	CreatedAt           *string                   `json:"created_at"`
@@ -3893,21 +4367,21 @@ type RepositoryIdentifier struct {
 
 // ResolveBuildVarsResponse Response model for resolved build vars from workflows.
 type ResolveBuildVarsResponse struct {
-	BuildVars []ResolvedBuildVar `json:"build_vars"`
+	Apps []ResolvedApp `json:"apps"`
 }
 
-// ResolvedBuildVar Build variable resolved from workflow tests.
-type ResolvedBuildVar struct {
-	BuildVarId   string `json:"build_var_id"`
-	BuildVarName string `json:"build_var_name"`
-	Platform     string `json:"platform"`
+// ResolvedApp App resolved from workflow tests.
+type ResolvedApp struct {
+	AppId    string `json:"app_id"`
+	AppName  string `json:"app_name"`
+	Platform string `json:"platform"`
 }
 
-// ResolvedBuildVersion Normalized representation of a resolved build artifact.
-type ResolvedBuildVersion struct {
+// ResolvedBuild Normalized representation of a resolved build artifact.
+type ResolvedBuild struct {
+	AppId       string                  `json:"app_id"`
 	ArtifactUrl *string                 `json:"artifact_url"`
 	BuildName   *string                 `json:"build_name"`
-	BuildVarId  string                  `json:"build_var_id"`
 	Description *string                 `json:"description"`
 	DownloadUrl *string                 `json:"download_url"`
 	Metadata    *map[string]interface{} `json:"metadata,omitempty"`
@@ -3986,8 +4460,8 @@ type RunningTestMetadataContent struct {
 	// UnderscoreUploadStatus Upload status for a running test.
 	UnderscoreUploadStatus *RunningTestUploadStatus `json:"_upload_status,omitempty"`
 
-	// BuildVarName Name of the build variable/alias used for this test
-	BuildVarName *string `json:"build_var_name"`
+	// AppName Name of the app used for this test
+	AppName *string `json:"app_name"`
 
 	// BuildVersion Version of the build used for this test
 	BuildVersion *string `json:"build_version"`
@@ -4113,6 +4587,18 @@ type SSHKeyStatusResponse struct {
 
 	// SandboxReachable Whether sandbox is reachable
 	SandboxReachable *bool `json:"sandbox_reachable,omitempty"`
+}
+
+// ScriptUsageResponse Response model for script usage lookup
+type ScriptUsageResponse struct {
+	Tests []ScriptUsageTestItem `json:"tests"`
+	Total int                   `json:"total"`
+}
+
+// ScriptUsageTestItem A test that uses a specific script
+type ScriptUsageTestItem struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // SeatCheckResponse defines model for SeatCheckResponse.
@@ -4350,7 +4836,7 @@ type StartDeviceResponse struct {
 
 // StartExplorationRequest Request model for starting an exploration workflow.
 type StartExplorationRequest struct {
-	// BuildVarId Build variable ID to explore
+	// BuildVarId App ID to explore
 	BuildVarId string `json:"build_var_id"`
 
 	// GrounderType Type of grounder to use
@@ -4396,6 +4882,84 @@ type StartExplorationResponse struct {
 	WorkflowRunId string `json:"workflow_run_id"`
 }
 
+// StepEval Complete evaluation of a single step including all retries.
+type StepEval struct {
+	// ActionType Type of action taken
+	ActionType *string `json:"action_type"`
+
+	// AgentDescription Human-readable action description from Instructional LLM
+	AgentDescription *string `json:"agent_description"`
+
+	// BoundingBoxApplicable Whether bbox eval applies (needs grounder_bounding_box in llm_metadata)
+	BoundingBoxApplicable *bool `json:"bounding_box_applicable,omitempty"`
+
+	// BoundingBoxEval Evaluation result for Instructional LLM bounding box accuracy.
+	BoundingBoxEval *BoundingBoxEval `json:"bounding_box_eval,omitempty"`
+
+	// GrounderHintApplicable Whether grounder_hint eval applies (needs grounder_hint in llm_metadata)
+	GrounderHintApplicable *bool `json:"grounder_hint_applicable,omitempty"`
+
+	// GrounderHintEval Evaluation result for grounder_hint quality (Moondream-friendliness).
+	GrounderHintEval *GrounderHintEval `json:"grounder_hint_eval,omitempty"`
+
+	// GroundingApplicable Whether grounding eval applies (needs x,y coords)
+	GroundingApplicable *bool `json:"grounding_applicable,omitempty"`
+
+	// GroundingEval Evaluation result for grounding accuracy.
+	GroundingEval *GroundingEval `json:"grounding_eval,omitempty"`
+
+	// ImageBase64 Base64 before screenshot (fallback)
+	ImageBase64 *string `json:"image_base64"`
+
+	// ImageUrl URL to before screenshot
+	ImageUrl *string `json:"image_url"`
+
+	// InstructionEval Evaluation result for instruction LLM suggestion compliance.
+	InstructionEval *InstructionEval `json:"instruction_eval,omitempty"`
+
+	// PostActionImageBase64 Base64 after screenshot (fallback)
+	PostActionImageBase64 *string `json:"post_action_image_base64"`
+
+	// PostActionImageUrl URL to after screenshot
+	PostActionImageUrl *string `json:"post_action_image_url"`
+
+	// Reasoning Instructional LLM's visual analysis and reasoning
+	Reasoning *string `json:"reasoning"`
+
+	// ReflectionApplicable Whether reflection eval applies (needs before/after images)
+	ReflectionApplicable *bool `json:"reflection_applicable,omitempty"`
+
+	// ReflectionEval Evaluation result for reflection decision.
+	ReflectionEval *ReflectionEval `json:"reflection_eval,omitempty"`
+
+	// Reflections Evaluations of retry attempts
+	Reflections *[]ReflectionAttemptEval `json:"reflections,omitempty"`
+
+	// Retries Number of retries for this step
+	Retries *int `json:"retries,omitempty"`
+
+	// StepDescription Description of the step
+	StepDescription *string `json:"step_description"`
+
+	// StepIndex Index of this step
+	StepIndex int `json:"step_index"`
+
+	// SuggestionEval Evaluation result for reflection suggestion quality.
+	SuggestionEval *SuggestionQualityEval `json:"suggestion_eval,omitempty"`
+
+	// TaggedImageBase64 Base64 tagged screenshot (fallback)
+	TaggedImageBase64 *string `json:"tagged_image_base64"`
+
+	// TaggedImageUrl URL to tagged screenshot (with crosshair)
+	TaggedImageUrl *string `json:"tagged_image_url"`
+
+	// ValidationApplicable Whether validation eval applies (validation steps only)
+	ValidationApplicable *bool `json:"validation_applicable,omitempty"`
+
+	// ValidationEval Evaluation result for validation step accuracy.
+	ValidationEval *ValidationEval `json:"validation_eval,omitempty"`
+}
+
 // StepMetadata Lightweight step metadata for replay timeline.
 type StepMetadata struct {
 	ActionType  string  `json:"action_type"`
@@ -4403,6 +4967,28 @@ type StepMetadata struct {
 	EndTime     float32 `json:"end_time"`
 	Index       int     `json:"index"`
 	StartTime   float32 `json:"start_time"`
+}
+
+// StepSummariesBatchRequest Request for batch step summaries.
+type StepSummariesBatchRequest struct {
+	TaskIds []string `json:"task_ids"`
+}
+
+// StepSummariesBatchResponse Response for batch step summaries.
+type StepSummariesBatchResponse struct {
+	FoundCount     int                         `json:"found_count"`
+	RequestedCount int                         `json:"requested_count"`
+	Summaries      map[string]*[]StepSummaryV3 `json:"summaries"`
+}
+
+// StepSummaryV3 Lightweight step summary for progress visualization.
+type StepSummaryV3 struct {
+	ErrorMessage     *string `json:"error_message"`
+	ExecutionOrder   int     `json:"execution_order"`
+	Status           *string `json:"status"`
+	StepDescription  *string `json:"step_description"`
+	StepType         string  `json:"step_type"`
+	ValidationResult *bool   `json:"validation_result"`
 }
 
 // StepType User-facing step types for YAML test definitions.
@@ -4446,6 +5032,30 @@ type StreamingStepResult struct {
 	StepIndex        *int        `json:"step_index"`
 	ValidationResult interface{} `json:"validation_result"`
 }
+
+// SuggestionQualityEval Evaluation result for reflection suggestion quality.
+type SuggestionQualityEval struct {
+	// AddressesFailure Whether the suggestion addresses why the previous action failed
+	AddressesFailure bool `json:"addresses_failure"`
+
+	// Explanation Reasoning for the evaluation
+	Explanation *string `json:"explanation"`
+
+	// IsActionable Whether the suggestion is specific and actionable
+	IsActionable bool `json:"is_actionable"`
+
+	// IsCorrectApproach Whether the suggestion identifies the right approach to complete the step
+	IsCorrectApproach bool `json:"is_correct_approach"`
+
+	// QualityRating Quality rating for reflection suggestions.
+	QualityRating SuggestionQualityRating `json:"quality_rating"`
+
+	// Suggestion The suggestion that was evaluated
+	Suggestion *string `json:"suggestion"`
+}
+
+// SuggestionQualityRating Quality rating for reflection suggestions.
+type SuggestionQualityRating string
 
 // SummaryData defines model for SummaryData.
 type SummaryData struct {
@@ -4563,7 +5173,7 @@ type TaskID struct {
 	AppLink    *string `json:"app_link"`
 	BackendUrl *string `json:"backend_url"`
 
-	// BuildVersionId Override the build version to use for this test execution. If provided, this will override the build version attached to the test.
+	// BuildVersionId Override the build to use for this test execution. If provided, this will override the build attached to the test.
 	BuildVersionId *string `json:"build_version_id"`
 	DeviceLocal    *bool   `json:"device_local"`
 	GetDownloads   *bool   `json:"get_downloads"`
@@ -4666,13 +5276,10 @@ type TaskReportResponse_ReportMetadata struct {
 
 // TestInput defines model for Test-Input.
 type TestInput struct {
+	AppId      *string `json:"app_id"`
 	AppLink    *string `json:"app_link"`
 	AppPackage *string `json:"app_package"`
 	BackendUrl *string `json:"backend_url"`
-	BuildVarId *string `json:"build_var_id"`
-
-	// BuildVersion Normalized representation of a resolved build artifact.
-	BuildVersion *ResolvedBuildVersion `json:"build_version,omitempty"`
 
 	// CachedElements Stores cached action elements for a test, indexed by node_id.
 	//
@@ -4709,7 +5316,10 @@ type TestInput struct {
 	PackageName   *string `json:"package_name"`
 	PinnedVersion *string `json:"pinned_version"`
 	Platform      *string `json:"platform,omitempty"`
-	Retries       *int    `json:"retries"`
+
+	// ResolvedBuild Normalized representation of a resolved build artifact.
+	ResolvedBuild *ResolvedBuild `json:"resolved_build,omitempty"`
+	Retries       *int           `json:"retries"`
 
 	// RunConfig Complete configuration for a test run.
 	RunConfig *TestRunConfigInput `json:"run_config,omitempty"`
@@ -4747,13 +5357,10 @@ type TestInput_Tasks struct {
 
 // TestOutput defines model for Test-Output.
 type TestOutput struct {
+	AppId      *string `json:"app_id"`
 	AppLink    *string `json:"app_link"`
 	AppPackage *string `json:"app_package"`
 	BackendUrl *string `json:"backend_url"`
-	BuildVarId *string `json:"build_var_id"`
-
-	// BuildVersion Normalized representation of a resolved build artifact.
-	BuildVersion *ResolvedBuildVersion `json:"build_version,omitempty"`
 
 	// CachedElements Stores cached action elements for a test, indexed by node_id.
 	//
@@ -4790,7 +5397,10 @@ type TestOutput struct {
 	PackageName   *string `json:"package_name"`
 	PinnedVersion *string `json:"pinned_version"`
 	Platform      *string `json:"platform,omitempty"`
-	Retries       *int    `json:"retries"`
+
+	// ResolvedBuild Normalized representation of a resolved build artifact.
+	ResolvedBuild *ResolvedBuild `json:"resolved_build,omitempty"`
+	Retries       *int           `json:"retries"`
 
 	// RunConfig Complete configuration for a test run.
 	RunConfig *TestRunConfigOutput `json:"run_config,omitempty"`
@@ -4879,6 +5489,27 @@ type TestEnhancedHistoryResponse struct {
 	RequestedCount int                       `json:"requested_count"`
 	TotalCount     int                       `json:"total_count"`
 }
+
+// TestEvalReport Complete evaluation report for a test run.
+type TestEvalReport struct {
+	// ErrorSummary Summary of errors from evaluation.
+	ErrorSummary EvalErrorSummary `json:"error_summary"`
+
+	// Quality Overall quality assessment for a test execution.
+	Quality *QualityScore `json:"quality,omitempty"`
+
+	// RawManifest Raw manifest data for debugging
+	RawManifest  *map[string]interface{}   `json:"raw_manifest"`
+	Steps        *[]StepEval               `json:"steps,omitempty"`
+	TaskId       string                    `json:"task_id"`
+	TestId       string                    `json:"test_id"`
+	TestOutcome  TestEvalReportTestOutcome `json:"test_outcome"`
+	TotalRetries int                       `json:"total_retries"`
+	TotalSteps   int                       `json:"total_steps"`
+}
+
+// TestEvalReportTestOutcome defines model for TestEvalReport.TestOutcome.
+type TestEvalReportTestOutcome string
 
 // TestExecutionBatchResponse Response model for batch test status requests.
 type TestExecutionBatchResponse struct {
@@ -5077,8 +5708,8 @@ type TestInfo struct {
 
 // TestListResponse Response model for listing tests.
 type TestListResponse struct {
-	// BuildVars List of build variables for the organization
-	BuildVars *[]BuildVarResponse `json:"build_vars,omitempty"`
+	// Apps List of apps for the organization
+	Apps *[]AppResponse `json:"apps,omitempty"`
 
 	// Count Total number of tests returned
 	Count int `json:"count"`
@@ -5710,6 +6341,30 @@ type ValidationError_Loc_Item struct {
 	union json.RawMessage
 }
 
+// ValidationErrorType Types of validation errors that can occur.
+type ValidationErrorType string
+
+// ValidationEval Evaluation result for validation step accuracy.
+type ValidationEval struct {
+	// AgentResult What the agent returned (True/False)
+	AgentResult *bool `json:"agent_result"`
+
+	// Correct Whether the validation result was correct
+	Correct bool `json:"correct"`
+
+	// ErrorType Types of validation errors that can occur.
+	ErrorType *ValidationErrorType `json:"error_type,omitempty"`
+
+	// ExpectedResult What the result should have been
+	ExpectedResult *bool `json:"expected_result"`
+
+	// Explanation Reasoning for the evaluation
+	Explanation *string `json:"explanation"`
+
+	// ValidationInstruction What was being validated
+	ValidationInstruction *string `json:"validation_instruction"`
+}
+
 // ValidationRequest Request model for YAML validation
 type ValidationRequest struct {
 	// Platform Target platform for validation
@@ -5786,11 +6441,11 @@ type VideoMetadataBatchRequest struct {
 	TaskIds []string `json:"task_ids"`
 }
 
-// VideoMetadataBatchResponse Response model for batch video metadata.
+// VideoMetadataBatchResponse Response for batch video metadata.
 type VideoMetadataBatchResponse struct {
-	FoundCount     int                          `json:"found_count"`
-	RequestedCount int                          `json:"requested_count"`
-	Videos         map[string]VideoMetadataItem `json:"videos"`
+	FoundCount     int                            `json:"found_count"`
+	RequestedCount int                            `json:"requested_count"`
+	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
 }
 
 // VideoMetadataInfo Video + step metadata for a single task.
@@ -5841,6 +6496,9 @@ type Viewport struct {
 	Height *int `json:"height,omitempty"`
 	Width  *int `json:"width,omitempty"`
 }
+
+// WeakestComponent Which component was weakest in the test execution.
+type WeakestComponent string
 
 // WeeklyMetrics Weekly metrics for workflow performance.
 type WeeklyMetrics struct {
@@ -5955,33 +6613,33 @@ type WorkerConnectionResponse struct {
 // WorkerConnectionResponseStatus defines model for WorkerConnectionResponse.Status.
 type WorkerConnectionResponseStatus string
 
-// WorkflowBuildConfig Workflow-level build configuration for iOS and Android.
+// WorkflowAppConfig Workflow-level app configuration for iOS and Android.
 //
-// When set on a workflow with override_build_config=True, these builds
-// override individual test build configurations for matching platforms.
+// When set on a workflow with override_build_config=True, these apps
+// override individual test app configurations for matching platforms.
 //
 // Attributes:
 //
-//	ios_build: Optional iOS build override configuration.
-//	android_build: Optional Android build override configuration.
-type WorkflowBuildConfig struct {
-	// AndroidBuild Build configuration for a single platform.
+//	ios_app: Optional iOS app override configuration.
+//	android_app: Optional Android app override configuration.
+type WorkflowAppConfig struct {
+	// AndroidBuild App configuration for a single platform.
 	//
-	// Used to specify a build override for iOS or Android in workflow configurations.
+	// Used to specify an app override for iOS or Android in workflow configurations.
 	//
 	// Attributes:
-	//     build_var_id: UUID of the build variable to use.
+	//     app_id: UUID of the app to use.
 	//     pinned_version: Optional specific version to pin to. If None, uses current/latest.
-	AndroidBuild *PlatformBuild `json:"android_build,omitempty"`
+	AndroidBuild *PlatformApp `json:"android_build,omitempty"`
 
-	// IosBuild Build configuration for a single platform.
+	// IosBuild App configuration for a single platform.
 	//
-	// Used to specify a build override for iOS or Android in workflow configurations.
+	// Used to specify an app override for iOS or Android in workflow configurations.
 	//
 	// Attributes:
-	//     build_var_id: UUID of the build variable to use.
+	//     app_id: UUID of the app to use.
 	//     pinned_version: Optional specific version to pin to. If None, uses current/latest.
-	IosBuild *PlatformBuild `json:"ios_build,omitempty"`
+	IosBuild *PlatformApp `json:"ios_build,omitempty"`
 }
 
 // WorkflowCancelResponse Response model for workflow cancellation.
@@ -6011,9 +6669,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time                                           `json:"created_at"`
-	Deleted   bool                                                 `json:"deleted"`
+	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time        `json:"created_at"`
+	Deleted   bool              `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -6251,15 +6909,15 @@ type WorkflowExecutionsUpdate_WorkflowId struct {
 //	build_config: Optional build configuration override for this execution.
 //	override_build_config: When True with build_config, overrides test builds.
 type WorkflowInfoInput struct {
-	// BuildConfig Workflow-level build configuration for iOS and Android.
+	// BuildConfig Workflow-level app configuration for iOS and Android.
 	//
-	// When set on a workflow with override_build_config=True, these builds
-	// override individual test build configurations for matching platforms.
+	// When set on a workflow with override_build_config=True, these apps
+	// override individual test app configurations for matching platforms.
 	//
 	// Attributes:
-	//     ios_build: Optional iOS build override configuration.
-	//     android_build: Optional Android build override configuration.
-	BuildConfig *WorkflowBuildConfig `json:"build_config,omitempty"`
+	//     ios_app: Optional iOS app override configuration.
+	//     android_app: Optional Android app override configuration.
+	BuildConfig *WorkflowAppConfig `json:"build_config,omitempty"`
 
 	// OverrideBuildConfig When True, build_config overrides individual test build configurations
 	OverrideBuildConfig *bool `json:"override_build_config,omitempty"`
@@ -6527,34 +7185,28 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
+// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
+type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments"`
+	MedianHours *float32 `json:"median_hours"`
+	P25Hours    *float32 `json:"p25_hours"`
+	P75Hours    *float32 `json:"p75_hours"`
+	TeamAverage *float32 `json:"team_average"`
+	Trend       *string  `json:"trend"`
+	Value       *float32 `json:"value"`
+}
+
+// AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse Response model for batch video metadata.
+type AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse struct {
+	FoundCount     int                          `json:"found_count"`
+	RequestedCount int                          `json:"requested_count"`
+	Videos         map[string]VideoMetadataItem `json:"videos"`
+}
+
 // AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest Request for batch video metadata.
 type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest struct {
 	ExecutionIds []string `json:"execution_ids"`
-}
-
-// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse Response for batch video metadata.
-type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse struct {
-	FoundCount     int                            `json:"found_count"`
-	RequestedCount int                            `json:"requested_count"`
-	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
-}
-
-// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
-type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.
@@ -6822,29 +7474,35 @@ type DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONBody = st
 // CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody defines parameters for CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatch.
 type CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody = string
 
-// ResolveBuildApiV1BuildsResolvePostParams defines parameters for ResolveBuildApiV1BuildsResolvePost.
-type ResolveBuildApiV1BuildsResolvePostParams struct {
-	// IncludeDownloadUrl Include presigned download URL
-	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
-}
-
-// ListBuildVarsApiV1BuildsVarsGetParams defines parameters for ListBuildVarsApiV1BuildsVarsGet.
-type ListBuildVarsApiV1BuildsVarsGetParams struct {
+// ListAppsApiV1AppsGetParams defines parameters for ListAppsApiV1AppsGet.
+type ListAppsApiV1AppsGetParams struct {
 	// Platform Filter by platform
 	Platform *string `form:"platform,omitempty" json:"platform,omitempty"`
 
 	// Page Page number (1-indexed)
 	Page *int `form:"page,omitempty" json:"page,omitempty"`
 
-	// PageSize Number of items per page (max 100)
+	// PageSize Number of items per page (max 500)
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 
-	// Search Search by build name
+	// Search Search by app name
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 }
 
-// ListBuildVersionsApiV1BuildsVarsBuildVarIdVersionsGetParams defines parameters for ListBuildVersionsApiV1BuildsVarsBuildVarIdVersionsGet.
-type ListBuildVersionsApiV1BuildsVarsBuildVarIdVersionsGetParams struct {
+// GetBuildApiV1AppsBuildsVersionIdGetParams defines parameters for GetBuildApiV1AppsBuildsVersionIdGet.
+type GetBuildApiV1AppsBuildsVersionIdGetParams struct {
+	// IncludeDownloadUrl Include presigned download URL
+	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
+}
+
+// ResolveBuildApiV1AppsResolvePostParams defines parameters for ResolveBuildApiV1AppsResolvePost.
+type ResolveBuildApiV1AppsResolvePostParams struct {
+	// IncludeDownloadUrl Include presigned download URL
+	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
+}
+
+// ListBuildsApiV1AppsAppIdBuildsGetParams defines parameters for ListBuildsApiV1AppsAppIdBuildsGet.
+type ListBuildsApiV1AppsAppIdBuildsGetParams struct {
 	// IncludeDownloadUrls Include presigned download URLs
 	IncludeDownloadUrls *bool `form:"include_download_urls,omitempty" json:"include_download_urls,omitempty"`
 
@@ -6858,25 +7516,19 @@ type ListBuildVersionsApiV1BuildsVarsBuildVarIdVersionsGetParams struct {
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 }
 
-// StreamUploadBuildVersionApiV1BuildsVarsBuildVarIdVersionsStreamUploadPostParams defines parameters for StreamUploadBuildVersionApiV1BuildsVarsBuildVarIdVersionsStreamUploadPost.
-type StreamUploadBuildVersionApiV1BuildsVarsBuildVarIdVersionsStreamUploadPostParams struct {
+// StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostParams defines parameters for StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost.
+type StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostParams struct {
 	// Version Version string (must be unique)
 	Version string `form:"version" json:"version"`
 }
 
-// CreateBuildVersionUploadUrlApiV1BuildsVarsBuildVarIdVersionsUploadUrlPostParams defines parameters for CreateBuildVersionUploadUrlApiV1BuildsVarsBuildVarIdVersionsUploadUrlPost.
-type CreateBuildVersionUploadUrlApiV1BuildsVarsBuildVarIdVersionsUploadUrlPostParams struct {
+// CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams defines parameters for CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPost.
+type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 	// Version Version string (must be unique)
 	Version string `form:"version" json:"version"`
 
 	// FileName Name of the file to upload
 	FileName string `form:"file_name" json:"file_name"`
-}
-
-// GetBuildVersionApiV1BuildsVersionsVersionIdGetParams defines parameters for GetBuildVersionApiV1BuildsVersionsVersionIdGet.
-type GetBuildVersionApiV1BuildsVersionsVersionIdGetParams struct {
-	// IncludeDownloadUrl Include presigned download URL
-	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
 }
 
 // GetOrganizationSettingsApiV1EntityOrgsOrganizationSettingsGetParams defines parameters for GetOrganizationSettingsApiV1EntityOrgsOrganizationSettingsGet.
@@ -6978,6 +7630,14 @@ type ListWorktreesApiV1FleetWorktreesGetParams struct {
 // RemoveWorktreeApiV1FleetWorktreesBranchDeleteParams defines parameters for RemoveWorktreeApiV1FleetWorktreesBranchDelete.
 type RemoveWorktreeApiV1FleetWorktreesBranchDeleteParams struct {
 	SandboxId *string `form:"sandbox_id,omitempty" json:"sandbox_id,omitempty"`
+}
+
+// GetEvalQueueApiV1FlywheelEvalQueueGetParams defines parameters for GetEvalQueueApiV1FlywheelEvalQueueGet.
+type GetEvalQueueApiV1FlywheelEvalQueueGetParams struct {
+	// ReviewStatus Filter by review_status (pending, in_progress, reviewed, dismissed)
+	ReviewStatus *string `form:"review_status,omitempty" json:"review_status,omitempty"`
+	Limit        *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset       *int    `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // CheckModuleExistsApiV1ModulesCheckExistsGetParams defines parameters for CheckModuleExistsApiV1ModulesCheckExistsGet.
@@ -7124,8 +7784,8 @@ type GetOrganizationUsersApiV1ReviewGithubOrganizationUsersGetParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// ResolveBuildVarsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGetParams defines parameters for ResolveBuildVarsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGet.
-type ResolveBuildVarsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGetParams struct {
+// ResolveAppsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGetParams defines parameters for ResolveAppsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGet.
+type ResolveAppsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGetParams struct {
 	// WorkflowIds List of workflow IDs
 	WorkflowIds []string `form:"workflow_ids" json:"workflow_ids"`
 }
@@ -7203,11 +7863,11 @@ type GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGetParams struct {
 
 // GetTestInfoEndpointApiV1TestsGetTestInfoGetParams defines parameters for GetTestInfoEndpointApiV1TestsGetTestInfoGet.
 type GetTestInfoEndpointApiV1TestsGetTestInfoGetParams struct {
-	TestId         string  `form:"test_id" json:"test_id"`
-	OrgId          *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-	UserId         *string `form:"user_id,omitempty" json:"user_id,omitempty"`
-	BuildVersionId *string `form:"build_version_id,omitempty" json:"build_version_id,omitempty"`
-	BuildVarId     *string `form:"build_var_id,omitempty" json:"build_var_id,omitempty"`
+	TestId  string  `form:"test_id" json:"test_id"`
+	OrgId   *string `form:"org_id,omitempty" json:"org_id,omitempty"`
+	UserId  *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+	BuildId *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	AppId   *string `form:"app_id,omitempty" json:"app_id,omitempty"`
 }
 
 // QueryTestsEndpointApiV1TestsGetTestsGetParams defines parameters for QueryTestsEndpointApiV1TestsGetTestsGet.
@@ -7366,6 +8026,27 @@ type DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONRequestBo
 // CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONRequestBody defines body for CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatch for application/json ContentType.
 type CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONRequestBody = CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody
 
+// CreateAppApiV1AppsPostJSONRequestBody defines body for CreateAppApiV1AppsPost for application/json ContentType.
+type CreateAppApiV1AppsPostJSONRequestBody = AppCreateRequest
+
+// UpdateBuildApiV1AppsBuildsVersionIdPatchJSONRequestBody defines body for UpdateBuildApiV1AppsBuildsVersionIdPatch for application/json ContentType.
+type UpdateBuildApiV1AppsBuildsVersionIdPatchJSONRequestBody = BuildUpdateRequest
+
+// CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPostJSONRequestBody defines body for CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPost for application/json ContentType.
+type CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPostJSONRequestBody = BuildUploadCompleteRequest
+
+// ResolveBuildApiV1AppsResolvePostJSONRequestBody defines body for ResolveBuildApiV1AppsResolvePost for application/json ContentType.
+type ResolveBuildApiV1AppsResolvePostJSONRequestBody = BuildResolutionRequest
+
+// UpdateAppApiV1AppsAppIdPatchJSONRequestBody defines body for UpdateAppApiV1AppsAppIdPatch for application/json ContentType.
+type UpdateAppApiV1AppsAppIdPatchJSONRequestBody = AppUpdateRequest
+
+// CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody defines body for CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPost for application/json ContentType.
+type CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody = BuildFromUrlRequest
+
+// StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody defines body for StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost for multipart/form-data ContentType.
+type StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody = BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost
+
 // DeleteAppBinaryApiV1BinariesTestAppDeleteDeleteJSONRequestBody defines body for DeleteAppBinaryApiV1BinariesTestAppDeleteDelete for application/json ContentType.
 type DeleteAppBinaryApiV1BinariesTestAppDeleteDeleteJSONRequestBody = AppBinaryDeleteRequest
 
@@ -7377,27 +8058,6 @@ type ExtractPackageIdApiV1BinariesTestAppExtractPackageIdPostJSONRequestBody = E
 
 // GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPostJSONRequestBody defines body for GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPost for application/json ContentType.
 type GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPostJSONRequestBody = AppBinaryUploadRequest
-
-// ResolveBuildApiV1BuildsResolvePostJSONRequestBody defines body for ResolveBuildApiV1BuildsResolvePost for application/json ContentType.
-type ResolveBuildApiV1BuildsResolvePostJSONRequestBody = BuildResolutionRequest
-
-// CreateBuildVarApiV1BuildsVarsPostJSONRequestBody defines body for CreateBuildVarApiV1BuildsVarsPost for application/json ContentType.
-type CreateBuildVarApiV1BuildsVarsPostJSONRequestBody = BuildVarCreateRequest
-
-// UpdateBuildVarApiV1BuildsVarsBuildVarIdPatchJSONRequestBody defines body for UpdateBuildVarApiV1BuildsVarsBuildVarIdPatch for application/json ContentType.
-type UpdateBuildVarApiV1BuildsVarsBuildVarIdPatchJSONRequestBody = BuildVarUpdateRequest
-
-// CreateBuildVersionFromUrlApiV1BuildsVarsBuildVarIdVersionsFromUrlPostJSONRequestBody defines body for CreateBuildVersionFromUrlApiV1BuildsVarsBuildVarIdVersionsFromUrlPost for application/json ContentType.
-type CreateBuildVersionFromUrlApiV1BuildsVarsBuildVarIdVersionsFromUrlPostJSONRequestBody = BuildVersionFromUrlRequest
-
-// StreamUploadBuildVersionApiV1BuildsVarsBuildVarIdVersionsStreamUploadPostMultipartRequestBody defines body for StreamUploadBuildVersionApiV1BuildsVarsBuildVarIdVersionsStreamUploadPost for multipart/form-data ContentType.
-type StreamUploadBuildVersionApiV1BuildsVarsBuildVarIdVersionsStreamUploadPostMultipartRequestBody = BodyStreamUploadBuildVersionApiV1BuildsVarsBuildVarIdVersionsStreamUploadPost
-
-// UpdateBuildVersionApiV1BuildsVersionsVersionIdPatchJSONRequestBody defines body for UpdateBuildVersionApiV1BuildsVersionsVersionIdPatch for application/json ContentType.
-type UpdateBuildVersionApiV1BuildsVersionsVersionIdPatchJSONRequestBody = BuildVersionUpdateRequest
-
-// CompleteBuildUploadApiV1BuildsVersionsVersionIdCompleteUploadPostJSONRequestBody defines body for CompleteBuildUploadApiV1BuildsVersionsVersionIdCompleteUploadPost for application/json ContentType.
-type CompleteBuildUploadApiV1BuildsVersionsVersionIdCompleteUploadPostJSONRequestBody = BuildUploadCompleteRequest
 
 // ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody defines body for ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPost for application/json ContentType.
 type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody = TaskID
@@ -7450,6 +8110,12 @@ type PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPostJSONRequestBody = PushSSHKe
 // CreateWorktreeApiV1FleetWorktreesPostJSONRequestBody defines body for CreateWorktreeApiV1FleetWorktreesPost for application/json ContentType.
 type CreateWorktreeApiV1FleetWorktreesPostJSONRequestBody = CreateWorktreeRequest
 
+// UpdateFlywheelConfigApiV1FlywheelConfigPatchJSONRequestBody defines body for UpdateFlywheelConfigApiV1FlywheelConfigPatch for application/json ContentType.
+type UpdateFlywheelConfigApiV1FlywheelConfigPatchJSONRequestBody = FlywheelConfigUpdateRequest
+
+// TriggerFlywheelEvalApiV1FlywheelTriggerPostJSONRequestBody defines body for TriggerFlywheelEvalApiV1FlywheelTriggerPost for application/json ContentType.
+type TriggerFlywheelEvalApiV1FlywheelTriggerPostJSONRequestBody = FlywheelTriggerRequest
+
 // CreateApprovalRequestApiV1HitlCreateApprovalRequestPostJSONRequestBody defines body for CreateApprovalRequestApiV1HitlCreateApprovalRequestPost for application/json ContentType.
 type CreateApprovalRequestApiV1HitlCreateApprovalRequestPostJSONRequestBody = HITLApprovalRequest
 
@@ -7485,6 +8151,9 @@ type RunEvalApiV1ReportEvalsRunEvalPostJSONRequestBody = EvalRequest
 
 // CreateReportApiV1ReportsV3ReportsPostJSONRequestBody defines body for CreateReportApiV1ReportsV3ReportsPost for application/json ContentType.
 type CreateReportApiV1ReportsV3ReportsPostJSONRequestBody = CreateReportRequest
+
+// GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPostJSONRequestBody defines body for GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPost for application/json ContentType.
+type GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPostJSONRequestBody = StepSummariesBatchRequest
 
 // GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPost for application/json ContentType.
 type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest
@@ -8299,12 +8968,12 @@ func (a *RunningTestMetadataContent) UnmarshalJSON(b []byte) error {
 		delete(object, "_upload_status")
 	}
 
-	if raw, found := object["build_var_name"]; found {
-		err = json.Unmarshal(raw, &a.BuildVarName)
+	if raw, found := object["app_name"]; found {
+		err = json.Unmarshal(raw, &a.AppName)
 		if err != nil {
-			return fmt.Errorf("error reading 'build_var_name': %w", err)
+			return fmt.Errorf("error reading 'app_name': %w", err)
 		}
-		delete(object, "build_var_name")
+		delete(object, "app_name")
 	}
 
 	if raw, found := object["build_version"]; found {
@@ -8452,10 +9121,10 @@ func (a RunningTestMetadataContent) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	if a.BuildVarName != nil {
-		object["build_var_name"], err = json.Marshal(a.BuildVarName)
+	if a.AppName != nil {
+		object["app_name"], err = json.Marshal(a.AppName)
 		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'build_var_name': %w", err)
+			return nil, fmt.Errorf("error marshaling 'app_name': %w", err)
 		}
 	}
 
@@ -8583,6 +9252,14 @@ func (a *TestInput) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
+	if raw, found := object["app_id"]; found {
+		err = json.Unmarshal(raw, &a.AppId)
+		if err != nil {
+			return fmt.Errorf("error reading 'app_id': %w", err)
+		}
+		delete(object, "app_id")
+	}
+
 	if raw, found := object["app_link"]; found {
 		err = json.Unmarshal(raw, &a.AppLink)
 		if err != nil {
@@ -8605,22 +9282,6 @@ func (a *TestInput) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'backend_url': %w", err)
 		}
 		delete(object, "backend_url")
-	}
-
-	if raw, found := object["build_var_id"]; found {
-		err = json.Unmarshal(raw, &a.BuildVarId)
-		if err != nil {
-			return fmt.Errorf("error reading 'build_var_id': %w", err)
-		}
-		delete(object, "build_var_id")
-	}
-
-	if raw, found := object["build_version"]; found {
-		err = json.Unmarshal(raw, &a.BuildVersion)
-		if err != nil {
-			return fmt.Errorf("error reading 'build_version': %w", err)
-		}
-		delete(object, "build_version")
 	}
 
 	if raw, found := object["cached_elements"]; found {
@@ -8767,6 +9428,14 @@ func (a *TestInput) UnmarshalJSON(b []byte) error {
 		delete(object, "platform")
 	}
 
+	if raw, found := object["resolved_build"]; found {
+		err = json.Unmarshal(raw, &a.ResolvedBuild)
+		if err != nil {
+			return fmt.Errorf("error reading 'resolved_build': %w", err)
+		}
+		delete(object, "resolved_build")
+	}
+
 	if raw, found := object["retries"]; found {
 		err = json.Unmarshal(raw, &a.Retries)
 		if err != nil {
@@ -8850,6 +9519,13 @@ func (a TestInput) MarshalJSON() ([]byte, error) {
 	var err error
 	object := make(map[string]json.RawMessage)
 
+	if a.AppId != nil {
+		object["app_id"], err = json.Marshal(a.AppId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'app_id': %w", err)
+		}
+	}
+
 	if a.AppLink != nil {
 		object["app_link"], err = json.Marshal(a.AppLink)
 		if err != nil {
@@ -8868,20 +9544,6 @@ func (a TestInput) MarshalJSON() ([]byte, error) {
 		object["backend_url"], err = json.Marshal(a.BackendUrl)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'backend_url': %w", err)
-		}
-	}
-
-	if a.BuildVarId != nil {
-		object["build_var_id"], err = json.Marshal(a.BuildVarId)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'build_var_id': %w", err)
-		}
-	}
-
-	if a.BuildVersion != nil {
-		object["build_version"], err = json.Marshal(a.BuildVersion)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'build_version': %w", err)
 		}
 	}
 
@@ -9008,6 +9670,13 @@ func (a TestInput) MarshalJSON() ([]byte, error) {
 		object["platform"], err = json.Marshal(a.Platform)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'platform': %w", err)
+		}
+	}
+
+	if a.ResolvedBuild != nil {
+		object["resolved_build"], err = json.Marshal(a.ResolvedBuild)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'resolved_build': %w", err)
 		}
 	}
 
@@ -9101,6 +9770,14 @@ func (a *TestOutput) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
+	if raw, found := object["app_id"]; found {
+		err = json.Unmarshal(raw, &a.AppId)
+		if err != nil {
+			return fmt.Errorf("error reading 'app_id': %w", err)
+		}
+		delete(object, "app_id")
+	}
+
 	if raw, found := object["app_link"]; found {
 		err = json.Unmarshal(raw, &a.AppLink)
 		if err != nil {
@@ -9123,22 +9800,6 @@ func (a *TestOutput) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'backend_url': %w", err)
 		}
 		delete(object, "backend_url")
-	}
-
-	if raw, found := object["build_var_id"]; found {
-		err = json.Unmarshal(raw, &a.BuildVarId)
-		if err != nil {
-			return fmt.Errorf("error reading 'build_var_id': %w", err)
-		}
-		delete(object, "build_var_id")
-	}
-
-	if raw, found := object["build_version"]; found {
-		err = json.Unmarshal(raw, &a.BuildVersion)
-		if err != nil {
-			return fmt.Errorf("error reading 'build_version': %w", err)
-		}
-		delete(object, "build_version")
 	}
 
 	if raw, found := object["cached_elements"]; found {
@@ -9285,6 +9946,14 @@ func (a *TestOutput) UnmarshalJSON(b []byte) error {
 		delete(object, "platform")
 	}
 
+	if raw, found := object["resolved_build"]; found {
+		err = json.Unmarshal(raw, &a.ResolvedBuild)
+		if err != nil {
+			return fmt.Errorf("error reading 'resolved_build': %w", err)
+		}
+		delete(object, "resolved_build")
+	}
+
 	if raw, found := object["retries"]; found {
 		err = json.Unmarshal(raw, &a.Retries)
 		if err != nil {
@@ -9368,6 +10037,13 @@ func (a TestOutput) MarshalJSON() ([]byte, error) {
 	var err error
 	object := make(map[string]json.RawMessage)
 
+	if a.AppId != nil {
+		object["app_id"], err = json.Marshal(a.AppId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'app_id': %w", err)
+		}
+	}
+
 	if a.AppLink != nil {
 		object["app_link"], err = json.Marshal(a.AppLink)
 		if err != nil {
@@ -9386,20 +10062,6 @@ func (a TestOutput) MarshalJSON() ([]byte, error) {
 		object["backend_url"], err = json.Marshal(a.BackendUrl)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'backend_url': %w", err)
-		}
-	}
-
-	if a.BuildVarId != nil {
-		object["build_var_id"], err = json.Marshal(a.BuildVarId)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'build_var_id': %w", err)
-		}
-	}
-
-	if a.BuildVersion != nil {
-		object["build_version"], err = json.Marshal(a.BuildVersion)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'build_version': %w", err)
 		}
 	}
 
@@ -9526,6 +10188,13 @@ func (a TestOutput) MarshalJSON() ([]byte, error) {
 		object["platform"], err = json.Marshal(a.Platform)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'platform': %w", err)
+		}
+	}
+
+	if a.ResolvedBuild != nil {
+		object["resolved_build"], err = json.Marshal(a.ResolvedBuild)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'resolved_build': %w", err)
 		}
 	}
 

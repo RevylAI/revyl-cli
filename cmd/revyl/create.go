@@ -31,6 +31,8 @@ var (
 	createTestForce    bool
 	createTestDryRun   bool
 	createTestFromFile string
+	createTestModules  []string
+	createTestTags     []string
 
 	// Hot reload flags for test creation
 	createTestHotReload         bool
@@ -266,12 +268,33 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 
 	ui.PrintInfo("Creating test '%s' (%s)...", testName, platform)
 
-	// Create test on server with empty tasks
+	// Resolve --module flags into module_import blocks
+	var tasks []interface{}
+	if len(createTestModules) > 0 {
+		for _, moduleRef := range createTestModules {
+			moduleID, moduleName, err := resolveModuleForCreate(cmd, client, moduleRef)
+			if err != nil {
+				ui.PrintError("Failed to resolve module '%s': %v", moduleRef, err)
+				return err
+			}
+			tasks = append(tasks, map[string]interface{}{
+				"type":             "module_import",
+				"step_description": moduleName,
+				"module_id":        moduleID,
+			})
+			ui.PrintInfo("  + module: %s (%s)", moduleName, moduleID)
+		}
+	}
+	if tasks == nil {
+		tasks = []interface{}{} // Empty tasks - user will define in browser
+	}
+
+	// Create test on server
 	ui.StartSpinner("Creating test on server...")
 	createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
 		Name:     testName,
 		Platform: platform,
-		Tasks:    []interface{}{}, // Empty tasks - user will define in browser
+		Tasks:    tasks,
 		AppID:    appID,
 		OrgID:    creds.OrgID,
 	})
@@ -283,6 +306,21 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.PrintSuccess("Created test: %s (id: %s)", testName, createResp.ID)
+
+	// Assign tags if --tag flags were provided
+	if len(createTestTags) > 0 {
+		ui.StartSpinner("Assigning tags...")
+		_, tagErr := client.SyncTestTags(cmd.Context(), createResp.ID, &api.CLISyncTagsRequest{
+			TagNames: createTestTags,
+		})
+		ui.StopSpinner()
+
+		if tagErr != nil {
+			ui.PrintWarning("Failed to assign tags: %v", tagErr)
+		} else {
+			ui.PrintSuccess("Tagged: %s", strings.Join(createTestTags, ", "))
+		}
+	}
 
 	// Add to config unless --no-sync is specified
 	if !createTestNoSync {
@@ -1128,6 +1166,32 @@ func getHotReloadURL(cmd *cobra.Command, cfg *config.ProjectConfig, cwd string) 
 	}
 
 	return result.DeepLinkURL, nil
+}
+
+// resolveModuleForCreate resolves a module name or UUID to an ID and name.
+// Used by the --module flag on test create.
+func resolveModuleForCreate(cmd *cobra.Command, client *api.Client, nameOrID string) (moduleID, moduleName string, err error) {
+	// If it looks like a UUID, try direct lookup
+	if looksLikeUUID(nameOrID) {
+		resp, err := client.GetModule(cmd.Context(), nameOrID)
+		if err == nil {
+			return resp.Result.ID, resp.Result.Name, nil
+		}
+	}
+
+	// Search by name in module list
+	listResp, err := client.ListModules(cmd.Context())
+	if err != nil {
+		return "", "", fmt.Errorf("failed to list modules: %w", err)
+	}
+
+	for _, m := range listResp.Result {
+		if strings.EqualFold(m.Name, nameOrID) {
+			return m.ID, m.Name, nil
+		}
+	}
+
+	return "", "", fmt.Errorf("module \"%s\" not found", nameOrID)
 }
 
 // runHeadlessSession starts a device session without the interactive REPL.

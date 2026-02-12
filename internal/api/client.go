@@ -854,6 +854,61 @@ func (c *Client) ListOrgTests(ctx context.Context, limit, offset int) (*CLISimpl
 	return &result, nil
 }
 
+// TestWithTags represents a test with its associated tags.
+// Used by the full get_tests endpoint which includes tag data.
+type TestWithTags struct {
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Platform string    `json:"platform"`
+	Tags     []TestTag `json:"tags"`
+}
+
+// TestTag represents a tag on a test (subset of CLITagResponse).
+type TestTag struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color,omitempty"`
+}
+
+// CLITestListWithTagsResponse represents the response from the full test list endpoint.
+type CLITestListWithTagsResponse struct {
+	Tests []TestWithTags `json:"tests"`
+	Count int            `json:"count"`
+}
+
+// ListOrgTestsWithTags fetches all tests with their tags.
+// Uses the full get_tests endpoint which includes tag data per test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - limit: Maximum number of tests to return (default: 150)
+//   - offset: Number of tests to skip for pagination (default: 0)
+//
+// Returns:
+//   - *CLITestListWithTagsResponse: List of tests with tags
+//   - error: Any error that occurred
+func (c *Client) ListOrgTestsWithTags(ctx context.Context, limit, offset int) (*CLITestListWithTagsResponse, error) {
+	if limit <= 0 {
+		limit = 150
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	path := fmt.Sprintf("/api/v1/tests/get_tests?limit=%d&offset=%d", limit, offset)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLITestListWithTagsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // App represents an app in the organization.
 // This is a CLI-specific type that's simpler than the generated API response types.
 type App struct {
@@ -1566,6 +1621,404 @@ func (c *Client) DeleteApp(ctx context.Context, appID string) (*CLIDeleteAppResp
 type DeleteBuildVersionResponse struct {
 	// Message is a success message.
 	Message string `json:"message"`
+}
+
+// --- Module API methods ---
+
+// CLIModuleResponse represents a module for CLI display.
+type CLIModuleResponse struct {
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Description string        `json:"description,omitempty"`
+	Blocks      []interface{} `json:"blocks"`
+	CreatedAt   string        `json:"created_at"`
+	UpdatedAt   string        `json:"updated_at"`
+	OrgID       string        `json:"org_id"`
+}
+
+// CLIModulesListResponse represents the response from listing modules.
+type CLIModulesListResponse struct {
+	Message string              `json:"message"`
+	Result  []CLIModuleResponse `json:"result"`
+}
+
+// CLIModuleSingleResponse represents the response from a single module operation.
+type CLIModuleSingleResponse struct {
+	Message string            `json:"message"`
+	Result  CLIModuleResponse `json:"result"`
+}
+
+// CLICreateModuleRequest represents a module creation request.
+type CLICreateModuleRequest struct {
+	Name        string        `json:"name"`
+	Description string        `json:"description,omitempty"`
+	Blocks      []interface{} `json:"blocks"`
+}
+
+// CLIUpdateModuleRequest represents a module update request.
+type CLIUpdateModuleRequest struct {
+	Name        *string        `json:"name,omitempty"`
+	Description *string        `json:"description,omitempty"`
+	Blocks      *[]interface{} `json:"blocks,omitempty"`
+}
+
+// CLIDeleteModuleResponse represents the response from deleting a module.
+type CLIDeleteModuleResponse struct {
+	Message string `json:"message"`
+}
+
+// ListModules fetches all modules for the authenticated user's organization.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *CLIModulesListResponse: List of modules
+//   - error: Any error that occurred
+func (c *Client) ListModules(ctx context.Context) (*CLIModulesListResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/modules/list", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIModulesListResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetModule retrieves a module by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//
+// Returns:
+//   - *CLIModuleSingleResponse: The module data
+//   - error: Any error that occurred
+func (c *Client) GetModule(ctx context.Context, moduleID string) (*CLIModuleSingleResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/modules/%s", moduleID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIModuleSingleResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// CreateModule creates a new module.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The creation request
+//
+// Returns:
+//   - *CLIModuleSingleResponse: The created module
+//   - error: Any error that occurred
+func (c *Client) CreateModule(ctx context.Context, req *CLICreateModuleRequest) (*CLIModuleSingleResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/modules/create", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIModuleSingleResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// UpdateModule updates an existing module.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//   - req: The update request
+//
+// Returns:
+//   - *CLIModuleSingleResponse: The updated module
+//   - error: Any error that occurred
+func (c *Client) UpdateModule(ctx context.Context, moduleID string, req *CLIUpdateModuleRequest) (*CLIModuleSingleResponse, error) {
+	resp, err := c.doRequest(ctx, "PUT",
+		fmt.Sprintf("/api/v1/modules/update/%s", moduleID), req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIModuleSingleResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteModule deletes a module by ID.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//
+// Returns:
+//   - *CLIDeleteModuleResponse: The deletion response
+//   - error: Any error that occurred (409 if module is in use)
+func (c *Client) DeleteModule(ctx context.Context, moduleID string) (*CLIDeleteModuleResponse, error) {
+	resp, err := c.doRequest(ctx, "DELETE",
+		fmt.Sprintf("/api/v1/modules/delete/%s", moduleID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIDeleteModuleResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Tag API methods ---
+
+// CLITagResponse represents a tag for CLI display.
+type CLITagResponse struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Color       string `json:"color,omitempty"`
+	Description string `json:"description,omitempty"`
+	TestCount   int    `json:"test_count,omitempty"`
+}
+
+// CLITagListResponse represents the response from listing tags.
+type CLITagListResponse struct {
+	Tags []CLITagResponse `json:"tags"`
+}
+
+// CLICreateTagRequest represents a tag creation request.
+type CLICreateTagRequest struct {
+	Name  string `json:"name"`
+	Color string `json:"color,omitempty"`
+}
+
+// CLIUpdateTagRequest represents a tag update request.
+type CLIUpdateTagRequest struct {
+	Name        *string `json:"name,omitempty"`
+	Color       *string `json:"color,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+// CLISyncTagsRequest represents a request to sync (replace) tags on a test.
+type CLISyncTagsRequest struct {
+	TagNames []string `json:"tag_names"`
+}
+
+// CLISyncTagsResponse represents the response from syncing tags on a test.
+type CLISyncTagsResponse struct {
+	TestID string             `json:"test_id"`
+	Tags   []CLITagSyncResult `json:"tags"`
+}
+
+// CLITagSyncResult represents the result of syncing a single tag.
+type CLITagSyncResult struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Color   string `json:"color,omitempty"`
+	Created bool   `json:"created"`
+}
+
+// CLIBulkSyncTagsRequest represents a request to add/remove tags on multiple tests.
+type CLIBulkSyncTagsRequest struct {
+	TestIDs      []string `json:"test_ids"`
+	TagsToAdd    []string `json:"tags_to_add,omitempty"`
+	TagsToRemove []string `json:"tags_to_remove,omitempty"`
+}
+
+// CLIBulkSyncTagsResponse represents the response from bulk syncing tags.
+type CLIBulkSyncTagsResponse struct {
+	Results      []CLIBulkSyncResult `json:"results"`
+	SuccessCount int                 `json:"success_count"`
+	ErrorCount   int                 `json:"error_count"`
+}
+
+// CLIBulkSyncResult represents the result for a single test in a bulk sync.
+type CLIBulkSyncResult struct {
+	TestID  string  `json:"test_id"`
+	Success bool    `json:"success"`
+	Error   *string `json:"error,omitempty"`
+}
+
+// CLIDeleteTagResponse represents the response from deleting a tag.
+type CLIDeleteTagResponse struct {
+	Deleted bool   `json:"deleted"`
+	TagID   string `json:"tag_id"`
+}
+
+// ListTags fetches all tags for the authenticated user's organization.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *CLITagListResponse: List of tags with test counts
+//   - error: Any error that occurred
+func (c *Client) ListTags(ctx context.Context) (*CLITagListResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/tests/tags", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLITagListResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// CreateTag creates a new tag (upserts if name exists).
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The creation request
+//
+// Returns:
+//   - *CLITagResponse: The created tag
+//   - error: Any error that occurred
+func (c *Client) CreateTag(ctx context.Context, req *CLICreateTagRequest) (*CLITagResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/tags", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLITagResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// UpdateTag updates an existing tag.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - tagID: The tag UUID
+//   - req: The update request
+//
+// Returns:
+//   - *CLITagResponse: The updated tag
+//   - error: Any error that occurred
+func (c *Client) UpdateTag(ctx context.Context, tagID string, req *CLIUpdateTagRequest) (*CLITagResponse, error) {
+	resp, err := c.doRequest(ctx, "PATCH",
+		fmt.Sprintf("/api/v1/tests/tags/%s", tagID), req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLITagResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteTag deletes a tag by ID (cascades from all tests).
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - tagID: The tag UUID
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) DeleteTag(ctx context.Context, tagID string) error {
+	resp, err := c.doRequest(ctx, "DELETE",
+		fmt.Sprintf("/api/v1/tests/tags/%s", tagID), nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// GetTestTags retrieves tags for a specific test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//
+// Returns:
+//   - []CLITagResponse: List of tags on the test
+//   - error: Any error that occurred
+func (c *Client) GetTestTags(ctx context.Context, testID string) ([]CLITagResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/tests/tags/tests/%s", testID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []CLITagResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// SyncTestTags replaces all tags on a test with the given tag names.
+// Tags are auto-created if they don't exist.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - req: The sync request with tag names
+//
+// Returns:
+//   - *CLISyncTagsResponse: The sync result
+//   - error: Any error that occurred
+func (c *Client) SyncTestTags(ctx context.Context, testID string, req *CLISyncTagsRequest) (*CLISyncTagsResponse, error) {
+	resp, err := c.doRequest(ctx, "POST",
+		fmt.Sprintf("/api/v1/tests/tags/tests/%s/sync", testID), req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLISyncTagsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// BulkSyncTestTags adds/removes tags on multiple tests.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The bulk sync request
+//
+// Returns:
+//   - *CLIBulkSyncTagsResponse: The bulk sync result
+//   - error: Any error that occurred
+func (c *Client) BulkSyncTestTags(ctx context.Context, req *CLIBulkSyncTagsRequest) (*CLIBulkSyncTagsResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/tags/tests/bulk-sync", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIBulkSyncTagsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
 
 // DeleteBuildVersion deletes a specific build version.

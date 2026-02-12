@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
+	"github.com/revyl/cli/internal/util"
 	"github.com/revyl/cli/internal/yaml"
 )
 
@@ -20,6 +22,7 @@ var (
 	testsForce         bool
 	testsLimit         int
 	testsPlatform      string
+	testsTag           string
 	validateOutputJSON bool
 	testsListJSON      bool
 	testsRemoteJSON    bool
@@ -39,6 +42,7 @@ func init() {
 
 	testsRemoteCmd.Flags().IntVar(&testsLimit, "limit", 50, "Maximum number of tests to return")
 	testsRemoteCmd.Flags().StringVar(&testsPlatform, "platform", "", "Filter by platform (android, ios)")
+	testsRemoteCmd.Flags().StringVar(&testsTag, "tag", "", "Filter by tag name")
 	testsRemoteCmd.Flags().BoolVar(&testsRemoteJSON, "json", false, "Output results as JSON")
 
 	testsListCmd.Flags().BoolVar(&testsListJSON, "json", false, "Output results as JSON")
@@ -114,10 +118,13 @@ var testsRemoteCmd = &cobra.Command{
 This shows all tests regardless of local project configuration.
 Useful for discovering tests or working without a local .revyl/config.yaml.
 
+When filtering by tag, a TAGS column is included in the output.
+
 Examples:
   revyl test remote                  # List all tests
   revyl test remote --limit 20       # Limit results
-  revyl test remote --platform ios   # Filter by platform`,
+  revyl test remote --platform ios   # Filter by platform
+  revyl test remote --tag regression # Filter by tag`,
 	RunE: runTestsRemote,
 }
 
@@ -431,7 +438,16 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 			}
 			for _, t := range remoteTests.Tests {
 				if !existingIDs[t.ID] {
-					cfg.Tests[t.Name] = t.ID
+					sanitizedName := util.SanitizeForFilename(t.Name)
+					if sanitizedName == "" {
+						sanitizedName = fmt.Sprintf("test-%s", t.ID[:8])
+					}
+					// Handle collisions (two tests that sanitize to the same name)
+					finalName := sanitizedName
+					for i := 2; cfg.Tests[finalName] != "" && cfg.Tests[finalName] != t.ID; i++ {
+						finalName = fmt.Sprintf("%s-%d", sanitizedName, i)
+					}
+					cfg.Tests[finalName] = t.ID
 					newCount++
 				}
 			}
@@ -614,6 +630,11 @@ func runTestsRemote(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
+	// When --tag is used, we need the full get_tests endpoint which includes tags
+	if testsTag != "" {
+		return runTestsRemoteWithTags(cmd, client, jsonOutput)
+	}
+
 	if !jsonOutput {
 		ui.StartSpinner("Fetching tests from organization...")
 	}
@@ -686,6 +707,120 @@ func runTestsRemote(cmd *cobra.Command, args []string) error {
 	ui.PrintNextSteps([]ui.NextStep{
 		{Label: "Run a test:", Command: "revyl run <name>"},
 		{Label: "Create a test:", Command: "revyl test create <name>"},
+	})
+
+	return nil
+}
+
+// runTestsRemoteWithTags lists tests filtered by tag.
+// Uses the full get_tests endpoint which returns tag data per test.
+func runTestsRemoteWithTags(cmd *cobra.Command, client *api.Client, jsonOutput bool) error {
+	if !jsonOutput {
+		ui.StartSpinner("Fetching tests with tags...")
+	}
+	// Fetch all tests since we filter client-side by tag.
+	// Backend max limit is 200, so paginate if needed.
+	const pageSize = 200
+	var allTests []api.TestWithTags
+	offset := 0
+	for {
+		page, fetchErr := client.ListOrgTestsWithTags(cmd.Context(), pageSize, offset)
+		if fetchErr != nil {
+			if !jsonOutput {
+				ui.StopSpinner()
+			}
+			ui.PrintError("Failed to fetch tests: %v", fetchErr)
+			return fetchErr
+		}
+		allTests = append(allTests, page.Tests...)
+		if len(page.Tests) < pageSize {
+			break
+		}
+		offset += pageSize
+	}
+	result := &api.CLITestListWithTagsResponse{Tests: allTests, Count: len(allTests)}
+	if !jsonOutput {
+		ui.StopSpinner()
+	}
+
+	// Filter by tag (case-insensitive)
+	tagFilter := strings.ToLower(testsTag)
+	var filtered []api.TestWithTags
+	for _, t := range result.Tests {
+		for _, tag := range t.Tags {
+			if strings.EqualFold(tag.Name, tagFilter) {
+				// Also apply platform filter if set
+				if testsPlatform == "" || strings.EqualFold(t.Platform, testsPlatform) {
+					filtered = append(filtered, t)
+				}
+				break
+			}
+		}
+	}
+
+	if jsonOutput {
+		type jsonTest struct {
+			ID       string   `json:"id"`
+			Name     string   `json:"name"`
+			Platform string   `json:"platform"`
+			Tags     []string `json:"tags"`
+		}
+		tests := make([]jsonTest, 0, len(filtered))
+		for _, t := range filtered {
+			var tagNames []string
+			for _, tag := range t.Tags {
+				tagNames = append(tagNames, tag.Name)
+			}
+			tests = append(tests, jsonTest{
+				ID:       t.ID,
+				Name:     t.Name,
+				Platform: t.Platform,
+				Tags:     tagNames,
+			})
+		}
+		output := map[string]interface{}{
+			"tests":      tests,
+			"count":      len(tests),
+			"tag_filter": testsTag,
+		}
+		data, _ := json.MarshalIndent(output, "", "  ")
+		fmt.Println(string(data))
+		return nil
+	}
+
+	if len(filtered) == 0 {
+		ui.PrintInfo("No tests found with tag \"%s\"", testsTag)
+		ui.Println()
+		ui.PrintNextSteps([]ui.NextStep{
+			{Label: "List all tags:", Command: "revyl tag list"},
+			{Label: "Tag a test:", Command: "revyl tag set <test> " + testsTag},
+		})
+		return nil
+	}
+
+	ui.Println()
+	ui.PrintInfo("Tests with tag \"%s\" (%d):", testsTag, len(filtered))
+	ui.Println()
+
+	table := ui.NewTable("NAME", "PLATFORM", "TAGS", "ID")
+	table.SetMinWidth(0, 25) // NAME
+	table.SetMinWidth(1, 8)  // PLATFORM
+	table.SetMinWidth(2, 15) // TAGS
+	table.SetMinWidth(3, 36) // ID
+
+	for _, t := range filtered {
+		var tagNames []string
+		for _, tag := range t.Tags {
+			tagNames = append(tagNames, tag.Name)
+		}
+		table.AddRow(t.Name, t.Platform, strings.Join(tagNames, ", "), t.ID)
+	}
+
+	table.Render()
+
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Run a test:", Command: "revyl run <name>"},
+		{Label: "List all tags:", Command: "revyl tag list"},
 	})
 
 	return nil
