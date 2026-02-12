@@ -20,6 +20,7 @@ import (
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
 	"github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
+	"github.com/revyl/cli/internal/util"
 )
 
 // initCmd initializes a Revyl project in the current directory via a guided wizard.
@@ -218,7 +219,10 @@ func wizardProjectSetup(cwd, revylDir, configPath string) (*config.ProjectConfig
 
 	ui.Println()
 
-	projectName := filepath.Base(cwd)
+	projectName := util.SanitizeForFilename(filepath.Base(cwd))
+	if projectName == "" {
+		projectName = "my-project"
+	}
 
 	cfg := &config.ProjectConfig{
 		Project: config.Project{

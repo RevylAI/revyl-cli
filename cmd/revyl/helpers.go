@@ -4,7 +4,6 @@ package main
 import (
 	"fmt"
 	"strings"
-	"unicode"
 )
 
 // maxResourceNameLen is the maximum allowed length for test/workflow names.
@@ -18,17 +17,22 @@ var reservedNames = map[string]bool{
 	"validate": true, "setup": true, "help": true,
 }
 
-// validateResourceName checks that a test or workflow name is safe for use as a
-// config key, file name, URL component, and CLI argument.
+// validateResourceName checks that a test, workflow, or module name is valid.
+//
+// The backend is the source of truth for display names and accepts spaces,
+// parentheses, and other characters. This validation only rejects names that
+// are dangerous (path separators), ambiguous (file extensions), or would
+// collide with CLI subcommands.
+//
+// For local config aliases and filenames, callers should use
+// util.SanitizeForFilename(name) separately.
 //
 // Rules:
 //   - Must be non-empty
 //   - Max 128 characters
-//   - No whitespace
-//   - Only lowercase alphanumeric, hyphens, and underscores
-//   - Cannot collide with a reserved subcommand name
 //   - Cannot look like a file path (contains / or \)
 //   - Cannot end with a known extension (.yaml, .yml, .json)
+//   - Sanitized form cannot collide with a reserved subcommand name
 //
 // Parameters:
 //   - name: The name to validate
@@ -45,19 +49,12 @@ func validateResourceName(name, kind string) error {
 		return fmt.Errorf("%s name too long (%d chars, max %d)", kind, len(name), maxResourceNameLen)
 	}
 
-	// Check for whitespace
-	for _, r := range name {
-		if unicode.IsSpace(r) {
-			return fmt.Errorf("%s name cannot contain spaces — use hyphens instead (e.g. 'login-flow')", kind)
-		}
-	}
-
-	// Check for path separators
+	// Check for path separators (security)
 	if strings.ContainsAny(name, "/\\") {
 		return fmt.Errorf("%s name cannot contain path separators — use a plain name (e.g. 'login-flow')", kind)
 	}
 
-	// Check for file extensions
+	// Check for file extensions (common mistake)
 	lower := strings.ToLower(name)
 	for _, ext := range []string{".yaml", ".yml", ".json"} {
 		if strings.HasSuffix(lower, ext) {
@@ -65,19 +62,36 @@ func validateResourceName(name, kind string) error {
 		}
 	}
 
-	// Check allowed character set: a-z 0-9 - _
-	for _, r := range name {
-		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
-			return fmt.Errorf("%s name contains invalid character '%c' — only lowercase letters, numbers, hyphens, and underscores are allowed", kind, r)
-		}
-	}
-
-	// Check reserved words
-	if reservedNames[name] {
+	// Check reserved words against the sanitized form
+	// (e.g. "run" or "Run" or "  run  " would all sanitize to "run")
+	sanitized := sanitizeNameForAlias(name)
+	if reservedNames[sanitized] {
 		return fmt.Errorf("'%s' is a reserved command name and cannot be used as a %s name", name, kind)
 	}
 
 	return nil
+}
+
+// sanitizeNameForAlias converts a display name into a CLI-safe alias suitable
+// for config keys and filenames. Mirrors util.SanitizeForFilename logic inline
+// to avoid a circular import.
+func sanitizeNameForAlias(name string) string {
+	s := strings.ToLower(name)
+	s = strings.ReplaceAll(s, " ", "-")
+	// Strip characters not in [a-z0-9-_]
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	s = b.String()
+	// Collapse consecutive hyphens
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
+	s = strings.Trim(s, "-")
+	return s
 }
 
 // looksLikeUUID checks if a string looks like a UUID (36 chars with hyphens at positions 8, 13, 18, 23).
