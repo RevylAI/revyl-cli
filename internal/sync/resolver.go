@@ -237,13 +237,23 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 		testsToSync = r.localTests
 	}
 
+	// Cache resolved build name → app ID to avoid redundant ListApps calls
+	// when multiple tests share the same build.name + platform.
+	appIDCache := make(map[string]string) // key: "buildName\x00platform"
+
 	for name, localTest := range testsToSync {
 		result := SyncResult{Name: name}
 
-		// Resolve build.name → app ID for push
+		// Resolve build.name → app ID for push (with caching)
 		var resolvedAppID string
 		if localTest.Test.Build.Name != "" {
-			resolvedAppID = r.resolveBuildNameToAppID(ctx, localTest.Test.Build.Name, localTest.Test.Metadata.Platform)
+			cacheKey := localTest.Test.Build.Name + "\x00" + localTest.Test.Metadata.Platform
+			if cached, ok := appIDCache[cacheKey]; ok {
+				resolvedAppID = cached
+			} else {
+				resolvedAppID = r.resolveBuildNameToAppID(ctx, localTest.Test.Build.Name, localTest.Test.Metadata.Platform)
+				appIDCache[cacheKey] = resolvedAppID
+			}
 		}
 
 		// Get remote ID
@@ -344,22 +354,29 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 }
 
 // resolveBuildNameToAppID looks up the app ID for a given build name and platform.
-// Returns empty string if not found (non-fatal).
+// Paginates through all apps if needed. Returns empty string if not found (non-fatal).
 func (r *Resolver) resolveBuildNameToAppID(ctx context.Context, buildName, platform string) string {
 	if buildName == "" {
 		return ""
 	}
 
-	appsResp, err := r.client.ListApps(ctx, platform, 1, 100)
-	if err != nil {
-		return ""
-	}
-
-	// Exact name match (case-insensitive)
-	for _, app := range appsResp.Items {
-		if strings.EqualFold(app.Name, buildName) {
-			return app.ID
+	page := 1
+	for {
+		appsResp, err := r.client.ListApps(ctx, platform, page, 100)
+		if err != nil {
+			return ""
 		}
+
+		for _, app := range appsResp.Items {
+			if strings.EqualFold(app.Name, buildName) {
+				return app.ID
+			}
+		}
+
+		if !appsResp.HasNext {
+			break
+		}
+		page++
 	}
 
 	return ""
