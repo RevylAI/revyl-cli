@@ -53,18 +53,10 @@ Use `revyl init -y` to skip the wizard entirely and just generate a config file.
 
 Connect Revyl to AI coding tools like Cursor, Claude Code, Codex, VS Code, and Claude Desktop. Your agent gets access to cloud devices, test execution, and device interaction tools.
 
-```bash
-# Quick setup for Cursor -- create .cursor/mcp.json:
-{
-  "mcpServers": {
-    "revyl": {
-      "command": "revyl",
-      "args": ["mcp", "serve"],
-      "env": { "REVYL_API_KEY": "your-api-key" }
-    }
-  }
-}
-```
+[![Add Revyl MCP to Cursor](https://cursor.com/deeplink/mcp-install-dark.png)](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Revyl-0098FF?style=flat&logo=visualstudiocode&logoColor=ffffff)](vscode:mcp/install?%7B%22name%22%3A%22revyl%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22revyl%22%2C%22args%22%3A%5B%22mcp%22%2C%22serve%22%5D%7D)
+
+**Claude Code**: `claude mcp add revyl -- revyl mcp serve` | **Codex**: `codex mcp add revyl -- revyl mcp serve`
 
 Full setup guides for every tool:
 
