@@ -1442,25 +1442,16 @@ type CategoryValue struct {
 	Value    float32 `json:"value"`
 }
 
-// ChartDataPoint Daily aggregated chart data point.
+// ChartDataPoint defines model for ChartDataPoint.
 type ChartDataPoint struct {
-	// AvgDuration Average execution duration in seconds for this date
-	AvgDuration *int `json:"avg_duration"`
-
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments"`
+	MedianHours *float32 `json:"median_hours"`
+	P25Hours    *float32 `json:"p25_hours"`
+	P75Hours    *float32 `json:"p75_hours"`
+	TeamAverage *float32 `json:"team_average"`
+	Trend       *string  `json:"trend"`
+	Value       *float32 `json:"value"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -3625,10 +3616,10 @@ type ModulesListResponse struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
-	MetricType   string                                           `json:"metric_type"`
-	Repositories []string                                         `json:"repositories"`
-	RetrievedAt  string                                           `json:"retrieved_at"`
+	Data         []ChartDataPoint `json:"data"`
+	MetricType   string           `json:"metric_type"`
+	Repositories []string         `json:"repositories"`
+	RetrievedAt  string           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -6441,11 +6432,11 @@ type VideoMetadataBatchRequest struct {
 	ExecutionIds []string `json:"execution_ids"`
 }
 
-// VideoMetadataBatchResponse Response for batch video metadata.
+// VideoMetadataBatchResponse Response model for batch video metadata.
 type VideoMetadataBatchResponse struct {
-	FoundCount     int                            `json:"found_count"`
-	RequestedCount int                            `json:"requested_count"`
-	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
+	FoundCount     int                          `json:"found_count"`
+	RequestedCount int                          `json:"requested_count"`
+	Videos         map[string]VideoMetadataItem `json:"videos"`
 }
 
 // VideoMetadataInfo Video + step metadata for a single task.
@@ -6669,9 +6660,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time        `json:"created_at"`
-	Deleted   bool              `json:"deleted"`
+	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time                                           `json:"created_at"`
+	Deleted   bool                                                 `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -7185,28 +7176,37 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
-// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
-type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
-}
-
 // AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest Request model for batch video metadata.
 type AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest struct {
 	TaskIds []string `json:"task_ids"`
 }
 
-// AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse Response model for batch video metadata.
-type AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse struct {
-	FoundCount     int                          `json:"found_count"`
-	RequestedCount int                          `json:"requested_count"`
-	Videos         map[string]VideoMetadataItem `json:"videos"`
+// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse Response for batch video metadata.
+type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse struct {
+	FoundCount     int                            `json:"found_count"`
+	RequestedCount int                            `json:"requested_count"`
+	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
+}
+
+// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
+type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
+	// AvgDuration Average execution duration in seconds for this date
+	AvgDuration *int `json:"avg_duration"`
+
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.

@@ -247,6 +247,10 @@ func runSandboxList(cmd *cobra.Command, args []string) error {
 
 // --- claim ---
 
+// sandboxClaimAllowMultiple allows claiming additional sandboxes when the user
+// already has one claimed. Controlled via --allow-multiple flag.
+var sandboxClaimAllowMultiple bool
+
 // sandboxClaimCmd claims an available sandbox.
 var sandboxClaimCmd = &cobra.Command{
 	Use:   "claim",
@@ -256,8 +260,11 @@ var sandboxClaimCmd = &cobra.Command{
 The system automatically picks the best available sandbox and assigns it
 to you. After claiming, your SSH key is pushed for secure access.
 
+Use --allow-multiple to claim additional sandboxes when you already have one.
+
 EXAMPLES:
   revyl --dev sandbox claim
+  revyl --dev sandbox claim --allow-multiple
   revyl --dev sandbox claim --json`,
 	RunE: runSandboxClaim,
 }
@@ -287,7 +294,7 @@ func runSandboxClaim(cmd *cobra.Command, args []string) error {
 		ui.StartSpinner("Claiming sandbox...")
 	}
 
-	result, err := client.ClaimSandbox(ctx)
+	result, err := client.ClaimSandbox(ctx, sandboxClaimAllowMultiple)
 
 	if !jsonOutput {
 		ui.StopSpinner()
@@ -857,4 +864,7 @@ func init() {
 
 	// Release flags
 	sandboxReleaseCmd.Flags().BoolVarP(&sandboxReleaseForce, "force", "f", false, "Skip confirmation prompt")
+
+	// Claim flags
+	sandboxClaimCmd.Flags().BoolVar(&sandboxClaimAllowMultiple, "allow-multiple", false, "Allow claiming additional sandboxes when you already have one")
 }
