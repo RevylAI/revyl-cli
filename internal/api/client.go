@@ -224,9 +224,96 @@ func authHintForStatus(statusCode int, message, detail string) string {
 	return ""
 }
 
-// doRequest performs an HTTP request with authentication.
+// extractHTMLError attempts to extract the meaningful error from an HTML debug page.
+// Backend debug pages (e.g. Starlette/FastAPI) embed the exception in the page.
+func extractHTMLError(html string) string {
+	// Look for common patterns in Python traceback HTML pages
+	// Starlette wraps the traceback in <pre> or <code> tags
+	for _, marker := range []string{"<pre>", "<code>"} {
+		idx := strings.LastIndex(html, marker)
+		if idx >= 0 {
+			end := marker[:1] + "/" + marker[1:]
+			endIdx := strings.Index(html[idx:], end)
+			if endIdx > 0 {
+				content := html[idx+len(marker) : idx+endIdx]
+				// Strip HTML tags from the extracted content
+				content = stripHTMLTags(content)
+				content = strings.TrimSpace(content)
+				if len(content) > 500 {
+					content = content[len(content)-500:]
+				}
+				if content != "" {
+					return content
+				}
+			}
+		}
+	}
+	// Fallback: strip all HTML and return a truncated version
+	plain := stripHTMLTags(html)
+	plain = strings.TrimSpace(plain)
+	if len(plain) > 500 {
+		plain = plain[:500] + "..."
+	}
+	if plain != "" {
+		return plain
+	}
+	return "Server returned an HTML error page (check backend logs for details)"
+}
+
+// stripHTMLTags removes HTML tags from a string.
+func stripHTMLTags(s string) string {
+	var result strings.Builder
+	inTag := false
+	for _, r := range s {
+		if r == '<' {
+			inTag = true
+			continue
+		}
+		if r == '>' {
+			inTag = false
+			continue
+		}
+		if !inTag {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
+// doRequest performs an HTTP request with authentication and retry logic.
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
 	return c.doRequestWithRetry(ctx, method, path, body)
+}
+
+// doRequestOnce performs a single HTTP request without retries.
+// Use this for endpoints where retrying is unlikely to help (e.g. deterministic failures).
+func (c *Client) doRequestOnce(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
+	reqURL := c.baseURL + path
+
+	var bodyReader io.Reader
+	if body != nil {
+		jsonBody, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		bodyReader = bytes.NewReader(jsonBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", c.userAgent())
+	req.Header.Set("X-Revyl-Client", "cli")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	return resp, nil
 }
 
 // isRetryableError checks if an error or status code should trigger a retry.
@@ -392,11 +479,17 @@ func parseResponse(resp *http.Response, target interface{}) error {
 		// Fallback to raw body if no structured error found
 		if message == "" && detail == "" {
 			bodyStr := string(body)
-			if len(bodyStr) > 200 {
-				bodyStr = bodyStr[:200] + "..."
-			}
-			if bodyStr != "" {
-				detail = bodyStr
+			// For HTML responses (e.g. debug traceback pages), try to extract
+			// the meaningful error text instead of showing raw HTML.
+			if strings.Contains(bodyStr, "<html") || strings.Contains(bodyStr, "<!DOCTYPE") {
+				detail = extractHTMLError(bodyStr)
+			} else {
+				if len(bodyStr) > 500 {
+					bodyStr = bodyStr[:500] + "..."
+				}
+				if bodyStr != "" {
+					detail = bodyStr
+				}
 			}
 		}
 
@@ -2014,6 +2107,334 @@ func (c *Client) BulkSyncTestTags(ctx context.Context, req *CLIBulkSyncTagsReque
 	}
 
 	var result CLIBulkSyncTagsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Enhanced History API types ---
+
+// CLIEnhancedTask represents the task details within an enhanced history item.
+type CLIEnhancedTask struct {
+	ID                   string  `json:"id"`
+	TestID               string  `json:"test_id"`
+	Success              *bool   `json:"success"`
+	Progress             float64 `json:"progress"`
+	CurrentStep          string  `json:"current_step,omitempty"`
+	StepsCompleted       int     `json:"steps_completed"`
+	TotalSteps           int     `json:"total_steps"`
+	ErrorMessage         string  `json:"error_message,omitempty"`
+	Status               string  `json:"status"`
+	StartedAt            string  `json:"started_at,omitempty"`
+	CompletedAt          string  `json:"completed_at,omitempty"`
+	ExecutionTimeSeconds float64 `json:"execution_time_seconds,omitempty"`
+}
+
+// CLIEnhancedHistoryItem represents a single execution in the enhanced history.
+type CLIEnhancedHistoryItem struct {
+	ID            string           `json:"id"`
+	TestUID       string           `json:"test_uid"`
+	ExecutionTime string           `json:"execution_time"`
+	Status        string           `json:"status"`
+	Duration      *float64         `json:"duration"`
+	EnhancedTask  *CLIEnhancedTask `json:"enhanced_task"`
+	HasReport     bool             `json:"has_report"`
+}
+
+// CLIEnhancedHistoryResponse represents the response from the enhanced history endpoint.
+type CLIEnhancedHistoryResponse struct {
+	Items          []CLIEnhancedHistoryItem `json:"items"`
+	TotalCount     int                      `json:"total_count"`
+	RequestedCount int                      `json:"requested_count"`
+	FoundCount     int                      `json:"found_count"`
+}
+
+// GetTestEnhancedHistory retrieves the enhanced execution history for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test ID
+//   - limit: Maximum number of items to return
+//   - offset: Number of items to skip for pagination
+//
+// Returns:
+//   - *CLIEnhancedHistoryResponse: The enhanced history
+//   - error: Any error that occurred
+func (c *Client) GetTestEnhancedHistory(ctx context.Context, testID string, limit, offset int) (*CLIEnhancedHistoryResponse, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	path := fmt.Sprintf("/api/v1/tests/get_test_enhanced_history?test_id=%s&limit=%d&offset=%d", testID, limit, offset)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIEnhancedHistoryResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Report V3 API types ---
+
+// CLIReportV3Step represents a single step in a V3 report.
+// CLIReportV3Action represents a single action within a step.
+type CLIReportV3Action struct {
+	ActionIndex          int                    `json:"action_index"`
+	ActionType           string                 `json:"action_type,omitempty"`
+	AgentDescription     string                 `json:"agent_description,omitempty"`
+	Reasoning            string                 `json:"reasoning,omitempty"`
+	ReflectionDecision   string                 `json:"reflection_decision,omitempty"`
+	ReflectionReasoning  string                 `json:"reflection_reasoning,omitempty"`
+	ReflectionSuggestion string                 `json:"reflection_suggestion,omitempty"`
+	IsTerminal           bool                   `json:"is_terminal,omitempty"`
+	TypeData             map[string]interface{} `json:"type_data,omitempty"`
+}
+
+type CLIReportV3Step struct {
+	ID             string                 `json:"id"`
+	ExecutionOrder int                    `json:"execution_order"`
+	StepType       string                 `json:"step_type"`
+	StepDesc       string                 `json:"step_description"`
+	Status         string                 `json:"status"`
+	StatusReason   string                 `json:"status_reason,omitempty"`
+	StartedAt      string                 `json:"started_at,omitempty"`
+	CompletedAt    string                 `json:"completed_at,omitempty"`
+	TypeData       map[string]interface{} `json:"type_data,omitempty"`
+	Actions        []CLIReportV3Action    `json:"actions,omitempty"`
+}
+
+// CLIReportV3Response represents a V3 report for a test execution.
+type CLIReportV3Response struct {
+	ID               string            `json:"id"`
+	ExecutionID      string            `json:"execution_id"`
+	TestID           string            `json:"test_id"`
+	TestName         string            `json:"test_name"`
+	Platform         string            `json:"platform"`
+	Success          *bool             `json:"success"`
+	StartedAt        string            `json:"started_at,omitempty"`
+	CompletedAt      string            `json:"completed_at,omitempty"`
+	TotalSteps       int               `json:"total_steps"`
+	PassedSteps      int               `json:"passed_steps"`
+	FailedSteps      int               `json:"failed_steps"`
+	TotalValidations int               `json:"total_validations"`
+	ValidsPassed     int               `json:"validations_passed"`
+	VideoURL         string            `json:"video_url,omitempty"`
+	AppName          string            `json:"app_name,omitempty"`
+	BuildVersion     string            `json:"build_version,omitempty"`
+	DeviceModel      string            `json:"device_model,omitempty"`
+	OSVersion        string            `json:"os_version,omitempty"`
+	Steps            []CLIReportV3Step `json:"steps,omitempty"`
+}
+
+// GetReportByExecution retrieves the V3 report for a test execution.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - executionID: The execution/task ID
+//   - includeSteps: Whether to include step details
+//
+// Returns:
+//   - *CLIReportV3Response: The report data
+//   - error: Any error that occurred
+func (c *Client) GetReportByExecution(ctx context.Context, executionID string, includeSteps bool, includeActions ...bool) (*CLIReportV3Response, error) {
+	actions := false
+	if len(includeActions) > 0 {
+		actions = includeActions[0]
+	}
+	path := fmt.Sprintf("/api/v1/reports-v3/reports/by-execution/%s?include_steps=%t&include_actions=%t&include_llm_calls=false",
+		executionID, includeSteps, actions)
+	resp, err := c.doRequestOnce(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIReportV3Response
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Shareable Link API types ---
+
+// CLIShareableLinkRequest represents a request to generate a shareable report link.
+type CLIShareableLinkRequest struct {
+	TaskID          string `json:"task_id"`
+	ExpirationHours *int   `json:"expiration_hours"`
+}
+
+// CLIShareableLinkResponse represents the response containing a shareable link.
+type CLIShareableLinkResponse struct {
+	ShareableLink string `json:"shareable_link"`
+}
+
+// GenerateShareableLink creates a shareable link for a test execution report.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - taskID: The execution task ID
+//
+// Returns:
+//   - *CLIShareableLinkResponse: The shareable link
+//   - error: Any error that occurred
+func (c *Client) GenerateShareableLink(ctx context.Context, taskID string) (*CLIShareableLinkResponse, error) {
+	req := &CLIShareableLinkRequest{
+		TaskID:          taskID,
+		ExpirationHours: nil,
+	}
+
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/reports/generate_shareable_report_link_by_task", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIShareableLinkResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Workflow Status/History/Report API types ---
+
+// CLIWorkflowStatusResponse represents a workflow execution status.
+type CLIWorkflowStatusResponse struct {
+	ExecutionID         string  `json:"execution_id,omitempty"`
+	WorkflowID          string  `json:"workflow_id"`
+	Status              string  `json:"status"`
+	Progress            float64 `json:"progress"`
+	CompletedTests      int     `json:"completed_tests"`
+	TotalTests          int     `json:"total_tests"`
+	PassedTests         int     `json:"passed_tests"`
+	FailedTests         int     `json:"failed_tests"`
+	StartedAt           string  `json:"started_at,omitempty"`
+	EstimatedCompletion string  `json:"estimated_completion,omitempty"`
+	Duration            string  `json:"duration,omitempty"`
+	ErrorMessage        string  `json:"error_message,omitempty"`
+}
+
+// CLIWorkflowHistoryResponse represents workflow execution history.
+type CLIWorkflowHistoryResponse struct {
+	WorkflowID      string                      `json:"workflow_id"`
+	Executions      []CLIWorkflowStatusResponse `json:"executions"`
+	TotalCount      int                         `json:"total_count"`
+	SuccessRate     float64                     `json:"success_rate"`
+	AverageDuration *float64                    `json:"average_duration,omitempty"`
+}
+
+// CLIWorkflowTaskInfo contains workflow execution snapshot data.
+type CLIWorkflowTaskInfo struct {
+	TaskID         string   `json:"task_id"`
+	WorkflowID     string   `json:"workflow_id,omitempty"`
+	Status         string   `json:"status,omitempty"`
+	Success        *bool    `json:"success,omitempty"`
+	Duration       *float64 `json:"duration,omitempty"`
+	TotalTests     *int     `json:"total_tests,omitempty"`
+	CompletedTests *int     `json:"completed_tests,omitempty"`
+	TaskIDs        []string `json:"task_ids"`
+	StartedAt      string   `json:"started_at,omitempty"`
+	UpdatedAt      string   `json:"updated_at,omitempty"`
+	CreatedAt      string   `json:"created_at,omitempty"`
+	TriggeredBy    string   `json:"triggered_by,omitempty"`
+}
+
+// CLIWorkflowDetailInfo contains workflow definition data.
+type CLIWorkflowDetailInfo struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Tests       []string `json:"tests"`
+}
+
+// CLIWorkflowTestInfo contains test name/platform info for a workflow.
+type CLIWorkflowTestInfo struct {
+	ID       string `json:"id"`
+	Name     string `json:"name,omitempty"`
+	Platform string `json:"platform,omitempty"`
+}
+
+// CLIChildTaskReportInfo contains individual test execution data within a workflow.
+type CLIChildTaskReportInfo struct {
+	TaskID               string   `json:"task_id"`
+	TestID               string   `json:"test_id,omitempty"`
+	TestName             string   `json:"test_name,omitempty"`
+	Platform             string   `json:"platform,omitempty"`
+	Status               string   `json:"status,omitempty"`
+	Success              *bool    `json:"success,omitempty"`
+	StartedAt            string   `json:"started_at,omitempty"`
+	CompletedAt          string   `json:"completed_at,omitempty"`
+	Duration             *float64 `json:"duration,omitempty"`
+	ExecutionTimeSeconds *float64 `json:"execution_time_seconds,omitempty"`
+	StepsCompleted       *int     `json:"steps_completed,omitempty"`
+	TotalSteps           *int     `json:"total_steps,omitempty"`
+	Progress             *float64 `json:"progress,omitempty"`
+	ErrorMessage         string   `json:"error_message,omitempty"`
+}
+
+// CLIUnifiedWorkflowReportResponse represents a comprehensive workflow report.
+type CLIUnifiedWorkflowReportResponse struct {
+	WorkflowTask   CLIWorkflowTaskInfo      `json:"workflow_task"`
+	WorkflowDetail *CLIWorkflowDetailInfo   `json:"workflow_detail,omitempty"`
+	TestInfo       []CLIWorkflowTestInfo    `json:"test_info"`
+	ChildTasks     []CLIChildTaskReportInfo `json:"child_tasks"`
+}
+
+// GetWorkflowStatus retrieves the real-time status of a workflow execution.
+func (c *Client) GetWorkflowStatus(ctx context.Context, taskID string) (*CLIWorkflowStatusResponse, error) {
+	path := fmt.Sprintf("/api/v1/workflows/status/status/%s", taskID)
+	resp, err := c.doRequestOnce(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIWorkflowStatusResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetWorkflowHistory retrieves execution history for a workflow.
+func (c *Client) GetWorkflowHistory(ctx context.Context, workflowID string, limit, offset int) (*CLIWorkflowHistoryResponse, error) {
+	path := fmt.Sprintf("/api/v1/workflows/status/history/%s?limit=%d&offset=%d",
+		workflowID, limit, offset)
+	resp, err := c.doRequestOnce(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIWorkflowHistoryResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetWorkflowUnifiedReport retrieves a comprehensive workflow report.
+func (c *Client) GetWorkflowUnifiedReport(ctx context.Context, workflowTaskID string) (*CLIUnifiedWorkflowReportResponse, error) {
+	body := map[string]interface{}{
+		"workflow_task_id": workflowTaskID,
+	}
+	resp, err := c.doRequestOnce(ctx, "POST", "/api/v1/workflows/share/unified-report", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIUnifiedWorkflowReportResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}

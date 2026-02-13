@@ -6427,8 +6427,13 @@ type VariablesResponse struct {
 	Result []VariableRow `json:"result"`
 }
 
-// VideoMetadataBatchRequest Request model for batch video metadata.
+// VideoMetadataBatchRequest Request for batch video metadata.
 type VideoMetadataBatchRequest struct {
+	ExecutionIds []string `json:"execution_ids"`
+}
+
+// VideoMetadataBatchRequestV1 Request model for batch video metadata.
+type VideoMetadataBatchRequestV1 struct {
 	TaskIds []string `json:"task_ids"`
 }
 
@@ -6437,6 +6442,13 @@ type VideoMetadataBatchResponse struct {
 	FoundCount     int                            `json:"found_count"`
 	RequestedCount int                            `json:"requested_count"`
 	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
+}
+
+// VideoMetadataBatchResponseV1 Response model for batch video metadata.
+type VideoMetadataBatchResponseV1 struct {
+	FoundCount     int                          `json:"found_count"`
+	RequestedCount int                          `json:"requested_count"`
+	Videos         map[string]VideoMetadataItem `json:"videos"`
 }
 
 // VideoMetadataInfo Video + step metadata for a single task.
@@ -6971,6 +6983,7 @@ type WorkflowStatusResponse struct {
 	Duration            *string                 `json:"duration"`
 	ErrorMessage        *string                 `json:"error_message"`
 	EstimatedCompletion *string                 `json:"estimated_completion"`
+	ExecutionId         *string                 `json:"execution_id"`
 	FailedTests         *int                    `json:"failed_tests,omitempty"`
 	Metadata            *map[string]interface{} `json:"metadata,omitempty"`
 	PassedTests         *int                    `json:"passed_tests,omitempty"`
@@ -7174,18 +7187,6 @@ type YamlToBlocksRequest struct {
 
 	// YamlContent YAML content to convert
 	YamlContent string `json:"yaml_content"`
-}
-
-// AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse Response model for batch video metadata.
-type AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse struct {
-	FoundCount     int                          `json:"found_count"`
-	RequestedCount int                          `json:"requested_count"`
-	Videos         map[string]VideoMetadataItem `json:"videos"`
-}
-
-// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest Request for batch video metadata.
-type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest struct {
-	ExecutionIds []string `json:"execution_ids"`
 }
 
 // CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
@@ -8141,7 +8142,7 @@ type UploadTrainingImageApiV1ReportAsyncRunTrainingImagePostJSONRequestBody = Tr
 type GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPostJSONRequestBody = UnifiedReportRequest
 
 // GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequestV1
 
 // GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody defines body for GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPost for application/json ContentType.
 type GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody = WorkflowTasksReportBatchRequest
@@ -8156,7 +8157,7 @@ type CreateReportApiV1ReportsV3ReportsPostJSONRequestBody = CreateReportRequest
 type GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPostJSONRequestBody = StepSummariesBatchRequest
 
 // GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
 
 // UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody defines body for UpdateReportApiV1ReportsV3ReportsReportIdPatch for application/json ContentType.
 type UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody = UpdateReportRequest

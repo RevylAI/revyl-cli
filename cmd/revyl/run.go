@@ -326,8 +326,8 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 			ui.Println()
 			ui.PrintSuccess("Test completed successfully!")
 			ui.PrintNextSteps([]ui.NextStep{
-				{Label: "View report:", Command: fmt.Sprintf("revyl test open %s", testNameOrID)},
-				{Label: "Add to workflow:", Command: fmt.Sprintf("revyl workflow create --tests %s", testNameOrID)},
+				{Label: "View report:", Command: fmt.Sprintf("revyl test report %s", testNameOrID)},
+				{Label: "View history:", Command: fmt.Sprintf("revyl test history %s", testNameOrID)},
 			})
 		}
 	case result.Status == "cancelled":
@@ -357,8 +357,8 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 			ui.Println()
 			ui.PrintError("Test failed")
 			ui.PrintNextSteps([]ui.NextStep{
+				{Label: "View report:", Command: fmt.Sprintf("revyl test report %s", testNameOrID)},
 				{Label: "Re-run with verbose:", Command: fmt.Sprintf("revyl run %s -v", testNameOrID)},
-				{Label: "Check builds:", Command: "revyl build list"},
 			})
 		}
 	}
