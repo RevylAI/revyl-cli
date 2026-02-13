@@ -237,8 +237,24 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 		testsToSync = r.localTests
 	}
 
+	// Cache resolved build name → app ID to avoid redundant ListApps calls
+	// when multiple tests share the same build.name + platform.
+	appIDCache := make(map[string]string) // key: "buildName\x00platform"
+
 	for name, localTest := range testsToSync {
 		result := SyncResult{Name: name}
+
+		// Resolve build.name → app ID for push (with caching)
+		var resolvedAppID string
+		if localTest.Test.Build.Name != "" {
+			cacheKey := localTest.Test.Build.Name + "\x00" + localTest.Test.Metadata.Platform
+			if cached, ok := appIDCache[cacheKey]; ok {
+				resolvedAppID = cached
+			} else {
+				resolvedAppID = r.resolveBuildNameToAppID(ctx, localTest.Test.Build.Name, localTest.Test.Metadata.Platform)
+				appIDCache[cacheKey] = resolvedAppID
+			}
+		}
 
 		// Get remote ID
 		remoteID := localTest.Meta.RemoteID
@@ -254,6 +270,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				Name:     localTest.Test.Metadata.Name,
 				Platform: localTest.Test.Metadata.Platform,
 				Tasks:    localTest.Test.Blocks,
+				AppID:    resolvedAppID,
 			})
 			if err != nil {
 				result.Error = err
@@ -263,6 +280,9 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				localTest.Meta.RemoteVersion = resp.Version
 				localTest.Meta.LocalVersion = resp.Version
 				localTest.Meta.LastSyncedAt = time.Now().Format(time.RFC3339)
+
+				// Sync tags if present
+				r.syncTagsForTest(ctx, resp.ID, localTest.Test.Metadata.Tags)
 
 				// Update config Tests map so subsequent operations use the new ID
 				if r.config.Tests == nil {
@@ -291,6 +311,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 			resp, err := r.client.UpdateTest(ctx, &api.UpdateTestRequest{
 				TestID:          remoteID,
 				Tasks:           localTest.Test.Blocks,
+				AppID:           resolvedAppID,
 				ExpectedVersion: expectedVersion,
 				Force:           force,
 			})
@@ -306,6 +327,9 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				localTest.Meta.RemoteVersion = resp.Version
 				localTest.Meta.LocalVersion = resp.Version
 				localTest.Meta.LastSyncedAt = time.Now().Format(time.RFC3339)
+
+				// Sync tags if present
+				r.syncTagsForTest(ctx, remoteID, localTest.Test.Metadata.Tags)
 
 				// Save updated local test file
 				sanitized := util.SanitizeForFilename(name)
@@ -327,6 +351,46 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 	}
 
 	return results, nil
+}
+
+// resolveBuildNameToAppID looks up the app ID for a given build name and platform.
+// Paginates through all apps if needed. Returns empty string if not found (non-fatal).
+func (r *Resolver) resolveBuildNameToAppID(ctx context.Context, buildName, platform string) string {
+	if buildName == "" {
+		return ""
+	}
+
+	page := 1
+	for {
+		appsResp, err := r.client.ListApps(ctx, platform, page, 100)
+		if err != nil {
+			return ""
+		}
+
+		for _, app := range appsResp.Items {
+			if strings.EqualFold(app.Name, buildName) {
+				return app.ID
+			}
+		}
+
+		if !appsResp.HasNext {
+			break
+		}
+		page++
+	}
+
+	return ""
+}
+
+// syncTagsForTest syncs tags for a test if tags are present.
+// Errors are silently ignored since tag sync is best-effort.
+func (r *Resolver) syncTagsForTest(ctx context.Context, testID string, tags []string) {
+	if len(tags) == 0 {
+		return
+	}
+	_, _ = r.client.SyncTestTags(ctx, testID, &api.CLISyncTagsRequest{
+		TagNames: tags,
+	})
 }
 
 // PullFromRemote pulls remote changes to local.
@@ -427,6 +491,16 @@ func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string
 		// Add pinned version if set
 		if remoteTest.PinnedVersion != "" {
 			localTest.Test.Build.PinnedVersion = remoteTest.PinnedVersion
+		}
+
+		// Fetch tags for this test
+		tags, err := r.client.GetTestTags(ctx, remoteID)
+		if err == nil && len(tags) > 0 {
+			tagNames := make([]string, len(tags))
+			for i, t := range tags {
+				tagNames[i] = t.Name
+			}
+			localTest.Test.Metadata.Tags = tagNames
 		}
 
 		// Save to file

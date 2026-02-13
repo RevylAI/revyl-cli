@@ -33,11 +33,17 @@ COMMANDS:
   create  - Create a new workflow
   delete  - Delete a workflow
   open    - Open a workflow in the browser
+  status  - Show latest execution status
+  history - Show execution history
+  report  - Show detailed workflow report
+  share   - Generate shareable report link
 
 EXAMPLES:
   revyl workflow list                        # List all workflows
   revyl workflow run smoke-tests --build     # Build first, then run workflow
   revyl workflow run smoke-tests             # Run only (no build)
+  revyl workflow status smoke-tests          # Check latest execution status
+  revyl workflow report smoke-tests          # View detailed report
   revyl workflow create regression --tests login,checkout
   revyl workflow delete smoke-tests`,
 }
@@ -122,6 +128,10 @@ func init() {
 	workflowCmd.AddCommand(workflowCreateCmd)
 	workflowCmd.AddCommand(workflowDeleteCmd)
 	workflowCmd.AddCommand(workflowOpenCmd)
+	workflowCmd.AddCommand(workflowStatusCmd)
+	workflowCmd.AddCommand(workflowHistoryCmd)
+	workflowCmd.AddCommand(workflowReportCmd)
+	workflowCmd.AddCommand(workflowShareCmd)
 
 	// workflow list flags
 	workflowListCmd.Flags().BoolVar(&workflowListJSON, "json", false, "Output results as JSON")
