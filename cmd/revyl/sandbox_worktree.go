@@ -302,9 +302,9 @@ EXAMPLES:
 
 // runSandboxWorktreeSetup re-runs the setup script on an existing worktree via SSH.
 //
-// Reads fleet.json from the worktree to discover the setup script path
-// (e.g. "./scripts/worktree-setup.sh") and executes it. Falls back to a
-// warning if no fleet.json or setup script is found.
+// Checks .revyl/fleet.json first, then falls back to fleet.json in the repo root
+// to discover the setup script path (e.g. "./scripts/worktree-setup.sh") and
+// executes it. Falls back to a warning if no config or setup script is found.
 //
 // Parameters:
 //   - cmd: The cobra command being executed
@@ -324,11 +324,14 @@ func runSandboxWorktreeSetup(cmd *cobra.Command, args []string) error {
 
 	sshCmd := fmt.Sprintf(
 		`cd ~/workspace/%s && source ~/.zshrc && `+
-			`if [ -f fleet.json ]; then `+
-			`SCRIPT=$(python3 -c "import json; c=json.load(open('fleet.json')); print(c.get('scripts',{}).get('setup',''))" 2>/dev/null); `+
+			`if [ -f .revyl/fleet.json ]; then CFG=.revyl/fleet.json; `+
+			`elif [ -f fleet.json ]; then CFG=fleet.json; `+
+			`else CFG=""; fi; `+
+			`if [ -n "$CFG" ]; then `+
+			`SCRIPT=$(python3 -c "import json; c=json.load(open('$CFG')); print(c.get('scripts',{}).get('setup',''))" 2>/dev/null); `+
 			`if [ -n "$SCRIPT" ] && [ -f "$SCRIPT" ]; then chmod +x "$SCRIPT" && "$SCRIPT"; `+
-			`else echo "No setup script found in fleet.json"; fi; `+
-			`else echo "No fleet.json found"; fi`,
+			`else echo "No setup script found in $CFG"; fi; `+
+			`else echo "No fleet config found (.revyl/fleet.json or fleet.json)"; fi`,
 		branch,
 	)
 

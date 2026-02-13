@@ -25,7 +25,7 @@ CMD_DIR := ./cmd/revyl
 BUILD_DIR := ./build
 SCRIPTS_DIR := ./scripts
 
-.PHONY: all build clean test lint fmt deps dev generate install help check
+.PHONY: all build clean test lint fmt deps dev generate install help check setup-merge-drivers
 
 ## help: Show this help message
 help:
@@ -137,8 +137,15 @@ watch:
 		exit 1; \
 	fi
 
-## setup: Install development tools
-setup:
+## setup-merge-drivers: Register custom merge drivers for generated files
+setup-merge-drivers:
+	@echo "Registering custom merge drivers..."
+	git config merge.gen-ours.name "Auto-accept ours for generated files"
+	git config merge.gen-ours.driver true
+	@echo "✓ Merge driver 'gen-ours' registered (accepts ours for generated files on merge)"
+
+## setup: Install development tools and configure merge drivers
+setup: setup-merge-drivers
 	@echo "Installing development tools..."
 	go install github.com/air-verse/air@latest
 	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
