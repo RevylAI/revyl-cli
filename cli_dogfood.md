@@ -102,6 +102,11 @@ revyl-cli/
 │   ├── run.go          # test run / workflow run (shared execution)
 │   ├── test.go         # test command and test run/create/delete/open/cancel
 │   ├── tests.go        # test list/push/pull/diff/validate/remote
+│   ├── status.go       # test status/history commands
+│   ├── report.go       # test report/share commands
+│   ├── workflow.go     # workflow command and lifecycle subcommands
+│   ├── workflow_report.go # workflow status/history/report/share commands
+│   ├── helpers.go      # Shared resolution and formatting helpers
 │   └── mcp.go          # MCP server command
 ├── internal/
 │   ├── api/            # HTTP client
@@ -265,6 +270,20 @@ revyl run login-flow --platform android
 # Just run (no build/upload)
 revyl test run login-flow
 revyl workflow run smoke-tests
+
+# Check results
+revyl test status login-flow          # Quick status check
+revyl test report login-flow          # Detailed step-by-step report
+revyl test history login-flow         # Execution history table
+
+# Workflow results
+revyl workflow status smoke-tests     # Quick workflow status
+revyl workflow report smoke-tests     # Detailed report with test breakdown
+revyl workflow history smoke-tests    # Workflow execution history
+
+# Share results
+revyl test share login-flow           # Generate shareable link
+revyl workflow share smoke-tests      # Generate shareable workflow link
 ```
 
 ### Using MCP with nof1
@@ -344,6 +363,22 @@ revyl auth status
 
 # List tests with sync status
 revyl test list
+
+# Check test results
+revyl test status login-flow          # Latest execution status
+revyl test report login-flow          # Detailed step report
+revyl test history login-flow         # Execution history
+revyl test share login-flow           # Shareable report link
+
+# Check workflow results
+revyl workflow status smoke-tests     # Latest workflow status
+revyl workflow report smoke-tests     # Detailed workflow report
+revyl workflow history smoke-tests    # Workflow execution history
+revyl workflow share smoke-tests      # Shareable workflow link
+
+# All status/report commands support --json for CI/scripting
+revyl test status login-flow --json
+revyl workflow report smoke-tests --json
 
 # Show version info
 revyl version
