@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
@@ -283,6 +284,7 @@ func runServicesStart(cmd *cobra.Command, args []string) error {
 
 		shellCmd := exec.Command("/bin/sh", "-c", joinedCommands)
 		shellCmd.Dir = repoRoot
+		shellCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 		// Create pipes for stdout and stderr
 		stdout, err := shellCmd.StdoutPipe()
@@ -386,6 +388,7 @@ func runServicesStop(cmd *cobra.Command, args []string) error {
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	var pids []int
 	stopped := 0
 	for _, line := range lines {
 		pid, err := strconv.Atoi(strings.TrimSpace(line))
@@ -393,17 +396,31 @@ func runServicesStop(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		proc, err := os.FindProcess(pid)
-		if err != nil {
+		// Guard against stale PIDs: verify the process is a shell we spawned
+		if !isServiceProcess(pid) {
+			log.Debug("PID is not a revyl service process, skipping", "pid", pid)
 			continue
 		}
 
-		if err := proc.Signal(syscall.SIGTERM); err != nil {
-			log.Debug("Process already exited", "pid", pid)
+		// Send SIGTERM to the process group (negative PID)
+		if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
+			log.Debug("Process group already exited", "pid", pid)
 			continue
 		}
+		pids = append(pids, pid)
 		stopped++
-		log.Debug("Sent SIGTERM", "pid", pid)
+		log.Debug("Sent SIGTERM to process group", "pid", pid)
+	}
+
+	// Wait briefly, then SIGKILL any survivors
+	if len(pids) > 0 {
+		time.Sleep(3 * time.Second)
+		for _, pid := range pids {
+			if err := syscall.Kill(-pid, syscall.Signal(0)); err == nil {
+				log.Warn("Process group did not exit after SIGTERM, sending SIGKILL", "pid", pid)
+				_ = syscall.Kill(-pid, syscall.SIGKILL)
+			}
+		}
 	}
 
 	_ = os.Remove(pidFile)
@@ -417,14 +434,28 @@ func runServicesStop(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// stopProcesses sends SIGTERM to all running processes.
+// stopProcesses sends SIGTERM to all process groups and falls back to SIGKILL
+// after a brief timeout if any process is still running.
 //
 // Parameters:
 //   - cmds: Slice of exec.Cmd to stop.
 func stopProcesses(cmds []*exec.Cmd) {
+	// Send SIGTERM to each process group
 	for _, c := range cmds {
 		if c.Process != nil {
-			_ = c.Process.Signal(syscall.SIGTERM)
+			_ = syscall.Kill(-c.Process.Pid, syscall.SIGTERM)
+		}
+	}
+
+	// Wait up to 3 seconds for processes to exit, then SIGKILL survivors
+	time.Sleep(3 * time.Second)
+	for _, c := range cmds {
+		if c.Process != nil {
+			// Signal(0) checks if process is still alive
+			if err := c.Process.Signal(syscall.Signal(0)); err == nil {
+				log.Warn("Process did not exit after SIGTERM, sending SIGKILL", "pid", c.Process.Pid)
+				_ = syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
+			}
 		}
 	}
 }
@@ -440,6 +471,25 @@ func writePIDFile(path string, pids []int) {
 		lines = append(lines, strconv.Itoa(pid))
 	}
 	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+}
+
+// isServiceProcess checks whether a PID belongs to a shell process spawned by
+// revyl services start. This prevents killing unrelated processes if the PID
+// file is stale and the OS has recycled the PID.
+//
+// Parameters:
+//   - pid: The process ID to verify.
+//
+// Returns:
+//   - bool: True if the process looks like a revyl-spawned shell.
+func isServiceProcess(pid int) bool {
+	out, err := exec.Command("ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return false
+	}
+	comm := strings.TrimSpace(string(out))
+	// The spawned processes are /bin/sh -c "..." so the comm should be sh or /bin/sh
+	return comm == "sh" || comm == "/bin/sh"
 }
 
 // runServicesDocs prints the full .revyl/ session format reference.
