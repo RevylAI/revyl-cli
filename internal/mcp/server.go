@@ -87,21 +87,53 @@ func NewServer(version string) (*Server, error) {
 		&mcp.ServerOptions{
 			Instructions: `Revyl provides cloud-hosted Android and iOS device interaction for AI agents.
 
-Getting started:
-  1. start_device_session(platform) to provision a device
-  2. screenshot() to see the screen
-  3. Use device_tap/device_type/device_swipe with target="..." to interact
+## Tool Categories
 
-Device tools accept EITHER:
-  - target: Describe the element -- auto-resolves via AI vision grounding (DEFAULT)
-  - x, y: Direct pixel coordinates -- for agents with vision or precise control
+- **Device Session**: start_device_session, stop_device_session, get_session_info
+- **Device Actions** (grounded by default): device_tap, device_double_tap, device_long_press, device_type, device_swipe, device_drag
+- **Vision**: screenshot, find_element
+- **App Management**: install_app, launch_app
+- **Diagnostics**: device_doctor
 
-Writing good targets (priority order):
+## Getting Started
+
+1. start_device_session(platform="android") -- provisions a cloud device (returns viewer_url)
+2. screenshot() -- see the initial screen state
+3. Use device_tap/device_type/device_swipe with target="..." to interact
+4. screenshot() after every action to verify
+5. stop_device_session() when done to release the device and stop billing
+
+## Device Tools: Grounded by Default
+
+Device action tools accept EITHER:
+  - target (DEFAULT): Describe the element in natural language. Coordinates are auto-resolved via AI vision grounding.
+  - x, y: Direct pixel coordinates. For agents with vision or precise control.
+
+Writing good grounding targets (priority order):
   1. Visible text/labels: "the 'Sign In' button", "input box with 'Email'"
   2. Visual characteristics: "blue rounded rectangle", "magnifying glass icon"
   3. Spatial anchors: "text area below the 'Subject:' line"
 
-Always screenshot() after actions to verify. Call stop_device_session() when done.`,
+Avoid abstract UI jargon. Describe what is VISIBLE on screen.
+
+## Swipe Direction Semantics
+
+direction='up' moves the finger UP (scrolls content DOWN to reveal content below).
+direction='down' moves the finger DOWN (scrolls content UP to reveal content above).
+
+## Idle Timeout
+
+Sessions auto-terminate after 5 minutes of inactivity. The timer resets on every tool call.
+Use get_session_info() to check remaining time.
+
+## Error Recovery
+
+- "no active device session" → Call start_device_session(platform) first
+- "could not locate <element>" → Call screenshot() to see the screen, then rephrase the target
+- "worker returned 5xx" → Call device_doctor() to diagnose; may need to restart session
+- "grounding request failed" → Check network; call device_doctor() for more info
+
+When in doubt, call device_doctor() -- it checks auth, session, worker, grounding, and environment.`,
 		},
 	)
 
@@ -330,9 +362,9 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 
 // RunTestInput defines the input parameters for the run_test tool.
 type RunTestInput struct {
-	TestName       string `json:"test_name" jsonschema:"description=Test name (alias from .revyl/config.yaml) or UUID"`
-	Retries        int    `json:"retries,omitempty" jsonschema:"description=Number of retry attempts (1-5)"`
-	BuildVersionID string `json:"build_version_id,omitempty" jsonschema:"description=Specific build version ID to test against"`
+	TestName       string `json:"test_name" jsonschema:"Test name (alias from .revyl/config.yaml) or UUID"`
+	Retries        int    `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
+	BuildVersionID string `json:"build_version_id,omitempty" jsonschema:"Specific build version ID to test against"`
 }
 
 // RunTestOutput defines the output for the run_test tool.
@@ -397,8 +429,8 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 
 // RunWorkflowInput defines the input parameters for the run_workflow tool.
 type RunWorkflowInput struct {
-	WorkflowName string `json:"workflow_name" jsonschema:"description=Workflow name (alias from .revyl/config.yaml) or UUID"`
-	Retries      int    `json:"retries,omitempty" jsonschema:"description=Number of retry attempts (1-5)"`
+	WorkflowName string `json:"workflow_name" jsonschema:"Workflow name (alias from .revyl/config.yaml) or UUID"`
+	Retries      int    `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
 }
 
 // RunWorkflowOutput defines the output for the run_workflow tool.
@@ -466,7 +498,7 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 
 // ListTestsInput defines the input parameters for the list_tests tool.
 type ListTestsInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"description=Path to project directory (defaults to current directory)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Path to project directory (defaults to current directory)"`
 }
 
 // TestInfo contains information about a test.
@@ -524,7 +556,7 @@ func (s *Server) handleListTests(ctx context.Context, req *mcp.CallToolRequest, 
 
 // GetTestStatusInput defines the input parameters for the get_test_status tool.
 type GetTestStatusInput struct {
-	TaskID string `json:"task_id" jsonschema:"description=The task ID of the test execution"`
+	TaskID string `json:"task_id" jsonschema:"The task ID of the test execution"`
 }
 
 // GetTestStatusOutput defines the output for the get_test_status tool.
@@ -576,10 +608,10 @@ func (s *Server) handleGetTestStatus(ctx context.Context, req *mcp.CallToolReque
 
 // CreateTestInput defines input for create_test tool.
 type CreateTestInput struct {
-	Name        string `json:"name" jsonschema:"description=Test name"`
-	Platform    string `json:"platform" jsonschema:"description=Target platform (ios or android)"`
-	YAMLContent string `json:"yaml_content,omitempty" jsonschema:"description=Optional YAML test definition. If provided, creates test with these blocks."`
-	AppID       string `json:"app_id,omitempty" jsonschema:"description=App ID to associate with test"`
+	Name        string `json:"name" jsonschema:"Test name"`
+	Platform    string `json:"platform" jsonschema:"Target platform (ios or android)"`
+	YAMLContent string `json:"yaml_content,omitempty" jsonschema:"Optional YAML test definition. If provided, creates test with these blocks."`
+	AppID       string `json:"app_id,omitempty" jsonschema:"App ID to associate with test"`
 }
 
 // CreateTestOutput defines output for create_test tool.
@@ -649,8 +681,8 @@ func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest,
 
 // CreateWorkflowInput defines input for create_workflow tool.
 type CreateWorkflowInput struct {
-	Name    string   `json:"name" jsonschema:"description=Workflow name"`
-	TestIDs []string `json:"test_ids,omitempty" jsonschema:"description=Optional test IDs to include in workflow"`
+	Name    string   `json:"name" jsonschema:"Workflow name"`
+	TestIDs []string `json:"test_ids,omitempty" jsonschema:"Optional test IDs to include in workflow"`
 }
 
 // CreateWorkflowOutput defines output for create_workflow tool.
@@ -698,7 +730,7 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, req *mcp.CallToolRequ
 
 // ValidateYAMLInput defines input for validate_yaml tool.
 type ValidateYAMLInput struct {
-	Content string `json:"content" jsonschema:"description=YAML test content to validate"`
+	Content string `json:"content" jsonschema:"YAML test content to validate"`
 }
 
 // ValidateYAMLOutput defines output for validate_yaml tool.
@@ -720,7 +752,7 @@ func (s *Server) handleValidateYAML(ctx context.Context, req *mcp.CallToolReques
 
 // GetSchemaInput defines input for get_schema tool.
 type GetSchemaInput struct {
-	Format string `json:"format,omitempty" jsonschema:"description=Output format: json (default), markdown, or llm"`
+	Format string `json:"format,omitempty" jsonschema:"Output format: json (default), markdown, or llm"`
 }
 
 // GetSchemaOutput defines output for get_schema tool.
@@ -779,8 +811,8 @@ func (s *Server) handleGetSchema(ctx context.Context, req *mcp.CallToolRequest, 
 
 // ListBuildsInput defines input for list_builds tool.
 type ListBuildsInput struct {
-	Platform string `json:"platform,omitempty" jsonschema:"description=Filter by platform (ios or android)"`
-	Limit    int    `json:"limit,omitempty" jsonschema:"description=Maximum number of builds to return (default 20)"`
+	Platform string `json:"platform,omitempty" jsonschema:"Filter by platform (ios or android)"`
+	Limit    int    `json:"limit,omitempty" jsonschema:"Maximum number of builds to return (default 20)"`
 }
 
 // BuildInfo contains information about an app.
@@ -834,7 +866,7 @@ func (s *Server) handleListBuilds(ctx context.Context, req *mcp.CallToolRequest,
 
 // OpenTestEditorInput defines input for open_test_editor tool.
 type OpenTestEditorInput struct {
-	TestNameOrID string `json:"test_name_or_id" jsonschema:"description=Test name (from config) or UUID"`
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
 }
 
 // OpenTestEditorOutput defines output for open_test_editor tool.
@@ -869,7 +901,7 @@ func (s *Server) handleOpenTestEditor(ctx context.Context, req *mcp.CallToolRequ
 
 // OpenWorkflowEditorInput defines input for open_workflow_editor tool.
 type OpenWorkflowEditorInput struct {
-	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"description=Workflow name (from config) or UUID"`
+	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name (from config) or UUID"`
 }
 
 // OpenWorkflowEditorOutput defines output for open_workflow_editor tool.
@@ -906,7 +938,7 @@ func (s *Server) handleOpenWorkflowEditor(ctx context.Context, req *mcp.CallTool
 
 // CancelTestInput defines input for cancel_test tool.
 type CancelTestInput struct {
-	TaskID string `json:"task_id" jsonschema:"description=The task ID of the running test execution to cancel"`
+	TaskID string `json:"task_id" jsonschema:"The task ID of the running test execution to cancel"`
 }
 
 // CancelTestOutput defines output for cancel_test tool.
@@ -935,7 +967,7 @@ func (s *Server) handleCancelTest(ctx context.Context, req *mcp.CallToolRequest,
 
 // CancelWorkflowInput defines input for cancel_workflow tool.
 type CancelWorkflowInput struct {
-	TaskID string `json:"task_id" jsonschema:"description=The task ID of the running workflow execution to cancel"`
+	TaskID string `json:"task_id" jsonschema:"The task ID of the running workflow execution to cancel"`
 }
 
 // CancelWorkflowOutput defines output for cancel_workflow tool.
@@ -966,7 +998,7 @@ func (s *Server) handleCancelWorkflow(ctx context.Context, req *mcp.CallToolRequ
 
 // DeleteTestInput defines input for delete_test tool.
 type DeleteTestInput struct {
-	TestNameOrID string `json:"test_name_or_id" jsonschema:"description=Test name (alias from config) or UUID"`
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (alias from config) or UUID"`
 }
 
 // DeleteTestOutput defines output for delete_test tool.
@@ -1003,7 +1035,7 @@ func (s *Server) handleDeleteTest(ctx context.Context, req *mcp.CallToolRequest,
 
 // DeleteWorkflowInput defines input for delete_workflow tool.
 type DeleteWorkflowInput struct {
-	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"description=Workflow name (alias from config) or UUID"`
+	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name (alias from config) or UUID"`
 }
 
 // DeleteWorkflowOutput defines output for delete_workflow tool.
@@ -1042,8 +1074,8 @@ func (s *Server) handleDeleteWorkflow(ctx context.Context, req *mcp.CallToolRequ
 
 // ListRemoteTestsInput defines input for list_remote_tests tool.
 type ListRemoteTestsInput struct {
-	Limit  int `json:"limit,omitempty" jsonschema:"description=Maximum number of tests to return (default 50)"`
-	Offset int `json:"offset,omitempty" jsonschema:"description=Offset for pagination (default 0)"`
+	Limit  int `json:"limit,omitempty" jsonschema:"Maximum number of tests to return (default 50)"`
+	Offset int `json:"offset,omitempty" jsonschema:"Offset for pagination (default 0)"`
 }
 
 // RemoteTestInfo contains information about a remote test.
@@ -1160,8 +1192,8 @@ func (s *Server) handleAuthStatus(ctx context.Context, req *mcp.CallToolRequest,
 
 // CreateAppInput defines input for create_app tool.
 type CreateAppInput struct {
-	Name     string `json:"name" jsonschema:"description=App name"`
-	Platform string `json:"platform" jsonschema:"description=Target platform (ios or android)"`
+	Name     string `json:"name" jsonschema:"App name"`
+	Platform string `json:"platform" jsonschema:"Target platform (ios or android)"`
 }
 
 // CreateAppOutput defines output for create_app tool.
@@ -1200,7 +1232,7 @@ func (s *Server) handleCreateApp(ctx context.Context, req *mcp.CallToolRequest, 
 
 // DeleteAppInput defines input for delete_app tool.
 type DeleteAppInput struct {
-	AppID string `json:"app_id" jsonschema:"description=The UUID of the app to delete"`
+	AppID string `json:"app_id" jsonschema:"The UUID of the app to delete"`
 }
 
 // DeleteAppOutput defines output for delete_app tool.
@@ -1231,7 +1263,7 @@ func (s *Server) handleDeleteApp(ctx context.Context, req *mcp.CallToolRequest, 
 
 // ListModulesInput defines input for list_modules tool.
 type ListModulesInput struct {
-	NameFilter string `json:"name_filter,omitempty" jsonschema:"description=Optional filter to search modules by name"`
+	NameFilter string `json:"name_filter,omitempty" jsonschema:"Optional filter to search modules by name"`
 }
 
 // ModuleInfo contains information about a module.
@@ -1289,7 +1321,7 @@ func (s *Server) handleListModules(ctx context.Context, req *mcp.CallToolRequest
 
 // GetModuleInput defines input for get_module tool.
 type GetModuleInput struct {
-	ModuleID string `json:"module_id" jsonschema:"description=The UUID of the module to retrieve"`
+	ModuleID string `json:"module_id" jsonschema:"The UUID of the module to retrieve"`
 }
 
 // GetModuleOutput defines output for get_module tool.
@@ -1324,9 +1356,9 @@ func (s *Server) handleGetModule(ctx context.Context, req *mcp.CallToolRequest, 
 
 // CreateModuleInput defines input for create_module tool.
 type CreateModuleInput struct {
-	Name        string        `json:"name" jsonschema:"description=Module name"`
-	Description string        `json:"description,omitempty" jsonschema:"description=Optional module description"`
-	Blocks      []interface{} `json:"blocks" jsonschema:"description=Array of test block objects"`
+	Name        string        `json:"name" jsonschema:"Module name"`
+	Description string        `json:"description,omitempty" jsonschema:"Optional module description"`
+	Blocks      []interface{} `json:"blocks" jsonschema:"Array of test block objects"`
 }
 
 // CreateModuleOutput defines output for create_module tool.
@@ -1365,7 +1397,7 @@ func (s *Server) handleCreateModule(ctx context.Context, req *mcp.CallToolReques
 
 // DeleteModuleInput defines input for delete_module tool.
 type DeleteModuleInput struct {
-	ModuleID string `json:"module_id" jsonschema:"description=The UUID of the module to delete"`
+	ModuleID string `json:"module_id" jsonschema:"The UUID of the module to delete"`
 }
 
 // DeleteModuleOutput defines output for delete_module tool.
@@ -1394,7 +1426,7 @@ func (s *Server) handleDeleteModule(ctx context.Context, req *mcp.CallToolReques
 
 // InsertModuleBlockInput defines input for insert_module_block tool.
 type InsertModuleBlockInput struct {
-	ModuleNameOrID string `json:"module_name_or_id" jsonschema:"description=Module name or UUID to generate the import block for"`
+	ModuleNameOrID string `json:"module_name_or_id" jsonschema:"Module name or UUID to generate the import block for"`
 }
 
 // InsertModuleBlockOutput defines output for insert_module_block tool.
@@ -1462,7 +1494,7 @@ func (s *Server) handleInsertModuleBlock(ctx context.Context, req *mcp.CallToolR
 
 // ListTagsInput defines input for list_tags tool.
 type ListTagsInput struct {
-	NameFilter string `json:"name_filter,omitempty" jsonschema:"description=Optional filter to search tags by name"`
+	NameFilter string `json:"name_filter,omitempty" jsonschema:"Optional filter to search tags by name"`
 }
 
 // TagInfo contains information about a tag.
@@ -1520,8 +1552,8 @@ func (s *Server) handleListTags(ctx context.Context, req *mcp.CallToolRequest, i
 
 // CreateTagInput defines input for create_tag tool.
 type CreateTagInput struct {
-	Name  string `json:"name" jsonschema:"description=Tag name"`
-	Color string `json:"color,omitempty" jsonschema:"description=Tag color as hex string (e.g. #22C55E)"`
+	Name  string `json:"name" jsonschema:"Tag name"`
+	Color string `json:"color,omitempty" jsonschema:"Tag color as hex string (e.g. #22C55E)"`
 }
 
 // CreateTagOutput defines output for create_tag tool.
@@ -1557,7 +1589,7 @@ func (s *Server) handleCreateTag(ctx context.Context, req *mcp.CallToolRequest, 
 
 // DeleteTagInput defines input for delete_tag tool.
 type DeleteTagInput struct {
-	TagNameOrID string `json:"tag_name_or_id" jsonschema:"description=Tag name or UUID to delete"`
+	TagNameOrID string `json:"tag_name_or_id" jsonschema:"Tag name or UUID to delete"`
 }
 
 // DeleteTagOutput defines output for delete_tag tool.
@@ -1606,7 +1638,7 @@ func (s *Server) handleDeleteTag(ctx context.Context, req *mcp.CallToolRequest, 
 
 // GetTestTagsInput defines input for get_test_tags tool.
 type GetTestTagsInput struct {
-	TestNameOrID string `json:"test_name_or_id" jsonschema:"description=Test name (from config) or UUID"`
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
 }
 
 // GetTestTagsOutput defines output for get_test_tags tool.
@@ -1676,8 +1708,8 @@ func (s *Server) handleGetTestTags(ctx context.Context, req *mcp.CallToolRequest
 
 // SetTestTagsInput defines input for set_test_tags tool.
 type SetTestTagsInput struct {
-	TestNameOrID string   `json:"test_name_or_id" jsonschema:"description=Test name (from config) or UUID"`
-	TagNames     []string `json:"tag_names" jsonschema:"description=Tag names to set on the test (replaces all existing tags)"`
+	TestNameOrID string   `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+	TagNames     []string `json:"tag_names" jsonschema:"Tag names to set on the test (replaces all existing tags)"`
 }
 
 // SetTestTagsOutput defines output for set_test_tags tool.
@@ -1748,9 +1780,9 @@ func (s *Server) handleSetTestTags(ctx context.Context, req *mcp.CallToolRequest
 
 // AddRemoveTestTagsInput defines input for add_remove_test_tags tool.
 type AddRemoveTestTagsInput struct {
-	TestNameOrID string   `json:"test_name_or_id" jsonschema:"description=Test name (from config) or UUID"`
-	TagsToAdd    []string `json:"tags_to_add,omitempty" jsonschema:"description=Tag names to add to the test"`
-	TagsToRemove []string `json:"tags_to_remove,omitempty" jsonschema:"description=Tag names to remove from the test"`
+	TestNameOrID string   `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+	TagsToAdd    []string `json:"tags_to_add,omitempty" jsonschema:"Tag names to add to the test"`
+	TagsToRemove []string `json:"tags_to_remove,omitempty" jsonschema:"Tag names to remove from the test"`
 }
 
 // AddRemoveTestTagsOutput defines output for add_remove_test_tags tool.

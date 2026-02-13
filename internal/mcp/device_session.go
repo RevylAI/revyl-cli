@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,6 +22,30 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 )
+
+// pngDimensions extracts width and height from a PNG file's IHDR chunk.
+// Returns (width, height, ok). Falls back to (0, 0, false) if the data
+// is not a valid PNG or too short.
+func pngDimensions(data []byte) (int, int, bool) {
+	// PNG signature (8 bytes) + IHDR length (4) + "IHDR" (4) + width (4) + height (4) = 24 bytes minimum
+	if len(data) < 24 {
+		return 0, 0, false
+	}
+	// Verify PNG signature
+	pngSig := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	for i, b := range pngSig {
+		if data[i] != b {
+			return 0, 0, false
+		}
+	}
+	// Width at offset 16, height at offset 20 (big-endian uint32)
+	width := int(binary.BigEndian.Uint32(data[16:20]))
+	height := int(binary.BigEndian.Uint32(data[20:24]))
+	if width <= 0 || height <= 0 {
+		return 0, 0, false
+	}
+	return width, height, true
+}
 
 // DeviceSession represents an active device session with its connection info.
 type DeviceSession struct {
@@ -65,6 +90,10 @@ type DeviceSessionManager struct {
 	// groundingURL is the base URL for the grounding API.
 	// Defaults to the cognisim_action grounding endpoint.
 	groundingURL string
+
+	// httpClient is used for worker and grounding HTTP requests.
+	// Has a 30-second timeout to prevent hanging on unresponsive services.
+	httpClient *http.Client
 }
 
 // NewDeviceSessionManager creates a new session manager.
@@ -85,6 +114,7 @@ func NewDeviceSessionManager(apiClient *api.Client, workDir string) *DeviceSessi
 		apiClient:    apiClient,
 		workDir:      workDir,
 		groundingURL: groundingURL,
+		httpClient:   &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -153,7 +183,7 @@ func (m *DeviceSessionManager) StartSession(
 	if err != nil {
 		// Cancel the device if we can't get the worker URL
 		_, _ = m.apiClient.CancelDevice(ctx, workflowRunID)
-		return nil, fmt.Errorf("device started but worker not ready: %w", err)
+		return nil, fmt.Errorf("device started but worker not ready: %w. Try again or call device_doctor() to diagnose", err)
 	}
 
 	// Build viewer URL
@@ -176,7 +206,9 @@ func (m *DeviceSessionManager) StartSession(
 	}
 
 	m.session = session
-	m.resetIdleTimerLocked(ctx)
+	// Use context.Background() for the idle timer so it's not tied to the
+	// caller's request context, which may be cancelled before the timer fires.
+	m.resetIdleTimerLocked(context.Background())
 	m.persistSession()
 
 	return session, nil
@@ -232,7 +264,9 @@ func (m *DeviceSessionManager) stopSessionLocked(ctx context.Context) {
 	}
 
 	if m.session != nil {
-		_, _ = m.apiClient.CancelDevice(ctx, m.session.WorkflowRunID)
+		if m.apiClient != nil {
+			_, _ = m.apiClient.CancelDevice(ctx, m.session.WorkflowRunID)
+		}
 		m.session = nil
 		m.clearPersistedSession()
 	}
@@ -343,7 +377,44 @@ func (m *DeviceSessionManager) LoadPersistedSession() *DeviceSession {
 	}
 
 	m.session = &session
+	// Validate the persisted session is still alive by pinging the worker
+	if err := m.healthCheckLocked(); err != nil {
+		m.session = nil
+		m.clearPersistedSession()
+		return nil
+	}
+	// Restart idle timer for the restored session so it auto-terminates
+	// if no tool calls come in within the timeout window.
+	m.resetIdleTimerLocked(context.Background())
 	return &session
+}
+
+// healthCheckLocked pings the worker /health endpoint to verify the session is live.
+// Caller must hold m.mu.
+func (m *DeviceSessionManager) healthCheckLocked() error {
+	if m.session == nil {
+		return fmt.Errorf("no session")
+	}
+	url := m.session.WorkerBaseURL + "/health"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return err
+	}
+	client := m.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("worker returned %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +474,11 @@ func (m *DeviceSessionManager) WorkerRequest(ctx context.Context, method, path s
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client := m.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("worker request failed: %w", err)
 	}
@@ -414,6 +489,9 @@ func (m *DeviceSessionManager) WorkerRequest(ctx context.Context, method, path s
 		return nil, fmt.Errorf("failed to read worker response: %w", err)
 	}
 
+	if resp.StatusCode >= 500 {
+		return nil, fmt.Errorf("worker returned %d: %s. Call device_doctor() to check worker health", resp.StatusCode, string(respBody))
+	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("worker returned %d: %s", resp.StatusCode, string(respBody))
 	}
@@ -477,10 +555,12 @@ func (m *DeviceSessionManager) ResolveTarget(ctx context.Context, target string)
 	// Step 2: Base64-encode the screenshot
 	imageBase64 := base64.StdEncoding.EncodeToString(screenshotBytes)
 
-	// Step 3: Get image dimensions (assume standard mobile sizes if we can't detect)
-	// TODO: detect from PNG header
-	width := 1080
-	height := 1920
+	// Step 3: Get image dimensions from PNG header; fall back to standard mobile
+	width, height, ok := pngDimensions(screenshotBytes)
+	if !ok {
+		width = 1080
+		height = 1920
+	}
 
 	// Step 4: Call grounding API
 	groundReq := map[string]interface{}{
@@ -502,7 +582,11 @@ func (m *DeviceSessionManager) ResolveTarget(ctx context.Context, target string)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	client := m.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("grounding request failed: %w", err)
 	}
@@ -531,4 +615,14 @@ func (m *DeviceSessionManager) ResolveTarget(ctx context.Context, target string)
 		Y:          groundResp.Y,
 		Confidence: groundResp.Confidence,
 	}, nil
+}
+
+// GroundingURL returns the configured grounding API base URL.
+func (m *DeviceSessionManager) GroundingURL() string {
+	return m.groundingURL
+}
+
+// WorkDir returns the working directory used for session persistence.
+func (m *DeviceSessionManager) WorkDir() string {
+	return m.workDir
 }
