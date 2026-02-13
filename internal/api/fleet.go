@@ -82,12 +82,18 @@ func (c *Client) GetFleetDashboard(ctx context.Context) (*FleetDashboardResponse
 //
 // Parameters:
 //   - ctx: Context for cancellation
+//   - allowMultiple: If true, allows claiming even if user already has a sandbox
 //
 // Returns:
 //   - *ClaimSandboxResponse: The claim result with sandbox details
 //   - error: Any error that occurred
-func (c *Client) ClaimSandbox(ctx context.Context) (*ClaimSandboxResponse, error) {
-	resp, err := c.doRequest(ctx, "POST", "/api/v1/fleet/sandboxes/claim", nil)
+func (c *Client) ClaimSandbox(ctx context.Context, allowMultiple bool) (*ClaimSandboxResponse, error) {
+	path := "/api/v1/fleet/sandboxes/claim"
+	if allowMultiple {
+		path += "?allow_multiple=true"
+	}
+
+	resp, err := c.doRequest(ctx, "POST", path, nil)
 	if err != nil {
 		return nil, err
 	}
