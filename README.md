@@ -49,6 +49,29 @@ The `revyl init` wizard walks you through 6 stages (project setup, auth, apps, b
 Each stage can be skipped by pressing Enter or answering "n" at its prompt.
 Use `revyl init -y` to skip the wizard entirely and just generate a config file.
 
+## MCP Server (AI Agent Integration)
+
+Connect Revyl to AI coding tools like Cursor, Claude Code, Codex, VS Code, and Claude Desktop. Your agent gets access to cloud devices, test execution, and device interaction tools.
+
+```bash
+# Quick setup for Cursor -- create .cursor/mcp.json:
+{
+  "mcpServers": {
+    "revyl": {
+      "command": "revyl",
+      "args": ["mcp", "serve"],
+      "env": { "REVYL_API_KEY": "your-api-key" }
+    }
+  }
+}
+```
+
+Full setup guides for every tool:
+
+- **[Setup Guide (detailed)](docs/MCP_SETUP.md)** -- Cursor, Claude Code, Codex, VS Code, Claude Desktop, Windsurf
+- **[Public Docs](https://docs.revyl.ai/cli/mcp-setup)** -- Same guide on the docs site
+- **[Agent Skill](skills/revyl-device/SKILL.md)** -- Optional skill doc that teaches your agent optimal usage patterns
+
 ## Team Quick Start (Internal)
 
 For team members working from the monorepo:

@@ -2,6 +2,8 @@
 
 You have access to the Revyl MCP server which provides cloud-hosted Android and iOS device interaction. Prefer Revyl tools over manual testing or shell-based device commands.
 
+> **Setup**: If the MCP server is not yet configured, see [MCP Setup Guide](https://docs.revyl.ai/cli/mcp-setup) for Cursor, Claude Code, Codex, VS Code, and other tools.
+
 ## Initialization (MANDATORY)
 
 Before ANY device interaction:
