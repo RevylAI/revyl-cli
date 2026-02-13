@@ -206,6 +206,18 @@ revyl test open login-flow                         # Open test in browser editor
 revyl test delete login-flow                       # Delete a test
 revyl test cancel <task-id>                        # Cancel a running test
 
+# Status, history & reports
+revyl test status login-flow                 # Show latest execution status
+revyl test status login-flow --open          # Open report in browser
+revyl test history login-flow                # Show execution history table
+revyl test history login-flow --limit 20     # Show more history entries
+revyl test report login-flow                 # Detailed step-by-step report
+revyl test report login-flow --no-steps      # Summary only (hide steps)
+revyl test report login-flow --share         # Include shareable link
+revyl test report <task-uuid>                # Report by task/execution ID
+revyl test share login-flow                  # Generate shareable report link
+revyl test share login-flow --open           # Open shareable link in browser
+
 # Sync & inspect
 revyl test list                   # Show local tests with sync status
 revyl test remote                 # List all tests in your organization
@@ -215,6 +227,7 @@ revyl test diff login-flow        # Show diff between local and remote
 revyl test validate test.yaml     # Validate YAML syntax (--json for CI)
 
 # Per-command flags
+#   --json       Available on: test status, history, report, share (also global)
 #   --dry-run    Available on: test create, test push, test pull
 #   --hotreload  Available on: test run, test create, test open
 ```
@@ -222,11 +235,24 @@ revyl test validate test.yaml     # Validate YAML syntax (--json for CI)
 ### Workflow Management
 
 ```bash
+# Workflow lifecycle
 revyl workflow create smoke-tests --tests login-flow,checkout   # Create workflow
 revyl workflow run smoke-tests                                   # Run workflow
 revyl workflow open smoke-tests                                  # Open in browser
 revyl workflow delete smoke-tests                                # Delete workflow
 revyl workflow cancel <task-id>                                  # Cancel running workflow
+revyl workflow list                                              # List all workflows
+
+# Status, history & reports
+revyl workflow status smoke-tests              # Show latest execution status
+revyl workflow status smoke-tests --open       # Open report in browser
+revyl workflow history smoke-tests             # Show execution history table
+revyl workflow history smoke-tests --limit 20  # Show more history entries
+revyl workflow report smoke-tests              # Detailed report with test breakdown
+revyl workflow report smoke-tests --no-tests   # Summary only (hide test list)
+revyl workflow report <task-uuid>              # Report by task/execution ID
+revyl workflow share smoke-tests               # Generate shareable report link
+revyl workflow share smoke-tests --open        # Open shareable link in browser
 ```
 
 ### Shell Completion

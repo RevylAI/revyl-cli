@@ -19,6 +19,7 @@ var (
 	wfStatusOpen        bool
 	wfHistoryOutputJSON bool
 	wfHistoryLimit      int
+	wfReportOutputJSON  bool
 	wfReportOpen        bool
 	wfReportNoTests     bool
 	wfShareOutputJSON   bool
@@ -32,6 +33,7 @@ func init() {
 	workflowHistoryCmd.Flags().BoolVar(&wfHistoryOutputJSON, "json", false, "Output results as JSON")
 	workflowHistoryCmd.Flags().IntVar(&wfHistoryLimit, "limit", 10, "Number of executions to show")
 
+	workflowReportCmd.Flags().BoolVar(&wfReportOutputJSON, "json", false, "Output results as JSON")
 	workflowReportCmd.Flags().BoolVar(&wfReportOpen, "open", false, "Open report in browser")
 	workflowReportCmd.Flags().BoolVar(&wfReportNoTests, "no-tests", false, "Hide individual test breakdown")
 
@@ -435,7 +437,10 @@ func runWorkflowHistory(cmd *cobra.Command, args []string) error {
 }
 
 func runWorkflowReport(cmd *cobra.Command, args []string) error {
-	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
+	jsonOutput := wfReportOutputJSON
+	if globalJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); globalJSON {
+		jsonOutput = true
+	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 
