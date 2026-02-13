@@ -112,6 +112,9 @@ func init() {
 
 	// Internal/dev commands (gated behind --dev flag)
 	rootCmd.AddCommand(sandboxCmd)
+
+	// Device interaction commands
+	rootCmd.AddCommand(deviceCmd)
 }
 
 // completionCmd generates shell completion scripts.

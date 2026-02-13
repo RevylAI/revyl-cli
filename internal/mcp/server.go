@@ -24,12 +24,13 @@ import (
 
 // Server wraps the MCP server with Revyl-specific functionality.
 type Server struct {
-	mcpServer *mcp.Server
-	apiClient *api.Client
-	config    *config.ProjectConfig
-	workDir   string
-	version   string
-	rootCmd   *cobra.Command
+	mcpServer  *mcp.Server
+	apiClient  *api.Client
+	config     *config.ProjectConfig
+	workDir    string
+	version    string
+	rootCmd    *cobra.Command
+	sessionMgr *DeviceSessionManager
 }
 
 // NewServer creates a new Revyl MCP server.
@@ -70,17 +71,38 @@ func NewServer(version string) (*Server, error) {
 		version:   version,
 	}
 
+	// Initialize device session manager
+	s.sessionMgr = NewDeviceSessionManager(s.apiClient, workDir)
+
 	// Set the version on the API client so the User-Agent header reflects
 	// the real CLI build version (e.g. "revyl-cli/1.2.3") instead of "revyl-cli/dev".
 	s.apiClient.SetVersion(version)
 
-	// Create MCP server
+	// Create MCP server with instructions
 	s.mcpServer = mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "revyl",
 			Version: version,
 		},
-		nil,
+		&mcp.ServerOptions{
+			Instructions: `Revyl provides cloud-hosted Android and iOS device interaction for AI agents.
+
+Getting started:
+  1. start_device_session(platform) to provision a device
+  2. screenshot() to see the screen
+  3. Use device_tap/device_type/device_swipe with target="..." to interact
+
+Device tools accept EITHER:
+  - target: Describe the element -- auto-resolves via AI vision grounding (DEFAULT)
+  - x, y: Direct pixel coordinates -- for agents with vision or precise control
+
+Writing good targets (priority order):
+  1. Visible text/labels: "the 'Sign In' button", "input box with 'Email'"
+  2. Visual characteristics: "blue rounded rectangle", "magnifying glass icon"
+  3. Spatial anchors: "text area below the 'Subject:' line"
+
+Always screenshot() after actions to verify. Call stop_device_session() when done.`,
+		},
 	)
 
 	// Register tools
@@ -110,6 +132,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 // registerTools registers all Revyl tools with the MCP server.
 func (s *Server) registerTools() {
+	// --- Device interaction tools ---
+	s.registerDeviceTools()
+
 	// run_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "run_test",
