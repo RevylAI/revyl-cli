@@ -1442,18 +1442,6 @@ type CategoryValue struct {
 	Value    float32 `json:"value"`
 }
 
-// ChartDataPoint defines model for ChartDataPoint.
-type ChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
-}
-
 // CheckModuleExistsResponse Response model for checking if a module exists
 type CheckModuleExistsResponse struct {
 	Exists bool    `json:"exists"`
@@ -3616,10 +3604,10 @@ type ModulesListResponse struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []ChartDataPoint `json:"data"`
-	MetricType   string           `json:"metric_type"`
-	Repositories []string         `json:"repositories"`
-	RetrievedAt  string           `json:"retrieved_at"`
+	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
+	MetricType   string                                           `json:"metric_type"`
+	Repositories []string                                         `json:"repositories"`
+	RetrievedAt  string                                           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -6427,18 +6415,6 @@ type VariablesResponse struct {
 	Result []VariableRow `json:"result"`
 }
 
-// VideoMetadataBatchRequest Request for batch video metadata.
-type VideoMetadataBatchRequest struct {
-	ExecutionIds []string `json:"execution_ids"`
-}
-
-// VideoMetadataBatchResponse Response model for batch video metadata.
-type VideoMetadataBatchResponse struct {
-	FoundCount     int                          `json:"found_count"`
-	RequestedCount int                          `json:"requested_count"`
-	Videos         map[string]VideoMetadataItem `json:"videos"`
-}
-
 // VideoMetadataInfo Video + step metadata for a single task.
 type VideoMetadataInfo struct {
 	Duration float32         `json:"duration"`
@@ -6971,6 +6947,7 @@ type WorkflowStatusResponse struct {
 	Duration            *string                 `json:"duration"`
 	ErrorMessage        *string                 `json:"error_message"`
 	EstimatedCompletion *string                 `json:"estimated_completion"`
+	ExecutionId         *string                 `json:"execution_id"`
 	FailedTests         *int                    `json:"failed_tests,omitempty"`
 	Metadata            *map[string]interface{} `json:"metadata,omitempty"`
 	PassedTests         *int                    `json:"passed_tests,omitempty"`
@@ -7176,9 +7153,33 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
+// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
+type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments"`
+	MedianHours *float32 `json:"median_hours"`
+	P25Hours    *float32 `json:"p25_hours"`
+	P75Hours    *float32 `json:"p75_hours"`
+	TeamAverage *float32 `json:"team_average"`
+	Trend       *string  `json:"trend"`
+	Value       *float32 `json:"value"`
+}
+
 // AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest Request model for batch video metadata.
 type AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest struct {
 	TaskIds []string `json:"task_ids"`
+}
+
+// AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse Response model for batch video metadata.
+type AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse struct {
+	FoundCount     int                          `json:"found_count"`
+	RequestedCount int                          `json:"requested_count"`
+	Videos         map[string]VideoMetadataItem `json:"videos"`
+}
+
+// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest Request for batch video metadata.
+type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest struct {
+	ExecutionIds []string `json:"execution_ids"`
 }
 
 // AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse Response for batch video metadata.
@@ -8156,7 +8157,7 @@ type CreateReportApiV1ReportsV3ReportsPostJSONRequestBody = CreateReportRequest
 type GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPostJSONRequestBody = StepSummariesBatchRequest
 
 // GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest
 
 // UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody defines body for UpdateReportApiV1ReportsV3ReportsReportIdPatch for application/json ContentType.
 type UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody = UpdateReportRequest

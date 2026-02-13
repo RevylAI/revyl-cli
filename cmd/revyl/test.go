@@ -26,13 +26,18 @@ COMMANDS:
   create    - Create a new test
   delete    - Delete a test
   open      - Open a test in the browser
+  status    - Show latest execution status
+  history   - Show execution history
+  report    - Show detailed test report
+  share     - Generate shareable report link
 
 EXAMPLES:
   revyl run login-flow               # Build and run (recommended)
   revyl test run login-flow          # Run only (no build)
   revyl test run login-flow --build  # Explicit build then run
   revyl test list                    # List tests with sync status
-  revyl test push login-flow         # Push local changes to remote`,
+  revyl test status login-flow       # Check latest execution status
+  revyl test report login-flow       # View detailed step report`,
 }
 
 // testRunCmd runs a single test (run-only by default; use --build to build first).
@@ -121,6 +126,11 @@ func init() {
 	testCmd.AddCommand(testCreateCmd)
 	testCmd.AddCommand(testDeleteCmd)
 	testCmd.AddCommand(testOpenCmd)
+	// Add status/history/report subcommands
+	testCmd.AddCommand(testStatusCmd)
+	testCmd.AddCommand(testHistoryCmd)
+	testCmd.AddCommand(testReportCmd)
+	testCmd.AddCommand(testShareCmd)
 
 	// test run flags
 	testRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
