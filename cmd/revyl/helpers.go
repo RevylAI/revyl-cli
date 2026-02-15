@@ -286,7 +286,7 @@ func formatAbsoluteTime(isoTimestamp string) string {
 //   - cfg: The project config (may be nil if not initialized)
 //   - client: The API client
 //   - error: Any error that occurred
-func loadConfigAndClient(devMode bool) (string, *config.ProjectConfig, *api.Client, error) {
+var loadConfigAndClient = func(devMode bool) (string, *config.ProjectConfig, *api.Client, error) {
 	apiKey, err := getAPIKey()
 	if err != nil {
 		return "", nil, nil, err

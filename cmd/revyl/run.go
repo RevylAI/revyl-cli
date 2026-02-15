@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,21 +26,24 @@ import (
 )
 
 var (
-	runRetries           int
-	runBuildID           string
-	runNoWait            bool
-	runOpen              bool
-	runTimeout           int
-	runOutputJSON        bool
-	runGitHubActions     bool
-	runVerbose           bool
-	runTestBuild         bool
-	runTestPlatform      string
-	runWorkflowBuild     bool
-	runWorkflowPlatform  string
-	runHotReload         bool
-	runHotReloadPort     int
-	runHotReloadProvider string
+	runRetries              int
+	runBuildID              string
+	runNoWait               bool
+	runOpen                 bool
+	runTimeout              int
+	runOutputJSON           bool
+	runGitHubActions        bool
+	runVerbose              bool
+	runTestBuild            bool
+	runTestPlatform         string
+	runWorkflowBuild        bool
+	runWorkflowPlatform     string
+	runWorkflowIOSAppID     string
+	runWorkflowAndroidAppID string
+	runHotReload            bool
+	runHotReloadPort        int
+	runHotReloadProvider    string
+	runLocation             string
 )
 
 // minRetries is the minimum allowed retry count.
@@ -137,6 +142,19 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 	if runBuildID != "" {
 		ui.PrintInfo("Build Version: %s", runBuildID)
+	}
+
+	// Parse --location flag
+	var hasLocation bool
+	var lat, lng float64
+	if runLocation != "" {
+		var parseErr error
+		lat, lng, parseErr = parseLocation(runLocation)
+		if parseErr != nil {
+			return parseErr
+		}
+		hasLocation = true
+		ui.PrintInfo("Location: %.6f, %.6f", lat, lng)
 	}
 
 	if devMode {
@@ -267,6 +285,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		BuildVersionID: runBuildID,
 		Timeout:        runTimeout,
 		DevMode:        devMode,
+		Latitude:       lat,
+		Longitude:      lng,
+		HasLocation:    hasLocation,
 		OnTaskStarted: func(id string) {
 			taskID = id
 		},
@@ -478,12 +499,54 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Validate app IDs exist before running
+	if runWorkflowIOSAppID != "" || runWorkflowAndroidAppID != "" {
+		appClient := api.NewClientWithDevMode(apiKey, devMode)
+		if runWorkflowIOSAppID != "" {
+			ui.StartSpinner("Validating iOS app...")
+			_, appErr := appClient.GetApp(cmd.Context(), runWorkflowIOSAppID)
+			ui.StopSpinner()
+			if appErr != nil {
+				ui.PrintError("iOS app '%s' not found", runWorkflowIOSAppID)
+				return fmt.Errorf("invalid --ios-app ID")
+			}
+		}
+		if runWorkflowAndroidAppID != "" {
+			ui.StartSpinner("Validating Android app...")
+			_, appErr := appClient.GetApp(cmd.Context(), runWorkflowAndroidAppID)
+			ui.StopSpinner()
+			if appErr != nil {
+				ui.PrintError("Android app '%s' not found", runWorkflowAndroidAppID)
+				return fmt.Errorf("invalid --android-app ID")
+			}
+		}
+	}
+
 	ui.PrintBanner(version)
 	ui.PrintInfo("Running Workflow")
 	ui.Println()
 	ui.PrintInfo("Workflow ID: %s", workflowID)
 	if runRetries > 1 {
 		ui.PrintInfo("Retries: %d", runRetries)
+	}
+	if runWorkflowIOSAppID != "" {
+		ui.PrintInfo("iOS App Override: %s", runWorkflowIOSAppID)
+	}
+	if runWorkflowAndroidAppID != "" {
+		ui.PrintInfo("Android App Override: %s", runWorkflowAndroidAppID)
+	}
+
+	// Parse --location flag for workflow
+	var wfHasLocation bool
+	var wfLat, wfLng float64
+	if runLocation != "" {
+		var parseErr error
+		wfLat, wfLng, parseErr = parseLocation(runLocation)
+		if parseErr != nil {
+			return parseErr
+		}
+		wfHasLocation = true
+		ui.PrintInfo("Location Override: %.6f, %.6f", wfLat, wfLng)
 	}
 
 	if devMode {
@@ -613,6 +676,11 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		Retries:          runRetries,
 		Timeout:          runTimeout,
 		DevMode:          devMode,
+		IOSAppID:         runWorkflowIOSAppID,
+		AndroidAppID:     runWorkflowAndroidAppID,
+		Latitude:         wfLat,
+		Longitude:        wfLng,
+		HasLocation:      wfHasLocation,
 		OnTaskStarted: func(id string) {
 			taskID = id
 		},
@@ -1074,4 +1142,32 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// parseLocation parses a "lat,lng" string into float64 values.
+// Validates that latitude is in [-90, 90] and longitude is in [-180, 180].
+func parseLocation(s string) (float64, float64, error) {
+	parts := strings.SplitN(s, ",", 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid --location format: expected lat,lng (e.g. 37.7749,-122.4194)")
+	}
+
+	lat, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid latitude: %v", err)
+	}
+
+	lng, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid longitude: %v", err)
+	}
+
+	if lat < -90 || lat > 90 {
+		return 0, 0, fmt.Errorf("latitude must be between -90 and 90 (got %.6f)", lat)
+	}
+	if lng < -180 || lng > 180 {
+		return 0, 0, fmt.Errorf("longitude must be between -180 and 180 (got %.6f)", lng)
+	}
+
+	return lat, lng, nil
 }

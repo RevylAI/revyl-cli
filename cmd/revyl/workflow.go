@@ -36,7 +36,9 @@ COMMANDS:
   status  - Show latest execution status
   history - Show execution history
   report  - Show detailed workflow report
-  share   - Generate shareable report link
+  share    - Generate shareable report link
+  location - Manage stored GPS location override
+  app      - Manage stored app overrides (per platform)
 
 EXAMPLES:
   revyl workflow list                        # List all workflows
@@ -55,11 +57,15 @@ var workflowRunCmd = &cobra.Command{
 	Long: `Run a workflow by its alias name (from .revyl/config.yaml) or UUID.
 
 Use --build to build and upload before running.
+Use --ios-app / --android-app to override the app for all tests in the
+workflow (useful for testing a specific app across platforms).
 
 EXAMPLES:
   revyl workflow run smoke-tests
   revyl workflow run smoke-tests --build
-  revyl workflow run smoke-tests --build --platform android`,
+  revyl workflow run smoke-tests --build --platform android
+  revyl workflow run smoke-tests --android-app <app-uuid>
+  revyl workflow run smoke-tests --ios-app <app-uuid> --android-app <app-uuid>`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkflowExec,
 }
@@ -132,6 +138,8 @@ func init() {
 	workflowCmd.AddCommand(workflowHistoryCmd)
 	workflowCmd.AddCommand(workflowReportCmd)
 	workflowCmd.AddCommand(workflowShareCmd)
+	workflowCmd.AddCommand(workflowLocationCmd)
+	workflowCmd.AddCommand(workflowAppCmd)
 
 	// workflow list flags
 	workflowListCmd.Flags().BoolVar(&workflowListJSON, "json", false, "Output results as JSON")
@@ -146,6 +154,9 @@ func init() {
 	workflowRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
 	workflowRunCmd.Flags().BoolVar(&runWorkflowBuild, "build", false, "Build and upload before running workflow")
 	workflowRunCmd.Flags().StringVar(&runWorkflowPlatform, "platform", "", "Platform to use (requires --build)")
+	workflowRunCmd.Flags().StringVar(&runWorkflowIOSAppID, "ios-app", "", "Override iOS app ID for all tests in workflow")
+	workflowRunCmd.Flags().StringVar(&runWorkflowAndroidAppID, "android-app", "", "Override Android app ID for all tests in workflow")
+	workflowRunCmd.Flags().StringVar(&runLocation, "location", "", "Override GPS location for all tests as lat,lng (e.g. 37.7749,-122.4194)")
 
 	// workflow delete flags
 	workflowDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")

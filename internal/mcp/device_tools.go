@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -165,6 +164,25 @@ func (s *Server) registerDeviceTools() {
 			ReadOnlyHint: true,
 		},
 	}, s.handleDeviceDoctor)
+
+	// Multi-session management
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "list_device_sessions",
+		Description: "List all active device sessions with their index, platform, status, and uptime.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Device Sessions",
+			ReadOnlyHint: true,
+		},
+	}, s.handleListDeviceSessions)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "switch_device_session",
+		Description: "Switch the active session to the given index. Subsequent commands will target this session by default.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Switch Active Session",
+			DestructiveHint: boolPtr(false),
+		},
+	}, s.handleSwitchDeviceSession)
 }
 
 // --- Session Management ---
@@ -181,12 +199,13 @@ type StartDeviceSessionInput struct {
 
 // StartDeviceSessionOutput defines output for start_device_session.
 type StartDeviceSessionOutput struct {
-	Success   bool       `json:"success"`
-	SessionID string     `json:"session_id,omitempty"`
-	Platform  string     `json:"platform,omitempty"`
-	ViewerURL string     `json:"viewer_url,omitempty"`
-	Error     string     `json:"error,omitempty"`
-	NextSteps []NextStep `json:"next_steps,omitempty"`
+	Success      bool       `json:"success"`
+	SessionID    string     `json:"session_id,omitempty"`
+	SessionIndex int        `json:"session_index"`
+	Platform     string     `json:"platform,omitempty"`
+	ViewerURL    string     `json:"viewer_url,omitempty"`
+	Error        string     `json:"error,omitempty"`
+	NextSteps    []NextStep `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallToolRequest, input StartDeviceSessionInput) (*mcp.CallToolResult, StartDeviceSessionOutput, error) {
@@ -198,16 +217,17 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 	}
 
 	timeout := time.Duration(input.IdleTimeout) * time.Second
-	session, err := s.sessionMgr.StartSession(ctx, input.Platform, input.AppID, input.BuildVersionID, input.TestID, input.SandboxID, timeout)
+	idx, session, err := s.sessionMgr.StartSession(ctx, input.Platform, input.AppID, input.BuildVersionID, input.TestID, input.SandboxID, timeout)
 	if err != nil {
 		return nil, StartDeviceSessionOutput{Success: false, Error: err.Error()}, nil
 	}
 
 	return nil, StartDeviceSessionOutput{
-		Success:   true,
-		SessionID: session.SessionID,
-		Platform:  session.Platform,
-		ViewerURL: session.ViewerURL,
+		Success:      true,
+		SessionID:    session.SessionID,
+		SessionIndex: idx,
+		Platform:     session.Platform,
+		ViewerURL:    session.ViewerURL,
 		NextSteps: []NextStep{
 			{Tool: "screenshot", Reason: "See the current device screen"},
 			{Tool: "install_app", Reason: "Install an app on the device"},
@@ -216,7 +236,10 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 }
 
 // StopDeviceSessionInput defines input for stop_device_session.
-type StopDeviceSessionInput struct{}
+type StopDeviceSessionInput struct {
+	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to stop. Omit to stop the active session."`
+	All          bool `json:"all,omitempty" jsonschema:"Stop all sessions."`
+}
 
 // StopDeviceSessionOutput defines output for stop_device_session.
 type StopDeviceSessionOutput struct {
@@ -226,8 +249,23 @@ type StopDeviceSessionOutput struct {
 }
 
 func (s *Server) handleStopDeviceSession(ctx context.Context, req *mcp.CallToolRequest, input StopDeviceSessionInput) (*mcp.CallToolResult, StopDeviceSessionOutput, error) {
-	if err := s.sessionMgr.StopSession(ctx); err != nil {
-		return nil, StopDeviceSessionOutput{Success: false, Error: "no active device session -- nothing to stop"}, nil
+	if input.All {
+		if err := s.sessionMgr.StopAllSessions(ctx); err != nil {
+			return nil, StopDeviceSessionOutput{Success: false, Error: err.Error()}, nil
+		}
+		return nil, StopDeviceSessionOutput{Success: true}, nil
+	}
+
+	index := -1
+	if input.SessionIndex != nil {
+		index = *input.SessionIndex
+	}
+	session, err := s.sessionMgr.ResolveSession(index)
+	if err != nil {
+		return nil, StopDeviceSessionOutput{Success: false, Error: err.Error()}, nil
+	}
+	if err := s.sessionMgr.StopSession(ctx, session.Index); err != nil {
+		return nil, StopDeviceSessionOutput{Success: false, Error: err.Error()}, nil
 	}
 	return nil, StopDeviceSessionOutput{
 		Success: true,
@@ -239,33 +277,63 @@ func (s *Server) handleStopDeviceSession(ctx context.Context, req *mcp.CallToolR
 
 // --- Dual-param validation helper ---
 
-// resolveCoords resolves target OR x/y to concrete coordinates.
-// Returns (x, y, confidence, error). Confidence is 0 when using raw coords.
-func (s *Server) resolveCoords(ctx context.Context, target string, x, y *int) (int, int, float64, error) {
-	s.sessionMgr.ResetIdleTimer()
+// resolveCoordsResult holds the output of resolveCoords, including the concrete
+// session index so callers can reuse it for the subsequent worker request without
+// re-resolving (which would be a TOCTOU race if the active session changed).
+type resolveCoordsResult struct {
+	X            int
+	Y            int
+	Confidence   float64
+	SessionIndex int
+}
 
+// resolveCoords resolves target OR x/y to concrete coordinates for a given session.
+// Returns the resolved coordinates AND the concrete session index that was used.
+// Callers must use result.SessionIndex for any follow-up WorkerRequestForSession
+// call to guarantee grounding and action target the same device.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - target: Natural language element description (mutually exclusive with x+y).
+//   - x, y: Raw pixel coordinates (mutually exclusive with target).
+//   - sessionIndex: Session index to use (-1 for active/auto).
+//
+// Returns:
+//   - *resolveCoordsResult: Resolved coordinates and the concrete session index.
+//   - error: Validation or resolution error.
+func (s *Server) resolveCoords(ctx context.Context, target string, x, y *int, sessionIndex int) (*resolveCoordsResult, error) {
 	hasTarget := target != ""
 	hasCoords := x != nil && y != nil
 
 	if hasTarget && hasCoords {
-		return 0, 0, 0, fmt.Errorf("provide either target OR x+y, not both")
+		return nil, fmt.Errorf("provide either target OR x+y, not both")
 	}
 	if !hasTarget && !hasCoords {
-		return 0, 0, 0, fmt.Errorf("provide target (element description) or x+y (pixel coordinates)")
+		return nil, fmt.Errorf("provide target (element description) or x+y (pixel coordinates)")
 	}
 	if (x != nil && y == nil) || (x == nil && y != nil) {
-		return 0, 0, 0, fmt.Errorf("both x and y are required when using coordinates")
+		return nil, fmt.Errorf("both x and y are required when using coordinates")
 	}
+
+	session, err := s.sessionMgr.ResolveSession(sessionIndex)
+	if err != nil {
+		return nil, err
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	if hasCoords {
-		return *x, *y, 0, nil
+		return &resolveCoordsResult{X: *x, Y: *y, SessionIndex: session.Index}, nil
 	}
 
-	resolved, err := s.sessionMgr.ResolveTarget(ctx, target)
+	resolved, err := s.sessionMgr.ResolveTargetForSession(ctx, session.Index, target)
 	if err != nil {
-		return 0, 0, 0, err
+		return nil, err
 	}
-	return resolved.X, resolved.Y, resolved.Confidence, nil
+	return &resolveCoordsResult{
+		X: resolved.X, Y: resolved.Y,
+		Confidence:   resolved.Confidence,
+		SessionIndex: session.Index,
+	}, nil
 }
 
 // errorNextSteps returns recovery-oriented NextSteps based on the error type.
@@ -287,9 +355,10 @@ func errorNextSteps(err error) []NextStep {
 
 // DeviceTapInput defines input for device_tap.
 type DeviceTapInput struct {
-	Target string `json:"target,omitempty" jsonschema:"Element to tap. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
-	X      *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
-	Y      *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
+	Target       string `json:"target,omitempty" jsonschema:"Element to tap. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
 // DeviceTapOutput defines output for device_tap.
@@ -305,20 +374,24 @@ type DeviceTapOutput struct {
 
 func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, input DeviceTapInput) (*mcp.CallToolResult, DeviceTapOutput, error) {
 	start := time.Now()
-	cx, cy, conf, err := s.resolveCoords(ctx, input.Target, input.X, input.Y)
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
 	if err != nil {
 		return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
-	body := map[string]int{"x": cx, "y": cy}
-	_, err = s.sessionMgr.WorkerRequest(ctx, "POST", "/tap", body)
+	body := map[string]int{"x": rc.X, "y": rc.Y}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "POST", "/tap", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
-		return nil, DeviceTapOutput{Success: false, X: cx, Y: cy, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DeviceTapOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	return nil, DeviceTapOutput{
-		Success: true, X: cx, Y: cy, Confidence: conf, LatencyMs: latency,
+		Success: true, X: rc.X, Y: rc.Y, Confidence: rc.Confidence, LatencyMs: latency,
 		NextSteps: []NextStep{
 			{Tool: "screenshot", Reason: "Verify the tap worked"},
 		},
@@ -328,29 +401,34 @@ func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, 
 // --- Device Double Tap ---
 
 type DeviceDoubleTapInput struct {
-	Target string `json:"target,omitempty" jsonschema:"Element to double-tap. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
-	X      *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
-	Y      *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
+	Target       string `json:"target,omitempty" jsonschema:"Element to double-tap. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
 type DeviceDoubleTapOutput = DeviceTapOutput
 
 func (s *Server) handleDeviceDoubleTap(ctx context.Context, req *mcp.CallToolRequest, input DeviceDoubleTapInput) (*mcp.CallToolResult, DeviceDoubleTapOutput, error) {
 	start := time.Now()
-	cx, cy, conf, err := s.resolveCoords(ctx, input.Target, input.X, input.Y)
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
 	if err != nil {
 		return nil, DeviceDoubleTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
-	body := map[string]int{"x": cx, "y": cy}
-	_, err = s.sessionMgr.WorkerRequest(ctx, "POST", "/double_tap", body)
+	body := map[string]int{"x": rc.X, "y": rc.Y}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "POST", "/double_tap", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
-		return nil, DeviceDoubleTapOutput{Success: false, X: cx, Y: cy, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DeviceDoubleTapOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	return nil, DeviceDoubleTapOutput{
-		Success: true, X: cx, Y: cy, Confidence: conf, LatencyMs: latency,
+		Success: true, X: rc.X, Y: rc.Y, Confidence: rc.Confidence, LatencyMs: latency,
 		NextSteps: []NextStep{{Tool: "screenshot", Reason: "Verify the double-tap worked"}},
 	}, nil
 }
@@ -358,17 +436,22 @@ func (s *Server) handleDeviceDoubleTap(ctx context.Context, req *mcp.CallToolReq
 // --- Device Long Press ---
 
 type DeviceLongPressInput struct {
-	Target     string `json:"target,omitempty" jsonschema:"Element to long-press. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
-	X          *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
-	Y          *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
-	DurationMs int    `json:"duration_ms,omitempty" jsonschema:"Press duration in ms (default 1500)"`
+	Target       string `json:"target,omitempty" jsonschema:"Element to long-press. Use visible text ('Sign In button') or visual traits ('blue rectangle'). Auto-resolves via AI grounding."`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
+	DurationMs   int    `json:"duration_ms,omitempty" jsonschema:"Press duration in ms (default 1500)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
 type DeviceLongPressOutput = DeviceTapOutput
 
 func (s *Server) handleDeviceLongPress(ctx context.Context, req *mcp.CallToolRequest, input DeviceLongPressInput) (*mcp.CallToolResult, DeviceLongPressOutput, error) {
 	start := time.Now()
-	cx, cy, conf, err := s.resolveCoords(ctx, input.Target, input.X, input.Y)
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
 	if err != nil {
 		return nil, DeviceLongPressOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -377,15 +460,15 @@ func (s *Server) handleDeviceLongPress(ctx context.Context, req *mcp.CallToolReq
 	if dur == 0 {
 		dur = 1500
 	}
-	body := map[string]int{"x": cx, "y": cy, "duration_ms": dur}
-	_, err = s.sessionMgr.WorkerRequest(ctx, "POST", "/longpress", body)
+	body := map[string]int{"x": rc.X, "y": rc.Y, "duration_ms": dur}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "POST", "/longpress", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
-		return nil, DeviceLongPressOutput{Success: false, X: cx, Y: cy, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DeviceLongPressOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	return nil, DeviceLongPressOutput{
-		Success: true, X: cx, Y: cy, Confidence: conf, LatencyMs: latency,
+		Success: true, X: rc.X, Y: rc.Y, Confidence: rc.Confidence, LatencyMs: latency,
 		NextSteps: []NextStep{{Tool: "screenshot", Reason: "Verify the long press worked"}},
 	}, nil
 }
@@ -393,11 +476,12 @@ func (s *Server) handleDeviceLongPress(ctx context.Context, req *mcp.CallToolReq
 // --- Device Type ---
 
 type DeviceTypeInput struct {
-	Target     string `json:"target,omitempty" jsonschema:"Element to type into (e.g. 'email input field')"`
-	X          *int   `json:"x,omitempty" jsonschema:"Raw X coordinate"`
-	Y          *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate"`
-	Text       string `json:"text" jsonschema:"Text to type (REQUIRED)"`
-	ClearFirst bool   `json:"clear_first,omitempty" jsonschema:"Clear field before typing (default true)"`
+	Target       string `json:"target,omitempty" jsonschema:"Element to type into (e.g. 'email input field')"`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate"`
+	Text         string `json:"text" jsonschema:"Text to type (REQUIRED)"`
+	ClearFirst   bool   `json:"clear_first,omitempty" jsonschema:"Clear field before typing (default true)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
 type DeviceTypeOutput = DeviceTapOutput
@@ -407,17 +491,18 @@ func (s *Server) handleDeviceType(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, DeviceTypeOutput{Success: false, Error: "text is required -- provide the text to type into the field"}, nil
 	}
 	start := time.Now()
-	cx, cy, conf, err := s.resolveCoords(ctx, input.Target, input.X, input.Y)
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
 	if err != nil {
 		return nil, DeviceTypeOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	// ClearFirst defaults to true (clear the field before typing).
-	// The JSON zero-value for bool is false, so if the user omits it we default true.
-	// If the user explicitly sets clear_first: false, we respect that.
 	clearFirst := true
 	if req != nil {
-		// Check if the field was explicitly provided in the JSON input
 		var raw map[string]json.RawMessage
 		if err := json.Unmarshal(req.Params.Arguments, &raw); err == nil {
 			if _, exists := raw["clear_first"]; exists {
@@ -425,15 +510,15 @@ func (s *Server) handleDeviceType(ctx context.Context, req *mcp.CallToolRequest,
 			}
 		}
 	}
-	body := map[string]interface{}{"x": cx, "y": cy, "text": input.Text, "clear_first": clearFirst}
-	_, err = s.sessionMgr.WorkerRequest(ctx, "POST", "/input", body)
+	body := map[string]interface{}{"x": rc.X, "y": rc.Y, "text": input.Text, "clear_first": clearFirst}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "POST", "/input", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
-		return nil, DeviceTypeOutput{Success: false, X: cx, Y: cy, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DeviceTypeOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	return nil, DeviceTypeOutput{
-		Success: true, X: cx, Y: cy, Confidence: conf, LatencyMs: latency,
+		Success: true, X: rc.X, Y: rc.Y, Confidence: rc.Confidence, LatencyMs: latency,
 		NextSteps: []NextStep{{Tool: "screenshot", Reason: "Verify text was typed correctly"}},
 	}, nil
 }
@@ -441,11 +526,12 @@ func (s *Server) handleDeviceType(ctx context.Context, req *mcp.CallToolRequest,
 // --- Device Swipe ---
 
 type DeviceSwipeInput struct {
-	Target     string `json:"target,omitempty" jsonschema:"Element to swipe from. Use visible text ('product list') or visual traits ('main content area'). Auto-resolves via AI grounding."`
-	X          *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
-	Y          *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
-	Direction  string `json:"direction" jsonschema:"Swipe direction: up, down, left, right. 'up' moves finger up (scrolls content down). REQUIRED."`
-	DurationMs int    `json:"duration_ms,omitempty" jsonschema:"Swipe duration in ms (default 500)"`
+	Target       string `json:"target,omitempty" jsonschema:"Element to swipe from. Use visible text ('product list') or visual traits ('main content area'). Auto-resolves via AI grounding."`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X pixel coordinate (bypasses grounding)"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y pixel coordinate (bypasses grounding)"`
+	Direction    string `json:"direction" jsonschema:"Swipe direction: up, down, left, right. 'up' moves finger up (scrolls content down). REQUIRED."`
+	DurationMs   int    `json:"duration_ms,omitempty" jsonschema:"Swipe duration in ms (default 500)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
 type DeviceSwipeOutput = DeviceTapOutput
@@ -465,7 +551,11 @@ func (s *Server) handleDeviceSwipe(ctx context.Context, req *mcp.CallToolRequest
 	}
 	input.Direction = strings.ToLower(input.Direction)
 	start := time.Now()
-	cx, cy, conf, err := s.resolveCoords(ctx, input.Target, input.X, input.Y)
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
 	if err != nil {
 		return nil, DeviceSwipeOutput{Success: false, Error: err.Error(),
 			NextSteps: errorNextSteps(err),
@@ -476,15 +566,15 @@ func (s *Server) handleDeviceSwipe(ctx context.Context, req *mcp.CallToolRequest
 	if dur == 0 {
 		dur = 500
 	}
-	body := map[string]interface{}{"x": cx, "y": cy, "direction": input.Direction, "duration_ms": dur}
-	_, err = s.sessionMgr.WorkerRequest(ctx, "POST", "/swipe", body)
+	body := map[string]interface{}{"x": rc.X, "y": rc.Y, "direction": input.Direction, "duration_ms": dur}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "POST", "/swipe", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
-		return nil, DeviceSwipeOutput{Success: false, X: cx, Y: cy, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DeviceSwipeOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	return nil, DeviceSwipeOutput{
-		Success: true, X: cx, Y: cy, Confidence: conf, LatencyMs: latency,
+		Success: true, X: rc.X, Y: rc.Y, Confidence: rc.Confidence, LatencyMs: latency,
 		NextSteps: []NextStep{{Tool: "screenshot", Reason: "See the result of the swipe"}},
 	}, nil
 }
@@ -492,10 +582,11 @@ func (s *Server) handleDeviceSwipe(ctx context.Context, req *mcp.CallToolRequest
 // --- Device Drag (raw only) ---
 
 type DeviceDragInput struct {
-	StartX int `json:"start_x" jsonschema:"Starting X coordinate"`
-	StartY int `json:"start_y" jsonschema:"Starting Y coordinate"`
-	EndX   int `json:"end_x" jsonschema:"Ending X coordinate"`
-	EndY   int `json:"end_y" jsonschema:"Ending Y coordinate"`
+	StartX       int  `json:"start_x" jsonschema:"Starting X coordinate"`
+	StartY       int  `json:"start_y" jsonschema:"Starting Y coordinate"`
+	EndX         int  `json:"end_x" jsonschema:"Ending X coordinate"`
+	EndY         int  `json:"end_y" jsonschema:"Ending Y coordinate"`
+	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
 type DeviceDragOutput struct {
@@ -506,10 +597,18 @@ type DeviceDragOutput struct {
 }
 
 func (s *Server) handleDeviceDrag(ctx context.Context, req *mcp.CallToolRequest, input DeviceDragInput) (*mcp.CallToolResult, DeviceDragOutput, error) {
-	s.sessionMgr.ResetIdleTimer()
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.sessionMgr.ResolveSession(sidx)
+	if err != nil {
+		return nil, DeviceDragOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
 	start := time.Now()
 	body := map[string]int{"start_x": input.StartX, "start_y": input.StartY, "end_x": input.EndX, "end_y": input.EndY}
-	_, err := s.sessionMgr.WorkerRequest(ctx, "POST", "/drag", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/drag", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceDragOutput{Success: false, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -523,7 +622,9 @@ func (s *Server) handleDeviceDrag(ctx context.Context, req *mcp.CallToolRequest,
 
 // --- Screenshot ---
 
-type ScreenshotInput struct{}
+type ScreenshotInput struct {
+	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to screenshot. Omit for active session."`
+}
 
 type ScreenshotOutput struct {
 	Success   bool       `json:"success"`
@@ -533,9 +634,17 @@ type ScreenshotOutput struct {
 }
 
 func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest, input ScreenshotInput) (*mcp.CallToolResult, ScreenshotOutput, error) {
-	s.sessionMgr.ResetIdleTimer()
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.sessionMgr.ResolveSession(sidx)
+	if err != nil {
+		return nil, ScreenshotOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
 	start := time.Now()
-	imgBytes, err := s.sessionMgr.Screenshot(ctx)
+	imgBytes, err := s.sessionMgr.ScreenshotForSession(ctx, session.Index)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, ScreenshotOutput{Success: false, LatencyMs: latency, Error: err.Error(),
@@ -543,8 +652,6 @@ func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest,
 		}, nil
 	}
 
-	// Return native MCP ImageContent so clients (Claude, Cursor) render it
-	// inline instead of parsing base64 from JSON text.
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.ImageContent{Data: imgBytes, MIMEType: "image/png"},
@@ -562,7 +669,8 @@ func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest,
 // --- Find Element ---
 
 type FindElementInput struct {
-	Target string `json:"target" jsonschema:"Element to locate. Use visible text or visual traits. Returns coords without acting."`
+	Target       string `json:"target" jsonschema:"Element to locate. Use visible text or visual traits. Returns coords without acting."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
 type FindElementOutput struct {
@@ -581,9 +689,17 @@ func (s *Server) handleFindElement(ctx context.Context, req *mcp.CallToolRequest
 			NextSteps: []NextStep{{Tool: "screenshot", Reason: "See the screen first, then describe the element"}},
 		}, nil
 	}
-	s.sessionMgr.ResetIdleTimer()
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.sessionMgr.ResolveSession(sidx)
+	if err != nil {
+		return nil, FindElementOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
 	start := time.Now()
-	resolved, err := s.sessionMgr.ResolveTarget(ctx, input.Target)
+	resolved, err := s.sessionMgr.ResolveTargetForSession(ctx, session.Index, input.Target)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, FindElementOutput{Success: false, LatencyMs: latency, Error: err.Error(),
@@ -602,8 +718,9 @@ func (s *Server) handleFindElement(ctx context.Context, req *mcp.CallToolRequest
 // --- Install App ---
 
 type InstallAppInput struct {
-	AppURL   string `json:"app_url" jsonschema:"URL to download app from (REQUIRED)"`
-	BundleID string `json:"bundle_id,omitempty" jsonschema:"Bundle ID (auto-detected if omitted)"`
+	AppURL       string `json:"app_url" jsonschema:"URL to download app from (REQUIRED)"`
+	BundleID     string `json:"bundle_id,omitempty" jsonschema:"Bundle ID (auto-detected if omitted)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
 type InstallAppOutput struct {
@@ -616,13 +733,21 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 	if input.AppURL == "" {
 		return nil, InstallAppOutput{Success: false, Error: "app_url is required -- provide a URL to an .apk (Android) or .ipa (iOS) file"}, nil
 	}
-	s.sessionMgr.ResetIdleTimer()
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.sessionMgr.ResolveSession(sidx)
+	if err != nil {
+		return nil, InstallAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	body := map[string]string{"app_url": input.AppURL}
 	if input.BundleID != "" {
 		body["bundle_id"] = input.BundleID
 	}
-	respBody, err := s.sessionMgr.WorkerRequest(ctx, "POST", "/install", body)
+	respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/install", body)
 	if err != nil {
 		return nil, InstallAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -642,7 +767,8 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 // --- Launch App ---
 
 type LaunchAppInput struct {
-	BundleID string `json:"bundle_id" jsonschema:"App bundle ID to launch (REQUIRED)"`
+	BundleID     string `json:"bundle_id" jsonschema:"App bundle ID to launch (REQUIRED)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
 type LaunchAppOutput struct {
@@ -655,10 +781,18 @@ func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, 
 	if input.BundleID == "" {
 		return nil, LaunchAppOutput{Success: false, Error: "bundle_id is required (e.g. 'com.example.app'). Use install_app first if not installed."}, nil
 	}
-	s.sessionMgr.ResetIdleTimer()
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.sessionMgr.ResolveSession(sidx)
+	if err != nil {
+		return nil, LaunchAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	body := map[string]string{"bundle_id": input.BundleID}
-	_, err := s.sessionMgr.WorkerRequest(ctx, "POST", "/launch", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/launch", body)
 	if err != nil {
 		return nil, LaunchAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -673,24 +807,33 @@ func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, 
 
 // --- Get Session Info ---
 
-type GetSessionInfoInput struct{}
+type GetSessionInfoInput struct {
+	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to query. Omit for active session."`
+}
 
 type GetSessionInfoOutput struct {
 	Active        bool       `json:"active"`
 	SessionID     string     `json:"session_id,omitempty"`
+	SessionIndex  int        `json:"session_index"`
 	Platform      string     `json:"platform,omitempty"`
 	ViewerURL     string     `json:"viewer_url,omitempty"`
 	UptimeSeconds float64    `json:"uptime_seconds,omitempty"`
 	IdleSeconds   float64    `json:"idle_seconds,omitempty"`
+	TotalSessions int        `json:"total_sessions"`
 	Error         string     `json:"error,omitempty"`
 	NextSteps     []NextStep `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleGetSessionInfo(ctx context.Context, req *mcp.CallToolRequest, input GetSessionInfoInput) (*mcp.CallToolResult, GetSessionInfoOutput, error) {
-	session := s.sessionMgr.GetActive()
-	if session == nil {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.sessionMgr.ResolveSession(sidx)
+	if err != nil {
 		return nil, GetSessionInfoOutput{
-			Active: false,
+			Active:        false,
+			TotalSessions: s.sessionMgr.SessionCount(),
 			NextSteps: []NextStep{
 				{Tool: "start_device_session", Params: "platform=\"android\"", Reason: "Start a device session"},
 			},
@@ -701,10 +844,12 @@ func (s *Server) handleGetSessionInfo(ctx context.Context, req *mcp.CallToolRequ
 	return nil, GetSessionInfoOutput{
 		Active:        true,
 		SessionID:     session.SessionID,
+		SessionIndex:  session.Index,
 		Platform:      session.Platform,
 		ViewerURL:     session.ViewerURL,
 		UptimeSeconds: now.Sub(session.StartedAt).Seconds(),
 		IdleSeconds:   now.Sub(session.LastActivity).Seconds(),
+		TotalSessions: s.sessionMgr.SessionCount(),
 		NextSteps: []NextStep{
 			{Tool: "screenshot", Reason: "See the current device screen"},
 			{Tool: "device_tap", Params: "target=\"...\"", Reason: "Interact with an element"},
@@ -751,45 +896,35 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 		checks = append(checks, DiagnosticCheck{Name: "session", Status: "pass", Detail: fmt.Sprintf("platform=%s, uptime=%.0fs", session.Platform, time.Since(session.StartedAt).Seconds())})
 
 		// Check 3: Worker reachability (only if session exists)
-		_, werr := s.sessionMgr.WorkerRequest(ctx, "GET", "/health", nil)
+		respBytes, werr := s.sessionMgr.WorkerRequest(ctx, "GET", "/health", nil)
 		if werr != nil {
 			checks = append(checks, DiagnosticCheck{Name: "worker", Status: "fail", Detail: werr.Error(), Fix: "stop_device_session() and start a new one"})
 			allPassed = false
 		} else {
 			checks = append(checks, DiagnosticCheck{Name: "worker", Status: "pass"})
-		}
-	}
 
-	// Check 4: Grounding API reachability
-	groundingURL := s.sessionMgr.GroundingURL()
-	gHealthURL := groundingURL + "/health"
-	gReq, gErr := http.NewRequestWithContext(ctx, "GET", gHealthURL, nil)
-	if gErr != nil {
-		checks = append(checks, DiagnosticCheck{Name: "grounding", Status: "fail", Detail: gErr.Error(), Fix: "Check REVYL_GROUNDING_URL env var"})
-		allPassed = false
-	} else {
-		gResp, gErr := http.DefaultClient.Do(gReq)
-		if gErr != nil {
-			checks = append(checks, DiagnosticCheck{Name: "grounding", Status: "fail", Detail: gErr.Error(), Fix: "Grounding API unreachable at " + groundingURL})
-			allPassed = false
-		} else {
-			gResp.Body.Close()
-			if gResp.StatusCode >= 400 {
-				checks = append(checks, DiagnosticCheck{Name: "grounding", Status: "fail", Detail: fmt.Sprintf("HTTP %d", gResp.StatusCode), Fix: "Grounding API returned error at " + groundingURL})
-				allPassed = false
-			} else {
-				checks = append(checks, DiagnosticCheck{Name: "grounding", Status: "pass", Detail: groundingURL})
+			// Check 3b: Device connectivity (parse /health response body)
+			var health struct {
+				DeviceConnected bool `json:"device_connected"`
+			}
+			if json.Unmarshal(respBytes, &health) == nil {
+				if health.DeviceConnected {
+					checks = append(checks, DiagnosticCheck{Name: "device", Status: "pass"})
+				} else {
+					checks = append(checks, DiagnosticCheck{Name: "device", Status: "fail", Detail: "Worker is running but device is not connected", Fix: "stop_device_session() and start a new one"})
+					allPassed = false
+				}
 			}
 		}
 	}
 
-	// Check 5: CLI version
+	// Check 4: CLI version
 	checks = append(checks, DiagnosticCheck{Name: "cli_version", Status: "info", Detail: s.version})
 
-	// Check 6: Session persistence
+	// Check 5: Session persistence
 	persistPath := ""
 	if s.sessionMgr.WorkDir() != "" {
-		persistPath = s.sessionMgr.WorkDir() + "/.revyl/device-session.json"
+		persistPath = s.sessionMgr.WorkDir() + "/.revyl/device-sessions.json"
 		if _, fErr := os.Stat(persistPath); fErr == nil {
 			checks = append(checks, DiagnosticCheck{Name: "persist_file", Status: "pass", Detail: persistPath})
 		} else {
@@ -800,7 +935,6 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 	// Check 7: Environment
 	apiKeyMasked := maskEnv("REVYL_API_KEY")
 	checks = append(checks, DiagnosticCheck{Name: "env_api_key", Status: "info", Detail: apiKeyMasked})
-	checks = append(checks, DiagnosticCheck{Name: "env_grounding_url", Status: "info", Detail: envOrDefault("REVYL_GROUNDING_URL", "(default)")})
 	checks = append(checks, DiagnosticCheck{Name: "env_local", Status: "info", Detail: envOrDefault("LOCAL", "false")})
 
 	// Troubleshooting tips
@@ -843,4 +977,95 @@ func envOrDefault(key, def string) string {
 		return def
 	}
 	return val
+}
+
+// --- List Device Sessions ---
+
+// ListDeviceSessionsInput defines input for list_device_sessions.
+type ListDeviceSessionsInput struct{}
+
+// ListDeviceSessionsSessionItem represents a single session in the list output.
+type ListDeviceSessionsSessionItem struct {
+	Index    int     `json:"index"`
+	Platform string  `json:"platform"`
+	Status   string  `json:"status"`
+	Uptime   float64 `json:"uptime_seconds"`
+	Active   bool    `json:"active"`
+}
+
+// ListDeviceSessionsOutput defines output for list_device_sessions.
+type ListDeviceSessionsOutput struct {
+	Sessions    []ListDeviceSessionsSessionItem `json:"sessions"`
+	ActiveIndex int                             `json:"active_index"`
+	NextSteps   []NextStep                      `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleListDeviceSessions(ctx context.Context, req *mcp.CallToolRequest, input ListDeviceSessionsInput) (*mcp.CallToolResult, ListDeviceSessionsOutput, error) {
+	sessions := s.sessionMgr.ListSessions()
+	activeIdx := s.sessionMgr.ActiveIndex()
+
+	items := make([]ListDeviceSessionsSessionItem, 0, len(sessions))
+	for _, sess := range sessions {
+		items = append(items, ListDeviceSessionsSessionItem{
+			Index:    sess.Index,
+			Platform: sess.Platform,
+			Status:   "running",
+			Uptime:   time.Since(sess.StartedAt).Seconds(),
+			Active:   sess.Index == activeIdx,
+		})
+	}
+
+	output := ListDeviceSessionsOutput{
+		Sessions:    items,
+		ActiveIndex: activeIdx,
+	}
+
+	if len(sessions) == 0 {
+		output.NextSteps = []NextStep{
+			{Tool: "start_device_session", Params: "platform=\"android\"", Reason: "No sessions -- start one"},
+		}
+	} else {
+		output.NextSteps = []NextStep{
+			{Tool: "screenshot", Reason: "See the active session's screen"},
+		}
+	}
+
+	return nil, output, nil
+}
+
+// --- Switch Device Session ---
+
+// SwitchDeviceSessionInput defines input for switch_device_session.
+type SwitchDeviceSessionInput struct {
+	Index int `json:"index" jsonschema:"Session index to switch to (REQUIRED)"`
+}
+
+// SwitchDeviceSessionOutput defines output for switch_device_session.
+type SwitchDeviceSessionOutput struct {
+	Success   bool       `json:"success"`
+	Index     int        `json:"index"`
+	Platform  string     `json:"platform,omitempty"`
+	Error     string     `json:"error,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleSwitchDeviceSession(ctx context.Context, req *mcp.CallToolRequest, input SwitchDeviceSessionInput) (*mcp.CallToolResult, SwitchDeviceSessionOutput, error) {
+	if err := s.sessionMgr.SetActive(input.Index); err != nil {
+		return nil, SwitchDeviceSessionOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	session := s.sessionMgr.GetSession(input.Index)
+	platform := ""
+	if session != nil {
+		platform = session.Platform
+	}
+
+	return nil, SwitchDeviceSessionOutput{
+		Success:  true,
+		Index:    input.Index,
+		Platform: platform,
+		NextSteps: []NextStep{
+			{Tool: "screenshot", Reason: "See the newly active session's screen"},
+		},
+	}, nil
 }

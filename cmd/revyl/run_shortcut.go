@@ -56,6 +56,9 @@ func init() {
 	runCmd.Flags().BoolVar(&runHotReload, "hotreload", false, "Enable hot reload mode with local dev server")
 	runCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
 	runCmd.Flags().StringVar(&runHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
+	runCmd.Flags().StringVar(&runWorkflowIOSAppID, "ios-app", "", "Override iOS app ID (workflow mode)")
+	runCmd.Flags().StringVar(&runWorkflowAndroidAppID, "android-app", "", "Override Android app ID (workflow mode)")
+	runCmd.Flags().StringVar(&runLocation, "location", "", "Initial GPS location as lat,lng (e.g. 37.7749,-122.4194)")
 }
 
 // runShortcutExec runs the root-level "revyl run <name>" command.

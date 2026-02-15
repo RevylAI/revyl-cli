@@ -9,16 +9,23 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
+	yamlPkg "gopkg.in/yaml.v3"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
+	"github.com/revyl/cli/internal/hotreload"
+	_ "github.com/revyl/cli/internal/hotreload/providers"
 	"github.com/revyl/cli/internal/schema"
+	"github.com/revyl/cli/internal/ui"
 	"github.com/revyl/cli/internal/yaml"
 )
 
@@ -31,17 +38,24 @@ type Server struct {
 	version    string
 	rootCmd    *cobra.Command
 	sessionMgr *DeviceSessionManager
+
+	// Hot reload session state (persists across tool calls)
+	hotReloadManager *hotreload.Manager
+	hotReloadMu      sync.Mutex
+	hotReloadTestID  string                 // Test ID the session was started for
+	hotReloadResult  *hotreload.StartResult // Cached URLs
 }
 
 // NewServer creates a new Revyl MCP server.
 //
 // Parameters:
 //   - version: The CLI version string
+//   - devMode: If true, use local development server URLs
 //
 // Returns:
 //   - *Server: A new server instance
 //   - error: Any error that occurred during initialization
-func NewServer(version string) (*Server, error) {
+func NewServer(version string, devMode bool) (*Server, error) {
 	// Get API key from environment or credentials
 	apiKey := os.Getenv("REVYL_API_KEY")
 	if apiKey == "" {
@@ -53,10 +67,20 @@ func NewServer(version string) (*Server, error) {
 		apiKey = creds.APIKey
 	}
 
-	// Get working directory
-	workDir, err := os.Getwd()
-	if err != nil {
-		workDir = "."
+	// Get working directory: prefer explicit env so Cursor (or any host) can set it
+	// when the process is spawned with a different cwd (e.g. extension host cwd).
+	workDir := os.Getenv("REVYL_PROJECT_DIR")
+	if workDir == "" {
+		var err error
+		workDir, err = os.Getwd()
+		if err != nil {
+			workDir = "."
+		}
+	} else {
+		workDir = filepath.Clean(workDir)
+	}
+	if repoRoot, findErr := config.FindRepoRoot(workDir); findErr == nil {
+		workDir = repoRoot
 	}
 
 	// Try to load project config
@@ -65,7 +89,7 @@ func NewServer(version string) (*Server, error) {
 	cfg, _ = config.LoadProjectConfig(configPath)
 
 	s := &Server{
-		apiClient: api.NewClient(apiKey),
+		apiClient: api.NewClientWithDevMode(apiKey, devMode),
 		config:    cfg,
 		workDir:   workDir,
 		version:   version,
@@ -89,7 +113,7 @@ func NewServer(version string) (*Server, error) {
 
 ## Tool Categories
 
-- **Device Session**: start_device_session, stop_device_session, get_session_info
+- **Device Session**: start_device_session, stop_device_session, get_session_info, list_device_sessions, switch_device_session
 - **Device Actions** (grounded by default): device_tap, device_double_tap, device_long_press, device_type, device_swipe, device_drag
 - **Vision**: screenshot, find_element
 - **App Management**: install_app, launch_app
@@ -97,11 +121,19 @@ func NewServer(version string) (*Server, error) {
 
 ## Getting Started
 
-1. start_device_session(platform="android") -- provisions a cloud device (returns viewer_url)
+1. start_device_session(platform="android") -- provisions a cloud device (returns viewer_url and session_index)
 2. screenshot() -- see the initial screen state
 3. Use device_tap/device_type/device_swipe with target="..." to interact
 4. screenshot() after every action to verify
 5. stop_device_session() when done to release the device and stop billing
+
+## Multi-Session Support
+
+You can run multiple devices simultaneously. Each session gets an auto-assigned index (0, 1, 2...).
+- list_device_sessions() to see all active sessions
+- switch_device_session(index=1) to change the default target
+- Pass session_index to any action tool to target a specific session
+- stop_device_session(all=true) to stop everything
 
 ## Device Tools: Grounded by Default
 
@@ -159,6 +191,7 @@ func (s *Server) SetRootCmd(cmd *cobra.Command) {
 // Returns:
 //   - error: Any error that occurred during execution
 func (s *Server) Run(ctx context.Context) error {
+	defer s.Shutdown()
 	return s.mcpServer.Run(ctx, &mcp.StdioTransport{})
 }
 
@@ -222,12 +255,6 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		Name:        "list_builds",
 		Description: "List available build versions for the project.",
 	}, s.handleListBuilds)
-
-	// NEW: open_test_editor tool
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "open_test_editor",
-		Description: "Get the URL to open a test in the browser editor.",
-	}, s.handleOpenTestEditor)
 
 	// NEW: open_workflow_editor tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -353,11 +380,145 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		Description: "Replace all tags on a test with the given tag names. Tags are auto-created if they don't exist.",
 	}, s.handleSetTestTags)
 
+	// --- Env var tools ---
+
+	// list_env_vars tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "list_env_vars",
+		Description: "List all environment variables for a test. Env vars are encrypted at rest and injected at app launch.",
+	}, s.handleListEnvVars)
+
+	// set_env_var tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "set_env_var",
+		Description: "Add or update an environment variable for a test. If the key already exists, its value is updated.",
+	}, s.handleSetEnvVar)
+
+	// delete_env_var tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "delete_env_var",
+		Description: "Delete an environment variable from a test by key name.",
+	}, s.handleDeleteEnvVar)
+
+	// clear_env_vars tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "clear_env_vars",
+		Description: "Delete ALL environment variables for a test.",
+	}, s.handleClearEnvVars)
+
+	// --- Workflow settings tools ---
+
+	// get_workflow_settings tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_workflow_settings",
+		Description: "Get workflow settings including location override and app override configuration.",
+	}, s.handleGetWorkflowSettings)
+
+	// set_workflow_location tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "set_workflow_location",
+		Description: "Set a stored GPS location override for all tests in a workflow.",
+	}, s.handleSetWorkflowLocation)
+
+	// clear_workflow_location tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "clear_workflow_location",
+		Description: "Remove the stored GPS location override from a workflow.",
+	}, s.handleClearWorkflowLocation)
+
+	// set_workflow_app tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "set_workflow_app",
+		Description: "Set stored app overrides (per platform) for all tests in a workflow. App IDs are validated.",
+	}, s.handleSetWorkflowApp)
+
+	// clear_workflow_app tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "clear_workflow_app",
+		Description: "Remove stored app overrides from a workflow.",
+	}, s.handleClearWorkflowApp)
+
 	// add_remove_test_tags tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "add_remove_test_tags",
 		Description: "Add and/or remove tags on a test without replacing all existing tags.",
 	}, s.handleAddRemoveTestTags)
+
+	// --- Build tools ---
+
+	// upload_build tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "upload_build",
+		Description: "Upload a local build file (.apk, .ipa, or .zip) to an existing app. Returns the new version ID.",
+	}, s.handleUploadBuild)
+
+	// --- Test update tools ---
+
+	// update_test tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name: "update_test",
+		Description: `Update an existing test's YAML content (blocks). Pushes new blocks to the remote test.
+
+Use get_schema for the YAML format reference. The YAML must include the full test definition with metadata, build, and blocks sections.`,
+	}, s.handleUpdateTest)
+
+	// --- Script tools ---
+
+	// list_scripts tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "list_scripts",
+		Description: "List all code execution scripts in the organization. Scripts contain reusable code that runs in sandboxed environments during test execution.",
+	}, s.handleListScripts)
+
+	// get_script tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_script",
+		Description: "Get details of a specific script by ID, including its source code.",
+	}, s.handleGetScript)
+
+	// create_script tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "create_script",
+		Description: "Create a new code execution script. Scripts can be referenced in tests via code_execution blocks.",
+	}, s.handleCreateScript)
+
+	// update_script tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "update_script",
+		Description: "Update an existing script's name, code, runtime, or description.",
+	}, s.handleUpdateScript)
+
+	// delete_script tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "delete_script",
+		Description: "Delete a script by ID.",
+	}, s.handleDeleteScript)
+
+	// insert_script_block tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "insert_script_block",
+		Description: "Given a script name or ID, returns a code_execution block YAML snippet ready to insert into a test.",
+	}, s.handleInsertScriptBlock)
+
+	// --- Live editor tools ---
+
+	// open_test_editor tool (with optional hot reload)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "open_test_editor",
+		Description: "Open a test in the browser editor, optionally with hot reload. Starts dev server and tunnel if hot reload is configured. Opens the browser by default.",
+	}, s.handleOpenTestEditor)
+
+	// stop_hot_reload tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "stop_hot_reload",
+		Description: "Stop the hot reload session (dev server and tunnel). Call this when done with live editing.",
+	}, s.handleStopHotReload)
+
+	// hot_reload_status tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "hot_reload_status",
+		Description: "Check if a hot reload session is active and get current URLs.",
+	}, s.handleHotReloadStatus)
 }
 
 // RunTestInput defines the input parameters for the run_test tool.
@@ -365,6 +526,7 @@ type RunTestInput struct {
 	TestName       string `json:"test_name" jsonschema:"Test name (alias from .revyl/config.yaml) or UUID"`
 	Retries        int    `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
 	BuildVersionID string `json:"build_version_id,omitempty" jsonschema:"Specific build version ID to test against"`
+	Location       string `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
 }
 
 // RunTestOutput defines the output for the run_test tool.
@@ -402,15 +564,27 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		retries = 1 // Default to 1 if not specified
 	}
 
-	// Use shared execution logic
-	result, err := execution.RunTest(ctx, s.apiClient.GetAPIKey(), s.config, execution.RunTestParams{
+	// Parse location if provided
+	params := execution.RunTestParams{
 		TestNameOrID:   input.TestName,
 		Retries:        retries,
 		BuildVersionID: input.BuildVersionID,
 		Timeout:        3600,
 		DevMode:        false,
 		OnProgress:     nil, // MCP doesn't need progress callbacks
-	})
+	}
+	if input.Location != "" {
+		lat, lng, locErr := parseLocationString(input.Location)
+		if locErr != nil {
+			return nil, RunTestOutput{Success: false, ErrorMessage: locErr.Error()}, nil
+		}
+		params.Latitude = lat
+		params.Longitude = lng
+		params.HasLocation = true
+	}
+
+	// Use shared execution logic
+	result, err := execution.RunTest(ctx, s.apiClient.GetAPIKey(), s.config, params)
 	if err != nil {
 		return nil, RunTestOutput{Success: false, ErrorMessage: err.Error()}, nil
 	}
@@ -431,6 +605,9 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 type RunWorkflowInput struct {
 	WorkflowName string `json:"workflow_name" jsonschema:"Workflow name (alias from .revyl/config.yaml) or UUID"`
 	Retries      int    `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
+	IOSAppID     string `json:"ios_app_id,omitempty" jsonschema:"Override iOS app ID for all tests in workflow"`
+	AndroidAppID string `json:"android_app_id,omitempty" jsonschema:"Override Android app ID for all tests in workflow"`
+	Location     string `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
 }
 
 // RunWorkflowOutput defines the output for the run_workflow tool.
@@ -470,14 +647,28 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		retries = 1 // Default to 1 if not specified
 	}
 
-	// Use shared execution logic
-	result, err := execution.RunWorkflow(ctx, s.apiClient.GetAPIKey(), s.config, execution.RunWorkflowParams{
+	// Build params with optional overrides
+	wfParams := execution.RunWorkflowParams{
 		WorkflowNameOrID: input.WorkflowName,
 		Retries:          retries,
 		Timeout:          3600,
 		DevMode:          false,
 		OnProgress:       nil,
-	})
+		IOSAppID:         input.IOSAppID,
+		AndroidAppID:     input.AndroidAppID,
+	}
+	if input.Location != "" {
+		lat, lng, locErr := parseLocationString(input.Location)
+		if locErr != nil {
+			return nil, RunWorkflowOutput{Success: false, ErrorMessage: locErr.Error()}, nil
+		}
+		wfParams.Latitude = lat
+		wfParams.Longitude = lng
+		wfParams.HasLocation = true
+	}
+
+	// Use shared execution logic
+	result, err := execution.RunWorkflow(ctx, s.apiClient.GetAPIKey(), s.config, wfParams)
 	if err != nil {
 		return nil, RunWorkflowOutput{Success: false, ErrorMessage: err.Error()}, nil
 	}
@@ -861,41 +1052,6 @@ func (s *Server) handleListBuilds(ctx context.Context, req *mcp.CallToolRequest,
 	return nil, ListBuildsOutput{
 		Builds: builds,
 		Total:  result.Total,
-	}, nil
-}
-
-// OpenTestEditorInput defines input for open_test_editor tool.
-type OpenTestEditorInput struct {
-	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
-}
-
-// OpenTestEditorOutput defines output for open_test_editor tool.
-type OpenTestEditorOutput struct {
-	Success bool   `json:"success"`
-	TestID  string `json:"test_id"`
-	TestURL string `json:"test_url"`
-	Error   string `json:"error,omitempty"`
-}
-
-// handleOpenTestEditor handles the open_test_editor tool call.
-func (s *Server) handleOpenTestEditor(ctx context.Context, req *mcp.CallToolRequest, input OpenTestEditorInput) (*mcp.CallToolResult, OpenTestEditorOutput, error) {
-	// Validate input
-	if input.TestNameOrID == "" {
-		return nil, OpenTestEditorOutput{
-			Success: false,
-			Error:   "test_name_or_id is required",
-		}, nil
-	}
-
-	result := execution.OpenTestEditor(s.config, execution.OpenTestEditorParams{
-		TestNameOrID: input.TestNameOrID,
-		DevMode:      false,
-	})
-
-	return nil, OpenTestEditorOutput{
-		Success: true,
-		TestID:  result.TestID,
-		TestURL: result.TestURL,
 	}, nil
 }
 
@@ -1858,4 +2014,1150 @@ func (s *Server) handleAddRemoveTestTags(ctx context.Context, req *mcp.CallToolR
 		TestID:  testID,
 		Message: strings.Join(parts, "; "),
 	}, nil
+}
+
+// --- Helper: parse location string ---
+
+// parseLocationString parses a "lat,lng" string into coordinates.
+func parseLocationString(s string) (float64, float64, error) {
+	parts := strings.SplitN(s, ",", 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid location format: expected lat,lng (e.g. 37.7749,-122.4194)")
+	}
+	lat, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid latitude: %v", err)
+	}
+	lng, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid longitude: %v", err)
+	}
+	if lat < -90 || lat > 90 {
+		return 0, 0, fmt.Errorf("latitude must be between -90 and 90 (got %v)", lat)
+	}
+	if lng < -180 || lng > 180 {
+		return 0, 0, fmt.Errorf("longitude must be between -180 and 180 (got %v)", lng)
+	}
+	return lat, lng, nil
+}
+
+// resolveTestID resolves a test name or ID to a UUID using config aliases and API search.
+func (s *Server) resolveTestID(ctx context.Context, nameOrID string) (string, error) {
+	testID := nameOrID
+	if s.config != nil {
+		if id, ok := s.config.Tests[nameOrID]; ok {
+			testID = id
+		}
+	}
+	if len(testID) != 36 {
+		testsResp, err := s.apiClient.ListOrgTests(ctx, 100, 0)
+		if err != nil {
+			return "", fmt.Errorf("failed to search for test '%s': %w", nameOrID, err)
+		}
+		for _, t := range testsResp.Tests {
+			if t.Name == nameOrID {
+				return t.ID, nil
+			}
+		}
+		return "", fmt.Errorf("test '%s' not found", nameOrID)
+	}
+	return testID, nil
+}
+
+// resolveWorkflowID resolves a workflow name or ID to a UUID using config aliases and API search.
+func (s *Server) resolveWorkflowID(ctx context.Context, nameOrID string) (string, error) {
+	wfID := nameOrID
+	if s.config != nil {
+		if id, ok := s.config.Workflows[nameOrID]; ok {
+			wfID = id
+		}
+	}
+	if len(wfID) != 36 {
+		resp, err := s.apiClient.ListWorkflows(ctx)
+		if err != nil {
+			return "", fmt.Errorf("failed to search for workflow '%s': %w", nameOrID, err)
+		}
+		for _, w := range resp.Workflows {
+			if w.Name == nameOrID {
+				return w.ID, nil
+			}
+		}
+		return "", fmt.Errorf("workflow '%s' not found", nameOrID)
+	}
+	return wfID, nil
+}
+
+// --- Env var tool handlers ---
+
+// ListEnvVarsInput defines input for list_env_vars tool.
+type ListEnvVarsInput struct {
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+}
+
+// EnvVarInfo contains information about an env var for MCP output.
+type EnvVarInfo struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+}
+
+// ListEnvVarsOutput defines output for list_env_vars tool.
+type ListEnvVarsOutput struct {
+	Success bool         `json:"success"`
+	TestID  string       `json:"test_id,omitempty"`
+	EnvVars []EnvVarInfo `json:"env_vars,omitempty"`
+	Error   string       `json:"error,omitempty"`
+}
+
+func (s *Server) handleListEnvVars(ctx context.Context, req *mcp.CallToolRequest, input ListEnvVarsInput) (*mcp.CallToolResult, ListEnvVarsOutput, error) {
+	if input.TestNameOrID == "" {
+		return nil, ListEnvVarsOutput{Success: false, Error: "test_name_or_id is required"}, nil
+	}
+
+	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
+	if err != nil {
+		return nil, ListEnvVarsOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	resp, err := s.apiClient.ListEnvVars(ctx, testID)
+	if err != nil {
+		return nil, ListEnvVarsOutput{Success: false, Error: fmt.Sprintf("failed to list env vars: %v", err)}, nil
+	}
+
+	var envVars []EnvVarInfo
+	for _, ev := range resp.Result {
+		updated := ev.UpdatedAt
+		if updated == "" {
+			updated = ev.CreatedAt
+		}
+		envVars = append(envVars, EnvVarInfo{Key: ev.Key, Value: ev.Value, UpdatedAt: updated})
+	}
+	if envVars == nil {
+		envVars = []EnvVarInfo{}
+	}
+
+	return nil, ListEnvVarsOutput{Success: true, TestID: testID, EnvVars: envVars}, nil
+}
+
+// SetEnvVarInput defines input for set_env_var tool.
+type SetEnvVarInput struct {
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+	Key          string `json:"key" jsonschema:"Environment variable key"`
+	Value        string `json:"value" jsonschema:"Environment variable value"`
+}
+
+// SetEnvVarOutput defines output for set_env_var tool.
+type SetEnvVarOutput struct {
+	Success bool   `json:"success"`
+	Action  string `json:"action,omitempty"` // "added" or "updated"
+	Key     string `json:"key,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+func (s *Server) handleSetEnvVar(ctx context.Context, req *mcp.CallToolRequest, input SetEnvVarInput) (*mcp.CallToolResult, SetEnvVarOutput, error) {
+	if input.TestNameOrID == "" || input.Key == "" {
+		return nil, SetEnvVarOutput{Success: false, Error: "test_name_or_id and key are required"}, nil
+	}
+
+	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
+	if err != nil {
+		return nil, SetEnvVarOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	// Check if key already exists (upsert)
+	existing, err := s.apiClient.ListEnvVars(ctx, testID)
+	if err != nil {
+		return nil, SetEnvVarOutput{Success: false, Error: fmt.Sprintf("failed to check existing env vars: %v", err)}, nil
+	}
+
+	var existingVar *api.EnvVar
+	for _, ev := range existing.Result {
+		if ev.Key == input.Key {
+			existingVar = &ev
+			break
+		}
+	}
+
+	if existingVar != nil {
+		_, err = s.apiClient.UpdateEnvVar(ctx, existingVar.ID, input.Key, input.Value)
+		if err != nil {
+			return nil, SetEnvVarOutput{Success: false, Error: fmt.Sprintf("failed to update env var: %v", err)}, nil
+		}
+		return nil, SetEnvVarOutput{Success: true, Action: "updated", Key: input.Key}, nil
+	}
+
+	_, err = s.apiClient.AddEnvVar(ctx, testID, input.Key, input.Value)
+	if err != nil {
+		return nil, SetEnvVarOutput{Success: false, Error: fmt.Sprintf("failed to add env var: %v", err)}, nil
+	}
+	return nil, SetEnvVarOutput{Success: true, Action: "added", Key: input.Key}, nil
+}
+
+// DeleteEnvVarInput defines input for delete_env_var tool.
+type DeleteEnvVarInput struct {
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+	Key          string `json:"key" jsonschema:"Environment variable key to delete"`
+}
+
+// DeleteEnvVarOutput defines output for delete_env_var tool.
+type DeleteEnvVarOutput struct {
+	Success bool   `json:"success"`
+	Key     string `json:"key,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+func (s *Server) handleDeleteEnvVar(ctx context.Context, req *mcp.CallToolRequest, input DeleteEnvVarInput) (*mcp.CallToolResult, DeleteEnvVarOutput, error) {
+	if input.TestNameOrID == "" || input.Key == "" {
+		return nil, DeleteEnvVarOutput{Success: false, Error: "test_name_or_id and key are required"}, nil
+	}
+
+	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
+	if err != nil {
+		return nil, DeleteEnvVarOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	existing, err := s.apiClient.ListEnvVars(ctx, testID)
+	if err != nil {
+		return nil, DeleteEnvVarOutput{Success: false, Error: fmt.Sprintf("failed to list env vars: %v", err)}, nil
+	}
+
+	var found *api.EnvVar
+	for _, ev := range existing.Result {
+		if ev.Key == input.Key {
+			found = &ev
+			break
+		}
+	}
+
+	if found == nil {
+		return nil, DeleteEnvVarOutput{Success: false, Error: fmt.Sprintf("env var '%s' not found", input.Key)}, nil
+	}
+
+	err = s.apiClient.DeleteEnvVar(ctx, found.ID)
+	if err != nil {
+		return nil, DeleteEnvVarOutput{Success: false, Error: fmt.Sprintf("failed to delete env var: %v", err)}, nil
+	}
+
+	return nil, DeleteEnvVarOutput{Success: true, Key: input.Key}, nil
+}
+
+// ClearEnvVarsInput defines input for clear_env_vars tool.
+type ClearEnvVarsInput struct {
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+}
+
+// ClearEnvVarsOutput defines output for clear_env_vars tool.
+type ClearEnvVarsOutput struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+func (s *Server) handleClearEnvVars(ctx context.Context, req *mcp.CallToolRequest, input ClearEnvVarsInput) (*mcp.CallToolResult, ClearEnvVarsOutput, error) {
+	if input.TestNameOrID == "" {
+		return nil, ClearEnvVarsOutput{Success: false, Error: "test_name_or_id is required"}, nil
+	}
+
+	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
+	if err != nil {
+		return nil, ClearEnvVarsOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	err = s.apiClient.DeleteAllEnvVars(ctx, testID)
+	if err != nil {
+		return nil, ClearEnvVarsOutput{Success: false, Error: fmt.Sprintf("failed to clear env vars: %v", err)}, nil
+	}
+
+	return nil, ClearEnvVarsOutput{Success: true}, nil
+}
+
+// --- Workflow settings tool handlers ---
+
+// GetWorkflowSettingsInput defines input for get_workflow_settings tool.
+type GetWorkflowSettingsInput struct {
+	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name (from config) or UUID"`
+}
+
+// WorkflowSettingsOutput defines output for get_workflow_settings tool.
+type WorkflowSettingsOutput struct {
+	Success             bool                   `json:"success"`
+	WorkflowID          string                 `json:"workflow_id,omitempty"`
+	OverrideLocation    bool                   `json:"override_location"`
+	LocationConfig      map[string]interface{} `json:"location_config,omitempty"`
+	OverrideBuildConfig bool                   `json:"override_build_config"`
+	BuildConfig         map[string]interface{} `json:"build_config,omitempty"`
+	Error               string                 `json:"error,omitempty"`
+}
+
+func (s *Server) handleGetWorkflowSettings(ctx context.Context, req *mcp.CallToolRequest, input GetWorkflowSettingsInput) (*mcp.CallToolResult, WorkflowSettingsOutput, error) {
+	if input.WorkflowNameOrID == "" {
+		return nil, WorkflowSettingsOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
+	}
+
+	wfID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
+	if err != nil {
+		return nil, WorkflowSettingsOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	wf, err := s.apiClient.GetWorkflow(ctx, wfID)
+	if err != nil {
+		return nil, WorkflowSettingsOutput{Success: false, Error: fmt.Sprintf("failed to get workflow: %v", err)}, nil
+	}
+
+	return nil, WorkflowSettingsOutput{
+		Success:             true,
+		WorkflowID:          wfID,
+		OverrideLocation:    wf.OverrideLocation,
+		LocationConfig:      wf.LocationConfig,
+		OverrideBuildConfig: wf.OverrideBuildConfig,
+		BuildConfig:         wf.BuildConfig,
+	}, nil
+}
+
+// SetWorkflowLocationInput defines input for set_workflow_location tool.
+type SetWorkflowLocationInput struct {
+	WorkflowNameOrID string  `json:"workflow_name_or_id" jsonschema:"Workflow name (from config) or UUID"`
+	Latitude         float64 `json:"latitude" jsonschema:"Latitude (-90 to 90)"`
+	Longitude        float64 `json:"longitude" jsonschema:"Longitude (-180 to 180)"`
+}
+
+// SimpleSuccessOutput is a generic success/error output.
+type SimpleSuccessOutput struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+func (s *Server) handleSetWorkflowLocation(ctx context.Context, req *mcp.CallToolRequest, input SetWorkflowLocationInput) (*mcp.CallToolResult, SimpleSuccessOutput, error) {
+	if input.WorkflowNameOrID == "" {
+		return nil, SimpleSuccessOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
+	}
+	if input.Latitude < -90 || input.Latitude > 90 {
+		return nil, SimpleSuccessOutput{Success: false, Error: "latitude must be between -90 and 90"}, nil
+	}
+	if input.Longitude < -180 || input.Longitude > 180 {
+		return nil, SimpleSuccessOutput{Success: false, Error: "longitude must be between -180 and 180"}, nil
+	}
+
+	wfID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
+	if err != nil {
+		return nil, SimpleSuccessOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	locationConfig := map[string]interface{}{
+		"latitude":  input.Latitude,
+		"longitude": input.Longitude,
+	}
+	err = s.apiClient.UpdateWorkflowLocationConfig(ctx, wfID, locationConfig, true)
+	if err != nil {
+		return nil, SimpleSuccessOutput{Success: false, Error: fmt.Sprintf("failed to set location: %v", err)}, nil
+	}
+
+	return nil, SimpleSuccessOutput{
+		Success: true,
+		Message: fmt.Sprintf("Location set to %.6f, %.6f with override enabled", input.Latitude, input.Longitude),
+	}, nil
+}
+
+// ClearWorkflowLocationInput defines input for clear_workflow_location tool.
+type ClearWorkflowLocationInput struct {
+	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name (from config) or UUID"`
+}
+
+func (s *Server) handleClearWorkflowLocation(ctx context.Context, req *mcp.CallToolRequest, input ClearWorkflowLocationInput) (*mcp.CallToolResult, SimpleSuccessOutput, error) {
+	if input.WorkflowNameOrID == "" {
+		return nil, SimpleSuccessOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
+	}
+
+	wfID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
+	if err != nil {
+		return nil, SimpleSuccessOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	err = s.apiClient.UpdateWorkflowLocationConfig(ctx, wfID, nil, false)
+	if err != nil {
+		return nil, SimpleSuccessOutput{Success: false, Error: fmt.Sprintf("failed to clear location: %v", err)}, nil
+	}
+
+	return nil, SimpleSuccessOutput{Success: true, Message: "Location override cleared"}, nil
+}
+
+// SetWorkflowAppInput defines input for set_workflow_app tool.
+type SetWorkflowAppInput struct {
+	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name (from config) or UUID"`
+	IOSAppID         string `json:"ios_app_id,omitempty" jsonschema:"iOS app ID to override"`
+	AndroidAppID     string `json:"android_app_id,omitempty" jsonschema:"Android app ID to override"`
+}
+
+func (s *Server) handleSetWorkflowApp(ctx context.Context, req *mcp.CallToolRequest, input SetWorkflowAppInput) (*mcp.CallToolResult, SimpleSuccessOutput, error) {
+	if input.WorkflowNameOrID == "" {
+		return nil, SimpleSuccessOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
+	}
+	if input.IOSAppID == "" && input.AndroidAppID == "" {
+		return nil, SimpleSuccessOutput{Success: false, Error: "at least one of ios_app_id or android_app_id is required"}, nil
+	}
+
+	wfID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
+	if err != nil {
+		return nil, SimpleSuccessOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	// Validate app IDs exist
+	if input.IOSAppID != "" {
+		_, err := s.apiClient.GetApp(ctx, input.IOSAppID)
+		if err != nil {
+			return nil, SimpleSuccessOutput{Success: false, Error: fmt.Sprintf("iOS app '%s' not found", input.IOSAppID)}, nil
+		}
+	}
+	if input.AndroidAppID != "" {
+		_, err := s.apiClient.GetApp(ctx, input.AndroidAppID)
+		if err != nil {
+			return nil, SimpleSuccessOutput{Success: false, Error: fmt.Sprintf("Android app '%s' not found", input.AndroidAppID)}, nil
+		}
+	}
+
+	// Fetch existing config to merge (don't clobber the other platform)
+	buildConfig := map[string]interface{}{}
+	wf, wfErr := s.apiClient.GetWorkflow(ctx, wfID)
+	if wfErr == nil && wf.BuildConfig != nil {
+		buildConfig = wf.BuildConfig
+	}
+	if input.IOSAppID != "" {
+		buildConfig["ios_build"] = map[string]interface{}{"app_id": input.IOSAppID}
+	}
+	if input.AndroidAppID != "" {
+		buildConfig["android_build"] = map[string]interface{}{"app_id": input.AndroidAppID}
+	}
+
+	err = s.apiClient.UpdateWorkflowBuildConfig(ctx, wfID, buildConfig, true)
+	if err != nil {
+		return nil, SimpleSuccessOutput{Success: false, Error: fmt.Sprintf("failed to set app config: %v", err)}, nil
+	}
+
+	return nil, SimpleSuccessOutput{Success: true, Message: "App config set with override enabled"}, nil
+}
+
+// ClearWorkflowAppInput defines input for clear_workflow_app tool.
+type ClearWorkflowAppInput struct {
+	WorkflowNameOrID string `json:"workflow_name_or_id" jsonschema:"Workflow name (from config) or UUID"`
+}
+
+func (s *Server) handleClearWorkflowApp(ctx context.Context, req *mcp.CallToolRequest, input ClearWorkflowAppInput) (*mcp.CallToolResult, SimpleSuccessOutput, error) {
+	if input.WorkflowNameOrID == "" {
+		return nil, SimpleSuccessOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
+	}
+
+	wfID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
+	if err != nil {
+		return nil, SimpleSuccessOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	err = s.apiClient.UpdateWorkflowBuildConfig(ctx, wfID, nil, false)
+	if err != nil {
+		return nil, SimpleSuccessOutput{Success: false, Error: fmt.Sprintf("failed to clear app config: %v", err)}, nil
+	}
+
+	return nil, SimpleSuccessOutput{Success: true, Message: "App override cleared"}, nil
+}
+
+// --- Build upload tool handler ---
+
+// UploadBuildInput defines input for upload_build tool.
+type UploadBuildInput struct {
+	FilePath string `json:"file_path" jsonschema:"Absolute path to the build file (.apk, .ipa, or .zip)"`
+	AppID    string `json:"app_id" jsonschema:"App ID to upload the build to"`
+	Version  string `json:"version,omitempty" jsonschema:"Version string (auto-generated from timestamp if not provided)"`
+}
+
+// UploadBuildOutput defines output for upload_build tool.
+type UploadBuildOutput struct {
+	Success   bool   `json:"success"`
+	VersionID string `json:"version_id,omitempty"`
+	Version   string `json:"version,omitempty"`
+	PackageID string `json:"package_id,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// handleUploadBuild handles the upload_build tool call.
+func (s *Server) handleUploadBuild(ctx context.Context, req *mcp.CallToolRequest, input UploadBuildInput) (*mcp.CallToolResult, UploadBuildOutput, error) {
+	if input.FilePath == "" {
+		return nil, UploadBuildOutput{Success: false, Error: "file_path is required"}, nil
+	}
+	if input.AppID == "" {
+		return nil, UploadBuildOutput{Success: false, Error: "app_id is required"}, nil
+	}
+
+	// Validate file exists
+	info, err := os.Stat(input.FilePath)
+	if err != nil {
+		return nil, UploadBuildOutput{Success: false, Error: fmt.Sprintf("file not found: %v", err)}, nil
+	}
+	if info.IsDir() {
+		return nil, UploadBuildOutput{Success: false, Error: "file_path must be a file, not a directory"}, nil
+	}
+
+	// Validate file extension
+	ext := strings.ToLower(filepath.Ext(input.FilePath))
+	validExts := map[string]bool{".apk": true, ".ipa": true, ".zip": true, ".app": true}
+	if !validExts[ext] {
+		return nil, UploadBuildOutput{Success: false, Error: fmt.Sprintf("invalid file type '%s': must be .apk, .ipa, .zip, or .app", ext)}, nil
+	}
+
+	// Auto-generate version if not provided
+	version := input.Version
+	if version == "" {
+		version = fmt.Sprintf("mcp-%d", time.Now().Unix())
+	}
+
+	resp, err := s.apiClient.UploadBuild(ctx, &api.UploadBuildRequest{
+		AppID:    input.AppID,
+		Version:  version,
+		FilePath: input.FilePath,
+	})
+	if err != nil {
+		return nil, UploadBuildOutput{Success: false, Error: fmt.Sprintf("upload failed: %v", err)}, nil
+	}
+
+	return nil, UploadBuildOutput{
+		Success:   true,
+		VersionID: resp.VersionID,
+		Version:   resp.Version,
+		PackageID: resp.PackageID,
+	}, nil
+}
+
+// --- Test update tool handler ---
+
+// UpdateTestInput defines input for update_test tool.
+type UpdateTestInput struct {
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+	YAMLContent  string `json:"yaml_content" jsonschema:"Full YAML test definition with updated blocks"`
+	AppID        string `json:"app_id,omitempty" jsonschema:"Optional app ID to associate with the test"`
+	Force        bool   `json:"force,omitempty" jsonschema:"Force update even if remote has a newer version"`
+}
+
+// UpdateTestOutput defines output for update_test tool.
+type UpdateTestOutput struct {
+	Success    bool   `json:"success"`
+	TestID     string `json:"test_id,omitempty"`
+	NewVersion int    `json:"new_version,omitempty"`
+	EditorURL  string `json:"editor_url,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+// handleUpdateTest handles the update_test tool call.
+func (s *Server) handleUpdateTest(ctx context.Context, req *mcp.CallToolRequest, input UpdateTestInput) (*mcp.CallToolResult, UpdateTestOutput, error) {
+	if input.TestNameOrID == "" {
+		return nil, UpdateTestOutput{Success: false, Error: "test_name_or_id is required"}, nil
+	}
+	if input.YAMLContent == "" {
+		return nil, UpdateTestOutput{Success: false, Error: "yaml_content is required"}, nil
+	}
+
+	// Validate YAML
+	validationResult := yaml.ValidateYAML(input.YAMLContent)
+	if !validationResult.Valid {
+		return nil, UpdateTestOutput{
+			Success: false,
+			Error:   fmt.Sprintf("YAML validation failed: %v", validationResult.Errors),
+		}, nil
+	}
+
+	// Resolve test name to ID
+	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
+	if err != nil {
+		return nil, UpdateTestOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	// Parse YAML to extract blocks
+	var testDef yaml.TestDefinition
+	if parseErr := yamlPkg.Unmarshal([]byte(input.YAMLContent), &testDef); parseErr != nil {
+		return nil, UpdateTestOutput{
+			Success: false,
+			Error:   fmt.Sprintf("failed to parse YAML: %v", parseErr),
+		}, nil
+	}
+
+	// Build update request
+	updateReq := &api.UpdateTestRequest{
+		TestID: testID,
+		Tasks:  testDef.Test.Blocks,
+		AppID:  input.AppID,
+		Force:  input.Force,
+	}
+
+	resp, err := s.apiClient.UpdateTest(ctx, updateReq)
+	if err != nil {
+		// Check for version conflict
+		if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 409 {
+			return nil, UpdateTestOutput{
+				Success: false,
+				Error:   "Version conflict: remote test has been modified. Use force=true to overwrite.",
+			}, nil
+		}
+		return nil, UpdateTestOutput{Success: false, Error: fmt.Sprintf("update failed: %v", err)}, nil
+	}
+
+	editorURL := fmt.Sprintf("https://app.revyl.ai/tests/%s/edit", testID)
+
+	return nil, UpdateTestOutput{
+		Success:    true,
+		TestID:     resp.ID,
+		NewVersion: resp.Version,
+		EditorURL:  editorURL,
+	}, nil
+}
+
+// --- Script tool handlers ---
+
+// ListScriptsInput defines input for list_scripts tool.
+type ListScriptsInput struct {
+	NameFilter    string `json:"name_filter,omitempty" jsonschema:"Optional filter to search scripts by name"`
+	RuntimeFilter string `json:"runtime_filter,omitempty" jsonschema:"Optional filter by runtime (python, javascript, typescript, bash)"`
+}
+
+// ScriptInfo contains information about a script for MCP output.
+type ScriptInfo struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Runtime     string  `json:"runtime"`
+	Description *string `json:"description,omitempty"`
+}
+
+// ListScriptsOutput defines output for list_scripts tool.
+type ListScriptsOutput struct {
+	Scripts []ScriptInfo `json:"scripts"`
+	Total   int          `json:"total"`
+	Error   string       `json:"error,omitempty"`
+}
+
+// handleListScripts handles the list_scripts tool call.
+func (s *Server) handleListScripts(ctx context.Context, req *mcp.CallToolRequest, input ListScriptsInput) (*mcp.CallToolResult, ListScriptsOutput, error) {
+	resp, err := s.apiClient.ListScripts(ctx, input.RuntimeFilter, 100, 0)
+	if err != nil {
+		return nil, ListScriptsOutput{
+			Scripts: []ScriptInfo{},
+			Error:   fmt.Sprintf("failed to list scripts: %v", err),
+		}, nil
+	}
+
+	var scripts []ScriptInfo
+	for _, sc := range resp.Scripts {
+		// Apply name filter if specified
+		if input.NameFilter != "" {
+			if !strings.Contains(strings.ToLower(sc.Name), strings.ToLower(input.NameFilter)) {
+				continue
+			}
+		}
+		scripts = append(scripts, ScriptInfo{
+			ID:          sc.ID,
+			Name:        sc.Name,
+			Runtime:     sc.Runtime,
+			Description: sc.Description,
+		})
+	}
+
+	if scripts == nil {
+		scripts = []ScriptInfo{}
+	}
+
+	return nil, ListScriptsOutput{
+		Scripts: scripts,
+		Total:   len(scripts),
+	}, nil
+}
+
+// GetScriptInput defines input for get_script tool.
+type GetScriptInput struct {
+	ScriptID string `json:"script_id" jsonschema:"The UUID of the script to retrieve"`
+}
+
+// GetScriptOutput defines output for get_script tool.
+type GetScriptOutput struct {
+	Success     bool    `json:"success"`
+	ID          string  `json:"id,omitempty"`
+	Name        string  `json:"name,omitempty"`
+	Code        string  `json:"code,omitempty"`
+	Runtime     string  `json:"runtime,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Error       string  `json:"error,omitempty"`
+}
+
+// handleGetScript handles the get_script tool call.
+func (s *Server) handleGetScript(ctx context.Context, req *mcp.CallToolRequest, input GetScriptInput) (*mcp.CallToolResult, GetScriptOutput, error) {
+	if input.ScriptID == "" {
+		return nil, GetScriptOutput{Success: false, Error: "script_id is required"}, nil
+	}
+
+	resp, err := s.apiClient.GetScript(ctx, input.ScriptID)
+	if err != nil {
+		return nil, GetScriptOutput{Success: false, Error: fmt.Sprintf("failed to get script: %v", err)}, nil
+	}
+
+	return nil, GetScriptOutput{
+		Success:     true,
+		ID:          resp.ID,
+		Name:        resp.Name,
+		Code:        resp.Code,
+		Runtime:     resp.Runtime,
+		Description: resp.Description,
+	}, nil
+}
+
+// CreateScriptInput defines input for create_script tool.
+type CreateScriptInput struct {
+	Name        string `json:"name" jsonschema:"Script name"`
+	Code        string `json:"code" jsonschema:"Script source code"`
+	Runtime     string `json:"runtime" jsonschema:"Runtime environment (python, javascript, typescript, or bash)"`
+	Description string `json:"description,omitempty" jsonschema:"Optional script description"`
+}
+
+// CreateScriptOutput defines output for create_script tool.
+type CreateScriptOutput struct {
+	Success  bool   `json:"success"`
+	ScriptID string `json:"script_id,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// handleCreateScript handles the create_script tool call.
+func (s *Server) handleCreateScript(ctx context.Context, req *mcp.CallToolRequest, input CreateScriptInput) (*mcp.CallToolResult, CreateScriptOutput, error) {
+	if input.Name == "" {
+		return nil, CreateScriptOutput{Success: false, Error: "name is required"}, nil
+	}
+	if input.Code == "" {
+		return nil, CreateScriptOutput{Success: false, Error: "code is required"}, nil
+	}
+	if input.Runtime == "" {
+		return nil, CreateScriptOutput{Success: false, Error: "runtime is required"}, nil
+	}
+
+	// Validate runtime
+	validRuntimes := map[string]bool{"python": true, "javascript": true, "typescript": true, "bash": true}
+	if !validRuntimes[input.Runtime] {
+		return nil, CreateScriptOutput{
+			Success: false,
+			Error:   "runtime must be one of: python, javascript, typescript, bash",
+		}, nil
+	}
+
+	createReq := &api.CLICreateScriptRequest{
+		Name:    input.Name,
+		Code:    input.Code,
+		Runtime: input.Runtime,
+	}
+	if input.Description != "" {
+		createReq.Description = &input.Description
+	}
+
+	resp, err := s.apiClient.CreateScript(ctx, createReq)
+	if err != nil {
+		return nil, CreateScriptOutput{Success: false, Error: fmt.Sprintf("failed to create script: %v", err)}, nil
+	}
+
+	return nil, CreateScriptOutput{
+		Success:  true,
+		ScriptID: resp.ID,
+		Name:     resp.Name,
+	}, nil
+}
+
+// UpdateScriptInput defines input for update_script tool.
+type UpdateScriptInput struct {
+	ScriptID    string `json:"script_id" jsonschema:"The UUID of the script to update"`
+	Name        string `json:"name,omitempty" jsonschema:"New script name"`
+	Code        string `json:"code,omitempty" jsonschema:"New script source code"`
+	Runtime     string `json:"runtime,omitempty" jsonschema:"New runtime (python, javascript, typescript, bash)"`
+	Description string `json:"description,omitempty" jsonschema:"New script description"`
+}
+
+// UpdateScriptOutput defines output for update_script tool.
+type UpdateScriptOutput struct {
+	Success  bool   `json:"success"`
+	ScriptID string `json:"script_id,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// handleUpdateScript handles the update_script tool call.
+func (s *Server) handleUpdateScript(ctx context.Context, req *mcp.CallToolRequest, input UpdateScriptInput) (*mcp.CallToolResult, UpdateScriptOutput, error) {
+	if input.ScriptID == "" {
+		return nil, UpdateScriptOutput{Success: false, Error: "script_id is required"}, nil
+	}
+
+	if input.Name == "" && input.Code == "" && input.Runtime == "" && input.Description == "" {
+		return nil, UpdateScriptOutput{Success: false, Error: "at least one field to update is required"}, nil
+	}
+
+	// Validate runtime if provided
+	if input.Runtime != "" {
+		validRuntimes := map[string]bool{"python": true, "javascript": true, "typescript": true, "bash": true}
+		if !validRuntimes[input.Runtime] {
+			return nil, UpdateScriptOutput{
+				Success: false,
+				Error:   "runtime must be one of: python, javascript, typescript, bash",
+			}, nil
+		}
+	}
+
+	updateReq := &api.CLIUpdateScriptRequest{}
+	if input.Name != "" {
+		updateReq.Name = &input.Name
+	}
+	if input.Code != "" {
+		updateReq.Code = &input.Code
+	}
+	if input.Runtime != "" {
+		updateReq.Runtime = &input.Runtime
+	}
+	if input.Description != "" {
+		updateReq.Description = &input.Description
+	}
+
+	resp, err := s.apiClient.UpdateScript(ctx, input.ScriptID, updateReq)
+	if err != nil {
+		return nil, UpdateScriptOutput{Success: false, Error: fmt.Sprintf("failed to update script: %v", err)}, nil
+	}
+
+	return nil, UpdateScriptOutput{
+		Success:  true,
+		ScriptID: resp.ID,
+		Name:     resp.Name,
+	}, nil
+}
+
+// DeleteScriptInput defines input for delete_script tool.
+type DeleteScriptInput struct {
+	ScriptID string `json:"script_id" jsonschema:"The UUID of the script to delete"`
+}
+
+// DeleteScriptOutput defines output for delete_script tool.
+type DeleteScriptOutput struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleDeleteScript handles the delete_script tool call.
+func (s *Server) handleDeleteScript(ctx context.Context, req *mcp.CallToolRequest, input DeleteScriptInput) (*mcp.CallToolResult, DeleteScriptOutput, error) {
+	if input.ScriptID == "" {
+		return nil, DeleteScriptOutput{Success: false, Error: "script_id is required"}, nil
+	}
+
+	err := s.apiClient.DeleteScript(ctx, input.ScriptID)
+	if err != nil {
+		return nil, DeleteScriptOutput{Success: false, Error: fmt.Sprintf("failed to delete script: %v", err)}, nil
+	}
+
+	return nil, DeleteScriptOutput{
+		Success: true,
+		Message: "Script deleted successfully",
+	}, nil
+}
+
+// InsertScriptBlockInput defines input for insert_script_block tool.
+type InsertScriptBlockInput struct {
+	ScriptNameOrID string `json:"script_name_or_id" jsonschema:"Script name or UUID to generate the code_execution block for"`
+	VariableName   string `json:"variable_name,omitempty" jsonschema:"Optional variable name to store the script output"`
+}
+
+// InsertScriptBlockOutput defines output for insert_script_block tool.
+type InsertScriptBlockOutput struct {
+	Success         bool   `json:"success"`
+	YAMLSnippet     string `json:"yaml_snippet,omitempty"`
+	ScriptID        string `json:"script_id,omitempty"`
+	ScriptName      string `json:"script_name,omitempty"`
+	BlockType       string `json:"block_type,omitempty"`
+	StepDescription string `json:"step_description,omitempty"`
+	Error           string `json:"error,omitempty"`
+}
+
+// handleInsertScriptBlock handles the insert_script_block tool call.
+func (s *Server) handleInsertScriptBlock(ctx context.Context, req *mcp.CallToolRequest, input InsertScriptBlockInput) (*mcp.CallToolResult, InsertScriptBlockOutput, error) {
+	if input.ScriptNameOrID == "" {
+		return nil, InsertScriptBlockOutput{Success: false, Error: "script_name_or_id is required"}, nil
+	}
+
+	// Resolve script name or ID
+	var scriptID, scriptName string
+
+	// Try as UUID first
+	if len(input.ScriptNameOrID) == 36 {
+		resp, err := s.apiClient.GetScript(ctx, input.ScriptNameOrID)
+		if err == nil {
+			scriptID = resp.ID
+			scriptName = resp.Name
+		}
+	}
+
+	// If not found by ID, search by name
+	if scriptID == "" {
+		listResp, err := s.apiClient.ListScripts(ctx, "", 100, 0)
+		if err != nil {
+			return nil, InsertScriptBlockOutput{Success: false, Error: fmt.Sprintf("failed to list scripts: %v", err)}, nil
+		}
+
+		for _, sc := range listResp.Scripts {
+			if strings.EqualFold(sc.Name, input.ScriptNameOrID) {
+				scriptID = sc.ID
+				scriptName = sc.Name
+				break
+			}
+		}
+	}
+
+	if scriptID == "" {
+		return nil, InsertScriptBlockOutput{Success: false, Error: fmt.Sprintf("script '%s' not found", input.ScriptNameOrID)}, nil
+	}
+
+	// Generate YAML snippet
+	var yamlSnippet string
+	if input.VariableName != "" {
+		yamlSnippet = fmt.Sprintf("- type: code_execution\n  step_description: \"%s\"\n  variable_name: \"%s\"", scriptID, input.VariableName)
+	} else {
+		yamlSnippet = fmt.Sprintf("- type: code_execution\n  step_description: \"%s\"", scriptID)
+	}
+
+	return nil, InsertScriptBlockOutput{
+		Success:         true,
+		YAMLSnippet:     yamlSnippet,
+		ScriptID:        scriptID,
+		ScriptName:      scriptName,
+		BlockType:       "code_execution",
+		StepDescription: scriptID,
+	}, nil
+}
+
+// --- Live editor tools ---
+
+// OpenTestEditorInput defines input for the open_test_editor tool.
+type OpenTestEditorInput struct {
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+	NoOpen       bool   `json:"no_open,omitempty" jsonschema:"Skip opening the browser (just return URLs)"`
+	Provider     string `json:"provider,omitempty" jsonschema:"Hot reload provider (expo/swift/android). Auto-detected if not specified."`
+	Port         int    `json:"port,omitempty" jsonschema:"Dev server port (default: from config or 8081)"`
+}
+
+// OpenTestEditorOutput defines output for the open_test_editor tool.
+type OpenTestEditorOutput struct {
+	Success       bool   `json:"success"`
+	TestID        string `json:"test_id"`
+	EditorURL     string `json:"editor_url"`
+	HotReload     bool   `json:"hot_reload"`
+	TunnelURL     string `json:"tunnel_url,omitempty"`
+	DeepLinkURL   string `json:"deep_link_url,omitempty"`
+	DevServerPort int    `json:"dev_server_port,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
+// handleOpenTestEditor handles the open_test_editor tool call.
+func (s *Server) handleOpenTestEditor(ctx context.Context, req *mcp.CallToolRequest, input OpenTestEditorInput) (*mcp.CallToolResult, OpenTestEditorOutput, error) {
+	if input.TestNameOrID == "" {
+		return nil, OpenTestEditorOutput{
+			Success: false,
+			Error:   "test_name_or_id is required",
+		}, nil
+	}
+
+	// Resolve test ID and editor URL
+	editorResult := execution.OpenTestEditor(s.config, execution.OpenTestEditorParams{
+		TestNameOrID: input.TestNameOrID,
+		DevMode:      false,
+	})
+
+	editorURL := editorResult.TestURL
+	testID := editorResult.TestID
+
+	// Check if hot reload is configured
+	hasHotReload := s.config != nil && s.config.HotReload.IsConfigured()
+
+	if !hasHotReload {
+		// No hot reload config — just open the editor
+		if !input.NoOpen {
+			_ = ui.OpenBrowser(editorURL)
+		}
+		return nil, OpenTestEditorOutput{
+			Success:   true,
+			TestID:    testID,
+			EditorURL: editorURL,
+			HotReload: false,
+		}, nil
+	}
+
+	// Hot reload is configured — manage session state
+	s.hotReloadMu.Lock()
+	defer s.hotReloadMu.Unlock()
+
+	// If already running for the same test, return cached URLs (idempotent)
+	if s.hotReloadManager != nil && s.hotReloadManager.IsRunning() {
+		if s.hotReloadTestID == testID {
+			if !input.NoOpen {
+				_ = ui.OpenBrowser(editorURL)
+			}
+			return nil, OpenTestEditorOutput{
+				Success:       true,
+				TestID:        testID,
+				EditorURL:     editorURL,
+				HotReload:     true,
+				TunnelURL:     s.hotReloadResult.TunnelURL,
+				DeepLinkURL:   s.hotReloadResult.DeepLinkURL,
+				DevServerPort: s.hotReloadResult.DevServerPort,
+			}, nil
+		}
+		// Running for a different test — stop it first
+		s.hotReloadManager.Stop()
+		s.hotReloadManager = nil
+		s.hotReloadTestID = ""
+		s.hotReloadResult = nil
+	}
+
+	// Select provider
+	registry := hotreload.DefaultRegistry()
+	_, providerCfg, err := registry.SelectProvider(&s.config.HotReload, input.Provider, s.workDir)
+	if err != nil {
+		// Provider selection failed — fall back to editor-only
+		if !input.NoOpen {
+			_ = ui.OpenBrowser(editorURL)
+		}
+		return nil, OpenTestEditorOutput{
+			Success:   true,
+			TestID:    testID,
+			EditorURL: editorURL,
+			HotReload: false,
+			Error:     fmt.Sprintf("hot reload provider selection failed (opening editor only): %v", err),
+		}, nil
+	}
+
+	// Override port if specified
+	if input.Port > 0 {
+		providerCfg.Port = input.Port
+	}
+
+	// Determine provider name for the manager
+	providerName := input.Provider
+	if providerName == "" {
+		providerName = s.config.HotReload.Default
+		if providerName == "" {
+			// Use first configured provider
+			for name := range s.config.HotReload.Providers {
+				providerName = name
+				break
+			}
+		}
+	}
+
+	// Create and start the manager with a background context (survives beyond tool call)
+	manager := hotreload.NewManager(providerName, providerCfg, s.workDir)
+
+	bgCtx := context.Background()
+	result, err := manager.Start(bgCtx)
+	if err != nil {
+		// Hot reload failed to start — fall back to editor-only
+		if !input.NoOpen {
+			_ = ui.OpenBrowser(editorURL)
+		}
+		return nil, OpenTestEditorOutput{
+			Success:   true,
+			TestID:    testID,
+			EditorURL: editorURL,
+			HotReload: false,
+			Error:     fmt.Sprintf("hot reload failed to start (opening editor only): %v", err),
+		}, nil
+	}
+
+	// Store session state
+	s.hotReloadManager = manager
+	s.hotReloadTestID = testID
+	s.hotReloadResult = result
+
+	if !input.NoOpen {
+		_ = ui.OpenBrowser(editorURL)
+	}
+
+	return nil, OpenTestEditorOutput{
+		Success:       true,
+		TestID:        testID,
+		EditorURL:     editorURL,
+		HotReload:     true,
+		TunnelURL:     result.TunnelURL,
+		DeepLinkURL:   result.DeepLinkURL,
+		DevServerPort: result.DevServerPort,
+	}, nil
+}
+
+// StopHotReloadInput defines input for the stop_hot_reload tool.
+type StopHotReloadInput struct{}
+
+// StopHotReloadOutput defines output for the stop_hot_reload tool.
+type StopHotReloadOutput struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleStopHotReload handles the stop_hot_reload tool call.
+func (s *Server) handleStopHotReload(ctx context.Context, req *mcp.CallToolRequest, input StopHotReloadInput) (*mcp.CallToolResult, StopHotReloadOutput, error) {
+	s.hotReloadMu.Lock()
+	defer s.hotReloadMu.Unlock()
+
+	if s.hotReloadManager == nil {
+		return nil, StopHotReloadOutput{
+			Success: true,
+			Message: "No active hot reload session",
+		}, nil
+	}
+
+	s.hotReloadManager.Stop()
+	s.hotReloadManager = nil
+	s.hotReloadTestID = ""
+	s.hotReloadResult = nil
+
+	return nil, StopHotReloadOutput{
+		Success: true,
+		Message: "Hot reload session stopped",
+	}, nil
+}
+
+// HotReloadStatusInput defines input for the hot_reload_status tool.
+type HotReloadStatusInput struct{}
+
+// HotReloadStatusOutput defines output for the hot_reload_status tool.
+type HotReloadStatusOutput struct {
+	Active        bool   `json:"active"`
+	TestID        string `json:"test_id,omitempty"`
+	EditorURL     string `json:"editor_url,omitempty"`
+	TunnelURL     string `json:"tunnel_url,omitempty"`
+	DeepLinkURL   string `json:"deep_link_url,omitempty"`
+	DevServerPort int    `json:"dev_server_port,omitempty"`
+}
+
+// handleHotReloadStatus handles the hot_reload_status tool call.
+func (s *Server) handleHotReloadStatus(ctx context.Context, req *mcp.CallToolRequest, input HotReloadStatusInput) (*mcp.CallToolResult, HotReloadStatusOutput, error) {
+	s.hotReloadMu.Lock()
+	defer s.hotReloadMu.Unlock()
+
+	if s.hotReloadManager == nil || !s.hotReloadManager.IsRunning() {
+		return nil, HotReloadStatusOutput{Active: false}, nil
+	}
+
+	// Reconstruct editor URL from cached test ID
+	editorURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(false), s.hotReloadTestID)
+
+	return nil, HotReloadStatusOutput{
+		Active:        true,
+		TestID:        s.hotReloadTestID,
+		EditorURL:     editorURL,
+		TunnelURL:     s.hotReloadResult.TunnelURL,
+		DeepLinkURL:   s.hotReloadResult.DeepLinkURL,
+		DevServerPort: s.hotReloadResult.DevServerPort,
+	}, nil
+}
+
+// Shutdown cleans up server resources, including any active hot reload session.
+func (s *Server) Shutdown() {
+	s.hotReloadMu.Lock()
+	defer s.hotReloadMu.Unlock()
+	if s.hotReloadManager != nil {
+		s.hotReloadManager.Stop()
+		s.hotReloadManager = nil
+	}
 }

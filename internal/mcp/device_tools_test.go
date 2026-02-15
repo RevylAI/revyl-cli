@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -18,8 +19,21 @@ func TestResolveCoords_Validation(t *testing.T) {
 	// Create a minimal server with a session manager that has no active
 	// session. This lets us test the validation paths that fire before
 	// any network call or grounding call.
+	// Create a minimal server with a session manager. We inject one session
+	// so that raw-coord tests can resolve it, but target-based tests will
+	// fail on the network call (which is fine -- we're testing validation).
+	mgr := &DeviceSessionManager{
+		sessions:    make(map[int]*DeviceSession),
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+		nextIndex:   1,
+	}
+	mgr.sessions[0] = &DeviceSession{
+		Index: 0, SessionID: "test", Platform: "android",
+		IdleTimeout: 5 * time.Minute, StartedAt: time.Now(), LastActivity: time.Now(),
+	}
 	srv := &Server{
-		sessionMgr: &DeviceSessionManager{},
+		sessionMgr: mgr,
 	}
 
 	intPtr := func(v int) *int { return &v }
@@ -84,7 +98,7 @@ func TestResolveCoords_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotX, gotY, gotConf, err := srv.resolveCoords(context.Background(), tt.target, tt.x, tt.y)
+			rc, err := srv.resolveCoords(context.Background(), tt.target, tt.x, tt.y, -1)
 
 			if tt.wantErr != "" {
 				if err == nil {
@@ -99,14 +113,14 @@ func TestResolveCoords_Validation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if gotX != tt.wantX {
-				t.Errorf("x = %d, want %d", gotX, tt.wantX)
+			if rc.X != tt.wantX {
+				t.Errorf("x = %d, want %d", rc.X, tt.wantX)
 			}
-			if gotY != tt.wantY {
-				t.Errorf("y = %d, want %d", gotY, tt.wantY)
+			if rc.Y != tt.wantY {
+				t.Errorf("y = %d, want %d", rc.Y, tt.wantY)
 			}
-			if gotConf != tt.wantConf {
-				t.Errorf("confidence = %f, want %f", gotConf, tt.wantConf)
+			if rc.Confidence != tt.wantConf {
+				t.Errorf("confidence = %f, want %f", rc.Confidence, tt.wantConf)
 			}
 		})
 	}
@@ -119,10 +133,14 @@ func TestResolveCoords_Validation(t *testing.T) {
 
 func TestResolveCoords_TargetRequiresSession(t *testing.T) {
 	srv := &Server{
-		sessionMgr: &DeviceSessionManager{}, // no session
+		sessionMgr: &DeviceSessionManager{
+			sessions:    make(map[int]*DeviceSession),
+			idleTimers:  make(map[int]*time.Timer),
+			activeIndex: -1,
+		},
 	}
 
-	_, _, _, err := srv.resolveCoords(context.Background(), "Sign In button", nil, nil)
+	_, err := srv.resolveCoords(context.Background(), "Sign In button", nil, nil, -1)
 	if err == nil {
 		t.Fatal("expected error when using target without active session")
 	}
@@ -572,8 +590,8 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		}
 	}
 
-	if len(result.Tools) != 14 {
-		t.Errorf("expected 14 device tools, got %d", len(result.Tools))
+	if len(result.Tools) != 16 {
+		t.Errorf("expected 16 device tools, got %d", len(result.Tools))
 	}
 }
 
