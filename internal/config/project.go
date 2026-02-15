@@ -389,6 +389,9 @@ type TestMetadata struct {
 
 	// Description is an optional test description.
 	Description string `yaml:"description,omitempty"`
+
+	// Tags is an optional list of tag names associated with this test.
+	Tags []string `yaml:"tags,omitempty"`
 }
 
 // TestBuildConfig contains build configuration for a test.

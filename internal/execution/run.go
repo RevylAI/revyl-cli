@@ -38,6 +38,10 @@ type RunTestParams struct {
 	// LaunchURL is the deep link URL for hot reload mode.
 	// When provided, the test will launch the app via this URL instead of the normal app launch.
 	LaunchURL string
+	// Location fields for initial GPS location at execution time.
+	Latitude    float64
+	Longitude   float64
+	HasLocation bool
 }
 
 // RunTestResult contains the result of a test run.
@@ -100,12 +104,23 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 
 	// Create client and execute
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
-	resp, err := client.ExecuteTest(ctx, &api.ExecuteTestRequest{
+	req := &api.ExecuteTestRequest{
 		TestID:         testID,
 		Retries:        retries,
 		BuildVersionID: params.BuildVersionID,
 		LaunchURL:      params.LaunchURL,
-	})
+	}
+	if params.HasLocation {
+		req.RunConfig = &api.CLIRunConfig{
+			ExecutionMode: &api.CLIExecutionMode{
+				InitialLocation: &api.CLILocation{
+					Latitude:  params.Latitude,
+					Longitude: params.Longitude,
+				},
+			},
+		}
+	}
+	resp, err := client.ExecuteTest(ctx, req)
 	if err != nil {
 		return &RunTestResult{
 			Success:      false,
@@ -173,7 +188,13 @@ type RunWorkflowParams struct {
 	Retries          int
 	Timeout          int
 	DevMode          bool
-	OnProgress       func(status *sse.WorkflowStatus)
+	IOSAppID         string // Optional iOS app ID override
+	AndroidAppID     string // Optional Android app ID override
+	// Location fields for initial GPS location override.
+	Latitude    float64
+	Longitude   float64
+	HasLocation bool
+	OnProgress  func(status *sse.WorkflowStatus)
 	// OnTaskStarted is called immediately after the workflow execution is started.
 	// This provides the task ID early, enabling cancellation before monitoring completes.
 	OnTaskStarted func(taskID string)
@@ -245,10 +266,28 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 
 	// Create client and execute
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
-	resp, err := client.ExecuteWorkflow(ctx, &api.ExecuteWorkflowRequest{
+	req := &api.ExecuteWorkflowRequest{
 		WorkflowID: workflowID,
 		Retries:    retries,
-	})
+	}
+	if params.IOSAppID != "" || params.AndroidAppID != "" {
+		req.BuildConfig = &api.WorkflowAppConfig{}
+		req.OverrideBuildConfig = true
+		if params.IOSAppID != "" {
+			req.BuildConfig.IosBuild = &api.PlatformApp{AppId: params.IOSAppID}
+		}
+		if params.AndroidAppID != "" {
+			req.BuildConfig.AndroidBuild = &api.PlatformApp{AppId: params.AndroidAppID}
+		}
+	}
+	if params.HasLocation {
+		req.LocationConfig = &api.CLILocation{
+			Latitude:  params.Latitude,
+			Longitude: params.Longitude,
+		}
+		req.OverrideLocation = true
+	}
+	resp, err := client.ExecuteWorkflow(ctx, req)
 	if err != nil {
 		return &RunWorkflowResult{
 			Success:      false,

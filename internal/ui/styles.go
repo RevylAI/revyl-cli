@@ -24,6 +24,13 @@ func clearLine() {
 	}
 }
 
+// ClearLine emits an ANSI escape sequence to clear the current terminal line.
+// Exported wrapper around clearLine for use by other packages (e.g. spinner cleanup).
+// If stdout is not a TTY, this is a no-op to avoid garbage output in pipes.
+func ClearLine() {
+	clearLine()
+}
+
 // Brand colors for Revyl.
 var (
 	// Primary brand color - Revyl purple

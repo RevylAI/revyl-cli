@@ -102,6 +102,13 @@ revyl-cli/
 │   ├── run.go          # test run / workflow run (shared execution)
 │   ├── test.go         # test command and test run/create/delete/open/cancel
 │   ├── tests.go        # test list/push/pull/diff/validate/remote
+│   ├── status.go       # test status/history commands
+│   ├── report.go       # test report/share commands
+│   ├── test_env.go     # test env list/set/delete/clear commands
+│   ├── workflow.go     # workflow command and lifecycle subcommands
+│   ├── workflow_report.go # workflow status/history/report/share commands
+│   ├── workflow_settings.go # workflow location/app settings commands
+│   ├── helpers.go      # Shared resolution and formatting helpers
 │   └── mcp.go          # MCP server command
 ├── internal/
 │   ├── api/            # HTTP client
@@ -178,12 +185,30 @@ After editing, restart Cursor to pick up the changes.
 
 ### Testing MCP via AI
 
-Once configured, try these prompts in Cursor:
+Once configured, try these prompts in Cursor. The MCP server exposes 45+ tools:
 
+**Test execution:**
 - "List all available Revyl tests"
 - "Run the login-flow test"
 - "Run the smoke-tests workflow"
 - "What's the status of task abc123?"
+
+**Build management:**
+- "Upload the APK at ./app/build/outputs/apk/debug/app-debug.apk to my Android app"
+- "List all available builds"
+
+**Test editing:**
+- "Update the login-flow test with this new YAML content"
+- "Create a new test called checkout-flow for Android"
+
+**Script management:**
+- "List all code execution scripts"
+- "Create a Python script called setup-data that seeds the test database"
+- "Generate a code_execution block for the setup-data script"
+
+**Module & tag management:**
+- "List all available modules"
+- "Add the 'smoke' tag to the login-flow test"
 
 ### Debugging MCP
 
@@ -265,6 +290,44 @@ revyl run login-flow --platform android
 # Just run (no build/upload)
 revyl test run login-flow
 revyl workflow run smoke-tests
+
+# Check results
+revyl test status login-flow          # Quick status check
+revyl test report login-flow          # Detailed step-by-step report
+revyl test history login-flow         # Execution history table
+
+# Workflow results
+revyl workflow status smoke-tests     # Quick workflow status
+revyl workflow report smoke-tests     # Detailed report with test breakdown
+revyl workflow history smoke-tests    # Workflow execution history
+
+# Share results
+revyl test share login-flow           # Generate shareable link
+revyl workflow share smoke-tests      # Generate shareable workflow link
+
+# Environment variables (encrypted, injected at app launch)
+revyl test env list login-flow                              # List all env vars
+revyl test env set login-flow API_URL=https://staging.com   # Set/update env var
+revyl test env set login-flow "SECRET=my secret value"      # Values can have spaces
+revyl test env delete login-flow API_URL                    # Delete one env var
+revyl test env clear login-flow --force                     # Delete ALL env vars
+
+# Location override (runtime, not stored)
+revyl test run login-flow --location 37.7749,-122.4194      # Run with GPS location
+revyl run login-flow --location 37.7749,-122.4194           # Also works with run shortcut
+revyl workflow run smoke-tests --location 37.77,-122.41     # Workflow-level override
+
+# Workflow stored settings (persistent overrides for all tests)
+revyl workflow location set smoke-tests --lat 37.77 --lng -122.41
+revyl workflow location show smoke-tests
+revyl workflow location clear smoke-tests
+revyl workflow app set smoke-tests --ios <app-id> --android <app-id>
+revyl workflow app show smoke-tests
+revyl workflow app clear smoke-tests
+
+# App overrides on workflow run (runtime, not stored)
+revyl workflow run smoke-tests --ios-app <app-id>           # Override iOS app
+revyl workflow run smoke-tests --android-app <app-id>       # Override Android app
 ```
 
 ### Using MCP with nof1
@@ -344,6 +407,30 @@ revyl auth status
 
 # List tests with sync status
 revyl test list
+
+# Check test results
+revyl test status login-flow          # Latest execution status
+revyl test report login-flow          # Detailed step report
+revyl test history login-flow         # Execution history
+revyl test share login-flow           # Shareable report link
+
+# Check workflow results
+revyl workflow status smoke-tests     # Latest workflow status
+revyl workflow report smoke-tests     # Detailed workflow report
+revyl workflow history smoke-tests    # Workflow execution history
+revyl workflow share smoke-tests      # Shareable workflow link
+
+# Environment variables
+revyl test env list login-flow
+revyl test env set login-flow MY_KEY=my_value
+
+# Workflow settings
+revyl workflow location show smoke-tests
+revyl workflow app show smoke-tests
+
+# All status/report commands support --json for CI/scripting
+revyl test status login-flow --json
+revyl workflow report smoke-tests --json
 
 # Show version info
 revyl version

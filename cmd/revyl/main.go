@@ -29,12 +29,21 @@ var rootCmd = &cobra.Command{
 	Use:   "revyl",
 	Short: "Proactive reliability for mobile apps",
 	Long:  ui.GetHelpText(),
+	// Run handles the no-args case: prints a condensed cheat-sheet instead of
+	// the full verbose help. `revyl --help` bypasses Run and prints Long + the
+	// Cobra-generated command list.
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Print(ui.GetCondensedHelp())
+	},
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		debug, _ := cmd.Flags().GetBool("debug")
 		if debug {
 			log.SetLevel(log.DebugLevel)
 			log.Debug("Debug logging enabled")
 		}
+
+		// Set debug mode for UI package
+		ui.SetDebugMode(debug)
 
 		// Set quiet mode from global flag
 		quiet, _ := cmd.Flags().GetBool("quiet")
@@ -104,11 +113,17 @@ func init() {
 	rootCmd.AddCommand(upgradeCmd)
 	rootCmd.AddCommand(hotreloadCmd)
 
+	// Service session management
+	rootCmd.AddCommand(servicesCmd)
+
 	// Shell completion (built-in Cobra support for bash, zsh, fish, powershell)
 	rootCmd.AddCommand(completionCmd)
 
 	// Internal/dev commands (gated behind --dev flag)
 	rootCmd.AddCommand(sandboxCmd)
+
+	// Device interaction commands
+	rootCmd.AddCommand(deviceCmd)
 }
 
 // completionCmd generates shell completion scripts.
