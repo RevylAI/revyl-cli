@@ -119,7 +119,7 @@ func NewServer(version string, devMode bool) (*Server, error) {
 ### Device Interaction
 - **Device Session**: start_device_session, stop_device_session, get_session_info, list_device_sessions, switch_device_session
 - **Device Actions** (grounded by default): device_tap, device_double_tap, device_long_press, device_type, device_swipe, device_drag
-- **Vision**: screenshot, find_element
+- **Vision**: screenshot
 - **App Management**: install_app, launch_app
 - **Diagnostics**: device_doctor
 
@@ -189,6 +189,12 @@ Writing good grounding targets (priority order):
   3. Spatial anchors: "text area below the 'Subject:' line"
 
 Avoid abstract UI jargon. Describe what is VISIBLE on screen.
+
+## Efficient Interaction Pattern
+
+The correct pattern is: screenshot -> device_tap(target="...") -> screenshot -> repeat.
+device_tap (and all action tools) already do AI grounding internally when you provide a target.
+There is no need to locate elements separately before acting on them.
 
 ## Swipe Direction Semantics
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/revyl/cli/internal/ui"
 )
 
 // NextStep suggests a follow-up action to the agent.
@@ -114,16 +115,6 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleScreenshot)
 
-	// Standalone grounding
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "find_element",
-		Description: "Locate a UI element by description without acting. Returns coordinates for assertions or batch lookups.",
-		Annotations: &mcp.ToolAnnotations{
-			Title:        "Find Element",
-			ReadOnlyHint: true,
-		},
-	}, s.handleFindElement)
-
 	// App management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "install_app",
@@ -195,6 +186,7 @@ type StartDeviceSessionInput struct {
 	TestID         string `json:"test_id,omitempty" jsonschema:"Test ID to link session to"`
 	SandboxID      string `json:"sandbox_id,omitempty" jsonschema:"Sandbox ID for dedicated device"`
 	IdleTimeout    int    `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds (default 300)"`
+	NoOpen         bool   `json:"no_open,omitempty" jsonschema:"Skip opening the browser (default: false, browser opens automatically)"`
 }
 
 // StartDeviceSessionOutput defines output for start_device_session.
@@ -220,6 +212,11 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 	idx, session, err := s.sessionMgr.StartSession(ctx, input.Platform, input.AppID, input.BuildVersionID, input.TestID, input.SandboxID, timeout)
 	if err != nil {
 		return nil, StartDeviceSessionOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	// Auto-open the viewer URL in the browser unless the caller opted out.
+	if !input.NoOpen {
+		_ = ui.OpenBrowser(session.ViewerURL)
 	}
 
 	return nil, StartDeviceSessionOutput{
@@ -662,55 +659,6 @@ func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest,
 		NextSteps: []NextStep{
 			{Tool: "device_tap", Params: "target=\"...\"", Reason: "Tap an element you see"},
 			{Tool: "device_type", Params: "target=\"...\", text=\"...\"", Reason: "Type into a field"},
-		},
-	}, nil
-}
-
-// --- Find Element ---
-
-type FindElementInput struct {
-	Target       string `json:"target" jsonschema:"Element to locate. Use visible text or visual traits. Returns coords without acting."`
-	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
-}
-
-type FindElementOutput struct {
-	Success    bool       `json:"success"`
-	X          int        `json:"x"`
-	Y          int        `json:"y"`
-	Confidence float64    `json:"confidence"`
-	LatencyMs  float64    `json:"latency_ms"`
-	Error      string     `json:"error,omitempty"`
-	NextSteps  []NextStep `json:"next_steps,omitempty"`
-}
-
-func (s *Server) handleFindElement(ctx context.Context, req *mcp.CallToolRequest, input FindElementInput) (*mcp.CallToolResult, FindElementOutput, error) {
-	if input.Target == "" {
-		return nil, FindElementOutput{Success: false, Error: "target is required -- describe the element to locate (e.g. 'Sign In button')",
-			NextSteps: []NextStep{{Tool: "screenshot", Reason: "See the screen first, then describe the element"}},
-		}, nil
-	}
-	sidx := -1
-	if input.SessionIndex != nil {
-		sidx = *input.SessionIndex
-	}
-	session, err := s.sessionMgr.ResolveSession(sidx)
-	if err != nil {
-		return nil, FindElementOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
-	}
-	s.sessionMgr.ResetIdleTimer(session.Index)
-	start := time.Now()
-	resolved, err := s.sessionMgr.ResolveTargetForSession(ctx, session.Index, input.Target)
-	latency := float64(time.Since(start).Milliseconds())
-	if err != nil {
-		return nil, FindElementOutput{Success: false, LatencyMs: latency, Error: err.Error(),
-			NextSteps: errorNextSteps(err),
-		}, nil
-	}
-
-	return nil, FindElementOutput{
-		Success: true, X: resolved.X, Y: resolved.Y, Confidence: resolved.Confidence, LatencyMs: latency,
-		NextSteps: []NextStep{
-			{Tool: "device_tap", Params: fmt.Sprintf("x=%d, y=%d", resolved.X, resolved.Y), Reason: "Tap the found element"},
 		},
 	}, nil
 }

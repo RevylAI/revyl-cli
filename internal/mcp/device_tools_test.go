@@ -266,15 +266,6 @@ func TestNextSteps_ToolOutputStructs(t *testing.T) {
 			}.NextSteps,
 		},
 		{
-			name: "FindElementOutput has NextSteps",
-			nextSteps: FindElementOutput{
-				Success: true,
-				NextSteps: []NextStep{
-					{Tool: "device_tap", Reason: "test"},
-				},
-			}.NextSteps,
-		},
-		{
 			name: "InstallAppOutput has NextSteps",
 			nextSteps: InstallAppOutput{
 				Success: true,
@@ -422,29 +413,6 @@ func TestInputValidation_DeviceSwipe_DirectionRequired(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestInputValidation_FindElement_TargetRequired: Target field validation.
-// ---------------------------------------------------------------------------
-
-func TestInputValidation_FindElement_TargetRequired(t *testing.T) {
-	srv := &Server{
-		sessionMgr: &DeviceSessionManager{},
-	}
-
-	_, output, err := srv.handleFindElement(context.Background(), nil, FindElementInput{
-		Target: "",
-	})
-	if err != nil {
-		t.Fatalf("unexpected Go error: %v", err)
-	}
-	if output.Success {
-		t.Fatal("expected Success=false when target is empty")
-	}
-	if !strings.Contains(output.Error, "target is required") {
-		t.Errorf("error = %q, want 'target is required'", output.Error)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // TestInputValidation_InstallApp_URLRequired: AppURL field validation.
 // ---------------------------------------------------------------------------
 
@@ -571,7 +539,6 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		"device_swipe":         false,
 		"device_drag":          false,
 		"screenshot":           false,
-		"find_element":         false,
 		"install_app":          false,
 		"launch_app":           false,
 		"get_session_info":     false,
@@ -590,8 +557,8 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		}
 	}
 
-	if len(result.Tools) != 16 {
-		t.Errorf("expected 16 device tools, got %d", len(result.Tools))
+	if len(result.Tools) != 15 {
+		t.Errorf("expected 15 device tools, got %d", len(result.Tools))
 	}
 }
 
