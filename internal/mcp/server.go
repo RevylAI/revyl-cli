@@ -25,6 +25,7 @@ import (
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers"
 	"github.com/revyl/cli/internal/schema"
+	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/ui"
 	"github.com/revyl/cli/internal/yaml"
 )
@@ -36,6 +37,7 @@ type Server struct {
 	config     *config.ProjectConfig
 	workDir    string
 	version    string
+	devMode    bool
 	rootCmd    *cobra.Command
 	sessionMgr *DeviceSessionManager
 
@@ -93,6 +95,7 @@ func NewServer(version string, devMode bool) (*Server, error) {
 		config:    cfg,
 		workDir:   workDir,
 		version:   version,
+		devMode:   devMode,
 	}
 
 	// Initialize device session manager
@@ -109,23 +112,62 @@ func NewServer(version string, devMode bool) (*Server, error) {
 			Version: version,
 		},
 		&mcp.ServerOptions{
-			Instructions: `Revyl provides cloud-hosted Android and iOS device interaction for AI agents.
+			Instructions: `Revyl provides cloud-hosted Android and iOS device interaction for AI agents, plus test/workflow management, modules, scripts, and build management.
 
 ## Tool Categories
 
+### Device Interaction
 - **Device Session**: start_device_session, stop_device_session, get_session_info, list_device_sessions, switch_device_session
 - **Device Actions** (grounded by default): device_tap, device_double_tap, device_long_press, device_type, device_swipe, device_drag
 - **Vision**: screenshot, find_element
 - **App Management**: install_app, launch_app
 - **Diagnostics**: device_doctor
 
-## Getting Started
+### Test Management
+- **Run & Monitor**: run_test, get_test_status, cancel_test
+- **CRUD**: create_test, update_test, delete_test, list_tests, list_remote_tests
+- **Validation**: validate_yaml, get_schema (YAML format reference)
+- **Editor**: open_test_editor (with optional hot reload), stop_hot_reload, hot_reload_status
+
+### Workflow Management
+- **Run & Monitor**: run_workflow, cancel_workflow
+- **CRUD**: create_workflow, delete_workflow, list_workflows
+- **Settings**: get_workflow_settings, set_workflow_location, clear_workflow_location, set_workflow_app, clear_workflow_app
+- **Editor**: open_workflow_editor
+
+### Build & App Management
+- **Builds**: list_builds, upload_build
+- **Apps**: create_app, delete_app
+
+### Modules (Reusable Test Blocks)
+- list_modules, get_module, create_module, delete_module, insert_module_block
+
+### Scripts (Code Execution Blocks)
+- list_scripts, get_script, create_script, update_script, delete_script, insert_script_block
+
+### Tags & Organization
+- list_tags, create_tag, delete_tag, get_test_tags, set_test_tags, add_remove_test_tags
+
+### Environment Variables
+- list_env_vars, set_env_var, delete_env_var, clear_env_vars
+
+### System
+- auth_status
+
+## Getting Started (Device Interaction)
 
 1. start_device_session(platform="android") -- provisions a cloud device (returns viewer_url and session_index)
 2. screenshot() -- see the initial screen state
 3. Use device_tap/device_type/device_swipe with target="..." to interact
 4. screenshot() after every action to verify
 5. stop_device_session() when done to release the device and stop billing
+
+## Getting Started (Test Authoring)
+
+1. get_schema() -- get the YAML format reference
+2. create_test(name="...", yaml_content="...") -- create a test
+3. validate_yaml(yaml_content="...") -- check syntax before running
+4. run_test(test_name="...") -- execute and get results with viewer_url
 
 ## Multi-Session Support
 
@@ -204,24 +246,40 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "run_test",
 		Description: "Run a Revyl test by name or ID. Returns test results including pass/fail status and report URL.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Run Test",
+			OpenWorldHint: boolPtr(true),
+		},
 	}, s.handleRunTest)
 
 	// run_workflow tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "run_workflow",
 		Description: "Run a Revyl workflow (collection of tests) by name or ID. Returns workflow results including pass/fail counts.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Run Workflow",
+			OpenWorldHint: boolPtr(true),
+		},
 	}, s.handleRunWorkflow)
 
 	// list_tests tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_tests",
 		Description: "List available tests from the project's .revyl/config.yaml file.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Tests",
+			ReadOnlyHint: true,
+		},
 	}, s.handleListTests)
 
 	// get_test_status tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_test_status",
 		Description: "Get the current status of a running or completed test execution.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get Test Status",
+			ReadOnlyHint: true,
+		},
 	}, s.handleGetTestStatus)
 
 	// NEW: create_test tool
@@ -230,90 +288,147 @@ func (s *Server) registerTools() {
 		Description: `Create a new test from YAML content or just a name.
 
 RECOMMENDED: Before creating a test, read the app's source code (screens, components, routes) to understand the real UI labels, navigation flow, and user-facing outcomes. Use get_schema for the YAML format reference.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Create Test",
+		},
 	}, s.handleCreateTest)
 
 	// NEW: create_workflow tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_workflow",
 		Description: "Create a new workflow (collection of tests).",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Create Workflow",
+		},
 	}, s.handleCreateWorkflow)
 
 	// NEW: validate_yaml tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "validate_yaml",
 		Description: "Validate YAML test syntax without creating or running. Returns validation errors/warnings.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Validate YAML",
+			ReadOnlyHint: true,
+		},
 	}, s.handleValidateYAML)
 
 	// NEW: get_schema tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_schema",
 		Description: "Get the complete CLI command schema and YAML test schema for LLM reference.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get Schema",
+			ReadOnlyHint: true,
+		},
 	}, s.handleGetSchema)
 
 	// NEW: list_builds tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_builds",
 		Description: "List available build versions for the project.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Builds",
+			ReadOnlyHint: true,
+		},
 	}, s.handleListBuilds)
 
 	// NEW: open_workflow_editor tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "open_workflow_editor",
 		Description: "Get the URL to open a workflow in the browser editor.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Open Workflow Editor",
+			ReadOnlyHint: true,
+		},
 	}, s.handleOpenWorkflowEditor)
 
 	// cancel_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "cancel_test",
 		Description: "Cancel a running test execution by task ID.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Cancel Test",
+			DestructiveHint: boolPtr(true),
+		},
 	}, s.handleCancelTest)
 
 	// cancel_workflow tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "cancel_workflow",
 		Description: "Cancel a running workflow execution by task ID.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Cancel Workflow",
+			DestructiveHint: boolPtr(true),
+		},
 	}, s.handleCancelWorkflow)
 
 	// delete_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_test",
 		Description: "Delete a test by name (alias from config) or UUID.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete Test",
+			DestructiveHint: boolPtr(true),
+		},
 	}, s.handleDeleteTest)
 
 	// delete_workflow tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_workflow",
 		Description: "Delete a workflow by name (alias from config) or UUID.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete Workflow",
+			DestructiveHint: boolPtr(true),
+		},
 	}, s.handleDeleteWorkflow)
 
 	// list_remote_tests tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_remote_tests",
 		Description: "List all tests in the organization from the remote API (not just local config).",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Remote Tests",
+			ReadOnlyHint: true,
+		},
 	}, s.handleListRemoteTests)
 
 	// list_workflows tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_workflows",
 		Description: "List all workflows in the organization from the remote API.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Workflows",
+			ReadOnlyHint: true,
+		},
 	}, s.handleListWorkflows)
 
 	// auth_status tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "auth_status",
 		Description: "Check current authentication status and return user info.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Auth Status",
+			ReadOnlyHint: true,
+		},
 	}, s.handleAuthStatus)
 
 	// create_app tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_app",
 		Description: "Create a new app for build uploads.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Create App",
+		},
 	}, s.handleCreateApp)
 
 	// delete_app tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_app",
 		Description: "Delete an app and all its build versions by app ID.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete App",
+			DestructiveHint: boolPtr(true),
+		},
 	}, s.handleDeleteApp)
 
 	// --- Module tools ---
@@ -322,30 +437,49 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_modules",
 		Description: "List all reusable test modules in the organization. Modules are groups of test blocks that can be imported into any test via module_import blocks.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Modules",
+			ReadOnlyHint: true,
+		},
 	}, s.handleListModules)
 
 	// get_module tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_module",
 		Description: "Get details of a specific module by ID, including its blocks.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get Module",
+			ReadOnlyHint: true,
+		},
 	}, s.handleGetModule)
 
 	// create_module tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_module",
 		Description: "Create a new reusable test module from a list of blocks.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Create Module",
+		},
 	}, s.handleCreateModule)
 
 	// delete_module tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_module",
 		Description: "Delete a module by ID. Returns 409 if the module is in use by tests.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete Module",
+			DestructiveHint: boolPtr(true),
+		},
 	}, s.handleDeleteModule)
 
 	// insert_module_block tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "insert_module_block",
 		Description: "Given a module name or ID, returns a module_import block YAML snippet ready to insert into a test. Use this to compose tests with reusable modules.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Insert Module Block",
+			ReadOnlyHint: true,
+		},
 	}, s.handleInsertModuleBlock)
 
 	// --- Tag tools ---
@@ -354,30 +488,48 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_tags",
 		Description: "List all tags in the organization with test counts. Tags are used to categorize and filter tests.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Tags",
+			ReadOnlyHint: true,
+		},
 	}, s.handleListTags)
 
 	// create_tag tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_tag",
 		Description: "Create a new tag. If a tag with the same name already exists, the existing tag is returned (upsert behavior).",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Create Tag",
+		},
 	}, s.handleCreateTag)
 
 	// delete_tag tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_tag",
 		Description: "Delete a tag by name or ID. This removes it from all tests.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete Tag",
+			DestructiveHint: boolPtr(true),
+		},
 	}, s.handleDeleteTag)
 
 	// get_test_tags tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_test_tags",
 		Description: "Get all tags assigned to a specific test.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get Test Tags",
+			ReadOnlyHint: true,
+		},
 	}, s.handleGetTestTags)
 
 	// set_test_tags tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "set_test_tags",
 		Description: "Replace all tags on a test with the given tag names. Tags are auto-created if they don't exist.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Set Test Tags",
+		},
 	}, s.handleSetTestTags)
 
 	// --- Env var tools ---
@@ -386,24 +538,38 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_env_vars",
 		Description: "List all environment variables for a test. Env vars are encrypted at rest and injected at app launch.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Env Vars",
+			ReadOnlyHint: true,
+		},
 	}, s.handleListEnvVars)
 
 	// set_env_var tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "set_env_var",
 		Description: "Add or update an environment variable for a test. If the key already exists, its value is updated.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Set Env Var",
+		},
 	}, s.handleSetEnvVar)
 
 	// delete_env_var tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_env_var",
 		Description: "Delete an environment variable from a test by key name.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Delete Env Var",
+		},
 	}, s.handleDeleteEnvVar)
 
 	// clear_env_vars tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "clear_env_vars",
 		Description: "Delete ALL environment variables for a test.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Clear Env Vars",
+			DestructiveHint: boolPtr(true),
+		},
 	}, s.handleClearEnvVars)
 
 	// --- Workflow settings tools ---
@@ -412,36 +578,57 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_workflow_settings",
 		Description: "Get workflow settings including location override and app override configuration.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get Workflow Settings",
+			ReadOnlyHint: true,
+		},
 	}, s.handleGetWorkflowSettings)
 
 	// set_workflow_location tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "set_workflow_location",
 		Description: "Set a stored GPS location override for all tests in a workflow.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Set Workflow Location",
+		},
 	}, s.handleSetWorkflowLocation)
 
 	// clear_workflow_location tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "clear_workflow_location",
 		Description: "Remove the stored GPS location override from a workflow.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Clear Workflow Location",
+			DestructiveHint: boolPtr(true),
+		},
 	}, s.handleClearWorkflowLocation)
 
 	// set_workflow_app tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "set_workflow_app",
 		Description: "Set stored app overrides (per platform) for all tests in a workflow. App IDs are validated.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Set Workflow App",
+		},
 	}, s.handleSetWorkflowApp)
 
 	// clear_workflow_app tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "clear_workflow_app",
 		Description: "Remove stored app overrides from a workflow.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Clear Workflow App",
+			DestructiveHint: boolPtr(true),
+		},
 	}, s.handleClearWorkflowApp)
 
 	// add_remove_test_tags tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "add_remove_test_tags",
 		Description: "Add and/or remove tags on a test without replacing all existing tags.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Add/Remove Test Tags",
+		},
 	}, s.handleAddRemoveTestTags)
 
 	// --- Build tools ---
@@ -450,6 +637,10 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "upload_build",
 		Description: "Upload a local build file (.apk, .ipa, or .zip) to an existing app. Returns the new version ID.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Upload Build",
+			OpenWorldHint: boolPtr(true),
+		},
 	}, s.handleUploadBuild)
 
 	// --- Test update tools ---
@@ -460,6 +651,9 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		Description: `Update an existing test's YAML content (blocks). Pushes new blocks to the remote test.
 
 Use get_schema for the YAML format reference. The YAML must include the full test definition with metadata, build, and blocks sections.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Update Test",
+		},
 	}, s.handleUpdateTest)
 
 	// --- Script tools ---
@@ -468,36 +662,58 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_scripts",
 		Description: "List all code execution scripts in the organization. Scripts contain reusable code that runs in sandboxed environments during test execution.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Scripts",
+			ReadOnlyHint: true,
+		},
 	}, s.handleListScripts)
 
 	// get_script tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_script",
 		Description: "Get details of a specific script by ID, including its source code.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get Script",
+			ReadOnlyHint: true,
+		},
 	}, s.handleGetScript)
 
 	// create_script tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_script",
 		Description: "Create a new code execution script. Scripts can be referenced in tests via code_execution blocks.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Create Script",
+		},
 	}, s.handleCreateScript)
 
 	// update_script tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "update_script",
 		Description: "Update an existing script's name, code, runtime, or description.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Update Script",
+		},
 	}, s.handleUpdateScript)
 
 	// delete_script tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_script",
 		Description: "Delete a script by ID.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete Script",
+			DestructiveHint: boolPtr(true),
+		},
 	}, s.handleDeleteScript)
 
 	// insert_script_block tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "insert_script_block",
 		Description: "Given a script name or ID, returns a code_execution block YAML snippet ready to insert into a test.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Insert Script Block",
+			ReadOnlyHint: true,
+		},
 	}, s.handleInsertScriptBlock)
 
 	// --- Live editor tools ---
@@ -506,18 +722,29 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "open_test_editor",
 		Description: "Open a test in the browser editor, optionally with hot reload. Starts dev server and tunnel if hot reload is configured. Opens the browser by default.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Open Test Editor",
+			ReadOnlyHint: true,
+		},
 	}, s.handleOpenTestEditor)
 
 	// stop_hot_reload tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "stop_hot_reload",
 		Description: "Stop the hot reload session (dev server and tunnel). Call this when done with live editing.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Stop Hot Reload",
+		},
 	}, s.handleStopHotReload)
 
 	// hot_reload_status tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "hot_reload_status",
 		Description: "Check if a hot reload session is active and get current URLs.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Hot Reload Status",
+			ReadOnlyHint: true,
+		},
 	}, s.handleHotReloadStatus)
 }
 
@@ -531,14 +758,19 @@ type RunTestInput struct {
 
 // RunTestOutput defines the output for the run_test tool.
 type RunTestOutput struct {
-	Success      bool   `json:"success"`
-	TaskID       string `json:"task_id"`
-	TestID       string `json:"test_id"`
-	TestName     string `json:"test_name"`
-	Status       string `json:"status"`
-	Duration     string `json:"duration"`
-	ReportURL    string `json:"report_url"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	Success        bool       `json:"success"`
+	TaskID         string     `json:"task_id"`
+	TestID         string     `json:"test_id"`
+	TestName       string     `json:"test_name"`
+	Status         string     `json:"status"`
+	Duration       string     `json:"duration"`
+	ReportURL      string     `json:"report_url"`
+	ViewerURL      string     `json:"viewer_url,omitempty"`
+	CompletedSteps int        `json:"completed_steps,omitempty"`
+	TotalSteps     int        `json:"total_steps,omitempty"`
+	LastStep       string     `json:"last_step,omitempty"`
+	ErrorMessage   string     `json:"error_message,omitempty"`
+	NextSteps      []NextStep `json:"next_steps,omitempty"`
 }
 
 // handleRunTest handles the run_test tool call.
@@ -564,14 +796,42 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		retries = 1 // Default to 1 if not specified
 	}
 
+	// Track last progress for enriching final output
+	var lastStatus *sse.TestStatus
+
+	// Build progress callback: sends MCP progress notifications if the client
+	// provided a progressToken, and always captures the latest status for the
+	// enriched final output.
+	var onProgress func(status *sse.TestStatus)
+	progressToken := req.Params.GetProgressToken()
+	onProgress = func(status *sse.TestStatus) {
+		lastStatus = status
+		if progressToken != nil {
+			msg := fmt.Sprintf("[%s] %s", status.Status, status.CurrentStep)
+			if status.TotalSteps > 0 {
+				msg = fmt.Sprintf("[%s] Step %d/%d: %s",
+					status.Status, status.CompletedSteps, status.TotalSteps, status.CurrentStep)
+			}
+			if status.Duration != "" {
+				msg += fmt.Sprintf(" (%s)", status.Duration)
+			}
+			_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{
+				ProgressToken: progressToken,
+				Message:       msg,
+				Progress:      float64(status.CompletedSteps),
+				Total:         float64(status.TotalSteps),
+			})
+		}
+	}
+
 	// Parse location if provided
 	params := execution.RunTestParams{
 		TestNameOrID:   input.TestName,
 		Retries:        retries,
 		BuildVersionID: input.BuildVersionID,
 		Timeout:        3600,
-		DevMode:        false,
-		OnProgress:     nil, // MCP doesn't need progress callbacks
+		DevMode:        s.devMode,
+		OnProgress:     onProgress,
 	}
 	if input.Location != "" {
 		lat, lng, locErr := parseLocationString(input.Location)
@@ -589,7 +849,10 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		return nil, RunTestOutput{Success: false, ErrorMessage: err.Error()}, nil
 	}
 
-	return nil, RunTestOutput{
+	// Build viewer URL for watching execution live in the browser
+	viewerURL := fmt.Sprintf("%s/tests/execute?workflowRunId=%s", config.GetAppURL(s.devMode), result.TaskID)
+
+	out := RunTestOutput{
 		Success:      result.Success,
 		TaskID:       result.TaskID,
 		TestID:       result.TestID,
@@ -597,8 +860,35 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		Status:       result.Status,
 		Duration:     result.Duration,
 		ReportURL:    result.ReportURL,
+		ViewerURL:    viewerURL,
 		ErrorMessage: result.ErrorMessage,
-	}, nil
+	}
+	if lastStatus != nil {
+		out.CompletedSteps = lastStatus.CompletedSteps
+		out.TotalSteps = lastStatus.TotalSteps
+		out.LastStep = lastStatus.CurrentStep
+	}
+
+	// Populate next steps based on outcome to guide the agent.
+	switch {
+	case result.Success:
+		out.NextSteps = []NextStep{
+			{Tool: "open_test_editor", Reason: "View detailed test report in browser"},
+			{Tool: "get_test_status", Params: fmt.Sprintf("task_id=%s", result.TaskID), Reason: "Get step-by-step execution details"},
+		}
+	case result.Status == "cancelled" || result.Status == "timeout":
+		out.NextSteps = []NextStep{
+			{Tool: "run_test", Params: fmt.Sprintf("test_name=%s", input.TestName), Reason: "Retry the test"},
+			{Tool: "get_test_status", Params: fmt.Sprintf("task_id=%s", result.TaskID), Reason: "Check what happened before cancellation"},
+		}
+	default: // failed
+		out.NextSteps = []NextStep{
+			{Tool: "get_test_status", Params: fmt.Sprintf("task_id=%s", result.TaskID), Reason: "Get step-by-step failure details"},
+			{Tool: "run_test", Params: fmt.Sprintf("test_name=%s", input.TestName), Reason: "Retry the test after fixing the issue"},
+		}
+	}
+
+	return nil, out, nil
 }
 
 // RunWorkflowInput defines the input parameters for the run_workflow tool.
@@ -612,16 +902,20 @@ type RunWorkflowInput struct {
 
 // RunWorkflowOutput defines the output for the run_workflow tool.
 type RunWorkflowOutput struct {
-	Success      bool   `json:"success"`
-	TaskID       string `json:"task_id"`
-	WorkflowID   string `json:"workflow_id"`
-	Status       string `json:"status"`
-	TotalTests   int    `json:"total_tests"`
-	PassedTests  int    `json:"passed_tests"`
-	FailedTests  int    `json:"failed_tests"`
-	Duration     string `json:"duration"`
-	ReportURL    string `json:"report_url"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	Success        bool       `json:"success"`
+	TaskID         string     `json:"task_id"`
+	WorkflowID     string     `json:"workflow_id"`
+	Status         string     `json:"status"`
+	TotalTests     int        `json:"total_tests"`
+	PassedTests    int        `json:"passed_tests"`
+	FailedTests    int        `json:"failed_tests"`
+	Duration       string     `json:"duration"`
+	ReportURL      string     `json:"report_url"`
+	ViewerURL      string     `json:"viewer_url,omitempty"`
+	CompletedTests int        `json:"completed_tests,omitempty"`
+	CurrentTest    string     `json:"current_test,omitempty"`
+	ErrorMessage   string     `json:"error_message,omitempty"`
+	NextSteps      []NextStep `json:"next_steps,omitempty"`
 }
 
 // handleRunWorkflow handles the run_workflow tool call.
@@ -647,13 +941,37 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		retries = 1 // Default to 1 if not specified
 	}
 
+	// Track last progress for enriching final output
+	var lastStatus *sse.WorkflowStatus
+
+	// Build progress callback: sends MCP progress notifications if the client
+	// provided a progressToken, and always captures the latest status.
+	var onProgress func(status *sse.WorkflowStatus)
+	progressToken := req.Params.GetProgressToken()
+	onProgress = func(status *sse.WorkflowStatus) {
+		lastStatus = status
+		if progressToken != nil {
+			msg := fmt.Sprintf("[%s] %d/%d tests completed (%d passed, %d failed)",
+				status.Status, status.CompletedTests, status.TotalTests, status.PassedTests, status.FailedTests)
+			if status.Duration != "" {
+				msg += fmt.Sprintf(" (%s)", status.Duration)
+			}
+			_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{
+				ProgressToken: progressToken,
+				Message:       msg,
+				Progress:      float64(status.CompletedTests),
+				Total:         float64(status.TotalTests),
+			})
+		}
+	}
+
 	// Build params with optional overrides
 	wfParams := execution.RunWorkflowParams{
 		WorkflowNameOrID: input.WorkflowName,
 		Retries:          retries,
 		Timeout:          3600,
-		DevMode:          false,
-		OnProgress:       nil,
+		DevMode:          s.devMode,
+		OnProgress:       onProgress,
 		IOSAppID:         input.IOSAppID,
 		AndroidAppID:     input.AndroidAppID,
 	}
@@ -673,7 +991,10 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		return nil, RunWorkflowOutput{Success: false, ErrorMessage: err.Error()}, nil
 	}
 
-	return nil, RunWorkflowOutput{
+	// Build viewer URL for watching execution live in the browser
+	viewerURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(s.devMode), result.TaskID)
+
+	out := RunWorkflowOutput{
 		Success:      result.Success,
 		TaskID:       result.TaskID,
 		WorkflowID:   result.WorkflowID,
@@ -683,8 +1004,36 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		FailedTests:  result.FailedTests,
 		Duration:     result.Duration,
 		ReportURL:    result.ReportURL,
+		ViewerURL:    viewerURL,
 		ErrorMessage: result.ErrorMessage,
-	}, nil
+	}
+	if lastStatus != nil {
+		out.CompletedTests = lastStatus.CompletedTests
+		out.CurrentTest = lastStatus.WorkflowName
+	}
+
+	// Populate next steps based on outcome to guide the agent.
+	switch {
+	case result.Success:
+		out.NextSteps = []NextStep{
+			{Tool: "open_workflow_editor", Reason: "View detailed workflow report in browser"},
+		}
+	case result.Status == "cancelled" || result.Status == "timeout":
+		out.NextSteps = []NextStep{
+			{Tool: "run_workflow", Params: fmt.Sprintf("workflow_name=%s", input.WorkflowName), Reason: "Retry the workflow"},
+		}
+	default: // failed or partial failures
+		out.NextSteps = []NextStep{
+			{Tool: "run_workflow", Params: fmt.Sprintf("workflow_name=%s", input.WorkflowName), Reason: "Retry the workflow after investigating failures"},
+		}
+		if result.FailedTests > 0 {
+			out.NextSteps = append([]NextStep{
+				{Tool: "open_workflow_editor", Reason: fmt.Sprintf("View details for %d failed test(s)", result.FailedTests)},
+			}, out.NextSteps...)
+		}
+	}
+
+	return nil, out, nil
 }
 
 // ListTestsInput defines the input parameters for the list_tests tool.

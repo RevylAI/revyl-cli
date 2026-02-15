@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -123,6 +126,27 @@ var deviceStartCmd = &cobra.Command{
 			return fmt.Errorf("--platform is required (ios or android)")
 		}
 
+		// Create a cancellable context so Ctrl+C during provisioning triggers
+		// cleanup (CancelDevice on the backend) instead of orphaning the device.
+		ctx, cancel := context.WithCancel(cmd.Context())
+		defer cancel()
+
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(sigChan)
+
+		go func() {
+			select {
+			case <-sigChan:
+				if !jsonOutput {
+					ui.ClearLine()
+					fmt.Fprintln(os.Stderr, "\nCancelling device provisioning...")
+				}
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+
 		// Show spinner while provisioning (skip in JSON mode)
 		done := make(chan struct{})
 		if !jsonOutput {
@@ -142,7 +166,7 @@ var deviceStartCmd = &cobra.Command{
 			}()
 		}
 
-		_, session, err := mgr.StartSession(cmd.Context(), platform, "", "", "", "", time.Duration(timeout)*time.Second)
+		_, session, err := mgr.StartSession(ctx, platform, "", "", "", "", time.Duration(timeout)*time.Second)
 		close(done)
 		if err != nil {
 			return err

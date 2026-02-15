@@ -193,8 +193,31 @@ func (m *DeviceSessionManager) StartSession(
 	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, 120*time.Second)
 	if err != nil {
 		// Cancel the device if we can't get the worker URL
-		_, _ = m.apiClient.CancelDevice(ctx, workflowRunID)
+		_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)
 		return -1, nil, fmt.Errorf("device started but worker not ready: %w. Try again or call device_doctor() to diagnose", err)
+	}
+
+	// Wait for the device to actually be connected (up to 30 seconds).
+	// The worker URL can exist before the device is fully provisioned,
+	// so we poll /health until device_connected is true.
+	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL}
+	deviceReady := false
+	for i := 0; i < 15; i++ { // 15 * 2s = 30s max
+		if err := m.healthCheckSession(tmpSession); err == nil {
+			deviceReady = true
+			break
+		}
+		select {
+		case <-ctx.Done():
+			_, _ = m.apiClient.CancelDevice(ctx, workflowRunID)
+			return -1, nil, fmt.Errorf("cancelled while waiting for device to connect: %w", ctx.Err())
+		case <-time.After(2 * time.Second):
+		}
+	}
+	if !deviceReady {
+		// Device didn't connect in time but the worker exists — still return
+		// the session so the agent can retry or diagnose, but log a warning.
+		// The session is usable; the device may connect shortly after.
 	}
 
 	// Build viewer URL
@@ -382,7 +405,7 @@ func (m *DeviceSessionManager) ResolveSession(index int) (*DeviceSession, error)
 	if index >= 0 {
 		s, ok := m.sessions[index]
 		if !ok {
-			return nil, fmt.Errorf("no session at index %d. Run 'revyl device list' to see active sessions", index)
+			return nil, fmt.Errorf("no session at index %d. Call list_device_sessions() to see active sessions", index)
 		}
 		return s, nil
 	}
@@ -402,10 +425,10 @@ func (m *DeviceSessionManager) ResolveSession(index int) (*DeviceSession, error)
 	}
 
 	if len(m.sessions) == 0 {
-		return nil, fmt.Errorf("no active device sessions. Start one with 'revyl device start --platform <ios|android>'")
+		return nil, fmt.Errorf("no active device sessions. Start one with start_device_session(platform='ios') or start_device_session(platform='android')")
 	}
 
-	return nil, fmt.Errorf("multiple sessions active. Use -s <n> or 'revyl device use <n>' to select one")
+	return nil, fmt.Errorf("multiple sessions active. Specify session_index or call list_device_sessions() to see them")
 }
 
 // ResetIdleTimer resets the idle timeout for a specific session.
@@ -899,7 +922,7 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 		// Worker unreachable -- check backend for the real reason
 		// (e.g. session was stopped from the browser).
 		if reason := m.checkSessionStatusOnFailure(session); reason != "" {
-			return nil, fmt.Errorf("%s. Start a new session with 'revyl device start'", reason)
+			return nil, fmt.Errorf("%s. Start a new session with start_device_session()", reason)
 		}
 
 		// Provide actionable error messages for common network failures.
@@ -907,7 +930,7 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 		if errors.As(err, &dnsErr) || strings.Contains(strings.ToLower(err.Error()), "no such host") {
 			return nil, fmt.Errorf(
 				"worker DNS lookup failed for %s: the device session has likely been terminated. "+
-					"Run 'revyl device list' to check status or 'revyl device start' for a new session",
+					"Call list_device_sessions() to check status or start_device_session() for a new session",
 				session.WorkerBaseURL,
 			)
 		}
@@ -915,7 +938,7 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 		if errors.As(err, &netErr) && netErr.Timeout() {
 			return nil, fmt.Errorf(
 				"worker request timed out for %s on %s. "+
-					"Run 'revyl device doctor' to diagnose or 'revyl device stop -s %d' to clean up",
+					"Call device_doctor() to diagnose or stop_device_session(session_index=%d) to clean up",
 				path, session.WorkerBaseURL, session.Index,
 			)
 		}
@@ -930,7 +953,53 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 	}
 
 	if resp.StatusCode >= 500 {
-		return nil, fmt.Errorf("worker returned %d: %s. Call device_doctor() to check worker health", resp.StatusCode, string(respBody))
+		// Retry once for 503 (temporarily unavailable) -- the device may still
+		// be finishing setup or recovering from a transient issue.
+		if resp.StatusCode == 503 {
+			resp.Body.Close()
+			time.Sleep(2 * time.Second)
+
+			// Rebuild the request (body may have been consumed).
+			var retryBody io.Reader
+			if body != nil {
+				data, marshalErr := json.Marshal(body)
+				if marshalErr != nil {
+					return nil, fmt.Errorf("failed to marshal retry request body: %w", marshalErr)
+				}
+				retryBody = bytes.NewReader(data)
+			}
+			retryReq, retryReqErr := http.NewRequestWithContext(ctx, method, url, retryBody)
+			if retryReqErr != nil {
+				return nil, fmt.Errorf("failed to create retry request: %w", retryReqErr)
+			}
+			if body != nil {
+				retryReq.Header.Set("Content-Type", "application/json")
+			}
+
+			retryResp, retryErr := client.Do(retryReq)
+			if retryErr == nil {
+				defer retryResp.Body.Close()
+				retryRespBody, readErr := io.ReadAll(retryResp.Body)
+				if readErr != nil {
+					return nil, fmt.Errorf("failed to read worker retry response: %w", readErr)
+				}
+				if retryResp.StatusCode < 400 {
+					return retryRespBody, nil
+				}
+				// Retry also failed -- fall through with retry response details.
+				return nil, fmt.Errorf(
+					"worker returned %d (temporarily unavailable, retried once): %s. "+
+						"The device may not be fully connected yet -- wait a few seconds and retry, or call device_doctor() to diagnose",
+					retryResp.StatusCode, string(retryRespBody),
+				)
+			}
+			// Retry request itself failed -- fall through with original error.
+		}
+
+		return nil, fmt.Errorf(
+			"worker returned %d: %s. Call device_doctor() to check worker health",
+			resp.StatusCode, string(respBody),
+		)
 	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("worker returned %d: %s", resp.StatusCode, string(respBody))
