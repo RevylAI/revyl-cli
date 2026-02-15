@@ -209,7 +209,7 @@ func (m *DeviceSessionManager) StartSession(
 		}
 		select {
 		case <-ctx.Done():
-			_, _ = m.apiClient.CancelDevice(ctx, workflowRunID)
+			_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)
 			return -1, nil, fmt.Errorf("cancelled while waiting for device to connect: %w", ctx.Err())
 		case <-time.After(2 * time.Second):
 		}
