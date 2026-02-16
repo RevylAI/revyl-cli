@@ -221,6 +221,9 @@ func authHintForStatus(statusCode int, message, detail string) string {
 	if statusCode == 401 {
 		return "Session may have expired. Run 'revyl auth login' to re-authenticate."
 	}
+	if statusCode == 402 {
+		return "No active billing plan. Add a payment method to unlock 30 free simulator minutes:\n  → revyl auth billing"
+	}
 	return ""
 }
 
@@ -552,6 +555,30 @@ type ExecuteTestResponse struct {
 //   - ctx: Context for cancellation
 //   - req: The execution request
 //
+// BillingPlanResponse contains the org's current billing plan info.
+type BillingPlanResponse struct {
+	Plan            string  `json:"plan"`
+	DisplayName     string  `json:"display_name"`
+	MonthlyBase     float64 `json:"monthly_base"`
+	FreeCreditLabel string  `json:"free_credit_label"`
+	BillingExempt   bool    `json:"billing_exempt"`
+}
+
+// GetBillingPlan returns the org's current billing plan.
+func (c *Client) GetBillingPlan(ctx context.Context) (*BillingPlanResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/execution/billing/plan", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result BillingPlanResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // Returns:
 //   - *ExecuteTestResponse: The execution response with task ID
 //   - error: Any error that occurred

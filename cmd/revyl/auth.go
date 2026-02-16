@@ -547,6 +547,65 @@ func printAuthNextSteps(cmd *cobra.Command) {
 	ui.PrintNextSteps(steps)
 }
 
+// authBillingCmd opens the billing settings page so the user can add a payment
+// method or manage their plan.
+var authBillingCmd = &cobra.Command{
+	Use:   "billing",
+	Short: "Manage billing and payment method",
+	Long: `Open the Revyl billing page in your browser.
+
+Add a payment method to unlock 30 free simulator minutes per platform per month.
+
+EXAMPLES:
+  revyl auth billing          # Open billing page
+  revyl auth billing --dev    # Open local dev billing page`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		devMode, _ := cmd.Flags().GetBool("dev")
+		mgr := auth.NewManager()
+
+		// Require authentication first.
+		creds, err := mgr.GetCredentials()
+		if err != nil || creds == nil || !creds.HasValidAuth() {
+			ui.PrintWarning("Not authenticated")
+			ui.PrintInfo("Run 'revyl auth login' first, then 'revyl auth billing'")
+			return nil
+		}
+
+		// Check current plan status.
+		token, _ := mgr.GetActiveToken()
+		client := api.NewClientWithDevMode(token, devMode)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		plan, err := client.GetBillingPlan(ctx)
+		if err != nil {
+			// If we can't check the plan, just open the page anyway.
+			ui.PrintWarning("Could not check billing status: %v", err)
+		} else if plan.BillingExempt {
+			ui.PrintSuccess("Your organization has an enterprise plan — no action needed")
+			return nil
+		} else if plan.Plan != "none" && plan.Plan != "" {
+			ui.PrintSuccess("Plan active: %s", plan.DisplayName)
+			ui.PrintInfo("Opening billing settings to manage your plan...")
+		} else {
+			ui.PrintInfo("No payment method on file")
+			ui.PrintInfo("Opening billing page to add a payment method...")
+		}
+
+		appURL := config.GetAppURL(devMode)
+		billingURL := fmt.Sprintf("%s/settings?section=billing", appURL)
+
+		if openErr := ui.OpenBrowser(billingURL); openErr != nil {
+			ui.PrintInfo("Open this URL in your browser:")
+			ui.PrintInfo("  %s", billingURL)
+		} else {
+			ui.PrintSuccess("Opened billing page in browser")
+		}
+
+		return nil
+	},
+}
+
 func init() {
 	// Add --api-key flag to login command
 	authLoginCmd.Flags().Bool("api-key", false, "Use API key authentication instead of browser")
@@ -554,4 +613,5 @@ func init() {
 	authCmd.AddCommand(authLoginCmd)
 	authCmd.AddCommand(authLogoutCmd)
 	authCmd.AddCommand(authStatusCmd)
+	authCmd.AddCommand(authBillingCmd)
 }

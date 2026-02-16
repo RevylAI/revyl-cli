@@ -970,19 +970,6 @@ type AssignSeatsResponse struct {
 // AsyncStatus defines model for AsyncStatus.
 type AsyncStatus string
 
-// AttachRequest defines model for AttachRequest.
-type AttachRequest struct {
-	Quantity    *int   `json:"quantity"`
-	RedirectUrl string `json:"redirect_url"`
-}
-
-// AttachResponse defines model for AttachResponse.
-type AttachResponse struct {
-	CheckoutUrl *string `json:"checkout_url"`
-	Message     string  `json:"message"`
-	Success     *bool   `json:"success"`
-}
-
 // AuthInfo Class that represents authentication information.
 // Can be returned from the require_auth dependency.
 type AuthInfo struct {
@@ -1056,6 +1043,31 @@ type BatchLLMDetailsRequest struct {
 	UniqueIds []string `json:"unique_ids"`
 }
 
+// BillingBreakdownItem defines model for BillingBreakdownItem.
+type BillingBreakdownItem struct {
+	DeviceCost   float32 `json:"device_cost"`
+	IsRealDevice bool    `json:"is_real_device"`
+	LlmCost      float32 `json:"llm_cost"`
+	Platform     string  `json:"platform"`
+	SessionCount int     `json:"session_count"`
+	TotalCost    float32 `json:"total_cost"`
+	TotalSeconds float32 `json:"total_seconds"`
+}
+
+// BillingBreakdownResponse defines model for BillingBreakdownResponse.
+type BillingBreakdownResponse struct {
+	Breakdown   []BillingBreakdownItem `json:"breakdown"`
+	PeriodEnd   string                 `json:"period_end"`
+	PeriodStart string                 `json:"period_start"`
+}
+
+// BillingCheckResponse defines model for BillingCheckResponse.
+type BillingCheckResponse struct {
+	Allowed bool    `json:"allowed"`
+	Balance *int    `json:"balance"`
+	Reason  *string `json:"reason"`
+}
+
 // BillingResponse defines model for BillingResponse.
 type BillingResponse struct {
 	Allowed    bool    `json:"allowed"`
@@ -1063,6 +1075,17 @@ type BillingResponse struct {
 	Code       string  `json:"code"`
 	CustomerId string  `json:"customer_id"`
 	FeatureId  *string `json:"feature_id"`
+}
+
+// BillingSummaryResponse defines model for BillingSummaryResponse.
+type BillingSummaryResponse struct {
+	PeriodEnd       string  `json:"period_end"`
+	PeriodStart     string  `json:"period_start"`
+	TotalCost       float32 `json:"total_cost"`
+	TotalDeviceCost float32 `json:"total_device_cost"`
+	TotalLlmCost    float32 `json:"total_llm_cost"`
+	TotalSeconds    float32 `json:"total_seconds"`
+	TotalSessions   int     `json:"total_sessions"`
 }
 
 // BlocksCreationRequest Request model for creating tests from blocks
@@ -1459,18 +1482,6 @@ type CancelTestResponse struct {
 type CategoryValue struct {
 	Category string  `json:"category"`
 	Value    float32 `json:"value"`
-}
-
-// ChartDataPoint defines model for ChartDataPoint.
-type ChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -2723,6 +2734,18 @@ type ExtractPackageIdResponse struct {
 // - FINAL_FAIL: Only trigger fallback if overall test fails
 type FallbackTrigger string
 
+// FinalizeSessionRequest defines model for FinalizeSessionRequest.
+type FinalizeSessionRequest struct {
+	SessionId string `json:"session_id"`
+}
+
+// FinalizeSessionResponse defines model for FinalizeSessionResponse.
+type FinalizeSessionResponse struct {
+	Message string  `json:"message"`
+	Success bool    `json:"success"`
+	UsageId *string `json:"usage_id"`
+}
+
 // FleetAuthValidateResponse Response from validating an API key for Fleet access.
 //
 // Used by FleetDashboard to verify API key and get user info.
@@ -3641,10 +3664,10 @@ type ModulesListResponse struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []ChartDataPoint `json:"data"`
-	MetricType   string           `json:"metric_type"`
-	Repositories []string         `json:"repositories"`
-	RetrievedAt  string           `json:"retrieved_at"`
+	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
+	MetricType   string                                           `json:"metric_type"`
+	Repositories []string                                         `json:"repositories"`
+	RetrievedAt  string                                           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -3952,6 +3975,15 @@ type PaginatedBuildsResponse struct {
 	TotalPages int `json:"total_pages"`
 }
 
+// PlanInfo defines model for PlanInfo.
+type PlanInfo struct {
+	BillingExempt   *bool   `json:"billing_exempt,omitempty"`
+	DisplayName     string  `json:"display_name"`
+	FreeCreditLabel string  `json:"free_credit_label"`
+	MonthlyBase     float32 `json:"monthly_base"`
+	Plan            string  `json:"plan"`
+}
+
 // PlatformApp App configuration for a single platform.
 //
 // Used to specify an app override for iOS or Android in workflow configurations.
@@ -4099,6 +4131,20 @@ type QualityScore struct {
 
 	// WeakestComponent Which component was weakest in the test execution.
 	WeakestComponent WeakestComponent `json:"weakest_component"`
+}
+
+// RateCardItem defines model for RateCardItem.
+type RateCardItem struct {
+	AutumnFeatureId string  `json:"autumn_feature_id"`
+	DeviceType      string  `json:"device_type"`
+	Platform        string  `json:"platform"`
+	RatePerMinute   float32 `json:"rate_per_minute"`
+	RatePerSecond   float32 `json:"rate_per_second"`
+}
+
+// RateCardResponse defines model for RateCardResponse.
+type RateCardResponse struct {
+	Rates []RateCardItem `json:"rates"`
 }
 
 // RebelOrgSettings Organization settings for Rebel Bot.
@@ -4628,6 +4674,34 @@ type SeatCheckResponse struct {
 	TotalSeats         int                   `json:"total_seats"`
 	UnassignedSeats    int                   `json:"unassigned_seats"`
 	UserBackfillStatus *[]UserBackfillStatus `json:"user_backfill_status,omitempty"`
+}
+
+// SessionHistoryItem defines model for SessionHistoryItem.
+type SessionHistoryItem struct {
+	BilledAt         string  `json:"billed_at"`
+	BillingStatus    string  `json:"billing_status"`
+	DeviceCostUsd    float32 `json:"device_cost_usd"`
+	DeviceModel      *string `json:"device_model"`
+	DurationSeconds  float32 `json:"duration_seconds"`
+	IsRealDevice     bool    `json:"is_real_device"`
+	LlmCostUsd       float32 `json:"llm_cost_usd"`
+	OsVersion        *string `json:"os_version"`
+	Platform         string  `json:"platform"`
+	SessionEndedAt   *string `json:"session_ended_at"`
+	SessionId        string  `json:"session_id"`
+	SessionStartedAt *string `json:"session_started_at"`
+	SessionStatus    string  `json:"session_status"`
+	TotalCostUsd     float32 `json:"total_cost_usd"`
+	UsageId          string  `json:"usage_id"`
+}
+
+// SessionHistoryResponse defines model for SessionHistoryResponse.
+type SessionHistoryResponse struct {
+	Limit       int                  `json:"limit"`
+	Offset      int                  `json:"offset"`
+	PeriodEnd   string               `json:"period_end"`
+	PeriodStart string               `json:"period_start"`
+	Sessions    []SessionHistoryItem `json:"sessions"`
 }
 
 // SessionStatus Device session status - the single source of truth for test execution state.
@@ -7217,6 +7291,18 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
+// AppRoutesExecutionRoutesBillingXptAttachRequest defines model for app__routes__execution_routes__billing_xpt__AttachRequest.
+type AppRoutesExecutionRoutesBillingXptAttachRequest struct {
+	ProductId   *string `json:"product_id,omitempty"`
+	RedirectUrl string  `json:"redirect_url"`
+}
+
+// AppRoutesExecutionRoutesBillingXptAttachResponse defines model for app__routes__execution_routes__billing_xpt__AttachResponse.
+type AppRoutesExecutionRoutesBillingXptAttachResponse struct {
+	CheckoutUrl *string `json:"checkout_url"`
+	Message     string  `json:"message"`
+}
+
 // AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
 type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
 	Date        string   `json:"date"`
@@ -7227,6 +7313,19 @@ type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
 	TeamAverage *float32 `json:"team_average"`
 	Trend       *string  `json:"trend"`
 	Value       *float32 `json:"value"`
+}
+
+// AppRoutesRebelRoutesBillingXptAttachRequest defines model for app__routes__rebel_routes__billing_xpt__AttachRequest.
+type AppRoutesRebelRoutesBillingXptAttachRequest struct {
+	Quantity    *int   `json:"quantity"`
+	RedirectUrl string `json:"redirect_url"`
+}
+
+// AppRoutesRebelRoutesBillingXptAttachResponse defines model for app__routes__rebel_routes__billing_xpt__AttachResponse.
+type AppRoutesRebelRoutesBillingXptAttachResponse struct {
+	CheckoutUrl *string `json:"checkout_url"`
+	Message     string  `json:"message"`
+	Success     *bool   `json:"success"`
 }
 
 // CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
@@ -7604,6 +7703,33 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostParams str
 	XCIRunURL     *string `json:"X-CI-Run-URL,omitempty"`
 	XCIRunID      *string `json:"X-CI-Run-ID,omitempty"`
 	XCIRepository *string `json:"X-CI-Repository,omitempty"`
+}
+
+// BillingBreakdownApiV1ExecutionBillingBreakdownGetParams defines parameters for BillingBreakdownApiV1ExecutionBillingBreakdownGet.
+type BillingBreakdownApiV1ExecutionBillingBreakdownGetParams struct {
+	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
+	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
+}
+
+// BillingCheckApiV1ExecutionBillingCheckGetParams defines parameters for BillingCheckApiV1ExecutionBillingCheckGet.
+type BillingCheckApiV1ExecutionBillingCheckGetParams struct {
+	// Platform ios or android
+	Platform     string `form:"platform" json:"platform"`
+	IsRealDevice *bool  `form:"is_real_device,omitempty" json:"is_real_device,omitempty"`
+}
+
+// BillingSessionsApiV1ExecutionBillingSessionsGetParams defines parameters for BillingSessionsApiV1ExecutionBillingSessionsGet.
+type BillingSessionsApiV1ExecutionBillingSessionsGetParams struct {
+	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
+	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
+	Limit       *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset      *int    `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// BillingSummaryApiV1ExecutionBillingSummaryGetParams defines parameters for BillingSummaryApiV1ExecutionBillingSummaryGet.
+type BillingSummaryApiV1ExecutionBillingSummaryGetParams struct {
+	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
+	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
 }
 
 // GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGetParams defines parameters for GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGet.
@@ -8109,6 +8235,12 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONReques
 // StartExplorationApiV1ExecutionApiV1StartExplorationPostJSONRequestBody defines body for StartExplorationApiV1ExecutionApiV1StartExplorationPost for application/json ContentType.
 type StartExplorationApiV1ExecutionApiV1StartExplorationPostJSONRequestBody = StartExplorationRequest
 
+// BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody defines body for BillingAttachApiV1ExecutionBillingAttachPost for application/json ContentType.
+type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AppRoutesExecutionRoutesBillingXptAttachRequest
+
+// FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody defines body for FinalizeSessionApiV1ExecutionBillingFinalizeSessionPost for application/json ContentType.
+type FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody = FinalizeSessionRequest
+
 // CreateDeviceSessionApiV1ExecutionDeviceSessionsPostJSONRequestBody defines body for CreateDeviceSessionApiV1ExecutionDeviceSessionsPost for application/json ContentType.
 type CreateDeviceSessionApiV1ExecutionDeviceSessionsPostJSONRequestBody = DeviceSessionCreate
 
@@ -8269,7 +8401,7 @@ type TriggerBackfillApiV1ReviewBackfillPostJSONRequestBody = BackfillRequest
 type AssignSeatsApiV1ReviewBillingAssignSeatsPostJSONRequestBody = AssignSeatsRequest
 
 // AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody defines body for AttachBillingApiV1ReviewBillingAttachPost for application/json ContentType.
-type AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody = AttachRequest
+type AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody = AppRoutesRebelRoutesBillingXptAttachRequest
 
 // UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody defines body for UpdateSeatsApiV1ReviewBillingUpdateSeatsPost for application/json ContentType.
 type UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody = UpdateSeatsRequest

@@ -128,6 +128,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// ── Billing check (between auth and app creation) ──────────────────
+	wizardBillingCheck(ctx, client, devMode)
+
 	// ── Step 3/6: Create Apps ────────────────────────────────────────────
 	ui.PrintStepHeader(3, 6, "Create Apps")
 
@@ -363,6 +366,56 @@ func wizardAuth(ctx context.Context, devMode bool) (*api.Client, *api.ValidateAP
 
 	ui.PrintSuccess("Authenticated as %s", userInfo.Email)
 	return client, userInfo, true
+}
+
+// ---------------------------------------------------------------------------
+// Billing Check (post-auth)
+// ---------------------------------------------------------------------------
+
+// wizardBillingCheck checks whether the org has a billing plan attached. If
+// not, it prompts the user to open the billing page in their browser to add a
+// payment method. This is non-blocking — the user can skip and do it later.
+func wizardBillingCheck(ctx context.Context, client *api.Client, devMode bool) {
+	plan, err := client.GetBillingPlan(ctx)
+	if err != nil {
+		// Can't check — skip silently.
+		return
+	}
+
+	// Enterprise/exempt orgs don't need self-serve billing.
+	if plan.BillingExempt {
+		return
+	}
+
+	// Already has a plan — no action needed.
+	if plan.Plan != "none" && plan.Plan != "" {
+		return
+	}
+
+	ui.Println()
+	ui.PrintWarning("No payment method on file")
+	ui.PrintInfo("Add a payment method to unlock 30 free simulator minutes per platform per month.")
+	ui.PrintInfo("You won't be charged unless you exceed the free tier.")
+	ui.Println()
+
+	proceed, err := ui.PromptConfirm("Open billing page in browser?", true)
+	if err != nil || !proceed {
+		ui.PrintDim("You can add a payment method later: revyl auth billing")
+		return
+	}
+
+	appURL := config.GetAppURL(devMode)
+	billingURL := fmt.Sprintf("%s/settings?section=billing", appURL)
+
+	if openErr := ui.OpenBrowser(billingURL); openErr != nil {
+		ui.PrintInfo("Open this URL in your browser:")
+		ui.PrintInfo("  %s", billingURL)
+	} else {
+		ui.PrintSuccess("Opened billing page in browser")
+	}
+
+	ui.PrintDim("Continue with the setup wizard while you add your payment method.")
+	ui.Println()
 }
 
 // ---------------------------------------------------------------------------
