@@ -118,7 +118,7 @@ func (s *Server) registerDeviceTools() {
 	// App management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "install_app",
-		Description: "Install an app on the device from a remote URL (.apk for Android, .ipa for iOS).",
+		Description: "Install an app on the device from a remote URL (.apk for Android, .app for iOS).",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Install App",
 			DestructiveHint: boolPtr(true),
@@ -699,15 +699,31 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 	}
 
 	var resp struct{ Success bool }
-	_ = json.Unmarshal(respBody, &resp)
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		truncated := string(respBody)
+		if len(truncated) > 200 {
+			truncated = truncated[:200] + "..."
+		}
+		return nil, InstallAppOutput{
+			Success:   false,
+			Error:     fmt.Sprintf("failed to parse worker response: %v (body: %s)", err, truncated),
+			NextSteps: errorNextSteps(err),
+		}, nil
+	}
 
-	return nil, InstallAppOutput{
-		Success: resp.Success,
-		NextSteps: []NextStep{
+	output := InstallAppOutput{Success: resp.Success}
+	if resp.Success {
+		output.NextSteps = []NextStep{
 			{Tool: "launch_app", Reason: "Launch the installed app"},
 			{Tool: "screenshot", Reason: "See the device screen"},
-		},
-	}, nil
+		}
+	} else {
+		output.Error = "install reported failure"
+		output.NextSteps = []NextStep{
+			{Tool: "screenshot", Reason: "See the device screen for errors"},
+		}
+	}
+	return nil, output, nil
 }
 
 // --- Launch App ---

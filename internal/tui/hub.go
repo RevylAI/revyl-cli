@@ -2518,10 +2518,11 @@ func (m hubModel) handleAppListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.confirmDelete {
 		switch msg.String() {
 		case "y", "Y":
-			if m.appCursor < len(m.apps) && m.client != nil {
+			filtered := m.filteredApps()
+			if m.appCursor < len(filtered) && m.client != nil {
 				m.appsLoading = true
 				m.confirmDelete = false
-				return m, deleteAppCmd(m.client, m.apps[m.appCursor].ID)
+				return m, deleteAppCmd(m.client, filtered[m.appCursor].ID)
 			}
 		default:
 			m.confirmDelete = false
