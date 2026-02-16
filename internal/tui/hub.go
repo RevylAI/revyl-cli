@@ -35,8 +35,12 @@ type quickAction struct {
 var quickActions = []quickAction{
 	{Label: "Run a test", Key: "run", Desc: "Execute an existing test"},
 	{Label: "Create a test", Key: "create", Desc: "Define a new test from YAML"},
+	{Label: "Browse tests", Key: "tests", Desc: "View, sync, and manage tests"},
+	{Label: "Browse workflows", Key: "workflows", Desc: "Create, run, and manage workflows"},
 	{Label: "View reports", Key: "reports", Desc: "Browse test & workflow reports"},
 	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds"},
+	{Label: "Browse modules", Key: "modules", Desc: "View reusable test modules"},
+	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels"},
 	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard"},
 }
 
@@ -108,6 +112,69 @@ type hubModel struct {
 	healthChecks  []HealthCheck // results from the last health check
 	healthLoading bool          // whether health checks are currently running
 
+	// Setup guide state (rendered in help screen)
+	setupSteps  []SetupStep
+	setupCursor int
+
+	// Test detail state
+	selectedTestDetail      *TestDetail
+	testDetailLoading       bool
+	testDetailCursor        int
+	testDetailConfirmDelete bool
+	testSyncResult          string
+
+	// Env var editor state (overlay in test detail)
+	envVarEditorActive  bool
+	envVars             []EnvVarItem
+	envVarCursor        int
+	envVarLoading       bool
+	envVarShowValues    bool
+	envVarAddingKey     bool
+	envVarAddingValue   bool
+	envVarConfirmDelete bool
+	envVarKeyInput      textinput.Model
+	envVarValueInput    textinput.Model
+
+	// Tag picker state (overlay in test detail)
+	tagPickerActive  bool
+	tagPickerLoading bool
+	tagPickerItems   []tagPickerItem
+	tagPickerCursor  int
+
+	// Tag browser state
+	tagItems         []TagItem
+	tagCursor        int
+	tagLoading       bool
+	tagConfirmDelete bool
+	tagCreateActive  bool
+	tagNameInput     textinput.Model
+
+	// Module browser state
+	moduleItems         []ModuleItem
+	moduleCursor        int
+	moduleLoading       bool
+	selectedModuleID    string
+	selectedModule      *ModuleItem
+	moduleConfirmDelete bool
+
+	// Workflow management state
+	wfItems          []WorkflowItem
+	wfCursor         int
+	wfListLoading    bool
+	wfDetailLoading  bool
+	selectedWfDetail *WorkflowItem
+	wfConfirmDelete  bool
+	// Workflow create wizard
+	wfCreateStep          workflowCreateStep
+	wfCreateNameInput     textinput.Model
+	wfCreateTestCursor    int
+	wfCreateSelectedTests map[int]bool
+	// Workflow execution monitor
+	wfExecTaskID    string
+	wfExecStatus    *api.CLIWorkflowStatusResponse
+	wfExecDone      bool
+	wfExecStartTime time.Time
+
 	// Shared state
 	loading bool
 	spinner spinner.Model
@@ -142,6 +209,22 @@ func newHubModel(version string, devMode bool) hubModel {
 	rfi.Placeholder = "filter..."
 	rfi.CharLimit = 64
 
+	eki := textinput.New()
+	eki.Placeholder = "KEY"
+	eki.CharLimit = 128
+
+	evi := textinput.New()
+	evi.Placeholder = "VALUE"
+	evi.CharLimit = 512
+
+	tni := textinput.New()
+	tni.Placeholder = "tag name..."
+	tni.CharLimit = 64
+
+	wfni := textinput.New()
+	wfni.Placeholder = "workflow name..."
+	wfni.CharLimit = 128
+
 	return hubModel{
 		version:           version,
 		currentView:       viewDashboard,
@@ -149,6 +232,10 @@ func newHubModel(version string, devMode bool) hubModel {
 		spinner:           newSpinner(),
 		filterInput:       ti,
 		reportFilterInput: rfi,
+		envVarKeyInput:    eki,
+		envVarValueInput:  evi,
+		tagNameInput:      tni,
+		wfCreateNameInput: wfni,
 		devMode:           devMode,
 	}
 }
@@ -507,6 +594,30 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.currentView == viewHelp {
 			return m.handleHelpKey(msg)
 		}
+		if m.currentView == viewTestDetail {
+			return handleTestDetailKey(m, msg)
+		}
+		if m.currentView == viewWorkflowList {
+			return handleWorkflowListKey(m, msg)
+		}
+		if m.currentView == viewWorkflowDetail {
+			return handleWorkflowDetailKey(m, msg)
+		}
+		if m.currentView == viewWorkflowCreate {
+			return handleWorkflowCreateKey(m, msg)
+		}
+		if m.currentView == viewWorkflowExecution {
+			return handleWorkflowExecKey(m, msg)
+		}
+		if m.currentView == viewModuleList {
+			return handleModuleListKey(m, msg)
+		}
+		if m.currentView == viewModuleDetail {
+			return handleModuleDetailKey(m, msg)
+		}
+		if m.currentView == viewTagList {
+			return handleTagListKey(m, msg)
+		}
 		return m.handleDashboardKey(msg)
 
 	case spinner.TickMsg:
@@ -564,6 +675,11 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.healthLoading = false
 		if msg.Err == nil {
 			m.healthChecks = msg.Checks
+			// Derive setup steps from health check results
+			m.setupSteps = deriveSetupSteps(msg.Checks, m.cfg)
+			if first := firstActionableStep(m.setupSteps); first >= 0 && m.setupCursor == 0 {
+				m.setupCursor = first
+			}
 		}
 		return m, nil
 
@@ -621,6 +737,217 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, fetchAppBuildsCmd(m.client, m.selectedAppID)
 		}
 		return m, nil
+
+	// --- Test detail messages ---
+
+	case TestDetailMsg:
+		m.testDetailLoading = false
+		if msg.Err == nil {
+			m.selectedTestDetail = msg.Detail
+		}
+		return m, nil
+
+	case TestSyncActionMsg:
+		m.testDetailLoading = false
+		if msg.Err != nil {
+			m.testSyncResult = fmt.Sprintf("Error: %v", msg.Err)
+		} else {
+			m.testSyncResult = msg.Result
+		}
+		// Refresh detail after sync
+		if m.selectedTestDetail != nil && m.client != nil {
+			return m, fetchTestDetailCmd(m.client, m.selectedTestDetail.ID, m.selectedTestDetail.Name, m.selectedTestDetail.Platform, m.devMode)
+		}
+		return m, nil
+
+	case TestDeletedMsg:
+		if msg.Err == nil {
+			m.currentView = viewTestList
+			m.selectedTestDetail = nil
+			// Refresh test list
+			if m.client != nil {
+				return m, fetchTestsCmd(m.client)
+			}
+		}
+		return m, nil
+
+	// --- Env var messages ---
+
+	case EnvVarListMsg:
+		m.envVarLoading = false
+		if msg.Err == nil {
+			m.envVars = msg.Vars
+			m.envVarCursor = 0
+		}
+		return m, nil
+
+	case EnvVarAddedMsg:
+		m.envVarLoading = false
+		if msg.Err == nil && m.client != nil && m.selectedTestDetail != nil {
+			m.envVarLoading = true
+			return m, fetchEnvVarsCmd(m.client, m.selectedTestDetail.ID)
+		}
+		return m, nil
+
+	case EnvVarDeletedMsg:
+		m.envVarLoading = false
+		if msg.Err == nil && m.client != nil && m.selectedTestDetail != nil {
+			m.envVarLoading = true
+			return m, fetchEnvVarsCmd(m.client, m.selectedTestDetail.ID)
+		}
+		return m, nil
+
+	// --- Tag messages ---
+
+	case TagListMsg:
+		m.tagLoading = false
+		if msg.Err == nil {
+			m.tagItems = msg.Tags
+		}
+		return m, nil
+
+	case TagCreatedMsg:
+		m.tagLoading = false
+		if msg.Err == nil && m.client != nil {
+			m.tagLoading = true
+			return m, fetchTagsCmd(m.client)
+		}
+		return m, nil
+
+	case TagDeletedMsg:
+		m.tagLoading = false
+		if msg.Err == nil && m.client != nil {
+			m.tagLoading = true
+			return m, fetchTagsCmd(m.client)
+		}
+		return m, nil
+
+	case tagPickerDataMsg:
+		m.tagPickerLoading = false
+		if msg.Err == nil {
+			m.tagPickerItems = msg.Items
+			m.tagPickerCursor = 0
+		}
+		return m, nil
+
+	case TagsSyncedMsg:
+		m.tagPickerLoading = false
+		m.tagPickerActive = false
+		// Refresh test detail to show updated tags
+		if msg.Err == nil && m.selectedTestDetail != nil && m.client != nil {
+			m.testDetailLoading = true
+			return m, fetchTestDetailCmd(m.client, m.selectedTestDetail.ID, m.selectedTestDetail.Name, m.selectedTestDetail.Platform, m.devMode)
+		}
+		return m, nil
+
+	// --- Module messages ---
+
+	case ModuleListMsg:
+		m.moduleLoading = false
+		if msg.Err == nil {
+			m.moduleItems = msg.Modules
+		}
+		return m, nil
+
+	case ModuleDetailMsg:
+		m.moduleLoading = false
+		if msg.Err == nil {
+			m.selectedModule = msg.Module
+			m.currentView = viewModuleDetail
+		}
+		return m, nil
+
+	case ModuleDeletedMsg:
+		m.moduleLoading = false
+		if msg.Err == nil {
+			m.currentView = viewModuleList
+			m.selectedModule = nil
+			if m.client != nil {
+				m.moduleLoading = true
+				return m, fetchModulesCmd(m.client)
+			}
+		}
+		return m, nil
+
+	// --- Workflow management messages ---
+
+	case WorkflowBrowseListMsg:
+		m.wfListLoading = false
+		if msg.Err == nil {
+			m.wfItems = msg.Workflows
+		}
+		return m, nil
+
+	case WorkflowDetailMsg:
+		m.wfDetailLoading = false
+		if msg.Err == nil {
+			m.selectedWfDetail = msg.Workflow
+		}
+		return m, nil
+
+	case WorkflowCreatedMsg:
+		m.wfDetailLoading = false
+		if msg.Err == nil {
+			m.currentView = viewWorkflowList
+			if m.client != nil {
+				m.wfListLoading = true
+				return m, fetchWorkflowBrowseListCmd(m.client)
+			}
+		}
+		return m, nil
+
+	case WorkflowDeletedMsg:
+		m.wfDetailLoading = false
+		if msg.Err == nil {
+			m.currentView = viewWorkflowList
+			m.selectedWfDetail = nil
+			if m.client != nil {
+				m.wfListLoading = true
+				return m, fetchWorkflowBrowseListCmd(m.client)
+			}
+		}
+		return m, nil
+
+	case WorkflowExecStartedMsg:
+		if msg.Err != nil {
+			m.wfExecDone = true
+			m.err = msg.Err
+			return m, nil
+		}
+		m.wfExecTaskID = msg.TaskID
+		if m.client != nil {
+			return m, pollWorkflowStatusCmd(m.client, msg.TaskID)
+		}
+		return m, nil
+
+	case WorkflowExecProgressMsg:
+		if msg.Err == nil {
+			m.wfExecStatus = msg.Status
+		}
+		// Continue polling
+		if m.client != nil && m.wfExecTaskID != "" {
+			return m, pollWorkflowStatusCmd(m.client, m.wfExecTaskID)
+		}
+		return m, nil
+
+	case WorkflowExecDoneMsg:
+		m.wfExecDone = true
+		if msg.Err == nil {
+			m.wfExecStatus = msg.Status
+		}
+		return m, nil
+
+	case WorkflowCancelledMsg:
+		m.wfExecDone = true
+		return m, nil
+
+	// --- Setup guide messages ---
+
+	case SetupActionMsg:
+		// Re-run health checks after a setup action completes
+		m.healthLoading = true
+		m.healthChecks = nil
+		return m, runHealthChecksCmd(m.devMode, m.client)
 	}
 
 	// Update filter input if in filter mode (test list view)
@@ -683,7 +1010,7 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.executeQuickAction()
 
-	case "1", "2", "3", "4", "5", "6", "7", "8":
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		idx := int(msg.String()[0]-'0') - 1
 		if idx < len(quickActions) {
 			m.focus = focusActions
@@ -760,6 +1087,41 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "tests":
+		m.currentView = viewTestList
+		m.testCursor = 0
+		m.testBrowse = true
+		m.filteredTests = nil
+		m.filterInput.SetValue("")
+		return m, nil
+
+	case "workflows":
+		m.currentView = viewWorkflowList
+		m.wfCursor = 0
+		m.wfListLoading = true
+		if m.client != nil {
+			return m, fetchWorkflowBrowseListCmd(m.client)
+		}
+		return m, nil
+
+	case "modules":
+		m.currentView = viewModuleList
+		m.moduleCursor = 0
+		m.moduleLoading = true
+		if m.client != nil {
+			return m, fetchModulesCmd(m.client)
+		}
+		return m, nil
+
+	case "tags":
+		m.currentView = viewTagList
+		m.tagCursor = 0
+		m.tagLoading = true
+		if m.client != nil {
+			return m, fetchTagsCmd(m.client)
+		}
+		return m, nil
+
 	case "dashboard":
 		dashURL := config.GetAppURL(m.devMode)
 		_ = ui.OpenBrowser(dashURL)
@@ -819,9 +1181,13 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		selected := tests[m.testCursor]
 		if m.testBrowse {
-			// Browse mode: open report in browser
-			reportURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(m.devMode), selected.ID)
-			_ = ui.OpenBrowser(reportURL)
+			// Browse mode: navigate to test detail screen
+			m.currentView = viewTestDetail
+			m.testDetailLoading = true
+			m.testDetailCursor = 0
+			if m.client != nil {
+				return m, fetchTestDetailCmd(m.client, selected.ID, selected.Name, selected.Platform, m.devMode)
+			}
 		} else if m.apiKey != "" {
 			// Run mode: start execution
 			em := newExecutionModel(selected.ID, selected.Name, m.apiKey, m.cfg, m.devMode, m.width, m.height)
@@ -1065,6 +1431,22 @@ func (m hubModel) View() string {
 		return m.renderAppDetail()
 	case viewHelp:
 		return m.renderHelp()
+	case viewTestDetail:
+		return renderTestDetail(m)
+	case viewWorkflowList:
+		return renderWorkflowList(m)
+	case viewWorkflowDetail:
+		return renderWorkflowDetail(m)
+	case viewWorkflowCreate:
+		return renderWorkflowCreate(m)
+	case viewWorkflowExecution:
+		return renderWorkflowExecution(m)
+	case viewModuleList:
+		return renderModuleList(m)
+	case viewModuleDetail:
+		return renderModuleDetail(m)
+	case viewTagList:
+		return renderTagList(m)
 	}
 	return m.renderDashboard()
 }
@@ -2521,6 +2903,92 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			}
 		}
 
+		// Check 5: App linked
+		var appLinked bool
+		if cwdErr == nil {
+			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+			cfg, cfgErr := config.LoadProjectConfig(configPath)
+			if cfgErr == nil && cfg != nil {
+				for _, p := range cfg.Build.Platforms {
+					if p.AppID != "" {
+						appLinked = true
+						break
+					}
+				}
+			}
+		}
+		if appLinked {
+			checks = append(checks, HealthCheck{
+				Name:    "App Linked",
+				Status:  "ok",
+				Message: "App linked",
+			})
+		} else {
+			checks = append(checks, HealthCheck{
+				Name:    "App Linked",
+				Status:  "warning",
+				Message: "No app linked — set app_id in config or use 'Manage apps'",
+			})
+		}
+
+		// Check 6: Build uploaded
+		if appLinked && client != nil {
+			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+			cfg, cfgErr := config.LoadProjectConfig(configPath)
+			if cfgErr == nil && cfg != nil {
+				buildFound := false
+				for _, p := range cfg.Build.Platforms {
+					if p.AppID != "" {
+						bCtx, bCancel := context.WithTimeout(context.Background(), 5*time.Second)
+						versions, bErr := client.ListBuildVersions(bCtx, p.AppID)
+						bCancel()
+						if bErr == nil && len(versions) > 0 {
+							buildFound = true
+							break
+						}
+					}
+				}
+				if buildFound {
+					checks = append(checks, HealthCheck{
+						Name:    "Build Uploaded",
+						Status:  "ok",
+						Message: "Build available",
+					})
+				} else {
+					checks = append(checks, HealthCheck{
+						Name:    "Build Uploaded",
+						Status:  "warning",
+						Message: "No builds — run 'revyl build upload'",
+					})
+				}
+			}
+		} else if !appLinked {
+			checks = append(checks, HealthCheck{
+				Name:    "Build Uploaded",
+				Status:  "warning",
+				Message: "Requires app link first",
+			})
+		}
+
+		// Check 7: Tests configured
+		if cwdErr == nil {
+			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+			cfg, cfgErr := config.LoadProjectConfig(configPath)
+			if cfgErr == nil && cfg != nil && len(cfg.Tests) > 0 {
+				checks = append(checks, HealthCheck{
+					Name:    "Tests Configured",
+					Status:  "ok",
+					Message: fmt.Sprintf("%d tests configured", len(cfg.Tests)),
+				})
+			} else {
+				checks = append(checks, HealthCheck{
+					Name:    "Tests Configured",
+					Status:  "warning",
+					Message: "No tests — use 'Create a test' or 'revyl test create'",
+				})
+			}
+		}
+
 		return HealthCheckMsg{Checks: checks}
 	}
 }
@@ -2537,11 +3005,24 @@ func (m hubModel) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.healthLoading = true
 		m.healthChecks = nil
 		return m, runHealthChecksCmd(m.devMode, m.client)
+	case "up", "k":
+		if len(m.setupSteps) > 0 {
+			m.setupCursor = prevActionableStep(m.setupSteps, m.setupCursor)
+		}
+	case "down", "j":
+		if len(m.setupSteps) > 0 {
+			m.setupCursor = nextActionableStep(m.setupSteps, m.setupCursor)
+		}
+	case "enter":
+		if len(m.setupSteps) > 0 && m.setupCursor < len(m.setupSteps) {
+			updated, cmd := executeSetupStep(m, m.setupSteps, m.setupCursor)
+			return updated, cmd
+		}
 	}
 	return m, nil
 }
 
-// renderHelp renders the help & status screen with health checks and keybindings.
+// renderHelp renders the help & status screen with health checks, setup guide, and keybindings.
 func (m hubModel) renderHelp() string {
 	var b strings.Builder
 	w := m.width
@@ -2575,8 +3056,15 @@ func (m hubModel) renderHelp() string {
 			default:
 				icon = dimStyle.Render("·")
 			}
-			name := dimStyle.Render(fmt.Sprintf("%-16s", check.Name))
+			name := dimStyle.Render(fmt.Sprintf("%-18s", check.Name))
 			b.WriteString(fmt.Sprintf("  %s %s %s\n", icon, name, normalStyle.Render(check.Message)))
+		}
+
+		// Render setup guide when checks are loaded
+		guide := renderSetupGuide(m.setupSteps, m.setupCursor, innerW)
+		if guide != "" {
+			b.WriteString("\n")
+			b.WriteString(guide)
 		}
 	}
 
@@ -2588,10 +3076,10 @@ func (m hubModel) renderHelp() string {
 		{"enter", "Select / drill in / open"},
 		{"esc", "Go back one level"},
 		{"tab", "Switch dashboard section"},
-		{"1-5", "Jump to quick action"},
+		{"1-9", "Jump to quick action"},
 		{"/", "Filter / search lists"},
 		{"R", "Refresh current view"},
-		{"d", "Delete (in app views)"},
+		{"d", "Delete (in app/module/tag views)"},
 		{"?", "This help screen"},
 		{"q", "Quit"},
 	}

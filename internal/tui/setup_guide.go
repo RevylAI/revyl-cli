@@ -190,7 +190,7 @@ func executeSetupStep(m hubModel, steps []SetupStep, stepIndex int) (hubModel, t
 	}
 
 	step := steps[stepIndex]
-	if step.Status != "current" {
+	if step.Status != "current" && step.Status != "hint" {
 		return m, nil
 	}
 
@@ -219,6 +219,12 @@ func executeSetupStep(m hubModel, steps []SetupStep, stepIndex int) (hubModel, t
 		if m.client != nil {
 			return m, fetchAppsCmd(m.client)
 		}
+		return m, nil
+
+	case 4:
+		// Step 5: Build upload -- hint-only, no inline action.
+		// The hint message already shows the CLI command. This is a no-op
+		// acknowledgement so the user sees the command they need to run.
 		return m, nil
 
 	case 5:
