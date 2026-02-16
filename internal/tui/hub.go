@@ -24,18 +24,18 @@ import (
 
 // quickAction defines an item in the Quick Actions menu.
 type quickAction struct {
-	Label string
-	Key   string
+	Label string // display name shown in the menu
+	Key   string // internal identifier for dispatch
+	Desc  string // short description shown next to the label
 }
 
 // quickActions is the ordered list of actions on the dashboard.
 var quickActions = []quickAction{
-	{Label: "Run a test", Key: "run"},
-	{Label: "Create a test", Key: "create"},
-	{Label: "View reports", Key: "reports"},
-	{Label: "Browse workflows", Key: "workflows"},
-	{Label: "Open dashboard", Key: "dashboard"},
-	{Label: "Run doctor", Key: "doctor"},
+	{Label: "Run a test", Key: "run", Desc: "Execute an existing test"},
+	{Label: "Create a test", Key: "create", Desc: "Define a new test from YAML"},
+	{Label: "View reports", Key: "reports", Desc: "Browse test & workflow reports"},
+	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds"},
+	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard"},
 }
 
 // dashFocus tracks which section of the dashboard has keyboard focus.
@@ -66,6 +66,41 @@ type hubModel struct {
 	filterMode    bool
 	filterInput   textinput.Model
 	filteredTests []TestItem
+	testBrowse    bool // true when entered from "View all tests" (browse mode, not run mode)
+
+	// Runs list (sub-screen)
+	allRuns       []RecentRun
+	allRunsCursor int
+	allRunsLoaded bool
+
+	// Report drill-down state
+	reportTypeCursor     int                             // 0 = test reports, 1 = workflow reports
+	workflows            []api.SimpleWorkflow            // cached workflow list
+	workflowCursor       int                             // cursor for workflow list
+	selectedTestID       string                          // test selected for run drill-down
+	selectedTestName     string                          // name of selected test
+	testRuns             []api.CLIEnhancedHistoryItem    // runs for the selected test
+	testRunCursor        int                             // cursor for test runs list
+	selectedWorkflowID   string                          // workflow selected for run drill-down
+	selectedWorkflowName string                          // name of selected workflow
+	workflowRuns         []api.CLIWorkflowStatusResponse // runs for the selected workflow
+	workflowRunCursor    int                             // cursor for workflow runs list
+	reportLoading        bool                            // loading indicator for report sub-views
+
+	// Report drill-down filter state
+	reportFilterMode  bool            // whether filter is active in report views
+	reportFilterInput textinput.Model // filter input for report views
+
+	// Manage apps state
+	apps            []api.App          // cached app list
+	appCursor       int                // cursor for app list
+	selectedAppID   string             // app selected for detail view
+	selectedAppName string             // name of selected app
+	appBuilds       []api.BuildVersion // build versions for the selected app
+	appBuildCursor  int                // cursor for build versions list
+	appsLoading     bool               // loading indicator for app views
+	confirmDelete   bool               // whether a delete confirmation is pending
+	deleteTarget    string             // ID of the item pending deletion ("app" or version ID)
 
 	// Shared state
 	loading bool
@@ -97,32 +132,50 @@ func newHubModel(version string, devMode bool) hubModel {
 	ti.Placeholder = "filter tests..."
 	ti.CharLimit = 64
 
+	rfi := textinput.New()
+	rfi.Placeholder = "filter..."
+	rfi.CharLimit = 64
+
 	return hubModel{
-		version:     version,
-		currentView: viewDashboard,
-		loading:     true,
-		spinner:     newSpinner(),
-		filterInput: ti,
-		devMode:     devMode,
+		version:           version,
+		currentView:       viewDashboard,
+		loading:           true,
+		spinner:           newSpinner(),
+		filterInput:       ti,
+		reportFilterInput: rfi,
+		devMode:           devMode,
 	}
 }
 
 // --- Tea commands for async operations ---
 
-// initDataCmd authenticates and fetches dashboard metrics, test list, and recent runs in parallel.
-func initDataCmd(devMode bool) tea.Cmd {
+// AuthMsg carries the authenticated client and token after initial auth succeeds.
+type AuthMsg struct {
+	Client *api.Client
+	Token  string
+	Err    error
+}
+
+// authenticateCmd resolves the auth token and creates an API client.
+// This runs once on startup; the returned client is cached on the model.
+func authenticateCmd(devMode bool) tea.Cmd {
 	return func() tea.Msg {
 		mgr := auth.NewManager()
 		token, err := mgr.GetActiveToken()
 		if err != nil || token == "" {
-			return TestListMsg{Err: fmt.Errorf("not authenticated — run 'revyl auth login' first")}
+			return AuthMsg{Err: fmt.Errorf("not authenticated — run 'revyl auth login' first")}
 		}
-
 		client := api.NewClientWithDevMode(token, devMode)
+		return AuthMsg{Client: client, Token: token}
+	}
+}
+
+// fetchTestsCmd fetches the org test list using an already-authenticated client.
+func fetchTestsCmd(client *api.Client) tea.Cmd {
+	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		// Fetch tests (blocking -- we need the list for recent runs)
 		resp, err := client.ListOrgTests(ctx, 100, 0)
 		if err != nil {
 			return TestListMsg{Err: fmt.Errorf("failed to fetch tests: %w", err)}
@@ -156,11 +209,6 @@ func fetchRecentRunsCmd(client *api.Client, tests []TestItem, count int) tea.Cmd
 		n := count
 		if n > len(tests) {
 			n = len(tests)
-		}
-
-		type result struct {
-			run RecentRun
-			ok  bool
 		}
 
 		var mu sync.Mutex
@@ -211,11 +259,199 @@ func fetchRecentRunsCmd(client *api.Client, tests []TestItem, count int) tea.Cmd
 	}
 }
 
+// fetchAllRunsCmd fetches all recent runs (up to 25) for the "View all runs" screen.
+func fetchAllRunsCmd(client *api.Client, tests []TestItem) tea.Cmd {
+	return func() tea.Msg {
+		if len(tests) == 0 {
+			return AllRunsMsg{}
+		}
+		n := len(tests)
+		if n > 25 {
+			n = 25
+		}
+
+		var mu sync.Mutex
+		var results []RecentRun
+		var wg sync.WaitGroup
+
+		for i := 0; i < n; i++ {
+			wg.Add(1)
+			go func(t TestItem) {
+				defer wg.Done()
+				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				defer cancel()
+				hist, err := client.GetTestEnhancedHistory(ctx, t.ID, 1, 0)
+				if err != nil || len(hist.Items) == 0 {
+					return
+				}
+				item := hist.Items[0]
+				var ts time.Time
+				if item.ExecutionTime != "" {
+					ts, _ = time.Parse(time.RFC3339, item.ExecutionTime)
+				}
+				dur := ""
+				if item.Duration != nil {
+					dur = fmt.Sprintf("%.0fs", *item.Duration)
+				}
+				mu.Lock()
+				results = append(results, RecentRun{
+					TestID:   t.ID,
+					TestName: t.Name,
+					Status:   item.Status,
+					Duration: dur,
+					Time:     ts,
+					TaskID:   item.ID,
+				})
+				mu.Unlock()
+			}(tests[i])
+		}
+		wg.Wait()
+
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].Time.After(results[j].Time)
+		})
+
+		return AllRunsMsg{Runs: results}
+	}
+}
+
+// fetchWorkflowsCmd fetches the org workflow list.
+//
+// Parameters:
+//   - client: authenticated API client
+//
+// Returns:
+//   - tea.Cmd: command that produces a WorkflowListMsg
+func fetchWorkflowsCmd(client *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		resp, err := client.ListWorkflows(ctx)
+		if err != nil {
+			return WorkflowListMsg{Err: fmt.Errorf("failed to fetch workflows: %w", err)}
+		}
+		return WorkflowListMsg{Workflows: resp.Workflows}
+	}
+}
+
+// fetchTestHistoryCmd fetches execution history for a specific test.
+//
+// Parameters:
+//   - client: authenticated API client
+//   - testID: the test to fetch history for
+//
+// Returns:
+//   - tea.Cmd: command that produces a TestHistoryMsg
+func fetchTestHistoryCmd(client *api.Client, testID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		resp, err := client.GetTestEnhancedHistory(ctx, testID, 20, 0)
+		if err != nil {
+			return TestHistoryMsg{Err: fmt.Errorf("failed to fetch test history: %w", err)}
+		}
+		return TestHistoryMsg{Runs: resp.Items}
+	}
+}
+
+// fetchWorkflowHistoryCmd fetches execution history for a specific workflow.
+//
+// Parameters:
+//   - client: authenticated API client
+//   - workflowID: the workflow to fetch history for
+//
+// Returns:
+//   - tea.Cmd: command that produces a WorkflowHistoryMsg
+func fetchWorkflowHistoryCmd(client *api.Client, workflowID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		resp, err := client.GetWorkflowHistory(ctx, workflowID, 20, 0)
+		if err != nil {
+			return WorkflowHistoryMsg{Err: fmt.Errorf("failed to fetch workflow history: %w", err)}
+		}
+		return WorkflowHistoryMsg{Runs: resp.Executions}
+	}
+}
+
+// fetchAppsCmd fetches the org app list.
+//
+// Parameters:
+//   - client: authenticated API client
+//
+// Returns:
+//   - tea.Cmd: command that produces an AppListMsg
+func fetchAppsCmd(client *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		resp, err := client.ListApps(ctx, "", 1, 100)
+		if err != nil {
+			return AppListMsg{Err: fmt.Errorf("failed to fetch apps: %w", err)}
+		}
+		return AppListMsg{Apps: resp.Items}
+	}
+}
+
+// fetchAppBuildsCmd fetches build versions for a specific app.
+//
+// Parameters:
+//   - client: authenticated API client
+//   - appID: the app to fetch builds for
+//
+// Returns:
+//   - tea.Cmd: command that produces an AppBuildVersionsMsg
+func fetchAppBuildsCmd(client *api.Client, appID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		versions, err := client.ListBuildVersions(ctx, appID)
+		if err != nil {
+			return AppBuildVersionsMsg{Err: fmt.Errorf("failed to fetch builds: %w", err)}
+		}
+		return AppBuildVersionsMsg{Versions: versions}
+	}
+}
+
+// deleteAppCmd deletes an app by ID.
+//
+// Parameters:
+//   - client: authenticated API client
+//   - appID: the app to delete
+//
+// Returns:
+//   - tea.Cmd: command that produces an AppDeletedMsg
+func deleteAppCmd(client *api.Client, appID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := client.DeleteApp(ctx, appID)
+		return AppDeletedMsg{Err: err}
+	}
+}
+
+// deleteBuildCmd deletes a build version by ID.
+//
+// Parameters:
+//   - client: authenticated API client
+//   - versionID: the build version to delete
+//
+// Returns:
+//   - tea.Cmd: command that produces a BuildDeletedMsg
+func deleteBuildCmd(client *api.Client, versionID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := client.DeleteBuildVersion(ctx, versionID)
+		return BuildDeletedMsg{Err: err}
+	}
+}
+
 // --- Bubble Tea interface ---
 
-// Init starts the spinner and kicks off the initial data fetch.
+// Init starts the spinner and kicks off authentication.
 func (m hubModel) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, initDataCmd(m.devMode))
+	return tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
 }
 
 // Update handles all incoming messages and key events.
@@ -238,12 +474,50 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.currentView == viewTestList {
 			return m.handleTestListKey(msg)
 		}
+		if m.currentView == viewRunsList {
+			return m.handleRunsListKey(msg)
+		}
+		if m.currentView == viewReportPicker {
+			return m.handleReportPickerKey(msg)
+		}
+		if m.currentView == viewTestReports {
+			return m.handleTestReportsKey(msg)
+		}
+		if m.currentView == viewTestRuns {
+			return m.handleTestRunsKey(msg)
+		}
+		if m.currentView == viewWorkflowReports {
+			return m.handleWorkflowReportsKey(msg)
+		}
+		if m.currentView == viewWorkflowRuns {
+			return m.handleWorkflowRunsKey(msg)
+		}
+		if m.currentView == viewAppList {
+			return m.handleAppListKey(msg)
+		}
+		if m.currentView == viewAppDetail {
+			return m.handleAppDetailKey(msg)
+		}
 		return m.handleDashboardKey(msg)
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
+
+	case AuthMsg:
+		if msg.Err != nil {
+			m.loading = false
+			m.err = msg.Err
+			return m, nil
+		}
+		m.apiKey = msg.Token
+		m.client = msg.Client
+		// Fire tests, metrics, and recent-runs fetch all in parallel
+		return m, tea.Batch(
+			fetchTestsCmd(m.client),
+			fetchDashboardMetricsCmd(m.client),
+		)
 
 	case TestListMsg:
 		m.loading = false
@@ -252,15 +526,11 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.tests = msg.Tests
-		mgr := auth.NewManager()
-		token, _ := mgr.GetActiveToken()
-		m.apiKey = token
-		m.client = api.NewClientWithDevMode(token, m.devMode)
-		// Now fetch metrics and recent runs in parallel
-		return m, tea.Batch(
-			fetchDashboardMetricsCmd(m.client),
-			fetchRecentRunsCmd(m.client, m.tests, 10),
-		)
+		// Now fetch recent runs (depends on test list)
+		if m.client != nil {
+			return m, fetchRecentRunsCmd(m.client, m.tests, 5)
+		}
+		return m, nil
 
 	case DashboardDataMsg:
 		if msg.Err == nil {
@@ -274,8 +544,69 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case AllRunsMsg:
+		m.allRunsLoaded = true
+		if msg.Err == nil {
+			m.allRuns = msg.Runs
+		}
+		return m, nil
+
 	case doctorDoneMsg:
-		// Doctor subprocess finished; redraw the dashboard.
+		return m, nil
+
+	case WorkflowListMsg:
+		m.reportLoading = false
+		if msg.Err == nil {
+			m.workflows = msg.Workflows
+		}
+		return m, nil
+
+	case TestHistoryMsg:
+		m.reportLoading = false
+		if msg.Err == nil {
+			m.testRuns = msg.Runs
+		}
+		return m, nil
+
+	case WorkflowHistoryMsg:
+		m.reportLoading = false
+		if msg.Err == nil {
+			m.workflowRuns = msg.Runs
+		}
+		return m, nil
+
+	case AppListMsg:
+		m.appsLoading = false
+		if msg.Err == nil {
+			m.apps = msg.Apps
+		}
+		return m, nil
+
+	case AppBuildVersionsMsg:
+		m.appsLoading = false
+		if msg.Err == nil {
+			m.appBuilds = msg.Versions
+		}
+		return m, nil
+
+	case AppDeletedMsg:
+		m.appsLoading = false
+		m.confirmDelete = false
+		m.deleteTarget = ""
+		if msg.Err == nil && m.client != nil {
+			m.appsLoading = true
+			return m, fetchAppsCmd(m.client)
+		}
+		return m, nil
+
+	case BuildDeletedMsg:
+		m.appsLoading = false
+		m.confirmDelete = false
+		m.deleteTarget = ""
+		if msg.Err == nil && m.client != nil && m.selectedAppID != "" {
+			m.appsLoading = true
+			return m, fetchAppBuildsCmd(m.client, m.selectedAppID)
+		}
 		return m, nil
 	}
 
@@ -297,7 +628,6 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "tab":
-		// Toggle focus between Recent Runs and Quick Actions
 		if m.focus == focusActions {
 			if len(m.recentRuns) > 0 {
 				m.focus = focusRecent
@@ -340,34 +670,18 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.executeQuickAction()
 
-	case "1":
-		m.focus = focusActions
-		m.actionCursor = 0
-		return m.executeQuickAction()
-	case "2":
-		m.focus = focusActions
-		m.actionCursor = 1
-		return m.executeQuickAction()
-	case "3":
-		m.focus = focusActions
-		m.actionCursor = 2
-		return m.executeQuickAction()
-	case "4":
-		m.focus = focusActions
-		m.actionCursor = 3
-		return m.executeQuickAction()
-	case "5":
-		m.focus = focusActions
-		m.actionCursor = 4
-		return m.executeQuickAction()
-	case "6":
-		m.focus = focusActions
-		m.actionCursor = 5
-		return m.executeQuickAction()
+	case "1", "2", "3", "4", "5", "6", "7", "8":
+		idx := int(msg.String()[0]-'0') - 1
+		if idx < len(quickActions) {
+			m.focus = focusActions
+			m.actionCursor = idx
+			return m.executeQuickAction()
+		}
 
 	case "/":
 		m.currentView = viewTestList
 		m.testCursor = 0
+		m.testBrowse = false
 		m.filterMode = true
 		m.filterInput.Focus()
 		return m, textinput.Blink
@@ -377,7 +691,15 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.metrics = nil
 		m.recentRuns = nil
-		return m, tea.Batch(m.spinner.Tick, initDataCmd(m.devMode))
+		if m.client != nil {
+			// Reuse cached client for refresh
+			return m, tea.Batch(
+				m.spinner.Tick,
+				fetchTestsCmd(m.client),
+				fetchDashboardMetricsCmd(m.client),
+			)
+		}
+		return m, tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
 	}
 
 	return m, nil
@@ -394,6 +716,7 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 	case "run":
 		m.currentView = viewTestList
 		m.testCursor = 0
+		m.testBrowse = false
 		m.filteredTests = nil
 		m.filterInput.SetValue("")
 		return m, nil
@@ -404,26 +727,24 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		m.currentView = viewCreateTest
 		return m, m.createModel.Init()
 
-	case "workflows":
-		dashURL := fmt.Sprintf("%s/workflows", config.GetAppURL(m.devMode))
-		_ = ui.OpenBrowser(dashURL)
+	case "reports":
+		m.currentView = viewReportPicker
+		m.reportTypeCursor = 0
 		return m, nil
 
-	case "reports":
-		reportsURL := fmt.Sprintf("%s/tests", config.GetAppURL(m.devMode))
-		_ = ui.OpenBrowser(reportsURL)
+	case "apps":
+		m.currentView = viewAppList
+		m.appCursor = 0
+		m.appsLoading = true
+		if m.client != nil {
+			return m, fetchAppsCmd(m.client)
+		}
 		return m, nil
 
 	case "dashboard":
 		dashURL := config.GetAppURL(m.devMode)
 		_ = ui.OpenBrowser(dashURL)
 		return m, nil
-
-	case "doctor":
-		// For MVP, open doctor in a note; full inline TUI doctor is a future enhancement
-		return m, tea.ExecProcess(doctorCmd(), func(err error) tea.Msg {
-			return doctorDoneMsg{err: err}
-		})
 	}
 	return m, nil
 }
@@ -461,6 +782,7 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentView = viewDashboard
 		m.filteredTests = nil
 		m.filterInput.SetValue("")
+		m.testBrowse = false
 		return m, nil
 
 	case "up", "k":
@@ -476,8 +798,16 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		tests := m.visibleTests()
-		if len(tests) > 0 && m.testCursor < len(tests) && m.apiKey != "" {
-			selected := tests[m.testCursor]
+		if len(tests) == 0 || m.testCursor >= len(tests) {
+			break
+		}
+		selected := tests[m.testCursor]
+		if m.testBrowse {
+			// Browse mode: open report in browser
+			reportURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(m.devMode), selected.ID)
+			_ = ui.OpenBrowser(reportURL)
+		} else if m.apiKey != "" {
+			// Run mode: start execution
 			em := newExecutionModel(selected.ID, selected.Name, m.apiKey, m.cfg, m.devMode, m.width, m.height)
 			m.executionModel = &em
 			m.currentView = viewExecution
@@ -493,14 +823,28 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		tests := m.visibleTests()
 		if len(tests) > 0 && m.testCursor < len(tests) {
 			selected := tests[m.testCursor]
-			reportURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(m.devMode), selected.ID)
-			_ = ui.OpenBrowser(reportURL)
+			if m.testBrowse {
+				// In browse mode, r triggers execution
+				if m.apiKey != "" {
+					em := newExecutionModel(selected.ID, selected.Name, m.apiKey, m.cfg, m.devMode, m.width, m.height)
+					m.executionModel = &em
+					m.currentView = viewExecution
+					return m, m.executionModel.Init()
+				}
+			} else {
+				// In run mode, r opens in browser
+				reportURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(m.devMode), selected.ID)
+				_ = ui.OpenBrowser(reportURL)
+			}
 		}
 
 	case "R":
 		m.loading = true
 		m.err = nil
-		return m, tea.Batch(m.spinner.Tick, initDataCmd(m.devMode))
+		if m.client != nil {
+			return m, tea.Batch(m.spinner.Tick, fetchTestsCmd(m.client))
+		}
+		return m, tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
 	}
 
 	return m, nil
@@ -512,9 +856,9 @@ func (m hubModel) updateExecution(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.executionModel != nil && m.executionModel.done {
 			m.currentView = viewDashboard
 			m.executionModel = nil
-			// Refresh recent runs after execution
+			// Refresh recent runs after execution using cached client
 			if m.client != nil {
-				return m, fetchRecentRunsCmd(m.client, m.tests, 10)
+				return m, fetchRecentRunsCmd(m.client, m.tests, 5)
 			}
 			return m, nil
 		}
@@ -696,25 +1040,44 @@ func (m hubModel) View() string {
 		}
 	case viewTestList:
 		return m.renderTestList()
+	case viewRunsList:
+		return m.renderRunsList()
+	case viewReportPicker:
+		return m.renderReportPicker()
+	case viewTestReports:
+		return m.renderTestReports()
+	case viewTestRuns:
+		return m.renderTestRuns()
+	case viewWorkflowReports:
+		return m.renderWorkflowReports()
+	case viewWorkflowRuns:
+		return m.renderWorkflowRuns()
+	case viewAppList:
+		return m.renderAppList()
+	case viewAppDetail:
+		return m.renderAppDetail()
 	}
 	return m.renderDashboard()
 }
 
-// renderDashboard renders the dashboard landing page.
+// renderDashboard renders the dashboard landing page with a styled header banner,
+// colorful stats, recent runs table, and quick actions with descriptions.
 func (m hubModel) renderDashboard() string {
 	var b strings.Builder
 	w := m.width
 	if w == 0 {
 		w = 80
 	}
-	sepW := min(w, 60)
+	innerW := min(w-4, 58)
 
-	b.WriteString(titleStyle.Render(" REVYL") + "  " + versionStyle.Render("v"+m.version) + "\n")
-	b.WriteString(separator(sepW) + "\n")
+	// Header banner with rounded border
+	bannerContent := titleStyle.Render("REVYL") + "  " + versionStyle.Render("v"+m.version)
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
 
 	if m.err != nil {
 		b.WriteString("\n" + errorStyle.Render("  ✗ "+m.err.Error()) + "\n\n")
-		b.WriteString(helpStyle.Render("  R refresh  q quit") + "\n")
+		b.WriteString("  " + strings.Join([]string{helpKeyRender("R", "refresh"), helpKeyRender("q", "quit")}, "  ") + "\n")
 		return b.String()
 	}
 
@@ -725,29 +1088,25 @@ func (m hubModel) renderDashboard() string {
 
 	// Stats
 	b.WriteString(sectionStyle.Render("  STATS") + "\n")
-	b.WriteString("  " + separator(min(w-4, 56)) + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
 	b.WriteString(m.renderStats())
 
 	// Recent runs
-	recentHeader := "  RECENT RUNS"
 	if m.focus == focusRecent {
-		recentHeader = selectedStyle.Render("  RECENT RUNS")
+		b.WriteString(activeSectionStyle.Render("  RECENT RUNS") + "\n")
 	} else {
-		recentHeader = sectionStyle.Render("  RECENT RUNS")
+		b.WriteString(sectionStyle.Render("  RECENT RUNS") + "\n")
 	}
-	b.WriteString(recentHeader + "\n")
-	b.WriteString("  " + separator(min(w-4, 56)) + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
 	b.WriteString(m.renderRecentRuns())
 
 	// Quick actions
-	actionsHeader := "  QUICK ACTIONS"
 	if m.focus == focusActions {
-		actionsHeader = selectedStyle.Render("  QUICK ACTIONS")
+		b.WriteString(activeSectionStyle.Render("  QUICK ACTIONS") + "\n")
 	} else {
-		actionsHeader = sectionStyle.Render("  QUICK ACTIONS")
+		b.WriteString(sectionStyle.Render("  QUICK ACTIONS") + "\n")
 	}
-	b.WriteString(actionsHeader + "\n")
-	b.WriteString("  " + separator(min(w-4, 56)) + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
 	for i, a := range quickActions {
 		cur := "  "
 		style := normalStyle
@@ -756,14 +1115,16 @@ func (m hubModel) renderDashboard() string {
 			style = selectedStyle
 		}
 		num := dimStyle.Render(fmt.Sprintf("[%d] ", i+1))
-		b.WriteString("  " + cur + num + style.Render(a.Label) + "\n")
+		desc := actionDescStyle.Render("  " + a.Desc)
+		b.WriteString("  " + cur + num + style.Render(a.Label) + desc + "\n")
 	}
 
-	b.WriteString("\n  " + separator(min(w-4, 56)) + "\n")
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	jumpLabel := fmt.Sprintf("1-%d", len(quickActions))
 	keys := []string{
 		helpKeyRender("enter", "select"),
 		helpKeyRender("tab", "section"),
-		helpKeyRender("1-6", "jump"),
+		helpKeyRender(jumpLabel, "jump"),
 		helpKeyRender("/", "search"),
 		helpKeyRender("R", "refresh"),
 		helpKeyRender("q", "quit"),
@@ -772,61 +1133,159 @@ func (m hubModel) renderDashboard() string {
 	return b.String()
 }
 
-// renderStats renders the metrics summary row.
+// renderStats renders the metrics summary row with colored values and WoW deltas.
 func (m hubModel) renderStats() string {
 	if m.metrics == nil {
 		return "  " + dimStyle.Render("Loading metrics...") + "\n"
 	}
 	mt := m.metrics
 	parts := []string{
-		metricRender("Tests", fmt.Sprintf("%d", mt.TotalTests)),
-		metricRender("Workflows", fmt.Sprintf("%d", mt.TotalWorkflows)),
-		metricRender("Runs", fmt.Sprintf("%d", mt.TestRuns)),
-		metricRender("Fail", fmt.Sprintf("%.0f%%", mt.TestsFailingPercent)),
+		metricRender("Tests", fmt.Sprintf("%d", mt.TotalTests), mt.TotalTestsWow),
+		metricRender("Workflows", fmt.Sprintf("%d", mt.TotalWorkflows), mt.TotalWorkflowsWow),
+		metricRender("Runs", fmt.Sprintf("%d", mt.TestRuns), mt.TestRunsWow),
+		metricRenderFail("Fail", fmt.Sprintf("%.0f%%", mt.TestsFailingPercent), mt.TestsFailingPercent, mt.TestsFailingPercentWow),
 	}
 	if mt.AvgTestDuration != nil {
-		parts = append(parts, metricRender("Avg", fmt.Sprintf("%.0fs", *mt.AvgTestDuration)))
+		parts = append(parts, metricRender("Avg", fmt.Sprintf("%.0fs", *mt.AvgTestDuration), mt.AvgTestDurationWow))
 	}
 	return "  " + strings.Join(parts, "    ") + "\n"
 }
 
-// metricRender formats a metric label/value pair.
-func metricRender(label, value string) string {
-	return dimStyle.Render(label+" ") + lipgloss.NewStyle().Foreground(white).Bold(true).Render(value)
+// metricRender formats a metric label/value pair with an optional WoW delta arrow.
+//
+// Parameters:
+//   - label: the metric name (e.g. "Tests")
+//   - value: the formatted metric value (e.g. "69")
+//   - wow: optional week-over-week percentage change (nil = no delta shown)
+//
+// Returns:
+//   - string: the styled metric string
+func metricRender(label, value string, wow *float32) string {
+	out := dimStyle.Render(label+" ") + metricValueStyle.Render(value)
+	if wow != nil && *wow != 0 {
+		out += " " + wowDelta(*wow)
+	}
+	return out
 }
 
-// renderRecentRuns renders the recent runs section.
+// metricRenderFail formats the failure metric with conditional coloring.
+// Values above 20% are red, above 10% amber, otherwise green.
+//
+// Parameters:
+//   - label: the metric name
+//   - value: the formatted value string
+//   - pct: the raw percentage for color thresholds
+//   - wow: optional WoW delta
+//
+// Returns:
+//   - string: the styled metric string
+func metricRenderFail(label, value string, pct float32, wow *float32) string {
+	var valStyle lipgloss.Style
+	switch {
+	case pct > 20:
+		valStyle = lipgloss.NewStyle().Foreground(red).Bold(true)
+	case pct > 10:
+		valStyle = lipgloss.NewStyle().Foreground(amber).Bold(true)
+	default:
+		valStyle = lipgloss.NewStyle().Foreground(green).Bold(true)
+	}
+	out := dimStyle.Render(label+" ") + valStyle.Render(value)
+	if wow != nil && *wow != 0 {
+		out += " " + wowDelta(*wow)
+	}
+	return out
+}
+
+// wowDelta renders a week-over-week percentage change with a colored arrow.
+// Positive values are shown in teal with an up arrow, negative in red with a down arrow.
+//
+// Parameters:
+//   - delta: the percentage change value
+//
+// Returns:
+//   - string: the styled delta string (e.g. "^5%" or "v3%")
+func wowDelta(delta float32) string {
+	if delta > 0 {
+		return wowPositiveStyle.Render(fmt.Sprintf("↑%.0f%%", delta))
+	}
+	return wowNegativeStyle.Render(fmt.Sprintf("↓%.0f%%", -delta))
+}
+
+// renderRecentRuns renders the recent runs section with fixed-width columns for
+// icon, test name, status, and relative time.
 func (m hubModel) renderRecentRuns() string {
 	if len(m.recentRuns) == 0 {
 		return "  " + dimStyle.Render("No recent runs") + "\n"
 	}
 	var b strings.Builder
+	nameW := 32
+	statusW := 12
 	for i, r := range m.recentRuns {
 		icon := statusIcon(r.Status)
 		cur := "  "
-		name := normalStyle.Render(r.TestName)
-		if m.focus == focusRecent && i == m.recentRunCursor {
-			cur = selectedStyle.Render("▸ ")
-			name = selectedStyle.Render(r.TestName)
+		name := r.TestName
+		if len(name) > nameW {
+			name = name[:nameW-1] + "…"
 		}
-		status := dimStyle.Render(r.Status)
+
+		isSelected := m.focus == focusRecent && i == m.recentRunCursor
+		if isSelected {
+			cur = selectedStyle.Render("▸ ")
+			name = selectedRowStyle.Render(fmt.Sprintf("%-*s", nameW, name))
+		} else {
+			name = normalStyle.Render(fmt.Sprintf("%-*s", nameW, name))
+		}
+
+		status := statusStyle(r.Status).Render(fmt.Sprintf("%-*s", statusW, r.Status))
 		ago := dimStyle.Render(relativeTime(r.Time))
-		b.WriteString(fmt.Sprintf("  %s%s  %-30s  %-12s  %s\n", cur, icon, name, status, ago))
+		b.WriteString(fmt.Sprintf("  %s%s  %s  %s  %s\n", cur, icon, name, status, ago))
 	}
 	return b.String()
 }
 
+// statusStyle returns a lipgloss.Style appropriate for the given execution status.
+//
+// Parameters:
+//   - status: the execution status string (e.g. "passed", "failed", "running")
+//
+// Returns:
+//   - lipgloss.Style: a colored style for rendering the status text
+func statusStyle(status string) lipgloss.Style {
+	s := strings.ToLower(status)
+	switch {
+	case s == "passed" || s == "completed" || s == "success":
+		return successStyle
+	case s == "failed" || s == "error":
+		return errorStyle
+	case s == "running" || s == "active":
+		return runningStyle
+	case s == "queued" || s == "pending":
+		return warningStyle
+	case s == "cancelled" || s == "timeout":
+		return warningStyle
+	default:
+		return dimStyle
+	}
+}
+
 // renderTestList renders the test list sub-screen.
+// In browse mode (testBrowse=true), enter opens the report and r runs the test.
+// In run mode (testBrowse=false), enter runs the test and r opens the report.
 func (m hubModel) renderTestList() string {
 	var b strings.Builder
 	w := m.width
 	if w == 0 {
 		w = 80
 	}
-	sepW := min(w, 60)
+	innerW := min(w-4, 58)
 
-	b.WriteString(titleStyle.Render(" REVYL") + "  " + dimStyle.Render("Select a test to run") + "\n")
-	b.WriteString(separator(sepW) + "\n")
+	subtitle := "Select a test to run"
+	if m.testBrowse {
+		subtitle = "Browse all tests"
+	}
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render(subtitle)
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
 
 	if m.filterMode {
 		b.WriteString("\n  " + filterPromptStyle.Render("/") + " " + m.filterInput.View() + "\n")
@@ -838,7 +1297,7 @@ func (m hubModel) renderTestList() string {
 		countLabel = fmt.Sprintf("%d/%d", len(m.filteredTests), len(m.tests))
 	}
 	b.WriteString(sectionStyle.Render("  Tests") + " " + dimStyle.Render(countLabel) + "\n")
-	b.WriteString("  " + separator(min(w-4, 56)) + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
 
 	if len(tests) == 0 {
 		if m.filteredTests != nil {
@@ -874,7 +1333,7 @@ func (m hubModel) renderTestList() string {
 			nameStyle := normalStyle
 			if i == m.testCursor {
 				cur = selectedStyle.Render("▸ ")
-				nameStyle = selectedStyle
+				nameStyle = selectedRowStyle
 			}
 			platBadge := ""
 			if t.Platform != "" {
@@ -887,11 +1346,239 @@ func (m hubModel) renderTestList() string {
 		}
 	}
 
-	b.WriteString("\n  " + separator(min(w-4, 56)) + "\n")
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	var keys []string
+	if m.testBrowse {
+		keys = []string{
+			helpKeyRender("enter", "view"),
+			helpKeyRender("r", "run"),
+			helpKeyRender("/", "filter"),
+			helpKeyRender("esc", "back"),
+			helpKeyRender("q", "quit"),
+		}
+	} else {
+		keys = []string{
+			helpKeyRender("enter", "run"),
+			helpKeyRender("/", "filter"),
+			helpKeyRender("r", "open in browser"),
+			helpKeyRender("esc", "back"),
+			helpKeyRender("q", "quit"),
+		}
+	}
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
+// --- Runs list sub-screen ---
+
+// handleRunsListKey processes key events in the runs list sub-screen.
+func (m hubModel) handleRunsListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+
+	case "esc":
+		m.currentView = viewDashboard
+		return m, nil
+
+	case "up", "k":
+		if m.allRunsCursor > 0 {
+			m.allRunsCursor--
+		}
+
+	case "down", "j":
+		if m.allRunsCursor < len(m.allRuns)-1 {
+			m.allRunsCursor++
+		}
+
+	case "enter":
+		if len(m.allRuns) > 0 && m.allRunsCursor < len(m.allRuns) {
+			run := m.allRuns[m.allRunsCursor]
+			if run.TaskID != "" {
+				reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(m.devMode), run.TaskID)
+				_ = ui.OpenBrowser(reportURL)
+			}
+		}
+
+	case "R":
+		m.allRunsLoaded = false
+		m.allRuns = nil
+		if m.client != nil {
+			return m, fetchAllRunsCmd(m.client, m.tests)
+		}
+	}
+
+	return m, nil
+}
+
+// renderRunsList renders the full runs list sub-screen with scrollable entries.
+func (m hubModel) renderRunsList() string {
+	var b strings.Builder
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	innerW := min(w-4, 58)
+
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("All runs")
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
+
+	countLabel := fmt.Sprintf("%d", len(m.allRuns))
+	b.WriteString(sectionStyle.Render("  Runs") + " " + dimStyle.Render(countLabel) + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	if !m.allRunsLoaded {
+		b.WriteString("  " + dimStyle.Render("Loading runs...") + "\n")
+	} else if len(m.allRuns) == 0 {
+		b.WriteString("  " + dimStyle.Render("No runs found") + "\n")
+	} else {
+		nameW := 32
+		statusW := 12
+		maxVisible := m.height - 10
+		if maxVisible < 5 {
+			maxVisible = 5
+		}
+		start := 0
+		if len(m.allRuns) > maxVisible {
+			start = m.allRunsCursor - maxVisible/2
+			if start < 0 {
+				start = 0
+			}
+			if start+maxVisible > len(m.allRuns) {
+				start = len(m.allRuns) - maxVisible
+			}
+		}
+		end := start + maxVisible
+		if end > len(m.allRuns) {
+			end = len(m.allRuns)
+		}
+		if start > 0 {
+			b.WriteString(dimStyle.Render("  ↑ more") + "\n")
+		}
+		for i := start; i < end; i++ {
+			r := m.allRuns[i]
+			icon := statusIcon(r.Status)
+			cur := "  "
+			name := r.TestName
+			if len(name) > nameW {
+				name = name[:nameW-1] + "…"
+			}
+			isSelected := i == m.allRunsCursor
+			if isSelected {
+				cur = selectedStyle.Render("▸ ")
+				name = selectedRowStyle.Render(fmt.Sprintf("%-*s", nameW, name))
+			} else {
+				name = normalStyle.Render(fmt.Sprintf("%-*s", nameW, name))
+			}
+			status := statusStyle(r.Status).Render(fmt.Sprintf("%-*s", statusW, r.Status))
+			ago := dimStyle.Render(relativeTime(r.Time))
+			dur := ""
+			if r.Duration != "" {
+				dur = dimStyle.Render(" " + r.Duration)
+			}
+			b.WriteString(fmt.Sprintf("  %s%s  %s  %s  %s%s\n", cur, icon, name, status, ago, dur))
+		}
+		if end < len(m.allRuns) {
+			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
+		}
+	}
+
+	b.WriteString("\n  " + separator(innerW) + "\n")
 	keys := []string{
-		helpKeyRender("enter", "run"),
-		helpKeyRender("/", "filter"),
-		helpKeyRender("r", "open in browser"),
+		helpKeyRender("enter", "open report"),
+		helpKeyRender("R", "refresh"),
+		helpKeyRender("esc", "back"),
+		helpKeyRender("q", "quit"),
+	}
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
+// --- Report picker ---
+
+// reportTypeOptions defines the report type picker items.
+var reportTypeOptions = []string{"Test reports", "Workflow reports"}
+
+// handleReportPickerKey processes key events on the report type picker screen.
+func (m hubModel) handleReportPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.currentView = viewDashboard
+		return m, nil
+	case "up", "k":
+		if m.reportTypeCursor > 0 {
+			m.reportTypeCursor--
+		}
+	case "down", "j":
+		if m.reportTypeCursor < len(reportTypeOptions)-1 {
+			m.reportTypeCursor++
+		}
+	case "1":
+		m.reportTypeCursor = 0
+		return m.selectReportType()
+	case "2":
+		m.reportTypeCursor = 1
+		return m.selectReportType()
+	case "enter":
+		return m.selectReportType()
+	}
+	return m, nil
+}
+
+// selectReportType transitions to the selected report type sub-view.
+func (m hubModel) selectReportType() (tea.Model, tea.Cmd) {
+	if m.reportTypeCursor == 0 {
+		m.currentView = viewTestReports
+		m.testCursor = 0
+		m.reportFilterMode = false
+		m.reportFilterInput.SetValue("")
+		return m, nil
+	}
+	m.currentView = viewWorkflowReports
+	m.workflowCursor = 0
+	m.reportLoading = true
+	m.reportFilterMode = false
+	m.reportFilterInput.SetValue("")
+	if m.client != nil {
+		return m, fetchWorkflowsCmd(m.client)
+	}
+	return m, nil
+}
+
+// renderReportPicker renders the report type selection screen.
+func (m hubModel) renderReportPicker() string {
+	var b strings.Builder
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	innerW := min(w-4, 58)
+
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("View reports")
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
+
+	b.WriteString(sectionStyle.Render("  Report Type") + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	for i, opt := range reportTypeOptions {
+		cur := "  "
+		style := normalStyle
+		if i == m.reportTypeCursor {
+			cur = selectedStyle.Render("▸ ")
+			style = selectedStyle
+		}
+		num := dimStyle.Render(fmt.Sprintf("[%d] ", i+1))
+		b.WriteString("  " + cur + num + style.Render(opt) + "\n")
+	}
+
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("enter", "select"),
+		helpKeyRender("1-2", "jump"),
 		helpKeyRender("esc", "back"),
 		helpKeyRender("q", "quit"),
 	}
@@ -903,6 +1590,823 @@ func (m hubModel) renderTestList() string {
 func helpKeyRender(key, desc string) string {
 	return lipgloss.NewStyle().Foreground(purple).Bold(true).Render(key) +
 		" " + helpStyle.Render(desc)
+}
+
+// --- Test reports drill-down ---
+
+// handleTestReportsKey processes key events on the test reports list.
+func (m hubModel) handleTestReportsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.reportFilterMode {
+		switch msg.String() {
+		case "esc":
+			m.reportFilterMode = false
+			m.reportFilterInput.Blur()
+			m.reportFilterInput.SetValue("")
+			return m, nil
+		case "enter":
+			m.reportFilterMode = false
+			m.reportFilterInput.Blur()
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.reportFilterInput, cmd = m.reportFilterInput.Update(msg)
+			return m, cmd
+		}
+	}
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.currentView = viewReportPicker
+		m.reportFilterInput.SetValue("")
+		return m, nil
+	case "up", "k":
+		if m.testCursor > 0 {
+			m.testCursor--
+		}
+	case "down", "j":
+		filtered := m.filteredReportTests()
+		if m.testCursor < len(filtered)-1 {
+			m.testCursor++
+		}
+	case "enter":
+		filtered := m.filteredReportTests()
+		if len(filtered) > 0 && m.testCursor < len(filtered) {
+			selected := filtered[m.testCursor]
+			m.selectedTestID = selected.ID
+			m.selectedTestName = selected.Name
+			m.testRunCursor = 0
+			m.testRuns = nil
+			m.reportLoading = true
+			m.currentView = viewTestRuns
+			if m.client != nil {
+				return m, fetchTestHistoryCmd(m.client, selected.ID)
+			}
+		}
+	case "/":
+		m.reportFilterMode = true
+		m.reportFilterInput.Focus()
+		return m, textinput.Blink
+	case "R":
+		if m.client != nil {
+			m.loading = true
+			return m, tea.Batch(m.spinner.Tick, fetchTestsCmd(m.client))
+		}
+	}
+	return m, nil
+}
+
+// filteredReportTests returns tests filtered by the report filter input.
+func (m *hubModel) filteredReportTests() []TestItem {
+	query := strings.ToLower(m.reportFilterInput.Value())
+	if query == "" {
+		return m.tests
+	}
+	var filtered []TestItem
+	for _, t := range m.tests {
+		if strings.Contains(strings.ToLower(t.Name), query) ||
+			strings.Contains(strings.ToLower(t.Platform), query) {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
+// handleTestRunsKey processes key events on the test runs list.
+func (m hubModel) handleTestRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.currentView = viewTestReports
+		return m, nil
+	case "up", "k":
+		if m.testRunCursor > 0 {
+			m.testRunCursor--
+		}
+	case "down", "j":
+		if m.testRunCursor < len(m.testRuns)-1 {
+			m.testRunCursor++
+		}
+	case "enter":
+		if len(m.testRuns) > 0 && m.testRunCursor < len(m.testRuns) {
+			run := m.testRuns[m.testRunCursor]
+			reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(m.devMode), run.ID)
+			_ = ui.OpenBrowser(reportURL)
+		}
+	case "R":
+		if m.client != nil && m.selectedTestID != "" {
+			m.reportLoading = true
+			m.testRuns = nil
+			return m, fetchTestHistoryCmd(m.client, m.selectedTestID)
+		}
+	}
+	return m, nil
+}
+
+// renderTestReports renders the test list for the report drill-down.
+func (m hubModel) renderTestReports() string {
+	var b strings.Builder
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	innerW := min(w-4, 58)
+
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Test reports")
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
+
+	if m.reportFilterMode {
+		b.WriteString("\n  " + filterPromptStyle.Render("/") + " " + m.reportFilterInput.View() + "\n")
+	}
+
+	tests := m.filteredReportTests()
+	countLabel := fmt.Sprintf("%d", len(tests))
+	if m.reportFilterInput.Value() != "" {
+		countLabel = fmt.Sprintf("%d/%d", len(tests), len(m.tests))
+	}
+	b.WriteString(sectionStyle.Render("  Tests") + " " + dimStyle.Render(countLabel) + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	if len(tests) == 0 {
+		b.WriteString("  " + dimStyle.Render("No tests found") + "\n")
+	} else {
+		maxVisible := m.height - 12
+		if maxVisible < 5 {
+			maxVisible = 5
+		}
+		start, end := scrollWindow(m.testCursor, len(tests), maxVisible)
+		if start > 0 {
+			b.WriteString(dimStyle.Render("  ↑ more") + "\n")
+		}
+		for i := start; i < end; i++ {
+			t := tests[i]
+			cur := "  "
+			nameStyle := normalStyle
+			if i == m.testCursor {
+				cur = selectedStyle.Render("▸ ")
+				nameStyle = selectedRowStyle
+			}
+			platBadge := ""
+			if t.Platform != "" {
+				platBadge = platformStyle.Render(" [" + t.Platform + "]")
+			}
+			b.WriteString("  " + cur + nameStyle.Render(t.Name) + platBadge + "\n")
+		}
+		if end < len(tests) {
+			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
+		}
+	}
+
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("enter", "view runs"),
+		helpKeyRender("/", "filter"),
+		helpKeyRender("esc", "back"),
+		helpKeyRender("q", "quit"),
+	}
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
+// renderTestRuns renders the run history list for a specific test.
+func (m hubModel) renderTestRuns() string {
+	var b strings.Builder
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	innerW := min(w-4, 58)
+
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render(m.selectedTestName)
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
+
+	b.WriteString(sectionStyle.Render("  Runs") + " " + dimStyle.Render(fmt.Sprintf("%d", len(m.testRuns))) + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	if m.reportLoading {
+		b.WriteString("  " + m.spinner.View() + " Loading runs...\n")
+	} else if len(m.testRuns) == 0 {
+		b.WriteString("  " + dimStyle.Render("No runs found") + "\n")
+	} else {
+		nameW := 14
+		statusW := 12
+		maxVisible := m.height - 10
+		if maxVisible < 5 {
+			maxVisible = 5
+		}
+		start, end := scrollWindow(m.testRunCursor, len(m.testRuns), maxVisible)
+		if start > 0 {
+			b.WriteString(dimStyle.Render("  ↑ more") + "\n")
+		}
+		for i := start; i < end; i++ {
+			r := m.testRuns[i]
+			icon := statusIcon(r.Status)
+			cur := "  "
+			isSelected := i == m.testRunCursor
+			if isSelected {
+				cur = selectedStyle.Render("▸ ")
+			}
+			var ts time.Time
+			if r.ExecutionTime != "" {
+				ts, _ = time.Parse(time.RFC3339, r.ExecutionTime)
+			}
+			dur := ""
+			if r.Duration != nil {
+				dur = fmt.Sprintf("%.0fs", *r.Duration)
+			}
+			status := statusStyle(r.Status).Render(fmt.Sprintf("%-*s", statusW, r.Status))
+			durStr := dimStyle.Render(fmt.Sprintf("%-*s", nameW, dur))
+			ago := dimStyle.Render(relativeTime(ts))
+			b.WriteString(fmt.Sprintf("  %s%s  %s  %s  %s\n", cur, icon, status, durStr, ago))
+		}
+		if end < len(m.testRuns) {
+			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
+		}
+	}
+
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("enter", "open report"),
+		helpKeyRender("R", "refresh"),
+		helpKeyRender("esc", "back"),
+		helpKeyRender("q", "quit"),
+	}
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
+// --- Workflow reports drill-down ---
+
+// handleWorkflowReportsKey processes key events on the workflow reports list.
+func (m hubModel) handleWorkflowReportsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.reportFilterMode {
+		switch msg.String() {
+		case "esc":
+			m.reportFilterMode = false
+			m.reportFilterInput.Blur()
+			m.reportFilterInput.SetValue("")
+			return m, nil
+		case "enter":
+			m.reportFilterMode = false
+			m.reportFilterInput.Blur()
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.reportFilterInput, cmd = m.reportFilterInput.Update(msg)
+			return m, cmd
+		}
+	}
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.currentView = viewReportPicker
+		m.reportFilterInput.SetValue("")
+		return m, nil
+	case "up", "k":
+		if m.workflowCursor > 0 {
+			m.workflowCursor--
+		}
+	case "down", "j":
+		filtered := m.filteredWorkflows()
+		if m.workflowCursor < len(filtered)-1 {
+			m.workflowCursor++
+		}
+	case "enter":
+		filtered := m.filteredWorkflows()
+		if len(filtered) > 0 && m.workflowCursor < len(filtered) {
+			selected := filtered[m.workflowCursor]
+			m.selectedWorkflowID = selected.ID
+			m.selectedWorkflowName = selected.Name
+			m.workflowRunCursor = 0
+			m.workflowRuns = nil
+			m.reportLoading = true
+			m.currentView = viewWorkflowRuns
+			if m.client != nil {
+				return m, fetchWorkflowHistoryCmd(m.client, selected.ID)
+			}
+		}
+	case "/":
+		m.reportFilterMode = true
+		m.reportFilterInput.Focus()
+		return m, textinput.Blink
+	case "R":
+		if m.client != nil {
+			m.reportLoading = true
+			m.workflows = nil
+			return m, fetchWorkflowsCmd(m.client)
+		}
+	}
+	return m, nil
+}
+
+// filteredWorkflows returns workflows filtered by the report filter input.
+func (m *hubModel) filteredWorkflows() []api.SimpleWorkflow {
+	query := strings.ToLower(m.reportFilterInput.Value())
+	if query == "" {
+		return m.workflows
+	}
+	var filtered []api.SimpleWorkflow
+	for _, w := range m.workflows {
+		if strings.Contains(strings.ToLower(w.Name), query) {
+			filtered = append(filtered, w)
+		}
+	}
+	return filtered
+}
+
+// handleWorkflowRunsKey processes key events on the workflow runs list.
+func (m hubModel) handleWorkflowRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.currentView = viewWorkflowReports
+		return m, nil
+	case "up", "k":
+		if m.workflowRunCursor > 0 {
+			m.workflowRunCursor--
+		}
+	case "down", "j":
+		if m.workflowRunCursor < len(m.workflowRuns)-1 {
+			m.workflowRunCursor++
+		}
+	case "enter":
+		if len(m.workflowRuns) > 0 && m.workflowRunCursor < len(m.workflowRuns) {
+			run := m.workflowRuns[m.workflowRunCursor]
+			taskID := run.ExecutionID
+			if taskID == "" {
+				taskID = run.WorkflowID
+			}
+			reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(m.devMode), taskID)
+			_ = ui.OpenBrowser(reportURL)
+		}
+	case "R":
+		if m.client != nil && m.selectedWorkflowID != "" {
+			m.reportLoading = true
+			m.workflowRuns = nil
+			return m, fetchWorkflowHistoryCmd(m.client, m.selectedWorkflowID)
+		}
+	}
+	return m, nil
+}
+
+// renderWorkflowReports renders the workflow list for the report drill-down.
+func (m hubModel) renderWorkflowReports() string {
+	var b strings.Builder
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	innerW := min(w-4, 58)
+
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Workflow reports")
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
+
+	if m.reportFilterMode {
+		b.WriteString("\n  " + filterPromptStyle.Render("/") + " " + m.reportFilterInput.View() + "\n")
+	}
+
+	workflows := m.filteredWorkflows()
+	countLabel := fmt.Sprintf("%d", len(workflows))
+	if m.reportFilterInput.Value() != "" && len(m.workflows) > 0 {
+		countLabel = fmt.Sprintf("%d/%d", len(workflows), len(m.workflows))
+	}
+	b.WriteString(sectionStyle.Render("  Workflows") + " " + dimStyle.Render(countLabel) + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	if m.reportLoading {
+		b.WriteString("  " + m.spinner.View() + " Loading workflows...\n")
+	} else if len(workflows) == 0 {
+		b.WriteString("  " + dimStyle.Render("No workflows found") + "\n")
+	} else {
+		maxVisible := m.height - 12
+		if maxVisible < 5 {
+			maxVisible = 5
+		}
+		start, end := scrollWindow(m.workflowCursor, len(workflows), maxVisible)
+		if start > 0 {
+			b.WriteString(dimStyle.Render("  ↑ more") + "\n")
+		}
+		for i := start; i < end; i++ {
+			wf := workflows[i]
+			cur := "  "
+			nameStyle := normalStyle
+			if i == m.workflowCursor {
+				cur = selectedStyle.Render("▸ ")
+				nameStyle = selectedRowStyle
+			}
+			b.WriteString("  " + cur + nameStyle.Render(wf.Name) + "\n")
+		}
+		if end < len(workflows) {
+			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
+		}
+	}
+
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("enter", "view runs"),
+		helpKeyRender("/", "filter"),
+		helpKeyRender("R", "refresh"),
+		helpKeyRender("esc", "back"),
+		helpKeyRender("q", "quit"),
+	}
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
+// renderWorkflowRuns renders the run history list for a specific workflow.
+func (m hubModel) renderWorkflowRuns() string {
+	var b strings.Builder
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	innerW := min(w-4, 58)
+
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render(m.selectedWorkflowName)
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
+
+	b.WriteString(sectionStyle.Render("  Runs") + " " + dimStyle.Render(fmt.Sprintf("%d", len(m.workflowRuns))) + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	if m.reportLoading {
+		b.WriteString("  " + m.spinner.View() + " Loading runs...\n")
+	} else if len(m.workflowRuns) == 0 {
+		b.WriteString("  " + dimStyle.Render("No runs found") + "\n")
+	} else {
+		statusW := 12
+		maxVisible := m.height - 10
+		if maxVisible < 5 {
+			maxVisible = 5
+		}
+		start, end := scrollWindow(m.workflowRunCursor, len(m.workflowRuns), maxVisible)
+		if start > 0 {
+			b.WriteString(dimStyle.Render("  ↑ more") + "\n")
+		}
+		for i := start; i < end; i++ {
+			r := m.workflowRuns[i]
+			icon := statusIcon(r.Status)
+			cur := "  "
+			if i == m.workflowRunCursor {
+				cur = selectedStyle.Render("▸ ")
+			}
+			status := statusStyle(r.Status).Render(fmt.Sprintf("%-*s", statusW, r.Status))
+			progress := dimStyle.Render(fmt.Sprintf("%d/%d tests", r.CompletedTests, r.TotalTests))
+			dur := ""
+			if r.Duration != "" {
+				dur = dimStyle.Render("  " + r.Duration)
+			}
+			var ts time.Time
+			if r.StartedAt != "" {
+				ts, _ = time.Parse(time.RFC3339, r.StartedAt)
+			}
+			ago := dimStyle.Render(relativeTime(ts))
+			b.WriteString(fmt.Sprintf("  %s%s  %s  %s%s  %s\n", cur, icon, status, progress, dur, ago))
+		}
+		if end < len(m.workflowRuns) {
+			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
+		}
+	}
+
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("enter", "open report"),
+		helpKeyRender("R", "refresh"),
+		helpKeyRender("esc", "back"),
+		helpKeyRender("q", "quit"),
+	}
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
+// --- Manage apps ---
+
+// handleAppListKey processes key events on the app list screen.
+func (m hubModel) handleAppListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.confirmDelete {
+		switch msg.String() {
+		case "y", "Y":
+			if m.appCursor < len(m.apps) && m.client != nil {
+				m.appsLoading = true
+				m.confirmDelete = false
+				return m, deleteAppCmd(m.client, m.apps[m.appCursor].ID)
+			}
+		default:
+			m.confirmDelete = false
+			m.deleteTarget = ""
+		}
+		return m, nil
+	}
+
+	if m.reportFilterMode {
+		switch msg.String() {
+		case "esc":
+			m.reportFilterMode = false
+			m.reportFilterInput.Blur()
+			m.reportFilterInput.SetValue("")
+			return m, nil
+		case "enter":
+			m.reportFilterMode = false
+			m.reportFilterInput.Blur()
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.reportFilterInput, cmd = m.reportFilterInput.Update(msg)
+			return m, cmd
+		}
+	}
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.currentView = viewDashboard
+		m.reportFilterInput.SetValue("")
+		return m, nil
+	case "up", "k":
+		if m.appCursor > 0 {
+			m.appCursor--
+		}
+	case "down", "j":
+		filtered := m.filteredApps()
+		if m.appCursor < len(filtered)-1 {
+			m.appCursor++
+		}
+	case "enter":
+		filtered := m.filteredApps()
+		if len(filtered) > 0 && m.appCursor < len(filtered) {
+			selected := filtered[m.appCursor]
+			m.selectedAppID = selected.ID
+			m.selectedAppName = selected.Name
+			m.appBuildCursor = 0
+			m.appBuilds = nil
+			m.appsLoading = true
+			m.currentView = viewAppDetail
+			if m.client != nil {
+				return m, fetchAppBuildsCmd(m.client, selected.ID)
+			}
+		}
+	case "d":
+		filtered := m.filteredApps()
+		if len(filtered) > 0 && m.appCursor < len(filtered) {
+			m.confirmDelete = true
+			m.deleteTarget = "app"
+		}
+	case "/":
+		m.reportFilterMode = true
+		m.reportFilterInput.Focus()
+		return m, textinput.Blink
+	case "R":
+		if m.client != nil {
+			m.appsLoading = true
+			m.apps = nil
+			return m, fetchAppsCmd(m.client)
+		}
+	}
+	return m, nil
+}
+
+// filteredApps returns apps filtered by the report filter input.
+func (m *hubModel) filteredApps() []api.App {
+	query := strings.ToLower(m.reportFilterInput.Value())
+	if query == "" {
+		return m.apps
+	}
+	var filtered []api.App
+	for _, a := range m.apps {
+		if strings.Contains(strings.ToLower(a.Name), query) ||
+			strings.Contains(strings.ToLower(a.Platform), query) {
+			filtered = append(filtered, a)
+		}
+	}
+	return filtered
+}
+
+// handleAppDetailKey processes key events on the app detail (build versions) screen.
+func (m hubModel) handleAppDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.confirmDelete {
+		switch msg.String() {
+		case "y", "Y":
+			if m.appBuildCursor < len(m.appBuilds) && m.client != nil {
+				m.appsLoading = true
+				m.confirmDelete = false
+				return m, deleteBuildCmd(m.client, m.appBuilds[m.appBuildCursor].ID)
+			}
+		default:
+			m.confirmDelete = false
+			m.deleteTarget = ""
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.currentView = viewAppList
+		m.confirmDelete = false
+		return m, nil
+	case "up", "k":
+		if m.appBuildCursor > 0 {
+			m.appBuildCursor--
+		}
+	case "down", "j":
+		if m.appBuildCursor < len(m.appBuilds)-1 {
+			m.appBuildCursor++
+		}
+	case "d":
+		if len(m.appBuilds) > 0 && m.appBuildCursor < len(m.appBuilds) {
+			m.confirmDelete = true
+			m.deleteTarget = m.appBuilds[m.appBuildCursor].ID
+		}
+	case "R":
+		if m.client != nil && m.selectedAppID != "" {
+			m.appsLoading = true
+			m.appBuilds = nil
+			return m, fetchAppBuildsCmd(m.client, m.selectedAppID)
+		}
+	}
+	return m, nil
+}
+
+// renderAppList renders the app list screen.
+func (m hubModel) renderAppList() string {
+	var b strings.Builder
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	innerW := min(w-4, 58)
+
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Manage apps")
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
+
+	if m.reportFilterMode {
+		b.WriteString("\n  " + filterPromptStyle.Render("/") + " " + m.reportFilterInput.View() + "\n")
+	}
+
+	apps := m.filteredApps()
+	countLabel := fmt.Sprintf("%d", len(apps))
+	if m.reportFilterInput.Value() != "" && len(m.apps) > 0 {
+		countLabel = fmt.Sprintf("%d/%d", len(apps), len(m.apps))
+	}
+	b.WriteString(sectionStyle.Render("  Apps") + " " + dimStyle.Render(countLabel) + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	if m.confirmDelete {
+		b.WriteString("\n  " + warningStyle.Render("Delete this app? (y/n)") + "\n\n")
+	}
+
+	if m.appsLoading {
+		b.WriteString("  " + m.spinner.View() + " Loading apps...\n")
+	} else if len(apps) == 0 {
+		b.WriteString("  " + dimStyle.Render("No apps found") + "\n")
+	} else {
+		maxVisible := m.height - 12
+		if maxVisible < 5 {
+			maxVisible = 5
+		}
+		start, end := scrollWindow(m.appCursor, len(apps), maxVisible)
+		if start > 0 {
+			b.WriteString(dimStyle.Render("  ↑ more") + "\n")
+		}
+		for i := start; i < end; i++ {
+			a := apps[i]
+			cur := "  "
+			nameStyle := normalStyle
+			if i == m.appCursor {
+				cur = selectedStyle.Render("▸ ")
+				nameStyle = selectedRowStyle
+			}
+			platBadge := ""
+			if a.Platform != "" {
+				platBadge = platformStyle.Render(" [" + a.Platform + "]")
+			}
+			versions := dimStyle.Render(fmt.Sprintf("  %d versions", a.VersionsCount))
+			b.WriteString("  " + cur + nameStyle.Render(a.Name) + platBadge + versions + "\n")
+		}
+		if end < len(apps) {
+			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
+		}
+	}
+
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("enter", "view builds"),
+		helpKeyRender("d", "delete"),
+		helpKeyRender("/", "filter"),
+		helpKeyRender("R", "refresh"),
+		helpKeyRender("esc", "back"),
+		helpKeyRender("q", "quit"),
+	}
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
+// renderAppDetail renders the build versions list for a specific app.
+func (m hubModel) renderAppDetail() string {
+	var b strings.Builder
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	innerW := min(w-4, 58)
+
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render(m.selectedAppName)
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
+
+	b.WriteString(sectionStyle.Render("  Build Versions") + " " + dimStyle.Render(fmt.Sprintf("%d", len(m.appBuilds))) + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	if m.confirmDelete {
+		b.WriteString("\n  " + warningStyle.Render("Delete this build? (y/n)") + "\n\n")
+	}
+
+	if m.appsLoading {
+		b.WriteString("  " + m.spinner.View() + " Loading builds...\n")
+	} else if len(m.appBuilds) == 0 {
+		b.WriteString("  " + dimStyle.Render("No builds found") + "\n")
+	} else {
+		maxVisible := m.height - 10
+		if maxVisible < 5 {
+			maxVisible = 5
+		}
+		start, end := scrollWindow(m.appBuildCursor, len(m.appBuilds), maxVisible)
+		if start > 0 {
+			b.WriteString(dimStyle.Render("  ↑ more") + "\n")
+		}
+		for i := start; i < end; i++ {
+			bv := m.appBuilds[i]
+			cur := "  "
+			nameStyle := normalStyle
+			if i == m.appBuildCursor {
+				cur = selectedStyle.Render("▸ ")
+				nameStyle = selectedRowStyle
+			}
+			version := nameStyle.Render(bv.Version)
+			currentBadge := ""
+			if bv.IsCurrent {
+				currentBadge = successStyle.Render(" (current)")
+			}
+			var ts time.Time
+			if bv.UploadedAt != "" {
+				ts, _ = time.Parse(time.RFC3339, bv.UploadedAt)
+			}
+			ago := dimStyle.Render("  " + relativeTime(ts))
+			b.WriteString("  " + cur + version + currentBadge + ago + "\n")
+		}
+		if end < len(m.appBuilds) {
+			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
+		}
+	}
+
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("d", "delete"),
+		helpKeyRender("R", "refresh"),
+		helpKeyRender("esc", "back"),
+		helpKeyRender("q", "quit"),
+	}
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
+// scrollWindow computes the visible window [start, end) for a scrollable list.
+//
+// Parameters:
+//   - cursor: current cursor position
+//   - total: total number of items
+//   - maxVisible: max items to show at once
+//
+// Returns:
+//   - start: first visible index (inclusive)
+//   - end: last visible index (exclusive)
+func scrollWindow(cursor, total, maxVisible int) (int, int) {
+	if total <= maxVisible {
+		return 0, total
+	}
+	start := cursor - maxVisible/2
+	if start < 0 {
+		start = 0
+	}
+	if start+maxVisible > total {
+		start = total - maxVisible
+	}
+	end := start + maxVisible
+	if end > total {
+		end = total
+	}
+	return start, end
 }
 
 // min returns the smaller of two ints.

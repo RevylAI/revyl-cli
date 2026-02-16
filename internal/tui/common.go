@@ -7,6 +7,7 @@ package tui
 
 import (
 	"os"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -39,14 +40,16 @@ func ShouldRunTUI(jsonOutput, quiet bool) bool {
 // --- Brand colors (mirrors internal/ui/styles.go) ---
 
 var (
-	purple  = lipgloss.Color("#9D61FF")
-	teal    = lipgloss.Color("#14B8A6")
-	red     = lipgloss.Color("#EF4444")
-	amber   = lipgloss.Color("#F59E0B")
-	green   = lipgloss.Color("#22C55E")
-	gray    = lipgloss.Color("#6B7280")
-	dimGray = lipgloss.Color("#9CA3AF")
-	white   = lipgloss.Color("#E5E7EB")
+	purple   = lipgloss.Color("#9D61FF")
+	teal     = lipgloss.Color("#14B8A6")
+	red      = lipgloss.Color("#EF4444")
+	amber    = lipgloss.Color("#F59E0B")
+	green    = lipgloss.Color("#22C55E")
+	gray     = lipgloss.Color("#6B7280")
+	dimGray  = lipgloss.Color("#9CA3AF")
+	white    = lipgloss.Color("#E5E7EB")
+	darkGray = lipgloss.Color("#374151")
+	subtleBg = lipgloss.Color("#1F2937")
 )
 
 // --- Shared TUI styles ---
@@ -61,16 +64,34 @@ var (
 	versionStyle = lipgloss.NewStyle().
 			Foreground(dimGray)
 
+	// headerBannerStyle renders the top-level REVYL banner with a rounded border.
+	headerBannerStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(purple).
+				Padding(0, 1)
+
 	// sectionStyle renders section headers (e.g. "Tests", "Pipeline").
 	sectionStyle = lipgloss.NewStyle().
 			Foreground(dimGray).
 			Bold(true).
 			MarginTop(1)
 
+	// activeSectionStyle renders section headers when that section has focus.
+	activeSectionStyle = lipgloss.NewStyle().
+				Foreground(purple).
+				Bold(true).
+				MarginTop(1)
+
 	// selectedStyle highlights the currently selected list item.
 	selectedStyle = lipgloss.NewStyle().
 			Foreground(purple).
 			Bold(true)
+
+	// selectedRowStyle highlights the full row of the selected item with a subtle background.
+	selectedRowStyle = lipgloss.NewStyle().
+				Foreground(purple).
+				Bold(true).
+				Background(subtleBg)
 
 	// normalStyle renders unselected list items.
 	normalStyle = lipgloss.NewStyle().
@@ -108,7 +129,7 @@ var (
 
 	// separatorStyle renders horizontal rules.
 	separatorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#374151"))
+			Foreground(darkGray)
 
 	// platformStyle renders platform badges (android/ios).
 	platformStyle = lipgloss.NewStyle().
@@ -118,15 +139,28 @@ var (
 	filterPromptStyle = lipgloss.NewStyle().
 				Foreground(purple).
 				Bold(true)
+
+	// metricValueStyle renders stat values in bold purple.
+	metricValueStyle = lipgloss.NewStyle().
+				Foreground(purple).
+				Bold(true)
+
+	// wowPositiveStyle renders positive week-over-week deltas in teal.
+	wowPositiveStyle = lipgloss.NewStyle().
+				Foreground(teal)
+
+	// wowNegativeStyle renders negative week-over-week deltas in red.
+	wowNegativeStyle = lipgloss.NewStyle().
+				Foreground(red)
+
+	// actionDescStyle renders the dim description text next to quick action labels.
+	actionDescStyle = lipgloss.NewStyle().
+			Foreground(gray)
 )
 
 // separator returns a horizontal line of the given width.
 func separator(width int) string {
-	s := ""
-	for i := 0; i < width; i++ {
-		s += "─"
-	}
-	return separatorStyle.Render(s)
+	return separatorStyle.Render(strings.Repeat("─", width))
 }
 
 // --- Shared message types ---
@@ -187,10 +221,18 @@ func newSpinner() spinner.Model {
 type view int
 
 const (
-	viewDashboard  view = iota // dashboard landing with stats + quick actions
-	viewTestList               // browsable test list (sub-screen)
-	viewCreateTest             // create-a-test flow (sub-screen)
-	viewExecution              // test execution monitor
+	viewDashboard       view = iota // dashboard landing with stats + quick actions
+	viewTestList                    // browsable test list (sub-screen)
+	viewRunsList                    // browsable runs list (sub-screen)
+	viewCreateTest                  // create-a-test flow (sub-screen)
+	viewExecution                   // test execution monitor
+	viewReportPicker                // report type picker (test reports / workflow reports)
+	viewTestReports                 // test list for report drill-down
+	viewTestRuns                    // run history for a specific test
+	viewWorkflowReports             // workflow list for report drill-down
+	viewWorkflowRuns                // run history for a specific workflow
+	viewAppList                     // app list for manage apps
+	viewAppDetail                   // build versions for a specific app
 )
 
 // --- Dashboard data types ---
@@ -203,6 +245,12 @@ type DashboardDataMsg struct {
 
 // RecentRunsMsg carries the fetched recent execution runs across tests.
 type RecentRunsMsg struct {
+	Runs []RecentRun
+	Err  error
+}
+
+// AllRunsMsg carries the fetched full run list for the "View all runs" screen.
+type AllRunsMsg struct {
 	Runs []RecentRun
 	Err  error
 }
@@ -223,6 +271,46 @@ type TestCreatedMsg struct {
 	TestName string
 	Platform string
 	Err      error
+}
+
+// WorkflowListMsg carries the fetched workflow list from the API.
+type WorkflowListMsg struct {
+	Workflows []api.SimpleWorkflow
+	Err       error
+}
+
+// TestHistoryMsg carries the fetched execution history for a specific test.
+type TestHistoryMsg struct {
+	Runs []api.CLIEnhancedHistoryItem
+	Err  error
+}
+
+// WorkflowHistoryMsg carries the fetched execution history for a specific workflow.
+type WorkflowHistoryMsg struct {
+	Runs []api.CLIWorkflowStatusResponse
+	Err  error
+}
+
+// AppListMsg carries the fetched app list from the API.
+type AppListMsg struct {
+	Apps []api.App
+	Err  error
+}
+
+// AppBuildVersionsMsg carries the fetched build versions for an app.
+type AppBuildVersionsMsg struct {
+	Versions []api.BuildVersion
+	Err      error
+}
+
+// AppDeletedMsg signals that an app has been deleted.
+type AppDeletedMsg struct {
+	Err error
+}
+
+// BuildDeletedMsg signals that a build version has been deleted.
+type BuildDeletedMsg struct {
+	Err error
 }
 
 // --- Tea program runner ---
