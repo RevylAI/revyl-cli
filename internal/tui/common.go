@@ -221,19 +221,27 @@ func newSpinner() spinner.Model {
 type view int
 
 const (
-	viewDashboard       view = iota // dashboard landing with stats + quick actions
-	viewTestList                    // browsable test list (sub-screen)
-	viewRunsList                    // browsable runs list (sub-screen)
-	viewCreateTest                  // create-a-test flow (sub-screen)
-	viewExecution                   // test execution monitor
-	viewReportPicker                // report type picker (test reports / workflow reports)
-	viewTestReports                 // test list for report drill-down
-	viewTestRuns                    // run history for a specific test
-	viewWorkflowReports             // workflow list for report drill-down
-	viewWorkflowRuns                // run history for a specific workflow
-	viewAppList                     // app list for manage apps
-	viewAppDetail                   // build versions for a specific app
-	viewHelp                        // help & status screen (doctor + keybindings)
+	viewDashboard         view = iota // dashboard landing with stats + quick actions
+	viewTestList                      // browsable test list (sub-screen)
+	viewRunsList                      // browsable runs list (sub-screen)
+	viewCreateTest                    // create-a-test flow (sub-screen)
+	viewExecution                     // test execution monitor
+	viewReportPicker                  // report type picker (test reports / workflow reports)
+	viewTestReports                   // test list for report drill-down
+	viewTestRuns                      // run history for a specific test
+	viewWorkflowReports               // workflow list for report drill-down
+	viewWorkflowRuns                  // run history for a specific workflow
+	viewAppList                       // app list for manage apps
+	viewAppDetail                     // build versions for a specific app
+	viewHelp                          // help & status screen (doctor + keybindings)
+	viewTestDetail                    // test detail + management screen
+	viewWorkflowList                  // workflow browse list
+	viewWorkflowDetail                // workflow detail + actions
+	viewWorkflowCreate                // workflow create wizard
+	viewWorkflowExecution             // workflow execution progress monitor
+	viewModuleList                    // module browse list
+	viewModuleDetail                  // module detail showing blocks
+	viewTagList                       // tag browse list
 )
 
 // --- Dashboard data types ---
@@ -325,6 +333,207 @@ type HealthCheck struct {
 type HealthCheckMsg struct {
 	Checks []HealthCheck
 	Err    error
+}
+
+// --- Setup guide types ---
+
+// SetupStep represents a single step in the getting-started guide on the help screen.
+type SetupStep struct {
+	Label   string // display label (e.g. "Log in")
+	Status  string // "done", "current", "blocked", "hint"
+	Message string // contextual message (e.g. "authenticated" or "press enter to set up")
+}
+
+// SetupActionMsg signals that a setup step action completed.
+type SetupActionMsg struct {
+	StepIndex int
+	Err       error
+}
+
+// --- Test detail types ---
+
+// TestDetail bundles fetched information for the test detail screen.
+type TestDetail struct {
+	ID       string
+	Name     string
+	Platform string
+	// Sync
+	SyncStatus  string // "synced", "modified", "outdated", "conflict", "local-only", "remote-only", "unknown"
+	SyncVersion string // e.g. "v3"
+	// Last run
+	LastRunStatus   string
+	LastRunTime     time.Time
+	LastRunDuration string
+	LastRunTaskID   string
+	// Tags
+	Tags []TagItem
+	// Env vars count
+	EnvVarCount int
+}
+
+// TestDetailMsg carries the fetched test detail data.
+type TestDetailMsg struct {
+	Detail *TestDetail
+	Err    error
+}
+
+// TestSyncActionMsg signals that a push/pull/diff action completed.
+type TestSyncActionMsg struct {
+	Action string // "push", "pull", "diff"
+	Result string // human-readable result
+	Err    error
+}
+
+// TestDeletedMsg signals that a test has been deleted.
+type TestDeletedMsg struct {
+	Err error
+}
+
+// --- Env var types ---
+
+// EnvVarItem represents a single environment variable for display.
+type EnvVarItem struct {
+	ID    string
+	Key   string
+	Value string
+}
+
+// EnvVarListMsg carries the fetched env var list.
+type EnvVarListMsg struct {
+	Vars []EnvVarItem
+	Err  error
+}
+
+// EnvVarAddedMsg signals that an env var was added.
+type EnvVarAddedMsg struct {
+	Err error
+}
+
+// EnvVarDeletedMsg signals that an env var was deleted.
+type EnvVarDeletedMsg struct {
+	Err error
+}
+
+// --- Workflow management types ---
+
+// WorkflowItem represents a workflow in the browse list.
+type WorkflowItem struct {
+	ID            string
+	Name          string
+	TestCount     int
+	TestNames     []string
+	LastRunStatus string
+	LastRunTime   time.Time
+}
+
+// WorkflowBrowseListMsg carries the fetched workflow browse list with enriched data.
+type WorkflowBrowseListMsg struct {
+	Workflows []WorkflowItem
+	Err       error
+}
+
+// WorkflowDetailMsg carries full workflow detail for the detail screen.
+type WorkflowDetailMsg struct {
+	Workflow *WorkflowItem
+	Err      error
+}
+
+// WorkflowCreatedMsg signals that a workflow was created.
+type WorkflowCreatedMsg struct {
+	ID   string
+	Name string
+	Err  error
+}
+
+// WorkflowDeletedMsg signals that a workflow was deleted.
+type WorkflowDeletedMsg struct {
+	Err error
+}
+
+// WorkflowExecStartedMsg signals that a workflow execution was started.
+type WorkflowExecStartedMsg struct {
+	TaskID string
+	Err    error
+}
+
+// WorkflowExecProgressMsg carries a workflow execution status update.
+type WorkflowExecProgressMsg struct {
+	Status *api.CLIWorkflowStatusResponse
+	Err    error
+}
+
+// WorkflowExecDoneMsg signals that a workflow execution completed.
+type WorkflowExecDoneMsg struct {
+	Status    *api.CLIWorkflowStatusResponse
+	ReportURL string
+	Err       error
+}
+
+// WorkflowCancelledMsg signals that a workflow execution was cancelled.
+type WorkflowCancelledMsg struct {
+	Err error
+}
+
+// --- Module types ---
+
+// ModuleItem represents a module in the browse list.
+type ModuleItem struct {
+	ID          string
+	Name        string
+	Description string
+	BlockCount  int
+	Blocks      []interface{} // raw block data for detail view
+}
+
+// ModuleListMsg carries the fetched module list.
+type ModuleListMsg struct {
+	Modules []ModuleItem
+	Err     error
+}
+
+// ModuleDetailMsg carries a single module's full detail.
+type ModuleDetailMsg struct {
+	Module *ModuleItem
+	Err    error
+}
+
+// ModuleDeletedMsg signals that a module was deleted.
+type ModuleDeletedMsg struct {
+	Err error
+}
+
+// --- Tag types ---
+
+// TagItem represents a tag in the browse list.
+type TagItem struct {
+	ID          string
+	Name        string
+	Color       string
+	Description string
+	TestCount   int
+}
+
+// TagListMsg carries the fetched tag list.
+type TagListMsg struct {
+	Tags []TagItem
+	Err  error
+}
+
+// TagCreatedMsg signals that a tag was created.
+type TagCreatedMsg struct {
+	ID   string
+	Name string
+	Err  error
+}
+
+// TagDeletedMsg signals that a tag was deleted.
+type TagDeletedMsg struct {
+	Err error
+}
+
+// TagsSyncedMsg signals that tags were synced on a test.
+type TagsSyncedMsg struct {
+	Err error
 }
 
 // --- Tea program runner ---
