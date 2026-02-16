@@ -149,6 +149,7 @@ const (
 // Defines values for GrounderType.
 const (
 	Auto            GrounderType = "auto"
+	ModalCustom     GrounderType = "modal-custom"
 	Moondream       GrounderType = "moondream"
 	Moondream3      GrounderType = "moondream3"
 	MoondreamCustom GrounderType = "moondream_custom"
@@ -477,6 +478,7 @@ type ActiveDeviceSessionItem struct {
 	TraceId          *string `json:"trace_id"`
 	UserEmail        *string `json:"user_email"`
 	WhepUrl          *string `json:"whep_url"`
+	WorkflowRunId    *string `json:"workflow_run_id"`
 }
 
 // ActiveDeviceSessionsResponse Response model for list of active device sessions.
@@ -940,6 +942,19 @@ type AppUpdateRequest struct {
 	StaticUrl *string `json:"static_url"`
 }
 
+// AppUsageResponse defines model for AppUsageResponse.
+type AppUsageResponse struct {
+	Tests []AppUsageTestItem `json:"tests"`
+	Total int                `json:"total"`
+}
+
+// AppUsageTestItem defines model for AppUsageTestItem.
+type AppUsageTestItem struct {
+	Id            string  `json:"id"`
+	Name          string  `json:"name"`
+	PinnedVersion *string `json:"pinned_version"`
+}
+
 // AssignSeatsRequest defines model for AssignSeatsRequest.
 type AssignSeatsRequest struct {
 	UserAssignments []map[string]string `json:"user_assignments"`
@@ -979,6 +994,7 @@ type AuthInfo struct {
 	ProxyEnabled     *bool     `json:"proxy_enabled"`
 	Service          *bool     `json:"service,omitempty"`
 	UserId           string    `json:"user_id"`
+	UserRole         *string   `json:"user_role"`
 }
 
 // BackfillJobInfo Information about a single backfill job.
@@ -1156,11 +1172,14 @@ type BuildFromUrlRequest struct {
 	Version string `json:"version"`
 }
 
-// BuildPathConfig Configuration for a build path.
+// BuildPathConfig Configuration for a build path in revyl_repo_configs JSONB.
 type BuildPathConfig struct {
-	AppId    string `json:"app_id"`
-	Path     string `json:"path"`
-	Platform string `json:"platform"`
+	AppId          string  `json:"app_id"`
+	AppName        *string `json:"app_name"`
+	EasTokenEnvVar *string `json:"eas_token_env_var"`
+	Path           string  `json:"path"`
+	Platform       *string `json:"platform"`
+	Type           *string `json:"type"`
 }
 
 // BuildResolutionRequest Request to resolve a build for a test.
@@ -1440,6 +1459,18 @@ type CancelTestResponse struct {
 type CategoryValue struct {
 	Category string  `json:"category"`
 	Value    float32 `json:"value"`
+}
+
+// ChartDataPoint defines model for ChartDataPoint.
+type ChartDataPoint struct {
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments"`
+	MedianHours *float32 `json:"median_hours"`
+	P25Hours    *float32 `json:"p25_hours"`
+	P75Hours    *float32 `json:"p75_hours"`
+	TeamAverage *float32 `json:"team_average"`
+	Trend       *string  `json:"trend"`
+	Value       *float32 `json:"value"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -1861,23 +1892,24 @@ type CostAnalysisResponse struct {
 
 // CreateActionRequest Request model for creating a report action (normalized structure).
 type CreateActionRequest struct {
-	ActionData            *map[string]interface{} `json:"action_data"`
-	ActionIndex           int                     `json:"action_index"`
-	ActionType            *string                 `json:"action_type"`
-	AgentDescription      *string                 `json:"agent_description"`
-	CompletedAt           *string                 `json:"completed_at"`
-	IsTerminal            *bool                   `json:"is_terminal,omitempty"`
-	LlmCallId             *string                 `json:"llm_call_id"`
-	Reasoning             *string                 `json:"reasoning"`
-	ReflectionDecision    *string                 `json:"reflection_decision"`
-	ReflectionLlmCallId   *string                 `json:"reflection_llm_call_id"`
-	ReflectionReasoning   *string                 `json:"reflection_reasoning"`
-	ReflectionSuggestion  *string                 `json:"reflection_suggestion"`
-	ScreenshotAfterS3Key  *string                 `json:"screenshot_after_s3_key"`
-	ScreenshotBeforeS3Key *string                 `json:"screenshot_before_s3_key"`
-	StartedAt             *string                 `json:"started_at"`
-	VideoTimestampEnd     *float32                `json:"video_timestamp_end"`
-	VideoTimestampStart   *float32                `json:"video_timestamp_start"`
+	ActionData                 *map[string]interface{} `json:"action_data"`
+	ActionIndex                int                     `json:"action_index"`
+	ActionType                 *string                 `json:"action_type"`
+	AgentDescription           *string                 `json:"agent_description"`
+	CompletedAt                *string                 `json:"completed_at"`
+	IsTerminal                 *bool                   `json:"is_terminal,omitempty"`
+	LlmCallId                  *string                 `json:"llm_call_id"`
+	Reasoning                  *string                 `json:"reasoning"`
+	ReflectionDecision         *string                 `json:"reflection_decision"`
+	ReflectionLlmCallId        *string                 `json:"reflection_llm_call_id"`
+	ReflectionReasoning        *string                 `json:"reflection_reasoning"`
+	ReflectionSuggestion       *string                 `json:"reflection_suggestion"`
+	ScreenshotAfterS3Key       *string                 `json:"screenshot_after_s3_key"`
+	ScreenshotBeforeCleanS3Key *string                 `json:"screenshot_before_clean_s3_key"`
+	ScreenshotBeforeS3Key      *string                 `json:"screenshot_before_s3_key"`
+	StartedAt                  *string                 `json:"started_at"`
+	VideoTimestampEnd          *float32                `json:"video_timestamp_end"`
+	VideoTimestampStart        *float32                `json:"video_timestamp_start"`
 }
 
 // CreateActionResponse Response model for action creation.
@@ -2146,6 +2178,11 @@ type DashboardMetrics struct {
 
 	// TotalWorkflowsWow Week-over-week percentage change in total workflows (positive = increase)
 	TotalWorkflowsWow *float32 `json:"total_workflows_wow"`
+}
+
+// DefaultRoleResponse Response for the default role setting.
+type DefaultRoleResponse struct {
+	DefaultRole *string `json:"default_role,omitempty"`
 }
 
 // DeleteAppResponse Response after deleting an app.
@@ -3604,10 +3641,10 @@ type ModulesListResponse struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
-	MetricType   string                                           `json:"metric_type"`
-	Repositories []string                                         `json:"repositories"`
-	RetrievedAt  string                                           `json:"retrieved_at"`
+	Data         []ChartDataPoint `json:"data"`
+	MetricType   string           `json:"metric_type"`
+	Repositories []string         `json:"repositories"`
+	RetrievedAt  string           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -5962,8 +5999,6 @@ type TrainingImageUploadRequest struct {
 	ActualX        *int    `json:"actual_x"`
 	ActualY        *int    `json:"actual_y"`
 	GrounderTarget *string `json:"grounder_target"`
-	ImageBase64    *string `json:"image_base64"`
-	ImageUrl       *string `json:"image_url"`
 	Instruction    *string `json:"instruction"`
 	PredictedX     *int    `json:"predicted_x"`
 	PredictedY     *int    `json:"predicted_y"`
@@ -6037,6 +6072,11 @@ type UpdateAppLaunchEnvVarModel struct {
 
 	// Value Updated env var value
 	Value *string `json:"value"`
+}
+
+// UpdateDefaultRoleRequest Request to update the default role for new users.
+type UpdateDefaultRoleRequest struct {
+	DefaultRole string `json:"default_role"`
 }
 
 // UpdateExpoProjectRequest Request to update an Expo project configuration.
@@ -8248,6 +8288,9 @@ type SaveRepoRevylConfigApiV1ReviewRevylCiReposOwnerRepoPostJSONRequestBody = Cr
 
 // UpdateOrgSettingsApiV1ReviewSettingsPutJSONRequestBody defines body for UpdateOrgSettingsApiV1ReviewSettingsPut for application/json ContentType.
 type UpdateOrgSettingsApiV1ReviewSettingsPutJSONRequestBody = UpdateRebelOrgSettings
+
+// UpdateDefaultRoleApiV1ReviewSettingsDefaultRolePutJSONRequestBody defines body for UpdateDefaultRoleApiV1ReviewSettingsDefaultRolePut for application/json ContentType.
+type UpdateDefaultRoleApiV1ReviewSettingsDefaultRolePutJSONRequestBody = UpdateDefaultRoleRequest
 
 // CreateExpoProjectApiV1ReviewSettingsExpoProjectsPostJSONRequestBody defines body for CreateExpoProjectApiV1ReviewSettingsExpoProjectsPost for application/json ContentType.
 type CreateExpoProjectApiV1ReviewSettingsExpoProjectsPostJSONRequestBody = CreateExpoProjectRequest

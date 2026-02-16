@@ -327,7 +327,7 @@ func runDeleteBuild(cmd *cobra.Command, args []string) error {
 	// Show what will be deleted
 	if !deleteForce {
 		ui.Println()
-		ui.PrintInfo("Delete app \"%s\"?", appName)
+		ui.PrintInfo("Delete app \"%s\" (%s)?", appName, appID)
 		ui.PrintDim("  - Remote: will delete app and ALL versions")
 		if len(configRefs) > 0 {
 			ui.PrintDim("  - Config: will remove app_id from platforms: %v", configRefs)

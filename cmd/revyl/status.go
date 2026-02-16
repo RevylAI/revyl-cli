@@ -122,7 +122,7 @@ func runTestStatus(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("No executions found for '%s'", displayName)
 		ui.Println()
 		ui.PrintNextSteps([]ui.NextStep{
-			{Label: "Run this test:", Command: fmt.Sprintf("revyl run %s", testNameOrID)},
+			{Label: "Run this test:", Command: fmt.Sprintf("revyl test run %s", testNameOrID)},
 		})
 		return nil
 	}
@@ -284,7 +284,7 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("No executions found for '%s'", displayName)
 		ui.Println()
 		ui.PrintNextSteps([]ui.NextStep{
-			{Label: "Run this test:", Command: fmt.Sprintf("revyl run %s", testNameOrID)},
+			{Label: "Run this test:", Command: fmt.Sprintf("revyl test run %s", testNameOrID)},
 		})
 		return nil
 	}
@@ -371,7 +371,7 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 
 	ui.PrintNextSteps([]ui.NextStep{
 		{Label: "View latest report:", Command: fmt.Sprintf("revyl test report %s", testNameOrID)},
-		{Label: "Run again:", Command: fmt.Sprintf("revyl run %s", testNameOrID)},
+		{Label: "Run again:", Command: fmt.Sprintf("revyl test run %s", testNameOrID)},
 	})
 
 	return nil

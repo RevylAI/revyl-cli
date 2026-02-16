@@ -534,7 +534,7 @@ func printAuthNextSteps(cmd *cobra.Command) {
 
 	// If tests exist, suggest running one
 	for alias := range cfg.Tests {
-		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: fmt.Sprintf("revyl run %s", alias)})
+		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", alias)})
 		break
 	}
 

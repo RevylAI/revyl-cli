@@ -112,6 +112,18 @@ func capitalizeFirst(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// truncatePrefix returns at most the first max characters of s.
+// Safe for short and empty strings.
+func truncatePrefix(s string, max int) string {
+	if max <= 0 || s == "" {
+		return ""
+	}
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
+}
+
 // looksLikeUUID checks if a string looks like a UUID (36 chars with hyphens at positions 8, 13, 18, 23).
 // Does not validate hex digits; use a stricter check if needed.
 //

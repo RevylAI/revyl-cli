@@ -358,7 +358,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	ui.Println()
 	ui.PrintNextSteps([]ui.NextStep{
 		{Label: "Define steps in browser:", Command: fmt.Sprintf("revyl test open %s", testName)},
-		{Label: "Run your test:", Command: fmt.Sprintf("revyl run %s", testName)},
+		{Label: "Run your test:", Command: fmt.Sprintf("revyl test run %s", testName)},
 	})
 
 	return nil

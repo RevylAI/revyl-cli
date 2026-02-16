@@ -258,7 +258,7 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 	table.Render()
 
 	ui.PrintNextSteps([]ui.NextStep{
-		{Label: "Run a test:", Command: "revyl run <name>"},
+		{Label: "Run a test:", Command: "revyl test run <name>"},
 		{Label: "Create a test:", Command: "revyl test create <name>"},
 	})
 
@@ -440,7 +440,7 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 				if !existingIDs[t.ID] {
 					sanitizedName := util.SanitizeForFilename(t.Name)
 					if sanitizedName == "" {
-						sanitizedName = fmt.Sprintf("test-%s", t.ID[:8])
+						sanitizedName = fmt.Sprintf("test-%s", truncatePrefix(t.ID, 8))
 					}
 					// Handle collisions (two tests that sanitize to the same name)
 					finalName := sanitizedName
@@ -705,7 +705,7 @@ func runTestsRemote(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.PrintNextSteps([]ui.NextStep{
-		{Label: "Run a test:", Command: "revyl run <name>"},
+		{Label: "Run a test:", Command: "revyl test run <name>"},
 		{Label: "Create a test:", Command: "revyl test create <name>"},
 	})
 
@@ -819,7 +819,7 @@ func runTestsRemoteWithTags(cmd *cobra.Command, client *api.Client, jsonOutput b
 	table.Render()
 
 	ui.PrintNextSteps([]ui.NextStep{
-		{Label: "Run a test:", Command: "revyl run <name>"},
+		{Label: "Run a test:", Command: "revyl test run <name>"},
 		{Label: "List all tags:", Command: "revyl tag list"},
 	})
 

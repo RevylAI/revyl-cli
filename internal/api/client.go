@@ -510,12 +510,29 @@ func parseResponse(resp *http.Response, target interface{}) error {
 	return nil
 }
 
+// CLIRunConfig contains optional runtime configuration for test execution.
+type CLIRunConfig struct {
+	ExecutionMode *CLIExecutionMode `json:"execution_mode,omitempty"`
+}
+
+// CLIExecutionMode contains execution mode settings.
+type CLIExecutionMode struct {
+	InitialLocation *CLILocation `json:"initial_location,omitempty"`
+}
+
+// CLILocation represents a GPS coordinate.
+type CLILocation struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+}
+
 // ExecuteTestRequest represents a test execution request.
 // Source tracking is handled via HTTP headers (X-Revyl-Client, X-CI-System).
 type ExecuteTestRequest struct {
-	TestID         string `json:"test_id"`
-	Retries        int    `json:"retries,omitempty"`
-	BuildVersionID string `json:"build_version_id,omitempty"`
+	TestID         string        `json:"test_id"`
+	Retries        int           `json:"retries,omitempty"`
+	BuildVersionID string        `json:"build_version_id,omitempty"`
+	RunConfig      *CLIRunConfig `json:"run_config,omitempty"`
 	// LaunchURL is the deep link URL for hot reload mode.
 	// When provided, the test will launch the app via this URL instead of the normal app launch.
 	LaunchURL string `json:"launch_url,omitempty"`
@@ -559,9 +576,15 @@ func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*Exe
 
 // ExecuteWorkflowRequest represents a workflow execution request.
 // Source tracking is handled via HTTP headers (X-Revyl-Client, X-CI-System).
+// BuildConfig and OverrideBuildConfig use the generated WorkflowAppConfig and
+// PlatformApp types from generated.go.
 type ExecuteWorkflowRequest struct {
-	WorkflowID string `json:"workflow_id"`
-	Retries    int    `json:"retries,omitempty"`
+	WorkflowID          string             `json:"workflow_id"`
+	Retries             int                `json:"retries,omitempty"`
+	BuildConfig         *WorkflowAppConfig `json:"build_config,omitempty"`
+	OverrideBuildConfig bool               `json:"override_build_config,omitempty"`
+	LocationConfig      *CLILocation       `json:"location_config,omitempty"`
+	OverrideLocation    bool               `json:"override_location,omitempty"`
 }
 
 // ExecuteWorkflowResponse represents a workflow execution response.
@@ -733,13 +756,13 @@ func (c *Client) ListBuildVersions(ctx context.Context, appID string) ([]BuildVe
 	}
 
 	var result struct {
-		Versions []BuildVersion `json:"versions"`
+		Items []BuildVersion `json:"items"`
 	}
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
 
-	return result.Versions, nil
+	return result.Items, nil
 }
 
 // GetTest retrieves a test by ID.
@@ -1271,10 +1294,14 @@ type CLITestStatusResponse struct {
 
 // Workflow represents a workflow definition.
 type Workflow struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Tests    []string `json:"tests,omitempty"`
-	Schedule string   `json:"schedule,omitempty"`
+	ID                  string                 `json:"id"`
+	Name                string                 `json:"name"`
+	Tests               []string               `json:"tests,omitempty"`
+	Schedule            string                 `json:"schedule,omitempty"`
+	LocationConfig      map[string]interface{} `json:"location_config,omitempty"`
+	OverrideLocation    bool                   `json:"override_location,omitempty"`
+	BuildConfig         map[string]interface{} `json:"build_config,omitempty"`
+	OverrideBuildConfig bool                   `json:"override_build_config,omitempty"`
 }
 
 // SimpleWorkflow represents a minimal workflow definition for listing.
@@ -1322,7 +1349,7 @@ func (c *Client) ListWorkflows(ctx context.Context) (*CLIWorkflowListResponse, e
 //   - error: Any error that occurred
 func (c *Client) GetWorkflow(ctx context.Context, workflowID string) (*Workflow, error) {
 	resp, err := c.doRequest(ctx, "GET",
-		fmt.Sprintf("/api/v1/workflows/get_workflow_by_id/%s", workflowID), nil)
+		fmt.Sprintf("/api/v1/workflows/get_workflow_info?workflow_id=%s", workflowID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1539,6 +1566,66 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 	return &result, nil
 }
 
+// GroundElementRequest is the payload for the grounding proxy endpoint.
+type GroundElementRequest struct {
+	// Target is a natural language description of the UI element to locate.
+	Target string `json:"target"`
+
+	// ImageBase64 is the base64-encoded screenshot (PNG or JPEG).
+	ImageBase64 string `json:"image_base64"`
+
+	// Width is the screenshot width in pixels.
+	Width int `json:"width"`
+
+	// Height is the screenshot height in pixels.
+	Height int `json:"height"`
+
+	// Platform is the device platform (android or ios).
+	Platform string `json:"platform,omitempty"`
+
+	// SessionID is the device session ID for cost tracking.
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// GroundElementResponse is the response from the grounding proxy endpoint.
+type GroundElementResponse struct {
+	// X is the absolute X pixel coordinate.
+	X int `json:"x"`
+
+	// Y is the absolute Y pixel coordinate.
+	Y int `json:"y"`
+
+	// Found indicates whether the element was successfully located.
+	Found bool `json:"found"`
+
+	// Error is the error message if grounding failed.
+	Error string `json:"error,omitempty"`
+}
+
+// GroundElement locates a UI element in a screenshot via the backend grounding
+// proxy, which routes the request through the Hatchet grounder-only workflow.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - req: The grounding request with target description and screenshot.
+//
+// Returns:
+//   - *GroundElementResponse: The grounding result with coordinates.
+//   - error: Any error that occurred during the API call.
+func (c *Client) GroundElement(ctx context.Context, req *GroundElementRequest) (*GroundElementResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/execution/ground", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GroundElementResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // GetWorkerWSURL retrieves the worker WebSocket URL for a workflow run.
 // The URL may not be immediately available after starting a device.
 // Poll this endpoint until status is "ready".
@@ -1559,6 +1646,31 @@ func (c *Client) GetWorkerWSURL(ctx context.Context, workflowRunID string) (*Wor
 	}
 
 	var result WorkerConnectionResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetActiveDeviceSessions retrieves all active device sessions for an organization.
+// Returns sessions with status IN ('starting', 'running').
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - orgID: The organization ID to query sessions for
+//
+// Returns:
+//   - *ActiveDeviceSessionsResponse: List of active sessions
+//   - error: Any error that occurred
+func (c *Client) GetActiveDeviceSessions(ctx context.Context, orgID string) (*ActiveDeviceSessionsResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/execution/device-sessions/active?org_id=%s", orgID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ActiveDeviceSessionsResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
@@ -2151,6 +2263,29 @@ type CLIEnhancedHistoryResponse struct {
 	FoundCount     int                      `json:"found_count"`
 }
 
+// GetDashboardMetrics fetches org-level dashboard metrics including total tests,
+// workflows, test runs, failure rate, and average duration with week-over-week deltas.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *DashboardMetrics: The dashboard metrics (type from generated.go)
+//   - error: Any error that occurred
+func (c *Client) GetDashboardMetrics(ctx context.Context) (*DashboardMetrics, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/entity/users/get_dashboard_metrics", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DashboardMetrics
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // GetTestEnhancedHistory retrieves the enhanced execution history for a test.
 //
 // Parameters:
@@ -2442,6 +2577,140 @@ func (c *Client) GetWorkflowUnifiedReport(ctx context.Context, workflowTaskID st
 	return &result, nil
 }
 
+// --- Env Var API methods ---
+
+// EnvVar represents an app launch environment variable.
+type EnvVar struct {
+	ID        string `json:"id"`
+	TestID    string `json:"test_id"`
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+}
+
+// EnvVarsResponse represents the response from listing env vars.
+type EnvVarsResponse struct {
+	Message string   `json:"message"`
+	Result  []EnvVar `json:"result"`
+}
+
+// EnvVarResponse represents the response from a single env var operation.
+type EnvVarResponse struct {
+	Message string `json:"message"`
+	Result  EnvVar `json:"result"`
+}
+
+// ListEnvVars retrieves all env vars for a test.
+func (c *Client) ListEnvVars(ctx context.Context, testID string) (*EnvVarsResponse, error) {
+	path := fmt.Sprintf("/api/v1/variables/app_launch_env/read?test_id=%s", testID)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result EnvVarsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// AddEnvVar adds an env var to a test.
+func (c *Client) AddEnvVar(ctx context.Context, testID, key, value string) (*EnvVarResponse, error) {
+	body := map[string]string{
+		"test_id": testID,
+		"key":     key,
+		"value":   value,
+	}
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/variables/app_launch_env/add", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result EnvVarResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// UpdateEnvVar updates an existing env var.
+func (c *Client) UpdateEnvVar(ctx context.Context, envVarID, key, value string) (*EnvVarResponse, error) {
+	body := map[string]string{
+		"env_var_id": envVarID,
+		"key":        key,
+		"value":      value,
+	}
+	resp, err := c.doRequest(ctx, "PUT", "/api/v1/variables/app_launch_env/update", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result EnvVarResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteEnvVar deletes a single env var by ID.
+func (c *Client) DeleteEnvVar(ctx context.Context, envVarID string) error {
+	path := fmt.Sprintf("/api/v1/variables/app_launch_env/delete?env_var_id=%s", envVarID)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// DeleteAllEnvVars deletes all env vars for a test.
+func (c *Client) DeleteAllEnvVars(ctx context.Context, testID string) error {
+	path := fmt.Sprintf("/api/v1/variables/app_launch_env/delete_all?test_id=%s", testID)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// --- Workflow Settings API methods ---
+
+// UpdateWorkflowLocationConfig updates the stored location config for a workflow.
+func (c *Client) UpdateWorkflowLocationConfig(ctx context.Context, workflowID string, locationConfig map[string]interface{}, override bool) error {
+	body := map[string]interface{}{
+		"location_config":   locationConfig,
+		"override_location": override,
+	}
+	path := fmt.Sprintf("/api/v1/workflows/update_location_config/%s", workflowID)
+	resp, err := c.doRequest(ctx, "PUT", path, body)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// UpdateWorkflowBuildConfig updates the stored build/app config for a workflow.
+func (c *Client) UpdateWorkflowBuildConfig(ctx context.Context, workflowID string, buildConfig map[string]interface{}, override bool) error {
+	body := map[string]interface{}{
+		"build_config":          buildConfig,
+		"override_build_config": override,
+	}
+	path := fmt.Sprintf("/api/v1/workflows/update_build_config/%s", workflowID)
+	resp, err := c.doRequest(ctx, "PUT", path, body)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
 // DeleteBuildVersion deletes a specific build version.
 //
 // Parameters:
@@ -2459,6 +2728,220 @@ func (c *Client) DeleteBuildVersion(ctx context.Context, versionID string) (*Del
 	}
 
 	var result DeleteBuildVersionResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// ---------------------------------------------------------------------------
+// Worker Proxy (for sandbox environments)
+// ---------------------------------------------------------------------------
+
+// ProxyWorkerRequest forwards a device action request through the backend
+// when the CLI cannot reach the worker directly (e.g. DNS failure in
+// Codex/Claude Code sandboxes).
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - workflowRunID: The Hatchet workflow run powering the session.
+//   - action: Worker endpoint name (e.g. "tap", "swipe", "health").
+//   - body: JSON-serializable request body (nil for GET-like actions).
+//
+// Returns:
+//   - []byte: Raw response body from the worker.
+//   - int: HTTP status code from the worker.
+//   - error: Any error from the proxy call itself.
+func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action string, body interface{}) ([]byte, int, error) {
+	path := fmt.Sprintf("/api/v1/execution/device-proxy/%s/%s", workflowRunID, action)
+
+	method := "POST"
+	if action == "screenshot" || action == "health" {
+		method = "GET"
+		body = nil
+	}
+
+	resp, err := c.doRequest(ctx, method, path, body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("proxy request failed for %s: %w", action, err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("failed to read proxy response: %w", err)
+	}
+
+	return data, resp.StatusCode, nil
+}
+
+// ProxyScreenshot retrieves a device screenshot through the backend proxy.
+// Returns the raw PNG bytes.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - workflowRunID: The Hatchet workflow run powering the session.
+//
+// Returns:
+//   - []byte: PNG image data.
+//   - error: Any error that occurred.
+func (c *Client) ProxyScreenshot(ctx context.Context, workflowRunID string) ([]byte, error) {
+	data, status, err := c.ProxyWorkerRequest(ctx, workflowRunID, "screenshot", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, fmt.Errorf("proxy screenshot failed (HTTP %d): %s", status, string(data))
+	}
+	return data, nil
+}
+
+// --- Script API methods ---
+
+// CLIScriptInfo represents a script for CLI display.
+type CLIScriptInfo struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Code        string  `json:"code"`
+	Runtime     string  `json:"runtime"`
+	Description *string `json:"description,omitempty"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
+// CLIScriptListResponse represents the response from listing scripts.
+type CLIScriptListResponse struct {
+	Scripts []CLIScriptInfo `json:"scripts"`
+	Count   int             `json:"count"`
+}
+
+// CLICreateScriptRequest represents a script creation request.
+type CLICreateScriptRequest struct {
+	Name        string  `json:"name"`
+	Code        string  `json:"code"`
+	Runtime     string  `json:"runtime"`
+	Description *string `json:"description,omitempty"`
+}
+
+// CLIUpdateScriptRequest represents a script update request.
+type CLIUpdateScriptRequest struct {
+	Name        *string `json:"name,omitempty"`
+	Code        *string `json:"code,omitempty"`
+	Runtime     *string `json:"runtime,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+// CLIScriptUsageResponse represents the response from checking script usage.
+type CLIScriptUsageResponse struct {
+	Tests []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"tests"`
+	Total int `json:"total"`
+}
+
+// ListScripts fetches all scripts for the authenticated user's organization.
+func (c *Client) ListScripts(ctx context.Context, runtime string, limit, offset int) (*CLIScriptListResponse, error) {
+	path := "/api/v1/tests/scripts?"
+	params := url.Values{}
+	if runtime != "" {
+		params.Set("runtime", runtime)
+	}
+	if limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if offset > 0 {
+		params.Set("offset", fmt.Sprintf("%d", offset))
+	}
+	path += params.Encode()
+
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIScriptListResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetScript retrieves a script by ID.
+func (c *Client) GetScript(ctx context.Context, scriptID string) (*CLIScriptInfo, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/tests/scripts/%s", scriptID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIScriptInfo
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// CreateScript creates a new script.
+func (c *Client) CreateScript(ctx context.Context, req *CLICreateScriptRequest) (*CLIScriptInfo, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/scripts", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIScriptInfo
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// UpdateScript updates an existing script.
+func (c *Client) UpdateScript(ctx context.Context, scriptID string, req *CLIUpdateScriptRequest) (*CLIScriptInfo, error) {
+	resp, err := c.doRequest(ctx, "PUT",
+		fmt.Sprintf("/api/v1/tests/scripts/%s", scriptID), req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIScriptInfo
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteScript deletes a script by ID.
+func (c *Client) DeleteScript(ctx context.Context, scriptID string) error {
+	resp, err := c.doRequest(ctx, "DELETE",
+		fmt.Sprintf("/api/v1/tests/scripts/%s", scriptID), nil)
+	if err != nil {
+		return err
+	}
+
+	// 204 No Content means success - body is empty
+	if resp.StatusCode == 204 {
+		resp.Body.Close()
+		return nil
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// GetScriptUsage retrieves all tests that use a specific script.
+func (c *Client) GetScriptUsage(ctx context.Context, scriptID string) (*CLIScriptUsageResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/tests/scripts/%s/tests", scriptID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIScriptUsageResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}

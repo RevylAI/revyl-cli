@@ -11,8 +11,7 @@ var testCmd = &cobra.Command{
 	Short: "Manage test definitions",
 	Long: `Manage local and remote test definitions.
 
-For the common build→test flow, use: revyl run <test-name> (builds then runs).
-For run-only or advanced options (hot reload, specific build), use the run subcommand below.
+Use 'revyl test run <name>' to run a test, optionally with --build to build first.
 
 COMMANDS:
   list      - List tests with sync status
@@ -30,11 +29,11 @@ COMMANDS:
   history   - Show execution history
   report    - Show detailed test report
   share     - Generate shareable report link
+  env       - Manage app launch environment variables
 
 EXAMPLES:
-  revyl run login-flow               # Build and run (recommended)
-  revyl test run login-flow          # Run only (no build)
-  revyl test run login-flow --build  # Explicit build then run
+  revyl test run login-flow          # Run a test
+  revyl test run login-flow --build  # Build then run
   revyl test list                    # List tests with sync status
   revyl test status login-flow       # Check latest execution status
   revyl test report login-flow       # View detailed step report`,
@@ -47,16 +46,14 @@ var testRunCmd = &cobra.Command{
 	Long: `Run a test by its alias name (from .revyl/config.yaml) or UUID.
 
 By default runs against the last uploaded build. Use --build to build and
-upload first. For the common build→test flow, the shortcut "revyl run <name>"
-builds then runs in one command.
+upload first.
 
 Use the test NAME or UUID, not a file path.
   CORRECT: revyl test run login-flow
   WRONG:   revyl test run login-flow.yaml
 
 EXAMPLES:
-  revyl run login-flow               # Build then run (shortcut)
-  revyl test run login-flow          # Run only (no build)
+  revyl test run login-flow          # Run (no build)
   revyl test run login-flow --build  # Build then run
   revyl test run login-flow --hotreload --platform ios-dev`,
 	Args: cobra.ExactArgs(1),
@@ -131,6 +128,8 @@ func init() {
 	testCmd.AddCommand(testHistoryCmd)
 	testCmd.AddCommand(testReportCmd)
 	testCmd.AddCommand(testShareCmd)
+	// Add env var management
+	testCmd.AddCommand(testEnvCmd)
 
 	// test run flags
 	testRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
@@ -143,6 +142,7 @@ func init() {
 	testRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
 	testRunCmd.Flags().BoolVar(&runTestBuild, "build", false, "Build and upload before running test")
 	testRunCmd.Flags().StringVar(&runTestPlatform, "platform", "", "Platform to use (requires --build, or used with --hotreload)")
+	testRunCmd.Flags().StringVar(&runLocation, "location", "", "Initial GPS location as lat,lng (e.g. 37.7749,-122.4194)")
 	testRunCmd.Flags().BoolVar(&runHotReload, "hotreload", false, "Enable hot reload mode with local dev server")
 	testRunCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
 	testRunCmd.Flags().StringVar(&runHotReloadProvider, "provider", "", "Hot reload provider (expo, swift, android)")
