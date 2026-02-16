@@ -7,12 +7,14 @@ package tui
 
 import (
 	"os"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-isatty"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/sse"
 )
 
@@ -185,9 +187,43 @@ func newSpinner() spinner.Model {
 type view int
 
 const (
-	viewHub       view = iota // main test list
-	viewExecution             // test execution monitor
+	viewDashboard  view = iota // dashboard landing with stats + quick actions
+	viewTestList               // browsable test list (sub-screen)
+	viewCreateTest             // create-a-test flow (sub-screen)
+	viewExecution              // test execution monitor
 )
+
+// --- Dashboard data types ---
+
+// DashboardDataMsg carries the fetched dashboard metrics from the API.
+type DashboardDataMsg struct {
+	Metrics *api.DashboardMetrics
+	Err     error
+}
+
+// RecentRunsMsg carries the fetched recent execution runs across tests.
+type RecentRunsMsg struct {
+	Runs []RecentRun
+	Err  error
+}
+
+// RecentRun represents a recent test execution for the dashboard view.
+type RecentRun struct {
+	TestID   string
+	TestName string
+	Status   string
+	Duration string
+	Time     time.Time
+	TaskID   string
+}
+
+// TestCreatedMsg signals that a test has been created via the TUI.
+type TestCreatedMsg struct {
+	TestID   string
+	TestName string
+	Platform string
+	Err      error
+}
 
 // --- Tea program runner ---
 

@@ -2266,6 +2266,29 @@ type CLIEnhancedHistoryResponse struct {
 	FoundCount     int                      `json:"found_count"`
 }
 
+// GetDashboardMetrics fetches org-level dashboard metrics including total tests,
+// workflows, test runs, failure rate, and average duration with week-over-week deltas.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *DashboardMetrics: The dashboard metrics (type from generated.go)
+//   - error: Any error that occurred
+func (c *Client) GetDashboardMetrics(ctx context.Context) (*DashboardMetrics, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/entity/users/get_dashboard_metrics", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DashboardMetrics
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // GetTestEnhancedHistory retrieves the enhanced execution history for a test.
 //
 // Parameters:
