@@ -193,7 +193,7 @@ func runSandboxWorktreeCreate(cmd *cobra.Command, args []string) error {
 
 	ui.PrintSuccess("Created worktree: %s", branch)
 	if output != "" {
-		ui.PrintDim(output)
+		ui.PrintDim("%s", output)
 	}
 
 	ui.PrintNextSteps([]ui.NextStep{
@@ -277,7 +277,7 @@ func runSandboxWorktreeRemove(cmd *cobra.Command, args []string) error {
 
 	ui.PrintSuccess("Removed worktree: %s", branch)
 	if output != "" {
-		ui.PrintDim(output)
+		ui.PrintDim("%s", output)
 	}
 
 	return nil
@@ -363,7 +363,7 @@ func runSandboxWorktreeSetup(cmd *cobra.Command, args []string) error {
 
 	ui.PrintSuccess("Setup complete for worktree: %s", branch)
 	if output != "" {
-		ui.PrintDim(output)
+		ui.PrintDim("%s", output)
 	}
 
 	return nil

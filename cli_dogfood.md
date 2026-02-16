@@ -278,17 +278,16 @@ defaults:
 ### Daily Workflow
 
 ```bash
-# Full workflow: build -> upload -> run test
-revyl run login-flow
+# Run a test
+revyl test run login-flow
 
-# Skip build (use existing artifact)
-revyl run login-flow --no-build
+# Build then run
+revyl test run login-flow --build
 
 # Use a specific platform config
-revyl run login-flow --platform android
+revyl test run login-flow --build --platform android
 
-# Just run (no build/upload)
-revyl test run login-flow
+# Run workflows
 revyl workflow run smoke-tests
 
 # Check results
@@ -314,7 +313,6 @@ revyl test env clear login-flow --force                     # Delete ALL env var
 
 # Location override (runtime, not stored)
 revyl test run login-flow --location 37.7749,-122.4194      # Run with GPS location
-revyl run login-flow --location 37.7749,-122.4194           # Also works with run shortcut
 revyl workflow run smoke-tests --location 37.77,-122.41     # Workflow-level override
 
 # Workflow stored settings (persistent overrides for all tests)

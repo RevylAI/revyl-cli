@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/tui"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -29,10 +30,22 @@ var rootCmd = &cobra.Command{
 	Use:   "revyl",
 	Short: "Proactive reliability for mobile apps",
 	Long:  ui.GetHelpText(),
-	// Run handles the no-args case: prints a condensed cheat-sheet instead of
-	// the full verbose help. `revyl --help` bypasses Run and prints Long + the
-	// Cobra-generated command list.
+	// Run handles the no-args case. When running in an interactive TTY
+	// (no --json, no --quiet, stdout is a terminal), launches the Bubble Tea TUI hub.
+	// Otherwise falls back to the condensed cheat-sheet for agents, CI, and pipes.
 	Run: func(cmd *cobra.Command, args []string) {
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+		quiet, _ := cmd.Flags().GetBool("quiet")
+		devMode, _ := cmd.Flags().GetBool("dev")
+
+		if tui.ShouldRunTUI(jsonOutput, quiet) {
+			if err := tui.RunHub(version, devMode); err != nil {
+				fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
 		fmt.Print(ui.GetCondensedHelp())
 	},
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
@@ -98,7 +111,6 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(runCmd) // build→test shortcut: revyl run <name>
 	rootCmd.AddCommand(appCmd)
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(testCmd)
@@ -112,6 +124,9 @@ func init() {
 	rootCmd.AddCommand(pingCmd)
 	rootCmd.AddCommand(upgradeCmd)
 	rootCmd.AddCommand(hotreloadCmd)
+
+	// App store publishing
+	rootCmd.AddCommand(publishCmd)
 
 	// Service session management
 	rootCmd.AddCommand(servicesCmd)

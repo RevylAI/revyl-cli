@@ -437,7 +437,7 @@ func printDoctorResults(result DoctorResult) {
 
 	// If all healthy, suggest running a test
 	if result.Healthy && len(steps) == 0 {
-		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: "revyl run <name>"})
+		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: "revyl test run <name>"})
 	}
 
 	ui.PrintNextSteps(steps)

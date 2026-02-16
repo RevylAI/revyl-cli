@@ -168,7 +168,7 @@ func PrintBox(title, content string) {
 //
 // Fields:
 //   - Label: A short description of the action (e.g., "Run your test")
-//   - Command: The CLI command to execute (e.g., "revyl run my-test")
+//   - Command: The CLI command to execute (e.g., "revyl test run my-test")
 type NextStep struct {
 	Label   string
 	Command string

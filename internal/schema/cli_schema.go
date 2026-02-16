@@ -183,10 +183,10 @@ func getCommonWorkflows() []Workflow {
 			Description: "Build, upload, and run a test (full pipeline)",
 			Steps: []string{
 				"# Use test NAME from config, not file path:",
-				"revyl test <name>",
+				"revyl test run <name> --build",
 				"# With a specific build platform:",
-				"revyl test <name> --platform android",
-				"revyl test <name> --platform ios-skip-login",
+				"revyl test run <name> --build --platform android",
+				"revyl test run <name> --build --platform ios-skip-login",
 			},
 		},
 		{
@@ -194,18 +194,18 @@ func getCommonWorkflows() []Workflow {
 			Description: "Use a named build platform from config",
 			Steps: []string{
 				"# List available platforms in .revyl/config.yaml under build.platforms",
-				"revyl test login-flow --platform android",
-				"revyl test login-flow --platform ios-skip-login",
-				"revyl workflow smoke-tests --platform android",
+				"revyl test run login-flow --build --platform android",
+				"revyl test run login-flow --build --platform ios-skip-login",
+				"revyl workflow run smoke-tests --build --platform android",
 			},
 		},
 		{
 			Name:        "Build and run workflow",
 			Description: "Build, upload, and run a workflow (multiple tests)",
 			Steps: []string{
-				"revyl workflow <name>",
+				"revyl workflow run <name>",
 				"# Or with a specific build platform:",
-				"revyl workflow <name> --platform android",
+				"revyl workflow run <name> --build --platform android",
 			},
 		},
 		{
@@ -403,7 +403,7 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("- **YAML files** (`.revyl/tests/*.yaml`) define test steps - they are NOT passed directly to `run test`\n")
 	sb.WriteString("- **Test names** are aliases defined in `.revyl/config.yaml` under `tests:` section\n")
 	sb.WriteString("- **UUIDs** are the actual test IDs on the Revyl server\n")
-	sb.WriteString("- `revyl run test <name>` uses the NAME from config, NOT a file path\n\n")
+	sb.WriteString("- `revyl test run <name>` uses the NAME from config, NOT a file path\n\n")
 
 	sb.WriteString("Example `.revyl/config.yaml`:\n")
 	sb.WriteString("```yaml\n")
@@ -412,7 +412,7 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("  experiments: \"xyz789-...\"            # alias -> UUID\n")
 	sb.WriteString("```\n\n")
 
-	sb.WriteString("To run a test: `revyl run test login-flow` (use the alias name, not the file path)\n\n")
+	sb.WriteString("To run a test: `revyl test run login-flow` (use the alias name, not the file path)\n\n")
 
 	// Build Platforms section
 	sb.WriteString("### Build Platforms\n\n")
@@ -429,17 +429,17 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("      output: \"build/app.tar.gz\"\n")
 	sb.WriteString("      app_id: \"app_yyy\"\n")
 	sb.WriteString("```\n\n")
-	sb.WriteString("To run with a specific platform: `revyl test <name> --platform ios-skip-login`\n\n")
+	sb.WriteString("To run with a specific platform: `revyl test run <name> --platform ios-skip-login`\n\n")
 
 	// Common Mistakes section - prevent errors
 	sb.WriteString("## Common Mistakes (Don't Do This!)\n\n")
 	sb.WriteString("| Wrong | Correct | Why |\n")
 	sb.WriteString("|-------|---------|-----|\n")
-	sb.WriteString("| `revyl run test experiments.yaml` | `revyl run test experiments` | Use test NAME from config, not file path |\n")
-	sb.WriteString("| `revyl run test .revyl/tests/login.yaml` | `revyl run test login-flow` | Use alias name, not file path |\n")
+	sb.WriteString("| `revyl test run experiments.yaml` | `revyl test run experiments` | Use test NAME from config, not file path |\n")
+	sb.WriteString("| `revyl test run .revyl/tests/login.yaml` | `revyl test run login-flow` | Use alias name, not file path |\n")
 	sb.WriteString("| Adding `build: name: platform` to YAML | Use `--platform <name>` flag | Build platforms are CLI flags, not YAML fields |\n")
 	sb.WriteString("| Running tests before `revyl auth login` | Run `revyl auth login` first | Authentication is required |\n")
-	sb.WriteString("| Pressing Ctrl+C to cancel test | `revyl cancel test <task_id>` | Ctrl+C only stops monitoring, not the test |\n\n")
+	sb.WriteString("| Pressing Ctrl+C to cancel test | `revyl test cancel <task_id>` | Ctrl+C only stops monitoring, not the test |\n\n")
 
 	// Quick reference
 	sb.WriteString("## Quick Reference\n\n")
@@ -448,11 +448,11 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("revyl auth status             # Check authentication\n")
 	sb.WriteString("revyl init                    # Initialize project\n")
 	sb.WriteString("revyl test create <name>      # Create new test\n")
-	sb.WriteString("revyl test <name>             # Build and run single test\n")
-	sb.WriteString("revyl test <name> --platform X # Build with specific platform\n")
-	sb.WriteString("revyl workflow <name>         # Build and run workflow (multiple tests)\n")
-	sb.WriteString("revyl test run <name>         # Run test without building\n")
-	sb.WriteString("revyl workflow run <name>     # Run workflow without building\n")
+	sb.WriteString("revyl test run <name>         # Run a test\n")
+	sb.WriteString("revyl test run <name> --build  # Build then run a test\n")
+	sb.WriteString("revyl test run <name> --platform X # Build with specific platform\n")
+	sb.WriteString("revyl workflow run <name>     # Run a workflow\n")
+	sb.WriteString("revyl workflow run <name> --build # Build then run a workflow\n")
 	sb.WriteString("revyl test cancel <task_id>   # Cancel a running test\n")
 	sb.WriteString("revyl workflow cancel <id>    # Cancel a running workflow\n")
 	sb.WriteString("revyl test list               # List available tests\n")
@@ -464,11 +464,10 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("## Command Comparison\n\n")
 	sb.WriteString("| Command | Builds? | Runs |\n")
 	sb.WriteString("|---------|---------|------|\n")
-	sb.WriteString("| `revyl test <name>` | Yes | Single test |\n")
-	sb.WriteString("| `revyl test <name> --platform X` | Yes (platform X) | Single test |\n")
-	sb.WriteString("| `revyl workflow <name>` | Yes | Workflow (multiple tests) |\n")
 	sb.WriteString("| `revyl test run <name>` | No | Single test |\n")
-	sb.WriteString("| `revyl workflow run <name>` | No | Workflow |\n")
+	sb.WriteString("| `revyl test run <name> --build` | Yes | Single test |\n")
+	sb.WriteString("| `revyl test run <name> --build --platform X` | Yes (platform X) | Single test |\n")
+	sb.WriteString("| `revyl workflow run <name>` | No | Workflow (multiple tests) |\n")
 	sb.WriteString("| `revyl workflow run <name> --build` | Yes | Workflow |\n")
 	sb.WriteString("\n")
 

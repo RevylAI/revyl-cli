@@ -68,8 +68,8 @@ func GetCondensedHelp() string {
 %s
   %s            Authenticate with your Revyl account
   %s                Initialize project configuration
-  %s         Build and run a test
-  %s         Run a workflow
+  %s     Run a test
+  %s  Run a workflow
 
 %s
   %s                    List and manage tests
@@ -89,8 +89,8 @@ func GetCondensedHelp() string {
 		purple.Render("Getting Started:"),
 		purple.Render("revyl auth login"),
 		purple.Render("revyl init"),
-		purple.Render("revyl run <test-name>"),
-		purple.Render("revyl run <workflow> -w"),
+		purple.Render("revyl test run <name>"),
+		purple.Render("revyl workflow run <name>"),
 		purple.Render("Manage:"),
 		purple.Render("revyl test"),
 		purple.Render("revyl workflow"),
@@ -115,9 +115,9 @@ func GetHelpText() string {
 %s
   %s            Authenticate with your Revyl account
   %s                Initialize project configuration
-  %s         Build and run a test (recommended)
-  %s         Run without rebuilding
-  %s         Build and run a workflow
+  %s      Run a test
+  %s   Run a test with build
+  %s  Run a workflow
 
 %s
   %s      Create a new test
@@ -136,9 +136,9 @@ func GetHelpText() string {
 		purple.Render("Quick Start:"),
 		purple.Render("revyl auth login"),
 		purple.Render("revyl init"),
-		purple.Render("revyl run <test-name>"),
-		purple.Render("revyl run <test-name> --no-build"),
-		purple.Render("revyl run <workflow> -w"),
+		purple.Render("revyl test run <name>"),
+		purple.Render("revyl test run <name> --build"),
+		purple.Render("revyl workflow run <name>"),
 		purple.Render("More:"),
 		purple.Render("revyl test create <name>"),
 		purple.Render("revyl workflow create <name>"),

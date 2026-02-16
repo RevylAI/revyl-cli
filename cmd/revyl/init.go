@@ -103,7 +103,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("  1. Authenticate:             revyl auth login")
 		ui.PrintInfo("  2. Upload your first build:  revyl build upload --platform <ios|android>")
 		ui.PrintInfo("  3. Create a test:            revyl test create <name> --platform <ios|android>")
-		ui.PrintInfo("  4. Run it:                   revyl run <name>")
+		ui.PrintInfo("  4. Run it:                   revyl test run <name>")
 		return nil
 	}
 
@@ -124,7 +124,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("  1. Authenticate:             revyl auth login")
 		ui.PrintInfo("  2. Upload your first build:  revyl build upload --platform <ios|android>")
 		ui.PrintInfo("  3. Create a test:            revyl test create <name> --platform <ios|android>")
-		ui.PrintInfo("  4. Run it:                   revyl run <name>")
+		ui.PrintInfo("  4. Run it:                   revyl test run <name>")
 		return nil
 	}
 
@@ -1105,11 +1105,11 @@ func printDynamicNextSteps(cfg *config.ProjectConfig, authOK bool, testID string
 	if testID != "" {
 		// Test exists, suggest running it.
 		for alias := range cfg.Tests {
-			steps = append(steps, ui.NextStep{Label: "Run your test:", Command: fmt.Sprintf("revyl run %s", alias)})
+			steps = append(steps, ui.NextStep{Label: "Run your test:", Command: fmt.Sprintf("revyl test run %s", alias)})
 			break
 		}
 	} else {
-		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: "revyl run <name>"})
+		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: "revyl test run <name>"})
 	}
 
 	ui.PrintNextSteps(steps)

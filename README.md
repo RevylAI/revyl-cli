@@ -34,16 +34,16 @@ revyl build upload --platform android
 revyl test create login-flow --platform android
 
 # 4. Run it
-revyl run login-flow
+revyl test run login-flow
 
 # 5. Group tests into a workflow
 revyl workflow create smoke-tests --tests login-flow,checkout
 
 # 6. Run the workflow
-revyl run smoke-tests -w
+revyl workflow run smoke-tests
 ```
 
-> **Tip:** `revyl run` can also build and upload automatically (`revyl run login-flow --build`), so steps 2-3 are only needed the first time or when managing things manually.
+> **Tip:** `revyl test run` supports `--build` to build and upload automatically (`revyl test run login-flow --build`), so steps 2-3 are only needed the first time or when managing things manually.
 
 The `revyl init` wizard walks you through 6 stages (project setup, auth, apps, build, test, workflow).
 Each stage can be skipped by pressing Enter or answering "n" at its prompt.
@@ -53,7 +53,7 @@ Use `revyl init -y` to skip the wizard entirely and just generate a config file.
 
 Connect Revyl to AI coding tools like Cursor, Claude Code, Codex, VS Code, and Claude Desktop. Your agent gets access to cloud devices, test execution, and device interaction tools.
 
-[![Add Revyl MCP to Cursor](https://cursor.com/deeplink/mcp-install-dark.png)](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19)
+1[![Add Revyl MCP to Cursor](https://cursor.com/deeplink/mcp-install-dark.png)](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19)
 [![Install in VS Code](https://img.shields.io/badge/VS_Code-Revyl-0098FF?style=flat&logo=visualstudiocode&logoColor=ffffff)](vscode:mcp/install?%7B%22name%22%3A%22revyl%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22revyl%22%2C%22args%22%3A%5B%22mcp%22%2C%22serve%22%5D%7D)
 
 **Claude Code**: `claude mcp add revyl -- revyl mcp serve` | **Codex**: `codex mcp add revyl -- revyl mcp serve`
@@ -129,31 +129,25 @@ Use `-y` to skip the interactive steps and just generate the config file.
 ### Running Tests
 
 ```bash
-# Build then run (recommended — one command)
-revyl run login-flow                      # By alias; builds, uploads, runs
-revyl run login-flow --platform release   # Use a specific platform config
-revyl run login-flow --no-build           # Skip build; run against last upload
-revyl run smoke-tests -w                  # Build then run workflow (-w = workflow)
-revyl run smoke-tests -w --no-build       # Run workflow without rebuilding
+# Run a test
+revyl test run login-flow                 # Run against last uploaded build
+revyl test run login-flow --build         # Build, upload, then run
+revyl test run login-flow --build --platform release   # Use a specific platform config
 
-# Run only (no build) or advanced options
-revyl test run login-flow                 # Run without rebuilding
-revyl test run login-flow --build         # Explicit build then run
+# Run a workflow
+revyl workflow run smoke-tests            # Run a workflow
 revyl workflow run smoke-tests --build    # Build then run workflow
 ```
 
 #### Advanced Run Flags
 
 ```bash
---retries 3                          # Retry on failure (1-5, default 1)
---build-id <id>                      # Run against a specific build version
---no-wait                            # Queue and exit without waiting for results
---verbose / -v                       # Show step-by-step execution progress
---hotreload                          # Run against local dev server (Expo)
---timeout 600                        # Max execution time in seconds
---location 37.7749,-122.4194         # Override GPS location for all tests
---ios-app <app-id>                   # Override iOS app for workflow tests
---android-app <app-id>               # Override Android app for workflow tests
+--retries 3       # Retry on failure (1-5, default 1)
+--build-id <id>   # Run against a specific build version
+--no-wait         # Queue and exit without waiting for results
+--verbose / -v    # Show step-by-step execution progress
+--hotreload       # Run against local dev server (Expo)
+--timeout 600     # Max execution time in seconds
 ```
 
 ### Hot Reload (Expo)
@@ -224,18 +218,6 @@ revyl test open login-flow                         # Open test in browser editor
 revyl test delete login-flow                       # Delete a test
 revyl test cancel <task-id>                        # Cancel a running test
 
-# Status, history & reports
-revyl test status login-flow                 # Show latest execution status
-revyl test status login-flow --open          # Open report in browser
-revyl test history login-flow                # Show execution history table
-revyl test history login-flow --limit 20     # Show more history entries
-revyl test report login-flow                 # Detailed step-by-step report
-revyl test report login-flow --no-steps      # Summary only (hide steps)
-revyl test report login-flow --share         # Include shareable link
-revyl test report <task-uuid>                # Report by task/execution ID
-revyl test share login-flow                  # Generate shareable report link
-revyl test share login-flow --open           # Open shareable link in browser
-
 # Sync & inspect
 revyl test list                   # Show local tests with sync status
 revyl test remote                 # List all tests in your organization
@@ -244,67 +226,19 @@ revyl test pull                   # Pull remote changes to local
 revyl test diff login-flow        # Show diff between local and remote
 revyl test validate test.yaml     # Validate YAML syntax (--json for CI)
 
-# Environment variables (encrypted, injected at app launch)
-revyl test env list my-test                            # List all env vars
-revyl test env set my-test API_URL=https://staging.com # Add or update an env var
-revyl test env delete my-test API_URL                  # Delete an env var by key
-revyl test env clear my-test --force                   # Delete ALL env vars
-
 # Per-command flags
-#   --json       Available on: test status, history, report, share (also global)
 #   --dry-run    Available on: test create, test push, test pull
 #   --hotreload  Available on: test run, test create, test open
-#   --location   Available on: test run (e.g. --location 37.77,-122.41)
 ```
 
 ### Workflow Management
 
 ```bash
-# Workflow lifecycle
 revyl workflow create smoke-tests --tests login-flow,checkout   # Create workflow
 revyl workflow run smoke-tests                                   # Run workflow
 revyl workflow open smoke-tests                                  # Open in browser
 revyl workflow delete smoke-tests                                # Delete workflow
 revyl workflow cancel <task-id>                                  # Cancel running workflow
-revyl workflow list                                              # List all workflows
-
-# Status, history & reports
-revyl workflow status smoke-tests              # Show latest execution status
-revyl workflow status smoke-tests --open       # Open report in browser
-revyl workflow history smoke-tests             # Show execution history table
-revyl workflow history smoke-tests --limit 20  # Show more history entries
-revyl workflow report smoke-tests              # Detailed report with test breakdown
-revyl workflow report smoke-tests --no-tests   # Summary only (hide test list)
-revyl workflow report <task-uuid>              # Report by task/execution ID
-revyl workflow share smoke-tests               # Generate shareable report link
-revyl workflow share smoke-tests --open        # Open shareable link in browser
-
-# Workflow settings (stored overrides for all tests in workflow)
-revyl workflow location set smoke-tests --lat 37.77 --lng -122.41  # Set GPS override
-revyl workflow location show smoke-tests                            # Show current location
-revyl workflow location clear smoke-tests                           # Remove location override
-revyl workflow app set smoke-tests --ios <app-id> --android <app-id> # Set app overrides
-revyl workflow app show smoke-tests                                  # Show current app config
-revyl workflow app clear smoke-tests                                 # Remove app overrides
-```
-
-### Script Management
-
-Code execution scripts run in sandboxed environments during test execution. They can be referenced in tests via `code_execution` blocks.
-
-```bash
-# List all scripts
-revyl script list                          # List all scripts in your org
-revyl script list --runtime python         # Filter by runtime
-
-# Script CRUD
-revyl script create --name "setup-data" --runtime python --code "print('hello')"
-revyl script get <script-id>               # View script details + source code
-revyl script update <script-id> --code "print('updated')"
-revyl script delete <script-id>
-
-# Insert into test (generates YAML snippet)
-revyl script insert <script-name-or-id>    # Generate code_execution block
 ```
 
 ### Shell Completion
@@ -332,7 +266,7 @@ revyl upgrade    # Check for and install CLI updates
 revyl version    # Show version, commit, and build date (--json for CI)
 revyl docs       # Open Revyl documentation in browser
 revyl schema     # Display CLI command schema (for integrations)
-revyl mcp serve  # Start MCP server for AI agent integration (45+ tools)
+revyl mcp serve  # Start MCP server for AI agent integration
 ```
 
 ### Global Flags

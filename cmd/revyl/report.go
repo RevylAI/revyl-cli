@@ -107,7 +107,7 @@ func resolveToTaskID(cmd *cobra.Command, nameOrID string, cfg *config.ProjectCon
 
 	latestTaskID, err := resolveLatestTaskID(cmd.Context(), client, testID)
 	if err != nil {
-		return "", displayName, fmt.Errorf("no executions found for '%s'. Run 'revyl run %s' to execute it first", displayName, nameOrID)
+		return "", displayName, fmt.Errorf("no executions found for '%s'. Run 'revyl test run %s' to execute it first", displayName, nameOrID)
 	}
 
 	return latestTaskID, displayName, nil
@@ -453,7 +453,7 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 
 	ui.PrintNextSteps([]ui.NextStep{
 		{Label: "Share report:", Command: fmt.Sprintf("revyl test share %s", nameOrID)},
-		{Label: "Run again:", Command: fmt.Sprintf("revyl run %s", nameOrID)},
+		{Label: "Run again:", Command: fmt.Sprintf("revyl test run %s", nameOrID)},
 	})
 
 	return nil

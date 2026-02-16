@@ -121,7 +121,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 				errMsg += fmt.Sprintf(". Available tests: %v", availableTests)
 			}
 			errMsg += "\n\nHint: Run 'revyl test remote' to see all available tests."
-			ui.PrintError(errMsg)
+			ui.PrintError("%s", errMsg)
 			return fmt.Errorf("test not found")
 		}
 		// It's a UUID format -- verify it exists via API before building
@@ -367,7 +367,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 			ui.Println()
 			ui.PrintWarning("Test timed out")
 			ui.PrintNextSteps([]ui.NextStep{
-				{Label: "Re-run with verbose:", Command: fmt.Sprintf("revyl run %s -v", testNameOrID)},
+				{Label: "Re-run with verbose:", Command: fmt.Sprintf("revyl test run %s -v", testNameOrID)},
 			})
 		}
 	default:
@@ -379,7 +379,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 			ui.PrintError("Test failed")
 			ui.PrintNextSteps([]ui.NextStep{
 				{Label: "View report:", Command: fmt.Sprintf("revyl test report %s", testNameOrID)},
-				{Label: "Re-run with verbose:", Command: fmt.Sprintf("revyl run %s -v", testNameOrID)},
+				{Label: "Re-run with verbose:", Command: fmt.Sprintf("revyl test run %s -v", testNameOrID)},
 			})
 		}
 	}
@@ -487,7 +487,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 				errMsg += fmt.Sprintf(". Available workflows: %v", availableWorkflows)
 			}
 			errMsg += "\n\nHint: Run 'revyl test remote' to see all available tests/workflows."
-			ui.PrintError(errMsg)
+			ui.PrintError("%s", errMsg)
 			return fmt.Errorf("workflow not found")
 		}
 		// It's a UUID format - verify it exists via API before building
@@ -1123,7 +1123,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	ui.Println()
 	ui.PrintInfo("────────────────────────────────────────────────────────────────")
 	ui.PrintInfo("Hot reload server still running. Make code changes and run again.")
-	ui.PrintDim("  Re-run:  revyl run %s --hotreload", testNameOrID)
+	ui.PrintDim("  Re-run:  revyl test run %s --hotreload", testNameOrID)
 	ui.PrintInfo("Press Ctrl+C to stop.")
 	ui.PrintInfo("────────────────────────────────────────────────────────────────")
 
