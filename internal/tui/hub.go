@@ -32,10 +32,19 @@ type quickAction struct {
 var quickActions = []quickAction{
 	{Label: "Run a test", Key: "run"},
 	{Label: "Create a test", Key: "create"},
+	{Label: "View reports", Key: "reports"},
 	{Label: "Browse workflows", Key: "workflows"},
 	{Label: "Open dashboard", Key: "dashboard"},
 	{Label: "Run doctor", Key: "doctor"},
 }
+
+// dashFocus tracks which section of the dashboard has keyboard focus.
+type dashFocus int
+
+const (
+	focusActions dashFocus = iota // Quick Actions menu (default)
+	focusRecent                   // Recent Runs list
+)
 
 // hubModel is the top-level Bubble Tea model for the TUI hub.
 type hubModel struct {
@@ -46,8 +55,10 @@ type hubModel struct {
 	metrics    *api.DashboardMetrics
 	recentRuns []RecentRun
 
-	// Quick actions
-	actionCursor int
+	// Dashboard focus and cursors
+	focus           dashFocus
+	actionCursor    int
+	recentRunCursor int
 
 	// Test list (sub-screen)
 	tests         []TestItem
@@ -262,6 +273,10 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.recentRuns = msg.Runs
 		}
 		return m, nil
+
+	case doctorDoneMsg:
+		// Doctor subprocess finished; redraw the dashboard.
+		return m, nil
 	}
 
 	// Update filter input if in filter mode (test list view)
@@ -281,37 +296,76 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
+	case "tab":
+		// Toggle focus between Recent Runs and Quick Actions
+		if m.focus == focusActions {
+			if len(m.recentRuns) > 0 {
+				m.focus = focusRecent
+			}
+		} else {
+			m.focus = focusActions
+		}
+		return m, nil
+
 	case "up", "k":
-		if m.actionCursor > 0 {
-			m.actionCursor--
+		if m.focus == focusActions {
+			if m.actionCursor > 0 {
+				m.actionCursor--
+			}
+		} else {
+			if m.recentRunCursor > 0 {
+				m.recentRunCursor--
+			}
 		}
 
 	case "down", "j":
-		if m.actionCursor < len(quickActions)-1 {
-			m.actionCursor++
+		if m.focus == focusActions {
+			if m.actionCursor < len(quickActions)-1 {
+				m.actionCursor++
+			}
+		} else {
+			if m.recentRunCursor < len(m.recentRuns)-1 {
+				m.recentRunCursor++
+			}
 		}
 
 	case "enter":
+		if m.focus == focusRecent && len(m.recentRuns) > 0 && m.recentRunCursor < len(m.recentRuns) {
+			run := m.recentRuns[m.recentRunCursor]
+			if run.TaskID != "" {
+				reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(m.devMode), run.TaskID)
+				_ = ui.OpenBrowser(reportURL)
+			}
+			return m, nil
+		}
 		return m.executeQuickAction()
 
 	case "1":
+		m.focus = focusActions
 		m.actionCursor = 0
 		return m.executeQuickAction()
 	case "2":
+		m.focus = focusActions
 		m.actionCursor = 1
 		return m.executeQuickAction()
 	case "3":
+		m.focus = focusActions
 		m.actionCursor = 2
 		return m.executeQuickAction()
 	case "4":
+		m.focus = focusActions
 		m.actionCursor = 3
 		return m.executeQuickAction()
 	case "5":
+		m.focus = focusActions
 		m.actionCursor = 4
+		return m.executeQuickAction()
+	case "6":
+		m.focus = focusActions
+		m.actionCursor = 5
 		return m.executeQuickAction()
 
 	case "/":
-		// Jump straight to test list with filter active
 		m.currentView = viewTestList
 		m.testCursor = 0
 		m.filterMode = true
@@ -353,6 +407,11 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 	case "workflows":
 		dashURL := fmt.Sprintf("%s/workflows", config.GetAppURL(m.devMode))
 		_ = ui.OpenBrowser(dashURL)
+		return m, nil
+
+	case "reports":
+		reportsURL := fmt.Sprintf("%s/tests", config.GetAppURL(m.devMode))
+		_ = ui.OpenBrowser(reportsURL)
 		return m, nil
 
 	case "dashboard":
@@ -670,17 +729,29 @@ func (m hubModel) renderDashboard() string {
 	b.WriteString(m.renderStats())
 
 	// Recent runs
-	b.WriteString(sectionStyle.Render("  RECENT RUNS") + "\n")
+	recentHeader := "  RECENT RUNS"
+	if m.focus == focusRecent {
+		recentHeader = selectedStyle.Render("  RECENT RUNS")
+	} else {
+		recentHeader = sectionStyle.Render("  RECENT RUNS")
+	}
+	b.WriteString(recentHeader + "\n")
 	b.WriteString("  " + separator(min(w-4, 56)) + "\n")
 	b.WriteString(m.renderRecentRuns())
 
 	// Quick actions
-	b.WriteString(sectionStyle.Render("  QUICK ACTIONS") + "\n")
+	actionsHeader := "  QUICK ACTIONS"
+	if m.focus == focusActions {
+		actionsHeader = selectedStyle.Render("  QUICK ACTIONS")
+	} else {
+		actionsHeader = sectionStyle.Render("  QUICK ACTIONS")
+	}
+	b.WriteString(actionsHeader + "\n")
 	b.WriteString("  " + separator(min(w-4, 56)) + "\n")
 	for i, a := range quickActions {
 		cur := "  "
 		style := normalStyle
-		if i == m.actionCursor {
+		if m.focus == focusActions && i == m.actionCursor {
 			cur = selectedStyle.Render("▸ ")
 			style = selectedStyle
 		}
@@ -691,7 +762,8 @@ func (m hubModel) renderDashboard() string {
 	b.WriteString("\n  " + separator(min(w-4, 56)) + "\n")
 	keys := []string{
 		helpKeyRender("enter", "select"),
-		helpKeyRender("1-5", "jump"),
+		helpKeyRender("tab", "section"),
+		helpKeyRender("1-6", "jump"),
 		helpKeyRender("/", "search"),
 		helpKeyRender("R", "refresh"),
 		helpKeyRender("q", "quit"),
@@ -729,12 +801,17 @@ func (m hubModel) renderRecentRuns() string {
 		return "  " + dimStyle.Render("No recent runs") + "\n"
 	}
 	var b strings.Builder
-	for _, r := range m.recentRuns {
+	for i, r := range m.recentRuns {
 		icon := statusIcon(r.Status)
+		cur := "  "
 		name := normalStyle.Render(r.TestName)
+		if m.focus == focusRecent && i == m.recentRunCursor {
+			cur = selectedStyle.Render("▸ ")
+			name = selectedStyle.Render(r.TestName)
+		}
 		status := dimStyle.Render(r.Status)
 		ago := dimStyle.Render(relativeTime(r.Time))
-		b.WriteString(fmt.Sprintf("  %s  %-30s  %-12s  %s\n", icon, name, status, ago))
+		b.WriteString(fmt.Sprintf("  %s%s  %-30s  %-12s  %s\n", cur, icon, name, status, ago))
 	}
 	return b.String()
 }
