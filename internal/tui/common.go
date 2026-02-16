@@ -233,6 +233,7 @@ const (
 	viewWorkflowRuns                // run history for a specific workflow
 	viewAppList                     // app list for manage apps
 	viewAppDetail                   // build versions for a specific app
+	viewHelp                        // help & status screen (doctor + keybindings)
 )
 
 // --- Dashboard data types ---
@@ -311,6 +312,19 @@ type AppDeletedMsg struct {
 // BuildDeletedMsg signals that a build version has been deleted.
 type BuildDeletedMsg struct {
 	Err error
+}
+
+// HealthCheck represents a single diagnostic check result for the help screen.
+type HealthCheck struct {
+	Name    string // e.g. "Version", "Authentication"
+	Status  string // "ok", "warning", "error"
+	Message string // human-readable result
+}
+
+// HealthCheckMsg carries results from the async health check command.
+type HealthCheckMsg struct {
+	Checks []HealthCheck
+	Err    error
 }
 
 // --- Tea program runner ---

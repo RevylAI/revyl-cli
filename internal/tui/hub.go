@@ -4,8 +4,9 @@ package tui
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -101,6 +103,10 @@ type hubModel struct {
 	appsLoading     bool               // loading indicator for app views
 	confirmDelete   bool               // whether a delete confirmation is pending
 	deleteTarget    string             // ID of the item pending deletion ("app" or version ID)
+
+	// Help & status state
+	healthChecks  []HealthCheck // results from the last health check
+	healthLoading bool          // whether health checks are currently running
 
 	// Shared state
 	loading bool
@@ -498,6 +504,9 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.currentView == viewAppDetail {
 			return m.handleAppDetailKey(msg)
 		}
+		if m.currentView == viewHelp {
+			return m.handleHelpKey(msg)
+		}
 		return m.handleDashboardKey(msg)
 
 	case spinner.TickMsg:
@@ -551,7 +560,11 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case doctorDoneMsg:
+	case HealthCheckMsg:
+		m.healthLoading = false
+		if msg.Err == nil {
+			m.healthChecks = msg.Checks
+		}
 		return m, nil
 
 	case WorkflowListMsg:
@@ -700,6 +713,12 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			)
 		}
 		return m, tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
+
+	case "?":
+		m.currentView = viewHelp
+		m.healthLoading = true
+		m.healthChecks = nil
+		return m, runHealthChecksCmd(m.devMode, m.client)
 	}
 
 	return m, nil
@@ -748,9 +767,6 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
-// doctorDoneMsg signals doctor subprocess completed.
-type doctorDoneMsg struct{ err error }
 
 // handleTestListKey processes key events in the test list sub-screen.
 func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1016,15 +1032,6 @@ func statusIcon(status string) string {
 	}
 }
 
-// doctorCmd returns an exec.Cmd for running `revyl doctor` as a subprocess.
-func doctorCmd() *exec.Cmd {
-	exe, err := os.Executable()
-	if err != nil {
-		exe = "revyl"
-	}
-	return exec.Command(exe, "doctor")
-}
-
 // --- View rendering ---
 
 // View renders the current screen.
@@ -1056,6 +1063,8 @@ func (m hubModel) View() string {
 		return m.renderAppList()
 	case viewAppDetail:
 		return m.renderAppDetail()
+	case viewHelp:
+		return m.renderHelp()
 	}
 	return m.renderDashboard()
 }
@@ -1127,6 +1136,7 @@ func (m hubModel) renderDashboard() string {
 		helpKeyRender(jumpLabel, "jump"),
 		helpKeyRender("/", "search"),
 		helpKeyRender("R", "refresh"),
+		helpKeyRender("?", "help"),
 		helpKeyRender("q", "quit"),
 	}
 	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
@@ -2374,6 +2384,225 @@ func (m hubModel) renderAppDetail() string {
 	keys := []string{
 		helpKeyRender("d", "delete"),
 		helpKeyRender("R", "refresh"),
+		helpKeyRender("esc", "back"),
+		helpKeyRender("q", "quit"),
+	}
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
+// --- Help & Status screen ---
+
+// runHealthChecksCmd runs diagnostic checks asynchronously and returns results.
+//
+// Parameters:
+//   - devMode: whether development servers are in use
+//   - client: authenticated API client (may be nil)
+//
+// Returns:
+//   - tea.Cmd: command that produces a HealthCheckMsg
+func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		var checks []HealthCheck
+
+		// Check 1: Authentication
+		mgr := auth.NewManager()
+		creds, err := mgr.GetCredentials()
+		if err != nil || creds == nil || !creds.HasValidAuth() {
+			checks = append(checks, HealthCheck{
+				Name:    "Authentication",
+				Status:  "error",
+				Message: "Not authenticated — run 'revyl auth login'",
+			})
+		} else {
+			msg := "Authenticated"
+			if creds.Email != "" {
+				msg = fmt.Sprintf("Authenticated as %s", creds.Email)
+			}
+			checks = append(checks, HealthCheck{
+				Name:    "Authentication",
+				Status:  "ok",
+				Message: msg,
+			})
+		}
+
+		// Check 2: API connectivity
+		baseURL := config.GetBackendURL(devMode)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		req, reqErr := http.NewRequestWithContext(ctx, "GET", baseURL+"/health_check", nil)
+		if reqErr != nil {
+			checks = append(checks, HealthCheck{
+				Name:    "API Connection",
+				Status:  "error",
+				Message: "Failed to create request",
+			})
+		} else {
+			httpClient := &http.Client{Timeout: 5 * time.Second}
+			start := time.Now()
+			resp, httpErr := httpClient.Do(req)
+			latency := time.Since(start)
+			if httpErr != nil {
+				checks = append(checks, HealthCheck{
+					Name:    "API Connection",
+					Status:  "error",
+					Message: fmt.Sprintf("Connection failed: %v", httpErr),
+				})
+			} else {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					checks = append(checks, HealthCheck{
+						Name:    "API Connection",
+						Status:  "ok",
+						Message: fmt.Sprintf("Connected (latency: %dms)", latency.Milliseconds()),
+					})
+				} else {
+					checks = append(checks, HealthCheck{
+						Name:    "API Connection",
+						Status:  "warning",
+						Message: fmt.Sprintf("Unexpected status: %d", resp.StatusCode),
+					})
+				}
+			}
+		}
+
+		// Check 3: Project config
+		cwd, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			checks = append(checks, HealthCheck{
+				Name:    "Project Config",
+				Status:  "warning",
+				Message: "Could not determine working directory",
+			})
+		} else {
+			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+			cfg, cfgErr := config.LoadProjectConfig(configPath)
+			if cfgErr != nil {
+				checks = append(checks, HealthCheck{
+					Name:    "Project Config",
+					Status:  "warning",
+					Message: "No project config — run 'revyl init'",
+				})
+			} else {
+				parts := []string{}
+				if cfg.Project.Name != "" {
+					parts = append(parts, cfg.Project.Name)
+				}
+				if len(cfg.Tests) > 0 {
+					parts = append(parts, fmt.Sprintf("%d tests", len(cfg.Tests)))
+				}
+				msg := "Found"
+				if len(parts) > 0 {
+					msg = strings.Join(parts, ", ")
+				}
+				checks = append(checks, HealthCheck{
+					Name:    "Project Config",
+					Status:  "ok",
+					Message: msg,
+				})
+			}
+		}
+
+		// Check 4: Build system
+		if cwdErr == nil {
+			detected, detectErr := build.Detect(cwd)
+			if detectErr != nil || detected.System == build.SystemUnknown {
+				checks = append(checks, HealthCheck{
+					Name:    "Build System",
+					Status:  "warning",
+					Message: "Not detected",
+				})
+			} else {
+				checks = append(checks, HealthCheck{
+					Name:    "Build System",
+					Status:  "ok",
+					Message: fmt.Sprintf("Detected: %s", detected.System.String()),
+				})
+			}
+		}
+
+		return HealthCheckMsg{Checks: checks}
+	}
+}
+
+// handleHelpKey processes key events on the help & status screen.
+func (m hubModel) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.currentView = viewDashboard
+		return m, nil
+	case "R":
+		m.healthLoading = true
+		m.healthChecks = nil
+		return m, runHealthChecksCmd(m.devMode, m.client)
+	}
+	return m, nil
+}
+
+// renderHelp renders the help & status screen with health checks and keybindings.
+func (m hubModel) renderHelp() string {
+	var b strings.Builder
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	innerW := min(w-4, 58)
+
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Help & Status")
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
+
+	// Health checks section
+	b.WriteString(sectionStyle.Render("  HEALTH CHECKS") + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	if m.healthLoading {
+		b.WriteString("  " + m.spinner.View() + " Running checks...\n")
+	} else if len(m.healthChecks) == 0 {
+		b.WriteString("  " + dimStyle.Render("No checks run yet") + "\n")
+	} else {
+		for _, check := range m.healthChecks {
+			var icon string
+			switch check.Status {
+			case "ok":
+				icon = successStyle.Render("✓")
+			case "warning":
+				icon = warningStyle.Render("⚠")
+			case "error":
+				icon = errorStyle.Render("✗")
+			default:
+				icon = dimStyle.Render("·")
+			}
+			name := dimStyle.Render(fmt.Sprintf("%-16s", check.Name))
+			b.WriteString(fmt.Sprintf("  %s %s %s\n", icon, name, normalStyle.Render(check.Message)))
+		}
+	}
+
+	// Keyboard shortcuts section
+	b.WriteString(sectionStyle.Render("  KEYBOARD SHORTCUTS") + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	shortcuts := []struct{ key, desc string }{
+		{"enter", "Select / drill in / open"},
+		{"esc", "Go back one level"},
+		{"tab", "Switch dashboard section"},
+		{"1-5", "Jump to quick action"},
+		{"/", "Filter / search lists"},
+		{"R", "Refresh current view"},
+		{"d", "Delete (in app views)"},
+		{"?", "This help screen"},
+		{"q", "Quit"},
+	}
+	for _, s := range shortcuts {
+		key := lipgloss.NewStyle().Foreground(purple).Bold(true).Width(8).Render(s.key)
+		b.WriteString(fmt.Sprintf("  %s %s\n", key, dimStyle.Render(s.desc)))
+	}
+
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("R", "re-run checks"),
 		helpKeyRender("esc", "back"),
 		helpKeyRender("q", "quit"),
 	}
