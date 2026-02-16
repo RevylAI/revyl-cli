@@ -37,6 +37,7 @@ var quickActions = []quickAction{
 	{Label: "Create a test", Key: "create", Desc: "Define a new test from YAML"},
 	{Label: "Browse tests", Key: "tests", Desc: "View, sync, and manage tests"},
 	{Label: "Browse workflows", Key: "workflows", Desc: "Create, run, and manage workflows"},
+	{Label: "Run a workflow", Key: "run_workflow", Desc: "Execute an existing workflow"},
 	{Label: "View reports", Key: "reports", Desc: "Browse test & workflow reports"},
 	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds"},
 	{Label: "Browse modules", Key: "modules", Desc: "View reusable test modules"},
@@ -161,6 +162,8 @@ type hubModel struct {
 	wfItems          []WorkflowItem
 	wfCursor         int
 	wfListLoading    bool
+	wfFilterMode     bool
+	wfFilterInput    textinput.Model
 	wfDetailLoading  bool
 	selectedWfDetail *WorkflowItem
 	wfConfirmDelete  bool
@@ -174,6 +177,7 @@ type hubModel struct {
 	wfExecStatus    *api.CLIWorkflowStatusResponse
 	wfExecDone      bool
 	wfExecStartTime time.Time
+	wfRunMode       bool // true when entered from "Run a workflow" quick action (run mode, not browse mode)
 
 	// Shared state
 	loading bool
@@ -225,6 +229,10 @@ func newHubModel(version string, devMode bool) hubModel {
 	wfni.Placeholder = "workflow name..."
 	wfni.CharLimit = 128
 
+	wffi := textinput.New()
+	wffi.Placeholder = "filter workflows..."
+	wffi.CharLimit = 64
+
 	return hubModel{
 		version:           version,
 		currentView:       viewDashboard,
@@ -236,6 +244,7 @@ func newHubModel(version string, devMode bool) hubModel {
 		envVarValueInput:  evi,
 		tagNameInput:      tni,
 		wfCreateNameInput: wfni,
+		wfFilterInput:     wffi,
 		devMode:           devMode,
 	}
 }
@@ -964,7 +973,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleDashboardKey processes key events on the dashboard landing page.
 func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "ctrl+c":
+	case "q", "ctrl+c", "esc":
 		return m, tea.Quit
 
 	case "tab":
@@ -1012,6 +1021,14 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		idx := int(msg.String()[0]-'0') - 1
+		if idx < len(quickActions) {
+			m.focus = focusActions
+			m.actionCursor = idx
+			return m.executeQuickAction()
+		}
+
+	case "0":
+		idx := 9 // "0" maps to the 10th item (index 9)
 		if idx < len(quickActions) {
 			m.focus = focusActions
 			m.actionCursor = idx
@@ -1099,6 +1116,21 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		m.currentView = viewWorkflowList
 		m.wfCursor = 0
 		m.wfListLoading = true
+		m.wfFilterMode = false
+		m.wfFilterInput.SetValue("")
+		m.wfRunMode = false
+		if m.client != nil {
+			return m, fetchWorkflowBrowseListCmd(m.client)
+		}
+		return m, nil
+
+	case "run_workflow":
+		m.currentView = viewWorkflowList
+		m.wfCursor = 0
+		m.wfListLoading = true
+		m.wfFilterMode = false
+		m.wfFilterInput.SetValue("")
+		m.wfRunMode = true
 		if m.client != nil {
 			return m, fetchWorkflowBrowseListCmd(m.client)
 		}

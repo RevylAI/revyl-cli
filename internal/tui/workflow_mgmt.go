@@ -221,10 +221,38 @@ func deleteWorkflowCmd(client *api.Client, workflowID string) tea.Cmd {
 //   - tea.Model: updated model
 //   - tea.Cmd: next command
 func handleWorkflowListKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.wfFilterMode {
+		switch msg.String() {
+		case "esc":
+			m.wfFilterMode = false
+			m.wfFilterInput.Blur()
+			m.wfFilterInput.SetValue("")
+			if m.wfCursor >= len(m.filteredWorkflowItems()) {
+				m.wfCursor = max(0, len(m.filteredWorkflowItems())-1)
+			}
+			return m, nil
+		case "enter":
+			m.wfFilterMode = false
+			m.wfFilterInput.Blur()
+			if m.wfCursor >= len(m.filteredWorkflowItems()) {
+				m.wfCursor = max(0, len(m.filteredWorkflowItems())-1)
+			}
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.wfFilterInput, cmd = m.wfFilterInput.Update(msg)
+			if m.wfCursor >= len(m.filteredWorkflowItems()) {
+				m.wfCursor = max(0, len(m.filteredWorkflowItems())-1)
+			}
+			return m, cmd
+		}
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "esc":
+		m.wfFilterInput.SetValue("")
 		m.currentView = viewDashboard
 		return m, nil
 	case "up", "k":
@@ -232,25 +260,65 @@ func handleWorkflowListKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.wfCursor--
 		}
 	case "down", "j":
-		if m.wfCursor < len(m.wfItems)-1 {
+		if m.wfCursor < len(m.filteredWorkflowItems())-1 {
 			m.wfCursor++
 		}
 	case "enter":
-		if m.wfCursor < len(m.wfItems) && m.client != nil {
+		workflows := m.filteredWorkflowItems()
+		if m.wfCursor < len(workflows) && m.client != nil {
+			wf := workflows[m.wfCursor]
+			if m.wfRunMode {
+				// Run mode: execute the workflow directly
+				m.selectedWfDetail = &wf
+				m.currentView = viewWorkflowExecution
+				m.wfExecStatus = nil
+				m.wfExecDone = false
+				m.wfExecStartTime = time.Now()
+				return m, executeWorkflowCmd(m.client, wf.ID)
+			}
+			// Browse mode: navigate to workflow detail
 			m.wfDetailLoading = true
 			m.currentView = viewWorkflowDetail
-			return m, fetchWorkflowDetailCmd(m.client, m.wfItems[m.wfCursor].ID)
+			return m, fetchWorkflowDetailCmd(m.client, wf.ID)
 		}
 	case "c":
-		// Start create wizard
-		m.currentView = viewWorkflowCreate
-		m.wfCreateStep = wfCreateStepName
-		m.wfCreateNameInput.SetValue("")
-		m.wfCreateNameInput.Focus()
-		m.wfCreateSelectedTests = nil
+		if !m.wfRunMode {
+			// Start create wizard (only in browse mode)
+			m.currentView = viewWorkflowCreate
+			m.wfCreateStep = wfCreateStepName
+			m.wfCreateNameInput.SetValue("")
+			m.wfCreateNameInput.Focus()
+			m.wfCreateSelectedTests = nil
+			return m, textinput.Blink
+		}
+	case "/":
+		m.wfFilterMode = true
+		m.wfFilterInput.Focus()
 		return m, textinput.Blink
+	case "R":
+		if m.client != nil {
+			m.wfListLoading = true
+			return m, fetchWorkflowBrowseListCmd(m.client)
+		}
 	}
 	return m, nil
+}
+
+// filteredWorkflowItems returns workflow items filtered by the workflow filter input.
+func (m *hubModel) filteredWorkflowItems() []WorkflowItem {
+	query := strings.ToLower(strings.TrimSpace(m.wfFilterInput.Value()))
+	if query == "" {
+		return m.wfItems
+	}
+
+	var filtered []WorkflowItem
+	for _, wf := range m.wfItems {
+		if strings.Contains(strings.ToLower(wf.Name), query) ||
+			strings.Contains(strings.ToLower(wf.LastRunStatus), query) {
+			filtered = append(filtered, wf)
+		}
+	}
+	return filtered
 }
 
 // handleWorkflowDetailKey processes key events on the workflow detail screen.
@@ -414,7 +482,11 @@ func handleWorkflowExecKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc":
 		if m.wfExecDone {
-			m.currentView = viewWorkflowDetail
+			if m.wfRunMode {
+				m.currentView = viewDashboard
+			} else {
+				m.currentView = viewWorkflowDetail
+			}
 			return m, nil
 		}
 	case "o":
@@ -444,10 +516,22 @@ func renderWorkflowList(m hubModel) string {
 	innerW := min(w-4, 58)
 
 	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Workflows")
+	if m.wfRunMode {
+		bannerContent = titleStyle.Render("REVYL") + "  " + dimStyle.Render("Run a workflow")
+	}
 	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
 	b.WriteString(banner + "\n")
 
-	b.WriteString(sectionStyle.Render(fmt.Sprintf("  Workflows  %d", len(m.wfItems))) + "\n")
+	if m.wfFilterMode {
+		b.WriteString("\n  " + filterPromptStyle.Render("/") + " " + m.wfFilterInput.View() + "\n")
+	}
+
+	workflows := m.filteredWorkflowItems()
+	countLabel := fmt.Sprintf("%d", len(workflows))
+	if strings.TrimSpace(m.wfFilterInput.Value()) != "" {
+		countLabel = fmt.Sprintf("%d/%d", len(workflows), len(m.wfItems))
+	}
+	b.WriteString(sectionStyle.Render(fmt.Sprintf("  Workflows  %s", countLabel)) + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
 
 	if m.wfListLoading {
@@ -455,12 +539,16 @@ func renderWorkflowList(m hubModel) string {
 		return b.String()
 	}
 
-	if len(m.wfItems) == 0 {
-		b.WriteString("  " + dimStyle.Render("No workflows found") + "\n")
+	if len(workflows) == 0 {
+		if strings.TrimSpace(m.wfFilterInput.Value()) != "" {
+			b.WriteString("  " + dimStyle.Render("No workflows match filter") + "\n")
+		} else {
+			b.WriteString("  " + dimStyle.Render("No workflows found") + "\n")
+		}
 	} else {
-		start, end := scrollWindow(m.wfCursor, len(m.wfItems), 12)
+		start, end := scrollWindow(m.wfCursor, len(workflows), 12)
 		for i := start; i < end; i++ {
-			wf := m.wfItems[i]
+			wf := workflows[i]
 			cursor := "  "
 			if i == m.wfCursor {
 				cursor = selectedStyle.Render("▸ ")
@@ -481,11 +569,24 @@ func renderWorkflowList(m hubModel) string {
 	}
 
 	b.WriteString("\n  " + separator(innerW) + "\n")
-	keys := []string{
-		helpKeyRender("enter", "detail"),
-		helpKeyRender("c", "create"),
-		helpKeyRender("esc", "back"),
-		helpKeyRender("q", "quit"),
+	var keys []string
+	if m.wfRunMode {
+		keys = []string{
+			helpKeyRender("enter", "run"),
+			helpKeyRender("/", "search"),
+			helpKeyRender("R", "refresh"),
+			helpKeyRender("esc", "back"),
+			helpKeyRender("q", "quit"),
+		}
+	} else {
+		keys = []string{
+			helpKeyRender("enter", "detail"),
+			helpKeyRender("c", "create"),
+			helpKeyRender("/", "search"),
+			helpKeyRender("R", "refresh"),
+			helpKeyRender("esc", "back"),
+			helpKeyRender("q", "quit"),
+		}
 	}
 	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
 

@@ -756,13 +756,13 @@ func (c *Client) ListBuildVersions(ctx context.Context, appID string) ([]BuildVe
 	}
 
 	var result struct {
-		Versions []BuildVersion `json:"versions"`
+		Items []BuildVersion `json:"items"`
 	}
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
 
-	return result.Versions, nil
+	return result.Items, nil
 }
 
 // GetTest retrieves a test by ID.
