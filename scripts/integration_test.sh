@@ -35,7 +35,6 @@ fail()  { FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); log "FAIL: $1 -- $2"; }
 run_test() {
     local desc="$1"; shift
     local output
-    TOTAL=$((TOTAL+1))
     if output=$("$@" 2>&1); then
         echo "$output"
         pass "$desc"
@@ -108,7 +107,7 @@ log "==============================="
 
 SCREENSHOT_FILE="/tmp/revyl-integration-test.png"
 rm -f "$SCREENSHOT_FILE"
-run_test "take screenshot" $REVYL device screenshot --output "$SCREENSHOT_FILE"
+run_test "take screenshot" $REVYL device screenshot --out "$SCREENSHOT_FILE"
 
 if [ -f "$SCREENSHOT_FILE" ]; then
     SIZE=$(wc -c < "$SCREENSHOT_FILE" | tr -d ' ')
@@ -179,7 +178,7 @@ log "==============================="
 log "Test 8: Find element"
 log "==============================="
 
-run_test "find element" $REVYL device find --target "any button or text" || true
+run_test "find element" $REVYL device find "any button or text" || true
 
 # ---------------------------------------------------------------------------
 # Test 9: Stop device session

@@ -280,7 +280,6 @@ func (s *Server) handleStopDeviceSession(ctx context.Context, req *mcp.CallToolR
 type resolveCoordsResult struct {
 	X            int
 	Y            int
-	Confidence   float64
 	SessionIndex int
 }
 
@@ -327,8 +326,8 @@ func (s *Server) resolveCoords(ctx context.Context, target string, x, y *int, se
 		return nil, err
 	}
 	return &resolveCoordsResult{
-		X: resolved.X, Y: resolved.Y,
-		Confidence:   resolved.Confidence,
+		X:            resolved.X,
+		Y:            resolved.Y,
 		SessionIndex: session.Index,
 	}, nil
 }
@@ -360,13 +359,12 @@ type DeviceTapInput struct {
 
 // DeviceTapOutput defines output for device_tap.
 type DeviceTapOutput struct {
-	Success    bool       `json:"success"`
-	X          int        `json:"x"`
-	Y          int        `json:"y"`
-	Confidence float64    `json:"confidence,omitempty"`
-	LatencyMs  float64    `json:"latency_ms"`
-	Error      string     `json:"error,omitempty"`
-	NextSteps  []NextStep `json:"next_steps,omitempty"`
+	Success   bool       `json:"success"`
+	X         int        `json:"x"`
+	Y         int        `json:"y"`
+	LatencyMs float64    `json:"latency_ms"`
+	Error     string     `json:"error,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, input DeviceTapInput) (*mcp.CallToolResult, DeviceTapOutput, error) {
@@ -388,7 +386,7 @@ func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	return nil, DeviceTapOutput{
-		Success: true, X: rc.X, Y: rc.Y, Confidence: rc.Confidence, LatencyMs: latency,
+		Success: true, X: rc.X, Y: rc.Y, LatencyMs: latency,
 		NextSteps: []NextStep{
 			{Tool: "screenshot", Reason: "Verify the tap worked"},
 		},
@@ -425,7 +423,7 @@ func (s *Server) handleDeviceDoubleTap(ctx context.Context, req *mcp.CallToolReq
 	}
 
 	return nil, DeviceDoubleTapOutput{
-		Success: true, X: rc.X, Y: rc.Y, Confidence: rc.Confidence, LatencyMs: latency,
+		Success: true, X: rc.X, Y: rc.Y, LatencyMs: latency,
 		NextSteps: []NextStep{{Tool: "screenshot", Reason: "Verify the double-tap worked"}},
 	}, nil
 }
@@ -465,7 +463,7 @@ func (s *Server) handleDeviceLongPress(ctx context.Context, req *mcp.CallToolReq
 	}
 
 	return nil, DeviceLongPressOutput{
-		Success: true, X: rc.X, Y: rc.Y, Confidence: rc.Confidence, LatencyMs: latency,
+		Success: true, X: rc.X, Y: rc.Y, LatencyMs: latency,
 		NextSteps: []NextStep{{Tool: "screenshot", Reason: "Verify the long press worked"}},
 	}, nil
 }
@@ -515,7 +513,7 @@ func (s *Server) handleDeviceType(ctx context.Context, req *mcp.CallToolRequest,
 	}
 
 	return nil, DeviceTypeOutput{
-		Success: true, X: rc.X, Y: rc.Y, Confidence: rc.Confidence, LatencyMs: latency,
+		Success: true, X: rc.X, Y: rc.Y, LatencyMs: latency,
 		NextSteps: []NextStep{{Tool: "screenshot", Reason: "Verify text was typed correctly"}},
 	}, nil
 }
@@ -571,7 +569,7 @@ func (s *Server) handleDeviceSwipe(ctx context.Context, req *mcp.CallToolRequest
 	}
 
 	return nil, DeviceSwipeOutput{
-		Success: true, X: rc.X, Y: rc.Y, Confidence: rc.Confidence, LatencyMs: latency,
+		Success: true, X: rc.X, Y: rc.Y, LatencyMs: latency,
 		NextSteps: []NextStep{{Tool: "screenshot", Reason: "See the result of the swipe"}},
 	}, nil
 }
@@ -912,10 +910,7 @@ func maskEnv(key string) string {
 	if val == "" {
 		return "(not set)"
 	}
-	if len(val) <= 8 {
-		return val[:2] + "***"
-	}
-	return val[:4] + "..." + val[len(val)-4:]
+	return "(set)"
 }
 
 // envOrDefault returns an environment variable value or the provided default.

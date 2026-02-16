@@ -1595,9 +1595,6 @@ type GroundElementResponse struct {
 	// Y is the absolute Y pixel coordinate.
 	Y int `json:"y"`
 
-	// Confidence is the grounding confidence score (0.0-1.0).
-	Confidence float64 `json:"confidence"`
-
 	// Found indicates whether the element was successfully located.
 	Found bool `json:"found"`
 

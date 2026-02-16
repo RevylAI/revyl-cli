@@ -475,3 +475,31 @@ func TestDeviceSessionManager_ResolveSession_SingleFallback(t *testing.T) {
 		t.Errorf("expected index 5, got %d", s.Index)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestReconcileSessionIDsByWorkflow: local sessions seeded with workflowRunID
+// should be rewritten to backend session IDs before prune logic runs.
+// ---------------------------------------------------------------------------
+
+func TestReconcileSessionIDsByWorkflow(t *testing.T) {
+	sessions := map[int]*DeviceSession{
+		0: {Index: 0, SessionID: "wf-123", WorkflowRunID: "wf-123"},
+		1: {Index: 1, SessionID: "stable-id", WorkflowRunID: "wf-other"},
+		2: {Index: 2, SessionID: "no-workflow"},
+	}
+	backendByWorkflow := map[string]string{
+		"wf-123": "session-abc",
+	}
+
+	reconcileSessionIDsByWorkflow(sessions, backendByWorkflow)
+
+	if sessions[0].SessionID != "session-abc" {
+		t.Fatalf("expected session 0 reconciled to backend ID, got %q", sessions[0].SessionID)
+	}
+	if sessions[1].SessionID != "stable-id" {
+		t.Fatalf("expected session 1 unchanged, got %q", sessions[1].SessionID)
+	}
+	if sessions[2].SessionID != "no-workflow" {
+		t.Fatalf("expected session 2 unchanged, got %q", sessions[2].SessionID)
+	}
+}

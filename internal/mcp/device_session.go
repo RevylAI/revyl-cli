@@ -132,6 +132,76 @@ func NewDeviceSessionManager(apiClient *api.Client, workDir string) *DeviceSessi
 	}
 }
 
+// shortPrefix returns a stable short identifier for logs.
+func shortPrefix(s string, max int) string {
+	if max <= 0 || s == "" {
+		return ""
+	}
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
+}
+
+// reconcileSessionIDsByWorkflow updates local SessionID values from backend
+// IDs using WorkflowRunID matches.
+func reconcileSessionIDsByWorkflow(sessions map[int]*DeviceSession, backendIDsByWorkflow map[string]string) {
+	for _, s := range sessions {
+		if s == nil || s.WorkflowRunID == "" {
+			continue
+		}
+		if backendID, ok := backendIDsByWorkflow[s.WorkflowRunID]; ok {
+			s.SessionID = backendID
+		}
+	}
+}
+
+// ensureOrgInfoLocked populates cached org/user info.
+// Caller must hold m.mu.
+func (m *DeviceSessionManager) ensureOrgInfoLocked(ctx context.Context) error {
+	if m.orgID != "" {
+		return nil
+	}
+	if m.apiClient == nil {
+		return fmt.Errorf("no API client configured")
+	}
+	validateResp, err := m.apiClient.ValidateAPIKey(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to validate API key: %w", err)
+	}
+	m.orgID = validateResp.OrgID
+	m.userEmail = validateResp.Email
+	return nil
+}
+
+// backendSessionIDByWorkflowRunLocked resolves backend device session ID from workflow run ID.
+// Returns empty string when not resolvable.
+// Caller must hold m.mu.
+func (m *DeviceSessionManager) backendSessionIDByWorkflowRunLocked(ctx context.Context, workflowRunID string) string {
+	if workflowRunID == "" || m.apiClient == nil {
+		return ""
+	}
+	if err := m.ensureOrgInfoLocked(ctx); err != nil {
+		ui.PrintDebug("failed to load org info for workflow/session mapping: %v", err)
+		return ""
+	}
+
+	activeResp, err := m.apiClient.GetActiveDeviceSessions(ctx, m.orgID)
+	if err != nil {
+		ui.PrintDebug("failed to fetch active sessions for workflow/session mapping: %v", err)
+		return ""
+	}
+	for _, s := range activeResp.Sessions {
+		if m.userEmail != "" && s.UserEmail != nil && *s.UserEmail != m.userEmail {
+			continue
+		}
+		if s.WorkflowRunId != nil && *s.WorkflowRunId == workflowRunID {
+			return s.Id
+		}
+	}
+	return ""
+}
+
 // StartSession provisions a new cloud device and adds it to the session map.
 // The new session is auto-set as active if it is the first session.
 //
@@ -226,6 +296,12 @@ func (m *DeviceSessionManager) StartSession(
 		baseURL = "http://localhost:3000"
 	}
 	viewerURL := fmt.Sprintf("%s/tests/execute?workflowRunId=%s&platform=%s", baseURL, workflowRunID, platform)
+	sessionID := m.backendSessionIDByWorkflowRunLocked(ctx, workflowRunID)
+	if sessionID == "" {
+		// Fallback for eventual-consistency windows; SyncSessions will reconcile
+		// SessionID from WorkflowRunID on the next sync.
+		sessionID = workflowRunID
+	}
 
 	idx := m.nextIndex
 	m.nextIndex++
@@ -233,7 +309,7 @@ func (m *DeviceSessionManager) StartSession(
 	now := time.Now()
 	session := &DeviceSession{
 		Index:         idx,
-		SessionID:     workflowRunID,
+		SessionID:     sessionID,
 		WorkflowRunID: workflowRunID,
 		WorkerBaseURL: workerBaseURL,
 		ViewerURL:     viewerURL,
@@ -1039,9 +1115,8 @@ func (m *DeviceSessionManager) ScreenshotForSession(ctx context.Context, index i
 
 // ResolvedTarget holds the result of resolving a target string to coordinates.
 type ResolvedTarget struct {
-	X          int
-	Y          int
-	Confidence float64
+	X int
+	Y int
 }
 
 // ResolveTarget takes a natural language target description, captures a screenshot,
@@ -1056,7 +1131,7 @@ type ResolvedTarget struct {
 //   - target: Natural language element description (e.g. "Sign In button").
 //
 // Returns:
-//   - *ResolvedTarget: The resolved coordinates with confidence.
+//   - *ResolvedTarget: The resolved coordinates.
 //   - error: If grounding fails or element is not found.
 func (m *DeviceSessionManager) ResolveTarget(ctx context.Context, target string) (*ResolvedTarget, error) {
 	session, err := m.ResolveSession(-1)
@@ -1075,7 +1150,7 @@ func (m *DeviceSessionManager) ResolveTarget(ctx context.Context, target string)
 //   - target: Natural language element description (e.g. "Sign In button").
 //
 // Returns:
-//   - *ResolvedTarget: The resolved coordinates with confidence.
+//   - *ResolvedTarget: The resolved coordinates.
 //   - error: If grounding fails or element is not found.
 func (m *DeviceSessionManager) ResolveTargetForSession(ctx context.Context, index int, target string) (*ResolvedTarget, error) {
 	session, err := m.ResolveSession(index)
@@ -1128,9 +1203,8 @@ func (m *DeviceSessionManager) resolveTargetForSession(ctx context.Context, sess
 	}
 
 	return &ResolvedTarget{
-		X:          groundResp.X,
-		Y:          groundResp.Y,
-		Confidence: groundResp.Confidence,
+		X: groundResp.X,
+		Y: groundResp.Y,
 	}, nil
 }
 
@@ -1155,16 +1229,8 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	}
 
 	// Step 1: Resolve orgID if not cached
-	if m.orgID == "" {
-		if m.apiClient == nil {
-			return fmt.Errorf("no API client configured")
-		}
-		validateResp, err := m.apiClient.ValidateAPIKey(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to validate API key: %w", err)
-		}
-		m.orgID = validateResp.OrgID
-		m.userEmail = validateResp.Email
+	if err := m.ensureOrgInfoLocked(ctx); err != nil {
+		return err
 	}
 
 	// Step 2: Fetch active sessions from backend
@@ -1194,29 +1260,39 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		return ci < cj
 	})
 
-	// Step 4: Build a set of backend session IDs for pruning
+	// Step 4: Build backend lookup maps for pruning/reconciliation.
 	backendIDs := make(map[string]bool)
+	backendIDsByWorkflow := make(map[string]string)
 	for _, bs := range backendSessions {
 		backendIDs[bs.Id] = true
+		if bs.WorkflowRunId != nil && *bs.WorkflowRunId != "" {
+			backendIDsByWorkflow[*bs.WorkflowRunId] = bs.Id
+		}
 	}
 
-	// Step 5: Prune local sessions not in backend
+	// Step 5: Reconcile then prune local sessions not in backend.
+	// Reconcile by workflow run ID to avoid churn when SessionID was seeded
+	// with workflowRunID during StartSession before backend session ID was known.
+	reconcileSessionIDsByWorkflow(m.sessions, backendIDsByWorkflow)
 	for idx, ls := range m.sessions {
-		if !backendIDs[ls.SessionID] {
-			// Session no longer exists on backend; clean up locally
-			if timer, ok := m.idleTimers[idx]; ok {
-				timer.Stop()
-				delete(m.idleTimers, idx)
-			}
-			delete(m.sessions, idx)
+		if backendIDs[ls.SessionID] {
+			continue
 		}
+		// Session no longer exists on backend; clean up locally.
+		if timer, ok := m.idleTimers[idx]; ok {
+			timer.Stop()
+			delete(m.idleTimers, idx)
+		}
+		delete(m.sessions, idx)
 	}
 
 	// Step 6: Add backend sessions not in local map
 	// Build reverse lookup: sessionID -> local index
 	localByID := make(map[string]int)
 	for idx, ls := range m.sessions {
-		localByID[ls.SessionID] = idx
+		if ls.SessionID != "" {
+			localByID[ls.SessionID] = idx
+		}
 	}
 
 	for _, bs := range backendSessions {
@@ -1243,7 +1319,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		// so a non-empty URL doesn't guarantee the worker is alive.
 		tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL}
 		if hErr := m.healthCheckSession(tmpSession); hErr != nil {
-			ui.PrintDebug("skipping session %s: worker unreachable (%v)", bs.Id[:8], hErr)
+			ui.PrintDebug("skipping session %s: worker unreachable (%v)", shortPrefix(bs.Id, 8), hErr)
 			continue
 		}
 

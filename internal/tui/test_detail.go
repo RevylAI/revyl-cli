@@ -493,7 +493,11 @@ func renderTestDetail(m hubModel) string {
 
 	// Header
 	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render(detail.Name)
-	idBadge := dimStyle.Render(detail.Platform + "  " + detail.ID[:8])
+	idPrefix := detail.ID
+	if len(idPrefix) > 8 {
+		idPrefix = idPrefix[:8]
+	}
+	idBadge := dimStyle.Render(detail.Platform + "  " + idPrefix)
 	headerLine := bannerContent + strings.Repeat(" ", max(1, innerW-lipgloss.Width(bannerContent)-lipgloss.Width(idBadge)+4)) + idBadge
 	banner := headerBannerStyle.Width(innerW).Render(headerLine)
 	b.WriteString(banner + "\n")

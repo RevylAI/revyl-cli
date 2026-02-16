@@ -84,7 +84,7 @@ func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager,
 		if err != nil {
 			return 0, 0, err
 		}
-		ui.PrintInfo("Resolved '%s' -> (%d, %d) [confidence=%.2f]", target, resolved.X, resolved.Y, resolved.Confidence)
+		ui.PrintInfo("Resolved '%s' -> (%d, %d)", target, resolved.X, resolved.Y)
 		return resolved.X, resolved.Y, nil
 	}
 
@@ -508,7 +508,7 @@ var deviceFindCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, resolved, fmt.Sprintf("Found: x=%d, y=%d (confidence=%.2f)", resolved.X, resolved.Y, resolved.Confidence))
+		jsonOrPrint(cmd, resolved, fmt.Sprintf("Found: x=%d, y=%d", resolved.X, resolved.Y))
 		return nil
 	},
 }
@@ -581,7 +581,7 @@ var deviceDoctorCmd = &cobra.Command{
 				if s.Index == mgr.ActiveIndex() {
 					marker = "*"
 				}
-				ui.PrintInfo("  %s%d  %s  %s  %.0fs", marker, s.Index, s.Platform, s.SessionID[:8], time.Since(s.StartedAt).Seconds())
+				ui.PrintInfo("  %s%d  %s  %s  %.0fs", marker, s.Index, s.Platform, truncatePrefix(s.SessionID, 8), time.Since(s.StartedAt).Seconds())
 			}
 		}
 
@@ -619,10 +619,7 @@ var deviceListCmd = &cobra.Command{
 			if s.Index == activeIdx {
 				marker = "*"
 			}
-			idShort := s.SessionID
-			if len(idShort) > 8 {
-				idShort = idShort[:8]
-			}
+			idShort := truncatePrefix(s.SessionID, 8)
 			uptime := time.Since(s.StartedAt).Round(time.Second)
 			fmt.Printf("%s %-3d %-10s %-10s %-12s %s\n", marker, s.Index, s.Platform, "running", idShort, uptime)
 		}

@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -39,14 +40,13 @@ func TestResolveCoords_Validation(t *testing.T) {
 	intPtr := func(v int) *int { return &v }
 
 	tests := []struct {
-		name     string
-		target   string
-		x        *int
-		y        *int
-		wantErr  string
-		wantX    int
-		wantY    int
-		wantConf float64
+		name    string
+		target  string
+		x       *int
+		y       *int
+		wantErr string
+		wantX   int
+		wantY   int
 	}{
 		{
 			name:    "both target and x+y returns error",
@@ -77,22 +77,20 @@ func TestResolveCoords_Validation(t *testing.T) {
 			wantErr: "provide target (element description) or x+y (pixel coordinates)",
 		},
 		{
-			name:     "raw coords pass through with confidence 0",
-			target:   "",
-			x:        intPtr(500),
-			y:        intPtr(700),
-			wantX:    500,
-			wantY:    700,
-			wantConf: 0,
+			name:   "raw coords pass through",
+			target: "",
+			x:      intPtr(500),
+			y:      intPtr(700),
+			wantX:  500,
+			wantY:  700,
 		},
 		{
-			name:     "zero coords are valid raw coords",
-			target:   "",
-			x:        intPtr(0),
-			y:        intPtr(0),
-			wantX:    0,
-			wantY:    0,
-			wantConf: 0,
+			name:   "zero coords are valid raw coords",
+			target: "",
+			x:      intPtr(0),
+			y:      intPtr(0),
+			wantX:  0,
+			wantY:  0,
 		},
 	}
 
@@ -119,10 +117,28 @@ func TestResolveCoords_Validation(t *testing.T) {
 			if rc.Y != tt.wantY {
 				t.Errorf("y = %d, want %d", rc.Y, tt.wantY)
 			}
-			if rc.Confidence != tt.wantConf {
-				t.Errorf("confidence = %f, want %f", rc.Confidence, tt.wantConf)
-			}
 		})
+	}
+}
+
+func TestMaskEnv(t *testing.T) {
+	const key = "REVYL_TEST_MASK_ENV"
+
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("unset env: %v", err)
+	}
+	if got := maskEnv(key); got != "(not set)" {
+		t.Fatalf("maskEnv unset = %q, want %q", got, "(not set)")
+	}
+
+	secret := "sk_live_1234567890abcdef"
+	t.Setenv(key, secret)
+	got := maskEnv(key)
+	if got != "(set)" {
+		t.Fatalf("maskEnv set = %q, want %q", got, "(set)")
+	}
+	if strings.Contains(got, "1234") || strings.Contains(got, "abcd") || strings.Contains(got, secret) {
+		t.Fatalf("maskEnv leaked secret content: %q", got)
 	}
 }
 

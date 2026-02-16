@@ -440,7 +440,7 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 				if !existingIDs[t.ID] {
 					sanitizedName := util.SanitizeForFilename(t.Name)
 					if sanitizedName == "" {
-						sanitizedName = fmt.Sprintf("test-%s", t.ID[:8])
+						sanitizedName = fmt.Sprintf("test-%s", truncatePrefix(t.ID, 8))
 					}
 					// Handle collisions (two tests that sanitize to the same name)
 					finalName := sanitizedName
