@@ -111,6 +111,16 @@ def process_schema(schema):
             schema['type'] = non_null_types
             schema['nullable'] = True
     
+    # Convert exclusiveMinimum/exclusiveMaximum from 3.1 (number) to 3.0 (boolean + minimum/maximum)
+    if 'exclusiveMinimum' in schema and not isinstance(schema['exclusiveMinimum'], bool):
+        val = schema.pop('exclusiveMinimum')
+        schema['minimum'] = val
+        schema['exclusiveMinimum'] = True
+    if 'exclusiveMaximum' in schema and not isinstance(schema['exclusiveMaximum'], bool):
+        val = schema.pop('exclusiveMaximum')
+        schema['maximum'] = val
+        schema['exclusiveMaximum'] = True
+
     # Recursively process nested schemas
     for key in ['properties', 'items', 'additionalProperties']:
         if key in schema:
