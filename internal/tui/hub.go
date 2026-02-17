@@ -710,6 +710,13 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.healthLoading = false
 		if msg.Err == nil {
 			m.healthChecks = msg.Checks
+			// Clear stale auth warning once checks confirm authentication is valid.
+			for _, check := range msg.Checks {
+				if check.Name == "Authentication" && check.Status == "ok" {
+					m.authErr = nil
+					break
+				}
+			}
 			// Derive setup steps from health check results
 			m.setupSteps = deriveSetupSteps(msg.Checks, m.cfg)
 			if first := firstActionableStep(m.setupSteps); first >= 0 && m.setupCursor == 0 {
@@ -1440,6 +1447,14 @@ func (m hubModel) requireAuthentication(reason string) (tea.Model, tea.Cmd) {
 	return m, runHealthChecksCmd(m.devMode, m.client)
 }
 
+func (m hubModel) isLoginOnlyState() bool {
+	if len(m.setupSteps) != 1 {
+		return false
+	}
+	step := m.setupSteps[0]
+	return step.Label == "Log in" && (step.Status == "current" || step.Status == "hint")
+}
+
 // relativeTime formats a timestamp as a human-readable relative time string.
 func relativeTime(t time.Time) string {
 	if t.IsZero() {
@@ -1560,7 +1575,7 @@ func (m hubModel) renderDashboard() string {
 	if m.err != nil {
 		b.WriteString("\n" + errorStyle.Render("  ✗ "+m.err.Error()) + "\n")
 	}
-	if m.authErr != nil {
+	if m.authErr != nil && !m.isAuthenticated() {
 		b.WriteString("\n" + warningStyle.Render("  ⚠ "+m.authErr.Error()) + "\n")
 		b.WriteString("  " + dimStyle.Render("Press ? for setup, then Enter for browser login or 'a' for API key login.") + "\n")
 	}
@@ -3149,9 +3164,37 @@ func (m hubModel) renderHelp() string {
 	}
 	innerW := min(w-4, 58)
 
-	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Help & Status")
+	subtitle := "Help & Status"
+	if m.isLoginOnlyState() {
+		subtitle = "Getting Started"
+	}
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render(subtitle)
 	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
 	b.WriteString(banner + "\n")
+
+	if m.isLoginOnlyState() {
+		b.WriteString(sectionStyle.Render("  SIGN IN TO CONTINUE") + "\n")
+		b.WriteString("  " + separator(innerW) + "\n")
+		if m.healthLoading {
+			b.WriteString("  " + m.spinner.View() + " Checking authentication...\n")
+		} else {
+			b.WriteString("  " + normalStyle.Render("Use browser login for the fastest setup.") + "\n\n")
+			b.WriteString("  " + selectedStyle.Render("▸ enter") + " " + normalStyle.Render("Continue with browser login") + "\n")
+			b.WriteString("  " + selectedStyle.Render("▸ a") + " " + normalStyle.Render("Use API key login (SSH/headless)") + "\n")
+		}
+		if m.authErr != nil {
+			b.WriteString("\n" + warningStyle.Render("  ⚠ "+m.authErr.Error()) + "\n")
+		}
+		b.WriteString("\n  " + separator(innerW) + "\n")
+		keys := []string{
+			helpKeyRender("enter", "browser login"),
+			helpKeyRender("a", "api key"),
+			helpKeyRender("R", "refresh"),
+			helpKeyRender("q", "quit"),
+		}
+		b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+		return b.String()
+	}
 
 	// Health checks section
 	b.WriteString(sectionStyle.Render("  HEALTH CHECKS") + "\n")
