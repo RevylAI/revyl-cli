@@ -55,21 +55,69 @@ func PrintBanner(version string) {
 	fmt.Println()
 }
 
-// GetHelpText returns the formatted help text for the CLI.
+// GetCondensedHelp returns a compact cheat-sheet for the 80/20 user journey.
+// Shown when the user runs `revyl` with no arguments. No ASCII banner,
+// no Cobra auto-generated command list -- just the essentials.
+func GetCondensedHelp() string {
+	purple := lipgloss.NewStyle().Foreground(Purple).Bold(true)
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Italic(true)
+
+	return fmt.Sprintf(`%s
+
+%s
+  %s            Authenticate with your Revyl account
+  %s                Initialize project configuration
+  %s     Run a test
+  %s  Run a workflow
+
+%s
+  %s                    List and manage tests
+  %s                List and manage workflows
+  %s                   List and manage app builds
+
+%s
+  %s              Machine-readable CLI schema for LLM agents
+  %s           Start MCP server for AI integration
+
+%s  https://docs.revyl.com
+%s  support@revyl.ai
+
+%s
+`,
+		purple.Render("Revyl")+" - "+dim.Render(tagline),
+		purple.Render("Getting Started:"),
+		purple.Render("revyl auth login"),
+		purple.Render("revyl init"),
+		purple.Render("revyl test run <name>"),
+		purple.Render("revyl workflow run <name>"),
+		purple.Render("Manage:"),
+		purple.Render("revyl test"),
+		purple.Render("revyl workflow"),
+		purple.Render("revyl build"),
+		purple.Render("AI/Tooling:"),
+		purple.Render("revyl schema"),
+		purple.Render("revyl mcp serve"),
+		purple.Render("Docs: "),
+		purple.Render("Help: "),
+		hint.Render(`Use "revyl --help" for a full list of commands.`),
+	)
+}
+
+// GetHelpText returns the verbose help text for the CLI, used by `revyl --help`.
+// Contains the full curated command reference without the ASCII banner.
 func GetHelpText() string {
 	purple := lipgloss.NewStyle().Foreground(Purple).Bold(true)
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 
 	return fmt.Sprintf(`%s
 
-  %s
-
 %s
   %s            Authenticate with your Revyl account
   %s                Initialize project configuration
-  %s         Build and run a test (recommended)
-  %s         Run without rebuilding
-  %s         Build and run a workflow
+  %s      Run a test
+  %s   Run a test with build
+  %s  Run a workflow
 
 %s
   %s      Create a new test
@@ -84,14 +132,13 @@ func GetHelpText() string {
 
 %s  https://docs.revyl.com
 %s  support@revyl.ai`,
-		purple.Render(banner),
 		dim.Render(tagline+". Catch bugs before your users do."),
 		purple.Render("Quick Start:"),
 		purple.Render("revyl auth login"),
 		purple.Render("revyl init"),
-		purple.Render("revyl run <test-name>"),
-		purple.Render("revyl run <test-name> --no-build"),
-		purple.Render("revyl run <workflow> -w"),
+		purple.Render("revyl test run <name>"),
+		purple.Render("revyl test run <name> --build"),
+		purple.Render("revyl workflow run <name>"),
 		purple.Render("More:"),
 		purple.Render("revyl test create <name>"),
 		purple.Render("revyl workflow create <name>"),

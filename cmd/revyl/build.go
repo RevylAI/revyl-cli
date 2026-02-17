@@ -537,7 +537,7 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 		if len(cfg.Tests) > 0 {
 			for alias := range cfg.Tests {
 				ui.PrintNextSteps([]ui.NextStep{
-					{Label: "Run a test:", Command: fmt.Sprintf("revyl run %s", alias)},
+					{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", alias)},
 				})
 				break
 			}
@@ -1009,7 +1009,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		if cfgErr == nil && cfg != nil && len(cfg.Tests) > 0 {
 			for alias := range cfg.Tests {
 				ui.PrintNextSteps([]ui.NextStep{
-					{Label: "Run a test:", Command: fmt.Sprintf("revyl run %s", alias)},
+					{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", alias)},
 				})
 				break
 			}

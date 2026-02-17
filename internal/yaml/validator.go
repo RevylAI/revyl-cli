@@ -39,8 +39,9 @@ type TestContent struct {
 
 // TestMetadata contains test metadata.
 type TestMetadata struct {
-	Name     string `yaml:"name"`
-	Platform string `yaml:"platform"`
+	Name     string   `yaml:"name"`
+	Platform string   `yaml:"platform"`
+	Tags     []string `yaml:"tags,omitempty"`
 }
 
 // TestBuild contains build configuration.

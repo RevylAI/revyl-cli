@@ -34,20 +34,35 @@ revyl build upload --platform android
 revyl test create login-flow --platform android
 
 # 4. Run it
-revyl run login-flow
+revyl test run login-flow
 
 # 5. Group tests into a workflow
 revyl workflow create smoke-tests --tests login-flow,checkout
 
 # 6. Run the workflow
-revyl run smoke-tests -w
+revyl workflow run smoke-tests
 ```
 
-> **Tip:** `revyl run` can also build and upload automatically (`revyl run login-flow --build`), so steps 2-3 are only needed the first time or when managing things manually.
+> **Tip:** `revyl test run` supports `--build` to build and upload automatically (`revyl test run login-flow --build`), so steps 2-3 are only needed the first time or when managing things manually.
 
 The `revyl init` wizard walks you through 6 stages (project setup, auth, apps, build, test, workflow).
 Each stage can be skipped by pressing Enter or answering "n" at its prompt.
 Use `revyl init -y` to skip the wizard entirely and just generate a config file.
+
+## MCP Server (AI Agent Integration)
+
+Connect Revyl to AI coding tools like Cursor, Claude Code, Codex, VS Code, and Claude Desktop. Your agent gets access to cloud devices, test execution, and device interaction tools.
+
+1[![Add Revyl MCP to Cursor](https://cursor.com/deeplink/mcp-install-dark.png)](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Revyl-0098FF?style=flat&logo=visualstudiocode&logoColor=ffffff)](vscode:mcp/install?%7B%22name%22%3A%22revyl%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22revyl%22%2C%22args%22%3A%5B%22mcp%22%2C%22serve%22%5D%7D)
+
+**Claude Code**: `claude mcp add revyl -- revyl mcp serve` | **Codex**: `codex mcp add revyl -- revyl mcp serve`
+
+Full setup guides for every tool:
+
+- **[Setup Guide (detailed)](docs/MCP_SETUP.md)** -- Cursor, Claude Code, Codex, VS Code, Claude Desktop, Windsurf
+- **[Public Docs](https://docs.revyl.ai/cli/mcp-setup)** -- Same guide on the docs site
+- **[Agent Skill](skills/revyl-device/SKILL.md)** -- Optional skill doc that teaches your agent optimal usage patterns
 
 ## Team Quick Start (Internal)
 
@@ -66,6 +81,18 @@ export PATH="$PATH:$(pwd)/build"
 ./build/revyl --help
 ./build/revyl auth login
 ./build/revyl --dev test my-test  # Against local backend
+```
+
+### Sandboxes (Internal)
+
+Fleet sandboxes are Mac Mini VMs with pre-configured iOS simulators and Android emulators. See the [Sandbox Guide](../README.md#sandbox-guide-revyl-cli) in the monorepo README for the full guide.
+
+```bash
+revyl --dev sandbox status                    # Check availability
+revyl --dev sandbox claim                     # Claim a sandbox
+revyl --dev sandbox worktree create feature-x # Create worktree
+revyl --dev sandbox open feature-x            # Open in IDE
+revyl --dev sandbox release                   # Release when done
 ```
 
 ## Commands
@@ -102,16 +129,13 @@ Use `-y` to skip the interactive steps and just generate the config file.
 ### Running Tests
 
 ```bash
-# Build then run (recommended — one command)
-revyl run login-flow                      # By alias; builds, uploads, runs
-revyl run login-flow --platform release   # Use a specific platform config
-revyl run login-flow --no-build           # Skip build; run against last upload
-revyl run smoke-tests -w                  # Build then run workflow (-w = workflow)
-revyl run smoke-tests -w --no-build       # Run workflow without rebuilding
+# Run a test
+revyl test run login-flow                 # Run against last uploaded build
+revyl test run login-flow --build         # Build, upload, then run
+revyl test run login-flow --build --platform release   # Use a specific platform config
 
-# Run only (no build) or advanced options
-revyl test run login-flow                 # Run without rebuilding
-revyl test run login-flow --build         # Explicit build then run
+# Run a workflow
+revyl workflow run smoke-tests            # Run a workflow
 revyl workflow run smoke-tests --build    # Build then run workflow
 ```
 

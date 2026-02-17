@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -247,6 +248,10 @@ func runSandboxList(cmd *cobra.Command, args []string) error {
 
 // --- claim ---
 
+// sandboxClaimAllowMultiple allows claiming additional sandboxes when the user
+// already has one claimed. Controlled via --allow-multiple flag.
+var sandboxClaimAllowMultiple bool
+
 // sandboxClaimCmd claims an available sandbox.
 var sandboxClaimCmd = &cobra.Command{
 	Use:   "claim",
@@ -256,8 +261,11 @@ var sandboxClaimCmd = &cobra.Command{
 The system automatically picks the best available sandbox and assigns it
 to you. After claiming, your SSH key is pushed for secure access.
 
+Use --allow-multiple to claim additional sandboxes when you already have one.
+
 EXAMPLES:
   revyl --dev sandbox claim
+  revyl --dev sandbox claim --allow-multiple
   revyl --dev sandbox claim --json`,
 	RunE: runSandboxClaim,
 }
@@ -287,7 +295,7 @@ func runSandboxClaim(cmd *cobra.Command, args []string) error {
 		ui.StartSpinner("Claiming sandbox...")
 	}
 
-	result, err := client.ClaimSandbox(ctx)
+	result, err := client.ClaimSandbox(ctx, sandboxClaimAllowMultiple)
 
 	if !jsonOutput {
 		ui.StopSpinner()
@@ -638,10 +646,12 @@ var sandboxSSHKeyPushCmd = &cobra.Command{
 	Long: `Push your SSH public key to your claimed sandbox.
 
 Reads ~/.ssh/id_ed25519.pub by default, or specify a custom key file.
+When you have multiple sandboxes, use --name to target a specific one.
 
 EXAMPLES:
   revyl --dev sandbox ssh-key push
-  revyl --dev sandbox ssh-key push ~/.ssh/custom_key.pub`,
+  revyl --dev sandbox ssh-key push ~/.ssh/custom_key.pub
+  revyl --dev sandbox ssh-key push --name Revyl-Mac-mini-W641QMFKQR`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSandboxSSHKeyPush,
 }
@@ -696,7 +706,25 @@ func runSandboxSSHKeyPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no claimed sandbox")
 	}
 
-	target := &mine[0]
+	// Select target sandbox: use --name flag if provided, otherwise default to first
+	targetName, _ := cmd.Flags().GetString("name")
+	var target *api.FleetSandbox
+	if targetName != "" {
+		for i := range mine {
+			name := mine[i].DisplayName()
+			vmName := mine[i].VmName
+			if strings.EqualFold(name, targetName) || strings.EqualFold(vmName, targetName) {
+				target = &mine[i]
+				break
+			}
+		}
+		if target == nil {
+			ui.PrintError("Sandbox '%s' not found in your claimed sandboxes", targetName)
+			return fmt.Errorf("sandbox %q not found", targetName)
+		}
+	} else {
+		target = &mine[0]
+	}
 
 	if !jsonOutput {
 		ui.StartSpinner("Pushing SSH key...")
@@ -855,6 +883,12 @@ func init() {
 	sandboxSSHKeyCmd.AddCommand(sandboxSSHKeyPushCmd)
 	sandboxSSHKeyCmd.AddCommand(sandboxSSHKeyStatusCmd)
 
+	// SSH key push flags
+	sandboxSSHKeyPushCmd.Flags().StringP("name", "n", "", "Target sandbox name (required when you have multiple claimed sandboxes)")
+
 	// Release flags
 	sandboxReleaseCmd.Flags().BoolVarP(&sandboxReleaseForce, "force", "f", false, "Skip confirmation prompt")
+
+	// Claim flags
+	sandboxClaimCmd.Flags().BoolVar(&sandboxClaimAllowMultiple, "allow-multiple", false, "Allow claiming additional sandboxes when you already have one")
 }

@@ -2,10 +2,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -334,7 +336,7 @@ func runAppDelete(cmd *cobra.Command, args []string) error {
 	// Show what will be deleted
 	if !appDeleteForce {
 		ui.Println()
-		ui.PrintInfo("Delete app \"%s\"?", appName)
+		ui.PrintInfo("Delete app \"%s\" (%s)?", appName, appID)
 		ui.PrintDim("  - Remote: will delete app and ALL build versions")
 		if len(configRefs) > 0 {
 			ui.PrintDim("  - Config: will remove app_id from platforms: %v", configRefs)
@@ -418,17 +420,63 @@ func resolveAppNameOrID(cmd *cobra.Command, client *api.Client, nameOrID string)
 		}
 	}
 
-	// Search by name
-	result, err := client.ListApps(cmd.Context(), "", 1, 100)
+	// Search by exact name across all pages.
+	allApps, err := listAllApps(cmd.Context(), client)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to list apps: %w", err)
 	}
 
-	for _, app := range result.Items {
-		if app.Name == nameOrID {
-			return app.ID, app.Name, nil
+	match, err := selectExactNameApp(allApps, nameOrID)
+	if err != nil {
+		return "", "", err
+	}
+	return match.ID, match.Name, nil
+}
+
+// listAllApps fetches all app pages for deterministic destructive resolution.
+func listAllApps(ctx context.Context, client *api.Client) ([]api.App, error) {
+	page := 1
+	all := make([]api.App, 0, 64)
+	for {
+		result, err := client.ListApps(ctx, "", page, 100)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, result.Items...)
+		if !result.HasNext {
+			break
+		}
+		page++
+	}
+	return all, nil
+}
+
+// selectExactNameApp picks one app by exact name or returns a deterministic
+// disambiguation error if multiple apps share the same name.
+func selectExactNameApp(apps []api.App, name string) (api.App, error) {
+	matches := make([]api.App, 0, 2)
+	for _, app := range apps {
+		if app.Name == name {
+			matches = append(matches, app)
 		}
 	}
+	if len(matches) == 0 {
+		return api.App{}, fmt.Errorf("app %q not found", name)
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
 
-	return "", "", fmt.Errorf("app \"%s\" not found", nameOrID)
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].Platform == matches[j].Platform {
+			return matches[i].ID < matches[j].ID
+		}
+		return matches[i].Platform < matches[j].Platform
+	})
+
+	lines := make([]string, 0, len(matches))
+	for _, app := range matches {
+		lines = append(lines, fmt.Sprintf("  - %s (%s)", app.ID, app.Platform))
+	}
+	return api.App{}, fmt.Errorf("multiple apps named %q found. Use an app ID:\n%s", name, strings.Join(lines, "\n"))
 }
