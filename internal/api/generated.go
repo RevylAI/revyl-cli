@@ -976,6 +976,18 @@ type AssignSeatsResponse struct {
 // AsyncStatus defines model for AsyncStatus.
 type AsyncStatus string
 
+// AttachRequest defines model for AttachRequest.
+type AttachRequest struct {
+	Quantity    *int   `json:"quantity"`
+	RedirectUrl string `json:"redirect_url"`
+}
+
+// AttachResponse defines model for AttachResponse.
+type AttachResponse struct {
+	CheckoutUrl *string `json:"checkout_url"`
+	Message     string  `json:"message"`
+}
+
 // AuthInfo Class that represents authentication information.
 // Can be returned from the require_auth dependency.
 type AuthInfo struct {
@@ -1489,6 +1501,18 @@ type CancelTestResponse struct {
 type CategoryValue struct {
 	Category string  `json:"category"`
 	Value    float32 `json:"value"`
+}
+
+// ChartDataPoint defines model for ChartDataPoint.
+type ChartDataPoint struct {
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments"`
+	MedianHours *float32 `json:"median_hours"`
+	P25Hours    *float32 `json:"p25_hours"`
+	P75Hours    *float32 `json:"p75_hours"`
+	TeamAverage *float32 `json:"team_average"`
+	Trend       *string  `json:"trend"`
+	Value       *float32 `json:"value"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -3769,10 +3793,10 @@ type ModulesListResponse struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
-	MetricType   string                                           `json:"metric_type"`
-	Repositories []string                                         `json:"repositories"`
-	RetrievedAt  string                                           `json:"retrieved_at"`
+	Data         []ChartDataPoint `json:"data"`
+	MetricType   string           `json:"metric_type"`
+	Repositories []string         `json:"repositories"`
+	RetrievedAt  string           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -6541,11 +6565,9 @@ type UserTestsResponse struct {
 
 // ValidationError defines model for ValidationError.
 type ValidationError struct {
-	Ctx   *map[string]interface{}    `json:"ctx,omitempty"`
-	Input interface{}                `json:"input,omitempty"`
-	Loc   []ValidationError_Loc_Item `json:"loc"`
-	Msg   string                     `json:"msg"`
-	Type  string                     `json:"type"`
+	Loc  []ValidationError_Loc_Item `json:"loc"`
+	Msg  string                     `json:"msg"`
+	Type string                     `json:"type"`
 }
 
 // ValidationErrorLoc0 defines model for .
@@ -7420,30 +7442,6 @@ type YamlToBlocksRequest struct {
 type AppRoutesExecutionRoutesBillingXptAttachRequest struct {
 	ProductId   *string `json:"product_id,omitempty"`
 	RedirectUrl string  `json:"redirect_url"`
-}
-
-// AppRoutesExecutionRoutesBillingXptAttachResponse defines model for app__routes__execution_routes__billing_xpt__AttachResponse.
-type AppRoutesExecutionRoutesBillingXptAttachResponse struct {
-	CheckoutUrl *string `json:"checkout_url"`
-	Message     string  `json:"message"`
-}
-
-// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
-type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
-}
-
-// AppRoutesRebelRoutesBillingXptAttachRequest defines model for app__routes__rebel_routes__billing_xpt__AttachRequest.
-type AppRoutesRebelRoutesBillingXptAttachRequest struct {
-	Quantity    *int   `json:"quantity"`
-	RedirectUrl string `json:"redirect_url"`
 }
 
 // AppRoutesRebelRoutesBillingXptAttachResponse defines model for app__routes__rebel_routes__billing_xpt__AttachResponse.
@@ -8539,7 +8537,7 @@ type TriggerBackfillApiV1ReviewBackfillPostJSONRequestBody = BackfillRequest
 type AssignSeatsApiV1ReviewBillingAssignSeatsPostJSONRequestBody = AssignSeatsRequest
 
 // AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody defines body for AttachBillingApiV1ReviewBillingAttachPost for application/json ContentType.
-type AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody = AppRoutesRebelRoutesBillingXptAttachRequest
+type AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody = AttachRequest
 
 // UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody defines body for UpdateSeatsApiV1ReviewBillingUpdateSeatsPost for application/json ContentType.
 type UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody = UpdateSeatsRequest
