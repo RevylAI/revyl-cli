@@ -27,6 +27,12 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
+// Platform-specific helpers are in process_unix.go / process_windows.go:
+//   setProcGroup(cmd)             — set process group on a command
+//   killProcessGroup(pid, sig)    — send signal to process group
+//   isProcessGroupAlive(pid)      — check if process group is alive
+//   isServiceProcess(pid)         — verify PID is a revyl-spawned shell
+
 // servicesCmd is the parent command for service session management.
 var servicesCmd = &cobra.Command{
 	Use:   "services",
@@ -324,7 +330,7 @@ func runServicesStart(cmd *cobra.Command, args []string) error {
 
 		shellCmd := exec.Command("/bin/bash", "-c", joinedCommands)
 		shellCmd.Dir = repoRoot
-		shellCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		setProcGroup(shellCmd)
 
 		// Create pipes for stdout and stderr
 		stdout, err := shellCmd.StdoutPipe()
@@ -458,8 +464,8 @@ func runServicesStop(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		// Send SIGTERM to the process group (negative PID)
-		if err := syscall.Kill(-entry.PID, syscall.SIGTERM); err != nil {
+		// Send SIGTERM to the process group
+		if err := killProcessGroup(entry.PID, syscall.SIGTERM); err != nil {
 			log.Debug("Process group already exited", "pid", entry.PID, "name", entry.Name)
 			continue
 		}
@@ -472,9 +478,9 @@ func runServicesStop(cmd *cobra.Command, args []string) error {
 	if len(pids) > 0 {
 		time.Sleep(3 * time.Second)
 		for _, pid := range pids {
-			if err := syscall.Kill(-pid, syscall.Signal(0)); err == nil {
+			if isProcessGroupAlive(pid) {
 				log.Warn("Process group did not exit after SIGTERM, sending SIGKILL", "pid", pid)
-				_ = syscall.Kill(-pid, syscall.SIGKILL)
+				_ = killProcessGroup(pid, syscall.SIGKILL)
 			}
 		}
 	}
@@ -601,7 +607,7 @@ func stopProcesses(cmds []*exec.Cmd) {
 	// Send SIGTERM to each process group
 	for _, c := range cmds {
 		if c.Process != nil {
-			_ = syscall.Kill(-c.Process.Pid, syscall.SIGTERM)
+			_ = killProcessGroup(c.Process.Pid, syscall.SIGTERM)
 		}
 	}
 
@@ -609,10 +615,9 @@ func stopProcesses(cmds []*exec.Cmd) {
 	time.Sleep(3 * time.Second)
 	for _, c := range cmds {
 		if c.Process != nil {
-			// Signal(0) checks if process is still alive
-			if err := c.Process.Signal(syscall.Signal(0)); err == nil {
+			if isProcessGroupAlive(c.Process.Pid) {
 				log.Warn("Process did not exit after SIGTERM, sending SIGKILL", "pid", c.Process.Pid)
-				_ = syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
+				_ = killProcessGroup(c.Process.Pid, syscall.SIGKILL)
 			}
 		}
 	}
@@ -726,26 +731,6 @@ func readPIDFile(path string) ([]pidEntry, error) {
 	}
 
 	return entries, nil
-}
-
-// isServiceProcess checks whether a PID belongs to a shell process spawned by
-// revyl services start. This prevents killing unrelated processes if the PID
-// file is stale and the OS has recycled the PID.
-//
-// Parameters:
-//   - pid: The process ID to verify.
-//
-// Returns:
-//   - bool: True if the process looks like a revyl-spawned shell.
-func isServiceProcess(pid int) bool {
-	out, err := exec.Command("ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return false
-	}
-	comm := strings.TrimSpace(string(out))
-	// The spawned processes are /bin/bash -c "..." so the comm should be bash or /bin/bash.
-	// Also check for sh/bin/sh for backwards compatibility with older PID files.
-	return comm == "bash" || comm == "/bin/bash" || comm == "sh" || comm == "/bin/sh"
 }
 
 // runServicesDocs prints the full .revyl/ session format reference.
