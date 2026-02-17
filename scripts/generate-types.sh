@@ -25,6 +25,9 @@ echo "Revyl CLI - Type Generation"
 echo "============================"
 echo ""
 
+# Ensure Go binaries are on PATH (needed on sandboxes where ~/.zshrc may not be sourced)
+export PATH="$HOME/go/bin:$PATH"
+
 # Check if oapi-codegen is installed
 if ! command -v oapi-codegen &> /dev/null; then
     echo "Error: oapi-codegen not installed"
