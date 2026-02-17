@@ -67,10 +67,9 @@ const (
 
 // Defines values for CleanupLevel.
 const (
-	CleanupLevelAppOnly  CleanupLevel = "app_only"
-	CleanupLevelNone     CleanupLevel = "none"
-	CleanupLevelThorough CleanupLevel = "thorough"
-	CleanupLevelUserData CleanupLevel = "user_data"
+	CleanupLevelDeepClean CleanupLevel = "deep_clean"
+	CleanupLevelNone      CleanupLevel = "none"
+	CleanupLevelThorough  CleanupLevel = "thorough"
 )
 
 // Defines values for CodeExecutionScriptRuntime.
@@ -105,8 +104,8 @@ const (
 
 // Defines values for Environment.
 const (
-	Production Environment = "production"
-	Staging    Environment = "staging"
+	EnvironmentProduction Environment = "production"
+	EnvironmentStaging    Environment = "staging"
 )
 
 // Defines values for ExplorationStatus.
@@ -200,6 +199,12 @@ const (
 	ReflectionErrorTypeFalseNegative ReflectionErrorType = "false_negative"
 	ReflectionErrorTypeFalsePositive ReflectionErrorType = "false_positive"
 	ReflectionErrorTypeNone          ReflectionErrorType = "none"
+)
+
+// Defines values for RegisterSandboxRequestDbEnv.
+const (
+	RegisterSandboxRequestDbEnvProduction RegisterSandboxRequestDbEnv = "production"
+	RegisterSandboxRequestDbEnvStaging    RegisterSandboxRequestDbEnv = "staging"
 )
 
 // Defines values for RegisterSandboxRequestStatus.
@@ -477,6 +482,7 @@ type ActiveDeviceSessionItem struct {
 	Status           string  `json:"status"`
 	TraceId          *string `json:"trace_id"`
 	UserEmail        *string `json:"user_email"`
+	UserId           *string `json:"user_id"`
 	WhepUrl          *string `json:"whep_url"`
 	WorkflowRunId    *string `json:"workflow_run_id"`
 }
@@ -970,10 +976,24 @@ type AssignSeatsResponse struct {
 // AsyncStatus defines model for AsyncStatus.
 type AsyncStatus string
 
+// AttachRequest defines model for AttachRequest.
+type AttachRequest struct {
+	ProductId   *string `json:"product_id,omitempty"`
+	RedirectUrl string  `json:"redirect_url"`
+}
+
+// AttachResponse defines model for AttachResponse.
+type AttachResponse struct {
+	CheckoutUrl *string `json:"checkout_url"`
+	Message     string  `json:"message"`
+	Success     *bool   `json:"success"`
+}
+
 // AuthInfo Class that represents authentication information.
 // Can be returned from the require_auth dependency.
 type AuthInfo struct {
 	ApiKey           *string   `json:"api_key"`
+	BillingExempt    *bool     `json:"billing_exempt,omitempty"`
 	ConcurrencyLimit *int      `json:"concurrency_limit,omitempty"`
 	Email            *string   `json:"email"`
 	OrgId            *string   `json:"org_id"`
@@ -1482,6 +1502,27 @@ type CancelTestResponse struct {
 type CategoryValue struct {
 	Category string  `json:"category"`
 	Value    float32 `json:"value"`
+}
+
+// ChartDataPoint Daily aggregated chart data point.
+type ChartDataPoint struct {
+	// AvgDuration Average execution duration in seconds for this date
+	AvgDuration *int `json:"avg_duration"`
+
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -2090,6 +2131,20 @@ type CreateWorktreeRequest struct {
 	SetupScript *string `json:"setup_script"`
 }
 
+// CreditsBalanceItem defines model for CreditsBalanceItem.
+type CreditsBalanceItem struct {
+	Balance     *int   `json:"balance"`
+	FeatureId   string `json:"feature_id"`
+	FeatureName string `json:"feature_name"`
+	Granted     *int   `json:"granted,omitempty"`
+	Usage       *int   `json:"usage,omitempty"`
+}
+
+// CreditsBalanceResponse defines model for CreditsBalanceResponse.
+type CreditsBalanceResponse struct {
+	Balances []CreditsBalanceItem `json:"balances"`
+}
+
 // CursorConfigurationStatus Response model for Cursor configuration status.
 type CursorConfigurationStatus struct {
 	// CursorConfigured Whether Cursor is fully configured
@@ -2150,6 +2205,34 @@ type DOMMetadata struct {
 	VariableName         *string                 `json:"variable_name"`
 	WaitTime             *int                    `json:"wait_time"`
 	AdditionalProperties map[string]interface{}  `json:"-"`
+}
+
+// DailySpendItem defines model for DailySpendItem.
+type DailySpendItem struct {
+	Date         string  `json:"date"`
+	DeviceCost   float32 `json:"device_cost"`
+	LlmCost      float32 `json:"llm_cost"`
+	SessionCount int     `json:"session_count"`
+	TotalCost    float32 `json:"total_cost"`
+}
+
+// DailySpendResponse defines model for DailySpendResponse.
+type DailySpendResponse struct {
+	DataPoints []DailySpendItem `json:"data_points"`
+}
+
+// DailyUsageItem defines model for DailyUsageItem.
+type DailyUsageItem struct {
+	AndroidMinutes float32 `json:"android_minutes"`
+	Date           string  `json:"date"`
+	IosMinutes     float32 `json:"ios_minutes"`
+	SessionCount   int     `json:"session_count"`
+	TotalMinutes   float32 `json:"total_minutes"`
+}
+
+// DailyUsageResponse defines model for DailyUsageResponse.
+type DailyUsageResponse struct {
+	DataPoints []DailyUsageItem `json:"data_points"`
 }
 
 // DashboardMetrics Model representing dashboard metrics with week-over-week comparisons.
@@ -2285,7 +2368,7 @@ type DeviceCleanupConfig struct {
 	// ClearNotifications Clear all pending notifications from previous test sessions
 	ClearNotifications *bool `json:"clear_notifications,omitempty"`
 
-	// ClearRecentApps Clear recent apps list (requires root access, restarts framework)
+	// ClearRecentApps Clear recent apps list (requires root access, restarts framework). Expensive (~15-30s), broken on Play Store images. Auto-enabled for DEEP_CLEAN.
 	ClearRecentApps *bool `json:"clear_recent_apps,omitempty"`
 
 	// ClearSharedStorage Clear Pictures, DCIM, Movies, Music, Documents folders
@@ -2297,7 +2380,7 @@ type DeviceCleanupConfig struct {
 	// KillBackgroundApps Kill all background applications
 	KillBackgroundApps *bool `json:"kill_background_apps,omitempty"`
 
-	// ResetSystemUi Reset SystemUI state including wallpaper to defaults
+	// ResetSystemUi Reset SystemUI state including wallpaper to defaults. Expensive (~2-3s). Auto-enabled for DEEP_CLEAN.
 	ResetSystemUi *bool `json:"reset_system_ui,omitempty"`
 
 	// RevokePermissions Revoke runtime permissions granted during test
@@ -3167,6 +3250,62 @@ type GitHubUser struct {
 	Name      *string `json:"name"`
 }
 
+// GroundRequest Request body for the grounding proxy endpoint.
+//
+// Attributes:
+//
+//	target: Natural language description of the UI element to locate.
+//	image_base64: Base64-encoded screenshot (PNG or JPEG).
+//	width: Width of the screenshot in pixels.
+//	height: Height of the screenshot in pixels.
+//	platform: Device platform ('android' or 'ios').
+//	session_id: Optional device session ID for cost tracking.
+//	grounder_type: Optional grounder model override.
+type GroundRequest struct {
+	// GrounderType Grounder model override
+	GrounderType *string `json:"grounder_type"`
+
+	// Height Screenshot height in pixels
+	Height int `json:"height"`
+
+	// ImageBase64 Base64-encoded screenshot image (PNG or JPEG)
+	ImageBase64 string `json:"image_base64"`
+
+	// Platform Device platform
+	Platform *string `json:"platform,omitempty"`
+
+	// SessionId Device session ID for cost tracking
+	SessionId *string `json:"session_id"`
+
+	// Target Natural language description of the element to locate
+	Target string `json:"target"`
+
+	// Width Screenshot width in pixels
+	Width int `json:"width"`
+}
+
+// GroundResponse Response body from the grounding proxy endpoint.
+//
+// Attributes:
+//
+//	x: Absolute X pixel coordinate of the located element.
+//	y: Absolute Y pixel coordinate of the located element.
+//	found: Whether the element was successfully located.
+//	error: Error message if grounding failed.
+type GroundResponse struct {
+	// Error Error message if failed
+	Error *string `json:"error"`
+
+	// Found Whether the element was located
+	Found *bool `json:"found,omitempty"`
+
+	// X Absolute X pixel coordinate
+	X *int `json:"x,omitempty"`
+
+	// Y Absolute Y pixel coordinate
+	Y *int `json:"y,omitempty"`
+}
+
 // GrounderHintErrorType Types of grounder_hint quality errors that can occur.
 type GrounderHintErrorType string
 
@@ -3901,14 +4040,6 @@ type OrganizationRepositoriesResponse struct {
 	Repositories []Repository `json:"repositories"`
 }
 
-// OrganizationSettingsBaseSchema OrganizationSettings Base Schema.
-type OrganizationSettingsBaseSchema struct {
-	AndroidEnabled bool       `json:"android_enabled"`
-	Id             string     `json:"id"`
-	IosEnabled     bool       `json:"ios_enabled"`
-	UpdatedAt      *time.Time `json:"updated_at"`
-}
-
 // OrganizationUsersResponse defines model for OrganizationUsersResponse.
 type OrganizationUsersResponse struct {
 	TotalCount int          `json:"total_count"`
@@ -3998,6 +4129,16 @@ type PlatformApp struct {
 
 	// PinnedVersion Optional pinned version string
 	PinnedVersion *string `json:"pinned_version"`
+}
+
+// PortalRequest defines model for PortalRequest.
+type PortalRequest struct {
+	ReturnUrl string `json:"return_url"`
+}
+
+// PortalResponse defines model for PortalResponse.
+type PortalResponse struct {
+	Url string `json:"url"`
 }
 
 // PostFinalPRCommentRequest Request to post final PR comment with results.
@@ -4259,15 +4400,27 @@ type ReflectionEval struct {
 //
 //	vm_name: Unique VM name (e.g., "Revyl-Mac-mini-W641QMFKQR").
 //	hostname: mDNS hostname (e.g., "Revyl-Mac-mini-W641QMFKQR.local").
+//	org_id: Organization ID to reserve this sandbox for. If set, only
+//	    users from this org can claim it. NULL means shared pool.
 //	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
 //	ssh_user: SSH username for connections (default: revyl-admin).
 //	ssh_port: SSH port number (default: 22).
 //	status: Initial sandbox status (default: available).
 //	specs: Hardware specifications (cpu_cores, memory_gb, chip).
 //	tags: Flexible labels for filtering (location, tier, etc.).
+//	db_env: Target database environment override. When set, the backend
+//	    routes the registration to the specified Supabase instance
+//	    instead of the backend's default. Use "staging" for internal
+//	    sandboxes and "production" for external/customer sandboxes.
 type RegisterSandboxRequest struct {
+	// DbEnv Target database environment override. If not specified, uses the backend's configured default.
+	DbEnv *RegisterSandboxRequestDbEnv `json:"db_env"`
+
 	// Hostname mDNS hostname
 	Hostname *string `json:"hostname"`
+
+	// OrgId Organization ID to reserve this sandbox for. If set, only users from this org can claim it. NULL means shared pool (available to all orgs).
+	OrgId *string `json:"org_id"`
 
 	// Specs Hardware specs (cpu_cores, memory_gb, chip)
 	Specs *map[string]interface{} `json:"specs"`
@@ -4293,6 +4446,9 @@ type RegisterSandboxRequest struct {
 	// VmName Unique VM name (e.g., 'Revyl-Mac-mini-W641QMFKQR')
 	VmName string `json:"vm_name"`
 }
+
+// RegisterSandboxRequestDbEnv Target database environment override. If not specified, uses the backend's configured default.
+type RegisterSandboxRequestDbEnv string
 
 // RegisterSandboxRequestStatus Initial sandbox status
 type RegisterSandboxRequestStatus string
@@ -6774,9 +6930,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time                                           `json:"created_at"`
-	Deleted   bool                                                 `json:"deleted"`
+	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time        `json:"created_at"`
+	Deleted   bool              `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -7291,12 +7447,6 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
-// AppRoutesExecutionRoutesBillingXptAttachRequest defines model for app__routes__execution_routes__billing_xpt__AttachRequest.
-type AppRoutesExecutionRoutesBillingXptAttachRequest struct {
-	ProductId   *string `json:"product_id,omitempty"`
-	RedirectUrl string  `json:"redirect_url"`
-}
-
 // AppRoutesExecutionRoutesBillingXptAttachResponse defines model for app__routes__execution_routes__billing_xpt__AttachResponse.
 type AppRoutesExecutionRoutesBillingXptAttachResponse struct {
 	CheckoutUrl *string `json:"checkout_url"`
@@ -7319,34 +7469,6 @@ type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
 type AppRoutesRebelRoutesBillingXptAttachRequest struct {
 	Quantity    *int   `json:"quantity"`
 	RedirectUrl string `json:"redirect_url"`
-}
-
-// AppRoutesRebelRoutesBillingXptAttachResponse defines model for app__routes__rebel_routes__billing_xpt__AttachResponse.
-type AppRoutesRebelRoutesBillingXptAttachResponse struct {
-	CheckoutUrl *string `json:"checkout_url"`
-	Message     string  `json:"message"`
-	Success     *bool   `json:"success"`
-}
-
-// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
-type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
-	// AvgDuration Average execution duration in seconds for this date
-	AvgDuration *int `json:"avg_duration"`
-
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.
@@ -7671,11 +7793,6 @@ type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 	FileName string `form:"file_name" json:"file_name"`
 }
 
-// GetOrganizationSettingsApiV1EntityOrgsOrganizationSettingsGetParams defines parameters for GetOrganizationSettingsApiV1EntityOrgsOrganizationSettingsGet.
-type GetOrganizationSettingsApiV1EntityOrgsOrganizationSettingsGetParams struct {
-	OrgId *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-}
-
 // GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGetParams defines parameters for GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGet.
 type GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGetParams struct {
 	StatusHistoryLimit *int `form:"status_history_limit,omitempty" json:"status_history_limit,omitempty"`
@@ -7716,6 +7833,18 @@ type BillingCheckApiV1ExecutionBillingCheckGetParams struct {
 	// Platform ios or android
 	Platform     string `form:"platform" json:"platform"`
 	IsRealDevice *bool  `form:"is_real_device,omitempty" json:"is_real_device,omitempty"`
+}
+
+// BillingDailySpendApiV1ExecutionBillingDailySpendGetParams defines parameters for BillingDailySpendApiV1ExecutionBillingDailySpendGet.
+type BillingDailySpendApiV1ExecutionBillingDailySpendGetParams struct {
+	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
+	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
+}
+
+// BillingDailyUsageApiV1ExecutionBillingDailyUsageGetParams defines parameters for BillingDailyUsageApiV1ExecutionBillingDailyUsageGet.
+type BillingDailyUsageApiV1ExecutionBillingDailyUsageGetParams struct {
+	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
+	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
 }
 
 // BillingSessionsApiV1ExecutionBillingSessionsGetParams defines parameters for BillingSessionsApiV1ExecutionBillingSessionsGet.
@@ -8236,10 +8365,13 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONReques
 type StartExplorationApiV1ExecutionApiV1StartExplorationPostJSONRequestBody = StartExplorationRequest
 
 // BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody defines body for BillingAttachApiV1ExecutionBillingAttachPost for application/json ContentType.
-type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AppRoutesExecutionRoutesBillingXptAttachRequest
+type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AttachRequest
 
 // FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody defines body for FinalizeSessionApiV1ExecutionBillingFinalizeSessionPost for application/json ContentType.
 type FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody = FinalizeSessionRequest
+
+// BillingPortalApiV1ExecutionBillingPortalPostJSONRequestBody defines body for BillingPortalApiV1ExecutionBillingPortalPost for application/json ContentType.
+type BillingPortalApiV1ExecutionBillingPortalPostJSONRequestBody = PortalRequest
 
 // CreateDeviceSessionApiV1ExecutionDeviceSessionsPostJSONRequestBody defines body for CreateDeviceSessionApiV1ExecutionDeviceSessionsPost for application/json ContentType.
 type CreateDeviceSessionApiV1ExecutionDeviceSessionsPostJSONRequestBody = DeviceSessionCreate
@@ -8249,6 +8381,9 @@ type UpdateDeviceSessionByWorkflowRunIdApiV1ExecutionDeviceSessionsByWorkflowRun
 
 // UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatchJSONRequestBody defines body for UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatch for application/json ContentType.
 type UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatchJSONRequestBody = DeviceSessionUpdate
+
+// GroundElementApiV1ExecutionGroundPostJSONRequestBody defines body for GroundElementApiV1ExecutionGroundPost for application/json ContentType.
+type GroundElementApiV1ExecutionGroundPostJSONRequestBody = GroundRequest
 
 // CreateLlmCallApiV1ExecutionLlmCallsPostJSONRequestBody defines body for CreateLlmCallApiV1ExecutionLlmCallsPost for application/json ContentType.
 type CreateLlmCallApiV1ExecutionLlmCallsPostJSONRequestBody = LLMCallCreate

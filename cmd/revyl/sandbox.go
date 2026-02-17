@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -645,10 +646,12 @@ var sandboxSSHKeyPushCmd = &cobra.Command{
 	Long: `Push your SSH public key to your claimed sandbox.
 
 Reads ~/.ssh/id_ed25519.pub by default, or specify a custom key file.
+When you have multiple sandboxes, use --name to target a specific one.
 
 EXAMPLES:
   revyl --dev sandbox ssh-key push
-  revyl --dev sandbox ssh-key push ~/.ssh/custom_key.pub`,
+  revyl --dev sandbox ssh-key push ~/.ssh/custom_key.pub
+  revyl --dev sandbox ssh-key push --name Revyl-Mac-mini-W641QMFKQR`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSandboxSSHKeyPush,
 }
@@ -703,7 +706,25 @@ func runSandboxSSHKeyPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no claimed sandbox")
 	}
 
-	target := &mine[0]
+	// Select target sandbox: use --name flag if provided, otherwise default to first
+	targetName, _ := cmd.Flags().GetString("name")
+	var target *api.FleetSandbox
+	if targetName != "" {
+		for i := range mine {
+			name := mine[i].DisplayName()
+			vmName := mine[i].VmName
+			if strings.EqualFold(name, targetName) || strings.EqualFold(vmName, targetName) {
+				target = &mine[i]
+				break
+			}
+		}
+		if target == nil {
+			ui.PrintError("Sandbox '%s' not found in your claimed sandboxes", targetName)
+			return fmt.Errorf("sandbox %q not found", targetName)
+		}
+	} else {
+		target = &mine[0]
+	}
 
 	if !jsonOutput {
 		ui.StartSpinner("Pushing SSH key...")
@@ -861,6 +882,9 @@ func init() {
 	// SSH key subcommands
 	sandboxSSHKeyCmd.AddCommand(sandboxSSHKeyPushCmd)
 	sandboxSSHKeyCmd.AddCommand(sandboxSSHKeyStatusCmd)
+
+	// SSH key push flags
+	sandboxSSHKeyPushCmd.Flags().StringP("name", "n", "", "Target sandbox name (required when you have multiple claimed sandboxes)")
 
 	// Release flags
 	sandboxReleaseCmd.Flags().BoolVarP(&sandboxReleaseForce, "force", "f", false, "Skip confirmation prompt")
