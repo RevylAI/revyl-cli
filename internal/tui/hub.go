@@ -719,8 +719,14 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Derive setup steps from health check results
 			m.setupSteps = deriveSetupSteps(msg.Checks, m.cfg)
-			if first := firstActionableStep(m.setupSteps); first >= 0 && m.setupCursor == 0 {
-				m.setupCursor = first
+			if len(m.setupSteps) == 0 {
+				m.setupCursor = 0
+			} else if m.setupCursor >= len(m.setupSteps) {
+				if first := firstActionableStep(m.setupSteps); first >= 0 {
+					m.setupCursor = first
+				} else {
+					m.setupCursor = 0
+				}
 			}
 		}
 		return m, nil
@@ -1573,7 +1579,9 @@ func (m hubModel) renderDashboard() string {
 	b.WriteString(banner + "\n")
 
 	if m.err != nil {
-		b.WriteString("\n" + errorStyle.Render("  ✗ "+m.err.Error()) + "\n")
+		b.WriteString("\n" + errorStyle.Render("  ✗ "+m.err.Error()) + "\n\n")
+		b.WriteString("  " + strings.Join([]string{helpKeyRender("R", "refresh"), helpKeyRender("?", "help"), helpKeyRender("q", "quit")}, "  ") + "\n")
+		return b.String()
 	}
 	if m.authErr != nil && !m.isAuthenticated() {
 		b.WriteString("\n" + warningStyle.Render("  ⚠ "+m.authErr.Error()) + "\n")
@@ -1608,26 +1616,28 @@ func (m hubModel) renderDashboard() string {
 	b.WriteString("  " + separator(innerW) + "\n")
 	for i, a := range quickActions {
 		cur := "  "
-		style := normalStyle
+		labelStyle := normalStyle
+		descStyle := actionDescStyle
 		disabled := a.RequiresAuth && !m.isAuthenticated()
+		isSelected := m.focus == focusActions && i == m.actionCursor
 		if m.focus == focusActions && i == m.actionCursor {
 			cur = selectedStyle.Render("▸ ")
-			style = selectedStyle
 		}
 		num := dimStyle.Render(fmt.Sprintf("[%d] ", i+1))
-		descStyle := actionDescStyle
 		label := a.Label
 		if disabled {
 			label = label + " (login required)"
 			descStyle = dimStyle
-			if m.focus == focusActions && i == m.actionCursor {
-				style = warningStyle
+			if isSelected {
+				labelStyle = warningStyle
 			} else {
-				style = dimStyle
+				labelStyle = dimStyle
 			}
+		} else if isSelected {
+			labelStyle = selectedStyle
 		}
 		desc := descStyle.Render("  " + a.Desc)
-		b.WriteString("  " + cur + num + style.Render(label) + desc + "\n")
+		b.WriteString("  " + cur + num + labelStyle.Render(label) + desc + "\n")
 	}
 
 	b.WriteString("\n  " + separator(innerW) + "\n")
@@ -3142,9 +3152,8 @@ func (m hubModel) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return updated, cmd
 		}
 	case "a", "A":
-		if len(m.setupSteps) > 0 && m.setupCursor == 0 {
-			step := m.setupSteps[m.setupCursor]
-			if step.Status == "current" || step.Status == "hint" {
+		for _, step := range m.setupSteps {
+			if step.Label == "Log in" && (step.Status == "current" || step.Status == "hint") {
 				m.returnToDashboardAfterAuth = true
 				return m, tea.ExecProcess(authLoginCmd(true), func(err error) tea.Msg {
 					return SetupActionMsg{StepIndex: 0, Err: err}
