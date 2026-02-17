@@ -26,23 +26,24 @@ import (
 
 // quickAction defines an item in the Quick Actions menu.
 type quickAction struct {
-	Label string // display name shown in the menu
-	Key   string // internal identifier for dispatch
-	Desc  string // short description shown next to the label
+	Label        string // display name shown in the menu
+	Key          string // internal identifier for dispatch
+	Desc         string // short description shown next to the label
+	RequiresAuth bool   // whether this action is disabled until authenticated
 }
 
 // quickActions is the ordered list of actions on the dashboard.
 var quickActions = []quickAction{
-	{Label: "Run a test", Key: "run", Desc: "Execute an existing test"},
-	{Label: "Create a test", Key: "create", Desc: "Define a new test from YAML"},
-	{Label: "Browse tests", Key: "tests", Desc: "View, sync, and manage tests"},
-	{Label: "Browse workflows", Key: "workflows", Desc: "Create, run, and manage workflows"},
-	{Label: "Run a workflow", Key: "run_workflow", Desc: "Execute an existing workflow"},
-	{Label: "View reports", Key: "reports", Desc: "Browse test & workflow reports"},
-	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds"},
-	{Label: "Browse modules", Key: "modules", Desc: "View reusable test modules"},
-	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels"},
-	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard"},
+	{Label: "Run a test", Key: "run", Desc: "Execute an existing test", RequiresAuth: true},
+	{Label: "Create a test", Key: "create", Desc: "Define a new test from YAML", RequiresAuth: true},
+	{Label: "Browse tests", Key: "tests", Desc: "View, sync, and manage tests", RequiresAuth: true},
+	{Label: "Browse workflows", Key: "workflows", Desc: "Create, run, and manage workflows", RequiresAuth: true},
+	{Label: "Run a workflow", Key: "run_workflow", Desc: "Execute an existing workflow", RequiresAuth: true},
+	{Label: "View reports", Key: "reports", Desc: "Browse test & workflow reports", RequiresAuth: true},
+	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds", RequiresAuth: true},
+	{Label: "Browse modules", Key: "modules", Desc: "View reusable test modules", RequiresAuth: true},
+	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels", RequiresAuth: true},
+	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard", RequiresAuth: false},
 }
 
 // dashFocus tracks which section of the dashboard has keyboard focus.
@@ -190,6 +191,8 @@ type hubModel struct {
 	client  *api.Client
 	devMode bool
 	authErr error
+	// True when a setup login action should return to dashboard after auth succeeds.
+	returnToDashboardAfterAuth bool
 
 	// Sub-models
 	executionModel *executionModel
@@ -573,6 +576,17 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.currentView != viewDashboard && m.currentView != viewHelp && !m.isAuthenticated() {
+			switch msg.String() {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.currentView = viewDashboard
+				return m, nil
+			}
+			return m.requireAuthentication("Sign in required. Press Enter on 'Log in' (or 'a' for API key).")
+		}
+
 		if m.currentView == viewTestList {
 			return m.handleTestListKey(msg)
 		}
@@ -637,11 +651,23 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case AuthMsg:
 		if msg.Err != nil {
 			m.loading = false
-			m.err = msg.Err
-			return m, nil
+			m.client = nil
+			m.apiKey = ""
+			m.authErr = msg.Err
+			m.err = nil
+			m.currentView = viewHelp
+			m.healthLoading = true
+			m.healthChecks = nil
+			return m, runHealthChecksCmd(m.devMode, nil)
 		}
+		m.authErr = nil
+		m.err = nil
 		m.apiKey = msg.Token
 		m.client = msg.Client
+		if m.returnToDashboardAfterAuth {
+			m.currentView = viewDashboard
+			m.returnToDashboardAfterAuth = false
+		}
 		// Fire tests, metrics, and recent-runs fetch all in parallel
 		return m, tea.Batch(
 			fetchTestsCmd(m.client),
@@ -684,10 +710,23 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.healthLoading = false
 		if msg.Err == nil {
 			m.healthChecks = msg.Checks
+			// Clear stale auth warning once checks confirm authentication is valid.
+			for _, check := range msg.Checks {
+				if check.Name == "Authentication" && check.Status == "ok" {
+					m.authErr = nil
+					break
+				}
+			}
 			// Derive setup steps from health check results
 			m.setupSteps = deriveSetupSteps(msg.Checks, m.cfg)
-			if first := firstActionableStep(m.setupSteps); first >= 0 && m.setupCursor == 0 {
-				m.setupCursor = first
+			if len(m.setupSteps) == 0 {
+				m.setupCursor = 0
+			} else if m.setupCursor >= len(m.setupSteps) {
+				if first := firstActionableStep(m.setupSteps); first >= 0 {
+					m.setupCursor = first
+				} else {
+					m.setupCursor = 0
+				}
 			}
 		}
 		return m, nil
@@ -953,6 +992,18 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// --- Setup guide messages ---
 
 	case SetupActionMsg:
+		if msg.StepIndex == 0 {
+			if msg.Err != nil {
+				m.returnToDashboardAfterAuth = false
+				m.authErr = fmt.Errorf("authentication canceled or failed; press Enter for browser login or 'a' for API key")
+				m.healthLoading = true
+				m.healthChecks = nil
+				return m, runHealthChecksCmd(m.devMode, m.client)
+			}
+			m.loading = true
+			m.authErr = nil
+			return m, tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
+		}
 		// Re-run health checks after a setup action completes
 		m.healthLoading = true
 		m.healthChecks = nil
@@ -1036,6 +1087,9 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "/":
+		if !m.isAuthenticated() {
+			return m.requireAuthentication("Sign in required to browse tests. Press Enter on 'Log in' (or 'a' for API key).")
+		}
 		m.currentView = viewTestList
 		m.testCursor = 0
 		m.testBrowse = false
@@ -1046,6 +1100,7 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "R":
 		m.loading = true
 		m.err = nil
+		m.authErr = nil
 		m.metrics = nil
 		m.recentRuns = nil
 		if m.client != nil {
@@ -1075,6 +1130,10 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 	}
 
 	action := quickActions[m.actionCursor]
+	if action.RequiresAuth && !m.isAuthenticated() {
+		return m.requireAuthentication(fmt.Sprintf("%s requires authentication. Press Enter on 'Log in' (or 'a' for API key).", action.Label))
+	}
+
 	switch action.Key {
 	case "run":
 		m.currentView = viewTestList
@@ -1381,6 +1440,27 @@ func (m *hubModel) applyFilter() {
 	}
 }
 
+func (m hubModel) isAuthenticated() bool {
+	return m.client != nil && m.apiKey != ""
+}
+
+func (m hubModel) requireAuthentication(reason string) (tea.Model, tea.Cmd) {
+	m.currentView = viewHelp
+	m.healthLoading = true
+	m.healthChecks = nil
+	m.err = nil
+	m.authErr = fmt.Errorf("%s", reason)
+	return m, runHealthChecksCmd(m.devMode, m.client)
+}
+
+func (m hubModel) isLoginOnlyState() bool {
+	if len(m.setupSteps) != 1 {
+		return false
+	}
+	step := m.setupSteps[0]
+	return step.Label == "Log in" && (step.Status == "current" || step.Status == "hint")
+}
+
 // relativeTime formats a timestamp as a human-readable relative time string.
 func relativeTime(t time.Time) string {
 	if t.IsZero() {
@@ -1500,8 +1580,12 @@ func (m hubModel) renderDashboard() string {
 
 	if m.err != nil {
 		b.WriteString("\n" + errorStyle.Render("  ✗ "+m.err.Error()) + "\n\n")
-		b.WriteString("  " + strings.Join([]string{helpKeyRender("R", "refresh"), helpKeyRender("q", "quit")}, "  ") + "\n")
+		b.WriteString("  " + strings.Join([]string{helpKeyRender("R", "refresh"), helpKeyRender("?", "help"), helpKeyRender("q", "quit")}, "  ") + "\n")
 		return b.String()
+	}
+	if m.authErr != nil && !m.isAuthenticated() {
+		b.WriteString("\n" + warningStyle.Render("  ⚠ "+m.authErr.Error()) + "\n")
+		b.WriteString("  " + dimStyle.Render("Press ? for setup, then Enter for browser login or 'a' for API key login.") + "\n")
 	}
 
 	if m.loading {
@@ -1532,14 +1616,28 @@ func (m hubModel) renderDashboard() string {
 	b.WriteString("  " + separator(innerW) + "\n")
 	for i, a := range quickActions {
 		cur := "  "
-		style := normalStyle
+		labelStyle := normalStyle
+		descStyle := actionDescStyle
+		disabled := a.RequiresAuth && !m.isAuthenticated()
+		isSelected := m.focus == focusActions && i == m.actionCursor
 		if m.focus == focusActions && i == m.actionCursor {
 			cur = selectedStyle.Render("▸ ")
-			style = selectedStyle
 		}
 		num := dimStyle.Render(fmt.Sprintf("[%d] ", i+1))
-		desc := actionDescStyle.Render("  " + a.Desc)
-		b.WriteString("  " + cur + num + style.Render(a.Label) + desc + "\n")
+		label := a.Label
+		if disabled {
+			label = label + " (login required)"
+			descStyle = dimStyle
+			if isSelected {
+				labelStyle = warningStyle
+			} else {
+				labelStyle = dimStyle
+			}
+		} else if isSelected {
+			labelStyle = selectedStyle
+		}
+		desc := descStyle.Render("  " + a.Desc)
+		b.WriteString("  " + cur + num + labelStyle.Render(label) + desc + "\n")
 	}
 
 	b.WriteString("\n  " + separator(innerW) + "\n")
@@ -2827,8 +2925,10 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			checks = append(checks, HealthCheck{
 				Name:    "Authentication",
 				Status:  "error",
-				Message: "Not authenticated — run 'revyl auth login'",
+				Message: "Not authenticated — Enter for browser login, or 'a' for API key login",
 			})
+			// Keep the unauthenticated help screen focused on login only.
+			return HealthCheckMsg{Checks: checks}
 		} else {
 			msg := "Authenticated"
 			if creds.Email != "" {
@@ -3051,6 +3151,15 @@ func (m hubModel) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			updated, cmd := executeSetupStep(m, m.setupSteps, m.setupCursor)
 			return updated, cmd
 		}
+	case "a", "A":
+		for _, step := range m.setupSteps {
+			if step.Label == "Log in" && (step.Status == "current" || step.Status == "hint") {
+				m.returnToDashboardAfterAuth = true
+				return m, tea.ExecProcess(authLoginCmd(true), func(err error) tea.Msg {
+					return SetupActionMsg{StepIndex: 0, Err: err}
+				})
+			}
+		}
 	}
 	return m, nil
 }
@@ -3064,9 +3173,37 @@ func (m hubModel) renderHelp() string {
 	}
 	innerW := min(w-4, 58)
 
-	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Help & Status")
+	subtitle := "Help & Status"
+	if m.isLoginOnlyState() {
+		subtitle = "Getting Started"
+	}
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render(subtitle)
 	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
 	b.WriteString(banner + "\n")
+
+	if m.isLoginOnlyState() {
+		b.WriteString(sectionStyle.Render("  SIGN IN TO CONTINUE") + "\n")
+		b.WriteString("  " + separator(innerW) + "\n")
+		if m.healthLoading {
+			b.WriteString("  " + m.spinner.View() + " Checking authentication...\n")
+		} else {
+			b.WriteString("  " + normalStyle.Render("Use browser login for the fastest setup.") + "\n\n")
+			b.WriteString("  " + selectedStyle.Render("▸ enter") + " " + normalStyle.Render("Continue with browser login") + "\n")
+			b.WriteString("  " + selectedStyle.Render("▸ a") + " " + normalStyle.Render("Use API key login (SSH/headless)") + "\n")
+		}
+		if m.authErr != nil {
+			b.WriteString("\n" + warningStyle.Render("  ⚠ "+m.authErr.Error()) + "\n")
+		}
+		b.WriteString("\n  " + separator(innerW) + "\n")
+		keys := []string{
+			helpKeyRender("enter", "browser login"),
+			helpKeyRender("a", "api key"),
+			helpKeyRender("R", "refresh"),
+			helpKeyRender("q", "quit"),
+		}
+		b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+		return b.String()
+	}
 
 	// Health checks section
 	b.WriteString(sectionStyle.Render("  HEALTH CHECKS") + "\n")
@@ -3107,6 +3244,7 @@ func (m hubModel) renderHelp() string {
 
 	shortcuts := []struct{ key, desc string }{
 		{"enter", "Select / drill in / open"},
+		{"a", "API key login (on Log in step)"},
 		{"esc", "Go back one level"},
 		{"tab", "Switch dashboard section"},
 		{"1-9", "Jump to quick action"},

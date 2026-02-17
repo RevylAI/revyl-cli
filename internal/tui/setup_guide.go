@@ -41,10 +41,14 @@ func deriveSetupSteps(checks []HealthCheck, cfg *config.ProjectConfig) []SetupSt
 
 	// Step 1: Authentication
 	authCheck := findCheck("Authentication")
-	if authCheck != nil && authCheck.Status == "ok" {
+	authDone := authCheck != nil && authCheck.Status == "ok"
+	if authDone {
 		steps[0] = SetupStep{Label: "Log in", Status: "done", Message: "authenticated"}
 	} else {
-		steps[0] = SetupStep{Label: "Log in", Status: "current", Message: "press enter to authenticate"}
+		// Keep setup focused on authentication until login is complete.
+		return []SetupStep{
+			{Label: "Log in", Status: "current", Message: "enter: browser login  a: API key login"},
+		}
 	}
 
 	// Step 2: API connectivity
@@ -197,7 +201,8 @@ func executeSetupStep(m hubModel, steps []SetupStep, stepIndex int) (hubModel, t
 	switch stepIndex {
 	case 0:
 		// Step 1: Auth -- shell out to revyl auth login
-		return m, tea.ExecProcess(authLoginCmd(), func(err error) tea.Msg {
+		m.returnToDashboardAfterAuth = true
+		return m, tea.ExecProcess(authLoginCmd(false), func(err error) tea.Msg {
 			return SetupActionMsg{StepIndex: 0, Err: err}
 		})
 
@@ -242,10 +247,13 @@ func executeSetupStep(m hubModel, steps []SetupStep, stepIndex int) (hubModel, t
 //
 // Returns:
 //   - *exec.Cmd: the command to execute
-func authLoginCmd() *exec.Cmd {
+func authLoginCmd(useAPIKey bool) *exec.Cmd {
 	exe, err := os.Executable()
 	if err != nil {
 		exe = "revyl"
+	}
+	if useAPIKey {
+		return exec.Command(exe, "auth", "login", "--api-key")
 	}
 	return exec.Command(exe, "auth", "login")
 }
