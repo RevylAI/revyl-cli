@@ -14,6 +14,10 @@ import (
 // Set via SetQuietMode() based on the --quiet flag.
 var quietMode bool
 
+// debugMode controls whether debug output is printed.
+// Set via SetDebugMode() based on the --debug flag.
+var debugMode bool
+
 // SetQuietMode enables or disables quiet mode.
 // When enabled, informational messages are suppressed; only errors and final results are shown.
 //
@@ -29,6 +33,23 @@ func SetQuietMode(quiet bool) {
 //   - bool: true if quiet mode is enabled
 func IsQuietMode() bool {
 	return quietMode
+}
+
+// SetDebugMode enables or disables debug mode.
+// When enabled, debug messages are printed to help diagnose issues.
+//
+// Parameters:
+//   - debug: true to enable debug mode, false to disable
+func SetDebugMode(debug bool) {
+	debugMode = debug
+}
+
+// IsDebugMode returns whether debug mode is enabled.
+//
+// Returns:
+//   - bool: true if debug mode is enabled
+func IsDebugMode() bool {
+	return debugMode
 }
 
 // Println prints an empty line.
@@ -101,6 +122,20 @@ func PrintDim(format string, args ...interface{}) {
 	fmt.Println(DimStyle.Render(msg))
 }
 
+// PrintDebug prints a debug message.
+// Only printed when debug mode is enabled via --debug flag.
+//
+// Parameters:
+//   - format: Printf format string
+//   - args: Printf arguments
+func PrintDebug(format string, args ...interface{}) {
+	if !debugMode {
+		return
+	}
+	msg := fmt.Sprintf(format, args...)
+	fmt.Println(DimStyle.Render("[debug] " + msg))
+}
+
 // PrintLink prints a clickable link.
 // Respects quiet mode - suppressed when quiet.
 //
@@ -133,7 +168,7 @@ func PrintBox(title, content string) {
 //
 // Fields:
 //   - Label: A short description of the action (e.g., "Run your test")
-//   - Command: The CLI command to execute (e.g., "revyl run my-test")
+//   - Command: The CLI command to execute (e.g., "revyl test run my-test")
 type NextStep struct {
 	Label   string
 	Command string

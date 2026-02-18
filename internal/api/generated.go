@@ -50,6 +50,15 @@ const (
 	AsyncStatusRunning      AsyncStatus = "running"
 )
 
+// Defines values for BoundingBoxErrorType.
+const (
+	BoundingBoxErrorTypeBboxTooLarge      BoundingBoxErrorType = "bbox_too_large"
+	BoundingBoxErrorTypeElementNotVisible BoundingBoxErrorType = "element_not_visible"
+	BoundingBoxErrorTypeNone              BoundingBoxErrorType = "none"
+	BoundingBoxErrorTypePartialOverlap    BoundingBoxErrorType = "partial_overlap"
+	BoundingBoxErrorTypeTargetOutside     BoundingBoxErrorType = "target_outside"
+)
+
 // Defines values for CacheRetryMode.
 const (
 	CacheRetryModeFullRerun CacheRetryMode = "full_rerun"
@@ -58,10 +67,9 @@ const (
 
 // Defines values for CleanupLevel.
 const (
-	CleanupLevelAppOnly  CleanupLevel = "app_only"
-	CleanupLevelNone     CleanupLevel = "none"
-	CleanupLevelThorough CleanupLevel = "thorough"
-	CleanupLevelUserData CleanupLevel = "user_data"
+	CleanupLevelDeepClean CleanupLevel = "deep_clean"
+	CleanupLevelNone      CleanupLevel = "none"
+	CleanupLevelThorough  CleanupLevel = "thorough"
 )
 
 // Defines values for CodeExecutionScriptRuntime.
@@ -96,8 +104,8 @@ const (
 
 // Defines values for Environment.
 const (
-	Production Environment = "production"
-	Staging    Environment = "staging"
+	EnvironmentProduction Environment = "production"
+	EnvironmentStaging    Environment = "staging"
 )
 
 // Defines values for ExplorationStatus.
@@ -128,9 +136,19 @@ const (
 	FleetSandboxStatusReserved    FleetSandboxStatus = "reserved"
 )
 
+// Defines values for GrounderHintErrorType.
+const (
+	GrounderHintErrorTypeEmptySpaceNotDescribed GrounderHintErrorType = "empty_space_not_described"
+	GrounderHintErrorTypeNoVisualCues           GrounderHintErrorType = "no_visual_cues"
+	GrounderHintErrorTypeNone                   GrounderHintErrorType = "none"
+	GrounderHintErrorTypeUiJargon               GrounderHintErrorType = "ui_jargon"
+	GrounderHintErrorTypeWrongElement           GrounderHintErrorType = "wrong_element"
+)
+
 // Defines values for GrounderType.
 const (
 	Auto            GrounderType = "auto"
+	ModalCustom     GrounderType = "modal-custom"
 	Moondream       GrounderType = "moondream"
 	Moondream3      GrounderType = "moondream3"
 	MoondreamCustom GrounderType = "moondream_custom"
@@ -138,6 +156,17 @@ const (
 	Qwen3Vl         GrounderType = "qwen3-vl"
 	UiTars          GrounderType = "ui-tars"
 	Unified         GrounderType = "unified"
+)
+
+// Defines values for GroundingErrorType.
+const (
+	GroundingErrorTypeEmptySpace     GroundingErrorType = "empty_space"
+	GroundingErrorTypeEvalFailure    GroundingErrorType = "eval_failure"
+	GroundingErrorTypeNearMiss       GroundingErrorType = "near_miss"
+	GroundingErrorTypeNone           GroundingErrorType = "none"
+	GroundingErrorTypeWrongArea      GroundingErrorType = "wrong_area"
+	GroundingErrorTypeWrongDirection GroundingErrorType = "wrong_direction"
+	GroundingErrorTypeWrongElement   GroundingErrorType = "wrong_element"
 )
 
 // Defines values for HITLApprovalDecisionDecision.
@@ -156,12 +185,41 @@ const (
 	NormalizedActionBlockTypeValidation    NormalizedActionBlockType = "validation"
 )
 
+// Defines values for QualityGrade.
+const (
+	A QualityGrade = "A"
+	B QualityGrade = "B"
+	C QualityGrade = "C"
+	D QualityGrade = "D"
+	F QualityGrade = "F"
+)
+
+// Defines values for ReflectionErrorType.
+const (
+	ReflectionErrorTypeFalseNegative ReflectionErrorType = "false_negative"
+	ReflectionErrorTypeFalsePositive ReflectionErrorType = "false_positive"
+	ReflectionErrorTypeNone          ReflectionErrorType = "none"
+)
+
+// Defines values for RegisterSandboxRequestDbEnv.
+const (
+	RegisterSandboxRequestDbEnvProduction RegisterSandboxRequestDbEnv = "production"
+	RegisterSandboxRequestDbEnvStaging    RegisterSandboxRequestDbEnv = "staging"
+)
+
 // Defines values for RegisterSandboxRequestStatus.
 const (
 	RegisterSandboxRequestStatusAvailable   RegisterSandboxRequestStatus = "available"
 	RegisterSandboxRequestStatusClaimed     RegisterSandboxRequestStatus = "claimed"
 	RegisterSandboxRequestStatusMaintenance RegisterSandboxRequestStatus = "maintenance"
 	RegisterSandboxRequestStatusReserved    RegisterSandboxRequestStatus = "reserved"
+)
+
+// Defines values for ReliabilityEstimate.
+const (
+	High   ReliabilityEstimate = "high"
+	Low    ReliabilityEstimate = "low"
+	Medium ReliabilityEstimate = "medium"
 )
 
 // Defines values for SessionStatus.
@@ -179,35 +237,51 @@ const (
 
 // Defines values for StepType.
 const (
-	Back          StepType = "back"
-	ClearText     StepType = "clear_text"
-	Click         StepType = "click"
-	CodeExecution StepType = "code_execution"
-	Decision      StepType = "decision"
-	DoubleTap     StepType = "double_tap"
-	DownloadFile  StepType = "download_file"
-	Drag          StepType = "drag"
-	End           StepType = "end"
-	Extract       StepType = "extract"
-	GoHome        StepType = "go_home"
-	Input         StepType = "input"
-	Instruction   StepType = "instruction"
-	KillApp       StepType = "kill_app"
-	LongPress     StepType = "long_press"
-	Loop          StepType = "loop"
-	ModuleImport  StepType = "module_import"
-	Navigate      StepType = "navigate"
-	OpenApp       StepType = "open_app"
-	Pinch         StepType = "pinch"
-	Scrape        StepType = "scrape"
-	ScrollDown    StepType = "scroll_down"
-	ScrollUp      StepType = "scroll_up"
-	Select        StepType = "select"
-	SetLocation   StepType = "set_location"
-	Swipe         StepType = "swipe"
-	Tap           StepType = "tap"
-	Validation    StepType = "validation"
-	Wait          StepType = "wait"
+	StepTypeBack          StepType = "back"
+	StepTypeClearText     StepType = "clear_text"
+	StepTypeClick         StepType = "click"
+	StepTypeCodeExecution StepType = "code_execution"
+	StepTypeDecision      StepType = "decision"
+	StepTypeDoubleTap     StepType = "double_tap"
+	StepTypeDownloadFile  StepType = "download_file"
+	StepTypeDrag          StepType = "drag"
+	StepTypeEnd           StepType = "end"
+	StepTypeExtract       StepType = "extract"
+	StepTypeGoHome        StepType = "go_home"
+	StepTypeInput         StepType = "input"
+	StepTypeInstruction   StepType = "instruction"
+	StepTypeKillApp       StepType = "kill_app"
+	StepTypeLongPress     StepType = "long_press"
+	StepTypeLoop          StepType = "loop"
+	StepTypeModuleImport  StepType = "module_import"
+	StepTypeNavigate      StepType = "navigate"
+	StepTypeOpenApp       StepType = "open_app"
+	StepTypePinch         StepType = "pinch"
+	StepTypeScrape        StepType = "scrape"
+	StepTypeScrollDown    StepType = "scroll_down"
+	StepTypeScrollUp      StepType = "scroll_up"
+	StepTypeSelect        StepType = "select"
+	StepTypeSetLocation   StepType = "set_location"
+	StepTypeSwipe         StepType = "swipe"
+	StepTypeTap           StepType = "tap"
+	StepTypeValidation    StepType = "validation"
+	StepTypeWait          StepType = "wait"
+)
+
+// Defines values for SuggestionQualityRating.
+const (
+	Adequate  SuggestionQualityRating = "adequate"
+	Excellent SuggestionQualityRating = "excellent"
+	Good      SuggestionQualityRating = "good"
+	Incorrect SuggestionQualityRating = "incorrect"
+	Poor      SuggestionQualityRating = "poor"
+)
+
+// Defines values for TestEvalReportTestOutcome.
+const (
+	ERROR  TestEvalReportTestOutcome = "ERROR"
+	FAILED TestEvalReportTestOutcome = "FAILED"
+	PASSED TestEvalReportTestOutcome = "PASSED"
 )
 
 // Defines values for UpdateSandboxRequestStatus.
@@ -218,10 +292,27 @@ const (
 	Reserved    UpdateSandboxRequestStatus = "reserved"
 )
 
+// Defines values for ValidationErrorType.
+const (
+	FalseNegative ValidationErrorType = "false_negative"
+	FalsePositive ValidationErrorType = "false_positive"
+	None          ValidationErrorType = "none"
+)
+
 // Defines values for ValidationTypeEnum.
 const (
 	BlocksOnly ValidationTypeEnum = "blocks_only"
 	FullTest   ValidationTypeEnum = "full_test"
+)
+
+// Defines values for WeakestComponent.
+const (
+	WeakestComponentBoundingBox  WeakestComponent = "bounding_box"
+	WeakestComponentGrounderHint WeakestComponent = "grounder_hint"
+	WeakestComponentGrounding    WeakestComponent = "grounding"
+	WeakestComponentInstruction  WeakestComponent = "instruction"
+	WeakestComponentReflection   WeakestComponent = "reflection"
+	WeakestComponentValidation   WeakestComponent = "validation"
 )
 
 // Defines values for WorkerConnectionResponseStatus.
@@ -362,6 +453,13 @@ type ActionBlock_StepType struct {
 // ActionBlockType Must be one of: instructions, extraction, manual, validation, code_execution, module_import
 type ActionBlockType string
 
+// ActionStatusResponse Response model for step action endpoints (dismiss, annotate, review).
+type ActionStatusResponse struct {
+	EvalId    *string `json:"eval_id"`
+	Status    string  `json:"status"`
+	StepIndex *string `json:"step_index"`
+}
+
 // ActiveDeviceSessionCountResponse Response model for active device session count.
 type ActiveDeviceSessionCountResponse struct {
 	Count int    `json:"count"`
@@ -384,7 +482,9 @@ type ActiveDeviceSessionItem struct {
 	Status           string  `json:"status"`
 	TraceId          *string `json:"trace_id"`
 	UserEmail        *string `json:"user_email"`
+	UserId           *string `json:"user_id"`
 	WhepUrl          *string `json:"whep_url"`
+	WorkflowRunId    *string `json:"workflow_run_id"`
 }
 
 // ActiveDeviceSessionsResponse Response model for list of active device sessions.
@@ -848,6 +948,19 @@ type AppUpdateRequest struct {
 	StaticUrl *string `json:"static_url"`
 }
 
+// AppUsageResponse defines model for AppUsageResponse.
+type AppUsageResponse struct {
+	Tests []AppUsageTestItem `json:"tests"`
+	Total int                `json:"total"`
+}
+
+// AppUsageTestItem defines model for AppUsageTestItem.
+type AppUsageTestItem struct {
+	Id            string  `json:"id"`
+	Name          string  `json:"name"`
+	PinnedVersion *string `json:"pinned_version"`
+}
+
 // AssignSeatsRequest defines model for AssignSeatsRequest.
 type AssignSeatsRequest struct {
 	UserAssignments []map[string]string `json:"user_assignments"`
@@ -865,8 +978,8 @@ type AsyncStatus string
 
 // AttachRequest defines model for AttachRequest.
 type AttachRequest struct {
-	Quantity    *int   `json:"quantity"`
-	RedirectUrl string `json:"redirect_url"`
+	ProductId   *string `json:"product_id,omitempty"`
+	RedirectUrl string  `json:"redirect_url"`
 }
 
 // AttachResponse defines model for AttachResponse.
@@ -880,6 +993,7 @@ type AttachResponse struct {
 // Can be returned from the require_auth dependency.
 type AuthInfo struct {
 	ApiKey           *string   `json:"api_key"`
+	BillingExempt    *bool     `json:"billing_exempt,omitempty"`
 	ConcurrencyLimit *int      `json:"concurrency_limit,omitempty"`
 	Email            *string   `json:"email"`
 	OrgId            *string   `json:"org_id"`
@@ -887,6 +1001,7 @@ type AuthInfo struct {
 	ProxyEnabled     *bool     `json:"proxy_enabled"`
 	Service          *bool     `json:"service,omitempty"`
 	UserId           string    `json:"user_id"`
+	UserRole         *string   `json:"user_role"`
 }
 
 // BackfillJobInfo Information about a single backfill job.
@@ -948,6 +1063,31 @@ type BatchLLMDetailsRequest struct {
 	UniqueIds []string `json:"unique_ids"`
 }
 
+// BillingBreakdownItem defines model for BillingBreakdownItem.
+type BillingBreakdownItem struct {
+	DeviceCost   float32 `json:"device_cost"`
+	IsRealDevice bool    `json:"is_real_device"`
+	LlmCost      float32 `json:"llm_cost"`
+	Platform     string  `json:"platform"`
+	SessionCount int     `json:"session_count"`
+	TotalCost    float32 `json:"total_cost"`
+	TotalSeconds float32 `json:"total_seconds"`
+}
+
+// BillingBreakdownResponse defines model for BillingBreakdownResponse.
+type BillingBreakdownResponse struct {
+	Breakdown   []BillingBreakdownItem `json:"breakdown"`
+	PeriodEnd   string                 `json:"period_end"`
+	PeriodStart string                 `json:"period_start"`
+}
+
+// BillingCheckResponse defines model for BillingCheckResponse.
+type BillingCheckResponse struct {
+	Allowed bool    `json:"allowed"`
+	Balance *int    `json:"balance"`
+	Reason  *string `json:"reason"`
+}
+
 // BillingResponse defines model for BillingResponse.
 type BillingResponse struct {
 	Allowed    bool    `json:"allowed"`
@@ -955,6 +1095,17 @@ type BillingResponse struct {
 	Code       string  `json:"code"`
 	CustomerId string  `json:"customer_id"`
 	FeatureId  *string `json:"feature_id"`
+}
+
+// BillingSummaryResponse defines model for BillingSummaryResponse.
+type BillingSummaryResponse struct {
+	PeriodEnd       string  `json:"period_end"`
+	PeriodStart     string  `json:"period_start"`
+	TotalCost       float32 `json:"total_cost"`
+	TotalDeviceCost float32 `json:"total_device_cost"`
+	TotalLlmCost    float32 `json:"total_llm_cost"`
+	TotalSeconds    float32 `json:"total_seconds"`
+	TotalSessions   int     `json:"total_sessions"`
 }
 
 // BlocksCreationRequest Request model for creating tests from blocks
@@ -999,8 +1150,8 @@ type BodyCreateUploadFileToSupabaseApiV1StorageS3UploadDownloadToSupabaseFilePos
 	UserId     *string            `json:"user_id,omitempty"`
 }
 
-// BodyStreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPost defines model for Body_stream_upload_build_api_v1_builds_apps__app_id__builds_stream_upload_post.
-type BodyStreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPost struct {
+// BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost defines model for Body_stream_upload_build_api_v1_apps__app_id__builds_stream_upload_post.
+type BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost struct {
 	// File The build artifact file to upload
 	File openapi_types.File `json:"file"`
 }
@@ -1010,6 +1161,33 @@ type BodyUploadToS3ApiV1StorageS3UploadPost struct {
 	BucketName string             `json:"bucket_name"`
 	File       openapi_types.File `json:"file"`
 	TestId     string             `json:"test_id"`
+}
+
+// BoundingBoxErrorType Types of bounding box errors that can occur.
+type BoundingBoxErrorType string
+
+// BoundingBoxEval Evaluation result for Instructional LLM bounding box accuracy.
+type BoundingBoxEval struct {
+	// Correct Whether the specified bounding box contained the target element
+	Correct bool `json:"correct"`
+
+	// ErrorType Types of bounding box errors that can occur.
+	ErrorType *BoundingBoxErrorType `json:"error_type,omitempty"`
+
+	// Explanation Brief reasoning
+	Explanation *string `json:"explanation"`
+
+	// FallbackUsed True if fallback expansion was needed to find the element
+	FallbackUsed *bool `json:"fallback_used,omitempty"`
+
+	// SpecifiedBbox The bbox specified by Instructional LLM (e.g., 'A2-C4')
+	SpecifiedBbox *string `json:"specified_bbox"`
+
+	// TargetDescription What element the bbox was supposed to contain
+	TargetDescription *string `json:"target_description"`
+
+	// UsedBbox The bbox actually used after fallback expansion
+	UsedBbox *string `json:"used_bbox"`
 }
 
 // BuildCreateResponse Response model for creating a build with upload URL.
@@ -1037,11 +1215,14 @@ type BuildFromUrlRequest struct {
 	Version string `json:"version"`
 }
 
-// BuildPathConfig Configuration for a build path.
+// BuildPathConfig Configuration for a build path in revyl_repo_configs JSONB.
 type BuildPathConfig struct {
-	AppId    string `json:"app_id"`
-	Path     string `json:"path"`
-	Platform string `json:"platform"`
+	AppId          string  `json:"app_id"`
+	AppName        *string `json:"app_name"`
+	EasTokenEnvVar *string `json:"eas_token_env_var"`
+	Path           string  `json:"path"`
+	Platform       *string `json:"platform"`
+	Type           *string `json:"type"`
 }
 
 // BuildResolutionRequest Request to resolve a build for a test.
@@ -1321,6 +1502,27 @@ type CancelTestResponse struct {
 type CategoryValue struct {
 	Category string  `json:"category"`
 	Value    float32 `json:"value"`
+}
+
+// ChartDataPoint Daily aggregated chart data point.
+type ChartDataPoint struct {
+	// AvgDuration Average execution duration in seconds for this date
+	AvgDuration *int `json:"avg_duration"`
+
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -1742,23 +1944,24 @@ type CostAnalysisResponse struct {
 
 // CreateActionRequest Request model for creating a report action (normalized structure).
 type CreateActionRequest struct {
-	ActionData            *map[string]interface{} `json:"action_data"`
-	ActionIndex           int                     `json:"action_index"`
-	ActionType            *string                 `json:"action_type"`
-	AgentDescription      *string                 `json:"agent_description"`
-	CompletedAt           *string                 `json:"completed_at"`
-	IsTerminal            *bool                   `json:"is_terminal,omitempty"`
-	LlmCallId             *string                 `json:"llm_call_id"`
-	Reasoning             *string                 `json:"reasoning"`
-	ReflectionDecision    *string                 `json:"reflection_decision"`
-	ReflectionLlmCallId   *string                 `json:"reflection_llm_call_id"`
-	ReflectionReasoning   *string                 `json:"reflection_reasoning"`
-	ReflectionSuggestion  *string                 `json:"reflection_suggestion"`
-	ScreenshotAfterS3Key  *string                 `json:"screenshot_after_s3_key"`
-	ScreenshotBeforeS3Key *string                 `json:"screenshot_before_s3_key"`
-	StartedAt             *string                 `json:"started_at"`
-	VideoTimestampEnd     *float32                `json:"video_timestamp_end"`
-	VideoTimestampStart   *float32                `json:"video_timestamp_start"`
+	ActionData                 *map[string]interface{} `json:"action_data"`
+	ActionIndex                int                     `json:"action_index"`
+	ActionType                 *string                 `json:"action_type"`
+	AgentDescription           *string                 `json:"agent_description"`
+	CompletedAt                *string                 `json:"completed_at"`
+	IsTerminal                 *bool                   `json:"is_terminal,omitempty"`
+	LlmCallId                  *string                 `json:"llm_call_id"`
+	Reasoning                  *string                 `json:"reasoning"`
+	ReflectionDecision         *string                 `json:"reflection_decision"`
+	ReflectionLlmCallId        *string                 `json:"reflection_llm_call_id"`
+	ReflectionReasoning        *string                 `json:"reflection_reasoning"`
+	ReflectionSuggestion       *string                 `json:"reflection_suggestion"`
+	ScreenshotAfterS3Key       *string                 `json:"screenshot_after_s3_key"`
+	ScreenshotBeforeCleanS3Key *string                 `json:"screenshot_before_clean_s3_key"`
+	ScreenshotBeforeS3Key      *string                 `json:"screenshot_before_s3_key"`
+	StartedAt                  *string                 `json:"started_at"`
+	VideoTimestampEnd          *float32                `json:"video_timestamp_end"`
+	VideoTimestampStart        *float32                `json:"video_timestamp_start"`
 }
 
 // CreateActionResponse Response model for action creation.
@@ -1928,6 +2131,20 @@ type CreateWorktreeRequest struct {
 	SetupScript *string `json:"setup_script"`
 }
 
+// CreditsBalanceItem defines model for CreditsBalanceItem.
+type CreditsBalanceItem struct {
+	Balance     *int   `json:"balance"`
+	FeatureId   string `json:"feature_id"`
+	FeatureName string `json:"feature_name"`
+	Granted     *int   `json:"granted,omitempty"`
+	Usage       *int   `json:"usage,omitempty"`
+}
+
+// CreditsBalanceResponse defines model for CreditsBalanceResponse.
+type CreditsBalanceResponse struct {
+	Balances []CreditsBalanceItem `json:"balances"`
+}
+
 // CursorConfigurationStatus Response model for Cursor configuration status.
 type CursorConfigurationStatus struct {
 	// CursorConfigured Whether Cursor is fully configured
@@ -1990,6 +2207,34 @@ type DOMMetadata struct {
 	AdditionalProperties map[string]interface{}  `json:"-"`
 }
 
+// DailySpendItem defines model for DailySpendItem.
+type DailySpendItem struct {
+	Date         string  `json:"date"`
+	DeviceCost   float32 `json:"device_cost"`
+	LlmCost      float32 `json:"llm_cost"`
+	SessionCount int     `json:"session_count"`
+	TotalCost    float32 `json:"total_cost"`
+}
+
+// DailySpendResponse defines model for DailySpendResponse.
+type DailySpendResponse struct {
+	DataPoints []DailySpendItem `json:"data_points"`
+}
+
+// DailyUsageItem defines model for DailyUsageItem.
+type DailyUsageItem struct {
+	AndroidMinutes float32 `json:"android_minutes"`
+	Date           string  `json:"date"`
+	IosMinutes     float32 `json:"ios_minutes"`
+	SessionCount   int     `json:"session_count"`
+	TotalMinutes   float32 `json:"total_minutes"`
+}
+
+// DailyUsageResponse defines model for DailyUsageResponse.
+type DailyUsageResponse struct {
+	DataPoints []DailyUsageItem `json:"data_points"`
+}
+
 // DashboardMetrics Model representing dashboard metrics with week-over-week comparisons.
 type DashboardMetrics struct {
 	// AvgTestDuration Average test execution duration in seconds
@@ -2027,6 +2272,11 @@ type DashboardMetrics struct {
 
 	// TotalWorkflowsWow Week-over-week percentage change in total workflows (positive = increase)
 	TotalWorkflowsWow *float32 `json:"total_workflows_wow"`
+}
+
+// DefaultRoleResponse Response for the default role setting.
+type DefaultRoleResponse struct {
+	DefaultRole *string `json:"default_role,omitempty"`
 }
 
 // DeleteAppResponse Response after deleting an app.
@@ -2118,7 +2368,7 @@ type DeviceCleanupConfig struct {
 	// ClearNotifications Clear all pending notifications from previous test sessions
 	ClearNotifications *bool `json:"clear_notifications,omitempty"`
 
-	// ClearRecentApps Clear recent apps list (requires root access, restarts framework)
+	// ClearRecentApps Clear recent apps list (requires root access, restarts framework). Expensive (~15-30s), broken on Play Store images. Auto-enabled for DEEP_CLEAN.
 	ClearRecentApps *bool `json:"clear_recent_apps,omitempty"`
 
 	// ClearSharedStorage Clear Pictures, DCIM, Movies, Music, Documents folders
@@ -2130,7 +2380,7 @@ type DeviceCleanupConfig struct {
 	// KillBackgroundApps Kill all background applications
 	KillBackgroundApps *bool `json:"kill_background_apps,omitempty"`
 
-	// ResetSystemUi Reset SystemUI state including wallpaper to defaults
+	// ResetSystemUi Reset SystemUI state including wallpaper to defaults. Expensive (~2-3s). Auto-enabled for DEEP_CLEAN.
 	ResetSystemUi *bool `json:"reset_system_ui,omitempty"`
 
 	// RevokePermissions Revoke runtime permissions granted during test
@@ -2311,6 +2561,42 @@ type ErrorImage struct {
 	Url             *string `json:"url"`
 }
 
+// EvalErrorSummary Summary of errors from evaluation.
+type EvalErrorSummary struct {
+	BoundingBoxErrors  *int `json:"bounding_box_errors,omitempty"`
+	GrounderHintErrors *int `json:"grounder_hint_errors,omitempty"`
+	GroundingErrors    *int `json:"grounding_errors,omitempty"`
+	InstructionErrors  *int `json:"instruction_errors,omitempty"`
+	ReflectionErrors   *int `json:"reflection_errors,omitempty"`
+	ValidationErrors   *int `json:"validation_errors,omitempty"`
+}
+
+// EvalQueueItem defines model for EvalQueueItem.
+type EvalQueueItem struct {
+	AnnotatedCount     *int                `json:"annotated_count,omitempty"`
+	CreatedAt          time.Time           `json:"created_at"`
+	ErrorTypes         *map[string]int     `json:"error_types"`
+	FalsePositiveCount *int                `json:"false_positive_count,omitempty"`
+	GroundedSteps      int                 `json:"grounded_steps"`
+	GrounderType       *string             `json:"grounder_type"`
+	GroundingErrors    int                 `json:"grounding_errors"`
+	Id                 openapi_types.UUID  `json:"id"`
+	OrgId              *openapi_types.UUID `json:"org_id"`
+	Platform           *string             `json:"platform"`
+	ReviewStatus       string              `json:"review_status"`
+	TaskId             openapi_types.UUID  `json:"task_id"`
+	TestId             *openapi_types.UUID `json:"test_id"`
+	TestName           *string             `json:"test_name"`
+	TotalSteps         int                 `json:"total_steps"`
+	WorkflowId         *openapi_types.UUID `json:"workflow_id"`
+}
+
+// EvalQueueResponse defines model for EvalQueueResponse.
+type EvalQueueResponse struct {
+	Items []EvalQueueItem `json:"items"`
+	Total int             `json:"total"`
+}
+
 // EvalRequest Request model for running an eval.
 type EvalRequest struct {
 	EnabledJudges map[string]bool `json:"enabled_judges"`
@@ -2319,11 +2605,13 @@ type EvalRequest struct {
 
 // EvalResponse Response model for eval results.
 type EvalResponse struct {
-	Error       *string                 `json:"error"`
-	ErrorImages *[]ErrorImage           `json:"error_images"`
-	LogText     *string                 `json:"log_text"`
-	Report      *map[string]interface{} `json:"report"`
-	Success     bool                    `json:"success"`
+	Error       *string       `json:"error"`
+	ErrorImages *[]ErrorImage `json:"error_images"`
+	LogText     *string       `json:"log_text"`
+
+	// Report Complete evaluation report for a test run.
+	Report  *TestEvalReport `json:"report,omitempty"`
+	Success bool            `json:"success"`
 }
 
 // ExecuteTestAsyncAPIResponse Response for async test execution start.
@@ -2529,6 +2817,18 @@ type ExtractPackageIdResponse struct {
 // - FINAL_FAIL: Only trigger fallback if overall test fails
 type FallbackTrigger string
 
+// FinalizeSessionRequest defines model for FinalizeSessionRequest.
+type FinalizeSessionRequest struct {
+	SessionId string `json:"session_id"`
+}
+
+// FinalizeSessionResponse defines model for FinalizeSessionResponse.
+type FinalizeSessionResponse struct {
+	Message string  `json:"message"`
+	Success bool    `json:"success"`
+	UsageId *string `json:"usage_id"`
+}
+
 // FleetAuthValidateResponse Response from validating an API key for Fleet access.
 //
 // Used by FleetDashboard to verify API key and get user info.
@@ -2696,6 +2996,9 @@ type FleetSandbox struct {
 	// SshUser SSH username
 	SshUser *string `json:"ssh_user,omitempty"`
 
+	// SsmInstanceId AWS SSM managed instance ID for remote command execution
+	SsmInstanceId *string `json:"ssm_instance_id"`
+
 	// Status Current sandbox state
 	Status *FleetSandboxStatus `json:"status,omitempty"`
 
@@ -2792,6 +3095,92 @@ type FleetWorktree struct {
 	SandboxName string `json:"sandbox_name"`
 }
 
+// FlywheelConfigResponse defines model for FlywheelConfigResponse.
+type FlywheelConfigResponse struct {
+	Enabled bool `json:"enabled"`
+}
+
+// FlywheelConfigUpdateRequest defines model for FlywheelConfigUpdateRequest.
+type FlywheelConfigUpdateRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// FlywheelEvalResultResponse Response model for a single flywheel eval result.
+type FlywheelEvalResultResponse struct {
+	AnnotatedCount     *int                  `json:"annotated_count,omitempty"`
+	CreatedAt          *time.Time            `json:"created_at"`
+	DeviceHeight       *int                  `json:"device_height"`
+	DeviceWidth        *int                  `json:"device_width"`
+	EnabledJudges      *map[string]bool      `json:"enabled_judges"`
+	ErrorTypes         *map[string]int       `json:"error_types"`
+	FalsePositiveCount *int                  `json:"false_positive_count,omitempty"`
+	GroundedSteps      *int                  `json:"grounded_steps,omitempty"`
+	GrounderType       *string               `json:"grounder_type"`
+	GroundingErrors    *int                  `json:"grounding_errors,omitempty"`
+	Id                 openapi_types.UUID    `json:"id"`
+	ManifestUrl        *string               `json:"manifest_url"`
+	OrgId              *openapi_types.UUID   `json:"org_id"`
+	Platform           *string               `json:"platform"`
+	ReviewStatus       *string               `json:"review_status,omitempty"`
+	ReviewedAt         *time.Time            `json:"reviewed_at"`
+	ReviewedBy         *string               `json:"reviewed_by"`
+	StepResults        *[]FlywheelStepResult `json:"step_results"`
+	TaskId             openapi_types.UUID    `json:"task_id"`
+	TestId             *openapi_types.UUID   `json:"test_id"`
+	TestName           *string               `json:"test_name"`
+	TotalSteps         *int                  `json:"total_steps,omitempty"`
+	WorkflowId         *openapi_types.UUID   `json:"workflow_id"`
+}
+
+// FlywheelStepImageUrls Image URLs for a flywheel step result.
+type FlywheelStepImageUrls struct {
+	After  *string `json:"after"`
+	Before *string `json:"before"`
+	Tagged *string `json:"tagged"`
+}
+
+// FlywheelStepResult A single step result in a flywheel eval.
+type FlywheelStepResult struct {
+	ActionType       *string `json:"action_type"`
+	ActualElement    *string `json:"actual_element"`
+	AgentDescription *string `json:"agent_description"`
+	Annotated        *bool   `json:"annotated,omitempty"`
+	Correct          *bool   `json:"correct"`
+	Dismissed        *bool   `json:"dismissed,omitempty"`
+	ErrorType        *string `json:"error_type"`
+	Explanation      *string `json:"explanation"`
+
+	// ImageUrls Image URLs for a flywheel step result.
+	ImageUrls       *FlywheelStepImageUrls `json:"image_urls,omitempty"`
+	IsRetry         *bool                  `json:"is_retry,omitempty"`
+	RetryIndex      *int                   `json:"retry_index"`
+	Reviewed        *bool                  `json:"reviewed,omitempty"`
+	StepDescription *string                `json:"step_description"`
+	StepId          *string                `json:"step_id"`
+	StepIndex       int                    `json:"step_index"`
+	Target          *string                `json:"target"`
+	X               *int                   `json:"x"`
+	Y               *int                   `json:"y"`
+}
+
+// FlywheelTriggerRequest Request from CLI to trigger flywheel eval for a completed test.
+type FlywheelTriggerRequest struct {
+	GrounderType *string `json:"grounder_type"`
+	ManifestUrl  *string `json:"manifest_url"`
+	OrgId        *string `json:"org_id"`
+	Platform     *string `json:"platform"`
+	TaskId       string  `json:"task_id"`
+	TestId       *string `json:"test_id"`
+	TestName     *string `json:"test_name"`
+	WorkflowId   *string `json:"workflow_id"`
+}
+
+// FlywheelTriggerResponse defines model for FlywheelTriggerResponse.
+type FlywheelTriggerResponse struct {
+	Accepted bool   `json:"accepted"`
+	Message  string `json:"message"`
+}
+
 // GenerateStateTokenResponse defines model for GenerateStateTokenResponse.
 type GenerateStateTokenResponse struct {
 	StateToken string `json:"state_token"`
@@ -2861,6 +3250,92 @@ type GitHubUser struct {
 	Name      *string `json:"name"`
 }
 
+// GroundRequest Request body for the grounding proxy endpoint.
+//
+// Attributes:
+//
+//	target: Natural language description of the UI element to locate.
+//	image_base64: Base64-encoded screenshot (PNG or JPEG).
+//	width: Width of the screenshot in pixels.
+//	height: Height of the screenshot in pixels.
+//	platform: Device platform ('android' or 'ios').
+//	session_id: Optional device session ID for cost tracking.
+//	grounder_type: Optional grounder model override.
+type GroundRequest struct {
+	// GrounderType Grounder model override
+	GrounderType *string `json:"grounder_type"`
+
+	// Height Screenshot height in pixels
+	Height int `json:"height"`
+
+	// ImageBase64 Base64-encoded screenshot image (PNG or JPEG)
+	ImageBase64 string `json:"image_base64"`
+
+	// Platform Device platform
+	Platform *string `json:"platform,omitempty"`
+
+	// SessionId Device session ID for cost tracking
+	SessionId *string `json:"session_id"`
+
+	// Target Natural language description of the element to locate
+	Target string `json:"target"`
+
+	// Width Screenshot width in pixels
+	Width int `json:"width"`
+}
+
+// GroundResponse Response body from the grounding proxy endpoint.
+//
+// Attributes:
+//
+//	x: Absolute X pixel coordinate of the located element.
+//	y: Absolute Y pixel coordinate of the located element.
+//	found: Whether the element was successfully located.
+//	error: Error message if grounding failed.
+type GroundResponse struct {
+	// Error Error message if failed
+	Error *string `json:"error"`
+
+	// Found Whether the element was located
+	Found *bool `json:"found,omitempty"`
+
+	// X Absolute X pixel coordinate
+	X *int `json:"x,omitempty"`
+
+	// Y Absolute Y pixel coordinate
+	Y *int `json:"y,omitempty"`
+}
+
+// GrounderHintErrorType Types of grounder_hint quality errors that can occur.
+type GrounderHintErrorType string
+
+// GrounderHintEval Evaluation result for grounder_hint quality (Moondream-friendliness).
+type GrounderHintEval struct {
+	// AvoidsUiJargon Whether it avoids UI-specific terminology
+	AvoidsUiJargon *bool `json:"avoids_ui_jargon,omitempty"`
+
+	// Correct Whether the grounder_hint is a good Moondream-friendly description
+	Correct bool `json:"correct"`
+
+	// DescribesEmptySpace For INPUT actions: whether it describes the empty area
+	DescribesEmptySpace *bool `json:"describes_empty_space"`
+
+	// ErrorType Types of grounder_hint quality errors that can occur.
+	ErrorType *GrounderHintErrorType `json:"error_type,omitempty"`
+
+	// Explanation Brief reasoning
+	Explanation *string `json:"explanation"`
+
+	// GrounderHint The grounder_hint that was evaluated
+	GrounderHint *string `json:"grounder_hint"`
+
+	// Target The original target for comparison
+	Target *string `json:"target"`
+
+	// UsesVisualCues Whether it describes shapes, colors, or visible text
+	UsesVisualCues *bool `json:"uses_visual_cues,omitempty"`
+}
+
 // GrounderType Unified grounder configuration that determines both approach and model.
 //
 // - UNIFIED: Use instruction LLM for both instruction and grounding (returns coordinates)
@@ -2868,6 +3343,27 @@ type GitHubUser struct {
 // - AUTO: Use GROUNDER_TYPE env var to determine grounder
 // - NULL: Skip grounding (for testing/debugging)
 type GrounderType string
+
+// GroundingErrorType Types of grounding errors that can occur.
+type GroundingErrorType string
+
+// GroundingEval Evaluation result for grounding accuracy.
+type GroundingEval struct {
+	// ActualElement What the click actually hit
+	ActualElement *string `json:"actual_element"`
+
+	// Correct Whether the click landed on the correct element
+	Correct bool `json:"correct"`
+
+	// ErrorType Types of grounding errors that can occur.
+	ErrorType *GroundingErrorType `json:"error_type,omitempty"`
+
+	// Explanation Brief reasoning
+	Explanation *string `json:"explanation"`
+
+	// Target The intended target element
+	Target *string `json:"target"`
+}
 
 // HITLApprovalDecision Request to record approval decision
 type HITLApprovalDecision struct {
@@ -3003,6 +3499,18 @@ type Installation struct {
 	PropelOrgId           string  `json:"propel_org_id"`
 	Status                string  `json:"status"`
 	VerifiedAt            *string `json:"verified_at"`
+}
+
+// InstructionEval Evaluation result for instruction LLM suggestion compliance.
+type InstructionEval struct {
+	// Explanation How well it aligned or why it diverged
+	Explanation *string `json:"explanation"`
+
+	// FollowedSuggestion Whether the instruction LLM followed the reflection suggestion
+	FollowedSuggestion bool `json:"followed_suggestion"`
+
+	// Suggestion The suggestion that was given
+	Suggestion *string `json:"suggestion"`
 }
 
 // InternalSendNotificationRequest Request from workflow runtime to send notifications.
@@ -3275,6 +3783,18 @@ type ModuleSingleResponse struct {
 	Result ModuleResponse `json:"result"`
 }
 
+// ModuleUsageResponse Response model for module usage lookup
+type ModuleUsageResponse struct {
+	Tests []ModuleUsageTestItem `json:"tests"`
+	Total int                   `json:"total"`
+}
+
+// ModuleUsageTestItem A test that uses a specific module
+type ModuleUsageTestItem struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // ModulesListResponse Response model for listing modules
 type ModulesListResponse struct {
 	Message string           `json:"message"`
@@ -3520,14 +4040,6 @@ type OrganizationRepositoriesResponse struct {
 	Repositories []Repository `json:"repositories"`
 }
 
-// OrganizationSettingsBaseSchema OrganizationSettings Base Schema.
-type OrganizationSettingsBaseSchema struct {
-	AndroidEnabled bool       `json:"android_enabled"`
-	Id             string     `json:"id"`
-	IosEnabled     bool       `json:"ios_enabled"`
-	UpdatedAt      *time.Time `json:"updated_at"`
-}
-
 // OrganizationUsersResponse defines model for OrganizationUsersResponse.
 type OrganizationUsersResponse struct {
 	TotalCount int          `json:"total_count"`
@@ -3594,6 +4106,16 @@ type PaginatedBuildsResponse struct {
 	TotalPages int `json:"total_pages"`
 }
 
+// PlanInfo defines model for PlanInfo.
+type PlanInfo struct {
+	BillingExempt   *bool   `json:"billing_exempt,omitempty"`
+	DisplayName     string  `json:"display_name"`
+	FreeCreditLabel string  `json:"free_credit_label"`
+	MonthlyBase     float32 `json:"monthly_base"`
+	Plan            string  `json:"plan"`
+	ScheduledPlan   *string `json:"scheduled_plan"`
+}
+
 // PlatformApp App configuration for a single platform.
 //
 // Used to specify an app override for iOS or Android in workflow configurations.
@@ -3608,6 +4130,16 @@ type PlatformApp struct {
 
 	// PinnedVersion Optional pinned version string
 	PinnedVersion *string `json:"pinned_version"`
+}
+
+// PortalRequest defines model for PortalRequest.
+type PortalRequest struct {
+	ReturnUrl string `json:"return_url"`
+}
+
+// PortalResponse defines model for PortalResponse.
+type PortalResponse struct {
+	Url string `json:"url"`
 }
 
 // PostFinalPRCommentRequest Request to post final PR comment with results.
@@ -3692,6 +4224,71 @@ type PushSSHKeyResponse struct {
 	Success bool `json:"success"`
 }
 
+// QualityBreakdown Breakdown of quality score components.
+type QualityBreakdown struct {
+	// BoundingBoxAccuracy Score for bounding box accuracy (0-100)
+	BoundingBoxAccuracy *float32 `json:"bounding_box_accuracy,omitempty"`
+
+	// GroundingAccuracy Score for grounding accuracy (0-100)
+	GroundingAccuracy float32 `json:"grounding_accuracy"`
+
+	// PathEfficiency Score for path efficiency (0-100)
+	PathEfficiency float32 `json:"path_efficiency"`
+
+	// ReflectionAccuracy Score for reflection accuracy (0-100)
+	ReflectionAccuracy float32 `json:"reflection_accuracy"`
+
+	// RetryRate Score for retry rate (0-100)
+	RetryRate float32 `json:"retry_rate"`
+
+	// SuggestionCompliance Score for suggestion compliance (0-100)
+	SuggestionCompliance float32 `json:"suggestion_compliance"`
+}
+
+// QualityGrade Quality grades for test execution.
+type QualityGrade string
+
+// QualityScore Overall quality assessment for a test execution.
+type QualityScore struct {
+	// Breakdown Breakdown of quality score components.
+	Breakdown QualityBreakdown `json:"breakdown"`
+
+	// FalsePositiveReason Reason for false positive flag
+	FalsePositiveReason *string `json:"false_positive_reason"`
+
+	// Grade Quality grades for test execution.
+	Grade QualityGrade `json:"grade"`
+
+	// ImprovementSuggestions Suggestions for improvement
+	ImprovementSuggestions *[]string `json:"improvement_suggestions,omitempty"`
+
+	// IsFalsePositive Whether this might be an accidental success
+	IsFalsePositive *bool `json:"is_false_positive,omitempty"`
+
+	// ReliabilityEstimate Estimate of how reliably this test would pass on re-run.
+	ReliabilityEstimate ReliabilityEstimate `json:"reliability_estimate"`
+
+	// Score Overall quality score (0-100)
+	Score float32 `json:"score"`
+
+	// WeakestComponent Which component was weakest in the test execution.
+	WeakestComponent WeakestComponent `json:"weakest_component"`
+}
+
+// RateCardItem defines model for RateCardItem.
+type RateCardItem struct {
+	AutumnFeatureId string  `json:"autumn_feature_id"`
+	DeviceType      string  `json:"device_type"`
+	Platform        string  `json:"platform"`
+	RatePerMinute   float32 `json:"rate_per_minute"`
+	RatePerSecond   float32 `json:"rate_per_second"`
+}
+
+// RateCardResponse defines model for RateCardResponse.
+type RateCardResponse struct {
+	Rates []RateCardItem `json:"rates"`
+}
+
 // RebelOrgSettings Organization settings for Rebel Bot.
 type RebelOrgSettings struct {
 	CreatedAt        time.Time `json:"created_at"`
@@ -3722,6 +4319,78 @@ type RecentComment struct {
 	Type       string    `json:"type"`
 }
 
+// ReflectionAttemptEval Evaluation of a single reflection/retry attempt within a step.
+type ReflectionAttemptEval struct {
+	// AgentDescription Human-readable action description from Instructional LLM for this retry
+	AgentDescription *string `json:"agent_description"`
+
+	// BoundingBoxEval Evaluation result for Instructional LLM bounding box accuracy.
+	BoundingBoxEval *BoundingBoxEval `json:"bounding_box_eval,omitempty"`
+
+	// GrounderHintEval Evaluation result for grounder_hint quality (Moondream-friendliness).
+	GrounderHintEval *GrounderHintEval `json:"grounder_hint_eval,omitempty"`
+
+	// GroundingEval Evaluation result for grounding accuracy.
+	GroundingEval *GroundingEval `json:"grounding_eval,omitempty"`
+
+	// ImageBase64 Base64 before screenshot (fallback)
+	ImageBase64 *string `json:"image_base64"`
+
+	// ImageUrl URL to before screenshot
+	ImageUrl *string `json:"image_url"`
+
+	// InstructionEval Evaluation result for instruction LLM suggestion compliance.
+	InstructionEval *InstructionEval `json:"instruction_eval,omitempty"`
+
+	// PostActionImageBase64 Base64 after screenshot (fallback)
+	PostActionImageBase64 *string `json:"post_action_image_base64"`
+
+	// PostActionImageUrl URL to after screenshot
+	PostActionImageUrl *string `json:"post_action_image_url"`
+
+	// PrevSuggestion The suggestion from the previous attempt that led to this retry
+	PrevSuggestion *string `json:"prev_suggestion"`
+
+	// Reasoning Instructional LLM's visual analysis and reasoning for this retry
+	Reasoning *string `json:"reasoning"`
+
+	// ReflectionEval Evaluation result for reflection decision.
+	ReflectionEval *ReflectionEval `json:"reflection_eval,omitempty"`
+
+	// RetryIndex Index of this retry (0-based)
+	RetryIndex int `json:"retry_index"`
+
+	// SuggestionEval Evaluation result for reflection suggestion quality.
+	SuggestionEval *SuggestionQualityEval `json:"suggestion_eval,omitempty"`
+
+	// TaggedImageBase64 Base64 tagged screenshot (fallback)
+	TaggedImageBase64 *string `json:"tagged_image_base64"`
+
+	// TaggedImageUrl URL to tagged screenshot (with crosshair)
+	TaggedImageUrl *string `json:"tagged_image_url"`
+}
+
+// ReflectionErrorType Types of reflection errors that can occur.
+type ReflectionErrorType string
+
+// ReflectionEval Evaluation result for reflection decision.
+type ReflectionEval struct {
+	// ActualNextStep What next_step was
+	ActualNextStep *bool `json:"actual_next_step"`
+
+	// Correct Whether the reflection decision (next_step) was correct
+	Correct bool `json:"correct"`
+
+	// ErrorType Types of reflection errors that can occur.
+	ErrorType *ReflectionErrorType `json:"error_type,omitempty"`
+
+	// ExpectedNextStep What next_step should have been
+	ExpectedNextStep *bool `json:"expected_next_step"`
+
+	// Explanation Brief reasoning
+	Explanation *string `json:"explanation"`
+}
+
 // RegisterSandboxRequest Request payload for registering (upserting) a sandbox during provisioning.
 //
 // Called by the fleet CLI or Ansible playbook after provisioning a Mac.
@@ -3732,15 +4401,27 @@ type RecentComment struct {
 //
 //	vm_name: Unique VM name (e.g., "Revyl-Mac-mini-W641QMFKQR").
 //	hostname: mDNS hostname (e.g., "Revyl-Mac-mini-W641QMFKQR.local").
+//	org_id: Organization ID to reserve this sandbox for. If set, only
+//	    users from this org can claim it. NULL means shared pool.
 //	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
 //	ssh_user: SSH username for connections (default: revyl-admin).
 //	ssh_port: SSH port number (default: 22).
 //	status: Initial sandbox status (default: available).
 //	specs: Hardware specifications (cpu_cores, memory_gb, chip).
 //	tags: Flexible labels for filtering (location, tier, etc.).
+//	db_env: Target database environment override. When set, the backend
+//	    routes the registration to the specified Supabase instance
+//	    instead of the backend's default. Use "staging" for internal
+//	    sandboxes and "production" for external/customer sandboxes.
 type RegisterSandboxRequest struct {
+	// DbEnv Target database environment override. If not specified, uses the backend's configured default.
+	DbEnv *RegisterSandboxRequestDbEnv `json:"db_env"`
+
 	// Hostname mDNS hostname
 	Hostname *string `json:"hostname"`
+
+	// OrgId Organization ID to reserve this sandbox for. If set, only users from this org can claim it. NULL means shared pool (available to all orgs).
+	OrgId *string `json:"org_id"`
 
 	// Specs Hardware specs (cpu_cores, memory_gb, chip)
 	Specs *map[string]interface{} `json:"specs"`
@@ -3750,6 +4431,9 @@ type RegisterSandboxRequest struct {
 
 	// SshUser SSH username
 	SshUser *string `json:"ssh_user,omitempty"`
+
+	// SsmInstanceId AWS SSM managed instance ID (e.g., mi-0123...) for remote command execution
+	SsmInstanceId *string `json:"ssm_instance_id"`
 
 	// Status Initial sandbox status
 	Status *RegisterSandboxRequestStatus `json:"status,omitempty"`
@@ -3763,6 +4447,9 @@ type RegisterSandboxRequest struct {
 	// VmName Unique VM name (e.g., 'Revyl-Mac-mini-W641QMFKQR')
 	VmName string `json:"vm_name"`
 }
+
+// RegisterSandboxRequestDbEnv Target database environment override. If not specified, uses the backend's configured default.
+type RegisterSandboxRequestDbEnv string
 
 // RegisterSandboxRequestStatus Initial sandbox status
 type RegisterSandboxRequestStatus string
@@ -3824,6 +4511,9 @@ type ReleaseSandboxResponse struct {
 	// Success Whether release succeeded
 	Success bool `json:"success"`
 }
+
+// ReliabilityEstimate Estimate of how reliably this test would pass on re-run.
+type ReliabilityEstimate string
 
 // RemoveWorkflowFromRuleResponse Response after removing a workflow from a rule.
 type RemoveWorkflowFromRuleResponse struct {
@@ -4118,6 +4808,18 @@ type SSHKeyStatusResponse struct {
 	SandboxReachable *bool `json:"sandbox_reachable,omitempty"`
 }
 
+// ScriptUsageResponse Response model for script usage lookup
+type ScriptUsageResponse struct {
+	Tests []ScriptUsageTestItem `json:"tests"`
+	Total int                   `json:"total"`
+}
+
+// ScriptUsageTestItem A test that uses a specific script
+type ScriptUsageTestItem struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // SeatCheckResponse defines model for SeatCheckResponse.
 type SeatCheckResponse struct {
 	AssignedSeats      int                   `json:"assigned_seats"`
@@ -4129,6 +4831,34 @@ type SeatCheckResponse struct {
 	TotalSeats         int                   `json:"total_seats"`
 	UnassignedSeats    int                   `json:"unassigned_seats"`
 	UserBackfillStatus *[]UserBackfillStatus `json:"user_backfill_status,omitempty"`
+}
+
+// SessionHistoryItem defines model for SessionHistoryItem.
+type SessionHistoryItem struct {
+	BilledAt         string  `json:"billed_at"`
+	BillingStatus    string  `json:"billing_status"`
+	DeviceCostUsd    float32 `json:"device_cost_usd"`
+	DeviceModel      *string `json:"device_model"`
+	DurationSeconds  float32 `json:"duration_seconds"`
+	IsRealDevice     bool    `json:"is_real_device"`
+	LlmCostUsd       float32 `json:"llm_cost_usd"`
+	OsVersion        *string `json:"os_version"`
+	Platform         string  `json:"platform"`
+	SessionEndedAt   *string `json:"session_ended_at"`
+	SessionId        string  `json:"session_id"`
+	SessionStartedAt *string `json:"session_started_at"`
+	SessionStatus    string  `json:"session_status"`
+	TotalCostUsd     float32 `json:"total_cost_usd"`
+	UsageId          string  `json:"usage_id"`
+}
+
+// SessionHistoryResponse defines model for SessionHistoryResponse.
+type SessionHistoryResponse struct {
+	Limit       int                  `json:"limit"`
+	Offset      int                  `json:"offset"`
+	PeriodEnd   string               `json:"period_end"`
+	PeriodStart string               `json:"period_start"`
+	Sessions    []SessionHistoryItem `json:"sessions"`
 }
 
 // SessionStatus Device session status - the single source of truth for test execution state.
@@ -4399,6 +5129,84 @@ type StartExplorationResponse struct {
 	WorkflowRunId string `json:"workflow_run_id"`
 }
 
+// StepEval Complete evaluation of a single step including all retries.
+type StepEval struct {
+	// ActionType Type of action taken
+	ActionType *string `json:"action_type"`
+
+	// AgentDescription Human-readable action description from Instructional LLM
+	AgentDescription *string `json:"agent_description"`
+
+	// BoundingBoxApplicable Whether bbox eval applies (needs grounder_bounding_box in llm_metadata)
+	BoundingBoxApplicable *bool `json:"bounding_box_applicable,omitempty"`
+
+	// BoundingBoxEval Evaluation result for Instructional LLM bounding box accuracy.
+	BoundingBoxEval *BoundingBoxEval `json:"bounding_box_eval,omitempty"`
+
+	// GrounderHintApplicable Whether grounder_hint eval applies (needs grounder_hint in llm_metadata)
+	GrounderHintApplicable *bool `json:"grounder_hint_applicable,omitempty"`
+
+	// GrounderHintEval Evaluation result for grounder_hint quality (Moondream-friendliness).
+	GrounderHintEval *GrounderHintEval `json:"grounder_hint_eval,omitempty"`
+
+	// GroundingApplicable Whether grounding eval applies (needs x,y coords)
+	GroundingApplicable *bool `json:"grounding_applicable,omitempty"`
+
+	// GroundingEval Evaluation result for grounding accuracy.
+	GroundingEval *GroundingEval `json:"grounding_eval,omitempty"`
+
+	// ImageBase64 Base64 before screenshot (fallback)
+	ImageBase64 *string `json:"image_base64"`
+
+	// ImageUrl URL to before screenshot
+	ImageUrl *string `json:"image_url"`
+
+	// InstructionEval Evaluation result for instruction LLM suggestion compliance.
+	InstructionEval *InstructionEval `json:"instruction_eval,omitempty"`
+
+	// PostActionImageBase64 Base64 after screenshot (fallback)
+	PostActionImageBase64 *string `json:"post_action_image_base64"`
+
+	// PostActionImageUrl URL to after screenshot
+	PostActionImageUrl *string `json:"post_action_image_url"`
+
+	// Reasoning Instructional LLM's visual analysis and reasoning
+	Reasoning *string `json:"reasoning"`
+
+	// ReflectionApplicable Whether reflection eval applies (needs before/after images)
+	ReflectionApplicable *bool `json:"reflection_applicable,omitempty"`
+
+	// ReflectionEval Evaluation result for reflection decision.
+	ReflectionEval *ReflectionEval `json:"reflection_eval,omitempty"`
+
+	// Reflections Evaluations of retry attempts
+	Reflections *[]ReflectionAttemptEval `json:"reflections,omitempty"`
+
+	// Retries Number of retries for this step
+	Retries *int `json:"retries,omitempty"`
+
+	// StepDescription Description of the step
+	StepDescription *string `json:"step_description"`
+
+	// StepIndex Index of this step
+	StepIndex int `json:"step_index"`
+
+	// SuggestionEval Evaluation result for reflection suggestion quality.
+	SuggestionEval *SuggestionQualityEval `json:"suggestion_eval,omitempty"`
+
+	// TaggedImageBase64 Base64 tagged screenshot (fallback)
+	TaggedImageBase64 *string `json:"tagged_image_base64"`
+
+	// TaggedImageUrl URL to tagged screenshot (with crosshair)
+	TaggedImageUrl *string `json:"tagged_image_url"`
+
+	// ValidationApplicable Whether validation eval applies (validation steps only)
+	ValidationApplicable *bool `json:"validation_applicable,omitempty"`
+
+	// ValidationEval Evaluation result for validation step accuracy.
+	ValidationEval *ValidationEval `json:"validation_eval,omitempty"`
+}
+
 // StepMetadata Lightweight step metadata for replay timeline.
 type StepMetadata struct {
 	ActionType  string  `json:"action_type"`
@@ -4406,6 +5214,28 @@ type StepMetadata struct {
 	EndTime     float32 `json:"end_time"`
 	Index       int     `json:"index"`
 	StartTime   float32 `json:"start_time"`
+}
+
+// StepSummariesBatchRequest Request for batch step summaries.
+type StepSummariesBatchRequest struct {
+	TaskIds []string `json:"task_ids"`
+}
+
+// StepSummariesBatchResponse Response for batch step summaries.
+type StepSummariesBatchResponse struct {
+	FoundCount     int                         `json:"found_count"`
+	RequestedCount int                         `json:"requested_count"`
+	Summaries      map[string]*[]StepSummaryV3 `json:"summaries"`
+}
+
+// StepSummaryV3 Lightweight step summary for progress visualization.
+type StepSummaryV3 struct {
+	ErrorMessage     *string `json:"error_message"`
+	ExecutionOrder   int     `json:"execution_order"`
+	Status           *string `json:"status"`
+	StepDescription  *string `json:"step_description"`
+	StepType         string  `json:"step_type"`
+	ValidationResult *bool   `json:"validation_result"`
 }
 
 // StepType User-facing step types for YAML test definitions.
@@ -4449,6 +5279,30 @@ type StreamingStepResult struct {
 	StepIndex        *int        `json:"step_index"`
 	ValidationResult interface{} `json:"validation_result"`
 }
+
+// SuggestionQualityEval Evaluation result for reflection suggestion quality.
+type SuggestionQualityEval struct {
+	// AddressesFailure Whether the suggestion addresses why the previous action failed
+	AddressesFailure bool `json:"addresses_failure"`
+
+	// Explanation Reasoning for the evaluation
+	Explanation *string `json:"explanation"`
+
+	// IsActionable Whether the suggestion is specific and actionable
+	IsActionable bool `json:"is_actionable"`
+
+	// IsCorrectApproach Whether the suggestion identifies the right approach to complete the step
+	IsCorrectApproach bool `json:"is_correct_approach"`
+
+	// QualityRating Quality rating for reflection suggestions.
+	QualityRating SuggestionQualityRating `json:"quality_rating"`
+
+	// Suggestion The suggestion that was evaluated
+	Suggestion *string `json:"suggestion"`
+}
+
+// SuggestionQualityRating Quality rating for reflection suggestions.
+type SuggestionQualityRating string
 
 // SummaryData defines model for SummaryData.
 type SummaryData struct {
@@ -4882,6 +5736,27 @@ type TestEnhancedHistoryResponse struct {
 	RequestedCount int                       `json:"requested_count"`
 	TotalCount     int                       `json:"total_count"`
 }
+
+// TestEvalReport Complete evaluation report for a test run.
+type TestEvalReport struct {
+	// ErrorSummary Summary of errors from evaluation.
+	ErrorSummary EvalErrorSummary `json:"error_summary"`
+
+	// Quality Overall quality assessment for a test execution.
+	Quality *QualityScore `json:"quality,omitempty"`
+
+	// RawManifest Raw manifest data for debugging
+	RawManifest  *map[string]interface{}   `json:"raw_manifest"`
+	Steps        *[]StepEval               `json:"steps,omitempty"`
+	TaskId       string                    `json:"task_id"`
+	TestId       string                    `json:"test_id"`
+	TestOutcome  TestEvalReportTestOutcome `json:"test_outcome"`
+	TotalRetries int                       `json:"total_retries"`
+	TotalSteps   int                       `json:"total_steps"`
+}
+
+// TestEvalReportTestOutcome defines model for TestEvalReport.TestOutcome.
+type TestEvalReportTestOutcome string
 
 // TestExecutionBatchResponse Response model for batch test status requests.
 type TestExecutionBatchResponse struct {
@@ -5355,8 +6230,6 @@ type TrainingImageUploadRequest struct {
 	ActualX        *int    `json:"actual_x"`
 	ActualY        *int    `json:"actual_y"`
 	GrounderTarget *string `json:"grounder_target"`
-	ImageBase64    *string `json:"image_base64"`
-	ImageUrl       *string `json:"image_url"`
 	Instruction    *string `json:"instruction"`
 	PredictedX     *int    `json:"predicted_x"`
 	PredictedY     *int    `json:"predicted_y"`
@@ -5430,6 +6303,11 @@ type UpdateAppLaunchEnvVarModel struct {
 
 	// Value Updated env var value
 	Value *string `json:"value"`
+}
+
+// UpdateDefaultRoleRequest Request to update the default role for new users.
+type UpdateDefaultRoleRequest struct {
+	DefaultRole string `json:"default_role"`
 }
 
 // UpdateExpoProjectRequest Request to update an Expo project configuration.
@@ -5713,6 +6591,30 @@ type ValidationError_Loc_Item struct {
 	union json.RawMessage
 }
 
+// ValidationErrorType Types of validation errors that can occur.
+type ValidationErrorType string
+
+// ValidationEval Evaluation result for validation step accuracy.
+type ValidationEval struct {
+	// AgentResult What the agent returned (True/False)
+	AgentResult *bool `json:"agent_result"`
+
+	// Correct Whether the validation result was correct
+	Correct bool `json:"correct"`
+
+	// ErrorType Types of validation errors that can occur.
+	ErrorType *ValidationErrorType `json:"error_type,omitempty"`
+
+	// ExpectedResult What the result should have been
+	ExpectedResult *bool `json:"expected_result"`
+
+	// Explanation Reasoning for the evaluation
+	Explanation *string `json:"explanation"`
+
+	// ValidationInstruction What was being validated
+	ValidationInstruction *string `json:"validation_instruction"`
+}
+
 // ValidationRequest Request model for YAML validation
 type ValidationRequest struct {
 	// Platform Target platform for validation
@@ -5784,6 +6686,30 @@ type VariablesResponse struct {
 	Result []VariableRow `json:"result"`
 }
 
+// VideoMetadataBatchRequest Request for batch video metadata.
+type VideoMetadataBatchRequest struct {
+	ExecutionIds []string `json:"execution_ids"`
+}
+
+// VideoMetadataBatchRequestV1 Request model for batch video metadata.
+type VideoMetadataBatchRequestV1 struct {
+	TaskIds []string `json:"task_ids"`
+}
+
+// VideoMetadataBatchResponse Response for batch video metadata.
+type VideoMetadataBatchResponse struct {
+	FoundCount     int                            `json:"found_count"`
+	RequestedCount int                            `json:"requested_count"`
+	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
+}
+
+// VideoMetadataBatchResponseV1 Response model for batch video metadata.
+type VideoMetadataBatchResponseV1 struct {
+	FoundCount     int                          `json:"found_count"`
+	RequestedCount int                          `json:"requested_count"`
+	Videos         map[string]VideoMetadataItem `json:"videos"`
+}
+
 // VideoMetadataInfo Video + step metadata for a single task.
 type VideoMetadataInfo struct {
 	Duration float32         `json:"duration"`
@@ -5832,6 +6758,9 @@ type Viewport struct {
 	Height *int `json:"height,omitempty"`
 	Width  *int `json:"width,omitempty"`
 }
+
+// WeakestComponent Which component was weakest in the test execution.
+type WeakestComponent string
 
 // WeeklyMetrics Weekly metrics for workflow performance.
 type WeeklyMetrics struct {
@@ -6002,9 +6931,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time                                           `json:"created_at"`
-	Deleted   bool                                                 `json:"deleted"`
+	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time        `json:"created_at"`
+	Deleted   bool              `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -6313,6 +7242,7 @@ type WorkflowStatusResponse struct {
 	Duration            *string                 `json:"duration"`
 	ErrorMessage        *string                 `json:"error_message"`
 	EstimatedCompletion *string                 `json:"estimated_completion"`
+	ExecutionId         *string                 `json:"execution_id"`
 	FailedTests         *int                    `json:"failed_tests,omitempty"`
 	Metadata            *map[string]interface{} `json:"metadata,omitempty"`
 	PassedTests         *int                    `json:"passed_tests,omitempty"`
@@ -6518,6 +7448,12 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
+// AppRoutesExecutionRoutesBillingXptAttachResponse defines model for app__routes__execution_routes__billing_xpt__AttachResponse.
+type AppRoutesExecutionRoutesBillingXptAttachResponse struct {
+	CheckoutUrl *string `json:"checkout_url"`
+	Message     string  `json:"message"`
+}
+
 // AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
 type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
 	Date        string   `json:"date"`
@@ -6530,49 +7466,10 @@ type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
 	Value       *float32 `json:"value"`
 }
 
-// AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest Request model for batch video metadata.
-type AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest struct {
-	TaskIds []string `json:"task_ids"`
-}
-
-// AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse Response model for batch video metadata.
-type AppRoutesReportRoutesTestReportXptVideoMetadataBatchResponse struct {
-	FoundCount     int                          `json:"found_count"`
-	RequestedCount int                          `json:"requested_count"`
-	Videos         map[string]VideoMetadataItem `json:"videos"`
-}
-
-// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest Request for batch video metadata.
-type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest struct {
-	ExecutionIds []string `json:"execution_ids"`
-}
-
-// AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse Response for batch video metadata.
-type AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchResponse struct {
-	FoundCount     int                            `json:"found_count"`
-	RequestedCount int                            `json:"requested_count"`
-	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
-}
-
-// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
-type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
-	// AvgDuration Average execution duration in seconds for this date
-	AvgDuration *int `json:"avg_duration"`
-
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
+// AppRoutesRebelRoutesBillingXptAttachRequest defines model for app__routes__rebel_routes__billing_xpt__AttachRequest.
+type AppRoutesRebelRoutesBillingXptAttachRequest struct {
+	Quantity    *int   `json:"quantity"`
+	RedirectUrl string `json:"redirect_url"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.
@@ -6840,8 +7737,8 @@ type DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONBody = st
 // CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody defines parameters for CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatch.
 type CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody = string
 
-// ListAppsApiV1BuildsAppsGetParams defines parameters for ListAppsApiV1BuildsAppsGet.
-type ListAppsApiV1BuildsAppsGetParams struct {
+// ListAppsApiV1AppsGetParams defines parameters for ListAppsApiV1AppsGet.
+type ListAppsApiV1AppsGetParams struct {
 	// Platform Filter by platform
 	Platform *string `form:"platform,omitempty" json:"platform,omitempty"`
 
@@ -6855,8 +7752,20 @@ type ListAppsApiV1BuildsAppsGetParams struct {
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 }
 
-// ListBuildsApiV1BuildsAppsAppIdBuildsGetParams defines parameters for ListBuildsApiV1BuildsAppsAppIdBuildsGet.
-type ListBuildsApiV1BuildsAppsAppIdBuildsGetParams struct {
+// GetBuildApiV1AppsBuildsVersionIdGetParams defines parameters for GetBuildApiV1AppsBuildsVersionIdGet.
+type GetBuildApiV1AppsBuildsVersionIdGetParams struct {
+	// IncludeDownloadUrl Include presigned download URL
+	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
+}
+
+// ResolveBuildApiV1AppsResolvePostParams defines parameters for ResolveBuildApiV1AppsResolvePost.
+type ResolveBuildApiV1AppsResolvePostParams struct {
+	// IncludeDownloadUrl Include presigned download URL
+	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
+}
+
+// ListBuildsApiV1AppsAppIdBuildsGetParams defines parameters for ListBuildsApiV1AppsAppIdBuildsGet.
+type ListBuildsApiV1AppsAppIdBuildsGetParams struct {
 	// IncludeDownloadUrls Include presigned download URLs
 	IncludeDownloadUrls *bool `form:"include_download_urls,omitempty" json:"include_download_urls,omitempty"`
 
@@ -6870,36 +7779,19 @@ type ListBuildsApiV1BuildsAppsAppIdBuildsGetParams struct {
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 }
 
-// StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPostParams defines parameters for StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPost.
-type StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPostParams struct {
+// StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostParams defines parameters for StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost.
+type StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostParams struct {
 	// Version Version string (must be unique)
 	Version string `form:"version" json:"version"`
 }
 
-// CreateBuildUploadUrlApiV1BuildsAppsAppIdBuildsUploadUrlPostParams defines parameters for CreateBuildUploadUrlApiV1BuildsAppsAppIdBuildsUploadUrlPost.
-type CreateBuildUploadUrlApiV1BuildsAppsAppIdBuildsUploadUrlPostParams struct {
+// CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams defines parameters for CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPost.
+type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 	// Version Version string (must be unique)
 	Version string `form:"version" json:"version"`
 
 	// FileName Name of the file to upload
 	FileName string `form:"file_name" json:"file_name"`
-}
-
-// GetBuildApiV1BuildsBuildsVersionIdGetParams defines parameters for GetBuildApiV1BuildsBuildsVersionIdGet.
-type GetBuildApiV1BuildsBuildsVersionIdGetParams struct {
-	// IncludeDownloadUrl Include presigned download URL
-	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
-}
-
-// ResolveBuildApiV1BuildsResolvePostParams defines parameters for ResolveBuildApiV1BuildsResolvePost.
-type ResolveBuildApiV1BuildsResolvePostParams struct {
-	// IncludeDownloadUrl Include presigned download URL
-	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
-}
-
-// GetOrganizationSettingsApiV1EntityOrgsOrganizationSettingsGetParams defines parameters for GetOrganizationSettingsApiV1EntityOrgsOrganizationSettingsGet.
-type GetOrganizationSettingsApiV1EntityOrgsOrganizationSettingsGetParams struct {
-	OrgId *string `form:"org_id,omitempty" json:"org_id,omitempty"`
 }
 
 // GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGetParams defines parameters for GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGet.
@@ -6929,6 +7821,45 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostParams str
 	XCIRunURL     *string `json:"X-CI-Run-URL,omitempty"`
 	XCIRunID      *string `json:"X-CI-Run-ID,omitempty"`
 	XCIRepository *string `json:"X-CI-Repository,omitempty"`
+}
+
+// BillingBreakdownApiV1ExecutionBillingBreakdownGetParams defines parameters for BillingBreakdownApiV1ExecutionBillingBreakdownGet.
+type BillingBreakdownApiV1ExecutionBillingBreakdownGetParams struct {
+	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
+	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
+}
+
+// BillingCheckApiV1ExecutionBillingCheckGetParams defines parameters for BillingCheckApiV1ExecutionBillingCheckGet.
+type BillingCheckApiV1ExecutionBillingCheckGetParams struct {
+	// Platform ios or android
+	Platform     string `form:"platform" json:"platform"`
+	IsRealDevice *bool  `form:"is_real_device,omitempty" json:"is_real_device,omitempty"`
+}
+
+// BillingDailySpendApiV1ExecutionBillingDailySpendGetParams defines parameters for BillingDailySpendApiV1ExecutionBillingDailySpendGet.
+type BillingDailySpendApiV1ExecutionBillingDailySpendGetParams struct {
+	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
+	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
+}
+
+// BillingDailyUsageApiV1ExecutionBillingDailyUsageGetParams defines parameters for BillingDailyUsageApiV1ExecutionBillingDailyUsageGet.
+type BillingDailyUsageApiV1ExecutionBillingDailyUsageGetParams struct {
+	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
+	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
+}
+
+// BillingSessionsApiV1ExecutionBillingSessionsGetParams defines parameters for BillingSessionsApiV1ExecutionBillingSessionsGet.
+type BillingSessionsApiV1ExecutionBillingSessionsGetParams struct {
+	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
+	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
+	Limit       *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset      *int    `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// BillingSummaryApiV1ExecutionBillingSummaryGetParams defines parameters for BillingSummaryApiV1ExecutionBillingSummaryGet.
+type BillingSummaryApiV1ExecutionBillingSummaryGetParams struct {
+	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
+	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
 }
 
 // GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGetParams defines parameters for GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGet.
@@ -6996,6 +7927,14 @@ type ListWorktreesApiV1FleetWorktreesGetParams struct {
 // RemoveWorktreeApiV1FleetWorktreesBranchDeleteParams defines parameters for RemoveWorktreeApiV1FleetWorktreesBranchDelete.
 type RemoveWorktreeApiV1FleetWorktreesBranchDeleteParams struct {
 	SandboxId *string `form:"sandbox_id,omitempty" json:"sandbox_id,omitempty"`
+}
+
+// GetEvalQueueApiV1FlywheelEvalQueueGetParams defines parameters for GetEvalQueueApiV1FlywheelEvalQueueGet.
+type GetEvalQueueApiV1FlywheelEvalQueueGetParams struct {
+	// ReviewStatus Filter by review_status (pending, in_progress, reviewed, dismissed)
+	ReviewStatus *string `form:"review_status,omitempty" json:"review_status,omitempty"`
+	Limit        *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset       *int    `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // CheckModuleExistsApiV1ModulesCheckExistsGetParams defines parameters for CheckModuleExistsApiV1ModulesCheckExistsGet.
@@ -7384,6 +8323,27 @@ type DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONRequestBo
 // CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONRequestBody defines body for CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatch for application/json ContentType.
 type CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONRequestBody = CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody
 
+// CreateAppApiV1AppsPostJSONRequestBody defines body for CreateAppApiV1AppsPost for application/json ContentType.
+type CreateAppApiV1AppsPostJSONRequestBody = AppCreateRequest
+
+// UpdateBuildApiV1AppsBuildsVersionIdPatchJSONRequestBody defines body for UpdateBuildApiV1AppsBuildsVersionIdPatch for application/json ContentType.
+type UpdateBuildApiV1AppsBuildsVersionIdPatchJSONRequestBody = BuildUpdateRequest
+
+// CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPostJSONRequestBody defines body for CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPost for application/json ContentType.
+type CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPostJSONRequestBody = BuildUploadCompleteRequest
+
+// ResolveBuildApiV1AppsResolvePostJSONRequestBody defines body for ResolveBuildApiV1AppsResolvePost for application/json ContentType.
+type ResolveBuildApiV1AppsResolvePostJSONRequestBody = BuildResolutionRequest
+
+// UpdateAppApiV1AppsAppIdPatchJSONRequestBody defines body for UpdateAppApiV1AppsAppIdPatch for application/json ContentType.
+type UpdateAppApiV1AppsAppIdPatchJSONRequestBody = AppUpdateRequest
+
+// CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody defines body for CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPost for application/json ContentType.
+type CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody = BuildFromUrlRequest
+
+// StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody defines body for StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost for multipart/form-data ContentType.
+type StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody = BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost
+
 // DeleteAppBinaryApiV1BinariesTestAppDeleteDeleteJSONRequestBody defines body for DeleteAppBinaryApiV1BinariesTestAppDeleteDelete for application/json ContentType.
 type DeleteAppBinaryApiV1BinariesTestAppDeleteDeleteJSONRequestBody = AppBinaryDeleteRequest
 
@@ -7396,27 +8356,6 @@ type ExtractPackageIdApiV1BinariesTestAppExtractPackageIdPostJSONRequestBody = E
 // GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPostJSONRequestBody defines body for GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPost for application/json ContentType.
 type GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPostJSONRequestBody = AppBinaryUploadRequest
 
-// CreateAppApiV1BuildsAppsPostJSONRequestBody defines body for CreateAppApiV1BuildsAppsPost for application/json ContentType.
-type CreateAppApiV1BuildsAppsPostJSONRequestBody = AppCreateRequest
-
-// UpdateAppApiV1BuildsAppsAppIdPatchJSONRequestBody defines body for UpdateAppApiV1BuildsAppsAppIdPatch for application/json ContentType.
-type UpdateAppApiV1BuildsAppsAppIdPatchJSONRequestBody = AppUpdateRequest
-
-// CreateBuildFromUrlApiV1BuildsAppsAppIdBuildsFromUrlPostJSONRequestBody defines body for CreateBuildFromUrlApiV1BuildsAppsAppIdBuildsFromUrlPost for application/json ContentType.
-type CreateBuildFromUrlApiV1BuildsAppsAppIdBuildsFromUrlPostJSONRequestBody = BuildFromUrlRequest
-
-// StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPostMultipartRequestBody defines body for StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPost for multipart/form-data ContentType.
-type StreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPostMultipartRequestBody = BodyStreamUploadBuildApiV1BuildsAppsAppIdBuildsStreamUploadPost
-
-// UpdateBuildApiV1BuildsBuildsVersionIdPatchJSONRequestBody defines body for UpdateBuildApiV1BuildsBuildsVersionIdPatch for application/json ContentType.
-type UpdateBuildApiV1BuildsBuildsVersionIdPatchJSONRequestBody = BuildUpdateRequest
-
-// CompleteBuildUploadApiV1BuildsBuildsVersionIdCompleteUploadPostJSONRequestBody defines body for CompleteBuildUploadApiV1BuildsBuildsVersionIdCompleteUploadPost for application/json ContentType.
-type CompleteBuildUploadApiV1BuildsBuildsVersionIdCompleteUploadPostJSONRequestBody = BuildUploadCompleteRequest
-
-// ResolveBuildApiV1BuildsResolvePostJSONRequestBody defines body for ResolveBuildApiV1BuildsResolvePost for application/json ContentType.
-type ResolveBuildApiV1BuildsResolvePostJSONRequestBody = BuildResolutionRequest
-
 // ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody defines body for ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPost for application/json ContentType.
 type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody = TaskID
 
@@ -7426,6 +8365,15 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONReques
 // StartExplorationApiV1ExecutionApiV1StartExplorationPostJSONRequestBody defines body for StartExplorationApiV1ExecutionApiV1StartExplorationPost for application/json ContentType.
 type StartExplorationApiV1ExecutionApiV1StartExplorationPostJSONRequestBody = StartExplorationRequest
 
+// BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody defines body for BillingAttachApiV1ExecutionBillingAttachPost for application/json ContentType.
+type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AttachRequest
+
+// FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody defines body for FinalizeSessionApiV1ExecutionBillingFinalizeSessionPost for application/json ContentType.
+type FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody = FinalizeSessionRequest
+
+// BillingPortalApiV1ExecutionBillingPortalPostJSONRequestBody defines body for BillingPortalApiV1ExecutionBillingPortalPost for application/json ContentType.
+type BillingPortalApiV1ExecutionBillingPortalPostJSONRequestBody = PortalRequest
+
 // CreateDeviceSessionApiV1ExecutionDeviceSessionsPostJSONRequestBody defines body for CreateDeviceSessionApiV1ExecutionDeviceSessionsPost for application/json ContentType.
 type CreateDeviceSessionApiV1ExecutionDeviceSessionsPostJSONRequestBody = DeviceSessionCreate
 
@@ -7434,6 +8382,9 @@ type UpdateDeviceSessionByWorkflowRunIdApiV1ExecutionDeviceSessionsByWorkflowRun
 
 // UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatchJSONRequestBody defines body for UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatch for application/json ContentType.
 type UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatchJSONRequestBody = DeviceSessionUpdate
+
+// GroundElementApiV1ExecutionGroundPostJSONRequestBody defines body for GroundElementApiV1ExecutionGroundPost for application/json ContentType.
+type GroundElementApiV1ExecutionGroundPostJSONRequestBody = GroundRequest
 
 // CreateLlmCallApiV1ExecutionLlmCallsPostJSONRequestBody defines body for CreateLlmCallApiV1ExecutionLlmCallsPost for application/json ContentType.
 type CreateLlmCallApiV1ExecutionLlmCallsPostJSONRequestBody = LLMCallCreate
@@ -7468,6 +8419,12 @@ type PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPostJSONRequestBody = PushSSHKe
 // CreateWorktreeApiV1FleetWorktreesPostJSONRequestBody defines body for CreateWorktreeApiV1FleetWorktreesPost for application/json ContentType.
 type CreateWorktreeApiV1FleetWorktreesPostJSONRequestBody = CreateWorktreeRequest
 
+// UpdateFlywheelConfigApiV1FlywheelConfigPatchJSONRequestBody defines body for UpdateFlywheelConfigApiV1FlywheelConfigPatch for application/json ContentType.
+type UpdateFlywheelConfigApiV1FlywheelConfigPatchJSONRequestBody = FlywheelConfigUpdateRequest
+
+// TriggerFlywheelEvalApiV1FlywheelTriggerPostJSONRequestBody defines body for TriggerFlywheelEvalApiV1FlywheelTriggerPost for application/json ContentType.
+type TriggerFlywheelEvalApiV1FlywheelTriggerPostJSONRequestBody = FlywheelTriggerRequest
+
 // CreateApprovalRequestApiV1HitlCreateApprovalRequestPostJSONRequestBody defines body for CreateApprovalRequestApiV1HitlCreateApprovalRequestPost for application/json ContentType.
 type CreateApprovalRequestApiV1HitlCreateApprovalRequestPostJSONRequestBody = HITLApprovalRequest
 
@@ -7493,7 +8450,7 @@ type UploadTrainingImageApiV1ReportAsyncRunTrainingImagePostJSONRequestBody = Tr
 type GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPostJSONRequestBody = UnifiedReportRequest
 
 // GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = AppRoutesReportRoutesTestReportXptVideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequestV1
 
 // GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody defines body for GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPost for application/json ContentType.
 type GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody = WorkflowTasksReportBatchRequest
@@ -7504,8 +8461,11 @@ type RunEvalApiV1ReportEvalsRunEvalPostJSONRequestBody = EvalRequest
 // CreateReportApiV1ReportsV3ReportsPostJSONRequestBody defines body for CreateReportApiV1ReportsV3ReportsPost for application/json ContentType.
 type CreateReportApiV1ReportsV3ReportsPostJSONRequestBody = CreateReportRequest
 
+// GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPostJSONRequestBody defines body for GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPost for application/json ContentType.
+type GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPostJSONRequestBody = StepSummariesBatchRequest
+
 // GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = AppRoutesReportsV3RoutesReportsV3XptVideoMetadataBatchRequest
+type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
 
 // UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody defines body for UpdateReportApiV1ReportsV3ReportsReportIdPatch for application/json ContentType.
 type UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody = UpdateReportRequest
@@ -7577,7 +8537,7 @@ type TriggerBackfillApiV1ReviewBackfillPostJSONRequestBody = BackfillRequest
 type AssignSeatsApiV1ReviewBillingAssignSeatsPostJSONRequestBody = AssignSeatsRequest
 
 // AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody defines body for AttachBillingApiV1ReviewBillingAttachPost for application/json ContentType.
-type AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody = AttachRequest
+type AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody = AppRoutesRebelRoutesBillingXptAttachRequest
 
 // UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody defines body for UpdateSeatsApiV1ReviewBillingUpdateSeatsPost for application/json ContentType.
 type UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody = UpdateSeatsRequest
@@ -7596,6 +8556,9 @@ type SaveRepoRevylConfigApiV1ReviewRevylCiReposOwnerRepoPostJSONRequestBody = Cr
 
 // UpdateOrgSettingsApiV1ReviewSettingsPutJSONRequestBody defines body for UpdateOrgSettingsApiV1ReviewSettingsPut for application/json ContentType.
 type UpdateOrgSettingsApiV1ReviewSettingsPutJSONRequestBody = UpdateRebelOrgSettings
+
+// UpdateDefaultRoleApiV1ReviewSettingsDefaultRolePutJSONRequestBody defines body for UpdateDefaultRoleApiV1ReviewSettingsDefaultRolePut for application/json ContentType.
+type UpdateDefaultRoleApiV1ReviewSettingsDefaultRolePutJSONRequestBody = UpdateDefaultRoleRequest
 
 // CreateExpoProjectApiV1ReviewSettingsExpoProjectsPostJSONRequestBody defines body for CreateExpoProjectApiV1ReviewSettingsExpoProjectsPost for application/json ContentType.
 type CreateExpoProjectApiV1ReviewSettingsExpoProjectsPostJSONRequestBody = CreateExpoProjectRequest

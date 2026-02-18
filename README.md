@@ -34,20 +34,43 @@ revyl build upload --platform android
 revyl test create login-flow --platform android
 
 # 4. Run it
-revyl run login-flow
+revyl test run login-flow
 
 # 5. Group tests into a workflow
 revyl workflow create smoke-tests --tests login-flow,checkout
 
 # 6. Run the workflow
-revyl run smoke-tests -w
+revyl workflow run smoke-tests
 ```
 
-> **Tip:** `revyl run` can also build and upload automatically (`revyl run login-flow --build`), so steps 2-3 are only needed the first time or when managing things manually.
+> **Tip:** `revyl test run` supports `--build` to build and upload automatically (`revyl test run login-flow --build`), so steps 2-3 are only needed the first time or when managing things manually.
 
 The `revyl init` wizard walks you through 6 stages (project setup, auth, apps, build, test, workflow).
 Each stage can be skipped by pressing Enter or answering "n" at its prompt.
 Use `revyl init -y` to skip the wizard entirely and just generate a config file.
+
+## MCP Server (AI Agent Integration)
+
+Connect Revyl to AI coding tools like Cursor, Claude Code, Codex, VS Code, and Claude Desktop. Your agent gets access to cloud devices, test execution, and device interaction tools.
+
+1[![Add Revyl MCP to Cursor](https://cursor.com/deeplink/mcp-install-dark.png)](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Revyl-0098FF?style=flat&logo=visualstudiocode&logoColor=ffffff)](vscode:mcp/install?%7B%22name%22%3A%22revyl%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22revyl%22%2C%22args%22%3A%5B%22mcp%22%2C%22serve%22%5D%7D)
+
+**Claude Code**: `claude mcp add revyl -- revyl mcp serve` | **Codex**: `codex mcp add revyl -- revyl mcp serve`
+
+Full setup guides for every tool:
+
+- **[Setup Guide (detailed)](docs/MCP_SETUP.md)** -- Cursor, Claude Code, Codex, VS Code, Claude Desktop, Windsurf
+- **[Public Docs](https://docs.revyl.ai/cli/mcp-setup)** -- Same guide on the docs site
+- **[Agent Skill](skills/revyl-device/SKILL.md)** -- Optional skill doc that teaches your agent optimal usage patterns
+
+Install the agent skill (improves AI tool integration):
+```bash
+revyl skill install              # Auto-detect and install
+revyl skill install --cursor     # Cursor only
+revyl skill install --claude     # Claude Code only
+revyl skill install --codex      # Codex only
+```
 
 ## Team Quick Start (Internal)
 
@@ -66,6 +89,18 @@ export PATH="$PATH:$(pwd)/build"
 ./build/revyl --help
 ./build/revyl auth login
 ./build/revyl --dev test my-test  # Against local backend
+```
+
+### Sandboxes (Internal)
+
+Fleet sandboxes are Mac Mini VMs with pre-configured iOS simulators and Android emulators. See the [Sandbox Guide](../README.md#sandbox-guide-revyl-cli) in the monorepo README for the full guide.
+
+```bash
+revyl --dev sandbox status                    # Check availability
+revyl --dev sandbox claim                     # Claim a sandbox
+revyl --dev sandbox worktree create feature-x # Create worktree
+revyl --dev sandbox open feature-x            # Open in IDE
+revyl --dev sandbox release                   # Release when done
 ```
 
 ## Commands
@@ -102,16 +137,13 @@ Use `-y` to skip the interactive steps and just generate the config file.
 ### Running Tests
 
 ```bash
-# Build then run (recommended — one command)
-revyl run login-flow                      # By alias; builds, uploads, runs
-revyl run login-flow --platform release   # Use a specific platform config
-revyl run login-flow --no-build           # Skip build; run against last upload
-revyl run smoke-tests -w                  # Build then run workflow (-w = workflow)
-revyl run smoke-tests -w --no-build       # Run workflow without rebuilding
+# Run a test
+revyl test run login-flow                 # Run against last uploaded build
+revyl test run login-flow --build         # Build, upload, then run
+revyl test run login-flow --build --platform release   # Use a specific platform config
 
-# Run only (no build) or advanced options
-revyl test run login-flow                 # Run without rebuilding
-revyl test run login-flow --build         # Explicit build then run
+# Run a workflow
+revyl workflow run smoke-tests            # Run a workflow
 revyl workflow run smoke-tests --build    # Build then run workflow
 ```
 
@@ -243,6 +275,9 @@ revyl version    # Show version, commit, and build date (--json for CI)
 revyl docs       # Open Revyl documentation in browser
 revyl schema     # Display CLI command schema (for integrations)
 revyl mcp serve  # Start MCP server for AI agent integration
+revyl skill install           # Install agent skill for AI coding tools
+revyl skill show              # Print agent skill to stdout
+revyl skill export -o FILE    # Export agent skill to a file
 ```
 
 ### Global Flags
@@ -393,6 +428,94 @@ go test -v ./... -run TestRootCommand
 ```
 
 The pre-commit hook automatically runs `go build`, `gofmt`, and `go vet` on staged Go files to catch issues early.
+
+## Releasing
+
+### Quick Reference: How to Ship a Release
+
+```bash
+# 1. Bump the version (pick one)
+cd revyl-cli
+make bump-patch   # bug fix:      0.1.1 -> 0.1.2
+make bump-minor   # new feature:  0.1.1 -> 0.2.0
+make bump-major   # breaking:     0.1.1 -> 1.0.0
+
+# 2. Commit the version bump
+git add -A && git commit -m "chore: bump revyl-cli to $(cat VERSION)"
+
+# 3. Push and merge to main — CI handles the rest
+git push origin HEAD   # open a PR, get it reviewed, merge to main
+```
+
+Once merged to `main`, the CI pipeline automatically: syncs to the public repo, builds cross-platform binaries, creates a GitHub Release, publishes to npm + PyPI, and updates the Homebrew formula. No manual steps required after the merge.
+
+### Version Bumping
+
+The `VERSION` file is the single source of truth. The `make bump-*` targets update **four files** in lockstep so they stay consistent:
+
+| File | Purpose |
+|------|---------|
+| `VERSION` | Source of truth, read by CI |
+| `npm/package.json` | npm package version |
+| `python/pyproject.toml` | PyPI package version |
+| `python/revyl/__init__.py` | Python runtime version |
+
+```bash
+make bump-patch   # 0.1.1 -> 0.1.2  (bug fixes)
+make bump-minor   # 0.1.1 -> 0.2.0  (new features)
+make bump-major   # 0.1.1 -> 1.0.0  (breaking changes)
+make version      # Print the current version
+```
+
+After bumping, commit and merge to `main`:
+
+```bash
+make bump-minor
+git add -A
+git commit -m "chore: bump version to $(cat VERSION)"
+# Open PR -> merge to main
+```
+
+### What Triggers a Release
+
+Merging to `main` with any change in `revyl-cli/` triggers the release pipeline. The pipeline only publishes when the `VERSION` file contains a version that hasn't been released yet. If the version already exists as a tag, the sync still runs but no release is created.
+
+Pushes to `staging` sync the code to the standalone repo but **skip** the release, build, and publish steps entirely.
+
+### What the Pipeline Does
+
+1. **Sync** -- copies `revyl-cli/` to the standalone [RevylAI/revyl-cli](https://github.com/RevylAI/revyl-cli) repo and creates a git tag (e.g. `v0.1.2`)
+2. **Build** -- cross-compiles Go binaries for 5 targets (macOS amd64/arm64, Linux amd64/arm64, Windows amd64) with version/commit/date baked in via `-ldflags`
+3. **Release** -- creates a GitHub Release with all binaries, checksums, and `SKILL.md`
+4. **Publish** -- pushes to npm (`@revyl/cli`), PyPI (`revyl`), and Homebrew (`RevylAI/tap/revyl`) in parallel
+
+### Manual Release
+
+You can trigger a release manually from the GitHub Actions UI without pushing code:
+
+1. Go to **Actions > Release Revyl CLI > Run workflow**
+2. Optionally provide a version override (e.g. `v0.2.0-beta.1`)
+3. Select the `main` branch
+
+This is useful for re-running a failed release or releasing a hotfix version.
+
+### Pre-releases
+
+For beta or release candidate versions, edit `VERSION` directly:
+
+```bash
+echo "0.2.0-beta.1" > VERSION
+```
+
+Versions containing `-` (e.g. `0.2.0-beta.1`) are automatically marked as pre-release on the GitHub Release and won't be served to users running `revyl upgrade`.
+
+### Troubleshooting Releases
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| CI fails with "Tag already exists" | Version wasn't bumped | Run `make bump-patch` and push again |
+| Release created but npm/PyPI failed | Token or network issue | Re-run the failed job from GitHub Actions UI |
+| Homebrew formula not updated | `homebrew-tap` repo permissions | Check `ANSIBLE_MAC_MANAGER_SYNC_TOKEN` secret is valid |
 
 ## Local Development with Hot Reload
 

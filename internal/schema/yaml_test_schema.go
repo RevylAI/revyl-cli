@@ -24,6 +24,9 @@ test:
   metadata:
     name: "test-name"           # Required: Test name
     platform: "ios"             # Required: "ios" or "android"
+    tags:                       # Optional: Tag names for categorization
+      - "smoke"
+      - "regression"
   build:
     name: "app-name"            # Required: App name from Revyl
     pinned_version: "1.0.0"     # Optional: Pin to specific version
@@ -220,6 +223,9 @@ test:
   metadata:
     name: "login-and-verify-dashboard"
     platform: "ios"
+    tags:
+      - "smoke"
+      - "auth"
   build:
     name: "my-ios-app"
   blocks:

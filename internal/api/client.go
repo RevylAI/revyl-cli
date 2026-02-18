@@ -221,12 +221,102 @@ func authHintForStatus(statusCode int, message, detail string) string {
 	if statusCode == 401 {
 		return "Session may have expired. Run 'revyl auth login' to re-authenticate."
 	}
+	if statusCode == 402 {
+		return "No active billing plan. Add a payment method to unlock 30 free simulator minutes:\n  → revyl auth billing"
+	}
 	return ""
 }
 
-// doRequest performs an HTTP request with authentication.
+// extractHTMLError attempts to extract the meaningful error from an HTML debug page.
+// Backend debug pages (e.g. Starlette/FastAPI) embed the exception in the page.
+func extractHTMLError(html string) string {
+	// Look for common patterns in Python traceback HTML pages
+	// Starlette wraps the traceback in <pre> or <code> tags
+	for _, marker := range []string{"<pre>", "<code>"} {
+		idx := strings.LastIndex(html, marker)
+		if idx >= 0 {
+			end := marker[:1] + "/" + marker[1:]
+			endIdx := strings.Index(html[idx:], end)
+			if endIdx > 0 {
+				content := html[idx+len(marker) : idx+endIdx]
+				// Strip HTML tags from the extracted content
+				content = stripHTMLTags(content)
+				content = strings.TrimSpace(content)
+				if len(content) > 500 {
+					content = content[len(content)-500:]
+				}
+				if content != "" {
+					return content
+				}
+			}
+		}
+	}
+	// Fallback: strip all HTML and return a truncated version
+	plain := stripHTMLTags(html)
+	plain = strings.TrimSpace(plain)
+	if len(plain) > 500 {
+		plain = plain[:500] + "..."
+	}
+	if plain != "" {
+		return plain
+	}
+	return "Server returned an HTML error page (check backend logs for details)"
+}
+
+// stripHTMLTags removes HTML tags from a string.
+func stripHTMLTags(s string) string {
+	var result strings.Builder
+	inTag := false
+	for _, r := range s {
+		if r == '<' {
+			inTag = true
+			continue
+		}
+		if r == '>' {
+			inTag = false
+			continue
+		}
+		if !inTag {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
+// doRequest performs an HTTP request with authentication and retry logic.
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
 	return c.doRequestWithRetry(ctx, method, path, body)
+}
+
+// doRequestOnce performs a single HTTP request without retries.
+// Use this for endpoints where retrying is unlikely to help (e.g. deterministic failures).
+func (c *Client) doRequestOnce(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
+	reqURL := c.baseURL + path
+
+	var bodyReader io.Reader
+	if body != nil {
+		jsonBody, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		bodyReader = bytes.NewReader(jsonBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", c.userAgent())
+	req.Header.Set("X-Revyl-Client", "cli")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	return resp, nil
 }
 
 // isRetryableError checks if an error or status code should trigger a retry.
@@ -392,11 +482,17 @@ func parseResponse(resp *http.Response, target interface{}) error {
 		// Fallback to raw body if no structured error found
 		if message == "" && detail == "" {
 			bodyStr := string(body)
-			if len(bodyStr) > 200 {
-				bodyStr = bodyStr[:200] + "..."
-			}
-			if bodyStr != "" {
-				detail = bodyStr
+			// For HTML responses (e.g. debug traceback pages), try to extract
+			// the meaningful error text instead of showing raw HTML.
+			if strings.Contains(bodyStr, "<html") || strings.Contains(bodyStr, "<!DOCTYPE") {
+				detail = extractHTMLError(bodyStr)
+			} else {
+				if len(bodyStr) > 500 {
+					bodyStr = bodyStr[:500] + "..."
+				}
+				if bodyStr != "" {
+					detail = bodyStr
+				}
 			}
 		}
 
@@ -417,12 +513,29 @@ func parseResponse(resp *http.Response, target interface{}) error {
 	return nil
 }
 
+// CLIRunConfig contains optional runtime configuration for test execution.
+type CLIRunConfig struct {
+	ExecutionMode *CLIExecutionMode `json:"execution_mode,omitempty"`
+}
+
+// CLIExecutionMode contains execution mode settings.
+type CLIExecutionMode struct {
+	InitialLocation *CLILocation `json:"initial_location,omitempty"`
+}
+
+// CLILocation represents a GPS coordinate.
+type CLILocation struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+}
+
 // ExecuteTestRequest represents a test execution request.
 // Source tracking is handled via HTTP headers (X-Revyl-Client, X-CI-System).
 type ExecuteTestRequest struct {
-	TestID         string `json:"test_id"`
-	Retries        int    `json:"retries,omitempty"`
-	BuildVersionID string `json:"build_version_id,omitempty"`
+	TestID         string        `json:"test_id"`
+	Retries        int           `json:"retries,omitempty"`
+	BuildVersionID string        `json:"build_version_id,omitempty"`
+	RunConfig      *CLIRunConfig `json:"run_config,omitempty"`
 	// LaunchURL is the deep link URL for hot reload mode.
 	// When provided, the test will launch the app via this URL instead of the normal app launch.
 	LaunchURL string `json:"launch_url,omitempty"`
@@ -442,6 +555,30 @@ type ExecuteTestResponse struct {
 //   - ctx: Context for cancellation
 //   - req: The execution request
 //
+// BillingPlanResponse contains the org's current billing plan info.
+type BillingPlanResponse struct {
+	Plan            string  `json:"plan"`
+	DisplayName     string  `json:"display_name"`
+	MonthlyBase     float64 `json:"monthly_base"`
+	FreeCreditLabel string  `json:"free_credit_label"`
+	BillingExempt   bool    `json:"billing_exempt"`
+}
+
+// GetBillingPlan returns the org's current billing plan.
+func (c *Client) GetBillingPlan(ctx context.Context) (*BillingPlanResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/execution/billing/plan", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result BillingPlanResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // Returns:
 //   - *ExecuteTestResponse: The execution response with task ID
 //   - error: Any error that occurred
@@ -466,9 +603,15 @@ func (c *Client) ExecuteTest(ctx context.Context, req *ExecuteTestRequest) (*Exe
 
 // ExecuteWorkflowRequest represents a workflow execution request.
 // Source tracking is handled via HTTP headers (X-Revyl-Client, X-CI-System).
+// BuildConfig and OverrideBuildConfig use the generated WorkflowAppConfig and
+// PlatformApp types from generated.go.
 type ExecuteWorkflowRequest struct {
-	WorkflowID string `json:"workflow_id"`
-	Retries    int    `json:"retries,omitempty"`
+	WorkflowID          string             `json:"workflow_id"`
+	Retries             int                `json:"retries,omitempty"`
+	BuildConfig         *WorkflowAppConfig `json:"build_config,omitempty"`
+	OverrideBuildConfig bool               `json:"override_build_config,omitempty"`
+	LocationConfig      *CLILocation       `json:"location_config,omitempty"`
+	OverrideLocation    bool               `json:"override_location,omitempty"`
 }
 
 // ExecuteWorkflowResponse represents a workflow execution response.
@@ -640,13 +783,13 @@ func (c *Client) ListBuildVersions(ctx context.Context, appID string) ([]BuildVe
 	}
 
 	var result struct {
-		Versions []BuildVersion `json:"versions"`
+		Items []BuildVersion `json:"items"`
 	}
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
 
-	return result.Versions, nil
+	return result.Items, nil
 }
 
 // GetTest retrieves a test by ID.
@@ -681,7 +824,7 @@ type Test struct {
 	Tasks          interface{}            `json:"tasks"`
 	Version        int                    `json:"version"`
 	LastModifiedBy string                 `json:"last_modified_by,omitempty"`
-	AppID          string                 `json:"build_var_id,omitempty"`
+	AppID          string                 `json:"app_id,omitempty"`
 	PinnedVersion  string                 `json:"pinned_version,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
@@ -690,7 +833,7 @@ type Test struct {
 type UpdateTestRequest struct {
 	TestID          string      `json:"-"`
 	Tasks           interface{} `json:"tasks,omitempty"`
-	AppID           string      `json:"build_var_id,omitempty"`
+	AppID           string      `json:"app_id,omitempty"`
 	ExpectedVersion int         `json:"expected_version,omitempty"`
 	Force           bool        `json:"-"` // Client-side only, not sent to server
 }
@@ -730,7 +873,7 @@ type CreateTestRequest struct {
 	Name     string      `json:"name"`
 	Platform string      `json:"platform"`
 	Tasks    interface{} `json:"tasks"`
-	AppID    string      `json:"build_var_id,omitempty"`
+	AppID    string      `json:"app_id,omitempty"`
 	OrgID    string      `json:"org_id,omitempty"`
 }
 
@@ -1178,10 +1321,14 @@ type CLITestStatusResponse struct {
 
 // Workflow represents a workflow definition.
 type Workflow struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Tests    []string `json:"tests,omitempty"`
-	Schedule string   `json:"schedule,omitempty"`
+	ID                  string                 `json:"id"`
+	Name                string                 `json:"name"`
+	Tests               []string               `json:"tests,omitempty"`
+	Schedule            string                 `json:"schedule,omitempty"`
+	LocationConfig      map[string]interface{} `json:"location_config,omitempty"`
+	OverrideLocation    bool                   `json:"override_location,omitempty"`
+	BuildConfig         map[string]interface{} `json:"build_config,omitempty"`
+	OverrideBuildConfig bool                   `json:"override_build_config,omitempty"`
 }
 
 // SimpleWorkflow represents a minimal workflow definition for listing.
@@ -1229,7 +1376,7 @@ func (c *Client) ListWorkflows(ctx context.Context) (*CLIWorkflowListResponse, e
 //   - error: Any error that occurred
 func (c *Client) GetWorkflow(ctx context.Context, workflowID string) (*Workflow, error) {
 	resp, err := c.doRequest(ctx, "GET",
-		fmt.Sprintf("/api/v1/workflows/get_workflow_by_id/%s", workflowID), nil)
+		fmt.Sprintf("/api/v1/workflows/get_workflow_info?workflow_id=%s", workflowID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1393,6 +1540,43 @@ func (c *Client) GetLatestBuildVersion(ctx context.Context, appID string) (*Buil
 	return &versions[0], nil
 }
 
+// BuildVersionDetail represents a build version with an optional download URL.
+// Returned by GetBuildVersionDownloadURL.
+type BuildVersionDetail struct {
+	ID          string `json:"id"`
+	Version     string `json:"version"`
+	DownloadURL string `json:"download_url,omitempty"`
+	PackageName string `json:"package_name,omitempty"`
+}
+
+// GetBuildVersionDownloadURL retrieves a build version with a presigned download URL.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - versionID: The build version ID
+//
+// Returns:
+//   - *BuildVersionDetail: The build version with download URL
+//   - error: Any error that occurred (404 if not found, 403 if not authorized)
+func (c *Client) GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*BuildVersionDetail, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/builds/builds/%s?include_download_url=true", versionID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result BuildVersionDetail
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	if result.DownloadURL == "" {
+		return nil, fmt.Errorf("build version %s has no downloadable artifact", versionID)
+	}
+
+	return &result, nil
+}
+
 // StartDeviceRequest represents a request to start a device session.
 // Used for interactive test creation mode.
 type StartDeviceRequest struct {
@@ -1446,6 +1630,66 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 	return &result, nil
 }
 
+// GroundElementRequest is the payload for the grounding proxy endpoint.
+type GroundElementRequest struct {
+	// Target is a natural language description of the UI element to locate.
+	Target string `json:"target"`
+
+	// ImageBase64 is the base64-encoded screenshot (PNG or JPEG).
+	ImageBase64 string `json:"image_base64"`
+
+	// Width is the screenshot width in pixels.
+	Width int `json:"width"`
+
+	// Height is the screenshot height in pixels.
+	Height int `json:"height"`
+
+	// Platform is the device platform (android or ios).
+	Platform string `json:"platform,omitempty"`
+
+	// SessionID is the device session ID for cost tracking.
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// GroundElementResponse is the response from the grounding proxy endpoint.
+type GroundElementResponse struct {
+	// X is the absolute X pixel coordinate.
+	X int `json:"x"`
+
+	// Y is the absolute Y pixel coordinate.
+	Y int `json:"y"`
+
+	// Found indicates whether the element was successfully located.
+	Found bool `json:"found"`
+
+	// Error is the error message if grounding failed.
+	Error string `json:"error,omitempty"`
+}
+
+// GroundElement locates a UI element in a screenshot via the backend grounding
+// proxy, which routes the request through the Hatchet grounder-only workflow.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - req: The grounding request with target description and screenshot.
+//
+// Returns:
+//   - *GroundElementResponse: The grounding result with coordinates.
+//   - error: Any error that occurred during the API call.
+func (c *Client) GroundElement(ctx context.Context, req *GroundElementRequest) (*GroundElementResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/execution/ground", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GroundElementResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // GetWorkerWSURL retrieves the worker WebSocket URL for a workflow run.
 // The URL may not be immediately available after starting a device.
 // Poll this endpoint until status is "ready".
@@ -1466,6 +1710,31 @@ func (c *Client) GetWorkerWSURL(ctx context.Context, workflowRunID string) (*Wor
 	}
 
 	var result WorkerConnectionResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetActiveDeviceSessions retrieves all active device sessions for an organization.
+// Returns sessions with status IN ('starting', 'running').
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - orgID: The organization ID to query sessions for
+//
+// Returns:
+//   - *ActiveDeviceSessionsResponse: List of active sessions
+//   - error: Any error that occurred
+func (c *Client) GetActiveDeviceSessions(ctx context.Context, orgID string) (*ActiveDeviceSessionsResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/execution/device-sessions/active?org_id=%s", orgID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ActiveDeviceSessionsResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
@@ -2021,6 +2290,491 @@ func (c *Client) BulkSyncTestTags(ctx context.Context, req *CLIBulkSyncTagsReque
 	return &result, nil
 }
 
+// --- Enhanced History API types ---
+
+// CLIEnhancedTask represents the task details within an enhanced history item.
+type CLIEnhancedTask struct {
+	ID                   string  `json:"id"`
+	TestID               string  `json:"test_id"`
+	Success              *bool   `json:"success"`
+	Progress             float64 `json:"progress"`
+	CurrentStep          string  `json:"current_step,omitempty"`
+	StepsCompleted       int     `json:"steps_completed"`
+	TotalSteps           int     `json:"total_steps"`
+	ErrorMessage         string  `json:"error_message,omitempty"`
+	Status               string  `json:"status"`
+	StartedAt            string  `json:"started_at,omitempty"`
+	CompletedAt          string  `json:"completed_at,omitempty"`
+	ExecutionTimeSeconds float64 `json:"execution_time_seconds,omitempty"`
+}
+
+// CLIEnhancedHistoryItem represents a single execution in the enhanced history.
+type CLIEnhancedHistoryItem struct {
+	ID            string           `json:"id"`
+	TestUID       string           `json:"test_uid"`
+	ExecutionTime string           `json:"execution_time"`
+	Status        string           `json:"status"`
+	Duration      *float64         `json:"duration"`
+	EnhancedTask  *CLIEnhancedTask `json:"enhanced_task"`
+	HasReport     bool             `json:"has_report"`
+}
+
+// CLIEnhancedHistoryResponse represents the response from the enhanced history endpoint.
+type CLIEnhancedHistoryResponse struct {
+	Items          []CLIEnhancedHistoryItem `json:"items"`
+	TotalCount     int                      `json:"total_count"`
+	RequestedCount int                      `json:"requested_count"`
+	FoundCount     int                      `json:"found_count"`
+}
+
+// GetDashboardMetrics fetches org-level dashboard metrics including total tests,
+// workflows, test runs, failure rate, and average duration with week-over-week deltas.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *DashboardMetrics: The dashboard metrics (type from generated.go)
+//   - error: Any error that occurred
+func (c *Client) GetDashboardMetrics(ctx context.Context) (*DashboardMetrics, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/entity/users/get_dashboard_metrics", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DashboardMetrics
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetTestEnhancedHistory retrieves the enhanced execution history for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test ID
+//   - limit: Maximum number of items to return
+//   - offset: Number of items to skip for pagination
+//
+// Returns:
+//   - *CLIEnhancedHistoryResponse: The enhanced history
+//   - error: Any error that occurred
+func (c *Client) GetTestEnhancedHistory(ctx context.Context, testID string, limit, offset int) (*CLIEnhancedHistoryResponse, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	path := fmt.Sprintf("/api/v1/tests/get_test_enhanced_history?test_id=%s&limit=%d&offset=%d", testID, limit, offset)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIEnhancedHistoryResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Report V3 API types ---
+
+// CLIReportV3Step represents a single step in a V3 report.
+// CLIReportV3Action represents a single action within a step.
+type CLIReportV3Action struct {
+	ActionIndex          int                    `json:"action_index"`
+	ActionType           string                 `json:"action_type,omitempty"`
+	AgentDescription     string                 `json:"agent_description,omitempty"`
+	Reasoning            string                 `json:"reasoning,omitempty"`
+	ReflectionDecision   string                 `json:"reflection_decision,omitempty"`
+	ReflectionReasoning  string                 `json:"reflection_reasoning,omitempty"`
+	ReflectionSuggestion string                 `json:"reflection_suggestion,omitempty"`
+	IsTerminal           bool                   `json:"is_terminal,omitempty"`
+	TypeData             map[string]interface{} `json:"type_data,omitempty"`
+}
+
+type CLIReportV3Step struct {
+	ID             string                 `json:"id"`
+	ExecutionOrder int                    `json:"execution_order"`
+	StepType       string                 `json:"step_type"`
+	StepDesc       string                 `json:"step_description"`
+	Status         string                 `json:"status"`
+	StatusReason   string                 `json:"status_reason,omitempty"`
+	StartedAt      string                 `json:"started_at,omitempty"`
+	CompletedAt    string                 `json:"completed_at,omitempty"`
+	TypeData       map[string]interface{} `json:"type_data,omitempty"`
+	Actions        []CLIReportV3Action    `json:"actions,omitempty"`
+}
+
+// CLIReportV3Response represents a V3 report for a test execution.
+type CLIReportV3Response struct {
+	ID               string            `json:"id"`
+	ExecutionID      string            `json:"execution_id"`
+	TestID           string            `json:"test_id"`
+	TestName         string            `json:"test_name"`
+	Platform         string            `json:"platform"`
+	Success          *bool             `json:"success"`
+	StartedAt        string            `json:"started_at,omitempty"`
+	CompletedAt      string            `json:"completed_at,omitempty"`
+	TotalSteps       int               `json:"total_steps"`
+	PassedSteps      int               `json:"passed_steps"`
+	FailedSteps      int               `json:"failed_steps"`
+	TotalValidations int               `json:"total_validations"`
+	ValidsPassed     int               `json:"validations_passed"`
+	VideoURL         string            `json:"video_url,omitempty"`
+	AppName          string            `json:"app_name,omitempty"`
+	BuildVersion     string            `json:"build_version,omitempty"`
+	DeviceModel      string            `json:"device_model,omitempty"`
+	OSVersion        string            `json:"os_version,omitempty"`
+	Steps            []CLIReportV3Step `json:"steps,omitempty"`
+}
+
+// GetReportByExecution retrieves the V3 report for a test execution.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - executionID: The execution/task ID
+//   - includeSteps: Whether to include step details
+//
+// Returns:
+//   - *CLIReportV3Response: The report data
+//   - error: Any error that occurred
+func (c *Client) GetReportByExecution(ctx context.Context, executionID string, includeSteps bool, includeActions ...bool) (*CLIReportV3Response, error) {
+	actions := false
+	if len(includeActions) > 0 {
+		actions = includeActions[0]
+	}
+	path := fmt.Sprintf("/api/v1/reports-v3/reports/by-execution/%s?include_steps=%t&include_actions=%t&include_llm_calls=false",
+		executionID, includeSteps, actions)
+	resp, err := c.doRequestOnce(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIReportV3Response
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Shareable Link API types ---
+
+// CLIShareableLinkRequest represents a request to generate a shareable report link.
+type CLIShareableLinkRequest struct {
+	TaskID          string `json:"task_id"`
+	ExpirationHours *int   `json:"expiration_hours"`
+}
+
+// CLIShareableLinkResponse represents the response containing a shareable link.
+type CLIShareableLinkResponse struct {
+	ShareableLink string `json:"shareable_link"`
+}
+
+// GenerateShareableLink creates a shareable link for a test execution report.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - taskID: The execution task ID
+//
+// Returns:
+//   - *CLIShareableLinkResponse: The shareable link
+//   - error: Any error that occurred
+func (c *Client) GenerateShareableLink(ctx context.Context, taskID string) (*CLIShareableLinkResponse, error) {
+	req := &CLIShareableLinkRequest{
+		TaskID:          taskID,
+		ExpirationHours: nil,
+	}
+
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/reports/generate_shareable_report_link_by_task", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIShareableLinkResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Workflow Status/History/Report API types ---
+
+// CLIWorkflowStatusResponse represents a workflow execution status.
+type CLIWorkflowStatusResponse struct {
+	ExecutionID         string  `json:"execution_id,omitempty"`
+	WorkflowID          string  `json:"workflow_id"`
+	Status              string  `json:"status"`
+	Progress            float64 `json:"progress"`
+	CompletedTests      int     `json:"completed_tests"`
+	TotalTests          int     `json:"total_tests"`
+	PassedTests         int     `json:"passed_tests"`
+	FailedTests         int     `json:"failed_tests"`
+	StartedAt           string  `json:"started_at,omitempty"`
+	EstimatedCompletion string  `json:"estimated_completion,omitempty"`
+	Duration            string  `json:"duration,omitempty"`
+	ErrorMessage        string  `json:"error_message,omitempty"`
+}
+
+// CLIWorkflowHistoryResponse represents workflow execution history.
+type CLIWorkflowHistoryResponse struct {
+	WorkflowID      string                      `json:"workflow_id"`
+	Executions      []CLIWorkflowStatusResponse `json:"executions"`
+	TotalCount      int                         `json:"total_count"`
+	SuccessRate     float64                     `json:"success_rate"`
+	AverageDuration *float64                    `json:"average_duration,omitempty"`
+}
+
+// CLIWorkflowTaskInfo contains workflow execution snapshot data.
+type CLIWorkflowTaskInfo struct {
+	TaskID         string   `json:"task_id"`
+	WorkflowID     string   `json:"workflow_id,omitempty"`
+	Status         string   `json:"status,omitempty"`
+	Success        *bool    `json:"success,omitempty"`
+	Duration       *float64 `json:"duration,omitempty"`
+	TotalTests     *int     `json:"total_tests,omitempty"`
+	CompletedTests *int     `json:"completed_tests,omitempty"`
+	TaskIDs        []string `json:"task_ids"`
+	StartedAt      string   `json:"started_at,omitempty"`
+	UpdatedAt      string   `json:"updated_at,omitempty"`
+	CreatedAt      string   `json:"created_at,omitempty"`
+	TriggeredBy    string   `json:"triggered_by,omitempty"`
+}
+
+// CLIWorkflowDetailInfo contains workflow definition data.
+type CLIWorkflowDetailInfo struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Tests       []string `json:"tests"`
+}
+
+// CLIWorkflowTestInfo contains test name/platform info for a workflow.
+type CLIWorkflowTestInfo struct {
+	ID       string `json:"id"`
+	Name     string `json:"name,omitempty"`
+	Platform string `json:"platform,omitempty"`
+}
+
+// CLIChildTaskReportInfo contains individual test execution data within a workflow.
+type CLIChildTaskReportInfo struct {
+	TaskID               string   `json:"task_id"`
+	TestID               string   `json:"test_id,omitempty"`
+	TestName             string   `json:"test_name,omitempty"`
+	Platform             string   `json:"platform,omitempty"`
+	Status               string   `json:"status,omitempty"`
+	Success              *bool    `json:"success,omitempty"`
+	StartedAt            string   `json:"started_at,omitempty"`
+	CompletedAt          string   `json:"completed_at,omitempty"`
+	Duration             *float64 `json:"duration,omitempty"`
+	ExecutionTimeSeconds *float64 `json:"execution_time_seconds,omitempty"`
+	StepsCompleted       *int     `json:"steps_completed,omitempty"`
+	TotalSteps           *int     `json:"total_steps,omitempty"`
+	Progress             *float64 `json:"progress,omitempty"`
+	ErrorMessage         string   `json:"error_message,omitempty"`
+}
+
+// CLIUnifiedWorkflowReportResponse represents a comprehensive workflow report.
+type CLIUnifiedWorkflowReportResponse struct {
+	WorkflowTask   CLIWorkflowTaskInfo      `json:"workflow_task"`
+	WorkflowDetail *CLIWorkflowDetailInfo   `json:"workflow_detail,omitempty"`
+	TestInfo       []CLIWorkflowTestInfo    `json:"test_info"`
+	ChildTasks     []CLIChildTaskReportInfo `json:"child_tasks"`
+}
+
+// GetWorkflowStatus retrieves the real-time status of a workflow execution.
+func (c *Client) GetWorkflowStatus(ctx context.Context, taskID string) (*CLIWorkflowStatusResponse, error) {
+	path := fmt.Sprintf("/api/v1/workflows/status/status/%s", taskID)
+	resp, err := c.doRequestOnce(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIWorkflowStatusResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetWorkflowHistory retrieves execution history for a workflow.
+func (c *Client) GetWorkflowHistory(ctx context.Context, workflowID string, limit, offset int) (*CLIWorkflowHistoryResponse, error) {
+	path := fmt.Sprintf("/api/v1/workflows/status/history/%s?limit=%d&offset=%d",
+		workflowID, limit, offset)
+	resp, err := c.doRequestOnce(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIWorkflowHistoryResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetWorkflowUnifiedReport retrieves a comprehensive workflow report.
+func (c *Client) GetWorkflowUnifiedReport(ctx context.Context, workflowTaskID string) (*CLIUnifiedWorkflowReportResponse, error) {
+	body := map[string]interface{}{
+		"workflow_task_id": workflowTaskID,
+	}
+	resp, err := c.doRequestOnce(ctx, "POST", "/api/v1/workflows/share/unified-report", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIUnifiedWorkflowReportResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Env Var API methods ---
+
+// EnvVar represents an app launch environment variable.
+type EnvVar struct {
+	ID        string `json:"id"`
+	TestID    string `json:"test_id"`
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+}
+
+// EnvVarsResponse represents the response from listing env vars.
+type EnvVarsResponse struct {
+	Message string   `json:"message"`
+	Result  []EnvVar `json:"result"`
+}
+
+// EnvVarResponse represents the response from a single env var operation.
+type EnvVarResponse struct {
+	Message string `json:"message"`
+	Result  EnvVar `json:"result"`
+}
+
+// ListEnvVars retrieves all env vars for a test.
+func (c *Client) ListEnvVars(ctx context.Context, testID string) (*EnvVarsResponse, error) {
+	path := fmt.Sprintf("/api/v1/variables/app_launch_env/read?test_id=%s", testID)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result EnvVarsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// AddEnvVar adds an env var to a test.
+func (c *Client) AddEnvVar(ctx context.Context, testID, key, value string) (*EnvVarResponse, error) {
+	body := map[string]string{
+		"test_id": testID,
+		"key":     key,
+		"value":   value,
+	}
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/variables/app_launch_env/add", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result EnvVarResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// UpdateEnvVar updates an existing env var.
+func (c *Client) UpdateEnvVar(ctx context.Context, envVarID, key, value string) (*EnvVarResponse, error) {
+	body := map[string]string{
+		"env_var_id": envVarID,
+		"key":        key,
+		"value":      value,
+	}
+	resp, err := c.doRequest(ctx, "PUT", "/api/v1/variables/app_launch_env/update", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result EnvVarResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteEnvVar deletes a single env var by ID.
+func (c *Client) DeleteEnvVar(ctx context.Context, envVarID string) error {
+	path := fmt.Sprintf("/api/v1/variables/app_launch_env/delete?env_var_id=%s", envVarID)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// DeleteAllEnvVars deletes all env vars for a test.
+func (c *Client) DeleteAllEnvVars(ctx context.Context, testID string) error {
+	path := fmt.Sprintf("/api/v1/variables/app_launch_env/delete_all?test_id=%s", testID)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// --- Workflow Settings API methods ---
+
+// UpdateWorkflowLocationConfig updates the stored location config for a workflow.
+func (c *Client) UpdateWorkflowLocationConfig(ctx context.Context, workflowID string, locationConfig map[string]interface{}, override bool) error {
+	body := map[string]interface{}{
+		"location_config":   locationConfig,
+		"override_location": override,
+	}
+	path := fmt.Sprintf("/api/v1/workflows/update_location_config/%s", workflowID)
+	resp, err := c.doRequest(ctx, "PUT", path, body)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// UpdateWorkflowBuildConfig updates the stored build/app config for a workflow.
+func (c *Client) UpdateWorkflowBuildConfig(ctx context.Context, workflowID string, buildConfig map[string]interface{}, override bool) error {
+	body := map[string]interface{}{
+		"build_config":          buildConfig,
+		"override_build_config": override,
+	}
+	path := fmt.Sprintf("/api/v1/workflows/update_build_config/%s", workflowID)
+	resp, err := c.doRequest(ctx, "PUT", path, body)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
 // DeleteBuildVersion deletes a specific build version.
 //
 // Parameters:
@@ -2043,4 +2797,407 @@ func (c *Client) DeleteBuildVersion(ctx context.Context, versionID string) (*Del
 	}
 
 	return &result, nil
+}
+
+// ---------------------------------------------------------------------------
+// Worker Proxy (for sandbox environments)
+// ---------------------------------------------------------------------------
+
+// ProxyWorkerRequest forwards a device action request through the backend
+// when the CLI cannot reach the worker directly (e.g. DNS failure in
+// Codex/Claude Code sandboxes).
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - workflowRunID: The Hatchet workflow run powering the session.
+//   - action: Worker endpoint name (e.g. "tap", "swipe", "health").
+//   - body: JSON-serializable request body (nil for GET-like actions).
+//
+// Returns:
+//   - []byte: Raw response body from the worker.
+//   - int: HTTP status code from the worker.
+//   - error: Any error from the proxy call itself.
+func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action string, body interface{}) ([]byte, int, error) {
+	path := fmt.Sprintf("/api/v1/execution/device-proxy/%s/%s", workflowRunID, action)
+
+	method := "POST"
+	if action == "screenshot" || action == "health" {
+		method = "GET"
+		body = nil
+	}
+
+	resp, err := c.doRequest(ctx, method, path, body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("proxy request failed for %s: %w", action, err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("failed to read proxy response: %w", err)
+	}
+
+	return data, resp.StatusCode, nil
+}
+
+// ProxyScreenshot retrieves a device screenshot through the backend proxy.
+// Returns the raw PNG bytes.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - workflowRunID: The Hatchet workflow run powering the session.
+//
+// Returns:
+//   - []byte: PNG image data.
+//   - error: Any error that occurred.
+func (c *Client) ProxyScreenshot(ctx context.Context, workflowRunID string) ([]byte, error) {
+	data, status, err := c.ProxyWorkerRequest(ctx, workflowRunID, "screenshot", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, fmt.Errorf("proxy screenshot failed (HTTP %d): %s", status, string(data))
+	}
+	return data, nil
+}
+
+// --- Script API methods ---
+
+// CLIScriptInfo represents a script for CLI display.
+type CLIScriptInfo struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Code        string  `json:"code"`
+	Runtime     string  `json:"runtime"`
+	Description *string `json:"description,omitempty"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
+}
+
+// CLIScriptListResponse represents the response from listing scripts.
+type CLIScriptListResponse struct {
+	Scripts []CLIScriptInfo `json:"scripts"`
+	Count   int             `json:"count"`
+}
+
+// CLICreateScriptRequest represents a script creation request.
+type CLICreateScriptRequest struct {
+	Name        string  `json:"name"`
+	Code        string  `json:"code"`
+	Runtime     string  `json:"runtime"`
+	Description *string `json:"description,omitempty"`
+}
+
+// CLIUpdateScriptRequest represents a script update request.
+type CLIUpdateScriptRequest struct {
+	Name        *string `json:"name,omitempty"`
+	Code        *string `json:"code,omitempty"`
+	Runtime     *string `json:"runtime,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+// CLIScriptUsageResponse represents the response from checking script usage.
+type CLIScriptUsageResponse struct {
+	Tests []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"tests"`
+	Total int `json:"total"`
+}
+
+// ListScripts fetches all scripts for the authenticated user's organization.
+func (c *Client) ListScripts(ctx context.Context, runtime string, limit, offset int) (*CLIScriptListResponse, error) {
+	path := "/api/v1/tests/scripts?"
+	params := url.Values{}
+	if runtime != "" {
+		params.Set("runtime", runtime)
+	}
+	if limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if offset > 0 {
+		params.Set("offset", fmt.Sprintf("%d", offset))
+	}
+	path += params.Encode()
+
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIScriptListResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetScript retrieves a script by ID.
+func (c *Client) GetScript(ctx context.Context, scriptID string) (*CLIScriptInfo, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/tests/scripts/%s", scriptID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIScriptInfo
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// CreateScript creates a new script.
+func (c *Client) CreateScript(ctx context.Context, req *CLICreateScriptRequest) (*CLIScriptInfo, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/scripts", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIScriptInfo
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// UpdateScript updates an existing script.
+func (c *Client) UpdateScript(ctx context.Context, scriptID string, req *CLIUpdateScriptRequest) (*CLIScriptInfo, error) {
+	resp, err := c.doRequest(ctx, "PUT",
+		fmt.Sprintf("/api/v1/tests/scripts/%s", scriptID), req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIScriptInfo
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteScript deletes a script by ID.
+func (c *Client) DeleteScript(ctx context.Context, scriptID string) error {
+	resp, err := c.doRequest(ctx, "DELETE",
+		fmt.Sprintf("/api/v1/tests/scripts/%s", scriptID), nil)
+	if err != nil {
+		return err
+	}
+
+	// 204 No Content means success - body is empty
+	if resp.StatusCode == 204 {
+		resp.Body.Close()
+		return nil
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// GetScriptUsage retrieves all tests that use a specific script.
+func (c *Client) GetScriptUsage(ctx context.Context, scriptID string) (*CLIScriptUsageResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/tests/scripts/%s/tests", scriptID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIScriptUsageResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Custom Variable API methods ---
+
+// CustomVariable represents a test variable used in {{variable-name}} syntax.
+//
+// Fields:
+//   - ID: Unique identifier of the variable
+//   - TestUID: Test UUID this variable belongs to
+//   - VariableName: The variable name (kebab-case)
+//   - VariableValue: The variable value (may be empty for extraction-defined vars)
+type CustomVariable struct {
+	ID            string `json:"id"`
+	TestUID       string `json:"test_uid"`
+	VariableName  string `json:"variable_name"`
+	VariableValue string `json:"variable_value"`
+}
+
+// CustomVariablesResponse represents the response from listing custom variables.
+type CustomVariablesResponse struct {
+	Message string           `json:"message"`
+	Result  []CustomVariable `json:"result"`
+}
+
+// CustomVariableResponse represents the response from a single custom variable operation.
+type CustomVariableResponse struct {
+	Message string         `json:"message"`
+	Result  CustomVariable `json:"result"`
+}
+
+// ListCustomVariables retrieves all custom variables for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//
+// Returns:
+//   - *CustomVariablesResponse: List of variables
+//   - error: Any error that occurred
+func (c *Client) ListCustomVariables(ctx context.Context, testID string) (*CustomVariablesResponse, error) {
+	path := fmt.Sprintf("/api/v1/variables/custom/read_variables?test_uid=%s", testID)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CustomVariablesResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// AddCustomVariable adds a new custom variable to a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - name: Variable name (kebab-case)
+//   - value: Variable value (may be empty)
+//
+// Returns:
+//   - *CustomVariableResponse: The created variable
+//   - error: Any error that occurred (409 if duplicate name)
+func (c *Client) AddCustomVariable(ctx context.Context, testID, name, value string) (*CustomVariableResponse, error) {
+	body := map[string]string{
+		"test_uid":       testID,
+		"variable_name":  name,
+		"variable_value": value,
+	}
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/variables/custom/add", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CustomVariableResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// UpdateCustomVariableValue updates the value of an existing custom variable.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - variableID: The variable UUID
+//   - newValue: The new value
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) UpdateCustomVariableValue(ctx context.Context, testID, variableID, newValue string) error {
+	body := map[string]string{
+		"test_uid":    testID,
+		"variable_id": variableID,
+		"new_value":   newValue,
+	}
+	resp, err := c.doRequest(ctx, "PUT", "/api/v1/variables/custom/update_value", body)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// DeleteCustomVariable deletes a custom variable by name.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - name: Variable name to delete
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) DeleteCustomVariable(ctx context.Context, testID, name string) error {
+	path := fmt.Sprintf("/api/v1/variables/custom/delete?test_uid=%s&variable_name=%s", testID, name)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// DeleteAllCustomVariables deletes all custom variables for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) DeleteAllCustomVariables(ctx context.Context, testID string) error {
+	path := fmt.Sprintf("/api/v1/variables/custom/delete_all?test_uid=%s", testID)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// CheckCustomVariableExists checks whether a variable with the given name exists for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - name: Variable name to check
+//
+// Returns:
+//   - *CheckVariableExistsResponse: Whether the variable exists and its ID
+//   - error: Any error that occurred
+func (c *Client) CheckCustomVariableExists(ctx context.Context, testID, name string) (*CheckVariableExistsResponse, error) {
+	path := fmt.Sprintf("/api/v1/variables/custom/check_exists?test_id=%s&variable_name=%s", testID, name)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CheckVariableExistsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Workflow Test Management ---
+
+// UpdateWorkflowTests atomically replaces the test list for a workflow.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow UUID
+//   - testIDs: Full replacement list of test UUIDs
+//
+// Returns:
+//   - error: Any error that occurred (400 if invalid test IDs, 404 if workflow not found)
+func (c *Client) UpdateWorkflowTests(ctx context.Context, workflowID string, testIDs []string) error {
+	path := fmt.Sprintf("/api/v1/workflows/update_tests/%s", workflowID)
+	resp, err := c.doRequest(ctx, "PUT", path, testIDs)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
 }

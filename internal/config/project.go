@@ -35,8 +35,48 @@ type ProjectConfig struct {
 	// HotReload contains hot reload configuration for rapid development iteration.
 	HotReload HotReloadConfig `yaml:"hotreload,omitempty"`
 
+	// Publish contains app store publishing configuration.
+	Publish PublishConfig `yaml:"publish,omitempty"`
+
 	// LastSyncedAt records when this config was last synced with the server (RFC3339).
 	LastSyncedAt string `yaml:"last_synced_at,omitempty"`
+}
+
+// PublishConfig contains configuration for app store publishing.
+//
+// This section is used by `revyl publish` commands to auto-resolve app identifiers,
+// target tracks, and TestFlight group assignments.
+type PublishConfig struct {
+	// IOS contains iOS App Store Connect publishing settings.
+	IOS IOSPublishConfig `yaml:"ios,omitempty"`
+
+	// Android contains Google Play publishing settings.
+	Android AndroidPublishConfig `yaml:"android,omitempty"`
+}
+
+// IOSPublishConfig contains iOS-specific publishing configuration.
+type IOSPublishConfig struct {
+	// BundleID is the iOS bundle identifier (e.g., "com.nof1.experiments").
+	// Auto-detected from app.json or Info.plist if not specified.
+	BundleID string `yaml:"bundle_id,omitempty"`
+
+	// ASCAppID is the App Store Connect numeric app ID (e.g., "6758900172").
+	// Required for upload operations.
+	ASCAppID string `yaml:"asc_app_id,omitempty"`
+
+	// TestFlightGroups is the list of TestFlight group names to distribute to by default.
+	TestFlightGroups []string `yaml:"testflight_groups,omitempty"`
+}
+
+// AndroidPublishConfig contains Android-specific publishing configuration.
+type AndroidPublishConfig struct {
+	// PackageName is the Android package name (e.g., "com.nof1.experiments").
+	// Auto-detected from app.json or build.gradle if not specified.
+	PackageName string `yaml:"package_name,omitempty"`
+
+	// Track is the Google Play release track (internal, alpha, beta, production).
+	// Defaults to "internal" if not specified.
+	Track string `yaml:"track,omitempty"`
 }
 
 // MarkSynced sets the LastSyncedAt timestamp to now (UTC, RFC3339).
@@ -389,6 +429,9 @@ type TestMetadata struct {
 
 	// Description is an optional test description.
 	Description string `yaml:"description,omitempty"`
+
+	// Tags is an optional list of tag names associated with this test.
+	Tags []string `yaml:"tags,omitempty"`
 }
 
 // TestBuildConfig contains build configuration for a test.

@@ -39,8 +39,9 @@ type TestContent struct {
 
 // TestMetadata contains test metadata.
 type TestMetadata struct {
-	Name     string `yaml:"name"`
-	Platform string `yaml:"platform"`
+	Name     string   `yaml:"name"`
+	Platform string   `yaml:"platform"`
+	Tags     []string `yaml:"tags,omitempty"`
 }
 
 // TestBuild contains build configuration.
@@ -150,11 +151,12 @@ func ValidateYAML(content string) *ValidationResult {
 		result.Warnings = append(result.Warnings, blockWarnings...)
 	}
 
-	// Check for undefined variables
+	// Check for undefined variables (warning, not error).
+	// Pre-set variables created via set_variable or the Variables tab are valid
+	// but not visible to the YAML validator. The runtime substitutes them fine.
 	for varName := range usedVars {
 		if !definedVars[varName] {
-			result.Valid = false
-			result.Errors = append(result.Errors, fmt.Sprintf("Variable '{{%s}}' used but never defined via extraction block", varName))
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Variable '{{%s}}' used but not defined in YAML -- ensure it is created via set_variable or the Variables tab before running", varName))
 		}
 	}
 

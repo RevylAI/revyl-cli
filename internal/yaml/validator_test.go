@@ -159,7 +159,7 @@ test:
 }
 
 func TestValidateYAML_UndefinedVariable(t *testing.T) {
-	invalidYAML := `
+	yamlWithPresetVar := `
 test:
   metadata:
     name: "Test"
@@ -170,19 +170,19 @@ test:
     - type: instructions
       step_description: "Use {{undefined-var}} in the search"
 `
-	result := ValidateYAML(invalidYAML)
-	if result.Valid {
-		t.Error("Expected invalid YAML due to undefined variable")
+	result := ValidateYAML(yamlWithPresetVar)
+	if !result.Valid {
+		t.Errorf("Expected valid YAML (undefined variables are warnings, not errors), got errors: %v", result.Errors)
 	}
 	found := false
-	for _, err := range result.Errors {
-		if err == "Variable '{{undefined-var}}' used but never defined via extraction block" {
+	for _, w := range result.Warnings {
+		if w == "Variable '{{undefined-var}}' used but not defined in YAML -- ensure it is created via set_variable or the Variables tab before running" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("Expected error about undefined variable, got: %v", result.Errors)
+		t.Errorf("Expected warning about undefined variable, got warnings: %v", result.Warnings)
 	}
 }
 
