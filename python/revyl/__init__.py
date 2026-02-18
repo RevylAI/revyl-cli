@@ -12,7 +12,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 REPO = "RevylAI/revyl-cli"
 
