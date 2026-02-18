@@ -997,6 +997,53 @@ func (c *Client) ListOrgTests(ctx context.Context, limit, offset int) (*CLISimpl
 	return &result, nil
 }
 
+// ListAllOrgTests fetches all tests for the authenticated organization using
+// offset pagination until exhaustion.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - pageSize: Page size for each request (default: 200, max: 500)
+//
+// Returns:
+//   - []SimpleTest: All tests in the organization
+//   - error: Any error that occurred
+func (c *Client) ListAllOrgTests(ctx context.Context, pageSize int) ([]SimpleTest, error) {
+	if pageSize <= 0 {
+		pageSize = 200
+	}
+	if pageSize > 500 {
+		pageSize = 500
+	}
+
+	var all []SimpleTest
+	offset := 0
+
+	for {
+		resp, err := c.ListOrgTests(ctx, pageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		if resp == nil || len(resp.Tests) == 0 {
+			break
+		}
+
+		all = append(all, resp.Tests...)
+		offset += len(resp.Tests)
+
+		// Stop when we've consumed the reported count.
+		if resp.Count > 0 && offset >= resp.Count {
+			break
+		}
+
+		// Defensive stop when page is short despite missing/incorrect count.
+		if len(resp.Tests) < pageSize {
+			break
+		}
+	}
+
+	return all, nil
+}
+
 // TestWithTags represents a test with its associated tags.
 // Used by the full get_tests endpoint which includes tag data.
 type TestWithTags struct {
@@ -1352,7 +1399,30 @@ type CLIWorkflowListResponse struct {
 //   - *CLIWorkflowListResponse: The list of workflows
 //   - error: Any error that occurred
 func (c *Client) ListWorkflows(ctx context.Context) (*CLIWorkflowListResponse, error) {
-	resp, err := c.doRequest(ctx, "GET", "/api/v1/workflows/get_with_last_status?limit=200&offset=0", nil)
+	return c.ListWorkflowsPage(ctx, 200, 0)
+}
+
+// ListWorkflowsPage retrieves workflows for the current organization using
+// explicit limit/offset pagination.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - limit: Maximum workflows to fetch in this call (default: 200)
+//   - offset: Number of workflows to skip (default: 0)
+//
+// Returns:
+//   - *CLIWorkflowListResponse: The paginated workflow list
+//   - error: Any error that occurred
+func (c *Client) ListWorkflowsPage(ctx context.Context, limit, offset int) (*CLIWorkflowListResponse, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	path := fmt.Sprintf("/api/v1/workflows/get_with_last_status?limit=%d&offset=%d", limit, offset)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1363,6 +1433,50 @@ func (c *Client) ListWorkflows(ctx context.Context) (*CLIWorkflowListResponse, e
 	}
 
 	return &result, nil
+}
+
+// ListAllWorkflows retrieves all workflows for the current organization using
+// limit/offset pagination until exhaustion.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - pageSize: Page size per call (default: 200, max: 500)
+//
+// Returns:
+//   - []SimpleWorkflow: All workflows
+//   - error: Any error that occurred
+func (c *Client) ListAllWorkflows(ctx context.Context, pageSize int) ([]SimpleWorkflow, error) {
+	if pageSize <= 0 {
+		pageSize = 200
+	}
+	if pageSize > 500 {
+		pageSize = 500
+	}
+
+	var all []SimpleWorkflow
+	offset := 0
+
+	for {
+		resp, err := c.ListWorkflowsPage(ctx, pageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		if resp == nil || len(resp.Workflows) == 0 {
+			break
+		}
+
+		all = append(all, resp.Workflows...)
+		offset += len(resp.Workflows)
+
+		if resp.Count > 0 && offset >= resp.Count {
+			break
+		}
+		if len(resp.Workflows) < pageSize {
+			break
+		}
+	}
+
+	return all, nil
 }
 
 // GetWorkflow retrieves a workflow by ID.

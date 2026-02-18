@@ -27,7 +27,7 @@ import (
 // Returns:
 //   - []SetupStep: ordered setup steps with status derived from checks
 func deriveSetupSteps(checks []HealthCheck, cfg *config.ProjectConfig) []SetupStep {
-	steps := make([]SetupStep, 6)
+	steps := make([]SetupStep, 7)
 
 	// Helper to find a check by name.
 	findCheck := func(name string) *HealthCheck {
@@ -91,14 +91,24 @@ func deriveSetupSteps(checks []HealthCheck, cfg *config.ProjectConfig) []SetupSt
 		steps[4] = SetupStep{Label: "Upload a build", Status: "hint", Message: "revyl build upload --platform <platform>"}
 	}
 
-	// Step 6: First test
+	// Step 6: ASC setup
+	ascCheck := findCheck("ASC Credentials")
+	if ascCheck != nil && ascCheck.Status == "ok" {
+		steps[5] = SetupStep{Label: "Configure App Store Connect", Status: "done", Message: "credentials ready"}
+	} else if steps[3].Status != "done" {
+		steps[5] = SetupStep{Label: "Configure App Store Connect", Status: "blocked", Message: "requires step 4"}
+	} else {
+		steps[5] = SetupStep{Label: "Configure App Store Connect", Status: "current", Message: "press enter to open publish setup"}
+	}
+
+	// Step 7: First test
 	testCheck := findCheck("Tests Configured")
 	if testCheck != nil && testCheck.Status == "ok" {
-		steps[5] = SetupStep{Label: "Create your first test", Status: "done", Message: "tests configured"}
+		steps[6] = SetupStep{Label: "Create your first test", Status: "done", Message: "tests configured"}
 	} else if steps[3].Status != "done" {
-		steps[5] = SetupStep{Label: "Create your first test", Status: "blocked", Message: "requires step 4"}
+		steps[6] = SetupStep{Label: "Create your first test", Status: "blocked", Message: "requires step 4"}
 	} else {
-		steps[5] = SetupStep{Label: "Create your first test", Status: "current", Message: "press enter to create"}
+		steps[6] = SetupStep{Label: "Create your first test", Status: "current", Message: "press enter to create"}
 	}
 
 	return steps
@@ -233,7 +243,15 @@ func executeSetupStep(m hubModel, steps []SetupStep, stepIndex int) (hubModel, t
 		return m, nil
 
 	case 5:
-		// Step 6: Create test -- transition to create test screen
+		// Step 6: Configure ASC -- open publish flow
+		cfg := loadCurrentProjectConfig()
+		pm := newPublishTestFlightModel(cfg, m.width, m.height)
+		m.publishTFModel = &pm
+		m.currentView = viewPublishTestFlight
+		return m, m.publishTFModel.Init()
+
+	case 6:
+		// Step 7: Create test -- transition to create test screen
 		cm := newCreateModel(m.apiKey, m.devMode, m.client, m.cfg, m.width, m.height)
 		m.createModel = &cm
 		m.currentView = viewCreateTest

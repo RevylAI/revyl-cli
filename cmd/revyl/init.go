@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -33,15 +35,17 @@ The wizard walks you through:
   1. Project setup — detect build system, create config
   2. Authentication — check or prompt browser login
   3. Create apps — for each detected platform, create or select an app
-  4. First build — build and upload your artifact
-  5. Create first test — create a test on the platform
-  6. Create workflow — optionally group tests into a workflow
+  4. Hot reload setup — configure Expo hot reload defaults
+  5. First build — build and upload your artifact
+  6. Create first test — create a test on the platform
+  7. Create workflow — optionally group tests into a workflow
 
 Use --non-interactive / -y to skip the wizard and just create config.
 
 Examples:
   revyl init                    # Full guided wizard
   revyl init -y                 # Non-interactive: detect + create config only
+  revyl init --hotreload        # Reconfigure hot reload for an existing project
   revyl init --project ID       # Link to existing Revyl project
   revyl init --detect           # Re-run build system detection
   revyl init --force            # Overwrite existing configuration`,
@@ -53,6 +57,7 @@ var (
 	initDetect         bool
 	initForce          bool
 	initNonInteractive bool
+	initHotReload      bool
 )
 
 func init() {
@@ -60,6 +65,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initDetect, "detect", false, "Re-run build system detection")
 	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite existing configuration")
 	initCmd.Flags().BoolVarP(&initNonInteractive, "non-interactive", "y", false, "Skip wizard prompts, just create config")
+	initCmd.Flags().BoolVar(&initHotReload, "hotreload", false, "Configure hot reload and exit (for existing projects)")
 }
 
 // ---------------------------------------------------------------------------
@@ -77,18 +83,27 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	revylDir := filepath.Join(cwd, ".revyl")
 	configPath := filepath.Join(revylDir, "config.yaml")
+	configExists := false
+	if _, err := os.Stat(configPath); err == nil {
+		configExists = true
+	}
 
 	// Check if already initialized
-	if _, err := os.Stat(configPath); err == nil && !initForce && !initDetect {
+	if configExists && !initForce && !initDetect && !initHotReload {
 		ui.PrintWarning("Project already initialized")
-		ui.PrintInfo("Use --force to overwrite or --detect to re-run detection")
+		ui.PrintInfo("Use --force to overwrite, --detect to re-run detection, or --hotreload to reconfigure hot reload")
 		return nil
+	}
+
+	// Hot reload-only configuration mode for existing projects.
+	if initHotReload && configExists {
+		return runInitHotReloadOnly(cmd, cwd, configPath)
 	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 
-	// ── Step 1/6: Project Setup ──────────────────────────────────────────
-	ui.PrintStepHeader(1, 6, "Project Setup")
+	// ── Step 1/7: Project Setup ──────────────────────────────────────────
+	ui.PrintStepHeader(1, 7, "Project Setup")
 
 	cfg, err := wizardProjectSetup(cwd, revylDir, configPath)
 	if err != nil {
@@ -97,8 +112,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// In non-interactive mode we stop after creating the config.
 	if initNonInteractive {
+		wizardHotReloadSetup(context.Background(), nil, cfg, configPath, cwd, false)
 		printCreatedFiles()
-		printHotReloadInfo(cwd)
+		printHotReloadInfo(cwd, cfg)
 		ui.PrintInfo("Next steps:")
 		ui.PrintInfo("  1. Authenticate:             revyl auth login")
 		ui.PrintInfo("  2. Upload your first build:  revyl build upload --platform <ios|android>")
@@ -107,19 +123,20 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// ── Step 2/6: Authentication ─────────────────────────────────────────
-	ui.PrintStepHeader(2, 6, "Authentication")
+	// ── Step 2/7: Authentication ─────────────────────────────────────────
+	ui.PrintStepHeader(2, 7, "Authentication")
 
 	ctx := context.Background()
 	client, userInfo, authOK := wizardAuth(ctx, devMode)
 
 	// If auth failed or was skipped, we cannot proceed to API-dependent steps.
 	if !authOK {
+		wizardHotReloadSetup(context.Background(), nil, cfg, configPath, cwd, false)
 		ui.Println()
-		ui.PrintWarning("Skipping steps 3-6 (require authentication)")
+		ui.PrintWarning("Skipping steps 3-7 (require authentication)")
 		ui.Println()
 		printCreatedFiles()
-		printHotReloadInfo(cwd)
+		printHotReloadInfo(cwd, cfg)
 		ui.PrintInfo("Next steps:")
 		ui.PrintInfo("  1. Authenticate:             revyl auth login")
 		ui.PrintInfo("  2. Upload your first build:  revyl build upload --platform <ios|android>")
@@ -128,13 +145,28 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Bind the project to the authenticated organization when available.
+	if userInfo != nil {
+		orgID := strings.TrimSpace(userInfo.OrgID)
+		if orgID != "" && cfg.Project.OrgID != orgID {
+			cfg.Project.OrgID = orgID
+			if err := config.WriteProjectConfig(configPath, cfg); err != nil {
+				ui.PrintWarning("Could not persist project org binding: %v", err)
+			}
+		}
+	}
+
 	// ── Billing check (between auth and app creation) ──────────────────
 	wizardBillingCheck(ctx, client, devMode)
 
-	// ── Step 3/6: Create Apps ────────────────────────────────────────────
-	ui.PrintStepHeader(3, 6, "Create Apps")
+	// ── Step 3/7: Create Apps ────────────────────────────────────────────
+	ui.PrintStepHeader(3, 7, "Create Apps")
 
 	wizardCreateApps(ctx, client, cfg, configPath)
+
+	// ── Step 4/7: Hot Reload Setup ───────────────────────────────────────
+	ui.PrintStepHeader(4, 7, "Hot Reload Setup")
+	hotReloadReady := wizardHotReloadSetup(ctx, client, cfg, configPath, cwd, true)
 
 	// Determine if any apps were linked.
 	appsLinked := false
@@ -145,17 +177,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// ── Step 4/6: First Build ───────────────────────────────────────────
-	ui.PrintStepHeader(4, 6, "First Build")
+	// ── Step 5/7: First Build ────────────────────────────────────────────
+	ui.PrintStepHeader(5, 7, "First Build")
 	wizardFirstBuild(ctx, client, cfg, configPath)
 
-	// ── Step 5/6: Create First Test ──────────────────────────────────────
-	ui.PrintStepHeader(5, 6, "Create First Test")
+	// ── Step 6/7: Create First Test ──────────────────────────────────────
+	ui.PrintStepHeader(6, 7, "Create First Test")
 
 	testID, testName := wizardCreateTest(ctx, client, cfg, configPath, devMode, userInfo)
 
-	// ── Step 6/6: Create Workflow ────────────────────────────────────────
-	ui.PrintStepHeader(6, 6, "Create Workflow")
+	// ── Step 7/7: Create Workflow ────────────────────────────────────────
+	ui.PrintStepHeader(7, 7, "Create Workflow")
 
 	wizardCreateWorkflow(ctx, client, cfg, configPath, testID, testName, userInfo)
 
@@ -167,10 +199,15 @@ func runInit(cmd *cobra.Command, args []string) error {
 	ui.Println()
 
 	// Build summary of what was accomplished.
+	hotReloadDetail := cfg.HotReload.Default
+	if hotReloadDetail == "" {
+		hotReloadDetail = "not detected"
+	}
 	summaryItems := []ui.WizardSummaryItem{
 		{Title: "Project Setup", OK: true, Detail: ".revyl/config.yaml"},
 		{Title: "Authentication", OK: authOK},
 		{Title: "Create Apps", OK: appsLinked},
+		{Title: "Hot Reload", OK: hotReloadReady, Detail: hotReloadDetail},
 		{Title: "Create Test", OK: testID != "", Detail: testName},
 	}
 	if userInfo != nil {
@@ -179,8 +216,52 @@ func runInit(cmd *cobra.Command, args []string) error {
 	ui.PrintWizardSummary(summaryItems)
 	ui.Println()
 
-	printHotReloadInfo(cwd)
+	printHotReloadInfo(cwd, cfg)
 	printDynamicNextSteps(cfg, authOK, testID)
+
+	return nil
+}
+
+// runInitHotReloadOnly reconfigures hot reload for an existing project and exits.
+func runInitHotReloadOnly(cmd *cobra.Command, cwd, configPath string) error {
+	cfg, err := config.LoadProjectConfig(configPath)
+	if err != nil {
+		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		return fmt.Errorf("project not initialized")
+	}
+
+	ui.PrintStepHeader(1, 1, "Hot Reload Setup")
+
+	var client *api.Client
+	devMode, _ := cmd.Flags().GetBool("dev")
+
+	authMgr := auth.NewManager()
+	apiKey, tokenErr := authMgr.GetActiveToken()
+	if tokenErr == nil && apiKey != "" {
+		client = api.NewClientWithDevMode(apiKey, devMode)
+	} else {
+		ui.PrintDim("Not authenticated; skipping auto build selection during hot reload setup.")
+		ui.PrintDim("Run 'revyl auth login' and re-run 'revyl init --hotreload' to auto-select a dev client build.")
+	}
+
+	ready := wizardHotReloadSetup(cmd.Context(), client, cfg, configPath, cwd, true)
+	if !ready {
+		return fmt.Errorf("hot reload setup failed")
+	}
+
+	ui.Println()
+	ui.PrintSuccess("Hot reload setup complete.")
+
+	testAlias := ""
+	for alias := range cfg.Tests {
+		testAlias = alias
+		break
+	}
+	if testAlias != "" {
+		ui.PrintInfo("Next: revyl test run %s --hotreload", testAlias)
+	} else {
+		ui.PrintInfo("Next: revyl test run <name> --hotreload")
+	}
 
 	return nil
 }
@@ -1064,6 +1145,263 @@ func gatherTestIDsForWorkflow(ctx context.Context, client *api.Client, justCreat
 }
 
 // ---------------------------------------------------------------------------
+// Step 4: Hot Reload Setup
+// ---------------------------------------------------------------------------
+
+// wizardHotReloadSetup detects and configures hot reload in .revyl/config.yaml.
+// It applies smart defaults from project detection, preserves existing explicit
+// settings, and optionally auto-selects a dev client build from configured
+// platform app IDs.
+func wizardHotReloadSetup(
+	ctx context.Context,
+	client *api.Client,
+	cfg *config.ProjectConfig,
+	configPath, cwd string,
+	checkConnectivity bool,
+) bool {
+	registry := hotreload.DefaultRegistry()
+	detections := registry.DetectAllProviders(cwd)
+
+	if len(detections) == 0 {
+		ui.PrintDim("No compatible hot reload providers detected in this project.")
+		return true
+	}
+
+	detection, ok := selectHotReloadDetection(detections, cfg.HotReload.Default)
+	if !ok {
+		ui.PrintDim("Detected hot reload providers are not yet supported:")
+		for _, d := range detections {
+			ui.PrintDim("  • %s (coming soon)", d.Provider.DisplayName())
+		}
+		return true
+	}
+
+	setupResult, err := hotreload.AutoSetup(ctx, client, hotreload.SetupOptions{
+		WorkDir:          cwd,
+		ExplicitProvider: detection.Provider.Name(),
+		Platform:         detection.Detection.Platform,
+	})
+	if err != nil {
+		ui.PrintWarning("Could not configure hot reload: %v", err)
+		return false
+	}
+
+	if cfg.HotReload.Providers == nil {
+		cfg.HotReload.Providers = make(map[string]*config.ProviderConfig)
+	}
+
+	existingCfg := cfg.HotReload.GetProviderConfig(setupResult.ProviderName)
+	mergedCfg := mergeHotReloadProviderConfig(existingCfg, setupResult.Config)
+	cfg.HotReload.Providers[setupResult.ProviderName] = mergedCfg
+
+	if cfg.HotReload.Default == "" {
+		cfg.HotReload.Default = setupResult.ProviderName
+	}
+
+	if mergedCfg.AppScheme != "" {
+		ui.PrintSuccess("Configured %s hot reload (scheme: %s)", detection.Provider.DisplayName(), mergedCfg.AppScheme)
+	} else {
+		ui.PrintSuccess("Configured %s hot reload", detection.Provider.DisplayName())
+	}
+
+	requestedPort := mergedCfg.GetPort(setupResult.ProviderName)
+	activePort, portChanged := ensureAvailableHotReloadPort(mergedCfg, setupResult.ProviderName)
+	if portChanged {
+		ui.PrintWarning("Port %d is busy. Using port %d for hot reload.", requestedPort, activePort)
+	}
+
+	if client != nil {
+		if mergedCfg.DevClientBuildID == "" {
+			buildID, platformKey, resolveErr := resolveHotReloadBuildID(ctx, client, cfg)
+			if resolveErr != nil {
+				ui.PrintWarning("Could not auto-select a dev client build: %v", resolveErr)
+			}
+			if buildID != "" {
+				mergedCfg.DevClientBuildID = buildID
+				ui.PrintSuccess("Selected dev client build from platform %s: %s", platformKey, buildID)
+			} else {
+				ui.PrintDim("No build versions found yet. Upload a build to avoid passing --build-id.")
+			}
+		} else {
+			ui.PrintDim("Using existing dev client build: %s", mergedCfg.DevClientBuildID)
+		}
+	}
+
+	if checkConnectivity {
+		connResult, connErr := hotreload.CheckConnectivity(ctx)
+		if connErr != nil {
+			ui.PrintWarning("Hot reload preflight skipped: %v", connErr)
+		} else if suggestion := hotreload.DiagnoseAndSuggest(connResult); suggestion != "" {
+			ui.PrintWarning("Hot reload network preflight found issues:")
+			for _, line := range strings.Split(strings.TrimSpace(suggestion), "\n") {
+				ui.PrintDim("  %s", line)
+			}
+		} else {
+			ui.PrintSuccess("Hot reload network preflight passed")
+		}
+	}
+
+	if err := config.WriteProjectConfig(configPath, cfg); err != nil {
+		ui.PrintWarning("Failed to save hot reload configuration: %v", err)
+		return false
+	}
+
+	return cfg.HotReload.IsConfigured()
+}
+
+// selectHotReloadDetection chooses which detected provider to configure.
+func selectHotReloadDetection(detections []hotreload.ProviderDetection, defaultProvider string) (hotreload.ProviderDetection, bool) {
+	if defaultProvider != "" {
+		for _, d := range detections {
+			if d.Provider.Name() == defaultProvider && d.Provider.IsSupported() {
+				return d, true
+			}
+		}
+	}
+
+	for _, d := range detections {
+		if d.Provider.IsSupported() {
+			return d, true
+		}
+	}
+
+	return hotreload.ProviderDetection{}, false
+}
+
+// mergeHotReloadProviderConfig merges auto-detected defaults with existing config.
+// Existing explicit settings win.
+func mergeHotReloadProviderConfig(existing, detected *config.ProviderConfig) *config.ProviderConfig {
+	if detected == nil {
+		detected = &config.ProviderConfig{}
+	}
+	if existing == nil {
+		copyCfg := *detected
+		return &copyCfg
+	}
+
+	merged := *existing
+	if merged.DevClientBuildID == "" {
+		merged.DevClientBuildID = detected.DevClientBuildID
+	}
+	if merged.Port == 0 {
+		merged.Port = detected.Port
+	}
+	if merged.AppScheme == "" {
+		merged.AppScheme = detected.AppScheme
+	}
+	if merged.BundleID == "" {
+		merged.BundleID = detected.BundleID
+	}
+	if merged.InjectionPath == "" {
+		merged.InjectionPath = detected.InjectionPath
+	}
+	if merged.ProjectPath == "" {
+		merged.ProjectPath = detected.ProjectPath
+	}
+	if merged.PackageName == "" {
+		merged.PackageName = detected.PackageName
+	}
+
+	return &merged
+}
+
+// ensureAvailableHotReloadPort keeps the configured/default port if available,
+// otherwise selects the next free port in a small range.
+func ensureAvailableHotReloadPort(providerCfg *config.ProviderConfig, providerName string) (int, bool) {
+	port := providerCfg.GetPort(providerName)
+	if isPortAvailable(port) {
+		return port, false
+	}
+
+	nextPort := findAvailablePort(port+1, port+20)
+	if nextPort == 0 {
+		return port, false
+	}
+
+	providerCfg.Port = nextPort
+	return nextPort, true
+}
+
+// resolveHotReloadBuildID finds a usable build from configured platform app IDs.
+func resolveHotReloadBuildID(ctx context.Context, client *api.Client, cfg *config.ProjectConfig) (string, string, error) {
+	var lookupErrors []string
+
+	for _, platformKey := range orderedHotReloadPlatforms(cfg) {
+		platformCfg, ok := cfg.Build.Platforms[platformKey]
+		if !ok || platformCfg.AppID == "" {
+			continue
+		}
+
+		latestVersion, err := client.GetLatestBuildVersion(ctx, platformCfg.AppID)
+		if err != nil {
+			lookupErrors = append(lookupErrors, fmt.Sprintf("%s: %v", platformKey, err))
+			continue
+		}
+		if latestVersion != nil {
+			return latestVersion.ID, platformKey, nil
+		}
+	}
+
+	if len(lookupErrors) > 0 {
+		return "", "", errors.New(strings.Join(lookupErrors, "; "))
+	}
+
+	return "", "", nil
+}
+
+// orderedHotReloadPlatforms returns platform keys sorted by dev-first priority.
+func orderedHotReloadPlatforms(cfg *config.ProjectConfig) []string {
+	keys := platformKeys(cfg)
+	sort.Slice(keys, func(i, j int) bool {
+		ri := hotReloadPlatformRank(keys[i])
+		rj := hotReloadPlatformRank(keys[j])
+		if ri != rj {
+			return ri < rj
+		}
+		return keys[i] < keys[j]
+	})
+	return keys
+}
+
+// hotReloadPlatformRank prioritizes platform keys likely to hold dev-client builds.
+func hotReloadPlatformRank(name string) int {
+	lower := strings.ToLower(name)
+
+	switch {
+	case strings.Contains(lower, "dev"):
+		return 0
+	case strings.Contains(lower, "preview"):
+		return 1
+	case strings.Contains(lower, "staging"):
+		return 2
+	case strings.Contains(lower, "qa"):
+		return 3
+	default:
+		return 10
+	}
+}
+
+// isPortAvailable checks if a TCP port can be bound on localhost.
+func isPortAvailable(port int) bool {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
+// findAvailablePort returns the first available port in [start, end], or 0.
+func findAvailablePort(start, end int) int {
+	for p := start; p <= end; p++ {
+		if isPortAvailable(p) {
+			return p
+		}
+	}
+	return 0
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -1091,7 +1429,7 @@ func printCreatedFiles() {
 }
 
 // printHotReloadInfo checks for hot-reload-compatible providers and prints info.
-func printHotReloadInfo(cwd string) {
+func printHotReloadInfo(cwd string, cfg *config.ProjectConfig) {
 	registry := hotreload.DefaultRegistry()
 	detections := registry.DetectAllProviders(cwd)
 
@@ -1118,7 +1456,16 @@ func printHotReloadInfo(cwd string) {
 			}
 		}
 		ui.Println()
-		ui.PrintDim("To set up hot reload later, run: revyl hotreload setup")
+		if cfg != nil && cfg.HotReload.IsConfigured() {
+			defaultProvider := cfg.HotReload.Default
+			if defaultProvider == "" {
+				defaultProvider = "auto"
+			}
+			ui.PrintSuccess("Hot reload configured during init (default: %s)", defaultProvider)
+		} else {
+			ui.PrintDim("Hot reload can be configured by re-running: revyl init")
+			ui.PrintDim("Hot reload only mode: revyl init --hotreload")
+		}
 		ui.Println()
 	}
 }
@@ -1157,9 +1504,18 @@ func printDynamicNextSteps(cfg *config.ProjectConfig, authOK bool, testID string
 
 	if testID != "" {
 		// Test exists, suggest running it.
+		testAlias := ""
 		for alias := range cfg.Tests {
+			testAlias = alias
 			steps = append(steps, ui.NextStep{Label: "Run your test:", Command: fmt.Sprintf("revyl test run %s", alias)})
 			break
+		}
+		if cfg.HotReload.IsConfigured() {
+			if testAlias != "" {
+				steps = append(steps, ui.NextStep{Label: "Run with hot reload:", Command: fmt.Sprintf("revyl test run %s --hotreload", testAlias)})
+			} else {
+				steps = append(steps, ui.NextStep{Label: "Run with hot reload:", Command: "revyl test run <name> --hotreload"})
+			}
 		}
 	} else {
 		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: "revyl test run <name>"})

@@ -382,7 +382,7 @@ func (r *Registry) SelectProvider(cfg *config.HotReloadConfig, explicitProvider 
 
 	providerCfg := cfg.GetProviderConfig(provider.Name())
 	if providerCfg == nil {
-		return nil, nil, fmt.Errorf("provider '%s' was auto-detected but is not configured in .revyl/config.yaml. Run 'revyl hotreload setup' to configure it", provider.Name())
+		return nil, nil, fmt.Errorf("provider '%s' was auto-detected but is not configured in .revyl/config.yaml. Run 'revyl init --hotreload' to configure it", provider.Name())
 	}
 	return provider, providerCfg, nil
 }

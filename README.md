@@ -45,7 +45,7 @@ revyl workflow run smoke-tests
 
 > **Tip:** `revyl test run` supports `--build` to build and upload automatically (`revyl test run login-flow --build`), so steps 2-3 are only needed the first time or when managing things manually.
 
-The `revyl init` wizard walks you through 6 stages (project setup, auth, apps, build, test, workflow).
+The `revyl init` wizard walks you through 7 stages (project setup, auth, apps, hot reload, build, test, workflow).
 Each stage can be skipped by pressing Enter or answering "n" at its prompt.
 Use `revyl init -y` to skip the wizard entirely and just generate a config file.
 
@@ -116,8 +116,9 @@ revyl auth status    # Show authentication status
 ### Project Setup (Onboarding Wizard)
 
 ```bash
-revyl init                    # Interactive 6-step guided wizard
+revyl init                    # Interactive 7-step guided wizard
 revyl init -y                 # Non-interactive: create config and exit
+revyl init --hotreload        # Reconfigure hot reload for an existing project
 revyl init --project ID       # Link to existing Revyl project
 revyl init --detect           # Re-run build system detection
 revyl init --force            # Overwrite existing configuration
@@ -128,9 +129,10 @@ Running `revyl init` without flags launches an interactive wizard that walks you
 1. **Project Setup** -- auto-detects your build system (Gradle, Xcode, Expo, Flutter, React Native), creates `.revyl/` directory and `config.yaml`
 2. **Authentication** -- checks for existing credentials; if missing, opens browser-based login
 3. **Create Apps** -- select existing apps (with pagination) or create new ones; automatically links if an app with the same name already exists
-4. **First Build** -- build and upload, upload an existing artifact (with manual path override if not found), or skip
-5. **Create First Test** -- creates a test; if the name already exists, offers to link, rename, or skip; auto-syncs YAML to `.revyl/tests/`
-6. **Create Workflow** -- optionally groups tests into a workflow for batch execution
+4. **Hot Reload Setup** -- detects/configures Expo hot reload provider settings in `.revyl/config.yaml`
+5. **First Build** -- build and upload, upload an existing artifact (with manual path override if not found), or skip
+6. **Create First Test** -- creates a test; if the name already exists, offers to link, rename, or skip; auto-syncs YAML to `.revyl/tests/`
+7. **Create Workflow** -- optionally groups tests into a workflow for batch execution
 
 Use `-y` to skip the interactive steps and just generate the config file.
 
@@ -163,8 +165,8 @@ revyl workflow run smoke-tests --build    # Build then run workflow
 Enable rapid iteration by running tests against a local dev server:
 
 ```bash
-# One-time setup (auto-detects your project)
-revyl hotreload setup
+# One-time setup (recommended): revyl init now configures hot reload
+revyl init
 
 # Run test with hot reload
 revyl test run login-flow --hotreload --platform ios-dev
@@ -174,6 +176,9 @@ revyl test create new-flow --hotreload --platform ios-dev
 
 # Open existing test with hot reload
 revyl test open login-flow --hotreload --platform ios-dev
+
+# Reconfigure hot reload defaults for an existing project
+revyl init --hotreload
 ```
 
 Hot reload:
@@ -216,6 +221,64 @@ revyl build delete <app-id>              # Delete a build (all versions)
 revyl build delete <app-id> --version <id>  # Delete a specific version
 ```
 
+### iOS Publishing (TestFlight)
+
+Configure App Store Connect credentials once:
+
+```bash
+revyl publish auth ios \
+  --key-id ABC123DEF4 \
+  --issuer-id 00000000-0000-0000-0000-000000000000 \
+  --private-key ./AuthKey_ABC123DEF4.p8
+```
+
+Publish from a local IPA (upload + wait + distribute):
+
+```bash
+revyl publish testflight \
+  --ipa ./build/MyApp.ipa \
+  --app-id 6758900172 \
+  --group "Internal,External" \
+  --whats-new "Fixes login crash on iOS 18"
+```
+
+Distribute the latest processed build (no upload):
+
+```bash
+revyl publish testflight --app-id 6758900172 --group "Internal"
+```
+
+Check processing/review status:
+
+```bash
+revyl publish status --app-id 6758900172
+```
+
+CI/non-interactive mode is supported through environment variables:
+
+```bash
+export REVYL_ASC_KEY_ID=ABC123DEF4
+export REVYL_ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000
+export REVYL_ASC_PRIVATE_KEY_PATH=/secure/path/AuthKey_ABC123DEF4.p8
+# or: export REVYL_ASC_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'
+export REVYL_ASC_APP_ID=6758900172
+export REVYL_TESTFLIGHT_GROUPS="Internal,External"
+
+revyl publish testflight --ipa ./build/MyApp.ipa
+```
+
+Optional project defaults in `.revyl/config.yaml`:
+
+```yaml
+publish:
+  ios:
+    bundle_id: com.example.myapp
+    asc_app_id: "6758900172"
+    testflight_groups:
+      - Internal
+      - External
+```
+
 ### Test Management
 
 ```bash
@@ -227,6 +290,9 @@ revyl test delete login-flow                       # Delete a test
 revyl test cancel <task-id>                        # Cancel a running test
 
 # Sync & inspect
+revyl sync                        # Reconcile tests, workflows, and app links
+revyl sync --dry-run              # Preview reconciliation changes
+revyl sync --tests --prune        # Reconcile tests and prune stale mappings
 revyl test list                   # Show local tests with sync status
 revyl test remote                 # List all tests in your organization
 revyl test push                   # Push local changes to remote

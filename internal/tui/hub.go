@@ -21,6 +21,8 @@ import (
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/store"
+	syncpkg "github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -44,6 +46,7 @@ var quickActions = []quickAction{
 	{Label: "Browse modules", Key: "modules", Desc: "View reusable test modules", RequiresAuth: true},
 	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels", RequiresAuth: true},
 	{Label: "Device sessions", Key: "devices", Desc: "Start, view, and stop cloud devices", RequiresAuth: true},
+	{Label: "Publish to TestFlight", Key: "publish_testflight", Desc: "Upload/distribute iOS builds with ASC", RequiresAuth: true},
 	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard", RequiresAuth: false},
 }
 
@@ -211,6 +214,7 @@ type hubModel struct {
 	createModel      *createModel
 	createAppModel   *createAppModel
 	uploadBuildModel *uploadBuildModel
+	publishTFModel   *publishTestFlightModel
 }
 
 // newHubModel creates the initial hub model.
@@ -295,15 +299,95 @@ func fetchTestsCmd(client *api.Client) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		resp, err := client.ListOrgTests(ctx, 100, 0)
+		remoteTests, err := client.ListAllOrgTests(ctx, 200)
 		if err != nil {
 			return TestListMsg{Err: fmt.Errorf("failed to fetch tests: %w", err)}
 		}
 
-		items := make([]TestItem, len(resp.Tests))
-		for i, t := range resp.Tests {
-			items[i] = TestItem{ID: t.ID, Name: t.Name, Platform: t.Platform}
+		items := make([]TestItem, 0, len(remoteTests))
+		remoteByID := make(map[string]api.SimpleTest, len(remoteTests))
+		for _, t := range remoteTests {
+			remoteByID[t.ID] = t
 		}
+
+		cwd, cwdErr := os.Getwd()
+		if cwdErr == nil {
+			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+			cfg, cfgErr := config.LoadProjectConfig(configPath)
+			if cfgErr == nil {
+				testsDir := filepath.Join(cwd, ".revyl", "tests")
+				localTests, lErr := config.LoadLocalTests(testsDir)
+				if lErr != nil {
+					localTests = make(map[string]*config.LocalTest)
+				}
+
+				resolver := syncpkg.NewResolver(client, cfg, localTests)
+				statuses, sErr := resolver.GetAllStatuses(ctx)
+				if sErr == nil {
+					usedRemoteIDs := make(map[string]bool)
+					for _, s := range statuses {
+						item := TestItem{
+							ID:         s.RemoteID,
+							Name:       s.Name,
+							SyncStatus: s.Status.String(),
+							Source:     deriveTestSource(cfg, localTests, s.Name),
+						}
+
+						if lt, ok := localTests[s.Name]; ok && lt != nil {
+							item.Platform = lt.Test.Metadata.Platform
+						}
+						if rt, ok := remoteByID[s.RemoteID]; ok {
+							if item.Platform == "" {
+								item.Platform = rt.Platform
+							}
+							usedRemoteIDs[s.RemoteID] = true
+						} else if s.RemoteID != "" && cfg.Tests[s.Name] != "" {
+							item.SyncStatus = "stale"
+							item.RemoteMissing = true
+						}
+						if item.SyncStatus == "" {
+							item.SyncStatus = "unknown"
+						}
+						items = append(items, item)
+					}
+
+					for _, t := range remoteTests {
+						if usedRemoteIDs[t.ID] {
+							continue
+						}
+						items = append(items, TestItem{
+							ID:         t.ID,
+							Name:       t.Name,
+							Platform:   t.Platform,
+							SyncStatus: "remote-only",
+							Source:     "remote",
+						})
+					}
+				}
+			}
+		}
+
+		if len(items) == 0 {
+			items = make([]TestItem, len(remoteTests))
+			for i, t := range remoteTests {
+				items[i] = TestItem{
+					ID:         t.ID,
+					Name:       t.Name,
+					Platform:   t.Platform,
+					SyncStatus: "remote-only",
+					Source:     "remote",
+				}
+			}
+		}
+
+		sort.Slice(items, func(i, j int) bool {
+			nameI := strings.ToLower(items[i].Name)
+			nameJ := strings.ToLower(items[j].Name)
+			if nameI == nameJ {
+				return items[i].ID < items[j].ID
+			}
+			return nameI < nameJ
+		})
 
 		return TestListMsg{Tests: items}
 	}
@@ -587,6 +671,9 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.currentView == viewUploadBuild && m.uploadBuildModel != nil {
 		return m.updateUploadBuild(msg)
+	}
+	if m.currentView == viewPublishTestFlight && m.publishTFModel != nil {
+		return m.updatePublishTestFlight(msg)
 	}
 
 	switch msg := msg.(type) {
@@ -1284,6 +1371,13 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "publish_testflight":
+		cfg := loadCurrentProjectConfig()
+		pm := newPublishTestFlightModel(cfg, m.width, m.height)
+		m.publishTFModel = &pm
+		m.currentView = viewPublishTestFlight
+		return m, m.publishTFModel.Init()
+
 	case "dashboard":
 		dashURL := config.GetAppURL(m.devMode)
 		_ = ui.OpenBrowser(dashURL)
@@ -1343,6 +1437,10 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		selected := tests[m.testCursor]
 		if m.testBrowse {
+			if selected.ID == "" {
+				m.err = fmt.Errorf("test '%s' has no remote ID yet; run 'revyl sync' to reconcile", selected.Name)
+				return m, nil
+			}
 			// Browse mode: navigate to test detail screen
 			m.currentView = viewTestDetail
 			m.testDetailLoading = true
@@ -1351,6 +1449,10 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, fetchTestDetailCmd(m.client, selected.ID, selected.Name, selected.Platform, m.devMode)
 			}
 		} else if m.apiKey != "" {
+			if selected.ID == "" {
+				m.err = fmt.Errorf("test '%s' has no remote ID and cannot be run yet", selected.Name)
+				return m, nil
+			}
 			// Run mode: start execution
 			em := newExecutionModel(selected.ID, selected.Name, m.apiKey, m.cfg, m.devMode, m.width, m.height)
 			m.executionModel = &em
@@ -1370,19 +1472,45 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.testBrowse {
 				// In browse mode, r triggers execution
 				if m.apiKey != "" {
+					if selected.ID == "" {
+						m.err = fmt.Errorf("test '%s' has no remote ID and cannot be run yet", selected.Name)
+						return m, nil
+					}
 					em := newExecutionModel(selected.ID, selected.Name, m.apiKey, m.cfg, m.devMode, m.width, m.height)
 					m.executionModel = &em
 					m.currentView = viewExecution
 					return m, m.executionModel.Init()
 				}
 			} else {
+				if selected.ID == "" {
+					m.err = fmt.Errorf("test '%s' has no remote ID and cannot be opened yet", selected.Name)
+					return m, nil
+				}
 				// In run mode, r opens in browser
 				reportURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(m.devMode), selected.ID)
 				_ = ui.OpenBrowser(reportURL)
 			}
 		}
 
+	case "s":
+		// quick status refresh for selected test list
+		m.loading = true
+		m.err = nil
+		if m.client != nil {
+			return m, tea.Batch(m.spinner.Tick, fetchTestsCmd(m.client))
+		}
+		return m, tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
+
 	case "R":
+		m.loading = true
+		m.err = nil
+		if m.client != nil {
+			return m, tea.Batch(m.spinner.Tick, fetchTestsCmd(m.client))
+		}
+		return m, tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
+
+	case "S":
+		// full refresh entry-point from test list (mirrors sync intent in TUI)
 		m.loading = true
 		m.err = nil
 		if m.client != nil {
@@ -1584,6 +1712,46 @@ func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updatePublishTestFlight delegates messages to the publish-testflight model.
+func (m hubModel) updatePublishTestFlight(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
+		if m.publishTFModel != nil && !m.publishTFModel.running {
+			m.currentView = viewDashboard
+			m.publishTFModel = nil
+			return m, nil
+		}
+	}
+
+	if wsMsg, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = wsMsg.Width
+		m.height = wsMsg.Height
+	}
+
+	if m.publishTFModel != nil {
+		pm, cmd := m.publishTFModel.Update(msg)
+		publishMdl := pm.(publishTestFlightModel)
+		m.publishTFModel = &publishMdl
+
+		if m.publishTFModel.done && m.publishTFModel.runAgain {
+			cfg := loadCurrentProjectConfig()
+			m.publishTFModel = nil
+			newPM := newPublishTestFlightModel(cfg, m.width, m.height)
+			m.publishTFModel = &newPM
+			return m, m.publishTFModel.Init()
+		}
+
+		if m.publishTFModel.done && !m.publishTFModel.runAgain {
+			m.currentView = viewDashboard
+			m.publishTFModel = nil
+			return m, nil
+		}
+
+		return m, cmd
+	}
+
+	return m, nil
+}
+
 // --- Helpers ---
 
 // visibleTests returns the filtered test list, or all tests if no filter is active.
@@ -1616,6 +1784,22 @@ func (m *hubModel) applyFilter() {
 	}
 }
 
+// deriveTestSource returns a compact source label for a test entry.
+func deriveTestSource(cfg *config.ProjectConfig, localTests map[string]*config.LocalTest, name string) string {
+	hasCfg := cfg != nil && cfg.Tests[name] != ""
+	_, hasLocal := localTests[name]
+	switch {
+	case hasCfg && hasLocal:
+		return "config+local"
+	case hasCfg:
+		return "config"
+	case hasLocal:
+		return "local"
+	default:
+		return "remote"
+	}
+}
+
 func (m hubModel) isAuthenticated() bool {
 	return m.client != nil && m.apiKey != ""
 }
@@ -1635,6 +1819,19 @@ func (m hubModel) isLoginOnlyState() bool {
 	}
 	step := m.setupSteps[0]
 	return step.Label == "Log in" && (step.Status == "current" || step.Status == "hint")
+}
+
+func loadCurrentProjectConfig() *config.ProjectConfig {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+	cfg, err := config.LoadProjectConfig(configPath)
+	if err != nil {
+		return nil
+	}
+	return cfg
 }
 
 // relativeTime formats a timestamp as a human-readable relative time string.
@@ -1724,6 +1921,10 @@ func (m hubModel) View() string {
 	case viewUploadBuild:
 		if m.uploadBuildModel != nil {
 			return m.uploadBuildModel.View()
+		}
+	case viewPublishTestFlight:
+		if m.publishTFModel != nil {
+			return m.publishTFModel.View()
 		}
 	case viewHelp:
 		return m.renderHelp()
@@ -1829,7 +2030,10 @@ func (m hubModel) renderDashboard() string {
 	}
 
 	b.WriteString("\n  " + separator(innerW) + "\n")
-	jumpLabel := fmt.Sprintf("1-%d", len(quickActions))
+	jumpLabel := "1-9"
+	if len(quickActions) >= 10 {
+		jumpLabel = "1-9,0"
+	}
 	keys := []string{
 		helpKeyRender("enter", "select"),
 		helpKeyRender("tab", "section"),
@@ -2049,7 +2253,19 @@ func (m hubModel) renderTestList() string {
 			if t.Platform != "" {
 				platBadge = platformStyle.Render(" [" + t.Platform + "]")
 			}
-			b.WriteString("  " + cur + nameStyle.Render(t.Name) + platBadge + "\n")
+			syncState := t.SyncStatus
+			if syncState == "" {
+				syncState = "unknown"
+			}
+			syncBadge := dimStyle.Render(" " + syncStatusStyle(syncState).Render(syncState))
+			sourceBadge := ""
+			if t.Source != "" {
+				sourceBadge = dimStyle.Render(" (" + t.Source + ")")
+			}
+			if t.RemoteMissing {
+				sourceBadge += warningStyle.Render(" [missing-upstream]")
+			}
+			b.WriteString("  " + cur + syncStatusIcon(syncState) + " " + nameStyle.Render(t.Name) + platBadge + syncBadge + sourceBadge + "\n")
 		}
 		if end < len(tests) {
 			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
@@ -2062,6 +2278,7 @@ func (m hubModel) renderTestList() string {
 		keys = []string{
 			helpKeyRender("enter", "view"),
 			helpKeyRender("r", "run"),
+			helpKeyRender("S", "refresh"),
 			helpKeyRender("/", "filter"),
 			helpKeyRender("esc", "back"),
 			helpKeyRender("q", "quit"),
@@ -2071,6 +2288,7 @@ func (m hubModel) renderTestList() string {
 			helpKeyRender("enter", "run"),
 			helpKeyRender("/", "filter"),
 			helpKeyRender("r", "open in browser"),
+			helpKeyRender("S", "refresh"),
 			helpKeyRender("esc", "back"),
 			helpKeyRender("q", "quit"),
 		}
@@ -2954,6 +3172,12 @@ func (m hubModel) handleAppDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.uploadBuildModel = &um
 		m.currentView = viewUploadBuild
 		return m, m.uploadBuildModel.Init()
+	case "p":
+		cfg := loadCurrentProjectConfig()
+		pm := newPublishTestFlightModel(cfg, m.width, m.height)
+		m.publishTFModel = &pm
+		m.currentView = viewPublishTestFlight
+		return m, m.publishTFModel.Init()
 	}
 	return m, nil
 }
@@ -3095,6 +3319,7 @@ func (m hubModel) renderAppDetail() string {
 	b.WriteString("\n  " + separator(innerW) + "\n")
 	keys := []string{
 		helpKeyRender("u", "upload"),
+		helpKeyRender("p", "publish"),
 		helpKeyRender("d", "delete"),
 		helpKeyRender("R", "refresh"),
 		helpKeyRender("esc", "back"),
@@ -3303,7 +3528,23 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			})
 		}
 
-		// Check 7: Tests configured
+		// Check 7: ASC credentials
+		storeMgr := store.NewManager()
+		if hasASCCredentialsInEnv() || storeMgr.ValidateIOSCredentials() == nil {
+			checks = append(checks, HealthCheck{
+				Name:    "ASC Credentials",
+				Status:  "ok",
+				Message: "Configured for TestFlight publishing",
+			})
+		} else {
+			checks = append(checks, HealthCheck{
+				Name:    "ASC Credentials",
+				Status:  "warning",
+				Message: "Not configured — use 'Publish to TestFlight' or 'revyl publish auth ios'",
+			})
+		}
+
+		// Check 8: Tests configured
 		if cwdErr == nil {
 			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
 			cfg, cfgErr := config.LoadProjectConfig(configPath)

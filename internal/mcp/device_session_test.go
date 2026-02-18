@@ -3,10 +3,14 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/revyl/cli/internal/api"
 )
 
 // ---------------------------------------------------------------------------
@@ -450,6 +454,130 @@ func TestDeviceSessionManager_LoadPersistedSession_NoFile(t *testing.T) {
 	loaded := mgr.LoadPersistedSession()
 	if loaded != nil {
 		t.Errorf("expected nil when no persisted file, got %+v", loaded)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestDeviceSessionManager_EnsureOrgInfoLocked_UsesValidatedIdentity: Cached
+// org/user should be replaced by the currently authenticated identity.
+// ---------------------------------------------------------------------------
+
+func TestDeviceSessionManager_EnsureOrgInfoLocked_UsesValidatedIdentity(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/entity/users/get_user_uuid" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"user_id":"user-live",
+			"org_id":"org-live",
+			"email":"live@example.com",
+			"concurrency_limit":10
+		}`))
+	}))
+	defer server.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient:   api.NewClientWithBaseURL("test-api-key", server.URL),
+		sessions:    make(map[int]*DeviceSession),
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: -1,
+		orgID:       "org-stale",
+		userEmail:   "stale@example.com",
+	}
+
+	mgr.mu.Lock()
+	err := mgr.ensureOrgInfoLocked(context.Background())
+	mgr.mu.Unlock()
+	if err != nil {
+		t.Fatalf("ensureOrgInfoLocked returned error: %v", err)
+	}
+
+	if mgr.orgID != "org-live" {
+		t.Fatalf("expected orgID to refresh from API key, got %q", mgr.orgID)
+	}
+	if mgr.userEmail != "live@example.com" {
+		t.Fatalf("expected userEmail to refresh from API key, got %q", mgr.userEmail)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestDeviceSessionManager_EnsureOrgInfoLocked_FallbackToCachedIdentity: If
+// validation fails, cached org/user should still be usable.
+// ---------------------------------------------------------------------------
+
+func TestDeviceSessionManager_EnsureOrgInfoLocked_FallbackToCachedIdentity(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/entity/users/get_user_uuid" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"detail":"invalid api key"}`))
+	}))
+	defer server.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient:   api.NewClientWithBaseURL("bad-api-key", server.URL),
+		sessions:    make(map[int]*DeviceSession),
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: -1,
+		orgID:       "org-cached",
+		userEmail:   "cached@example.com",
+	}
+
+	mgr.mu.Lock()
+	err := mgr.ensureOrgInfoLocked(context.Background())
+	mgr.mu.Unlock()
+	if err != nil {
+		t.Fatalf("expected cached fallback on validation failure, got error: %v", err)
+	}
+
+	if mgr.orgID != "org-cached" {
+		t.Fatalf("expected cached orgID to remain, got %q", mgr.orgID)
+	}
+	if mgr.userEmail != "cached@example.com" {
+		t.Fatalf("expected cached userEmail to remain, got %q", mgr.userEmail)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestDeviceSessionManager_EnsureOrgInfoLocked_NoCacheAndValidationFailure:
+// Validation failure without cached org/user should be surfaced as an error.
+// ---------------------------------------------------------------------------
+
+func TestDeviceSessionManager_EnsureOrgInfoLocked_NoCacheAndValidationFailure(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/entity/users/get_user_uuid" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"detail":"invalid api key"}`))
+	}))
+	defer server.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient:   api.NewClientWithBaseURL("bad-api-key", server.URL),
+		sessions:    make(map[int]*DeviceSession),
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: -1,
+	}
+
+	mgr.mu.Lock()
+	err := mgr.ensureOrgInfoLocked(context.Background())
+	mgr.mu.Unlock()
+	if err == nil {
+		t.Fatal("expected error when validation fails with no cached org/user")
 	}
 }
 

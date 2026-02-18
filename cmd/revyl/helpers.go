@@ -9,8 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/orgguard"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -24,6 +27,52 @@ var reservedNames = map[string]bool{
 	"list": true, "remote": true, "push": true, "pull": true, "diff": true,
 	"validate": true, "setup": true, "help": true,
 	"status": true, "history": true, "report": true, "share": true,
+}
+
+// detectOrgMismatchForCurrentProject checks whether the current auth org
+// mismatches the cwd project's bound org_id.
+func detectOrgMismatchForCurrentProject(cmd *cobra.Command) *orgguard.MismatchError {
+	if cmd == nil {
+		return nil
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+
+	devMode, _ := cmd.Root().PersistentFlags().GetBool("dev")
+	result := orgguard.Check(cmd.Context(), cwd, devMode)
+	if result == nil {
+		return nil
+	}
+	return result.Mismatch
+}
+
+// enforceOrgBindingMatch blocks scoped commands when project/auth org mismatch is detected.
+func enforceOrgBindingMatch(cmd *cobra.Command, args []string) error {
+	if mismatch := detectOrgMismatchForCurrentProject(cmd); mismatch != nil {
+		return mismatch
+	}
+	return nil
+}
+
+// printOrgMismatchWarning renders a standardized warning block for post-login UX.
+func printOrgMismatchWarning(mismatch *orgguard.MismatchError) {
+	if mismatch == nil {
+		return
+	}
+
+	ui.Println()
+	ui.PrintWarning("Project/account mismatch detected")
+	for _, line := range strings.Split(mismatch.UserMessage(), "\n") {
+		ui.PrintDim("  %s", line)
+	}
+}
+
+// warnIfOrgMismatchAfterLogin performs a best-effort post-login mismatch check.
+func warnIfOrgMismatchAfterLogin(cmd *cobra.Command) {
+	printOrgMismatchWarning(detectOrgMismatchForCurrentProject(cmd))
 }
 
 // validateResourceName checks that a test, workflow, or module name is valid.

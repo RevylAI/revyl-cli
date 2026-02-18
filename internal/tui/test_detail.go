@@ -136,7 +136,7 @@ func fetchTestDetailCmd(client *api.Client, testID, testName, platform string, d
 //
 // Returns:
 //   - tea.Cmd: command producing TestSyncActionMsg
-func syncTestActionCmd(client *api.Client, action, testName string, devMode bool) tea.Cmd {
+func syncTestActionCmd(client *api.Client, action, testName, testID string, devMode bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -160,9 +160,28 @@ func syncTestActionCmd(client *api.Client, action, testName string, devMode bool
 
 		resolver := sync.NewResolver(client, cfg, localTests)
 
+		// Resolve a stable local key for resolver operations.
+		targetName := testName
+		if testID != "" {
+			for alias, id := range cfg.Tests {
+				if id == testID {
+					targetName = alias
+					break
+				}
+			}
+			if targetName == testName {
+				for localName, lt := range localTests {
+					if lt != nil && lt.Meta.RemoteID == testID {
+						targetName = localName
+						break
+					}
+				}
+			}
+		}
+
 		switch action {
 		case "push":
-			results, sErr := resolver.SyncToRemote(ctx, testName, testsDir, false)
+			results, sErr := resolver.SyncToRemote(ctx, targetName, testsDir, false)
 			if sErr != nil {
 				return TestSyncActionMsg{Action: action, Err: sErr}
 			}
@@ -176,7 +195,7 @@ func syncTestActionCmd(client *api.Client, action, testName string, devMode bool
 			return TestSyncActionMsg{Action: action, Result: fmt.Sprintf("Pushed %s → v%d", r.Name, r.NewVersion)}
 
 		case "pull":
-			results, sErr := resolver.PullFromRemote(ctx, testName, testsDir, false)
+			results, sErr := resolver.PullFromRemote(ctx, targetName, testsDir, false)
 			if sErr != nil {
 				return TestSyncActionMsg{Action: action, Err: sErr}
 			}
@@ -190,7 +209,7 @@ func syncTestActionCmd(client *api.Client, action, testName string, devMode bool
 			return TestSyncActionMsg{Action: action, Result: fmt.Sprintf("Pulled %s → v%d", r.Name, r.NewVersion)}
 
 		case "diff":
-			diff, dErr := resolver.GetDiff(ctx, testName)
+			diff, dErr := resolver.GetDiff(ctx, targetName)
 			if dErr != nil {
 				return TestSyncActionMsg{Action: action, Err: dErr}
 			}
@@ -349,17 +368,17 @@ func handleTestDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "p":
 		if m.client != nil && m.selectedTestDetail != nil {
 			m.testDetailLoading = true
-			return m, syncTestActionCmd(m.client, "push", m.selectedTestDetail.Name, m.devMode)
+			return m, syncTestActionCmd(m.client, "push", m.selectedTestDetail.Name, m.selectedTestDetail.ID, m.devMode)
 		}
 	case "l":
 		if m.client != nil && m.selectedTestDetail != nil {
 			m.testDetailLoading = true
-			return m, syncTestActionCmd(m.client, "pull", m.selectedTestDetail.Name, m.devMode)
+			return m, syncTestActionCmd(m.client, "pull", m.selectedTestDetail.Name, m.selectedTestDetail.ID, m.devMode)
 		}
 	case "d":
 		if m.client != nil && m.selectedTestDetail != nil {
 			m.testDetailLoading = true
-			return m, syncTestActionCmd(m.client, "diff", m.selectedTestDetail.Name, m.devMode)
+			return m, syncTestActionCmd(m.client, "diff", m.selectedTestDetail.Name, m.selectedTestDetail.ID, m.devMode)
 		}
 	case "t":
 		if m.client != nil && m.selectedTestDetail != nil {
@@ -689,6 +708,12 @@ func syncStatusIcon(status string) string {
 		return warningStyle.Render("~")
 	case "conflict":
 		return errorStyle.Render("✗")
+	case "local-only":
+		return warningStyle.Render("L")
+	case "remote-only":
+		return runningStyle.Render("R")
+	case "stale":
+		return warningStyle.Render("!")
 	default:
 		return dimStyle.Render("?")
 	}
@@ -703,6 +728,10 @@ func syncStatusStyle(status string) lipgloss.Style {
 		return warningStyle
 	case "conflict":
 		return errorStyle
+	case "local-only", "stale":
+		return warningStyle
+	case "remote-only":
+		return runningStyle
 	default:
 		return dimStyle
 	}

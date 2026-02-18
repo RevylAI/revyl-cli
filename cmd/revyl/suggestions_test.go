@@ -21,12 +21,8 @@ func createTestRootCmd() *cobra.Command {
 	workflowCmd.AddCommand(&cobra.Command{Use: "run"})
 	workflowCmd.AddCommand(&cobra.Command{Use: "create"})
 
-	hotreloadCmd := &cobra.Command{Use: "hotreload"}
-	hotreloadCmd.AddCommand(&cobra.Command{Use: "setup"})
-
 	root.AddCommand(testCmd)
 	root.AddCommand(workflowCmd)
-	root.AddCommand(hotreloadCmd)
 
 	return root
 }
@@ -73,7 +69,21 @@ func TestSuggestCorrectCommand(t *testing.T) {
 			name:           "setup hotreload",
 			unknownCmd:     "setup",
 			allArgs:        []string{"setup", "hotreload"},
-			wantSuggestion: "revyl hotreload setup",
+			wantSuggestion: "revyl init --hotreload",
+			wantFound:      true,
+		},
+		{
+			name:           "hotreload setup legacy order",
+			unknownCmd:     "hotreload",
+			allArgs:        []string{"hotreload", "setup"},
+			wantSuggestion: "revyl init --hotreload",
+			wantFound:      true,
+		},
+		{
+			name:           "sync typed under test namespace",
+			unknownCmd:     "sync",
+			allArgs:        []string{"test", "sync"},
+			wantSuggestion: "revyl sync",
 			wantFound:      true,
 		},
 		{

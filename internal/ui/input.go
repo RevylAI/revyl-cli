@@ -114,40 +114,37 @@ type SelectOption struct {
 //   - string: Value of selected option
 //   - error: Any error that occurred
 func Select(message string, options []SelectOption, defaultIndex int) (int, string, error) {
-	fmt.Println(InfoStyle.Render(message))
+	if len(options) == 0 {
+		return -1, "", fmt.Errorf("no options provided")
+	}
+	current := defaultIndex
+	if current < 0 || current >= len(options) {
+		current = 0
+	}
 
+	fmt.Println(InfoStyle.Render(message))
 	for i, opt := range options {
 		number := AccentStyle.Render(fmt.Sprintf("[%d]", i+1))
-		if i == defaultIndex {
+		if i == current {
 			marker := AccentStyle.Render(">")
 			label := TitleStyle.Render(opt.Label)
 			fmt.Printf("  %s %s %s\n", marker, number, label)
-			if opt.Description != "" {
-				fmt.Printf("      %s\n", DimStyle.Render(opt.Description))
-			}
 		} else {
 			label := InfoStyle.Render(opt.Label)
 			fmt.Printf("    %s %s\n", number, label)
-			if opt.Description != "" {
-				fmt.Printf("      %s\n", DimStyle.Render(opt.Description))
-			}
 		}
-	}
-
-	defaultPrompt := ""
-	if defaultIndex >= 0 && defaultIndex < len(options) {
-		defaultPrompt = fmt.Sprintf(" [%d]", defaultIndex+1)
+		if opt.Description != "" {
+			fmt.Printf("      %s\n", DimStyle.Render(opt.Description))
+		}
 	}
 
 	for {
-		input, err := Prompt(fmt.Sprintf("Select option%s:", defaultPrompt))
+		input, err := Prompt(fmt.Sprintf("Select option [%d]:", current+1))
 		if err != nil {
 			return -1, "", err
 		}
-
-		// Handle empty input with default
-		if input == "" && defaultIndex >= 0 && defaultIndex < len(options) {
-			return defaultIndex, options[defaultIndex].Value, nil
+		if input == "" {
+			return current, options[current].Value, nil
 		}
 
 		var selection int
@@ -156,7 +153,6 @@ func Select(message string, options []SelectOption, defaultIndex int) (int, stri
 			PrintWarning("Please enter a number between 1 and %d", len(options))
 			continue
 		}
-
 		idx := selection - 1
 		return idx, options[idx].Value, nil
 	}

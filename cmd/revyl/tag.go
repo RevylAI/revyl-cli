@@ -116,8 +116,9 @@ EXAMPLES:
 
 // tagSetCmd replaces all tags on a test.
 var tagSetCmd = &cobra.Command{
-	Use:   "set <test-name|id> <tag1,tag2,...>",
-	Short: "Replace all tags on a test",
+	Use:     "set <test-name|id> <tag1,tag2,...>",
+	Short:   "Replace all tags on a test",
+	PreRunE: enforceOrgBindingMatch,
 	Long: `Replace all tags on a test with the given comma-separated list.
 Tags are auto-created if they don't exist.
 
@@ -130,8 +131,9 @@ EXAMPLES:
 
 // tagAddCmd adds tags to a test.
 var tagAddCmd = &cobra.Command{
-	Use:   "add <test-name|id> <tag1,tag2,...>",
-	Short: "Add tags to a test (keep existing)",
+	Use:     "add <test-name|id> <tag1,tag2,...>",
+	Short:   "Add tags to a test (keep existing)",
+	PreRunE: enforceOrgBindingMatch,
 	Long: `Add tags to a test without removing existing tags.
 Tags are auto-created if they don't exist.
 
@@ -144,8 +146,9 @@ EXAMPLES:
 
 // tagRemoveCmd removes tags from a test.
 var tagRemoveCmd = &cobra.Command{
-	Use:   "remove <test-name|id> <tag1,tag2,...>",
-	Short: "Remove tags from a test",
+	Use:     "remove <test-name|id> <tag1,tag2,...>",
+	Short:   "Remove tags from a test",
+	PreRunE: enforceOrgBindingMatch,
 	Long: `Remove specific tags from a test.
 
 EXAMPLES:

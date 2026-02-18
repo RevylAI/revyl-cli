@@ -7,6 +7,7 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +35,8 @@ const (
 	StatusLocalOnly
 	// StatusRemoteOnly means test exists only on remote.
 	StatusRemoteOnly
+	// StatusOrphaned means the local/config remote link is stale or inaccessible.
+	StatusOrphaned
 )
 
 // String returns the string representation of a sync status.
@@ -51,10 +54,28 @@ func (s SyncStatus) String() string {
 		return "local-only"
 	case StatusRemoteOnly:
 		return "remote-only"
+	case StatusOrphaned:
+		return "orphaned"
 	default:
 		return "unknown"
 	}
 }
+
+// RemoteLinkIssue describes why a linked remote test could not be resolved.
+type RemoteLinkIssue string
+
+const (
+	// RemoteLinkIssueNone indicates there is no remote link issue.
+	RemoteLinkIssueNone RemoteLinkIssue = ""
+	// RemoteLinkIssueMissing indicates the remote test no longer exists (404).
+	RemoteLinkIssueMissing RemoteLinkIssue = "missing"
+	// RemoteLinkIssueInvalidID indicates the configured remote test ID is invalid (400).
+	RemoteLinkIssueInvalidID RemoteLinkIssue = "invalid-id"
+	// RemoteLinkIssueUnauthorized indicates authentication is missing/expired (401).
+	RemoteLinkIssueUnauthorized RemoteLinkIssue = "unauthorized"
+	// RemoteLinkIssueForbidden indicates access to the linked test is denied (403).
+	RemoteLinkIssueForbidden RemoteLinkIssue = "forbidden"
+)
 
 // TestSyncStatus contains sync status information for a test.
 type TestSyncStatus struct {
@@ -70,6 +91,10 @@ type TestSyncStatus struct {
 	LastSync string
 	// RemoteID is the test ID on the server.
 	RemoteID string
+	// LinkIssue indicates a non-fatal remote link resolution issue.
+	LinkIssue RemoteLinkIssue
+	// LinkIssueMessage is a user-facing detail about LinkIssue.
+	LinkIssueMessage string
 	// ErrorMessage contains any error that occurred while determining status.
 	ErrorMessage string
 }
@@ -156,10 +181,23 @@ func (r *Resolver) getTestStatus(ctx context.Context, name string) (*TestSyncSta
 
 	// Check if we have a remote ID (from config or local test)
 	var remoteID string
+	var cfgRemoteID string
+	var localRemoteID string
 	if id, ok := r.config.Tests[name]; ok {
 		remoteID = id
-	} else if hasLocal && localTest.Meta.RemoteID != "" {
-		remoteID = localTest.Meta.RemoteID
+		cfgRemoteID = id
+	}
+	if hasLocal && localTest.Meta.RemoteID != "" {
+		localRemoteID = localTest.Meta.RemoteID
+		if remoteID == "" {
+			remoteID = localRemoteID
+		}
+	}
+
+	if remoteID == "" {
+		status.RemoteID = ""
+		status.Status = StatusLocalOnly
+		return status, nil
 	}
 
 	status.RemoteID = remoteID
@@ -173,18 +211,49 @@ func (r *Resolver) getTestStatus(ctx context.Context, name string) (*TestSyncSta
 		}
 	}
 
-	// If no remote ID, it's local-only
-	if remoteID == "" {
-		status.Status = StatusLocalOnly
-		return status, nil
-	}
-
-	// Fetch remote version
+	// Fetch remote version. If config ID is stale but local metadata has a different
+	// remote ID, try the local fallback before classifying as local-only.
 	remoteTest, err := r.client.GetTest(ctx, remoteID)
 	if err != nil {
-		// Remote not found - might be deleted
-		status.Status = StatusLocalOnly
-		return status, nil
+		var apiErr *api.APIError
+		if errors.As(err, &apiErr) {
+			if apiErr.StatusCode == 404 && cfgRemoteID != "" && localRemoteID != "" && cfgRemoteID != localRemoteID {
+				fallback, fallbackErr := r.client.GetTest(ctx, localRemoteID)
+				if fallbackErr == nil {
+					remoteID = localRemoteID
+					status.RemoteID = remoteID
+					remoteTest = fallback
+					err = nil
+				}
+			}
+			if err != nil {
+				switch apiErr.StatusCode {
+				case 404:
+					status.Status = StatusOrphaned
+					status.LinkIssue = RemoteLinkIssueMissing
+					status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "remote test not found")
+					return status, nil
+				case 400:
+					status.Status = StatusOrphaned
+					status.LinkIssue = RemoteLinkIssueInvalidID
+					status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "invalid remote test ID")
+					return status, nil
+				case 401:
+					status.Status = StatusOrphaned
+					status.LinkIssue = RemoteLinkIssueUnauthorized
+					status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "not authorized to access this test")
+					return status, nil
+				case 403:
+					status.Status = StatusOrphaned
+					status.LinkIssue = RemoteLinkIssueForbidden
+					status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "access denied for this test")
+					return status, nil
+				}
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	status.RemoteVersion = remoteTest.Version
@@ -210,6 +279,19 @@ func (r *Resolver) getTestStatus(ctx context.Context, name string) (*TestSyncSta
 	}
 
 	return status, nil
+}
+
+func bestLinkIssueMessage(apiErr *api.APIError, fallback string) string {
+	if apiErr == nil {
+		return fallback
+	}
+	if msg := strings.TrimSpace(apiErr.Detail); msg != "" {
+		return msg
+	}
+	if msg := strings.TrimSpace(apiErr.Message); msg != "" {
+		return msg
+	}
+	return fallback
 }
 
 // SyncToRemote pushes local changes to remote.
