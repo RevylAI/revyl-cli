@@ -243,6 +243,25 @@ set_variable(test_name_or_id="login", name="otp-code")
 
 The YAML extraction block defines `variable_name: otp-code`, and the extracted value is stored automatically.
 
+### Variables in Code Execution Scripts
+
+Code execution scripts can read **all test variables** via environment variables or a JSON file. Variables are injected automatically — no setup needed.
+
+- **Env vars**: Prefixed with `REVYL_VAR_`, non-alphanumeric chars become `_` (e.g., `{{generated-email}}` → `REVYL_VAR_generated_email`)
+- **JSON file**: `_variables.json` in the working directory, preserves original names
+- **Setting a variable**: Print to stdout — the `variable_name` field on the node captures it
+
+```python
+# Read a variable
+import os
+email = os.environ.get("REVYL_VAR_generated_email", "")
+```
+
+```javascript
+// Read a variable
+const email = process.env.REVYL_VAR_generated_email || "";
+```
+
 ## Workflow Test Management
 
 Workflows are collections of tests. You can modify which tests belong to a workflow after creation.
