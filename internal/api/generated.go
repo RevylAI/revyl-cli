@@ -976,6 +976,19 @@ type AssignSeatsResponse struct {
 // AsyncStatus defines model for AsyncStatus.
 type AsyncStatus string
 
+// AttachRequest defines model for AttachRequest.
+type AttachRequest struct {
+	ProductId   *string `json:"product_id,omitempty"`
+	RedirectUrl string  `json:"redirect_url"`
+}
+
+// AttachResponse defines model for AttachResponse.
+type AttachResponse struct {
+	CheckoutUrl *string `json:"checkout_url"`
+	Message     string  `json:"message"`
+	Success     *bool   `json:"success"`
+}
+
 // AuthInfo Class that represents authentication information.
 // Can be returned from the require_auth dependency.
 type AuthInfo struct {
@@ -1489,6 +1502,27 @@ type CancelTestResponse struct {
 type CategoryValue struct {
 	Category string  `json:"category"`
 	Value    float32 `json:"value"`
+}
+
+// ChartDataPoint Daily aggregated chart data point.
+type ChartDataPoint struct {
+	// AvgDuration Average execution duration in seconds for this date
+	AvgDuration *int `json:"avg_duration"`
+
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -6541,11 +6575,9 @@ type UserTestsResponse struct {
 
 // ValidationError defines model for ValidationError.
 type ValidationError struct {
-	Ctx   *map[string]interface{}    `json:"ctx,omitempty"`
-	Input interface{}                `json:"input,omitempty"`
-	Loc   []ValidationError_Loc_Item `json:"loc"`
-	Msg   string                     `json:"msg"`
-	Type  string                     `json:"type"`
+	Loc  []ValidationError_Loc_Item `json:"loc"`
+	Msg  string                     `json:"msg"`
+	Type string                     `json:"type"`
 }
 
 // ValidationErrorLoc0 defines model for .
@@ -6899,9 +6931,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time                                           `json:"created_at"`
-	Deleted   bool                                                 `json:"deleted"`
+	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time        `json:"created_at"`
+	Deleted   bool              `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -7416,12 +7448,6 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
-// AppRoutesExecutionRoutesBillingXptAttachRequest defines model for app__routes__execution_routes__billing_xpt__AttachRequest.
-type AppRoutesExecutionRoutesBillingXptAttachRequest struct {
-	ProductId   *string `json:"product_id,omitempty"`
-	RedirectUrl string  `json:"redirect_url"`
-}
-
 // AppRoutesExecutionRoutesBillingXptAttachResponse defines model for app__routes__execution_routes__billing_xpt__AttachResponse.
 type AppRoutesExecutionRoutesBillingXptAttachResponse struct {
 	CheckoutUrl *string `json:"checkout_url"`
@@ -7444,34 +7470,6 @@ type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
 type AppRoutesRebelRoutesBillingXptAttachRequest struct {
 	Quantity    *int   `json:"quantity"`
 	RedirectUrl string `json:"redirect_url"`
-}
-
-// AppRoutesRebelRoutesBillingXptAttachResponse defines model for app__routes__rebel_routes__billing_xpt__AttachResponse.
-type AppRoutesRebelRoutesBillingXptAttachResponse struct {
-	CheckoutUrl *string `json:"checkout_url"`
-	Message     string  `json:"message"`
-	Success     *bool   `json:"success"`
-}
-
-// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
-type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
-	// AvgDuration Average execution duration in seconds for this date
-	AvgDuration *int `json:"avg_duration"`
-
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.
@@ -8368,7 +8366,7 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONReques
 type StartExplorationApiV1ExecutionApiV1StartExplorationPostJSONRequestBody = StartExplorationRequest
 
 // BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody defines body for BillingAttachApiV1ExecutionBillingAttachPost for application/json ContentType.
-type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AppRoutesExecutionRoutesBillingXptAttachRequest
+type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AttachRequest
 
 // FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody defines body for FinalizeSessionApiV1ExecutionBillingFinalizeSessionPost for application/json ContentType.
 type FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody = FinalizeSessionRequest
