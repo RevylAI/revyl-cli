@@ -429,10 +429,10 @@ func TestInputValidation_DeviceSwipe_DirectionRequired(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestInputValidation_InstallApp_URLRequired: AppURL field validation.
+// TestInputValidation_InstallApp_RequiresInput: install_app requires app_url or build_version_id.
 // ---------------------------------------------------------------------------
 
-func TestInputValidation_InstallApp_URLRequired(t *testing.T) {
+func TestInputValidation_InstallApp_RequiresInput(t *testing.T) {
 	srv := &Server{
 		sessionMgr: &DeviceSessionManager{},
 	}
@@ -446,8 +446,8 @@ func TestInputValidation_InstallApp_URLRequired(t *testing.T) {
 	if output.Success {
 		t.Fatal("expected Success=false when app_url is empty")
 	}
-	if !strings.Contains(output.Error, "app_url is required") {
-		t.Errorf("error = %q, want 'app_url is required'", output.Error)
+	if !strings.Contains(output.Error, "either app_url or build_version_id is required") {
+		t.Errorf("error = %q, want missing app_url/build_version_id validation", output.Error)
 	}
 }
 
