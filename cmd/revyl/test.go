@@ -130,6 +130,8 @@ func init() {
 	testCmd.AddCommand(testShareCmd)
 	// Add env var management
 	testCmd.AddCommand(testEnvCmd)
+	// Add test variable management
+	testCmd.AddCommand(testVarCmd)
 
 	// test run flags
 	testRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")

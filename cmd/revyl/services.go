@@ -859,7 +859,7 @@ Committed vs Generated Files
     .revyl/tests/*.yaml
 
   GENERATED (per-machine, gitignored):
-    .revyl/remote.json      — Created by Fleet Dashboard for rshell auto-connect
+    .revyl/remote.json      — Created by Fleet Dashboard for CLI remote access
     .revyl/shell-init.sh    — Created by Fleet Dashboard for remote shell setup
     .revyl/.services.pid    — Created by 'revyl services start' for process tracking
 

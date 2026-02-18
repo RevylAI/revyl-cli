@@ -1540,6 +1540,43 @@ func (c *Client) GetLatestBuildVersion(ctx context.Context, appID string) (*Buil
 	return &versions[0], nil
 }
 
+// BuildVersionDetail represents a build version with an optional download URL.
+// Returned by GetBuildVersionDownloadURL.
+type BuildVersionDetail struct {
+	ID          string `json:"id"`
+	Version     string `json:"version"`
+	DownloadURL string `json:"download_url,omitempty"`
+	PackageName string `json:"package_name,omitempty"`
+}
+
+// GetBuildVersionDownloadURL retrieves a build version with a presigned download URL.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - versionID: The build version ID
+//
+// Returns:
+//   - *BuildVersionDetail: The build version with download URL
+//   - error: Any error that occurred (404 if not found, 403 if not authorized)
+func (c *Client) GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*BuildVersionDetail, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/builds/builds/%s?include_download_url=true", versionID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result BuildVersionDetail
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	if result.DownloadURL == "" {
+		return nil, fmt.Errorf("build version %s has no downloadable artifact", versionID)
+	}
+
+	return &result, nil
+}
+
 // StartDeviceRequest represents a request to start a device session.
 // Used for interactive test creation mode.
 type StartDeviceRequest struct {
@@ -2974,4 +3011,193 @@ func (c *Client) GetScriptUsage(ctx context.Context, scriptID string) (*CLIScrip
 	}
 
 	return &result, nil
+}
+
+// --- Custom Variable API methods ---
+
+// CustomVariable represents a test variable used in {{variable-name}} syntax.
+//
+// Fields:
+//   - ID: Unique identifier of the variable
+//   - TestUID: Test UUID this variable belongs to
+//   - VariableName: The variable name (kebab-case)
+//   - VariableValue: The variable value (may be empty for extraction-defined vars)
+type CustomVariable struct {
+	ID            string `json:"id"`
+	TestUID       string `json:"test_uid"`
+	VariableName  string `json:"variable_name"`
+	VariableValue string `json:"variable_value"`
+}
+
+// CustomVariablesResponse represents the response from listing custom variables.
+type CustomVariablesResponse struct {
+	Message string           `json:"message"`
+	Result  []CustomVariable `json:"result"`
+}
+
+// CustomVariableResponse represents the response from a single custom variable operation.
+type CustomVariableResponse struct {
+	Message string         `json:"message"`
+	Result  CustomVariable `json:"result"`
+}
+
+// ListCustomVariables retrieves all custom variables for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//
+// Returns:
+//   - *CustomVariablesResponse: List of variables
+//   - error: Any error that occurred
+func (c *Client) ListCustomVariables(ctx context.Context, testID string) (*CustomVariablesResponse, error) {
+	path := fmt.Sprintf("/api/v1/variables/custom/read_variables?test_uid=%s", testID)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CustomVariablesResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// AddCustomVariable adds a new custom variable to a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - name: Variable name (kebab-case)
+//   - value: Variable value (may be empty)
+//
+// Returns:
+//   - *CustomVariableResponse: The created variable
+//   - error: Any error that occurred (409 if duplicate name)
+func (c *Client) AddCustomVariable(ctx context.Context, testID, name, value string) (*CustomVariableResponse, error) {
+	body := map[string]string{
+		"test_uid":       testID,
+		"variable_name":  name,
+		"variable_value": value,
+	}
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/variables/custom/add", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CustomVariableResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// UpdateCustomVariableValue updates the value of an existing custom variable.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - variableID: The variable UUID
+//   - newValue: The new value
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) UpdateCustomVariableValue(ctx context.Context, testID, variableID, newValue string) error {
+	body := map[string]string{
+		"test_uid":    testID,
+		"variable_id": variableID,
+		"new_value":   newValue,
+	}
+	resp, err := c.doRequest(ctx, "PUT", "/api/v1/variables/custom/update_value", body)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// DeleteCustomVariable deletes a custom variable by name.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - name: Variable name to delete
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) DeleteCustomVariable(ctx context.Context, testID, name string) error {
+	path := fmt.Sprintf("/api/v1/variables/custom/delete?test_uid=%s&variable_name=%s", testID, name)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// DeleteAllCustomVariables deletes all custom variables for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) DeleteAllCustomVariables(ctx context.Context, testID string) error {
+	path := fmt.Sprintf("/api/v1/variables/custom/delete_all?test_uid=%s", testID)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// CheckCustomVariableExists checks whether a variable with the given name exists for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - name: Variable name to check
+//
+// Returns:
+//   - *CheckVariableExistsResponse: Whether the variable exists and its ID
+//   - error: Any error that occurred
+func (c *Client) CheckCustomVariableExists(ctx context.Context, testID, name string) (*CheckVariableExistsResponse, error) {
+	path := fmt.Sprintf("/api/v1/variables/custom/check_exists?test_id=%s&variable_name=%s", testID, name)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CheckVariableExistsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Workflow Test Management ---
+
+// UpdateWorkflowTests atomically replaces the test list for a workflow.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow UUID
+//   - testIDs: Full replacement list of test UUIDs
+//
+// Returns:
+//   - error: Any error that occurred (400 if invalid test IDs, 404 if workflow not found)
+func (c *Client) UpdateWorkflowTests(ctx context.Context, workflowID string, testIDs []string) error {
+	path := fmt.Sprintf("/api/v1/workflows/update_tests/%s", workflowID)
+	resp, err := c.doRequest(ctx, "PUT", path, testIDs)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
 }

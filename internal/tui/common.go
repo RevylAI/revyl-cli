@@ -233,6 +233,8 @@ const (
 	viewWorkflowRuns                  // run history for a specific workflow
 	viewAppList                       // app list for manage apps
 	viewAppDetail                     // build versions for a specific app
+	viewCreateApp                     // create-an-app flow (sub-screen)
+	viewUploadBuild                   // upload-a-build flow (sub-screen)
 	viewHelp                          // help & status screen (doctor + keybindings)
 	viewTestDetail                    // test detail + management screen
 	viewWorkflowList                  // workflow browse list
@@ -242,6 +244,8 @@ const (
 	viewModuleList                    // module browse list
 	viewModuleDetail                  // module detail showing blocks
 	viewTagList                       // tag browse list
+	viewDeviceList                    // device session list
+	viewDeviceDetail                  // device session detail
 )
 
 // --- Dashboard data types ---
@@ -278,6 +282,14 @@ type RecentRun struct {
 type TestCreatedMsg struct {
 	TestID   string
 	TestName string
+	Platform string
+	Err      error
+}
+
+// AppCreatedMsg signals that an app has been created via the TUI.
+type AppCreatedMsg struct {
+	AppID    string
+	AppName  string
 	Platform string
 	Err      error
 }
@@ -320,6 +332,13 @@ type AppDeletedMsg struct {
 // BuildDeletedMsg signals that a build version has been deleted.
 type BuildDeletedMsg struct {
 	Err error
+}
+
+// BuildUploadedMsg signals that a build has been uploaded via the TUI.
+type BuildUploadedMsg struct {
+	VersionID string
+	Version   string
+	Err       error
 }
 
 // HealthCheck represents a single diagnostic check result for the help screen.
@@ -533,6 +552,27 @@ type TagDeletedMsg struct {
 
 // TagsSyncedMsg signals that tags were synced on a test.
 type TagsSyncedMsg struct {
+	Err error
+}
+
+// --- Device session messages ---
+
+// DeviceSessionListMsg carries the fetched active device sessions from the API.
+type DeviceSessionListMsg struct {
+	Sessions []api.ActiveDeviceSessionItem
+	Err      error
+}
+
+// DeviceStartedMsg signals that a device session was started (workflow run created).
+type DeviceStartedMsg struct {
+	WorkflowRunID string
+	Platform      string
+	ViewerURL     string
+	Err           error
+}
+
+// DeviceStoppedMsg signals that a device session was stopped.
+type DeviceStoppedMsg struct {
 	Err error
 }
 

@@ -43,6 +43,7 @@ var quickActions = []quickAction{
 	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds", RequiresAuth: true},
 	{Label: "Browse modules", Key: "modules", Desc: "View reusable test modules", RequiresAuth: true},
 	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels", RequiresAuth: true},
+	{Label: "Device sessions", Key: "devices", Desc: "Start, view, and stop cloud devices", RequiresAuth: true},
 	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard", RequiresAuth: false},
 }
 
@@ -151,6 +152,17 @@ type hubModel struct {
 	tagCreateActive  bool
 	tagNameInput     textinput.Model
 
+	// Device session state
+	deviceSessions       []api.ActiveDeviceSessionItem
+	deviceCursor         int
+	devicesLoading       bool
+	selectedDeviceID     string
+	deviceStarting       bool   // true while provisioning a new device
+	deviceStartPicking   bool   // true when platform picker overlay is showing
+	devicePlatformCursor int    // cursor for platform picker (0=android, 1=ios)
+	deviceConfirmStop    bool   // true when stop confirmation is pending
+	deviceStopTarget     string // workflow run ID of the session to stop
+
 	// Module browser state
 	moduleItems         []ModuleItem
 	moduleCursor        int
@@ -195,8 +207,10 @@ type hubModel struct {
 	returnToDashboardAfterAuth bool
 
 	// Sub-models
-	executionModel *executionModel
-	createModel    *createModel
+	executionModel   *executionModel
+	createModel      *createModel
+	createAppModel   *createAppModel
+	uploadBuildModel *uploadBuildModel
 }
 
 // newHubModel creates the initial hub model.
@@ -568,6 +582,12 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.currentView == viewCreateTest && m.createModel != nil {
 		return m.updateCreate(msg)
 	}
+	if m.currentView == viewCreateApp && m.createAppModel != nil {
+		return m.updateCreateApp(msg)
+	}
+	if m.currentView == viewUploadBuild && m.uploadBuildModel != nil {
+		return m.updateUploadBuild(msg)
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -640,6 +660,12 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.currentView == viewTagList {
 			return handleTagListKey(m, msg)
+		}
+		if m.currentView == viewDeviceList {
+			return m.handleDeviceListKey(msg)
+		}
+		if m.currentView == viewDeviceDetail {
+			return m.handleDeviceDetailKey(msg)
 		}
 		return m.handleDashboardKey(msg)
 
@@ -914,6 +940,42 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.moduleLoading = true
 				return m, fetchModulesCmd(m.client)
 			}
+		}
+		return m, nil
+
+	// --- Device session messages ---
+
+	case DeviceSessionListMsg:
+		m.devicesLoading = false
+		if msg.Err == nil {
+			m.deviceSessions = msg.Sessions
+		}
+		return m, nil
+
+	case DeviceStartedMsg:
+		m.deviceStarting = false
+		if msg.Err != nil {
+			m.devicesLoading = false
+			return m, nil
+		}
+		// Open the viewer URL if available
+		if msg.ViewerURL != "" {
+			_ = ui.OpenBrowser(msg.ViewerURL)
+		}
+		// Refresh the session list
+		m.devicesLoading = true
+		if m.client != nil {
+			return m, fetchDeviceSessionsCmd(m.client)
+		}
+		return m, nil
+
+	case DeviceStoppedMsg:
+		m.devicesLoading = false
+		m.deviceConfirmStop = false
+		m.deviceStopTarget = ""
+		if msg.Err == nil && m.client != nil {
+			m.devicesLoading = true
+			return m, fetchDeviceSessionsCmd(m.client)
 		}
 		return m, nil
 
@@ -1213,6 +1275,15 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "devices":
+		m.currentView = viewDeviceList
+		m.deviceCursor = 0
+		m.devicesLoading = true
+		if m.client != nil {
+			return m, fetchDeviceSessionsCmd(m.client)
+		}
+		return m, nil
+
 	case "dashboard":
 		dashURL := config.GetAppURL(m.devMode)
 		_ = ui.OpenBrowser(dashURL)
@@ -1408,6 +1479,111 @@ func (m hubModel) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateCreateApp delegates messages to the create-app model and handles navigation back.
+func (m hubModel) updateCreateApp(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
+		if m.createAppModel != nil && !m.createAppModel.creating {
+			m.currentView = viewAppList
+			m.createAppModel = nil
+			return m, nil
+		}
+	}
+
+	if wsMsg, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = wsMsg.Width
+		m.height = wsMsg.Height
+	}
+
+	if m.createAppModel != nil {
+		cm, cmd := m.createAppModel.Update(msg)
+		appMdl := cm.(createAppModel)
+		m.createAppModel = &appMdl
+
+		// If creation completed and user chose "View builds"
+		if m.createAppModel.done && m.createAppModel.viewBuilds {
+			appID := m.createAppModel.createdID
+			appName := m.createAppModel.createdName
+			if appName == "" {
+				appName = strings.TrimSpace(m.createAppModel.nameInput.Value())
+			}
+			m.createAppModel = nil
+			m.selectedAppID = appID
+			m.selectedAppName = appName
+			m.appBuildCursor = 0
+			m.appBuilds = nil
+			m.appsLoading = true
+			m.currentView = viewAppDetail
+			if m.client != nil {
+				return m, tea.Batch(fetchAppBuildsCmd(m.client, appID), fetchAppsCmd(m.client))
+			}
+			return m, nil
+		}
+
+		// If creation completed and user chose "Back to apps"
+		if m.createAppModel.done && !m.createAppModel.viewBuilds {
+			m.createAppModel = nil
+			m.appsLoading = true
+			m.currentView = viewAppList
+			if m.client != nil {
+				return m, fetchAppsCmd(m.client)
+			}
+			return m, nil
+		}
+
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+// updateUploadBuild delegates messages to the upload-build model and handles navigation back.
+func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
+		if m.uploadBuildModel != nil && !m.uploadBuildModel.uploading {
+			m.currentView = viewAppDetail
+			m.uploadBuildModel = nil
+			return m, nil
+		}
+	}
+
+	if wsMsg, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = wsMsg.Width
+		m.height = wsMsg.Height
+	}
+
+	if m.uploadBuildModel != nil {
+		um, cmd := m.uploadBuildModel.Update(msg)
+		uploadMdl := um.(uploadBuildModel)
+		m.uploadBuildModel = &uploadMdl
+
+		// If upload completed and user chose "Upload another"
+		if m.uploadBuildModel.done && m.uploadBuildModel.uploadMore {
+			appID := m.uploadBuildModel.appID
+			appName := m.uploadBuildModel.appName
+			m.uploadBuildModel = nil
+			newUM := newUploadBuildModel(m.client, appID, appName, m.width, m.height)
+			m.uploadBuildModel = &newUM
+			return m, m.uploadBuildModel.Init()
+		}
+
+		// If upload completed and user chose "Back to builds"
+		if m.uploadBuildModel.done && !m.uploadBuildModel.uploadMore {
+			m.uploadBuildModel = nil
+			m.appsLoading = true
+			m.appBuilds = nil
+			m.currentView = viewAppDetail
+			if m.client != nil {
+				return m, fetchAppBuildsCmd(m.client, m.selectedAppID)
+			}
+			return m, nil
+		}
+
+		return m, cmd
+	}
+
+	return m, nil
+}
+
 // --- Helpers ---
 
 // visibleTests returns the filtered test list, or all tests if no filter is active.
@@ -1541,6 +1717,14 @@ func (m hubModel) View() string {
 		return m.renderAppList()
 	case viewAppDetail:
 		return m.renderAppDetail()
+	case viewCreateApp:
+		if m.createAppModel != nil {
+			return m.createAppModel.View()
+		}
+	case viewUploadBuild:
+		if m.uploadBuildModel != nil {
+			return m.uploadBuildModel.View()
+		}
 	case viewHelp:
 		return m.renderHelp()
 	case viewTestDetail:
@@ -1559,6 +1743,10 @@ func (m hubModel) View() string {
 		return renderModuleDetail(m)
 	case viewTagList:
 		return renderTagList(m)
+	case viewDeviceList:
+		return m.renderDeviceList()
+	case viewDeviceDetail:
+		return m.renderDeviceDetail()
 	}
 	return m.renderDashboard()
 }
@@ -2693,6 +2881,11 @@ func (m hubModel) handleAppListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.apps = nil
 			return m, fetchAppsCmd(m.client)
 		}
+	case "c":
+		cam := newCreateAppModel(m.client, m.width, m.height)
+		m.createAppModel = &cam
+		m.currentView = viewCreateApp
+		return m, m.createAppModel.Init()
 	}
 	return m, nil
 }
@@ -2756,6 +2949,11 @@ func (m hubModel) handleAppDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.appBuilds = nil
 			return m, fetchAppBuildsCmd(m.client, m.selectedAppID)
 		}
+	case "u":
+		um := newUploadBuildModel(m.client, m.selectedAppID, m.selectedAppName, m.width, m.height)
+		m.uploadBuildModel = &um
+		m.currentView = viewUploadBuild
+		return m, m.uploadBuildModel.Init()
 	}
 	return m, nil
 }
@@ -2825,6 +3023,7 @@ func (m hubModel) renderAppList() string {
 	b.WriteString("\n  " + separator(innerW) + "\n")
 	keys := []string{
 		helpKeyRender("enter", "view builds"),
+		helpKeyRender("c", "create"),
 		helpKeyRender("d", "delete"),
 		helpKeyRender("/", "filter"),
 		helpKeyRender("R", "refresh"),
@@ -2895,6 +3094,7 @@ func (m hubModel) renderAppDetail() string {
 
 	b.WriteString("\n  " + separator(innerW) + "\n")
 	keys := []string{
+		helpKeyRender("u", "upload"),
 		helpKeyRender("d", "delete"),
 		helpKeyRender("R", "refresh"),
 		helpKeyRender("esc", "back"),

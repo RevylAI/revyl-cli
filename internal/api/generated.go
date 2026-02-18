@@ -986,6 +986,7 @@ type AttachRequest struct {
 type AttachResponse struct {
 	CheckoutUrl *string `json:"checkout_url"`
 	Message     string  `json:"message"`
+	Success     *bool   `json:"success"`
 }
 
 // AuthInfo Class that represents authentication information.
@@ -1503,16 +1504,25 @@ type CategoryValue struct {
 	Value    float32 `json:"value"`
 }
 
-// ChartDataPoint defines model for ChartDataPoint.
+// ChartDataPoint Daily aggregated chart data point.
 type ChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
+	// AvgDuration Average execution duration in seconds for this date
+	AvgDuration *int `json:"avg_duration"`
+
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -3793,10 +3803,10 @@ type ModulesListResponse struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []ChartDataPoint `json:"data"`
-	MetricType   string           `json:"metric_type"`
-	Repositories []string         `json:"repositories"`
-	RetrievedAt  string           `json:"retrieved_at"`
+	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
+	MetricType   string                                           `json:"metric_type"`
+	Repositories []string                                         `json:"repositories"`
+	RetrievedAt  string                                           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -6921,9 +6931,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time                                           `json:"created_at"`
-	Deleted   bool                                                 `json:"deleted"`
+	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time        `json:"created_at"`
+	Deleted   bool              `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -7444,32 +7454,22 @@ type AppRoutesExecutionRoutesBillingXptAttachRequest struct {
 	RedirectUrl string  `json:"redirect_url"`
 }
 
-// AppRoutesRebelRoutesBillingXptAttachResponse defines model for app__routes__rebel_routes__billing_xpt__AttachResponse.
-type AppRoutesRebelRoutesBillingXptAttachResponse struct {
+// AppRoutesExecutionRoutesBillingXptAttachResponse defines model for app__routes__execution_routes__billing_xpt__AttachResponse.
+type AppRoutesExecutionRoutesBillingXptAttachResponse struct {
 	CheckoutUrl *string `json:"checkout_url"`
 	Message     string  `json:"message"`
-	Success     *bool   `json:"success"`
 }
 
-// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
-type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
-	// AvgDuration Average execution duration in seconds for this date
-	AvgDuration *int `json:"avg_duration"`
-
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
+// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
+type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments"`
+	MedianHours *float32 `json:"median_hours"`
+	P25Hours    *float32 `json:"p25_hours"`
+	P75Hours    *float32 `json:"p75_hours"`
+	TeamAverage *float32 `json:"team_average"`
+	Trend       *string  `json:"trend"`
+	Value       *float32 `json:"value"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.

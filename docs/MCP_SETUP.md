@@ -209,33 +209,55 @@ Create or edit `~/.codeium/windsurf/mcp_config.json`:
 
 ---
 
-## Installing the Agent Skill (optional, better UX)
+## Installing the Agent Skill (Recommended)
 
 The Revyl agent skill teaches your AI assistant optimal tool usage patterns, workflows, and troubleshooting. It's optional but significantly improves the experience.
 
-The skill file is at: [`skills/revyl-device/SKILL.md`](../skills/revyl-device/SKILL.md)
+The skill is **embedded in the CLI binary** and can be installed with a single command.
 
-### Cursor
-
-Copy the skill content into a Cursor rule:
-
-1. Open `.cursor/rules/` in your project
-2. Create a file like `revyl-device.mdc`
-3. Paste the contents of `SKILL.md`
-
-### Claude Code / Claude Desktop
-
-Add as project knowledge:
-
-1. Open your Claude project settings
-2. Add the `SKILL.md` content as a knowledge document
-
-### Codex
+### Auto-detect (installs for all detected tools)
 
 ```bash
-# If using the codex skills system
-cp skills/revyl-device/SKILL.md ~/.codex/skills/revyl-device/SKILL.md
+revyl skill install
 ```
+
+### Tool-specific installation
+
+```bash
+revyl skill install --cursor     # Cursor (.cursor/skills/revyl-device/SKILL.md)
+revyl skill install --claude     # Claude Code (.claude/skills/revyl-device/SKILL.md)
+revyl skill install --codex      # Codex (.codex/skills/revyl-device/SKILL.md)
+```
+
+### Global installation (user-level, applies to all projects)
+
+```bash
+revyl skill install --cursor --global   # ~/.cursor/skills/revyl-device/SKILL.md
+revyl skill install --claude --global   # ~/.claude/skills/revyl-device/SKILL.md
+revyl skill install --codex --global    # ~/.codex/skills/revyl-device/SKILL.md
+```
+
+### Manual installation
+
+If you prefer to install the skill manually:
+
+```bash
+# Export the skill file
+revyl skill export -o SKILL.md
+
+# Or pipe it directly
+revyl skill show > SKILL.md
+```
+
+Then place it in the appropriate directory for your tool:
+
+| Tool | Project-level | User-level (global) |
+| --- | --- | --- |
+| Cursor | `.cursor/skills/revyl-device/SKILL.md` | `~/.cursor/skills/revyl-device/SKILL.md` |
+| Claude Code | `.claude/skills/revyl-device/SKILL.md` | `~/.claude/skills/revyl-device/SKILL.md` |
+| Codex | `.codex/skills/revyl-device/SKILL.md` | `~/.codex/skills/revyl-device/SKILL.md` |
+
+After installing, the skill is automatically discovered by your AI agent on startup. Restart your IDE if it was already running.
 
 ---
 

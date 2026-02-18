@@ -64,6 +64,14 @@ Full setup guides for every tool:
 - **[Public Docs](https://docs.revyl.ai/cli/mcp-setup)** -- Same guide on the docs site
 - **[Agent Skill](skills/revyl-device/SKILL.md)** -- Optional skill doc that teaches your agent optimal usage patterns
 
+Install the agent skill (improves AI tool integration):
+```bash
+revyl skill install              # Auto-detect and install
+revyl skill install --cursor     # Cursor only
+revyl skill install --claude     # Claude Code only
+revyl skill install --codex      # Codex only
+```
+
 ## Team Quick Start (Internal)
 
 For team members working from the monorepo:
@@ -267,6 +275,9 @@ revyl version    # Show version, commit, and build date (--json for CI)
 revyl docs       # Open Revyl documentation in browser
 revyl schema     # Display CLI command schema (for integrations)
 revyl mcp serve  # Start MCP server for AI agent integration
+revyl skill install           # Install agent skill for AI coding tools
+revyl skill show              # Print agent skill to stdout
+revyl skill export -o FILE    # Export agent skill to a file
 ```
 
 ### Global Flags
@@ -417,6 +428,57 @@ go test -v ./... -run TestRootCommand
 ```
 
 The pre-commit hook automatically runs `go build`, `gofmt`, and `go vet` on staged Go files to catch issues early.
+
+## Releasing
+
+### Version Bumping
+
+The `VERSION` file is the single source of truth. Use the Makefile targets to bump it (they also sync `npm/package.json`, `python/pyproject.toml`, and `python/revyl/__init__.py`):
+
+```bash
+make bump-patch   # 0.1.1 -> 0.1.2  (bug fixes)
+make bump-minor   # 0.1.1 -> 0.2.0  (new features)
+make bump-major   # 0.1.1 -> 1.0.0  (breaking changes)
+make version      # Print the current version
+```
+
+After bumping, commit and merge to `main`:
+
+```bash
+make bump-minor
+git add -A
+git commit -m "chore: bump version to $(cat VERSION)"
+# Open PR -> merge to main
+```
+
+### What Triggers a Release
+
+Merging to `main` with any change in `revyl-cli/` triggers the release pipeline. The pipeline only publishes when the `VERSION` file contains a version that hasn't been released yet. If the version already exists as a tag, the sync still runs but no release is created.
+
+### What the Pipeline Does
+
+1. **Sync** -- copies `revyl-cli/` to the standalone [RevylAI/revyl-cli](https://github.com/RevylAI/revyl-cli) repo and creates a git tag
+2. **Build** -- cross-compiles Go binaries for 5 targets (macOS amd64/arm64, Linux amd64/arm64, Windows amd64)
+3. **Release** -- creates a GitHub Release with all binaries, checksums, and `SKILL.md`
+4. **Publish** -- pushes to npm (`@revyl/cli`), PyPI (`revyl`), and Homebrew (`RevylAI/tap/revyl`) in parallel
+
+### Manual Release
+
+You can trigger a release manually from the GitHub Actions UI:
+
+1. Go to **Actions > Release Revyl CLI > Run workflow**
+2. Optionally provide a version override (e.g. `v0.2.0-beta.1`)
+3. Select the `main` branch
+
+### Pre-releases
+
+For beta or release candidate versions, edit `VERSION` directly:
+
+```bash
+echo "0.2.0-beta.1" > VERSION
+```
+
+Versions containing `-` (e.g. `0.2.0-beta.1`) are automatically marked as pre-release on the GitHub Release and won't be served to users running `revyl upgrade`.
 
 ## Local Development with Hot Reload
 

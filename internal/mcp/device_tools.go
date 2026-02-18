@@ -118,7 +118,7 @@ func (s *Server) registerDeviceTools() {
 	// App management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "install_app",
-		Description: "Install an app on the device from a remote URL (.apk for Android, .app for iOS).",
+		Description: "Install an app on the device. Provide either app_url (direct URL to .apk/.ipa) or build_version_id (from a previous upload_build). Returns the detected bundle_id for use with launch_app.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Install App",
 			DestructiveHint: boolPtr(true),
@@ -664,20 +664,43 @@ func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest,
 // --- Install App ---
 
 type InstallAppInput struct {
-	AppURL       string `json:"app_url" jsonschema:"URL to download app from (REQUIRED)"`
-	BundleID     string `json:"bundle_id,omitempty" jsonschema:"Bundle ID (auto-detected if omitted)"`
-	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+	AppURL         string `json:"app_url,omitempty" jsonschema:"URL to download app from (.apk or .ipa). Provide this OR build_version_id."`
+	BuildVersionID string `json:"build_version_id,omitempty" jsonschema:"Build version ID from a previous upload_build. The download URL is resolved automatically. Provide this OR app_url."`
+	BundleID       string `json:"bundle_id,omitempty" jsonschema:"Bundle ID (auto-detected if omitted)"`
+	SessionIndex   *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
 type InstallAppOutput struct {
 	Success   bool       `json:"success"`
+	BundleID  string     `json:"bundle_id,omitempty"`
 	Error     string     `json:"error,omitempty"`
 	NextSteps []NextStep `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest, input InstallAppInput) (*mcp.CallToolResult, InstallAppOutput, error) {
-	if input.AppURL == "" {
-		return nil, InstallAppOutput{Success: false, Error: "app_url is required -- provide a URL to an .apk (Android) or .ipa (iOS) file"}, nil
+	appURL := input.AppURL
+
+	// Resolve build_version_id to a download URL if provided
+	if appURL == "" && input.BuildVersionID != "" {
+		detail, err := s.apiClient.GetBuildVersionDownloadURL(ctx, input.BuildVersionID)
+		if err != nil {
+			return nil, InstallAppOutput{
+				Success: false,
+				Error:   fmt.Sprintf("failed to resolve build version %s: %v", input.BuildVersionID, err),
+				NextSteps: []NextStep{
+					{Tool: "list_builds", Reason: "List available builds to find a valid version ID"},
+				},
+			}, nil
+		}
+		appURL = detail.DownloadURL
+		// Use the package_name from the build as bundle_id hint if not explicitly provided
+		if input.BundleID == "" && detail.PackageName != "" {
+			input.BundleID = detail.PackageName
+		}
+	}
+
+	if appURL == "" {
+		return nil, InstallAppOutput{Success: false, Error: "either app_url or build_version_id is required -- provide a URL to an .apk/.ipa file, or the ID of a previously uploaded build"}, nil
 	}
 	sidx := -1
 	if input.SessionIndex != nil {
@@ -689,7 +712,7 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
-	body := map[string]string{"app_url": input.AppURL}
+	body := map[string]string{"app_url": appURL}
 	if input.BundleID != "" {
 		body["bundle_id"] = input.BundleID
 	}
@@ -698,7 +721,11 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, InstallAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
-	var resp struct{ Success bool }
+	var resp struct {
+		Success     bool   `json:"Success"`
+		BundleID    string `json:"bundle_id"`
+		PackageName string `json:"package_name"`
+	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		truncated := string(respBody)
 		if len(truncated) > 200 {
@@ -711,10 +738,23 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 		}, nil
 	}
 
-	output := InstallAppOutput{Success: resp.Success}
+	// Resolve bundle ID from response, input, or build metadata (in priority order)
+	detectedBundleID := resp.BundleID
+	if detectedBundleID == "" {
+		detectedBundleID = resp.PackageName
+	}
+	if detectedBundleID == "" {
+		detectedBundleID = input.BundleID
+	}
+
+	output := InstallAppOutput{Success: resp.Success, BundleID: detectedBundleID}
 	if resp.Success {
+		launchReason := "Launch the installed app"
+		if detectedBundleID != "" {
+			launchReason = fmt.Sprintf("Launch the installed app (bundle_id=%q)", detectedBundleID)
+		}
 		output.NextSteps = []NextStep{
-			{Tool: "launch_app", Reason: "Launch the installed app"},
+			{Tool: "launch_app", Reason: launchReason},
 			{Tool: "screenshot", Reason: "See the device screen"},
 		}
 	} else {

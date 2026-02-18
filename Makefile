@@ -25,7 +25,7 @@ CMD_DIR := ./cmd/revyl
 BUILD_DIR := ./build
 SCRIPTS_DIR := ./scripts
 
-.PHONY: all build clean test lint fmt deps dev generate install help check setup-merge-drivers
+.PHONY: all build clean test lint fmt deps dev generate install help check setup-merge-drivers version bump-patch bump-minor bump-major
 
 ## help: Show this help message
 help:
@@ -179,6 +179,57 @@ setup: setup-merge-drivers
 run:
 	@$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY) $(CMD_DIR)
 	@$(BUILD_DIR)/$(BINARY) $(ARGS)
+
+# ---------- Version management ----------
+
+# Read the current version from the VERSION file
+CURRENT_VERSION := $(shell cat VERSION 2>/dev/null | tr -d '[:space:]')
+
+## version: Print the current version from the VERSION file
+version:
+	@echo "$(CURRENT_VERSION)"
+
+## bump-patch: Bump patch version (e.g. 0.1.1 -> 0.1.2) and sync all version files
+bump-patch:
+	@OLD="$(CURRENT_VERSION)" ; \
+	MAJOR=$$(echo "$$OLD" | cut -d. -f1) ; \
+	MINOR=$$(echo "$$OLD" | cut -d. -f2) ; \
+	PATCH=$$(echo "$$OLD" | cut -d. -f3) ; \
+	NEW="$$MAJOR.$$MINOR.$$((PATCH + 1))" ; \
+	$(MAKE) _set-version OLD="$$OLD" NEW="$$NEW"
+
+## bump-minor: Bump minor version (e.g. 0.1.1 -> 0.2.0) and sync all version files
+bump-minor:
+	@OLD="$(CURRENT_VERSION)" ; \
+	MAJOR=$$(echo "$$OLD" | cut -d. -f1) ; \
+	MINOR=$$(echo "$$OLD" | cut -d. -f2) ; \
+	NEW="$$MAJOR.$$((MINOR + 1)).0" ; \
+	$(MAKE) _set-version OLD="$$OLD" NEW="$$NEW"
+
+## bump-major: Bump major version (e.g. 0.1.1 -> 1.0.0) and sync all version files
+bump-major:
+	@OLD="$(CURRENT_VERSION)" ; \
+	MAJOR=$$(echo "$$OLD" | cut -d. -f1) ; \
+	NEW="$$((MAJOR + 1)).0.0" ; \
+	$(MAKE) _set-version OLD="$$OLD" NEW="$$NEW"
+
+# Internal target: write the new version to all version files.
+# Called by bump-patch, bump-minor, bump-major with OLD and NEW variables.
+_set-version:
+	@echo "Bumping version: $(OLD) -> $(NEW)"
+	@printf "$(NEW)\n" > VERSION
+	@sed -i.bak 's/"version": "$(OLD)"/"version": "$(NEW)"/' npm/package.json && rm -f npm/package.json.bak
+	@sed -i.bak 's/version = "$(OLD)"/version = "$(NEW)"/' python/pyproject.toml && rm -f python/pyproject.toml.bak
+	@sed -i.bak 's/__version__ = "$(OLD)"/__version__ = "$(NEW)"/' python/revyl/__init__.py && rm -f python/revyl/__init__.py.bak
+	@echo "Updated files:"
+	@echo "  VERSION                    $(NEW)"
+	@echo "  npm/package.json           $(NEW)"
+	@echo "  python/pyproject.toml      $(NEW)"
+	@echo "  python/revyl/__init__.py   $(NEW)"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  git add -A && git commit -m 'chore: bump version to $(NEW)'"
+	@echo "  Then merge to main to trigger a release."
 
 # Development shortcuts
 .PHONY: r b t

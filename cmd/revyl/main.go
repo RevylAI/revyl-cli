@@ -139,6 +139,9 @@ func init() {
 
 	// Device interaction commands
 	rootCmd.AddCommand(deviceCmd)
+
+	// Agent skill management
+	rootCmd.AddCommand(skillCmd)
 }
 
 // completionCmd generates shell completion scripts.

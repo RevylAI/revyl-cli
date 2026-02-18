@@ -578,6 +578,46 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleClearEnvVars)
 
+	// --- Custom variable tools ({{variable-name}} in step descriptions) ---
+
+	// list_variables tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "list_variables",
+		Description: "List all test variables for a test. Test variables use {{name}} syntax in step descriptions and are substituted at runtime. For encrypted app-launch environment variables, use list_env_vars instead.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Variables",
+			ReadOnlyHint: true,
+		},
+	}, s.handleListVariables)
+
+	// set_variable tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "set_variable",
+		Description: "Add or update a test variable. Test variables use {{name}} syntax in step descriptions. If the variable name already exists, its value is updated. Variable names must be kebab-case (lowercase, numbers, hyphens). For encrypted app-launch environment variables, use set_env_var instead.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Set Variable",
+		},
+	}, s.handleSetVariable)
+
+	// delete_variable tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "delete_variable",
+		Description: "Delete a test variable by name.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Delete Variable",
+		},
+	}, s.handleDeleteVariable)
+
+	// delete_all_variables tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "delete_all_variables",
+		Description: "Delete ALL test variables for a test.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete All Variables",
+			DestructiveHint: boolPtr(true),
+		},
+	}, s.handleDeleteAllVariables)
+
 	// --- Workflow settings tools ---
 
 	// get_workflow_settings tool
@@ -627,6 +667,26 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 			DestructiveHint: boolPtr(true),
 		},
 	}, s.handleClearWorkflowApp)
+
+	// --- Workflow test management tools ---
+
+	// add_tests_to_workflow tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "add_tests_to_workflow",
+		Description: "Add one or more tests to an existing workflow. Tests are appended (duplicates are ignored). Accepts test names (from config) or UUIDs.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Add Tests to Workflow",
+		},
+	}, s.handleAddTestsToWorkflow)
+
+	// remove_tests_from_workflow tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "remove_tests_from_workflow",
+		Description: "Remove one or more tests from an existing workflow. Accepts test names (from config) or UUIDs.",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Remove Tests from Workflow",
+		},
+	}, s.handleRemoveTestsFromWorkflow)
 
 	// add_remove_test_tags tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -2625,6 +2685,201 @@ func (s *Server) handleClearEnvVars(ctx context.Context, req *mcp.CallToolReques
 	return nil, ClearEnvVarsOutput{Success: true}, nil
 }
 
+// --- Custom variable tool handlers ---
+
+// ListVariablesInput defines input for list_variables tool.
+type ListVariablesInput struct {
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+}
+
+// VariableInfo contains information about a test variable for MCP output.
+type VariableInfo struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// ListVariablesOutput defines output for list_variables tool.
+type ListVariablesOutput struct {
+	Success   bool           `json:"success"`
+	TestID    string         `json:"test_id,omitempty"`
+	Variables []VariableInfo `json:"variables,omitempty"`
+	Error     string         `json:"error,omitempty"`
+}
+
+// handleListVariables handles the list_variables tool call.
+func (s *Server) handleListVariables(ctx context.Context, req *mcp.CallToolRequest, input ListVariablesInput) (*mcp.CallToolResult, ListVariablesOutput, error) {
+	if input.TestNameOrID == "" {
+		return nil, ListVariablesOutput{Success: false, Error: "test_name_or_id is required"}, nil
+	}
+
+	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
+	if err != nil {
+		return nil, ListVariablesOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	resp, err := s.apiClient.ListCustomVariables(ctx, testID)
+	if err != nil {
+		return nil, ListVariablesOutput{Success: false, Error: fmt.Sprintf("failed to list variables: %v", err)}, nil
+	}
+
+	var variables []VariableInfo
+	for _, v := range resp.Result {
+		variables = append(variables, VariableInfo{
+			ID:    v.ID,
+			Name:  v.VariableName,
+			Value: v.VariableValue,
+		})
+	}
+	if variables == nil {
+		variables = []VariableInfo{}
+	}
+
+	return nil, ListVariablesOutput{Success: true, TestID: testID, Variables: variables}, nil
+}
+
+// SetVariableInput defines input for set_variable tool.
+type SetVariableInput struct {
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+	Name         string `json:"name" jsonschema:"Variable name (kebab-case: lowercase letters, numbers, hyphens)"`
+	Value        string `json:"value,omitempty" jsonschema:"Variable value (optional, defaults to empty string)"`
+}
+
+// SetVariableOutput defines output for set_variable tool.
+type SetVariableOutput struct {
+	Success bool   `json:"success"`
+	Action  string `json:"action,omitempty"` // "added" or "updated"
+	Name    string `json:"name,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleSetVariable handles the set_variable tool call (upsert).
+func (s *Server) handleSetVariable(ctx context.Context, req *mcp.CallToolRequest, input SetVariableInput) (*mcp.CallToolResult, SetVariableOutput, error) {
+	if input.TestNameOrID == "" || input.Name == "" {
+		return nil, SetVariableOutput{Success: false, Error: "test_name_or_id and name are required"}, nil
+	}
+
+	// Enforce kebab-case naming to stay consistent with YAML validator
+	if !isValidVariableName(input.Name) {
+		return nil, SetVariableOutput{
+			Success: false,
+			Error:   fmt.Sprintf("invalid variable name '%s': must be kebab-case (lowercase letters, numbers, hyphens; no leading/trailing/consecutive hyphens)", input.Name),
+		}, nil
+	}
+
+	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
+	if err != nil {
+		return nil, SetVariableOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	// Check if variable already exists (upsert pattern)
+	existing, err := s.apiClient.ListCustomVariables(ctx, testID)
+	if err != nil {
+		return nil, SetVariableOutput{Success: false, Error: fmt.Sprintf("failed to check existing variables: %v", err)}, nil
+	}
+
+	for _, v := range existing.Result {
+		if v.VariableName == input.Name {
+			// Variable exists -- update its value
+			err = s.apiClient.UpdateCustomVariableValue(ctx, testID, v.ID, input.Value)
+			if err != nil {
+				return nil, SetVariableOutput{Success: false, Error: fmt.Sprintf("failed to update variable: %v", err)}, nil
+			}
+			return nil, SetVariableOutput{Success: true, Action: "updated", Name: input.Name}, nil
+		}
+	}
+
+	// Variable doesn't exist -- create it
+	_, err = s.apiClient.AddCustomVariable(ctx, testID, input.Name, input.Value)
+	if err != nil {
+		return nil, SetVariableOutput{Success: false, Error: fmt.Sprintf("failed to add variable: %v", err)}, nil
+	}
+	return nil, SetVariableOutput{Success: true, Action: "added", Name: input.Name}, nil
+}
+
+// DeleteVariableInput defines input for delete_variable tool.
+type DeleteVariableInput struct {
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+	Name         string `json:"name" jsonschema:"Variable name to delete"`
+}
+
+// DeleteVariableOutput defines output for delete_variable tool.
+type DeleteVariableOutput struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleDeleteVariable handles the delete_variable tool call.
+func (s *Server) handleDeleteVariable(ctx context.Context, req *mcp.CallToolRequest, input DeleteVariableInput) (*mcp.CallToolResult, DeleteVariableOutput, error) {
+	if input.TestNameOrID == "" || input.Name == "" {
+		return nil, DeleteVariableOutput{Success: false, Error: "test_name_or_id and name are required"}, nil
+	}
+
+	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
+	if err != nil {
+		return nil, DeleteVariableOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	err = s.apiClient.DeleteCustomVariable(ctx, testID, input.Name)
+	if err != nil {
+		return nil, DeleteVariableOutput{Success: false, Error: fmt.Sprintf("failed to delete variable: %v", err)}, nil
+	}
+
+	return nil, DeleteVariableOutput{Success: true}, nil
+}
+
+// DeleteAllVariablesInput defines input for delete_all_variables tool.
+type DeleteAllVariablesInput struct {
+	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
+}
+
+// DeleteAllVariablesOutput defines output for delete_all_variables tool.
+type DeleteAllVariablesOutput struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleDeleteAllVariables handles the delete_all_variables tool call.
+func (s *Server) handleDeleteAllVariables(ctx context.Context, req *mcp.CallToolRequest, input DeleteAllVariablesInput) (*mcp.CallToolResult, DeleteAllVariablesOutput, error) {
+	if input.TestNameOrID == "" {
+		return nil, DeleteAllVariablesOutput{Success: false, Error: "test_name_or_id is required"}, nil
+	}
+
+	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
+	if err != nil {
+		return nil, DeleteAllVariablesOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	err = s.apiClient.DeleteAllCustomVariables(ctx, testID)
+	if err != nil {
+		return nil, DeleteAllVariablesOutput{Success: false, Error: fmt.Sprintf("failed to delete all variables: %v", err)}, nil
+	}
+
+	return nil, DeleteAllVariablesOutput{Success: true}, nil
+}
+
+// isValidVariableName checks if a variable name follows kebab-case convention.
+//
+// Must be lowercase letters, numbers, and hyphens only.
+// Must not start or end with hyphen, and must not have consecutive hyphens.
+func isValidVariableName(name string) bool {
+	if name == "" {
+		return false
+	}
+	if name[0] == '-' || name[len(name)-1] == '-' {
+		return false
+	}
+	for i, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return false
+		}
+		if c == '-' && i > 0 && name[i-1] == '-' {
+			return false
+		}
+	}
+	return true
+}
+
 // --- Workflow settings tool handlers ---
 
 // GetWorkflowSettingsInput defines input for get_workflow_settings tool.
@@ -2812,6 +3067,173 @@ func (s *Server) handleClearWorkflowApp(ctx context.Context, req *mcp.CallToolRe
 	}
 
 	return nil, SimpleSuccessOutput{Success: true, Message: "App override cleared"}, nil
+}
+
+// --- Workflow test management tool handlers ---
+
+// AddTestsToWorkflowInput defines input for add_tests_to_workflow tool.
+type AddTestsToWorkflowInput struct {
+	WorkflowNameOrID string   `json:"workflow_name_or_id" jsonschema:"Workflow name (from config) or UUID"`
+	TestNamesOrIDs   []string `json:"test_names_or_ids" jsonschema:"Test names (from config) or UUIDs to add"`
+}
+
+// AddTestsToWorkflowOutput defines output for add_tests_to_workflow tool.
+type AddTestsToWorkflowOutput struct {
+	Success    bool     `json:"success"`
+	WorkflowID string   `json:"workflow_id,omitempty"`
+	Added      []string `json:"added,omitempty"`
+	Skipped    []string `json:"skipped,omitempty"`
+	Error      string   `json:"error,omitempty"`
+}
+
+// handleAddTestsToWorkflow handles the add_tests_to_workflow tool call.
+func (s *Server) handleAddTestsToWorkflow(ctx context.Context, req *mcp.CallToolRequest, input AddTestsToWorkflowInput) (*mcp.CallToolResult, AddTestsToWorkflowOutput, error) {
+	if input.WorkflowNameOrID == "" {
+		return nil, AddTestsToWorkflowOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
+	}
+	if len(input.TestNamesOrIDs) == 0 {
+		return nil, AddTestsToWorkflowOutput{Success: false, Error: "test_names_or_ids must contain at least one test"}, nil
+	}
+
+	workflowID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
+	if err != nil {
+		return nil, AddTestsToWorkflowOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	// Fetch current workflow to get existing test list
+	workflow, err := s.apiClient.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		return nil, AddTestsToWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to get workflow: %v", err)}, nil
+	}
+
+	// Build set of existing test IDs for dedup
+	existingSet := make(map[string]bool, len(workflow.Tests))
+	for _, id := range workflow.Tests {
+		existingSet[id] = true
+	}
+
+	// Resolve input test names/IDs and append new ones
+	var added, skipped []string
+	newTestIDs := make([]string, len(workflow.Tests))
+	copy(newTestIDs, workflow.Tests)
+
+	for _, nameOrID := range input.TestNamesOrIDs {
+		testID, err := s.resolveTestID(ctx, nameOrID)
+		if err != nil {
+			return nil, AddTestsToWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to resolve test '%s': %v", nameOrID, err)}, nil
+		}
+		if existingSet[testID] {
+			skipped = append(skipped, nameOrID)
+			continue
+		}
+		newTestIDs = append(newTestIDs, testID)
+		existingSet[testID] = true
+		added = append(added, nameOrID)
+	}
+
+	if len(added) == 0 {
+		return nil, AddTestsToWorkflowOutput{
+			Success:    true,
+			WorkflowID: workflowID,
+			Skipped:    skipped,
+		}, nil
+	}
+
+	err = s.apiClient.UpdateWorkflowTests(ctx, workflowID, newTestIDs)
+	if err != nil {
+		return nil, AddTestsToWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to update workflow tests: %v", err)}, nil
+	}
+
+	return nil, AddTestsToWorkflowOutput{
+		Success:    true,
+		WorkflowID: workflowID,
+		Added:      added,
+		Skipped:    skipped,
+	}, nil
+}
+
+// RemoveTestsFromWorkflowInput defines input for remove_tests_from_workflow tool.
+type RemoveTestsFromWorkflowInput struct {
+	WorkflowNameOrID string   `json:"workflow_name_or_id" jsonschema:"Workflow name (from config) or UUID"`
+	TestNamesOrIDs   []string `json:"test_names_or_ids" jsonschema:"Test names (from config) or UUIDs to remove"`
+}
+
+// RemoveTestsFromWorkflowOutput defines output for remove_tests_from_workflow tool.
+type RemoveTestsFromWorkflowOutput struct {
+	Success    bool     `json:"success"`
+	WorkflowID string   `json:"workflow_id,omitempty"`
+	Removed    []string `json:"removed,omitempty"`
+	NotFound   []string `json:"not_found,omitempty"`
+	Error      string   `json:"error,omitempty"`
+}
+
+// handleRemoveTestsFromWorkflow handles the remove_tests_from_workflow tool call.
+func (s *Server) handleRemoveTestsFromWorkflow(ctx context.Context, req *mcp.CallToolRequest, input RemoveTestsFromWorkflowInput) (*mcp.CallToolResult, RemoveTestsFromWorkflowOutput, error) {
+	if input.WorkflowNameOrID == "" {
+		return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
+	}
+	if len(input.TestNamesOrIDs) == 0 {
+		return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: "test_names_or_ids must contain at least one test"}, nil
+	}
+
+	workflowID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
+	if err != nil {
+		return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: err.Error()}, nil
+	}
+
+	// Fetch current workflow to get existing test list
+	workflow, err := s.apiClient.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to get workflow: %v", err)}, nil
+	}
+
+	// Resolve input test names/IDs to UUIDs
+	removeSet := make(map[string]bool)
+	var removed, notFound []string
+	for _, nameOrID := range input.TestNamesOrIDs {
+		testID, err := s.resolveTestID(ctx, nameOrID)
+		if err != nil {
+			return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to resolve test '%s': %v", nameOrID, err)}, nil
+		}
+		removeSet[testID] = true
+	}
+
+	// Build new test list excluding removed ones
+	var newTestIDs []string
+	removedSet := make(map[string]bool)
+	for _, id := range workflow.Tests {
+		if removeSet[id] {
+			removedSet[id] = true
+			continue
+		}
+		newTestIDs = append(newTestIDs, id)
+	}
+
+	// Track which inputs were actually found/removed
+	for _, nameOrID := range input.TestNamesOrIDs {
+		testID, _ := s.resolveTestID(ctx, nameOrID)
+		if removedSet[testID] {
+			removed = append(removed, nameOrID)
+		} else {
+			notFound = append(notFound, nameOrID)
+		}
+	}
+
+	if newTestIDs == nil {
+		newTestIDs = []string{}
+	}
+
+	err = s.apiClient.UpdateWorkflowTests(ctx, workflowID, newTestIDs)
+	if err != nil {
+		return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to update workflow tests: %v", err)}, nil
+	}
+
+	return nil, RemoveTestsFromWorkflowOutput{
+		Success:    true,
+		WorkflowID: workflowID,
+		Removed:    removed,
+		NotFound:   notFound,
+	}, nil
 }
 
 // --- Build upload tool handler ---
