@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -22,6 +23,10 @@ func writeSleepScript(t *testing.T, seconds int) string {
 }
 
 func TestStartTunnel_ContextCancelled_NoDeadlock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix-only process script test; skipped on windows")
+	}
+
 	scriptPath := writeSleepScript(t, 30)
 	tunnel := NewTunnelManager(scriptPath, nil)
 
@@ -52,6 +57,10 @@ func TestStartTunnel_ContextCancelled_NoDeadlock(t *testing.T) {
 }
 
 func TestStartTunnel_ProcessExitsWithoutURL_NoDeadlock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix-only process script test; skipped on windows")
+	}
+
 	tunnel := NewTunnelManager("/bin/true", nil)
 
 	done := make(chan error, 1)
