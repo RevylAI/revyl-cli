@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -106,16 +107,16 @@ type HotReloadConfig struct {
 
 // ProviderConfig contains configuration for a single hot reload provider.
 type ProviderConfig struct {
-	// DevClientBuildID is the build version ID of the pre-built development client.
-	// Optional: can be specified at runtime via --platform or --build-id flags.
-	DevClientBuildID string `yaml:"dev_client_build_id,omitempty"`
-
 	// Port is the port for the dev server (default varies by provider).
 	Port int `yaml:"port,omitempty"`
 
 	// Expo-specific fields
 	// AppScheme is the app's URL scheme from app.json (e.g., "myapp").
 	AppScheme string `yaml:"app_scheme,omitempty"`
+
+	// PlatformKeys optionally maps OS platform ("ios"/"android") to build.platforms keys.
+	// Example: {"ios":"ios-dev","android":"android-dev"}.
+	PlatformKeys map[string]string `yaml:"platform_keys,omitempty"`
 
 	// UseExpPrefix controls whether to use the "exp+" prefix in deep links.
 	// When true: exp+{scheme}://expo-development-client/?url=...
@@ -252,12 +253,20 @@ func (c *HotReloadConfig) ValidateProvider(providerName string) error {
 }
 
 // validateProviderConfig validates a single provider configuration.
-// Note: DevClientBuildID is optional - it can be specified at runtime via --platform or --build-id.
 func (c *HotReloadConfig) validateProviderConfig(name string, cfg *ProviderConfig) error {
 	switch name {
 	case "expo":
 		if cfg.AppScheme == "" {
 			return fmt.Errorf("app_scheme is required for Expo")
+		}
+		for targetPlatform, platformKey := range cfg.PlatformKeys {
+			normalizedTarget := strings.ToLower(strings.TrimSpace(targetPlatform))
+			if normalizedTarget != "ios" && normalizedTarget != "android" {
+				return fmt.Errorf("platform_keys.%s must be ios or android", targetPlatform)
+			}
+			if strings.TrimSpace(platformKey) == "" {
+				return fmt.Errorf("platform_keys.%s cannot be empty", targetPlatform)
+			}
 		}
 	case "swift":
 		return fmt.Errorf("swift hot reload is not yet supported")
@@ -316,10 +325,68 @@ type BuildPlatform struct {
 // Defaults contains default settings.
 type Defaults struct {
 	// OpenBrowser controls whether to open browser after test completion.
-	OpenBrowser bool `yaml:"open_browser"`
+	OpenBrowser *bool `yaml:"open_browser,omitempty"`
 
 	// Timeout is the default timeout in seconds.
-	Timeout int `yaml:"timeout"`
+	Timeout int `yaml:"timeout,omitempty"`
+}
+
+const (
+	// DefaultOpenBrowser is the default for defaults.open_browser when omitted.
+	DefaultOpenBrowser = true
+
+	// DefaultTimeoutSeconds is the default for defaults.timeout when omitted or invalid.
+	DefaultTimeoutSeconds = 600
+)
+
+// ApplyDefaults normalizes omitted/invalid project defaults in-place.
+//
+// Parameters:
+//   - cfg: Project config to normalize (no-op when nil)
+func ApplyDefaults(cfg *ProjectConfig) {
+	if cfg == nil {
+		return
+	}
+
+	if cfg.Defaults.OpenBrowser == nil {
+		open := DefaultOpenBrowser
+		cfg.Defaults.OpenBrowser = &open
+	}
+	if cfg.Defaults.Timeout <= 0 {
+		cfg.Defaults.Timeout = DefaultTimeoutSeconds
+	}
+}
+
+// EffectiveOpenBrowser returns the effective open-browser setting.
+//
+// Parameters:
+//   - cfg: Project config (nil uses default)
+//
+// Returns:
+//   - bool: Effective setting
+func EffectiveOpenBrowser(cfg *ProjectConfig) bool {
+	if cfg == nil || cfg.Defaults.OpenBrowser == nil {
+		return DefaultOpenBrowser
+	}
+	return *cfg.Defaults.OpenBrowser
+}
+
+// EffectiveTimeoutSeconds returns the effective timeout.
+//
+// Parameters:
+//   - cfg: Project config (nil uses fallback)
+//   - fallback: Timeout fallback in seconds when config is nil/invalid
+//
+// Returns:
+//   - int: Effective timeout in seconds
+func EffectiveTimeoutSeconds(cfg *ProjectConfig, fallback int) int {
+	if cfg != nil && cfg.Defaults.Timeout > 0 {
+		return cfg.Defaults.Timeout
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return DefaultTimeoutSeconds
 }
 
 // LoadProjectConfig loads a project configuration from a file.
@@ -351,6 +418,7 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 	if cfg.Build.Platforms == nil {
 		cfg.Build.Platforms = make(map[string]BuildPlatform)
 	}
+	ApplyDefaults(&cfg)
 
 	return &cfg, nil
 }
@@ -364,6 +432,8 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 // Returns:
 //   - error: Any error that occurred during writing
 func WriteProjectConfig(path string, cfg *ProjectConfig) error {
+	ApplyDefaults(cfg)
+
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)

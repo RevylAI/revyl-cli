@@ -4,10 +4,23 @@ AI-powered mobile app testing from the command line.
 
 ## Installation
 
-### npm (recommended)
+### Homebrew (recommended)
+
+```bash
+brew install RevylAI/tap/revyl
+brew upgrade RevylAI/tap/revyl
+```
+
+If you already added the tap, you can also use `brew install revyl`.
+
+### npm
 
 ```bash
 npm install -g @revyl/cli
+```
+
+```bash
+npm update -g @revyl/cli
 ```
 
 ### pip
@@ -15,6 +28,20 @@ npm install -g @revyl/cli
 ```bash
 pip install revyl
 ```
+
+```bash
+pip install --upgrade revyl
+```
+
+### Upgrading
+
+After installing, keep the CLI up to date with:
+
+```bash
+revyl version
+```
+
+Use `brew upgrade`, `npm update`, or `pip install --upgrade` depending on your install method.
 
 ### Direct Download
 
@@ -62,15 +89,62 @@ Full setup guides for every tool:
 
 - **[Setup Guide (detailed)](docs/MCP_SETUP.md)** -- Cursor, Claude Code, Codex, VS Code, Claude Desktop, Windsurf
 - **[Public Docs](https://docs.revyl.ai/cli/mcp-setup)** -- Same guide on the docs site
-- **[Agent Skill](skills/revyl-device/SKILL.md)** -- Optional skill doc that teaches your agent optimal usage patterns
+- **[Agent Skills](skills/)** -- Embedded Revyl skills for device loops, test creation, and failure analysis
 
-Install the agent skill (improves AI tool integration):
+Install agent skills (improves AI tool integration):
 ```bash
-revyl skill install              # Auto-detect and install
+revyl skill install              # Auto-detect tool; install CLI skill family (default)
+revyl skill install --mcp        # Install MCP skill family
+revyl skill install --cli --mcp  # Install both skill families
 revyl skill install --cursor     # Cursor only
 revyl skill install --claude     # Claude Code only
 revyl skill install --codex      # Codex only
+revyl skill list                 # Show available skill names
+revyl skill show --name revyl-cli
+revyl skill show --name revyl-mcp-dev-loop
+revyl skill export --name revyl-cli-create -o SKILL.md
+revyl skill export --name revyl-mcp-analyze -o SKILL.md
+revyl skill revyl-mcp-dev-loop install --codex
+revyl skill install --name revyl-cli-create --name revyl-cli-analyze --codex
 ```
+
+Available embedded skills:
+- `revyl-cli` -- base CLI workflow guidance
+- `revyl-cli-create` -- CLI test authoring and conversion
+- `revyl-cli-analyze` -- CLI failure triage
+- `revyl-cli-dev-loop` -- CLI dev loop execution
+- `revyl-mcp` -- base MCP orchestration guidance
+- `revyl-mcp-create` -- MCP test authoring
+- `revyl-mcp-analyze` -- MCP failure triage
+- `revyl-mcp-dev-loop` -- MCP live device execution loop
+
+### Concrete Skill Loop: Ad-Hoc -> Convert -> Regress
+
+Use this concrete loop for the most common workflow (explore flow now, keep as regression later):
+
+```bash
+# 1) Install both skill families
+revyl skill install --cli --mcp --codex --force
+
+# 2) Run exploratory flow (usually with revyl dev + CLI/MCP dev-loop skill)
+# ...perform exploratory interactions...
+
+# 3) Convert the successful path into a test
+revyl test create <test-name> --platform ios
+revyl test open <test-name>
+revyl test push <test-name> --force
+
+# 4) Run regression
+revyl test run <test-name>
+
+# 5) Analyze failure details when run fails
+revyl test report <test-name> --json
+```
+
+Usage guidance:
+- Use `revyl-cli-dev-loop` or `revyl-mcp-dev-loop` to execute and observe live app behavior.
+- Use `revyl-cli-create` or `revyl-mcp-create` to structure exploratory steps into stable YAML.
+- Use `revyl-cli-analyze` or `revyl-mcp-analyze` to classify failures and drive precise rewrites.
 
 ## Team Quick Start (Internal)
 
@@ -128,9 +202,9 @@ Running `revyl init` without flags launches an interactive wizard that walks you
 
 1. **Project Setup** -- auto-detects your build system (Gradle, Xcode, Expo, Flutter, React Native), creates `.revyl/` directory and `config.yaml`
 2. **Authentication** -- checks for existing credentials; if missing, opens browser-based login
-3. **Create Apps** -- select existing apps (with pagination) or create new ones; automatically links if an app with the same name already exists
-4. **Hot Reload Setup** -- detects/configures Expo hot reload provider settings in `.revyl/config.yaml`
-5. **First Build** -- build and upload, upload an existing artifact (with manual path override if not found), or skip
+3. **Create Apps** -- for Expo, automatically creates/links separate app streams per build key (e.g. `ios-dev`, `ios-ci`, `android-dev`, `android-ci`); for other stacks, select existing apps or create new ones
+4. **Hot Reload Setup** -- detects/configures Expo hot reload provider settings in `.revyl/config.yaml` and maps `platform_keys` to dev streams by default
+5. **First Build** -- for Expo, defaults to one fast dev-stream upload (`ios-dev` on macOS, `android-dev` elsewhere), with easy options for Android-only or parallel both; failures can be retried or deferred without restarting
 6. **Create First Test** -- creates a test; if the name already exists, offers to link, rename, or skip; auto-syncs YAML to `.revyl/tests/`
 7. **Create Workflow** -- optionally groups tests into a workflow for batch execution
 
@@ -160,34 +234,50 @@ revyl workflow run smoke-tests --build    # Build then run workflow
 --timeout 600     # Max execution time in seconds
 ```
 
-### Hot Reload (Expo)
+### Dev Loop (Expo)
 
-Enable rapid iteration by running tests against a local dev server:
+Use `revyl dev` for the fast local iteration loop:
 
 ```bash
-# One-time setup (recommended): revyl init now configures hot reload
-revyl init
+# Start hot reload + live device (defaults to iOS)
+revyl dev
 
-# Run test with hot reload
-revyl test run login-flow --hotreload --platform ios-dev
+# Explicit platform
+revyl dev --platform android
 
-# Create test with hot reload session
-revyl test create new-flow --hotreload --platform ios-dev
+# SSH/headless: keep device running but don't open browser
+revyl dev --no-open
 
-# Open existing test with hot reload
-revyl test open login-flow --hotreload --platform ios-dev
+# Force a fresh dev build before start
+revyl dev --platform ios --build
 
-# Reconfigure hot reload defaults for an existing project
-revyl init --hotreload
+# Use explicit app/build/platform overrides
+revyl dev --app-id <app-id>
+revyl dev --build-version-id <build-version-id>
+revyl dev --platform-key ios-dev
 ```
 
-Hot reload:
-- Starts your local Expo dev server
-- Creates a Cloudflare tunnel to expose it
-- Runs tests against your development client build
-- Changes to JS code reflect instantly without rebuilding
+`revyl dev`:
+- starts your local Expo dev server
+- creates a Cloudflare tunnel
+- resolves the latest build from your dev app mapping (`hotreload.providers.expo.platform_keys`), then installs it
+- opens a cloud device session wired to the deep link
 
-Configuration in `.revyl/config.yaml`:
+Dev test helpers:
+
+```bash
+revyl dev test run login-flow
+revyl dev test open login-flow
+revyl dev test create new-flow --platform ios
+```
+
+Plain device sessions (no hot reload):
+
+```bash
+revyl device start --platform ios
+```
+
+Hot reload config in `.revyl/config.yaml`:
 
 ```yaml
 hotreload:
@@ -196,6 +286,9 @@ hotreload:
     expo:
       port: 8081
       app_scheme: myapp
+      platform_keys:
+        ios: ios-dev
+        android: android-dev
       # use_exp_prefix: true  # If deep links fail with base scheme
 ```
 
@@ -220,6 +313,40 @@ revyl build list --app <app-id>          # List builds for a specific app
 revyl build delete <app-id>              # Delete a build (all versions)
 revyl build delete <app-id> --version <id>  # Delete a specific version
 ```
+
+### Uploading a Build
+
+Use `revyl build upload` any time you want to refresh the binary on Revyl without re-running tests.
+
+Common flow:
+
+1. Make sure your app is configured and credentials are available.
+2. Run:
+
+```bash
+cd your-app
+revyl build upload --platform ios        # or --platform android
+```
+
+3. Use the uploaded binary by running tests against the latest upload:
+
+```bash
+revyl test run login-flow
+```
+
+Or let Revyl handle build + upload automatically:
+
+```bash
+revyl test run login-flow --build
+```
+
+Useful companion commands:
+
+- `revyl build list` to verify uploads and inspect platform/app history
+- `revyl test run <test> --build-id <id>` to pin a specific build
+
+For Expo projects, `revyl build upload` performs an EAS auth preflight first.
+If EAS login is missing, the CLI prompts to run `npx --yes eas-cli login` (interactive TTY only), or prints the exact fix command in non-interactive environments.
 
 ### iOS Publishing (TestFlight)
 
@@ -303,6 +430,10 @@ revyl test validate test.yaml     # Validate YAML syntax (--json for CI)
 # Per-command flags
 #   --dry-run    Available on: test create, test push, test pull
 #   --hotreload  Available on: test run, test create, test open
+
+# Dev loop shortcuts (Expo)
+revyl dev
+revyl dev test run login-flow
 ```
 
 ### Workflow Management
@@ -340,7 +471,6 @@ revyl device drag --start-x 100 --start-y 200 --end-x 300 --end-y 400  # Drag
 # Utility
 revyl device screenshot                        # Capture screenshot
 revyl device screenshot --out screen.png       # Save to file
-revyl device find "Submit button"              # Find element coordinates (no action)
 revyl device install --app-url <url>           # Install app from URL
 revyl device launch --bundle-id com.app.id     # Launch an installed app
 ```
@@ -355,62 +485,37 @@ revyl device launch --bundle-id com.app.id     # Launch an installed app
 
 ### Programmatic Usage
 
-The CLI supports `--json` output on all device commands, making it easy to script from any language. Below are drop-in helper classes you can copy into your project.
+Use the Python SDK (`pip install revyl`) for a thin wrapper around the CLI binary and device commands.
 
-> **Note:** A full Python and TypeScript SDK is planned. For now, these wrappers call the CLI binary under the hood.
-
-#### Python
+#### Python SDK
 
 ```python
-import subprocess, json
-from typing import Optional
+from revyl import DeviceClient
 
-class RevylDevice:
-    def __init__(self, platform: str):
-        self._run("device", "start", "--platform", platform)
+device = DeviceClient.start(platform="ios", timeout=600)
 
-    def _run(self, *args: str) -> dict:
-        result = subprocess.run(
-            ["revyl", *args, "--json"],
-            capture_output=True, text=True, check=True,
-        )
-        return json.loads(result.stdout) if result.stdout.strip() else {}
-
-    def tap(self, target: str) -> dict:
-        return self._run("device", "tap", "--target", target)
-
-    def type_text(self, target: str, text: str, clear_first: bool = True) -> dict:
-        args = ["device", "type", "--target", target, "--text", text]
-        if not clear_first:
-            args += ["--clear-first=false"]
-        return self._run(*args)
-
-    def swipe(self, target: str, direction: str) -> dict:
-        return self._run("device", "swipe", "--target", target, "--direction", direction)
-
-    def screenshot(self, out: Optional[str] = None) -> dict:
-        args = ["device", "screenshot"]
-        if out:
-            args += ["--out", out]
-        return self._run(*args)
-
-    def find(self, target: str) -> dict:
-        return self._run("device", "find", target)
-
-    def stop(self) -> dict:
-        return self._run("device", "stop")
-
-
-# Usage
-device = RevylDevice(platform="ios")
 device.tap(target="Login button")
 device.type_text(target="Email", text="user@test.com")
-device.screenshot(out="screen.png")
+device.type_text(target="Password", text="secret123")
 device.swipe(target="feed", direction="down")
-device.stop()
+device.screenshot(out="screen.png")
+
+device.stop_session()
 ```
 
-#### TypeScript
+You can also auto-stop with a context manager:
+
+```python
+from revyl import DeviceClient
+
+with DeviceClient.start(platform="android") as device:
+    device.tap(target="Get Started")
+    device.long_press(target="Profile photo", duration_ms=1200)
+```
+
+Full SDK guide: [`python/README.md`](python/README.md)
+
+#### TypeScript (CLI JSON wrapper)
 
 ```typescript
 import { execFileSync } from "node:child_process";
@@ -445,10 +550,6 @@ class RevylDevice {
     const args = ["device", "screenshot"];
     if (out) args.push("--out", out);
     return this.run(...args);
-  }
-
-  find(target: string) {
-    return this.run("device", "find", target);
   }
 
   stop() {
@@ -492,8 +593,9 @@ revyl docs       # Open Revyl documentation in browser
 revyl schema     # Display CLI command schema (for integrations)
 revyl mcp serve  # Start MCP server for AI agent integration
 revyl skill install           # Install agent skill for AI coding tools
-revyl skill show              # Print agent skill to stdout
-revyl skill export -o FILE    # Export agent skill to a file
+revyl skill list              # List embedded skills
+revyl skill show --name NAME  # Print a named skill to stdout
+revyl skill export --name NAME -o FILE  # Export a named skill to a file
 ```
 
 ### Global Flags
@@ -528,19 +630,33 @@ project:
   name: "my-app"
 
 build:
-  system: gradle              # Auto-detected
-  command: "./gradlew assembleDebug"
-  output: "app/build/outputs/apk/debug/app-debug.apk"
+  system: Expo
+  command: "npx --yes eas-cli build --platform ios --profile development --local --output build/app.tar.gz"
+  output: "build/app.tar.gz"
 
   platforms:
-    android:
-      command: "./gradlew assembleDebug"
-      output: "app/build/outputs/apk/debug/app-debug.apk"
-      app_id: "uuid-of-android-app"
-    ios:
-      command: "xcodebuild -scheme MyApp -archivePath ..."
-      output: "build/MyApp.ipa"
-      app_id: "uuid-of-ios-app"
+    ios-dev:
+      command: "npx --yes eas-cli build --platform ios --profile development --local --output build/dev-ios.tar.gz"
+      output: "build/dev-ios.tar.gz"
+      app_id: "uuid-of-ios-dev-app"
+    ios-ci:
+      command: "npx --yes eas-cli build --platform ios --profile preview --local --output build/ci-ios.tar.gz"
+      output: "build/ci-ios.tar.gz"
+      app_id: "uuid-of-ios-ci-app"
+    android-dev:
+      command: "npx --yes eas-cli build --platform android --profile development --local --output build/dev-android.apk"
+      output: "build/dev-android.apk"
+      app_id: "uuid-of-android-dev-app"
+
+hotreload:
+  default: expo
+  providers:
+    expo:
+      app_scheme: "my-app"
+      port: 8081
+      platform_keys:
+        ios: ios-dev
+        android: android-dev
 
 # Test aliases: name -> remote test ID
 tests:
@@ -556,6 +672,15 @@ defaults:
   timeout: 600
 
 last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
+```
+
+### Project Settings
+
+```bash
+revyl config path
+revyl config show
+revyl config set open-browser false
+revyl config set timeout 900
 ```
 
 ## CI/CD Integration
@@ -617,6 +742,74 @@ make generate-fetch
 
 # Run tests
 make test
+```
+
+### MCP Development & Reload Workflow
+
+Use this workflow when developing MCP behavior locally.
+
+Terminal 1 (rebuild loop):
+
+```bash
+cd revyl-cli
+make dev
+```
+
+Terminal 2 (local MCP process):
+
+```bash
+cd revyl-cli
+./build/revyl mcp serve
+```
+
+For local backend development:
+
+```bash
+./build/revyl --dev mcp serve
+```
+
+### Codex + `--dev` setup (reliable)
+
+For local backend testing, register a dedicated MCP server that points to an absolute binary path with `--dev`.
+
+```bash
+# Rebuild local binary
+cd revyl-cli
+go build -o ./tmp/revyl ./cmd/revyl
+
+# Reinstall MCP server entry
+codex mcp remove revyl-dev
+codex mcp add revyl-dev -- /absolute/path/to/revyl-cli/tmp/revyl --dev mcp serve
+```
+
+Why this matters:
+- Codex process execution may not load your shell aliases/functions.
+- Using an absolute binary path avoids alias/PATH drift.
+- A separate server name (`revyl-dev`) prevents accidental prod/dev mixups.
+
+If you use an alias like `revyl-zakir` that already includes `--dev`, do not pass `--dev` again.
+
+After code changes, restart the MCP process so the agent picks up the latest behavior.
+
+Optional auto-restart workflow:
+
+```bash
+cd revyl-cli
+watchexec -e go --restart -- sh -c 'make build >/dev/null && ./build/revyl mcp serve'
+```
+
+Point your coding tool to the local binary when validating local changes:
+
+```bash
+codex mcp add revyl-local -- /absolute/path/to/revyl-cli/build/revyl mcp serve
+```
+
+Quick sanity checks:
+
+```bash
+./build/revyl version
+./build/revyl auth status
+./build/revyl mcp serve
 ```
 
 ### Running Tests
@@ -700,7 +893,7 @@ Pushes to `staging` sync the code to the standalone repo but **skip** the releas
 
 ### What the Pipeline Does
 
-1. **Sync** -- copies `revyl-cli/` to the standalone [RevylAI/revyl-cli](https://github.com/RevylAI/revyl-cli) repo and creates a git tag (e.g. `v0.1.2`)
+1. **Sync** -- copies `revyl-cli/` to the standalone [RevylAI/revyl-cli](https://github.com/RevylAI/revyl-cli) repo and creates a git tag (e.g. `v0.1.2`) only when that tag does not already exist
 2. **Build** -- cross-compiles Go binaries for 5 targets (macOS amd64/arm64, Linux amd64/arm64, Windows amd64) with version/commit/date baked in via `-ldflags`
 3. **Release** -- creates a GitHub Release with all binaries, checksums, and `SKILL.md`
 4. **Publish** -- pushes to npm (`@revyl/cli`), PyPI (`revyl`), and Homebrew (`RevylAI/tap/revyl`) in parallel
@@ -729,7 +922,7 @@ Versions containing `-` (e.g. `0.2.0-beta.1`) are automatically marked as pre-re
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| CI fails with "Tag already exists" | Version wasn't bumped | Run `make bump-patch` and push again |
+| Release is skipped with "Tag already exists" notice | Version wasn't bumped | If you intended a new release, run `make bump-patch` and push again |
 | Release created but npm/PyPI failed | Token or network issue | Re-run the failed job from GitHub Actions UI |
 | Homebrew formula not updated | `homebrew-tap` repo permissions | Check `ANSIBLE_MAC_MANAGER_SYNC_TOKEN` secret is valid |
 

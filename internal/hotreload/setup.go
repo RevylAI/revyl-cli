@@ -173,8 +173,8 @@ func ApplySetupResult(cfg *config.ProjectConfig, result *SetupResult, setAsDefau
 
 // ValidateSetupResult checks if a setup result is complete and ready to use.
 //
-// Note: DevClientBuildID is not validated here as it's specified at runtime
-// via --platform or --build-id flags.
+// Note: Build selection is validated at runtime via --platform/--build-id
+// and hotreload.providers.<provider>.platform_keys mappings.
 //
 // Parameters:
 //   - result: The setup result to validate

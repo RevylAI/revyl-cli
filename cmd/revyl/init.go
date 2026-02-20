@@ -8,8 +8,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -20,7 +22,7 @@ import (
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
-	"github.com/revyl/cli/internal/sync"
+	syncpkg "github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
 	"github.com/revyl/cli/internal/util"
 )
@@ -240,8 +242,8 @@ func runInitHotReloadOnly(cmd *cobra.Command, cwd, configPath string) error {
 	if tokenErr == nil && apiKey != "" {
 		client = api.NewClientWithDevMode(apiKey, devMode)
 	} else {
-		ui.PrintDim("Not authenticated; skipping auto build selection during hot reload setup.")
-		ui.PrintDim("Run 'revyl auth login' and re-run 'revyl init --hotreload' to auto-select a dev client build.")
+		ui.PrintDim("Not authenticated; skipping app-link checks during hot reload setup.")
+		ui.PrintDim("Run 'revyl auth login' and re-run 'revyl init --hotreload' to validate app links.")
 	}
 
 	ready := wizardHotReloadSetup(cmd.Context(), client, cfg, configPath, cwd, true)
@@ -258,9 +260,11 @@ func runInitHotReloadOnly(cmd *cobra.Command, cwd, configPath string) error {
 		break
 	}
 	if testAlias != "" {
-		ui.PrintInfo("Next: revyl test run %s --hotreload", testAlias)
+		ui.PrintInfo("Next: revyl dev")
+		ui.PrintInfo("Then: revyl dev test run %s", testAlias)
 	} else {
-		ui.PrintInfo("Next: revyl test run <name> --hotreload")
+		ui.PrintInfo("Next: revyl dev")
+		ui.PrintInfo("Then: revyl dev test run <name>")
 	}
 
 	return nil
@@ -321,8 +325,11 @@ func wizardProjectSetup(cwd, revylDir, configPath string) (*config.ProjectConfig
 		Tests:     make(map[string]string),
 		Workflows: make(map[string]string),
 		Defaults: config.Defaults{
-			OpenBrowser: true,
-			Timeout:     600,
+			OpenBrowser: func() *bool {
+				v := true
+				return &v
+			}(),
+			Timeout: 600,
 		},
 	}
 
@@ -336,6 +343,10 @@ func wizardProjectSetup(cwd, revylDir, configPath string) (*config.ProjectConfig
 			}
 		}
 	}
+
+	// For Expo, default to explicit dev/ci streams to avoid cross-contaminating
+	// hot reload dev clients with CI/release uploads.
+	configureExpoBuildStreams(cfg)
 
 	// Create .revyl directory
 	if err := os.MkdirAll(revylDir, 0755); err != nil {
@@ -512,16 +523,28 @@ func wizardCreateApps(ctx context.Context, client *api.Client, cfg *config.Proje
 		return
 	}
 
-	for platformKey, plat := range cfg.Build.Platforms {
+	if isExpoBuildSystem(cfg.Build.System) {
+		wizardCreateExpoAppStreams(ctx, client, cfg, configPath)
+		return
+	}
+
+	for _, platformKey := range platformKeys(cfg) {
+		plat := cfg.Build.Platforms[platformKey]
 		if plat.AppID != "" {
 			ui.PrintDim("Platform %s already linked to app %s", platformKey, plat.AppID)
+			continue
+		}
+
+		platform := mobilePlatformForBuildKey(platformKey)
+		if platform == "" {
+			ui.PrintWarning("Skipping %s: could not infer platform (ios/android)", platformKey)
 			continue
 		}
 
 		fmt.Println(ui.TitleStyle.Render(fmt.Sprintf("Platform: %s", platformKey)))
 
 		// Fetch existing apps for this platform.
-		appsResp, err := client.ListApps(ctx, platformKey, 1, 10)
+		appsResp, err := client.ListApps(ctx, platform, 1, 10)
 		if err != nil {
 			ui.PrintWarning("Could not list apps for %s: %v", platformKey, err)
 			continue
@@ -566,7 +589,7 @@ func wizardCreateApps(ctx context.Context, client *api.Client, cfg *config.Proje
 				if hasMore && idx == showMoreIdx {
 					// Fetch the next page and append results.
 					page++
-					nextResp, nextErr := client.ListApps(ctx, platformKey, page, 10)
+					nextResp, nextErr := client.ListApps(ctx, platform, page, 10)
 					if nextErr != nil {
 						ui.PrintWarning("Could not fetch more apps: %v", nextErr)
 						continue
@@ -577,7 +600,7 @@ func wizardCreateApps(ctx context.Context, client *api.Client, cfg *config.Proje
 				}
 
 				if idx == createNewIdx {
-					appID = createAppInteractive(ctx, client, cfg.Project.Name, platformKey)
+					appID = createAppInteractive(ctx, client, cfg.Project.Name, platform)
 				} else if idx == skipIdx {
 					// Skip — no action.
 				} else if idx < len(allApps) {
@@ -592,7 +615,7 @@ func wizardCreateApps(ctx context.Context, client *api.Client, cfg *config.Proje
 			if err != nil || !proceed {
 				continue
 			}
-			appID = createAppInteractive(ctx, client, cfg.Project.Name, platformKey)
+			appID = createAppInteractive(ctx, client, cfg.Project.Name, platform)
 		}
 
 		if appID != "" {
@@ -611,42 +634,348 @@ func createAppInteractive(ctx context.Context, client *api.Client, defaultName, 
 		ui.PrintWarning("Input error: %v", err)
 		return ""
 	}
+	name = strings.TrimSpace(name)
 	if name == "" {
 		name = fmt.Sprintf("%s-%s", defaultName, platform)
 	}
 
 	ui.StartSpinner("Creating app...")
-	resp, err := client.CreateApp(ctx, &api.CreateAppRequest{
-		Name:     name,
-		Platform: platform,
-	})
+	result, err := createOrLinkAppByName(ctx, client, name, platform)
 	ui.StopSpinner()
 
 	if err != nil {
-		// Check if app already exists (409 Conflict) and link to it instead of failing.
-		var apiErr *api.APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode == 409 {
-			ui.PrintDim("App '%s' already exists, looking it up...", name)
-			appsResp, listErr := client.ListApps(ctx, platform, 1, 100)
-			if listErr == nil {
-				for _, app := range appsResp.Items {
-					if app.Name == name {
-						ui.PrintSuccess("Linked to existing app %s (id: %s)", app.Name, app.ID)
-						return app.ID
-					}
-				}
-			}
-		}
 		ui.PrintWarning("Failed to create app: %v", err)
 		return ""
 	}
 
-	ui.PrintSuccess("Created app %s (id: %s)", resp.Name, resp.ID)
-	return resp.ID
+	if result.LinkedExisting {
+		ui.PrintSuccess("Linked to existing app %s (id: %s)", strings.TrimSpace(result.Name), result.ID)
+		return result.ID
+	}
+
+	ui.PrintSuccess("Created app %s (id: %s)", result.Name, result.ID)
+	return result.ID
+}
+
+func isExpoBuildSystem(system string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(system)), "expo")
+}
+
+func normalizeExpoBuildCommand(system, command string) (string, bool) {
+	if !isExpoBuildSystem(system) {
+		return command, false
+	}
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return command, false
+	}
+	if strings.Contains(trimmed, "npx --yes eas-cli build") {
+		return command, false
+	}
+	if strings.Contains(trimmed, "npx eas-cli build") {
+		normalized := strings.ReplaceAll(trimmed, "npx eas-cli build", "npx --yes eas-cli build")
+		return normalized, normalized != command
+	}
+	if strings.Contains(trimmed, "npx eas build") {
+		normalized := strings.ReplaceAll(trimmed, "npx eas build", "npx --yes eas-cli build")
+		return normalized, normalized != command
+	}
+	if !strings.Contains(trimmed, "eas build") {
+		return command, false
+	}
+	normalized := strings.ReplaceAll(trimmed, "eas build", "npx --yes eas-cli build")
+	return normalized, normalized != command
+}
+
+func defaultExpoBuildPlatforms() map[string]config.BuildPlatform {
+	return map[string]config.BuildPlatform{
+		"ios-dev": {
+			Command: "npx --yes eas-cli build --platform ios --profile development --local --output build/dev-ios.tar.gz",
+			Output:  "build/dev-ios.tar.gz",
+		},
+		"android-dev": {
+			Command: "npx --yes eas-cli build --platform android --profile development --local --output build/dev-android.apk",
+			Output:  "build/dev-android.apk",
+		},
+		"ios-ci": {
+			Command: "npx --yes eas-cli build --platform ios --profile preview --local --output build/ci-ios.tar.gz",
+			Output:  "build/ci-ios.tar.gz",
+		},
+		"android-ci": {
+			Command: "npx --yes eas-cli build --platform android --profile preview --local --output build/ci-android.apk",
+			Output:  "build/ci-android.apk",
+		},
+	}
+}
+
+// configureExpoBuildStreams ensures Expo projects have separate dev/ci build keys.
+func configureExpoBuildStreams(cfg *config.ProjectConfig) {
+	if cfg == nil || !isExpoBuildSystem(cfg.Build.System) {
+		return
+	}
+
+	hasExplicitStreams := false
+	hasLegacyPlatforms := false
+	hasCustomPlatforms := false
+	for key := range cfg.Build.Platforms {
+		lower := strings.ToLower(strings.TrimSpace(key))
+		if strings.Contains(lower, "dev") || strings.Contains(lower, "ci") {
+			hasExplicitStreams = true
+			break
+		}
+		if lower == "ios" || lower == "android" {
+			hasLegacyPlatforms = true
+			continue
+		}
+		hasCustomPlatforms = true
+	}
+	if hasExplicitStreams {
+		return
+	}
+	if hasCustomPlatforms {
+		return
+	}
+	if len(cfg.Build.Platforms) > 0 && !hasLegacyPlatforms {
+		return
+	}
+
+	cfg.Build.Platforms = defaultExpoBuildPlatforms()
+	if platformCfg, ok := cfg.Build.Platforms["ios-dev"]; ok {
+		cfg.Build.Command = platformCfg.Command
+		cfg.Build.Output = platformCfg.Output
+	}
+}
+
+func mobilePlatformForBuildKey(platformKey string) string {
+	key := strings.ToLower(strings.TrimSpace(platformKey))
+	switch {
+	case key == "ios", strings.Contains(key, "ios"):
+		return "ios"
+	case key == "android", strings.Contains(key, "android"):
+		return "android"
+	default:
+		return ""
+	}
+}
+
+func isDevBuildPlatformKey(platformKey string) bool {
+	key := strings.ToLower(strings.TrimSpace(platformKey))
+	return strings.Contains(key, "dev") || strings.Contains(key, "development")
+}
+
+func orderedExpoPlatformKeys(cfg *config.ProjectConfig) []string {
+	keys := platformKeys(cfg)
+	rank := func(key string) int {
+		lower := strings.ToLower(strings.TrimSpace(key))
+		switch {
+		case lower == "ios-dev":
+			return 0
+		case lower == "android-dev":
+			return 1
+		case lower == "ios-ci":
+			return 2
+		case lower == "android-ci":
+			return 3
+		case strings.Contains(lower, "ios") && strings.Contains(lower, "dev"):
+			return 4
+		case strings.Contains(lower, "android") && strings.Contains(lower, "dev"):
+			return 5
+		case strings.Contains(lower, "ios"):
+			return 6
+		case strings.Contains(lower, "android"):
+			return 7
+		default:
+			return 8
+		}
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		if rank(keys[i]) != rank(keys[j]) {
+			return rank(keys[i]) < rank(keys[j])
+		}
+		return keys[i] < keys[j]
+	})
+	return keys
+}
+
+func findAppIDByName(ctx context.Context, client *api.Client, platform, name string) (string, error) {
+	target := canonicalAppName(name)
+	if target == "" {
+		return "", nil
+	}
+
+	page := 1
+	for {
+		appsResp, err := client.ListApps(ctx, platform, page, 100)
+		if err != nil {
+			return "", err
+		}
+		for _, app := range appsResp.Items {
+			if canonicalAppName(app.Name) == target {
+				return app.ID, nil
+			}
+		}
+		if !appsResp.HasNext {
+			break
+		}
+		page++
+	}
+	return "", nil
+}
+
+func canonicalAppName(name string) string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return ""
+	}
+
+	// Treat common separators as equivalent so conflict recovery can match
+	// backend duplicate-name normalization.
+	normalized := strings.NewReplacer("_", " ", "-", " ", ".", " ").Replace(lower)
+
+	var b strings.Builder
+	lastWasSpace := false
+	for _, r := range normalized {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+			lastWasSpace = false
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastWasSpace = false
+		case r == ' ':
+			if b.Len() > 0 && !lastWasSpace {
+				b.WriteRune(' ')
+				lastWasSpace = true
+			}
+		default:
+			// Convert punctuation/noise into a single separator.
+			if b.Len() > 0 && !lastWasSpace {
+				b.WriteRune(' ')
+				lastWasSpace = true
+			}
+		}
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+type createOrLinkAppResult struct {
+	ID             string
+	Name           string
+	LinkedExisting bool
+}
+
+func isAppAlreadyExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var apiErr *api.APIError
+	if errors.As(err, &apiErr) {
+		errText := strings.ToLower(apiErr.Error())
+		if apiErr.StatusCode == 409 {
+			return true
+		}
+		if apiErr.StatusCode == 500 && strings.Contains(errText, "already exists") {
+			return true
+		}
+	}
+
+	return strings.Contains(strings.ToLower(err.Error()), "already exists")
+}
+
+func createOrLinkAppByName(ctx context.Context, client *api.Client, name, platform string) (*createOrLinkAppResult, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("app name cannot be empty")
+	}
+
+	resp, err := client.CreateApp(ctx, &api.CreateAppRequest{
+		Name:     name,
+		Platform: platform,
+	})
+	if err == nil {
+		return &createOrLinkAppResult{
+			ID:             resp.ID,
+			Name:           strings.TrimSpace(resp.Name),
+			LinkedExisting: false,
+		}, nil
+	}
+
+	if !isAppAlreadyExistsError(err) {
+		return nil, err
+	}
+
+	existingID, findErr := findAppIDByName(ctx, client, platform, name)
+	if findErr != nil {
+		return nil, fmt.Errorf("app already exists but lookup failed: %w", findErr)
+	}
+	if existingID == "" {
+		return nil, err
+	}
+
+	return &createOrLinkAppResult{
+		ID:             existingID,
+		Name:           name,
+		LinkedExisting: true,
+	}, nil
+}
+
+func ensureNamedApp(ctx context.Context, client *api.Client, name, platform string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("app name cannot be empty")
+	}
+
+	if existingID, err := findAppIDByName(ctx, client, platform, name); err == nil && existingID != "" {
+		return existingID, nil
+	}
+
+	result, err := createOrLinkAppByName(ctx, client, name, platform)
+	if err != nil {
+		return "", err
+	}
+	return result.ID, nil
+}
+
+func wizardCreateExpoAppStreams(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, configPath string) {
+	keys := orderedExpoPlatformKeys(cfg)
+	if len(keys) == 0 {
+		ui.PrintDim("No Expo build platforms detected — skipping app creation")
+		return
+	}
+
+	ui.PrintInfo("Auto-linking Expo app streams for dev/ci...")
+	for _, platformKey := range keys {
+		plat := cfg.Build.Platforms[platformKey]
+		if strings.TrimSpace(plat.AppID) != "" {
+			ui.PrintDim("Platform %s already linked to app %s", platformKey, plat.AppID)
+			continue
+		}
+
+		platform := mobilePlatformForBuildKey(platformKey)
+		if platform == "" {
+			ui.PrintWarning("Skipping %s: could not infer platform (ios/android)", platformKey)
+			continue
+		}
+
+		appName := fmt.Sprintf("%s-%s", cfg.Project.Name, platformKey)
+		appID, err := ensureNamedApp(ctx, client, appName, platform)
+		if err != nil {
+			ui.PrintWarning("Failed to link/create app for %s: %v", platformKey, err)
+			continue
+		}
+
+		plat.AppID = appID
+		cfg.Build.Platforms[platformKey] = plat
+		_ = config.WriteProjectConfig(configPath, cfg)
+		ui.PrintSuccess("Linked %s -> %s (%s)", platformKey, appName, appID)
+	}
 }
 
 // ---------------------------------------------------------------------------
-// Step 4: First Build
+// Step 5: First Build
 // ---------------------------------------------------------------------------
 
 // wizardFirstBuild iterates over configured platforms and offers to build and
@@ -671,10 +1000,316 @@ func wizardFirstBuild(ctx context.Context, client *api.Client, cfg *config.Proje
 		return
 	}
 
+	if isExpoBuildSystem(cfg.Build.System) {
+		devPlatforms := make([]string, 0, len(platforms))
+		for _, key := range platforms {
+			if isDevBuildPlatformKey(key) {
+				devPlatforms = append(devPlatforms, key)
+			}
+		}
+		if len(devPlatforms) > 0 {
+			ui.PrintDim("Expo detected: focusing first build on dev streams (%s)", strings.Join(devPlatforms, ", "))
+			ui.PrintDim("CI streams can be uploaded later with: revyl build upload --platform <ios-ci|android-ci>")
+			wizardFirstBuildExpo(ctx, client, cfg, configPath, cwd, devPlatforms)
+			return
+		}
+	}
+	wizardFirstBuildSequential(ctx, client, cfg, configPath, cwd, platforms)
+}
+
+type wizardBuildResult struct {
+	Platform   string
+	AppID      string
+	Version    string
+	VersionID  string
+	Err        error
+	RetryLater string
+}
+
+func wizardFirstBuildExpo(
+	ctx context.Context,
+	client *api.Client,
+	cfg *config.ProjectConfig,
+	configPath string,
+	cwd string,
+	platforms []string,
+) {
+	eligible := make([]string, 0, len(platforms))
 	for _, platform := range platforms {
 		platformCfg, ok := cfg.Build.Platforms[platform]
 		if !ok {
 			continue
+		}
+		if normalized, changed := normalizeExpoBuildCommand(cfg.Build.System, platformCfg.Command); changed {
+			platformCfg.Command = normalized
+			cfg.Build.Platforms[platform] = platformCfg
+			_ = config.WriteProjectConfig(configPath, cfg)
+			ui.PrintDim("Updated %s build command to use npx eas", platform)
+		}
+		if strings.TrimSpace(platformCfg.AppID) == "" {
+			ui.PrintDim("Skipping %s — no app linked (run revyl build upload --platform %s later)", platform, platform)
+			continue
+		}
+		if strings.TrimSpace(platformCfg.Output) == "" {
+			ui.PrintDim("Skipping %s — no output path configured in .revyl/config.yaml", platform)
+			continue
+		}
+		eligible = append(eligible, platform)
+	}
+
+	if len(eligible) == 0 {
+		ui.PrintDim("No Expo dev streams are ready to build yet")
+		return
+	}
+
+	defaultTargets := defaultExpoDevBuildTargets(eligible)
+	defaultTarget := ""
+	if len(defaultTargets) > 0 {
+		defaultTarget = defaultTargets[0]
+	}
+	iosTarget := bestExpoDevPlatformForMobile(eligible, "ios")
+	androidTarget := bestExpoDevPlatformForMobile(eligible, "android")
+
+	options := []ui.SelectOption{
+		{Label: fmt.Sprintf("Build and upload default dev stream (fastest: %s)", defaultTarget), Value: "default"},
+	}
+	if iosTarget != "" {
+		options = append(options, ui.SelectOption{
+			Label: fmt.Sprintf("Build and upload iOS dev stream only (%s)", iosTarget),
+			Value: "ios",
+		})
+	}
+	if androidTarget != "" {
+		options = append(options, ui.SelectOption{
+			Label: fmt.Sprintf("Build and upload Android dev stream only (%s)", androidTarget),
+			Value: "android",
+		})
+	}
+	if iosTarget != "" && androidTarget != "" && iosTarget != androidTarget {
+		options = append(options, ui.SelectOption{
+			Label: "Build and upload both dev streams (parallel)",
+			Value: "both",
+		})
+	}
+	options = append(options,
+		ui.SelectOption{Label: "Upload existing artifact(s)", Value: "upload"},
+		ui.SelectOption{Label: "Skip for now", Value: "skip"},
+	)
+
+	_, selection, err := ui.Select("How would you like to handle dev streams?", options, 0)
+	if err != nil || selection == "skip" {
+		for _, platform := range eligible {
+			ui.PrintDim("  Run later: revyl build upload --platform %s", platform)
+		}
+		return
+	}
+
+	uploadOnly := selection == "upload"
+	selectedTargets := make([]string, 0, len(eligible))
+	switch selection {
+	case "default":
+		selectedTargets = append(selectedTargets, defaultTargets...)
+	case "ios":
+		if iosTarget != "" {
+			selectedTargets = append(selectedTargets, iosTarget)
+		}
+	case "android":
+		if androidTarget != "" {
+			selectedTargets = append(selectedTargets, androidTarget)
+		}
+	case "both":
+		if iosTarget != "" {
+			selectedTargets = append(selectedTargets, iosTarget)
+		}
+		if androidTarget != "" && androidTarget != iosTarget {
+			selectedTargets = append(selectedTargets, androidTarget)
+		}
+	case "upload":
+		selectedTargets = append(selectedTargets, eligible...)
+	}
+	if len(selectedTargets) == 0 {
+		ui.PrintDim("No Expo dev streams selected")
+		return
+	}
+
+	pending := append([]string(nil), selectedTargets...)
+	primaryTarget := selectedTargets[0]
+
+	for {
+		if !uploadOnly {
+			if ready := ensureExpoEASAuth(cwd); !ready {
+				recoveryOptions := []ui.SelectOption{
+					{Label: "Retry EAS auth check now"},
+					{Label: "Continue onboarding and fix later"},
+				}
+				choice, _, choiceErr := ui.Select("Could not verify EAS login. What next?", recoveryOptions, 0)
+				if choiceErr != nil || choice == 1 {
+					for _, platform := range pending {
+						ui.PrintDim("  Retry later: revyl build upload --platform %s", platform)
+					}
+					return
+				}
+				continue
+			}
+		}
+
+		var batchResults []wizardBuildResult
+		if uploadOnly {
+			artifactPaths, prepResults := collectWizardUploadArtifacts(cwd, cfg, pending)
+			targets := make([]string, 0, len(artifactPaths))
+			for _, platform := range pending {
+				if _, ok := artifactPaths[platform]; ok {
+					targets = append(targets, platform)
+				}
+			}
+			uploadResults := runWizardBuildBatch(ctx, client, cfg, cwd, targets, true, artifactPaths)
+			batchResults = orderWizardBuildResults(append(prepResults, uploadResults...), pending)
+		} else {
+			batchResults = runWizardBuildBatch(ctx, client, cfg, cwd, pending, false, nil)
+		}
+
+		failed := printWizardBuildResults(batchResults)
+		if len(failed) == 0 {
+			if !uploadOnly {
+				printExpoDeferredDevBuildHint(eligible, primaryTarget)
+			}
+			return
+		}
+
+		recoveryOptions := []ui.SelectOption{
+			{Label: "Retry failed dev streams now"},
+			{Label: "Continue onboarding and fix later"},
+		}
+		choice, _, choiceErr := ui.Select("Some dev streams failed. What next?", recoveryOptions, 0)
+		if choiceErr != nil || choice == 1 {
+			for _, platform := range failed {
+				ui.PrintDim("  Retry later: revyl build upload --platform %s", platform)
+			}
+			return
+		}
+		pending = failed
+	}
+}
+
+func bestExpoDevPlatformForMobile(platforms []string, mobile string) string {
+	mobile = strings.ToLower(strings.TrimSpace(mobile))
+	if mobile != "ios" && mobile != "android" {
+		return ""
+	}
+
+	keys := append([]string(nil), platforms...)
+	sort.Strings(keys)
+
+	type candidate struct {
+		key  string
+		rank int
+	}
+	candidates := make([]candidate, 0, len(keys))
+	for _, key := range keys {
+		lower := strings.ToLower(strings.TrimSpace(key))
+		if mobilePlatformForBuildKey(lower) != mobile {
+			continue
+		}
+
+		rank := 50
+		switch {
+		case lower == mobile+"-dev":
+			rank = 0
+		case lower == mobile+"-development":
+			rank = 1
+		case strings.Contains(lower, mobile) && isDevBuildPlatformKey(lower):
+			rank = 2
+		case lower == mobile:
+			rank = 3
+		case strings.Contains(lower, mobile):
+			rank = 4
+		}
+		candidates = append(candidates, candidate{key: key, rank: rank})
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].rank != candidates[j].rank {
+			return candidates[i].rank < candidates[j].rank
+		}
+		return candidates[i].key < candidates[j].key
+	})
+
+	return candidates[0].key
+}
+
+func defaultExpoDevBuildTargetsForHost(platforms []string, hostOS string) []string {
+	if len(platforms) == 0 {
+		return nil
+	}
+
+	preferredMobile := "android"
+	if strings.EqualFold(hostOS, "darwin") {
+		preferredMobile = "ios"
+	}
+
+	if preferred := bestExpoDevPlatformForMobile(platforms, preferredMobile); preferred != "" {
+		return []string{preferred}
+	}
+
+	secondaryMobile := "ios"
+	if preferredMobile == "ios" {
+		secondaryMobile = "android"
+	}
+	if fallback := bestExpoDevPlatformForMobile(platforms, secondaryMobile); fallback != "" {
+		return []string{fallback}
+	}
+
+	ordered := append([]string(nil), platforms...)
+	sort.Strings(ordered)
+	return []string{ordered[0]}
+}
+
+func defaultExpoDevBuildTargets(platforms []string) []string {
+	return defaultExpoDevBuildTargetsForHost(platforms, runtime.GOOS)
+}
+
+func printExpoDeferredDevBuildHint(eligible []string, builtPlatform string) {
+	currentMobile := mobilePlatformForBuildKey(builtPlatform)
+	if currentMobile == "" {
+		return
+	}
+
+	nextMobile := "ios"
+	if currentMobile == "ios" {
+		nextMobile = "android"
+	}
+	nextPlatformKey := bestExpoDevPlatformForMobile(eligible, nextMobile)
+	if nextPlatformKey == "" {
+		return
+	}
+
+	ui.Println()
+	ui.PrintDim("Optional next: revyl build upload --platform %s", nextPlatformKey)
+}
+
+func wizardFirstBuildSequential(
+	ctx context.Context,
+	client *api.Client,
+	cfg *config.ProjectConfig,
+	configPath string,
+	cwd string,
+	platforms []string,
+) {
+	for _, platform := range platforms {
+		platformCfg, ok := cfg.Build.Platforms[platform]
+		if !ok {
+			continue
+		}
+		buildCommand := platformCfg.Command
+		if normalized, changed := normalizeExpoBuildCommand(cfg.Build.System, platformCfg.Command); changed {
+			buildCommand = normalized
+			platformCfg.Command = normalized
+			cfg.Build.Platforms[platform] = platformCfg
+			_ = config.WriteProjectConfig(configPath, cfg)
+			ui.PrintDim("Updated %s build command to use npx eas", platform)
 		}
 
 		// Check prerequisite: app ID must be set from Step 3.
@@ -705,13 +1340,13 @@ func wizardFirstBuild(ctx context.Context, client *api.Client, cfg *config.Proje
 		// Run the build (if not skipping).
 		var buildDuration time.Duration
 		if !skipBuild {
-			ui.PrintInfo("Building with: %s", platformCfg.Command)
+			ui.PrintInfo("Building with: %s", buildCommand)
 			ui.Println()
 
 			startTime := time.Now()
 			runner := build.NewRunner(cwd)
 
-			buildErr := runner.Run(platformCfg.Command, func(line string) {
+			buildErr := runner.Run(buildCommand, func(line string) {
 				ui.PrintDim("  %s", line)
 			})
 
@@ -720,6 +1355,22 @@ func wizardFirstBuild(ctx context.Context, client *api.Client, cfg *config.Proje
 			if buildErr != nil {
 				ui.Println()
 				ui.PrintWarning("Build failed for %s: %v", platform, buildErr)
+				var easErr *build.EASBuildError
+				if errors.As(buildErr, &easErr) {
+					ui.Println()
+					ui.PrintInfo("How to fix:")
+					ui.Println()
+					for _, line := range strings.Split(strings.TrimSpace(easErr.Guidance), "\n") {
+						ui.PrintDim("  %s", line)
+					}
+				}
+
+				if strings.Contains(platformCfg.Command, "eas build") && !strings.Contains(platformCfg.Command, "npx eas") {
+					ui.Println()
+					ui.PrintInfo("Tip: use npx to avoid requiring global EAS CLI:")
+					ui.PrintDim("  npx --yes eas-cli build ...")
+					ui.PrintDim("  revyl build upload --platform %s", platform)
+				}
 				ui.PrintDim("  You can retry later: revyl build upload --platform %s", platform)
 				continue
 			}
@@ -776,7 +1427,7 @@ func wizardFirstBuild(ctx context.Context, client *api.Client, cfg *config.Proje
 		}
 
 		// Collect build metadata and generate version.
-		metadata := build.CollectMetadata(cwd, platformCfg.Command, platform, buildDuration)
+		metadata := build.CollectMetadata(cwd, buildCommand, platform, buildDuration)
 		versionStr := build.GenerateVersionString()
 
 		ui.Println()
@@ -810,8 +1461,304 @@ func wizardFirstBuild(ctx context.Context, client *api.Client, cfg *config.Proje
 	}
 }
 
+func collectWizardUploadArtifacts(cwd string, cfg *config.ProjectConfig, platforms []string) (map[string]string, []wizardBuildResult) {
+	artifactPaths := make(map[string]string, len(platforms))
+	prepResults := make([]wizardBuildResult, 0, len(platforms))
+
+	for _, platform := range platforms {
+		platformCfg, ok := cfg.Build.Platforms[platform]
+		if !ok {
+			prepResults = append(prepResults, wizardBuildResult{
+				Platform:   platform,
+				Err:        fmt.Errorf("platform %s is not configured", platform),
+				RetryLater: fmt.Sprintf("revyl build upload --platform %s", platform),
+			})
+			continue
+		}
+
+		artifactPath, err := build.ResolveArtifactPath(cwd, platformCfg.Output)
+		if err != nil {
+			ui.PrintWarning("Artifact not found for %s at %s", platform, platformCfg.Output)
+			customPath, promptErr := ui.Prompt(fmt.Sprintf("Enter path to %s artifact (or press Enter to skip):", platform))
+			if promptErr != nil || strings.TrimSpace(customPath) == "" {
+				prepResults = append(prepResults, wizardBuildResult{
+					Platform:   platform,
+					Err:        fmt.Errorf("artifact path not provided"),
+					RetryLater: fmt.Sprintf("revyl build upload --platform %s", platform),
+				})
+				continue
+			}
+
+			artifactPath, err = build.ResolveArtifactPath(cwd, customPath)
+			if err != nil {
+				ui.PrintWarning("Artifact not found: %s", customPath)
+				prepResults = append(prepResults, wizardBuildResult{
+					Platform:   platform,
+					Err:        fmt.Errorf("artifact not found: %s", customPath),
+					RetryLater: fmt.Sprintf("revyl build upload --platform %s", platform),
+				})
+				continue
+			}
+		}
+
+		artifactPaths[platform] = artifactPath
+	}
+
+	return artifactPaths, prepResults
+}
+
+func runWizardBuildBatch(
+	ctx context.Context,
+	client *api.Client,
+	cfg *config.ProjectConfig,
+	cwd string,
+	platforms []string,
+	skipBuild bool,
+	artifactPaths map[string]string,
+) []wizardBuildResult {
+	if len(platforms) == 0 {
+		return nil
+	}
+
+	type indexedResult struct {
+		index  int
+		result wizardBuildResult
+	}
+
+	resultsCh := make(chan indexedResult, len(platforms))
+	var wg sync.WaitGroup
+	var outputMu sync.Mutex
+
+	for i, platform := range platforms {
+		platformCfg, ok := cfg.Build.Platforms[platform]
+		if !ok {
+			resultsCh <- indexedResult{
+				index: i,
+				result: wizardBuildResult{
+					Platform:   platform,
+					Err:        fmt.Errorf("platform %s is not configured", platform),
+					RetryLater: fmt.Sprintf("revyl build upload --platform %s", platform),
+				},
+			}
+			continue
+		}
+
+		providedArtifactPath := ""
+		if artifactPaths != nil {
+			providedArtifactPath = strings.TrimSpace(artifactPaths[platform])
+		}
+
+		wg.Add(1)
+		go func(resultIndex int, platform string, platformCfg config.BuildPlatform, artifactPath string) {
+			defer wg.Done()
+			resultsCh <- indexedResult{
+				index:  resultIndex,
+				result: runWizardBuildForPlatform(ctx, client, cwd, platform, platformCfg, skipBuild, artifactPath, &outputMu),
+			}
+		}(i, platform, platformCfg, providedArtifactPath)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultsCh)
+	}()
+
+	ordered := make([]wizardBuildResult, len(platforms))
+	for item := range resultsCh {
+		ordered[item.index] = item.result
+	}
+
+	return ordered
+}
+
+func runWizardBuildForPlatform(
+	ctx context.Context,
+	client *api.Client,
+	cwd string,
+	platform string,
+	platformCfg config.BuildPlatform,
+	skipBuild bool,
+	preResolvedArtifactPath string,
+	outputMu *sync.Mutex,
+) wizardBuildResult {
+	result := wizardBuildResult{
+		Platform:   platform,
+		AppID:      strings.TrimSpace(platformCfg.AppID),
+		RetryLater: fmt.Sprintf("revyl build upload --platform %s", platform),
+	}
+
+	if result.AppID == "" {
+		result.Err = fmt.Errorf("no app linked for %s", platform)
+		return result
+	}
+
+	buildCommand := strings.TrimSpace(platformCfg.Command)
+	var buildDuration time.Duration
+	if !skipBuild {
+		if buildCommand == "" {
+			result.Err = fmt.Errorf("no build command configured for %s", platform)
+			return result
+		}
+
+		outputMu.Lock()
+		ui.PrintInfo("[%s] Building with: %s", platform, buildCommand)
+		outputMu.Unlock()
+
+		startTime := time.Now()
+		runner := build.NewRunner(cwd)
+		err := runner.Run(buildCommand, func(line string) {
+			outputMu.Lock()
+			ui.PrintDim("  [%s] %s", platform, line)
+			outputMu.Unlock()
+		})
+		buildDuration = time.Since(startTime)
+
+		if err != nil {
+			result.Err = err
+			return result
+		}
+
+		outputMu.Lock()
+		ui.PrintSuccess("[%s] Build completed in %s", platform, buildDuration.Round(time.Second))
+		outputMu.Unlock()
+	}
+
+	artifactPath := strings.TrimSpace(preResolvedArtifactPath)
+	if artifactPath == "" {
+		resolved, err := build.ResolveArtifactPath(cwd, platformCfg.Output)
+		if err != nil {
+			result.Err = fmt.Errorf("artifact not found for %s: %w", platform, err)
+			return result
+		}
+		artifactPath = resolved
+	}
+
+	if build.IsTarGz(artifactPath) {
+		outputMu.Lock()
+		ui.PrintInfo("[%s] Extracting .app from tar.gz...", platform)
+		outputMu.Unlock()
+		zipPath, err := build.ExtractAppFromTarGz(artifactPath)
+		if err != nil {
+			result.Err = fmt.Errorf("failed to extract .app from tar.gz: %w", err)
+			return result
+		}
+		defer os.Remove(zipPath)
+		artifactPath = zipPath
+		outputMu.Lock()
+		ui.PrintSuccess("[%s] Converted to: %s", platform, filepath.Base(zipPath))
+		outputMu.Unlock()
+	} else if build.IsAppBundle(artifactPath) {
+		outputMu.Lock()
+		ui.PrintInfo("[%s] Zipping .app bundle...", platform)
+		outputMu.Unlock()
+		zipPath, err := build.ZipAppBundle(artifactPath)
+		if err != nil {
+			result.Err = fmt.Errorf("failed to zip .app bundle: %w", err)
+			return result
+		}
+		defer os.Remove(zipPath)
+		artifactPath = zipPath
+		outputMu.Lock()
+		ui.PrintSuccess("[%s] Created: %s", platform, filepath.Base(zipPath))
+		outputMu.Unlock()
+	}
+
+	versionStr := build.GenerateVersionString()
+	metadata := build.CollectMetadata(cwd, buildCommand, platform, buildDuration)
+
+	outputMu.Lock()
+	ui.PrintInfo("[%s] Uploading: %s", platform, filepath.Base(artifactPath))
+	ui.PrintInfo("[%s] Build Version: %s", platform, versionStr)
+	outputMu.Unlock()
+
+	uploadResult, err := client.UploadBuild(ctx, &api.UploadBuildRequest{
+		AppID:        result.AppID,
+		Version:      versionStr,
+		FilePath:     artifactPath,
+		Metadata:     metadata,
+		SetAsCurrent: true,
+	})
+	if err != nil {
+		result.Err = fmt.Errorf("upload failed: %w", err)
+		return result
+	}
+
+	result.Version = uploadResult.Version
+	result.VersionID = uploadResult.VersionID
+	return result
+}
+
+func orderWizardBuildResults(results []wizardBuildResult, order []string) []wizardBuildResult {
+	if len(results) == 0 || len(order) == 0 {
+		return results
+	}
+
+	byPlatform := make(map[string]wizardBuildResult, len(results))
+	for _, result := range results {
+		byPlatform[result.Platform] = result
+	}
+
+	ordered := make([]wizardBuildResult, 0, len(results))
+	for _, platform := range order {
+		if result, ok := byPlatform[platform]; ok {
+			ordered = append(ordered, result)
+			delete(byPlatform, platform)
+		}
+	}
+	if len(byPlatform) > 0 {
+		remaining := make([]string, 0, len(byPlatform))
+		for platform := range byPlatform {
+			remaining = append(remaining, platform)
+		}
+		sort.Strings(remaining)
+		for _, platform := range remaining {
+			ordered = append(ordered, byPlatform[platform])
+		}
+	}
+
+	return ordered
+}
+
+func printWizardBuildResults(results []wizardBuildResult) []string {
+	ui.Println()
+	ui.PrintInfo("Dev stream build results:")
+	ui.Println()
+
+	failed := make([]string, 0)
+	for _, result := range results {
+		if result.Err != nil {
+			ui.PrintWarning("[%s] Failed: %v", result.Platform, result.Err)
+			var easErr *build.EASBuildError
+			if errors.As(result.Err, &easErr) {
+				ui.PrintInfo("  Fix suggestion:")
+				for _, line := range strings.Split(strings.TrimSpace(easErr.Guidance), "\n") {
+					ui.PrintDim("    %s", line)
+				}
+			}
+			if result.RetryLater != "" {
+				ui.PrintDim("  %s", result.RetryLater)
+			}
+			failed = append(failed, result.Platform)
+			continue
+		}
+
+		ui.PrintSuccess("[%s] Upload complete", result.Platform)
+		if result.AppID != "" {
+			ui.PrintInfo("  App: %s", result.AppID)
+		}
+		if result.Version != "" {
+			ui.PrintInfo("  Build Version: %s", result.Version)
+		}
+		if result.VersionID != "" {
+			ui.PrintInfo("  Build ID: %s", result.VersionID)
+		}
+	}
+
+	return failed
+}
+
 // ---------------------------------------------------------------------------
-// Step 5: Create First Test
+// Step 6: Create First Test
 // ---------------------------------------------------------------------------
 
 // wizardCreateTest offers to create a test, saves it in the config, and opens
@@ -841,8 +1788,8 @@ func wizardCreateTest(
 		testName = "login"
 	}
 
-	// Select platform from configured ones.
-	platforms := platformKeys(cfg)
+	// Select runtime platform (ios/android) from configured build keys.
+	platforms := selectableRuntimePlatforms(cfg)
 	var platform string
 
 	switch len(platforms) {
@@ -871,10 +1818,7 @@ func wizardCreateTest(
 	}
 
 	// Determine AppID and OrgID for the request.
-	appID := ""
-	if plat, ok := cfg.Build.Platforms[platform]; ok {
-		appID = plat.AppID
-	}
+	appID := resolveAppIDForRuntimePlatform(cfg, platform)
 
 	orgID := ""
 	if userInfo != nil {
@@ -1150,8 +2094,7 @@ func gatherTestIDsForWorkflow(ctx context.Context, client *api.Client, justCreat
 
 // wizardHotReloadSetup detects and configures hot reload in .revyl/config.yaml.
 // It applies smart defaults from project detection, preserves existing explicit
-// settings, and optionally auto-selects a dev client build from configured
-// platform app IDs.
+// settings, and auto-maps ios/android to build.platforms keys when possible.
 func wizardHotReloadSetup(
 	ctx context.Context,
 	client *api.Client,
@@ -1192,6 +2135,7 @@ func wizardHotReloadSetup(
 
 	existingCfg := cfg.HotReload.GetProviderConfig(setupResult.ProviderName)
 	mergedCfg := mergeHotReloadProviderConfig(existingCfg, setupResult.Config)
+	mergedCfg.PlatformKeys = mergePlatformKeys(mergedCfg.PlatformKeys, inferHotReloadPlatformKeys(cfg))
 	cfg.HotReload.Providers[setupResult.ProviderName] = mergedCfg
 
 	if cfg.HotReload.Default == "" {
@@ -1210,20 +2154,11 @@ func wizardHotReloadSetup(
 		ui.PrintWarning("Port %d is busy. Using port %d for hot reload.", requestedPort, activePort)
 	}
 
-	if client != nil {
-		if mergedCfg.DevClientBuildID == "" {
-			buildID, platformKey, resolveErr := resolveHotReloadBuildID(ctx, client, cfg)
-			if resolveErr != nil {
-				ui.PrintWarning("Could not auto-select a dev client build: %v", resolveErr)
+	for _, platform := range []string{"ios", "android"} {
+		if platformKey := strings.TrimSpace(mergedCfg.PlatformKeys[platform]); platformKey != "" {
+			if _, ok := cfg.Build.Platforms[platformKey]; ok {
+				ui.PrintDim("Mapped %s hot reload to build.platforms.%s", platform, platformKey)
 			}
-			if buildID != "" {
-				mergedCfg.DevClientBuildID = buildID
-				ui.PrintSuccess("Selected dev client build from platform %s: %s", platformKey, buildID)
-			} else {
-				ui.PrintDim("No build versions found yet. Upload a build to avoid passing --build-id.")
-			}
-		} else {
-			ui.PrintDim("Using existing dev client build: %s", mergedCfg.DevClientBuildID)
 		}
 	}
 
@@ -1276,13 +2211,17 @@ func mergeHotReloadProviderConfig(existing, detected *config.ProviderConfig) *co
 	}
 	if existing == nil {
 		copyCfg := *detected
+		if len(detected.PlatformKeys) > 0 {
+			copyCfg.PlatformKeys = make(map[string]string, len(detected.PlatformKeys))
+			for k, v := range detected.PlatformKeys {
+				copyCfg.PlatformKeys[k] = v
+			}
+		}
 		return &copyCfg
 	}
 
 	merged := *existing
-	if merged.DevClientBuildID == "" {
-		merged.DevClientBuildID = detected.DevClientBuildID
-	}
+	merged.PlatformKeys = mergePlatformKeys(existing.PlatformKeys, detected.PlatformKeys)
 	if merged.Port == 0 {
 		merged.Port = detected.Port
 	}
@@ -1322,65 +2261,6 @@ func ensureAvailableHotReloadPort(providerCfg *config.ProviderConfig, providerNa
 	return nextPort, true
 }
 
-// resolveHotReloadBuildID finds a usable build from configured platform app IDs.
-func resolveHotReloadBuildID(ctx context.Context, client *api.Client, cfg *config.ProjectConfig) (string, string, error) {
-	var lookupErrors []string
-
-	for _, platformKey := range orderedHotReloadPlatforms(cfg) {
-		platformCfg, ok := cfg.Build.Platforms[platformKey]
-		if !ok || platformCfg.AppID == "" {
-			continue
-		}
-
-		latestVersion, err := client.GetLatestBuildVersion(ctx, platformCfg.AppID)
-		if err != nil {
-			lookupErrors = append(lookupErrors, fmt.Sprintf("%s: %v", platformKey, err))
-			continue
-		}
-		if latestVersion != nil {
-			return latestVersion.ID, platformKey, nil
-		}
-	}
-
-	if len(lookupErrors) > 0 {
-		return "", "", errors.New(strings.Join(lookupErrors, "; "))
-	}
-
-	return "", "", nil
-}
-
-// orderedHotReloadPlatforms returns platform keys sorted by dev-first priority.
-func orderedHotReloadPlatforms(cfg *config.ProjectConfig) []string {
-	keys := platformKeys(cfg)
-	sort.Slice(keys, func(i, j int) bool {
-		ri := hotReloadPlatformRank(keys[i])
-		rj := hotReloadPlatformRank(keys[j])
-		if ri != rj {
-			return ri < rj
-		}
-		return keys[i] < keys[j]
-	})
-	return keys
-}
-
-// hotReloadPlatformRank prioritizes platform keys likely to hold dev-client builds.
-func hotReloadPlatformRank(name string) int {
-	lower := strings.ToLower(name)
-
-	switch {
-	case strings.Contains(lower, "dev"):
-		return 0
-	case strings.Contains(lower, "preview"):
-		return 1
-	case strings.Contains(lower, "staging"):
-		return 2
-	case strings.Contains(lower, "qa"):
-		return 3
-	default:
-		return 10
-	}
-}
-
 // isPortAvailable checks if a TCP port can be bound on localhost.
 func isPortAvailable(port int) bool {
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
@@ -1414,7 +2294,72 @@ func platformKeys(cfg *config.ProjectConfig) []string {
 	for k := range cfg.Build.Platforms {
 		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 	return keys
+}
+
+func selectableRuntimePlatforms(cfg *config.ProjectConfig) []string {
+	if cfg == nil {
+		return nil
+	}
+	set := make(map[string]struct{})
+	for key := range cfg.Build.Platforms {
+		if platform := mobilePlatformForBuildKey(key); platform != "" {
+			set[platform] = struct{}{}
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	platforms := make([]string, 0, len(set))
+	for _, preferred := range []string{"ios", "android"} {
+		if _, ok := set[preferred]; ok {
+			platforms = append(platforms, preferred)
+			delete(set, preferred)
+		}
+	}
+	if len(set) > 0 {
+		rest := make([]string, 0, len(set))
+		for platform := range set {
+			rest = append(rest, platform)
+		}
+		sort.Strings(rest)
+		platforms = append(platforms, rest...)
+	}
+	return platforms
+}
+
+func resolveAppIDForRuntimePlatform(cfg *config.ProjectConfig, runtimePlatform string) string {
+	if cfg == nil {
+		return ""
+	}
+	runtimePlatform = strings.ToLower(strings.TrimSpace(runtimePlatform))
+	if runtimePlatform == "" {
+		return ""
+	}
+
+	// Prefer explicit hotreload platform mapping when present.
+	if expoCfg := cfg.HotReload.GetProviderConfig("expo"); expoCfg != nil {
+		if mappedKey := strings.TrimSpace(expoCfg.PlatformKeys[runtimePlatform]); mappedKey != "" {
+			if mapped, ok := cfg.Build.Platforms[mappedKey]; ok && strings.TrimSpace(mapped.AppID) != "" {
+				return strings.TrimSpace(mapped.AppID)
+			}
+		}
+	}
+
+	// Fallback to best matching build key (prefers *-dev).
+	if bestKey := pickBestBuildPlatformKey(cfg, runtimePlatform); bestKey != "" {
+		if platformCfg, ok := cfg.Build.Platforms[bestKey]; ok && strings.TrimSpace(platformCfg.AppID) != "" {
+			return strings.TrimSpace(platformCfg.AppID)
+		}
+	}
+
+	// Final fallback to direct key match.
+	if platformCfg, ok := cfg.Build.Platforms[runtimePlatform]; ok {
+		return strings.TrimSpace(platformCfg.AppID)
+	}
+
+	return ""
 }
 
 // printCreatedFiles prints the list of files created during init.
@@ -1511,10 +2456,11 @@ func printDynamicNextSteps(cfg *config.ProjectConfig, authOK bool, testID string
 			break
 		}
 		if cfg.HotReload.IsConfigured() {
+			steps = append(steps, ui.NextStep{Label: "Start dev loop:", Command: "revyl dev"})
 			if testAlias != "" {
-				steps = append(steps, ui.NextStep{Label: "Run with hot reload:", Command: fmt.Sprintf("revyl test run %s --hotreload", testAlias)})
+				steps = append(steps, ui.NextStep{Label: "Run test in dev loop:", Command: fmt.Sprintf("revyl dev test run %s", testAlias)})
 			} else {
-				steps = append(steps, ui.NextStep{Label: "Run with hot reload:", Command: "revyl test run <name> --hotreload"})
+				steps = append(steps, ui.NextStep{Label: "Run test in dev loop:", Command: "revyl dev test run <name>"})
 			}
 		}
 	} else {
@@ -1543,7 +2489,7 @@ func syncTestYAML(ctx context.Context, client *api.Client, cfg *config.ProjectCo
 	if localTests == nil {
 		localTests = make(map[string]*config.LocalTest)
 	}
-	resolver := sync.NewResolver(client, cfg, localTests)
+	resolver := syncpkg.NewResolver(client, cfg, localTests)
 	results, pullErr := resolver.PullFromRemote(ctx, testName, testsDir, true)
 	if pullErr == nil && len(results) > 0 && results[0].Error == nil {
 		cfg.MarkSynced()

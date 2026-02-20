@@ -229,16 +229,14 @@ const (
 	viewRunsList                      // browsable runs list (sub-screen)
 	viewCreateTest                    // create-a-test flow (sub-screen)
 	viewExecution                     // test execution monitor
-	viewReportPicker                  // report type picker (test reports / workflow reports)
-	viewTestReports                   // test list for report drill-down
 	viewTestRuns                      // run history for a specific test
-	viewWorkflowReports               // workflow list for report drill-down
 	viewWorkflowRuns                  // run history for a specific workflow
 	viewAppList                       // app list for manage apps
 	viewAppDetail                     // build versions for a specific app
 	viewCreateApp                     // create-an-app flow (sub-screen)
 	viewUploadBuild                   // upload-a-build flow (sub-screen)
 	viewPublishTestFlight             // guided TestFlight publish flow
+	viewSettings                      // local project settings editor
 	viewHelp                          // help & status screen (doctor + keybindings)
 	viewTestDetail                    // test detail + management screen
 	viewWorkflowList                  // workflow browse list
@@ -296,12 +294,6 @@ type AppCreatedMsg struct {
 	AppName  string
 	Platform string
 	Err      error
-}
-
-// WorkflowListMsg carries the fetched workflow list from the API.
-type WorkflowListMsg struct {
-	Workflows []api.SimpleWorkflow
-	Err       error
 }
 
 // TestHistoryMsg carries the fetched execution history for a specific test.
@@ -409,7 +401,12 @@ type TestSyncActionMsg struct {
 
 // TestDeletedMsg signals that a test has been deleted.
 type TestDeletedMsg struct {
-	Err error
+	Name          string
+	ID            string
+	RemoteDeleted bool
+	LocalDeleted  bool
+	Warning       string
+	Err           error
 }
 
 // --- Env var types ---

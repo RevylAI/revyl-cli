@@ -3,15 +3,24 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/revyl/cli/internal/api"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 // ---------------------------------------------------------------------------
 // TestWsURLToHTTP: Table-driven test for WebSocket-to-HTTP URL conversion.
@@ -209,6 +218,114 @@ func TestDeviceSessionManager_IdleTimerReset(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if mgr.GetActive() != nil {
 		t.Fatal("session should be cleared after idle timeout from last reset")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestDeviceSessionManager_RecompactPreservesRemainingIdleTime: Verify that
+// recompact keeps the remaining idle window instead of resetting to full timeout.
+// ---------------------------------------------------------------------------
+
+func TestDeviceSessionManager_RecompactPreservesRemainingIdleTime(t *testing.T) {
+	now := time.Now()
+	mgr := &DeviceSessionManager{
+		sessions: map[int]*DeviceSession{
+			4: {
+				Index:         4,
+				SessionID:     "recompact-idle-window",
+				WorkflowRunID: "wf-recompact-idle-window",
+				WorkerBaseURL: "http://localhost:9999",
+				Platform:      "ios",
+				StartedAt:     now.Add(-10 * time.Second),
+				LastActivity:  now.Add(-330 * time.Millisecond),
+				IdleTimeout:   400 * time.Millisecond,
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 4,
+		nextIndex:   5,
+	}
+
+	// Existing timer at old index, which will be recreated during recompact.
+	mgr.idleTimers[4] = time.AfterFunc(5*time.Second, func() {})
+
+	mgr.mu.Lock()
+	mgr.recompactIndicesLocked()
+	mgr.mu.Unlock()
+
+	if got := mgr.ActiveIndex(); got != 0 {
+		t.Fatalf("expected active index 0 after recompact, got %d", got)
+	}
+	if mgr.GetSession(0) == nil {
+		t.Fatal("expected remapped session at index 0 after recompact")
+	}
+
+	// Wait long enough to exceed remaining idle time (~70ms), but less than the
+	// full timeout window (400ms). If recompact incorrectly resets to full timeout,
+	// the session would still be active here.
+	time.Sleep(180 * time.Millisecond)
+	if mgr.GetSession(0) != nil {
+		t.Fatal("expected session to expire based on remaining idle time after recompact")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer: Verify
+// that worker actions count as activity and extend idle timeout.
+// ---------------------------------------------------------------------------
+
+func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing.T) {
+	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"action":"tap"}`))
+	}))
+	defer workerServer.Close()
+
+	now := time.Now()
+	mgr := &DeviceSessionManager{
+		httpClient: workerServer.Client(),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "test-session-worker-reset",
+				WorkflowRunID: "wf-worker-reset",
+				WorkerBaseURL: workerServer.URL,
+				Platform:      "ios",
+				StartedAt:     now,
+				LastActivity:  now,
+				IdleTimeout:   120 * time.Millisecond,
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+		nextIndex:   1,
+	}
+
+	mgr.mu.Lock()
+	mgr.resetIdleTimerForSessionLocked(0, context.Background())
+	mgr.mu.Unlock()
+
+	time.Sleep(80 * time.Millisecond)
+
+	_, err := mgr.WorkerRequestForSession(context.Background(), 0, http.MethodPost, "/tap", map[string]int{
+		"x": 1,
+		"y": 2,
+	})
+	if err != nil {
+		t.Fatalf("WorkerRequestForSession returned error: %v", err)
+	}
+
+	// This point is beyond the original timeout window, so without idle reset
+	// the session would have been auto-cleared.
+	time.Sleep(80 * time.Millisecond)
+	if mgr.GetSession(0) == nil {
+		t.Fatal("session should still be active after worker action reset the idle timer")
+	}
+
+	// After the refreshed timeout window, the session should expire.
+	time.Sleep(90 * time.Millisecond)
+	if mgr.GetSession(0) != nil {
+		t.Fatal("session should expire after refreshed idle timeout window")
 	}
 }
 
@@ -629,5 +746,444 @@ func TestReconcileSessionIDsByWorkflow(t *testing.T) {
 	}
 	if sessions[2].SessionID != "no-workflow" {
 		t.Fatalf("expected session 2 unchanged, got %q", sessions[2].SessionID)
+	}
+}
+
+func TestDeviceSessionManager_StartSession_PropagatesBuildPackageToStartDevice(t *testing.T) {
+	t.Parallel()
+
+	const (
+		buildVersionID = "build-123"
+		downloadURL    = "https://artifact.example/dev-client.ipa"
+		packageName    = "com.example.devclient"
+		workflowRunID  = "wf-run-123"
+	)
+
+	var capturedStartReq struct {
+		AppURL     string `json:"app_url"`
+		AppPackage string `json:"app_package"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/builds/builds/"+buildVersionID:
+			_, _ = w.Write([]byte(`{"id":"` + buildVersionID + `","version":"1","download_url":"` + downloadURL + `","package_name":"` + packageName + `"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
+			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
+				t.Fatalf("decode start_device request: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
+			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/health":
+			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient:   api.NewClientWithBaseURL("test-key", server.URL),
+		httpClient:  server.Client(),
+		sessions:    make(map[int]*DeviceSession),
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: -1,
+	}
+
+	_, session, err := mgr.StartSession(context.Background(), StartSessionOptions{
+		Platform:       "ios",
+		BuildVersionID: buildVersionID,
+	})
+	if err != nil {
+		t.Fatalf("StartSession returned error: %v", err)
+	}
+	if session == nil {
+		t.Fatal("expected non-nil session")
+	}
+	if capturedStartReq.AppURL != downloadURL {
+		t.Fatalf("start_device app_url = %q, want %q", capturedStartReq.AppURL, downloadURL)
+	}
+	if capturedStartReq.AppPackage != packageName {
+		t.Fatalf("start_device app_package = %q, want %q", capturedStartReq.AppPackage, packageName)
+	}
+}
+
+func TestDeviceSessionManager_WorkerRequestForSession_ReturnsTypedWorkerHTTPError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/open_url" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"detail":"Not Found"}`))
+	}))
+	defer server.Close()
+
+	mgr := &DeviceSessionManager{
+		httpClient: server.Client(),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "s-1",
+				WorkflowRunID: "wf-1",
+				WorkerBaseURL: server.URL,
+				Platform:      "ios",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	_, err := mgr.WorkerRequestForSession(context.Background(), 0, http.MethodPost, "/open_url", map[string]string{
+		"url": "nof1://expo-development-client/?url=https%3A%2F%2Fexample.trycloudflare.com",
+	})
+	if err == nil {
+		t.Fatal("expected non-nil error")
+	}
+
+	var workerErr *WorkerHTTPError
+	if !errors.As(err, &workerErr) {
+		t.Fatalf("expected WorkerHTTPError via errors.As, got %T: %v", err, err)
+	}
+	if workerErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("workerErr.StatusCode = %d, want %d", workerErr.StatusCode, http.StatusNotFound)
+	}
+	if workerErr.Path != "/open_url" {
+		t.Fatalf("workerErr.Path = %q, want %q", workerErr.Path, "/open_url")
+	}
+	if workerErr.Body != `{"detail":"Not Found"}` {
+		t.Fatalf("workerErr.Body = %q, want %q", workerErr.Body, `{"detail":"Not Found"}`)
+	}
+}
+
+func TestWorkerProxyActionFromPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		want    string
+		wantErr bool
+	}{
+		{name: "simple", path: "/tap", want: "tap"},
+		{name: "no-leading-slash", path: "screenshot", want: "screenshot"},
+		{name: "query-string", path: "/resolve_target?foo=bar", want: "resolve_target"},
+		{name: "nested-path-invalid", path: "/foo/bar", wantErr: true},
+		{name: "empty-invalid", path: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := workerProxyActionFromPath(tt.path)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for path %q", tt.path)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("workerProxyActionFromPath(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDeviceSessionManager_WorkerRequestForSession_FallbacksViaProxyOnDNSFailure(t *testing.T) {
+	t.Parallel()
+
+	proxyCalls := 0
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/execution/device-proxy/wf-1/tap" {
+			http.NotFound(w, r)
+			return
+		}
+		proxyCalls++
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST to proxy, got %s", r.Method)
+		}
+		var body map[string]int
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode proxy request body: %v", err)
+		}
+		if body["x"] != 123 || body["y"] != 456 {
+			t.Fatalf("unexpected proxy body: %+v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"action":"tap","latency_ms":10}`))
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return nil, &net.DNSError{
+					Err:        "no such host",
+					Name:       "cog-unresolvable.revyl.ai",
+					IsNotFound: true,
+				}
+			}),
+		},
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-1",
+				WorkflowRunID: "wf-1",
+				WorkerBaseURL: "https://cog-unresolvable.revyl.ai",
+				Platform:      "ios",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	resp, err := mgr.WorkerRequestForSession(context.Background(), 0, http.MethodPost, "/tap", map[string]int{
+		"x": 123,
+		"y": 456,
+	})
+	if err != nil {
+		t.Fatalf("expected proxy fallback success, got error: %v", err)
+	}
+	if !strings.Contains(string(resp), `"action":"tap"`) {
+		t.Fatalf("unexpected proxy response: %s", string(resp))
+	}
+	if proxyCalls != 1 {
+		t.Fatalf("proxy calls = %d, want 1", proxyCalls)
+	}
+}
+
+func TestDeviceSessionManager_WorkerRequestForSession_ProxyHTTPErrorReturnsTypedWorkerError(t *testing.T) {
+	t.Parallel()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/execution/device-proxy/wf-2/resolve_target" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"detail":"Action not allowed"}`))
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return nil, &net.DNSError{
+					Err:        "no such host",
+					Name:       "cog-unresolvable.revyl.ai",
+					IsNotFound: true,
+				}
+			}),
+		},
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-2",
+				WorkflowRunID: "wf-2",
+				WorkerBaseURL: "https://cog-unresolvable.revyl.ai",
+				Platform:      "ios",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	_, err := mgr.WorkerRequestForSession(
+		context.Background(),
+		0,
+		http.MethodPost,
+		"/resolve_target",
+		map[string]string{"target": "Continue button"},
+	)
+	if err == nil {
+		t.Fatal("expected non-nil error")
+	}
+
+	var workerErr *WorkerHTTPError
+	if !errors.As(err, &workerErr) {
+		t.Fatalf("expected WorkerHTTPError via errors.As, got %T: %v", err, err)
+	}
+	if workerErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("workerErr.StatusCode = %d, want %d", workerErr.StatusCode, http.StatusNotFound)
+	}
+	if workerErr.Path != "/resolve_target" {
+		t.Fatalf("workerErr.Path = %q, want %q", workerErr.Path, "/resolve_target")
+	}
+	if workerErr.Body != `{"detail":"Action not allowed"}` {
+		t.Fatalf("workerErr.Body = %q, want %q", workerErr.Body, `{"detail":"Action not allowed"}`)
+	}
+}
+
+func TestDeviceSessionManager_ResolveTargetForSession_UsesWorkerResolveEndpoint(t *testing.T) {
+	t.Parallel()
+
+	resolveCalls := 0
+	screenshotCalls := 0
+
+	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/resolve_target":
+			resolveCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"found":true,"x":111,"y":222}`))
+		case "/screenshot":
+			screenshotCalls++
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("unused"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer workerServer.Close()
+
+	mgr := &DeviceSessionManager{
+		httpClient: workerServer.Client(),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-1",
+				WorkflowRunID: "wf-1",
+				WorkerBaseURL: workerServer.URL,
+				Platform:      "ios",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	resolved, err := mgr.ResolveTargetForSession(context.Background(), 0, "Continue button")
+	if err != nil {
+		t.Fatalf("ResolveTargetForSession returned error: %v", err)
+	}
+	if resolved.X != 111 || resolved.Y != 222 {
+		t.Fatalf("resolved = (%d,%d), want (111,222)", resolved.X, resolved.Y)
+	}
+	if resolveCalls != 1 {
+		t.Fatalf("resolve_target calls = %d, want 1", resolveCalls)
+	}
+	if screenshotCalls != 0 {
+		t.Fatalf("screenshot calls = %d, want 0 for worker-native path", screenshotCalls)
+	}
+}
+
+func TestDeviceSessionManager_ResolveTargetForSession_FallbacksToBackendOnLegacyWorker(t *testing.T) {
+	t.Parallel()
+
+	resolveCalls := 0
+	groundCalls := 0
+
+	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/resolve_target":
+			resolveCalls++
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"detail":"Not Found"}`))
+		case "/screenshot":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("fallback-screenshot"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer workerServer.Close()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/execution/ground" {
+			http.NotFound(w, r)
+			return
+		}
+		groundCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"found":true,"x":321,"y":654}`))
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient:  api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		httpClient: workerServer.Client(),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-2",
+				WorkflowRunID: "wf-2",
+				WorkerBaseURL: workerServer.URL,
+				Platform:      "ios",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	resolved, err := mgr.ResolveTargetForSession(context.Background(), 0, "Sign in button")
+	if err != nil {
+		t.Fatalf("ResolveTargetForSession returned error: %v", err)
+	}
+	if resolved.X != 321 || resolved.Y != 654 {
+		t.Fatalf("resolved = (%d,%d), want (321,654)", resolved.X, resolved.Y)
+	}
+	if resolveCalls != 1 {
+		t.Fatalf("resolve_target calls = %d, want 1", resolveCalls)
+	}
+	if groundCalls != 1 {
+		t.Fatalf("backend ground calls = %d, want 1", groundCalls)
+	}
+}
+
+func TestDeviceSessionManager_ResolveTargetForSession_WorkerMissDoesNotFallback(t *testing.T) {
+	t.Parallel()
+
+	groundCalls := 0
+
+	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/resolve_target" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"found":false,"error":"Could not locate 'Continue button' in the screenshot"}`))
+	}))
+	defer workerServer.Close()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/execution/ground" {
+			groundCalls++
+		}
+		http.NotFound(w, r)
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient:  api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		httpClient: workerServer.Client(),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-3",
+				WorkflowRunID: "wf-3",
+				WorkerBaseURL: workerServer.URL,
+				Platform:      "ios",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	_, err := mgr.ResolveTargetForSession(context.Background(), 0, "Continue button")
+	if err == nil {
+		t.Fatal("expected error for unresolved target")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "could not locate") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if groundCalls != 0 {
+		t.Fatalf("backend ground should not be called on worker miss, got %d", groundCalls)
 	}
 }

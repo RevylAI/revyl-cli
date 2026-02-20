@@ -239,3 +239,44 @@ func TestSaveLocalTestStoresChecksum(t *testing.T) {
 		t.Error("HasLocalChanges() should return false for freshly loaded test")
 	}
 }
+
+func TestApplyDefaults(t *testing.T) {
+	cfg := &ProjectConfig{}
+	ApplyDefaults(cfg)
+
+	if cfg.Defaults.OpenBrowser == nil {
+		t.Fatal("ApplyDefaults() did not set OpenBrowser")
+	}
+	if got := EffectiveOpenBrowser(cfg); !got {
+		t.Errorf("EffectiveOpenBrowser() = %v, want true", got)
+	}
+	if got := EffectiveTimeoutSeconds(cfg, 30); got != DefaultTimeoutSeconds {
+		t.Errorf("EffectiveTimeoutSeconds() = %d, want %d", got, DefaultTimeoutSeconds)
+	}
+}
+
+func TestEffectiveOpenBrowserExplicitFalse(t *testing.T) {
+	open := false
+	cfg := &ProjectConfig{
+		Defaults: Defaults{
+			OpenBrowser: &open,
+			Timeout:     90,
+		},
+	}
+
+	if got := EffectiveOpenBrowser(cfg); got {
+		t.Errorf("EffectiveOpenBrowser() = %v, want false", got)
+	}
+	if got := EffectiveTimeoutSeconds(cfg, 30); got != 90 {
+		t.Errorf("EffectiveTimeoutSeconds() = %d, want 90", got)
+	}
+}
+
+func TestEffectiveTimeoutFallback(t *testing.T) {
+	if got := EffectiveTimeoutSeconds(nil, 45); got != 45 {
+		t.Errorf("EffectiveTimeoutSeconds(nil, 45) = %d, want 45", got)
+	}
+	if got := EffectiveTimeoutSeconds(nil, 0); got != DefaultTimeoutSeconds {
+		t.Errorf("EffectiveTimeoutSeconds(nil, 0) = %d, want %d", got, DefaultTimeoutSeconds)
+	}
+}

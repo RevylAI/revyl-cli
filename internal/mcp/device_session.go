@@ -91,6 +91,14 @@ type persistedState struct {
 	Sessions  []*DeviceSession `json:"sessions"`
 }
 
+type screenAnchorState struct {
+	Token       string
+	CapturedAt  time.Time
+	ActionsUsed int
+	ImageBytes  []byte
+	ImagePath   string
+}
+
 // DeviceSessionManager manages multiple concurrent device sessions.
 //
 // Sessions are identified by integer indices (tmux-style). One session
@@ -98,15 +106,16 @@ type persistedState struct {
 // is provided. The manager syncs with the backend to discover sessions
 // started from other clients (browser, MCP, CLI in another directory).
 type DeviceSessionManager struct {
-	sessions    map[int]*DeviceSession
-	activeIndex int
-	nextIndex   int
-	mu          sync.RWMutex
-	apiClient   *api.Client
-	idleTimers  map[int]*time.Timer
-	workDir     string
-	orgID       string
-	userEmail   string
+	sessions      map[int]*DeviceSession
+	activeIndex   int
+	nextIndex     int
+	mu            sync.RWMutex
+	apiClient     *api.Client
+	idleTimers    map[int]*time.Timer
+	screenAnchors map[int]*screenAnchorState
+	workDir       string
+	orgID         string
+	userEmail     string
 
 	// httpClient is used for worker HTTP requests.
 	// Has a 30-second timeout to prevent hanging on unresponsive services.
@@ -123,12 +132,13 @@ type DeviceSessionManager struct {
 //   - *DeviceSessionManager: A new session manager instance.
 func NewDeviceSessionManager(apiClient *api.Client, workDir string) *DeviceSessionManager {
 	return &DeviceSessionManager{
-		apiClient:   apiClient,
-		workDir:     workDir,
-		httpClient:  &http.Client{Timeout: 30 * time.Second},
-		sessions:    make(map[int]*DeviceSession),
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: -1,
+		apiClient:     apiClient,
+		workDir:       workDir,
+		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		sessions:      make(map[int]*DeviceSession),
+		idleTimers:    make(map[int]*time.Timer),
+		screenAnchors: make(map[int]*screenAnchorState),
+		activeIndex:   -1,
 	}
 }
 
@@ -212,14 +222,33 @@ func (m *DeviceSessionManager) backendSessionIDByWorkflowRunLocked(ctx context.C
 // StartSession provisions a new cloud device and adds it to the session map.
 // The new session is auto-set as active if it is the first session.
 //
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - platform: "ios" or "android".
-//   - appID: Optional app ID to pre-install.
-//   - buildVersionID: Optional build version ID.
-//   - testID: Optional test ID to link the session to.
-//   - sandboxID: Optional sandbox ID for dedicated device.
-//   - idleTimeout: How long the session can be idle (default 5 min).
+// StartSessionOptions configures device provisioning behavior.
+type StartSessionOptions struct {
+	Platform string
+
+	// Optional app selection inputs.
+	// Priority for app installation is:
+	//   1. AppURL
+	//   2. BuildVersionID (resolved to download URL)
+	//   3. AppID (latest build resolved to download URL)
+	AppID          string
+	BuildVersionID string
+	AppURL         string
+
+	// Optional app launch link and package hints.
+	AppLink    string
+	AppPackage string
+
+	// Optional test/session metadata.
+	TestID    string
+	SandboxID string
+
+	// Optional idle timeout (defaults to 5 minutes).
+	IdleTimeout time.Duration
+}
+
+// StartSession provisions a new cloud device and adds it to the session map.
+// The new session is auto-set as active if it is the first session.
 //
 // Returns:
 //   - int: The assigned session index.
@@ -227,28 +256,68 @@ func (m *DeviceSessionManager) backendSessionIDByWorkflowRunLocked(ctx context.C
 //   - error: Any error during provisioning.
 func (m *DeviceSessionManager) StartSession(
 	ctx context.Context,
-	platform string,
-	appID string,
-	buildVersionID string,
-	testID string,
-	sandboxID string,
-	idleTimeout time.Duration,
+	opts StartSessionOptions,
 ) (int, *DeviceSession, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	platform := strings.ToLower(strings.TrimSpace(opts.Platform))
+	if platform != "ios" && platform != "android" {
+		return -1, nil, fmt.Errorf("platform must be 'ios' or 'android'")
+	}
+
+	idleTimeout := opts.IdleTimeout
 	if idleTimeout == 0 {
 		idleTimeout = 5 * time.Minute
+	}
+
+	appPackage := strings.TrimSpace(opts.AppPackage)
+	appURL := strings.TrimSpace(opts.AppURL)
+	if appURL == "" && strings.TrimSpace(opts.BuildVersionID) != "" {
+		detail, err := m.apiClient.GetBuildVersionDownloadURL(ctx, strings.TrimSpace(opts.BuildVersionID))
+		if err != nil {
+			return -1, nil, fmt.Errorf("failed to resolve build version %s: %w", opts.BuildVersionID, err)
+		}
+		appURL = strings.TrimSpace(detail.DownloadURL)
+		if appPackage == "" {
+			appPackage = strings.TrimSpace(detail.PackageName)
+		}
+	}
+	if appURL == "" && strings.TrimSpace(opts.AppID) != "" {
+		latest, err := m.apiClient.GetLatestBuildVersion(ctx, strings.TrimSpace(opts.AppID))
+		if err != nil {
+			return -1, nil, fmt.Errorf("failed to resolve latest build for app %s: %w", opts.AppID, err)
+		}
+		if latest != nil {
+			detail, err := m.apiClient.GetBuildVersionDownloadURL(ctx, latest.ID)
+			if err != nil {
+				return -1, nil, fmt.Errorf("failed to resolve latest build artifact for app %s: %w", opts.AppID, err)
+			}
+			appURL = strings.TrimSpace(detail.DownloadURL)
+			if appPackage == "" {
+				appPackage = strings.TrimSpace(detail.PackageName)
+			}
+		}
 	}
 
 	// Build the start device request
 	req := &api.StartDeviceRequest{
 		Platform:     platform,
-		IsSimulation: testID == "",
+		IsSimulation: strings.TrimSpace(opts.TestID) == "",
 	}
-	if testID != "" {
-		req.TestID = testID
+	if strings.TrimSpace(opts.TestID) != "" {
+		req.TestID = strings.TrimSpace(opts.TestID)
 	}
+	if appURL != "" {
+		req.AppURL = appURL
+	}
+	if strings.TrimSpace(opts.AppLink) != "" {
+		req.AppLink = strings.TrimSpace(opts.AppLink)
+	}
+	if appPackage != "" {
+		req.AppPackage = appPackage
+	}
+	_ = opts.SandboxID // Reserved for backend support.
 
 	// Start the device via backend API
 	resp, err := m.apiClient.StartDevice(ctx, req)
@@ -532,6 +601,132 @@ func (m *DeviceSessionManager) ResetIdleTimer(index int) {
 	m.resetIdleTimerForSessionLocked(index, context.Background())
 }
 
+// MarkScreenshotAnchor records that a fresh screenshot was captured for a
+// session and returns a token representing that anchor point.
+func (m *DeviceSessionManager) MarkScreenshotAnchor(index int) string {
+	return m.MarkScreenshotAnchorWithImage(index, nil)
+}
+
+// MarkScreenshotAnchorWithImage records a screenshot anchor and optionally
+// stores the exact screenshot bytes for later analyzer replay.
+func (m *DeviceSessionManager) MarkScreenshotAnchorWithImage(index int, imageBytes []byte) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.sessions[index]; !ok {
+		return ""
+	}
+	if m.screenAnchors == nil {
+		m.screenAnchors = make(map[int]*screenAnchorState)
+	}
+
+	token := fmt.Sprintf("screen-%d-%d", index, time.Now().UnixNano())
+	imageCopy := make([]byte, len(imageBytes))
+	copy(imageCopy, imageBytes)
+	m.screenAnchors[index] = &screenAnchorState{
+		Token:       token,
+		CapturedAt:  time.Now(),
+		ActionsUsed: 0,
+		ImageBytes:  imageCopy,
+	}
+	return token
+}
+
+// PersistAnchorImage writes the anchored screenshot to disk and associates it
+// with the given screen token.
+func (m *DeviceSessionManager) PersistAnchorImage(index int, screenToken string, imageBytes []byte) (string, error) {
+	if len(imageBytes) == 0 {
+		return "", fmt.Errorf("cannot persist empty anchor image")
+	}
+	token := strings.TrimSpace(screenToken)
+	if token == "" {
+		return "", fmt.Errorf("screen_token is required to persist anchor image")
+	}
+
+	m.mu.Lock()
+	anchor, ok := m.screenAnchors[index]
+	if !ok || anchor == nil || anchor.Token == "" {
+		m.mu.Unlock()
+		return "", fmt.Errorf("no screenshot anchor found for session")
+	}
+	if token != anchor.Token {
+		m.mu.Unlock()
+		return "", fmt.Errorf("screen_token does not match the latest screenshot for this session")
+	}
+	m.mu.Unlock()
+
+	path, err := m.writePNGArtifact(filepath.Join("screenshots", fmt.Sprintf("session-%d", index)), token+".png", imageBytes)
+	if err != nil {
+		return "", err
+	}
+
+	m.mu.Lock()
+	if current, ok := m.screenAnchors[index]; ok && current != nil && current.Token == token {
+		current.ImagePath = path
+	}
+	m.mu.Unlock()
+	return path, nil
+}
+
+// LoadAnchorImage returns the anchored screenshot bytes and persisted path.
+// It first uses in-memory bytes, then falls back to disk when available.
+func (m *DeviceSessionManager) LoadAnchorImage(index int, screenToken string) ([]byte, string, error) {
+	token := strings.TrimSpace(screenToken)
+	if token == "" {
+		return nil, "", fmt.Errorf("screen_token is required")
+	}
+
+	m.mu.RLock()
+	anchor, ok := m.screenAnchors[index]
+	if !ok || anchor == nil || anchor.Token == "" {
+		m.mu.RUnlock()
+		return nil, "", fmt.Errorf("no screenshot anchor found for session")
+	}
+	if token != anchor.Token {
+		m.mu.RUnlock()
+		return nil, "", fmt.Errorf("screen_token does not match the latest screenshot for this session")
+	}
+	mem := make([]byte, len(anchor.ImageBytes))
+	copy(mem, anchor.ImageBytes)
+	path := anchor.ImagePath
+	m.mu.RUnlock()
+
+	if len(mem) > 0 {
+		return mem, path, nil
+	}
+	if strings.TrimSpace(path) == "" {
+		return nil, "", fmt.Errorf("no image data available for anchor")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, path, err
+	}
+	return data, path, nil
+}
+
+// writePNGArtifact writes bytes to a deterministic location under .revyl/mcp.
+func (m *DeviceSessionManager) writePNGArtifact(relDir, fileName string, imageBytes []byte) (string, error) {
+	root := m.workDir
+	if strings.TrimSpace(root) == "" {
+		root = os.TempDir()
+	}
+	dir := filepath.Join(root, ".revyl", "mcp", relDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+
+	finalPath := filepath.Join(dir, fileName)
+	tmpPath := finalPath + ".tmp"
+	if err := os.WriteFile(tmpPath, imageBytes, 0o644); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+	return finalPath, nil
+}
+
 // stopSessionAtIndexLocked stops a specific session without acquiring the lock.
 // Caller must hold m.mu.
 func (m *DeviceSessionManager) stopSessionAtIndexLocked(ctx context.Context, index int, session *DeviceSession) error {
@@ -555,6 +750,7 @@ func (m *DeviceSessionManager) stopSessionAtIndexLocked(ctx context.Context, ind
 
 	// Remove from map
 	delete(m.sessions, index)
+	delete(m.screenAnchors, index)
 
 	// Adjust active index if needed
 	if m.activeIndex == index {
@@ -670,6 +866,7 @@ func (m *DeviceSessionManager) recompactIndicesLocked() {
 	if len(m.sessions) == 0 {
 		m.nextIndex = 0
 		m.activeIndex = -1
+		clear(m.screenAnchors)
 		return
 	}
 
@@ -689,6 +886,11 @@ func (m *DeviceSessionManager) recompactIndicesLocked() {
 		}
 	}
 	if alreadyCompact {
+		for idx := range m.screenAnchors {
+			if _, ok := m.sessions[idx]; !ok {
+				delete(m.screenAnchors, idx)
+			}
+		}
 		m.nextIndex = len(m.sessions)
 		return
 	}
@@ -704,6 +906,16 @@ func (m *DeviceSessionManager) recompactIndicesLocked() {
 	}
 	m.sessions = newSessions
 
+	newAnchors := make(map[int]*screenAnchorState, len(m.screenAnchors))
+	for oldIdx, anchor := range m.screenAnchors {
+		newIdx, ok := oldToNew[oldIdx]
+		if !ok {
+			continue
+		}
+		newAnchors[newIdx] = anchor
+	}
+	m.screenAnchors = newAnchors
+
 	// Remap active index.
 	if m.activeIndex >= 0 {
 		if newIdx, ok := oldToNew[m.activeIndex]; ok {
@@ -716,6 +928,7 @@ func (m *DeviceSessionManager) recompactIndicesLocked() {
 	// Recreate idle timers with fresh closures capturing new indices.
 	// Old timers must be stopped first to prevent stale-index callbacks.
 	newTimers := make(map[int]*time.Timer, len(m.idleTimers))
+	now := time.Now()
 	for oldIdx, timer := range m.idleTimers {
 		timer.Stop()
 		newIdx, ok := oldToNew[oldIdx]
@@ -727,8 +940,20 @@ func (m *DeviceSessionManager) recompactIndicesLocked() {
 			continue
 		}
 		timeout := session.IdleTimeout
+		if timeout <= 0 {
+			timeout = 5 * time.Minute
+		}
+
+		remaining := timeout
+		if !session.LastActivity.IsZero() {
+			remaining = session.LastActivity.Add(timeout).Sub(now)
+		}
+		if remaining <= 0 {
+			remaining = time.Millisecond
+		}
+
 		capturedIdx := newIdx // explicit capture for closure
-		newTimers[capturedIdx] = time.AfterFunc(timeout, func() {
+		newTimers[capturedIdx] = time.AfterFunc(remaining, func() {
 			m.mu.Lock()
 			defer m.mu.Unlock()
 			if s, ok := m.sessions[capturedIdx]; ok {
@@ -931,6 +1156,111 @@ type WorkerHTTPResponse struct {
 	Body       []byte
 }
 
+// WorkerHTTPError captures a non-success HTTP response returned by the worker.
+// Callers can inspect StatusCode and Path with errors.As for compatibility
+// fallback handling.
+type WorkerHTTPError struct {
+	StatusCode int
+	Path       string
+	Body       string
+}
+
+func (e *WorkerHTTPError) Error() string {
+	if e == nil {
+		return "worker request failed"
+	}
+	body := strings.TrimSpace(e.Body)
+	if body == "" {
+		return fmt.Sprintf("worker returned %d on %s", e.StatusCode, e.Path)
+	}
+	return fmt.Sprintf("worker returned %d on %s: %s", e.StatusCode, e.Path, body)
+}
+
+// isWorkerConnectivityError reports whether the direct worker request failed due to
+// network reachability rather than application-level behavior.
+func isWorkerConnectivityError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	lower := strings.ToLower(err.Error())
+	for _, needle := range []string{
+		"no such host",
+		"i/o timeout",
+		"connection refused",
+		"network is unreachable",
+		"no route to host",
+		"temporary failure in name resolution",
+		"proxyconnect",
+		"tls handshake timeout",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// workerProxyActionFromPath converts worker path formats like "/tap" or
+// "/resolve_target?x=1" into proxy action names (e.g. "tap", "resolve_target").
+func workerProxyActionFromPath(path string) (string, error) {
+	action := strings.TrimSpace(path)
+	if action == "" {
+		return "", fmt.Errorf("invalid worker path %q for proxy fallback", path)
+	}
+	if idx := strings.Index(action, "?"); idx >= 0 {
+		action = action[:idx]
+	}
+	action = strings.Trim(action, "/")
+	if action == "" || strings.Contains(action, "/") {
+		return "", fmt.Errorf("invalid worker path %q for proxy fallback", path)
+	}
+	return action, nil
+}
+
+// proxyWorkerRequestForSession forwards a worker action through the backend
+// device-proxy endpoint. This is a fallback path for sandbox environments
+// where direct worker DNS resolution may fail.
+func (m *DeviceSessionManager) proxyWorkerRequestForSession(
+	ctx context.Context,
+	session *DeviceSession,
+	path string,
+	body interface{},
+) ([]byte, error) {
+	if m.apiClient == nil {
+		return nil, fmt.Errorf("backend proxy unavailable: no API client configured")
+	}
+	if session == nil || strings.TrimSpace(session.WorkflowRunID) == "" {
+		return nil, fmt.Errorf("backend proxy unavailable: missing workflow run ID")
+	}
+	action, err := workerProxyActionFromPath(path)
+	if err != nil {
+		return nil, err
+	}
+
+	respBody, statusCode, err := m.apiClient.ProxyWorkerRequest(ctx, session.WorkflowRunID, action, body)
+	if err != nil {
+		return nil, err
+	}
+	if statusCode >= 400 {
+		return nil, &WorkerHTTPError{
+			StatusCode: statusCode,
+			Path:       path,
+			Body:       string(respBody),
+		}
+	}
+	return respBody, nil
+}
+
 // WorkerRequest sends an HTTP request to the active session's worker.
 // For backward compatibility, uses the active session. Use WorkerRequestForSession
 // to target a specific session by index.
@@ -975,6 +1305,11 @@ func (m *DeviceSessionManager) WorkerRequestForSession(ctx context.Context, inde
 // workerRequestForSession is the internal implementation that sends an HTTP request
 // to a given session's worker.
 func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, session *DeviceSession, method, path string, body interface{}) ([]byte, error) {
+	// Any direct device action should count as activity and extend the
+	// session's idle timeout window.
+	if session != nil {
+		m.ResetIdleTimer(session.Index)
+	}
 
 	url := session.WorkerBaseURL + path
 
@@ -1002,6 +1337,19 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		if isWorkerConnectivityError(err) {
+			proxiedResp, proxyErr := m.proxyWorkerRequestForSession(ctx, session, path, body)
+			if proxyErr == nil {
+				ui.PrintDebug("worker request proxied via backend (session=%d, path=%s)", session.Index, path)
+				return proxiedResp, nil
+			}
+			var proxyWorkerErr *WorkerHTTPError
+			if errors.As(proxyErr, &proxyWorkerErr) {
+				return nil, proxyWorkerErr
+			}
+			ui.PrintDebug("worker direct request failed and proxy fallback failed: %v", proxyErr)
+		}
+
 		// Worker unreachable -- check backend for the real reason
 		// (e.g. session was stopped from the browser).
 		if reason := m.checkSessionStatusOnFailure(session); reason != "" {
@@ -1070,22 +1418,36 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 					return retryRespBody, nil
 				}
 				// Retry also failed -- fall through with retry response details.
+				workerErr := &WorkerHTTPError{
+					StatusCode: retryResp.StatusCode,
+					Path:       path,
+					Body:       string(retryRespBody),
+				}
 				return nil, fmt.Errorf(
-					"worker returned %d (temporarily unavailable, retried once): %s. "+
+					"%w. "+
 						"The device may not be fully connected yet -- wait a few seconds and retry, or call device_doctor() to diagnose",
-					retryResp.StatusCode, string(retryRespBody),
+					workerErr,
 				)
 			}
 			// Retry request itself failed -- fall through with original error.
 		}
 
+		workerErr := &WorkerHTTPError{
+			StatusCode: resp.StatusCode,
+			Path:       path,
+			Body:       string(respBody),
+		}
 		return nil, fmt.Errorf(
-			"worker returned %d: %s. Call device_doctor() to check worker health",
-			resp.StatusCode, string(respBody),
+			"%w. Call device_doctor() to check worker health",
+			workerErr,
 		)
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("worker returned %d: %s", resp.StatusCode, string(respBody))
+		return nil, &WorkerHTTPError{
+			StatusCode: resp.StatusCode,
+			Path:       path,
+			Body:       string(respBody),
+		}
 	}
 
 	return respBody, nil
@@ -1126,9 +1488,23 @@ type ResolvedTarget struct {
 	Y int
 }
 
+type workerResolveTargetRequest struct {
+	Target       string `json:"target"`
+	SessionID    string `json:"session_id,omitempty"`
+	GrounderType string `json:"grounder_type,omitempty"`
+}
+
+type workerResolveTargetResponse struct {
+	X     int    `json:"x"`
+	Y     int    `json:"y"`
+	Found bool   `json:"found"`
+	Error string `json:"error,omitempty"`
+}
+
 // ResolveTarget takes a natural language target description, captures a screenshot,
-// sends it to the backend grounding endpoint (routed through Hatchet), and
-// returns pixel coordinates.
+// resolves it via the worker grounding endpoint, and returns device-space pixel
+// coordinates. For older workers that do not implement /resolve_target, this
+// method falls back to backend grounding.
 //
 // This is the core method used by all dual-param device tools when the agent
 // provides a target string instead of x, y coordinates.
@@ -1169,6 +1545,78 @@ func (m *DeviceSessionManager) ResolveTargetForSession(ctx context.Context, inde
 
 // resolveTargetForSession is the internal implementation of target resolution.
 func (m *DeviceSessionManager) resolveTargetForSession(ctx context.Context, session *DeviceSession, target string) (*ResolvedTarget, error) {
+	// Prefer worker-native grounding (single hop + device-space coordinates).
+	resolved, workerErr := m.resolveTargetViaWorkerForSession(ctx, session, target)
+	if workerErr == nil {
+		return resolved, nil
+	}
+
+	if !shouldFallbackToBackendGrounding(workerErr) {
+		return nil, workerErr
+	}
+
+	ui.PrintDebug("worker resolve_target unavailable, falling back to backend grounding: %v", workerErr)
+	return m.resolveTargetViaBackendForSession(ctx, session, target)
+}
+
+// shouldFallbackToBackendGrounding reports whether worker grounding errors
+// should trigger backend fallback.
+func shouldFallbackToBackendGrounding(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var workerErr *WorkerHTTPError
+	if errors.As(err, &workerErr) {
+		if workerErr.StatusCode >= 500 {
+			return true
+		}
+		switch workerErr.StatusCode {
+		case http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusNotImplemented:
+			return true
+		default:
+			return false
+		}
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "worker resolve_target returned invalid json")
+}
+
+// resolveTargetViaWorkerForSession resolves coordinates through the worker's
+// /resolve_target endpoint, which returns device-space coordinates.
+func (m *DeviceSessionManager) resolveTargetViaWorkerForSession(ctx context.Context, session *DeviceSession, target string) (*ResolvedTarget, error) {
+	body := workerResolveTargetRequest{
+		Target:    target,
+		SessionID: session.SessionID,
+	}
+	respBody, err := m.workerRequestForSession(ctx, session, http.MethodPost, "/resolve_target", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var resolvedResp workerResolveTargetResponse
+	if err := json.Unmarshal(respBody, &resolvedResp); err != nil {
+		return nil, fmt.Errorf("worker resolve_target returned invalid JSON: %w", err)
+	}
+
+	if !resolvedResp.Found {
+		errMsg := fmt.Sprintf("could not locate '%s' in the screenshot", target)
+		if resolvedResp.Error != "" {
+			errMsg = resolvedResp.Error
+		}
+		return nil, fmt.Errorf("%s. Try screenshot() to see the current screen and adjust the target description", errMsg)
+	}
+
+	return &ResolvedTarget{
+		X: resolvedResp.X,
+		Y: resolvedResp.Y,
+	}, nil
+}
+
+// resolveTargetViaBackendForSession resolves coordinates through the backend
+// grounding proxy, used as compatibility fallback for older workers.
+func (m *DeviceSessionManager) resolveTargetViaBackendForSession(ctx context.Context, session *DeviceSession, target string) (*ResolvedTarget, error) {
 	// Step 1: Capture screenshot from worker
 	screenshotBytes, err := m.workerRequestForSession(ctx, session, "GET", "/screenshot", nil)
 	if err != nil {

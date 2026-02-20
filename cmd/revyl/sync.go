@@ -90,7 +90,7 @@ func registerSyncFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("interactive", false, "Force interactive prompts (requires TTY stdin)")
 	cmd.Flags().Bool("prune", false, "Auto-prune stale/deleted mappings")
 	cmd.Flags().Bool("dry-run", false, "Show planned actions without writing files")
-	cmd.Flags().Bool("skip-hotreload-check", false, "Skip validating hotreload dev_client_build_id references")
+	cmd.Flags().Bool("skip-hotreload-check", false, "Skip validating hotreload platform key mappings")
 }
 
 func readSyncFlags(cmd *cobra.Command) (syncFlagValues, error) {
@@ -953,6 +953,9 @@ func syncAppLinksDomain(ctx context.Context, client *api.Client, cfg *config.Pro
 }
 
 func syncHotReloadDomain(ctx context.Context, client *api.Client, cfg *config.ProjectConfig) ([]syncItem, error) {
+	_ = ctx
+	_ = client
+
 	items := make([]syncItem, 0)
 	hadErr := false
 
@@ -964,39 +967,62 @@ func syncHotReloadDomain(ctx context.Context, client *api.Client, cfg *config.Pr
 
 	for _, providerName := range providerNames {
 		providerCfg := cfg.HotReload.Providers[providerName]
-		if providerCfg == nil || providerCfg.DevClientBuildID == "" {
+		if providerCfg == nil {
 			continue
 		}
 
-		item := syncItem{
-			Name:   providerName,
-			ID:     providerCfg.DevClientBuildID,
-			Status: "ok",
-			Action: "validate",
+		if len(providerCfg.PlatformKeys) == 0 {
+			continue
 		}
 
-		_, err := client.GetBuildVersionDownloadURL(ctx, providerCfg.DevClientBuildID)
-		if err == nil {
-			item.Message = "dev_client_build_id is valid"
+		targetPlatforms := make([]string, 0, len(providerCfg.PlatformKeys))
+		for platform := range providerCfg.PlatformKeys {
+			targetPlatforms = append(targetPlatforms, platform)
+		}
+		sort.Strings(targetPlatforms)
+
+		for _, targetPlatform := range targetPlatforms {
+			platformKey := strings.TrimSpace(providerCfg.PlatformKeys[targetPlatform])
+			if platformKey == "" {
+				continue
+			}
+
+			item := syncItem{
+				Name:   fmt.Sprintf("%s.%s", providerName, targetPlatform),
+				ID:     platformKey,
+				Status: "ok",
+				Action: "validate",
+			}
+
+			normalizedPlatform := syncNormalizePlatform(targetPlatform)
+			if normalizedPlatform != "ios" && normalizedPlatform != "android" {
+				item.Status = "warning"
+				item.Message = "unknown target platform in platform_keys (expected ios/android)"
+				hadErr = true
+				items = append(items, item)
+				continue
+			}
+
+			platformCfg, ok := cfg.Build.Platforms[platformKey]
+			if !ok {
+				item.Status = "warning"
+				item.Message = "mapped build platform key not found in build.platforms"
+				hadErr = true
+			} else if strings.TrimSpace(platformCfg.AppID) == "" {
+				item.Status = "warning"
+				item.Message = "mapped build platform has no app_id"
+			} else {
+				item.Status = "synced"
+				item.Action = "none"
+				item.Message = fmt.Sprintf("mapped to build.platforms.%s", platformKey)
+			}
+
 			items = append(items, item)
-			continue
 		}
-
-		if isAPIStatus(err, 404) {
-			item.Status = "warning"
-			item.Message = "dev_client_build_id not found"
-			item.Error = err.Error()
-		} else {
-			item.Status = "warning"
-			item.Message = "failed to validate dev_client_build_id"
-			item.Error = err.Error()
-		}
-		hadErr = true
-		items = append(items, item)
 	}
 
 	if hadErr {
-		return items, fmt.Errorf("one or more hotreload references could not be validated")
+		return items, fmt.Errorf("one or more hotreload platform mappings are invalid")
 	}
 	return items, nil
 }

@@ -31,6 +31,7 @@ type testDetailAction struct {
 var testDetailActions = []testDetailAction{
 	{Key: "r", Desc: "Run this test"},
 	{Key: "o", Desc: "Open in browser"},
+	{Key: "h", Desc: "Run history"},
 	{Key: "p", Desc: "Push local → remote"},
 	{Key: "l", Desc: "Pull remote → local"},
 	{Key: "d", Desc: "View diff"},
@@ -349,13 +350,57 @@ func handleTestDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if idx, ok := actionNumberIndex(msg.String(), len(testDetailActions)); ok {
+		m.testDetailCursor = idx
+		return executeTestDetailActionByIndex(m, idx)
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "esc":
 		m.currentView = viewTestList
 		m.selectedTestDetail = nil
+		m.testDetailCursor = 0
 		return m, nil
+	case "up", "k":
+		if m.testDetailCursor > 0 {
+			m.testDetailCursor--
+		}
+	case "down", "j":
+		if m.testDetailCursor < len(testDetailActions)-1 {
+			m.testDetailCursor++
+		}
+	case "enter":
+		return executeTestDetailActionByIndex(m, m.testDetailCursor)
+	default:
+		if idx := testDetailActionIndexByKey(msg.String()); idx >= 0 {
+			m.testDetailCursor = idx
+			return executeTestDetailActionByIndex(m, idx)
+		}
+	}
+
+	return m, nil
+}
+
+func testDetailActionIndexByKey(key string) int {
+	for i, action := range testDetailActions {
+		if action.Key == key {
+			return i
+		}
+	}
+	return -1
+}
+
+func executeTestDetailActionByIndex(m hubModel, idx int) (tea.Model, tea.Cmd) {
+	if idx < 0 || idx >= len(testDetailActions) {
+		return m, nil
+	}
+	return executeTestDetailActionByKey(m, testDetailActions[idx].Key)
+}
+
+func executeTestDetailActionByKey(m hubModel, key string) (tea.Model, tea.Cmd) {
+	switch key {
 	case "r":
 		if m.selectedTestDetail != nil {
 			return startTestExecution(m, m.selectedTestDetail.ID, m.selectedTestDetail.Name)
@@ -364,6 +409,19 @@ func handleTestDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedTestDetail != nil {
 			testURL := config.GetAppURL(m.devMode) + "/tests/" + m.selectedTestDetail.ID
 			_ = ui.OpenBrowser(testURL)
+		}
+	case "h":
+		if m.selectedTestDetail != nil {
+			m.selectedTestID = m.selectedTestDetail.ID
+			m.selectedTestName = m.selectedTestDetail.Name
+			m.testRunCursor = 0
+			m.testRuns = nil
+			m.reportLoading = true
+			m.reportReturnView = viewTestDetail
+			m.currentView = viewTestRuns
+			if m.client != nil {
+				return m, fetchTestHistoryCmd(m.client, m.selectedTestDetail.ID)
+			}
 		}
 	case "p":
 		if m.client != nil && m.selectedTestDetail != nil {
@@ -394,9 +452,7 @@ func handleTestDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "x":
 		m.testDetailConfirmDelete = true
-		return m, nil
 	}
-
 	return m, nil
 }
 
@@ -623,19 +679,24 @@ func renderTestDetail(m hubModel) string {
 
 	for i, a := range testDetailActions {
 		cursor := "  "
+		descStyle := dimStyle
 		if i == m.testDetailCursor {
 			cursor = selectedStyle.Render("▸ ")
+			descStyle = normalStyle
 		}
+		num := lipgloss.NewStyle().Foreground(purple).Bold(true).Render(fmt.Sprintf("[%d]", i+1))
 		key := lipgloss.NewStyle().Foreground(purple).Bold(true).Render("[" + a.Key + "]")
-		b.WriteString(fmt.Sprintf("  %s%s %s\n", cursor, key, dimStyle.Render(a.Desc)))
+		b.WriteString(fmt.Sprintf("  %s%s %s %s\n", cursor, num, key, descStyle.Render(a.Desc)))
 	}
 
 	// Footer
 	b.WriteString("\n  " + separator(innerW) + "\n")
+	jumpLabel := fmt.Sprintf("1-%d", len(testDetailActions))
 	keys := []string{
+		helpKeyRender("↑/↓", "move"),
+		helpKeyRender("enter", "select"),
+		helpKeyRender(jumpLabel, "jump"),
 		helpKeyRender("esc", "back"),
-		helpKeyRender("r", "run"),
-		helpKeyRender("o", "open"),
 		helpKeyRender("q", "quit"),
 	}
 	b.WriteString("  " + strings.Join(keys, "  ") + "\n")

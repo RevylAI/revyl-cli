@@ -29,6 +29,18 @@ const (
 	wfCreateStepConfirm                           // confirm + create
 )
 
+type workflowDetailAction struct {
+	Key  string
+	Desc string
+}
+
+var workflowDetailActions = []workflowDetailAction{
+	{Key: "r", Desc: "Run workflow"},
+	{Key: "o", Desc: "Open in browser"},
+	{Key: "h", Desc: "Run history"},
+	{Key: "x", Desc: "Delete workflow"},
+}
+
 // --- Commands ---
 
 // fetchWorkflowBrowseListCmd fetches the workflow list enriched with last-run info.
@@ -267,30 +279,31 @@ func handleWorkflowListKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		workflows := m.filteredWorkflowItems()
 		if m.wfCursor < len(workflows) && m.client != nil {
 			wf := workflows[m.wfCursor]
-			if m.wfRunMode {
-				// Run mode: execute the workflow directly
-				m.selectedWfDetail = &wf
-				m.currentView = viewWorkflowExecution
-				m.wfExecStatus = nil
-				m.wfExecDone = false
-				m.wfExecStartTime = time.Now()
-				return m, executeWorkflowCmd(m.client, wf.ID)
-			}
 			// Browse mode: navigate to workflow detail
 			m.wfDetailLoading = true
+			m.wfDetailCursor = 0
 			m.currentView = viewWorkflowDetail
 			return m, fetchWorkflowDetailCmd(m.client, wf.ID)
 		}
-	case "c":
-		if !m.wfRunMode {
-			// Start create wizard (only in browse mode)
-			m.currentView = viewWorkflowCreate
-			m.wfCreateStep = wfCreateStepName
-			m.wfCreateNameInput.SetValue("")
-			m.wfCreateNameInput.Focus()
-			m.wfCreateSelectedTests = nil
-			return m, textinput.Blink
+	case "r":
+		workflows := m.filteredWorkflowItems()
+		if m.wfCursor < len(workflows) && m.client != nil {
+			wf := workflows[m.wfCursor]
+			m.selectedWfDetail = &wf
+			m.currentView = viewWorkflowExecution
+			m.wfExecStatus = nil
+			m.wfExecDone = false
+			m.wfExecStartTime = time.Now()
+			m.wfExecReturnView = viewWorkflowList
+			return m, executeWorkflowCmd(m.client, wf.ID)
 		}
+	case "c":
+		m.currentView = viewWorkflowCreate
+		m.wfCreateStep = wfCreateStepName
+		m.wfCreateNameInput.SetValue("")
+		m.wfCreateNameInput.Focus()
+		m.wfCreateSelectedTests = nil
+		return m, textinput.Blink
 	case "/":
 		m.wfFilterMode = true
 		m.wfFilterInput.Focus()
@@ -346,19 +359,63 @@ func handleWorkflowDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if idx, ok := actionNumberIndex(msg.String(), len(workflowDetailActions)); ok {
+		m.wfDetailCursor = idx
+		return executeWorkflowDetailActionByIndex(m, idx)
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "esc":
 		m.currentView = viewWorkflowList
 		m.selectedWfDetail = nil
+		m.wfDetailCursor = 0
 		return m, nil
+	case "up", "k":
+		if m.wfDetailCursor > 0 {
+			m.wfDetailCursor--
+		}
+	case "down", "j":
+		if m.wfDetailCursor < len(workflowDetailActions)-1 {
+			m.wfDetailCursor++
+		}
+	case "enter":
+		return executeWorkflowDetailActionByIndex(m, m.wfDetailCursor)
+	default:
+		if idx := workflowDetailActionIndexByKey(msg.String()); idx >= 0 {
+			m.wfDetailCursor = idx
+			return executeWorkflowDetailActionByIndex(m, idx)
+		}
+	}
+	return m, nil
+}
+
+func workflowDetailActionIndexByKey(key string) int {
+	for i, action := range workflowDetailActions {
+		if action.Key == key {
+			return i
+		}
+	}
+	return -1
+}
+
+func executeWorkflowDetailActionByIndex(m hubModel, idx int) (tea.Model, tea.Cmd) {
+	if idx < 0 || idx >= len(workflowDetailActions) {
+		return m, nil
+	}
+	return executeWorkflowDetailActionByKey(m, workflowDetailActions[idx].Key)
+}
+
+func executeWorkflowDetailActionByKey(m hubModel, key string) (tea.Model, tea.Cmd) {
+	switch key {
 	case "r":
 		if m.selectedWfDetail != nil && m.client != nil {
 			m.currentView = viewWorkflowExecution
 			m.wfExecStatus = nil
 			m.wfExecDone = false
 			m.wfExecStartTime = time.Now()
+			m.wfExecReturnView = viewWorkflowDetail
 			return m, executeWorkflowCmd(m.client, m.selectedWfDetail.ID)
 		}
 	case "o":
@@ -370,6 +427,7 @@ func handleWorkflowDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedWfDetail != nil {
 			m.selectedWorkflowID = m.selectedWfDetail.ID
 			m.selectedWorkflowName = m.selectedWfDetail.Name
+			m.reportReturnView = viewWorkflowDetail
 			m.currentView = viewWorkflowRuns
 			m.reportLoading = true
 			if m.client != nil {
@@ -482,11 +540,11 @@ func handleWorkflowExecKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc":
 		if m.wfExecDone {
-			if m.wfRunMode {
-				m.currentView = viewDashboard
-			} else {
-				m.currentView = viewWorkflowDetail
+			returnTo := m.wfExecReturnView
+			if returnTo == viewDashboard {
+				returnTo = viewWorkflowDetail
 			}
+			m.currentView = returnTo
 			return m, nil
 		}
 	case "o":
@@ -516,9 +574,6 @@ func renderWorkflowList(m hubModel) string {
 	innerW := min(w-4, 58)
 
 	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Workflows")
-	if m.wfRunMode {
-		bannerContent = titleStyle.Render("REVYL") + "  " + dimStyle.Render("Run a workflow")
-	}
 	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
 	b.WriteString(banner + "\n")
 
@@ -569,24 +624,14 @@ func renderWorkflowList(m hubModel) string {
 	}
 
 	b.WriteString("\n  " + separator(innerW) + "\n")
-	var keys []string
-	if m.wfRunMode {
-		keys = []string{
-			helpKeyRender("enter", "run"),
-			helpKeyRender("/", "search"),
-			helpKeyRender("R", "refresh"),
-			helpKeyRender("esc", "back"),
-			helpKeyRender("q", "quit"),
-		}
-	} else {
-		keys = []string{
-			helpKeyRender("enter", "detail"),
-			helpKeyRender("c", "create"),
-			helpKeyRender("/", "search"),
-			helpKeyRender("R", "refresh"),
-			helpKeyRender("esc", "back"),
-			helpKeyRender("q", "quit"),
-		}
+	keys := []string{
+		helpKeyRender("enter", "detail"),
+		helpKeyRender("r", "run"),
+		helpKeyRender("c", "create"),
+		helpKeyRender("/", "search"),
+		helpKeyRender("R", "refresh"),
+		helpKeyRender("esc", "back"),
+		helpKeyRender("q", "quit"),
 	}
 	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
 
@@ -650,21 +695,25 @@ func renderWorkflowDetail(m hubModel) string {
 	b.WriteString(sectionStyle.Render("  ACTIONS") + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
 
-	actions := []struct{ key, desc string }{
-		{"r", "Run workflow"},
-		{"o", "Open in browser"},
-		{"h", "Run history"},
-		{"x", "Delete workflow"},
-	}
-	for _, a := range actions {
-		key := lipgloss.NewStyle().Foreground(purple).Bold(true).Render("[" + a.key + "]")
-		b.WriteString(fmt.Sprintf("    %s %s\n", key, dimStyle.Render(a.desc)))
+	for i, a := range workflowDetailActions {
+		cursor := "  "
+		descStyle := dimStyle
+		if i == m.wfDetailCursor {
+			cursor = selectedStyle.Render("▸ ")
+			descStyle = normalStyle
+		}
+		num := lipgloss.NewStyle().Foreground(purple).Bold(true).Render(fmt.Sprintf("[%d]", i+1))
+		key := lipgloss.NewStyle().Foreground(purple).Bold(true).Render("[" + a.Key + "]")
+		b.WriteString(fmt.Sprintf("  %s%s %s %s\n", cursor, num, key, descStyle.Render(a.Desc)))
 	}
 
 	b.WriteString("\n  " + separator(innerW) + "\n")
+	jumpLabel := fmt.Sprintf("1-%d", len(workflowDetailActions))
 	keys := []string{
+		helpKeyRender("↑/↓", "move"),
+		helpKeyRender("enter", "select"),
+		helpKeyRender(jumpLabel, "jump"),
 		helpKeyRender("esc", "back"),
-		helpKeyRender("r", "run"),
 		helpKeyRender("q", "quit"),
 	}
 	b.WriteString("  " + strings.Join(keys, "  ") + "\n")

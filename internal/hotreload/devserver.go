@@ -13,6 +13,29 @@ import (
 	"context"
 )
 
+// DevServerOutputStream identifies which process stream emitted a log line.
+type DevServerOutputStream string
+
+const (
+	// DevServerOutputStdout indicates the line came from stdout.
+	DevServerOutputStdout DevServerOutputStream = "stdout"
+
+	// DevServerOutputStderr indicates the line came from stderr.
+	DevServerOutputStderr DevServerOutputStream = "stderr"
+)
+
+// DevServerOutput represents a single line emitted by the dev server process.
+type DevServerOutput struct {
+	// Stream is the source stream (stdout or stderr).
+	Stream DevServerOutputStream
+
+	// Line is the raw log line emitted by the process.
+	Line string
+}
+
+// DevServerOutputCallback receives streamed dev-server process output.
+type DevServerOutputCallback func(output DevServerOutput)
+
 // DevServer defines the interface for hot reload development servers.
 //
 // Implementations of this interface manage the lifecycle of a local development
@@ -85,6 +108,21 @@ type DevServer interface {
 	// Parameters:
 	//   - tunnelURL: The public tunnel URL (e.g., "https://xxx.trycloudflare.com")
 	SetProxyURL(tunnelURL string)
+}
+
+// DevServerOutputEmitter is implemented by DevServer implementations that can
+// stream process output lines as they are emitted.
+type DevServerOutputEmitter interface {
+	// SetOutputCallback registers a callback for process output lines.
+	// Implementations should treat nil as "no callback".
+	SetOutputCallback(callback DevServerOutputCallback)
+}
+
+// DevServerDebugConfigurable is implemented by DevServer implementations that
+// support debug-mode startup behavior.
+type DevServerDebugConfigurable interface {
+	// SetDebugMode enables or disables debug-mode startup behavior.
+	SetDebugMode(enabled bool)
 }
 
 // DevServerStatus represents the current status of a development server.

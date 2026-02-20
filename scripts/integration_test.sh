@@ -170,15 +170,20 @@ log "==============================="
 run_test "swipe up at raw coords" $REVYL device swipe --x 540 --y 960 --direction up || true
 
 # ---------------------------------------------------------------------------
-# Test 8: Find element (requires grounding service)
+# Test 8: Stop device session
 # ---------------------------------------------------------------------------
 
 log ""
 log "==============================="
-log "Test 8: Find element"
+log "Test 8: Resolve target via --target"
 log "==============================="
 
-run_test "find element" $REVYL device find "any button or text" || true
+TARGET_OUTPUT=$($REVYL device tap --target "any button or text" --json 2>&1) || true
+if echo "$TARGET_OUTPUT" | grep -Eq '"x"[[:space:]]*:[[:space:]]*[0-9]+' && echo "$TARGET_OUTPUT" | grep -Eq '"y"[[:space:]]*:[[:space:]]*[0-9]+'; then
+    pass "resolve target via --target" "target coordinates resolved: $TARGET_OUTPUT"
+else
+    fail "resolve target via --target" "target resolution did not return x,y coordinates"
+fi
 
 # ---------------------------------------------------------------------------
 # Test 9: Stop device session

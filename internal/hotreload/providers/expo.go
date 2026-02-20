@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -58,6 +59,12 @@ type ExpoDevServer struct {
 
 	// ready indicates whether the server is ready to accept connections.
 	ready bool
+
+	// outputCallback receives streamed stdout/stderr lines from Expo.
+	outputCallback hotreload.DevServerOutputCallback
+
+	// debugMode enables watch-friendly Expo startup behavior for local debugging.
+	debugMode bool
 }
 
 // NewExpoDevServer creates a new Expo development server instance.
@@ -87,7 +94,7 @@ func NewExpoDevServer(workDir, appScheme string, port int, useExpPrefix bool) *E
 // The server is started with:
 //   - --dev-client: Enables development client mode
 //   - --port: Uses the configured port
-//   - --non-interactive: Disables interactive prompts
+//   - --non-interactive: Enabled for non-debug runs
 //
 // Parameters:
 //   - ctx: Context for cancellation
@@ -97,6 +104,9 @@ func NewExpoDevServer(workDir, appScheme string, port int, useExpPrefix bool) *E
 func (e *ExpoDevServer) Start(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	// Snapshot callback for goroutines to avoid lock contention while Start holds e.mu.
+	outputCallback := e.outputCallback
 
 	// Check if npx is available
 	if _, err := exec.LookPath("npx"); err != nil {
@@ -112,21 +122,14 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 	ctx, e.cancel = context.WithCancel(ctx)
 
 	// Build command
-	e.cmd = exec.CommandContext(ctx, "npx", "expo", "start",
-		"--dev-client",
-		"--port", fmt.Sprintf("%d", e.Port),
-		"--non-interactive",
-	)
+	e.cmd = exec.CommandContext(ctx, "npx", e.expoStartArgs()...)
 	e.cmd.Dir = e.WorkDir
 
 	// Set process group so we can kill all child processes
 	setSysProcAttr(e.cmd)
 
 	// Set environment to avoid interactive prompts
-	e.cmd.Env = append(os.Environ(),
-		"CI=1",
-		"EXPO_NO_TELEMETRY=1",
-	)
+	e.cmd.Env = e.expoEnvironment()
 
 	// Set proxy URL for bundle URL rewriting if configured
 	// This makes Metro return bundle URLs using the tunnel URL instead of localhost
@@ -154,18 +157,11 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 	// Wait for server to be ready
 	readyChan := make(chan bool, 1)
 	errChan := make(chan error, 1)
+	signalReady := newReadyNotifier(readyChan)
 
 	// Monitor stdout for ready indicators
 	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			line := scanner.Text()
-			// Look for ready indicators
-			if e.isReadyIndicator(line) {
-				readyChan <- true
-				return
-			}
-		}
+		e.streamStdout(stdout, outputCallback, signalReady)
 	}()
 
 	// Monitor stderr for errors
@@ -173,6 +169,7 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
+			e.emitProcessOutput(outputCallback, hotreload.DevServerOutputStderr, line)
 			// Check for fatal errors
 			if strings.Contains(strings.ToLower(line), "error") &&
 				strings.Contains(strings.ToLower(line), "fatal") {
@@ -193,7 +190,7 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 				return
 			case <-ticker.C:
 				if e.checkHealth() {
-					readyChan <- true
+					signalReady()
 					return
 				}
 			}
@@ -206,13 +203,13 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 		e.ready = true
 		return nil
 	case err := <-errChan:
-		e.Stop()
+		_ = e.stopLocked()
 		return err
 	case <-time.After(60 * time.Second):
-		e.Stop()
+		_ = e.stopLocked()
 		return fmt.Errorf("timeout waiting for Expo dev server to start (60s)")
 	case <-ctx.Done():
-		e.Stop()
+		_ = e.stopLocked()
 		return ctx.Err()
 	}
 }
@@ -224,6 +221,13 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 func (e *ExpoDevServer) Stop() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.stopLocked()
+}
+
+// stopLocked stops the Expo process and clears state.
+//
+// Callers must hold e.mu.
+func (e *ExpoDevServer) stopLocked() error {
 
 	e.ready = false
 
@@ -233,7 +237,8 @@ func (e *ExpoDevServer) Stop() error {
 	}
 
 	if e.cmd != nil && e.cmd.Process != nil {
-		pid := e.cmd.Process.Pid
+		cmd := e.cmd
+		pid := cmd.Process.Pid
 
 		// Kill the entire process group
 		// This ensures Metro bundler and all child processes are killed
@@ -242,7 +247,7 @@ func (e *ExpoDevServer) Stop() error {
 		// Wait briefly for graceful shutdown
 		done := make(chan error, 1)
 		go func() {
-			done <- e.cmd.Wait()
+			done <- cmd.Wait()
 		}()
 
 		select {
@@ -323,6 +328,43 @@ func (e *ExpoDevServer) SetProxyURL(tunnelURL string) {
 	e.proxyURL = tunnelURL
 }
 
+// SetOutputCallback registers a callback for Expo process output lines.
+func (e *ExpoDevServer) SetOutputCallback(callback hotreload.DevServerOutputCallback) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.outputCallback = callback
+}
+
+// SetDebugMode toggles watch-friendly Expo startup behavior.
+func (e *ExpoDevServer) SetDebugMode(enabled bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.debugMode = enabled
+}
+
+func (e *ExpoDevServer) emitProcessOutput(callback hotreload.DevServerOutputCallback, stream hotreload.DevServerOutputStream, line string) {
+	if callback == nil {
+		return
+	}
+	callback(hotreload.DevServerOutput{
+		Stream: stream,
+		Line:   line,
+	})
+}
+
+// streamStdout emits every stdout line and signals readiness when indicators appear.
+// It keeps streaming after readiness so runtime logs remain visible.
+func (e *ExpoDevServer) streamStdout(stdout io.Reader, outputCallback hotreload.DevServerOutputCallback, signalReady func()) {
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		e.emitProcessOutput(outputCallback, hotreload.DevServerOutputStdout, line)
+		if e.isReadyIndicator(line) {
+			signalReady()
+		}
+	}
+}
+
 // isPortAvailable checks if the configured port is available.
 func (e *ExpoDevServer) isPortAvailable() bool {
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", e.Port))
@@ -331,6 +373,56 @@ func (e *ExpoDevServer) isPortAvailable() bool {
 	}
 	ln.Close()
 	return true
+}
+
+func (e *ExpoDevServer) expoStartArgs() []string {
+	args := []string{
+		"expo",
+		"start",
+		"--dev-client",
+		"--port", fmt.Sprintf("%d", e.Port),
+	}
+	if !e.debugMode {
+		// Keep deterministic non-interactive behavior for non-debug runs.
+		args = append(args, "--non-interactive")
+	}
+	return args
+}
+
+func (e *ExpoDevServer) expoEnvironment() []string {
+	env := envWithoutKey(os.Environ(), "EXPO_NO_TELEMETRY")
+	env = append(env, "EXPO_NO_TELEMETRY=1")
+	env = envWithoutKey(env, "CI")
+	if e.debugMode {
+		// In debug mode CI should be absent so Expo can use watch-friendly behavior.
+		return env
+	}
+	env = append(env, "CI=1")
+	return env
+}
+
+func envWithoutKey(env []string, key string) []string {
+	prefix := key + "="
+	filtered := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, prefix) {
+			continue
+		}
+		filtered = append(filtered, kv)
+	}
+	return filtered
+}
+
+func newReadyNotifier(readyChan chan<- bool) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			select {
+			case readyChan <- true:
+			default:
+			}
+		})
+	}
 }
 
 // isReadyIndicator checks if a log line indicates the server is ready.

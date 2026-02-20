@@ -3,12 +3,17 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/revyl/cli/internal/api"
 )
 
 // ---------------------------------------------------------------------------
@@ -166,6 +171,279 @@ func TestResolveCoords_TargetRequiresSession(t *testing.T) {
 	}
 }
 
+// newSessionSyncTestServer returns a backend+worker test server that supports
+// session sync endpoints and a healthy worker endpoint.
+func newSessionSyncTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v1/entity/users/get_user_uuid":
+			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-1","email":"test@example.com","concurrency_limit":1}`))
+		case r.URL.Path == "/api/v1/execution/device-sessions/active":
+			if got := r.URL.Query().Get("org_id"); got != "org-1" {
+				t.Errorf("expected org_id=org-1, got %q", got)
+			}
+			_, _ = w.Write([]byte(`{
+				"org_id":"org-1",
+				"sessions":[
+					{
+						"id":"sess-1",
+						"org_id":"org-1",
+						"platform":"ios",
+						"source":"cli",
+						"status":"running",
+						"workflow_run_id":"wf-1",
+						"user_email":"test@example.com",
+						"created_at":"2026-02-19T00:00:00Z",
+						"started_at":"2026-02-19T00:00:00Z"
+					}
+				]
+			}`))
+		case r.URL.Path == "/api/v1/execution/streaming/worker-connection/wf-1":
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ready","workflow_run_id":"wf-1","worker_ws_url":"ws://%s/ws/stream?token=test"}`, r.Host)))
+		case r.URL.Path == "/health":
+			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func TestHandleListDeviceSessions_SyncsFromBackend(t *testing.T) {
+	apiServer := newSessionSyncTestServer(t)
+	defer apiServer.Close()
+
+	mgr := NewDeviceSessionManager(api.NewClientWithBaseURL("test-api-key", apiServer.URL), t.TempDir())
+	srv := &Server{sessionMgr: mgr}
+
+	_, output, err := srv.handleListDeviceSessions(context.Background(), nil, ListDeviceSessionsInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(output.Sessions) != 1 {
+		t.Fatalf("expected 1 session after sync, got %d", len(output.Sessions))
+	}
+	if output.ActiveIndex != 0 {
+		t.Fatalf("expected active index 0, got %d", output.ActiveIndex)
+	}
+	if output.Sessions[0].Platform != "ios" {
+		t.Fatalf("expected ios platform, got %q", output.Sessions[0].Platform)
+	}
+}
+
+func TestHandleListDeviceSessions_FallsBackToPersistedCache(t *testing.T) {
+	tmpDir := t.TempDir()
+	now := time.Now()
+	state := persistedState{
+		Active:  0,
+		NextIdx: 1,
+		Sessions: []*DeviceSession{
+			{
+				Index:         0,
+				SessionID:     "persisted-sess-1",
+				WorkflowRunID: "wf-persisted",
+				WorkerBaseURL: "http://localhost:1234",
+				ViewerURL:     "https://app.revyl.ai/tests/execute?workflowRunId=wf-persisted&platform=android",
+				Platform:      "android",
+				StartedAt:     now,
+				LastActivity:  now,
+				IdleTimeout:   5 * time.Minute,
+			},
+		},
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal persisted state: %v", err)
+	}
+	revylDir := filepath.Join(tmpDir, ".revyl")
+	if mkErr := os.MkdirAll(revylDir, 0o755); mkErr != nil {
+		t.Fatalf("mkdir .revyl: %v", mkErr)
+	}
+	if writeErr := os.WriteFile(filepath.Join(revylDir, "device-sessions.json"), data, 0o644); writeErr != nil {
+		t.Fatalf("write persisted session file: %v", writeErr)
+	}
+
+	mgr := NewDeviceSessionManager(nil, tmpDir)
+	srv := &Server{sessionMgr: mgr}
+
+	_, output, callErr := srv.handleListDeviceSessions(context.Background(), nil, ListDeviceSessionsInput{})
+	if callErr != nil {
+		t.Fatalf("unexpected error: %v", callErr)
+	}
+	if len(output.Sessions) != 1 {
+		t.Fatalf("expected 1 cached session, got %d", len(output.Sessions))
+	}
+	if output.Sessions[0].Platform != "android" {
+		t.Fatalf("expected android platform from cache, got %q", output.Sessions[0].Platform)
+	}
+}
+
+func TestHandleGetSessionInfo_SyncsBeforeResolve(t *testing.T) {
+	apiServer := newSessionSyncTestServer(t)
+	defer apiServer.Close()
+
+	mgr := NewDeviceSessionManager(api.NewClientWithBaseURL("test-api-key", apiServer.URL), t.TempDir())
+	srv := &Server{sessionMgr: mgr}
+
+	_, output, err := srv.handleGetSessionInfo(context.Background(), nil, GetSessionInfoInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !output.Active {
+		t.Fatalf("expected active=true after sync")
+	}
+	if output.Platform != "ios" {
+		t.Fatalf("expected ios platform, got %q", output.Platform)
+	}
+	if output.TotalSessions != 1 {
+		t.Fatalf("expected total_sessions=1, got %d", output.TotalSessions)
+	}
+}
+
+func TestHandleGetSessionInfo_NoSessionAfterSyncFallback(t *testing.T) {
+	mgr := NewDeviceSessionManager(nil, t.TempDir())
+	srv := &Server{sessionMgr: mgr}
+
+	_, output, err := srv.handleGetSessionInfo(context.Background(), nil, GetSessionInfoInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if output.Active {
+		t.Fatalf("expected active=false when no session exists")
+	}
+	if output.TotalSessions != 0 {
+		t.Fatalf("expected total_sessions=0, got %d", output.TotalSessions)
+	}
+	if len(output.NextSteps) == 0 || output.NextSteps[0].Tool != "start_device_session" {
+		t.Fatalf("expected next step to start a device session, got %+v", output.NextSteps)
+	}
+}
+
+func TestHandleDeviceDoctor_IncludesMCPRuntimeChecks(t *testing.T) {
+	apiServer := newSessionSyncTestServer(t)
+	defer apiServer.Close()
+
+	srv := &Server{
+		apiClient:  api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		sessionMgr: NewDeviceSessionManager(api.NewClientWithBaseURL("test-api-key", apiServer.URL), t.TempDir()),
+		version:    "dev",
+		devMode:    true,
+		workDir:    t.TempDir(),
+	}
+
+	_, output, err := srv.handleDeviceDoctor(context.Background(), nil, DeviceDoctorInput{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, check := range output.Checks {
+		seen[check.Name] = true
+	}
+
+	for _, required := range []string{"mcp_dev_mode", "mcp_backend_url", "mcp_workdir", "mcp_binary"} {
+		if !seen[required] {
+			t.Fatalf("missing diagnostic check %q", required)
+		}
+	}
+}
+
+func TestDevLoopActionGuard_DoesNotGateActionsWhenActive(t *testing.T) {
+	now := time.Now()
+	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/resolve_target":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"found":true,"x":120,"y":240}`))
+		case "/tap":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer workerServer.Close()
+
+	mgr := &DeviceSessionManager{
+		httpClient: workerServer.Client(),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-1",
+				WorkflowRunID: "wf-1",
+				WorkerBaseURL: workerServer.URL,
+				Platform:      "ios",
+				StartedAt:     now,
+				LastActivity:  now,
+				IdleTimeout:   5 * time.Minute,
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+	srv := &Server{
+		sessionMgr:          mgr,
+		devLoopActive:       true,
+		devLoopSessionIndex: 0,
+	}
+
+	_, output, err := srv.handleDeviceTap(context.Background(), nil, DeviceTapInput{Target: "Continue button"})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !output.Success {
+		t.Fatalf("expected tap success without preflight checks, got: %+v", output)
+	}
+}
+
+func TestDevLoopActionGuard_InactiveDevLoopDoesNotGateActions(t *testing.T) {
+	now := time.Now()
+	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/resolve_target":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"found":true,"x":120,"y":240}`))
+		case "/tap":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer workerServer.Close()
+
+	mgr := &DeviceSessionManager{
+		httpClient: workerServer.Client(),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-3",
+				WorkflowRunID: "wf-3",
+				WorkerBaseURL: workerServer.URL,
+				Platform:      "ios",
+				StartedAt:     now,
+				LastActivity:  now,
+				IdleTimeout:   5 * time.Minute,
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+	srv := &Server{
+		sessionMgr:          mgr,
+		devLoopActive:       false,
+		devLoopSessionIndex: 0,
+	}
+
+	_, output, err := srv.handleDeviceTap(context.Background(), nil, DeviceTapInput{Target: "Continue button"})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !output.Success {
+		t.Fatalf("expected tap success outside dev-loop strict mode, got: %+v", output)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // TestClearFirst_BugFix: Verify the ClearFirst bug fix. After the fix,
 // setting clear_first: false should actually produce false.
@@ -277,7 +555,7 @@ func TestNextSteps_ToolOutputStructs(t *testing.T) {
 			nextSteps: ScreenshotOutput{
 				Success: true,
 				NextSteps: []NextStep{
-					{Tool: "device_tap", Reason: "test"},
+					{Tool: "get_session_info", Reason: "test"},
 				},
 			}.NextSteps,
 		},
@@ -507,7 +785,7 @@ func TestNextStep_Serialization(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestMCPToolRegistration_Count: Verify all 14 device tools are registered
+// TestMCPToolRegistration_Count: Verify all device tools are registered
 // and accessible via a client session.
 // ---------------------------------------------------------------------------
 

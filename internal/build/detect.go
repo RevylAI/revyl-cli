@@ -200,11 +200,11 @@ func detectExpo(dir string) (*DetectedBuild, error) {
 
 	// Default to EAS local build commands
 	detected.Platforms["ios"] = BuildPlatform{
-		Command: "eas build --platform ios --profile development --local --output build/app.tar.gz",
+		Command: "npx --yes eas-cli build --platform ios --profile development --local --output build/app.tar.gz",
 		Output:  "build/app.tar.gz",
 	}
 	detected.Platforms["android"] = BuildPlatform{
-		Command: "eas build --platform android --profile development --local --output build/app.apk",
+		Command: "npx --yes eas-cli build --platform android --profile development --local --output build/app.apk",
 		Output:  "build/app.apk",
 	}
 

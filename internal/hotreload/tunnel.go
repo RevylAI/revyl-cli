@@ -124,13 +124,13 @@ func (t *TunnelManager) StartTunnel(ctx context.Context, port int) (*TunnelInfo,
 			LocalPort: port,
 		}, nil
 	case err := <-errChan:
-		t.Stop()
+		_ = t.stopLocked()
 		return nil, err
 	case <-time.After(30 * time.Second):
-		t.Stop()
+		_ = t.stopLocked()
 		return nil, fmt.Errorf("timeout waiting for tunnel URL (30s)")
 	case <-ctx.Done():
-		t.Stop()
+		_ = t.stopLocked()
 		return nil, ctx.Err()
 	}
 }
@@ -142,6 +142,13 @@ func (t *TunnelManager) StartTunnel(ctx context.Context, port int) (*TunnelInfo,
 func (t *TunnelManager) Stop() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.stopLocked()
+}
+
+// stopLocked terminates the tunnel process and clears state.
+//
+// Callers must hold t.mu.
+func (t *TunnelManager) stopLocked() error {
 
 	if t.cancel != nil {
 		t.cancel()
@@ -149,16 +156,17 @@ func (t *TunnelManager) Stop() error {
 	}
 
 	if t.process != nil && t.process.Process != nil {
+		process := t.process
 		// Try graceful termination first
-		if err := t.process.Process.Signal(os.Interrupt); err != nil {
+		if err := process.Process.Signal(os.Interrupt); err != nil {
 			// Fall back to kill
-			t.process.Process.Kill()
+			process.Process.Kill()
 		}
 
 		// Wait for process to exit (with timeout)
 		done := make(chan error, 1)
 		go func() {
-			done <- t.process.Wait()
+			done <- process.Wait()
 		}()
 
 		select {
@@ -166,7 +174,7 @@ func (t *TunnelManager) Stop() error {
 			// Process exited
 		case <-time.After(5 * time.Second):
 			// Force kill
-			t.process.Process.Kill()
+			process.Process.Kill()
 		}
 
 		t.process = nil

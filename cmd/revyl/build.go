@@ -344,10 +344,7 @@ func createNewApp(cmd *cobra.Command, client *api.Client, cfg *config.ProjectCon
 	ui.Println()
 	ui.StartSpinner("Creating app...")
 
-	result, err := client.CreateApp(cmd.Context(), &api.CreateAppRequest{
-		Name:     name,
-		Platform: platform,
-	})
+	result, err := createOrLinkAppByName(cmd.Context(), client, name, platform)
 
 	ui.StopSpinner()
 
@@ -356,7 +353,11 @@ func createNewApp(cmd *cobra.Command, client *api.Client, cfg *config.ProjectCon
 		return "", err
 	}
 
-	ui.PrintSuccess("Created: %s (%s)", result.Name, result.ID)
+	if result.LinkedExisting {
+		ui.PrintSuccess("Linked existing app: %s (%s)", result.Name, result.ID)
+	} else {
+		ui.PrintSuccess("Created: %s (%s)", result.Name, result.ID)
+	}
 
 	return result.ID, nil
 }
@@ -473,6 +474,12 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 	ui.PrintInfo("Building iOS and Android concurrently...")
 	ui.Println()
 
+	if !buildSkip && isExpoBuildSystem(cfg.Build.System) {
+		if ready := ensureExpoEASAuth(cwd); !ready {
+			return formatEASLoginRequiredError()
+		}
+	}
+
 	// Channel to collect results
 	results := make(chan BuildResult, len(platforms))
 	var wg sync.WaitGroup
@@ -567,17 +574,26 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 	result := BuildResult{Platform: platform}
 
 	platformCfg := cfg.Build.Platforms[platform]
+	buildCommand := platformCfg.Command
+	if normalized, changed := normalizeExpoBuildCommand(cfg.Build.System, platformCfg.Command); changed {
+		buildCommand = normalized
+		platformCfg.Command = normalized
+		cfg.Build.Platforms[platform] = platformCfg
+		outputMu.Lock()
+		ui.PrintDim("[%s] Updated build command to use npx eas", platform)
+		outputMu.Unlock()
+	}
 
 	// Build
 	if !buildSkip {
 		outputMu.Lock()
-		ui.PrintInfo("[%s] Building with: %s", platform, platformCfg.Command)
+		ui.PrintInfo("[%s] Building with: %s", platform, buildCommand)
 		outputMu.Unlock()
 
 		startTime := time.Now()
 		runner := build.NewRunner(cwd)
 
-		err := runner.Run(platformCfg.Command, func(line string) {
+		err := runner.Run(buildCommand, func(line string) {
 			outputMu.Lock()
 			ui.PrintDim("  [%s] %s", platform, line)
 			outputMu.Unlock()
@@ -658,7 +674,7 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 	}
 
 	// Collect metadata
-	metadata := build.CollectMetadata(cwd, platformCfg.Command, platform, result.Duration)
+	metadata := build.CollectMetadata(cwd, buildCommand, platform, result.Duration)
 
 	// Upload
 	uploadResult, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
@@ -770,10 +786,7 @@ func createNewAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *config
 	// Create the app
 	ui.StartSpinner(fmt.Sprintf("Creating %s app...", platform))
 
-	result, err := client.CreateApp(cmd.Context(), &api.CreateAppRequest{
-		Name:     name,
-		Platform: platform,
-	})
+	result, err := createOrLinkAppByName(cmd.Context(), client, name, platform)
 
 	ui.StopSpinner()
 
@@ -782,7 +795,11 @@ func createNewAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *config
 		return "", err
 	}
 
-	ui.PrintSuccess("Created: %s (%s)", result.Name, result.ID)
+	if result.LinkedExisting {
+		ui.PrintSuccess("Linked existing app: %s (%s)", result.Name, result.ID)
+	} else {
+		ui.PrintSuccess("Created: %s (%s)", result.Name, result.ID)
+	}
 
 	return result.ID, nil
 }
@@ -823,6 +840,14 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		ui.PrintInfo("Please configure build.platforms.%s.command in .revyl/config.yaml, or use --skip-build to upload an existing artifact", platform)
 		return fmt.Errorf("incomplete build config: missing command for %s", platform)
 	}
+	buildCommand := platformCfg.Command
+	if normalized, changed := normalizeExpoBuildCommand(cfg.Build.System, platformCfg.Command); changed {
+		buildCommand = normalized
+		platformCfg.Command = normalized
+		cfg.Build.Platforms[platform] = platformCfg
+		_ = config.WriteProjectConfig(configPath, cfg)
+		ui.PrintDim("Updated build.platforms.%s.command to use npx eas", platform)
+	}
 
 	ui.PrintBanner(version)
 	ui.PrintInfo("Build and Upload (%s)", platform)
@@ -833,7 +858,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		ui.PrintInfo("Dry-run mode - showing what would be built and uploaded:")
 		ui.Println()
 		ui.PrintInfo("  Platform:       %s", platform)
-		ui.PrintInfo("  Build Command:  %s", platformCfg.Command)
+		ui.PrintInfo("  Build Command:  %s", buildCommand)
 		ui.PrintInfo("  Output:         %s", platformCfg.Output)
 		if platformCfg.AppID != "" {
 			ui.PrintInfo("  App ID:         %s", platformCfg.AppID)
@@ -848,15 +873,21 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 
 	var buildDuration time.Duration
 
+	if !buildSkip && isExpoBuildSystem(cfg.Build.System) {
+		if ready := ensureExpoEASAuth(cwd); !ready {
+			return formatEASLoginRequiredError()
+		}
+	}
+
 	// Run build if not skipped
 	if !buildSkip {
-		ui.PrintInfo("Building with: %s", platformCfg.Command)
+		ui.PrintInfo("Building with: %s", buildCommand)
 		ui.Println()
 
 		startTime := time.Now()
 		runner := build.NewRunner(cwd)
 
-		err = runner.Run(platformCfg.Command, func(line string) {
+		err = runner.Run(buildCommand, func(line string) {
 			ui.PrintDim("  %s", line)
 		})
 
@@ -951,7 +982,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	}
 
 	// Collect metadata
-	metadata := build.CollectMetadata(cwd, platformCfg.Command, platform, buildDuration)
+	metadata := build.CollectMetadata(cwd, buildCommand, platform, buildDuration)
 
 	// Handle dry-run mode
 	if buildDryRun {

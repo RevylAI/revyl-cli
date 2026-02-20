@@ -3,11 +3,14 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,17 +39,16 @@ type quickAction struct {
 
 // quickActions is the ordered list of actions on the dashboard.
 var quickActions = []quickAction{
-	{Label: "Run a test", Key: "run", Desc: "Execute an existing test", RequiresAuth: true},
 	{Label: "Create a test", Key: "create", Desc: "Define a new test from YAML", RequiresAuth: true},
+	{Label: "Start Hot Reload Dev Loop", Key: "dev_loop", Desc: "Start revyl dev: hot reload + live cloud device", RequiresAuth: true},
 	{Label: "Browse tests", Key: "tests", Desc: "View, sync, and manage tests", RequiresAuth: true},
 	{Label: "Browse workflows", Key: "workflows", Desc: "Create, run, and manage workflows", RequiresAuth: true},
-	{Label: "Run a workflow", Key: "run_workflow", Desc: "Execute an existing workflow", RequiresAuth: true},
-	{Label: "View reports", Key: "reports", Desc: "Browse test & workflow reports", RequiresAuth: true},
 	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds", RequiresAuth: true},
 	{Label: "Browse modules", Key: "modules", Desc: "View reusable test modules", RequiresAuth: true},
 	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels", RequiresAuth: true},
 	{Label: "Device sessions", Key: "devices", Desc: "Start, view, and stop cloud devices", RequiresAuth: true},
 	{Label: "Publish to TestFlight", Key: "publish_testflight", Desc: "Upload/distribute iOS builds with ASC", RequiresAuth: true},
+	{Label: "Settings", Key: "settings", Desc: "View and edit project defaults", RequiresAuth: false},
 	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard", RequiresAuth: false},
 }
 
@@ -73,12 +75,13 @@ type hubModel struct {
 	recentRunCursor int
 
 	// Test list (sub-screen)
-	tests         []TestItem
-	testCursor    int
-	filterMode    bool
-	filterInput   textinput.Model
-	filteredTests []TestItem
-	testBrowse    bool // true when entered from "View all tests" (browse mode, not run mode)
+	tests                 []TestItem
+	testCursor            int
+	filterMode            bool
+	filterInput           textinput.Model
+	filteredTests         []TestItem
+	testListConfirmDelete bool
+	testListDeleteTarget  TestItem
 
 	// Runs list (sub-screen)
 	allRuns       []RecentRun
@@ -86,9 +89,7 @@ type hubModel struct {
 	allRunsLoaded bool
 
 	// Report drill-down state
-	reportTypeCursor     int                             // 0 = test reports, 1 = workflow reports
-	workflows            []api.SimpleWorkflow            // cached workflow list
-	workflowCursor       int                             // cursor for workflow list
+	reportReturnView     view                            // view to return to from run-history screens
 	selectedTestID       string                          // test selected for run drill-down
 	selectedTestName     string                          // name of selected test
 	testRuns             []api.CLIEnhancedHistoryItem    // runs for the selected test
@@ -183,17 +184,18 @@ type hubModel struct {
 	wfDetailLoading  bool
 	selectedWfDetail *WorkflowItem
 	wfConfirmDelete  bool
+	wfDetailCursor   int
 	// Workflow create wizard
 	wfCreateStep          workflowCreateStep
 	wfCreateNameInput     textinput.Model
 	wfCreateTestCursor    int
 	wfCreateSelectedTests map[int]bool
 	// Workflow execution monitor
-	wfExecTaskID    string
-	wfExecStatus    *api.CLIWorkflowStatusResponse
-	wfExecDone      bool
-	wfExecStartTime time.Time
-	wfRunMode       bool // true when entered from "Run a workflow" quick action (run mode, not browse mode)
+	wfExecTaskID     string
+	wfExecStatus     *api.CLIWorkflowStatusResponse
+	wfExecDone       bool
+	wfExecStartTime  time.Time
+	wfExecReturnView view
 
 	// Shared state
 	loading bool
@@ -208,6 +210,16 @@ type hubModel struct {
 	authErr error
 	// True when a setup login action should return to dashboard after auth succeeds.
 	returnToDashboardAfterAuth bool
+
+	// Local project settings state
+	settingsCursor       int
+	settingsEditing      bool
+	settingsTimeout      int
+	settingsOpenBrowser  bool
+	settingsTimeoutInput textinput.Model
+	settingsConfigPath   string
+	settingsStatus       string
+	settingsStatusError  bool
 
 	// Sub-models
 	executionModel   *executionModel
@@ -254,19 +266,27 @@ func newHubModel(version string, devMode bool) hubModel {
 	wffi.Placeholder = "filter workflows..."
 	wffi.CharLimit = 64
 
+	sti := textinput.New()
+	sti.Placeholder = "timeout seconds"
+	sti.CharLimit = 8
+	sti.SetValue(fmt.Sprintf("%d", config.DefaultTimeoutSeconds))
+
 	return hubModel{
-		version:           version,
-		currentView:       viewDashboard,
-		loading:           true,
-		spinner:           newSpinner(),
-		filterInput:       ti,
-		reportFilterInput: rfi,
-		envVarKeyInput:    eki,
-		envVarValueInput:  evi,
-		tagNameInput:      tni,
-		wfCreateNameInput: wfni,
-		wfFilterInput:     wffi,
-		devMode:           devMode,
+		version:              version,
+		currentView:          viewDashboard,
+		loading:              true,
+		spinner:              newSpinner(),
+		filterInput:          ti,
+		reportFilterInput:    rfi,
+		envVarKeyInput:       eki,
+		envVarValueInput:     evi,
+		tagNameInput:         tni,
+		wfCreateNameInput:    wfni,
+		wfFilterInput:        wffi,
+		settingsTimeout:      config.DefaultTimeoutSeconds,
+		settingsOpenBrowser:  config.DefaultOpenBrowser,
+		settingsTimeoutInput: sti,
+		devMode:              devMode,
 	}
 }
 
@@ -277,6 +297,11 @@ type AuthMsg struct {
 	Client *api.Client
 	Token  string
 	Err    error
+}
+
+// DevLoopDoneMsg signals completion of a shell-launched `revyl dev` session.
+type DevLoopDoneMsg struct {
+	Err error
 }
 
 // authenticateCmd resolves the auth token and creates an API client.
@@ -518,25 +543,6 @@ func fetchAllRunsCmd(client *api.Client, tests []TestItem) tea.Cmd {
 	}
 }
 
-// fetchWorkflowsCmd fetches the org workflow list.
-//
-// Parameters:
-//   - client: authenticated API client
-//
-// Returns:
-//   - tea.Cmd: command that produces a WorkflowListMsg
-func fetchWorkflowsCmd(client *api.Client) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		resp, err := client.ListWorkflows(ctx)
-		if err != nil {
-			return WorkflowListMsg{Err: fmt.Errorf("failed to fetch workflows: %w", err)}
-		}
-		return WorkflowListMsg{Workflows: resp.Workflows}
-	}
-}
-
 // fetchTestHistoryCmd fetches execution history for a specific test.
 //
 // Parameters:
@@ -650,6 +656,128 @@ func deleteBuildCmd(client *api.Client, versionID string) tea.Cmd {
 	}
 }
 
+type testDeleteLocalResult struct {
+	Deleted bool
+	Warning string
+}
+
+// deleteTestFromListCmd deletes a test from remote and local project artifacts.
+func deleteTestFromListCmd(client *api.Client, selected TestItem) tea.Cmd {
+	return func() tea.Msg {
+		msg := TestDeletedMsg{
+			Name: selected.Name,
+			ID:   selected.ID,
+		}
+
+		if client == nil {
+			msg.Err = fmt.Errorf("no authenticated client available")
+			return msg
+		}
+
+		if selected.ID != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_, err := client.DeleteTest(ctx, selected.ID)
+			if err != nil {
+				var apiErr *api.APIError
+				if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+					msg.Warning = fmt.Sprintf("test %q was already missing on remote", selected.Name)
+				} else {
+					msg.Err = fmt.Errorf("failed to delete test %q from remote: %w", selected.Name, err)
+					return msg
+				}
+			} else {
+				msg.RemoteDeleted = true
+			}
+		}
+
+		localResult := deleteTestLocalArtifacts(selected.Name, selected.ID)
+		msg.LocalDeleted = localResult.Deleted
+		if localResult.Warning != "" {
+			if msg.Warning != "" {
+				msg.Warning += "; " + localResult.Warning
+			} else {
+				msg.Warning = localResult.Warning
+			}
+		}
+
+		return msg
+	}
+}
+
+func deleteTestLocalArtifacts(testName, testID string) testDeleteLocalResult {
+	result := testDeleteLocalResult{}
+	if testName == "" && testID == "" {
+		return result
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		result.Warning = fmt.Sprintf("failed to resolve working directory: %v", err)
+		return result
+	}
+
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+
+	candidates := map[string]struct{}{}
+	if testName != "" {
+		candidates[testName] = struct{}{}
+	}
+	warnings := make([]string, 0, 2)
+
+	localTests, localErr := config.LoadLocalTests(testsDir)
+	if localErr != nil && !os.IsNotExist(localErr) {
+		warnings = append(warnings, fmt.Sprintf("failed to load local tests: %v", localErr))
+	} else if testID != "" {
+		for localName, lt := range localTests {
+			if lt != nil && lt.Meta.RemoteID == testID {
+				candidates[localName] = struct{}{}
+			}
+		}
+	}
+
+	cfg, cfgErr := config.LoadProjectConfig(configPath)
+	if cfgErr != nil {
+		if !os.IsNotExist(cfgErr) {
+			warnings = append(warnings, fmt.Sprintf("failed to load project config: %v", cfgErr))
+		}
+	} else if cfg.Tests != nil {
+		configChanged := false
+		for alias, remoteID := range cfg.Tests {
+			if alias == testName || (testID != "" && remoteID == testID) {
+				delete(cfg.Tests, alias)
+				candidates[alias] = struct{}{}
+				configChanged = true
+			}
+		}
+		if configChanged {
+			if err := config.WriteProjectConfig(configPath, cfg); err != nil {
+				warnings = append(warnings, fmt.Sprintf("failed to update config aliases: %v", err))
+			} else {
+				result.Deleted = true
+			}
+		}
+	}
+
+	for name := range candidates {
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		path := filepath.Join(testsDir, name+".yaml")
+		if err := os.Remove(path); err != nil {
+			if !os.IsNotExist(err) {
+				warnings = append(warnings, fmt.Sprintf("failed to remove %s: %v", path, err))
+			}
+			continue
+		}
+		result.Deleted = true
+	}
+
+	result.Warning = strings.Join(warnings, "; ")
+	return result
+}
+
 // --- Bubble Tea interface ---
 
 // Init starts the spinner and kicks off authentication.
@@ -683,7 +811,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.currentView != viewDashboard && m.currentView != viewHelp && !m.isAuthenticated() {
+		if m.currentView != viewDashboard && m.currentView != viewHelp && m.currentView != viewSettings && !m.isAuthenticated() {
 			switch msg.String() {
 			case "q", "ctrl+c":
 				return m, tea.Quit
@@ -700,17 +828,8 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.currentView == viewRunsList {
 			return m.handleRunsListKey(msg)
 		}
-		if m.currentView == viewReportPicker {
-			return m.handleReportPickerKey(msg)
-		}
-		if m.currentView == viewTestReports {
-			return m.handleTestReportsKey(msg)
-		}
 		if m.currentView == viewTestRuns {
 			return m.handleTestRunsKey(msg)
-		}
-		if m.currentView == viewWorkflowReports {
-			return m.handleWorkflowReportsKey(msg)
 		}
 		if m.currentView == viewWorkflowRuns {
 			return m.handleWorkflowRunsKey(msg)
@@ -723,6 +842,9 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.currentView == viewHelp {
 			return m.handleHelpKey(msg)
+		}
+		if m.currentView == viewSettings {
+			return m.handleSettingsKey(msg)
 		}
 		if m.currentView == viewTestDetail {
 			return handleTestDetailKey(m, msg)
@@ -794,6 +916,18 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.tests = msg.Tests
+		if strings.TrimSpace(m.filterInput.Value()) == "" {
+			m.filteredTests = nil
+		} else {
+			m.applyFilter()
+		}
+		visible := m.visibleTests()
+		switch {
+		case len(visible) == 0:
+			m.testCursor = 0
+		case m.testCursor >= len(visible):
+			m.testCursor = len(visible) - 1
+		}
 		// Now fetch recent runs (depends on test list)
 		if m.client != nil {
 			return m, fetchRecentRunsCmd(m.client, m.tests, 5)
@@ -841,13 +975,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.setupCursor = 0
 				}
 			}
-		}
-		return m, nil
-
-	case WorkflowListMsg:
-		m.reportLoading = false
-		if msg.Err == nil {
-			m.workflows = msg.Workflows
 		}
 		return m, nil
 
@@ -922,13 +1049,21 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case TestDeletedMsg:
-		if msg.Err == nil {
+		m.loading = false
+		m.testListConfirmDelete = false
+		m.testListDeleteTarget = TestItem{}
+		if msg.Err != nil {
+			m.err = msg.Err
+			return m, nil
+		}
+		if m.currentView == viewTestDetail {
 			m.currentView = viewTestList
 			m.selectedTestDetail = nil
-			// Refresh test list
-			if m.client != nil {
-				return m, fetchTestsCmd(m.client)
-			}
+		}
+		m.err = nil
+		// Refresh test list
+		if m.client != nil {
+			return m, fetchTestsCmd(m.client)
 		}
 		return m, nil
 
@@ -1079,6 +1214,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.wfDetailLoading = false
 		if msg.Err == nil {
 			m.selectedWfDetail = msg.Workflow
+			m.wfDetailCursor = 0
 		}
 		return m, nil
 
@@ -1157,6 +1293,23 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.healthLoading = true
 		m.healthChecks = nil
 		return m, runHealthChecksCmd(m.devMode, m.client)
+
+	case DevLoopDoneMsg:
+		m.currentView = viewDashboard
+		m.loading = false
+		if msg.Err != nil {
+			m.err = fmt.Errorf("dev loop exited with error: %w", msg.Err)
+			return m, nil
+		}
+		m.err = nil
+		if m.client != nil {
+			m.loading = true
+			return m, tea.Batch(
+				fetchTestsCmd(m.client),
+				fetchDashboardMetricsCmd(m.client),
+			)
+		}
+		return m, nil
 	}
 
 	// Update filter input if in filter mode (test list view)
@@ -1241,8 +1394,9 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.currentView = viewTestList
 		m.testCursor = 0
-		m.testBrowse = false
 		m.filterMode = true
+		m.filteredTests = nil
+		m.filterInput.SetValue("")
 		m.filterInput.Focus()
 		return m, textinput.Blink
 
@@ -1272,6 +1426,131 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m hubModel) commitSettingsTimeoutInput() (hubModel, bool) {
+	timeoutText := strings.TrimSpace(m.settingsTimeoutInput.Value())
+	timeout, err := strconv.Atoi(timeoutText)
+	if err != nil || timeout <= 0 {
+		m.settingsStatus = "Timeout must be a positive integer (seconds)."
+		m.settingsStatusError = true
+		return m, false
+	}
+	m.settingsTimeout = timeout
+	return m, true
+}
+
+func (m hubModel) saveSettings() (hubModel, tea.Cmd) {
+	m.settingsStatus = ""
+	m.settingsStatusError = false
+
+	var ok bool
+	m, ok = m.commitSettingsTimeoutInput()
+	if !ok {
+		return m, nil
+	}
+
+	if m.settingsConfigPath == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			m.settingsStatus = fmt.Sprintf("Failed to resolve config path: %v", err)
+			m.settingsStatusError = true
+			return m, nil
+		}
+		m.settingsConfigPath = filepath.Join(cwd, ".revyl", "config.yaml")
+	}
+
+	cfg, err := config.LoadProjectConfig(m.settingsConfigPath)
+	if err != nil {
+		m.settingsStatus = fmt.Sprintf("Failed to load config: %v", err)
+		m.settingsStatusError = true
+		return m, nil
+	}
+
+	openBrowser := m.settingsOpenBrowser
+	cfg.Defaults.OpenBrowser = &openBrowser
+	cfg.Defaults.Timeout = m.settingsTimeout
+
+	if err := config.WriteProjectConfig(m.settingsConfigPath, cfg); err != nil {
+		m.settingsStatus = fmt.Sprintf("Failed to save settings: %v", err)
+		m.settingsStatusError = true
+		return m, nil
+	}
+
+	m.cfg = cfg
+	m.settingsStatus = "Settings saved."
+	m.settingsStatusError = false
+	return m, nil
+}
+
+func (m hubModel) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.settingsEditing {
+		switch msg.String() {
+		case "esc":
+			m.settingsEditing = false
+			m.settingsTimeoutInput.Blur()
+			m.settingsTimeoutInput.SetValue(fmt.Sprintf("%d", m.settingsTimeout))
+			return m, nil
+		case "enter":
+			var ok bool
+			m, ok = m.commitSettingsTimeoutInput()
+			if !ok {
+				return m, nil
+			}
+			m.settingsEditing = false
+			m.settingsTimeoutInput.Blur()
+			m.settingsStatus = ""
+			m.settingsStatusError = false
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.settingsTimeoutInput, cmd = m.settingsTimeoutInput.Update(msg)
+			return m, cmd
+		}
+	}
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.currentView = viewDashboard
+		return m, nil
+	case "up", "k":
+		if m.settingsCursor > 0 {
+			m.settingsCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.settingsCursor < 2 {
+			m.settingsCursor++
+		}
+		return m, nil
+	case "left", "right", " ":
+		if m.settingsCursor == 0 {
+			m.settingsOpenBrowser = !m.settingsOpenBrowser
+			m.settingsStatus = ""
+			m.settingsStatusError = false
+		}
+		return m, nil
+	case "s":
+		return m.saveSettings()
+	case "enter":
+		switch m.settingsCursor {
+		case 0:
+			m.settingsOpenBrowser = !m.settingsOpenBrowser
+			m.settingsStatus = ""
+			m.settingsStatusError = false
+			return m, nil
+		case 1:
+			m.settingsEditing = true
+			m.settingsTimeoutInput.Focus()
+			return m, textinput.Blink
+		case 2:
+			return m.saveSettings()
+		}
+	}
+
+	return m, nil
+}
+
 // executeQuickAction dispatches the currently selected quick action.
 func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 	if m.actionCursor >= len(quickActions) {
@@ -1284,24 +1563,11 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 	}
 
 	switch action.Key {
-	case "run":
-		m.currentView = viewTestList
-		m.testCursor = 0
-		m.testBrowse = false
-		m.filteredTests = nil
-		m.filterInput.SetValue("")
-		return m, nil
-
 	case "create":
 		cm := newCreateModel(m.apiKey, m.devMode, m.client, m.cfg, m.width, m.height)
 		m.createModel = &cm
 		m.currentView = viewCreateTest
 		return m, m.createModel.Init()
-
-	case "reports":
-		m.currentView = viewReportPicker
-		m.reportTypeCursor = 0
-		return m, nil
 
 	case "apps":
 		m.currentView = viewAppList
@@ -1315,7 +1581,6 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 	case "tests":
 		m.currentView = viewTestList
 		m.testCursor = 0
-		m.testBrowse = true
 		m.filteredTests = nil
 		m.filterInput.SetValue("")
 		return m, nil
@@ -1326,19 +1591,6 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		m.wfListLoading = true
 		m.wfFilterMode = false
 		m.wfFilterInput.SetValue("")
-		m.wfRunMode = false
-		if m.client != nil {
-			return m, fetchWorkflowBrowseListCmd(m.client)
-		}
-		return m, nil
-
-	case "run_workflow":
-		m.currentView = viewWorkflowList
-		m.wfCursor = 0
-		m.wfListLoading = true
-		m.wfFilterMode = false
-		m.wfFilterInput.SetValue("")
-		m.wfRunMode = true
 		if m.client != nil {
 			return m, fetchWorkflowBrowseListCmd(m.client)
 		}
@@ -1371,12 +1623,43 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "dev_loop":
+		return m, runDevLoopProcessCmd(m.devMode)
+
 	case "publish_testflight":
 		cfg := loadCurrentProjectConfig()
 		pm := newPublishTestFlightModel(cfg, m.width, m.height)
 		m.publishTFModel = &pm
 		m.currentView = viewPublishTestFlight
 		return m, m.publishTFModel.Init()
+
+	case "settings":
+		cwd, err := os.Getwd()
+		if err != nil {
+			m.settingsConfigPath = ".revyl/config.yaml"
+		} else {
+			m.settingsConfigPath = filepath.Join(cwd, ".revyl", "config.yaml")
+		}
+
+		cfg := loadCurrentProjectConfig()
+		if cfg != nil {
+			m.cfg = cfg
+			m.settingsOpenBrowser = config.EffectiveOpenBrowser(cfg)
+			m.settingsTimeout = config.EffectiveTimeoutSeconds(cfg, config.DefaultTimeoutSeconds)
+			m.settingsStatus = ""
+			m.settingsStatusError = false
+		} else {
+			m.settingsOpenBrowser = config.DefaultOpenBrowser
+			m.settingsTimeout = config.DefaultTimeoutSeconds
+			m.settingsStatus = "Project config not found. Run 'revyl init' to create .revyl/config.yaml."
+			m.settingsStatusError = true
+		}
+		m.settingsCursor = 0
+		m.settingsEditing = false
+		m.settingsTimeoutInput.SetValue(fmt.Sprintf("%d", m.settingsTimeout))
+		m.settingsTimeoutInput.Blur()
+		m.currentView = viewSettings
+		return m, nil
 
 	case "dashboard":
 		dashURL := config.GetAppURL(m.devMode)
@@ -1386,8 +1669,51 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func runDevLoopProcessCmd(devMode bool) tea.Cmd {
+	return tea.ExecProcess(devLoopExecCmd(devMode), func(err error) tea.Msg {
+		return DevLoopDoneMsg{Err: err}
+	})
+}
+
+func devLoopExecCmd(devMode bool) *exec.Cmd {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "revyl"
+	}
+	args := []string{"dev"}
+	if devMode {
+		args = append([]string{"--dev"}, args...)
+	}
+	return exec.Command(exe, args...)
+}
+
 // handleTestListKey processes key events in the test list sub-screen.
 func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.testListConfirmDelete {
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "y", "Y":
+			target := m.testListDeleteTarget
+			m.testListConfirmDelete = false
+			m.testListDeleteTarget = TestItem{}
+			m.loading = true
+			m.err = nil
+			if m.client != nil {
+				return m, tea.Batch(m.spinner.Tick, deleteTestFromListCmd(m.client, target))
+			}
+			m.loading = false
+			m.err = fmt.Errorf("not authenticated")
+			return m, nil
+		case "n", "N", "esc":
+			m.testListConfirmDelete = false
+			m.testListDeleteTarget = TestItem{}
+			return m, nil
+		default:
+			return m, nil
+		}
+	}
+
 	if m.filterMode {
 		switch msg.String() {
 		case "esc":
@@ -1416,7 +1742,8 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentView = viewDashboard
 		m.filteredTests = nil
 		m.filterInput.SetValue("")
-		m.testBrowse = false
+		m.testListConfirmDelete = false
+		m.testListDeleteTarget = TestItem{}
 		return m, nil
 
 	case "up", "k":
@@ -1436,28 +1763,16 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		selected := tests[m.testCursor]
-		if m.testBrowse {
-			if selected.ID == "" {
-				m.err = fmt.Errorf("test '%s' has no remote ID yet; run 'revyl sync' to reconcile", selected.Name)
-				return m, nil
-			}
-			// Browse mode: navigate to test detail screen
-			m.currentView = viewTestDetail
-			m.testDetailLoading = true
-			m.testDetailCursor = 0
-			if m.client != nil {
-				return m, fetchTestDetailCmd(m.client, selected.ID, selected.Name, selected.Platform, m.devMode)
-			}
-		} else if m.apiKey != "" {
-			if selected.ID == "" {
-				m.err = fmt.Errorf("test '%s' has no remote ID and cannot be run yet", selected.Name)
-				return m, nil
-			}
-			// Run mode: start execution
-			em := newExecutionModel(selected.ID, selected.Name, m.apiKey, m.cfg, m.devMode, m.width, m.height)
-			m.executionModel = &em
-			m.currentView = viewExecution
-			return m, m.executionModel.Init()
+		if selected.ID == "" {
+			m.err = fmt.Errorf("test '%s' has no remote ID yet; run 'revyl sync' to reconcile", selected.Name)
+			return m, nil
+		}
+		// Browse mode: navigate to test detail screen
+		m.currentView = viewTestDetail
+		m.testDetailLoading = true
+		m.testDetailCursor = 0
+		if m.client != nil {
+			return m, fetchTestDetailCmd(m.client, selected.ID, selected.Name, selected.Platform, m.devMode)
 		}
 
 	case "/":
@@ -1469,28 +1784,26 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		tests := m.visibleTests()
 		if len(tests) > 0 && m.testCursor < len(tests) {
 			selected := tests[m.testCursor]
-			if m.testBrowse {
-				// In browse mode, r triggers execution
-				if m.apiKey != "" {
-					if selected.ID == "" {
-						m.err = fmt.Errorf("test '%s' has no remote ID and cannot be run yet", selected.Name)
-						return m, nil
-					}
-					em := newExecutionModel(selected.ID, selected.Name, m.apiKey, m.cfg, m.devMode, m.width, m.height)
-					m.executionModel = &em
-					m.currentView = viewExecution
-					return m, m.executionModel.Init()
-				}
-			} else {
+			if m.apiKey != "" {
 				if selected.ID == "" {
-					m.err = fmt.Errorf("test '%s' has no remote ID and cannot be opened yet", selected.Name)
+					m.err = fmt.Errorf("test '%s' has no remote ID and cannot be run yet", selected.Name)
 					return m, nil
 				}
-				// In run mode, r opens in browser
-				reportURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(m.devMode), selected.ID)
-				_ = ui.OpenBrowser(reportURL)
+				em := newExecutionModel(selected.ID, selected.Name, m.apiKey, m.cfg, m.devMode, m.width, m.height)
+				m.executionModel = &em
+				m.currentView = viewExecution
+				return m, m.executionModel.Init()
 			}
 		}
+
+	case "x", "X":
+		tests := m.visibleTests()
+		if len(tests) == 0 || m.testCursor >= len(tests) {
+			return m, nil
+		}
+		m.testListConfirmDelete = true
+		m.testListDeleteTarget = tests[m.testCursor]
+		return m, nil
 
 	case "s":
 		// quick status refresh for selected test list
@@ -1900,14 +2213,8 @@ func (m hubModel) View() string {
 		return m.renderTestList()
 	case viewRunsList:
 		return m.renderRunsList()
-	case viewReportPicker:
-		return m.renderReportPicker()
-	case viewTestReports:
-		return m.renderTestReports()
 	case viewTestRuns:
 		return m.renderTestRuns()
-	case viewWorkflowReports:
-		return m.renderWorkflowReports()
 	case viewWorkflowRuns:
 		return m.renderWorkflowRuns()
 	case viewAppList:
@@ -1926,6 +2233,8 @@ func (m hubModel) View() string {
 		if m.publishTFModel != nil {
 			return m.publishTFModel.View()
 		}
+	case viewSettings:
+		return m.renderSettings()
 	case viewHelp:
 		return m.renderHelp()
 	case viewTestDetail:
@@ -2041,6 +2350,70 @@ func (m hubModel) renderDashboard() string {
 		helpKeyRender("/", "search"),
 		helpKeyRender("R", "refresh"),
 		helpKeyRender("?", "help"),
+		helpKeyRender("q", "quit"),
+	}
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
+func (m hubModel) renderSettings() string {
+	var b strings.Builder
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	innerW := min(w-4, 58)
+
+	bannerContent := titleStyle.Render("REVYL") + "  " + versionStyle.Render("v"+m.version)
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
+
+	b.WriteString(sectionStyle.Render("  SETTINGS") + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	configPath := m.settingsConfigPath
+	if configPath == "" {
+		configPath = ".revyl/config.yaml"
+	}
+	b.WriteString("  " + dimStyle.Render(configPath) + "\n\n")
+
+	items := []string{"open_browser", "timeout", "Save settings"}
+	for i := range items {
+		cur := "  "
+		if i == m.settingsCursor {
+			cur = selectedStyle.Render("▸ ")
+		}
+
+		switch i {
+		case 0:
+			b.WriteString("  " + cur + dimStyle.Render("open_browser: "))
+			b.WriteString(normalStyle.Render(fmt.Sprintf("%t", m.settingsOpenBrowser)) + "\n")
+		case 1:
+			b.WriteString("  " + cur + dimStyle.Render("timeout:      "))
+			if m.settingsEditing {
+				b.WriteString(m.settingsTimeoutInput.View() + "\n")
+			} else {
+				b.WriteString(normalStyle.Render(fmt.Sprintf("%d", m.settingsTimeout)) + "\n")
+			}
+		case 2:
+			b.WriteString("  " + cur + normalStyle.Render("Save settings") + "\n")
+		}
+	}
+
+	if m.settingsStatus != "" {
+		b.WriteString("\n")
+		if m.settingsStatusError {
+			b.WriteString("  " + errorStyle.Render("✗ "+m.settingsStatus) + "\n")
+		} else {
+			b.WriteString("  " + successStyle.Render("✓ "+m.settingsStatus) + "\n")
+		}
+	}
+
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("enter", "toggle/edit/save"),
+		helpKeyRender("s", "save"),
+		helpKeyRender("esc", "back"),
 		helpKeyRender("q", "quit"),
 	}
 	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
@@ -2183,8 +2556,6 @@ func statusStyle(status string) lipgloss.Style {
 }
 
 // renderTestList renders the test list sub-screen.
-// In browse mode (testBrowse=true), enter opens the report and r runs the test.
-// In run mode (testBrowse=false), enter runs the test and r opens the report.
 func (m hubModel) renderTestList() string {
 	var b strings.Builder
 	w := m.width
@@ -2193,10 +2564,7 @@ func (m hubModel) renderTestList() string {
 	}
 	innerW := min(w-4, 58)
 
-	subtitle := "Select a test to run"
-	if m.testBrowse {
-		subtitle = "Browse all tests"
-	}
+	subtitle := "Browse tests"
 	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render(subtitle)
 	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
 	b.WriteString(banner + "\n")
@@ -2272,22 +2640,27 @@ func (m hubModel) renderTestList() string {
 		}
 	}
 
+	if m.testListConfirmDelete {
+		name := m.testListDeleteTarget.Name
+		b.WriteString("\n  " + errorStyle.Render(fmt.Sprintf("Delete test %q? (y/n)", name)) + "\n")
+		b.WriteString("  " + dimStyle.Render("Deletes remote + local artifacts when available.") + "\n")
+	}
+
 	b.WriteString("\n  " + separator(innerW) + "\n")
 	var keys []string
-	if m.testBrowse {
+	if m.testListConfirmDelete {
 		keys = []string{
-			helpKeyRender("enter", "view"),
-			helpKeyRender("r", "run"),
-			helpKeyRender("S", "refresh"),
-			helpKeyRender("/", "filter"),
-			helpKeyRender("esc", "back"),
+			helpKeyRender("y", "confirm"),
+			helpKeyRender("n", "cancel"),
+			helpKeyRender("esc", "cancel"),
 			helpKeyRender("q", "quit"),
 		}
 	} else {
 		keys = []string{
-			helpKeyRender("enter", "run"),
+			helpKeyRender("enter", "detail"),
+			helpKeyRender("r", "run"),
+			helpKeyRender("x", "delete"),
 			helpKeyRender("/", "filter"),
-			helpKeyRender("r", "open in browser"),
 			helpKeyRender("S", "refresh"),
 			helpKeyRender("esc", "back"),
 			helpKeyRender("q", "quit"),
@@ -2423,182 +2796,19 @@ func (m hubModel) renderRunsList() string {
 	return b.String()
 }
 
-// --- Report picker ---
-
-// reportTypeOptions defines the report type picker items.
-var reportTypeOptions = []string{"Test reports", "Workflow reports"}
-
-// handleReportPickerKey processes key events on the report type picker screen.
-func (m hubModel) handleReportPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "ctrl+c":
-		return m, tea.Quit
-	case "esc":
-		m.currentView = viewDashboard
-		return m, nil
-	case "up", "k":
-		if m.reportTypeCursor > 0 {
-			m.reportTypeCursor--
-		}
-	case "down", "j":
-		if m.reportTypeCursor < len(reportTypeOptions)-1 {
-			m.reportTypeCursor++
-		}
-	case "1":
-		m.reportTypeCursor = 0
-		return m.selectReportType()
-	case "2":
-		m.reportTypeCursor = 1
-		return m.selectReportType()
-	case "enter":
-		return m.selectReportType()
-	}
-	return m, nil
-}
-
-// selectReportType transitions to the selected report type sub-view.
-func (m hubModel) selectReportType() (tea.Model, tea.Cmd) {
-	if m.reportTypeCursor == 0 {
-		m.currentView = viewTestReports
-		m.testCursor = 0
-		m.reportFilterMode = false
-		m.reportFilterInput.SetValue("")
-		return m, nil
-	}
-	m.currentView = viewWorkflowReports
-	m.workflowCursor = 0
-	m.reportLoading = true
-	m.reportFilterMode = false
-	m.reportFilterInput.SetValue("")
-	if m.client != nil {
-		return m, fetchWorkflowsCmd(m.client)
-	}
-	return m, nil
-}
-
-// renderReportPicker renders the report type selection screen.
-func (m hubModel) renderReportPicker() string {
-	var b strings.Builder
-	w := m.width
-	if w == 0 {
-		w = 80
-	}
-	innerW := min(w-4, 58)
-
-	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("View reports")
-	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
-	b.WriteString(banner + "\n")
-
-	b.WriteString(sectionStyle.Render("  Report Type") + "\n")
-	b.WriteString("  " + separator(innerW) + "\n")
-
-	for i, opt := range reportTypeOptions {
-		cur := "  "
-		style := normalStyle
-		if i == m.reportTypeCursor {
-			cur = selectedStyle.Render("▸ ")
-			style = selectedStyle
-		}
-		num := dimStyle.Render(fmt.Sprintf("[%d] ", i+1))
-		b.WriteString("  " + cur + num + style.Render(opt) + "\n")
-	}
-
-	b.WriteString("\n  " + separator(innerW) + "\n")
-	keys := []string{
-		helpKeyRender("enter", "select"),
-		helpKeyRender("1-2", "jump"),
-		helpKeyRender("esc", "back"),
-		helpKeyRender("q", "quit"),
-	}
-	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
-	return b.String()
-}
-
 // helpKeyRender formats a key hint like "enter run test".
 func helpKeyRender(key, desc string) string {
 	return lipgloss.NewStyle().Foreground(purple).Bold(true).Render(key) +
 		" " + helpStyle.Render(desc)
 }
 
-// --- Test reports drill-down ---
-
-// handleTestReportsKey processes key events on the test reports list.
-func (m hubModel) handleTestReportsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.reportFilterMode {
-		switch msg.String() {
-		case "esc":
-			m.reportFilterMode = false
-			m.reportFilterInput.Blur()
-			m.reportFilterInput.SetValue("")
-			return m, nil
-		case "enter":
-			m.reportFilterMode = false
-			m.reportFilterInput.Blur()
-			return m, nil
-		default:
-			var cmd tea.Cmd
-			m.reportFilterInput, cmd = m.reportFilterInput.Update(msg)
-			return m, cmd
-		}
+// actionNumberIndex converts a numeric key string (1-based) to a zero-based action index.
+func actionNumberIndex(key string, actionCount int) (int, bool) {
+	n, err := strconv.Atoi(strings.TrimSpace(key))
+	if err != nil || n < 1 || n > actionCount {
+		return 0, false
 	}
-
-	switch msg.String() {
-	case "q", "ctrl+c":
-		return m, tea.Quit
-	case "esc":
-		m.currentView = viewReportPicker
-		m.reportFilterInput.SetValue("")
-		return m, nil
-	case "up", "k":
-		if m.testCursor > 0 {
-			m.testCursor--
-		}
-	case "down", "j":
-		filtered := m.filteredReportTests()
-		if m.testCursor < len(filtered)-1 {
-			m.testCursor++
-		}
-	case "enter":
-		filtered := m.filteredReportTests()
-		if len(filtered) > 0 && m.testCursor < len(filtered) {
-			selected := filtered[m.testCursor]
-			m.selectedTestID = selected.ID
-			m.selectedTestName = selected.Name
-			m.testRunCursor = 0
-			m.testRuns = nil
-			m.reportLoading = true
-			m.currentView = viewTestRuns
-			if m.client != nil {
-				return m, fetchTestHistoryCmd(m.client, selected.ID)
-			}
-		}
-	case "/":
-		m.reportFilterMode = true
-		m.reportFilterInput.Focus()
-		return m, textinput.Blink
-	case "R":
-		if m.client != nil {
-			m.loading = true
-			return m, tea.Batch(m.spinner.Tick, fetchTestsCmd(m.client))
-		}
-	}
-	return m, nil
-}
-
-// filteredReportTests returns tests filtered by the report filter input.
-func (m *hubModel) filteredReportTests() []TestItem {
-	query := strings.ToLower(m.reportFilterInput.Value())
-	if query == "" {
-		return m.tests
-	}
-	var filtered []TestItem
-	for _, t := range m.tests {
-		if strings.Contains(strings.ToLower(t.Name), query) ||
-			strings.Contains(strings.ToLower(t.Platform), query) {
-			filtered = append(filtered, t)
-		}
-	}
-	return filtered
+	return n - 1, true
 }
 
 // handleTestRunsKey processes key events on the test runs list.
@@ -2607,7 +2817,11 @@ func (m hubModel) handleTestRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "esc":
-		m.currentView = viewTestReports
+		returnTo := m.reportReturnView
+		if returnTo == viewDashboard {
+			returnTo = viewTestDetail
+		}
+		m.currentView = returnTo
 		return m, nil
 	case "up", "k":
 		if m.testRunCursor > 0 {
@@ -2617,10 +2831,9 @@ func (m hubModel) handleTestRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.testRunCursor < len(m.testRuns)-1 {
 			m.testRunCursor++
 		}
-	case "enter":
-		if len(m.testRuns) > 0 && m.testRunCursor < len(m.testRuns) {
-			run := m.testRuns[m.testRunCursor]
-			reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(m.devMode), run.ID)
+	case "enter", "o":
+		reportURL := m.selectedTestRunReportURL()
+		if reportURL != "" {
 			_ = ui.OpenBrowser(reportURL)
 		}
 	case "R":
@@ -2633,70 +2846,15 @@ func (m hubModel) handleTestRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderTestReports renders the test list for the report drill-down.
-func (m hubModel) renderTestReports() string {
-	var b strings.Builder
-	w := m.width
-	if w == 0 {
-		w = 80
+func (m hubModel) selectedTestRunReportURL() string {
+	if len(m.testRuns) == 0 || m.testRunCursor < 0 || m.testRunCursor >= len(m.testRuns) {
+		return ""
 	}
-	innerW := min(w-4, 58)
-
-	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Test reports")
-	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
-	b.WriteString(banner + "\n")
-
-	if m.reportFilterMode {
-		b.WriteString("\n  " + filterPromptStyle.Render("/") + " " + m.reportFilterInput.View() + "\n")
+	runID := strings.TrimSpace(m.testRuns[m.testRunCursor].ID)
+	if runID == "" {
+		return ""
 	}
-
-	tests := m.filteredReportTests()
-	countLabel := fmt.Sprintf("%d", len(tests))
-	if m.reportFilterInput.Value() != "" {
-		countLabel = fmt.Sprintf("%d/%d", len(tests), len(m.tests))
-	}
-	b.WriteString(sectionStyle.Render("  Tests") + " " + dimStyle.Render(countLabel) + "\n")
-	b.WriteString("  " + separator(innerW) + "\n")
-
-	if len(tests) == 0 {
-		b.WriteString("  " + dimStyle.Render("No tests found") + "\n")
-	} else {
-		maxVisible := m.height - 12
-		if maxVisible < 5 {
-			maxVisible = 5
-		}
-		start, end := scrollWindow(m.testCursor, len(tests), maxVisible)
-		if start > 0 {
-			b.WriteString(dimStyle.Render("  ↑ more") + "\n")
-		}
-		for i := start; i < end; i++ {
-			t := tests[i]
-			cur := "  "
-			nameStyle := normalStyle
-			if i == m.testCursor {
-				cur = selectedStyle.Render("▸ ")
-				nameStyle = selectedRowStyle
-			}
-			platBadge := ""
-			if t.Platform != "" {
-				platBadge = platformStyle.Render(" [" + t.Platform + "]")
-			}
-			b.WriteString("  " + cur + nameStyle.Render(t.Name) + platBadge + "\n")
-		}
-		if end < len(tests) {
-			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
-		}
-	}
-
-	b.WriteString("\n  " + separator(innerW) + "\n")
-	keys := []string{
-		helpKeyRender("enter", "view runs"),
-		helpKeyRender("/", "filter"),
-		helpKeyRender("esc", "back"),
-		helpKeyRender("q", "quit"),
-	}
-	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
-	return b.String()
+	return fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(m.devMode), runID)
 }
 
 // renderTestRuns renders the run history list for a specific test.
@@ -2757,8 +2915,11 @@ func (m hubModel) renderTestRuns() string {
 	}
 
 	b.WriteString("\n  " + separator(innerW) + "\n")
+	if reportURL := m.selectedTestRunReportURL(); reportURL != "" {
+		b.WriteString("  " + dimStyle.Render(truncateText("link: "+reportURL, innerW)) + "\n")
+	}
 	keys := []string{
-		helpKeyRender("enter", "open report"),
+		helpKeyRender("enter/o", "open report"),
 		helpKeyRender("R", "refresh"),
 		helpKeyRender("esc", "back"),
 		helpKeyRender("q", "quit"),
@@ -2767,94 +2928,17 @@ func (m hubModel) renderTestRuns() string {
 	return b.String()
 }
 
-// --- Workflow reports drill-down ---
-
-// handleWorkflowReportsKey processes key events on the workflow reports list.
-func (m hubModel) handleWorkflowReportsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.reportFilterMode {
-		switch msg.String() {
-		case "esc":
-			m.reportFilterMode = false
-			m.reportFilterInput.Blur()
-			m.reportFilterInput.SetValue("")
-			return m, nil
-		case "enter":
-			m.reportFilterMode = false
-			m.reportFilterInput.Blur()
-			return m, nil
-		default:
-			var cmd tea.Cmd
-			m.reportFilterInput, cmd = m.reportFilterInput.Update(msg)
-			return m, cmd
-		}
-	}
-
-	switch msg.String() {
-	case "q", "ctrl+c":
-		return m, tea.Quit
-	case "esc":
-		m.currentView = viewReportPicker
-		m.reportFilterInput.SetValue("")
-		return m, nil
-	case "up", "k":
-		if m.workflowCursor > 0 {
-			m.workflowCursor--
-		}
-	case "down", "j":
-		filtered := m.filteredWorkflows()
-		if m.workflowCursor < len(filtered)-1 {
-			m.workflowCursor++
-		}
-	case "enter":
-		filtered := m.filteredWorkflows()
-		if len(filtered) > 0 && m.workflowCursor < len(filtered) {
-			selected := filtered[m.workflowCursor]
-			m.selectedWorkflowID = selected.ID
-			m.selectedWorkflowName = selected.Name
-			m.workflowRunCursor = 0
-			m.workflowRuns = nil
-			m.reportLoading = true
-			m.currentView = viewWorkflowRuns
-			if m.client != nil {
-				return m, fetchWorkflowHistoryCmd(m.client, selected.ID)
-			}
-		}
-	case "/":
-		m.reportFilterMode = true
-		m.reportFilterInput.Focus()
-		return m, textinput.Blink
-	case "R":
-		if m.client != nil {
-			m.reportLoading = true
-			m.workflows = nil
-			return m, fetchWorkflowsCmd(m.client)
-		}
-	}
-	return m, nil
-}
-
-// filteredWorkflows returns workflows filtered by the report filter input.
-func (m *hubModel) filteredWorkflows() []api.SimpleWorkflow {
-	query := strings.ToLower(m.reportFilterInput.Value())
-	if query == "" {
-		return m.workflows
-	}
-	var filtered []api.SimpleWorkflow
-	for _, w := range m.workflows {
-		if strings.Contains(strings.ToLower(w.Name), query) {
-			filtered = append(filtered, w)
-		}
-	}
-	return filtered
-}
-
 // handleWorkflowRunsKey processes key events on the workflow runs list.
 func (m hubModel) handleWorkflowRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "esc":
-		m.currentView = viewWorkflowReports
+		returnTo := m.reportReturnView
+		if returnTo == viewDashboard {
+			returnTo = viewWorkflowDetail
+		}
+		m.currentView = returnTo
 		return m, nil
 	case "up", "k":
 		if m.workflowRunCursor > 0 {
@@ -2864,14 +2948,9 @@ func (m hubModel) handleWorkflowRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.workflowRunCursor < len(m.workflowRuns)-1 {
 			m.workflowRunCursor++
 		}
-	case "enter":
-		if len(m.workflowRuns) > 0 && m.workflowRunCursor < len(m.workflowRuns) {
-			run := m.workflowRuns[m.workflowRunCursor]
-			taskID := run.ExecutionID
-			if taskID == "" {
-				taskID = run.WorkflowID
-			}
-			reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(m.devMode), taskID)
+	case "enter", "o":
+		reportURL := m.selectedWorkflowRunReportURL()
+		if reportURL != "" {
 			_ = ui.OpenBrowser(reportURL)
 		}
 	case "R":
@@ -2884,69 +2963,32 @@ func (m hubModel) handleWorkflowRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderWorkflowReports renders the workflow list for the report drill-down.
-func (m hubModel) renderWorkflowReports() string {
-	var b strings.Builder
-	w := m.width
-	if w == 0 {
-		w = 80
+func (m hubModel) selectedWorkflowRunReportURL() string {
+	if len(m.workflowRuns) == 0 || m.workflowRunCursor < 0 || m.workflowRunCursor >= len(m.workflowRuns) {
+		return ""
 	}
-	innerW := min(w-4, 58)
-
-	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Workflow reports")
-	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
-	b.WriteString(banner + "\n")
-
-	if m.reportFilterMode {
-		b.WriteString("\n  " + filterPromptStyle.Render("/") + " " + m.reportFilterInput.View() + "\n")
+	run := m.workflowRuns[m.workflowRunCursor]
+	taskID := strings.TrimSpace(run.ExecutionID)
+	if taskID == "" {
+		taskID = strings.TrimSpace(run.WorkflowID)
 	}
-
-	workflows := m.filteredWorkflows()
-	countLabel := fmt.Sprintf("%d", len(workflows))
-	if m.reportFilterInput.Value() != "" && len(m.workflows) > 0 {
-		countLabel = fmt.Sprintf("%d/%d", len(workflows), len(m.workflows))
+	if taskID == "" {
+		return ""
 	}
-	b.WriteString(sectionStyle.Render("  Workflows") + " " + dimStyle.Render(countLabel) + "\n")
-	b.WriteString("  " + separator(innerW) + "\n")
+	return fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(m.devMode), taskID)
+}
 
-	if m.reportLoading {
-		b.WriteString("  " + m.spinner.View() + " Loading workflows...\n")
-	} else if len(workflows) == 0 {
-		b.WriteString("  " + dimStyle.Render("No workflows found") + "\n")
-	} else {
-		maxVisible := m.height - 12
-		if maxVisible < 5 {
-			maxVisible = 5
-		}
-		start, end := scrollWindow(m.workflowCursor, len(workflows), maxVisible)
-		if start > 0 {
-			b.WriteString(dimStyle.Render("  ↑ more") + "\n")
-		}
-		for i := start; i < end; i++ {
-			wf := workflows[i]
-			cur := "  "
-			nameStyle := normalStyle
-			if i == m.workflowCursor {
-				cur = selectedStyle.Render("▸ ")
-				nameStyle = selectedRowStyle
-			}
-			b.WriteString("  " + cur + nameStyle.Render(wf.Name) + "\n")
-		}
-		if end < len(workflows) {
-			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
-		}
+func truncateText(value string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
 	}
-
-	b.WriteString("\n  " + separator(innerW) + "\n")
-	keys := []string{
-		helpKeyRender("enter", "view runs"),
-		helpKeyRender("/", "filter"),
-		helpKeyRender("R", "refresh"),
-		helpKeyRender("esc", "back"),
-		helpKeyRender("q", "quit"),
+	if len(value) <= maxLen {
+		return value
 	}
-	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
-	return b.String()
+	if maxLen <= 3 {
+		return value[:maxLen]
+	}
+	return value[:maxLen-3] + "..."
 }
 
 // renderWorkflowRuns renders the run history list for a specific workflow.
@@ -3005,8 +3047,11 @@ func (m hubModel) renderWorkflowRuns() string {
 	}
 
 	b.WriteString("\n  " + separator(innerW) + "\n")
+	if reportURL := m.selectedWorkflowRunReportURL(); reportURL != "" {
+		b.WriteString("  " + dimStyle.Render(truncateText("link: "+reportURL, innerW)) + "\n")
+	}
 	keys := []string{
-		helpKeyRender("enter", "open report"),
+		helpKeyRender("enter/o", "open report"),
 		helpKeyRender("R", "refresh"),
 		helpKeyRender("esc", "back"),
 		helpKeyRender("q", "quit"),
@@ -3691,7 +3736,8 @@ func (m hubModel) renderHelp() string {
 		{"1-9", "Jump to quick action"},
 		{"/", "Filter / search lists"},
 		{"R", "Refresh current view"},
-		{"d", "Delete (in app/module/tag views)"},
+		{"x", "Delete tests/workflows (where shown)"},
+		{"d", "Delete in app/module/tag views"},
 		{"?", "This help screen"},
 		{"q", "Quit"},
 	}
