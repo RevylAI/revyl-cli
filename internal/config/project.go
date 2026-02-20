@@ -277,6 +277,9 @@ type Project struct {
 
 	// Name is the project name.
 	Name string `yaml:"name"`
+
+	// OrgID is the organization ID this project is bound to (optional).
+	OrgID string `yaml:"org_id,omitempty"`
 }
 
 // BuildConfig contains build configuration.

@@ -173,9 +173,12 @@ type TestListMsg struct {
 
 // TestItem represents a test in the hub list.
 type TestItem struct {
-	ID       string
-	Name     string
-	Platform string
+	ID            string
+	Name          string
+	Platform      string
+	SyncStatus    string // synced, modified, outdated, conflict, local-only, remote-only, stale
+	Source        string // remote, config, local, merged
+	RemoteMissing bool
 }
 
 // ExecutionStartedMsg signals that a test execution has been created.
@@ -235,6 +238,7 @@ const (
 	viewAppDetail                     // build versions for a specific app
 	viewCreateApp                     // create-an-app flow (sub-screen)
 	viewUploadBuild                   // upload-a-build flow (sub-screen)
+	viewPublishTestFlight             // guided TestFlight publish flow
 	viewHelp                          // help & status screen (doctor + keybindings)
 	viewTestDetail                    // test detail + management screen
 	viewWorkflowList                  // workflow browse list

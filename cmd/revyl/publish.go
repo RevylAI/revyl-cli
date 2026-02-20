@@ -13,6 +13,7 @@ import (
 
 	"github.com/revyl/cli/internal/asc"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/publishenv"
 	"github.com/revyl/cli/internal/store"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -174,19 +175,18 @@ func runPublishAuthIOS(cmd *cobra.Command, args []string) error {
 	issuerID, _ := cmd.Flags().GetString("issuer-id")
 	privateKeyPath, _ := cmd.Flags().GetString("private-key")
 
-	if keyID == "" || issuerID == "" || privateKeyPath == "" {
-		ui.PrintError("All flags are required: --key-id, --issuer-id, --private-key")
+	input := resolveIOSCredentialInput(keyID, issuerID, privateKeyPath, os.Getenv)
+	if missing := missingIOSCredentialFields(input); len(missing) > 0 {
+		ui.PrintError("Missing required iOS credential fields: %s", strings.Join(missing, ", "))
+		ui.PrintInfo("Provide flags or env vars: --key-id/--issuer-id/--private-key or %s/%s/%s (or %s)", publishenv.ASCKeyID, publishenv.ASCIssuerID, publishenv.ASCPrivatePath, publishenv.ASCPrivateKey)
 		ui.PrintInfo("Generate API keys at: https://appstoreconnect.apple.com/access/integrations/api")
 		return fmt.Errorf("missing required flags")
 	}
 
-	// Resolve absolute path for the private key
-	absPath, err := filepath.Abs(privateKeyPath)
+	absPath, err := resolveIOSPrivateKeyPath(input)
 	if err != nil {
-		return fmt.Errorf("failed to resolve private key path: %w", err)
+		return err
 	}
-
-	// Validate the key file exists and is readable
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
 		ui.PrintError("Private key file not found: %s", absPath)
 		return fmt.Errorf("private key file not found")
@@ -200,8 +200,8 @@ func runPublishAuthIOS(cmd *cobra.Command, args []string) error {
 
 	mgr := store.NewManager()
 	if err := mgr.SaveIOSCredentials(&store.IOSCredentials{
-		KeyID:          keyID,
-		IssuerID:       issuerID,
+		KeyID:          input.KeyID,
+		IssuerID:       input.IssuerID,
 		PrivateKeyPath: absPath,
 	}); err != nil {
 		ui.PrintError("Failed to save iOS credentials: %s", err)
@@ -209,8 +209,8 @@ func runPublishAuthIOS(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.PrintSuccess("App Store Connect credentials saved")
-	ui.PrintInfo("Key ID: %s", keyID)
-	ui.PrintInfo("Issuer ID: %s", issuerID)
+	ui.PrintInfo("Key ID: %s", input.KeyID)
+	ui.PrintInfo("Issuer ID: %s", input.IssuerID)
 	ui.PrintInfo("Private Key: %s", absPath)
 
 	return nil
@@ -259,7 +259,20 @@ func runPublishAuthStatus(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// iOS
-	if mgr.HasIOSCredentials() {
+	envCreds := resolveIOSCredentialInput("", "", "", os.Getenv)
+	if hasAnyIOSCredentialEnv(os.Getenv) && len(missingIOSCredentialFields(envCreds)) == 0 {
+		ui.PrintSuccess("iOS (App Store Connect): Configured via environment")
+		ui.PrintInfo("  Key ID:      %s", envCreds.KeyID)
+		ui.PrintInfo("  Issuer ID:   %s", envCreds.IssuerID)
+		if envCreds.PrivateKeyPath != "" {
+			ui.PrintInfo("  Private Key: %s", envCreds.PrivateKeyPath)
+		} else {
+			ui.PrintInfo("  Private Key: %s", publishenv.ASCPrivateKey)
+		}
+	} else if hasAnyIOSCredentialEnv(os.Getenv) {
+		ui.PrintWarning("iOS (App Store Connect): Environment variables detected but incomplete")
+		ui.PrintInfo("  Required: %s, %s, and (%s or %s)", publishenv.ASCKeyID, publishenv.ASCIssuerID, publishenv.ASCPrivatePath, publishenv.ASCPrivateKey)
+	} else if mgr.HasIOSCredentials() {
 		creds, _ := mgr.Load()
 		ui.PrintSuccess("iOS (App Store Connect): Configured")
 		ui.PrintInfo("  Key ID:      %s", creds.IOS.KeyID)
@@ -298,51 +311,68 @@ func runPublishAuthStatus(cmd *cobra.Command, args []string) error {
 func runPublishTestFlight(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	// Validate iOS credentials
 	storeMgr := store.NewManager()
-	if err := storeMgr.ValidateIOSCredentials(); err != nil {
+	iosCreds, err := resolveExecutionIOSCredentials(storeMgr)
+	if err != nil {
 		return err
 	}
 
-	creds, err := storeMgr.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load credentials: %w", err)
-	}
-
-	// Resolve app ID from flag or config
-	appID, _ := cmd.Flags().GetString("app-id")
-	if appID == "" {
-		appID = resolveASCAppID()
-	}
-	if appID == "" {
-		return fmt.Errorf("app ID is required: use --app-id flag or set publish.ios.asc_app_id in .revyl/config.yaml")
-	}
-
-	// Create ASC client
-	client, err := asc.NewClient(creds.IOS.KeyID, creds.IOS.IssuerID, creds.IOS.PrivateKeyPath)
+	client, err := asc.NewClient(iosCreds.KeyID, iosCreds.IssuerID, iosCreds.PrivateKeyPath)
 	if err != nil {
 		return fmt.Errorf("failed to create ASC client: %w", err)
 	}
 
-	// Handle IPA upload if specified
+	cfg := loadPublishConfig()
 	ipaPath, _ := cmd.Flags().GetString("ipa")
 	var buildID string
+	var meta *ipaMetadata
+	var version string
+	var buildNumber string
+	uploadStartedAt := time.Now()
 
 	if ipaPath != "" {
-		version, _ := cmd.Flags().GetString("version")
-		buildNumber, _ := cmd.Flags().GetString("build-number")
+		meta, _ = extractIPAMetadata(ipaPath)
+	}
+
+	appIDFlag, _ := cmd.Flags().GetString("app-id")
+	appID, err := resolveASCAppIDOrLookup(ctx, client, appIDFlag, cfg, func() string {
+		if meta == nil {
+			return ""
+		}
+		return meta.BundleID
+	}())
+	if err != nil {
+		return err
+	}
+
+	if ipaPath != "" {
+		version, _ = cmd.Flags().GetString("version")
+		buildNumber, _ = cmd.Flags().GetString("build-number")
+		version = strings.TrimSpace(version)
+		buildNumber = strings.TrimSpace(buildNumber)
+
+		if meta != nil {
+			if version == "" && meta.Version != "" {
+				version = meta.Version
+			}
+			if buildNumber == "" && meta.BuildNumber != "" {
+				buildNumber = meta.BuildNumber
+			}
+		}
 
 		if version == "" || buildNumber == "" {
-			ui.PrintWarning("--version and --build-number are recommended for upload tracking")
 			if version == "" {
+				ui.PrintWarning("Could not auto-extract IPA version. Falling back to 1.0.0 (set --version to avoid this).")
 				version = "1.0.0"
 			}
 			if buildNumber == "" {
+				ui.PrintWarning("Could not auto-extract IPA build number. Falling back to unix timestamp (set --build-number to avoid this).")
 				buildNumber = fmt.Sprintf("%d", time.Now().Unix())
 			}
 		}
 
 		ui.PrintInfo("Uploading %s to App Store Connect...", filepath.Base(ipaPath))
+		uploadStartedAt = time.Now()
 
 		uploadID, err := client.UploadIPA(ctx, appID, ipaPath, version, buildNumber)
 		if err != nil {
@@ -358,38 +388,19 @@ func runPublishTestFlight(cmd *cobra.Command, args []string) error {
 
 		if shouldWait {
 			ui.PrintInfo("Waiting for build processing...")
-
-			// Find the build by polling builds list
-			var build *asc.Build
-			deadline := time.Now().Add(timeout)
-			for {
-				builds, err := client.ListBuilds(ctx, appID, 5)
-				if err != nil {
-					return fmt.Errorf("failed to list builds: %w", err)
-				}
-
-				if len(builds) > 0 {
-					latest := builds[0]
-					if latest.Attributes.ProcessingState == asc.ProcessingStateValid {
-						build = &latest
-						buildID = latest.ID
-						break
-					}
-					if latest.Attributes.ProcessingState == asc.ProcessingStateFailed ||
-						latest.Attributes.ProcessingState == asc.ProcessingStateInvalid {
-						return fmt.Errorf("build processing failed (state: %s)", latest.Attributes.ProcessingState)
-					}
-				}
-
-				if time.Now().After(deadline) {
-					return fmt.Errorf("timed out waiting for build processing")
-				}
-
-				ui.PrintInfo("Still processing...")
-				time.Sleep(30 * time.Second)
+			build, err := waitForUploadedBuild(ctx, client, appID, buildNumber, uploadStartedAt, timeout)
+			if err != nil {
+				return err
 			}
-
 			ui.PrintSuccess("Build processed: %s (v%s)", build.ID, build.Attributes.Version)
+			buildID = build.ID
+		} else {
+			groupNames := resolveTestFlightGroups(cmd, cfg)
+			if len(groupNames) > 0 {
+				ui.PrintWarning("Skipping distribution because --wait=false and the uploaded build may still be processing.")
+				ui.PrintInfo("Run 'revyl publish testflight --app-id %s --group %s' later to distribute the processed build.", appID, strings.Join(groupNames, ","))
+			}
+			return nil
 		}
 	}
 
@@ -415,10 +426,10 @@ func runPublishTestFlight(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve beta groups
-	groupNames := resolveTestFlightGroups(cmd)
+	groupNames := resolveTestFlightGroups(cmd, cfg)
 	if len(groupNames) == 0 {
 		ui.PrintWarning("No TestFlight groups specified. Build uploaded but not distributed.")
-		ui.PrintInfo("Use --group to specify groups, or set publish.ios.testflight_groups in config")
+		ui.PrintInfo("Use --group, %s, or set publish.ios.testflight_groups in config", publishenv.TFGroups)
 		return nil
 	}
 
@@ -472,26 +483,21 @@ func runPublishStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	storeMgr := store.NewManager()
-	if err := storeMgr.ValidateIOSCredentials(); err != nil {
+	iosCreds, err := resolveExecutionIOSCredentials(storeMgr)
+	if err != nil {
 		return err
 	}
 
-	creds, err := storeMgr.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load credentials: %w", err)
-	}
-
-	appID, _ := cmd.Flags().GetString("app-id")
-	if appID == "" {
-		appID = resolveASCAppID()
-	}
-	if appID == "" {
-		return fmt.Errorf("app ID is required: use --app-id flag or set publish.ios.asc_app_id in .revyl/config.yaml")
-	}
-
-	client, err := asc.NewClient(creds.IOS.KeyID, creds.IOS.IssuerID, creds.IOS.PrivateKeyPath)
+	client, err := asc.NewClient(iosCreds.KeyID, iosCreds.IssuerID, iosCreds.PrivateKeyPath)
 	if err != nil {
 		return fmt.Errorf("failed to create ASC client: %w", err)
+	}
+
+	cfg := loadPublishConfig()
+	appIDFlag, _ := cmd.Flags().GetString("app-id")
+	appID, err := resolveASCAppIDOrLookup(ctx, client, appIDFlag, cfg, "")
+	if err != nil {
+		return err
 	}
 
 	// Check specific build or latest
@@ -574,24 +580,21 @@ func printBuildStatus(build *asc.Build) {
 
 // resolveASCAppID tries to find the ASC app ID from project config.
 func resolveASCAppID() string {
-	cfg, err := config.LoadProjectConfig(".revyl/config.yaml")
-	if err != nil {
-		return ""
-	}
-	return cfg.Publish.IOS.ASCAppID
+	return resolveAppIDFromSources("", loadPublishConfig(), os.Getenv)
 }
 
 // resolveTestFlightGroups resolves TestFlight group names from flag or config.
-func resolveTestFlightGroups(cmd *cobra.Command) []string {
+func resolveTestFlightGroups(cmd *cobra.Command, cfg *config.ProjectConfig) []string {
 	groupFlag, _ := cmd.Flags().GetString("group")
 	if groupFlag != "" {
-		return strings.Split(groupFlag, ",")
+		return splitCSVValues(groupFlag)
+	}
+	if envGroups := strings.TrimSpace(os.Getenv(publishenv.TFGroups)); envGroups != "" {
+		return splitCSVValues(envGroups)
 	}
 
-	// Fall back to config
-	cfg, err := config.LoadProjectConfig(".revyl/config.yaml")
-	if err != nil {
+	if cfg == nil {
 		return nil
 	}
-	return cfg.Publish.IOS.TestFlightGroups
+	return splitCSVValues(strings.Join(cfg.Publish.IOS.TestFlightGroups, ","))
 }

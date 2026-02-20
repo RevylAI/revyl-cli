@@ -252,6 +252,7 @@ func loginWithBrowser(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error
 		ui.PrintInfo("Organization: %s", userInfo.OrgID)
 	}
 	ui.PrintInfo("Credentials saved to ~/.revyl/credentials.json")
+	warnIfOrgMismatchAfterLogin(cmd)
 
 	printAuthNextSteps(cmd)
 
@@ -321,6 +322,7 @@ func loginWithAPIKey(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error 
 		ui.PrintInfo("Organization: %s", userInfo.OrgID)
 	}
 	ui.PrintInfo("Credentials saved to ~/.revyl/credentials.json")
+	warnIfOrgMismatchAfterLogin(cmd)
 
 	printAuthNextSteps(cmd)
 

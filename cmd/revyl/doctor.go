@@ -17,6 +17,7 @@ import (
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/orgguard"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -152,12 +153,22 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		// Project config is optional, don't mark as unhealthy
 	}
 
-	// Check 5: Build System
+	// Check 5: Project/Auth Org Match
+	orgMatchCheck := checkProjectAuthOrgMatch(cmd.Context(), devMode)
+	result.Checks = append(result.Checks, orgMatchCheck)
+	if orgMatchCheck.Status == "error" {
+		result.Healthy = false
+		result.Issues++
+	} else if orgMatchCheck.Status == "warning" {
+		result.Issues++
+	}
+
+	// Check 6: Build System
 	buildCheck := checkBuildSystem()
 	result.Checks = append(result.Checks, buildCheck)
 	// Build system is informational only
 
-	// Check 6: Sync Status (requires project config + optional API client)
+	// Check 7: Sync Status (requires project config + optional API client)
 	if projectCheck.Status != "error" && projectCheck.Status != "warning" {
 		// Load config for sync check.
 		cwd, _ := os.Getwd()
@@ -191,6 +202,70 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// checkProjectAuthOrgMatch checks whether the cwd project is bound to the
+// same org as the authenticated account.
+func checkProjectAuthOrgMatch(ctx context.Context, devMode bool) DoctorCheck {
+	check := DoctorCheck{
+		Name:   "Project/Auth Org Match",
+		Status: "ok",
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		check.Status = "warning"
+		check.Message = "Could not resolve current directory"
+		check.Details = "Org mismatch check skipped"
+		return check
+	}
+
+	result := orgguard.Check(ctx, cwd, devMode)
+	if result == nil {
+		check.Status = "warning"
+		check.Message = "Org mismatch check unavailable"
+		check.Details = "Could not determine project/auth org binding state"
+		return check
+	}
+
+	if !result.ConfigExists {
+		check.Status = "warning"
+		check.Message = "No project configuration"
+		check.Details = "No .revyl/config.yaml found in current directory"
+		return check
+	}
+
+	if !result.ConfigParsed {
+		check.Status = "warning"
+		check.Message = "Project config unreadable"
+		check.Details = "Mismatch guard skipped because .revyl/config.yaml could not be parsed"
+		return check
+	}
+
+	if strings.TrimSpace(result.ProjectOrgID) == "" {
+		check.Status = "warning"
+		check.Message = "Project org binding not set"
+		check.Details = "Set project.org_id by running 'revyl init' while authenticated"
+		return check
+	}
+
+	if strings.TrimSpace(result.AuthOrgID) == "" {
+		check.Status = "warning"
+		check.Message = "Could not resolve authenticated organization"
+		check.Details = "Run 'revyl auth login' to refresh credentials"
+		return check
+	}
+
+	if result.Mismatch != nil {
+		check.Status = "warning"
+		check.Message = "Organization mismatch"
+		check.Details = fmt.Sprintf("Project org: %s, auth org: %s\n    Test/workflow and tag mutation commands are blocked until resolved", result.ProjectOrgID, result.AuthOrgID)
+		return check
+	}
+
+	check.Message = "Project and auth organizations match"
+	check.Details = fmt.Sprintf("Organization: %s", result.ProjectOrgID)
+	return check
 }
 
 // checkVersion checks the CLI version against the latest release.
@@ -601,17 +676,17 @@ func checkSyncStatus(ctx context.Context, cfg *config.ProjectConfig, client *api
 			if age > 7*24*time.Hour {
 				check.Status = "warning"
 				check.Message = fmt.Sprintf("Config may be stale (last synced %s ago)", humanizeDuration(age))
-				check.Details = "Run 'revyl test pull' to refresh"
+				check.Details = "Run 'revyl sync' to refresh"
 			}
 		} else {
 			check.Status = "warning"
 			check.Message = fmt.Sprintf("Invalid last_synced_at timestamp: %s", cfg.LastSyncedAt)
-			check.Details = "Run 'revyl test pull' to reset sync tracking"
+			check.Details = "Run 'revyl sync' to reset sync tracking"
 		}
 	} else {
 		check.Message = "Never synced"
 		check.Status = "warning"
-		check.Details = "Run 'revyl test pull' or 'revyl init' to sync"
+		check.Details = "Run 'revyl sync' or 'revyl init' to sync"
 	}
 
 	// If no client, skip remote verification.
@@ -623,12 +698,12 @@ func checkSyncStatus(ctx context.Context, cfg *config.ProjectConfig, client *api
 
 	// Compare tests against remote.
 	if len(cfg.Tests) > 0 {
-		remoteTests, err := client.ListOrgTests(ctx, 200, 0)
+		remoteTests, err := client.ListAllOrgTests(ctx, 200)
 		if err == nil {
 			// Tests in config but deleted on server.
 			for name, id := range cfg.Tests {
 				found := false
-				for _, rt := range remoteTests.Tests {
+				for _, rt := range remoteTests {
 					if rt.ID == id {
 						found = true
 						break
@@ -648,11 +723,11 @@ func checkSyncStatus(ctx context.Context, cfg *config.ProjectConfig, client *api
 
 	// Compare workflows against remote.
 	if len(cfg.Workflows) > 0 {
-		remoteWorkflows, err := client.ListWorkflows(ctx)
+		remoteWorkflows, err := client.ListAllWorkflows(ctx, 200)
 		if err == nil {
 			for name, id := range cfg.Workflows {
 				found := false
-				for _, rw := range remoteWorkflows.Workflows {
+				for _, rw := range remoteWorkflows {
 					if rw.ID == id {
 						found = true
 						break
@@ -672,7 +747,7 @@ func checkSyncStatus(ctx context.Context, cfg *config.ProjectConfig, client *api
 	if len(issues) > 0 {
 		check.Status = "warning"
 		check.Message = fmt.Sprintf("%d sync issue(s) detected", len(issues))
-		check.Details = strings.Join(issues, "\n    ") + "\n    Run 'revyl test pull --all' to reconcile"
+		check.Details = strings.Join(issues, "\n    ") + "\n    Run 'revyl sync' to reconcile"
 	} else if check.Status == "ok" {
 		check.Message = fmt.Sprintf("In sync (%s)", check.Message)
 	}

@@ -228,7 +228,19 @@ blocks:
     step_description: "The confirmation number {{order-number}} is displayed in the order history"
 ```
 
-Use `code_execution` for server-side setup (API calls, database seeding, generating test data).
+Use `code_execution` for server-side setup (API calls, database seeding, generating test data). Scripts can read **all test variables** via environment variables (`REVYL_VAR_<name>`) or a `_variables.json` file in the working directory. A script stores its output as a variable by printing to stdout (captured by the `variable_name` field on the node).
+
+```python
+# Script 1 sets {{generated-email}} by printing to stdout
+import time
+print(f"ls-signup+{int(time.time()*1000)}@agentmail.to")
+```
+
+```python
+# Script 2 reads it via env var (hyphens become underscores)
+import os
+email = os.environ.get("REVYL_VAR_generated_email", "")
+```
 
 ## Phase 4 — Create and Push
 
@@ -390,7 +402,7 @@ Manual blocks perform system-level actions outside the app UI. Use these when yo
 |---|---|---|
 | `if` | `type`, `condition`, `then`, `else` (optional) | Conditional branching |
 | `while` | `type`, `condition`, `body` | Loop until condition is false |
-| `code_execution` | `type`, `step_description` (script UUID), `variable_name` (optional) | Server-side script execution |
+| `code_execution` | `type`, `step_description` (script UUID), `variable_name` (optional) | Server-side script execution (reads all test variables via env vars / `_variables.json`) |
 | `module_import` | `type`, `step_description` (name), `module_id` (UUID) | Import reusable block group |
 
 ### Full Test Template

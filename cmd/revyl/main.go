@@ -115,6 +115,7 @@ func init() {
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(workflowCmd)
+	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(moduleCmd)
 	rootCmd.AddCommand(tagCmd)
 	rootCmd.AddCommand(docsCmd)
@@ -123,7 +124,6 @@ func init() {
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(pingCmd)
 	rootCmd.AddCommand(upgradeCmd)
-	rootCmd.AddCommand(hotreloadCmd)
 
 	// App store publishing
 	rootCmd.AddCommand(publishCmd)

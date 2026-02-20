@@ -24,6 +24,7 @@ import (
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers"
+	"github.com/revyl/cli/internal/orgguard"
 	"github.com/revyl/cli/internal/schema"
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/ui"
@@ -861,6 +862,9 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 	} else if retries == 0 {
 		retries = 1 // Default to 1 if not specified
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, RunTestOutput{Success: false, ErrorMessage: mismatchMsg}, nil
+	}
 
 	// Track last progress for enriching final output
 	var lastStatus *sse.TestStatus
@@ -1005,6 +1009,9 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		}, nil
 	} else if retries == 0 {
 		retries = 1 // Default to 1 if not specified
+	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, RunWorkflowOutput{Success: false, ErrorMessage: mismatchMsg}, nil
 	}
 
 	// Track last progress for enriching final output
@@ -1254,6 +1261,9 @@ func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest,
 			Error:   "platform must be 'ios' or 'android'",
 		}, nil
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, CreateTestOutput{Success: false, Error: mismatchMsg}, nil
+	}
 
 	// Validate YAML if provided
 	if input.YAMLContent != "" {
@@ -1308,6 +1318,9 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, req *mcp.CallToolRequ
 			Success: false,
 			Error:   "name is required",
 		}, nil
+	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, CreateWorkflowOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
 	// Get user ID from API key validation
@@ -1524,6 +1537,9 @@ func (s *Server) handleCancelTest(ctx context.Context, req *mcp.CallToolRequest,
 	if input.TaskID == "" {
 		return nil, CancelTestOutput{Success: false, Error: "task_id is required"}, nil
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, CancelTestOutput{Success: false, Error: mismatchMsg}, nil
+	}
 
 	resp, err := s.apiClient.CancelTest(ctx, input.TaskID)
 	if err != nil {
@@ -1552,6 +1568,9 @@ type CancelWorkflowOutput struct {
 func (s *Server) handleCancelWorkflow(ctx context.Context, req *mcp.CallToolRequest, input CancelWorkflowInput) (*mcp.CallToolResult, CancelWorkflowOutput, error) {
 	if input.TaskID == "" {
 		return nil, CancelWorkflowOutput{Success: false, Error: "task_id is required"}, nil
+	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, CancelWorkflowOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
 	resp, err := s.apiClient.CancelWorkflow(ctx, input.TaskID)
@@ -1583,6 +1602,9 @@ type DeleteTestOutput struct {
 func (s *Server) handleDeleteTest(ctx context.Context, req *mcp.CallToolRequest, input DeleteTestInput) (*mcp.CallToolResult, DeleteTestOutput, error) {
 	if input.TestNameOrID == "" {
 		return nil, DeleteTestOutput{Success: false, Error: "test_name_or_id is required"}, nil
+	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, DeleteTestOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
 	// Resolve name to ID from config
@@ -1620,6 +1642,9 @@ type DeleteWorkflowOutput struct {
 func (s *Server) handleDeleteWorkflow(ctx context.Context, req *mcp.CallToolRequest, input DeleteWorkflowInput) (*mcp.CallToolResult, DeleteWorkflowOutput, error) {
 	if input.WorkflowNameOrID == "" {
 		return nil, DeleteWorkflowOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
+	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, DeleteWorkflowOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
 	// Resolve name to ID from config
@@ -2300,6 +2325,9 @@ func (s *Server) handleSetTestTags(ctx context.Context, req *mcp.CallToolRequest
 	if len(input.TagNames) == 0 {
 		return nil, SetTestTagsOutput{Success: false, Error: "tag_names is required and must not be empty"}, nil
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, SetTestTagsOutput{Success: false, Error: mismatchMsg}, nil
+	}
 
 	// Resolve test name to ID
 	testID := input.TestNameOrID
@@ -2373,6 +2401,9 @@ func (s *Server) handleAddRemoveTestTags(ctx context.Context, req *mcp.CallToolR
 	if len(input.TagsToAdd) == 0 && len(input.TagsToRemove) == 0 {
 		return nil, AddRemoveTestTagsOutput{Success: false, Error: "at least one of tags_to_add or tags_to_remove is required"}, nil
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, AddRemoveTestTagsOutput{Success: false, Error: mismatchMsg}, nil
+	}
 
 	// Resolve test name to ID
 	testID := input.TestNameOrID
@@ -2429,6 +2460,17 @@ func (s *Server) handleAddRemoveTestTags(ctx context.Context, req *mcp.CallToolR
 		TestID:  testID,
 		Message: strings.Join(parts, "; "),
 	}, nil
+}
+
+// orgMismatchMessage returns a standardized mismatch message when the project
+// org binding differs from the authenticated org. Returns empty string when the
+// mismatch guard is not active.
+func (s *Server) orgMismatchMessage(ctx context.Context) string {
+	result := orgguard.Check(ctx, s.workDir, s.devMode)
+	if result == nil || result.Mismatch == nil {
+		return ""
+	}
+	return result.Mismatch.UserMessage()
 }
 
 // --- Helper: parse location string ---
@@ -2573,6 +2615,9 @@ func (s *Server) handleSetEnvVar(ctx context.Context, req *mcp.CallToolRequest, 
 	if input.TestNameOrID == "" || input.Key == "" {
 		return nil, SetEnvVarOutput{Success: false, Error: "test_name_or_id and key are required"}, nil
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, SetEnvVarOutput{Success: false, Error: mismatchMsg}, nil
+	}
 
 	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
 	if err != nil {
@@ -2625,6 +2670,9 @@ func (s *Server) handleDeleteEnvVar(ctx context.Context, req *mcp.CallToolReques
 	if input.TestNameOrID == "" || input.Key == "" {
 		return nil, DeleteEnvVarOutput{Success: false, Error: "test_name_or_id and key are required"}, nil
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, DeleteEnvVarOutput{Success: false, Error: mismatchMsg}, nil
+	}
 
 	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
 	if err != nil {
@@ -2670,6 +2718,9 @@ type ClearEnvVarsOutput struct {
 func (s *Server) handleClearEnvVars(ctx context.Context, req *mcp.CallToolRequest, input ClearEnvVarsInput) (*mcp.CallToolResult, ClearEnvVarsOutput, error) {
 	if input.TestNameOrID == "" {
 		return nil, ClearEnvVarsOutput{Success: false, Error: "test_name_or_id is required"}, nil
+	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, ClearEnvVarsOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
 	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
@@ -2758,6 +2809,9 @@ func (s *Server) handleSetVariable(ctx context.Context, req *mcp.CallToolRequest
 	if input.TestNameOrID == "" || input.Name == "" {
 		return nil, SetVariableOutput{Success: false, Error: "test_name_or_id and name are required"}, nil
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, SetVariableOutput{Success: false, Error: mismatchMsg}, nil
+	}
 
 	// Enforce kebab-case naming to stay consistent with YAML validator
 	if !isValidVariableName(input.Name) {
@@ -2814,6 +2868,9 @@ func (s *Server) handleDeleteVariable(ctx context.Context, req *mcp.CallToolRequ
 	if input.TestNameOrID == "" || input.Name == "" {
 		return nil, DeleteVariableOutput{Success: false, Error: "test_name_or_id and name are required"}, nil
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, DeleteVariableOutput{Success: false, Error: mismatchMsg}, nil
+	}
 
 	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
 	if err != nil {
@@ -2843,6 +2900,9 @@ type DeleteAllVariablesOutput struct {
 func (s *Server) handleDeleteAllVariables(ctx context.Context, req *mcp.CallToolRequest, input DeleteAllVariablesInput) (*mcp.CallToolResult, DeleteAllVariablesOutput, error) {
 	if input.TestNameOrID == "" {
 		return nil, DeleteAllVariablesOutput{Success: false, Error: "test_name_or_id is required"}, nil
+	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, DeleteAllVariablesOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
 	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
@@ -2947,6 +3007,9 @@ func (s *Server) handleSetWorkflowLocation(ctx context.Context, req *mcp.CallToo
 	if input.Longitude < -180 || input.Longitude > 180 {
 		return nil, SimpleSuccessOutput{Success: false, Error: "longitude must be between -180 and 180"}, nil
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, SimpleSuccessOutput{Success: false, Error: mismatchMsg}, nil
+	}
 
 	wfID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
 	if err != nil {
@@ -2977,6 +3040,9 @@ func (s *Server) handleClearWorkflowLocation(ctx context.Context, req *mcp.CallT
 	if input.WorkflowNameOrID == "" {
 		return nil, SimpleSuccessOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, SimpleSuccessOutput{Success: false, Error: mismatchMsg}, nil
+	}
 
 	wfID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
 	if err != nil {
@@ -3004,6 +3070,9 @@ func (s *Server) handleSetWorkflowApp(ctx context.Context, req *mcp.CallToolRequ
 	}
 	if input.IOSAppID == "" && input.AndroidAppID == "" {
 		return nil, SimpleSuccessOutput{Success: false, Error: "at least one of ios_app_id or android_app_id is required"}, nil
+	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, SimpleSuccessOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
 	wfID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
@@ -3055,6 +3124,9 @@ func (s *Server) handleClearWorkflowApp(ctx context.Context, req *mcp.CallToolRe
 	if input.WorkflowNameOrID == "" {
 		return nil, SimpleSuccessOutput{Success: false, Error: "workflow_name_or_id is required"}, nil
 	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, SimpleSuccessOutput{Success: false, Error: mismatchMsg}, nil
+	}
 
 	wfID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
 	if err != nil {
@@ -3093,6 +3165,9 @@ func (s *Server) handleAddTestsToWorkflow(ctx context.Context, req *mcp.CallTool
 	}
 	if len(input.TestNamesOrIDs) == 0 {
 		return nil, AddTestsToWorkflowOutput{Success: false, Error: "test_names_or_ids must contain at least one test"}, nil
+	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, AddTestsToWorkflowOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
 	workflowID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
@@ -3174,6 +3249,9 @@ func (s *Server) handleRemoveTestsFromWorkflow(ctx context.Context, req *mcp.Cal
 	}
 	if len(input.TestNamesOrIDs) == 0 {
 		return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: "test_names_or_ids must contain at least one test"}, nil
+	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
 	workflowID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
@@ -3328,6 +3406,9 @@ func (s *Server) handleUpdateTest(ctx context.Context, req *mcp.CallToolRequest,
 	}
 	if input.YAMLContent == "" {
 		return nil, UpdateTestOutput{Success: false, Error: "yaml_content is required"}, nil
+	}
+	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
+		return nil, UpdateTestOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
 	// Validate YAML

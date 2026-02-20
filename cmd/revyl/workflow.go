@@ -19,8 +19,9 @@ var workflowListJSON bool
 
 // workflowCmd is the parent command for workflow operations.
 var workflowCmd = &cobra.Command{
-	Use:   "workflow",
-	Short: "Manage workflows",
+	Use:               "workflow",
+	Short:             "Manage workflows",
+	PersistentPreRunE: enforceOrgBindingMatch,
 	Long: `Manage workflows (collections of tests).
 
 For build→run: use "revyl workflow run <name> --build" to build, upload, then run

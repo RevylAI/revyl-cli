@@ -159,14 +159,21 @@ func reconcileSessionIDsByWorkflow(sessions map[int]*DeviceSession, backendIDsBy
 // ensureOrgInfoLocked populates cached org/user info.
 // Caller must hold m.mu.
 func (m *DeviceSessionManager) ensureOrgInfoLocked(ctx context.Context) error {
-	if m.orgID != "" {
-		return nil
-	}
 	if m.apiClient == nil {
+		if m.orgID != "" {
+			return nil
+		}
 		return fmt.Errorf("no API client configured")
 	}
 	validateResp, err := m.apiClient.ValidateAPIKey(ctx)
 	if err != nil {
+		// Keep operating with cached org/user only when validation is unavailable.
+		// This preserves offline/cache-first behavior while preventing stale cache
+		// from overriding a valid API key when validation succeeds.
+		if m.orgID != "" {
+			ui.PrintDebug("failed to validate API key, using cached org info: %v", err)
+			return nil
+		}
 		return fmt.Errorf("failed to validate API key: %w", err)
 	}
 	m.orgID = validateResp.OrgID

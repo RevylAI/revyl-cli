@@ -7,8 +7,9 @@ import (
 
 // testCmd is the parent command for test management operations.
 var testCmd = &cobra.Command{
-	Use:   "test",
-	Short: "Manage test definitions",
+	Use:               "test",
+	Short:             "Manage test definitions",
+	PersistentPreRunE: enforceOrgBindingMatch,
 	Long: `Manage local and remote test definitions.
 
 Use 'revyl test run <name>' to run a test, optionally with --build to build first.

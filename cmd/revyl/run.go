@@ -4,7 +4,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -853,8 +855,9 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	if !cfg.HotReload.IsConfigured() {
 		ui.PrintError("Hot reload not configured.")
 		ui.Println()
-		ui.PrintInfo("To set up hot reload, run:")
-		ui.PrintDim("  revyl hotreload setup")
+		ui.PrintInfo("Hot reload is configured during 'revyl init'.")
+		ui.PrintInfo("Re-run init hot reload setup:")
+		ui.PrintDim("  revyl init --hotreload")
 		ui.Println()
 		ui.PrintInfo("Or add to .revyl/config.yaml:")
 		ui.Println()
@@ -884,7 +887,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	if providerCfg == nil {
 		ui.PrintError("Provider '%s' is not configured.", provider.Name())
 		ui.Println()
-		ui.PrintInfo("Run 'revyl hotreload setup' to configure hot reload.")
+		ui.PrintInfo("Re-run 'revyl init --hotreload' to configure hot reload defaults.")
 		return fmt.Errorf("provider not configured")
 	}
 
@@ -936,6 +939,12 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		latestVersion, err := client.GetLatestBuildVersion(cmd.Context(), platformCfg.AppID)
 		if err != nil {
 			ui.PrintError("Failed to get latest build version for platform '%s': %v", runTestPlatform, err)
+			if diagnosis := diagnoseHotReloadNetworkError(err); diagnosis != "" {
+				ui.Println()
+				ui.PrintDim("%s", diagnosis)
+				ui.Println()
+				ui.PrintInfo("Run 'revyl doctor' to verify API connectivity from this environment.")
+			}
 			return err
 		}
 		if latestVersion == nil {
@@ -1170,4 +1179,34 @@ func parseLocation(s string) (float64, float64, error) {
 	}
 
 	return lat, lng, nil
+}
+
+// diagnoseHotReloadNetworkError maps common network failures to a user-friendly diagnosis.
+func diagnoseHotReloadNetworkError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	errText := strings.ToLower(err.Error())
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) || strings.Contains(errText, "no such host") {
+		return hotreload.DiagnoseAndSuggest(&hotreload.ConnectivityCheckResult{BlockedBy: "dns"})
+	}
+
+	var netErr net.Error
+	if (errors.As(err, &netErr) && netErr.Timeout()) ||
+		strings.Contains(errText, "i/o timeout") ||
+		strings.Contains(errText, "connection timed out") {
+		return hotreload.DiagnoseAndSuggest(&hotreload.ConnectivityCheckResult{BlockedBy: "firewall"})
+	}
+
+	if strings.Contains(errText, "connection refused") ||
+		strings.Contains(errText, "tls handshake timeout") ||
+		strings.Contains(errText, "proxyconnect") ||
+		strings.Contains(errText, "x509") {
+		return hotreload.DiagnoseAndSuggest(&hotreload.ConnectivityCheckResult{BlockedBy: "firewall"})
+	}
+
+	return ""
 }
