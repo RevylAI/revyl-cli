@@ -323,6 +323,12 @@ func runPublishTestFlight(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg := loadPublishConfig()
+	waitTimeout, _ := cmd.Flags().GetDuration("timeout")
+	if !cmd.Flags().Changed("timeout") {
+		fallbackSecs := int(waitTimeout.Seconds())
+		effectiveSecs := config.EffectiveTimeoutSeconds(cfg, fallbackSecs)
+		waitTimeout = time.Duration(effectiveSecs) * time.Second
+	}
 	ipaPath, _ := cmd.Flags().GetString("ipa")
 	var buildID string
 	var meta *ipaMetadata
@@ -384,11 +390,10 @@ func runPublishTestFlight(cmd *cobra.Command, args []string) error {
 
 		// Wait for processing
 		shouldWait, _ := cmd.Flags().GetBool("wait")
-		timeout, _ := cmd.Flags().GetDuration("timeout")
 
 		if shouldWait {
 			ui.PrintInfo("Waiting for build processing...")
-			build, err := waitForUploadedBuild(ctx, client, appID, buildNumber, uploadStartedAt, timeout)
+			build, err := waitForUploadedBuild(ctx, client, appID, buildNumber, uploadStartedAt, waitTimeout)
 			if err != nil {
 				return err
 			}

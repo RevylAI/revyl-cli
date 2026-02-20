@@ -1,8 +1,8 @@
-// Package main provides the skill command for managing the Revyl agent skill.
+// Package main provides the skill command for managing Revyl agent skills.
 //
-// The agent skill teaches AI assistants (Cursor, Claude Code, Codex, VS Code)
-// optimal usage patterns for Revyl device tools. It is embedded in the binary
-// at compile time and can be installed to any supported skill directory.
+// Skills teach AI assistants (Cursor, Claude Code, Codex, VS Code) how to
+// use Revyl effectively for screenshot-observe-action execution, dev-loop
+// workflows, and turning exploratory sessions into reusable tests.
 package main
 
 import (
@@ -14,7 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/revyl/cli/internal/skill"
+	"github.com/revyl/cli/internal/skillcatalog"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -26,65 +26,90 @@ var skillDirectories = map[string][]string{
 	"codex":  {".codex/skills", "~/.codex/skills"},
 }
 
+var legacySkillNames = []string{
+	"revyl-device",
+	"revyl-dev-loop",
+	"revyl-adhoc-to-test",
+	"revyl-device-dev-loop",
+	"revyl-create",
+	"revyl-analyze",
+}
+
+const (
+	skillFamilyCLIPrefix = "revyl-cli"
+	skillFamilyMCPPrefix = "revyl-mcp"
+)
+
 // skillCmd is the parent command for agent skill management.
 var skillCmd = &cobra.Command{
 	Use:   "skill",
-	Short: "Manage the Revyl agent skill",
-	Long: `Manage the Revyl agent skill for AI coding tools.
+	Short: "Manage Revyl agent skills",
+	Long: `Manage Revyl agent skills for AI coding tools.
 
-The agent skill teaches AI assistants (Cursor, Claude Code, Codex)
-optimal usage patterns for Revyl device tools including session
-management, grounding, and troubleshooting workflows.
-
-The skill is embedded in the CLI binary and can be installed to
-any supported tool with a single command.
+Revyl ships embedded skills:
+- revyl-cli, revyl-cli-create, revyl-cli-analyze, revyl-cli-dev-loop
+- revyl-mcp, revyl-mcp-create, revyl-mcp-analyze, revyl-mcp-dev-loop
 
 EXAMPLES:
-  revyl skill install              # Auto-detect tool and install
-  revyl skill install --cursor     # Install for Cursor
-  revyl skill install --claude     # Install for Claude Code
-  revyl skill install --codex      # Install for Codex
-  revyl skill install --global     # Install to user-level directory
-  revyl skill show                 # Print skill content to stdout
-  revyl skill export -o SKILL.md   # Export to a file`,
+  revyl skill list
+  revyl skill install                         # Default: install CLI family
+  revyl skill install --mcp                   # Install MCP family
+  revyl skill install --cli --mcp             # Install both families
+  revyl skill install --codex
+  revyl skill show --name revyl-cli-dev-loop
+  revyl skill show --name revyl-mcp-dev-loop
+  revyl skill export --name revyl-mcp-create -o SKILL.md
+  revyl skill export --name revyl-cli-analyze -o SKILL.md
+  revyl skill revyl-cli-dev-loop install --codex`,
 }
 
-// skillShowCmd prints the embedded SKILL.md content to stdout.
-var skillShowCmd = &cobra.Command{
-	Use:   "show",
-	Short: "Print the agent skill content to stdout",
-	Long: `Print the embedded SKILL.md content to stdout.
-
-Useful for piping into other tools or inspecting the skill content
-without installing it.
+var skillListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List available embedded skills",
+	Long: `List all embedded Revyl skills that can be installed.
 
 EXAMPLES:
-  revyl skill show                      # Print to terminal
-  revyl skill show | pbcopy             # Copy to clipboard (macOS)
-  revyl skill show > SKILL.md           # Redirect to file`,
+  revyl skill list`,
+	Args: cobra.NoArgs,
+	RunE: runSkillList,
+}
+
+// skillShowCmd prints an embedded SKILL.md content to stdout.
+var skillShowCmd = &cobra.Command{
+	Use:   "show --name <skill-name>",
+	Short: "Print a skill content to stdout",
+	Long: `Print an embedded SKILL.md content to stdout.
+
+EXAMPLES:
+  revyl skill show --name revyl-cli
+  revyl skill show --name revyl-mcp-dev-loop
+  revyl skill show --name revyl-cli-create | pbcopy`,
 	Args: cobra.NoArgs,
 	RunE: runSkillShow,
 }
 
-// skillExportCmd writes the embedded SKILL.md to a file.
+// skillExportCmd writes an embedded SKILL.md to a file.
 var skillExportCmd = &cobra.Command{
-	Use:   "export",
-	Short: "Export the agent skill to a file",
-	Long: `Export the embedded SKILL.md to a file on disk.
-
-If no output path is specified, writes to ./SKILL.md in the
-current directory.
+	Use:   "export --name <skill-name>",
+	Short: "Export a skill to a file",
+	Long: `Export an embedded SKILL.md to a file on disk.
 
 EXAMPLES:
-  revyl skill export                          # Write to ./SKILL.md
-  revyl skill export -o skills/SKILL.md       # Write to custom path
-  revyl skill export -o /tmp/SKILL.md         # Write to absolute path`,
+  revyl skill export --name revyl-cli
+  revyl skill export --name revyl-mcp-analyze
+  revyl skill export --name revyl-mcp-dev-loop -o skills/SKILL.md
+  revyl skill export --name revyl-cli-dev-loop -o /tmp/SKILL.md`,
 	Args: cobra.NoArgs,
 	RunE: runSkillExport,
 }
 
 var (
+	skillShowName      string
+	skillExportName    string
 	skillExportOutput  string
+	skillInstallNames  []string
+	skillInstallCLI    bool
+	skillInstallMCP    bool
 	skillInstallCursor bool
 	skillInstallClaude bool
 	skillInstallCodex  bool
@@ -92,11 +117,11 @@ var (
 	skillInstallForce  bool
 )
 
-// skillInstallCmd installs the agent skill to the appropriate directory.
+// skillInstallCmd installs embedded skills to the appropriate directory.
 var skillInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Install the agent skill for your AI coding tool",
-	Long: `Install the Revyl agent skill to the appropriate directory
+	Short: "Install Revyl agent skills for your AI coding tool",
+	Long: `Install Revyl agent skills to the appropriate directories
 for your AI coding tool.
 
 Without flags, auto-detects which tools are present by checking
@@ -107,55 +132,67 @@ By default installs to the project-level directory (e.g. .cursor/skills/).
 Use --global to install to the user-level directory instead.
 
 EXAMPLES:
-  revyl skill install              # Auto-detect and install
+  revyl skill install              # Auto-detect tool; install CLI skill family
+  revyl skill install --cli        # Install CLI skill family
+  revyl skill install --mcp        # Install MCP skill family
+  revyl skill install --cli --mcp  # Install both families
+  revyl skill install --name revyl-mcp-dev-loop
+  revyl skill install --name revyl-cli-create --name revyl-cli-analyze
   revyl skill install --cursor     # Install for Cursor (project)
   revyl skill install --global     # Auto-detect, install globally
   revyl skill install --claude     # Install for Claude Code
   revyl skill install --codex      # Install for Codex
-  revyl skill install --force      # Overwrite existing installation`,
+  revyl skill install --force      # Overwrite existing installations
+  revyl skill revyl-mcp-dev-loop install --codex  # Install via shortcut`,
 	Args: cobra.NoArgs,
 	RunE: runSkillInstall,
 }
 
 func init() {
-	// Export flags
+	// show flags
+	skillShowCmd.Flags().StringVar(&skillShowName, "name", "", "Skill name to print (required)")
+
+	// export flags
+	skillExportCmd.Flags().StringVar(&skillExportName, "name", "", "Skill name to export (required)")
 	skillExportCmd.Flags().StringVarP(&skillExportOutput, "output", "o", "SKILL.md", "Output file path")
 
-	// Install flags
-	skillInstallCmd.Flags().BoolVar(&skillInstallCursor, "cursor", false, "Install for Cursor")
-	skillInstallCmd.Flags().BoolVar(&skillInstallClaude, "claude", false, "Install for Claude Code")
-	skillInstallCmd.Flags().BoolVar(&skillInstallCodex, "codex", false, "Install for Codex")
-	skillInstallCmd.Flags().BoolVar(&skillInstallGlobal, "global", false, "Install to user-level (global) directory instead of project-level")
-	skillInstallCmd.Flags().BoolVar(&skillInstallForce, "force", false, "Overwrite existing skill installation")
+	// install flags
+	addInstallTargetFlags(skillInstallCmd)
+	skillInstallCmd.Flags().StringSliceVar(&skillInstallNames, "name", nil, "Skill name(s) to install (repeatable)")
 
 	// Register subcommands
+	skillCmd.AddCommand(skillListCmd)
 	skillCmd.AddCommand(skillShowCmd)
 	skillCmd.AddCommand(skillExportCmd)
 	skillCmd.AddCommand(skillInstallCmd)
+	registerSkillShortcutCommands()
 }
 
-// runSkillShow prints the embedded SKILL.md to stdout.
-//
-// Parameters:
-//   - cmd: The cobra command being executed
-//   - args: Command arguments (unused, validated as empty by cobra)
-//
-// Returns:
-//   - error: Any error that occurred during output
-func runSkillShow(cmd *cobra.Command, args []string) error {
-	fmt.Print(skill.SkillContent)
+func runSkillList(cmd *cobra.Command, args []string) error {
+	fmt.Println("Available Revyl skills:")
+	for _, s := range skillcatalog.All() {
+		fmt.Printf("  %s - %s\n", s.Name, s.Description)
+	}
 	return nil
 }
 
-// runSkillExport writes the embedded SKILL.md to a file on disk.
-//
-// Parameters:
-//   - cmd: The cobra command being executed
-//   - args: Command arguments (unused, validated as empty by cobra)
-//
-// Returns:
-//   - error: If the file cannot be created or written
+// runSkillShow prints a selected embedded SKILL.md to stdout.
+func runSkillShow(cmd *cobra.Command, args []string) error {
+	selected, err := resolveNamedSkill(skillShowName)
+	if err != nil {
+		return err
+	}
+	fmt.Print(selected.Content)
+	return nil
+}
+
+// runSkillExport writes a selected embedded SKILL.md to a file on disk.
 func runSkillExport(cmd *cobra.Command, args []string) error {
+	selected, err := resolveNamedSkill(skillExportName)
+	if err != nil {
+		return err
+	}
+
 	outputPath := skillExportOutput
 
 	// Create parent directory if needed
@@ -166,29 +203,21 @@ func runSkillExport(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := os.WriteFile(outputPath, []byte(skill.SkillContent), 0644); err != nil {
+	if err := os.WriteFile(outputPath, []byte(selected.Content), 0644); err != nil {
 		return fmt.Errorf("failed to write skill file: %w", err)
 	}
 
-	ui.PrintSuccess("Exported skill to %s", outputPath)
+	ui.PrintSuccess("Exported %s to %s", selected.Name, outputPath)
 	return nil
 }
 
-// runSkillInstall installs the agent skill to the appropriate directory.
-//
-// When no tool flag is provided, auto-detects installed tools by checking
-// for their configuration directories. When --global is set, installs to
-// the user-level directory (~/.cursor/skills/) instead of project-level.
-//
-// Parameters:
-//   - cmd: The cobra command being executed
-//   - args: Command arguments (unused, validated as empty by cobra)
-//
-// Returns:
-//   - error: If installation fails
+// runSkillInstall installs all embedded skills to each resolved target.
 func runSkillInstall(cmd *cobra.Command, args []string) error {
-	targets := resolveInstallTargets()
+	return runSkillInstallSelected(cmd, args, skillInstallNames)
+}
 
+func runSkillInstallSelected(cmd *cobra.Command, args []string, selectedNames []string) error {
+	targets := resolveInstallTargets()
 	if len(targets) == 0 {
 		ui.PrintError("No supported AI tools detected.")
 		ui.Println()
@@ -199,51 +228,234 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no install target found")
 	}
 
+	allSkills, err := resolveInstallSkills(selectedNames)
+	if err != nil {
+		return err
+	}
+
 	var installed []string
-	var errors []string
+	var skipped []string
+	var installErrors []string
+	var pruned []string
+	var pruneErrors []string
 
 	for _, target := range targets {
-		if err := installSkillTo(target); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", target, err))
-		} else {
-			installed = append(installed, target)
+		for _, sk := range allSkills {
+			path, wrote, err := installSkillTo(target, sk)
+			if err != nil {
+				installErrors = append(installErrors, fmt.Sprintf("%s (%s): %v", target, sk.Name, err))
+				continue
+			}
+			if wrote {
+				installed = append(installed, path)
+			} else {
+				skipped = append(skipped, path)
+			}
 		}
+
+		removed, errs := pruneLegacySkillDirs(target, allSkills)
+		pruned = append(pruned, removed...)
+		pruneErrors = append(pruneErrors, errs...)
 	}
 
 	if len(installed) > 0 {
 		ui.Println()
-		ui.PrintSuccess("Installed Revyl agent skill to:")
+		ui.PrintSuccess("Installed Revyl skills:")
 		for _, path := range installed {
 			ui.PrintDim("  %s", path)
 		}
 	}
 
-	if len(errors) > 0 {
+	if len(skipped) > 0 {
+		ui.Println()
+		ui.PrintInfo("Already installed (use --force to overwrite):")
+		for _, path := range skipped {
+			ui.PrintDim("  %s", path)
+		}
+	}
+
+	if len(pruned) > 0 {
+		ui.Println()
+		ui.PrintInfo("Removed legacy Revyl skill folders:")
+		for _, path := range pruned {
+			ui.PrintDim("  %s", path)
+		}
+	}
+
+	if len(installErrors) > 0 {
 		ui.Println()
 		ui.PrintWarning("Some installations failed:")
-		for _, e := range errors {
+		for _, e := range installErrors {
 			ui.PrintDim("  %s", e)
 		}
 	}
 
-	if len(installed) > 0 {
+	if len(pruneErrors) > 0 {
 		ui.Println()
-		ui.PrintInfo("The skill will be automatically discovered by your AI agent.")
-		ui.PrintInfo("Restart your IDE if it was already running.")
+		ui.PrintWarning("Could not remove some legacy skill folders:")
+		for _, e := range pruneErrors {
+			ui.PrintDim("  %s", e)
+		}
 	}
 
-	if len(installed) == 0 {
+	if len(installed) == 0 && len(skipped) == 0 {
 		return fmt.Errorf("all installations failed")
 	}
 
+	ui.Println()
+	ui.PrintInfo("Skills are auto-discovered by your AI agent on startup.")
+	ui.PrintInfo("Restart your IDE if it was already running.")
 	return nil
 }
 
-// resolveInstallTargets determines which directories to install the skill to
+func resolveInstallSkills(selectedNames []string) ([]skillcatalog.Skill, error) {
+	if len(selectedNames) > 0 && (skillInstallCLI || skillInstallMCP) {
+		return nil, fmt.Errorf("--name cannot be combined with --cli or --mcp")
+	}
+
+	if len(selectedNames) == 0 {
+		installCLI := skillInstallCLI
+		installMCP := skillInstallMCP
+
+		// Default behavior: install CLI family when no selector is provided.
+		if !installCLI && !installMCP {
+			installCLI = true
+		}
+		return resolveInstallSkillsByFamily(installCLI, installMCP)
+	}
+
+	available := strings.Join(skillcatalog.Names(), ", ")
+	resolved := make([]skillcatalog.Skill, 0, len(selectedNames))
+	seen := make(map[string]struct{}, len(selectedNames))
+
+	for _, raw := range selectedNames {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		sk, ok := skillcatalog.Get(name)
+		if !ok {
+			return nil, fmt.Errorf("unknown skill %q. Available skills: %s", name, available)
+		}
+		resolved = append(resolved, sk)
+		seen[name] = struct{}{}
+	}
+
+	if len(resolved) == 0 {
+		return nil, fmt.Errorf("no valid skill names provided. Available skills: %s", available)
+	}
+	return resolved, nil
+}
+
+func resolveInstallSkillsByFamily(includeCLI bool, includeMCP bool) ([]skillcatalog.Skill, error) {
+	if !includeCLI && !includeMCP {
+		return nil, fmt.Errorf("no skill families selected")
+	}
+
+	all := skillcatalog.All()
+	filtered := make([]skillcatalog.Skill, 0, len(all))
+	for _, sk := range all {
+		if includeCLI && strings.HasPrefix(sk.Name, skillFamilyCLIPrefix) {
+			filtered = append(filtered, sk)
+			continue
+		}
+		if includeMCP && strings.HasPrefix(sk.Name, skillFamilyMCPPrefix) {
+			filtered = append(filtered, sk)
+		}
+	}
+
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("no skills matched the selected family filters")
+	}
+	return filtered, nil
+}
+
+func resolveNamedSkill(name string) (skillcatalog.Skill, error) {
+	name = strings.TrimSpace(name)
+	available := strings.Join(skillcatalog.Names(), ", ")
+	if name == "" {
+		return skillcatalog.Skill{}, fmt.Errorf("--name is required. Available skills: %s", available)
+	}
+
+	selected, ok := skillcatalog.Get(name)
+	if !ok {
+		return skillcatalog.Skill{}, fmt.Errorf("unknown skill %q. Available skills: %s", name, available)
+	}
+	return selected, nil
+}
+
+func addInstallTargetFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&skillInstallCLI, "cli", false, "Install CLI skill family")
+	cmd.Flags().BoolVar(&skillInstallMCP, "mcp", false, "Install MCP skill family")
+	cmd.Flags().BoolVar(&skillInstallCursor, "cursor", false, "Install for Cursor")
+	cmd.Flags().BoolVar(&skillInstallClaude, "claude", false, "Install for Claude Code")
+	cmd.Flags().BoolVar(&skillInstallCodex, "codex", false, "Install for Codex")
+	cmd.Flags().BoolVar(&skillInstallGlobal, "global", false, "Install to user-level (global) directory instead of project-level")
+	cmd.Flags().BoolVar(&skillInstallForce, "force", false, "Overwrite existing skill installations")
+}
+
+func registerSkillShortcutCommands() {
+	for _, sk := range skillcatalog.All() {
+		selected := sk
+		skillNameCmd := &cobra.Command{
+			Use:   selected.Name,
+			Short: fmt.Sprintf("Operations for %s", selected.Name),
+		}
+
+		installOneCmd := &cobra.Command{
+			Use:   "install",
+			Short: fmt.Sprintf("Install only %s", selected.Name),
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return runSkillInstallSelected(cmd, args, []string{selected.Name})
+			},
+		}
+		addInstallTargetFlags(installOneCmd)
+
+		skillNameCmd.AddCommand(installOneCmd)
+		skillCmd.AddCommand(skillNameCmd)
+	}
+}
+
+func pruneLegacySkillDirs(baseDir string, selected []skillcatalog.Skill) ([]string, []string) {
+	selectedNames := make(map[string]struct{}, len(selected))
+	for _, sk := range selected {
+		selectedNames[sk.Name] = struct{}{}
+	}
+
+	var removed []string
+	var errs []string
+
+	for _, legacyName := range legacySkillNames {
+		if _, keep := selectedNames[legacyName]; keep {
+			continue
+		}
+
+		legacyDir := filepath.Join(baseDir, legacyName)
+		legacySkillPath := filepath.Join(legacyDir, skillcatalog.SkillFileName)
+		if _, err := os.Stat(legacySkillPath); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			errs = append(errs, fmt.Sprintf("%s: %v", legacySkillPath, err))
+			continue
+		}
+
+		if err := os.RemoveAll(legacyDir); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", legacyDir, err))
+			continue
+		}
+		removed = append(removed, legacyDir)
+	}
+
+	return removed, errs
+}
+
+// resolveInstallTargets determines which directories to install the skills to
 // based on the provided flags and auto-detection.
-//
-// Returns:
-//   - []string: List of resolved directory paths to install to
 func resolveInstallTargets() []string {
 	// If explicit tool flags are set, use those
 	explicitTools := make([]string, 0)
@@ -282,12 +494,6 @@ func resolveInstallTargets() []string {
 
 // resolveDirectories maps tool names to their target install directories,
 // respecting the --global flag.
-//
-// Parameters:
-//   - tools: List of tool names (cursor, claude, codex)
-//
-// Returns:
-//   - []string: Resolved directory paths
 func resolveDirectories(tools []string) []string {
 	paths := make([]string, 0, len(tools))
 
@@ -311,46 +517,32 @@ func resolveDirectories(tools []string) []string {
 	return paths
 }
 
-// installSkillTo writes the SKILL.md file to the given base skill directory.
-// Creates the full path: <baseDir>/revyl-device/SKILL.md
-//
-// Parameters:
-//   - baseDir: The skill directory root (e.g. .cursor/skills)
-//
-// Returns:
-//   - error: If the directory cannot be created or file cannot be written
-func installSkillTo(baseDir string) error {
-	skillDir := filepath.Join(baseDir, skill.SkillName)
-	skillPath := filepath.Join(skillDir, skill.SkillFileName)
+// installSkillTo writes the selected SKILL.md file to the given base skill directory.
+// Creates: <baseDir>/<skill-name>/SKILL.md
+func installSkillTo(baseDir string, selected skillcatalog.Skill) (string, bool, error) {
+	skillDir := filepath.Join(baseDir, selected.Name)
+	skillPath := filepath.Join(skillDir, skillcatalog.SkillFileName)
 
-	// Check if already installed
 	if !skillInstallForce {
 		if _, err := os.Stat(skillPath); err == nil {
-			ui.PrintDim("  Already installed at %s (use --force to overwrite)", skillPath)
-			return nil
+			return skillPath, false, nil
+		} else if !os.IsNotExist(err) {
+			return skillPath, false, fmt.Errorf("failed to check existing skill file: %w", err)
 		}
 	}
 
-	// Create directory structure
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", skillDir, err)
+		return skillPath, false, fmt.Errorf("failed to create directory %s: %w", skillDir, err)
 	}
 
-	// Write the SKILL.md
-	if err := os.WriteFile(skillPath, []byte(skill.SkillContent), 0644); err != nil {
-		return fmt.Errorf("failed to write %s: %w", skillPath, err)
+	if err := os.WriteFile(skillPath, []byte(selected.Content), 0644); err != nil {
+		return skillPath, false, fmt.Errorf("failed to write %s: %w", skillPath, err)
 	}
 
-	return nil
+	return skillPath, true, nil
 }
 
 // expandHome replaces a leading ~ with the user's home directory.
-//
-// Parameters:
-//   - path: File path that may start with ~
-//
-// Returns:
-//   - string: Path with ~ expanded to the actual home directory
 func expandHome(path string) string {
 	if !strings.HasPrefix(path, "~") {
 		return path

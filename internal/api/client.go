@@ -1704,6 +1704,12 @@ type StartDeviceRequest struct {
 	// AppPackage is the bundle ID / package name of the app.
 	AppPackage string `json:"app_package,omitempty"`
 
+	// AppURL is a downloadable app artifact URL (.apk/.ipa/.zip).
+	AppURL string `json:"app_url,omitempty"`
+
+	// AppLink is a deep link URL to launch after app start (used by hot reload flows).
+	AppLink string `json:"app_link,omitempty"`
+
 	// IsSimulation enables simulation mode (streaming without test execution).
 	IsSimulation bool `json:"is_simulation,omitempty"`
 

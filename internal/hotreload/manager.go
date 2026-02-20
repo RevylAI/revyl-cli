@@ -57,6 +57,12 @@ type Manager struct {
 	// onLog is called with log messages for the UI.
 	onLog func(message string)
 
+	// onDevServerOutput is called for streamed dev server process output.
+	onDevServerOutput DevServerOutputCallback
+
+	// debugMode enables provider-specific debug startup behavior.
+	debugMode bool
+
 	// mu protects concurrent access.
 	mu sync.Mutex
 
@@ -88,6 +94,19 @@ func NewManager(providerName string, providerConfig *config.ProviderConfig, work
 //   - callback: Function to call with log messages
 func (m *Manager) SetLogCallback(callback func(message string)) {
 	m.onLog = callback
+}
+
+// SetDevServerOutputCallback sets a callback for dev-server process output lines.
+//
+// Parameters:
+//   - callback: Function to call with stdout/stderr output lines
+func (m *Manager) SetDevServerOutputCallback(callback DevServerOutputCallback) {
+	m.onDevServerOutput = callback
+}
+
+// SetDebugMode configures provider-specific debug startup behavior.
+func (m *Manager) SetDebugMode(enabled bool) {
+	m.debugMode = enabled
 }
 
 // log sends a message to the log callback if set.
@@ -156,6 +175,8 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	m.attachDevServerOutputCallback(devServer)
+	m.attachDevServerDebugMode(devServer)
 
 	// 4. Start Cloudflare tunnel FIRST to get the URL
 	// This must happen before starting the dev server so we can set EXPO_PACKAGER_PROXY_URL
@@ -260,6 +281,27 @@ func (m *Manager) GetDevServerPort() int {
 		return m.devServer.GetPort()
 	}
 	return 0
+}
+
+// attachDevServerOutputCallback wires process output callbacks when supported.
+func (m *Manager) attachDevServerOutputCallback(devServer DevServer) {
+	if m.onDevServerOutput == nil {
+		return
+	}
+	emitter, ok := devServer.(DevServerOutputEmitter)
+	if !ok {
+		return
+	}
+	emitter.SetOutputCallback(m.onDevServerOutput)
+}
+
+// attachDevServerDebugMode wires debug-mode startup behavior when supported.
+func (m *Manager) attachDevServerDebugMode(devServer DevServer) {
+	debugConfigurable, ok := devServer.(DevServerDebugConfigurable)
+	if !ok {
+		return
+	}
+	debugConfigurable.SetDebugMode(m.debugMode)
 }
 
 // createDevServer creates the appropriate dev server based on the provider.

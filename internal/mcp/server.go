@@ -6,6 +6,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,6 +48,11 @@ type Server struct {
 	hotReloadMu      sync.Mutex
 	hotReloadTestID  string                 // Test ID the session was started for
 	hotReloadResult  *hotreload.StartResult // Cached URLs
+
+	// Dev-loop MCP session state
+	devLoopActive             bool
+	devLoopSessionIndex       int
+	devLoopManualStepRequired bool
 }
 
 // NewServer creates a new Revyl MCP server.
@@ -193,7 +199,19 @@ Avoid abstract UI jargon. Describe what is VISIBLE on screen.
 
 ## Efficient Interaction Pattern
 
-The correct pattern is: screenshot -> device_tap(target="...") -> screenshot -> repeat.
+Default interaction loop:
+1. screenshot()
+2. Briefly describe what is visible
+3. Take one best action
+4. screenshot() to verify the result
+5. Repeat
+
+next_steps in tool outputs are advisory recovery hints, not ground truth.
+Never execute UI actions based only on next_steps; always re-anchor on a fresh screenshot first.
+
+Short two-action bursts are acceptable for deterministic steps (for example filling two form fields),
+but always re-anchor with screenshot() immediately after the burst before continuing.
+
 device_tap (and all action tools) already do AI grounding internally when you provide a target.
 There is no need to locate elements separately before acting on them.
 
@@ -248,6 +266,7 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) registerTools() {
 	// --- Device interaction tools ---
 	s.registerDeviceTools()
+	s.registerDevLoopTools()
 
 	// run_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -1802,7 +1821,8 @@ type CreateAppOutput struct {
 
 // handleCreateApp handles the create_app tool call.
 func (s *Server) handleCreateApp(ctx context.Context, req *mcp.CallToolRequest, input CreateAppInput) (*mcp.CallToolResult, CreateAppOutput, error) {
-	if input.Name == "" {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
 		return nil, CreateAppOutput{Success: false, Error: "name is required"}, nil
 	}
 
@@ -1812,10 +1832,26 @@ func (s *Server) handleCreateApp(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	resp, err := s.apiClient.CreateApp(ctx, &api.CreateAppRequest{
-		Name:     input.Name,
+		Name:     name,
 		Platform: platform,
 	})
 	if err != nil {
+		if isAppAlreadyExistsError(err) {
+			existing, findErr := findAppByName(ctx, s.apiClient, platform, name)
+			if findErr != nil {
+				return nil, CreateAppOutput{
+					Success: false,
+					Error:   fmt.Sprintf("app already exists but lookup failed: %v", findErr),
+				}, nil
+			}
+			if existing != nil && existing.ID != "" {
+				return nil, CreateAppOutput{
+					Success: true,
+					AppID:   existing.ID,
+					AppName: existing.Name,
+				}, nil
+			}
+		}
 		return nil, CreateAppOutput{Success: false, Error: fmt.Sprintf("failed to create app: %v", err)}, nil
 	}
 
@@ -1824,6 +1860,86 @@ func (s *Server) handleCreateApp(ctx context.Context, req *mcp.CallToolRequest, 
 		AppID:   resp.ID,
 		AppName: resp.Name,
 	}, nil
+}
+
+func findAppByName(ctx context.Context, client *api.Client, platform, name string) (*api.App, error) {
+	target := canonicalizeAppName(name)
+	if target == "" {
+		return nil, nil
+	}
+
+	page := 1
+	for {
+		appsResp, err := client.ListApps(ctx, platform, page, 100)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, app := range appsResp.Items {
+			if canonicalizeAppName(app.Name) == target {
+				matched := app
+				return &matched, nil
+			}
+		}
+
+		if !appsResp.HasNext {
+			break
+		}
+		page++
+	}
+	return nil, nil
+}
+
+func canonicalizeAppName(name string) string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return ""
+	}
+
+	normalized := strings.NewReplacer("_", " ", "-", " ", ".", " ").Replace(lower)
+	var b strings.Builder
+	lastWasSpace := false
+	for _, r := range normalized {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+			lastWasSpace = false
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastWasSpace = false
+		case r == ' ':
+			if b.Len() > 0 && !lastWasSpace {
+				b.WriteRune(' ')
+				lastWasSpace = true
+			}
+		default:
+			if b.Len() > 0 && !lastWasSpace {
+				b.WriteRune(' ')
+				lastWasSpace = true
+			}
+		}
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+func isAppAlreadyExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var apiErr *api.APIError
+	if errors.As(err, &apiErr) {
+		errText := strings.ToLower(apiErr.Error())
+		if apiErr.StatusCode == 409 {
+			return true
+		}
+		if apiErr.StatusCode == 500 && strings.Contains(errText, "already exists") {
+			return true
+		}
+	}
+
+	return strings.Contains(strings.ToLower(err.Error()), "already exists")
 }
 
 // DeleteAppInput defines input for delete_app tool.

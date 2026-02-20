@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -121,9 +122,25 @@ var deviceStartCmd = &cobra.Command{
 		platform, _ := cmd.Flags().GetString("platform")
 		timeout, _ := cmd.Flags().GetInt("timeout")
 		openBrowser, _ := cmd.Flags().GetBool("open")
+		appID, _ := cmd.Flags().GetString("app-id")
+		buildVersionID, _ := cmd.Flags().GetString("build-version-id")
+		appURL, _ := cmd.Flags().GetString("app-url")
+		appLink, _ := cmd.Flags().GetString("app-link")
 		jsonOutput, _ := cmd.Flags().GetBool("json")
+		if !cmd.Flags().Changed("timeout") {
+			cwd, cwdErr := os.Getwd()
+			if cwdErr == nil {
+				cfg, cfgErr := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+				if cfgErr == nil {
+					timeout = config.EffectiveTimeoutSeconds(cfg, timeout)
+				}
+			}
+		}
 		if platform == "" {
 			return fmt.Errorf("--platform is required (ios or android)")
+		}
+		if appURL != "" && buildVersionID != "" {
+			return fmt.Errorf("provide either --app-url or --build-version-id, not both")
 		}
 
 		// Create a cancellable context so Ctrl+C during provisioning triggers
@@ -166,7 +183,14 @@ var deviceStartCmd = &cobra.Command{
 			}()
 		}
 
-		_, session, err := mgr.StartSession(ctx, platform, "", "", "", "", time.Duration(timeout)*time.Second)
+		_, session, err := mgr.StartSession(ctx, mcppkg.StartSessionOptions{
+			Platform:       platform,
+			AppID:          appID,
+			BuildVersionID: buildVersionID,
+			AppURL:         appURL,
+			AppLink:        appLink,
+			IdleTimeout:    time.Duration(timeout) * time.Second,
+		})
 		close(done)
 		if err != nil {
 			return err
@@ -491,28 +515,6 @@ var deviceLaunchCmd = &cobra.Command{
 	},
 }
 
-var deviceFindCmd = &cobra.Command{
-	Use:   "find [target]",
-	Short: "Find an element by description (returns coordinates)",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr, err := getDeviceSessionMgr(cmd)
-		if err != nil {
-			return err
-		}
-		session, err := resolveSessionFlag(cmd, mgr)
-		if err != nil {
-			return err
-		}
-		resolved, err := mgr.ResolveTargetForSession(cmd.Context(), session.Index, args[0])
-		if err != nil {
-			return err
-		}
-		jsonOrPrint(cmd, resolved, fmt.Sprintf("Found: x=%d, y=%d", resolved.X, resolved.Y))
-		return nil
-	},
-}
-
 var deviceInfoCmd = &cobra.Command{
 	Use:   "info",
 	Short: "Show session info (-s <index> for specific session)",
@@ -666,6 +668,10 @@ func init() {
 	deviceStartCmd.Flags().String("platform", "", "Platform: ios or android (required)")
 	deviceStartCmd.Flags().Int("timeout", 300, "Idle timeout in seconds")
 	deviceStartCmd.Flags().Bool("open", false, "Open viewer in browser after device is ready")
+	deviceStartCmd.Flags().String("app-id", "", "App ID to resolve latest build from")
+	deviceStartCmd.Flags().String("build-version-id", "", "Build version ID to install")
+	deviceStartCmd.Flags().String("app-url", "", "Direct app artifact URL (.apk/.ipa/.zip)")
+	deviceStartCmd.Flags().String("app-link", "", "Deep link to launch after app start")
 	deviceStartCmd.Flags().Bool("json", false, "Output as JSON")
 
 	// Stop
@@ -737,10 +743,6 @@ func init() {
 	deviceLaunchCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceLaunchCmd)
 
-	// Find
-	deviceFindCmd.Flags().Bool("json", false, "Output as JSON")
-	sessionFlag(deviceFindCmd)
-
 	// Info
 	deviceInfoCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceInfoCmd)
@@ -763,7 +765,6 @@ func init() {
 	deviceCmd.AddCommand(deviceDragCmd)
 	deviceCmd.AddCommand(deviceInstallCmd)
 	deviceCmd.AddCommand(deviceLaunchCmd)
-	deviceCmd.AddCommand(deviceFindCmd)
 	deviceCmd.AddCommand(deviceInfoCmd)
 	deviceCmd.AddCommand(deviceDoctorCmd)
 	deviceCmd.AddCommand(deviceListCmd)

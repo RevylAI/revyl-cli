@@ -54,6 +54,24 @@ const minRetries = 1
 // maxRetries is the maximum allowed retry count.
 const maxRetries = 5
 
+// resolveRunOpen determines whether reports should auto-open.
+// Explicit --open takes precedence over config defaults.
+func resolveRunOpen(cmd *cobra.Command, cfg *config.ProjectConfig, flagValue bool) bool {
+	if cmd != nil && cmd.Flags().Changed("open") {
+		return flagValue
+	}
+	return config.EffectiveOpenBrowser(cfg)
+}
+
+// resolveRunTimeout determines the effective timeout in seconds.
+// Explicit --timeout takes precedence over config defaults.
+func resolveRunTimeout(cmd *cobra.Command, cfg *config.ProjectConfig, flagValue int) int {
+	if cmd != nil && cmd.Flags().Changed("timeout") {
+		return flagValue
+	}
+	return config.EffectiveTimeoutSeconds(cfg, flagValue)
+}
+
 // runTestExec executes a test using the shared execution package.
 //
 // Parameters:
@@ -75,6 +93,12 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
 		runOutputJSON = true
 	}
+	// Load project config for alias resolution
+	cwd, _ := os.Getwd()
+	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	effectiveOpen := resolveRunOpen(cmd, cfg, runOpen)
+	effectiveTimeout := resolveRunTimeout(cmd, cfg, runTimeout)
+
 	// Check if hot reload mode is enabled
 	if runHotReload {
 		return runTestWithHotReload(cmd, args)
@@ -87,10 +111,6 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-
-	// Load project config for alias resolution
-	cwd, _ := os.Getwd()
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
 
 	// Resolve test ID from alias for display
 	testID := testNameOrID
@@ -285,7 +305,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		TestNameOrID:   testNameOrID,
 		Retries:        runRetries,
 		BuildVersionID: runBuildID,
-		Timeout:        runTimeout,
+		Timeout:        effectiveTimeout,
 		DevMode:        devMode,
 		Latitude:       lat,
 		Longitude:      lng,
@@ -333,7 +353,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		ui.PrintSuccess("Test queued successfully")
 		ui.PrintInfo("Task ID: %s", result.TaskID)
 		ui.PrintLink("Report", result.ReportURL)
-		if runOpen {
+		if effectiveOpen {
 			ui.OpenBrowser(result.ReportURL)
 		}
 		return nil
@@ -386,7 +406,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if runOpen {
+	if effectiveOpen {
 		ui.PrintInfo("Opening report in browser...")
 		ui.OpenBrowser(result.ReportURL)
 	}
@@ -459,6 +479,8 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	// Load project config for alias resolution
 	cwd, _ := os.Getwd()
 	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	effectiveOpen := resolveRunOpen(cmd, cfg, runOpen)
+	effectiveTimeout := resolveRunTimeout(cmd, cfg, runTimeout)
 
 	// Resolve workflow ID from alias for display
 	workflowID := workflowNameOrID
@@ -676,7 +698,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	result, err := execution.RunWorkflow(ctx, apiKey, cfg, execution.RunWorkflowParams{
 		WorkflowNameOrID: workflowNameOrID,
 		Retries:          runRetries,
-		Timeout:          runTimeout,
+		Timeout:          effectiveTimeout,
 		DevMode:          devMode,
 		IOSAppID:         runWorkflowIOSAppID,
 		AndroidAppID:     runWorkflowAndroidAppID,
@@ -726,7 +748,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		ui.PrintSuccess("Workflow queued successfully")
 		ui.PrintInfo("Task ID: %s", result.TaskID)
 		ui.PrintLink("Report", result.ReportURL)
-		if runOpen {
+		if effectiveOpen {
 			ui.OpenBrowser(result.ReportURL)
 		}
 		return nil
@@ -764,7 +786,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if runOpen {
+	if effectiveOpen {
 		ui.PrintInfo("Opening report in browser...")
 		ui.OpenBrowser(result.ReportURL)
 	}
@@ -850,6 +872,8 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Run 'revyl init' to initialize your project.")
 		return fmt.Errorf("project not initialized")
 	}
+	effectiveOpen := resolveRunOpen(cmd, cfg, runOpen)
+	effectiveTimeout := resolveRunTimeout(cmd, cfg, runTimeout)
 
 	// Check hot reload configuration
 	if !cfg.HotReload.IsConfigured() {
@@ -865,8 +889,10 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		ui.PrintDim("    default: expo")
 		ui.PrintDim("    providers:")
 		ui.PrintDim("      expo:")
-		ui.PrintDim("        dev_client_build_id: \"<your-dev-client-build-id>\"")
 		ui.PrintDim("        app_scheme: \"your-app-scheme\"")
+		ui.PrintDim("        platform_keys:")
+		ui.PrintDim("          ios: \"ios-dev\"")
+		ui.PrintDim("          android: \"android-dev\"")
 		ui.PrintDim("        # use_exp_prefix: true  # Set to true if deep links fail with base scheme")
 		ui.Println()
 		return fmt.Errorf("hot reload not configured")
@@ -896,14 +922,27 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		ui.PrintError("%s hot reload is not yet supported.", provider.DisplayName())
 		return fmt.Errorf("%s not supported", provider.Name())
 	}
+	if provider.Name() != "expo" {
+		ui.PrintError("Hot reload currently supports Expo projects only.")
+		return fmt.Errorf("hot reload provider '%s' is not supported yet (expo only)", provider.Name())
+	}
 
 	// Override port if specified via flag
 	if runHotReloadPort != 8081 {
 		providerCfg.Port = runHotReloadPort
 	}
 
-	// Resolve build version ID from flags or config
-	// Priority: --build-id > --platform > providerCfg.DevClientBuildID
+	// Resolve build platform/device platform. Explicit --build-id can run without a platform mapping.
+	platformKey := ""
+	resolvedDevicePlatform := "ios"
+	if runBuildID == "" || strings.TrimSpace(runTestPlatform) != "" {
+		platformKey, resolvedDevicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, runTestPlatform, "ios")
+		if err != nil {
+			ui.PrintError("Failed to resolve hot reload platform: %v", err)
+			return err
+		}
+	}
+
 	buildVersionID := ""
 	buildSource := ""
 
@@ -911,71 +950,55 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		// 1. Explicit --build-id flag
 		buildVersionID = runBuildID
 		buildSource = "explicit"
-	} else if runTestPlatform != "" {
-		// 2. --platform flag: lookup from build.platforms and get latest version
-		platformCfg, ok := cfg.Build.Platforms[runTestPlatform]
-		if !ok {
-			ui.PrintError("Platform '%s' not found in config.", runTestPlatform)
-			ui.Println()
-			ui.PrintInfo("Available platforms:")
-			for name := range cfg.Build.Platforms {
-				ui.PrintDim("  - %s", name)
+	} else {
+		if platformKey == "" {
+			platformKey, resolvedDevicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, runTestPlatform, "ios")
+			if err != nil {
+				ui.PrintError("Failed to resolve hot reload platform: %v", err)
+				return err
 			}
-			return fmt.Errorf("platform not found: %s", runTestPlatform)
-		}
-		if platformCfg.AppID == "" {
-			ui.PrintError("Platform '%s' has no app_id configured.", runTestPlatform)
-			ui.Println()
-			ui.PrintInfo("Add app_id to your config:")
-			ui.PrintDim("  build:")
-			ui.PrintDim("    platforms:")
-			ui.PrintDim("      %s:", runTestPlatform)
-			ui.PrintDim("        app_id: \"<your-app-id>\"")
-			return fmt.Errorf("platform missing app_id: %s", runTestPlatform)
 		}
 
-		// Create API client to get latest version
+		platformCfg, ok := cfg.Build.Platforms[platformKey]
+		if !ok {
+			return fmt.Errorf("platform key not found: %s", platformKey)
+		}
+		if platformCfg.AppID == "" {
+			ui.PrintError("build.platforms.%s has no app_id configured.", platformKey)
+			ui.Println()
+			ui.PrintInfo("Run one of:")
+			ui.PrintDim("  revyl init")
+			ui.PrintDim("  revyl build upload --platform %s", platformKey)
+			return fmt.Errorf("platform missing app_id: %s", platformKey)
+		}
+
 		client := api.NewClientWithDevMode(apiKey, devMode)
-		latestVersion, err := client.GetLatestBuildVersion(cmd.Context(), platformCfg.AppID)
-		if err != nil {
-			ui.PrintError("Failed to get latest build version for platform '%s': %v", runTestPlatform, err)
-			if diagnosis := diagnoseHotReloadNetworkError(err); diagnosis != "" {
+		latestVersion, latestErr := client.GetLatestBuildVersion(cmd.Context(), platformCfg.AppID)
+		if latestErr != nil {
+			ui.PrintError("Failed to get latest build version for platform '%s': %v", platformKey, latestErr)
+			if diagnosis := diagnoseHotReloadNetworkError(latestErr); diagnosis != "" {
 				ui.Println()
 				ui.PrintDim("%s", diagnosis)
 				ui.Println()
 				ui.PrintInfo("Run 'revyl doctor' to verify API connectivity from this environment.")
 			}
-			return err
+			return latestErr
 		}
-		if latestVersion == nil {
-			ui.PrintError("No build versions found for platform '%s'.", runTestPlatform)
-			ui.Println()
-			ui.PrintInfo("Upload a build first:")
-			ui.PrintDim("  revyl build upload <file> --name %s", runTestPlatform)
-			return fmt.Errorf("no builds for platform: %s", runTestPlatform)
+		if latestVersion != nil {
+			buildVersionID = latestVersion.ID
+			buildSource = fmt.Sprintf("platform:%s", platformKey)
 		}
-		buildVersionID = latestVersion.ID
-		buildSource = fmt.Sprintf("platform:%s", runTestPlatform)
-	} else if providerCfg.DevClientBuildID != "" {
-		// 3. Fall back to config
-		buildVersionID = providerCfg.DevClientBuildID
-		buildSource = "config"
-	} else {
-		// 4. No build ID available
-		ui.PrintError("No build specified for hot reload.")
-		ui.Println()
-		ui.PrintInfo("Specify a build using one of these options:")
-		ui.PrintDim("  --platform <name>    Use latest from build.platforms.<name>")
-		ui.PrintDim("  --build-id <id>      Use explicit build version ID")
-		ui.Println()
-		ui.PrintInfo("Or configure dev_client_build_id in .revyl/config.yaml")
-		return fmt.Errorf("no build specified")
 	}
 
-	// Update providerCfg with resolved build ID
-	providerCfg.DevClientBuildID = buildVersionID
+	if buildVersionID == "" {
+		ui.PrintError("No build versions found for platform '%s'.", platformKey)
+		ui.Println()
+		ui.PrintInfo("Upload a build first:")
+		ui.PrintDim("  revyl build upload --platform %s", platformKey)
+		return fmt.Errorf("no builds for platform: %s", platformKey)
+	}
 
-	// Validate provider config (now that we have build ID)
+	// Validate provider config.
 	if err := cfg.HotReload.ValidateProvider(provider.Name()); err != nil {
 		ui.PrintError("Invalid hot reload configuration: %v", err)
 		return err
@@ -1000,7 +1023,11 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	} else {
 		ui.PrintInfo("Provider: %s (auto-detected)", provider.DisplayName())
 	}
-	ui.PrintInfo("Dev client: %s (%s)", providerCfg.DevClientBuildID, buildSource)
+	ui.PrintInfo("Device platform: %s", resolvedDevicePlatform)
+	if platformKey != "" {
+		ui.PrintInfo("Build platform key: %s", platformKey)
+	}
+	ui.PrintInfo("Dev client build: %s (%s)", buildVersionID, buildSource)
 	ui.Println()
 
 	// Create hot reload manager
@@ -1056,8 +1083,8 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	testResult, err := execution.RunTest(ctx, apiKey, cfg, execution.RunTestParams{
 		TestNameOrID:   testNameOrID,
 		Retries:        runRetries,
-		BuildVersionID: providerCfg.DevClientBuildID,
-		Timeout:        runTimeout,
+		BuildVersionID: buildVersionID,
+		Timeout:        effectiveTimeout,
 		DevMode:        devMode,
 		LaunchURL:      result.DeepLinkURL,
 		OnProgress: func(status *sse.TestStatus) {
@@ -1123,7 +1150,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if runOpen {
+	if effectiveOpen {
 		ui.PrintInfo("Opening report in browser...")
 		ui.OpenBrowser(testResult.ReportURL)
 	}

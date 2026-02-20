@@ -124,22 +124,55 @@ func (e *EASBuildError) Error() string {
 //   - *EASBuildError: An EAS error with guidance, or nil if not an EAS error
 func parseEASError(stderr string) *EASBuildError {
 	// Check for common EAS errors
-	if strings.Contains(stderr, "eas build") && strings.Contains(stderr, "not found") {
-		return &EASBuildError{
-			Message: "EAS CLI not found",
-			Guidance: `Install the EAS CLI globally:
-  npm install -g eas-cli
+	lower := strings.ToLower(stderr)
 
-Then authenticate:
-  eas login`,
+	if strings.Contains(lower, "npx: command not found") {
+		return &EASBuildError{
+			Message: "npx not found",
+			Guidance: `Install Node.js (includes npm/npx):
+  https://nodejs.org/
+
+Then verify:
+  npx --version`,
 		}
 	}
 
-	if strings.Contains(stderr, "Not logged in") || strings.Contains(stderr, "eas login") {
+	if strings.Contains(lower, "could not determine executable to run") &&
+		strings.Contains(lower, "npm exec") &&
+		strings.Contains(lower, " eas ") {
+		return &EASBuildError{
+			Message: "invalid npx eas invocation",
+			Guidance: `Use eas-cli explicitly with npx:
+  npx --yes eas-cli --version
+  npx --yes eas-cli login
+
+Then run builds with:
+  npx --yes eas-cli build ...`,
+		}
+	}
+
+	if strings.Contains(lower, "eas") && strings.Contains(lower, "not found") {
+		return &EASBuildError{
+			Message: "EAS CLI not found",
+			Guidance: `Run EAS via npx (recommended):
+  npx --yes eas-cli --version
+
+If needed, install globally:
+  npm install -g eas-cli
+
+Then authenticate:
+  npx --yes eas-cli login`,
+		}
+	}
+
+	if strings.Contains(lower, "an expo user account is required to proceed") ||
+		(strings.Contains(lower, "log in to eas") && strings.Contains(lower, "stdin is not readable")) ||
+		strings.Contains(lower, "not logged in") ||
+		strings.Contains(lower, "eas login") {
 		return &EASBuildError{
 			Message: "Not logged in to EAS",
 			Guidance: `Authenticate with EAS:
-  eas login
+  npx --yes eas-cli login
 
 Then try the build again.`,
 		}
@@ -150,7 +183,7 @@ Then try the build again.`,
 			Message: "No Expo account configured",
 			Guidance: `Create an Expo account at https://expo.dev/signup
 Then authenticate:
-  eas login`,
+  npx --yes eas-cli login`,
 		}
 	}
 
@@ -167,7 +200,7 @@ If this is a new project, run:
 		return &EASBuildError{
 			Message: "eas.json not found",
 			Guidance: `Initialize EAS in your project:
-  eas build:configure
+  npx --yes eas-cli build:configure
 
 This will create eas.json with build profiles.`,
 		}

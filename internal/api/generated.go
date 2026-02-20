@@ -3749,6 +3749,11 @@ type ModuleSingleResponse struct {
 	Result ModuleResponse `json:"result"`
 }
 
+// ModuleUsageCountsResponse Response model for batch module usage counts
+type ModuleUsageCountsResponse struct {
+	Counts map[string]int `json:"counts"`
+}
+
 // ModuleUsageResponse Response model for module usage lookup
 type ModuleUsageResponse struct {
 	Tests []ModuleUsageTestItem `json:"tests"`
@@ -3914,6 +3919,15 @@ type NormalizedWhileBlock_Children_Item struct {
 type NotificationRuleWorkflow struct {
 	Id   openapi_types.UUID `json:"id"`
 	Name string             `json:"name"`
+}
+
+// OnboardingStatusResponse defines model for OnboardingStatusResponse.
+type OnboardingStatusResponse struct {
+	ProvisionError       *string                 `json:"provision_error"`
+	ProvisionStatus      string                  `json:"provision_status"`
+	ProvisionedResources *map[string]interface{} `json:"provisioned_resources"`
+	TourCompleted        bool                    `json:"tour_completed"`
+	TourSkipped          bool                    `json:"tour_skipped"`
 }
 
 // OrgTestMonitorItem Single test item for org-wide monitoring.
@@ -4126,6 +4140,13 @@ type PropelMetadataResponse struct {
 	ExpoProjects     *[]ExpoProjectConfig `json:"expo_projects"`
 	ExpoToken        *string              `json:"expo_token"`
 	ProxyEnabled     *bool                `json:"proxy_enabled"`
+}
+
+// ProvisionResponse defines model for ProvisionResponse.
+type ProvisionResponse struct {
+	Message              string                  `json:"message"`
+	ProvisionedResources *map[string]interface{} `json:"provisioned_resources"`
+	Status               string                  `json:"status"`
 }
 
 // PullRequest defines model for PullRequest.
@@ -4500,10 +4521,12 @@ type ReportV3Response struct {
 	ExecutionId         *string                   `json:"execution_id"`
 	ExpectedStates      *[]map[string]interface{} `json:"expected_states"`
 	FailedSteps         *int                      `json:"failed_steps,omitempty"`
+	HardwareMetricsUrl  *string                   `json:"hardware_metrics_url"`
 	Id                  string                    `json:"id"`
 	OrgId               string                    `json:"org_id"`
 	OsVersion           *string                   `json:"os_version"`
 	PassedSteps         *int                      `json:"passed_steps,omitempty"`
+	PerfettoTraceUrl    *string                   `json:"perfetto_trace_url"`
 	Platform            *string                   `json:"platform"`
 	RunConfig           *map[string]interface{}   `json:"run_config"`
 	S3Bucket            *string                   `json:"s3_bucket"`
@@ -6186,6 +6209,11 @@ type ToolCallFunction struct {
 	Name string `json:"name"`
 }
 
+// TourResponse defines model for TourResponse.
+type TourResponse struct {
+	Success bool `json:"success"`
+}
+
 // TrainingImageUploadRequest defines model for TrainingImageUploadRequest.
 type TrainingImageUploadRequest struct {
 	ActionType     *string `json:"action_type"`
@@ -6354,6 +6382,8 @@ type UpdateReportResponse struct {
 //
 // Attributes:
 //
+//	org_id: Organization ID to assign this sandbox to. Set to empty string
+//	    to clear (move to shared pool). Admin only.
 //	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
 //	status: Sandbox status (available, claimed, maintenance, reserved).
 //	ssh_user: SSH username for connections.
@@ -6361,6 +6391,9 @@ type UpdateReportResponse struct {
 //	specs: Hardware specifications.
 //	tags: Flexible labels for filtering.
 type UpdateSandboxRequest struct {
+	// OrgId Organization ID to assign this sandbox to. Set to empty string to clear (move to shared pool). Admin only.
+	OrgId *string `json:"org_id"`
+
 	// Specs Hardware specs
 	Specs *map[string]interface{} `json:"specs"`
 
@@ -7130,6 +7163,12 @@ type WorkflowExecutionsUpdate_WorkflowId struct {
 	union json.RawMessage
 }
 
+// WorkflowForTestItem defines model for WorkflowForTestItem.
+type WorkflowForTestItem struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // WorkflowInfoInput Request model for triggering workflow execution.
 //
 // Attributes:
@@ -7369,6 +7408,12 @@ type WorkflowsBaseSchema struct {
 	ScheduleTimezone *string              `json:"schedule_timezone"`
 	Tests            []string             `json:"tests"`
 	UpdatedAt        *time.Time           `json:"updated_at"`
+}
+
+// WorkflowsForTestResponse defines model for WorkflowsForTestResponse.
+type WorkflowsForTestResponse struct {
+	Total     int                   `json:"total"`
+	Workflows []WorkflowForTestItem `json:"workflows"`
 }
 
 // YamlCreationRequest Request model for creating tests from YAML

@@ -115,6 +115,7 @@ func init() {
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(workflowCmd)
+	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(moduleCmd)
 	rootCmd.AddCommand(tagCmd)
@@ -139,6 +140,7 @@ func init() {
 
 	// Device interaction commands
 	rootCmd.AddCommand(deviceCmd)
+	rootCmd.AddCommand(devCmd)
 
 	// Agent skill management
 	rootCmd.AddCommand(skillCmd)

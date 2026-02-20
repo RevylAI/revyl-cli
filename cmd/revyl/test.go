@@ -56,7 +56,7 @@ Use the test NAME or UUID, not a file path.
 EXAMPLES:
   revyl test run login-flow          # Run (no build)
   revyl test run login-flow --build  # Build then run
-  revyl test run login-flow --hotreload --platform ios-dev`,
+  revyl test run login-flow --hotreload --platform ios`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestExec,
 }
@@ -144,7 +144,7 @@ func init() {
 	testRunCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	testRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
 	testRunCmd.Flags().BoolVar(&runTestBuild, "build", false, "Build and upload before running test")
-	testRunCmd.Flags().StringVar(&runTestPlatform, "platform", "", "Platform to use (requires --build, or used with --hotreload)")
+	testRunCmd.Flags().StringVar(&runTestPlatform, "platform", "", "Build platform key, or ios/android when used with --hotreload")
 	testRunCmd.Flags().StringVar(&runLocation, "location", "", "Initial GPS location as lat,lng (e.g. 37.7749,-122.4194)")
 	testRunCmd.Flags().BoolVar(&runHotReload, "hotreload", false, "Enable hot reload mode with local dev server")
 	testRunCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for dev server (used with --hotreload)")
