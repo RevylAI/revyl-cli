@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -33,6 +34,10 @@ func freeTCPPort(t *testing.T) int {
 }
 
 func TestExpoStart_ContextCancelled_NoDeadlock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix-only fake npx shell script test; skipped on windows")
+	}
+
 	fakeBinDir := writeFakeNpx(t, 5)
 	oldPath := os.Getenv("PATH")
 	t.Setenv("PATH", fakeBinDir+":"+oldPath)
