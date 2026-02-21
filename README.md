@@ -33,14 +33,26 @@ pip install revyl                       # pip
 ```bash
 cd your-app
 revyl init                              # Guided wizard: auth, build system, apps
-revyl build upload --platform android   # Upload your first build
-revyl test create login-flow --platform android
-revyl test run login-flow               # Run it
-revyl workflow create smoke-tests --tests login-flow,checkout
-revyl workflow run smoke-tests          # Run the workflow
+revyl dev                               # Launch TUI: live device + hot reload
 ```
 
-> `revyl test run` supports `--build` to build and upload automatically, so steps 2-3 are only needed the first time.
+From the dev TUI you can interact with a cloud device in real time, then convert what works into tests:
+
+```bash
+revyl dev test create login-flow        # Create a test from the live session
+revyl dev test run login-flow           # Run it against the hot-reload build
+revyl dev test open login-flow          # Open in the browser editor
+```
+
+When you're ready to run outside the dev loop:
+
+```bash
+revyl test run login-flow --build       # Build, upload, and run in one step
+revyl workflow create smoke-tests --tests login-flow,checkout
+revyl workflow run smoke-tests          # Run the full workflow
+```
+
+> `revyl dev` starts your local dev server, tunnels it to a cloud device, and installs the latest build automatically. Use `--platform android` or `--platform ios` to pick a platform (defaults to iOS).
 
 ## MCP Server
 
