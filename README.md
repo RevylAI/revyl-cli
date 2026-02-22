@@ -28,6 +28,49 @@ npm install -g @revyl/cli               # npm
 pip install revyl                       # pip
 ```
 
+## Common Install Errors
+
+If `brew upgrade revyl` fails with:
+
+```text
+Error: Your Xcode ... is too outdated.
+Error: Your Command Line Tools are too outdated.
+```
+
+Run:
+
+```bash
+softwareupdate --all --install --force
+sudo xcode-select -s /Library/Developer/CommandLineTools
+brew upgrade revyl
+```
+
+If `softwareupdate` does not install Command Line Tools, reinstall them:
+
+```bash
+sudo rm -rf /Library/Developer/CommandLineTools
+sudo xcode-select --install
+```
+
+If you use full Xcode builds, install the latest Xcode version from the App Store and then run:
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
+If Homebrew reports directory ownership errors such as:
+
+```text
+The following directories are not writable by your user: /opt/homebrew ...
+```
+
+repair permissions:
+
+```bash
+sudo chown -R "$(whoami)" /opt/homebrew /Users/"$(whoami)"/Library/Caches/Homebrew /Users/"$(whoami)"/Library/Logs/Homebrew
+chmod -R u+w /opt/homebrew /Users/"$(whoami)"/Library/Caches/Homebrew /Users/"$(whoami)"/Library/Logs/Homebrew
+```
+
 ## Quick Start
 
 ```bash
@@ -60,7 +103,7 @@ Connect Revyl to your AI coding tools -- your agent gets cloud devices, test exe
 
 | Tool | Setup |
 |------|-------|
-| **Cursor** | [![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.png)](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19) |
+| **Cursor** | **[Add to Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19)** [![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.png)](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19) |
 | **VS Code** | [![Install in VS Code](https://img.shields.io/badge/VS_Code-Revyl-0098FF?style=flat&logo=visualstudiocode&logoColor=ffffff)](vscode:mcp/install?%7B%22name%22%3A%22revyl%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22revyl%22%2C%22args%22%3A%5B%22mcp%22%2C%22serve%22%5D%7D) |
 | **Claude Code** | `claude mcp add revyl -- revyl mcp serve` |
 | **Codex** | `codex mcp add revyl -- revyl mcp serve` |

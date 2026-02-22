@@ -2,6 +2,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -52,6 +54,18 @@ func TestGlobalFlagsExist(t *testing.T) {
 	}
 }
 
+// TestRootVersionFlagExists verifies the built-in --version flag is enabled.
+func TestRootVersionFlagExists(t *testing.T) {
+	if rootCmd.Version == "" {
+		t.Fatal("expected root command version to be set")
+	}
+
+	rootCmd.InitDefaultVersionFlag()
+	if rootCmd.Flags().Lookup("version") == nil {
+		t.Fatal("expected --version flag to exist on root command")
+	}
+}
+
 // TestRootCommandHasUse verifies the root command has the correct Use field.
 func TestRootCommandHasUse(t *testing.T) {
 	if rootCmd.Use != "revyl" {
@@ -67,5 +81,32 @@ func TestSubcommandsHaveShortDescription(t *testing.T) {
 		if cmd.Short == "" {
 			t.Errorf("command %q is missing Short description", cmd.Name())
 		}
+	}
+}
+
+func TestResolveCLIVersionFromCandidates_UsesInjectedVersion(t *testing.T) {
+	got := resolveCLIVersionFromCandidates("1.2.3", []string{"/tmp/does-not-exist"})
+	if got != "1.2.3" {
+		t.Fatalf("resolveCLIVersionFromCandidates() = %q, want %q", got, "1.2.3")
+	}
+}
+
+func TestResolveCLIVersionFromCandidates_UsesVersionFileFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	versionPath := filepath.Join(tmpDir, "VERSION")
+	if err := os.WriteFile(versionPath, []byte("0.1.5\n"), 0o644); err != nil {
+		t.Fatalf("write VERSION file: %v", err)
+	}
+
+	got := resolveCLIVersionFromCandidates("dev", []string{versionPath})
+	if got != "0.1.5" {
+		t.Fatalf("resolveCLIVersionFromCandidates() = %q, want %q", got, "0.1.5")
+	}
+}
+
+func TestResolveCLIVersionFromCandidates_FallsBackToDevWhenUnknown(t *testing.T) {
+	got := resolveCLIVersionFromCandidates("", []string{"/tmp/does-not-exist"})
+	if got != "dev" {
+		t.Fatalf("resolveCLIVersionFromCandidates() = %q, want %q", got, "dev")
 	}
 }

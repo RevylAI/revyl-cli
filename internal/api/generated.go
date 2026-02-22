@@ -976,18 +976,6 @@ type AssignSeatsResponse struct {
 // AsyncStatus defines model for AsyncStatus.
 type AsyncStatus string
 
-// AttachRequest defines model for AttachRequest.
-type AttachRequest struct {
-	ProductId   *string `json:"product_id,omitempty"`
-	RedirectUrl string  `json:"redirect_url"`
-}
-
-// AttachResponse defines model for AttachResponse.
-type AttachResponse struct {
-	CheckoutUrl *string `json:"checkout_url"`
-	Message     string  `json:"message"`
-}
-
 // AuthInfo Class that represents authentication information.
 // Can be returned from the require_auth dependency.
 type AuthInfo struct {
@@ -1501,18 +1489,6 @@ type CancelTestResponse struct {
 type CategoryValue struct {
 	Category string  `json:"category"`
 	Value    float32 `json:"value"`
-}
-
-// ChartDataPoint defines model for ChartDataPoint.
-type ChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
 }
 
 // CheckModuleExistsResponse Response model for checking if a module exists
@@ -3793,10 +3769,10 @@ type ModulesListResponse struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []ChartDataPoint `json:"data"`
-	MetricType   string           `json:"metric_type"`
-	Repositories []string         `json:"repositories"`
-	RetrievedAt  string           `json:"retrieved_at"`
+	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
+	MetricType   string                                           `json:"metric_type"`
+	Repositories []string                                         `json:"repositories"`
+	RetrievedAt  string                                           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -6565,9 +6541,11 @@ type UserTestsResponse struct {
 
 // ValidationError defines model for ValidationError.
 type ValidationError struct {
-	Loc  []ValidationError_Loc_Item `json:"loc"`
-	Msg  string                     `json:"msg"`
-	Type string                     `json:"type"`
+	Ctx   *map[string]interface{}    `json:"ctx,omitempty"`
+	Input interface{}                `json:"input,omitempty"`
+	Loc   []ValidationError_Loc_Item `json:"loc"`
+	Msg   string                     `json:"msg"`
+	Type  string                     `json:"type"`
 }
 
 // ValidationErrorLoc0 defines model for .
@@ -7436,6 +7414,30 @@ type YamlToBlocksRequest struct {
 
 	// YamlContent YAML content to convert
 	YamlContent string `json:"yaml_content"`
+}
+
+// AppRoutesExecutionRoutesBillingXptAttachRequest defines model for app__routes__execution_routes__billing_xpt__AttachRequest.
+type AppRoutesExecutionRoutesBillingXptAttachRequest struct {
+	ProductId   *string `json:"product_id,omitempty"`
+	RedirectUrl string  `json:"redirect_url"`
+}
+
+// AppRoutesExecutionRoutesBillingXptAttachResponse defines model for app__routes__execution_routes__billing_xpt__AttachResponse.
+type AppRoutesExecutionRoutesBillingXptAttachResponse struct {
+	CheckoutUrl *string `json:"checkout_url"`
+	Message     string  `json:"message"`
+}
+
+// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
+type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments"`
+	MedianHours *float32 `json:"median_hours"`
+	P25Hours    *float32 `json:"p25_hours"`
+	P75Hours    *float32 `json:"p75_hours"`
+	TeamAverage *float32 `json:"team_average"`
+	Trend       *string  `json:"trend"`
+	Value       *float32 `json:"value"`
 }
 
 // AppRoutesRebelRoutesBillingXptAttachRequest defines model for app__routes__rebel_routes__billing_xpt__AttachRequest.
@@ -8366,7 +8368,7 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONReques
 type StartExplorationApiV1ExecutionApiV1StartExplorationPostJSONRequestBody = StartExplorationRequest
 
 // BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody defines body for BillingAttachApiV1ExecutionBillingAttachPost for application/json ContentType.
-type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AttachRequest
+type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AppRoutesExecutionRoutesBillingXptAttachRequest
 
 // FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody defines body for FinalizeSessionApiV1ExecutionBillingFinalizeSessionPost for application/json ContentType.
 type FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody = FinalizeSessionRequest

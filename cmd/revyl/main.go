@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -101,6 +102,16 @@ func Execute() {
 }
 
 func init() {
+	// Prefer linker-injected version metadata, but fall back to local VERSION
+	// file hints for source/dev builds.
+	version = resolveCLIVersion(version)
+
+	// Enable --version / -v on the root command (cobra built-in).
+	// Set here rather than in the struct literal so the ldflags-injected
+	// value of `version` is guaranteed to be resolved.
+	rootCmd.Version = version
+	rootCmd.SetVersionTemplate("revyl version {{.Version}}\n")
+
 	// Global flags
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug logging")
 	rootCmd.PersistentFlags().Bool("dev", false, "Use local development servers (reads PORT from .env files)")
@@ -144,6 +155,69 @@ func init() {
 
 	// Agent skill management
 	rootCmd.AddCommand(skillCmd)
+}
+
+func resolveCLIVersion(current string) string {
+	return resolveCLIVersionFromCandidates(current, versionFileCandidates())
+}
+
+func resolveCLIVersionFromCandidates(current string, candidates []string) string {
+	normalized := strings.TrimSpace(current)
+	if normalized != "" && normalized != "dev" {
+		return normalized
+	}
+
+	for _, candidate := range candidates {
+		b, err := os.ReadFile(candidate)
+		if err != nil {
+			continue
+		}
+
+		fileVersion := strings.TrimSpace(string(b))
+		if fileVersion != "" {
+			return fileVersion
+		}
+	}
+
+	if normalized == "" {
+		return "dev"
+	}
+	return normalized
+}
+
+func versionFileCandidates() []string {
+	candidates := []string{
+		"VERSION",
+		filepath.Join("..", "..", "VERSION"),
+		filepath.Join("revyl-cli", "VERSION"),
+	}
+
+	if len(os.Args) > 0 && strings.TrimSpace(os.Args[0]) != "" {
+		candidates = append(candidates, filepath.Join(filepath.Dir(os.Args[0]), "VERSION"))
+	}
+
+	if execPath, err := os.Executable(); err == nil && strings.TrimSpace(execPath) != "" {
+		execDir := filepath.Dir(execPath)
+		candidates = append(candidates,
+			filepath.Join(execDir, "VERSION"),
+			filepath.Join(execDir, "..", "VERSION"),
+		)
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	unique := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		cleaned := filepath.Clean(strings.TrimSpace(candidate))
+		if cleaned == "" {
+			continue
+		}
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		unique = append(unique, cleaned)
+	}
+	return unique
 }
 
 // completionCmd generates shell completion scripts.

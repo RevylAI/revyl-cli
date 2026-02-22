@@ -302,6 +302,7 @@ revyl completion powershell | Out-String | Invoke-Expression
 revyl doctor     # Check CLI health, connectivity, auth, sync status
 revyl ping       # Test API connectivity and latency
 revyl upgrade    # Check for and install CLI updates
+revyl --version  # Show CLI version (short format)
 revyl version    # Show version, commit, and build date (--json for CI)
 revyl docs       # Open Revyl documentation in browser
 revyl schema     # Display CLI command schema (for integrations)
@@ -320,5 +321,6 @@ These flags are available on all commands:
 --debug       # Enable debug logging
 --dev         # Use local development servers
 --json        # Output as JSON (where supported)
+--version     # Show CLI version and exit
 --quiet / -q  # Suppress non-essential output
 ```

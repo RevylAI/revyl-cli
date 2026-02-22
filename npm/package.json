@@ -21,8 +21,17 @@
   "bin": {
     "revyl": "bin/revyl.js"
   },
+  "files": [
+    "bin",
+    "scripts",
+    "package.json"
+  ],
   "scripts": {
     "postinstall": "node scripts/install.js"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "engines": {
     "node": ">=16"
