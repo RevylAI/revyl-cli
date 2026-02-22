@@ -2,7 +2,9 @@
 package build
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -176,7 +178,7 @@ func hasXcodeProject(dir string) bool {
 
 	// Check ios subdirectory
 	iosDir := filepath.Join(dir, "ios")
-	if dirExists(iosDir) {
+	if DirExists(iosDir) {
 		entries, err := os.ReadDir(iosDir)
 		if err == nil {
 			for _, entry := range entries {
@@ -392,11 +394,93 @@ func fileExists(path string) bool {
 	return !info.IsDir()
 }
 
-// dirExists checks if a directory exists.
-func dirExists(path string) bool {
+// DirExists checks if a directory exists.
+func DirExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
 	}
 	return info.IsDir()
+}
+
+// ListXcodeSchemes discovers available Xcode schemes by running `xcodebuild -list`
+// in the given directory.
+//
+// Parameters:
+//   - dir: The directory to run xcodebuild -list in
+//
+// Returns:
+//   - []string: List of scheme names
+//   - error: Any error that occurred during discovery
+func ListXcodeSchemes(dir string) ([]string, error) {
+	cmd := exec.Command("xcodebuild", "-list")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("xcodebuild -list failed: %w", err)
+	}
+	schemes := parseXcodebuildListOutput(string(out))
+	return schemes, nil
+}
+
+// parseXcodebuildListOutput parses the "Schemes:" section from xcodebuild -list output.
+//
+// Example xcodebuild -list output:
+//
+//	Information about project "MyApp":
+//	    Targets:
+//	        MyApp
+//	    Build Configurations:
+//	        Debug
+//	        Release
+//	    Schemes:
+//	        MyApp
+//	        MyAppTests
+func parseXcodebuildListOutput(output string) []string {
+	var schemes []string
+	inSchemes := false
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			if inSchemes {
+				break // Empty line after schemes section ends it
+			}
+			continue
+		}
+		if trimmed == "Schemes:" {
+			inSchemes = true
+			continue
+		}
+		if inSchemes {
+			// A new section header (e.g. "Targets:") ends the schemes block
+			if strings.HasSuffix(trimmed, ":") {
+				break
+			}
+			schemes = append(schemes, trimmed)
+		}
+	}
+	return schemes
+}
+
+// ApplySchemeToCommand replaces `-scheme *` in a build command with `-scheme <name>`.
+// If scheme is empty or the command doesn't contain `-scheme *`, the command is returned unchanged.
+//
+// Parameters:
+//   - command: The build command string
+//   - scheme: The scheme name to substitute
+//
+// Returns:
+//   - string: The modified command
+func ApplySchemeToCommand(command, scheme string) string {
+	if scheme == "" {
+		return command
+	}
+	if !strings.Contains(command, "-scheme *") {
+		return command
+	}
+	// Shell-escape the scheme name to prevent injection via crafted names.
+	// Single-quote the value and escape any embedded single quotes.
+	escaped := strings.ReplaceAll(scheme, "'", "'\\''")
+	escapedScheme := fmt.Sprintf("'%s'", escaped)
+	return strings.Replace(command, "-scheme *", "-scheme "+escapedScheme, 1)
 }

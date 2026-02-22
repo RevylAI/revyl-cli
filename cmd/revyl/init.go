@@ -344,6 +344,18 @@ func wizardProjectSetup(cwd, revylDir, configPath string) (*config.ProjectConfig
 		}
 	}
 
+	// For Xcode/React Native iOS platforms with -scheme *, prompt user to pick a scheme
+	for platformKey, platformCfg := range cfg.Build.Platforms {
+		if strings.Contains(platformCfg.Command, "-scheme *") {
+			scheme := promptXcodeScheme(cwd, platformKey)
+			if scheme != "" {
+				platformCfg.Scheme = scheme
+				platformCfg.Command = build.ApplySchemeToCommand(platformCfg.Command, scheme)
+				cfg.Build.Platforms[platformKey] = platformCfg
+			}
+		}
+	}
+
 	// For Expo, default to explicit dev/ci streams to avoid cross-contaminating
 	// hot reload dev clients with CI/release uploads.
 	configureExpoBuildStreams(cfg)
@@ -655,6 +667,45 @@ func createAppInteractive(ctx context.Context, client *api.Client, defaultName, 
 
 	ui.PrintSuccess("Created app %s (id: %s)", result.Name, result.ID)
 	return result.ID
+}
+
+// promptXcodeScheme attempts to discover Xcode schemes and lets the user pick one.
+// Returns the selected scheme name, or empty string if none was selected.
+func promptXcodeScheme(cwd, platformKey string) string {
+	// Try discovering schemes in cwd first, then ios/ subdirectory (React Native layout)
+	var schemes []string
+	var err error
+
+	schemes, err = build.ListXcodeSchemes(cwd)
+	if err != nil || len(schemes) == 0 {
+		iosDir := filepath.Join(cwd, "ios")
+		if build.DirExists(iosDir) {
+			schemes, _ = build.ListXcodeSchemes(iosDir)
+		}
+	}
+
+	if len(schemes) == 0 {
+		// Discovery failed — fall back to manual input
+		ui.PrintWarning("Could not auto-detect Xcode schemes for %s", platformKey)
+		name, err := ui.Prompt("Enter scheme name (or press Enter to skip):")
+		if err != nil || strings.TrimSpace(name) == "" {
+			return ""
+		}
+		return strings.TrimSpace(name)
+	}
+
+	if len(schemes) == 1 {
+		ui.PrintSuccess("Auto-selected Xcode scheme: %s", schemes[0])
+		return schemes[0]
+	}
+
+	// Multiple schemes — let user pick
+	ui.PrintInfo("Multiple Xcode schemes found for %s:", platformKey)
+	idx, err := ui.PromptSelect("Select scheme:", schemes)
+	if err != nil {
+		return ""
+	}
+	return schemes[idx]
 }
 
 func isExpoBuildSystem(system string) bool {

@@ -320,6 +320,10 @@ type BuildPlatform struct {
 
 	// AppID is the Revyl app ID that stores builds for this platform.
 	AppID string `yaml:"app_id,omitempty"`
+
+	// Scheme is the Xcode scheme to use for iOS builds.
+	// When set, replaces -scheme * in the build command with the specified scheme.
+	Scheme string `yaml:"scheme,omitempty"`
 }
 
 // Defaults contains default settings.

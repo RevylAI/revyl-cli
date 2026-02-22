@@ -101,6 +101,7 @@ var (
 	buildListJSON      bool
 	buildUploadJSON    bool
 	buildDryRun        bool
+	uploadSchemeFlag   string
 )
 
 func init() {
@@ -120,6 +121,7 @@ func init() {
 	buildUploadCmd.Flags().BoolVarP(&uploadYesFlag, "yes", "y", false, "Automatically confirm prompts (e.g., save to config)")
 	buildUploadCmd.Flags().BoolVar(&buildUploadJSON, "json", false, "Output results as JSON")
 	buildUploadCmd.Flags().BoolVar(&buildDryRun, "dry-run", false, "Show what would be uploaded without uploading")
+	buildUploadCmd.Flags().StringVar(&uploadSchemeFlag, "scheme", "", "Xcode scheme to use for iOS builds (overrides config)")
 
 	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App ID to list builds for")
 	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org apps")
@@ -584,6 +586,15 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 		outputMu.Unlock()
 	}
 
+	// Apply Xcode scheme: --scheme flag > config scheme > leave as-is
+	scheme := uploadSchemeFlag
+	if scheme == "" {
+		scheme = platformCfg.Scheme
+	}
+	if scheme != "" {
+		buildCommand = build.ApplySchemeToCommand(buildCommand, scheme)
+	}
+
 	// Build
 	if !buildSkip {
 		outputMu.Lock()
@@ -849,6 +860,15 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		ui.PrintDim("Updated build.platforms.%s.command to use npx eas", platform)
 	}
 
+	// Apply Xcode scheme: --scheme flag > config scheme > leave as-is
+	scheme := uploadSchemeFlag
+	if scheme == "" {
+		scheme = platformCfg.Scheme
+	}
+	if scheme != "" {
+		buildCommand = build.ApplySchemeToCommand(buildCommand, scheme)
+	}
+
 	ui.PrintBanner(version)
 	ui.PrintInfo("Build and Upload (%s)", platform)
 	ui.Println()
@@ -859,6 +879,9 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		ui.Println()
 		ui.PrintInfo("  Platform:       %s", platform)
 		ui.PrintInfo("  Build Command:  %s", buildCommand)
+		if scheme != "" && strings.Contains(platformCfg.Command, "-scheme") {
+			ui.PrintInfo("  Scheme:         %s", scheme)
+		}
 		ui.PrintInfo("  Output:         %s", platformCfg.Output)
 		if platformCfg.AppID != "" {
 			ui.PrintInfo("  App ID:         %s", platformCfg.AppID)
