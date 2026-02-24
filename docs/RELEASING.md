@@ -18,7 +18,7 @@ git add -A && git commit -m "chore: bump revyl-cli to $(cat VERSION)"
 git push origin HEAD   # open a PR, get it reviewed, merge to main
 ```
 
-Once merged to `main`, the CI pipeline automatically: syncs to the public repo, builds cross-platform binaries, creates a GitHub Release, publishes to npm + PyPI, and updates the Homebrew formula. No manual steps required after the merge.
+Once merged to `main`, the CI pipeline automatically: syncs to the public repo, builds cross-platform binaries, creates a GitHub Release, publishes to PyPI, and updates the Homebrew formula. No manual steps required after the merge.
 
 ## Version Bumping
 
@@ -49,7 +49,7 @@ Pushes to `staging` sync the code to the standalone repo but **skip** the releas
 1. **Sync** -- copies `revyl-cli/` to the standalone [RevylAI/revyl-cli](https://github.com/RevylAI/revyl-cli) repo and creates a git tag (e.g. `v0.1.2`) only when that tag does not already exist
 2. **Build** -- cross-compiles Go binaries for 5 targets (macOS amd64/arm64, Linux amd64/arm64, Windows amd64) with version/commit/date baked in via `-ldflags`
 3. **Release** -- creates a GitHub Release with all binaries, checksums, and `SKILL.md`
-4. **Publish** -- pushes to npm (`@revyl/cli`), PyPI (`revyl`), and Homebrew (`RevylAI/tap/revyl`) in parallel
+4. **Publish** -- pushes to PyPI (`revyl`) and Homebrew (`RevylAI/tap/revyl`) in parallel
 
 ## Manual Release
 
@@ -76,5 +76,5 @@ Versions containing `-` (e.g. `0.2.0-beta.1`) are automatically marked as pre-re
 | Problem | Cause | Fix |
 |---------|-------|-----|
 | Release is skipped with "Tag already exists" notice | Version wasn't bumped | If you intended a new release, run `make bump-patch` and push again |
-| Release created but npm/PyPI failed | Token or network issue | Re-run the failed job from GitHub Actions UI |
+| Release created but PyPI failed | Token or network issue | Re-run the failed job from GitHub Actions UI |
 | Homebrew formula not updated | `homebrew-tap` repo permissions | Check `ANSIBLE_MAC_MANAGER_SYNC_TOKEN` secret is valid |

@@ -78,10 +78,10 @@ If something fails, triage in this order:
 
 ### 1. Install the Revyl CLI
 
-**npm (recommended)**:
+**Homebrew (recommended on macOS)**:
 
 ```bash
-npm install -g @revyl/cli
+brew install RevylAI/tap/revyl
 ```
 
 **pip**:

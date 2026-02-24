@@ -12,7 +12,6 @@
   <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.5-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
-  <a href="https://www.npmjs.com/package/@revyl/cli"><img src="https://img.shields.io/npm/v/@revyl/cli" alt="npm" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
 </p>
 
@@ -24,51 +23,8 @@ Proactive Reliability
 
 ```bash
 brew install RevylAI/tap/revyl          # Homebrew (recommended)
-npm install -g @revyl/cli               # npm
+uv tool install revyl                   # uv
 pip install revyl                       # pip
-```
-
-## Common Install Errors
-
-If `brew upgrade revyl` fails with:
-
-```text
-Error: Your Xcode ... is too outdated.
-Error: Your Command Line Tools are too outdated.
-```
-
-Run:
-
-```bash
-softwareupdate --all --install --force
-sudo xcode-select -s /Library/Developer/CommandLineTools
-brew upgrade revyl
-```
-
-If `softwareupdate` does not install Command Line Tools, reinstall them:
-
-```bash
-sudo rm -rf /Library/Developer/CommandLineTools
-sudo xcode-select --install
-```
-
-If you use full Xcode builds, install the latest Xcode version from the App Store and then run:
-
-```bash
-sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-```
-
-If Homebrew reports directory ownership errors such as:
-
-```text
-The following directories are not writable by your user: /opt/homebrew ...
-```
-
-repair permissions:
-
-```bash
-sudo chown -R "$(whoami)" /opt/homebrew /Users/"$(whoami)"/Library/Caches/Homebrew /Users/"$(whoami)"/Library/Logs/Homebrew
-chmod -R u+w /opt/homebrew /Users/"$(whoami)"/Library/Caches/Homebrew /Users/"$(whoami)"/Library/Logs/Homebrew
 ```
 
 ## Quick Start
@@ -153,6 +109,49 @@ revyl skill install --name revyl-cli-create --name revyl-cli-analyze --codex
 - **[Development](docs/DEVELOPMENT.md)** -- internal dev workflow, hot reload, `--dev` mode
 - **[Releasing](docs/RELEASING.md)** -- version bumping, release pipeline
 - **[Public Docs](https://docs.revyl.ai)** -- full documentation site
+
+## Common Install Errors
+
+If `brew upgrade revyl` fails with:
+
+```text
+Error: Your Xcode ... is too outdated.
+Error: Your Command Line Tools are too outdated.
+```
+
+Run:
+
+```bash
+softwareupdate --all --install --force
+sudo xcode-select -s /Library/Developer/CommandLineTools
+brew upgrade revyl
+```
+
+If `softwareupdate` does not install Command Line Tools, reinstall them:
+
+```bash
+sudo rm -rf /Library/Developer/CommandLineTools
+sudo xcode-select --install
+```
+
+If you use full Xcode builds, install the latest Xcode version from the App Store and then run:
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
+If Homebrew reports directory ownership errors such as:
+
+```text
+The following directories are not writable by your user: /opt/homebrew ...
+```
+
+repair permissions:
+
+```bash
+sudo chown -R "$(whoami)" /opt/homebrew /Users/"$(whoami)"/Library/Caches/Homebrew /Users/"$(whoami)"/Library/Logs/Homebrew
+chmod -R u+w /opt/homebrew /Users/"$(whoami)"/Library/Caches/Homebrew /Users/"$(whoami)"/Library/Logs/Homebrew
+```
 
 ## License
 
