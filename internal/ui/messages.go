@@ -482,6 +482,12 @@ func PrintBasicWorkflowStatus(statusStr string, completedTests, totalTests int) 
 		statusLine += fmt.Sprintf(" [%d/%d tests]", completedTests, totalTests)
 	}
 
+	// In CI/non-TTY logs, emit line-by-line updates so progress is visible.
+	if !isTTY {
+		fmt.Println(statusLine)
+		return
+	}
+
 	// Print without newline so it updates in place
 	fmt.Print(statusLine)
 }
