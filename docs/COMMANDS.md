@@ -13,7 +13,7 @@ revyl auth status    # Show authentication status
 ## Project Setup (Onboarding Wizard)
 
 ```bash
-revyl init                    # Interactive 7-step guided wizard
+revyl init                    # Interactive 6-step guided wizard
 revyl init -y                 # Non-interactive: create config and exit
 revyl init --hotreload        # Reconfigure hot reload for an existing project
 revyl init --project ID       # Link to existing Revyl project
@@ -29,7 +29,6 @@ Running `revyl init` without flags launches an interactive wizard that walks you
 4. **Hot Reload Setup** -- detects/configures Expo hot reload provider settings in `.revyl/config.yaml` and maps `platform_keys` to dev streams by default
 5. **First Build** -- for Expo, defaults to one fast dev-stream upload (`ios-dev` on macOS, `android-dev` elsewhere), with easy options for Android-only or parallel both; failures can be retried or deferred without restarting
 6. **Create First Test** -- creates a test; if the name already exists, offers to link, rename, or skip; auto-syncs YAML to `.revyl/tests/`
-7. **Create Workflow** -- optionally groups tests into a workflow for batch execution
 
 Use `-y` to skip the interactive steps and just generate the config file.
 

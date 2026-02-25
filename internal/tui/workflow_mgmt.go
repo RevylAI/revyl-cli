@@ -703,8 +703,7 @@ func renderWorkflowDetail(m hubModel) string {
 			descStyle = normalStyle
 		}
 		num := lipgloss.NewStyle().Foreground(purple).Bold(true).Render(fmt.Sprintf("[%d]", i+1))
-		key := lipgloss.NewStyle().Foreground(purple).Bold(true).Render("[" + a.Key + "]")
-		b.WriteString(fmt.Sprintf("  %s%s %s %s\n", cursor, num, key, descStyle.Render(a.Desc)))
+		b.WriteString(fmt.Sprintf("  %s%s %s\n", cursor, num, descStyle.Render(a.Desc)))
 	}
 
 	b.WriteString("\n  " + separator(innerW) + "\n")

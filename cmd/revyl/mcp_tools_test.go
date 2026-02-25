@@ -508,6 +508,7 @@ func TestUpdateTestEndpointMethod(t *testing.T) {
 	client := api.NewClientWithBaseURL("test-key", server.URL)
 	_, _ = client.UpdateTest(context.Background(), &api.UpdateTestRequest{
 		TestID: "test-001",
+		Name:   "renamed-test",
 		Tasks:  []interface{}{map[string]string{"type": "instructions"}},
 		AppID:  "app-001",
 	})
@@ -522,8 +523,42 @@ func TestUpdateTestEndpointMethod(t *testing.T) {
 	if receivedBody["tasks"] == nil {
 		t.Error("expected 'tasks' in request body")
 	}
+	if receivedBody["name"] != "renamed-test" {
+		t.Errorf("expected name 'renamed-test', got %v", receivedBody["name"])
+	}
 	if receivedBody["app_id"] != "app-001" {
 		t.Errorf("expected app_id 'app-001', got %v", receivedBody["app_id"])
+	}
+}
+
+func TestUpdateWorkflowNameEndpointMethod(t *testing.T) {
+	var receivedMethod string
+	var receivedPath string
+	var receivedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedMethod = r.Method
+		receivedPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &receivedBody)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"message":"ok"}`)
+	}))
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	err := client.UpdateWorkflowName(context.Background(), "wf-001", "renamed-workflow")
+	if err != nil {
+		t.Fatalf("UpdateWorkflowName: %v", err)
+	}
+
+	if receivedMethod != "PUT" {
+		t.Errorf("expected PUT method for UpdateWorkflowName, got %q", receivedMethod)
+	}
+	if receivedPath != "/api/v1/workflows/update_name/wf-001" {
+		t.Errorf("expected path '/api/v1/workflows/update_name/wf-001', got %q", receivedPath)
+	}
+	if receivedBody["name"] != "renamed-workflow" {
+		t.Errorf("expected name 'renamed-workflow', got %v", receivedBody["name"])
 	}
 }
 

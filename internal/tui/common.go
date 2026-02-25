@@ -409,6 +409,15 @@ type TestDeletedMsg struct {
 	Err           error
 }
 
+// TestRenamedMsg signals that a test rename operation has completed.
+type TestRenamedMsg struct {
+	OldName string
+	NewName string
+	ID      string
+	Summary string
+	Err     error
+}
+
 // --- Env var types ---
 
 // EnvVarItem represents a single environment variable for display.
@@ -561,6 +570,7 @@ type TagsSyncedMsg struct {
 // DeviceSessionListMsg carries the fetched active device sessions from the API.
 type DeviceSessionListMsg struct {
 	Sessions []api.ActiveDeviceSessionItem
+	OrgID    string
 	Err      error
 }
 
@@ -575,6 +585,16 @@ type DeviceStartedMsg struct {
 // DeviceStoppedMsg signals that a device session was stopped.
 type DeviceStoppedMsg struct {
 	Err error
+}
+
+// DeviceDetailPollTickMsg triggers periodic polling while on the device detail screen.
+type DeviceDetailPollTickMsg struct {
+	Seq int
+}
+
+// DeviceListPollTickMsg triggers periodic polling while on the device list screen.
+type DeviceListPollTickMsg struct {
+	Seq int
 }
 
 // --- Tea program runner ---

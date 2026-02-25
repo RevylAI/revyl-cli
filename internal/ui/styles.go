@@ -12,9 +12,16 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
+// TTY capability flags for standard streams.
+var (
+	isInputTTY  = isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd())
+	isOutputTTY = isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
+	isStderrTTY = isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
+)
+
 // isTTY reports whether stdout is connected to a terminal.
-// When false, ANSI escape codes should be avoided since output may be piped.
-var isTTY = isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
+// Kept for existing output-oriented behavior (line clearing/spinner rendering).
+var isTTY = isOutputTTY
 
 // clearLine emits an ANSI escape sequence to clear the current line.
 // If stdout is not a TTY, this is a no-op to avoid garbage output in pipes.

@@ -3,13 +3,19 @@ package tui
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
+
+const deviceDetailPollInterval = 3 * time.Second
+
+var openBrowserFn = ui.OpenBrowser
 
 // --- Tea commands ---
 
@@ -17,26 +23,36 @@ import (
 //
 // Parameters:
 //   - client: authenticated API client
+//   - orgID: cached organization ID; when empty, this command resolves it once via ValidateAPIKey
 //
 // Returns:
 //   - tea.Cmd: async command that sends DeviceSessionListMsg on completion
-func fetchDeviceSessionsCmd(client *api.Client) tea.Cmd {
+func fetchDeviceSessionsCmd(client *api.Client, orgID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		// Validate to get the org ID
-		info, err := client.ValidateAPIKey(ctx)
-		if err != nil {
-			return DeviceSessionListMsg{Err: fmt.Errorf("failed to authenticate: %w", err)}
+		resolvedOrgID := strings.TrimSpace(orgID)
+		if resolvedOrgID == "" {
+			info, err := client.ValidateAPIKey(ctx)
+			if err != nil {
+				return DeviceSessionListMsg{Err: fmt.Errorf("failed to authenticate: %w", err)}
+			}
+			resolvedOrgID = strings.TrimSpace(info.OrgID)
+			if resolvedOrgID == "" {
+				return DeviceSessionListMsg{Err: fmt.Errorf("failed to authenticate: organization ID missing")}
+			}
 		}
 
-		sessions, err := client.GetActiveDeviceSessions(ctx, info.OrgID)
+		sessions, err := client.GetActiveDeviceSessions(ctx, resolvedOrgID)
 		if err != nil {
 			return DeviceSessionListMsg{Err: err}
 		}
 
-		return DeviceSessionListMsg{Sessions: sessions.Sessions}
+		return DeviceSessionListMsg{
+			Sessions: sessions.Sessions,
+			OrgID:    resolvedOrgID,
+		}
 	}
 }
 
@@ -100,6 +116,18 @@ func stopDeviceSessionCmd(client *api.Client, workflowRunID string) tea.Cmd {
 	}
 }
 
+func deviceDetailPollTickCmd(seq int) tea.Cmd {
+	return tea.Tick(deviceDetailPollInterval, func(time.Time) tea.Msg {
+		return DeviceDetailPollTickMsg{Seq: seq}
+	})
+}
+
+func deviceListPollTickCmd(seq int) tea.Cmd {
+	return tea.Tick(deviceDetailPollInterval, func(time.Time) tea.Msg {
+		return DeviceListPollTickMsg{Seq: seq}
+	})
+}
+
 // --- Key handlers ---
 
 // handleDeviceListKey processes key events on the device session list screen.
@@ -142,6 +170,14 @@ func (m hubModel) handleDeviceListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			selected := sessions[m.deviceCursor]
 			m.selectedDeviceID = selected.Id
 			m.currentView = viewDeviceDetail
+			m.deviceDetailPollSeq++
+			if m.client != nil && isDeviceStatusTransitional(selected.Status) {
+				m.devicesLoading = true
+				return m, tea.Batch(
+					fetchDeviceSessionsCmd(m.client, m.deviceOrgID),
+					deviceDetailPollTickCmd(m.deviceDetailPollSeq),
+				)
+			}
 		}
 	case "n":
 		// Start new device - show platform picker
@@ -158,10 +194,11 @@ func (m hubModel) handleDeviceListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "R":
 		if m.client != nil {
 			m.devicesLoading = true
-			return m, fetchDeviceSessionsCmd(m.client)
+			return m, fetchDeviceSessionsCmd(m.client, m.deviceOrgID)
 		}
 	case "esc":
 		m.currentView = viewDashboard
+		m.deviceListPollSeq++
 		return m, nil
 	case "q":
 		return m, tea.Quit
@@ -173,11 +210,11 @@ func (m hubModel) handleDeviceListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "1":
 			m.deviceStartPicking = false
 			m.deviceStarting = true
-			return m, startDeviceSessionCmd(m.client, "android")
+			return m, startDeviceSessionCmd(m.client, "ios")
 		case "2":
 			m.deviceStartPicking = false
 			m.deviceStarting = true
-			return m, startDeviceSessionCmd(m.client, "ios")
+			return m, startDeviceSessionCmd(m.client, "android")
 		case "esc":
 			m.deviceStartPicking = false
 		}
@@ -202,6 +239,7 @@ func (m hubModel) handleDeviceDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.deviceStopTarget != "" && m.client != nil {
 				m.devicesLoading = true
 				m.currentView = viewDeviceList
+				m.deviceDetailPollSeq++
 				return m, stopDeviceSessionCmd(m.client, m.deviceStopTarget)
 			}
 			return m, nil
@@ -215,9 +253,8 @@ func (m hubModel) handleDeviceDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "o":
 		// Open viewer URL in browser
-		session := m.selectedDeviceSession()
-		if session != nil && session.WhepUrl != nil && *session.WhepUrl != "" {
-			_ = ui.OpenBrowser(*session.WhepUrl)
+		if viewerURL := m.selectedDeviceViewerURL(); viewerURL != "" {
+			_ = openBrowserFn(viewerURL)
 		}
 	case "d":
 		session := m.selectedDeviceSession()
@@ -227,6 +264,7 @@ func (m hubModel) handleDeviceDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "esc":
 		m.currentView = viewDeviceList
+		m.deviceDetailPollSeq++
 		return m, nil
 	case "q":
 		return m, tea.Quit
@@ -242,6 +280,36 @@ func (m hubModel) selectedDeviceSession() *api.ActiveDeviceSessionItem {
 		}
 	}
 	return nil
+}
+
+func (m hubModel) selectedDeviceViewerURL() string {
+	session := m.selectedDeviceSession()
+	if session == nil {
+		return ""
+	}
+
+	workflowRunID := ""
+	if session.WorkflowRunId != nil {
+		workflowRunID = strings.TrimSpace(*session.WorkflowRunId)
+	}
+	if workflowRunID != "" {
+		appURL := config.GetAppURL(m.devMode)
+		platform := strings.TrimSpace(session.Platform)
+		if platform != "" {
+			return fmt.Sprintf(
+				"%s/tests/execute?workflowRunId=%s&platform=%s",
+				appURL,
+				url.QueryEscape(workflowRunID),
+				url.QueryEscape(platform),
+			)
+		}
+		return fmt.Sprintf("%s/tests/execute?workflowRunId=%s", appURL, url.QueryEscape(workflowRunID))
+	}
+
+	if session.WhepUrl != nil {
+		return strings.TrimSpace(*session.WhepUrl)
+	}
+	return ""
 }
 
 // --- Renderers ---
@@ -272,7 +340,7 @@ func (m hubModel) renderDeviceList() string {
 
 	if m.deviceStartPicking {
 		b.WriteString("\n  " + sectionStyle.Render("Select platform:") + "\n")
-		b.WriteString("    " + helpKeyRender("1", "Android") + "    " + helpKeyRender("2", "iOS") + "    " + helpKeyRender("esc", "cancel") + "\n\n")
+		b.WriteString("    " + helpKeyRender("1", "iOS") + "    " + helpKeyRender("2", "Android") + "    " + helpKeyRender("esc", "cancel") + "\n\n")
 	}
 
 	if m.deviceStarting {
@@ -377,9 +445,10 @@ func (m hubModel) renderDeviceDetail() string {
 			b.WriteString("  " + sectionStyle.Render("Screen") + "        " + dimStyle.Render(fmt.Sprintf("%dx%d", *session.ScreenWidth, *session.ScreenHeight)) + "\n")
 		}
 
-		hasViewer := session.WhepUrl != nil && *session.WhepUrl != ""
-		if hasViewer {
+		viewerURL := m.selectedDeviceViewerURL()
+		if viewerURL != "" {
 			b.WriteString("\n  " + dimStyle.Render("Viewer URL available — press 'o' to open in browser") + "\n")
+			b.WriteString("  " + dimStyle.Render("viewer: ") + linkStyle.Render(viewerURL) + "\n")
 		}
 	}
 
@@ -407,6 +476,15 @@ func deviceStatusBadge(status string) string {
 		return dimStyle.Render(" " + status)
 	default:
 		return dimStyle.Render(" " + status)
+	}
+}
+
+func isDeviceStatusTransitional(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "starting", "stopping", "queued", "provisioning":
+		return true
+	default:
+		return false
 	}
 }
 

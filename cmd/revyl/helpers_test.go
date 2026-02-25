@@ -91,6 +91,7 @@ func TestValidateResourceName(t *testing.T) {
 		{name: "reserved word create", input: "create", kind: "test", wantError: true},
 		{name: "reserved word delete", input: "delete", kind: "test", wantError: true},
 		{name: "reserved word list", input: "list", kind: "test", wantError: true},
+		{name: "reserved word rename", input: "rename", kind: "test", wantError: true},
 		{name: "reserved word help", input: "help", kind: "test", wantError: true},
 		{name: "workflow kind", input: "smoke-tests", kind: "workflow", wantError: false},
 	}

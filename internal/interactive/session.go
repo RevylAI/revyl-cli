@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -767,7 +768,7 @@ func (s *Session) GetFrontendURL() string {
 	s.mu.RUnlock()
 
 	return fmt.Sprintf("%s/tests/execute?testUid=%s&workflowRunId=%s",
-		baseURL, s.config.TestID, workflowRunID)
+		baseURL, url.QueryEscape(s.config.TestID), url.QueryEscape(workflowRunID))
 }
 
 // GetHotReloadURL returns the hot reload deep link URL for this session.

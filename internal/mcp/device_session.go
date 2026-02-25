@@ -16,6 +16,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -371,7 +372,12 @@ func (m *DeviceSessionManager) StartSession(
 	if os.Getenv("LOCAL") == "true" || os.Getenv("LOCAL") == "True" {
 		baseURL = "http://localhost:3000"
 	}
-	viewerURL := fmt.Sprintf("%s/tests/execute?workflowRunId=%s&platform=%s", baseURL, workflowRunID, platform)
+	viewerURL := fmt.Sprintf(
+		"%s/tests/execute?workflowRunId=%s&platform=%s",
+		baseURL,
+		url.QueryEscape(workflowRunID),
+		url.QueryEscape(platform),
+	)
 	sessionID := m.backendSessionIDByWorkflowRunLocked(ctx, workflowRunID)
 	if sessionID == "" {
 		// Fallback for eventual-consistency windows; SyncSessions will reconcile
@@ -1787,7 +1793,12 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		if bs.WorkflowRunId != nil {
 			workflowRunID = *bs.WorkflowRunId
 		}
-		viewerURL := fmt.Sprintf("%s/tests/execute?workflowRunId=%s&platform=%s", baseURL, workflowRunID, bs.Platform)
+		viewerURL := fmt.Sprintf(
+			"%s/tests/execute?workflowRunId=%s&platform=%s",
+			baseURL,
+			url.QueryEscape(workflowRunID),
+			url.QueryEscape(bs.Platform),
+		)
 
 		startedAt := time.Now()
 		if bs.StartedAt != nil {

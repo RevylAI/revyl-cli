@@ -832,6 +832,7 @@ type Test struct {
 // UpdateTestRequest represents a test update request.
 type UpdateTestRequest struct {
 	TestID          string      `json:"-"`
+	Name            string      `json:"name,omitempty"`
 	Tasks           interface{} `json:"tasks,omitempty"`
 	AppID           string      `json:"app_id,omitempty"`
 	ExpectedVersion int         `json:"expected_version,omitempty"`
@@ -2864,6 +2865,19 @@ func (c *Client) DeleteAllEnvVars(ctx context.Context, testID string) error {
 }
 
 // --- Workflow Settings API methods ---
+
+// UpdateWorkflowName renames a workflow while preserving its ID/history.
+func (c *Client) UpdateWorkflowName(ctx context.Context, workflowID, name string) error {
+	body := map[string]string{
+		"name": name,
+	}
+	path := fmt.Sprintf("/api/v1/workflows/update_name/%s", workflowID)
+	resp, err := c.doRequest(ctx, "PUT", path, body)
+	if err != nil {
+		return err
+	}
+	return parseResponse(resp, nil)
+}
 
 // UpdateWorkflowLocationConfig updates the stored location config for a workflow.
 func (c *Client) UpdateWorkflowLocationConfig(ctx context.Context, workflowID string, locationConfig map[string]interface{}, override bool) error {

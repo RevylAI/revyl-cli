@@ -70,6 +70,46 @@ func TestHandleTestDetailKey_NumberExecutesAction(t *testing.T) {
 	}
 }
 
+func TestHandleTestDetailKey_RenameShortcutOpensOverlay(t *testing.T) {
+	m := newHubModel("dev", false)
+	m.currentView = viewTestDetail
+	m.selectedTestDetail = &TestDetail{ID: "test-1", Name: "Checkout"}
+
+	nextModel, cmd := handleTestDetailKey(m, keyRune('n'))
+	if cmd == nil {
+		t.Fatalf("expected blink cmd when entering rename mode")
+	}
+
+	next := nextModel.(hubModel)
+	if !next.testRenameActive {
+		t.Fatalf("expected rename overlay to activate")
+	}
+	if next.testRenameInput.Value() != "Checkout" {
+		t.Fatalf("expected rename input to seed current name, got %q", next.testRenameInput.Value())
+	}
+}
+
+func TestHandleTestDetailKey_RenameEnterTransitionsToConfirm(t *testing.T) {
+	m := newHubModel("dev", false)
+	m.currentView = viewTestDetail
+	m.selectedTestDetail = &TestDetail{ID: "test-1", Name: "Checkout"}
+	m.testRenameActive = true
+	m.testRenameInput.SetValue("Checkout v2")
+
+	nextModel, cmd := handleTestDetailKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("expected nil cmd when preparing rename confirmation, got %v", cmd)
+	}
+
+	next := nextModel.(hubModel)
+	if !next.testRenameConfirm {
+		t.Fatalf("expected rename confirmation mode after enter")
+	}
+	if next.testRenameTargetName != "Checkout v2" {
+		t.Fatalf("expected rename target to be captured, got %q", next.testRenameTargetName)
+	}
+}
+
 func TestHandleWorkflowDetailKey_ArrowAndEnterSelection(t *testing.T) {
 	m := newHubModel("dev", false)
 	m.currentView = viewWorkflowDetail
@@ -121,8 +161,11 @@ func TestRenderDetailViews_ShowNumberedActions(t *testing.T) {
 	testModel.selectedTestDetail = &TestDetail{ID: "test-1", Name: "Checkout", Platform: "android"}
 
 	testOut := renderTestDetail(testModel)
-	if !strings.Contains(testOut, "[1]") || !strings.Contains(testOut, "[r]") {
+	if !strings.Contains(testOut, "[1]") {
 		t.Fatalf("expected test detail to render numbered action labels, got: %s", testOut)
+	}
+	if strings.Contains(testOut, "[r]") {
+		t.Fatalf("expected test detail to hide letter shortcut labels, got: %s", testOut)
 	}
 	if !strings.Contains(testOut, "enter") || !strings.Contains(testOut, "jump") {
 		t.Fatalf("expected test detail footer to include select/jump hints, got: %s", testOut)
@@ -134,8 +177,11 @@ func TestRenderDetailViews_ShowNumberedActions(t *testing.T) {
 	workflowModel.selectedWfDetail = &WorkflowItem{ID: "wf-1", Name: "Bug Bazaar"}
 
 	workflowOut := renderWorkflowDetail(workflowModel)
-	if !strings.Contains(workflowOut, "[1]") || !strings.Contains(workflowOut, "[r]") {
+	if !strings.Contains(workflowOut, "[1]") {
 		t.Fatalf("expected workflow detail to render numbered action labels, got: %s", workflowOut)
+	}
+	if strings.Contains(workflowOut, "[r]") {
+		t.Fatalf("expected workflow detail to hide letter shortcut labels, got: %s", workflowOut)
 	}
 	if !strings.Contains(workflowOut, "enter") || !strings.Contains(workflowOut, "jump") {
 		t.Fatalf("expected workflow detail footer to include select/jump hints, got: %s", workflowOut)

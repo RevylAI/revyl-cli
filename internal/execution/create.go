@@ -4,6 +4,7 @@ package execution
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
@@ -76,7 +77,7 @@ func CreateTest(ctx context.Context, apiKey string, params CreateTestParams) (*C
 		return nil, fmt.Errorf("failed to create test: %w", err)
 	}
 
-	testURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(params.DevMode), resp.ID)
+	testURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.ID))
 
 	return &CreateTestResult{
 		TestID:   resp.ID,
@@ -179,7 +180,7 @@ func OpenTestEditor(cfg *config.ProjectConfig, params OpenTestEditorParams) *Ope
 		}
 	}
 
-	testURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(params.DevMode), testID)
+	testURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(params.DevMode), url.QueryEscape(testID))
 
 	return &OpenTestEditorResult{
 		TestID:  testID,

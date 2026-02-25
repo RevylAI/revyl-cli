@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -939,7 +940,11 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 	}
 
 	// Build viewer URL for watching execution live in the browser
-	viewerURL := fmt.Sprintf("%s/tests/execute?workflowRunId=%s", config.GetAppURL(s.devMode), result.TaskID)
+	viewerURL := fmt.Sprintf(
+		"%s/tests/execute?workflowRunId=%s",
+		config.GetAppURL(s.devMode),
+		url.QueryEscape(result.TaskID),
+	)
 
 	out := RunTestOutput{
 		Success:      result.Success,
@@ -1084,7 +1089,11 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 	}
 
 	// Build viewer URL for watching execution live in the browser
-	viewerURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(s.devMode), result.TaskID)
+	viewerURL := fmt.Sprintf(
+		"%s/workflows/report?taskId=%s",
+		config.GetAppURL(s.devMode),
+		url.QueryEscape(result.TaskID),
+	)
 
 	out := RunWorkflowOutput{
 		Success:      result.Success,
@@ -4114,7 +4123,11 @@ func (s *Server) handleHotReloadStatus(ctx context.Context, req *mcp.CallToolReq
 	}
 
 	// Reconstruct editor URL from cached test ID
-	editorURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(false), s.hotReloadTestID)
+	editorURL := fmt.Sprintf(
+		"%s/tests/execute?testUid=%s",
+		config.GetAppURL(false),
+		url.QueryEscape(s.hotReloadTestID),
+	)
 
 	return nil, HotReloadStatusOutput{
 		Active:        true,

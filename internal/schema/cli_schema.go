@@ -448,6 +448,8 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("revyl auth status             # Check authentication\n")
 	sb.WriteString("revyl init                    # Initialize project\n")
 	sb.WriteString("revyl test create <name>      # Create new test\n")
+	sb.WriteString("revyl test rename <old> <new> # Rename test without recreating\n")
+	sb.WriteString("revyl workflow rename <old> <new> # Rename workflow without recreating\n")
 	sb.WriteString("revyl test run <name>         # Run a test\n")
 	sb.WriteString("revyl test run <name> --build  # Build then run a test\n")
 	sb.WriteString("revyl test run <name> --platform X # Build with specific platform\n")

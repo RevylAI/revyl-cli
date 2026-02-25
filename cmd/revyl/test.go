@@ -20,6 +20,7 @@ COMMANDS:
   push      - Push local test changes to remote
   pull      - Pull remote test changes to local
   diff      - Show diff between local and remote
+  rename    - Rename a test while preserving history
   validate  - Validate YAML test files
   run       - Run a test (optionally with --build)
   cancel    - Cancel a running test
@@ -85,6 +86,23 @@ EXAMPLES:
 	RunE: runCreateTest,
 }
 
+// testRenameCmd renames a test while preserving history.
+var testRenameCmd = &cobra.Command{
+	Use:   "rename [old-name|id] [new-name]",
+	Short: "Rename a test without recreating it",
+	Long: `Rename a test while keeping the same remote test ID and execution history.
+
+When called with no args in a TTY, this command prompts for test selection
+and the new name.
+
+EXAMPLES:
+  revyl test rename CLI-0-onboard-a cli-0-onboard-a
+  revyl test rename login-flow smoke-login
+  revyl test rename`,
+	Args: cobra.MaximumNArgs(2),
+	RunE: runRenameTest,
+}
+
 // testDeleteCmd deletes a test.
 var testDeleteCmd = &cobra.Command{
 	Use:   "delete <name|id>",
@@ -122,6 +140,7 @@ func init() {
 	testCmd.AddCommand(testRunCmd)
 	testCmd.AddCommand(testCancelCmd)
 	testCmd.AddCommand(testCreateCmd)
+	testCmd.AddCommand(testRenameCmd)
 	testCmd.AddCommand(testDeleteCmd)
 	testCmd.AddCommand(testOpenCmd)
 	// Add status/history/report subcommands
@@ -167,6 +186,10 @@ func init() {
 	testCreateCmd.Flags().BoolVar(&createTestInteractive, "interactive", false, "Create test interactively with real-time device feedback")
 	testCreateCmd.Flags().StringSliceVar(&createTestModules, "module", nil, "Module name or ID to insert as module_import block (can be repeated)")
 	testCreateCmd.Flags().StringSliceVar(&createTestTags, "tag", nil, "Tag to assign after creation (can be repeated)")
+
+	// test rename flags
+	testRenameCmd.Flags().BoolVar(&renameNonInteractive, "non-interactive", false, "Disable prompts; requires both positional args")
+	testRenameCmd.Flags().BoolVarP(&renameYes, "yes", "y", false, "Auto-accept default rename prompts")
 
 	// test delete flags
 	testDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")

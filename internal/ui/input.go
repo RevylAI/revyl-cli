@@ -152,7 +152,13 @@ func runSelectTea(message string, options []string, descriptions []string, initi
 		selected:     -1,
 	}
 
-	p := tea.NewProgram(m)
+	programOptions := []tea.ProgramOption{}
+	if !isOutputTTY && isStderrTTY {
+		// Keep interactive menus functional when stdout is piped but stderr is a TTY.
+		programOptions = append(programOptions, tea.WithOutput(os.Stderr))
+	}
+
+	p := tea.NewProgram(m, programOptions...)
 	finalModel, err := p.Run()
 	if err != nil {
 		return -1, fmt.Errorf("interactive select failed: %w", err)
@@ -207,7 +213,7 @@ func promptSelectFallback(message string, options []string) (int, error) {
 //   - int: Index of selected option
 //   - error: Any error that occurred
 func PromptSelect(message string, options []string) (int, error) {
-	if !isTTY {
+	if !canRunInteractiveSelect() {
 		return promptSelectFallback(message, options)
 	}
 
@@ -284,7 +290,7 @@ func Select(message string, options []SelectOption, defaultIndex int) (int, stri
 		current = 0
 	}
 
-	if !isTTY {
+	if !canRunInteractiveSelect() {
 		return selectFallback(message, options, current)
 	}
 
@@ -301,6 +307,10 @@ func Select(message string, options []SelectOption, defaultIndex int) (int, stri
 	}
 
 	return idx, options[idx].Value, nil
+}
+
+func canRunInteractiveSelect() bool {
+	return isInputTTY && (isOutputTTY || isStderrTTY)
 }
 
 // Confirm prompts the user for a yes/no confirmation.

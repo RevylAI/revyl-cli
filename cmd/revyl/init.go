@@ -40,7 +40,6 @@ The wizard walks you through:
   4. Hot reload setup — configure Expo hot reload defaults
   5. First build — build and upload your artifact
   6. Create first test — create a test on the platform
-  7. Create workflow — optionally group tests into a workflow
 
 Use --non-interactive / -y to skip the wizard and just create config.
 
@@ -55,11 +54,13 @@ Examples:
 }
 
 var (
-	initProjectID      string
-	initDetect         bool
-	initForce          bool
-	initNonInteractive bool
-	initHotReload      bool
+	initProjectID            string
+	initDetect               bool
+	initForce                bool
+	initNonInteractive       bool
+	initHotReload            bool
+	initHotReloadAppScheme   string
+	initXcodeSchemeOverrides []string
 )
 
 func init() {
@@ -68,6 +69,8 @@ func init() {
 	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite existing configuration")
 	initCmd.Flags().BoolVarP(&initNonInteractive, "non-interactive", "y", false, "Skip wizard prompts, just create config")
 	initCmd.Flags().BoolVar(&initHotReload, "hotreload", false, "Configure hot reload and exit (for existing projects)")
+	initCmd.Flags().StringVar(&initHotReloadAppScheme, "hotreload-app-scheme", "", "Override Expo hotreload.providers.expo.app_scheme")
+	initCmd.Flags().StringSliceVar(&initXcodeSchemeOverrides, "xcode-scheme", nil, "Override Xcode scheme by build platform key (format: key=Scheme, repeatable)")
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +84,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	overrideOpts, err := newInitOverrideOptions(initXcodeSchemeOverrides, initHotReloadAppScheme, !initNonInteractive)
+	if err != nil {
+		return err
+	}
+	if initHotReload && len(overrideOpts.XcodeSchemeOverrides) > 0 {
+		return fmt.Errorf("--xcode-scheme can only be used with full `revyl init` (without --hotreload)")
 	}
 
 	revylDir := filepath.Join(cwd, ".revyl")
@@ -99,22 +110,26 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Hot reload-only configuration mode for existing projects.
 	if initHotReload && configExists {
-		return runInitHotReloadOnly(cmd, cwd, configPath)
+		return runInitHotReloadOnly(cmd, cwd, configPath, overrideOpts)
 	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 
-	// ── Step 1/7: Project Setup ──────────────────────────────────────────
-	ui.PrintStepHeader(1, 7, "Project Setup")
+	// ── Step 1/6: Project Setup ──────────────────────────────────────────
+	ui.PrintStepHeader(1, 6, "Project Setup")
 
-	cfg, err := wizardProjectSetup(cwd, revylDir, configPath)
+	cfg, err := wizardProjectSetup(cwd, revylDir, configPath, overrideOpts)
 	if err != nil {
+		return err
+	}
+
+	if err := runProjectConfigReview(cfg, configPath, overrideOpts); err != nil {
 		return err
 	}
 
 	// In non-interactive mode we stop after creating the config.
 	if initNonInteractive {
-		wizardHotReloadSetup(context.Background(), nil, cfg, configPath, cwd, false)
+		wizardHotReloadSetup(context.Background(), nil, cfg, configPath, cwd, false, overrideOpts)
 		printCreatedFiles()
 		printHotReloadInfo(cwd, cfg)
 		ui.PrintInfo("Next steps:")
@@ -125,17 +140,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// ── Step 2/7: Authentication ─────────────────────────────────────────
-	ui.PrintStepHeader(2, 7, "Authentication")
+	// ── Step 2/6: Authentication ─────────────────────────────────────────
+	ui.PrintStepHeader(2, 6, "Authentication")
 
 	ctx := context.Background()
 	client, userInfo, authOK := wizardAuth(ctx, devMode)
 
 	// If auth failed or was skipped, we cannot proceed to API-dependent steps.
 	if !authOK {
-		wizardHotReloadSetup(context.Background(), nil, cfg, configPath, cwd, false)
+		wizardHotReloadSetup(context.Background(), nil, cfg, configPath, cwd, false, overrideOpts)
 		ui.Println()
-		ui.PrintWarning("Skipping steps 3-7 (require authentication)")
+		ui.PrintWarning("Skipping steps 3-6 (require authentication)")
 		ui.Println()
 		printCreatedFiles()
 		printHotReloadInfo(cwd, cfg)
@@ -161,14 +176,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// ── Billing check (between auth and app creation) ──────────────────
 	wizardBillingCheck(ctx, client, devMode)
 
-	// ── Step 3/7: Create Apps ────────────────────────────────────────────
-	ui.PrintStepHeader(3, 7, "Create Apps")
+	// ── Step 3/6: Create Apps ────────────────────────────────────────────
+	ui.PrintStepHeader(3, 6, "Create Apps")
 
 	wizardCreateApps(ctx, client, cfg, configPath)
 
-	// ── Step 4/7: Hot Reload Setup ───────────────────────────────────────
-	ui.PrintStepHeader(4, 7, "Hot Reload Setup")
-	hotReloadReady := wizardHotReloadSetup(ctx, client, cfg, configPath, cwd, true)
+	// ── Step 4/6: Hot Reload Setup ───────────────────────────────────────
+	ui.PrintStepHeader(4, 6, "Hot Reload Setup")
+	hotReloadReady := wizardHotReloadSetup(ctx, client, cfg, configPath, cwd, true, overrideOpts)
 
 	// Determine if any apps were linked.
 	appsLinked := false
@@ -179,19 +194,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// ── Step 5/7: First Build ────────────────────────────────────────────
-	ui.PrintStepHeader(5, 7, "First Build")
+	// ── Step 5/6: First Build ────────────────────────────────────────────
+	ui.PrintStepHeader(5, 6, "First Build")
 	wizardFirstBuild(ctx, client, cfg, configPath)
 
-	// ── Step 6/7: Create First Test ──────────────────────────────────────
-	ui.PrintStepHeader(6, 7, "Create First Test")
+	// ── Step 6/6: Create First Test ──────────────────────────────────────
+	ui.PrintStepHeader(6, 6, "Create First Test")
 
 	testID, testName := wizardCreateTest(ctx, client, cfg, configPath, devMode, userInfo)
-
-	// ── Step 7/7: Create Workflow ────────────────────────────────────────
-	ui.PrintStepHeader(7, 7, "Create Workflow")
-
-	wizardCreateWorkflow(ctx, client, cfg, configPath, testID, testName, userInfo)
 
 	// ── Summary ──────────────────────────────────────────────────────────
 	// Mark config as synced now that all wizard steps have completed.
@@ -225,7 +235,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 }
 
 // runInitHotReloadOnly reconfigures hot reload for an existing project and exits.
-func runInitHotReloadOnly(cmd *cobra.Command, cwd, configPath string) error {
+func runInitHotReloadOnly(cmd *cobra.Command, cwd, configPath string, overrideOpts *initOverrideOptions) error {
 	cfg, err := config.LoadProjectConfig(configPath)
 	if err != nil {
 		ui.PrintError("Project not initialized. Run 'revyl init' first.")
@@ -246,7 +256,7 @@ func runInitHotReloadOnly(cmd *cobra.Command, cwd, configPath string) error {
 		ui.PrintDim("Run 'revyl auth login' and re-run 'revyl init --hotreload' to validate app links.")
 	}
 
-	ready := wizardHotReloadSetup(cmd.Context(), client, cfg, configPath, cwd, true)
+	ready := wizardHotReloadSetup(cmd.Context(), client, cfg, configPath, cwd, true, overrideOpts)
 	if !ready {
 		return fmt.Errorf("hot reload setup failed")
 	}
@@ -276,7 +286,7 @@ func runInitHotReloadOnly(cmd *cobra.Command, cwd, configPath string) error {
 
 // wizardProjectSetup detects the build system, creates .revyl/ directory, and
 // writes the initial config.yaml.
-func wizardProjectSetup(cwd, revylDir, configPath string) (*config.ProjectConfig, error) {
+func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOverrideOptions) (*config.ProjectConfig, error) {
 	ui.PrintInfo("Initializing Revyl project in %s", cwd)
 	ui.Println()
 
@@ -347,10 +357,14 @@ func wizardProjectSetup(cwd, revylDir, configPath string) (*config.ProjectConfig
 	// For Xcode/React Native iOS platforms with -scheme *, prompt user to pick a scheme
 	for platformKey, platformCfg := range cfg.Build.Platforms {
 		if strings.Contains(platformCfg.Command, "-scheme *") {
-			scheme := promptXcodeScheme(cwd, platformKey)
+			allowPrompts := true
+			if overrideOpts != nil {
+				allowPrompts = overrideOpts.AllowInteractivePrompts
+			}
+
+			scheme := promptXcodeScheme(cwd, platformKey, allowPrompts)
 			if scheme != "" {
-				platformCfg.Scheme = scheme
-				platformCfg.Command = build.ApplySchemeToCommand(platformCfg.Command, scheme)
+				platformCfg = setBuildPlatformScheme(platformCfg, scheme)
 				cfg.Build.Platforms[platformKey] = platformCfg
 			}
 		}
@@ -359,6 +373,11 @@ func wizardProjectSetup(cwd, revylDir, configPath string) (*config.ProjectConfig
 	// For Expo, default to explicit dev/ci streams to avoid cross-contaminating
 	// hot reload dev clients with CI/release uploads.
 	configureExpoBuildStreams(cfg)
+	if overrideOpts != nil {
+		if err := applyXcodeSchemeOverrides(cfg, overrideOpts.XcodeSchemeOverrides); err != nil {
+			return nil, err
+		}
+	}
 
 	// Create .revyl directory
 	if err := os.MkdirAll(revylDir, 0755); err != nil {
@@ -389,7 +408,8 @@ config.local.yaml
 		ui.PrintWarning("Failed to create .gitignore: %v", err)
 	}
 
-	ui.PrintSuccess("Project config created")
+	ui.PrintSuccess("Project config created: .revyl/config.yaml")
+	ui.PrintDim("You can edit settings later in .revyl/config.yaml")
 
 	return cfg, nil
 }
@@ -671,7 +691,7 @@ func createAppInteractive(ctx context.Context, client *api.Client, defaultName, 
 
 // promptXcodeScheme attempts to discover Xcode schemes and lets the user pick one.
 // Returns the selected scheme name, or empty string if none was selected.
-func promptXcodeScheme(cwd, platformKey string) string {
+func promptXcodeScheme(cwd, platformKey string, allowPrompt bool) string {
 	// Try discovering schemes in cwd first, then ios/ subdirectory (React Native layout)
 	var schemes []string
 	var err error
@@ -685,6 +705,9 @@ func promptXcodeScheme(cwd, platformKey string) string {
 	}
 
 	if len(schemes) == 0 {
+		if !allowPrompt {
+			return ""
+		}
 		// Discovery failed — fall back to manual input
 		ui.PrintWarning("Could not auto-detect Xcode schemes for %s", platformKey)
 		name, err := ui.Prompt("Enter scheme name (or press Enter to skip):")
@@ -696,6 +719,11 @@ func promptXcodeScheme(cwd, platformKey string) string {
 
 	if len(schemes) == 1 {
 		ui.PrintSuccess("Auto-selected Xcode scheme: %s", schemes[0])
+		return schemes[0]
+	}
+
+	if !allowPrompt {
+		ui.PrintDim("Multiple Xcode schemes found for %s; defaulting to %s in non-interactive mode", platformKey, schemes[0])
 		return schemes[0]
 	}
 
@@ -1979,167 +2007,6 @@ func wizardCreateTest(
 }
 
 // ---------------------------------------------------------------------------
-// Step 6: Create Workflow
-// ---------------------------------------------------------------------------
-
-// wizardCreateWorkflow offers to group tests into a workflow. Default is No.
-//
-// Parameters:
-//   - ctx: Context for cancellation and API calls
-//   - client: Authenticated API client
-//   - cfg: Current project configuration
-//   - configPath: Path to .revyl/config.yaml
-//   - justCreatedTestID: ID of the test created in Step 5 (empty if skipped)
-//   - justCreatedTestName: Name of the test created in Step 5 (empty if skipped)
-//   - userInfo: Validated user info for ownership
-func wizardCreateWorkflow(
-	ctx context.Context,
-	client *api.Client,
-	cfg *config.ProjectConfig,
-	configPath string,
-	justCreatedTestID string,
-	justCreatedTestName string,
-	userInfo *api.ValidateAPIKeyResponse,
-) {
-	proceed, err := ui.PromptConfirm("Create a workflow to group tests?", false)
-	if err != nil || !proceed {
-		ui.PrintDim("Skipped workflow creation")
-		return
-	}
-
-	workflowName, err := ui.Prompt("Workflow name [smoke-tests]:")
-	if err != nil {
-		ui.PrintWarning("Input error: %v", err)
-		return
-	}
-	if workflowName == "" {
-		workflowName = "smoke-tests"
-	}
-
-	// Gather test IDs for the workflow.
-	testIDs := gatherTestIDsForWorkflow(ctx, client, justCreatedTestID, justCreatedTestName)
-
-	ownerID := ""
-	orgID := ""
-	if userInfo != nil {
-		ownerID = userInfo.UserID
-		orgID = userInfo.OrgID
-	}
-
-	ui.StartSpinner("Creating workflow...")
-	resp, err := client.CreateWorkflow(ctx, &api.CLICreateWorkflowRequest{
-		Name:     workflowName,
-		Tests:    testIDs,
-		Schedule: "No Schedule",
-		Owner:    ownerID,
-		OrgID:    orgID,
-	})
-	ui.StopSpinner()
-
-	if err != nil {
-		ui.PrintWarning("Failed to create workflow: %v", err)
-		return
-	}
-
-	ui.PrintSuccess("Created workflow \"%s\" (id: %s)", resp.Data.Name, resp.GetID())
-
-	// Save to config.
-	if cfg.Workflows == nil {
-		cfg.Workflows = make(map[string]string)
-	}
-	cfg.Workflows[workflowName] = resp.GetID()
-	_ = config.WriteProjectConfig(configPath, cfg)
-}
-
-// gatherTestIDsForWorkflow builds the list of test IDs for a new workflow.
-// If we just created a test, it is automatically included. Additionally, the
-// user may pick from existing org tests (capped at 10).
-//
-// Parameters:
-//   - ctx: Context for cancellation and API calls
-//   - client: Authenticated API client
-//   - justCreatedTestID: ID of the just-created test (empty if none)
-//   - justCreatedTestName: Display name of the just-created test (empty if none)
-//
-// Returns:
-//   - []string: Collected test IDs for the workflow
-func gatherTestIDsForWorkflow(ctx context.Context, client *api.Client, justCreatedTestID, justCreatedTestName string) []string {
-	var testIDs []string
-
-	if justCreatedTestID != "" {
-		testIDs = append(testIDs, justCreatedTestID)
-		if justCreatedTestName != "" {
-			ui.PrintSuccess("Included: %s (just created)", justCreatedTestName)
-		} else {
-			ui.PrintSuccess("Included the test you just created")
-		}
-	}
-
-	// Offer to add more tests from the org.
-	addMore, err := ui.PromptConfirm("Add existing tests from your organization?", false)
-	if err != nil || !addMore {
-		return testIDs
-	}
-
-	listResp, err := client.ListOrgTests(ctx, 10, 0)
-	if err != nil {
-		ui.PrintWarning("Could not list org tests: %v", err)
-		return testIDs
-	}
-
-	if len(listResp.Tests) == 0 {
-		ui.PrintDim("No existing tests found in your organization")
-		return testIDs
-	}
-
-	// Build options list, excluding the test we already added.
-	options := make([]string, 0, len(listResp.Tests)+1)
-	indexMap := make([]int, 0, len(listResp.Tests))
-
-	for i, t := range listResp.Tests {
-		if t.ID == justCreatedTestID {
-			continue
-		}
-		options = append(options, fmt.Sprintf("%s (%s)", t.Name, t.Platform))
-		indexMap = append(indexMap, i)
-	}
-
-	if len(options) == 0 {
-		ui.PrintDim("No additional tests available")
-		return testIDs
-	}
-
-	// Hint when more tests exist beyond what we fetched.
-	if listResp.Count > 10 {
-		ui.PrintDim("Showing first 10 of %d tests. Use 'revyl workflow edit' to add more.", listResp.Count)
-	}
-
-	options = append(options, "Done — no more tests")
-
-	// Let user pick tests one at a time.
-	for {
-		idx, err := ui.PromptSelect("Select a test to add (or Done):", options)
-		if err != nil || idx >= len(indexMap) {
-			break
-		}
-
-		selectedTest := listResp.Tests[indexMap[idx]]
-		testIDs = append(testIDs, selectedTest.ID)
-		ui.PrintSuccess("Added: %s", selectedTest.Name)
-
-		// Remove the selected option so it can't be added twice.
-		options = append(options[:idx], options[idx+1:]...)
-		indexMap = append(indexMap[:idx], indexMap[idx+1:]...)
-
-		if len(indexMap) == 0 {
-			break
-		}
-	}
-
-	return testIDs
-}
-
-// ---------------------------------------------------------------------------
 // Step 4: Hot Reload Setup
 // ---------------------------------------------------------------------------
 
@@ -2152,6 +2019,7 @@ func wizardHotReloadSetup(
 	cfg *config.ProjectConfig,
 	configPath, cwd string,
 	checkConnectivity bool,
+	overrideOpts *initOverrideOptions,
 ) bool {
 	registry := hotreload.DefaultRegistry()
 	detections := registry.DetectAllProviders(cwd)
@@ -2187,6 +2055,13 @@ func wizardHotReloadSetup(
 	existingCfg := cfg.HotReload.GetProviderConfig(setupResult.ProviderName)
 	mergedCfg := mergeHotReloadProviderConfig(existingCfg, setupResult.Config)
 	mergedCfg.PlatformKeys = mergePlatformKeys(mergedCfg.PlatformKeys, inferHotReloadPlatformKeys(cfg))
+	if setupResult.ProviderName == "expo" {
+		explicitAppScheme := ""
+		if overrideOpts != nil {
+			explicitAppScheme = overrideOpts.HotReloadAppScheme
+		}
+		applyExpoAppSchemeOverride(mergedCfg, explicitAppScheme, false)
+	}
 	cfg.HotReload.Providers[setupResult.ProviderName] = mergedCfg
 
 	if cfg.HotReload.Default == "" {
@@ -2231,6 +2106,8 @@ func wizardHotReloadSetup(
 		ui.PrintWarning("Failed to save hot reload configuration: %v", err)
 		return false
 	}
+	ui.PrintSuccess("Saved hot reload settings to .revyl/config.yaml")
+	ui.PrintDim("Edit manually anytime in .revyl/config.yaml")
 
 	return cfg.HotReload.IsConfigured()
 }

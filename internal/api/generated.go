@@ -976,19 +976,6 @@ type AssignSeatsResponse struct {
 // AsyncStatus defines model for AsyncStatus.
 type AsyncStatus string
 
-// AttachRequest defines model for AttachRequest.
-type AttachRequest struct {
-	ProductId   *string `json:"product_id,omitempty"`
-	RedirectUrl string  `json:"redirect_url"`
-}
-
-// AttachResponse defines model for AttachResponse.
-type AttachResponse struct {
-	CheckoutUrl *string `json:"checkout_url"`
-	Message     string  `json:"message"`
-	Success     *bool   `json:"success"`
-}
-
 // AuthInfo Class that represents authentication information.
 // Can be returned from the require_auth dependency.
 type AuthInfo struct {
@@ -1504,18 +1491,6 @@ type CategoryValue struct {
 	Value    float32 `json:"value"`
 }
 
-// ChartDataPoint defines model for ChartDataPoint.
-type ChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
-}
-
 // CheckModuleExistsResponse Response model for checking if a module exists
 type CheckModuleExistsResponse struct {
 	Exists bool    `json:"exists"`
@@ -1995,7 +1970,7 @@ type CreateInternalSlackRuleRequest struct {
 // CreateModuleRequest Request model for creating a new module
 type CreateModuleRequest struct {
 	// Blocks Array of block objects
-	Blocks []interface{} `json:"blocks"`
+	Blocks []ModuleBlock `json:"blocks"`
 
 	// Description Optional description
 	Description *string `json:"description"`
@@ -2552,6 +2527,12 @@ type ErrorImage struct {
 	Url             *string `json:"url"`
 }
 
+// ErrorTypeBreakdownItem A single row in the grounding error type breakdown.
+type ErrorTypeBreakdownItem struct {
+	Errors int    `json:"errors"`
+	Label  string `json:"label"`
+}
+
 // EvalErrorSummary Summary of errors from evaluation.
 type EvalErrorSummary struct {
 	BoundingBoxErrors  *int `json:"bounding_box_errors,omitempty"`
@@ -2573,6 +2554,7 @@ type EvalQueueItem struct {
 	GroundingErrors    int                 `json:"grounding_errors"`
 	Id                 openapi_types.UUID  `json:"id"`
 	OrgId              *openapi_types.UUID `json:"org_id"`
+	OrgName            *string             `json:"org_name"`
 	Platform           *string             `json:"platform"`
 	ReviewStatus       string              `json:"review_status"`
 	TaskId             openapi_types.UUID  `json:"task_id"`
@@ -2706,22 +2688,38 @@ type ExecutionModeConfigOutput struct {
 // ExplorationStatus Status of an exploration workflow.
 type ExplorationStatus string
 
+// ExpoBuildArtifacts Artifacts associated with an Expo/EAS build.
+type ExpoBuildArtifacts struct {
+	ApplicationArchiveUrl *string                `json:"applicationArchiveUrl"`
+	BuildUrl              *string                `json:"buildUrl"`
+	AdditionalProperties  map[string]interface{} `json:"-"`
+}
+
+// ExpoBuildItem A single Expo/EAS build entry.
+type ExpoBuildItem struct {
+	AppVersion *string `json:"appVersion"`
+
+	// Artifacts Artifacts associated with an Expo/EAS build.
+	Artifacts            *ExpoBuildArtifacts    `json:"artifacts,omitempty"`
+	BuildProfile         *string                `json:"buildProfile"`
+	CompletedAt          *string                `json:"completedAt"`
+	CreatedAt            *string                `json:"createdAt"`
+	Distribution         *string                `json:"distribution"`
+	GitCommitHash        *string                `json:"gitCommitHash"`
+	Id                   *string                `json:"id"`
+	Platform             *string                `json:"platform"`
+	SdkVersion           *string                `json:"sdkVersion"`
+	Status               *string                `json:"status"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
 // ExpoBuildsResponse Response containing Expo builds.
 type ExpoBuildsResponse struct {
 	// Builds List of builds from all projects
-	Builds *[]map[string]interface{} `json:"builds,omitempty"`
+	Builds *[]ExpoBuildItem `json:"builds,omitempty"`
 
 	// TotalCount Total number of builds returned
 	TotalCount *int `json:"total_count,omitempty"`
-}
-
-// ExpoProjectConfig Expo project configuration.
-type ExpoProjectConfig struct {
-	// Id Expo project ID (UUID)
-	Id string `json:"id"`
-
-	// Name Display name for the project
-	Name *string `json:"name"`
 }
 
 // ExpoProjectDbResponse Response model for Expo project configuration from database.
@@ -2777,6 +2775,15 @@ type ExpoProjectInfo struct {
 type ExpoProjectListResponse struct {
 	// Projects List of Expo project configurations
 	Projects *[]ExpoProjectDbResponse `json:"projects,omitempty"`
+}
+
+// ExpoProjectMetadataEntry Expo project entry stored in PropelAuth organization metadata (id + name only).
+type ExpoProjectMetadataEntry struct {
+	// Id Expo project ID (UUID)
+	Id string `json:"id"`
+
+	// Name Display name for the project
+	Name *string `json:"name"`
 }
 
 // ExtractBuildPackageIdResponse Response model for extracting package ID for a build.
@@ -3123,6 +3130,21 @@ type FlywheelEvalResultResponse struct {
 	WorkflowId         *openapi_types.UUID   `json:"workflow_id"`
 }
 
+// FlywheelMonitorResponse Top-level response for GET /monitor.
+type FlywheelMonitorResponse struct {
+	ErrorRate          float32                  `json:"error_rate"`
+	ErrorTrend         *float32                 `json:"error_trend"`
+	ErrorTypeBreakdown []ErrorTypeBreakdownItem `json:"error_type_breakdown"`
+	ErrorsDelta        *int                     `json:"errors_delta"`
+	EvalsDelta         *int                     `json:"evals_delta"`
+	GrounderBreakdown  []MonitorBreakdownItem   `json:"grounder_breakdown"`
+	PlatformBreakdown  []MonitorBreakdownItem   `json:"platform_breakdown"`
+	Timeseries         []MonitorTimeseriesPoint `json:"timeseries"`
+	TotalErrors        int                      `json:"total_errors"`
+	TotalEvals         int                      `json:"total_evals"`
+	TotalGroundedSteps int                      `json:"total_grounded_steps"`
+}
+
 // FlywheelStepImageUrls Image URLs for a flywheel step result.
 type FlywheelStepImageUrls struct {
 	After  *string `json:"after"`
@@ -3140,6 +3162,7 @@ type FlywheelStepResult struct {
 	Dismissed        *bool   `json:"dismissed,omitempty"`
 	ErrorType        *string `json:"error_type"`
 	Explanation      *string `json:"explanation"`
+	GrounderHint     *string `json:"grounder_hint"`
 
 	// ImageUrls Image URLs for a flywheel step result.
 	ImageUrls       *FlywheelStepImageUrls `json:"image_urls,omitempty"`
@@ -3754,6 +3777,24 @@ type ModelCostBreakdown struct {
 	TotalTokens int `json:"total_tokens"`
 }
 
+// ModuleBlock Individual block within a module - matches FrontendBlock structure.
+//
+// The id field is auto-generated if not provided, so blocks from any client
+// (frontend, CLI, direct API) are always stored with valid IDs.
+type ModuleBlock struct {
+	Children     *[]ModuleBlock `json:"children"`
+	ElseChildren *[]ModuleBlock `json:"elseChildren"`
+
+	// Id Block ID (auto-generated if not provided)
+	Id              *string        `json:"id"`
+	ModuleId        *string        `json:"module_id"`
+	StepDescription *string        `json:"step_description"`
+	StepType        *string        `json:"step_type"`
+	ThenChildren    *[]ModuleBlock `json:"thenChildren"`
+	Type            string         `json:"type"`
+	VariableName    *string        `json:"variable_name"`
+}
+
 // ModuleResponse Response model for a single module
 type ModuleResponse struct {
 	Blocks      []interface{} `json:"blocks"`
@@ -3797,12 +3838,29 @@ type ModulesListResponse struct {
 	Result  []ModuleResponse `json:"result"`
 }
 
+// MonitorBreakdownItem A single row in platform or grounder breakdown.
+type MonitorBreakdownItem struct {
+	Errors        int    `json:"errors"`
+	EvalCount     int    `json:"eval_count"`
+	GroundedSteps int    `json:"grounded_steps"`
+	Label         string `json:"label"`
+}
+
+// MonitorTimeseriesPoint A single day in the timeseries chart.
+type MonitorTimeseriesPoint struct {
+	Date          string  `json:"date"`
+	ErrorRate     float32 `json:"error_rate"`
+	Errors        int     `json:"errors"`
+	Evals         int     `json:"evals"`
+	GroundedSteps int     `json:"grounded_steps"`
+}
+
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []ChartDataPoint `json:"data"`
-	MetricType   string           `json:"metric_type"`
-	Repositories []string         `json:"repositories"`
-	RetrievedAt  string           `json:"retrieved_at"`
+	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
+	MetricType   string                                           `json:"metric_type"`
+	Repositories []string                                         `json:"repositories"`
+	RetrievedAt  string                                           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -4160,11 +4218,11 @@ type PostFinalPRCommentRequest struct {
 
 // PropelMetadataResponse Response model for Propel organization metadata.
 type PropelMetadataResponse struct {
-	BrowserProvider  *string              `json:"browser_provider"`
-	ConcurrencyLimit *int                 `json:"concurrency_limit"`
-	ExpoProjects     *[]ExpoProjectConfig `json:"expo_projects"`
-	ExpoToken        *string              `json:"expo_token"`
-	ProxyEnabled     *bool                `json:"proxy_enabled"`
+	BrowserProvider  *string                     `json:"browser_provider"`
+	ConcurrencyLimit *int                        `json:"concurrency_limit"`
+	ExpoProjects     *[]ExpoProjectMetadataEntry `json:"expo_projects"`
+	ExpoToken        *string                     `json:"expo_token"`
+	ProxyEnabled     *bool                       `json:"proxy_enabled"`
 }
 
 // ProvisionResponse defines model for ProvisionResponse.
@@ -5067,12 +5125,24 @@ type StartDeviceInfo struct {
 	OrgId        *string            `json:"org_id"`
 	Platform     *string            `json:"platform,omitempty"`
 
+	// RequestedBuildHash Optional build hash used for build-aware app readiness routing.
+	RequestedBuildHash *string `json:"requested_build_hash"`
+
+	// RequireExactBuild If true, require exact requested build for app-ready completion.
+	RequireExactBuild *bool `json:"require_exact_build,omitempty"`
+
 	// RunConfig Complete configuration for a test run.
 	RunConfig *TestRunConfigInput `json:"run_config,omitempty"`
 	SessionId *string             `json:"session_id"`
-	TestId    *string             `json:"test_id"`
-	TestInfo  *TestInput          `json:"test_info,omitempty"`
-	UserId    *string             `json:"user_id"`
+
+	// StartMode Startup mode. Use 'perception_first' for hot-path streaming-first startup.
+	StartMode *string `json:"start_mode,omitempty"`
+
+	// TargetReadiness Requested readiness milestone for startup flow.
+	TargetReadiness *string    `json:"target_readiness,omitempty"`
+	TestId          *string    `json:"test_id"`
+	TestInfo        *TestInput `json:"test_info,omitempty"`
+	UserId          *string    `json:"user_id"`
 
 	// Viewport Model for viewport dimensions used in browser sessions.
 	Viewport       *Viewport   `json:"viewport,omitempty"`
@@ -6348,7 +6418,7 @@ type UpdateInternalSlackRuleRequest struct {
 // UpdateModuleRequest Request model for updating an existing module
 type UpdateModuleRequest struct {
 	// Blocks New blocks array
-	Blocks *[]interface{} `json:"blocks"`
+	Blocks *[]ModuleBlock `json:"blocks"`
 
 	// Description New description
 	Description *string `json:"description"`
@@ -6368,11 +6438,11 @@ type UpdatePRCommentRequest struct {
 
 // UpdatePropelMetadataRequest Update request for Propel organization metadata.
 type UpdatePropelMetadataRequest struct {
-	BrowserProvider  *string              `json:"browser_provider"`
-	ConcurrencyLimit *int                 `json:"concurrency_limit"`
-	ExpoProjects     *[]ExpoProjectConfig `json:"expo_projects"`
-	ExpoToken        *string              `json:"expo_token"`
-	ProxyEnabled     *bool                `json:"proxy_enabled"`
+	BrowserProvider  *string                     `json:"browser_provider"`
+	ConcurrencyLimit *int                        `json:"concurrency_limit"`
+	ExpoProjects     *[]ExpoProjectMetadataEntry `json:"expo_projects"`
+	ExpoToken        *string                     `json:"expo_token"`
+	ProxyEnabled     *bool                       `json:"proxy_enabled"`
 }
 
 // UpdateRebelOrgSettings Update request for organization settings.
@@ -6599,9 +6669,11 @@ type UserTestsResponse struct {
 
 // ValidationError defines model for ValidationError.
 type ValidationError struct {
-	Loc  []ValidationError_Loc_Item `json:"loc"`
-	Msg  string                     `json:"msg"`
-	Type string                     `json:"type"`
+	Ctx   *map[string]interface{}    `json:"ctx,omitempty"`
+	Input interface{}                `json:"input,omitempty"`
+	Loc   []ValidationError_Loc_Item `json:"loc"`
+	Msg   string                     `json:"msg"`
+	Type  string                     `json:"type"`
 }
 
 // ValidationErrorLoc0 defines model for .
@@ -7484,16 +7556,41 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
+// AppRoutesExecutionRoutesBillingXptAttachRequest defines model for app__routes__execution_routes__billing_xpt__AttachRequest.
+type AppRoutesExecutionRoutesBillingXptAttachRequest struct {
+	ProductId   *string `json:"product_id,omitempty"`
+	RedirectUrl string  `json:"redirect_url"`
+}
+
 // AppRoutesExecutionRoutesBillingXptAttachResponse defines model for app__routes__execution_routes__billing_xpt__AttachResponse.
 type AppRoutesExecutionRoutesBillingXptAttachResponse struct {
 	CheckoutUrl *string `json:"checkout_url"`
 	Message     string  `json:"message"`
 }
 
+// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
+type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments"`
+	MedianHours *float32 `json:"median_hours"`
+	P25Hours    *float32 `json:"p25_hours"`
+	P75Hours    *float32 `json:"p75_hours"`
+	TeamAverage *float32 `json:"team_average"`
+	Trend       *string  `json:"trend"`
+	Value       *float32 `json:"value"`
+}
+
 // AppRoutesRebelRoutesBillingXptAttachRequest defines model for app__routes__rebel_routes__billing_xpt__AttachRequest.
 type AppRoutesRebelRoutesBillingXptAttachRequest struct {
 	Quantity    *int   `json:"quantity"`
 	RedirectUrl string `json:"redirect_url"`
+}
+
+// AppRoutesRebelRoutesBillingXptAttachResponse defines model for app__routes__rebel_routes__billing_xpt__AttachResponse.
+type AppRoutesRebelRoutesBillingXptAttachResponse struct {
+	CheckoutUrl *string `json:"checkout_url"`
+	Message     string  `json:"message"`
+	Success     *bool   `json:"success"`
 }
 
 // CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
@@ -7972,6 +8069,15 @@ type GetEvalQueueApiV1FlywheelEvalQueueGetParams struct {
 	Offset       *int    `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// GetMonitorApiV1FlywheelMonitorGetParams defines parameters for GetMonitorApiV1FlywheelMonitorGet.
+type GetMonitorApiV1FlywheelMonitorGetParams struct {
+	// Hours Time window in hours (default 7d)
+	Hours *int `form:"hours,omitempty" json:"hours,omitempty"`
+
+	// TimeseriesDays Days of timeseries data
+	TimeseriesDays *int `form:"timeseries_days,omitempty" json:"timeseries_days,omitempty"`
+}
+
 // CheckModuleExistsApiV1ModulesCheckExistsGetParams defines parameters for CheckModuleExistsApiV1ModulesCheckExistsGet.
 type CheckModuleExistsApiV1ModulesCheckExistsGetParams struct {
 	Name string `form:"name" json:"name"`
@@ -8401,7 +8507,7 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONReques
 type StartExplorationApiV1ExecutionApiV1StartExplorationPostJSONRequestBody = StartExplorationRequest
 
 // BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody defines body for BillingAttachApiV1ExecutionBillingAttachPost for application/json ContentType.
-type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AttachRequest
+type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AppRoutesExecutionRoutesBillingXptAttachRequest
 
 // FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody defines body for FinalizeSessionApiV1ExecutionBillingFinalizeSessionPost for application/json ContentType.
 type FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody = FinalizeSessionRequest
@@ -8598,8 +8704,8 @@ type UpdateDefaultRoleApiV1ReviewSettingsDefaultRolePutJSONRequestBody = UpdateD
 // CreateExpoProjectApiV1ReviewSettingsExpoProjectsPostJSONRequestBody defines body for CreateExpoProjectApiV1ReviewSettingsExpoProjectsPost for application/json ContentType.
 type CreateExpoProjectApiV1ReviewSettingsExpoProjectsPostJSONRequestBody = CreateExpoProjectRequest
 
-// UpdateExpoProjectApiV1ReviewSettingsExpoProjectsProjectIdPutJSONRequestBody defines body for UpdateExpoProjectApiV1ReviewSettingsExpoProjectsProjectIdPut for application/json ContentType.
-type UpdateExpoProjectApiV1ReviewSettingsExpoProjectsProjectIdPutJSONRequestBody = UpdateExpoProjectRequest
+// UpdateExpoProjectApiV1ReviewSettingsExpoProjectsConfigIdPutJSONRequestBody defines body for UpdateExpoProjectApiV1ReviewSettingsExpoProjectsConfigIdPut for application/json ContentType.
+type UpdateExpoProjectApiV1ReviewSettingsExpoProjectsConfigIdPutJSONRequestBody = UpdateExpoProjectRequest
 
 // ListExpoBuildsEndpointApiV1ReviewSettingsExpoBuildsPostJSONRequestBody defines body for ListExpoBuildsEndpointApiV1ReviewSettingsExpoBuildsPost for application/json ContentType.
 type ListExpoBuildsEndpointApiV1ReviewSettingsExpoBuildsPostJSONRequestBody = ListExpoBuildsRequest
@@ -9040,6 +9146,307 @@ func (a DOMMetadata) MarshalJSON() ([]byte, error) {
 		object["wait_time"], err = json.Marshal(a.WaitTime)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'wait_time': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for ExpoBuildArtifacts. Returns the specified
+// element and whether it was found
+func (a ExpoBuildArtifacts) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for ExpoBuildArtifacts
+func (a *ExpoBuildArtifacts) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for ExpoBuildArtifacts to handle AdditionalProperties
+func (a *ExpoBuildArtifacts) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["applicationArchiveUrl"]; found {
+		err = json.Unmarshal(raw, &a.ApplicationArchiveUrl)
+		if err != nil {
+			return fmt.Errorf("error reading 'applicationArchiveUrl': %w", err)
+		}
+		delete(object, "applicationArchiveUrl")
+	}
+
+	if raw, found := object["buildUrl"]; found {
+		err = json.Unmarshal(raw, &a.BuildUrl)
+		if err != nil {
+			return fmt.Errorf("error reading 'buildUrl': %w", err)
+		}
+		delete(object, "buildUrl")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for ExpoBuildArtifacts to handle AdditionalProperties
+func (a ExpoBuildArtifacts) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.ApplicationArchiveUrl != nil {
+		object["applicationArchiveUrl"], err = json.Marshal(a.ApplicationArchiveUrl)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'applicationArchiveUrl': %w", err)
+		}
+	}
+
+	if a.BuildUrl != nil {
+		object["buildUrl"], err = json.Marshal(a.BuildUrl)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'buildUrl': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for ExpoBuildItem. Returns the specified
+// element and whether it was found
+func (a ExpoBuildItem) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for ExpoBuildItem
+func (a *ExpoBuildItem) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for ExpoBuildItem to handle AdditionalProperties
+func (a *ExpoBuildItem) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["appVersion"]; found {
+		err = json.Unmarshal(raw, &a.AppVersion)
+		if err != nil {
+			return fmt.Errorf("error reading 'appVersion': %w", err)
+		}
+		delete(object, "appVersion")
+	}
+
+	if raw, found := object["artifacts"]; found {
+		err = json.Unmarshal(raw, &a.Artifacts)
+		if err != nil {
+			return fmt.Errorf("error reading 'artifacts': %w", err)
+		}
+		delete(object, "artifacts")
+	}
+
+	if raw, found := object["buildProfile"]; found {
+		err = json.Unmarshal(raw, &a.BuildProfile)
+		if err != nil {
+			return fmt.Errorf("error reading 'buildProfile': %w", err)
+		}
+		delete(object, "buildProfile")
+	}
+
+	if raw, found := object["completedAt"]; found {
+		err = json.Unmarshal(raw, &a.CompletedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'completedAt': %w", err)
+		}
+		delete(object, "completedAt")
+	}
+
+	if raw, found := object["createdAt"]; found {
+		err = json.Unmarshal(raw, &a.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'createdAt': %w", err)
+		}
+		delete(object, "createdAt")
+	}
+
+	if raw, found := object["distribution"]; found {
+		err = json.Unmarshal(raw, &a.Distribution)
+		if err != nil {
+			return fmt.Errorf("error reading 'distribution': %w", err)
+		}
+		delete(object, "distribution")
+	}
+
+	if raw, found := object["gitCommitHash"]; found {
+		err = json.Unmarshal(raw, &a.GitCommitHash)
+		if err != nil {
+			return fmt.Errorf("error reading 'gitCommitHash': %w", err)
+		}
+		delete(object, "gitCommitHash")
+	}
+
+	if raw, found := object["id"]; found {
+		err = json.Unmarshal(raw, &a.Id)
+		if err != nil {
+			return fmt.Errorf("error reading 'id': %w", err)
+		}
+		delete(object, "id")
+	}
+
+	if raw, found := object["platform"]; found {
+		err = json.Unmarshal(raw, &a.Platform)
+		if err != nil {
+			return fmt.Errorf("error reading 'platform': %w", err)
+		}
+		delete(object, "platform")
+	}
+
+	if raw, found := object["sdkVersion"]; found {
+		err = json.Unmarshal(raw, &a.SdkVersion)
+		if err != nil {
+			return fmt.Errorf("error reading 'sdkVersion': %w", err)
+		}
+		delete(object, "sdkVersion")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for ExpoBuildItem to handle AdditionalProperties
+func (a ExpoBuildItem) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.AppVersion != nil {
+		object["appVersion"], err = json.Marshal(a.AppVersion)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'appVersion': %w", err)
+		}
+	}
+
+	if a.Artifacts != nil {
+		object["artifacts"], err = json.Marshal(a.Artifacts)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'artifacts': %w", err)
+		}
+	}
+
+	if a.BuildProfile != nil {
+		object["buildProfile"], err = json.Marshal(a.BuildProfile)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'buildProfile': %w", err)
+		}
+	}
+
+	if a.CompletedAt != nil {
+		object["completedAt"], err = json.Marshal(a.CompletedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'completedAt': %w", err)
+		}
+	}
+
+	if a.CreatedAt != nil {
+		object["createdAt"], err = json.Marshal(a.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'createdAt': %w", err)
+		}
+	}
+
+	if a.Distribution != nil {
+		object["distribution"], err = json.Marshal(a.Distribution)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'distribution': %w", err)
+		}
+	}
+
+	if a.GitCommitHash != nil {
+		object["gitCommitHash"], err = json.Marshal(a.GitCommitHash)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'gitCommitHash': %w", err)
+		}
+	}
+
+	if a.Id != nil {
+		object["id"], err = json.Marshal(a.Id)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'id': %w", err)
+		}
+	}
+
+	if a.Platform != nil {
+		object["platform"], err = json.Marshal(a.Platform)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'platform': %w", err)
+		}
+	}
+
+	if a.SdkVersion != nil {
+		object["sdkVersion"], err = json.Marshal(a.SdkVersion)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'sdkVersion': %w", err)
+		}
+	}
+
+	if a.Status != nil {
+		object["status"], err = json.Marshal(a.Status)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'status': %w", err)
 		}
 	}
 

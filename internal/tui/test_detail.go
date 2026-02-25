@@ -38,6 +38,7 @@ var testDetailActions = []testDetailAction{
 	{Key: "t", Desc: "Manage tags"},
 	{Key: "e", Desc: "Manage env vars"},
 	{Key: "x", Desc: "Delete test"},
+	{Key: "n", Desc: "Rename test"},
 }
 
 // --- Commands ---
@@ -323,6 +324,74 @@ func handleTestDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return handleTagPickerKeyFromDetail(m, msg)
 	}
 
+	// Rename overlay
+	if m.testRenameActive {
+		if m.testRenameConfirm {
+			switch msg.String() {
+			case "y", "Y":
+				if m.selectedTestDetail == nil {
+					m.testRenameConfirm = false
+					m.testRenameError = "no test selected"
+					m.testRenameInput.Focus()
+					return m, textinput.Blink
+				}
+				if m.client == nil {
+					m.testRenameConfirm = false
+					m.testRenameError = "not authenticated"
+					m.testRenameInput.Focus()
+					return m, textinput.Blink
+				}
+
+				newName := strings.TrimSpace(m.testRenameTargetName)
+				if err := validateTUIResourceName(newName, "test"); err != nil {
+					m.testRenameConfirm = false
+					m.testRenameError = err.Error()
+					m.testRenameInput.Focus()
+					return m, textinput.Blink
+				}
+
+				m.testRenameLoading = true
+				return m, renameTestCmd(m.client, m.selectedTestDetail.ID, m.selectedTestDetail.Name, newName)
+
+			case "n", "N", "esc":
+				m.testRenameConfirm = false
+				m.testRenameLoading = false
+				m.testRenameError = ""
+				m.testRenameInput.Focus()
+				return m, textinput.Blink
+			default:
+				return m, nil
+			}
+		}
+
+		switch msg.String() {
+		case "esc":
+			resetTestRenameState(&m)
+			return m, nil
+		case "enter":
+			newName := strings.TrimSpace(m.testRenameInput.Value())
+			if err := validateTUIResourceName(newName, "test"); err != nil {
+				m.testRenameError = err.Error()
+				return m, nil
+			}
+			oldName := ""
+			if m.selectedTestDetail != nil {
+				oldName = m.selectedTestDetail.Name
+			}
+			m.testRenameError = ""
+			m.testRenameTargetName = newName
+			m.testRenamePreview = buildTestRenamePreview(oldName, newName)
+			m.testRenameConfirm = true
+			m.testRenameInput.Blur()
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.testRenameInput, cmd = m.testRenameInput.Update(msg)
+			m.testRenameError = ""
+			return m, cmd
+		}
+	}
+
 	// Delete confirmation
 	if m.testDetailConfirmDelete {
 		switch msg.String() {
@@ -359,6 +428,7 @@ func handleTestDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "esc":
+		resetTestRenameState(&m)
 		m.currentView = viewTestList
 		m.selectedTestDetail = nil
 		m.testDetailCursor = 0
@@ -452,8 +522,45 @@ func executeTestDetailActionByKey(m hubModel, key string) (tea.Model, tea.Cmd) {
 		}
 	case "x":
 		m.testDetailConfirmDelete = true
+	case "n":
+		if m.selectedTestDetail != nil {
+			m.testRenameActive = true
+			m.testRenameConfirm = false
+			m.testRenameLoading = false
+			m.testRenameError = ""
+			m.testRenameTargetName = ""
+			m.testRenamePreview = ""
+			m.testRenameInput.SetValue(m.selectedTestDetail.Name)
+			m.testRenameInput.Focus()
+			return m, textinput.Blink
+		}
 	}
 	return m, nil
+}
+
+func resetTestRenameState(m *hubModel) {
+	m.testRenameActive = false
+	m.testRenameConfirm = false
+	m.testRenameLoading = false
+	m.testRenameTargetName = ""
+	m.testRenamePreview = ""
+	m.testRenameError = ""
+	m.testRenameInput.Blur()
+	m.testRenameInput.SetValue("")
+}
+
+func buildTestRenamePreview(oldName, newName string) string {
+	var lines []string
+	if oldName == "" {
+		lines = append(lines, fmt.Sprintf("Remote: -> %s", newName))
+	} else if oldName == newName {
+		lines = append(lines, fmt.Sprintf("Remote: already named %s", newName))
+	} else {
+		lines = append(lines, fmt.Sprintf("Remote: %s -> %s", oldName, newName))
+	}
+	lines = append(lines, "Local alias/file updates: applied when mappings are unambiguous.")
+	lines = append(lines, "Conflicts are blocked to avoid overwriting another test.")
+	return strings.Join(lines, "\n")
 }
 
 // handleEnvVarEditorKey processes key events in the env var editor overlay.
@@ -672,6 +779,13 @@ func renderTestDetail(m hubModel) string {
 		return b.String()
 	}
 
+	// Rename overlay
+	if m.testRenameActive {
+		b.WriteString("\n")
+		b.WriteString(renderTestRenameOverlay(m, innerW))
+		return b.String()
+	}
+
 	// Actions section
 	b.WriteString("\n")
 	b.WriteString(sectionStyle.Render("  ACTIONS") + "\n")
@@ -685,8 +799,7 @@ func renderTestDetail(m hubModel) string {
 			descStyle = normalStyle
 		}
 		num := lipgloss.NewStyle().Foreground(purple).Bold(true).Render(fmt.Sprintf("[%d]", i+1))
-		key := lipgloss.NewStyle().Foreground(purple).Bold(true).Render("[" + a.Key + "]")
-		b.WriteString(fmt.Sprintf("  %s%s %s %s\n", cursor, num, key, descStyle.Render(a.Desc)))
+		b.WriteString(fmt.Sprintf("  %s%s %s\n", cursor, num, descStyle.Render(a.Desc)))
 	}
 
 	// Footer
@@ -753,6 +866,42 @@ func renderEnvVarEditor(m hubModel, innerW int) string {
 		helpKeyRender("d", "delete"),
 		helpKeyRender("v", "toggle values"),
 		helpKeyRender("esc", "close"),
+	}
+	b.WriteString(strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
+func renderTestRenameOverlay(m hubModel, innerW int) string {
+	var b strings.Builder
+
+	b.WriteString(sectionStyle.Render("  RENAME TEST") + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	if m.testRenameLoading {
+		b.WriteString("  " + m.spinner.View() + " Renaming...\n")
+		return b.String()
+	}
+
+	if m.testRenameConfirm {
+		if m.testRenamePreview != "" {
+			for _, line := range strings.Split(m.testRenamePreview, "\n") {
+				b.WriteString("  " + normalStyle.Render(line) + "\n")
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("  " + warningStyle.Render("Apply rename? (y/n)") + "\n")
+		return b.String()
+	}
+
+	b.WriteString("  New name: " + m.testRenameInput.View() + "\n")
+	if m.testRenameError != "" {
+		b.WriteString("  " + errorStyle.Render(m.testRenameError) + "\n")
+	}
+
+	b.WriteString("\n  ")
+	keys := []string{
+		helpKeyRender("enter", "preview"),
+		helpKeyRender("esc", "cancel"),
 	}
 	b.WriteString(strings.Join(keys, "  ") + "\n")
 	return b.String()

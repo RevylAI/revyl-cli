@@ -29,7 +29,7 @@ const (
 // createAppModel manages the state of the inline "Create an app" TUI flow.
 //
 // Fields mirror the test-creation wizard in create.go with app-specific
-// post-creation options (view builds vs back to apps).
+// post-creation options (upload now vs maybe later).
 type createAppModel struct {
 	step           appCreateStep
 	nameInput      textinput.Model
@@ -50,9 +50,9 @@ type createAppModel struct {
 	createdID   string
 	createdName string
 	done        bool
-	viewBuilds  bool
+	uploadNow   bool
 
-	// Post-creation action cursor (0=view builds, 1=back to apps)
+	// Post-creation action cursor (0=upload now, 1=maybe later)
 	doneCursor int
 }
 
@@ -263,7 +263,7 @@ func (m createAppModel) handleDoneKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		m.done = true
-		m.viewBuilds = m.doneCursor == 0
+		m.uploadNow = m.doneCursor == 0
 	}
 	return m, nil
 }
@@ -338,9 +338,9 @@ func (m createAppModel) View() string {
 		name := strings.TrimSpace(m.nameInput.Value())
 		b.WriteString("  " + successStyle.Render("✓ Created app: "+name) + "\n")
 		b.WriteString("  " + dimStyle.Render("ID: "+m.createdID) + "\n\n")
-		b.WriteString("  " + normalStyle.Render("What next?") + "\n\n")
+		b.WriteString("  " + normalStyle.Render("Upload a build now?") + "\n\n")
 
-		options := []string{"View builds", "Back to apps"}
+		options := []string{"Upload build now", "Maybe later"}
 		for i, opt := range options {
 			cur := "  "
 			style := normalStyle

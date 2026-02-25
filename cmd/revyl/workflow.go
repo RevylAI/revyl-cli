@@ -32,6 +32,7 @@ COMMANDS:
   run     - Run a workflow (add --build to build and upload first)
   cancel  - Cancel a running workflow
   create  - Create a new workflow
+  rename  - Rename a workflow while preserving history
   delete  - Delete a workflow
   open    - Open a workflow in the browser
   status  - Show latest execution status
@@ -110,6 +111,22 @@ EXAMPLES:
 	RunE: runCreateWorkflow,
 }
 
+// workflowRenameCmd renames a workflow while preserving history.
+var workflowRenameCmd = &cobra.Command{
+	Use:   "rename [old-name|id] [new-name]",
+	Short: "Rename a workflow without recreating it",
+	Long: `Rename a workflow while keeping the same workflow ID and execution history.
+
+When called with no args in a TTY, this command prompts for workflow selection
+and the new name.
+
+EXAMPLES:
+  revyl workflow rename smoke-tests regression-smoke
+  revyl workflow rename`,
+	Args: cobra.MaximumNArgs(2),
+	RunE: runRenameWorkflow,
+}
+
 // workflowDeleteCmd deletes a workflow.
 var workflowDeleteCmd = &cobra.Command{
 	Use:   "delete <name|id>",
@@ -133,6 +150,7 @@ func init() {
 	workflowCmd.AddCommand(workflowRunCmd)
 	workflowCmd.AddCommand(workflowCancelCmd)
 	workflowCmd.AddCommand(workflowCreateCmd)
+	workflowCmd.AddCommand(workflowRenameCmd)
 	workflowCmd.AddCommand(workflowDeleteCmd)
 	workflowCmd.AddCommand(workflowOpenCmd)
 	workflowCmd.AddCommand(workflowStatusCmd)
@@ -167,6 +185,9 @@ func init() {
 	workflowCreateCmd.Flags().BoolVar(&createWorkflowNoOpen, "no-open", false, "Skip opening browser to workflow editor")
 	workflowCreateCmd.Flags().BoolVar(&createWorkflowNoSync, "no-sync", false, "Skip adding workflow to .revyl/config.yaml")
 	workflowCreateCmd.Flags().BoolVar(&createWorkflowDryRun, "dry-run", false, "Show what would be created without creating")
+
+	workflowRenameCmd.Flags().BoolVar(&workflowRenameNonInteractive, "non-interactive", false, "Disable prompts; requires both positional args")
+	workflowRenameCmd.Flags().BoolVarP(&workflowRenameYes, "yes", "y", false, "Auto-accept default rename prompts")
 }
 
 // runWorkflowList lists all workflows from the organization API.

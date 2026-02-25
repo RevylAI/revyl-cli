@@ -179,6 +179,60 @@ func TestUpdate_TestDeletedMsgErrorSetsErr(t *testing.T) {
 	}
 }
 
+func TestUpdate_TestRenamedMsgSuccessUpdatesDetailState(t *testing.T) {
+	m := newHubModel("dev", false)
+	m.currentView = viewTestDetail
+	m.selectedTestDetail = &TestDetail{ID: "test-1", Name: "Checkout", Platform: "ios"}
+	m.testRenameActive = true
+	m.testRenameConfirm = true
+	m.testRenameLoading = true
+	m.testRenameInput.SetValue("Checkout v2")
+
+	nextModel, cmd := m.Update(TestRenamedMsg{
+		ID:      "test-1",
+		OldName: "Checkout",
+		NewName: "Checkout v2",
+		Summary: "Remote renamed: Checkout -> Checkout v2",
+	})
+	if cmd != nil {
+		t.Fatalf("expected nil cmd without client, got %v", cmd)
+	}
+
+	next := nextModel.(hubModel)
+	if next.selectedTestDetail == nil || next.selectedTestDetail.Name != "Checkout v2" {
+		t.Fatalf("expected selected detail name to update, got %#v", next.selectedTestDetail)
+	}
+	if next.testRenameActive || next.testRenameConfirm || next.testRenameLoading {
+		t.Fatalf("expected rename state to reset after success")
+	}
+	if next.testSyncResult == "" {
+		t.Fatalf("expected rename summary to be shown in result panel")
+	}
+}
+
+func TestUpdate_TestRenamedMsgErrorKeepsRenameFlowActive(t *testing.T) {
+	m := newHubModel("dev", false)
+	m.testRenameActive = true
+	m.testRenameConfirm = true
+	m.testRenameLoading = true
+
+	nextModel, cmd := m.Update(TestRenamedMsg{Err: errors.New("rename failed")})
+	if cmd == nil {
+		t.Fatalf("expected blink cmd on rename error")
+	}
+
+	next := nextModel.(hubModel)
+	if !next.testRenameActive {
+		t.Fatalf("expected rename flow to remain active")
+	}
+	if next.testRenameConfirm {
+		t.Fatalf("expected confirmation mode to clear after rename error")
+	}
+	if next.testRenameError == "" {
+		t.Fatalf("expected rename error message to be stored")
+	}
+}
+
 func TestQuickActions_RunItemsRemoved(t *testing.T) {
 	for _, action := range quickActions {
 		if action.Key == "run" || action.Key == "run_workflow" {

@@ -7,6 +7,7 @@ package execution
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
@@ -140,7 +141,7 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 		// If we have a valid final status (e.g., cancelled via frontend while context was cancelled),
 		// prefer using it over reporting a generic error
 		if finalStatus != nil && status.IsTerminal(finalStatus.Status) {
-			reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), resp.TaskID)
+			reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 			return &RunTestResult{
 				Success:      status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
 				TaskID:       resp.TaskID,
@@ -160,7 +161,7 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 		}, nil
 	}
 
-	reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), resp.TaskID)
+	reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 
 	return &RunTestResult{
 		Success:      status.IsSuccess(finalStatus.Status, finalStatus.Success, finalStatus.ErrorMessage),
@@ -307,7 +308,7 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 		// If we have a valid final status (e.g., cancelled via frontend while context was cancelled),
 		// prefer using it over reporting a generic error
 		if finalStatus != nil && status.IsTerminal(finalStatus.Status) {
-			reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), resp.TaskID)
+			reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 			return &RunWorkflowResult{
 				Success:      status.IsWorkflowSuccess(finalStatus.Status, finalStatus.FailedTests),
 				TaskID:       resp.TaskID,
@@ -330,7 +331,7 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 		}, nil
 	}
 
-	reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), resp.TaskID)
+	reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 
 	return &RunWorkflowResult{
 		Success:      status.IsWorkflowSuccess(finalStatus.Status, finalStatus.FailedTests),

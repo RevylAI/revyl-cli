@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,6 +130,13 @@ type hubModel struct {
 	testDetailCursor        int
 	testDetailConfirmDelete bool
 	testSyncResult          string
+	testRenameActive        bool
+	testRenameConfirm       bool
+	testRenameLoading       bool
+	testRenameInput         textinput.Model
+	testRenameTargetName    string
+	testRenamePreview       string
+	testRenameError         string
 
 	// Env var editor state (overlay in test detail)
 	envVarEditorActive  bool
@@ -160,12 +168,15 @@ type hubModel struct {
 	deviceSessions       []api.ActiveDeviceSessionItem
 	deviceCursor         int
 	devicesLoading       bool
+	deviceOrgID          string
 	selectedDeviceID     string
 	deviceStarting       bool   // true while provisioning a new device
 	deviceStartPicking   bool   // true when platform picker overlay is showing
-	devicePlatformCursor int    // cursor for platform picker (0=android, 1=ios)
+	devicePlatformCursor int    // cursor for platform picker (0=ios, 1=android)
 	deviceConfirmStop    bool   // true when stop confirmation is pending
 	deviceStopTarget     string // workflow run ID of the session to stop
+	deviceDetailPollSeq  int    // sequence token used to run a single detail poll loop
+	deviceListPollSeq    int    // sequence token used to run a single list poll loop
 
 	// Module browser state
 	moduleItems         []ModuleItem
@@ -266,6 +277,10 @@ func newHubModel(version string, devMode bool) hubModel {
 	wffi.Placeholder = "filter workflows..."
 	wffi.CharLimit = 64
 
+	trn := textinput.New()
+	trn.Placeholder = "new test name..."
+	trn.CharLimit = 128
+
 	sti := textinput.New()
 	sti.Placeholder = "timeout seconds"
 	sti.CharLimit = 8
@@ -283,6 +298,7 @@ func newHubModel(version string, devMode bool) hubModel {
 		tagNameInput:         tni,
 		wfCreateNameInput:    wfni,
 		wfFilterInput:        wffi,
+		testRenameInput:      trn,
 		settingsTimeout:      config.DefaultTimeoutSeconds,
 		settingsOpenBrowser:  config.DefaultOpenBrowser,
 		settingsTimeoutInput: sti,
@@ -888,6 +904,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loading = false
 			m.client = nil
 			m.apiKey = ""
+			m.deviceOrgID = ""
 			m.authErr = msg.Err
 			m.err = nil
 			m.currentView = viewHelp
@@ -899,6 +916,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.apiKey = msg.Token
 		m.client = msg.Client
+		m.deviceOrgID = ""
 		if m.returnToDashboardAfterAuth {
 			m.currentView = viewDashboard
 			m.returnToDashboardAfterAuth = false
@@ -1067,6 +1085,43 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case TestRenamedMsg:
+		m.testRenameLoading = false
+		if msg.Err != nil {
+			m.testRenameError = msg.Err.Error()
+			m.testRenameConfirm = false
+			m.testRenameActive = true
+			m.testRenameInput.Focus()
+			return m, textinput.Blink
+		}
+
+		m.testRenameActive = false
+		m.testRenameConfirm = false
+		m.testRenameTargetName = ""
+		m.testRenamePreview = ""
+		m.testRenameError = ""
+		m.testRenameInput.Blur()
+		m.testRenameInput.SetValue("")
+		m.testSyncResult = msg.Summary
+
+		if m.selectedTestDetail != nil && m.selectedTestDetail.ID == msg.ID {
+			m.selectedTestDetail.Name = msg.NewName
+		}
+		if m.selectedTestID != "" && m.selectedTestID == msg.ID {
+			m.selectedTestName = msg.NewName
+		}
+
+		if m.client == nil {
+			return m, nil
+		}
+
+		var cmds []tea.Cmd
+		if m.selectedTestDetail != nil && m.selectedTestDetail.ID == msg.ID {
+			cmds = append(cmds, fetchTestDetailCmd(m.client, m.selectedTestDetail.ID, msg.NewName, m.selectedTestDetail.Platform, m.devMode))
+		}
+		cmds = append(cmds, fetchTestsCmd(m.client))
+		return m, tea.Batch(cmds...)
+
 	// --- Env var messages ---
 
 	case EnvVarListMsg:
@@ -1167,10 +1222,67 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// --- Device session messages ---
 
+	case DeviceListPollTickMsg:
+		if msg.Seq != m.deviceListPollSeq {
+			return m, nil
+		}
+		if m.currentView != viewDeviceList || m.client == nil {
+			return m, nil
+		}
+
+		hasTransitionalSession := false
+		for _, session := range m.deviceSessions {
+			if isDeviceStatusTransitional(session.Status) {
+				hasTransitionalSession = true
+				break
+			}
+		}
+		if !hasTransitionalSession {
+			return m, nil
+		}
+
+		nextTick := deviceListPollTickCmd(msg.Seq)
+		if m.devicesLoading {
+			return m, nextTick
+		}
+
+		m.devicesLoading = true
+		return m, tea.Batch(
+			fetchDeviceSessionsCmd(m.client, m.deviceOrgID),
+			nextTick,
+		)
+
+	case DeviceDetailPollTickMsg:
+		if msg.Seq != m.deviceDetailPollSeq {
+			return m, nil
+		}
+		if m.currentView != viewDeviceDetail || m.client == nil {
+			return m, nil
+		}
+
+		session := m.selectedDeviceSession()
+		if session == nil || !isDeviceStatusTransitional(session.Status) {
+			return m, nil
+		}
+
+		nextTick := deviceDetailPollTickCmd(msg.Seq)
+		if m.devicesLoading {
+			return m, nextTick
+		}
+
+		m.devicesLoading = true
+		return m, tea.Batch(
+			fetchDeviceSessionsCmd(m.client, m.deviceOrgID),
+			nextTick,
+		)
+
 	case DeviceSessionListMsg:
 		m.devicesLoading = false
 		if msg.Err == nil {
 			m.deviceSessions = msg.Sessions
+			if strings.TrimSpace(msg.OrgID) != "" {
+				m.deviceOrgID = strings.TrimSpace(msg.OrgID)
+			}
 		}
 		return m, nil
 
@@ -1187,7 +1299,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh the session list
 		m.devicesLoading = true
 		if m.client != nil {
-			return m, fetchDeviceSessionsCmd(m.client)
+			return m, fetchDeviceSessionsCmd(m.client, m.deviceOrgID)
 		}
 		return m, nil
 
@@ -1197,7 +1309,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.deviceStopTarget = ""
 		if msg.Err == nil && m.client != nil {
 			m.devicesLoading = true
-			return m, fetchDeviceSessionsCmd(m.client)
+			return m, fetchDeviceSessionsCmd(m.client, m.deviceOrgID)
 		}
 		return m, nil
 
@@ -1618,8 +1730,12 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		m.currentView = viewDeviceList
 		m.deviceCursor = 0
 		m.devicesLoading = true
+		m.deviceListPollSeq++
 		if m.client != nil {
-			return m, fetchDeviceSessionsCmd(m.client)
+			return m, tea.Batch(
+				fetchDeviceSessionsCmd(m.client, m.deviceOrgID),
+				deviceListPollTickCmd(m.deviceListPollSeq),
+			)
 		}
 		return m, nil
 
@@ -1771,6 +1887,14 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentView = viewTestDetail
 		m.testDetailLoading = true
 		m.testDetailCursor = 0
+		m.testRenameActive = false
+		m.testRenameConfirm = false
+		m.testRenameLoading = false
+		m.testRenameTargetName = ""
+		m.testRenamePreview = ""
+		m.testRenameError = ""
+		m.testRenameInput.Blur()
+		m.testRenameInput.SetValue("")
 		if m.client != nil {
 			return m, fetchTestDetailCmd(m.client, selected.ID, selected.Name, selected.Platform, m.devMode)
 		}
@@ -1940,8 +2064,30 @@ func (m hubModel) updateCreateApp(msg tea.Msg) (tea.Model, tea.Cmd) {
 		appMdl := cm.(createAppModel)
 		m.createAppModel = &appMdl
 
-		// If creation completed and user chose "View builds"
-		if m.createAppModel.done && m.createAppModel.viewBuilds {
+		// If creation completed and user chose "Upload build now"
+		if m.createAppModel.done && m.createAppModel.uploadNow {
+			appID := m.createAppModel.createdID
+			appName := m.createAppModel.createdName
+			if appName == "" {
+				appName = strings.TrimSpace(m.createAppModel.nameInput.Value())
+			}
+			m.createAppModel = nil
+			m.selectedAppID = appID
+			m.selectedAppName = appName
+			m.appBuildCursor = 0
+			m.appBuilds = nil
+			um := newUploadBuildModel(m.client, appID, appName, m.width, m.height)
+			m.uploadBuildModel = &um
+			m.currentView = viewUploadBuild
+			if m.client != nil {
+				m.appsLoading = true
+				return m, tea.Batch(m.uploadBuildModel.Init(), fetchAppsCmd(m.client))
+			}
+			return m, m.uploadBuildModel.Init()
+		}
+
+		// If creation completed and user chose "Maybe later"
+		if m.createAppModel.done && !m.createAppModel.uploadNow {
 			appID := m.createAppModel.createdID
 			appName := m.createAppModel.createdName
 			if appName == "" {
@@ -1960,17 +2106,6 @@ func (m hubModel) updateCreateApp(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// If creation completed and user chose "Back to apps"
-		if m.createAppModel.done && !m.createAppModel.viewBuilds {
-			m.createAppModel = nil
-			m.appsLoading = true
-			m.currentView = viewAppList
-			if m.client != nil {
-				return m, fetchAppsCmd(m.client)
-			}
-			return m, nil
-		}
-
 		return m, cmd
 	}
 
@@ -1981,8 +2116,21 @@ func (m hubModel) updateCreateApp(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
 		if m.uploadBuildModel != nil && !m.uploadBuildModel.uploading {
+			appID := m.uploadBuildModel.appID
+			appName := m.uploadBuildModel.appName
+			if appID != "" {
+				m.selectedAppID = appID
+			}
+			if appName != "" {
+				m.selectedAppName = appName
+			}
 			m.currentView = viewAppDetail
 			m.uploadBuildModel = nil
+			m.appsLoading = true
+			m.appBuilds = nil
+			if m.client != nil && m.selectedAppID != "" {
+				return m, tea.Batch(fetchAppBuildsCmd(m.client, m.selectedAppID), fetchAppsCmd(m.client))
+			}
 			return m, nil
 		}
 	}
@@ -2014,7 +2162,7 @@ func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.appBuilds = nil
 			m.currentView = viewAppDetail
 			if m.client != nil {
-				return m, fetchAppBuildsCmd(m.client, m.selectedAppID)
+				return m, tea.Batch(fetchAppBuildsCmd(m.client, m.selectedAppID), fetchAppsCmd(m.client))
 			}
 			return m, nil
 		}
@@ -2975,7 +3123,7 @@ func (m hubModel) selectedWorkflowRunReportURL() string {
 	if taskID == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(m.devMode), taskID)
+	return fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(m.devMode), url.QueryEscape(taskID))
 }
 
 func truncateText(value string, maxLen int) string {

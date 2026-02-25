@@ -24,7 +24,7 @@ const maxResourceNameLen = 128
 // because they collide with Cobra's command resolution.
 var reservedNames = map[string]bool{
 	"run": true, "create": true, "delete": true, "open": true, "cancel": true,
-	"list": true, "remote": true, "push": true, "pull": true, "diff": true,
+	"list": true, "remote": true, "push": true, "pull": true, "diff": true, "rename": true,
 	"validate": true, "setup": true, "help": true,
 	"status": true, "history": true, "report": true, "share": true,
 }
