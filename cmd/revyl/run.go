@@ -19,6 +19,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/build"
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/hotreload"
@@ -215,6 +216,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 
 		startTime := time.Now()
 		runner := build.NewRunner(cwd)
+		runner.Interactive = true
 
 		err = runner.Run(buildCfg.Command, func(line string) {
 			ui.PrintDim("  %s", line)
@@ -609,6 +611,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 
 		startTime := time.Now()
 		runner := build.NewRunner(cwd)
+		runner.Interactive = true
 
 		err = runner.Run(buildCfg.Command, func(line string) {
 			ui.PrintDim("  %s", line)
@@ -973,7 +976,12 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		}
 
 		client := api.NewClientWithDevMode(apiKey, devMode)
-		latestVersion, latestErr := client.GetLatestBuildVersion(cmd.Context(), platformCfg.AppID)
+		selectedVersion, source, warnings, latestErr := buildselection.SelectPreferredBuildVersion(
+			cmd.Context(),
+			client,
+			platformCfg.AppID,
+			cwd,
+		)
 		if latestErr != nil {
 			ui.PrintError("Failed to get latest build version for platform '%s': %v", platformKey, latestErr)
 			if diagnosis := diagnoseHotReloadNetworkError(latestErr); diagnosis != "" {
@@ -984,9 +992,16 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 			}
 			return latestErr
 		}
-		if latestVersion != nil {
-			buildVersionID = latestVersion.ID
-			buildSource = fmt.Sprintf("platform:%s", platformKey)
+		for _, warning := range warnings {
+			ui.PrintWarning("%s", warning)
+		}
+		if selectedVersion != nil {
+			buildVersionID = selectedVersion.ID
+			if source != "" {
+				buildSource = fmt.Sprintf("platform:%s,%s", platformKey, source)
+			} else {
+				buildSource = fmt.Sprintf("platform:%s", platformKey)
+			}
 		}
 	}
 

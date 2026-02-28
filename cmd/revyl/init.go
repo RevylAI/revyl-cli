@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -198,10 +199,31 @@ func runInit(cmd *cobra.Command, args []string) error {
 	ui.PrintStepHeader(5, 6, "First Build")
 	wizardFirstBuild(ctx, client, cfg, configPath)
 
-	// ── Step 6/6: Create First Test ──────────────────────────────────────
-	ui.PrintStepHeader(6, 6, "Create First Test")
+	// ── Step 6/6: What's Next ────────────────────────────────────────────
+	ui.PrintStepHeader(6, 6, "What's Next")
 
-	testID, testName := wizardCreateTest(ctx, client, cfg, configPath, devMode, userInfo)
+	var testID, testName string
+	launchDevice := false
+
+	options := []string{
+		"Start a live dev session",
+		"Create a test",
+		"Skip for now",
+	}
+	ui.PrintInfo("What would you like to do?")
+	selection, err := ui.PromptSelect("", options)
+	if err == nil {
+		switch selection {
+		case 0:
+			launchDevice = true
+		case 1:
+			testID, testName = wizardCreateTest(ctx, client, cfg, configPath, devMode, userInfo)
+		default:
+			ui.PrintDim("You can always run these later:")
+			ui.PrintDim("  revyl dev              — start a live device")
+			ui.PrintDim("  revyl test create      — create a test")
+		}
+	}
 
 	// ── Summary ──────────────────────────────────────────────────────────
 	// Mark config as synced now that all wizard steps have completed.
@@ -230,6 +252,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	printHotReloadInfo(cwd, cfg)
 	printDynamicNextSteps(cfg, authOK, testID)
+
+	// Launch live device session if selected (after summary so user sees it)
+	if launchDevice {
+		ui.Println()
+		ui.PrintInfo("Starting live device session...")
+		ui.Println()
+		wizardLaunchDevice(ctx, cfg, devMode)
+	}
 
 	return nil
 }
@@ -372,7 +402,11 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 
 	// For Expo, default to explicit dev/ci streams to avoid cross-contaminating
 	// hot reload dev clients with CI/release uploads.
-	configureExpoBuildStreams(cfg)
+	configureExpoBuildStreams(cfg, cwd)
+
+	// Validate EAS profiles for iOS simulator builds after configuring streams
+	validateAndFixEASProfiles(cfg, cwd)
+
 	if overrideOpts != nil {
 		if err := applyXcodeSchemeOverrides(cfg, overrideOpts.XcodeSchemeOverrides); err != nil {
 			return nil, err
@@ -403,6 +437,16 @@ credentials.json
 
 # Local overrides (optional)
 config.local.yaml
+
+# Device session cache (local machine state)
+device-sessions.json
+device-session.json
+device.json
+
+# Generated per-machine runtime files
+remote.json
+shell-init.sh
+.services.pid
 `
 	if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
 		ui.PrintWarning("Failed to create .gitignore: %v", err)
@@ -766,10 +810,24 @@ func normalizeExpoBuildCommand(system, command string) (string, bool) {
 	return normalized, normalized != command
 }
 
-func defaultExpoBuildPlatforms() map[string]config.BuildPlatform {
+func defaultExpoBuildPlatforms(dir string) map[string]config.BuildPlatform {
+	// Try to pick the right EAS profiles based on eas.json
+	iosDevProfile := "development"
+	iosCIProfile := "preview"
+
+	easCfg, err := build.LoadEASConfig(dir)
+	if err == nil && easCfg != nil {
+		if p := easCfg.FindDevSimulatorProfile(); p != "" {
+			iosDevProfile = p
+		}
+		if p := easCfg.FindCISimulatorProfile(); p != "" {
+			iosCIProfile = p
+		}
+	}
+
 	return map[string]config.BuildPlatform{
 		"ios-dev": {
-			Command: "npx --yes eas-cli build --platform ios --profile development --local --output build/dev-ios.tar.gz",
+			Command: fmt.Sprintf("npx --yes eas-cli build --platform ios --profile %s --local --output build/dev-ios.tar.gz", iosDevProfile),
 			Output:  "build/dev-ios.tar.gz",
 		},
 		"android-dev": {
@@ -777,7 +835,7 @@ func defaultExpoBuildPlatforms() map[string]config.BuildPlatform {
 			Output:  "build/dev-android.apk",
 		},
 		"ios-ci": {
-			Command: "npx --yes eas-cli build --platform ios --profile preview --local --output build/ci-ios.tar.gz",
+			Command: fmt.Sprintf("npx --yes eas-cli build --platform ios --profile %s --local --output build/ci-ios.tar.gz", iosCIProfile),
 			Output:  "build/ci-ios.tar.gz",
 		},
 		"android-ci": {
@@ -788,7 +846,7 @@ func defaultExpoBuildPlatforms() map[string]config.BuildPlatform {
 }
 
 // configureExpoBuildStreams ensures Expo projects have separate dev/ci build keys.
-func configureExpoBuildStreams(cfg *config.ProjectConfig) {
+func configureExpoBuildStreams(cfg *config.ProjectConfig, cwd string) {
 	if cfg == nil || !isExpoBuildSystem(cfg.Build.System) {
 		return
 	}
@@ -818,10 +876,62 @@ func configureExpoBuildStreams(cfg *config.ProjectConfig) {
 		return
 	}
 
-	cfg.Build.Platforms = defaultExpoBuildPlatforms()
+	cfg.Build.Platforms = defaultExpoBuildPlatforms(cwd)
 	if platformCfg, ok := cfg.Build.Platforms["ios-dev"]; ok {
 		cfg.Build.Command = platformCfg.Command
 		cfg.Build.Output = platformCfg.Output
+	}
+}
+
+// validateAndFixEASProfiles checks each iOS platform command for simulator profile
+// correctness and prompts the user to switch if a better profile is available.
+func validateAndFixEASProfiles(cfg *config.ProjectConfig, cwd string) {
+	if cfg == nil || !isExpoBuildSystem(cfg.Build.System) {
+		return
+	}
+
+	easCfg, err := build.LoadEASConfig(cwd)
+	if err != nil {
+		ui.PrintWarning("Could not read eas.json: %v (skipping profile validation)", err)
+		return
+	}
+	if easCfg == nil {
+		return // No eas.json, skip silently
+	}
+
+	for key, platformCfg := range cfg.Build.Platforms {
+		if !build.IsIOSPlatformKey(key) {
+			continue
+		}
+
+		result := build.ValidateEASSimulatorProfile(easCfg, platformCfg.Command)
+		if result.Valid || result.NoEASConfig || result.ProfileNotFound {
+			continue
+		}
+
+		// Profile doesn't produce a simulator build
+		ui.Println()
+		ui.PrintWarning("Profile %q is not a simulator build for %s (Revyl requires simulator builds for iOS).", result.ProfileName, key)
+
+		if len(result.Alternatives) > 0 {
+			ui.Println()
+			useAlt, err := ui.PromptConfirm(fmt.Sprintf("Switch to %q?", result.Alternatives[0]), true)
+			if err == nil && useAlt {
+				platformCfg.Command = build.ReplaceProfileInCommand(platformCfg.Command, result.Alternatives[0])
+				cfg.Build.Platforms[key] = platformCfg
+				ui.PrintSuccess("Updated %s to use profile %q", key, result.Alternatives[0])
+			}
+		} else {
+			// No alternatives — auto-create revyl-build profile
+			ui.PrintInfo("Adding \"revyl-build\" simulator profile to eas.json...")
+			if err := build.AddRevylBuildProfile(cwd, result.ProfileName); err != nil {
+				ui.PrintWarning("Could not update eas.json: %v", err)
+			} else {
+				platformCfg.Command = build.ReplaceProfileInCommand(platformCfg.Command, "revyl-build")
+				cfg.Build.Platforms[key] = platformCfg
+				ui.PrintSuccess("Added \"revyl-build\" to eas.json and updated %s", key)
+			}
+		}
 	}
 }
 
@@ -1424,6 +1534,7 @@ func wizardFirstBuildSequential(
 
 			startTime := time.Now()
 			runner := build.NewRunner(cwd)
+			runner.Interactive = true
 
 			buildErr := runner.Run(buildCommand, func(line string) {
 				ui.PrintDim("  %s", line)
@@ -1685,6 +1796,7 @@ func runWizardBuildForPlatform(
 
 		startTime := time.Now()
 		runner := build.NewRunner(cwd)
+		runner.Interactive = true
 		err := runner.Run(buildCommand, func(line string) {
 			outputMu.Lock()
 			ui.PrintDim("  [%s] %s", platform, line)
@@ -1839,6 +1951,46 @@ func printWizardBuildResults(results []wizardBuildResult) []string {
 // ---------------------------------------------------------------------------
 // Step 6: Create First Test
 // ---------------------------------------------------------------------------
+
+// wizardLaunchDevice launches an interactive device session via `revyl dev`.
+func wizardLaunchDevice(ctx context.Context, cfg *config.ProjectConfig, devMode bool) {
+	// Determine platform — prefer ios if available
+	platform := "ios"
+	platforms := selectableRuntimePlatforms(cfg)
+	if len(platforms) == 1 {
+		platform = platforms[0]
+	} else if len(platforms) > 1 {
+		idx, err := ui.PromptSelect("Select platform:", platforms)
+		if err != nil {
+			ui.PrintWarning("Selection error: %v", err)
+			return
+		}
+		platform = platforms[idx]
+	}
+
+	// Build the command args
+	args := []string{"dev", "--platform", platform}
+	if devMode {
+		args = append(args, "--dev")
+	}
+
+	ui.PrintInfo("Running: revyl %s", strings.Join(args, " "))
+	ui.Println()
+
+	exe, err := os.Executable()
+	if err != nil {
+		ui.PrintWarning("Could not find revyl binary: %v", err)
+		ui.PrintInfo("Run manually: revyl %s", strings.Join(args, " "))
+		return
+	}
+
+	// Replace the current process with `revyl dev`
+	env := os.Environ()
+	if err := syscall.Exec(exe, append([]string{"revyl"}, args...), env); err != nil {
+		ui.PrintWarning("Could not launch device session: %v", err)
+		ui.PrintInfo("Run manually: revyl %s", strings.Join(args, " "))
+	}
+}
 
 // wizardCreateTest offers to create a test, saves it in the config, and opens
 // it in the browser. Returns the created test ID and name (both empty if

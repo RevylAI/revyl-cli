@@ -4,15 +4,24 @@ package build
 import (
 	"bufio"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
+
+	"github.com/mattn/go-isatty"
 )
 
 // Runner executes build commands in a specified working directory.
 type Runner struct {
 	// workDir is the working directory for build commands.
 	workDir string
+
+	// Interactive, when true, connects stdin/stdout/stderr directly to the
+	// terminal instead of piping. This allows interactive prompts (e.g.
+	// Apple credential login during EAS builds) to render and accept input.
+	// The onOutput callback is not called in interactive mode.
+	Interactive bool
 }
 
 // NewRunner creates a new build runner.
@@ -39,6 +48,26 @@ func NewRunner(workDir string) *Runner {
 func (r *Runner) Run(command string, onOutput func(line string)) error {
 	cmd := exec.Command("/bin/sh", "-c", command)
 	cmd.Dir = r.workDir
+
+	// In interactive mode (TTY detected), connect stdin/stdout/stderr
+	// directly so interactive prompts (Apple login, etc.) work properly.
+	// We lose the [prefix] output tagging but gain full prompt support.
+	isTTY := isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd())
+	if r.Interactive && isTTY {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("command failed: %w", err)
+		}
+		return nil
+	}
+
+	// Non-interactive: pipe stdout/stderr for prefixed streaming output.
+	if isTTY {
+		cmd.Stdin = os.Stdin
+	}
 
 	// Create pipes for stdout and stderr
 	stdout, err := cmd.StdoutPipe()

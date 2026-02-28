@@ -122,10 +122,12 @@ func IsAppBundle(path string) bool {
 	return info.IsDir()
 }
 
-// ExtractAppFromTarGz extracts a .app bundle from a tar.gz archive and zips it.
+// ExtractAppFromArchive extracts a .app bundle from a tar.gz or zip archive and zips it.
+// It detects the actual format by reading magic bytes, so it handles cases where
+// EAS outputs a zip file with a .tar.gz extension.
 //
 // Parameters:
-//   - tarGzPath: Path to the tar.gz archive
+//   - archivePath: Path to the archive (tar.gz or zip)
 //
 // Returns:
 //   - string: Path to the created zip file
@@ -134,7 +136,121 @@ func IsAppBundle(path string) bool {
 // The function searches for a .app directory within the archive and creates
 // a zip file containing it. The caller is responsible for cleaning up the
 // returned zip file.
+func ExtractAppFromArchive(archivePath string) (string, error) {
+	// Detect actual format by reading magic bytes
+	isZip, err := isZipFile(archivePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to detect archive format: %w", err)
+	}
+
+	if isZip {
+		return extractAppFromZip(archivePath)
+	}
+
+	return extractAppFromTarGz(archivePath)
+}
+
+// ExtractAppFromTarGz is kept for backward compatibility; it delegates to ExtractAppFromArchive.
 func ExtractAppFromTarGz(tarGzPath string) (string, error) {
+	return ExtractAppFromArchive(tarGzPath)
+}
+
+// isZipFile checks if a file is a zip archive by reading its magic bytes.
+func isZipFile(path string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	// Zip magic bytes: PK\x03\x04
+	magic := make([]byte, 4)
+	if _, err := io.ReadFull(f, magic); err != nil {
+		return false, nil // Can't read magic bytes, assume not zip
+	}
+
+	return magic[0] == 'P' && magic[1] == 'K' && magic[2] == 0x03 && magic[3] == 0x04, nil
+}
+
+// extractAppFromZip extracts a .app bundle from a zip archive and re-zips it.
+func extractAppFromZip(zipPath string) (string, error) {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open zip: %w", err)
+	}
+	defer r.Close()
+
+	// Create temp directory for extraction
+	tempDir, err := os.MkdirTemp("", "revyl-extract-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	var appPath string
+	for _, f := range r.File {
+		// Determine target path, sanitizing against path traversal
+		targetPath := filepath.Join(tempDir, f.Name)
+		if !strings.HasPrefix(filepath.Clean(targetPath), filepath.Clean(tempDir)+string(os.PathSeparator)) {
+			return "", fmt.Errorf("zip entry %q attempts path traversal outside extraction directory", f.Name)
+		}
+
+		// Track .app bundle path
+		if strings.Contains(f.Name, ".app") {
+			parts := strings.Split(f.Name, ".app")
+			if len(parts) > 0 {
+				potentialAppPath := filepath.Join(tempDir, parts[0]+".app")
+				if appPath == "" || len(potentialAppPath) < len(appPath) {
+					appPath = potentialAppPath
+				}
+			}
+		}
+
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(targetPath, f.Mode()); err != nil {
+				return "", fmt.Errorf("failed to create directory: %w", err)
+			}
+			continue
+		}
+
+		// Ensure parent directory exists
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			return "", fmt.Errorf("failed to create parent directory: %w", err)
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return "", fmt.Errorf("failed to open zip entry: %w", err)
+		}
+
+		outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
+		if err != nil {
+			rc.Close()
+			return "", fmt.Errorf("failed to create file: %w", err)
+		}
+
+		if _, err := io.Copy(outFile, rc); err != nil {
+			outFile.Close()
+			rc.Close()
+			return "", fmt.Errorf("failed to write file: %w", err)
+		}
+		outFile.Close()
+		rc.Close()
+	}
+
+	if appPath == "" {
+		return "", fmt.Errorf("no .app bundle found in archive")
+	}
+
+	if _, err := os.Stat(appPath); err != nil {
+		return "", fmt.Errorf(".app bundle not found after extraction: %w", err)
+	}
+
+	return ZipAppBundle(appPath)
+}
+
+// extractAppFromTarGz extracts a .app bundle from a tar.gz archive and zips it.
+func extractAppFromTarGz(tarGzPath string) (string, error) {
 	// Open the tar.gz file
 	file, err := os.Open(tarGzPath)
 	if err != nil {

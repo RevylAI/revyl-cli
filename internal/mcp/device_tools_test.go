@@ -824,19 +824,27 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 	}
 
 	expectedTools := map[string]bool{
-		"start_device_session": false,
-		"stop_device_session":  false,
-		"device_tap":           false,
-		"device_double_tap":    false,
-		"device_long_press":    false,
-		"device_type":          false,
-		"device_swipe":         false,
-		"device_drag":          false,
-		"screenshot":           false,
-		"install_app":          false,
-		"launch_app":           false,
-		"get_session_info":     false,
-		"device_doctor":        false,
+		"start_device_session":  false,
+		"stop_device_session":   false,
+		"device_tap":            false,
+		"device_double_tap":     false,
+		"device_long_press":     false,
+		"device_type":           false,
+		"device_swipe":          false,
+		"device_drag":           false,
+		"screenshot":            false,
+		"install_app":           false,
+		"launch_app":            false,
+		"device_go_home":        false,
+		"device_kill_app":       false,
+		"device_open_app":       false,
+		"device_navigate":       false,
+		"device_set_location":   false,
+		"device_download_file":  false,
+		"get_session_info":      false,
+		"device_doctor":         false,
+		"list_device_sessions":  false,
+		"switch_device_session": false,
 	}
 
 	for _, tool := range result.Tools {
@@ -851,8 +859,8 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		}
 	}
 
-	if len(result.Tools) != 15 {
-		t.Errorf("expected 15 device tools, got %d", len(result.Tools))
+	if len(result.Tools) != 21 {
+		t.Errorf("expected 21 device tools, got %d", len(result.Tools))
 	}
 }
 

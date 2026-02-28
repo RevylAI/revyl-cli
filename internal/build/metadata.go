@@ -18,6 +18,51 @@ func GenerateVersionString() string {
 	return time.Now().Format("20060102-150405")
 }
 
+// GenerateVersionStringForWorkDir generates a branch-aware version string.
+//
+// Format:
+//   - "<branch-slug>-YYYYMMDD-HHMMSS" when a git branch is available
+//   - "YYYYMMDD-HHMMSS" fallback otherwise (e.g., detached HEAD / non-git dir)
+func GenerateVersionStringForWorkDir(workDir string) string {
+	timestamp := GenerateVersionString()
+	branch := runGitCommand(workDir, "rev-parse", "--abbrev-ref", "HEAD")
+	branchSlug := sanitizeBranchForVersion(branch)
+	if branchSlug == "" {
+		return timestamp
+	}
+	return fmt.Sprintf("%s-%s", branchSlug, timestamp)
+}
+
+func sanitizeBranchForVersion(branch string) string {
+	branch = strings.TrimSpace(strings.ToLower(branch))
+	if branch == "" || branch == "head" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.Grow(len(branch))
+
+	lastDash := false
+	for _, r := range branch {
+		isAlphaNum := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if isAlphaNum {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+
+	slug := strings.Trim(b.String(), "-")
+	if len(slug) > 48 {
+		slug = strings.Trim(slug[:48], "-")
+	}
+	return slug
+}
+
 // CollectMetadata gathers build metadata including git info, machine info, and build details.
 //
 // Parameters:

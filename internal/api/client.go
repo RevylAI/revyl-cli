@@ -371,10 +371,13 @@ func calculateBackoff(attempt int, baseDelay, maxDelay time.Duration) time.Durat
 //   - *http.Response: The HTTP response
 //   - error: Any error that occurred
 func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
-	var lastErr error
-	var lastResp *http.Response
+	attempts := c.maxRetries + 1
+	if attempts < 1 {
+		// Defensive: invalid negative retry configuration should still execute once.
+		attempts = 1
+	}
 
-	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		// Check context cancellation before each attempt
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -412,7 +415,7 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, bo
 		req.Header.Set("User-Agent", c.userAgent())
 
 		// Set source tracking header
-		// X-Revyl-Client identifies the client type (cli maps to "api" source in DB)
+		// X-Revyl-Client identifies the client type for backend source classification.
 		req.Header.Set("X-Revyl-Client", "cli")
 
 		// Execute the request
@@ -424,7 +427,7 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, bo
 			statusCode = resp.StatusCode
 		}
 
-		if !isRetryableError(err, statusCode) || attempt == c.maxRetries {
+		if !isRetryableError(err, statusCode) || attempt == attempts-1 {
 			// Return the response (success or non-retryable error)
 			if err != nil {
 				return nil, fmt.Errorf("request failed: %w", err)
@@ -436,16 +439,10 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, bo
 		if resp != nil {
 			resp.Body.Close()
 		}
-
-		lastErr = err
-		lastResp = resp
 	}
 
-	// All retries exhausted
-	if lastErr != nil {
-		return nil, fmt.Errorf("request failed after %d retries: %w", c.maxRetries, lastErr)
-	}
-	return lastResp, nil
+	// Defensive fallback; loop should always return on the final attempt.
+	return nil, fmt.Errorf("request failed: retry loop ended unexpectedly")
 }
 
 // parseResponse parses the response body into the target struct.
@@ -660,6 +657,8 @@ type UploadBuildResponse struct {
 	PackageID string `json:"package_id,omitempty"`
 }
 
+const maxUploadErrorBodyBytes = 16 * 1024
+
 // UploadBuild uploads a build artifact.
 //
 // Parameters:
@@ -698,37 +697,19 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 	}
 
 	// Upload the file to S3
-	file, err := os.Open(req.FilePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
-	}
-	defer file.Close()
-
-	fileInfo, err := file.Stat()
+	fileInfo, err := os.Stat(req.FilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat file: %w", err)
 	}
 
-	uploadReq, err := http.NewRequestWithContext(ctx, "PUT", presignResult.UploadURL, file)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create upload request: %w", err)
-	}
-
-	uploadReq.Header.Set("Content-Type", presignResult.ContentType)
-	uploadReq.ContentLength = fileInfo.Size()
-
-	uploadResp, err := c.uploadClient.Do(uploadReq)
-	if err != nil {
-		return nil, fmt.Errorf("upload failed: %w", err)
-	}
-	defer uploadResp.Body.Close()
-
-	if uploadResp.StatusCode >= 400 {
-		body, readErr := io.ReadAll(uploadResp.Body)
-		if readErr != nil {
-			return nil, fmt.Errorf("upload failed with status %d (failed to read response: %v)", uploadResp.StatusCode, readErr)
-		}
-		return nil, fmt.Errorf("upload failed with status %d: %s", uploadResp.StatusCode, string(body))
+	if err := c.uploadFileWithRetry(
+		ctx,
+		presignResult.UploadURL,
+		presignResult.ContentType,
+		req.FilePath,
+		fileInfo.Size(),
+	); err != nil {
+		return nil, err
 	}
 
 	// Complete the upload
@@ -755,16 +736,117 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 	return &completeResult, nil
 }
 
+func isRetryableUploadStatus(statusCode int) bool {
+	return statusCode == http.StatusRequestTimeout || statusCode == http.StatusTooManyRequests || statusCode >= 500
+}
+
+func formatUploadStatusError(statusCode int, body []byte, readErr error) error {
+	if readErr != nil {
+		return fmt.Errorf("upload failed with status %d (failed to read response: %v)", statusCode, readErr)
+	}
+
+	msg := strings.TrimSpace(string(body))
+	if msg == "" {
+		return fmt.Errorf("upload failed with status %d", statusCode)
+	}
+	return fmt.Errorf("upload failed with status %d: %s", statusCode, msg)
+}
+
+func (c *Client) uploadFileWithRetry(ctx context.Context, uploadURL, contentType, filePath string, fileSize int64) error {
+	attempts := c.maxRetries + 1
+	var lastErr error
+
+	for attempt := 0; attempt < attempts; attempt++ {
+		// Check context cancellation before each attempt.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		// Wait before retry (skip on first attempt).
+		if attempt > 0 {
+			delay := calculateBackoff(attempt-1, c.retryBaseDelay, c.retryMaxDelay)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		file, err := os.Open(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to open file: %w", err)
+		}
+
+		uploadReq, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, file)
+		if err != nil {
+			file.Close()
+			return fmt.Errorf("failed to create upload request: %w", err)
+		}
+		uploadReq.Header.Set("Content-Type", contentType)
+		uploadReq.ContentLength = fileSize
+
+		uploadResp, err := c.uploadClient.Do(uploadReq)
+		file.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("upload failed: %w", err)
+			if attempt == attempts-1 {
+				return fmt.Errorf("upload failed after %d attempts: %w", attempts, lastErr)
+			}
+			continue
+		}
+
+		if uploadResp.StatusCode < 400 {
+			uploadResp.Body.Close()
+			return nil
+		}
+
+		body, readErr := io.ReadAll(io.LimitReader(uploadResp.Body, maxUploadErrorBodyBytes))
+		uploadResp.Body.Close()
+		statusErr := formatUploadStatusError(uploadResp.StatusCode, body, readErr)
+		if !isRetryableUploadStatus(uploadResp.StatusCode) {
+			return statusErr
+		}
+
+		lastErr = statusErr
+		if attempt == attempts-1 {
+			return fmt.Errorf("upload failed after %d attempts: %w", attempts, lastErr)
+		}
+	}
+
+	if lastErr != nil {
+		return fmt.Errorf("upload failed after %d attempts: %w", attempts, lastErr)
+	}
+	return fmt.Errorf("upload failed")
+}
+
 // BuildVersion represents a build version.
 // Matches backend BuildVersionResponse schema.
 type BuildVersion struct {
-	ID          string `json:"id"`
-	Version     string `json:"version"`
-	UploadedAt  string `json:"uploaded_at"`
-	PackageName string `json:"package_name,omitempty"`
-	PackageID   string `json:"package_id,omitempty"`
-	IsCurrent   bool   `json:"is_current,omitempty"`
+	ID          string                 `json:"id"`
+	Version     string                 `json:"version"`
+	UploadedAt  string                 `json:"uploaded_at"`
+	PackageName string                 `json:"package_name,omitempty"`
+	PackageID   string                 `json:"package_id,omitempty"`
+	IsCurrent   bool                   `json:"is_current,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
+
+// BuildVersionsPage represents a paginated build versions response.
+// Matches backend PaginatedBuildVersionsResponse schema.
+type BuildVersionsPage struct {
+	Items       []BuildVersion `json:"items"`
+	Total       int            `json:"total"`
+	Page        int            `json:"page"`
+	PageSize    int            `json:"page_size"`
+	TotalPages  int            `json:"total_pages"`
+	HasNext     bool           `json:"has_next"`
+	HasPrevious bool           `json:"has_previous"`
+}
+
+const (
+	defaultBuildVersionsPageSize = 20
+	maxBuildVersionsPageSize     = 100
+)
 
 // ListBuildVersions lists build versions for an app.
 //
@@ -776,20 +858,50 @@ type BuildVersion struct {
 //   - []BuildVersion: List of build versions
 //   - error: Any error that occurred
 func (c *Client) ListBuildVersions(ctx context.Context, appID string) ([]BuildVersion, error) {
+	page, err := c.ListBuildVersionsPage(ctx, appID, 1, defaultBuildVersionsPageSize)
+	if err != nil {
+		return nil, err
+	}
+	return page.Items, nil
+}
+
+// ListBuildVersionsPage lists one page of build versions for an app.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - appID: The app ID
+//   - page: 1-indexed page number
+//   - pageSize: items per page (max 100)
+//
+// Returns:
+//   - *BuildVersionsPage: Paginated build versions
+//   - error: Any error that occurred
+func (c *Client) ListBuildVersionsPage(ctx context.Context, appID string, page int, pageSize int) (*BuildVersionsPage, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = defaultBuildVersionsPageSize
+	}
+	if pageSize > maxBuildVersionsPageSize {
+		pageSize = maxBuildVersionsPageSize
+	}
+
 	resp, err := c.doRequest(ctx, "GET",
-		fmt.Sprintf("/api/v1/builds/vars/%s/versions", appID), nil)
+		fmt.Sprintf("/api/v1/builds/vars/%s/versions?page=%d&page_size=%d", appID, page, pageSize), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var result struct {
-		Items []BuildVersion `json:"items"`
-	}
+	var result BuildVersionsPage
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
+	if result.Items == nil {
+		result.Items = []BuildVersion{}
+	}
 
-	return result.Items, nil
+	return &result, nil
 }
 
 // GetTest retrieves a test by ID.
@@ -1713,6 +1825,10 @@ type StartDeviceRequest struct {
 
 	// IsSimulation enables simulation mode (streaming without test execution).
 	IsSimulation bool `json:"is_simulation,omitempty"`
+
+	// IdleTimeoutSeconds controls how long a session can be idle before auto-timeout.
+	// Defaults to 300 seconds when omitted.
+	IdleTimeoutSeconds int `json:"idle_timeout_seconds,omitempty"`
 
 	// RunConfig contains optional execution configuration.
 	RunConfig *TestRunConfig `json:"run_config,omitempty"`

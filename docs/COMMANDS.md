@@ -71,8 +71,45 @@ revyl dev --platform-key ios-dev       # Use explicit platform key
 `revyl dev`:
 - starts your local Expo dev server
 - creates a Cloudflare tunnel
-- resolves the latest build from your dev app mapping (`hotreload.providers.expo.platform_keys`), then installs it
+- resolves the latest build for your current git branch from your dev app mapping (`hotreload.providers.expo.platform_keys`), then installs it
+  - if no branch-matching build exists, it falls back to the latest available build and prints a warning
 - opens a cloud device session wired to the deep link
+
+### New Branch Build Flow
+
+Use this when you create a new branch and want `revyl dev` to run that branch's build:
+
+```bash
+git checkout -b feature/new-login
+revyl build upload --platform ios-dev   # or android-dev
+revyl dev --platform ios
+```
+
+If you need to pin exactly one build:
+
+```bash
+revyl dev --build-version-id <build-id>
+```
+
+### New Branch Direct File Flow (No Build Step)
+
+Use this when you already have a local artifact and want to upload it without running the build command.
+
+1. Ensure your `.revyl/config.yaml` `build.platforms.<key>.output` points at the artifact path.
+2. Upload with `--skip-build`.
+3. Run `revyl dev`.
+
+```bash
+git checkout -b feature/new-login
+revyl build upload --platform ios-dev --skip-build
+revyl dev --platform ios
+```
+
+Optional explicit version label:
+
+```bash
+revyl build upload --platform ios-dev --skip-build --version feature-new-login-20260227-153000
+```
 
 Dev test helpers:
 
@@ -123,6 +160,10 @@ Common flow:
 cd your-app
 revyl build upload --platform ios        # or --platform android
 ```
+
+When `--version` is omitted, the CLI defaults to a branch-aware version label:
+`<branch-slug>-<timestamp>` (for example `feature-new-login-20260227-153000`).
+In detached-head/non-git contexts it falls back to timestamp-only.
 
 3. Use the uploaded binary by running tests against the latest upload:
 

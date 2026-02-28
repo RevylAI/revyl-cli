@@ -306,6 +306,9 @@ func (m *DeviceSessionManager) StartSession(
 		Platform:     platform,
 		IsSimulation: strings.TrimSpace(opts.TestID) == "",
 	}
+	if idleTimeout > 0 {
+		req.IdleTimeoutSeconds = int(idleTimeout.Seconds())
+	}
 	if strings.TrimSpace(opts.TestID) != "" {
 		req.TestID = strings.TrimSpace(opts.TestID)
 	}

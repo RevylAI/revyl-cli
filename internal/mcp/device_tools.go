@@ -171,6 +171,67 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleLaunchApp)
 
+	// Device utility actions
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_go_home",
+		Description: "Return to the device home screen.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Go Home",
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceGoHome)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_kill_app",
+		Description: "Kill the installed app on the device.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Kill App",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceKillApp)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_open_app",
+		Description: "Open a system app by friendly name (e.g. 'settings', 'safari', 'chrome') or raw bundle ID. Falls back to raw bundle ID if the name is not recognized.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Open App",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceOpenApp)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_navigate",
+		Description: "Open a URL or deep link on the device.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Navigate to URL",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceNavigate)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_set_location",
+		Description: "Set device GPS coordinates (latitude and longitude).",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Set Location",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceSetLocation)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_download_file",
+		Description: "Download a file to the device from a URL.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Download File",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceDownloadFile)
+
 	// Info
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_session_info",
@@ -1129,6 +1190,259 @@ func (s *Server) handleSwitchDeviceSession(ctx context.Context, req *mcp.CallToo
 		Platform: platform,
 		NextSteps: []NextStep{
 			{Tool: "screenshot", Reason: "See the newly active session's screen"},
+		},
+	}, nil
+}
+
+// --- Device Go Home ---
+
+type DeviceGoHomeInput struct {
+	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceGoHomeOutput struct {
+	Success   bool       `json:"success"`
+	Error     string     `json:"error,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleDeviceGoHome(ctx context.Context, req *mcp.CallToolRequest, input DeviceGoHomeInput) (*mcp.CallToolResult, DeviceGoHomeOutput, error) {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceGoHomeOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/go_home", nil)
+	if err != nil {
+		return nil, DeviceGoHomeOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DeviceGoHomeOutput{
+		Success: true,
+		NextSteps: []NextStep{
+			{Tool: "screenshot", Reason: "See the home screen"},
+		},
+	}, nil
+}
+
+// --- Device Kill App ---
+
+type DeviceKillAppInput struct {
+	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceKillAppOutput struct {
+	Success   bool       `json:"success"`
+	Error     string     `json:"error,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleDeviceKillApp(ctx context.Context, req *mcp.CallToolRequest, input DeviceKillAppInput) (*mcp.CallToolResult, DeviceKillAppOutput, error) {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceKillAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/kill_app", nil)
+	if err != nil {
+		return nil, DeviceKillAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DeviceKillAppOutput{
+		Success: true,
+		NextSteps: []NextStep{
+			{Tool: "screenshot", Reason: "See the device screen after killing the app"},
+		},
+	}, nil
+}
+
+// --- Device Open App ---
+
+type DeviceOpenAppInput struct {
+	App          string `json:"app" jsonschema:"System app name (e.g. 'settings', 'safari', 'chrome') or raw bundle ID (REQUIRED)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceOpenAppOutput struct {
+	Success   bool       `json:"success"`
+	App       string     `json:"app,omitempty"`
+	BundleID  string     `json:"bundle_id,omitempty"`
+	Error     string     `json:"error,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleDeviceOpenApp(ctx context.Context, req *mcp.CallToolRequest, input DeviceOpenAppInput) (*mcp.CallToolResult, DeviceOpenAppOutput, error) {
+	if input.App == "" {
+		return nil, DeviceOpenAppOutput{Success: false, Error: "app is required (e.g. 'settings', 'safari', or a raw bundle ID)"}, nil
+	}
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceOpenAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	bundleID := ResolveSystemApp(session.Platform, input.App)
+	body := map[string]string{"bundle_id": bundleID}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/launch", body)
+	if err != nil {
+		return nil, DeviceOpenAppOutput{Success: false, App: input.App, BundleID: bundleID, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DeviceOpenAppOutput{
+		Success:  true,
+		App:      input.App,
+		BundleID: bundleID,
+		NextSteps: []NextStep{
+			{Tool: "screenshot", Reason: "See the opened app"},
+		},
+	}, nil
+}
+
+// --- Device Navigate ---
+
+type DeviceNavigateInput struct {
+	URL          string `json:"url" jsonschema:"URL or deep link to open on the device (REQUIRED)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceNavigateOutput struct {
+	Success   bool       `json:"success"`
+	URL       string     `json:"url,omitempty"`
+	Error     string     `json:"error,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleDeviceNavigate(ctx context.Context, req *mcp.CallToolRequest, input DeviceNavigateInput) (*mcp.CallToolResult, DeviceNavigateOutput, error) {
+	if input.URL == "" {
+		return nil, DeviceNavigateOutput{Success: false, Error: "url is required"}, nil
+	}
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceNavigateOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	body := map[string]string{"url": input.URL}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/open_url", body)
+	if err != nil {
+		return nil, DeviceNavigateOutput{Success: false, URL: input.URL, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DeviceNavigateOutput{
+		Success: true,
+		URL:     input.URL,
+		NextSteps: []NextStep{
+			{Tool: "screenshot", Reason: "See what loaded"},
+		},
+	}, nil
+}
+
+// --- Device Set Location ---
+
+type DeviceSetLocationInput struct {
+	Latitude     float64 `json:"latitude" jsonschema:"Latitude (-90 to 90, REQUIRED)"`
+	Longitude    float64 `json:"longitude" jsonschema:"Longitude (-180 to 180, REQUIRED)"`
+	SessionIndex *int    `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceSetLocationOutput struct {
+	Success   bool       `json:"success"`
+	Latitude  float64    `json:"latitude,omitempty"`
+	Longitude float64    `json:"longitude,omitempty"`
+	Error     string     `json:"error,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleDeviceSetLocation(ctx context.Context, req *mcp.CallToolRequest, input DeviceSetLocationInput) (*mcp.CallToolResult, DeviceSetLocationOutput, error) {
+	if input.Latitude < -90 || input.Latitude > 90 {
+		return nil, DeviceSetLocationOutput{Success: false, Error: fmt.Sprintf("latitude must be between -90 and 90, got %f", input.Latitude)}, nil
+	}
+	if input.Longitude < -180 || input.Longitude > 180 {
+		return nil, DeviceSetLocationOutput{Success: false, Error: fmt.Sprintf("longitude must be between -180 and 180, got %f", input.Longitude)}, nil
+	}
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceSetLocationOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	body := map[string]float64{"latitude": input.Latitude, "longitude": input.Longitude}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/set_location", body)
+	if err != nil {
+		return nil, DeviceSetLocationOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DeviceSetLocationOutput{
+		Success:   true,
+		Latitude:  input.Latitude,
+		Longitude: input.Longitude,
+		NextSteps: []NextStep{
+			{Tool: "screenshot", Reason: "Verify the location change"},
+		},
+	}, nil
+}
+
+// --- Device Download File ---
+
+type DeviceDownloadFileInput struct {
+	URL          string `json:"url" jsonschema:"URL to download file from (REQUIRED)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceDownloadFileOutput struct {
+	Success   bool       `json:"success"`
+	URL       string     `json:"url,omitempty"`
+	Error     string     `json:"error,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleDeviceDownloadFile(ctx context.Context, req *mcp.CallToolRequest, input DeviceDownloadFileInput) (*mcp.CallToolResult, DeviceDownloadFileOutput, error) {
+	if input.URL == "" {
+		return nil, DeviceDownloadFileOutput{Success: false, Error: "url is required"}, nil
+	}
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceDownloadFileOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	body := map[string]string{"url": input.URL}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/download_file", body)
+	if err != nil {
+		return nil, DeviceDownloadFileOutput{Success: false, URL: input.URL, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DeviceDownloadFileOutput{
+		Success: true,
+		URL:     input.URL,
+		NextSteps: []NextStep{
+			{Tool: "screenshot", Reason: "Verify the file was downloaded"},
 		},
 	}, nil
 }

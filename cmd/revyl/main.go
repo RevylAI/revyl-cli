@@ -66,6 +66,21 @@ var rootCmd = &cobra.Command{
 		// Propagate CLI version to the API package so every client
 		// automatically sends the correct User-Agent header.
 		api.SetDefaultVersion(version)
+
+		// Start background version check (non-blocking).
+		// Skip for commands that already handle versioning or produce
+		// machine-readable output that shouldn't be polluted.
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+		if !quiet && !jsonOutput && !skipVersionCheckCommands[cmd.Name()] {
+			startVersionCheck(version)
+		}
+	},
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		quiet, _ := cmd.Flags().GetBool("quiet")
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+		if !quiet && !jsonOutput && !skipVersionCheckCommands[cmd.Name()] {
+			printVersionWarning()
+		}
 	},
 }
 

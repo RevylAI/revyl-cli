@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/hotreload"
 )
 
@@ -42,12 +43,14 @@ type StartDevLoopInput struct {
 }
 
 type StartDevLoopOutput struct {
-	Success            bool   `json:"success"`
-	SessionIndex       int    `json:"session_index"`
-	ManualStepRequired bool   `json:"manual_step_required,omitempty"`
-	DeepLinkURL        string `json:"deep_link_url,omitempty"`
-	ViewerURL          string `json:"viewer_url,omitempty"`
-	Error              string `json:"error,omitempty"`
+	Success            bool     `json:"success"`
+	SessionIndex       int      `json:"session_index"`
+	ManualStepRequired bool     `json:"manual_step_required,omitempty"`
+	DeepLinkURL        string   `json:"deep_link_url,omitempty"`
+	ViewerURL          string   `json:"viewer_url,omitempty"`
+	BuildSelection     string   `json:"build_selection,omitempty"`
+	Warnings           []string `json:"warnings,omitempty"`
+	Error              string   `json:"error,omitempty"`
 }
 
 func (s *Server) clearDevLoopState() (*hotreload.Manager, int, bool) {
@@ -145,6 +148,11 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 	// Resolve build target.
 	selectedAppID := strings.TrimSpace(input.AppID)
 	selectedBuildVersionID := strings.TrimSpace(input.BuildVersionID)
+	buildSelectionSource := ""
+	buildSelectionWarnings := []string(nil)
+	if selectedBuildVersionID != "" {
+		buildSelectionSource = "explicit"
+	}
 	platformKey := strings.TrimSpace(input.PlatformKey)
 
 	if selectedBuildVersionID == "" {
@@ -178,7 +186,12 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 			}
 		}
 
-		latestVersion, latestErr := s.apiClient.GetLatestBuildVersion(ctx, selectedAppID)
+		selectedVersion, source, warnings, latestErr := buildselection.SelectPreferredBuildVersion(
+			ctx,
+			s.apiClient,
+			selectedAppID,
+			s.workDir,
+		)
 		if latestErr != nil {
 			return nil, StartDevLoopOutput{
 				Success:      false,
@@ -186,14 +199,16 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 				Error:        fmt.Sprintf("failed to resolve latest build for app %s: %v", selectedAppID, latestErr),
 			}, nil
 		}
-		if latestVersion == nil {
+		if selectedVersion == nil {
 			return nil, StartDevLoopOutput{
 				Success:      false,
 				SessionIndex: -1,
 				Error:        fmt.Sprintf("no builds found for app %s", selectedAppID),
 			}, nil
 		}
-		selectedBuildVersionID = latestVersion.ID
+		selectedBuildVersionID = selectedVersion.ID
+		buildSelectionSource = source
+		buildSelectionWarnings = append(buildSelectionWarnings, warnings...)
 	}
 
 	buildDetail, err := s.apiClient.GetBuildVersionDownloadURL(ctx, selectedBuildVersionID)
@@ -327,6 +342,8 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 		ManualStepRequired: manualStepRequired,
 		DeepLinkURL:        startResult.DeepLinkURL,
 		ViewerURL:          session.ViewerURL,
+		BuildSelection:     buildSelectionSource,
+		Warnings:           buildSelectionWarnings,
 	}, nil
 }
 

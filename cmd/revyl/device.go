@@ -515,6 +515,164 @@ var deviceLaunchCmd = &cobra.Command{
 	},
 }
 
+var deviceHomeCmd = &cobra.Command{
+	Use:   "home",
+	Short: "Go to device home screen",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return err
+		}
+		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "POST", "/go_home", nil)
+		if err != nil {
+			return err
+		}
+		jsonOrPrint(cmd, map[string]bool{"success": true}, "Returned to home screen")
+		return nil
+	},
+}
+
+var deviceKillAppCmd = &cobra.Command{
+	Use:   "kill-app",
+	Short: "Kill the installed app",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return err
+		}
+		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "POST", "/kill_app", nil)
+		if err != nil {
+			return err
+		}
+		jsonOrPrint(cmd, map[string]bool{"success": true}, "Killed installed app")
+		return nil
+	},
+}
+
+var deviceOpenAppCmd = &cobra.Command{
+	Use:   "open-app",
+	Short: "Open a system app by name (e.g. settings, safari, chrome)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return err
+		}
+		appName, _ := cmd.Flags().GetString("app")
+		if appName == "" {
+			return fmt.Errorf("--app is required (e.g. 'settings', 'safari', or a raw bundle ID)")
+		}
+		bundleID := mcppkg.ResolveSystemApp(session.Platform, appName)
+		body := map[string]string{"bundle_id": bundleID}
+		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "POST", "/launch", body)
+		if err != nil {
+			return err
+		}
+		if bundleID != appName {
+			jsonOrPrint(cmd, map[string]string{"app": appName, "bundle_id": bundleID, "status": "opened"},
+				fmt.Sprintf("Opened %s (%s)", appName, bundleID))
+		} else {
+			jsonOrPrint(cmd, map[string]string{"bundle_id": bundleID, "status": "opened"},
+				fmt.Sprintf("Opened %s", bundleID))
+		}
+		return nil
+	},
+}
+
+var deviceNavigateCmd = &cobra.Command{
+	Use:   "navigate",
+	Short: "Open a URL or deep link on device",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return err
+		}
+		url, _ := cmd.Flags().GetString("url")
+		if url == "" {
+			return fmt.Errorf("--url is required")
+		}
+		body := map[string]string{"url": url}
+		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "POST", "/open_url", body)
+		if err != nil {
+			return err
+		}
+		jsonOrPrint(cmd, map[string]string{"url": url, "status": "opened"}, fmt.Sprintf("Opened %s", url))
+		return nil
+	},
+}
+
+var deviceSetLocationCmd = &cobra.Command{
+	Use:   "set-location",
+	Short: "Set device GPS location",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return err
+		}
+		lat, _ := cmd.Flags().GetFloat64("lat")
+		lon, _ := cmd.Flags().GetFloat64("lon")
+		if lat < -90 || lat > 90 {
+			return fmt.Errorf("--lat must be between -90 and 90, got %f", lat)
+		}
+		if lon < -180 || lon > 180 {
+			return fmt.Errorf("--lon must be between -180 and 180, got %f", lon)
+		}
+		body := map[string]float64{"latitude": lat, "longitude": lon}
+		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "POST", "/set_location", body)
+		if err != nil {
+			return err
+		}
+		jsonOrPrint(cmd, map[string]interface{}{"latitude": lat, "longitude": lon, "status": "set"},
+			fmt.Sprintf("Location set to (%g, %g)", lat, lon))
+		return nil
+	},
+}
+
+var deviceDownloadFileCmd = &cobra.Command{
+	Use:   "download-file",
+	Short: "Download a file to device from URL",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return err
+		}
+		url, _ := cmd.Flags().GetString("url")
+		if url == "" {
+			return fmt.Errorf("--url is required")
+		}
+		body := map[string]string{"url": url}
+		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "POST", "/download_file", body)
+		if err != nil {
+			return err
+		}
+		jsonOrPrint(cmd, map[string]string{"url": url, "status": "downloaded"}, fmt.Sprintf("Downloaded from %s", url))
+		return nil
+	},
+}
+
 var deviceInfoCmd = &cobra.Command{
 	Use:   "info",
 	Short: "Show session info (-s <index> for specific session)",
@@ -743,6 +901,35 @@ func init() {
 	deviceLaunchCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceLaunchCmd)
 
+	// Home
+	deviceHomeCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceHomeCmd)
+
+	// Kill App
+	deviceKillAppCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceKillAppCmd)
+
+	// Open App
+	deviceOpenAppCmd.Flags().String("app", "", "App name (e.g. settings, safari) or raw bundle ID (required)")
+	deviceOpenAppCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceOpenAppCmd)
+
+	// Navigate
+	deviceNavigateCmd.Flags().String("url", "", "URL or deep link to open (required)")
+	deviceNavigateCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceNavigateCmd)
+
+	// Set Location
+	deviceSetLocationCmd.Flags().Float64("lat", 0, "Latitude (-90 to 90, required)")
+	deviceSetLocationCmd.Flags().Float64("lon", 0, "Longitude (-180 to 180, required)")
+	deviceSetLocationCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceSetLocationCmd)
+
+	// Download File
+	deviceDownloadFileCmd.Flags().String("url", "", "URL to download from (required)")
+	deviceDownloadFileCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceDownloadFileCmd)
+
 	// Info
 	deviceInfoCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceInfoCmd)
@@ -765,6 +952,12 @@ func init() {
 	deviceCmd.AddCommand(deviceDragCmd)
 	deviceCmd.AddCommand(deviceInstallCmd)
 	deviceCmd.AddCommand(deviceLaunchCmd)
+	deviceCmd.AddCommand(deviceHomeCmd)
+	deviceCmd.AddCommand(deviceKillAppCmd)
+	deviceCmd.AddCommand(deviceOpenAppCmd)
+	deviceCmd.AddCommand(deviceNavigateCmd)
+	deviceCmd.AddCommand(deviceSetLocationCmd)
+	deviceCmd.AddCommand(deviceDownloadFileCmd)
 	deviceCmd.AddCommand(deviceInfoCmd)
 	deviceCmd.AddCommand(deviceDoctorCmd)
 	deviceCmd.AddCommand(deviceListCmd)

@@ -24,7 +24,7 @@ func TestConfigureExpoBuildStreams_Defaults(t *testing.T) {
 		},
 	}
 
-	configureExpoBuildStreams(cfg)
+	configureExpoBuildStreams(cfg, t.TempDir())
 
 	for _, key := range []string{"ios-dev", "android-dev", "ios-ci", "android-ci"} {
 		if _, ok := cfg.Build.Platforms[key]; !ok {
@@ -53,7 +53,7 @@ func TestConfigureExpoBuildStreams_PreservesExplicitStreamConfig(t *testing.T) {
 		},
 	}
 
-	configureExpoBuildStreams(cfg)
+	configureExpoBuildStreams(cfg, t.TempDir())
 
 	if got := cfg.Build.Platforms["ios-dev"].Command; got != "custom-dev-ios" {
 		t.Fatalf("ios-dev command = %q, want %q", got, "custom-dev-ios")
@@ -77,7 +77,7 @@ func TestConfigureExpoBuildStreams_PreservesCustomNonLegacyPlatforms(t *testing.
 		},
 	}
 
-	configureExpoBuildStreams(cfg)
+	configureExpoBuildStreams(cfg, t.TempDir())
 
 	if got := cfg.Build.Platforms["ios-preview"].Command; got != "custom-ios-preview" {
 		t.Fatalf("ios-preview command = %q, want %q", got, "custom-ios-preview")

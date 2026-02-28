@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
@@ -265,6 +266,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	selectedAppID := appIDOverride
+	buildSelectionSource := ""
 	if buildVersionID == "" {
 		if selectedAppID == "" {
 			if platformKey == "" {
@@ -297,12 +299,21 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			selectedAppID = strings.TrimSpace(platformCfg.AppID)
 		}
 
-		latestVersion, latestErr := client.GetLatestBuildVersion(cmd.Context(), selectedAppID)
+		selectedVersion, source, warnings, latestErr := buildselection.SelectPreferredBuildVersion(
+			cmd.Context(),
+			client,
+			selectedAppID,
+			cwd,
+		)
 		if latestErr != nil {
 			return fmt.Errorf("failed to resolve latest build for app %s: %w", selectedAppID, latestErr)
 		}
-		if latestVersion != nil {
-			buildVersionID = latestVersion.ID
+		for _, warning := range warnings {
+			ui.PrintWarning("%s", warning)
+		}
+		if selectedVersion != nil {
+			buildVersionID = selectedVersion.ID
+			buildSelectionSource = source
 		}
 	}
 
@@ -369,6 +380,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("App ID: %s", selectedAppID)
 	}
 	ui.PrintInfo("Dev build: %s", buildVersionID)
+	if buildSelectionSource != "" {
+		ui.PrintInfo("Build selection: %s", buildSelectionSource)
+	}
 	ui.Println()
 
 	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
@@ -437,26 +451,36 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	defer manager.Stop()
 
+	ui.PrintSuccess("Hot reload ready: Expo server and tunnel are running")
+	ui.PrintInfo("Starting cloud device session...")
+
 	deviceMgr, err := getDeviceSessionMgr(cmd)
 	if err != nil {
 		return err
 	}
 
-	_, session, err := deviceMgr.StartSession(ctx, mcppkg.StartSessionOptions{
-		Platform:       devicePlatform,
-		AppID:          selectedAppID,
-		BuildVersionID: buildVersionID,
-		AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
-		AppPackage:     strings.TrimSpace(buildDetail.PackageName),
-		AppLink:        startResult.DeepLinkURL,
-		IdleTimeout:    time.Duration(timeout) * time.Second,
-	})
+	_, session, err := startDevSessionWithProgress(
+		ctx,
+		deviceMgr,
+		mcppkg.StartSessionOptions{
+			Platform:       devicePlatform,
+			AppID:          selectedAppID,
+			BuildVersionID: buildVersionID,
+			AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
+			AppPackage:     strings.TrimSpace(buildDetail.PackageName),
+			AppLink:        startResult.DeepLinkURL,
+			IdleTimeout:    time.Duration(timeout) * time.Second,
+		},
+		30*time.Second,
+		nil,
+	)
 	if err != nil {
 		if isUserCanceled(err) {
 			return nil
 		}
 		return err
 	}
+	ui.PrintSuccess("Device session ready")
 	defer func() {
 		if stopErr := deviceMgr.StopSession(context.Background(), session.Index); stopErr != nil {
 			if isNoSessionAtIndexError(stopErr, session.Index) {
@@ -475,13 +499,16 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		installBody["bundle_id"] = bundleID
 	}
 	ui.PrintInfo("Installing dev build on device...")
+	ui.PrintDebug("install payload: app_url=%s bundle_id=%s", installBody["app_url"], installBody["bundle_id"])
 	installRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/install", installBody)
 	if err != nil {
 		if isUserCanceled(err) {
 			return nil
 		}
+		ui.PrintDebug("install HTTP error: %v", err)
 		return fmt.Errorf("device started but app install failed: %w", err)
 	}
+	ui.PrintDebug("install worker response: %s", string(installRespBody))
 	if err := ensureWorkerActionSucceeded(installRespBody, "install"); err != nil {
 		return fmt.Errorf("device started but app install failed: %w", err)
 	}
@@ -540,10 +567,14 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	printDevReadyFooter(session.ViewerURL, startResult.DeepLinkURL, manualDeepLinkRequired)
+	viewerURL := session.ViewerURL
+	if devMode {
+		viewerURL = strings.Replace(viewerURL, "https://app.revyl.ai", "http://localhost:3000", 1)
+	}
+	printDevReadyFooter(viewerURL, startResult.DeepLinkURL, manualDeepLinkRequired)
 
 	if openBrowser {
-		_ = ui.OpenBrowser(session.ViewerURL)
+		_ = ui.OpenBrowser(viewerURL)
 	}
 
 	waitForDevSessionStop(ctx, cancel, deviceMgr, session.Index, time.Second)
@@ -565,9 +596,95 @@ func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired b
 	}
 	ui.PrintDim("Press Ctrl+C to stop hot reload and release the device")
 	ui.Println()
-	ui.PrintInfo("Try device interactions:")
+	ui.PrintInfo("In a new terminal, try:")
 	ui.PrintDim("  revyl device tap --target \"Login button\"")
 	ui.PrintDim("  revyl device screenshot")
+}
+
+type devSessionStarter interface {
+	StartSession(ctx context.Context, opts mcppkg.StartSessionOptions) (int, *mcppkg.DeviceSession, error)
+}
+
+type devSessionProgressHooks struct {
+	startSpinner func(message string)
+	stopSpinner  func()
+	printInfo    func(format string, args ...interface{})
+}
+
+type devSessionStartResult struct {
+	index   int
+	session *mcppkg.DeviceSession
+	err     error
+}
+
+func defaultDevSessionProgressHooks() devSessionProgressHooks {
+	return devSessionProgressHooks{
+		startSpinner: ui.StartSpinner,
+		stopSpinner:  ui.StopSpinner,
+		printInfo:    ui.PrintInfo,
+	}
+}
+
+func startDevSessionWithProgress(
+	ctx context.Context,
+	starter devSessionStarter,
+	opts mcppkg.StartSessionOptions,
+	hintEvery time.Duration,
+	hooks *devSessionProgressHooks,
+) (int, *mcppkg.DeviceSession, error) {
+	if starter == nil {
+		return -1, nil, fmt.Errorf("device session starter is required")
+	}
+
+	resolvedHooks := defaultDevSessionProgressHooks()
+	if hooks != nil {
+		if hooks.startSpinner != nil {
+			resolvedHooks.startSpinner = hooks.startSpinner
+		}
+		if hooks.stopSpinner != nil {
+			resolvedHooks.stopSpinner = hooks.stopSpinner
+		}
+		if hooks.printInfo != nil {
+			resolvedHooks.printInfo = hooks.printInfo
+		}
+	}
+
+	if hintEvery <= 0 {
+		hintEvery = 30 * time.Second
+	}
+
+	platform := strings.TrimSpace(opts.Platform)
+	if platform == "" {
+		platform = "cloud"
+	}
+	spinnerMessage := fmt.Sprintf("Provisioning %s device...", platform)
+	resolvedHooks.startSpinner(spinnerMessage)
+	defer resolvedHooks.stopSpinner()
+
+	resultCh := make(chan devSessionStartResult, 1)
+	go func() {
+		index, session, err := starter.StartSession(ctx, opts)
+		resultCh <- devSessionStartResult{index: index, session: session, err: err}
+	}()
+
+	startedAt := time.Now()
+	ticker := time.NewTicker(hintEvery)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case result := <-resultCh:
+			return result.index, result.session, result.err
+		case <-ticker.C:
+			elapsed := time.Since(startedAt).Round(time.Second)
+			if elapsed < time.Second {
+				elapsed = time.Second
+			}
+			resolvedHooks.stopSpinner()
+			resolvedHooks.printInfo("Still provisioning device... (%s elapsed). Waiting for worker + device readiness.", elapsed)
+			resolvedHooks.startSpinner(spinnerMessage)
+		}
+	}
 }
 
 func isContextCanceledError(err error) bool {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/build"
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -421,7 +422,7 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 			platformCfg := cfg.Build.Platforms[platform]
 			versionStr := buildVersion
 			if versionStr == "" {
-				versionStr = build.GenerateVersionString()
+				versionStr = build.GenerateVersionStringForWorkDir(cwd)
 			}
 			versionStr = fmt.Sprintf("%s-%s", versionStr, platform)
 
@@ -486,7 +487,7 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 	results := make(chan BuildResult, len(platforms))
 	var wg sync.WaitGroup
 
-	// Mutex for synchronized output
+	// Mutex for synchronized output and shared config access in workers
 	var outputMu sync.Mutex
 
 	// Start concurrent builds
@@ -494,7 +495,7 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 		wg.Add(1)
 		go func(p string) {
 			defer wg.Done()
-			result := buildAndUploadPlatform(cmd, cfg, cwd, client, p, &outputMu)
+			result := buildAndUploadPlatform(cmd, cfg, cwd, client, p, &outputMu, len(platforms) > 1)
 			results <- result
 		}(platform)
 	}
@@ -568,20 +569,22 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 //   - cwd: Current working directory
 //   - client: The API client
 //   - platform: The platform to build (ios or android)
-//   - outputMu: Mutex for synchronized output
+//   - outputMu: Mutex for synchronized output and shared config access
 //
 // Returns:
 //   - BuildResult: The result of the build and upload
-func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd string, client *api.Client, platform string, outputMu *sync.Mutex) BuildResult {
+func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd string, client *api.Client, platform string, outputMu *sync.Mutex, concurrent bool) BuildResult {
 	result := BuildResult{Platform: platform}
 
+	outputMu.Lock()
 	platformCfg := cfg.Build.Platforms[platform]
+	outputMu.Unlock()
 	buildCommand := platformCfg.Command
 	if normalized, changed := normalizeExpoBuildCommand(cfg.Build.System, platformCfg.Command); changed {
 		buildCommand = normalized
 		platformCfg.Command = normalized
-		cfg.Build.Platforms[platform] = platformCfg
 		outputMu.Lock()
+		cfg.Build.Platforms[platform] = platformCfg
 		ui.PrintDim("[%s] Updated build command to use npx eas", platform)
 		outputMu.Unlock()
 	}
@@ -595,6 +598,26 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 		buildCommand = build.ApplySchemeToCommand(buildCommand, scheme)
 	}
 
+	// Validate EAS simulator profile for iOS builds (non-interactive in concurrent mode)
+	if !buildSkip && isExpoBuildSystem(cfg.Build.System) && build.IsIOSPlatformKey(platform) {
+		easCfg, easErr := build.LoadEASConfig(cwd)
+		if easErr == nil && easCfg != nil {
+			vResult := build.ValidateEASSimulatorProfile(easCfg, buildCommand)
+			if !vResult.Valid && !vResult.NoEASConfig && !vResult.ProfileNotFound {
+				outputMu.Lock()
+				ui.PrintWarning("[%s] EAS profile %q does not produce a simulator build.", platform, vResult.ProfileName)
+				ui.PrintDim("  Revyl cloud devices are iOS simulators. The resulting artifact may not work.")
+				if len(vResult.Alternatives) > 0 {
+					ui.PrintInfo("  Compatible profiles: %s", strings.Join(vResult.Alternatives, ", "))
+					ui.PrintInfo("  Update your config: revyl init --force")
+				} else {
+					ui.PrintDim("  %s", build.SimulatorFixSnippet(vResult.ProfileName))
+				}
+				outputMu.Unlock()
+			}
+		}
+	}
+
 	// Build
 	if !buildSkip {
 		outputMu.Lock()
@@ -603,6 +626,7 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 
 		startTime := time.Now()
 		runner := build.NewRunner(cwd)
+		runner.Interactive = !concurrent
 
 		err := runner.Run(buildCommand, func(line string) {
 			outputMu.Lock()
@@ -642,7 +666,7 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 	// Generate version string with platform suffix
 	versionStr := buildVersion
 	if versionStr == "" {
-		versionStr = build.GenerateVersionString()
+		versionStr = build.GenerateVersionStringForWorkDir(cwd)
 	}
 	versionStr = fmt.Sprintf("%s-%s", versionStr, platform)
 
@@ -869,6 +893,20 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		buildCommand = build.ApplySchemeToCommand(buildCommand, scheme)
 	}
 
+	// Validate EAS simulator profile for iOS builds (before dry-run/build)
+	if isExpoBuildSystem(cfg.Build.System) && build.IsIOSPlatformKey(platform) {
+		fixedCmd, err := validateEASSimulatorBuild(cwd, buildCommand)
+		if err != nil {
+			return err
+		}
+		if fixedCmd != buildCommand {
+			buildCommand = fixedCmd
+			platformCfg.Command = fixedCmd
+			cfg.Build.Platforms[platform] = platformCfg
+			_ = config.WriteProjectConfig(configPath, cfg)
+		}
+	}
+
 	ui.PrintBanner(version)
 	ui.PrintInfo("Build and Upload (%s)", platform)
 	ui.Println()
@@ -909,6 +947,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 
 		startTime := time.Now()
 		runner := build.NewRunner(cwd)
+		runner.Interactive = true
 
 		err = runner.Run(buildCommand, func(line string) {
 			ui.PrintDim("  %s", line)
@@ -969,7 +1008,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	// Generate version string if not provided
 	versionStr := buildVersion
 	if versionStr == "" {
-		versionStr = build.GenerateVersionString()
+		versionStr = build.GenerateVersionStringForWorkDir(cwd)
 	}
 
 	ui.Println()
@@ -1158,7 +1197,7 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 	ui.Println()
 
 	// Create table with dynamic column widths
-	table := ui.NewTable("VERSION", "BUILD ID", "UPLOADED", "PACKAGE ID", "CURRENT")
+	table := ui.NewTable("VERSION", "BUILD ID", "UPLOADED", "BRANCH", "COMMIT", "PACKAGE ID", "CURRENT")
 	table.SetMinWidth(0, 10) // VERSION
 	table.SetMinWidth(1, 36) // BUILD ID - UUIDs are 36 chars
 	table.SetMinWidth(2, 12) // UPLOADED
@@ -1168,7 +1207,15 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 		if v.IsCurrent {
 			current = "✓"
 		}
-		table.AddRow(v.Version, v.ID, v.UploadedAt, v.PackageID, current)
+		branch := buildselection.ExtractBranch(v.Metadata)
+		if branch == "" {
+			branch = "-"
+		}
+		commit := extractBuildCommit(v.Metadata)
+		if commit == "" {
+			commit = "-"
+		}
+		table.AddRow(v.Version, v.ID, v.UploadedAt, branch, commit, v.PackageID, current)
 	}
 
 	table.Render()
@@ -1253,6 +1300,67 @@ func listOrgApps(cmd *cobra.Command, client *api.Client) error {
 	return nil
 }
 
+// validateEASSimulatorBuild checks that the EAS build command targets a simulator profile.
+// Returns the (possibly updated) build command and any error.
+// If a compatible profile exists, offers to switch. Otherwise, auto-creates a "revyl-build"
+// profile in eas.json.
+func validateEASSimulatorBuild(cwd, buildCommand string) (string, error) {
+	easCfg, err := build.LoadEASConfig(cwd)
+	if err != nil {
+		ui.PrintWarning("Could not read eas.json: %v (skipping simulator check)", err)
+		return buildCommand, nil
+	}
+	if easCfg == nil {
+		return buildCommand, nil
+	}
+
+	result := build.ValidateEASSimulatorProfile(easCfg, buildCommand)
+	if result.Valid || result.NoEASConfig || result.ProfileNotFound {
+		return buildCommand, nil
+	}
+
+	// Profile doesn't produce a simulator build
+	ui.Println()
+	ui.PrintWarning("Profile %q is not a simulator build (Revyl requires simulator builds for iOS).", result.ProfileName)
+	ui.Println()
+
+	// Interactive mode: offer to fix
+	if canPromptForEASLogin() {
+		if len(result.Alternatives) > 0 {
+			// Offer to switch to an existing simulator profile
+			switchProfile, err := ui.PromptConfirm(fmt.Sprintf("Switch to %q?", result.Alternatives[0]), true)
+			if err != nil {
+				return buildCommand, nil
+			}
+			if switchProfile {
+				newCmd := build.ReplaceProfileInCommand(buildCommand, result.Alternatives[0])
+				ui.PrintSuccess("Switched to profile %q", result.Alternatives[0])
+				return newCmd, nil
+			}
+			return buildCommand, fmt.Errorf("build cancelled: profile %q is not a simulator build", result.ProfileName)
+		}
+
+		// No existing alternatives — auto-create revyl-build profile
+		ui.PrintInfo("Adding \"revyl-build\" simulator profile to eas.json...")
+		if err := build.AddRevylBuildProfile(cwd, result.ProfileName); err != nil {
+			ui.PrintError("Failed to update eas.json: %v", err)
+			return buildCommand, fmt.Errorf("could not add revyl-build profile: %w", err)
+		}
+		newCmd := build.ReplaceProfileInCommand(buildCommand, "revyl-build")
+		ui.PrintSuccess("Added \"revyl-build\" profile to eas.json (extends %q with simulator: true)", result.ProfileName)
+		return newCmd, nil
+	}
+
+	// Non-interactive / CI: auto-create revyl-build profile
+	if err := build.AddRevylBuildProfile(cwd, result.ProfileName); err != nil {
+		return buildCommand, fmt.Errorf("profile %q is not a simulator build and failed to auto-fix eas.json: %w",
+			result.ProfileName, err)
+	}
+	newCmd := build.ReplaceProfileInCommand(buildCommand, "revyl-build")
+	ui.PrintInfo("Added \"revyl-build\" simulator profile to eas.json (extends %q)", result.ProfileName)
+	return newCmd, nil
+}
+
 // getPlatformNames returns a slice of platform names from the platforms map.
 func getPlatformNames(platforms map[string]config.BuildPlatform) []string {
 	names := make([]string, 0, len(platforms))
@@ -1260,4 +1368,61 @@ func getPlatformNames(platforms map[string]config.BuildPlatform) []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+func extractBuildCommit(metadata map[string]interface{}) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+
+	if gitMeta := toMetadataMap(metadata["git"]); gitMeta != nil {
+		if short := readMetadataString(gitMeta, "commit_short"); short != "" {
+			return short
+		}
+		if commit := readMetadataString(gitMeta, "commit"); commit != "" {
+			return abbreviateCommit(commit)
+		}
+	}
+
+	if sourceMeta := toMetadataMap(metadata["source_metadata"]); sourceMeta != nil {
+		if commit := readMetadataString(sourceMeta, "commit_sha"); commit != "" {
+			return abbreviateCommit(commit)
+		}
+	}
+
+	return ""
+}
+
+func toMetadataMap(raw interface{}) map[string]interface{} {
+	switch typed := raw.(type) {
+	case map[string]interface{}:
+		return typed
+	case map[string]string:
+		converted := make(map[string]interface{}, len(typed))
+		for key, value := range typed {
+			converted[key] = value
+		}
+		return converted
+	default:
+		return nil
+	}
+}
+
+func readMetadataString(metadata map[string]interface{}, key string) string {
+	value, ok := metadata[key]
+	if !ok || value == nil {
+		return ""
+	}
+	if str, ok := value.(string); ok {
+		return strings.TrimSpace(str)
+	}
+	return ""
+}
+
+func abbreviateCommit(commit string) string {
+	commit = strings.TrimSpace(commit)
+	if len(commit) > 12 {
+		return commit[:12]
+	}
+	return commit
 }

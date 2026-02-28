@@ -10,7 +10,7 @@ your-app/
 │   ├── config.yaml       # Project configuration
 │   ├── tests/            # Local test definitions
 │   │   └── login-flow.yaml
-│   └── .gitignore
+│   └── .gitignore        # Local/generated files (device sessions, remote state, creds)
 └── ...
 ```
 
@@ -79,6 +79,9 @@ hotreload:
         android: android-dev
       # use_exp_prefix: true  # If deep links fail with base scheme
 ```
+
+`revyl dev` resolves builds within the selected app stream (`platform_keys` / `build.platforms`),
+and prefers builds whose metadata branch matches your current git branch.
 
 ## Project Settings
 
