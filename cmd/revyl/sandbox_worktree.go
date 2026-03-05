@@ -1,7 +1,7 @@
 // Package main provides worktree management commands for Fleet sandboxes.
 //
-// Worktree commands execute via SSH to the sandbox, using the shell helpers
-// (wt, wts, wtrm) that are pre-installed during sandbox provisioning.
+// Worktree commands execute via SSH to the sandbox and run git worktree
+// operations directly for reliable behavior across sandbox layouts.
 package main
 
 import (
@@ -62,10 +62,11 @@ EXAMPLES:
 // Returns:
 //   - error: Any error that occurred
 func runSandboxWorktreeList(cmd *cobra.Command, args []string) error {
-	target, err := getClaimedSandbox(cmd)
+	target, err := getClaimedSandboxNamed(cmd, worktreeSandboxName)
 	if err != nil {
 		return err
 	}
+	repoName := strings.TrimSpace(worktreeListRepo)
 
 	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 
@@ -73,7 +74,7 @@ func runSandboxWorktreeList(cmd *cobra.Command, args []string) error {
 		ui.StartSpinner("Listing worktrees...")
 	}
 
-	output, err := sandboxpkg.SSHExec(target, "cd ~/workspace/main && git worktree list --porcelain")
+	worktrees, err := listSandboxWorktrees(target, repoName)
 
 	if !jsonOutput {
 		ui.StopSpinner()
@@ -83,8 +84,6 @@ func runSandboxWorktreeList(cmd *cobra.Command, args []string) error {
 		ui.PrintError("Failed to list worktrees: %v", err)
 		return err
 	}
-
-	worktrees := parseWorktreeList(output, target)
 
 	if jsonOutput {
 		data, _ := json.MarshalIndent(map[string]interface{}{
@@ -123,7 +122,18 @@ func runSandboxWorktreeList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var worktreeCreateBase string
+var (
+	worktreeCreateBase  string
+	worktreeCreateRepo  string
+	worktreeListRepo    string
+	worktreeSetupRepo   string
+	worktreeRemoveRepo  string
+	worktreeSandboxName string
+
+	sandboxSSHExec         = sandboxpkg.SSHExec
+	listSandboxWorktreesFn = listSandboxWorktrees
+	getClaimedSandboxesFn  = defaultGetClaimedSandboxes
+)
 
 // sandboxWorktreeCreateCmd creates a new worktree on the user's sandbox.
 var sandboxWorktreeCreateCmd = &cobra.Command{
@@ -141,7 +151,7 @@ EXAMPLES:
 	RunE: runSandboxWorktreeCreate,
 }
 
-// runSandboxWorktreeCreate creates a worktree via SSH using the 'wt' shell helper.
+// runSandboxWorktreeCreate creates a worktree via SSH using a self-contained git script.
 //
 // Parameters:
 //   - cmd: The cobra command being executed
@@ -151,25 +161,104 @@ EXAMPLES:
 //   - error: Any error that occurred
 func runSandboxWorktreeCreate(cmd *cobra.Command, args []string) error {
 	branch := args[0]
+	base := worktreeCreateBase
+	if strings.TrimSpace(base) == "" {
+		base = "staging"
+	}
+	repoName := strings.TrimSpace(worktreeCreateRepo)
 
-	target, err := getClaimedSandbox(cmd)
+	target, err := getClaimedSandboxNamed(cmd, worktreeSandboxName)
 	if err != nil {
 		return err
 	}
 
 	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 
-	// Build the command — 'wt' is the shell helper installed on sandboxes
-	sshCmd := fmt.Sprintf("source ~/.zshrc && wt %s", branch)
-	if worktreeCreateBase != "" {
-		sshCmd = fmt.Sprintf("source ~/.zshrc && wt %s %s", branch, worktreeCreateBase)
-	}
+	// Use a self-contained script so create remains reliable even when shell
+	// helper aliases/functions are missing or stale on the sandbox.
+	sshCmd := fmt.Sprintf(`
+set -euo pipefail
+BRANCH=%s
+BASE=%s
+REPO_OVERRIDE=%s
+
+%s
+
+if [ -n "$REPO_OVERRIDE" ]; then
+  REPO_DIR="$REPO_OVERRIDE"
+else
+  REPO_DIR="$(basename "$REPO_PATH")"
+fi
+
+if [ -z "${REPO_DIR:-}" ]; then
+  echo "ERROR: Unable to resolve repo directory for worktree path" >&2
+  exit 1
+fi
+
+WORKTREE_BASE="$WORKSPACE_ROOT/$REPO_DIR"
+mkdir -p "$WORKTREE_BASE"
+WORKTREE_PATH="$WORKTREE_BASE/$BRANCH"
+
+echo "Repo path: $REPO_PATH"
+echo "Worktree path: $WORKTREE_PATH"
+echo "Base branch: $BASE"
+
+git -C "$REPO_PATH" fetch origin "$BASE" 2>&1 || git -C "$REPO_PATH" fetch origin 2>&1
+git -C "$REPO_PATH" worktree prune 2>&1 || true
+
+if [ -e "$WORKTREE_PATH/.git" ]; then
+  CURRENT_BRANCH="$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [ "$CURRENT_BRANCH" = "$BRANCH" ]; then
+    echo "Worktree already exists at $WORKTREE_PATH on branch $BRANCH"
+    echo "CREATED:$WORKTREE_PATH"
+    exit 0
+  fi
+  echo "ERROR: Worktree path already exists on branch '$CURRENT_BRANCH': $WORKTREE_PATH" >&2
+  exit 1
+fi
+
+add_worktree() {
+  if git -C "$REPO_PATH" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+    git -C "$REPO_PATH" worktree add "$WORKTREE_PATH" "$BRANCH" 2>&1
+    return
+  fi
+
+  START_POINT="origin/$BASE"
+  if ! git -C "$REPO_PATH" show-ref --verify --quiet "refs/remotes/$START_POINT"; then
+    if git -C "$REPO_PATH" show-ref --verify --quiet "refs/heads/$BASE"; then
+      START_POINT="$BASE"
+    else
+      echo "ERROR: Base branch '$BASE' not found locally or on origin" >&2
+      return 1
+    fi
+  fi
+  git -C "$REPO_PATH" worktree add "$WORKTREE_PATH" -b "$BRANCH" "$START_POINT" 2>&1
+}
+
+if ! ADD_OUTPUT="$(add_worktree)"; then
+  echo "$ADD_OUTPUT"
+  if printf '%%s\n' "$ADD_OUTPUT" | grep -q "missing but already registered worktree"; then
+    echo "Detected stale worktree registration for $WORKTREE_PATH; pruning and retrying..." >&2
+    git -C "$REPO_PATH" worktree prune 2>&1 || true
+    if ! RETRY_OUTPUT="$(add_worktree)"; then
+      echo "$RETRY_OUTPUT"
+      echo "ERROR: Worktree create failed after prune/retry" >&2
+      exit 1
+    fi
+    echo "$RETRY_OUTPUT"
+  else
+    exit 1
+  fi
+fi
+
+echo "CREATED:$WORKTREE_PATH"
+`, shellQuote(branch), shellQuote(base), shellQuote(repoName), sandboxRepoResolutionScript())
 
 	if !jsonOutput {
 		ui.StartSpinner(fmt.Sprintf("Creating worktree %s...", branch))
 	}
 
-	output, err := sandboxpkg.SSHExec(target, sshCmd)
+	output, err := sandboxSSHExec(target, sshCmd)
 
 	if !jsonOutput {
 		ui.StopSpinner()
@@ -196,8 +285,12 @@ func runSandboxWorktreeCreate(cmd *cobra.Command, args []string) error {
 		ui.PrintDim("%s", output)
 	}
 
+	openCommand := fmt.Sprintf("revyl --dev sandbox open %s --repo <repo>", branch)
+	if strings.TrimSpace(repoName) != "" {
+		openCommand = fmt.Sprintf("revyl --dev sandbox open %s --repo %s", branch, repoName)
+	}
 	ui.PrintNextSteps([]ui.NextStep{
-		{Label: "Open in IDE", Command: fmt.Sprintf("revyl --dev sandbox open %s", branch)},
+		{Label: "Open in IDE", Command: openCommand},
 		{Label: "Start a tunnel", Command: fmt.Sprintf("revyl --dev sandbox tunnel start %s", branch)},
 	})
 
@@ -213,15 +306,15 @@ var sandboxWorktreeRemoveCmd = &cobra.Command{
 Stops any associated tunnels and removes the worktree directory.
 
 EXAMPLES:
-  revyl --dev sandbox worktree remove feature-x
-  revyl --dev sandbox worktree remove feature-x --force`,
+  revyl --dev sandbox worktree remove feature-x --repo my-repo
+  revyl --dev sandbox worktree remove feature-x --repo my-repo --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSandboxWorktreeRemove,
 }
 
 var worktreeRemoveForce bool
 
-// runSandboxWorktreeRemove removes a worktree via SSH using the 'wtrm' shell helper.
+// runSandboxWorktreeRemove removes a worktree via SSH using repo-scoped git commands.
 //
 // Parameters:
 //   - cmd: The cobra command being executed
@@ -231,8 +324,13 @@ var worktreeRemoveForce bool
 //   - error: Any error that occurred
 func runSandboxWorktreeRemove(cmd *cobra.Command, args []string) error {
 	branch := args[0]
+	repoName := strings.TrimSpace(worktreeRemoveRepo)
+	if repoName == "" {
+		ui.PrintError("--repo is required for sandbox worktree remove")
+		return fmt.Errorf("--repo is required")
+	}
 
-	target, err := getClaimedSandbox(cmd)
+	target, err := getClaimedSandboxNamed(cmd, worktreeSandboxName)
 	if err != nil {
 		return err
 	}
@@ -248,13 +346,44 @@ func runSandboxWorktreeRemove(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	sshCmd := fmt.Sprintf("source ~/.zshrc && wtrm %s", branch)
+	sshCmd := fmt.Sprintf(`
+set -euo pipefail
+BRANCH=%s
+REPO_OVERRIDE=%s
+
+%s
+
+WORKTREE_PATH="$WORKSPACE_ROOT/$REPO_OVERRIDE/$BRANCH"
+if [ ! -e "$WORKTREE_PATH" ]; then
+  FOUND_PATH="$(git -C "$REPO_PATH" worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '
+    /^worktree / { wt=$2 }
+    /^branch / { if ($2 == b) { print wt; exit } }
+  ')"
+  if [ -n "$FOUND_PATH" ]; then
+    WORKTREE_PATH="$FOUND_PATH"
+  fi
+fi
+
+if [ ! -e "$WORKTREE_PATH" ]; then
+  echo "ERROR: Worktree path not found for branch '$BRANCH' in repo '$REPO_OVERRIDE'" >&2
+  exit 1
+fi
+
+git -C "$REPO_PATH" worktree remove "$WORKTREE_PATH" --force 2>&1 || {
+  echo "Detected stale worktree registration; pruning and retrying..." >&2
+  git -C "$REPO_PATH" worktree prune 2>&1 || true
+  git -C "$REPO_PATH" worktree remove "$WORKTREE_PATH" --force 2>&1
+}
+git -C "$REPO_PATH" branch -D "$BRANCH" 2>/dev/null || true
+git -C "$REPO_PATH" worktree prune 2>&1 || true
+echo "REMOVED:$WORKTREE_PATH"
+`, shellQuote(branch), shellQuote(repoName), sandboxRepoResolutionScript())
 
 	if !jsonOutput {
 		ui.StartSpinner(fmt.Sprintf("Removing worktree %s...", branch))
 	}
 
-	output, err := sandboxpkg.SSHExec(target, sshCmd)
+	output, err := sandboxSSHExec(target, sshCmd)
 
 	if !jsonOutput {
 		ui.StopSpinner()
@@ -295,7 +424,7 @@ Reads fleet.json from the worktree to find the setup script path
 Useful after pulling new changes that modify setup requirements.
 
 EXAMPLES:
-  revyl --dev sandbox worktree setup feature-x`,
+  revyl --dev sandbox worktree setup feature-x --repo my-repo`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSandboxWorktreeSetup,
 }
@@ -314,16 +443,26 @@ EXAMPLES:
 //   - error: Any error that occurred
 func runSandboxWorktreeSetup(cmd *cobra.Command, args []string) error {
 	branch := args[0]
+	repoName := strings.TrimSpace(worktreeSetupRepo)
+	if repoName == "" {
+		ui.PrintError("--repo is required for sandbox worktree setup")
+		return fmt.Errorf("--repo is required")
+	}
 
-	target, err := getClaimedSandbox(cmd)
+	target, err := getClaimedSandboxNamed(cmd, worktreeSandboxName)
 	if err != nil {
 		return err
 	}
 
 	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
+	worktreePath, err := resolveSandboxWorktreePathInRepo(target, branch, repoName)
+	if err != nil {
+		ui.PrintError("Failed to resolve worktree path for %s: %v", branch, err)
+		return err
+	}
 
 	sshCmd := fmt.Sprintf(
-		`cd ~/workspace/%s && source ~/.zshrc && `+
+		`set -euo pipefail && cd %s && `+
 			`if [ -f .revyl/fleet.json ]; then CFG=.revyl/fleet.json; `+
 			`elif [ -f fleet.json ]; then CFG=fleet.json; `+
 			`else CFG=""; fi; `+
@@ -332,14 +471,14 @@ func runSandboxWorktreeSetup(cmd *cobra.Command, args []string) error {
 			`if [ -n "$SCRIPT" ] && [ -f "$SCRIPT" ]; then chmod +x "$SCRIPT" && "$SCRIPT"; `+
 			`else echo "No setup script found in $CFG"; fi; `+
 			`else echo "No fleet config found (.revyl/fleet.json or fleet.json)"; fi`,
-		branch,
+		shellQuote(worktreePath),
 	)
 
 	if !jsonOutput {
 		ui.StartSpinner(fmt.Sprintf("Running setup on %s...", branch))
 	}
 
-	output, err := sandboxpkg.SSHExec(target, sshCmd)
+	output, err := sandboxSSHExec(target, sshCmd)
 
 	if !jsonOutput {
 		ui.StopSpinner()
@@ -371,6 +510,96 @@ func runSandboxWorktreeSetup(cmd *cobra.Command, args []string) error {
 
 // --- helpers ---
 
+// shellQuote wraps a string for safe use in POSIX shell commands.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+// sandboxRepoResolutionScript returns shell code that resolves REPO_PATH and WORKSPACE_ROOT.
+func sandboxRepoResolutionScript() string {
+	return `
+WORKSPACE_ROOT="${SANDBOX_WORKSPACE:-$HOME/workspace}"
+REPO_OVERRIDE="${REPO_OVERRIDE:-}"
+BASE_BRANCH="${BASE:-staging}"
+
+is_git_repo() {
+  local candidate="${1:-}"
+  [ -n "$candidate" ] && git -C "$candidate" rev-parse --git-dir >/dev/null 2>&1
+}
+
+if [ -n "$REPO_OVERRIDE" ]; then
+  REPO_ROOT="$WORKSPACE_ROOT/$REPO_OVERRIDE"
+  REPO_PATH=""
+  if is_git_repo "$REPO_ROOT/$BASE_BRANCH"; then
+    REPO_PATH="$REPO_ROOT/$BASE_BRANCH"
+  elif is_git_repo "$REPO_ROOT/staging"; then
+    REPO_PATH="$REPO_ROOT/staging"
+  elif is_git_repo "$REPO_ROOT/main"; then
+    REPO_PATH="$REPO_ROOT/main"
+  elif is_git_repo "$REPO_ROOT"; then
+    REPO_PATH="$REPO_ROOT"
+  else
+    REPO_PATH="$(find "$REPO_ROOT" -maxdepth 4 \( -type d -o -type f \) -name .git -print -quit 2>/dev/null | sed 's|/.git$||')"
+    if ! is_git_repo "$REPO_PATH"; then
+      REPO_PATH=""
+    fi
+  fi
+  if [ -z "${REPO_PATH:-}" ]; then
+    echo "ERROR: Requested repo '$REPO_OVERRIDE' was not found under $WORKSPACE_ROOT" >&2
+    exit 1
+  fi
+else
+  if [ -n "${SANDBOX_REPO:-}" ] && is_git_repo "$SANDBOX_REPO"; then
+    REPO_PATH="$SANDBOX_REPO"
+  elif is_git_repo "$WORKSPACE_ROOT/staging"; then
+    REPO_PATH="$WORKSPACE_ROOT/staging"
+  elif is_git_repo "$WORKSPACE_ROOT/main"; then
+    REPO_PATH="$WORKSPACE_ROOT/main"
+  else
+    REPO_PATH="$(find "$WORKSPACE_ROOT" -maxdepth 3 \( -type d -o -type f \) -name .git -print -quit 2>/dev/null | sed 's|/.git$||')"
+  fi
+fi
+
+if ! is_git_repo "$REPO_PATH"; then
+  echo "ERROR: Could not locate sandbox git repo under $WORKSPACE_ROOT" >&2
+  exit 1
+fi
+`
+}
+
+func listSandboxWorktrees(sandbox *api.FleetSandbox, repoOverride string) ([]worktreeInfo, error) {
+	sshCmd := fmt.Sprintf(
+		"set -euo pipefail\nREPO_OVERRIDE=%s\n%s\ncd \"$REPO_PATH\"\ngit worktree list --porcelain",
+		shellQuote(repoOverride),
+		sandboxRepoResolutionScript(),
+	)
+	output, err := sandboxSSHExec(sandbox, sshCmd)
+	if err != nil {
+		return nil, err
+	}
+	return parseWorktreeList(output, sandbox), nil
+}
+
+func resolveSandboxWorktreePathInRepo(sandbox *api.FleetSandbox, branch, repoOverride string) (string, error) {
+	worktrees, err := listSandboxWorktreesFn(sandbox, repoOverride)
+	if err != nil {
+		return "", err
+	}
+	for _, wt := range worktrees {
+		if wt.Branch == branch {
+			return wt.Path, nil
+		}
+	}
+	if strings.TrimSpace(repoOverride) != "" {
+		return "", fmt.Errorf("worktree %q not found in repo %q on %s", branch, repoOverride, sandbox.DisplayName())
+	}
+	return "", fmt.Errorf("worktree %q not found on %s", branch, sandbox.DisplayName())
+}
+
+func resolveSandboxWorktreePath(sandbox *api.FleetSandbox, branch string) (string, error) {
+	return resolveSandboxWorktreePathInRepo(sandbox, branch, "")
+}
+
 // getClaimedSandbox returns the user's claimed sandbox, prompting to choose if multiple.
 // This is a shared helper for worktree, tunnel, and open commands.
 //
@@ -381,18 +610,16 @@ func runSandboxWorktreeSetup(cmd *cobra.Command, args []string) error {
 //   - *api.FleetSandbox: The user's claimed sandbox
 //   - error: If no sandbox is claimed or API call fails
 func getClaimedSandbox(cmd *cobra.Command) (*api.FleetSandbox, error) {
-	apiKey, err := getAPIKey()
-	if err != nil {
-		return nil, err
-	}
+	return getClaimedSandboxNamed(cmd, "")
+}
 
-	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(apiKey, devMode)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	mine, err := client.GetMySandboxes(ctx)
+// getClaimedSandboxNamed returns a claimed sandbox, optionally filtered by name.
+//
+// When targetName is non-empty, this function resolves by either display name
+// or VM name (case-insensitive) and returns an error if no match is found.
+func getClaimedSandboxNamed(cmd *cobra.Command, targetName string) (*api.FleetSandbox, error) {
+	targetName = strings.TrimSpace(targetName)
+	mine, err := getClaimedSandboxesFn(cmd)
 	if err != nil {
 		ui.PrintError("Failed to fetch your sandboxes: %v", err)
 		return nil, err
@@ -402,6 +629,18 @@ func getClaimedSandbox(cmd *cobra.Command) (*api.FleetSandbox, error) {
 		ui.PrintInfo("You don't have any claimed sandboxes")
 		ui.PrintInfo("Run 'revyl --dev sandbox claim' to claim one")
 		return nil, fmt.Errorf("no claimed sandbox")
+	}
+
+	if targetName != "" {
+		for i := range mine {
+			name := mine[i].DisplayName()
+			vmName := mine[i].VmName
+			if strings.EqualFold(name, targetName) || strings.EqualFold(vmName, targetName) {
+				return &mine[i], nil
+			}
+		}
+		ui.PrintError("Sandbox '%s' not found in your claimed sandboxes", targetName)
+		return nil, fmt.Errorf("sandbox %q not found", targetName)
 	}
 
 	if len(mine) == 1 {
@@ -424,6 +663,21 @@ func getClaimedSandbox(cmd *cobra.Command) (*api.FleetSandbox, error) {
 	}
 
 	return &mine[idx], nil
+}
+
+func defaultGetClaimedSandboxes(cmd *cobra.Command) ([]api.FleetSandbox, error) {
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return nil, err
+	}
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	return client.GetMySandboxes(ctx)
 }
 
 // parseWorktreeList parses 'git worktree list --porcelain' output into FleetWorktree structs.
@@ -517,7 +771,19 @@ func init() {
 
 	// worktree create flags
 	sandboxWorktreeCreateCmd.Flags().StringVar(&worktreeCreateBase, "base", "", "Base branch to create from (default: staging)")
+	sandboxWorktreeCreateCmd.Flags().StringVar(&worktreeCreateRepo, "repo", "", "Repo directory name under ~/workspace (recommended for multi-repo sandboxes)")
+	sandboxWorktreeCreateCmd.Flags().StringVarP(&worktreeSandboxName, "name", "n", "", "Target sandbox name (required when you have multiple claimed sandboxes)")
+
+	// worktree list/setup/remove flags
+	sandboxWorktreeListCmd.Flags().StringVarP(&worktreeSandboxName, "name", "n", "", "Target sandbox name")
+	sandboxWorktreeListCmd.Flags().StringVar(&worktreeListRepo, "repo", "", "Repo directory name under ~/workspace (optional for multi-repo sandboxes)")
+	sandboxWorktreeSetupCmd.Flags().StringVarP(&worktreeSandboxName, "name", "n", "", "Target sandbox name")
+	sandboxWorktreeSetupCmd.Flags().StringVar(&worktreeSetupRepo, "repo", "", "Repo directory name under ~/workspace (required)")
+	sandboxWorktreeRemoveCmd.Flags().StringVarP(&worktreeSandboxName, "name", "n", "", "Target sandbox name")
+	sandboxWorktreeRemoveCmd.Flags().StringVar(&worktreeRemoveRepo, "repo", "", "Repo directory name under ~/workspace (required)")
 
 	// worktree remove flags
 	sandboxWorktreeRemoveCmd.Flags().BoolVarP(&worktreeRemoveForce, "force", "f", false, "Skip confirmation prompt")
+	_ = sandboxWorktreeSetupCmd.MarkFlagRequired("repo")
+	_ = sandboxWorktreeRemoveCmd.MarkFlagRequired("repo")
 }

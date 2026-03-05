@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -90,7 +91,7 @@ If a test name is provided, only that test is pulled.
 Otherwise, pulls all tests that are in your local config.
 
 Use --all to discover and pull ALL tests from your organization,
-including those created in the web UI that aren't in local config yet.
+including those created in the app UI that aren't in local config yet.
 
 Examples:
   revyl test pull              # Pull all tests in local config
@@ -348,6 +349,29 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	ui.StartSpinner("Checking test status...")
+	statuses, err := resolver.GetAllStatuses(cmd.Context())
+	ui.StopSpinner()
+	if err != nil {
+		ui.PrintError("Failed to check status: %v", err)
+		return err
+	}
+
+	testsToValidate := make([]string, 0)
+	if testName != "" {
+		testsToValidate = append(testsToValidate, testName)
+	} else {
+		for _, s := range statuses {
+			if s.Status == sync.StatusModified || s.Status == sync.StatusLocalOnly {
+				testsToValidate = append(testsToValidate, s.Name)
+			}
+		}
+	}
+
+	if err := validateTestsForPush(testsToValidate, testsDir, localTests); err != nil {
+		return err
+	}
+
 	ui.StartSpinner("Pushing tests...")
 	results, err := resolver.SyncToRemote(cmd.Context(), testName, testsDir, testsForce)
 	ui.StopSpinner()
@@ -376,6 +400,47 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 		_ = config.WriteProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"), cfg)
 	}
 
+	return nil
+}
+
+func validateTestsForPush(testNames []string, testsDir string, localTests map[string]*config.LocalTest) error {
+	testsToValidate := make([]string, 0, len(testNames))
+	for _, name := range testNames {
+		if _, ok := localTests[name]; !ok {
+			return fmt.Errorf("test not found: %s", name)
+		}
+		testsToValidate = append(testsToValidate, name)
+	}
+	sort.Strings(testsToValidate)
+
+	hasErrors := false
+	for _, name := range testsToValidate {
+		testPath := filepath.Join(testsDir, name+".yaml")
+		result, err := yaml.ValidateYAMLFile(testPath)
+		if err != nil {
+			hasErrors = true
+			ui.PrintError("%s: failed to read YAML file: %v", name, err)
+			continue
+		}
+
+		for _, warning := range result.Warnings {
+			ui.PrintWarning("%s: %s", name, warning)
+		}
+
+		if result.Valid {
+			continue
+		}
+
+		hasErrors = true
+		ui.PrintError("%s: YAML validation failed:", name)
+		for _, validationErr := range result.Errors {
+			ui.PrintError("  %s", validationErr)
+		}
+	}
+
+	if hasErrors {
+		return fmt.Errorf("push aborted: one or more tests have invalid YAML")
+	}
 	return nil
 }
 

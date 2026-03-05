@@ -635,7 +635,7 @@ func TestInputValidation_StartDeviceSession(t *testing.T) {
 		},
 		{
 			name:      "invalid platform",
-			input:     StartDeviceSessionInput{Platform: "web"},
+			input:     StartDeviceSessionInput{Platform: "desktop"},
 			wantError: "platform must be 'ios' or 'android'",
 		},
 	}

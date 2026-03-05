@@ -8,6 +8,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -384,9 +385,15 @@ func runServicesStart(cmd *cobra.Command, args []string) error {
 	// When starting a subset of services (--service), append to the existing
 	// PID file so other per-service invocations are preserved.
 	if len(serviceFilter) > 0 {
-		appendPIDFile(pidFilePath(repoRoot), serviceNames, pids)
+		if err := appendPIDFile(pidFilePath(repoRoot), serviceNames, pids); err != nil {
+			stopProcesses(cmds)
+			return fmt.Errorf("failed to persist service PID file: %w", err)
+		}
 	} else {
-		writePIDFile(pidFilePath(repoRoot), serviceNames, pids)
+		if err := writePIDFile(pidFilePath(repoRoot), serviceNames, pids); err != nil {
+			stopProcesses(cmds)
+			return fmt.Errorf("failed to persist service PID file: %w", err)
+		}
 	}
 
 	// Wait for signal or all processes to exit
@@ -494,7 +501,9 @@ func runServicesStop(cmd *cobra.Command, args []string) error {
 			names = append(names, e.Name)
 			remainingPids = append(remainingPids, e.PID)
 		}
-		writePIDFile(pidFile, names, remainingPids)
+		if err := writePIDFile(pidFile, names, remainingPids); err != nil {
+			return fmt.Errorf("failed to update service PID file: %w", err)
+		}
 	} else {
 		_ = os.Remove(pidFile)
 	}
@@ -632,7 +641,7 @@ func stopProcesses(cmds []*exec.Cmd) {
 //   - path: Path to the PID file.
 //   - names: Service display names (parallel with pids).
 //   - pids: Process IDs to write.
-func writePIDFile(path string, names []string, pids []int) {
+func writePIDFile(path string, names []string, pids []int) error {
 	var lines []string
 	for i, pid := range pids {
 		name := ""
@@ -641,7 +650,10 @@ func writePIDFile(path string, names []string, pids []int) {
 		}
 		lines = append(lines, fmt.Sprintf("%s:%d", name, pid))
 	}
-	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
+		return fmt.Errorf("write PID file %q: %w", path, err)
+	}
+	return nil
 }
 
 // appendPIDFile appends service name:PID pairs to an existing PID file.
@@ -653,7 +665,7 @@ func writePIDFile(path string, names []string, pids []int) {
 //   - path: Path to the PID file.
 //   - names: Service display names (parallel with pids).
 //   - pids: Process IDs to append.
-func appendPIDFile(path string, names []string, pids []int) {
+func appendPIDFile(path string, names []string, pids []int) error {
 	var newLines []string
 	for i, pid := range pids {
 		name := ""
@@ -664,7 +676,13 @@ func appendPIDFile(path string, names []string, pids []int) {
 	}
 
 	// Read existing entries, remove stale entries for the same service names
-	existing, _ := readPIDFile(path)
+	existing, err := readPIDFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read existing PID file %q: %w", path, err)
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		existing = nil
+	}
 	nameSet := make(map[string]bool, len(names))
 	for _, n := range names {
 		nameSet[n] = true
@@ -678,7 +696,10 @@ func appendPIDFile(path string, names []string, pids []int) {
 	}
 
 	all := append(kept, newLines...)
-	_ = os.WriteFile(path, []byte(strings.Join(all, "\n")+"\n"), 0644)
+	if err := os.WriteFile(path, []byte(strings.Join(all, "\n")+"\n"), 0644); err != nil {
+		return fmt.Errorf("append PID file %q: %w", path, err)
+	}
+	return nil
 }
 
 // pidEntry represents a single service entry from the PID file.

@@ -304,7 +304,7 @@ var docsCmd = &cobra.Command{
 	Use:   "docs",
 	Short: "Open Revyl documentation in browser",
 	Run: func(cmd *cobra.Command, args []string) {
-		docsURL := "https://docs.revyl.com"
+		docsURL := ui.DocsURL
 		ui.PrintInfo("Opening documentation: %s", docsURL)
 		if err := ui.OpenBrowser(docsURL); err != nil {
 			ui.PrintError("Failed to open browser: %v", err)

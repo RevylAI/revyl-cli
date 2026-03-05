@@ -134,9 +134,15 @@ func SSHExec(sandbox *api.FleetSandbox, command string) (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		stdoutStr := strings.TrimSpace(stdout.String())
 		stderrStr := strings.TrimSpace(stderr.String())
-		if stderrStr != "" {
+		switch {
+		case stderrStr != "" && stdoutStr != "":
+			return "", fmt.Errorf("SSH command failed: %w\nstdout: %s\nstderr: %s", err, stdoutStr, stderrStr)
+		case stderrStr != "":
 			return "", fmt.Errorf("SSH command failed: %w\nstderr: %s", err, stderrStr)
+		case stdoutStr != "":
+			return "", fmt.Errorf("SSH command failed: %w\nstdout: %s", err, stdoutStr)
 		}
 		return "", fmt.Errorf("SSH command failed: %w", err)
 	}

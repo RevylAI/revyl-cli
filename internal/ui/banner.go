@@ -19,6 +19,9 @@ const banner = `
 // tagline is the product tagline.
 const tagline = "Proactive Reliability for Mobile Apps"
 
+// DocsURL is the canonical public docs entrypoint for CLI users.
+const DocsURL = "https://docs.revyl.ai"
+
 // PrintBanner prints the Revyl banner with version info.
 //
 // Parameters:
@@ -51,7 +54,7 @@ func PrintBanner(version string) {
 		PaddingLeft(2)
 
 	fmt.Println(infoStyle.Render(fmt.Sprintf("Version: %s", version)))
-	fmt.Println(infoStyle.Render("Docs:    https://docs.revyl.com"))
+	fmt.Println(infoStyle.Render(fmt.Sprintf("Docs:    %s", DocsURL)))
 	fmt.Println()
 }
 
@@ -80,7 +83,7 @@ func GetCondensedHelp() string {
   %s              Machine-readable CLI schema for LLM agents
   %s           Start MCP server for AI integration
 
-%s  https://docs.revyl.com
+%s  %s
 %s  support@revyl.ai
 
 %s
@@ -99,6 +102,7 @@ func GetCondensedHelp() string {
 		purple.Render("revyl schema"),
 		purple.Render("revyl mcp serve"),
 		purple.Render("Docs: "),
+		DocsURL,
 		purple.Render("Help: "),
 		hint.Render(`Use "revyl --help" for a full list of commands.`),
 	)
@@ -130,7 +134,7 @@ func GetHelpText() string {
   %s         Start MCP server for AI agent integration
   %s              Output machine-readable CLI schema
 
-%s  https://docs.revyl.com
+%s  %s
 %s  support@revyl.ai`,
 		dim.Render(tagline+". Catch bugs before your users do."),
 		purple.Render("Quick Start:"),
@@ -149,6 +153,7 @@ func GetHelpText() string {
 		purple.Render("revyl mcp serve"),
 		purple.Render("revyl schema"),
 		purple.Render("Docs: "),
+		DocsURL,
 		purple.Render("Help: "),
 	)
 }

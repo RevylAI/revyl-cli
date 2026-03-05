@@ -1053,6 +1053,9 @@ func pushSingleTest(ctx context.Context, client *api.Client, cfg *config.Project
 	if err != nil {
 		return err
 	}
+	if err := validateTestsForPush([]string{testName}, testsDir, localTests); err != nil {
+		return err
+	}
 	resolver := syncpkg.NewResolver(client, cfg, localTests)
 	results, err := resolver.SyncToRemote(ctx, testName, testsDir, false)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -19,8 +20,10 @@ import (
 )
 
 var (
-	openEditor   string
-	openTerminal bool
+	openEditor      string
+	openTerminal    bool
+	openSandboxName string
+	openRepo        string
 )
 
 // sandboxOpenCmd opens a worktree in an IDE or terminal.
@@ -33,10 +36,10 @@ or open a terminal session at the worktree path.
 Supported editors: cursor, vscode, zed
 
 EXAMPLES:
-  revyl --dev sandbox open feature-x                     # Default: cursor
-  revyl --dev sandbox open feature-x --editor vscode
-  revyl --dev sandbox open feature-x --editor zed
-  revyl --dev sandbox open feature-x --terminal`,
+  revyl --dev sandbox open feature-x --repo my-repo                     # Default: cursor
+  revyl --dev sandbox open feature-x --repo my-repo --editor vscode
+  revyl --dev sandbox open feature-x --repo my-repo --editor zed
+  revyl --dev sandbox open feature-x --repo my-repo --terminal`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSandboxOpen,
 }
@@ -51,16 +54,26 @@ EXAMPLES:
 //   - error: Any error that occurred
 func runSandboxOpen(cmd *cobra.Command, args []string) error {
 	branch := args[0]
+	repoName := strings.TrimSpace(openRepo)
+	if repoName == "" {
+		ui.PrintError("--repo is required for sandbox open")
+		return fmt.Errorf("--repo is required")
+	}
+	targetName := strings.TrimSpace(openSandboxName)
 
-	target, err := getClaimedSandbox(cmd)
+	target, err := getClaimedSandboxNamed(cmd, targetName)
 	if err != nil {
 		return err
 	}
 
 	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 
-	// Build the remote path
-	remotePath := fmt.Sprintf("/Users/%s/workspace/%s", target.EffectiveSSHUser(), branch)
+	// Resolve the actual worktree path on sandbox (supports nested repo layouts).
+	remotePath, err := resolveSandboxWorktreePathInRepo(target, branch, repoName)
+	if err != nil {
+		ui.PrintError("Failed to resolve worktree path for %s: %v", branch, err)
+		return err
+	}
 	sshHost := target.EffectiveTunnelHostname()
 	sshUser := target.EffectiveSSHUser()
 
@@ -217,4 +230,7 @@ func init() {
 
 	sandboxOpenCmd.Flags().StringVar(&openEditor, "editor", "", "Editor to open in (cursor, vscode, zed). Default: cursor")
 	sandboxOpenCmd.Flags().BoolVar(&openTerminal, "terminal", false, "Open a terminal session instead of an IDE")
+	sandboxOpenCmd.Flags().StringVarP(&openSandboxName, "name", "n", "", "Target sandbox name")
+	sandboxOpenCmd.Flags().StringVar(&openRepo, "repo", "", "Repo directory name under ~/workspace (required)")
+	_ = sandboxOpenCmd.MarkFlagRequired("repo")
 }

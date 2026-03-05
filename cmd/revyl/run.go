@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -55,6 +57,13 @@ const minRetries = 1
 // maxRetries is the maximum allowed retry count.
 const maxRetries = 5
 
+const (
+	runCancelRequestTimeout = 10 * time.Second
+	runForceExitCode        = 130
+)
+
+var runInterruptExit = os.Exit
+
 // resolveRunOpen determines whether reports should auto-open.
 // Explicit --open takes precedence over config defaults.
 func resolveRunOpen(cmd *cobra.Command, cfg *config.ProjectConfig, flagValue bool) bool {
@@ -71,6 +80,121 @@ func resolveRunTimeout(cmd *cobra.Command, cfg *config.ProjectConfig, flagValue 
 		return flagValue
 	}
 	return config.EffectiveTimeoutSeconds(cfg, flagValue)
+}
+
+type runInterruptState struct {
+	taskIDMu  sync.RWMutex
+	taskID    string
+	cancelled atomic.Bool
+}
+
+func newRunInterruptState() *runInterruptState {
+	return &runInterruptState{}
+}
+
+func (s *runInterruptState) SetTaskID(id string) {
+	s.taskIDMu.Lock()
+	s.taskID = strings.TrimSpace(id)
+	s.taskIDMu.Unlock()
+}
+
+func (s *runInterruptState) TaskID() string {
+	s.taskIDMu.RLock()
+	defer s.taskIDMu.RUnlock()
+	return s.taskID
+}
+
+func (s *runInterruptState) MarkCancelled() {
+	s.cancelled.Store(true)
+}
+
+func (s *runInterruptState) Cancelled() bool {
+	return s.cancelled.Load()
+}
+
+type runInterruptOptions struct {
+	nounLower     string
+	nounTitle     string
+	requestCancel func(context.Context, string) error
+	exitFunc      func(int)
+}
+
+func startRunInterruptHandler(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	sigChan <-chan os.Signal,
+	state *runInterruptState,
+	opts runInterruptOptions,
+) func() {
+	if state == nil {
+		state = newRunInterruptState()
+	}
+
+	exitFunc := opts.exitFunc
+	if exitFunc == nil {
+		exitFunc = runInterruptExit
+	}
+
+	stopCh := make(chan struct{})
+	var stopOnce sync.Once
+
+	go func() {
+		ctxDone := ctx.Done()
+		interruptCount := 0
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-ctxDone:
+				// After first interrupt we intentionally keep listening for a second
+				// interrupt to allow immediate force-exit while cancellation propagates.
+				if state.Cancelled() {
+					ctxDone = nil
+					continue
+				}
+				return
+			case _, ok := <-sigChan:
+				if !ok {
+					return
+				}
+
+				interruptCount++
+				if interruptCount == 1 {
+					ui.StopSpinner()
+					ui.Println()
+					ui.PrintWarning("Cancelling %s...", opts.nounLower)
+					state.MarkCancelled()
+					cancel()
+
+					taskID := state.TaskID()
+					if taskID != "" && opts.requestCancel != nil {
+						go func(taskID string) {
+							cancelCtx, cancelFn := context.WithTimeout(context.Background(), runCancelRequestTimeout)
+							defer cancelFn()
+
+							if err := opts.requestCancel(cancelCtx, taskID); err != nil {
+								ui.PrintError("Failed to cancel %s: %v", opts.nounLower, err)
+								return
+							}
+							ui.PrintInfo("%s cancellation requested", opts.nounTitle)
+						}(taskID)
+					}
+					continue
+				}
+
+				ui.Println()
+				ui.PrintWarning("Force exiting %s...", opts.nounLower)
+				exitFunc(runForceExitCode)
+				return
+			}
+		}
+	}()
+
+	return func() {
+		stopOnce.Do(func() {
+			close(stopCh)
+		})
+	}
 }
 
 // runTestExec executes a test using the shared execution package.
@@ -272,36 +396,21 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 
-	sigChan := make(chan os.Signal, 1)
+	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
 
-	// Track task ID for cancellation
-	var taskID string
-	var cancelled bool
-
-	// Handle signals in background
-	go func() {
-		select {
-		case <-sigChan:
-			ui.StopSpinner()
-			ui.Println()
-			ui.PrintWarning("Cancelling test...")
-			cancelled = true
-			if taskID != "" {
-				cancelClient := api.NewClientWithDevMode(apiKey, devMode)
-				_, cancelErr := cancelClient.CancelTest(context.Background(), taskID)
-				if cancelErr != nil {
-					ui.PrintError("Failed to cancel test: %v", cancelErr)
-				} else {
-					ui.PrintInfo("Test cancellation requested")
-				}
-			}
-			cancel() // Cancel the context to stop monitoring
-		case <-ctx.Done():
-			return
-		}
-	}()
+	interruptState := newRunInterruptState()
+	stopInterruptHandler := startRunInterruptHandler(ctx, cancel, sigChan, interruptState, runInterruptOptions{
+		nounLower: "test",
+		nounTitle: "Test",
+		requestCancel: func(cancelCtx context.Context, taskID string) error {
+			cancelClient := api.NewClientWithDevMode(apiKey, devMode)
+			_, err := cancelClient.CancelTest(cancelCtx, taskID)
+			return err
+		},
+	})
+	defer stopInterruptHandler()
 
 	result, err := execution.RunTest(ctx, apiKey, cfg, execution.RunTestParams{
 		TestNameOrID:   testNameOrID,
@@ -313,7 +422,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		Longitude:      lng,
 		HasLocation:    hasLocation,
 		OnTaskStarted: func(id string) {
-			taskID = id
+			interruptState.SetTaskID(id)
 		},
 		OnProgress: func(status *sse.TestStatus) {
 			ui.StopSpinner() // Stop spinner on first progress update
@@ -337,7 +446,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	ui.StopSpinner()
 
 	// Handle cancellation
-	if cancelled {
+	if interruptState.Cancelled() {
 		ui.Println()
 		ui.PrintWarning("Test cancelled by user")
 		return fmt.Errorf("test cancelled")
@@ -667,36 +776,21 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 
-	sigChan := make(chan os.Signal, 1)
+	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
 
-	// Track task ID for cancellation
-	var taskID string
-	var cancelled bool
-
-	// Handle signals in background
-	go func() {
-		select {
-		case <-sigChan:
-			ui.StopSpinner()
-			ui.Println()
-			ui.PrintWarning("Cancelling workflow...")
-			cancelled = true
-			if taskID != "" {
-				cancelClient := api.NewClientWithDevMode(apiKey, devMode)
-				_, cancelErr := cancelClient.CancelWorkflow(context.Background(), taskID)
-				if cancelErr != nil {
-					ui.PrintError("Failed to cancel workflow: %v", cancelErr)
-				} else {
-					ui.PrintInfo("Workflow cancellation requested")
-				}
-			}
-			cancel() // Cancel the context to stop monitoring
-		case <-ctx.Done():
-			return
-		}
-	}()
+	interruptState := newRunInterruptState()
+	stopInterruptHandler := startRunInterruptHandler(ctx, cancel, sigChan, interruptState, runInterruptOptions{
+		nounLower: "workflow",
+		nounTitle: "Workflow",
+		requestCancel: func(cancelCtx context.Context, taskID string) error {
+			cancelClient := api.NewClientWithDevMode(apiKey, devMode)
+			_, err := cancelClient.CancelWorkflow(cancelCtx, taskID)
+			return err
+		},
+	})
+	defer stopInterruptHandler()
 
 	result, err := execution.RunWorkflow(ctx, apiKey, cfg, execution.RunWorkflowParams{
 		WorkflowNameOrID: workflowNameOrID,
@@ -709,7 +803,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		Longitude:        wfLng,
 		HasLocation:      wfHasLocation,
 		OnTaskStarted: func(id string) {
-			taskID = id
+			interruptState.SetTaskID(id)
 		},
 		OnProgress: func(status *sse.WorkflowStatus) {
 			ui.StopSpinner() // Stop spinner on first progress update
@@ -733,7 +827,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	ui.StopSpinner()
 
 	// Handle cancellation
-	if cancelled {
+	if interruptState.Cancelled() {
 		ui.Println()
 		ui.PrintWarning("Workflow cancelled by user")
 		return fmt.Errorf("workflow cancelled")

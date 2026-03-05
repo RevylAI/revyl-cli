@@ -247,23 +247,33 @@ func detectInstallMethod() string {
 		return "direct"
 	}
 
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return "direct"
+	resolvedExecPath, err := filepath.EvalSymlinks(execPath)
+	if err == nil {
+		execPath = resolvedExecPath
 	}
 
+	return detectInstallMethodFromPath(execPath)
+}
+
+// detectInstallMethodFromPath classifies install method from executable path.
+func detectInstallMethodFromPath(execPath string) string {
+	normalizedPath := strings.ToLower(filepath.ToSlash(execPath))
+
 	// Check for Homebrew
-	if strings.Contains(execPath, "homebrew") || strings.Contains(execPath, "Cellar") {
+	if strings.Contains(normalizedPath, "homebrew") || strings.Contains(normalizedPath, "cellar") {
 		return "homebrew"
 	}
 
 	// Check for npm
-	if strings.Contains(execPath, "node_modules") || strings.Contains(execPath, "npm") {
+	if strings.Contains(normalizedPath, "node_modules") || strings.Contains(normalizedPath, "npm") {
 		return "npm"
 	}
 
 	// Check for pip (Python)
-	if strings.Contains(execPath, ".revyl/bin") || strings.Contains(execPath, "site-packages") {
+	//
+	// NOTE: Paths under ~/.revyl/bin are downloaded CLI binaries and should be
+	// treated as direct installs so `revyl upgrade` can self-update in place.
+	if strings.Contains(normalizedPath, "site-packages") || strings.Contains(normalizedPath, "dist-packages") {
 		return "pip"
 	}
 

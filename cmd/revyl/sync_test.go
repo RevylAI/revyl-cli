@@ -55,6 +55,47 @@ func mutateTestFileWithoutChecksumRefresh(t *testing.T, path string) {
 	}
 }
 
+func TestPushSingleTest_RejectsInvalidYAMLBeforeRemoteCall(t *testing.T) {
+	remoteCalled := false
+	client, cleanup := newSyncDomainTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		remoteCalled = true
+		t.Fatalf("unexpected remote request: %s", r.URL.Path)
+	})
+	defer cleanup()
+
+	testsDir := t.TempDir()
+	invalid := &config.LocalTest{
+		Meta: config.TestMeta{
+			RemoteID:      "remote-id",
+			RemoteVersion: 1,
+			LocalVersion:  1,
+			LastSyncedAt:  "2026-01-01T00:00:00Z",
+		},
+		Test: config.TestDefinition{
+			Metadata: config.TestMetadata{Name: "invalid-test", Platform: "ios"},
+			Build:    config.TestBuildConfig{Name: "My App"},
+			Blocks: []config.TestBlock{
+				{Type: "instructions", StepDescription: "   "},
+			},
+		},
+	}
+	if err := config.SaveLocalTest(filepath.Join(testsDir, "invalid-test.yaml"), invalid); err != nil {
+		t.Fatalf("SaveLocalTest() error = %v", err)
+	}
+
+	cfg := &config.ProjectConfig{Tests: map[string]string{}, Workflows: map[string]string{}}
+	err := pushSingleTest(context.Background(), client, cfg, testsDir, "invalid-test")
+	if err == nil {
+		t.Fatal("pushSingleTest() error = nil, want invalid YAML error")
+	}
+	if !strings.Contains(err.Error(), "invalid YAML") {
+		t.Fatalf("pushSingleTest() error = %q, want invalid YAML message", err.Error())
+	}
+	if remoteCalled {
+		t.Fatal("expected no remote API calls when local YAML validation fails")
+	}
+}
+
 func TestSyncTestsDomain_LocalOnlyDoesNotPush(t *testing.T) {
 	client, cleanup := newSyncDomainTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/v1/tests/get_simple_tests") {

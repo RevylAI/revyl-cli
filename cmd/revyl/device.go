@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -60,7 +61,11 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 // Returns the resolved session. Pass -1 (flag default) for auto-resolution.
 func resolveSessionFlag(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager) (*mcppkg.DeviceSession, error) {
 	sidx, _ := cmd.Flags().GetInt("s")
-	return mgr.ResolveSession(sidx)
+	session, err := mgr.ResolveSession(sidx)
+	if err != nil {
+		return nil, humanizeDeviceSessionResolveError(cmd, err)
+	}
+	return session, nil
 }
 
 // resolveTargetOrCoords checks whether --target was provided or --x/--y were
@@ -105,6 +110,53 @@ func jsonOrPrint(cmd *cobra.Command, v interface{}, fallbackMsg string) {
 	}
 }
 
+func normalizeDeviceStartPlatform(raw string) (string, error) {
+	platform := strings.ToLower(strings.TrimSpace(raw))
+	if platform == "" {
+		return "ios", nil
+	}
+	if platform != "ios" && platform != "android" {
+		return "", fmt.Errorf("platform must be 'ios' or 'android'")
+	}
+	return platform, nil
+}
+
+func deviceCommandPrefix(cmd *cobra.Command) string {
+	devMode, _ := cmd.Flags().GetBool("dev")
+	if devMode {
+		return "revyl --dev"
+	}
+	return "revyl"
+}
+
+func humanizeDeviceSessionResolveError(cmd *cobra.Command, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	msg := strings.TrimSpace(err.Error())
+	cmdPrefix := deviceCommandPrefix(cmd)
+
+	if strings.Contains(msg, "multiple sessions active") {
+		return fmt.Errorf("multiple sessions active. Specify -s <index> or run '%s device list' to see active sessions", cmdPrefix)
+	}
+
+	msg = strings.ReplaceAll(msg,
+		"Call list_device_sessions() to see active sessions",
+		fmt.Sprintf("Run '%s device list' to see active sessions", cmdPrefix),
+	)
+	msg = strings.ReplaceAll(msg,
+		"call list_device_sessions() to see them",
+		fmt.Sprintf("run '%s device list' to see active sessions", cmdPrefix),
+	)
+	msg = strings.ReplaceAll(msg,
+		"Start one with start_device_session(platform='ios') or start_device_session(platform='android')",
+		fmt.Sprintf("Start one with '%s device start'", cmdPrefix),
+	)
+
+	return fmt.Errorf("%s", msg)
+}
+
 var deviceCmd = &cobra.Command{
 	Use:   "device",
 	Short: "Direct device interaction (start, tap, type, screenshot, etc.)",
@@ -127,6 +179,10 @@ var deviceStartCmd = &cobra.Command{
 		appURL, _ := cmd.Flags().GetString("app-url")
 		appLink, _ := cmd.Flags().GetString("app-link")
 		jsonOutput, _ := cmd.Flags().GetBool("json")
+		platform, err = normalizeDeviceStartPlatform(platform)
+		if err != nil {
+			return err
+		}
 		if !cmd.Flags().Changed("timeout") {
 			cwd, cwdErr := os.Getwd()
 			if cwdErr == nil {
@@ -135,9 +191,6 @@ var deviceStartCmd = &cobra.Command{
 					timeout = config.EffectiveTimeoutSeconds(cfg, timeout)
 				}
 			}
-		}
-		if platform == "" {
-			return fmt.Errorf("--platform is required (ios or android)")
 		}
 		if appURL != "" && buildVersionID != "" {
 			return fmt.Errorf("provide either --app-url or --build-version-id, not both")
@@ -156,42 +209,35 @@ var deviceStartCmd = &cobra.Command{
 			select {
 			case <-sigChan:
 				if !jsonOutput {
-					ui.ClearLine()
-					fmt.Fprintln(os.Stderr, "\nCancelling device provisioning...")
+					ui.StopSpinner()
+					ui.PrintWarning("Cancelling device provisioning...")
 				}
 				cancel()
 			case <-ctx.Done():
 			}
 		}()
 
-		// Show spinner while provisioning (skip in JSON mode)
-		done := make(chan struct{})
-		if !jsonOutput {
-			go func() {
-				spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-				i := 0
-				for {
-					select {
-					case <-done:
-						ui.ClearLine()
-						return
-					case <-time.After(100 * time.Millisecond):
-						fmt.Fprintf(os.Stderr, "\r%s Provisioning %s device...", spinner[i%len(spinner)], platform)
-						i++
-					}
-				}
-			}()
-		}
-
-		_, session, err := mgr.StartSession(ctx, mcppkg.StartSessionOptions{
+		startOpts := mcppkg.StartSessionOptions{
 			Platform:       platform,
 			AppID:          appID,
 			BuildVersionID: buildVersionID,
 			AppURL:         appURL,
 			AppLink:        appLink,
 			IdleTimeout:    time.Duration(timeout) * time.Second,
-		})
-		close(done)
+		}
+
+		var session *mcppkg.DeviceSession
+		if jsonOutput {
+			_, session, err = mgr.StartSession(ctx, startOpts)
+		} else {
+			_, session, err = startDevSessionWithProgress(
+				ctx,
+				mgr,
+				startOpts,
+				30*time.Second,
+				nil,
+			)
+		}
 		if err != nil {
 			return err
 		}
@@ -203,10 +249,11 @@ var deviceStartCmd = &cobra.Command{
 			ui.PrintSuccess("Device ready! Session %d (%s)", session.Index, platform)
 			ui.PrintLink("Session", session.SessionID)
 			ui.PrintLink("Watch live", session.ViewerURL)
+			cmdPrefix := deviceCommandPrefix(cmd)
 			ui.PrintNextSteps([]ui.NextStep{
 				{Label: "Open in browser", Command: session.ViewerURL},
-				{Label: "Take a screenshot", Command: "revyl device screenshot --out screen.png"},
-				{Label: "Stop when done", Command: fmt.Sprintf("revyl device stop -s %d", session.Index)},
+				{Label: "Take a screenshot", Command: fmt.Sprintf("%s device screenshot --out screen.png", cmdPrefix)},
+				{Label: "Stop when done", Command: fmt.Sprintf("%s device stop -s %d", cmdPrefix, session.Index)},
 			})
 		}
 
@@ -823,7 +870,7 @@ func init() {
 	}
 
 	// Start
-	deviceStartCmd.Flags().String("platform", "", "Platform: ios or android (required)")
+	deviceStartCmd.Flags().String("platform", "ios", "Platform: ios or android")
 	deviceStartCmd.Flags().Int("timeout", 300, "Idle timeout in seconds")
 	deviceStartCmd.Flags().Bool("open", false, "Open viewer in browser after device is ready")
 	deviceStartCmd.Flags().String("app-id", "", "App ID to resolve latest build from")

@@ -205,6 +205,63 @@ test:
 	}
 }
 
+func TestValidateYAML_WhitespaceStepDescription(t *testing.T) {
+	invalidYAML := `
+test:
+  metadata:
+    name: "Test"
+    platform: "android"
+  build:
+    name: "My App"
+  blocks:
+    - type: instructions
+      step_description: "   "
+`
+	result := ValidateYAML(invalidYAML)
+	if result.Valid {
+		t.Error("Expected invalid YAML due to whitespace-only step_description")
+	}
+}
+
+func TestValidateYAML_WhitespaceCondition(t *testing.T) {
+	invalidYAML := `
+test:
+  metadata:
+    name: "Test"
+    platform: "android"
+  build:
+    name: "My App"
+  blocks:
+    - type: if
+      condition: "   "
+      then:
+        - type: instructions
+          step_description: "Tap login"
+`
+	result := ValidateYAML(invalidYAML)
+	if result.Valid {
+		t.Error("Expected invalid YAML due to whitespace-only condition")
+	}
+}
+
+func TestValidateYAML_ManualOpenAppNoDescription(t *testing.T) {
+	validYAML := `
+test:
+  metadata:
+    name: "Test"
+    platform: "ios"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_type: open_app
+`
+	result := ValidateYAML(validYAML)
+	if !result.Valid {
+		t.Errorf("Expected valid YAML for manual/open_app without description, got errors: %v", result.Errors)
+	}
+}
+
 func TestValidateYAML_InvalidManualStepType(t *testing.T) {
 	invalidYAML := `
 test:

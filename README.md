@@ -90,7 +90,7 @@ revyl skill install --name revyl-cli-create --name revyl-cli-analyze --codex
 |---------|---------|------|
 | **Run tests** | `revyl test run <name>` | [Commands](docs/COMMANDS.md#running-tests) |
 | **Run workflows** | `revyl workflow run <name>` | [Commands](docs/COMMANDS.md#workflow-management) |
-| **Cloud devices** | `revyl device start --platform ios` | [Commands](docs/COMMANDS.md#device-management) |
+| **Cloud devices** | `revyl device start` | [Commands](docs/COMMANDS.md#device-management) |
 | **Dev loop (Expo)** | `revyl dev` | [Commands](docs/COMMANDS.md#dev-loop-expo) |
 | **Build & upload** | `revyl build upload` | [Commands](docs/COMMANDS.md#build-management) |
 | **Publish to TestFlight** | `revyl publish testflight` | [Commands](docs/COMMANDS.md#ios-publishing-testflight) |

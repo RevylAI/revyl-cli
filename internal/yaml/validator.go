@@ -220,12 +220,12 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 
 	switch block.Type {
 	case "instructions", "validation":
-		if block.StepDescription == "" {
+		if isBlank(block.StepDescription) {
 			errors = append(errors, fmt.Sprintf("%s (%s): Missing step_description", blockPath, block.Type))
 		}
 
 	case "extraction":
-		if block.StepDescription == "" {
+		if isBlank(block.StepDescription) {
 			errors = append(errors, fmt.Sprintf("%s (extraction): Missing step_description", blockPath))
 		}
 		if block.VariableName == "" {
@@ -246,17 +246,17 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 		// Validate step_description based on step_type
 		switch block.StepType {
 		case "wait":
-			if block.StepDescription == "" {
+			if isBlank(block.StepDescription) {
 				errors = append(errors, fmt.Sprintf("%s (manual/wait): Missing step_description (number of seconds)", blockPath))
 			} else if !isNumeric(block.StepDescription) {
 				warnings = append(warnings, fmt.Sprintf("%s (manual/wait): step_description should be a number (seconds), got '%s'", blockPath, block.StepDescription))
 			}
 		case "navigate":
-			if block.StepDescription == "" {
+			if isBlank(block.StepDescription) {
 				errors = append(errors, fmt.Sprintf("%s (manual/navigate): Missing step_description (URL or deep link)", blockPath))
 			}
 		case "set_location":
-			if block.StepDescription == "" {
+			if isBlank(block.StepDescription) {
 				errors = append(errors, fmt.Sprintf("%s (manual/set_location): Missing step_description (latitude,longitude)", blockPath))
 			} else if !isValidLocation(block.StepDescription) {
 				warnings = append(warnings, fmt.Sprintf("%s (manual/set_location): step_description should be 'latitude,longitude' format, got '%s'", blockPath, block.StepDescription))
@@ -264,7 +264,7 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 		}
 
 	case "if":
-		if block.Condition == "" {
+		if isBlank(block.Condition) {
 			errors = append(errors, fmt.Sprintf("%s (if): Missing condition", blockPath))
 		}
 		if len(block.Then) == 0 {
@@ -286,7 +286,7 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 		}
 
 	case "while":
-		if block.Condition == "" {
+		if isBlank(block.Condition) {
 			errors = append(errors, fmt.Sprintf("%s (while): Missing condition", blockPath))
 		}
 		if len(block.Body) == 0 {
@@ -301,7 +301,7 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 		}
 
 	case "code_execution":
-		if block.StepDescription == "" {
+		if isBlank(block.StepDescription) {
 			errors = append(errors, fmt.Sprintf("%s (code_execution): Missing step_description (script UUID)", blockPath))
 		}
 		// If variable_name is provided, register it
@@ -319,6 +319,10 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 	}
 
 	return errors, warnings
+}
+
+func isBlank(s string) bool {
+	return strings.TrimSpace(s) == ""
 }
 
 // isValidVariableName checks if a variable name follows kebab-case convention.

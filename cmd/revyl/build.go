@@ -856,32 +856,37 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	// Get platform config
-	platformCfg, ok := cfg.Build.Platforms[platform]
-	if !ok {
+	resolvedPlatform, err := resolveBuildUploadPlatform(cfg, platform)
+	if err != nil {
 		ui.PrintError("Unknown platform: %s", platform)
-		ui.PrintInfo("Available platforms: %v", getPlatformNames(cfg.Build.Platforms))
-		return fmt.Errorf("unknown platform: %s", platform)
+		ui.PrintInfo("Available platforms: %v", availableBuildPlatformKeys(cfg))
+		return err
 	}
+
+	platformKey := resolvedPlatform.PlatformKey
+	devicePlatform := resolvedPlatform.DevicePlatform
+	platformCfg := resolvedPlatform.Config
 
 	// Validate platform configuration
 	if platformCfg.Output == "" {
-		ui.PrintError("Build output path not configured for %s", platform)
-		ui.PrintInfo("Please configure build.platforms.%s.output in .revyl/config.yaml", platform)
-		return fmt.Errorf("incomplete build config: missing output for %s", platform)
+		ui.PrintError("Build output path not configured for %s", platformKey)
+		ui.PrintInfo("Please configure build.platforms.%s.output in .revyl/config.yaml", platformKey)
+		return fmt.Errorf("incomplete build config: missing output for %s", platformKey)
 	}
 	if platformCfg.Command == "" && !buildSkip {
-		ui.PrintError("Build command not configured for %s", platform)
-		ui.PrintInfo("Please configure build.platforms.%s.command in .revyl/config.yaml, or use --skip-build to upload an existing artifact", platform)
-		return fmt.Errorf("incomplete build config: missing command for %s", platform)
+		ui.PrintError("Build command not configured for %s", platformKey)
+		ui.PrintInfo("Please configure build.platforms.%s.command in .revyl/config.yaml, or use --skip-build to upload an existing artifact", platformKey)
+		return fmt.Errorf("incomplete build config: missing command for %s", platformKey)
 	}
 	buildCommand := platformCfg.Command
 	if normalized, changed := normalizeExpoBuildCommand(cfg.Build.System, platformCfg.Command); changed {
 		buildCommand = normalized
 		platformCfg.Command = normalized
-		cfg.Build.Platforms[platform] = platformCfg
-		_ = config.WriteProjectConfig(configPath, cfg)
-		ui.PrintDim("Updated build.platforms.%s.command to use npx eas", platform)
+		if !resolvedPlatform.LegacyConfig {
+			cfg.Build.Platforms[platformKey] = platformCfg
+			_ = config.WriteProjectConfig(configPath, cfg)
+		}
+		ui.PrintDim("Updated build.platforms.%s.command to use npx eas", platformKey)
 	}
 
 	// Apply Xcode scheme: --scheme flag > config scheme > leave as-is
@@ -894,7 +899,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	}
 
 	// Validate EAS simulator profile for iOS builds (before dry-run/build)
-	if isExpoBuildSystem(cfg.Build.System) && build.IsIOSPlatformKey(platform) {
+	if isExpoBuildSystem(cfg.Build.System) && build.IsIOSPlatformKey(devicePlatform) {
 		fixedCmd, err := validateEASSimulatorBuild(cwd, buildCommand)
 		if err != nil {
 			return err
@@ -902,20 +907,28 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		if fixedCmd != buildCommand {
 			buildCommand = fixedCmd
 			platformCfg.Command = fixedCmd
-			cfg.Build.Platforms[platform] = platformCfg
-			_ = config.WriteProjectConfig(configPath, cfg)
+			if !resolvedPlatform.LegacyConfig {
+				cfg.Build.Platforms[platformKey] = platformCfg
+				_ = config.WriteProjectConfig(configPath, cfg)
+			}
 		}
 	}
 
 	ui.PrintBanner(version)
-	ui.PrintInfo("Build and Upload (%s)", platform)
+	ui.PrintInfo("Build and Upload (%s)", platformKey)
+	if devicePlatform != "" && devicePlatform != platformKey {
+		ui.PrintDim("Target device platform: %s", devicePlatform)
+	}
 	ui.Println()
 
 	// Handle dry-run mode before starting the build
 	if buildDryRun {
 		ui.PrintInfo("Dry-run mode - showing what would be built and uploaded:")
 		ui.Println()
-		ui.PrintInfo("  Platform:       %s", platform)
+		ui.PrintInfo("  Platform Key:   %s", platformKey)
+		if devicePlatform != "" {
+			ui.PrintInfo("  Platform:       %s", devicePlatform)
+		}
 		ui.PrintInfo("  Build Command:  %s", buildCommand)
 		if scheme != "" && strings.Contains(platformCfg.Command, "-scheme") {
 			ui.PrintInfo("  Scheme:         %s", scheme)
@@ -998,7 +1011,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 
 	// If no app ID, prompt user to select or create one
 	if appID == "" {
-		selectedID, err := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, platform, platform)
+		selectedID, err := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, platformKey, devicePlatform)
 		if err != nil {
 			return err
 		}
@@ -1044,14 +1057,17 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	}
 
 	// Collect metadata
-	metadata := build.CollectMetadata(cwd, buildCommand, platform, buildDuration)
+	metadata := build.CollectMetadata(cwd, buildCommand, devicePlatform, buildDuration)
 
 	// Handle dry-run mode
 	if buildDryRun {
 		ui.Println()
 		ui.PrintInfo("Dry-run mode - showing what would be uploaded:")
 		ui.Println()
-		ui.PrintInfo("  Platform:       %s", platform)
+		ui.PrintInfo("  Platform Key:   %s", platformKey)
+		if devicePlatform != "" {
+			ui.PrintInfo("  Platform:       %s", devicePlatform)
+		}
 		ui.PrintInfo("  Artifact:       %s", filepath.Base(artifactPath))
 		ui.PrintInfo("  Build Version:  %s", versionStr)
 		ui.PrintInfo("  App ID:         %s", appID)
@@ -1359,6 +1375,79 @@ func validateEASSimulatorBuild(cwd, buildCommand string) (string, error) {
 	newCmd := build.ReplaceProfileInCommand(buildCommand, "revyl-build")
 	ui.PrintInfo("Added \"revyl-build\" simulator profile to eas.json (extends %q)", result.ProfileName)
 	return newCmd, nil
+}
+
+type buildUploadPlatformResolution struct {
+	PlatformKey    string
+	DevicePlatform string
+	Config         config.BuildPlatform
+	LegacyConfig   bool
+}
+
+// resolveBuildUploadPlatform resolves user input to a concrete build.platforms key
+// and a canonical device platform (ios/android) used for API app lookups.
+//
+// Accepted input:
+//   - build.platforms key (e.g. ios-dev)
+//   - mobile platform alias (ios/android), mapped to best matching key
+//   - legacy flat build config (no build.platforms) with ios/android
+func resolveBuildUploadPlatform(
+	cfg *config.ProjectConfig,
+	platformOrKey string,
+) (*buildUploadPlatformResolution, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("project config is required")
+	}
+
+	platformOrKey = strings.TrimSpace(platformOrKey)
+	if platformOrKey == "" {
+		return nil, fmt.Errorf("platform is required")
+	}
+
+	// Exact build.platforms key match always wins.
+	if platformCfg, ok := cfg.Build.Platforms[platformOrKey]; ok {
+		devicePlatform := platformFromKey(platformOrKey)
+		if normalized, err := normalizeMobilePlatform(platformOrKey, ""); err == nil {
+			devicePlatform = normalized
+		}
+		return &buildUploadPlatformResolution{
+			PlatformKey:    platformOrKey,
+			DevicePlatform: devicePlatform,
+			Config:         platformCfg,
+		}, nil
+	}
+
+	normalizedPlatform, normalizeErr := normalizeMobilePlatform(platformOrKey, "")
+	if normalizeErr == nil {
+		// Resolve ios/android alias to configured key when possible.
+		if platformKey := pickBestBuildPlatformKey(cfg, normalizedPlatform); platformKey != "" {
+			return &buildUploadPlatformResolution{
+				PlatformKey:    platformKey,
+				DevicePlatform: normalizedPlatform,
+				Config:         cfg.Build.Platforms[platformKey],
+			}, nil
+		}
+
+		// Backward compatibility: support flat build.{command,output} configs.
+		if len(cfg.Build.Platforms) == 0 && strings.TrimSpace(cfg.Build.Output) != "" {
+			return &buildUploadPlatformResolution{
+				PlatformKey:    normalizedPlatform,
+				DevicePlatform: normalizedPlatform,
+				Config: config.BuildPlatform{
+					Command: cfg.Build.Command,
+					Output:  cfg.Build.Output,
+				},
+				LegacyConfig: true,
+			}, nil
+		}
+	}
+
+	available := availableBuildPlatformKeys(cfg)
+	return nil, fmt.Errorf(
+		"unknown platform/platform-key '%s' (available: %v)",
+		platformOrKey,
+		available,
+	)
 }
 
 // getPlatformNames returns a slice of platform names from the platforms map.

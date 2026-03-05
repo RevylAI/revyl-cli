@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/revyl/cli/internal/api"
@@ -138,5 +140,43 @@ func TestGetTestStatus_FallbackToLocalRemoteID(t *testing.T) {
 	}
 	if status.LinkIssue != RemoteLinkIssueNone {
 		t.Fatalf("link issue = %s, want none", status.LinkIssue)
+	}
+}
+
+func TestResolveOrgIDForCreate_PrefersProjectConfig(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Project: config.Project{
+			OrgID: "org-config",
+		},
+	}
+
+	got := resolveOrgIDForCreate(cfg)
+	if got != "org-config" {
+		t.Fatalf("resolveOrgIDForCreate() = %q, want %q", got, "org-config")
+	}
+}
+
+func TestResolveOrgIDForCreate_ReadsCredentialsFile(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	revylDir := filepath.Join(homeDir, ".revyl")
+	if err := os.MkdirAll(revylDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(.revyl) error: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(revylDir, "credentials.json"),
+		[]byte(`{"api_key":"k","org_id":"org-file"}`),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile(credentials.json) error: %v", err)
+	}
+
+	// Ensure file-based org_id is used even when REVYL_API_KEY is set.
+	t.Setenv("REVYL_API_KEY", "env-token")
+
+	got := resolveOrgIDForCreate(&config.ProjectConfig{})
+	if got != "org-file" {
+		t.Fatalf("resolveOrgIDForCreate() = %q, want %q", got, "org-file")
 	}
 }

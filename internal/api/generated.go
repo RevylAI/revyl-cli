@@ -989,6 +989,78 @@ func (e WorkflowStatus) Valid() bool {
 	}
 }
 
+// Defines values for QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus.
+const (
+	All     QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "all"
+	Failing QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "failing"
+	NotRun  QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "notRun"
+	Passing QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "passing"
+)
+
+// Valid indicates whether the value is a known member of the QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus enum.
+func (e QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus) Valid() bool {
+	switch e {
+	case All:
+		return true
+	case Failing:
+		return true
+	case NotRun:
+		return true
+	case Passing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy.
+const (
+	Build    QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "build"
+	Duration QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "duration"
+	LastRun  QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "lastRun"
+	Name     QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "name"
+	Platform QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "platform"
+	Status   QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "status"
+)
+
+// Valid indicates whether the value is a known member of the QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy enum.
+func (e QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy) Valid() bool {
+	switch e {
+	case Build:
+		return true
+	case Duration:
+		return true
+	case LastRun:
+		return true
+	case Name:
+		return true
+	case Platform:
+		return true
+	case Status:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir.
+const (
+	Asc  QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir = "asc"
+	Desc QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir = "desc"
+)
+
+// Valid indicates whether the value is a known member of the QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir enum.
+func (e QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir) Valid() bool {
+	switch e {
+	case Asc:
+		return true
+	case Desc:
+		return true
+	default:
+		return false
+	}
+}
+
 // AICodeGenerationDataPoint defines model for AICodeGenerationDataPoint.
 type AICodeGenerationDataPoint struct {
 	AiAdditionPercentage float32 `json:"aiAdditionPercentage"`
@@ -1124,6 +1196,7 @@ type ActiveDeviceSessionItem struct {
 	Source           string  `json:"source"`
 	StartedAt        *string `json:"started_at,omitempty"`
 	Status           string  `json:"status"`
+	TestId           *string `json:"test_id,omitempty"`
 	TraceId          *string `json:"trace_id,omitempty"`
 	UserEmail        *string `json:"user_email,omitempty"`
 	UserId           *string `json:"user_id,omitempty"`
@@ -1250,7 +1323,7 @@ type AdminSummaryMetric struct {
 //
 //	id: Test UUID.
 //	name: Test name.
-//	platform: Test platform (web, ios, android).
+//	platform: Test platform (ios, android).
 //	org_id: Organization ID.
 //	owner: Owner user ID.
 //	created_at: Test creation timestamp.
@@ -1620,19 +1693,6 @@ type AssignSeatsResponse struct {
 // AsyncStatus defines model for AsyncStatus.
 type AsyncStatus string
 
-// AttachRequest defines model for AttachRequest.
-type AttachRequest struct {
-	Quantity    *int   `json:"quantity,omitempty"`
-	RedirectUrl string `json:"redirect_url"`
-}
-
-// AttachResponse defines model for AttachResponse.
-type AttachResponse struct {
-	CheckoutUrl *string `json:"checkout_url,omitempty"`
-	Message     string  `json:"message"`
-	Success     *bool   `json:"success,omitempty"`
-}
-
 // AuthInfo Class that represents authentication information.
 // Can be returned from the require_auth dependency.
 type AuthInfo struct {
@@ -1795,23 +1855,23 @@ type BlocksToYamlRequest_Blocks_Item struct {
 
 // BodyCreateUploadFileToSupabaseApiV1StorageS3UploadDownloadToSupabaseFilePost defines model for Body_create_upload_file_to_supabase_api_v1_storage_s3_upload_download_to_supabase_file_post.
 type BodyCreateUploadFileToSupabaseApiV1StorageS3UploadDownloadToSupabaseFilePost struct {
-	File       openapi_types.File `json:"file"`
-	FileType   *string            `json:"file_type,omitempty"`
-	FolderName *string            `json:"folder_name,omitempty"`
-	UserId     *string            `json:"user_id,omitempty"`
+	File       string  `json:"file"`
+	FileType   *string `json:"file_type,omitempty"`
+	FolderName *string `json:"folder_name,omitempty"`
+	UserId     *string `json:"user_id,omitempty"`
 }
 
 // BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost defines model for Body_stream_upload_build_api_v1_apps__app_id__builds_stream_upload_post.
 type BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost struct {
 	// File The build artifact file to upload
-	File openapi_types.File `json:"file"`
+	File string `json:"file"`
 }
 
 // BodyUploadToS3ApiV1StorageS3UploadPost defines model for Body_upload_to_s3_api_v1_storage_s3_upload_post.
 type BodyUploadToS3ApiV1StorageS3UploadPost struct {
-	BucketName string             `json:"bucket_name"`
-	File       openapi_types.File `json:"file"`
-	TestId     string             `json:"test_id"`
+	BucketName string `json:"bucket_name"`
+	File       string `json:"file"`
+	TestId     string `json:"test_id"`
 }
 
 // BoundingBoxErrorType Types of bounding box errors that can occur.
@@ -2155,18 +2215,6 @@ type CategoryValue struct {
 	Value    float32 `json:"value"`
 }
 
-// ChartDataPoint defines model for ChartDataPoint.
-type ChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments,omitempty"`
-	MedianHours *float32 `json:"median_hours,omitempty"`
-	P25Hours    *float32 `json:"p25_hours,omitempty"`
-	P75Hours    *float32 `json:"p75_hours,omitempty"`
-	TeamAverage *float32 `json:"team_average,omitempty"`
-	Trend       *string  `json:"trend,omitempty"`
-	Value       *float32 `json:"value,omitempty"`
-}
-
 // CheckModuleExistsResponse Response model for checking if a module exists
 type CheckModuleExistsResponse struct {
 	Exists bool    `json:"exists"`
@@ -2460,7 +2508,7 @@ type CopyTestToBenchmarksRequest struct {
 //	new_app_id: UUID of the newly created app (if any).
 //	builds_copied: Number of builds copied.
 //	env_vars_copied: Number of environment variables copied.
-//	cookies_copied: Number of web cookies copied.
+//	cookies_copied: Number of cookies copied.
 //	variables_copied: Number of custom variables copied.
 //	scripts_copied: Number of scripts copied.
 //	is_resync: Whether this was a resync of an existing benchmark test.
@@ -2468,7 +2516,7 @@ type CopyTestToBenchmarksResponse struct {
 	// BuildsCopied Number of builds copied
 	BuildsCopied *int `json:"builds_copied,omitempty"`
 
-	// CookiesCopied Number of web cookies copied
+	// CookiesCopied Number of cookies copied
 	CookiesCopied *int `json:"cookies_copied,omitempty"`
 
 	// EnvVarsCopied Number of environment variables copied
@@ -2928,6 +2976,16 @@ type DeleteAppResponse struct {
 	Message       string `json:"message"`
 }
 
+// DeleteEvalResultsRequest Request body for bulk-deleting eval results.
+type DeleteEvalResultsRequest struct {
+	EvalIds []string `json:"eval_ids"`
+}
+
+// DeleteEvalResultsResponse Response for bulk delete.
+type DeleteEvalResultsResponse struct {
+	DeletedCount int `json:"deleted_count"`
+}
+
 // DeleteInternalSlackRuleResponse Response for deleting a rule.
 type DeleteInternalSlackRuleResponse struct {
 	Message string `json:"message"`
@@ -3118,7 +3176,7 @@ type DoraMetrics struct {
 
 // DuplicateTestRequest Request model for duplicating a test.
 type DuplicateTestRequest struct {
-	// CopyCookies Whether to copy web cookies if the test is a web test
+	// CopyCookies Whether to copy cookies from the original test
 	CopyCookies *bool `json:"copy_cookies,omitempty"`
 
 	// CopyVariables Whether to copy custom variables from the original test
@@ -3139,7 +3197,7 @@ type DuplicateTestRequest struct {
 
 // DuplicateTestResponse Response model for test duplication.
 type DuplicateTestResponse struct {
-	// CookiesCopied Number of web cookies copied (if applicable)
+	// CookiesCopied Number of cookies copied (if applicable)
 	CookiesCopied *int `json:"cookies_copied,omitempty"`
 
 	// Message Success or error message
@@ -3211,7 +3269,7 @@ type ErrorImage struct {
 	Url             *string `json:"url,omitempty"`
 }
 
-// ErrorTypeBreakdownItem defines model for ErrorTypeBreakdownItem.
+// ErrorTypeBreakdownItem A single row in the grounding error type breakdown.
 type ErrorTypeBreakdownItem struct {
 	Errors int    `json:"errors"`
 	Label  string `json:"label"`
@@ -3238,7 +3296,6 @@ type EvalQueueItem struct {
 	GroundingErrors    int                 `json:"grounding_errors"`
 	Id                 openapi_types.UUID  `json:"id"`
 	OrgId              *openapi_types.UUID `json:"org_id,omitempty"`
-	OrgName            *string             `json:"org_name,omitempty"`
 	Platform           *string             `json:"platform,omitempty"`
 	ReviewStatus       string              `json:"review_status"`
 	TaskId             openapi_types.UUID  `json:"task_id"`
@@ -3814,20 +3871,19 @@ type FlywheelEvalResultResponse struct {
 	WorkflowId         *openapi_types.UUID   `json:"workflow_id,omitempty"`
 }
 
-// FlywheelMonitorResponse defines model for FlywheelMonitorResponse.
+// FlywheelMonitorResponse Top-level response for GET /monitor.
 type FlywheelMonitorResponse struct {
-	ErrorRate          float32                    `json:"error_rate"`
-	ErrorTrend         *float32                   `json:"error_trend,omitempty"`
-	ErrorTypeBreakdown []ErrorTypeBreakdownItem   `json:"error_type_breakdown"`
-	ErrorsDelta        *int                       `json:"errors_delta,omitempty"`
-	EvalsDelta         *int                       `json:"evals_delta,omitempty"`
-	GrounderBreakdown  []MonitorBreakdownItem     `json:"grounder_breakdown"`
-	PlatformBreakdown  []MonitorBreakdownItem     `json:"platform_breakdown"`
-	TestBreakdown      []MonitorTestBreakdownItem `json:"test_breakdown"`
-	Timeseries         []MonitorTimeseriesPoint   `json:"timeseries"`
-	TotalErrors        int                        `json:"total_errors"`
-	TotalEvals         int                        `json:"total_evals"`
-	TotalGroundedSteps int                        `json:"total_grounded_steps"`
+	ErrorRate          float32                  `json:"error_rate"`
+	ErrorTrend         *float32                 `json:"error_trend,omitempty"`
+	ErrorTypeBreakdown []ErrorTypeBreakdownItem `json:"error_type_breakdown"`
+	ErrorsDelta        *int                     `json:"errors_delta,omitempty"`
+	EvalsDelta         *int                     `json:"evals_delta,omitempty"`
+	GrounderBreakdown  []MonitorBreakdownItem   `json:"grounder_breakdown"`
+	PlatformBreakdown  []MonitorBreakdownItem   `json:"platform_breakdown"`
+	Timeseries         []MonitorTimeseriesPoint `json:"timeseries"`
+	TotalErrors        int                      `json:"total_errors"`
+	TotalEvals         int                      `json:"total_evals"`
+	TotalGroundedSteps int                      `json:"total_grounded_steps"`
 }
 
 // FlywheelStepImageUrls Image URLs for a flywheel step result.
@@ -3922,7 +3978,7 @@ type GetWorkflowTaskStatusResponse struct {
 
 // GetWorkflowsWithLastStatusResponse defines model for GetWorkflowsWithLastStatusResponse.
 type GetWorkflowsWithLastStatusResponse struct {
-	// Count Total number of workflows returned
+	// Count Number of workflows in this page
 	Count int `json:"count"`
 
 	// Data List of workflows with last execution status
@@ -3931,11 +3987,23 @@ type GetWorkflowsWithLastStatusResponse struct {
 	// FailingWorkflowsWow Week-over-week percentage change in failing workflows (positive = increase)
 	FailingWorkflowsWow *float32 `json:"failing_workflows_wow,omitempty"`
 
+	// HasMore Whether more workflows exist beyond this page
+	HasMore *bool `json:"has_more,omitempty"`
+
+	// Limit Limit used for this page
+	Limit *int `json:"limit,omitempty"`
+
 	// NotRunWorkflowsWow Week-over-week percentage change in not run workflows (positive = increase)
 	NotRunWorkflowsWow *float32 `json:"not_run_workflows_wow,omitempty"`
 
+	// Offset Offset used for this page
+	Offset *int `json:"offset,omitempty"`
+
 	// PassingWorkflowsWow Week-over-week percentage change in passing workflows (positive = increase)
 	PassingWorkflowsWow *float32 `json:"passing_workflows_wow,omitempty"`
+
+	// TotalCount Total number of workflows across all pages
+	TotalCount *int `json:"total_count,omitempty"`
 
 	// TotalWorkflowsWow Week-over-week percentage change in total workflows (positive = increase)
 	TotalWorkflowsWow *float32 `json:"total_workflows_wow,omitempty"`
@@ -4482,14 +4550,33 @@ type ModuleBlock struct {
 
 // ModuleResponse Response model for a single module
 type ModuleResponse struct {
-	Blocks      []interface{} `json:"blocks"`
-	CreatedAt   string        `json:"created_at"`
-	CreatedBy   *string       `json:"created_by,omitempty"`
-	Description *string       `json:"description,omitempty"`
-	Id          string        `json:"id"`
-	Name        string        `json:"name"`
-	OrgId       string        `json:"org_id"`
-	UpdatedAt   string        `json:"updated_at"`
+	Blocks              []interface{} `json:"blocks"`
+	CreatedAt           string        `json:"created_at"`
+	CreatedBy           *string       `json:"created_by,omitempty"`
+	Description         *string       `json:"description,omitempty"`
+	Id                  string        `json:"id"`
+	LastModifiedBy      *string       `json:"last_modified_by,omitempty"`
+	LastModifiedByEmail *string       `json:"last_modified_by_email,omitempty"`
+	Name                string        `json:"name"`
+	OrgId               string        `json:"org_id"`
+	UpdatedAt           string        `json:"updated_at"`
+	Version             *int          `json:"version,omitempty"`
+}
+
+// ModuleRestoreVersionRequest Request to restore a module to a previous version
+type ModuleRestoreVersionRequest struct {
+	// Version Version number to restore
+	Version int `json:"version"`
+}
+
+// ModuleRestoreVersionResponse Response after restoring a module version
+type ModuleRestoreVersionResponse struct {
+	Message      string `json:"message"`
+	NewVersion   int    `json:"new_version"`
+	RestoredFrom int    `json:"restored_from"`
+
+	// Result Response model for a single module
+	Result ModuleResponse `json:"result"`
 }
 
 // ModuleSingleResponse Response model for single module operations
@@ -4517,13 +4604,32 @@ type ModuleUsageTestItem struct {
 	Name string `json:"name"`
 }
 
+// ModuleVersionInfo A single version history entry
+type ModuleVersionInfo struct {
+	Blocks          []interface{} `json:"blocks"`
+	CreatedAt       string        `json:"created_at"`
+	Description     *string       `json:"description,omitempty"`
+	Id              string        `json:"id"`
+	ModifiedBy      *string       `json:"modified_by,omitempty"`
+	ModifiedByEmail *string       `json:"modified_by_email,omitempty"`
+	ModuleId        string        `json:"module_id"`
+	Name            *string       `json:"name,omitempty"`
+	Version         int           `json:"version"`
+}
+
+// ModuleVersionListResponse Response for listing module versions
+type ModuleVersionListResponse struct {
+	Total    int                 `json:"total"`
+	Versions []ModuleVersionInfo `json:"versions"`
+}
+
 // ModulesListResponse Response model for listing modules
 type ModulesListResponse struct {
 	Message string           `json:"message"`
 	Result  []ModuleResponse `json:"result"`
 }
 
-// MonitorBreakdownItem defines model for MonitorBreakdownItem.
+// MonitorBreakdownItem A single row in platform or grounder breakdown.
 type MonitorBreakdownItem struct {
 	Errors        int    `json:"errors"`
 	EvalCount     int    `json:"eval_count"`
@@ -4531,16 +4637,7 @@ type MonitorBreakdownItem struct {
 	Label         string `json:"label"`
 }
 
-// MonitorTestBreakdownItem defines model for MonitorTestBreakdownItem.
-type MonitorTestBreakdownItem struct {
-	Errors        int     `json:"errors"`
-	EvalCount     int     `json:"eval_count"`
-	GroundedSteps int     `json:"grounded_steps"`
-	Label         string  `json:"label"`
-	TestId        *string `json:"test_id,omitempty"`
-}
-
-// MonitorTimeseriesPoint defines model for MonitorTimeseriesPoint.
+// MonitorTimeseriesPoint A single day in the timeseries chart.
 type MonitorTimeseriesPoint struct {
 	Date          string  `json:"date"`
 	ErrorRate     float32 `json:"error_rate"`
@@ -4551,10 +4648,10 @@ type MonitorTimeseriesPoint struct {
 
 // MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
 type MultiRepoChartDataResponse struct {
-	Data         []ChartDataPoint `json:"data"`
-	MetricType   string           `json:"metric_type"`
-	Repositories []string         `json:"repositories"`
-	RetrievedAt  string           `json:"retrieved_at"`
+	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
+	MetricType   string                                           `json:"metric_type"`
+	Repositories []string                                         `json:"repositories"`
+	RetrievedAt  string                                           `json:"retrieved_at"`
 }
 
 // MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
@@ -5409,7 +5506,7 @@ type RevylRepoConfigListResponse struct {
 
 // RunningTestCoreInfo Core identification info for a running test.
 type RunningTestCoreInfo struct {
-	// Platform Platform (ios, android, web)
+	// Platform Platform (ios, android)
 	Platform string `json:"platform"`
 
 	// TestId Test identifier
@@ -5463,7 +5560,7 @@ type RunningTestMetadataContent struct {
 	// ExecutionTime ISO timestamp when execution started
 	ExecutionTime string `json:"execution_time"`
 
-	// Platform Platform (ios, android, web)
+	// Platform Platform (ios, android)
 	Platform string `json:"platform"`
 
 	// RunConfig Complete configuration for a test run.
@@ -5809,22 +5906,24 @@ type SlackOAuthUrlResponse struct {
 
 // StartDeviceInfo defines model for StartDeviceInfo.
 type StartDeviceInfo struct {
-	AppLink      *string            `json:"app_link,omitempty"`
-	AppPackage   *string            `json:"app_package,omitempty"`
-	AppUrl       *string            `json:"app_url,omitempty"`
-	BackendUrl   *string            `json:"backend_url,omitempty"`
-	DeviceLocal  *bool              `json:"device_local,omitempty"`
-	EnvVars      *map[string]string `json:"env_vars,omitempty"`
-	IsSimulation *bool              `json:"is_simulation,omitempty"`
-	OrgId        *string            `json:"org_id,omitempty"`
-	Platform     *string            `json:"platform,omitempty"`
+	AppLink            *string            `json:"app_link,omitempty"`
+	AppPackage         *string            `json:"app_package,omitempty"`
+	AppUrl             *string            `json:"app_url,omitempty"`
+	BackendUrl         *string            `json:"backend_url,omitempty"`
+	DeviceLocal        *bool              `json:"device_local,omitempty"`
+	EnvVars            *map[string]string `json:"env_vars,omitempty"`
+	IdleTimeoutSeconds *int               `json:"idle_timeout_seconds,omitempty"`
+	IsSimulation       *bool              `json:"is_simulation,omitempty"`
+	OrgId              *string            `json:"org_id,omitempty"`
+	Platform           *string            `json:"platform,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfigInput `json:"run_config,omitempty"`
-	SessionId *string             `json:"session_id,omitempty"`
-	TestId    *string             `json:"test_id,omitempty"`
-	TestInfo  *TestInput          `json:"test_info,omitempty"`
-	UserId    *string             `json:"user_id,omitempty"`
+	RunConfig                    *TestRunConfigInput `json:"run_config,omitempty"`
+	SessionId                    *string             `json:"session_id,omitempty"`
+	StartupSessionStartMonotonic *float32            `json:"startup_session_start_monotonic,omitempty"`
+	TestId                       *string             `json:"test_id,omitempty"`
+	TestInfo                     *TestInput          `json:"test_info,omitempty"`
+	UserId                       *string             `json:"user_id,omitempty"`
 
 	// Viewport Model for viewport dimensions used in browser sessions.
 	Viewport       *Viewport   `json:"viewport,omitempty"`
@@ -6724,20 +6823,35 @@ type TestListResponse struct {
 	// Apps List of apps for the organization
 	Apps *[]AppResponse `json:"apps,omitempty"`
 
-	// Count Total number of tests returned
+	// Count Number of tests in this page
 	Count int `json:"count"`
 
 	// FailingTestsWow Week-over-week percentage change in failing tests as % of total (positive = increase)
 	FailingTestsWow *float32 `json:"failing_tests_wow,omitempty"`
 
+	// HasMore Whether more tests exist beyond this page
+	HasMore *bool `json:"has_more,omitempty"`
+
+	// Limit Limit used for this page
+	Limit *int `json:"limit,omitempty"`
+
 	// NotRunTestsWow Week-over-week percentage change in not run tests as % of total (positive = increase)
 	NotRunTestsWow *float32 `json:"not_run_tests_wow,omitempty"`
+
+	// Offset Offset used for this page
+	Offset *int `json:"offset,omitempty"`
 
 	// PassingTestsWow Week-over-week percentage change in passing tests as % of total (positive = increase)
 	PassingTestsWow *float32 `json:"passing_tests_wow,omitempty"`
 
+	// StatusCounts Server-side test counts by status, computed across all tests (not just the current page).
+	StatusCounts *TestStatusCounts `json:"status_counts,omitempty"`
+
 	// Tests List of tests
 	Tests []TestOutput `json:"tests"`
+
+	// TotalCount Total number of tests across all pages
+	TotalCount *int `json:"total_count,omitempty"`
 
 	// TotalTestsWow Week-over-week percentage change in total tests (positive = increase)
 	TotalTestsWow *float32 `json:"total_tests_wow,omitempty"`
@@ -6861,6 +6975,24 @@ type TestStatistics struct {
 	UserId string `json:"user_id"`
 }
 
+// TestStatusCounts Server-side test counts by status, computed across all tests (not just the current page).
+type TestStatusCounts struct {
+	// Failing Tests with last_status in ('failure', 'failed', 'timeout', 'cancelled')
+	Failing int `json:"failing"`
+
+	// NotRun Tests with no status or 'verifying'
+	NotRun int `json:"not_run"`
+
+	// Passing Tests with last_status = 'success'
+	Passing int `json:"passing"`
+
+	// Running Tests with last_status in ('running', 'queued', 'setup')
+	Running int `json:"running"`
+
+	// Total Total number of tests in the org
+	Total int `json:"total"`
+}
+
 // TestStatusResponse Response model for test execution status.
 //
 // Uses 'id' instead of 'task_id' as the primary identifier.
@@ -6957,7 +7089,7 @@ type TestWithDetails struct {
 	// Name Name of the test
 	Name string `json:"name"`
 
-	// Platform Platform the test runs on (web, ios, android)
+	// Platform Platform the test runs on (ios, android)
 	Platform string `json:"platform"`
 
 	// RecentStatuses List of success statuses from recent executions
@@ -7104,6 +7236,9 @@ type UpdateModuleRequest struct {
 
 	// Description New description
 	Description *string `json:"description,omitempty"`
+
+	// ExpectedVersion Expected version for optimistic locking
+	ExpectedVersion *int `json:"expected_version,omitempty"`
 
 	// Name New name
 	Name *string `json:"name,omitempty"`
@@ -7352,9 +7487,11 @@ type UserTestsResponse struct {
 
 // ValidationError defines model for ValidationError.
 type ValidationError struct {
-	Loc  []ValidationError_Loc_Item `json:"loc"`
-	Msg  string                     `json:"msg"`
-	Type string                     `json:"type"`
+	Ctx   *map[string]interface{}    `json:"ctx,omitempty"`
+	Input interface{}                `json:"input,omitempty"`
+	Loc   []ValidationError_Loc_Item `json:"loc"`
+	Msg   string                     `json:"msg"`
+	Type  string                     `json:"type"`
 }
 
 // ValidationErrorLoc0 defines model for .
@@ -8265,6 +8402,31 @@ type AppRoutesExecutionRoutesBillingXptAttachResponse struct {
 	Message     string  `json:"message"`
 }
 
+// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
+type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
+	Date        string   `json:"date"`
+	Deployments *int     `json:"deployments,omitempty"`
+	MedianHours *float32 `json:"median_hours,omitempty"`
+	P25Hours    *float32 `json:"p25_hours,omitempty"`
+	P75Hours    *float32 `json:"p75_hours,omitempty"`
+	TeamAverage *float32 `json:"team_average,omitempty"`
+	Trend       *string  `json:"trend,omitempty"`
+	Value       *float32 `json:"value,omitempty"`
+}
+
+// AppRoutesRebelRoutesBillingXptAttachRequest defines model for app__routes__rebel_routes__billing_xpt__AttachRequest.
+type AppRoutesRebelRoutesBillingXptAttachRequest struct {
+	Quantity    *int   `json:"quantity,omitempty"`
+	RedirectUrl string `json:"redirect_url"`
+}
+
+// AppRoutesRebelRoutesBillingXptAttachResponse defines model for app__routes__rebel_routes__billing_xpt__AttachResponse.
+type AppRoutesRebelRoutesBillingXptAttachResponse struct {
+	CheckoutUrl *string `json:"checkout_url,omitempty"`
+	Message     string  `json:"message"`
+	Success     *bool   `json:"success,omitempty"`
+}
+
 // CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
 type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
 	// AvgDuration Average execution duration in seconds for this date
@@ -8741,15 +8903,24 @@ type GetEvalQueueApiV1FlywheelEvalQueueGetParams struct {
 	Offset       *int    `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
-// GetFlywheelMonitorApiV1FlywheelMonitorGetParams defines parameters for GetFlywheelMonitorApiV1FlywheelMonitorGet.
-type GetFlywheelMonitorApiV1FlywheelMonitorGetParams struct {
-	Hours          *int `form:"hours,omitempty" json:"hours,omitempty"`
+// GetMonitorApiV1FlywheelMonitorGetParams defines parameters for GetMonitorApiV1FlywheelMonitorGet.
+type GetMonitorApiV1FlywheelMonitorGetParams struct {
+	// Hours Time window in hours (default 7d)
+	Hours *int `form:"hours,omitempty" json:"hours,omitempty"`
+
+	// TimeseriesDays Days of timeseries data
 	TimeseriesDays *int `form:"timeseries_days,omitempty" json:"timeseries_days,omitempty"`
 }
 
 // CheckModuleExistsApiV1ModulesCheckExistsGetParams defines parameters for CheckModuleExistsApiV1ModulesCheckExistsGet.
 type CheckModuleExistsApiV1ModulesCheckExistsGetParams struct {
 	Name string `form:"name" json:"name"`
+}
+
+// GetModuleVersionsApiV1ModulesModuleIdVersionsGetParams defines parameters for GetModuleVersionsApiV1ModulesModuleIdVersionsGet.
+type GetModuleVersionsApiV1ModulesModuleIdVersionsGetParams struct {
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // StreamUnifiedUpdatesApiV1MonitorStreamUnifiedGetParams defines parameters for StreamUnifiedUpdatesApiV1MonitorStreamUnifiedGet.
@@ -8958,9 +9129,11 @@ type GetSimpleTestsEndpointApiV1TestsGetSimpleTestsGetParams struct {
 
 // GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGetParams defines parameters for GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGet.
 type GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGetParams struct {
-	TestId string `form:"test_id" json:"test_id"`
-	Limit  *int   `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *int   `form:"offset,omitempty" json:"offset,omitempty"`
+	TestId    string  `form:"test_id" json:"test_id"`
+	Limit     *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset    *int    `form:"offset,omitempty" json:"offset,omitempty"`
+	Status    *string `form:"status,omitempty" json:"status,omitempty"`
+	SortOrder *string `form:"sort_order,omitempty" json:"sort_order,omitempty"`
 }
 
 // GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGetParams defines parameters for GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGet.
@@ -8979,10 +9152,25 @@ type GetTestInfoEndpointApiV1TestsGetTestInfoGetParams struct {
 
 // QueryTestsEndpointApiV1TestsGetTestsGetParams defines parameters for QueryTestsEndpointApiV1TestsGetTestsGet.
 type QueryTestsEndpointApiV1TestsGetTestsGetParams struct {
-	OrgId  *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *int    `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit    *int                                                  `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset   *int                                                  `form:"offset,omitempty" json:"offset,omitempty"`
+	Search   *string                                               `form:"search,omitempty" json:"search,omitempty"`
+	Status   *QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus  `form:"status,omitempty" json:"status,omitempty"`
+	Platform *string                                               `form:"platform,omitempty" json:"platform,omitempty"`
+	AppId    *string                                               `form:"app_id,omitempty" json:"app_id,omitempty"`
+	Tags     *string                                               `form:"tags,omitempty" json:"tags,omitempty"`
+	SortBy   *QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy  `form:"sort_by,omitempty" json:"sort_by,omitempty"`
+	SortDir  *QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir `form:"sort_dir,omitempty" json:"sort_dir,omitempty"`
 }
+
+// QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus defines parameters for QueryTestsEndpointApiV1TestsGetTestsGet.
+type QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus string
+
+// QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy defines parameters for QueryTestsEndpointApiV1TestsGetTestsGet.
+type QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy string
+
+// QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir defines parameters for QueryTestsEndpointApiV1TestsGetTestsGet.
+type QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir string
 
 // ListScriptsApiV1TestsScriptsGetParams defines parameters for ListScriptsApiV1TestsScriptsGet.
 type ListScriptsApiV1TestsScriptsGetParams struct {
@@ -9232,6 +9420,9 @@ type CreateWorktreeApiV1FleetWorktreesPostJSONRequestBody = CreateWorktreeReques
 // UpdateFlywheelConfigApiV1FlywheelConfigPatchJSONRequestBody defines body for UpdateFlywheelConfigApiV1FlywheelConfigPatch for application/json ContentType.
 type UpdateFlywheelConfigApiV1FlywheelConfigPatchJSONRequestBody = FlywheelConfigUpdateRequest
 
+// DeleteEvalResultsApiV1FlywheelEvalResultsDeleteJSONRequestBody defines body for DeleteEvalResultsApiV1FlywheelEvalResultsDelete for application/json ContentType.
+type DeleteEvalResultsApiV1FlywheelEvalResultsDeleteJSONRequestBody = DeleteEvalResultsRequest
+
 // TriggerFlywheelEvalApiV1FlywheelTriggerPostJSONRequestBody defines body for TriggerFlywheelEvalApiV1FlywheelTriggerPost for application/json ContentType.
 type TriggerFlywheelEvalApiV1FlywheelTriggerPostJSONRequestBody = FlywheelTriggerRequest
 
@@ -9246,6 +9437,9 @@ type CreateModuleApiV1ModulesCreatePostJSONRequestBody = CreateModuleRequest
 
 // UpdateModuleApiV1ModulesUpdateModuleIdPutJSONRequestBody defines body for UpdateModuleApiV1ModulesUpdateModuleIdPut for application/json ContentType.
 type UpdateModuleApiV1ModulesUpdateModuleIdPutJSONRequestBody = UpdateModuleRequest
+
+// RestoreModuleVersionApiV1ModulesModuleIdRestorePostJSONRequestBody defines body for RestoreModuleVersionApiV1ModulesModuleIdRestorePost for application/json ContentType.
+type RestoreModuleVersionApiV1ModulesModuleIdRestorePostJSONRequestBody = ModuleRestoreVersionRequest
 
 // GenerateShareableReportLinkApiV1ReportAsyncRunGenerateShareableReportLinkPostJSONRequestBody defines body for GenerateShareableReportLinkApiV1ReportAsyncRunGenerateShareableReportLinkPost for application/json ContentType.
 type GenerateShareableReportLinkApiV1ReportAsyncRunGenerateShareableReportLinkPostJSONRequestBody = ShareableReportModel
@@ -9347,7 +9541,7 @@ type TriggerBackfillApiV1ReviewBackfillPostJSONRequestBody = BackfillRequest
 type AssignSeatsApiV1ReviewBillingAssignSeatsPostJSONRequestBody = AssignSeatsRequest
 
 // AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody defines body for AttachBillingApiV1ReviewBillingAttachPost for application/json ContentType.
-type AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody = AttachRequest
+type AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody = AppRoutesRebelRoutesBillingXptAttachRequest
 
 // UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody defines body for UpdateSeatsApiV1ReviewBillingUpdateSeatsPost for application/json ContentType.
 type UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody = UpdateSeatsRequest

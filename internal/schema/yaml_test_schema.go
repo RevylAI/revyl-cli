@@ -134,7 +134,7 @@ Execute a server-side script.
 ### 8. module_import
 Import a reusable module (group of blocks) by its UUID.
 
-Modules are reusable building blocks created via the web UI or CLI.
+Modules are reusable building blocks created via the app UI or CLI.
 When a test runs, module_import blocks are expanded into the module's
 constituent blocks at execution time.
 

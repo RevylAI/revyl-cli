@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/util"
 )
@@ -322,6 +323,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 	// Cache resolved build name → app ID to avoid redundant ListApps calls
 	// when multiple tests share the same build.name + platform.
 	appIDCache := make(map[string]string) // key: "buildName\x00platform"
+	orgID := resolveOrgIDForCreate(r.config)
 
 	for name, localTest := range testsToSync {
 		result := SyncResult{Name: name}
@@ -353,6 +355,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				Platform: localTest.Test.Metadata.Platform,
 				Tasks:    localTest.Test.Blocks,
 				AppID:    resolvedAppID,
+				OrgID:    orgID,
 			})
 			if err != nil {
 				result.Error = err
@@ -473,6 +476,37 @@ func (r *Resolver) syncTagsForTest(ctx context.Context, testID string, tags []st
 	_, _ = r.client.SyncTestTags(ctx, testID, &api.CLISyncTagsRequest{
 		TagNames: tags,
 	})
+}
+
+// resolveOrgIDForCreate determines which org_id should be sent when creating
+// tests during sync/push flows.
+//
+// Precedence:
+//  1. project.org_id from .revyl/config.yaml
+//  2. credentials.json org_id from active auth context
+func resolveOrgIDForCreate(cfg *config.ProjectConfig) string {
+	if cfg != nil {
+		if orgID := strings.TrimSpace(cfg.Project.OrgID); orgID != "" {
+			return orgID
+		}
+	}
+
+	authMgr := auth.NewManager()
+
+	if creds, err := authMgr.GetCredentials(); err == nil && creds != nil {
+		if orgID := strings.TrimSpace(creds.OrgID); orgID != "" {
+			return orgID
+		}
+	}
+
+	// If REVYL_API_KEY is set, GetCredentials() may bypass file credentials.
+	if creds, err := authMgr.GetFileCredentials(); err == nil && creds != nil {
+		if orgID := strings.TrimSpace(creds.OrgID); orgID != "" {
+			return orgID
+		}
+	}
+
+	return ""
 }
 
 // PullFromRemote pulls remote changes to local.

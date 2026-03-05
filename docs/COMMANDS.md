@@ -287,7 +287,7 @@ revyl workflow cancel <task-id>                                  # Cancel runnin
 
 ```bash
 # Session lifecycle
-revyl device start --platform ios              # Start a cloud device session
+revyl device start                             # Start a cloud device session (defaults to iOS)
 revyl device start --platform android --open   # Start and open viewer in browser
 revyl device stop                              # Stop the active session
 revyl device stop --all                        # Stop all sessions
