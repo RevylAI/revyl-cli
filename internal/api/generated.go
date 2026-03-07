@@ -1647,6 +1647,7 @@ type AppResponse struct {
 	OrgId          *openapi_types.UUID `json:"org_id,omitempty"`
 	Platform       *string             `json:"platform,omitempty"`
 	StaticUrl      *string             `json:"static_url,omitempty"`
+	SystemPrompt   *string             `json:"system_prompt,omitempty"`
 	VersionsCount  *int                `json:"versions_count,omitempty"`
 }
 
@@ -1663,6 +1664,9 @@ type AppUpdateRequest struct {
 
 	// StaticUrl Static URL for legacy web builds
 	StaticUrl *string `json:"static_url,omitempty"`
+
+	// SystemPrompt App-level system prompt injected into LLM calls
+	SystemPrompt *string `json:"system_prompt,omitempty"`
 }
 
 // AppUsageResponse defines model for AppUsageResponse.
@@ -5411,6 +5415,7 @@ type ReportV3Response struct {
 	StartedAt           *string                   `json:"started_at,omitempty"`
 	Steps               *[]map[string]interface{} `json:"steps,omitempty"`
 	Success             *bool                     `json:"success,omitempty"`
+	SystemPrompt        *string                   `json:"system_prompt,omitempty"`
 	TestGoalSummary     *string                   `json:"test_goal_summary,omitempty"`
 	TestId              string                    `json:"test_id"`
 	TestName            *string                   `json:"test_name,omitempty"`
@@ -5461,17 +5466,18 @@ type ResolvedApp struct {
 
 // ResolvedBuild Normalized representation of a resolved build artifact.
 type ResolvedBuild struct {
-	AppId       string                  `json:"app_id"`
-	ArtifactUrl *string                 `json:"artifact_url,omitempty"`
-	BuildName   *string                 `json:"build_name,omitempty"`
-	Description *string                 `json:"description,omitempty"`
-	DownloadUrl *string                 `json:"download_url,omitempty"`
-	Metadata    *map[string]interface{} `json:"metadata,omitempty"`
-	PackageName *string                 `json:"package_name,omitempty"`
-	Platform    *string                 `json:"platform,omitempty"`
-	StaticUrl   *string                 `json:"static_url,omitempty"`
-	UploadedAt  *time.Time              `json:"uploaded_at,omitempty"`
-	Version     *string                 `json:"version,omitempty"`
+	AppId        string                  `json:"app_id"`
+	ArtifactUrl  *string                 `json:"artifact_url,omitempty"`
+	BuildName    *string                 `json:"build_name,omitempty"`
+	Description  *string                 `json:"description,omitempty"`
+	DownloadUrl  *string                 `json:"download_url,omitempty"`
+	Metadata     *map[string]interface{} `json:"metadata,omitempty"`
+	PackageName  *string                 `json:"package_name,omitempty"`
+	Platform     *string                 `json:"platform,omitempty"`
+	StaticUrl    *string                 `json:"static_url,omitempty"`
+	SystemPrompt *string                 `json:"system_prompt,omitempty"`
+	UploadedAt   *time.Time              `json:"uploaded_at,omitempty"`
+	Version      *string                 `json:"version,omitempty"`
 }
 
 // ReviewMetric defines model for ReviewMetric.

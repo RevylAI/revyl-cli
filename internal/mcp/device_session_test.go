@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,12 +14,6 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 )
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
-}
 
 // ---------------------------------------------------------------------------
 // TestWsURLToHTTP: Table-driven test for WebSocket-to-HTTP URL conversion.
@@ -275,21 +268,25 @@ func TestDeviceSessionManager_RecompactPreservesRemainingIdleTime(t *testing.T) 
 // ---------------------------------------------------------------------------
 
 func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing.T) {
-	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/execution/device-proxy/wf-worker-reset/tap" {
+			http.NotFound(w, r)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"success":true,"action":"tap"}`))
 	}))
-	defer workerServer.Close()
+	defer apiServer.Close()
 
 	now := time.Now()
 	mgr := &DeviceSessionManager{
-		httpClient: workerServer.Client(),
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
 		sessions: map[int]*DeviceSession{
 			0: {
 				Index:         0,
 				SessionID:     "test-session-worker-reset",
 				WorkflowRunID: "wf-worker-reset",
-				WorkerBaseURL: workerServer.URL,
+				WorkerBaseURL: "https://worker.example",
 				Platform:      "ios",
 				StartedAt:     now,
 				LastActivity:  now,
@@ -307,7 +304,7 @@ func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing
 
 	time.Sleep(80 * time.Millisecond)
 
-	_, err := mgr.WorkerRequestForSession(context.Background(), 0, http.MethodPost, "/tap", map[string]int{
+	_, err := mgr.WorkerRequestForSession(context.Background(), 0, "/tap", map[string]int{
 		"x": 1,
 		"y": 2,
 	})
@@ -776,7 +773,7 @@ func TestDeviceSessionManager_StartSession_PropagatesBuildPackageToStartDevice(t
 			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/health":
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
 			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
 		default:
 			http.NotFound(w, r)
@@ -786,7 +783,6 @@ func TestDeviceSessionManager_StartSession_PropagatesBuildPackageToStartDevice(t
 
 	mgr := &DeviceSessionManager{
 		apiClient:   api.NewClientWithBaseURL("test-key", server.URL),
-		httpClient:  server.Client(),
 		sessions:    make(map[int]*DeviceSession),
 		idleTimers:  make(map[int]*time.Timer),
 		activeIndex: -1,
@@ -814,7 +810,7 @@ func TestDeviceSessionManager_WorkerRequestForSession_ReturnsTypedWorkerHTTPErro
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/open_url" {
+		if r.URL.Path != "/api/v1/execution/device-proxy/wf-1/open_url" {
 			http.NotFound(w, r)
 			return
 		}
@@ -825,13 +821,13 @@ func TestDeviceSessionManager_WorkerRequestForSession_ReturnsTypedWorkerHTTPErro
 	defer server.Close()
 
 	mgr := &DeviceSessionManager{
-		httpClient: server.Client(),
+		apiClient: api.NewClientWithBaseURL("test-api-key", server.URL),
 		sessions: map[int]*DeviceSession{
 			0: {
 				Index:         0,
 				SessionID:     "s-1",
 				WorkflowRunID: "wf-1",
-				WorkerBaseURL: server.URL,
+				WorkerBaseURL: "https://worker.example",
 				Platform:      "ios",
 			},
 		},
@@ -839,7 +835,7 @@ func TestDeviceSessionManager_WorkerRequestForSession_ReturnsTypedWorkerHTTPErro
 		activeIndex: 0,
 	}
 
-	_, err := mgr.WorkerRequestForSession(context.Background(), 0, http.MethodPost, "/open_url", map[string]string{
+	_, err := mgr.WorkerRequestForSession(context.Background(), 0, "/open_url", map[string]string{
 		"url": "nof1://expo-development-client/?url=https%3A%2F%2Fexample.trycloudflare.com",
 	})
 	if err == nil {
@@ -894,7 +890,7 @@ func TestWorkerProxyActionFromPath(t *testing.T) {
 	}
 }
 
-func TestDeviceSessionManager_WorkerRequestForSession_FallbacksViaProxyOnDNSFailure(t *testing.T) {
+func TestDeviceSessionManager_WorkerRequestForSession_UsesBackendRelayByDefault(t *testing.T) {
 	t.Parallel()
 
 	proxyCalls := 0
@@ -921,15 +917,6 @@ func TestDeviceSessionManager_WorkerRequestForSession_FallbacksViaProxyOnDNSFail
 
 	mgr := &DeviceSessionManager{
 		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
-		httpClient: &http.Client{
-			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				return nil, &net.DNSError{
-					Err:        "no such host",
-					Name:       "cog-unresolvable.revyl.ai",
-					IsNotFound: true,
-				}
-			}),
-		},
 		sessions: map[int]*DeviceSession{
 			0: {
 				Index:         0,
@@ -943,18 +930,18 @@ func TestDeviceSessionManager_WorkerRequestForSession_FallbacksViaProxyOnDNSFail
 		activeIndex: 0,
 	}
 
-	resp, err := mgr.WorkerRequestForSession(context.Background(), 0, http.MethodPost, "/tap", map[string]int{
+	resp, err := mgr.WorkerRequestForSession(context.Background(), 0, "/tap", map[string]int{
 		"x": 123,
 		"y": 456,
 	})
 	if err != nil {
-		t.Fatalf("expected proxy fallback success, got error: %v", err)
+		t.Fatalf("expected backend relay success, got error: %v", err)
 	}
 	if !strings.Contains(string(resp), `"action":"tap"`) {
-		t.Fatalf("unexpected proxy response: %s", string(resp))
+		t.Fatalf("unexpected relay response: %s", string(resp))
 	}
 	if proxyCalls != 1 {
-		t.Fatalf("proxy calls = %d, want 1", proxyCalls)
+		t.Fatalf("relay calls = %d, want 1", proxyCalls)
 	}
 }
 
@@ -974,15 +961,6 @@ func TestDeviceSessionManager_WorkerRequestForSession_ProxyHTTPErrorReturnsTyped
 
 	mgr := &DeviceSessionManager{
 		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
-		httpClient: &http.Client{
-			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				return nil, &net.DNSError{
-					Err:        "no such host",
-					Name:       "cog-unresolvable.revyl.ai",
-					IsNotFound: true,
-				}
-			}),
-		},
 		sessions: map[int]*DeviceSession{
 			0: {
 				Index:         0,
@@ -999,7 +977,6 @@ func TestDeviceSessionManager_WorkerRequestForSession_ProxyHTTPErrorReturnsTyped
 	_, err := mgr.WorkerRequestForSession(
 		context.Background(),
 		0,
-		http.MethodPost,
 		"/resolve_target",
 		map[string]string{"target": "Continue button"},
 	)
@@ -1028,13 +1005,13 @@ func TestDeviceSessionManager_ResolveTargetForSession_UsesWorkerResolveEndpoint(
 	resolveCalls := 0
 	screenshotCalls := 0
 
-	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/resolve_target":
+		case "/api/v1/execution/device-proxy/wf-1/resolve_target":
 			resolveCalls++
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"found":true,"x":111,"y":222}`))
-		case "/screenshot":
+		case "/api/v1/execution/device-proxy/wf-1/screenshot":
 			screenshotCalls++
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write([]byte("unused"))
@@ -1042,16 +1019,16 @@ func TestDeviceSessionManager_ResolveTargetForSession_UsesWorkerResolveEndpoint(
 			http.NotFound(w, r)
 		}
 	}))
-	defer workerServer.Close()
+	defer apiServer.Close()
 
 	mgr := &DeviceSessionManager{
-		httpClient: workerServer.Client(),
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
 		sessions: map[int]*DeviceSession{
 			0: {
 				Index:         0,
 				SessionID:     "sess-1",
 				WorkflowRunID: "wf-1",
-				WorkerBaseURL: workerServer.URL,
+				WorkerBaseURL: "https://worker.example",
 				Platform:      "ios",
 			},
 		},
@@ -1080,41 +1057,33 @@ func TestDeviceSessionManager_ResolveTargetForSession_FallbacksToBackendOnLegacy
 	resolveCalls := 0
 	groundCalls := 0
 
-	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/resolve_target":
+		case "/api/v1/execution/device-proxy/wf-2/resolve_target":
 			resolveCalls++
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"detail":"Not Found"}`))
-		case "/screenshot":
+		case "/api/v1/execution/device-proxy/wf-2/screenshot":
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write([]byte("fallback-screenshot"))
+		case "/api/v1/execution/ground":
+			groundCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"found":true,"x":321,"y":654}`))
 		default:
 			http.NotFound(w, r)
 		}
 	}))
-	defer workerServer.Close()
-
-	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/execution/ground" {
-			http.NotFound(w, r)
-			return
-		}
-		groundCalls++
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"found":true,"x":321,"y":654}`))
-	}))
 	defer apiServer.Close()
 
 	mgr := &DeviceSessionManager{
-		apiClient:  api.NewClientWithBaseURL("test-api-key", apiServer.URL),
-		httpClient: workerServer.Client(),
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
 		sessions: map[int]*DeviceSession{
 			0: {
 				Index:         0,
 				SessionID:     "sess-2",
 				WorkflowRunID: "wf-2",
-				WorkerBaseURL: workerServer.URL,
+				WorkerBaseURL: "https://worker.example",
 				Platform:      "ios",
 			},
 		},
@@ -1142,33 +1111,28 @@ func TestDeviceSessionManager_ResolveTargetForSession_WorkerMissDoesNotFallback(
 
 	groundCalls := 0
 
-	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/resolve_target" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"found":false,"error":"Could not locate 'Continue button' in the screenshot"}`))
-	}))
-	defer workerServer.Close()
-
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/execution/ground" {
+		switch r.URL.Path {
+		case "/api/v1/execution/device-proxy/wf-3/resolve_target":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"found":false,"error":"Could not locate 'Continue button' in the screenshot"}`))
+		case "/api/v1/execution/ground":
 			groundCalls++
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
 		}
-		http.NotFound(w, r)
 	}))
 	defer apiServer.Close()
 
 	mgr := &DeviceSessionManager{
-		apiClient:  api.NewClientWithBaseURL("test-api-key", apiServer.URL),
-		httpClient: workerServer.Client(),
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
 		sessions: map[int]*DeviceSession{
 			0: {
 				Index:         0,
 				SessionID:     "sess-3",
 				WorkflowRunID: "wf-3",
-				WorkerBaseURL: workerServer.URL,
+				WorkerBaseURL: "https://worker.example",
 				Platform:      "ios",
 			},
 		},

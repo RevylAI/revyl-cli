@@ -6,7 +6,6 @@
 package mcp
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
@@ -25,6 +24,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/api"
+	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -272,33 +272,14 @@ func (m *DeviceSessionManager) StartSession(
 		idleTimeout = 5 * time.Minute
 	}
 
-	appPackage := strings.TrimSpace(opts.AppPackage)
-	appURL := strings.TrimSpace(opts.AppURL)
-	if appURL == "" && strings.TrimSpace(opts.BuildVersionID) != "" {
-		detail, err := m.apiClient.GetBuildVersionDownloadURL(ctx, strings.TrimSpace(opts.BuildVersionID))
-		if err != nil {
-			return -1, nil, fmt.Errorf("failed to resolve build version %s: %w", opts.BuildVersionID, err)
-		}
-		appURL = strings.TrimSpace(detail.DownloadURL)
-		if appPackage == "" {
-			appPackage = strings.TrimSpace(detail.PackageName)
-		}
-	}
-	if appURL == "" && strings.TrimSpace(opts.AppID) != "" {
-		latest, err := m.apiClient.GetLatestBuildVersion(ctx, strings.TrimSpace(opts.AppID))
-		if err != nil {
-			return -1, nil, fmt.Errorf("failed to resolve latest build for app %s: %w", opts.AppID, err)
-		}
-		if latest != nil {
-			detail, err := m.apiClient.GetBuildVersionDownloadURL(ctx, latest.ID)
-			if err != nil {
-				return -1, nil, fmt.Errorf("failed to resolve latest build artifact for app %s: %w", opts.AppID, err)
-			}
-			appURL = strings.TrimSpace(detail.DownloadURL)
-			if appPackage == "" {
-				appPackage = strings.TrimSpace(detail.PackageName)
-			}
-		}
+	resolvedArtifact, err := startdevice.ResolveStartArtifact(ctx, m.apiClient, startdevice.StartArtifactOptions{
+		AppID:          opts.AppID,
+		BuildVersionID: opts.BuildVersionID,
+		AppURL:         opts.AppURL,
+		AppPackage:     opts.AppPackage,
+	})
+	if err != nil {
+		return -1, nil, err
 	}
 
 	// Build the start device request
@@ -312,14 +293,14 @@ func (m *DeviceSessionManager) StartSession(
 	if strings.TrimSpace(opts.TestID) != "" {
 		req.TestID = strings.TrimSpace(opts.TestID)
 	}
-	if appURL != "" {
-		req.AppURL = appURL
+	if resolvedArtifact.AppURL != "" {
+		req.AppURL = resolvedArtifact.AppURL
 	}
 	if strings.TrimSpace(opts.AppLink) != "" {
 		req.AppLink = strings.TrimSpace(opts.AppLink)
 	}
-	if appPackage != "" {
-		req.AppPackage = appPackage
+	if resolvedArtifact.AppPackage != "" {
+		req.AppPackage = resolvedArtifact.AppPackage
 	}
 	_ = opts.SandboxID // Reserved for backend support.
 
@@ -350,7 +331,7 @@ func (m *DeviceSessionManager) StartSession(
 	// Wait for the device to actually be connected (up to 30 seconds).
 	// The worker URL can exist before the device is fully provisioned,
 	// so we poll /health until device_connected is true.
-	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL}
+	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID}
 	deviceReady := false
 	for i := 0; i < 15; i++ { // 15 * 2s = 30s max
 		if err := m.healthCheckSession(tmpSession); err == nil {
@@ -1104,6 +1085,24 @@ func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) error 
 	if session == nil {
 		return fmt.Errorf("no session")
 	}
+	if m.apiClient != nil && strings.TrimSpace(session.WorkflowRunID) != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		body, err := m.proxyWorkerRequestForSession(ctx, session, "/health", nil)
+		if err != nil {
+			var workerErr *WorkerHTTPError
+			if errors.As(err, &workerErr) {
+				return workerErr
+			}
+			if reason := m.checkSessionStatusOnFailure(session); reason != "" {
+				return fmt.Errorf("%s", reason)
+			}
+			return err
+		}
+		return validateWorkerHealthResponse(body)
+	}
+
 	url := session.WorkerBaseURL + "/health"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1138,6 +1137,10 @@ func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) error 
 		// to avoid false negatives on transient read errors.
 		return nil
 	}
+	return validateWorkerHealthResponse(body)
+}
+
+func validateWorkerHealthResponse(body []byte) error {
 	var health workerHealthResponse
 	if jsonErr := json.Unmarshal(body, &health); jsonErr != nil {
 		return nil
@@ -1237,8 +1240,8 @@ func workerProxyActionFromPath(path string) (string, error) {
 }
 
 // proxyWorkerRequestForSession forwards a worker action through the backend
-// device-proxy endpoint. This is a fallback path for sandbox environments
-// where direct worker DNS resolution may fail.
+// device-proxy endpoint. CLI/MCP device control uses this as the canonical
+// transport so sandboxed environments never depend on direct worker DNS.
 func (m *DeviceSessionManager) proxyWorkerRequestForSession(
 	ctx context.Context,
 	session *DeviceSession,
@@ -1270,196 +1273,90 @@ func (m *DeviceSessionManager) proxyWorkerRequestForSession(
 	return respBody, nil
 }
 
-// WorkerRequest sends an HTTP request to the active session's worker.
-// For backward compatibility, uses the active session. Use WorkerRequestForSession
-// to target a specific session by index.
+// WorkerRequest sends a worker action request to the active session.
+// For backward compatibility, uses the active session. Use
+// WorkerRequestForSession to target a specific session by index.
 //
 // Parameters:
 //   - ctx: Context for cancellation.
-//   - method: HTTP method (GET, POST, etc.).
-//   - path: URL path on the worker (e.g. "/tap").
-//   - body: Request body to send as JSON (nil for GET requests).
+//   - path: Worker action path (e.g. "/tap", "/health").
+//   - body: Request body to send as JSON (nil for read-only actions).
 //
 // Returns:
 //   - []byte: Response body bytes.
 //   - error: Any error during the request.
-func (m *DeviceSessionManager) WorkerRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
+func (m *DeviceSessionManager) WorkerRequest(ctx context.Context, path string, body interface{}) ([]byte, error) {
 	session, err := m.ResolveSession(-1)
 	if err != nil {
 		return nil, err
 	}
-	return m.workerRequestForSession(ctx, session, method, path, body)
+	return m.workerRequestForSession(ctx, session, path, body)
 }
 
-// WorkerRequestForSession sends an HTTP request to a specific session's worker.
+// WorkerRequestForSession sends a worker action request to a specific session.
 //
 // Parameters:
 //   - ctx: Context for cancellation.
 //   - index: The session index to target.
-//   - method: HTTP method (GET, POST, etc.).
-//   - path: URL path on the worker (e.g. "/tap").
-//   - body: Request body to send as JSON (nil for GET requests).
+//   - path: Worker action path (e.g. "/tap", "/health").
+//   - body: Request body to send as JSON (nil for read-only actions).
 //
 // Returns:
 //   - []byte: Response body bytes.
 //   - error: Any error during the request.
-func (m *DeviceSessionManager) WorkerRequestForSession(ctx context.Context, index int, method, path string, body interface{}) ([]byte, error) {
+func (m *DeviceSessionManager) WorkerRequestForSession(ctx context.Context, index int, path string, body interface{}) ([]byte, error) {
 	session, err := m.ResolveSession(index)
 	if err != nil {
 		return nil, err
 	}
-	return m.workerRequestForSession(ctx, session, method, path, body)
+	return m.workerRequestForSession(ctx, session, path, body)
 }
 
-// workerRequestForSession is the internal implementation that sends an HTTP request
-// to a given session's worker.
-func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, session *DeviceSession, method, path string, body interface{}) ([]byte, error) {
+// workerRequestForSession is the internal implementation that sends a worker
+// action request to a given session using the backend relay.
+func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, session *DeviceSession, path string, body interface{}) ([]byte, error) {
 	// Any direct device action should count as activity and extend the
 	// session's idle timeout window.
 	if session != nil {
 		m.ResetIdleTimer(session.Index)
 	}
 
-	url := session.WorkerBaseURL + path
-
-	var reqBody io.Reader
-	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
-		}
-		reqBody = bytes.NewReader(data)
+	respBody, err := m.proxyWorkerRequestForSession(ctx, session, path, body)
+	if err == nil {
+		return respBody, nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	client := m.httpClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		if isWorkerConnectivityError(err) {
-			proxiedResp, proxyErr := m.proxyWorkerRequestForSession(ctx, session, path, body)
-			if proxyErr == nil {
-				ui.PrintDebug("worker request proxied via backend (session=%d, path=%s)", session.Index, path)
-				return proxiedResp, nil
-			}
-			var proxyWorkerErr *WorkerHTTPError
-			if errors.As(proxyErr, &proxyWorkerErr) {
-				return nil, proxyWorkerErr
-			}
-			ui.PrintDebug("worker direct request failed and proxy fallback failed: %v", proxyErr)
-		}
-
-		// Worker unreachable -- check backend for the real reason
-		// (e.g. session was stopped from the browser).
-		if reason := m.checkSessionStatusOnFailure(session); reason != "" {
-			return nil, fmt.Errorf("%s. Start a new session with start_device_session()", reason)
-		}
-
-		// Provide actionable error messages for common network failures.
-		var dnsErr *net.DNSError
-		if errors.As(err, &dnsErr) || strings.Contains(strings.ToLower(err.Error()), "no such host") {
-			return nil, fmt.Errorf(
-				"worker DNS lookup failed for %s: the device session has likely been terminated. "+
-					"Call list_device_sessions() to check status or start_device_session() for a new session",
-				session.WorkerBaseURL,
-			)
-		}
-		var netErr net.Error
-		if errors.As(err, &netErr) && netErr.Timeout() {
-			return nil, fmt.Errorf(
-				"worker request timed out for %s on %s. "+
-					"Call device_doctor() to diagnose or stop_device_session(session_index=%d) to clean up",
-				path, session.WorkerBaseURL, session.Index,
-			)
-		}
-
-		return nil, fmt.Errorf("worker request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read worker response: %w", err)
-	}
-
-	if resp.StatusCode >= 500 {
-		// Retry once for 503 (temporarily unavailable) -- the device may still
-		// be finishing setup or recovering from a transient issue.
-		if resp.StatusCode == 503 {
-			resp.Body.Close()
+	var workerErr *WorkerHTTPError
+	if errors.As(err, &workerErr) {
+		if workerErr.StatusCode == http.StatusServiceUnavailable {
 			time.Sleep(2 * time.Second)
 
-			// Rebuild the request (body may have been consumed).
-			var retryBody io.Reader
-			if body != nil {
-				data, marshalErr := json.Marshal(body)
-				if marshalErr != nil {
-					return nil, fmt.Errorf("failed to marshal retry request body: %w", marshalErr)
-				}
-				retryBody = bytes.NewReader(data)
-			}
-			retryReq, retryReqErr := http.NewRequestWithContext(ctx, method, url, retryBody)
-			if retryReqErr != nil {
-				return nil, fmt.Errorf("failed to create retry request: %w", retryReqErr)
-			}
-			if body != nil {
-				retryReq.Header.Set("Content-Type", "application/json")
+			retryRespBody, retryErr := m.proxyWorkerRequestForSession(ctx, session, path, body)
+			if retryErr == nil {
+				return retryRespBody, nil
 			}
 
-			retryResp, retryErr := client.Do(retryReq)
-			if retryErr == nil {
-				defer retryResp.Body.Close()
-				retryRespBody, readErr := io.ReadAll(retryResp.Body)
-				if readErr != nil {
-					return nil, fmt.Errorf("failed to read worker retry response: %w", readErr)
-				}
-				if retryResp.StatusCode < 400 {
-					return retryRespBody, nil
-				}
-				// Retry also failed -- fall through with retry response details.
-				workerErr := &WorkerHTTPError{
-					StatusCode: retryResp.StatusCode,
-					Path:       path,
-					Body:       string(retryRespBody),
-				}
+			var retryWorkerErr *WorkerHTTPError
+			if errors.As(retryErr, &retryWorkerErr) {
 				return nil, fmt.Errorf(
 					"%w. "+
 						"The device may not be fully connected yet -- wait a few seconds and retry, or call device_doctor() to diagnose",
-					workerErr,
+					retryWorkerErr,
 				)
 			}
-			// Retry request itself failed -- fall through with original error.
+			return nil, retryErr
 		}
-
-		workerErr := &WorkerHTTPError{
-			StatusCode: resp.StatusCode,
-			Path:       path,
-			Body:       string(respBody),
+		if workerErr.StatusCode >= 500 {
+			return nil, fmt.Errorf("%w. Call device_doctor() to check worker health", workerErr)
 		}
-		return nil, fmt.Errorf(
-			"%w. Call device_doctor() to check worker health",
-			workerErr,
-		)
-	}
-	if resp.StatusCode >= 400 {
-		return nil, &WorkerHTTPError{
-			StatusCode: resp.StatusCode,
-			Path:       path,
-			Body:       string(respBody),
-		}
+		return nil, workerErr
 	}
 
-	return respBody, nil
+	if reason := m.checkSessionStatusOnFailure(session); reason != "" {
+		return nil, fmt.Errorf("%s. Start a new session with start_device_session()", reason)
+	}
+
+	return nil, fmt.Errorf("backend device control request failed: %w", err)
 }
 
 // Screenshot captures the current device screen.
@@ -1471,7 +1368,7 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 //   - []byte: PNG image bytes.
 //   - error: Any error during capture.
 func (m *DeviceSessionManager) Screenshot(ctx context.Context) ([]byte, error) {
-	return m.WorkerRequest(ctx, "GET", "/screenshot", nil)
+	return m.WorkerRequest(ctx, "/screenshot", nil)
 }
 
 // ScreenshotForSession captures a specific session's device screen.
@@ -1484,7 +1381,7 @@ func (m *DeviceSessionManager) Screenshot(ctx context.Context) ([]byte, error) {
 //   - []byte: PNG image bytes.
 //   - error: Any error during capture.
 func (m *DeviceSessionManager) ScreenshotForSession(ctx context.Context, index int) ([]byte, error) {
-	return m.WorkerRequestForSession(ctx, index, "GET", "/screenshot", nil)
+	return m.WorkerRequestForSession(ctx, index, "/screenshot", nil)
 }
 
 // ---------------------------------------------------------------------------
@@ -1599,7 +1496,7 @@ func (m *DeviceSessionManager) resolveTargetViaWorkerForSession(ctx context.Cont
 		Target:    target,
 		SessionID: session.SessionID,
 	}
-	respBody, err := m.workerRequestForSession(ctx, session, http.MethodPost, "/resolve_target", body)
+	respBody, err := m.workerRequestForSession(ctx, session, "/resolve_target", body)
 	if err != nil {
 		return nil, err
 	}
@@ -1627,7 +1524,7 @@ func (m *DeviceSessionManager) resolveTargetViaWorkerForSession(ctx context.Cont
 // grounding proxy, used as compatibility fallback for older workers.
 func (m *DeviceSessionManager) resolveTargetViaBackendForSession(ctx context.Context, session *DeviceSession, target string) (*ResolvedTarget, error) {
 	// Step 1: Capture screenshot from worker
-	screenshotBytes, err := m.workerRequestForSession(ctx, session, "GET", "/screenshot", nil)
+	screenshotBytes, err := m.workerRequestForSession(ctx, session, "/screenshot", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to capture screenshot for grounding: %w", err)
 	}
@@ -1778,10 +1675,15 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			continue
 		}
 
+		workflowRunID := ""
+		if bs.WorkflowRunId != nil {
+			workflowRunID = *bs.WorkflowRunId
+		}
+
 		// Validate worker is actually reachable before adding.
 		// DNS entries are cleaned up before backend DB status is updated,
 		// so a non-empty URL doesn't guarantee the worker is alive.
-		tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL}
+		tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID}
 		if hErr := m.healthCheckSession(tmpSession); hErr != nil {
 			ui.PrintDebug("skipping session %s: worker unreachable (%v)", shortPrefix(bs.Id, 8), hErr)
 			continue
@@ -1791,10 +1693,6 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		baseURL := "https://app.revyl.ai"
 		if os.Getenv("LOCAL") == "true" || os.Getenv("LOCAL") == "True" {
 			baseURL = "http://localhost:3000"
-		}
-		workflowRunID := ""
-		if bs.WorkflowRunId != nil {
-			workflowRunID = *bs.WorkflowRunId
 		}
 		viewerURL := fmt.Sprintf(
 			"%s/tests/execute?workflowRunId=%s&platform=%s",

@@ -51,6 +51,14 @@ revyl workflow create smoke-tests --tests login-flow,checkout
 revyl workflow run smoke-tests          # Run the full workflow
 ```
 
+YAML-first creation can bootstrap local state without a pre-existing `.revyl/config.yaml`:
+
+```bash
+revyl test create login-flow --from-file ./login-flow.yaml
+```
+
+See [Creating Tests](docs/TEST_CREATION.md) for the full authoring workflow, YAML examples, module imports, and troubleshooting.
+
 > `revyl dev` starts your local dev server, tunnels it to a cloud device, and installs the latest build automatically. Use `--platform android` or `--platform ios` to pick a platform (defaults to iOS).
 
 ## MCP Server
@@ -101,6 +109,7 @@ revyl skill install --name revyl-cli-create --name revyl-cli-analyze --codex
 ## Documentation
 
 - **[Command Reference](docs/COMMANDS.md)** -- full list of every command and flag
+- **[Creating Tests](docs/TEST_CREATION.md)** -- in-depth CLI test authoring, YAML-first workflows, modules, and troubleshooting
 - **[Configuration](docs/CONFIGURATION.md)** -- `.revyl/config.yaml` reference
 - **[MCP Setup](docs/MCP_SETUP.md)** -- AI agent integration for all tools
 - **[Agent Skills](docs/SKILLS.md)** -- embedded skills for device loops, test creation, failure analysis

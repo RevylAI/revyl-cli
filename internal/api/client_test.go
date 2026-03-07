@@ -385,3 +385,183 @@ func TestDoRequestWithRetry_ReturnsFinalRetryableResponseWithReadableBody(t *tes
 		t.Fatalf("attempts = %d, want 3", got)
 	}
 }
+
+func TestListApps_HydratesMissingVersionSummaries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/builds/vars":
+			if r.Method != http.MethodGet {
+				t.Fatalf("unexpected method for list apps: %s", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"items": [
+					{"id":"app-1","name":"Yahoo Mail","platform":"android","versions_count":0},
+					{"id":"app-2","name":"ios-test","platform":"ios","versions_count":2,"latest_version":"2.0.0"}
+				],
+				"total": 2,
+				"page": 1,
+				"page_size": 100,
+				"total_pages": 1,
+				"has_next": false,
+				"has_previous": false
+			}`))
+		case "/api/v1/builds/vars/app-1/versions":
+			if got := r.URL.Query().Get("page"); got != "1" {
+				t.Fatalf("unexpected page query for app-1 versions: %q", got)
+			}
+			if got := r.URL.Query().Get("page_size"); got != "1" {
+				t.Fatalf("unexpected page_size query for app-1 versions: %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"items": [{"id":"ver-1","version":"2026.03.05","uploaded_at":"2026-03-05T00:00:00Z"}],
+				"total": 1,
+				"page": 1,
+				"page_size": 1,
+				"total_pages": 1,
+				"has_next": false,
+				"has_previous": false
+			}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+
+	resp, err := client.ListApps(context.Background(), "", 1, 100)
+	if err != nil {
+		t.Fatalf("ListApps() error = %v, want nil", err)
+	}
+	if len(resp.Items) != 2 {
+		t.Fatalf("ListApps() returned %d items, want 2", len(resp.Items))
+	}
+	if got := resp.Items[0].VersionsCount; got != 1 {
+		t.Fatalf("app-1 versions_count = %d, want 1 after hydration", got)
+	}
+	if got := resp.Items[0].LatestVersion; got != "2026.03.05" {
+		t.Fatalf("app-1 latest_version = %q, want %q", got, "2026.03.05")
+	}
+	if got := resp.Items[1].VersionsCount; got != 2 {
+		t.Fatalf("app-2 versions_count = %d, want 2", got)
+	}
+	if got := resp.Items[1].LatestVersion; got != "2.0.0" {
+		t.Fatalf("app-2 latest_version = %q, want %q", got, "2.0.0")
+	}
+}
+
+func TestGetApp_HydratesMissingVersionSummaries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/builds/vars/app-1":
+			if r.Method != http.MethodGet {
+				t.Fatalf("unexpected method for get app: %s", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"id":"app-1",
+				"name":"ios-test",
+				"platform":"ios",
+				"versions_count":0
+			}`))
+		case "/api/v1/builds/vars/app-1/versions":
+			if got := r.URL.Query().Get("page"); got != "1" {
+				t.Fatalf("unexpected page query for app-1 versions: %q", got)
+			}
+			if got := r.URL.Query().Get("page_size"); got != "1" {
+				t.Fatalf("unexpected page_size query for app-1 versions: %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"items": [{"id":"ver-1","version":"2026.03.05","uploaded_at":"2026-03-05T00:00:00Z"}],
+				"total": 1,
+				"page": 1,
+				"page_size": 1,
+				"total_pages": 1,
+				"has_next": false,
+				"has_previous": false
+			}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+
+	app, err := client.GetApp(context.Background(), "app-1")
+	if err != nil {
+		t.Fatalf("GetApp() error = %v, want nil", err)
+	}
+	if got := app.VersionsCount; got != 1 {
+		t.Fatalf("versions_count = %d, want 1 after hydration", got)
+	}
+	if got := app.LatestVersion; got != "2026.03.05" {
+		t.Fatalf("latest_version = %q, want %q", got, "2026.03.05")
+	}
+}
+
+func TestProxyWorkerRequest_InferMethodFromAction(t *testing.T) {
+	tests := []struct {
+		name           string
+		action         string
+		body           interface{}
+		wantMethod     string
+		wantBody       string
+		wantStatusCode int
+	}{
+		{
+			name:           "read only action uses get and drops body",
+			action:         "health",
+			body:           map[string]string{"ignored": "value"},
+			wantMethod:     http.MethodGet,
+			wantBody:       "",
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name:           "mutating action uses post and forwards body",
+			action:         "tap",
+			body:           map[string]int{"x": 12, "y": 34},
+			wantMethod:     http.MethodPost,
+			wantBody:       `{"x":12,"y":34}`,
+			wantStatusCode: http.StatusCreated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.URL.Path; got != "/api/v1/execution/device-proxy/wf-1/"+tt.action {
+					t.Fatalf("unexpected path: %s", got)
+				}
+				if got := r.Method; got != tt.wantMethod {
+					t.Fatalf("method = %s, want %s", got, tt.wantMethod)
+				}
+
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatalf("failed to read request body: %v", err)
+				}
+				if got := strings.TrimSpace(string(body)); got != tt.wantBody {
+					t.Fatalf("body = %q, want %q", got, tt.wantBody)
+				}
+
+				w.WriteHeader(tt.wantStatusCode)
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			}))
+			t.Cleanup(server.Close)
+
+			client := NewClientWithBaseURL("test-key", server.URL)
+
+			_, statusCode, err := client.ProxyWorkerRequest(context.Background(), "wf-1", tt.action, tt.body)
+			if err != nil {
+				t.Fatalf("ProxyWorkerRequest() error = %v, want nil", err)
+			}
+			if statusCode != tt.wantStatusCode {
+				t.Fatalf("statusCode = %d, want %d", statusCode, tt.wantStatusCode)
+			}
+		})
+	}
+}

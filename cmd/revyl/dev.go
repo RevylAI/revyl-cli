@@ -500,7 +500,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	ui.PrintInfo("Installing dev build on device...")
 	ui.PrintDebug("install payload: app_url=%s bundle_id=%s", installBody["app_url"], installBody["bundle_id"])
-	installRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/install", installBody)
+	installRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", installBody)
 	if err != nil {
 		if isUserCanceled(err) {
 			return nil
@@ -519,7 +519,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	if bundleID != "" {
 		ui.PrintInfo("Launching dev client app...")
-		launchRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/launch", map[string]string{
+		launchRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/launch", map[string]string{
 			"bundle_id": bundleID,
 		})
 		if err != nil {
@@ -541,7 +541,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	manualDeepLinkRequired := false
 	ui.PrintInfo("Opening hot reload deep link...")
-	openURLRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/open_url", map[string]string{
+	openURLRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", map[string]string{
 		"url": deepLinkURL,
 	})
 	if err != nil {

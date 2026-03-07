@@ -1,6 +1,6 @@
 # Programmatic Usage
 
-> [Back to README](../README.md) | [Commands](COMMANDS.md)
+> [Back to README](../README.md) | [Commands](COMMANDS.md) | [Prod Validation](DEVICE_PROD_VALIDATION.md)
 
 Use the Python SDK (`pip install revyl`) for a thin wrapper around the CLI binary and device commands.
 
@@ -31,6 +31,24 @@ with DeviceClient.start(platform="android") as device:
 ```
 
 Full SDK guide: [`python/README.md`](../python/README.md)
+
+## Repo Smoke Script
+
+From the repo root, run the local-binary SDK smoke against production:
+
+```bash
+make device-prod-sdk-smoke-ios
+make device-prod-sdk-smoke-android
+```
+
+Useful variants:
+
+```bash
+make device-prod-sdk-smoke-ios ARGS="--grounded-text"
+make device-prod-sdk-smoke-ios ARGS="--app-url https://... --bundle-id com.example.app"
+make device-prod-sdk-smoke-android ARGS="--grounded-text"
+make device-prod-sdk-smoke ARGS="--platform android"   # generic ad hoc path
+```
 
 ## TypeScript (CLI JSON wrapper)
 

@@ -1,6 +1,6 @@
 # Command Reference
 
-> [Back to README](../README.md) | [Configuration](CONFIGURATION.md) | [CI/CD](CI_CD.md) | [SDK](SDK.md)
+> [Back to README](../README.md) | [Configuration](CONFIGURATION.md) | [CI/CD](CI_CD.md) | [SDK](SDK.md) | [Prod Validation](DEVICE_PROD_VALIDATION.md)
 
 ## Authentication
 
@@ -245,6 +245,8 @@ publish:
 
 ## Test Management
 
+For the end-to-end CLI authoring workflow, see [Creating Tests](TEST_CREATION.md).
+
 ```bash
 # Test lifecycle
 revyl test create login-flow --platform android   # Create + auto-sync YAML to .revyl/tests/
@@ -264,6 +266,10 @@ revyl test pull                   # Pull remote changes to local
 revyl test diff login-flow        # Show diff between local and remote
 revyl test validate test.yaml     # Validate YAML syntax (--json for CI)
 
+# YAML-first bootstrap (no existing .revyl/config.yaml required)
+revyl test create login-flow --from-file ./login-flow.yaml
+revyl test push login-flow --force
+
 # Per-command flags
 #   --dry-run    Available on: test create, test push, test pull
 #   --hotreload  Available on: test run, test create, test open
@@ -271,6 +277,20 @@ revyl test validate test.yaml     # Validate YAML syntax (--json for CI)
 # Dev loop shortcuts (Expo)
 revyl dev
 revyl dev test run login-flow
+```
+
+## Module Management
+
+Reusable modules can be imported into tests with `module_import` blocks. For examples, see [Creating Tests](TEST_CREATION.md#reusing-modules).
+
+```bash
+revyl module list                                  # List modules
+revyl module list --search login                   # Filter modules by name/description
+revyl module get login                             # Show module blocks and metadata
+revyl module create login-flow --from-file blocks.yaml
+revyl module update login --from-file new-blocks.yaml
+revyl module insert login                          # Print a module_import YAML snippet
+revyl module delete login                          # Delete a module
 ```
 
 ## Workflow Management
@@ -308,8 +328,20 @@ revyl device drag --start-x 100 --start-y 200 --end-x 300 --end-y 400  # Drag
 # Utility
 revyl device screenshot                        # Capture screenshot
 revyl device screenshot --out screen.png       # Save to file
+revyl device wait --duration-ms 1000           # Fixed wait on the session
+revyl device pinch --x 200 --y 400 --scale 1.5 # Pinch / zoom gesture
+revyl device clear-text --target "Search"      # Clear text in a field
+revyl device back                              # Android back / provider back action
+revyl device key --key ENTER                   # ENTER or BACKSPACE
+revyl device shake                             # Trigger shake gesture
+revyl device home                              # Return to home screen
+revyl device open-app --app settings           # Open a system app
+revyl device navigate --url https://example.com # Open URL or deep link
+revyl device set-location --lat 37.77 --lon -122.42 # Set GPS location
+revyl device download-file --url https://example.com # Download file to device
 revyl device install --app-url <url>           # Install app from URL
 revyl device launch --bundle-id com.app.id     # Launch an installed app
+revyl device kill-app                          # Kill the current installed app
 ```
 
 ### Device Session Flags
@@ -351,6 +383,10 @@ revyl skill install           # Install agent skill for AI coding tools
 revyl skill list              # List embedded skills
 revyl skill show --name NAME  # Print a named skill to stdout
 revyl skill export --name NAME -o FILE  # Export a named skill to a file
+make device-prod-smoke-ios    # Local iOS branch smoke against production device relay
+make device-prod-smoke-android # Local Android branch smoke against production device relay
+make device-prod-sdk-smoke-ios # Local iOS SDK smoke against production
+make device-prod-sdk-smoke-android # Local Android SDK smoke against production
 ```
 
 ## Global Flags

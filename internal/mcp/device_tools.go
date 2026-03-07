@@ -142,6 +142,65 @@ func (s *Server) registerDeviceTools() {
 	}, s.handleDeviceDrag)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_pinch",
+		Description: "Pinch/zoom at an element by description (grounded) or coordinates (raw). Provide target OR x+y. Use scale>1 to zoom in, <1 to zoom out.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Pinch/Zoom",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDevicePinch)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_clear_text",
+		Description: "Clear text from an input by description (grounded) or coordinates (raw). Provide target OR x+y.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Clear Text",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceClearText)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_wait",
+		Description: "Pause for duration_ms before continuing. Useful for explicit UI settle windows.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Wait",
+			DestructiveHint: boolPtr(false),
+		},
+	}, s.handleDeviceWait)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_back",
+		Description: "Press the Android back button (returns an error on unsupported platforms).",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Back Button",
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceBack)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_key",
+		Description: "Send a non-printable key to the focused field (ENTER or BACKSPACE).",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Send Key",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceKey)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_shake",
+		Description: "Trigger a shake gesture on the device.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Shake Device",
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceShake)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "screenshot",
 		Description: "Capture the current device screen as a PNG image. Returns the image natively for rendering.",
 		Annotations: &mcp.ToolAnnotations{
@@ -495,7 +554,7 @@ func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	body := map[string]int{"x": rc.X, "y": rc.Y}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "POST", "/tap", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/tap", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceTapOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -530,7 +589,7 @@ func (s *Server) handleDeviceDoubleTap(ctx context.Context, req *mcp.CallToolReq
 	}
 
 	body := map[string]int{"x": rc.X, "y": rc.Y}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "POST", "/double_tap", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/double_tap", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceDoubleTapOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -570,7 +629,7 @@ func (s *Server) handleDeviceLongPress(ctx context.Context, req *mcp.CallToolReq
 		dur = 1500
 	}
 	body := map[string]int{"x": rc.X, "y": rc.Y, "duration_ms": dur}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "POST", "/longpress", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/longpress", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceLongPressOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -620,7 +679,7 @@ func (s *Server) handleDeviceType(ctx context.Context, req *mcp.CallToolRequest,
 		}
 	}
 	body := map[string]interface{}{"x": rc.X, "y": rc.Y, "text": input.Text, "clear_first": clearFirst}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "POST", "/input", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/input", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceTypeOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -676,7 +735,7 @@ func (s *Server) handleDeviceSwipe(ctx context.Context, req *mcp.CallToolRequest
 		dur = 500
 	}
 	body := map[string]interface{}{"x": rc.X, "y": rc.Y, "direction": input.Direction, "duration_ms": dur}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "POST", "/swipe", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/swipe", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceSwipeOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -717,7 +776,7 @@ func (s *Server) handleDeviceDrag(ctx context.Context, req *mcp.CallToolRequest,
 	s.sessionMgr.ResetIdleTimer(session.Index)
 	start := time.Now()
 	body := map[string]int{"start_x": input.StartX, "start_y": input.StartY, "end_x": input.EndX, "end_y": input.EndY}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/drag", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/drag", body)
 	latency := float64(time.Since(start).Milliseconds())
 	if err != nil {
 		return nil, DeviceDragOutput{Success: false, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
@@ -725,6 +784,273 @@ func (s *Server) handleDeviceDrag(ctx context.Context, req *mcp.CallToolRequest,
 
 	return nil, DeviceDragOutput{
 		Success: true, LatencyMs: latency,
+	}, nil
+}
+
+// --- Device Pinch ---
+
+type DevicePinchInput struct {
+	Target       string  `json:"target,omitempty" jsonschema:"Element to pinch/zoom (grounded)"`
+	X            *int    `json:"x,omitempty" jsonschema:"Raw X coordinate (bypasses grounding)"`
+	Y            *int    `json:"y,omitempty" jsonschema:"Raw Y coordinate (bypasses grounding)"`
+	Scale        float64 `json:"scale,omitempty" jsonschema:"Zoom scale (>1 zoom in, <1 zoom out). Default 2.0."`
+	DurationMs   int     `json:"duration_ms,omitempty" jsonschema:"Pinch duration in ms (default 300)"`
+	ScreenToken  string  `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
+	SessionIndex *int    `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DevicePinchOutput = DeviceTapOutput
+
+func (s *Server) handleDevicePinch(ctx context.Context, req *mcp.CallToolRequest, input DevicePinchInput) (*mcp.CallToolResult, DevicePinchOutput, error) {
+	start := time.Now()
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
+	if err != nil {
+		return nil, DevicePinchOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	scale := input.Scale
+	if scale == 0 {
+		scale = 2.0
+	}
+	durationMs := input.DurationMs
+	if durationMs == 0 {
+		durationMs = 300
+	}
+	body := map[string]interface{}{"x": rc.X, "y": rc.Y, "scale": scale, "duration_ms": durationMs}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/pinch", body)
+	latency := float64(time.Since(start).Milliseconds())
+	if err != nil {
+		return nil, DevicePinchOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DevicePinchOutput{
+		Success: true, X: rc.X, Y: rc.Y, LatencyMs: latency,
+	}, nil
+}
+
+// --- Device Clear Text ---
+
+type DeviceClearTextInput struct {
+	Target       string `json:"target,omitempty" jsonschema:"Element to clear (grounded)"`
+	X            *int   `json:"x,omitempty" jsonschema:"Raw X coordinate (bypasses grounding)"`
+	Y            *int   `json:"y,omitempty" jsonschema:"Raw Y coordinate (bypasses grounding)"`
+	ScreenToken  string `json:"screen_token,omitempty" jsonschema:"Optional screen token from screenshot()."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceClearTextOutput = DeviceTapOutput
+
+func (s *Server) handleDeviceClearText(ctx context.Context, req *mcp.CallToolRequest, input DeviceClearTextInput) (*mcp.CallToolResult, DeviceClearTextOutput, error) {
+	start := time.Now()
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
+	if err != nil {
+		return nil, DeviceClearTextOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	body := map[string]int{"x": rc.X, "y": rc.Y}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, rc.SessionIndex, "/clear_text", body)
+	latency := float64(time.Since(start).Milliseconds())
+	if err != nil {
+		return nil, DeviceClearTextOutput{Success: false, X: rc.X, Y: rc.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DeviceClearTextOutput{
+		Success: true, X: rc.X, Y: rc.Y, LatencyMs: latency,
+	}, nil
+}
+
+// --- Device Wait ---
+
+type DeviceWaitInput struct {
+	DurationMs   int  `json:"duration_ms,omitempty" jsonschema:"Wait duration in milliseconds (default 1000)"`
+	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceWaitOutput struct {
+	Success    bool       `json:"success"`
+	DurationMs int        `json:"duration_ms"`
+	LatencyMs  float64    `json:"latency_ms"`
+	Error      string     `json:"error,omitempty"`
+	NextSteps  []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleDeviceWait(ctx context.Context, req *mcp.CallToolRequest, input DeviceWaitInput) (*mcp.CallToolResult, DeviceWaitOutput, error) {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceWaitOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	durationMs := input.DurationMs
+	if durationMs == 0 {
+		durationMs = 1000
+	}
+	if durationMs < 0 {
+		return nil, DeviceWaitOutput{Success: false, Error: "duration_ms must be >= 0"}, nil
+	}
+
+	start := time.Now()
+	body := map[string]int{"duration_ms": durationMs}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/wait", body)
+	latency := float64(time.Since(start).Milliseconds())
+	if err != nil {
+		return nil, DeviceWaitOutput{Success: false, DurationMs: durationMs, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DeviceWaitOutput{
+		Success:    true,
+		DurationMs: durationMs,
+		LatencyMs:  latency,
+		NextSteps: []NextStep{
+			{Tool: "screenshot", Reason: "Check the screen after waiting"},
+		},
+	}, nil
+}
+
+// --- Device Back ---
+
+type DeviceBackInput struct {
+	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceBackOutput struct {
+	Success   bool       `json:"success"`
+	LatencyMs float64    `json:"latency_ms"`
+	Error     string     `json:"error,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleDeviceBack(ctx context.Context, req *mcp.CallToolRequest, input DeviceBackInput) (*mcp.CallToolResult, DeviceBackOutput, error) {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceBackOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	start := time.Now()
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/back", nil)
+	latency := float64(time.Since(start).Milliseconds())
+	if err != nil {
+		return nil, DeviceBackOutput{Success: false, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DeviceBackOutput{
+		Success:   true,
+		LatencyMs: latency,
+		NextSteps: []NextStep{
+			{Tool: "screenshot", Reason: "Verify navigation after back action"},
+		},
+	}, nil
+}
+
+// --- Device Key ---
+
+type DeviceKeyInput struct {
+	Key          string `json:"key" jsonschema:"Key to send: ENTER or BACKSPACE (REQUIRED)"`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceKeyOutput struct {
+	Success   bool       `json:"success"`
+	Key       string     `json:"key,omitempty"`
+	LatencyMs float64    `json:"latency_ms"`
+	Error     string     `json:"error,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleDeviceKey(ctx context.Context, req *mcp.CallToolRequest, input DeviceKeyInput) (*mcp.CallToolResult, DeviceKeyOutput, error) {
+	if input.Key == "" {
+		return nil, DeviceKeyOutput{Success: false, Error: "key is required (ENTER or BACKSPACE)"}, nil
+	}
+	normalized := strings.ToUpper(strings.TrimSpace(input.Key))
+	switch normalized {
+	case "RETURN":
+		normalized = "ENTER"
+	case "DELETE":
+		normalized = "BACKSPACE"
+	}
+	if normalized != "ENTER" && normalized != "BACKSPACE" {
+		return nil, DeviceKeyOutput{Success: false, Error: "key must be ENTER or BACKSPACE"}, nil
+	}
+
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceKeyOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	start := time.Now()
+	body := map[string]string{"key": normalized}
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/key", body)
+	latency := float64(time.Since(start).Milliseconds())
+	if err != nil {
+		return nil, DeviceKeyOutput{Success: false, Key: normalized, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DeviceKeyOutput{
+		Success:   true,
+		Key:       normalized,
+		LatencyMs: latency,
+	}, nil
+}
+
+// --- Device Shake ---
+
+type DeviceShakeInput struct {
+	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceShakeOutput struct {
+	Success   bool       `json:"success"`
+	LatencyMs float64    `json:"latency_ms"`
+	Error     string     `json:"error,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleDeviceShake(ctx context.Context, req *mcp.CallToolRequest, input DeviceShakeInput) (*mcp.CallToolResult, DeviceShakeOutput, error) {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceShakeOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	start := time.Now()
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/shake", nil)
+	latency := float64(time.Since(start).Milliseconds())
+	if err != nil {
+		return nil, DeviceShakeOutput{Success: false, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	return nil, DeviceShakeOutput{
+		Success:   true,
+		LatencyMs: latency,
+		NextSteps: []NextStep{
+			{Tool: "screenshot", Reason: "Verify shake-driven UI changes"},
+		},
 	}, nil
 }
 
@@ -832,7 +1158,7 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 	if input.BundleID != "" {
 		body["bundle_id"] = input.BundleID
 	}
-	respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/install", body)
+	respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/install", body)
 	if err != nil {
 		return nil, InstallAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -910,7 +1236,7 @@ func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, 
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	body := map[string]string{"bundle_id": input.BundleID}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/launch", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/launch", body)
 	if err != nil {
 		return nil, LaunchAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1014,7 +1340,7 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 		checks = append(checks, DiagnosticCheck{Name: "session", Status: "pass", Detail: fmt.Sprintf("platform=%s, uptime=%.0fs", session.Platform, time.Since(session.StartedAt).Seconds())})
 
 		// Check 3: Worker reachability (only if session exists)
-		respBytes, werr := s.sessionMgr.WorkerRequest(ctx, "GET", "/health", nil)
+		respBytes, werr := s.sessionMgr.WorkerRequest(ctx, "/health", nil)
 		if werr != nil {
 			checks = append(checks, DiagnosticCheck{Name: "worker", Status: "fail", Detail: werr.Error(), Fix: "stop_device_session() and start a new one"})
 			allPassed = false
@@ -1217,7 +1543,7 @@ func (s *Server) handleDeviceGoHome(ctx context.Context, req *mcp.CallToolReques
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/go_home", nil)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/go_home", nil)
 	if err != nil {
 		return nil, DeviceGoHomeOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1253,7 +1579,7 @@ func (s *Server) handleDeviceKillApp(ctx context.Context, req *mcp.CallToolReque
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/kill_app", nil)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/kill_app", nil)
 	if err != nil {
 		return nil, DeviceKillAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1297,7 +1623,7 @@ func (s *Server) handleDeviceOpenApp(ctx context.Context, req *mcp.CallToolReque
 
 	bundleID := ResolveSystemApp(session.Platform, input.App)
 	body := map[string]string{"bundle_id": bundleID}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/launch", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/launch", body)
 	if err != nil {
 		return nil, DeviceOpenAppOutput{Success: false, App: input.App, BundleID: bundleID, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1341,7 +1667,7 @@ func (s *Server) handleDeviceNavigate(ctx context.Context, req *mcp.CallToolRequ
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	body := map[string]string{"url": input.URL}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/open_url", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", body)
 	if err != nil {
 		return nil, DeviceNavigateOutput{Success: false, URL: input.URL, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1389,7 +1715,7 @@ func (s *Server) handleDeviceSetLocation(ctx context.Context, req *mcp.CallToolR
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	body := map[string]float64{"latitude": input.Latitude, "longitude": input.Longitude}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/set_location", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/set_location", body)
 	if err != nil {
 		return nil, DeviceSetLocationOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
@@ -1433,7 +1759,7 @@ func (s *Server) handleDeviceDownloadFile(ctx context.Context, req *mcp.CallTool
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	body := map[string]string{"url": input.URL}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/download_file", body)
+	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/download_file", body)
 	if err != nil {
 		return nil, DeviceDownloadFileOutput{Success: false, URL: input.URL, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}

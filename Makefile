@@ -25,7 +25,7 @@ CMD_DIR := ./cmd/revyl
 BUILD_DIR := ./build
 SCRIPTS_DIR := ./scripts
 
-.PHONY: all build clean test lint fmt deps dev generate install help check setup-merge-drivers version bump-patch bump-minor bump-major
+.PHONY: all build clean test lint fmt deps dev generate install help check setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android device-prod-sdk-smoke device-prod-sdk-smoke-ios device-prod-sdk-smoke-android
 
 ## help: Show this help message
 help:
@@ -179,6 +179,30 @@ setup: setup-merge-drivers
 run:
 	@$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY) $(CMD_DIR)
 	@$(BUILD_DIR)/$(BINARY) $(ARGS)
+
+## device-prod-smoke: Build the local CLI and run the prod device smoke script
+device-prod-smoke: build
+	@REVYL_BIN=$(BUILD_DIR)/$(BINARY) $(SCRIPTS_DIR)/device_prod_smoke.sh $(ARGS)
+
+## device-prod-smoke-ios: Build the local CLI and run the iOS prod device smoke script
+device-prod-smoke-ios: build
+	@REVYL_BIN=$(BUILD_DIR)/$(BINARY) $(SCRIPTS_DIR)/device_prod_smoke.sh --platform ios $(ARGS)
+
+## device-prod-smoke-android: Build the local CLI and run the Android prod device smoke script
+device-prod-smoke-android: build
+	@REVYL_BIN=$(BUILD_DIR)/$(BINARY) $(SCRIPTS_DIR)/device_prod_smoke.sh --platform android $(ARGS)
+
+## device-prod-sdk-smoke: Build the local CLI and run the Python SDK prod smoke script
+device-prod-sdk-smoke: build
+	@cd python && UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run python scripts/device_prod_smoke.py --binary ../build/revyl $(ARGS)
+
+## device-prod-sdk-smoke-ios: Build the local CLI and run the iOS Python SDK prod smoke script
+device-prod-sdk-smoke-ios: build
+	@cd python && UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run python scripts/device_prod_smoke.py --binary ../build/revyl --platform ios $(ARGS)
+
+## device-prod-sdk-smoke-android: Build the local CLI and run the Android Python SDK prod smoke script
+device-prod-sdk-smoke-android: build
+	@cd python && UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run python scripts/device_prod_smoke.py --binary ../build/revyl --platform android $(ARGS)
 
 # ---------- Version management ----------
 

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -197,6 +198,179 @@ func TestHandleDeviceDetailKey_OpenViewerUsesResolvedURL(t *testing.T) {
 	want := "https://viewer.example/tests/execute?workflowRunId=wf-999&platform=android"
 	if openedURL != want {
 		t.Fatalf("opened URL = %q, want %q", openedURL, want)
+	}
+}
+
+func TestHandleDeviceListKey_NStartsDeviceOverlay(t *testing.T) {
+	m := newHubModel("dev", false)
+	m.currentView = viewDeviceList
+
+	nextModel, cmd := m.handleDeviceListKey(keyRune('n'))
+	if cmd != nil {
+		t.Fatalf("expected no command when opening start overlay, got %v", cmd)
+	}
+
+	next := nextModel.(hubModel)
+	if !next.deviceStartPicking {
+		t.Fatalf("expected deviceStartPicking=true")
+	}
+	if got := deviceStartStep(next.deviceStartStep); got != deviceStartStepPlatform {
+		t.Fatalf("deviceStartStep = %v, want %v", got, deviceStartStepPlatform)
+	}
+}
+
+func TestHandleDeviceListKey_DeviceStartSearchFiltersApps(t *testing.T) {
+	m := newHubModel("dev", false)
+	m.currentView = viewDeviceList
+	m.deviceStartPicking = true
+	m.deviceStartStep = int(deviceStartStepApp)
+	m.deviceStartPlatform = "ios"
+	m.deviceStartApps = []api.App{
+		{ID: "app-a", Name: "Alpha", Platform: "ios", VersionsCount: 1, LatestVersion: "1.0"},
+		{ID: "app-b", Name: "Beta", Platform: "ios", VersionsCount: 1, LatestVersion: "1.0"},
+	}
+
+	nextModel, cmd := m.handleDeviceListKey(keyRune('/'))
+	if cmd == nil {
+		t.Fatalf("expected blink command when entering device app search")
+	}
+
+	next := nextModel.(hubModel)
+	if !next.deviceStartFilterMode {
+		t.Fatalf("expected deviceStartFilterMode=true")
+	}
+
+	nextModel, cmd = next.handleDeviceListKey(keyRune('b'))
+	if cmd == nil {
+		t.Fatalf("expected text input update command while typing filter")
+	}
+
+	filtered := nextModel.(hubModel).filteredDeviceStartApps()
+	if len(filtered) != 1 || filtered[0].ID != "app-b" {
+		t.Fatalf("filtered apps = %#v, want only app-b", filtered)
+	}
+}
+
+func TestUpdate_DeviceStartAppListMsg_DoesNotMutateManageApps(t *testing.T) {
+	m := newHubModel("dev", false)
+	m.apps = []api.App{{ID: "manage-app", Name: "Manage App", Platform: "ios", VersionsCount: 1}}
+	m.deviceStartPicking = true
+	m.deviceStartStep = int(deviceStartStepApp)
+	m.deviceStartPlatform = "ios"
+
+	nextModel, cmd := m.Update(DeviceStartAppListMsg{
+		Platform: "ios",
+		Apps: []api.App{
+			{ID: "device-app", Name: "Device App", Platform: "ios", VersionsCount: 2, LatestVersion: "2.0"},
+		},
+	})
+	if cmd != nil {
+		t.Fatalf("expected no follow-up command, got %v", cmd)
+	}
+
+	next := nextModel.(hubModel)
+	if len(next.apps) != 1 || next.apps[0].ID != "manage-app" {
+		t.Fatalf("manage apps changed unexpectedly: %#v", next.apps)
+	}
+	if len(next.deviceStartApps) != 1 || next.deviceStartApps[0].ID != "device-app" {
+		t.Fatalf("device start apps = %#v, want device-app", next.deviceStartApps)
+	}
+}
+
+func TestStartDeviceSessionCmd_StartsBareDeviceWhenNoAppSelected(t *testing.T) {
+	var capturedReq struct {
+		Platform     string `json:"platform"`
+		AppURL       string `json:"app_url"`
+		AppPackage   string `json:"app_package"`
+		IsSimulation bool   `json:"is_simulation"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/execution/start_device" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+			t.Fatalf("decode start request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"workflow_run_id":"wf-bare"}`))
+	}))
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	msgAny := startDeviceSessionCmd(client, "ios", "")()
+	msg, ok := msgAny.(DeviceStartedMsg)
+	if !ok {
+		t.Fatalf("expected DeviceStartedMsg, got %T", msgAny)
+	}
+	if msg.Err != nil {
+		t.Fatalf("startDeviceSessionCmd returned error: %v", msg.Err)
+	}
+	if capturedReq.Platform != "ios" {
+		t.Fatalf("platform = %q, want %q", capturedReq.Platform, "ios")
+	}
+	if capturedReq.AppURL != "" {
+		t.Fatalf("app_url = %q, want empty", capturedReq.AppURL)
+	}
+	if capturedReq.AppPackage != "" {
+		t.Fatalf("app_package = %q, want empty", capturedReq.AppPackage)
+	}
+	if !capturedReq.IsSimulation {
+		t.Fatalf("expected is_simulation=true")
+	}
+}
+
+func TestStartDeviceSessionCmd_ResolvesSelectedAppToLatestBuild(t *testing.T) {
+	const (
+		appID       = "app-1"
+		buildID     = "build-1"
+		downloadURL = "https://artifact.example/dev.ipa"
+		packageName = "com.example.dev"
+	)
+
+	var capturedReq struct {
+		AppURL     string `json:"app_url"`
+		AppPackage string `json:"app_package"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/builds/vars/"+appID+"/versions":
+			if got := r.URL.Query().Get("page_size"); got != "20" {
+				t.Fatalf("expected page_size=20, got %q", got)
+			}
+			_, _ = w.Write([]byte(`{"items":[{"id":"` + buildID + `","version":"1.0.0"}],"total":1,"page":1,"page_size":20,"total_pages":1,"has_next":false,"has_previous":false}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/builds/builds/"+buildID:
+			if got := r.URL.Query().Get("include_download_url"); got != "true" {
+				t.Fatalf("expected include_download_url=true, got %q", got)
+			}
+			_, _ = w.Write([]byte(`{"id":"` + buildID + `","version":"1.0.0","download_url":"` + downloadURL + `","package_name":"` + packageName + `"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
+			if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+				t.Fatalf("decode start request: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"workflow_run_id":"wf-app"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.RequestURI())
+		}
+	}))
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	msgAny := startDeviceSessionCmd(client, "ios", appID)()
+	msg, ok := msgAny.(DeviceStartedMsg)
+	if !ok {
+		t.Fatalf("expected DeviceStartedMsg, got %T", msgAny)
+	}
+	if msg.Err != nil {
+		t.Fatalf("startDeviceSessionCmd returned error: %v", msg.Err)
+	}
+	if capturedReq.AppURL != downloadURL {
+		t.Fatalf("app_url = %q, want %q", capturedReq.AppURL, downloadURL)
+	}
+	if capturedReq.AppPackage != packageName {
+		t.Fatalf("app_package = %q, want %q", capturedReq.AppPackage, packageName)
 	}
 }
 

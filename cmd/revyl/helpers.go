@@ -173,6 +173,45 @@ func truncatePrefix(s string, max int) string {
 	return s[:max]
 }
 
+func newEmptyProjectConfig() *config.ProjectConfig {
+	cfg := &config.ProjectConfig{
+		Tests:     make(map[string]string),
+		Workflows: make(map[string]string),
+		Build: config.BuildConfig{
+			Platforms: make(map[string]config.BuildPlatform),
+		},
+	}
+	config.ApplyDefaults(cfg)
+	return cfg
+}
+
+func loadProjectConfigOrEmpty(cwd string) (*config.ProjectConfig, string, bool, error) {
+	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+	if _, err := os.Stat(configPath); err != nil {
+		if os.IsNotExist(err) {
+			return newEmptyProjectConfig(), configPath, false, nil
+		}
+		return nil, configPath, false, fmt.Errorf("failed to inspect project config: %w", err)
+	}
+
+	cfg, err := config.LoadProjectConfig(configPath)
+	if err != nil {
+		return nil, configPath, true, fmt.Errorf("failed to load project config: %w", err)
+	}
+
+	return cfg, configPath, true, nil
+}
+
+func writeProjectConfigIfNeeded(path string, cfg *config.ProjectConfig) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+	if err := config.WriteProjectConfig(path, cfg); err != nil {
+		return fmt.Errorf("failed to write project config: %w", err)
+	}
+	return nil
+}
+
 // looksLikeUUID checks if a string looks like a UUID (36 chars with hyphens at positions 8, 13, 18, 23).
 // Does not validate hex digits; use a stricter check if needed.
 //

@@ -8,19 +8,37 @@ description: Create robust Revyl E2E tests using CLI commands from app source an
 ## Quick Start
 
 ```bash
-# 1) Create test skeleton
-revyl test create <test-name> --platform ios
+# 1) Author and validate YAML locally
+revyl test validate ./<test-name>.yaml
 
-# 2) Open local YAML and write stable steps
-revyl test open <test-name>
+# 2) Create from YAML (bootstraps .revyl/tests/ and config)
+revyl test create <test-name> --from-file ./<test-name>.yaml
 
-# 3) Push and run
+# 3) Iterate on .revyl/tests/<test-name>.yaml, then push and run
 revyl test push <test-name> --force
 revyl test run <test-name>
 
 # 4) Pull report when failure happens
 revyl test report <test-name> --json
 ```
+
+YAML-first bootstrap works without an existing `.revyl/config.yaml`:
+
+```bash
+revyl test create <test-name> --from-file ./test.yaml
+```
+
+The CLI validates the YAML, copies it into `.revyl/tests/`, pushes it, and writes `.revyl/config.yaml` after the remote test is created.
+
+If you prefer to scaffold first:
+
+```bash
+revyl test create <test-name> --platform ios --no-open
+# edit .revyl/tests/<test-name>.yaml
+revyl test push <test-name> --force
+```
+
+For full examples and troubleshooting, see `docs/TEST_CREATION.md`.
 
 If this test comes from a running `revyl dev` session:
 
@@ -35,6 +53,7 @@ revyl dev test open <test-name>
 2. Keep validation in separate validation steps.
 3. Validate user-facing outcomes, not transient loading text.
 4. Replace secrets with variables.
+5. Use `module_import` blocks for reusable setup like login or onboarding.
 
 Good:
 
@@ -58,4 +77,3 @@ Bad:
 2. Test passes on correct behavior.
 3. Test fails on intended regression.
 4. Validations are stable across expected data variation.
-

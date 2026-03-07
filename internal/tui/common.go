@@ -582,6 +582,13 @@ type DeviceStartedMsg struct {
 	Err           error
 }
 
+// DeviceStartAppListMsg carries the fetched app list for the device-start overlay.
+type DeviceStartAppListMsg struct {
+	Platform string
+	Apps     []api.App
+	Err      error
+}
+
 // DeviceStoppedMsg signals that a device session was stopped.
 type DeviceStoppedMsg struct {
 	Err error

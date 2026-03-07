@@ -14,6 +14,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/execution"
 )
 
 // createStep tracks which stage of the create flow the user is on.
@@ -22,9 +23,19 @@ type createStep int
 const (
 	stepName     createStep = iota // entering test name
 	stepPlatform                   // choosing platform
+	stepApp                        // choosing app/build stream
 	stepConfirm                    // reviewing before submit
 	stepCreating                   // API call in flight
-	stepDone                       // creation complete, offer to run
+	stepDone                       // creation complete, offer next actions
+)
+
+type createDoneAction int
+
+const (
+	createDoneNone createDoneAction = iota
+	createDoneOpenEditor
+	createDoneBackToDashboard
+	createDoneManageApps
 )
 
 // createModel manages the state of the inline "Create a test" TUI flow.
@@ -33,6 +44,10 @@ type createModel struct {
 	nameInput      textinput.Model
 	platformCursor int
 	platforms      []string
+	appCursor      int
+	apps           []api.App
+	appsLoading    bool
+	noEligibleApps bool
 
 	// API dependencies
 	apiKey  string
@@ -48,12 +63,13 @@ type createModel struct {
 	height   int
 
 	// Result
-	createdID string
-	done      bool
-	runAfter  bool
+	createdID  string
+	done       bool
+	doneAction createDoneAction
 
-	// Post-creation action cursor (0=run now, 1=back to dashboard)
-	doneCursor int
+	// Post-creation action cursor (0=open editor, 1=back to dashboard)
+	doneCursor    int
+	showEditorURL bool
 }
 
 // newCreateModel creates a new create-test sub-model.
@@ -91,25 +107,49 @@ func newCreateModel(apiKey string, devMode bool, client *api.Client, cfg *config
 // --- Tea commands ---
 
 // createTestCmd calls the API to create a test.
-func createTestCmd(client *api.Client, name, platform string) tea.Cmd {
+func createTestCmd(client *api.Client, cfg *config.ProjectConfig, name, platform, appID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		resp, err := client.CreateTest(ctx, &api.CreateTestRequest{
-			Name:     name,
-			Platform: platform,
-			Tasks:    []interface{}{},
+		result, err := execution.CreateTestWithClient(ctx, client, execution.CreateTestParams{
+			Name:       name,
+			Platform:   platform,
+			AppID:      appID,
+			Config:     cfg,
+			AllowEmpty: true,
 		})
 		if err != nil {
-			return TestCreatedMsg{Err: fmt.Errorf("failed to create test: %w", err)}
+			return TestCreatedMsg{Err: err}
 		}
 
 		return TestCreatedMsg{
-			TestID:   resp.ID,
+			TestID:   result.TestID,
 			TestName: name,
 			Platform: platform,
 		}
+	}
+}
+
+func fetchCreateAppsCmd(client *api.Client, platform string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		page := 1
+		apps := make([]api.App, 0, 16)
+		for {
+			resp, err := client.ListApps(ctx, platform, page, 100)
+			if err != nil {
+				return AppListMsg{Err: fmt.Errorf("failed to fetch apps: %w", err)}
+			}
+			apps = append(apps, resp.Items...)
+			if !resp.HasNext {
+				break
+			}
+			page++
+		}
+		return AppListMsg{Apps: apps}
 	}
 }
 
@@ -132,10 +172,43 @@ func (m createModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case spinner.TickMsg:
-		if m.creating {
+		if m.creating || m.appsLoading {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
+		}
+		return m, nil
+
+	case AppListMsg:
+		if m.step != stepApp {
+			return m, nil
+		}
+		m.appsLoading = false
+		if msg.Err != nil {
+			m.err = msg.Err
+			m.apps = nil
+			m.noEligibleApps = false
+			return m, nil
+		}
+
+		platform := m.selectedPlatform()
+		eligibleApps := filterCreateApps(msg.Apps, platform)
+		m.apps = eligibleApps
+		m.appCursor = 0
+		m.noEligibleApps = len(eligibleApps) == 0
+		if m.noEligibleApps {
+			m.err = fmt.Errorf("no %s apps with uploaded builds are available yet", platform)
+			return m, nil
+		}
+
+		m.err = nil
+		if preferredID := execution.ResolveConfiguredAppID(m.cfg, platform); preferredID != "" {
+			for i, appInfo := range eligibleApps {
+				if appInfo.ID == preferredID {
+					m.appCursor = i
+					break
+				}
+			}
 		}
 		return m, nil
 
@@ -176,6 +249,8 @@ func (m createModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNameKey(key, msg)
 	case stepPlatform:
 		return m.handlePlatformKey(key)
+	case stepApp:
+		return m.handleAppKey(key)
 	case stepConfirm:
 		return m.handleConfirmKey(key)
 	case stepDone:
@@ -218,11 +293,60 @@ func (m createModel) handlePlatformKey(key string) (tea.Model, tea.Cmd) {
 			m.platformCursor++
 		}
 	case "enter":
-		m.step = stepConfirm
+		if m.client == nil {
+			m.err = fmt.Errorf("not authenticated")
+			return m, nil
+		}
+		m.step = stepApp
+		m.apps = nil
+		m.appCursor = 0
+		m.appsLoading = true
+		m.noEligibleApps = false
+		m.err = nil
+		return m, tea.Batch(m.spinner.Tick, fetchCreateAppsCmd(m.client, m.selectedPlatform()))
 	case "backspace":
 		m.step = stepName
 		m.nameInput.Focus()
 		return m, textinput.Blink
+	}
+	return m, nil
+}
+
+func (m createModel) handleAppKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "up", "k":
+		if !m.appsLoading && m.appCursor > 0 {
+			m.appCursor--
+		}
+	case "down", "j":
+		if !m.appsLoading && m.appCursor < len(m.apps)-1 {
+			m.appCursor++
+		}
+	case "r":
+		if m.client == nil {
+			m.err = fmt.Errorf("not authenticated")
+			return m, nil
+		}
+		m.appsLoading = true
+		m.err = nil
+		m.noEligibleApps = false
+		return m, tea.Batch(m.spinner.Tick, fetchCreateAppsCmd(m.client, m.selectedPlatform()))
+	case "enter":
+		if m.noEligibleApps {
+			m.done = true
+			m.doneAction = createDoneManageApps
+			return m, nil
+		}
+		if m.appsLoading || len(m.apps) == 0 {
+			return m, nil
+		}
+		m.step = stepConfirm
+	case "backspace":
+		m.step = stepPlatform
+		m.appsLoading = false
+		m.apps = nil
+		m.noEligibleApps = false
+		m.err = nil
 	}
 	return m, nil
 }
@@ -239,10 +363,17 @@ func (m createModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.step = stepCreating
 		name := strings.TrimSpace(m.nameInput.Value())
-		platform := m.platforms[m.platformCursor]
-		return m, tea.Batch(m.spinner.Tick, createTestCmd(m.client, name, platform))
+		platform := m.selectedPlatform()
+		selectedApp := m.selectedApp()
+		if selectedApp == nil {
+			m.creating = false
+			m.step = stepApp
+			m.err = fmt.Errorf("select an app before creating the test")
+			return m, nil
+		}
+		return m, tea.Batch(m.spinner.Tick, createTestCmd(m.client, m.cfg, name, platform, selectedApp.ID))
 	case "backspace", "n":
-		m.step = stepPlatform
+		m.step = stepApp
 		m.err = nil
 	}
 	return m, nil
@@ -261,9 +392,73 @@ func (m createModel) handleDoneKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		m.done = true
-		m.runAfter = m.doneCursor == 0
+		if m.doneCursor == 0 {
+			m.doneAction = createDoneOpenEditor
+		} else {
+			m.doneAction = createDoneBackToDashboard
+		}
+	case "l", "L":
+		m.showEditorURL = !m.showEditorURL
 	}
 	return m, nil
+}
+
+func (m createModel) editorURL() string {
+	if strings.TrimSpace(m.createdID) == "" {
+		return ""
+	}
+
+	editor := execution.OpenTestEditor(nil, execution.OpenTestEditorParams{
+		TestNameOrID: m.createdID,
+		DevMode:      m.devMode,
+	})
+	return editor.TestURL
+}
+
+func (m createModel) selectedPlatform() string {
+	if m.platformCursor < 0 || m.platformCursor >= len(m.platforms) {
+		return ""
+	}
+	return m.platforms[m.platformCursor]
+}
+
+func (m createModel) selectedApp() *api.App {
+	if m.appCursor < 0 || m.appCursor >= len(m.apps) {
+		return nil
+	}
+	appInfo := m.apps[m.appCursor]
+	return &appInfo
+}
+
+func filterCreateApps(apps []api.App, platform string) []api.App {
+	filtered := make([]api.App, 0, len(apps))
+	for _, appInfo := range apps {
+		if strings.ToLower(strings.TrimSpace(appInfo.Platform)) != platform {
+			continue
+		}
+		if appInfo.VersionsCount <= 0 && strings.TrimSpace(appInfo.CurrentVersion) == "" && strings.TrimSpace(appInfo.LatestVersion) == "" {
+			continue
+		}
+		filtered = append(filtered, appInfo)
+	}
+	return filtered
+}
+
+func formatCreateAppDetails(appInfo api.App) string {
+	parts := make([]string, 0, 3)
+	if latest := strings.TrimSpace(appInfo.LatestVersion); latest != "" {
+		parts = append(parts, "latest "+latest)
+	}
+	if current := strings.TrimSpace(appInfo.CurrentVersion); current != "" && current != strings.TrimSpace(appInfo.LatestVersion) {
+		parts = append(parts, "current "+current)
+	}
+	if appInfo.VersionsCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d builds", appInfo.VersionsCount))
+	}
+	if len(parts) == 0 {
+		return "build stream available"
+	}
+	return strings.Join(parts, " • ")
 }
 
 // --- View rendering ---
@@ -281,10 +476,10 @@ func (m createModel) View() string {
 	b.WriteString(separator(sepW) + "\n\n")
 
 	// Progress indicator
-	steps := []string{"Name", "Platform", "Confirm", "Create"}
+	steps := []string{"Name", "Platform", "App", "Confirm", "Create"}
 	for i, s := range steps {
 		style := dimStyle
-		if i == int(m.step) || (m.step == stepDone && i == 3) {
+		if i == int(m.step) || (m.step == stepDone && i == len(steps)-1) {
 			style = selectedStyle
 		} else if i < int(m.step) {
 			style = lipgloss.NewStyle().Foreground(green)
@@ -318,12 +513,43 @@ func (m createModel) View() string {
 		}
 		b.WriteString("\n  " + helpStyle.Render("enter to continue, backspace to go back") + "\n")
 
+	case stepApp:
+		b.WriteString("  " + normalStyle.Render("Select app/build stream:") + "\n\n")
+		switch {
+		case m.appsLoading:
+			b.WriteString("  " + m.spinner.View() + " Loading apps...\n")
+		case m.noEligibleApps:
+			b.WriteString("  " + errorStyle.Render(m.err.Error()) + "\n\n")
+			b.WriteString("  " + dimStyle.Render("Upload a build or link an app before creating a runnable test.") + "\n")
+			b.WriteString("  " + dimStyle.Render("Press enter to open Manage apps.") + "\n")
+			b.WriteString("\n  " + helpStyle.Render("enter to manage apps, backspace to go back") + "\n")
+		case m.err != nil:
+			b.WriteString("  " + errorStyle.Render(m.err.Error()) + "\n")
+			b.WriteString("\n  " + helpStyle.Render("r to retry, backspace to go back") + "\n")
+		default:
+			for i, appInfo := range m.apps {
+				cur := "  "
+				style := normalStyle
+				if i == m.appCursor {
+					cur = selectedStyle.Render("▸ ")
+					style = selectedStyle
+				}
+				b.WriteString("  " + cur + style.Render(appInfo.Name) + "\n")
+				b.WriteString("     " + dimStyle.Render(formatCreateAppDetails(appInfo)) + "\n")
+			}
+			b.WriteString("\n  " + helpStyle.Render("enter to continue, backspace to go back") + "\n")
+		}
+
 	case stepConfirm:
 		name := strings.TrimSpace(m.nameInput.Value())
-		platform := m.platforms[m.platformCursor]
+		platform := m.selectedPlatform()
+		selectedApp := m.selectedApp()
 		b.WriteString("  " + normalStyle.Render("Review:") + "\n\n")
 		b.WriteString("  " + dimStyle.Render("Name:     ") + normalStyle.Render(name) + "\n")
 		b.WriteString("  " + dimStyle.Render("Platform: ") + normalStyle.Render(platform) + "\n")
+		if selectedApp != nil {
+			b.WriteString("  " + dimStyle.Render("App:      ") + normalStyle.Render(selectedApp.Name) + "\n")
+		}
 		if m.err != nil {
 			b.WriteString("\n  " + errorStyle.Render(m.err.Error()) + "\n")
 		}
@@ -338,7 +564,7 @@ func (m createModel) View() string {
 		b.WriteString("  " + dimStyle.Render("ID: "+m.createdID) + "\n\n")
 		b.WriteString("  " + normalStyle.Render("What next?") + "\n\n")
 
-		options := []string{"Run this test now", "Back to dashboard"}
+		options := []string{"Open editor", "Back to dashboard"}
 		for i, opt := range options {
 			cur := "  "
 			style := normalStyle
@@ -348,7 +574,15 @@ func (m createModel) View() string {
 			}
 			b.WriteString("  " + cur + style.Render(opt) + "\n")
 		}
-		b.WriteString("\n  " + helpStyle.Render("enter to select") + "\n")
+		if m.showEditorURL {
+			editorURL := m.editorURL()
+			if editorURL != "" {
+				b.WriteString("\n  " + dimStyle.Render("Editor: ") + linkStyle.Render(editorURL) + "\n")
+			}
+		} else {
+			b.WriteString("\n  " + dimStyle.Render("Press l to reveal the editor link for headless sessions.") + "\n")
+		}
+		b.WriteString("\n  " + helpStyle.Render("enter to select, l to show/hide editor link") + "\n")
 	}
 
 	return b.String()

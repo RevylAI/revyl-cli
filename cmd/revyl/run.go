@@ -63,6 +63,7 @@ const (
 )
 
 var runInterruptExit = os.Exit
+var runTestExecution = execution.RunTest
 
 // resolveRunOpen determines whether reports should auto-open.
 // Explicit --open takes precedence over config defaults.
@@ -220,7 +221,11 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 	// Load project config for alias resolution
 	cwd, _ := os.Getwd()
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	cfg, _, hasProjectConfig, err := loadProjectConfigOrEmpty(cwd)
+	if err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
 	effectiveOpen := resolveRunOpen(cmd, cfg, runOpen)
 	effectiveTimeout := resolveRunTimeout(cmd, cfg, runTimeout)
 
@@ -237,44 +242,22 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Resolve test ID from alias for display
-	testID := testNameOrID
-	var isAlias bool
-	if cfg != nil {
-		if id, ok := cfg.Tests[testNameOrID]; ok {
-			testID = id
-			isAlias = true
-			ui.PrintInfo("Resolved '%s' to test ID: %s", testNameOrID, testID)
-		}
-	}
-
 	// Get dev mode flag
 	devMode, _ := cmd.Flags().GetBool("dev")
 
-	// Validate test exists before building or executing (fail fast).
-	// If the name was resolved from config, we trust the alias; otherwise
-	// verify the identifier is a valid UUID and optionally probe the API.
-	if !isAlias {
-		if !looksLikeUUID(testID) {
-			// Not an alias and not a UUID -- likely a typo or unregistered name
-			var availableTests []string
-			if cfg != nil && cfg.Tests != nil {
-				for name := range cfg.Tests {
-					availableTests = append(availableTests, name)
-				}
-			}
-			errMsg := fmt.Sprintf("test '%s' not found in config", testNameOrID)
-			if len(availableTests) > 0 {
-				errMsg += fmt.Sprintf(". Available tests: %v", availableTests)
-			}
-			errMsg += "\n\nHint: Run 'revyl test remote' to see all available tests."
-			ui.PrintError("%s", errMsg)
-			return fmt.Errorf("test not found")
+	validationClient := api.NewClientWithDevMode(apiKey, devMode)
+	testID, resolvedName, err := resolveTestID(cmd.Context(), testNameOrID, cfg, validationClient)
+	if err != nil {
+		ui.PrintError("%v", err)
+		return fmt.Errorf("test not found")
+	}
+	if resolvedName == testNameOrID && cfg != nil && cfg.Tests != nil {
+		if id, ok := cfg.Tests[testNameOrID]; ok && id == testID {
+			ui.PrintInfo("Resolved '%s' to test ID: %s", testNameOrID, testID)
 		}
-		// It's a UUID format -- verify it exists via API before building
-		validationClient := api.NewClientWithDevMode(apiKey, devMode)
-		_, err := validationClient.GetTest(cmd.Context(), testID)
-		if err != nil {
+	}
+	if looksLikeUUID(testNameOrID) {
+		if _, err := validationClient.GetTest(cmd.Context(), testID); err != nil {
 			ui.PrintError("test '%s' not found: %v", testNameOrID, err)
 			return fmt.Errorf("test not found")
 		}
@@ -311,7 +294,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 
 	// Handle --build flag: build and upload before running test
 	if runTestBuild {
-		if cfg == nil {
+		if !hasProjectConfig {
 			ui.PrintError("Project not initialized. Run 'revyl init' first.")
 			return fmt.Errorf("project not initialized")
 		}
@@ -412,8 +395,8 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	})
 	defer stopInterruptHandler()
 
-	result, err := execution.RunTest(ctx, apiKey, cfg, execution.RunTestParams{
-		TestNameOrID:   testNameOrID,
+	result, err := runTestExecution(ctx, apiKey, cfg, execution.RunTestParams{
+		TestNameOrID:   testID,
 		Retries:        runRetries,
 		BuildVersionID: runBuildID,
 		Timeout:        effectiveTimeout,

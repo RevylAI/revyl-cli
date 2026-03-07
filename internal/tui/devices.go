@@ -7,13 +7,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/ui"
 )
 
 const deviceDetailPollInterval = 3 * time.Second
+
+type deviceStartStep int
+
+const (
+	deviceStartStepPlatform deviceStartStep = iota
+	deviceStartStepApp
+)
 
 var openBrowserFn = ui.OpenBrowser
 
@@ -56,23 +65,73 @@ func fetchDeviceSessionsCmd(client *api.Client, orgID string) tea.Cmd {
 	}
 }
 
-// startDeviceSessionCmd starts a new device session with the given platform.
+// fetchDeviceStartAppsCmd fetches org apps for the selected platform.
 //
 // Parameters:
 //   - client: authenticated API client
 //   - platform: "android" or "ios"
 //
 // Returns:
+//   - tea.Cmd: async command that sends DeviceStartAppListMsg on completion
+func fetchDeviceStartAppsCmd(client *api.Client, platform string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		page := 1
+		apps := make([]api.App, 0, 16)
+		for {
+			resp, err := client.ListApps(ctx, platform, page, 100)
+			if err != nil {
+				return DeviceStartAppListMsg{
+					Platform: platform,
+					Err:      fmt.Errorf("failed to fetch apps: %w", err),
+				}
+			}
+			apps = append(apps, resp.Items...)
+			if !resp.HasNext {
+				break
+			}
+			page++
+		}
+
+		return DeviceStartAppListMsg{
+			Platform: platform,
+			Apps:     apps,
+		}
+	}
+}
+
+// startDeviceSessionCmd starts a new device session with the given platform and optional app.
+//
+// Parameters:
+//   - client: authenticated API client
+//   - platform: "android" or "ios"
+//   - appID: optional app ID to resolve to the latest build artifact
+//
+// Returns:
 //   - tea.Cmd: async command that sends DeviceStartedMsg on completion
-func startDeviceSessionCmd(client *api.Client, platform string) tea.Cmd {
+func startDeviceSessionCmd(client *api.Client, platform, appID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 		defer cancel()
 
-		resp, err := client.StartDevice(ctx, &api.StartDeviceRequest{
+		req := &api.StartDeviceRequest{
 			Platform:     platform,
 			IsSimulation: true,
-		})
+		}
+		if strings.TrimSpace(appID) != "" {
+			resolved, err := startdevice.ResolveStartArtifact(ctx, client, startdevice.StartArtifactOptions{
+				AppID: appID,
+			})
+			if err != nil {
+				return DeviceStartedMsg{Err: fmt.Errorf("failed to start device: %w", err)}
+			}
+			req.AppURL = resolved.AppURL
+			req.AppPackage = resolved.AppPackage
+		}
+
+		resp, err := client.StartDevice(ctx, req)
 		if err != nil {
 			return DeviceStartedMsg{Err: fmt.Errorf("failed to start device: %w", err)}
 		}
@@ -155,6 +214,10 @@ func (m hubModel) handleDeviceListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if m.deviceStartPicking {
+		return m.handleDeviceStartKey(msg)
+	}
+
 	sessions := m.deviceSessions
 	switch msg.String() {
 	case "up", "k":
@@ -180,9 +243,7 @@ func (m hubModel) handleDeviceListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "n":
-		// Start new device - show platform picker
-		m.deviceStartPicking = true
-		m.devicePlatformCursor = 0
+		m = m.beginDeviceStart()
 	case "d":
 		if len(sessions) > 0 && m.deviceCursor < len(sessions) {
 			selected := sessions[m.deviceCursor]
@@ -197,6 +258,7 @@ func (m hubModel) handleDeviceListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, fetchDeviceSessionsCmd(m.client, m.deviceOrgID)
 		}
 	case "esc":
+		m = m.resetDeviceStartOverlay()
 		m.currentView = viewDashboard
 		m.deviceListPollSeq++
 		return m, nil
@@ -204,23 +266,188 @@ func (m hubModel) handleDeviceListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// Platform picker overlay
-	if m.deviceStartPicking {
+	return m, nil
+}
+
+func (m hubModel) handleDeviceStartKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.deviceStarting {
 		switch msg.String() {
-		case "1":
-			m.deviceStartPicking = false
-			m.deviceStarting = true
-			return m, startDeviceSessionCmd(m.client, "ios")
-		case "2":
-			m.deviceStartPicking = false
-			m.deviceStarting = true
-			return m, startDeviceSessionCmd(m.client, "android")
-		case "esc":
-			m.deviceStartPicking = false
+		case "q":
+			return m, tea.Quit
+		default:
+			return m, nil
 		}
 	}
 
-	return m, nil
+	switch deviceStartStep(m.deviceStartStep) {
+	case deviceStartStepPlatform:
+		return m.handleDeviceStartPlatformKey(msg)
+	case deviceStartStepApp:
+		return m.handleDeviceStartAppKey(msg)
+	default:
+		return m, nil
+	}
+}
+
+func (m hubModel) handleDeviceStartPlatformKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q":
+		return m, tea.Quit
+	case "esc":
+		m = m.resetDeviceStartOverlay()
+		return m, nil
+	case "up", "k":
+		if m.devicePlatformCursor > 0 {
+			m.devicePlatformCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.devicePlatformCursor < len(deviceStartPlatforms())-1 {
+			m.devicePlatformCursor++
+		}
+		return m, nil
+	case "1":
+		m.devicePlatformCursor = 0
+		return m.beginDeviceStartAppSelection()
+	case "2":
+		m.devicePlatformCursor = 1
+		return m.beginDeviceStartAppSelection()
+	case "enter":
+		return m.beginDeviceStartAppSelection()
+	default:
+		return m, nil
+	}
+}
+
+func (m hubModel) handleDeviceStartAppKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.deviceStartFilterMode {
+		switch msg.String() {
+		case "esc", "enter":
+			m.deviceStartFilterMode = false
+			m.deviceStartFilterInput.Blur()
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.deviceStartFilterInput, cmd = m.deviceStartFilterInput.Update(msg)
+			m.clampDeviceStartCursor()
+			return m, cmd
+		}
+	}
+
+	switch msg.String() {
+	case "q":
+		return m, tea.Quit
+	case "esc":
+		m = m.resetDeviceStartOverlay()
+		return m, nil
+	case "backspace":
+		m.deviceStartStep = int(deviceStartStepPlatform)
+		m.deviceStartLoading = false
+		m.deviceStartApps = nil
+		m.deviceStartAppCursor = 0
+		m.deviceStartErr = ""
+		m.deviceStartFilterMode = false
+		m.deviceStartFilterInput.Blur()
+		m.deviceStartFilterInput.SetValue("")
+		return m, nil
+	case "/":
+		m.deviceStartFilterMode = true
+		m.deviceStartFilterInput.Focus()
+		return m, textinput.Blink
+	case "r", "R":
+		if m.client == nil {
+			m.deviceStartErr = "not authenticated"
+			return m, nil
+		}
+		m.deviceStartLoading = true
+		m.deviceStartErr = ""
+		return m, fetchDeviceStartAppsCmd(m.client, m.deviceStartPlatform)
+	case "up", "k":
+		if m.deviceStartAppCursor > 0 {
+			m.deviceStartAppCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.deviceStartAppCursor < len(m.filteredDeviceStartApps()) {
+			m.deviceStartAppCursor++
+		}
+		return m, nil
+	case "enter":
+		if m.client == nil {
+			m.deviceStartErr = "not authenticated"
+			return m, nil
+		}
+		if m.deviceStartLoading {
+			return m, nil
+		}
+
+		selectedApp := m.selectedDeviceStartApp()
+		appID := ""
+		if selectedApp != nil {
+			appID = selectedApp.ID
+		}
+		m.deviceStarting = true
+		m.deviceStartErr = ""
+		m.deviceStartFilterMode = false
+		m.deviceStartFilterInput.Blur()
+		return m, startDeviceSessionCmd(m.client, m.deviceStartPlatform, appID)
+	default:
+		return m, nil
+	}
+}
+
+func (m hubModel) beginDeviceStart() hubModel {
+	m.deviceStartPicking = true
+	m.deviceStartStep = int(deviceStartStepPlatform)
+	m.devicePlatformCursor = 0
+	m.deviceStartPlatform = ""
+	m.deviceStartApps = nil
+	m.deviceStartAppCursor = 0
+	m.deviceStartLoading = false
+	m.deviceStartFilterMode = false
+	m.deviceStartFilterInput.Blur()
+	m.deviceStartFilterInput.SetValue("")
+	m.deviceStartErr = ""
+	return m
+}
+
+func (m hubModel) beginDeviceStartAppSelection() (tea.Model, tea.Cmd) {
+	if m.client == nil {
+		m.deviceStartErr = "not authenticated"
+		return m, nil
+	}
+
+	platforms := deviceStartPlatforms()
+	if m.devicePlatformCursor < 0 || m.devicePlatformCursor >= len(platforms) {
+		m.devicePlatformCursor = 0
+	}
+
+	m.deviceStartStep = int(deviceStartStepApp)
+	m.deviceStartPlatform = platforms[m.devicePlatformCursor]
+	m.deviceStartApps = nil
+	m.deviceStartAppCursor = 0
+	m.deviceStartLoading = true
+	m.deviceStartErr = ""
+	m.deviceStartFilterMode = false
+	m.deviceStartFilterInput.Blur()
+	m.deviceStartFilterInput.SetValue("")
+	return m, fetchDeviceStartAppsCmd(m.client, m.deviceStartPlatform)
+}
+
+func (m hubModel) resetDeviceStartOverlay() hubModel {
+	m.deviceStartPicking = false
+	m.deviceStartStep = int(deviceStartStepPlatform)
+	m.devicePlatformCursor = 0
+	m.deviceStartPlatform = ""
+	m.deviceStartApps = nil
+	m.deviceStartAppCursor = 0
+	m.deviceStartLoading = false
+	m.deviceStartFilterMode = false
+	m.deviceStartFilterInput.Blur()
+	m.deviceStartFilterInput.SetValue("")
+	m.deviceStartErr = ""
+	m.deviceStarting = false
+	return m
 }
 
 // handleDeviceDetailKey processes key events on the device detail screen.
@@ -339,13 +566,10 @@ func (m hubModel) renderDeviceList() string {
 	}
 
 	if m.deviceStartPicking {
-		b.WriteString("\n  " + sectionStyle.Render("Select platform:") + "\n")
-		b.WriteString("    " + helpKeyRender("1", "iOS") + "    " + helpKeyRender("2", "Android") + "    " + helpKeyRender("esc", "cancel") + "\n\n")
+		b.WriteString("\n" + m.renderDeviceStartOverlay(innerW))
 	}
 
-	if m.deviceStarting {
-		b.WriteString("  " + m.spinner.View() + " Starting device...\n")
-	} else if m.devicesLoading {
+	if m.devicesLoading {
 		b.WriteString("  " + m.spinner.View() + " Loading sessions...\n")
 	} else if len(sessions) == 0 {
 		b.WriteString("  " + dimStyle.Render("No active device sessions") + "\n")
@@ -397,6 +621,114 @@ func (m hubModel) renderDeviceList() string {
 	}
 	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
 	return b.String()
+}
+
+func (m hubModel) renderDeviceStartOverlay(innerW int) string {
+	var b strings.Builder
+
+	b.WriteString("  " + sectionStyle.Render("Start device") + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+	b.WriteString("  " + m.renderDeviceStartProgress() + "\n")
+
+	if m.deviceStartErr != "" {
+		b.WriteString("\n  " + errorStyle.Render(m.deviceStartErr) + "\n")
+	}
+
+	switch deviceStartStep(m.deviceStartStep) {
+	case deviceStartStepPlatform:
+		b.WriteString("\n  " + normalStyle.Render("Select platform:") + "\n\n")
+		for i, platform := range deviceStartPlatforms() {
+			cur := "  "
+			style := normalStyle
+			if i == m.devicePlatformCursor {
+				cur = selectedStyle.Render("▸ ")
+				style = selectedStyle
+			}
+			label := platform
+			if platform == "ios" {
+				label = "iOS"
+			}
+			if platform == "android" {
+				label = "Android"
+			}
+			b.WriteString("  " + cur + style.Render(label) + "\n")
+		}
+		b.WriteString("\n  " + helpStyle.Render("enter to continue, 1/2 shortcuts, esc to cancel") + "\n")
+	case deviceStartStepApp:
+		b.WriteString("\n  " + dimStyle.Render("Platform: ") + platformStyle.Render(m.deviceStartPlatform) + "\n")
+		if m.deviceStartFilterMode {
+			b.WriteString("\n  " + filterPromptStyle.Render("/") + " " + m.deviceStartFilterInput.View() + "\n")
+		}
+		b.WriteString("\n  " + normalStyle.Render("Choose app:") + "\n\n")
+
+		switch {
+		case m.deviceStarting:
+			b.WriteString("  " + m.spinner.View() + " Starting device...\n")
+		case m.deviceStartLoading:
+			b.WriteString("  " + m.spinner.View() + " Loading apps...\n")
+		default:
+			filteredApps := m.filteredDeviceStartApps()
+			totalOptions := len(filteredApps) + 1
+			maxVisible := m.height - 18
+			if maxVisible < 5 {
+				maxVisible = 5
+			}
+			start, end := scrollWindow(m.deviceStartAppCursor, totalOptions, maxVisible)
+			if start > 0 {
+				b.WriteString(dimStyle.Render("  ↑ more") + "\n")
+			}
+			for i := start; i < end; i++ {
+				cur := "  "
+				style := normalStyle
+				if i == m.deviceStartAppCursor {
+					cur = selectedStyle.Render("▸ ")
+					style = selectedStyle
+				}
+				if i == 0 {
+					b.WriteString("  " + cur + style.Render("No app") + "\n")
+					b.WriteString("     " + dimStyle.Render("Start a bare streaming device") + "\n")
+					continue
+				}
+
+				appInfo := filteredApps[i-1]
+				b.WriteString("  " + cur + style.Render(appInfo.Name) + "\n")
+				b.WriteString("     " + dimStyle.Render(formatCreateAppDetails(appInfo)) + "\n")
+			}
+			if end < totalOptions {
+				b.WriteString(dimStyle.Render("  ↓ more") + "\n")
+			}
+			if len(filteredApps) == 0 && strings.TrimSpace(m.deviceStartFilterInput.Value()) != "" {
+				b.WriteString("  " + dimStyle.Render("No apps match the current search") + "\n")
+			}
+		}
+
+		b.WriteString("\n  " + helpStyle.Render("enter to start, / to search, r to refresh, backspace to change platform, esc to cancel") + "\n")
+	}
+
+	return b.String() + "\n"
+}
+
+func (m hubModel) renderDeviceStartProgress() string {
+	steps := []string{"Platform", "App", "Start"}
+	current := 0
+	if deviceStartStep(m.deviceStartStep) == deviceStartStepApp {
+		current = 1
+	}
+	if m.deviceStarting {
+		current = 2
+	}
+
+	parts := make([]string, 0, len(steps)*2)
+	for i, step := range steps {
+		style := dimStyle
+		if i == current {
+			style = selectedStyle
+		} else if i < current {
+			style = successStyle
+		}
+		parts = append(parts, style.Render(step))
+	}
+	return strings.Join(parts, dimStyle.Render(" -> "))
 }
 
 // renderDeviceDetail renders the device session detail screen.
@@ -485,6 +817,49 @@ func isDeviceStatusTransitional(status string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func deviceStartPlatforms() []string {
+	return []string{"ios", "android"}
+}
+
+func (m hubModel) filteredDeviceStartApps() []api.App {
+	query := strings.ToLower(strings.TrimSpace(m.deviceStartFilterInput.Value()))
+	if query == "" {
+		return m.deviceStartApps
+	}
+
+	filtered := make([]api.App, 0, len(m.deviceStartApps))
+	for _, appInfo := range m.deviceStartApps {
+		if strings.Contains(strings.ToLower(appInfo.Name), query) ||
+			strings.Contains(strings.ToLower(appInfo.Platform), query) {
+			filtered = append(filtered, appInfo)
+		}
+	}
+	return filtered
+}
+
+func (m hubModel) selectedDeviceStartApp() *api.App {
+	if m.deviceStartAppCursor <= 0 {
+		return nil
+	}
+	filtered := m.filteredDeviceStartApps()
+	appIdx := m.deviceStartAppCursor - 1
+	if appIdx < 0 || appIdx >= len(filtered) {
+		return nil
+	}
+	appInfo := filtered[appIdx]
+	return &appInfo
+}
+
+func (m *hubModel) clampDeviceStartCursor() {
+	maxIdx := len(m.filteredDeviceStartApps())
+	if m.deviceStartAppCursor > maxIdx {
+		m.deviceStartAppCursor = maxIdx
+	}
+	if m.deviceStartAppCursor < 0 {
+		m.deviceStartAppCursor = 0
 	}
 }
 

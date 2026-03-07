@@ -289,7 +289,7 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 		installBody["bundle_id"] = pkg
 	}
 
-	installResp, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/install", installBody)
+	installResp, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/install", installBody)
 	if err != nil {
 		return cleanupOnError(fmt.Sprintf("device started but app install failed: %v", err))
 	}
@@ -302,7 +302,7 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 		bundleID = extractWorkerBundleID(installResp)
 	}
 	if bundleID != "" {
-		launchResp, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/launch", map[string]string{
+		launchResp, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/launch", map[string]string{
 			"bundle_id": bundleID,
 		})
 		if err != nil {
@@ -315,7 +315,7 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 
 	manualStepRequired := false
 	if deepLink := strings.TrimSpace(startResult.DeepLinkURL); deepLink != "" {
-		openURLResp, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "POST", "/open_url", map[string]string{"url": deepLink})
+		openURLResp, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", map[string]string{"url": deepLink})
 		if err != nil {
 			if isUnsupportedWorkerRoute(err, "/open_url") {
 				manualStepRequired = true

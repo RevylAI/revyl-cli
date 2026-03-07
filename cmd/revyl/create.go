@@ -18,6 +18,7 @@ import (
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
 	"github.com/revyl/cli/internal/interactive"
+	"github.com/revyl/cli/internal/orgguard"
 	"github.com/revyl/cli/internal/ui"
 	"github.com/revyl/cli/internal/yaml"
 )
@@ -49,6 +50,37 @@ var (
 	createWorkflowNoSync bool
 	createWorkflowDryRun bool
 )
+
+// createRemoteTest resolves the organization context and sends a create request.
+func createRemoteTest(
+	ctx context.Context,
+	client *api.Client,
+	cfg *config.ProjectConfig,
+	name string,
+	platform string,
+	tasks interface{},
+	appID string,
+) (*api.CreateTestResponse, error) {
+	if client == nil {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	if tasks == nil {
+		tasks = []interface{}{}
+	}
+
+	orgID, err := orgguard.ResolveCreateOrgID(ctx, client, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return client.CreateTest(ctx, &api.CreateTestRequest{
+		Name:     name,
+		Platform: platform,
+		Tasks:    tasks,
+		AppID:    appID,
+		OrgID:    orgID,
+	})
+}
 
 // runCreateTest creates a new test on the server and adds it to the local config.
 //
@@ -291,13 +323,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 
 	// Create test on server
 	ui.StartSpinner("Creating test on server...")
-	createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
-		Name:     testName,
-		Platform: platform,
-		Tasks:    tasks,
-		AppID:    appID,
-		OrgID:    creds.OrgID,
-	})
+	createResp, err := createRemoteTest(cmd.Context(), client, cfg, testName, platform, tasks, appID)
 	ui.StopSpinner()
 
 	if err != nil {
@@ -666,13 +692,7 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 	} else {
 		// Create test on server
 		ui.StartSpinner("Creating test on server...")
-		createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
-			Name:     testName,
-			Platform: platform,
-			Tasks:    tasks,
-			AppID:    appID,
-			OrgID:    creds.OrgID,
-		})
+		createResp, err := createRemoteTest(cmd.Context(), client, cfg, testName, platform, tasks, appID)
 		ui.StopSpinner()
 
 		if err != nil {
@@ -1061,13 +1081,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 
 		// Create test on server with empty tasks
 		ui.StartSpinner("Creating test on server...")
-		createResp, err := client.CreateTest(cmd.Context(), &api.CreateTestRequest{
-			Name:     testName,
-			Platform: platform,
-			Tasks:    []interface{}{},
-			AppID:    appID,
-			OrgID:    creds.OrgID,
-		})
+		createResp, err := createRemoteTest(cmd.Context(), client, cfg, testName, platform, []interface{}{}, appID)
 		ui.StopSpinner()
 
 		if err != nil {

@@ -202,7 +202,7 @@ func newSessionSyncTestServer(t *testing.T) *httptest.Server {
 			}`))
 		case r.URL.Path == "/api/v1/execution/streaming/worker-connection/wf-1":
 			_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ready","workflow_run_id":"wf-1","worker_ws_url":"ws://%s/ws/stream?token=test"}`, r.Host)))
-		case r.URL.Path == "/health":
+		case r.URL.Path == "/api/v1/execution/device-proxy/wf-1/health":
 			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
 		default:
 			http.NotFound(w, r)
@@ -350,28 +350,28 @@ func TestHandleDeviceDoctor_IncludesMCPRuntimeChecks(t *testing.T) {
 
 func TestDevLoopActionGuard_DoesNotGateActionsWhenActive(t *testing.T) {
 	now := time.Now()
-	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/resolve_target":
+		case "/api/v1/execution/device-proxy/wf-1/resolve_target":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"found":true,"x":120,"y":240}`))
-		case "/tap":
+		case "/api/v1/execution/device-proxy/wf-1/tap":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"success":true}`))
 		default:
 			http.NotFound(w, r)
 		}
 	}))
-	defer workerServer.Close()
+	defer apiServer.Close()
 
 	mgr := &DeviceSessionManager{
-		httpClient: workerServer.Client(),
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
 		sessions: map[int]*DeviceSession{
 			0: {
 				Index:         0,
 				SessionID:     "sess-1",
 				WorkflowRunID: "wf-1",
-				WorkerBaseURL: workerServer.URL,
+				WorkerBaseURL: "https://worker.example",
 				Platform:      "ios",
 				StartedAt:     now,
 				LastActivity:  now,
@@ -398,28 +398,28 @@ func TestDevLoopActionGuard_DoesNotGateActionsWhenActive(t *testing.T) {
 
 func TestDevLoopActionGuard_InactiveDevLoopDoesNotGateActions(t *testing.T) {
 	now := time.Now()
-	workerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/resolve_target":
+		case "/api/v1/execution/device-proxy/wf-3/resolve_target":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"found":true,"x":120,"y":240}`))
-		case "/tap":
+		case "/api/v1/execution/device-proxy/wf-3/tap":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"success":true}`))
 		default:
 			http.NotFound(w, r)
 		}
 	}))
-	defer workerServer.Close()
+	defer apiServer.Close()
 
 	mgr := &DeviceSessionManager{
-		httpClient: workerServer.Client(),
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
 		sessions: map[int]*DeviceSession{
 			0: {
 				Index:         0,
 				SessionID:     "sess-3",
 				WorkflowRunID: "wf-3",
-				WorkerBaseURL: workerServer.URL,
+				WorkerBaseURL: "https://worker.example",
 				Platform:      "ios",
 				StartedAt:     now,
 				LastActivity:  now,
@@ -832,6 +832,12 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		"device_type":           false,
 		"device_swipe":          false,
 		"device_drag":           false,
+		"device_pinch":          false,
+		"device_clear_text":     false,
+		"device_wait":           false,
+		"device_back":           false,
+		"device_key":            false,
+		"device_shake":          false,
 		"screenshot":            false,
 		"install_app":           false,
 		"launch_app":            false,
@@ -859,8 +865,14 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		}
 	}
 
-	if len(result.Tools) != 21 {
-		t.Errorf("expected 21 device tools, got %d", len(result.Tools))
+	for _, tool := range result.Tools {
+		if tool.Name == "device_click" {
+			t.Errorf("device_click should not be registered")
+		}
+	}
+
+	if len(result.Tools) != 27 {
+		t.Errorf("expected 27 device tools, got %d", len(result.Tools))
 	}
 }
 

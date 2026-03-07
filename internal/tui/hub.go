@@ -25,6 +25,7 @@ import (
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/store"
 	syncpkg "github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
@@ -48,7 +49,6 @@ var quickActions = []quickAction{
 	{Label: "Browse modules", Key: "modules", Desc: "View reusable test modules", RequiresAuth: true},
 	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels", RequiresAuth: true},
 	{Label: "Device sessions", Key: "devices", Desc: "Start, view, and stop cloud devices", RequiresAuth: true},
-	{Label: "Publish to TestFlight", Key: "publish_testflight", Desc: "Upload/distribute iOS builds with ASC", RequiresAuth: true},
 	{Label: "Settings", Key: "settings", Desc: "View and edit project defaults", RequiresAuth: false},
 	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard", RequiresAuth: false},
 }
@@ -165,18 +165,26 @@ type hubModel struct {
 	tagNameInput     textinput.Model
 
 	// Device session state
-	deviceSessions       []api.ActiveDeviceSessionItem
-	deviceCursor         int
-	devicesLoading       bool
-	deviceOrgID          string
-	selectedDeviceID     string
-	deviceStarting       bool   // true while provisioning a new device
-	deviceStartPicking   bool   // true when platform picker overlay is showing
-	devicePlatformCursor int    // cursor for platform picker (0=ios, 1=android)
-	deviceConfirmStop    bool   // true when stop confirmation is pending
-	deviceStopTarget     string // workflow run ID of the session to stop
-	deviceDetailPollSeq  int    // sequence token used to run a single detail poll loop
-	deviceListPollSeq    int    // sequence token used to run a single list poll loop
+	deviceSessions         []api.ActiveDeviceSessionItem
+	deviceCursor           int
+	devicesLoading         bool
+	deviceOrgID            string
+	selectedDeviceID       string
+	deviceStarting         bool   // true while provisioning a new device
+	deviceStartPicking     bool   // true when the start-device overlay is showing
+	deviceStartStep        int    // current overlay step
+	devicePlatformCursor   int    // cursor for platform picker (0=ios, 1=android)
+	deviceStartPlatform    string // selected platform for the start overlay
+	deviceStartApps        []api.App
+	deviceStartAppCursor   int
+	deviceStartLoading     bool
+	deviceStartFilterMode  bool
+	deviceStartFilterInput textinput.Model
+	deviceStartErr         string
+	deviceConfirmStop      bool   // true when stop confirmation is pending
+	deviceStopTarget       string // workflow run ID of the session to stop
+	deviceDetailPollSeq    int    // sequence token used to run a single detail poll loop
+	deviceListPollSeq      int    // sequence token used to run a single list poll loop
 
 	// Module browser state
 	moduleItems         []ModuleItem
@@ -184,6 +192,7 @@ type hubModel struct {
 	moduleLoading       bool
 	selectedModuleID    string
 	selectedModule      *ModuleItem
+	moduleDetailScroll  int
 	moduleConfirmDelete bool
 
 	// Workflow management state
@@ -286,23 +295,28 @@ func newHubModel(version string, devMode bool) hubModel {
 	sti.CharLimit = 8
 	sti.SetValue(fmt.Sprintf("%d", config.DefaultTimeoutSeconds))
 
+	dsfi := textinput.New()
+	dsfi.Placeholder = "search apps..."
+	dsfi.CharLimit = 64
+
 	return hubModel{
-		version:              version,
-		currentView:          viewDashboard,
-		loading:              true,
-		spinner:              newSpinner(),
-		filterInput:          ti,
-		reportFilterInput:    rfi,
-		envVarKeyInput:       eki,
-		envVarValueInput:     evi,
-		tagNameInput:         tni,
-		wfCreateNameInput:    wfni,
-		wfFilterInput:        wffi,
-		testRenameInput:      trn,
-		settingsTimeout:      config.DefaultTimeoutSeconds,
-		settingsOpenBrowser:  config.DefaultOpenBrowser,
-		settingsTimeoutInput: sti,
-		devMode:              devMode,
+		version:                version,
+		currentView:            viewDashboard,
+		loading:                true,
+		spinner:                newSpinner(),
+		filterInput:            ti,
+		reportFilterInput:      rfi,
+		envVarKeyInput:         eki,
+		envVarValueInput:       evi,
+		tagNameInput:           tni,
+		wfCreateNameInput:      wfni,
+		wfFilterInput:          wffi,
+		testRenameInput:        trn,
+		settingsTimeout:        config.DefaultTimeoutSeconds,
+		settingsOpenBrowser:    config.DefaultOpenBrowser,
+		settingsTimeoutInput:   sti,
+		deviceStartFilterInput: dsfi,
+		devMode:                devMode,
 	}
 }
 
@@ -1204,6 +1218,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.moduleLoading = false
 		if msg.Err == nil {
 			m.selectedModule = msg.Module
+			m.moduleDetailScroll = 0
 			m.currentView = viewModuleDetail
 		}
 		return m, nil
@@ -1213,6 +1228,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.currentView = viewModuleList
 			m.selectedModule = nil
+			m.moduleDetailScroll = 0
 			if m.client != nil {
 				m.moduleLoading = true
 				return m, fetchModulesCmd(m.client)
@@ -1286,12 +1302,33 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case DeviceStartAppListMsg:
+		if !m.deviceStartPicking || m.deviceStartStep != int(deviceStartStepApp) {
+			return m, nil
+		}
+		if strings.TrimSpace(msg.Platform) != "" && strings.TrimSpace(msg.Platform) != strings.TrimSpace(m.deviceStartPlatform) {
+			return m, nil
+		}
+		m.deviceStartLoading = false
+		if msg.Err != nil {
+			m.deviceStartErr = msg.Err.Error()
+			m.deviceStartApps = nil
+			m.deviceStartAppCursor = 0
+			return m, nil
+		}
+		m.deviceStartApps = filterCreateApps(msg.Apps, m.deviceStartPlatform)
+		m.deviceStartAppCursor = 0
+		m.deviceStartErr = ""
+		return m, nil
+
 	case DeviceStartedMsg:
 		m.deviceStarting = false
 		if msg.Err != nil {
 			m.devicesLoading = false
+			m.deviceStartErr = msg.Err.Error()
 			return m, nil
 		}
+		m = m.resetDeviceStartOverlay()
 		// Open the viewer URL if available
 		if msg.ViewerURL != "" {
 			_ = ui.OpenBrowser(msg.ViewerURL)
@@ -1728,6 +1765,7 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 
 	case "devices":
 		m.currentView = viewDeviceList
+		m = m.resetDeviceStartOverlay()
 		m.deviceCursor = 0
 		m.devicesLoading = true
 		m.deviceListPollSeq++
@@ -1741,13 +1779,6 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 
 	case "dev_loop":
 		return m, runDevLoopProcessCmd(m.devMode)
-
-	case "publish_testflight":
-		cfg := loadCurrentProjectConfig()
-		pm := newPublishTestFlightModel(cfg, m.width, m.height)
-		m.publishTFModel = &pm
-		m.currentView = viewPublishTestFlight
-		return m, m.publishTFModel.Init()
 
 	case "settings":
 		cwd, err := os.Getwd()
@@ -2012,24 +2043,46 @@ func (m hubModel) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		createMdl := cm.(createModel)
 		m.createModel = &createMdl
 
-		// If creation completed and user chose to run, transition to execution
-		if m.createModel.done && m.createModel.runAfter {
+		if m.createModel.done && m.createModel.doneAction == createDoneManageApps {
+			m.createModel = nil
+			m.currentView = viewAppList
+			m.appCursor = 0
+			m.appsLoading = true
+			m.apps = nil
+			if m.client != nil {
+				return m, fetchAppsCmd(m.client)
+			}
+			m.appsLoading = false
+			return m, nil
+		}
+
+		// If creation completed and user chose to open the editor, open it and return.
+		if m.createModel.done && m.createModel.doneAction == createDoneOpenEditor {
 			testID := m.createModel.createdID
 			testName := m.createModel.nameInput.Value()
+			platform := m.createModel.selectedPlatform()
 			m.createModel = nil
-			// Add to test list
-			m.tests = append([]TestItem{{ID: testID, Name: testName}}, m.tests...)
-			em := newExecutionModel(testID, testName, m.apiKey, m.cfg, m.devMode, m.width, m.height)
-			m.executionModel = &em
-			m.currentView = viewExecution
-			return m, m.executionModel.Init()
+			if testID != "" {
+				m.tests = append([]TestItem{{ID: testID, Name: testName, Platform: platform}}, m.tests...)
+				editor := execution.OpenTestEditor(nil, execution.OpenTestEditorParams{
+					TestNameOrID: testID,
+					DevMode:      m.devMode,
+				})
+				if err := openBrowserFn(editor.TestURL); err != nil {
+					m.err = fmt.Errorf("failed to open test editor: %w (open manually: %s)", err, editor.TestURL)
+				} else {
+					m.err = nil
+				}
+			}
+			m.currentView = viewDashboard
+			return m, nil
 		}
 
 		// If creation completed and user chose to go back
-		if m.createModel.done && !m.createModel.runAfter {
+		if m.createModel.done && m.createModel.doneAction == createDoneBackToDashboard {
 			testID := m.createModel.createdID
 			testName := m.createModel.nameInput.Value()
-			platform := m.createModel.platforms[m.createModel.platformCursor]
+			platform := m.createModel.selectedPlatform()
 			m.createModel = nil
 			if testID != "" {
 				m.tests = append([]TestItem{{ID: testID, Name: testName, Platform: platform}}, m.tests...)
@@ -3365,12 +3418,6 @@ func (m hubModel) handleAppDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.uploadBuildModel = &um
 		m.currentView = viewUploadBuild
 		return m, m.uploadBuildModel.Init()
-	case "p":
-		cfg := loadCurrentProjectConfig()
-		pm := newPublishTestFlightModel(cfg, m.width, m.height)
-		m.publishTFModel = &pm
-		m.currentView = viewPublishTestFlight
-		return m, m.publishTFModel.Init()
 	}
 	return m, nil
 }
@@ -3512,7 +3559,6 @@ func (m hubModel) renderAppDetail() string {
 	b.WriteString("\n  " + separator(innerW) + "\n")
 	keys := []string{
 		helpKeyRender("u", "upload"),
-		helpKeyRender("p", "publish"),
 		helpKeyRender("d", "delete"),
 		helpKeyRender("R", "refresh"),
 		helpKeyRender("esc", "back"),
@@ -3727,13 +3773,13 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			checks = append(checks, HealthCheck{
 				Name:    "ASC Credentials",
 				Status:  "ok",
-				Message: "Configured for TestFlight publishing",
+				Message: "ASC credentials configured",
 			})
 		} else {
 			checks = append(checks, HealthCheck{
 				Name:    "ASC Credentials",
 				Status:  "warning",
-				Message: "Not configured — use 'Publish to TestFlight' or 'revyl publish auth ios'",
+				Message: "Not configured — use 'revyl publish auth ios'",
 			})
 		}
 

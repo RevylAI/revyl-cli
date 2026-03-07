@@ -58,9 +58,26 @@ class RevylCLI:
         try:
             return json.loads(output)
         except json.JSONDecodeError as exc:
+            parsed = self._parse_trailing_json(output)
+            if parsed is not None:
+                return parsed
             raise RevylError(
                 f"Command returned non-JSON output: {' '.join(cmd)}\n{output}"
             ) from exc
+
+    @staticmethod
+    def _parse_trailing_json(output: str) -> Any:
+        lines = output.strip().splitlines()
+        for index, line in enumerate(lines):
+            stripped = line.lstrip()
+            if not stripped.startswith("{") and not stripped.startswith("["):
+                continue
+            candidate = "\n".join(lines[index:])
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+        return None
 
 
 class DeviceClient:
@@ -337,5 +354,117 @@ class DeviceClient:
         session_index: Optional[int] = None,
     ) -> JSONObject:
         args = ["device", "launch", "--bundle-id", bundle_id, *self._session_args(session_index)]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def wait(
+        self,
+        duration_ms: int = 1000,
+        session_index: Optional[int] = None,
+    ) -> JSONObject:
+        args = ["device", "wait", "--duration-ms", str(duration_ms), *self._session_args(session_index)]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def pinch(
+        self,
+        target: Optional[str] = None,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        scale: float = 2.0,
+        duration_ms: int = 300,
+        session_index: Optional[int] = None,
+    ) -> JSONObject:
+        args = [
+            "device",
+            "pinch",
+            *self._target_or_coords_args(target, x, y),
+            "--scale",
+            str(scale),
+            "--duration",
+            str(duration_ms),
+            *self._session_args(session_index),
+        ]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def clear_text(
+        self,
+        target: Optional[str] = None,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        session_index: Optional[int] = None,
+    ) -> JSONObject:
+        args = ["device", "clear-text", *self._target_or_coords_args(target, x, y), *self._session_args(session_index)]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def back(self, session_index: Optional[int] = None) -> JSONObject:
+        args = ["device", "back", *self._session_args(session_index)]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def key(self, key: str, session_index: Optional[int] = None) -> JSONObject:
+        args = ["device", "key", "--key", key, *self._session_args(session_index)]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def shake(self, session_index: Optional[int] = None) -> JSONObject:
+        args = ["device", "shake", *self._session_args(session_index)]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def go_home(self, session_index: Optional[int] = None) -> JSONObject:
+        args = ["device", "home", *self._session_args(session_index)]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def kill_app(self, session_index: Optional[int] = None) -> JSONObject:
+        args = ["device", "kill-app", *self._session_args(session_index)]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def open_app(
+        self,
+        app: str,
+        session_index: Optional[int] = None,
+    ) -> JSONObject:
+        args = ["device", "open-app", "--app", app, *self._session_args(session_index)]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def navigate(
+        self,
+        url: str,
+        session_index: Optional[int] = None,
+    ) -> JSONObject:
+        args = ["device", "navigate", "--url", url, *self._session_args(session_index)]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def set_location(
+        self,
+        latitude: float,
+        longitude: float,
+        session_index: Optional[int] = None,
+    ) -> JSONObject:
+        args = [
+            "device",
+            "set-location",
+            "--lat",
+            str(latitude),
+            "--lon",
+            str(longitude),
+            *self._session_args(session_index),
+        ]
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def download_file(
+        self,
+        url: str,
+        session_index: Optional[int] = None,
+    ) -> JSONObject:
+        args = ["device", "download-file", "--url", url, *self._session_args(session_index)]
         result = self.cli.run(*args, json_output=True)
         return result if isinstance(result, dict) else {}

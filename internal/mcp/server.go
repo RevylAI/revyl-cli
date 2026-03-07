@@ -126,7 +126,8 @@ func NewServer(version string, devMode bool) (*Server, error) {
 
 ### Device Interaction
 - **Device Session**: start_device_session, stop_device_session, get_session_info, list_device_sessions, switch_device_session
-- **Device Actions** (grounded by default): device_tap, device_double_tap, device_long_press, device_type, device_swipe, device_drag
+- **Device Actions** (grounded by default): device_tap, device_double_tap, device_long_press, device_type, device_swipe, device_drag, device_pinch, device_clear_text
+- **Manual Controls**: device_wait, device_back, device_key, device_shake, device_go_home, device_kill_app, device_open_app, device_navigate, device_set_location, device_download_file
 - **Vision**: screenshot
 - **App Management**: install_app, launch_app
 - **Diagnostics**: device_doctor
@@ -173,7 +174,7 @@ func NewServer(version string, devMode bool) (*Server, error) {
 ## Getting Started (Test Authoring)
 
 1. get_schema() -- get the YAML format reference
-2. create_test(name="...", yaml_content="...") -- create a test
+2. create_test(name="...", platform="...", yaml_content="...", module_names_or_ids=[...]) -- create a runnable test
 3. validate_yaml(yaml_content="...") -- check syntax before running
 4. run_test(test_name="...") -- execute and get results with viewer_url
 
@@ -312,9 +313,9 @@ func (s *Server) registerTools() {
 	// NEW: create_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name: "create_test",
-		Description: `Create a new test from YAML content or just a name.
+		Description: `Create a new runnable test from YAML content and optional module imports.
 
-RECOMMENDED: Before creating a test, read the app's source code (screens, components, routes) to understand the real UI labels, navigation flow, and user-facing outcomes. Use get_schema for the YAML format reference.`,
+RECOMMENDED: Before creating a test, read the app's source code (screens, components, routes) to understand the real UI labels, navigation flow, and user-facing outcomes. Use get_schema for the YAML format reference, and use module_names_or_ids when reusable flows already exist.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title: "Create Test",
 		},
@@ -1249,10 +1250,11 @@ func (s *Server) handleGetTestStatus(ctx context.Context, req *mcp.CallToolReque
 
 // CreateTestInput defines input for create_test tool.
 type CreateTestInput struct {
-	Name        string `json:"name" jsonschema:"Test name"`
-	Platform    string `json:"platform" jsonschema:"Target platform (ios or android)"`
-	YAMLContent string `json:"yaml_content,omitempty" jsonschema:"Optional YAML test definition. If provided, creates test with these blocks."`
-	AppID       string `json:"app_id,omitempty" jsonschema:"App ID to associate with test"`
+	Name             string   `json:"name" jsonschema:"Test name"`
+	Platform         string   `json:"platform" jsonschema:"Target platform (ios or android)"`
+	YAMLContent      string   `json:"yaml_content,omitempty" jsonschema:"Optional YAML test definition to create with real blocks"`
+	AppID            string   `json:"app_id,omitempty" jsonschema:"Optional explicit app ID to associate with the test"`
+	ModuleNamesOrIDs []string `json:"module_names_or_ids,omitempty" jsonschema:"Optional ordered module names or IDs to prepend as module_import blocks"`
 }
 
 // CreateTestOutput defines output for create_test tool.
@@ -1293,23 +1295,14 @@ func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, CreateTestOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Validate YAML if provided
-	if input.YAMLContent != "" {
-		validationResult := yaml.ValidateYAML(input.YAMLContent)
-		if !validationResult.Valid {
-			return nil, CreateTestOutput{
-				Success: false,
-				Error:   fmt.Sprintf("YAML validation failed: %v", validationResult.Errors),
-			}, nil
-		}
-	}
-
 	result, err := execution.CreateTest(ctx, s.apiClient.GetAPIKey(), execution.CreateTestParams{
-		Name:        input.Name,
-		Platform:    platform,
-		YAMLContent: input.YAMLContent,
-		AppID:       input.AppID,
-		DevMode:     false,
+		Name:             strings.TrimSpace(input.Name),
+		Platform:         platform,
+		YAMLContent:      input.YAMLContent,
+		AppID:            input.AppID,
+		ModuleNamesOrIDs: input.ModuleNamesOrIDs,
+		Config:           s.config,
+		DevMode:          false,
 	})
 	if err != nil {
 		return nil, CreateTestOutput{Success: false, Error: err.Error()}, nil

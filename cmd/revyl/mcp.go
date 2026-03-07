@@ -44,7 +44,7 @@ Test execution:
 Test management:
   - list_tests: List available tests from .revyl/config.yaml
   - list_remote_tests: List all tests in the organization from the API
-  - create_test: Create a new test from YAML content
+  - create_test: Create a runnable test from YAML content and/or module refs
   - update_test: Push updated YAML content to an existing test
   - delete_test: Delete a test by name or UUID
   - validate_yaml: Validate YAML test syntax without creating

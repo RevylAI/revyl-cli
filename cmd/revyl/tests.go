@@ -280,10 +280,13 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	cfg, configPath, hadConfig, err := loadProjectConfigOrEmpty(cwd)
 	if err != nil {
-		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		ui.PrintError("%v", err)
 		return err
+	}
+	if !hadConfig && !testsPushDryRun {
+		ui.PrintInfo("No .revyl/config.yaml found. Bootstrapping from local YAML tests.")
 	}
 
 	// Load local tests
@@ -397,7 +400,9 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 	// Update sync timestamp if any tests were pushed successfully.
 	if pushedCount > 0 {
 		cfg.MarkSynced()
-		_ = config.WriteProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"), cfg)
+		if err := writeProjectConfigIfNeeded(configPath, cfg); err != nil {
+			ui.PrintWarning("%v", err)
+		}
 	}
 
 	return nil

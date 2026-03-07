@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/revyl/cli/internal/config"
@@ -1008,7 +1009,18 @@ type CreateTestResponse struct {
 //   - *CreateTestResponse: The creation response
 //   - error: Any error that occurred
 func (c *Client) CreateTest(ctx context.Context, req *CreateTestRequest) (*CreateTestResponse, error) {
-	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/create", req)
+	normalizedReq := req
+	if req != nil {
+		normalizedReq = &CreateTestRequest{
+			Name:     req.Name,
+			Platform: normalizePlatform(req.Platform),
+			Tasks:    req.Tasks,
+			AppID:    req.AppID,
+			OrgID:    req.OrgID,
+		}
+	}
+
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/create", normalizedReq)
 	if err != nil {
 		return nil, err
 	}
@@ -1272,8 +1284,71 @@ func (c *Client) ListApps(ctx context.Context, platform string, page, pageSize i
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
+	result.Items = c.hydrateAppVersionSummaries(ctx, result.Items)
 
 	return &result, nil
+}
+
+const appVersionSummaryConcurrency = 8
+
+func (c *Client) hydrateAppVersionSummaries(ctx context.Context, apps []App) []App {
+	if len(apps) == 0 {
+		return apps
+	}
+
+	hydrated := make([]App, len(apps))
+	copy(hydrated, apps)
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, appVersionSummaryConcurrency)
+
+	for i := range hydrated {
+		if !appNeedsVersionSummaryHydration(hydrated[i]) {
+			continue
+		}
+
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+
+			hydrated[idx] = c.hydrateSingleAppVersionSummary(ctx, hydrated[idx])
+		}(i)
+	}
+
+	wg.Wait()
+	return hydrated
+}
+
+func (c *Client) hydrateSingleAppVersionSummary(ctx context.Context, app App) App {
+	if !appNeedsVersionSummaryHydration(app) {
+		return app
+	}
+
+	page, err := c.ListBuildVersionsPage(ctx, app.ID, 1, 1)
+	if err != nil {
+		return app
+	}
+
+	app.VersionsCount = page.Total
+	if app.LatestVersion == "" && len(page.Items) > 0 {
+		app.LatestVersion = strings.TrimSpace(page.Items[0].Version)
+	}
+
+	return app
+}
+
+func appNeedsVersionSummaryHydration(app App) bool {
+	if strings.TrimSpace(app.ID) == "" {
+		return false
+	}
+	return app.VersionsCount == 0 || strings.TrimSpace(app.LatestVersion) == ""
 }
 
 // GetApp retrieves an app by ID.
@@ -1296,6 +1371,7 @@ func (c *Client) GetApp(ctx context.Context, appID string) (*App, error) {
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
+	result = c.hydrateSingleAppVersionSummary(ctx, result)
 
 	return &result, nil
 }
@@ -3050,12 +3126,13 @@ func (c *Client) DeleteBuildVersion(ctx context.Context, versionID string) (*Del
 }
 
 // ---------------------------------------------------------------------------
-// Worker Proxy (for sandbox environments)
+// Worker Control Relay
 // ---------------------------------------------------------------------------
 
-// ProxyWorkerRequest forwards a device action request through the backend
-// when the CLI cannot reach the worker directly (e.g. DNS failure in
-// Codex/Claude Code sandboxes).
+// ProxyWorkerRequest forwards a device action request through the backend.
+// CLI/MCP device control uses this relay as the canonical transport so
+// sandboxed environments do not depend on direct worker DNS reachability.
+// The relay infers the underlying HTTP method from the action name.
 //
 // Parameters:
 //   - ctx: Context for cancellation.
@@ -3070,9 +3147,8 @@ func (c *Client) DeleteBuildVersion(ctx context.Context, versionID string) (*Del
 func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action string, body interface{}) ([]byte, int, error) {
 	path := fmt.Sprintf("/api/v1/execution/device-proxy/%s/%s", workflowRunID, action)
 
-	method := "POST"
-	if action == "screenshot" || action == "health" {
-		method = "GET"
+	method := proxyWorkerMethodForAction(action)
+	if method == http.MethodGet {
 		body = nil
 	}
 
@@ -3088,6 +3164,15 @@ func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action s
 	}
 
 	return data, resp.StatusCode, nil
+}
+
+func proxyWorkerMethodForAction(action string) string {
+	switch action {
+	case "screenshot", "health", "device_info":
+		return http.MethodGet
+	default:
+		return http.MethodPost
+	}
 }
 
 // ProxyScreenshot retrieves a device screenshot through the backend proxy.

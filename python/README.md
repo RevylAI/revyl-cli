@@ -52,11 +52,33 @@ with DeviceClient.start(platform="android") as device:
 
 - `start_session`, `stop_session`, `stop_all`, `list_sessions`, `use_session`, `info`, `doctor`
 - `tap`, `double_tap`, `long_press`, `type_text`, `swipe`, `drag`
-- `screenshot`, `install_app`, `launch_app`
+- `wait`, `pinch`, `clear_text`, `back`, `key`, `shake`
+- `go_home`, `open_app`, `navigate`, `set_location`, `download_file`
+- `screenshot`, `install_app`, `launch_app`, `kill_app`
 
 All action methods support either:
 - grounded targeting via `target="..."`, or
 - raw coordinates via `x=...` and `y=...`
+
+`click` is intentionally not part of the SDK surface.
+
+## Repo Smoke Script
+
+From the repo root:
+
+```bash
+make device-prod-sdk-smoke-ios
+make device-prod-sdk-smoke-android
+```
+
+Useful variants:
+
+```bash
+make device-prod-sdk-smoke-ios ARGS="--grounded-text"
+make device-prod-sdk-smoke-ios ARGS="--app-url https://... --bundle-id com.example.app"
+make device-prod-sdk-smoke-android ARGS="--grounded-text"
+make device-prod-sdk-smoke ARGS="--platform android"  # generic ad hoc path
+```
 
 ## Low-level CLI Access
 

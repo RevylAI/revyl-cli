@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/config"
 )
 
 func writeConfigFile(t *testing.T, dir, content string) string {
@@ -32,6 +35,19 @@ func newValidateServer(t *testing.T, orgID string) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"` + orgID + `","email":"zak@example.com","concurrency_limit":1}`))
 	}))
+}
+
+func writeCredentialsFile(t *testing.T, homeDir, content string) string {
+	t.Helper()
+	revylDir := filepath.Join(homeDir, ".revyl")
+	if err := os.MkdirAll(revylDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(.revyl) error = %v", err)
+	}
+	path := filepath.Join(revylDir, "credentials.json")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(credentials.json) error = %v", err)
+	}
+	return path
 }
 
 func TestCheck_ConfigMissing(t *testing.T) {
@@ -150,5 +166,147 @@ func TestCheck_Match(t *testing.T) {
 	}
 	if result.AuthOrgID != "org-a" {
 		t.Fatalf("AuthOrgID = %q, want org-a", result.AuthOrgID)
+	}
+}
+
+func TestResolveCreateOrgID_PrefersProjectConfig(t *testing.T) {
+	validateCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		validateCalls++
+		t.Fatalf("unexpected validate call: %s", r.URL.Path)
+	}))
+	defer srv.Close()
+
+	client := api.NewClientWithBaseURL("test-key", srv.URL)
+	cfg := &config.ProjectConfig{
+		Project: config.Project{OrgID: "org-config"},
+	}
+
+	got, err := ResolveCreateOrgID(context.Background(), client, cfg)
+	if err != nil {
+		t.Fatalf("ResolveCreateOrgID() error = %v", err)
+	}
+	if got != "org-config" {
+		t.Fatalf("ResolveCreateOrgID() = %q, want %q", got, "org-config")
+	}
+	if validateCalls != 0 {
+		t.Fatalf("validate calls = %d, want 0", validateCalls)
+	}
+}
+
+func TestResolveCreateOrgID_PrefersLiveAuthOrgOverFileCredentials(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("REVYL_API_KEY", "env-token")
+	writeCredentialsFile(t, homeDir, `{"api_key":"file-key","org_id":"org-file"}`)
+
+	validateCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/entity/users/get_user_uuid" {
+			t.Fatalf("unexpected validate call: %s", r.URL.Path)
+		}
+		validateCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
+	}))
+	defer srv.Close()
+
+	client := api.NewClientWithBaseURL("test-key", srv.URL)
+
+	got, err := ResolveCreateOrgID(context.Background(), client, &config.ProjectConfig{})
+	if err != nil {
+		t.Fatalf("ResolveCreateOrgID() error = %v", err)
+	}
+	if got != "org-live" {
+		t.Fatalf("ResolveCreateOrgID() = %q, want %q", got, "org-live")
+	}
+	if validateCalls != 1 {
+		t.Fatalf("validate calls = %d, want 1", validateCalls)
+	}
+}
+
+func TestResolveCreateOrgID_FallsBackToValidateAPIKey(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	validateCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/entity/users/get_user_uuid" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		validateCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
+	}))
+	defer srv.Close()
+
+	client := api.NewClientWithBaseURL("test-key", srv.URL)
+
+	got, err := ResolveCreateOrgID(context.Background(), client, &config.ProjectConfig{})
+	if err != nil {
+		t.Fatalf("ResolveCreateOrgID() error = %v", err)
+	}
+	if got != "org-live" {
+		t.Fatalf("ResolveCreateOrgID() = %q, want %q", got, "org-live")
+	}
+	if validateCalls != 1 {
+		t.Fatalf("validate calls = %d, want 1", validateCalls)
+	}
+}
+
+func TestResolveCreateOrgID_FallsBackToFileCredentialsWhenValidateFails(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	writeCredentialsFile(t, homeDir, `{"api_key":"file-key","org_id":"org-file"}`)
+
+	validateCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/entity/users/get_user_uuid" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		validateCalls++
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"detail":"invalid api key"}`))
+	}))
+	defer srv.Close()
+
+	client := api.NewClientWithBaseURL("test-key", srv.URL)
+
+	got, err := ResolveCreateOrgID(context.Background(), client, &config.ProjectConfig{})
+	if err != nil {
+		t.Fatalf("ResolveCreateOrgID() error = %v", err)
+	}
+	if got != "org-file" {
+		t.Fatalf("ResolveCreateOrgID() = %q, want %q", got, "org-file")
+	}
+	if validateCalls != 1 {
+		t.Fatalf("validate calls = %d, want 1", validateCalls)
+	}
+}
+
+func TestResolveCreateOrgID_ReturnsHelpfulErrorWhenValidateHasNoOrg(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/entity/users/get_user_uuid" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"","email":"test@example.com","concurrency_limit":1}`))
+	}))
+	defer srv.Close()
+
+	client := api.NewClientWithBaseURL("test-key", srv.URL)
+
+	_, err := ResolveCreateOrgID(context.Background(), client, &config.ProjectConfig{})
+	if err == nil {
+		t.Fatal("ResolveCreateOrgID() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "could not resolve organization ID for test creation") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "revyl auth login") {
+		t.Fatalf("expected remediation hint in error, got: %v", err)
 	}
 }

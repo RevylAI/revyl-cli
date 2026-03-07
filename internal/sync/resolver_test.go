@@ -2,10 +2,9 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/revyl/cli/internal/api"
@@ -143,40 +142,57 @@ func TestGetTestStatus_FallbackToLocalRemoteID(t *testing.T) {
 	}
 }
 
-func TestResolveOrgIDForCreate_PrefersProjectConfig(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Project: config.Project{
-			OrgID: "org-config",
+func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
+	testsDir := t.TempDir()
+
+	client, cleanup := newResolverTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/tests/create" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode create request: %v", err)
+		}
+		if got := req["org_id"]; got != "org-config" {
+			t.Fatalf("org_id = %v, want org-config", got)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"remote-id","version":2}`))
+	})
+	defer cleanup()
+
+	local := &config.LocalTest{
+		Meta: config.TestMeta{},
+		Test: config.TestDefinition{
+			Metadata: config.TestMetadata{Name: "Login", Platform: "ios"},
+			Blocks: []config.TestBlock{
+				{Type: "instructions", StepDescription: "Tap login"},
+			},
 		},
 	}
 
-	got := resolveOrgIDForCreate(cfg)
-	if got != "org-config" {
-		t.Fatalf("resolveOrgIDForCreate() = %q, want %q", got, "org-config")
-	}
-}
-
-func TestResolveOrgIDForCreate_ReadsCredentialsFile(t *testing.T) {
-	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
-
-	revylDir := filepath.Join(homeDir, ".revyl")
-	if err := os.MkdirAll(revylDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(.revyl) error: %v", err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(revylDir, "credentials.json"),
-		[]byte(`{"api_key":"k","org_id":"org-file"}`),
-		0o644,
-	); err != nil {
-		t.Fatalf("WriteFile(credentials.json) error: %v", err)
+	cfg := &config.ProjectConfig{
+		Project: config.Project{OrgID: "org-config"},
+		Tests:   map[string]string{},
 	}
 
-	// Ensure file-based org_id is used even when REVYL_API_KEY is set.
-	t.Setenv("REVYL_API_KEY", "env-token")
+	resolver := NewResolver(client, cfg, map[string]*config.LocalTest{
+		"login-flow": local,
+	})
 
-	got := resolveOrgIDForCreate(&config.ProjectConfig{})
-	if got != "org-file" {
-		t.Fatalf("resolveOrgIDForCreate() = %q, want %q", got, "org-file")
+	results, err := resolver.SyncToRemote(context.Background(), "login-flow", testsDir, false)
+	if err != nil {
+		t.Fatalf("SyncToRemote() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].Error != nil {
+		t.Fatalf("results[0].Error = %v, want nil", results[0].Error)
+	}
+	if local.Meta.RemoteID != "remote-id" {
+		t.Fatalf("local.Meta.RemoteID = %q, want remote-id", local.Meta.RemoteID)
 	}
 }

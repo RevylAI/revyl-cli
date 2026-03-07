@@ -113,3 +113,57 @@ func Check(ctx context.Context, cwd string, devMode bool) *CheckResult {
 
 	return result
 }
+
+const resolveCreateOrgIDHint = "run 'revyl auth login' to refresh credentials or 'revyl init' to bind this project"
+
+// ResolveCreateOrgID determines which org_id should be sent when creating tests.
+//
+// Resolution order:
+//   - project.org_id from .revyl/config.yaml
+//   - live org_id from ValidateAPIKey using the active token/client
+//   - file-backed credentials org_id from ~/.revyl/credentials.json
+//
+// This helper is intentionally separate from mismatch enforcement. Callers that
+// already block on mismatches should keep doing so; this only resolves the org
+// to include in create requests and returns an actionable error when no org can
+// be determined.
+func ResolveCreateOrgID(ctx context.Context, client *api.Client, cfg *config.ProjectConfig) (string, error) {
+	if cfg != nil {
+		if orgID := strings.TrimSpace(cfg.Project.OrgID); orgID != "" {
+			return orgID, nil
+		}
+	}
+
+	if client == nil {
+		mgr := auth.NewManager()
+		if creds, err := mgr.GetFileCredentials(); err == nil && creds != nil {
+			if orgID := strings.TrimSpace(creds.OrgID); orgID != "" {
+				return orgID, nil
+			}
+		}
+		return "", fmt.Errorf("could not resolve organization ID for test creation; %s", resolveCreateOrgIDHint)
+	}
+
+	userInfo, err := client.ValidateAPIKey(ctx)
+	if err == nil && userInfo != nil {
+		orgID := strings.TrimSpace(userInfo.OrgID)
+		if orgID != "" {
+			return orgID, nil
+		}
+	}
+
+	mgr := auth.NewManager()
+	if creds, credsErr := mgr.GetFileCredentials(); credsErr == nil && creds != nil {
+		if orgID := strings.TrimSpace(creds.OrgID); orgID != "" {
+			return orgID, nil
+		}
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("could not resolve organization ID for test creation: %v; %s", err, resolveCreateOrgIDHint)
+	}
+	if userInfo == nil {
+		return "", fmt.Errorf("could not resolve organization ID for test creation: empty auth response; %s", resolveCreateOrgIDHint)
+	}
+	return "", fmt.Errorf("could not resolve organization ID for test creation: organization ID missing from authenticated session; %s", resolveCreateOrgIDHint)
+}
