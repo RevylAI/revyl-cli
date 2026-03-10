@@ -11,6 +11,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/testutil"
 )
 
 func writeConfigFile(t *testing.T, dir, content string) string {
@@ -196,7 +197,7 @@ func TestResolveCreateOrgID_PrefersProjectConfig(t *testing.T) {
 
 func TestResolveCreateOrgID_PrefersLiveAuthOrgOverFileCredentials(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.SetHomeDir(t, homeDir)
 	t.Setenv("REVYL_API_KEY", "env-token")
 	writeCredentialsFile(t, homeDir, `{"api_key":"file-key","org_id":"org-file"}`)
 
@@ -227,7 +228,7 @@ func TestResolveCreateOrgID_PrefersLiveAuthOrgOverFileCredentials(t *testing.T) 
 
 func TestResolveCreateOrgID_FallsBackToValidateAPIKey(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.SetHomeDir(t, homeDir)
 
 	validateCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +257,7 @@ func TestResolveCreateOrgID_FallsBackToValidateAPIKey(t *testing.T) {
 
 func TestResolveCreateOrgID_FallsBackToFileCredentialsWhenValidateFails(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.SetHomeDir(t, homeDir)
 	writeCredentialsFile(t, homeDir, `{"api_key":"file-key","org_id":"org-file"}`)
 
 	validateCalls := 0
@@ -286,7 +287,7 @@ func TestResolveCreateOrgID_FallsBackToFileCredentialsWhenValidateFails(t *testi
 
 func TestResolveCreateOrgID_ReturnsHelpfulErrorWhenValidateHasNoOrg(t *testing.T) {
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.SetHomeDir(t, homeDir)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/entity/users/get_user_uuid" {

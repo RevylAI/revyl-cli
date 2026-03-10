@@ -1,7 +1,7 @@
-// Package sse provides Server-Sent Events client for real-time monitoring.
+// Package sse provides execution monitoring via SSE and polling.
 //
-// This package handles SSE connections to the Revyl API for monitoring
-// test and workflow execution progress in real-time.
+// This package handles streaming and status-polling connections to the Revyl API
+// for monitoring test and workflow execution progress.
 package sse
 
 import (
@@ -22,9 +22,30 @@ import (
 const (
 	// sseStreamPath is the SSE streaming endpoint path appended to the backend URL.
 	sseStreamPath = "/api/v1/monitor/stream/unified"
+
+	// defaultPollInterval is the delay between status polling attempts.
+	defaultPollInterval = 2 * time.Second
 )
 
-// Monitor handles SSE-based execution monitoring.
+// MonitoringMode controls how execution monitoring is performed.
+type MonitoringMode string
+
+const (
+	// MonitoringModeAuto attempts SSE first and falls back to polling on stream failure.
+	MonitoringModeAuto MonitoringMode = "auto"
+	// MonitoringModePolling uses status polling only and never opens an SSE stream.
+	MonitoringModePolling MonitoringMode = "polling"
+)
+
+// normalizeMonitoringMode resolves unset or unknown values to the default mode.
+func normalizeMonitoringMode(mode MonitoringMode) MonitoringMode {
+	if mode == MonitoringModePolling {
+		return MonitoringModePolling
+	}
+	return MonitoringModeAuto
+}
+
+// Monitor handles execution monitoring over SSE or polling.
 type Monitor struct {
 	apiKey     string
 	timeout    int
@@ -104,6 +125,20 @@ type TestStatus struct {
 	Success *bool
 }
 
+// ChildTestProgress represents the status of an individual test within a workflow.
+type ChildTestProgress struct {
+	// TestName is the name of the test.
+	TestName string
+	// Platform is the execution platform (ios, android).
+	Platform string
+	// Status is the current status (queued, running, completed, failed, cancelled).
+	Status string
+	// Success indicates if the test passed. Nil means still running.
+	Success *bool
+	// Duration is the execution duration as a human-readable string.
+	Duration string
+}
+
 // WorkflowStatus represents the status of a workflow execution.
 type WorkflowStatus struct {
 	// TaskID is the execution task ID.
@@ -132,6 +167,9 @@ type WorkflowStatus struct {
 
 	// ErrorMessage is the error message if failed.
 	ErrorMessage string
+
+	// ChildTests contains per-test progress when available from polling.
+	ChildTests []ChildTestProgress
 }
 
 // OrgTestMonitorItem matches the backend OrgTestMonitorItem model for SSE events.
@@ -194,7 +232,7 @@ type completedTestEnrichedTask struct {
 	Success        *bool  `json:"success"`
 }
 
-// MonitorTest monitors a test execution via SSE.
+// MonitorTest monitors a test execution using the default monitoring mode.
 //
 // Parameters:
 //   - ctx: Context for cancellation
@@ -206,9 +244,29 @@ type completedTestEnrichedTask struct {
 //   - *TestStatus: The final test status
 //   - error: Any error that occurred
 func (m *Monitor) MonitorTest(ctx context.Context, taskID, testID string, onProgress func(*TestStatus)) (*TestStatus, error) {
+	return m.MonitorTestWithMode(ctx, taskID, testID, MonitoringModeAuto, onProgress)
+}
+
+// MonitorTestWithMode monitors a test execution using the requested monitoring mode.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - taskID: The task ID to monitor
+//   - testID: The test ID
+//   - mode: Monitoring strategy to use (auto or polling-only)
+//   - onProgress: Callback for progress updates
+//
+// Returns:
+//   - *TestStatus: The final test status
+//   - error: Any error that occurred
+func (m *Monitor) MonitorTestWithMode(ctx context.Context, taskID, testID string, mode MonitoringMode, onProgress func(*TestStatus)) (*TestStatus, error) {
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(m.timeout)*time.Second)
 	defer cancel()
+
+	if normalizeMonitoringMode(mode) == MonitoringModePolling {
+		return m.pollTestStatus(ctx, taskID, testID, onProgress)
+	}
 
 	// Try SSE first for real-time updates
 	status, err := m.monitorTestSSE(ctx, taskID, testID, onProgress)
@@ -439,7 +497,7 @@ func (m *Monitor) handleTestEvent(event SSEEvent, targetTaskID string) *TestStat
 // Returns:
 //   - *TestStatus: The converted test status
 func testMonitorItemToStatus(item *OrgTestMonitorItem) *TestStatus {
-	// Backend sends progress as 0-100 float. Convert to int directly.
+	// Backend sends progress as 0-100 float; truncate to int.
 	progressPercent := int(item.Progress)
 
 	return &TestStatus{
@@ -460,122 +518,127 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 	// Use the correct endpoint: /api/v1/tests/get_test_execution_task?task_id={taskID}
 	statusURL := fmt.Sprintf("%s/api/v1/tests/get_test_execution_task?task_id=%s", m.backendURL, taskID)
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(defaultPollInterval)
 	defer ticker.Stop()
 
 	var lastStatus *TestStatus
 	var consecutiveErrors int
 	const maxConsecutiveErrors = 10
+	firstPoll := true
 
 	for {
-		select {
-		case <-ctx.Done():
-			// Always return the context error when cancelled, even if we have a last status
-			return lastStatus, ctx.Err()
-
-		case <-ticker.C:
-			req, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
-			if err != nil {
-				consecutiveErrors++
-				if consecutiveErrors >= maxConsecutiveErrors {
-					return nil, fmt.Errorf("polling failed: too many consecutive errors creating request (last: %v)", err)
-				}
-				continue
+		if !firstPoll {
+			select {
+			case <-ctx.Done():
+				// Always return the context error when cancelled, even if we have a last status
+				return lastStatus, ctx.Err()
+			case <-ticker.C:
 			}
+		} else {
+			firstPoll = false
+		}
 
-			req.Header.Set("Authorization", "Bearer "+m.apiKey)
-
-			resp, err := client.Do(req)
-			if err != nil {
-				consecutiveErrors++
-				if consecutiveErrors >= maxConsecutiveErrors {
-					return nil, fmt.Errorf("polling failed: too many consecutive network errors (last: %v)", err)
-				}
-				continue
+		req, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
+		if err != nil {
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutiveErrors {
+				return nil, fmt.Errorf("polling failed: too many consecutive errors creating request (last: %v)", err)
 			}
+			continue
+		}
 
-			// The backend returns TestExecutionTasksEnhanced model from test_executions_full view
-			// Fields: id, test_id, session_id, success, progress, current_step, current_step_index,
-			//         total_steps, steps_completed, error_message, status (from device_sessions),
-			//         started_at, completed_at, execution_time_seconds, platform
-			var statusResp struct {
-				Status               string   `json:"status"`   // From device_sessions
-				Progress             float64  `json:"progress"` // 0.0-1.0
-				CurrentStep          string   `json:"current_step"`
-				CurrentStepIndex     int      `json:"current_step_index"`
-				TotalSteps           *int     `json:"total_steps"`
-				StepsCompleted       int      `json:"steps_completed"`
-				ErrorMessage         string   `json:"error_message"`
-				Success              *bool    `json:"success"`
-				ExecutionTimeSeconds *float64 `json:"execution_time_seconds"` // From device_sessions
-			}
+		req.Header.Set("Authorization", "Bearer "+m.apiKey)
 
-			if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
-				resp.Body.Close()
-				consecutiveErrors++
-				if consecutiveErrors >= maxConsecutiveErrors {
-					return nil, fmt.Errorf("polling failed: too many consecutive decode errors (last: %v)", err)
-				}
-				continue
+		resp, err := client.Do(req)
+		if err != nil {
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutiveErrors {
+				return nil, fmt.Errorf("polling failed: too many consecutive network errors (last: %v)", err)
 			}
+			continue
+		}
+
+		// The backend returns TestExecutionTasksEnhanced model from test_executions_full view
+		// Fields: id, test_id, session_id, success, progress, current_step, current_step_index,
+		//         total_steps, steps_completed, error_message, status (from device_sessions),
+		//         started_at, completed_at, execution_time_seconds, platform
+		var statusResp struct {
+			Status               string   `json:"status"`   // From device_sessions
+			Progress             float64  `json:"progress"` // 0-100
+			CurrentStep          string   `json:"current_step"`
+			CurrentStepIndex     int      `json:"current_step_index"`
+			TotalSteps           *int     `json:"total_steps"`
+			StepsCompleted       int      `json:"steps_completed"`
+			ErrorMessage         string   `json:"error_message"`
+			Success              *bool    `json:"success"`
+			ExecutionTimeSeconds *float64 `json:"execution_time_seconds"` // From device_sessions
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
 			resp.Body.Close()
-
-			// Reset consecutive errors on successful response
-			consecutiveErrors = 0
-
-			// Backend sends progress as 0-100 float. Convert to int directly.
-			progressPercent := int(statusResp.Progress)
-
-			// Format duration
-			duration := ""
-			if statusResp.ExecutionTimeSeconds != nil && *statusResp.ExecutionTimeSeconds > 0 {
-				duration = fmt.Sprintf("%.1fs", *statusResp.ExecutionTimeSeconds)
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutiveErrors {
+				return nil, fmt.Errorf("polling failed: too many consecutive decode errors (last: %v)", err)
 			}
+			continue
+		}
+		resp.Body.Close()
 
-			totalSteps := 0
-			if statusResp.TotalSteps != nil {
-				totalSteps = *statusResp.TotalSteps
+		// Reset consecutive errors on successful response
+		consecutiveErrors = 0
+
+		// Backend sends progress as 0-100 float; truncate to int.
+		progressPercent := int(statusResp.Progress)
+
+		// Format duration
+		duration := ""
+		if statusResp.ExecutionTimeSeconds != nil && *statusResp.ExecutionTimeSeconds > 0 {
+			duration = fmt.Sprintf("%.1fs", *statusResp.ExecutionTimeSeconds)
+		}
+
+		totalSteps := 0
+		if statusResp.TotalSteps != nil {
+			totalSteps = *statusResp.TotalSteps
+		}
+
+		status := &TestStatus{
+			TaskID:         taskID,
+			Status:         statusResp.Status,
+			Progress:       progressPercent,
+			CurrentStep:    statusResp.CurrentStep,
+			Duration:       duration,
+			ErrorMessage:   statusResp.ErrorMessage,
+			CompletedSteps: statusResp.StepsCompleted,
+			TotalSteps:     totalSteps,
+			Success:        statusResp.Success,
+		}
+
+		lastStatus = status
+
+		if onProgress != nil {
+			onProgress(status)
+		}
+
+		// Check if execution is complete using the shared status package
+		if statusutil.IsTerminal(status.Status) {
+			return status, nil
+		}
+
+		// If status is empty but success is explicitly set, the test has finished
+		// but the status field wasn't populated - this is a completion signal
+		if status.Status == "" && statusResp.Success != nil {
+			// Infer status from success field
+			if *statusResp.Success {
+				status.Status = "completed"
+			} else {
+				status.Status = "failed"
 			}
-
-			status := &TestStatus{
-				TaskID:         taskID,
-				Status:         statusResp.Status,
-				Progress:       progressPercent,
-				CurrentStep:    statusResp.CurrentStep,
-				Duration:       duration,
-				ErrorMessage:   statusResp.ErrorMessage,
-				CompletedSteps: statusResp.StepsCompleted,
-				TotalSteps:     totalSteps,
-				Success:        statusResp.Success,
-			}
-
-			lastStatus = status
-
-			if onProgress != nil {
-				onProgress(status)
-			}
-
-			// Check if execution is complete using the shared status package
-			if statusutil.IsTerminal(status.Status) {
-				return status, nil
-			}
-
-			// If status is empty but success is explicitly set, the test has finished
-			// but the status field wasn't populated - this is a completion signal
-			if status.Status == "" && statusResp.Success != nil {
-				// Infer status from success field
-				if *statusResp.Success {
-					status.Status = "completed"
-				} else {
-					status.Status = "failed"
-				}
-				return status, nil
-			}
+			return status, nil
 		}
 	}
 }
 
-// MonitorWorkflow monitors a workflow execution via SSE.
+// MonitorWorkflow monitors a workflow execution using the default monitoring mode.
 //
 // Parameters:
 //   - ctx: Context for cancellation
@@ -586,9 +649,29 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 //   - *WorkflowStatus: The final workflow status
 //   - error: Any error that occurred
 func (m *Monitor) MonitorWorkflow(ctx context.Context, taskID, workflowID string, onProgress func(*WorkflowStatus)) (*WorkflowStatus, error) {
+	return m.MonitorWorkflowWithMode(ctx, taskID, workflowID, MonitoringModeAuto, onProgress)
+}
+
+// MonitorWorkflowWithMode monitors a workflow execution using the requested monitoring mode.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - taskID: The task ID to monitor (workflow execution ID)
+//   - workflowID: The workflow ID
+//   - mode: Monitoring strategy to use (auto or polling-only)
+//   - onProgress: Optional callback for progress updates
+//
+// Returns:
+//   - *WorkflowStatus: The final workflow status
+//   - error: Any error that occurred
+func (m *Monitor) MonitorWorkflowWithMode(ctx context.Context, taskID, workflowID string, mode MonitoringMode, onProgress func(*WorkflowStatus)) (*WorkflowStatus, error) {
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(m.timeout)*time.Second)
 	defer cancel()
+
+	if normalizeMonitoringMode(mode) == MonitoringModePolling {
+		return m.pollWorkflowStatus(ctx, taskID, workflowID, onProgress)
+	}
 
 	// Try SSE first for real-time updates
 	status, err := m.monitorWorkflowSSE(ctx, taskID, workflowID, onProgress)
@@ -769,89 +852,159 @@ func workflowMonitorItemToStatus(item *OrgWorkflowMonitorItem) *WorkflowStatus {
 // pollWorkflowStatus polls for workflow status updates.
 func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID string, onProgress func(*WorkflowStatus)) (*WorkflowStatus, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
-	// Use the correct endpoint: /api/v1/workflows/status/{task_id}
-	statusURL := fmt.Sprintf("%s/api/v1/workflows/status/%s", m.backendURL, taskID)
+	// Use the same workflow status route as the API client to avoid drift.
+	statusURL := fmt.Sprintf("%s/api/v1/workflows/status/status/%s", m.backendURL, taskID)
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(defaultPollInterval)
 	defer ticker.Stop()
 
 	var lastStatus *WorkflowStatus
+	var lastChildTests []ChildTestProgress
 	var consecutiveErrors int
 	const maxConsecutiveErrors = 10
+	firstPoll := true
+	pollCount := 0
+	const childTestPollInterval = 3 // fetch child tests every Nth poll
 
 	for {
-		select {
-		case <-ctx.Done():
-			// Always return the context error when cancelled, even if we have a last status
-			return lastStatus, ctx.Err()
-
-		case <-ticker.C:
-			req, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
-			if err != nil {
-				consecutiveErrors++
-				if consecutiveErrors >= maxConsecutiveErrors {
-					return nil, fmt.Errorf("polling failed: too many consecutive errors creating request (last: %v)", err)
-				}
-				continue
+		if !firstPoll {
+			select {
+			case <-ctx.Done():
+				// Always return the context error when cancelled, even if we have a last status
+				return lastStatus, ctx.Err()
+			case <-ticker.C:
 			}
+		} else {
+			firstPoll = false
+		}
 
-			req.Header.Set("Authorization", "Bearer "+m.apiKey)
+		pollCount++
 
-			resp, err := client.Do(req)
-			if err != nil {
-				consecutiveErrors++
-				if consecutiveErrors >= maxConsecutiveErrors {
-					return nil, fmt.Errorf("polling failed: too many consecutive network errors (last: %v)", err)
-				}
-				continue
+		req, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
+		if err != nil {
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutiveErrors {
+				return nil, fmt.Errorf("polling failed: too many consecutive errors creating request (last: %v)", err)
 			}
+			continue
+		}
 
-			var statusResp struct {
-				Status         string `json:"status"`
-				TotalTests     int    `json:"total_tests"`
-				CompletedTests int    `json:"completed_tests"`
-				PassedTests    int    `json:"passed_tests"`
-				FailedTests    int    `json:"failed_tests"`
-				Duration       string `json:"duration"`
-				ErrorMessage   string `json:"error_message"`
-			}
+		req.Header.Set("Authorization", "Bearer "+m.apiKey)
 
-			if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
-				resp.Body.Close()
-				consecutiveErrors++
-				if consecutiveErrors >= maxConsecutiveErrors {
-					return nil, fmt.Errorf("polling failed: too many consecutive decode errors (last: %v)", err)
-				}
-				continue
+		resp, err := client.Do(req)
+		if err != nil {
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutiveErrors {
+				return nil, fmt.Errorf("polling failed: too many consecutive network errors (last: %v)", err)
 			}
+			continue
+		}
+
+		var statusResp struct {
+			Status         string `json:"status"`
+			TotalTests     int    `json:"total_tests"`
+			CompletedTests int    `json:"completed_tests"`
+			PassedTests    int    `json:"passed_tests"`
+			FailedTests    int    `json:"failed_tests"`
+			Duration       string `json:"duration"`
+			ErrorMessage   string `json:"error_message"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
 			resp.Body.Close()
-
-			// Reset consecutive errors on successful response
-			consecutiveErrors = 0
-
-			status := &WorkflowStatus{
-				TaskID:         taskID,
-				Status:         statusResp.Status,
-				TotalTests:     statusResp.TotalTests,
-				CompletedTests: statusResp.CompletedTests,
-				PassedTests:    statusResp.PassedTests,
-				FailedTests:    statusResp.FailedTests,
-				Duration:       statusResp.Duration,
-				ErrorMessage:   statusResp.ErrorMessage,
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutiveErrors {
+				return nil, fmt.Errorf("polling failed: too many consecutive decode errors (last: %v)", err)
 			}
+			continue
+		}
+		resp.Body.Close()
 
-			lastStatus = status
+		// Reset consecutive errors on successful response
+		consecutiveErrors = 0
 
-			if onProgress != nil {
-				onProgress(status)
-			}
-
-			// Check if execution is complete using the shared status package
-			if statusutil.IsTerminal(status.Status) {
-				return status, nil
+		// Fetch per-test progress periodically via the unified report endpoint.
+		if pollCount%childTestPollInterval == 0 {
+			if children := m.fetchChildTestProgress(ctx, client, taskID); children != nil {
+				lastChildTests = children
 			}
 		}
+
+		status := &WorkflowStatus{
+			TaskID:         taskID,
+			Status:         statusResp.Status,
+			TotalTests:     statusResp.TotalTests,
+			CompletedTests: statusResp.CompletedTests,
+			PassedTests:    statusResp.PassedTests,
+			FailedTests:    statusResp.FailedTests,
+			Duration:       statusResp.Duration,
+			ErrorMessage:   statusResp.ErrorMessage,
+			ChildTests:     lastChildTests,
+		}
+
+		lastStatus = status
+
+		if onProgress != nil {
+			onProgress(status)
+		}
+
+		// Check if execution is complete using the shared status package
+		if statusutil.IsTerminal(status.Status) {
+			return status, nil
+		}
 	}
+}
+
+// fetchChildTestProgress calls the unified report endpoint to get per-test
+// progress for the given workflow task. Returns nil on any error so the caller
+// can fall back to aggregate-only display.
+func (m *Monitor) fetchChildTestProgress(ctx context.Context, client *http.Client, taskID string) []ChildTestProgress {
+	url := fmt.Sprintf("%s/api/v1/workflows/share/unified-report", m.backendURL)
+	body := fmt.Sprintf(`{"workflow_task_id":%q}`, taskID)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(body))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Authorization", "Bearer "+m.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var report struct {
+		ChildTasks []struct {
+			TestName             string   `json:"test_name"`
+			Platform             string   `json:"platform"`
+			Status               string   `json:"status"`
+			Success              *bool    `json:"success"`
+			ExecutionTimeSeconds *float64 `json:"execution_time_seconds"`
+		} `json:"child_tasks"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&report); err != nil {
+		return nil
+	}
+
+	children := make([]ChildTestProgress, 0, len(report.ChildTasks))
+	for _, ct := range report.ChildTasks {
+		cp := ChildTestProgress{
+			TestName: ct.TestName,
+			Platform: ct.Platform,
+			Status:   ct.Status,
+			Success:  ct.Success,
+		}
+		if ct.ExecutionTimeSeconds != nil && *ct.ExecutionTimeSeconds > 0 {
+			cp.Duration = fmt.Sprintf("%.1fs", *ct.ExecutionTimeSeconds)
+		}
+		children = append(children, cp)
+	}
+	return children
 }
 
 // readSSEStream reads events from an SSE stream and sends them to channels.

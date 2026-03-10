@@ -11,6 +11,7 @@ import (
 
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
+	"github.com/revyl/cli/internal/testutil"
 )
 
 func writeConfiglessLocalYAML(t *testing.T, path, name, buildName string) {
@@ -50,7 +51,7 @@ func withWorkingDir(t *testing.T, dir string) {
 func TestRunTestsPush_BootstrapsConfigWithoutProjectConfig(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "test-key")
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	testutil.SetHomeDir(t, homeDir)
 	if err := os.MkdirAll(filepath.Join(homeDir, ".revyl"), 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
@@ -134,7 +135,7 @@ func TestRunTestsPush_BootstrapsConfigWithoutProjectConfig(t *testing.T) {
 func TestRunTestsPushDryRun_WorksWithoutProjectConfig(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "test-key")
 	t.Setenv("REVYL_BACKEND_URL", "https://example.invalid")
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHomeDir(t, t.TempDir())
 
 	tmp := t.TempDir()
 	withWorkingDir(t, tmp)
@@ -167,7 +168,7 @@ func TestRunTestsPushDryRun_WorksWithoutProjectConfig(t *testing.T) {
 
 func TestRunTestExec_ResolvesRemoteNameWithoutProjectConfig(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "test-key")
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHomeDir(t, t.TempDir())
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

@@ -9,10 +9,11 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/testutil"
 )
 
 func TestCreateRemoteTest_UsesProjectOrgIDAndPreservesRequestFields(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHomeDir(t, t.TempDir())
 
 	tasks := []interface{}{
 		map[string]interface{}{
@@ -66,7 +67,7 @@ func TestCreateRemoteTest_UsesProjectOrgIDAndPreservesRequestFields(t *testing.T
 }
 
 func TestCreateRemoteTest_FallsBackToValidatedOrgIDAndNormalizesEmptyTasks(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHomeDir(t, t.TempDir())
 
 	validateCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

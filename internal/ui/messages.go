@@ -418,6 +418,15 @@ func PrintBasicStatus(statusStr string, progress int, currentStep string, comple
 	fmt.Print(statusLine)
 }
 
+// ChildTestInfo contains per-test progress data for workflow status display.
+type ChildTestInfo struct {
+	TestName string
+	Platform string
+	Status   string
+	Success  *bool
+	Duration string
+}
+
 // PrintVerboseWorkflowStatus prints detailed workflow status information during monitoring.
 //
 // Parameters:
@@ -427,7 +436,8 @@ func PrintBasicStatus(statusStr string, progress int, currentStep string, comple
 //   - passedTests: Number of passed tests
 //   - failedTests: Number of failed tests
 //   - duration: Elapsed duration string
-func PrintVerboseWorkflowStatus(statusStr string, completedTests, totalTests, passedTests, failedTests int, duration string) {
+//   - childTests: Per-test progress details (may be nil)
+func PrintVerboseWorkflowStatus(statusStr string, completedTests, totalTests, passedTests, failedTests int, duration string, childTests []ChildTestInfo) {
 	if quietMode {
 		return
 	}
@@ -459,6 +469,7 @@ func PrintVerboseWorkflowStatus(statusStr string, completedTests, totalTests, pa
 	}
 
 	fmt.Println(statusLine)
+	printChildTestLines(childTests)
 }
 
 // PrintBasicWorkflowStatus prints a simple workflow status line during monitoring (non-verbose mode).
@@ -467,7 +478,8 @@ func PrintVerboseWorkflowStatus(statusStr string, completedTests, totalTests, pa
 //   - statusStr: Current status string (queued, running, completed, etc.)
 //   - completedTests: Number of completed tests
 //   - totalTests: Total number of tests
-func PrintBasicWorkflowStatus(statusStr string, completedTests, totalTests int) {
+//   - childTests: Per-test progress details (may be nil)
+func PrintBasicWorkflowStatus(statusStr string, completedTests, totalTests int, childTests []ChildTestInfo) {
 	// Clear line
 	clearLine()
 
@@ -485,11 +497,38 @@ func PrintBasicWorkflowStatus(statusStr string, completedTests, totalTests int) 
 	// In CI/non-TTY logs, emit line-by-line updates so progress is visible.
 	if !isTTY {
 		fmt.Println(statusLine)
+		printChildTestLines(childTests)
 		return
 	}
 
 	// Print without newline so it updates in place
 	fmt.Print(statusLine)
+}
+
+// printChildTestLines renders per-test progress lines below the aggregate status.
+func printChildTestLines(children []ChildTestInfo) {
+	for _, ct := range children {
+		icon := "  ▶"
+		result := ct.Status
+		if ct.Success != nil {
+			if *ct.Success {
+				icon = "  ✓"
+				result = "passed"
+			} else {
+				icon = "  ✗"
+				result = "failed"
+			}
+		}
+		line := fmt.Sprintf("%s %s", icon, ct.TestName)
+		if ct.Platform != "" {
+			line += fmt.Sprintf(" (%s)", ct.Platform)
+		}
+		line += fmt.Sprintf("  %s", result)
+		if ct.Duration != "" {
+			line += fmt.Sprintf("  %s", ct.Duration)
+		}
+		fmt.Println(line)
+	}
 }
 
 // getStyledStatusIcon returns a styled icon for the given status.

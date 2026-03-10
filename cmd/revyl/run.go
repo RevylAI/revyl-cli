@@ -64,6 +64,7 @@ const (
 
 var runInterruptExit = os.Exit
 var runTestExecution = execution.RunTest
+var runWorkflowExecution = execution.RunWorkflow
 
 // resolveRunOpen determines whether reports should auto-open.
 // Explicit --open takes precedence over config defaults.
@@ -401,6 +402,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		BuildVersionID: runBuildID,
 		Timeout:        effectiveTimeout,
 		DevMode:        devMode,
+		MonitoringMode: sse.MonitoringModePolling,
 		Latitude:       lat,
 		Longitude:      lng,
 		HasLocation:    hasLocation,
@@ -775,11 +777,12 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	})
 	defer stopInterruptHandler()
 
-	result, err := execution.RunWorkflow(ctx, apiKey, cfg, execution.RunWorkflowParams{
+	result, err := runWorkflowExecution(ctx, apiKey, cfg, execution.RunWorkflowParams{
 		WorkflowNameOrID: workflowNameOrID,
 		Retries:          runRetries,
 		Timeout:          effectiveTimeout,
 		DevMode:          devMode,
+		MonitoringMode:   sse.MonitoringModePolling,
 		IOSAppID:         runWorkflowIOSAppID,
 		AndroidAppID:     runWorkflowAndroidAppID,
 		Latitude:         wfLat,
@@ -799,11 +802,22 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 				reportLinkShown = true
 			}
 
+			var childInfo []ui.ChildTestInfo
+			for _, ct := range status.ChildTests {
+				childInfo = append(childInfo, ui.ChildTestInfo{
+					TestName: ct.TestName,
+					Platform: ct.Platform,
+					Status:   ct.Status,
+					Success:  ct.Success,
+					Duration: ct.Duration,
+				})
+			}
+
 			if runVerbose {
 				ui.PrintVerboseWorkflowStatus(status.Status, status.CompletedTests, status.TotalTests,
-					status.PassedTests, status.FailedTests, status.Duration)
+					status.PassedTests, status.FailedTests, status.Duration, childInfo)
 			} else {
-				ui.PrintBasicWorkflowStatus(status.Status, status.CompletedTests, status.TotalTests)
+				ui.PrintBasicWorkflowStatus(status.Status, status.CompletedTests, status.TotalTests, childInfo)
 			}
 		},
 	})
@@ -895,18 +909,37 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 //   - result: The workflow execution result
 func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 	output := map[string]interface{}{
-		"success":      result.Success,
-		"task_id":      result.TaskID,
-		"workflow_id":  result.WorkflowID,
-		"status":       result.Status,
-		"report_link":  result.ReportURL,
-		"total_tests":  result.TotalTests,
-		"passed_tests": result.PassedTests,
-		"failed_tests": result.FailedTests,
-		"duration":     result.Duration,
+		"success":         result.Success,
+		"task_id":         result.TaskID,
+		"workflow_id":     result.WorkflowID,
+		"workflow_name":   result.WorkflowName,
+		"status":          result.Status,
+		"report_link":     result.ReportURL,
+		"total_tests":     result.TotalTests,
+		"completed_tests": result.CompletedTests,
+		"passed_tests":    result.PassedTests,
+		"failed_tests":    result.FailedTests,
+		"duration":        result.Duration,
 	}
 	if result.ErrorMessage != "" {
 		output["error"] = result.ErrorMessage
+	}
+	if len(result.Tests) > 0 {
+		tests := make([]map[string]interface{}, 0, len(result.Tests))
+		for _, t := range result.Tests {
+			entry := map[string]interface{}{
+				"test_name": t.TestName,
+				"platform":  t.Platform,
+				"status":    t.Status,
+				"success":   t.Success,
+				"duration":  t.Duration,
+			}
+			if t.ErrorMessage != "" {
+				entry["error_message"] = t.ErrorMessage
+			}
+			tests = append(tests, entry)
+		}
+		output["tests"] = tests
 	}
 
 	data, _ := json.MarshalIndent(output, "", "  ")

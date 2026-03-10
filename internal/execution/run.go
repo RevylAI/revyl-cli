@@ -23,6 +23,7 @@ import (
 //   - BuildVersionID: Optional specific build version ID
 //   - Timeout: Timeout in seconds (default 3600)
 //   - DevMode: If true, use local development servers
+//   - MonitoringMode: Monitoring transport to use while waiting for completion
 //   - OnProgress: Optional callback for progress updates
 //   - OnTaskStarted: Optional callback called when task is created (provides task ID for cancellation)
 //   - LaunchURL: Optional deep link URL for hot reload mode
@@ -32,6 +33,7 @@ type RunTestParams struct {
 	BuildVersionID string
 	Timeout        int
 	DevMode        bool
+	MonitoringMode sse.MonitoringMode
 	OnProgress     func(status *sse.TestStatus)
 	// OnTaskStarted is called immediately after the test execution is started.
 	// This provides the task ID early, enabling cancellation before monitoring completes.
@@ -72,7 +74,7 @@ type RunTestResult struct {
 // This is the shared implementation used by both CLI and MCP. It handles:
 //   - Resolving test aliases to UUIDs
 //   - Starting test execution via API
-//   - Monitoring execution via SSE
+//   - Monitoring execution via SSE or polling
 //   - Determining success/failure status
 //
 // Parameters:
@@ -136,7 +138,7 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 
 	// Monitor execution
 	monitor := sse.NewMonitorWithDevMode(apiKey, timeout, params.DevMode)
-	finalStatus, err := monitor.MonitorTest(ctx, resp.TaskID, testID, params.OnProgress)
+	finalStatus, err := monitor.MonitorTestWithMode(ctx, resp.TaskID, testID, params.MonitoringMode, params.OnProgress)
 	if err != nil {
 		// If we have a valid final status (e.g., cancelled via frontend while context was cancelled),
 		// prefer using it over reporting a generic error
@@ -182,6 +184,7 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 //   - Retries: Number of retry attempts (1-5)
 //   - Timeout: Timeout in seconds (default 3600)
 //   - DevMode: If true, use local development servers
+//   - MonitoringMode: Monitoring transport to use while waiting for completion
 //   - OnProgress: Optional callback for progress updates
 //   - OnTaskStarted: Optional callback called when task is created (provides task ID for cancellation)
 type RunWorkflowParams struct {
@@ -192,13 +195,32 @@ type RunWorkflowParams struct {
 	IOSAppID         string // Optional iOS app ID override
 	AndroidAppID     string // Optional Android app ID override
 	// Location fields for initial GPS location override.
-	Latitude    float64
-	Longitude   float64
-	HasLocation bool
-	OnProgress  func(status *sse.WorkflowStatus)
+	Latitude       float64
+	Longitude      float64
+	HasLocation    bool
+	MonitoringMode sse.MonitoringMode
+	OnProgress     func(status *sse.WorkflowStatus)
 	// OnTaskStarted is called immediately after the workflow execution is started.
 	// This provides the task ID early, enabling cancellation before monitoring completes.
 	OnTaskStarted func(taskID string)
+}
+
+// WorkflowTestResult contains the result of an individual test within a workflow run.
+//
+// Fields:
+//   - TestName: The name of the test
+//   - Platform: Execution platform (ios, android)
+//   - Status: Final status string (completed, failed, cancelled, timeout)
+//   - Success: Whether the test passed
+//   - Duration: Execution duration as a human-readable string
+//   - ErrorMessage: Error message if the test failed
+type WorkflowTestResult struct {
+	TestName     string `json:"test_name"`
+	Platform     string `json:"platform"`
+	Status       string `json:"status"`
+	Success      bool   `json:"success"`
+	Duration     string `json:"duration"`
+	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 // RunWorkflowResult contains the result of a workflow run.
@@ -210,23 +232,27 @@ type RunWorkflowParams struct {
 //   - WorkflowName: The workflow name
 //   - Status: Final status string
 //   - TotalTests: Total number of tests
+//   - CompletedTests: Number of tests that finished (passed + failed)
 //   - PassedTests: Number of passed tests
 //   - FailedTests: Number of failed tests
 //   - Duration: Execution duration
 //   - ReportURL: URL to the workflow report
 //   - ErrorMessage: Error message if failed
+//   - Tests: Per-test results when available (populated from unified report)
 type RunWorkflowResult struct {
-	Success      bool   `json:"success"`
-	TaskID       string `json:"task_id"`
-	WorkflowID   string `json:"workflow_id"`
-	WorkflowName string `json:"workflow_name"`
-	Status       string `json:"status"`
-	TotalTests   int    `json:"total_tests"`
-	PassedTests  int    `json:"passed_tests"`
-	FailedTests  int    `json:"failed_tests"`
-	Duration     string `json:"duration"`
-	ReportURL    string `json:"report_url"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	Success        bool                 `json:"success"`
+	TaskID         string               `json:"task_id"`
+	WorkflowID     string               `json:"workflow_id"`
+	WorkflowName   string               `json:"workflow_name"`
+	Status         string               `json:"status"`
+	TotalTests     int                  `json:"total_tests"`
+	CompletedTests int                  `json:"completed_tests"`
+	PassedTests    int                  `json:"passed_tests"`
+	FailedTests    int                  `json:"failed_tests"`
+	Duration       string               `json:"duration"`
+	ReportURL      string               `json:"report_url"`
+	ErrorMessage   string               `json:"error_message,omitempty"`
+	Tests          []WorkflowTestResult `json:"tests,omitempty"`
 }
 
 // RunWorkflow executes a workflow and returns structured results.
@@ -234,7 +260,7 @@ type RunWorkflowResult struct {
 // This is the shared implementation used by both CLI and MCP. It handles:
 //   - Resolving workflow aliases to UUIDs
 //   - Starting workflow execution via API
-//   - Monitoring execution via SSE
+//   - Monitoring execution via SSE or polling
 //   - Determining success/failure status
 //
 // Parameters:
@@ -303,25 +329,28 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 
 	// Monitor execution
 	monitor := sse.NewMonitorWithDevMode(apiKey, timeout, params.DevMode)
-	finalStatus, err := monitor.MonitorWorkflow(ctx, resp.TaskID, workflowID, params.OnProgress)
+	finalStatus, err := monitor.MonitorWorkflowWithMode(ctx, resp.TaskID, workflowID, params.MonitoringMode, params.OnProgress)
 	if err != nil {
 		// If we have a valid final status (e.g., cancelled via frontend while context was cancelled),
 		// prefer using it over reporting a generic error
 		if finalStatus != nil && status.IsTerminal(finalStatus.Status) {
 			reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
-			return &RunWorkflowResult{
-				Success:      status.IsWorkflowSuccess(finalStatus.Status, finalStatus.FailedTests),
-				TaskID:       resp.TaskID,
-				WorkflowID:   workflowID,
-				WorkflowName: finalStatus.WorkflowName,
-				Status:       finalStatus.Status,
-				TotalTests:   finalStatus.TotalTests,
-				PassedTests:  finalStatus.PassedTests,
-				FailedTests:  finalStatus.FailedTests,
-				Duration:     finalStatus.Duration,
-				ReportURL:    reportURL,
-				ErrorMessage: finalStatus.ErrorMessage,
-			}, nil
+			result := &RunWorkflowResult{
+				Success:        status.IsWorkflowSuccess(finalStatus.Status, finalStatus.FailedTests),
+				TaskID:         resp.TaskID,
+				WorkflowID:     workflowID,
+				WorkflowName:   finalStatus.WorkflowName,
+				Status:         finalStatus.Status,
+				TotalTests:     finalStatus.TotalTests,
+				CompletedTests: resolveCompletedTests(finalStatus),
+				PassedTests:    finalStatus.PassedTests,
+				FailedTests:    finalStatus.FailedTests,
+				Duration:       finalStatus.Duration,
+				ReportURL:      reportURL,
+				ErrorMessage:   finalStatus.ErrorMessage,
+			}
+			enrichWithTestResults(context.Background(), client, result)
+			return result, nil
 		}
 		return &RunWorkflowResult{
 			Success:      false,
@@ -333,17 +362,60 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 
 	reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
 
-	return &RunWorkflowResult{
-		Success:      status.IsWorkflowSuccess(finalStatus.Status, finalStatus.FailedTests),
-		TaskID:       resp.TaskID,
-		WorkflowID:   workflowID,
-		WorkflowName: finalStatus.WorkflowName,
-		Status:       finalStatus.Status,
-		TotalTests:   finalStatus.TotalTests,
-		PassedTests:  finalStatus.PassedTests,
-		FailedTests:  finalStatus.FailedTests,
-		Duration:     finalStatus.Duration,
-		ReportURL:    reportURL,
-		ErrorMessage: finalStatus.ErrorMessage,
-	}, nil
+	result := &RunWorkflowResult{
+		Success:        status.IsWorkflowSuccess(finalStatus.Status, finalStatus.FailedTests),
+		TaskID:         resp.TaskID,
+		WorkflowID:     workflowID,
+		WorkflowName:   finalStatus.WorkflowName,
+		Status:         finalStatus.Status,
+		TotalTests:     finalStatus.TotalTests,
+		CompletedTests: resolveCompletedTests(finalStatus),
+		PassedTests:    finalStatus.PassedTests,
+		FailedTests:    finalStatus.FailedTests,
+		Duration:       finalStatus.Duration,
+		ReportURL:      reportURL,
+		ErrorMessage:   finalStatus.ErrorMessage,
+	}
+	enrichWithTestResults(ctx, client, result)
+	return result, nil
+}
+
+// resolveCompletedTests returns the completed test count from the workflow status,
+// falling back to passed + failed when the field is zero (e.g. older backends).
+func resolveCompletedTests(ws *sse.WorkflowStatus) int {
+	if ws.CompletedTests > 0 {
+		return ws.CompletedTests
+	}
+	return ws.PassedTests + ws.FailedTests
+}
+
+// enrichWithTestResults fetches the unified workflow report and populates
+// per-test results on the RunWorkflowResult. Failures are silently ignored
+// so the caller always gets at least the aggregate metrics.
+func enrichWithTestResults(ctx context.Context, client *api.Client, result *RunWorkflowResult) {
+	if result.TaskID == "" {
+		return
+	}
+	report, err := client.GetWorkflowUnifiedReport(ctx, result.TaskID)
+	if err != nil {
+		return
+	}
+	if result.WorkflowName == "" && report.WorkflowDetail != nil {
+		result.WorkflowName = report.WorkflowDetail.Name
+	}
+	for _, child := range report.ChildTasks {
+		tr := WorkflowTestResult{
+			TestName: child.TestName,
+			Platform: child.Platform,
+			Status:   child.Status,
+		}
+		if child.Success != nil {
+			tr.Success = *child.Success
+		}
+		if child.ExecutionTimeSeconds != nil && *child.ExecutionTimeSeconds > 0 {
+			tr.Duration = fmt.Sprintf("%.1fs", *child.ExecutionTimeSeconds)
+		}
+		tr.ErrorMessage = child.ErrorMessage
+		result.Tests = append(result.Tests, tr)
+	}
 }

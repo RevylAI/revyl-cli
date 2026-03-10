@@ -10,6 +10,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/testutil"
 )
 
 func TestHandleCreateTest_RejectsEmptyScaffoldRequests(t *testing.T) {
@@ -34,7 +35,7 @@ func TestHandleCreateTest_RejectsEmptyScaffoldRequests(t *testing.T) {
 }
 
 func TestHandleCreateTest_CreatesRunnablePayloadWithModules(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHomeDir(t, t.TempDir())
 
 	var createReq map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +114,7 @@ test:
 }
 
 func TestHandleCreateTest_UsesConfiguredDefaultAppWhenBuildNameIsOmitted(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHomeDir(t, t.TempDir())
 
 	var createReq map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

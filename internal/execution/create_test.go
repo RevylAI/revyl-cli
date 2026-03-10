@@ -10,10 +10,11 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/testutil"
 )
 
 func TestCreateTest_ResolvesOrgIDBuildModulesAndCreatesRunnablePayload(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHomeDir(t, t.TempDir())
 	t.Setenv("REVYL_APP_URL", "https://app.example")
 
 	var createReq map[string]any
@@ -128,7 +129,7 @@ func TestCreateTest_RejectsEmptyContentWhenScaffoldingIsNotAllowed(t *testing.T)
 }
 
 func TestCreateTest_AllowEmptyShellUsesExplicitAppID(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHomeDir(t, t.TempDir())
 	t.Setenv("REVYL_APP_URL", "https://app.example")
 
 	var createReq map[string]any

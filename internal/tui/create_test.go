@@ -11,10 +11,11 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/testutil"
 )
 
 func TestCreateTestCmd_UsesSelectedAppAndCreatesEmptyShell(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHomeDir(t, t.TempDir())
 
 	sawCreate := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +91,7 @@ func TestCreateTestCmd_UsesSelectedAppAndCreatesEmptyShell(t *testing.T) {
 }
 
 func TestCreateModel_UpdateResolverFailureReturnsToConfirm(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testutil.SetHomeDir(t, t.TempDir())
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
