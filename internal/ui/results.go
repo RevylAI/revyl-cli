@@ -3,6 +3,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -38,14 +39,14 @@ func PrintTestResult(name, status, reportURL, errorMsg string) {
 
 	// Status line
 	statusLine := fmt.Sprintf("%s %s", statusIcon, name)
-	fmt.Println(statusStyle.Render(statusLine))
+	fmt.Fprintln(os.Stderr, statusStyle.Render(statusLine))
 
 	// Report URL
-	fmt.Printf("  %s %s\n", DimStyle.Render("Live Report:"), LinkStyle.Render(reportURL))
+	fmt.Fprintf(os.Stderr, "  %s %s\n", DimStyle.Render("Live Report:"), LinkStyle.Render(reportURL))
 
 	// Error message if present
 	if errorMsg != "" {
-		fmt.Printf("  %s %s\n", DimStyle.Render("Error:"), ErrorStyle.Render(errorMsg))
+		fmt.Fprintf(os.Stderr, "  %s %s\n", DimStyle.Render("Error:"), ErrorStyle.Render(errorMsg))
 	}
 }
 
@@ -80,7 +81,7 @@ func PrintResultBox(status, reportURL, duration string) {
 	content := titleLine + "\n"
 	content += fmt.Sprintf("Live Report: %s", reportURL)
 
-	fmt.Println(boxStyle.Render(content))
+	fmt.Fprintln(os.Stderr, boxStyle.Render(content))
 }
 
 // PrintWorkflowResult prints a workflow execution summary.
@@ -105,15 +106,15 @@ func PrintWorkflowResult(name string, passed, failed, total int, reportURL strin
 
 	// Status line
 	statusLine := fmt.Sprintf("%s %s", statusIcon, name)
-	fmt.Println(statusStyle.Render(statusLine))
+	fmt.Fprintln(os.Stderr, statusStyle.Render(statusLine))
 
 	// Summary
 	summary := fmt.Sprintf("  %d/%d tests passed", passed, total)
 	if failed > 0 {
 		summary += fmt.Sprintf(", %d failed", failed)
 	}
-	fmt.Println(InfoStyle.Render(summary))
+	fmt.Fprintln(os.Stderr, InfoStyle.Render(summary))
 
 	// Report URL
-	fmt.Printf("  %s %s\n", DimStyle.Render("Live Report:"), LinkStyle.Render(reportURL))
+	fmt.Fprintf(os.Stderr, "  %s %s\n", DimStyle.Render("Live Report:"), LinkStyle.Render(reportURL))
 }

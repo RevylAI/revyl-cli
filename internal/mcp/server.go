@@ -108,6 +108,7 @@ func NewServer(version string, devMode bool) (*Server, error) {
 
 	// Initialize device session manager
 	s.sessionMgr = NewDeviceSessionManager(s.apiClient, workDir)
+	s.sessionMgr.SetDevMode(devMode)
 
 	// Set the version on the API client so the User-Agent header reflects
 	// the real CLI build version (e.g. "revyl-cli/1.2.3") instead of "revyl-cli/dev".
@@ -842,6 +843,8 @@ type RunTestInput struct {
 	Retries        int    `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
 	BuildVersionID string `json:"build_version_id,omitempty" jsonschema:"Specific build version ID to test against"`
 	Location       string `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
+	DeviceModel    string `json:"device_model,omitempty" jsonschema:"Override device model (e.g. iPhone 16, Pixel 7)"`
+	OsVersion      string `json:"os_version,omitempty" jsonschema:"Override OS version (e.g. iOS 18.5, Android 14)"`
 }
 
 // RunTestOutput defines the output for the run_test tool.
@@ -923,6 +926,8 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		Timeout:        3600,
 		DevMode:        s.devMode,
 		OnProgress:     onProgress,
+		DeviceModel:    input.DeviceModel,
+		OsVersion:      input.OsVersion,
 	}
 	if input.Location != "" {
 		lat, lng, locErr := parseLocationString(input.Location)

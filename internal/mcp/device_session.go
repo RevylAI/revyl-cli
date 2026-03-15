@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -69,6 +70,9 @@ type DeviceSession struct {
 
 	// ViewerURL is a browser URL where the device screen can be watched live.
 	ViewerURL string `json:"viewer_url"`
+
+	// WhepURL is the raw WebRTC playback URL for the active device stream.
+	WhepURL *string `json:"whep_url,omitempty"`
 
 	// Platform is "ios" or "android".
 	Platform string `json:"platform"`
@@ -121,6 +125,15 @@ type DeviceSessionManager struct {
 	// httpClient is used for worker HTTP requests.
 	// Has a 30-second timeout to prevent hanging on unresponsive services.
 	httpClient *http.Client
+
+	// devMode mirrors the --dev CLI flag for URL construction.
+	devMode bool
+}
+
+// SetDevMode configures whether the manager generates localhost URLs (true)
+// or production URLs (false) for viewer and report links.
+func (m *DeviceSessionManager) SetDevMode(devMode bool) {
+	m.devMode = devMode
 }
 
 // NewDeviceSessionManager creates a new session manager.
@@ -246,6 +259,11 @@ type StartSessionOptions struct {
 
 	// Optional idle timeout (defaults to 5 minutes).
 	IdleTimeout time.Duration
+
+	// DeviceModel overrides the target device model (e.g. "iPhone 16").
+	DeviceModel string
+	// OsVersion overrides the target OS runtime (e.g. "iOS 18.5").
+	OsVersion string
 }
 
 // StartSession provisions a new cloud device and adds it to the session map.
@@ -303,6 +321,12 @@ func (m *DeviceSessionManager) StartSession(
 		req.AppPackage = resolvedArtifact.AppPackage
 	}
 	_ = opts.SandboxID // Reserved for backend support.
+	if opts.DeviceModel != "" {
+		req.DeviceModel = opts.DeviceModel
+	}
+	if opts.OsVersion != "" {
+		req.OsVersion = opts.OsVersion
+	}
 
 	// Start the device via backend API
 	resp, err := m.apiClient.StartDevice(ctx, req)
@@ -352,13 +376,10 @@ func (m *DeviceSessionManager) StartSession(
 	}
 
 	// Build viewer URL
-	baseURL := "https://app.revyl.ai"
-	if os.Getenv("LOCAL") == "true" || os.Getenv("LOCAL") == "True" {
-		baseURL = "http://localhost:3000"
-	}
+	appURL := config.GetAppURL(m.devMode)
 	viewerURL := fmt.Sprintf(
 		"%s/tests/execute?workflowRunId=%s&platform=%s",
-		baseURL,
+		appURL,
 		url.QueryEscape(workflowRunID),
 		url.QueryEscape(platform),
 	)
@@ -1177,6 +1198,55 @@ type WorkerHTTPError struct {
 	Body       string
 }
 
+// WorkerActionResponse captures the standard worker action envelope used by
+// device actions such as download_file.
+type WorkerActionResponse struct {
+	Success    bool    `json:"success"`
+	Action     string  `json:"action"`
+	LatencyMs  float64 `json:"latency_ms"`
+	Error      string  `json:"error,omitempty"`
+	BundleID   string  `json:"bundle_id,omitempty"`
+	DevicePath string  `json:"device_path,omitempty"`
+}
+
+// DeviceDownloadFileRequest is the canonical request body for download_file.
+type DeviceDownloadFileRequest struct {
+	URL      string `json:"url"`
+	Filename string `json:"filename,omitempty"`
+}
+
+// LiveStepRequest is the canonical worker request body for execute_step.
+type LiveStepRequest struct {
+	StepType        string         `json:"step_type"`
+	StepDescription string         `json:"step_description"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
+	StepID          string         `json:"step_id,omitempty"`
+	NodeID          string         `json:"node_id,omitempty"`
+	TestID          string         `json:"test_id,omitempty"`
+	RunID           string         `json:"run_id,omitempty"`
+	SessionID       string         `json:"session_id,omitempty"`
+	OrgID           string         `json:"org_id,omitempty"`
+	AccessToken     string         `json:"access_token,omitempty"`
+	WorkflowRunID   string         `json:"workflow_run_id,omitempty"`
+	ExecutionID     string         `json:"execution_id,omitempty"`
+	ReportID        string         `json:"report_id,omitempty"`
+	StepDBID        string         `json:"step_db_id,omitempty"`
+	ParentStepDBID  string         `json:"parent_step_db_id,omitempty"`
+	SourceModuleID  string         `json:"source_module_id,omitempty"`
+}
+
+// LiveStepResponse is the canonical worker response body for execute_step.
+type LiveStepResponse struct {
+	Success       bool            `json:"success"`
+	StepType      string          `json:"step_type"`
+	StepID        string          `json:"step_id"`
+	WorkflowRunID string          `json:"workflow_run_id,omitempty"`
+	SessionID     string          `json:"session_id,omitempty"`
+	ExecutionID   string          `json:"execution_id,omitempty"`
+	ReportID      string          `json:"report_id,omitempty"`
+	StepOutput    json.RawMessage `json:"step_output"`
+}
+
 func (e *WorkerHTTPError) Error() string {
 	if e == nil {
 		return "worker request failed"
@@ -1186,6 +1256,143 @@ func (e *WorkerHTTPError) Error() string {
 		return fmt.Sprintf("worker returned %d on %s", e.StatusCode, e.Path)
 	}
 	return fmt.Sprintf("worker returned %d on %s: %s", e.StatusCode, e.Path, body)
+}
+
+// DownloadFileForSession executes the worker download_file action and returns
+// the structured worker response, including the resolved on-device path.
+func (m *DeviceSessionManager) DownloadFileForSession(
+	ctx context.Context,
+	index int,
+	req DeviceDownloadFileRequest,
+) (*WorkerActionResponse, error) {
+	respBody, err := m.WorkerRequestForSession(ctx, index, "/download_file", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result WorkerActionResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse download_file response: %w", err)
+	}
+	return &result, nil
+}
+
+// stepAcceptedResponse is the 202 body returned when the worker accepts a
+// step for async execution. The caller should poll step_status/{step_id}.
+type stepAcceptedResponse struct {
+	StepID string `json:"step_id"`
+	Status string `json:"status"` // "accepted"
+}
+
+// stepStatusResponse is the body returned by GET /step_status/{step_id}.
+type stepStatusResponse struct {
+	StepID string          `json:"step_id"`
+	Status string          `json:"status"` // "running", "completed", "failed"
+	Result json.RawMessage `json:"result"` // LiveStepResponse JSON when terminal
+}
+
+const (
+	stepPollBaseDelay = 500 * time.Millisecond
+	stepPollMaxDelay  = 5 * time.Second
+	stepPollTimeout   = 10 * time.Minute
+)
+
+// ExecuteLiveStepForSession executes one high-level step through the worker's
+// canonical execute_step route and returns the shared JSON contract used by
+// CLI, MCP, and SDK consumers.
+//
+// The worker returns HTTP 202 and runs the step asynchronously. This method
+// polls GET /step_status/{step_id} until a terminal status is reached, then
+// returns the final LiveStepResponse. For backward compatibility with older
+// workers that return 200 synchronously, the response body is inspected.
+func (m *DeviceSessionManager) ExecuteLiveStepForSession(
+	ctx context.Context,
+	index int,
+	req LiveStepRequest,
+) (*LiveStepResponse, error) {
+	session, err := m.ResolveSession(index)
+	if err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(req.SessionID) == "" {
+		req.SessionID = session.SessionID
+	}
+	if strings.TrimSpace(req.WorkflowRunID) == "" {
+		req.WorkflowRunID = session.WorkflowRunID
+	}
+
+	respBody, err := m.workerRequestForSession(ctx, session, "/execute_step", req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Detect async (202) vs sync (200) response by checking for the
+	// "accepted" status field that only stepAcceptedResponse carries.
+	var accepted stepAcceptedResponse
+	if err := json.Unmarshal(respBody, &accepted); err == nil && accepted.Status == "accepted" && accepted.StepID != "" {
+		return m.pollStepUntilDone(ctx, session, accepted.StepID)
+	}
+
+	// Sync fallback for older workers returning 200 with full result.
+	var result LiveStepResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse execute_step response: %w", err)
+	}
+	return &result, nil
+}
+
+// pollStepUntilDone polls GET /step_status/{step_id} with exponential backoff
+// until the step reaches a terminal status or the timeout is exceeded.
+func (m *DeviceSessionManager) pollStepUntilDone(
+	ctx context.Context,
+	session *DeviceSession,
+	stepID string,
+) (*LiveStepResponse, error) {
+	deadline := time.Now().Add(stepPollTimeout)
+	delay := stepPollBaseDelay
+	path := "/step_status/" + stepID
+
+	for {
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("step %s did not complete within %v", stepID, stepPollTimeout)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+
+		respBody, err := m.workerRequestForSession(ctx, session, path, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to poll step status for %s: %w", stepID, err)
+		}
+
+		var status stepStatusResponse
+		if err := json.Unmarshal(respBody, &status); err != nil {
+			return nil, fmt.Errorf("failed to parse step_status response: %w", err)
+		}
+
+		if status.Status == "running" {
+			// Exponential backoff capped at stepPollMaxDelay.
+			delay = delay * 2
+			if delay > stepPollMaxDelay {
+				delay = stepPollMaxDelay
+			}
+			continue
+		}
+
+		// Terminal status -- parse the embedded result.
+		if status.Result == nil {
+			return nil, fmt.Errorf("step %s finished with status %q but no result", stepID, status.Status)
+		}
+		var result LiveStepResponse
+		if err := json.Unmarshal(status.Result, &result); err != nil {
+			return nil, fmt.Errorf("failed to parse step result for %s: %w", stepID, err)
+		}
+		return &result, nil
+	}
 }
 
 // isWorkerConnectivityError reports whether the direct worker request failed due to
@@ -1222,8 +1429,12 @@ func isWorkerConnectivityError(err error) bool {
 	return false
 }
 
-// workerProxyActionFromPath converts worker path formats like "/tap" or
-// "/resolve_target?x=1" into proxy action names (e.g. "tap", "resolve_target").
+// workerProxyActionFromPath converts worker path formats like "/tap",
+// "/resolve_target?x=1", or "/step_status/{id}" into proxy action strings.
+//
+// Single-segment paths return just the action (e.g. "tap").
+// Multi-segment paths like "/step_status/{uuid}" are allowed when the base
+// segment is in compoundPathActions; the full trimmed path is returned.
 func workerProxyActionFromPath(path string) (string, error) {
 	action := strings.TrimSpace(path)
 	if action == "" {
@@ -1233,10 +1444,25 @@ func workerProxyActionFromPath(path string) (string, error) {
 		action = action[:idx]
 	}
 	action = strings.Trim(action, "/")
-	if action == "" || strings.Contains(action, "/") {
+	if action == "" {
+		return "", fmt.Errorf("invalid worker path %q for proxy fallback", path)
+	}
+	// Allow compound paths (e.g. "step_status/{uuid}") for actions that
+	// carry a sub-resource identifier.
+	if strings.Contains(action, "/") {
+		base := action[:strings.Index(action, "/")]
+		if compoundPathActions[base] {
+			return action, nil
+		}
 		return "", fmt.Errorf("invalid worker path %q for proxy fallback", path)
 	}
 	return action, nil
+}
+
+// compoundPathActions lists base action names whose proxy paths include
+// a sub-resource segment (e.g. step_status/{step_id}).
+var compoundPathActions = map[string]bool{
+	"step_status": true,
 }
 
 // proxyWorkerRequestForSession forwards a worker action through the backend
@@ -1312,11 +1538,15 @@ func (m *DeviceSessionManager) WorkerRequestForSession(ctx context.Context, inde
 	return m.workerRequestForSession(ctx, session, path, body)
 }
 
+// nonIdempotentPaths lists worker paths whose side-effects make retry unsafe.
+// Retrying these creates duplicate work (e.g. duplicate agent steps).
+var nonIdempotentPaths = map[string]bool{
+	"/execute_step": true,
+}
+
 // workerRequestForSession is the internal implementation that sends a worker
 // action request to a given session using the backend relay.
 func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, session *DeviceSession, path string, body interface{}) ([]byte, error) {
-	// Any direct device action should count as activity and extend the
-	// session's idle timeout window.
 	if session != nil {
 		m.ResetIdleTimer(session.Index)
 	}
@@ -1324,6 +1554,15 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 	respBody, err := m.proxyWorkerRequestForSession(ctx, session, path, body)
 	if err == nil {
 		return respBody, nil
+	}
+
+	// Non-idempotent actions must not be retried -- return errors directly.
+	if nonIdempotentPaths[path] {
+		var workerErr *WorkerHTTPError
+		if errors.As(err, &workerErr) {
+			return nil, workerErr
+		}
+		return nil, fmt.Errorf("backend device control request failed: %w", err)
 	}
 
 	var workerErr *WorkerHTTPError
@@ -1624,10 +1863,14 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	// Step 4: Build backend lookup maps for pruning/reconciliation.
 	backendIDs := make(map[string]bool)
 	backendIDsByWorkflow := make(map[string]string)
+	backendSessionByID := make(map[string]api.ActiveDeviceSessionItem)
+	backendSessionByWorkflow := make(map[string]api.ActiveDeviceSessionItem)
 	for _, bs := range backendSessions {
 		backendIDs[bs.Id] = true
+		backendSessionByID[bs.Id] = bs
 		if bs.WorkflowRunId != nil && *bs.WorkflowRunId != "" {
 			backendIDsByWorkflow[*bs.WorkflowRunId] = bs.Id
+			backendSessionByWorkflow[*bs.WorkflowRunId] = bs
 		}
 	}
 
@@ -1635,6 +1878,16 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	// Reconcile by workflow run ID to avoid churn when SessionID was seeded
 	// with workflowRunID during StartSession before backend session ID was known.
 	reconcileSessionIDsByWorkflow(m.sessions, backendIDsByWorkflow)
+	for _, ls := range m.sessions {
+		if bs, ok := backendSessionByID[ls.SessionID]; ok {
+			ls.WhepURL = bs.WhepUrl
+			continue
+		}
+		if bs, ok := backendSessionByWorkflow[ls.WorkflowRunID]; ok {
+			ls.SessionID = bs.Id
+			ls.WhepURL = bs.WhepUrl
+		}
+	}
 	for idx, ls := range m.sessions {
 		if backendIDs[ls.SessionID] {
 			continue
@@ -1690,13 +1943,10 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		}
 
 		// Build viewer URL
-		baseURL := "https://app.revyl.ai"
-		if os.Getenv("LOCAL") == "true" || os.Getenv("LOCAL") == "True" {
-			baseURL = "http://localhost:3000"
-		}
+		appURL := config.GetAppURL(m.devMode)
 		viewerURL := fmt.Sprintf(
 			"%s/tests/execute?workflowRunId=%s&platform=%s",
-			baseURL,
+			appURL,
 			url.QueryEscape(workflowRunID),
 			url.QueryEscape(bs.Platform),
 		)
@@ -1717,6 +1967,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			WorkflowRunID: workflowRunID,
 			WorkerBaseURL: workerBaseURL,
 			ViewerURL:     viewerURL,
+			WhepURL:       bs.WhepUrl,
 			Platform:      bs.Platform,
 			StartedAt:     startedAt,
 			LastActivity:  time.Now(),

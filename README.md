@@ -17,7 +17,7 @@
 
 ---
 
-Proactive Reliability
+Revyl is an AI-powered testing platform for mobile apps. Define tests in natural language, run them on cloud devices, and catch bugs before your users do. It works with iOS and Android, supports Expo / React Native / Flutter / native builds, and integrates with your CI pipeline and AI coding tools.
 
 ## Install
 
@@ -25,6 +25,18 @@ Proactive Reliability
 brew install RevylAI/tap/revyl          # Homebrew (recommended)
 uv tool install revyl                   # uv
 pip install revyl                       # pip
+```
+
+## Authenticate
+
+```bash
+revyl auth login                        # Browser-based login (stores credentials locally)
+```
+
+Or set an API key directly:
+
+```bash
+export REVYL_API_KEY=your-api-key
 ```
 
 ## Quick Start
@@ -67,68 +79,75 @@ Connect Revyl to your AI coding tools -- your agent gets cloud devices, test exe
 
 | Tool | Setup |
 |------|-------|
-| **Cursor** | **[Add to Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19)** [![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.png)](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19) |
+| **Cursor** | Add to `.cursor/mcp.json`: `{"mcpServers":{"revyl":{"command":"revyl","args":["mcp","serve"]}}}` ([full guide](docs/MCP_SETUP.md#cursor)) |
 | **VS Code** | [![Install in VS Code](https://img.shields.io/badge/VS_Code-Revyl-0098FF?style=flat&logo=visualstudiocode&logoColor=ffffff)](vscode:mcp/install?%7B%22name%22%3A%22revyl%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22revyl%22%2C%22args%22%3A%5B%22mcp%22%2C%22serve%22%5D%7D) |
 | **Claude Code** | `claude mcp add revyl -- revyl mcp serve` |
 | **Codex** | `codex mcp add revyl -- revyl mcp serve` |
 
 > [Full setup guide](docs/MCP_SETUP.md) -- includes Windsurf, Claude Desktop, and agent skills
 
-Install agent skills (improves AI tool integration):
+## Device SDK
 
 ```bash
-revyl skill install              # Auto-detect tool; install CLI skill family (default)
-revyl skill install --mcp        # Install MCP skill family
-revyl skill install --cli --mcp  # Install both skill families
-revyl skill install --cursor     # Cursor only
-revyl skill install --claude     # Claude Code only
-revyl skill install --codex      # Codex only
-revyl skill list                 # Show available skill names
-revyl skill show --name revyl-cli
-revyl skill show --name revyl-mcp-dev-loop
-revyl skill export --name revyl-cli-create -o SKILL.md
-revyl skill export --name revyl-mcp-analyze -o SKILL.md
-revyl skill revyl-mcp-dev-loop install --codex
-revyl skill install --name revyl-cli-create --name revyl-cli-analyze --codex
+pip install revyl
 ```
+
+```python
+from revyl import DeviceClient
+
+with DeviceClient.start(platform="ios") as device:
+    device.tap(target="Login button")
+    device.type_text(target="Email", text="user@test.com")
+    device.instruction("Open Settings and tap Wi-Fi")
+    device.validation("Verify Wi-Fi settings are visible")
+    device.screenshot(out="screen.png")
+```
+
+See [Device SDK Reference](docs/SDK.md) for the full API.
+
+## Agent Skills
+
+Install agent skills to improve how your AI coding tool uses Revyl:
+
+```bash
+revyl skill install              # Auto-detect tool; install CLI skill family
+revyl skill install --mcp        # Install MCP skill family
+revyl skill install --cli --mcp  # Install both
+```
+
+See [Agent Skills](docs/SKILLS.md) for the full list and prompt examples.
 
 ## What You Can Do
 
 | Feature | Command | Docs |
 |---------|---------|------|
-| **Run tests** | `revyl test run <name>` | [Commands](docs/COMMANDS.md#running-tests) |
-| **Run workflows** | `revyl workflow run <name>` | [Commands](docs/COMMANDS.md#workflow-management) |
-| **Cloud devices** | `revyl device start` | [Commands](docs/COMMANDS.md#device-management) |
-| **Dev loop (Expo)** | `revyl dev` | [Commands](docs/COMMANDS.md#dev-loop-expo) |
-| **Build & upload** | `revyl build upload` | [Commands](docs/COMMANDS.md#build-management) |
-| **Publish to TestFlight** | `revyl publish testflight` | [Commands](docs/COMMANDS.md#ios-publishing-testflight) |
-| **CI/CD** | GitHub Actions | [CI/CD](docs/CI_CD.md) |
-| **Python / TypeScript SDK** | `pip install revyl` | [SDK](docs/SDK.md) |
-| **Agent skills** | `revyl skill install` | [Skills](docs/SKILLS.md) |
+| Run tests | `revyl test run <name>` | [Commands](docs/COMMANDS.md#running-tests) |
+| Run workflows | `revyl workflow run <name>` | [Commands](docs/COMMANDS.md#workflow-management) |
+| Cloud devices | `revyl device start` | [Commands](docs/COMMANDS.md#device-management) |
+| Dev loop (Expo) | `revyl dev` | [Commands](docs/COMMANDS.md#dev-loop-expo) |
+| Build and upload | `revyl build upload` | [Commands](docs/COMMANDS.md#build-management) |
+| Publish to TestFlight | `revyl publish testflight` | [Commands](docs/COMMANDS.md#ios-publishing-testflight) |
+| CI/CD | GitHub Actions | [CI/CD](docs/CI_CD.md) |
+| Device SDK | `pip install revyl` | [Device SDK](docs/SDK.md) |
+| Agent skills | `revyl skill install` | [Skills](docs/SKILLS.md) |
 
 ## Documentation
 
 - **[Command Reference](docs/COMMANDS.md)** -- full list of every command and flag
-- **[Creating Tests](docs/TEST_CREATION.md)** -- in-depth CLI test authoring, YAML-first workflows, modules, and troubleshooting
+- **[Creating Tests](docs/TEST_CREATION.md)** -- YAML-first workflows, modules, and troubleshooting
 - **[Configuration](docs/CONFIGURATION.md)** -- `.revyl/config.yaml` reference
 - **[MCP Setup](docs/MCP_SETUP.md)** -- AI agent integration for all tools
 - **[Agent Skills](docs/SKILLS.md)** -- embedded skills for device loops, test creation, failure analysis
-- **[SDK](docs/SDK.md)** -- Python and TypeScript programmatic usage
+- **[Device SDK](docs/SDK.md)** -- Programmatic device control
 - **[CI/CD](docs/CI_CD.md)** -- GitHub Actions integration
 - **[Development](docs/DEVELOPMENT.md)** -- internal dev workflow, hot reload, `--dev` mode
 - **[Releasing](docs/RELEASING.md)** -- version bumping, release pipeline
 - **[Public Docs](https://docs.revyl.ai)** -- full documentation site
 
-## Common Install Errors
+## Troubleshooting
 
-If `brew upgrade revyl` fails with:
-
-```text
-Error: Your Xcode ... is too outdated.
-Error: Your Command Line Tools are too outdated.
-```
-
-Run:
+<details>
+<summary>Xcode / Command Line Tools errors during <code>brew upgrade revyl</code></summary>
 
 ```bash
 softwareupdate --all --install --force
@@ -149,18 +168,17 @@ If you use full Xcode builds, install the latest Xcode version from the App Stor
 sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ```
 
-If Homebrew reports directory ownership errors such as:
+</details>
 
-```text
-The following directories are not writable by your user: /opt/homebrew ...
-```
-
-repair permissions:
+<details>
+<summary>Homebrew directory ownership errors</summary>
 
 ```bash
 sudo chown -R "$(whoami)" /opt/homebrew /Users/"$(whoami)"/Library/Caches/Homebrew /Users/"$(whoami)"/Library/Logs/Homebrew
 chmod -R u+w /opt/homebrew /Users/"$(whoami)"/Library/Caches/Homebrew /Users/"$(whoami)"/Library/Logs/Homebrew
 ```
+
+</details>
 
 ## License
 

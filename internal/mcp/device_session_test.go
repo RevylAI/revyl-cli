@@ -806,6 +806,58 @@ func TestDeviceSessionManager_StartSession_PropagatesBuildPackageToStartDevice(t
 	}
 }
 
+func TestDeviceSessionManager_StartSession_PropagatesDirectAppURLToStartDevice(t *testing.T) {
+	t.Parallel()
+
+	const (
+		appURL        = "https://artifact.example/direct-app.ipa"
+		workflowRunID = "wf-run-direct"
+	)
+
+	var capturedStartReq struct {
+		AppURL string `json:"app_url"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
+			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
+				t.Fatalf("decode start_device request: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
+			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
+			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient:   api.NewClientWithBaseURL("test-key", server.URL),
+		sessions:    make(map[int]*DeviceSession),
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: -1,
+	}
+
+	_, session, err := mgr.StartSession(context.Background(), StartSessionOptions{
+		Platform: "ios",
+		AppURL:   "  " + appURL + "  ",
+	})
+	if err != nil {
+		t.Fatalf("StartSession returned error: %v", err)
+	}
+	if session == nil {
+		t.Fatal("expected non-nil session")
+	}
+	if capturedStartReq.AppURL != appURL {
+		t.Fatalf("start_device app_url = %q, want %q", capturedStartReq.AppURL, appURL)
+	}
+}
+
 func TestDeviceSessionManager_WorkerRequestForSession_ReturnsTypedWorkerHTTPError(t *testing.T) {
 	t.Parallel()
 
@@ -996,6 +1048,127 @@ func TestDeviceSessionManager_WorkerRequestForSession_ProxyHTTPErrorReturnsTyped
 	}
 	if workerErr.Body != `{"detail":"Action not allowed"}` {
 		t.Fatalf("workerErr.Body = %q, want %q", workerErr.Body, `{"detail":"Action not allowed"}`)
+	}
+}
+
+func TestDeviceSessionManager_DownloadFileForSession_ReturnsTypedResponse(t *testing.T) {
+	t.Parallel()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/execution/device-proxy/wf-1/download_file" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST to proxy, got %s", r.Method)
+		}
+		var body DeviceDownloadFileRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode proxy request body: %v", err)
+		}
+		if body.URL != "https://example.com/report.pdf" {
+			t.Fatalf("unexpected URL %q", body.URL)
+		}
+		if body.Filename != "report.pdf" {
+			t.Fatalf("unexpected filename %q", body.Filename)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"action":"download_file","latency_ms":10,"device_path":"/sdcard/Download/report.pdf"}`))
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-1",
+				WorkflowRunID: "wf-1",
+				WorkerBaseURL: "https://cog-unresolvable.revyl.ai",
+				Platform:      "android",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	resp, err := mgr.DownloadFileForSession(context.Background(), 0, DeviceDownloadFileRequest{
+		URL:      "https://example.com/report.pdf",
+		Filename: "report.pdf",
+	})
+	if err != nil {
+		t.Fatalf("expected download_file success, got error: %v", err)
+	}
+	if resp.Action != "download_file" {
+		t.Fatalf("Action = %q, want %q", resp.Action, "download_file")
+	}
+	if resp.DevicePath != "/sdcard/Download/report.pdf" {
+		t.Fatalf("DevicePath = %q, want %q", resp.DevicePath, "/sdcard/Download/report.pdf")
+	}
+}
+
+func TestDeviceSessionManager_ExecuteLiveStepForSession_UsesCanonicalContract(t *testing.T) {
+	t.Parallel()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/execution/device-proxy/wf-2/execute_step" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST to proxy, got %s", r.Method)
+		}
+		var body LiveStepRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode proxy request body: %v", err)
+		}
+		if body.StepType != "validation" {
+			t.Fatalf("StepType = %q, want %q", body.StepType, "validation")
+		}
+		if body.StepDescription != "Verify the dashboard is visible" {
+			t.Fatalf("unexpected StepDescription %q", body.StepDescription)
+		}
+		if body.SessionID != "sess-2" {
+			t.Fatalf("SessionID = %q, want %q", body.SessionID, "sess-2")
+		}
+		if body.WorkflowRunID != "wf-2" {
+			t.Fatalf("WorkflowRunID = %q, want %q", body.WorkflowRunID, "wf-2")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"step_type":"validation","step_id":"step-123","workflow_run_id":"wf-2","session_id":"sess-2","execution_id":"exec-123","report_id":"report-123","step_output":{"status":"PASSED","validation_result":true}}`))
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-2",
+				WorkflowRunID: "wf-2",
+				WorkerBaseURL: "https://cog-unresolvable.revyl.ai",
+				Platform:      "ios",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	resp, err := mgr.ExecuteLiveStepForSession(context.Background(), 0, LiveStepRequest{
+		StepType:        "validation",
+		StepDescription: "Verify the dashboard is visible",
+	})
+	if err != nil {
+		t.Fatalf("expected execute_step success, got error: %v", err)
+	}
+	if resp.StepType != "validation" {
+		t.Fatalf("StepType = %q, want %q", resp.StepType, "validation")
+	}
+	if resp.SessionID != "sess-2" {
+		t.Fatalf("SessionID = %q, want %q", resp.SessionID, "sess-2")
+	}
+	if !strings.Contains(string(resp.StepOutput), `"validation_result":true`) {
+		t.Fatalf("unexpected StepOutput payload: %s", string(resp.StepOutput))
 	}
 }
 

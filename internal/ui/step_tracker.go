@@ -3,6 +3,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"sync"
 )
 
@@ -97,7 +98,7 @@ func (t *StepTracker) Update(status *StepStatus) {
 func (t *StepTracker) printCompletedStep(stepDescription string) {
 	// Clear the current line first (in case there was a status line)
 	clearLine()
-	fmt.Println(SuccessStyle.Render("✓ " + stepDescription))
+	fmt.Fprintln(os.Stderr, SuccessStyle.Render("✓ "+stepDescription))
 }
 
 // printCurrentStatus prints the current step status line.
@@ -124,7 +125,7 @@ func (t *StepTracker) printCurrentStatus(status *StepStatus) {
 	}
 
 	// Print without newline so it updates in place
-	fmt.Print(statusLine)
+	fmt.Fprint(os.Stderr, statusLine)
 }
 
 // Finish clears the status line and prints a final newline.

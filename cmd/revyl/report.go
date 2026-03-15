@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,18 @@ var (
 	shareOutputJSON  bool
 	shareOpen        bool
 )
+
+var internalReportJSONKeys = map[string]struct{}{
+	"expected_states":                {},
+	"run_config":                     {},
+	"s3_bucket":                      {},
+	"video_s3_key":                   {},
+	"device_logs_s3_key":             {},
+	"screenshot_before_s3_key":       {},
+	"screenshot_before_clean_s3_key": {},
+	"screenshot_after_s3_key":        {},
+	"grounding_crop_s3_key":          {},
+}
 
 func init() {
 	testReportCmd.Flags().BoolVar(&reportOutputJSON, "json", false, "Output results as JSON")
@@ -70,28 +83,17 @@ Examples:
 }
 
 // resolveToTaskID resolves an argument to a task/execution ID.
-// Tries: direct UUID as execution ID → test name/alias → test UUID → latest task.
+// Tries: UUID-like test IDs via history → direct UUID execution/task IDs → test
+// name/alias → latest task.
 func resolveToTaskID(cmd *cobra.Command, nameOrID string, cfg *config.ProjectConfig, client *api.Client, devMode bool) (taskID string, testName string, err error) {
-	// 1. If it looks like a UUID, try it directly as an execution/task ID
+	// 1. If it looks like a UUID, first preserve test UUID support by resolving
+	// the latest execution from history. Otherwise treat it as the execution/task
+	// candidate directly and let the final reports-v3 fetch surface the real error.
 	if looksLikeUUID(nameOrID) {
-		// Try to get report by this ID (it could be a task/execution ID)
-		_, reportErr := client.GetReportByExecution(cmd.Context(), nameOrID, false)
-		if reportErr == nil {
-			return nameOrID, "", nil
+		if latestTaskID, latestErr := resolveLatestTaskID(cmd.Context(), client, nameOrID); latestErr == nil {
+			return latestTaskID, "", nil
 		}
-
-		// Not a valid execution ID - check if it's a test ID
-		var apiErr *api.APIError
-		if errors.As(reportErr, &apiErr) && apiErr.StatusCode == 404 {
-			// Try as test ID → get latest task
-			latestTaskID, err := resolveLatestTaskID(cmd.Context(), client, nameOrID)
-			if err == nil {
-				return latestTaskID, "", nil
-			}
-		}
-
-		// Neither a valid execution ID nor a test ID with executions
-		return "", "", fmt.Errorf("'%s' is not a valid execution ID or test with executions", nameOrID)
+		return nameOrID, "", nil
 	}
 
 	// 2. Resolve as test name → get latest task ID
@@ -111,6 +113,27 @@ func resolveToTaskID(cmd *cobra.Command, nameOrID string, cfg *config.ProjectCon
 	}
 
 	return latestTaskID, displayName, nil
+}
+
+func isReportContextRouteMissing(apiErr *api.APIError) bool {
+	return apiErr != nil &&
+		apiErr.StatusCode == 404 &&
+		apiErr.DetailObject == nil &&
+		strings.EqualFold(strings.TrimSpace(apiErr.Detail), "Not Found")
+}
+
+func isReportContextLegacyMissing(apiErr *api.APIError) bool {
+	return apiErr != nil && apiErr.StatusCode == 404 && apiErr.DetailBool("use_legacy")
+}
+
+func reportContextDetailMessage(apiErr *api.APIError) string {
+	if apiErr == nil {
+		return ""
+	}
+	if message := apiErr.DetailString("message"); message != "" {
+		return message
+	}
+	return apiErr.Detail
 }
 
 // runTestReport shows a detailed report for a test execution.
@@ -147,10 +170,17 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("report not found")
 	}
 
-	// Fetch the report — include actions for JSON (agent consumption)
+	// Fetch the canonical context report from the backend.
 	includeSteps := !reportNoSteps
-	includeActions := jsonOutput
-	report, err := client.GetReportByExecution(cmd.Context(), taskID, includeSteps, includeActions)
+	includeActions := includeSteps && jsonOutput
+	includeLLMCalls := includeSteps && jsonOutput
+	reportEnvelope, err := client.GetReportContextByExecution(
+		cmd.Context(),
+		taskID,
+		includeSteps,
+		includeActions,
+		includeLLMCalls,
+	)
 	if !jsonOutput {
 		ui.StopSpinner()
 	}
@@ -162,8 +192,22 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 		var apiErr *api.APIError
 		if errors.As(err, &apiErr) {
 			if apiErr.StatusCode == 404 {
-				ui.PrintWarning("No detailed report available for this execution")
-				ui.PrintInfo("The report may not have been generated yet, or this is a legacy execution.")
+				switch {
+				case isReportContextLegacyMissing(apiErr):
+					ui.PrintWarning("This execution does not have a reports-v3 context report")
+					if detail := reportContextDetailMessage(apiErr); detail != "" {
+						ui.PrintDim("  %s", detail)
+					}
+					ui.PrintInfo("The execution exists, but it does not have a reports-v3 /context payload.")
+				case isReportContextRouteMissing(apiErr):
+					ui.PrintWarning("This backend does not expose the reports-v3 context endpoint yet")
+					ui.PrintInfo("Deploy the backend version that serves the reports-v3 /context route for executions.")
+				default:
+					ui.PrintWarning("No reports-v3 context report available for this execution")
+					if detail := reportContextDetailMessage(apiErr); detail != "" {
+						ui.PrintDim("  %s", detail)
+					}
+				}
 				ui.Println()
 				ui.PrintLink("View in browser", fallbackURL)
 				return nil
@@ -190,117 +234,46 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Use report test name if we don't have one from resolution
-	displayName := testName
-	if displayName == "" && report.TestName != "" {
-		displayName = report.TestName
+	report := reportEnvelope.Report
+
+	// Prefer the backend's canonical test name when available.
+	displayName := stringValue(report.TestName)
+	if displayName == "" {
+		displayName = testName
 	}
 	if displayName == "" {
 		displayName = nameOrID
 	}
 
-	reportURL := fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(devMode), taskID)
+	reportURL := stringValue(report.ReportURL)
+	if reportURL == "" {
+		reportURL = fmt.Sprintf("%s/tests/report?taskId=%s", config.GetAppURL(devMode), taskID)
+	}
 
 	if jsonOutput {
-		output := map[string]interface{}{
-			"test_name":          displayName,
-			"test_id":            report.TestID,
-			"execution_id":       report.ExecutionID,
-			"platform":           normalizePlatform(report.Platform),
-			"success":            report.Success,
-			"total_steps":        report.TotalSteps,
-			"passed_steps":       report.PassedSteps,
-			"failed_steps":       report.FailedSteps,
-			"total_validations":  report.TotalValidations,
-			"validations_passed": report.ValidsPassed,
-			"report_url":         reportURL,
-		}
-		if report.StartedAt != "" {
-			output["started_at"] = report.StartedAt
-		}
-		if report.CompletedAt != "" {
-			output["completed_at"] = report.CompletedAt
-		}
-		if report.StartedAt != "" && report.CompletedAt != "" {
-			if d := computeDuration(report.StartedAt, report.CompletedAt); d != "" {
-				output["duration"] = d
+		if !reportShare {
+			data, err := buildUserFacingReportJSON(reportEnvelope.Raw)
+			if err != nil {
+				return err
 			}
-		}
-		if report.AppName != "" {
-			output["app_name"] = report.AppName
-		}
-		if report.BuildVersion != "" {
-			output["build_version"] = report.BuildVersion
-		}
-		if report.DeviceModel != "" {
-			output["device_model"] = report.DeviceModel
-		}
-		if report.OSVersion != "" {
-			output["os_version"] = report.OSVersion
-		}
-		if includeSteps && len(report.Steps) > 0 {
-			steps := make([]map[string]interface{}, 0, len(report.Steps))
-			for _, s := range report.Steps {
-				step := map[string]interface{}{
-					"order":       s.ExecutionOrder,
-					"type":        s.StepType,
-					"description": s.StepDesc,
-					"status":      s.Status,
-				}
-				if s.StatusReason != "" {
-					step["status_reason"] = s.StatusReason
-				}
-				if len(s.TypeData) > 0 {
-					step["type_data"] = s.TypeData
-				}
-				if len(s.Actions) > 0 {
-					actions := make([]map[string]interface{}, 0, len(s.Actions))
-					for _, a := range s.Actions {
-						action := map[string]interface{}{
-							"action_index": a.ActionIndex,
-						}
-						if a.ActionType != "" {
-							action["action_type"] = a.ActionType
-						}
-						if a.AgentDescription != "" {
-							action["agent_description"] = a.AgentDescription
-						}
-						if a.Reasoning != "" {
-							action["reasoning"] = a.Reasoning
-						}
-						if a.ReflectionDecision != "" {
-							action["reflection_decision"] = a.ReflectionDecision
-						}
-						if a.ReflectionReasoning != "" {
-							action["reflection_reasoning"] = a.ReflectionReasoning
-						}
-						if a.ReflectionSuggestion != "" {
-							action["reflection_suggestion"] = a.ReflectionSuggestion
-						}
-						if a.IsTerminal {
-							action["is_terminal"] = true
-						}
-						if len(a.TypeData) > 0 {
-							action["type_data"] = a.TypeData
-						}
-						actions = append(actions, action)
-					}
-					step["actions"] = actions
-				}
-				steps = append(steps, step)
-			}
-			output["steps"] = steps
+			fmt.Println(string(data))
+			return nil
 		}
 
-		// Include shareable link if --share flag
-		if reportShare {
-			shareResp, shareErr := client.GenerateShareableLink(cmd.Context(), taskID)
-			if shareErr == nil {
-				output["shareable_link"] = shareResp.ShareableLink
-			}
+		var output map[string]interface{}
+		if err := json.Unmarshal(reportEnvelope.Raw, &output); err != nil {
+			return fmt.Errorf("failed to parse report JSON: %w", err)
 		}
 
-		data, _ := json.MarshalIndent(output, "", "  ")
+		shareResp, shareErr := client.GenerateShareableLink(cmd.Context(), taskID)
+		if shareErr == nil {
+			output["shareable_link"] = shareResp.ShareableLink
+		}
+
+		data, err := marshalUserFacingReportJSON(output)
+		if err != nil {
+			return err
+		}
 		fmt.Println(string(data))
 		return nil
 	}
@@ -311,7 +284,7 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 	// Result header — big pass/fail indicator
 	resultIcon := ui.SuccessStyle.Render("✓")
 	resultText := "Passed"
-	if (report.Success != nil && !*report.Success) || report.FailedSteps > 0 {
+	if isFalse(report.Success) || intValue(report.EffectiveFailedSteps) > 0 {
 		resultIcon = ui.ErrorStyle.Render("✗")
 		resultText = "Failed"
 	}
@@ -321,27 +294,27 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 	ui.Println()
 
 	// Metadata
-	if report.Platform != "" {
-		ui.PrintKeyValue("Platform:", normalizePlatform(report.Platform))
+	if stringValue(report.Platform) != "" {
+		ui.PrintKeyValue("Platform:", normalizePlatform(stringValue(report.Platform)))
 	}
-	if report.AppName != "" {
-		appInfo := report.AppName
-		if report.BuildVersion != "" {
-			appInfo += " v" + report.BuildVersion
+	if stringValue(report.AppName) != "" {
+		appInfo := stringValue(report.AppName)
+		if stringValue(report.BuildVersion) != "" {
+			appInfo += " v" + stringValue(report.BuildVersion)
 		}
 		ui.PrintKeyValue("App:", appInfo)
 	}
-	if report.DeviceModel != "" {
-		deviceInfo := report.DeviceModel
-		if report.OSVersion != "" {
-			deviceInfo += fmt.Sprintf(" (%s)", report.OSVersion)
+	if stringValue(report.DeviceModel) != "" {
+		deviceInfo := stringValue(report.DeviceModel)
+		if stringValue(report.OsVersion) != "" {
+			deviceInfo += fmt.Sprintf(" (%s)", stringValue(report.OsVersion))
 		}
 		ui.PrintKeyValue("Device:", deviceInfo)
 	}
 
 	// Duration from started_at / completed_at
-	if report.StartedAt != "" && report.CompletedAt != "" {
-		duration := computeDuration(report.StartedAt, report.CompletedAt)
+	if stringValue(report.StartedAt) != "" && stringValue(report.CompletedAt) != "" {
+		duration := computeDuration(stringValue(report.StartedAt), stringValue(report.CompletedAt))
 		if duration != "" {
 			ui.PrintKeyValue("Duration:", duration)
 		}
@@ -349,16 +322,16 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 
 	// Compact step/validation summary
 	stepsValue := fmt.Sprintf("%s/%d passed",
-		ui.AccentStyle.Render(fmt.Sprintf("%d", report.PassedSteps)),
-		report.TotalSteps)
-	if report.FailedSteps > 0 {
-		stepsValue += ui.ErrorStyle.Render(fmt.Sprintf(", %d failed", report.FailedSteps))
+		ui.AccentStyle.Render(fmt.Sprintf("%d", intValue(report.EffectivePassedSteps))),
+		intValue(report.TotalSteps))
+	if intValue(report.EffectiveFailedSteps) > 0 {
+		stepsValue += ui.ErrorStyle.Render(fmt.Sprintf(", %d failed", intValue(report.EffectiveFailedSteps)))
 	}
 	ui.PrintKeyValue("Steps:", stepsValue)
 
-	if report.TotalValidations > 0 {
+	if intValue(report.TotalValidations) > 0 {
 		ui.PrintKeyValue("Validations:", fmt.Sprintf("%d/%d passed",
-			report.ValidsPassed, report.TotalValidations))
+			intValue(report.ValidationsPassed), intValue(report.TotalValidations)))
 	}
 
 	// Display steps
@@ -390,18 +363,20 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 
 		for _, step := range report.Steps {
 			stepType := strings.ToLower(step.StepType)
-			stepStatus := strings.ToLower(step.Status)
-			desc := sanitizeDesc(step.StepDesc)
+			stepStatus := strings.ToLower(stringValue(step.EffectiveStatus))
+			desc := sanitizeDesc(stringValue(step.StepDescription))
 
 			// Status icon — only the icon is colored
 			var statusIcon string
 			switch stepStatus {
-			case "passed", "success":
+			case "passed":
 				statusIcon = ui.SuccessStyle.Render("✓")
-			case "failed", "error":
+			case "failed":
 				statusIcon = ui.ErrorStyle.Render("✗")
 			case "warning":
 				statusIcon = ui.WarningStyle.Render("⚠")
+			case "running":
+				statusIcon = ui.AccentStyle.Render("●")
 			default:
 				statusIcon = ui.DimStyle.Render("·")
 			}
@@ -419,12 +394,12 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 			)
 
 			// Status reason on next line, indented to align with description
-			if step.StatusReason != "" && (stepStatus == "failed" || stepStatus == "error" || stepStatus == "warning") {
+			reason := stringValue(step.EffectiveStatusReason)
+			if reason != "" && (stepStatus == "failed" || stepStatus == "warning") {
 				indent := numWidth + 2 + typeWidth + 2
-				reason := truncateStep(step.StatusReason, 60)
 				fmt.Printf("  %s%s\n",
 					strings.Repeat(" ", indent),
-					ui.DimStyle.Render(reason))
+					ui.DimStyle.Render(truncateStep(reason, 60)))
 			}
 		}
 
@@ -507,7 +482,7 @@ func runTestShare(cmd *cobra.Command, args []string) error {
 			"task_id":        taskID,
 			"shareable_link": shareResp.ShareableLink,
 		}
-		data, _ := json.MarshalIndent(output, "", "  ")
+		data, _ := marshalPrettyJSON(output)
 		fmt.Println(string(data))
 		return nil
 	}
@@ -522,6 +497,70 @@ func runTestShare(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func buildUserFacingReportJSON(raw []byte) ([]byte, error) {
+	var output interface{}
+	if err := json.Unmarshal(raw, &output); err != nil {
+		return nil, fmt.Errorf("failed to parse report JSON: %w", err)
+	}
+	return marshalUserFacingReportJSON(output)
+}
+
+func marshalPrettyJSON(value interface{}) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(value); err != nil {
+		return nil, fmt.Errorf("failed to format report JSON: %w", err)
+	}
+	return bytes.TrimRight(buffer.Bytes(), "\n"), nil
+}
+
+func marshalUserFacingReportJSON(value interface{}) ([]byte, error) {
+	sanitizeUserFacingReportJSON(value)
+
+	data, err := marshalPrettyJSON(value)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func sanitizeUserFacingReportJSON(value interface{}) {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		for key, child := range typed {
+			if _, internal := internalReportJSONKeys[key]; internal {
+				delete(typed, key)
+				continue
+			}
+			sanitizeUserFacingReportJSON(child)
+		}
+	case []interface{}:
+		for _, item := range typed {
+			sanitizeUserFacingReportJSON(item)
+		}
+	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func intValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func isFalse(value *bool) bool {
+	return value != nil && !*value
 }
 
 // normalizePlatform fixes platform display casing (e.g. "Ios" → "iOS", "Android" stays).

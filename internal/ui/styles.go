@@ -19,21 +19,21 @@ var (
 	isStderrTTY = isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
 )
 
-// isTTY reports whether stdout is connected to a terminal.
-// Kept for existing output-oriented behavior (line clearing/spinner rendering).
-var isTTY = isOutputTTY
+// isTTY reports whether stderr is connected to a terminal.
+// UI output is written to stderr so this checks the stderr file descriptor.
+var isTTY = isStderrTTY
 
-// clearLine emits an ANSI escape sequence to clear the current line.
-// If stdout is not a TTY, this is a no-op to avoid garbage output in pipes.
+// clearLine emits an ANSI escape sequence to clear the current line on stderr.
+// If stderr is not a TTY, this is a no-op to avoid garbage output in pipes.
 func clearLine() {
 	if isTTY {
-		fmt.Print("\r\033[K")
+		fmt.Fprint(os.Stderr, "\r\033[K")
 	}
 }
 
 // ClearLine emits an ANSI escape sequence to clear the current terminal line.
 // Exported wrapper around clearLine for use by other packages (e.g. spinner cleanup).
-// If stdout is not a TTY, this is a no-op to avoid garbage output in pipes.
+// If stderr is not a TTY, this is a no-op to avoid garbage output in pipes.
 func ClearLine() {
 	clearLine()
 }

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,6 +45,11 @@ type GitHubRelease struct {
 	HTMLURL     string    `json:"html_url"`
 }
 
+type gitHubAPIErrorResponse struct {
+	Message          string `json:"message"`
+	DocumentationURL string `json:"documentation_url"`
+}
+
 // UpgradeResult contains the result of an upgrade check or operation.
 type UpgradeResult struct {
 	// CurrentVersion is the currently installed version.
@@ -70,6 +76,11 @@ var (
 	upgradeForce      bool
 	upgradeOutputJSON bool
 	upgradePrerelease bool
+
+	gitHubAPIBaseURL     = GitHubAPIURL
+	gitHubMaxRetries     = 2
+	gitHubRetryBaseDelay = 500 * time.Millisecond
+	gitHubRetryMaxDelay  = 5 * time.Second
 )
 
 // upgradeCmd checks for and installs CLI updates.
@@ -290,35 +301,200 @@ func detectInstallMethodFromPath(execPath string) string {
 //   - *GitHubRelease: The latest release
 //   - error: Any error that occurred
 func fetchLatestRelease(ctx context.Context, includePrerelease bool) (*GitHubRelease, error) {
-	url := fmt.Sprintf("%s/repos/%s/%s/releases", GitHubAPIURL, GitHubOwner, GitHubRepo)
+	url := fmt.Sprintf("%s/repos/%s/%s/releases", gitHubAPIBaseURL, GitHubOwner, GitHubRepo)
 
 	if !includePrerelease {
-		url = fmt.Sprintf("%s/repos/%s/%s/releases/latest", GitHubAPIURL, GitHubOwner, GitHubRepo)
+		url = fmt.Sprintf("%s/repos/%s/%s/releases/latest", gitHubAPIBaseURL, GitHubOwner, GitHubRepo)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	attempts := gitHubMaxRetries + 1
+	if attempts < 1 {
+		attempts = 1
 	}
-
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "revyl-cli/"+version)
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+
+	for attempt := 0; attempt < attempts; attempt++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+		req.Header.Set("User-Agent", "revyl-cli/"+version)
+
+		if token := gitHubAuthToken(); token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			if attempt == attempts-1 {
+				return nil, fmt.Errorf("failed to fetch releases: %w", err)
+			}
+			if err := waitForGitHubRetry(ctx, nil, attempt); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			if isRetryableGitHubStatus(resp.StatusCode) && attempt < attempts-1 {
+				retryErr := waitForGitHubRetry(ctx, resp, attempt)
+				resp.Body.Close()
+				if retryErr != nil {
+					return nil, retryErr
+				}
+				continue
+			}
+
+			apiErr := formatGitHubAPIError(resp)
+			resp.Body.Close()
+			return nil, apiErr
+		}
+
+		release, err := parseGitHubReleaseResponse(resp.Body, includePrerelease)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		return release, nil
+	}
+
+	return nil, fmt.Errorf("failed to fetch releases: retry loop ended unexpectedly")
+}
+
+func gitHubAuthToken() string {
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		return token
+	}
+
+	return strings.TrimSpace(os.Getenv("GH_TOKEN"))
+}
+
+func isRetryableGitHubStatus(statusCode int) bool {
+	return statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError
+}
+
+func waitForGitHubRetry(ctx context.Context, resp *http.Response, attempt int) error {
+	delay := gitHubRetryDelay(resp, attempt)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(delay):
+		return nil
+	}
+}
+
+func gitHubRetryDelay(resp *http.Response, attempt int) time.Duration {
+	if resp != nil {
+		if retryAfter := parseGitHubRetryAfter(resp.Header.Get("Retry-After")); retryAfter > 0 {
+			return retryAfter
+		}
+	}
+
+	delay := gitHubRetryBaseDelay * time.Duration(1<<uint(attempt))
+	if delay > gitHubRetryMaxDelay {
+		return gitHubRetryMaxDelay
+	}
+	return delay
+}
+
+func parseGitHubRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+
+	retryAt, err := http.ParseTime(value)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch releases: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+		return 0
 	}
 
+	delay := time.Until(retryAt)
+	if delay <= 0 {
+		return 0
+	}
+
+	return delay
+}
+
+func formatGitHubAPIError(resp *http.Response) error {
+	statusCode := resp.StatusCode
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("GitHub API returned status %d", statusCode)
+	}
+
+	var apiErr gitHubAPIErrorResponse
+	if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Message != "" {
+		if isGitHubRateLimitError(statusCode, apiErr.Message) {
+			return formatGitHubRateLimitError(resp.Header.Get("X-RateLimit-Reset"), apiErr.Message)
+		}
+		return fmt.Errorf("GitHub API returned status %d: %s", statusCode, apiErr.Message)
+	}
+
+	return fmt.Errorf("GitHub API returned status %d", statusCode)
+}
+
+func isGitHubRateLimitError(statusCode int, message string) bool {
+	if statusCode == http.StatusTooManyRequests {
+		return true
+	}
+
+	if statusCode != http.StatusForbidden {
+		return false
+	}
+
+	lowerMessage := strings.ToLower(message)
+	return strings.Contains(lowerMessage, "rate limit exceeded") || strings.Contains(lowerMessage, "secondary rate limit")
+}
+
+func formatGitHubRateLimitError(resetHeader, message string) error {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = "GitHub API rate limit exceeded"
+	}
+
+	if resetAt := parseGitHubRateLimitReset(resetHeader); resetAt != "" {
+		return fmt.Errorf("%s (resets at %s). Set GITHUB_TOKEN or GH_TOKEN to increase the limit", message, resetAt)
+	}
+
+	return fmt.Errorf("%s. Set GITHUB_TOKEN or GH_TOKEN to increase the limit", message)
+}
+
+func parseGitHubRateLimitReset(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	seconds, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return ""
+	}
+
+	return time.Unix(seconds, 0).UTC().Format(time.RFC3339)
+}
+
+func parseGitHubReleaseResponse(body io.Reader, includePrerelease bool) (*GitHubRelease, error) {
 	if includePrerelease {
 		// Parse list of releases and find the latest (including prereleases)
 		var releases []GitHubRelease
-		if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		if err := json.NewDecoder(body).Decode(&releases); err != nil {
 			return nil, fmt.Errorf("failed to parse releases: %w", err)
 		}
 
@@ -337,7 +513,7 @@ func fetchLatestRelease(ctx context.Context, includePrerelease bool) (*GitHubRel
 
 	// Parse single release
 	var release GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.NewDecoder(body).Decode(&release); err != nil {
 		return nil, fmt.Errorf("failed to parse release: %w", err)
 	}
 

@@ -307,7 +307,9 @@ class DeviceClientParityTests(unittest.TestCase):
             ),
         )
 
-        self.client.download_file("https://example.com/file.pdf")
+        self.client.download_file(
+            "https://example.com/file.pdf", filename="report.pdf"
+        )
         args, _ = self._last_call()
         self.assertEqual(
             args,
@@ -316,13 +318,54 @@ class DeviceClientParityTests(unittest.TestCase):
                 "download-file",
                 "--url",
                 "https://example.com/file.pdf",
+                "--filename",
+                "report.pdf",
                 "-s",
                 "7",
             ),
         )
 
+    def test_live_step_methods_map_to_cli(self) -> None:
+        self.client.instruction("Open Settings")
+        args, _ = self._last_call()
+        self.assertEqual(args, ("device", "instruction", "Open Settings", "-s", "7"))
+
+        self.client.validation("Verify Settings is visible")
+        args, _ = self._last_call()
+        self.assertEqual(
+            args, ("device", "validation", "Verify Settings is visible", "-s", "7")
+        )
+
+        self.client.extract("Extract the account email", variable_name="account_email")
+        args, _ = self._last_call()
+        self.assertEqual(
+            args,
+            (
+                "device",
+                "extract",
+                "Extract the account email",
+                "--variable-name",
+                "account_email",
+                "-s",
+                "7",
+            ),
+        )
+
+        self.client.code_execution("script_123")
+        args, _ = self._last_call()
+        self.assertEqual(
+            args, ("device", "code-execution", "script_123", "-s", "7")
+        )
+
     def test_click_alias_not_exposed(self) -> None:
         self.assertFalse(hasattr(self.client, "click"))
+
+    def test_live_step_methods_reject_empty_values(self) -> None:
+        with self.assertRaises(ValueError):
+            self.client.instruction("   ")
+
+        with self.assertRaises(ValueError):
+            self.client.code_execution("")
 
 
 class RevylCLITests(unittest.TestCase):

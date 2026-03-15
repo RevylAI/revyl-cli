@@ -64,6 +64,13 @@ type BrowserAuthConfig struct {
 	// Timeout is the maximum time to wait for authentication.
 	// Defaults to DefaultAuthTimeout if zero.
 	Timeout time.Duration
+
+	// ClientInstanceID is the stable per-install CLI identifier used to rotate
+	// only this machine's browser-generated API key.
+	ClientInstanceID string
+
+	// DeviceLabel is a human-readable device label attached to the CLI key.
+	DeviceLabel string
 }
 
 // BrowserAuth handles browser-based OAuth authentication.
@@ -176,6 +183,12 @@ func (b *BrowserAuth) Authenticate(ctx context.Context) (*BrowserAuthResult, err
 	query := authURL.Query()
 	query.Set("port", fmt.Sprintf("%d", port))
 	query.Set("state", state)
+	if b.config.ClientInstanceID != "" {
+		query.Set("client_instance_id", b.config.ClientInstanceID)
+	}
+	if b.config.DeviceLabel != "" {
+		query.Set("device_label", b.config.DeviceLabel)
+	}
 	authURL.RawQuery = query.Encode()
 
 	// Open browser
@@ -223,6 +236,12 @@ func (b *BrowserAuth) GetAuthURL(port int, state string) string {
 	query := authURL.Query()
 	query.Set("port", fmt.Sprintf("%d", port))
 	query.Set("state", state)
+	if b.config.ClientInstanceID != "" {
+		query.Set("client_instance_id", b.config.ClientInstanceID)
+	}
+	if b.config.DeviceLabel != "" {
+		query.Set("device_label", b.config.DeviceLabel)
+	}
 	authURL.RawQuery = query.Encode()
 	return authURL.String()
 }

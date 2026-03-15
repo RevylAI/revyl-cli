@@ -77,7 +77,7 @@ func TestChooseLocalFileForTestRename(t *testing.T) {
 		{
 			name: "uses alias file even with empty remote id",
 			local: map[string]*config.LocalTest{
-				"tracked": &config.LocalTest{Meta: config.TestMeta{RemoteID: ""}},
+				"tracked": {Meta: config.TestMeta{RemoteID: ""}},
 			},
 			aliasToRename: "tracked",
 			oldNameOrID:   "id-1",
@@ -88,8 +88,8 @@ func TestChooseLocalFileForTestRename(t *testing.T) {
 		{
 			name: "falls back to remote id match",
 			local: map[string]*config.LocalTest{
-				"other": &config.LocalTest{Meta: config.TestMeta{RemoteID: "id-x"}},
-				"mine":  &config.LocalTest{Meta: config.TestMeta{RemoteID: "id-2"}},
+				"other": {Meta: config.TestMeta{RemoteID: "id-x"}},
+				"mine":  {Meta: config.TestMeta{RemoteID: "id-2"}},
 			},
 			oldNameOrID: "id-2",
 			remoteName:  "Remote",
@@ -99,8 +99,8 @@ func TestChooseLocalFileForTestRename(t *testing.T) {
 		{
 			name: "ambiguous remote id matches",
 			local: map[string]*config.LocalTest{
-				"a": &config.LocalTest{Meta: config.TestMeta{RemoteID: "id-3"}},
-				"b": &config.LocalTest{Meta: config.TestMeta{RemoteID: "id-3"}},
+				"a": {Meta: config.TestMeta{RemoteID: "id-3"}},
+				"b": {Meta: config.TestMeta{RemoteID: "id-3"}},
 			},
 			oldNameOrID: "id-3",
 			remoteName:  "Remote",

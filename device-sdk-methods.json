@@ -1,0 +1,313 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Canonical method spec for the Revyl Device SDK. Every SDK (Python, TypeScript, etc.) must implement all methods listed here. Parity tests in each language validate against this file.",
+  "methods": [
+    {
+      "name": "start_session",
+      "cli_command": ["device", "start"],
+      "params": [
+        { "name": "platform", "type": "string", "optional": false },
+        { "name": "timeout", "type": "int", "optional": true },
+        { "name": "open_viewer", "type": "bool", "optional": true },
+        { "name": "app_id", "type": "string", "optional": true },
+        { "name": "build_version_id", "type": "string", "optional": true },
+        { "name": "app_url", "type": "string", "optional": true },
+        { "name": "app_link", "type": "string", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "stop_session",
+      "cli_command": ["device", "stop"],
+      "params": [
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "stop_all",
+      "cli_command": ["device", "stop"],
+      "params": [],
+      "returns": "json"
+    },
+    {
+      "name": "list_sessions",
+      "cli_command": ["device", "list"],
+      "params": [],
+      "returns": "json_array"
+    },
+    {
+      "name": "use_session",
+      "cli_command": ["device", "use"],
+      "params": [
+        { "name": "index", "type": "int", "optional": false }
+      ],
+      "returns": "text"
+    },
+    {
+      "name": "info",
+      "cli_command": ["device", "info"],
+      "params": [
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "doctor",
+      "cli_command": ["device", "doctor"],
+      "params": [
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "text"
+    },
+    {
+      "name": "screenshot",
+      "cli_command": ["device", "screenshot"],
+      "params": [
+        { "name": "out", "type": "string", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "tap",
+      "cli_command": ["device", "tap"],
+      "params": [
+        { "name": "target", "type": "string", "optional": true },
+        { "name": "x", "type": "int", "optional": true },
+        { "name": "y", "type": "int", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "double_tap",
+      "cli_command": ["device", "double-tap"],
+      "params": [
+        { "name": "target", "type": "string", "optional": true },
+        { "name": "x", "type": "int", "optional": true },
+        { "name": "y", "type": "int", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "long_press",
+      "cli_command": ["device", "long-press"],
+      "params": [
+        { "name": "target", "type": "string", "optional": true },
+        { "name": "x", "type": "int", "optional": true },
+        { "name": "y", "type": "int", "optional": true },
+        { "name": "duration_ms", "type": "int", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "type_text",
+      "cli_command": ["device", "type"],
+      "params": [
+        { "name": "text", "type": "string", "optional": false },
+        { "name": "target", "type": "string", "optional": true },
+        { "name": "x", "type": "int", "optional": true },
+        { "name": "y", "type": "int", "optional": true },
+        { "name": "clear_first", "type": "bool", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "swipe",
+      "cli_command": ["device", "swipe"],
+      "params": [
+        { "name": "direction", "type": "string", "optional": false },
+        { "name": "target", "type": "string", "optional": true },
+        { "name": "x", "type": "int", "optional": true },
+        { "name": "y", "type": "int", "optional": true },
+        { "name": "duration_ms", "type": "int", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "drag",
+      "cli_command": ["device", "drag"],
+      "params": [
+        { "name": "start_x", "type": "int", "optional": false },
+        { "name": "start_y", "type": "int", "optional": false },
+        { "name": "end_x", "type": "int", "optional": false },
+        { "name": "end_y", "type": "int", "optional": false },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "pinch",
+      "cli_command": ["device", "pinch"],
+      "params": [
+        { "name": "target", "type": "string", "optional": true },
+        { "name": "x", "type": "int", "optional": true },
+        { "name": "y", "type": "int", "optional": true },
+        { "name": "scale", "type": "float", "optional": true },
+        { "name": "duration_ms", "type": "int", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "clear_text",
+      "cli_command": ["device", "clear-text"],
+      "params": [
+        { "name": "target", "type": "string", "optional": true },
+        { "name": "x", "type": "int", "optional": true },
+        { "name": "y", "type": "int", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "back",
+      "cli_command": ["device", "back"],
+      "params": [
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "key",
+      "cli_command": ["device", "key"],
+      "params": [
+        { "name": "key", "type": "string", "optional": false },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "shake",
+      "cli_command": ["device", "shake"],
+      "params": [
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "wait",
+      "cli_command": ["device", "wait"],
+      "params": [
+        { "name": "duration_ms", "type": "int", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "go_home",
+      "cli_command": ["device", "home"],
+      "params": [
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "kill_app",
+      "cli_command": ["device", "kill-app"],
+      "params": [
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "open_app",
+      "cli_command": ["device", "open-app"],
+      "params": [
+        { "name": "app", "type": "string", "optional": false },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "navigate",
+      "cli_command": ["device", "navigate"],
+      "params": [
+        { "name": "url", "type": "string", "optional": false },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "set_location",
+      "cli_command": ["device", "set-location"],
+      "params": [
+        { "name": "latitude", "type": "float", "optional": false },
+        { "name": "longitude", "type": "float", "optional": false },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "download_file",
+      "cli_command": ["device", "download-file"],
+      "params": [
+        { "name": "url", "type": "string", "optional": false },
+        { "name": "filename", "type": "string", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "install_app",
+      "cli_command": ["device", "install"],
+      "params": [
+        { "name": "app_url", "type": "string", "optional": false },
+        { "name": "bundle_id", "type": "string", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "launch_app",
+      "cli_command": ["device", "launch"],
+      "params": [
+        { "name": "bundle_id", "type": "string", "optional": false },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "instruction",
+      "cli_command": ["device", "instruction"],
+      "params": [
+        { "name": "description", "type": "string", "optional": false },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "validation",
+      "cli_command": ["device", "validation"],
+      "params": [
+        { "name": "description", "type": "string", "optional": false },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "extract",
+      "cli_command": ["device", "extract"],
+      "params": [
+        { "name": "description", "type": "string", "optional": false },
+        { "name": "variable_name", "type": "string", "optional": true },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    },
+    {
+      "name": "code_execution",
+      "cli_command": ["device", "code-execution"],
+      "params": [
+        { "name": "script_id", "type": "string", "optional": false },
+        { "name": "session_index", "type": "int", "optional": true }
+      ],
+      "returns": "json"
+    }
+  ]
+}

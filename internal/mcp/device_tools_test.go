@@ -194,6 +194,7 @@ func newSessionSyncTestServer(t *testing.T) *httptest.Server {
 						"source":"cli",
 						"status":"running",
 						"workflow_run_id":"wf-1",
+						"whep_url":"https://stream.revyl.ai/whep/wf-1",
 						"user_email":"test@example.com",
 						"created_at":"2026-02-19T00:00:00Z",
 						"started_at":"2026-02-19T00:00:00Z"
@@ -229,6 +230,9 @@ func TestHandleListDeviceSessions_SyncsFromBackend(t *testing.T) {
 	}
 	if output.Sessions[0].Platform != "ios" {
 		t.Fatalf("expected ios platform, got %q", output.Sessions[0].Platform)
+	}
+	if output.Sessions[0].WhepURL != "https://stream.revyl.ai/whep/wf-1" {
+		t.Fatalf("expected whep URL to be synced, got %q", output.Sessions[0].WhepURL)
 	}
 }
 
@@ -298,6 +302,9 @@ func TestHandleGetSessionInfo_SyncsBeforeResolve(t *testing.T) {
 	}
 	if output.TotalSessions != 1 {
 		t.Fatalf("expected total_sessions=1, got %d", output.TotalSessions)
+	}
+	if output.WhepURL != "https://stream.revyl.ai/whep/wf-1" {
+		t.Fatalf("expected whep URL to be present, got %q", output.WhepURL)
 	}
 }
 
@@ -656,6 +663,27 @@ func TestInputValidation_StartDeviceSession(t *testing.T) {
 	}
 }
 
+func TestInputValidation_StartDeviceSession_RejectsConflictingArtifactInputs(t *testing.T) {
+	srv := &Server{
+		sessionMgr: &DeviceSessionManager{},
+	}
+
+	_, output, err := srv.handleStartDeviceSession(context.Background(), nil, StartDeviceSessionInput{
+		Platform: "ios",
+		AppID:    "app-1",
+		AppURL:   "https://artifact.example/app.ipa",
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if output.Success {
+		t.Fatal("expected Success=false for conflicting artifact inputs")
+	}
+	if got := output.Error; got != "provide only one of app_id, build_version_id, or app_url" {
+		t.Fatalf("error = %q, want artifact conflict guidance", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // TestInputValidation_DeviceType_TextRequired: Text field validation.
 // ---------------------------------------------------------------------------
@@ -726,6 +754,178 @@ func TestInputValidation_InstallApp_RequiresInput(t *testing.T) {
 	}
 	if !strings.Contains(output.Error, "either app_url or build_version_id is required") {
 		t.Errorf("error = %q, want missing app_url/build_version_id validation", output.Error)
+	}
+}
+
+func TestInputValidation_InstallApp_RejectsConflictingInputs(t *testing.T) {
+	srv := &Server{
+		sessionMgr: &DeviceSessionManager{},
+	}
+
+	_, output, err := srv.handleInstallApp(context.Background(), nil, InstallAppInput{
+		AppURL:         "https://artifact.example/app.ipa",
+		BuildVersionID: "build-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if output.Success {
+		t.Fatal("expected Success=false for conflicting install sources")
+	}
+	if got := output.Error; got != "provide only one of app_url or build_version_id" {
+		t.Fatalf("error = %q, want install source conflict guidance", got)
+	}
+}
+
+func TestHandleInstallApp_ResolvesBuildVersionAndTrimsBundleHint(t *testing.T) {
+	const (
+		buildVersionID = "build-123"
+		downloadURL    = "https://artifact.example/dev-client.ipa"
+		packageName    = "com.example.devclient"
+	)
+
+	now := time.Now()
+	var capturedInstallReq struct {
+		AppURL   string `json:"app_url"`
+		BundleID string `json:"bundle_id"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/builds/builds/"+buildVersionID:
+			_, _ = w.Write([]byte(`{"id":"` + buildVersionID + `","version":"1","download_url":"` + downloadURL + `","package_name":"` + packageName + `"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/device-proxy/wf-install-1/install":
+			if err := json.NewDecoder(r.Body).Decode(&capturedInstallReq); err != nil {
+				t.Fatalf("decode install request: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"Success":true,"package_name":"` + packageName + `"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", server.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-install-1",
+				WorkflowRunID: "wf-install-1",
+				WorkerBaseURL: "https://worker.example",
+				Platform:      "ios",
+				StartedAt:     now,
+				LastActivity:  now,
+				IdleTimeout:   5 * time.Minute,
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+	srv := &Server{
+		apiClient:  api.NewClientWithBaseURL("test-api-key", server.URL),
+		sessionMgr: mgr,
+	}
+
+	_, output, err := srv.handleInstallApp(context.Background(), nil, InstallAppInput{
+		BuildVersionID: "  " + buildVersionID + "  ",
+		BundleID:       "   ",
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !output.Success {
+		t.Fatalf("expected Success=true, got %+v", output)
+	}
+	if capturedInstallReq.AppURL != downloadURL {
+		t.Fatalf("install request app_url = %q, want %q", capturedInstallReq.AppURL, downloadURL)
+	}
+	if capturedInstallReq.BundleID != packageName {
+		t.Fatalf("install request bundle_id = %q, want %q", capturedInstallReq.BundleID, packageName)
+	}
+	if output.BundleID != packageName {
+		t.Fatalf("output bundle_id = %q, want %q", output.BundleID, packageName)
+	}
+}
+
+func TestInputValidation_DeviceDownloadFile_RequiresTrimmedURL(t *testing.T) {
+	srv := &Server{
+		sessionMgr: &DeviceSessionManager{},
+	}
+
+	_, output, err := srv.handleDeviceDownloadFile(context.Background(), nil, DeviceDownloadFileInput{
+		URL: "   ",
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if output.Success {
+		t.Fatal("expected Success=false when url is only whitespace")
+	}
+	if got := output.Error; got != "url is required" {
+		t.Fatalf("error = %q, want required url guidance", got)
+	}
+}
+
+func TestHandleDeviceDownloadFile_TrimsURLAndFilename(t *testing.T) {
+	now := time.Now()
+	var capturedDownloadReq DeviceDownloadFileRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/device-proxy/wf-download-1/download_file":
+			if err := json.NewDecoder(r.Body).Decode(&capturedDownloadReq); err != nil {
+				t.Fatalf("decode download_file request: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"success":true,"action":"download_file","device_path":"/sdcard/Download/report.pdf"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", server.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-download-1",
+				WorkflowRunID: "wf-download-1",
+				WorkerBaseURL: "https://worker.example",
+				Platform:      "android",
+				StartedAt:     now,
+				LastActivity:  now,
+				IdleTimeout:   5 * time.Minute,
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+	srv := &Server{sessionMgr: mgr}
+
+	_, output, err := srv.handleDeviceDownloadFile(context.Background(), nil, DeviceDownloadFileInput{
+		URL:      "  https://example.com/report.pdf  ",
+		Filename: "  report.pdf  ",
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !output.Success {
+		t.Fatalf("expected Success=true, got %+v", output)
+	}
+	if capturedDownloadReq.URL != "https://example.com/report.pdf" {
+		t.Fatalf("download_file request url = %q, want trimmed URL", capturedDownloadReq.URL)
+	}
+	if capturedDownloadReq.Filename != "report.pdf" {
+		t.Fatalf("download_file request filename = %q, want trimmed filename", capturedDownloadReq.Filename)
+	}
+	if output.URL != "https://example.com/report.pdf" {
+		t.Fatalf("output url = %q, want trimmed URL", output.URL)
+	}
+	if output.Filename != "report.pdf" {
+		t.Fatalf("output filename = %q, want trimmed filename", output.Filename)
 	}
 }
 
@@ -847,6 +1047,10 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		"device_navigate":       false,
 		"device_set_location":   false,
 		"device_download_file":  false,
+		"device_instruction":    false,
+		"device_validation":     false,
+		"device_extract":        false,
+		"device_code_execution": false,
 		"get_session_info":      false,
 		"device_doctor":         false,
 		"list_device_sessions":  false,
@@ -871,8 +1075,8 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		}
 	}
 
-	if len(result.Tools) != 27 {
-		t.Errorf("expected 27 device tools, got %d", len(result.Tools))
+	if len(result.Tools) != 32 {
+		t.Errorf("expected 32 device tools, got %d", len(result.Tools))
 	}
 }
 

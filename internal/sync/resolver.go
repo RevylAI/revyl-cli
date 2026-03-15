@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -129,6 +130,23 @@ type Resolver struct {
 // Returns:
 //   - *Resolver: A new resolver instance
 func NewResolver(client *api.Client, cfg *config.ProjectConfig, localTests map[string]*config.LocalTest) *Resolver {
+	if cfg == nil {
+		cfg = &config.ProjectConfig{}
+	}
+	if cfg.Tests == nil {
+		cfg.Tests = make(map[string]string)
+	}
+	if cfg.Workflows == nil {
+		cfg.Workflows = make(map[string]string)
+	}
+	if cfg.Build.Platforms == nil {
+		cfg.Build.Platforms = make(map[string]config.BuildPlatform)
+	}
+	config.ApplyDefaults(cfg)
+	if localTests == nil {
+		localTests = make(map[string]*config.LocalTest)
+	}
+
 	return &Resolver{
 		client:     client,
 		config:     cfg,
@@ -534,91 +552,203 @@ func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string
 	}
 
 	for name, remoteID := range testsToPull {
-		result := SyncResult{Name: name}
-
-		// Check for local changes using checksum-based detection
-		if local, ok := r.localTests[name]; ok && !force {
-			if local.HasLocalChanges() {
-				// Local content has been modified - don't overwrite without force
-				result.Conflict = true
-				results = append(results, result)
-				continue
-			}
-		}
-
-		// Fetch remote test
-		remoteTest, err := r.client.GetTest(ctx, remoteID)
-		if err != nil {
-			result.Error = err
-			results = append(results, result)
-			continue
-		}
-
-		// Convert tasks to blocks and strip server-generated IDs
-		blocks := convertTasksToBlocks(remoteTest.Tasks)
-		blocks = stripBlockIDs(blocks)
-
-		// Convert to local format
-		localTest := &config.LocalTest{
-			Meta: config.TestMeta{
-				RemoteID:      remoteID,
-				RemoteVersion: remoteTest.Version,
-				LocalVersion:  remoteTest.Version,
-				LastSyncedAt:  time.Now().Format(time.RFC3339),
-			},
-			Test: config.TestDefinition{
-				Metadata: config.TestMetadata{
-					Name:     remoteTest.Name,
-					Platform: strings.ToLower(remoteTest.Platform), // Normalize platform case
-				},
-				Blocks: blocks,
-			},
-		}
-
-		// Add build info if available
-		if remoteTest.AppID != "" {
-			// Fetch app name (gracefully handle errors - don't fail the pull)
-			app, err := r.client.GetApp(ctx, remoteTest.AppID)
-			if err == nil && app != nil {
-				localTest.Test.Build = config.TestBuildConfig{
-					Name: app.Name,
-				}
-			}
-		}
-		// Add pinned version if set
-		if remoteTest.PinnedVersion != "" {
-			localTest.Test.Build.PinnedVersion = remoteTest.PinnedVersion
-		}
-
-		// Fetch tags for this test
-		tags, err := r.client.GetTestTags(ctx, remoteID)
-		if err == nil && len(tags) > 0 {
-			tagNames := make([]string, len(tags))
-			for i, t := range tags {
-				tagNames[i] = t.Name
-			}
-			localTest.Test.Metadata.Tags = tagNames
-		}
-
-		// Save to file
-		sanitized := util.SanitizeForFilename(name)
-		path := filepath.Join(testsDir, sanitized+".yaml")
-		if err := config.SaveLocalTest(path, localTest); err != nil {
-			result.Error = err
-		} else {
-			result.NewVersion = remoteTest.Version
-
-			// Reconcile config key with sanitized filename
-			if sanitized != name {
-				r.config.Tests[sanitized] = remoteID
-				delete(r.config.Tests, name)
-			}
-		}
-
-		results = append(results, result)
+		results = append(results, r.pullRemoteTest(ctx, name, remoteID, testsDir, force))
 	}
 
 	return results, nil
+}
+
+// ImportRemoteTest pulls a remote test into local/config state even when there
+// is no existing alias or local file for it yet.
+func (r *Resolver) ImportRemoteTest(ctx context.Context, remoteID, preferredName, testsDir string, force bool) ([]SyncResult, error) {
+	if err := ensureDir(testsDir); err != nil {
+		return nil, fmt.Errorf("failed to create tests directory: %w", err)
+	}
+
+	remoteID = strings.TrimSpace(remoteID)
+	if remoteID == "" {
+		return nil, fmt.Errorf("remote test ID is required")
+	}
+
+	if alias := findAliasByRemoteID(r.config.Tests, r.localTests, remoteID); alias != "" {
+		return []SyncResult{r.pullRemoteTest(ctx, alias, remoteID, testsDir, force)}, nil
+	}
+
+	remoteTest, err := r.client.GetTest(ctx, remoteID)
+	if err != nil {
+		return nil, err
+	}
+
+	baseName := strings.TrimSpace(preferredName)
+	if baseName == "" {
+		baseName = strings.TrimSpace(remoteTest.Name)
+	}
+	alias := buildImportAlias(baseName, r.config.Tests, r.localTests, remoteID)
+	return []SyncResult{r.pullRemoteTest(ctx, alias, remoteID, testsDir, force)}, nil
+}
+
+func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir string, force bool) SyncResult {
+	result := SyncResult{Name: name}
+
+	if local, ok := r.localTests[name]; ok && !force {
+		if local.HasLocalChanges() {
+			result.Conflict = true
+			return result
+		}
+	}
+
+	remoteTest, err := r.client.GetTest(ctx, remoteID)
+	if err != nil {
+		result.Error = err
+		return result
+	}
+
+	blocks, err := convertTasksToBlocks(remoteTest.Tasks)
+	if err != nil {
+		result.Error = fmt.Errorf("parse remote test blocks: %w", err)
+		return result
+	}
+	blocks = stripBlockIDs(blocks)
+
+	localTest := &config.LocalTest{
+		Meta: config.TestMeta{
+			RemoteID:      remoteID,
+			RemoteVersion: remoteTest.Version,
+			LocalVersion:  remoteTest.Version,
+			LastSyncedAt:  time.Now().Format(time.RFC3339),
+		},
+		Test: config.TestDefinition{
+			Metadata: config.TestMetadata{
+				Name:     remoteTest.Name,
+				Platform: strings.ToLower(remoteTest.Platform),
+			},
+			Blocks: blocks,
+		},
+	}
+
+	if remoteTest.AppID != "" {
+		app, err := r.client.GetApp(ctx, remoteTest.AppID)
+		if err == nil && app != nil {
+			localTest.Test.Build = config.TestBuildConfig{
+				Name: app.Name,
+			}
+		}
+	}
+	if remoteTest.PinnedVersion != "" {
+		localTest.Test.Build.PinnedVersion = remoteTest.PinnedVersion
+	}
+
+	tags, err := r.client.GetTestTags(ctx, remoteID)
+	if err == nil && len(tags) > 0 {
+		tagNames := make([]string, len(tags))
+		for i, t := range tags {
+			tagNames[i] = t.Name
+		}
+		localTest.Test.Metadata.Tags = tagNames
+	}
+
+	sanitized := util.SanitizeForFilename(name)
+	if sanitized == "" {
+		sanitized = fallbackTestAlias(remoteID)
+	}
+	path := filepath.Join(testsDir, sanitized+".yaml")
+	if err := config.SaveLocalTest(path, localTest); err != nil {
+		result.Error = err
+		return result
+	}
+
+	result.NewVersion = remoteTest.Version
+	r.config.Tests[sanitized] = remoteID
+	if sanitized != name {
+		delete(r.config.Tests, name)
+	}
+	r.localTests[sanitized] = localTest
+	if sanitized != name {
+		delete(r.localTests, name)
+	}
+
+	return result
+}
+
+func findAliasByRemoteID(configTests map[string]string, localTests map[string]*config.LocalTest, remoteID string) string {
+	if strings.TrimSpace(remoteID) == "" {
+		return ""
+	}
+
+	configAliases := make([]string, 0, len(configTests))
+	for alias := range configTests {
+		configAliases = append(configAliases, alias)
+	}
+	sort.Strings(configAliases)
+	for _, alias := range configAliases {
+		if strings.TrimSpace(configTests[alias]) == remoteID {
+			return alias
+		}
+	}
+
+	localAliases := make([]string, 0, len(localTests))
+	for alias := range localTests {
+		localAliases = append(localAliases, alias)
+	}
+	sort.Strings(localAliases)
+	for _, alias := range localAliases {
+		local := localTests[alias]
+		if local != nil && strings.TrimSpace(local.Meta.RemoteID) == remoteID {
+			return alias
+		}
+	}
+
+	return ""
+}
+
+func buildImportAlias(baseName string, configTests map[string]string, localTests map[string]*config.LocalTest, remoteID string) string {
+	alias := util.SanitizeForFilename(baseName)
+	if alias == "" {
+		alias = fallbackTestAlias(remoteID)
+	}
+	return ensureUniqueTestAlias(alias, configTests, localTests, remoteID)
+}
+
+func ensureUniqueTestAlias(base string, configTests map[string]string, localTests map[string]*config.LocalTest, remoteID string) string {
+	if !testAliasTakenByOther(base, configTests, localTests, remoteID) {
+		return base
+	}
+
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if !testAliasTakenByOther(candidate, configTests, localTests, remoteID) {
+			return candidate
+		}
+	}
+}
+
+func testAliasTakenByOther(alias string, configTests map[string]string, localTests map[string]*config.LocalTest, remoteID string) bool {
+	if id, ok := configTests[alias]; ok {
+		if strings.TrimSpace(id) == remoteID {
+			return false
+		}
+		return true
+	}
+
+	if local, ok := localTests[alias]; ok {
+		if local != nil && strings.TrimSpace(local.Meta.RemoteID) == remoteID {
+			return false
+		}
+		return true
+	}
+
+	return false
+}
+
+func fallbackTestAlias(remoteID string) string {
+	trimmed := util.SanitizeForFilename(strings.TrimSpace(remoteID))
+	if len(trimmed) > 8 {
+		trimmed = trimmed[:8]
+	}
+	if trimmed == "" {
+		trimmed = "import"
+	}
+	return "test-" + trimmed
 }
 
 // GetDiff returns a diff between local and remote versions.
@@ -848,25 +978,26 @@ func containsLine(lines []string, target string) bool {
 //   - tasks: The tasks from the API response (can be []interface{}, []map[string]interface{}, etc.)
 //
 // Returns:
-//   - []config.TestBlock: The converted blocks, or nil if conversion fails
-func convertTasksToBlocks(tasks interface{}) []config.TestBlock {
+//   - []config.TestBlock: The converted blocks
+//   - error: Any parse error from converting tasks to blocks
+func convertTasksToBlocks(tasks interface{}) ([]config.TestBlock, error) {
 	if tasks == nil {
-		return nil
+		return nil, nil
 	}
 
 	// Marshal to JSON then unmarshal to []TestBlock
 	// This handles the type conversion from interface{} to the concrete struct
 	data, err := json.Marshal(tasks)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("marshal tasks: %w", err)
 	}
 
 	var blocks []config.TestBlock
 	if err := json.Unmarshal(data, &blocks); err != nil {
-		return nil
+		return nil, fmt.Errorf("unmarshal blocks: %w", err)
 	}
 
-	return blocks
+	return blocks, nil
 }
 
 // stripBlockIDs removes server-generated IDs from blocks recursively.

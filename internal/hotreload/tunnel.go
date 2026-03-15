@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -15,6 +14,69 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 )
+
+// stderrBufferSize is the number of recent cloudflared stderr lines retained for diagnostics.
+const stderrBufferSize = 20
+
+// TunnelConfig holds configuration for tunnel creation and retry behavior.
+type TunnelConfig struct {
+	// MaxAttempts is the maximum number of tunnel creation attempts before giving up.
+	MaxAttempts int
+
+	// BaseDelay is the initial delay between retry attempts.
+	// Subsequent delays double (exponential backoff).
+	BaseDelay time.Duration
+
+	// URLTimeout is the maximum time to wait for cloudflared to emit its tunnel URL per attempt.
+	URLTimeout time.Duration
+}
+
+// DefaultTunnelConfig returns sensible defaults for tunnel creation.
+//
+// Returns:
+//   - TunnelConfig: 3 attempts, 2s base delay, 30s URL timeout
+func DefaultTunnelConfig() TunnelConfig {
+	return TunnelConfig{
+		MaxAttempts: 3,
+		BaseDelay:   2 * time.Second,
+		URLTimeout:  30 * time.Second,
+	}
+}
+
+// TunnelEventType classifies tunnel lifecycle events emitted on the Events channel.
+type TunnelEventType int
+
+const (
+	// TunnelEventConnected signals the tunnel was established successfully.
+	TunnelEventConnected TunnelEventType = iota
+
+	// TunnelEventDisconnected signals the tunnel process exited unexpectedly.
+	TunnelEventDisconnected
+
+	// TunnelEventReconnecting signals a reconnection attempt is in progress.
+	TunnelEventReconnecting
+
+	// TunnelEventReconnected signals the tunnel was re-established after a disconnect.
+	TunnelEventReconnected
+
+	// TunnelEventFailed signals all reconnection attempts have been exhausted.
+	TunnelEventFailed
+)
+
+// TunnelEvent represents a tunnel lifecycle state change.
+type TunnelEvent struct {
+	// Type classifies the event.
+	Type TunnelEventType
+
+	// URL is the tunnel's public URL (set for Connected and Reconnected events).
+	URL string
+
+	// Err is the associated error (set for Disconnected and Failed events).
+	Err error
+
+	// Attempt is the 1-indexed retry attempt number (set for Reconnecting events).
+	Attempt int
+}
 
 // TunnelInfo contains information about an active tunnel.
 type TunnelInfo struct {
@@ -28,22 +90,37 @@ type TunnelInfo struct {
 	LocalPort int
 }
 
-// TunnelManager manages Cloudflare tunnel lifecycle.
+// TunnelManager manages Cloudflare tunnel lifecycle including retries and health monitoring.
 type TunnelManager struct {
 	cloudflaredPath string
 	credentials     *api.CloudflareCredentials
+	config          TunnelConfig
 	process         *exec.Cmd
 	publicURL       string
+	localPort       int
 	cancel          context.CancelFunc
 	mu              sync.Mutex
-	urlReady        chan struct{}
+	onLog           func(string)
+
+	// processExited is closed when the cloudflared process exits and Wait completes.
+	// Created fresh by each call to startTunnelLocked.
+	processExited chan struct{}
+
+	// events delivers tunnel lifecycle events. Buffered to avoid blocking the health monitor.
+	events chan TunnelEvent
+
+	// healthCancel stops the background health monitor goroutine.
+	healthCancel context.CancelFunc
+
+	// stopped is set by stopLocked to suppress health-monitor reconnection.
+	stopped bool
 }
 
 // NewTunnelManager creates a new TunnelManager.
 //
 // Parameters:
 //   - cloudflaredPath: Path to the cloudflared binary
-//   - credentials: Cloudflare credentials from the backend
+//   - credentials: Cloudflare credentials from the backend (may be nil for quick tunnels)
 //
 // Returns:
 //   - *TunnelManager: A new tunnel manager instance
@@ -51,11 +128,56 @@ func NewTunnelManager(cloudflaredPath string, credentials *api.CloudflareCredent
 	return &TunnelManager{
 		cloudflaredPath: cloudflaredPath,
 		credentials:     credentials,
-		urlReady:        make(chan struct{}),
+		config:          DefaultTunnelConfig(),
+		events:          make(chan TunnelEvent, 8),
 	}
 }
 
-// StartTunnel creates a Cloudflare tunnel pointing to the local port.
+// SetConfig overrides the default tunnel configuration.
+//
+// Parameters:
+//   - config: Tunnel configuration with retry and timeout settings
+func (t *TunnelManager) SetConfig(config TunnelConfig) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.config = config
+}
+
+// SetLogCallback registers a callback for tunnel log messages (retries, health events).
+//
+// Parameters:
+//   - cb: Callback function receiving formatted log strings
+func (t *TunnelManager) SetLogCallback(cb func(string)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onLog = cb
+}
+
+// Events returns a read-only channel of tunnel lifecycle events.
+// The channel is buffered (capacity 8) and never closed; drain it to avoid missed events.
+//
+// Returns:
+//   - <-chan TunnelEvent: Channel of lifecycle events
+func (t *TunnelManager) Events() <-chan TunnelEvent {
+	return t.events
+}
+
+// log sends a formatted message to the log callback if registered.
+func (t *TunnelManager) log(format string, args ...interface{}) {
+	if t.onLog != nil {
+		t.onLog(fmt.Sprintf(format, args...))
+	}
+}
+
+// emit sends a tunnel event without blocking. Drops the event if the channel is full.
+func (t *TunnelManager) emit(event TunnelEvent) {
+	select {
+	case t.events <- event:
+	default:
+	}
+}
+
+// StartTunnel creates a Cloudflare tunnel pointing to the local port (single attempt).
 //
 // Parameters:
 //   - ctx: Context for cancellation
@@ -63,79 +185,171 @@ func NewTunnelManager(cloudflaredPath string, credentials *api.CloudflareCredent
 //
 // Returns:
 //   - *TunnelInfo: Information about the created tunnel
-//   - error: Any error that occurred
+//   - error: Any error that occurred, including buffered cloudflared stderr output for diagnostics
 func (t *TunnelManager) StartTunnel(ctx context.Context, port int) (*TunnelInfo, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.stopped = false
+	return t.startTunnelLocked(ctx, port)
+}
 
-	// Create cancellable context
+// startTunnelLocked creates a single tunnel attempt.
+// Callers must hold t.mu. Buffers cloudflared stderr output and includes it in errors.
+// Does NOT reset t.stopped; callers (StartTunnel, StartTunnelWithRetry) manage that flag
+// so a concurrent Stop() is respected during retry backoff windows.
+func (t *TunnelManager) startTunnelLocked(ctx context.Context, port int) (*TunnelInfo, error) {
+	if t.stopped {
+		return nil, fmt.Errorf("tunnel was stopped")
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	// Build command - use quick tunnel for simplicity
-	// Quick tunnels don't require account setup and work immediately
-	// Use --config /dev/null to ignore any stale credentials in ~/.cloudflared/
 	t.process = exec.CommandContext(ctx, t.cloudflaredPath,
 		"tunnel",
 		"--config", "/dev/null",
 		"--url", fmt.Sprintf("http://localhost:%d", port))
 
-	// Capture stderr (cloudflared outputs URL to stderr)
 	stderr, err := t.process.StderrPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to capture stderr: %w", err)
 	}
 
-	// Start the process
 	if err := t.process.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start cloudflared: %w", err)
 	}
 
-	// Parse output for tunnel URL
+	t.processExited = make(chan struct{})
+	exitedChan := t.processExited
+	procRef := t.process
+
 	urlChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
+		defer func() {
+			procRef.Wait()
+			close(exitedChan)
+		}()
+
 		scanner := bufio.NewScanner(stderr)
-		// Regex to match: https://xxx.trycloudflare.com
 		urlRegex := regexp.MustCompile(`https://[a-z0-9-]+\.trycloudflare\.com`)
+		var recentLines []string
+		urlFound := false
 
 		for scanner.Scan() {
+			if urlFound {
+				continue
+			}
 			line := scanner.Text()
+			if len(recentLines) >= stderrBufferSize {
+				recentLines = recentLines[1:]
+			}
+			recentLines = append(recentLines, line)
+
 			if match := urlRegex.FindString(line); match != "" {
 				urlChan <- match
-				return
+				urlFound = true
 			}
 		}
-		if err := scanner.Err(); err != nil {
-			errChan <- fmt.Errorf("error reading cloudflared output: %w", err)
-		} else {
-			errChan <- fmt.Errorf("cloudflared exited without providing URL")
+		if !urlFound {
+			output := strings.Join(recentLines, "\n")
+			if scanErr := scanner.Err(); scanErr != nil {
+				errChan <- fmt.Errorf("error reading cloudflared output: %w\nOutput:\n%s", scanErr, output)
+			} else if output != "" {
+				errChan <- fmt.Errorf("cloudflared exited without providing URL\nOutput:\n%s", output)
+			} else {
+				errChan <- fmt.Errorf("cloudflared exited without providing URL (no output)")
+			}
 		}
 	}()
 
-	// Wait for URL with timeout
 	select {
 	case url := <-urlChan:
 		t.publicURL = url
-		close(t.urlReady)
+		t.localPort = port
 		return &TunnelInfo{
 			TunnelID:  fmt.Sprintf("quick-%d", port),
 			PublicURL: url,
 			LocalPort: port,
 		}, nil
 	case err := <-errChan:
-		_ = t.stopLocked()
+		_ = t.stopProcessLocked()
 		return nil, err
-	case <-time.After(30 * time.Second):
-		_ = t.stopLocked()
-		return nil, fmt.Errorf("timeout waiting for tunnel URL (30s)")
+	case <-time.After(t.config.URLTimeout):
+		_ = t.stopProcessLocked()
+		return nil, fmt.Errorf("timeout waiting for tunnel URL (%s)", t.config.URLTimeout)
 	case <-ctx.Done():
-		_ = t.stopLocked()
+		_ = t.stopProcessLocked()
 		return nil, ctx.Err()
 	}
 }
 
-// Stop terminates the tunnel.
+// StartTunnelWithRetry creates a Cloudflare tunnel with configurable retry and exponential backoff.
+// Uses the TunnelConfig set via SetConfig (or DefaultTunnelConfig).
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - port: Local port to tunnel to
+//
+// Returns:
+//   - *TunnelInfo: Information about the created tunnel
+//   - error: The last error if all attempts fail, wrapped with the attempt count
+func (t *TunnelManager) StartTunnelWithRetry(ctx context.Context, port int) (*TunnelInfo, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.stopped = false
+
+	var lastErr error
+	delay := t.config.BaseDelay
+
+	for attempt := 1; attempt <= t.config.MaxAttempts; attempt++ {
+		if attempt > 1 {
+			t.emit(TunnelEvent{Type: TunnelEventReconnecting, Attempt: attempt})
+		}
+
+		info, err := t.startTunnelLocked(ctx, port)
+		if err == nil {
+			if attempt > 1 {
+				t.log("Tunnel established on attempt %d/%d", attempt, t.config.MaxAttempts)
+			}
+			t.emit(TunnelEvent{Type: TunnelEventConnected, URL: info.PublicURL})
+			return info, nil
+		}
+
+		lastErr = err
+
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		if attempt < t.config.MaxAttempts {
+			t.log("Tunnel attempt %d/%d failed: %v", attempt, t.config.MaxAttempts, err)
+			t.log("Retrying in %s...", delay)
+
+			t.mu.Unlock()
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				t.mu.Lock()
+				return nil, ctx.Err()
+			}
+			t.mu.Lock()
+
+			if t.stopped {
+				return nil, fmt.Errorf("tunnel was stopped")
+			}
+			delay *= 2
+		}
+	}
+
+	return nil, fmt.Errorf("tunnel creation failed after %d attempts: %w", t.config.MaxAttempts, lastErr)
+}
+
+// Stop terminates the tunnel and its health monitor.
 //
 // Returns:
 //   - error: Any error that occurred during shutdown
@@ -145,43 +359,107 @@ func (t *TunnelManager) Stop() error {
 	return t.stopLocked()
 }
 
-// stopLocked terminates the tunnel process and clears state.
-//
+// stopLocked terminates the health monitor, cloudflared process, and clears state.
 // Callers must hold t.mu.
 func (t *TunnelManager) stopLocked() error {
+	t.stopped = true
 
+	if t.healthCancel != nil {
+		t.healthCancel()
+		t.healthCancel = nil
+	}
+
+	return t.stopProcessLocked()
+}
+
+// stopProcessLocked terminates only the cloudflared process without affecting the health monitor.
+// Cancels the process context first (triggering exec.CommandContext's SIGKILL), then waits
+// for the process to exit. Used internally during retry cleanup. Callers must hold t.mu.
+func (t *TunnelManager) stopProcessLocked() error {
 	if t.cancel != nil {
 		t.cancel()
 		t.cancel = nil
 	}
 
 	if t.process != nil && t.process.Process != nil {
-		process := t.process
-		// Try graceful termination first
-		if err := process.Process.Signal(os.Interrupt); err != nil {
-			// Fall back to kill
-			process.Process.Kill()
+		if t.processExited != nil {
+			select {
+			case <-t.processExited:
+			case <-time.After(5 * time.Second):
+				_ = t.process.Process.Kill()
+			}
 		}
-
-		// Wait for process to exit (with timeout)
-		done := make(chan error, 1)
-		go func() {
-			done <- process.Wait()
-		}()
-
-		select {
-		case <-done:
-			// Process exited
-		case <-time.After(5 * time.Second):
-			// Force kill
-			process.Process.Kill()
-		}
-
 		t.process = nil
 	}
 
 	t.publicURL = ""
+	t.localPort = 0
 	return nil
+}
+
+// StartHealthMonitor spawns a background goroutine that watches the cloudflared process.
+// If the process exits unexpectedly, it attempts to re-establish the tunnel using retry logic.
+// Events are emitted on the Events channel and logged via the log callback.
+//
+// The monitor runs until ctx is cancelled, Stop is called, or reconnection permanently fails.
+//
+// Parameters:
+//   - ctx: Parent context; cancellation stops the monitor
+func (t *TunnelManager) StartHealthMonitor(ctx context.Context) {
+	healthCtx, healthCancel := context.WithCancel(ctx)
+	t.mu.Lock()
+	t.healthCancel = healthCancel
+	t.mu.Unlock()
+
+	go t.runHealthMonitor(healthCtx)
+}
+
+// runHealthMonitor is the health monitor goroutine loop.
+// It waits for the cloudflared process to exit and attempts reconnection.
+func (t *TunnelManager) runHealthMonitor(ctx context.Context) {
+	for {
+		t.mu.Lock()
+		exited := t.processExited
+		t.mu.Unlock()
+
+		if exited == nil {
+			return
+		}
+
+		select {
+		case <-exited:
+			t.mu.Lock()
+			if t.stopped {
+				t.mu.Unlock()
+				return
+			}
+			port := t.localPort
+			t.mu.Unlock()
+
+			if ctx.Err() != nil {
+				return
+			}
+
+			t.emit(TunnelEvent{Type: TunnelEventDisconnected})
+			t.log("Tunnel disconnected unexpectedly, attempting reconnection...")
+
+			info, err := t.StartTunnelWithRetry(ctx, port)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				t.emit(TunnelEvent{Type: TunnelEventFailed, Err: err})
+				t.log("Tunnel reconnection failed permanently: %v", err)
+				return
+			}
+
+			t.emit(TunnelEvent{Type: TunnelEventReconnected, URL: info.PublicURL})
+			t.log("Tunnel reconnected: %s", info.PublicURL)
+
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 // GetPublicURL returns the public tunnel URL.

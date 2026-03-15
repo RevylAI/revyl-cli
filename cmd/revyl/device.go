@@ -16,6 +16,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/devicetargets"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -45,6 +46,7 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 	client := api.NewClientWithDevMode(apiKey, devMode)
 	api.SetDefaultVersion(version)
 	sessionMgr := mcppkg.NewDeviceSessionManager(client, workDir)
+	sessionMgr.SetDevMode(devMode)
 
 	// Sync with backend to discover sessions from other clients.
 	// Non-fatal: if sync fails, we still have local cache.
@@ -90,7 +92,10 @@ func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager,
 		if err != nil {
 			return 0, 0, err
 		}
-		ui.PrintInfo("Resolved '%s' -> (%d, %d)", target, resolved.X, resolved.Y)
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+		if !jsonOutput {
+			ui.PrintInfo("Resolved '%s' -> (%d, %d)", target, resolved.X, resolved.Y)
+		}
 		return resolved.X, resolved.Y, nil
 	}
 
@@ -110,6 +115,75 @@ func jsonOrPrint(cmd *cobra.Command, v interface{}, fallbackMsg string) {
 	}
 }
 
+type liveStepOutputSummary struct {
+	Status           string `json:"status"`
+	StatusReason     string `json:"status_reason"`
+	ValidationResult *bool  `json:"validation_result,omitempty"`
+}
+
+func formatLiveStepFallback(stepLabel string, response *mcppkg.LiveStepResponse) string {
+	if response == nil {
+		return fmt.Sprintf("%s step completed", stepLabel)
+	}
+
+	summary := liveStepOutputSummary{}
+	if len(response.StepOutput) > 0 {
+		_ = json.Unmarshal(response.StepOutput, &summary)
+	}
+
+	status := strings.TrimSpace(summary.Status)
+	if status == "" {
+		if response.Success {
+			status = "success"
+		} else {
+			status = "failed"
+		}
+	}
+
+	if summary.ValidationResult != nil {
+		status = fmt.Sprintf("%s (validation=%t)", status, *summary.ValidationResult)
+	}
+	if strings.TrimSpace(summary.StatusReason) != "" && !response.Success {
+		return fmt.Sprintf("%s step %s: %s", stepLabel, status, summary.StatusReason)
+	}
+	return fmt.Sprintf("%s step %s", stepLabel, status)
+}
+
+func formatDeviceInfoFallback(session *mcppkg.DeviceSession) string {
+	if session == nil {
+		return "No active device session."
+	}
+
+	lines := []string{
+		fmt.Sprintf("Session %d: %s", session.Index, session.SessionID),
+		fmt.Sprintf("Platform: %s", session.Platform),
+		fmt.Sprintf("Viewer: %s", session.ViewerURL),
+	}
+	if session.WhepURL != nil && strings.TrimSpace(*session.WhepURL) != "" {
+		lines = append(lines, fmt.Sprintf("WHEP: %s", strings.TrimSpace(*session.WhepURL)))
+	}
+	lines = append(lines, fmt.Sprintf("Uptime: %.0fs", time.Since(session.StartedAt).Seconds()))
+	return strings.Join(lines, "\n")
+}
+
+func executeLiveStepCommand(cmd *cobra.Command, request mcppkg.LiveStepRequest, stepLabel string) error {
+	mgr, err := getDeviceSessionMgr(cmd)
+	if err != nil {
+		return err
+	}
+	session, err := resolveSessionFlag(cmd, mgr)
+	if err != nil {
+		return err
+	}
+
+	response, err := mgr.ExecuteLiveStepForSession(cmd.Context(), session.Index, request)
+	if err != nil {
+		return err
+	}
+	jsonOrPrint(cmd, response, formatLiveStepFallback(stepLabel, response))
+	return nil
+}
+
 func normalizeDeviceStartPlatform(raw string) (string, error) {
 	platform := strings.ToLower(strings.TrimSpace(raw))
 	if platform == "" {
@@ -119,6 +193,43 @@ func normalizeDeviceStartPlatform(raw string) (string, error) {
 		return "", fmt.Errorf("platform must be 'ios' or 'android'")
 	}
 	return platform, nil
+}
+
+// normalizeOptionalDeviceFlagValue trims a CLI flag value and preserves empties.
+func normalizeOptionalDeviceFlagValue(raw string) string {
+	return strings.TrimSpace(raw)
+}
+
+// normalizeDeviceStartArtifactFlags trims device-start artifact selectors and
+// ensures callers choose exactly zero or one of them.
+func normalizeDeviceStartArtifactFlags(appID, buildVersionID, appURL string) (string, string, string, error) {
+	normalizedAppID := normalizeOptionalDeviceFlagValue(appID)
+	normalizedBuildVersionID := normalizeOptionalDeviceFlagValue(buildVersionID)
+	normalizedAppURL := normalizeOptionalDeviceFlagValue(appURL)
+
+	provided := 0
+	for _, candidate := range []string{normalizedAppID, normalizedBuildVersionID, normalizedAppURL} {
+		if candidate != "" {
+			provided++
+		}
+	}
+	if provided > 1 {
+		return "", "", "", fmt.Errorf("provide only one of --app-id, --build-version-id, or --app-url")
+	}
+	return normalizedAppID, normalizedBuildVersionID, normalizedAppURL, nil
+}
+
+// normalizeRequiredDeviceURLFlag trims a required URL flag and returns a
+// user-facing error when the resulting value is empty.
+func normalizeRequiredDeviceURLFlag(rawValue, flagName, usage string) (string, error) {
+	value := normalizeOptionalDeviceFlagValue(rawValue)
+	if value != "" {
+		return value, nil
+	}
+	if usage == "" {
+		return "", fmt.Errorf("%s is required", flagName)
+	}
+	return "", fmt.Errorf("%s is required (%s)", flagName, usage)
 }
 
 func deviceCommandPrefix(cmd *cobra.Command) string {
@@ -160,17 +271,18 @@ func humanizeDeviceSessionResolveError(cmd *cobra.Command, err error) error {
 var deviceCmd = &cobra.Command{
 	Use:   "device",
 	Short: "Direct device interaction (start, tap, type, screenshot, etc.)",
-	Long:  "Provision cloud-hosted Android/iOS devices and interact with them directly.",
+	Long: `Provision cloud-hosted Android/iOS devices and interact with them directly.
+
+Examples:
+  revyl device start --platform android --open
+  revyl device tap --target "Sign In"
+  revyl device instruction "log in with test@example.com and verify the dashboard loads"`,
 }
 
 var deviceStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start a device session",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr, err := getDeviceSessionMgr(cmd)
-		if err != nil {
-			return err
-		}
 		platform, _ := cmd.Flags().GetString("platform")
 		timeout, _ := cmd.Flags().GetInt("timeout")
 		openBrowser, _ := cmd.Flags().GetBool("open")
@@ -179,10 +291,15 @@ var deviceStartCmd = &cobra.Command{
 		appURL, _ := cmd.Flags().GetString("app-url")
 		appLink, _ := cmd.Flags().GetString("app-link")
 		jsonOutput, _ := cmd.Flags().GetBool("json")
-		platform, err = normalizeDeviceStartPlatform(platform)
+		platform, err := normalizeDeviceStartPlatform(platform)
 		if err != nil {
 			return err
 		}
+		appID, buildVersionID, appURL, err = normalizeDeviceStartArtifactFlags(appID, buildVersionID, appURL)
+		if err != nil {
+			return err
+		}
+		appLink = normalizeOptionalDeviceFlagValue(appLink)
 		if !cmd.Flags().Changed("timeout") {
 			cwd, cwdErr := os.Getwd()
 			if cwdErr == nil {
@@ -192,8 +309,61 @@ var deviceStartCmd = &cobra.Command{
 				}
 			}
 		}
-		if appURL != "" && buildVersionID != "" {
-			return fmt.Errorf("provide either --app-url or --build-version-id, not both")
+		// Resolve device model/OS version selection
+		deviceSelectFlag, _ := cmd.Flags().GetBool("device")
+		deviceModelFlag, _ := cmd.Flags().GetString("device-model")
+		osVersionFlag, _ := cmd.Flags().GetString("os-version")
+
+		var selectedDeviceModel, selectedOsVersion string
+		if deviceModelFlag != "" || osVersionFlag != "" {
+			if deviceModelFlag == "" || osVersionFlag == "" {
+				return fmt.Errorf("--device-model and --os-version must both be provided")
+			}
+			if err := devicetargets.ValidateDevicePair(platform, deviceModelFlag, osVersionFlag); err != nil {
+				return err
+			}
+			selectedDeviceModel = deviceModelFlag
+			selectedOsVersion = osVersionFlag
+		} else if deviceSelectFlag {
+			pairs, pairsErr := devicetargets.GetAvailableTargetPairs(platform)
+			if pairsErr != nil {
+				return pairsErr
+			}
+			defaultPair, _ := devicetargets.GetDefaultPair(platform)
+			options := make([]ui.SelectOption, 0, len(pairs)+1)
+			options = append(options, ui.SelectOption{
+				Label:       fmt.Sprintf("Auto (%s)", devicetargets.FormatPairLabel(defaultPair)),
+				Value:       "auto",
+				Description: "Use platform default",
+			})
+			for _, p := range pairs {
+				options = append(options, ui.SelectOption{
+					Label: devicetargets.FormatPairLabel(p),
+					Value: fmt.Sprintf("%s|%s", p.Model, p.Runtime),
+				})
+			}
+			_, selected, selectErr := ui.Select("Select device:", options, 0)
+			if selectErr != nil {
+				return fmt.Errorf("device selection failed: %w", selectErr)
+			}
+			if selected != "auto" {
+				parts := strings.SplitN(selected, "|", 2)
+				if len(parts) != 2 {
+					return fmt.Errorf("unexpected device selection value: %q", selected)
+				}
+				selectedDeviceModel = parts[0]
+				selectedOsVersion = parts[1]
+			}
+		}
+		if selectedDeviceModel != "" && !jsonOutput {
+			ui.PrintInfo("Device: %s", devicetargets.FormatPairLabel(devicetargets.DevicePair{
+				Model: selectedDeviceModel, Runtime: selectedOsVersion,
+			}))
+		}
+
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
 		}
 
 		// Create a cancellable context so Ctrl+C during provisioning triggers
@@ -224,6 +394,8 @@ var deviceStartCmd = &cobra.Command{
 			AppURL:         appURL,
 			AppLink:        appLink,
 			IdleTimeout:    time.Duration(timeout) * time.Second,
+			DeviceModel:    selectedDeviceModel,
+			OsVersion:      selectedOsVersion,
 		}
 
 		var session *mcppkg.DeviceSession
@@ -246,12 +418,18 @@ var deviceStartCmd = &cobra.Command{
 			data, _ := json.MarshalIndent(session, "", "  ")
 			fmt.Println(string(data))
 		} else {
+			devMode, _ := cmd.Flags().GetBool("dev")
+			reportURL := fmt.Sprintf(
+				"%s/tests/report?sessionId=%s",
+				config.GetAppURL(devMode),
+				session.SessionID,
+			)
 			ui.PrintSuccess("Device ready! Session %d (%s)", session.Index, platform)
 			ui.PrintLink("Session", session.SessionID)
-			ui.PrintLink("Watch live", session.ViewerURL)
+			ui.PrintLink("Interact", session.ViewerURL)
+			ui.PrintLink("Report", reportURL)
 			cmdPrefix := deviceCommandPrefix(cmd)
 			ui.PrintNextSteps([]ui.NextStep{
-				{Label: "Open in browser", Command: session.ViewerURL},
 				{Label: "Take a screenshot", Command: fmt.Sprintf("%s device screenshot --out screen.png", cmdPrefix)},
 				{Label: "Stop when done", Command: fmt.Sprintf("%s device stop -s %d", cmdPrefix, session.Index)},
 			})
@@ -290,7 +468,10 @@ var deviceStopCmd = &cobra.Command{
 		}
 		sessionID := session.SessionID
 		idx := session.Index
-		ui.PrintInfo("Stopping session %d (%s)...", idx, sessionID)
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+		if !jsonOutput {
+			ui.PrintInfo("Stopping session %d (%s)...", idx, sessionID)
+		}
 
 		cancelErr := mgr.StopSession(cmd.Context(), idx)
 		if cancelErr != nil {
@@ -349,7 +530,10 @@ var deviceTapCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		body := map[string]int{"x": x, "y": y}
+		body := map[string]interface{}{"x": x, "y": y}
+		if target, _ := cmd.Flags().GetString("target"); target != "" {
+			body["target"] = target
+		}
 		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/tap", body)
 		if err != nil {
 			return err
@@ -375,7 +559,10 @@ var deviceDoubleTapCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		body := map[string]int{"x": x, "y": y}
+		body := map[string]interface{}{"x": x, "y": y}
+		if target, _ := cmd.Flags().GetString("target"); target != "" {
+			body["target"] = target
+		}
 		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/double_tap", body)
 		if err != nil {
 			return err
@@ -405,7 +592,10 @@ var deviceLongPressCmd = &cobra.Command{
 		if dur == 0 {
 			dur = 1500
 		}
-		body := map[string]int{"x": x, "y": y, "duration_ms": dur}
+		body := map[string]interface{}{"x": x, "y": y, "duration_ms": dur}
+		if target, _ := cmd.Flags().GetString("target"); target != "" {
+			body["target"] = target
+		}
 		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/longpress", body)
 		if err != nil {
 			return err
@@ -437,6 +627,9 @@ var deviceTypeCmd = &cobra.Command{
 		}
 		clearFirst, _ := cmd.Flags().GetBool("clear-first")
 		body := map[string]interface{}{"x": x, "y": y, "text": text, "clear_first": clearFirst}
+		if target, _ := cmd.Flags().GetString("target"); target != "" {
+			body["target"] = target
+		}
 		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/input", body)
 		if err != nil {
 			return err
@@ -471,6 +664,9 @@ var deviceSwipeCmd = &cobra.Command{
 			dur = 500
 		}
 		body := map[string]interface{}{"x": x, "y": y, "direction": direction, "duration_ms": dur}
+		if target, _ := cmd.Flags().GetString("target"); target != "" {
+			body["target"] = target
+		}
 		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/swipe", body)
 		if err != nil {
 			return err
@@ -676,6 +872,14 @@ var deviceInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install an app from a URL",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		appURL, _ := cmd.Flags().GetString("app-url")
+		bundleID, _ := cmd.Flags().GetString("bundle-id")
+		appURL, err := normalizeRequiredDeviceURLFlag(appURL, "--app-url", "URL to .apk or .ipa")
+		if err != nil {
+			return err
+		}
+		bundleID = normalizeOptionalDeviceFlagValue(bundleID)
+
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
 			return err
@@ -684,20 +888,26 @@ var deviceInstallCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		appURL, _ := cmd.Flags().GetString("app-url")
-		bundleID, _ := cmd.Flags().GetString("bundle-id")
-		if appURL == "" {
-			return fmt.Errorf("--app-url is required (URL to .apk or .ipa)")
-		}
 		body := map[string]string{"app_url": appURL}
 		if bundleID != "" {
 			body["bundle_id"] = bundleID
 		}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/install", body)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/install", body)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, map[string]string{"app_url": appURL, "status": "installed"}, fmt.Sprintf("Installed from %s", appURL))
+		if err := ensureWorkerActionSucceeded(respBody, "install"); err != nil {
+			return err
+		}
+
+		payload := map[string]string{"app_url": appURL, "status": "installed"}
+		message := fmt.Sprintf("Installed from %s", appURL)
+		if detectedBundleID := extractInstallBundleID(respBody); detectedBundleID != "" {
+			payload["bundle_id"] = detectedBundleID
+			message = fmt.Sprintf("Installed %s from %s", detectedBundleID, appURL)
+		}
+
+		jsonOrPrint(cmd, payload, message)
 		return nil
 	},
 }
@@ -864,6 +1074,14 @@ var deviceDownloadFileCmd = &cobra.Command{
 	Use:   "download-file",
 	Short: "Download a file to device from URL",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		url, _ := cmd.Flags().GetString("url")
+		url, err := normalizeRequiredDeviceURLFlag(url, "--url", "")
+		if err != nil {
+			return err
+		}
+		filename, _ := cmd.Flags().GetString("filename")
+		filename = normalizeOptionalDeviceFlagValue(filename)
+
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
 			return err
@@ -872,17 +1090,181 @@ var deviceDownloadFileCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		url, _ := cmd.Flags().GetString("url")
-		if url == "" {
-			return fmt.Errorf("--url is required")
-		}
-		body := map[string]string{"url": url}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/download_file", body)
+		response, err := mgr.DownloadFileForSession(
+			cmd.Context(),
+			session.Index,
+			mcppkg.DeviceDownloadFileRequest{
+				URL:      url,
+				Filename: filename,
+			},
+		)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, map[string]string{"url": url, "status": "downloaded"}, fmt.Sprintf("Downloaded from %s", url))
+		if response == nil {
+			return fmt.Errorf("worker reported download_file failure")
+		}
+		if !response.Success {
+			errMsg := strings.TrimSpace(response.Error)
+			if errMsg == "" {
+				errMsg = "worker reported download_file failure"
+			}
+			return fmt.Errorf("%s", errMsg)
+		}
+
+		fallback := fmt.Sprintf("Downloaded from %s", url)
+		if response != nil && strings.TrimSpace(response.DevicePath) != "" {
+			fallback = fmt.Sprintf("Downloaded %s to %s", url, response.DevicePath)
+		}
+		jsonOrPrint(cmd, response, fallback)
 		return nil
+	},
+}
+
+var deviceReportCmd = &cobra.Command{
+	Use:   "report",
+	Short: "View the report for the active device session",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return fmt.Errorf("no active session: %w", err)
+		}
+
+		apiKey := os.Getenv("REVYL_API_KEY")
+		if apiKey == "" {
+			creds, credErr := auth.NewManager().GetCredentials()
+			if credErr != nil || creds == nil || creds.APIKey == "" {
+				return fmt.Errorf("not authenticated: set REVYL_API_KEY or run 'revyl auth login'")
+			}
+			apiKey = creds.APIKey
+		}
+		devMode, _ := cmd.Flags().GetBool("dev")
+		client := api.NewClientWithDevMode(apiKey, devMode)
+
+		envelope, err := client.GetReportBySession(cmd.Context(), session.SessionID, true, true, false)
+		if err != nil {
+			return fmt.Errorf("failed to fetch session report: %w", err)
+		}
+		if envelope.Report == nil {
+			jsonOrPrint(cmd, map[string]string{"session_id": session.SessionID, "status": "no_report"}, "No report available for this session yet.")
+			return nil
+		}
+		jsonOrPrint(cmd, envelope.Raw, formatSessionReportFallback(envelope.Report, session.SessionID))
+		return nil
+	},
+}
+
+func formatSessionReportFallback(r *api.CLIReportContextResponse, sessionID string) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Session Report: %s\n", sessionID))
+	if r.SessionStatus != nil {
+		b.WriteString(fmt.Sprintf("  Status:   %s\n", *r.SessionStatus))
+	}
+	if r.Platform != nil {
+		b.WriteString(fmt.Sprintf("  Platform: %s\n", *r.Platform))
+	}
+	if r.DeviceModel != nil {
+		b.WriteString(fmt.Sprintf("  Device:   %s\n", *r.DeviceModel))
+	}
+	if r.TotalSteps != nil {
+		b.WriteString(fmt.Sprintf("  Steps:    %d\n", *r.TotalSteps))
+	}
+	if r.VideoURL != nil {
+		b.WriteString(fmt.Sprintf("  Video:    %s\n", *r.VideoURL))
+	}
+	if r.ReportURL != nil {
+		b.WriteString(fmt.Sprintf("  Report:   %s\n", *r.ReportURL))
+	}
+	return b.String()
+}
+
+var deviceInstructionCmd = &cobra.Command{
+	Use:   "instruction <description>",
+	Short: "Run one instruction step on the active device",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		description := strings.TrimSpace(strings.Join(args, " "))
+		if description == "" {
+			return fmt.Errorf("instruction description is required")
+		}
+		return executeLiveStepCommand(
+			cmd,
+			mcppkg.LiveStepRequest{
+				StepType:        "instruction",
+				StepDescription: description,
+			},
+			"Instruction",
+		)
+	},
+}
+
+var deviceValidationCmd = &cobra.Command{
+	Use:   "validation <description>",
+	Short: "Run one validation step on the active device",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		description := strings.TrimSpace(strings.Join(args, " "))
+		if description == "" {
+			return fmt.Errorf("validation description is required")
+		}
+		return executeLiveStepCommand(
+			cmd,
+			mcppkg.LiveStepRequest{
+				StepType:        "validation",
+				StepDescription: description,
+			},
+			"Validation",
+		)
+	},
+}
+
+var deviceExtractCmd = &cobra.Command{
+	Use:   "extract <description>",
+	Short: "Run one extract step on the active device",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		description := strings.TrimSpace(strings.Join(args, " "))
+		if description == "" {
+			return fmt.Errorf("extract description is required")
+		}
+
+		request := mcppkg.LiveStepRequest{
+			StepType:        "extract",
+			StepDescription: description,
+		}
+		variableName, _ := cmd.Flags().GetString("variable-name")
+		if strings.TrimSpace(variableName) != "" {
+			request.Metadata = map[string]any{
+				"variable_name": strings.TrimSpace(variableName),
+			}
+		}
+
+		return executeLiveStepCommand(cmd, request, "Extract")
+	},
+}
+
+var deviceCodeExecutionCmd = &cobra.Command{
+	Use:   "code-execution <script-id>",
+	Short: "Run one code_execution step on the active device",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		scriptID := strings.TrimSpace(args[0])
+		if scriptID == "" {
+			return fmt.Errorf("script ID is required")
+		}
+
+		return executeLiveStepCommand(
+			cmd,
+			mcppkg.LiveStepRequest{
+				StepType:        "code_execution",
+				StepDescription: scriptID,
+			},
+			"Code execution",
+		)
 	},
 }
 
@@ -899,8 +1281,7 @@ var deviceInfoCmd = &cobra.Command{
 			jsonOrPrint(cmd, map[string]interface{}{"active": false, "total_sessions": mgr.SessionCount()}, "No active device session.")
 			return nil
 		}
-		jsonOrPrint(cmd, session, fmt.Sprintf("Session %d: %s\nPlatform: %s\nViewer: %s\nUptime: %.0fs",
-			session.Index, session.SessionID, session.Platform, session.ViewerURL, time.Since(session.StartedAt).Seconds()))
+		jsonOrPrint(cmd, session, formatDeviceInfoFallback(session))
 		return nil
 	},
 }
@@ -1044,6 +1425,9 @@ func init() {
 	deviceStartCmd.Flags().String("app-url", "", "Direct app artifact URL (.apk/.ipa/.zip)")
 	deviceStartCmd.Flags().String("app-link", "", "Deep link to launch after app start")
 	deviceStartCmd.Flags().Bool("json", false, "Output as JSON")
+	deviceStartCmd.Flags().Bool("device", false, "Interactively select device model and OS version")
+	deviceStartCmd.Flags().String("device-model", "", "Target device model (e.g. \"iPhone 16\")")
+	deviceStartCmd.Flags().String("os-version", "", "Target OS version (e.g. \"iOS 18.5\")")
 
 	// Stop
 	deviceStopCmd.Flags().Bool("json", false, "Output as JSON")
@@ -1174,8 +1558,23 @@ func init() {
 
 	// Download File
 	deviceDownloadFileCmd.Flags().String("url", "", "URL to download from (required)")
+	deviceDownloadFileCmd.Flags().String("filename", "", "Optional destination filename on the device")
 	deviceDownloadFileCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceDownloadFileCmd)
+
+	// Live high-level steps
+	deviceInstructionCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceInstructionCmd)
+
+	deviceValidationCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceValidationCmd)
+
+	deviceExtractCmd.Flags().String("variable-name", "", "Optional variable name to store extracted data under")
+	deviceExtractCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceExtractCmd)
+
+	deviceCodeExecutionCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceCodeExecutionCmd)
 
 	// Info
 	deviceInfoCmd.Flags().Bool("json", false, "Output as JSON")
@@ -1211,8 +1610,15 @@ func init() {
 	deviceCmd.AddCommand(deviceNavigateCmd)
 	deviceCmd.AddCommand(deviceSetLocationCmd)
 	deviceCmd.AddCommand(deviceDownloadFileCmd)
+	deviceCmd.AddCommand(deviceInstructionCmd)
+	deviceCmd.AddCommand(deviceValidationCmd)
+	deviceCmd.AddCommand(deviceExtractCmd)
+	deviceCmd.AddCommand(deviceCodeExecutionCmd)
 	deviceCmd.AddCommand(deviceInfoCmd)
 	deviceCmd.AddCommand(deviceDoctorCmd)
 	deviceCmd.AddCommand(deviceListCmd)
 	deviceCmd.AddCommand(deviceUseCmd)
+	deviceCmd.AddCommand(deviceReportCmd)
+	sessionFlag(deviceReportCmd)
+	deviceReportCmd.Flags().Bool("json", false, "Output as JSON")
 }

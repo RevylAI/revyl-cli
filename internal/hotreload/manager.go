@@ -25,13 +25,26 @@ type StartResult struct {
 // This is used to avoid import cycles between hotreload and providers packages.
 type DevServerFactory func(workDir, appScheme string, port int, useExpPrefix bool) DevServer
 
+// BareRNDevServerFactory creates a bare React Native DevServer.
+// Simpler signature than DevServerFactory since bare RN has no app scheme or exp prefix.
+type BareRNDevServerFactory func(workDir string, port int) DevServer
+
 // expoDevServerFactory is set by the providers package during init.
 var expoDevServerFactory DevServerFactory
+
+// bareRNDevServerFactory is set by the providers package during init.
+var bareRNDevServerFactory BareRNDevServerFactory
 
 // RegisterExpoDevServerFactory registers the Expo dev server factory.
 // Called by the providers package during init.
 func RegisterExpoDevServerFactory(factory DevServerFactory) {
 	expoDevServerFactory = factory
+}
+
+// RegisterBareRNDevServerFactory registers the bare React Native dev server factory.
+// Called by the providers package during init.
+func RegisterBareRNDevServerFactory(factory BareRNDevServerFactory) {
+	bareRNDevServerFactory = factory
 }
 
 // Manager orchestrates the hot reload flow including dev server and tunnel lifecycle.
@@ -182,7 +195,8 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 	// This must happen before starting the dev server so we can set EXPO_PACKAGER_PROXY_URL
 	m.log("Creating Cloudflare tunnel...")
 	tunnel := NewTunnelManager(cloudflaredPath, nil)
-	tunnelInfo, err := tunnel.StartTunnel(ctx, devServer.GetPort())
+	tunnel.SetLogCallback(func(msg string) { m.log("%s", msg) })
+	tunnelInfo, err := tunnel.StartTunnelWithRetry(ctx, devServer.GetPort())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tunnel: %w", err)
 	}
@@ -205,7 +219,10 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 	m.devServer = devServer
 	m.log("%s dev server ready on port %d", devServer.Name(), devServer.GetPort())
 
-	// 7. Construct deep link URL
+	// 7. Start health monitor for automatic tunnel reconnection
+	tunnel.StartHealthMonitor(ctx)
+
+	// 8. Construct deep link URL
 	deepLinkURL := devServer.GetDeepLinkURL(tunnelInfo.PublicURL)
 
 	m.running = true
@@ -319,6 +336,15 @@ func (m *Manager) createDevServer() (DevServer, error) {
 			m.providerConfig.AppScheme,
 			m.providerConfig.GetPort("expo"),
 			m.providerConfig.UseExpPrefix,
+		), nil
+
+	case "react-native":
+		if bareRNDevServerFactory == nil {
+			return nil, fmt.Errorf("bare RN dev server factory not registered - import github.com/revyl/cli/internal/hotreload/providers")
+		}
+		return bareRNDevServerFactory(
+			m.workDir,
+			m.providerConfig.GetPort("react-native"),
 		), nil
 
 	case "swift":

@@ -161,7 +161,7 @@ func TestPrintDevReadyFooter_PrintsInteractionShortcuts(t *testing.T) {
 		ui.SetQuietMode(false)
 	})
 
-	output := captureStdout(t, func() {
+	output := captureStdoutAndStderr(t, func() {
 		printDevReadyFooter("https://viewer.example", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false)
 	})
 

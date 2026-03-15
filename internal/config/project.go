@@ -101,7 +101,7 @@ type HotReloadConfig struct {
 	Default string `yaml:"default,omitempty"`
 
 	// Providers maps provider names to their configurations.
-	// Supported providers: "expo", "swift" (future), "android" (future).
+	// Supported providers: "expo", "react-native", "swift" (future), "android" (future).
 	Providers map[string]*ProviderConfig `yaml:"providers,omitempty"`
 }
 
@@ -151,9 +151,9 @@ func (c *ProviderConfig) GetPort(providerName string) int {
 	if c.Port > 0 {
 		return c.Port
 	}
-	// Default ports by provider
+	// Default ports by provider (Metro-based providers all default to 8081)
 	switch providerName {
-	case "expo", "android":
+	case "expo", "react-native", "android":
 		return 8081
 	default:
 		return 8081

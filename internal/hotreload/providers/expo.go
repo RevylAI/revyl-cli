@@ -131,10 +131,17 @@ func (e *ExpoDevServer) Start(ctx context.Context) error {
 	// Set environment to avoid interactive prompts
 	e.cmd.Env = e.expoEnvironment()
 
-	// Set proxy URL for bundle URL rewriting if configured
-	// This makes Metro return bundle URLs using the tunnel URL instead of localhost
+	// Configure Metro to use the tunnel URL for all generated URLs.
+	// EXPO_PACKAGER_PROXY_URL rewrites bundle URLs in the manifest.
+	// REACT_NATIVE_PACKAGER_HOSTNAME ensures Metro embeds the tunnel hostname
+	// in HMR WebSocket URLs (without it, Metro defaults to localhost which the
+	// cloud simulator cannot reach).
 	if e.proxyURL != "" {
-		e.cmd.Env = append(e.cmd.Env, fmt.Sprintf("EXPO_PACKAGER_PROXY_URL=%s", e.proxyURL))
+		normalizedURL, hostname := normalizeProxyURL(e.proxyURL)
+		e.cmd.Env = append(e.cmd.Env, fmt.Sprintf("EXPO_PACKAGER_PROXY_URL=%s", normalizedURL))
+		if hostname != "" {
+			e.cmd.Env = append(e.cmd.Env, fmt.Sprintf("REACT_NATIVE_PACKAGER_HOSTNAME=%s", hostname))
+		}
 	}
 
 	// Capture stdout for ready detection
@@ -392,13 +399,40 @@ func (e *ExpoDevServer) expoStartArgs() []string {
 func (e *ExpoDevServer) expoEnvironment() []string {
 	env := envWithoutKey(os.Environ(), "EXPO_NO_TELEMETRY")
 	env = append(env, "EXPO_NO_TELEMETRY=1")
+	// Strip CI from the inherited environment so Metro runs in full dev mode.
+	// Hot reload needs HMR/Fast Refresh which CI=1 can disable in some Expo
+	// versions. The --non-interactive flag (in expoStartArgs) already handles
+	// suppressing interactive prompts.
 	env = envWithoutKey(env, "CI")
-	if e.debugMode {
-		// In debug mode CI should be absent so Expo can use watch-friendly behavior.
-		return env
-	}
-	env = append(env, "CI=1")
 	return env
+}
+
+// normalizeProxyURL parses a tunnel URL and returns a normalized version with
+// an explicit port, plus the extracted hostname. An explicit port is required
+// because React Native's WebSocket code fails to parse the default port from
+// HTTPS URLs (Expo #42316), causing HMR connections to break.
+//
+// Parameters:
+//   - rawURL: The tunnel URL (e.g., "https://xxx.trycloudflare.com")
+//
+// Returns:
+//   - normalized: URL with explicit port (e.g., "https://xxx.trycloudflare.com:443")
+//   - hostname: The hostname portion (e.g., "xxx.trycloudflare.com")
+func normalizeProxyURL(rawURL string) (normalized string, hostname string) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL, ""
+	}
+	hostname = parsed.Hostname()
+	if parsed.Port() == "" {
+		switch parsed.Scheme {
+		case "https":
+			parsed.Host = hostname + ":443"
+		case "http":
+			parsed.Host = hostname + ":80"
+		}
+	}
+	return parsed.String(), hostname
 }
 
 func envWithoutKey(env []string, key string) []string {

@@ -3,6 +3,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -48,12 +49,12 @@ func StartSpinner(message string) {
 			select {
 			case <-stopChan:
 				// Clear the spinner line
-				fmt.Printf("\r%s\r", strings.Repeat(" ", len(message)+4))
+				fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", len(message)+4))
 				return
 			default:
 				frame := spinnerFrames[i%len(spinnerFrames)]
 				styledFrame := StatusRunningStyle.Render(frame)
-				fmt.Printf("\r%s %s", styledFrame, message)
+				fmt.Fprintf(os.Stderr, "\r%s %s", styledFrame, message)
 				i++
 				time.Sleep(80 * time.Millisecond)
 			}
@@ -63,7 +64,7 @@ func StartSpinner(message string) {
 
 // StopSpinner stops the current spinner and blocks until cleanup is complete.
 // This ensures the spinner's line-clearing write finishes before any subsequent
-// writes to stdout, preventing race conditions with progress display.
+// writes to stderr, preventing race conditions with progress display.
 func StopSpinner() {
 	spinnerMu.Lock()
 
@@ -136,16 +137,16 @@ func (p *ProgressBar) render() {
 
 	// Pad to clear previous content; use carriage return for in-place update
 	if isTTY {
-		fmt.Printf("\r%-80s", line)
+		fmt.Fprintf(os.Stderr, "\r%-80s", line)
 	} else {
-		fmt.Println(line)
+		fmt.Fprintln(os.Stderr, line)
 	}
 }
 
 // Complete marks the progress bar as complete.
 func (p *ProgressBar) Complete() {
 	p.Update(p.total, "")
-	fmt.Println()
+	fmt.Fprintln(os.Stderr)
 }
 
 // UpdateProgress is a convenience function for updating progress display.

@@ -1,16 +1,27 @@
 # MCP Server Setup
 
-Connect Revyl to your AI coding tools (Cursor, Claude Code, Codex, VS Code, Claude Desktop) so your agent can provision cloud devices, run tests, and interact with mobile apps directly.
+> [Back to README](../README.md) | [Commands](COMMANDS.md) | [Agent Skills](SKILLS.md) | [SDK](SDK.md)
 
-> **Public docs**: [docs.revyl.ai/cli/mcp-setup](https://docs.revyl.ai/cli/mcp-setup)
+Connect Revyl to your AI coding tools so your agent can provision cloud devices, run tests, and interact with mobile apps directly.
+
+MCP gives capability. Skills give strategy. Your prompt gives intent.
 
 ## Quick Install
 
-**[Add to Cursor](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19)**
+**Cursor** -- add to `.cursor/mcp.json` in your project root (or `~/.cursor/mcp.json` for global):
 
-[![Add Revyl MCP to Cursor](https://cursor.com/deeplink/mcp-install-dark.png)](cursor://anysphere.cursor-deeplink/mcp/install?name=revyl&config=eyJjb21tYW5kIjoicmV2eWwiLCJhcmdzIjpbIm1jcCIsInNlcnZlIl19)
+```json
+{
+  "mcpServers": {
+    "revyl": {
+      "command": "revyl",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
 
-If the button does not open Cursor, go to **Settings > MCP > Add server** and add server `revyl` with args `mcp`, `serve`.
+Restart Cursor after saving. If you previously ran `revyl auth login`, no API key is needed.
 
 [![Install in VS Code](https://img.shields.io/badge/VS_Code-Revyl-0098FF?style=flat&logo=visualstudiocode&logoColor=ffffff)](vscode:mcp/install?%7B%22name%22%3A%22revyl%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22revyl%22%2C%22args%22%3A%5B%22mcp%22%2C%22serve%22%5D%7D)  [![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Revyl-24bfa5?style=flat&logo=visualstudiocode&logoColor=ffffff)](vscode-insiders:mcp/install?%7B%22name%22%3A%22revyl%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22revyl%22%2C%22args%22%3A%5B%22mcp%22%2C%22serve%22%5D%7D)
 
@@ -18,89 +29,24 @@ If the button does not open Cursor, go to **Settings > MCP > Add server** and ad
 
 **Codex**: `codex mcp add revyl -- revyl mcp serve`
 
-> **Note**: The one-click buttons install the server without an API key. Run `revyl auth login` first, or add `REVYL_API_KEY` to your MCP config afterward. See the manual setup sections below.
-
-## 2-Minute Golden Setup (Codex)
-
-Use this flow if you want the fastest path to a strong local experience:
-
-```bash
-# 1) Authenticate CLI
-revyl auth login
-
-# 2) Add Revyl MCP server to Codex
-codex mcp add revyl -- revyl mcp serve
-
-# 3) Install Revyl MCP skill family for Codex behavior guidance
-revyl skill install --codex --mcp
-```
-
-### One-command quick setup
-
-```bash
-revyl auth login && codex mcp add revyl -- revyl mcp serve && revyl skill install --codex --mcp
-```
-
-### Verify in under 30 seconds
-
-```bash
-revyl auth status
-codex mcp list
-```
-
-Then ask your agent:
-- "List all my Revyl tests."
-- "Start an Android device and take a screenshot."
-
-## Mental Model: CLI <> MCP <> Skill
-
-- `CLI` (`revyl`): the executable that actually performs operations.
-- `MCP` (`revyl mcp serve`): exposes CLI operations as callable tools for AI hosts.
-- `Skill` (`SKILL.md`): playbook that improves how the agent uses available tools.
-
-Rule of thumb:
-- MCP gives capability.
-- Skill gives strategy.
-- Your prompt gives intent.
-
-In practice, setup order should be:
-1. Install/auth the CLI.
-2. Register MCP in your host.
-3. Install the skill.
-4. Run task prompts.
-
-If something fails, triage in this order:
-1. Auth and CLI health (`revyl auth status`).
-2. MCP registration/connectivity (`codex mcp list`, `revyl mcp serve`).
-3. Skill presence/scope (`.codex/skills/...` vs `~/.codex/skills/...`).
+> The one-click buttons install the server without an API key. Run `revyl auth login` first, or add `REVYL_API_KEY` to your MCP config afterward.
 
 ## Prerequisites
 
-### 1. Install the Revyl CLI
-
-**Homebrew (recommended on macOS)**:
+### 1. Install the CLI
 
 ```bash
-brew install RevylAI/tap/revyl
+brew install RevylAI/tap/revyl    # Homebrew (recommended)
+pip install revyl                 # pip
 ```
-
-**pip**:
-
-```bash
-pip install revyl
-```
-
-**Binary download**: [GitHub Releases](https://github.com/revyl/cli/releases)
 
 ### 2. Authenticate
 
-Either log in interactively (stores credentials locally):
-
 ```bash
-revyl auth login
+revyl auth login                  # Browser-based login
 ```
 
-Or get your API key from the [Revyl dashboard](https://app.revyl.ai) and pass it via environment variable:
+Or set an API key:
 
 ```bash
 export REVYL_API_KEY=your-api-key
@@ -115,29 +61,11 @@ revyl mcp serve     # Should start the MCP server (Ctrl+C to stop)
 
 ---
 
-## Cursor
+## Setup by Tool
 
-### Project-scoped (recommended)
+### Cursor
 
-Create `.cursor/mcp.json` in your project root:
-
-```json
-{
-  "mcpServers": {
-    "revyl": {
-      "command": "revyl",
-      "args": ["mcp", "serve"],
-      "env": {
-        "REVYL_API_KEY": "your-api-key"
-      }
-    }
-  }
-}
-```
-
-### Global
-
-Create or edit `~/.cursor/mcp.json`:
+Create `.cursor/mcp.json` in your project root (project-scoped) or `~/.cursor/mcp.json` (global):
 
 ```json
 {
@@ -153,77 +81,25 @@ Create or edit `~/.cursor/mcp.json`:
 }
 ```
 
-> **Note**: Restart Cursor after editing MCP config. If you previously ran `revyl auth login`, you can omit the `env` block.
+Restart Cursor after editing. If you previously ran `revyl auth login`, you can omit the `env` block.
 
----
-
-## Claude Code
-
-One command:
+### Claude Code
 
 ```bash
 claude mcp add revyl -- revyl mcp serve
+claude mcp add revyl -e REVYL_API_KEY=your-api-key -- revyl mcp serve  # Explicit key
+claude mcp list  # Verify
 ```
 
-With an explicit API key:
+### Codex (OpenAI)
 
-```bash
-claude mcp add revyl -e REVYL_API_KEY=your-api-key -- revyl mcp serve
-```
-
-Verify it was added:
-
-```bash
-claude mcp list
-```
-
----
-
-## Codex (OpenAI)
-
-### Local CLI development
-
-Build and install a local `revyl` binary, then register it with Codex:
-
-```bash
-go build -o /usr/local/bin/revyl ./cmd/revyl
-codex mcp add revyl -- revyl mcp serve
-```
-
-If you prefer a repo-local binary path:
-
-```bash
-go build -o ./bin/revyl ./cmd/revyl
-mkdir -p ~/.local/bin
-ln -sfn "$(pwd)/bin/revyl" ~/.local/bin/revyl
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-If you prefer to use a local alias name such as `revyl-zakir`, use that alias in the `codex mcp` commands and config instead of `revyl`.
-
-### Reinstall during local development
-
-After rebuilding the local binary, refresh the MCP entry:
-
-```bash
-codex mcp remove revyl
-codex mcp add revyl -- revyl mcp serve
-```
-
-If your CLI supports server listing, confirm it was updated and restart Codex if needed before continuing.
-
-### CLI
+CLI:
 
 ```bash
 codex mcp add revyl -- revyl mcp serve
 ```
 
-If `revyl` is a shell alias, it may not be loaded by Codex process execution.
-Prefer ensuring the command is on `PATH` (or use the absolute path fallback below).
-
-### Config file
-
-Add to `~/.codex/config.toml`:
+Config file (`~/.codex/config.toml`):
 
 ```toml
 [mcp_servers.revyl]
@@ -232,7 +108,7 @@ args = ["mcp", "serve"]
 env = { REVYL_API_KEY = "your-api-key" }
 ```
 
-If your normal CLI workflow uses local/dev servers, include `--dev` for MCP too:
+If your CLI workflow uses `--dev`, include it for MCP too:
 
 ```toml
 [mcp_servers.revyl]
@@ -241,38 +117,11 @@ args = ["--dev", "mcp", "serve"]
 env = { REVYL_API_KEY = "your-api-key" }
 ```
 
-### Runtime parity (important)
+Keep MCP and your shell CLI pointed at the same binary and flags. A mismatch can make session lists appear inconsistent.
 
-Keep MCP and your shell CLI pointed at the same binary and flags. A mismatch
-(for example MCP using `revyl mcp serve` while your shell uses an alias like
-`revyl-zakir --dev`) can make session lists appear inconsistent.
+### Claude Desktop
 
-Quick checks:
-
-```bash
-codex mcp list
-zsh -lic 'type revyl-zakir'
-```
-
-Verify that:
-- MCP `Command` points to the same binary your shell uses.
-- MCP args include `--dev` if your shell alias runs in dev mode.
-- Both environments use the same `REVYL_BACKEND_URL` overrides (if set).
-
-If `revyl` is not on `PATH` (or you use a local alias name), use an absolute path:
-
-```toml
-[mcp_servers.revyl]
-command = "/absolute/path/to/revyl"
-args = ["mcp", "serve"]
-env = { REVYL_API_KEY = "your-api-key" }
-```
-
----
-
-## Claude Desktop
-
-Edit the Claude Desktop config file:
+Edit the config file:
 
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
@@ -291,13 +140,9 @@ Edit the Claude Desktop config file:
 }
 ```
 
-Restart Claude Desktop after saving.
+### VS Code (Copilot Chat)
 
----
-
-## VS Code (Copilot Chat)
-
-Add to your VS Code `settings.json` (Cmd+Shift+P > "Preferences: Open User Settings (JSON)"):
+Add to your VS Code `settings.json`:
 
 ```json
 {
@@ -315,9 +160,7 @@ Add to your VS Code `settings.json` (Cmd+Shift+P > "Preferences: Open User Setti
 }
 ```
 
----
-
-## Windsurf
+### Windsurf
 
 Create or edit `~/.codeium/windsurf/mcp_config.json`:
 
@@ -337,124 +180,171 @@ Create or edit `~/.codeium/windsurf/mcp_config.json`:
 
 ---
 
-## Installing Agent Skills (Recommended)
+## MCP Tools Reference
 
-Revyl ships embedded skills so your assistant can run reliable device interaction loops, convert exploratory sessions into stable tests, and triage failures. This is optional but significantly improves the experience.
+The Revyl MCP server exposes tools across the following categories. Device action tools use **grounded targeting by default** -- describe the element in natural language (`target="Sign In button"`) and coordinates are resolved automatically. You can also pass raw `x, y` as an override.
 
-Skills are **embedded in the CLI binary** and can be installed with a single command.
+### Device Session
 
-### Default install (CLI family)
+| Tool | Description |
+|------|-------------|
+| `start_device_session` | Start a cloud device session (iOS or Android) |
+| `stop_device_session` | Stop a device session |
+| `get_session_info` | Get session details including viewer URL |
+| `list_device_sessions` | List all active sessions |
+| `switch_device_session` | Switch the active session by index |
 
-```bash
-revyl skill install
-```
+### Device Actions
 
-This auto-detects tools and installs the CLI skill family:
-- `revyl-cli`
-- `revyl-cli-create`
-- `revyl-cli-analyze`
-- `revyl-cli-dev-loop`
+| Tool | Description |
+|------|-------------|
+| `device_tap` | Tap an element by target or coordinates |
+| `device_double_tap` | Double-tap an element |
+| `device_long_press` | Long press with configurable duration |
+| `device_type` | Type text into a field |
+| `device_swipe` | Swipe in a direction from a target or point |
+| `device_drag` | Drag from one point to another |
+| `device_pinch` | Pinch/zoom gesture |
+| `device_clear_text` | Clear text in a field |
 
-Install MCP skill family instead:
+### Device Controls
 
-```bash
-revyl skill install --mcp
-```
+| Tool | Description |
+|------|-------------|
+| `device_wait` | Wait for a fixed duration |
+| `device_back` | Android back button |
+| `device_key` | Press a key (ENTER, BACKSPACE) |
+| `device_shake` | Trigger shake gesture |
+| `device_go_home` | Return to home screen |
+| `device_kill_app` | Kill the current app |
+| `device_open_app` | Open a system app by name |
+| `device_navigate` | Open a URL or deep link |
+| `device_set_location` | Set GPS coordinates |
+| `device_download_file` | Download a file to device storage |
 
-Install both CLI and MCP families:
+### Live Steps
 
-```bash
-revyl skill install --cli --mcp
-```
+| Tool | Description |
+|------|-------------|
+| `device_instruction` | Execute one instruction step (natural-language action) |
+| `device_validation` | Execute one validation step (assertion) |
+| `device_extract` | Execute one extract step (data extraction) |
+| `device_code_execution` | Execute one code execution step by script ID |
 
-MCP family skills:
-- `revyl-mcp`
-- `revyl-mcp-create`
-- `revyl-mcp-analyze`
-- `revyl-mcp-dev-loop`
+### Vision
 
-### Tool-specific installation
+| Tool | Description |
+|------|-------------|
+| `screenshot` | Capture a screenshot of the current screen |
 
-```bash
-revyl skill install --cursor                # CLI family for Cursor
-revyl skill install --codex --mcp           # MCP family for Codex
-revyl skill install --claude --cli --mcp    # Both families for Claude Code
-```
+### App Management
 
-Use project-level install when you want repo-specific behavior. Use global install when you want the same defaults across all repos.
+| Tool | Description |
+|------|-------------|
+| `install_app` | Install an app from a URL |
+| `launch_app` | Launch an installed app by bundle ID |
 
-### Global installation (user-level, applies to all projects)
+### Diagnostics
 
-```bash
-revyl skill install --cursor --global
-revyl skill install --claude --global --mcp
-revyl skill install --codex --global --cli --mcp
-```
+| Tool | Description |
+|------|-------------|
+| `device_doctor` | Run diagnostics on auth, session, worker, and grounding health |
+| `auth_status` | Check authentication status and user info |
 
-If you update the CLI and want to refresh installed skills, run the same install command again for your target tool.
+### Test Management
 
-### Manual installation
+| Tool | Description |
+|------|-------------|
+| `run_test` | Run a test by name or ID |
+| `create_test` | Create a new test from YAML content |
+| `update_test` | Update an existing test's YAML content |
+| `delete_test` | Delete a test by name or ID |
+| `list_tests` | List tests from `.revyl/config.yaml` |
+| `list_remote_tests` | List all tests in the organization |
+| `get_test_status` | Get the status of a running or completed test |
+| `cancel_test` | Cancel a running test by task ID |
+| `validate_yaml` | Validate YAML test syntax without creating |
+| `get_schema` | Get the CLI command and YAML test schema |
 
-If you prefer to install skills manually:
+### Workflow Management
 
-```bash
-# List available skills
-revyl skill list
+| Tool | Description |
+|------|-------------|
+| `run_workflow` | Run a workflow by name or ID |
+| `create_workflow` | Create a new workflow |
+| `delete_workflow` | Delete a workflow by name or ID |
+| `list_workflows` | List all workflows in the organization |
+| `cancel_workflow` | Cancel a running workflow by task ID |
+| `open_workflow_editor` | Get the URL to the workflow browser editor |
+| `add_tests_to_workflow` | Add tests to a workflow |
+| `remove_tests_from_workflow` | Remove tests from a workflow |
+| `get_workflow_settings` | Get workflow location and app overrides |
+| `set_workflow_location` | Set GPS location override for a workflow |
+| `clear_workflow_location` | Remove GPS location override |
+| `set_workflow_app` | Set app overrides per platform |
+| `clear_workflow_app` | Remove app overrides |
 
-# Export a specific skill file
-revyl skill export --name revyl-cli-dev-loop -o SKILL.md
-revyl skill export --name revyl-mcp-dev-loop -o SKILL.md
-revyl skill export --name revyl-cli-analyze -o SKILL.md
+### Module Management
 
-# Or pipe a specific skill directly
-revyl skill show --name revyl-cli > SKILL.md
-revyl skill show --name revyl-mcp > SKILL.md
-```
+| Tool | Description |
+|------|-------------|
+| `list_modules` | List reusable test modules |
+| `get_module` | Get module details and blocks |
+| `create_module` | Create a module from blocks |
+| `delete_module` | Delete a module (fails if in use) |
+| `insert_module_block` | Get a `module_import` YAML snippet for a module |
 
-If you previously installed legacy folders (`revyl-device`, `revyl-dev-loop`, `revyl-adhoc-to-test`, `revyl-device-dev-loop`, `revyl-create`, `revyl-analyze`), run install again to auto-prune them:
+### Tag Management
 
-```bash
-revyl skill install --codex --force
-```
+| Tool | Description |
+|------|-------------|
+| `list_tags` | List all tags with test counts |
+| `create_tag` | Create a tag (upsert) |
+| `delete_tag` | Delete a tag from all tests |
+| `get_test_tags` | Get tags for a specific test |
+| `set_test_tags` | Replace all tags on a test |
+| `add_remove_test_tags` | Add/remove tags without replacing |
 
-Then place it in the appropriate directory for your tool:
+### Variables and Environment
 
-| Tool | Project-level | User-level (global) |
-| --- | --- | --- |
-| Cursor | `.cursor/skills/<skill-name>/SKILL.md` | `~/.cursor/skills/<skill-name>/SKILL.md` |
-| Claude Code | `.claude/skills/<skill-name>/SKILL.md` | `~/.claude/skills/<skill-name>/SKILL.md` |
-| Codex | `.codex/skills/<skill-name>/SKILL.md` | `~/.codex/skills/<skill-name>/SKILL.md` |
+| Tool | Description |
+|------|-------------|
+| `list_variables` | List test variables (`{{name}}` syntax in steps) |
+| `set_variable` | Add or update a test variable |
+| `delete_variable` | Delete a test variable |
+| `delete_all_variables` | Delete all test variables |
+| `list_env_vars` | List environment variables (encrypted, injected at launch) |
+| `set_env_var` | Add or update an env var |
+| `delete_env_var` | Delete an env var |
+| `clear_env_vars` | Delete all env vars |
 
-After installing, the skill is automatically discovered by your AI agent on startup. Restart your IDE if it was already running.
+### Build Management
+
+| Tool | Description |
+|------|-------------|
+| `list_builds` | List available build versions |
+| `upload_build` | Upload a build file to an app |
+| `create_app` | Create a new app for build uploads |
+| `delete_app` | Delete an app and all its build versions |
+
+### Script Management
+
+| Tool | Description |
+|------|-------------|
+| `list_scripts` | List code execution scripts |
+| `get_script` | Get script details and source code |
+| `create_script` | Create a new script |
+
+### Dev Loop
+
+| Tool | Description |
+|------|-------------|
+| `start_dev_loop` | Start an Expo hot-reload dev loop |
+| `stop_dev_loop` | Stop the active dev loop |
 
 ---
 
-## Maximize UX in Daily Use
-
-- Install both MCP and skills: MCP exposes tools, skills improve execution quality.
-- Ask intent-first prompts ("Run login smoke test and summarize failure cause") rather than low-level click scripts.
-- For device interaction, use the loop: `screenshot()` -> action -> `screenshot()`.
-- Prefer grounded targets before raw coordinates.
-- Grounded targets are resolved worker-side in device coordinate space first; older workers fall back to backend grounding automatically.
-- Share `viewer_url` early when collaborating with teammates.
-- Always stop active device sessions when done to avoid idle billing.
-
----
-
-## Verify It Works
-
-After configuring your tool, try these prompts:
-
-- "Start an Android device and take a screenshot"
-- "List all my Revyl tests"
-- "Run the login-flow test"
-- "Install this app and tap the Sign In button"
-
-If something goes wrong, ask the agent to "Run device_doctor" -- it checks auth, session, worker, and grounding health.
-
----
-
-## Example Prompt Library
+## Prompt Library
 
 Use these copy/paste prompts to activate the right skill family.
 
@@ -523,53 +413,63 @@ Analyze this failed test run end-to-end:
 
 ---
 
+## Verify It Works
+
+After configuring your tool, try these prompts:
+
+- "Start an Android device and take a screenshot"
+- "List all my Revyl tests"
+- "Run the login-flow test"
+- "Install this app and tap the Sign In button"
+
+If something goes wrong, ask the agent to "Run device_doctor" -- it checks auth, session, worker, and grounding health.
+
+---
+
 ## Troubleshooting
 
 ### "revyl: command not found"
 
-The CLI is not in your PATH. Fix:
+The CLI is not in your PATH.
 
 ```bash
-# Check where it's installed
-which revyl        # npm
-pip show revyl     # pip
+which revyl        # Check location
+pip show revyl     # If installed via pip
 
-# Or use the full path in your MCP config
-"command": "/usr/local/bin/revyl"
+# Or use the full path in your MCP config:
+# "command": "/usr/local/bin/revyl"
 ```
 
 ### Authentication errors
 
 ```bash
-# Re-authenticate
-revyl auth login
-
-# Or check your API key
-revyl auth status
+revyl auth login     # Re-authenticate
+revyl auth status    # Check current status
 ```
 
 ### MCP server not responding
 
 1. Restart your IDE/tool
 2. Check the server starts manually: `revyl mcp serve`
-3. Enable debug logging: set `REVYL_DEBUG=true` in your MCP config's `env` block
-4. Run `revyl device doctor` from the CLI to check connectivity
+3. Enable debug logging by adding `"--debug"` to the `args` array in your MCP config
+4. Run `revyl device doctor` to check connectivity
 
 ### "no active device session"
 
-Sessions auto-terminate after 5 minutes of idle time. Call `start_device_session()` to provision a new device.
+Sessions auto-terminate after 5 minutes of idle time. Call `start_device_session` to provision a new device.
 
 ### Worker DNS failures in sandboxed agents
 
-If direct worker DNS lookups fail (for example `cog-*.revyl.ai` not resolving in Codex/Claude sandbox environments), the CLI/MCP device tools automatically fall back to backend worker proxy routing.
+If direct worker DNS lookups fail (e.g. in Codex/Claude sandbox environments), the CLI/MCP automatically falls back to backend proxy routing.
 
 If actions still fail after fallback:
-1. Run `device_doctor()` to verify session + worker status.
-2. Confirm the session still appears in `list_device_sessions()`.
-3. Start a fresh session if the current one was terminated externally.
+
+1. Run `device_doctor` to verify session + worker status
+2. Confirm the session still appears in `list_device_sessions`
+3. Start a fresh session if the current one was terminated externally
 
 ### Grounding model not finding elements
 
 1. Take a `screenshot()` to see what's actually on screen
-2. Use more specific descriptions: "blue 'Sign In' button" instead of "button"
-3. Use `find_element()` first to check coordinates before acting
+2. Use more specific descriptions: `"blue 'Sign In' button"` instead of `"button"`
+3. Rephrase the target using exact visible text and retry

@@ -3,6 +3,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -37,25 +38,25 @@ func PrintBanner(version string) {
 		Bold(true).
 		Render(banner)
 
-	fmt.Println(styledBanner)
-	fmt.Println()
+	fmt.Fprintln(os.Stderr, styledBanner)
+	fmt.Fprintln(os.Stderr)
 
 	// Tagline
 	taglineStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("245")).
 		Italic(true).
 		PaddingLeft(2)
-	fmt.Println(taglineStyle.Render(tagline))
-	fmt.Println()
+	fmt.Fprintln(os.Stderr, taglineStyle.Render(tagline))
+	fmt.Fprintln(os.Stderr)
 
 	// Version and info
 	infoStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("245")).
 		PaddingLeft(2)
 
-	fmt.Println(infoStyle.Render(fmt.Sprintf("Version: %s", version)))
-	fmt.Println(infoStyle.Render(fmt.Sprintf("Docs:    %s", DocsURL)))
-	fmt.Println()
+	fmt.Fprintln(os.Stderr, infoStyle.Render(fmt.Sprintf("Version: %s", version)))
+	fmt.Fprintln(os.Stderr, infoStyle.Render(fmt.Sprintf("Docs:    %s", DocsURL)))
+	fmt.Fprintln(os.Stderr)
 }
 
 // GetCondensedHelp returns a compact cheat-sheet for the 80/20 user journey.

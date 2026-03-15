@@ -1,8 +1,9 @@
 """
-Thin Python SDK for Revyl device commands.
+Revyl Device SDK.
 
-This SDK wraps the Revyl CLI binary and returns parsed JSON responses
-for commands that support `--json`.
+Start cloud device sessions, interact with elements via AI-grounded targeting
+or coordinates, and execute live test steps. Wraps the Revyl CLI binary and
+returns parsed JSON responses for commands that support ``--json``.
 """
 
 from __future__ import annotations
@@ -152,6 +153,31 @@ class DeviceClient:
         if x is None or y is None:
             raise ValueError("Provide target or both x and y coordinates.")
         return ["--x", str(x), "--y", str(y)]
+
+    def _live_step_args(
+        self,
+        command: str,
+        value: str,
+        session_index: Optional[int],
+        *extra_args: str,
+    ) -> list[str]:
+        """Build CLI arguments for a live single-step device command.
+
+        Args:
+            command: Canonical device subcommand name to execute.
+            value: Natural-language step text or script identifier.
+            session_index: Optional device session index to target.
+            *extra_args: Additional CLI flags appended before session selection.
+
+        Returns:
+            The full CLI argument vector for the live-step command.
+
+        Raises:
+            ValueError: If the provided step value is empty after trimming.
+        """
+        if not value.strip():
+            raise ValueError(f"{command} value must not be empty.")
+        return ["device", command, value, *extra_args, *self._session_args(session_index)]
 
     def start_session(
         self,
@@ -463,8 +489,113 @@ class DeviceClient:
     def download_file(
         self,
         url: str,
+        filename: Optional[str] = None,
         session_index: Optional[int] = None,
     ) -> JSONObject:
-        args = ["device", "download-file", "--url", url, *self._session_args(session_index)]
+        """Download a file onto the active device session.
+
+        Args:
+            url: Remote URL to download from.
+            filename: Optional on-device filename override.
+            session_index: Optional device session index to target.
+
+        Returns:
+            The CLI JSON response for the download request.
+        """
+        args = ["device", "download-file", "--url", url]
+        if filename:
+            args.extend(["--filename", filename])
+        args.extend(self._session_args(session_index))
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def instruction(
+        self,
+        description: str,
+        session_index: Optional[int] = None,
+    ) -> JSONObject:
+        """Execute one live instruction step against the active device.
+
+        Args:
+            description: Natural-language instruction to execute.
+            session_index: Optional device session index to target.
+
+        Returns:
+            The CLI JSON response for the executed live step.
+
+        Raises:
+            ValueError: If the step description is empty after trimming.
+        """
+        args = self._live_step_args("instruction", description, session_index)
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def validation(
+        self,
+        description: str,
+        session_index: Optional[int] = None,
+    ) -> JSONObject:
+        """Execute one live validation step against the active device.
+
+        Args:
+            description: Natural-language validation to execute.
+            session_index: Optional device session index to target.
+
+        Returns:
+            The CLI JSON response for the executed live step.
+
+        Raises:
+            ValueError: If the step description is empty after trimming.
+        """
+        args = self._live_step_args("validation", description, session_index)
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def extract(
+        self,
+        description: str,
+        variable_name: Optional[str] = None,
+        session_index: Optional[int] = None,
+    ) -> JSONObject:
+        """Execute one live extract step against the active device.
+
+        Args:
+            description: Natural-language extraction instruction to execute.
+            variable_name: Optional extraction variable name for downstream use.
+            session_index: Optional device session index to target.
+
+        Returns:
+            The CLI JSON response for the executed live step.
+
+        Raises:
+            ValueError: If the step description is empty after trimming.
+        """
+        extra_args: list[str] = []
+        if variable_name:
+            extra_args.extend(["--variable-name", variable_name])
+        args = self._live_step_args(
+            "extract", description, session_index, *extra_args
+        )
+        result = self.cli.run(*args, json_output=True)
+        return result if isinstance(result, dict) else {}
+
+    def code_execution(
+        self,
+        script_id: str,
+        session_index: Optional[int] = None,
+    ) -> JSONObject:
+        """Execute one live code-execution step against the active device.
+
+        Args:
+            script_id: Stable script identifier or code execution reference.
+            session_index: Optional device session index to target.
+
+        Returns:
+            The CLI JSON response for the executed live step.
+
+        Raises:
+            ValueError: If the script identifier is empty after trimming.
+        """
+        args = self._live_step_args("code-execution", script_id, session_index)
         result = self.cli.run(*args, json_output=True)
         return result if isinstance(result, dict) else {}

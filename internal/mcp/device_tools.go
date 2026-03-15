@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -291,6 +292,46 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleDeviceDownloadFile)
 
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_instruction",
+		Description: "Run one high-level instruction step directly on the active live device session.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Run Instruction Step",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceInstruction)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_validation",
+		Description: "Run one high-level validation step directly on the active live device session.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Run Validation Step",
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceValidation)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_extract",
+		Description: "Run one high-level extract step directly on the active live device session.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Run Extract Step",
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceExtract)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_code_execution",
+		Description: "Run one high-level code_execution step directly on the active live device session using a script ID.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Run Code Execution Step",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceCodeExecution)
+
 	// Info
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_session_info",
@@ -300,6 +341,15 @@ func (s *Server) registerDeviceTools() {
 			ReadOnlyHint: true,
 		},
 	}, s.handleGetSessionInfo)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_session_report",
+		Description: "Get the report for the current device session, including steps, actions, video URL, and status.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get Session Report",
+			ReadOnlyHint: true,
+		},
+	}, s.handleGetSessionReport)
 
 	// Diagnostics
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -353,28 +403,31 @@ type StartDeviceSessionOutput struct {
 	SessionIndex int        `json:"session_index"`
 	Platform     string     `json:"platform,omitempty"`
 	ViewerURL    string     `json:"viewer_url,omitempty"`
+	WhepURL      string     `json:"whep_url,omitempty"`
 	Error        string     `json:"error,omitempty"`
 	NextSteps    []NextStep `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallToolRequest, input StartDeviceSessionInput) (*mcp.CallToolResult, StartDeviceSessionOutput, error) {
-	if input.Platform == "" {
+	platform := strings.ToLower(normalizeOptionalToolInput(input.Platform))
+	if platform == "" {
 		return nil, StartDeviceSessionOutput{Success: false, Error: "platform is required (ios or android)"}, nil
 	}
-	if input.Platform != "ios" && input.Platform != "android" {
+	if platform != "ios" && platform != "android" {
 		return nil, StartDeviceSessionOutput{Success: false, Error: "platform must be 'ios' or 'android'"}, nil
 	}
-	if input.AppURL != "" && input.BuildVersionID != "" {
-		return nil, StartDeviceSessionOutput{Success: false, Error: "provide either app_url or build_version_id, not both"}, nil
+	appID, buildVersionID, appURL, err := normalizeStartArtifactInputs(input.AppID, input.BuildVersionID, input.AppURL)
+	if err != nil {
+		return nil, StartDeviceSessionOutput{Success: false, Error: err.Error()}, nil
 	}
 
 	timeout := time.Duration(input.IdleTimeout) * time.Second
 	idx, session, err := s.sessionMgr.StartSession(ctx, StartSessionOptions{
-		Platform:       input.Platform,
-		AppID:          input.AppID,
-		BuildVersionID: input.BuildVersionID,
-		AppURL:         input.AppURL,
-		AppLink:        input.AppLink,
+		Platform:       platform,
+		AppID:          appID,
+		BuildVersionID: buildVersionID,
+		AppURL:         appURL,
+		AppLink:        normalizeOptionalToolInput(input.AppLink),
 		TestID:         input.TestID,
 		SandboxID:      input.SandboxID,
 		IdleTimeout:    timeout,
@@ -394,6 +447,7 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		SessionIndex: idx,
 		Platform:     session.Platform,
 		ViewerURL:    session.ViewerURL,
+		WhepURL:      stringValue(session.WhepURL),
 		NextSteps: []NextStep{
 			{Tool: "screenshot", Reason: "See the current device screen"},
 			{Tool: "install_app", Reason: "Install an app on the device"},
@@ -519,6 +573,250 @@ func errorNextSteps(err error) []NextStep {
 	default:
 		return []NextStep{{Tool: "device_doctor", Reason: "Run diagnostics to understand the failure"}}
 	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+// normalizeOptionalToolInput trims whitespace from a tool input field.
+func normalizeOptionalToolInput(value string) string {
+	return strings.TrimSpace(value)
+}
+
+// normalizeRequiredToolInput trims a required tool input and errors when the
+// resulting value is empty.
+func normalizeRequiredToolInput(value, field string) (string, error) {
+	normalized := normalizeOptionalToolInput(value)
+	if normalized == "" {
+		return "", fmt.Errorf("%s is required", field)
+	}
+	return normalized, nil
+}
+
+// normalizeStartArtifactInputs trims start-session artifact selectors and
+// ensures the caller does not provide more than one source.
+func normalizeStartArtifactInputs(appID, buildVersionID, appURL string) (string, string, string, error) {
+	normalizedAppID := normalizeOptionalToolInput(appID)
+	normalizedBuildVersionID := normalizeOptionalToolInput(buildVersionID)
+	normalizedAppURL := normalizeOptionalToolInput(appURL)
+
+	provided := 0
+	for _, candidate := range []string{normalizedAppID, normalizedBuildVersionID, normalizedAppURL} {
+		if candidate != "" {
+			provided++
+		}
+	}
+	if provided > 1 {
+		return "", "", "", fmt.Errorf("provide only one of app_id, build_version_id, or app_url")
+	}
+	return normalizedAppID, normalizedBuildVersionID, normalizedAppURL, nil
+}
+
+type liveStepOutputSummary struct {
+	Status       string `json:"status"`
+	StatusReason string `json:"status_reason"`
+}
+
+type DeviceLiveStepOutput struct {
+	Success       bool            `json:"success"`
+	StepType      string          `json:"step_type,omitempty"`
+	StepID        string          `json:"step_id,omitempty"`
+	WorkflowRunID string          `json:"workflow_run_id,omitempty"`
+	SessionID     string          `json:"session_id,omitempty"`
+	ExecutionID   string          `json:"execution_id,omitempty"`
+	ReportID      string          `json:"report_id,omitempty"`
+	StepOutput    json.RawMessage `json:"step_output,omitempty"`
+	Error         string          `json:"error,omitempty"`
+	NextSteps     []NextStep      `json:"next_steps,omitempty"`
+}
+
+func liveStepErrorFromResponse(response *LiveStepResponse) string {
+	if response == nil {
+		return "live step failed"
+	}
+	if len(response.StepOutput) > 0 {
+		var summary liveStepOutputSummary
+		if err := json.Unmarshal(response.StepOutput, &summary); err == nil && strings.TrimSpace(summary.StatusReason) != "" {
+			return strings.TrimSpace(summary.StatusReason)
+		}
+	}
+	if response.Success {
+		return ""
+	}
+	return "live step failed"
+}
+
+func (s *Server) executeLiveStep(
+	ctx context.Context,
+	sessionIndex int,
+	request LiveStepRequest,
+	successReason string,
+) (*DeviceLiveStepOutput, error) {
+	session, err := s.resolveSessionWithHydration(ctx, sessionIndex)
+	if err != nil {
+		return &DeviceLiveStepOutput{
+			Success:   false,
+			Error:     err.Error(),
+			NextSteps: errorNextSteps(err),
+		}, nil
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	response, err := s.sessionMgr.ExecuteLiveStepForSession(ctx, session.Index, request)
+	if err != nil {
+		return &DeviceLiveStepOutput{
+			Success:   false,
+			StepType:  request.StepType,
+			Error:     err.Error(),
+			NextSteps: errorNextSteps(err),
+		}, nil
+	}
+
+	output := &DeviceLiveStepOutput{
+		Success:       response.Success,
+		StepType:      response.StepType,
+		StepID:        response.StepID,
+		WorkflowRunID: response.WorkflowRunID,
+		SessionID:     response.SessionID,
+		ExecutionID:   response.ExecutionID,
+		ReportID:      response.ReportID,
+		StepOutput:    response.StepOutput,
+	}
+	if response.Success {
+		output.NextSteps = []NextStep{
+			{Tool: "screenshot", Reason: successReason},
+		}
+		return output, nil
+	}
+
+	output.Error = liveStepErrorFromResponse(response)
+	output.NextSteps = errorNextSteps(fmt.Errorf("%s", output.Error))
+	return output, nil
+}
+
+type DeviceInstructionInput struct {
+	Description  string `json:"description" jsonschema:"Natural-language instruction to run on the active device session (REQUIRED)."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceValidationInput struct {
+	Description  string `json:"description" jsonschema:"Natural-language validation to run on the active device session (REQUIRED)."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceExtractInput struct {
+	Description  string `json:"description" jsonschema:"Natural-language extract step to run on the active device session (REQUIRED)."`
+	VariableName string `json:"variable_name,omitempty" jsonschema:"Optional variable name for storing the extracted value."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+type DeviceCodeExecutionInput struct {
+	ScriptID     string `json:"script_id" jsonschema:"Script ID for the code_execution step (REQUIRED)."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+func (s *Server) handleDeviceInstruction(ctx context.Context, req *mcp.CallToolRequest, input DeviceInstructionInput) (*mcp.CallToolResult, DeviceLiveStepOutput, error) {
+	if strings.TrimSpace(input.Description) == "" {
+		return nil, DeviceLiveStepOutput{Success: false, Error: "description is required"}, nil
+	}
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	output, err := s.executeLiveStep(
+		ctx,
+		sidx,
+		LiveStepRequest{
+			StepType:        "instruction",
+			StepDescription: strings.TrimSpace(input.Description),
+		},
+		"Review the screen after the instruction step",
+	)
+	if err != nil {
+		return nil, DeviceLiveStepOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	return nil, *output, nil
+}
+
+func (s *Server) handleDeviceValidation(ctx context.Context, req *mcp.CallToolRequest, input DeviceValidationInput) (*mcp.CallToolResult, DeviceLiveStepOutput, error) {
+	if strings.TrimSpace(input.Description) == "" {
+		return nil, DeviceLiveStepOutput{Success: false, Error: "description is required"}, nil
+	}
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	output, err := s.executeLiveStep(
+		ctx,
+		sidx,
+		LiveStepRequest{
+			StepType:        "validation",
+			StepDescription: strings.TrimSpace(input.Description),
+		},
+		"Review the screen after the validation step",
+	)
+	if err != nil {
+		return nil, DeviceLiveStepOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	return nil, *output, nil
+}
+
+func (s *Server) handleDeviceExtract(ctx context.Context, req *mcp.CallToolRequest, input DeviceExtractInput) (*mcp.CallToolResult, DeviceLiveStepOutput, error) {
+	if strings.TrimSpace(input.Description) == "" {
+		return nil, DeviceLiveStepOutput{Success: false, Error: "description is required"}, nil
+	}
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+
+	request := LiveStepRequest{
+		StepType:        "extract",
+		StepDescription: strings.TrimSpace(input.Description),
+	}
+	if strings.TrimSpace(input.VariableName) != "" {
+		request.Metadata = map[string]any{
+			"variable_name": strings.TrimSpace(input.VariableName),
+		}
+	}
+
+	output, err := s.executeLiveStep(
+		ctx,
+		sidx,
+		request,
+		"Review the screen after the extract step",
+	)
+	if err != nil {
+		return nil, DeviceLiveStepOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	return nil, *output, nil
+}
+
+func (s *Server) handleDeviceCodeExecution(ctx context.Context, req *mcp.CallToolRequest, input DeviceCodeExecutionInput) (*mcp.CallToolResult, DeviceLiveStepOutput, error) {
+	if strings.TrimSpace(input.ScriptID) == "" {
+		return nil, DeviceLiveStepOutput{Success: false, Error: "script_id is required"}, nil
+	}
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	output, err := s.executeLiveStep(
+		ctx,
+		sidx,
+		LiveStepRequest{
+			StepType:        "code_execution",
+			StepDescription: strings.TrimSpace(input.ScriptID),
+		},
+		"Review the screen after the code execution step",
+	)
+	if err != nil {
+		return nil, DeviceLiveStepOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	return nil, *output, nil
 }
 
 // --- Device Tap ---
@@ -1120,24 +1418,38 @@ type InstallAppOutput struct {
 }
 
 func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest, input InstallAppInput) (*mcp.CallToolResult, InstallAppOutput, error) {
-	appURL := input.AppURL
+	appURL := normalizeOptionalToolInput(input.AppURL)
+	buildVersionID := normalizeOptionalToolInput(input.BuildVersionID)
+	bundleID := normalizeOptionalToolInput(input.BundleID)
+	if appURL != "" && buildVersionID != "" {
+		return nil, InstallAppOutput{Success: false, Error: "provide only one of app_url or build_version_id"}, nil
+	}
 
 	// Resolve build_version_id to a download URL if provided
-	if appURL == "" && input.BuildVersionID != "" {
-		detail, err := s.apiClient.GetBuildVersionDownloadURL(ctx, input.BuildVersionID)
+	if appURL == "" && buildVersionID != "" {
+		detail, err := s.apiClient.GetBuildVersionDownloadURL(ctx, buildVersionID)
 		if err != nil {
 			return nil, InstallAppOutput{
 				Success: false,
-				Error:   fmt.Sprintf("failed to resolve build version %s: %v", input.BuildVersionID, err),
+				Error:   fmt.Sprintf("failed to resolve build version %s: %v", buildVersionID, err),
 				NextSteps: []NextStep{
 					{Tool: "list_builds", Reason: "List available builds to find a valid version ID"},
 				},
 			}, nil
 		}
-		appURL = detail.DownloadURL
+		appURL = strings.TrimSpace(detail.DownloadURL)
+		if appURL == "" {
+			return nil, InstallAppOutput{
+				Success: false,
+				Error:   fmt.Sprintf("build version %s has no download URL", buildVersionID),
+				NextSteps: []NextStep{
+					{Tool: "list_builds", Reason: "Choose a build version that has a downloadable artifact"},
+				},
+			}, nil
+		}
 		// Use the package_name from the build as bundle_id hint if not explicitly provided
-		if input.BundleID == "" && detail.PackageName != "" {
-			input.BundleID = detail.PackageName
+		if bundleID == "" && detail.PackageName != "" {
+			bundleID = strings.TrimSpace(detail.PackageName)
 		}
 	}
 
@@ -1155,8 +1467,8 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	body := map[string]string{"app_url": appURL}
-	if input.BundleID != "" {
-		body["bundle_id"] = input.BundleID
+	if bundleID != "" {
+		body["bundle_id"] = bundleID
 	}
 	respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/install", body)
 	if err != nil {
@@ -1186,7 +1498,7 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 		detectedBundleID = resp.PackageName
 	}
 	if detectedBundleID == "" {
-		detectedBundleID = input.BundleID
+		detectedBundleID = bundleID
 	}
 
 	output := InstallAppOutput{Success: resp.Success, BundleID: detectedBundleID}
@@ -1261,6 +1573,7 @@ type GetSessionInfoOutput struct {
 	SessionIndex  int        `json:"session_index"`
 	Platform      string     `json:"platform,omitempty"`
 	ViewerURL     string     `json:"viewer_url,omitempty"`
+	WhepURL       string     `json:"whep_url,omitempty"`
 	UptimeSeconds float64    `json:"uptime_seconds,omitempty"`
 	IdleSeconds   float64    `json:"idle_seconds,omitempty"`
 	TotalSessions int        `json:"total_sessions"`
@@ -1292,6 +1605,7 @@ func (s *Server) handleGetSessionInfo(ctx context.Context, req *mcp.CallToolRequ
 		SessionIndex:  session.Index,
 		Platform:      session.Platform,
 		ViewerURL:     session.ViewerURL,
+		WhepURL:       stringValue(session.WhepURL),
 		UptimeSeconds: now.Sub(session.StartedAt).Seconds(),
 		IdleSeconds:   now.Sub(session.LastActivity).Seconds(),
 		TotalSessions: s.sessionMgr.SessionCount(),
@@ -1440,6 +1754,7 @@ type ListDeviceSessionsSessionItem struct {
 	Status   string  `json:"status"`
 	Uptime   float64 `json:"uptime_seconds"`
 	Active   bool    `json:"active"`
+	WhepURL  string  `json:"whep_url,omitempty"`
 }
 
 // ListDeviceSessionsOutput defines output for list_device_sessions.
@@ -1462,6 +1777,7 @@ func (s *Server) handleListDeviceSessions(ctx context.Context, req *mcp.CallTool
 			Status:   "running",
 			Uptime:   time.Since(sess.StartedAt).Seconds(),
 			Active:   sess.Index == activeIdx,
+			WhepURL:  stringValue(sess.WhepURL),
 		})
 	}
 
@@ -1734,19 +2050,23 @@ func (s *Server) handleDeviceSetLocation(ctx context.Context, req *mcp.CallToolR
 
 type DeviceDownloadFileInput struct {
 	URL          string `json:"url" jsonschema:"URL to download file from (REQUIRED)"`
+	Filename     string `json:"filename,omitempty" jsonschema:"Optional destination filename on the device."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
 type DeviceDownloadFileOutput struct {
-	Success   bool       `json:"success"`
-	URL       string     `json:"url,omitempty"`
-	Error     string     `json:"error,omitempty"`
-	NextSteps []NextStep `json:"next_steps,omitempty"`
+	Success    bool       `json:"success"`
+	URL        string     `json:"url,omitempty"`
+	Filename   string     `json:"filename,omitempty"`
+	DevicePath string     `json:"device_path,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	NextSteps  []NextStep `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleDeviceDownloadFile(ctx context.Context, req *mcp.CallToolRequest, input DeviceDownloadFileInput) (*mcp.CallToolResult, DeviceDownloadFileOutput, error) {
-	if input.URL == "" {
-		return nil, DeviceDownloadFileOutput{Success: false, Error: "url is required"}, nil
+	url, err := normalizeRequiredToolInput(input.URL, "url")
+	if err != nil {
+		return nil, DeviceDownloadFileOutput{Success: false, Error: err.Error()}, nil
 	}
 	sidx := -1
 	if input.SessionIndex != nil {
@@ -1758,17 +2078,104 @@ func (s *Server) handleDeviceDownloadFile(ctx context.Context, req *mcp.CallTool
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
-	body := map[string]string{"url": input.URL}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/download_file", body)
+	response, err := s.sessionMgr.DownloadFileForSession(
+		ctx,
+		session.Index,
+		DeviceDownloadFileRequest{
+			URL:      url,
+			Filename: normalizeOptionalToolInput(input.Filename),
+		},
+	)
 	if err != nil {
-		return nil, DeviceDownloadFileOutput{Success: false, URL: input.URL, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		return nil, DeviceDownloadFileOutput{Success: false, URL: url, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
 	return nil, DeviceDownloadFileOutput{
-		Success: true,
-		URL:     input.URL,
+		Success:    response.Success,
+		URL:        url,
+		Filename:   normalizeOptionalToolInput(input.Filename),
+		DevicePath: response.DevicePath,
+		Error:      response.Error,
 		NextSteps: []NextStep{
 			{Tool: "screenshot", Reason: "Verify the file was downloaded"},
 		},
 	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// get_session_report
+// ---------------------------------------------------------------------------
+
+type GetSessionReportInput struct {
+	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index (omit for active session)"`
+}
+
+type GetSessionReportOutput struct {
+	Success       bool                       `json:"success"`
+	SessionID     string                     `json:"session_id,omitempty"`
+	ReportURL     string                     `json:"report_url,omitempty"`
+	SessionStatus string                     `json:"session_status,omitempty"`
+	Platform      string                     `json:"platform,omitempty"`
+	DeviceModel   string                     `json:"device_model,omitempty"`
+	TotalSteps    int                        `json:"total_steps"`
+	PassedSteps   int                        `json:"passed_steps"`
+	FailedSteps   int                        `json:"failed_steps"`
+	VideoURL      string                     `json:"video_url,omitempty"`
+	Steps         []api.CLIReportContextStep `json:"steps,omitempty"`
+	Error         string                     `json:"error,omitempty"`
+	NextSteps     []NextStep                 `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleGetSessionReport(ctx context.Context, req *mcp.CallToolRequest, input GetSessionReportInput) (*mcp.CallToolResult, GetSessionReportOutput, error) {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, GetSessionReportOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	envelope, err := s.apiClient.GetReportBySession(ctx, session.SessionID, true, true, false)
+	if err != nil {
+		return nil, GetSessionReportOutput{
+			Success:   false,
+			SessionID: session.SessionID,
+			Error:     fmt.Sprintf("No report available: %v", err),
+			NextSteps: []NextStep{
+				{Tool: "screenshot", Reason: "Session may still be active - take a screenshot to verify"},
+			},
+		}, nil
+	}
+	r := envelope.Report
+	out := GetSessionReportOutput{
+		Success:   true,
+		SessionID: session.SessionID,
+	}
+	if r.ReportURL != nil {
+		out.ReportURL = *r.ReportURL
+	}
+	if r.SessionStatus != nil {
+		out.SessionStatus = *r.SessionStatus
+	}
+	if r.Platform != nil {
+		out.Platform = *r.Platform
+	}
+	if r.DeviceModel != nil {
+		out.DeviceModel = *r.DeviceModel
+	}
+	if r.TotalSteps != nil {
+		out.TotalSteps = *r.TotalSteps
+	}
+	if r.PassedSteps != nil {
+		out.PassedSteps = *r.PassedSteps
+	}
+	if r.FailedSteps != nil {
+		out.FailedSteps = *r.FailedSteps
+	}
+	if r.VideoURL != nil {
+		out.VideoURL = *r.VideoURL
+	}
+	out.Steps = r.Steps
+	return nil, out, nil
 }

@@ -298,7 +298,7 @@ func TestStartDeviceSessionCmd_StartsBareDeviceWhenNoAppSelected(t *testing.T) {
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
-	msgAny := startDeviceSessionCmd(client, "ios", "")()
+	msgAny := startDeviceSessionCmd(client, "ios", "", "", "")()
 	msg, ok := msgAny.(DeviceStartedMsg)
 	if !ok {
 		t.Fatalf("expected DeviceStartedMsg, got %T", msgAny)
@@ -358,7 +358,7 @@ func TestStartDeviceSessionCmd_ResolvesSelectedAppToLatestBuild(t *testing.T) {
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
-	msgAny := startDeviceSessionCmd(client, "ios", appID)()
+	msgAny := startDeviceSessionCmd(client, "ios", appID, "", "")()
 	msg, ok := msgAny.(DeviceStartedMsg)
 	if !ok {
 		t.Fatalf("expected DeviceStartedMsg, got %T", msgAny)

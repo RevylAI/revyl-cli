@@ -73,8 +73,8 @@ test:
 	if result.TestID != "test-1" {
 		t.Fatalf("TestID = %q, want test-1", result.TestID)
 	}
-	if result.TestURL != "https://app.example/tests/test-1" {
-		t.Fatalf("TestURL = %q, want https://app.example/tests/test-1", result.TestURL)
+	if result.TestURL != "https://app.example/tests/execute?testUid=test-1" {
+		t.Fatalf("TestURL = %q, want https://app.example/tests/execute?testUid=test-1", result.TestURL)
 	}
 
 	if got := createReq["org_id"]; got != "org-live" {
@@ -166,6 +166,9 @@ func TestCreateTest_AllowEmptyShellUsesExplicitAppID(t *testing.T) {
 	}
 	if result.TestID != "test-2" {
 		t.Fatalf("TestID = %q, want test-2", result.TestID)
+	}
+	if result.TestURL != "https://app.example/tests/execute?testUid=test-2" {
+		t.Fatalf("TestURL = %q, want https://app.example/tests/execute?testUid=test-2", result.TestURL)
 	}
 
 	tasks, ok := createReq["tasks"].([]any)

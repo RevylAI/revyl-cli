@@ -1,8 +1,8 @@
 """
-Revyl Python package.
+Revyl Device SDK -- programmatic control of Revyl cloud devices.
 
 - `revyl` console script proxies to the Revyl CLI binary.
-- `DeviceClient` provides a thin Python SDK over device CLI commands.
+- `DeviceClient` provides session management, device interaction, and live test step execution.
 """
 
 from __future__ import annotations

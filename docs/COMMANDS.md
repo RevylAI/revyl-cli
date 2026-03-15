@@ -297,6 +297,8 @@ revyl module delete login                          # Delete a module
 
 ```bash
 revyl workflow create smoke-tests --tests login-flow,checkout   # Create workflow
+revyl workflow add-tests smoke-tests payment                    # Add test(s) to workflow
+revyl workflow remove-tests smoke-tests checkout                # Remove test(s) from workflow
 revyl workflow run smoke-tests                                   # Run workflow
 revyl workflow open smoke-tests                                  # Open in browser
 revyl workflow delete smoke-tests                                # Delete workflow
@@ -309,11 +311,12 @@ revyl workflow cancel <task-id>                                  # Cancel runnin
 # Session lifecycle
 revyl device start                             # Start a cloud device session (defaults to iOS)
 revyl device start --platform android --open   # Start and open viewer in browser
+revyl device start --platform ios --app-url https://example.com/app.ipa # Start a raw session with a preinstalled app
 revyl device stop                              # Stop the active session
 revyl device stop --all                        # Stop all sessions
 revyl device list                              # List all active sessions
 revyl device use <index>                       # Switch active session
-revyl device info                              # Show session details
+revyl device info                              # Show session details (includes `whep_url` in JSON when available)
 revyl device doctor                            # Run session diagnostics
 
 # Interaction (use --target for AI grounding, or --x/--y for coordinates)
@@ -339,10 +342,22 @@ revyl device open-app --app settings           # Open a system app
 revyl device navigate --url https://example.com # Open URL or deep link
 revyl device set-location --lat 37.77 --lon -122.42 # Set GPS location
 revyl device download-file --url https://example.com # Download file to device
+revyl device download-file --url https://example.com --filename report.pdf # Override destination filename
 revyl device install --app-url <url>           # Install app from URL
 revyl device launch --bundle-id com.app.id     # Launch an installed app
 revyl device kill-app                          # Kill the current installed app
+
+# Live step execution on an active session
+revyl device instruction "Open Settings and tap Wi-Fi"           # Execute one instruction step
+revyl device validation "Verify the Settings title is visible"   # Execute one validation step
+revyl device extract "Extract the visible account email" --variable-name account_email # Execute one extract step
+revyl device code-execution script_123                          # Execute one code-execution step
 ```
+
+For raw device sessions, URL-based app flows work in two modes:
+- `revyl device start --app-url ...` preinstalls the app before the session is ready.
+- `revyl device install --app-url ...` installs into an already running raw session.
+- `revyl device download-file --url ...` only downloads the file to device storage; it does not install the app.
 
 ### Device Session Flags
 

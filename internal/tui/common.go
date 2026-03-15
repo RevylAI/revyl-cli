@@ -168,7 +168,9 @@ func separator(width int) string {
 // TestListMsg carries the fetched test list from the API.
 type TestListMsg struct {
 	Tests []TestItem
-	Err   error
+	// Warning carries non-fatal browse-state warnings such as org mismatch.
+	Warning string
+	Err     error
 }
 
 // TestItem represents a test in the hub list.
@@ -306,6 +308,21 @@ type TestHistoryMsg struct {
 type WorkflowHistoryMsg struct {
 	Runs []api.CLIWorkflowStatusResponse
 	Err  error
+}
+
+// ReportJSONActionMsg carries the result of fetching/copying report JSON
+// for the selected run in the TUI.
+type ReportJSONActionMsg struct {
+	TaskID  string
+	Command string
+	Err     error
+}
+
+// ReportCommandActionMsg carries the result of copying the CLI report
+// command for the selected run in the TUI.
+type ReportCommandActionMsg struct {
+	Command string
+	Err     error
 }
 
 // AppListMsg carries the fetched app list from the API.

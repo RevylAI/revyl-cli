@@ -1,10 +1,17 @@
 package tui
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/config"
 )
 
 func TestHandleTestDetailKey_ArrowNavigation(t *testing.T) {
@@ -185,5 +192,123 @@ func TestRenderDetailViews_ShowNumberedActions(t *testing.T) {
 	}
 	if !strings.Contains(workflowOut, "enter") || !strings.Contains(workflowOut, "jump") {
 		t.Fatalf("expected workflow detail footer to include select/jump hints, got: %s", workflowOut)
+	}
+}
+
+func TestSyncTestActionCmd_PullRemoteOnlyCreatesConfigAndLocalTest(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/entity/users/get_user_uuid":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
+		case "/api/v1/tests/get_test_by_id/test-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"test-1","name":"Checkout Flow","platform":"ios","tasks":[],"version":7}`))
+		case "/api/v1/tests/tags/tests/test-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	msgAny := syncTestActionCmd(api.NewClientWithBaseURL("token", srv.URL), "pull", "Checkout Flow", "test-1", false)()
+	msg, ok := msgAny.(TestSyncActionMsg)
+	if !ok {
+		t.Fatalf("message type = %T, want TestSyncActionMsg", msgAny)
+	}
+	if msg.Err != nil {
+		t.Fatalf("msg.Err = %v, want nil", msg.Err)
+	}
+	if !strings.Contains(msg.Result, "Pulled") {
+		t.Fatalf("msg.Result = %q, want pull success", msg.Result)
+	}
+
+	cfg, err := config.LoadProjectConfig(filepath.Join(tempDir, ".revyl", "config.yaml"))
+	if err != nil {
+		t.Fatalf("LoadProjectConfig() error = %v", err)
+	}
+	if cfg.Project.OrgID != "org-live" {
+		t.Fatalf("cfg.Project.OrgID = %q, want org-live", cfg.Project.OrgID)
+	}
+	if got := cfg.Tests["checkout-flow"]; got != "test-1" {
+		t.Fatalf("cfg.Tests[checkout-flow] = %q, want test-1", got)
+	}
+
+	localTest, err := config.LoadLocalTest(filepath.Join(tempDir, ".revyl", "tests", "checkout-flow.yaml"))
+	if err != nil {
+		t.Fatalf("LoadLocalTest() error = %v", err)
+	}
+	if localTest.Meta.RemoteID != "test-1" {
+		t.Fatalf("localTest.Meta.RemoteID = %q, want test-1", localTest.Meta.RemoteID)
+	}
+	if localTest.Test.Metadata.Name != "Checkout Flow" {
+		t.Fatalf("local test name = %q, want Checkout Flow", localTest.Test.Metadata.Name)
+	}
+}
+
+func TestSyncTestActionCmd_PushConflictReturnsError(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	localTest := &config.LocalTest{
+		Meta: config.TestMeta{
+			RemoteID:      "test-1",
+			RemoteVersion: 7,
+			LocalVersion:  7,
+		},
+		Test: config.TestDefinition{
+			Metadata: config.TestMetadata{Name: "Checkout Flow", Platform: "ios"},
+			Blocks: []config.TestBlock{
+				{Type: "instructions", StepDescription: "Tap checkout"},
+			},
+		},
+	}
+	localPath := filepath.Join(tempDir, ".revyl", "tests", "checkout-flow.yaml")
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := config.SaveLocalTest(localPath, localTest); err != nil {
+		t.Fatalf("SaveLocalTest() error = %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/entity/users/get_user_uuid":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
+		case "/api/v1/tests/update/test-1":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"detail":"conflict"}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	msgAny := syncTestActionCmd(
+		api.NewClientWithBaseURL("token", srv.URL),
+		"push",
+		"Checkout Flow",
+		"test-1",
+		false,
+	)()
+	msg, ok := msgAny.(TestSyncActionMsg)
+	if !ok {
+		t.Fatalf("message type = %T, want TestSyncActionMsg", msgAny)
+	}
+	if msg.Err == nil {
+		t.Fatalf("msg.Err = nil, want conflict error")
+	}
+	if !strings.Contains(msg.Err.Error(), "conflict detected") {
+		t.Fatalf("msg.Err = %v, want conflict detected", msg.Err)
+	}
+	if msg.Result != "" {
+		t.Fatalf("msg.Result = %q, want empty on conflict", msg.Result)
 	}
 }

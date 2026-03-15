@@ -253,16 +253,16 @@ func resolveTestID(ctx context.Context, nameOrID string, cfg *config.ProjectConf
 		return nameOrID, "", nil
 	}
 
-	// 3. Search via API by name
+	// 3. Search via API by name across all pages for larger orgs
 	ui.StartSpinner("Searching for test...")
-	testsResp, err := client.ListOrgTests(ctx, 200, 0)
+	tests, err := client.ListAllOrgTests(ctx, 200)
 	ui.StopSpinner()
 
 	if err != nil {
 		return "", "", fmt.Errorf("failed to search for test: %w", err)
 	}
 
-	for _, t := range testsResp.Tests {
+	for _, t := range tests {
 		if t.Name == nameOrID {
 			return t.ID, t.Name, nil
 		}

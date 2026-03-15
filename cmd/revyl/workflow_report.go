@@ -43,13 +43,16 @@ func init() {
 
 // workflowStatusCmd shows the latest execution status for a workflow.
 var workflowStatusCmd = &cobra.Command{
-	Use:   "status <name|id>",
-	Short: "Show latest workflow execution status",
-	Long: `Show the status of the most recent execution for a workflow.
+	Use:   "status <name|id|taskId>",
+	Short: "Show workflow execution status",
+	Long: `Show the status of a workflow execution.
+
+Accepts workflow names (shows latest execution), workflow UUIDs, or task/execution IDs.
 
 Examples:
   revyl workflow status smoke-tests
-  revyl workflow status smoke-tests --json`,
+  revyl workflow status smoke-tests --json
+  revyl workflow status <task-uuid>`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkflowStatus,
 }
@@ -139,6 +142,122 @@ func resolveToWorkflowTaskID(cmd *cobra.Command, nameOrID string, cfg *config.Pr
 	return latestTaskID, displayName, nil
 }
 
+func workflowReportURL(devMode bool, executionID string) string {
+	return fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(devMode), executionID)
+}
+
+func outputWorkflowStatusJSON(
+	status *api.CLIWorkflowStatusResponse,
+	workflowName string,
+	devMode bool,
+) {
+	output := map[string]interface{}{
+		"workflow_id":     status.WorkflowID,
+		"status":          status.Status,
+		"progress":        status.Progress,
+		"completed_tests": status.CompletedTests,
+		"total_tests":     status.TotalTests,
+		"passed_tests":    status.PassedTests,
+		"failed_tests":    status.FailedTests,
+	}
+	if workflowName != "" {
+		output["workflow_name"] = workflowName
+	}
+	if status.ExecutionID != "" {
+		output["execution_id"] = status.ExecutionID
+		output["report_url"] = workflowReportURL(devMode, status.ExecutionID)
+	}
+	if status.StartedAt != "" {
+		output["started_at"] = status.StartedAt
+	}
+	if status.Duration != "" {
+		output["duration"] = status.Duration
+	}
+	if status.ErrorMessage != "" {
+		output["error_message"] = status.ErrorMessage
+	}
+
+	data, _ := json.MarshalIndent(output, "", "  ")
+	fmt.Println(string(data))
+}
+
+func printWorkflowStatusSummary(
+	status *api.CLIWorkflowStatusResponse,
+	displayName string,
+	reportTarget string,
+	historyTarget string,
+	devMode bool,
+) {
+	if displayName == "" {
+		switch {
+		case status.WorkflowID != "":
+			displayName = status.WorkflowID
+		case status.ExecutionID != "":
+			displayName = status.ExecutionID
+		default:
+			displayName = "Workflow"
+		}
+	}
+
+	ui.Println()
+
+	statusIcon := ui.SuccessStyle.Render("✓")
+	resultText := capitalizeFirst(status.Status)
+	if status.Status == "failed" || status.Status == "timeout" {
+		statusIcon = ui.ErrorStyle.Render("✗")
+	} else if status.Status == "running" || status.Status == "queued" || status.Status == "setup" {
+		statusIcon = ui.AccentStyle.Render("●")
+	} else if status.Status == "cancelled" {
+		statusIcon = ui.DimStyle.Render("○")
+	}
+
+	fmt.Printf("  %s %s  %s\n", statusIcon,
+		ui.TitleStyle.Render(displayName),
+		ui.DimStyle.Render(fmt.Sprintf("— %s", resultText)))
+	ui.Println()
+
+	testsValue := fmt.Sprintf("%d/%d completed", status.CompletedTests, status.TotalTests)
+	if status.PassedTests > 0 || status.FailedTests > 0 {
+		testsValue = fmt.Sprintf("%s/%d passed",
+			ui.AccentStyle.Render(fmt.Sprintf("%d", status.PassedTests)),
+			status.TotalTests)
+		if status.FailedTests > 0 {
+			testsValue += ui.ErrorStyle.Render(fmt.Sprintf(", %d failed", status.FailedTests))
+		}
+	}
+	ui.PrintKeyValue("Tests:", testsValue)
+
+	if status.Duration != "" {
+		ui.PrintKeyValue("Duration:", status.Duration)
+	}
+	if status.StartedAt != "" {
+		ui.PrintKeyValue("Date:", formatAbsoluteTime(status.StartedAt))
+	}
+	if status.ErrorMessage != "" {
+		ui.PrintKeyValue("Error:", ui.ErrorStyle.Render(status.ErrorMessage))
+	}
+
+	if status.ExecutionID != "" {
+		ui.Println()
+		ui.PrintLink("Report", workflowReportURL(devMode, status.ExecutionID))
+	}
+
+	if wfStatusOpen && status.ExecutionID != "" {
+		ui.OpenBrowser(workflowReportURL(devMode, status.ExecutionID))
+	}
+
+	nextSteps := []ui.NextStep{
+		{Label: "View report:", Command: fmt.Sprintf("revyl workflow report %s", reportTarget)},
+	}
+	if historyTarget != "" {
+		nextSteps = append(nextSteps, ui.NextStep{
+			Label:   "View history:",
+			Command: fmt.Sprintf("revyl workflow history %s", historyTarget),
+		})
+	}
+	ui.PrintNextSteps(nextSteps)
+}
+
 func runWorkflowStatus(cmd *cobra.Command, args []string) error {
 	jsonOutput := wfStatusOutputJSON
 	if globalJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); globalJSON {
@@ -161,7 +280,30 @@ func runWorkflowStatus(cmd *cobra.Command, args []string) error {
 		ui.StartSpinner("Loading workflow status...")
 	}
 
-	// Resolve workflow ID
+	if looksLikeUUID(nameOrID) {
+		executionStatus, statusErr := client.GetWorkflowStatus(cmd.Context(), nameOrID)
+		if statusErr == nil {
+			if !jsonOutput {
+				ui.StopSpinner()
+			}
+			if jsonOutput {
+				outputWorkflowStatusJSON(executionStatus, "", devMode)
+				return nil
+			}
+			printWorkflowStatusSummary(executionStatus, executionStatus.WorkflowID, nameOrID, executionStatus.WorkflowID, devMode)
+			return nil
+		}
+
+		var apiErr *api.APIError
+		if !errors.As(statusErr, &apiErr) || apiErr.StatusCode != 404 {
+			if !jsonOutput {
+				ui.StopSpinner()
+			}
+			ui.PrintError("Failed to get workflow status: %v", statusErr)
+			return statusErr
+		}
+	}
+
 	workflowID, workflowName, err := resolveWorkflowID(cmd.Context(), nameOrID, cfg, client)
 	if err != nil {
 		if !jsonOutput {
@@ -176,7 +318,6 @@ func runWorkflowStatus(cmd *cobra.Command, args []string) error {
 		displayName = nameOrID
 	}
 
-	// Get latest execution
 	history, err := client.GetWorkflowHistory(cmd.Context(), workflowID, 1, 0)
 	if !jsonOutput {
 		ui.StopSpinner()
@@ -209,96 +350,12 @@ func runWorkflowStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	latest := history.Executions[0]
-
 	if jsonOutput {
-		output := map[string]interface{}{
-			"workflow_name":   displayName,
-			"workflow_id":     workflowID,
-			"status":          latest.Status,
-			"progress":        latest.Progress,
-			"completed_tests": latest.CompletedTests,
-			"total_tests":     latest.TotalTests,
-			"passed_tests":    latest.PassedTests,
-			"failed_tests":    latest.FailedTests,
-		}
-		if latest.ExecutionID != "" {
-			output["execution_id"] = latest.ExecutionID
-		}
-		if latest.StartedAt != "" {
-			output["started_at"] = latest.StartedAt
-		}
-		if latest.Duration != "" {
-			output["duration"] = latest.Duration
-		}
-		if latest.ErrorMessage != "" {
-			output["error_message"] = latest.ErrorMessage
-		}
-		reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(devMode), latest.ExecutionID)
-		if latest.ExecutionID != "" {
-			output["report_url"] = reportURL
-		}
-
-		data, _ := json.MarshalIndent(output, "", "  ")
-		fmt.Println(string(data))
+		outputWorkflowStatusJSON(&latest, displayName, devMode)
 		return nil
 	}
 
-	// Display formatted status
-	ui.Println()
-
-	statusIcon := ui.SuccessStyle.Render("✓")
-	resultText := capitalizeFirst(latest.Status)
-	if latest.Status == "failed" || latest.Status == "timeout" {
-		statusIcon = ui.ErrorStyle.Render("✗")
-	} else if latest.Status == "running" || latest.Status == "queued" || latest.Status == "setup" {
-		statusIcon = ui.AccentStyle.Render("●")
-	} else if latest.Status == "cancelled" {
-		statusIcon = ui.DimStyle.Render("○")
-	}
-
-	fmt.Printf("  %s %s  %s\n", statusIcon,
-		ui.TitleStyle.Render(displayName),
-		ui.DimStyle.Render(fmt.Sprintf("— %s", resultText)))
-	ui.Println()
-
-	// Test summary
-	testsValue := fmt.Sprintf("%d/%d completed", latest.CompletedTests, latest.TotalTests)
-	if latest.PassedTests > 0 || latest.FailedTests > 0 {
-		testsValue = fmt.Sprintf("%s/%d passed",
-			ui.AccentStyle.Render(fmt.Sprintf("%d", latest.PassedTests)),
-			latest.TotalTests)
-		if latest.FailedTests > 0 {
-			testsValue += ui.ErrorStyle.Render(fmt.Sprintf(", %d failed", latest.FailedTests))
-		}
-	}
-	ui.PrintKeyValue("Tests:", testsValue)
-
-	if latest.Duration != "" {
-		ui.PrintKeyValue("Duration:", latest.Duration)
-	}
-	if latest.StartedAt != "" {
-		ui.PrintKeyValue("Date:", formatAbsoluteTime(latest.StartedAt))
-	}
-	if latest.ErrorMessage != "" {
-		ui.PrintKeyValue("Error:", ui.ErrorStyle.Render(latest.ErrorMessage))
-	}
-
-	if latest.ExecutionID != "" {
-		ui.Println()
-		reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(devMode), latest.ExecutionID)
-		ui.PrintLink("Report", reportURL)
-	}
-
-	if wfStatusOpen && latest.ExecutionID != "" {
-		reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(devMode), latest.ExecutionID)
-		ui.OpenBrowser(reportURL)
-	}
-
-	ui.PrintNextSteps([]ui.NextStep{
-		{Label: "View report:", Command: fmt.Sprintf("revyl workflow report %s", nameOrID)},
-		{Label: "View history:", Command: fmt.Sprintf("revyl workflow history %s", nameOrID)},
-	})
-
+	printWorkflowStatusSummary(&latest, displayName, nameOrID, nameOrID, devMode)
 	return nil
 }
 

@@ -115,11 +115,13 @@ func TestRunWorkflowExec_UsesPollingMonitoringMode(t *testing.T) {
 	runWorkflowExecution = func(ctx context.Context, apiKey string, cfg *config.ProjectConfig, params execution.RunWorkflowParams) (*execution.RunWorkflowResult, error) {
 		monitoringMode = params.MonitoringMode
 		return &execution.RunWorkflowResult{
+			Success:   true,
 			TaskID:    "task-456",
+			Status:    "completed",
 			ReportURL: "https://app.example/report/task-456",
 		}, nil
 	}
-	runNoWait = true
+	runNoWait = false
 	runOpen = false
 	runRetries = 1
 	runOutputJSON = false

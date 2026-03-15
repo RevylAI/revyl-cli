@@ -28,19 +28,21 @@ For build→run: use "revyl workflow run <name> --build" to build, upload, then 
 all tests in the workflow.
 
 COMMANDS:
-  list    - List all workflows
-  run     - Run a workflow (add --build to build and upload first)
-  cancel  - Cancel a running workflow
-  create  - Create a new workflow
-  rename  - Rename a workflow while preserving history
-  delete  - Delete a workflow
-  open    - Open a workflow in the browser
-  status  - Show latest execution status
-  history - Show execution history
-  report  - Show detailed workflow report
-  share    - Generate shareable report link
-  location - Manage stored GPS location override
-  app      - Manage stored app overrides (per platform)
+  list         - List all workflows
+  run          - Run a workflow (add --build to build and upload first)
+  cancel       - Cancel a running workflow
+  create       - Create a new workflow
+  add-tests    - Add tests to an existing workflow
+  remove-tests - Remove tests from an existing workflow
+  rename       - Rename a workflow while preserving history
+  delete       - Delete a workflow
+  open         - Open a workflow in the browser
+  status       - Show latest execution status
+  history      - Show execution history
+  report       - Show detailed workflow report
+  share        - Generate shareable report link
+  location     - Manage stored GPS location override
+  app          - Manage stored app overrides (per platform)
 
 EXAMPLES:
   revyl workflow list                        # List all workflows
@@ -49,6 +51,8 @@ EXAMPLES:
   revyl workflow status smoke-tests          # Check latest execution status
   revyl workflow report smoke-tests          # View detailed report
   revyl workflow create regression --tests login,checkout
+  revyl workflow add-tests smoke-tests login-flow
+  revyl workflow remove-tests smoke-tests checkout
   revyl workflow delete smoke-tests`,
 }
 

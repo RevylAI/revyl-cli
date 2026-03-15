@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/revyl/cli/internal/api"
@@ -194,5 +196,127 @@ func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
 	}
 	if local.Meta.RemoteID != "remote-id" {
 		t.Fatalf("local.Meta.RemoteID = %q, want remote-id", local.Meta.RemoteID)
+	}
+}
+
+func TestImportRemoteTest_ReusesExistingAliasForSameRemoteID(t *testing.T) {
+	testsDir := t.TempDir()
+
+	client, cleanup := newResolverTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/tests/get_test_by_id/remote-id":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"remote-id","name":"Checkout Flow","platform":"ios","tasks":[],"version":5}`))
+		case "/api/v1/tests/tags/tests/remote-id":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	})
+	defer cleanup()
+
+	cfg := &config.ProjectConfig{Tests: map[string]string{}}
+	resolver := NewResolver(client, cfg, map[string]*config.LocalTest{})
+
+	results, err := resolver.ImportRemoteTest(context.Background(), "remote-id", "Checkout Flow", testsDir, false)
+	if err != nil {
+		t.Fatalf("ImportRemoteTest() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if got := cfg.Tests["checkout-flow"]; got != "remote-id" {
+		t.Fatalf("cfg.Tests[checkout-flow] = %q, want remote-id", got)
+	}
+
+	results, err = resolver.ImportRemoteTest(context.Background(), "remote-id", "Checkout Flow", testsDir, false)
+	if err != nil {
+		t.Fatalf("second ImportRemoteTest() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].Name != "checkout-flow" {
+		t.Fatalf("results[0].Name = %q, want checkout-flow", results[0].Name)
+	}
+	if len(cfg.Tests) != 1 {
+		t.Fatalf("len(cfg.Tests) = %d, want 1", len(cfg.Tests))
+	}
+	if _, exists := cfg.Tests["checkout-flow-2"]; exists {
+		t.Fatalf("unexpected collision alias checkout-flow-2 created")
+	}
+}
+
+func TestPullRemoteTest_DoesNotOverwriteLocalFileWhenTaskParsingFails(t *testing.T) {
+	testsDir := t.TempDir()
+	localPath := filepath.Join(testsDir, "login-flow.yaml")
+
+	existing := &config.LocalTest{
+		Meta: config.TestMeta{
+			RemoteID:      "remote-id",
+			RemoteVersion: 4,
+			LocalVersion:  4,
+		},
+		Test: config.TestDefinition{
+			Metadata: config.TestMetadata{Name: "Login", Platform: "ios"},
+			Blocks: []config.TestBlock{
+				{Type: "instructions", StepDescription: "Keep existing block"},
+			},
+		},
+	}
+	if err := config.SaveLocalTest(localPath, existing); err != nil {
+		t.Fatalf("SaveLocalTest() error = %v", err)
+	}
+
+	client, cleanup := newResolverTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/tests/get_test_by_id/remote-id" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"remote-id","name":"Login","platform":"ios","tasks":{"type":"instructions"},"version":5}`))
+	})
+	defer cleanup()
+
+	cfg := &config.ProjectConfig{Tests: map[string]string{}}
+	resolver := NewResolver(client, cfg, map[string]*config.LocalTest{})
+
+	result := resolver.pullRemoteTest(
+		context.Background(),
+		"login-flow",
+		"remote-id",
+		testsDir,
+		true,
+	)
+	if result.Error == nil {
+		t.Fatalf("result.Error = nil, want parse error")
+	}
+	if !strings.Contains(result.Error.Error(), "parse remote test blocks") {
+		t.Fatalf("result.Error = %v, want parse remote test blocks", result.Error)
+	}
+
+	localAfter, err := config.LoadLocalTest(localPath)
+	if err != nil {
+		t.Fatalf("LoadLocalTest() error = %v", err)
+	}
+	if len(localAfter.Test.Blocks) != 1 {
+		t.Fatalf("len(localAfter.Test.Blocks) = %d, want 1", len(localAfter.Test.Blocks))
+	}
+	if got := localAfter.Test.Blocks[0].StepDescription; got != "Keep existing block" {
+		t.Fatalf("local block description = %q, want existing content preserved", got)
+	}
+}
+
+func TestFallbackTestAlias_SanitizesPathSeparators(t *testing.T) {
+	got := fallbackTestAlias("  ab/cd\\ef?gh  ")
+	if got != "test-abcdefgh" {
+		t.Fatalf("fallbackTestAlias() = %q, want %q", got, "test-abcdefgh")
+	}
+}
+
+func TestFallbackTestAlias_UsesImportWhenSanitizedEmpty(t *testing.T) {
+	got := fallbackTestAlias(" /\\? ")
+	if got != "test-import" {
+		t.Fatalf("fallbackTestAlias() = %q, want %q", got, "test-import")
 	}
 }

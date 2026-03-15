@@ -23,6 +23,7 @@ import (
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/devicetargets"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
@@ -49,6 +50,9 @@ var (
 	runHotReloadPort        int
 	runHotReloadProvider    string
 	runLocation             string
+	runDeviceSelect         bool
+	runDeviceModel          string
+	runOsVersion            string
 )
 
 // minRetries is the minimum allowed retry count.
@@ -65,6 +69,7 @@ const (
 var runInterruptExit = os.Exit
 var runTestExecution = execution.RunTest
 var runWorkflowExecution = execution.RunWorkflow
+var runOpenBrowserFn = ui.OpenBrowser
 
 // resolveRunOpen determines whether reports should auto-open.
 // Explicit --open takes precedence over config defaults.
@@ -288,6 +293,18 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Location: %.6f, %.6f", lat, lng)
 	}
 
+	// Resolve device selection (--device, --device-model, --os-version)
+	var deviceModel, osVersion string
+	if runDeviceModel != "" || runOsVersion != "" || runDeviceSelect {
+		deviceModel, osVersion, err = resolveDeviceSelection(cmd, testID, validationClient, runDeviceSelect, runDeviceModel, runOsVersion)
+		if err != nil {
+			return err
+		}
+		if deviceModel != "" {
+			ui.PrintInfo("Device: %s", devicetargets.FormatPairLabel(devicetargets.DevicePair{Model: deviceModel, Runtime: osVersion}))
+		}
+	}
+
 	if devMode {
 		ui.PrintInfo("Mode: Development (localhost)")
 	}
@@ -406,6 +423,8 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		Latitude:       lat,
 		Longitude:      lng,
 		HasLocation:    hasLocation,
+		DeviceModel:    deviceModel,
+		OsVersion:      osVersion,
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},
@@ -450,7 +469,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Task ID: %s", result.TaskID)
 		ui.PrintLink("Report", result.ReportURL)
 		if effectiveOpen {
-			ui.OpenBrowser(result.ReportURL)
+			runOpenBrowserFn(result.ReportURL)
 		}
 		return nil
 	}
@@ -504,7 +523,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 
 	if effectiveOpen {
 		ui.PrintInfo("Opening report in browser...")
-		ui.OpenBrowser(result.ReportURL)
+		runOpenBrowserFn(result.ReportURL)
 	}
 
 	if !result.Success {
@@ -543,6 +562,58 @@ func outputTestResultJSON(result *execution.RunTestResult) {
 	fmt.Println(string(data))
 }
 
+func queueWorkflowExecution(
+	ctx context.Context,
+	apiKey string,
+	workflowID string,
+	workflowName string,
+	retries int,
+	devMode bool,
+	iosAppID string,
+	androidAppID string,
+	hasLocation bool,
+	latitude float64,
+	longitude float64,
+) (*execution.RunWorkflowResult, error) {
+	client := api.NewClientWithDevMode(apiKey, devMode)
+	req := &api.ExecuteWorkflowRequest{
+		WorkflowID: workflowID,
+		Retries:    retries,
+	}
+	if iosAppID != "" || androidAppID != "" {
+		req.BuildConfig = &api.WorkflowAppConfig{}
+		req.OverrideBuildConfig = true
+		if iosAppID != "" {
+			req.BuildConfig.IosBuild = &api.PlatformApp{AppId: iosAppID}
+		}
+		if androidAppID != "" {
+			req.BuildConfig.AndroidBuild = &api.PlatformApp{AppId: androidAppID}
+		}
+	}
+	if hasLocation {
+		req.LocationConfig = &api.CLILocation{
+			Latitude:  latitude,
+			Longitude: longitude,
+		}
+		req.OverrideLocation = true
+	}
+
+	resp, err := client.ExecuteWorkflow(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(devMode), resp.TaskID)
+	return &execution.RunWorkflowResult{
+		Success:      true,
+		TaskID:       resp.TaskID,
+		WorkflowID:   workflowID,
+		WorkflowName: workflowName,
+		Status:       "queued",
+		ReportURL:    reportURL,
+	}, nil
+}
+
 // runWorkflowExec executes a workflow using the shared execution package.
 //
 // Parameters:
@@ -563,6 +634,10 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	}
 	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
 		runOutputJSON = true
+	}
+	if runOutputJSON || runGitHubActions {
+		ui.SetQuietMode(true)
+		defer ui.SetQuietMode(false)
 	}
 	workflowNameOrID := args[0]
 
@@ -751,6 +826,39 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		ui.Println()
 	}
 
+	if runNoWait {
+		queuedResult, err := queueWorkflowExecution(
+			cmd.Context(),
+			apiKey,
+			workflowID,
+			workflowNameOrID,
+			runRetries,
+			devMode,
+			runWorkflowIOSAppID,
+			runWorkflowAndroidAppID,
+			wfHasLocation,
+			wfLat,
+			wfLng,
+		)
+		if err != nil {
+			ui.PrintError("Failed to queue workflow: %v", err)
+			return err
+		}
+
+		ui.Println()
+		if runOutputJSON || runGitHubActions {
+			outputWorkflowResultJSON(queuedResult)
+		} else {
+			ui.PrintSuccess("Workflow queued successfully")
+			ui.PrintInfo("Task ID: %s", queuedResult.TaskID)
+			ui.PrintLink("Report", queuedResult.ReportURL)
+		}
+		if effectiveOpen {
+			runOpenBrowserFn(queuedResult.ReportURL)
+		}
+		return nil
+	}
+
 	// Use shared execution logic
 	ui.StartSpinner("Starting workflow execution...")
 
@@ -837,17 +945,6 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 
 	ui.Println()
 
-	// Handle no-wait mode
-	if runNoWait && result.TaskID != "" {
-		ui.PrintSuccess("Workflow queued successfully")
-		ui.PrintInfo("Task ID: %s", result.TaskID)
-		ui.PrintLink("Report", result.ReportURL)
-		if effectiveOpen {
-			ui.OpenBrowser(result.ReportURL)
-		}
-		return nil
-	}
-
 	// Show final result
 	if runOutputJSON || runGitHubActions {
 		outputWorkflowResultJSON(result)
@@ -882,7 +979,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 
 	if effectiveOpen {
 		ui.PrintInfo("Opening report in browser...")
-		ui.OpenBrowser(result.ReportURL)
+		runOpenBrowserFn(result.ReportURL)
 	}
 
 	if !result.Success {
@@ -920,6 +1017,12 @@ func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 		"passed_tests":    result.PassedTests,
 		"failed_tests":    result.FailedTests,
 		"duration":        result.Duration,
+	}
+	if result.WorkflowName != "" {
+		output["workflow_name"] = result.WorkflowName
+	}
+	if result.Status == "queued" {
+		output["queued"] = true
 	}
 	if result.ErrorMessage != "" {
 		output["error"] = result.ErrorMessage
@@ -1277,7 +1380,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 
 	if effectiveOpen {
 		ui.PrintInfo("Opening report in browser...")
-		ui.OpenBrowser(testResult.ReportURL)
+		runOpenBrowserFn(testResult.ReportURL)
 	}
 
 	// Keep hot reload server running for rapid iteration
@@ -1303,6 +1406,90 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// resolveDeviceSelection resolves the target device pair from flags or an
+// interactive picker. When interactive is true it fetches the test's platform
+// via the API and presents a bubbletea selection menu. When deviceModel and
+// osVersion are provided directly they are validated against the target matrix.
+//
+// Parameters:
+//   - cmd: cobra command (used for context)
+//   - testID: resolved test UUID (needed to look up platform for interactive mode)
+//   - client: API client for fetching test info
+//   - interactive: whether to show the interactive device picker
+//   - deviceModel: explicit device model flag value (may be empty)
+//   - osVersion: explicit OS version flag value (may be empty)
+//
+// Returns:
+//   - model: resolved device model (empty string means use default)
+//   - runtime: resolved OS runtime
+//   - error: validation or selection error
+func resolveDeviceSelection(
+	cmd *cobra.Command,
+	testID string,
+	client *api.Client,
+	interactive bool,
+	deviceModel string,
+	osVersion string,
+) (string, string, error) {
+	// Non-interactive: validate the explicit pair
+	if !interactive {
+		if deviceModel == "" && osVersion == "" {
+			return "", "", nil
+		}
+		if deviceModel == "" || osVersion == "" {
+			return "", "", fmt.Errorf("--device-model and --os-version must both be provided")
+		}
+		// We need the platform for validation. Fetch the test.
+		test, err := client.GetTest(cmd.Context(), testID)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to fetch test for device validation: %w", err)
+		}
+		if err := devicetargets.ValidateDevicePair(test.Platform, deviceModel, osVersion); err != nil {
+			return "", "", err
+		}
+		return deviceModel, osVersion, nil
+	}
+
+	// Interactive: fetch platform from the test and show picker
+	test, err := client.GetTest(cmd.Context(), testID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to fetch test for device selection: %w", err)
+	}
+
+	pairs, err := devicetargets.GetAvailableTargetPairs(test.Platform)
+	if err != nil {
+		return "", "", err
+	}
+	defaultPair, _ := devicetargets.GetDefaultPair(test.Platform)
+
+	options := make([]ui.SelectOption, 0, len(pairs)+1)
+	options = append(options, ui.SelectOption{
+		Label:       fmt.Sprintf("Auto (%s)", devicetargets.FormatPairLabel(defaultPair)),
+		Value:       "auto",
+		Description: "Use platform default",
+	})
+	for _, p := range pairs {
+		options = append(options, ui.SelectOption{
+			Label: devicetargets.FormatPairLabel(p),
+			Value: fmt.Sprintf("%s|%s", p.Model, p.Runtime),
+		})
+	}
+
+	_, selected, err := ui.Select("Select device:", options, 0)
+	if err != nil {
+		return "", "", fmt.Errorf("device selection failed: %w", err)
+	}
+	if selected == "auto" {
+		return "", "", nil
+	}
+
+	parts := strings.SplitN(selected, "|", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("unexpected device selection value: %q", selected)
+	}
+	return parts[0], parts[1], nil
 }
 
 // parseLocation parses a "lat,lng" string into float64 values.

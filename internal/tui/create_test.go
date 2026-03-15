@@ -249,7 +249,7 @@ func TestCreateModel_DoneViewRevealsEditorLink(t *testing.T) {
 	}
 
 	out = next.View()
-	if !strings.Contains(out, "https://app.revyl.ai/tests/test-1") {
+	if !strings.Contains(out, "https://app.revyl.ai/tests/execute?testUid=test-1") {
 		t.Fatalf("expected done view to include editor URL, got: %s", out)
 	}
 }

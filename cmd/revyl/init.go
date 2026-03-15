@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -490,9 +491,18 @@ func wizardAuth(ctx context.Context, devMode bool) (*api.Client, *api.ValidateAP
 
 	ui.StartSpinner("Waiting for browser authentication...")
 
+	clientInstanceID, err := mgr.GetOrCreateClientInstanceID()
+	if err != nil {
+		ui.StopSpinner()
+		ui.PrintWarning("Failed to prepare local CLI identity: %v", err)
+		return nil, nil, false
+	}
+
 	browserAuth := auth.NewBrowserAuth(auth.BrowserAuthConfig{
-		AppURL:  config.GetAppURL(devMode),
-		Timeout: 5 * time.Minute,
+		AppURL:           config.GetAppURL(devMode),
+		Timeout:          5 * time.Minute,
+		ClientInstanceID: clientInstanceID,
+		DeviceLabel:      auth.CurrentDeviceLabel(),
 	})
 
 	result, err := browserAuth.Authenticate(ctx)
@@ -509,7 +519,13 @@ func wizardAuth(ctx context.Context, devMode bool) (*api.Client, *api.ValidateAP
 	}
 
 	// Save credentials.
-	if err := mgr.SaveBrowserCredentials(result, defaultTokenExpiration); err != nil {
+	isPersistentKey := result.AuthMethod == "api_key" && result.APIKeyID != ""
+	if isPersistentKey {
+		err = mgr.SaveBrowserAPIKeyCredentials(result, result.APIKeyID)
+	} else {
+		err = mgr.SaveBrowserCredentials(result, defaultTokenExpiration)
+	}
+	if err != nil {
 		ui.PrintWarning("Failed to save credentials: %v", err)
 		// Continue anyway — the token is still usable this session.
 	}
@@ -525,12 +541,26 @@ func wizardAuth(ctx context.Context, devMode bool) (*api.Client, *api.ValidateAP
 	}
 
 	// Re-save with validated info.
-	_ = mgr.SaveBrowserCredentials(&auth.BrowserAuthResult{
-		Token:  result.Token,
-		Email:  userInfo.Email,
-		OrgID:  userInfo.OrgID,
-		UserID: userInfo.UserID,
-	}, defaultTokenExpiration)
+	if isPersistentKey {
+		_ = mgr.SaveBrowserAPIKeyCredentials(
+			&auth.BrowserAuthResult{
+				Token:      result.Token,
+				Email:      userInfo.Email,
+				OrgID:      userInfo.OrgID,
+				UserID:     userInfo.UserID,
+				APIKeyID:   result.APIKeyID,
+				AuthMethod: result.AuthMethod,
+			},
+			result.APIKeyID,
+		)
+	} else {
+		_ = mgr.SaveBrowserCredentials(&auth.BrowserAuthResult{
+			Token:  result.Token,
+			Email:  userInfo.Email,
+			OrgID:  userInfo.OrgID,
+			UserID: userInfo.UserID,
+		}, defaultTokenExpiration)
+	}
 
 	ui.PrintSuccess("Authenticated as %s", userInfo.Email)
 	return client, userInfo, true
@@ -2147,7 +2177,11 @@ func wizardCreateTest(
 
 		// Open in browser.
 		appURL := config.GetAppURL(devMode)
-		testURL := fmt.Sprintf("%s/tests/%s", appURL, resp.ID)
+		testURL := fmt.Sprintf(
+			"%s/tests/execute?testUid=%s",
+			appURL,
+			url.QueryEscape(resp.ID),
+		)
 		if openErr := ui.OpenBrowser(testURL); openErr == nil {
 			ui.PrintDim("Opened in browser: %s", testURL)
 		} else {

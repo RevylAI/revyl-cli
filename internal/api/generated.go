@@ -55,16 +55,16 @@ func (e ActionBlockType) Valid() bool {
 
 // Defines values for AppPlatform.
 const (
-	Android AppPlatform = "Android"
-	IOS     AppPlatform = "iOS"
+	AppPlatformAndroid AppPlatform = "Android"
+	AppPlatformIOS     AppPlatform = "iOS"
 )
 
 // Valid indicates whether the value is a known member of the AppPlatform enum.
 func (e AppPlatform) Valid() bool {
 	switch e {
-	case Android:
+	case AppPlatformAndroid:
 		return true
-	case IOS:
+	case AppPlatformIOS:
 		return true
 	default:
 		return false
@@ -260,6 +260,24 @@ func (e CursorConfigurationStatusStatus) Valid() bool {
 	}
 }
 
+// Defines values for DeviceSessionCreatePlatform.
+const (
+	DeviceSessionCreatePlatformAndroid DeviceSessionCreatePlatform = "android"
+	DeviceSessionCreatePlatformIos     DeviceSessionCreatePlatform = "ios"
+)
+
+// Valid indicates whether the value is a known member of the DeviceSessionCreatePlatform enum.
+func (e DeviceSessionCreatePlatform) Valid() bool {
+	switch e {
+	case DeviceSessionCreatePlatformAndroid:
+		return true
+	case DeviceSessionCreatePlatformIos:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Environment.
 const (
 	EnvironmentProduction Environment = "production"
@@ -272,33 +290,6 @@ func (e Environment) Valid() bool {
 	case EnvironmentProduction:
 		return true
 	case EnvironmentStaging:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ExplorationStatus.
-const (
-	ExplorationStatusCancelled ExplorationStatus = "cancelled"
-	ExplorationStatusCompleted ExplorationStatus = "completed"
-	ExplorationStatusFailed    ExplorationStatus = "failed"
-	ExplorationStatusPending   ExplorationStatus = "pending"
-	ExplorationStatusRunning   ExplorationStatus = "running"
-)
-
-// Valid indicates whether the value is a known member of the ExplorationStatus enum.
-func (e ExplorationStatus) Valid() bool {
-	switch e {
-	case ExplorationStatusCancelled:
-		return true
-	case ExplorationStatusCompleted:
-		return true
-	case ExplorationStatusFailed:
-		return true
-	case ExplorationStatusPending:
-		return true
-	case ExplorationStatusRunning:
 		return true
 	default:
 		return false
@@ -958,31 +949,31 @@ func (e WorkflowLastExecutionStatus) Valid() bool {
 
 // Defines values for WorkflowStatus.
 const (
-	WorkflowStatusCancelled WorkflowStatus = "cancelled"
-	WorkflowStatusCompleted WorkflowStatus = "completed"
-	WorkflowStatusFailed    WorkflowStatus = "failed"
-	WorkflowStatusQueued    WorkflowStatus = "queued"
-	WorkflowStatusRunning   WorkflowStatus = "running"
-	WorkflowStatusSetup     WorkflowStatus = "setup"
-	WorkflowStatusTimeout   WorkflowStatus = "timeout"
+	Cancelled WorkflowStatus = "cancelled"
+	Completed WorkflowStatus = "completed"
+	Failed    WorkflowStatus = "failed"
+	Queued    WorkflowStatus = "queued"
+	Running   WorkflowStatus = "running"
+	Setup     WorkflowStatus = "setup"
+	Timeout   WorkflowStatus = "timeout"
 )
 
 // Valid indicates whether the value is a known member of the WorkflowStatus enum.
 func (e WorkflowStatus) Valid() bool {
 	switch e {
-	case WorkflowStatusCancelled:
+	case Cancelled:
 		return true
-	case WorkflowStatusCompleted:
+	case Completed:
 		return true
-	case WorkflowStatusFailed:
+	case Failed:
 		return true
-	case WorkflowStatusQueued:
+	case Queued:
 		return true
-	case WorkflowStatusRunning:
+	case Running:
 		return true
-	case WorkflowStatusSetup:
+	case Setup:
 		return true
-	case WorkflowStatusTimeout:
+	case Timeout:
 		return true
 	default:
 		return false
@@ -1466,6 +1457,12 @@ type AdminWorkflowTask struct {
 type AdminWorkflowTaskList struct {
 	Items      []AdminWorkflowTask `json:"items"`
 	NextCursor *string             `json:"next_cursor,omitempty"`
+}
+
+// AllPlatformTargets Device target configs for every supported platform.
+type AllPlatformTargets struct {
+	// Platforms Keyed by lowercase platform name
+	Platforms map[string]PlatformTargetConfig `json:"platforms"`
 }
 
 // AllSystemAppsResponse Response model for all system apps across platforms.
@@ -2799,6 +2796,15 @@ type CreateActionResponse struct {
 	Success bool   `json:"success"`
 }
 
+// CreateCLIApiKeyRequest Request to create or rotate a browser-issued CLI API key.
+type CreateCLIApiKeyRequest struct {
+	// ClientInstanceId Stable per-install CLI identifier used to rotate only this device's key.
+	ClientInstanceId *string `json:"client_instance_id,omitempty"`
+
+	// DeviceLabel Human-readable device label to attach to the browser-issued CLI key.
+	DeviceLabel *string `json:"device_label,omitempty"`
+}
+
 // CreateCLIApiKeyResponse Response from creating a long-lived CLI API key via PropelAuth.
 //
 // Attributes:
@@ -2851,7 +2857,7 @@ type CreateReportRequest struct {
 	SessionId       *string                   `json:"session_id,omitempty"`
 	StartedAt       *string                   `json:"started_at,omitempty"`
 	TestGoalSummary *string                   `json:"test_goal_summary,omitempty"`
-	TestId          string                    `json:"test_id"`
+	TestId          *string                   `json:"test_id,omitempty"`
 	TestVersionId   *string                   `json:"test_version_id,omitempty"`
 }
 
@@ -3257,6 +3263,15 @@ type DeviceMetadata struct {
 	Width int `json:"width"`
 }
 
+// DevicePair A device model + runtime combination.
+type DevicePair struct {
+	// Model Device model name (e.g. 'iPhone 16')
+	Model string `json:"model"`
+
+	// Runtime OS runtime version (e.g. 'iOS 18.5')
+	Runtime string `json:"runtime"`
+}
+
 // DeviceSessionClaimStartResponse Response model for atomic queued->starting claim.
 type DeviceSessionClaimStartResponse struct {
 	Claimed   bool    `json:"claimed"`
@@ -3267,14 +3282,17 @@ type DeviceSessionClaimStartResponse struct {
 
 // DeviceSessionCreate Request model for creating a device session.
 type DeviceSessionCreate struct {
-	Id             *string                 `json:"id,omitempty"`
-	OrgId          *string                 `json:"org_id,omitempty"`
-	Platform       string                  `json:"platform"`
-	Source         string                  `json:"source"`
-	SourceMetadata *map[string]interface{} `json:"source_metadata,omitempty"`
-	Status         *string                 `json:"status,omitempty"`
-	WorkflowRunId  *string                 `json:"workflow_run_id,omitempty"`
+	Id             *string                     `json:"id,omitempty"`
+	OrgId          *string                     `json:"org_id,omitempty"`
+	Platform       DeviceSessionCreatePlatform `json:"platform"`
+	Source         string                      `json:"source"`
+	SourceMetadata *map[string]interface{}     `json:"source_metadata,omitempty"`
+	Status         *string                     `json:"status,omitempty"`
+	WorkflowRunId  *string                     `json:"workflow_run_id,omitempty"`
 }
+
+// DeviceSessionCreatePlatform defines model for DeviceSessionCreate.Platform.
+type DeviceSessionCreatePlatform string
 
 // DeviceSessionResponse Response model for device session operations.
 type DeviceSessionResponse struct {
@@ -3563,9 +3581,6 @@ type ExecutionModeConfigOutput struct {
 	// SkipAppInstall Skip app installation during test execution
 	SkipAppInstall *bool `json:"skip_app_install,omitempty"`
 }
-
-// ExplorationStatus Status of an exploration workflow.
-type ExplorationStatus string
 
 // ExpoBuildArtifacts Artifacts associated with an Expo/EAS build.
 type ExpoBuildArtifacts struct {
@@ -5143,6 +5158,21 @@ type PlatformApp struct {
 	PinnedVersion *string `json:"pinned_version,omitempty"`
 }
 
+// PlatformTargetConfig Available targets and default pair for a single platform.
+type PlatformTargetConfig struct {
+	// AvailableModels Device models selectable by users
+	AvailableModels []string `json:"available_models"`
+
+	// AvailableRuntimes OS runtimes that workers have installed
+	AvailableRuntimes []string `json:"available_runtimes"`
+
+	// CompatibleRuntimes Model -> list of runtimes it can run. Models not listed are assumed to support all available_runtimes.
+	CompatibleRuntimes *map[string][]string `json:"compatible_runtimes,omitempty"`
+
+	// DefaultPair A device model + runtime combination.
+	DefaultPair DevicePair `json:"default_pair"`
+}
+
 // PortalRequest defines model for PortalRequest.
 type PortalRequest struct {
 	ReturnUrl string `json:"return_url"`
@@ -5540,6 +5570,118 @@ type RemoveWorkflowFromRuleResponse struct {
 	Success bool                               `json:"success"`
 }
 
+// ReportContextActionResponse High-context action payload for CLI/agent report consumption.
+type ReportContextActionResponse struct {
+	ActionIndex              int                     `json:"action_index"`
+	ActionType               *string                 `json:"action_type,omitempty"`
+	AgentDescription         *string                 `json:"agent_description,omitempty"`
+	CompletedAt              *string                 `json:"completed_at,omitempty"`
+	CreatedAt                *string                 `json:"created_at,omitempty"`
+	Id                       *string                 `json:"id,omitempty"`
+	IsTerminal               *bool                   `json:"is_terminal,omitempty"`
+	LlmCall                  *map[string]interface{} `json:"llm_call,omitempty"`
+	LlmCallId                *string                 `json:"llm_call_id,omitempty"`
+	Reasoning                *string                 `json:"reasoning,omitempty"`
+	ReflectionDecision       *string                 `json:"reflection_decision,omitempty"`
+	ReflectionLlmCall        *map[string]interface{} `json:"reflection_llm_call,omitempty"`
+	ReflectionLlmCallId      *string                 `json:"reflection_llm_call_id,omitempty"`
+	ReflectionReasoning      *string                 `json:"reflection_reasoning,omitempty"`
+	ReflectionSuggestion     *string                 `json:"reflection_suggestion,omitempty"`
+	ScreenshotAfterUrl       *string                 `json:"screenshot_after_url,omitempty"`
+	ScreenshotBeforeCleanUrl *string                 `json:"screenshot_before_clean_url,omitempty"`
+	ScreenshotBeforeUrl      *string                 `json:"screenshot_before_url,omitempty"`
+	StartedAt                *string                 `json:"started_at,omitempty"`
+	StepId                   *string                 `json:"step_id,omitempty"`
+	TypeData                 *map[string]interface{} `json:"type_data,omitempty"`
+	VideoTimestampEnd        *float32                `json:"video_timestamp_end,omitempty"`
+	VideoTimestampStart      *float32                `json:"video_timestamp_start,omitempty"`
+}
+
+// ReportContextResponse Canonical high-context report payload for CLI JSON consumption.
+type ReportContextResponse struct {
+	AppName      *string `json:"app_name,omitempty"`
+	BuildVersion *string `json:"build_version,omitempty"`
+	CompletedAt  *string `json:"completed_at,omitempty"`
+	CreatedAt    *string `json:"created_at,omitempty"`
+
+	// DeviceMetadata Device metadata captured at runtime for accurate coordinate scaling.
+	//
+	// This schema is still actively used and stored in the reports.device_metadata
+	// column in the database.
+	DeviceMetadata        *DeviceMetadata              `json:"device_metadata,omitempty"`
+	DeviceModel           *string                      `json:"device_model,omitempty"`
+	EffectiveFailedSteps  *int                         `json:"effective_failed_steps,omitempty"`
+	EffectivePassedSteps  *int                         `json:"effective_passed_steps,omitempty"`
+	EffectivePendingSteps *int                         `json:"effective_pending_steps,omitempty"`
+	EffectiveRunningSteps *int                         `json:"effective_running_steps,omitempty"`
+	EffectiveWarningSteps *int                         `json:"effective_warning_steps,omitempty"`
+	ExecutionId           *string                      `json:"execution_id,omitempty"`
+	FailedSteps           *int                         `json:"failed_steps,omitempty"`
+	HardwareMetricsUrl    *string                      `json:"hardware_metrics_url,omitempty"`
+	Id                    string                       `json:"id"`
+	OrgId                 string                       `json:"org_id"`
+	OsVersion             *string                      `json:"os_version,omitempty"`
+	PassedSteps           *int                         `json:"passed_steps,omitempty"`
+	PerfettoTraceUrl      *string                      `json:"perfetto_trace_url,omitempty"`
+	Platform              *string                      `json:"platform,omitempty"`
+	ReportUrl             *string                      `json:"report_url,omitempty"`
+	ScreenHeight          *int                         `json:"screen_height,omitempty"`
+	ScreenWidth           *int                         `json:"screen_width,omitempty"`
+	SessionId             *string                      `json:"session_id,omitempty"`
+	SessionStatus         *string                      `json:"session_status,omitempty"`
+	StartedAt             *string                      `json:"started_at,omitempty"`
+	Steps                 *[]ReportContextStepResponse `json:"steps,omitempty"`
+	Success               *bool                        `json:"success,omitempty"`
+	SystemPrompt          *string                      `json:"system_prompt,omitempty"`
+	TestGoalSummary       *string                      `json:"test_goal_summary,omitempty"`
+	TestId                *string                      `json:"test_id,omitempty"`
+	TestName              *string                      `json:"test_name,omitempty"`
+	TestVersionId         *string                      `json:"test_version_id,omitempty"`
+	TestVersionNumber     *int                         `json:"test_version_number,omitempty"`
+
+	// Tldr TLDR output with structured citations
+	Tldr                *TLDROutput `json:"tldr,omitempty"`
+	TotalSteps          *int        `json:"total_steps,omitempty"`
+	TotalValidations    *int        `json:"total_validations,omitempty"`
+	TraceId             *string     `json:"trace_id,omitempty"`
+	UpdatedAt           *string     `json:"updated_at,omitempty"`
+	ValidationsPassed   *int        `json:"validations_passed,omitempty"`
+	VideoUrl            *string     `json:"video_url,omitempty"`
+	WarningSteps        *int        `json:"warning_steps,omitempty"`
+	WhepUrl             *string     `json:"whep_url,omitempty"`
+	WorkflowExecutionId *string     `json:"workflow_execution_id,omitempty"`
+}
+
+// ReportContextStepResponse High-context step payload for CLI/agent report consumption.
+type ReportContextStepResponse struct {
+	Actions               *[]ReportContextActionResponse `json:"actions,omitempty"`
+	CompletedAt           *string                        `json:"completed_at,omitempty"`
+	CreatedAt             *string                        `json:"created_at,omitempty"`
+	EffectiveStatus       *string                        `json:"effective_status,omitempty"`
+	EffectiveStatusReason *string                        `json:"effective_status_reason,omitempty"`
+	ErrorMessage          *string                        `json:"error_message,omitempty"`
+	ExecutionOrder        int                            `json:"execution_order"`
+	Id                    string                         `json:"id"`
+	LlmCall               *map[string]interface{}        `json:"llm_call,omitempty"`
+	LlmCallId             *string                        `json:"llm_call_id,omitempty"`
+	NodeId                *string                        `json:"node_id,omitempty"`
+	ParentStepId          *string                        `json:"parent_step_id,omitempty"`
+	ReportId              *string                        `json:"report_id,omitempty"`
+	SourceModuleId        *string                        `json:"source_module_id,omitempty"`
+	SourceModuleName      *string                        `json:"source_module_name,omitempty"`
+	StartedAt             *string                        `json:"started_at,omitempty"`
+	Status                *string                        `json:"status,omitempty"`
+	StatusReason          *string                        `json:"status_reason,omitempty"`
+	StepDescription       *string                        `json:"step_description,omitempty"`
+	StepType              string                         `json:"step_type"`
+	Success               *bool                          `json:"success,omitempty"`
+	TypeData              *map[string]interface{}        `json:"type_data,omitempty"`
+	ValidationReasoning   *string                        `json:"validation_reasoning,omitempty"`
+	ValidationResult      *bool                          `json:"validation_result,omitempty"`
+	VideoTimestampEnd     *float32                       `json:"video_timestamp_end,omitempty"`
+	VideoTimestampStart   *float32                       `json:"video_timestamp_start,omitempty"`
+}
+
 // ReportV3Response Full report with steps and actions.
 type ReportV3Response struct {
 	AppId               *string                   `json:"app_id,omitempty"`
@@ -5572,7 +5714,7 @@ type ReportV3Response struct {
 	Success             *bool                     `json:"success,omitempty"`
 	SystemPrompt        *string                   `json:"system_prompt,omitempty"`
 	TestGoalSummary     *string                   `json:"test_goal_summary,omitempty"`
-	TestId              string                    `json:"test_id"`
+	TestId              *string                   `json:"test_id,omitempty"`
 	TestName            *string                   `json:"test_name,omitempty"`
 	TestVersionId       *string                   `json:"test_version_id,omitempty"`
 	TestVersionNumber   *int                      `json:"test_version_number,omitempty"`
@@ -5645,6 +5787,21 @@ type ReviewMetric struct {
 	PreviousValue    float32 `json:"previous_value"`
 	Title            string  `json:"title"`
 	Value            float32 `json:"value"`
+}
+
+// RevokeCLIApiKeyRequest Request to revoke a browser-issued CLI API key.
+type RevokeCLIApiKeyRequest struct {
+	// ApiKeyId The PropelAuth-assigned API key ID to revoke.
+	ApiKeyId string `json:"api_key_id"`
+}
+
+// RevokeCLIApiKeyResponse Response from revoking a browser-issued CLI API key.
+type RevokeCLIApiKeyResponse struct {
+	// Message Human-readable status message.
+	Message string `json:"message"`
+
+	// Success Whether the CLI API key was revoked.
+	Success bool `json:"success"`
 }
 
 // RevylRepoConfig Revyl repository configuration - workflow-centric with multiple workflows.
@@ -5858,34 +6015,6 @@ type SeatCheckResponse struct {
 	UserBackfillStatus *[]UserBackfillStatus `json:"user_backfill_status,omitempty"`
 }
 
-// SessionHistoryItem defines model for SessionHistoryItem.
-type SessionHistoryItem struct {
-	BilledAt         string  `json:"billed_at"`
-	BillingStatus    string  `json:"billing_status"`
-	DeviceCostUsd    float32 `json:"device_cost_usd"`
-	DeviceModel      *string `json:"device_model,omitempty"`
-	DurationSeconds  float32 `json:"duration_seconds"`
-	IsRealDevice     bool    `json:"is_real_device"`
-	LlmCostUsd       float32 `json:"llm_cost_usd"`
-	OsVersion        *string `json:"os_version,omitempty"`
-	Platform         string  `json:"platform"`
-	SessionEndedAt   *string `json:"session_ended_at,omitempty"`
-	SessionId        string  `json:"session_id"`
-	SessionStartedAt *string `json:"session_started_at,omitempty"`
-	SessionStatus    string  `json:"session_status"`
-	TotalCostUsd     float32 `json:"total_cost_usd"`
-	UsageId          string  `json:"usage_id"`
-}
-
-// SessionHistoryResponse defines model for SessionHistoryResponse.
-type SessionHistoryResponse struct {
-	Limit       int                  `json:"limit"`
-	Offset      int                  `json:"offset"`
-	PeriodEnd   string               `json:"period_end"`
-	PeriodStart string               `json:"period_start"`
-	Sessions    []SessionHistoryItem `json:"sessions"`
-}
-
 // SessionStatus Device session status - the single source of truth for test execution state.
 //
 // Matches the session_status enum in the database.
@@ -5921,6 +6050,18 @@ type ShardedReportMetadata struct {
 	Processing  *bool  `json:"processing,omitempty"`
 	Type        string `json:"type"`
 	Version     string `json:"version"`
+}
+
+// ShareableReportBySessionModel Request model for generating a shareable report link by session_id.
+type ShareableReportBySessionModel struct {
+	// ExpirationHours Hours until the link expires. None means never (100 years).
+	ExpirationHours *int `json:"expiration_hours,omitempty"`
+
+	// Origin Origin URL for constructing the shareable link
+	Origin *string `json:"origin,omitempty"`
+
+	// SessionId Device session UUID
+	SessionId string `json:"session_id"`
 }
 
 // ShareableReportByTaskModel defines model for ShareableReportByTaskModel.
@@ -6108,54 +6249,6 @@ type StartDeviceResponse struct {
 	TraceId       *string `json:"trace_id,omitempty"`
 	WebsocketUrl  *string `json:"websocket_url,omitempty"`
 	WorkflowRunId *string `json:"workflow_run_id,omitempty"`
-}
-
-// StartExplorationRequest Request model for starting an exploration workflow.
-type StartExplorationRequest struct {
-	// BuildVarId App ID to explore
-	BuildVarId string `json:"build_var_id"`
-
-	// GrounderType Type of grounder to use
-	GrounderType *string `json:"grounder_type,omitempty"`
-
-	// GroundingModel Model for grounding (element detection)
-	GroundingModel *string `json:"grounding_model,omitempty"`
-
-	// MaxDepth Maximum exploration depth
-	MaxDepth *int `json:"max_depth,omitempty"`
-
-	// MaxDurationSeconds Maximum exploration duration in seconds
-	MaxDurationSeconds *int `json:"max_duration_seconds,omitempty"`
-
-	// PlanningModel Model for test planning/generation
-	PlanningModel *string `json:"planning_model,omitempty"`
-
-	// PrimaryModel Primary LLM model for exploration
-	PrimaryModel *string `json:"primary_model,omitempty"`
-
-	// TestDescription Description of what to test/explore in the app
-	TestDescription string `json:"test_description"`
-
-	// TestId Optional test ID for tracking
-	TestId *string `json:"test_id,omitempty"`
-}
-
-// StartExplorationResponse Response model for starting an exploration workflow.
-type StartExplorationResponse struct {
-	// Message Human-readable status message
-	Message string `json:"message"`
-
-	// Status Status of an exploration workflow.
-	Status ExplorationStatus `json:"status"`
-
-	// TraceId OpenTelemetry trace ID for Grafana correlation
-	TraceId *string `json:"trace_id,omitempty"`
-
-	// WebsocketUrl WebSocket URL for real-time updates
-	WebsocketUrl string `json:"websocket_url"`
-
-	// WorkflowRunId Hatchet workflow run ID
-	WorkflowRunId string `json:"workflow_run_id"`
 }
 
 // StepEval Complete evaluation of a single step including all retries.
@@ -6377,6 +6470,21 @@ type SystemAppsResponse struct {
 
 	// Platform Platform identifier (ios or android)
 	Platform string `json:"platform"`
+}
+
+// TLDRKeyMoment Key moment extracted from test execution
+type TLDRKeyMoment struct {
+	Description   string `json:"description"`
+	Importance    string `json:"importance"`
+	StepReference string `json:"step_reference"`
+}
+
+// TLDROutput TLDR output with structured citations
+type TLDROutput struct {
+	Insights    []string                `json:"insights"`
+	KeyMoments  []TLDRKeyMoment         `json:"key_moments"`
+	LlmMetadata *map[string]interface{} `json:"llm_metadata,omitempty"`
+	TestCase    string                  `json:"test_case"`
 }
 
 // Tag Tag model for API responses - used for test categorization.
@@ -8647,6 +8755,63 @@ type AppRoutesExecutionRoutesBillingXptAttachResponse struct {
 	Message     string  `json:"message"`
 }
 
+// AppRoutesExecutionRoutesBillingXptSessionHistoryItem defines model for app__routes__execution_routes__billing_xpt__SessionHistoryItem.
+type AppRoutesExecutionRoutesBillingXptSessionHistoryItem struct {
+	BilledAt         string  `json:"billed_at"`
+	BillingStatus    string  `json:"billing_status"`
+	DeviceCostUsd    float32 `json:"device_cost_usd"`
+	DeviceModel      *string `json:"device_model,omitempty"`
+	DurationSeconds  float32 `json:"duration_seconds"`
+	IsRealDevice     bool    `json:"is_real_device"`
+	LlmCostUsd       float32 `json:"llm_cost_usd"`
+	OsVersion        *string `json:"os_version,omitempty"`
+	Platform         string  `json:"platform"`
+	SessionEndedAt   *string `json:"session_ended_at,omitempty"`
+	SessionId        string  `json:"session_id"`
+	SessionStartedAt *string `json:"session_started_at,omitempty"`
+	SessionStatus    string  `json:"session_status"`
+	TotalCostUsd     float32 `json:"total_cost_usd"`
+	UsageId          string  `json:"usage_id"`
+}
+
+// AppRoutesExecutionRoutesBillingXptSessionHistoryResponse defines model for app__routes__execution_routes__billing_xpt__SessionHistoryResponse.
+type AppRoutesExecutionRoutesBillingXptSessionHistoryResponse struct {
+	Limit       int                                                    `json:"limit"`
+	Offset      int                                                    `json:"offset"`
+	PeriodEnd   string                                                 `json:"period_end"`
+	PeriodStart string                                                 `json:"period_start"`
+	Sessions    []AppRoutesExecutionRoutesBillingXptSessionHistoryItem `json:"sessions"`
+}
+
+// AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem Single row in the device session history listing.
+type AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem struct {
+	CreatedAt       *string                 `json:"created_at,omitempty"`
+	DeviceModel     *string                 `json:"device_model,omitempty"`
+	DurationSeconds *float32                `json:"duration_seconds,omitempty"`
+	EndedAt         *string                 `json:"ended_at,omitempty"`
+	ErrorMessage    *string                 `json:"error_message,omitempty"`
+	HasVideo        *bool                   `json:"has_video,omitempty"`
+	Id              string                  `json:"id"`
+	OrgId           string                  `json:"org_id"`
+	OsVersion       *string                 `json:"os_version,omitempty"`
+	Platform        *string                 `json:"platform,omitempty"`
+	ReportId        *string                 `json:"report_id,omitempty"`
+	Source          *string                 `json:"source,omitempty"`
+	SourceMetadata  *map[string]interface{} `json:"source_metadata,omitempty"`
+	StartedAt       *string                 `json:"started_at,omitempty"`
+	Status          string                  `json:"status"`
+	StepCount       *int                    `json:"step_count,omitempty"`
+	WorkflowRunId   *string                 `json:"workflow_run_id,omitempty"`
+}
+
+// AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryResponse Paginated device session history response.
+type AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryResponse struct {
+	Limit    int                                                           `json:"limit"`
+	Offset   int                                                           `json:"offset"`
+	OrgId    string                                                        `json:"org_id"`
+	Sessions []AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem `json:"sessions"`
+}
+
 // AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
 type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
 	Date        string   `json:"date"`
@@ -9122,6 +9287,12 @@ type BillingSummaryApiV1ExecutionBillingSummaryGetParams struct {
 	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
 }
 
+// GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams defines parameters for GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGet.
+type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // StartDeviceApiV1ExecutionStartDevicePostParams defines parameters for StartDeviceApiV1ExecutionStartDevicePost.
 type StartDeviceApiV1ExecutionStartDevicePostParams struct {
 	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
@@ -9213,6 +9384,12 @@ type StreamUnifiedUpdatesApiV1MonitorStreamUnifiedGetParams struct {
 	IncludeQueued *bool `form:"include_queued,omitempty" json:"include_queued,omitempty"`
 }
 
+// GetShareableReportLinkBySessionApiV1ReportAsyncRunShareableReportLinkBySessionGetParams defines parameters for GetShareableReportLinkBySessionApiV1ReportAsyncRunShareableReportLinkBySessionGet.
+type GetShareableReportLinkBySessionApiV1ReportAsyncRunShareableReportLinkBySessionGetParams struct {
+	SessionId string  `form:"session_id" json:"session_id"`
+	Origin    *string `form:"origin,omitempty" json:"origin,omitempty"`
+}
+
 // GetShareableReportLinkByTaskApiV1ReportAsyncRunShareableReportLinkByTaskGetParams defines parameters for GetShareableReportLinkByTaskApiV1ReportAsyncRunShareableReportLinkByTaskGet.
 type GetShareableReportLinkByTaskApiV1ReportAsyncRunShareableReportLinkByTaskGetParams struct {
 	TaskId string  `form:"task_id" json:"task_id"`
@@ -9227,6 +9404,30 @@ type GetReportByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdGetParams st
 
 	// Token Public share token for unauthenticated access
 	Token *string `form:"token,omitempty" json:"token,omitempty"`
+}
+
+// GetReportContextByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdContextGetParams defines parameters for GetReportContextByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdContextGet.
+type GetReportContextByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdContextGetParams struct {
+	IncludeSteps    *bool `form:"include_steps,omitempty" json:"include_steps,omitempty"`
+	IncludeActions  *bool `form:"include_actions,omitempty" json:"include_actions,omitempty"`
+	IncludeLlmCalls *bool `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
+
+	// Token Public share token for unauthenticated access
+	Token *string `form:"token,omitempty" json:"token,omitempty"`
+}
+
+// GetReportBySessionApiV1ReportsV3ReportsBySessionSessionIdGetParams defines parameters for GetReportBySessionApiV1ReportsV3ReportsBySessionSessionIdGet.
+type GetReportBySessionApiV1ReportsV3ReportsBySessionSessionIdGetParams struct {
+	IncludeSteps    *bool `form:"include_steps,omitempty" json:"include_steps,omitempty"`
+	IncludeActions  *bool `form:"include_actions,omitempty" json:"include_actions,omitempty"`
+	IncludeLlmCalls *bool `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
+}
+
+// GetReportContextBySessionApiV1ReportsV3ReportsBySessionSessionIdContextGetParams defines parameters for GetReportContextBySessionApiV1ReportsV3ReportsBySessionSessionIdContextGet.
+type GetReportContextBySessionApiV1ReportsV3ReportsBySessionSessionIdContextGetParams struct {
+	IncludeSteps    *bool `form:"include_steps,omitempty" json:"include_steps,omitempty"`
+	IncludeActions  *bool `form:"include_actions,omitempty" json:"include_actions,omitempty"`
+	IncludeLlmCalls *bool `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
 }
 
 // GetReportByTokenApiV1ReportsV3ReportsByTokenGetParams defines parameters for GetReportByTokenApiV1ReportsV3ReportsByTokenGet.
@@ -9644,14 +9845,17 @@ type ExtractPackageIdApiV1BinariesTestAppExtractPackageIdPostJSONRequestBody = E
 // GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPostJSONRequestBody defines body for GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPost for application/json ContentType.
 type GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPostJSONRequestBody = AppBinaryUploadRequest
 
+// CreateCliApiKeyEndpointApiV1EntityUsersCreateCliApiKeyPostJSONRequestBody defines body for CreateCliApiKeyEndpointApiV1EntityUsersCreateCliApiKeyPost for application/json ContentType.
+type CreateCliApiKeyEndpointApiV1EntityUsersCreateCliApiKeyPostJSONRequestBody = CreateCLIApiKeyRequest
+
+// RevokeCliApiKeyEndpointApiV1EntityUsersRevokeCliApiKeyPostJSONRequestBody defines body for RevokeCliApiKeyEndpointApiV1EntityUsersRevokeCliApiKeyPost for application/json ContentType.
+type RevokeCliApiKeyEndpointApiV1EntityUsersRevokeCliApiKeyPostJSONRequestBody = RevokeCLIApiKeyRequest
+
 // ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody defines body for ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPost for application/json ContentType.
 type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody = TaskID
 
 // ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONRequestBody defines body for ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPost for application/json ContentType.
 type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONRequestBody = WorkflowInfoInput
-
-// StartExplorationApiV1ExecutionApiV1StartExplorationPostJSONRequestBody defines body for StartExplorationApiV1ExecutionApiV1StartExplorationPost for application/json ContentType.
-type StartExplorationApiV1ExecutionApiV1StartExplorationPostJSONRequestBody = StartExplorationRequest
 
 // BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody defines body for BillingAttachApiV1ExecutionBillingAttachPost for application/json ContentType.
 type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AppRoutesExecutionRoutesBillingXptAttachRequest
@@ -9733,6 +9937,9 @@ type RestoreModuleVersionApiV1ModulesModuleIdRestorePostJSONRequestBody = Module
 
 // GenerateShareableReportLinkApiV1ReportAsyncRunGenerateShareableReportLinkPostJSONRequestBody defines body for GenerateShareableReportLinkApiV1ReportAsyncRunGenerateShareableReportLinkPost for application/json ContentType.
 type GenerateShareableReportLinkApiV1ReportAsyncRunGenerateShareableReportLinkPostJSONRequestBody = ShareableReportModel
+
+// GenerateShareableReportLinkBySessionApiV1ReportAsyncRunGenerateShareableReportLinkBySessionPostJSONRequestBody defines body for GenerateShareableReportLinkBySessionApiV1ReportAsyncRunGenerateShareableReportLinkBySessionPost for application/json ContentType.
+type GenerateShareableReportLinkBySessionApiV1ReportAsyncRunGenerateShareableReportLinkBySessionPostJSONRequestBody = ShareableReportBySessionModel
 
 // GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPostJSONRequestBody defines body for GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPost for application/json ContentType.
 type GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPostJSONRequestBody = ShareableReportByTaskModel

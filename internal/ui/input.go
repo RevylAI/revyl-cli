@@ -19,7 +19,7 @@ import (
 //   - string: The user's input
 //   - error: Any error that occurred
 func Prompt(message string) (string, error) {
-	fmt.Printf("%s ", InfoStyle.Render(message))
+	fmt.Fprintf(os.Stderr, "%s ", InfoStyle.Render(message))
 
 	reader := bufio.NewReader(os.Stdin)
 	input, err := reader.ReadString('\n')
@@ -180,10 +180,10 @@ func runSelectTea(message string, options []string, descriptions []string, initi
 
 // promptSelectFallback is the non-TTY fallback for PromptSelect.
 func promptSelectFallback(message string, options []string) (int, error) {
-	fmt.Println(InfoStyle.Render(message))
+	fmt.Fprintln(os.Stderr, InfoStyle.Render(message))
 
 	for i, opt := range options {
-		fmt.Printf("    %s %s\n", AccentStyle.Render(fmt.Sprintf("[%d]", i+1)), InfoStyle.Render(opt))
+		fmt.Fprintf(os.Stderr, "    %s %s\n", AccentStyle.Render(fmt.Sprintf("[%d]", i+1)), InfoStyle.Render(opt))
 	}
 
 	for {
@@ -234,19 +234,19 @@ type SelectOption struct {
 
 // selectFallback is the non-TTY fallback for Select.
 func selectFallback(message string, options []SelectOption, current int) (int, string, error) {
-	fmt.Println(InfoStyle.Render(message))
+	fmt.Fprintln(os.Stderr, InfoStyle.Render(message))
 	for i, opt := range options {
 		number := AccentStyle.Render(fmt.Sprintf("[%d]", i+1))
 		if i == current {
 			marker := AccentStyle.Render(">")
 			label := TitleStyle.Render(opt.Label)
-			fmt.Printf("  %s %s %s\n", marker, number, label)
+			fmt.Fprintf(os.Stderr, "  %s %s %s\n", marker, number, label)
 		} else {
 			label := InfoStyle.Render(opt.Label)
-			fmt.Printf("    %s %s\n", number, label)
+			fmt.Fprintf(os.Stderr, "    %s %s\n", number, label)
 		}
 		if opt.Description != "" {
-			fmt.Printf("      %s\n", DimStyle.Render(opt.Description))
+			fmt.Fprintf(os.Stderr, "      %s\n", DimStyle.Render(opt.Description))
 		}
 	}
 

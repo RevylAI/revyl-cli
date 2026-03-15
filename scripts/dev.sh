@@ -48,7 +48,13 @@ echo "✓ Dependencies downloaded"
 # Try to generate types if backend is running
 echo ""
 echo "Checking if backend is running for type generation..."
-if curl -s --fail "http://127.0.0.1:8000/openapi.json" > /dev/null 2>&1; then
+BACKEND_ENV="$PROJECT_DIR/../cognisim_backend/.env"
+DEV_BACKEND_PORT=8000
+if [ -f "$BACKEND_ENV" ]; then
+    _port=$(grep -E '^PORT=' "$BACKEND_ENV" | head -1 | cut -d= -f2 | tr -d '[:space:]"'"'"'')
+    [ -n "$_port" ] && DEV_BACKEND_PORT="$_port"
+fi
+if curl -s --fail "http://127.0.0.1:${DEV_BACKEND_PORT}/openapi.json" > /dev/null 2>&1; then
     echo "✓ Backend is running, generating types..."
     ./scripts/generate-types.sh
 else

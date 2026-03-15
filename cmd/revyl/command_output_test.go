@@ -21,6 +21,15 @@ import (
 	"github.com/revyl/cli/internal/config"
 )
 
+const (
+	uuidLikeTestID         = "11111111-1111-1111-1111-111111111111"
+	uuidLikeTestTaskID     = "task-from-test-uuid"
+	routeMissingExecution  = "22222222-2222-2222-2222-222222222222"
+	legacyMissingExecution = "33333333-3333-3333-3333-333333333333"
+	serverErrorExecution   = "44444444-4444-4444-4444-444444444444"
+	uuidLikeWorkflowTaskID = "55555555-5555-5555-5555-555555555555"
+)
+
 // --- Test helpers ---
 
 // newMockAPIServer creates an httptest.Server that handles all API endpoints
@@ -41,6 +50,47 @@ func newMockAPIServer(t *testing.T) *httptest.Server {
 				"total_count":     0,
 				"requested_count": 1,
 				"found_count":     0,
+			})
+			return
+		}
+		if testID == routeMissingExecution || testID == legacyMissingExecution || testID == serverErrorExecution {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"items":           []interface{}{},
+				"total_count":     0,
+				"requested_count": 1,
+				"found_count":     0,
+			})
+			return
+		}
+		if testID == uuidLikeTestID {
+			successVal := true
+			dur := 45.2
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"items": []map[string]interface{}{
+					{
+						"id":             "hist-uuid-test",
+						"test_uid":       testID,
+						"execution_time": "2025-01-15T10:30:00Z",
+						"status":         "completed",
+						"duration":       dur,
+						"has_report":     true,
+						"enhanced_task": map[string]interface{}{
+							"id":                     uuidLikeTestTaskID,
+							"test_id":                testID,
+							"success":                successVal,
+							"progress":               100,
+							"steps_completed":        5,
+							"total_steps":            5,
+							"status":                 "completed",
+							"started_at":             "2025-01-15T10:30:00Z",
+							"completed_at":           "2025-01-15T10:30:45Z",
+							"execution_time_seconds": dur,
+						},
+					},
+				},
+				"total_count":     1,
+				"requested_count": 1,
+				"found_count":     1,
 			})
 			return
 		}
@@ -97,52 +147,150 @@ func newMockAPIServer(t *testing.T) *httptest.Server {
 		})
 	})
 
-	// GET /api/v1/reports-v3/reports/by-execution/{id}
+	// GET /api/v1/reports-v3/reports/by-execution/{id}/context
 	mux.HandleFunc("/api/v1/reports-v3/reports/by-execution/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		executionID := ""
+		if len(parts) >= 7 {
+			executionID = parts[5]
+		}
+		switch executionID {
+		case uuidLikeTestID, routeMissingExecution:
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"detail": "Not Found",
+			})
+			return
+		case legacyMissingExecution:
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"detail": map[string]interface{}{
+					"message":      "Report not found in V3 database",
+					"use_legacy":   true,
+					"execution_id": executionID,
+				},
+			})
+			return
+		case serverErrorExecution:
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"detail": "Error fetching report: device metadata invalid",
+			})
+			return
+		}
 		successVal := true
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"id":                 "report-001",
-			"execution_id":       "task-001",
-			"test_id":            "test-uuid-001",
-			"test_name":          "Login Flow",
-			"platform":           "android",
-			"success":            successVal,
-			"started_at":         "2025-01-15T10:30:00Z",
-			"completed_at":       "2025-01-15T10:30:45Z",
-			"total_steps":        3,
-			"passed_steps":       3,
-			"failed_steps":       0,
-			"total_validations":  2,
-			"validations_passed": 2,
-			"app_name":           "TestApp",
-			"build_version":      "1.0.0",
-			"device_model":       "Pixel 7",
-			"os_version":         "Android 14",
-			"steps": []map[string]interface{}{
-				{
-					"id":               "step-1",
-					"execution_order":  1,
-					"step_type":        "instruction",
-					"step_description": "Tap the login button",
-					"status":           "passed",
-				},
-				{
-					"id":               "step-2",
-					"execution_order":  2,
-					"step_type":        "instruction",
-					"step_description": "Enter username",
-					"status":           "passed",
-				},
-				{
-					"id":               "step-3",
-					"execution_order":  3,
-					"step_type":        "validation",
-					"step_description": "Verify dashboard is visible",
-					"status":           "passed",
+		includeSteps := r.URL.Query().Get("include_steps") != "false"
+		includeActions := r.URL.Query().Get("include_actions") != "false"
+
+		steps := []map[string]interface{}{
+			{
+				"id":               "step-1",
+				"execution_order":  1,
+				"step_type":        "instruction",
+				"step_description": "Tap the login button",
+				"status":           "success",
+				"effective_status": "passed",
+			},
+			{
+				"id":               "step-2",
+				"execution_order":  2,
+				"step_type":        "instruction",
+				"step_description": "Enter username",
+				"status":           "success",
+				"effective_status": "passed",
+				"actions": []map[string]interface{}{
+					{
+						"id":                          "action-2-1",
+						"action_index":                1,
+						"action_type":                 "input",
+						"agent_description":           "Type the username",
+						"screenshot_before_url":       "https://cdn.example/task-001/before.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=before-signature",
+						"screenshot_before_clean_url": "https://cdn.example/task-001/before-clean.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=before-clean-signature",
+						"screenshot_after_url":        "https://cdn.example/task-001/after.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=after-signature",
+						"type_data": map[string]interface{}{
+							"target": "username field",
+						},
+					},
 				},
 			},
-		})
+			{
+				"id":                      "step-3",
+				"execution_order":         3,
+				"step_type":               "validation",
+				"step_description":        "Verify dashboard is visible",
+				"status":                  "success",
+				"effective_status":        "failed",
+				"effective_status_reason": "Expected dashboard header was not visible.",
+				"validation_result":       false,
+				"validation_reasoning":    "Expected dashboard header was not visible.",
+				"type_data": map[string]interface{}{
+					"validation_result":    false,
+					"validation_reasoning": "Expected dashboard header was not visible.",
+				},
+			},
+		}
+		if !includeActions {
+			steps[1]["actions"] = []map[string]interface{}{}
+		}
+
+		response := map[string]interface{}{
+			"id":                      "report-001",
+			"report_url":              "https://app.revyl.ai/tests/report?taskId=task-001",
+			"execution_id":            "task-001",
+			"test_id":                 "test-uuid-001",
+			"test_name":               "Login Flow",
+			"platform":                "android",
+			"success":                 successVal,
+			"started_at":              "2025-01-15T10:30:00Z",
+			"completed_at":            "2025-01-15T10:30:45Z",
+			"total_steps":             3,
+			"passed_steps":            3,
+			"warning_steps":           0,
+			"failed_steps":            0,
+			"total_validations":       2,
+			"validations_passed":      1,
+			"effective_passed_steps":  2,
+			"effective_warning_steps": 0,
+			"effective_failed_steps":  1,
+			"effective_running_steps": 0,
+			"effective_pending_steps": 0,
+			"app_name":                "TestApp",
+			"build_version":           "1.0.0",
+			"device_model":            "Pixel 7",
+			"os_version":              "Android 14",
+			"tldr": map[string]interface{}{
+				"test_case": "Verify the dashboard loads after login.",
+				"key_moments": []map[string]interface{}{
+					{
+						"step_reference": "[[step:3]]",
+						"description":    "Dashboard validation failed after login.",
+						"importance":     "high",
+					},
+				},
+				"insights": []string{
+					"Dashboard header was not visible after the login flow completed.",
+				},
+			},
+			"device_metadata": map[string]interface{}{
+				"width":       1080,
+				"height":      1920,
+				"platform":    "android",
+				"runtime":     "Android 14",
+				"device_type": "Pixel 7",
+			},
+			"video_url": "https://videos.example/task-001.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=video-signature",
+		}
+		if executionID == uuidLikeTestTaskID {
+			response["execution_id"] = uuidLikeTestTaskID
+			response["report_url"] = "https://app.revyl.ai/tests/report?taskId=" + uuidLikeTestTaskID
+			response["video_url"] = "https://videos.example/task-from-test-uuid.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=uuid-video-signature"
+		}
+		if includeSteps {
+			response["steps"] = steps
+		}
+
+		json.NewEncoder(w).Encode(response)
 	})
 
 	// POST /api/v1/reports/generate_shareable_report_link_by_task
@@ -210,9 +358,13 @@ func newMockAPIServer(t *testing.T) *httptest.Server {
 
 	// GET /api/v1/workflows/status/status/{id}
 	mux.HandleFunc("/api/v1/workflows/status/status/", func(w http.ResponseWriter, r *http.Request) {
+		executionID := strings.TrimPrefix(r.URL.Path, "/api/v1/workflows/status/status/")
+		if executionID == "" {
+			executionID = "wf-exec-001"
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"execution_id":    "wf-exec-001",
+			"execution_id":    executionID,
 			"workflow_id":     "wf-uuid-001",
 			"status":          "completed",
 			"progress":        100,
@@ -340,6 +492,39 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(out)
 }
 
+func captureStdoutAndStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	origOut, origErr := os.Stdout, os.Stderr
+	rOut, wOut, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe (stdout): %v", err)
+	}
+	rErr, wErr, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe (stderr): %v", err)
+	}
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	fn()
+
+	wOut.Close()
+	wErr.Close()
+	os.Stdout = origOut
+	os.Stderr = origErr
+
+	outBytes, err := io.ReadAll(rOut)
+	if err != nil {
+		t.Fatalf("reading stdout pipe: %v", err)
+	}
+	errBytes, err := io.ReadAll(rErr)
+	if err != nil {
+		t.Fatalf("reading stderr pipe: %v", err)
+	}
+	return string(outBytes) + string(errBytes)
+}
+
 // newTestCommand creates a minimal cobra root command with the persistent flags
 // that command handlers read via cmd.Root().PersistentFlags().
 // The returned command (and any children) will have a background context set.
@@ -385,11 +570,29 @@ func parseJSONArray(t *testing.T, output string) []interface{} {
 	return arr
 }
 
+func assertOutputPreservesURLQuerySeparators(t *testing.T, output string) {
+	t.Helper()
+	if strings.Contains(output, "\\u0026") {
+		t.Fatalf("expected JSON output to preserve literal '&' in URLs, got:\n%s", output)
+	}
+	if !strings.Contains(output, "X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=") {
+		t.Fatalf("expected presigned URLs with literal '&' separators, got:\n%s", output)
+	}
+}
+
 // assertJSONKey asserts that the given key exists in the map.
 func assertJSONKey(t *testing.T, m map[string]interface{}, key string) {
 	t.Helper()
 	if _, ok := m[key]; !ok {
 		t.Errorf("expected key %q in JSON output, got keys: %v", key, mapKeys(m))
+	}
+}
+
+// assertJSONNoKey asserts that the given key does not exist in the map.
+func assertJSONNoKey(t *testing.T, m map[string]interface{}, key string) {
+	t.Helper()
+	if _, ok := m[key]; ok {
+		t.Errorf("expected key %q to be absent in JSON output, got keys: %v", key, mapKeys(m))
 	}
 }
 
@@ -540,11 +743,13 @@ func TestTestReportJSON(t *testing.T) {
 
 	oldJSON := reportOutputJSON
 	oldNoSteps := reportNoSteps
+	oldShare := reportShare
 	reportOutputJSON = true
 	reportNoSteps = false
 	defer func() {
 		reportOutputJSON = oldJSON
 		reportNoSteps = oldNoSteps
+		reportShare = oldShare
 	}()
 
 	leaf := newLeafCommand("report", runTestReport)
@@ -555,23 +760,104 @@ func TestTestReportJSON(t *testing.T) {
 		}
 	})
 
+	if !strings.Contains(output, "\n  \"test_name\"") {
+		t.Fatalf("expected pretty-printed JSON output, got:\n%s", output)
+	}
+	assertOutputPreservesURLQuerySeparators(t, output)
+
 	result := parseJSON(t, output)
 	assertJSONKey(t, result, "test_name")
-	assertJSONString(t, result, "platform", "Android")
+	assertJSONString(t, result, "platform", "android")
 	assertJSONArrayLen(t, result, "steps", 3)
 	assertJSONKey(t, result, "total_validations")
 	assertJSONKey(t, result, "validations_passed")
 	assertJSONKey(t, result, "report_url")
 	assertJSONKey(t, result, "total_steps")
 	assertJSONKey(t, result, "passed_steps")
+	assertJSONKey(t, result, "effective_failed_steps")
+	assertJSONKey(t, result, "video_url")
+	assertJSONKey(t, result, "tldr")
+	assertJSONKey(t, result, "device_metadata")
+	assertJSONNoKey(t, result, "expected_states")
+	assertJSONNoKey(t, result, "run_config")
+	assertJSONNoKey(t, result, "s3_bucket")
+	assertJSONNoKey(t, result, "video_s3_key")
+	assertJSONNoKey(t, result, "device_logs_s3_key")
 
 	// Verify step structure
 	steps := result["steps"].([]interface{})
 	firstStep := steps[0].(map[string]interface{})
-	assertJSONKey(t, firstStep, "order")
-	assertJSONKey(t, firstStep, "type")
-	assertJSONKey(t, firstStep, "description")
+	assertJSONKey(t, firstStep, "execution_order")
+	assertJSONKey(t, firstStep, "step_type")
+	assertJSONKey(t, firstStep, "step_description")
 	assertJSONKey(t, firstStep, "status")
+
+	secondStep := steps[1].(map[string]interface{})
+	actions := secondStep["actions"].([]interface{})
+	firstAction := actions[0].(map[string]interface{})
+	assertJSONKey(t, firstAction, "screenshot_before_url")
+	assertJSONKey(t, firstAction, "screenshot_before_clean_url")
+	assertJSONKey(t, firstAction, "screenshot_after_url")
+	assertJSONNoKey(t, firstAction, "screenshot_before_s3_key")
+	assertJSONNoKey(t, firstAction, "screenshot_before_clean_s3_key")
+	assertJSONNoKey(t, firstAction, "screenshot_after_s3_key")
+	actionTypeData := firstAction["type_data"].(map[string]interface{})
+	assertJSONNoKey(t, actionTypeData, "grounding_crop_s3_key")
+
+	validationStep := steps[2].(map[string]interface{})
+	assertJSONKey(t, validationStep, "effective_status")
+	assertJSONKey(t, validationStep, "validation_result")
+	assertJSONKey(t, validationStep, "validation_reasoning")
+}
+
+func TestTestReportJSONShareSanitizesInternalS3Keys(t *testing.T) {
+	server := newMockAPIServer(t)
+	defer server.Close()
+	withMockClient(t, server)
+
+	oldJSON := reportOutputJSON
+	oldNoSteps := reportNoSteps
+	oldShare := reportShare
+	reportOutputJSON = true
+	reportNoSteps = false
+	reportShare = true
+	defer func() {
+		reportOutputJSON = oldJSON
+		reportNoSteps = oldNoSteps
+		reportShare = oldShare
+	}()
+
+	leaf := newLeafCommand("report", runTestReport)
+
+	output := captureStdout(t, func() {
+		if err := leaf.RunE(leaf, []string{"login-flow"}); err != nil {
+			t.Fatalf("runTestReport: %v", err)
+		}
+	})
+
+	assertOutputPreservesURLQuerySeparators(t, output)
+
+	result := parseJSON(t, output)
+	assertJSONKey(t, result, "shareable_link")
+	assertJSONKey(t, result, "video_url")
+	assertJSONNoKey(t, result, "expected_states")
+	assertJSONNoKey(t, result, "run_config")
+	assertJSONNoKey(t, result, "s3_bucket")
+	assertJSONNoKey(t, result, "video_s3_key")
+	assertJSONNoKey(t, result, "device_logs_s3_key")
+
+	steps := result["steps"].([]interface{})
+	secondStep := steps[1].(map[string]interface{})
+	actions := secondStep["actions"].([]interface{})
+	firstAction := actions[0].(map[string]interface{})
+	assertJSONKey(t, firstAction, "screenshot_before_url")
+	assertJSONKey(t, firstAction, "screenshot_before_clean_url")
+	assertJSONKey(t, firstAction, "screenshot_after_url")
+	assertJSONNoKey(t, firstAction, "screenshot_before_s3_key")
+	assertJSONNoKey(t, firstAction, "screenshot_before_clean_s3_key")
+	assertJSONNoKey(t, firstAction, "screenshot_after_s3_key")
+	actionTypeData := firstAction["type_data"].(map[string]interface{})
+	assertJSONNoKey(t, actionTypeData, "grounding_crop_s3_key")
 }
 
 func TestTestReportNoSteps(t *testing.T) {
@@ -601,11 +887,169 @@ func TestTestReportNoSteps(t *testing.T) {
 	assertJSONKey(t, result, "test_name")
 	assertJSONKey(t, result, "total_steps")
 	assertJSONKey(t, result, "passed_steps")
+	assertJSONKey(t, result, "effective_failed_steps")
 	assertJSONKey(t, result, "report_url")
 
 	// Steps key should be absent when --no-steps is set
 	if _, ok := result["steps"]; ok {
 		t.Error("expected 'steps' key to be absent with --no-steps flag")
+	}
+}
+
+func TestTestReportHumanReadableUsesEffectiveStatus(t *testing.T) {
+	server := newMockAPIServer(t)
+	defer server.Close()
+	withMockClient(t, server)
+
+	oldJSON := reportOutputJSON
+	oldNoSteps := reportNoSteps
+	reportOutputJSON = false
+	reportNoSteps = false
+	defer func() {
+		reportOutputJSON = oldJSON
+		reportNoSteps = oldNoSteps
+	}()
+
+	leaf := newLeafCommand("report", runTestReport)
+
+	output := captureStdoutAndStderr(t, func() {
+		if err := leaf.RunE(leaf, []string{"login-flow"}); err != nil {
+			t.Fatalf("runTestReport: %v", err)
+		}
+	})
+
+	for _, expected := range []string{
+		"Login Flow",
+		"2/3 passed, 1 failed",
+		"1/2 passed",
+		"Verify dashboard is visible",
+		"Expected dashboard header was not visible.",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output missing %q\noutput:\n%s", expected, output)
+		}
+	}
+}
+
+func TestTestReportUUIDLikeTestIDUsesHistoryWithoutContextPreflight(t *testing.T) {
+	server := newMockAPIServer(t)
+	defer server.Close()
+	withMockClient(t, server)
+
+	oldJSON := reportOutputJSON
+	oldNoSteps := reportNoSteps
+	reportOutputJSON = true
+	reportNoSteps = true
+	defer func() {
+		reportOutputJSON = oldJSON
+		reportNoSteps = oldNoSteps
+	}()
+
+	leaf := newLeafCommand("report", runTestReport)
+
+	output := captureStdout(t, func() {
+		if err := leaf.RunE(leaf, []string{uuidLikeTestID}); err != nil {
+			t.Fatalf("runTestReport: %v", err)
+		}
+	})
+
+	result := parseJSON(t, output)
+	assertJSONString(t, result, "execution_id", uuidLikeTestTaskID)
+}
+
+func TestTestReportContextRouteMissingShowsBackendMessage(t *testing.T) {
+	server := newMockAPIServer(t)
+	defer server.Close()
+	withMockClient(t, server)
+
+	oldJSON := reportOutputJSON
+	oldNoSteps := reportNoSteps
+	reportOutputJSON = false
+	reportNoSteps = false
+	defer func() {
+		reportOutputJSON = oldJSON
+		reportNoSteps = oldNoSteps
+	}()
+
+	leaf := newLeafCommand("report", runTestReport)
+
+	output := captureStdoutAndStderr(t, func() {
+		if err := leaf.RunE(leaf, []string{routeMissingExecution}); err != nil {
+			t.Fatalf("runTestReport: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "does not expose the reports-v3 context endpoint yet") {
+		t.Fatalf("expected backend context endpoint message, got:\n%s", output)
+	}
+	if strings.Contains(output, "not a valid execution ID") {
+		t.Fatalf("expected route-missing error, not invalid-ID output:\n%s", output)
+	}
+}
+
+func TestTestReportLegacyContextMissingShowsV3Message(t *testing.T) {
+	server := newMockAPIServer(t)
+	defer server.Close()
+	withMockClient(t, server)
+
+	oldJSON := reportOutputJSON
+	oldNoSteps := reportNoSteps
+	reportOutputJSON = false
+	reportNoSteps = false
+	defer func() {
+		reportOutputJSON = oldJSON
+		reportNoSteps = oldNoSteps
+	}()
+
+	leaf := newLeafCommand("report", runTestReport)
+
+	output := captureStdoutAndStderr(t, func() {
+		if err := leaf.RunE(leaf, []string{legacyMissingExecution}); err != nil {
+			t.Fatalf("runTestReport: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "does not have a reports-v3 context report") {
+		t.Fatalf("expected reports-v3-missing message, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Report not found in V3 database") {
+		t.Fatalf("expected structured backend detail, got:\n%s", output)
+	}
+	if strings.Contains(output, "not a valid execution ID") {
+		t.Fatalf("expected V3-specific error, not invalid-ID output:\n%s", output)
+	}
+}
+
+func TestTestReportContextServerErrorShowsAPIError(t *testing.T) {
+	server := newMockAPIServer(t)
+	defer server.Close()
+	withMockClient(t, server)
+
+	oldJSON := reportOutputJSON
+	oldNoSteps := reportNoSteps
+	reportOutputJSON = false
+	reportNoSteps = false
+	defer func() {
+		reportOutputJSON = oldJSON
+		reportNoSteps = oldNoSteps
+	}()
+
+	leaf := newLeafCommand("report", runTestReport)
+
+	output := captureStdoutAndStderr(t, func() {
+		if err := leaf.RunE(leaf, []string{serverErrorExecution}); err != nil {
+			t.Fatalf("runTestReport: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Report API returned an error (HTTP 500)") {
+		t.Fatalf("expected server error message, got:\n%s", output)
+	}
+	if !strings.Contains(output, "device metadata invalid") {
+		t.Fatalf("expected server error detail, got:\n%s", output)
+	}
+	if strings.Contains(output, "not a valid execution ID") {
+		t.Fatalf("expected context server error, not invalid-ID output:\n%s", output)
 	}
 }
 
@@ -665,6 +1109,30 @@ func TestWorkflowStatusJSON(t *testing.T) {
 	assertJSONKey(t, result, "total_tests")
 	assertJSONKey(t, result, "passed_tests")
 	assertJSONKey(t, result, "failed_tests")
+	assertJSONKey(t, result, "report_url")
+}
+
+func TestWorkflowStatusJSONByExecutionID(t *testing.T) {
+	server := newMockAPIServer(t)
+	defer server.Close()
+	withMockClient(t, server)
+
+	oldVal := wfStatusOutputJSON
+	wfStatusOutputJSON = true
+	defer func() { wfStatusOutputJSON = oldVal }()
+
+	leaf := newLeafCommand("status", runWorkflowStatus)
+
+	output := captureStdout(t, func() {
+		if err := leaf.RunE(leaf, []string{uuidLikeWorkflowTaskID}); err != nil {
+			t.Fatalf("runWorkflowStatus: %v", err)
+		}
+	})
+
+	result := parseJSON(t, output)
+	assertJSONString(t, result, "execution_id", uuidLikeWorkflowTaskID)
+	assertJSONString(t, result, "workflow_id", "wf-uuid-001")
+	assertJSONString(t, result, "status", "completed")
 	assertJSONKey(t, result, "report_url")
 }
 

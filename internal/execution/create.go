@@ -105,7 +105,11 @@ func CreateTestWithClient(ctx context.Context, client *api.Client, params Create
 		return nil, fmt.Errorf("failed to create test: %w", err)
 	}
 
-	testURL := fmt.Sprintf("%s/tests/%s", config.GetAppURL(params.DevMode), url.PathEscape(resp.ID))
+	testURL := fmt.Sprintf(
+		"%s/tests/execute?testUid=%s",
+		config.GetAppURL(params.DevMode),
+		url.QueryEscape(resp.ID),
+	)
 
 	return &CreateTestResult{
 		TestID:   resp.ID,
@@ -591,7 +595,11 @@ func OpenTestEditor(cfg *config.ProjectConfig, params OpenTestEditorParams) *Ope
 		}
 	}
 
-	testURL := fmt.Sprintf("%s/tests/%s", config.GetAppURL(params.DevMode), url.PathEscape(testID))
+	testURL := fmt.Sprintf(
+		"%s/tests/execute?testUid=%s",
+		config.GetAppURL(params.DevMode),
+		url.QueryEscape(testID),
+	)
 
 	return &OpenTestEditorResult{
 		TestID:  testID,

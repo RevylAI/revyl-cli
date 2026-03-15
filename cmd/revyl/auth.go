@@ -154,10 +154,18 @@ func loginWithBrowser(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error
 		ui.PrintInfo("Using local development server: %s", appURL)
 	}
 
+	clientInstanceID, err := mgr.GetOrCreateClientInstanceID()
+	if err != nil {
+		ui.PrintError("Failed to prepare local CLI identity: %v", err)
+		return err
+	}
+
 	// Create browser auth handler
 	browserAuth := auth.NewBrowserAuth(auth.BrowserAuthConfig{
-		AppURL:  appURL,
-		Timeout: 5 * time.Minute,
+		AppURL:           appURL,
+		Timeout:          5 * time.Minute,
+		ClientInstanceID: clientInstanceID,
+		DeviceLabel:      auth.CurrentDeviceLabel(),
 	})
 
 	// Create context that can be cancelled
@@ -336,6 +344,25 @@ var authLogoutCmd = &cobra.Command{
 	Long:  `Remove stored credentials from ~/.revyl/credentials.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr := auth.NewManager()
+		creds, _ := mgr.GetFileCredentials()
+		devMode, _ := cmd.Flags().GetBool("dev")
+
+		if creds != nil && creds.AuthMethod == "browser_api_key" && creds.APIKeyID != "" && creds.APIKey != "" {
+			client := api.NewClientWithDevMode(creds.APIKey, devMode)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+
+			err := client.RevokeCLIAPIKey(ctx, creds.APIKeyID)
+			if err != nil {
+				var apiErr *api.APIError
+				switch {
+				case errors.As(err, &apiErr) && (apiErr.StatusCode == 401 || apiErr.StatusCode == 404):
+					// Already revoked or no longer valid. Continue clearing local credentials.
+				default:
+					ui.PrintWarning("Could not revoke browser auth key remotely: %v", err)
+				}
+			}
+		}
 
 		if err := mgr.ClearCredentials(); err != nil {
 			ui.PrintError("Failed to clear credentials: %v", err)

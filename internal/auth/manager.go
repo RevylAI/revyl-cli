@@ -9,7 +9,9 @@
 package auth
 
 import (
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,6 +19,8 @@ import (
 	"strings"
 	"time"
 )
+
+const defaultDeviceLabel = "Revyl CLI"
 
 // Credentials represents stored authentication credentials.
 // Supports both browser-based OAuth tokens and API keys.
@@ -48,6 +52,10 @@ type Credentials struct {
 	// APIKeyID is the PropelAuth-assigned key ID when a persistent CLI key was created.
 	// Used for key rotation and cleanup on logout.
 	APIKeyID string `json:"api_key_id,omitempty"`
+}
+
+type clientIdentity struct {
+	ClientInstanceID string `json:"client_instance_id"`
 }
 
 // Manager handles credential storage and retrieval.
@@ -87,6 +95,79 @@ func NewManagerWithDir(configDir string) *Manager {
 // credentialsPath returns the path to the credentials file.
 func (m *Manager) credentialsPath() string {
 	return filepath.Join(m.configDir, "credentials.json")
+}
+
+// clientIdentityPath returns the path to the stable client identity file.
+func (m *Manager) clientIdentityPath() string {
+	return filepath.Join(m.configDir, "client-identity.json")
+}
+
+// GetOrCreateClientInstanceID returns a stable per-install CLI identifier.
+// The identity survives logout so repeated browser auth on the same machine
+// can rotate only that machine's CLI key.
+func (m *Manager) GetOrCreateClientInstanceID() (string, error) {
+	if data, err := os.ReadFile(m.clientIdentityPath()); err == nil {
+		var identity clientIdentity
+		if err := json.Unmarshal(data, &identity); err == nil {
+			id := strings.TrimSpace(identity.ClientInstanceID)
+			if id != "" {
+				return id, nil
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to read client identity: %w", err)
+	}
+
+	instanceID, err := generateClientInstanceID()
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(m.configDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	data, err := json.MarshalIndent(clientIdentity{ClientInstanceID: instanceID}, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal client identity: %w", err)
+	}
+
+	if err := os.WriteFile(m.clientIdentityPath(), data, 0600); err != nil {
+		return "", fmt.Errorf("failed to write client identity: %w", err)
+	}
+
+	return instanceID, nil
+}
+
+func generateClientInstanceID() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("failed to generate client instance ID: %w", err)
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// CurrentDeviceLabel returns a human-readable label for the current machine.
+func CurrentDeviceLabel() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return defaultDeviceLabel
+	}
+	return normalizeDeviceLabel(hostname)
+}
+
+func normalizeDeviceLabel(label string) string {
+	label = strings.Join(strings.Fields(strings.TrimSpace(label)), " ")
+	if label == "" {
+		return defaultDeviceLabel
+	}
+	if len(label) > 80 {
+		label = strings.TrimSpace(label[:80])
+	}
+	if label == "" {
+		return defaultDeviceLabel
+	}
+	return label
 }
 
 // GetCredentials retrieves stored credentials.

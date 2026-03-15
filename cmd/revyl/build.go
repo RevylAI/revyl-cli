@@ -138,6 +138,17 @@ func init() {
 // Returns:
 //   - error: Any error that occurred during the build/upload process
 func runBuildUpload(cmd *cobra.Command, args []string) error {
+	if v, _ := cmd.Flags().GetBool("json"); v {
+		buildUploadJSON = true
+	}
+	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
+		buildUploadJSON = true
+	}
+	if buildUploadJSON {
+		ui.SetQuietMode(true)
+		defer ui.SetQuietMode(false)
+	}
+
 	// Check authentication
 	apiKey, err := getAPIKey()
 	if err != nil {
@@ -386,6 +397,69 @@ type BuildResult struct {
 	Error error
 }
 
+// BuildUploadJSONBuild represents one uploaded build in machine-readable output.
+type BuildUploadJSONBuild struct {
+	PlatformKey          string  `json:"platform_key"`
+	Platform             string  `json:"platform"`
+	AppID                string  `json:"app_id"`
+	BuildVersion         string  `json:"build_version"`
+	BuildID              string  `json:"build_id"`
+	ArtifactPath         string  `json:"artifact_path"`
+	BuildDurationSeconds float64 `json:"build_duration_seconds,omitempty"`
+	PackageID            string  `json:"package_id,omitempty"`
+}
+
+// BuildUploadJSONOutput is the machine-readable payload for build uploads.
+type BuildUploadJSONOutput struct {
+	Success bool                   `json:"success"`
+	Count   int                    `json:"count"`
+	Build   *BuildUploadJSONBuild  `json:"build,omitempty"`
+	Builds  []BuildUploadJSONBuild `json:"builds"`
+}
+
+func newBuildUploadJSONBuild(
+	platformKey string,
+	platform string,
+	appID string,
+	artifactPath string,
+	buildDuration time.Duration,
+	uploadResult *api.UploadBuildResponse,
+) BuildUploadJSONBuild {
+	build := BuildUploadJSONBuild{
+		PlatformKey:  platformKey,
+		Platform:     platform,
+		AppID:        appID,
+		ArtifactPath: artifactPath,
+	}
+	if uploadResult != nil {
+		build.BuildVersion = uploadResult.Version
+		build.BuildID = uploadResult.VersionID
+		build.PackageID = uploadResult.PackageID
+	}
+	if buildDuration > 0 {
+		build.BuildDurationSeconds = buildDuration.Seconds()
+	}
+	return build
+}
+
+func outputBuildUploadJSON(builds []BuildUploadJSONBuild) {
+	sort.Slice(builds, func(i, j int) bool {
+		return builds[i].PlatformKey < builds[j].PlatformKey
+	})
+
+	output := BuildUploadJSONOutput{
+		Success: true,
+		Count:   len(builds),
+		Builds:  builds,
+	}
+	if len(builds) == 1 {
+		output.Build = &builds[0]
+	}
+
+	data, _ := json.MarshalIndent(output, "", "  ")
+	fmt.Println(string(data))
+}
+
 // runConcurrentBuilds builds and uploads both iOS and Android platforms concurrently.
 //
 // Parameters:
@@ -439,7 +513,9 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 			ui.Println()
 		}
 
-		ui.PrintSuccess("Dry-run complete - no changes made")
+		if !buildUploadJSON {
+			ui.PrintSuccess("Dry-run complete - no changes made")
+		}
 		return nil
 	}
 
@@ -470,7 +546,9 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 	if err := config.WriteProjectConfig(configPath, cfg); err != nil {
 		ui.PrintWarning("Failed to save config: %v", err)
 	} else {
-		ui.PrintSuccess("Saved app IDs to .revyl/config.yaml")
+		if !buildUploadJSON {
+			ui.PrintSuccess("Saved app IDs to .revyl/config.yaml")
+		}
 	}
 
 	ui.PrintBanner(version)
@@ -510,6 +588,7 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 	ui.Println()
 
 	var errors []error
+	successfulBuilds := make([]BuildUploadJSONBuild, 0, len(platforms))
 	for result := range results {
 		if result.Error != nil {
 			ui.PrintError("[%s] Failed: %v", result.Platform, result.Error)
@@ -528,7 +607,17 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 
 			errors = append(errors, fmt.Errorf("%s: %w", result.Platform, result.Error))
 		} else {
-			ui.PrintSuccess("[%s] Upload complete!", result.Platform)
+			successfulBuilds = append(successfulBuilds, newBuildUploadJSONBuild(
+				result.Platform,
+				result.Platform,
+				result.AppID,
+				result.ArtifactPath,
+				result.Duration,
+				result.UploadResult,
+			))
+			if !buildUploadJSON {
+				ui.PrintSuccess("[%s] Upload complete!", result.Platform)
+			}
 			ui.PrintInfo("  App:             %s", result.AppID)
 			ui.PrintInfo("  Build Version:   %s", result.UploadResult.Version)
 			ui.PrintInfo("  Build ID:        %s", result.UploadResult.VersionID)
@@ -542,20 +631,23 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 		return fmt.Errorf("%d platform(s) failed", len(errors))
 	}
 
+	if buildUploadJSON {
+		outputBuildUploadJSON(successfulBuilds)
+		return nil
+	}
+
 	// Suggest running a test after successful concurrent builds
-	if !buildUploadJSON {
-		if len(cfg.Tests) > 0 {
-			for alias := range cfg.Tests {
-				ui.PrintNextSteps([]ui.NextStep{
-					{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", alias)},
-				})
-				break
-			}
-		} else {
+	if len(cfg.Tests) > 0 {
+		for alias := range cfg.Tests {
 			ui.PrintNextSteps([]ui.NextStep{
-				{Label: "Create a test:", Command: "revyl test create <name>"},
+				{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", alias)},
 			})
+			break
 		}
+	} else {
+		ui.PrintNextSteps([]ui.NextStep{
+			{Label: "Create a test:", Command: "revyl test create <name>"},
+		})
 	}
 
 	return nil
@@ -647,7 +739,9 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 		}
 
 		outputMu.Lock()
-		ui.PrintSuccess("[%s] Build completed in %s", platform, result.Duration.Round(time.Second))
+		if !buildUploadJSON {
+			ui.PrintSuccess("[%s] Build completed in %s", platform, result.Duration.Round(time.Second))
+		}
 		outputMu.Unlock()
 	}
 
@@ -688,7 +782,9 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 		artifactPath = zipPath
 		result.ArtifactPath = artifactPath
 		outputMu.Lock()
-		ui.PrintSuccess("[%s] Converted to: %s", platform, filepath.Base(zipPath))
+		if !buildUploadJSON {
+			ui.PrintSuccess("[%s] Converted to: %s", platform, filepath.Base(zipPath))
+		}
 		outputMu.Unlock()
 	} else if build.IsAppBundle(artifactPath) {
 		// Zip .app directory for iOS builds (Flutter, React Native, Xcode)
@@ -704,7 +800,9 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 		artifactPath = zipPath
 		result.ArtifactPath = artifactPath
 		outputMu.Lock()
-		ui.PrintSuccess("[%s] Created: %s", platform, filepath.Base(zipPath))
+		if !buildUploadJSON {
+			ui.PrintSuccess("[%s] Created: %s", platform, filepath.Base(zipPath))
+		}
 		outputMu.Unlock()
 	}
 
@@ -941,7 +1039,9 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 			ui.PrintInfo("  Build Version:  %s", buildVersion)
 		}
 		ui.Println()
-		ui.PrintSuccess("Dry-run complete - no changes made")
+		if !buildUploadJSON {
+			ui.PrintSuccess("Dry-run complete - no changes made")
+		}
 		return nil
 	}
 
@@ -987,7 +1087,9 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		}
 
 		ui.Println()
-		ui.PrintSuccess("Build completed in %s", buildDuration.Round(time.Second))
+		if !buildUploadJSON {
+			ui.PrintSuccess("Build completed in %s", buildDuration.Round(time.Second))
+		}
 	} else {
 		ui.PrintInfo("Skipping build step")
 	}
@@ -1040,7 +1142,9 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		}
 		defer os.Remove(zipPath) // Clean up temp zip after upload
 		artifactPath = zipPath
-		ui.PrintSuccess("Converted to: %s", filepath.Base(zipPath))
+		if !buildUploadJSON {
+			ui.PrintSuccess("Converted to: %s", filepath.Base(zipPath))
+		}
 	} else if build.IsAppBundle(artifactPath) {
 		// Zip .app directory for iOS builds (Flutter, React Native, Xcode)
 		ui.Println()
@@ -1053,35 +1157,13 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		}
 		defer os.Remove(zipPath) // Clean up temp zip after upload
 		artifactPath = zipPath
-		ui.PrintSuccess("Created: %s", filepath.Base(zipPath))
+		if !buildUploadJSON {
+			ui.PrintSuccess("Created: %s", filepath.Base(zipPath))
+		}
 	}
 
 	// Collect metadata
 	metadata := build.CollectMetadata(cwd, buildCommand, devicePlatform, buildDuration)
-
-	// Handle dry-run mode
-	if buildDryRun {
-		ui.Println()
-		ui.PrintInfo("Dry-run mode - showing what would be uploaded:")
-		ui.Println()
-		ui.PrintInfo("  Platform Key:   %s", platformKey)
-		if devicePlatform != "" {
-			ui.PrintInfo("  Platform:       %s", devicePlatform)
-		}
-		ui.PrintInfo("  Artifact:       %s", filepath.Base(artifactPath))
-		ui.PrintInfo("  Build Version:  %s", versionStr)
-		ui.PrintInfo("  App ID:         %s", appID)
-		ui.PrintInfo("  Set Current:    %v", buildSetCurr)
-		if metadata != nil {
-			ui.PrintInfo("  Metadata:")
-			if cmd, ok := metadata["build_command"].(string); ok {
-				ui.PrintDim("    Build Command: %s", cmd)
-			}
-		}
-		ui.Println()
-		ui.PrintSuccess("Dry-run complete - no changes made")
-		return nil
-	}
 
 	ui.Println()
 	ui.StartSpinner("Uploading artifact...")
@@ -1102,7 +1184,9 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	}
 
 	ui.Println()
-	ui.PrintSuccess("Upload complete!")
+	if !buildUploadJSON {
+		ui.PrintSuccess("Upload complete!")
+	}
 	ui.PrintInfo("App:             %s", appID)
 	ui.PrintInfo("Build Version:   %s", result.Version)
 	ui.PrintInfo("Build ID:        %s", result.VersionID)
@@ -1112,21 +1196,33 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	ui.Println()
 	ui.PrintDim("To list builds: revyl build list --app %s", appID)
 
+	if buildUploadJSON {
+		outputBuildUploadJSON([]BuildUploadJSONBuild{
+			newBuildUploadJSONBuild(
+				platformKey,
+				devicePlatform,
+				appID,
+				artifactPath,
+				buildDuration,
+				result,
+			),
+		})
+		return nil
+	}
+
 	// Suggest running a test if config has tests
-	if !buildUploadJSON {
-		cfg, cfgErr := config.LoadProjectConfig(configPath)
-		if cfgErr == nil && cfg != nil && len(cfg.Tests) > 0 {
-			for alias := range cfg.Tests {
-				ui.PrintNextSteps([]ui.NextStep{
-					{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", alias)},
-				})
-				break
-			}
-		} else {
+	cfg, cfgErr := config.LoadProjectConfig(configPath)
+	if cfgErr == nil && cfg != nil && len(cfg.Tests) > 0 {
+		for alias := range cfg.Tests {
 			ui.PrintNextSteps([]ui.NextStep{
-				{Label: "Create a test:", Command: "revyl test create <name>"},
+				{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", alias)},
 			})
+			break
 		}
+	} else {
+		ui.PrintNextSteps([]ui.NextStep{
+			{Label: "Create a test:", Command: "revyl test create <name>"},
+		})
 	}
 
 	return nil

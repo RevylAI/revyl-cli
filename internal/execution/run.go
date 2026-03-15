@@ -45,6 +45,10 @@ type RunTestParams struct {
 	Latitude    float64
 	Longitude   float64
 	HasLocation bool
+	// DeviceModel overrides the target device model (e.g. "iPhone 16").
+	DeviceModel string
+	// OsVersion overrides the target OS runtime (e.g. "iOS 18.5").
+	OsVersion string
 }
 
 // RunTestResult contains the result of a test run.
@@ -112,6 +116,8 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 		Retries:        retries,
 		BuildVersionID: params.BuildVersionID,
 		LaunchURL:      params.LaunchURL,
+		DeviceModel:    params.DeviceModel,
+		OsVersion:      params.OsVersion,
 	}
 	if params.HasLocation {
 		req.RunConfig = &api.CLIRunConfig{

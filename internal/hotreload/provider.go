@@ -123,6 +123,9 @@ type ProjectInfo struct {
 	// Expo contains Expo-specific information (nil if not an Expo project).
 	Expo *ExpoProjectInfo
 
+	// ReactNative contains bare React Native information (nil if not a bare RN project).
+	ReactNative *ReactNativeProjectInfo
+
 	// Swift contains Swift/iOS-specific information (nil if not a Swift project).
 	Swift *SwiftProjectInfo
 
@@ -152,6 +155,12 @@ type SwiftProjectInfo struct {
 
 	// ProjectPath is the path to the .xcodeproj or .xcworkspace.
 	ProjectPath string
+}
+
+// ReactNativeProjectInfo contains bare React Native project information.
+type ReactNativeProjectInfo struct {
+	// Name is the app name from package.json.
+	Name string
 }
 
 // AndroidProjectInfo contains Android-specific project information.

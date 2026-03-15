@@ -15,7 +15,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,6 +28,7 @@ import (
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
+	"github.com/revyl/cli/internal/orgguard"
 	"github.com/revyl/cli/internal/store"
 	syncpkg "github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
@@ -81,6 +84,7 @@ type hubModel struct {
 	filterMode            bool
 	filterInput           textinput.Model
 	filteredTests         []TestItem
+	testListWarning       string
 	testListConfirmDelete bool
 	testListDeleteTarget  TestItem
 
@@ -100,6 +104,10 @@ type hubModel struct {
 	workflowRuns         []api.CLIWorkflowStatusResponse // runs for the selected workflow
 	workflowRunCursor    int                             // cursor for workflow runs list
 	reportLoading        bool                            // loading indicator for report sub-views
+	reportJSONStatus     string                          // inline status for test-run JSON/command actions
+	reportJSONError      bool                            // whether the JSON status is an error
+	reportJSONPending    bool                            // whether a JSON action is in-flight
+	reportJSONCommand    bool                            // whether to show the exact --json command
 
 	// Report drill-down filter state
 	reportFilterMode  bool            // whether filter is active in report views
@@ -165,26 +173,29 @@ type hubModel struct {
 	tagNameInput     textinput.Model
 
 	// Device session state
-	deviceSessions         []api.ActiveDeviceSessionItem
-	deviceCursor           int
-	devicesLoading         bool
-	deviceOrgID            string
-	selectedDeviceID       string
-	deviceStarting         bool   // true while provisioning a new device
-	deviceStartPicking     bool   // true when the start-device overlay is showing
-	deviceStartStep        int    // current overlay step
-	devicePlatformCursor   int    // cursor for platform picker (0=ios, 1=android)
-	deviceStartPlatform    string // selected platform for the start overlay
-	deviceStartApps        []api.App
-	deviceStartAppCursor   int
-	deviceStartLoading     bool
-	deviceStartFilterMode  bool
-	deviceStartFilterInput textinput.Model
-	deviceStartErr         string
-	deviceConfirmStop      bool   // true when stop confirmation is pending
-	deviceStopTarget       string // workflow run ID of the session to stop
-	deviceDetailPollSeq    int    // sequence token used to run a single detail poll loop
-	deviceListPollSeq      int    // sequence token used to run a single list poll loop
+	deviceSessions          []api.ActiveDeviceSessionItem
+	deviceCursor            int
+	devicesLoading          bool
+	deviceOrgID             string
+	selectedDeviceID        string
+	deviceStarting          bool   // true while provisioning a new device
+	deviceStartPicking      bool   // true when the start-device overlay is showing
+	deviceStartStep         int    // current overlay step
+	devicePlatformCursor    int    // cursor for platform picker (0=ios, 1=android)
+	deviceStartPlatform     string // selected platform for the start overlay
+	deviceStartApps         []api.App
+	deviceStartAppCursor    int
+	deviceStartLoading      bool
+	deviceStartFilterMode   bool
+	deviceStartFilterInput  textinput.Model
+	deviceStartErr          string
+	deviceStartDeviceCursor int    // cursor for device model picker (0 = auto)
+	deviceStartDeviceModel  string // selected device model (empty = auto)
+	deviceStartOsVersion    string // selected OS version (empty = auto)
+	deviceConfirmStop       bool   // true when stop confirmation is pending
+	deviceStopTarget        string // workflow run ID of the session to stop
+	deviceDetailPollSeq     int    // sequence token used to run a single detail poll loop
+	deviceListPollSeq       int    // sequence token used to run a single list poll loop
 
 	// Module browser state
 	moduleItems         []ModuleItem
@@ -228,6 +239,9 @@ type hubModel struct {
 	client  *api.Client
 	devMode bool
 	authErr error
+	// Post-create refresh state so new tests come from the authoritative remote list.
+	pendingCreatedTestID   string
+	pendingCreatedTestName string
 	// True when a setup login action should return to dashboard after auth succeeds.
 	returnToDashboardAfterAuth bool
 
@@ -334,6 +348,27 @@ type DevLoopDoneMsg struct {
 	Err error
 }
 
+var fetchReportContextForTUI = func(
+	ctx context.Context,
+	client *api.Client,
+	taskID string,
+) (*api.CLIReportContextEnvelope, error) {
+	return client.GetReportContextByExecution(ctx, taskID, true, true, true)
+}
+
+var writeClipboardText = clipboard.WriteAll
+
+var currentReportCommandName = func() string {
+	commandName := strings.TrimSpace(filepath.Base(os.Args[0]))
+	if commandName == "" {
+		return "revyl"
+	}
+	if strings.HasPrefix(strings.ToLower(commandName), "revyl") {
+		return commandName
+	}
+	return "revyl"
+}
+
 // authenticateCmd resolves the auth token and creates an API client.
 // This runs once on startup; the returned client is cached on the model.
 func authenticateCmd(devMode bool) tea.Cmd {
@@ -360,6 +395,7 @@ func fetchTestsCmd(client *api.Client) tea.Cmd {
 		}
 
 		items := make([]TestItem, 0, len(remoteTests))
+		warning := ""
 		remoteByID := make(map[string]api.SimpleTest, len(remoteTests))
 		for _, t := range remoteTests {
 			remoteByID[t.ID] = t
@@ -370,6 +406,21 @@ func fetchTestsCmd(client *api.Client) tea.Cmd {
 			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
 			cfg, cfgErr := config.LoadProjectConfig(configPath)
 			if cfgErr == nil {
+				projectOrgID := strings.TrimSpace(cfg.Project.OrgID)
+				if projectOrgID != "" {
+					userInfo, userErr := client.ValidateAPIKey(ctx)
+					if userErr == nil && userInfo != nil {
+						authOrgID := strings.TrimSpace(userInfo.OrgID)
+						if authOrgID != "" && authOrgID != projectOrgID {
+							warning = (&orgguard.MismatchError{
+								ProjectOrgID: projectOrgID,
+								AuthOrgID:    authOrgID,
+								ConfigPath:   configPath,
+							}).UserMessage()
+						}
+					}
+				}
+
 				testsDir := filepath.Join(cwd, ".revyl", "tests")
 				localTests, lErr := config.LoadLocalTests(testsDir)
 				if lErr != nil {
@@ -444,7 +495,7 @@ func fetchTestsCmd(client *api.Client) tea.Cmd {
 			return nameI < nameJ
 		})
 
-		return TestListMsg{Tests: items}
+		return TestListMsg{Tests: items, Warning: warning}
 	}
 }
 
@@ -610,6 +661,61 @@ func fetchWorkflowHistoryCmd(client *api.Client, workflowID string) tea.Cmd {
 			return WorkflowHistoryMsg{Err: fmt.Errorf("failed to fetch workflow history: %w", err)}
 		}
 		return WorkflowHistoryMsg{Runs: resp.Executions}
+	}
+}
+
+func fetchTestRunReportJSONCmd(client *api.Client, taskID string, devMode bool) tea.Cmd {
+	return func() tea.Msg {
+		command := testRunReportJSONCommand(taskID, devMode)
+		if client == nil {
+			return ReportJSONActionMsg{
+				TaskID:  taskID,
+				Command: command,
+				Err:     fmt.Errorf("no authenticated client available"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		envelope, err := fetchReportContextForTUI(ctx, client, taskID)
+		if err != nil {
+			return ReportJSONActionMsg{
+				TaskID:  taskID,
+				Command: command,
+				Err:     fmt.Errorf("failed to fetch report JSON: %w", err),
+			}
+		}
+		if err := writeClipboardText(string(envelope.Raw)); err != nil {
+			return ReportJSONActionMsg{
+				TaskID:  taskID,
+				Command: command,
+				Err:     fmt.Errorf("failed to copy report JSON: %w", err),
+			}
+		}
+
+		return ReportJSONActionMsg{
+			TaskID:  taskID,
+			Command: command,
+		}
+	}
+}
+
+func copyTestRunReportCommandCmd(command string) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(command) == "" {
+			return ReportCommandActionMsg{
+				Command: command,
+				Err:     fmt.Errorf("no report command available"),
+			}
+		}
+		if err := writeClipboardText(command); err != nil {
+			return ReportCommandActionMsg{
+				Command: command,
+				Err:     fmt.Errorf("failed to copy report command: %w", err),
+			}
+		}
+		return ReportCommandActionMsg{Command: command}
 	}
 }
 
@@ -943,8 +1049,17 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TestListMsg:
 		m.loading = false
+		m.testListWarning = msg.Warning
+		createdTestID := m.pendingCreatedTestID
+		createdTestName := m.pendingCreatedTestName
+		m.pendingCreatedTestID = ""
+		m.pendingCreatedTestName = ""
 		if msg.Err != nil {
-			m.err = msg.Err
+			if createdTestID != "" {
+				m.err = createdTestRefreshError(m.err, createdTestName, msg.Err.Error())
+			} else {
+				m.err = msg.Err
+			}
 			return m, nil
 		}
 		m.tests = msg.Tests
@@ -959,6 +1074,9 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.testCursor = 0
 		case m.testCursor >= len(visible):
 			m.testCursor = len(visible) - 1
+		}
+		if createdTestID != "" && testItemIndexByID(msg.Tests, createdTestID) < 0 {
+			m.err = createdTestRefreshError(m.err, createdTestName, "")
 		}
 		// Now fetch recent runs (depends on test list)
 		if m.client != nil {
@@ -1024,6 +1142,27 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ReportJSONActionMsg:
+		m.reportJSONPending = false
+		if msg.Err != nil {
+			m.reportJSONError = true
+			m.reportJSONStatus = fmt.Sprintf("%s. Run: %s", msg.Err.Error(), msg.Command)
+			return m, nil
+		}
+		m.reportJSONError = false
+		m.reportJSONStatus = fmt.Sprintf("Copied report JSON to clipboard for %s", msg.TaskID)
+		return m, nil
+
+	case ReportCommandActionMsg:
+		if msg.Err != nil {
+			m.reportJSONError = true
+			m.reportJSONStatus = msg.Err.Error()
+			return m, nil
+		}
+		m.reportJSONError = false
+		m.reportJSONStatus = "Copied report command to clipboard"
+		return m, nil
+
 	case AppListMsg:
 		m.appsLoading = false
 		if msg.Err == nil {
@@ -1074,9 +1213,13 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.testSyncResult = msg.Result
 		}
-		// Refresh detail after sync
+		// Refresh detail after sync and refresh the browse list when sync state can change.
 		if m.selectedTestDetail != nil && m.client != nil {
-			return m, fetchTestDetailCmd(m.client, m.selectedTestDetail.ID, m.selectedTestDetail.Name, m.selectedTestDetail.Platform, m.devMode)
+			detailCmd := fetchTestDetailCmd(m.client, m.selectedTestDetail.ID, m.selectedTestDetail.Name, m.selectedTestDetail.Platform, m.devMode)
+			if msg.Action == "push" || msg.Action == "pull" {
+				return m, tea.Batch(detailCmd, fetchTestsCmd(m.client))
+			}
+			return m, detailCmd
 		}
 		return m, nil
 
@@ -2060,10 +2203,8 @@ func (m hubModel) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.createModel.done && m.createModel.doneAction == createDoneOpenEditor {
 			testID := m.createModel.createdID
 			testName := m.createModel.nameInput.Value()
-			platform := m.createModel.selectedPlatform()
 			m.createModel = nil
 			if testID != "" {
-				m.tests = append([]TestItem{{ID: testID, Name: testName, Platform: platform}}, m.tests...)
 				editor := execution.OpenTestEditor(nil, execution.OpenTestEditorParams{
 					TestNameOrID: testID,
 					DevMode:      m.devMode,
@@ -2075,26 +2216,55 @@ func (m hubModel) updateCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.currentView = viewDashboard
-			return m, nil
+			return m, m.queueCreatedTestRefresh(testID, testName)
 		}
 
 		// If creation completed and user chose to go back
 		if m.createModel.done && m.createModel.doneAction == createDoneBackToDashboard {
 			testID := m.createModel.createdID
 			testName := m.createModel.nameInput.Value()
-			platform := m.createModel.selectedPlatform()
 			m.createModel = nil
-			if testID != "" {
-				m.tests = append([]TestItem{{ID: testID, Name: testName, Platform: platform}}, m.tests...)
-			}
 			m.currentView = viewDashboard
-			return m, nil
+			return m, m.queueCreatedTestRefresh(testID, testName)
 		}
 
 		return m, cmd
 	}
 
 	return m, nil
+}
+
+func (m *hubModel) queueCreatedTestRefresh(testID, testName string) tea.Cmd {
+	if m == nil || m.client == nil || strings.TrimSpace(testID) == "" {
+		return nil
+	}
+	m.pendingCreatedTestID = strings.TrimSpace(testID)
+	m.pendingCreatedTestName = strings.TrimSpace(testName)
+	m.loading = true
+	return fetchTestsCmd(m.client)
+}
+
+func createdTestRefreshError(existing error, testName, reason string) error {
+	message := fmt.Sprintf(
+		"test %q was created, but could not be refreshed from the remote list",
+		strings.TrimSpace(testName),
+	)
+	if strings.TrimSpace(reason) != "" {
+		message = fmt.Sprintf("%s: %s", message, strings.TrimSpace(reason))
+	}
+	if existing == nil {
+		return fmt.Errorf("%s", message)
+	}
+	return fmt.Errorf("%v; %s", existing, message)
+}
+
+func testItemIndexByID(items []TestItem, testID string) int {
+	for i, item := range items {
+		if item.ID == testID {
+			return i
+		}
+	}
+	return -1
 }
 
 // updateCreateApp delegates messages to the create-app model and handles navigation back.
@@ -2774,6 +2944,18 @@ func (m hubModel) renderTestList() string {
 		b.WriteString("\n  " + filterPromptStyle.Render("/") + " " + m.filterInput.View() + "\n")
 	}
 
+	if strings.TrimSpace(m.testListWarning) != "" {
+		lines := strings.Split(m.testListWarning, "\n")
+		b.WriteString("\n  " + warningStyle.Render("⚠ "+lines[0]) + "\n")
+		for _, line := range lines[1:] {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			b.WriteString("  " + dimStyle.Render(line) + "\n")
+		}
+	}
+
 	tests := m.visibleTests()
 	countLabel := fmt.Sprintf("%d", len(tests))
 	if m.filteredTests != nil {
@@ -3025,10 +3207,16 @@ func (m hubModel) handleTestRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentView = returnTo
 		return m, nil
 	case "up", "k":
+		m.reportJSONStatus = ""
+		m.reportJSONError = false
+		m.reportJSONPending = false
 		if m.testRunCursor > 0 {
 			m.testRunCursor--
 		}
 	case "down", "j":
+		m.reportJSONStatus = ""
+		m.reportJSONError = false
+		m.reportJSONPending = false
 		if m.testRunCursor < len(m.testRuns)-1 {
 			m.testRunCursor++
 		}
@@ -3037,9 +3225,27 @@ func (m hubModel) handleTestRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if reportURL != "" {
 			_ = ui.OpenBrowser(reportURL)
 		}
+	case "c":
+		taskID := m.selectedTestRunTaskID()
+		if taskID != "" {
+			m.reportJSONStatus = "Fetching report JSON..."
+			m.reportJSONError = false
+			m.reportJSONPending = true
+			return m, fetchTestRunReportJSONCmd(m.client, taskID, m.devMode)
+		}
+	case "y":
+		if command := m.selectedTestRunJSONCommand(); command != "" {
+			m.reportJSONCommand = true
+			m.reportJSONStatus = ""
+			m.reportJSONError = false
+			return m, copyTestRunReportCommandCmd(command)
+		}
 	case "R":
 		if m.client != nil && m.selectedTestID != "" {
 			m.reportLoading = true
+			m.reportJSONStatus = ""
+			m.reportJSONError = false
+			m.reportJSONPending = false
 			m.testRuns = nil
 			return m, fetchTestHistoryCmd(m.client, m.selectedTestID)
 		}
@@ -3047,11 +3253,41 @@ func (m hubModel) handleTestRunsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m hubModel) selectedTestRunReportURL() string {
+func (m hubModel) selectedTestRunTaskID() string {
 	if len(m.testRuns) == 0 || m.testRunCursor < 0 || m.testRunCursor >= len(m.testRuns) {
 		return ""
 	}
-	runID := strings.TrimSpace(m.testRuns[m.testRunCursor].ID)
+	run := m.testRuns[m.testRunCursor]
+	if run.EnhancedTask != nil {
+		if taskID := strings.TrimSpace(run.EnhancedTask.ID); taskID != "" {
+			return taskID
+		}
+	}
+	return strings.TrimSpace(run.ID)
+}
+
+func testRunReportJSONCommand(taskID string, devMode bool) string {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return ""
+	}
+	command := fmt.Sprintf(
+		"%s test report %s --json",
+		currentReportCommandName(),
+		taskID,
+	)
+	if devMode {
+		command += " --dev"
+	}
+	return command
+}
+
+func (m hubModel) selectedTestRunJSONCommand() string {
+	return testRunReportJSONCommand(m.selectedTestRunTaskID(), m.devMode)
+}
+
+func (m hubModel) selectedTestRunReportURL() string {
+	runID := m.selectedTestRunTaskID()
 	if runID == "" {
 		return ""
 	}
@@ -3119,8 +3355,26 @@ func (m hubModel) renderTestRuns() string {
 	if reportURL := m.selectedTestRunReportURL(); reportURL != "" {
 		b.WriteString("  " + dimStyle.Render(truncateText("link: "+reportURL, innerW)) + "\n")
 	}
+	if m.reportJSONCommand {
+		if command := m.selectedTestRunJSONCommand(); command != "" {
+			for _, line := range wrappedLabelLines("json", command, innerW) {
+				b.WriteString("  " + line + "\n")
+			}
+		}
+	}
+	if m.reportJSONStatus != "" {
+		statusStyle := successStyle
+		if m.reportJSONPending {
+			statusStyle = warningStyle
+		} else if m.reportJSONError {
+			statusStyle = errorStyle
+		}
+		b.WriteString("  " + statusStyle.Render(truncateText(m.reportJSONStatus, innerW)) + "\n")
+	}
 	keys := []string{
 		helpKeyRender("enter/o", "open report"),
+		helpKeyRender("c", "copy report JSON"),
+		helpKeyRender("y", "show/copy command"),
 		helpKeyRender("R", "refresh"),
 		helpKeyRender("esc", "back"),
 		helpKeyRender("q", "quit"),
@@ -3190,6 +3444,126 @@ func truncateText(value string, maxLen int) string {
 		return value[:maxLen]
 	}
 	return value[:maxLen-3] + "..."
+}
+
+func wrappedLabelLines(label, value string, width int) []string {
+	prefix := strings.TrimSpace(label) + ": "
+	if value == "" {
+		return []string{strings.TrimSpace(prefix)}
+	}
+
+	wrapWidth := width - lipgloss.Width(prefix)
+	if wrapWidth < 1 {
+		wrapWidth = 1
+	}
+
+	lines := wrapHubText(value, wrapWidth)
+	if len(lines) == 0 {
+		return []string{prefix}
+	}
+
+	out := []string{prefix + lines[0]}
+	indent := strings.Repeat(" ", lipgloss.Width(prefix))
+	for _, line := range lines[1:] {
+		out = append(out, indent+line)
+	}
+	return out
+}
+
+func wrapHubText(text string, width int) []string {
+	if width <= 0 {
+		return []string{text}
+	}
+
+	var lines []string
+	for _, paragraph := range strings.Split(text, "\n") {
+		paragraph = strings.TrimSpace(paragraph)
+		if paragraph == "" {
+			lines = append(lines, "")
+			continue
+		}
+
+		words := strings.Fields(paragraph)
+		if len(words) == 0 {
+			lines = append(lines, "")
+			continue
+		}
+
+		current := ""
+		for _, word := range words {
+			for lipgloss.Width(word) > width {
+				chunk, rest := splitHubWord(word, width)
+				if current != "" {
+					lines = append(lines, current)
+					current = ""
+				}
+				lines = append(lines, chunk)
+				word = rest
+			}
+
+			if word == "" {
+				continue
+			}
+
+			if current == "" {
+				current = word
+				continue
+			}
+
+			if lipgloss.Width(current)+1+lipgloss.Width(word) <= width {
+				current += " " + word
+				continue
+			}
+
+			lines = append(lines, current)
+			current = word
+		}
+
+		if current != "" {
+			lines = append(lines, current)
+		}
+	}
+
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
+func splitHubWord(word string, width int) (string, string) {
+	if width <= 0 {
+		return word, ""
+	}
+
+	var builder strings.Builder
+	consumed := 0
+	for idx, r := range word {
+		next := builder.String() + string(r)
+		if lipgloss.Width(next) > width {
+			break
+		}
+		builder.WriteRune(r)
+		consumed = idx + len(string(r))
+	}
+
+	if consumed == 0 {
+		for idx := range word {
+			consumed = idx
+			if consumed > 0 {
+				break
+			}
+		}
+		if consumed == 0 {
+			_, size := utf8.DecodeRuneInString(word)
+			if size <= 0 {
+				return word, ""
+			}
+			consumed = size
+		}
+		return word[:consumed], word[consumed:]
+	}
+
+	return word[:consumed], word[consumed:]
 }
 
 // renderWorkflowRuns renders the run history list for a specific workflow.

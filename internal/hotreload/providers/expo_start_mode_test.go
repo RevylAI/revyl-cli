@@ -26,12 +26,12 @@ func TestExpoStartArgs_DebugOmitsNonInteractive(t *testing.T) {
 	}
 }
 
-func TestExpoEnvironment_NonDebugSetsCI(t *testing.T) {
+func TestExpoEnvironment_NonDebugClearsCI(t *testing.T) {
 	server := NewExpoDevServer(".", "demo", 8081, false)
 
 	env := server.expoEnvironment()
-	if !containsEnvEntry(env, "CI=1") {
-		t.Fatalf("env does not include CI=1 in non-debug mode")
+	if containsEnvKey(env, "CI") {
+		t.Fatalf("env includes CI in non-debug mode; CI should never be set for hot reload")
 	}
 }
 
@@ -42,6 +42,49 @@ func TestExpoEnvironment_DebugClearsCI(t *testing.T) {
 	env := server.expoEnvironment()
 	if containsEnvKey(env, "CI") {
 		t.Fatalf("env includes CI in debug mode")
+	}
+}
+
+func TestNormalizeProxyURL_AddsHTTPSPort(t *testing.T) {
+	normalized, hostname := normalizeProxyURL("https://abc-def.trycloudflare.com")
+	if hostname != "abc-def.trycloudflare.com" {
+		t.Fatalf("hostname = %q, want %q", hostname, "abc-def.trycloudflare.com")
+	}
+	if !strings.Contains(normalized, ":443") {
+		t.Fatalf("normalized = %q, want explicit :443", normalized)
+	}
+}
+
+func TestNormalizeProxyURL_AddsHTTPPort(t *testing.T) {
+	normalized, hostname := normalizeProxyURL("http://localhost")
+	if hostname != "localhost" {
+		t.Fatalf("hostname = %q, want %q", hostname, "localhost")
+	}
+	if !strings.Contains(normalized, ":80") {
+		t.Fatalf("normalized = %q, want explicit :80", normalized)
+	}
+}
+
+func TestNormalizeProxyURL_PreservesExplicitPort(t *testing.T) {
+	normalized, hostname := normalizeProxyURL("https://example.com:8443")
+	if hostname != "example.com" {
+		t.Fatalf("hostname = %q, want %q", hostname, "example.com")
+	}
+	if !strings.Contains(normalized, ":8443") {
+		t.Fatalf("normalized = %q, want :8443 preserved", normalized)
+	}
+	if strings.Contains(normalized, ":443") {
+		t.Fatalf("normalized = %q, should not inject :443 when port is explicit", normalized)
+	}
+}
+
+func TestNormalizeProxyURL_InvalidURL(t *testing.T) {
+	normalized, hostname := normalizeProxyURL("://bad")
+	if normalized != "://bad" {
+		t.Fatalf("normalized = %q, want original returned for invalid URL", normalized)
+	}
+	if hostname != "" {
+		t.Fatalf("hostname = %q, want empty for invalid URL", hostname)
 	}
 }
 

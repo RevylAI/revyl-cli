@@ -180,6 +180,9 @@ type APIError struct {
 	StatusCode int
 	Message    string
 	Detail     string
+	// DetailObject preserves structured `detail` payloads when the backend sends
+	// machine-readable context, such as reports-v3 lookup hints.
+	DetailObject map[string]interface{}
 	// Hint is an optional user-facing suggestion (e.g., "Run 'revyl auth login' to re-authenticate").
 	Hint string
 }
@@ -205,6 +208,32 @@ func (e *APIError) Error() string {
 		return base + "\n" + e.Hint
 	}
 	return base
+}
+
+// DetailString returns a string field from a structured detail payload.
+func (e *APIError) DetailString(key string) string {
+	if e == nil || e.DetailObject == nil {
+		return ""
+	}
+	value, ok := e.DetailObject[key]
+	if !ok {
+		return ""
+	}
+	str, _ := value.(string)
+	return str
+}
+
+// DetailBool returns a boolean field from a structured detail payload.
+func (e *APIError) DetailBool(key string) bool {
+	if e == nil || e.DetailObject == nil {
+		return false
+	}
+	value, ok := e.DetailObject[key]
+	if !ok {
+		return false
+	}
+	flag, _ := value.(bool)
+	return flag
 }
 
 // authHintForStatus returns a user-facing hint for authentication errors.
@@ -262,6 +291,67 @@ func extractHTMLError(html string) string {
 		return plain
 	}
 	return "Server returned an HTML error page (check backend logs for details)"
+}
+
+func parseAPIErrorBody(statusCode int, body []byte) *APIError {
+	var errResp struct {
+		Error   string          `json:"error"`
+		Detail  json.RawMessage `json:"detail"`
+		Message string          `json:"message"`
+	}
+	_ = json.Unmarshal(body, &errResp)
+
+	message := errResp.Error
+	if message == "" {
+		message = errResp.Message
+	}
+
+	var (
+		detail       string
+		detailObject map[string]interface{}
+	)
+	if len(errResp.Detail) > 0 && string(errResp.Detail) != "null" {
+		var detailValue interface{}
+		if err := json.Unmarshal(errResp.Detail, &detailValue); err == nil {
+			switch value := detailValue.(type) {
+			case string:
+				detail = value
+			case map[string]interface{}:
+				detailObject = value
+				if detailMessage, ok := value["message"].(string); ok {
+					detail = detailMessage
+				} else if rawDetail, marshalErr := json.Marshal(value); marshalErr == nil {
+					detail = string(rawDetail)
+				}
+			default:
+				if rawDetail, marshalErr := json.Marshal(value); marshalErr == nil {
+					detail = string(rawDetail)
+				}
+			}
+		}
+	}
+
+	if message == "" && detail == "" {
+		bodyStr := string(body)
+		if strings.Contains(bodyStr, "<html") || strings.Contains(bodyStr, "<!DOCTYPE") {
+			detail = extractHTMLError(bodyStr)
+		} else {
+			if len(bodyStr) > 500 {
+				bodyStr = bodyStr[:500] + "..."
+			}
+			if bodyStr != "" {
+				detail = bodyStr
+			}
+		}
+	}
+
+	return &APIError{
+		StatusCode:   statusCode,
+		Message:      message,
+		Detail:       detail,
+		DetailObject: detailObject,
+		Hint:         authHintForStatus(statusCode, message, detail),
+	}
 }
 
 // stripHTMLTags removes HTML tags from a string.
@@ -460,46 +550,7 @@ func parseResponse(resp *http.Response, target interface{}) error {
 			}
 		}
 
-		// Try to parse structured error response
-		// Supports multiple common error field names
-		var errResp struct {
-			Error   string `json:"error"`
-			Detail  string `json:"detail"`
-			Message string `json:"message"`
-		}
-		// Ignore JSON parse errors - we'll fall back to raw body
-		_ = json.Unmarshal(body, &errResp)
-
-		// Build error message from available fields
-		message := errResp.Error
-		if message == "" {
-			message = errResp.Message
-		}
-		detail := errResp.Detail
-
-		// Fallback to raw body if no structured error found
-		if message == "" && detail == "" {
-			bodyStr := string(body)
-			// For HTML responses (e.g. debug traceback pages), try to extract
-			// the meaningful error text instead of showing raw HTML.
-			if strings.Contains(bodyStr, "<html") || strings.Contains(bodyStr, "<!DOCTYPE") {
-				detail = extractHTMLError(bodyStr)
-			} else {
-				if len(bodyStr) > 500 {
-					bodyStr = bodyStr[:500] + "..."
-				}
-				if bodyStr != "" {
-					detail = bodyStr
-				}
-			}
-		}
-
-		return &APIError{
-			StatusCode: resp.StatusCode,
-			Message:    message,
-			Detail:     detail,
-			Hint:       authHintForStatus(resp.StatusCode, message, detail),
-		}
+		return parseAPIErrorBody(resp.StatusCode, body)
 	}
 
 	if target != nil {
@@ -509,6 +560,36 @@ func parseResponse(resp *http.Response, target interface{}) error {
 	}
 
 	return nil
+}
+
+// parseResponseWithRaw parses the response body into target and returns the raw JSON bytes.
+func parseResponseWithRaw(resp *http.Response, target interface{}) (json.RawMessage, error) {
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, &APIError{
+				StatusCode: resp.StatusCode,
+				Message:    "failed to read error response body",
+				Detail:     readErr.Error(),
+			}
+		}
+
+		return nil, parseAPIErrorBody(resp.StatusCode, body)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	if target != nil {
+		if err := json.Unmarshal(body, target); err != nil {
+			return nil, fmt.Errorf("failed to parse response: %w", err)
+		}
+	}
+
+	return body, nil
 }
 
 // CLIRunConfig contains optional runtime configuration for test execution.
@@ -537,6 +618,10 @@ type ExecuteTestRequest struct {
 	// LaunchURL is the deep link URL for hot reload mode.
 	// When provided, the test will launch the app via this URL instead of the normal app launch.
 	LaunchURL string `json:"launch_url,omitempty"`
+	// DeviceModel overrides the target device model (e.g. "iPhone 16", "Pixel 7").
+	DeviceModel string `json:"device_model,omitempty"`
+	// OsVersion overrides the target OS runtime (e.g. "iOS 18.5", "Android 14").
+	OsVersion string `json:"os_version,omitempty"`
 }
 
 // ExecuteTestResponse represents a test execution response.
@@ -1049,6 +1134,17 @@ type ValidateAPIKeyResponse struct {
 	ConcurrencyLimit int `json:"concurrency_limit"`
 }
 
+// RevokeCLIAPIKeyRequest revokes a browser-generated CLI API key by ID.
+type RevokeCLIAPIKeyRequest struct {
+	APIKeyID string `json:"api_key_id"`
+}
+
+// RevokeCLIAPIKeyResponse represents the response from revoking a browser-generated CLI API key.
+type RevokeCLIAPIKeyResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
 // ValidateAPIKey validates the client's API key against the backend.
 // Returns user information if the API key is valid.
 //
@@ -1070,6 +1166,25 @@ func (c *Client) ValidateAPIKey(ctx context.Context) (*ValidateAPIKeyResponse, e
 	}
 
 	return &result, nil
+}
+
+// RevokeCLIAPIKey revokes the current machine's browser-generated CLI API key.
+func (c *Client) RevokeCLIAPIKey(ctx context.Context, apiKeyID string) error {
+	resp, err := c.doRequestOnce(
+		ctx,
+		"POST",
+		"/api/v1/entity/users/revoke_cli_api_key",
+		&RevokeCLIAPIKeyRequest{APIKeyID: apiKeyID},
+	)
+	if err != nil {
+		return err
+	}
+
+	var result RevokeCLIAPIKeyResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return err
+	}
+	return nil
 }
 
 // StreamUploadBuild uploads a build using streaming (alternative to presigned URL).
@@ -1906,6 +2021,12 @@ type StartDeviceRequest struct {
 	// Defaults to 300 seconds when omitted.
 	IdleTimeoutSeconds int `json:"idle_timeout_seconds,omitempty"`
 
+	// DeviceModel overrides the target device model (e.g. "iPhone 16", "Pixel 7").
+	DeviceModel string `json:"device_model,omitempty"`
+
+	// OsVersion overrides the target OS runtime (e.g. "iOS 18.5", "Android 14").
+	OsVersion string `json:"os_version,omitempty"`
+
 	// RunConfig contains optional execution configuration.
 	RunConfig *TestRunConfig `json:"run_config,omitempty"`
 }
@@ -2698,84 +2819,182 @@ func (c *Client) GetTestEnhancedHistory(ctx context.Context, testID string, limi
 
 // --- Report V3 API types ---
 
-// CLIReportV3Step represents a single step in a V3 report.
-// CLIReportV3Action represents a single action within a step.
-type CLIReportV3Action struct {
-	ActionIndex          int                    `json:"action_index"`
-	ActionType           string                 `json:"action_type,omitempty"`
-	AgentDescription     string                 `json:"agent_description,omitempty"`
-	Reasoning            string                 `json:"reasoning,omitempty"`
-	ReflectionDecision   string                 `json:"reflection_decision,omitempty"`
-	ReflectionReasoning  string                 `json:"reflection_reasoning,omitempty"`
-	ReflectionSuggestion string                 `json:"reflection_suggestion,omitempty"`
-	IsTerminal           bool                   `json:"is_terminal,omitempty"`
-	TypeData             map[string]interface{} `json:"type_data,omitempty"`
+// CLIReportTLDRKeyMoment mirrors the typed TLDR key moment payload.
+type CLIReportTLDRKeyMoment struct {
+	StepReference string `json:"step_reference"`
+	Description   string `json:"description"`
+	Importance    string `json:"importance"`
 }
 
-type CLIReportV3Step struct {
-	ID             string                 `json:"id"`
-	ExecutionOrder int                    `json:"execution_order"`
-	StepType       string                 `json:"step_type"`
-	StepDesc       string                 `json:"step_description"`
-	Status         string                 `json:"status"`
-	StatusReason   string                 `json:"status_reason,omitempty"`
-	StartedAt      string                 `json:"started_at,omitempty"`
-	CompletedAt    string                 `json:"completed_at,omitempty"`
-	TypeData       map[string]interface{} `json:"type_data,omitempty"`
-	Actions        []CLIReportV3Action    `json:"actions,omitempty"`
+// CLIReportTLDR mirrors the typed TLDR payload returned by reports-v3 context.
+type CLIReportTLDR struct {
+	TestCase    string                   `json:"test_case"`
+	KeyMoments  []CLIReportTLDRKeyMoment `json:"key_moments"`
+	Insights    []string                 `json:"insights"`
+	LlmMetadata map[string]interface{}   `json:"llm_metadata,omitempty"`
 }
 
-// CLIReportV3Response represents a V3 report for a test execution.
-type CLIReportV3Response struct {
-	ID               string            `json:"id"`
-	ExecutionID      string            `json:"execution_id"`
-	TestID           string            `json:"test_id"`
-	TestName         string            `json:"test_name"`
-	Platform         string            `json:"platform"`
-	Success          *bool             `json:"success"`
-	StartedAt        string            `json:"started_at,omitempty"`
-	CompletedAt      string            `json:"completed_at,omitempty"`
-	TotalSteps       int               `json:"total_steps"`
-	PassedSteps      int               `json:"passed_steps"`
-	FailedSteps      int               `json:"failed_steps"`
-	TotalValidations int               `json:"total_validations"`
-	ValidsPassed     int               `json:"validations_passed"`
-	VideoURL         string            `json:"video_url,omitempty"`
-	AppName          string            `json:"app_name,omitempty"`
-	BuildVersion     string            `json:"build_version,omitempty"`
-	DeviceModel      string            `json:"device_model,omitempty"`
-	OSVersion        string            `json:"os_version,omitempty"`
-	Steps            []CLIReportV3Step `json:"steps,omitempty"`
+// CLIReportContextAction mirrors the backend's high-context action payload.
+type CLIReportContextAction struct {
+	ID                       *string                `json:"id,omitempty"`
+	StepID                   *string                `json:"step_id,omitempty"`
+	ActionIndex              int                    `json:"action_index"`
+	ActionType               *string                `json:"action_type,omitempty"`
+	LlmCallID                *string                `json:"llm_call_id,omitempty"`
+	ReflectionLlmCallID      *string                `json:"reflection_llm_call_id,omitempty"`
+	AgentDescription         *string                `json:"agent_description,omitempty"`
+	Reasoning                *string                `json:"reasoning,omitempty"`
+	ReflectionDecision       *string                `json:"reflection_decision,omitempty"`
+	ReflectionReasoning      *string                `json:"reflection_reasoning,omitempty"`
+	ReflectionSuggestion     *string                `json:"reflection_suggestion,omitempty"`
+	IsTerminal               bool                   `json:"is_terminal,omitempty"`
+	ScreenshotBeforeURL      *string                `json:"screenshot_before_url,omitempty"`
+	ScreenshotBeforeCleanURL *string                `json:"screenshot_before_clean_url,omitempty"`
+	ScreenshotAfterURL       *string                `json:"screenshot_after_url,omitempty"`
+	VideoTimestampStart      *float64               `json:"video_timestamp_start,omitempty"`
+	VideoTimestampEnd        *float64               `json:"video_timestamp_end,omitempty"`
+	StartedAt                *string                `json:"started_at,omitempty"`
+	CompletedAt              *string                `json:"completed_at,omitempty"`
+	CreatedAt                *string                `json:"created_at,omitempty"`
+	TypeData                 map[string]interface{} `json:"type_data,omitempty"`
+	LlmCall                  map[string]interface{} `json:"llm_call,omitempty"`
+	ReflectionLlmCall        map[string]interface{} `json:"reflection_llm_call,omitempty"`
 }
 
-// GetReportByExecution retrieves the V3 report for a test execution.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - executionID: The execution/task ID
-//   - includeSteps: Whether to include step details
-//
-// Returns:
-//   - *CLIReportV3Response: The report data
-//   - error: Any error that occurred
-func (c *Client) GetReportByExecution(ctx context.Context, executionID string, includeSteps bool, includeActions ...bool) (*CLIReportV3Response, error) {
-	actions := false
-	if len(includeActions) > 0 {
-		actions = includeActions[0]
-	}
-	path := fmt.Sprintf("/api/v1/reports-v3/reports/by-execution/%s?include_steps=%t&include_actions=%t&include_llm_calls=false",
-		executionID, includeSteps, actions)
+// CLIReportContextStep mirrors the backend's high-context step payload.
+type CLIReportContextStep struct {
+	ID                    string                   `json:"id"`
+	ReportID              *string                  `json:"report_id,omitempty"`
+	ParentStepID          *string                  `json:"parent_step_id,omitempty"`
+	ExecutionOrder        int                      `json:"execution_order"`
+	NodeID                *string                  `json:"node_id,omitempty"`
+	StepType              string                   `json:"step_type"`
+	StepDescription       *string                  `json:"step_description,omitempty"`
+	Success               *bool                    `json:"success,omitempty"`
+	ErrorMessage          *string                  `json:"error_message,omitempty"`
+	StartedAt             *string                  `json:"started_at,omitempty"`
+	CompletedAt           *string                  `json:"completed_at,omitempty"`
+	LlmCallID             *string                  `json:"llm_call_id,omitempty"`
+	SourceModuleID        *string                  `json:"source_module_id,omitempty"`
+	SourceModuleName      *string                  `json:"source_module_name,omitempty"`
+	VideoTimestampStart   *float64                 `json:"video_timestamp_start,omitempty"`
+	VideoTimestampEnd     *float64                 `json:"video_timestamp_end,omitempty"`
+	CreatedAt             *string                  `json:"created_at,omitempty"`
+	Status                *string                  `json:"status,omitempty"`
+	StatusReason          *string                  `json:"status_reason,omitempty"`
+	EffectiveStatus       *string                  `json:"effective_status,omitempty"`
+	EffectiveStatusReason *string                  `json:"effective_status_reason,omitempty"`
+	ValidationResult      *bool                    `json:"validation_result,omitempty"`
+	ValidationReasoning   *string                  `json:"validation_reasoning,omitempty"`
+	TypeData              map[string]interface{}   `json:"type_data,omitempty"`
+	Actions               []CLIReportContextAction `json:"actions,omitempty"`
+	LlmCall               map[string]interface{}   `json:"llm_call,omitempty"`
+}
+
+// CLIReportContextResponse mirrors the backend's high-context report payload.
+type CLIReportContextResponse struct {
+	ID                    string                 `json:"id"`
+	ReportURL             *string                `json:"report_url,omitempty"`
+	ExecutionID           *string                `json:"execution_id,omitempty"`
+	SessionID             *string                `json:"session_id,omitempty"`
+	TestID                *string                `json:"test_id,omitempty"`
+	TestVersionID         *string                `json:"test_version_id,omitempty"`
+	OrgID                 string                 `json:"org_id"`
+	StartedAt             *string                `json:"started_at,omitempty"`
+	CompletedAt           *string                `json:"completed_at,omitempty"`
+	TotalSteps            *int                   `json:"total_steps,omitempty"`
+	PassedSteps           *int                   `json:"passed_steps,omitempty"`
+	WarningSteps          *int                   `json:"warning_steps,omitempty"`
+	FailedSteps           *int                   `json:"failed_steps,omitempty"`
+	TotalValidations      *int                   `json:"total_validations,omitempty"`
+	ValidationsPassed     *int                   `json:"validations_passed,omitempty"`
+	EffectivePassedSteps  *int                   `json:"effective_passed_steps,omitempty"`
+	EffectiveWarningSteps *int                   `json:"effective_warning_steps,omitempty"`
+	EffectiveFailedSteps  *int                   `json:"effective_failed_steps,omitempty"`
+	EffectiveRunningSteps *int                   `json:"effective_running_steps,omitempty"`
+	EffectivePendingSteps *int                   `json:"effective_pending_steps,omitempty"`
+	TestGoalSummary       *string                `json:"test_goal_summary,omitempty"`
+	Tldr                  *CLIReportTLDR         `json:"tldr,omitempty"`
+	CreatedAt             *string                `json:"created_at,omitempty"`
+	UpdatedAt             *string                `json:"updated_at,omitempty"`
+	TestName              *string                `json:"test_name,omitempty"`
+	Platform              *string                `json:"platform,omitempty"`
+	SessionStatus         *string                `json:"session_status,omitempty"`
+	DeviceModel           *string                `json:"device_model,omitempty"`
+	OsVersion             *string                `json:"os_version,omitempty"`
+	WhepURL               *string                `json:"whep_url,omitempty"`
+	TraceID               *string                `json:"trace_id,omitempty"`
+	DeviceMetadata        *DeviceMetadata        `json:"device_metadata,omitempty"`
+	ScreenWidth           *int                   `json:"screen_width,omitempty"`
+	ScreenHeight          *int                   `json:"screen_height,omitempty"`
+	Success               *bool                  `json:"success,omitempty"`
+	WorkflowExecutionID   *string                `json:"workflow_execution_id,omitempty"`
+	AppName               *string                `json:"app_name,omitempty"`
+	SystemPrompt          *string                `json:"system_prompt,omitempty"`
+	BuildVersion          *string                `json:"build_version,omitempty"`
+	TestVersionNumber     *int                   `json:"test_version_number,omitempty"`
+	VideoURL              *string                `json:"video_url,omitempty"`
+	PerfettoTraceURL      *string                `json:"perfetto_trace_url,omitempty"`
+	HardwareMetricsURL    *string                `json:"hardware_metrics_url,omitempty"`
+	Steps                 []CLIReportContextStep `json:"steps,omitempty"`
+}
+
+// CLIReportContextEnvelope preserves both the raw response bytes and the typed report.
+type CLIReportContextEnvelope struct {
+	Raw    json.RawMessage
+	Report *CLIReportContextResponse
+}
+
+// GetReportContextByExecution retrieves the canonical high-context report for an execution.
+func (c *Client) GetReportContextByExecution(ctx context.Context, executionID string, includeSteps, includeActions, includeLLMCalls bool) (*CLIReportContextEnvelope, error) {
+	path := fmt.Sprintf(
+		"/api/v1/reports-v3/reports/by-execution/%s/context?include_steps=%t&include_actions=%t&include_llm_calls=%t",
+		executionID,
+		includeSteps,
+		includeActions,
+		includeLLMCalls,
+	)
 	resp, err := c.doRequestOnce(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var result CLIReportV3Response
-	if err := parseResponse(resp, &result); err != nil {
+	var result CLIReportContextResponse
+	raw, err := parseResponseWithRaw(resp, &result)
+	if err != nil {
 		return nil, err
 	}
 
-	return &result, nil
+	return &CLIReportContextEnvelope{
+		Raw:    raw,
+		Report: &result,
+	}, nil
+}
+
+// GetReportBySession retrieves the high-context report for a device session.
+func (c *Client) GetReportBySession(ctx context.Context, sessionID string, includeSteps, includeActions, includeLLMCalls bool) (*CLIReportContextEnvelope, error) {
+	path := fmt.Sprintf(
+		"/api/v1/reports-v3/reports/by-session/%s/context?include_steps=%t&include_actions=%t&include_llm_calls=%t",
+		sessionID,
+		includeSteps,
+		includeActions,
+		includeLLMCalls,
+	)
+	resp, err := c.doRequestOnce(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIReportContextResponse
+	raw, err := parseResponseWithRaw(resp, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CLIReportContextEnvelope{
+		Raw:    raw,
+		Report: &result,
+	}, nil
 }
 
 // --- Shareable Link API types ---
@@ -3144,6 +3363,13 @@ func (c *Client) DeleteBuildVersion(ctx context.Context, versionID string) (*Del
 //   - []byte: Raw response body from the worker.
 //   - int: HTTP status code from the worker.
 //   - error: Any error from the proxy call itself.
+//
+// proxyNoRetryActions lists worker actions that are not idempotent.
+// Retrying these creates duplicate side-effects (e.g. duplicate agent steps).
+var proxyNoRetryActions = map[string]bool{
+	"execute_step": true,
+}
+
 func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action string, body interface{}) ([]byte, int, error) {
 	path := fmt.Sprintf("/api/v1/execution/device-proxy/%s/%s", workflowRunID, action)
 
@@ -3152,7 +3378,13 @@ func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action s
 		body = nil
 	}
 
-	resp, err := c.doRequest(ctx, method, path, body)
+	var resp *http.Response
+	var err error
+	if proxyNoRetryActions[action] {
+		resp, err = c.doRequestOnce(ctx, method, path, body)
+	} else {
+		resp, err = c.doRequest(ctx, method, path, body)
+	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("proxy request failed for %s: %w", action, err)
 	}
@@ -3167,8 +3399,13 @@ func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action s
 }
 
 func proxyWorkerMethodForAction(action string) string {
-	switch action {
-	case "screenshot", "health", "device_info":
+	// Extract base action for compound paths (e.g. "step_status/{id}").
+	base := action
+	if idx := strings.Index(action, "/"); idx >= 0 {
+		base = action[:idx]
+	}
+	switch base {
+	case "screenshot", "health", "device_info", "step_status":
 		return http.MethodGet
 	default:
 		return http.MethodPost

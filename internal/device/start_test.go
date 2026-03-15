@@ -80,3 +80,21 @@ func TestResolveStartArtifact_PropagatesBuildLookupFailure(t *testing.T) {
 		t.Fatalf("error = %q, want %q", got, "failed to resolve build version build-1: boom")
 	}
 }
+
+func TestResolveStartArtifact_UsesTrimmedDirectAppURL(t *testing.T) {
+	t.Parallel()
+
+	resolved, err := ResolveStartArtifact(context.Background(), stubArtifactResolver{}, StartArtifactOptions{
+		AppURL:     "  https://artifact.example/direct.ipa  ",
+		AppPackage: "  com.example.direct  ",
+	})
+	if err != nil {
+		t.Fatalf("ResolveStartArtifact returned error: %v", err)
+	}
+	if resolved.AppURL != "https://artifact.example/direct.ipa" {
+		t.Fatalf("AppURL = %q, want %q", resolved.AppURL, "https://artifact.example/direct.ipa")
+	}
+	if resolved.AppPackage != "com.example.direct" {
+		t.Fatalf("AppPackage = %q, want %q", resolved.AppPackage, "com.example.direct")
+	}
+}
