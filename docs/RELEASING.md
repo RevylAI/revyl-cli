@@ -54,6 +54,16 @@ Pushes to `staging` sync the code to the standalone repo but **skip** the releas
 4. **Release** -- creates the git tag and GitHub Release with all binaries, checksums, and `SKILL.md`
 5. **Publish** -- pushes to PyPI (`revyl`) and Homebrew (`RevylAI/tap/revyl`) in parallel
 
+## Required Secrets (cognisim-monorepo repo)
+
+The Release Revyl CLI workflow uses a dedicated token for GitHub operations:
+
+- **`REVYL_CLI_RELEASE_TOKEN`** — Fine-grained PAT with:
+  - **Repositories:** `RevylAI/revyl-cli`, `RevylAI/homebrew-tap`
+  - **Permissions:** Contents (Read and Write), Metadata (Read)
+
+Add it under **Settings → Secrets and variables → Actions** in the cognisim-monorepo repository. PyPI publishing uses a separate secret: **`PYPI_TOKEN`**.
+
 ## Manual Release
 
 You can trigger a release manually from the GitHub Actions UI without pushing code:
@@ -83,4 +93,4 @@ Versions containing `-` (e.g. `0.2.0-beta.1`) are automatically marked as pre-re
 | Release is skipped with "Tag already exists" notice | Version wasn't bumped, or an older broken/manual tag already exists | Prefer `make bump-patch` and ship a fresh version. If you must reuse the old version, delete the broken tag/release first and then re-run |
 | Build or smoke-test failed before release creation | A test, packaging, or native artifact validation step failed | Fix the failing step and re-run the workflow. No release tag is created until those gates pass |
 | Release created but PyPI failed | Token or network issue after the release was created | Fix the token/network issue and ship a new patch version (`make bump-patch`) unless you intentionally want to clean up the existing tag/release first |
-| Homebrew formula not updated | `homebrew-tap` repo permissions or missing release checksums | Check `ANSIBLE_MAC_MANAGER_SYNC_TOKEN`, then confirm `checksums.txt` exists on the GitHub Release before retrying |
+| Homebrew formula not updated | `homebrew-tap` repo permissions or missing release checksums | Check `REVYL_CLI_RELEASE_TOKEN` has write access to `RevylAI/homebrew-tap`, then confirm `checksums.txt` exists on the GitHub Release before retrying |
