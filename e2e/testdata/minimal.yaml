@@ -1,0 +1,9 @@
+test:
+  metadata:
+    name: e2e-minimal
+    platform: android
+  build:
+    name: e2e-placeholder
+  blocks:
+    - type: instructions
+      step_description: "Tap the login button"

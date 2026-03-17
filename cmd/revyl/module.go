@@ -18,6 +18,8 @@ var (
 	moduleUpdateFromFile    string
 
 	moduleDeleteForce bool
+
+	moduleRestoreVersion int
 )
 
 // moduleCmd is the parent command for module operations.
@@ -141,6 +143,48 @@ EXAMPLES:
 	RunE: runModuleInsert,
 }
 
+// moduleVersionsCmd shows version history for a module.
+var moduleVersionsCmd = &cobra.Command{
+	Use:   "versions <name|id>",
+	Short: "Show version history for a module",
+	Long: `Show the version history of a module, listing each version with who
+modified it and when.
+
+EXAMPLES:
+  revyl module versions login-flow
+  revyl module versions abc-123-uuid`,
+	Args: cobra.ExactArgs(1),
+	RunE: runModuleVersions,
+}
+
+// moduleRestoreCmd restores a module to a specific version.
+var moduleRestoreCmd = &cobra.Command{
+	Use:   "restore <name|id>",
+	Short: "Restore a module to a specific version",
+	Long: `Restore a module's blocks and metadata to a previous version.
+Use 'revyl module versions' to see available versions first.
+
+EXAMPLES:
+  revyl module restore login-flow --version 2
+  revyl module restore abc-123-uuid --version 1`,
+	Args: cobra.ExactArgs(1),
+	RunE: runModuleRestore,
+}
+
+// moduleUsageCmd shows which tests use a module.
+var moduleUsageCmd = &cobra.Command{
+	Use:   "usage <name|id>",
+	Short: "Show tests that use a module",
+	Long: `Show all tests that reference a module via module_import blocks.
+Useful before deleting or making breaking changes to a module.
+
+EXAMPLES:
+  revyl module usage login-flow
+  revyl module usage abc-123-uuid`,
+	Args: cobra.ExactArgs(1),
+	RunE: runModuleUsage,
+}
+
 func init() {
 	moduleCmd.AddCommand(moduleListCmd)
 	moduleCmd.AddCommand(moduleGetCmd)
@@ -148,6 +192,7 @@ func init() {
 	moduleCmd.AddCommand(moduleUpdateCmd)
 	moduleCmd.AddCommand(moduleDeleteCmd)
 	moduleCmd.AddCommand(moduleInsertCmd)
+	moduleCmd.AddCommand(moduleVersionsCmd, moduleRestoreCmd, moduleUsageCmd)
 
 	// module list flags
 	moduleListCmd.Flags().BoolVar(&moduleListJSON, "json", false, "Output results as JSON")
@@ -165,4 +210,8 @@ func init() {
 
 	// module delete flags
 	moduleDeleteCmd.Flags().BoolVarP(&moduleDeleteForce, "force", "f", false, "Skip confirmation prompt")
+
+	// module restore flags
+	moduleRestoreCmd.Flags().IntVar(&moduleRestoreVersion, "version", 0, "Version number to restore to")
+	_ = moduleRestoreCmd.MarkFlagRequired("version")
 }

@@ -32,6 +32,9 @@ COMMANDS:
   report    - Show detailed test report
   share     - Generate shareable report link
   env       - Manage app launch environment variables
+  duplicate - Duplicate an existing test
+  versions  - List version history for a test
+  restore   - Restore a test to a specific version
 
 EXAMPLES:
   revyl test run login-flow          # Run a test
@@ -152,6 +155,10 @@ func init() {
 	testCmd.AddCommand(testEnvCmd)
 	// Add test variable management
 	testCmd.AddCommand(testVarCmd)
+	// Add duplication and versioning
+	testCmd.AddCommand(testDuplicateCmd)
+	testCmd.AddCommand(testVersionsCmd)
+	testCmd.AddCommand(testRestoreCmd)
 
 	// test run flags
 	testRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
@@ -178,7 +185,6 @@ func init() {
 	testCreateCmd.Flags().StringVar(&createTestPlatform, "platform", "", "Target platform (android, ios)")
 	testCreateCmd.Flags().StringVar(&createTestAppID, "app", "", "App ID to associate with the test")
 	testCreateCmd.Flags().BoolVar(&createTestNoOpen, "no-open", false, "Skip opening browser to test editor")
-	testCreateCmd.Flags().BoolVar(&createTestNoSync, "no-sync", false, "Skip adding test to .revyl/config.yaml")
 	testCreateCmd.Flags().BoolVar(&createTestForce, "force", false, "Update existing test if name already exists")
 	testCreateCmd.Flags().BoolVar(&createTestDryRun, "dry-run", false, "Show what would be created without creating")
 	testCreateCmd.Flags().StringVar(&createTestFromFile, "from-file", "", "Create test from YAML file (copies to .revyl/tests/ and pushes)")

@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/revyl/cli/internal/config"
@@ -17,13 +19,33 @@ func newTestServerNoTools(cfg *config.ProjectConfig) *Server {
 	}
 }
 
-func TestOpenTestEditorNoHotReload(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Tests: map[string]string{
-			"login-flow": "test-uuid-123",
+func setupTestYAMLDir(t *testing.T, alias, remoteID string) {
+	t.Helper()
+	tmp := t.TempDir()
+	testsDir := filepath.Join(tmp, ".revyl", "tests")
+	if err := os.MkdirAll(testsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	lt := &config.LocalTest{
+		Meta: config.TestMeta{RemoteID: remoteID},
+		Test: config.TestDefinition{
+			Metadata: config.TestMetadata{Name: alias},
 		},
 	}
+	if err := config.SaveLocalTest(filepath.Join(testsDir, alias+".yaml"), lt); err != nil {
+		t.Fatalf("SaveLocalTest: %v", err)
+	}
+	origWD, _ := os.Getwd()
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+}
 
+func TestOpenTestEditorNoHotReload(t *testing.T) {
+	setupTestYAMLDir(t, "login-flow", "test-uuid-123")
+
+	cfg := &config.ProjectConfig{}
 	s := newTestServerNoTools(cfg)
 	ctx := context.Background()
 
@@ -87,12 +109,9 @@ func TestOpenTestEditorResolvesUUID(t *testing.T) {
 }
 
 func TestOpenTestEditorIdempotent(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Tests: map[string]string{
-			"login-flow": "test-uuid-123",
-		},
-	}
+	setupTestYAMLDir(t, "login-flow", "test-uuid-123")
 
+	cfg := &config.ProjectConfig{}
 	s := newTestServerNoTools(cfg)
 	ctx := context.Background()
 

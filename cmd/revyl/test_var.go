@@ -36,14 +36,17 @@ injected at app launch.
 
 COMMANDS:
   list    - List all variables for a test
+  get     - Get a single variable's value
   set     - Add or update a variable (name=value)
+  rename  - Rename a variable
   delete  - Delete a variable by name
   clear   - Delete ALL variables for a test
 
 EXAMPLES:
   revyl test var list my-test
+  revyl test var get my-test username
   revyl test var set my-test username=testuser@example.com
-  revyl test var set my-test otp-code
+  revyl test var rename my-test old-name new-name
   revyl test var delete my-test username
   revyl test var clear my-test`,
 }
@@ -95,9 +98,27 @@ Requires --force or interactive confirmation.`,
 	RunE: runTestVarClear,
 }
 
+// testVarGetCmd gets a single variable's value.
+var testVarGetCmd = &cobra.Command{
+	Use:   "get <test-name> <NAME>",
+	Short: "Get a single variable's value",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runTestVarGet,
+}
+
+// testVarRenameCmd renames a variable.
+var testVarRenameCmd = &cobra.Command{
+	Use:   "rename <test-name> <OLD-NAME> <NEW-NAME>",
+	Short: "Rename a variable",
+	Args:  cobra.ExactArgs(3),
+	RunE:  runTestVarRename,
+}
+
 func init() {
 	testVarCmd.AddCommand(testVarListCmd)
+	testVarCmd.AddCommand(testVarGetCmd)
 	testVarCmd.AddCommand(testVarSetCmd)
+	testVarCmd.AddCommand(testVarRenameCmd)
 	testVarCmd.AddCommand(testVarDeleteCmd)
 	testVarCmd.AddCommand(testVarClearCmd)
 
@@ -338,5 +359,90 @@ func runTestVarClear(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.PrintSuccess("Cleared all variables for test '%s'", testNameOrID)
+	return nil
+}
+
+// runTestVarGet gets a single variable's value by name.
+func runTestVarGet(cmd *cobra.Command, args []string) error {
+	testNameOrID := args[0]
+	name := args[1]
+
+	testID, client, err := varSetupClient(cmd, testNameOrID)
+	if err != nil {
+		return err
+	}
+
+	ui.StartSpinner("Fetching variable...")
+	resp, err := client.ListCustomVariables(cmd.Context(), testID)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to fetch variables: %v", err)
+		return err
+	}
+
+	for _, v := range resp.Result {
+		if v.VariableName == name {
+			value := v.VariableValue
+			if value == "" {
+				value = "(empty)"
+			}
+			fmt.Println(value)
+			return nil
+		}
+	}
+
+	ui.PrintError("Variable '%s' not found on test '%s'", name, testNameOrID)
+	return fmt.Errorf("variable not found")
+}
+
+// runTestVarRename renames a variable while preserving its value.
+func runTestVarRename(cmd *cobra.Command, args []string) error {
+	testNameOrID := args[0]
+	oldName := args[1]
+	newName := args[2]
+
+	if !isKebabCase(newName) {
+		ui.PrintError("Invalid new name '%s': must be kebab-case (lowercase letters, numbers, hyphens)", newName)
+		return fmt.Errorf("invalid variable name")
+	}
+
+	testID, client, err := varSetupClient(cmd, testNameOrID)
+	if err != nil {
+		return err
+	}
+
+	ui.StartSpinner("Finding variable...")
+	resp, err := client.ListCustomVariables(cmd.Context(), testID)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to fetch variables: %v", err)
+		return err
+	}
+
+	var variableID string
+	for _, v := range resp.Result {
+		if v.VariableName == oldName {
+			variableID = v.ID
+			break
+		}
+	}
+
+	if variableID == "" {
+		ui.PrintError("Variable '%s' not found on test '%s'", oldName, testNameOrID)
+		return fmt.Errorf("variable not found")
+	}
+
+	ui.StartSpinner("Renaming variable...")
+	err = client.RenameCustomVariable(cmd.Context(), variableID, newName)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to rename variable: %v", err)
+		return err
+	}
+
+	ui.PrintSuccess("Renamed '%s' to '%s' on test '%s'", oldName, newName, testNameOrID)
 	return nil
 }

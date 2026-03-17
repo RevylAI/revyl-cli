@@ -32,9 +32,10 @@ type TestDefinition struct {
 
 // TestContent contains the test definition content.
 type TestContent struct {
-	Metadata TestMetadata `yaml:"metadata"`
-	Build    TestBuild    `yaml:"build"`
-	Blocks   []Block      `yaml:"blocks"`
+	Metadata  TestMetadata      `yaml:"metadata"`
+	Build     TestBuild         `yaml:"build"`
+	Variables map[string]string `yaml:"variables,omitempty"`
+	Blocks    []Block           `yaml:"blocks"`
 }
 
 // TestMetadata contains test metadata.
@@ -48,6 +49,7 @@ type TestMetadata struct {
 type TestBuild struct {
 	Name          string `yaml:"name"`
 	PinnedVersion string `yaml:"pinned_version,omitempty"`
+	SystemPrompt  string `yaml:"system_prompt,omitempty"`
 }
 
 // Block represents a test block (instructions, validation, etc.)
@@ -61,6 +63,8 @@ type Block struct {
 	Else            []Block `yaml:"else,omitempty"`
 	Body            []Block `yaml:"body,omitempty"`
 	ModuleID        string  `yaml:"module_id,omitempty"`
+	Script          string  `yaml:"script,omitempty"`
+	Module          string  `yaml:"module,omitempty"`
 }
 
 // validBlockTypes contains all valid block type values.
@@ -141,6 +145,11 @@ func ValidateYAML(content string) *ValidationResult {
 	// Validate blocks and track defined variables
 	definedVars := make(map[string]bool)
 	usedVars := make(map[string]bool)
+
+	// Variables declared in the top-level variables: section count as defined
+	for varName := range test.Test.Variables {
+		definedVars[varName] = true
+	}
 
 	for i, block := range test.Test.Blocks {
 		blockErrors, blockWarnings := validateBlock(block, i+1, "", definedVars, usedVars)
@@ -301,10 +310,9 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 		}
 
 	case "code_execution":
-		if isBlank(block.StepDescription) {
-			errors = append(errors, fmt.Sprintf("%s (code_execution): Missing step_description (script UUID)", blockPath))
+		if isBlank(block.StepDescription) && isBlank(block.Script) {
+			errors = append(errors, fmt.Sprintf("%s (code_execution): Must provide either 'script' (name) or 'step_description' (UUID)", blockPath))
 		}
-		// If variable_name is provided, register it
 		if block.VariableName != "" {
 			if !isValidVariableName(block.VariableName) {
 				errors = append(errors, fmt.Sprintf("%s (code_execution): Invalid variable_name '%s' - must be kebab-case", blockPath, block.VariableName))
@@ -313,8 +321,8 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 		}
 
 	case "module_import":
-		if block.ModuleID == "" {
-			errors = append(errors, fmt.Sprintf("%s (module_import): Missing module_id (module UUID)", blockPath))
+		if isBlank(block.ModuleID) && isBlank(block.Module) {
+			errors = append(errors, fmt.Sprintf("%s (module_import): Must provide either 'module' (name) or 'module_id' (UUID)", blockPath))
 		}
 	}
 

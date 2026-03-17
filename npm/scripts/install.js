@@ -9,10 +9,10 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
 
 const REPO = 'RevylAI/revyl-cli';
-const VERSION = process.env.REVYL_VERSION || 'latest';
+const pkg = require('../package.json');
+const VERSION = process.env.REVYL_VERSION || `v${pkg.version}`;
 
 // Determine platform and architecture
 function getPlatformInfo() {

@@ -562,13 +562,11 @@ func printAuthNextSteps(cmd *cobra.Command) {
 	var steps []ui.NextStep
 
 	// If tests exist, suggest running one
-	for alias := range cfg.Tests {
-		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", alias)})
-		break
-	}
-
-	// If no tests, suggest creating one or uploading a build
-	if len(cfg.Tests) == 0 {
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	aliases := config.ListLocalTestAliases(testsDir)
+	if len(aliases) > 0 {
+		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", aliases[0])})
+	} else {
 		steps = append(steps, ui.NextStep{Label: "Upload a build:", Command: "revyl build upload"})
 		steps = append(steps, ui.NextStep{Label: "Create a test:", Command: "revyl test create <name>"})
 	}

@@ -106,7 +106,7 @@ func TestRunWorkflow_PollingModeCompletesWithoutSSE(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"task_id":"task-workflow-456"}`))
-		case "/api/v1/workflows/status/status/task-workflow-456":
+		case "/api/v1/workflows/status/task-workflow-456":
 			statusCalls++
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{

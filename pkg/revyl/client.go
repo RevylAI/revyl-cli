@@ -200,12 +200,11 @@ func (c *Client) RunTestWithOptions(ctx context.Context, nameOrID string, opts *
 		}
 	}
 
-	// Resolve test ID from alias
+	// Resolve test ID from local YAML
 	testID := nameOrID
-	if c.config != nil {
-		if id, ok := c.config.Tests[nameOrID]; ok {
-			testID = id
-		}
+	testsDir := filepath.Join(c.workDir, ".revyl", "tests")
+	if id, ltErr := config.GetLocalTestRemoteID(testsDir, nameOrID); ltErr == nil && id != "" {
+		testID = id
 	}
 
 	// Start execution
@@ -273,13 +272,7 @@ type WorkflowResult struct {
 //   - *WorkflowResult: The workflow result
 //   - error: Any error that occurred
 func (c *Client) RunWorkflow(ctx context.Context, nameOrID string) (*WorkflowResult, error) {
-	// Resolve workflow ID from alias
 	workflowID := nameOrID
-	if c.config != nil {
-		if id, ok := c.config.Workflows[nameOrID]; ok {
-			workflowID = id
-		}
-	}
 
 	// Start execution
 	resp, err := c.apiClient.ExecuteWorkflow(ctx, &api.ExecuteWorkflowRequest{

@@ -30,6 +30,9 @@ var (
 	testsPushDryRun    bool
 	testsPullDryRun    bool
 	testsPullAll       bool
+
+	testDuplicateName  string
+	testRestoreVersion int
 )
 
 func init() {
@@ -49,6 +52,11 @@ func init() {
 	testsListCmd.Flags().BoolVar(&testsListJSON, "json", false, "Output results as JSON")
 
 	testsValidateCmd.Flags().BoolVar(&validateOutputJSON, "json", false, "Output results as JSON")
+
+	testDuplicateCmd.Flags().StringVar(&testDuplicateName, "name", "", "Name for the duplicated test")
+
+	testRestoreCmd.Flags().IntVar(&testRestoreVersion, "version", 0, "Version number to restore")
+	_ = testRestoreCmd.MarkFlagRequired("version")
 }
 
 var testsListCmd = &cobra.Command{
@@ -393,6 +401,9 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 			ui.PrintWarning("%s: conflict detected (use --force to overwrite)", r.Name)
 		} else {
 			ui.PrintSuccess("%s: pushed to v%d", r.Name, r.NewVersion)
+			if r.TagSyncError != nil {
+				ui.PrintWarning("%s: tags failed to sync: %v", r.Name, r.TagSyncError)
+			}
 			pushedCount++
 		}
 	}
@@ -479,7 +490,7 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// If --all flag is set, discover remote-only tests and add them to config before pulling
+	// If --all flag is set, discover remote-only tests and create local YAML stubs
 	if testsPullAll && len(args) == 0 {
 		ui.StartSpinner("Discovering all organization tests...")
 		remoteTests, err := client.ListOrgTests(cmd.Context(), 200, 0)
@@ -488,46 +499,47 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			ui.PrintWarning("Failed to fetch remote tests: %v", err)
 		} else {
-			// Build a reverse lookup of existing config test IDs
+			// Build a set of known remote IDs from local YAML files
 			existingIDs := make(map[string]bool)
-			for _, id := range cfg.Tests {
-				existingIDs[id] = true
-			}
-
-			// Also check local tests with remote IDs
 			for _, local := range localTests {
-				if local.Meta.RemoteID != "" {
+				if local != nil && local.Meta.RemoteID != "" {
 					existingIDs[local.Meta.RemoteID] = true
 				}
 			}
 
-			// Discover remote-only tests and add them to config
+			// Discover remote-only tests and create local YAML stubs
 			newCount := 0
-			if cfg.Tests == nil {
-				cfg.Tests = make(map[string]string)
-			}
-			for _, t := range remoteTests.Tests {
-				if !existingIDs[t.ID] {
+			if mkErr := os.MkdirAll(testsDir, 0755); mkErr != nil {
+				ui.PrintWarning("Failed to create tests directory: %v", mkErr)
+			} else {
+				for _, t := range remoteTests.Tests {
+					if existingIDs[t.ID] {
+						continue
+					}
 					sanitizedName := util.SanitizeForFilename(t.Name)
 					if sanitizedName == "" {
 						sanitizedName = fmt.Sprintf("test-%s", truncatePrefix(t.ID, 8))
 					}
-					// Handle collisions (two tests that sanitize to the same name)
+					// Handle collisions
 					finalName := sanitizedName
-					for i := 2; cfg.Tests[finalName] != "" && cfg.Tests[finalName] != t.ID; i++ {
+					for i := 2; localTests[finalName] != nil && localTests[finalName].Meta.RemoteID != t.ID; i++ {
 						finalName = fmt.Sprintf("%s-%d", sanitizedName, i)
 					}
-					cfg.Tests[finalName] = t.ID
+					localTest := &config.LocalTest{
+						Meta: config.TestMeta{RemoteID: t.ID},
+					}
+					testPath := filepath.Join(testsDir, finalName+".yaml")
+					if saveErr := config.SaveLocalTest(testPath, localTest); saveErr != nil {
+						ui.PrintWarning("Failed to save %s: %v", finalName, saveErr)
+						continue
+					}
+					localTests[finalName] = localTest
 					newCount++
 				}
 			}
 
 			if newCount > 0 {
 				ui.PrintInfo("Discovered %d new test(s) from organization", newCount)
-				// Save updated config with new test mappings
-				if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-					ui.PrintWarning("Failed to save config with new tests: %v", err)
-				}
 			}
 		}
 	}
@@ -972,5 +984,219 @@ func runTestsValidate(cmd *cobra.Command, args []string) error {
 	if !allValid {
 		return fmt.Errorf("validation failed")
 	}
+	return nil
+}
+
+// testDuplicateCmd creates a copy of an existing test.
+var testDuplicateCmd = &cobra.Command{
+	Use:   "duplicate <test>",
+	Short: "Duplicate an existing test",
+	Long: `Create a copy of an existing test with a new ID.
+
+Optionally provide a name for the duplicate with --name.
+
+EXAMPLES:
+  revyl test duplicate login-flow
+  revyl test duplicate login-flow --name "Copy of login-flow"`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTestDuplicate,
+}
+
+// runTestDuplicate creates a copy of an existing test.
+func runTestDuplicate(cmd *cobra.Command, args []string) error {
+	nameOrID := args[0]
+
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	cwd, _ := os.Getwd()
+	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	testID, _, err := resolveTestID(cmd.Context(), nameOrID, cfg, client)
+	if err != nil {
+		ui.PrintError("Failed to resolve test: %v", err)
+		return err
+	}
+
+	ui.StartSpinner("Duplicating test...")
+	result, err := client.DuplicateTest(cmd.Context(), &api.DuplicateTestRequest{
+		TestId:  testID,
+		NewName: testDuplicateName,
+	})
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to duplicate test: %v", err)
+		return err
+	}
+
+	displayName := result.Name
+	if displayName == "" {
+		displayName = testDuplicateName
+	}
+
+	ui.Println()
+	ui.PrintSuccess("Test duplicated: \"%s\" (id: %s)", displayName, result.TestId)
+	ui.PrintKeyValue("Platform:", normalizePlatform(result.Platform))
+	ui.PrintKeyValue("Steps:", fmt.Sprintf("%d", result.StepsCount))
+	if result.TagsCopied != nil && *result.TagsCopied > 0 {
+		ui.PrintKeyValue("Tags copied:", fmt.Sprintf("%d", *result.TagsCopied))
+	}
+	if result.VariablesCopied != nil && *result.VariablesCopied > 0 {
+		ui.PrintKeyValue("Vars copied:", fmt.Sprintf("%d", *result.VariablesCopied))
+	}
+
+	ui.Println()
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Run this test:", Command: fmt.Sprintf("revyl test run %s", displayName)},
+		{Label: "Edit in browser:", Command: fmt.Sprintf("revyl test open %s", displayName)},
+	})
+
+	return nil
+}
+
+// testVersionsCmd lists version history for a test.
+var testVersionsCmd = &cobra.Command{
+	Use:   "versions <test>",
+	Short: "List version history for a test",
+	Long: `Show all saved versions for a test.
+
+EXAMPLES:
+  revyl test versions login-flow`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTestVersions,
+}
+
+// runTestVersions lists version history for a test.
+func runTestVersions(cmd *cobra.Command, args []string) error {
+	nameOrID := args[0]
+
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	cwd, _ := os.Getwd()
+	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	testID, resolvedName, err := resolveTestID(cmd.Context(), nameOrID, cfg, client)
+	if err != nil {
+		ui.PrintError("Failed to resolve test: %v", err)
+		return err
+	}
+
+	displayName := resolvedName
+	if displayName == "" {
+		displayName = nameOrID
+	}
+
+	ui.StartSpinner("Fetching versions...")
+	result, err := client.GetTestVersions(cmd.Context(), testID)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to fetch versions: %v", err)
+		return err
+	}
+
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
+	if jsonOutput {
+		data, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(data))
+		return nil
+	}
+
+	if len(result.Versions) == 0 {
+		ui.PrintInfo("No versions found for test '%s'", displayName)
+		return nil
+	}
+
+	ui.Println()
+	ui.PrintInfo("Versions for '%s' (%d)", displayName, len(result.Versions))
+	ui.Println()
+
+	table := ui.NewTable("VERSION", "MODIFIED BY", "MODIFIED AT")
+	table.SetMinWidth(0, 8)
+	table.SetMinWidth(1, 20)
+	table.SetMinWidth(2, 20)
+
+	for _, v := range result.Versions {
+		modifiedBy := "-"
+		if v.ModifiedByEmail != nil && *v.ModifiedByEmail != "" {
+			modifiedBy = *v.ModifiedByEmail
+		} else if v.ModifiedBy != nil && *v.ModifiedBy != "" {
+			modifiedBy = *v.ModifiedBy
+		}
+		modifiedAt := v.CreatedAt.Format("2006-01-02 15:04")
+		table.AddRow(fmt.Sprintf("v%d", v.Version), modifiedBy, modifiedAt)
+	}
+
+	table.Render()
+
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Restore a version:", Command: fmt.Sprintf("revyl test restore %s --version <n>", displayName)},
+	})
+
+	return nil
+}
+
+// testRestoreCmd restores a test to a specific version.
+var testRestoreCmd = &cobra.Command{
+	Use:   "restore <test>",
+	Short: "Restore a test to a specific version",
+	Long: `Restore a test to a previously saved version.
+
+Requires --version flag specifying the version number.
+
+EXAMPLES:
+  revyl test restore login-flow --version 3`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTestRestore,
+}
+
+// runTestRestore restores a test to a specific version.
+func runTestRestore(cmd *cobra.Command, args []string) error {
+	nameOrID := args[0]
+
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	cwd, _ := os.Getwd()
+	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	testID, resolvedName, err := resolveTestID(cmd.Context(), nameOrID, cfg, client)
+	if err != nil {
+		ui.PrintError("Failed to resolve test: %v", err)
+		return err
+	}
+
+	displayName := resolvedName
+	if displayName == "" {
+		displayName = nameOrID
+	}
+
+	ui.StartSpinner(fmt.Sprintf("Restoring '%s' to version %d...", displayName, testRestoreVersion))
+	err = client.RestoreTestVersion(cmd.Context(), testID, testRestoreVersion)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to restore test: %v", err)
+		return err
+	}
+
+	ui.PrintSuccess("Test '%s' restored to version %d", displayName, testRestoreVersion)
 	return nil
 }

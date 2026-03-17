@@ -175,8 +175,6 @@ func truncatePrefix(s string, max int) string {
 
 func newEmptyProjectConfig() *config.ProjectConfig {
 	cfg := &config.ProjectConfig{
-		Tests:     make(map[string]string),
-		Workflows: make(map[string]string),
 		Build: config.BuildConfig{
 			Platforms: make(map[string]config.BuildPlatform),
 		},
@@ -228,12 +226,12 @@ func looksLikeUUID(s string) bool {
 }
 
 // resolveTestID resolves a test name or ID to a test UUID and display name.
-// Resolution chain: config alias → UUID format check → API search by name.
+// Resolution chain: local YAML _meta.remote_id → UUID format check → API search by name.
 //
 // Parameters:
 //   - ctx: Context for cancellation
 //   - nameOrID: The test name, alias, or UUID
-//   - cfg: The project config (may be nil)
+//   - cfg: The project config (may be nil; unused, kept for call-site compatibility during migration)
 //   - client: The API client
 //
 // Returns:
@@ -241,10 +239,11 @@ func looksLikeUUID(s string) bool {
 //   - testName: The display name (alias or API name)
 //   - error: Any error that occurred
 func resolveTestID(ctx context.Context, nameOrID string, cfg *config.ProjectConfig, client *api.Client) (string, string, error) {
-	// 1. Try config alias
-	if cfg != nil && cfg.Tests != nil {
-		if id, ok := cfg.Tests[nameOrID]; ok {
-			return id, nameOrID, nil
+	// 1. Try local YAML _meta.remote_id
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		testsDir := filepath.Join(cwd, ".revyl", "tests")
+		if remoteID, _ := config.GetLocalTestRemoteID(testsDir, nameOrID); remoteID != "" {
+			return remoteID, nameOrID, nil
 		}
 	}
 
@@ -268,12 +267,10 @@ func resolveTestID(ctx context.Context, nameOrID string, cfg *config.ProjectConf
 		}
 	}
 
-	// Not found - build helpful error message
+	// Not found - build helpful error message from local YAML files
 	var availableTests []string
-	if cfg != nil && cfg.Tests != nil {
-		for name := range cfg.Tests {
-			availableTests = append(availableTests, name)
-		}
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		availableTests = config.ListLocalTestAliases(filepath.Join(cwd, ".revyl", "tests"))
 	}
 	errMsg := fmt.Sprintf("test '%s' not found", nameOrID)
 	if len(availableTests) > 0 {
@@ -404,21 +401,12 @@ var loadConfigAndClient = func(devMode bool) (string, *config.ProjectConfig, *ap
 }
 
 // resolveWorkflowID resolves a workflow name or ID to a workflow UUID and display name.
-// Resolution chain: config alias → UUID format check → API search by name.
+// Resolution chain: UUID format check → API search by name.
 func resolveWorkflowID(ctx context.Context, nameOrID string, cfg *config.ProjectConfig, client *api.Client) (string, string, error) {
-	// 1. Try config alias
-	if cfg != nil && cfg.Workflows != nil {
-		if id, ok := cfg.Workflows[nameOrID]; ok {
-			return id, nameOrID, nil
-		}
-	}
-
-	// 2. Check if it looks like a UUID
 	if looksLikeUUID(nameOrID) {
 		return nameOrID, "", nil
 	}
 
-	// 3. Search via API by name
 	ui.StartSpinner("Searching for workflow...")
 	wfResp, err := client.ListWorkflows(ctx)
 	ui.StopSpinner()
@@ -427,25 +415,26 @@ func resolveWorkflowID(ctx context.Context, nameOrID string, cfg *config.Project
 		return "", "", fmt.Errorf("failed to search for workflow: %w", err)
 	}
 
+	var matches []api.SimpleWorkflow
 	for _, w := range wfResp.Workflows {
 		if w.Name == nameOrID {
-			return w.ID, w.Name, nil
+			matches = append(matches, w)
 		}
 	}
 
-	// Not found - build helpful error message
-	var availableWorkflows []string
-	if cfg != nil && cfg.Workflows != nil {
-		for name := range cfg.Workflows {
-			availableWorkflows = append(availableWorkflows, name)
+	if len(matches) == 1 {
+		return matches[0].ID, matches[0].Name, nil
+	}
+
+	if len(matches) > 1 {
+		var ids []string
+		for _, m := range matches {
+			ids = append(ids, m.ID)
 		}
+		return "", "", fmt.Errorf("multiple workflows named %q found -- use UUID to disambiguate:\n  %s", nameOrID, strings.Join(ids, "\n  "))
 	}
-	errMsg := fmt.Sprintf("workflow '%s' not found", nameOrID)
-	if len(availableWorkflows) > 0 {
-		errMsg += fmt.Sprintf(". Available workflows: %v", availableWorkflows)
-	}
-	errMsg += "\n\nHint: Run 'revyl workflow list' to see all available workflows."
-	return "", "", fmt.Errorf("%s", errMsg)
+
+	return "", "", fmt.Errorf("workflow '%s' not found\n\nHint: Run 'revyl workflow list' to see all available workflows.", nameOrID)
 }
 
 // resolveLatestWorkflowTaskID resolves the latest execution task ID for a workflow.

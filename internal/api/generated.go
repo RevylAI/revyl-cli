@@ -3359,6 +3359,15 @@ type DuplicateTestResponse struct {
 	// Message Success or error message
 	Message string `json:"message"`
 
+	// Name Name of the duplicated test
+	Name string `json:"name"`
+
+	// Platform Platform of the duplicated test (android/ios)
+	Platform string `json:"platform"`
+
+	// StepsCount Number of steps/tasks in the duplicated test
+	StepsCount *int `json:"steps_count,omitempty"`
+
 	// Success Whether the duplication was successful
 	Success bool `json:"success"`
 
@@ -6121,17 +6130,36 @@ type SharedReportOptimizedResponse_MetadataContent struct {
 	union json.RawMessage
 }
 
-// SimpleTestItem Simple test item with just essential fields for dropdowns/lists.
+// SimpleTestItem Simple test item with essential fields for dropdowns/lists.
+//
+// Attributes:
+//
+//	id: Test UUID.
+//	name: Human-readable test name.
+//	platform: Target platform (e.g. "android", "ios").
+//	app_id: Optional associated app UUID.
+//	app_name: Optional resolved app name (empty when no app is linked).
+//	tags: Tags attached to this test.
 type SimpleTestItem struct {
-	Id       string `json:"id"`
-	Name     string `json:"name"`
-	Platform string `json:"platform"`
+	AppId    *string              `json:"app_id,omitempty"`
+	AppName  *string              `json:"app_name,omitempty"`
+	Id       string               `json:"id"`
+	Name     string               `json:"name"`
+	Platform string               `json:"platform"`
+	Tags     *[]SimpleTestTagItem `json:"tags,omitempty"`
 }
 
 // SimpleTestListResponse Response model for simple test list endpoint.
 type SimpleTestListResponse struct {
 	Count int              `json:"count"`
 	Tests []SimpleTestItem `json:"tests"`
+}
+
+// SimpleTestTagItem Lightweight tag reference attached to a SimpleTestItem.
+type SimpleTestTagItem struct {
+	Color *string `json:"color,omitempty"`
+	Id    string  `json:"id"`
+	Name  string  `json:"name"`
 }
 
 // SlackChannel A Slack channel that the bot can post to.

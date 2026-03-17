@@ -637,13 +637,11 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 	}
 
 	// Suggest running a test after successful concurrent builds
-	if len(cfg.Tests) > 0 {
-		for alias := range cfg.Tests {
-			ui.PrintNextSteps([]ui.NextStep{
-				{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", alias)},
-			})
-			break
-		}
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	if aliases := config.ListLocalTestAliases(testsDir); len(aliases) > 0 {
+		ui.PrintNextSteps([]ui.NextStep{
+			{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", aliases[0])},
+		})
 	} else {
 		ui.PrintNextSteps([]ui.NextStep{
 			{Label: "Create a test:", Command: "revyl test create <name>"},
@@ -1210,15 +1208,12 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		return nil
 	}
 
-	// Suggest running a test if config has tests
-	cfg, cfgErr := config.LoadProjectConfig(configPath)
-	if cfgErr == nil && cfg != nil && len(cfg.Tests) > 0 {
-		for alias := range cfg.Tests {
-			ui.PrintNextSteps([]ui.NextStep{
-				{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", alias)},
-			})
-			break
-		}
+	// Suggest running a test if local tests exist
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	if aliases := config.ListLocalTestAliases(testsDir); len(aliases) > 0 {
+		ui.PrintNextSteps([]ui.NextStep{
+			{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", aliases[0])},
+		})
 	} else {
 		ui.PrintNextSteps([]ui.NextStep{
 			{Label: "Create a test:", Command: "revyl test create <name>"},

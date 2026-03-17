@@ -4,15 +4,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -21,7 +18,7 @@ var (
 	workflowRenameYes            bool
 )
 
-// runRenameWorkflow renames a workflow remotely and reconciles local alias tracking.
+// runRenameWorkflow renames a workflow remotely.
 func runRenameWorkflow(cmd *cobra.Command, args []string) error {
 	oldNameOrID, newName := parseRenameArgs(args)
 	promptMode := renamePromptsEnabled(workflowRenameNonInteractive)
@@ -34,15 +31,9 @@ func runRenameWorkflow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if cfg == nil {
-		cfg = &config.ProjectConfig{}
-	}
-	if cfg.Workflows == nil {
-		cfg.Workflows = make(map[string]string)
-	}
 
 	if oldNameOrID == "" {
-		selectedID, selectedLabel, selectErr := selectWorkflowRenameTarget(cmd.Context(), cfg, client)
+		selectedID, selectedLabel, selectErr := selectWorkflowRenameTarget(cmd.Context(), client)
 		if selectErr != nil {
 			return selectErr
 		}
@@ -90,70 +81,9 @@ func runRenameWorkflow(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	aliasToRename, aliasAmbiguous := chooseAliasForTestRename(cfg.Workflows, oldNameOrID, workflow.Name, workflowID)
-	aliasMatches := aliasesForRemoteID(cfg.Workflows, workflowID)
-	applyLocalAliasRename := aliasToRename != "" && aliasToRename != newName
-
-	if aliasAmbiguous {
-		if !promptMode {
-			return fmt.Errorf("multiple local aliases map to this workflow (%s). Run interactively to choose resolution", strings.Join(aliasMatches, ", "))
-		}
-		choice, cErr := promptChoiceWithDefault(
-			"Multiple local aliases map to this workflow. Choose action:",
-			[]ui.SelectOption{
-				{Label: "Rename remote only", Value: "remote-only", Description: "Keep local aliases unchanged."},
-				{Label: "Choose alias to rename", Value: "choose-alias", Description: "Pick one local alias to rename."},
-				{Label: "Abort", Value: "abort", Description: "Cancel this operation."},
-			},
-			0,
-			workflowRenameYes,
-		)
-		if cErr != nil {
-			return cErr
-		}
-		switch choice {
-		case "abort":
-			ui.PrintInfo("Cancelled")
-			return nil
-		case "remote-only":
-			applyLocalAliasRename = false
-		case "choose-alias":
-			selectedAlias, sErr := promptSelectAlias("Choose alias to rename:", aliasMatches)
-			if sErr != nil {
-				return sErr
-			}
-			aliasToRename = selectedAlias
-			applyLocalAliasRename = aliasToRename != "" && aliasToRename != newName
-		}
-	}
-
-	if applyLocalAliasRename {
-		if existingID, exists := cfg.Workflows[newName]; exists && existingID != workflowID {
-			if !promptMode {
-				return fmt.Errorf("local alias %q already points to a different workflow (%s)", newName, existingID)
-			}
-			choice, cErr := promptChoiceWithDefault(
-				fmt.Sprintf("Local alias %q already maps to another workflow. Choose action:", newName),
-				[]ui.SelectOption{
-					{Label: "Rename remote only", Value: "remote-only", Description: "Leave local aliases unchanged."},
-					{Label: "Abort", Value: "abort", Description: "Cancel this operation."},
-				},
-				0,
-				workflowRenameYes,
-			)
-			if cErr != nil {
-				return cErr
-			}
-			if choice == "abort" {
-				ui.PrintInfo("Cancelled")
-				return nil
-			}
-			applyLocalAliasRename = false
-		}
-	}
-
 	if promptMode {
-		printRenamePreview("workflow", workflow.Name, newName, workflowID, applyLocalAliasRename, false)
+		ui.Println()
+		ui.PrintDim("  Remote: %s -> %s (id: %s)", workflow.Name, newName, workflowID)
 		if !workflowRenameYes {
 			confirmed, cErr := ui.PromptConfirm("Apply rename?", true)
 			if cErr != nil {
@@ -179,43 +109,15 @@ func runRenameWorkflow(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Remote workflow is already named '%s'", newName)
 	}
 
-	if applyLocalAliasRename {
-		cfg.Workflows[newName] = workflowID
-		delete(cfg.Workflows, aliasToRename)
-
-		cwd, cwdErr := os.Getwd()
-		if cwdErr != nil {
-			ui.PrintWarning("Renamed remotely, but failed to get current directory for config update: %v", cwdErr)
-		} else {
-			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-			if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-				ui.PrintWarning("Renamed remotely, but failed to prepare config directory: %v", err)
-			} else if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-				ui.PrintWarning("Renamed remotely, but failed to update .revyl/config.yaml: %v", err)
-			} else {
-				ui.PrintSuccess("Updated local alias: %s -> %s", aliasToRename, newName)
-			}
-		}
-	}
-
-	if aliasAmbiguous && !applyLocalAliasRename {
-		ui.PrintWarning("Multiple local aliases matched this workflow; local alias unchanged")
-	}
-	if !applyLocalAliasRename {
-		ui.PrintDim("Local aliases left unchanged")
-	}
-
 	ui.Println()
 	ui.PrintSuccess("Workflow renamed to \"%s\" (id: %s)", newName, workflowID)
 	ui.PrintNextSteps([]ui.NextStep{
-		{Label: "Run renamed workflow:", Command: fmt.Sprintf("revyl workflow run %s", newName)},
-		{Label: "List workflows:", Command: "revyl workflow list"},
+		{Label: "Run workflow:", Command: fmt.Sprintf("revyl workflow run \"%s\"", newName)},
 	})
-
 	return nil
 }
 
-func selectWorkflowRenameTarget(ctx context.Context, cfg *config.ProjectConfig, client *api.Client) (string, string, error) {
+func selectWorkflowRenameTarget(ctx context.Context, client *api.Client) (string, string, error) {
 	ui.StartSpinner("Fetching workflows...")
 	resp, err := client.ListWorkflows(ctx)
 	ui.StopSpinner()
@@ -226,16 +128,6 @@ func selectWorkflowRenameTarget(ctx context.Context, cfg *config.ProjectConfig, 
 		return "", "", fmt.Errorf("no workflows found in organization")
 	}
 
-	aliasesByID := make(map[string][]string)
-	if cfg != nil && cfg.Workflows != nil {
-		for alias, id := range cfg.Workflows {
-			aliasesByID[id] = append(aliasesByID[id], alias)
-		}
-		for id := range aliasesByID {
-			sort.Strings(aliasesByID[id])
-		}
-	}
-
 	type item struct {
 		label string
 		desc  string
@@ -243,16 +135,11 @@ func selectWorkflowRenameTarget(ctx context.Context, cfg *config.ProjectConfig, 
 	}
 	items := make([]item, 0, len(resp.Workflows))
 	for _, w := range resp.Workflows {
-		aliases := aliasesByID[w.ID]
-		label := w.Name
-		if len(aliases) > 0 {
-			label = aliases[0]
-		}
-		desc := fmt.Sprintf("Remote: %s | ID: %s", w.Name, w.ID)
-		if len(aliases) > 0 {
-			desc = fmt.Sprintf("Aliases: %s | %s", strings.Join(aliases, ", "), desc)
-		}
-		items = append(items, item{label: label, desc: desc, id: w.ID})
+		items = append(items, item{
+			label: w.Name,
+			desc:  fmt.Sprintf("Remote: %s | ID: %s", w.Name, w.ID),
+			id:    w.ID,
+		})
 	}
 	sort.Slice(items, func(i, j int) bool {
 		li := strings.ToLower(items[i].label)

@@ -1,0 +1,19 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 3462c229-c34a-42d0-a5bc-504def91c0c9
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-03-16T10:12:03-07:00"
+    checksum: 6b3a9e4a0e9a85fcee55e2720ce553ac5a0bfb5f3277271682ecca7aaf6f2533
+test:
+    metadata:
+        name: e2e-test-5b591e95
+        platform: android
+    build:
+        name: e2e-placeholder
+    blocks:
+        - type: instructions
+          step_description: E2E test step
+        - type: validation
+          step_description: E2E validation step

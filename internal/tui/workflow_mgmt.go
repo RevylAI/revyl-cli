@@ -39,11 +39,14 @@ var workflowDetailActions = []workflowDetailAction{
 	{Key: "o", Desc: "Open in browser"},
 	{Key: "h", Desc: "Run history"},
 	{Key: "x", Desc: "Delete workflow"},
+	{Key: "s", Desc: "Settings"},
 }
 
 // --- Commands ---
 
-// fetchWorkflowBrowseListCmd fetches the workflow list enriched with last-run info.
+// fetchWorkflowBrowseListCmd fetches the workflow list with last-run info in a
+// single API call. The get_with_last_status endpoint already returns test_count
+// and last_execution, so no per-workflow detail fetches are needed.
 //
 // Parameters:
 //   - client: the API client
@@ -63,15 +66,18 @@ func fetchWorkflowBrowseListCmd(client *api.Client) tea.Cmd {
 		var items []WorkflowItem
 		for _, w := range resp.Workflows {
 			item := WorkflowItem{
-				ID:   w.ID,
-				Name: w.Name,
+				ID:        w.ID,
+				Name:      w.Name,
+				TestCount: w.TestCount,
 			}
 
-			// Fetch full workflow to get test list
-			full, wErr := client.GetWorkflow(ctx, w.ID)
-			if wErr == nil && full != nil {
-				item.TestCount = len(full.Tests)
-				item.TestNames = full.Tests // These are IDs, displayed as count
+			if w.LastExecution != nil && w.LastExecution.Status != "not_run" {
+				item.LastRunStatus = w.LastExecution.Status
+				if w.LastExecution.LastRun != nil {
+					if t, err := time.Parse(time.RFC3339Nano, *w.LastExecution.LastRun); err == nil {
+						item.LastRunTime = t
+					}
+				}
 			}
 
 			items = append(items, item)
@@ -81,7 +87,8 @@ func fetchWorkflowBrowseListCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-// fetchWorkflowDetailCmd fetches a single workflow's detail.
+// fetchWorkflowDetailCmd fetches a single workflow's detail including resolved
+// test names/platforms and last execution status.
 //
 // Parameters:
 //   - client: the API client
@@ -104,6 +111,28 @@ func fetchWorkflowDetailCmd(client *api.Client, workflowID string) tea.Cmd {
 			Name:      full.Name,
 			TestCount: len(full.Tests),
 			TestNames: full.Tests,
+		}
+
+		info, infoErr := client.GetWorkflowInfo(ctx, workflowID)
+		if infoErr == nil && info != nil {
+			item.TestInfo = info.TestInfo
+			item.TestCount = len(info.TestInfo)
+			names := make([]string, 0, len(info.TestInfo))
+			for _, ti := range info.TestInfo {
+				names = append(names, ti.Name)
+			}
+			item.TestNames = names
+		}
+
+		history, hErr := client.GetWorkflowHistory(ctx, workflowID, 1, 0)
+		if hErr == nil && len(history.Executions) > 0 {
+			latest := history.Executions[0]
+			item.LastRunStatus = latest.Status
+			if latest.StartedAt != "" {
+				if t, err := time.Parse(time.RFC3339Nano, latest.StartedAt); err == nil {
+					item.LastRunTime = t
+				}
+			}
 		}
 
 		return WorkflowDetailMsg{Workflow: item}
@@ -436,6 +465,12 @@ func executeWorkflowDetailActionByKey(m hubModel, key string) (tea.Model, tea.Cm
 		}
 	case "x":
 		m.wfConfirmDelete = true
+	case "s":
+		if m.selectedWfDetail != nil && m.client != nil {
+			m.currentView = viewWorkflowSettings
+			m.wfSettingsLoading = true
+			return m, fetchWorkflowSettingsCmd(m.client, m.selectedWfDetail.ID)
+		}
 	}
 	return m, nil
 }
@@ -667,11 +702,21 @@ func renderWorkflowDetail(m hubModel) string {
 	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
 	b.WriteString(banner + "\n")
 
-	// Info
-	b.WriteString(fmt.Sprintf("  %-12s %s (%d)\n",
-		dimStyle.Render("Tests"),
-		dimStyle.Render("test IDs"),
-		wf.TestCount))
+	// Tests
+	if len(wf.TestInfo) > 0 {
+		b.WriteString(fmt.Sprintf("  %-12s %s\n",
+			dimStyle.Render("Tests"),
+			dimStyle.Render(fmt.Sprintf("(%d)", len(wf.TestInfo)))))
+		for _, ti := range wf.TestInfo {
+			b.WriteString(fmt.Sprintf("    %-22s %s\n",
+				normalStyle.Render(ti.Name),
+				dimStyle.Render(ti.Platform)))
+		}
+	} else {
+		b.WriteString(fmt.Sprintf("  %-12s %s\n",
+			dimStyle.Render("Tests"),
+			dimStyle.Render(fmt.Sprintf("(%d)", wf.TestCount))))
+	}
 
 	if wf.LastRunStatus != "" {
 		icon := statusIcon(wf.LastRunStatus)
@@ -896,6 +941,538 @@ func renderWorkflowExecution(m hubModel) string {
 	} else {
 		b.WriteString("  " + helpKeyRender("ctrl+c", "cancel") + "\n")
 	}
+
+	return b.String()
+}
+
+// --- Workflow Settings Screen ---
+
+const (
+	wfSettingsSectionTests    = 0
+	wfSettingsSectionApp      = 1
+	wfSettingsSectionLocation = 2
+	wfSettingsSectionConfig   = 3
+	wfSettingsSectionCount    = 4
+)
+
+// fetchWorkflowSettingsCmd loads the data needed for the workflow settings screen:
+// the full workflow definition and all org tests (for the toggle list).
+//
+// Parameters:
+//   - client: the API client
+//   - workflowID: the workflow to configure
+//
+// Returns:
+//   - tea.Cmd: command producing WorkflowSettingsMsg
+func fetchWorkflowSettingsCmd(client *api.Client, workflowID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		wf, err := client.GetWorkflow(ctx, workflowID)
+		if err != nil {
+			return WorkflowSettingsMsg{Err: err}
+		}
+
+		testsResp, tErr := client.ListOrgTests(ctx, 200, 0)
+		var allTests []TestItem
+		if tErr == nil {
+			for _, t := range testsResp.Tests {
+				allTests = append(allTests, TestItem{
+					ID:       t.ID,
+					Name:     t.Name,
+					Platform: t.Platform,
+				})
+			}
+		}
+
+		return WorkflowSettingsMsg{Workflow: wf, AllTests: allTests}
+	}
+}
+
+// saveWorkflowSettingsCmd persists the updated test list for a workflow.
+//
+// Parameters:
+//   - client: the API client
+//   - workflowID: the workflow to update
+//   - testIDs: the new test list
+//
+// Returns:
+//   - tea.Cmd: command producing WorkflowSettingsSavedMsg
+func saveWorkflowSettingsCmd(client *api.Client, workflowID string, testIDs []string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := client.UpdateWorkflowTests(ctx, workflowID, testIDs)
+		return WorkflowSettingsSavedMsg{Err: err}
+	}
+}
+
+// saveWorkflowOverridesCmd persists app/location/run config overrides.
+//
+// Parameters:
+//   - client: the API client
+//   - workflowID: the workflow to update
+//   - wf: the current workflow state with overrides
+//
+// Returns:
+//   - tea.Cmd: command producing WorkflowSettingsSavedMsg
+func saveWorkflowOverridesCmd(client *api.Client, workflowID string, wf *api.Workflow) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		if err := client.UpdateWorkflowBuildConfig(ctx, workflowID, wf.BuildConfig, wf.OverrideBuildConfig); err != nil {
+			return WorkflowSettingsSavedMsg{Err: err}
+		}
+		if err := client.UpdateWorkflowLocationConfig(ctx, workflowID, wf.LocationConfig, wf.OverrideLocation); err != nil {
+			return WorkflowSettingsSavedMsg{Err: err}
+		}
+		if wf.RunConfig != nil {
+			if err := client.UpdateWorkflowRunConfig(ctx, workflowID, wf.RunConfig); err != nil {
+				return WorkflowSettingsSavedMsg{Err: err}
+			}
+		}
+
+		return WorkflowSettingsSavedMsg{}
+	}
+}
+
+// handleWorkflowSettingsKey processes key events on the workflow settings screen.
+//
+// Parameters:
+//   - m: the hub model
+//   - msg: the key message
+//
+// Returns:
+//   - tea.Model: updated model
+//   - tea.Cmd: next command
+func handleWorkflowSettingsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.wfSettingsEditing {
+		switch msg.String() {
+		case "esc":
+			m.wfSettingsEditing = false
+			m.wfSettingsInput.Blur()
+			return m, nil
+		case "enter":
+			m.wfSettingsEditing = false
+			m.wfSettingsInput.Blur()
+			applySettingsEdit(&m)
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.wfSettingsInput, cmd = m.wfSettingsInput.Update(msg)
+			return m, cmd
+		}
+	}
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.currentView = viewWorkflowDetail
+		m.wfSettingsWorkflow = nil
+		return m, nil
+	case "tab":
+		m.wfSettingsSection = (m.wfSettingsSection + 1) % wfSettingsSectionCount
+		m.wfSettingsCursor = 0
+		return m, nil
+	case "shift+tab":
+		m.wfSettingsSection = (m.wfSettingsSection - 1 + wfSettingsSectionCount) % wfSettingsSectionCount
+		m.wfSettingsCursor = 0
+		return m, nil
+	case "up", "k":
+		if m.wfSettingsCursor > 0 {
+			m.wfSettingsCursor--
+		}
+	case "down", "j":
+		maxCursor := settingsSectionMaxCursor(m)
+		if m.wfSettingsCursor < maxCursor {
+			m.wfSettingsCursor++
+		}
+	case " ":
+		if m.wfSettingsSection == wfSettingsSectionTests {
+			toggleSettingsTest(&m)
+		}
+	case "enter":
+		if m.wfSettingsSection != wfSettingsSectionTests {
+			startSettingsEdit(&m)
+			return m, textinput.Blink
+		}
+	case "s":
+		if m.wfSettingsDirty && m.selectedWfDetail != nil && m.client != nil {
+			m.wfSettingsLoading = true
+			testIDs := collectToggledTestIDs(m)
+			return m, tea.Batch(
+				saveWorkflowSettingsCmd(m.client, m.selectedWfDetail.ID, testIDs),
+				saveWorkflowOverridesCmd(m.client, m.selectedWfDetail.ID, m.wfSettingsWorkflow),
+			)
+		}
+	}
+	return m, nil
+}
+
+// settingsSectionMaxCursor returns the maximum cursor index for the current section.
+func settingsSectionMaxCursor(m hubModel) int {
+	switch m.wfSettingsSection {
+	case wfSettingsSectionTests:
+		return max(0, len(m.wfSettingsAllTests)-1)
+	case wfSettingsSectionApp:
+		return 1
+	case wfSettingsSectionLocation:
+		return 1
+	case wfSettingsSectionConfig:
+		return 1
+	}
+	return 0
+}
+
+// toggleSettingsTest toggles a test's inclusion in the workflow.
+func toggleSettingsTest(m *hubModel) {
+	if m.wfSettingsCursor < len(m.wfSettingsAllTests) {
+		tid := m.wfSettingsAllTests[m.wfSettingsCursor].ID
+		m.wfSettingsTestToggle[tid] = !m.wfSettingsTestToggle[tid]
+		m.wfSettingsDirty = true
+	}
+}
+
+// collectToggledTestIDs returns the list of test IDs currently toggled on.
+func collectToggledTestIDs(m hubModel) []string {
+	var ids []string
+	for _, t := range m.wfSettingsAllTests {
+		if m.wfSettingsTestToggle[t.ID] {
+			ids = append(ids, t.ID)
+		}
+	}
+	return ids
+}
+
+// startSettingsEdit enters edit mode for the current field.
+func startSettingsEdit(m *hubModel) {
+	m.wfSettingsEditing = true
+	m.wfSettingsInput = textinput.New()
+	m.wfSettingsInput.Focus()
+
+	wf := m.wfSettingsWorkflow
+	if wf == nil {
+		return
+	}
+
+	switch m.wfSettingsSection {
+	case wfSettingsSectionApp:
+		if m.wfSettingsCursor == 0 {
+			m.wfSettingsEditField = "ios_app"
+			m.wfSettingsInput.Placeholder = "iOS app ID"
+			if wf.BuildConfig != nil {
+				if iosBuild, ok := wf.BuildConfig["ios_build"].(map[string]interface{}); ok {
+					if appID, ok := iosBuild["app_id"].(string); ok {
+						m.wfSettingsInput.SetValue(appID)
+					}
+				}
+			}
+		} else {
+			m.wfSettingsEditField = "android_app"
+			m.wfSettingsInput.Placeholder = "Android app ID"
+			if wf.BuildConfig != nil {
+				if androidBuild, ok := wf.BuildConfig["android_build"].(map[string]interface{}); ok {
+					if appID, ok := androidBuild["app_id"].(string); ok {
+						m.wfSettingsInput.SetValue(appID)
+					}
+				}
+			}
+		}
+	case wfSettingsSectionLocation:
+		if m.wfSettingsCursor == 0 {
+			m.wfSettingsEditField = "latitude"
+			m.wfSettingsInput.Placeholder = "Latitude (e.g. 37.7749)"
+			if wf.LocationConfig != nil {
+				if lat, ok := wf.LocationConfig["latitude"]; ok {
+					m.wfSettingsInput.SetValue(fmt.Sprintf("%v", lat))
+				}
+			}
+		} else {
+			m.wfSettingsEditField = "longitude"
+			m.wfSettingsInput.Placeholder = "Longitude (e.g. -122.4194)"
+			if wf.LocationConfig != nil {
+				if lng, ok := wf.LocationConfig["longitude"]; ok {
+					m.wfSettingsInput.SetValue(fmt.Sprintf("%v", lng))
+				}
+			}
+		}
+	case wfSettingsSectionConfig:
+		if m.wfSettingsCursor == 0 {
+			m.wfSettingsEditField = "parallelism"
+			m.wfSettingsInput.Placeholder = "Parallelism (e.g. 2)"
+			if wf.RunConfig != nil && wf.RunConfig.Parallelism > 0 {
+				m.wfSettingsInput.SetValue(fmt.Sprintf("%d", wf.RunConfig.Parallelism))
+			}
+		} else {
+			m.wfSettingsEditField = "max_retries"
+			m.wfSettingsInput.Placeholder = "Max retries (e.g. 3)"
+			if wf.RunConfig != nil && wf.RunConfig.MaxRetries > 0 {
+				m.wfSettingsInput.SetValue(fmt.Sprintf("%d", wf.RunConfig.MaxRetries))
+			}
+		}
+	}
+}
+
+// applySettingsEdit applies the edited value back to the workflow model.
+func applySettingsEdit(m *hubModel) {
+	val := strings.TrimSpace(m.wfSettingsInput.Value())
+	wf := m.wfSettingsWorkflow
+	if wf == nil {
+		return
+	}
+
+	switch m.wfSettingsEditField {
+	case "ios_app":
+		if wf.BuildConfig == nil {
+			wf.BuildConfig = make(map[string]interface{})
+		}
+		wf.BuildConfig["ios_build"] = map[string]interface{}{"app_id": val}
+		wf.OverrideBuildConfig = val != ""
+		m.wfSettingsDirty = true
+	case "android_app":
+		if wf.BuildConfig == nil {
+			wf.BuildConfig = make(map[string]interface{})
+		}
+		wf.BuildConfig["android_build"] = map[string]interface{}{"app_id": val}
+		wf.OverrideBuildConfig = val != ""
+		m.wfSettingsDirty = true
+	case "latitude":
+		if wf.LocationConfig == nil {
+			wf.LocationConfig = make(map[string]interface{})
+		}
+		if val == "" {
+			delete(wf.LocationConfig, "latitude")
+		} else {
+			wf.LocationConfig["latitude"] = val
+		}
+		wf.OverrideLocation = len(wf.LocationConfig) > 0
+		m.wfSettingsDirty = true
+	case "longitude":
+		if wf.LocationConfig == nil {
+			wf.LocationConfig = make(map[string]interface{})
+		}
+		if val == "" {
+			delete(wf.LocationConfig, "longitude")
+		} else {
+			wf.LocationConfig["longitude"] = val
+		}
+		wf.OverrideLocation = len(wf.LocationConfig) > 0
+		m.wfSettingsDirty = true
+	case "parallelism":
+		if wf.RunConfig == nil {
+			wf.RunConfig = &api.WorkflowRunConfig{}
+		}
+		n := 0
+		fmt.Sscanf(val, "%d", &n)
+		wf.RunConfig.Parallelism = n
+		m.wfSettingsDirty = true
+	case "max_retries":
+		if wf.RunConfig == nil {
+			wf.RunConfig = &api.WorkflowRunConfig{}
+		}
+		n := 0
+		fmt.Sscanf(val, "%d", &n)
+		wf.RunConfig.MaxRetries = n
+		m.wfSettingsDirty = true
+	}
+}
+
+// renderWorkflowSettings renders the workflow settings screen.
+//
+// Parameters:
+//   - m: the hub model
+//
+// Returns:
+//   - string: rendered output
+func renderWorkflowSettings(m hubModel) string {
+	var b strings.Builder
+	w := m.width
+	if w == 0 {
+		w = 80
+	}
+	innerW := min(w-4, 58)
+
+	wfName := "Workflow"
+	if m.selectedWfDetail != nil {
+		wfName = m.selectedWfDetail.Name
+	}
+
+	bannerContent := titleStyle.Render("REVYL") + "  " + dimStyle.Render("Settings: "+wfName)
+	banner := headerBannerStyle.Width(innerW).Render(bannerContent)
+	b.WriteString(banner + "\n")
+
+	if m.wfSettingsLoading {
+		b.WriteString("  " + m.spinner.View() + " Loading...\n")
+		return b.String()
+	}
+
+	wf := m.wfSettingsWorkflow
+
+	// --- Tests section ---
+	selectedCount := 0
+	for _, on := range m.wfSettingsTestToggle {
+		if on {
+			selectedCount++
+		}
+	}
+
+	testHeader := fmt.Sprintf("TESTS (%d/%d)", selectedCount, len(m.wfSettingsAllTests))
+	if m.wfSettingsSection == wfSettingsSectionTests {
+		b.WriteString("\n" + sectionStyle.Render("  "+testHeader) + "  " + selectedStyle.Render("◀") + "\n")
+	} else {
+		b.WriteString("\n" + sectionStyle.Render("  "+testHeader) + "\n")
+	}
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	if len(m.wfSettingsAllTests) == 0 {
+		b.WriteString("  " + dimStyle.Render("No tests available") + "\n")
+	} else {
+		start, end := scrollWindow(m.wfSettingsCursor, len(m.wfSettingsAllTests), 8)
+		for i := start; i < end; i++ {
+			t := m.wfSettingsAllTests[i]
+			cursor := "  "
+			if m.wfSettingsSection == wfSettingsSectionTests && i == m.wfSettingsCursor {
+				cursor = selectedStyle.Render("▸ ")
+			}
+			check := "[ ]"
+			if m.wfSettingsTestToggle[t.ID] {
+				check = successStyle.Render("[✓]")
+			}
+			b.WriteString(fmt.Sprintf("  %s%s %-22s %s\n", cursor, check,
+				normalStyle.Render(t.Name), dimStyle.Render(t.Platform)))
+		}
+	}
+
+	// --- App Overrides section ---
+	if m.wfSettingsSection == wfSettingsSectionApp {
+		b.WriteString("\n" + sectionStyle.Render("  APP OVERRIDES") + "  " + selectedStyle.Render("◀") + "\n")
+	} else {
+		b.WriteString("\n" + sectionStyle.Render("  APP OVERRIDES") + "\n")
+	}
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	iosApp := dimStyle.Render("(not set)")
+	androidApp := dimStyle.Render("(not set)")
+	if wf != nil && wf.OverrideBuildConfig && wf.BuildConfig != nil {
+		if iosBuild, ok := wf.BuildConfig["ios_build"].(map[string]interface{}); ok {
+			if appID, ok := iosBuild["app_id"].(string); ok && appID != "" {
+				iosApp = normalStyle.Render(appID)
+			}
+		}
+		if androidBuild, ok := wf.BuildConfig["android_build"].(map[string]interface{}); ok {
+			if appID, ok := androidBuild["app_id"].(string); ok && appID != "" {
+				androidApp = normalStyle.Render(appID)
+			}
+		}
+	}
+
+	iosCursor := "  "
+	androidCursor := "  "
+	if m.wfSettingsSection == wfSettingsSectionApp {
+		if m.wfSettingsCursor == 0 {
+			iosCursor = selectedStyle.Render("▸ ")
+			if m.wfSettingsEditing {
+				iosApp = m.wfSettingsInput.View()
+			}
+		} else {
+			androidCursor = selectedStyle.Render("▸ ")
+			if m.wfSettingsEditing {
+				androidApp = m.wfSettingsInput.View()
+			}
+		}
+	}
+	b.WriteString(fmt.Sprintf("  %s%-12s %s\n", iosCursor, dimStyle.Render("iOS:"), iosApp))
+	b.WriteString(fmt.Sprintf("  %s%-12s %s\n", androidCursor, dimStyle.Render("Android:"), androidApp))
+
+	// --- Location section ---
+	if m.wfSettingsSection == wfSettingsSectionLocation {
+		b.WriteString("\n" + sectionStyle.Render("  LOCATION OVERRIDE") + "  " + selectedStyle.Render("◀") + "\n")
+	} else {
+		b.WriteString("\n" + sectionStyle.Render("  LOCATION OVERRIDE") + "\n")
+	}
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	latVal := dimStyle.Render("(not set)")
+	lngVal := dimStyle.Render("(not set)")
+	if wf != nil && wf.OverrideLocation && wf.LocationConfig != nil {
+		if lat, ok := wf.LocationConfig["latitude"]; ok {
+			latVal = normalStyle.Render(fmt.Sprintf("%v", lat))
+		}
+		if lng, ok := wf.LocationConfig["longitude"]; ok {
+			lngVal = normalStyle.Render(fmt.Sprintf("%v", lng))
+		}
+	}
+
+	latCursor := "  "
+	lngCursor := "  "
+	if m.wfSettingsSection == wfSettingsSectionLocation {
+		if m.wfSettingsCursor == 0 {
+			latCursor = selectedStyle.Render("▸ ")
+			if m.wfSettingsEditing {
+				latVal = m.wfSettingsInput.View()
+			}
+		} else {
+			lngCursor = selectedStyle.Render("▸ ")
+			if m.wfSettingsEditing {
+				lngVal = m.wfSettingsInput.View()
+			}
+		}
+	}
+	b.WriteString(fmt.Sprintf("  %s%-12s %s\n", latCursor, dimStyle.Render("Latitude:"), latVal))
+	b.WriteString(fmt.Sprintf("  %s%-12s %s\n", lngCursor, dimStyle.Render("Longitude:"), lngVal))
+
+	// --- Run Config section ---
+	if m.wfSettingsSection == wfSettingsSectionConfig {
+		b.WriteString("\n" + sectionStyle.Render("  RUN CONFIG") + "  " + selectedStyle.Render("◀") + "\n")
+	} else {
+		b.WriteString("\n" + sectionStyle.Render("  RUN CONFIG") + "\n")
+	}
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	parallelVal := dimStyle.Render("(default)")
+	retriesVal := dimStyle.Render("(default)")
+	if wf != nil && wf.RunConfig != nil {
+		if wf.RunConfig.Parallelism > 0 {
+			parallelVal = normalStyle.Render(fmt.Sprintf("%d", wf.RunConfig.Parallelism))
+		}
+		if wf.RunConfig.MaxRetries > 0 {
+			retriesVal = normalStyle.Render(fmt.Sprintf("%d", wf.RunConfig.MaxRetries))
+		}
+	}
+
+	parCursor := "  "
+	retCursor := "  "
+	if m.wfSettingsSection == wfSettingsSectionConfig {
+		if m.wfSettingsCursor == 0 {
+			parCursor = selectedStyle.Render("▸ ")
+			if m.wfSettingsEditing {
+				parallelVal = m.wfSettingsInput.View()
+			}
+		} else {
+			retCursor = selectedStyle.Render("▸ ")
+			if m.wfSettingsEditing {
+				retriesVal = m.wfSettingsInput.View()
+			}
+		}
+	}
+	b.WriteString(fmt.Sprintf("  %s%-14s %s\n", parCursor, dimStyle.Render("Parallelism:"), parallelVal))
+	b.WriteString(fmt.Sprintf("  %s%-14s %s\n", retCursor, dimStyle.Render("Max Retries:"), retriesVal))
+
+	// --- Footer ---
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("space", "toggle"),
+		helpKeyRender("tab", "section"),
+		helpKeyRender("enter", "edit"),
+	}
+	if m.wfSettingsDirty {
+		keys = append(keys, helpKeyRender("s", "save"))
+	}
+	keys = append(keys, helpKeyRender("esc", "back"))
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
 
 	return b.String()
 }

@@ -80,6 +80,7 @@ type syncFlagValues struct {
 	prune            bool
 	dryRun           bool
 	skipHotReloadChk bool
+	bootstrap        bool
 }
 
 func registerSyncFlags(cmd *cobra.Command) {
@@ -91,6 +92,7 @@ func registerSyncFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("prune", false, "Auto-prune stale/deleted mappings")
 	cmd.Flags().Bool("dry-run", false, "Show planned actions without writing files")
 	cmd.Flags().Bool("skip-hotreload-check", false, "Skip validating hotreload platform key mappings")
+	cmd.Flags().Bool("bootstrap", false, "Rebuild config mappings from local YAML _meta.remote_id values (useful after cloning)")
 }
 
 func readSyncFlags(cmd *cobra.Command) (syncFlagValues, error) {
@@ -126,6 +128,10 @@ func readSyncFlags(cmd *cobra.Command) (syncFlagValues, error) {
 	if err != nil {
 		return syncFlagValues{}, err
 	}
+	bootstrap, err := cmd.Flags().GetBool("bootstrap")
+	if err != nil {
+		return syncFlagValues{}, err
+	}
 
 	return syncFlagValues{
 		tests:            tests,
@@ -136,6 +142,7 @@ func readSyncFlags(cmd *cobra.Command) (syncFlagValues, error) {
 		prune:            prune,
 		dryRun:           dryRun,
 		skipHotReloadChk: skipHotReloadChk,
+		bootstrap:        bootstrap,
 	}, nil
 }
 
@@ -149,11 +156,9 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	runTests := flags.tests
-	runWorkflows := flags.workflows
 	runApps := flags.apps
-	if !runTests && !runWorkflows && !runApps {
+	if !runTests && !runApps {
 		runTests = true
-		runWorkflows = true
 		runApps = true
 	}
 
@@ -200,6 +205,10 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if flags.bootstrap {
+		return runBootstrap(cfg, configPath, testsDir)
+	}
+
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	useSpinner := !jsonOutput && !opts.Prompt
@@ -220,17 +229,6 @@ func runSync(cmd *cobra.Command, args []string) error {
 	if runTests {
 		items, domainChanged, domainErr := syncTestsDomain(ctx, client, cfg, testsDir, opts)
 		out.Tests = items
-		if domainChanged {
-			changed = true
-		}
-		if domainErr != nil {
-			hadError = true
-		}
-	}
-
-	if runWorkflows {
-		items, domainChanged, domainErr := syncWorkflowsDomain(ctx, client, cfg, opts)
-		out.Workflows = items
 		if domainChanged {
 			changed = true
 		}
@@ -412,9 +410,6 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 	})
 
 	existingIDs := make(map[string]bool)
-	for _, id := range cfg.Tests {
-		existingIDs[id] = true
-	}
 	for _, lt := range localTests {
 		if lt != nil && lt.Meta.RemoteID != "" {
 			existingIDs[lt.Meta.RemoteID] = true
@@ -429,13 +424,31 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 		if alias == "" {
 			alias = fmt.Sprintf("test-%s", truncatePrefix(rt.ID, 8))
 		}
-		alias = ensureUniqueAlias(alias, cfg.Tests)
+		alias = ensureUniqueAlias(alias, localTests)
 
 		action := "import"
 		if opts.DryRun {
 			action = "would-import"
 		} else {
-			cfg.Tests[alias] = rt.ID
+			if mkErr := os.MkdirAll(testsDir, 0755); mkErr != nil {
+				items = append(items, syncItem{
+					Name: alias, ID: rt.ID, Status: "error",
+					Action: "import", Error: mkErr.Error(),
+				})
+				continue
+			}
+			newTest := &config.LocalTest{
+				Meta: config.TestMeta{RemoteID: rt.ID},
+			}
+			localPath := filepath.Join(testsDir, alias+".yaml")
+			if saveErr := config.SaveLocalTest(localPath, newTest); saveErr != nil {
+				items = append(items, syncItem{
+					Name: alias, ID: rt.ID, Status: "error",
+					Action: "import", Error: saveErr.Error(),
+				})
+				continue
+			}
+			localTests[alias] = newTest
 			existingIDs[rt.ID] = true
 			changed = true
 		}
@@ -444,7 +457,7 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 			ID:      rt.ID,
 			Status:  "remote-only",
 			Action:  action,
-			Message: "discovered from organization and added to config",
+			Message: "discovered from organization and added to local tests",
 		})
 	}
 
@@ -539,8 +552,8 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 			continue
 		}
 
-		if cfgID, ok := cfg.Tests[st.Name]; ok && cfgID != "" {
-			if _, exists := remoteByID[cfgID]; !exists {
+		if staleLT := localTests[st.Name]; staleLT != nil && staleLT.Meta.RemoteID != "" {
+			if _, exists := remoteByID[staleLT.Meta.RemoteID]; !exists {
 				item.Status = "stale"
 				localTest, localPath, hasLocalFile := resolveLocalTestForAlias(localTests, testsDir, st.Name)
 				hasLocalChanges := false
@@ -586,10 +599,14 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 							item.Message = "detached stale mapping and kept modified local test file"
 						}
 					case "prune-alias":
-						delete(cfg.Tests, st.Name)
-						changed = true
+						mutated, pErr := detachTestLink(cfg, st.Name, localTest, localPath)
+						if pErr != nil {
+							item.Error = pErr.Error()
+							hadErr = true
+						} else if mutated {
+							changed = true
+						}
 					case "prune-all":
-						delete(cfg.Tests, st.Name)
 						changed = true
 						if hasLocalFile {
 							rmErr := os.Remove(localPath)
@@ -681,7 +698,7 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 		items = append(items, item)
 	}
 
-	dups := duplicateAliasesByID(cfg.Tests)
+	dups := duplicateAliasesByID(localTests)
 	for id, aliasesForID := range dups {
 		if len(aliasesForID) < 2 {
 			continue
@@ -706,7 +723,13 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 			if opts.DryRun && action == "prune-alias" {
 				item.Action = "would-prune-alias"
 			} else if !opts.DryRun && action == "prune-alias" {
-				delete(cfg.Tests, alias)
+				if dupLT := localTests[alias]; dupLT != nil {
+					dupLT.Meta.RemoteID = ""
+					dupLT.Meta.RemoteVersion = 0
+					dupLT.Meta.LastSyncedAt = ""
+					dupPath := filepath.Join(testsDir, alias+".yaml")
+					_ = config.SaveLocalTest(dupPath, dupLT)
+				}
 				changed = true
 			}
 			items = append(items, item)
@@ -715,125 +738,6 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 
 	if hadErr {
 		return items, changed, fmt.Errorf("one or more test sync actions failed")
-	}
-	return items, changed, nil
-}
-
-func syncWorkflowsDomain(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, opts syncOptions) ([]syncItem, bool, error) {
-	items := make([]syncItem, 0)
-	changed := false
-	hadErr := false
-
-	remoteWf, err := client.ListAllWorkflows(ctx, 200)
-	if err != nil {
-		items = append(items, syncItem{Name: "workflows", Status: "error", Action: "list", Error: err.Error()})
-		return items, changed, err
-	}
-
-	remoteByID := make(map[string]api.SimpleWorkflow, len(remoteWf))
-	for _, w := range remoteWf {
-		remoteByID[w.ID] = w
-	}
-
-	sort.Slice(remoteWf, func(i, j int) bool {
-		if strings.EqualFold(remoteWf[i].Name, remoteWf[j].Name) {
-			return remoteWf[i].ID < remoteWf[j].ID
-		}
-		return strings.ToLower(remoteWf[i].Name) < strings.ToLower(remoteWf[j].Name)
-	})
-
-	existingIDs := make(map[string]bool)
-	for _, id := range cfg.Workflows {
-		existingIDs[id] = true
-	}
-
-	for _, w := range remoteWf {
-		if existingIDs[w.ID] {
-			continue
-		}
-		alias := util.SanitizeForFilename(w.Name)
-		if alias == "" {
-			alias = fmt.Sprintf("workflow-%s", truncatePrefix(w.ID, 8))
-		}
-		alias = ensureUniqueAlias(alias, cfg.Workflows)
-
-		action := "import"
-		if opts.DryRun {
-			action = "would-import"
-		} else {
-			cfg.Workflows[alias] = w.ID
-			existingIDs[w.ID] = true
-			changed = true
-		}
-
-		items = append(items, syncItem{
-			Name:    alias,
-			ID:      w.ID,
-			Status:  "remote-only",
-			Action:  action,
-			Message: "discovered from organization and added to config",
-		})
-	}
-
-	aliases := sortedKeys(cfg.Workflows)
-	for _, alias := range aliases {
-		id := cfg.Workflows[alias]
-		if _, ok := remoteByID[id]; ok {
-			continue
-		}
-
-		item := syncItem{Name: alias, ID: id, Status: "stale"}
-		action := "keep"
-		if opts.Prune {
-			action = "prune"
-		} else if opts.Prompt {
-			action = promptStaleWorkflowAction(alias)
-			item.Prompted = true
-		}
-		item.Action = action
-		if opts.DryRun && action == "prune" {
-			item.Action = "would-prune"
-		} else if !opts.DryRun && action == "prune" {
-			delete(cfg.Workflows, alias)
-			changed = true
-		}
-		items = append(items, item)
-	}
-
-	dups := duplicateAliasesByID(cfg.Workflows)
-	for id, aliasesForID := range dups {
-		if len(aliasesForID) < 2 {
-			continue
-		}
-		sort.Strings(aliasesForID)
-		keep := aliasesForID[0]
-		for _, alias := range aliasesForID[1:] {
-			item := syncItem{
-				Name:    alias,
-				ID:      id,
-				Status:  "duplicate",
-				Message: fmt.Sprintf("duplicates %s", keep),
-			}
-			action := "keep"
-			if opts.Prune {
-				action = "prune"
-			} else if opts.Prompt {
-				action = promptDuplicateAliasAction("workflow", alias, keep)
-				item.Prompted = true
-			}
-			item.Action = action
-			if opts.DryRun && action == "prune" {
-				item.Action = "would-prune"
-			} else if !opts.DryRun && action == "prune" {
-				delete(cfg.Workflows, alias)
-				changed = true
-			}
-			items = append(items, item)
-		}
-	}
-
-	if hadErr {
-		return items, changed, fmt.Errorf("one or more workflow sync actions failed")
 	}
 	return items, changed, nil
 }
@@ -1072,15 +976,6 @@ func pushSingleTest(ctx context.Context, client *api.Client, cfg *config.Project
 	return nil
 }
 
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 func sortedBuildPlatforms(cfg *config.ProjectConfig) []string {
 	keys := make([]string, 0, len(cfg.Build.Platforms))
 	for k := range cfg.Build.Platforms {
@@ -1090,25 +985,25 @@ func sortedBuildPlatforms(cfg *config.ProjectConfig) []string {
 	return keys
 }
 
-func ensureUniqueAlias(base string, existing map[string]string) string {
-	if existing[base] == "" {
+func ensureUniqueAlias(base string, localTests map[string]*config.LocalTest) string {
+	if localTests[base] == nil {
 		return base
 	}
 	for i := 2; ; i++ {
 		candidate := fmt.Sprintf("%s-%d", base, i)
-		if existing[candidate] == "" {
+		if localTests[candidate] == nil {
 			return candidate
 		}
 	}
 }
 
-func duplicateAliasesByID(m map[string]string) map[string][]string {
+func duplicateAliasesByID(localTests map[string]*config.LocalTest) map[string][]string {
 	byID := make(map[string][]string)
-	for alias, id := range m {
-		if id == "" {
+	for alias, lt := range localTests {
+		if lt == nil || lt.Meta.RemoteID == "" {
 			continue
 		}
-		byID[id] = append(byID[id], alias)
+		byID[lt.Meta.RemoteID] = append(byID[lt.Meta.RemoteID], alias)
 	}
 	dups := make(map[string][]string)
 	for id, aliases := range byID {
@@ -1143,13 +1038,8 @@ func resolveLocalTestForAlias(localTests map[string]*config.LocalTest, testsDir,
 	return nil, path, syncFileExists(path)
 }
 
-func detachTestLink(cfg *config.ProjectConfig, alias string, localTest *config.LocalTest, localPath string) (bool, error) {
+func detachTestLink(_ *config.ProjectConfig, _ string, localTest *config.LocalTest, localPath string) (bool, error) {
 	changed := false
-
-	if _, ok := cfg.Tests[alias]; ok {
-		delete(cfg.Tests, alias)
-		changed = true
-	}
 
 	if localTest != nil {
 		metaChanged := false
@@ -1265,18 +1155,6 @@ func promptConflictAction(name string) string {
 	return value
 }
 
-func promptStaleWorkflowAction(name string) string {
-	options := []ui.SelectOption{
-		{Label: "Keep mapping", Value: "keep", Description: "Leave workflow alias unchanged."},
-		{Label: "Prune alias", Value: "prune", Description: "Remove alias from .revyl/config.yaml."},
-	}
-	_, value, err := ui.Select(fmt.Sprintf("Workflow '%s' is missing upstream. Choose action:", name), options, 0)
-	if err != nil {
-		return "keep"
-	}
-	return value
-}
-
 func promptDuplicateAliasAction(kind, alias, keepAlias string) string {
 	options := []ui.SelectOption{
 		{Label: "Keep duplicate", Value: "keep", Description: "Retain both aliases."},
@@ -1363,4 +1241,51 @@ func listAppsForPlatform(ctx context.Context, client *api.Client, platform strin
 	})
 
 	return items, nil
+}
+
+// runBootstrap verifies local YAML _meta.remote_id links. Local YAML files
+// in .revyl/tests/ are the sole source of truth; this reports their state.
+//
+// Parameters:
+//   - cfg: The project config (unused, retained for caller compatibility)
+//   - configPath: Path to the config file (unused)
+//   - testsDir: Path to .revyl/tests/ directory
+//
+// Returns:
+//   - error: Any error that occurred
+func runBootstrap(_ *config.ProjectConfig, _, testsDir string) error {
+	localTests, err := config.LoadLocalTests(testsDir)
+	if err != nil {
+		return fmt.Errorf("failed to load local tests: %w", err)
+	}
+
+	if len(localTests) == 0 {
+		ui.PrintWarning("No local test YAML files found in %s", testsDir)
+		return nil
+	}
+
+	linked := 0
+	skipped := 0
+	for alias, test := range localTests {
+		if test.Meta.RemoteID == "" {
+			skipped++
+			continue
+		}
+		ui.PrintSuccess("  %s -> %s", alias, test.Meta.RemoteID)
+		linked++
+	}
+
+	if linked == 0 && skipped == 0 {
+		ui.PrintInfo("No local test files found.")
+		return nil
+	}
+
+	if linked > 0 {
+		ui.PrintSuccess("Found %d test(s) with remote links in local YAML metadata.", linked)
+	}
+	if skipped > 0 {
+		ui.PrintWarning("%d local test(s) have no remote_id (local-only).", skipped)
+	}
+
+	return nil
 }

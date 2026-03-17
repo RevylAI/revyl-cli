@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -293,14 +294,25 @@ func newMockAPIServer(t *testing.T) *httptest.Server {
 		json.NewEncoder(w).Encode(response)
 	})
 
-	// POST /api/v1/reports/generate_shareable_report_link_by_task
-	mux.HandleFunc("/api/v1/reports/generate_shareable_report_link_by_task", func(w http.ResponseWriter, r *http.Request) {
+	// POST /api/v1/report/async-run/generate_shareable_report_link_by_task
+	mux.HandleFunc("/api/v1/report/async-run/generate_shareable_report_link_by_task", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		json.NewDecoder(r.Body).Decode(&body)
 		taskID, _ := body["task_id"].(string)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"shareable_link": fmt.Sprintf("https://app.revyl.ai/shared/report/%s", taskID),
+		})
+	})
+
+	// GET /api/v1/workflows/get_with_last_status (ListWorkflows)
+	mux.HandleFunc("/api/v1/workflows/get_with_last_status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []map[string]interface{}{
+				{"id": "wf-uuid-001", "name": "smoke-tests"},
+				{"id": "wf-no-executions", "name": "empty-workflow"},
+			},
 		})
 	})
 
@@ -356,9 +368,9 @@ func newMockAPIServer(t *testing.T) *httptest.Server {
 		})
 	})
 
-	// GET /api/v1/workflows/status/status/{id}
-	mux.HandleFunc("/api/v1/workflows/status/status/", func(w http.ResponseWriter, r *http.Request) {
-		executionID := strings.TrimPrefix(r.URL.Path, "/api/v1/workflows/status/status/")
+	// GET /api/v1/workflows/status/{id}
+	mux.HandleFunc("/api/v1/workflows/status/", func(w http.ResponseWriter, r *http.Request) {
+		executionID := strings.TrimPrefix(r.URL.Path, "/api/v1/workflows/status/")
 		if executionID == "" {
 			executionID = "wf-exec-001"
 		}
@@ -447,24 +459,46 @@ func newMockAPIServer(t *testing.T) *httptest.Server {
 }
 
 // withMockClient overrides loadConfigAndClient so that command handlers use
-// the mock HTTP server. Restores the original function via t.Cleanup.
+// the mock HTTP server. It also creates local YAML test files so that
+// resolveTestID can find them via config.GetLocalTestRemoteID.
+// Restores the original function and working directory via t.Cleanup.
 func withMockClient(t *testing.T, server *httptest.Server) {
 	t.Helper()
 	original := loadConfigAndClient
 	t.Cleanup(func() { loadConfigAndClient = original })
 
-	loadConfigAndClient = func(devMode bool) (string, *config.ProjectConfig, *api.Client, error) {
-		client := api.NewClientWithBaseURL("test-key", server.URL)
-		cfg := &config.ProjectConfig{
-			Tests: map[string]string{
-				"login-flow": "test-uuid-001",
-				"empty-test": "test-no-executions",
-			},
-			Workflows: map[string]string{
-				"smoke-tests":    "wf-uuid-001",
-				"empty-workflow": "wf-no-executions",
+	tmp := t.TempDir()
+	testsDir := filepath.Join(tmp, ".revyl", "tests")
+	if err := os.MkdirAll(testsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(.revyl/tests): %v", err)
+	}
+	for _, tc := range []struct{ alias, remoteID string }{
+		{"login-flow", "test-uuid-001"},
+		{"empty-test", "test-no-executions"},
+	} {
+		lt := &config.LocalTest{
+			Meta: config.TestMeta{RemoteID: tc.remoteID},
+			Test: config.TestDefinition{
+				Metadata: config.TestMetadata{Name: tc.alias},
 			},
 		}
+		if err := config.SaveLocalTest(filepath.Join(testsDir, tc.alias+".yaml"), lt); err != nil {
+			t.Fatalf("SaveLocalTest(%s): %v", tc.alias, err)
+		}
+	}
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("Chdir(tmp): %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	loadConfigAndClient = func(devMode bool) (string, *config.ProjectConfig, *api.Client, error) {
+		client := api.NewClientWithBaseURL("test-key", server.URL)
+		cfg := &config.ProjectConfig{}
 		return "test-key", cfg, client, nil
 	}
 }

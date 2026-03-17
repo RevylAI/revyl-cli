@@ -1,7 +1,8 @@
-// Package main provides workflow settings commands for app and location configuration.
+// Package main provides workflow settings commands for app, location, and run configuration.
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -406,5 +407,163 @@ func runWorkflowAppShow(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.Println()
+	return nil
+}
+
+// --- Run config commands ---
+
+// Workflow config flags
+var (
+	workflowConfigParallel int
+	workflowConfigRetries  int
+)
+
+var workflowConfigCmd = &cobra.Command{
+	Use:   "config",
+	Short: "Manage workflow run configuration",
+	Long: `Manage the run configuration for a workflow (parallelism, retries).
+
+COMMANDS:
+  show    - Show current run config
+  set     - Set run config values
+
+EXAMPLES:
+  revyl workflow config show my-workflow
+  revyl workflow config set my-workflow --parallel 3 --retries 2`,
+}
+
+var workflowConfigShowCmd = &cobra.Command{
+	Use:   "show <name|id>",
+	Short: "Show current run configuration for a workflow",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runWorkflowConfigShow,
+}
+
+var workflowConfigSetCmd = &cobra.Command{
+	Use:   "set <name|id>",
+	Short: "Set run configuration for a workflow",
+	Long: `Set the run configuration for a workflow.
+
+At least one of --parallel or --retries must be provided.
+
+EXAMPLES:
+  revyl workflow config set my-workflow --parallel 3
+  revyl workflow config set my-workflow --retries 2
+  revyl workflow config set my-workflow --parallel 3 --retries 2`,
+	Args: cobra.ExactArgs(1),
+	RunE: runWorkflowConfigSet,
+}
+
+func initWorkflowConfig() {
+	workflowConfigCmd.AddCommand(workflowConfigShowCmd)
+	workflowConfigCmd.AddCommand(workflowConfigSetCmd)
+
+	workflowConfigSetCmd.Flags().IntVar(&workflowConfigParallel, "parallel", 0, "Number of tests to run in parallel")
+	workflowConfigSetCmd.Flags().IntVar(&workflowConfigRetries, "retries", 0, "Max retries for failed tests")
+}
+
+func runWorkflowConfigShow(cmd *cobra.Command, args []string) error {
+	nameOrID := args[0]
+
+	workflowID, client, err := wfSettingsSetupClient(cmd, nameOrID)
+	if err != nil {
+		return err
+	}
+
+	ui.StartSpinner("Fetching workflow...")
+	wf, err := client.GetWorkflow(cmd.Context(), workflowID)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to get workflow: %v", err)
+		return err
+	}
+
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
+	if jsonOutput {
+		cfg := wf.RunConfig
+		if cfg == nil {
+			cfg = &api.WorkflowRunConfig{}
+		}
+		data, _ := json.MarshalIndent(cfg, "", "  ")
+		fmt.Println(string(data))
+		return nil
+	}
+
+	ui.Println()
+	ui.PrintInfo("Run Config for '%s'", nameOrID)
+	ui.Println()
+
+	if wf.RunConfig == nil {
+		ui.PrintInfo("  Parallelism: (default)")
+		ui.PrintInfo("  Max Retries: (default)")
+	} else {
+		if wf.RunConfig.Parallelism > 0 {
+			ui.PrintInfo("  Parallelism: %d", wf.RunConfig.Parallelism)
+		} else {
+			ui.PrintInfo("  Parallelism: (default)")
+		}
+		if wf.RunConfig.MaxRetries > 0 {
+			ui.PrintInfo("  Max Retries: %d", wf.RunConfig.MaxRetries)
+		} else {
+			ui.PrintInfo("  Max Retries: (default)")
+		}
+	}
+
+	ui.Println()
+	return nil
+}
+
+func runWorkflowConfigSet(cmd *cobra.Command, args []string) error {
+	nameOrID := args[0]
+
+	parallelChanged := cmd.Flags().Changed("parallel")
+	retriesChanged := cmd.Flags().Changed("retries")
+	if !parallelChanged && !retriesChanged {
+		return fmt.Errorf("at least one of --parallel or --retries is required")
+	}
+
+	if parallelChanged && workflowConfigParallel < 1 {
+		return fmt.Errorf("--parallel must be >= 1 (got %d)", workflowConfigParallel)
+	}
+	if retriesChanged && workflowConfigRetries < 0 {
+		return fmt.Errorf("--retries must be >= 0 (got %d)", workflowConfigRetries)
+	}
+
+	workflowID, client, err := wfSettingsSetupClient(cmd, nameOrID)
+	if err != nil {
+		return err
+	}
+
+	// Merge with existing config to avoid clobbering unset fields
+	existing, fetchErr := client.GetWorkflow(cmd.Context(), workflowID)
+	cfg := &api.WorkflowRunConfig{}
+	if fetchErr == nil && existing.RunConfig != nil {
+		cfg = existing.RunConfig
+	}
+
+	if parallelChanged {
+		cfg.Parallelism = workflowConfigParallel
+	}
+	if retriesChanged {
+		cfg.MaxRetries = workflowConfigRetries
+	}
+
+	ui.StartSpinner("Updating run config...")
+	err = client.UpdateWorkflowRunConfig(cmd.Context(), workflowID, cfg)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to update run config: %v", err)
+		return err
+	}
+
+	ui.PrintSuccess("Run config updated for workflow '%s'", nameOrID)
+	if parallelChanged {
+		ui.PrintInfo("  Parallelism: %d", cfg.Parallelism)
+	}
+	if retriesChanged {
+		ui.PrintInfo("  Max Retries: %d", cfg.MaxRetries)
+	}
 	return nil
 }

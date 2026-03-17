@@ -1,0 +1,7 @@
+test:
+  metadata:
+    name: ""
+    platform: invalid_platform
+  blocks:
+    - type: nonexistent_type
+      step_description: "This block type does not exist"

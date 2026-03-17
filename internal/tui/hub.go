@@ -45,13 +45,13 @@ type quickAction struct {
 // quickActions is the ordered list of actions on the dashboard.
 var quickActions = []quickAction{
 	{Label: "Create a test", Key: "create", Desc: "Define a new test from YAML", RequiresAuth: true},
-	{Label: "Start Hot Reload Dev Loop", Key: "dev_loop", Desc: "Start revyl dev: hot reload + live cloud device", RequiresAuth: true},
 	{Label: "Browse tests", Key: "tests", Desc: "View, sync, and manage tests", RequiresAuth: true},
 	{Label: "Browse workflows", Key: "workflows", Desc: "Create, run, and manage workflows", RequiresAuth: true},
 	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds", RequiresAuth: true},
 	{Label: "Browse modules", Key: "modules", Desc: "View reusable test modules", RequiresAuth: true},
 	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels", RequiresAuth: true},
 	{Label: "Device sessions", Key: "devices", Desc: "Start, view, and stop cloud devices", RequiresAuth: true},
+	{Label: "Start Hot Reload Dev Loop", Key: "dev_loop", Desc: "Start revyl dev: hot reload + live cloud device", RequiresAuth: true},
 	{Label: "Settings", Key: "settings", Desc: "View and edit project defaults", RequiresAuth: false},
 	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard", RequiresAuth: false},
 }
@@ -87,6 +87,16 @@ type hubModel struct {
 	testListWarning       string
 	testListConfirmDelete bool
 	testListDeleteTarget  TestItem
+
+	// Test list filter metadata
+	filterTags        []api.CLITagResponse // all org tags for the filter picker
+	filterApps        []api.App            // all org apps for the filter picker
+	filterTagIDs      map[string]bool      // tag IDs currently active (OR logic)
+	filterAppID       string               // "" = all, "none" = no app, or app UUID
+	filterTagPickerOn bool                 // tag multi-select overlay visible
+	filterTagCursor   int
+	filterAppPickerOn bool // app select overlay visible
+	filterAppCursor   int
 
 	// Runs list (sub-screen)
 	allRuns       []RecentRun
@@ -227,6 +237,17 @@ type hubModel struct {
 	wfExecDone       bool
 	wfExecStartTime  time.Time
 	wfExecReturnView view
+	// Workflow settings screen
+	wfSettingsSection    int
+	wfSettingsCursor     int
+	wfSettingsAllTests   []TestItem
+	wfSettingsTestToggle map[string]bool
+	wfSettingsWorkflow   *api.Workflow
+	wfSettingsLoading    bool
+	wfSettingsDirty      bool
+	wfSettingsEditing    bool
+	wfSettingsEditField  string
+	wfSettingsInput      textinput.Model
 
 	// Shared state
 	loading bool
@@ -446,10 +467,15 @@ func fetchTestsCmd(client *api.Client) tea.Cmd {
 							if item.Platform == "" {
 								item.Platform = rt.Platform
 							}
+							item.Tags = rt.Tags
+							item.AppID = rt.AppID
+							item.AppName = rt.AppName
 							usedRemoteIDs[s.RemoteID] = true
-						} else if s.RemoteID != "" && cfg.Tests[s.Name] != "" {
-							item.SyncStatus = "stale"
-							item.RemoteMissing = true
+						} else if s.RemoteID != "" {
+							if lt, ltOK := localTests[s.Name]; ltOK && lt != nil && lt.Meta.RemoteID != "" {
+								item.SyncStatus = "stale"
+								item.RemoteMissing = true
+							}
 						}
 						if item.SyncStatus == "" {
 							item.SyncStatus = "unknown"
@@ -465,6 +491,9 @@ func fetchTestsCmd(client *api.Client) tea.Cmd {
 							ID:         t.ID,
 							Name:       t.Name,
 							Platform:   t.Platform,
+							Tags:       t.Tags,
+							AppID:      t.AppID,
+							AppName:    t.AppName,
 							SyncStatus: "remote-only",
 							Source:     "remote",
 						})
@@ -480,6 +509,9 @@ func fetchTestsCmd(client *api.Client) tea.Cmd {
 					ID:         t.ID,
 					Name:       t.Name,
 					Platform:   t.Platform,
+					Tags:       t.Tags,
+					AppID:      t.AppID,
+					AppName:    t.AppName,
 					SyncStatus: "remote-only",
 					Source:     "remote",
 				}
@@ -496,6 +528,44 @@ func fetchTestsCmd(client *api.Client) tea.Cmd {
 		})
 
 		return TestListMsg{Tests: items, Warning: warning}
+	}
+}
+
+// fetchFilterTagsCmd fetches all org tags for the test-list tag picker.
+//
+// Parameters:
+//   - client: the authenticated API client
+//
+// Returns:
+//   - tea.Cmd that produces a FilterTagsMsg
+func fetchFilterTagsCmd(client *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		result, err := client.ListTags(ctx)
+		if err != nil {
+			return FilterTagsMsg{Err: err}
+		}
+		return FilterTagsMsg{Tags: result.Tags}
+	}
+}
+
+// fetchFilterAppsCmd fetches all org apps for the test-list app picker.
+//
+// Parameters:
+//   - client: the authenticated API client
+//
+// Returns:
+//   - tea.Cmd that produces a FilterAppsMsg
+func fetchFilterAppsCmd(client *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		result, err := client.ListApps(ctx, "", 1, 100)
+		if err != nil {
+			return FilterAppsMsg{Err: err}
+		}
+		return FilterAppsMsg{Apps: result.Items}
 	}
 }
 
@@ -854,7 +924,6 @@ func deleteTestLocalArtifacts(testName, testID string) testDeleteLocalResult {
 	}
 
 	testsDir := filepath.Join(cwd, ".revyl", "tests")
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
 
 	candidates := map[string]struct{}{}
 	if testName != "" {
@@ -869,29 +938,6 @@ func deleteTestLocalArtifacts(testName, testID string) testDeleteLocalResult {
 		for localName, lt := range localTests {
 			if lt != nil && lt.Meta.RemoteID == testID {
 				candidates[localName] = struct{}{}
-			}
-		}
-	}
-
-	cfg, cfgErr := config.LoadProjectConfig(configPath)
-	if cfgErr != nil {
-		if !os.IsNotExist(cfgErr) {
-			warnings = append(warnings, fmt.Sprintf("failed to load project config: %v", cfgErr))
-		}
-	} else if cfg.Tests != nil {
-		configChanged := false
-		for alias, remoteID := range cfg.Tests {
-			if alias == testName || (testID != "" && remoteID == testID) {
-				delete(cfg.Tests, alias)
-				candidates[alias] = struct{}{}
-				configChanged = true
-			}
-		}
-		if configChanged {
-			if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-				warnings = append(warnings, fmt.Sprintf("failed to update config aliases: %v", err))
-			} else {
-				result.Deleted = true
 			}
 		}
 	}
@@ -991,6 +1037,9 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.currentView == viewWorkflowDetail {
 			return handleWorkflowDetailKey(m, msg)
 		}
+		if m.currentView == viewWorkflowSettings {
+			return handleWorkflowSettingsKey(m, msg)
+		}
 		if m.currentView == viewWorkflowCreate {
 			return handleWorkflowCreateKey(m, msg)
 		}
@@ -1087,6 +1136,18 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case DashboardDataMsg:
 		if msg.Err == nil {
 			m.metrics = msg.Metrics
+		}
+		return m, nil
+
+	case FilterTagsMsg:
+		if msg.Err == nil {
+			m.filterTags = msg.Tags
+		}
+		return m, nil
+
+	case FilterAppsMsg:
+		if msg.Err == nil {
+			m.filterApps = msg.Apps
 		}
 		return m, nil
 
@@ -1510,6 +1571,38 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case WorkflowSettingsMsg:
+		m.wfSettingsLoading = false
+		if msg.Err != nil {
+			m.currentView = viewWorkflowDetail
+			return m, nil
+		}
+		m.wfSettingsWorkflow = msg.Workflow
+		m.wfSettingsAllTests = msg.AllTests
+		m.wfSettingsTestToggle = make(map[string]bool)
+		if msg.Workflow != nil {
+			for _, tid := range msg.Workflow.Tests {
+				m.wfSettingsTestToggle[tid] = true
+			}
+		}
+		m.wfSettingsSection = 0
+		m.wfSettingsCursor = 0
+		m.wfSettingsDirty = false
+		m.wfSettingsEditing = false
+		return m, nil
+
+	case WorkflowSettingsSavedMsg:
+		m.wfSettingsLoading = false
+		if msg.Err == nil {
+			m.wfSettingsDirty = false
+			m.currentView = viewWorkflowDetail
+			if m.selectedWfDetail != nil && m.client != nil {
+				m.wfDetailLoading = true
+				return m, fetchWorkflowDetailCmd(m.client, m.selectedWfDetail.ID)
+			}
+		}
+		return m, nil
+
 	case WorkflowCreatedMsg:
 		m.wfDetailLoading = false
 		if msg.Err == nil {
@@ -1690,7 +1783,18 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filteredTests = nil
 		m.filterInput.SetValue("")
 		m.filterInput.Focus()
-		return m, textinput.Blink
+		m.filterTagIDs = nil
+		m.filterAppID = ""
+		m.filterTagPickerOn = false
+		m.filterAppPickerOn = false
+		cmds := []tea.Cmd{textinput.Blink}
+		if m.client != nil {
+			cmds = append(cmds,
+				fetchFilterTagsCmd(m.client),
+				fetchFilterAppsCmd(m.client),
+			)
+		}
+		return m, tea.Batch(cmds...)
 
 	case "R":
 		m.loading = true
@@ -1875,7 +1979,18 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		m.testCursor = 0
 		m.filteredTests = nil
 		m.filterInput.SetValue("")
-		return m, nil
+		m.filterTagIDs = nil
+		m.filterAppID = ""
+		m.filterTagPickerOn = false
+		m.filterAppPickerOn = false
+		var cmds []tea.Cmd
+		if m.client != nil {
+			cmds = append(cmds,
+				fetchFilterTagsCmd(m.client),
+				fetchFilterAppsCmd(m.client),
+			)
+		}
+		return m, tea.Batch(cmds...)
 
 	case "workflows":
 		m.currentView = viewWorkflowList
@@ -2004,13 +2119,20 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if m.filterTagPickerOn {
+		return m.handleTagPickerKey(msg)
+	}
+	if m.filterAppPickerOn {
+		return m.handleAppPickerKey(msg)
+	}
+
 	if m.filterMode {
 		switch msg.String() {
 		case "esc":
 			m.filterMode = false
 			m.filterInput.Blur()
 			m.filterInput.SetValue("")
-			m.filteredTests = nil
+			m.applyFilter()
 			return m, nil
 		case "enter":
 			m.filterMode = false
@@ -2032,6 +2154,8 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentView = viewDashboard
 		m.filteredTests = nil
 		m.filterInput.SetValue("")
+		m.filterTagIDs = nil
+		m.filterAppID = ""
 		m.testListConfirmDelete = false
 		m.testListDeleteTarget = TestItem{}
 		return m, nil
@@ -2077,6 +2201,23 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filterMode = true
 		m.filterInput.Focus()
 		return m, textinput.Blink
+
+	case "t":
+		m.filterTagPickerOn = true
+		m.filterTagCursor = 0
+		return m, nil
+
+	case "a":
+		m.filterAppPickerOn = true
+		m.filterAppCursor = 0
+		return m, nil
+
+	case "c":
+		m.filterTagIDs = nil
+		m.filterAppID = ""
+		m.filterInput.SetValue("")
+		m.applyFilter()
+		return m, nil
 
 	case "r":
 		tests := m.visibleTests()
@@ -2446,20 +2587,36 @@ func (m *hubModel) visibleTests() []TestItem {
 	return m.tests
 }
 
-// applyFilter filters the test list based on the current filter input value.
+// hasActiveFilters returns true when any filter dimension (text, tags, app) is set.
+func (m *hubModel) hasActiveFilters() bool {
+	return strings.TrimSpace(m.filterInput.Value()) != "" ||
+		len(m.filterTagIDs) > 0 ||
+		m.filterAppID != ""
+}
+
+// applyFilter rebuilds the filtered test list based on all active filters.
+// Dimensions are AND'd: a test must pass text search AND tag filter AND app filter.
+// Within tags, OR logic applies: a test matches if it has ANY selected tag.
 func (m *hubModel) applyFilter() {
-	query := strings.ToLower(m.filterInput.Value())
-	if query == "" {
+	if !m.hasActiveFilters() {
 		m.filteredTests = nil
 		return
 	}
 
+	query := strings.ToLower(strings.TrimSpace(m.filterInput.Value()))
+
 	var filtered []TestItem
 	for _, t := range m.tests {
-		if strings.Contains(strings.ToLower(t.Name), query) ||
-			strings.Contains(strings.ToLower(t.Platform), query) {
-			filtered = append(filtered, t)
+		if !m.matchesTextFilter(t, query) {
+			continue
 		}
+		if !m.matchesTagFilter(t) {
+			continue
+		}
+		if !m.matchesAppFilter(t) {
+			continue
+		}
+		filtered = append(filtered, t)
 	}
 	m.filteredTests = filtered
 
@@ -2468,20 +2625,228 @@ func (m *hubModel) applyFilter() {
 	}
 }
 
-// deriveTestSource returns a compact source label for a test entry.
-func deriveTestSource(cfg *config.ProjectConfig, localTests map[string]*config.LocalTest, name string) string {
-	hasCfg := cfg != nil && cfg.Tests[name] != ""
-	_, hasLocal := localTests[name]
-	switch {
-	case hasCfg && hasLocal:
-		return "config+local"
-	case hasCfg:
-		return "config"
-	case hasLocal:
-		return "local"
-	default:
-		return "remote"
+// matchesTextFilter returns true when the test matches the free-text query.
+// Searches name, platform, tag names, and app name.
+func (m *hubModel) matchesTextFilter(t TestItem, query string) bool {
+	if query == "" {
+		return true
 	}
+	if strings.Contains(strings.ToLower(t.Name), query) ||
+		strings.Contains(strings.ToLower(t.Platform), query) ||
+		strings.Contains(strings.ToLower(t.AppName), query) {
+		return true
+	}
+	for _, tag := range t.Tags {
+		if strings.Contains(strings.ToLower(tag.Name), query) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesTagFilter returns true when the test has at least one of the selected tags (OR).
+// If no tags are selected the filter is inactive and all tests pass.
+func (m *hubModel) matchesTagFilter(t TestItem) bool {
+	if len(m.filterTagIDs) == 0 {
+		return true
+	}
+	for _, tag := range t.Tags {
+		if m.filterTagIDs[tag.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesAppFilter returns true when the test matches the selected app filter.
+// "" means all (no filter), "none" matches tests without an app, otherwise exact ID match.
+func (m *hubModel) matchesAppFilter(t TestItem) bool {
+	switch m.filterAppID {
+	case "":
+		return true
+	case "none":
+		return t.AppID == ""
+	default:
+		return t.AppID == m.filterAppID
+	}
+}
+
+// --- Tag picker overlay ---
+
+// handleTagPickerKey processes key events in the tag picker overlay.
+//
+// Parameters:
+//   - msg: the key event
+//
+// Returns:
+//   - tea.Model: updated model
+//   - tea.Cmd: any follow-up command
+func (m hubModel) handleTagPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "t":
+		m.filterTagPickerOn = false
+		return m, nil
+	case "up", "k":
+		if m.filterTagCursor > 0 {
+			m.filterTagCursor--
+		}
+	case "down", "j":
+		maxIdx := len(m.filterTags) - 1
+		if m.filterTagCursor < maxIdx {
+			m.filterTagCursor++
+		}
+	case " ", "enter":
+		if m.filterTagCursor < len(m.filterTags) {
+			tag := m.filterTags[m.filterTagCursor]
+			if m.filterTagIDs == nil {
+				m.filterTagIDs = make(map[string]bool)
+			}
+			if m.filterTagIDs[tag.ID] {
+				delete(m.filterTagIDs, tag.ID)
+			} else {
+				m.filterTagIDs[tag.ID] = true
+			}
+			if len(m.filterTagIDs) == 0 {
+				m.filterTagIDs = nil
+			}
+			m.applyFilter()
+		}
+	}
+	return m, nil
+}
+
+// renderTagPicker draws the tag multi-select overlay.
+func (m hubModel) renderTagPicker() string {
+	var b strings.Builder
+	b.WriteString("\n  " + sectionStyle.Render("Filter by Tag") + " " + dimStyle.Render("(space toggle, esc close)") + "\n")
+	b.WriteString("  " + separator(min(m.width-4, 58)) + "\n")
+
+	if len(m.filterTags) == 0 {
+		b.WriteString(dimStyle.Render("  No tags available\n"))
+		return b.String()
+	}
+
+	for i, tag := range m.filterTags {
+		cur := "  "
+		if i == m.filterTagCursor {
+			cur = selectedStyle.Render("▸ ")
+		}
+		check := "[ ]"
+		if m.filterTagIDs[tag.ID] {
+			check = "[×]"
+		}
+		b.WriteString("  " + cur + dimStyle.Render(check) + " " + normalStyle.Render(tag.Name))
+		if tag.TestCount > 0 {
+			b.WriteString(dimStyle.Render(fmt.Sprintf(" (%d)", tag.TestCount)))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// --- App picker overlay ---
+
+// handleAppPickerKey processes key events in the app picker overlay.
+//
+// Parameters:
+//   - msg: the key event
+//
+// Returns:
+//   - tea.Model: updated model
+//   - tea.Cmd: any follow-up command
+func (m hubModel) handleAppPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	itemCount := len(m.filterApps) + 2 // "All Apps" + "None (no app)" + apps
+	switch msg.String() {
+	case "esc", "a":
+		m.filterAppPickerOn = false
+		return m, nil
+	case "up", "k":
+		if m.filterAppCursor > 0 {
+			m.filterAppCursor--
+		}
+	case "down", "j":
+		if m.filterAppCursor < itemCount-1 {
+			m.filterAppCursor++
+		}
+	case "enter", " ":
+		switch m.filterAppCursor {
+		case 0:
+			m.filterAppID = ""
+		case 1:
+			m.filterAppID = "none"
+		default:
+			idx := m.filterAppCursor - 2
+			if idx < len(m.filterApps) {
+				m.filterAppID = m.filterApps[idx].ID
+			}
+		}
+		m.filterAppPickerOn = false
+		m.applyFilter()
+	}
+	return m, nil
+}
+
+// renderAppPicker draws the app select overlay.
+func (m hubModel) renderAppPicker() string {
+	var b strings.Builder
+	b.WriteString("\n  " + sectionStyle.Render("Filter by App") + " " + dimStyle.Render("(enter select, esc close)") + "\n")
+	b.WriteString("  " + separator(min(m.width-4, 58)) + "\n")
+
+	items := []struct {
+		label string
+		value string
+	}{
+		{"All Apps", ""},
+		{"None (no app)", "none"},
+	}
+	for _, app := range m.filterApps {
+		label := app.Name
+		if app.Platform != "" {
+			label += " [" + app.Platform + "]"
+		}
+		items = append(items, struct {
+			label string
+			value string
+		}{label, app.ID})
+	}
+
+	for i, item := range items {
+		cur := "  "
+		if i == m.filterAppCursor {
+			cur = selectedStyle.Render("▸ ")
+		}
+		marker := " "
+		if m.filterAppID == item.value {
+			marker = "●"
+		}
+		b.WriteString("  " + cur + dimStyle.Render(marker) + " " + normalStyle.Render(item.label) + "\n")
+	}
+	return b.String()
+}
+
+// selectedAppName returns the display name for the currently selected app filter.
+func (m hubModel) selectedAppDisplayName() string {
+	switch m.filterAppID {
+	case "":
+		return ""
+	case "none":
+		return "None"
+	default:
+		for _, app := range m.filterApps {
+			if app.ID == m.filterAppID {
+				return app.Name
+			}
+		}
+		return m.filterAppID[:8]
+	}
+}
+
+// deriveTestSource returns a compact source label for a test entry.
+func deriveTestSource(_ *config.ProjectConfig, localTests map[string]*config.LocalTest, name string) string {
+	if lt, ok := localTests[name]; ok && lt != nil {
+		return "local"
+	}
+	return "remote"
 }
 
 func (m hubModel) isAuthenticated() bool {
@@ -2614,6 +2979,8 @@ func (m hubModel) View() string {
 		return renderWorkflowList(m)
 	case viewWorkflowDetail:
 		return renderWorkflowDetail(m)
+	case viewWorkflowSettings:
+		return renderWorkflowSettings(m)
 	case viewWorkflowCreate:
 		return renderWorkflowCreate(m)
 	case viewWorkflowExecution:
@@ -2944,6 +3311,33 @@ func (m hubModel) renderTestList() string {
 		b.WriteString("\n  " + filterPromptStyle.Render("/") + " " + m.filterInput.View() + "\n")
 	}
 
+	// Active filter badges
+	if badges := m.renderFilterBadges(); badges != "" {
+		b.WriteString(badges)
+	}
+
+	// Picker overlays take over the body when open
+	if m.filterTagPickerOn {
+		b.WriteString(m.renderTagPicker())
+		b.WriteString("\n  " + separator(innerW) + "\n")
+		keys := []string{
+			helpKeyRender("space", "toggle"),
+			helpKeyRender("esc", "close"),
+		}
+		b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+		return b.String()
+	}
+	if m.filterAppPickerOn {
+		b.WriteString(m.renderAppPicker())
+		b.WriteString("\n  " + separator(innerW) + "\n")
+		keys := []string{
+			helpKeyRender("enter", "select"),
+			helpKeyRender("esc", "close"),
+		}
+		b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+		return b.String()
+	}
+
 	if strings.TrimSpace(m.testListWarning) != "" {
 		lines := strings.Split(m.testListWarning, "\n")
 		b.WriteString("\n  " + warningStyle.Render("⚠ "+lines[0]) + "\n")
@@ -2971,7 +3365,7 @@ func (m hubModel) renderTestList() string {
 			b.WriteString(dimStyle.Render("  No tests found. Press esc to go back.\n"))
 		}
 	} else {
-		maxVisible := m.height - 12
+		maxVisible := m.height - 14
 		if maxVisible < 5 {
 			maxVisible = 5
 		}
@@ -3000,10 +3394,22 @@ func (m hubModel) renderTestList() string {
 				cur = selectedStyle.Render("▸ ")
 				nameStyle = selectedRowStyle
 			}
+
 			platBadge := ""
 			if t.Platform != "" {
 				platBadge = platformStyle.Render(" [" + t.Platform + "]")
 			}
+
+			tagBadges := ""
+			for _, tag := range t.Tags {
+				tagBadges += dimStyle.Render(" [" + tag.Name + "]")
+			}
+
+			appBadge := ""
+			if t.AppName != "" {
+				appBadge = dimStyle.Render(" {" + t.AppName + "}")
+			}
+
 			syncState := t.SyncStatus
 			if syncState == "" {
 				syncState = "unknown"
@@ -3016,7 +3422,7 @@ func (m hubModel) renderTestList() string {
 			if t.RemoteMissing {
 				sourceBadge += warningStyle.Render(" [missing-upstream]")
 			}
-			b.WriteString("  " + cur + syncStatusIcon(syncState) + " " + nameStyle.Render(t.Name) + platBadge + syncBadge + sourceBadge + "\n")
+			b.WriteString("  " + cur + syncStatusIcon(syncState) + " " + nameStyle.Render(t.Name) + platBadge + tagBadges + appBadge + syncBadge + sourceBadge + "\n")
 		}
 		if end < len(tests) {
 			b.WriteString(dimStyle.Render("  ↓ more") + "\n")
@@ -3043,14 +3449,47 @@ func (m hubModel) renderTestList() string {
 			helpKeyRender("enter", "detail"),
 			helpKeyRender("r", "run"),
 			helpKeyRender("x", "delete"),
-			helpKeyRender("/", "filter"),
+			helpKeyRender("/", "search"),
+			helpKeyRender("t", "tags"),
+			helpKeyRender("a", "app"),
+		}
+		if m.hasActiveFilters() {
+			keys = append(keys, helpKeyRender("c", "clear"))
+		}
+		keys = append(keys,
 			helpKeyRender("S", "refresh"),
 			helpKeyRender("esc", "back"),
 			helpKeyRender("q", "quit"),
-		}
+		)
 	}
 	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
 	return b.String()
+}
+
+// renderFilterBadges renders active filter indicators below the header.
+func (m hubModel) renderFilterBadges() string {
+	var parts []string
+
+	if len(m.filterTagIDs) > 0 {
+		var names []string
+		for _, tag := range m.filterTags {
+			if m.filterTagIDs[tag.ID] {
+				names = append(names, tag.Name)
+			}
+		}
+		if len(names) > 0 {
+			parts = append(parts, "Tags: "+strings.Join(names, ", "))
+		}
+	}
+
+	if m.filterAppID != "" {
+		parts = append(parts, "App: "+m.selectedAppDisplayName())
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return "\n  " + dimStyle.Render("Filters: ") + normalStyle.Render(strings.Join(parts, " | ")) + "\n"
 }
 
 // --- Runs list sub-screen ---
@@ -4041,8 +4480,9 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 				if cfg.Project.Name != "" {
 					parts = append(parts, cfg.Project.Name)
 				}
-				if len(cfg.Tests) > 0 {
-					parts = append(parts, fmt.Sprintf("%d tests", len(cfg.Tests)))
+				testsDir := filepath.Join(cwd, ".revyl", "tests")
+				if linkedCount := config.CountLinkedTests(testsDir); linkedCount > 0 {
+					parts = append(parts, fmt.Sprintf("%d tests", linkedCount))
 				}
 				msg := "Found"
 				if len(parts) > 0 {
@@ -4159,13 +4599,12 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 
 		// Check 8: Tests configured
 		if cwdErr == nil {
-			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-			cfg, cfgErr := config.LoadProjectConfig(configPath)
-			if cfgErr == nil && cfg != nil && len(cfg.Tests) > 0 {
+			testsDir := filepath.Join(cwd, ".revyl", "tests")
+			if linkedCount := config.CountLinkedTests(testsDir); linkedCount > 0 {
 				checks = append(checks, HealthCheck{
 					Name:    "Tests Configured",
 					Status:  "ok",
-					Message: fmt.Sprintf("%d tests configured", len(cfg.Tests)),
+					Message: fmt.Sprintf("%d tests configured", linkedCount),
 				})
 			} else {
 				checks = append(checks, HealthCheck{

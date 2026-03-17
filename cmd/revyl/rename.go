@@ -38,9 +38,6 @@ func runRenameTest(cmd *cobra.Command, args []string) error {
 	if cfg == nil {
 		cfg = &config.ProjectConfig{}
 	}
-	if cfg.Tests == nil {
-		cfg.Tests = make(map[string]string)
-	}
 
 	if oldNameOrID == "" {
 		selectedID, selectedLabel, selectErr := selectTestRenameTarget(cmd.Context(), cfg, client)
@@ -96,12 +93,19 @@ func runRenameTest(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
 	testsDir := filepath.Join(cwd, ".revyl", "tests")
 	localTests, _ := config.LoadLocalTests(testsDir)
 
-	aliasToRename, aliasAmbiguous := chooseAliasForTestRename(cfg.Tests, oldNameOrID, remoteTest.Name, testID)
-	aliasMatches := aliasesForRemoteID(cfg.Tests, testID)
+	// Build alias map from local YAML files
+	aliasMap := make(map[string]string, len(localTests))
+	for alias, lt := range localTests {
+		if lt != nil && lt.Meta.RemoteID != "" {
+			aliasMap[alias] = lt.Meta.RemoteID
+		}
+	}
+
+	aliasToRename, aliasAmbiguous := chooseAliasForTestRename(aliasMap, oldNameOrID, remoteTest.Name, testID)
+	aliasMatches := aliasesForRemoteID(aliasMap, testID)
 
 	localAlias, localAmbiguous := chooseLocalFileForTestRename(localTests, aliasToRename, oldNameOrID, remoteTest.Name, testID)
 	localMatches := localAliasesForRemoteID(localTests, testID)
@@ -147,7 +151,7 @@ func runRenameTest(cmd *cobra.Command, args []string) error {
 	}
 
 	if applyLocalAliasRename {
-		if existingID, exists := cfg.Tests[newName]; exists && existingID != testID {
+		if existingID, exists := aliasMap[newName]; exists && existingID != testID {
 			if !promptMode {
 				return fmt.Errorf("local alias %q already points to a different test (%s)", newName, existingID)
 			}
@@ -281,19 +285,6 @@ func runRenameTest(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Remote test is already named '%s'", newName)
 	}
 
-	if applyLocalAliasRename {
-		cfg.Tests[newName] = testID
-		delete(cfg.Tests, aliasToRename)
-
-		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-			ui.PrintWarning("Renamed remotely, but failed to prepare config directory: %v", err)
-		} else if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-			ui.PrintWarning("Renamed remotely, but failed to update .revyl/config.yaml: %v", err)
-		} else {
-			ui.PrintSuccess("Updated local alias: %s -> %s", aliasToRename, newName)
-		}
-	}
-
 	if applyLocalFileChanges && localAlias != "" {
 		local := localTests[localAlias]
 		if local != nil {
@@ -315,6 +306,8 @@ func runRenameTest(cmd *cobra.Command, args []string) error {
 				ui.PrintSuccess("Updated local test metadata name")
 			}
 		}
+	} else if applyLocalAliasRename {
+		ui.PrintInfo("Remote renamed; local file not changed (alias-only mode)")
 	}
 
 	if aliasAmbiguous && !applyLocalAliasRename {
@@ -442,10 +435,15 @@ func selectTestRenameTarget(ctx context.Context, cfg *config.ProjectConfig, clie
 		return "", "", fmt.Errorf("no tests found in organization")
 	}
 
+	// Build aliases from local YAML files
 	aliasesByID := make(map[string][]string)
-	if cfg != nil && cfg.Tests != nil {
-		for alias, id := range cfg.Tests {
-			aliasesByID[id] = append(aliasesByID[id], alias)
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		testsDir := filepath.Join(cwd, ".revyl", "tests")
+		localTestsMap, _ := config.LoadLocalTests(testsDir)
+		for alias, lt := range localTestsMap {
+			if lt != nil && lt.Meta.RemoteID != "" {
+				aliasesByID[lt.Meta.RemoteID] = append(aliasesByID[lt.Meta.RemoteID], alias)
+			}
 		}
 		for id := range aliasesByID {
 			sort.Strings(aliasesByID[id])

@@ -163,6 +163,9 @@ func TestRunWorkflowExecNoWaitOutputsQueuedJSON(t *testing.T) {
 	var executeReq api.ExecuteWorkflowRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/v1/workflows/get_with_last_status":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"wf-uuid-001","name":"smoke-tests"}]}`))
 		case "/api/v1/execution/api/execute_workflow_id_async":
 			if r.Method != http.MethodPost {
 				t.Fatalf("execute workflow method = %s, want POST", r.Method)
@@ -184,11 +187,7 @@ func TestRunWorkflowExecNoWaitOutputsQueuedJSON(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(tmp, ".revyl"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(.revyl) error = %v", err)
 	}
-	cfg := &config.ProjectConfig{
-		Workflows: map[string]string{
-			"smoke-tests": "wf-uuid-001",
-		},
-	}
+	cfg := &config.ProjectConfig{}
 	if err := config.WriteProjectConfig(filepath.Join(tmp, ".revyl", "config.yaml"), cfg); err != nil {
 		t.Fatalf("WriteProjectConfig() error = %v", err)
 	}

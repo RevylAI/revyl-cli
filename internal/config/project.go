@@ -7,9 +7,11 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,12 +25,6 @@ type ProjectConfig struct {
 
 	// Build contains build configuration.
 	Build BuildConfig `yaml:"build"`
-
-	// Tests maps test aliases to test IDs.
-	Tests map[string]string `yaml:"tests,omitempty"`
-
-	// Workflows maps workflow aliases to workflow IDs.
-	Workflows map[string]string `yaml:"workflows,omitempty"`
 
 	// Defaults contains default settings.
 	Defaults Defaults `yaml:"defaults,omitempty"`
@@ -412,13 +408,6 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// Guarantee maps are never nil so callers don't need defensive checks
-	if cfg.Tests == nil {
-		cfg.Tests = make(map[string]string)
-	}
-	if cfg.Workflows == nil {
-		cfg.Workflows = make(map[string]string)
-	}
 	if cfg.Build.Platforms == nil {
 		cfg.Build.Platforms = make(map[string]BuildPlatform)
 	}
@@ -484,6 +473,27 @@ type TestMeta struct {
 	Checksum string `yaml:"checksum,omitempty"`
 }
 
+// TestDeviceConfig contains device target preferences for the test.
+type TestDeviceConfig struct {
+	// Model is the target device model name (e.g. "iPhone 15 Pro").
+	Model string `yaml:"model,omitempty"`
+
+	// OSVersion is the target OS version (e.g. "17.4").
+	OSVersion string `yaml:"os_version,omitempty"`
+
+	// Orientation is portrait or landscape.
+	Orientation string `yaml:"orientation,omitempty"`
+}
+
+// TestLocation contains initial GPS coordinates for the test.
+type TestLocation struct {
+	// Latitude is the GPS latitude.
+	Latitude float64 `yaml:"latitude"`
+
+	// Longitude is the GPS longitude.
+	Longitude float64 `yaml:"longitude"`
+}
+
 // TestDefinition contains the actual test definition.
 type TestDefinition struct {
 	// Metadata contains test metadata.
@@ -491,6 +501,18 @@ type TestDefinition struct {
 
 	// Build contains build configuration for this test.
 	Build TestBuildConfig `yaml:"build,omitempty"`
+
+	// Device contains device target preferences.
+	Device *TestDeviceConfig `yaml:"device,omitempty"`
+
+	// Variables contains custom test variables (key-value pairs).
+	Variables map[string]string `yaml:"variables,omitempty"`
+
+	// EnvVars contains app launch environment variables.
+	EnvVars map[string]string `yaml:"env_vars,omitempty"`
+
+	// Location contains initial GPS coordinates.
+	Location *TestLocation `yaml:"location,omitempty"`
 
 	// Blocks contains the test steps.
 	Blocks []TestBlock `yaml:"blocks"`
@@ -518,6 +540,9 @@ type TestBuildConfig struct {
 
 	// PinnedVersion is an optional pinned version.
 	PinnedVersion string `yaml:"pinned_version,omitempty"`
+
+	// SystemPrompt is the app-level system prompt for the LLM agent.
+	SystemPrompt string `yaml:"system_prompt,omitempty"`
 }
 
 // TestBlock represents a test step/block.
@@ -551,6 +576,14 @@ type TestBlock struct {
 
 	// ModuleID is the module UUID for module_import blocks.
 	ModuleID string `yaml:"module_id,omitempty" json:"module_id,omitempty"`
+
+	// Script is the human-readable script name for code_execution blocks.
+	// Resolved to a UUID (step_description) on push/sync.
+	Script string `yaml:"script,omitempty" json:"script,omitempty"`
+
+	// Module is the human-readable module name for module_import blocks.
+	// Resolved to a UUID (module_id) on push/sync.
+	Module string `yaml:"module,omitempty" json:"module,omitempty"`
 }
 
 // ComputeTestChecksum computes a SHA-256 checksum of the test definition.
@@ -594,6 +627,96 @@ func (t *LocalTest) HasLocalChanges() bool {
 	return currentChecksum != t.Meta.Checksum
 }
 
+// CountLinkedTests returns the number of local YAML test files that have a
+// non-empty _meta.remote_id (i.e. are linked to a remote test).
+// Returns 0 if the directory does not exist or is empty.
+//
+// Parameters:
+//   - testsDir: Path to the .revyl/tests/ directory
+//
+// Returns:
+//   - int: Number of linked tests
+func CountLinkedTests(testsDir string) int {
+	entries, err := os.ReadDir(testsDir)
+	if err != nil {
+		return 0
+	}
+
+	count := 0
+	for _, entry := range entries {
+		if testAliasFromFilename(entry) == "" {
+			continue
+		}
+		path := filepath.Join(testsDir, entry.Name())
+		lt, err := LoadLocalTest(path)
+		if err == nil && lt.Meta.RemoteID != "" {
+			count++
+		}
+	}
+	return count
+}
+
+// GetLocalTestRemoteID loads a single local test YAML by alias name and returns
+// its _meta.remote_id. Returns ("", nil) if the file does not exist or has no
+// remote_id. Returns a non-nil error only on parse failures.
+//
+// Parameters:
+//   - testsDir: Path to the .revyl/tests/ directory
+//   - alias: Test alias (filename without .yaml extension)
+//
+// Returns:
+//   - string: The remote test UUID, or empty string
+//   - error: Parse error (nil if file missing or has no remote_id)
+func GetLocalTestRemoteID(testsDir, alias string) (string, error) {
+	path := filepath.Join(testsDir, alias+".yaml")
+	lt, err := LoadLocalTest(path)
+	if err != nil {
+		if os.IsNotExist(err) || errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return lt.Meta.RemoteID, nil
+}
+
+// testAliasFromFilename extracts a test alias from a directory entry,
+// returning "" for entries that are not valid test YAML files (directories,
+// non-.yaml extensions, or bare ".yaml" with no stem).
+func testAliasFromFilename(entry os.DirEntry) string {
+	if entry.IsDir() {
+		return ""
+	}
+	name := entry.Name()
+	if filepath.Ext(name) != ".yaml" || len(name) <= 5 {
+		return ""
+	}
+	return name[:len(name)-5]
+}
+
+// ListLocalTestAliases returns all test aliases (filenames without .yaml) from the tests directory.
+// Returns nil if the directory does not exist.
+//
+// Parameters:
+//   - testsDir: Path to the .revyl/tests/ directory
+//
+// Returns:
+//   - []string: Sorted list of test aliases
+func ListLocalTestAliases(testsDir string) []string {
+	entries, err := os.ReadDir(testsDir)
+	if err != nil {
+		return nil
+	}
+
+	var aliases []string
+	for _, entry := range entries {
+		if alias := testAliasFromFilename(entry); alias != "" {
+			aliases = append(aliases, alias)
+		}
+	}
+	sort.Strings(aliases)
+	return aliases
+}
+
 // LoadLocalTests loads all local test definitions from a directory.
 //
 // Parameters:
@@ -614,19 +737,19 @@ func LoadLocalTests(testsDir string) (map[string]*LocalTest, error) {
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+		alias := testAliasFromFilename(entry)
+		if alias == "" {
 			continue
 		}
 
 		path := filepath.Join(testsDir, entry.Name())
 		test, err := LoadLocalTest(path)
 		if err != nil {
-			continue // Skip invalid files
+			fmt.Fprintf(os.Stderr, "warning: skipping unparseable test file %s: %v\n", entry.Name(), err)
+			continue
 		}
 
-		// Use filename without extension as key
-		name := entry.Name()[:len(entry.Name())-5]
-		tests[name] = test
+		tests[alias] = test
 	}
 
 	return tests, nil
@@ -674,9 +797,7 @@ func SaveLocalTest(path string, test *LocalTest) error {
 		return fmt.Errorf("failed to marshal test: %w", err)
 	}
 
-	// Add header comment
-	header := fmt.Sprintf("# Revyl Test Definition\n# Last synced: %s\n\n",
-		time.Now().Format(time.RFC3339))
+	header := "# Revyl Test Definition\n\n"
 	content := header + string(data)
 
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {

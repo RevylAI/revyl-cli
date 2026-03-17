@@ -25,7 +25,7 @@ CMD_DIR := ./cmd/revyl
 BUILD_DIR := ./build
 SCRIPTS_DIR := ./scripts
 
-.PHONY: all build clean test lint fmt deps dev generate install help check setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android device-prod-sdk-smoke device-prod-sdk-smoke-ios device-prod-sdk-smoke-android
+.PHONY: all build clean test lint fmt deps dev generate install help check setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android device-prod-sdk-smoke device-prod-sdk-smoke-ios device-prod-sdk-smoke-android e2e e2e-quick e2e-device e2e-sdk e2e-local
 
 ## help: Show this help message
 help:
@@ -244,16 +244,51 @@ _set-version:
 	@printf "$(NEW)\n" > VERSION
 	@sed -i.bak 's/"version": "$(OLD)"/"version": "$(NEW)"/' npm/package.json && rm -f npm/package.json.bak
 	@sed -i.bak 's/version = "$(OLD)"/version = "$(NEW)"/' python/pyproject.toml && rm -f python/pyproject.toml.bak
-	@sed -i.bak 's/__version__ = "$(OLD)"/__version__ = "$(NEW)"/' python/revyl/__init__.py && rm -f python/revyl/__init__.py.bak
+	@sed -i.bak 's/__version__ = "$(OLD)"/__version__ = "$(NEW)"/' python/revyl/_binary.py && rm -f python/revyl/_binary.py.bak
 	@echo "Updated files:"
 	@echo "  VERSION                    $(NEW)"
 	@echo "  npm/package.json           $(NEW)"
 	@echo "  python/pyproject.toml      $(NEW)"
-	@echo "  python/revyl/__init__.py   $(NEW)"
+	@echo "  python/revyl/_binary.py    $(NEW)"
 	@echo ""
 	@echo "Next steps:"
 	@echo "  git add -A && git commit -m 'chore: bump version to $(NEW)'"
 	@echo "  Then merge to main to trigger a release."
+
+# ---------- E2E regression suite ----------
+
+## e2e: Run all e2e regression tests (auto-detects local backend or staging)
+e2e:
+	@echo "Running e2e regression tests..."
+	@if command -v gotestsum &> /dev/null; then \
+		gotestsum --format testdox -- -tags e2e -v -timeout 15m ./e2e/... ; \
+	else \
+		$(GOTEST) -tags e2e -v -timeout 15m ./e2e/... ; \
+	fi
+
+## e2e-quick: Run non-device e2e tests only (faster, no device session needed)
+e2e-quick:
+	@echo "Running quick e2e tests (no device)..."
+	@if command -v gotestsum &> /dev/null; then \
+		gotestsum --format testdox -- -tags e2e -v -timeout 10m -run 'Test(Auth|Test|Workflow|App|Module|Tag|Variable|Script|Sync|CLI|Error|TUI)' ./e2e/... ; \
+	else \
+		$(GOTEST) -tags e2e -v -timeout 10m -run 'Test(Auth|Test|Workflow|App|Module|Tag|Variable|Script|Sync|CLI|Error|TUI)' ./e2e/... ; \
+	fi
+
+## e2e-device: Run device e2e tests only (requires REVYL_E2E_DEVICE=true)
+e2e-device:
+	@echo "Running device e2e tests..."
+	@REVYL_E2E_DEVICE=true $(GOTEST) -tags e2e -v -timeout 15m -run TestDevice ./e2e/...
+
+## e2e-sdk: Run Python SDK regression tests
+e2e-sdk:
+	@echo "Running Python SDK regression tests..."
+	@cd python && UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run pytest tests/test_sdk_regression.py -v --tb=short
+
+## e2e-local: Run CLI-local tests only (zero backend, always passes)
+e2e-local:
+	@echo "Running local CLI tests (no backend needed)..."
+	@$(GOTEST) -tags e2e -v -timeout 2m -run TestCLILocal ./e2e/...
 
 # Development shortcuts
 .PHONY: r b t

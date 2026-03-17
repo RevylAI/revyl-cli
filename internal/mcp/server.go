@@ -1175,8 +1175,10 @@ func (s *Server) handleListTests(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	configPath := filepath.Join(workDir, ".revyl", "config.yaml")
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
+	testsDir := filepath.Join(workDir, ".revyl", "tests")
+
+	localTests, ltErr := config.LoadLocalTests(testsDir)
+	if ltErr != nil {
 		return nil, ListTestsOutput{
 			Tests:     []TestInfo{},
 			Workflows: []WorkflowInfo{},
@@ -1185,13 +1187,17 @@ func (s *Server) handleListTests(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	var tests []TestInfo
-	for name, id := range cfg.Tests {
-		tests = append(tests, TestInfo{Name: name, ID: id})
+	for name, lt := range localTests {
+		if lt != nil && lt.Meta.RemoteID != "" {
+			tests = append(tests, TestInfo{Name: name, ID: lt.Meta.RemoteID})
+		}
 	}
 
 	var workflows []WorkflowInfo
-	for name, id := range cfg.Workflows {
-		workflows = append(workflows, WorkflowInfo{Name: name, ID: id})
+	if resp, err := s.apiClient.ListWorkflows(ctx); err == nil {
+		for _, w := range resp.Workflows {
+			workflows = append(workflows, WorkflowInfo{Name: w.Name, ID: w.ID})
+		}
 	}
 
 	return nil, ListTestsOutput{
@@ -1260,6 +1266,7 @@ type CreateTestInput struct {
 	YAMLContent      string   `json:"yaml_content,omitempty" jsonschema:"Optional YAML test definition to create with real blocks"`
 	AppID            string   `json:"app_id,omitempty" jsonschema:"Optional explicit app ID to associate with the test"`
 	ModuleNamesOrIDs []string `json:"module_names_or_ids,omitempty" jsonschema:"Optional ordered module names or IDs to prepend as module_import blocks"`
+	Tags             []string `json:"tags,omitempty" jsonschema:"Optional tag names to assign to the test after creation"`
 }
 
 // CreateTestOutput defines output for create_test tool.
@@ -1306,6 +1313,7 @@ func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest,
 		YAMLContent:      input.YAMLContent,
 		AppID:            input.AppID,
 		ModuleNamesOrIDs: input.ModuleNamesOrIDs,
+		Tags:             input.Tags,
 		Config:           s.config,
 		DevMode:          false,
 	})
@@ -1633,12 +1641,11 @@ func (s *Server) handleDeleteTest(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, DeleteTestOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Resolve name to ID from config
+	// Resolve name to ID from local YAML
 	testID := input.TestNameOrID
-	if s.config != nil {
-		if id, ok := s.config.Tests[input.TestNameOrID]; ok {
-			testID = id
-		}
+	testsDir := filepath.Join(s.workDir, ".revyl", "tests")
+	if id, err := config.GetLocalTestRemoteID(testsDir, input.TestNameOrID); err == nil && id != "" {
+		testID = id
 	}
 
 	resp, err := s.apiClient.DeleteTest(ctx, testID)
@@ -1673,12 +1680,9 @@ func (s *Server) handleDeleteWorkflow(ctx context.Context, req *mcp.CallToolRequ
 		return nil, DeleteWorkflowOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Resolve name to ID from config
-	workflowID := input.WorkflowNameOrID
-	if s.config != nil {
-		if id, ok := s.config.Workflows[input.WorkflowNameOrID]; ok {
-			workflowID = id
-		}
+	workflowID, err := s.resolveWorkflowID(ctx, input.WorkflowNameOrID)
+	if err != nil {
+		return nil, DeleteWorkflowOutput{Success: false, Error: err.Error()}, nil
 	}
 
 	resp, err := s.apiClient.DeleteWorkflow(ctx, workflowID)
@@ -2375,13 +2379,12 @@ func (s *Server) handleGetTestTags(ctx context.Context, req *mcp.CallToolRequest
 		return nil, GetTestTagsOutput{Success: false, Error: "test_name_or_id is required"}, nil
 	}
 
-	// Resolve test name to ID
+	// Resolve test name to ID from local YAML
 	testID := input.TestNameOrID
 	testName := input.TestNameOrID
-	if s.config != nil {
-		if id, ok := s.config.Tests[input.TestNameOrID]; ok {
-			testID = id
-		}
+	testsDir := filepath.Join(s.workDir, ".revyl", "tests")
+	if id, ltErr := config.GetLocalTestRemoteID(testsDir, input.TestNameOrID); ltErr == nil && id != "" {
+		testID = id
 	}
 
 	// If not a UUID, try to find by name in remote tests
@@ -2452,12 +2455,11 @@ func (s *Server) handleSetTestTags(ctx context.Context, req *mcp.CallToolRequest
 		return nil, SetTestTagsOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Resolve test name to ID
+	// Resolve test name to ID from local YAML
 	testID := input.TestNameOrID
-	if s.config != nil {
-		if id, ok := s.config.Tests[input.TestNameOrID]; ok {
-			testID = id
-		}
+	testsDir := filepath.Join(s.workDir, ".revyl", "tests")
+	if id, ltErr := config.GetLocalTestRemoteID(testsDir, input.TestNameOrID); ltErr == nil && id != "" {
+		testID = id
 	}
 
 	// If not a UUID, try to find by name
@@ -2528,12 +2530,11 @@ func (s *Server) handleAddRemoveTestTags(ctx context.Context, req *mcp.CallToolR
 		return nil, AddRemoveTestTagsOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Resolve test name to ID
+	// Resolve test name to ID from local YAML
 	testID := input.TestNameOrID
-	if s.config != nil {
-		if id, ok := s.config.Tests[input.TestNameOrID]; ok {
-			testID = id
-		}
+	testsDir := filepath.Join(s.workDir, ".revyl", "tests")
+	if id, ltErr := config.GetLocalTestRemoteID(testsDir, input.TestNameOrID); ltErr == nil && id != "" {
+		testID = id
 	}
 
 	// If not a UUID, try to find by name
@@ -2621,13 +2622,12 @@ func parseLocationString(s string) (float64, float64, error) {
 	return lat, lng, nil
 }
 
-// resolveTestID resolves a test name or ID to a UUID using config aliases and API search.
+// resolveTestID resolves a test name or ID to a UUID using local YAML files and API search.
 func (s *Server) resolveTestID(ctx context.Context, nameOrID string) (string, error) {
 	testID := nameOrID
-	if s.config != nil {
-		if id, ok := s.config.Tests[nameOrID]; ok {
-			testID = id
-		}
+	testsDir := filepath.Join(s.workDir, ".revyl", "tests")
+	if id, ltErr := config.GetLocalTestRemoteID(testsDir, nameOrID); ltErr == nil && id != "" {
+		testID = id
 	}
 	if len(testID) != 36 {
 		testsResp, err := s.apiClient.ListOrgTests(ctx, 100, 0)
@@ -2644,14 +2644,9 @@ func (s *Server) resolveTestID(ctx context.Context, nameOrID string) (string, er
 	return testID, nil
 }
 
-// resolveWorkflowID resolves a workflow name or ID to a UUID using config aliases and API search.
+// resolveWorkflowID resolves a workflow name or ID to a UUID using API search.
 func (s *Server) resolveWorkflowID(ctx context.Context, nameOrID string) (string, error) {
 	wfID := nameOrID
-	if s.config != nil {
-		if id, ok := s.config.Workflows[nameOrID]; ok {
-			wfID = id
-		}
-	}
 	if len(wfID) != 36 {
 		resp, err := s.apiClient.ListWorkflows(ctx)
 		if err != nil {

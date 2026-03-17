@@ -1,0 +1,37 @@
+test:
+  metadata:
+    name: e2e-comprehensive
+    platform: android
+    tags: [smoke, e2e]
+  build:
+    name: e2e-placeholder
+  variables:
+    BASE_URL: "https://example.com"
+    USERNAME: "testuser"
+  blocks:
+    - type: instructions
+      step_description: "Launch the app and navigate to login"
+    - type: validation
+      step_description: "Login screen is visible with username and password fields"
+    - type: extraction
+      step_description: "Read the welcome message"
+      variable_name: welcome_text
+    - type: if
+      condition: "welcome_text contains 'returning'"
+      then:
+        - type: instructions
+          step_description: "Tap 'Continue as testuser'"
+      else:
+        - type: instructions
+          step_description: "Enter username and password"
+        - type: instructions
+          step_description: "Tap 'Sign In'"
+    - type: while
+      condition: "Loading spinner is visible"
+      body:
+        - type: validation
+          step_description: "Wait for content to load"
+    - type: instructions
+      step_description: "Navigate to settings"
+    - type: manual
+      step_description: "Manually verify push notification received"

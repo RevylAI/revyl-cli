@@ -1182,6 +1182,122 @@ func formatSessionReportFallback(r *api.CLIReportContextResponse, sessionID stri
 	return b.String()
 }
 
+var deviceTargetsCmd = &cobra.Command{
+	Use:   "targets",
+	Short: "List available device models and OS versions",
+	Long:  `List available device models and OS versions for each platform.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		platform, _ := cmd.Flags().GetString("platform")
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+
+		platforms := []string{"ios", "android"}
+		if platform != "" {
+			p, err := normalizeDeviceStartPlatform(platform)
+			if err != nil {
+				return err
+			}
+			platforms = []string{p}
+		}
+
+		if jsonOutput {
+			allPairs := make(map[string][]devicetargets.DevicePair, len(platforms))
+			for _, p := range platforms {
+				pairs, err := devicetargets.GetAvailableTargetPairs(p)
+				if err != nil {
+					return err
+				}
+				allPairs[p] = pairs
+			}
+			data, _ := json.MarshalIndent(allPairs, "", "  ")
+			fmt.Println(string(data))
+			return nil
+		}
+
+		for i, p := range platforms {
+			pairs, err := devicetargets.GetAvailableTargetPairs(p)
+			if err != nil {
+				return err
+			}
+			defaultPair, _ := devicetargets.GetDefaultPair(p)
+
+			if i > 0 {
+				ui.Println()
+			}
+			ui.PrintInfo("%s (%d targets)", strings.ToUpper(p), len(pairs))
+			ui.Println()
+
+			table := ui.NewTable("MODEL", "OS VERSION", "DEFAULT")
+			for _, pair := range pairs {
+				isDefault := ""
+				if pair.Model == defaultPair.Model && pair.Runtime == defaultPair.Runtime {
+					isDefault = "*"
+				}
+				table.AddRow(pair.Model, pair.Runtime, isDefault)
+			}
+			table.Render()
+		}
+		return nil
+	},
+}
+
+var deviceHistoryCmd = &cobra.Command{
+	Use:   "history",
+	Short: "Show device session history",
+	Long:  `Show recent device session history from the server.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		apiKey, err := getAPIKey()
+		if err != nil {
+			return err
+		}
+
+		devMode, _ := cmd.Flags().GetBool("dev")
+		client := api.NewClientWithDevMode(apiKey, devMode)
+
+		limit, _ := cmd.Flags().GetInt("limit")
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+
+		if !jsonOutput {
+			ui.StartSpinner("Fetching session history...")
+		}
+		result, err := client.GetDeviceSessionHistory(cmd.Context(), limit, 0)
+		if !jsonOutput {
+			ui.StopSpinner()
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to fetch session history: %w", err)
+		}
+
+		if jsonOutput {
+			data, _ := json.MarshalIndent(result, "", "  ")
+			fmt.Println(string(data))
+			return nil
+		}
+
+		if len(result.Sessions) == 0 {
+			ui.PrintInfo("No device session history found.")
+			return nil
+		}
+
+		ui.Println()
+		ui.PrintInfo("Device Sessions (%d total)", result.Total)
+		ui.Println()
+
+		table := ui.NewTable("ID", "PLATFORM", "STATUS", "CREATED", "DURATION")
+		table.SetMinWidth(0, 12)
+		for _, s := range result.Sessions {
+			idShort := truncatePrefix(s.ID, 8)
+			duration := "-"
+			if s.Duration > 0 {
+				duration = fmt.Sprintf("%.0fs", s.Duration)
+			}
+			table.AddRow(idShort, s.Platform, s.Status, s.CreatedAt, duration)
+		}
+		table.Render()
+		return nil
+	},
+}
+
 var deviceInstructionCmd = &cobra.Command{
 	Use:   "instruction <description>",
 	Short: "Run one instruction step on the active device",
@@ -1248,23 +1364,99 @@ var deviceExtractCmd = &cobra.Command{
 }
 
 var deviceCodeExecutionCmd = &cobra.Command{
-	Use:   "code-execution <script-id>",
+	Use:   "code-execution [script-id]",
 	Short: "Run one code_execution step on the active device",
-	Args:  cobra.ExactArgs(1),
+	Long: `Run a code execution step on the active device session.
+
+Three modes:
+  1. By script ID:    revyl device code-execution <script-id>
+  2. From local file: revyl device code-execution --file ./script.py --runtime python
+  3. Inline code:     revyl device code-execution --code "print('hello')" --runtime python
+
+Modes 2 and 3 create an ephemeral script on the backend, execute it, then clean up.`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		scriptID := strings.TrimSpace(args[0])
-		if scriptID == "" {
-			return fmt.Errorf("script ID is required")
+		codeExecFile, _ := cmd.Flags().GetString("file")
+		codeExecInline, _ := cmd.Flags().GetString("code")
+		codeExecRuntime, _ := cmd.Flags().GetString("runtime")
+
+		hasScriptID := len(args) > 0 && strings.TrimSpace(args[0]) != ""
+		hasFile := codeExecFile != ""
+		hasInline := codeExecInline != ""
+
+		modeCount := 0
+		if hasScriptID {
+			modeCount++
+		}
+		if hasFile {
+			modeCount++
+		}
+		if hasInline {
+			modeCount++
 		}
 
-		return executeLiveStepCommand(
+		if modeCount == 0 {
+			return fmt.Errorf("provide a script ID, --file, or --code")
+		}
+		if modeCount > 1 {
+			return fmt.Errorf("use only one of: script ID, --file, or --code")
+		}
+
+		if hasScriptID {
+			return executeLiveStepCommand(
+				cmd,
+				mcppkg.LiveStepRequest{
+					StepType:        "code_execution",
+					StepDescription: strings.TrimSpace(args[0]),
+				},
+				"Code execution",
+			)
+		}
+
+		if codeExecRuntime == "" {
+			return fmt.Errorf("--runtime is required when using --file or --code")
+		}
+
+		var code string
+		if hasFile {
+			data, err := os.ReadFile(codeExecFile)
+			if err != nil {
+				return fmt.Errorf("failed to read file: %w", err)
+			}
+			code = string(data)
+		} else {
+			code = codeExecInline
+		}
+
+		apiKey, err := getAPIKey()
+		if err != nil {
+			return err
+		}
+		devMode, _ := cmd.Flags().GetBool("dev")
+		client := api.NewClientWithDevMode(apiKey, devMode)
+
+		ephemeralName := fmt.Sprintf("_ephemeral_%d", time.Now().UnixMilli())
+		created, err := client.CreateScript(cmd.Context(), &api.CLICreateScriptRequest{
+			Name:    ephemeralName,
+			Code:    code,
+			Runtime: codeExecRuntime,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create ephemeral script: %w", err)
+		}
+
+		execErr := executeLiveStepCommand(
 			cmd,
 			mcppkg.LiveStepRequest{
 				StepType:        "code_execution",
-				StepDescription: scriptID,
+				StepDescription: created.ID,
 			},
 			"Code execution",
 		)
+
+		_ = client.DeleteScript(cmd.Context(), created.ID)
+
+		return execErr
 	},
 }
 
@@ -1574,6 +1766,9 @@ func init() {
 	sessionFlag(deviceExtractCmd)
 
 	deviceCodeExecutionCmd.Flags().Bool("json", false, "Output as JSON")
+	deviceCodeExecutionCmd.Flags().String("file", "", "Run code from a local file (creates ephemeral script)")
+	deviceCodeExecutionCmd.Flags().String("code", "", "Run inline code string (creates ephemeral script)")
+	deviceCodeExecutionCmd.Flags().String("runtime", "", "Script runtime for --file/--code (python, javascript, typescript, bash)")
 	sessionFlag(deviceCodeExecutionCmd)
 
 	// Info
@@ -1585,6 +1780,14 @@ func init() {
 
 	// List
 	deviceListCmd.Flags().Bool("json", false, "Output as JSON")
+
+	// Targets
+	deviceTargetsCmd.Flags().String("platform", "", "Filter to a specific platform (ios or android)")
+	deviceTargetsCmd.Flags().Bool("json", false, "Output as JSON")
+
+	// History
+	deviceHistoryCmd.Flags().Int("limit", 20, "Maximum number of sessions to show")
+	deviceHistoryCmd.Flags().Bool("json", false, "Output as JSON")
 
 	// Register subcommands
 	deviceCmd.AddCommand(deviceStartCmd)
@@ -1621,4 +1824,6 @@ func init() {
 	deviceCmd.AddCommand(deviceReportCmd)
 	sessionFlag(deviceReportCmd)
 	deviceReportCmd.Flags().Bool("json", false, "Output as JSON")
+	deviceCmd.AddCommand(deviceTargetsCmd)
+	deviceCmd.AddCommand(deviceHistoryCmd)
 }

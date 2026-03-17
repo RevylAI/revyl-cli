@@ -139,15 +139,30 @@ func TestValidateResourceNameMaxLength(t *testing.T) {
 }
 
 func TestResolveTestID_PrioritizesAliasAndUUID(t *testing.T) {
-	t.Run("config alias", func(t *testing.T) {
-		client := api.NewClientWithBaseURL("test-key", "http://127.0.0.1:1")
-		cfg := &config.ProjectConfig{
-			Tests: map[string]string{
-				"login-flow": "test-alias-001",
+	t.Run("local yaml alias", func(t *testing.T) {
+		tmp := t.TempDir()
+		testsDir := filepath.Join(tmp, ".revyl", "tests")
+		if err := os.MkdirAll(testsDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		lt := &config.LocalTest{
+			Meta: config.TestMeta{RemoteID: "test-alias-001"},
+			Test: config.TestDefinition{
+				Metadata: config.TestMetadata{Name: "login-flow"},
 			},
 		}
+		if err := config.SaveLocalTest(filepath.Join(testsDir, "login-flow.yaml"), lt); err != nil {
+			t.Fatalf("SaveLocalTest: %v", err)
+		}
 
-		testID, testName, err := resolveTestID(context.Background(), "login-flow", cfg, client)
+		origWD, _ := os.Getwd()
+		if err := os.Chdir(tmp); err != nil {
+			t.Fatalf("Chdir: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+		client := api.NewClientWithBaseURL("test-key", "http://127.0.0.1:1")
+		testID, testName, err := resolveTestID(context.Background(), "login-flow", nil, client)
 		if err != nil {
 			t.Fatalf("resolveTestID() error = %v", err)
 		}
@@ -250,11 +265,7 @@ func TestRunWorkflowRemoveTests_RemovesOnlyWorkflowMembership(t *testing.T) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
-	if err := config.WriteProjectConfig(filepath.Join(configDir, "config.yaml"), &config.ProjectConfig{
-		Workflows: map[string]string{
-			"smoke-tests": "wf-uuid-001",
-		},
-	}); err != nil {
+	if err := config.WriteProjectConfig(filepath.Join(configDir, "config.yaml"), &config.ProjectConfig{}); err != nil {
 		t.Fatalf("WriteProjectConfig() error = %v", err)
 	}
 
@@ -277,6 +288,10 @@ func TestRunWorkflowRemoveTests_RemovesOnlyWorkflowMembership(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/workflows/get_with_last_status":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"wf-uuid-001","name":"smoke-tests"}]}`))
+
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/workflows/get_workflow_info":
 			if got := r.URL.Query().Get("workflow_id"); got != "wf-uuid-001" {
 				t.Fatalf("workflow_id = %q, want wf-uuid-001", got)

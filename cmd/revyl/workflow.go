@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +17,9 @@ import (
 
 // workflowListJSON controls JSON output for workflow list.
 var workflowListJSON bool
+
+// workflowInfoJSON controls JSON output for workflow info.
+var workflowInfoJSON bool
 
 // workflowCmd is the parent command for workflow operations.
 var workflowCmd = &cobra.Command{
@@ -29,6 +33,7 @@ all tests in the workflow.
 
 COMMANDS:
   list         - List all workflows
+  info         - Show workflow details (tests, overrides, config)
   run          - Run a workflow (add --build to build and upload first)
   cancel       - Cancel a running workflow
   create       - Create a new workflow
@@ -43,9 +48,12 @@ COMMANDS:
   share        - Generate shareable report link
   location     - Manage stored GPS location override
   app          - Manage stored app overrides (per platform)
+  config       - Manage run configuration (parallelism, retries)
+  quarantine   - Manage test quarantine (ignore failures in CI)
 
 EXAMPLES:
   revyl workflow list                        # List all workflows
+  revyl workflow info smoke-tests            # View tests, overrides, config
   revyl workflow run smoke-tests --build     # Build first, then run workflow
   revyl workflow run smoke-tests             # Run only (no build)
   revyl workflow status smoke-tests          # Check latest execution status
@@ -81,9 +89,6 @@ var workflowListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all workflows",
 	Long: `List all workflows in your organization.
-
-Workflows that are also registered in .revyl/config.yaml are marked with their
-local alias name.
 
 EXAMPLES:
   revyl workflow list
@@ -149,7 +154,23 @@ var workflowOpenCmd = &cobra.Command{
 	RunE:  runOpenWorkflow,
 }
 
+// workflowInfoCmd shows detailed information about a workflow.
+var workflowInfoCmd = &cobra.Command{
+	Use:   "info <name|id>",
+	Short: "Show workflow details (tests, overrides, config)",
+	Long: `Show detailed information about a workflow including its tests,
+app/location overrides, run configuration, and last execution.
+
+EXAMPLES:
+  revyl workflow info smoke-tests
+  revyl workflow info smoke-tests --json
+  revyl workflow info <workflow-uuid>`,
+	Args: cobra.ExactArgs(1),
+	RunE: runWorkflowInfo,
+}
+
 func init() {
+	workflowCmd.AddCommand(workflowInfoCmd)
 	workflowCmd.AddCommand(workflowListCmd)
 	workflowCmd.AddCommand(workflowRunCmd)
 	workflowCmd.AddCommand(workflowCancelCmd)
@@ -163,6 +184,12 @@ func init() {
 	workflowCmd.AddCommand(workflowShareCmd)
 	workflowCmd.AddCommand(workflowLocationCmd)
 	workflowCmd.AddCommand(workflowAppCmd)
+	workflowCmd.AddCommand(workflowQuarantineCmd)
+	workflowCmd.AddCommand(workflowConfigCmd)
+	initWorkflowConfig()
+
+	// workflow info flags
+	workflowInfoCmd.Flags().BoolVar(&workflowInfoJSON, "json", false, "Output results as JSON")
 
 	// workflow list flags
 	workflowListCmd.Flags().BoolVar(&workflowListJSON, "json", false, "Output results as JSON")
@@ -196,9 +223,6 @@ func init() {
 
 // runWorkflowList lists all workflows from the organization API.
 //
-// It fetches workflows from the server and cross-references them with
-// local config aliases to show which workflows are tracked locally.
-//
 // Parameters:
 //   - cmd: The cobra command being executed
 //   - args: Command line arguments (none expected)
@@ -216,21 +240,6 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 	apiKey, err := getAPIKey()
 	if err != nil {
 		return err
-	}
-
-	// Load project config for local alias resolution
-	cwd, _ := os.Getwd()
-	var cfg *config.ProjectConfig
-	if cwd != "" {
-		cfg, _ = config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
-	}
-
-	// Build a reverse map: workflow UUID -> local alias name
-	aliasForID := make(map[string]string)
-	if cfg != nil && cfg.Workflows != nil {
-		for alias, id := range cfg.Workflows {
-			aliasForID[id] = alias
-		}
 	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")
@@ -257,9 +266,6 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 				"id":   w.ID,
 				"name": w.Name,
 			}
-			if alias, ok := aliasForID[w.ID]; ok {
-				item["local_alias"] = alias
-			}
 			output = append(output, item)
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
@@ -280,17 +286,12 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("Workflows (%d)", len(resp.Workflows))
 	ui.Println()
 
-	table := ui.NewTable("NAME", "ID", "LOCAL ALIAS")
+	table := ui.NewTable("NAME", "ID")
 	table.SetMinWidth(0, 20) // NAME
 	table.SetMinWidth(1, 36) // ID (UUID length)
-	table.SetMinWidth(2, 12) // LOCAL ALIAS
 
 	for _, w := range resp.Workflows {
-		alias := "-"
-		if a, ok := aliasForID[w.ID]; ok {
-			alias = a
-		}
-		table.AddRow(w.Name, w.ID, alias)
+		table.AddRow(w.Name, w.ID)
 	}
 
 	table.Render()
@@ -301,4 +302,271 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 	})
 
 	return nil
+}
+
+// runWorkflowInfo displays detailed information about a single workflow
+// including tests (with per-test last status), overrides, run config, and
+// the most recent execution.
+//
+// Parameters:
+//   - cmd: The cobra command being executed
+//   - args: Command line arguments (workflow name or ID)
+//
+// Returns:
+//   - error: Any error that occurred, or nil on success
+func runWorkflowInfo(cmd *cobra.Command, args []string) error {
+	jsonOutput := workflowInfoJSON
+	if globalJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); globalJSON {
+		jsonOutput = true
+	}
+
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	cwd, _ := os.Getwd()
+	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	if jsonOutput {
+		ui.SetQuietMode(true)
+		defer ui.SetQuietMode(false)
+	} else {
+		ui.StartSpinner("Loading workflow info...")
+	}
+
+	workflowID, workflowName, err := resolveWorkflowID(cmd.Context(), args[0], cfg, client)
+	if err != nil {
+		if !jsonOutput {
+			ui.StopSpinner()
+		}
+		ui.PrintError("%v", err)
+		return fmt.Errorf("workflow not found")
+	}
+
+	displayName := workflowName
+	if displayName == "" {
+		displayName = args[0]
+	}
+
+	var (
+		wfInfo    *api.WorkflowInfoResponse
+		wfFull    *api.Workflow
+		wfHistory *api.CLIWorkflowHistoryResponse
+		infoErr   error
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		wfInfo, infoErr = client.GetWorkflowInfo(cmd.Context(), workflowID)
+	}()
+	go func() {
+		defer wg.Done()
+		wfFull, _ = client.GetWorkflow(cmd.Context(), workflowID)
+	}()
+	go func() {
+		defer wg.Done()
+		wfHistory, _ = client.GetWorkflowHistory(cmd.Context(), workflowID, 1, 0)
+	}()
+
+	wg.Wait()
+
+	if !jsonOutput {
+		ui.StopSpinner()
+	}
+
+	if infoErr != nil {
+		ui.PrintError("Failed to fetch workflow info: %v", infoErr)
+		return infoErr
+	}
+
+	if jsonOutput {
+		return outputWorkflowInfoJSON(wfInfo, wfFull, wfHistory)
+	}
+
+	renderWorkflowInfoCLI(displayName, workflowID, wfInfo, wfFull, wfHistory)
+	return nil
+}
+
+// outputWorkflowInfoJSON emits the combined workflow info as a single JSON object.
+func outputWorkflowInfoJSON(
+	info *api.WorkflowInfoResponse,
+	full *api.Workflow,
+	history *api.CLIWorkflowHistoryResponse,
+) error {
+	output := map[string]interface{}{
+		"id":   info.ID,
+		"name": info.Name,
+	}
+
+	tests := make([]map[string]interface{}, 0, len(info.TestInfo))
+	for _, t := range info.TestInfo {
+		item := map[string]interface{}{
+			"id":       t.ID,
+			"name":     t.Name,
+			"platform": t.Platform,
+		}
+		if t.LastStatus != nil {
+			item["last_status"] = *t.LastStatus
+		}
+		if t.LastDuration != nil {
+			item["last_duration"] = *t.LastDuration
+		}
+		tests = append(tests, item)
+	}
+	output["tests"] = tests
+
+	if full != nil {
+		overrides := map[string]interface{}{}
+		if full.OverrideBuildConfig && full.BuildConfig != nil {
+			overrides["app"] = full.BuildConfig
+		}
+		if full.OverrideLocation && full.LocationConfig != nil {
+			overrides["location"] = full.LocationConfig
+		}
+		if len(overrides) > 0 {
+			output["overrides"] = overrides
+		}
+		if full.RunConfig != nil {
+			output["run_config"] = full.RunConfig
+		}
+	}
+
+	if history != nil && len(history.Executions) > 0 {
+		latest := history.Executions[0]
+		output["last_run"] = map[string]interface{}{
+			"status":     latest.Status,
+			"started_at": latest.StartedAt,
+			"duration":   latest.Duration,
+		}
+	}
+
+	data, _ := json.MarshalIndent(output, "", "  ")
+	fmt.Println(string(data))
+	return nil
+}
+
+// renderWorkflowInfoCLI renders the human-readable workflow info output.
+func renderWorkflowInfoCLI(
+	name, id string,
+	info *api.WorkflowInfoResponse,
+	full *api.Workflow,
+	history *api.CLIWorkflowHistoryResponse,
+) {
+	ui.Println()
+	ui.PrintKeyValue("Workflow:", name)
+	ui.PrintKeyValue("ID:", id)
+
+	// Tests
+	ui.Println()
+	if len(info.TestInfo) == 0 {
+		ui.PrintInfo("Tests (0)")
+		ui.PrintDim("  No tests in this workflow")
+	} else {
+		ui.PrintInfo("Tests (%d)", len(info.TestInfo))
+		ui.Println()
+
+		table := ui.NewTable("NAME", "PLATFORM", "LAST STATUS", "DURATION")
+		table.SetMinWidth(0, 20)
+		table.SetMinWidth(1, 10)
+		table.SetMinWidth(2, 12)
+
+		for _, t := range info.TestInfo {
+			status := "–"
+			if t.LastStatus != nil && *t.LastStatus != "" {
+				status = *t.LastStatus
+			}
+			dur := "–"
+			if t.LastDuration != nil {
+				secs := int(*t.LastDuration)
+				if secs >= 60 {
+					dur = fmt.Sprintf("%dm %ds", secs/60, secs%60)
+				} else {
+					dur = fmt.Sprintf("%ds", secs)
+				}
+			}
+			table.AddRow(t.Name, t.Platform, status, dur)
+		}
+		table.Render()
+	}
+
+	// Overrides (only shown when at least one is configured)
+	if full != nil {
+		hasOverrides := false
+
+		iosApp := ""
+		androidApp := ""
+		if full.OverrideBuildConfig && full.BuildConfig != nil {
+			if iosBuild, ok := full.BuildConfig["ios_build"].(map[string]interface{}); ok {
+				if appID, ok := iosBuild["app_id"].(string); ok && appID != "" {
+					iosApp = appID
+					hasOverrides = true
+				}
+			}
+			if androidBuild, ok := full.BuildConfig["android_build"].(map[string]interface{}); ok {
+				if appID, ok := androidBuild["app_id"].(string); ok && appID != "" {
+					androidApp = appID
+					hasOverrides = true
+				}
+			}
+		}
+
+		locStr := ""
+		if full.OverrideLocation && full.LocationConfig != nil {
+			lat, _ := full.LocationConfig["latitude"]
+			lng, _ := full.LocationConfig["longitude"]
+			if lat != nil && lng != nil {
+				locStr = fmt.Sprintf("%v, %v", lat, lng)
+				hasOverrides = true
+			}
+		}
+
+		if hasOverrides {
+			ui.Println()
+			ui.PrintInfo("Overrides")
+			if iosApp != "" {
+				ui.PrintKeyValue("App (iOS):", iosApp)
+			}
+			if androidApp != "" {
+				ui.PrintKeyValue("App (Android):", androidApp)
+			}
+			if locStr != "" {
+				ui.PrintKeyValue("Location:", locStr)
+			}
+		}
+
+		// Run Config (only shown when non-default)
+		if full.RunConfig != nil && (full.RunConfig.Parallelism > 0 || full.RunConfig.MaxRetries > 0) {
+			ui.Println()
+			ui.PrintInfo("Run Config")
+			if full.RunConfig.Parallelism > 0 {
+				ui.PrintKeyValue("Parallelism:", fmt.Sprintf("%d", full.RunConfig.Parallelism))
+			}
+			if full.RunConfig.MaxRetries > 0 {
+				ui.PrintKeyValue("Max Retries:", fmt.Sprintf("%d", full.RunConfig.MaxRetries))
+			}
+		}
+	}
+
+	// Last Run
+	if history != nil && len(history.Executions) > 0 {
+		latest := history.Executions[0]
+		ui.Println()
+		ui.PrintInfo("Last Run")
+		ui.PrintKeyValue("Status:", latest.Status)
+		if latest.Duration != "" {
+			ui.PrintKeyValue("Duration:", latest.Duration)
+		}
+	}
+
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Run this workflow:", Command: fmt.Sprintf("revyl workflow run %s", name)},
+		{Label: "Execution history:", Command: fmt.Sprintf("revyl workflow history %s", name)},
+	})
 }

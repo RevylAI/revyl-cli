@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
@@ -91,10 +93,12 @@ type RunTestResult struct {
 //   - *RunTestResult: Execution result with status and report URL
 //   - error: Any error that occurred (nil if result contains error info)
 func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, params RunTestParams) (*RunTestResult, error) {
-	// Resolve test ID from alias
+	// Resolve test ID from local YAML
 	testID := params.TestNameOrID
-	if cfg != nil {
-		if id, ok := cfg.Tests[params.TestNameOrID]; ok {
+	cwd, cwdErr := os.Getwd()
+	if cwdErr == nil {
+		testsDir := filepath.Join(cwd, ".revyl", "tests")
+		if id, ltErr := config.GetLocalTestRemoteID(testsDir, params.TestNameOrID); ltErr == nil && id != "" {
 			testID = id
 		}
 	}
@@ -279,13 +283,7 @@ type RunWorkflowResult struct {
 //   - *RunWorkflowResult: Execution result with status and report URL
 //   - error: Any error that occurred (nil if result contains error info)
 func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, params RunWorkflowParams) (*RunWorkflowResult, error) {
-	// Resolve workflow ID from alias
 	workflowID := params.WorkflowNameOrID
-	if cfg != nil {
-		if id, ok := cfg.Workflows[params.WorkflowNameOrID]; ok {
-			workflowID = id
-		}
-	}
 
 	// Set defaults
 	retries := params.Retries

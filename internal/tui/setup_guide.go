@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -270,20 +271,18 @@ func initProjectCmd() tea.Cmd {
 			return SetupActionMsg{StepIndex: 2, Err: fmt.Errorf("failed to get working directory: %w", err)}
 		}
 
-		revylDir := cwd + "/.revyl"
+		revylDir := filepath.Join(cwd, ".revyl")
 		if err := os.MkdirAll(revylDir, 0o755); err != nil {
 			return SetupActionMsg{StepIndex: 2, Err: fmt.Errorf("failed to create .revyl directory: %w", err)}
 		}
-		testsDir := revylDir + "/tests"
+		testsDir := filepath.Join(revylDir, "tests")
 		if err := os.MkdirAll(testsDir, 0o755); err != nil {
 			return SetupActionMsg{StepIndex: 2, Err: fmt.Errorf("failed to create tests directory: %w", err)}
 		}
 
 		// Detect build system
 		detected, _ := build.Detect(cwd)
-		cfg := &config.ProjectConfig{
-			Tests: make(map[string]string),
-		}
+		cfg := &config.ProjectConfig{}
 		if detected.System != build.SystemUnknown {
 			cfg.Build.System = detected.System.String()
 			cfg.Build.Platforms = make(map[string]config.BuildPlatform)
@@ -295,7 +294,7 @@ func initProjectCmd() tea.Cmd {
 			}
 		}
 
-		configPath := revylDir + "/config.yaml"
+		configPath := filepath.Join(revylDir, "config.yaml")
 		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
 			return SetupActionMsg{StepIndex: 2, Err: fmt.Errorf("failed to write config: %w", err)}
 		}

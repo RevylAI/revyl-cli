@@ -74,6 +74,10 @@ func TestRunTestsPush_BootstrapsConfigWithoutProjectConfig(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"remote-test-1","version":3}`))
+		case "/api/v1/variables/custom/delete_all",
+			"/api/v1/variables/app_launch_env/delete_all":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"message":"deleted all"}`))
 		default:
 			t.Fatalf("unexpected request: %s", r.URL.Path)
 		}
@@ -106,12 +110,12 @@ func TestRunTestsPush_BootstrapsConfigWithoutProjectConfig(t *testing.T) {
 		t.Fatalf("runTestsPush() error = %v", err)
 	}
 
-	cfg, err := config.LoadProjectConfig(filepath.Join(tmp, ".revyl", "config.yaml"))
+	remoteID, err := config.GetLocalTestRemoteID(testsDir, testName)
 	if err != nil {
-		t.Fatalf("LoadProjectConfig() error = %v", err)
+		t.Fatalf("GetLocalTestRemoteID() error = %v", err)
 	}
-	if got := cfg.Tests[testName]; got != "remote-test-1" {
-		t.Fatalf("cfg.Tests[%q] = %q, want remote-test-1", testName, got)
+	if remoteID != "remote-test-1" {
+		t.Fatalf("local remote_id = %q, want remote-test-1", remoteID)
 	}
 
 	localTest, err := config.LoadLocalTest(testPath)

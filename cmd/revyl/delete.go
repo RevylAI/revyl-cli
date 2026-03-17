@@ -48,8 +48,7 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, cfgErr := config.LoadProjectConfig(configPath)
+	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
 
 	// Resolve name to ID
 	testID, testName, err := resolveTestNameOrID(cmd.Context(), client, cfg, nameOrID)
@@ -65,7 +64,6 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 	// Build info about what will be deleted
 	localFilePath := filepath.Join(cwd, ".revyl", "tests", testName+".yaml")
 	localFileExists := fileExists(localFilePath)
-	hasConfigAlias := cfg != nil && cfg.Tests != nil && cfg.Tests[testName] != ""
 
 	// Show what will be deleted
 	if !deleteForce {
@@ -78,12 +76,9 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 		if !deleteRemoteOnly && localFileExists {
 			ui.PrintDim("  - Local:  %s", localFilePath)
 		}
-		if !deleteRemoteOnly && hasConfigAlias {
-			ui.PrintDim("  - Config: .revyl/config.yaml (tests.%s)", testName)
-		}
 
 		ui.Println()
-		confirmed, err := ui.PromptConfirm("Are you sure?", false)
+		confirmed, err := ui.PromptConfirm(fmt.Sprintf("Delete test %q?", testName), false)
 		if err != nil || !confirmed {
 			ui.PrintInfo("Cancelled")
 			return nil
@@ -125,18 +120,6 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 			}
 		} else if !jsonOutput {
 			ui.PrintSuccess("Removed %s", localFilePath)
-		}
-	}
-
-	// Remove from config
-	if !deleteRemoteOnly && hasConfigAlias && cfgErr == nil {
-		delete(cfg.Tests, testName)
-		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-			if !jsonOutput {
-				ui.PrintWarning("Failed to update config: %v", err)
-			}
-		} else if !jsonOutput {
-			ui.PrintSuccess("Removed alias from .revyl/config.yaml")
 		}
 	}
 
@@ -189,28 +172,22 @@ func runDeleteWorkflow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, cfgErr := config.LoadProjectConfig(configPath)
+	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
 
 	// Resolve name to ID
-	workflowID, workflowName, err := resolveWorkflowNameOrID(cfg, nameOrID)
+	workflowID, workflowName, err := resolveWorkflowID(cmd.Context(), nameOrID, cfg, client)
 	if err != nil {
 		return err
 	}
-
-	hasConfigAlias := cfg != nil && cfg.Workflows != nil && cfg.Workflows[workflowName] != ""
 
 	// Show what will be deleted
 	if !deleteForce {
 		ui.Println()
 		ui.PrintInfo("Delete workflow \"%s\"?", workflowName)
 		ui.PrintDim("  - Remote: will be deleted from Revyl")
-		if hasConfigAlias {
-			ui.PrintDim("  - Config: .revyl/config.yaml (workflows.%s)", workflowName)
-		}
 
 		ui.Println()
-		confirmed, err := ui.PromptConfirm("Are you sure?", false)
+		confirmed, err := ui.PromptConfirm(fmt.Sprintf("Delete workflow %q?", workflowName), false)
 		if err != nil || !confirmed {
 			ui.PrintInfo("Cancelled")
 			return nil
@@ -240,18 +217,6 @@ func runDeleteWorkflow(cmd *cobra.Command, args []string) error {
 		}
 	} else if !jsonOutput {
 		ui.PrintSuccess("Deleted from Revyl")
-	}
-
-	// Remove from config
-	if hasConfigAlias && cfgErr == nil {
-		delete(cfg.Workflows, workflowName)
-		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-			if !jsonOutput {
-				ui.PrintWarning("Failed to update config: %v", err)
-			}
-		} else if !jsonOutput {
-			ui.PrintSuccess("Removed alias from .revyl/config.yaml")
-		}
 	}
 
 	// Handle JSON output
@@ -334,7 +299,7 @@ func runDeleteBuild(cmd *cobra.Command, args []string) error {
 		}
 
 		ui.Println()
-		confirmed, err := ui.PromptConfirm("Are you sure?", false)
+		confirmed, err := ui.PromptConfirm(fmt.Sprintf("Delete app %q and ALL versions?", appName), false)
 		if err != nil || !confirmed {
 			ui.PrintInfo("Cancelled")
 			return nil
@@ -440,7 +405,7 @@ func deleteSpecificBuildVersion(cmd *cobra.Command, client *api.Client, appID, a
 		ui.PrintInfo("Delete version \"%s\" from app \"%s\"?", versionStr, appName)
 
 		ui.Println()
-		confirmed, err := ui.PromptConfirm("Are you sure?", false)
+		confirmed, err := ui.PromptConfirm(fmt.Sprintf("Delete version %q from app %q?", versionStr, appName), false)
 		if err != nil || !confirmed {
 			ui.PrintInfo("Cancelled")
 			return nil
@@ -497,9 +462,10 @@ func deleteSpecificBuildVersion(cmd *cobra.Command, client *api.Client, appID, a
 
 // resolveTestNameOrID resolves a test name or ID to both values.
 func resolveTestNameOrID(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, nameOrID string) (testID, testName string, err error) {
-	// Check if it's in config aliases
-	if cfg != nil && cfg.Tests != nil {
-		if id, ok := cfg.Tests[nameOrID]; ok {
+	// Check if it's a local test alias
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		testsDir := filepath.Join(cwd, ".revyl", "tests")
+		if id, _ := config.GetLocalTestRemoteID(testsDir, nameOrID); id != "" {
 			return id, nameOrID, nil
 		}
 	}
@@ -526,23 +492,6 @@ func resolveTestNameOrID(ctx context.Context, client *api.Client, cfg *config.Pr
 	}
 
 	return "", "", fmt.Errorf("test \"%s\" not found", nameOrID)
-}
-
-// resolveWorkflowNameOrID resolves a workflow name or ID to both values.
-func resolveWorkflowNameOrID(cfg *config.ProjectConfig, nameOrID string) (workflowID, workflowName string, err error) {
-	// Check if it's in config aliases
-	if cfg != nil && cfg.Workflows != nil {
-		if id, ok := cfg.Workflows[nameOrID]; ok {
-			return id, nameOrID, nil
-		}
-	}
-
-	// Check if it looks like a UUID
-	if looksLikeUUID(nameOrID) {
-		return nameOrID, nameOrID, nil
-	}
-
-	return "", "", fmt.Errorf("workflow \"%s\" not found in config (use workflow ID or add alias to .revyl/config.yaml)", nameOrID)
 }
 
 // fileExists checks if a file exists.

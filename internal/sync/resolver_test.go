@@ -30,8 +30,11 @@ func TestGetTestStatus_OrphanedMissing(t *testing.T) {
 	})
 	defer cleanup()
 
-	cfg := &config.ProjectConfig{Tests: map[string]string{"login-flow": "missing-id"}}
-	resolver := NewResolver(client, cfg, map[string]*config.LocalTest{})
+	cfg := &config.ProjectConfig{}
+	localTests := map[string]*config.LocalTest{
+		"login-flow": {Meta: config.TestMeta{RemoteID: "missing-id"}},
+	}
+	resolver := NewResolver(client, cfg, localTests)
 
 	status, err := resolver.getTestStatus(context.Background(), "login-flow")
 	if err != nil {
@@ -56,8 +59,11 @@ func TestGetTestStatus_OrphanedInvalidID(t *testing.T) {
 	})
 	defer cleanup()
 
-	cfg := &config.ProjectConfig{Tests: map[string]string{"login-flow": "invalid-id"}}
-	resolver := NewResolver(client, cfg, map[string]*config.LocalTest{})
+	cfg := &config.ProjectConfig{}
+	localTests := map[string]*config.LocalTest{
+		"login-flow": {Meta: config.TestMeta{RemoteID: "invalid-id"}},
+	}
+	resolver := NewResolver(client, cfg, localTests)
 
 	status, err := resolver.getTestStatus(context.Background(), "login-flow")
 	if err != nil {
@@ -82,8 +88,11 @@ func TestGetTestStatus_OrphanedForbidden(t *testing.T) {
 	})
 	defer cleanup()
 
-	cfg := &config.ProjectConfig{Tests: map[string]string{"login-flow": "forbidden-id"}}
-	resolver := NewResolver(client, cfg, map[string]*config.LocalTest{})
+	cfg := &config.ProjectConfig{}
+	localTests := map[string]*config.LocalTest{
+		"login-flow": {Meta: config.TestMeta{RemoteID: "forbidden-id"}},
+	}
+	resolver := NewResolver(client, cfg, localTests)
 
 	status, err := resolver.getTestStatus(context.Background(), "login-flow")
 	if err != nil {
@@ -126,7 +135,7 @@ func TestGetTestStatus_FallbackToLocalRemoteID(t *testing.T) {
 		},
 	}
 
-	cfg := &config.ProjectConfig{Tests: map[string]string{"login-flow": "stale-id"}}
+	cfg := &config.ProjectConfig{}
 	resolver := NewResolver(client, cfg, map[string]*config.LocalTest{"login-flow": local})
 
 	status, err := resolver.getTestStatus(context.Background(), "login-flow")
@@ -148,20 +157,24 @@ func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
 	testsDir := t.TempDir()
 
 	client, cleanup := newResolverTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/tests/create" {
+		switch r.URL.Path {
+		case "/api/v1/tests/create":
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode create request: %v", err)
+			}
+			if got := req["org_id"]; got != "org-config" {
+				t.Fatalf("org_id = %v, want org-config", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"remote-id","version":2}`))
+		case "/api/v1/variables/custom/delete_all",
+			"/api/v1/variables/app_launch_env/delete_all":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"message":"deleted all"}`))
+		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-
-		var req map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatalf("decode create request: %v", err)
-		}
-		if got := req["org_id"]; got != "org-config" {
-			t.Fatalf("org_id = %v, want org-config", got)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"remote-id","version":2}`))
 	})
 	defer cleanup()
 
@@ -177,7 +190,6 @@ func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
 
 	cfg := &config.ProjectConfig{
 		Project: config.Project{OrgID: "org-config"},
-		Tests:   map[string]string{},
 	}
 
 	resolver := NewResolver(client, cfg, map[string]*config.LocalTest{
@@ -210,13 +222,17 @@ func TestImportRemoteTest_ReusesExistingAliasForSameRemoteID(t *testing.T) {
 		case "/api/v1/tests/tags/tests/remote-id":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`[]`))
+		case "/api/v1/variables/custom/read_variables",
+			"/api/v1/variables/app_launch_env/read":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"result":[]}`))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	})
 	defer cleanup()
 
-	cfg := &config.ProjectConfig{Tests: map[string]string{}}
+	cfg := &config.ProjectConfig{}
 	resolver := NewResolver(client, cfg, map[string]*config.LocalTest{})
 
 	results, err := resolver.ImportRemoteTest(context.Background(), "remote-id", "Checkout Flow", testsDir, false)
@@ -226,8 +242,9 @@ func TestImportRemoteTest_ReusesExistingAliasForSameRemoteID(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("len(results) = %d, want 1", len(results))
 	}
-	if got := cfg.Tests["checkout-flow"]; got != "remote-id" {
-		t.Fatalf("cfg.Tests[checkout-flow] = %q, want remote-id", got)
+	gotID, _ := config.GetLocalTestRemoteID(testsDir, "checkout-flow")
+	if gotID != "remote-id" {
+		t.Fatalf("checkout-flow remote_id = %q, want remote-id", gotID)
 	}
 
 	results, err = resolver.ImportRemoteTest(context.Background(), "remote-id", "Checkout Flow", testsDir, false)
@@ -240,10 +257,11 @@ func TestImportRemoteTest_ReusesExistingAliasForSameRemoteID(t *testing.T) {
 	if results[0].Name != "checkout-flow" {
 		t.Fatalf("results[0].Name = %q, want checkout-flow", results[0].Name)
 	}
-	if len(cfg.Tests) != 1 {
-		t.Fatalf("len(cfg.Tests) = %d, want 1", len(cfg.Tests))
+	aliases := config.ListLocalTestAliases(testsDir)
+	if len(aliases) != 1 {
+		t.Fatalf("len(aliases) = %d, want 1", len(aliases))
 	}
-	if _, exists := cfg.Tests["checkout-flow-2"]; exists {
+	if _, err := config.LoadLocalTest(filepath.Join(testsDir, "checkout-flow-2.yaml")); err == nil {
 		t.Fatalf("unexpected collision alias checkout-flow-2 created")
 	}
 }
@@ -278,7 +296,7 @@ func TestPullRemoteTest_DoesNotOverwriteLocalFileWhenTaskParsingFails(t *testing
 	})
 	defer cleanup()
 
-	cfg := &config.ProjectConfig{Tests: map[string]string{}}
+	cfg := &config.ProjectConfig{}
 	resolver := NewResolver(client, cfg, map[string]*config.LocalTest{})
 
 	result := resolver.pullRemoteTest(

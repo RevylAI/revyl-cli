@@ -852,8 +852,7 @@ func workflowMonitorItemToStatus(item *OrgWorkflowMonitorItem) *WorkflowStatus {
 // pollWorkflowStatus polls for workflow status updates.
 func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID string, onProgress func(*WorkflowStatus)) (*WorkflowStatus, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
-	// Use the same workflow status route as the API client to avoid drift.
-	statusURL := fmt.Sprintf("%s/api/v1/workflows/status/status/%s", m.backendURL, taskID)
+	statusURL := fmt.Sprintf("%s/api/v1/workflows/status/%s", m.backendURL, taskID)
 
 	ticker := time.NewTicker(defaultPollInterval)
 	defer ticker.Stop()

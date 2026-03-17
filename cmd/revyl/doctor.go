@@ -417,11 +417,9 @@ func checkProjectConfig() DoctorCheck {
 	if cfg.Project.Name != "" {
 		details = append(details, fmt.Sprintf("Project: %s", cfg.Project.Name))
 	}
-	if len(cfg.Tests) > 0 {
-		details = append(details, fmt.Sprintf("%d test(s)", len(cfg.Tests)))
-	}
-	if len(cfg.Workflows) > 0 {
-		details = append(details, fmt.Sprintf("%d workflow(s)", len(cfg.Workflows)))
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	if linkedCount := config.CountLinkedTests(testsDir); linkedCount > 0 {
+		details = append(details, fmt.Sprintf("%d test(s)", linkedCount))
 	}
 	if len(details) > 0 {
 		check.Details = strings.Join(details, ", ")
@@ -696,49 +694,32 @@ func checkSyncStatus(ctx context.Context, cfg *config.ProjectConfig, client *api
 
 	var issues []string
 
-	// Compare tests against remote.
-	if len(cfg.Tests) > 0 {
-		remoteTests, err := client.ListAllOrgTests(ctx, 200)
-		if err == nil {
-			// Tests in config but deleted on server.
-			for name, id := range cfg.Tests {
-				found := false
-				for _, rt := range remoteTests {
-					if rt.ID == id {
-						found = true
-						break
+	// Compare local tests against remote.
+	cwd, cwdErr := os.Getwd()
+	if cwdErr == nil {
+		testsDir := filepath.Join(cwd, ".revyl", "tests")
+		localTests, ltErr := config.LoadLocalTests(testsDir)
+		if ltErr == nil && len(localTests) > 0 {
+			remoteTests, err := client.ListAllOrgTests(ctx, 200)
+			if err == nil {
+				for name, lt := range localTests {
+					if lt == nil || lt.Meta.RemoteID == "" {
+						continue
 					}
-				}
-				if !found {
-					shortID := id
-					if len(shortID) > 8 {
-						shortID = shortID[:8]
+					found := false
+					for _, rt := range remoteTests {
+						if rt.ID == lt.Meta.RemoteID {
+							found = true
+							break
+						}
 					}
-					issues = append(issues, fmt.Sprintf("Test '%s' (%s...) not found on server", name, shortID))
-				}
-			}
-
-		}
-	}
-
-	// Compare workflows against remote.
-	if len(cfg.Workflows) > 0 {
-		remoteWorkflows, err := client.ListAllWorkflows(ctx, 200)
-		if err == nil {
-			for name, id := range cfg.Workflows {
-				found := false
-				for _, rw := range remoteWorkflows {
-					if rw.ID == id {
-						found = true
-						break
+					if !found {
+						shortID := lt.Meta.RemoteID
+						if len(shortID) > 8 {
+							shortID = shortID[:8]
+						}
+						issues = append(issues, fmt.Sprintf("Test '%s' (%s...) not found on server", name, shortID))
 					}
-				}
-				if !found {
-					shortID := id
-					if len(shortID) > 8 {
-						shortID = shortID[:8]
-					}
-					issues = append(issues, fmt.Sprintf("Workflow '%s' (%s...) not found on server", name, shortID))
 				}
 			}
 		}

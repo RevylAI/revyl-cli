@@ -252,15 +252,10 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 
 	validationClient := api.NewClientWithDevMode(apiKey, devMode)
-	testID, resolvedName, err := resolveTestID(cmd.Context(), testNameOrID, cfg, validationClient)
+	testID, _, err := resolveTestID(cmd.Context(), testNameOrID, cfg, validationClient)
 	if err != nil {
 		ui.PrintError("%v", err)
 		return fmt.Errorf("test not found")
-	}
-	if resolvedName == testNameOrID && cfg != nil && cfg.Tests != nil {
-		if id, ok := cfg.Tests[testNameOrID]; ok && id == testID {
-			ui.PrintInfo("Resolved '%s' to test ID: %s", testNameOrID, testID)
-		}
 	}
 	if looksLikeUUID(testNameOrID) {
 		if _, err := validationClient.GetTest(cmd.Context(), testID); err != nil {
@@ -653,42 +648,20 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	effectiveOpen := resolveRunOpen(cmd, cfg, runOpen)
 	effectiveTimeout := resolveRunTimeout(cmd, cfg, runTimeout)
 
-	// Resolve workflow ID from alias for display
-	workflowID := workflowNameOrID
-	var isAlias bool
-	if cfg != nil {
-		if id, ok := cfg.Workflows[workflowNameOrID]; ok {
-			workflowID = id
-			isAlias = true
-			ui.PrintInfo("Resolved '%s' to workflow ID: %s", workflowNameOrID, workflowID)
-		}
-	}
-
 	// Get dev mode flag
 	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Validate workflow exists before building (fail fast) - only if --build is set
-	if runWorkflowBuild && !isAlias {
-		if !looksLikeUUID(workflowNameOrID) {
-			// Not an alias and not a UUID - likely a typo
-			var availableWorkflows []string
-			if cfg != nil && cfg.Workflows != nil {
-				for name := range cfg.Workflows {
-					availableWorkflows = append(availableWorkflows, name)
-				}
-			}
-			errMsg := fmt.Sprintf("workflow '%s' not found in config", workflowNameOrID)
-			if len(availableWorkflows) > 0 {
-				errMsg += fmt.Sprintf(". Available workflows: %v", availableWorkflows)
-			}
-			errMsg += "\n\nHint: Run 'revyl test remote' to see all available tests/workflows."
-			ui.PrintError("%s", errMsg)
-			return fmt.Errorf("workflow not found")
-		}
-		// It's a UUID format - verify it exists via API before building
-		validationClient := api.NewClientWithDevMode(apiKey, devMode)
-		_, err := validationClient.GetWorkflow(cmd.Context(), workflowID)
-		if err != nil {
+	// Resolve workflow name or UUID via API
+	workflowID, _, err := resolveWorkflowID(cmd.Context(), workflowNameOrID, cfg, client)
+	if err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
+
+	// Validate workflow exists before building (fail fast)
+	if runWorkflowBuild {
+		if _, err := client.GetWorkflow(cmd.Context(), workflowID); err != nil {
 			ui.PrintError("workflow '%s' not found: %v", workflowNameOrID, err)
 			return fmt.Errorf("workflow not found")
 		}
@@ -1232,9 +1205,10 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Resolve test ID from alias for display
+	// Resolve test ID from local YAML for display
 	testID := testNameOrID
-	if id, ok := cfg.Tests[testNameOrID]; ok {
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	if id, _ := config.GetLocalTestRemoteID(testsDir, testNameOrID); id != "" {
 		testID = id
 		ui.PrintInfo("Resolved '%s' to test ID: %s", testNameOrID, testID)
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/config"
 )
 
 // stderrBufferSize is the number of recent cloudflared stderr lines retained for diagnostics.
@@ -542,7 +543,7 @@ func CheckConnectivity(ctx context.Context) (*ConnectivityCheckResult, error) {
 	result.CanReachCloudflare = true
 
 	// 3. Check Revyl API
-	req, err = http.NewRequestWithContext(ctx, "GET", "https://backend.revyl.ai/health", nil)
+	req, err = http.NewRequestWithContext(ctx, "GET", config.GetBackendURL(false)+"/health", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

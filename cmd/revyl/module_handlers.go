@@ -278,6 +278,8 @@ func runModuleCreate(cmd *cobra.Command, args []string) error {
 }
 
 // runModuleUpdate handles the module update command.
+// Fetches the current module version first for optimistic locking, then sends
+// the update with expected_version. Returns a clear message on 409 conflict.
 func runModuleUpdate(cmd *cobra.Command, args []string) error {
 	nameOrID := args[0]
 
@@ -298,8 +300,17 @@ func runModuleUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	currentModule, err := client.GetModule(cmd.Context(), moduleID)
+	if err != nil {
+		ui.StopSpinner()
+		ui.PrintError("Failed to fetch current module: %v", err)
+		return err
+	}
+
 	// Build update request
 	req := &api.CLIUpdateModuleRequest{}
+	currentVersion := currentModule.Result.Version
+	req.ExpectedVersion = &currentVersion
 	hasUpdate := false
 
 	if moduleUpdateName != "" {
@@ -349,6 +360,13 @@ func runModuleUpdate(cmd *cobra.Command, args []string) error {
 	ui.StopSpinner()
 
 	if err != nil {
+		if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 409 {
+			ui.PrintError("Module was modified by another user since you last fetched it")
+			ui.PrintDim("  %s", apiErr.Detail)
+			ui.Println()
+			ui.PrintInfo("Fetch the latest version and try again.")
+			return err
+		}
 		ui.PrintError("Failed to update module: %v", err)
 		return err
 	}
@@ -417,6 +435,162 @@ func runModuleDelete(cmd *cobra.Command, args []string) error {
 	if resp.Message != "" {
 		ui.PrintDim("  %s", resp.Message)
 	}
+
+	return nil
+}
+
+// runModuleVersions handles the module versions command.
+// Lists the version history for a module in a tabular format.
+func runModuleVersions(cmd *cobra.Command, args []string) error {
+	nameOrID := args[0]
+
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	ui.StartSpinner("Fetching module versions...")
+
+	moduleID, moduleName, err := resolveModuleNameOrID(cmd, client, nameOrID)
+	if err != nil {
+		ui.StopSpinner()
+		ui.PrintError("%v", err)
+		return err
+	}
+
+	resp, err := client.GetModuleVersions(cmd.Context(), moduleID, 50, 0)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to get module versions: %v", err)
+		return err
+	}
+
+	if len(resp.Versions) == 0 {
+		ui.PrintInfo("No version history for module \"%s\"", moduleName)
+		return nil
+	}
+
+	ui.Println()
+	ui.PrintInfo("Version history for module \"%s\"", moduleName)
+	ui.Println()
+
+	table := ui.NewTable("VERSION", "MODIFIED BY", "MODIFIED AT")
+	table.SetMinWidth(0, 8)  // VERSION
+	table.SetMinWidth(1, 20) // MODIFIED BY
+	table.SetMinWidth(2, 20) // MODIFIED AT
+
+	for _, v := range resp.Versions {
+		modifiedBy := "-"
+		if v.ModifiedByEmail != nil && *v.ModifiedByEmail != "" {
+			modifiedBy = *v.ModifiedByEmail
+		} else if v.ModifiedBy != nil && *v.ModifiedBy != "" {
+			modifiedBy = *v.ModifiedBy
+		}
+		table.AddRow(fmt.Sprintf("%d", v.Version), modifiedBy, v.CreatedAt)
+	}
+
+	table.Render()
+
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Restore a version:", Command: fmt.Sprintf("revyl module restore %s --version <n>", nameOrID)},
+	})
+
+	return nil
+}
+
+// runModuleRestore handles the module restore command.
+// Restores a module to the specified historical version.
+func runModuleRestore(cmd *cobra.Command, args []string) error {
+	nameOrID := args[0]
+
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	ui.StartSpinner("Restoring module...")
+
+	moduleID, moduleName, err := resolveModuleNameOrID(cmd, client, nameOrID)
+	if err != nil {
+		ui.StopSpinner()
+		ui.PrintError("%v", err)
+		return err
+	}
+
+	if err := client.RestoreModuleVersion(cmd.Context(), moduleID, moduleRestoreVersion); err != nil {
+		ui.StopSpinner()
+		ui.PrintError("Failed to restore module: %v", err)
+		return err
+	}
+
+	ui.StopSpinner()
+
+	ui.PrintSuccess("Module \"%s\" restored to version %d", moduleName, moduleRestoreVersion)
+
+	ui.Println()
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "View restored module:", Command: fmt.Sprintf("revyl module get %s", nameOrID)},
+		{Label: "View version history:", Command: fmt.Sprintf("revyl module versions %s", nameOrID)},
+	})
+
+	return nil
+}
+
+// runModuleUsage handles the module usage command.
+// Lists all tests that reference the given module via module_import blocks.
+func runModuleUsage(cmd *cobra.Command, args []string) error {
+	nameOrID := args[0]
+
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	ui.StartSpinner("Fetching module usage...")
+
+	moduleID, moduleName, err := resolveModuleNameOrID(cmd, client, nameOrID)
+	if err != nil {
+		ui.StopSpinner()
+		ui.PrintError("%v", err)
+		return err
+	}
+
+	resp, err := client.GetModuleUsage(cmd.Context(), moduleID)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to get module usage: %v", err)
+		return err
+	}
+
+	if len(resp.Tests) == 0 {
+		ui.PrintInfo("Module \"%s\" is not used by any tests", moduleName)
+		return nil
+	}
+
+	ui.Println()
+	ui.PrintInfo("Module \"%s\" is used by %d test(s)", moduleName, len(resp.Tests))
+	ui.Println()
+
+	table := ui.NewTable("TEST NAME", "TEST ID")
+	table.SetMinWidth(0, 20) // TEST NAME
+	table.SetMinWidth(1, 36) // TEST ID
+
+	for _, t := range resp.Tests {
+		table.AddRow(t.Name, t.Id)
+	}
+
+	table.Render()
 
 	return nil
 }

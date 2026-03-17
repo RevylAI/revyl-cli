@@ -1015,26 +1015,36 @@ func (c *Client) GetTest(ctx context.Context, testID string) (*Test, error) {
 }
 
 // Test represents a test definition.
+// MobileTargetEntry represents a saved device target from test_mobile_targets.
+type MobileTargetEntry struct {
+	DeviceModel string `json:"device_model"`
+	OSVersion   string `json:"os_version"`
+}
+
 type Test struct {
 	ID             string                 `json:"id"`
 	Name           string                 `json:"name"`
 	Platform       string                 `json:"platform"`
+	Description    string                 `json:"description,omitempty"`
 	Tasks          interface{}            `json:"tasks"`
 	Version        int                    `json:"version"`
 	LastModifiedBy string                 `json:"last_modified_by,omitempty"`
 	AppID          string                 `json:"app_id,omitempty"`
 	PinnedVersion  string                 `json:"pinned_version,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	MobileTargets  []MobileTargetEntry    `json:"mobile_targets,omitempty"`
 }
 
 // UpdateTestRequest represents a test update request.
 type UpdateTestRequest struct {
 	TestID          string      `json:"-"`
 	Name            string      `json:"name,omitempty"`
+	Description     string      `json:"description,omitempty"`
 	Tasks           interface{} `json:"tasks,omitempty"`
 	AppID           string      `json:"app_id,omitempty"`
+	PinnedVersionID string      `json:"pinned_version,omitempty"`
 	ExpectedVersion int         `json:"expected_version,omitempty"`
-	Force           bool        `json:"-"` // Client-side only, not sent to server
+	Force           bool        `json:"-"`
 }
 
 // UpdateTestResponse represents a test update response.
@@ -1190,11 +1200,14 @@ func (c *Client) RevokeCLIAPIKey(ctx context.Context, apiKeyID string) error {
 // StreamUploadBuild uploads a build using streaming (alternative to presigned URL).
 //
 // SimpleTest represents a lightweight test item for listing.
-// This is a CLI-specific type that's simpler than the generated SimpleTestItem.
+// Includes optional app and tag metadata used by the TUI browse/filter view.
 type SimpleTest struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Platform string `json:"platform"`
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Platform string    `json:"platform"`
+	AppID    string    `json:"app_id,omitempty"`
+	AppName  string    `json:"app_name,omitempty"`
+	Tags     []TestTag `json:"tags,omitempty"`
 }
 
 // CLISimpleTestListResponse represents the response from listing simple tests.
@@ -1680,12 +1693,26 @@ type Workflow struct {
 	OverrideLocation    bool                   `json:"override_location,omitempty"`
 	BuildConfig         map[string]interface{} `json:"build_config,omitempty"`
 	OverrideBuildConfig bool                   `json:"override_build_config,omitempty"`
+	RunConfig           *WorkflowRunConfig     `json:"run_config,omitempty"`
 }
 
-// SimpleWorkflow represents a minimal workflow definition for listing.
+// CLIWorkflowLastExecution holds the last execution metadata returned by the
+// get_with_last_status endpoint.
+type CLIWorkflowLastExecution struct {
+	Status    string   `json:"status"`
+	LastRun   *string  `json:"last_run,omitempty"`
+	Duration  *float64 `json:"duration,omitempty"`
+	StartedAt *string  `json:"started_at,omitempty"`
+	ID        *string  `json:"id,omitempty"`
+}
+
+// SimpleWorkflow represents a workflow returned by the list endpoint,
+// including last-execution metadata and test count.
 type SimpleWorkflow struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID            string                    `json:"id"`
+	Name          string                    `json:"name"`
+	TestCount     int                       `json:"test_count"`
+	LastExecution *CLIWorkflowLastExecution `json:"last_execution,omitempty"`
 }
 
 // CLIWorkflowListResponse represents the response from the list workflows endpoint.
@@ -1805,6 +1832,52 @@ func (c *Client) GetWorkflow(ctx context.Context, workflowID string) (*Workflow,
 	}
 
 	return &result, nil
+}
+
+// WorkflowInfoTestItem contains per-test metadata returned by the lightweight
+// workflow info endpoint (name, platform, last execution status).
+type WorkflowInfoTestItem struct {
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Platform          string   `json:"platform"`
+	LastStatus        *string  `json:"last_status,omitempty"`
+	LastExecutionTime *string  `json:"last_execution_time,omitempty"`
+	LastDuration      *float64 `json:"last_duration,omitempty"`
+}
+
+// WorkflowInfoResponse is the parsed response from the lightweight workflow
+// info endpoint, returning test_info with names and platforms.
+type WorkflowInfoResponse struct {
+	ID       string                 `json:"id"`
+	Name     string                 `json:"name"`
+	TestInfo []WorkflowInfoTestItem `json:"test_info"`
+}
+
+// GetWorkflowInfo retrieves lightweight workflow data including resolved test
+// names, platforms, and per-test last execution status.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow UUID
+//
+// Returns:
+//   - *WorkflowInfoResponse: Workflow info with test details
+//   - error: Any error that occurred
+func (c *Client) GetWorkflowInfo(ctx context.Context, workflowID string) (*WorkflowInfoResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/workflows/get_info/%s", workflowID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var wrapper struct {
+		Data WorkflowInfoResponse `json:"data"`
+	}
+	if err := parseResponse(resp, &wrapper); err != nil {
+		return nil, err
+	}
+
+	return &wrapper.Data, nil
 }
 
 // GetTestStatus retrieves the current status of a test execution.
@@ -2334,6 +2407,7 @@ type CLIModuleResponse struct {
 	Name        string        `json:"name"`
 	Description string        `json:"description,omitempty"`
 	Blocks      []interface{} `json:"blocks"`
+	Version     int           `json:"version"`
 	CreatedAt   string        `json:"created_at"`
 	UpdatedAt   string        `json:"updated_at"`
 	OrgID       string        `json:"org_id"`
@@ -2360,9 +2434,10 @@ type CLICreateModuleRequest struct {
 
 // CLIUpdateModuleRequest represents a module update request.
 type CLIUpdateModuleRequest struct {
-	Name        *string        `json:"name,omitempty"`
-	Description *string        `json:"description,omitempty"`
-	Blocks      *[]interface{} `json:"blocks,omitempty"`
+	Name            *string        `json:"name,omitempty"`
+	Description     *string        `json:"description,omitempty"`
+	Blocks          *[]interface{} `json:"blocks,omitempty"`
+	ExpectedVersion *int           `json:"expected_version,omitempty"`
 }
 
 // CLIDeleteModuleResponse represents the response from deleting a module.
@@ -2481,6 +2556,78 @@ func (c *Client) DeleteModule(ctx context.Context, moduleID string) (*CLIDeleteM
 	}
 
 	var result CLIDeleteModuleResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// --- Module lifecycle API methods ---
+
+// GetModuleVersions lists version history for a module.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//   - limit: Maximum number of versions to return
+//   - offset: Number of versions to skip (for pagination)
+//
+// Returns:
+//   - *ModuleVersionListResponse: Paginated list of module versions
+//   - error: Any error that occurred
+func (c *Client) GetModuleVersions(ctx context.Context, moduleID string, limit, offset int) (*ModuleVersionListResponse, error) {
+	path := fmt.Sprintf("/api/v1/modules/%s/versions?limit=%d&offset=%d", moduleID, limit, offset)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ModuleVersionListResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// RestoreModuleVersion restores a module to a specific historical version.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//   - version: The version number to restore to
+//
+// Returns:
+//   - error: Any error that occurred (404 if version not found)
+func (c *Client) RestoreModuleVersion(ctx context.Context, moduleID string, version int) error {
+	body := map[string]int{"version": version}
+	resp, err := c.doRequest(ctx, "POST",
+		fmt.Sprintf("/api/v1/modules/%s/restore", moduleID), body)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// GetModuleUsage lists the tests that reference a specific module.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - moduleID: The module UUID
+//
+// Returns:
+//   - *ModuleUsageResponse: List of tests that use the module
+//   - error: Any error that occurred
+func (c *Client) GetModuleUsage(ctx context.Context, moduleID string) (*ModuleUsageResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/modules/%s/tests", moduleID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ModuleUsageResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
@@ -3025,7 +3172,7 @@ func (c *Client) GenerateShareableLink(ctx context.Context, taskID string) (*CLI
 		ExpirationHours: nil,
 	}
 
-	resp, err := c.doRequest(ctx, "POST", "/api/v1/reports/generate_shareable_report_link_by_task", req)
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/report/async-run/generate_shareable_report_link_by_task", req)
 	if err != nil {
 		return nil, err
 	}
@@ -3124,7 +3271,7 @@ type CLIUnifiedWorkflowReportResponse struct {
 
 // GetWorkflowStatus retrieves the real-time status of a workflow execution.
 func (c *Client) GetWorkflowStatus(ctx context.Context, taskID string) (*CLIWorkflowStatusResponse, error) {
-	path := fmt.Sprintf("/api/v1/workflows/status/status/%s", taskID)
+	path := fmt.Sprintf("/api/v1/workflows/status/%s", taskID)
 	resp, err := c.doRequestOnce(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -3275,6 +3422,32 @@ func (c *Client) DeleteAllEnvVars(ctx context.Context, testID string) error {
 	return parseResponse(resp, nil)
 }
 
+// UpdateDeviceTarget updates the saved device target for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - deviceModel: Target device model (empty string or "AUTO" for auto)
+//   - osVersion: Target OS version (empty string or "AUTO" for auto)
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) UpdateDeviceTarget(ctx context.Context, testID, deviceModel, osVersion string) error {
+	path := fmt.Sprintf("/api/v1/tests/%s/device-target", testID)
+	body := map[string]*string{}
+	if deviceModel != "" {
+		body["device_model"] = &deviceModel
+	}
+	if osVersion != "" {
+		body["os_version"] = &osVersion
+	}
+	resp, err := c.doRequest(ctx, "PATCH", path, body)
+	if err != nil {
+		return err
+	}
+	return parseResponse(resp, nil)
+}
+
 // --- Workflow Settings API methods ---
 
 // UpdateWorkflowName renames a workflow while preserving its ID/history.
@@ -3318,6 +3491,68 @@ func (c *Client) UpdateWorkflowBuildConfig(ctx context.Context, workflowID strin
 	}
 
 	return parseResponse(resp, nil)
+}
+
+// WorkflowRunConfig represents a workflow's run configuration (parallelism, retries).
+type WorkflowRunConfig struct {
+	Parallelism int `json:"parallelism,omitempty"`
+	MaxRetries  int `json:"max_retries,omitempty"`
+}
+
+// UpdateWorkflowRunConfig updates the run configuration for a workflow.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow UUID
+//   - config: The run configuration to apply
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) UpdateWorkflowRunConfig(ctx context.Context, workflowID string, config *WorkflowRunConfig) error {
+	path := fmt.Sprintf("/api/v1/workflows/update_run_config/%s", workflowID)
+	resp, err := c.doRequest(ctx, "PUT", path, config)
+	if err != nil {
+		return err
+	}
+	return parseResponse(resp, nil)
+}
+
+// DeviceSessionHistoryResponse represents paginated device session history.
+type DeviceSessionHistoryResponse struct {
+	Sessions []DeviceSessionHistoryItem `json:"sessions"`
+	Total    int                        `json:"total"`
+}
+
+// DeviceSessionHistoryItem represents a single device session in the history list.
+type DeviceSessionHistoryItem struct {
+	ID        string  `json:"id"`
+	Platform  string  `json:"platform"`
+	Status    string  `json:"status"`
+	CreatedAt string  `json:"created_at"`
+	Duration  float64 `json:"duration_seconds,omitempty"`
+}
+
+// GetDeviceSessionHistory retrieves paginated device session history.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - limit: Maximum number of sessions to return
+//   - offset: Number of sessions to skip for pagination
+//
+// Returns:
+//   - *DeviceSessionHistoryResponse: The paginated session history
+//   - error: Any error that occurred
+func (c *Client) GetDeviceSessionHistory(ctx context.Context, limit, offset int) (*DeviceSessionHistoryResponse, error) {
+	path := fmt.Sprintf("/api/v1/execution/device-sessions/history?limit=%d&offset=%d", limit, offset)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result DeviceSessionHistoryResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // DeleteBuildVersion deletes a specific build version.
@@ -3691,6 +3926,28 @@ func (c *Client) UpdateCustomVariableValue(ctx context.Context, testID, variable
 	return parseResponse(resp, nil)
 }
 
+// RenameCustomVariable updates the name of an existing custom variable.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - variableID: The variable UUID
+//   - newName: The new variable name
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) RenameCustomVariable(ctx context.Context, variableID, newName string) error {
+	body := map[string]string{
+		"variable_name": newName,
+	}
+	resp, err := c.doRequest(ctx, "PUT",
+		fmt.Sprintf("/api/v1/variables/custom/update/%s", variableID), body)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
 // DeleteCustomVariable deletes a custom variable by name.
 //
 // Parameters:
@@ -3753,7 +4010,122 @@ func (c *Client) CheckCustomVariableExists(ctx context.Context, testID, name str
 	return &result, nil
 }
 
+// --- Test Duplication ---
+
+// DuplicateTest creates a copy of an existing test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The duplication request (uses generated DuplicateTestRequest)
+//
+// Returns:
+//   - *DuplicateTestResponse: The newly created duplicate test
+//   - error: Any error that occurred
+func (c *Client) DuplicateTest(ctx context.Context, req *DuplicateTestRequest) (*DuplicateTestResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/duplicate", req)
+	if err != nil {
+		return nil, err
+	}
+	var result DuplicateTestResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// --- Test Versioning ---
+
+// GetTestVersions lists version history for a test.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//
+// Returns:
+//   - *TestVersionListResponse: The version history (uses generated type)
+//   - error: Any error that occurred
+func (c *Client) GetTestVersions(ctx context.Context, testID string) (*TestVersionListResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/tests/%s/versions", testID), nil)
+	if err != nil {
+		return nil, err
+	}
+	var result TestVersionListResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// RestoreTestVersion restores a test to a specific version.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - testID: The test UUID
+//   - version: The version number to restore
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) RestoreTestVersion(ctx context.Context, testID string, version int) error {
+	body := TestRestoreVersionRequest{Version: version}
+	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/v1/tests/%s/restore", testID), body)
+	if err != nil {
+		return err
+	}
+	return parseResponse(resp, nil)
+}
+
 // --- Workflow Test Management ---
+
+// WorkflowTestWithPolicy represents a workflow-test attachment with failure policy.
+type WorkflowTestWithPolicy struct {
+	WorkflowTestID string `json:"id"`
+	TestID         string `json:"test_id"`
+	TestName       string `json:"test_name,omitempty"`
+	Platform       string `json:"platform,omitempty"`
+	FailurePolicy  string `json:"failure_policy,omitempty"`
+}
+
+// GetWorkflowTestsWithPolicy lists workflow tests with their failure policies.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowID: The workflow UUID
+//
+// Returns:
+//   - []WorkflowTestWithPolicy: The workflow tests with policies
+//   - error: Any error that occurred
+func (c *Client) GetWorkflowTestsWithPolicy(ctx context.Context, workflowID string) ([]WorkflowTestWithPolicy, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/v1/workflows/workflow/%s/tests", workflowID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var wrapper struct {
+		Data []WorkflowTestWithPolicy `json:"data"`
+	}
+	if err := parseResponse(resp, &wrapper); err != nil {
+		return nil, err
+	}
+	return wrapper.Data, nil
+}
+
+// UpdateWorkflowTestFailurePolicy updates the failure policy for a test in a workflow.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - workflowTestID: The workflow-test attachment UUID
+//   - policy: The failure policy ("fail_workflow" or "ignore_failure")
+//
+// Returns:
+//   - error: Any error that occurred
+func (c *Client) UpdateWorkflowTestFailurePolicy(ctx context.Context, workflowTestID string, policy string) error {
+	body := map[string]string{"failure_policy": policy}
+	resp, err := c.doRequest(ctx, "PATCH", fmt.Sprintf("/api/v1/workflows/workflow-tests/%s", workflowTestID), body)
+	if err != nil {
+		return err
+	}
+	return parseResponse(resp, nil)
+}
 
 // UpdateWorkflowTests atomically replaces the test list for a workflow.
 //

@@ -111,6 +111,10 @@ type SyncResult struct {
 	Conflict bool
 	// Error is any error that occurred.
 	Error error
+	// TagSyncError is a non-fatal error from tag synchronization.
+	TagSyncError error
+	// ConfigSyncError is a non-fatal error from variable/env/device config sync.
+	ConfigSyncError error
 }
 
 // Resolver handles test name resolution and sync operations.
@@ -132,12 +136,6 @@ type Resolver struct {
 func NewResolver(client *api.Client, cfg *config.ProjectConfig, localTests map[string]*config.LocalTest) *Resolver {
 	if cfg == nil {
 		cfg = &config.ProjectConfig{}
-	}
-	if cfg.Tests == nil {
-		cfg.Tests = make(map[string]string)
-	}
-	if cfg.Workflows == nil {
-		cfg.Workflows = make(map[string]string)
 	}
 	if cfg.Build.Platforms == nil {
 		cfg.Build.Platforms = make(map[string]config.BuildPlatform)
@@ -165,16 +163,7 @@ func NewResolver(client *api.Client, cfg *config.ProjectConfig, localTests map[s
 func (r *Resolver) GetAllStatuses(ctx context.Context) ([]TestSyncStatus, error) {
 	var statuses []TestSyncStatus
 
-	// Collect all test names from config aliases and local files
-	testNames := make(map[string]bool)
-	for name := range r.config.Tests {
-		testNames[name] = true
-	}
 	for name := range r.localTests {
-		testNames[name] = true
-	}
-
-	for name := range testNames {
 		status, err := r.getTestStatus(ctx, name)
 		if err != nil {
 			// Include error in status - mark as local only but preserve the error message
@@ -198,19 +187,10 @@ func (r *Resolver) getTestStatus(ctx context.Context, name string) (*TestSyncSta
 	// Check if we have a local test
 	localTest, hasLocal := r.localTests[name]
 
-	// Check if we have a remote ID (from config or local test)
+	// Determine remote ID from local YAML _meta.remote_id
 	var remoteID string
-	var cfgRemoteID string
-	var localRemoteID string
-	if id, ok := r.config.Tests[name]; ok {
-		remoteID = id
-		cfgRemoteID = id
-	}
 	if hasLocal && localTest.Meta.RemoteID != "" {
-		localRemoteID = localTest.Meta.RemoteID
-		if remoteID == "" {
-			remoteID = localRemoteID
-		}
+		remoteID = localTest.Meta.RemoteID
 	}
 
 	if remoteID == "" {
@@ -230,49 +210,34 @@ func (r *Resolver) getTestStatus(ctx context.Context, name string) (*TestSyncSta
 		}
 	}
 
-	// Fetch remote version. If config ID is stale but local metadata has a different
-	// remote ID, try the local fallback before classifying as local-only.
 	remoteTest, err := r.client.GetTest(ctx, remoteID)
 	if err != nil {
 		var apiErr *api.APIError
 		if errors.As(err, &apiErr) {
-			if apiErr.StatusCode == 404 && cfgRemoteID != "" && localRemoteID != "" && cfgRemoteID != localRemoteID {
-				fallback, fallbackErr := r.client.GetTest(ctx, localRemoteID)
-				if fallbackErr == nil {
-					remoteID = localRemoteID
-					status.RemoteID = remoteID
-					remoteTest = fallback
-					err = nil
-				}
-			}
-			if err != nil {
-				switch apiErr.StatusCode {
-				case 404:
-					status.Status = StatusOrphaned
-					status.LinkIssue = RemoteLinkIssueMissing
-					status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "remote test not found")
-					return status, nil
-				case 400:
-					status.Status = StatusOrphaned
-					status.LinkIssue = RemoteLinkIssueInvalidID
-					status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "invalid remote test ID")
-					return status, nil
-				case 401:
-					status.Status = StatusOrphaned
-					status.LinkIssue = RemoteLinkIssueUnauthorized
-					status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "not authorized to access this test")
-					return status, nil
-				case 403:
-					status.Status = StatusOrphaned
-					status.LinkIssue = RemoteLinkIssueForbidden
-					status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "access denied for this test")
-					return status, nil
-				}
+			switch apiErr.StatusCode {
+			case 404:
+				status.Status = StatusOrphaned
+				status.LinkIssue = RemoteLinkIssueMissing
+				status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "remote test not found")
+				return status, nil
+			case 400:
+				status.Status = StatusOrphaned
+				status.LinkIssue = RemoteLinkIssueInvalidID
+				status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "invalid remote test ID")
+				return status, nil
+			case 401:
+				status.Status = StatusOrphaned
+				status.LinkIssue = RemoteLinkIssueUnauthorized
+				status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "not authorized to access this test")
+				return status, nil
+			case 403:
+				status.Status = StatusOrphaned
+				status.LinkIssue = RemoteLinkIssueForbidden
+				status.LinkIssueMessage = bestLinkIssueMessage(apiErr, "access denied for this test")
+				return status, nil
 			}
 		}
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	status.RemoteVersion = remoteTest.Version
@@ -360,13 +325,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 			}
 		}
 
-		// Get remote ID
 		remoteID := localTest.Meta.RemoteID
-		if remoteID == "" {
-			if id, ok := r.config.Tests[name]; ok {
-				remoteID = id
-			}
-		}
 
 		if remoteID == "" {
 			if !createOrgIDResolved {
@@ -396,23 +355,17 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				localTest.Meta.LocalVersion = resp.Version
 				localTest.Meta.LastSyncedAt = time.Now().Format(time.RFC3339)
 
-				// Sync tags if present
-				r.syncTagsForTest(ctx, resp.ID, localTest.Test.Metadata.Tags)
-
-				// Update config Tests map so subsequent operations use the new ID
-				if r.config.Tests == nil {
-					r.config.Tests = make(map[string]string)
+				if tagErr := r.syncTagsForTest(ctx, resp.ID, localTest.Test.Metadata.Tags); tagErr != nil {
+					result.TagSyncError = tagErr
 				}
+
+				if cfgErr := r.syncTestConfig(ctx, resp.ID, localTest); cfgErr != nil {
+					result.ConfigSyncError = cfgErr
+				}
+
 				sanitized := util.SanitizeForFilename(name)
-				r.config.Tests[sanitized] = resp.ID
-				if sanitized != name {
-					delete(r.config.Tests, name)
-				}
-
-				// Save updated local test file
 				path := filepath.Join(testsDir, sanitized+".yaml")
 				if saveErr := config.SaveLocalTest(path, localTest); saveErr != nil {
-					// Log but don't fail - the remote sync succeeded
 					result.Error = fmt.Errorf("synced but failed to save local file: %w", saveErr)
 				}
 			}
@@ -425,8 +378,11 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 
 			resp, err := r.client.UpdateTest(ctx, &api.UpdateTestRequest{
 				TestID:          remoteID,
+				Name:            localTest.Test.Metadata.Name,
+				Description:     localTest.Test.Metadata.Description,
 				Tasks:           localTest.Test.Blocks,
 				AppID:           resolvedAppID,
+				PinnedVersionID: localTest.Test.Build.PinnedVersion,
 				ExpectedVersion: expectedVersion,
 				Force:           force,
 			})
@@ -443,21 +399,19 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				localTest.Meta.LocalVersion = resp.Version
 				localTest.Meta.LastSyncedAt = time.Now().Format(time.RFC3339)
 
-				// Sync tags if present
-				r.syncTagsForTest(ctx, remoteID, localTest.Test.Metadata.Tags)
+				if tagErr := r.syncTagsForTest(ctx, remoteID, localTest.Test.Metadata.Tags); tagErr != nil {
+					result.TagSyncError = tagErr
+				}
+
+				if cfgErr := r.syncTestConfig(ctx, remoteID, localTest); cfgErr != nil {
+					result.ConfigSyncError = cfgErr
+				}
 
 				// Save updated local test file
 				sanitized := util.SanitizeForFilename(name)
 				path := filepath.Join(testsDir, sanitized+".yaml")
 				if saveErr := config.SaveLocalTest(path, localTest); saveErr != nil {
-					// Log but don't fail - the remote sync succeeded
 					result.Error = fmt.Errorf("synced but failed to save local file: %w", saveErr)
-				}
-
-				// Reconcile config key with sanitized filename
-				if sanitized != name {
-					r.config.Tests[sanitized] = remoteID
-					delete(r.config.Tests, name)
 				}
 			}
 		}
@@ -498,14 +452,51 @@ func (r *Resolver) resolveBuildNameToAppID(ctx context.Context, buildName, platf
 }
 
 // syncTagsForTest syncs tags for a test if tags are present.
-// Errors are silently ignored since tag sync is best-effort.
-func (r *Resolver) syncTagsForTest(ctx context.Context, testID string, tags []string) {
+// Returns an error if the sync fails so callers can surface it.
+func (r *Resolver) syncTagsForTest(ctx context.Context, testID string, tags []string) error {
 	if len(tags) == 0 {
-		return
+		return nil
 	}
-	_, _ = r.client.SyncTestTags(ctx, testID, &api.CLISyncTagsRequest{
+	_, err := r.client.SyncTestTags(ctx, testID, &api.CLISyncTagsRequest{
 		TagNames: tags,
 	})
+	return err
+}
+
+// syncTestConfig pushes variables, env vars, and device targets from local YAML
+// to the remote test. Always deletes then re-adds so removing a section from
+// YAML correctly clears the remote values.
+//
+// Returns a joined error of all individual failures so callers can surface
+// partial-sync warnings without aborting the overall operation.
+func (r *Resolver) syncTestConfig(ctx context.Context, testID string, localTest *config.LocalTest) error {
+	var errs []error
+
+	if err := r.client.DeleteAllCustomVariables(ctx, testID); err != nil {
+		errs = append(errs, fmt.Errorf("delete custom vars: %w", err))
+	}
+	for name, value := range localTest.Test.Variables {
+		if _, err := r.client.AddCustomVariable(ctx, testID, name, value); err != nil {
+			errs = append(errs, fmt.Errorf("add var %s: %w", name, err))
+		}
+	}
+
+	if err := r.client.DeleteAllEnvVars(ctx, testID); err != nil {
+		errs = append(errs, fmt.Errorf("delete env vars: %w", err))
+	}
+	for key, value := range localTest.Test.EnvVars {
+		if _, err := r.client.AddEnvVar(ctx, testID, key, value); err != nil {
+			errs = append(errs, fmt.Errorf("add env var %s: %w", key, err))
+		}
+	}
+
+	if localTest.Test.Device != nil && localTest.Test.Device.Model != "" {
+		if err := r.client.UpdateDeviceTarget(ctx, testID, localTest.Test.Device.Model, localTest.Test.Device.OSVersion); err != nil {
+			errs = append(errs, fmt.Errorf("update device target: %w", err))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 // PullFromRemote pulls remote changes to local.
@@ -529,24 +520,15 @@ func (r *Resolver) PullFromRemote(ctx context.Context, testName, testsDir string
 
 	testsToPull := make(map[string]string) // name -> remoteID
 	if testName != "" {
-		if id, ok := r.config.Tests[testName]; ok {
-			testsToPull[testName] = id
-		} else if local, ok := r.localTests[testName]; ok && local.Meta.RemoteID != "" {
+		if local, ok := r.localTests[testName]; ok && local.Meta.RemoteID != "" {
 			testsToPull[testName] = local.Meta.RemoteID
 		} else {
 			return nil, fmt.Errorf("test not found or has no remote ID: %s", testName)
 		}
 	} else {
-		// Include tests from config
-		for name, id := range r.config.Tests {
-			testsToPull[name] = id
-		}
-		// Also include local tests that have a remote ID but aren't in config
 		for name, local := range r.localTests {
 			if local.Meta.RemoteID != "" {
-				if _, exists := testsToPull[name]; !exists {
-					testsToPull[name] = local.Meta.RemoteID
-				}
+				testsToPull[name] = local.Meta.RemoteID
 			}
 		}
 	}
@@ -570,7 +552,7 @@ func (r *Resolver) ImportRemoteTest(ctx context.Context, remoteID, preferredName
 		return nil, fmt.Errorf("remote test ID is required")
 	}
 
-	if alias := findAliasByRemoteID(r.config.Tests, r.localTests, remoteID); alias != "" {
+	if alias := findAliasByRemoteID(r.localTests, remoteID); alias != "" {
 		return []SyncResult{r.pullRemoteTest(ctx, alias, remoteID, testsDir, force)}, nil
 	}
 
@@ -583,7 +565,7 @@ func (r *Resolver) ImportRemoteTest(ctx context.Context, remoteID, preferredName
 	if baseName == "" {
 		baseName = strings.TrimSpace(remoteTest.Name)
 	}
-	alias := buildImportAlias(baseName, r.config.Tests, r.localTests, remoteID)
+	alias := buildImportAlias(baseName, r.localTests, remoteID)
 	return []SyncResult{r.pullRemoteTest(ctx, alias, remoteID, testsDir, force)}, nil
 }
 
@@ -619,8 +601,9 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 		},
 		Test: config.TestDefinition{
 			Metadata: config.TestMetadata{
-				Name:     remoteTest.Name,
-				Platform: strings.ToLower(remoteTest.Platform),
+				Name:        remoteTest.Name,
+				Platform:    strings.ToLower(remoteTest.Platform),
+				Description: remoteTest.Description,
 			},
 			Blocks: blocks,
 		},
@@ -647,6 +630,35 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 		localTest.Test.Metadata.Tags = tagNames
 	}
 
+	// Fetch custom variables
+	if varsResp, err := r.client.ListCustomVariables(ctx, remoteID); err == nil && len(varsResp.Result) > 0 {
+		vars := make(map[string]string, len(varsResp.Result))
+		for _, v := range varsResp.Result {
+			vars[v.VariableName] = v.VariableValue
+		}
+		localTest.Test.Variables = vars
+	}
+
+	// Fetch app launch env vars
+	if envResp, err := r.client.ListEnvVars(ctx, remoteID); err == nil && len(envResp.Result) > 0 {
+		envVars := make(map[string]string, len(envResp.Result))
+		for _, ev := range envResp.Result {
+			envVars[ev.Key] = ev.Value
+		}
+		localTest.Test.EnvVars = envVars
+	}
+
+	// Parse device targets from GetTest response (first target wins)
+	if len(remoteTest.MobileTargets) > 0 {
+		mt := remoteTest.MobileTargets[0]
+		if mt.DeviceModel != "" && mt.DeviceModel != "AUTO" {
+			localTest.Test.Device = &config.TestDeviceConfig{
+				Model:     mt.DeviceModel,
+				OSVersion: mt.OSVersion,
+			}
+		}
+	}
+
 	sanitized := util.SanitizeForFilename(name)
 	if sanitized == "" {
 		sanitized = fallbackTestAlias(remoteID)
@@ -658,10 +670,6 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 	}
 
 	result.NewVersion = remoteTest.Version
-	r.config.Tests[sanitized] = remoteID
-	if sanitized != name {
-		delete(r.config.Tests, name)
-	}
 	r.localTests[sanitized] = localTest
 	if sanitized != name {
 		delete(r.localTests, name)
@@ -670,28 +678,17 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 	return result
 }
 
-func findAliasByRemoteID(configTests map[string]string, localTests map[string]*config.LocalTest, remoteID string) string {
+func findAliasByRemoteID(localTests map[string]*config.LocalTest, remoteID string) string {
 	if strings.TrimSpace(remoteID) == "" {
 		return ""
 	}
 
-	configAliases := make([]string, 0, len(configTests))
-	for alias := range configTests {
-		configAliases = append(configAliases, alias)
-	}
-	sort.Strings(configAliases)
-	for _, alias := range configAliases {
-		if strings.TrimSpace(configTests[alias]) == remoteID {
-			return alias
-		}
-	}
-
-	localAliases := make([]string, 0, len(localTests))
+	aliases := make([]string, 0, len(localTests))
 	for alias := range localTests {
-		localAliases = append(localAliases, alias)
+		aliases = append(aliases, alias)
 	}
-	sort.Strings(localAliases)
-	for _, alias := range localAliases {
+	sort.Strings(aliases)
+	for _, alias := range aliases {
 		local := localTests[alias]
 		if local != nil && strings.TrimSpace(local.Meta.RemoteID) == remoteID {
 			return alias
@@ -701,35 +698,28 @@ func findAliasByRemoteID(configTests map[string]string, localTests map[string]*c
 	return ""
 }
 
-func buildImportAlias(baseName string, configTests map[string]string, localTests map[string]*config.LocalTest, remoteID string) string {
+func buildImportAlias(baseName string, localTests map[string]*config.LocalTest, remoteID string) string {
 	alias := util.SanitizeForFilename(baseName)
 	if alias == "" {
 		alias = fallbackTestAlias(remoteID)
 	}
-	return ensureUniqueTestAlias(alias, configTests, localTests, remoteID)
+	return ensureUniqueTestAlias(alias, localTests, remoteID)
 }
 
-func ensureUniqueTestAlias(base string, configTests map[string]string, localTests map[string]*config.LocalTest, remoteID string) string {
-	if !testAliasTakenByOther(base, configTests, localTests, remoteID) {
+func ensureUniqueTestAlias(base string, localTests map[string]*config.LocalTest, remoteID string) string {
+	if !testAliasTakenByOther(base, localTests, remoteID) {
 		return base
 	}
 
 	for i := 2; ; i++ {
 		candidate := fmt.Sprintf("%s-%d", base, i)
-		if !testAliasTakenByOther(candidate, configTests, localTests, remoteID) {
+		if !testAliasTakenByOther(candidate, localTests, remoteID) {
 			return candidate
 		}
 	}
 }
 
-func testAliasTakenByOther(alias string, configTests map[string]string, localTests map[string]*config.LocalTest, remoteID string) bool {
-	if id, ok := configTests[alias]; ok {
-		if strings.TrimSpace(id) == remoteID {
-			return false
-		}
-		return true
-	}
-
+func testAliasTakenByOther(alias string, localTests map[string]*config.LocalTest, remoteID string) bool {
 	if local, ok := localTests[alias]; ok {
 		if local != nil && strings.TrimSpace(local.Meta.RemoteID) == remoteID {
 			return false
@@ -767,12 +757,6 @@ func (r *Resolver) GetDiff(ctx context.Context, testName string) (string, error)
 	}
 
 	remoteID := localTest.Meta.RemoteID
-	if remoteID == "" {
-		if id, ok := r.config.Tests[testName]; ok {
-			remoteID = id
-		}
-	}
-
 	if remoteID == "" {
 		return "", fmt.Errorf("no remote ID for test: %s", testName)
 	}
@@ -1018,7 +1002,8 @@ func stripBlockIDs(blocks []config.TestBlock) []config.TestBlock {
 	result := make([]config.TestBlock, len(blocks))
 	for i, block := range blocks {
 		result[i] = block
-		result[i].ID = "" // Clear the server-generated ID
+		result[i].ID = ""       // Server-generated; noise in YAML
+		result[i].StepType = "" // Always inferrable from type; omit for cleaner YAML
 
 		if len(block.Then) > 0 {
 			result[i].Then = stripBlockIDs(block.Then)

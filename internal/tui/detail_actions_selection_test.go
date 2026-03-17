@@ -210,6 +210,10 @@ func TestSyncTestActionCmd_PullRemoteOnlyCreatesConfigAndLocalTest(t *testing.T)
 		case "/api/v1/tests/tags/tests/test-1":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`[]`))
+		case "/api/v1/variables/custom/read_variables",
+			"/api/v1/variables/app_launch_env/read":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"result":[]}`))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -235,8 +239,12 @@ func TestSyncTestActionCmd_PullRemoteOnlyCreatesConfigAndLocalTest(t *testing.T)
 	if cfg.Project.OrgID != "org-live" {
 		t.Fatalf("cfg.Project.OrgID = %q, want org-live", cfg.Project.OrgID)
 	}
-	if got := cfg.Tests["checkout-flow"]; got != "test-1" {
-		t.Fatalf("cfg.Tests[checkout-flow] = %q, want test-1", got)
+	gotID, idErr := config.GetLocalTestRemoteID(filepath.Join(tempDir, ".revyl", "tests"), "checkout-flow")
+	if idErr != nil {
+		t.Fatalf("GetLocalTestRemoteID() error = %v", idErr)
+	}
+	if gotID != "test-1" {
+		t.Fatalf("checkout-flow remote_id = %q, want test-1", gotID)
 	}
 
 	localTest, err := config.LoadLocalTest(filepath.Join(tempDir, ".revyl", "tests", "checkout-flow.yaml"))

@@ -43,13 +43,13 @@ func TestQuickActionsIncludesDevLoop(t *testing.T) {
 	}
 }
 
-func TestQuickActionsDevLoopIsSecond(t *testing.T) {
+func TestQuickActionsDevLoopPosition(t *testing.T) {
 	index := findQuickActionIndexByKey("dev_loop")
 	if index < 0 {
 		t.Fatalf("expected dev_loop quick action index to exist")
 	}
-	if index != 1 {
-		t.Fatalf("expected dev_loop quick action index to be 1 (option 2), got %d", index)
+	if index != 7 {
+		t.Fatalf("expected dev_loop quick action index to be 7, got %d", index)
 	}
 }
 

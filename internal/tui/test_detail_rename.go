@@ -84,16 +84,8 @@ func renameTestCmd(client *api.Client, testID, oldName, newName string) tea.Cmd 
 		}
 
 		if plan.ApplyLocalAliasRename {
-			plan.Config.Tests[newName] = testID
-			delete(plan.Config.Tests, plan.AliasToRename)
-
-			if err := os.MkdirAll(filepath.Dir(plan.ConfigPath), 0o755); err != nil {
-				warnings = append(warnings, fmt.Sprintf("failed to prepare config directory: %v", err))
-			} else if err := config.WriteProjectConfig(plan.ConfigPath, plan.Config); err != nil {
-				warnings = append(warnings, fmt.Sprintf("failed to update .revyl/config.yaml: %v", err))
-			} else {
-				summary = append(summary, fmt.Sprintf("Updated local alias: %s -> %s", plan.AliasToRename, newName))
-			}
+			// Local alias rename is now handled via YAML file rename below
+			summary = append(summary, fmt.Sprintf("Updated local alias: %s -> %s", plan.AliasToRename, newName))
 		}
 
 		if plan.ApplyLocalFileChanges && plan.LocalAlias != "" {
@@ -149,18 +141,23 @@ func buildTestRenamePlan(testID, oldNameOrID, remoteName, newName string) (*test
 	if cfgErr != nil {
 		cfg = &config.ProjectConfig{}
 	}
-	if cfg.Tests == nil {
-		cfg.Tests = make(map[string]string)
-	}
 
 	localTests, _ := config.LoadLocalTests(testsDir)
 	if localTests == nil {
 		localTests = make(map[string]*config.LocalTest)
 	}
 
-	aliasToRename, aliasAmbiguous := chooseAliasForTestRenameTUI(cfg.Tests, oldNameOrID, remoteName, testID)
+	// Build alias map from local YAML files for alias resolution
+	localAliasMap := make(map[string]string, len(localTests))
+	for alias, lt := range localTests {
+		if lt != nil && lt.Meta.RemoteID != "" {
+			localAliasMap[alias] = lt.Meta.RemoteID
+		}
+	}
+
+	aliasToRename, aliasAmbiguous := chooseAliasForTestRenameTUI(localAliasMap, oldNameOrID, remoteName, testID)
 	if aliasAmbiguous {
-		matches := aliasesForRemoteIDTUI(cfg.Tests, testID)
+		matches := aliasesForRemoteIDTUI(localAliasMap, testID)
 		return nil, fmt.Errorf("multiple local aliases map to this test (%s)", strings.Join(matches, ", "))
 	}
 
@@ -183,8 +180,8 @@ func buildTestRenamePlan(testID, oldNameOrID, remoteName, newName string) (*test
 	plan.ApplyLocalFileChanges = plan.LocalAlias != ""
 
 	if plan.ApplyLocalAliasRename {
-		if existingID, exists := cfg.Tests[newName]; exists && existingID != testID {
-			return nil, fmt.Errorf("local alias %q already points to a different test (%s)", newName, existingID)
+		if existing, exists := localTests[newName]; exists && existing != nil && existing.Meta.RemoteID != "" && existing.Meta.RemoteID != testID {
+			return nil, fmt.Errorf("local alias %q already points to a different test (%s)", newName, existing.Meta.RemoteID)
 		}
 	}
 

@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -32,6 +34,7 @@ type CreateTestParams struct {
 	AppID            string
 	OrgID            string
 	ModuleNamesOrIDs []string
+	Tags             []string
 	Config           *config.ProjectConfig
 	AllowEmpty       bool
 	DevMode          bool
@@ -52,8 +55,9 @@ type CreateTestResult struct {
 type createTestYAMLDefinition struct {
 	Test struct {
 		Metadata struct {
-			Name     string `yaml:"name"`
-			Platform string `yaml:"platform"`
+			Name     string   `yaml:"name"`
+			Platform string   `yaml:"platform"`
+			Tags     []string `yaml:"tags,omitempty"`
 		} `yaml:"metadata"`
 		Build struct {
 			Name string `yaml:"name"`
@@ -103,6 +107,19 @@ func CreateTestWithClient(ctx context.Context, client *api.Client, params Create
 	resp, err := client.CreateTest(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create test: %w", err)
+	}
+
+	// Sync tags from YAML metadata or explicit Tags param after creation
+	tags := params.Tags
+	if len(tags) == 0 && params.YAMLContent != "" {
+		if testDef, parseErr := parseCreateTestYAML(params.YAMLContent); parseErr == nil {
+			tags = testDef.Test.Metadata.Tags
+		}
+	}
+	if len(tags) > 0 {
+		_, _ = client.SyncTestTags(ctx, resp.ID, &api.CLISyncTagsRequest{
+			TagNames: tags,
+		})
 	}
 
 	testURL := fmt.Sprintf(
@@ -581,16 +598,18 @@ type OpenTestEditorResult struct {
 // OpenTestEditor resolves a test and returns the editor URL.
 //
 // Parameters:
-//   - cfg: Project config for alias resolution (can be nil)
+//   - cfg: Project config (unused, kept for API compatibility)
 //   - params: Parameters including test name/ID
 //
 // Returns:
 //   - *OpenTestEditorResult: Result with test ID and URL
-func OpenTestEditor(cfg *config.ProjectConfig, params OpenTestEditorParams) *OpenTestEditorResult {
-	// Resolve test ID from alias
+func OpenTestEditor(_ *config.ProjectConfig, params OpenTestEditorParams) *OpenTestEditorResult {
+	// Resolve test ID from local YAML
 	testID := params.TestNameOrID
-	if cfg != nil {
-		if id, ok := cfg.Tests[params.TestNameOrID]; ok {
+	cwd, err := os.Getwd()
+	if err == nil {
+		testsDir := filepath.Join(cwd, ".revyl", "tests")
+		if id, ltErr := config.GetLocalTestRemoteID(testsDir, params.TestNameOrID); ltErr == nil && id != "" {
 			testID = id
 		}
 	}
@@ -636,13 +655,7 @@ type OpenWorkflowEditorResult struct {
 // Returns:
 //   - *OpenWorkflowEditorResult: Result with workflow ID and URL
 func OpenWorkflowEditor(cfg *config.ProjectConfig, params OpenWorkflowEditorParams) *OpenWorkflowEditorResult {
-	// Resolve workflow ID from alias
 	workflowID := params.WorkflowNameOrID
-	if cfg != nil {
-		if id, ok := cfg.Workflows[params.WorkflowNameOrID]; ok {
-			workflowID = id
-		}
-	}
 
 	workflowURL := fmt.Sprintf("%s/workflows/%s", config.GetAppURL(params.DevMode), workflowID)
 

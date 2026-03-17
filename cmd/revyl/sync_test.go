@@ -83,7 +83,7 @@ func TestPushSingleTest_RejectsInvalidYAMLBeforeRemoteCall(t *testing.T) {
 		t.Fatalf("SaveLocalTest() error = %v", err)
 	}
 
-	cfg := &config.ProjectConfig{Tests: map[string]string{}, Workflows: map[string]string{}}
+	cfg := &config.ProjectConfig{}
 	err := pushSingleTest(context.Background(), client, cfg, testsDir, "invalid-test")
 	if err == nil {
 		t.Fatal("pushSingleTest() error = nil, want invalid YAML error")
@@ -111,7 +111,7 @@ func TestSyncTestsDomain_LocalOnlyDoesNotPush(t *testing.T) {
 	testsDir := t.TempDir()
 	writeTestFile(t, testsDir, "local-only-test", "")
 
-	cfg := &config.ProjectConfig{Tests: map[string]string{}, Workflows: map[string]string{}}
+	cfg := &config.ProjectConfig{}
 	items, changed, err := syncTestsDomain(context.Background(), client, cfg, testsDir, syncOptions{Prompt: false, Prune: false, DryRun: false})
 	if err != nil {
 		t.Fatalf("syncTestsDomain() error = %v", err)
@@ -157,10 +157,7 @@ func TestSyncTestsDomain_PruneDetachesOrphanedLink(t *testing.T) {
 	testsDir := t.TempDir()
 	writeTestFile(t, testsDir, "login-flow", "deleted-id")
 
-	cfg := &config.ProjectConfig{
-		Tests:     map[string]string{"login-flow": "deleted-id"},
-		Workflows: map[string]string{},
-	}
+	cfg := &config.ProjectConfig{}
 
 	items, changed, err := syncTestsDomain(context.Background(), client, cfg, testsDir, syncOptions{Prompt: false, Prune: true, DryRun: false})
 	if err != nil {
@@ -169,8 +166,10 @@ func TestSyncTestsDomain_PruneDetachesOrphanedLink(t *testing.T) {
 	if !changed {
 		t.Fatal("changed = false, want true")
 	}
-	if _, ok := cfg.Tests["login-flow"]; ok {
-		t.Fatal("expected login-flow mapping to be detached")
+
+	detachedID, _ := config.GetLocalTestRemoteID(testsDir, "login-flow")
+	if detachedID != "" {
+		t.Fatalf("expected login-flow remote_id to be cleared, got %q", detachedID)
 	}
 
 	loaded, lErr := config.LoadLocalTest(filepath.Join(testsDir, "login-flow.yaml"))
@@ -223,10 +222,7 @@ func TestSyncTestsDomain_PruneKeepsModifiedLocalFileForStaleMapping(t *testing.T
 	testPath := filepath.Join(testsDir, "login-flow.yaml")
 	mutateTestFileWithoutChecksumRefresh(t, testPath)
 
-	cfg := &config.ProjectConfig{
-		Tests:     map[string]string{"login-flow": "stale-id"},
-		Workflows: map[string]string{},
-	}
+	cfg := &config.ProjectConfig{}
 
 	items, changed, err := syncTestsDomain(context.Background(), client, cfg, testsDir, syncOptions{Prompt: false, Prune: true, DryRun: false})
 	if err != nil {
@@ -235,8 +231,10 @@ func TestSyncTestsDomain_PruneKeepsModifiedLocalFileForStaleMapping(t *testing.T
 	if !changed {
 		t.Fatal("changed = false, want true")
 	}
-	if _, ok := cfg.Tests["login-flow"]; ok {
-		t.Fatal("expected login-flow mapping to be detached")
+
+	detachedID, _ := config.GetLocalTestRemoteID(testsDir, "login-flow")
+	if detachedID != "" {
+		t.Fatalf("expected login-flow remote_id to be cleared, got %q", detachedID)
 	}
 	if _, statErr := os.Stat(testPath); statErr != nil {
 		t.Fatalf("expected modified local test file to remain, stat error: %v", statErr)
@@ -291,10 +289,7 @@ func TestSyncTestsDomain_PruneAllDeletesUnmodifiedLocalFileForStaleMapping(t *te
 	writeTestFile(t, testsDir, "login-flow", "stale-id")
 	testPath := filepath.Join(testsDir, "login-flow.yaml")
 
-	cfg := &config.ProjectConfig{
-		Tests:     map[string]string{"login-flow": "stale-id"},
-		Workflows: map[string]string{},
-	}
+	cfg := &config.ProjectConfig{}
 
 	items, changed, err := syncTestsDomain(context.Background(), client, cfg, testsDir, syncOptions{Prompt: false, Prune: true, DryRun: false})
 	if err != nil {
@@ -302,9 +297,6 @@ func TestSyncTestsDomain_PruneAllDeletesUnmodifiedLocalFileForStaleMapping(t *te
 	}
 	if !changed {
 		t.Fatal("changed = false, want true")
-	}
-	if _, ok := cfg.Tests["login-flow"]; ok {
-		t.Fatal("expected login-flow mapping to be pruned")
 	}
 	if _, statErr := os.Stat(testPath); !os.IsNotExist(statErr) {
 		t.Fatalf("expected unmodified local test file to be removed, stat error: %v", statErr)

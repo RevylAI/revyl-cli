@@ -28,7 +28,6 @@ var (
 	createTestPlatform string
 	createTestAppID    string
 	createTestNoOpen   bool
-	createTestNoSync   bool
 	createTestForce    bool
 	createTestDryRun   bool
 	createTestFromFile string
@@ -139,24 +138,14 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	cfg, err := config.LoadProjectConfig(configPath)
 	if err != nil {
 		ui.PrintWarning("Project not initialized. Run 'revyl init' first for full functionality.")
-		// Create minimal config for test creation
-		cfg = &config.ProjectConfig{
-			Tests:     make(map[string]string),
-			Workflows: make(map[string]string),
-		}
+		cfg = &config.ProjectConfig{}
 	}
 
-	// Ensure maps are initialized (config file may exist but have nil maps)
-	if cfg.Tests == nil {
-		cfg.Tests = make(map[string]string)
-	}
-	if cfg.Workflows == nil {
-		cfg.Workflows = make(map[string]string)
-	}
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
 
-	// Check if test name already exists in config
-	if existingID, exists := cfg.Tests[testName]; exists {
-		ui.PrintWarning("Test '%s' already exists in config (id: %s)", testName, existingID)
+	// Check if test name already exists as a local YAML file
+	if existingID, _ := config.GetLocalTestRemoteID(testsDir, testName); existingID != "" {
+		ui.PrintWarning("Test '%s' already exists locally (id: %s)", testName, existingID)
 		overwrite, err := ui.PromptConfirm("Overwrite with new test?", false)
 		if err != nil || !overwrite {
 			ui.PrintInfo("Cancelled. Use a different name or remove the existing entry.")
@@ -210,7 +199,6 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 		} else {
 			ui.PrintInfo("  App ID: (none)")
 		}
-		ui.PrintInfo("  Add to Config: %v", !createTestNoSync)
 		ui.PrintInfo("  Open Browser:  %v", !createTestNoOpen)
 		ui.Println()
 		ui.PrintSuccess("Dry-run complete - no changes made")
@@ -262,23 +250,20 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Add to config unless --no-sync is specified
-		if !createTestNoSync {
-			cfg.Tests[testName] = existingTestID
-
-			// Ensure .revyl directory exists
-			revylDir := filepath.Join(cwd, ".revyl")
-			if err := os.MkdirAll(revylDir, 0755); err != nil {
-				ui.PrintWarning("Failed to create .revyl directory: %v", err)
-			} else {
-				if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-					ui.PrintWarning("Failed to update config: %v", err)
-				} else {
-					ui.PrintSuccess("Added to .revyl/config.yaml")
-				}
+		// Save local YAML file
+		if err := os.MkdirAll(testsDir, 0755); err != nil {
+			ui.PrintWarning("Failed to create tests directory: %v", err)
+		} else {
+			localTest := &config.LocalTest{
+				Meta: config.TestMeta{RemoteID: existingTestID},
 			}
-			syncTestYAML(cmd.Context(), client, cfg, testName)
+			if err := config.SaveLocalTest(filepath.Join(testsDir, testName+".yaml"), localTest); err != nil {
+				ui.PrintWarning("Failed to save local test: %v", err)
+			} else {
+				ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
+			}
 		}
+		syncTestYAML(cmd.Context(), client, cfg, testName)
 
 		// Open browser to test execute page unless --no-open is specified
 		executeURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(devMode), existingTestID)
@@ -348,23 +333,20 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Add to config unless --no-sync is specified
-	if !createTestNoSync {
-		cfg.Tests[testName] = createResp.ID
-
-		// Ensure .revyl directory exists
-		revylDir := filepath.Join(cwd, ".revyl")
-		if err := os.MkdirAll(revylDir, 0755); err != nil {
-			ui.PrintWarning("Failed to create .revyl directory: %v", err)
-		} else {
-			if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-				ui.PrintWarning("Failed to update config: %v", err)
-			} else {
-				ui.PrintSuccess("Added to .revyl/config.yaml")
-			}
+	// Save local YAML file
+	if err := os.MkdirAll(testsDir, 0755); err != nil {
+		ui.PrintWarning("Failed to create tests directory: %v", err)
+	} else {
+		localTest := &config.LocalTest{
+			Meta: config.TestMeta{RemoteID: createResp.ID},
 		}
-		syncTestYAML(cmd.Context(), client, cfg, testName)
+		if err := config.SaveLocalTest(filepath.Join(testsDir, testName+".yaml"), localTest); err != nil {
+			ui.PrintWarning("Failed to save local test: %v", err)
+		} else {
+			ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
+		}
 	}
+	syncTestYAML(cmd.Context(), client, cfg, testName)
 
 	// Open browser to test execute page unless --no-open is specified
 	executeURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(devMode), createResp.ID)
@@ -703,21 +685,18 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 		ui.PrintSuccess("Created test: %s (id: %s)", testName, testID)
 	}
 
-	// Add to config
-	if cfg.Tests == nil {
-		cfg.Tests = make(map[string]string)
-	}
-	cfg.Tests[testName] = testID
-
-	// Ensure .revyl directory exists
-	revylDir := filepath.Join(cwd, ".revyl")
-	if err := os.MkdirAll(revylDir, 0755); err != nil {
-		ui.PrintWarning("Failed to create .revyl directory: %v", err)
+	// Save local YAML file
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	if err := os.MkdirAll(testsDir, 0755); err != nil {
+		ui.PrintWarning("Failed to create tests directory: %v", err)
 	} else {
-		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-			ui.PrintWarning("Failed to update config: %v", err)
+		localTest := &config.LocalTest{
+			Meta: config.TestMeta{RemoteID: testID},
+		}
+		if err := config.SaveLocalTest(filepath.Join(testsDir, testName+".yaml"), localTest); err != nil {
+			ui.PrintWarning("Failed to save local test: %v", err)
 		} else {
-			ui.PrintSuccess("Added to .revyl/config.yaml")
+			ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
 		}
 	}
 
@@ -809,34 +788,12 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 
 	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
 
-	// Load or create project config
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
+	// Load project config (for non-Tests fields)
+	if _, loadErr := config.LoadProjectConfig(configPath); loadErr != nil {
 		ui.PrintWarning("Project not initialized. Run 'revyl init' first for full functionality.")
-		// Create minimal config for workflow creation
-		cfg = &config.ProjectConfig{
-			Tests:     make(map[string]string),
-			Workflows: make(map[string]string),
-		}
 	}
 
-	// Ensure maps are initialized (config file may exist but have nil maps)
-	if cfg.Tests == nil {
-		cfg.Tests = make(map[string]string)
-	}
-	if cfg.Workflows == nil {
-		cfg.Workflows = make(map[string]string)
-	}
-
-	// Check if workflow name already exists in config
-	if existingID, exists := cfg.Workflows[workflowName]; exists {
-		ui.PrintWarning("Workflow '%s' already exists in config (id: %s)", workflowName, existingID)
-		overwrite, err := ui.PromptConfirm("Overwrite with new workflow?", false)
-		if err != nil || !overwrite {
-			ui.PrintInfo("Cancelled. Use a different name or remove the existing entry.")
-			return nil
-		}
-	}
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
 
 	// Parse test IDs from --tests flag
 	var testIDs []string
@@ -847,8 +804,8 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 			if name == "" {
 				continue
 			}
-			// Check if it's an alias in config, otherwise use as-is (assume it's an ID)
-			if id, ok := cfg.Tests[name]; ok {
+			// Check if it's a local test alias, otherwise use as-is (assume it's an ID)
+			if id, _ := config.GetLocalTestRemoteID(testsDir, name); id != "" {
 				testIDs = append(testIDs, id)
 			} else {
 				testIDs = append(testIDs, name)
@@ -870,7 +827,6 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 		} else {
 			ui.PrintInfo("  Tests:         (none - add in browser)")
 		}
-		ui.PrintInfo("  Add to Config: %v", !createWorkflowNoSync)
 		ui.PrintInfo("  Open Browser:  %v", !createWorkflowNoOpen)
 		ui.Println()
 		ui.PrintSuccess("Dry-run complete - no changes made")
@@ -900,23 +856,6 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.PrintSuccess("Created workflow: %s (id: %s)", workflowName, createResp.Data.ID)
-
-	// Add to config unless --no-sync is specified
-	if !createWorkflowNoSync {
-		cfg.Workflows[workflowName] = createResp.Data.ID
-
-		// Ensure .revyl directory exists
-		revylDir := filepath.Join(cwd, ".revyl")
-		if err := os.MkdirAll(revylDir, 0755); err != nil {
-			ui.PrintWarning("Failed to create .revyl directory: %v", err)
-		} else {
-			if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-				ui.PrintWarning("Failed to update config: %v", err)
-			} else {
-				ui.PrintSuccess("Added to .revyl/config.yaml")
-			}
-		}
-	}
 
 	// Open browser to workflow editor unless --no-open is specified
 	editorURL := fmt.Sprintf("%s/workflows/%s", config.GetAppURL(devMode), createResp.Data.ID)
@@ -992,18 +931,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 	cfg, err := config.LoadProjectConfig(configPath)
 	if err != nil {
 		ui.PrintWarning("Project not initialized. Run 'revyl init' first for full functionality.")
-		cfg = &config.ProjectConfig{
-			Tests:     make(map[string]string),
-			Workflows: make(map[string]string),
-		}
-	}
-
-	// Ensure maps are initialized
-	if cfg.Tests == nil {
-		cfg.Tests = make(map[string]string)
-	}
-	if cfg.Workflows == nil {
-		cfg.Workflows = make(map[string]string)
+		cfg = &config.ProjectConfig{}
 	}
 
 	// Determine platform
@@ -1093,18 +1021,18 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 		ui.PrintSuccess("Created test: %s (id: %s)", testName, testID)
 	}
 
-	// Add to config
-	cfg.Tests[testName] = testID
-
-	// Ensure .revyl directory exists
-	revylDir := filepath.Join(cwd, ".revyl")
-	if err := os.MkdirAll(revylDir, 0755); err != nil {
-		ui.PrintWarning("Failed to create .revyl directory: %v", err)
+	// Save local YAML file
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	if err := os.MkdirAll(testsDir, 0755); err != nil {
+		ui.PrintWarning("Failed to create tests directory: %v", err)
 	} else {
-		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-			ui.PrintWarning("Failed to update config: %v", err)
+		localTest := &config.LocalTest{
+			Meta: config.TestMeta{RemoteID: testID},
+		}
+		if err := config.SaveLocalTest(filepath.Join(testsDir, testName+".yaml"), localTest); err != nil {
+			ui.PrintWarning("Failed to save local test: %v", err)
 		} else {
-			ui.PrintSuccess("Added to .revyl/config.yaml")
+			ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
 		}
 	}
 

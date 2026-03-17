@@ -178,9 +178,24 @@ type TestItem struct {
 	ID            string
 	Name          string
 	Platform      string
-	SyncStatus    string // synced, modified, outdated, conflict, local-only, remote-only, stale
-	Source        string // remote, config, local, merged
+	Tags          []api.TestTag // tags attached to this test
+	AppID         string        // associated app UUID (empty when no app)
+	AppName       string        // resolved app display name
+	SyncStatus    string        // synced, modified, outdated, conflict, local-only, remote-only, stale
+	Source        string        // remote, config, local, merged
 	RemoteMissing bool
+}
+
+// FilterTagsMsg delivers the available tags for the test list tag picker.
+type FilterTagsMsg struct {
+	Tags []api.CLITagResponse
+	Err  error
+}
+
+// FilterAppsMsg delivers the available apps for the test list app picker.
+type FilterAppsMsg struct {
+	Apps []api.App
+	Err  error
 }
 
 // ExecutionStartedMsg signals that a test execution has been created.
@@ -245,6 +260,7 @@ const (
 	viewWorkflowDetail                // workflow detail + actions
 	viewWorkflowCreate                // workflow create wizard
 	viewWorkflowExecution             // workflow execution progress monitor
+	viewWorkflowSettings              // workflow settings (tests, overrides, config)
 	viewModuleList                    // module browse list
 	viewModuleDetail                  // module detail showing blocks
 	viewTagList                       // tag browse list
@@ -468,6 +484,7 @@ type WorkflowItem struct {
 	Name          string
 	TestCount     int
 	TestNames     []string
+	TestInfo      []api.WorkflowInfoTestItem
 	LastRunStatus string
 	LastRunTime   time.Time
 }
@@ -517,6 +534,18 @@ type WorkflowExecDoneMsg struct {
 
 // WorkflowCancelledMsg signals that a workflow execution was cancelled.
 type WorkflowCancelledMsg struct {
+	Err error
+}
+
+// WorkflowSettingsMsg carries the loaded data for the workflow settings screen.
+type WorkflowSettingsMsg struct {
+	Workflow *api.Workflow
+	AllTests []TestItem
+	Err      error
+}
+
+// WorkflowSettingsSavedMsg signals that workflow settings were saved.
+type WorkflowSettingsSavedMsg struct {
 	Err error
 }
 

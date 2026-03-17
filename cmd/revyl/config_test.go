@@ -28,8 +28,6 @@ func writeTestProjectConfig(t *testing.T, dir string) string {
 			OpenBrowser: &open,
 			Timeout:     600,
 		},
-		Tests:     map[string]string{},
-		Workflows: map[string]string{},
 	}
 
 	path := filepath.Join(dir, ".revyl", "config.yaml")

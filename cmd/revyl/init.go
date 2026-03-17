@@ -295,14 +295,11 @@ func runInitHotReloadOnly(cmd *cobra.Command, cwd, configPath string, overrideOp
 	ui.Println()
 	ui.PrintSuccess("Hot reload setup complete.")
 
-	testAlias := ""
-	for alias := range cfg.Tests {
-		testAlias = alias
-		break
-	}
-	if testAlias != "" {
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	aliases := config.ListLocalTestAliases(testsDir)
+	if len(aliases) > 0 {
 		ui.PrintInfo("Next: revyl dev")
-		ui.PrintInfo("Then: revyl dev test run %s", testAlias)
+		ui.PrintInfo("Then: revyl dev test run %s", aliases[0])
 	} else {
 		ui.PrintInfo("Next: revyl dev")
 		ui.PrintInfo("Then: revyl dev test run <name>")
@@ -363,8 +360,6 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 			Command: detected.Command,
 			Output:  detected.Output,
 		},
-		Tests:     make(map[string]string),
-		Workflows: make(map[string]string),
 		Defaults: config.Defaults{
 			OpenBrowser: func() *bool {
 				v := true
@@ -448,6 +443,9 @@ device.json
 remote.json
 shell-init.sh
 .services.pid
+
+# MCP session artifacts (screenshots, etc.)
+mcp/
 `
 	if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
 		ui.PrintWarning("Failed to create .gitignore: %v", err)
@@ -2131,11 +2129,13 @@ func wizardCreateTest(
 						for _, t := range listResp.Tests {
 							if t.Name == testName {
 								ui.PrintSuccess("Linked to existing test \"%s\" (id: %s)", t.Name, t.ID)
-								if cfg.Tests == nil {
-									cfg.Tests = make(map[string]string)
+								testsDir := filepath.Join(filepath.Dir(configPath), "tests")
+								if mkErr := os.MkdirAll(testsDir, 0755); mkErr == nil {
+									localTest := &config.LocalTest{
+										Meta: config.TestMeta{RemoteID: t.ID},
+									}
+									_ = config.SaveLocalTest(filepath.Join(testsDir, testName+".yaml"), localTest)
 								}
-								cfg.Tests[testName] = t.ID
-								_ = config.WriteProjectConfig(configPath, cfg)
 								syncTestYAML(ctx, client, cfg, testName)
 								return t.ID, testName
 							}
@@ -2167,12 +2167,14 @@ func wizardCreateTest(
 
 		ui.PrintSuccess("Created test \"%s\" (id: %s)", testName, resp.ID)
 
-		// Save to config.
-		if cfg.Tests == nil {
-			cfg.Tests = make(map[string]string)
+		// Save local YAML file
+		testsDir := filepath.Join(filepath.Dir(configPath), "tests")
+		if mkErr := os.MkdirAll(testsDir, 0755); mkErr == nil {
+			localTest := &config.LocalTest{
+				Meta: config.TestMeta{RemoteID: resp.ID},
+			}
+			_ = config.SaveLocalTest(filepath.Join(testsDir, testName+".yaml"), localTest)
 		}
-		cfg.Tests[testName] = resp.ID
-		_ = config.WriteProjectConfig(configPath, cfg)
 		syncTestYAML(ctx, client, cfg, testName)
 
 		// Open in browser.
@@ -2564,10 +2566,12 @@ func printDynamicNextSteps(cfg *config.ProjectConfig, authOK bool, testID string
 	if testID != "" {
 		// Test exists, suggest running it.
 		testAlias := ""
-		for alias := range cfg.Tests {
-			testAlias = alias
-			steps = append(steps, ui.NextStep{Label: "Run your test:", Command: fmt.Sprintf("revyl test run %s", alias)})
-			break
+		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+			localAliases := config.ListLocalTestAliases(filepath.Join(cwd, ".revyl", "tests"))
+			if len(localAliases) > 0 {
+				testAlias = localAliases[0]
+				steps = append(steps, ui.NextStep{Label: "Run your test:", Command: fmt.Sprintf("revyl test run %s", testAlias)})
+			}
 		}
 		if cfg.HotReload.IsConfigured() {
 			steps = append(steps, ui.NextStep{Label: "Start dev loop:", Command: "revyl dev"})
@@ -2590,7 +2594,7 @@ func printDynamicNextSteps(cfg *config.ProjectConfig, authOK bool, testID string
 // Parameters:
 //   - ctx: Context for cancellation
 //   - client: Authenticated API client
-//   - cfg: Project configuration (must have the test ID already saved in cfg.Tests)
+//   - cfg: Project configuration
 //   - testName: Name of the test to sync
 func syncTestYAML(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, testName string) {
 	cwd, err := os.Getwd()

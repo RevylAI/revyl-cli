@@ -166,18 +166,10 @@ func syncTestActionCmd(client *api.Client, action, testName, testID string, devM
 		// Resolve a stable local key for resolver operations.
 		targetName := testName
 		if testID != "" {
-			for alias, id := range cfg.Tests {
-				if id == testID {
-					targetName = alias
+			for localName, lt := range localTests {
+				if lt != nil && lt.Meta.RemoteID == testID {
+					targetName = localName
 					break
-				}
-			}
-			if targetName == testName {
-				for localName, lt := range localTests {
-					if lt != nil && lt.Meta.RemoteID == testID {
-						targetName = localName
-						break
-					}
 				}
 			}
 		}
@@ -205,9 +197,7 @@ func syncTestActionCmd(client *api.Client, action, testName, testID string, devM
 
 		case "pull":
 			hasRemoteLink := false
-			if id := strings.TrimSpace(cfg.Tests[targetName]); id != "" {
-				hasRemoteLink = true
-			} else if lt, ok := localTests[targetName]; ok && lt != nil && strings.TrimSpace(lt.Meta.RemoteID) != "" {
+			if lt, ok := localTests[targetName]; ok && lt != nil && strings.TrimSpace(lt.Meta.RemoteID) != "" {
 				hasRemoteLink = true
 			}
 
@@ -268,8 +258,6 @@ func loadOrInitProjectConfigForSync(ctx context.Context, client *api.Client, cwd
 		Project: config.Project{
 			Name: projectName,
 		},
-		Tests:     make(map[string]string),
-		Workflows: make(map[string]string),
 		Build: config.BuildConfig{
 			Platforms: make(map[string]config.BuildPlatform),
 		},

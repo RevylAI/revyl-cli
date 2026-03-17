@@ -66,15 +66,11 @@ func runOpenTest(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-
-	// Try to resolve name to ID from config
+	// Try to resolve name to ID from local YAML
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
 	var testID string
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err == nil && cfg.Tests != nil {
-		if id, ok := cfg.Tests[testNameOrID]; ok {
-			testID = id
-		}
+	if id, _ := config.GetLocalTestRemoteID(testsDir, testNameOrID); id != "" {
+		testID = id
 	}
 
 	// If not found in config, check if it looks like a UUID or search via API
@@ -187,14 +183,13 @@ func runOpenTestWithHotReload(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 
 	// Resolve test ID
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
 	var testID string
-	if cfg.Tests != nil {
-		if id, ok := cfg.Tests[testNameOrID]; ok {
-			testID = id
-		}
+	if id, _ := config.GetLocalTestRemoteID(testsDir, testNameOrID); id != "" {
+		testID = id
 	}
 
-	// If not found in config, check if it looks like a UUID or search via API
+	// If not found locally, check if it looks like a UUID or search via API
 	if testID == "" {
 		if looksLikeUUID(testNameOrID) {
 			testID = testNameOrID
@@ -331,53 +326,35 @@ func runOpenWorkflow(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Get current directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-
-	// Try to resolve name to ID from config
 	var workflowID string
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err == nil && cfg.Workflows != nil {
-		if id, ok := cfg.Workflows[workflowNameOrID]; ok {
-			workflowID = id
+
+	if looksLikeUUID(workflowNameOrID) {
+		workflowID = workflowNameOrID
+	} else {
+		// Search via API to verify the workflow exists
+		devMode, _ := cmd.Flags().GetBool("dev")
+		client := api.NewClientWithDevMode(apiKey, devMode)
+
+		ui.StartSpinner("Searching for workflow...")
+		workflowsResp, err := client.ListWorkflows(cmd.Context())
+		ui.StopSpinner()
+
+		if err != nil {
+			ui.PrintError("Failed to search for workflow: %v", err)
+			return err
 		}
-	}
 
-	// If not found in config, check if it looks like a UUID or search via API
-	if workflowID == "" {
-		if looksLikeUUID(workflowNameOrID) {
-			workflowID = workflowNameOrID
-		} else {
-			// Search via API to verify the workflow exists
-			devMode, _ := cmd.Flags().GetBool("dev")
-			client := api.NewClientWithDevMode(apiKey, devMode)
-
-			ui.StartSpinner("Searching for workflow...")
-			workflowsResp, err := client.ListWorkflows(cmd.Context())
-			ui.StopSpinner()
-
-			if err != nil {
-				ui.PrintError("Failed to search for workflow: %v", err)
-				return err
+		for _, w := range workflowsResp.Workflows {
+			if w.Name == workflowNameOrID {
+				workflowID = w.ID
+				break
 			}
+		}
 
-			for _, w := range workflowsResp.Workflows {
-				if w.Name == workflowNameOrID {
-					workflowID = w.ID
-					break
-				}
-			}
-
-			if workflowID == "" {
-				ui.PrintError("Workflow '%s' not found", workflowNameOrID)
-				ui.PrintInfo("Use 'revyl workflow create <name>' to create a new workflow")
-				return fmt.Errorf("workflow not found")
-			}
+		if workflowID == "" {
+			ui.PrintError("Workflow '%s' not found", workflowNameOrID)
+			ui.PrintInfo("Use 'revyl workflow create <name>' to create a new workflow")
+			return fmt.Errorf("workflow not found")
 		}
 	}
 
@@ -434,10 +411,7 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 	cfg, err := config.LoadProjectConfig(configPath)
 	if err != nil {
 		ui.PrintWarning("Project not initialized. Run 'revyl init' first for full functionality.")
-		cfg = &config.ProjectConfig{
-			Tests:     make(map[string]string),
-			Workflows: make(map[string]string),
-		}
+		cfg = &config.ProjectConfig{}
 	}
 
 	// Get dev mode flag
@@ -447,11 +421,10 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Resolve test ID
+	testsDir := filepath.Join(cwd, ".revyl", "tests")
 	var testID string
-	if cfg.Tests != nil {
-		if id, ok := cfg.Tests[testNameOrID]; ok {
-			testID = id
-		}
+	if id, _ := config.GetLocalTestRemoteID(testsDir, testNameOrID); id != "" {
+		testID = id
 	}
 
 	// If not found in config, check if it looks like a UUID or search via API
