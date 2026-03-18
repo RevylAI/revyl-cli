@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,11 @@ func TestDetectInstallMethodFromPath(t *testing.T) {
 			name:     "npm global path",
 			execPath: "/usr/local/lib/node_modules/@revyl/cli/bin/revyl",
 			expected: "npm",
+		},
+		{
+			name:     "pipx venvs path",
+			execPath: "/Users/alice/.local/pipx/venvs/revyl/bin/revyl",
+			expected: "pipx",
 		},
 		{
 			name:     "pip site-packages path",
@@ -194,6 +200,55 @@ func TestFetchLatestReleaseFormatsRateLimitErrors(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "API rate limit exceeded") {
 		t.Fatalf("error %q does not include rate-limit message", err.Error())
+	}
+}
+
+func TestPerformBrewUpgrade_CallsCorrectCommands(t *testing.T) {
+	var calls [][]string
+	original := brewCommandRunner
+	brewCommandRunner = func(name string, args ...string) *exec.Cmd {
+		calls = append(calls, append([]string{name}, args...))
+		return exec.Command("true")
+	}
+	t.Cleanup(func() { brewCommandRunner = original })
+
+	if err := performBrewUpgrade(); err != nil {
+		t.Fatalf("performBrewUpgrade() error = %v, want nil", err)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 brew calls, got %d: %v", len(calls), calls)
+	}
+
+	if calls[0][0] != "brew" || calls[0][1] != "update" {
+		t.Fatalf("first call = %v, want [brew update]", calls[0])
+	}
+
+	if calls[1][0] != "brew" || calls[1][1] != "upgrade" || calls[1][2] != "revyl" {
+		t.Fatalf("second call = %v, want [brew upgrade revyl]", calls[1])
+	}
+}
+
+func TestPerformBrewUpgrade_StopsOnUpdateFailure(t *testing.T) {
+	var calls [][]string
+	original := brewCommandRunner
+	brewCommandRunner = func(name string, args ...string) *exec.Cmd {
+		calls = append(calls, append([]string{name}, args...))
+		return exec.Command("false")
+	}
+	t.Cleanup(func() { brewCommandRunner = original })
+
+	err := performBrewUpgrade()
+	if err == nil {
+		t.Fatal("performBrewUpgrade() error = nil, want error on brew update failure")
+	}
+
+	if !strings.Contains(err.Error(), "brew update failed") {
+		t.Fatalf("error = %q, want to contain %q", err.Error(), "brew update failed")
+	}
+
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 brew call (should stop after update failure), got %d: %v", len(calls), calls)
 	}
 }
 

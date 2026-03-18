@@ -356,6 +356,25 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 			enrichWithTestResults(context.Background(), client, result)
 			return result, nil
 		}
+		if finalStatus != nil {
+			reportURL := fmt.Sprintf("%s/workflows/report?taskId=%s", config.GetAppURL(params.DevMode), url.QueryEscape(resp.TaskID))
+			result := &RunWorkflowResult{
+				Success:        false,
+				TaskID:         resp.TaskID,
+				WorkflowID:     workflowID,
+				WorkflowName:   finalStatus.WorkflowName,
+				Status:         "timeout",
+				TotalTests:     finalStatus.TotalTests,
+				CompletedTests: resolveCompletedTests(finalStatus),
+				PassedTests:    finalStatus.PassedTests,
+				FailedTests:    finalStatus.FailedTests,
+				Duration:       finalStatus.Duration,
+				ReportURL:      reportURL,
+				ErrorMessage:   err.Error(),
+			}
+			enrichWithTestResults(context.Background(), client, result)
+			return result, nil
+		}
 		return &RunWorkflowResult{
 			Success:      false,
 			TaskID:       resp.TaskID,

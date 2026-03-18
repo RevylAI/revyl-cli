@@ -1111,10 +1111,6 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		ui.PrintError("%s hot reload is not yet supported.", provider.DisplayName())
 		return fmt.Errorf("%s not supported", provider.Name())
 	}
-	if provider.Name() != "expo" {
-		ui.PrintError("Hot reload currently supports Expo projects only.")
-		return fmt.Errorf("hot reload provider '%s' is not supported yet (expo only)", provider.Name())
-	}
 
 	// Override port if specified via flag
 	if runHotReloadPort != 8081 {

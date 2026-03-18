@@ -30,11 +30,27 @@ type TestDefinition struct {
 	Test TestContent `yaml:"test"`
 }
 
+// TestDeviceConfig contains device target preferences.
+type TestDeviceConfig struct {
+	Model       string `yaml:"model,omitempty"`
+	OSVersion   string `yaml:"os_version,omitempty"`
+	Orientation string `yaml:"orientation,omitempty"`
+}
+
+// TestLocation contains initial GPS coordinates.
+type TestLocation struct {
+	Latitude  float64 `yaml:"latitude"`
+	Longitude float64 `yaml:"longitude"`
+}
+
 // TestContent contains the test definition content.
 type TestContent struct {
 	Metadata  TestMetadata      `yaml:"metadata"`
 	Build     TestBuild         `yaml:"build"`
+	Device    *TestDeviceConfig `yaml:"device,omitempty"`
 	Variables map[string]string `yaml:"variables,omitempty"`
+	EnvVars   map[string]string `yaml:"env_vars,omitempty"`
+	Location  *TestLocation     `yaml:"location,omitempty"`
 	Blocks    []Block           `yaml:"blocks"`
 }
 
@@ -80,6 +96,7 @@ var validBlockTypes = map[string]bool{
 }
 
 // validStepTypes contains all valid manual step_type values.
+// Keep in sync with cognisim_backend/app/utils/convertors/step_type_rules.py ALL_VALID_MANUAL_STEP_TYPES.
 var validStepTypes = map[string]bool{
 	"wait":         true,
 	"open_app":     true,
@@ -87,6 +104,7 @@ var validStepTypes = map[string]bool{
 	"go_home":      true,
 	"navigate":     true,
 	"set_location": true,
+	"end":          true,
 }
 
 // variablePattern matches {{variable-name}} syntax.
@@ -142,12 +160,33 @@ func ValidateYAML(content string) *ValidationResult {
 		result.Errors = append(result.Errors, "Test must have at least one block")
 	}
 
+	if test.Test.Device != nil {
+		if o := test.Test.Device.Orientation; o != "" && o != "portrait" && o != "landscape" {
+			result.Valid = false
+			result.Errors = append(result.Errors, fmt.Sprintf("Invalid device.orientation '%s': must be 'portrait' or 'landscape'", o))
+		}
+	}
+
+	if test.Test.Location != nil {
+		if test.Test.Location.Latitude < -90 || test.Test.Location.Latitude > 90 {
+			result.Valid = false
+			result.Errors = append(result.Errors, fmt.Sprintf("Invalid location.latitude %.6f: must be between -90 and 90", test.Test.Location.Latitude))
+		}
+		if test.Test.Location.Longitude < -180 || test.Test.Location.Longitude > 180 {
+			result.Valid = false
+			result.Errors = append(result.Errors, fmt.Sprintf("Invalid location.longitude %.6f: must be between -180 and 180", test.Test.Location.Longitude))
+		}
+	}
+
 	// Validate blocks and track defined variables
 	definedVars := make(map[string]bool)
 	usedVars := make(map[string]bool)
 
-	// Variables declared in the top-level variables: section count as defined
+	// Variables declared in the top-level variables: and env_vars: sections count as defined
 	for varName := range test.Test.Variables {
+		definedVars[varName] = true
+	}
+	for varName := range test.Test.EnvVars {
 		definedVars[varName] = true
 	}
 

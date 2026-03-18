@@ -155,6 +155,8 @@ func printVersionWarning() {
 		ui.PrintDim("  Update with: brew upgrade revyl")
 	case "npm":
 		ui.PrintDim("  Update with: npm update -g @revyl/cli")
+	case "pipx":
+		ui.PrintDim("  Update with: pipx upgrade revyl")
 	case "pip":
 		ui.PrintDim("  Update with: pip install --upgrade revyl")
 	default:

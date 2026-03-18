@@ -1,21 +1,35 @@
+<!-- mintlify
+title: "Python SDK Reference"
+description: "Complete API reference for the Revyl Python SDK"
+target: device/sdk-reference.mdx
+-->
+
 # Device SDK Reference
 
 > [Back to README](../README.md) | [Commands](COMMANDS.md) | [MCP Setup](MCP_SETUP.md)
 
-Use the Revyl Device SDK (`pip install revyl`) for programmatic device control and live test step execution.
+Use the Revyl Device SDK for programmatic device control and live test step execution.
 
 ## Install
 
 ```bash
-pip install revyl    # pip
-uv pip install revyl # uv
+pip install revyl[sdk]           # Python SDK (includes CLI)
 ```
 
-The package includes a bundled CLI binary. On first use the SDK resolves the binary in this order:
+If you installed the CLI via Homebrew, the SDK detects it on PATH and skips the binary download.
 
+The CLI binary auto-downloads on first use. On first use the SDK resolves the binary in this order:
+
+0. `REVYL_BINARY` env var -- explicit path for local dev or CI
 1. SDK-managed binary at `~/.revyl/bin/` (with valid checksum sidecar)
 2. `revyl` on `PATH`
 3. Auto-download from GitHub releases
+
+For local development against a locally-built CLI binary, set:
+
+```bash
+export REVYL_BINARY=./revyl-cli/tmp/revyl
+```
 
 ## Authenticate
 
@@ -65,11 +79,12 @@ High-level helper for device interaction. Every action method returns a `dict` w
 ```python
 from revyl import DeviceClient
 
-device = DeviceClient.start(platform="ios", timeout=600)
-device.tap(target="Login button")
-device.type_text(target="Email", text="user@test.com")
-device.screenshot(out="screen.png")
-device.stop_session()
+# start() blocks until the device is API-ready (default).
+# Report URL auto-prints when the session closes.
+with DeviceClient.start(platform="ios", app_url=url) as device:
+    device.screenshot(out="screen.png")
+    device.tap(target="Login button")
+    device.type_text(target="Email", text="user@test.com")
 ```
 
 ### Context Manager
@@ -80,7 +95,18 @@ from revyl import DeviceClient
 with DeviceClient.start(platform="android") as device:
     device.tap(target="Get Started")
     device.swipe(target="feed", direction="down")
-# Session is stopped automatically on exit
+# Session is stopped automatically on exit; report URL is printed.
+```
+
+### Fire-and-Forget Start
+
+```python
+# For advanced users who want to do parallel setup work.
+device = DeviceClient.start(platform="ios", app_url=url, wait_for_ready=False)
+# ... do other setup ...
+device.wait_for_device_ready()   # block when you need the device
+device.screenshot(out="screen.png")
+device.stop_session()
 ```
 
 ### Reusing an Existing Session
@@ -109,9 +135,11 @@ Grounded targeting uses AI vision to resolve coordinates automatically. Use spec
 
 ## Session Management
 
-### `DeviceClient.start(platform, timeout=None, open_viewer=False, app_id=None, build_version_id=None, app_url=None, app_link=None, cli=None) -> DeviceClient`
+### `DeviceClient.start(platform, ..., wait_for_ready=True, ready_timeout=60, auto_report=True) -> DeviceClient`
 
 Class method. Start a device session and return a connected client.
+
+By default, blocks until the device is API-ready. Pass `wait_for_ready=False` for fire-and-forget provisioning.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -122,11 +150,17 @@ Class method. Start a device session and return a connected client.
 | `build_version_id` | `Optional[str]` | Specific build version to install |
 | `app_url` | `Optional[str]` | URL to an `.ipa` or `.apk` to preinstall |
 | `app_link` | `Optional[str]` | Deep link to open after launch |
+| `device_model` | `Optional[str]` | Target device model (e.g. `"iPhone 16"`). Must be paired with `os_version`. |
+| `os_version` | `Optional[str]` | Target OS version (e.g. `"iOS 18.5"`). Must be paired with `device_model`. |
 | `cli` | `Optional[RevylCLI]` | Custom CLI instance |
+| `wait_for_ready` | `bool` | Block until device is API-ready (default `True`). Set `False` for fire-and-forget. |
+| `ready_timeout` | `float` | Max seconds to wait for readiness when `wait_for_ready=True` (default `60`). |
+| `auto_report` | `bool` | Auto-print report/video URLs on `close()` (default `True`). |
+| `verbose` | `bool` | Show animated spinner during provisioning (default `True`). Set `False` for CI. |
 
-### `start_session(platform, timeout=None, open_viewer=False, app_id=None, build_version_id=None, app_url=None, app_link=None) -> dict`
+### `start_session(platform, timeout=None, open_viewer=False, app_id=None, build_version_id=None, app_url=None, app_link=None, device_model=None, os_version=None) -> dict`
 
-Start a device session. Same parameters as `start()`. Returns session info including the session `index`.
+Start a device session. Same parameters as `start()` (except `cli`). Returns session info including the session `index`.
 
 ### `stop_session(session_index=None) -> dict`
 
@@ -152,9 +186,28 @@ Get session details including `whep_url` when streaming is available.
 
 Run diagnostics on auth, session, worker, and grounding health. Returns text output.
 
+### `wait_for_device_ready(timeout=60, poll_interval=3) -> bool`
+
+Poll `device doctor` until the worker reports the device as connected. Called automatically by `start(wait_for_ready=True)`. Returns `True` if the device became ready, `False` on timeout.
+
+```python
+device = DeviceClient.start(platform="ios", app_url=url, wait_for_ready=False)
+# ... parallel setup ...
+device.wait_for_device_ready(timeout=90)
+```
+
+### `wait_for_report(timeout=30, poll_interval=2) -> dict`
+
+Poll until the session report is generated and return it. Raises `RevylError` if unavailable within timeout.
+
+```python
+report = device.wait_for_report(timeout=30)
+print(report["report_url"])
+```
+
 ### `close() -> None`
 
-Best-effort stop for the tracked session. Called automatically when using the context manager.
+Best-effort stop for the tracked session. Called automatically when using the context manager. When `auto_report=True` (default), fetches and prints the report URL before stopping.
 
 ---
 
@@ -266,9 +319,15 @@ Execute one validation step. The description is an assertion like `"Verify the i
 
 Execute one extract step. Returns extracted data from the screen. Use `variable_name` to tag the result for downstream use.
 
-### `code_execution(script_id, session_index=None) -> dict`
+### `code_execution(script_id=None, file_path=None, code=None, runtime=None, session_index=None) -> dict`
 
-Execute a code execution step by script ID.
+Execute a code execution step. Provide exactly one of `script_id`, `file_path`, or `code`. When using `file_path` or `code`, a `runtime` is required (`"python"`, `"javascript"`, `"typescript"`, or `"bash"`).
+
+```python
+device.code_execution(script_id="seed-db")                           # saved script
+device.code_execution(file_path="scripts/seed.py", runtime="python") # local file
+device.code_execution(code="print('hello')", runtime="python")       # inline code
+```
 
 ---
 
@@ -277,6 +336,238 @@ Execute a code execution step by script ID.
 ### `screenshot(out=None, session_index=None) -> dict`
 
 Take a screenshot. If `out` is provided, the image is saved to that file path.
+
+---
+
+## Reporting & Discovery
+
+### `report(session_index=None) -> dict`
+
+Fetch the session report including status, steps, video URL, and report URL.
+
+```python
+report = device.report()
+print(report["report_url"])   # Browser link to the full report
+print(report["video_url"])    # Recording of the session
+print(report["total_steps"], report["passed_steps"], report["failed_steps"])
+```
+
+### `targets(platform=None, cli=None) -> dict` *(static method)*
+
+List available device models and OS versions. Can be called without a session.
+
+```python
+all_targets = DeviceClient.targets()
+ios_targets = DeviceClient.targets(platform="ios")
+```
+
+### `history(limit=20, cli=None) -> list[dict]` *(static method)*
+
+Show recent device session history. Can be called without a session.
+
+```python
+recent = DeviceClient.history(limit=5)
+```
+
+### `wait_for_stream(timeout=30, poll_interval=2) -> str | None`
+
+Poll `info()` until the WebRTC WHEP URL is available and return it. Use this when you need the stream URL for building live viewers or streaming integrations. Not called automatically by `start()`.
+
+> **Note:** `wait_for_stream()` checks for the *stream URL*, not device API readiness. Use `wait_for_device_ready()` (built into `start()` by default) to ensure the device is ready for actions like `screenshot()` and `tap()`.
+
+```python
+with DeviceClient.start(platform="ios", app_url=url) as device:
+    whep_url = device.wait_for_stream(timeout=30)
+    if whep_url:
+        print(f"Stream ready: {whep_url}")
+```
+
+---
+
+## Live Streaming
+
+Every active device session streams the live screen over WebRTC. The stream URL is a standard [WHEP](https://www.ietf.org/archive/id/draft-murillo-whep-03.html) (WebRTC-HTTP Egress Protocol) endpoint — you can feed it into any WHEP-compatible player to embed the device screen in your own dashboard, CI viewer, or internal tool.
+
+### Retrieving the stream URL
+
+Use `wait_for_stream()` for the simplest approach:
+
+```python
+whep_url = device.wait_for_stream(timeout=30)
+```
+
+Or call `device.info()` directly — the `whep_url` field contains the playback URL:
+
+```python
+session = device.info()
+whep_url = session.get("whep_url")
+```
+
+The URL is also present on each item returned by `device.list_sessions()`.
+
+### Using the stream
+
+The WHEP URL works with any client that speaks the WHEP protocol. A few options:
+
+- **Browser**: Use a WHEP JavaScript client (e.g. [`@AlexxIT/go2rtc`](https://github.com/AlexxIT/go2rtc) or Cloudflare's player SDK) to render a `<video>` element.
+- **CLI**: `revyl device info --json | jq -r '.whep_url'` to pipe the URL into other tools.
+- **Custom integration**: POST to the WHEP URL with an SDP offer to negotiate a WebRTC session — the response contains the SDP answer.
+
+The stream stays live for the lifetime of the device session and stops when the session is stopped.
+
+For copy-pasteable embedding examples (HTML, React, iframe), see [STREAMING.md](STREAMING.md).
+
+---
+
+## ScriptClient
+
+Manage code-execution scripts (Python, JavaScript, TypeScript, Bash) used by `code_execution` blocks in tests.
+
+```python
+from revyl import ScriptClient
+
+scripts = ScriptClient()
+```
+
+### `list(runtime=None) -> list[dict]`
+
+List all scripts, optionally filtered by runtime (`"python"`, `"javascript"`, `"typescript"`, `"bash"`).
+
+### `get(name_or_id) -> dict`
+
+Get a script by name or UUID, including its source code.
+
+### `create(name, file_path, runtime, description=None) -> dict`
+
+Create a new script from a local file.
+
+```python
+scripts.create("seed-db", file_path="scripts/seed.py", runtime="python", description="Seeds test data")
+```
+
+### `update(name_or_id, file_path=None, name=None, description=None) -> dict`
+
+Update a script's code, name, or description.
+
+### `delete(name_or_id, force=True) -> str`
+
+Delete a script. Raises `RevylError` if the script is in use by tests.
+
+### `usage(name_or_id) -> list[dict]`
+
+List tests that reference this script.
+
+---
+
+## ModuleClient
+
+Manage reusable test modules — shared groups of test blocks that can be imported via `module_import`.
+
+```python
+from revyl import ModuleClient
+
+modules = ModuleClient()
+```
+
+### `list(search=None) -> list[dict]`
+
+List all modules, optionally filtered by name or description substring.
+
+### `get(name_or_id) -> dict`
+
+Get a module by name or UUID, including its blocks.
+
+### `create(name, blocks_file, description=None) -> dict`
+
+Create a module from a YAML file containing a `blocks:` array.
+
+```python
+modules.create("login-flow", blocks_file="modules/login.yaml", description="Standard login sequence")
+```
+
+### `update(name_or_id, name=None, blocks_file=None, description=None) -> dict`
+
+Update a module's blocks, name, or description.
+
+### `delete(name_or_id, force=True) -> str`
+
+Delete a module. Raises `RevylError` (HTTP 409) if still referenced by tests.
+
+### `usage(name_or_id) -> list[dict]`
+
+List tests that import this module.
+
+---
+
+## BuildClient
+
+Upload and manage app builds on Revyl.
+
+```python
+from revyl import BuildClient
+
+builds = BuildClient()
+```
+
+### `upload(app_name=None, platform=None, skip_build=False, version=None, set_current=False) -> dict`
+
+Build and upload an app. Uses the project's `.revyl/config.yaml` build commands by default.
+
+```python
+builds.upload(app_name="my-app", platform="android")
+builds.upload(skip_build=True)  # upload existing artifact without rebuilding
+```
+
+### `list(app_name=None, platform=None) -> list[dict]`
+
+List uploaded build versions, optionally filtered by app or platform.
+
+### `delete(name_or_id, version=None, force=True) -> str`
+
+Delete an app (and all versions) or a specific build version.
+
+---
+
+## Types
+
+### `DeviceModel`
+
+Union type of all supported device models. Auto-generated from `device-targets.json`.
+
+```python
+from revyl import DeviceModel
+
+# iOS models
+model: DeviceModel = "iPhone 16"
+model: DeviceModel = "iPhone 17 Pro Max"
+model: DeviceModel = "iPad Pro 13-inch (M4)"
+
+# Android models
+model: DeviceModel = "Pixel 7"
+```
+
+Use with `DeviceClient.start(device_model=..., os_version=...)` to target a specific device. Both parameters must be provided together. Use `DeviceClient.targets()` to list all available combinations.
+
+### `OsVersion`
+
+Union type of all supported OS versions. Auto-generated from `device-targets.json`.
+
+```python
+from revyl import OsVersion
+
+version: OsVersion = "iOS 18.5"
+version: OsVersion = "iOS 26.3.1"
+version: OsVersion = "Android 14"
+```
+
+### Other Types
+
+| Type | Definition | Description |
+|------|-----------|-------------|
+| `Platform` | `Literal["ios", "android"]` | Target platform |
+| `Runtime` | `Literal["python", "javascript", "typescript", "bash"]` | Code execution runtime |
+| `SwipeDirection` | `Literal["up", "down", "left", "right"]` | Swipe direction |
+| `KeyInput` | `Literal["ENTER", "BACKSPACE"]` | Keyboard key input |
 
 ---
 

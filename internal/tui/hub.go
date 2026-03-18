@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -248,6 +249,9 @@ type hubModel struct {
 	wfSettingsEditing    bool
 	wfSettingsEditField  string
 	wfSettingsInput      textinput.Model
+	wfSettingsApps       []api.App
+	wfSettingsAppMatches []api.App
+	wfSettingsAppCursor  int
 
 	// Shared state
 	loading bool
@@ -365,8 +369,11 @@ type AuthMsg struct {
 }
 
 // DevLoopDoneMsg signals completion of a shell-launched `revyl dev` session.
+// ErrDetail carries the last meaningful stderr line from the subprocess so the
+// TUI can display it instead of the opaque "exit status N" from exec.ExitError.
 type DevLoopDoneMsg struct {
-	Err error
+	Err       error
+	ErrDetail string
 }
 
 var fetchReportContextForTUI = func(
@@ -1533,10 +1540,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m = m.resetDeviceStartOverlay()
-		// Open the viewer URL if available
-		if msg.ViewerURL != "" {
-			_ = ui.OpenBrowser(msg.ViewerURL)
-		}
 		// Refresh the session list
 		m.devicesLoading = true
 		if m.client != nil {
@@ -1579,6 +1582,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.wfSettingsWorkflow = msg.Workflow
 		m.wfSettingsAllTests = msg.AllTests
+		m.wfSettingsApps = msg.AllApps
 		m.wfSettingsTestToggle = make(map[string]bool)
 		if msg.Workflow != nil {
 			for _, tid := range msg.Workflow.Tests {
@@ -1589,6 +1593,8 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.wfSettingsCursor = 0
 		m.wfSettingsDirty = false
 		m.wfSettingsEditing = false
+		m.wfSettingsAppMatches = nil
+		m.wfSettingsAppCursor = 0
 		return m, nil
 
 	case WorkflowSettingsSavedMsg:
@@ -1683,7 +1689,11 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentView = viewDashboard
 		m.loading = false
 		if msg.Err != nil {
-			m.err = fmt.Errorf("dev loop exited with error: %w", msg.Err)
+			if msg.ErrDetail != "" {
+				m.err = fmt.Errorf("%s", msg.ErrDetail)
+			} else {
+				m.err = fmt.Errorf("dev loop exited with error: %w", msg.Err)
+			}
 			return m, nil
 		}
 		m.err = nil
@@ -2036,6 +2046,10 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "dev_loop":
+		if err := validateDevLoopPrereqs(); err != nil {
+			m.err = err
+			return m, nil
+		}
 		return m, runDevLoopProcessCmd(m.devMode)
 
 	case "settings":
@@ -2075,9 +2089,70 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 }
 
 func runDevLoopProcessCmd(devMode bool) tea.Cmd {
-	return tea.ExecProcess(devLoopExecCmd(devMode), func(err error) tea.Msg {
-		return DevLoopDoneMsg{Err: err}
+	cmd := devLoopExecCmd(devMode)
+	wrapper := &devLoopExec{cmd: cmd}
+	return tea.Exec(wrapper, func(err error) tea.Msg {
+		detail := wrapper.lastStderrLine()
+		return DevLoopDoneMsg{Err: err, ErrDetail: detail}
 	})
+}
+
+// devLoopExec wraps an exec.Cmd so it can be used with tea.Exec while
+// teeing stderr to a small buffer. This lets us extract the last
+// meaningful error line when the subprocess exits with a non-zero code.
+type devLoopExec struct {
+	cmd    *exec.Cmd
+	stderr stderrCapture
+}
+
+// stderrCapture is a ring-style writer that keeps only the last maxStderrCapture bytes.
+type stderrCapture struct {
+	buf [maxStderrCapture]byte
+	n   int
+}
+
+const maxStderrCapture = 1024
+
+func (c *stderrCapture) Write(p []byte) (int, error) {
+	for _, b := range p {
+		c.buf[c.n%maxStderrCapture] = b
+		c.n++
+	}
+	return len(p), nil
+}
+
+func (c *stderrCapture) String() string {
+	if c.n == 0 {
+		return ""
+	}
+	if c.n <= maxStderrCapture {
+		return string(c.buf[:c.n])
+	}
+	start := c.n % maxStderrCapture
+	return string(c.buf[start:]) + string(c.buf[:start])
+}
+
+func (d *devLoopExec) Run() error            { return d.cmd.Run() }
+func (d *devLoopExec) SetStdin(r io.Reader)  { d.cmd.Stdin = r }
+func (d *devLoopExec) SetStdout(w io.Writer) { d.cmd.Stdout = w }
+func (d *devLoopExec) SetStderr(w io.Writer) { d.cmd.Stderr = io.MultiWriter(w, &d.stderr) }
+
+// lastStderrLine returns the last non-empty line captured from stderr,
+// trimming ANSI escape sequences and whitespace. Returns "" if nothing
+// meaningful was captured.
+func (d *devLoopExec) lastStderrLine() string {
+	raw := d.stderr.String()
+	if raw == "" {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 func devLoopExecCmd(devMode bool) *exec.Cmd {
@@ -2090,6 +2165,20 @@ func devLoopExecCmd(devMode bool) *exec.Cmd {
 		args = append([]string{"--dev"}, args...)
 	}
 	return exec.Command(exe, args...)
+}
+
+// validateDevLoopPrereqs checks that the project is configured for `revyl dev`
+// before launching the subprocess. Returns a user-facing error if any
+// prerequisite is missing, or nil when the dev loop is safe to start.
+func validateDevLoopPrereqs() error {
+	cfg := loadCurrentProjectConfig()
+	if cfg == nil {
+		return fmt.Errorf("project not initialized — run 'revyl init' first")
+	}
+	if !cfg.HotReload.IsConfigured() {
+		return fmt.Errorf("hot reload is not configured — run 'revyl init --hotreload'")
+	}
+	return nil
 }
 
 // handleTestListKey processes key events in the test list sub-screen.

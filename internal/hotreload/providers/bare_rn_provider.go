@@ -86,6 +86,12 @@ func (p *BareRNProvider) Detect(dir string) (*hotreload.DetectionResult, error) 
 	if _, err := os.Stat(filepath.Join(dir, "metro.config.ts")); err == nil {
 		indicators = append(indicators, "metro.config.ts")
 	}
+	if _, err := os.Stat(filepath.Join(dir, "react-native.config.js")); err == nil {
+		indicators = append(indicators, "react-native.config.js")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "react-native.config.ts")); err == nil {
+		indicators = append(indicators, "react-native.config.ts")
+	}
 
 	return &hotreload.DetectionResult{
 		Provider:   "react-native",

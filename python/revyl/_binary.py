@@ -226,10 +226,10 @@ def download_binary(version: str = "latest") -> Path:
 
 
 def ensure_binary() -> Path:
-    """
-    Ensure the Revyl binary exists locally and return its path.
+    """Ensure the Revyl binary exists locally and return its path.
 
     Resolution order:
+      0. ``REVYL_BINARY`` env var — explicit path for local dev / CI.
       1. SDK-managed binary at ``~/.revyl/bin/`` with a valid checksum sidecar.
       2. ``revyl`` found on the system ``PATH`` (e.g. Homebrew, npm global).
       3. Download from GitHub Releases as a last resort.
@@ -238,8 +238,18 @@ def ensure_binary() -> Path:
         Path to a usable ``revyl`` binary.
 
     Raises:
-        RuntimeError: If the binary cannot be located or downloaded.
+        RuntimeError: If the binary cannot be located or downloaded, or if
+            ``REVYL_BINARY`` points to a non-existent file.
     """
+    env_override = os.environ.get("REVYL_BINARY")
+    if env_override:
+        resolved = Path(env_override).expanduser().resolve()
+        if not resolved.exists():
+            raise RuntimeError(
+                f"REVYL_BINARY points to non-existent path: {resolved}"
+            )
+        return resolved
+
     binary_path = get_binary_path()
     if _is_verified_binary(binary_path):
         return binary_path

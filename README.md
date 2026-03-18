@@ -22,7 +22,8 @@ Revyl is an AI-powered testing platform for mobile apps. Define tests in natural
 ## Install
 
 ```bash
-brew install RevylAI/tap/revyl          # Homebrew (recommended)
+brew install RevylAI/tap/revyl          # Homebrew (macOS)
+pipx install revyl                      # pipx (cross-platform)
 uv tool install revyl                   # uv
 pip install revyl                       # pip
 ```
@@ -89,7 +90,7 @@ Connect Revyl to your AI coding tools -- your agent gets cloud devices, test exe
 ## Device SDK
 
 ```bash
-pip install revyl
+pip install revyl[sdk]                  # Python SDK (includes CLI)
 ```
 
 ```python
@@ -102,6 +103,8 @@ with DeviceClient.start(platform="ios") as device:
     device.validation("Verify Wi-Fi settings are visible")
     device.screenshot(out="screen.png")
 ```
+
+`pip install revyl[sdk]` gives you both the CLI and the Python SDK. If you installed the CLI via Homebrew, the SDK detects it on PATH and skips the binary download.
 
 See [Device SDK Reference](docs/SDK.md) for the full API.
 
@@ -128,7 +131,7 @@ See [Agent Skills](docs/SKILLS.md) for the full list and prompt examples.
 | Build and upload | `revyl build upload` | [Commands](docs/COMMANDS.md#build-management) |
 | Publish to TestFlight | `revyl publish testflight` | [Commands](docs/COMMANDS.md#ios-publishing-testflight) |
 | CI/CD | GitHub Actions | [CI/CD](docs/CI_CD.md) |
-| Device SDK | `pip install revyl` | [Device SDK](docs/SDK.md) |
+| Device SDK | `pip install revyl[sdk]` | [Device SDK](docs/SDK.md) |
 | Agent skills | `revyl skill install` | [Skills](docs/SKILLS.md) |
 
 ## Documentation

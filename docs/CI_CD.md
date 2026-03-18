@@ -67,7 +67,7 @@ Upload a build and test it in the same workflow:
 
 ## CLI in CI
 
-You can also run the CLI directly in CI without the GitHub Action:
+You can also run the CLI directly in CI without the GitHub Action. The CLI binary downloads automatically on first use — no additional setup step is required.
 
 ```bash
 pip install revyl

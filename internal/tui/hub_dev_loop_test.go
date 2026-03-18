@@ -2,6 +2,8 @@ package tui
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -116,13 +118,24 @@ func TestExecuteQuickAction_DevLoopAuthenticated(t *testing.T) {
 	m.client = &api.Client{}
 
 	nextModel, cmd := m.executeQuickAction()
-	if cmd == nil {
-		t.Fatalf("expected dev loop subprocess command")
-	}
 
 	next, ok := nextModel.(hubModel)
 	if !ok {
 		t.Fatalf("expected hubModel, got %T", nextModel)
+	}
+
+	if next.err != nil {
+		if !strings.Contains(next.err.Error(), "not initialized") {
+			t.Fatalf("unexpected pre-validation error: %v", next.err)
+		}
+		if cmd != nil {
+			t.Fatalf("expected nil cmd when pre-validation fails")
+		}
+		return
+	}
+
+	if cmd == nil {
+		t.Fatalf("expected dev loop subprocess command when config is valid")
 	}
 	if next.currentView != viewDashboard {
 		t.Fatalf("expected to stay on dashboard while launching dev loop, got %v", next.currentView)
@@ -155,6 +168,130 @@ func TestUpdate_DevLoopDoneMsg(t *testing.T) {
 	}
 	if errNext.err == nil || !strings.Contains(errNext.err.Error(), "dev loop exited with error") {
 		t.Fatalf("expected wrapped dev loop error message, got %v", errNext.err)
+	}
+}
+
+func TestUpdate_DevLoopDoneMsgUsesErrDetail(t *testing.T) {
+	base := newHubModel("dev", false)
+	base.currentView = viewTestList
+
+	detailModel, cmd := base.Update(DevLoopDoneMsg{
+		Err:       errors.New("exit status 1"),
+		ErrDetail: "Project not initialized. Run 'revyl init' first.",
+	})
+	if cmd != nil {
+		t.Fatalf("expected nil cmd when handling dev loop error without client")
+	}
+	next := detailModel.(hubModel)
+	if next.err == nil {
+		t.Fatalf("expected error to be set")
+	}
+	if !strings.Contains(next.err.Error(), "Project not initialized") {
+		t.Fatalf("expected ErrDetail to be used, got %v", next.err)
+	}
+	if strings.Contains(next.err.Error(), "exit status 1") {
+		t.Fatalf("expected ErrDetail to replace generic exit error, got %v", next.err)
+	}
+}
+
+func TestStderrCapture(t *testing.T) {
+	var c stderrCapture
+	_, _ = c.Write([]byte("line 1\nline 2\nProject not initialized\n"))
+
+	got := c.String()
+	if !strings.Contains(got, "Project not initialized") {
+		t.Fatalf("expected captured stderr to contain error line, got %q", got)
+	}
+}
+
+func TestStderrCaptureEmpty(t *testing.T) {
+	var c stderrCapture
+	if c.String() != "" {
+		t.Fatalf("expected empty capture to return empty string, got %q", c.String())
+	}
+}
+
+func TestDevLoopExecLastStderrLine(t *testing.T) {
+	d := &devLoopExec{cmd: devLoopExecCmd(false)}
+	_, _ = d.stderr.Write([]byte("some debug output\n✗ Project not initialized\n\n"))
+
+	line := d.lastStderrLine()
+	if line != "✗ Project not initialized" {
+		t.Fatalf("expected last non-empty line, got %q", line)
+	}
+}
+
+func TestValidateDevLoopPrereqs_NoConfig(t *testing.T) {
+	orig, _ := os.Getwd()
+	tmp := t.TempDir()
+	_ = os.Chdir(tmp)
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	err := validateDevLoopPrereqs()
+	if err == nil {
+		t.Fatalf("expected error when no config exists")
+	}
+	if !strings.Contains(err.Error(), "not initialized") {
+		t.Fatalf("expected 'not initialized' error, got %v", err)
+	}
+}
+
+func writeTestConfig(t *testing.T, dir, content string) {
+	t.Helper()
+	revylDir := filepath.Join(dir, ".revyl")
+	if err := os.MkdirAll(revylDir, 0o755); err != nil {
+		t.Fatalf("failed to create .revyl dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(revylDir, "config.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write config.yaml: %v", err)
+	}
+}
+
+func TestValidateDevLoopPrereqs_ReactNativeProject(t *testing.T) {
+	orig, _ := os.Getwd()
+	tmp := t.TempDir()
+	_ = os.Chdir(tmp)
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	writeTestConfig(t, tmp, `
+project:
+  name: "rn-app"
+build:
+  system: ReactNative
+hotreload:
+  default: react-native
+  providers:
+    react-native:
+      port: 8081
+      platform_keys:
+        ios: ios-dev
+`)
+
+	err := validateDevLoopPrereqs()
+	if err != nil {
+		t.Fatalf("expected no error for ReactNative project with hot reload, got %v", err)
+	}
+}
+
+func TestValidateDevLoopPrereqs_NoHotReload(t *testing.T) {
+	orig, _ := os.Getwd()
+	tmp := t.TempDir()
+	_ = os.Chdir(tmp)
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	writeTestConfig(t, tmp, `
+project:
+  name: "rn-app"
+build:
+  system: ReactNative
+`)
+
+	err := validateDevLoopPrereqs()
+	if err == nil {
+		t.Fatalf("expected error when hot reload is not configured")
+	}
+	if !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("expected 'not configured' error, got %v", err)
 	}
 }
 

@@ -27,7 +27,7 @@ class _FakeCLI:
 class DeviceClientParityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.cli = _FakeCLI()
-        self.client = DeviceClient(cli=self.cli, session_index=7)
+        self.client = DeviceClient(cli=self.cli, session_index=7, verbose=False)
 
     def _last_call(self) -> tuple[tuple[str, ...], bool]:
         self.assertTrue(self.cli.calls, "no CLI calls recorded")
@@ -50,6 +50,8 @@ class DeviceClientParityTests(unittest.TestCase):
             app_url="https://example.com/app.apk",
             app_link="myapp://deep-link",
             cli=self.cli,
+            wait_for_ready=False,
+            verbose=False,
         )
 
         self.assertEqual(client.session_index, 3)

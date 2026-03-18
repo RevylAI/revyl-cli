@@ -173,6 +173,16 @@ func (m *MockServer) handler(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "POST" && strings.HasPrefix(r.URL.Path, "/api/v1/tests/tags/tests/") &&
 		strings.HasSuffix(r.URL.Path, "/sync"):
 		m.handleSyncTestTags(w, r)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v1/tests/scripts"):
+		writeJSON(w, http.StatusOK, map[string]interface{}{"scripts": []interface{}{}, "count": 0})
+	case r.Method == "GET" && r.URL.Path == "/api/v1/modules/list":
+		writeJSON(w, http.StatusOK, map[string]interface{}{"message": "ok", "result": []interface{}{}})
+	case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/api/v1/variables/"):
+		writeJSON(w, http.StatusOK, map[string]string{"message": "deleted all"})
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v1/variables/custom/read_variables"):
+		writeJSON(w, http.StatusOK, map[string]interface{}{"result": []interface{}{}})
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v1/variables/app_launch_env/read"):
+		writeJSON(w, http.StatusOK, map[string]interface{}{"result": []interface{}{}})
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"detail": "not found"})
 	}

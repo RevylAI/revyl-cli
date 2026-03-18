@@ -4,6 +4,7 @@ package providers
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,10 +20,14 @@ func init() {
 
 // ExpoProvider implements the Provider interface for Expo/React Native projects.
 //
-// Detection looks for:
-//   - app.json file with expo configuration
-//   - package.json with expo dependency
+// Detection looks for any combination of:
+//   - app.json with expo configuration
+//   - app.config.js or app.config.ts (dynamic Expo config)
+//   - eas.json (EAS Build config, definitive Expo indicator)
+//   - .expo/ directory (Expo metadata)
+//   - "expo" dependency in package.json
 //
+// At least one project indicator AND "expo" in package.json are required.
 // Fully supported with ExpoDevServer for hot reload.
 type ExpoProvider struct{}
 
@@ -52,9 +57,10 @@ func (p *ExpoProvider) DisplayName() string {
 
 // Detect checks if this is an Expo project.
 //
-// Detection criteria:
-//   - app.json exists
-//   - package.json contains "expo" dependency
+// Detection requires "expo" in package.json dependencies PLUS at least one
+// project indicator: app.json, app.config.js/ts, eas.json, or .expo/ directory.
+// This handles modern Expo projects that use dynamic config (app.config.js)
+// instead of app.json, and monorepos where app.json may be absent.
 //
 // Parameters:
 //   - dir: The project directory to analyze
@@ -63,26 +69,43 @@ func (p *ExpoProvider) DisplayName() string {
 //   - *hotreload.DetectionResult: Detection result with confidence 0.9, or nil if not detected
 //   - error: Any error that occurred during detection
 func (p *ExpoProvider) Detect(dir string) (*hotreload.DetectionResult, error) {
-	var indicators []string
-
-	// Check for app.json
-	appJSONPath := filepath.Join(dir, "app.json")
-	if _, err := os.Stat(appJSONPath); err != nil {
-		return nil, nil
-	}
-	indicators = append(indicators, "app.json")
-
-	// Check for expo in package.json
 	packageJSONPath := filepath.Join(dir, "package.json")
 	data, err := os.ReadFile(packageJSONPath)
 	if err != nil {
 		return nil, nil
 	}
 
-	if !strings.Contains(string(data), "\"expo\"") {
+	var pkg packageJSON
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		if !strings.Contains(string(data), "\"expo\"") {
+			return nil, nil
+		}
+	} else if !pkg.hasDependency("expo") {
 		return nil, nil
 	}
+
+	var indicators []string
 	indicators = append(indicators, "expo in package.json")
+
+	if _, err := os.Stat(filepath.Join(dir, "app.json")); err == nil {
+		indicators = append(indicators, "app.json")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "app.config.js")); err == nil {
+		indicators = append(indicators, "app.config.js")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "app.config.ts")); err == nil {
+		indicators = append(indicators, "app.config.ts")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "eas.json")); err == nil {
+		indicators = append(indicators, "eas.json")
+	}
+	if info, err := os.Stat(filepath.Join(dir, ".expo")); err == nil && info.IsDir() {
+		indicators = append(indicators, ".expo/")
+	}
+
+	if len(indicators) < 2 {
+		return nil, nil
+	}
 
 	return &hotreload.DetectionResult{
 		Provider:   "expo",
@@ -92,7 +115,12 @@ func (p *ExpoProvider) Detect(dir string) (*hotreload.DetectionResult, error) {
 	}, nil
 }
 
-// GetProjectInfo extracts Expo project information from app.json.
+// GetProjectInfo extracts Expo project information from app.json or package.json.
+//
+// Tries app.json first for scheme/name/slug. Falls back to package.json name
+// when app.json is missing (common in projects using app.config.js/ts).
+// The scheme may be empty when using dynamic config; callers should prompt
+// for it or accept the --app-scheme flag.
 //
 // Parameters:
 //   - dir: The project directory to analyze
@@ -102,17 +130,34 @@ func (p *ExpoProvider) Detect(dir string) (*hotreload.DetectionResult, error) {
 //   - error: Any error that occurred during extraction
 func (p *ExpoProvider) GetProjectInfo(dir string) (*hotreload.ProjectInfo, error) {
 	appJSON, err := parseAppJSON(dir)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		return &hotreload.ProjectInfo{
+			Name:     appJSON.Expo.Name,
+			Platform: "cross-platform",
+			Expo: &hotreload.ExpoProjectInfo{
+				Scheme: appJSON.Expo.Scheme,
+				Name:   appJSON.Expo.Name,
+				Slug:   appJSON.Expo.Slug,
+			},
+		}, nil
+	}
+
+	packageJSONPath := filepath.Join(dir, "package.json")
+	data, readErr := os.ReadFile(packageJSONPath)
+	if readErr != nil {
+		return nil, fmt.Errorf("no app.json or package.json found: %w (app.json: %w)", readErr, err)
+	}
+
+	var pkg packageJSON
+	if jsonErr := json.Unmarshal(data, &pkg); jsonErr != nil {
+		return nil, fmt.Errorf("failed to parse package.json: %w", jsonErr)
 	}
 
 	return &hotreload.ProjectInfo{
-		Name:     appJSON.Expo.Name,
+		Name:     pkg.Name,
 		Platform: "cross-platform",
 		Expo: &hotreload.ExpoProjectInfo{
-			Scheme: appJSON.Expo.Scheme,
-			Name:   appJSON.Expo.Name,
-			Slug:   appJSON.Expo.Slug,
+			Name: pkg.Name,
 		},
 	}, nil
 }

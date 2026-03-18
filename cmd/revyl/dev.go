@@ -41,17 +41,20 @@ var (
 
 var devCmd = &cobra.Command{
 	Use:   "dev",
-	Short: "Expo-first local development loop",
+	Short: "Local development loop with live device",
 	Long: `Start and manage the iterative local development loop.
 
-By default this starts hot reload, provisions a device, installs the latest
-dev build, and opens a live viewer.`,
+Auto-detects your project type (Expo, React Native, Swift, Android),
+starts hot reload, provisions a cloud device, installs the latest
+dev build, and opens a live viewer.
+
+On first run, auto-configures dev mode if not already set up.`,
 	RunE: runDevStart,
 }
 
 var devStartCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start a hot reload device loop (Expo)",
+	Short: "Start a hot reload device loop",
 	RunE:  runDevStart,
 }
 
@@ -67,7 +70,6 @@ var devTestRunCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		runHotReload = true
-		runHotReloadProvider = "expo"
 		if strings.TrimSpace(devTestRunPlatformKey) != "" {
 			runTestPlatform = strings.TrimSpace(devTestRunPlatformKey)
 		} else {
@@ -83,7 +85,6 @@ var devTestOpenCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		openTestHotReload = true
-		openTestHotReloadProvider = "expo"
 		return runOpenTest(cmd, args)
 	},
 }
@@ -94,7 +95,6 @@ var devTestCreateCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		createTestHotReload = true
-		createTestHotReloadProvider = "expo"
 		return runCreateTest(cmd, args)
 	},
 }
@@ -183,13 +183,24 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		ui.PrintError("Project not initialized. Run 'revyl init' first.")
 		return fmt.Errorf("project not initialized")
 	}
-	if !strings.Contains(strings.ToLower(cfg.Build.System), "expo") {
-		return fmt.Errorf("`revyl dev` currently supports Expo projects only (build.system=%q)", cfg.Build.System)
-	}
+
 	if !cfg.HotReload.IsConfigured() {
-		ui.PrintError("Hot reload is not configured.")
-		ui.PrintInfo("Run: revyl init --hotreload")
-		return fmt.Errorf("hot reload not configured")
+		ui.PrintInfo("Dev mode not configured yet. Setting up...")
+		ui.Println()
+
+		devMode, _ := cmd.Flags().GetBool("dev")
+		var setupClient *api.Client
+		if apiKey != "" {
+			setupClient = api.NewClientWithDevMode(apiKey, devMode)
+		}
+
+		ready := wizardHotReloadSetup(context.Background(), setupClient, cfg, configPath, cwd, false, nil, "")
+		if !ready || !cfg.HotReload.IsConfigured() {
+			ui.PrintError("Could not auto-configure dev mode.")
+			ui.PrintInfo("Try: revyl init --hotreload --provider expo")
+			return fmt.Errorf("dev mode auto-setup failed")
+		}
+		ui.Println()
 	}
 
 	requestedPlatform, err := normalizeMobilePlatform(devStartPlatform, "ios")
@@ -209,18 +220,15 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	registry := hotreload.DefaultRegistry()
-	provider, providerCfg, err := registry.SelectProvider(&cfg.HotReload, "expo", cwd)
+	provider, providerCfg, err := registry.SelectProvider(&cfg.HotReload, "", cwd)
 	if err != nil {
-		return fmt.Errorf("expo hot reload is not configured: %w", err)
-	}
-	if provider.Name() != "expo" {
-		return fmt.Errorf("`revyl dev` currently supports Expo only")
-	}
-	if providerCfg == nil || strings.TrimSpace(providerCfg.AppScheme) == "" {
-		return fmt.Errorf("hotreload.providers.expo.app_scheme is required (run `revyl init --hotreload`)")
+		return fmt.Errorf("dev mode is not configured: %w", err)
 	}
 	if !provider.IsSupported() {
-		return fmt.Errorf("%s hot reload is not yet supported", provider.DisplayName())
+		return fmt.Errorf("%s dev mode is not yet supported (coming soon)", provider.DisplayName())
+	}
+	if provider.Name() == "expo" && (providerCfg == nil || strings.TrimSpace(providerCfg.AppScheme) == "") {
+		return fmt.Errorf("hotreload.providers.expo.app_scheme is required for Expo dev mode (run `revyl init --hotreload` or `revyl config set hotreload.app-scheme <scheme>`)")
 	}
 
 	devicePlatform := requestedPlatform
@@ -370,7 +378,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	ui.PrintBanner(version)
 	ui.PrintInfo("Revyl Dev Loop")
 	ui.Println()
-	ui.PrintInfo("Provider: Expo")
+	ui.PrintInfo("Provider: %s", provider.DisplayName())
 	ui.PrintInfo("Device platform: %s", devicePlatform)
 	if platformKey != "" {
 		ui.PrintInfo("Build platform key: %s", platformKey)
@@ -570,10 +578,11 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if devMode {
 		viewerURL = strings.Replace(viewerURL, "https://app.revyl.ai", "http://localhost:3000", 1)
 	}
-	printDevReadyFooter(viewerURL, startResult.DeepLinkURL, manualDeepLinkRequired)
+	reportURL := fmt.Sprintf("%s/tests/report?sessionId=%s", config.GetAppURL(devMode), session.SessionID)
+	printDevReadyFooter(viewerURL, reportURL, startResult.DeepLinkURL, manualDeepLinkRequired)
 
 	if openBrowser {
-		_ = ui.OpenBrowser(viewerURL)
+		_ = ui.OpenBrowser(reportURL)
 	}
 
 	waitForDevSessionStop(ctx, cancel, deviceMgr, session.Index, time.Second)
@@ -585,10 +594,11 @@ func isCIEnvironment() bool {
 		strings.TrimSpace(os.Getenv("GITHUB_ACTIONS")) != ""
 }
 
-func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired bool) {
+func printDevReadyFooter(viewerURL, reportURL, deepLinkURL string, manualDeepLinkRequired bool) {
 	ui.Println()
 	ui.PrintSuccess("Dev loop ready")
 	ui.PrintLink("Viewer", viewerURL)
+	ui.PrintLink("Report", reportURL)
 	ui.PrintInfo("Deep Link: %s", deepLinkURL)
 	if manualDeepLinkRequired {
 		ui.PrintWarning("Deep link was not opened automatically on this worker. Use the Deep Link above in the device browser/dev client.")

@@ -200,20 +200,21 @@ func TestSyncTestActionCmd_PullRemoteOnlyCreatesConfigAndLocalTest(t *testing.T)
 	t.Chdir(tempDir)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v1/entity/users/get_user_uuid":
-			w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v1/entity/users/get_user_uuid":
 			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
-		case "/api/v1/tests/get_test_by_id/test-1":
-			w.Header().Set("Content-Type", "application/json")
+		case r.URL.Path == "/api/v1/tests/get_test_by_id/test-1":
 			_, _ = w.Write([]byte(`{"id":"test-1","name":"Checkout Flow","platform":"ios","tasks":[],"version":7}`))
-		case "/api/v1/tests/tags/tests/test-1":
-			w.Header().Set("Content-Type", "application/json")
+		case r.URL.Path == "/api/v1/tests/tags/tests/test-1":
 			_, _ = w.Write([]byte(`[]`))
-		case "/api/v1/variables/custom/read_variables",
-			"/api/v1/variables/app_launch_env/read":
-			w.Header().Set("Content-Type", "application/json")
+		case strings.HasPrefix(r.URL.Path, "/api/v1/variables/custom/read_variables"),
+			strings.HasPrefix(r.URL.Path, "/api/v1/variables/app_launch_env/read"):
 			_, _ = w.Write([]byte(`{"result":[]}`))
+		case strings.HasPrefix(r.URL.Path, "/api/v1/tests/scripts"):
+			_, _ = w.Write([]byte(`{"scripts":[],"count":0}`))
+		case r.URL.Path == "/api/v1/modules/list":
+			_, _ = w.Write([]byte(`{"message":"ok","result":[]}`))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}

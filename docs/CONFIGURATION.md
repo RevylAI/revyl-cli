@@ -89,6 +89,8 @@ last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 
 ## Hot Reload Configuration
 
+### Expo
+
 ```yaml
 hotreload:
   default: expo
@@ -102,7 +104,24 @@ hotreload:
       # use_exp_prefix: true  # If deep links fail with base scheme
 ```
 
+### Bare React Native (no Expo)
+
+```yaml
+hotreload:
+  default: react-native
+  providers:
+    react-native:
+      port: 8081
+      platform_keys:
+        ios: ios-dev
+        android: android-dev
+```
+
+Bare React Native does not require `app_scheme`. The device loads the JS bundle directly over a Cloudflare tunnel to Metro.
+
 `revyl dev` resolves builds within the selected app stream (`platform_keys` / `build.platforms`), and prefers builds whose metadata branch matches your current git branch.
+
+**Team usage**: The `platform_keys` (e.g. `ios: ios-dev`) map to `build.platforms.<key>.app_id`, which is a shared app container for your team. All developers' `revyl build upload` commands push to this container, tagged with their git branch. `revyl dev` automatically picks the right build for your branch. For JS projects (Expo/React Native), the binary changes infrequently so sharing works well. For native projects (Swift/Kotlin), each code change needs a fresh build -- branch-specific uploads become essential.
 
 ## Defaults
 

@@ -1359,6 +1359,7 @@ type App struct {
 	Name           string `json:"name"`
 	Platform       string `json:"platform"`
 	Description    string `json:"description,omitempty"`
+	SystemPrompt   string `json:"system_prompt,omitempty"`
 	CurrentVersion string `json:"current_version,omitempty"`
 	LatestVersion  string `json:"latest_version,omitempty"`
 	VersionsCount  int    `json:"versions_count"`

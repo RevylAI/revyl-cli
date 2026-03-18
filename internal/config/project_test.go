@@ -280,3 +280,108 @@ func TestEffectiveTimeoutFallback(t *testing.T) {
 		t.Errorf("EffectiveTimeoutSeconds(nil, 0) = %d, want %d", got, DefaultTimeoutSeconds)
 	}
 }
+
+func TestValidateProviderConfig_ReactNative_Valid(t *testing.T) {
+	hr := &HotReloadConfig{
+		Providers: map[string]*ProviderConfig{
+			"react-native": {
+				Port: 8081,
+				PlatformKeys: map[string]string{
+					"ios":     "ios-dev",
+					"android": "android-dev",
+				},
+			},
+		},
+	}
+
+	if err := hr.ValidateProvider("react-native"); err != nil {
+		t.Fatalf("ValidateProvider(react-native) unexpected error: %v", err)
+	}
+}
+
+func TestValidateProviderConfig_ReactNative_EmptyPlatformKey(t *testing.T) {
+	hr := &HotReloadConfig{
+		Providers: map[string]*ProviderConfig{
+			"react-native": {
+				Port: 8081,
+				PlatformKeys: map[string]string{
+					"ios": "",
+				},
+			},
+		},
+	}
+
+	err := hr.ValidateProvider("react-native")
+	if err == nil {
+		t.Fatal("ValidateProvider(react-native) expected error for empty platform key")
+	}
+	if got := err.Error(); got != "platform_keys.ios cannot be empty" {
+		t.Fatalf("unexpected error message: %q", got)
+	}
+}
+
+func TestValidateProviderConfig_ReactNative_InvalidPlatform(t *testing.T) {
+	hr := &HotReloadConfig{
+		Providers: map[string]*ProviderConfig{
+			"react-native": {
+				Port: 8081,
+				PlatformKeys: map[string]string{
+					"web": "web-dev",
+				},
+			},
+		},
+	}
+
+	err := hr.ValidateProvider("react-native")
+	if err == nil {
+		t.Fatal("ValidateProvider(react-native) expected error for invalid platform")
+	}
+	if got := err.Error(); got != "platform_keys.web must be ios or android" {
+		t.Fatalf("unexpected error message: %q", got)
+	}
+}
+
+func TestValidateProviderConfig_ReactNative_NoPlatformKeys(t *testing.T) {
+	hr := &HotReloadConfig{
+		Providers: map[string]*ProviderConfig{
+			"react-native": {
+				Port: 8081,
+			},
+		},
+	}
+
+	if err := hr.ValidateProvider("react-native"); err != nil {
+		t.Fatalf("ValidateProvider(react-native) with no platform_keys should pass: %v", err)
+	}
+}
+
+func TestValidateProviderConfig_ReactNative_NoAppSchemeRequired(t *testing.T) {
+	hr := &HotReloadConfig{
+		Providers: map[string]*ProviderConfig{
+			"react-native": {
+				Port:         8081,
+				PlatformKeys: map[string]string{"ios": "ios-dev"},
+			},
+		},
+	}
+
+	if err := hr.ValidateProvider("react-native"); err != nil {
+		t.Fatalf("react-native should not require app_scheme: %v", err)
+	}
+}
+
+func TestValidateProviderConfig_UnknownProvider(t *testing.T) {
+	hr := &HotReloadConfig{
+		Providers: map[string]*ProviderConfig{
+			"flutter": {Port: 8081},
+		},
+	}
+
+	err := hr.ValidateProvider("flutter")
+	if err == nil {
+		t.Fatal("expected error for unknown provider")
+	}
+	if got := err.Error(); got != "unknown provider: flutter (supported: expo, react-native)" {
+		t.Fatalf("unexpected error message: %q", got)
+	}
+}

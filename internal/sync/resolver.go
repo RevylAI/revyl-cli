@@ -153,6 +153,8 @@ func NewResolver(client *api.Client, cfg *config.ProjectConfig, localTests map[s
 }
 
 // GetAllStatuses returns sync status for all known tests.
+// Fetches are parallelised with bounded concurrency to avoid sequential
+// round-trips that dominated TUI startup time.
 //
 // Parameters:
 //   - ctx: Context for cancellation
@@ -161,20 +163,38 @@ func NewResolver(client *api.Client, cfg *config.ProjectConfig, localTests map[s
 //   - []TestSyncStatus: List of test sync statuses
 //   - error: Any error that occurred
 func (r *Resolver) GetAllStatuses(ctx context.Context) ([]TestSyncStatus, error) {
-	var statuses []TestSyncStatus
-
+	names := make([]string, 0, len(r.localTests))
 	for name := range r.localTests {
-		status, err := r.getTestStatus(ctx, name)
-		if err != nil {
-			// Include error in status - mark as local only but preserve the error message
-			statuses = append(statuses, TestSyncStatus{
-				Name:         name,
-				Status:       StatusLocalOnly,
-				ErrorMessage: err.Error(),
-			})
-			continue
-		}
-		statuses = append(statuses, *status)
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	const maxConcurrency = 10
+	sem := make(chan struct{}, maxConcurrency)
+	results := make(chan TestSyncStatus, len(names))
+
+	for _, name := range names {
+		sem <- struct{}{}
+		go func(n string) {
+			defer func() { <-sem }()
+			status, err := r.getTestStatus(ctx, n)
+			if err != nil {
+				results <- TestSyncStatus{
+					Name:         n,
+					Status:       StatusLocalOnly,
+					ErrorMessage: err.Error(),
+				}
+				return
+			}
+			results <- *status
+		}(name)
+	}
+
+	statuses := make([]TestSyncStatus, 0, len(names))
+	for range names {
+		statuses = append(statuses, <-results)
 	}
 
 	return statuses, nil
@@ -592,6 +612,9 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 	}
 	blocks = stripBlockIDs(blocks)
 
+	scriptNames, moduleNames := r.fetchNameMappings(ctx)
+	resolveBlockNames(blocks, scriptNames, moduleNames)
+
 	localTest := &config.LocalTest{
 		Meta: config.TestMeta{
 			RemoteID:      remoteID,
@@ -613,7 +636,8 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 		app, err := r.client.GetApp(ctx, remoteTest.AppID)
 		if err == nil && app != nil {
 			localTest.Test.Build = config.TestBuildConfig{
-				Name: app.Name,
+				Name:         app.Name,
+				SystemPrompt: app.SystemPrompt,
 			}
 		}
 	}
@@ -954,6 +978,66 @@ func containsLine(lines []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// fetchNameMappings fetches script and module name mappings for the org.
+// Returns two maps: scriptID->name and moduleID->name.
+// Failures are non-fatal; empty maps are returned on error.
+func (r *Resolver) fetchNameMappings(ctx context.Context) (map[string]string, map[string]string) {
+	scriptNames := make(map[string]string)
+	moduleNames := make(map[string]string)
+
+	if scripts, err := r.client.ListScripts(ctx, "", 500, 0); err == nil {
+		for _, s := range scripts.Scripts {
+			scriptNames[s.ID] = s.Name
+		}
+	}
+
+	if modules, err := r.client.ListModules(ctx); err == nil {
+		for _, m := range modules.Result {
+			moduleNames[m.ID] = m.Name
+		}
+	}
+
+	return scriptNames, moduleNames
+}
+
+// resolveBlockNames replaces script/module UUIDs with human-readable names
+// in pulled blocks so the local YAML is readable.
+//
+// For code_execution blocks whose StepDescription is a UUID matching a known
+// script, the UUID is moved to Script and StepDescription is cleared.
+//
+// For module_import blocks whose ModuleID matches a known module, the UUID
+// is moved to Module and ModuleID is cleared.
+func resolveBlockNames(blocks []config.TestBlock, scriptNames, moduleNames map[string]string) {
+	for i := range blocks {
+		b := &blocks[i]
+
+		if b.Type == "code_execution" && b.StepDescription != "" {
+			if name, ok := scriptNames[b.StepDescription]; ok {
+				b.Script = name
+				b.StepDescription = ""
+			}
+		}
+
+		if b.Type == "module_import" && b.ModuleID != "" {
+			if name, ok := moduleNames[b.ModuleID]; ok {
+				b.Module = name
+				b.ModuleID = ""
+			}
+		}
+
+		if len(b.Then) > 0 {
+			resolveBlockNames(b.Then, scriptNames, moduleNames)
+		}
+		if len(b.Else) > 0 {
+			resolveBlockNames(b.Else, scriptNames, moduleNames)
+		}
+		if len(b.Body) > 0 {
+			resolveBlockNames(b.Body, scriptNames, moduleNames)
+		}
+	}
 }
 
 // convertTasksToBlocks converts the API tasks (interface{}) to []config.TestBlock.

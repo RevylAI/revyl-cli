@@ -24,6 +24,9 @@ classifiers = [
 requires-python = ">=3.9"
 dependencies = []
 
+[project.optional-dependencies]
+sdk = []
+
 [project.urls]
 Homepage = "https://revyl.com"
 Documentation = "https://docs.revyl.ai"

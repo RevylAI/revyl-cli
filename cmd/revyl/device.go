@@ -426,8 +426,7 @@ var deviceStartCmd = &cobra.Command{
 			)
 			ui.PrintSuccess("Device ready! Session %d (%s)", session.Index, platform)
 			ui.PrintLink("Session", session.SessionID)
-			ui.PrintLink("Interact", session.ViewerURL)
-			ui.PrintLink("Report", reportURL)
+			ui.PrintLink("Live View", reportURL)
 			cmdPrefix := deviceCommandPrefix(cmd)
 			ui.PrintNextSteps([]ui.NextStep{
 				{Label: "Take a screenshot", Command: fmt.Sprintf("%s device screenshot --out screen.png", cmdPrefix)},
@@ -437,7 +436,10 @@ var deviceStartCmd = &cobra.Command{
 
 		// Auto-open browser if --open flag is set
 		if openBrowser {
-			_ = ui.OpenBrowser(session.ViewerURL)
+			devMode, _ := cmd.Flags().GetBool("dev")
+			reportURL := fmt.Sprintf("%s/tests/report?sessionId=%s",
+				config.GetAppURL(devMode), session.SessionID)
+			_ = ui.OpenBrowser(reportURL)
 		}
 
 		return nil
@@ -1482,43 +1484,70 @@ var deviceDoctorCmd = &cobra.Command{
 	Use:   "doctor",
 	Short: "Run diagnostics on auth, session, worker, and grounding health",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		var checks []mcppkg.DiagnosticCheck
+		allPassed := true
+
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
-			// Even if auth fails, show that as a doctor finding
-			ui.PrintInfo("Auth check: FAIL (%s)", err.Error())
+			checks = append(checks, mcppkg.DiagnosticCheck{Name: "auth", Status: "fail", Detail: err.Error(), Fix: "Set REVYL_API_KEY or run 'revyl auth login'"})
+			allPassed = false
+			output := mcppkg.DeviceDoctorOutput{Checks: checks, AllPassed: false}
+			jsonOrPrint(cmd, output, "Auth check: FAIL ("+err.Error()+")")
 			return nil
 		}
+		checks = append(checks, mcppkg.DiagnosticCheck{Name: "auth", Status: "pass"})
 
 		session, resolveErr := resolveSessionFlag(cmd, mgr)
 		if resolveErr != nil || session == nil {
 			total := mgr.SessionCount()
-			if total == 0 {
-				ui.PrintInfo("Session: NONE (no active session)")
-			} else {
-				ui.PrintInfo("Session: could not resolve (%s). %d session(s) exist.", resolveErr.Error(), total)
+			detail := "No active session"
+			if total > 0 {
+				detail = fmt.Sprintf("could not resolve (%s). %d session(s) exist", resolveErr.Error(), total)
 			}
+			checks = append(checks, mcppkg.DiagnosticCheck{Name: "session", Status: "none", Detail: detail, Fix: "Start a session with 'revyl device start'"})
+			allPassed = false
 		} else {
-			ui.PrintInfo("Session %d: PASS (platform=%s, uptime=%.0fs)", session.Index, session.Platform, time.Since(session.StartedAt).Seconds())
+			sessionDetail := fmt.Sprintf("platform=%s, uptime=%.0fs", session.Platform, time.Since(session.StartedAt).Seconds())
+			checks = append(checks, mcppkg.DiagnosticCheck{Name: "session", Status: "pass", Detail: sessionDetail})
+
 			respBytes, werr := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/health", nil)
 			if werr != nil {
-				ui.PrintInfo("Worker: FAIL (%s)", werr.Error())
+				checks = append(checks, mcppkg.DiagnosticCheck{Name: "worker", Status: "fail", Detail: werr.Error(), Fix: "Stop and start a new session"})
+				allPassed = false
 			} else {
-				ui.PrintInfo("Worker: PASS")
+				checks = append(checks, mcppkg.DiagnosticCheck{Name: "worker", Status: "pass"})
 				var health struct {
 					DeviceConnected bool `json:"device_connected"`
 				}
 				if json.Unmarshal(respBytes, &health) == nil {
 					if health.DeviceConnected {
-						ui.PrintInfo("Device: PASS")
+						checks = append(checks, mcppkg.DiagnosticCheck{Name: "device", Status: "pass"})
 					} else {
-						ui.PrintInfo("Device: FAIL (device not connected)")
+						checks = append(checks, mcppkg.DiagnosticCheck{Name: "device", Status: "fail", Detail: "Worker running but device not connected", Fix: "Wait a few seconds or stop and start a new session"})
+						allPassed = false
 					}
 				}
 			}
 		}
-		ui.PrintInfo("Auth: PASS")
 
-		// Show all sessions summary
+		output := mcppkg.DeviceDoctorOutput{Checks: checks, AllPassed: allPassed}
+
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+		if jsonOutput {
+			data, _ := json.MarshalIndent(output, "", "  ")
+			fmt.Println(string(data))
+			return nil
+		}
+
+		for _, c := range checks {
+			status := strings.ToUpper(c.Status)
+			if c.Detail != "" {
+				ui.PrintInfo("%s: %s (%s)", c.Name, status, c.Detail)
+			} else {
+				ui.PrintInfo("%s: %s", c.Name, status)
+			}
+		}
+
 		sessions := mgr.ListSessions()
 		if len(sessions) > 0 {
 			ui.PrintInfo("Active sessions: %d", len(sessions))
@@ -1776,6 +1805,7 @@ func init() {
 	sessionFlag(deviceInfoCmd)
 
 	// Doctor
+	deviceDoctorCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceDoctorCmd)
 
 	// List

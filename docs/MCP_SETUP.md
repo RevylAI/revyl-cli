@@ -1,3 +1,9 @@
+<!-- mintlify
+title: "MCP Setup"
+description: "Connect Revyl to AI coding agents via MCP"
+target: cli/mcp-setup.mdx
+-->
+
 # MCP Server Setup
 
 > [Back to README](../README.md) | [Commands](COMMANDS.md) | [Agent Skills](SKILLS.md) | [SDK](SDK.md)
@@ -36,7 +42,9 @@ Restart Cursor after saving. If you previously ran `revyl auth login`, no API ke
 ### 1. Install the CLI
 
 ```bash
-brew install RevylAI/tap/revyl    # Homebrew (recommended)
+brew install RevylAI/tap/revyl    # Homebrew (macOS)
+pipx install revyl                # pipx (cross-platform)
+uv tool install revyl             # uv
 pip install revyl                 # pip
 ```
 

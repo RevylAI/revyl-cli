@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -81,6 +82,10 @@ var (
 	gitHubMaxRetries     = 2
 	gitHubRetryBaseDelay = 500 * time.Millisecond
 	gitHubRetryMaxDelay  = 5 * time.Second
+
+	// brewCommandRunner creates exec.Cmd instances for brew commands.
+	// Overridden in tests to avoid running actual brew.
+	brewCommandRunner = exec.Command
 )
 
 // upgradeCmd checks for and installs CLI updates.
@@ -91,8 +96,9 @@ var upgradeCmd = &cobra.Command{
 
 BEHAVIOR:
   - Detects how the CLI was installed (Homebrew, npm, pip, direct download)
-  - For package managers: shows the upgrade command to run
-  - For direct downloads: downloads and replaces the binary
+  - Homebrew: runs brew update && brew upgrade revyl automatically
+  - npm/pip: shows the upgrade command to run
+  - Direct downloads: downloads and replaces the binary
 
 FLAGS:
   --check       Only check for updates, don't install
@@ -186,14 +192,20 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 		if jsonOutput {
 			outputJSON(result)
-		} else {
-			ui.PrintInfo("Current version: %s", version)
-			ui.PrintInfo("Latest version:  %s", release.TagName)
-			ui.Println()
-			ui.PrintWarning("Installed via Homebrew. Run:")
-			ui.PrintDim("  brew upgrade revyl")
+			return nil
 		}
-		return nil
+
+		ui.PrintInfo("Current version: %s", version)
+		ui.PrintInfo("Latest version:  %s", release.TagName)
+		ui.Println()
+
+		if upgradeCheckOnly {
+			ui.PrintSuccess("Update available: %s -> %s", version, release.TagName)
+			ui.PrintDim("  Run: revyl upgrade")
+			return nil
+		}
+
+		return performBrewUpgrade()
 
 	case "npm":
 		result.UpgradeCommand = "npm update -g @revyl/cli"
@@ -207,6 +219,21 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			ui.Println()
 			ui.PrintWarning("Installed via npm. Run:")
 			ui.PrintDim("  npm update -g @revyl/cli")
+		}
+		return nil
+
+	case "pipx":
+		result.UpgradeCommand = "pipx upgrade revyl"
+		result.Message = "Update available via pipx"
+
+		if jsonOutput {
+			outputJSON(result)
+		} else {
+			ui.PrintInfo("Current version: %s", version)
+			ui.PrintInfo("Latest version:  %s", release.TagName)
+			ui.Println()
+			ui.PrintWarning("Installed via pipx. Run:")
+			ui.PrintDim("  pipx upgrade revyl")
 		}
 		return nil
 
@@ -278,6 +305,11 @@ func detectInstallMethodFromPath(execPath string) string {
 	// Check for npm
 	if strings.Contains(normalizedPath, "node_modules") || strings.Contains(normalizedPath, "npm") {
 		return "npm"
+	}
+
+	// Check for pipx (isolated Python env)
+	if strings.Contains(normalizedPath, "pipx/venvs") {
+		return "pipx"
 	}
 
 	// Check for pip (Python)
@@ -627,6 +659,47 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 
 	ui.Println()
 	ui.PrintSuccess("Successfully upgraded to %s", tagName)
+	ui.PrintNextSteps([]ui.NextStep{
+		{Label: "Verify version:", Command: "revyl version"},
+	})
+
+	return nil
+}
+
+// performBrewUpgrade runs `brew update` followed by `brew upgrade revyl`,
+// streaming output to the terminal. If either command fails, a fallback
+// message with the manual command is printed.
+//
+// Returns:
+//   - error: Non-nil when a brew command exits with a non-zero status.
+func performBrewUpgrade() error {
+	ui.PrintInfo("Updating Homebrew tap...")
+
+	updateCmd := brewCommandRunner("brew", "update")
+	updateCmd.Stdout = os.Stdout
+	updateCmd.Stderr = os.Stderr
+
+	if err := updateCmd.Run(); err != nil {
+		ui.PrintWarning("brew update failed: %v", err)
+		ui.PrintDim("  You can try manually: brew update && brew upgrade revyl")
+		return fmt.Errorf("brew update failed: %w", err)
+	}
+
+	ui.Println()
+	ui.PrintInfo("Upgrading revyl...")
+
+	upgradeCmd := brewCommandRunner("brew", "upgrade", "revyl")
+	upgradeCmd.Stdout = os.Stdout
+	upgradeCmd.Stderr = os.Stderr
+
+	if err := upgradeCmd.Run(); err != nil {
+		ui.PrintWarning("brew upgrade failed: %v", err)
+		ui.PrintDim("  You can try manually: brew upgrade revyl")
+		return fmt.Errorf("brew upgrade revyl failed: %w", err)
+	}
+
+	ui.Println()
+	ui.PrintSuccess("Successfully upgraded via Homebrew")
 	ui.PrintNextSteps([]ui.NextStep{
 		{Label: "Verify version:", Command: "revyl version"},
 	})

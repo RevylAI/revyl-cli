@@ -2,7 +2,8 @@
 Revyl Device SDK -- programmatic control of Revyl cloud devices.
 
 - `revyl` console script proxies to the Revyl CLI binary.
-- `DeviceClient` provides session management, device interaction, and live test step execution.
+- `DeviceClient` provides session management, device interaction,
+  and live test step execution.
 """
 
 from __future__ import annotations
@@ -17,7 +18,19 @@ from ._binary import (
     get_platform_info,
     main,
 )
-from .sdk import DeviceClient, RevylCLI, RevylError
+from ._device_targets import DeviceModel, OsVersion
+from .sdk import (
+    BuildClient,
+    DeviceClient,
+    KeyInput,
+    ModuleClient,
+    Platform,
+    RevylCLI,
+    RevylError,
+    Runtime,
+    ScriptClient,
+    SwipeDirection,
+)
 
 __all__ = [
     "__version__",
@@ -29,6 +42,15 @@ __all__ = [
     "RevylCLI",
     "DeviceClient",
     "RevylError",
+    "Runtime",
+    "Platform",
+    "SwipeDirection",
+    "KeyInput",
+    "DeviceModel",
+    "OsVersion",
+    "ScriptClient",
+    "ModuleClient",
+    "BuildClient",
 ]
 
 

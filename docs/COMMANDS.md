@@ -50,13 +50,13 @@ revyl workflow run smoke-tests --build    # Build then run workflow
 --build-id <id>   # Run against a specific build version
 --no-wait         # Queue and exit without waiting for results
 --verbose / -v    # Show step-by-step execution progress
---hotreload       # Run against local dev server (Expo)
+--hotreload       # Run against local dev server (Expo or React Native)
 --timeout 600     # Max execution time in seconds
 ```
 
-## Dev Loop (Expo)
+## Dev Loop
 
-Use `revyl dev` for the fast local iteration loop:
+Use `revyl dev` for the fast local iteration loop. Both **Expo** and **bare React Native** projects are supported.
 
 ```bash
 revyl dev                              # Start hot reload + live device (defaults to iOS)
@@ -69,11 +69,58 @@ revyl dev --platform-key ios-dev       # Use explicit platform key
 ```
 
 `revyl dev`:
-- starts your local Expo dev server
-- creates a Cloudflare tunnel
-- resolves the latest build for your current git branch from your dev app mapping (`hotreload.providers.expo.platform_keys`), then installs it
+- starts your local dev server (Expo via `npx expo start --dev-client`, or Metro via `npx react-native start`)
+- creates a Cloudflare tunnel to expose it to cloud devices
+- resolves the latest build for your current git branch from your dev app mapping (`hotreload.providers.<provider>.platform_keys`), then installs it
   - if no branch-matching build exists, it falls back to the latest available build and prints a warning
 - opens a cloud device session wired to the deep link
+
+### Expo
+
+Expo projects use `app_scheme` for deep linking into the dev client:
+
+```yaml
+hotreload:
+  default: expo
+  providers:
+    expo:
+      app_scheme: myapp
+      port: 8081
+      platform_keys:
+        ios: ios-dev
+        android: android-dev
+```
+
+### React Native (bare)
+
+Bare React Native projects (no Expo) use Metro directly. No `app_scheme` is needed -- the device loads the JS bundle over the Cloudflare tunnel.
+
+1. Configure hot reload:
+
+```bash
+revyl init --hotreload
+# Select "react-native" when prompted, or set manually in .revyl/config.yaml
+```
+
+2. Ensure `.revyl/config.yaml` has:
+
+```yaml
+hotreload:
+  default: react-native
+  providers:
+    react-native:
+      port: 8081
+      platform_keys:
+        ios: ios-dev
+        android: android-dev
+```
+
+3. Start the dev loop:
+
+```bash
+revyl dev                    # Starts Metro via `npx react-native start`
+revyl dev --platform android
+```
 
 ### New Branch Build Flow
 
@@ -124,6 +171,31 @@ Plain device sessions (no hot reload):
 ```bash
 revyl device start --platform ios
 ```
+
+### Builds and Dev Mode
+
+All `revyl build upload` commands push to a shared app container (the `app_id` in your config). Each upload is tagged with your git branch and commit via metadata.
+
+When you run `revyl dev`, the CLI scans the app container for a build matching your current git branch. If found, it uses that build. If not, it falls back to the latest available build and prints a warning.
+
+Each developer gets their own cloud device session, tunnel, and local dev server -- builds are the only shared resource.
+
+**When you need a new build (by project type):**
+
+- **Expo / React Native**: Dev mode serves your JS/TS live from your local Metro via a Cloudflare tunnel. The binary is just a "dev client shell." You only need a new build when native dependencies change (new native modules, Podfile changes, Gradle dependency changes, `app.json` native config).
+- **Swift** (coming soon): Every code change requires a new build. The binary *is* the app.
+- **Kotlin/Android** (coming soon): Every code change requires a new build.
+
+**Team workflow commands:**
+
+```bash
+revyl build list --branch HEAD               # Does my branch have a build?
+revyl build upload --platform ios-dev        # Upload build tagged with current branch
+revyl dev                                     # Auto-picks branch-matched build
+revyl dev --build-version-id <id>            # Pin a specific build
+```
+
+**Tip**: For Expo/React Native, multiple developers can use the same dev build and still see their own code changes, since JS is served locally. For native projects, each developer should upload their own branch build.
 
 ## App Management
 
@@ -358,6 +430,20 @@ For raw device sessions, URL-based app flows work in two modes:
 - `revyl device start --app-url ...` preinstalls the app before the session is ready.
 - `revyl device install --app-url ...` installs into an already running raw session.
 - `revyl device download-file --url ...` only downloads the file to device storage; it does not install the app.
+
+### Live Stream URL
+
+Every active session streams the device screen over WebRTC. The `--json` output from `device info` and `device list` includes a `whep_url` field — a standard [WHEP](https://www.ietf.org/archive/id/draft-murillo-whep-03.html) playback URL you can embed in your own platform or feed into any WHEP-compatible player.
+
+```bash
+# Get the raw stream URL for the active session
+revyl device info --json | jq -r '.whep_url'
+
+# List all sessions with their stream URLs
+revyl device list --json | jq '.[].whep_url'
+```
+
+The stream becomes available shortly after session start. See [SDK > Live Streaming](SDK.md#live-streaming) for programmatic usage.
 
 ### Device Session Flags
 

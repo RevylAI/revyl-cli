@@ -162,12 +162,13 @@ func TestPrintDevReadyFooter_PrintsInteractionShortcuts(t *testing.T) {
 	})
 
 	output := captureStdoutAndStderr(t, func() {
-		printDevReadyFooter("https://viewer.example", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false)
+		printDevReadyFooter("https://viewer.example", "https://app.revyl.ai/tests/report?sessionId=test-session", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false)
 	})
 
 	for _, expected := range []string{
 		"Dev loop ready",
 		"Viewer:",
+		"Report:",
 		"Deep Link:",
 		"Press Ctrl+C to stop hot reload and release the device",
 		"In a new terminal, try:",
@@ -197,7 +198,7 @@ func TestPrintDevReadyFooter_QuietModeSuppressesInteractionHints(t *testing.T) {
 	})
 
 	output := captureStdout(t, func() {
-		printDevReadyFooter("https://viewer.example", "nof1://example", false)
+		printDevReadyFooter("https://viewer.example", "https://app.revyl.ai/tests/report?sessionId=test-session", "nof1://example", false)
 	})
 
 	if strings.Contains(output, "Try device interactions:") {

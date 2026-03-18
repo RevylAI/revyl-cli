@@ -541,6 +541,7 @@ type WorkflowCancelledMsg struct {
 type WorkflowSettingsMsg struct {
 	Workflow *api.Workflow
 	AllTests []TestItem
+	AllApps  []api.App
 	Err      error
 }
 

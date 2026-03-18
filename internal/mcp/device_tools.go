@@ -436,9 +436,11 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		return nil, StartDeviceSessionOutput{Success: false, Error: err.Error()}, nil
 	}
 
-	// Auto-open the viewer URL in the browser unless the caller opted out.
+	// Auto-open the report URL in the browser unless the caller opted out.
 	if !input.NoOpen {
-		_ = ui.OpenBrowser(session.ViewerURL)
+		reportURL := fmt.Sprintf("%s/tests/report?sessionId=%s",
+			config.GetAppURL(s.devMode), session.SessionID)
+		_ = ui.OpenBrowser(reportURL)
 	}
 
 	return nil, StartDeviceSessionOutput{

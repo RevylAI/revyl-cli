@@ -116,11 +116,20 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 	if err != nil {
 		return nil, StartDevLoopOutput{Success: false, SessionIndex: -1, Error: fmt.Sprintf("failed to resolve hot reload provider: %v", err)}, nil
 	}
-	if providerName != "expo" {
+	registry := hotreload.DefaultRegistry()
+	providerImpl, provImplErr := registry.GetProvider(providerName)
+	if provImplErr != nil {
 		return nil, StartDevLoopOutput{
 			Success:      false,
 			SessionIndex: -1,
-			Error:        fmt.Sprintf("provider %q is configured but start_dev_loop currently supports Expo only", providerName),
+			Error:        fmt.Sprintf("unknown provider %q: %v", providerName, provImplErr),
+		}, nil
+	}
+	if !providerImpl.IsSupported() {
+		return nil, StartDevLoopOutput{
+			Success:      false,
+			SessionIndex: -1,
+			Error:        fmt.Sprintf("provider %q is configured but %s dev mode is not yet supported", providerName, providerImpl.DisplayName()),
 		}, nil
 	}
 
@@ -137,11 +146,11 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 		providerCfg.Port = input.Port
 	}
 
-	if strings.TrimSpace(providerCfg.AppScheme) == "" {
+	if providerName == "expo" && strings.TrimSpace(providerCfg.AppScheme) == "" {
 		return nil, StartDevLoopOutput{
 			Success:      false,
 			SessionIndex: -1,
-			Error:        "hotreload.providers.expo.app_scheme is required",
+			Error:        "hotreload.providers.expo.app_scheme is required (run `revyl config set hotreload.app-scheme <scheme>`)",
 		}, nil
 	}
 

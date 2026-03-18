@@ -899,6 +899,15 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 			continue
 		}
 
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutiveErrors {
+				return lastStatus, fmt.Errorf("polling failed: server returned status %d after %d attempts", resp.StatusCode, maxConsecutiveErrors)
+			}
+			continue
+		}
+
 		var statusResp struct {
 			Status         string `json:"status"`
 			TotalTests     int    `json:"total_tests"`

@@ -986,7 +986,13 @@ func fetchWorkflowSettingsCmd(client *api.Client, workflowID string) tea.Cmd {
 			}
 		}
 
-		return WorkflowSettingsMsg{Workflow: wf, AllTests: allTests}
+		var allApps []api.App
+		appsResp, aErr := client.ListApps(ctx, "", 1, 100)
+		if aErr == nil {
+			allApps = appsResp.Items
+		}
+
+		return WorkflowSettingsMsg{Workflow: wf, AllTests: allTests, AllApps: allApps}
 	}
 }
 
@@ -1047,8 +1053,121 @@ func saveWorkflowOverridesCmd(client *api.Client, workflowID string, wf *api.Wor
 // Returns:
 //   - tea.Model: updated model
 //   - tea.Cmd: next command
+//
+// isAppEditField returns true when the current edit targets an app override.
+func isAppEditField(field string) bool {
+	return field == "ios_app" || field == "android_app"
+}
+
+// filterAppsByQuery returns apps whose name contains the query (case-insensitive).
+func filterAppsByQuery(apps []api.App, query string) []api.App {
+	if query == "" {
+		return apps
+	}
+	q := strings.ToLower(query)
+	var out []api.App
+	for _, a := range apps {
+		if strings.Contains(strings.ToLower(a.Name), q) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// filterAppsByPlatform returns apps matching the given platform.
+func filterAppsByPlatform(apps []api.App, platform string) []api.App {
+	if platform == "" {
+		return apps
+	}
+	p := strings.ToLower(platform)
+	var out []api.App
+	for _, a := range apps {
+		if strings.ToLower(a.Platform) == p {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// renderAppAutocompleteList renders the filtered app matches below the input.
+func renderAppAutocompleteList(b *strings.Builder, m hubModel) {
+	if len(m.wfSettingsAppMatches) == 0 {
+		b.WriteString("    " + dimStyle.Render("No matching apps") + "\n")
+		return
+	}
+	maxVisible := 5
+	start, end := scrollWindow(m.wfSettingsAppCursor, len(m.wfSettingsAppMatches), maxVisible)
+	for i := start; i < end; i++ {
+		app := m.wfSettingsAppMatches[i]
+		cursor := "  "
+		nameStyle := dimStyle
+		if i == m.wfSettingsAppCursor {
+			cursor = selectedStyle.Render("▸ ")
+			nameStyle = normalStyle
+		}
+		b.WriteString(fmt.Sprintf("    %s%s  %s\n", cursor,
+			nameStyle.Render(app.Name),
+			dimStyle.Render(app.Platform)))
+	}
+}
+
+// resolveAppName looks up an app ID in the loaded apps list and returns
+// the app's display name, or the raw ID if not found.
+func resolveAppName(apps []api.App, appID string) string {
+	for _, a := range apps {
+		if a.ID == appID {
+			return a.Name
+		}
+	}
+	return appID
+}
+
+// refreshAppMatches re-filters the app list based on the current input value.
+func refreshAppMatches(m *hubModel) {
+	platform := ""
+	if m.wfSettingsEditField == "ios_app" {
+		platform = "ios"
+	} else if m.wfSettingsEditField == "android_app" {
+		platform = "android"
+	}
+	platformApps := filterAppsByPlatform(m.wfSettingsApps, platform)
+	m.wfSettingsAppMatches = filterAppsByQuery(platformApps, m.wfSettingsInput.Value())
+	if m.wfSettingsAppCursor >= len(m.wfSettingsAppMatches) {
+		m.wfSettingsAppCursor = max(0, len(m.wfSettingsAppMatches)-1)
+	}
+}
+
 func handleWorkflowSettingsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.wfSettingsEditing {
+		if isAppEditField(m.wfSettingsEditField) {
+			switch msg.String() {
+			case "esc":
+				m.wfSettingsEditing = false
+				m.wfSettingsInput.Blur()
+				return m, nil
+			case "enter":
+				m.wfSettingsEditing = false
+				m.wfSettingsInput.Blur()
+				applySettingsEdit(&m)
+				return m, nil
+			case "up", "ctrl+p":
+				if m.wfSettingsAppCursor > 0 {
+					m.wfSettingsAppCursor--
+				}
+				return m, nil
+			case "down", "ctrl+n":
+				if m.wfSettingsAppCursor < len(m.wfSettingsAppMatches)-1 {
+					m.wfSettingsAppCursor++
+				}
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.wfSettingsInput, cmd = m.wfSettingsInput.Update(msg)
+				refreshAppMatches(&m)
+				return m, cmd
+			}
+		}
+
 		switch msg.String() {
 		case "esc":
 			m.wfSettingsEditing = false
@@ -1160,24 +1279,35 @@ func startSettingsEdit(m *hubModel) {
 
 	switch m.wfSettingsSection {
 	case wfSettingsSectionApp:
+		currentAppID := ""
 		if m.wfSettingsCursor == 0 {
 			m.wfSettingsEditField = "ios_app"
-			m.wfSettingsInput.Placeholder = "iOS app ID"
+			m.wfSettingsInput.Placeholder = "Search iOS apps..."
 			if wf.BuildConfig != nil {
 				if iosBuild, ok := wf.BuildConfig["ios_build"].(map[string]interface{}); ok {
-					if appID, ok := iosBuild["app_id"].(string); ok {
-						m.wfSettingsInput.SetValue(appID)
+					if id, ok := iosBuild["app_id"].(string); ok {
+						currentAppID = id
 					}
 				}
 			}
 		} else {
 			m.wfSettingsEditField = "android_app"
-			m.wfSettingsInput.Placeholder = "Android app ID"
+			m.wfSettingsInput.Placeholder = "Search Android apps..."
 			if wf.BuildConfig != nil {
 				if androidBuild, ok := wf.BuildConfig["android_build"].(map[string]interface{}); ok {
-					if appID, ok := androidBuild["app_id"].(string); ok {
-						m.wfSettingsInput.SetValue(appID)
+					if id, ok := androidBuild["app_id"].(string); ok {
+						currentAppID = id
 					}
+				}
+			}
+		}
+		refreshAppMatches(m)
+		m.wfSettingsAppCursor = 0
+		if currentAppID != "" {
+			for i, a := range m.wfSettingsAppMatches {
+				if a.ID == currentAppID {
+					m.wfSettingsAppCursor = i
+					break
 				}
 			}
 		}
@@ -1229,15 +1359,33 @@ func applySettingsEdit(m *hubModel) {
 		if wf.BuildConfig == nil {
 			wf.BuildConfig = make(map[string]interface{})
 		}
-		wf.BuildConfig["ios_build"] = map[string]interface{}{"app_id": val}
-		wf.OverrideBuildConfig = val != ""
+		appID := ""
+		if m.wfSettingsAppCursor < len(m.wfSettingsAppMatches) {
+			appID = m.wfSettingsAppMatches[m.wfSettingsAppCursor].ID
+		}
+		if appID != "" {
+			wf.BuildConfig["ios_build"] = map[string]interface{}{"app_id": appID}
+			wf.OverrideBuildConfig = true
+		} else {
+			delete(wf.BuildConfig, "ios_build")
+			wf.OverrideBuildConfig = len(wf.BuildConfig) > 0
+		}
 		m.wfSettingsDirty = true
 	case "android_app":
 		if wf.BuildConfig == nil {
 			wf.BuildConfig = make(map[string]interface{})
 		}
-		wf.BuildConfig["android_build"] = map[string]interface{}{"app_id": val}
-		wf.OverrideBuildConfig = val != ""
+		appID := ""
+		if m.wfSettingsAppCursor < len(m.wfSettingsAppMatches) {
+			appID = m.wfSettingsAppMatches[m.wfSettingsAppCursor].ID
+		}
+		if appID != "" {
+			wf.BuildConfig["android_build"] = map[string]interface{}{"app_id": appID}
+			wf.OverrideBuildConfig = true
+		} else {
+			delete(wf.BuildConfig, "android_build")
+			wf.OverrideBuildConfig = len(wf.BuildConfig) > 0
+		}
 		m.wfSettingsDirty = true
 	case "latitude":
 		if wf.LocationConfig == nil {
@@ -1359,33 +1507,43 @@ func renderWorkflowSettings(m hubModel) string {
 	if wf != nil && wf.OverrideBuildConfig && wf.BuildConfig != nil {
 		if iosBuild, ok := wf.BuildConfig["ios_build"].(map[string]interface{}); ok {
 			if appID, ok := iosBuild["app_id"].(string); ok && appID != "" {
-				iosApp = normalStyle.Render(appID)
+				iosApp = normalStyle.Render(resolveAppName(m.wfSettingsApps, appID))
 			}
 		}
 		if androidBuild, ok := wf.BuildConfig["android_build"].(map[string]interface{}); ok {
 			if appID, ok := androidBuild["app_id"].(string); ok && appID != "" {
-				androidApp = normalStyle.Render(appID)
+				androidApp = normalStyle.Render(resolveAppName(m.wfSettingsApps, appID))
 			}
 		}
 	}
 
 	iosCursor := "  "
 	androidCursor := "  "
+	editingIOS := false
+	editingAndroid := false
 	if m.wfSettingsSection == wfSettingsSectionApp {
 		if m.wfSettingsCursor == 0 {
 			iosCursor = selectedStyle.Render("▸ ")
-			if m.wfSettingsEditing {
+			if m.wfSettingsEditing && m.wfSettingsEditField == "ios_app" {
+				editingIOS = true
 				iosApp = m.wfSettingsInput.View()
 			}
 		} else {
 			androidCursor = selectedStyle.Render("▸ ")
-			if m.wfSettingsEditing {
+			if m.wfSettingsEditing && m.wfSettingsEditField == "android_app" {
+				editingAndroid = true
 				androidApp = m.wfSettingsInput.View()
 			}
 		}
 	}
 	b.WriteString(fmt.Sprintf("  %s%-12s %s\n", iosCursor, dimStyle.Render("iOS:"), iosApp))
+	if editingIOS {
+		renderAppAutocompleteList(&b, m)
+	}
 	b.WriteString(fmt.Sprintf("  %s%-12s %s\n", androidCursor, dimStyle.Render("Android:"), androidApp))
+	if editingAndroid {
+		renderAppAutocompleteList(&b, m)
+	}
 
 	// --- Location section ---
 	if m.wfSettingsSection == wfSettingsSectionLocation {

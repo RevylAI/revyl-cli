@@ -324,5 +324,93 @@ fi
 
 echo "✓ Generated: $DT_OUTPUT"
 
+# ── Phase 2b: Python SDK Device Targets ──────────────────────────────────────
+# Generate Python Literal types from the same device-targets.json so the SDK
+# gets autocomplete for device models and OS versions without manual upkeep.
+
+DT_PY_OUTPUT="$PROJECT_DIR/python/revyl/_device_targets.py"
+
+echo ""
+echo "Generating Python SDK device target types..."
+
+export _DT_PY_INPUT="$DT_CACHED"
+export _DT_PY_OUTPUT="$DT_PY_OUTPUT"
+
+python3 << 'DT_PY_SCRIPT'
+import json
+import os
+from pathlib import Path
+
+data = json.loads(Path(os.environ["_DT_PY_INPUT"]).read_text())
+platforms = data.get("platforms", {})
+
+ios = platforms.get("ios", {})
+android = platforms.get("android", {})
+
+def literal_union(values):
+    return ", ".join(f'"{v}"' for v in values)
+
+ios_models = ios.get("available_models", [])
+android_models = android.get("available_models", [])
+ios_runtimes = ios.get("available_runtimes", [])
+android_runtimes = android.get("available_runtimes", [])
+
+ios_default = ios.get("default_pair", {})
+android_default = android.get("default_pair", {})
+
+lines = [
+    '"""',
+    "Auto-generated device target types from device-targets.json.",
+    "",
+    "DO NOT EDIT — regenerate with: cd revyl-cli && make generate",
+    '"""',
+    "",
+    "from __future__ import annotations",
+    "",
+    "from typing import Literal, Union",
+    "",
+]
+
+if ios_models:
+    lines.append(f"IOSDeviceModel = Literal[{literal_union(ios_models)}]")
+else:
+    lines.append('IOSDeviceModel = Literal["iPhone 16"]')
+
+if android_models:
+    lines.append(
+        f"AndroidDeviceModel = Literal[{literal_union(android_models)}]"
+    )
+else:
+    lines.append('AndroidDeviceModel = Literal["Pixel 7"]')
+
+lines.append("DeviceModel = Union[IOSDeviceModel, AndroidDeviceModel]")
+lines.append("")
+
+if ios_runtimes:
+    lines.append(f"IOSVersion = Literal[{literal_union(ios_runtimes)}]")
+else:
+    lines.append('IOSVersion = Literal["iOS 18.5"]')
+
+if android_runtimes:
+    lines.append(
+        f"AndroidVersion = Literal[{literal_union(android_runtimes)}]"
+    )
+else:
+    lines.append('AndroidVersion = Literal["Android 14"]')
+
+lines.append("OsVersion = Union[IOSVersion, AndroidVersion]")
+lines.append("")
+
+lines.append(f'DEFAULT_IOS_MODEL: IOSDeviceModel = "{ios_default.get("model", "iPhone 16")}"')
+lines.append(f'DEFAULT_IOS_VERSION: IOSVersion = "{ios_default.get("runtime", "iOS 18.5")}"')
+lines.append(f'DEFAULT_ANDROID_MODEL: AndroidDeviceModel = "{android_default.get("model", "Pixel 7")}"')
+lines.append(f'DEFAULT_ANDROID_VERSION: AndroidVersion = "{android_default.get("runtime", "Android 14")}"')
+lines.append("")
+
+Path(os.environ["_DT_PY_OUTPUT"]).write_text("\n".join(lines))
+DT_PY_SCRIPT
+
+echo "✓ Generated: $DT_PY_OUTPUT"
+
 echo ""
 echo "Done! Types are ready in internal/api/generated.go"
