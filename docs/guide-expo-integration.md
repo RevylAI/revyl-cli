@@ -279,40 +279,6 @@ This helps track which builds correspond to which app versions in Revyl.
 
 ---
 
-## Hot Reload with Expo
-
-For rapid development iteration, use hot reload to test against your local Expo dev server. This enables near-instant testing—JavaScript changes are reflected immediately without rebuilding.
-
-### Quick Setup
-
-1. **Build a development client** with `expo-dev-client`:
-   ```bash
-   npx eas build --profile development --platform ios
-   ```
-
-2. **Upload to Revyl** as a build:
-   ```bash
-   revyl build upload --file <path-to-build> --name "ios-dev-client"
-   ```
-
-3. **Configure hot reload**:
-   ```bash
-   revyl init --provider expo
-   ```
-
-4. **Run tests with hot reload**:
-   ```bash
-   revyl dev test run login-flow
-   ```
-
-<Note>
-  Hot reload requires a development client build with `expo-dev-client` installed. Production builds won't work with hot reload.
-</Note>
-
-See [Dev Loop](/cli/dev-loop-guide) for high-level usage patterns (including coding-agent verification loops), and [Hot Reload](/cli/hot-reload) for full setup and troubleshooting.
-
----
-
 ## Next Steps
 
 - [Upload builds manually →](/builds/index)

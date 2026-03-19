@@ -105,5 +105,3 @@ revyl dev test open checkout-flow
 revyl test push checkout-flow --force
 revyl test run checkout-flow
 ```
-
-Continue with [Agent Journey: Ad Hoc to Test](/cli/agent-journey-adhoc-to-test).

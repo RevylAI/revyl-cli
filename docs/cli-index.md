@@ -174,7 +174,4 @@ For focused device session and action workflows, see [Device Automation](/device
   <Card title="Device Automation" icon="mobile" href="/device/index">
     Start, control, and debug cloud devices
   </Card>
-  <Card title="iOS Publishing" icon="paper-plane" href="/cli/publishing-ios">
-    Upload and distribute to TestFlight
-  </Card>
 </CardGroup>

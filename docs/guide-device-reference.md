@@ -931,8 +931,8 @@ The device resolution may differ from what you expect. Capture a fresh screensho
   <Card title="MCP Server Setup" icon="robot" href="/cli/mcp-setup">
     Connect device tools to your AI coding agent.
   </Card>
-  <Card title="Interactive Mode" icon="terminal" href="/cli/interactive">
-    Build tests step-by-step with live device feedback.
+  <Card title="Dev Loop Guide" icon="bolt" href="/cli/dev-loop-guide">
+    Run focused local verification loops with cloud devices.
   </Card>
   <Card title="Command Reference" icon="book" href="/cli/reference">
     Full reference for all CLI commands.

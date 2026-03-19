@@ -354,5 +354,4 @@ If `--provider` is not recognized, add the hotreload config manually:
 ## What's next
 
 - [Dev Loop workflow](/cli/dev-loop-guide) — running tests in dev mode
-- [Hot Reload reference](/cli/hot-reload) — provider configuration and full schema
 - [Agent Prompt Pack](/cli/agent-prompt-pack) — copy-paste prompt templates for coding agents

@@ -135,6 +135,6 @@ All developers push builds to a shared app container (the `app_id` in config). E
 
 ## What's Next
 
-- [Hot Reload Setup](/cli/hot-reload) — provider configuration details
+- [Dev Setup Guide](/cli/dev-setup-guide) — provider configuration details
 - [Device Scripting](/device/scripting-guide) — Python SDK for programmatic device control
 - [Agent Journeys](/cli/agent-journeys) — AI agent workflows with dev loop
