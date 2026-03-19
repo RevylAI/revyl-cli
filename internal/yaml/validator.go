@@ -98,13 +98,14 @@ var validBlockTypes = map[string]bool{
 // validStepTypes contains all valid manual step_type values.
 // Keep in sync with cognisim_backend/app/utils/convertors/step_type_rules.py ALL_VALID_MANUAL_STEP_TYPES.
 var validStepTypes = map[string]bool{
-	"wait":         true,
-	"open_app":     true,
-	"kill_app":     true,
-	"go_home":      true,
-	"navigate":     true,
-	"set_location": true,
-	"end":          true,
+	"wait":            true,
+	"open_app":        true,
+	"kill_app":        true,
+	"go_home":         true,
+	"navigate":        true,
+	"set_location":    true,
+	"set_orientation": true,
+	"end":             true,
 }
 
 // variablePattern matches {{variable-name}} syntax.
@@ -288,7 +289,7 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 
 	case "manual":
 		if !validStepTypes[block.StepType] {
-			errors = append(errors, fmt.Sprintf("%s (manual): Invalid step_type '%s' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location", blockPath, block.StepType))
+			errors = append(errors, fmt.Sprintf("%s (manual): Invalid step_type '%s' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation", blockPath, block.StepType))
 		}
 
 		// Validate step_description based on step_type
