@@ -582,11 +582,40 @@ class DeviceClient:
 
     def install_app(
         self,
-        app_url: str,
+        app_url: Optional[str] = None,
+        build_version_id: Optional[str] = None,
         bundle_id: Optional[str] = None,
         session_index: Optional[int] = None,
     ) -> JSONObject:
-        args = ["device", "install", "--app-url", app_url, *self._session_args(session_index)]
+        """Install an app on the active device session.
+
+        Exactly one of *app_url* or *build_version_id* must be provided.
+        When *build_version_id* is used, the CLI resolves the download URL
+        automatically from a previously uploaded build.
+
+        Args:
+            app_url: Direct URL to an ``.apk`` or ``.ipa`` archive.
+            build_version_id: Build version UUID from a prior upload.
+            bundle_id: Optional bundle/package ID (auto-detected if omitted).
+            session_index: Optional device session index to target.
+
+        Returns:
+            The CLI JSON response for the install request.
+
+        Raises:
+            ValueError: If neither or both of *app_url* / *build_version_id*
+                are provided.
+        """
+        if bool(app_url) == bool(build_version_id):
+            raise ValueError(
+                "Provide exactly one of app_url or build_version_id."
+            )
+        args: list[str] = ["device", "install"]
+        if app_url:
+            args.extend(["--app-url", app_url])
+        if build_version_id:
+            args.extend(["--build-version-id", build_version_id])
+        args.extend(self._session_args(session_index))
         if bundle_id:
             args.extend(["--bundle-id", bundle_id])
         result = self.cli.run(*args, json_output=True)

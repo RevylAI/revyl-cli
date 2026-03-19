@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/revyl/cli/internal/buildselection"
+	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/hotreload"
 )
 
@@ -257,7 +258,7 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 
 	timeoutSecs := input.Timeout
 	if timeoutSecs <= 0 {
-		timeoutSecs = 300
+		timeoutSecs = config.EffectiveTimeoutSeconds(s.config, 300)
 	}
 
 	_, session, err := s.sessionMgr.StartSession(ctx, StartSessionOptions{
@@ -407,12 +408,12 @@ func ensureWorkerActionSucceeded(respBody []byte, expectedAction string) error {
 		success = *resp.SuccessUpper
 	}
 	if !successKnown {
-		return fmt.Errorf("worker %s response missing success field", expectedAction)
+		return fmt.Errorf("device action %s returned an unexpected response", expectedAction)
 	}
 	if !success {
 		errMsg := strings.TrimSpace(resp.Error)
 		if errMsg == "" {
-			errMsg = fmt.Sprintf("worker reported %s failure", expectedAction)
+			errMsg = fmt.Sprintf("device action %s failed", expectedAction)
 		}
 		return fmt.Errorf("%s", errMsg)
 	}

@@ -156,6 +156,28 @@ func NewDeviceSessionManager(apiClient *api.Client, workDir string) *DeviceSessi
 	}
 }
 
+// ResolveBuildVersionURL resolves a build version ID to its download URL and
+// package name via the backend API.
+//
+// Parameters:
+//   - ctx: Context for the API call.
+//   - buildVersionID: The build version UUID to resolve.
+//
+// Returns:
+//   - appURL: The resolved download URL.
+//   - packageName: The detected package/bundle ID (may be empty).
+//   - error: If the build version cannot be resolved.
+func (m *DeviceSessionManager) ResolveBuildVersionURL(ctx context.Context, buildVersionID string) (appURL string, packageName string, err error) {
+	detail, err := m.apiClient.GetBuildVersionDownloadURL(ctx, buildVersionID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve build version %s: %w", buildVersionID, err)
+	}
+	if detail == nil || strings.TrimSpace(detail.DownloadURL) == "" {
+		return "", "", fmt.Errorf("build version %s has no download URL", buildVersionID)
+	}
+	return strings.TrimSpace(detail.DownloadURL), strings.TrimSpace(detail.PackageName), nil
+}
+
 // shortPrefix returns a stable short identifier for logs.
 func shortPrefix(s string, max int) string {
 	if max <= 0 || s == "" {
@@ -439,7 +461,6 @@ func (m *DeviceSessionManager) StopSession(ctx context.Context, index int) error
 	}
 
 	cancelErr := m.stopSessionAtIndexLocked(ctx, index, session)
-	m.recompactIndicesLocked()
 	m.persistSessions()
 	return cancelErr
 }
@@ -461,7 +482,7 @@ func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) error {
 			firstErr = err
 		}
 	}
-	m.recompactIndicesLocked()
+	m.nextIndex = 0
 	m.persistSessions()
 	return firstErr
 }
@@ -610,6 +631,21 @@ func (m *DeviceSessionManager) ResetIdleTimer(index int) {
 
 	session.LastActivity = time.Now()
 	m.resetIdleTimerForSessionLocked(index, context.Background())
+}
+
+// StopIdleTimer cancels the idle timer for a session without stopping the
+// session itself. Used by `revyl dev` to delegate idle timeout enforcement
+// to the worker process, which has accurate cross-source activity tracking.
+//
+// Parameters:
+//   - index: The session index whose timer should be cancelled.
+func (m *DeviceSessionManager) StopIdleTimer(index int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if timer, ok := m.idleTimers[index]; ok {
+		timer.Stop()
+		delete(m.idleTimers, index)
+	}
 }
 
 // MarkScreenshotAnchor records that a fresh screenshot was captured for a
@@ -867,117 +903,6 @@ func (m *DeviceSessionManager) persistSessions() {
 	_ = os.WriteFile(filepath.Join(dir, "device-sessions.json"), data, 0o644)
 }
 
-// recompactIndicesLocked reassigns all session indices to be 0-based and contiguous,
-// preserving relative order by current index. This prevents indices from growing
-// unboundedly as sessions are started and stopped over time.
-//
-// Caller must hold m.mu. This method also recreates idle timer closures so they
-// capture the correct new index values (idle timer callbacks close over the index).
-func (m *DeviceSessionManager) recompactIndicesLocked() {
-	if len(m.sessions) == 0 {
-		m.nextIndex = 0
-		m.activeIndex = -1
-		clear(m.screenAnchors)
-		return
-	}
-
-	// Collect current indices and sort to preserve relative order.
-	oldIndices := make([]int, 0, len(m.sessions))
-	for idx := range m.sessions {
-		oldIndices = append(oldIndices, idx)
-	}
-	sort.Ints(oldIndices)
-
-	// Check if already compact (0..n-1 contiguous). Skip work if so.
-	alreadyCompact := true
-	for i, oldIdx := range oldIndices {
-		if oldIdx != i {
-			alreadyCompact = false
-			break
-		}
-	}
-	if alreadyCompact {
-		for idx := range m.screenAnchors {
-			if _, ok := m.sessions[idx]; !ok {
-				delete(m.screenAnchors, idx)
-			}
-		}
-		m.nextIndex = len(m.sessions)
-		return
-	}
-
-	// Build old-to-new mapping and rebuild the sessions map.
-	oldToNew := make(map[int]int, len(oldIndices))
-	newSessions := make(map[int]*DeviceSession, len(oldIndices))
-	for newIdx, oldIdx := range oldIndices {
-		oldToNew[oldIdx] = newIdx
-		session := m.sessions[oldIdx]
-		session.Index = newIdx
-		newSessions[newIdx] = session
-	}
-	m.sessions = newSessions
-
-	newAnchors := make(map[int]*screenAnchorState, len(m.screenAnchors))
-	for oldIdx, anchor := range m.screenAnchors {
-		newIdx, ok := oldToNew[oldIdx]
-		if !ok {
-			continue
-		}
-		newAnchors[newIdx] = anchor
-	}
-	m.screenAnchors = newAnchors
-
-	// Remap active index.
-	if m.activeIndex >= 0 {
-		if newIdx, ok := oldToNew[m.activeIndex]; ok {
-			m.activeIndex = newIdx
-		} else {
-			m.activeIndex = -1
-		}
-	}
-
-	// Recreate idle timers with fresh closures capturing new indices.
-	// Old timers must be stopped first to prevent stale-index callbacks.
-	newTimers := make(map[int]*time.Timer, len(m.idleTimers))
-	now := time.Now()
-	for oldIdx, timer := range m.idleTimers {
-		timer.Stop()
-		newIdx, ok := oldToNew[oldIdx]
-		if !ok {
-			continue
-		}
-		session, exists := m.sessions[newIdx]
-		if !exists {
-			continue
-		}
-		timeout := session.IdleTimeout
-		if timeout <= 0 {
-			timeout = 5 * time.Minute
-		}
-
-		remaining := timeout
-		if !session.LastActivity.IsZero() {
-			remaining = session.LastActivity.Add(timeout).Sub(now)
-		}
-		if remaining <= 0 {
-			remaining = time.Millisecond
-		}
-
-		capturedIdx := newIdx // explicit capture for closure
-		newTimers[capturedIdx] = time.AfterFunc(remaining, func() {
-			m.mu.Lock()
-			defer m.mu.Unlock()
-			if s, ok := m.sessions[capturedIdx]; ok {
-				_ = m.stopSessionAtIndexLocked(context.Background(), capturedIdx, s)
-				m.persistSessions()
-			}
-		})
-	}
-	m.idleTimers = newTimers
-
-	m.nextIndex = len(m.sessions)
-}
-
 // loadLocalCache reads device-sessions.json from disk into memory.
 // Also handles migration from old device-session.json (singular) format.
 // Does NOT validate sessions against the backend.
@@ -1003,8 +928,6 @@ func (m *DeviceSessionManager) loadLocalCache() {
 			for _, s := range state.Sessions {
 				m.sessions[s.Index] = s
 			}
-			// Recompact indices to fill gaps from stale persisted state.
-			m.recompactIndicesLocked()
 			return
 		}
 	}
@@ -1030,9 +953,6 @@ func (m *DeviceSessionManager) loadLocalCache() {
 
 	// Clean up old file
 	_ = os.Remove(oldPath)
-
-	// Recompact indices to fill gaps from stale persisted state.
-	m.recompactIndicesLocked()
 }
 
 // LoadPersistedSession loads sessions from the local cache file.
@@ -1084,6 +1004,37 @@ func (m *DeviceSessionManager) checkSessionStatusOnFailure(session *DeviceSessio
 		return "session failed on the worker"
 	default:
 		return ""
+	}
+}
+
+// CheckSessionAlive queries the backend to determine whether a device session
+// is still running. Used by the dev loop poll to detect worker-side idle
+// timeout, cancellation, or failure without maintaining a local timer.
+//
+// Parameters:
+//   - ctx: Context for the backend request (should have a short timeout).
+//   - session: The session to check.
+//
+// Returns:
+//   - alive: true if the session is still running or status is indeterminate.
+//   - reason: Human-readable explanation when alive is false.
+func (m *DeviceSessionManager) CheckSessionAlive(ctx context.Context, session *DeviceSession) (alive bool, reason string) {
+	if session == nil || m.apiClient == nil {
+		return true, ""
+	}
+	resp, err := m.apiClient.GetWorkerWSURL(ctx, session.WorkflowRunID)
+	if err != nil {
+		return true, "" // network error -- assume alive, don't kill
+	}
+	switch resp.Status {
+	case api.WorkerConnectionResponseStatusStopped:
+		return false, "session idle timeout"
+	case api.WorkerConnectionResponseStatusCancelled:
+		return false, "session was cancelled"
+	case api.WorkerConnectionResponseStatusFailed:
+		return false, "session failed on the worker"
+	default:
+		return true, ""
 	}
 }
 
@@ -1995,10 +1946,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		m.activeIndex = lowest
 	}
 
-	// Step 8: Recompact indices so they are 0-based contiguous.
-	m.recompactIndicesLocked()
-
-	// Step 9: Persist
+	// Step 8: Persist
 	m.persistSessions()
 	return nil
 }

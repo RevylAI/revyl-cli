@@ -1,3 +1,9 @@
+<!-- mintlify
+title: "Agent Prompt Pack"
+description: "Copy/paste prompt templates for high-leverage Revyl MCP workflows"
+target: cli/agent-prompt-pack.mdx
+-->
+
 # Agent Skills
 
 > [Back to README](../README.md) | [MCP Setup](MCP_SETUP.md) | [Commands](COMMANDS.md)

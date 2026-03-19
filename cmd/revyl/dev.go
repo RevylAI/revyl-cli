@@ -197,7 +197,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		ready := wizardHotReloadSetup(context.Background(), setupClient, cfg, configPath, cwd, false, nil, "")
 		if !ready || !cfg.HotReload.IsConfigured() {
 			ui.PrintError("Could not auto-configure dev mode.")
-			ui.PrintInfo("Try: revyl init --hotreload --provider expo")
+			ui.PrintInfo("Try: revyl init --provider expo")
 			return fmt.Errorf("dev mode auto-setup failed")
 		}
 		ui.Println()
@@ -228,7 +228,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%s dev mode is not yet supported (coming soon)", provider.DisplayName())
 	}
 	if provider.Name() == "expo" && (providerCfg == nil || strings.TrimSpace(providerCfg.AppScheme) == "") {
-		return fmt.Errorf("hotreload.providers.expo.app_scheme is required for Expo dev mode (run `revyl init --hotreload` or `revyl config set hotreload.app-scheme <scheme>`)")
+		return fmt.Errorf("hotreload.providers.expo.app_scheme is required for Expo dev mode (run `revyl init --provider expo` or `revyl config set hotreload.app-scheme <scheme>`)")
 	}
 
 	devicePlatform := requestedPlatform
@@ -274,6 +274,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	selectedAppID := appIDOverride
 	buildSelectionSource := ""
+	var selectedVersion *api.BuildVersion
 	if buildVersionID == "" {
 		if selectedAppID == "" {
 			if platformKey == "" {
@@ -306,7 +307,10 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			selectedAppID = strings.TrimSpace(platformCfg.AppID)
 		}
 
-		selectedVersion, source, warnings, latestErr := buildselection.SelectPreferredBuildVersion(
+		var source string
+		var warnings []string
+		var latestErr error
+		selectedVersion, source, warnings, latestErr = buildselection.SelectPreferredBuildVersion(
 			cmd.Context(),
 			client,
 			selectedAppID,
@@ -386,10 +390,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if selectedAppID != "" {
 		ui.PrintInfo("App ID: %s", selectedAppID)
 	}
-	ui.PrintInfo("Dev build: %s", buildVersionID)
-	if buildSelectionSource != "" {
-		ui.PrintInfo("Build selection: %s", buildSelectionSource)
-	}
+	printBuildSelectionInfo(buildVersionID, buildSelectionSource, selectedVersion, provider.Name(), cwd)
 	ui.Println()
 
 	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
@@ -557,7 +558,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 		if isUnsupportedWorkerRoute(err, "/open_url") {
 			manualDeepLinkRequired = true
-			ui.PrintWarning("Worker does not support /open_url; automatic deep-link navigation is unavailable for this session")
+			ui.PrintWarning("Device does not support /open_url; automatic deep-link navigation is unavailable for this session")
 			ui.PrintInfo("Manual step: open this deep link on device: %s", deepLinkURL)
 		} else {
 			return fmt.Errorf(
@@ -585,7 +586,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		_ = ui.OpenBrowser(reportURL)
 	}
 
-	waitForDevSessionStop(ctx, cancel, deviceMgr, session.Index, time.Second)
+	// Disable the CLI-side idle timer: it cannot track activity from
+	// other processes (browser viewer, `revyl device tap`, MCP tools).
+	// The worker's idle timer is the authoritative source of truth.
+	deviceMgr.StopIdleTimer(session.Index)
+
+	waitForDevSessionStop(ctx, cancel, deviceMgr, session, time.Duration(timeout)*time.Second)
 	return nil
 }
 
@@ -608,6 +614,68 @@ func printDevReadyFooter(viewerURL, reportURL, deepLinkURL string, manualDeepLin
 	ui.PrintInfo("In a new terminal, try:")
 	ui.PrintDim("  revyl device tap --target \"Login button\"")
 	ui.PrintDim("  revyl device screenshot")
+}
+
+// printBuildSelectionInfo displays human-readable build selection details.
+// Shows branch, version, and upload time when available, with provider-aware
+// fallback hints for teams sharing builds.
+func printBuildSelectionInfo(
+	buildVersionID, source string,
+	ver *api.BuildVersion,
+	providerName, cwd string,
+) {
+	if ver == nil {
+		ui.PrintInfo("Dev build: %s", buildVersionID)
+		if source != "" {
+			ui.PrintInfo("Build selection: %s", source)
+		}
+		return
+	}
+
+	branch := buildselection.ExtractBranch(ver.Metadata)
+	label := ver.Version
+	if label == "" {
+		label = buildVersionID
+	}
+	uploadInfo := ""
+	if ver.UploadedAt != "" {
+		uploadInfo = fmt.Sprintf(", uploaded %s", ver.UploadedAt)
+	}
+
+	if strings.HasPrefix(source, "branch:") {
+		branchDisplay := branch
+		if branchDisplay == "" {
+			branchDisplay = strings.TrimPrefix(source, "branch:")
+		}
+		ui.PrintInfo("Dev build: %s (branch: %s%s)", label, branchDisplay, uploadInfo)
+		return
+	}
+
+	ui.PrintInfo("Dev build: %s%s", label, uploadInfo)
+
+	currentBranch := buildselection.CurrentBranch(cwd)
+	if currentBranch != "" {
+		buildBranch := branch
+		if buildBranch == "" {
+			buildBranch = "unknown"
+		}
+		ui.PrintWarning("No build found for branch %q", currentBranch)
+		ui.PrintDim("  Using latest build (from branch: %s)", buildBranch)
+		ui.PrintDim("  %s", buildFallbackHint(providerName))
+	}
+}
+
+// buildFallbackHint returns a provider-aware explanation for why using
+// a fallback build is (or isn't) safe.
+func buildFallbackHint(providerName string) string {
+	switch providerName {
+	case "expo", "react-native":
+		return "Dev mode serves your local JS -- this build is fine unless you changed native code."
+	case "swift", "android":
+		return "Native projects require a matching build for every code change."
+	default:
+		return "Upload a branch-specific build with: revyl build upload --platform <key>"
+	}
 }
 
 type devSessionStarter interface {
@@ -734,12 +802,12 @@ func ensureWorkerActionSucceeded(respBody []byte, expectedAction string) error {
 		success = *resp.SuccessUpper
 	}
 	if !successKnown {
-		return fmt.Errorf("worker %s response missing success field", expectedAction)
+		return fmt.Errorf("device action %s returned an unexpected response", expectedAction)
 	}
 	if !success {
 		errMsg := strings.TrimSpace(resp.Error)
 		if errMsg == "" {
-			errMsg = fmt.Sprintf("worker reported %s failure", expectedAction)
+			errMsg = fmt.Sprintf("device action %s failed", expectedAction)
 		}
 		return fmt.Errorf("%s", errMsg)
 	}
@@ -773,21 +841,22 @@ func isUnsupportedWorkerRoute(err error, path string) bool {
 	return workerErr.StatusCode == 404 && strings.TrimSpace(workerErr.Path) == strings.TrimSpace(path)
 }
 
-type devSessionLookup interface {
-	GetSession(index int) *mcppkg.DeviceSession
+type devSessionChecker interface {
+	CheckSessionAlive(ctx context.Context, session *mcppkg.DeviceSession) (alive bool, reason string)
 }
+
+// defaultDevSessionPollInterval is the interval between backend status checks
+// in the dev loop. Overridden in tests for fast execution.
+var defaultDevSessionPollInterval = 10 * time.Second
 
 func waitForDevSessionStop(
 	ctx context.Context,
 	cancel context.CancelFunc,
-	sessions devSessionLookup,
-	sessionIndex int,
-	pollInterval time.Duration,
+	checker devSessionChecker,
+	session *mcppkg.DeviceSession,
+	idleTimeout time.Duration,
 ) {
-	if pollInterval <= 0 {
-		pollInterval = time.Second
-	}
-	ticker := time.NewTicker(pollInterval)
+	ticker := time.NewTicker(defaultDevSessionPollInterval)
 	defer ticker.Stop()
 
 	for {
@@ -795,12 +864,16 @@ func waitForDevSessionStop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if sessions.GetSession(sessionIndex) != nil {
-				continue
+			checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
+			alive, reason := checker.CheckSessionAlive(checkCtx, session)
+			checkCancel()
+			if !alive {
+				ui.PrintWarning("Device session ended (%s). Stopping dev session...", reason)
+				ui.PrintDim("  Increase idle timeout: revyl dev --timeout <seconds>")
+				ui.PrintDim("  Or set defaults.timeout in .revyl/config.yaml")
+				cancel()
+				return
 			}
-			ui.PrintWarning("Device session ended (likely idle timeout). Stopping dev session...")
-			cancel()
-			return
 		}
 	}
 }

@@ -1069,8 +1069,8 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		ui.PrintError("Hot reload not configured.")
 		ui.Println()
 		ui.PrintInfo("Hot reload is configured during 'revyl init'.")
-		ui.PrintInfo("Re-run init hot reload setup:")
-		ui.PrintDim("  revyl init --hotreload")
+		ui.PrintInfo("Re-run detection:")
+		ui.PrintDim("  revyl init --detect")
 		ui.Println()
 		ui.PrintInfo("Or add to .revyl/config.yaml:")
 		ui.Println()
@@ -1102,7 +1102,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	if providerCfg == nil {
 		ui.PrintError("Provider '%s' is not configured.", provider.Name())
 		ui.Println()
-		ui.PrintInfo("Re-run 'revyl init --hotreload' to configure hot reload defaults.")
+		ui.PrintInfo("Re-run 'revyl init --detect' to configure hot reload defaults.")
 		return fmt.Errorf("provider not configured")
 	}
 
@@ -1357,7 +1357,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	ui.Println()
 	ui.PrintInfo("────────────────────────────────────────────────────────────────")
 	ui.PrintInfo("Hot reload server still running. Make code changes and run again.")
-	ui.PrintDim("  Re-run:  revyl test run %s --hotreload", testNameOrID)
+	ui.PrintDim("  Re-run:  revyl dev test run %s", testNameOrID)
 	ui.PrintInfo("Press Ctrl+C to stop.")
 	ui.PrintInfo("────────────────────────────────────────────────────────────────")
 

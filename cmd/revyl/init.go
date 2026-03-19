@@ -48,7 +48,7 @@ Use --non-interactive / -y to skip the wizard and just create config.
 Examples:
   revyl init                    # Full guided wizard
   revyl init -y                 # Non-interactive: detect + create config only
-  revyl init --hotreload        # Reconfigure hot reload for an existing project
+  revyl init --provider expo    # Force Expo as hot reload provider
   revyl init --project ID       # Link to existing Revyl project
   revyl init --detect           # Re-run build system detection
   revyl init --force            # Overwrite existing configuration`,
@@ -60,7 +60,6 @@ var (
 	initDetect               bool
 	initForce                bool
 	initNonInteractive       bool
-	initHotReload            bool
 	initHotReloadAppScheme   string
 	initHotReloadProvider    string
 	initXcodeSchemeOverrides []string
@@ -71,7 +70,6 @@ func init() {
 	initCmd.Flags().BoolVar(&initDetect, "detect", false, "Re-run build system detection")
 	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite existing configuration")
 	initCmd.Flags().BoolVarP(&initNonInteractive, "non-interactive", "y", false, "Skip wizard prompts, just create config")
-	initCmd.Flags().BoolVar(&initHotReload, "hotreload", false, "Configure hot reload and exit (for existing projects)")
 	initCmd.Flags().StringVar(&initHotReloadAppScheme, "hotreload-app-scheme", "", "Override Expo hotreload.providers.expo.app_scheme")
 	initCmd.Flags().StringVar(&initHotReloadProvider, "provider", "", "Force dev mode provider (expo, react-native, swift, android)")
 	initCmd.Flags().StringSliceVar(&initXcodeSchemeOverrides, "xcode-scheme", nil, "Override Xcode scheme by build platform key (format: key=Scheme, repeatable)")
@@ -94,10 +92,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if initHotReload && len(overrideOpts.XcodeSchemeOverrides) > 0 {
-		return fmt.Errorf("--xcode-scheme can only be used with full `revyl init` (without --hotreload)")
-	}
-
 	revylDir := filepath.Join(cwd, ".revyl")
 	configPath := filepath.Join(revylDir, "config.yaml")
 	configExists := false
@@ -105,16 +99,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 		configExists = true
 	}
 
-	// Check if already initialized
-	if configExists && !initForce && !initDetect && !initHotReload {
+	if configExists && !initForce && !initDetect {
 		ui.PrintWarning("Project already initialized")
-		ui.PrintInfo("Use --force to overwrite, --detect to re-run detection, or --hotreload to reconfigure hot reload")
+		ui.PrintInfo("Use --force to overwrite or --detect to re-run detection")
 		return nil
-	}
-
-	// Hot reload-only configuration mode for existing projects.
-	if initHotReload && configExists {
-		return runInitHotReloadOnly(cmd, cwd, configPath, overrideOpts)
 	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")
@@ -262,49 +250,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Starting live device session...")
 		ui.Println()
 		wizardLaunchDevice(ctx, cfg, devMode)
-	}
-
-	return nil
-}
-
-// runInitHotReloadOnly reconfigures hot reload for an existing project and exits.
-func runInitHotReloadOnly(cmd *cobra.Command, cwd, configPath string, overrideOpts *initOverrideOptions) error {
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		ui.PrintError("Project not initialized. Run 'revyl init' first.")
-		return fmt.Errorf("project not initialized")
-	}
-
-	ui.PrintStepHeader(1, 1, "Hot Reload Setup")
-
-	var client *api.Client
-	devMode, _ := cmd.Flags().GetBool("dev")
-
-	authMgr := auth.NewManager()
-	apiKey, tokenErr := authMgr.GetActiveToken()
-	if tokenErr == nil && apiKey != "" {
-		client = api.NewClientWithDevMode(apiKey, devMode)
-	} else {
-		ui.PrintDim("Not authenticated; skipping app-link checks during hot reload setup.")
-		ui.PrintDim("Run 'revyl auth login' and re-run 'revyl init --hotreload' to validate app links.")
-	}
-
-	ready := wizardHotReloadSetup(cmd.Context(), client, cfg, configPath, cwd, true, overrideOpts, initHotReloadProvider)
-	if !ready {
-		return fmt.Errorf("hot reload setup failed")
-	}
-
-	ui.Println()
-	ui.PrintSuccess("Hot reload setup complete.")
-
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-	aliases := config.ListLocalTestAliases(testsDir)
-	if len(aliases) > 0 {
-		ui.PrintInfo("Next: revyl dev")
-		ui.PrintInfo("Then: revyl dev test run %s", aliases[0])
-	} else {
-		ui.PrintInfo("Next: revyl dev")
-		ui.PrintInfo("Then: revyl dev test run <name>")
 	}
 
 	return nil
@@ -2239,28 +2184,56 @@ func wizardHotReloadSetup(
 		detections := registry.DetectAllProviders(cwd)
 
 		if len(detections) == 0 {
-			ui.PrintDim("No compatible hot reload providers detected in this project.")
-			ui.PrintDim("If this is an Expo or React Native project, try:")
-			ui.PrintDim("  revyl init --hotreload --provider expo")
-			ui.PrintDim("  revyl init --hotreload --provider react-native")
-			return true
+			fallback := tryFallbackProvider(cwd, registry)
+			if fallback != nil {
+				detections = []hotreload.ProviderDetection{*fallback}
+			}
+		}
+
+		if len(detections) == 0 {
+			ui.PrintDim("No hot reload providers detected in this project.")
+			ui.PrintDim("If this is an Expo or React Native project, run:")
+			ui.PrintDim("  revyl init --provider expo")
+			ui.PrintDim("  revyl init --provider react-native")
+			return false
 		}
 
 		detection, ok = selectHotReloadDetection(detections, cfg.HotReload.Default)
+		if !ok {
+			fallback := tryFallbackProvider(cwd, registry)
+			if fallback != nil {
+				detection = *fallback
+				ok = true
+			}
+		}
+
 		if !ok {
 			ui.PrintDim("Detected hot reload providers are not yet supported:")
 			for _, d := range detections {
 				ui.PrintDim("  • %s (coming soon)", d.Provider.DisplayName())
 			}
-			suggestAlternativeProviders(cwd, registry)
-			return true
+			ui.Println()
+			ui.PrintDim("If this is an Expo or React Native project, run:")
+			ui.PrintDim("  revyl init --provider expo")
+			return false
+		}
+
+		if !initNonInteractive {
+			detection, ok = confirmHotReloadProvider(detection, detections, registry)
+			if !ok {
+				return false
+			}
 		}
 	}
 
+	platform := ""
+	if detection.Detection != nil {
+		platform = detection.Detection.Platform
+	}
 	setupResult, err := hotreload.AutoSetup(ctx, client, hotreload.SetupOptions{
 		WorkDir:          cwd,
 		ExplicitProvider: detection.Provider.Name(),
-		Platform:         detection.Detection.Platform,
+		Platform:         platform,
 	})
 	if err != nil {
 		ui.PrintWarning("Could not configure hot reload: %v", err)
@@ -2350,45 +2323,123 @@ func selectHotReloadDetection(detections []hotreload.ProviderDetection, defaultP
 	return hotreload.ProviderDetection{}, false
 }
 
-// suggestAlternativeProviders checks for indicators of supported providers that
-// auto-detection may have missed (e.g., Expo projects using app.config.js instead
-// of app.json) and prints actionable suggestions.
-func suggestAlternativeProviders(cwd string, registry *hotreload.Registry) {
-	var hints []string
-
+// tryFallbackProvider checks for Expo or React Native indicators that auto-detection
+// may have missed (common in monorepos where dependencies are hoisted). Returns a
+// ProviderDetection if a supported fallback is found, nil otherwise.
+func tryFallbackProvider(cwd string, registry *hotreload.Registry) *hotreload.ProviderDetection {
 	hasExpoDep := false
 	if data, err := os.ReadFile(filepath.Join(cwd, "package.json")); err == nil {
 		hasExpoDep = strings.Contains(string(data), "\"expo\"")
 	}
+
+	if hasExpoDep {
+		provider, err := registry.GetProvider("expo")
+		if err != nil {
+			return nil
+		}
+		var indicators []string
+		indicators = append(indicators, "expo in package.json")
+		for _, name := range []string{".expo", "eas.json", "app.config.js", "app.config.ts"} {
+			if _, err := os.Stat(filepath.Join(cwd, name)); err == nil {
+				indicators = append(indicators, name)
+			}
+		}
+		ui.PrintDim("Auto-detected Expo indicators (%s)", strings.Join(indicators, ", "))
+		return &hotreload.ProviderDetection{
+			Provider: provider,
+			Detection: &hotreload.DetectionResult{
+				Provider:   "expo",
+				Confidence: 0.8,
+				Platform:   "cross-platform",
+				Indicators: indicators,
+			},
+		}
+	}
+
 	hasRNDep := false
 	if data, err := os.ReadFile(filepath.Join(cwd, "package.json")); err == nil {
 		hasRNDep = strings.Contains(string(data), "\"react-native\"")
 	}
-
-	if hasExpoDep {
-		var expoIndicators []string
-		for _, name := range []string{".expo", "eas.json", "app.config.js", "app.config.ts"} {
-			if _, err := os.Stat(filepath.Join(cwd, name)); err == nil {
-				expoIndicators = append(expoIndicators, name)
-			}
+	if hasRNDep {
+		provider, err := registry.GetProvider("react-native")
+		if err != nil {
+			return nil
 		}
-		detail := "expo in package.json"
-		if len(expoIndicators) > 0 {
-			detail += ", " + strings.Join(expoIndicators, ", ")
-		}
-		hints = append(hints, fmt.Sprintf("  This project has Expo indicators (%s).\n  Try: revyl init --hotreload --provider expo", detail))
-	}
-
-	if hasRNDep && !hasExpoDep {
-		hints = append(hints, "  This project has react-native in package.json.\n  Try: revyl init --hotreload --provider react-native")
-	}
-
-	if len(hints) > 0 {
-		ui.Println()
-		for _, h := range hints {
-			ui.PrintInfo("%s", h)
+		return &hotreload.ProviderDetection{
+			Provider: provider,
+			Detection: &hotreload.DetectionResult{
+				Provider:   "react-native",
+				Confidence: 0.7,
+				Platform:   "cross-platform",
+				Indicators: []string{"react-native in package.json"},
+			},
 		}
 	}
+
+	return nil
+}
+
+// confirmHotReloadProvider shows the detected provider and lets the user confirm
+// or pick a different one. Skipped in non-interactive mode.
+//
+// Parameters:
+//   - selected: the auto-selected provider detection
+//   - all: all detected providers (for display context)
+//   - registry: provider registry for alternative lookups
+//
+// Returns:
+//   - ProviderDetection: the confirmed or changed selection
+//   - bool: false if user cancelled
+func confirmHotReloadProvider(selected hotreload.ProviderDetection, all []hotreload.ProviderDetection, registry *hotreload.Registry) (hotreload.ProviderDetection, bool) {
+	ui.Println()
+	ui.PrintDim("Detected hot reload provider: %s", selected.Provider.DisplayName())
+	if selected.Detection != nil && len(selected.Detection.Indicators) > 0 {
+		ui.PrintDim("  Indicators: %s", strings.Join(selected.Detection.Indicators, ", "))
+	}
+
+	confirmed, err := ui.PromptConfirm(fmt.Sprintf("Use %s for hot reload?", selected.Provider.DisplayName()), true)
+	if err != nil {
+		return selected, true
+	}
+	if confirmed {
+		return selected, true
+	}
+
+	supported := registry.SupportedProviders()
+	if len(supported) == 0 {
+		ui.PrintDim("No supported providers available.")
+		return hotreload.ProviderDetection{}, false
+	}
+
+	options := make([]ui.SelectOption, len(supported))
+	for i, p := range supported {
+		options[i] = ui.SelectOption{
+			Label: p.DisplayName(),
+			Value: p.Name(),
+		}
+	}
+
+	idx, providerName, selectErr := ui.Select("Select hot reload provider:", options, 0)
+	if selectErr != nil || idx < 0 {
+		return hotreload.ProviderDetection{}, false
+	}
+
+	provider, getErr := registry.GetProvider(providerName)
+	if getErr != nil {
+		return hotreload.ProviderDetection{}, false
+	}
+
+	det, _ := provider.Detect("")
+	if det == nil {
+		det = &hotreload.DetectionResult{
+			Provider:   providerName,
+			Confidence: 0.5,
+			Platform:   "unknown",
+			Indicators: []string{"manually selected"},
+		}
+	}
+
+	return hotreload.ProviderDetection{Provider: provider, Detection: det}, true
 }
 
 // mergeHotReloadProviderConfig merges auto-detected defaults with existing config.
@@ -2596,8 +2647,7 @@ func printHotReloadInfo(cwd string, cfg *config.ProjectConfig) {
 			}
 			ui.PrintSuccess("Hot reload configured during init (default: %s)", defaultProvider)
 		} else {
-			ui.PrintDim("Hot reload can be configured by re-running: revyl init")
-			ui.PrintDim("Hot reload only mode: revyl init --hotreload")
+			ui.PrintDim("Hot reload can be configured by re-running: revyl init --detect")
 		}
 		ui.Println()
 	}

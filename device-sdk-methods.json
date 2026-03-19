@@ -12,7 +12,9 @@
         { "name": "app_id", "type": "string", "optional": true },
         { "name": "build_version_id", "type": "string", "optional": true },
         { "name": "app_url", "type": "string", "optional": true },
-        { "name": "app_link", "type": "string", "optional": true }
+        { "name": "app_link", "type": "string", "optional": true },
+        { "name": "device_model", "type": "string", "optional": true },
+        { "name": "os_version", "type": "string", "optional": true }
       ],
       "returns": "json"
     },
@@ -257,7 +259,8 @@
       "name": "install_app",
       "cli_command": ["device", "install"],
       "params": [
-        { "name": "app_url", "type": "string", "optional": false },
+        { "name": "app_url", "type": "string", "optional": true },
+        { "name": "build_version_id", "type": "string", "optional": true },
         { "name": "bundle_id", "type": "string", "optional": true },
         { "name": "session_index", "type": "int", "optional": true }
       ],
@@ -304,7 +307,10 @@
       "name": "code_execution",
       "cli_command": ["device", "code-execution"],
       "params": [
-        { "name": "script_id", "type": "string", "optional": false },
+        { "name": "script_id", "type": "string", "optional": true },
+        { "name": "file_path", "type": "string", "optional": true },
+        { "name": "code", "type": "string", "optional": true },
+        { "name": "runtime", "type": "string", "optional": true },
         { "name": "session_index", "type": "int", "optional": true }
       ],
       "returns": "json"

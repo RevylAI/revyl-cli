@@ -215,50 +215,119 @@ func TestDeviceSessionManager_IdleTimerReset(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestDeviceSessionManager_RecompactPreservesRemainingIdleTime: Verify that
-// recompact keeps the remaining idle window instead of resetting to full timeout.
+// TestDeviceSessionManager_StopMiddleSession_IndicesStable: Verify that
+// stopping a session does not renumber the remaining sessions.
 // ---------------------------------------------------------------------------
 
-func TestDeviceSessionManager_RecompactPreservesRemainingIdleTime(t *testing.T) {
-	now := time.Now()
+func TestDeviceSessionManager_StopMiddleSession_IndicesStable(t *testing.T) {
 	mgr := &DeviceSessionManager{
-		sessions: map[int]*DeviceSession{
-			4: {
-				Index:         4,
-				SessionID:     "recompact-idle-window",
-				WorkflowRunID: "wf-recompact-idle-window",
-				WorkerBaseURL: "http://localhost:9999",
-				Platform:      "ios",
-				StartedAt:     now.Add(-10 * time.Second),
-				LastActivity:  now.Add(-330 * time.Millisecond),
-				IdleTimeout:   400 * time.Millisecond,
-			},
-		},
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: 4,
-		nextIndex:   5,
+		sessions:      make(map[int]*DeviceSession),
+		idleTimers:    make(map[int]*time.Timer),
+		screenAnchors: make(map[int]*screenAnchorState),
+		activeIndex:   -1,
 	}
 
-	// Existing timer at old index, which will be recreated during recompact.
-	mgr.idleTimers[4] = time.AfterFunc(5*time.Second, func() {})
-
-	mgr.mu.Lock()
-	mgr.recompactIndicesLocked()
-	mgr.mu.Unlock()
-
-	if got := mgr.ActiveIndex(); got != 0 {
-		t.Fatalf("expected active index 0 after recompact, got %d", got)
+	now := time.Now()
+	for i := 0; i < 3; i++ {
+		mgr.mu.Lock()
+		mgr.sessions[i] = &DeviceSession{
+			Index:        i,
+			SessionID:    "s" + string(rune('0'+i)),
+			Platform:     "ios",
+			StartedAt:    now,
+			LastActivity: now,
+			IdleTimeout:  5 * time.Minute,
+		}
+		if mgr.activeIndex < 0 {
+			mgr.activeIndex = i
+		}
+		mgr.nextIndex = i + 1
+		mgr.mu.Unlock()
 	}
+
+	if mgr.SessionCount() != 3 {
+		t.Fatalf("expected 3 sessions, got %d", mgr.SessionCount())
+	}
+
+	// Stop the middle session (index 1).
+	err := mgr.StopSession(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("StopSession(1) returned error: %v", err)
+	}
+
+	// Verify session 0 and 2 still exist at their original indices.
 	if mgr.GetSession(0) == nil {
-		t.Fatal("expected remapped session at index 0 after recompact")
+		t.Fatal("session 0 should still exist")
+	}
+	if mgr.GetSession(1) != nil {
+		t.Fatal("session 1 should be gone")
+	}
+	if mgr.GetSession(2) == nil {
+		t.Fatal("session 2 should still exist at index 2 (not renumbered)")
 	}
 
-	// Wait long enough to exceed remaining idle time (~70ms), but less than the
-	// full timeout window (400ms). If recompact incorrectly resets to full timeout,
-	// the session would still be active here.
-	time.Sleep(180 * time.Millisecond)
-	if mgr.GetSession(0) != nil {
-		t.Fatal("expected session to expire based on remaining idle time after recompact")
+	// nextIndex should not have been reset.
+	mgr.mu.RLock()
+	ni := mgr.nextIndex
+	mgr.mu.RUnlock()
+	if ni != 3 {
+		t.Errorf("expected nextIndex=3, got %d", ni)
+	}
+
+	// Active should remain at 0 (unchanged since we stopped 1, not 0).
+	if mgr.ActiveIndex() != 0 {
+		t.Errorf("expected active=0, got %d", mgr.ActiveIndex())
+	}
+
+	// Stop session 0 -- active should switch to the lowest remaining (2).
+	err = mgr.StopSession(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("StopSession(0) returned error: %v", err)
+	}
+	if mgr.ActiveIndex() != 2 {
+		t.Errorf("expected active=2 after stopping 0, got %d", mgr.ActiveIndex())
+	}
+	if mgr.GetSession(2) == nil {
+		t.Fatal("session 2 should still exist at index 2")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestDeviceSessionManager_StopAllSessions_ResetsNextIndex: Verify that
+// StopAllSessions resets nextIndex to 0 for a clean slate.
+// ---------------------------------------------------------------------------
+
+func TestDeviceSessionManager_StopAllSessions_ResetsNextIndex(t *testing.T) {
+	mgr := &DeviceSessionManager{
+		sessions:      make(map[int]*DeviceSession),
+		idleTimers:    make(map[int]*time.Timer),
+		screenAnchors: make(map[int]*screenAnchorState),
+		activeIndex:   0,
+		nextIndex:     3,
+	}
+
+	now := time.Now()
+	for i := 0; i < 3; i++ {
+		mgr.sessions[i] = &DeviceSession{
+			Index:        i,
+			SessionID:    "all-" + string(rune('0'+i)),
+			Platform:     "android",
+			StartedAt:    now,
+			LastActivity: now,
+			IdleTimeout:  5 * time.Minute,
+		}
+	}
+
+	_ = mgr.StopAllSessions(context.Background())
+
+	if mgr.SessionCount() != 0 {
+		t.Fatalf("expected 0 sessions after StopAll, got %d", mgr.SessionCount())
+	}
+	mgr.mu.RLock()
+	ni := mgr.nextIndex
+	mgr.mu.RUnlock()
+	if ni != 0 {
+		t.Errorf("expected nextIndex=0 after StopAll, got %d", ni)
 	}
 }
 
@@ -468,8 +537,8 @@ func TestDeviceSessionManager_Persistence(t *testing.T) {
 	if mgr2.activeIndex != 0 {
 		t.Errorf("expected activeIndex=0 after load, got %d", mgr2.activeIndex)
 	}
-	if mgr2.nextIndex != 1 {
-		t.Errorf("expected nextIndex=1 after load (recompacted), got %d", mgr2.nextIndex)
+	if mgr2.nextIndex != 2 {
+		t.Errorf("expected nextIndex=2 after load (preserved), got %d", mgr2.nextIndex)
 	}
 	if len(mgr2.sessions) != 1 {
 		t.Fatalf("expected 1 session after load, got %d", len(mgr2.sessions))

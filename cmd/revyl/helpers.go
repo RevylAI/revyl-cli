@@ -394,7 +394,16 @@ var loadConfigAndClient = func(devMode bool) (string, *config.ProjectConfig, *ap
 		return "", nil, nil, fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+	cfg, _ := config.LoadProjectConfig(configPath)
+
+	// --- begin legacy migration (delete block + migrate_test_aliases.go when done) ---
+	if cfg != nil && len(cfg.Tests) > 0 {
+		if n, _ := config.MigrateConfigTestAliases(configPath, cfg); n > 0 {
+			ui.PrintInfo("Migrated %d test alias(es) from config.yaml to .revyl/tests/", n)
+		}
+	}
+	// --- end legacy migration ---
 
 	client := api.NewClientWithDevMode(apiKey, devMode)
 	return apiKey, cfg, client, nil

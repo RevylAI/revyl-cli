@@ -26,10 +26,11 @@ python examples/sdk/quick_start.py --open --app-url https://your-host.com/app.ap
 | Script | What it does |
 |--------|-------------|
 | `quick_start.py` | Start a device, tap, screenshot — the simplest possible session |
-| `all_actions.py` | Every SDK action: taps, swipes, text, gestures, controls, live steps |
+| `all_actions.py` | Every SDK action: taps, swipes, text, gestures, controls, live steps, code execution |
 | `checkout_flow.py` | Full e-commerce checkout with validation at each stage |
 | `bug_detection.py` | Catch a known cart bug using `extract` + `validation` |
 | `exploratory_testing.py` | Loop-based product catalog exploration with data extraction |
+| `app_lifecycle.py` | Full install / launch / interact / kill / reinstall cycle |
 
 ## Output
 

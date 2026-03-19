@@ -107,6 +107,8 @@ func newDeviceStartTestCommand(ctx context.Context) *cobra.Command {
 func newDeviceInstallTestCommand(ctx context.Context) *cobra.Command {
 	cmd := &cobra.Command{}
 	cmd.SetContext(ctx)
+	cmd.Flags().String("app-id", "", "")
+	cmd.Flags().String("build-version-id", "", "")
 	cmd.Flags().String("app-url", "", "")
 	cmd.Flags().String("bundle-id", "", "")
 	cmd.Flags().Bool("json", false, "")
@@ -153,10 +155,28 @@ func TestDeviceInstallCommand_RejectsWhitespaceAppURL(t *testing.T) {
 
 	err := deviceInstallCmd.RunE(cmd, nil)
 	if err == nil {
-		t.Fatal("device install error = nil, want required app-url")
+		t.Fatal("device install error = nil, want required artifact selector")
 	}
-	if got := err.Error(); got != "--app-url is required (URL to .apk or .ipa)" {
-		t.Fatalf("device install error = %q, want required app-url message", got)
+	if got := err.Error(); got != "--app-url, --build-version-id, or --app-id is required" {
+		t.Fatalf("device install error = %q, want required artifact message", got)
+	}
+}
+
+func TestDeviceInstallCommand_RejectsMultipleArtifactFlags(t *testing.T) {
+	cmd := newDeviceInstallTestCommand(context.Background())
+	if err := cmd.Flags().Set("app-id", "app-1"); err != nil {
+		t.Fatalf("set app-id flag: %v", err)
+	}
+	if err := cmd.Flags().Set("app-url", "https://artifact.example/app.ipa"); err != nil {
+		t.Fatalf("set app-url flag: %v", err)
+	}
+
+	err := deviceInstallCmd.RunE(cmd, nil)
+	if err == nil {
+		t.Fatal("device install error = nil, want artifact conflict")
+	}
+	if got := err.Error(); got != "provide only one of --app-id, --build-version-id, or --app-url" {
+		t.Fatalf("device install error = %q, want conflict guidance", got)
 	}
 }
 

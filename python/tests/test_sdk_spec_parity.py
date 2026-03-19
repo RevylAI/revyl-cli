@@ -23,6 +23,12 @@ LANGUAGE_SPECIFIC_METHODS = frozenset({
     "__init__",
     "__enter__",
     "__exit__",
+    "report",
+    "targets",
+    "history",
+    "wait_for_stream",
+    "wait_for_device_ready",
+    "wait_for_report",
 })
 
 

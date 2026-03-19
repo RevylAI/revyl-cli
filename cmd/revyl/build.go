@@ -100,6 +100,7 @@ var (
 	uploadNameFlag     string
 	uploadYesFlag      bool
 	buildListJSON      bool
+	buildListBranch    string
 	buildUploadJSON    bool
 	buildDryRun        bool
 	uploadSchemeFlag   string
@@ -127,6 +128,7 @@ func init() {
 	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App ID to list builds for")
 	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org apps")
 	buildListCmd.Flags().BoolVar(&buildListJSON, "json", false, "Output results as JSON")
+	buildListCmd.Flags().StringVar(&buildListBranch, "branch", "", "Filter builds by git branch (use HEAD for current branch)")
 }
 
 // runBuildUpload executes the build upload command.
@@ -1283,11 +1285,32 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 		return err
 	}
 
+	// Resolve --branch flag (HEAD = current git branch)
+	branchFilter := strings.TrimSpace(buildListBranch)
+	if strings.EqualFold(branchFilter, "HEAD") {
+		cwd, _ := os.Getwd()
+		branchFilter = buildselection.CurrentBranch(cwd)
+	}
+
+	// Filter by branch when requested
+	if branchFilter != "" {
+		filtered := make([]api.BuildVersion, 0, len(versions))
+		for _, v := range versions {
+			if buildselection.ExtractBranch(v.Metadata) == branchFilter {
+				filtered = append(filtered, v)
+			}
+		}
+		versions = filtered
+	}
+
 	if jsonOutput {
 		output := map[string]interface{}{
 			"app_id":   appID,
 			"versions": versions,
 			"count":    len(versions),
+		}
+		if branchFilter != "" {
+			output["branch_filter"] = branchFilter
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(data))
@@ -1295,12 +1318,21 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 	}
 
 	if len(versions) == 0 {
-		ui.PrintInfo("No builds found")
+		if branchFilter != "" {
+			ui.PrintInfo("No builds found for branch %q", branchFilter)
+			ui.PrintDim("Upload one with: revyl build upload --platform <key>")
+		} else {
+			ui.PrintInfo("No builds found")
+		}
 		return nil
 	}
 
 	ui.Println()
-	ui.PrintInfo("Builds:")
+	if branchFilter != "" {
+		ui.PrintInfo("Builds (branch: %s):", branchFilter)
+	} else {
+		ui.PrintInfo("Builds:")
+	}
 	ui.Println()
 
 	// Create table with dynamic column widths

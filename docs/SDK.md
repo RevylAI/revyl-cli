@@ -56,11 +56,12 @@ version = cli.run("version")                            # Returns stdout as stri
 tests = cli.run("test", "list", json_output=True)       # Returns parsed JSON
 ```
 
-### `RevylCLI(binary_path=None)`
+### `RevylCLI(binary_path=None, dev_mode=False)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `binary_path` | `Optional[str]` | Path to the `revyl` binary. If `None`, auto-resolved via `ensure_binary()`. |
+| `dev_mode` | `bool` | When `True`, prepends `--dev` to every command for local development servers. |
 
 ### `cli.run(*args, json_output=False)`
 
@@ -115,6 +116,17 @@ device.stop_session()
 device = DeviceClient(session_index=1)
 device.tap(target="Settings tab")
 ```
+
+### Constructor
+
+`DeviceClient(cli=None, session_index=None, auto_report=True, verbose=True)`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `cli` | `Optional[RevylCLI]` | Custom CLI runner. If `None`, a default `RevylCLI()` is created. |
+| `session_index` | `Optional[int]` | Attach to an existing session by index. |
+| `auto_report` | `bool` | Auto-print the report URL when the session closes. |
+| `verbose` | `bool` | Print status messages during session lifecycle. |
 
 ---
 
@@ -184,11 +196,11 @@ Get session details including `whep_url` when streaming is available.
 
 ### `doctor(session_index=None) -> str`
 
-Run diagnostics on auth, session, worker, and grounding health. Returns text output.
+Run diagnostics on auth, session, device, and grounding health. Returns text output.
 
 ### `wait_for_device_ready(timeout=60, poll_interval=3) -> bool`
 
-Poll `device doctor` until the worker reports the device as connected. Called automatically by `start(wait_for_ready=True)`. Returns `True` if the device became ready, `False` on timeout.
+Poll `device doctor` until the device is reported as connected. Called automatically by `start(wait_for_ready=True)`. Returns `True` if the device became ready, `False` on timeout.
 
 ```python
 device = DeviceClient.start(platform="ios", app_url=url, wait_for_ready=False)
@@ -289,9 +301,9 @@ Download a file to the device. Returns `device_path` in the response.
 
 ## App Management
 
-### `install_app(app_url, bundle_id=None, session_index=None) -> dict`
+### `install_app(app_url=None, build_version_id=None, bundle_id=None, session_index=None) -> dict`
 
-Install an app from a URL (`.ipa` or `.apk`).
+Install an app from a URL (`.ipa` or `.apk`) or a previously uploaded build version. Provide exactly one of `app_url` or `build_version_id`.
 
 ### `launch_app(bundle_id, session_index=None) -> dict`
 
@@ -426,7 +438,8 @@ Manage code-execution scripts (Python, JavaScript, TypeScript, Bash) used by `co
 ```python
 from revyl import ScriptClient
 
-scripts = ScriptClient()
+scripts = ScriptClient()              # Uses default CLI runner
+scripts = ScriptClient(cli=my_cli)    # Custom CLI runner
 ```
 
 ### `list(runtime=None) -> list[dict]`
@@ -466,7 +479,8 @@ Manage reusable test modules — shared groups of test blocks that can be import
 ```python
 from revyl import ModuleClient
 
-modules = ModuleClient()
+modules = ModuleClient()              # Uses default CLI runner
+modules = ModuleClient(cli=my_cli)    # Custom CLI runner
 ```
 
 ### `list(search=None) -> list[dict]`
@@ -506,7 +520,8 @@ Upload and manage app builds on Revyl.
 ```python
 from revyl import BuildClient
 
-builds = BuildClient()
+builds = BuildClient()              # Uses default CLI runner
+builds = BuildClient(cli=my_cli)    # Custom CLI runner
 ```
 
 ### `upload(app_name=None, platform=None, skip_build=False, version=None, set_current=False) -> dict`

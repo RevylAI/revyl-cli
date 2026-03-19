@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 from typing import Sequence
 
-__version__ = "0.1.11"
+__version__ = "0.1.13"
 REPO = "RevylAI/revyl-cli"
 _HASH_CHUNK_SIZE = 1024 * 1024
 
@@ -159,6 +159,37 @@ def _is_verified_binary(binary_path: Path) -> bool:
     return actual == expected
 
 
+def _find_native_binary() -> Path | None:
+    """Search PATH for a native ``revyl`` binary, skipping Python wrappers.
+
+    The pip-installed console script lives next to ``sys.executable``.
+    Running it via ``subprocess`` would cause infinite recursion, so we
+    skip any candidate in that directory and any file with a script shebang.
+
+    Returns:
+        Path to a native revyl binary, or ``None`` if not found.
+    """
+    wrapper_dir = Path(sys.executable).resolve().parent
+    suffix = ".exe" if sys.platform == "win32" else ""
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        candidate = Path(entry) / f"revyl{suffix}"
+        if not candidate.exists() or not os.access(str(candidate), os.X_OK):
+            continue
+        resolved = candidate.resolve()
+        if resolved.parent == wrapper_dir:
+            continue
+        try:
+            with open(resolved, "rb") as f:
+                if f.read(2) == b"#!":
+                    continue
+        except OSError:
+            continue
+        return resolved
+    return None
+
+
 def get_binary_path() -> Path:
     """
     Return the expected local path for the downloaded Revyl binary.
@@ -254,9 +285,9 @@ def ensure_binary() -> Path:
     if _is_verified_binary(binary_path):
         return binary_path
 
-    system_binary = shutil.which("revyl")
+    system_binary = _find_native_binary()
     if system_binary is not None:
-        return Path(system_binary)
+        return system_binary
 
     return download_binary()
 

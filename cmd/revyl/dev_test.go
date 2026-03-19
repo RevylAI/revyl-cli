@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,8 +54,8 @@ func TestEnsureWorkerActionSucceeded_MissingSuccess(t *testing.T) {
 	if err == nil {
 		t.Fatal("ensureWorkerActionSucceeded() error = nil, want non-nil")
 	}
-	if !strings.Contains(err.Error(), "missing success field") {
-		t.Fatalf("error = %q, want missing success field", err.Error())
+	if !strings.Contains(err.Error(), "unexpected response") {
+		t.Fatalf("error = %q, want unexpected response", err.Error())
 	}
 }
 
@@ -213,20 +212,27 @@ func TestPrintDevReadyFooter_QuietModeSuppressesInteractionHints(t *testing.T) {
 }
 
 func TestWaitForDevSessionStop_CancelsWhenSessionEnds(t *testing.T) {
+	old := defaultDevSessionPollInterval
+	defaultDevSessionPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { defaultDevSessionPollInterval = old })
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	lookup := &fakeDevSessionLookup{}
-	lookup.present.Store(true)
+	checker := &fakeSessionChecker{alive: true}
+	session := &mcppkg.DeviceSession{Index: 0, WorkflowRunID: "wf-test"}
 
 	done := make(chan struct{})
 	go func() {
-		waitForDevSessionStop(ctx, cancel, lookup, 0, 10*time.Millisecond)
+		waitForDevSessionStop(ctx, cancel, checker, session, 10*time.Minute)
 		close(done)
 	}()
 
 	time.Sleep(30 * time.Millisecond)
-	lookup.present.Store(false)
+	checker.mu.Lock()
+	checker.alive = false
+	checker.reason = "session idle timeout"
+	checker.mu.Unlock()
 
 	select {
 	case <-done:
@@ -242,13 +248,17 @@ func TestWaitForDevSessionStop_CancelsWhenSessionEnds(t *testing.T) {
 }
 
 func TestWaitForDevSessionStop_ReturnsWhenContextCanceled(t *testing.T) {
+	old := defaultDevSessionPollInterval
+	defaultDevSessionPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { defaultDevSessionPollInterval = old })
+
 	ctx, cancel := context.WithCancel(context.Background())
-	lookup := &fakeDevSessionLookup{}
-	lookup.present.Store(true)
+	checker := &fakeSessionChecker{alive: true}
+	session := &mcppkg.DeviceSession{Index: 0, WorkflowRunID: "wf-test"}
 
 	done := make(chan struct{})
 	go func() {
-		waitForDevSessionStop(ctx, cancel, lookup, 0, 10*time.Millisecond)
+		waitForDevSessionStop(ctx, cancel, checker, session, 10*time.Minute)
 		close(done)
 	}()
 
@@ -476,13 +486,14 @@ func (r *devSessionProgressRecorder) snapshot() (int, int, []string) {
 	return r.startCalls, r.stopCalls, msgs
 }
 
-type fakeDevSessionLookup struct {
-	present atomic.Bool
+type fakeSessionChecker struct {
+	mu     sync.Mutex
+	alive  bool
+	reason string
 }
 
-func (f *fakeDevSessionLookup) GetSession(index int) *mcppkg.DeviceSession {
-	if !f.present.Load() {
-		return nil
-	}
-	return &mcppkg.DeviceSession{Index: index}
+func (f *fakeSessionChecker) CheckSessionAlive(_ context.Context, _ *mcppkg.DeviceSession) (bool, string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.alive, f.reason
 }

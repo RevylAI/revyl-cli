@@ -37,6 +37,10 @@ type ProjectConfig struct {
 
 	// LastSyncedAt records when this config was last synced with the server (RFC3339).
 	LastSyncedAt string `yaml:"last_synced_at,omitempty"`
+
+	// Deprecated: legacy alias-to-UUID maps, auto-migrated to .revyl/tests/ files then stripped.
+	Tests     map[string]string `yaml:"tests,omitempty"`
+	Workflows map[string]string `yaml:"workflows,omitempty"`
 }
 
 // PublishConfig contains configuration for app store publishing.

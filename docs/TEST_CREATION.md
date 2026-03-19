@@ -1,3 +1,9 @@
+<!-- mintlify
+title: "Managing Tests"
+description: "Sync and manage tests between your local project and Revyl"
+target: cli/tests.mdx
+-->
+
 # Creating Tests with the Revyl CLI
 
 > [Back to README](../README.md) | [Commands](COMMANDS.md) | [Agent Skills](SKILLS.md)

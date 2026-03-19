@@ -369,6 +369,155 @@ class DeviceClientParityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.client.code_execution("")
 
+    # -- install_app with build_version_id -----------------------------------
+
+    def test_install_app_with_build_version_id(self) -> None:
+        self.client.install_app(build_version_id="bv_abc123")
+        self._assert_last_json_call(
+            (
+                "device",
+                "install",
+                "--build-version-id",
+                "bv_abc123",
+                "-s",
+                "7",
+            )
+        )
+
+    def test_install_app_rejects_both_sources(self) -> None:
+        with self.assertRaises(ValueError):
+            self.client.install_app(
+                app_url="https://example.com/app.apk",
+                build_version_id="bv_abc123",
+            )
+
+    def test_install_app_rejects_no_source(self) -> None:
+        with self.assertRaises(ValueError):
+            self.client.install_app()
+
+    # -- code_execution with file_path / inline code -------------------------
+
+    def test_code_execution_with_file_path(self) -> None:
+        self.client.code_execution(file_path="seed.py", runtime="python")
+        self._assert_last_json_call(
+            (
+                "device",
+                "code-execution",
+                "--file",
+                "seed.py",
+                "--runtime",
+                "python",
+                "-s",
+                "7",
+            )
+        )
+
+    def test_code_execution_with_inline_code(self) -> None:
+        self.client.code_execution(
+            code='print("hello")', runtime="python"
+        )
+        self._assert_last_json_call(
+            (
+                "device",
+                "code-execution",
+                "--code",
+                'print("hello")',
+                "--runtime",
+                "python",
+                "-s",
+                "7",
+            )
+        )
+
+    def test_code_execution_rejects_multiple_sources(self) -> None:
+        with self.assertRaises(ValueError):
+            self.client.code_execution(
+                script_id="s1", file_path="seed.py"
+            )
+
+    def test_code_execution_requires_runtime_for_file_path(self) -> None:
+        with self.assertRaises(ValueError):
+            self.client.code_execution(file_path="seed.py")
+
+    def test_code_execution_requires_runtime_for_inline_code(self) -> None:
+        with self.assertRaises(ValueError):
+            self.client.code_execution(code='print("hello")')
+
+    # -- report, targets, history --------------------------------------------
+
+    def test_report_maps_to_cli(self) -> None:
+        self.cli.json_responses.append(
+            {"session_id": "sid", "report_url": "https://report"}
+        )
+        result = self.client.report()
+        self.assertEqual(result["report_url"], "https://report")
+        self._assert_last_json_call(("device", "report", "-s", "7"))
+
+    def test_targets_maps_to_cli(self) -> None:
+        cli = _FakeCLI()
+        cli.json_responses.append(
+            {"ios": [{"model": "iPhone 16", "os": "18.5"}]}
+        )
+        result = DeviceClient.targets(platform="ios", cli=cli)
+        self.assertIn("ios", result)
+        args, json_output = cli.calls[-1]
+        self.assertEqual(args, ("device", "targets", "--platform", "ios"))
+        self.assertTrue(json_output)
+
+    def test_history_maps_to_cli(self) -> None:
+        cli = _FakeCLI()
+        cli.json_responses.append([{"session_id": "s1"}])
+        result = DeviceClient.history(limit=5, cli=cli)
+        self.assertEqual(len(result), 1)
+        args, json_output = cli.calls[-1]
+        self.assertEqual(args, ("device", "history", "--limit", "5"))
+        self.assertTrue(json_output)
+
+    # -- wait helpers --------------------------------------------------------
+
+    def test_wait_for_stream_returns_url_on_success(self) -> None:
+        self.cli.json_responses.extend([
+            {},
+            {"whep_url": "https://stream.example.com/whep"},
+        ])
+        url = self.client.wait_for_stream(timeout=5, poll_interval=0.01)
+        self.assertEqual(url, "https://stream.example.com/whep")
+
+    def test_wait_for_stream_returns_none_on_timeout(self) -> None:
+        self.cli.json_responses.extend([{}, {}, {}])
+        url = self.client.wait_for_stream(timeout=0.03, poll_interval=0.01)
+        self.assertIsNone(url)
+
+    def test_wait_for_device_ready_returns_true(self) -> None:
+        self.cli.json_responses.extend([
+            {},
+            {"all_passed": True},
+        ])
+        ready = self.client.wait_for_device_ready(
+            timeout=5, poll_interval=0.01
+        )
+        self.assertTrue(ready)
+
+    def test_wait_for_device_ready_returns_false_on_timeout(self) -> None:
+        self.cli.json_responses.extend([{}, {}])
+        ready = self.client.wait_for_device_ready(
+            timeout=0.03, poll_interval=0.01
+        )
+        self.assertFalse(ready)
+
+    def test_wait_for_report_returns_report(self) -> None:
+        self.cli.json_responses.extend([
+            {},
+            {"report_url": "https://report.example.com"},
+        ])
+        result = self.client.wait_for_report(timeout=5, poll_interval=0.01)
+        self.assertEqual(result["report_url"], "https://report.example.com")
+
+    def test_wait_for_report_raises_on_timeout(self) -> None:
+        self.cli.json_responses.extend([{}, {}])
+        with self.assertRaises(RevylError):
+            self.client.wait_for_report(timeout=0.03, poll_interval=0.01)
+
 
 class RevylCLITests(unittest.TestCase):
     @mock.patch("revyl.sdk.subprocess.run")

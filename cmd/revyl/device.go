@@ -16,6 +16,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
+	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/devicetargets"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/ui"
@@ -872,20 +873,41 @@ var deviceShakeCmd = &cobra.Command{
 
 var deviceInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Install an app from a URL",
+	Short: "Install an app from a URL, build version ID, or app ID",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		appID, _ := cmd.Flags().GetString("app-id")
 		appURL, _ := cmd.Flags().GetString("app-url")
+		buildVersionID, _ := cmd.Flags().GetString("build-version-id")
 		bundleID, _ := cmd.Flags().GetString("bundle-id")
-		appURL, err := normalizeRequiredDeviceURLFlag(appURL, "--app-url", "URL to .apk or .ipa")
+
+		appID, buildVersionID, appURL, err := normalizeDeviceStartArtifactFlags(appID, buildVersionID, appURL)
 		if err != nil {
 			return err
 		}
 		bundleID = normalizeOptionalDeviceFlagValue(bundleID)
 
+		if appID == "" && buildVersionID == "" && appURL == "" {
+			return fmt.Errorf("--app-url, --build-version-id, or --app-id is required")
+		}
+
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
 			return err
 		}
+
+		resolved, err := startdevice.ResolveStartArtifact(cmd.Context(), mgr.APIClient(), startdevice.StartArtifactOptions{
+			AppID:          appID,
+			BuildVersionID: buildVersionID,
+			AppURL:         appURL,
+		})
+		if err != nil {
+			return err
+		}
+		appURL = resolved.AppURL
+		if bundleID == "" && resolved.AppPackage != "" {
+			bundleID = resolved.AppPackage
+		}
+
 		session, err := resolveSessionFlag(cmd, mgr)
 		if err != nil {
 			return err
@@ -1104,12 +1126,12 @@ var deviceDownloadFileCmd = &cobra.Command{
 			return err
 		}
 		if response == nil {
-			return fmt.Errorf("worker reported download_file failure")
+			return fmt.Errorf("download_file failed on the device")
 		}
 		if !response.Success {
 			errMsg := strings.TrimSpace(response.Error)
 			if errMsg == "" {
-				errMsg = "worker reported download_file failure"
+				errMsg = "download_file failed on the device"
 			}
 			return fmt.Errorf("%s", errMsg)
 		}
@@ -1743,7 +1765,9 @@ func init() {
 	sessionFlag(deviceShakeCmd)
 
 	// Install
-	deviceInstallCmd.Flags().String("app-url", "", "URL to download app from (required)")
+	deviceInstallCmd.Flags().String("app-id", "", "App ID to resolve latest build from")
+	deviceInstallCmd.Flags().String("build-version-id", "", "Build version ID from a previous upload; download URL is resolved automatically")
+	deviceInstallCmd.Flags().String("app-url", "", "URL to download app from (.apk or .ipa)")
 	deviceInstallCmd.Flags().String("bundle-id", "", "Bundle ID (optional, auto-detected)")
 	deviceInstallCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceInstallCmd)

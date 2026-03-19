@@ -16,10 +16,10 @@ target: cli/dev-loop-guide.mdx
 ## Step 1: Configure hot reload
 
 ```bash
-revyl init --hotreload
+revyl init
 ```
 
-Select your provider when prompted. This updates `.revyl/config.yaml` with the hot reload settings.
+Hot reload is configured automatically during init. If detection picks the wrong provider (common in monorepos), use `revyl init --provider expo`. This updates `.revyl/config.yaml` with the hot reload settings.
 
 ### Expo configuration
 

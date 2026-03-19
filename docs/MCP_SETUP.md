@@ -202,6 +202,10 @@ The Revyl MCP server exposes tools across the following categories. Device actio
 | `list_device_sessions` | List all active sessions |
 | `switch_device_session` | Switch the active session by index |
 
+<Callout type="info" title="Multi-session targeting">
+  All device action, control, live step, vision, and app management tools accept an optional **`session_index`** parameter. When omitted, the active session is used. Pass `session_index` explicitly to target a specific device when running multiple sessions. See [Multi-Session Guide](/device/multi-session) for workflows and examples.
+</Callout>
+
 ### Device Actions
 
 | Tool | Description |
@@ -256,7 +260,7 @@ The Revyl MCP server exposes tools across the following categories. Device actio
 
 | Tool | Description |
 |------|-------------|
-| `device_doctor` | Run diagnostics on auth, session, worker, and grounding health |
+| `device_doctor` | Run diagnostics on auth, session, device, and grounding health |
 | `auth_status` | Check authentication status and user info |
 
 ### Test Management
@@ -352,6 +356,38 @@ The Revyl MCP server exposes tools across the following categories. Device actio
 
 ---
 
+## Multi-Session Example
+
+Run the same login flow on iOS and Android simultaneously:
+
+```
+# Start both devices
+start_device_session(platform="android")   → session_index: 0
+start_device_session(platform="ios")       → session_index: 1
+
+# Install app on each
+install_app(app_url="https://example.com/app.apk", session_index=0)
+install_app(app_url="https://example.com/app.ipa", session_index=1)
+
+# Run the same flow on both
+device_tap(target="Sign In", session_index=0)
+device_tap(target="Sign In", session_index=1)
+
+device_type(target="Email field", text="user@test.com", session_index=0)
+device_type(target="Email field", text="user@test.com", session_index=1)
+
+# Verify both
+screenshot(session_index=0)
+screenshot(session_index=1)
+
+# Clean up
+stop_device_session(all=true)
+```
+
+Indices are **stable** — stopping one session does not renumber the others. See [Multi-Session Guide](/device/multi-session) for details.
+
+---
+
 ## Prompt Library
 
 Use these copy/paste prompts to activate the right skill family.
@@ -365,7 +401,7 @@ Use only Revyl CLI commands (no MCP tool calls).
 
 Steps:
 1) start from project root
-2) run revyl init --hotreload if needed
+2) run revyl init if needed
 3) run revyl dev and wait for readiness
 4) summarize exact actions I should perform in app
 5) convert successful flow into a test:
@@ -430,7 +466,7 @@ After configuring your tool, try these prompts:
 - "Run the login-flow test"
 - "Install this app and tap the Sign In button"
 
-If something goes wrong, ask the agent to "Run device_doctor" -- it checks auth, session, worker, and grounding health.
+If something goes wrong, ask the agent to "Run device_doctor" -- it checks auth, session, device, and grounding health.
 
 ---
 
@@ -466,13 +502,13 @@ revyl auth status    # Check current status
 
 Sessions auto-terminate after 5 minutes of idle time. Call `start_device_session` to provision a new device.
 
-### Worker DNS failures in sandboxed agents
+### DNS failures in sandboxed agents
 
-If direct worker DNS lookups fail (e.g. in Codex/Claude sandbox environments), the CLI/MCP automatically falls back to backend proxy routing.
+If direct device service DNS lookups fail (e.g. in Codex/Claude sandbox environments), the CLI/MCP automatically falls back to backend proxy routing.
 
 If actions still fail after fallback:
 
-1. Run `device_doctor` to verify session + worker status
+1. Run `device_doctor` to verify session and device status
 2. Confirm the session still appears in `list_device_sessions`
 3. Start a fresh session if the current one was terminated externally
 

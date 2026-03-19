@@ -64,15 +64,14 @@ func suggestCorrectCommand(unknownCmd string, allArgs []string, rootCmd *cobra.C
 		}
 	}
 
-	// Special cases for hot reload setup ergonomics.
 	// Users may type legacy forms like "hotreload setup" or "setup hotreload".
 	if unknownCmd == "hotreload" {
-		return "revyl init --hotreload", true
+		return "revyl dev", true
 	}
 	if unknownCmd == "setup" {
 		for _, arg := range allArgs {
 			if arg == "hotreload" {
-				return "revyl init --hotreload", true
+				return "revyl init --detect", true
 			}
 		}
 	}

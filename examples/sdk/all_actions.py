@@ -29,7 +29,7 @@ BUG_BAZAAR_BUILDS = {
     "ios": "https://pub-b03f222a53c447c18ef5f8d365a2f00e.r2.dev/bug-bazaar/bug-bazaar-preview-simulator.tar.gz",
 }
 
-TOTAL_STEPS = 40
+TOTAL_STEPS = 44
 
 # ---------------------------------------------------------------------------
 # Output helpers (zero deps, color auto-disabled outside a tty)
@@ -305,10 +305,30 @@ def run_all_actions(
         ),
         results,
     )
+    run_step(
+        "code_execution (inline)",
+        lambda: device.code_execution(
+            code='print("hello from device")',
+            runtime="python",
+        ),
+        results,
+    )
     _screenshot(device, "03_product.png", run_dir, screenshots, results)
 
-    # -- App lifecycle --
+    # -- App lifecycle (install / launch / kill / reinstall) --
     _section("App Lifecycle")
+    app_url = BUG_BAZAAR_BUILDS.get(platform)
+    run_step(
+        "install_app",
+        lambda: device.install_app(app_url=app_url),
+        results,
+    )
+    run_step(
+        "launch_app",
+        lambda: device.launch_app(bundle_id="com.revyl.bugbazaar"),
+        results,
+    )
+    run_step("wait (app load)", lambda: device.wait(duration_ms=2000), results)
     run_step("kill_app", lambda: device.kill_app(), results)
     run_step("go_home (after kill)", lambda: device.go_home(), results)
     run_step(

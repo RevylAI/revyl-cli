@@ -40,8 +40,8 @@ func TestSuggestCorrectCommand(t *testing.T) {
 		{
 			name:           "open test with flags",
 			unknownCmd:     "open",
-			allArgs:        []string{"--dev", "open", "test", "peptide-view", "--interactive", "--hotreload", "--platform", "ios-dev"},
-			wantSuggestion: "revyl --dev test open peptide-view --interactive --hotreload --platform ios-dev",
+			allArgs:        []string{"--dev", "open", "test", "peptide-view", "--interactive", "--platform", "ios-dev"},
+			wantSuggestion: "revyl --dev test open peptide-view --interactive --platform ios-dev",
 			wantFound:      true,
 		},
 		{
@@ -69,14 +69,14 @@ func TestSuggestCorrectCommand(t *testing.T) {
 			name:           "setup hotreload",
 			unknownCmd:     "setup",
 			allArgs:        []string{"setup", "hotreload"},
-			wantSuggestion: "revyl init --hotreload",
+			wantSuggestion: "revyl init --detect",
 			wantFound:      true,
 		},
 		{
 			name:           "hotreload setup legacy order",
 			unknownCmd:     "hotreload",
 			allArgs:        []string{"hotreload", "setup"},
-			wantSuggestion: "revyl init --hotreload",
+			wantSuggestion: "revyl dev",
 			wantFound:      true,
 		},
 		{

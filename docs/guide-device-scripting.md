@@ -71,11 +71,11 @@ with DeviceClient.start(platform="ios", app_url=APP_URL) as device:
     device.instruction("Toggle Dark Mode on")
     device.validation("The screen background is dark")
 
-    email = device.extract(
+    result = device.extract(
         "Extract the displayed email address",
         variable_name="account_email",
     )
-    print(f"Account email: {email}")
+    print(f"Account email: {result.get('value', '')}")
 ```
 
 ## Target a specific device and OS

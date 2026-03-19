@@ -15,7 +15,7 @@ revyl auth status    # Show authentication status
 ```bash
 revyl init                    # Interactive 6-step guided wizard
 revyl init -y                 # Non-interactive: create config and exit
-revyl init --hotreload        # Reconfigure hot reload for an existing project
+revyl init --provider expo    # Force Expo as hot reload provider
 revyl init --project ID       # Link to existing Revyl project
 revyl init --detect           # Re-run build system detection
 revyl init --force            # Overwrite existing configuration
@@ -50,7 +50,6 @@ revyl workflow run smoke-tests --build    # Build then run workflow
 --build-id <id>   # Run against a specific build version
 --no-wait         # Queue and exit without waiting for results
 --verbose / -v    # Show step-by-step execution progress
---hotreload       # Run against local dev server (Expo or React Native)
 --timeout 600     # Max execution time in seconds
 ```
 
@@ -98,8 +97,8 @@ Bare React Native projects (no Expo) use Metro directly. No `app_scheme` is need
 1. Configure hot reload:
 
 ```bash
-revyl init --hotreload
-# Select "react-native" when prompted, or set manually in .revyl/config.yaml
+revyl init --provider react-native
+# Or set manually in .revyl/config.yaml
 ```
 
 2. Ensure `.revyl/config.yaml` has:
@@ -344,9 +343,8 @@ revyl test push login-flow --force
 
 # Per-command flags
 #   --dry-run    Available on: test create, test push, test pull
-#   --hotreload  Available on: test run, test create, test open
 
-# Dev loop shortcuts (Expo)
+# Dev loop shortcuts (use revyl dev for hot reload)
 revyl dev
 revyl dev test run login-flow
 ```

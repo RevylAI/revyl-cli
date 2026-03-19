@@ -421,7 +421,11 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		return nil, StartDeviceSessionOutput{Success: false, Error: err.Error()}, nil
 	}
 
-	timeout := time.Duration(input.IdleTimeout) * time.Second
+	timeoutSecs := input.IdleTimeout
+	if timeoutSecs <= 0 {
+		timeoutSecs = config.EffectiveTimeoutSeconds(s.config, 300)
+	}
+	timeout := time.Duration(timeoutSecs) * time.Second
 	idx, session, err := s.sessionMgr.StartSession(ctx, StartSessionOptions{
 		Platform:       platform,
 		AppID:          appID,
