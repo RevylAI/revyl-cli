@@ -32,13 +32,13 @@ func TestSelectedDeviceViewerURL_PrefersAppViewer(t *testing.T) {
 	}
 
 	got := m.selectedDeviceViewerURL()
-	want := "https://viewer.example/tests/execute?workflowRunId=wf-123&platform=ios"
+	want := "https://viewer.example/sessions/session-1"
 	if got != want {
 		t.Fatalf("selectedDeviceViewerURL() = %q, want %q", got, want)
 	}
 }
 
-func TestSelectedDeviceViewerURL_FallsBackToWHEP(t *testing.T) {
+func TestSelectedDeviceViewerURL_PrefersSessionRoute(t *testing.T) {
 	m := newHubModel("dev", false)
 	m.selectedDeviceID = "session-1"
 	m.deviceSessions = []api.ActiveDeviceSessionItem{
@@ -50,7 +50,7 @@ func TestSelectedDeviceViewerURL_FallsBackToWHEP(t *testing.T) {
 	}
 
 	got := m.selectedDeviceViewerURL()
-	want := "https://whep.example/stream"
+	want := "https://app.revyl.ai/sessions/session-1"
 	if got != want {
 		t.Fatalf("selectedDeviceViewerURL() = %q, want %q", got, want)
 	}
@@ -59,23 +59,22 @@ func TestSelectedDeviceViewerURL_FallsBackToWHEP(t *testing.T) {
 func TestSelectedDeviceViewerURL_EncodesQueryParams(t *testing.T) {
 	t.Setenv("REVYL_APP_URL", "https://viewer.example")
 
+	sessionID := "session 1/abc"
 	workflowRunID := "wf 123+abc&x=y"
 	platform := "ios beta/18"
 
 	m := newHubModel("dev", false)
-	m.selectedDeviceID = "session-1"
+	m.selectedDeviceID = sessionID
 	m.deviceSessions = []api.ActiveDeviceSessionItem{
 		{
-			Id:            "session-1",
+			Id:            sessionID,
 			Platform:      platform,
 			WorkflowRunId: strPtr(workflowRunID),
 		},
 	}
 
 	got := m.selectedDeviceViewerURL()
-	want := "https://viewer.example/tests/execute?workflowRunId=" +
-		url.QueryEscape(workflowRunID) +
-		"&platform=" + url.QueryEscape(platform)
+	want := "https://viewer.example/sessions/" + url.PathEscape(sessionID)
 	if got != want {
 		t.Fatalf("selectedDeviceViewerURL() = %q, want %q", got, want)
 	}
@@ -195,7 +194,7 @@ func TestHandleDeviceDetailKey_OpenViewerUsesResolvedURL(t *testing.T) {
 		t.Fatalf("expected no command when opening viewer, got %v", cmd)
 	}
 
-	want := "https://viewer.example/tests/execute?workflowRunId=wf-999&platform=android"
+	want := "https://viewer.example/sessions/session-1"
 	if openedURL != want {
 		t.Fatalf("opened URL = %q, want %q", openedURL, want)
 	}
@@ -675,7 +674,7 @@ func TestRenderDeviceDetail_ShowsViewerHintFromWorkflowID(t *testing.T) {
 	if !strings.Contains(out, "Viewer URL available") {
 		t.Fatalf("expected viewer hint in output, got: %s", out)
 	}
-	if !strings.Contains(out, "viewer: https://viewer.example/tests/execute?workflowRunId=wf-abc&platform=ios") {
+	if !strings.Contains(out, "viewer: https://viewer.example/sessions/session-1") {
 		t.Fatalf("expected rendered output to include copyable viewer URL, got: %s", out)
 	}
 }

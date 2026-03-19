@@ -486,7 +486,7 @@ func TestDeviceSessionManager_Persistence(t *testing.T) {
 		SessionID:     "persist-test-1",
 		WorkflowRunID: "wf-run-xyz",
 		WorkerBaseURL: "http://localhost:8080",
-		ViewerURL:     "https://app.revyl.ai/tests/execute?workflowRunId=wf-run-xyz",
+		ViewerURL:     "https://app.revyl.ai/sessions/persist-test-1",
 		Platform:      "android",
 		StartedAt:     now,
 		LastActivity:  now,

@@ -945,13 +945,6 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		return nil, RunTestOutput{Success: false, ErrorMessage: err.Error()}, nil
 	}
 
-	// Build viewer URL for watching execution live in the browser
-	viewerURL := fmt.Sprintf(
-		"%s/tests/execute?workflowRunId=%s",
-		config.GetAppURL(s.devMode),
-		url.QueryEscape(result.TaskID),
-	)
-
 	out := RunTestOutput{
 		Success:      result.Success,
 		TaskID:       result.TaskID,
@@ -960,7 +953,7 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		Status:       result.Status,
 		Duration:     result.Duration,
 		ReportURL:    result.ReportURL,
-		ViewerURL:    viewerURL,
+		ViewerURL:    result.ReportURL,
 		ErrorMessage: result.ErrorMessage,
 	}
 	if lastStatus != nil {

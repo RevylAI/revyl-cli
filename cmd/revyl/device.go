@@ -1147,15 +1147,32 @@ var deviceDownloadFileCmd = &cobra.Command{
 
 var deviceReportCmd = &cobra.Command{
 	Use:   "report",
-	Short: "View the report for the active device session",
+	Short: "View the report for a device session",
+	Long: `View the report for a device session. By default uses the active session.
+
+Use --session-id to fetch a report by session ID directly without needing
+to attach first.
+
+Examples:
+  revyl device report                                          # active session
+  revyl device report --session-id e2b927a6-723f-4ddb-...      # by ID
+  revyl device report --session-id e2b927a6-723f-... --json    # JSON output`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		mgr, err := getDeviceSessionMgr(cmd)
-		if err != nil {
-			return err
-		}
-		session, err := resolveSessionFlag(cmd, mgr)
-		if err != nil {
-			return fmt.Errorf("no active session: %w", err)
+		directSessionID, _ := cmd.Flags().GetString("session-id")
+
+		var targetSessionID string
+		if directSessionID != "" {
+			targetSessionID = directSessionID
+		} else {
+			mgr, err := getDeviceSessionMgr(cmd)
+			if err != nil {
+				return err
+			}
+			session, err := resolveSessionFlag(cmd, mgr)
+			if err != nil {
+				return fmt.Errorf("no active session (use --session-id to specify one directly): %w", err)
+			}
+			targetSessionID = session.SessionID
 		}
 
 		apiKey := os.Getenv("REVYL_API_KEY")
@@ -1169,15 +1186,15 @@ var deviceReportCmd = &cobra.Command{
 		devMode, _ := cmd.Flags().GetBool("dev")
 		client := api.NewClientWithDevMode(apiKey, devMode)
 
-		envelope, err := client.GetReportBySession(cmd.Context(), session.SessionID, true, true, false)
+		envelope, err := client.GetReportBySession(cmd.Context(), targetSessionID, true, true, false)
 		if err != nil {
 			return fmt.Errorf("failed to fetch session report: %w", err)
 		}
 		if envelope.Report == nil {
-			jsonOrPrint(cmd, map[string]string{"session_id": session.SessionID, "status": "no_report"}, "No report available for this session yet.")
+			jsonOrPrint(cmd, map[string]string{"session_id": targetSessionID, "status": "no_report"}, "No report available for this session yet.")
 			return nil
 		}
-		jsonOrPrint(cmd, envelope.Raw, formatSessionReportFallback(envelope.Report, session.SessionID))
+		jsonOrPrint(cmd, envelope.Raw, formatSessionReportFallback(envelope.Report, targetSessionID))
 		return nil
 	},
 }
@@ -1653,6 +1670,52 @@ var deviceUseCmd = &cobra.Command{
 	},
 }
 
+var deviceAttachCmd = &cobra.Command{
+	Use:   "attach <session-id>",
+	Short: "Attach to an existing session by ID",
+	Long: `Attach to a running device session using its session ID.
+
+This bypasses normal session discovery and directly connects to the specified
+session, making it your active session. All subsequent device commands will
+target this session.
+
+The session ID can be found in the browser session viewer (Connect button)
+or from the sessions API.
+
+Examples:
+  revyl device attach e2b927a6-723f-4ddb-b9a3-ff8f652d4c58
+  revyl device attach e2b927a6    # prefix match (at least 8 chars)`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		sessionID := args[0]
+
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+
+		idx, session, err := mgr.AttachBySessionID(cmd.Context(), sessionID)
+		if err != nil {
+			return fmt.Errorf("failed to attach: %w", err)
+		}
+
+		ui.PrintSuccess("Attached to session %d (%s)", idx, session.Platform)
+
+		deviceLabel := session.Platform
+		if session.ViewerURL != "" {
+			ui.PrintInfo("Viewer:    %s", session.ViewerURL)
+		}
+		ui.PrintInfo("Session:   %s", session.SessionID)
+		ui.PrintDim("")
+		ui.PrintDim("Device ready. Run commands against this %s session:", deviceLabel)
+		ui.PrintDim("  revyl device screenshot")
+		ui.PrintDim("  revyl device tap --x 200 --y 400")
+		ui.PrintDim("  revyl device instruction \"tap the login button\"")
+
+		return nil
+	},
+}
+
 func init() {
 	// Global -s flag for session selection (added to all action commands)
 	sessionFlag := func(cmd *cobra.Command) {
@@ -1875,9 +1938,11 @@ func init() {
 	deviceCmd.AddCommand(deviceDoctorCmd)
 	deviceCmd.AddCommand(deviceListCmd)
 	deviceCmd.AddCommand(deviceUseCmd)
+	deviceCmd.AddCommand(deviceAttachCmd)
 	deviceCmd.AddCommand(deviceReportCmd)
 	sessionFlag(deviceReportCmd)
 	deviceReportCmd.Flags().Bool("json", false, "Output as JSON")
+	deviceReportCmd.Flags().String("session-id", "", "Session ID to fetch report for (bypasses active session)")
 	deviceCmd.AddCommand(deviceTargetsCmd)
 	deviceCmd.AddCommand(deviceHistoryCmd)
 }

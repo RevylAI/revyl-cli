@@ -63,7 +63,7 @@ func writePersistedDeviceSession(t *testing.T, dir, workflowRunID string) {
 				SessionID:     "sess-1",
 				WorkflowRunID: workflowRunID,
 				WorkerBaseURL: "https://worker.example",
-				ViewerURL:     "https://app.revyl.ai/tests/execute?workflowRunId=" + workflowRunID + "&platform=ios",
+				ViewerURL:     "https://app.revyl.ai/sessions/sess-1",
 				Platform:      "ios",
 				StartedAt:     now,
 				LastActivity:  now,

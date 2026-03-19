@@ -2101,6 +2101,9 @@ type StartDeviceRequest struct {
 	// OsVersion overrides the target OS runtime (e.g. "iOS 18.5", "Android 14").
 	OsVersion string `json:"os_version,omitempty"`
 
+	// SessionID allows callers to pre-generate the canonical device session identifier.
+	SessionID string `json:"session_id,omitempty"`
+
 	// RunConfig contains optional execution configuration.
 	RunConfig *TestRunConfig `json:"run_config,omitempty"`
 }
@@ -2243,6 +2246,49 @@ func (c *Client) GetActiveDeviceSessions(ctx context.Context, orgID string) (*Ac
 	}
 
 	var result ActiveDeviceSessionsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeviceSessionDetail is the response shape for GET /device-sessions/{session_id}.
+type DeviceSessionDetail struct {
+	ID            string  `json:"id"`
+	OrgID         string  `json:"org_id"`
+	Source        *string `json:"source"`
+	Platform      *string `json:"platform"`
+	DeviceModel   *string `json:"device_model"`
+	OsVersion     *string `json:"os_version"`
+	Status        string  `json:"status"`
+	WhepURL       *string `json:"whep_url"`
+	WorkflowRunID *string `json:"workflow_run_id"`
+	CreatedAt     *string `json:"created_at"`
+	StartedAt     *string `json:"started_at"`
+	EndedAt       *string `json:"ended_at"`
+	ErrorMessage  *string `json:"error_message"`
+	TraceID       *string `json:"trace_id"`
+	ScreenWidth   *int    `json:"screen_width"`
+	ScreenHeight  *int    `json:"screen_height"`
+	ReportID      *string `json:"report_id"`
+	HasVideo      bool    `json:"has_video"`
+	StepCount     int     `json:"step_count"`
+	TestID        *string `json:"test_id"`
+	TestName      *string `json:"test_name"`
+	UserEmail     *string `json:"user_email"`
+	CanCancel     bool    `json:"can_cancel"`
+}
+
+// GetDeviceSessionByID retrieves a single device session by its ID.
+func (c *Client) GetDeviceSessionByID(ctx context.Context, sessionID string) (*DeviceSessionDetail, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/execution/device-sessions/%s", sessionID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DeviceSessionDetail
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}

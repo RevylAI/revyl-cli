@@ -593,22 +593,11 @@ func (m hubModel) selectedDeviceViewerURL() string {
 		return ""
 	}
 
-	workflowRunID := ""
-	if session.WorkflowRunId != nil {
-		workflowRunID = strings.TrimSpace(*session.WorkflowRunId)
-	}
-	if workflowRunID != "" {
-		appURL := config.GetAppURL(m.devMode)
-		platform := strings.TrimSpace(session.Platform)
-		if platform != "" {
-			return fmt.Sprintf(
-				"%s/tests/execute?workflowRunId=%s&platform=%s",
-				appURL,
-				url.QueryEscape(workflowRunID),
-				url.QueryEscape(platform),
-			)
-		}
-		return fmt.Sprintf("%s/tests/execute?workflowRunId=%s", appURL, url.QueryEscape(workflowRunID))
+	appURL := config.GetAppURL(m.devMode)
+	sessionID := strings.TrimSpace(session.Id)
+
+	if sessionID != "" {
+		return fmt.Sprintf("%s/sessions/%s", appURL, url.PathEscape(sessionID))
 	}
 
 	if session.WhepUrl != nil {

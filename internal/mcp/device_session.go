@@ -397,19 +397,11 @@ func (m *DeviceSessionManager) StartSession(
 		// The session is usable; the device may connect shortly after.
 	}
 
-	// Build viewer URL
-	appURL := config.GetAppURL(m.devMode)
-	viewerURL := fmt.Sprintf(
-		"%s/tests/execute?workflowRunId=%s&platform=%s",
-		appURL,
-		url.QueryEscape(workflowRunID),
-		url.QueryEscape(platform),
-	)
 	sessionID := m.backendSessionIDByWorkflowRunLocked(ctx, workflowRunID)
-	if sessionID == "" {
-		// Fallback for eventual-consistency windows; SyncSessions will reconcile
-		// SessionID from WorkflowRunID on the next sync.
-		sessionID = workflowRunID
+	appURL := config.GetAppURL(m.devMode)
+	viewerURL := ""
+	if sessionID != "" {
+		viewerURL = fmt.Sprintf("%s/sessions/%s", appURL, url.PathEscape(sessionID))
 	}
 
 	idx := m.nextIndex
@@ -1812,12 +1804,17 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	})
 
 	// Step 4: Build backend lookup maps for pruning/reconciliation.
-	backendIDs := make(map[string]bool)
+	// Use ALL backend sessions (not just email-filtered) for pruning, so
+	// explicitly attached sessions from other users don't get removed.
+	allBackendIDs := make(map[string]bool)
+	for _, s := range activeResp.Sessions {
+		allBackendIDs[s.Id] = true
+	}
+
 	backendIDsByWorkflow := make(map[string]string)
 	backendSessionByID := make(map[string]api.ActiveDeviceSessionItem)
 	backendSessionByWorkflow := make(map[string]api.ActiveDeviceSessionItem)
 	for _, bs := range backendSessions {
-		backendIDs[bs.Id] = true
 		backendSessionByID[bs.Id] = bs
 		if bs.WorkflowRunId != nil && *bs.WorkflowRunId != "" {
 			backendIDsByWorkflow[*bs.WorkflowRunId] = bs.Id
@@ -1840,7 +1837,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		}
 	}
 	for idx, ls := range m.sessions {
-		if backendIDs[ls.SessionID] {
+		if allBackendIDs[ls.SessionID] {
 			continue
 		}
 		// Session no longer exists on backend; clean up locally.
@@ -1895,12 +1892,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 
 		// Build viewer URL
 		appURL := config.GetAppURL(m.devMode)
-		viewerURL := fmt.Sprintf(
-			"%s/tests/execute?workflowRunId=%s&platform=%s",
-			appURL,
-			url.QueryEscape(workflowRunID),
-			url.QueryEscape(bs.Platform),
-		)
+		viewerURL := fmt.Sprintf("%s/sessions/%s", appURL, url.PathEscape(bs.Id))
 
 		startedAt := time.Now()
 		if bs.StartedAt != nil {
@@ -1949,6 +1941,120 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	// Step 8: Persist
 	m.persistSessions()
 	return nil
+}
+
+// AttachBySessionID connects to an existing session by its ID, bypassing the
+// email-based sync filter. This enables attaching to any session in the same org
+// regardless of who started it.
+//
+// If the session is already in the local map, it is activated directly.
+// Otherwise it is fetched from the backend, the worker URL is resolved,
+// and it is added to the local session list and set as active.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - sessionID: The device session UUID.
+//
+// Returns:
+//   - index: The local session index.
+//   - session: The attached DeviceSession.
+//   - error: Any error during attachment.
+func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID string) (int, *DeviceSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.apiClient == nil {
+		return -1, nil, fmt.Errorf("no API client configured")
+	}
+
+	// Check if already known locally.
+	for idx, s := range m.sessions {
+		if s.SessionID == sessionID {
+			m.activeIndex = idx
+			m.persistSessions()
+			return idx, s, nil
+		}
+	}
+
+	// Ensure org info for viewer URL construction.
+	if err := m.ensureOrgInfoLocked(ctx); err != nil {
+		return -1, nil, fmt.Errorf("failed to resolve org info: %w", err)
+	}
+
+	// Fetch the session directly by ID.
+	detail, err := m.apiClient.GetDeviceSessionByID(ctx, sessionID)
+	if err != nil {
+		return -1, nil, fmt.Errorf("session not found or not accessible: %w", err)
+	}
+
+	// Verify it's in a usable state.
+	status := strings.ToLower(detail.Status)
+	if status == "completed" || status == "failed" || status == "cancelled" || status == "timeout" {
+		return -1, nil, fmt.Errorf("session %s is in terminal state: %s", sessionID[:min(8, len(sessionID))], detail.Status)
+	}
+
+	// Resolve the worker URL via workflow run ID.
+	if detail.WorkflowRunID == nil || *detail.WorkflowRunID == "" {
+		return -1, nil, fmt.Errorf("session %s has no workflow run ID (may still be queued)", sessionID[:min(8, len(sessionID))])
+	}
+
+	wsResp, wsErr := m.apiClient.GetWorkerWSURL(ctx, *detail.WorkflowRunID)
+	if wsErr != nil {
+		return -1, nil, fmt.Errorf("failed to resolve worker URL: %w", wsErr)
+	}
+
+	workerBaseURL := ""
+	if wsResp.WorkerWsUrl != nil && *wsResp.WorkerWsUrl != "" {
+		workerBaseURL = wsURLToHTTP(*wsResp.WorkerWsUrl)
+	}
+	if workerBaseURL == "" {
+		return -1, nil, fmt.Errorf("worker URL not available for session %s (device may still be starting)", sessionID[:min(8, len(sessionID))])
+	}
+
+	// Health-check the worker.
+	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: *detail.WorkflowRunID}
+	if hErr := m.healthCheckSession(tmpSession); hErr != nil {
+		return -1, nil, fmt.Errorf("worker unreachable for session %s: %w", sessionID[:min(8, len(sessionID))], hErr)
+	}
+
+	// Build the session.
+	platform := "unknown"
+	if detail.Platform != nil {
+		platform = *detail.Platform
+	}
+
+	startedAt := time.Now()
+	if detail.StartedAt != nil {
+		if t, parseErr := time.Parse(time.RFC3339, *detail.StartedAt); parseErr == nil {
+			startedAt = t
+		}
+	}
+
+	appURL := config.GetAppURL(m.devMode)
+	viewerURL := fmt.Sprintf("%s/sessions/%s", appURL, url.PathEscape(sessionID))
+
+	idx := m.nextIndex
+	m.nextIndex++
+
+	session := &DeviceSession{
+		Index:         idx,
+		SessionID:     sessionID,
+		WorkflowRunID: *detail.WorkflowRunID,
+		WorkerBaseURL: workerBaseURL,
+		ViewerURL:     viewerURL,
+		WhepURL:       detail.WhepURL,
+		Platform:      platform,
+		StartedAt:     startedAt,
+		LastActivity:  time.Now(),
+		IdleTimeout:   5 * time.Minute,
+	}
+
+	m.sessions[idx] = session
+	m.activeIndex = idx
+	m.resetIdleTimerForSessionLocked(idx, ctx)
+	m.persistSessions()
+
+	return idx, session, nil
 }
 
 // WorkDir returns the working directory used for session persistence.

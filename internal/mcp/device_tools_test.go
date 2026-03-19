@@ -248,7 +248,7 @@ func TestHandleListDeviceSessions_FallsBackToPersistedCache(t *testing.T) {
 				SessionID:     "persisted-sess-1",
 				WorkflowRunID: "wf-persisted",
 				WorkerBaseURL: "http://localhost:1234",
-				ViewerURL:     "https://app.revyl.ai/tests/execute?workflowRunId=wf-persisted&platform=android",
+				ViewerURL:     "https://app.revyl.ai/sessions/persisted-sess-1",
 				Platform:      "android",
 				StartedAt:     now,
 				LastActivity:  now,

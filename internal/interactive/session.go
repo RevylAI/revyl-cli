@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 )
@@ -126,6 +127,9 @@ type Session struct {
 
 	// workflowRunID is the workflow run identifier.
 	workflowRunID string
+
+	// sessionID is the canonical backend device session identifier.
+	sessionID string
 
 	// workerWSURL is the worker WebSocket URL.
 	workerWSURL string
@@ -304,6 +308,7 @@ func (s *Session) Start(ctx context.Context) error {
 		Platform:     s.config.Platform,
 		TestID:       s.config.TestID,
 		IsSimulation: s.config.IsSimulation,
+		SessionID:    uuid.NewString(),
 	}
 
 	startResp, err := s.client.StartDevice(s.ctx, startReq)
@@ -324,6 +329,7 @@ func (s *Session) Start(ctx context.Context) error {
 	}
 
 	s.mu.Lock()
+	s.sessionID = startReq.SessionID
 	s.workflowRunID = *startResp.WorkflowRunId
 	s.mu.Unlock()
 
@@ -764,11 +770,14 @@ func (s *Session) GetFrontendURL() string {
 	baseURL := config.GetAppURL(s.config.DevMode)
 
 	s.mu.RLock()
-	workflowRunID := s.workflowRunID
+	sessionID := s.sessionID
 	s.mu.RUnlock()
 
-	return fmt.Sprintf("%s/tests/execute?testUid=%s&workflowRunId=%s",
-		baseURL, url.QueryEscape(s.config.TestID), url.QueryEscape(workflowRunID))
+	if sessionID != "" {
+		return fmt.Sprintf("%s/sessions/%s", baseURL, url.PathEscape(sessionID))
+	}
+
+	return ""
 }
 
 // GetHotReloadURL returns the hot reload deep link URL for this session.
