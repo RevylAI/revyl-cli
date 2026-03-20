@@ -307,6 +307,7 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 				entry["steps_completed"] = item.EnhancedTask.StepsCompleted
 				entry["total_steps"] = item.EnhancedTask.TotalSteps
 				entry["started_at"] = item.EnhancedTask.StartedAt
+				entry["success"] = item.EnhancedTask.Success
 			}
 			entry["execution_time"] = item.ExecutionTime
 			items = append(items, entry)

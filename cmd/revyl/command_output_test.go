@@ -766,6 +766,7 @@ func TestTestHistoryJSON(t *testing.T) {
 	assertJSONKey(t, first, "status")
 	assertJSONKey(t, first, "task_id")
 	assertJSONKey(t, first, "execution_time")
+	assertJSONKey(t, first, "success")
 }
 
 // --- Test Report Commands ---
