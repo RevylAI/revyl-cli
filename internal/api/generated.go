@@ -489,28 +489,31 @@ type ActiveDeviceSessionCountResponse struct {
 
 // ActiveDeviceSessionItem Response model for a single active device session.
 type ActiveDeviceSessionItem struct {
-	AppPackage         *string `json:"app_package"`
-	CreatedAt          *string `json:"created_at"`
-	DeviceModel        *string `json:"device_model"`
-	HasTestExecution   *bool   `json:"has_test_execution,omitempty"`
-	Id                 string  `json:"id"`
-	IdleTimeoutSeconds *int    `json:"idle_timeout_seconds"`
-	LastActivityAt     *string `json:"last_activity_at"`
-	OrgId              string  `json:"org_id"`
-	OsVersion          *string `json:"os_version"`
-	Platform           string  `json:"platform"`
-	ScreenHeight       *int    `json:"screen_height"`
-	ScreenWidth        *int    `json:"screen_width"`
-	Source             string  `json:"source"`
-	StartedAt          *string `json:"started_at"`
-	Status             string  `json:"status"`
-	TestId             *string `json:"test_id"`
-	TestName           *string `json:"test_name"`
-	TraceId            *string `json:"trace_id"`
-	UserEmail          *string `json:"user_email"`
-	UserId             *string `json:"user_id"`
-	WhepUrl            *string `json:"whep_url"`
-	WorkflowRunId      *string `json:"workflow_run_id"`
+	AppPackage                *string `json:"app_package"`
+	CanCancel                 *bool   `json:"can_cancel,omitempty"`
+	CanInteract               *bool   `json:"can_interact,omitempty"`
+	CreatedAt                 *string `json:"created_at"`
+	DeviceModel               *string `json:"device_model"`
+	HasTestExecution          *bool   `json:"has_test_execution,omitempty"`
+	Id                        string  `json:"id"`
+	IdleTimeoutSeconds        *int    `json:"idle_timeout_seconds"`
+	InteractionDisabledReason *string `json:"interaction_disabled_reason"`
+	LastActivityAt            *string `json:"last_activity_at"`
+	OrgId                     string  `json:"org_id"`
+	OsVersion                 *string `json:"os_version"`
+	Platform                  string  `json:"platform"`
+	ScreenHeight              *int    `json:"screen_height"`
+	ScreenWidth               *int    `json:"screen_width"`
+	Source                    string  `json:"source"`
+	StartedAt                 *string `json:"started_at"`
+	Status                    string  `json:"status"`
+	TestId                    *string `json:"test_id"`
+	TestName                  *string `json:"test_name"`
+	TraceId                   *string `json:"trace_id"`
+	UserEmail                 *string `json:"user_email"`
+	UserId                    *string `json:"user_id"`
+	WhepUrl                   *string `json:"whep_url"`
+	WorkflowRunId             *string `json:"workflow_run_id"`
 }
 
 // ActiveDeviceSessionsResponse Response model for list of active device sessions.
@@ -2637,36 +2640,38 @@ type DeviceSessionCreatePlatform string
 
 // DeviceSessionDetailItem Detailed device session payload for the canonical session viewer.
 type DeviceSessionDetailItem struct {
-	CanCancel           *bool                   `json:"can_cancel,omitempty"`
-	CreatedAt           *string                 `json:"created_at"`
-	DeviceModel         *string                 `json:"device_model"`
-	DurationSeconds     *float32                `json:"duration_seconds"`
-	EndedAt             *string                 `json:"ended_at"`
-	ErrorMessage        *string                 `json:"error_message"`
-	HasTestExecution    *bool                   `json:"has_test_execution,omitempty"`
-	HasVideo            *bool                   `json:"has_video,omitempty"`
-	Id                  string                  `json:"id"`
-	OrgId               string                  `json:"org_id"`
-	OsVersion           *string                 `json:"os_version"`
-	Platform            *string                 `json:"platform"`
-	ReportId            *string                 `json:"report_id"`
-	ScreenHeight        *int                    `json:"screen_height"`
-	ScreenWidth         *int                    `json:"screen_width"`
-	Source              *string                 `json:"source"`
-	SourceMetadata      *map[string]interface{} `json:"source_metadata"`
-	StartedAt           *string                 `json:"started_at"`
-	Status              string                  `json:"status"`
-	StepCount           *int                    `json:"step_count,omitempty"`
-	TestExecutionId     *string                 `json:"test_execution_id"`
-	TestId              *string                 `json:"test_id"`
-	TestName            *string                 `json:"test_name"`
-	TraceId             *string                 `json:"trace_id"`
-	UserEmail           *string                 `json:"user_email"`
-	UserId              *string                 `json:"user_id"`
-	WhepUrl             *string                 `json:"whep_url"`
-	WorkflowExecutionId *string                 `json:"workflow_execution_id"`
-	WorkflowName        *string                 `json:"workflow_name"`
-	WorkflowRunId       *string                 `json:"workflow_run_id"`
+	CanCancel                 *bool                   `json:"can_cancel,omitempty"`
+	CanInteract               *bool                   `json:"can_interact,omitempty"`
+	CreatedAt                 *string                 `json:"created_at"`
+	DeviceModel               *string                 `json:"device_model"`
+	DurationSeconds           *float32                `json:"duration_seconds"`
+	EndedAt                   *string                 `json:"ended_at"`
+	ErrorMessage              *string                 `json:"error_message"`
+	HasTestExecution          *bool                   `json:"has_test_execution,omitempty"`
+	HasVideo                  *bool                   `json:"has_video,omitempty"`
+	Id                        string                  `json:"id"`
+	InteractionDisabledReason *string                 `json:"interaction_disabled_reason"`
+	OrgId                     string                  `json:"org_id"`
+	OsVersion                 *string                 `json:"os_version"`
+	Platform                  *string                 `json:"platform"`
+	ReportId                  *string                 `json:"report_id"`
+	ScreenHeight              *int                    `json:"screen_height"`
+	ScreenWidth               *int                    `json:"screen_width"`
+	Source                    *string                 `json:"source"`
+	SourceMetadata            *map[string]interface{} `json:"source_metadata"`
+	StartedAt                 *string                 `json:"started_at"`
+	Status                    string                  `json:"status"`
+	StepCount                 *int                    `json:"step_count,omitempty"`
+	TestExecutionId           *string                 `json:"test_execution_id"`
+	TestId                    *string                 `json:"test_id"`
+	TestName                  *string                 `json:"test_name"`
+	TraceId                   *string                 `json:"trace_id"`
+	UserEmail                 *string                 `json:"user_email"`
+	UserId                    *string                 `json:"user_id"`
+	WhepUrl                   *string                 `json:"whep_url"`
+	WorkflowExecutionId       *string                 `json:"workflow_execution_id"`
+	WorkflowName              *string                 `json:"workflow_name"`
+	WorkflowRunId             *string                 `json:"workflow_run_id"`
 }
 
 // DeviceSessionResponse Response model for device session operations.
@@ -5626,6 +5631,8 @@ type SlackOAuthUrlResponse struct {
 
 // StartDeviceInfo defines model for StartDeviceInfo.
 type StartDeviceInfo struct {
+	// AppId CogniSim `apps` table row UUID. The backend resolves the latest build (presigned `app_link` / `app_url`) and native `package_name` from this id. Do not use for Android package name or iOS bundle id — use `app_package`.
+	AppId              *string            `json:"app_id"`
 	AppLink            *string            `json:"app_link"`
 	AppPackage         *string            `json:"app_package"`
 	AppUrl             *string            `json:"app_url"`

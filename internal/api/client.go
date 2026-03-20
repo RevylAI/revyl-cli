@@ -2082,10 +2082,13 @@ type StartDeviceRequest struct {
 	// AppPackage is the bundle ID / package name of the app.
 	AppPackage string `json:"app_package,omitempty"`
 
+	// AppID is the CogniSim apps table UUID (latest build is resolved server-side).
+	AppID string `json:"app_id,omitempty"`
+
 	// AppURL is a downloadable app artifact URL (.apk/.ipa/.zip).
 	AppURL string `json:"app_url,omitempty"`
 
-	// AppLink is a deep link URL to launch after app start (used by hot reload flows).
+	// AppLink is a presigned or direct URL to the app binary artifact.
 	AppLink string `json:"app_link,omitempty"`
 
 	// IsSimulation enables simulation mode (streaming without test execution).
