@@ -112,8 +112,7 @@ func (s *initSchemeEditState) ShouldEdit() bool {
 
 func printProjectConfigReviewContext() {
 	ui.PrintInfo("Project configuration file: .revyl/config.yaml")
-	ui.PrintInfo("You're editing general project setup. Build settings come first; hot reload is optional.")
-	ui.PrintInfo("Current .revyl/config.yaml:")
+	ui.PrintDim("You can customize build commands and output paths below. Press Enter to keep the auto-detected defaults.")
 }
 
 func runProjectConfigReview(cfg *config.ProjectConfig, configPath string, overrideOpts *initOverrideOptions) error {
@@ -128,7 +127,6 @@ func runProjectConfigReview(cfg *config.ProjectConfig, configPath string, overri
 		return nil
 	}
 
-	printCurrentProjectConfig(configPath)
 	ui.Println()
 	promptBuildSetupReview(cfg)
 	promptForXcodeSchemeEdits(cfg)
@@ -147,8 +145,111 @@ func runProjectConfigReview(cfg *config.ProjectConfig, configPath string, overri
 	}
 
 	ui.PrintSuccess("Saved project setup updates to .revyl/config.yaml")
-	ui.PrintDim("Hot reload setup (Step 4) will use these settings and defaults.")
+	ui.PrintDim("Dev loop setup (Step 4) will use these settings and defaults.")
 	return nil
+}
+
+// printBuildConceptsBox renders a styled box explaining key Revyl concepts.
+// Shown once at the top of the build config review so new users understand
+// what "build stream", "dev loop", etc. mean before being asked to edit them.
+//
+// Parameters:
+//   - cfg: project config used to determine which concepts to include
+func printBuildConceptsBox(cfg *config.ProjectConfig) {
+	if cfg == nil {
+		return
+	}
+
+	type conceptEntry struct {
+		Term string
+		Desc []string
+	}
+
+	var entries []conceptEntry
+
+	if isExpoBuildSystem(cfg.Build.System) {
+		entries = []conceptEntry{
+			{
+				Term: "Build stream",
+				Desc: []string{
+					"A named build configuration that produces an app",
+					"artifact. Dev streams (e.g. " + ui.InfoStyle.Render("ios-dev") + ui.DimStyle.Render(") are for local"),
+					"iteration; CI streams (e.g. " + ui.InfoStyle.Render("ios-ci") + ui.DimStyle.Render(") are for"),
+					"automated testing in pull requests and pipelines.",
+				},
+			},
+			{
+				Term: "Dev loop",
+				Desc: []string{
+					ui.InfoStyle.Render("revyl dev") + ui.DimStyle.Render(" connects your local dev server to a"),
+					"cloud device. Code changes reload on the device",
+					"instantly. It uses dev streams to know which build",
+					"to run.",
+				},
+			},
+			{
+				Term: "Config file",
+				Desc: []string{
+					ui.InfoStyle.Render(".revyl/config.yaml") + ui.DimStyle.Render(" stores all of these settings."),
+					"You can edit it directly anytime.",
+				},
+			},
+		}
+	} else {
+		entries = []conceptEntry{
+			{
+				Term: "Build command",
+				Desc: []string{
+					"The shell command Revyl runs to produce your app",
+					"artifact (e.g. APK, .app bundle). Auto-detected",
+					"from your project but you can customize it below.",
+				},
+			},
+			{
+				Term: "Platform",
+				Desc: []string{
+					"The mobile OS this build targets (" + ui.InfoStyle.Render("ios") + ui.DimStyle.Render(" or ") + ui.InfoStyle.Render("android") + ui.DimStyle.Render(")."),
+					"Revyl uses this to pick the right device.",
+				},
+			},
+		}
+
+		if len(xcodeSchemePlatformKeys(cfg)) > 0 {
+			entries = append(entries, conceptEntry{
+				Term: "Xcode scheme",
+				Desc: []string{
+					"(iOS only) Determines which target, build config,",
+					"and test plan Xcode uses. Required for xcodebuild",
+					"commands.",
+				},
+			})
+		}
+
+		entries = append(entries, conceptEntry{
+			Term: "Config file",
+			Desc: []string{
+				ui.InfoStyle.Render(".revyl/config.yaml") + ui.DimStyle.Render(" stores all of these settings."),
+				"You can edit it directly anytime.",
+			},
+		})
+	}
+
+	var b strings.Builder
+	for i, entry := range entries {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		termStyled := ui.AccentStyle.Render(fmt.Sprintf("%-15s", entry.Term))
+		for j, line := range entry.Desc {
+			if j == 0 {
+				b.WriteString(fmt.Sprintf("  %s  %s", termStyled, ui.DimStyle.Render(line)))
+			} else {
+				b.WriteString(fmt.Sprintf("\n  %s  %s", fmt.Sprintf("%-15s", ""), ui.DimStyle.Render(line)))
+			}
+		}
+	}
+
+	ui.PrintBox("How Revyl builds work", b.String())
 }
 
 func printProjectConfigReviewPromptContext(cfg *config.ProjectConfig) {
@@ -156,15 +257,19 @@ func printProjectConfigReviewPromptContext(cfg *config.ProjectConfig) {
 		return
 	}
 
-	ui.PrintInfo("Detected build setup in .revyl/config.yaml")
+	printBuildConceptsBox(cfg)
+	ui.Println()
+	ui.PrintInfo("Detected build configuration")
 
 	if isExpoBuildSystem(cfg.Build.System) {
 		keys := orderedBuildPlatformKeysForReview(cfg)
 		if len(keys) > 0 {
-			ui.PrintDim("Build streams (Step 3 links each stream to an app):")
 			mapping := inferHotReloadPlatformKeys(cfg)
-			table := ui.NewTable("STREAM KEY", "MOBILE", "BUILD COMMAND", "REVYL DEV DEFAULT")
-			table.SetMaxWidth(2, 72)
+			ui.Println()
+			ui.PrintDim("Your project has %d build streams. Streams marked ✦ are used by revyl dev.", len(keys))
+			ui.Println()
+			table := ui.NewTable("STREAM", "PLATFORM", "PURPOSE", "COMMAND")
+			table.SetMaxWidth(3, 60)
 			for _, key := range keys {
 				mobile := strings.TrimSpace(mobilePlatformForBuildKey(key))
 				if mobile == "" {
@@ -175,55 +280,106 @@ func printProjectConfigReviewPromptContext(cfg *config.ProjectConfig) {
 				if buildCommand == "" {
 					buildCommand = "-"
 				}
+				streamLabel := key
+				if describeRuntimeDefaultForBuildKey(mapping, key) != "-" {
+					streamLabel = key + " ✦"
+				}
 				table.AddRow(
-					fmt.Sprintf("build.platforms.%s", key),
+					streamLabel,
 					mobile,
+					shortBuildPurpose(key),
 					buildCommand,
-					describeRuntimeDefaultForBuildKey(mapping, key),
 				)
 			}
 			table.Render()
 		} else {
-			ui.PrintDim("No build.platforms streams detected yet.")
+			ui.PrintDim("No build streams detected yet.")
 		}
 
-		ui.PrintDim("Default runtime mapping is used by `revyl dev`; you can change it later in .revyl/config.yaml.")
+		ui.Println()
+		ui.PrintDim("Edit these in .revyl/config.yaml or press Enter below to accept the defaults.")
 		return
 	}
 
-	ui.PrintInfo("Build setup")
-	ui.PrintKeyValue("build.command", strings.TrimSpace(cfg.Build.Command))
-	ui.PrintKeyValue("build.output", strings.TrimSpace(cfg.Build.Output))
+	ui.Println()
+	ui.PrintInfo("Detected build configuration (%s)", cfg.Build.System)
+	if len(cfg.Build.Platforms) > 0 {
+		ui.Println()
+		table := ui.NewTable("PLATFORM", "COMMAND", "OUTPUT")
+		table.SetMaxWidth(1, 60)
+		table.SetMaxWidth(2, 40)
+		for _, key := range orderedBuildPlatformKeysForReview(cfg) {
+			platformCfg := cfg.Build.Platforms[key]
+			command := strings.TrimSpace(platformCfg.Command)
+			if command == "" {
+				command = "-"
+			}
+			output := strings.TrimSpace(platformCfg.Output)
+			if output == "" {
+				output = "-"
+			}
+			table.AddRow(key, command, output)
+		}
+		table.Render()
+		ui.Println()
+		ui.PrintDim("Edit these in .revyl/config.yaml or press Enter below to accept the defaults.")
+	} else {
+		ui.PrintKeyValue("command", strings.TrimSpace(cfg.Build.Command))
+		ui.PrintKeyValue("output", strings.TrimSpace(cfg.Build.Output))
+		ui.Println()
+		ui.PrintDim("No platform-specific builds detected. You can add them later in .revyl/config.yaml.")
+	}
 }
 
 func describeBuildPlatformStream(key string) string {
 	switch key {
 	case "ios-dev":
-		return "iOS development stream for local iteration"
+		return "iOS development build for local iteration"
 	case "android-dev":
-		return "Android development stream for local iteration"
+		return "Android development build for local iteration"
 	case "ios-ci":
-		return "iOS CI/preview stream"
+		return "iOS CI / preview build"
 	case "android-ci":
-		return "Android CI/preview stream"
+		return "Android CI / preview build"
 	default:
 		lower := strings.ToLower(strings.TrimSpace(key))
 		switch {
 		case strings.Contains(lower, "ios") && (strings.Contains(lower, "dev") || strings.Contains(lower, "development")):
-			return "iOS development stream for local iteration"
+			return "iOS development build for local iteration"
 		case strings.Contains(lower, "android") && (strings.Contains(lower, "dev") || strings.Contains(lower, "development")):
-			return "Android development stream for local iteration"
+			return "Android development build for local iteration"
 		case strings.Contains(lower, "ios") && (strings.Contains(lower, "ci") || strings.Contains(lower, "preview")):
-			return "iOS CI/preview stream"
+			return "iOS CI / preview build"
 		case strings.Contains(lower, "android") && (strings.Contains(lower, "ci") || strings.Contains(lower, "preview")):
-			return "Android CI/preview stream"
+			return "Android CI / preview build"
 		case strings.Contains(lower, "ios"):
-			return "iOS stream"
+			return "iOS build"
 		case strings.Contains(lower, "android"):
-			return "Android stream"
+			return "Android build"
 		default:
-			return "custom stream"
+			return "Custom build"
 		}
+	}
+}
+
+// shortBuildPurpose returns a platform-agnostic purpose label for table display.
+// Unlike describeBuildPlatformStream which includes the platform name,
+// this returns just the purpose since the platform is shown in its own column.
+//
+// Parameters:
+//   - key: build platform key (e.g. "ios-dev", "android-ci")
+//
+// Returns:
+//   - string: short purpose label (e.g. "Dev build for local iteration")
+func shortBuildPurpose(key string) string {
+	lower := strings.ToLower(strings.TrimSpace(key))
+	switch {
+	case strings.Contains(lower, "dev") || strings.Contains(lower, "development"):
+		return "Dev build for local iteration"
+	case strings.Contains(lower, "ci") || strings.Contains(lower, "preview"):
+		return "CI / preview build"
+	default:
+		return "Custom build"
 	}
 }
 
@@ -286,30 +442,30 @@ func promptBuildSetupReviewWithPrompt(cfg *config.ProjectConfig, promptFn prompt
 		promptFn = promptStringWithDefault
 	}
 
-	if !isExpoBuildSystem(cfg.Build.System) {
-		ui.PrintInfo("Build Setup")
-		cfg.Build.Command = promptFn("Build command", cfg.Build.Command)
-		cfg.Build.Output = promptFn("Build output path", cfg.Build.Output)
-		return
-	}
-
-	ui.PrintInfo("Build Setup (platform-specific for Expo)")
-	ui.PrintDim("Revyl uses build.platforms.<key> for dev/ci streams in Expo projects.")
+	ui.PrintInfo("Build Commands")
 
 	platformKeys := orderedBuildPlatformKeysForReview(cfg)
 	if len(platformKeys) == 0 {
-		ui.PrintDim("No build.platforms entries found; editing top-level build defaults.")
-		cfg.Build.Command = promptFn("Build command", cfg.Build.Command)
-		cfg.Build.Output = promptFn("Build output path", cfg.Build.Output)
+		cfg.Build.Command = promptFn("command", cfg.Build.Command)
+		cfg.Build.Output = promptFn("output", cfg.Build.Output)
 		return
 	}
 
-	for _, platformKey := range platformKeys {
+	for i, platformKey := range platformKeys {
+		if i > 0 {
+			ui.Println()
+		}
+		ui.PrintInfo("  %s  ·  %s", platformKey, describeBuildPlatformStream(platformKey))
 		platformCfg := cfg.Build.Platforms[platformKey]
-		ui.PrintDim("Saved under build.platforms.%s.{command,output} in .revyl/config.yaml", platformKey)
-		platformCfg.Command = promptFn(fmt.Sprintf("Build command for %s", platformKey), platformCfg.Command)
-		platformCfg.Output = promptFn(fmt.Sprintf("Build output path for %s", platformKey), platformCfg.Output)
+		platformCfg.Command = promptFn("command", platformCfg.Command)
+		platformCfg.Output = promptFn("output", platformCfg.Output)
 		cfg.Build.Platforms[platformKey] = platformCfg
+	}
+
+	if len(platformKeys) > 0 {
+		first := cfg.Build.Platforms[platformKeys[0]]
+		cfg.Build.Command = first.Command
+		cfg.Build.Output = first.Output
 	}
 }
 
@@ -469,22 +625,21 @@ func promptForXcodeSchemeEdits(cfg *config.ProjectConfig) {
 		return
 	}
 
-	for _, platformKey := range xcodeSchemePlatformKeys(cfg) {
+	schemeKeys := xcodeSchemePlatformKeys(cfg)
+	if len(schemeKeys) == 0 {
+		return
+	}
+
+	ui.PrintDim("The Xcode scheme determines which target and build settings to use.")
+
+	for _, platformKey := range schemeKeys {
 		platformCfg := cfg.Build.Platforms[platformKey]
 		current := strings.TrimSpace(platformCfg.Scheme)
 
-		prompt := fmt.Sprintf(
-			"Xcode build scheme for %s (optional, press Enter to keep current):",
-			platformKey,
-		)
+		prompt := fmt.Sprintf("scheme for %s (press Enter to keep):", platformKey)
 		if current != "" {
-			prompt = fmt.Sprintf(
-				"Xcode build scheme for %s [%s]:",
-				platformKey,
-				current,
-			)
+			prompt = fmt.Sprintf("scheme for %s [%s]:", platformKey, current)
 		}
-		ui.PrintDim("Saved as build.platforms.%s.scheme in .revyl/config.yaml", platformKey)
 
 		input, err := ui.Prompt(prompt)
 		if err != nil {

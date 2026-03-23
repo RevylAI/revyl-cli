@@ -34,11 +34,24 @@ pipeline {
         //     }
         // }
 
+        // Blocking: waits for tests to complete
         stage('Test') {
             steps {
                 sh 'revyl workflow run smoke-tests'
             }
         }
+
+        // Fire-and-forget alternative: uncomment to use instead of blocking Test stage
+        // stage('Queue Tests') {
+        //     steps {
+        //         sh 'revyl workflow run smoke-tests --no-wait'
+        //     }
+        // }
+        // stage('Check Status') {
+        //     steps {
+        //         sh 'revyl workflow status smoke-tests --json'
+        //     }
+        // }
     }
 
     post {

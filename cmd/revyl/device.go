@@ -1094,6 +1094,43 @@ var deviceSetLocationCmd = &cobra.Command{
 	},
 }
 
+var deviceNetworkCmd = &cobra.Command{
+	Use:   "network",
+	Short: "Toggle device network connectivity (airplane mode)",
+	Long:  `Enable or disable airplane mode on the device. Use --connected to restore network or --disconnected to enable airplane mode.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return err
+		}
+		connected, _ := cmd.Flags().GetBool("connected")
+		disconnected, _ := cmd.Flags().GetBool("disconnected")
+		if !connected && !disconnected {
+			return fmt.Errorf("specify --connected or --disconnected")
+		}
+		if connected && disconnected {
+			return fmt.Errorf("--connected and --disconnected are mutually exclusive")
+		}
+		airplaneEnabled := disconnected
+		body := map[string]bool{"enabled": airplaneEnabled}
+		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/set_airplane_mode", body)
+		if err != nil {
+			return err
+		}
+		status := "connected"
+		if airplaneEnabled {
+			status = "disconnected (airplane mode)"
+		}
+		jsonOrPrint(cmd, map[string]interface{}{"airplane_mode": airplaneEnabled, "status": status},
+			fmt.Sprintf("Network: %s", status))
+		return nil
+	},
+}
+
 var deviceDownloadFileCmd = &cobra.Command{
 	Use:   "download-file",
 	Short: "Download a file to device from URL",
@@ -1864,6 +1901,12 @@ func init() {
 	deviceSetLocationCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceSetLocationCmd)
 
+	// Network (airplane mode)
+	deviceNetworkCmd.Flags().Bool("connected", false, "Restore network connectivity (disable airplane mode)")
+	deviceNetworkCmd.Flags().Bool("disconnected", false, "Enable airplane mode (disable network)")
+	deviceNetworkCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceNetworkCmd)
+
 	// Download File
 	deviceDownloadFileCmd.Flags().String("url", "", "URL to download from (required)")
 	deviceDownloadFileCmd.Flags().String("filename", "", "Optional destination filename on the device")
@@ -1929,6 +1972,7 @@ func init() {
 	deviceCmd.AddCommand(deviceOpenAppCmd)
 	deviceCmd.AddCommand(deviceNavigateCmd)
 	deviceCmd.AddCommand(deviceSetLocationCmd)
+	deviceCmd.AddCommand(deviceNetworkCmd)
 	deviceCmd.AddCommand(deviceDownloadFileCmd)
 	deviceCmd.AddCommand(deviceInstructionCmd)
 	deviceCmd.AddCommand(deviceValidationCmd)

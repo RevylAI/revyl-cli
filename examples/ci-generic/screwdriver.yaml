@@ -9,13 +9,29 @@ shared:
     REVYL_INSTALL_DIR: /usr/local/bin
 
 jobs:
-  # Run tests on every PR and commit
+  # Run tests on every PR and commit (blocks until complete)
   test:
     requires: [~pr, ~commit]
     steps:
       - install-deps: apk add --no-cache curl
       - install: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
       - run-tests: revyl workflow run smoke-tests
+
+  # Fire-and-forget: queue tests and exit immediately
+  test-async:
+    requires: [~pr, ~commit]
+    steps:
+      - install-deps: apk add --no-cache curl
+      - install: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+      - run-tests: revyl workflow run smoke-tests --no-wait
+
+  # Check status of the latest execution
+  check-status:
+    requires: [test-async]
+    steps:
+      - install-deps: apk add --no-cache curl
+      - install: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+      - status: revyl workflow status smoke-tests --json
 
   # Build, upload, then test
   build-and-test:

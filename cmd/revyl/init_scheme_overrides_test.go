@@ -173,13 +173,13 @@ func TestInitSchemeEditStateCanAskTransitionsAfterPrompt(t *testing.T) {
 
 func TestDescribeBuildPlatformStream(t *testing.T) {
 	cases := map[string]string{
-		"ios-dev":     "iOS development stream for local iteration",
-		"android-dev": "Android development stream for local iteration",
-		"ios-ci":      "iOS CI/preview stream",
-		"android-ci":  "Android CI/preview stream",
-		"ios-beta":    "iOS stream",
-		"android-qa":  "Android stream",
-		"custom":      "custom stream",
+		"ios-dev":     "iOS development build for local iteration",
+		"android-dev": "Android development build for local iteration",
+		"ios-ci":      "iOS CI / preview build",
+		"android-ci":  "Android CI / preview build",
+		"ios-beta":    "iOS build",
+		"android-qa":  "Android build",
+		"custom":      "Custom build",
 	}
 	for key, want := range cases {
 		if got := describeBuildPlatformStream(key); got != want {
@@ -194,7 +194,7 @@ func TestDescribeBuildPlatformLinkIncludesAppNamePattern(t *testing.T) {
 	}
 
 	got := describeBuildPlatformLink(cfg, "ios-dev")
-	want := "iOS development stream for local iteration (mobile: ios, app stream name: hira-clapton-ios-dev)"
+	want := "iOS development build for local iteration (mobile: ios, app stream name: hira-clapton-ios-dev)"
 	if got != want {
 		t.Fatalf("describeBuildPlatformLink() = %q, want %q", got, want)
 	}
@@ -294,22 +294,19 @@ func TestPromptBuildSetupReviewWithPromptExpoEditsPlatformConfigs(t *testing.T) 
 
 	promptBuildSetupReviewWithPrompt(cfg, promptFn)
 
-	if cfg.Build.Command != "top-level-command" {
-		t.Fatalf("top-level build.command changed to %q; expected unchanged for Expo", cfg.Build.Command)
+	// Top-level is synced from the first platform entry (ios-dev)
+	if cfg.Build.Command != "ios-dev-command-edited" {
+		t.Fatalf("top-level build.command = %q; expected synced from first platform", cfg.Build.Command)
 	}
-	if cfg.Build.Output != "top-level-output" {
-		t.Fatalf("top-level build.output changed to %q; expected unchanged for Expo", cfg.Build.Output)
+	if cfg.Build.Output != "ios-dev-output-edited" {
+		t.Fatalf("top-level build.output = %q; expected synced from first platform", cfg.Build.Output)
 	}
 
 	wantPrompts := []string{
-		"Build command for ios-dev",
-		"Build output path for ios-dev",
-		"Build command for android-dev",
-		"Build output path for android-dev",
-		"Build command for ios-ci",
-		"Build output path for ios-ci",
-		"Build command for android-ci",
-		"Build output path for android-ci",
+		"command", "output",
+		"command", "output",
+		"command", "output",
+		"command", "output",
 	}
 	if !reflect.DeepEqual(prompts, wantPrompts) {
 		t.Fatalf("prompt order = %v, want %v", prompts, wantPrompts)
@@ -344,28 +341,26 @@ func TestPromptBuildSetupReviewWithPromptNonExpoUsesTopLevel(t *testing.T) {
 	var prompts []string
 	promptFn := func(label, current string) string {
 		prompts = append(prompts, label)
-		if label == "Build command" {
-			return "new-build-command"
-		}
-		if label == "Build output path" {
-			return "new-build-output"
-		}
-		return current
+		return current + "-edited"
 	}
 
 	promptBuildSetupReviewWithPrompt(cfg, promptFn)
 
-	wantPrompts := []string{"Build command", "Build output path"}
+	wantPrompts := []string{"command", "output"}
 	if !reflect.DeepEqual(prompts, wantPrompts) {
 		t.Fatalf("prompts = %v, want %v", prompts, wantPrompts)
 	}
-	if cfg.Build.Command != "new-build-command" {
-		t.Fatalf("build.command = %q, want %q", cfg.Build.Command, "new-build-command")
+	if cfg.Build.Platforms["ios"].Command != "xcodebuild -scheme App-edited" {
+		t.Fatalf("platform command = %q, expected edited suffix", cfg.Build.Platforms["ios"].Command)
 	}
-	if cfg.Build.Output != "new-build-output" {
-		t.Fatalf("build.output = %q, want %q", cfg.Build.Output, "new-build-output")
+	if cfg.Build.Platforms["ios"].Output != "build/ios.tar.gz-edited" {
+		t.Fatalf("platform output = %q, expected edited suffix", cfg.Build.Platforms["ios"].Output)
 	}
-	if cfg.Build.Platforms["ios"].Command != "xcodebuild -scheme App" {
-		t.Fatalf("platform command unexpectedly changed for non-Expo path")
+	// Top-level is synced from the first (only) platform entry
+	if cfg.Build.Command != "xcodebuild -scheme App-edited" {
+		t.Fatalf("build.command = %q, want synced from platform", cfg.Build.Command)
+	}
+	if cfg.Build.Output != "build/ios.tar.gz-edited" {
+		t.Fatalf("build.output = %q, want synced from platform", cfg.Build.Output)
 	}
 }

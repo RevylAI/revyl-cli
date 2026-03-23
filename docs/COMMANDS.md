@@ -26,7 +26,7 @@ Running `revyl init` without flags launches an interactive wizard that walks you
 1. **Project Setup** -- auto-detects your build system (Gradle, Xcode, Expo, Flutter, React Native), creates `.revyl/` directory and `config.yaml`
 2. **Authentication** -- checks for existing credentials; if missing, opens browser-based login
 3. **Create Apps** -- for Expo, automatically creates/links separate app streams per build key (e.g. `ios-dev`, `ios-ci`, `android-dev`, `android-ci`); for other stacks, select existing apps or create new ones
-4. **Hot Reload Setup** -- detects/configures Expo hot reload provider settings in `.revyl/config.yaml` and maps `platform_keys` to dev streams by default
+4. **Dev Loop** -- detects/configures live reload provider for `revyl dev` and maps `platform_keys` to dev streams
 5. **First Build** -- for Expo, defaults to one fast dev-stream upload (`ios-dev` on macOS, `android-dev` elsewhere), with easy options for Android-only or parallel both; failures can be retried or deferred without restarting
 6. **Create First Test** -- creates a test; if the name already exists, offers to link, rename, or skip; auto-syncs YAML to `.revyl/tests/`
 

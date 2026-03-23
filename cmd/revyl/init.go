@@ -39,7 +39,7 @@ The wizard walks you through:
   1. Project setup — detect build system, create config
   2. Authentication — check or prompt browser login
   3. Create apps — for each detected platform, create or select an app
-  4. Hot reload setup — configure Expo hot reload defaults
+  4. Dev loop — configure live reload for revyl dev
   5. First build — build and upload your artifact
   6. Create first test — create a test on the platform
 
@@ -173,8 +173,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	wizardCreateApps(ctx, client, cfg, configPath)
 
-	// ── Step 4/6: Hot Reload Setup ───────────────────────────────────────
-	ui.PrintStepHeader(4, 6, "Hot Reload Setup")
+	// ── Step 4/6: Dev Loop ──────────────────────────────────────────────
+	ui.PrintStepHeader(4, 6, "Dev Loop")
 	hotReloadReady := wizardHotReloadSetup(ctx, client, cfg, configPath, cwd, true, overrideOpts, initHotReloadProvider)
 
 	// Determine if any apps were linked.
@@ -2142,7 +2142,7 @@ func wizardCreateTest(
 }
 
 // ---------------------------------------------------------------------------
-// Step 4: Hot Reload Setup
+// Step 4: Dev Loop
 // ---------------------------------------------------------------------------
 
 // wizardHotReloadSetup detects and configures hot reload in .revyl/config.yaml.
@@ -2392,12 +2392,13 @@ func tryFallbackProvider(cwd string, registry *hotreload.Registry) *hotreload.Pr
 //   - bool: false if user cancelled
 func confirmHotReloadProvider(selected hotreload.ProviderDetection, all []hotreload.ProviderDetection, registry *hotreload.Registry) (hotreload.ProviderDetection, bool) {
 	ui.Println()
-	ui.PrintDim("Detected hot reload provider: %s", selected.Provider.DisplayName())
+	ui.PrintDim("Detected dev loop provider: %s", selected.Provider.DisplayName())
 	if selected.Detection != nil && len(selected.Detection.Indicators) > 0 {
 		ui.PrintDim("  Indicators: %s", strings.Join(selected.Detection.Indicators, ", "))
 	}
+	ui.PrintDim("revyl dev uses this provider to push code changes to cloud devices in real time.")
 
-	confirmed, err := ui.PromptConfirm(fmt.Sprintf("Use %s for hot reload?", selected.Provider.DisplayName()), true)
+	confirmed, err := ui.PromptConfirm(fmt.Sprintf("Use %s for the dev loop?", selected.Provider.DisplayName()), true)
 	if err != nil {
 		return selected, true
 	}

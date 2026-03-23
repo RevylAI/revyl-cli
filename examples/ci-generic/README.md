@@ -14,6 +14,26 @@ Exit code `0` = pass, `1` = fail. That's all your CI system needs.
 
 Set `REVYL_INSTALL_DIR=/usr/local/bin` to place the binary on PATH without shell profile sourcing (recommended for CI).
 
+## Fire-and-forget (async)
+
+Use `--no-wait` to queue tests and exit immediately, then check status later:
+
+```bash
+# Queue tests without blocking
+revyl workflow run smoke-tests --no-wait
+
+# Check status of the latest execution
+revyl workflow status smoke-tests
+
+# JSON output for scripting
+revyl workflow status smoke-tests --json
+```
+
+This is useful when you want to:
+- Unblock the CI pipeline while tests run in the background
+- Check results in a separate job or step
+- Trigger tests on commit without gating the build
+
 ## Build-to-test
 
 ```bash
@@ -30,6 +50,14 @@ Use `--json` to get structured output for downstream processing:
 result=$(revyl workflow run smoke-tests --json)
 echo "$result" | jq '.report_link'
 ```
+
+## CI-friendly flags
+
+| Flag | Effect |
+|------|--------|
+| `--json` | Machine-readable JSON output |
+| `--no-wait` | Queue the run and exit without waiting for results |
+| `--retries N` | Retry failed tests (1-5 attempts) |
 
 ## Environment variables
 
@@ -62,4 +90,4 @@ revyl workflow run smoke-tests
 | [`Jenkinsfile`](Jenkinsfile) | Jenkins |
 | [`circleci.yml`](circleci.yml) | CircleCI |
 
-Each follows the same flow: install CLI, (optionally) upload build, run tests.
+Each follows the same flow: install CLI, (optionally) upload build, run tests. All examples include both blocking and fire-and-forget patterns.
