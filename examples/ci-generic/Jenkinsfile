@@ -1,0 +1,39 @@
+// Jenkins Declarative Pipeline -- Revyl test pipeline
+//
+// Add REVYL_API_KEY as a credential in Jenkins (Secret text).
+
+pipeline {
+    agent any
+
+    environment {
+        REVYL_API_KEY = credentials('revyl-api-key')
+    }
+
+    stages {
+        stage('Install') {
+            steps {
+                sh 'pip install revyl'
+            }
+        }
+
+        // Optional: build and upload
+        // stage('Build & Upload') {
+        //     steps {
+        //         sh './gradlew assembleDebug'
+        //         sh 'revyl build upload --file ./app.apk --app your-app-id --set-current'
+        //     }
+        // }
+
+        stage('Test') {
+            steps {
+                sh 'revyl workflow run smoke-tests'
+            }
+        }
+    }
+
+    post {
+        failure {
+            echo 'Revyl tests failed'
+        }
+    }
+}

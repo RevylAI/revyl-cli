@@ -1,0 +1,34 @@
+# CircleCI -- Revyl test pipeline
+#
+# Add REVYL_API_KEY in Project Settings > Environment Variables.
+
+version: 2.1
+
+jobs:
+  revyl-tests:
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - run:
+          name: Install Revyl CLI
+          command: pip install revyl
+      - run:
+          name: Run tests
+          command: revyl workflow run smoke-tests
+
+  # Optional: build, upload, then test
+  # build-and-test:
+  #   docker:
+  #     - image: cimg/python:3.12
+  #   steps:
+  #     - checkout
+  #     - run: pip install revyl
+  #     - run: ./gradlew assembleDebug
+  #     - run: revyl build upload --file ./app.apk --app your-app-id --set-current
+  #     - run: revyl workflow run smoke-tests
+
+workflows:
+  test-on-pr:
+    jobs:
+      - revyl-tests

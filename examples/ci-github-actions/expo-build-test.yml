@@ -1,0 +1,51 @@
+# Expo/EAS: build, upload to Revyl, then run tests.
+#
+# iOS .tar.gz files from EAS are automatically converted to .zip.
+#
+# Secrets needed: REVYL_API_KEY, EXPO_TOKEN
+
+name: Expo Build and Test
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build with EAS
+        id: eas-build
+        run: |
+          npx eas-cli build --platform ios --profile production --non-interactive --wait --json > build-result.json
+          echo "build-url=$(jq -r '.[0].artifacts.buildUrl' build-result.json)" >> "$GITHUB_OUTPUT"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Upload to Revyl
+        id: upload
+        uses: RevylAI/revyl-gh-action/upload-build@main
+        with:
+          build-var-id: "your-build-var-id"   # <-- replace
+          version: ${{ github.sha }}
+          expo-url: ${{ steps.eas-build.outputs.build-url }}
+          expo-headers: '{"Authorization": "Bearer ${{ secrets.EXPO_TOKEN }}"}'
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+
+      - name: Run Tests
+        uses: RevylAI/revyl-gh-action/run-workflow@main
+        with:
+          workflow-id: "your-workflow-id"     # <-- replace
+          build-version-id: ${{ steps.upload.outputs.version-id }}
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}

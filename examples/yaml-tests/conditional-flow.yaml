@@ -1,0 +1,36 @@
+# Test with if/while control flow.
+
+test:
+  metadata:
+    name: conditional-flow
+    platform: ios
+  build:
+    name: my-app-ios
+  variables:
+    max-items: "3"
+  blocks:
+    - type: instructions
+      step_description: "Open the app and navigate to the home screen"
+
+    # Conditional: handle onboarding if present
+    - type: if
+      condition: "An onboarding or welcome modal is visible"
+      then:
+        - type: instructions
+          step_description: "Dismiss the onboarding by tapping 'Skip' or 'Get Started'"
+      else:
+        - type: validation
+          step_description: "The home screen is visible"
+
+    # Loop: scroll through a feed
+    - type: while
+      condition: "Fewer than {{max-items}} products have been viewed and more items are visible below"
+      body:
+        - type: instructions
+          step_description: "Scroll down to reveal the next product"
+        - type: extraction
+          step_description: "Extract the product name currently visible"
+          variable_name: current-product
+
+    - type: validation
+      step_description: "At least {{max-items}} products were scrolled through"

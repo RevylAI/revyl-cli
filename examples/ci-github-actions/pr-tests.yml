@@ -1,0 +1,18 @@
+# Run a Revyl workflow on every pull request.
+
+name: Revyl PR Tests
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Revyl Workflow
+        uses: RevylAI/revyl-gh-action/run-workflow@main
+        with:
+          workflow-id: "your-workflow-id"   # <-- replace
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}

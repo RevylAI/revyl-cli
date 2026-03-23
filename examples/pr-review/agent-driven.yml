@@ -1,0 +1,62 @@
+# Agent-driven PR review with Revyl + Claude Code
+#
+# The AI agent reads the PR diff, starts a cloud device, and
+# interactively validates the changed screens.
+#
+# Secrets needed: REVYL_API_KEY, ANTHROPIC_API_KEY
+# Customize: REVYL_APP_ID, direct_prompt path, model
+
+name: Revyl PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  review:
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '/review'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout PR branch (comment trigger)
+        if: github.event_name == 'issue_comment'
+        run: gh pr checkout ${{ github.event.issue.number }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - run: pip install revyl
+
+      # Optional: upload a fresh build before review
+      # - name: Upload build
+      #   run: |
+      #     revyl build upload \
+      #       --file ./path/to/app.apk \
+      #       --app "$REVYL_APP_ID" \
+      #       --set-current
+      #   env:
+      #     REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+      #     REVYL_APP_ID: your-app-id
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: claude-sonnet-4-20250514
+          trigger_phrase: "/review"
+          direct_prompt: "You are a mobile PR review bot. Read CLAUDE.md for instructions."
+          allowed_tools: "Bash,Read,Glob,Grep,Write"
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+          REVYL_APP_ID: your-app-id  # <-- replace

@@ -1,0 +1,27 @@
+# Tests must pass before deployment proceeds.
+
+name: Deploy with Testing Gate
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Smoke Tests
+        uses: RevylAI/revyl-gh-action/run-workflow@main
+        with:
+          workflow-id: "your-smoke-workflow-id"   # <-- replace
+          retries: 2
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+
+  deploy:
+    needs: test   # only runs if tests pass
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy
+        run: echo "Deploying..."   # <-- replace with your deploy step

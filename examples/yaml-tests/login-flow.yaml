@@ -1,0 +1,19 @@
+# Simple login test with instructions and validations.
+
+test:
+  metadata:
+    name: login-flow
+    platform: ios
+  build:
+    name: my-app-ios
+  blocks:
+    - type: instructions
+      step_description: "Tap the 'Sign In' button on the welcome screen"
+    - type: instructions
+      step_description: "Enter 'testuser@example.com' in the email field and 'password123' in the password field"
+    - type: instructions
+      step_description: "Tap the 'Log In' button"
+    - type: validation
+      step_description: "The home screen is visible with a welcome message"
+    - type: validation
+      step_description: "The bottom navigation bar shows Home, Search, and Profile tabs"

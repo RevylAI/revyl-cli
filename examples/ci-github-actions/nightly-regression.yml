@@ -1,0 +1,20 @@
+# Run a full regression suite on a nightly schedule.
+
+name: Nightly Regression
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 2 AM UTC daily
+  workflow_dispatch:       # allow manual trigger
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Regression Suite
+        uses: RevylAI/revyl-gh-action/run-workflow@main
+        with:
+          workflow-id: "your-regression-workflow-id"   # <-- replace
+          retries: 3
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}

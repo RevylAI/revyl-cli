@@ -1,0 +1,38 @@
+# CLI-driven PR testing with Revyl
+#
+# Runs a pre-defined workflow on every PR.
+# No AI agent -- just runs your existing tests.
+#
+# Secrets needed: REVYL_API_KEY
+
+name: Revyl PR Tests
+
+on:
+  pull_request:
+    branches: [main]
+    # Optional: only run when app code changes
+    # paths: ['src/**', 'app/**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Revyl CLI
+        run: pip install revyl
+
+      - name: Run tests
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+        run: revyl workflow run smoke-tests  # <-- replace with your workflow name
+
+      # Optional: post results as PR comment
+      # - name: Post results
+      #   if: always()
+      #   env:
+      #     REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+      #   run: |
+      #     result=$(revyl workflow run smoke-tests --json 2>&1 || true)
+      #     report=$(echo "$result" | jq -r '.report_link // "N/A"')
+      #     echo "Report: $report"

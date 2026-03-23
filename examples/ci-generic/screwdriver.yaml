@@ -1,0 +1,25 @@
+# Screwdriver CI -- Revyl test pipeline
+#
+# Add REVYL_API_KEY as a secret in your Screwdriver pipeline settings.
+
+shared:
+  image: python:3.12-slim
+  environment:
+    REVYL_API_KEY: ${REVYL_API_KEY}
+
+jobs:
+  # Run tests on every PR and commit
+  test:
+    requires: [~pr, ~commit]
+    steps:
+      - install: pip install revyl
+      - run-tests: revyl workflow run smoke-tests
+
+  # Build, upload, then test
+  build-and-test:
+    requires: [~commit]
+    steps:
+      - install-deps: pip install revyl
+      - build: ./gradlew assembleDebug   # <-- replace with your build command
+      - upload: revyl build upload --file ./app/build/outputs/apk/debug/app-debug.apk --app your-app-id --set-current
+      - test: revyl workflow run smoke-tests

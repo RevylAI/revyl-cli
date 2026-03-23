@@ -1,0 +1,35 @@
+# Build your app, upload to Revyl, then run tests against the new build.
+
+name: Build and Test
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # -- Your build step here --
+      # - name: Build APK
+      #   run: ./gradlew assembleDebug
+
+      - name: Upload Build to Revyl
+        id: upload
+        uses: RevylAI/revyl-gh-action/upload-build@main
+        with:
+          build-var-id: "your-build-var-id"   # <-- replace
+          version: ${{ github.sha }}
+          file-path: ./app/build/outputs/apk/debug/app-debug.apk
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+
+      - name: Run Tests on New Build
+        uses: RevylAI/revyl-gh-action/run-workflow@main
+        with:
+          workflow-id: "your-workflow-id"     # <-- replace
+          build-version-id: ${{ steps.upload.outputs.version-id }}
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}

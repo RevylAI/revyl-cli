@@ -1,0 +1,42 @@
+# GitLab CI/CD -- Revyl test pipeline
+#
+# Add REVYL_API_KEY as a CI/CD variable in Settings > CI/CD > Variables (masked).
+
+stages:
+  - build
+  - test
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+
+build:
+  stage: build
+  image: python:3.12-slim
+  script:
+    - echo "Build your app here"
+    # - ./gradlew assembleDebug
+  # artifacts:
+  #   paths:
+  #     - app/build/outputs/apk/
+
+test:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install revyl
+    - revyl workflow run smoke-tests
+  # Optional: upload build first
+  # script:
+  #   - pip install revyl
+  #   - revyl build upload --file ./app.apk --app your-app-id --set-current
+  #   - revyl workflow run smoke-tests
+
+# Run only on merge requests
+test-mr:
+  stage: test
+  image: python:3.12-slim
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - pip install revyl
+    - revyl workflow run smoke-tests

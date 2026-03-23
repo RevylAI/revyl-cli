@@ -1,0 +1,32 @@
+# Checkout flow using variables for reusable test data.
+
+test:
+  metadata:
+    name: checkout-with-variables
+    platform: android
+  build:
+    name: my-app-android
+  variables:
+    product-name: "Wireless Headphones"
+    shipping-address: "123 Main St, San Francisco, CA 94102"
+  env_vars:
+    TEST_CARD_NUMBER: "4242424242424242"
+  blocks:
+    - type: instructions
+      step_description: "Search for '{{product-name}}' in the search bar"
+    - type: validation
+      step_description: "Search results show '{{product-name}}'"
+    - type: instructions
+      step_description: "Tap on '{{product-name}}' in the results"
+    - type: instructions
+      step_description: "Tap 'Add to Cart'"
+    - type: validation
+      step_description: "Cart badge shows 1 item"
+    - type: instructions
+      step_description: "Tap the cart icon and proceed to checkout"
+    - type: instructions
+      step_description: "Enter '{{shipping-address}}' in the shipping address field"
+    - type: instructions
+      step_description: "Enter '{{TEST_CARD_NUMBER}}' in the card number field"
+    - type: validation
+      step_description: "Order summary shows '{{product-name}}' with correct total"
