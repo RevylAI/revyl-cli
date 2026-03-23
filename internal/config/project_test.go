@@ -247,8 +247,8 @@ func TestApplyDefaults(t *testing.T) {
 	if cfg.Defaults.OpenBrowser == nil {
 		t.Fatal("ApplyDefaults() did not set OpenBrowser")
 	}
-	if got := EffectiveOpenBrowser(cfg); !got {
-		t.Errorf("EffectiveOpenBrowser() = %v, want true", got)
+	if got := EffectiveOpenBrowser(cfg); got {
+		t.Errorf("EffectiveOpenBrowser() = %v, want false", got)
 	}
 	if got := EffectiveTimeoutSeconds(cfg, 30); got != DefaultTimeoutSeconds {
 		t.Errorf("EffectiveTimeoutSeconds() = %d, want %d", got, DefaultTimeoutSeconds)

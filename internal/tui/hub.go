@@ -227,11 +227,20 @@ type hubModel struct {
 	selectedWfDetail *WorkflowItem
 	wfConfirmDelete  bool
 	wfDetailCursor   int
+	wfSyncLoading    bool
+	wfSyncCh         <-chan tea.Msg
+	wfSyncResults    []string
+	wfSyncProgress   string
+	wfSyncDone       bool
+	wfSyncSummary    string
 	// Workflow create wizard
-	wfCreateStep          workflowCreateStep
-	wfCreateNameInput     textinput.Model
-	wfCreateTestCursor    int
-	wfCreateSelectedTests map[int]bool
+	wfCreateStep               workflowCreateStep
+	wfCreateNameInput          textinput.Model
+	wfCreateTestCursor         int
+	wfCreateSelectedTests      map[string]bool
+	wfCreateTestFilterMode     bool
+	wfCreateTestFilterInput    textinput.Model
+	wfCreateTestPlatformFilter string // "", "Android", or "iOS"
 	// Workflow execution monitor
 	wfExecTaskID     string
 	wfExecStatus     *api.CLIWorkflowStatusResponse
@@ -325,6 +334,10 @@ func newHubModel(version string, devMode bool) hubModel {
 	wffi.Placeholder = "filter workflows..."
 	wffi.CharLimit = 64
 
+	wctfi := textinput.New()
+	wctfi.Placeholder = "search tests..."
+	wctfi.CharLimit = 64
+
 	trn := textinput.New()
 	trn.Placeholder = "new test name..."
 	trn.CharLimit = 128
@@ -339,23 +352,24 @@ func newHubModel(version string, devMode bool) hubModel {
 	dsfi.CharLimit = 64
 
 	return hubModel{
-		version:                version,
-		currentView:            viewDashboard,
-		loading:                true,
-		spinner:                newSpinner(),
-		filterInput:            ti,
-		reportFilterInput:      rfi,
-		envVarKeyInput:         eki,
-		envVarValueInput:       evi,
-		tagNameInput:           tni,
-		wfCreateNameInput:      wfni,
-		wfFilterInput:          wffi,
-		testRenameInput:        trn,
-		settingsTimeout:        config.DefaultTimeoutSeconds,
-		settingsOpenBrowser:    config.DefaultOpenBrowser,
-		settingsTimeoutInput:   sti,
-		deviceStartFilterInput: dsfi,
-		devMode:                devMode,
+		version:                 version,
+		currentView:             viewDashboard,
+		loading:                 true,
+		spinner:                 newSpinner(),
+		filterInput:             ti,
+		reportFilterInput:       rfi,
+		envVarKeyInput:          eki,
+		envVarValueInput:        evi,
+		tagNameInput:            tni,
+		wfCreateNameInput:       wfni,
+		wfCreateTestFilterInput: wctfi,
+		wfFilterInput:           wffi,
+		testRenameInput:         trn,
+		settingsTimeout:         config.DefaultTimeoutSeconds,
+		settingsOpenBrowser:     config.DefaultOpenBrowser,
+		settingsTimeoutInput:    sti,
+		deviceStartFilterInput:  dsfi,
+		devMode:                 devMode,
 	}
 }
 
@@ -1628,6 +1642,37 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.client != nil {
 				m.wfListLoading = true
 				return m, fetchWorkflowBrowseListCmd(m.client)
+			}
+		}
+		return m, nil
+
+	case WorkflowSyncProgressMsg:
+		m.wfSyncProgress = fmt.Sprintf("Syncing %d/%d: %s...", msg.Current, msg.Total, msg.TestName)
+		m.wfSyncResults = append(m.wfSyncResults, fmt.Sprintf("%s: %s", msg.TestName, msg.Status))
+		if m.wfSyncCh != nil {
+			return m, waitForSyncMsg(m.wfSyncCh)
+		}
+		return m, nil
+
+	case WorkflowSyncMsg:
+		m.wfSyncLoading = false
+		m.wfSyncDone = true
+		m.wfSyncCh = nil
+		if msg.Err != nil {
+			m.wfSyncSummary = ui.ErrorStyle.Render(fmt.Sprintf("  Sync failed: %v", msg.Err))
+		} else {
+			parts := []string{fmt.Sprintf("%d/%d synced", msg.Synced, msg.Total)}
+			if msg.Conflicts > 0 {
+				parts = append(parts, fmt.Sprintf("%d conflicts", msg.Conflicts))
+			}
+			if msg.Errors > 0 {
+				parts = append(parts, fmt.Sprintf("%d errors", msg.Errors))
+			}
+			summary := strings.Join(parts, ", ")
+			if msg.Conflicts > 0 || msg.Errors > 0 {
+				m.wfSyncSummary = ui.WarningStyle.Render("  Sync: " + summary)
+			} else {
+				m.wfSyncSummary = ui.SuccessStyle.Render("  Sync: " + summary)
 			}
 		}
 		return m, nil

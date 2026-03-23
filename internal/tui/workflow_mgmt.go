@@ -8,6 +8,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -40,6 +43,7 @@ var workflowDetailActions = []workflowDetailAction{
 	{Key: "h", Desc: "Run history"},
 	{Key: "x", Desc: "Delete workflow"},
 	{Key: "s", Desc: "Settings"},
+	{Key: "y", Desc: "Sync tests"},
 }
 
 // --- Commands ---
@@ -210,6 +214,8 @@ func cancelWorkflowCmd(client *api.Client, taskID string) tea.Cmd {
 }
 
 // createWorkflowAPICmd creates a new workflow via the API.
+// It resolves the authenticated user's ID via ValidateAPIKey so that the
+// backend receives a valid owner UUID.
 //
 // Parameters:
 //   - client: the API client
@@ -222,9 +228,17 @@ func createWorkflowAPICmd(client *api.Client, name string, testIDs []string) tea
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+
+		userInfo, err := client.ValidateAPIKey(ctx)
+		if err != nil {
+			return WorkflowCreatedMsg{Err: fmt.Errorf("failed to resolve user: %w", err)}
+		}
+
 		resp, err := client.CreateWorkflow(ctx, &api.CLICreateWorkflowRequest{
-			Name:  name,
-			Tests: testIDs,
+			Name:     name,
+			Tests:    testIDs,
+			Owner:    userInfo.UserID,
+			Schedule: "No Schedule",
 		})
 		if err != nil {
 			return WorkflowCreatedMsg{Err: err}
@@ -247,6 +261,168 @@ func deleteWorkflowCmd(client *api.Client, workflowID string) tea.Cmd {
 		defer cancel()
 		_, err := client.DeleteWorkflow(ctx, workflowID)
 		return WorkflowDeletedMsg{Err: err}
+	}
+}
+
+// syncWorkflowTestsCmd pulls/imports all tests belonging to a workflow into the
+// local .revyl/tests/ directory. Tests already linked locally are pulled; tests
+// not yet local are imported. Conflicts are reported (not force-resolved) so the
+// user can drop to `revyl sync --workflow` for interactive resolution.
+//
+// Progress is streamed via WorkflowSyncProgressMsg after each test, with a
+// final WorkflowSyncMsg when all tests are done. The caller chains reads from
+// the returned channel using waitForSyncMsg.
+//
+// Parameters:
+//   - client: the API client
+//   - workflowID: UUID of the workflow to sync tests from
+//   - devMode: whether dev mode is active
+//
+// Returns:
+//   - <-chan tea.Msg: channel that yields progress and completion messages
+//   - tea.Cmd: initial command that reads the first message from the channel
+func syncWorkflowTestsCmd(client *api.Client, workflowID string, devMode bool) (<-chan tea.Msg, tea.Cmd) {
+	ch := make(chan tea.Msg, 1)
+
+	go func() {
+		defer close(ch)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		wfInfo, err := client.GetWorkflowInfo(ctx, workflowID)
+		if err != nil {
+			ch <- WorkflowSyncMsg{Err: fmt.Errorf("failed to fetch workflow info: %w", err)}
+			return
+		}
+		if len(wfInfo.TestInfo) == 0 {
+			ch <- WorkflowSyncMsg{Total: 0}
+			return
+		}
+
+		cwd, err := os.Getwd()
+		if err != nil {
+			ch <- WorkflowSyncMsg{Err: fmt.Errorf("failed to get working directory: %w", err)}
+			return
+		}
+
+		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+		cfg, err := loadOrInitProjectConfigForSync(ctx, client, cwd, configPath)
+		if err != nil {
+			ch <- WorkflowSyncMsg{Err: fmt.Errorf("failed to prepare project config: %w", err)}
+			return
+		}
+
+		testsDir := filepath.Join(cwd, ".revyl", "tests")
+		localTests, err := config.LoadLocalTests(testsDir)
+		if err != nil {
+			localTests = make(map[string]*config.LocalTest)
+		}
+
+		resolver := sync.NewResolver(client, cfg, localTests)
+
+		total := len(wfInfo.TestInfo)
+		synced, conflicts, syncErrors := 0, 0, 0
+
+		for i, ti := range wfInfo.TestInfo {
+			status := syncOneWorkflowTest(ctx, resolver, localTests, testsDir, ti)
+
+			switch {
+			case strings.HasPrefix(status, "error"):
+				syncErrors++
+			case strings.HasPrefix(status, "conflict"):
+				conflicts++
+			default:
+				synced++
+			}
+
+			ch <- WorkflowSyncProgressMsg{
+				TestName: ti.Name,
+				Status:   status,
+				Current:  i + 1,
+				Total:    total,
+			}
+		}
+
+		if saveErr := persistProjectConfigForSync(configPath, cfg); saveErr != nil {
+			syncErrors++
+		}
+
+		ch <- WorkflowSyncMsg{
+			Synced:    synced,
+			Conflicts: conflicts,
+			Errors:    syncErrors,
+			Total:     total,
+		}
+	}()
+
+	return ch, waitForSyncMsg(ch)
+}
+
+// syncOneWorkflowTest syncs a single test from a workflow, returning a
+// human-readable status string.
+//
+// Parameters:
+//   - ctx: context for API calls
+//   - resolver: the sync resolver
+//   - localTests: map of local test aliases to definitions
+//   - testsDir: path to .revyl/tests/ directory
+//   - ti: the workflow test info item
+//
+// Returns:
+//   - string: status like "pulled v3", "imported", "up to date", "conflict (resolve via CLI)", or "error: ..."
+func syncOneWorkflowTest(ctx context.Context, resolver *sync.Resolver, localTests map[string]*config.LocalTest, testsDir string, ti api.WorkflowInfoTestItem) string {
+	localName := ""
+	for alias, lt := range localTests {
+		if lt != nil && lt.Meta.RemoteID == ti.ID {
+			localName = alias
+			break
+		}
+	}
+
+	if localName != "" {
+		pullResults, pullErr := resolver.PullFromRemote(ctx, localName, testsDir, false)
+		if pullErr != nil {
+			return fmt.Sprintf("error: %v", pullErr)
+		}
+		if len(pullResults) == 0 {
+			return "up to date"
+		}
+		r := pullResults[0]
+		if r.Conflict {
+			return "conflict (resolve via CLI)"
+		}
+		if r.Error != nil {
+			return fmt.Sprintf("error: %v", r.Error)
+		}
+		return fmt.Sprintf("pulled v%d", r.NewVersion)
+	}
+
+	importResults, importErr := resolver.ImportRemoteTest(ctx, ti.ID, ti.Name, testsDir, false)
+	if importErr != nil {
+		return fmt.Sprintf("error: %v", importErr)
+	}
+	if len(importResults) > 0 && importResults[0].Error != nil {
+		return fmt.Sprintf("error: %v", importResults[0].Error)
+	}
+	return "imported"
+}
+
+// waitForSyncMsg returns a tea.Cmd that blocks until the next message arrives
+// on the channel. Used to chain progress reads in the bubbletea update loop.
+//
+// Parameters:
+//   - ch: channel producing WorkflowSyncProgressMsg or WorkflowSyncMsg
+//
+// Returns:
+//   - tea.Cmd: command that yields the next message from the channel
+func waitForSyncMsg(ch <-chan tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return WorkflowSyncMsg{Err: fmt.Errorf("sync channel closed unexpectedly")}
+		}
+		return msg
 	}
 }
 
@@ -332,6 +508,9 @@ func handleWorkflowListKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.wfCreateNameInput.SetValue("")
 		m.wfCreateNameInput.Focus()
 		m.wfCreateSelectedTests = nil
+		m.wfCreateTestFilterMode = false
+		m.wfCreateTestFilterInput.SetValue("")
+		m.wfCreateTestPlatformFilter = ""
 		return m, textinput.Blink
 	case "/":
 		m.wfFilterMode = true
@@ -359,6 +538,32 @@ func (m *hubModel) filteredWorkflowItems() []WorkflowItem {
 			strings.Contains(strings.ToLower(wf.LastRunStatus), query) {
 			filtered = append(filtered, wf)
 		}
+	}
+	return filtered
+}
+
+// filteredCreateTests returns tests filtered by the search query and platform filter
+// for the Create Workflow test selection step. Both dimensions are AND'd.
+//
+// Returns:
+//   - []TestItem: filtered test list (all tests when no filters are active)
+func (m *hubModel) filteredCreateTests() []TestItem {
+	platform := m.wfCreateTestPlatformFilter
+	query := strings.ToLower(strings.TrimSpace(m.wfCreateTestFilterInput.Value()))
+
+	if platform == "" && query == "" {
+		return m.tests
+	}
+
+	var filtered []TestItem
+	for _, t := range m.tests {
+		if platform != "" && t.Platform != platform {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(t.Name), query) {
+			continue
+		}
+		filtered = append(filtered, t)
 	}
 	return filtered
 }
@@ -471,6 +676,17 @@ func executeWorkflowDetailActionByKey(m hubModel, key string) (tea.Model, tea.Cm
 			m.wfSettingsLoading = true
 			return m, fetchWorkflowSettingsCmd(m.client, m.selectedWfDetail.ID)
 		}
+	case "y":
+		if m.selectedWfDetail != nil && m.client != nil {
+			m.wfSyncLoading = true
+			m.wfSyncDone = false
+			m.wfSyncResults = nil
+			m.wfSyncProgress = "Syncing tests..."
+			m.wfSyncSummary = ""
+			ch, cmd := syncWorkflowTestsCmd(m.client, m.selectedWfDetail.ID, m.devMode)
+			m.wfSyncCh = ch
+			return m, cmd
+		}
 	}
 	return m, nil
 }
@@ -496,7 +712,10 @@ func handleWorkflowCreateKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.wfCreateStep = wfCreateStepTests
 				m.wfCreateNameInput.Blur()
 				m.wfCreateTestCursor = 0
-				m.wfCreateSelectedTests = make(map[int]bool)
+				m.wfCreateSelectedTests = make(map[string]bool)
+				m.wfCreateTestFilterMode = false
+				m.wfCreateTestFilterInput.SetValue("")
+				m.wfCreateTestPlatformFilter = ""
 			}
 			return m, nil
 		default:
@@ -506,25 +725,81 @@ func handleWorkflowCreateKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case wfCreateStepTests:
+		visible := m.filteredCreateTests()
+
+		if m.wfCreateTestFilterMode {
+			switch msg.String() {
+			case "esc":
+				m.wfCreateTestFilterMode = false
+				m.wfCreateTestFilterInput.Blur()
+				m.wfCreateTestFilterInput.SetValue("")
+				m.wfCreateTestCursor = 0
+				return m, nil
+			case "c":
+				m.wfCreateTestFilterMode = false
+				m.wfCreateTestFilterInput.Blur()
+				m.wfCreateStep = wfCreateStepConfirm
+				return m, nil
+			case "enter":
+				if m.wfCreateTestCursor < len(visible) {
+					id := visible[m.wfCreateTestCursor].ID
+					m.wfCreateSelectedTests[id] = !m.wfCreateSelectedTests[id]
+				}
+				return m, nil
+			case "up", "k":
+				if m.wfCreateTestCursor > 0 {
+					m.wfCreateTestCursor--
+				}
+				return m, nil
+			case "down", "j":
+				if m.wfCreateTestCursor < len(visible)-1 {
+					m.wfCreateTestCursor++
+				}
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.wfCreateTestFilterInput, cmd = m.wfCreateTestFilterInput.Update(msg)
+				m.wfCreateTestCursor = 0
+				return m, cmd
+			}
+		}
+
 		switch msg.String() {
 		case "esc":
 			m.wfCreateStep = wfCreateStepName
 			m.wfCreateNameInput.Focus()
+			m.wfCreateTestFilterInput.SetValue("")
+			m.wfCreateTestPlatformFilter = ""
 			return m, textinput.Blink
+		case "/":
+			m.wfCreateTestFilterMode = true
+			m.wfCreateTestFilterInput.Focus()
+			return m, textinput.Blink
+		case "p":
+			switch m.wfCreateTestPlatformFilter {
+			case "":
+				m.wfCreateTestPlatformFilter = "Android"
+			case "Android":
+				m.wfCreateTestPlatformFilter = "iOS"
+			default:
+				m.wfCreateTestPlatformFilter = ""
+			}
+			m.wfCreateTestCursor = 0
+			return m, nil
 		case "up", "k":
 			if m.wfCreateTestCursor > 0 {
 				m.wfCreateTestCursor--
 			}
 		case "down", "j":
-			if m.wfCreateTestCursor < len(m.tests)-1 {
+			if m.wfCreateTestCursor < len(visible)-1 {
 				m.wfCreateTestCursor++
 			}
 		case " ":
-			if m.wfCreateTestCursor < len(m.tests) {
-				m.wfCreateSelectedTests[m.wfCreateTestCursor] = !m.wfCreateSelectedTests[m.wfCreateTestCursor]
+			if m.wfCreateTestCursor < len(visible) {
+				id := visible[m.wfCreateTestCursor].ID
+				m.wfCreateSelectedTests[id] = !m.wfCreateSelectedTests[id]
 			}
 		case "enter":
-			// Move to confirm step
 			m.wfCreateStep = wfCreateStepConfirm
 			return m, nil
 		}
@@ -536,11 +811,10 @@ func handleWorkflowCreateKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.wfCreateStep = wfCreateStepTests
 			return m, nil
 		case "enter", "y":
-			// Collect selected test IDs
 			var testIDs []string
-			for idx, selected := range m.wfCreateSelectedTests {
-				if selected && idx < len(m.tests) {
-					testIDs = append(testIDs, m.tests[idx].ID)
+			for id, selected := range m.wfCreateSelectedTests {
+				if selected {
+					testIDs = append(testIDs, id)
 				}
 			}
 			if len(testIDs) > 0 && m.client != nil {
@@ -735,6 +1009,23 @@ func renderWorkflowDetail(m hubModel) string {
 		return b.String()
 	}
 
+	// Sync status
+	if m.wfSyncLoading {
+		b.WriteString("\n  " + dimStyle.Render(m.wfSyncProgress) + "\n")
+		for _, line := range m.wfSyncResults {
+			b.WriteString("    " + dimStyle.Render(line) + "\n")
+		}
+	} else if m.wfSyncDone {
+		b.WriteString("\n  " + m.wfSyncSummary + "\n")
+		visible := m.wfSyncResults
+		if len(visible) > 8 {
+			visible = visible[len(visible)-8:]
+		}
+		for _, line := range visible {
+			b.WriteString("    " + dimStyle.Render(line) + "\n")
+		}
+	}
+
 	// Actions
 	b.WriteString("\n")
 	b.WriteString(sectionStyle.Render("  ACTIONS") + "\n")
@@ -795,28 +1086,70 @@ func renderWorkflowCreate(m hubModel) string {
 		b.WriteString(sectionStyle.Render("  Step 2: Select Tests") + "\n")
 		b.WriteString("  " + separator(innerW) + "\n")
 
+		if m.wfCreateTestFilterMode {
+			b.WriteString("  " + filterPromptStyle.Render("/") + " " + m.wfCreateTestFilterInput.View() + "\n")
+		} else if strings.TrimSpace(m.wfCreateTestFilterInput.Value()) != "" {
+			b.WriteString("  " + filterPromptStyle.Render("/") + " " + dimStyle.Render(m.wfCreateTestFilterInput.Value()) + "\n")
+		}
+
+		platformLabel := "All"
+		if m.wfCreateTestPlatformFilter != "" {
+			platformLabel = m.wfCreateTestPlatformFilter
+		}
+		b.WriteString("  " + dimStyle.Render("Platform: ") + normalStyle.Render(platformLabel) + "\n")
+
+		visible := m.filteredCreateTests()
+		if len(visible) != len(m.tests) {
+			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("%d/%d tests", len(visible), len(m.tests))) + "\n")
+		}
+
 		if len(m.tests) == 0 {
 			b.WriteString("  " + dimStyle.Render("No tests available") + "\n")
+		} else if len(visible) == 0 {
+			b.WriteString("  " + dimStyle.Render("No tests match filter") + "\n")
 		} else {
-			start, end := scrollWindow(m.wfCreateTestCursor, len(m.tests), 12)
+			start, end := scrollWindow(m.wfCreateTestCursor, len(visible), 12)
 			for i := start; i < end; i++ {
-				t := m.tests[i]
+				t := visible[i]
 				cursor := "  "
 				if i == m.wfCreateTestCursor {
 					cursor = selectedStyle.Render("▸ ")
 				}
 				check := "[ ]"
-				if m.wfCreateSelectedTests[i] {
+				if m.wfCreateSelectedTests[t.ID] {
 					check = successStyle.Render("[✓]")
 				}
 				b.WriteString(fmt.Sprintf("  %s%s %s  %s\n", cursor, check, normalStyle.Render(t.Name), dimStyle.Render(t.Platform)))
 			}
 		}
+
+		var selectedCount int
+		for _, sel := range m.wfCreateSelectedTests {
+			if sel {
+				selectedCount++
+			}
+		}
+		if selectedCount > 0 {
+			b.WriteString("  " + successStyle.Render(fmt.Sprintf("%d selected", selectedCount)) + "\n")
+		}
+
 		b.WriteString("\n  ")
-		keys := []string{
-			helpKeyRender("space", "toggle"),
-			helpKeyRender("enter", "confirm"),
-			helpKeyRender("esc", "back"),
+		var keys []string
+		if m.wfCreateTestFilterMode {
+			keys = []string{
+				helpKeyRender("enter", "toggle"),
+				helpKeyRender("↑/↓", "navigate"),
+				helpKeyRender("c", "continue"),
+				helpKeyRender("esc", "clear"),
+			}
+		} else {
+			keys = []string{
+				helpKeyRender("/", "search"),
+				helpKeyRender("p", "platform"),
+				helpKeyRender("space", "toggle"),
+				helpKeyRender("enter", "confirm"),
+				helpKeyRender("esc", "back"),
+			}
 		}
 		b.WriteString(strings.Join(keys, "  ") + "\n")
 
@@ -827,9 +1160,9 @@ func renderWorkflowCreate(m hubModel) string {
 		b.WriteString(fmt.Sprintf("  Name: %s\n", normalStyle.Render(m.wfCreateNameInput.Value())))
 
 		var selectedNames []string
-		for idx, selected := range m.wfCreateSelectedTests {
-			if selected && idx < len(m.tests) {
-				selectedNames = append(selectedNames, m.tests[idx].Name)
+		for _, t := range m.tests {
+			if m.wfCreateSelectedTests[t.ID] {
+				selectedNames = append(selectedNames, t.Name)
 			}
 		}
 		b.WriteString(fmt.Sprintf("  Tests: %s (%d)\n", dimStyle.Render(strings.Join(selectedNames, ", ")), len(selectedNames)))

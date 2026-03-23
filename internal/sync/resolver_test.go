@@ -172,6 +172,9 @@ func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
 			"/api/v1/variables/app_launch_env/delete_all":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"message":"deleted all"}`))
+		case "/api/v1/tests/scripts", "/api/v1/modules/list":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"scripts":[],"result":[]}`))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -482,6 +485,8 @@ func TestSyncToRemote_UpdateExistingTest(t *testing.T) {
 		case strings.HasPrefix(r.URL.Path, "/api/v1/variables/custom/delete_all"),
 			strings.HasPrefix(r.URL.Path, "/api/v1/variables/app_launch_env/delete_all"):
 			_, _ = w.Write([]byte(`{"message":"ok"}`))
+		case r.URL.Path == "/api/v1/tests/scripts" || r.URL.Path == "/api/v1/modules/list":
+			_, _ = w.Write([]byte(`{"scripts":[],"result":[]}`))
 		default:
 			t.Fatalf("unexpected path: %s %s", r.Method, r.URL.Path)
 		}
@@ -526,6 +531,8 @@ func TestSyncToRemote_VersionConflict(t *testing.T) {
 		case strings.HasPrefix(r.URL.Path, "/api/v1/tests/update"):
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"detail":"version conflict"}`))
+		case r.URL.Path == "/api/v1/tests/scripts" || r.URL.Path == "/api/v1/modules/list":
+			_, _ = w.Write([]byte(`{"scripts":[],"result":[]}`))
 		default:
 			t.Fatalf("unexpected path: %s %s", r.Method, r.URL.Path)
 		}
@@ -585,19 +592,55 @@ func TestResolveBlockNames(t *testing.T) {
 	if blocks[0].Script != "validate-auth" {
 		t.Fatalf("blocks[0].Script = %q, want validate-auth", blocks[0].Script)
 	}
-	if blocks[0].StepDescription != "" {
-		t.Fatalf("blocks[0].StepDescription should be cleared, got %q", blocks[0].StepDescription)
+	if blocks[0].StepDescription != "script-uuid-1" {
+		t.Fatalf("blocks[0].StepDescription should be preserved, got %q", blocks[0].StepDescription)
 	}
 	if blocks[1].Module != "login-module" {
 		t.Fatalf("blocks[1].Module = %q, want login-module", blocks[1].Module)
 	}
-	if blocks[1].ModuleID != "" {
-		t.Fatalf("blocks[1].ModuleID should be cleared, got %q", blocks[1].ModuleID)
+	if blocks[1].ModuleID != "module-uuid-1" {
+		t.Fatalf("blocks[1].ModuleID should be preserved, got %q", blocks[1].ModuleID)
 	}
 	if blocks[2].StepDescription != "Tap login" {
 		t.Fatalf("blocks[2].StepDescription = %q, want Tap login", blocks[2].StepDescription)
 	}
 	if blocks[3].Then[0].Script != "cleanup-session" {
 		t.Fatalf("nested block Script = %q, want cleanup-session", blocks[3].Then[0].Script)
+	}
+	if blocks[3].Then[0].StepDescription != "script-uuid-2" {
+		t.Fatalf("nested block StepDescription should be preserved, got %q", blocks[3].Then[0].StepDescription)
+	}
+}
+
+func TestStripBlockIDs_PreservesStepType(t *testing.T) {
+	blocks := []config.TestBlock{
+		{ID: "block-1", Type: "manual", StepType: "wait", StepDescription: "5"},
+		{ID: "block-2", Type: "instructions", StepType: "instruction", StepDescription: "Tap login"},
+		{
+			ID:        "block-3",
+			Type:      "if",
+			Condition: "visible?",
+			Then: []config.TestBlock{
+				{ID: "nested-1", Type: "manual", StepType: "open_app"},
+			},
+		},
+	}
+
+	result := stripBlockIDs(blocks)
+
+	if result[0].ID != "" {
+		t.Fatalf("ID should be stripped, got %q", result[0].ID)
+	}
+	if result[0].StepType != "wait" {
+		t.Fatalf("StepType should be preserved, got %q", result[0].StepType)
+	}
+	if result[1].StepType != "instruction" {
+		t.Fatalf("StepType should be preserved on instructions block, got %q", result[1].StepType)
+	}
+	if result[2].Then[0].ID != "" {
+		t.Fatalf("nested ID should be stripped, got %q", result[2].Then[0].ID)
+	}
+	if result[2].Then[0].StepType != "open_app" {
+		t.Fatalf("nested StepType should be preserved, got %q", result[2].Then[0].StepType)
 	}
 }

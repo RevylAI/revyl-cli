@@ -359,8 +359,8 @@ func (e *ExpoDevServer) emitProcessOutput(callback hotreload.DevServerOutputCall
 	})
 }
 
-// streamStdout emits every stdout line and signals readiness when indicators appear.
-// It keeps streaming after readiness so runtime logs remain visible.
+// streamStdout emits every stdout line, signals readiness when indicators appear,
+// and synthesizes HMR events when Metro logs re-bundle activity.
 func (e *ExpoDevServer) streamStdout(stdout io.Reader, outputCallback hotreload.DevServerOutputCallback, signalReady func()) {
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
@@ -369,6 +369,29 @@ func (e *ExpoDevServer) streamStdout(stdout io.Reader, outputCallback hotreload.
 		if e.isReadyIndicator(line) {
 			signalReady()
 		}
+		if hmrEvent := classifyHMREvent(line); hmrEvent != "" {
+			e.emitProcessOutput(outputCallback, hotreload.DevServerOutputHMR, hmrEvent)
+		}
+	}
+}
+
+// classifyHMREvent inspects a Metro stdout line and returns a short HMR event
+// description if the line indicates re-bundle activity, or empty string if it
+// does not. This lets callers surface "[hmr]" tagged events without parsing
+// Metro's output format themselves.
+func classifyHMREvent(line string) string {
+	lower := strings.ToLower(line)
+	switch {
+	case strings.Contains(lower, "bundling"):
+		return "File change detected, bundling..."
+	case strings.Contains(lower, "bundled") && !strings.Contains(lower, "error"):
+		return "Bundle complete"
+	case strings.Contains(lower, "hmr update"):
+		return "HMR update sent"
+	case strings.Contains(lower, "transforming"):
+		return "File change detected, transforming..."
+	default:
+		return ""
 	}
 }
 

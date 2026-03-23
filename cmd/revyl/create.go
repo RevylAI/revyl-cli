@@ -21,6 +21,7 @@ import (
 	"github.com/revyl/cli/internal/orgguard"
 	"github.com/revyl/cli/internal/ui"
 	"github.com/revyl/cli/internal/yaml"
+	yamlPkg "gopkg.in/yaml.v3"
 )
 
 var (
@@ -375,18 +376,42 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 // runCreateTestFromFile creates a test from a YAML file.
 //
 // This function:
-//  1. Validates the YAML file
-//  2. Copies it to .revyl/tests/<name>.yaml
-//  3. Uses the existing push workflow to sync to remote
+//  1. Resolves the test name from args or the YAML's test.metadata.name
+//  2. Validates the YAML file
+//  3. Copies it to .revyl/tests/<name>.yaml
+//  4. Uses the existing push workflow to sync to remote
+//
+// When no positional name argument is provided, the name is read from
+// test.metadata.name inside the YAML file. If that field is also empty
+// the command returns an error.
 //
 // Parameters:
 //   - cmd: The cobra command being executed
-//   - args: Command line arguments (test name)
+//   - args: Command line arguments (optional test name)
 //
 // Returns:
 //   - error: Any error that occurred during test creation
 func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
-	testName := args[0]
+	var testName string
+	if len(args) > 0 {
+		testName = args[0]
+	} else {
+		content, err := os.ReadFile(createTestFromFile)
+		if err != nil {
+			ui.PrintError("Failed to read YAML file: %v", err)
+			return fmt.Errorf("failed to read YAML file: %w", err)
+		}
+		var def yaml.TestDefinition
+		if err := yamlPkg.Unmarshal(content, &def); err != nil {
+			ui.PrintError("Failed to parse YAML file: %v", err)
+			return fmt.Errorf("failed to parse YAML file: %w", err)
+		}
+		testName = def.Test.Metadata.Name
+		if testName == "" {
+			ui.PrintError("YAML file has no test.metadata.name — provide a name argument or add metadata.name to the file")
+			return fmt.Errorf("no test name: provide a positional argument or set test.metadata.name in the YAML")
+		}
+	}
 
 	// Validate test name
 	if err := validateResourceName(testName, "test"); err != nil {
@@ -443,11 +468,30 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 	// Copy the file to .revyl/tests/<name>.yaml
 	destPath := filepath.Join(testsDir, testName+".yaml")
 
-	// Check if destination already exists
+	absSource, absSourceErr := filepath.Abs(createTestFromFile)
+	absDest, absDestErr := filepath.Abs(destPath)
+
+	if absSourceErr == nil && absDestErr == nil && absSource == absDest {
+		// Source IS the destination -- skip copy, just push
+		ui.PrintInfo("File is already at .revyl/tests/%s.yaml — pushing to remote...", testName)
+		testsForce = createTestForce
+		return runTestsPush(cmd, []string{testName})
+	}
+
+	if absSourceErr == nil && strings.HasPrefix(absSource, filepath.Clean(testsDir)+string(filepath.Separator)) {
+		// Source lives inside .revyl/tests/ under a different name
+		ui.PrintInfo("Source file is already in .revyl/tests/ — pushing to remote...")
+		srcName := strings.TrimSuffix(filepath.Base(absSource), ".yaml")
+		testsForce = createTestForce
+		return runTestsPush(cmd, []string{srcName})
+	}
+
+	// Source is external; check if a test with the same name already exists locally
 	if _, err := os.Stat(destPath); err == nil && !createTestForce {
-		ui.PrintError("Test file already exists: %s", destPath)
-		ui.PrintInfo("Use --force to overwrite.")
-		return fmt.Errorf("file already exists")
+		ui.PrintError("A test named '%s' already exists at .revyl/tests/%s.yaml", testName, testName)
+		ui.PrintInfo("To overwrite it:  revyl test create --from-file %s --force", createTestFromFile)
+		ui.PrintInfo("To push existing: revyl test push %s", testName)
+		return fmt.Errorf("test '%s' already exists (use --force to overwrite)", testName)
 	}
 
 	// Read source file

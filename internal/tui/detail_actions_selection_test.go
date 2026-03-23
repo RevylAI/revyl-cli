@@ -272,6 +272,7 @@ func TestSyncTestActionCmd_PushConflictReturnsError(t *testing.T) {
 		},
 		Test: config.TestDefinition{
 			Metadata: config.TestMetadata{Name: "Checkout Flow", Platform: "ios"},
+			Build:    config.TestBuildConfig{Name: "MyApp"},
 			Blocks: []config.TestBlock{
 				{Type: "instructions", StepDescription: "Tap checkout"},
 			},
@@ -286,12 +287,17 @@ func TestSyncTestActionCmd_PushConflictReturnsError(t *testing.T) {
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v1/entity/users/get_user_uuid":
-			w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v1/entity/users/get_user_uuid":
 			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
-		case "/api/v1/tests/update/test-1":
-			w.Header().Set("Content-Type", "application/json")
+		case strings.HasPrefix(r.URL.Path, "/api/v1/tests/scripts"):
+			_, _ = w.Write([]byte(`{"scripts":[],"count":0}`))
+		case r.URL.Path == "/api/v1/modules/list":
+			_, _ = w.Write([]byte(`{"message":"ok","result":[]}`))
+		case r.URL.Path == "/api/v1/builds/vars":
+			_, _ = w.Write([]byte(`{"items":[{"id":"app-1","name":"MyApp","platform":"ios","versions_count":1,"latest_version":"1.0.0"}],"total":1,"page":1,"page_size":100,"total_pages":1,"has_next":false,"has_previous":false}`))
+		case r.URL.Path == "/api/v1/tests/update/test-1":
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"detail":"conflict"}`))
 		default:

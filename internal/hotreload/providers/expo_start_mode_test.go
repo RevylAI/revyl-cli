@@ -117,6 +117,86 @@ func TestStreamStdout_ContinuesAfterReady(t *testing.T) {
 	}
 }
 
+func TestClassifyHMREvent_Bundling(t *testing.T) {
+	got := classifyHMREvent("iOS Bundling node_modules/expo-router/entry.js")
+	if got == "" {
+		t.Fatal("expected non-empty HMR event for bundling line")
+	}
+	if !strings.Contains(got, "bundling") && !strings.Contains(got, "change") {
+		t.Fatalf("event = %q, expected mention of bundling or change", got)
+	}
+}
+
+func TestClassifyHMREvent_Bundled(t *testing.T) {
+	got := classifyHMREvent("iOS Bundled 574ms node_modules/expo-router/entry.js (1224 modules)")
+	if got == "" {
+		t.Fatal("expected non-empty HMR event for bundled line")
+	}
+	if !strings.Contains(strings.ToLower(got), "bundle") {
+		t.Fatalf("event = %q, expected mention of bundle", got)
+	}
+}
+
+func TestClassifyHMREvent_Transforming(t *testing.T) {
+	got := classifyHMREvent("Transforming node_modules/react-native/index.js")
+	if got == "" {
+		t.Fatal("expected non-empty HMR event for transforming line")
+	}
+}
+
+func TestClassifyHMREvent_HMRUpdate(t *testing.T) {
+	got := classifyHMREvent("HMR update sent to client")
+	if got == "" {
+		t.Fatal("expected non-empty HMR event for HMR update line")
+	}
+}
+
+func TestClassifyHMREvent_IgnoresUnrelated(t *testing.T) {
+	lines := []string{
+		"Starting project at /tmp/test",
+		"env: load .env",
+		"Logs for your project will appear below.",
+		"",
+	}
+	for _, line := range lines {
+		if got := classifyHMREvent(line); got != "" {
+			t.Fatalf("classifyHMREvent(%q) = %q, want empty", line, got)
+		}
+	}
+}
+
+func TestClassifyHMREvent_BundledWithError(t *testing.T) {
+	got := classifyHMREvent("Bundled with error: SyntaxError")
+	if got != "" {
+		t.Fatalf("classifyHMREvent should return empty for bundled-with-error lines, got %q", got)
+	}
+}
+
+func TestStreamStdout_EmitsHMREvents(t *testing.T) {
+	server := NewExpoDevServer(".", "demo", 8081, false)
+
+	readyChan := make(chan bool, 1)
+	signalReady := newReadyNotifier(readyChan)
+
+	var hmrLines []string
+	server.streamStdout(
+		strings.NewReader("Starting Metro Bundler\niOS Bundled 574ms entry.js (100 modules)\n"),
+		func(output hotreload.DevServerOutput) {
+			if output.Stream == hotreload.DevServerOutputHMR {
+				hmrLines = append(hmrLines, output.Line)
+			}
+		},
+		signalReady,
+	)
+
+	if len(hmrLines) != 1 {
+		t.Fatalf("hmr events = %d, want 1", len(hmrLines))
+	}
+	if !strings.Contains(strings.ToLower(hmrLines[0]), "bundle") {
+		t.Fatalf("hmr event = %q, expected mention of bundle", hmrLines[0])
+	}
+}
+
 func TestNewReadyNotifier_OnlySignalsOnce(t *testing.T) {
 	readyChan := make(chan bool, 1)
 	signalReady := newReadyNotifier(readyChan)

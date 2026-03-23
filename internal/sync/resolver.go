@@ -330,6 +330,9 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 	createOrgIDResolved := false
 	var createOrgIDErr error
 
+	// Fetch module/script name mappings once for name → UUID resolution.
+	pushScriptNames, pushModuleNames := r.fetchNameMappings(ctx)
+
 	for name, localTest := range testsToSync {
 		result := SyncResult{Name: name}
 
@@ -358,11 +361,16 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				continue
 			}
 
+			// Resolve module/script names → UUIDs on a copy so the
+			// local YAML stays human-readable.
+			resolvedBlocks := deepCopyBlocks(localTest.Test.Blocks)
+			resolveBlockNamesForPush(resolvedBlocks, pushScriptNames, pushModuleNames)
+
 			// Create new test on remote
 			resp, err := r.client.CreateTest(ctx, &api.CreateTestRequest{
 				Name:     localTest.Test.Metadata.Name,
 				Platform: localTest.Test.Metadata.Platform,
-				Tasks:    localTest.Test.Blocks,
+				Tasks:    resolvedBlocks,
 				AppID:    resolvedAppID,
 				OrgID:    createOrgID,
 			})
@@ -396,11 +404,14 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 				expectedVersion = localTest.Meta.RemoteVersion
 			}
 
+			updateBlocks := deepCopyBlocks(localTest.Test.Blocks)
+			resolveBlockNamesForPush(updateBlocks, pushScriptNames, pushModuleNames)
+
 			resp, err := r.client.UpdateTest(ctx, &api.UpdateTestRequest{
 				TestID:          remoteID,
 				Name:            localTest.Test.Metadata.Name,
 				Description:     localTest.Test.Metadata.Description,
-				Tasks:           localTest.Test.Blocks,
+				Tasks:           updateBlocks,
 				AppID:           resolvedAppID,
 				PinnedVersionID: localTest.Test.Build.PinnedVersion,
 				ExpectedVersion: expectedVersion,
@@ -484,29 +495,34 @@ func (r *Resolver) syncTagsForTest(ctx context.Context, testID string, tags []st
 }
 
 // syncTestConfig pushes variables, env vars, and device targets from local YAML
-// to the remote test. Always deletes then re-adds so removing a section from
-// YAML correctly clears the remote values.
+// to the remote test. Uses delete-then-re-add when the YAML defines the section
+// (even if empty, to clear remote values), skipping only when the section is
+// completely absent (nil map).
 //
 // Returns a joined error of all individual failures so callers can surface
 // partial-sync warnings without aborting the overall operation.
 func (r *Resolver) syncTestConfig(ctx context.Context, testID string, localTest *config.LocalTest) error {
 	var errs []error
 
-	if err := r.client.DeleteAllCustomVariables(ctx, testID); err != nil {
-		errs = append(errs, fmt.Errorf("delete custom vars: %w", err))
-	}
-	for name, value := range localTest.Test.Variables {
-		if _, err := r.client.AddCustomVariable(ctx, testID, name, value); err != nil {
-			errs = append(errs, fmt.Errorf("add var %s: %w", name, err))
+	if localTest.Test.Variables != nil {
+		if err := r.client.DeleteAllCustomVariables(ctx, testID); err != nil {
+			errs = append(errs, fmt.Errorf("delete custom vars: %w", err))
+		}
+		for name, value := range localTest.Test.Variables {
+			if _, err := r.client.AddCustomVariable(ctx, testID, name, value); err != nil {
+				errs = append(errs, fmt.Errorf("add var %s: %w", name, err))
+			}
 		}
 	}
 
-	if err := r.client.DeleteAllEnvVars(ctx, testID); err != nil {
-		errs = append(errs, fmt.Errorf("delete env vars: %w", err))
-	}
-	for key, value := range localTest.Test.EnvVars {
-		if _, err := r.client.AddEnvVar(ctx, testID, key, value); err != nil {
-			errs = append(errs, fmt.Errorf("add env var %s: %w", key, err))
+	if localTest.Test.EnvVars != nil {
+		if err := r.client.DeleteAllEnvVars(ctx, testID); err != nil {
+			errs = append(errs, fmt.Errorf("delete env vars: %w", err))
+		}
+		for key, value := range localTest.Test.EnvVars {
+			if _, err := r.client.AddEnvVar(ctx, testID, key, value); err != nil {
+				errs = append(errs, fmt.Errorf("add env var %s: %w", key, err))
+			}
 		}
 	}
 
@@ -1002,14 +1018,10 @@ func (r *Resolver) fetchNameMappings(ctx context.Context) (map[string]string, ma
 	return scriptNames, moduleNames
 }
 
-// resolveBlockNames replaces script/module UUIDs with human-readable names
-// in pulled blocks so the local YAML is readable.
-//
-// For code_execution blocks whose StepDescription is a UUID matching a known
-// script, the UUID is moved to Script and StepDescription is cleared.
-//
-// For module_import blocks whose ModuleID matches a known module, the UUID
-// is moved to Module and ModuleID is cleared.
+// resolveBlockNames adds human-readable names alongside UUIDs in pulled
+// blocks so the local YAML is readable. Both the UUID and the resolved name
+// are kept so that a push round-trip preserves the UUID the execution engine
+// requires.
 func resolveBlockNames(blocks []config.TestBlock, scriptNames, moduleNames map[string]string) {
 	for i := range blocks {
 		b := &blocks[i]
@@ -1017,14 +1029,12 @@ func resolveBlockNames(blocks []config.TestBlock, scriptNames, moduleNames map[s
 		if b.Type == "code_execution" && b.StepDescription != "" {
 			if name, ok := scriptNames[b.StepDescription]; ok {
 				b.Script = name
-				b.StepDescription = ""
 			}
 		}
 
 		if b.Type == "module_import" && b.ModuleID != "" {
 			if name, ok := moduleNames[b.ModuleID]; ok {
 				b.Module = name
-				b.ModuleID = ""
 			}
 		}
 
@@ -1038,6 +1048,78 @@ func resolveBlockNames(blocks []config.TestBlock, scriptNames, moduleNames map[s
 			resolveBlockNames(b.Body, scriptNames, moduleNames)
 		}
 	}
+}
+
+// resolveBlockNamesForPush resolves human-readable module and script names
+// to their UUIDs before blocks are sent to the API. Operates on the provided
+// slice in-place; callers should pass a deep copy if the originals must stay
+// unmodified.
+//
+// Parameters:
+//   - blocks: The blocks to resolve (mutated in-place)
+//   - scriptNames: Map of script UUID -> name (from fetchNameMappings)
+//   - moduleNames: Map of module UUID -> name (from fetchNameMappings)
+func resolveBlockNamesForPush(blocks []config.TestBlock, scriptNames, moduleNames map[string]string) {
+	scriptByName := make(map[string]string, len(scriptNames))
+	for id, name := range scriptNames {
+		scriptByName[strings.ToLower(name)] = id
+	}
+	moduleByName := make(map[string]string, len(moduleNames))
+	for id, name := range moduleNames {
+		moduleByName[strings.ToLower(name)] = id
+	}
+
+	resolveBlockNamesForPushWalk(blocks, scriptByName, moduleByName)
+}
+
+func resolveBlockNamesForPushWalk(blocks []config.TestBlock, scriptByName, moduleByName map[string]string) {
+	for i := range blocks {
+		b := &blocks[i]
+
+		if b.Type == "module_import" && b.ModuleID == "" && b.Module != "" {
+			if id, ok := moduleByName[strings.ToLower(b.Module)]; ok {
+				b.ModuleID = id
+				if b.StepDescription == "" {
+					b.StepDescription = b.Module
+				}
+			}
+		}
+
+		if b.Type == "code_execution" && b.StepDescription == "" && b.Script != "" {
+			if id, ok := scriptByName[strings.ToLower(b.Script)]; ok {
+				b.StepDescription = id
+			}
+		}
+
+		if len(b.Then) > 0 {
+			resolveBlockNamesForPushWalk(b.Then, scriptByName, moduleByName)
+		}
+		if len(b.Else) > 0 {
+			resolveBlockNamesForPushWalk(b.Else, scriptByName, moduleByName)
+		}
+		if len(b.Body) > 0 {
+			resolveBlockNamesForPushWalk(b.Body, scriptByName, moduleByName)
+		}
+	}
+}
+
+// deepCopyBlocks returns a deep copy of blocks so push resolution doesn't
+// mutate the originals (keeping the local YAML free of injected UUIDs).
+func deepCopyBlocks(blocks []config.TestBlock) []config.TestBlock {
+	out := make([]config.TestBlock, len(blocks))
+	copy(out, blocks)
+	for i := range out {
+		if len(out[i].Then) > 0 {
+			out[i].Then = deepCopyBlocks(out[i].Then)
+		}
+		if len(out[i].Else) > 0 {
+			out[i].Else = deepCopyBlocks(out[i].Else)
+		}
+		if len(out[i].Body) > 0 {
+			out[i].Body = deepCopyBlocks(out[i].Body)
+		}
+	}
+	return out
 }
 
 // convertTasksToBlocks converts the API tasks (interface{}) to []config.TestBlock.
@@ -1086,8 +1168,7 @@ func stripBlockIDs(blocks []config.TestBlock) []config.TestBlock {
 	result := make([]config.TestBlock, len(blocks))
 	for i, block := range blocks {
 		result[i] = block
-		result[i].ID = ""       // Server-generated; noise in YAML
-		result[i].StepType = "" // Always inferrable from type; omit for cleaner YAML
+		result[i].ID = "" // Server-generated; noise in YAML
 
 		if len(block.Then) > 0 {
 			result[i].Then = stripBlockIDs(block.Then)

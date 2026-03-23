@@ -348,6 +348,25 @@ func extractAppFromTarGz(tarGzPath string) (string, error) {
 	return ZipAppBundle(appPath)
 }
 
+// PlatformFromFilePath infers the device platform ("ios" or "android") from an
+// artifact file extension. Returns an empty string when the extension is
+// ambiguous or unrecognized.
+func PlatformFromFilePath(path string) string {
+	lower := strings.ToLower(path)
+	switch {
+	case strings.HasSuffix(lower, ".apk"), strings.HasSuffix(lower, ".aab"):
+		return "android"
+	case strings.HasSuffix(lower, ".ipa"),
+		strings.HasSuffix(lower, ".app"),
+		strings.HasSuffix(lower, ".app.zip"),
+		strings.HasSuffix(lower, ".tar.gz"),
+		strings.HasSuffix(lower, ".tgz"):
+		return "ios"
+	default:
+		return ""
+	}
+}
+
 // ZipAppBundle creates a zip archive from a .app bundle directory.
 //
 // Parameters:

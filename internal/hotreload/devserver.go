@@ -22,6 +22,10 @@ const (
 
 	// DevServerOutputStderr indicates the line came from stderr.
 	DevServerOutputStderr DevServerOutputStream = "stderr"
+
+	// DevServerOutputHMR indicates an HMR-related event synthesized from
+	// dev-server output (e.g. file change detected, re-bundle complete).
+	DevServerOutputHMR DevServerOutputStream = "hmr"
 )
 
 // DevServerOutput represents a single line emitted by the dev server process.

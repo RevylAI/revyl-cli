@@ -432,6 +432,26 @@ type TestSyncActionMsg struct {
 	Err    error
 }
 
+// WorkflowSyncProgressMsg carries a per-test progress update during a
+// workflow-scoped sync. The hub handler chains the next channel read after
+// processing each progress message.
+type WorkflowSyncProgressMsg struct {
+	TestName string // display name of the test being synced
+	Status   string // outcome: "pulled v3", "imported", "up to date", "conflict", "error: ..."
+	Current  int    // 1-based index of test just processed
+	Total    int    // total tests in the workflow
+}
+
+// WorkflowSyncMsg signals that a workflow-scoped sync (pull/import all
+// workflow tests) has completed.
+type WorkflowSyncMsg struct {
+	Synced    int   // tests successfully synced
+	Conflicts int   // tests with unresolved conflicts
+	Errors    int   // tests that errored
+	Total     int   // total tests in workflow
+	Err       error // fatal error (no per-test results)
+}
+
 // TestDeletedMsg signals that a test has been deleted.
 type TestDeletedMsg struct {
 	Name          string

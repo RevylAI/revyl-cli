@@ -332,20 +332,20 @@ func TestReadSyncFlags_IsolatedPerCommand(t *testing.T) {
 	if !flagsA.tests || !flagsA.prune {
 		t.Fatalf("cmdA flags incorrect: %+v", flagsA)
 	}
-	if flagsA.workflows || flagsA.apps {
+	if flagsA.apps || flagsA.skipImport {
 		t.Fatalf("cmdA unexpected flags set: %+v", flagsA)
 	}
 
 	cmdB := &cobra.Command{Use: "sync"}
 	registerSyncFlags(cmdB)
-	if err := cmdB.Flags().Parse([]string{"--workflows", "--dry-run"}); err != nil {
+	if err := cmdB.Flags().Parse([]string{"--skip-import", "--dry-run"}); err != nil {
 		t.Fatalf("parse cmdB flags: %v", err)
 	}
 	flagsB, err := readSyncFlags(cmdB)
 	if err != nil {
 		t.Fatalf("readSyncFlags(cmdB): %v", err)
 	}
-	if !flagsB.workflows || !flagsB.dryRun {
+	if !flagsB.skipImport || !flagsB.dryRun {
 		t.Fatalf("cmdB flags incorrect: %+v", flagsB)
 	}
 	if flagsB.tests || flagsB.prune || flagsB.apps {

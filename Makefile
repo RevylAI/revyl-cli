@@ -2,7 +2,7 @@
 # Build, test, and development commands
 
 # Version info (set via ldflags during build)
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+VERSION ?= $(shell cat VERSION 2>/dev/null | tr -d '[:space:]' || git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 

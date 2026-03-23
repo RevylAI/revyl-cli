@@ -347,7 +347,7 @@ type Defaults struct {
 
 const (
 	// DefaultOpenBrowser is the default for defaults.open_browser when omitted.
-	DefaultOpenBrowser = true
+	DefaultOpenBrowser = false
 
 	// DefaultTimeoutSeconds is the default for defaults.timeout when omitted or invalid.
 	DefaultTimeoutSeconds = 600

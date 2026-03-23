@@ -40,6 +40,7 @@ var buildUploadCmd = &cobra.Command{
 
 By default, builds both iOS and Android concurrently if both platforms are configured.
 Use --platform to build only one platform.
+Use --file to upload a pre-built artifact directly (no .revyl/config.yaml required).
 
 This command will:
   1. Run the build command(s) from .revyl/config.yaml
@@ -47,13 +48,16 @@ This command will:
   3. Track metadata (git commit, branch, machine, etc.)
 
 Examples:
-  revyl build upload                    # Build both iOS and Android concurrently
-  revyl build upload --platform ios     # Build iOS only
-  revyl build upload --platform android # Build Android only
-  revyl build upload --skip-build       # Upload existing artifacts
-  revyl build upload --app <id>         # Upload to specific app
-  revyl build upload --name "My App"    # Create app with specified name
-  revyl build upload --name "My App" -y # Create and auto-save to config`,
+  revyl build upload                                 # Build both iOS and Android concurrently
+  revyl build upload --platform ios                  # Build iOS only
+  revyl build upload --platform android              # Build Android only
+  revyl build upload --skip-build                    # Upload existing artifacts
+  revyl build upload --app <id>                      # Upload to specific app
+  revyl build upload --app "My App"                  # Upload to app by name
+  revyl build upload --name "My App"                 # Create app with specified name
+  revyl build upload --name "My App" -y              # Create and auto-save to config
+  revyl build upload --file ./app.apk --app <id>     # Upload a specific file
+  revyl build upload -f ./build/App.ipa --name "iOS" # Upload file and create app`,
 	RunE: runBuildUpload,
 }
 
@@ -98,6 +102,7 @@ var (
 	uploadAppFlag      string
 	uploadPlatformFlag string
 	uploadNameFlag     string
+	uploadFileFlag     string
 	uploadYesFlag      bool
 	buildListJSON      bool
 	buildListBranch    string
@@ -117,15 +122,16 @@ func init() {
 	buildUploadCmd.Flags().BoolVar(&buildSkip, "skip-build", false, "Skip build step, upload existing artifact")
 	buildUploadCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the upload (default: auto-generated)")
 	buildUploadCmd.Flags().BoolVar(&buildSetCurr, "set-current", false, "Set this version as the current version")
-	buildUploadCmd.Flags().StringVar(&uploadAppFlag, "app", "", "App ID to upload to")
+	buildUploadCmd.Flags().StringVar(&uploadAppFlag, "app", "", "App name or ID to upload to")
 	buildUploadCmd.Flags().StringVar(&uploadPlatformFlag, "platform", "", "Platform to build for (ios, android)")
 	buildUploadCmd.Flags().StringVar(&uploadNameFlag, "name", "", "Name for new app (used when creating)")
 	buildUploadCmd.Flags().BoolVarP(&uploadYesFlag, "yes", "y", false, "Automatically confirm prompts (e.g., save to config)")
 	buildUploadCmd.Flags().BoolVar(&buildUploadJSON, "json", false, "Output results as JSON")
 	buildUploadCmd.Flags().BoolVar(&buildDryRun, "dry-run", false, "Show what would be uploaded without uploading")
+	buildUploadCmd.Flags().StringVarP(&uploadFileFlag, "file", "f", "", "Path to a build artifact to upload directly (skips config-based build)")
 	buildUploadCmd.Flags().StringVar(&uploadSchemeFlag, "scheme", "", "Xcode scheme to use for iOS builds (overrides config)")
 
-	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App ID to list builds for")
+	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App name or ID to list builds for")
 	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org apps")
 	buildListCmd.Flags().BoolVar(&buildListJSON, "json", false, "Output results as JSON")
 	buildListCmd.Flags().StringVar(&buildListBranch, "branch", "", "Filter builds by git branch (use HEAD for current branch)")
@@ -155,6 +161,11 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	apiKey, err := getAPIKey()
 	if err != nil {
 		return err
+	}
+
+	// Direct file upload bypasses config-based build entirely.
+	if uploadFileFlag != "" {
+		return runDirectFileUpload(cmd, apiKey)
 	}
 
 	// Load project config
@@ -217,6 +228,208 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	ui.PrintWarning("Multiple platforms configured without --platform flag, using '%s'", platforms[0])
 	ui.PrintInfo("Use --platform to specify which platform to build")
 	return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platforms[0])
+}
+
+// runDirectFileUpload uploads a user-supplied artifact without requiring a
+// .revyl/config.yaml build configuration. Platform is inferred from the file
+// extension when --platform is not set. A project config is loaded
+// opportunistically for app_id fallback but is not required.
+//
+// Parameters:
+//   - cmd: The cobra command being executed
+//   - apiKey: Authentication token for API requests
+//
+// Returns:
+//   - error: Any error that occurred during upload
+func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Resolve and validate the artifact path.
+	artifactPath, err := build.ResolveArtifactPath(cwd, uploadFileFlag)
+	if err != nil {
+		ui.PrintError("File not found: %s", uploadFileFlag)
+		return fmt.Errorf("file not found: %w", err)
+	}
+
+	info, err := os.Stat(artifactPath)
+	if err != nil {
+		ui.PrintError("Cannot read file: %s", artifactPath)
+		return fmt.Errorf("cannot read file: %w", err)
+	}
+	if info.IsDir() && !build.IsAppBundle(artifactPath) {
+		ui.PrintError("Path is a directory, not a build artifact: %s", artifactPath)
+		return fmt.Errorf("path is a directory, not a build artifact")
+	}
+
+	// Determine target platform from --platform flag or file extension.
+	devicePlatform := uploadPlatformFlag
+	if devicePlatform == "" {
+		devicePlatform = build.PlatformFromFilePath(artifactPath)
+	}
+	if normalized, normalizeErr := normalizeMobilePlatform(devicePlatform, ""); normalizeErr == nil {
+		devicePlatform = normalized
+	} else if uploadPlatformFlag != "" {
+		ui.PrintError("Invalid platform %q (must be ios or android)", uploadPlatformFlag)
+		return fmt.Errorf("invalid platform: %s", uploadPlatformFlag)
+	} else {
+		ui.PrintError("Cannot determine platform from file extension '%s'", filepath.Ext(artifactPath))
+		ui.PrintInfo("Use --platform to specify the target platform (ios or android)")
+		return fmt.Errorf("unable to infer platform from file path: %s", artifactPath)
+	}
+
+	// Handle dry-run before doing any real work.
+	if buildDryRun {
+		ui.PrintBanner(version)
+		ui.PrintInfo("Dry-run mode — showing what would be uploaded:")
+		ui.Println()
+		ui.PrintInfo("  File:           %s", artifactPath)
+		ui.PrintInfo("  Platform:       %s", devicePlatform)
+		if uploadAppFlag != "" {
+			ui.PrintInfo("  App:            %s", uploadAppFlag)
+		}
+		if buildVersion != "" {
+			ui.PrintInfo("  Build Version:  %s", buildVersion)
+		}
+		ui.Println()
+		if !buildUploadJSON {
+			ui.PrintSuccess("Dry-run complete — no changes made")
+		}
+		return nil
+	}
+
+	ui.PrintBanner(version)
+	ui.PrintInfo("Direct Upload (%s)", devicePlatform)
+	ui.Println()
+
+	// Create API client.
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	// Resolve app ID: --app flag (name or UUID) → config fallback → interactive prompt.
+	appID := uploadAppFlag
+	if appID != "" && !looksLikeUUID(appID) {
+		resolvedID, _, resolveErr := resolveAppNameOrID(cmd, client, appID)
+		if resolveErr != nil {
+			ui.PrintError("Could not resolve app %q: %v", appID, resolveErr)
+			return resolveErr
+		}
+		appID = resolvedID
+	}
+
+	if appID == "" {
+		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+		if cfg, cfgErr := config.LoadProjectConfig(configPath); cfgErr == nil {
+			if platformKey := pickBestBuildPlatformKey(cfg, devicePlatform); platformKey != "" {
+				appID = cfg.Build.Platforms[platformKey].AppID
+			}
+		}
+	}
+
+	if appID == "" {
+		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+		cfg, cfgErr := config.LoadProjectConfig(configPath)
+		if cfgErr != nil {
+			cfg = &config.ProjectConfig{}
+			cfg.Build.Platforms = make(map[string]config.BuildPlatform)
+		}
+		selectedID, promptErr := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, devicePlatform, devicePlatform)
+		if promptErr != nil {
+			return promptErr
+		}
+		appID = selectedID
+	}
+
+	// Generate version string.
+	versionStr := buildVersion
+	if versionStr == "" {
+		versionStr = build.GenerateVersionStringForWorkDir(cwd)
+	}
+
+	ui.PrintInfo("Uploading: %s", filepath.Base(artifactPath))
+	ui.PrintInfo("Build Version: %s", versionStr)
+
+	// Post-process iOS artifacts (tar.gz → zip, .app → zip).
+	if build.IsTarGz(artifactPath) {
+		ui.Println()
+		ui.StartSpinner("Extracting .app from tar.gz...")
+		zipPath, extractErr := build.ExtractAppFromTarGz(artifactPath)
+		ui.StopSpinner()
+		if extractErr != nil {
+			ui.PrintError("Failed to extract .app from tar.gz: %v", extractErr)
+			return extractErr
+		}
+		defer os.Remove(zipPath)
+		artifactPath = zipPath
+		if !buildUploadJSON {
+			ui.PrintSuccess("Converted to: %s", filepath.Base(zipPath))
+		}
+	} else if build.IsAppBundle(artifactPath) {
+		ui.Println()
+		ui.StartSpinner("Zipping .app bundle...")
+		zipPath, zipErr := build.ZipAppBundle(artifactPath)
+		ui.StopSpinner()
+		if zipErr != nil {
+			ui.PrintError("Failed to zip .app bundle: %v", zipErr)
+			return zipErr
+		}
+		defer os.Remove(zipPath)
+		artifactPath = zipPath
+		if !buildUploadJSON {
+			ui.PrintSuccess("Created: %s", filepath.Base(zipPath))
+		}
+	}
+
+	// Collect metadata (no build command or duration for direct uploads).
+	metadata := build.CollectMetadata(cwd, "", devicePlatform, 0)
+
+	ui.Println()
+	ui.StartSpinner("Uploading artifact...")
+
+	result, uploadErr := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
+		AppID:        appID,
+		Version:      versionStr,
+		FilePath:     artifactPath,
+		Metadata:     metadata,
+		SetAsCurrent: buildSetCurr,
+	})
+
+	ui.StopSpinner()
+
+	if uploadErr != nil {
+		ui.PrintError("Upload failed: %v", uploadErr)
+		return uploadErr
+	}
+
+	ui.Println()
+	if !buildUploadJSON {
+		ui.PrintSuccess("Upload complete!")
+	}
+	ui.PrintInfo("App:             %s", appID)
+	ui.PrintInfo("Build Version:   %s", result.Version)
+	ui.PrintInfo("Build ID:        %s", result.VersionID)
+	if result.PackageID != "" {
+		ui.PrintInfo("Package ID:      %s", result.PackageID)
+	}
+	ui.Println()
+	ui.PrintDim("To list builds: revyl build list --app %s", appID)
+
+	if buildUploadJSON {
+		outputBuildUploadJSON([]BuildUploadJSONBuild{
+			newBuildUploadJSONBuild(
+				devicePlatform,
+				devicePlatform,
+				appID,
+				artifactPath,
+				0,
+				result,
+			),
+		})
+	}
+
+	return nil
 }
 
 // selectOrCreateAppForPlatform prompts the user to select an existing app or create a new one,
@@ -1105,13 +1318,20 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Determine app ID from platform config
+	// Determine app ID: --app flag (name or UUID) → platform config → interactive prompt.
 	appID := uploadAppFlag
+	if appID != "" && !looksLikeUUID(appID) {
+		resolvedID, _, resolveErr := resolveAppNameOrID(cmd, client, appID)
+		if resolveErr != nil {
+			ui.PrintError("Could not resolve app %q: %v", appID, resolveErr)
+			return resolveErr
+		}
+		appID = resolvedID
+	}
 	if appID == "" {
 		appID = platformCfg.AppID
 	}
 
-	// If no app ID, prompt user to select or create one
 	if appID == "" {
 		selectedID, err := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, platformKey, devicePlatform)
 		if err != nil {
@@ -1244,11 +1464,17 @@ func runBuildList(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Determine app ID from flag or show org apps
+	// Determine app from flag (name or UUID) or show org apps.
 	appID := appIDFlag
-
-	// If we have an app ID, list builds for it
 	if appID != "" {
+		if !looksLikeUUID(appID) {
+			resolvedID, _, resolveErr := resolveAppNameOrID(cmd, client, appID)
+			if resolveErr != nil {
+				ui.PrintError("Could not resolve app %q: %v", appID, resolveErr)
+				return resolveErr
+			}
+			appID = resolvedID
+		}
 		return listBuildVersions(cmd, client, appID)
 	}
 

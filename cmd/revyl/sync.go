@@ -24,17 +24,18 @@ import (
 // syncCmd reconciles local project config with upstream state.
 var syncCmd = &cobra.Command{
 	Use:   "sync",
-	Short: "Sync tests, workflows, and app links with upstream state",
+	Short: "Sync tests and app links with upstream state",
 	Long: `Synchronize local project state against your Revyl organization.
 
-By default, sync reconciles tests, workflows, and app link mappings in
-.revyl/config.yaml. Prompts are shown only when a decision is required
-(conflicts, stale/deleted mappings, duplicates).
+By default, sync reconciles tests and app link mappings in .revyl/config.yaml.
+Remote tests that exist in the org but not locally are imported after
+confirmation (interactive) or skipped (non-interactive / --skip-import).
 
 EXAMPLES:
-  revyl sync                        # Sync tests + workflows + app links
+  revyl sync                        # Sync tests + app links
   revyl sync --tests                # Sync tests only
-  revyl sync --workflows --apps     # Sync workflows and app links
+  revyl sync --workflow "Smoke"     # Sync only tests in this workflow
+  revyl sync --skip-import          # Only sync existing local tests, skip remote imports
   revyl sync --non-interactive      # No prompts; deterministic defaults
   revyl sync --prune                # Auto-prune stale mappings
   revyl sync --dry-run --json       # Preview actions as JSON`,
@@ -46,9 +47,12 @@ func init() {
 }
 
 type syncOptions struct {
-	Prompt bool
-	Prune  bool
-	DryRun bool
+	Prompt         bool
+	Prune          bool
+	DryRun         bool
+	SkipImport     bool
+	JSONOutput     bool
+	WorkflowFilter string
 }
 
 type syncItem struct {
@@ -73,34 +77,32 @@ type syncOutput struct {
 
 type syncFlagValues struct {
 	tests            bool
-	workflows        bool
 	apps             bool
 	nonInteractive   bool
 	interactive      bool
 	prune            bool
 	dryRun           bool
+	skipImport       bool
 	skipHotReloadChk bool
 	bootstrap        bool
+	workflow         string
 }
 
 func registerSyncFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("tests", false, "Sync tests")
-	cmd.Flags().Bool("workflows", false, "Sync workflows")
 	cmd.Flags().Bool("apps", false, "Sync build platform app_id links")
 	cmd.Flags().Bool("non-interactive", false, "Disable prompts and apply deterministic defaults")
 	cmd.Flags().Bool("interactive", false, "Force interactive prompts (requires TTY stdin)")
 	cmd.Flags().Bool("prune", false, "Auto-prune stale/deleted mappings")
 	cmd.Flags().Bool("dry-run", false, "Show planned actions without writing files")
+	cmd.Flags().Bool("skip-import", false, "Skip importing remote-only tests (only sync tests already in .revyl/tests/)")
+	cmd.Flags().String("workflow", "", "Only sync tests belonging to this workflow (name or ID)")
 	cmd.Flags().Bool("skip-hotreload-check", false, "Skip validating hotreload platform key mappings")
 	cmd.Flags().Bool("bootstrap", false, "Rebuild config mappings from local YAML _meta.remote_id values (useful after cloning)")
 }
 
 func readSyncFlags(cmd *cobra.Command) (syncFlagValues, error) {
 	tests, err := cmd.Flags().GetBool("tests")
-	if err != nil {
-		return syncFlagValues{}, err
-	}
-	workflows, err := cmd.Flags().GetBool("workflows")
 	if err != nil {
 		return syncFlagValues{}, err
 	}
@@ -124,6 +126,14 @@ func readSyncFlags(cmd *cobra.Command) (syncFlagValues, error) {
 	if err != nil {
 		return syncFlagValues{}, err
 	}
+	skipImport, err := cmd.Flags().GetBool("skip-import")
+	if err != nil {
+		return syncFlagValues{}, err
+	}
+	workflow, err := cmd.Flags().GetString("workflow")
+	if err != nil {
+		return syncFlagValues{}, err
+	}
 	skipHotReloadChk, err := cmd.Flags().GetBool("skip-hotreload-check")
 	if err != nil {
 		return syncFlagValues{}, err
@@ -135,14 +145,15 @@ func readSyncFlags(cmd *cobra.Command) (syncFlagValues, error) {
 
 	return syncFlagValues{
 		tests:            tests,
-		workflows:        workflows,
 		apps:             apps,
 		nonInteractive:   nonInteractive,
 		interactive:      interactive,
 		prune:            prune,
 		dryRun:           dryRun,
+		skipImport:       skipImport,
 		skipHotReloadChk: skipHotReloadChk,
 		bootstrap:        bootstrap,
+		workflow:         workflow,
 	}, nil
 }
 
@@ -181,10 +192,18 @@ func runSync(cmd *cobra.Command, args []string) error {
 		interactiveWanted = false
 	}
 
+	skipImport := flags.skipImport
+	if !interactiveWanted && !flags.skipImport {
+		skipImport = true
+	}
+
 	opts := syncOptions{
-		Prompt: interactiveWanted,
-		Prune:  flags.prune,
-		DryRun: flags.dryRun,
+		Prompt:         interactiveWanted,
+		Prune:          flags.prune,
+		DryRun:         flags.dryRun,
+		SkipImport:     skipImport,
+		JSONOutput:     jsonOutput,
+		WorkflowFilter: flags.workflow,
 	}
 
 	apiKey, err := getAPIKey()
@@ -333,15 +352,111 @@ func printSyncOutput(out syncOutput) {
 	printSyncSection("App Links", out.AppLinks)
 	printSyncSection("Hot Reload", out.HotReloadChecks)
 
+	printSyncSummary(out.Summary)
+}
+
+// printSyncSummary renders a human-readable summary with aligned key-value
+// pairs. Top-level totals are always shown; action breakdowns only appear
+// when non-zero.
+func printSyncSummary(summary map[string]int) {
 	ui.Println()
 	ui.PrintInfo("Summary")
-	keys := make([]string, 0, len(out.Summary))
-	for k := range out.Summary {
-		keys = append(keys, k)
+	ui.PrintKeyValue("Tests:", fmt.Sprintf("%d", summary["tests"]))
+	if summary["workflows"] > 0 {
+		ui.PrintKeyValue("Workflows:", fmt.Sprintf("%d", summary["workflows"]))
 	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		ui.PrintDim("  %s: %d", k, out.Summary[k])
+	if summary["app_links"] > 0 {
+		ui.PrintKeyValue("App links:", fmt.Sprintf("%d", summary["app_links"]))
+	}
+
+	actionLabels := []struct {
+		key   string
+		label string
+	}{
+		{"action_import", "Imported:"},
+		{"action_would-import", "Would import:"},
+		{"action_link", "Linked:"},
+		{"action_would-link", "Would link:"},
+		{"action_skip-import", "Skipped import:"},
+		{"action_pull", "Pulled:"},
+		{"action_would-pull", "Would pull:"},
+		{"action_push", "Pushed:"},
+		{"action_would-push", "Would push:"},
+		{"action_keep-local", "Kept local:"},
+		{"action_detach", "Detached:"},
+		{"action_would-detach", "Would detach:"},
+		{"action_relink", "Relinked:"},
+		{"action_would-relink", "Would relink:"},
+		{"action_prune-all", "Pruned:"},
+		{"action_prune-alias", "Alias pruned:"},
+		{"errors", "Errors:"},
+	}
+	for _, al := range actionLabels {
+		if v := summary[al.key]; v > 0 {
+			ui.PrintKeyValue(al.label, fmt.Sprintf("%d", v))
+		}
+	}
+}
+
+const (
+	syncCollapseThreshold = 10
+	syncCollapsedVisible  = 5
+)
+
+// syncGroupMeta defines display properties for a group of sync items
+// sharing the same (status, action) pair.
+type syncGroupMeta struct {
+	icon  string
+	label string
+	style func(...string) string
+}
+
+// syncGroupDisplay returns the display icon, label, and lipgloss style
+// renderer for a given (status, action) combination.
+func syncGroupDisplay(status, action string) syncGroupMeta {
+	switch {
+	case action == "import":
+		return syncGroupMeta{"↓", "Imported from remote", ui.SuccessStyle.Render}
+	case action == "would-import":
+		return syncGroupMeta{"↓", "Remote only — would import", ui.DimStyle.Render}
+	case action == "pull":
+		return syncGroupMeta{"↓", "Pulled from remote", ui.SuccessStyle.Render}
+	case action == "would-pull":
+		return syncGroupMeta{"↓", "Would pull from remote", ui.DimStyle.Render}
+	case action == "push":
+		return syncGroupMeta{"↑", "Pushed to remote", ui.SuccessStyle.Render}
+	case action == "would-push":
+		return syncGroupMeta{"↑", "Would push to remote", ui.DimStyle.Render}
+	case action == "link":
+		return syncGroupMeta{"↔", "Linked to remote", ui.SuccessStyle.Render}
+	case action == "would-link":
+		return syncGroupMeta{"↔", "Name match — would link", ui.WarningStyle.Render}
+	case action == "skip-import":
+		return syncGroupMeta{"·", "Skipped import", ui.DimStyle.Render}
+	case action == "keep-local":
+		return syncGroupMeta{"●", "Local only", ui.DimStyle.Render}
+	case action == "detach":
+		return syncGroupMeta{"✗", "Detached", ui.WarningStyle.Render}
+	case action == "would-detach":
+		return syncGroupMeta{"✗", "Would detach", ui.WarningStyle.Render}
+	case action == "relink":
+		return syncGroupMeta{"→", "Relinked", ui.SuccessStyle.Render}
+	case action == "would-relink":
+		return syncGroupMeta{"→", "Would relink", ui.DimStyle.Render}
+	case action == "prune-all", action == "would-prune-all":
+		return syncGroupMeta{"✗", "Pruned", ui.WarningStyle.Render}
+	case action == "prune-alias", action == "would-prune-alias":
+		return syncGroupMeta{"✗", "Alias pruned", ui.WarningStyle.Render}
+	case status == "synced":
+		return syncGroupMeta{"✓", "Synced", ui.SuccessStyle.Render}
+	case status == "warning":
+		return syncGroupMeta{"⚠", "Warnings", ui.WarningStyle.Render}
+	case status == "stale":
+		return syncGroupMeta{"⚠", "Stale", ui.WarningStyle.Render}
+	case status == "conflict":
+		return syncGroupMeta{"⚠", "Conflicts", ui.WarningStyle.Render}
+	default:
+		return syncGroupMeta{"·", status + "/" + action, ui.DimStyle.Render}
 	}
 }
 
@@ -351,32 +466,69 @@ func printSyncSection(title string, items []syncItem) {
 	}
 
 	ui.Println()
-	ui.PrintInfo("%s", title)
+	fmt.Fprintf(os.Stderr, "%s %s\n",
+		ui.TitleStyle.Render(title),
+		ui.AccentStyle.Render(fmt.Sprintf("(%d)", len(items))))
+
+	type groupKey struct{ status, action string }
+	var keyOrder []groupKey
+	groups := make(map[groupKey][]syncItem)
 	for _, it := range items {
-		status := it.Status
-		if status == "" {
-			status = "unknown"
+		st := it.Status
+		if st == "" {
+			st = "unknown"
 		}
-		action := it.Action
-		if action == "" {
-			action = "none"
+		act := it.Action
+		if act == "" {
+			act = "none"
 		}
-		line := fmt.Sprintf("  - %s [%s/%s]", it.Name, status, action)
-		if it.ID != "" {
-			line += " " + truncatePrefix(it.ID, 8)
+		k := groupKey{st, act}
+		if _, exists := groups[k]; !exists {
+			keyOrder = append(keyOrder, k)
 		}
-		if it.Message != "" {
-			line += " — " + it.Message
+		groups[k] = append(groups[k], it)
+	}
+
+	for _, k := range keyOrder {
+		grp := groups[k]
+		meta := syncGroupDisplay(k.status, k.action)
+
+		header := fmt.Sprintf("  %s %s (%d)", meta.icon, meta.label, len(grp))
+		fmt.Fprintln(os.Stderr, meta.style(header))
+
+		visible := len(grp)
+		collapsed := false
+		if visible > syncCollapseThreshold {
+			visible = syncCollapsedVisible
+			collapsed = true
 		}
-		if it.Error != "" {
-			ui.PrintError("%s | %s", line, it.Error)
-		} else if status == "warning" || status == "stale" || status == "conflict" {
-			ui.PrintWarning("%s", line)
-		} else if status == "synced" || action == "pull" || action == "push" || action == "import" || action == "relink" || action == "detach" || action == "prune-all" || action == "prune-alias" {
-			ui.PrintSuccess("%s", line)
-		} else {
-			ui.PrintDim("%s", line)
+
+		for _, it := range grp[:visible] {
+			printSyncItemLine(it)
 		}
+		if collapsed {
+			remaining := len(grp) - visible
+			fmt.Fprintln(os.Stderr, ui.DimStyle.Render(
+				fmt.Sprintf("    ... and %d more", remaining)))
+		}
+	}
+}
+
+// printSyncItemLine renders a single sync item as an indented line with the
+// test name (truncated to 45 chars) and an optional abbreviated ID.
+func printSyncItemLine(it syncItem) {
+	name := it.Name
+	if len(name) > 45 {
+		name = name[:42] + "..."
+	}
+	line := fmt.Sprintf("%-45s", name)
+	if it.ID != "" {
+		line += "  " + truncatePrefix(it.ID, 8)
+	}
+	if it.Error != "" {
+		ui.PrintError("    %s  %s", line, it.Error)
+	} else {
+		fmt.Fprintln(os.Stderr, ui.DimStyle.Render("    "+line))
 	}
 }
 
@@ -389,6 +541,39 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 	if err != nil {
 		items = append(items, syncItem{Name: "tests", Status: "error", Action: "list", Error: err.Error()})
 		return items, changed, err
+	}
+
+	// When --workflow is set, narrow remoteTests to only tests in that workflow.
+	if opts.WorkflowFilter != "" {
+		wfID, wfName, wfErr := resolveWorkflowID(ctx, opts.WorkflowFilter, cfg, client)
+		if wfErr != nil {
+			items = append(items, syncItem{Name: opts.WorkflowFilter, Status: "error", Action: "resolve-workflow", Error: wfErr.Error()})
+			return items, changed, wfErr
+		}
+		wfInfo, wfInfoErr := client.GetWorkflowInfo(ctx, wfID)
+		if wfInfoErr != nil {
+			items = append(items, syncItem{Name: opts.WorkflowFilter, Status: "error", Action: "fetch-workflow", Error: wfInfoErr.Error()})
+			return items, changed, wfInfoErr
+		}
+		if wfName == "" && wfInfo != nil {
+			wfName = wfInfo.Name
+		}
+		allowedIDs := make(map[string]bool, len(wfInfo.TestInfo))
+		for _, ti := range wfInfo.TestInfo {
+			allowedIDs[ti.ID] = true
+		}
+		filtered := make([]api.SimpleTest, 0, len(allowedIDs))
+		for _, rt := range remoteTests {
+			if allowedIDs[rt.ID] {
+				filtered = append(filtered, rt)
+			}
+		}
+		remoteTests = filtered
+
+		if !opts.JSONOutput {
+			ui.PrintInfo("Syncing tests from workflow: %q (%d tests)", wfName, len(remoteTests))
+			ui.Println()
+		}
 	}
 
 	remoteByID := make(map[string]api.SimpleTest, len(remoteTests))
@@ -416,6 +601,15 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 		}
 	}
 
+	// Phase 1: Classify remote-only tests into name-matches and pure imports.
+	type pendingImport struct {
+		alias string
+		rt    api.SimpleTest
+	}
+	var nameMatches []pendingImport
+	var pureImports []pendingImport
+	justLinked := make(map[string]bool)
+
 	for _, rt := range remoteTests {
 		if existingIDs[rt.ID] {
 			continue
@@ -424,41 +618,182 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 		if alias == "" {
 			alias = fmt.Sprintf("test-%s", truncatePrefix(rt.ID, 8))
 		}
-		alias = ensureUniqueAlias(alias, localTests)
 
-		action := "import"
-		if opts.DryRun {
-			action = "would-import"
+		if lt, exists := localTests[alias]; exists && lt != nil && lt.Meta.RemoteID == "" {
+			nameMatches = append(nameMatches, pendingImport{alias: alias, rt: rt})
 		} else {
-			if mkErr := os.MkdirAll(testsDir, 0755); mkErr != nil {
-				items = append(items, syncItem{
-					Name: alias, ID: rt.ID, Status: "error",
-					Action: "import", Error: mkErr.Error(),
-				})
-				continue
-			}
-			newTest := &config.LocalTest{
-				Meta: config.TestMeta{RemoteID: rt.ID},
-			}
-			localPath := filepath.Join(testsDir, alias+".yaml")
-			if saveErr := config.SaveLocalTest(localPath, newTest); saveErr != nil {
-				items = append(items, syncItem{
-					Name: alias, ID: rt.ID, Status: "error",
-					Action: "import", Error: saveErr.Error(),
-				})
-				continue
-			}
-			localTests[alias] = newTest
-			existingIDs[rt.ID] = true
-			changed = true
+			pureImports = append(pureImports, pendingImport{alias: ensureUniqueAlias(alias, localTests), rt: rt})
 		}
-		items = append(items, syncItem{
-			Name:    alias,
-			ID:      rt.ID,
-			Status:  "remote-only",
-			Action:  action,
-			Message: "discovered from organization and added to local tests",
-		})
+	}
+
+	// Phase 2: Handle name-matched tests (local file exists, same name, no remote_id).
+	for _, nm := range nameMatches {
+		if justLinked[nm.alias] {
+			items = append(items, syncItem{
+				Name:    nm.alias,
+				ID:      nm.rt.ID,
+				Status:  "collision",
+				Action:  "skip",
+				Message: "alias already linked to another remote test this sync",
+			})
+			continue
+		}
+
+		lt := localTests[nm.alias]
+		localSummary := describeLocalTest(lt)
+		remoteSummary := describeRemoteSimpleTest(nm.rt)
+
+		if opts.DryRun {
+			items = append(items, syncItem{
+				Name:    nm.alias,
+				ID:      nm.rt.ID,
+				Status:  "name-match",
+				Action:  "would-link",
+				Message: fmt.Sprintf("would pull remote → local | local: %s | remote: %s", localSummary, remoteSummary),
+			})
+			continue
+		}
+
+		decision := "pull"
+		if opts.Prompt {
+			ui.Println()
+			ui.PrintInfo("Name match: '%s' (%s)", nm.alias, truncatePrefix(nm.rt.ID, 8))
+			ui.PrintDim("  Local:  %s", localSummary)
+			ui.PrintDim("  Remote: %s", remoteSummary)
+			decision = promptNameMatchAction(nm.alias)
+		}
+
+		if decision == "skip" {
+			items = append(items, syncItem{
+				Name:    nm.alias,
+				ID:      nm.rt.ID,
+				Status:  "name-match",
+				Action:  "skip",
+				Message: "name match skipped",
+			})
+			continue
+		}
+
+		lt.Meta.RemoteID = nm.rt.ID
+		localPath := filepath.Join(testsDir, nm.alias+".yaml")
+		if saveErr := config.SaveLocalTest(localPath, lt); saveErr != nil {
+			items = append(items, syncItem{
+				Name: nm.alias, ID: nm.rt.ID, Status: "error",
+				Action: "link", Error: saveErr.Error(),
+			})
+			continue
+		}
+		existingIDs[nm.rt.ID] = true
+		justLinked[nm.alias] = true
+		changed = true
+
+		switch decision {
+		case "push":
+			if pushErr := pushSingleTest(ctx, client, cfg, testsDir, nm.alias); pushErr != nil {
+				items = append(items, syncItem{
+					Name: nm.alias, ID: nm.rt.ID, Status: "name-match",
+					Action: "link", Error: "linked but push failed: " + pushErr.Error(),
+				})
+			} else {
+				items = append(items, syncItem{
+					Name:    nm.alias,
+					ID:      nm.rt.ID,
+					Status:  "name-match",
+					Action:  "link",
+					Message: "linked and pushed local → remote",
+				})
+			}
+		case "pull":
+			if pullErr := pullSingleTest(ctx, client, cfg, testsDir, nm.alias); pullErr != nil {
+				items = append(items, syncItem{
+					Name: nm.alias, ID: nm.rt.ID, Status: "name-match",
+					Action: "link", Error: "linked but pull failed: " + pullErr.Error(),
+				})
+			} else {
+				items = append(items, syncItem{
+					Name:    nm.alias,
+					ID:      nm.rt.ID,
+					Status:  "name-match",
+					Action:  "link",
+					Message: "linked and pulled remote → local",
+				})
+			}
+		}
+	}
+
+	// Phase 3: Handle pure imports (remote tests with no local counterpart).
+	if opts.SkipImport {
+		if len(pureImports) > 0 && !opts.JSONOutput {
+			ui.PrintDim("  Skipped %d remote-only test(s) (--skip-import)", len(pureImports))
+		}
+		for _, pi := range pureImports {
+			items = append(items, syncItem{
+				Name:    pi.alias,
+				ID:      pi.rt.ID,
+				Status:  "remote-only",
+				Action:  "skip-import",
+				Message: "skipped (--skip-import)",
+			})
+		}
+	} else if opts.DryRun {
+		for _, pi := range pureImports {
+			items = append(items, syncItem{
+				Name:    pi.alias,
+				ID:      pi.rt.ID,
+				Status:  "remote-only",
+				Action:  "would-import",
+				Message: "discovered from organization and added to local tests",
+			})
+		}
+	} else {
+		doImport := true
+		if opts.Prompt && len(pureImports) > 0 {
+			doImport = ui.Confirm(fmt.Sprintf(
+				"Import %d remote-only test(s) into .revyl/tests/?", len(pureImports)))
+		}
+
+		if doImport {
+			for _, pi := range pureImports {
+				if mkErr := os.MkdirAll(testsDir, 0755); mkErr != nil {
+					items = append(items, syncItem{
+						Name: pi.alias, ID: pi.rt.ID, Status: "error",
+						Action: "import", Error: mkErr.Error(),
+					})
+					continue
+				}
+				newTest := &config.LocalTest{
+					Meta: config.TestMeta{RemoteID: pi.rt.ID},
+				}
+				localPath := filepath.Join(testsDir, pi.alias+".yaml")
+				if saveErr := config.SaveLocalTest(localPath, newTest); saveErr != nil {
+					items = append(items, syncItem{
+						Name: pi.alias, ID: pi.rt.ID, Status: "error",
+						Action: "import", Error: saveErr.Error(),
+					})
+					continue
+				}
+				localTests[pi.alias] = newTest
+				existingIDs[pi.rt.ID] = true
+				changed = true
+				items = append(items, syncItem{
+					Name:    pi.alias,
+					ID:      pi.rt.ID,
+					Status:  "remote-only",
+					Action:  "import",
+					Message: "discovered from organization and added to local tests",
+				})
+			}
+		} else {
+			for _, pi := range pureImports {
+				items = append(items, syncItem{
+					Name:    pi.alias,
+					ID:      pi.rt.ID,
+					Status:  "remote-only",
+					Action:  "skip-import",
+					Message: "import declined",
+				})
+			}
+		}
 	}
 
 	resolver := syncpkg.NewResolver(client, cfg, localTests)
@@ -473,6 +808,10 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 	})
 
 	for _, st := range statuses {
+		if justLinked[st.Name] {
+			continue
+		}
+
 		item := syncItem{
 			Name:   st.Name,
 			ID:     st.RemoteID,
@@ -561,7 +900,6 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 					if localTest == nil {
 						loaded, lErr := config.LoadLocalTest(localPath)
 						if lErr != nil {
-							// Be conservative: if we cannot inspect the file reliably, don't auto-delete it.
 							hasLocalChanges = true
 						} else {
 							localTest = loaded
@@ -1101,13 +1439,13 @@ func isAPIStatus(err error, statusCode int) bool {
 
 func promptStaleTestAction(name string, hasLocalFile bool) string {
 	options := []ui.SelectOption{
-		{Label: "Keep mapping", Value: "keep", Description: "Leave alias and local file unchanged."},
-		{Label: "Prune alias", Value: "prune-alias", Description: "Remove alias from .revyl/config.yaml."},
+		{Label: "Keep as-is", Value: "keep", Description: "Leave the test file and remote link unchanged."},
+		{Label: "Unlink remote", Value: "prune-alias", Description: "Clear the remote link in the test YAML (keep the file)."},
 	}
 	if hasLocalFile {
-		options = append(options, ui.SelectOption{Label: "Prune alias + file", Value: "prune-all", Description: "Remove alias and local test YAML."})
+		options = append(options, ui.SelectOption{Label: "Delete test file", Value: "prune-all", Description: "Remove the remote link and delete the local .yaml file."})
 	}
-	_, value, err := ui.Select(fmt.Sprintf("Test '%s' is missing upstream. Choose action:", name), options, 0)
+	_, value, err := ui.Select(fmt.Sprintf("Test '%s' was not found remotely. Choose action:", name), options, 0)
 	if err != nil {
 		return "keep"
 	}
@@ -1118,7 +1456,7 @@ func promptOrphanedTestAction(name string, issue syncpkg.RemoteLinkIssue, hasLoc
 	issueLabel := "stale"
 	switch issue {
 	case syncpkg.RemoteLinkIssueMissing:
-		issueLabel = "missing upstream"
+		issueLabel = "not found remotely"
 	case syncpkg.RemoteLinkIssueInvalidID:
 		issueLabel = "invalid remote id"
 	case syncpkg.RemoteLinkIssueUnauthorized:
@@ -1128,14 +1466,14 @@ func promptOrphanedTestAction(name string, issue syncpkg.RemoteLinkIssue, hasLoc
 	}
 
 	options := []ui.SelectOption{
-		{Label: "Keep mapping", Value: "keep", Description: "Leave alias and local file unchanged."},
-		{Label: "Detach mapping", Value: "detach", Description: "Remove remote link and keep local test file."},
+		{Label: "Keep as-is", Value: "keep", Description: "Leave the test file and remote link unchanged."},
+		{Label: "Unlink remote", Value: "detach", Description: "Clear the remote link in the test YAML (keep the file)."},
 	}
 	if hasLocalFile {
-		options = append(options, ui.SelectOption{Label: "Prune alias + file", Value: "prune-all", Description: "Remove alias and local test YAML."})
+		options = append(options, ui.SelectOption{Label: "Delete test file", Value: "prune-all", Description: "Remove the remote link and delete the local .yaml file."})
 	}
 
-	_, value, err := ui.Select(fmt.Sprintf("Test '%s' link is %s. Choose action:", name, issueLabel), options, 1)
+	_, value, err := ui.Select(fmt.Sprintf("Test '%s' remote link is %s. Choose action:", name, issueLabel), options, 1)
 	if err != nil {
 		return "keep"
 	}
@@ -1155,10 +1493,50 @@ func promptConflictAction(name string) string {
 	return value
 }
 
+func promptNameMatchAction(name string) string {
+	options := []ui.SelectOption{
+		{Label: "Pull remote → local", Value: "pull", Description: "Take remote content, overwrite local."},
+		{Label: "Push local → remote", Value: "push", Description: "Keep local content, overwrite remote."},
+		{Label: "Skip (different tests)", Value: "skip", Description: "Don't link — leave both unchanged."},
+	}
+	_, value, err := ui.Select(fmt.Sprintf("'%s' exists locally and remotely. Which version to keep?", name), options, 0)
+	if err != nil {
+		return "pull"
+	}
+	return value
+}
+
+func describeLocalTest(lt *config.LocalTest) string {
+	if lt == nil {
+		return "empty"
+	}
+	platform := lt.Test.Metadata.Platform
+	if platform == "" {
+		platform = "?"
+	}
+	blocks := len(lt.Test.Blocks)
+	build := lt.Test.Build.Name
+	if build != "" {
+		return fmt.Sprintf("%s, %d blocks, build: %s", platform, blocks, build)
+	}
+	return fmt.Sprintf("%s, %d blocks", platform, blocks)
+}
+
+func describeRemoteSimpleTest(rt api.SimpleTest) string {
+	platform := strings.ToLower(rt.Platform)
+	if platform == "" {
+		platform = "?"
+	}
+	if rt.AppName != "" {
+		return fmt.Sprintf("%s, build: %s", platform, rt.AppName)
+	}
+	return platform
+}
+
 func promptDuplicateAliasAction(kind, alias, keepAlias string) string {
 	options := []ui.SelectOption{
 		{Label: "Keep duplicate", Value: "keep", Description: "Retain both aliases."},
-		{Label: "Prune duplicate", Value: "prune", Description: "Remove duplicate alias mapping."},
+		{Label: "Prune duplicate", Value: "prune-alias", Description: "Remove duplicate alias mapping."},
 	}
 	_, value, err := ui.Select(fmt.Sprintf("Duplicate %s alias '%s' (also '%s'). Choose action:", kind, alias, keepAlias), options, 0)
 	if err != nil {

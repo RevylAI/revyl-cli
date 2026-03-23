@@ -297,6 +297,7 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 				"id":         item.ID,
 				"status":     item.Status,
 				"has_report": item.HasReport,
+				"success":    nil,
 			}
 			if item.Duration != nil {
 				entry["duration"] = *item.Duration

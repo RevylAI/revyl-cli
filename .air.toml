@@ -17,7 +17,7 @@ tmp_dir = "tmp"
   # This allows internal devs to get fresh types while external contributors use cached
   pre_cmd = ["./scripts/generate-types.sh --fetch 2>/dev/null || ./scripts/generate-types.sh 2>/dev/null || true"]
   # Build command
-  cmd = "go build -o ./tmp/revyl ./cmd/revyl"
+  cmd = "VERSION=$(cat VERSION 2>/dev/null | tr -d '[:space:]') && go build -ldflags \"-X main.version=${VERSION:-dev}\" -o ./tmp/revyl ./cmd/revyl"
   # Binary to run
   bin = "./tmp/revyl"
   # Watch these extensions

@@ -78,6 +78,12 @@ func TestRunTestsPush_BootstrapsConfigWithoutProjectConfig(t *testing.T) {
 			"/api/v1/variables/app_launch_env/delete_all":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"message":"deleted all"}`))
+		case "/api/v1/tests/scripts":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"scripts":[],"count":0}`))
+		case "/api/v1/modules/list":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"message":"ok","result":[]}`))
 		default:
 			t.Fatalf("unexpected request: %s", r.URL.Path)
 		}

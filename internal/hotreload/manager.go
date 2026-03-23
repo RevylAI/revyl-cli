@@ -227,6 +227,10 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 
 	m.running = true
 
+	// 9. Run HMR diagnostics in the background (non-blocking).
+	// Results are logged as warnings; failures don't break the dev loop.
+	go m.runDiagnostics(devServer.GetPort(), tunnelInfo.PublicURL)
+
 	return &StartResult{
 		TunnelURL:     tunnelInfo.PublicURL,
 		DeepLinkURL:   deepLinkURL,
@@ -298,6 +302,23 @@ func (m *Manager) GetDevServerPort() int {
 		return m.devServer.GetPort()
 	}
 	return 0
+}
+
+// runDiagnostics probes every layer of the HMR pipeline and logs per-check
+// results. Intended to run in a goroutine immediately after Start() so results
+// appear shortly after "Dev loop ready".
+func (m *Manager) runDiagnostics(localPort int, tunnelURL string) {
+	result := RunPostStartupDiagnostics(localPort, tunnelURL)
+	for _, c := range result.Checks {
+		if c.Passed {
+			m.log("[hmr] %s: %s", c.Name, c.Detail)
+		} else {
+			m.log("[hmr] %s: FAILED (%s)", c.Name, c.Detail)
+		}
+	}
+	if !result.AllPassed {
+		m.log("[hmr] Hot reload may not work -- one or more diagnostic checks failed")
+	}
 }
 
 // attachDevServerOutputCallback wires process output callbacks when supported.

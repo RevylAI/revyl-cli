@@ -288,8 +288,12 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 		}
 
 	case "manual":
+		if block.StepType == "" {
+			errors = append(errors, fmt.Sprintf("%s (manual): Missing required 'step_type' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation, end", blockPath))
+			break
+		}
 		if !validStepTypes[block.StepType] {
-			errors = append(errors, fmt.Sprintf("%s (manual): Invalid step_type '%s' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation", blockPath, block.StepType))
+			errors = append(errors, fmt.Sprintf("%s (manual): Invalid step_type '%s' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation, end", blockPath, block.StepType))
 		}
 
 		// Validate step_description based on step_type

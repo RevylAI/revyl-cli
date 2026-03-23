@@ -77,14 +77,24 @@ Task ID is shown when you start a test or in the report URL.`,
 
 // testCreateCmd creates a new test.
 var testCreateCmd = &cobra.Command{
-	Use:   "create <name>",
+	Use:   "create [name]",
 	Short: "Create a new test",
 	Long: `Create a new test and open the editor.
 
+When --from-file is used, the name is optional and will be inferred from
+the YAML file's test.metadata.name field.
+
 EXAMPLES:
   revyl test create login-flow --platform android
-  revyl test create checkout --platform ios`,
-	Args: cobra.ExactArgs(1),
+  revyl test create checkout --platform ios
+  revyl test create --from-file ./my-test.yaml`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		fromFile, _ := cmd.Flags().GetString("from-file")
+		if fromFile != "" {
+			return cobra.RangeArgs(0, 1)(cmd, args)
+		}
+		return cobra.ExactArgs(1)(cmd, args)
+	},
 	RunE: runCreateTest,
 }
 

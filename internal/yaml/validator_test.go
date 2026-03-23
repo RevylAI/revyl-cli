@@ -262,6 +262,62 @@ test:
 	}
 }
 
+func TestValidateYAML_ManualBlockRequiresStepType(t *testing.T) {
+	missingStepType := `
+test:
+  metadata:
+    name: "Test"
+    platform: "android"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_description: "5"
+`
+	result := ValidateYAML(missingStepType)
+	if result.Valid {
+		t.Error("Expected invalid YAML when manual block omits step_type")
+	}
+
+	withStepType := `
+test:
+  metadata:
+    name: "Test"
+    platform: "android"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_type: wait
+      step_description: "5"
+    - type: manual
+      step_type: wait
+      step_description: "3"
+`
+	result = ValidateYAML(withStepType)
+	if !result.Valid {
+		t.Errorf("Expected valid YAML with explicit step_type, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidateYAML_ManualBlockNoStepTypeNonNumericFails(t *testing.T) {
+	yamlContent := `
+test:
+  metadata:
+    name: "Test"
+    platform: "android"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_description: "not a number"
+`
+	result := ValidateYAML(yamlContent)
+	if result.Valid {
+		t.Error("Expected invalid YAML when manual block has no step_type and non-numeric description")
+	}
+}
+
 func TestValidateYAML_InvalidManualStepType(t *testing.T) {
 	invalidYAML := `
 test:
