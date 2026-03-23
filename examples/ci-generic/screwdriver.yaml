@@ -3,23 +3,26 @@
 # Add REVYL_API_KEY as a secret in your Screwdriver pipeline settings.
 
 shared:
-  image: python:3.12-slim
+  image: alpine:latest
   environment:
     REVYL_API_KEY: ${REVYL_API_KEY}
+    REVYL_INSTALL_DIR: /usr/local/bin
 
 jobs:
   # Run tests on every PR and commit
   test:
     requires: [~pr, ~commit]
     steps:
-      - install: pip install revyl
+      - install-deps: apk add --no-cache curl
+      - install: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
       - run-tests: revyl workflow run smoke-tests
 
   # Build, upload, then test
   build-and-test:
     requires: [~commit]
     steps:
-      - install-deps: pip install revyl
+      - install-deps: apk add --no-cache curl
+      - install: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
       - build: ./gradlew assembleDebug   # <-- replace with your build command
       - upload: revyl build upload --file ./app/build/outputs/apk/debug/app-debug.apk --app your-app-id --set-current
       - test: revyl workflow run smoke-tests

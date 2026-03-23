@@ -1,21 +1,23 @@
 # Any CI System
 
-Revyl's CLI works in any environment that can run a shell. `pip install revyl` and you're done.
+Revyl's CLI works in any environment that can run a shell. Install the native binary via curl and you're done.
 
 ## The universal pattern
 
 ```bash
-pip install revyl
+curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
 export REVYL_API_KEY="$YOUR_SECRET"
 revyl workflow run <workflow-name>
 ```
 
 Exit code `0` = pass, `1` = fail. That's all your CI system needs.
 
+Set `REVYL_INSTALL_DIR=/usr/local/bin` to place the binary on PATH without shell profile sourcing (recommended for CI).
+
 ## Build-to-test
 
 ```bash
-pip install revyl
+curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
 revyl build upload --file ./app.apk --app <app-id> --set-current
 revyl workflow run <workflow-name>
 ```
@@ -34,6 +36,7 @@ echo "$result" | jq '.report_link'
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `REVYL_API_KEY` | Yes | API key from Revyl |
+| `REVYL_INSTALL_DIR` | No | Override install directory (default: `~/.revyl/bin`) |
 | `REVYL_BACKEND_URL` | No | Override backend URL |
 
 ## Expo/EAS builds
@@ -41,7 +44,7 @@ echo "$result" | jq '.report_link'
 Upload an Expo build URL directly (`.tar.gz` is auto-converted to `.zip`):
 
 ```bash
-pip install revyl
+curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
 revyl build upload \
   --expo-url "https://expo.dev/artifacts/eas/..." \
   --expo-headers '{"Authorization": "Bearer $EXPO_TOKEN"}' \

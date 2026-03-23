@@ -7,12 +7,14 @@ version: 2.1
 jobs:
   revyl-tests:
     docker:
-      - image: cimg/python:3.12
+      - image: cimg/base:current
+    environment:
+      REVYL_INSTALL_DIR: /usr/local/bin
     steps:
       - checkout
       - run:
           name: Install Revyl CLI
-          command: pip install revyl
+          command: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
       - run:
           name: Run tests
           command: revyl workflow run smoke-tests
@@ -20,10 +22,12 @@ jobs:
   # Optional: build, upload, then test
   # build-and-test:
   #   docker:
-  #     - image: cimg/python:3.12
+  #     - image: cimg/base:current
+  #   environment:
+  #     REVYL_INSTALL_DIR: /usr/local/bin
   #   steps:
   #     - checkout
-  #     - run: pip install revyl
+  #     - run: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
   #     - run: ./gradlew assembleDebug
   #     - run: revyl build upload --file ./app.apk --app your-app-id --set-current
   #     - run: revyl workflow run smoke-tests
