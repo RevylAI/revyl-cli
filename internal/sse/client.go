@@ -800,17 +800,35 @@ func (m *Monitor) handleWorkflowEvent(event SSEEvent, targetTaskID string) *Work
 		}
 
 	case "workflow_completed", "workflow_failed", "workflow_cancelled":
-		// Handle completion events
+		// Handle completion events — supports both nested (workflow wrapper)
+		// and flat (id/task_id at top level) shapes.
 		var data struct {
 			Workflow OrgWorkflowMonitorItem `json:"workflow"`
+			ID       string                 `json:"id"`
+			TaskID   string                 `json:"task_id"`
+			Status   string                 `json:"status"`
 		}
 		if err := json.Unmarshal(event.Data, &data); err != nil {
 			log.Debug("Failed to parse workflow completion event", "event", event.Event, "error", err)
 			return nil
 		}
-		if data.Workflow.Task.ID == targetTaskID {
-			status := workflowMonitorItemToStatus(&data.Workflow)
-			// Ensure terminal status is set based on event type
+		matchID := data.Workflow.Task.ID
+		if matchID == "" {
+			matchID = data.ID
+		}
+		if matchID == "" {
+			matchID = data.TaskID
+		}
+		if matchID == targetTaskID {
+			var status *WorkflowStatus
+			if data.Workflow.Task.ID != "" {
+				status = workflowMonitorItemToStatus(&data.Workflow)
+			} else {
+				status = &WorkflowStatus{
+					TaskID: matchID,
+					Status: data.Status,
+				}
+			}
 			if event.Event == "workflow_completed" {
 				status.Status = "completed"
 			} else if event.Event == "workflow_failed" {
