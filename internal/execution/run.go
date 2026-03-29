@@ -51,6 +51,8 @@ type RunTestParams struct {
 	DeviceModel string
 	// OsVersion overrides the target OS runtime (e.g. "iOS 18.5").
 	OsVersion string
+	// Orientation sets the initial device orientation ("portrait" or "landscape").
+	Orientation string
 }
 
 // RunTestResult contains the result of a test run.
@@ -123,14 +125,19 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 		DeviceModel:    params.DeviceModel,
 		OsVersion:      params.OsVersion,
 	}
-	if params.HasLocation {
+	if params.HasLocation || params.Orientation != "" {
+		execMode := &api.CLIExecutionMode{}
+		if params.HasLocation {
+			execMode.InitialLocation = &api.CLILocation{
+				Latitude:  params.Latitude,
+				Longitude: params.Longitude,
+			}
+		}
+		if params.Orientation != "" {
+			execMode.InitialOrientation = params.Orientation
+		}
 		req.RunConfig = &api.CLIRunConfig{
-			ExecutionMode: &api.CLIExecutionMode{
-				InitialLocation: &api.CLILocation{
-					Latitude:  params.Latitude,
-					Longitude: params.Longitude,
-				},
-			},
+			ExecutionMode: execMode,
 		}
 	}
 	resp, err := client.ExecuteTest(ctx, req)

@@ -18,7 +18,7 @@ jobs:
 
       - name: Upload Build to Revyl
         id: upload
-        uses: RevylAI/revyl-gh-action/upload-build@main
+        uses: RevylAI/revyl-gh-action/upload-build@v1
         with:
           build-var-id: "your-build-var-id"   # <-- replace
           version: ${{ github.sha }}
@@ -27,7 +27,7 @@ jobs:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
 
       - name: Run Tests on New Build
-        uses: RevylAI/revyl-gh-action/run-workflow@main
+        uses: RevylAI/revyl-gh-action/run-workflow@v1
         with:
           workflow-id: "your-workflow-id"     # <-- replace
           build-version-id: ${{ steps.upload.outputs.version-id }}

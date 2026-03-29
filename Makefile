@@ -166,12 +166,13 @@ setup-merge-drivers:
 	@echo "✓ Merge driver 'gen-ours' registered (accepts ours for generated files on merge)"
 
 ## setup: Install development tools and configure merge drivers
+## Tool versions are pinned for reproducibility — update explicitly when upgrading.
 setup: setup-merge-drivers
 	@echo "Installing development tools..."
-	go install github.com/air-verse/air@latest
-	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	go install gotest.tools/gotestsum@latest
+	go install github.com/air-verse/air@v1.61.7
+	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.4.1
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+	go install gotest.tools/gotestsum@v1.12.1
 	brew install watchexec || true
 	@echo "Done! Run 'make dev' to start development with hot reload."
 

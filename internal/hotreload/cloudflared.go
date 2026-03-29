@@ -278,12 +278,16 @@ func (m *CloudflaredManager) getDownloadURL() string {
 	)
 }
 
-// verifyChecksum verifies the SHA256 checksum of a file.
-// If no checksum is configured for the platform, it attempts to fetch it from GitHub.
-// If fetching fails, verification is skipped with a warning (for development/new releases).
+// verifyChecksum verifies the SHA256 checksum of a downloaded file.
+// If no checksum is pinned for the platform, it fetches the .sha256 sidecar from GitHub.
+// Verification is mandatory — if the expected checksum cannot be determined or does not
+// match, the download is rejected to prevent supply-chain attacks.
+//
+// Parameters:
+//   - path: Filesystem path to the downloaded file to verify
 //
 // Returns:
-//   - error: nil if checksum matches or verification is skipped, otherwise an error describing the mismatch
+//   - error: nil only when checksum matches; non-nil on mismatch, missing checksum, or fetch failure
 func (m *CloudflaredManager) verifyChecksum(path string) error {
 	platformKey := getPlatformKey()
 	expectedChecksum, ok := CloudflaredChecksums[platformKey]
@@ -291,14 +295,15 @@ func (m *CloudflaredManager) verifyChecksum(path string) error {
 		return fmt.Errorf("unsupported platform: %s", platformKey)
 	}
 
-	// If no checksum is configured, try to fetch it from GitHub
 	if expectedChecksum == "" {
 		fetchedChecksum, err := m.fetchChecksumFromGitHub(platformKey)
 		if err != nil {
-			// Log warning but continue - this allows new releases to work before checksums are updated
-			fmt.Printf("⚠ Warning: Could not verify cloudflared checksum (fetch failed: %v)\n", err)
-			fmt.Println("  Proceeding without verification. Update checksums in cloudflared.go for production.")
-			return nil
+			return fmt.Errorf(
+				"cloudflared checksum verification failed: could not fetch expected "+
+					"checksum from GitHub for platform %s: %w\n"+
+					"  Pin the checksum in CloudflaredChecksums to allow offline verification",
+				platformKey, err,
+			)
 		}
 		expectedChecksum = fetchedChecksum
 	}

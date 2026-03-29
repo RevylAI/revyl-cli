@@ -599,7 +599,8 @@ type CLIRunConfig struct {
 
 // CLIExecutionMode contains execution mode settings.
 type CLIExecutionMode struct {
-	InitialLocation *CLILocation `json:"initial_location,omitempty"`
+	InitialLocation    *CLILocation `json:"initial_location,omitempty"`
+	InitialOrientation string       `json:"initial_orientation,omitempty"`
 }
 
 // CLILocation represents a GPS coordinate.
@@ -1033,6 +1034,7 @@ type Test struct {
 	PinnedVersion  string                 `json:"pinned_version,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 	MobileTargets  []MobileTargetEntry    `json:"mobile_targets,omitempty"`
+	Orientation    string                 `json:"orientation,omitempty"`
 }
 
 // UpdateTestRequest represents a test update request.
@@ -2035,10 +2037,11 @@ func (c *Client) GetLatestBuildVersion(ctx context.Context, appID string) (*Buil
 // BuildVersionDetail represents a build version with an optional download URL.
 // Returned by GetBuildVersionDownloadURL.
 type BuildVersionDetail struct {
-	ID          string `json:"id"`
-	Version     string `json:"version"`
-	DownloadURL string `json:"download_url,omitempty"`
-	PackageName string `json:"package_name,omitempty"`
+	ID          string                 `json:"id"`
+	Version     string                 `json:"version"`
+	DownloadURL string                 `json:"download_url,omitempty"`
+	PackageName string                 `json:"package_name,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // GetBuildVersionDownloadURL retrieves a build version with a presigned download URL.
@@ -3479,10 +3482,11 @@ func (c *Client) DeleteAllEnvVars(ctx context.Context, testID string) error {
 //   - testID: The test UUID
 //   - deviceModel: Target device model (empty string or "AUTO" for auto)
 //   - osVersion: Target OS version (empty string or "AUTO" for auto)
+//   - orientation: Device orientation ("portrait" or "landscape", empty to skip)
 //
 // Returns:
 //   - error: Any error that occurred
-func (c *Client) UpdateDeviceTarget(ctx context.Context, testID, deviceModel, osVersion string) error {
+func (c *Client) UpdateDeviceTarget(ctx context.Context, testID, deviceModel, osVersion, orientation string) error {
 	path := fmt.Sprintf("/api/v1/tests/%s/device-target", testID)
 	body := map[string]*string{}
 	if deviceModel != "" {
@@ -3490,6 +3494,9 @@ func (c *Client) UpdateDeviceTarget(ctx context.Context, testID, deviceModel, os
 	}
 	if osVersion != "" {
 		body["os_version"] = &osVersion
+	}
+	if orientation != "" {
+		body["orientation"] = &orientation
 	}
 	resp, err := c.doRequest(ctx, "PATCH", path, body)
 	if err != nil {
@@ -3690,7 +3697,7 @@ func proxyWorkerMethodForAction(action string) string {
 		base = action[:idx]
 	}
 	switch base {
-	case "screenshot", "health", "device_info", "step_status":
+	case "screenshot", "health", "device_info", "step_status", "hierarchy":
 		return http.MethodGet
 	default:
 		return http.MethodPost

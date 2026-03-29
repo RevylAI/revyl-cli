@@ -210,21 +210,32 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Multiple platforms but not ios+android - prefer ios, then android, then first alphabetically
-	if hasIOS {
-		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, "ios")
-	}
-	if hasAndroid {
-		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, "android")
-	}
-
-	// Multiple custom platforms - pick first alphabetically for determinism
+	// Multiple platforms configured — prompt the user to choose interactively,
+	// or fall back to deterministic auto-pick in non-interactive environments (CI).
 	platforms := make([]string, 0, platformCount)
 	for platform := range cfg.Build.Platforms {
 		platforms = append(platforms, platform)
 	}
 	sort.Strings(platforms)
 
+	if ui.IsInteractive() {
+		options := make([]ui.SelectOption, len(platforms))
+		for i, p := range platforms {
+			options[i] = ui.SelectOption{
+				Label:       p,
+				Value:       p,
+				Description: cfg.Build.Platforms[p].Command,
+			}
+		}
+
+		_, selected, err := ui.Select("Select platform to build:", options, 0)
+		if err != nil {
+			return fmt.Errorf("platform selection: %w", err)
+		}
+		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, selected)
+	}
+
+	// Non-interactive: pick first alphabetically for determinism
 	ui.PrintWarning("Multiple platforms configured without --platform flag, using '%s'", platforms[0])
 	ui.PrintInfo("Use --platform to specify which platform to build")
 	return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platforms[0])

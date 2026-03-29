@@ -573,20 +573,17 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 
 	ui.PrintInfo("Downloading %s...", binaryName)
 
-	// Download checksum file first
 	checksums, err := downloadChecksums(ctx, checksumURL)
 	if err != nil {
-		ui.PrintWarning("Could not download checksums: %v", err)
-		ui.PrintWarning("Proceeding without checksum verification")
+		ui.PrintError("Could not download checksums: %v", err)
+		return fmt.Errorf("upgrade aborted: checksum file unavailable (possible tampering or network issue): %w", err)
 	}
 
-	// Get expected checksum for our binary
-	expectedChecksum := ""
-	if checksums != nil {
-		expectedChecksum = checksums[binaryName]
+	expectedChecksum := checksums[binaryName]
+	if expectedChecksum == "" {
+		return fmt.Errorf("upgrade aborted: no checksum found for %s in checksums.txt", binaryName)
 	}
 
-	// Download the binary
 	tempFile, err := downloadBinary(ctx, binaryURL)
 	if err != nil {
 		ui.PrintError("Failed to download binary: %v", err)
@@ -594,23 +591,21 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 	}
 	defer os.Remove(tempFile)
 
-	// Verify checksum if available
-	if expectedChecksum != "" {
-		ui.PrintInfo("Verifying checksum...")
-		actualChecksum, err := calculateChecksum(tempFile)
-		if err != nil {
-			ui.PrintError("Failed to calculate checksum: %v", err)
-			return err
-		}
-
-		if actualChecksum != expectedChecksum {
-			ui.PrintError("Checksum mismatch!")
-			ui.PrintError("Expected: %s", expectedChecksum)
-			ui.PrintError("Got:      %s", actualChecksum)
-			return fmt.Errorf("checksum verification failed")
-		}
-		ui.PrintSuccess("Checksum verified")
+	ui.PrintInfo("Verifying checksum...")
+	actualChecksum, err := calculateChecksum(tempFile)
+	if err != nil {
+		ui.PrintError("Failed to calculate checksum: %v", err)
+		return err
 	}
+
+	if actualChecksum != expectedChecksum {
+		ui.PrintError("Checksum mismatch (possible tampering)!")
+		ui.PrintError("Expected: %s", expectedChecksum)
+		ui.PrintError("Got:      %s", actualChecksum)
+		ui.PrintError("Report this to security@revyl.ai")
+		return fmt.Errorf("checksum verification failed")
+	}
+	ui.PrintSuccess("Checksum verified")
 
 	// Get current executable path
 	execPath, err := os.Executable()

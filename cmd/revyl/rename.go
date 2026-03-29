@@ -15,6 +15,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
+	"github.com/revyl/cli/internal/util"
 )
 
 var (
@@ -290,8 +291,16 @@ func runRenameTest(cmd *cobra.Command, args []string) error {
 		if local != nil {
 			local.Test.Metadata.Name = newName
 
-			sourcePath := filepath.Join(testsDir, localAlias+".yaml")
-			destPath := filepath.Join(testsDir, destFileAlias+".yaml")
+			sourcePath, srcErr := util.SafeTestPath(testsDir, localAlias)
+			if srcErr != nil {
+				ui.PrintWarning("Renamed remotely, but local alias is invalid: %v", srcErr)
+				return nil
+			}
+			destPath, dstErr := util.SafeTestPath(testsDir, destFileAlias)
+			if dstErr != nil {
+				ui.PrintWarning("Renamed remotely, but destination alias is invalid: %v", dstErr)
+				return nil
+			}
 			if err := os.MkdirAll(testsDir, 0755); err != nil {
 				ui.PrintWarning("Renamed remotely, but failed to prepare .revyl/tests directory: %v", err)
 			} else if err := config.SaveLocalTest(destPath, local); err != nil {

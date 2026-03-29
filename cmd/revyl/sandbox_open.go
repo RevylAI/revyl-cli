@@ -155,20 +155,21 @@ func openSSHTerminal(target *api.FleetSandbox, remotePath string, jsonOutput boo
 		return nil
 	}
 
-	// On macOS, open a new Terminal.app or iTerm2 tab with SSH
 	if runtime.GOOS == "darwin" {
+		quotedPath := shellQuote(remotePath)
 		sshCmd := fmt.Sprintf("ssh -o 'ProxyCommand=cloudflared access ssh --hostname %s' -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -t %s@%s 'cd %s && exec $SHELL -l'",
 			target.EffectiveTunnelHostname(),
 			target.EffectiveSSHUser(),
 			target.EffectiveTunnelHostname(),
-			remotePath,
+			quotedPath,
 		)
 
-		// Try iTerm2 first, fall back to Terminal.app
+		escapedSSHCmd := strings.ReplaceAll(sshCmd, `\`, `\\`)
+		escapedSSHCmd = strings.ReplaceAll(escapedSSHCmd, `"`, `\"`)
 		appleScript := fmt.Sprintf(`tell application "Terminal"
 	activate
 	do script "%s"
-end tell`, sshCmd)
+end tell`, escapedSSHCmd)
 
 		cmd := exec.Command("osascript", "-e", appleScript)
 		if err := cmd.Start(); err != nil {
@@ -210,9 +211,9 @@ func runInlineSSH(target *api.FleetSandbox, remotePath string) error {
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "LogLevel=ERROR",
 		"-p", fmt.Sprintf("%d", cfg.Port),
-		"-t", // Force pseudo-terminal for interactive use
+		"-t",
 		fmt.Sprintf("%s@%s", cfg.User, cfg.Host),
-		fmt.Sprintf("cd %s && exec $SHELL -l", remotePath),
+		fmt.Sprintf("cd %s && exec $SHELL -l", shellQuote(remotePath)),
 	}
 
 	cmd := exec.Command("ssh", args...)

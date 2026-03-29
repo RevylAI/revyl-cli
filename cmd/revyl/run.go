@@ -53,6 +53,7 @@ var (
 	runDeviceSelect         bool
 	runDeviceModel          string
 	runOsVersion            string
+	runOrientation          string
 )
 
 // minRetries is the minimum allowed retry count.
@@ -300,6 +301,11 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Validate --orientation flag
+	if runOrientation != "" && runOrientation != "portrait" && runOrientation != "landscape" {
+		return fmt.Errorf("invalid --orientation value %q: must be 'portrait' or 'landscape'", runOrientation)
+	}
+
 	if devMode {
 		ui.PrintInfo("Mode: Development (localhost)")
 	}
@@ -420,6 +426,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		HasLocation:    hasLocation,
 		DeviceModel:    deviceModel,
 		OsVersion:      osVersion,
+		Orientation:    runOrientation,
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},

@@ -15,6 +15,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
+	"github.com/revyl/cli/internal/util"
 )
 
 // Delete command flags (used by test delete, workflow delete, build delete)
@@ -61,8 +62,10 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 		testName = nameOrID
 	}
 
-	// Build info about what will be deleted
-	localFilePath := filepath.Join(cwd, ".revyl", "tests", testName+".yaml")
+	localFilePath, pathErr := util.SafeTestPath(filepath.Join(cwd, ".revyl", "tests"), testName)
+	if pathErr != nil {
+		return fmt.Errorf("invalid test name: %w", pathErr)
+	}
 	localFileExists := fileExists(localFilePath)
 
 	// Show what will be deleted

@@ -43,15 +43,30 @@ type StartDevLoopInput struct {
 	Timeout        int    `json:"timeout,omitempty" jsonschema:"Device idle timeout in seconds (default 300)."`
 }
 
+// BuildPreflightInfo is a machine-readable build compatibility summary for MCP consumers.
+//
+// Fields:
+//   - BuildClass: classification of the build (e.g. "Dev Client", "Release", "Unknown")
+//   - Compatible: tri-state string ("yes", "no", "unknown")
+//   - Reason: human-readable explanation when incompatible or unknown
+//   - FixCommands: actionable CLI commands the user can run to fix the issue
+type BuildPreflightInfo struct {
+	BuildClass  string   `json:"build_class"`
+	Compatible  string   `json:"compatible"`
+	Reason      string   `json:"reason,omitempty"`
+	FixCommands []string `json:"fix_commands,omitempty"`
+}
+
 type StartDevLoopOutput struct {
-	Success            bool     `json:"success"`
-	SessionIndex       int      `json:"session_index"`
-	ManualStepRequired bool     `json:"manual_step_required,omitempty"`
-	DeepLinkURL        string   `json:"deep_link_url,omitempty"`
-	ViewerURL          string   `json:"viewer_url,omitempty"`
-	BuildSelection     string   `json:"build_selection,omitempty"`
-	Warnings           []string `json:"warnings,omitempty"`
-	Error              string   `json:"error,omitempty"`
+	Success            bool                `json:"success"`
+	SessionIndex       int                 `json:"session_index"`
+	ManualStepRequired bool                `json:"manual_step_required,omitempty"`
+	DeepLinkURL        string              `json:"deep_link_url,omitempty"`
+	ViewerURL          string              `json:"viewer_url,omitempty"`
+	BuildSelection     string              `json:"build_selection,omitempty"`
+	Preflight          *BuildPreflightInfo `json:"preflight,omitempty"`
+	Warnings           []string            `json:"warnings,omitempty"`
+	Error              string              `json:"error,omitempty"`
 }
 
 func (s *Server) clearDevLoopState() (*hotreload.Manager, int, bool) {
@@ -160,6 +175,7 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 	selectedBuildVersionID := strings.TrimSpace(input.BuildVersionID)
 	buildSelectionSource := ""
 	buildSelectionWarnings := []string(nil)
+	var buildMeta map[string]interface{}
 	if selectedBuildVersionID != "" {
 		buildSelectionSource = "explicit"
 	}
@@ -219,6 +235,7 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 		selectedBuildVersionID = selectedVersion.ID
 		buildSelectionSource = source
 		buildSelectionWarnings = append(buildSelectionWarnings, warnings...)
+		buildMeta = selectedVersion.Metadata
 	}
 
 	buildDetail, err := s.apiClient.GetBuildVersionDownloadURL(ctx, selectedBuildVersionID)
@@ -229,6 +246,12 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 			Error:        fmt.Sprintf("failed to resolve build download URL: %v", err),
 		}, nil
 	}
+
+	if buildMeta == nil && buildDetail.Metadata != nil {
+		buildMeta = buildDetail.Metadata
+	}
+	preflight := buildselection.ClassifyBuild(buildMeta, providerName, platformKey)
+	buildSelectionWarnings = append(buildSelectionWarnings, preflight.Warnings...)
 
 	// Stop any existing hot-reload/dev-loop state before creating a new one.
 	prevManager, prevSessionIndex, prevShouldStopSession := s.clearDevLoopState()
@@ -346,6 +369,14 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 	s.devLoopManualStepRequired = manualStepRequired
 	s.hotReloadMu.Unlock()
 
+	compatStr := "unknown"
+	switch preflight.Compatible {
+	case buildselection.CompatibleYes:
+		compatStr = "yes"
+	case buildselection.CompatibleNo:
+		compatStr = "no"
+	}
+
 	return nil, StartDevLoopOutput{
 		Success:            true,
 		SessionIndex:       session.Index,
@@ -353,7 +384,13 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 		DeepLinkURL:        startResult.DeepLinkURL,
 		ViewerURL:          session.ViewerURL,
 		BuildSelection:     buildSelectionSource,
-		Warnings:           buildSelectionWarnings,
+		Preflight: &BuildPreflightInfo{
+			BuildClass:  string(preflight.Class),
+			Compatible:  compatStr,
+			Reason:      preflight.Reason,
+			FixCommands: preflight.FixCommands,
+		},
+		Warnings: buildSelectionWarnings,
 	}, nil
 }
 

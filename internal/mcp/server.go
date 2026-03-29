@@ -845,6 +845,7 @@ type RunTestInput struct {
 	Location       string `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
 	DeviceModel    string `json:"device_model,omitempty" jsonschema:"Override device model (e.g. iPhone 16, Pixel 7)"`
 	OsVersion      string `json:"os_version,omitempty" jsonschema:"Override OS version (e.g. iOS 18.5, Android 14)"`
+	Orientation    string `json:"orientation,omitempty" jsonschema:"Override device orientation (portrait or landscape)"`
 }
 
 // RunTestOutput defines the output for the run_test tool.
@@ -928,6 +929,7 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		OnProgress:     onProgress,
 		DeviceModel:    input.DeviceModel,
 		OsVersion:      input.OsVersion,
+		Orientation:    input.Orientation,
 	}
 	if input.Location != "" {
 		lat, lng, locErr := parseLocationString(input.Location)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -601,6 +603,53 @@ func normalizeRequiredToolInput(value, field string) (string, error) {
 		return "", fmt.Errorf("%s is required", field)
 	}
 	return normalized, nil
+}
+
+// validateExternalURL checks that a URL uses http(s) and does not point at
+// internal/metadata addresses (RFC 1918, link-local, cloud metadata).
+// Returns the cleaned URL string or an error describing why it was rejected.
+//
+// Parameters:
+//   - rawURL: The user-provided URL string.
+//
+// Returns:
+//   - string: The validated URL (unchanged if valid).
+//   - error: Non-nil when the URL scheme is not http/https, the host cannot
+//     be resolved, or the resolved IP is in a blocked range.
+func validateExternalURL(rawURL string) (string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL: %w", err)
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", fmt.Errorf("URL scheme %q is not allowed (only http/https)", parsed.Scheme)
+	}
+
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		return "", fmt.Errorf("URL has no hostname")
+	}
+
+	ip := net.ParseIP(hostname)
+	if ip == nil {
+		ips, lookupErr := net.LookupIP(hostname)
+		if lookupErr == nil && len(ips) > 0 {
+			ip = ips[0]
+		}
+	}
+
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return "", fmt.Errorf("URL host %s resolves to a private/internal address — not allowed", hostname)
+		}
+		if ip.Equal(net.ParseIP("169.254.169.254")) {
+			return "", fmt.Errorf("URL host %s points at the cloud metadata service — not allowed", hostname)
+		}
+	}
+
+	return rawURL, nil
 }
 
 // normalizeStartArtifactInputs trims start-session artifact selectors and
@@ -1462,6 +1511,15 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 	if appURL == "" {
 		return nil, InstallAppOutput{Success: false, Error: "either app_url or build_version_id is required -- provide a URL to an .apk/.ipa file, or the ID of a previously uploaded build"}, nil
 	}
+
+	if buildVersionID == "" {
+		if validated, vErr := validateExternalURL(appURL); vErr != nil {
+			return nil, InstallAppOutput{Success: false, Error: fmt.Sprintf("rejected app_url: %v", vErr)}, nil
+		} else {
+			appURL = validated
+		}
+	}
+
 	sidx := -1
 	if input.SessionIndex != nil {
 		sidx = *input.SessionIndex
@@ -2070,9 +2128,13 @@ type DeviceDownloadFileOutput struct {
 }
 
 func (s *Server) handleDeviceDownloadFile(ctx context.Context, req *mcp.CallToolRequest, input DeviceDownloadFileInput) (*mcp.CallToolResult, DeviceDownloadFileOutput, error) {
-	url, err := normalizeRequiredToolInput(input.URL, "url")
+	rawURL, err := normalizeRequiredToolInput(input.URL, "url")
 	if err != nil {
 		return nil, DeviceDownloadFileOutput{Success: false, Error: err.Error()}, nil
+	}
+	url, err := validateExternalURL(rawURL)
+	if err != nil {
+		return nil, DeviceDownloadFileOutput{Success: false, Error: fmt.Sprintf("rejected url: %v", err)}, nil
 	}
 	sidx := -1
 	if input.SessionIndex != nil {

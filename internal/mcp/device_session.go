@@ -77,6 +77,12 @@ type DeviceSession struct {
 	// Platform is "ios" or "android".
 	Platform string `json:"platform"`
 
+	// ScreenWidth is the device screen width in pixels (0 when unknown).
+	ScreenWidth int `json:"screen_width,omitempty"`
+
+	// ScreenHeight is the device screen height in pixels (0 when unknown).
+	ScreenHeight int `json:"screen_height,omitempty"`
+
 	// StartedAt is when the session was created.
 	StartedAt time.Time `json:"started_at"`
 
@@ -379,8 +385,10 @@ func (m *DeviceSessionManager) StartSession(
 	// so we poll /health until device_connected is true.
 	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID}
 	deviceReady := false
+	var lastHealth workerHealthResponse
 	for i := 0; i < 15; i++ { // 15 * 2s = 30s max
-		if err := m.healthCheckSession(tmpSession); err == nil {
+		if health, err := m.healthCheckSession(tmpSession); err == nil {
+			lastHealth = health
 			deviceReady = true
 			break
 		}
@@ -418,6 +426,11 @@ func (m *DeviceSessionManager) StartSession(
 		StartedAt:     now,
 		LastActivity:  now,
 		IdleTimeout:   idleTimeout,
+	}
+
+	if deviceReady {
+		session.ScreenWidth = lastHealth.ScreenWidth
+		session.ScreenHeight = lastHealth.ScreenHeight
 	}
 
 	m.sessions[idx] = session
@@ -756,7 +769,7 @@ func (m *DeviceSessionManager) writePNGArtifact(relDir, fileName string, imageBy
 
 	finalPath := filepath.Join(dir, fileName)
 	tmpPath := finalPath + ".tmp"
-	if err := os.WriteFile(tmpPath, imageBytes, 0o644); err != nil {
+	if err := os.WriteFile(tmpPath, imageBytes, 0o600); err != nil {
 		return "", err
 	}
 	if err := os.Rename(tmpPath, finalPath); err != nil {
@@ -892,7 +905,7 @@ func (m *DeviceSessionManager) persistSessions() {
 		return
 	}
 
-	_ = os.WriteFile(filepath.Join(dir, "device-sessions.json"), data, 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "device-sessions.json"), data, 0o600)
 }
 
 // loadLocalCache reads device-sessions.json from disk into memory.
@@ -1034,6 +1047,8 @@ func (m *DeviceSessionManager) CheckSessionAlive(ctx context.Context, session *D
 type workerHealthResponse struct {
 	Status          string `json:"status"`
 	DeviceConnected bool   `json:"device_connected"`
+	ScreenWidth     int    `json:"screen_width"`
+	ScreenHeight    int    `json:"screen_height"`
 }
 
 // healthCheckSession pings the worker /health endpoint to verify the session is live
@@ -1043,11 +1058,11 @@ type workerHealthResponse struct {
 //   - session: The session to health check.
 //
 // Returns:
-//   - nil if the worker is reachable AND the device is connected.
+//   - workerHealthResponse with parsed fields (dimensions, status) on success.
 //   - error describing the failure (unreachable, device not connected, etc.).
-func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) error {
+func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) (workerHealthResponse, error) {
 	if session == nil {
-		return fmt.Errorf("no session")
+		return workerHealthResponse{}, fmt.Errorf("no session")
 	}
 	if m.apiClient != nil && strings.TrimSpace(session.WorkflowRunID) != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1057,14 +1072,14 @@ func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) error 
 		if err != nil {
 			var workerErr *WorkerHTTPError
 			if errors.As(err, &workerErr) {
-				return workerErr
+				return workerHealthResponse{}, workerErr
 			}
 			if reason := m.checkSessionStatusOnFailure(session); reason != "" {
-				return fmt.Errorf("%s", reason)
+				return workerHealthResponse{}, fmt.Errorf("%s", reason)
 			}
-			return err
+			return workerHealthResponse{}, err
 		}
-		return validateWorkerHealthResponse(body)
+		return parseWorkerHealth(body)
 	}
 
 	url := session.WorkerBaseURL + "/health"
@@ -1072,7 +1087,7 @@ func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) error 
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return err
+		return workerHealthResponse{}, err
 	}
 	client := m.httpClient
 	if client == nil {
@@ -1080,39 +1095,48 @@ func (m *DeviceSessionManager) healthCheckSession(session *DeviceSession) error 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		// Worker unreachable -- check backend for the real reason
-		// (e.g. session was stopped from the browser).
 		if reason := m.checkSessionStatusOnFailure(session); reason != "" {
-			return fmt.Errorf("%s", reason)
+			return workerHealthResponse{}, fmt.Errorf("%s", reason)
 		}
-		return err
+		return workerHealthResponse{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("worker returned %d", resp.StatusCode)
+		return workerHealthResponse{}, fmt.Errorf("worker returned %d", resp.StatusCode)
 	}
 
-	// Parse the response body to check device_connected field.
-	// The worker /health endpoint always returns 200, but reports
-	// device_connected=false when the device reference is nil.
 	body, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
-		// Worker is reachable but we can't read the body — treat as healthy
-		// to avoid false negatives on transient read errors.
-		return nil
+		return workerHealthResponse{}, nil
 	}
-	return validateWorkerHealthResponse(body)
+	return parseWorkerHealth(body)
 }
 
-func validateWorkerHealthResponse(body []byte) error {
+// parseWorkerHealth unmarshals the /health JSON body and validates device connectivity.
+//
+// Returns:
+//   - workerHealthResponse with all parsed fields (including ScreenWidth/ScreenHeight).
+//   - error if the device is not connected; nil otherwise.
+func parseWorkerHealth(body []byte) (workerHealthResponse, error) {
 	var health workerHealthResponse
 	if jsonErr := json.Unmarshal(body, &health); jsonErr != nil {
-		return nil
+		return workerHealthResponse{}, nil
 	}
 	if !health.DeviceConnected {
-		return fmt.Errorf("worker healthy but device not connected")
+		return health, fmt.Errorf("worker healthy but device not connected")
 	}
-	return nil
+	return health, nil
+}
+
+// applyBackendScreenDimensions copies screen dimensions from an
+// ActiveDeviceSessionItem into a local DeviceSession when they are available.
+func applyBackendScreenDimensions(session *DeviceSession, bs api.ActiveDeviceSessionItem) {
+	if bs.ScreenWidth != nil && *bs.ScreenWidth > 0 {
+		session.ScreenWidth = *bs.ScreenWidth
+	}
+	if bs.ScreenHeight != nil && *bs.ScreenHeight > 0 {
+		session.ScreenHeight = *bs.ScreenHeight
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1190,6 +1214,10 @@ type LiveStepResponse struct {
 	StepOutput    json.RawMessage `json:"step_output"`
 }
 
+// maxErrorBodyLen caps the response body surfaced in error messages to avoid
+// leaking internal stack traces, tokens, or verbose HTML error pages.
+const maxErrorBodyLen = 512
+
 func (e *WorkerHTTPError) Error() string {
 	if e == nil {
 		return "worker request failed"
@@ -1197,6 +1225,9 @@ func (e *WorkerHTTPError) Error() string {
 	body := strings.TrimSpace(e.Body)
 	if body == "" {
 		return fmt.Sprintf("worker returned %d on %s", e.StatusCode, e.Path)
+	}
+	if len(body) > maxErrorBodyLen {
+		body = body[:maxErrorBodyLen] + "... (truncated)"
 	}
 	return fmt.Sprintf("worker returned %d on %s: %s", e.StatusCode, e.Path, body)
 }
@@ -1829,11 +1860,13 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	for _, ls := range m.sessions {
 		if bs, ok := backendSessionByID[ls.SessionID]; ok {
 			ls.WhepURL = bs.WhepUrl
+			applyBackendScreenDimensions(ls, bs)
 			continue
 		}
 		if bs, ok := backendSessionByWorkflow[ls.WorkflowRunID]; ok {
 			ls.SessionID = bs.Id
 			ls.WhepURL = bs.WhepUrl
+			applyBackendScreenDimensions(ls, bs)
 		}
 	}
 	for idx, ls := range m.sessions {
@@ -1885,7 +1918,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		// DNS entries are cleaned up before backend DB status is updated,
 		// so a non-empty URL doesn't guarantee the worker is alive.
 		tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID}
-		if hErr := m.healthCheckSession(tmpSession); hErr != nil {
+		if _, hErr := m.healthCheckSession(tmpSession); hErr != nil {
 			ui.PrintDebug("skipping session %s: worker unreachable (%v)", shortPrefix(bs.Id, 8), hErr)
 			continue
 		}
@@ -1916,6 +1949,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			LastActivity:  time.Now(),
 			IdleTimeout:   5 * time.Minute,
 		}
+		applyBackendScreenDimensions(session, bs)
 
 		m.sessions[idx] = session
 		m.resetIdleTimerForSessionLocked(idx, context.Background())
@@ -2013,7 +2047,7 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 
 	// Health-check the worker.
 	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: *detail.WorkflowRunID}
-	if hErr := m.healthCheckSession(tmpSession); hErr != nil {
+	if _, hErr := m.healthCheckSession(tmpSession); hErr != nil {
 		return -1, nil, fmt.Errorf("worker unreachable for session %s: %w", sessionID[:min(8, len(sessionID))], hErr)
 	}
 

@@ -397,7 +397,7 @@ func classifyHMREvent(line string) string {
 
 // isPortAvailable checks if the configured port is available.
 func (e *ExpoDevServer) isPortAvailable() bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", e.Port))
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", e.Port))
 	if err != nil {
 		return false
 	}

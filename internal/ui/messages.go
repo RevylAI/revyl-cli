@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/revyl/cli/internal/status"
 )
 
@@ -163,6 +164,125 @@ func PrintBox(title, content string) {
 	titleStyled := BoxTitleStyle.Render(title)
 	box := BoxStyle.Render(titleStyled + "\n" + content)
 	fmt.Fprintln(os.Stderr, box)
+}
+
+// PreflightVerdict represents the tri-state compatibility result for the pre-flight box.
+type PreflightVerdict int
+
+const (
+	// PreflightPass means the build is compatible with hot reload.
+	PreflightPass PreflightVerdict = iota
+	// PreflightFail means the build is NOT compatible with hot reload.
+	PreflightFail
+	// PreflightWarn means compatibility could not be determined.
+	PreflightWarn
+)
+
+// PreflightRow is a single key-value row in the pre-flight box.
+//
+// Fields:
+//   - Key: the label (e.g. "Provider:", "Build type:")
+//   - Value: the display value
+//   - Icon: optional prefix icon (e.g. "✓", "✗", "⚠")
+type PreflightRow struct {
+	Key   string
+	Value string
+	Icon  string
+}
+
+// PreflightBoxInput holds all data needed to render the pre-flight box.
+//
+// Fields:
+//   - Rows: ordered key-value rows for the info section
+//   - Verdict: pass/fail/warn determines the box border color and verdict line
+//   - VerdictText: the human-readable verdict message
+//   - Explanation: multi-line explanation shown only when verdict is Fail or Warn
+//   - FixHeader: header for the fix section (e.g. "To fix, upload a dev client build:")
+//   - FixCommands: actionable commands the user can run
+//   - Warnings: additional non-fatal warnings shown below the verdict
+type PreflightBoxInput struct {
+	Rows        []PreflightRow
+	Verdict     PreflightVerdict
+	VerdictText string
+	Explanation string
+	FixHeader   string
+	FixCommands []string
+	Warnings    []string
+}
+
+// PrintPreflightBox renders a structured pre-flight checklist box.
+// Uses green border for pass, red for fail, purple for warn/unknown.
+// Always printed (not suppressed by quiet mode) since it contains critical compatibility info.
+//
+// Parameters:
+//   - input: the complete pre-flight box data
+func PrintPreflightBox(input PreflightBoxInput) {
+	if quietMode {
+		return
+	}
+
+	var lines []string
+
+	for _, row := range input.Rows {
+		keyStyled := DimStyle.Render(fmt.Sprintf("  %-16s", row.Key))
+		valueText := row.Value
+		if row.Icon != "" {
+			valueText = row.Icon + " " + valueText
+		}
+		lines = append(lines, fmt.Sprintf("%s %s", keyStyled, InfoStyle.Render(valueText)))
+	}
+
+	lines = append(lines, "")
+
+	var verdictIcon, verdictLine string
+	switch input.Verdict {
+	case PreflightPass:
+		verdictIcon = SuccessStyle.Render("✓")
+		verdictLine = fmt.Sprintf("  %s %s", verdictIcon, SuccessStyle.Render(input.VerdictText))
+	case PreflightFail:
+		verdictIcon = ErrorStyle.Render("✗")
+		verdictLine = fmt.Sprintf("  %s %s", verdictIcon, ErrorStyle.Render(input.VerdictText))
+	case PreflightWarn:
+		verdictIcon = WarningStyle.Render("⚠")
+		verdictLine = fmt.Sprintf("  %s %s", verdictIcon, WarningStyle.Render(input.VerdictText))
+	}
+	lines = append(lines, verdictLine)
+
+	if input.Explanation != "" && input.Verdict != PreflightPass {
+		lines = append(lines, "")
+		for _, expLine := range strings.Split(input.Explanation, "\n") {
+			lines = append(lines, "  "+DimStyle.Render(expLine))
+		}
+	}
+
+	if len(input.FixCommands) > 0 && input.Verdict == PreflightFail {
+		lines = append(lines, "")
+		if input.FixHeader != "" {
+			lines = append(lines, "  "+InfoStyle.Render(input.FixHeader))
+		}
+		for _, cmd := range input.FixCommands {
+			lines = append(lines, "    "+AccentStyle.Render(cmd))
+		}
+	}
+
+	for _, w := range input.Warnings {
+		lines = append(lines, "  "+WarningStyle.Render("⚠ "+w))
+	}
+
+	content := strings.Join(lines, "\n")
+	title := BoxTitleStyle.Render("Dev Loop Pre-flight")
+
+	var boxStyle lipgloss.Style
+	switch input.Verdict {
+	case PreflightPass:
+		boxStyle = ResultBoxPassedStyle
+	case PreflightFail:
+		boxStyle = ResultBoxFailedStyle
+	default:
+		boxStyle = BoxStyle
+	}
+
+	fmt.Fprintln(os.Stderr, boxStyle.Render(title+"\n"+content))
 }
 
 // NextStep represents a single suggested next action for the user.
@@ -560,23 +680,29 @@ func getStyledStatusIcon(statusStr string) string {
 	}
 }
 
-// OpenBrowser opens a URL in the default browser.
+// OpenBrowser opens a URL in the default browser after validating it uses
+// http or https scheme. Non-HTTP schemes are rejected to prevent OS handler abuse.
 //
 // Parameters:
-//   - url: The URL to open
+//   - rawURL: The URL to open (must be http:// or https://)
 //
 // Returns:
-//   - error: Any error that occurred
-func OpenBrowser(url string) error {
+//   - error: If the scheme is not http/https or the platform is unsupported
+func OpenBrowser(rawURL string) error {
+	lower := strings.ToLower(strings.TrimSpace(rawURL))
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		return fmt.Errorf("refusing to open non-HTTP URL: %s", rawURL)
+	}
+
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", rawURL)
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", rawURL)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", rawURL)
 	default:
 		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}

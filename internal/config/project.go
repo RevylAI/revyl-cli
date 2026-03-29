@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/revyl/cli/internal/util"
 	"gopkg.in/yaml.v3"
 )
 
@@ -711,7 +712,10 @@ func CountLinkedTests(testsDir string) int {
 //   - string: The remote test UUID, or empty string
 //   - error: Parse error (nil if file missing or has no remote_id)
 func GetLocalTestRemoteID(testsDir, alias string) (string, error) {
-	path := filepath.Join(testsDir, alias+".yaml")
+	path, pathErr := util.SafeTestPath(testsDir, alias)
+	if pathErr != nil {
+		return "", pathErr
+	}
 	lt, err := LoadLocalTest(path)
 	if err != nil {
 		if os.IsNotExist(err) || errors.Is(err, os.ErrNotExist) {

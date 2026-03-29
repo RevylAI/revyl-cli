@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run Smoke Tests
-        uses: RevylAI/revyl-gh-action/run-workflow@main
+        uses: RevylAI/revyl-gh-action/run-workflow@v1
         with:
           workflow-id: "your-smoke-workflow-id"   # <-- replace
           retries: 2

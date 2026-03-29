@@ -305,7 +305,7 @@ func (b *BareRNDevServer) streamStdout(stdout io.Reader, outputCallback hotreloa
 }
 
 func (b *BareRNDevServer) isPortAvailable() bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", b.Port))
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", b.Port))
 	if err != nil {
 		return false
 	}

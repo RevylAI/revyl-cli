@@ -380,17 +380,26 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	)
 
 	ui.PrintBanner(version)
-	ui.PrintInfo("Revyl Dev Loop")
 	ui.Println()
-	ui.PrintInfo("Provider: %s", provider.DisplayName())
-	ui.PrintInfo("Device platform: %s", devicePlatform)
-	if platformKey != "" {
-		ui.PrintInfo("Build platform key: %s", platformKey)
+
+	buildMeta := map[string]interface{}(nil)
+	if selectedVersion != nil {
+		buildMeta = selectedVersion.Metadata
 	}
-	if selectedAppID != "" {
-		ui.PrintInfo("App ID: %s", selectedAppID)
+	if buildMeta == nil && buildDetail.Metadata != nil {
+		buildMeta = buildDetail.Metadata
 	}
-	printBuildSelectionInfo(buildVersionID, buildSelectionSource, selectedVersion, provider.Name(), cwd)
+	printDevPreflight(
+		provider.DisplayName(),
+		devicePlatform,
+		platformKey,
+		buildVersionID,
+		buildSelectionSource,
+		selectedVersion,
+		buildMeta,
+		provider.Name(),
+		cwd,
+	)
 	ui.Println()
 
 	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
@@ -507,7 +516,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		installBody["bundle_id"] = bundleID
 	}
 	ui.PrintInfo("Installing dev build on device...")
-	ui.PrintDebug("install payload: app_url=%s bundle_id=%s", installBody["app_url"], installBody["bundle_id"])
+	ui.PrintDebug("install payload: app_url=%s bundle_id=%s", maskPresignedURL(installBody["app_url"]), installBody["bundle_id"])
 	installRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", installBody)
 	if err != nil {
 		if isUserCanceled(err) {
@@ -616,66 +625,119 @@ func printDevReadyFooter(viewerURL, reportURL, deepLinkURL string, manualDeepLin
 	ui.PrintDim("  revyl device screenshot")
 }
 
-// printBuildSelectionInfo displays human-readable build selection details.
-// Shows branch, version, and upload time when available, with provider-aware
-// fallback hints for teams sharing builds.
-func printBuildSelectionInfo(
-	buildVersionID, source string,
+// printDevPreflight renders the structured pre-flight checklist box showing
+// build classification, compatibility verdict, and actionable fix commands.
+//
+// Parameters:
+//   - providerDisplay: human-readable provider name (e.g. "Expo")
+//   - devicePlatform: target platform (e.g. "ios", "android")
+//   - platformKey: build platform key (e.g. "ios-dev")
+//   - buildVersionID: the resolved build version ID
+//   - source: how the build was selected ("branch:...", "latest", "explicit")
+//   - ver: the full BuildVersion if available (nil for explicit --build-version-id)
+//   - metadata: build metadata for classification
+//   - providerName: provider identifier for heuristics (e.g. "expo")
+//   - cwd: working directory for branch detection
+func printDevPreflight(
+	providerDisplay, devicePlatform, platformKey, buildVersionID, source string,
 	ver *api.BuildVersion,
+	metadata map[string]interface{},
 	providerName, cwd string,
 ) {
-	if ver == nil {
-		ui.PrintInfo("Dev build: %s", buildVersionID)
-		if source != "" {
-			ui.PrintInfo("Build selection: %s", source)
-		}
-		return
-	}
+	var rows []ui.PreflightRow
 
-	branch := buildselection.ExtractBranch(ver.Metadata)
-	label := ver.Version
-	if label == "" {
-		label = buildVersionID
+	platformDisplay := devicePlatform
+	if platformKey != "" {
+		platformDisplay = fmt.Sprintf("%s (%s)", devicePlatform, platformKey)
 	}
-	uploadInfo := ""
-	if ver.UploadedAt != "" {
-		uploadInfo = fmt.Sprintf(", uploaded %s", ver.UploadedAt)
+	rows = append(rows,
+		ui.PreflightRow{Key: "Provider:", Value: providerDisplay},
+		ui.PreflightRow{Key: "Platform:", Value: platformDisplay},
+	)
+
+	buildLabel := buildVersionID
+	if ver != nil && ver.Version != "" {
+		buildLabel = ver.Version
 	}
+	rows = append(rows, ui.PreflightRow{Key: "Build:", Value: buildLabel})
 
-	if strings.HasPrefix(source, "branch:") {
-		branchDisplay := branch
-		if branchDisplay == "" {
-			branchDisplay = strings.TrimPrefix(source, "branch:")
-		}
-		ui.PrintInfo("Dev build: %s (branch: %s%s)", label, branchDisplay, uploadInfo)
-		return
+	buildBranch := ""
+	if ver != nil {
+		buildBranch = buildselection.ExtractBranch(ver.Metadata)
 	}
-
-	ui.PrintInfo("Dev build: %s%s", label, uploadInfo)
-
 	currentBranch := buildselection.CurrentBranch(cwd)
-	if currentBranch != "" {
-		buildBranch := branch
-		if buildBranch == "" {
-			buildBranch = "unknown"
-		}
-		ui.PrintWarning("No build found for branch %q", currentBranch)
-		ui.PrintDim("  Using latest build (from branch: %s)", buildBranch)
-		ui.PrintDim("  %s", buildFallbackHint(providerName))
+	branchRow := buildBranchRow(buildBranch, currentBranch, source)
+	if branchRow != nil {
+		rows = append(rows, *branchRow)
 	}
+
+	preflight := buildselection.ClassifyBuild(metadata, providerName, platformKey)
+
+	typeIcon := ""
+	switch preflight.Compatible {
+	case buildselection.CompatibleYes:
+		typeIcon = "✓"
+	case buildselection.CompatibleNo:
+		typeIcon = "✗"
+	case buildselection.CompatibleUnknown:
+		typeIcon = "⚠"
+	}
+	rows = append(rows, ui.PreflightRow{Key: "Build type:", Value: string(preflight.Class), Icon: typeIcon})
+
+	if ver != nil && ver.UploadedAt != "" {
+		rows = append(rows, ui.PreflightRow{Key: "Uploaded:", Value: ver.UploadedAt})
+	}
+
+	var verdict ui.PreflightVerdict
+	var verdictText string
+	switch preflight.Compatible {
+	case buildselection.CompatibleYes:
+		verdict = ui.PreflightPass
+		verdictText = "Build is compatible with hot reload"
+	case buildselection.CompatibleNo:
+		verdict = ui.PreflightFail
+		verdictText = "This build will NOT work with hot reload"
+	default:
+		verdict = ui.PreflightWarn
+		verdictText = "Could not verify hot-reload compatibility"
+	}
+
+	fixHeader := ""
+	if preflight.Compatible == buildselection.CompatibleNo {
+		fixHeader = "To fix, upload a dev client build:"
+	}
+
+	ui.PrintPreflightBox(ui.PreflightBoxInput{
+		Rows:        rows,
+		Verdict:     verdict,
+		VerdictText: verdictText,
+		Explanation: preflight.Reason,
+		FixHeader:   fixHeader,
+		FixCommands: preflight.FixCommands,
+		Warnings:    preflight.Warnings,
+	})
 }
 
-// buildFallbackHint returns a provider-aware explanation for why using
-// a fallback build is (or isn't) safe.
-func buildFallbackHint(providerName string) string {
-	switch providerName {
-	case "expo", "react-native":
-		return "Dev mode serves your local JS -- this build is fine unless you changed native code."
-	case "swift", "android":
-		return "Native projects require a matching build for every code change."
-	default:
-		return "Upload a branch-specific build with: revyl build upload --platform <key>"
+// buildBranchRow creates the "Branch:" row for the pre-flight box.
+// Returns nil if no meaningful branch info is available.
+func buildBranchRow(buildBranch, currentBranch, source string) *ui.PreflightRow {
+	if strings.HasPrefix(source, "branch:") {
+		display := buildBranch
+		if display == "" {
+			display = strings.TrimPrefix(source, "branch:")
+		}
+		return &ui.PreflightRow{Key: "Branch:", Value: display + " (matches current)", Icon: "✓"}
 	}
+
+	if currentBranch != "" && buildBranch != "" {
+		return &ui.PreflightRow{Key: "Branch:", Value: buildBranch + " (no match for " + currentBranch + ")", Icon: "⚠"}
+	}
+
+	if buildBranch != "" {
+		return &ui.PreflightRow{Key: "Branch:", Value: buildBranch}
+	}
+
+	return nil
 }
 
 type devSessionStarter interface {
@@ -883,4 +945,13 @@ func isNoSessionAtIndexError(err error, index int) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), fmt.Sprintf("no session at index %d", index))
+}
+
+// maskPresignedURL redacts the query string from presigned S3/GCS URLs to
+// prevent leaking time-limited auth tokens in logs or CI output.
+func maskPresignedURL(rawURL string) string {
+	if idx := strings.Index(rawURL, "?"); idx > 0 {
+		return rawURL[:idx] + "?<redacted>"
+	}
+	return rawURL
 }

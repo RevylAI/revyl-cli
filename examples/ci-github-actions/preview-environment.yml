@@ -1,0 +1,102 @@
+# Preview Environment — spin up a cloud device for every PR build.
+#
+# On every push to a PR:
+#   1. Builds the app artifact locally with EAS
+#   2. Uploads it to Revyl
+#   3. Starts a cloud device running that exact build
+#   4. Posts a PR comment with the live viewer link
+#
+# Secrets needed: REVYL_API_KEY, EXPO_TOKEN
+
+name: Preview Environment
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  preview:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build iOS preview artifact
+        run: npx eas-cli build --platform ios --profile preview --local --non-interactive --output build/app.tar.gz
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install Revyl CLI
+        run: pip install revyl
+
+      - name: Upload build to Revyl
+        id: upload
+        run: |
+          OUTPUT=$(revyl build upload -f build/app.tar.gz --app "your-app-id" --yes --json)
+          echo "$OUTPUT"
+          BUILD_ID=$(echo "$OUTPUT" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          build = data.get('build') or (data.get('builds') or [{}])[0]
+          print(build.get('build_id', ''))
+          ")
+          echo "build-id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+
+      - name: Start preview device
+        id: device
+        run: |
+          OUTPUT=$(revyl device start \
+            --platform ios \
+            --build-version-id "${{ steps.upload.outputs.build-id }}" \
+            --json)
+          echo "$OUTPUT"
+          VIEWER=$(echo "$OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('viewer_url',''))")
+          SID=$(echo "$OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id',''))")
+          echo "viewer-url=$VIEWER" >> "$GITHUB_OUTPUT"
+          echo "session-id=$SID" >> "$GITHUB_OUTPUT"
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+
+      - name: Post preview link to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const viewer = '${{ steps.device.outputs.viewer-url }}';
+            const sid    = '${{ steps.device.outputs.session-id }}';
+            const build  = '${{ steps.upload.outputs.build-id }}';
+            const report = `https://app.revyl.ai/tests/report?sessionId=${sid}`;
+
+            const body = [
+              `## Preview Environment Ready`,
+              ``,
+              `| | |`,
+              `|---|---|`,
+              `| **Build** | \`${build}\` |`,
+              `| **Commit** | \`${context.sha.substring(0, 8)}\` |`,
+              `| **Platform** | iOS |`,
+              ``,
+              `**[Open Live Preview](${viewer})**`,
+              ``,
+              `[View Report](${report})`,
+              ``,
+              `---`,
+              `*Device auto-stops after 10 minutes of inactivity.*`,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

@@ -1,6 +1,10 @@
 # GitLab CI/CD -- Revyl test pipeline
 #
 # Add REVYL_API_KEY as a CI/CD variable in Settings > CI/CD > Variables (masked).
+#
+# SECURITY: The install step downloads a pinned CLI release and verifies its
+# SHA-256 checksum before executing. Pin REVYL_CLI_VERSION to a specific tag
+# and update REVYL_CLI_CHECKSUM when upgrading.
 
 stages:
   - build
@@ -9,6 +13,24 @@ stages:
 
 variables:
   REVYL_INSTALL_DIR: /usr/local/bin
+  # Pin to a specific release tag — update both version and checksum together.
+  REVYL_CLI_VERSION: "v0.12.0"
+  REVYL_CLI_CHECKSUM: ""  # Set to the sha256 from the checksums.txt for your platform
+
+.install-revyl: &install-revyl
+  - apk add --no-cache curl coreutils
+  - |
+    PLATFORM="linux-amd64"
+    BINARY="revyl-${PLATFORM}"
+    URL="https://github.com/RevylAI/revyl-cli/releases/download/${REVYL_CLI_VERSION}/${BINARY}"
+    curl -fsSL -o /tmp/revyl "$URL"
+    if [ -n "$REVYL_CLI_CHECKSUM" ]; then
+      echo "${REVYL_CLI_CHECKSUM}  /tmp/revyl" | sha256sum -c -
+    else
+      echo "WARNING: REVYL_CLI_CHECKSUM not set — skipping integrity check"
+    fi
+    chmod +x /tmp/revyl
+    mv /tmp/revyl "${REVYL_INSTALL_DIR}/revyl"
 
 build:
   stage: build
@@ -25,8 +47,7 @@ test:
   stage: test
   image: alpine:latest
   before_script:
-    - apk add --no-cache curl
-    - curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+    - *install-revyl
   script:
     - revyl workflow run smoke-tests
   # Optional: upload build first
@@ -41,8 +62,7 @@ test-async:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   before_script:
-    - apk add --no-cache curl
-    - curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+    - *install-revyl
   script:
     - revyl workflow run smoke-tests --no-wait
 
@@ -52,7 +72,6 @@ check-status:
   image: alpine:latest
   needs: [test-async]
   before_script:
-    - apk add --no-cache curl
-    - curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+    - *install-revyl
   script:
     - revyl workflow status smoke-tests --json

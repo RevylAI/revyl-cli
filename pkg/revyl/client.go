@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
@@ -381,8 +382,12 @@ func (c *Client) BuildAndUploadWithOptions(ctx context.Context, opts *BuildOptio
 		version = build.GenerateVersionString()
 	}
 
-	// Upload
 	artifactPath := filepath.Join(c.workDir, buildCfg.Output)
+	absWork, _ := filepath.Abs(c.workDir)
+	absArtifact, _ := filepath.Abs(artifactPath)
+	if !strings.HasPrefix(absArtifact, absWork+string(filepath.Separator)) && absArtifact != absWork {
+		return nil, fmt.Errorf("build.output %q resolves outside project directory", buildCfg.Output)
+	}
 	metadata := build.CollectMetadata(c.workDir, buildCfg.Command, opts.Platform, 0)
 
 	result, err := c.apiClient.UploadBuild(ctx, &api.UploadBuildRequest{

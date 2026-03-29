@@ -37,14 +37,19 @@ func NewRunner(workDir string) *Runner {
 
 // Run executes a build command and streams output to the callback.
 //
+// SECURITY: The command string is passed to /bin/sh -c and can contain arbitrary
+// shell operators. It originates from the project's .revyl/config.yaml. This is
+// intentional (build commands inherently need shell execution), but means that
+// cloning and building an untrusted repository grants that repo full shell access
+// as the current user. Treat .revyl/config.yaml with the same trust level as a
+// Makefile or package.json script.
+//
 // Parameters:
 //   - command: The build command to execute (can include shell operators)
 //   - onOutput: Callback function called for each line of output
 //
 // Returns:
 //   - error: Any error that occurred during execution
-//
-// The command is executed via /bin/sh -c to support shell features like pipes and redirects.
 func (r *Runner) Run(command string, onOutput func(line string)) error {
 	cmd := exec.Command("/bin/sh", "-c", command)
 	cmd.Dir = r.workDir

@@ -185,6 +185,7 @@ func init() {
 	testRunCmd.Flags().BoolVar(&runDeviceSelect, "device", false, "Interactively select device model and OS version")
 	testRunCmd.Flags().StringVar(&runDeviceModel, "device-model", "", "Target device model (e.g. \"iPhone 16\")")
 	testRunCmd.Flags().StringVar(&runOsVersion, "os-version", "", "Target OS version (e.g. \"iOS 18.5\")")
+	testRunCmd.Flags().StringVar(&runOrientation, "orientation", "", "Initial device orientation (portrait or landscape)")
 
 	// test cancel flags (inherits global --json)
 

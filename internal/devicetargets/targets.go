@@ -131,6 +131,58 @@ func FormatPairLabel(pair DevicePair) string {
 	return fmt.Sprintf("%s · %s", pair.Model, pair.Runtime)
 }
 
+// DevicePresets maps human-friendly preset names to their platform and
+// default (model, runtime) pair. Integrations like Trailblaze reference
+// these by name so they don't need to hardcode device/runtime strings.
+var DevicePresets = map[string]struct {
+	Platform string
+	Pair     DevicePair
+}{
+	"revyl-android-phone": {Platform: "android"},
+	"revyl-ios-iphone":    {Platform: "ios"},
+}
+
+// ResolvePreset looks up a named device preset and returns the platform,
+// device model, and OS runtime. The returned pair uses the platform's
+// current default from the generated target catalog, keeping presets
+// in sync with backend changes automatically.
+//
+// Parameters:
+//   - name: preset name (e.g. "revyl-android-phone")
+//
+// Returns:
+//   - platform, model, runtime strings
+//   - error if the preset name is unknown
+func ResolvePreset(name string) (platform, model, runtime string, err error) {
+	preset, ok := DevicePresets[strings.ToLower(name)]
+	if !ok {
+		known := make([]string, 0, len(DevicePresets))
+		for k := range DevicePresets {
+			known = append(known, k)
+		}
+		return "", "", "", fmt.Errorf("unknown device preset %q; available: %v", name, known)
+	}
+
+	if preset.Pair.Model != "" && preset.Pair.Runtime != "" {
+		return preset.Platform, preset.Pair.Model, preset.Pair.Runtime, nil
+	}
+
+	defaultPair, defErr := GetDefaultPair(preset.Platform)
+	if defErr != nil {
+		return "", "", "", fmt.Errorf("preset %q references platform %q: %w", name, preset.Platform, defErr)
+	}
+	return preset.Platform, defaultPair.Model, defaultPair.Runtime, nil
+}
+
+// ListPresets returns all available preset names.
+func ListPresets() []string {
+	names := make([]string, 0, len(DevicePresets))
+	for k := range DevicePresets {
+		names = append(names, k)
+	}
+	return names
+}
+
 func contains(ss []string, s string) bool {
 	for _, v := range ss {
 		if v == s {

@@ -526,9 +526,11 @@ func (r *Resolver) syncTestConfig(ctx context.Context, testID string, localTest 
 		}
 	}
 
-	if localTest.Test.Device != nil && localTest.Test.Device.Model != "" {
-		if err := r.client.UpdateDeviceTarget(ctx, testID, localTest.Test.Device.Model, localTest.Test.Device.OSVersion); err != nil {
-			errs = append(errs, fmt.Errorf("update device target: %w", err))
+	if localTest.Test.Device != nil {
+		if localTest.Test.Device.Model != "" || localTest.Test.Device.Orientation != "" {
+			if err := r.client.UpdateDeviceTarget(ctx, testID, localTest.Test.Device.Model, localTest.Test.Device.OSVersion, localTest.Test.Device.Orientation); err != nil {
+				errs = append(errs, fmt.Errorf("update device target: %w", err))
+			}
 		}
 	}
 
@@ -688,14 +690,19 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 		localTest.Test.EnvVars = envVars
 	}
 
-	// Parse device targets from GetTest response (first target wins)
+	// Parse device targets and orientation from GetTest response
 	if len(remoteTest.MobileTargets) > 0 {
 		mt := remoteTest.MobileTargets[0]
 		if mt.DeviceModel != "" && mt.DeviceModel != "AUTO" {
 			localTest.Test.Device = &config.TestDeviceConfig{
-				Model:     mt.DeviceModel,
-				OSVersion: mt.OSVersion,
+				Model:       mt.DeviceModel,
+				OSVersion:   mt.OSVersion,
+				Orientation: remoteTest.Orientation,
 			}
+		}
+	} else if remoteTest.Orientation != "" && remoteTest.Orientation != "portrait" {
+		localTest.Test.Device = &config.TestDeviceConfig{
+			Orientation: remoteTest.Orientation,
 		}
 	}
 

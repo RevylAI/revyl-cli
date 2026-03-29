@@ -313,6 +313,15 @@ func canRunInteractiveSelect() bool {
 	return isInputTTY && (isOutputTTY || isStderrTTY)
 }
 
+// IsInteractive reports whether the CLI is running in an interactive terminal
+// where user prompts (e.g. platform selection) can be displayed.
+//
+// Returns:
+//   - bool: True if stdin is a TTY and at least one output stream is a TTY.
+func IsInteractive() bool {
+	return canRunInteractiveSelect()
+}
+
 // Confirm prompts the user for a yes/no confirmation.
 // This is an alias for PromptConfirm for convenience.
 //

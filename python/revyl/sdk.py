@@ -218,6 +218,34 @@ class DeviceClient:
         self.session_index = session_index
         self._auto_report = auto_report
         self._verbose = verbose
+        self._screen_width: int = 0
+        self._screen_height: int = 0
+
+    @property
+    def screen_width(self) -> int:
+        """Device screen width in pixels (0 when unknown)."""
+        return self._screen_width
+
+    @property
+    def screen_height(self) -> int:
+        """Device screen height in pixels (0 when unknown)."""
+        return self._screen_height
+
+    def device_info(self) -> JSONObject:
+        """Return session metadata including screen dimensions.
+
+        Returns:
+            Dict with session_index, screen_width, screen_height, and
+            the full ``device info`` JSON from the CLI.
+        """
+        args = ["device", "info", *self._session_args(self.session_index)]
+        result = self.cli.run(*args, json_output=True)
+        info = result if isinstance(result, dict) else {}
+        if self._screen_width > 0:
+            info["screen_width"] = self._screen_width
+        if self._screen_height > 0:
+            info["screen_height"] = self._screen_height
+        return info
 
     @classmethod
     def start(
@@ -231,6 +259,7 @@ class DeviceClient:
         app_link: Optional[str] = None,
         device_model: Optional[DeviceModel] = None,
         os_version: Optional[OsVersion] = None,
+        device_name: Optional[str] = None,
         cli: Optional[RevylCLI] = None,
         wait_for_ready: bool = True,
         ready_timeout: float = 60,
@@ -240,7 +269,7 @@ class DeviceClient:
         """Provision a cloud device and return a connected client.
 
         Args:
-            platform: Target platform.
+            platform: Target platform (ignored when *device_name* is set).
             timeout: Session timeout in seconds.
             open_viewer: Open the live viewer in a browser.
             app_id: Revyl app UUID to install.
@@ -249,6 +278,8 @@ class DeviceClient:
             app_link: Deep-link URL to open after install.
             device_model: Target device model. Must be paired with *os_version*.
             os_version: Target OS version. Must be paired with *device_model*.
+            device_name: Named device preset (e.g. "revyl-android-phone").
+                Overrides *platform*, *device_model*, and *os_version*.
             cli: Optional CLI instance (uses default if omitted).
             wait_for_ready: Block until the device is API-ready (default
                 ``True``).  Set to ``False`` for fire-and-forget provisioning;
@@ -265,7 +296,8 @@ class DeviceClient:
             A connected ``DeviceClient`` with an active session.
 
         Raises:
-            ValueError: If only one of *device_model* / *os_version* is given.
+            ValueError: If only one of *device_model* / *os_version* is given
+                without using *device_name*.
             RevylError: If the underlying CLI command fails or the device does
                 not become ready within *ready_timeout*.
         """
@@ -280,6 +312,7 @@ class DeviceClient:
             app_link=app_link,
             device_model=device_model,
             os_version=os_version,
+            device_name=device_name,
         )
         if wait_for_ready:
             if not client.wait_for_device_ready(timeout=ready_timeout):
@@ -375,11 +408,12 @@ class DeviceClient:
         app_link: Optional[str] = None,
         device_model: Optional[DeviceModel] = None,
         os_version: Optional[OsVersion] = None,
+        device_name: Optional[str] = None,
     ) -> JSONObject:
         """Start a new device session and track its index.
 
         Args:
-            platform: Target platform.
+            platform: Target platform (ignored when *device_name* is set).
             timeout: Session timeout in seconds.
             open_viewer: Open the live viewer in a browser.
             app_id: Revyl app UUID to install.
@@ -388,19 +422,26 @@ class DeviceClient:
             app_link: Deep-link URL to open after install.
             device_model: Target device model. Must be paired with *os_version*.
             os_version: Target OS version. Must be paired with *device_model*.
+            device_name: Named device preset (e.g. "revyl-android-phone",
+                "revyl-ios-iphone"). Overrides *platform*, *device_model*,
+                and *os_version*.
 
         Returns:
-            CLI JSON response with session metadata.
+            CLI JSON response with session metadata including
+            ``screen_width`` and ``screen_height``.
 
         Raises:
-            ValueError: If only one of *device_model* / *os_version* is given.
+            ValueError: If only one of *device_model* / *os_version* is given
+                without using *device_name*.
         """
-        if bool(device_model) != bool(os_version):
+        if not device_name and bool(device_model) != bool(os_version):
             raise ValueError(
                 "--device-model and --os-version must both be provided"
             )
 
         args = ["device", "start", "--platform", platform]
+        if device_name:
+            args.extend(["--device-name", device_name])
         if timeout is not None:
             args.extend(["--timeout", str(timeout)])
         if open_viewer:
@@ -413,7 +454,7 @@ class DeviceClient:
             args.extend(["--app-url", app_url])
         if app_link:
             args.extend(["--app-link", app_link])
-        if device_model and os_version:
+        if not device_name and device_model and os_version:
             args.extend(["--device-model", device_model, "--os-version", os_version])
 
         if self._verbose:
@@ -426,6 +467,12 @@ class DeviceClient:
             idx = result.get("index")
             if isinstance(idx, int):
                 self.session_index = idx
+            sw = result.get("screen_width")
+            sh = result.get("screen_height")
+            if isinstance(sw, int) and sw > 0:
+                self._screen_width = sw
+            if isinstance(sh, int) and sh > 0:
+                self._screen_height = sh
             return result
         return {}
 

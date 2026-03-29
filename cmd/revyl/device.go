@@ -116,6 +116,55 @@ func jsonOrPrint(cmd *cobra.Command, v interface{}, fallbackMsg string) {
 	}
 }
 
+// ActionResult is the enriched JSON output for device action commands (tap,
+// double-tap, long-press, type, swipe, etc.). It includes the resolved
+// coordinates, the target description (when AI-grounded), and worker-reported
+// success/latency so that downstream consumers like Trailblaze can render
+// click overlays without additional round-trips.
+type ActionResult struct {
+	Action     string      `json:"action"`
+	X          int         `json:"x"`
+	Y          int         `json:"y"`
+	Target     string      `json:"target,omitempty"`
+	Success    bool        `json:"success"`
+	LatencyMs  json.Number `json:"latency_ms,omitempty"`
+	DurationMs int         `json:"duration_ms,omitempty"`
+	Text       string      `json:"text,omitempty"`
+	Direction  string      `json:"direction,omitempty"`
+	Scale      float64     `json:"scale,omitempty"`
+	EndX       int         `json:"end_x,omitempty"`
+	EndY       int         `json:"end_y,omitempty"`
+}
+
+// workerActionResponseFull extends the base workerActionResponse (in dev.go)
+// with the latency field returned by the worker's ActionResponse.
+type workerActionResponseFull struct {
+	Success   *bool       `json:"success"`
+	LatencyMs json.Number `json:"latency_ms"`
+}
+
+// buildActionResult creates an ActionResult by merging locally-known fields
+// (coordinates, target, action name) with the worker's response body.
+// If the worker body cannot be parsed, success defaults to true (the request
+// did not error) and latency is omitted.
+func buildActionResult(action string, x, y int, target string, workerBody []byte) ActionResult {
+	result := ActionResult{
+		Action:  action,
+		X:       x,
+		Y:       y,
+		Target:  target,
+		Success: true,
+	}
+	var wr workerActionResponseFull
+	if err := json.Unmarshal(workerBody, &wr); err == nil {
+		if wr.Success != nil {
+			result.Success = *wr.Success
+		}
+		result.LatencyMs = wr.LatencyMs
+	}
+	return result
+}
+
 type liveStepOutputSummary struct {
 	Status           string `json:"status"`
 	StatusReason     string `json:"status_reason"`
@@ -159,6 +208,9 @@ func formatDeviceInfoFallback(session *mcppkg.DeviceSession) string {
 		fmt.Sprintf("Session %d: %s", session.Index, session.SessionID),
 		fmt.Sprintf("Platform: %s", session.Platform),
 		fmt.Sprintf("Viewer: %s", session.ViewerURL),
+	}
+	if session.ScreenWidth > 0 && session.ScreenHeight > 0 {
+		lines = append(lines, fmt.Sprintf("Screen: %dx%d", session.ScreenWidth, session.ScreenHeight))
 	}
 	if session.WhepURL != nil && strings.TrimSpace(*session.WhepURL) != "" {
 		lines = append(lines, fmt.Sprintf("WHEP: %s", strings.TrimSpace(*session.WhepURL)))
@@ -311,12 +363,21 @@ var deviceStartCmd = &cobra.Command{
 			}
 		}
 		// Resolve device model/OS version selection
+		deviceNameFlag, _ := cmd.Flags().GetString("device-name")
 		deviceSelectFlag, _ := cmd.Flags().GetBool("device")
 		deviceModelFlag, _ := cmd.Flags().GetString("device-model")
 		osVersionFlag, _ := cmd.Flags().GetString("os-version")
 
 		var selectedDeviceModel, selectedOsVersion string
-		if deviceModelFlag != "" || osVersionFlag != "" {
+		if deviceNameFlag != "" {
+			presetPlatform, presetModel, presetRuntime, presetErr := devicetargets.ResolvePreset(deviceNameFlag)
+			if presetErr != nil {
+				return presetErr
+			}
+			platform = presetPlatform
+			selectedDeviceModel = presetModel
+			selectedOsVersion = presetRuntime
+		} else if deviceModelFlag != "" || osVersionFlag != "" {
 			if deviceModelFlag == "" || osVersionFlag == "" {
 				return fmt.Errorf("--device-model and --os-version must both be provided")
 			}
@@ -517,6 +578,45 @@ var deviceScreenshotCmd = &cobra.Command{
 	},
 }
 
+var deviceHierarchyCmd = &cobra.Command{
+	Use:   "hierarchy",
+	Short: "Dump the device UI hierarchy (Android XML / iOS JSON)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return err
+		}
+		respBytes, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/hierarchy", nil)
+		if err != nil {
+			return err
+		}
+		out, _ := cmd.Flags().GetString("out")
+		if out != "" {
+			if err := os.WriteFile(out, respBytes, 0o644); err != nil {
+				return err
+			}
+			jsonOrPrint(cmd, map[string]string{"path": out, "bytes": fmt.Sprintf("%d", len(respBytes))}, fmt.Sprintf("Hierarchy saved: %s (%d bytes)", out, len(respBytes)))
+		} else {
+			wantJSON, _ := cmd.Flags().GetBool("json")
+			if wantJSON {
+				envelope := map[string]interface{}{
+					"hierarchy": string(respBytes),
+					"bytes":     len(respBytes),
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(envelope)
+			}
+			fmt.Println(string(respBytes))
+		}
+		return nil
+	},
+}
+
 var deviceTapCmd = &cobra.Command{
 	Use:   "tap",
 	Short: "Tap an element (--target or --x/--y)",
@@ -533,15 +633,17 @@ var deviceTapCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		target, _ := cmd.Flags().GetString("target")
 		body := map[string]interface{}{"x": x, "y": y}
-		if target, _ := cmd.Flags().GetString("target"); target != "" {
+		if target != "" {
 			body["target"] = target
 		}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/tap", body)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/tap", body)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, map[string]int{"x": x, "y": y}, fmt.Sprintf("Tapped (%d, %d)", x, y))
+		result := buildActionResult("tap", x, y, target, respBody)
+		jsonOrPrint(cmd, result, fmt.Sprintf("Tapped (%d, %d)", x, y))
 		return nil
 	},
 }
@@ -562,15 +664,17 @@ var deviceDoubleTapCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		target, _ := cmd.Flags().GetString("target")
 		body := map[string]interface{}{"x": x, "y": y}
-		if target, _ := cmd.Flags().GetString("target"); target != "" {
+		if target != "" {
 			body["target"] = target
 		}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/double_tap", body)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/double_tap", body)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, map[string]int{"x": x, "y": y}, fmt.Sprintf("Double-tapped (%d, %d)", x, y))
+		result := buildActionResult("double_tap", x, y, target, respBody)
+		jsonOrPrint(cmd, result, fmt.Sprintf("Double-tapped (%d, %d)", x, y))
 		return nil
 	},
 }
@@ -595,15 +699,18 @@ var deviceLongPressCmd = &cobra.Command{
 		if dur == 0 {
 			dur = 1500
 		}
+		target, _ := cmd.Flags().GetString("target")
 		body := map[string]interface{}{"x": x, "y": y, "duration_ms": dur}
-		if target, _ := cmd.Flags().GetString("target"); target != "" {
+		if target != "" {
 			body["target"] = target
 		}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/longpress", body)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/longpress", body)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, map[string]int{"x": x, "y": y, "duration_ms": dur}, fmt.Sprintf("Long-pressed (%d, %d) for %dms", x, y, dur))
+		result := buildActionResult("long_press", x, y, target, respBody)
+		result.DurationMs = dur
+		jsonOrPrint(cmd, result, fmt.Sprintf("Long-pressed (%d, %d) for %dms", x, y, dur))
 		return nil
 	},
 }
@@ -629,15 +736,18 @@ var deviceTypeCmd = &cobra.Command{
 			return err
 		}
 		clearFirst, _ := cmd.Flags().GetBool("clear-first")
+		target, _ := cmd.Flags().GetString("target")
 		body := map[string]interface{}{"x": x, "y": y, "text": text, "clear_first": clearFirst}
-		if target, _ := cmd.Flags().GetString("target"); target != "" {
+		if target != "" {
 			body["target"] = target
 		}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/input", body)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/input", body)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, map[string]interface{}{"x": x, "y": y, "text": text}, fmt.Sprintf("Typed '%s' at (%d, %d)", text, x, y))
+		result := buildActionResult("type", x, y, target, respBody)
+		result.Text = text
+		jsonOrPrint(cmd, result, fmt.Sprintf("Typed '%s' at (%d, %d)", text, x, y))
 		return nil
 	},
 }
@@ -666,15 +776,19 @@ var deviceSwipeCmd = &cobra.Command{
 		if dur == 0 {
 			dur = 500
 		}
+		target, _ := cmd.Flags().GetString("target")
 		body := map[string]interface{}{"x": x, "y": y, "direction": direction, "duration_ms": dur}
-		if target, _ := cmd.Flags().GetString("target"); target != "" {
+		if target != "" {
 			body["target"] = target
 		}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/swipe", body)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/swipe", body)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, map[string]interface{}{"x": x, "y": y, "direction": direction}, fmt.Sprintf("Swiped %s from (%d, %d)", direction, x, y))
+		result := buildActionResult("swipe", x, y, target, respBody)
+		result.Direction = direction
+		result.DurationMs = dur
+		jsonOrPrint(cmd, result, fmt.Sprintf("Swiped %s from (%d, %d)", direction, x, y))
 		return nil
 	},
 }
@@ -696,11 +810,14 @@ var deviceDragCmd = &cobra.Command{
 		ex, _ := cmd.Flags().GetInt("end-x")
 		ey, _ := cmd.Flags().GetInt("end-y")
 		body := map[string]int{"start_x": sx, "start_y": sy, "end_x": ex, "end_y": ey}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/drag", body)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/drag", body)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, body, fmt.Sprintf("Dragged (%d,%d) -> (%d,%d)", sx, sy, ex, ey))
+		result := buildActionResult("drag", sx, sy, "", respBody)
+		result.EndX = ex
+		result.EndY = ey
+		jsonOrPrint(cmd, result, fmt.Sprintf("Dragged (%d,%d) -> (%d,%d)", sx, sy, ex, ey))
 		return nil
 	},
 }
@@ -758,11 +875,14 @@ var devicePinchCmd = &cobra.Command{
 			"scale":       scale,
 			"duration_ms": durationMs,
 		}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/pinch", body)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/pinch", body)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, body, fmt.Sprintf("Pinched (%d, %d) scale=%.2f", x, y, scale))
+		result := buildActionResult("pinch", x, y, "", respBody)
+		result.Scale = scale
+		result.DurationMs = durationMs
+		jsonOrPrint(cmd, result, fmt.Sprintf("Pinched (%d, %d) scale=%.2f", x, y, scale))
 		return nil
 	},
 }
@@ -784,11 +904,12 @@ var deviceClearTextCmd = &cobra.Command{
 			return err
 		}
 		body := map[string]int{"x": x, "y": y}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/clear_text", body)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/clear_text", body)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, body, fmt.Sprintf("Cleared text at (%d, %d)", x, y))
+		result := buildActionResult("clear_text", x, y, "", respBody)
+		jsonOrPrint(cmd, result, fmt.Sprintf("Cleared text at (%d, %d)", x, y))
 		return nil
 	},
 }
@@ -805,11 +926,12 @@ var deviceBackCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/back", nil)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/back", nil)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, map[string]bool{"success": true}, "Pressed back button")
+		result := buildActionResult("back", 0, 0, "", respBody)
+		jsonOrPrint(cmd, result, "Pressed back button")
 		return nil
 	},
 }
@@ -841,11 +963,12 @@ var deviceKeyCmd = &cobra.Command{
 			return fmt.Errorf("--key must be ENTER or BACKSPACE")
 		}
 		body := map[string]string{"key": normalized}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/key", body)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/key", body)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, body, fmt.Sprintf("Sent key %s", normalized))
+		result := buildActionResult("key", 0, 0, "", respBody)
+		jsonOrPrint(cmd, result, fmt.Sprintf("Sent key %s", normalized))
 		return nil
 	},
 }
@@ -1771,6 +1894,7 @@ func init() {
 	deviceStartCmd.Flags().Bool("device", false, "Interactively select device model and OS version")
 	deviceStartCmd.Flags().String("device-model", "", "Target device model (e.g. \"iPhone 16\")")
 	deviceStartCmd.Flags().String("os-version", "", "Target OS version (e.g. \"iOS 18.5\")")
+	deviceStartCmd.Flags().String("device-name", "", "Named device preset (e.g. \"revyl-android-phone\", \"revyl-ios-iphone\")")
 
 	// Stop
 	deviceStopCmd.Flags().Bool("json", false, "Output as JSON")
@@ -1781,6 +1905,11 @@ func init() {
 	deviceScreenshotCmd.Flags().String("out", "", "Output file path")
 	deviceScreenshotCmd.Flags().Bool("json", false, "Output as JSON")
 	sessionFlag(deviceScreenshotCmd)
+
+	// Hierarchy
+	deviceHierarchyCmd.Flags().String("out", "", "Output file path (write raw hierarchy to file)")
+	deviceHierarchyCmd.Flags().Bool("json", false, "Wrap output in a JSON envelope")
+	sessionFlag(deviceHierarchyCmd)
 
 	// Tap
 	deviceTapCmd.Flags().String("target", "", "Element description (grounded)")
@@ -1953,6 +2082,7 @@ func init() {
 	deviceCmd.AddCommand(deviceStartCmd)
 	deviceCmd.AddCommand(deviceStopCmd)
 	deviceCmd.AddCommand(deviceScreenshotCmd)
+	deviceCmd.AddCommand(deviceHierarchyCmd)
 	deviceCmd.AddCommand(deviceTapCmd)
 	deviceCmd.AddCommand(deviceDoubleTapCmd)
 	deviceCmd.AddCommand(deviceLongPressCmd)

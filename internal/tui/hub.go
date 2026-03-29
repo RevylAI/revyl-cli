@@ -33,6 +33,7 @@ import (
 	"github.com/revyl/cli/internal/store"
 	syncpkg "github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
+	"github.com/revyl/cli/internal/util"
 )
 
 // quickAction defines an item in the Quick Actions menu.
@@ -967,7 +968,11 @@ func deleteTestLocalArtifacts(testName, testID string) testDeleteLocalResult {
 		if strings.TrimSpace(name) == "" {
 			continue
 		}
-		path := filepath.Join(testsDir, name+".yaml")
+		path, pathErr := util.SafeTestPath(testsDir, name)
+		if pathErr != nil {
+			warnings = append(warnings, fmt.Sprintf("skipped unsafe alias %q: %v", name, pathErr))
+			continue
+		}
 		if err := os.Remove(path); err != nil {
 			if !os.IsNotExist(err) {
 				warnings = append(warnings, fmt.Sprintf("failed to remove %s: %v", path, err))
