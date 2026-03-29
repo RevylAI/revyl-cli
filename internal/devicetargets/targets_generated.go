@@ -18,10 +18,10 @@ var androidTargets = PlatformTargetConfig{
 }
 
 var iosTargets = PlatformTargetConfig{
-	DefaultPair: DevicePair{Model: "iPhone 17 Pro Max", Runtime: "iOS 26.3.1"},
+	DefaultPair: DevicePair{Model: "iPhone 17 Pro Max", Runtime: "iOS 26.2"},
 	AvailableRuntimes: []string{
 		"iOS 18.5",
-		"iOS 26.3.1",
+		"iOS 26.2",
 	},
 	AvailableModels: []string{
 		"iPhone 15",
@@ -31,11 +31,11 @@ var iosTargets = PlatformTargetConfig{
 		"iPad Pro 13-inch (M4)",
 	},
 	CompatibleRuntimes: map[string][]string{
-		"iPhone 15":             {"iOS 18.5", "iOS 26.3.1"},
-		"iPhone 16":             {"iOS 18.5", "iOS 26.3.1"},
-		"iPhone 17 Pro Max":     {"iOS 26.3.1"},
-		"iPhone Air":            {"iOS 26.3.1"},
-		"iPad Pro 13-inch (M4)": {"iOS 18.5", "iOS 26.3.1"},
+		"iPhone 15":             {"iOS 18.5", "iOS 26.2"},
+		"iPhone 16":             {"iOS 18.5", "iOS 26.2"},
+		"iPhone 17 Pro Max":     {"iOS 26.2"},
+		"iPhone Air":            {"iOS 26.2"},
+		"iPad Pro 13-inch (M4)": {"iOS 18.5", "iOS 26.2"},
 	},
 }
 

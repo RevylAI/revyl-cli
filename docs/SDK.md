@@ -571,7 +571,7 @@ Union type of all supported OS versions. Auto-generated from `device-targets.jso
 from revyl import OsVersion
 
 version: OsVersion = "iOS 18.5"
-version: OsVersion = "iOS 26.3.1"
+version: OsVersion = "iOS 26.2"
 version: OsVersion = "Android 14"
 ```
 
