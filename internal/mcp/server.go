@@ -158,6 +158,9 @@ func NewServer(version string, devMode bool) (*Server, error) {
 ### Tags & Organization
 - list_tags, create_tag, delete_tag, get_test_tags, set_test_tags, add_remove_test_tags
 
+### File Management
+- list_files, upload_file, download_file, get_file_download_url, edit_file, delete_file
+
 ### Environment Variables
 - list_env_vars, set_env_var, delete_env_var, clear_env_vars
 
@@ -560,6 +563,68 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 			Title: "Set Test Tags",
 		},
 	}, s.handleSetTestTags)
+
+	// --- File management tools ---
+
+	// list_files tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "list_files",
+		Description: "List all files uploaded to the organization. Files can be certificates, configs, images, or media used in tests via revyl-file:// references.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Files",
+			ReadOnlyHint: true,
+		},
+	}, s.handleListFiles)
+
+	// upload_file tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "upload_file",
+		Description: "Upload a local file to the organization. Supports certs (.pem, .cer, .crt, .key, .p12, .pfx, .der), configs (.json, .xml, .yaml, .yml, .toml, .csv, .txt, .conf, .cfg, .ini, .properties), images (.png, .jpg, .jpeg, .gif, .pdf), and media (.mp4, .mp3).",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Upload File",
+			OpenWorldHint: boolPtr(true),
+		},
+	}, s.handleUploadFile)
+
+	// download_file tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "download_file",
+		Description: "Download an organization file to a local path.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Download File",
+			OpenWorldHint: boolPtr(true),
+		},
+	}, s.handleDownloadFile)
+
+	// get_file_download_url tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_file_download_url",
+		Description: "Get a presigned download URL for an organization file. Useful when the agent cannot write to disk directly.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get File Download URL",
+			ReadOnlyHint: true,
+		},
+	}, s.handleGetFileDownloadURL)
+
+	// edit_file tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "edit_file",
+		Description: "Edit file metadata (filename, description) and/or replace file content. The file ID is preserved when replacing content, so revyl-file:// references remain valid.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Edit File",
+			OpenWorldHint: boolPtr(true),
+		},
+	}, s.handleEditFile)
+
+	// delete_file tool
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "delete_file",
+		Description: "Delete an organization file. Warning: tests referencing this file via revyl-file:// will fail.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete File",
+			DestructiveHint: boolPtr(true),
+		},
+	}, s.handleDeleteFile)
 
 	// --- Env var tools ---
 
@@ -2579,6 +2644,283 @@ func (s *Server) handleAddRemoveTestTags(ctx context.Context, req *mcp.CallToolR
 		TestID:  testID,
 		Message: strings.Join(parts, "; "),
 	}, nil
+}
+
+// --- File management tool handlers ---
+
+// ListFilesInput defines input for list_files tool.
+type ListFilesInput struct {
+	Limit  int `json:"limit,omitempty" jsonschema:"Max results (1-1000, default 100)"`
+	Offset int `json:"offset,omitempty" jsonschema:"Pagination offset (default 0)"`
+}
+
+// MCPFileInfo contains file information for MCP responses.
+type MCPFileInfo struct {
+	ID          string `json:"id"`
+	Filename    string `json:"filename"`
+	FileSize    int64  `json:"file_size"`
+	ContentType string `json:"content_type,omitempty"`
+	Description string `json:"description,omitempty"`
+	CreatedAt   string `json:"created_at"`
+}
+
+// ListFilesOutput defines output for list_files tool.
+type ListFilesOutput struct {
+	Files []MCPFileInfo `json:"files"`
+	Count int           `json:"count"`
+	Error string        `json:"error,omitempty"`
+}
+
+// handleListFiles handles the list_files tool call.
+func (s *Server) handleListFiles(ctx context.Context, req *mcp.CallToolRequest, input ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+
+	resp, err := s.apiClient.ListOrgFiles(ctx, limit, input.Offset)
+	if err != nil {
+		return nil, ListFilesOutput{Files: []MCPFileInfo{}, Error: fmt.Sprintf("failed to list files: %v", err)}, nil
+	}
+
+	files := make([]MCPFileInfo, 0, len(resp.Files))
+	for _, f := range resp.Files {
+		files = append(files, MCPFileInfo{
+			ID:          f.ID,
+			Filename:    f.Filename,
+			FileSize:    f.FileSize,
+			ContentType: f.ContentType,
+			Description: f.Description,
+			CreatedAt:   f.CreatedAt,
+		})
+	}
+
+	return nil, ListFilesOutput{Files: files, Count: resp.Count}, nil
+}
+
+// UploadFileInput defines input for upload_file tool.
+type UploadFileInput struct {
+	FilePath    string `json:"file_path" jsonschema:"Absolute path to the local file to upload"`
+	DisplayName string `json:"display_name,omitempty" jsonschema:"Display name (defaults to filename)"`
+	Description string `json:"description,omitempty" jsonschema:"Optional file description"`
+}
+
+// UploadFileOutput defines output for upload_file tool.
+type UploadFileOutput struct {
+	Success  bool   `json:"success"`
+	FileID   string `json:"file_id,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	FileSize int64  `json:"file_size,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// handleUploadFile handles the upload_file tool call.
+func (s *Server) handleUploadFile(ctx context.Context, req *mcp.CallToolRequest, input UploadFileInput) (*mcp.CallToolResult, UploadFileOutput, error) {
+	if input.FilePath == "" {
+		return nil, UploadFileOutput{Success: false, Error: "file_path is required"}, nil
+	}
+
+	info, err := os.Stat(input.FilePath)
+	if err != nil {
+		return nil, UploadFileOutput{Success: false, Error: fmt.Sprintf("file not found: %v", err)}, nil
+	}
+	if info.IsDir() {
+		return nil, UploadFileOutput{Success: false, Error: "file_path must be a file, not a directory"}, nil
+	}
+
+	resp, err := s.apiClient.UploadOrgFile(ctx, input.FilePath, input.DisplayName, input.Description)
+	if err != nil {
+		return nil, UploadFileOutput{Success: false, Error: fmt.Sprintf("upload failed: %v", err)}, nil
+	}
+
+	return nil, UploadFileOutput{
+		Success:  true,
+		FileID:   resp.ID,
+		Filename: resp.Filename,
+		FileSize: resp.FileSize,
+	}, nil
+}
+
+// DownloadFileInput defines input for download_file tool.
+type DownloadFileInput struct {
+	FileID   string `json:"file_id" jsonschema:"File ID to download"`
+	DestPath string `json:"dest_path,omitempty" jsonschema:"Local path to save the file (defaults to current directory + original filename)"`
+}
+
+// DownloadFileOutput defines output for download_file tool.
+type DownloadFileOutput struct {
+	Success  bool   `json:"success"`
+	FilePath string `json:"file_path,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// handleDownloadFile handles the download_file tool call.
+func (s *Server) handleDownloadFile(ctx context.Context, req *mcp.CallToolRequest, input DownloadFileInput) (*mcp.CallToolResult, DownloadFileOutput, error) {
+	if input.FileID == "" {
+		return nil, DownloadFileOutput{Success: false, Error: "file_id is required"}, nil
+	}
+
+	dlResp, err := s.apiClient.GetOrgFileDownloadURL(ctx, input.FileID)
+	if err != nil {
+		return nil, DownloadFileOutput{Success: false, Error: fmt.Sprintf("failed to get download URL: %v", err)}, nil
+	}
+
+	destPath := input.DestPath
+	if destPath == "" {
+		destPath = filepath.Join(s.workDir, dlResp.Filename)
+	} else {
+		info, statErr := os.Stat(destPath)
+		if statErr == nil && info.IsDir() {
+			destPath = filepath.Join(destPath, dlResp.Filename)
+		}
+	}
+
+	if err := s.apiClient.DownloadFileFromURL(ctx, dlResp.URL, destPath); err != nil {
+		return nil, DownloadFileOutput{Success: false, Error: fmt.Sprintf("download failed: %v", err)}, nil
+	}
+
+	return nil, DownloadFileOutput{
+		Success:  true,
+		FilePath: destPath,
+		Filename: dlResp.Filename,
+	}, nil
+}
+
+// GetFileDownloadURLInput defines input for get_file_download_url tool.
+type GetFileDownloadURLInput struct {
+	FileID string `json:"file_id" jsonschema:"File ID"`
+}
+
+// GetFileDownloadURLOutput defines output for get_file_download_url tool.
+type GetFileDownloadURLOutput struct {
+	Success   bool   `json:"success"`
+	URL       string `json:"url,omitempty"`
+	Filename  string `json:"filename,omitempty"`
+	ExpiresIn int    `json:"expires_in,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// handleGetFileDownloadURL handles the get_file_download_url tool call.
+func (s *Server) handleGetFileDownloadURL(ctx context.Context, req *mcp.CallToolRequest, input GetFileDownloadURLInput) (*mcp.CallToolResult, GetFileDownloadURLOutput, error) {
+	if input.FileID == "" {
+		return nil, GetFileDownloadURLOutput{Success: false, Error: "file_id is required"}, nil
+	}
+
+	resp, err := s.apiClient.GetOrgFileDownloadURL(ctx, input.FileID)
+	if err != nil {
+		return nil, GetFileDownloadURLOutput{Success: false, Error: fmt.Sprintf("failed to get download URL: %v", err)}, nil
+	}
+
+	return nil, GetFileDownloadURLOutput{
+		Success:   true,
+		URL:       resp.URL,
+		Filename:  resp.Filename,
+		ExpiresIn: resp.ExpiresIn,
+	}, nil
+}
+
+// EditFileInput defines input for edit_file tool.
+type EditFileInput struct {
+	FileID      string  `json:"file_id" jsonschema:"File ID to edit"`
+	Filename    string  `json:"filename,omitempty" jsonschema:"New filename"`
+	Description *string `json:"description,omitempty" jsonschema:"New description (empty string clears it)"`
+	FilePath    string  `json:"file_path,omitempty" jsonschema:"Path to replacement file (replaces content, preserves ID)"`
+}
+
+// EditFileOutput defines output for edit_file tool.
+type EditFileOutput struct {
+	Success  bool   `json:"success"`
+	FileID   string `json:"file_id,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	FileSize int64  `json:"file_size,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// handleEditFile handles the edit_file tool call.
+func (s *Server) handleEditFile(ctx context.Context, req *mcp.CallToolRequest, input EditFileInput) (*mcp.CallToolResult, EditFileOutput, error) {
+	if input.FileID == "" {
+		return nil, EditFileOutput{Success: false, Error: "file_id is required"}, nil
+	}
+
+	hasMetadata := input.Filename != "" || input.Description != nil
+	hasFile := input.FilePath != ""
+
+	if !hasMetadata && !hasFile {
+		return nil, EditFileOutput{Success: false, Error: "specify at least filename, description, or file_path"}, nil
+	}
+
+	// Content replacement.
+	if hasFile {
+		info, err := os.Stat(input.FilePath)
+		if err != nil {
+			return nil, EditFileOutput{Success: false, Error: fmt.Sprintf("file not found: %v", err)}, nil
+		}
+		if info.IsDir() {
+			return nil, EditFileOutput{Success: false, Error: "file_path must be a file, not a directory"}, nil
+		}
+
+		desc := ""
+		if input.Description != nil {
+			desc = *input.Description
+		}
+		resp, err := s.apiClient.ReplaceOrgFileContent(ctx, input.FileID, input.FilePath, input.Filename, desc)
+		if err != nil {
+			return nil, EditFileOutput{Success: false, Error: fmt.Sprintf("replace failed: %v", err)}, nil
+		}
+
+		return nil, EditFileOutput{
+			Success:  true,
+			FileID:   resp.ID,
+			Filename: resp.Filename,
+			FileSize: resp.FileSize,
+		}, nil
+	}
+
+	// Metadata-only update.
+	updateReq := &api.CLIOrgFileUpdateRequest{}
+	if input.Filename != "" {
+		updateReq.Filename = &input.Filename
+	}
+	if input.Description != nil {
+		updateReq.Description = input.Description
+	}
+
+	resp, err := s.apiClient.UpdateOrgFile(ctx, input.FileID, updateReq)
+	if err != nil {
+		return nil, EditFileOutput{Success: false, Error: fmt.Sprintf("update failed: %v", err)}, nil
+	}
+
+	return nil, EditFileOutput{
+		Success:  true,
+		FileID:   resp.ID,
+		Filename: resp.Filename,
+		FileSize: resp.FileSize,
+	}, nil
+}
+
+// DeleteFileInput defines input for delete_file tool.
+type DeleteFileInput struct {
+	FileID string `json:"file_id" jsonschema:"File ID to delete"`
+}
+
+// DeleteFileOutput defines output for delete_file tool.
+type DeleteFileOutput struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// handleDeleteFile handles the delete_file tool call.
+func (s *Server) handleDeleteFile(ctx context.Context, req *mcp.CallToolRequest, input DeleteFileInput) (*mcp.CallToolResult, DeleteFileOutput, error) {
+	if input.FileID == "" {
+		return nil, DeleteFileOutput{Success: false, Error: "file_id is required"}, nil
+	}
+
+	if err := s.apiClient.DeleteOrgFile(ctx, input.FileID); err != nil {
+		return nil, DeleteFileOutput{Success: false, Error: fmt.Sprintf("failed to delete file: %v", err)}, nil
+	}
+
+	return nil, DeleteFileOutput{Success: true}, nil
 }
 
 // orgMismatchMessage returns a standardized mismatch message when the project

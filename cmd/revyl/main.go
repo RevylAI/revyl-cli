@@ -146,6 +146,7 @@ func init() {
 	rootCmd.AddCommand(moduleCmd)
 	rootCmd.AddCommand(scriptCmd)
 	rootCmd.AddCommand(tagCmd)
+	rootCmd.AddCommand(fileCmd)
 	rootCmd.AddCommand(docsCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(schemaCmd)

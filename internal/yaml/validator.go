@@ -81,6 +81,7 @@ type Block struct {
 	ModuleID        string  `yaml:"module_id,omitempty"`
 	Script          string  `yaml:"script,omitempty"`
 	Module          string  `yaml:"module,omitempty"`
+	File            string  `yaml:"file,omitempty"`
 }
 
 // validBlockTypes contains all valid block type values.
@@ -105,6 +106,7 @@ var validStepTypes = map[string]bool{
 	"navigate":        true,
 	"set_location":    true,
 	"set_orientation": true,
+	"download_file":   true,
 	"end":             true,
 }
 
@@ -289,11 +291,11 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 
 	case "manual":
 		if block.StepType == "" {
-			errors = append(errors, fmt.Sprintf("%s (manual): Missing required 'step_type' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation, end", blockPath))
+			errors = append(errors, fmt.Sprintf("%s (manual): Missing required 'step_type' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation, download_file, end", blockPath))
 			break
 		}
 		if !validStepTypes[block.StepType] {
-			errors = append(errors, fmt.Sprintf("%s (manual): Invalid step_type '%s' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation, end", blockPath, block.StepType))
+			errors = append(errors, fmt.Sprintf("%s (manual): Invalid step_type '%s' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation, download_file, end", blockPath, block.StepType))
 		}
 
 		// Validate step_description based on step_type
@@ -313,6 +315,21 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 				errors = append(errors, fmt.Sprintf("%s (manual/set_location): Missing step_description (latitude,longitude)", blockPath))
 			} else if !isValidLocation(block.StepDescription) {
 				warnings = append(warnings, fmt.Sprintf("%s (manual/set_location): step_description should be 'latitude,longitude' format, got '%s'", blockPath, block.StepDescription))
+			}
+		case "download_file":
+			hasDesc := !isBlank(block.StepDescription)
+			hasFile := !isBlank(block.File)
+			if hasDesc && hasFile {
+				errors = append(errors, fmt.Sprintf("%s (manual/download_file): Must specify either 'step_description' or 'file', not both", blockPath))
+			} else if !hasDesc && !hasFile {
+				errors = append(errors, fmt.Sprintf("%s (manual/download_file): Must specify 'step_description' (URL or revyl-file:// URI) or 'file' (org file name)", blockPath))
+			} else if hasDesc {
+				desc := strings.TrimSpace(block.StepDescription)
+				if !strings.HasPrefix(desc, "http://") && !strings.HasPrefix(desc, "https://") && !strings.HasPrefix(desc, "revyl-file://") {
+					warnings = append(warnings, fmt.Sprintf("%s (manual/download_file): step_description '%s' does not look like a URL or revyl-file:// URI", blockPath, desc))
+				}
+			} else if hasFile {
+				warnings = append(warnings, fmt.Sprintf("%s (manual/download_file): org file '%s' will be resolved at push time", blockPath, block.File))
 			}
 		}
 

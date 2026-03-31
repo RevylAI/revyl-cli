@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -4201,4 +4202,301 @@ func (c *Client) UpdateWorkflowTests(ctx context.Context, workflowID string, tes
 	}
 
 	return parseResponse(resp, nil)
+}
+
+// ---------------------------------------------------------------------------
+// Org Files
+// ---------------------------------------------------------------------------
+
+// CLIOrgFile represents a file in the organization.
+type CLIOrgFile struct {
+	ID          string `json:"id"`
+	OrgID       string `json:"org_id"`
+	UserID      string `json:"user_id"`
+	Filename    string `json:"filename"`
+	FileSize    int64  `json:"file_size"`
+	ContentType string `json:"content_type,omitempty"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+// CLIOrgFileListResponse represents the response from listing org files.
+type CLIOrgFileListResponse struct {
+	Files []CLIOrgFile `json:"files"`
+	Count int          `json:"count"`
+}
+
+// CLIOrgFileUploadRequest represents the request to get a presigned upload URL.
+// Also reused for replace-url (same request shape).
+type CLIOrgFileUploadRequest struct {
+	Filename    string `json:"filename"`
+	FileSize    int64  `json:"file_size"`
+	DisplayName string `json:"display_name,omitempty"`
+	Description string `json:"description,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
+}
+
+// CLIOrgFileUploadResponse represents the response from getting an upload URL.
+type CLIOrgFileUploadResponse struct {
+	File        CLIOrgFile `json:"file"`
+	UploadURL   string     `json:"upload_url"`
+	S3Key       string     `json:"s3_key,omitempty"`
+	ExpiresIn   int        `json:"expires_in"`
+	ContentType string     `json:"content_type"`
+}
+
+// CLIOrgFileDownloadResponse represents the response from getting a download URL.
+type CLIOrgFileDownloadResponse struct {
+	URL       string `json:"url"`
+	Filename  string `json:"filename"`
+	ExpiresIn int    `json:"expires_in"`
+}
+
+// CLIOrgFileCompleteUploadRequest represents the request to confirm a file upload.
+type CLIOrgFileCompleteUploadRequest struct {
+	S3Key       string `json:"s3_key,omitempty"`
+	Filename    string `json:"filename,omitempty"`
+	FileSize    int64  `json:"file_size,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// CLIOrgFileUpdateRequest represents the request to update file metadata.
+type CLIOrgFileUpdateRequest struct {
+	Filename    *string `json:"filename,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+// ListOrgFiles fetches all files for the authenticated user's organization.
+func (c *Client) ListOrgFiles(ctx context.Context, limit, offset int) (*CLIOrgFileListResponse, error) {
+	path := fmt.Sprintf("/api/v1/files/?limit=%d&offset=%d", limit, offset)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result CLIOrgFileListResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetOrgFileUploadURL gets a presigned URL for uploading a new file.
+func (c *Client) GetOrgFileUploadURL(ctx context.Context, req *CLIOrgFileUploadRequest) (*CLIOrgFileUploadResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/files/upload-url", req)
+	if err != nil {
+		return nil, err
+	}
+	var result CLIOrgFileUploadResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetOrgFileDownloadURL gets a presigned URL for downloading a file.
+func (c *Client) GetOrgFileDownloadURL(ctx context.Context, fileID string) (*CLIOrgFileDownloadResponse, error) {
+	resp, err := c.doRequest(ctx, "GET",
+		fmt.Sprintf("/api/v1/files/%s/download-url", fileID), nil)
+	if err != nil {
+		return nil, err
+	}
+	var result CLIOrgFileDownloadResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UpdateOrgFile updates file metadata (filename and/or description).
+func (c *Client) UpdateOrgFile(ctx context.Context, fileID string, req *CLIOrgFileUpdateRequest) (*CLIOrgFile, error) {
+	resp, err := c.doRequest(ctx, "PUT",
+		fmt.Sprintf("/api/v1/files/%s", fileID), req)
+	if err != nil {
+		return nil, err
+	}
+	var result CLIOrgFile
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetOrgFileReplaceURL gets a presigned URL for replacing a file's content.
+// The file ID is preserved so revyl-file:// references remain valid.
+func (c *Client) GetOrgFileReplaceURL(ctx context.Context, fileID string, req *CLIOrgFileUploadRequest) (*CLIOrgFileUploadResponse, error) {
+	resp, err := c.doRequest(ctx, "PUT",
+		fmt.Sprintf("/api/v1/files/%s/replace-url", fileID), req)
+	if err != nil {
+		return nil, err
+	}
+	var result CLIOrgFileUploadResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// DeleteOrgFile deletes a file.
+func (c *Client) DeleteOrgFile(ctx context.Context, fileID string) error {
+	resp, err := c.doRequest(ctx, "DELETE",
+		fmt.Sprintf("/api/v1/files/%s", fileID), nil)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == 204 {
+		resp.Body.Close()
+		return nil
+	}
+	return parseResponse(resp, nil)
+}
+
+// CompleteOrgFileUpload confirms that an S3 upload completed successfully.
+func (c *Client) CompleteOrgFileUpload(ctx context.Context, fileID string, req *CLIOrgFileCompleteUploadRequest) (*CLIOrgFile, error) {
+	resp, err := c.doRequest(ctx, "POST",
+		fmt.Sprintf("/api/v1/files/%s/complete-upload", fileID), req)
+	if err != nil {
+		return nil, err
+	}
+	var result CLIOrgFile
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UploadOrgFile uploads a file using the presigned URL flow.
+// It stats the file, infers content type, gets a presigned URL, and uploads to S3.
+func (c *Client) UploadOrgFile(ctx context.Context, filePath, displayName, description string) (*CLIOrgFile, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	filename := filepath.Base(filePath)
+	contentType := mime.TypeByExtension(filepath.Ext(filePath))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	dn := displayName
+	if dn == "" {
+		dn = filename
+	}
+
+	presign, err := c.GetOrgFileUploadURL(ctx, &CLIOrgFileUploadRequest{
+		Filename:    filename,
+		FileSize:    info.Size(),
+		DisplayName: dn,
+		Description: description,
+		ContentType: contentType,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.uploadFileWithRetry(ctx, presign.UploadURL, presign.ContentType, filePath, info.Size()); err != nil {
+		return nil, err
+	}
+
+	confirmed, err := c.CompleteOrgFileUpload(ctx, presign.File.ID, &CLIOrgFileCompleteUploadRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("file uploaded to storage but failed to confirm: %w", err)
+	}
+	return confirmed, nil
+}
+
+// ReplaceOrgFileContent replaces a file's content using the presigned URL flow.
+// The file ID is preserved so revyl-file:// references remain valid.
+func (c *Client) ReplaceOrgFileContent(ctx context.Context, fileID, filePath, displayName, description string) (*CLIOrgFile, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	filename := filepath.Base(filePath)
+	contentType := mime.TypeByExtension(filepath.Ext(filePath))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	dn := displayName
+	if dn == "" {
+		dn = filename
+	}
+
+	presign, err := c.GetOrgFileReplaceURL(ctx, fileID, &CLIOrgFileUploadRequest{
+		Filename:    filename,
+		FileSize:    info.Size(),
+		DisplayName: dn,
+		Description: description,
+		ContentType: contentType,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.uploadFileWithRetry(ctx, presign.UploadURL, presign.ContentType, filePath, info.Size()); err != nil {
+		return nil, err
+	}
+
+	confirmed, err := c.CompleteOrgFileUpload(ctx, fileID, &CLIOrgFileCompleteUploadRequest{
+		S3Key:       presign.S3Key,
+		Filename:    dn,
+		FileSize:    info.Size(),
+		ContentType: contentType,
+		Description: description,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("file uploaded to storage but failed to confirm replacement: %w", err)
+	}
+	return confirmed, nil
+}
+
+// DownloadFileFromURL downloads a file from a URL to a local path.
+// It uses atomic writes (temp file + rename) and cleans up on failure.
+func (c *Client) DownloadFileFromURL(ctx context.Context, fileURL, destPath string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create download request: %w", err)
+	}
+
+	resp, err := c.uploadClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("download failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxUploadErrorBodyBytes))
+		return formatUploadStatusError(resp.StatusCode, body, nil)
+	}
+
+	// Write to temp file in same directory for atomic rename.
+	dir := filepath.Dir(destPath)
+	tmp, err := os.CreateTemp(dir, ".revyl-download-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	_, copyErr := io.Copy(tmp, resp.Body)
+	closeErr := tmp.Close()
+	if copyErr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to write file: %w", copyErr)
+	}
+	if closeErr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to close temp file: %w", closeErr)
+	}
+
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to move file to destination: %w", err)
+	}
+
+	return nil
 }

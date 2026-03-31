@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -563,5 +564,176 @@ func TestProxyWorkerRequest_InferMethodFromAction(t *testing.T) {
 				t.Fatalf("statusCode = %d, want %d", statusCode, tt.wantStatusCode)
 			}
 		})
+	}
+}
+
+func TestUploadOrgFile_CallsCompleteUpload(t *testing.T) {
+	var completeCalls int32
+
+	uploadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Fatalf("unexpected upload method: %s", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(uploadServer.Close)
+
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/files/upload-url" && r.Method == http.MethodPost:
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{
+				"file":{"id":"file-1","org_id":"org-1","user_id":"u-1","filename":"test.txt","file_size":16,"status":"pending","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"},
+				"upload_url":"%s/upload",
+				"expires_in":3600,
+				"content_type":"text/plain"
+			}`, uploadServer.URL)
+		case r.URL.Path == "/api/v1/files/file-1/complete-upload" && r.Method == http.MethodPost:
+			atomic.AddInt32(&completeCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"file-1","org_id":"org-1","user_id":"u-1","filename":"test.txt","file_size":16,"status":"ready","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	t.Cleanup(backendServer.Close)
+
+	client := NewClientWithBaseURL("test-key", backendServer.URL)
+	client.uploadClient = uploadServer.Client()
+	client.retryBaseDelay = time.Millisecond
+
+	filePath := filepath.Join(t.TempDir(), "test.txt")
+	if err := os.WriteFile(filePath, []byte("fake-file-bytes!"), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	result, err := client.UploadOrgFile(context.Background(), filePath, "test.txt", "")
+	if err != nil {
+		t.Fatalf("UploadOrgFile() error = %v, want nil", err)
+	}
+	if got := atomic.LoadInt32(&completeCalls); got != 1 {
+		t.Fatalf("complete-upload calls = %d, want 1", got)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("returned file status = %q, want %q", result.Status, "ready")
+	}
+}
+
+func TestReplaceOrgFileContent_CallsCompleteUpload(t *testing.T) {
+	var completeCalls int32
+	var capturedCompleteBody CLIOrgFileCompleteUploadRequest
+
+	uploadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Fatalf("unexpected upload method: %s", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(uploadServer.Close)
+
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/files/file-1/replace-url" && r.Method == http.MethodPut:
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{
+				"file":{"id":"file-1","org_id":"org-1","user_id":"u-1","filename":"old.txt","file_size":16,"status":"ready","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"},
+				"upload_url":"%s/upload",
+				"expires_in":3600,
+				"content_type":"text/plain",
+				"s3_key":"org/org-1/file-1/new.txt"
+			}`, uploadServer.URL)
+		case r.URL.Path == "/api/v1/files/file-1/complete-upload" && r.Method == http.MethodPost:
+			atomic.AddInt32(&completeCalls, 1)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("failed to read complete-upload body: %v", err)
+			}
+			if err := json.Unmarshal(body, &capturedCompleteBody); err != nil {
+				t.Fatalf("failed to decode complete-upload body: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"file-1","org_id":"org-1","user_id":"u-1","filename":"new.txt","file_size":16,"status":"ready","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	t.Cleanup(backendServer.Close)
+
+	client := NewClientWithBaseURL("test-key", backendServer.URL)
+	client.uploadClient = uploadServer.Client()
+	client.retryBaseDelay = time.Millisecond
+
+	filePath := filepath.Join(t.TempDir(), "new.txt")
+	if err := os.WriteFile(filePath, []byte("fake-file-bytes!"), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	result, err := client.ReplaceOrgFileContent(context.Background(), "file-1", filePath, "new.txt", "")
+	if err != nil {
+		t.Fatalf("ReplaceOrgFileContent() error = %v, want nil", err)
+	}
+	if got := atomic.LoadInt32(&completeCalls); got != 1 {
+		t.Fatalf("complete-upload calls = %d, want 1", got)
+	}
+	if capturedCompleteBody.S3Key != "org/org-1/file-1/new.txt" {
+		t.Fatalf("complete-upload s3_key = %q, want %q", capturedCompleteBody.S3Key, "org/org-1/file-1/new.txt")
+	}
+	if capturedCompleteBody.Filename != "new.txt" {
+		t.Fatalf("complete-upload filename = %q, want %q", capturedCompleteBody.Filename, "new.txt")
+	}
+	if capturedCompleteBody.FileSize != 16 {
+		t.Fatalf("complete-upload file_size = %d, want 16", capturedCompleteBody.FileSize)
+	}
+	if result.Filename != "new.txt" {
+		t.Fatalf("returned file filename = %q, want %q", result.Filename, "new.txt")
+	}
+}
+
+func TestUploadOrgFile_ConfirmFailure_ReturnsError(t *testing.T) {
+	var completeCalls int32
+
+	uploadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(uploadServer.Close)
+
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/files/upload-url" && r.Method == http.MethodPost:
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{
+				"file":{"id":"file-1","org_id":"org-1","user_id":"u-1","filename":"test.txt","file_size":16,"status":"pending","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"},
+				"upload_url":"%s/upload",
+				"expires_in":3600,
+				"content_type":"text/plain"
+			}`, uploadServer.URL)
+		case r.URL.Path == "/api/v1/files/file-1/complete-upload" && r.Method == http.MethodPost:
+			atomic.AddInt32(&completeCalls, 1)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	t.Cleanup(backendServer.Close)
+
+	client := NewClientWithBaseURL("test-key", backendServer.URL)
+	client.uploadClient = uploadServer.Client()
+	client.retryBaseDelay = time.Millisecond
+	client.maxRetries = 0 // no retries so we get exactly 1 call
+
+	filePath := filepath.Join(t.TempDir(), "test.txt")
+	if err := os.WriteFile(filePath, []byte("fake-file-bytes!"), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	_, err := client.UploadOrgFile(context.Background(), filePath, "test.txt", "")
+	if err == nil {
+		t.Fatal("UploadOrgFile() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "failed to confirm") {
+		t.Fatalf("error = %q, want it to contain %q", err.Error(), "failed to confirm")
+	}
+	if got := atomic.LoadInt32(&completeCalls); got != 1 {
+		t.Fatalf("complete-upload calls = %d, want 1", got)
 	}
 }

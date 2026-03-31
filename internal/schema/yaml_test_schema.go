@@ -93,6 +93,16 @@ Execute a system-level action.
 - type: manual
   step_type: set_location
   step_description: "37.7749,-122.4194"  # latitude,longitude
+
+# Download a file onto the device (URL)
+- type: manual
+  step_type: download_file
+  step_description: "https://example.com/cert.pem"
+
+# Download a file onto the device (org file by name, from ` + "`revyl file upload`" + `)
+- type: manual
+  step_type: download_file
+  file: "staging-cert.pem"
 ` + "```" + `
 
 ### 5. if (Conditional)
@@ -277,7 +287,7 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 		"criticalBehavior": map[string]interface{}{
 			"autoAppOpen":        true,
 			"supportedPlatforms": []string{"ios", "android"},
-			"manualStepsOnlyFor": []string{"navigate", "open_app", "kill_app", "go_home", "wait", "set_location"},
+			"manualStepsOnlyFor": []string{"navigate", "open_app", "kill_app", "go_home", "wait", "set_location", "download_file"},
 		},
 		"blockTypes": map[string]interface{}{
 			"instructions": map[string]interface{}{
@@ -309,14 +319,15 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 					"step_type":        "enum (required)",
 					"step_description": "string (optional, depends on step_type)",
 				},
-				"stepTypes": []string{"wait", "open_app", "kill_app", "go_home", "navigate", "set_location"},
+				"stepTypes": []string{"wait", "open_app", "kill_app", "go_home", "navigate", "set_location", "download_file"},
 				"stepDescriptionFormats": map[string]string{
-					"wait":         "Number of seconds (e.g., '3')",
-					"open_app":     "Bundle ID for system apps, or omit for installed app",
-					"kill_app":     "Not used",
-					"go_home":      "Not used",
-					"navigate":     "URL or deep link",
-					"set_location": "Latitude,Longitude (e.g., '37.7749,-122.4194')",
+					"wait":          "Number of seconds (e.g., '3')",
+					"open_app":      "Bundle ID for system apps, or omit for installed app",
+					"kill_app":      "Not used",
+					"go_home":       "Not used",
+					"navigate":      "URL or deep link",
+					"set_location":  "Latitude,Longitude (e.g., '37.7749,-122.4194')",
+					"download_file": "URL or revyl-file:// URI, or use 'file' field with org file name",
 				},
 			},
 			"if": map[string]interface{}{

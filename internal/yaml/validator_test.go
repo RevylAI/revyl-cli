@@ -417,6 +417,126 @@ test:
 	}
 }
 
+func TestValidateYAML_DownloadFileWithURL(t *testing.T) {
+	validYAML := `
+test:
+  metadata:
+    name: "Test"
+    platform: "ios"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_type: download_file
+      step_description: "https://example.com/cert.pem"
+`
+	result := ValidateYAML(validYAML)
+	if !result.Valid {
+		t.Errorf("Expected valid YAML for download_file with URL, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidateYAML_DownloadFileWithRevylFileURI(t *testing.T) {
+	validYAML := `
+test:
+  metadata:
+    name: "Test"
+    platform: "ios"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_type: download_file
+      step_description: "revyl-file://a0dfedcd-26ab-4b69-916e-259f0468714e"
+`
+	result := ValidateYAML(validYAML)
+	if !result.Valid {
+		t.Errorf("Expected valid YAML for download_file with revyl-file:// URI, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidateYAML_DownloadFileWithOrgFileName(t *testing.T) {
+	validYAML := `
+test:
+  metadata:
+    name: "Test"
+    platform: "ios"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_type: download_file
+      file: "staging-cert.pem"
+`
+	result := ValidateYAML(validYAML)
+	if !result.Valid {
+		t.Errorf("Expected valid YAML for download_file with file name, got errors: %v", result.Errors)
+	}
+	if len(result.Warnings) == 0 {
+		t.Error("Expected warning about org file resolution at push time")
+	}
+}
+
+func TestValidateYAML_DownloadFileBothDescAndFile(t *testing.T) {
+	invalidYAML := `
+test:
+  metadata:
+    name: "Test"
+    platform: "ios"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_type: download_file
+      step_description: "https://example.com/cert.pem"
+      file: "staging-cert.pem"
+`
+	result := ValidateYAML(invalidYAML)
+	if result.Valid {
+		t.Error("Expected invalid YAML when both step_description and file are set")
+	}
+}
+
+func TestValidateYAML_DownloadFileNeitherDescNorFile(t *testing.T) {
+	invalidYAML := `
+test:
+  metadata:
+    name: "Test"
+    platform: "ios"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_type: download_file
+`
+	result := ValidateYAML(invalidYAML)
+	if result.Valid {
+		t.Error("Expected invalid YAML when neither step_description nor file is set")
+	}
+}
+
+func TestValidateYAML_DownloadFileNonURLWarning(t *testing.T) {
+	validYAML := `
+test:
+  metadata:
+    name: "Test"
+    platform: "ios"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_type: download_file
+      step_description: "not-a-url"
+`
+	result := ValidateYAML(validYAML)
+	if !result.Valid {
+		t.Errorf("Expected valid YAML (non-URL is warning, not error), got errors: %v", result.Errors)
+	}
+	if len(result.Warnings) == 0 {
+		t.Error("Expected warning about non-URL step_description")
+	}
+}
+
 func TestIsValidVariableName(t *testing.T) {
 	tests := []struct {
 		name     string
