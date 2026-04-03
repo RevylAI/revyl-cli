@@ -142,6 +142,7 @@ func init() {
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(workflowCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(globalCmd)
 	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(moduleCmd)
 	rootCmd.AddCommand(scriptCmd)

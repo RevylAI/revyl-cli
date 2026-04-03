@@ -162,10 +162,30 @@ or ` + "`revyl module insert <name>`" + ` to generate a ready-to-paste snippet.
 ### Syntax
 Variables use double curly braces: ` + "`{{variable-name}}`" + `
 
-### Naming Rules
+### Local Variables
 - **kebab-case only**: lowercase letters, numbers, hyphens
 - No spaces, underscores, or special characters
 - Must not start or end with hyphen
+- Defined via extraction, code_execution, or the variables: section in YAML
+- Resolution order: runtime overrides → local → global (fallback)
+
+### Global Variables (Org-Level Secrets)
+Use ` + "`{{global.variable-name}}`" + ` to reference org-wide global variables.
+
+- Values are **never stored in YAML** — only the key reference appears
+- Resolved **only** from org-level global variables (no local fallback, no runtime override)
+- **Validated at test creation time** — the global variable must exist in your org
+- Ideal for credentials, API keys, and shared secrets
+
+` + "```yaml" + `
+blocks:
+  - type: instructions
+    step_description: "Enter {{global.login-email}} in the email field"
+  - type: instructions
+    step_description: "Enter {{global.login-password}} in the password field"
+` + "```" + `
+
+Manage global variables with: ` + "`revyl global var set login-email=user@example.com`" + `
 
 ### Usage
 Variables must be defined (via extraction or code_execution) before use:
@@ -176,7 +196,7 @@ blocks:
   - type: extraction
     step_description: "Extract the OTP code"
     variable_name: "otp-code"
-  
+
   # Then: Use the variable
   - type: instructions
     step_description: "Enter {{otp-code}} in the verification field"
@@ -365,9 +385,11 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 			},
 		},
 		"variableSystem": map[string]interface{}{
-			"syntax":              "{{variable-name}}",
+			"localSyntax":         "{{variable-name}}",
+			"globalSyntax":        "{{global.variable-name}}",
 			"namingRules":         "kebab-case only, no spaces/underscores/special chars",
 			"mustDefineBeforeUse": true,
+			"globalVariables":     "org-level secrets referenced via {{global.name}}, never stored in YAML, validated at creation time",
 		},
 		"bestPractices": map[string]interface{}{
 			"useHighLevelInstructions":  "For complex flows with indeterminism",

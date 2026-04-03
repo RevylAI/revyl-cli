@@ -4203,7 +4203,6 @@ func (c *Client) UpdateWorkflowTests(ctx context.Context, workflowID string, tes
 
 	return parseResponse(resp, nil)
 }
-
 // ---------------------------------------------------------------------------
 // Org Files
 // ---------------------------------------------------------------------------
@@ -4499,4 +4498,96 @@ func (c *Client) DownloadFileFromURL(ctx context.Context, fileURL, destPath stri
 	}
 
 	return nil
+}
+
+// --- Global Variable API methods ---
+
+// GlobalVariable represents an org-wide global variable used in {{name}} syntax.
+type GlobalVariable struct {
+	ID            string  `json:"id"`
+	OrgID         string  `json:"org_id"`
+	VariableName  string  `json:"variable_name"`
+	VariableValue *string `json:"variable_value"`
+	IsSecret      bool    `json:"is_secret"`
+	Description   *string `json:"description"`
+	CreatedBy     *string `json:"created_by"`
+	CreatedAt     string  `json:"created_at"`
+	UpdatedAt     string  `json:"updated_at"`
+}
+
+// GlobalVariablesResponse represents the response from listing global variables.
+type GlobalVariablesResponse struct {
+	Message string           `json:"message"`
+	Result  []GlobalVariable `json:"result"`
+}
+
+// GlobalVariableResponse represents the response from a single global variable operation.
+type GlobalVariableResponse struct {
+	Message string         `json:"message"`
+	Result  GlobalVariable `json:"result"`
+}
+
+// ListGlobalVariables retrieves all global variables for the authenticated user's org.
+func (c *Client) ListGlobalVariables(ctx context.Context) (*GlobalVariablesResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/variables/global", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GlobalVariablesResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// AddGlobalVariable creates a new global variable for the authenticated user's org.
+func (c *Client) AddGlobalVariable(ctx context.Context, name, value string) (*GlobalVariableResponse, error) {
+	body := map[string]interface{}{
+		"variable_name":  name,
+		"variable_value": value,
+	}
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/variables/global", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GlobalVariableResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// UpdateGlobalVariable updates an existing global variable by its UUID.
+func (c *Client) UpdateGlobalVariable(ctx context.Context, variableID, name, value string) (*GlobalVariableResponse, error) {
+	body := map[string]interface{}{
+		"variable_name":  name,
+		"variable_value": value,
+	}
+	path := fmt.Sprintf("/api/v1/variables/global/%s", variableID)
+	resp, err := c.doRequest(ctx, "PUT", path, body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GlobalVariableResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteGlobalVariable deletes a global variable by its UUID.
+func (c *Client) DeleteGlobalVariable(ctx context.Context, variableID string) error {
+	path := fmt.Sprintf("/api/v1/variables/global/%s", variableID)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
 }

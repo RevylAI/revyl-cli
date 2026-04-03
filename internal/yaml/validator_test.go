@@ -614,3 +614,107 @@ func TestIsValidLocation(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateYAML_GlobalVariableNoWarning(t *testing.T) {
+	yamlContent := `
+test:
+  metadata:
+    name: "Global Var Test"
+    platform: "android"
+  build:
+    name: "My App"
+  blocks:
+    - type: instructions
+      step_description: "Enter {{global.login-email}} in the email field"
+`
+	result := ValidateYAML(yamlContent)
+	if !result.Valid {
+		t.Errorf("Expected valid YAML, got errors: %v", result.Errors)
+	}
+	for _, w := range result.Warnings {
+		if w == "Variable '{{global.login-email}}' used but not defined in YAML -- ensure it is created via set_variable or the Variables tab before running" {
+			t.Error("Should not warn about undefined global variable references")
+		}
+	}
+}
+
+func TestValidateYAML_GlobalAndLocalVarsMixed(t *testing.T) {
+	yamlContent := `
+test:
+  metadata:
+    name: "Mixed Var Test"
+    platform: "ios"
+  build:
+    name: "My App"
+  blocks:
+    - type: extraction
+      step_description: "Extract the OTP"
+      variable_name: "otp-code"
+    - type: instructions
+      step_description: "Enter {{otp-code}} and {{global.api-key}} and {{undefined-local}}"
+`
+	result := ValidateYAML(yamlContent)
+	if !result.Valid {
+		t.Errorf("Expected valid YAML, got errors: %v", result.Errors)
+	}
+
+	// Should warn about undefined-local but NOT about global.api-key
+	foundLocalWarning := false
+	for _, w := range result.Warnings {
+		if contains(w, "undefined-local") {
+			foundLocalWarning = true
+		}
+		if contains(w, "global.api-key") {
+			t.Error("Should not warn about global variable references")
+		}
+	}
+	if !foundLocalWarning {
+		t.Error("Expected warning about undefined-local variable")
+	}
+}
+
+func TestVariablePattern_MatchesGlobalPrefix(t *testing.T) {
+	tests := []struct {
+		input   string
+		matches []string
+	}{
+		{"{{my-var}}", []string{"my-var"}},
+		{"{{global.my-var}}", []string{"global.my-var"}},
+		{"{{global.login-email}} and {{otp-code}}", []string{"global.login-email", "otp-code"}},
+		{"no variables here", nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			allMatches := variablePattern.FindAllStringSubmatch(tt.input, -1)
+			var got []string
+			for _, m := range allMatches {
+				if len(m) > 1 {
+					got = append(got, m[1])
+				}
+			}
+			if len(got) != len(tt.matches) {
+				t.Errorf("variablePattern on %q: got %v, want %v", tt.input, got, tt.matches)
+				return
+			}
+			for i := range got {
+				if got[i] != tt.matches[i] {
+					t.Errorf("variablePattern on %q: match[%d] = %q, want %q", tt.input, i, got[i], tt.matches[i])
+				}
+			}
+		})
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

@@ -110,8 +110,8 @@ var validStepTypes = map[string]bool{
 	"end":             true,
 }
 
-// variablePattern matches {{variable-name}} syntax.
-var variablePattern = regexp.MustCompile(`\{\{([a-z0-9-]+)\}\}`)
+// variablePattern matches {{variable-name}} and {{global.variable-name}} syntax.
+var variablePattern = regexp.MustCompile(`\{\{((?:global\.)?[a-z0-9][a-z0-9._-]*)\}\}`)
 
 // ValidateYAML validates a YAML test definition.
 //
@@ -205,7 +205,12 @@ func ValidateYAML(content string) *ValidationResult {
 	// Check for undefined variables (warning, not error).
 	// Pre-set variables created via set_variable or the Variables tab are valid
 	// but not visible to the YAML validator. The runtime substitutes them fine.
+	// {{global.X}} references are resolved at runtime from org-level global
+	// variables — they are never defined in YAML, so skip the warning.
 	for varName := range usedVars {
+		if strings.HasPrefix(varName, "global.") {
+			continue
+		}
 		if !definedVars[varName] {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("Variable '{{%s}}' used but not defined in YAML -- ensure it is created via set_variable or the Variables tab before running", varName))
 		}
