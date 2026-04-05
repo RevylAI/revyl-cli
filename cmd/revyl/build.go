@@ -1269,6 +1269,27 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		return nil
 	}
 
+	// Create API client early so we can validate org before building.
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	// Fail fast on org mismatch before starting a multi-minute build.
+	if configOrgID := strings.TrimSpace(cfg.Project.OrgID); configOrgID != "" {
+		if info, valErr := client.ValidateAPIKey(cmd.Context()); valErr == nil && info.OrgID != "" {
+			if info.OrgID != configOrgID {
+				ui.PrintError("Org mismatch: authenticated as %s (org %s) but config is bound to org %s",
+					info.Email, info.OrgID, configOrgID)
+				if os.Getenv("REVYL_API_KEY") != "" {
+					ui.PrintInfo("REVYL_API_KEY env var is overriding stored credentials.")
+					ui.PrintInfo("Unset it or run 'revyl auth login' to authenticate to the correct org.")
+				} else {
+					ui.PrintInfo("Run 'revyl auth login' to switch orgs, or 'revyl init --force' to rebind.")
+				}
+				return fmt.Errorf("org mismatch: authenticated org %s != config org %s", info.OrgID, configOrgID)
+			}
+		}
+	}
+
 	var buildDuration time.Duration
 
 	if !buildSkip && isExpoBuildSystem(cfg.Build.System) {
@@ -1285,6 +1306,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		startTime := time.Now()
 		runner := build.NewRunner(cwd)
 		runner.Interactive = true
+		runner.FilterOutput = !ui.IsDebugMode()
 
 		err = runner.Run(buildCommand, func(line string) {
 			ui.PrintDim("  %s", line)
@@ -1324,10 +1346,6 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		ui.PrintError("Build artifact not found: %s", platformCfg.Output)
 		return fmt.Errorf("artifact not found: %w", err)
 	}
-
-	// Create API client
-	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Determine app ID: --app flag (name or UUID) → platform config → interactive prompt.
 	appID := uploadAppFlag
@@ -1411,6 +1429,9 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 
 	if err != nil {
 		ui.PrintError("Upload failed: %v", err)
+		if os.Getenv("REVYL_API_KEY") != "" {
+			ui.PrintDim("Note: REVYL_API_KEY env var is set and overrides stored credentials.")
+		}
 		return err
 	}
 

@@ -5,12 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/revyl/cli/internal/api"
 )
 
 // newGlobalVarMockServer creates a test server handling global variable endpoints.
-func newGlobalVarMockServer(t *testing.T, vars []api.GlobalVariable) *httptest.Server {
+func newGlobalVarMockServer(t *testing.T, vars []api.GlobalVariableRow) *httptest.Server {
 	t.Helper()
 
 	mux := http.NewServeMux()
@@ -43,11 +45,7 @@ func newGlobalVarMockServer(t *testing.T, vars []api.GlobalVariable) *httptest.S
 			val, _ := body["variable_value"].(string)
 			json.NewEncoder(w).Encode(api.GlobalVariableResponse{
 				Message: "created",
-				Result: api.GlobalVariable{
-					ID:            "new-uuid",
-					VariableName:  name,
-					VariableValue: &val,
-				},
+				Result:  newGlobalVariableRow(t, "33333333-3333-3333-3333-333333333333", name, &val),
 			})
 		default:
 			w.WriteHeader(405)
@@ -66,11 +64,7 @@ func newGlobalVarMockServer(t *testing.T, vars []api.GlobalVariable) *httptest.S
 			val, _ := body["variable_value"].(string)
 			json.NewEncoder(w).Encode(api.GlobalVariableResponse{
 				Message: "updated",
-				Result: api.GlobalVariable{
-					ID:            "uuid-1",
-					VariableName:  name,
-					VariableValue: &val,
-				},
+				Result:  newGlobalVariableRow(t, "11111111-1111-1111-1111-111111111111", name, &val),
 			})
 		case http.MethodDelete:
 			json.NewEncoder(w).Encode(map[string]string{"message": "deleted"})
@@ -108,8 +102,8 @@ func TestGlobalVarSetCreatesNew(t *testing.T) {
 
 func TestGlobalVarSetUpdatesExisting(t *testing.T) {
 	existingVal := "old-value"
-	server := newGlobalVarMockServer(t, []api.GlobalVariable{
-		{ID: "uuid-1", VariableName: "my-var", VariableValue: &existingVal},
+	server := newGlobalVarMockServer(t, []api.GlobalVariableRow{
+		newGlobalVariableRow(t, "11111111-1111-1111-1111-111111111111", "my-var", &existingVal),
 	})
 	t.Cleanup(server.Close)
 
@@ -125,7 +119,7 @@ func TestGlobalVarSetUpdatesExisting(t *testing.T) {
 	}
 
 	// Update should succeed
-	updateResp, err := client.UpdateGlobalVariable(t.Context(), "uuid-1", "my-var", "new-value")
+	updateResp, err := client.UpdateGlobalVariable(t.Context(), "11111111-1111-1111-1111-111111111111", "my-var", "new-value")
 	if err != nil {
 		t.Fatalf("update error: %v", err)
 	}
@@ -136,8 +130,8 @@ func TestGlobalVarSetUpdatesExisting(t *testing.T) {
 
 func TestGlobalVarDeleteResolvesNameToID(t *testing.T) {
 	val := "some-value"
-	server := newGlobalVarMockServer(t, []api.GlobalVariable{
-		{ID: "uuid-1", VariableName: "my-var", VariableValue: &val},
+	server := newGlobalVarMockServer(t, []api.GlobalVariableRow{
+		newGlobalVariableRow(t, "11111111-1111-1111-1111-111111111111", "my-var", &val),
 	})
 	t.Cleanup(server.Close)
 
@@ -152,7 +146,7 @@ func TestGlobalVarDeleteResolvesNameToID(t *testing.T) {
 	var targetID string
 	for _, v := range resp.Result {
 		if v.VariableName == "my-var" {
-			targetID = v.ID
+			targetID = v.Id.String()
 			break
 		}
 	}
@@ -169,8 +163,8 @@ func TestGlobalVarDeleteResolvesNameToID(t *testing.T) {
 
 func TestGlobalVarAddDuplicateReturns409(t *testing.T) {
 	val := "existing"
-	server := newGlobalVarMockServer(t, []api.GlobalVariable{
-		{ID: "uuid-1", VariableName: "my-var", VariableValue: &val},
+	server := newGlobalVarMockServer(t, []api.GlobalVariableRow{
+		newGlobalVariableRow(t, "11111111-1111-1111-1111-111111111111", "my-var", &val),
 	})
 	t.Cleanup(server.Close)
 
@@ -179,5 +173,19 @@ func TestGlobalVarAddDuplicateReturns409(t *testing.T) {
 	_, err := client.AddGlobalVariable(t.Context(), "my-var", "new-value")
 	if err == nil {
 		t.Fatal("expected 409 error on duplicate, got nil")
+	}
+}
+
+func newGlobalVariableRow(t *testing.T, id, name string, value *string) api.GlobalVariableRow {
+	t.Helper()
+
+	timestamp := time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC)
+	return api.GlobalVariableRow{
+		Id:            uuid.MustParse(id),
+		OrgId:         uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+		VariableName:  name,
+		VariableValue: value,
+		CreatedAt:     timestamp,
+		UpdatedAt:     timestamp,
 	}
 }

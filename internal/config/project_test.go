@@ -4,6 +4,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -381,7 +382,160 @@ func TestValidateProviderConfig_UnknownProvider(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
 	}
-	if got := err.Error(); got != "unknown provider: flutter (supported: expo, react-native)" {
+	if got := err.Error(); got != "unknown provider: flutter (supported: expo, react-native, swift, android)" {
 		t.Fatalf("unexpected error message: %q", got)
+	}
+}
+
+func TestValidateProviderConfig_Expo_Valid(t *testing.T) {
+	hr := &HotReloadConfig{
+		Providers: map[string]*ProviderConfig{
+			"expo": {
+				Port:      8081,
+				AppScheme: "bug-bazaar",
+				PlatformKeys: map[string]string{
+					"ios":     "ios-dev",
+					"android": "android-dev",
+				},
+				UseExpPrefix: true,
+			},
+		},
+	}
+
+	if err := hr.ValidateProvider("expo"); err != nil {
+		t.Fatalf("ValidateProvider(expo) unexpected error: %v", err)
+	}
+}
+
+func TestValidateProviderConfig_Expo_MissingAppScheme(t *testing.T) {
+	hr := &HotReloadConfig{
+		Providers: map[string]*ProviderConfig{
+			"expo": {
+				Port:         8081,
+				PlatformKeys: map[string]string{"ios": "ios-dev"},
+			},
+		},
+	}
+
+	err := hr.ValidateProvider("expo")
+	if err == nil {
+		t.Fatal("ValidateProvider(expo) expected error for missing app_scheme")
+	}
+	if got := err.Error(); got != "app_scheme is required for Expo" {
+		t.Fatalf("unexpected error message: %q", got)
+	}
+}
+
+func TestValidateProviderConfig_Expo_InvalidPlatform(t *testing.T) {
+	hr := &HotReloadConfig{
+		Providers: map[string]*ProviderConfig{
+			"expo": {
+				Port:      8081,
+				AppScheme: "bug-bazaar",
+				PlatformKeys: map[string]string{
+					"web": "web-dev",
+				},
+			},
+		},
+	}
+
+	err := hr.ValidateProvider("expo")
+	if err == nil {
+		t.Fatal("ValidateProvider(expo) expected error for invalid platform")
+	}
+	if got := err.Error(); got != "platform_keys.web must be ios or android" {
+		t.Fatalf("unexpected error message: %q", got)
+	}
+}
+
+func TestWriteLoadProjectConfig_HotReloadExpoRoundTrip(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &ProjectConfig{
+		Project: Project{
+			Name: "bug-bazaar",
+		},
+		Build: BuildConfig{
+			System: "Expo",
+			Platforms: map[string]BuildPlatform{
+				"ios-dev": {
+					AppID: "ios-app-id",
+				},
+				"android-dev": {
+					AppID: "android-app-id",
+				},
+			},
+		},
+		HotReload: HotReloadConfig{
+			Default: "expo",
+			Providers: map[string]*ProviderConfig{
+				"expo": {
+					Port:      8081,
+					AppScheme: "bug-bazaar",
+					PlatformKeys: map[string]string{
+						"ios":     "ios-dev",
+						"android": "android-dev",
+					},
+					UseExpPrefix: true,
+				},
+			},
+		},
+	}
+
+	if err := WriteProjectConfig(configPath, cfg); err != nil {
+		t.Fatalf("WriteProjectConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	content := string(data)
+	expectedIndentedLines := []string{
+		"        expo:",
+		"            # Metro bundler port (default 8081). Change if port conflicts.",
+		"            port: 8081",
+		"            # URL scheme from app.json or app.config.js (required for Expo deep linking)",
+		"            app_scheme: bug-bazaar",
+		"            # Maps platform to build.platforms key for dev build resolution",
+		"            platform_keys:",
+		"                android: android-dev",
+		"                ios: ios-dev",
+		"            # Use \"exp+\" prefix in deep links. Try true if deep links fail.",
+		"            use_exp_prefix: true",
+	}
+	for _, expectedLine := range expectedIndentedLines {
+		if !strings.Contains(content, expectedLine) {
+			t.Fatalf("written config missing expected line %q\n%s", expectedLine, content)
+		}
+	}
+
+	loaded, err := LoadProjectConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig() error = %v", err)
+	}
+
+	if loaded.HotReload.Default != "expo" {
+		t.Fatalf("loaded hotreload default = %q, want expo", loaded.HotReload.Default)
+	}
+
+	expoConfig := loaded.HotReload.GetProviderConfig("expo")
+	if expoConfig == nil {
+		t.Fatal("loaded hotreload.providers.expo is nil")
+	}
+	if expoConfig.Port != 8081 {
+		t.Fatalf("loaded expo port = %d, want 8081", expoConfig.Port)
+	}
+	if expoConfig.AppScheme != "bug-bazaar" {
+		t.Fatalf("loaded expo app scheme = %q, want bug-bazaar", expoConfig.AppScheme)
+	}
+	if !expoConfig.UseExpPrefix {
+		t.Fatal("loaded expo use_exp_prefix = false, want true")
+	}
+	if got := expoConfig.PlatformKeys["ios"]; got != "ios-dev" {
+		t.Fatalf("loaded expo ios platform key = %q, want ios-dev", got)
+	}
+	if got := expoConfig.PlatformKeys["android"]; got != "android-dev" {
+		t.Fatalf("loaded expo android platform key = %q, want android-dev", got)
 	}
 }

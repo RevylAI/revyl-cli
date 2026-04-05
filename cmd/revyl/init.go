@@ -33,20 +33,16 @@ import (
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize Revyl project configuration",
-	Long: `Initialize a Revyl project in the current directory via a guided wizard.
+	Long: `Initialize a Revyl project in the current directory.
 
-The wizard walks you through:
-  1. Project setup — detect build system, create config
-  2. Authentication — check or prompt browser login
-  3. Create apps — for each detected platform, create or select an app
-  4. Dev loop — configure live reload for revyl dev
-  5. First build — build and upload your artifact
-  6. Create first test — create a test on the platform
+Detects your build system, writes .revyl/config.yaml, then optionally
+walks you through authentication, app creation, and first build.
+You can exit at any point — the config is saved after each step.
 
-Use --non-interactive / -y to skip the wizard and just create config.
+Use -y to skip all prompts and just create the config file.
 
 Examples:
-  revyl init                    # Full guided wizard
+  revyl init                    # Detect, create config, continue setup
   revyl init -y                 # Non-interactive: detect + create config only
   revyl init --provider expo    # Force Expo as hot reload provider
   revyl init --project ID       # Link to existing Revyl project
@@ -107,58 +103,101 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 
-	// ── Step 1/6: Project Setup ──────────────────────────────────────────
-	ui.PrintStepHeader(1, 6, "Project Setup")
+	ui.PrintSectionHeader("Project Setup")
 
 	cfg, err := wizardProjectSetup(cwd, revylDir, configPath, overrideOpts)
 	if err != nil {
 		return err
 	}
 
-	if err := runProjectConfigReview(cfg, configPath, overrideOpts); err != nil {
-		return err
-	}
-
 	// In non-interactive mode we stop after creating the config.
 	if initNonInteractive {
+		ui.PrintDim("You can edit settings anytime in .revyl/config.yaml")
 		wizardHotReloadSetup(context.Background(), nil, cfg, configPath, cwd, false, overrideOpts, initHotReloadProvider)
 		printCreatedFiles()
 		printHotReloadInfo(cwd, cfg)
-		ui.PrintInfo("Next steps:")
-		ui.PrintInfo("  1. Authenticate:             revyl auth login")
-		ui.PrintInfo("  2. Upload your first build:  revyl build upload --platform <ios|android>")
-		ui.PrintInfo("  3. Create a test:            revyl test create <name> --platform <ios|android>")
-		ui.PrintInfo("  4. Run it:                   revyl test run <name>")
+		printInitNextSteps(cfg)
 		return nil
 	}
 
-	// ── Step 2/6: Authentication ─────────────────────────────────────────
-	ui.PrintStepHeader(2, 6, "Authentication")
+	// Progressive menu: continue, edit, or exit.
+	continueToAuth := false
+	for {
+		options := []string{
+			"Continue to authentication and setup",
+			"Edit build settings",
+			"Finish setup",
+		}
+		selection, selErr := ui.PromptSelect("What would you like to do?", options)
+		if selErr != nil {
+			break
+		}
+
+		switch selection {
+		case 0:
+			continueToAuth = true
+		case 1:
+			ui.Println()
+			promptBuildSetupReview(cfg)
+			promptForXcodeSchemeEdits(cfg)
+			if writeErr := config.WriteProjectConfig(configPath, cfg); writeErr != nil {
+				ui.PrintWarning("Could not save: %v", writeErr)
+			} else {
+				ui.PrintSuccess("Saved to .revyl/config.yaml")
+			}
+			ui.Println()
+			continue
+		}
+		break
+	}
+
+	if !continueToAuth {
+		wizardHotReloadSetup(context.Background(), nil, cfg, configPath, cwd, false, overrideOpts, initHotReloadProvider)
+		printInitSummary(cfg)
+		printCreatedFiles()
+		printHotReloadInfo(cwd, cfg)
+		printInitNextSteps(cfg)
+		return nil
+	}
+
+	// ── Authentication ───────────────────────────────────────────────────
+	ui.PrintSectionHeader("Authentication")
 
 	ctx := context.Background()
-	client, userInfo, authOK := wizardAuth(ctx, devMode)
+	client, userInfo, authOK := wizardAuth(ctx, devMode, cfg.Project.OrgID)
 
-	// If auth failed or was skipped, we cannot proceed to API-dependent steps.
 	if !authOK {
 		wizardHotReloadSetup(context.Background(), nil, cfg, configPath, cwd, false, overrideOpts, initHotReloadProvider)
 		ui.Println()
-		ui.PrintWarning("Skipping steps 3-6 (require authentication)")
+		ui.PrintWarning("Skipping remaining steps (require authentication)")
 		ui.Println()
 		printCreatedFiles()
 		printHotReloadInfo(cwd, cfg)
-		ui.PrintInfo("Next steps:")
-		ui.PrintInfo("  1. Authenticate:             revyl auth login")
-		ui.PrintInfo("  2. Upload your first build:  revyl build upload --platform <ios|android>")
-		ui.PrintInfo("  3. Create a test:            revyl test create <name> --platform <ios|android>")
-		ui.PrintInfo("  4. Run it:                   revyl test run <name>")
+		printInitNextSteps(cfg)
 		return nil
 	}
 
 	// Bind the project to the authenticated organization when available.
+	// When the org changes, clear stale app_ids that belong to the previous
+	// org so wizardCreateApps re-creates them under the correct org.
 	if userInfo != nil {
 		orgID := strings.TrimSpace(userInfo.OrgID)
 		if orgID != "" && cfg.Project.OrgID != orgID {
+			previousOrgID := cfg.Project.OrgID
 			cfg.Project.OrgID = orgID
+			if previousOrgID != "" {
+				cleared := 0
+				for key, plat := range cfg.Build.Platforms {
+					if plat.AppID != "" {
+						plat.AppID = ""
+						cfg.Build.Platforms[key] = plat
+						cleared++
+					}
+				}
+				if cleared > 0 {
+					ui.PrintInfo("Org changed (%s → %s) — cleared %d stale app link(s)", previousOrgID, orgID, cleared)
+				}
+			}
 			if err := config.WriteProjectConfig(configPath, cfg); err != nil {
 				ui.PrintWarning("Could not persist project org binding: %v", err)
 			}
@@ -168,13 +207,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// ── Billing check (between auth and app creation) ──────────────────
 	wizardBillingCheck(ctx, client, devMode)
 
-	// ── Step 3/6: Create Apps ────────────────────────────────────────────
-	ui.PrintStepHeader(3, 6, "Create Apps")
+	// ── Create Apps ──────────────────────────────────────────────────────
+	ui.PrintSectionHeader("Create Apps")
 
 	wizardCreateApps(ctx, client, cfg, configPath)
 
-	// ── Step 4/6: Dev Loop ──────────────────────────────────────────────
-	ui.PrintStepHeader(4, 6, "Dev Loop")
+	// ── Dev Loop ─────────────────────────────────────────────────────────
+	ui.PrintSectionHeader("Dev Loop")
 	hotReloadReady := wizardHotReloadSetup(ctx, client, cfg, configPath, cwd, true, overrideOpts, initHotReloadProvider)
 
 	// Determine if any apps were linked.
@@ -186,28 +225,44 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// ── Step 5/6: First Build ────────────────────────────────────────────
-	ui.PrintStepHeader(5, 6, "First Build")
+	// ── First Build ──────────────────────────────────────────────────────
+	ui.PrintSectionHeader("First Build")
 	wizardFirstBuild(ctx, client, cfg, configPath)
 
-	// ── Step 6/6: What's Next ────────────────────────────────────────────
-	ui.PrintStepHeader(6, 6, "What's Next")
+	// ── What's Next ──────────────────────────────────────────────────────
+	ui.PrintSectionHeader("What's Next")
 
 	var testID, testName string
 	launchDevice := false
 
-	options := []string{
-		"Start a live dev session",
-		"Create a test",
-		"Skip for now",
+	if cfg.Project.Name != "" {
+		ui.PrintDim("Project: %s", cfg.Project.Name)
 	}
-	ui.PrintInfo("What would you like to do?")
-	selection, err := ui.PromptSelect("", options)
+
+	whatsNextOptions := []ui.SelectOption{
+		{
+			Label:       "Start a live dev session",
+			Value:       "dev",
+			Description: "Opens a cloud device with your app installed and streams it to your browser",
+		},
+		{
+			Label:       "Create a test",
+			Value:       "test",
+			Description: "Write a test in natural language that Revyl runs automatically",
+		},
+		{
+			Label:       "Skip for now",
+			Value:       "skip",
+			Description: "Finish setup; run revyl dev or revyl test create later",
+		},
+	}
+
+	_, selection, err := ui.Select("What would you like to do?", whatsNextOptions, 0)
 	if err == nil {
 		switch selection {
-		case 0:
+		case "dev":
 			launchDevice = true
-		case 1:
+		case "test":
 			testID, testName = wizardCreateTest(ctx, client, cfg, configPath, devMode, userInfo)
 		default:
 			ui.PrintDim("You can always run these later:")
@@ -279,11 +334,24 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 
 	if detected.System != build.SystemUnknown {
 		ui.PrintSuccess("Detected: %s", detected.System.String())
-		if detected.Command != "" {
-			ui.PrintInfo("Build command: %s", detected.Command)
-		}
-		if detected.Output != "" {
-			ui.PrintInfo("Output: %s", detected.Output)
+		if len(detected.Platforms) > 0 {
+			var platNames []string
+			for k := range detected.Platforms {
+				platNames = append(platNames, k)
+			}
+			sort.Strings(platNames)
+			ui.PrintInfo("  Platforms: %s", strings.Join(platNames, ", "))
+			ui.Println()
+			ui.PrintDim("  Build settings:")
+			for _, name := range platNames {
+				bp := detected.Platforms[name]
+				ui.PrintDim("  %s: %s", name, bp.Command)
+				if bp.Output != "" {
+					ui.PrintDim("  %s output: %s", name, bp.Output)
+				}
+			}
+		} else if detected.Command != "" {
+			ui.PrintInfo("  Build: %s", detected.Command)
 		}
 	} else {
 		ui.PrintWarning("Could not detect build system")
@@ -390,6 +458,7 @@ device.json
 remote.json
 shell-init.sh
 .services.pid
+.dev.pid
 
 # MCP session artifacts (screenshots, etc.)
 mcp/
@@ -399,7 +468,6 @@ mcp/
 	}
 
 	ui.PrintSuccess("Project config created: .revyl/config.yaml")
-	ui.PrintDim("You can edit settings later in .revyl/config.yaml")
 
 	return cfg, nil
 }
@@ -411,8 +479,18 @@ mcp/
 // wizardAuth checks for existing credentials and, if missing, walks the user
 // through browser-based login. Returns an API client, validated user info,
 // and a boolean indicating whether auth succeeded.
-func wizardAuth(ctx context.Context, devMode bool) (*api.Client, *api.ValidateAPIKeyResponse, bool) {
+//
+// Parameters:
+//   - ctx: Context for cancellation and API calls
+//   - devMode: Whether to use local development servers
+//   - configOrgID: The org_id from the existing project config (may be empty for new projects)
+func wizardAuth(ctx context.Context, devMode bool, configOrgID string) (*api.Client, *api.ValidateAPIKeyResponse, bool) {
 	mgr := auth.NewManager()
+
+	// Track whether we have a validated fallback from existing credentials.
+	var fallbackClient *api.Client
+	var fallbackUserInfo *api.ValidateAPIKeyResponse
+	wantsSwitch := false
 
 	// Check existing credentials first.
 	token, _ := mgr.GetActiveToken()
@@ -421,17 +499,51 @@ func wizardAuth(ctx context.Context, devMode bool) (*api.Client, *api.ValidateAP
 		client := api.NewClientWithDevMode(token, devMode)
 		userInfo, err := client.ValidateAPIKey(ctx)
 		if err == nil {
+			envOverride := os.Getenv("REVYL_API_KEY") != ""
+			orgMismatch := configOrgID != "" && userInfo.OrgID != "" && configOrgID != userInfo.OrgID
+
+			if orgMismatch {
+				ui.Println()
+				if envOverride {
+					ui.PrintWarning("REVYL_API_KEY env var is set — it overrides stored credentials")
+				} else {
+					ui.PrintWarning("Org mismatch: credentials belong to a different org than this project")
+				}
+				ui.PrintDim("  Authenticated org:  %s (%s)", userInfo.OrgName, userInfo.OrgID)
+				ui.PrintDim("  Config org:         %s", configOrgID)
+				ui.PrintDim("  Continuing will rebind this project and clear existing app links.")
+				ui.Println()
+			}
+
 			ui.PrintSuccess("Authenticated as %s", userInfo.Email)
-			return client, userInfo, true
+			if envOverride {
+				ui.PrintDim("  Auth source: REVYL_API_KEY environment variable")
+			}
+			options := []string{
+				fmt.Sprintf("Continue as %s", userInfo.Email),
+				"Switch to a different account",
+			}
+			selection, selErr := ui.PromptSelect("", options)
+			if selErr != nil || selection == 0 {
+				return client, userInfo, true
+			}
+			fallbackClient = client
+			fallbackUserInfo = userInfo
+			wantsSwitch = true
+			ui.PrintDim("Opening browser to log in with a different account...")
+		} else {
+			ui.PrintWarning("Existing credentials invalid, need to re-authenticate")
 		}
-		ui.PrintWarning("Existing credentials invalid, need to re-authenticate")
 	}
 
-	// Prompt user for browser login.
-	proceed, err := ui.PromptConfirm("Log in via browser?", true)
-	if err != nil || !proceed {
-		ui.PrintWarning("Authentication skipped")
-		return nil, nil, false
+	// Only prompt for confirmation when the user hasn't already expressed
+	// intent to switch. "Switch to a different account" implies browser login.
+	if !wantsSwitch {
+		proceed, err := ui.PromptConfirm("Log in via browser?", true)
+		if err != nil || !proceed {
+			ui.PrintWarning("Authentication skipped")
+			return nil, nil, false
+		}
 	}
 
 	ui.StartSpinner("Waiting for browser authentication...")
@@ -440,6 +552,9 @@ func wizardAuth(ctx context.Context, devMode bool) (*api.Client, *api.ValidateAP
 	if err != nil {
 		ui.StopSpinner()
 		ui.PrintWarning("Failed to prepare local CLI identity: %v", err)
+		if fallbackClient != nil {
+			return wizardAuthFallback(fallbackClient, fallbackUserInfo)
+		}
 		return nil, nil, false
 	}
 
@@ -455,11 +570,17 @@ func wizardAuth(ctx context.Context, devMode bool) (*api.Client, *api.ValidateAP
 
 	if err != nil {
 		ui.PrintWarning("Authentication failed: %v", err)
+		if fallbackClient != nil {
+			return wizardAuthFallback(fallbackClient, fallbackUserInfo)
+		}
 		return nil, nil, false
 	}
 
 	if result.Error != "" {
 		ui.PrintWarning("Authentication error: %s", result.Error)
+		if fallbackClient != nil {
+			return wizardAuthFallback(fallbackClient, fallbackUserInfo)
+		}
 		return nil, nil, false
 	}
 
@@ -509,6 +630,34 @@ func wizardAuth(ctx context.Context, devMode bool) (*api.Client, *api.ValidateAP
 
 	ui.PrintSuccess("Authenticated as %s", userInfo.Email)
 	return client, userInfo, true
+}
+
+// wizardAuthFallback prompts the user to fall back to previously validated
+// credentials after a browser login attempt fails.
+//
+// Parameters:
+//   - client: The already-validated API client from existing credentials
+//   - userInfo: The validated user info from existing credentials
+//
+// Returns:
+//   - The original client/userInfo/true if the user chooses to fall back,
+//     or nil/nil/false if they choose to skip authentication
+func wizardAuthFallback(client *api.Client, userInfo *api.ValidateAPIKeyResponse) (*api.Client, *api.ValidateAPIKeyResponse, bool) {
+	options := []string{
+		fmt.Sprintf("Continue as %s", userInfo.Email),
+		"Skip authentication",
+	}
+	selection, selErr := ui.PromptSelect("Fall back to existing credentials?", options)
+	if selErr != nil {
+		ui.PrintDim("Falling back to %s (prompt interrupted)", userInfo.Email)
+		return client, userInfo, true
+	}
+	if selection == 0 {
+		ui.PrintSuccess("Continuing as %s", userInfo.Email)
+		return client, userInfo, true
+	}
+	ui.PrintWarning("Authentication skipped")
+	return nil, nil, false
 }
 
 // ---------------------------------------------------------------------------
@@ -786,73 +935,52 @@ func normalizeExpoBuildCommand(system, command string) (string, bool) {
 }
 
 func defaultExpoBuildPlatforms(dir string) map[string]config.BuildPlatform {
-	// Try to pick the right EAS profiles based on eas.json
-	iosDevProfile := "development"
-	iosCIProfile := "preview"
+	iosProfile := "development"
 
 	easCfg, err := build.LoadEASConfig(dir)
 	if err == nil && easCfg != nil {
 		if p := easCfg.FindDevSimulatorProfile(); p != "" {
-			iosDevProfile = p
-		}
-		if p := easCfg.FindCISimulatorProfile(); p != "" {
-			iosCIProfile = p
+			iosProfile = p
 		}
 	}
 
 	return map[string]config.BuildPlatform{
-		"ios-dev": {
-			Command: fmt.Sprintf("npx --yes eas-cli build --platform ios --profile %s --local --output build/dev-ios.tar.gz", iosDevProfile),
-			Output:  "build/dev-ios.tar.gz",
+		"ios": {
+			Command: fmt.Sprintf("npx --yes eas-cli build --platform ios --profile %s --local --output build/app.tar.gz", iosProfile),
+			Output:  "build/app.tar.gz",
 		},
-		"android-dev": {
-			Command: "npx --yes eas-cli build --platform android --profile development --local --output build/dev-android.apk",
-			Output:  "build/dev-android.apk",
-		},
-		"ios-ci": {
-			Command: fmt.Sprintf("npx --yes eas-cli build --platform ios --profile %s --local --output build/ci-ios.tar.gz", iosCIProfile),
-			Output:  "build/ci-ios.tar.gz",
-		},
-		"android-ci": {
-			Command: "npx --yes eas-cli build --platform android --profile preview --local --output build/ci-android.apk",
-			Output:  "build/ci-android.apk",
+		"android": {
+			Command: "npx --yes eas-cli build --platform android --profile development --local --output build/app.apk",
+			Output:  "build/app.apk",
 		},
 	}
 }
 
-// configureExpoBuildStreams ensures Expo projects have separate dev/ci build keys.
+// configureExpoBuildStreams sets up Expo build platforms using development profile.
+//
+// Uses 2 platform keys (ios, android) with the development EAS profile.
+// A single development build supports both hot reload and regular testing.
+// CI-optimized builds (preview profile) can be added later via
+// `revyl config add-ci-profile`.
 func configureExpoBuildStreams(cfg *config.ProjectConfig, cwd string) {
 	if cfg == nil || !isExpoBuildSystem(cfg.Build.System) {
 		return
 	}
 
-	hasExplicitStreams := false
-	hasLegacyPlatforms := false
 	hasCustomPlatforms := false
 	for key := range cfg.Build.Platforms {
 		lower := strings.ToLower(strings.TrimSpace(key))
-		if strings.Contains(lower, "dev") || strings.Contains(lower, "ci") {
-			hasExplicitStreams = true
+		if lower != "ios" && lower != "android" {
+			hasCustomPlatforms = true
 			break
 		}
-		if lower == "ios" || lower == "android" {
-			hasLegacyPlatforms = true
-			continue
-		}
-		hasCustomPlatforms = true
-	}
-	if hasExplicitStreams {
-		return
 	}
 	if hasCustomPlatforms {
 		return
 	}
-	if len(cfg.Build.Platforms) > 0 && !hasLegacyPlatforms {
-		return
-	}
 
 	cfg.Build.Platforms = defaultExpoBuildPlatforms(cwd)
-	if platformCfg, ok := cfg.Build.Platforms["ios-dev"]; ok {
+	if platformCfg, ok := cfg.Build.Platforms["ios"]; ok {
 		cfg.Build.Command = platformCfg.Command
 		cfg.Build.Output = platformCfg.Output
 	}
@@ -932,24 +1060,28 @@ func orderedExpoPlatformKeys(cfg *config.ProjectConfig) []string {
 	rank := func(key string) int {
 		lower := strings.ToLower(strings.TrimSpace(key))
 		switch {
-		case lower == "ios-dev":
+		case lower == "ios":
 			return 0
-		case lower == "android-dev":
+		case lower == "android":
 			return 1
-		case lower == "ios-ci":
+		case lower == "ios-dev":
 			return 2
-		case lower == "android-ci":
+		case lower == "android-dev":
 			return 3
-		case strings.Contains(lower, "ios") && strings.Contains(lower, "dev"):
+		case lower == "ios-ci":
 			return 4
-		case strings.Contains(lower, "android") && strings.Contains(lower, "dev"):
+		case lower == "android-ci":
 			return 5
-		case strings.Contains(lower, "ios"):
+		case strings.Contains(lower, "ios") && strings.Contains(lower, "dev"):
 			return 6
-		case strings.Contains(lower, "android"):
+		case strings.Contains(lower, "android") && strings.Contains(lower, "dev"):
 			return 7
-		default:
+		case strings.Contains(lower, "ios"):
 			return 8
+		case strings.Contains(lower, "android"):
+			return 9
+		default:
+			return 10
 		}
 	}
 
@@ -1110,31 +1242,61 @@ func wizardCreateExpoAppStreams(ctx context.Context, client *api.Client, cfg *co
 		return
 	}
 
-	ui.PrintInfo("Auto-linking Expo app streams for dev/ci...")
+	// Collect platforms that still need apps.
+	type pendingApp struct {
+		key      string
+		platform string
+		appName  string
+	}
+	var pending []pendingApp
 	for _, platformKey := range keys {
 		plat := cfg.Build.Platforms[platformKey]
 		if strings.TrimSpace(plat.AppID) != "" {
 			ui.PrintDim("Platform %s already linked to app %s", platformKey, plat.AppID)
 			continue
 		}
-
 		platform := mobilePlatformForBuildKey(platformKey)
 		if platform == "" {
 			ui.PrintWarning("Skipping %s: could not infer platform (ios/android)", platformKey)
 			continue
 		}
+		pending = append(pending, pendingApp{
+			key:      platformKey,
+			platform: platform,
+			appName:  fmt.Sprintf("%s-%s", cfg.Project.Name, platformKey),
+		})
+	}
+	if len(pending) == 0 {
+		return
+	}
 
-		appName := fmt.Sprintf("%s-%s", cfg.Project.Name, platformKey)
-		appID, err := ensureNamedApp(ctx, client, appName, platform)
+	// Show what will be created and ask for confirmation.
+	ui.Println()
+	ui.PrintInfo("Creating apps to store your builds:")
+	ui.Println()
+	for i, p := range pending {
+		ui.PrintInfo("  %d. %s  (%s)", i+1, p.appName, p.platform)
+	}
+	ui.Println()
+
+	confirmed, err := ui.PromptConfirm("Create these apps?", true)
+	if err != nil || !confirmed {
+		ui.PrintDim("Skipped app creation. You can create apps later with: revyl build upload")
+		return
+	}
+
+	for _, p := range pending {
+		appID, err := ensureNamedApp(ctx, client, p.appName, p.platform)
 		if err != nil {
-			ui.PrintWarning("Failed to link/create app for %s: %v", platformKey, err)
+			ui.PrintWarning("Failed to link/create app for %s: %v", p.key, err)
 			continue
 		}
 
+		plat := cfg.Build.Platforms[p.key]
 		plat.AppID = appID
-		cfg.Build.Platforms[platformKey] = plat
+		cfg.Build.Platforms[p.key] = plat
 		_ = config.WriteProjectConfig(configPath, cfg)
-		ui.PrintSuccess("Linked %s -> %s (%s)", platformKey, appName, appID)
+		ui.PrintSuccess("Linked %s -> %s (%s)", p.key, p.appName, appID)
 	}
 }
 
@@ -1171,12 +1333,18 @@ func wizardFirstBuild(ctx context.Context, client *api.Client, cfg *config.Proje
 				devPlatforms = append(devPlatforms, key)
 			}
 		}
-		if len(devPlatforms) > 0 {
-			ui.PrintDim("Expo detected: focusing first build on dev streams (%s)", strings.Join(devPlatforms, ", "))
-			ui.PrintDim("CI streams can be uploaded later with: revyl build upload --platform <ios-ci|android-ci>")
-			wizardFirstBuildExpo(ctx, client, cfg, configPath, cwd, devPlatforms)
-			return
+		// With the simplified 2-key config (ios/android), there are no
+		// explicit dev stream suffixes. All platforms are dev-eligible
+		// since they use the development EAS profile.
+		if len(devPlatforms) == 0 {
+			devPlatforms = platforms
 		}
+		ui.PrintDim("Expo detected: focusing first build on dev streams (%s)", strings.Join(devPlatforms, ", "))
+		if len(platforms) > len(devPlatforms) {
+			ui.PrintDim("Other platforms can be uploaded later with: revyl build upload --platform <platform>")
+		}
+		wizardFirstBuildExpo(ctx, client, cfg, configPath, cwd, devPlatforms)
+		return
 	}
 	wizardFirstBuildSequential(ctx, client, cfg, configPath, cwd, platforms)
 }
@@ -1235,29 +1403,44 @@ func wizardFirstBuildExpo(
 	androidTarget := bestExpoDevPlatformForMobile(eligible, "android")
 
 	options := []ui.SelectOption{
-		{Label: fmt.Sprintf("Build and upload default dev stream (fastest: %s)", defaultTarget), Value: "default"},
+		{
+			Label:       fmt.Sprintf("Build and upload default dev stream (fastest: %s)", defaultTarget),
+			Value:       "default",
+			Description: "Builds one platform so you can start testing quickly",
+		},
 	}
 	if iosTarget != "" {
 		options = append(options, ui.SelectOption{
-			Label: fmt.Sprintf("Build and upload iOS dev stream only (%s)", iosTarget),
-			Value: "ios",
+			Label:       fmt.Sprintf("Build and upload iOS dev stream only (%s)", iosTarget),
+			Value:       "ios",
+			Description: "Builds an iOS simulator app using your development EAS profile",
 		})
 	}
 	if androidTarget != "" {
 		options = append(options, ui.SelectOption{
-			Label: fmt.Sprintf("Build and upload Android dev stream only (%s)", androidTarget),
-			Value: "android",
+			Label:       fmt.Sprintf("Build and upload Android dev stream only (%s)", androidTarget),
+			Value:       "android",
+			Description: "Builds an Android APK using your development EAS profile",
 		})
 	}
 	if iosTarget != "" && androidTarget != "" && iosTarget != androidTarget {
 		options = append(options, ui.SelectOption{
-			Label: "Build and upload both dev streams (parallel)",
-			Value: "both",
+			Label:       "Build and upload both dev streams (parallel)",
+			Value:       "both",
+			Description: "Builds iOS and Android concurrently — takes longer but covers both",
 		})
 	}
 	options = append(options,
-		ui.SelectOption{Label: "Upload existing artifact(s)", Value: "upload"},
-		ui.SelectOption{Label: "Skip for now", Value: "skip"},
+		ui.SelectOption{
+			Label:       "Upload existing artifact(s)",
+			Value:       "upload",
+			Description: "Skip building — upload a .app/.apk you already have on disk",
+		},
+		ui.SelectOption{
+			Label:       "Skip for now",
+			Value:       "skip",
+			Description: "Continue without a build; run revyl build upload later",
+		},
 	)
 
 	_, selection, err := ui.Select("How would you like to handle dev streams?", options, 0)
@@ -1612,6 +1795,15 @@ func wizardFirstBuildSequential(
 
 		if uploadErr != nil {
 			ui.PrintWarning("Upload failed for %s: %v", platform, uploadErr)
+			var apiErr *api.APIError
+			if errors.As(uploadErr, &apiErr) {
+				if apiErr.StatusCode == 401 && os.Getenv("REVYL_API_KEY") != "" {
+					ui.PrintDim("  REVYL_API_KEY env var is set — it may point to the wrong org or be revoked.")
+					ui.PrintDim("  Try: unset REVYL_API_KEY && revyl auth login")
+				} else if apiErr.StatusCode == 404 && strings.Contains(apiErr.Detail, "App not found") {
+					ui.PrintDim("  The app_id may belong to a different org. Run 'revyl init --force' to rebind.")
+				}
+			}
 			ui.PrintDim("  You can retry later: revyl build upload --platform %s", platform)
 			continue
 		}
@@ -1894,6 +2086,20 @@ func printWizardBuildResults(results []wizardBuildResult) []string {
 	for _, result := range results {
 		if result.Err != nil {
 			ui.PrintWarning("[%s] Failed: %v", result.Platform, result.Err)
+
+			var apiErr *api.APIError
+			if errors.As(result.Err, &apiErr) {
+				if apiErr.StatusCode == 401 {
+					if os.Getenv("REVYL_API_KEY") != "" {
+						ui.PrintDim("  REVYL_API_KEY env var is set — it may point to the wrong org or be revoked.")
+						ui.PrintDim("  Try: unset REVYL_API_KEY && revyl auth login")
+					}
+				} else if apiErr.StatusCode == 404 && strings.Contains(apiErr.Detail, "App not found") {
+					ui.PrintDim("  The app_id may belong to a different org than the one you're authenticated to.")
+					ui.PrintDim("  Run 'revyl init --force' to rebind apps to the current org.")
+				}
+			}
+
 			var easErr *build.EASBuildError
 			if errors.As(result.Err, &easErr) {
 				ui.PrintInfo("  Fix suggestion:")
@@ -2208,6 +2414,11 @@ func wizardHotReloadSetup(
 		}
 
 		if !ok {
+			if cfg != nil && len(cfg.Build.Platforms) > 0 {
+				ui.PrintDim("No hot reload for this project type. Use the rebuild dev loop instead:")
+				ui.PrintDim("  revyl dev    (press [r] to rebuild + reinstall)")
+				return false
+			}
 			ui.PrintDim("Detected hot reload providers are not yet supported:")
 			for _, d := range detections {
 				ui.PrintDim("  • %s (coming soon)", d.Provider.DisplayName())
@@ -2603,6 +2814,108 @@ func resolveAppIDForRuntimePlatform(cfg *config.ProjectConfig, runtimePlatform s
 }
 
 // printCreatedFiles prints the list of files created during init.
+// printInitSummary prints a concise detection summary after lightweight init.
+func printInitSummary(cfg *config.ProjectConfig) {
+	ui.Println()
+	system := cfg.Build.System
+	if system == "" {
+		system = "Unknown"
+	}
+	ui.PrintSuccess("Detected: %s", system)
+
+	if len(cfg.Build.Platforms) > 0 {
+		keys := platformKeys(cfg)
+		ui.PrintInfo("  Platforms: %s", strings.Join(keys, ", "))
+	}
+
+	for _, key := range platformKeys(cfg) {
+		plat := cfg.Build.Platforms[key]
+		if plat.Command != "" {
+			ui.PrintDim("  %s build: %s", key, plat.Command)
+		}
+	}
+	ui.Println()
+
+	printBuildSystemExplanation(cfg.Build.System)
+}
+
+// printBuildSystemExplanation prints a contextual explanation of how Revyl
+// works for the detected build system, including dev loop instructions.
+func printBuildSystemExplanation(system string) {
+	switch strings.ToLower(system) {
+	case "expo":
+		ui.PrintDim("How it works:")
+		ui.PrintDim("  Your config uses the \"development\" EAS profile. This creates a build")
+		ui.PrintDim("  that includes the Expo dev client — enabling hot reload (revyl dev)")
+		ui.PrintDim("  where JS/TS changes reflect instantly on a cloud device.")
+		ui.PrintDim("")
+		ui.PrintDim("  The same build also works for regular test runs (revyl test run).")
+		ui.PrintDim("  No separate CI build is needed to get started.")
+		ui.PrintDim("")
+		ui.PrintDim("  Dev loop:  revyl dev             JS changes hot reload instantly")
+		ui.PrintDim("             press [r]             rebuild native code + reinstall")
+
+	case "react native":
+		ui.PrintDim("How it works:")
+		ui.PrintDim("  Debug builds connect to your local Metro bundler via hot reload.")
+		ui.PrintDim("  JS/TS changes reflect instantly on the cloud device.")
+		ui.PrintDim("")
+		ui.PrintDim("  Dev loop:  revyl dev             JS changes hot reload via Metro")
+		ui.PrintDim("             press [r]             rebuild native code + reinstall")
+
+	case "gradle (android)", "gradle":
+		ui.PrintDim("How it works:")
+		ui.PrintDim("  Builds a debug APK using ./gradlew assembleDebug. The APK is uploaded")
+		ui.PrintDim("  to a cloud device where tests run against it.")
+		ui.PrintDim("")
+		ui.PrintDim("  No hot reload for native Android — use the rebuild dev loop instead.")
+		ui.PrintDim("")
+		ui.PrintDim("  Dev loop:  revyl dev             build, upload, install on device")
+		ui.PrintDim("             press [r]             rebuild + reinstall (~30-90s)")
+
+	case "xcode", "swift package manager":
+		ui.PrintDim("How it works:")
+		ui.PrintDim("  Builds a simulator .app using xcodebuild with Debug configuration.")
+		ui.PrintDim("  The .app is uploaded to a cloud simulator where tests run against it.")
+		ui.PrintDim("")
+		ui.PrintDim("  No hot reload for native iOS — use the rebuild dev loop instead.")
+		ui.PrintDim("  Note: iOS reinstalls clear app data (login state, preferences).")
+		ui.PrintDim("")
+		ui.PrintDim("  Dev loop:  revyl dev             build, upload, install on device")
+		ui.PrintDim("             press [r]             rebuild + reinstall (~20-60s)")
+
+	default:
+		ui.PrintDim("How Revyl works:")
+		ui.PrintDim("  Revyl runs tests on cloud devices. Your app binary needs to be")
+		ui.PrintDim("  uploaded so the device can install it.")
+		ui.PrintDim("")
+		ui.PrintDim("  \"App\"   = a named container that holds versions of your build")
+		ui.PrintDim("  \"Build\" = an uploaded binary (.apk or .app) installed on devices")
+	}
+	ui.Println()
+}
+
+// printInitNextSteps prints actionable next steps after init completes.
+func printInitNextSteps(cfg *config.ProjectConfig) {
+	ui.PrintInfo("Next steps:")
+	ui.PrintInfo("  1. revyl auth login              # Authenticate")
+
+	platforms := platformKeys(cfg)
+	if len(platforms) > 0 {
+		ui.PrintInfo("  2. revyl build upload            # Build and upload")
+		ui.PrintInfo("  3. revyl test create smoke-test  # Create your first test")
+		ui.PrintInfo("  4. revyl test run smoke-test     # Run it")
+	} else {
+		ui.PrintInfo("  2. revyl build upload --platform <ios|android>")
+		ui.PrintInfo("  3. revyl test create <name> --platform <ios|android>")
+		ui.PrintInfo("  4. revyl test run <name>")
+	}
+
+	ui.Println()
+	ui.PrintDim("Re-run to continue setup:")
+	ui.PrintDim("  revyl init --force")
+}
+
 func printCreatedFiles() {
 	ui.PrintSuccess("Project initialized!")
 	ui.Println()
@@ -2637,7 +2950,7 @@ func printHotReloadInfo(cwd string, cfg *config.ProjectConfig) {
 
 		for _, d := range detections {
 			if !d.Provider.IsSupported() {
-				ui.PrintDim("  • %s (coming soon)", d.Provider.DisplayName())
+				ui.PrintDim("  • %s (rebuild dev loop via revyl dev)", d.Provider.DisplayName())
 			}
 		}
 		ui.Println()

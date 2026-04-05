@@ -23,6 +23,12 @@ var (
 // UI output is written to stderr so this checks the stderr file descriptor.
 var isTTY = isStderrTTY
 
+// IsInputTTY reports whether stdin is connected to a terminal.
+// Returns false for piped stdin, /dev/null, or CI environments.
+func IsInputTTY() bool {
+	return isInputTTY
+}
+
 // clearLine emits an ANSI escape sequence to clear the current line on stderr.
 // If stderr is not a TTY, this is a no-op to avoid garbage output in pipes.
 func clearLine() {

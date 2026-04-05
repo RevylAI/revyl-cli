@@ -26,7 +26,7 @@ func TestConfigureExpoBuildStreams_Defaults(t *testing.T) {
 
 	configureExpoBuildStreams(cfg, t.TempDir())
 
-	for _, key := range []string{"ios-dev", "android-dev", "ios-ci", "android-ci"} {
+	for _, key := range []string{"ios", "android"} {
 		if _, ok := cfg.Build.Platforms[key]; !ok {
 			t.Fatalf("expected build platform %q to be configured", key)
 		}

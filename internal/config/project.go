@@ -280,11 +280,11 @@ func (c *HotReloadConfig) validateProviderConfig(name string, cfg *ProviderConfi
 			}
 		}
 	case "swift":
-		return fmt.Errorf("swift hot reload is not yet supported")
+		// No hot reload, but valid for rebuild-based dev loop (revyl dev [r]).
 	case "android":
-		return fmt.Errorf("android hot reload is not yet supported")
+		// No hot reload, but valid for rebuild-based dev loop (revyl dev [r]).
 	default:
-		return fmt.Errorf("unknown provider: %s (supported: expo, react-native)", name)
+		return fmt.Errorf("unknown provider: %s (supported: expo, react-native, swift, android)", name)
 	}
 
 	return nil
@@ -464,27 +464,141 @@ func annotateHotReloadConfig(yamlStr string, cfg *ProjectConfig) string {
 		return yamlStr
 	}
 
-	replacements := map[string]string{
-		"hotreload:": "# Dev mode / hot reload configuration\nhotreload:",
+	annotations := buildHotReloadAnnotations(cfg.HotReload.Default)
+	if len(annotations) == 0 {
+		return yamlStr
 	}
 
-	provider := cfg.HotReload.Default
+	lines := strings.Split(yamlStr, "\n")
+	annotatedLines := make([]string, 0, len(lines)+len(annotations))
+	pathStack := make([]yamlPathEntry, 0, 4)
+
+	for _, line := range lines {
+		indent, key, ok := parseYAMLMappingLine(line)
+		if ok {
+			for len(pathStack) > 0 && pathStack[len(pathStack)-1].indent >= indent {
+				pathStack = pathStack[:len(pathStack)-1]
+			}
+
+			currentPath := make([]string, 0, len(pathStack)+1)
+			for _, entry := range pathStack {
+				currentPath = append(currentPath, entry.key)
+			}
+			currentPath = append(currentPath, key)
+
+			if comment, found := lookupHotReloadAnnotation(annotations, currentPath); found {
+				annotatedLines = append(
+					annotatedLines,
+					strings.Repeat(" ", indent)+comment,
+				)
+			}
+
+			pathStack = append(pathStack, yamlPathEntry{indent: indent, key: key})
+		}
+
+		annotatedLines = append(annotatedLines, line)
+	}
+
+	return strings.Join(annotatedLines, "\n")
+}
+
+// yamlPathEntry tracks one YAML mapping key and its indentation depth.
+type yamlPathEntry struct {
+	indent int
+	key    string
+}
+
+// yamlCommentAnnotation defines a comment to insert before a YAML path.
+type yamlCommentAnnotation struct {
+	path    string
+	comment string
+}
+
+// buildHotReloadAnnotations returns the path-scoped hot reload comments.
+func buildHotReloadAnnotations(provider string) []yamlCommentAnnotation {
+	annotations := []yamlCommentAnnotation{
+		{
+			path:    joinYAMLPath("hotreload"),
+			comment: "# Dev mode / hot reload configuration",
+		},
+	}
+
 	switch provider {
 	case "expo":
-		replacements["    app_scheme:"] = "    # URL scheme from app.json or app.config.js (required for Expo deep linking)\n    app_scheme:"
-		replacements["    port:"] = "    # Metro bundler port (default 8081). Change if port conflicts.\n    port:"
-		replacements["    use_exp_prefix:"] = "    # Use \"exp+\" prefix in deep links. Try true if deep links fail.\n    use_exp_prefix:"
+		annotations = append(
+			annotations,
+			yamlCommentAnnotation{
+				path:    joinYAMLPath("hotreload", "providers", "expo", "port"),
+				comment: "# Metro bundler port (default 8081). Change if port conflicts.",
+			},
+			yamlCommentAnnotation{
+				path:    joinYAMLPath("hotreload", "providers", "expo", "app_scheme"),
+				comment: "# URL scheme from app.json or app.config.js (required for Expo deep linking)",
+			},
+			yamlCommentAnnotation{
+				path:    joinYAMLPath("hotreload", "providers", "expo", "use_exp_prefix"),
+				comment: "# Use \"exp+\" prefix in deep links. Try true if deep links fail.",
+			},
+			yamlCommentAnnotation{
+				path:    joinYAMLPath("hotreload", "providers", "expo", "platform_keys"),
+				comment: "# Maps platform to build.platforms key for dev build resolution",
+			},
+		)
 	case "react-native":
-		replacements["    port:"] = "    # Metro bundler port (default 8081). Change if port conflicts.\n    port:"
+		annotations = append(
+			annotations,
+			yamlCommentAnnotation{
+				path:    joinYAMLPath("hotreload", "providers", "react-native", "port"),
+				comment: "# Metro bundler port (default 8081). Change if port conflicts.",
+			},
+			yamlCommentAnnotation{
+				path:    joinYAMLPath("hotreload", "providers", "react-native", "platform_keys"),
+				comment: "# Maps platform to build.platforms key for dev build resolution",
+			},
+		)
 	}
 
-	replacements["    platform_keys:"] = "    # Maps platform to build.platforms key for dev build resolution\n    platform_keys:"
+	return annotations
+}
 
-	for old, annotated := range replacements {
-		yamlStr = strings.Replace(yamlStr, old, annotated, 1)
+// lookupHotReloadAnnotation returns the configured comment for an exact YAML path.
+func lookupHotReloadAnnotation(
+	annotations []yamlCommentAnnotation,
+	path []string,
+) (string, bool) {
+	joinedPath := joinYAMLPath(path...)
+	for _, annotation := range annotations {
+		if annotation.path == joinedPath {
+			return annotation.comment, true
+		}
+	}
+	return "", false
+}
+
+// parseYAMLMappingLine extracts the indentation and key from a YAML mapping line.
+func parseYAMLMappingLine(line string) (int, string, bool) {
+	trimmedLine := strings.TrimSpace(line)
+	if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") || strings.HasPrefix(trimmedLine, "-") {
+		return 0, "", false
 	}
 
-	return yamlStr
+	key, _, found := strings.Cut(trimmedLine, ":")
+	if !found {
+		return 0, "", false
+	}
+
+	normalizedKey := strings.TrimSpace(key)
+	if normalizedKey == "" {
+		return 0, "", false
+	}
+
+	indent := len(line) - len(strings.TrimLeft(line, " "))
+	return indent, normalizedKey, true
+}
+
+// joinYAMLPath normalizes a YAML path for exact annotation matching.
+func joinYAMLPath(path ...string) string {
+	return strings.Join(path, "/")
 }
 
 // LocalTest represents a local test definition in .revyl/tests/.
@@ -607,13 +721,13 @@ type TestBlock struct {
 	Condition string `yaml:"condition,omitempty" json:"condition,omitempty"`
 
 	// Then contains blocks for the then branch (if blocks).
-	Then []TestBlock `yaml:"then,omitempty" json:"then,omitempty"`
+	Then []TestBlock `yaml:"then,omitempty" json:"thenChildren,omitempty"`
 
 	// Else contains blocks for the else branch (if blocks).
-	Else []TestBlock `yaml:"else,omitempty" json:"else,omitempty"`
+	Else []TestBlock `yaml:"else,omitempty" json:"elseChildren,omitempty"`
 
 	// Body contains blocks for the loop body (while blocks).
-	Body []TestBlock `yaml:"body,omitempty" json:"body,omitempty"`
+	Body []TestBlock `yaml:"body,omitempty" json:"children,omitempty"`
 
 	// VariableName is the variable name for extraction blocks.
 	VariableName string `yaml:"variable_name,omitempty" json:"variable_name,omitempty"`

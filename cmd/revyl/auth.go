@@ -122,10 +122,17 @@ EXAMPLES:
 		mgr := auth.NewManager()
 		creds, err := mgr.GetCredentials()
 		if err == nil && creds != nil && creds.HasValidAuth() {
-			displayName := creds.GetDisplayName()
-			ui.PrintWarning("Already authenticated as %s", displayName)
-			ui.PrintInfo("Run 'revyl auth logout' first to re-authenticate")
-			return nil
+			if creds.AuthMethod == "env" {
+				ui.PrintWarning("REVYL_API_KEY env var is set — it overrides stored credentials")
+				ui.PrintInfo("To login with a different account, first: unset REVYL_API_KEY")
+				ui.PrintDim("Proceeding with browser login (credentials will be saved for when the env var is unset)")
+				ui.Println()
+			} else {
+				displayName := creds.GetDisplayName()
+				ui.PrintWarning("Already authenticated as %s", displayName)
+				ui.PrintInfo("Run 'revyl auth logout' first to re-authenticate")
+				return nil
+			}
 		}
 
 		if useAPIKey {
@@ -369,7 +376,11 @@ var authLogoutCmd = &cobra.Command{
 			return err
 		}
 
-		ui.PrintSuccess("Successfully logged out")
+		ui.PrintSuccess("Cleared stored credentials")
+		if os.Getenv("REVYL_API_KEY") != "" {
+			ui.PrintWarning("REVYL_API_KEY env var is still set — it will continue to authenticate.")
+			ui.PrintInfo("To fully log out: unset REVYL_API_KEY")
+		}
 		return nil
 	},
 }
@@ -398,6 +409,38 @@ var authStatusCmd = &cobra.Command{
 			return nil
 		}
 
+		// Enrich with live org/user info when local creds lack it
+		// (always the case for REVYL_API_KEY env auth).
+		email := creds.Email
+		orgID := creds.OrgID
+		orgName := ""
+		userID := creds.UserID
+
+		if orgName == "" {
+			token, _ := mgr.GetActiveToken()
+			if token != "" {
+				devMode, _ := cmd.Flags().GetBool("dev")
+				client := api.NewClientWithDevMode(token, devMode)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+
+				if info, err := client.ValidateAPIKey(ctx); err == nil {
+					if info.OrgID != "" {
+						orgID = info.OrgID
+					}
+					if info.OrgName != "" {
+						orgName = info.OrgName
+					}
+					if email == "" {
+						email = info.Email
+					}
+					if userID == "" {
+						userID = info.UserID
+					}
+				}
+			}
+		}
+
 		if jsonOutput {
 			devMode, _ := cmd.Flags().GetBool("dev")
 			result := map[string]interface{}{
@@ -407,14 +450,17 @@ var authStatusCmd = &cobra.Command{
 				result["backend_url"] = config.GetBackendURL(devMode)
 				result["app_url"] = config.GetAppURL(devMode)
 			}
-			if creds.Email != "" {
-				result["email"] = creds.Email
+			if email != "" {
+				result["email"] = email
 			}
-			if creds.UserID != "" {
-				result["user_id"] = creds.UserID
+			if userID != "" {
+				result["user_id"] = userID
 			}
-			if creds.OrgID != "" {
-				result["org_id"] = creds.OrgID
+			if orgID != "" {
+				result["org_id"] = orgID
+			}
+			if orgName != "" {
+				result["org_name"] = orgName
 			}
 			if creds.AuthMethod != "" {
 				result["auth_method"] = creds.AuthMethod
@@ -441,15 +487,16 @@ var authStatusCmd = &cobra.Command{
 			ui.PrintInfo("App: %s", config.GetAppURL(devMode))
 		}
 
-		// Show user information
-		if creds.Email != "" {
-			ui.PrintInfo("Email: %s", creds.Email)
+		if email != "" {
+			ui.PrintInfo("Email: %s", email)
 		}
-		if creds.UserID != "" {
-			ui.PrintInfo("User ID: %s", creds.UserID)
+		if userID != "" {
+			ui.PrintInfo("User ID: %s", userID)
 		}
-		if creds.OrgID != "" {
-			ui.PrintInfo("Organization: %s", creds.OrgID)
+		if orgName != "" {
+			ui.PrintInfo("Organization: %s (%s)", orgName, orgID)
+		} else if orgID != "" {
+			ui.PrintInfo("Organization: %s", orgID)
 		}
 
 		// Show auth method

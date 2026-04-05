@@ -20,7 +20,7 @@ type initOverrideOptions struct {
 }
 
 const (
-	initEditDetectedSettingsPrompt = "Review/edit project config now? (press Enter to continue setup)"
+	initEditDetectedSettingsPrompt = "Customize build settings? (Enter to accept defaults)"
 )
 
 func newInitOverrideOptions(xcodeSchemeArgs []string, hotReloadAppScheme string, allowInteractivePrompts bool) (*initOverrideOptions, error) {
@@ -111,41 +111,14 @@ func (s *initSchemeEditState) ShouldEdit() bool {
 }
 
 func printProjectConfigReviewContext() {
-	ui.PrintInfo("Project configuration file: .revyl/config.yaml")
-	ui.PrintDim("You can customize build commands and output paths below. Press Enter to keep the auto-detected defaults.")
+	ui.PrintDim("Press Enter on each field to keep the auto-detected default.")
 }
 
 func runProjectConfigReview(cfg *config.ProjectConfig, configPath string, overrideOpts *initOverrideOptions) error {
 	if cfg == nil || overrideOpts == nil || !overrideOpts.AllowInteractivePrompts {
 		return nil
 	}
-
-	if overrideOpts.WillAskDetectedEditPrompt() {
-		printProjectConfigReviewPromptContext(cfg)
-	}
-	if !overrideOpts.ShouldPromptForDetectedEdits() {
-		return nil
-	}
-
-	ui.Println()
-	promptBuildSetupReview(cfg)
-	promptForXcodeSchemeEdits(cfg)
-
-	customizeHotReload, err := ui.PromptConfirm("Also customize optional hot reload app scheme for dev-client deep links?", false)
-	if err == nil && customizeHotReload {
-		currentScheme := strings.TrimSpace(overrideOpts.HotReloadAppScheme)
-		if currentScheme == "" {
-			currentScheme = inferredExpoAppScheme(cfg)
-		}
-		overrideOpts.HotReloadAppScheme = promptHotReloadAppSchemeWithDefault(currentScheme)
-	}
-
-	if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-		return fmt.Errorf("failed to save project setup updates: %w", err)
-	}
-
-	ui.PrintSuccess("Saved project setup updates to .revyl/config.yaml")
-	ui.PrintDim("Dev loop setup (Step 4) will use these settings and defaults.")
+	printProjectConfigReviewPromptContext(cfg)
 	return nil
 }
 
@@ -258,8 +231,6 @@ func printProjectConfigReviewPromptContext(cfg *config.ProjectConfig) {
 	}
 
 	printBuildConceptsBox(cfg)
-	ui.Println()
-	ui.PrintInfo("Detected build configuration")
 
 	if isExpoBuildSystem(cfg.Build.System) {
 		keys := orderedBuildPlatformKeysForReview(cfg)
@@ -292,42 +263,19 @@ func printProjectConfigReviewPromptContext(cfg *config.ProjectConfig) {
 				)
 			}
 			table.Render()
-		} else {
-			ui.PrintDim("No build streams detected yet.")
 		}
-
-		ui.Println()
-		ui.PrintDim("Edit these in .revyl/config.yaml or press Enter below to accept the defaults.")
-		return
-	}
-
-	ui.Println()
-	ui.PrintInfo("Detected build configuration (%s)", cfg.Build.System)
-	if len(cfg.Build.Platforms) > 0 {
-		ui.Println()
-		table := ui.NewTable("PLATFORM", "COMMAND", "OUTPUT")
-		table.SetMaxWidth(1, 60)
-		table.SetMaxWidth(2, 40)
-		for _, key := range orderedBuildPlatformKeysForReview(cfg) {
-			platformCfg := cfg.Build.Platforms[key]
-			command := strings.TrimSpace(platformCfg.Command)
-			if command == "" {
-				command = "-"
-			}
-			output := strings.TrimSpace(platformCfg.Output)
-			if output == "" {
-				output = "-"
-			}
-			table.AddRow(key, command, output)
-		}
-		table.Render()
-		ui.Println()
-		ui.PrintDim("Edit these in .revyl/config.yaml or press Enter below to accept the defaults.")
 	} else {
-		ui.PrintKeyValue("command", strings.TrimSpace(cfg.Build.Command))
-		ui.PrintKeyValue("output", strings.TrimSpace(cfg.Build.Output))
 		ui.Println()
-		ui.PrintDim("No platform-specific builds detected. You can add them later in .revyl/config.yaml.")
+		if len(cfg.Build.Platforms) > 0 {
+			for _, key := range orderedBuildPlatformKeysForReview(cfg) {
+				platformCfg := cfg.Build.Platforms[key]
+				ui.PrintKeyValue(fmt.Sprintf("%s command", key), strings.TrimSpace(platformCfg.Command))
+				ui.PrintKeyValue(fmt.Sprintf("%s output", key), strings.TrimSpace(platformCfg.Output))
+			}
+		} else {
+			ui.PrintKeyValue("Build command", strings.TrimSpace(cfg.Build.Command))
+			ui.PrintKeyValue("Build output", strings.TrimSpace(cfg.Build.Output))
+		}
 	}
 }
 

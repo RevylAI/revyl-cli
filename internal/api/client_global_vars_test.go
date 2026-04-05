@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestListGlobalVariables(t *testing.T) {
@@ -23,13 +26,8 @@ func TestListGlobalVariables(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := GlobalVariablesResponse{
 			Message: "ok",
-			Result: []GlobalVariable{
-				{
-					ID:            "uuid-1",
-					OrgID:         "org-1",
-					VariableName:  "login-email",
-					VariableValue: strPtr("user@test.com"),
-				},
+			Result: []GlobalVariableRow{
+				newGlobalVariableRow("11111111-1111-1111-1111-111111111111", "login-email", strPtr("user@test.com")),
 			},
 		}
 		json.NewEncoder(w).Encode(resp)
@@ -65,12 +63,7 @@ func TestAddGlobalVariable(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := GlobalVariableResponse{
 			Message: "created",
-			Result: GlobalVariable{
-				ID:            "uuid-new",
-				OrgID:         "org-1",
-				VariableName:  "my-var",
-				VariableValue: strPtr("my-value"),
-			},
+			Result:  newGlobalVariableRow("33333333-3333-3333-3333-333333333333", "my-var", strPtr("my-value")),
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))
@@ -106,23 +99,18 @@ func TestUpdateGlobalVariable(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := GlobalVariableResponse{
 			Message: "updated",
-			Result: GlobalVariable{
-				ID:            "uuid-1",
-				OrgID:         "org-1",
-				VariableName:  "my-var",
-				VariableValue: strPtr("new-value"),
-			},
+			Result:  newGlobalVariableRow("11111111-1111-1111-1111-111111111111", "my-var", strPtr("new-value")),
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))
 	t.Cleanup(server.Close)
 
 	client := NewClientWithBaseURL("test-key", server.URL)
-	resp, err := client.UpdateGlobalVariable(context.Background(), "uuid-1", "my-var", "new-value")
+	resp, err := client.UpdateGlobalVariable(context.Background(), "11111111-1111-1111-1111-111111111111", "my-var", "new-value")
 	if err != nil {
 		t.Fatalf("UpdateGlobalVariable() error = %v", err)
 	}
-	if seenPath != "/api/v1/variables/global/uuid-1" {
+	if seenPath != "/api/v1/variables/global/11111111-1111-1111-1111-111111111111" {
 		t.Fatalf("unexpected path: %s", seenPath)
 	}
 	if seenBody["variable_value"] != "new-value" {
@@ -173,4 +161,16 @@ func TestAddGlobalVariableDuplicateReturnsError(t *testing.T) {
 
 func strPtr(s string) *string {
 	return &s
+}
+
+func newGlobalVariableRow(id, name string, value *string) GlobalVariableRow {
+	timestamp := time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC)
+	return GlobalVariableRow{
+		Id:            uuid.MustParse(id),
+		OrgId:         uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+		VariableName:  name,
+		VariableValue: value,
+		CreatedAt:     timestamp,
+		UpdatedAt:     timestamp,
+	}
 }

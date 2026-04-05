@@ -169,7 +169,8 @@ func TestPrintDevReadyFooter_PrintsInteractionShortcuts(t *testing.T) {
 		"Viewer:",
 		"Report:",
 		"Deep Link:",
-		"Press Ctrl+C to stop hot reload and release the device",
+		"[r] rebuild native + reinstall",
+		"[q] quit",
 		"In a new terminal, try:",
 		`revyl device tap --target "Login button"`,
 		"revyl device screenshot",
@@ -208,66 +209,6 @@ func TestPrintDevReadyFooter_QuietModeSuppressesInteractionHints(t *testing.T) {
 	}
 	if strings.Contains(output, "revyl device screenshot") {
 		t.Fatalf("output unexpectedly contains screenshot shortcut in quiet mode:\n%s", output)
-	}
-}
-
-func TestWaitForDevSessionStop_CancelsWhenSessionEnds(t *testing.T) {
-	old := defaultDevSessionPollInterval
-	defaultDevSessionPollInterval = 10 * time.Millisecond
-	t.Cleanup(func() { defaultDevSessionPollInterval = old })
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	checker := &fakeSessionChecker{alive: true}
-	session := &mcppkg.DeviceSession{Index: 0, WorkflowRunID: "wf-test"}
-
-	done := make(chan struct{})
-	go func() {
-		waitForDevSessionStop(ctx, cancel, checker, session, 10*time.Minute)
-		close(done)
-	}()
-
-	time.Sleep(30 * time.Millisecond)
-	checker.mu.Lock()
-	checker.alive = false
-	checker.reason = "session idle timeout"
-	checker.mu.Unlock()
-
-	select {
-	case <-done:
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("waitForDevSessionStop did not return after session ended")
-	}
-
-	select {
-	case <-ctx.Done():
-	default:
-		t.Fatal("expected context to be canceled when session ended")
-	}
-}
-
-func TestWaitForDevSessionStop_ReturnsWhenContextCanceled(t *testing.T) {
-	old := defaultDevSessionPollInterval
-	defaultDevSessionPollInterval = 10 * time.Millisecond
-	t.Cleanup(func() { defaultDevSessionPollInterval = old })
-
-	ctx, cancel := context.WithCancel(context.Background())
-	checker := &fakeSessionChecker{alive: true}
-	session := &mcppkg.DeviceSession{Index: 0, WorkflowRunID: "wf-test"}
-
-	done := make(chan struct{})
-	go func() {
-		waitForDevSessionStop(ctx, cancel, checker, session, 10*time.Minute)
-		close(done)
-	}()
-
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("waitForDevSessionStop did not return after context cancellation")
 	}
 }
 
@@ -484,16 +425,4 @@ func (r *devSessionProgressRecorder) snapshot() (int, int, []string) {
 	msgs := make([]string, len(r.infoMessages))
 	copy(msgs, r.infoMessages)
 	return r.startCalls, r.stopCalls, msgs
-}
-
-type fakeSessionChecker struct {
-	mu     sync.Mutex
-	alive  bool
-	reason string
-}
-
-func (f *fakeSessionChecker) CheckSessionAlive(_ context.Context, _ *mcppkg.DeviceSession) (bool, string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.alive, f.reason
 }

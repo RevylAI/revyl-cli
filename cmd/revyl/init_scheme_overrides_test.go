@@ -364,3 +364,81 @@ func TestPromptBuildSetupReviewWithPromptNonExpoUsesTopLevel(t *testing.T) {
 		t.Fatalf("build.output = %q, want synced from platform", cfg.Build.Output)
 	}
 }
+
+func TestPrintProjectConfigReviewPromptContextNonExpoShowsBuildInfo(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{
+			System:  "Gradle (Android)",
+			Command: "./gradlew assembleDebug",
+			Output:  "app/build/outputs/apk/debug/app-debug.apk",
+			Platforms: map[string]config.BuildPlatform{
+				"android": {
+					Command: "./gradlew assembleDebug",
+					Output:  "app/build/outputs/apk/debug/app-debug.apk",
+				},
+			},
+		},
+	}
+
+	output := captureStdoutAndStderr(t, func() {
+		printProjectConfigReviewPromptContext(cfg)
+	})
+
+	if !strings.Contains(output, "android command") {
+		t.Fatalf("expected output to contain %q, got:\n%s", "android command", output)
+	}
+	if !strings.Contains(output, "android output") {
+		t.Fatalf("expected output to contain %q, got:\n%s", "android output", output)
+	}
+	if !strings.Contains(output, "app/build/outputs/apk/debug/app-debug.apk") {
+		t.Fatalf("expected output to contain the output path, got:\n%s", output)
+	}
+}
+
+func TestPrintProjectConfigReviewPromptContextNonExpoFlatBuild(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{
+			System:  "Gradle (Android)",
+			Command: "./gradlew assembleDebug",
+			Output:  "app/build/outputs/apk/debug/app-debug.apk",
+		},
+	}
+
+	output := captureStdoutAndStderr(t, func() {
+		printProjectConfigReviewPromptContext(cfg)
+	})
+
+	if !strings.Contains(output, "Build command") {
+		t.Fatalf("expected output to contain %q, got:\n%s", "Build command", output)
+	}
+	if !strings.Contains(output, "Build output") {
+		t.Fatalf("expected output to contain %q, got:\n%s", "Build output", output)
+	}
+	if !strings.Contains(output, "app/build/outputs/apk/debug/app-debug.apk") {
+		t.Fatalf("expected output to contain the output path, got:\n%s", output)
+	}
+}
+
+func TestPrintProjectConfigReviewPromptContextExpoShowsStreamTable(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{
+			System: "Expo",
+			Platforms: map[string]config.BuildPlatform{
+				"ios-dev":     {Command: "npx eas build --platform ios"},
+				"android-dev": {Command: "npx eas build --platform android"},
+			},
+		},
+	}
+
+	output := captureStdoutAndStderr(t, func() {
+		printProjectConfigReviewPromptContext(cfg)
+	})
+
+	// Expo should show stream table columns, NOT key-value pairs
+	if !strings.Contains(output, "STREAM") {
+		t.Fatalf("expected Expo output to contain stream table header, got:\n%s", output)
+	}
+	if strings.Contains(output, "build.command") {
+		t.Fatalf("Expo output should not contain non-Expo key-value format, got:\n%s", output)
+	}
+}

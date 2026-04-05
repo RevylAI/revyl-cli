@@ -22,6 +22,12 @@ type Runner struct {
 	// Apple credential login during EAS builds) to render and accept input.
 	// The onOutput callback is not called in interactive mode.
 	Interactive bool
+
+	// FilterOutput, when true, forces piped mode and filters build output to
+	// show only significant build phases (Compiling, Linking, Signing, errors).
+	// Verbose compiler invocations, destination lists, and cd commands are hidden.
+	// Use --debug to disable filtering and see full raw output.
+	FilterOutput bool
 }
 
 // NewRunner creates a new build runner.
@@ -57,8 +63,9 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	// In interactive mode (TTY detected), connect stdin/stdout/stderr
 	// directly so interactive prompts (Apple login, etc.) work properly.
 	// We lose the [prefix] output tagging but gain full prompt support.
+	// FilterOutput overrides this to force piped mode for clean output.
 	isTTY := isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd())
-	if r.Interactive && isTTY {
+	if r.Interactive && isTTY && !r.FilterOutput {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -90,6 +97,15 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
+	emit := onOutput
+	if r.FilterOutput && onOutput != nil {
+		emit = func(line string) {
+			if shouldShowBuildLine(line) {
+				onOutput(strings.TrimLeft(line, " \t"))
+			}
+		}
+	}
+
 	// Stream stdout
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -97,8 +113,8 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 		defer wg.Done()
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			if onOutput != nil {
-				onOutput(scanner.Text())
+			if emit != nil {
+				emit(scanner.Text())
 			}
 		}
 	}()
@@ -111,8 +127,8 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 		for scanner.Scan() {
 			line := scanner.Text()
 			stderrLines = append(stderrLines, line)
-			if onOutput != nil {
-				onOutput(line)
+			if emit != nil {
+				emit(line)
 			}
 		}
 	}()
@@ -132,6 +148,40 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	}
 
 	return nil
+}
+
+// shouldShowBuildLine returns true if a build output line is significant enough
+// to display when FilterOutput is enabled. Hides verbose compiler invocations,
+// destination lists, and tool paths; shows build phase names, warnings, and errors.
+func shouldShowBuildLine(line string) bool {
+	trimmed := strings.TrimLeft(line, " \t")
+	if trimmed == "" {
+		return false
+	}
+
+	showPrefixes := []string{
+		"Compiling", "Linking", "Signing",
+		"CodeSign", "Ld ", "CompileC",
+		"SwiftCompile", "SwiftEmitModule",
+		"Build Succeeded", "Build Failed",
+		"BUILD SUCCEEDED", "BUILD FAILED",
+		"BUILD SUCCESSFUL", "Build completed",
+		"** BUILD",
+		"warning:", "error:",
+		"note: Building targets",
+		":app:", "> Task :",
+	}
+	for _, p := range showPrefixes {
+		if strings.HasPrefix(trimmed, p) {
+			return true
+		}
+	}
+
+	if strings.Contains(trimmed, "warning:") || strings.Contains(trimmed, "error:") {
+		return true
+	}
+
+	return false
 }
 
 // EASBuildError represents an error from Expo Application Services (EAS) builds.

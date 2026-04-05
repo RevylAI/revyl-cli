@@ -8,12 +8,15 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/buildselection"
@@ -99,11 +102,19 @@ var devTestCreateCmd = &cobra.Command{
 	},
 }
 
+var devRebuildCmd = &cobra.Command{
+	Use:   "rebuild",
+	Short: "Trigger a rebuild in a running dev session",
+	Long:  "Send a rebuild signal to a running `revyl dev` process.\nFor use by agents, automation, and MCP tools.",
+	RunE:  runDevRebuild,
+}
+
 func init() {
 	registerDevStartFlags(devCmd)
 	registerDevStartFlags(devStartCmd)
 
 	devCmd.AddCommand(devStartCmd)
+	devCmd.AddCommand(devRebuildCmd)
 	devCmd.AddCommand(devTestCmd)
 
 	devTestCmd.AddCommand(devTestRunCmd)
@@ -184,23 +195,42 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("project not initialized")
 	}
 
+	// Determine whether we have a supported hot reload provider. If not,
+	// native projects (Gradle/Xcode/Swift) use a rebuild-only dev loop.
+	useRebuildOnlyLoop := false
 	if !cfg.HotReload.IsConfigured() {
-		ui.PrintInfo("Dev mode not configured yet. Setting up...")
-		ui.Println()
+		if len(cfg.Build.Platforms) > 0 {
+			useRebuildOnlyLoop = true
+		} else {
+			ui.PrintInfo("Dev mode not configured yet. Setting up...")
+			ui.Println()
 
-		devMode, _ := cmd.Flags().GetBool("dev")
-		var setupClient *api.Client
-		if apiKey != "" {
-			setupClient = api.NewClientWithDevMode(apiKey, devMode)
-		}
+			devMode, _ := cmd.Flags().GetBool("dev")
+			var setupClient *api.Client
+			if apiKey != "" {
+				setupClient = api.NewClientWithDevMode(apiKey, devMode)
+			}
 
-		ready := wizardHotReloadSetup(context.Background(), setupClient, cfg, configPath, cwd, false, nil, "")
-		if !ready || !cfg.HotReload.IsConfigured() {
-			ui.PrintError("Could not auto-configure dev mode.")
-			ui.PrintInfo("Try: revyl init --provider expo")
-			return fmt.Errorf("dev mode auto-setup failed")
+			ready := wizardHotReloadSetup(context.Background(), setupClient, cfg, configPath, cwd, false, nil, "")
+			if !ready || !cfg.HotReload.IsConfigured() {
+				ui.PrintError("Could not auto-configure dev mode.")
+				ui.PrintInfo("Try: revyl init --provider expo")
+				return fmt.Errorf("dev mode auto-setup failed")
+			}
+			ui.Println()
 		}
-		ui.Println()
+	}
+
+	if !useRebuildOnlyLoop {
+		registry := hotreload.DefaultRegistry()
+		provider, _, err := registry.SelectProvider(&cfg.HotReload, "", cwd)
+		if err != nil || !provider.IsSupported() {
+			useRebuildOnlyLoop = len(cfg.Build.Platforms) > 0
+		}
+	}
+
+	if useRebuildOnlyLoop {
+		return runDevRebuildOnly(cmd, cfg, configPath, cwd, apiKey)
 	}
 
 	requestedPlatform, err := normalizeMobilePlatform(devStartPlatform, "ios")
@@ -448,7 +478,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 					continue
 				}
 				ui.Println()
-				ui.PrintWarning("Force exiting dev session...")
+				ui.PrintWarning("Force exiting — device session may not be released immediately")
 				os.Exit(130)
 			}
 		}
@@ -595,13 +625,129 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		_ = ui.OpenBrowser(reportURL)
 	}
 
+	pidPath := filepath.Join(cwd, ".revyl", ".dev.pid")
+	_ = os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644)
+	defer os.Remove(pidPath)
+
+	sigusr1 := make(chan os.Signal, 1)
+	signal.Notify(sigusr1, syscall.SIGUSR1)
+	defer signal.Stop(sigusr1)
+
 	// Disable the CLI-side idle timer: it cannot track activity from
 	// other processes (browser viewer, `revyl device tap`, MCP tools).
 	// The worker's idle timer is the authoritative source of truth.
 	deviceMgr.StopIdleTimer(session.Index)
 
-	waitForDevSessionStop(ctx, cancel, deviceMgr, session, time.Duration(timeout)*time.Second)
-	return nil
+	// Event loop: session liveness + [r]/SIGUSR1 rebuild + [q] quit.
+	stdinKeys, restoreTerminal := readStdinKeys(ctx)
+	defer restoreTerminal()
+	ticker := time.NewTicker(defaultDevSessionPollInterval)
+	defer ticker.Stop()
+
+	for {
+		var doRebuild bool
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
+			alive, reason := deviceMgr.CheckSessionAlive(checkCtx, session)
+			checkCancel()
+			if !alive {
+				ui.PrintWarning("Device session ended (%s). Stopping dev session...", reason)
+				cancel()
+				return nil
+			}
+		case <-sigusr1:
+			doRebuild = true
+		case key := <-stdinKeys:
+			switch key {
+			case 'r':
+				doRebuild = true
+			case 'q':
+				ui.Println()
+				ui.PrintInfo("Stopping dev session...")
+				cancel()
+				return nil
+			}
+		}
+
+		if !doRebuild {
+			continue
+		}
+
+		rebuildStart := time.Now()
+		ui.Println()
+		ui.PrintInfo("Rebuilding native binary (%s)...", platformKey)
+
+		rebuildCtx, rebuildCancel := context.WithCancel(ctx)
+		go monitorSessionDuringRebuild(rebuildCtx, deviceMgr, session, cancel)
+
+		if err := runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platformKey); err != nil {
+			rebuildCancel()
+			ui.PrintWarning("Rebuild failed: %v", err)
+			ui.PrintDim("  [r] retry rebuild    [q] quit")
+			continue
+		}
+		rebuildCancel()
+		if ctx.Err() != nil {
+			return nil
+		}
+
+		newCfg, loadErr := config.LoadProjectConfig(configPath)
+		if loadErr != nil {
+			ui.PrintWarning("Could not reload config: %v", loadErr)
+			ui.PrintDim("  [r] retry rebuild    [q] quit")
+			continue
+		}
+		cfg = newCfg
+		plat, ok := cfg.Build.Platforms[platformKey]
+		if !ok {
+			ui.PrintWarning("Platform %q missing from config after rebuild", platformKey)
+			ui.PrintDim("  [r] retry rebuild    [q] quit")
+			continue
+		}
+		selectedAppID = strings.TrimSpace(plat.AppID)
+
+		lv, lvErr := client.GetLatestBuildVersion(ctx, selectedAppID)
+		if lvErr != nil || lv == nil {
+			ui.PrintWarning("Could not resolve rebuilt version: %v", lvErr)
+			continue
+		}
+		bd, bdErr := client.GetBuildVersionDownloadURL(ctx, lv.ID)
+		if bdErr != nil {
+			ui.PrintWarning("Could not get download URL: %v", bdErr)
+			continue
+		}
+
+		reinstallBody := map[string]string{"app_url": strings.TrimSpace(bd.DownloadURL)}
+		if bundleID != "" {
+			reinstallBody["bundle_id"] = bundleID
+		}
+		resp, installErr := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", reinstallBody)
+		if installErr != nil {
+			ui.PrintWarning("Reinstall failed: %v", installErr)
+			continue
+		}
+		if err := ensureWorkerActionSucceeded(resp, "install"); err != nil {
+			ui.PrintWarning("Reinstall failed: %v", err)
+			continue
+		}
+		if newBundleID := extractInstallBundleID(resp); newBundleID != "" {
+			bundleID = newBundleID
+		}
+		if bundleID != "" {
+			_, _ = deviceMgr.WorkerRequestForSession(ctx, session.Index, "/launch", map[string]string{"bundle_id": bundleID})
+		}
+
+		elapsed := time.Since(rebuildStart).Round(time.Second)
+		ui.PrintSuccess("Rebuilt + reinstalled (%s)", elapsed)
+		if devicePlatform == "ios" {
+			ui.PrintDim("  Note: iOS reinstalls clear app data")
+		}
+		ui.Println()
+		ui.PrintDim("  [r] rebuild + reinstall    [q] quit")
+	}
 }
 
 func isCIEnvironment() bool {
@@ -618,7 +764,8 @@ func printDevReadyFooter(viewerURL, reportURL, deepLinkURL string, manualDeepLin
 	if manualDeepLinkRequired {
 		ui.PrintWarning("Deep link was not opened automatically on this worker. Use the Deep Link above in the device browser/dev client.")
 	}
-	ui.PrintDim("Press Ctrl+C to stop hot reload and release the device")
+	ui.Println()
+	ui.PrintDim("  [r] rebuild native + reinstall    [q] quit")
 	ui.Println()
 	ui.PrintInfo("In a new terminal, try:")
 	ui.PrintDim("  revyl device tap --target \"Login button\"")
@@ -903,42 +1050,9 @@ func isUnsupportedWorkerRoute(err error, path string) bool {
 	return workerErr.StatusCode == 404 && strings.TrimSpace(workerErr.Path) == strings.TrimSpace(path)
 }
 
-type devSessionChecker interface {
-	CheckSessionAlive(ctx context.Context, session *mcppkg.DeviceSession) (alive bool, reason string)
-}
-
 // defaultDevSessionPollInterval is the interval between backend status checks
 // in the dev loop. Overridden in tests for fast execution.
 var defaultDevSessionPollInterval = 10 * time.Second
-
-func waitForDevSessionStop(
-	ctx context.Context,
-	cancel context.CancelFunc,
-	checker devSessionChecker,
-	session *mcppkg.DeviceSession,
-	idleTimeout time.Duration,
-) {
-	ticker := time.NewTicker(defaultDevSessionPollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
-			alive, reason := checker.CheckSessionAlive(checkCtx, session)
-			checkCancel()
-			if !alive {
-				ui.PrintWarning("Device session ended (%s). Stopping dev session...", reason)
-				ui.PrintDim("  Increase idle timeout: revyl dev --timeout <seconds>")
-				ui.PrintDim("  Or set defaults.timeout in .revyl/config.yaml")
-				cancel()
-				return
-			}
-		}
-	}
-}
 
 func isNoSessionAtIndexError(err error, index int) bool {
 	if err == nil {
@@ -954,4 +1068,462 @@ func maskPresignedURL(rawURL string) string {
 		return rawURL[:idx] + "?<redacted>"
 	}
 	return rawURL
+}
+
+// runDevRebuildOnly implements a rebuild-based dev loop for native projects
+// (Gradle, Xcode, Swift) that lack hot reload support. The loop provisions a
+// cloud device, builds and installs the app, then waits for the user to press
+// [r] to rebuild+reinstall or [q] to quit.
+func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath, cwd, apiKey string) error {
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	// Resolve the platform key from configured build platforms.
+	platforms := make([]string, 0, len(cfg.Build.Platforms))
+	for k := range cfg.Build.Platforms {
+		platforms = append(platforms, k)
+	}
+	sort.Strings(platforms)
+	if len(platforms) == 0 {
+		return fmt.Errorf("no build platforms configured in .revyl/config.yaml")
+	}
+
+	// Infer a sensible default platform from the config when the user
+	// didn't explicitly pass --platform (flag default is "ios").
+	requestedPlatform := strings.ToLower(strings.TrimSpace(devStartPlatform))
+	platformKey := ""
+	if len(platforms) == 1 {
+		platformKey = platforms[0]
+	} else {
+		for _, k := range platforms {
+			if strings.EqualFold(k, requestedPlatform) {
+				platformKey = k
+				break
+			}
+		}
+		if platformKey == "" {
+			platformKey = platforms[0]
+		}
+	}
+
+	platCfg := cfg.Build.Platforms[platformKey]
+	devicePlatform := mobilePlatformForBuildKey(platformKey)
+	if devicePlatform == "" {
+		devicePlatform = requestedPlatform
+	}
+	if devicePlatform != "ios" && devicePlatform != "android" {
+		devicePlatform = "android"
+	}
+
+	timeout := devStartTimeout
+	if !cmd.Flags().Changed("timeout") {
+		timeout = config.EffectiveTimeoutSeconds(cfg, timeout)
+	}
+	if timeout <= 0 {
+		timeout = 300
+	}
+
+	openBrowser := devStartOpen
+	if !cmd.Flags().Changed("open") {
+		openBrowser = config.EffectiveOpenBrowser(cfg)
+	}
+	if devStartNoOpen {
+		openBrowser = false
+	}
+
+	ui.PrintBanner(version)
+	ui.Println()
+	ui.PrintInfo("Rebuild dev loop (%s / %s)", cfg.Build.System, platformKey)
+	ui.PrintDim("No hot reload — press [r] to rebuild + reinstall, [q] to quit")
+	ui.Println()
+
+	// Ensure the platform has an app linked.
+	if strings.TrimSpace(platCfg.AppID) == "" {
+		_, err := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, platformKey, devicePlatform)
+		if err != nil {
+			return err
+		}
+		cfg, err = config.LoadProjectConfig(configPath)
+		if err != nil {
+			return fmt.Errorf("failed to reload config: %w", err)
+		}
+		platCfg = cfg.Build.Platforms[platformKey]
+		if strings.TrimSpace(platCfg.AppID) == "" {
+			return fmt.Errorf("build.platforms.%s.app_id is required", platformKey)
+		}
+	}
+
+	appID := strings.TrimSpace(platCfg.AppID)
+
+	// Only build if explicitly requested or no existing build is available.
+	needsBuild := devStartBuild
+	if !needsBuild {
+		existing, existErr := client.GetLatestBuildVersion(cmd.Context(), appID)
+		if existErr != nil || existing == nil {
+			needsBuild = true
+		}
+	}
+
+	if needsBuild {
+		ui.PrintInfo("Building %s...", platformKey)
+		if err := runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platformKey); err != nil {
+			return fmt.Errorf("build failed: %w", err)
+		}
+		reloadedCfg, reloadErr := config.LoadProjectConfig(configPath)
+		if reloadErr != nil {
+			return fmt.Errorf("failed to reload config after build: %w", reloadErr)
+		}
+		cfg = reloadedCfg
+		platCfg = cfg.Build.Platforms[platformKey]
+		appID = strings.TrimSpace(platCfg.AppID)
+	} else {
+		ui.PrintDim("Using latest uploaded build (pass --build to force rebuild)")
+	}
+
+	latestVersion, err := client.GetLatestBuildVersion(cmd.Context(), appID)
+	if err != nil || latestVersion == nil {
+		return fmt.Errorf("could not resolve uploaded build: %w", err)
+	}
+	buildDetail, err := client.GetBuildVersionDownloadURL(cmd.Context(), latestVersion.ID)
+	if err != nil {
+		return fmt.Errorf("could not resolve build download URL: %w", err)
+	}
+
+	// Provision device.
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+	var interrupted int32
+
+	sigChan := make(chan os.Signal, 2)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+	stopSigHandler := make(chan struct{})
+	defer close(stopSigHandler)
+	go func() {
+		count := 0
+		for {
+			select {
+			case <-stopSigHandler:
+				return
+			case <-sigChan:
+				count++
+				if count == 1 {
+					atomic.StoreInt32(&interrupted, 1)
+					ui.Println()
+					ui.PrintInfo("Stopping dev session...")
+					cancel()
+				} else {
+					ui.Println()
+					ui.PrintWarning("Force exiting — device session may not be released immediately")
+					os.Exit(130)
+				}
+			}
+		}
+	}()
+	_ = interrupted
+
+	ui.PrintInfo("Starting cloud device session...")
+	deviceMgr, err := getDeviceSessionMgr(cmd)
+	if err != nil {
+		return err
+	}
+
+	bundleID := strings.TrimSpace(buildDetail.PackageName)
+	_, session, err := startDevSessionWithProgress(
+		ctx,
+		deviceMgr,
+		mcppkg.StartSessionOptions{
+			Platform:       devicePlatform,
+			AppID:          appID,
+			BuildVersionID: latestVersion.ID,
+			AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
+			AppPackage:     bundleID,
+			IdleTimeout:    time.Duration(timeout) * time.Second,
+		},
+		30*time.Second,
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if stopErr := deviceMgr.StopSession(context.Background(), session.Index); stopErr != nil {
+			if !isNoSessionAtIndexError(stopErr, session.Index) {
+				ui.PrintWarning("Failed to stop device session: %v", stopErr)
+			}
+		}
+	}()
+
+	// Install + launch.
+	ui.PrintInfo("Installing app on device...")
+	installBody := map[string]string{"app_url": strings.TrimSpace(buildDetail.DownloadURL)}
+	if bundleID != "" {
+		installBody["bundle_id"] = bundleID
+	}
+	installResp, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", installBody)
+	if err != nil {
+		return fmt.Errorf("install failed: %w", err)
+	}
+	if err := ensureWorkerActionSucceeded(installResp, "install"); err != nil {
+		return fmt.Errorf("install failed: %w", err)
+	}
+	if bundleID == "" {
+		bundleID = extractInstallBundleID(installResp)
+	}
+	if bundleID != "" {
+		_, _ = deviceMgr.WorkerRequestForSession(ctx, session.Index, "/launch", map[string]string{"bundle_id": bundleID})
+	}
+
+	deviceMgr.StopIdleTimer(session.Index)
+
+	viewerURL := session.ViewerURL
+	if devMode {
+		viewerURL = strings.Replace(viewerURL, "https://app.revyl.ai", "http://localhost:3000", 1)
+	}
+
+	ui.Println()
+	ui.PrintSuccess("Dev loop ready")
+	ui.PrintLink("Viewer", viewerURL)
+	ui.Println()
+	ui.PrintDim("  [r] rebuild + reinstall    [q] quit")
+	ui.Println()
+
+	pidPath := filepath.Join(cwd, ".revyl", ".dev.pid")
+	_ = os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644)
+	defer os.Remove(pidPath)
+
+	sigusr1 := make(chan os.Signal, 1)
+	signal.Notify(sigusr1, syscall.SIGUSR1)
+	defer signal.Stop(sigusr1)
+
+	if openBrowser {
+		reportURL := fmt.Sprintf("%s/tests/report?sessionId=%s", config.GetAppURL(devMode), session.SessionID)
+		_ = ui.OpenBrowser(reportURL)
+	}
+
+	// Interactive event loop: poll session liveness + [r]/SIGUSR1 rebuild + [q] quit.
+	stdinKeys, restoreTerminal := readStdinKeys(ctx)
+	defer restoreTerminal()
+	ticker := time.NewTicker(defaultDevSessionPollInterval)
+	defer ticker.Stop()
+
+	for {
+		var doRebuild bool
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
+			alive, reason := deviceMgr.CheckSessionAlive(checkCtx, session)
+			checkCancel()
+			if !alive {
+				ui.PrintWarning("Device session ended (%s).", reason)
+				cancel()
+				return nil
+			}
+		case <-sigusr1:
+			doRebuild = true
+		case key := <-stdinKeys:
+			switch key {
+			case 'r':
+				doRebuild = true
+			case 'q':
+				ui.Println()
+				ui.PrintInfo("Stopping dev session...")
+				cancel()
+				return nil
+			}
+		}
+
+		if !doRebuild {
+			continue
+		}
+
+		rebuildStart := time.Now()
+		ui.Println()
+		ui.PrintInfo("Rebuilding %s...", platformKey)
+
+		rebuildCtx, rebuildCancel := context.WithCancel(ctx)
+		go monitorSessionDuringRebuild(rebuildCtx, deviceMgr, session, cancel)
+
+		if err := runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platformKey); err != nil {
+			rebuildCancel()
+			ui.PrintWarning("Rebuild failed: %v", err)
+			ui.PrintDim("  [r] retry rebuild    [q] quit")
+			continue
+		}
+		rebuildCancel()
+		if ctx.Err() != nil {
+			return nil
+		}
+
+		newCfg, loadErr := config.LoadProjectConfig(configPath)
+		if loadErr != nil {
+			ui.PrintWarning("Could not reload config: %v", loadErr)
+			ui.PrintDim("  [r] retry rebuild    [q] quit")
+			continue
+		}
+		cfg = newCfg
+		plat, ok := cfg.Build.Platforms[platformKey]
+		if !ok {
+			ui.PrintWarning("Platform %q missing from config after rebuild", platformKey)
+			ui.PrintDim("  [r] retry rebuild    [q] quit")
+			continue
+		}
+		platCfg = plat
+		appID = strings.TrimSpace(plat.AppID)
+
+		lv, lvErr := client.GetLatestBuildVersion(ctx, appID)
+		if lvErr != nil || lv == nil {
+			ui.PrintWarning("Could not resolve rebuilt version: %v", lvErr)
+			continue
+		}
+		bd, bdErr := client.GetBuildVersionDownloadURL(ctx, lv.ID)
+		if bdErr != nil {
+			ui.PrintWarning("Could not get download URL: %v", bdErr)
+			continue
+		}
+
+		reinstallBody := map[string]string{"app_url": strings.TrimSpace(bd.DownloadURL)}
+		if bundleID != "" {
+			reinstallBody["bundle_id"] = bundleID
+		}
+		resp, installErr := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", reinstallBody)
+		if installErr != nil {
+			ui.PrintWarning("Reinstall failed: %v", installErr)
+			continue
+		}
+		if err := ensureWorkerActionSucceeded(resp, "install"); err != nil {
+			ui.PrintWarning("Reinstall failed: %v", err)
+			continue
+		}
+		if newBundleID := extractInstallBundleID(resp); newBundleID != "" {
+			bundleID = newBundleID
+		}
+		if bundleID != "" {
+			_, _ = deviceMgr.WorkerRequestForSession(ctx, session.Index, "/launch", map[string]string{"bundle_id": bundleID})
+		}
+
+		elapsed := time.Since(rebuildStart).Round(time.Second)
+		ui.PrintSuccess("Rebuilt + reinstalled (%s)", elapsed)
+		if devicePlatform == "ios" {
+			ui.PrintDim("  Note: iOS reinstalls clear app data")
+		}
+		ui.Println()
+		ui.PrintDim("  [r] rebuild + reinstall    [q] quit")
+	}
+}
+
+// readStdinKeys reads single keypresses from stdin in a goroutine and sends
+// them to the returned channel. When stdin is a TTY, raw mode is enabled so
+// keypresses are received immediately without waiting for Enter. The caller
+// must defer the returned restore function to reset the terminal on exit.
+//
+// When stdin is not a TTY (piped, /dev/null, CI), the goroutine is never
+// started and keybinds are silently disabled.
+//
+// Stops when ctx is cancelled or stdin reaches EOF.
+func readStdinKeys(ctx context.Context) (keys <-chan byte, restore func()) {
+	ch := make(chan byte, 1)
+	noop := func() {}
+
+	if !ui.IsInputTTY() {
+		return ch, noop
+	}
+
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		return ch, noop
+	}
+	restoreFn := func() {
+		_ = term.Restore(int(os.Stdin.Fd()), oldState)
+	}
+
+	go func() {
+		buf := make([]byte, 1)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			n, readErr := os.Stdin.Read(buf)
+			if readErr != nil || n == 0 {
+				return
+			}
+			select {
+			case ch <- buf[0]:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return ch, restoreFn
+}
+
+// monitorSessionDuringRebuild polls session liveness in the background while
+// a blocking rebuild is in progress. If the session dies (idle timeout,
+// cancellation, or worker failure), it cancels the parent context so the
+// rebuild handler can detect the dead session promptly instead of waiting
+// for the build to complete.
+//
+// The caller must cancel rebuildCtx when the rebuild finishes to stop polling.
+func monitorSessionDuringRebuild(
+	rebuildCtx context.Context,
+	deviceMgr *mcppkg.DeviceSessionManager,
+	session *mcppkg.DeviceSession,
+	cancelParent context.CancelFunc,
+) {
+	t := time.NewTicker(defaultDevSessionPollInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-rebuildCtx.Done():
+			return
+		case <-t.C:
+			checkCtx, checkCancel := context.WithTimeout(rebuildCtx, 5*time.Second)
+			alive, reason := deviceMgr.CheckSessionAlive(checkCtx, session)
+			checkCancel()
+			if !alive {
+				ui.Println()
+				ui.PrintWarning("Device session ended during rebuild (%s)", reason)
+				cancelParent()
+				return
+			}
+		}
+	}
+}
+
+// runDevRebuild sends SIGUSR1 to a running `revyl dev` process to trigger a
+// rebuild. The target process is identified by the PID stored in .revyl/.dev.pid.
+//
+// Returns:
+//   - error: if no dev session is running or the signal cannot be delivered
+func runDevRebuild(cmd *cobra.Command, args []string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+	if root, rootErr := config.FindRepoRoot(cwd); rootErr == nil {
+		cwd = root
+	}
+
+	pidPath := filepath.Join(cwd, ".revyl", ".dev.pid")
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		return fmt.Errorf("no dev session running (missing %s)", pidPath)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return fmt.Errorf("invalid PID in %s", pidPath)
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("process %d not found", pid)
+	}
+	if err := proc.Signal(syscall.SIGUSR1); err != nil {
+		return fmt.Errorf("dev session (PID %d) is not running: %w", pid, err)
+	}
+	ui.PrintSuccess("Rebuild triggered (PID %d)", pid)
+	return nil
 }

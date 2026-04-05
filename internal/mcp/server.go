@@ -1854,6 +1854,7 @@ type AuthStatusOutput struct {
 	Email         string `json:"email,omitempty"`
 	UserID        string `json:"user_id,omitempty"`
 	OrgID         string `json:"org_id,omitempty"`
+	OrgName       string `json:"org_name,omitempty"`
 	AuthMethod    string `json:"auth_method,omitempty"`
 }
 
@@ -1865,11 +1866,41 @@ func (s *Server) handleAuthStatus(ctx context.Context, req *mcp.CallToolRequest,
 		return nil, AuthStatusOutput{Authenticated: false}, nil
 	}
 
+	email := creds.Email
+	userID := creds.UserID
+	orgID := creds.OrgID
+	orgName := ""
+
+	if orgName == "" {
+		token, _ := mgr.GetActiveToken()
+		if token != "" {
+			client := api.NewClientWithDevMode(token, s.devMode)
+			enrichCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+
+			if info, err := client.ValidateAPIKey(enrichCtx); err == nil {
+				if info.OrgID != "" {
+					orgID = info.OrgID
+				}
+				if info.OrgName != "" {
+					orgName = info.OrgName
+				}
+				if email == "" {
+					email = info.Email
+				}
+				if userID == "" {
+					userID = info.UserID
+				}
+			}
+		}
+	}
+
 	return nil, AuthStatusOutput{
 		Authenticated: true,
-		Email:         creds.Email,
-		UserID:        creds.UserID,
-		OrgID:         creds.OrgID,
+		Email:         email,
+		UserID:        userID,
+		OrgID:         orgID,
+		OrgName:       orgName,
 		AuthMethod:    creds.AuthMethod,
 	}, nil
 }

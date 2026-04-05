@@ -369,10 +369,10 @@ func (m *Manager) createDevServer() (DevServer, error) {
 		), nil
 
 	case "swift":
-		return nil, fmt.Errorf("swift hot reload is not yet supported")
+		return nil, fmt.Errorf("swift hot reload is not available — use [r] in revyl dev to rebuild + reinstall")
 
 	case "android":
-		return nil, fmt.Errorf("android hot reload is not yet supported")
+		return nil, fmt.Errorf("android hot reload is not available — use [r] in revyl dev to rebuild + reinstall")
 
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", m.providerName)

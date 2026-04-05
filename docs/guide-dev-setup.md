@@ -8,12 +8,13 @@ target: cli/dev-setup-guide.mdx
 
 This guide explains how to get `revyl dev` working for each supported framework. Pick your stack, follow the quick start, and refer to the subsections if you hit an edge case.
 
-| Framework | Hot Reload Status | Provider Name |
-|-----------|------------------|---------------|
-| Expo | Fully supported | `expo` |
-| React Native (bare) | Fully supported | `react-native` |
-| Swift/iOS | Detection only (coming soon) | `swift` |
-| Android Native | Detection only (coming soon) | `android` |
+| Framework | Hot Reload | Rebuild Dev Loop | Provider Name |
+|-----------|-----------|-----------------|---------------|
+| Expo | Fully supported | `[r]` for native changes | `expo` |
+| React Native (bare) | Fully supported | `[r]` for native changes | `react-native` |
+| Flutter | — | `[r]` rebuild + reinstall | — |
+| Swift/iOS | — | `[r]` rebuild + reinstall | `swift` |
+| Android Native | — | `[r]` rebuild + reinstall | `android` |
 
 ---
 
@@ -23,12 +24,17 @@ This guide explains how to get `revyl dev` working for each supported framework.
 
 ```bash
 cd my-expo-app
-revyl init                # Detects Expo, configures hot reload
-revyl build upload --platform ios-dev
-revyl dev --platform ios
+revyl init                  # Detects Expo, writes config (lightweight)
+revyl auth login            # Authenticate
+revyl build upload          # Build and upload (uses development EAS profile)
+revyl dev --platform ios    # Start hot reload dev loop
 ```
 
-Three commands: initialize, upload a dev client build, start the dev loop.
+Four commands: initialize, authenticate, upload a dev build, start the dev loop.
+
+`revyl init` creates `.revyl/config.yaml` with `ios` and `android` platform keys using the `development` EAS profile. This single build type supports both hot reload (`revyl dev`) and regular testing (`revyl test run`).
+
+During `revyl dev`, press `[r]` to rebuild and reinstall the native binary (for native code changes like adding a native module or editing `build.gradle`). Hot reload handles JS/TS changes automatically.
 
 ### How detection works
 
@@ -302,19 +308,71 @@ The same directory rules apply as Expo:
 
 ---
 
-## Swift/iOS (coming soon)
+## Flutter
 
-The Swift provider detects native iOS projects by looking for `.xcodeproj`, `.xcworkspace`, Swift source files, or `Package.swift`. Detection works today (confidence 0.7), but hot reload setup is not yet supported.
+Flutter projects use a rebuild-based dev loop. Detection triggers on `pubspec.yaml` and produces both iOS and Android platform keys.
 
-Future implementation will use InjectionIII for hot reload.
+### Quick start
+
+```bash
+cd my-flutter-app
+revyl init                      # Detects Flutter, writes config
+revyl auth login
+revyl build upload              # Builds both platforms (or --platform ios/android)
+revyl dev --platform android    # Build -> upload -> device -> install -> [r] to rebuild
+```
+
+The CLI detects `pubspec.yaml` and configures `flutter build apk --debug` (Android) and `flutter build ios --simulator` (iOS). During `revyl dev`, press `[r]` to rebuild the binary, upload it, and reinstall on the cloud device. The viewer stays connected throughout.
+
+Typical rebuild cycle: ~30-60s for incremental Flutter builds (first build takes longer).
+
+**Note:** iOS reinstalls clear app data. Android reinstalls preserve app data.
+
+---
+
+## Swift/iOS
+
+Native iOS projects use a rebuild-based dev loop instead of hot reload.
+
+### Quick start
+
+```bash
+cd my-ios-app
+revyl init                  # Detects Xcode project and scheme
+revyl auth login
+revyl build upload
+revyl dev --platform ios    # Build -> upload -> device -> install -> [r] to rebuild
+```
+
+The CLI detects `.xcodeproj` / `.xcworkspace` and configures `xcodebuild` with the discovered scheme. During `revyl dev`, press `[r]` to rebuild the native binary, upload it, and reinstall on the cloud device. The viewer stays connected throughout.
+
+Typical rebuild cycle: ~20-60s for incremental Xcode builds.
+
+**Note:** iOS reinstalls clear app data (login state, preferences). This is an inherent simulator limitation.
 
 If your project is incorrectly detected as Swift when it's actually Expo or React Native (common in monorepos), use `--provider expo` or `--provider react-native` to override.
 
 ---
 
-## Android Native (coming soon)
+## Android Native
 
-The Android provider detects native Android projects by looking for `android/build.gradle`, `android/build.gradle.kts`, or `AndroidManifest.xml`. Detection works today (confidence 0.6), but hot reload setup is not yet supported.
+Native Android projects use a rebuild-based dev loop instead of hot reload.
+
+### Quick start
+
+```bash
+cd my-android-app
+revyl init                      # Detects Gradle project
+revyl auth login
+revyl build upload
+revyl dev --platform android    # Build -> upload -> device -> install -> [r] to rebuild
+```
+
+The CLI detects `build.gradle` / `build.gradle.kts` and configures `./gradlew assembleDebug`. During `revyl dev`, press `[r]` to rebuild the APK, upload it, and reinstall on the cloud device. The viewer stays connected throughout.
+
+Typical rebuild cycle: ~30-90s for incremental Gradle builds (first build takes longer).
+
+**Note:** Android reinstalls preserve app data (the `-r` flag is used).
 
 If your project is incorrectly detected as Android Native when it's actually Expo or React Native, use `--provider expo` or `--provider react-native` to override.
 
@@ -332,7 +390,7 @@ If your project is incorrectly detected as Android Native when it's actually Exp
 | "Port 8081 is already in use" | Another Metro instance running | `lsof -ti:8081 \| xargs kill` or `--port 8082` |
 | "No application is registered to handle this URL scheme" | Dev client doesn't have the scheme registered | Toggle `use_exp_prefix: true/false` in config; if neither works, add `scheme` to app.json and rebuild |
 | No URL scheme in the app | App only uses universal links | Add `"scheme": "myapp-dev"` to app.json, rebuild dev client |
-| "Build platform 'ios-dev' not found" | `build.platforms.ios-dev` missing from config | Add it with the `app_id` from `revyl build upload` output |
+| "Build platform 'ios' not found" | `build.platforms.ios` missing from config | Run `revyl init --force` to re-detect, or add manually |
 | Deep link fails with `LSApplicationWorkspaceErrorDomain error 115` | The URL scheme in the deep link doesn't match any installed app | Same as "No application is registered" above |
 | App closes briefly after tapping "Open" in the dialog | Normal: dev client is reloading to connect to Metro via tunnel | Wait for it to reopen; if it doesn't, check Metro output for JS errors |
 | "Open in [App Name]?" confirmation dialog | iOS system prompt for URL scheme handoffs | Tap "Open" to proceed; this is expected behavior |

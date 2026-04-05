@@ -336,6 +336,25 @@ func PrintStepHeader(step, total int, title string) {
 	fmt.Fprintln(os.Stderr)
 }
 
+// PrintSectionHeader renders a titled section divider without step numbers.
+// Used by lightweight flows (e.g. default `revyl init`) where numbered wizard
+// steps would be misleading. Respects quiet mode.
+//
+// Parameters:
+//   - title: The section title (e.g. "Project Setup")
+func PrintSectionHeader(title string) {
+	if quietMode {
+		return
+	}
+	separator := DimStyle.Render("─────────────────────────────────────────────────")
+	titleStyled := TitleStyle.Render(title)
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, separator)
+	fmt.Fprintln(os.Stderr, titleStyled)
+	fmt.Fprintln(os.Stderr, separator)
+	fmt.Fprintln(os.Stderr)
+}
+
 // PrintKeyValue prints a key-value pair with aligned formatting.
 // Useful for structured output like build details and configuration summaries.
 // Respects quiet mode - suppressed when quiet.

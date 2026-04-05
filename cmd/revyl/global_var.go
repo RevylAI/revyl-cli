@@ -244,17 +244,17 @@ func runGlobalVarSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var existingVar *api.GlobalVariable
+	var existingVarID string
 	for _, v := range existing.Result {
 		if v.VariableName == name {
-			existingVar = &v
+			existingVarID = v.Id.String()
 			break
 		}
 	}
 
-	if existingVar != nil {
+	if existingVarID != "" {
 		ui.StartSpinner("Updating variable...")
-		_, err = client.UpdateGlobalVariable(cmd.Context(), existingVar.ID, name, value)
+		_, err = client.UpdateGlobalVariable(cmd.Context(), existingVarID, name, value)
 		ui.StopSpinner()
 
 		if err != nil {
@@ -298,7 +298,7 @@ func runGlobalVarDelete(cmd *cobra.Command, args []string) error {
 	var variableID string
 	for _, v := range resp.Result {
 		if v.VariableName == name {
-			variableID = v.ID
+			variableID = v.Id.String()
 			break
 		}
 	}
