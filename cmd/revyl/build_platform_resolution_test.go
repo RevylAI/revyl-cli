@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/revyl/cli/internal/config"
@@ -83,5 +84,24 @@ func TestResolveBuildUploadPlatform_UnknownPlatform(t *testing.T) {
 
 	if _, err := resolveBuildUploadPlatform(cfg, "android"); err == nil {
 		t.Fatal("resolveBuildUploadPlatform() error = nil, want non-nil")
+	}
+}
+
+func TestResolveBuildUploadPlatform_RejectsPlaceholderPlatform(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{
+			Platforms: map[string]config.BuildPlatform{
+				"ios":         {Command: "", Output: ""},
+				"android-dev": {Command: "./gradlew assembleDebug", Output: "app-debug.apk"},
+			},
+		},
+	}
+
+	_, err := resolveBuildUploadPlatform(cfg, "ios")
+	if err == nil {
+		t.Fatal("resolveBuildUploadPlatform() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "not ready yet") {
+		t.Fatalf("error = %q, want placeholder readiness guidance", err.Error())
 	}
 }

@@ -103,6 +103,20 @@ func TestApplyExpoAppSchemeOverrideUsesExplicitValue(t *testing.T) {
 	}
 }
 
+func TestShouldPromptForXcodeSchemeSkipsPlaceholderPlatform(t *testing.T) {
+	if shouldPromptForXcodeScheme(config.BuildPlatform{}) {
+		t.Fatal("shouldPromptForXcodeScheme() = true, want false for placeholder platform")
+	}
+
+	buildable := config.BuildPlatform{
+		Command: "cd ios && xcodebuild -project RnBareMinimal.xcodeproj -scheme * -configuration Debug",
+		Output:  "ios/build/Build/Products/Debug-iphonesimulator/RnBareMinimal.app",
+	}
+	if !shouldPromptForXcodeScheme(buildable) {
+		t.Fatal("shouldPromptForXcodeScheme() = false, want true for buildable Xcode platform")
+	}
+}
+
 func TestInitSchemeEditStatePromptsOnce(t *testing.T) {
 	promptCalls := 0
 	contextCalls := 0

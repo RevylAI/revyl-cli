@@ -10,8 +10,8 @@ func TestResolveHotReloadBuildPlatform_UsesProviderMapping(t *testing.T) {
 	cfg := &config.ProjectConfig{
 		Build: config.BuildConfig{
 			Platforms: map[string]config.BuildPlatform{
-				"ios-dev": {},
-				"ios-ci":  {},
+				"ios-dev": {Command: "xcodebuild-dev", Output: "ios-dev.app"},
+				"ios-ci":  {Command: "xcodebuild-ci", Output: "ios-ci.app"},
 			},
 		},
 	}
@@ -37,9 +37,9 @@ func TestResolveHotReloadBuildPlatform_PrefersDevKey(t *testing.T) {
 	cfg := &config.ProjectConfig{
 		Build: config.BuildConfig{
 			Platforms: map[string]config.BuildPlatform{
-				"ios-ci":  {},
-				"ios-dev": {},
-				"ios":     {},
+				"ios-ci":  {Command: "xcodebuild-ci", Output: "ios-ci.app"},
+				"ios-dev": {Command: "xcodebuild-dev", Output: "ios-dev.app"},
+				"ios":     {Command: "", Output: ""},
 			},
 		},
 	}
@@ -60,7 +60,7 @@ func TestResolveHotReloadBuildPlatform_AcceptsExplicitPlatformKey(t *testing.T) 
 	cfg := &config.ProjectConfig{
 		Build: config.BuildConfig{
 			Platforms: map[string]config.BuildPlatform{
-				"android-dev": {},
+				"android-dev": {Command: "./gradlew assembleDebug", Output: "app-debug.apk"},
 			},
 		},
 	}
@@ -74,5 +74,21 @@ func TestResolveHotReloadBuildPlatform_AcceptsExplicitPlatformKey(t *testing.T) 
 	}
 	if devicePlatform != "android" {
 		t.Fatalf("devicePlatform = %q, want %q", devicePlatform, "android")
+	}
+}
+
+func TestPickBestBuildPlatformKey_SkipsPlaceholderPlatforms(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{
+			Platforms: map[string]config.BuildPlatform{
+				"ios":         {Command: "", Output: ""},
+				"ios-dev":     {Command: "xcodebuild-dev", Output: "ios-dev.app"},
+				"android-dev": {Command: "./gradlew assembleDebug", Output: "app-debug.apk"},
+			},
+		},
+	}
+
+	if got := pickBestBuildPlatformKey(cfg, "ios"); got != "ios-dev" {
+		t.Fatalf("pickBestBuildPlatformKey(ios) = %q, want %q", got, "ios-dev")
 	}
 }

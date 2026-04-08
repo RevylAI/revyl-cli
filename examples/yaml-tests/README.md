@@ -104,7 +104,8 @@ test:
 
 ## Variables
 
-Use `{{variable-name}}` (kebab-case) in step descriptions:
+Use `{{variable-name}}` or `{{variable_name}}` in step descriptions. Avoid
+spaces in variable names:
 
 ```yaml
 test:

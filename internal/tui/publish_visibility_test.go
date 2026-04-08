@@ -26,9 +26,6 @@ func TestHandleAppDetailKey_PDoesNotOpenPublishFlow(t *testing.T) {
 	if next.currentView != viewAppDetail {
 		t.Fatalf("expected to remain on app detail view, got %v", next.currentView)
 	}
-	if next.publishTFModel != nil {
-		t.Fatalf("expected publish flow model to remain nil")
-	}
 }
 
 func TestRenderAppDetailDoesNotShowPublishHint(t *testing.T) {
@@ -44,14 +41,13 @@ func TestRenderAppDetailDoesNotShowPublishHint(t *testing.T) {
 	}
 }
 
-func TestDeriveSetupStepsDoesNotIncludeASCStep(t *testing.T) {
+func TestDeriveSetupStepsOmitsRemovedPublishSetupStep(t *testing.T) {
 	steps := deriveSetupSteps([]HealthCheck{
 		{Name: "Authentication", Status: "ok"},
 		{Name: "API Connection", Status: "ok"},
 		{Name: "Project Config", Status: "ok"},
 		{Name: "App Linked", Status: "ok"},
 		{Name: "Build Uploaded", Status: "warning"},
-		{Name: "ASC Credentials", Status: "warning"},
 		{Name: "Tests Configured", Status: "warning"},
 	}, nil)
 

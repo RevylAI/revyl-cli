@@ -137,8 +137,8 @@ func TestResolveAppIDForRuntimePlatform_FallsBackToBestKey(t *testing.T) {
 	cfg := &config.ProjectConfig{
 		Build: config.BuildConfig{
 			Platforms: map[string]config.BuildPlatform{
-				"ios-ci":  {AppID: "ci-app-id"},
-				"ios-dev": {AppID: "dev-app-id"},
+				"ios-ci":  {Command: "xcodebuild-ci", Output: "ci.app", AppID: "ci-app-id"},
+				"ios-dev": {Command: "xcodebuild-dev", Output: "dev.app", AppID: "dev-app-id"},
 			},
 		},
 	}

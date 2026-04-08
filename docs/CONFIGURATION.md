@@ -59,14 +59,6 @@ defaults:
   open_browser: true
   timeout: 600
 
-publish:
-  ios:
-    bundle_id: com.example.myapp
-    asc_app_id: "6758900172"
-    testflight_groups:
-      - Internal
-      - External
-
 last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 ```
 
@@ -81,7 +73,6 @@ last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 | `build.platforms` | Named platform configurations with per-platform build commands, outputs, and app IDs |
 | `hotreload` | Hot reload provider configuration for `revyl dev` |
 | `defaults` | Default settings for CLI behavior |
-| `publish` | iOS/Android publishing configuration (TestFlight, Play Store) |
 | `last_synced_at` | Timestamp of last sync operation (auto-managed) |
 
 ## Hot Reload Configuration
@@ -126,20 +117,6 @@ Bare React Native does not require `app_scheme`. The device loads the JS bundle 
 |-----|------|---------|-------------|
 | `open_browser` | `bool` | `true` | Auto-open browser for `test open`, `device start --open`, etc. |
 | `timeout` | `int` | `600` | Default timeout in seconds for device sessions and test runs |
-
-## Publish Configuration
-
-```yaml
-publish:
-  ios:
-    bundle_id: com.example.myapp        # iOS bundle identifier
-    asc_app_id: "6758900172"            # App Store Connect app ID
-    testflight_groups:                  # Default TestFlight distribution groups
-      - Internal
-      - External
-```
-
-These values serve as defaults for `revyl publish testflight` so you don't have to pass them as flags every time. CLI flags and environment variables override config values.
 
 ## Project Settings
 

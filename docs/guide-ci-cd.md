@@ -143,25 +143,6 @@ Retry failed tests automatically:
 revyl workflow run smoke-tests --retries 2
 ```
 
-## TestFlight from CI
-
-Publish iOS builds to TestFlight after tests pass:
-
-```yaml
-- name: Publish to TestFlight
-  if: success()
-  env:
-    REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
-    REVYL_ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-    REVYL_ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-    REVYL_ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
-  run: |
-    revyl publish testflight \
-      --ipa ./build/MyApp.ipa \
-      --app-id 6758900172 \
-      --group "Internal"
-```
-
 ## Push tests from CI
 
 Keep remote tests in sync with your repo after merge:
@@ -179,12 +160,6 @@ Keep remote tests in sync with your repo after merge:
 |----------|-------------|
 | `REVYL_API_KEY` | API key (required) |
 | `REVYL_BACKEND_URL` | Override backend URL |
-| `REVYL_ASC_KEY_ID` | App Store Connect key ID |
-| `REVYL_ASC_ISSUER_ID` | App Store Connect issuer ID |
-| `REVYL_ASC_PRIVATE_KEY_PATH` | Path to ASC `.p8` private key |
-| `REVYL_ASC_PRIVATE_KEY` | Raw ASC private key content |
-| `REVYL_ASC_APP_ID` | App Store Connect app ID |
-| `REVYL_TESTFLIGHT_GROUPS` | Comma-separated TestFlight groups |
 
 ---
 

@@ -3883,12 +3883,13 @@ func (c *Client) GetScriptUsage(ctx context.Context, scriptID string) (*CLIScrip
 
 // --- Custom Variable API methods ---
 
-// CustomVariable represents a test variable used in {{variable-name}} syntax.
+// CustomVariable represents a test variable used in {{variable-name}} or
+// {{variable_name}} syntax.
 //
 // Fields:
 //   - ID: Unique identifier of the variable
 //   - TestUID: Test UUID this variable belongs to
-//   - VariableName: The variable name (kebab-case)
+//   - VariableName: The variable name
 //   - VariableValue: The variable value (may be empty for extraction-defined vars)
 type CustomVariable struct {
 	ID            string `json:"id"`
@@ -3938,7 +3939,7 @@ func (c *Client) ListCustomVariables(ctx context.Context, testID string) (*Custo
 // Parameters:
 //   - ctx: Context for cancellation
 //   - testID: The test UUID
-//   - name: Variable name (kebab-case)
+//   - name: Variable name
 //   - value: Variable value (may be empty)
 //
 // Returns:

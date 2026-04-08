@@ -383,16 +383,19 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 	}
 
 	manualStepRequired := false
-	if deepLink := strings.TrimSpace(deepLinkURL); deepLink != "" {
-		openURLResp, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", map[string]string{"url": deepLink})
-		if err != nil {
-			if isUnsupportedWorkerRoute(err, "/open_url") {
-				manualStepRequired = true
-			} else {
+	isBareRN := providerName == "react-native"
+	if !isBareRN {
+		if deepLink := strings.TrimSpace(deepLinkURL); deepLink != "" {
+			openURLResp, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", map[string]string{"url": deepLink})
+			if err != nil {
+				if isUnsupportedWorkerRoute(err, "/open_url") {
+					manualStepRequired = true
+				} else {
+					return cleanupOnError(fmt.Sprintf("deep-link navigation failed: %v", err))
+				}
+			} else if err := ensureWorkerActionSucceeded(openURLResp, "open_url"); err != nil {
 				return cleanupOnError(fmt.Sprintf("deep-link navigation failed: %v", err))
 			}
-		} else if err := ensureWorkerActionSucceeded(openURLResp, "open_url"); err != nil {
-			return cleanupOnError(fmt.Sprintf("deep-link navigation failed: %v", err))
 		}
 	}
 

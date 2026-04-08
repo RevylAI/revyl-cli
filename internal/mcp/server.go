@@ -681,7 +681,7 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 	// set_variable tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "set_variable",
-		Description: "Add or update a test variable. Test variables use {{name}} syntax in step descriptions. If the variable name already exists, its value is updated. Variable names must be kebab-case (lowercase, numbers, hyphens). For encrypted app-launch environment variables, use set_env_var instead.",
+		Description: "Add or update a test variable. Test variables use {{name}} syntax in step descriptions. If the variable name already exists, its value is updated. Variable names must use letters, numbers, hyphens, or underscores (no spaces). For encrypted app-launch environment variables, use set_env_var instead.",
 		Annotations: &mcp.ToolAnnotations{
 			Title: "Set Variable",
 		},
@@ -3278,7 +3278,7 @@ func (s *Server) handleListVariables(ctx context.Context, req *mcp.CallToolReque
 // SetVariableInput defines input for set_variable tool.
 type SetVariableInput struct {
 	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
-	Name         string `json:"name" jsonschema:"Variable name (kebab-case: lowercase letters, numbers, hyphens)"`
+	Name         string `json:"name" jsonschema:"Variable name (letters, numbers, hyphens, or underscores; no spaces)"`
 	Value        string `json:"value,omitempty" jsonschema:"Variable value (optional, defaults to empty string)"`
 }
 
@@ -3299,11 +3299,11 @@ func (s *Server) handleSetVariable(ctx context.Context, req *mcp.CallToolRequest
 		return nil, SetVariableOutput{Success: false, Error: mismatchMsg}, nil
 	}
 
-	// Enforce kebab-case naming to stay consistent with YAML validator
+	// Enforce the shared variable naming rule used by the YAML validator.
 	if !isValidVariableName(input.Name) {
 		return nil, SetVariableOutput{
 			Success: false,
-			Error:   fmt.Sprintf("invalid variable name '%s': must be kebab-case (lowercase letters, numbers, hyphens; no leading/trailing/consecutive hyphens)", input.Name),
+			Error:   fmt.Sprintf("invalid variable name '%s': must use letters, numbers, hyphens, or underscores (no leading/trailing/consecutive separators or spaces)", input.Name),
 		}, nil
 	}
 
@@ -3404,22 +3404,20 @@ func (s *Server) handleDeleteAllVariables(ctx context.Context, req *mcp.CallTool
 	return nil, DeleteAllVariablesOutput{Success: true}, nil
 }
 
-// isValidVariableName checks if a variable name follows kebab-case convention.
-//
-// Must be lowercase letters, numbers, and hyphens only.
-// Must not start or end with hyphen, and must not have consecutive hyphens.
+// isValidVariableName checks if a variable name uses letters, numbers,
+// hyphens, or underscores without spaces.
 func isValidVariableName(name string) bool {
 	if name == "" {
 		return false
 	}
-	if name[0] == '-' || name[len(name)-1] == '-' {
+	if name[0] == '-' || name[0] == '_' || name[len(name)-1] == '-' || name[len(name)-1] == '_' {
 		return false
 	}
 	for i, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
 			return false
 		}
-		if c == '-' && i > 0 && name[i-1] == '-' {
+		if (c == '-' || c == '_') && i > 0 && (name[i-1] == '-' || name[i-1] == '_') {
 			return false
 		}
 	}

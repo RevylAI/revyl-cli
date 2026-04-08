@@ -36,6 +36,53 @@ func platformFromKey(key string) string {
 	}
 }
 
+// isRunnableBuildPlatform returns true when a build platform has enough data to execute.
+//
+// Parameters:
+//   - platformCfg: The build platform configuration to inspect
+//
+// Returns:
+//   - bool: True when both command and output are configured
+func isRunnableBuildPlatform(platformCfg config.BuildPlatform) bool {
+	return strings.TrimSpace(platformCfg.Command) != "" && strings.TrimSpace(platformCfg.Output) != ""
+}
+
+// buildablePlatformKeys returns sorted build.platforms keys that can actually run.
+//
+// Parameters:
+//   - cfg: The project configuration to inspect
+//
+// Returns:
+//   - []string: Sorted platform keys whose command/output are both configured
+func buildablePlatformKeys(cfg *config.ProjectConfig) []string {
+	if cfg == nil || len(cfg.Build.Platforms) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(cfg.Build.Platforms))
+	for key, platformCfg := range cfg.Build.Platforms {
+		if isRunnableBuildPlatform(platformCfg) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// buildPlatformNeedsSetupError returns a user-facing error for placeholder platform entries.
+//
+// Parameters:
+//   - platformKey: The build.platforms key that is still incomplete
+//
+// Returns:
+//   - error: An actionable setup error for the incomplete platform
+func buildPlatformNeedsSetupError(platformKey string) error {
+	return fmt.Errorf(
+		"build.platforms.%s is not ready yet; finish native setup or add both command/output before using it",
+		platformKey,
+	)
+}
+
 // pickBestBuildPlatformKey selects a build.platforms key for a target device platform.
 func pickBestBuildPlatformKey(cfg *config.ProjectConfig, devicePlatform string) string {
 	if cfg == nil || len(cfg.Build.Platforms) == 0 {
@@ -52,7 +99,11 @@ func pickBestBuildPlatformKey(cfg *config.ProjectConfig, devicePlatform string) 
 	}
 	candidates := make([]candidate, 0)
 
-	for key := range cfg.Build.Platforms {
+	for key, platformCfg := range cfg.Build.Platforms {
+		if !isRunnableBuildPlatform(platformCfg) {
+			continue
+		}
+
 		lower := strings.ToLower(key)
 		if platformFromKey(lower) != devicePlatform {
 			continue
@@ -162,12 +213,16 @@ func resolveHotReloadBuildPlatform(
 		if normalizedPlatform, nErr := normalizeMobilePlatform(platformOrKey, defaultPlatform); nErr == nil {
 			devicePlatform = normalizedPlatform
 		} else {
-			if _, ok := cfg.Build.Platforms[platformOrKey]; !ok {
+			platformCfg, ok := cfg.Build.Platforms[platformOrKey]
+			if !ok {
 				return "", "", fmt.Errorf(
 					"unknown platform/platform-key '%s' (available: %s)",
 					platformOrKey,
 					strings.Join(availableBuildPlatformKeys(cfg), ", "),
 				)
+			}
+			if !isRunnableBuildPlatform(platformCfg) {
+				return "", "", buildPlatformNeedsSetupError(platformOrKey)
 			}
 			platformKey = platformOrKey
 			if inferredPlatform := platformFromKey(platformOrKey); inferredPlatform != "" {
@@ -194,12 +249,16 @@ func resolveHotReloadBuildPlatform(
 		)
 	}
 
-	if _, ok := cfg.Build.Platforms[platformKey]; !ok {
+	platformCfg, ok := cfg.Build.Platforms[platformKey]
+	if !ok {
 		return "", "", fmt.Errorf(
 			"mapped platform key '%s' not found in build.platforms (available: %s)",
 			platformKey,
 			strings.Join(availableBuildPlatformKeys(cfg), ", "),
 		)
+	}
+	if !isRunnableBuildPlatform(platformCfg) {
+		return "", "", buildPlatformNeedsSetupError(platformKey)
 	}
 
 	return platformKey, devicePlatform, nil

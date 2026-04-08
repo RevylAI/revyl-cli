@@ -543,14 +543,20 @@ func TestIsValidVariableName(t *testing.T) {
 		expected bool
 	}{
 		{"user-name", true},
+		{"user_name", true},
+		{"user-name_123", true},
+		{"UserName", true},
+		{"USER_NAME", true},
 		{"user123", true},
 		{"a", true},
 		{"user-name-123", true},
 		{"-invalid", false},
 		{"invalid-", false},
+		{"_invalid", false},
+		{"invalid_", false},
 		{"in--valid", false},
-		{"UPPERCASE", false},
-		{"with_underscore", false},
+		{"in__valid", false},
+		{"in-_valid", false},
 		{"with space", false},
 		{"", false},
 	}
@@ -679,8 +685,11 @@ func TestVariablePattern_MatchesGlobalPrefix(t *testing.T) {
 		matches []string
 	}{
 		{"{{my-var}}", []string{"my-var"}},
+		{"{{my_var}}", []string{"my_var"}},
+		{"{{MyVar}}", []string{"MyVar"}},
 		{"{{global.my-var}}", []string{"global.my-var"}},
-		{"{{global.login-email}} and {{otp-code}}", []string{"global.login-email", "otp-code"}},
+		{"{{global.login_email}} and {{otp_code}}", []string{"global.login_email", "otp_code"}},
+		{"{{global.API_KEY}}", []string{"global.API_KEY"}},
 		{"no variables here", nil},
 	}
 

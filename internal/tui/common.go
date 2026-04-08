@@ -252,7 +252,6 @@ const (
 	viewAppDetail                     // build versions for a specific app
 	viewCreateApp                     // create-an-app flow (sub-screen)
 	viewUploadBuild                   // upload-a-build flow (sub-screen)
-	viewPublishTestFlight             // guided TestFlight publish flow
 	viewSettings                      // local project settings editor
 	viewHelp                          // help & status screen (doctor + keybindings)
 	viewTestDetail                    // test detail + management screen

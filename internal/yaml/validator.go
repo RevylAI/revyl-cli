@@ -110,8 +110,10 @@ var validStepTypes = map[string]bool{
 	"end":             true,
 }
 
-// variablePattern matches {{variable-name}} and {{global.variable-name}} syntax.
-var variablePattern = regexp.MustCompile(`\{\{((?:global\.)?[a-z0-9][a-z0-9._-]*)\}\}`)
+// variablePattern matches local/global variable references such as
+// {{variable-name}}, {{variable_name}}, {{VariableName}}, and
+// {{global.login-email}}.
+var variablePattern = regexp.MustCompile(`\{\{((?:global\.)?[A-Za-z0-9][A-Za-z0-9._-]*)\}\}`)
 
 // ValidateYAML validates a YAML test definition.
 //
@@ -287,9 +289,9 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 		if block.VariableName == "" {
 			errors = append(errors, fmt.Sprintf("%s (extraction): Missing variable_name", blockPath))
 		} else {
-			// Validate variable name format (kebab-case)
+			// Validate variable name format (letters, hyphen/underscore, no spaces)
 			if !isValidVariableName(block.VariableName) {
-				errors = append(errors, fmt.Sprintf("%s (extraction): Invalid variable_name '%s' - must be kebab-case (lowercase letters, numbers, hyphens)", blockPath, block.VariableName))
+				errors = append(errors, fmt.Sprintf("%s (extraction): Invalid variable_name '%s' - must use letters, numbers, hyphens, or underscores", blockPath, block.VariableName))
 			}
 			definedVars[block.VariableName] = true
 		}
@@ -381,7 +383,7 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 		}
 		if block.VariableName != "" {
 			if !isValidVariableName(block.VariableName) {
-				errors = append(errors, fmt.Sprintf("%s (code_execution): Invalid variable_name '%s' - must be kebab-case", blockPath, block.VariableName))
+				errors = append(errors, fmt.Sprintf("%s (code_execution): Invalid variable_name '%s' - must use letters, numbers, hyphens, or underscores", blockPath, block.VariableName))
 			}
 			definedVars[block.VariableName] = true
 		}
@@ -399,22 +401,22 @@ func isBlank(s string) bool {
 	return strings.TrimSpace(s) == ""
 }
 
-// isValidVariableName checks if a variable name follows kebab-case convention.
+// isValidVariableName checks if a variable name uses letters, numbers,
+// hyphens, or underscores without spaces.
 func isValidVariableName(name string) bool {
-	// Must be lowercase letters, numbers, and hyphens only
-	// Must not start or end with hyphen
-	// Must not have consecutive hyphens
+	// Must not start or end with a separator.
+	// Must not have consecutive separators.
 	if name == "" {
 		return false
 	}
-	if strings.HasPrefix(name, "-") || strings.HasSuffix(name, "-") {
+	if strings.HasPrefix(name, "-") || strings.HasSuffix(name, "-") || strings.HasPrefix(name, "_") || strings.HasSuffix(name, "_") {
 		return false
 	}
-	if strings.Contains(name, "--") {
+	if strings.Contains(name, "--") || strings.Contains(name, "__") || strings.Contains(name, "-_") || strings.Contains(name, "_-") {
 		return false
 	}
 	for _, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
 			return false
 		}
 	}

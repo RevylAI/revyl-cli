@@ -535,7 +535,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	defer manager.Stop()
 
-	ui.PrintSuccess("Hot reload ready: Expo server and tunnel are running")
+	ui.PrintSuccess("Hot reload ready: %s server and tunnel are running", provider.DisplayName())
 	ui.PrintInfo("Starting cloud device session...")
 
 	deviceMgr, err := getDeviceSessionMgr(cmd)
@@ -619,39 +619,52 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	deepLinkURL := strings.TrimSpace(startResult.DeepLinkURL)
-	if deepLinkURL == "" {
-		return fmt.Errorf("hot reload started but deep link URL is empty")
-	}
 	manualDeepLinkRequired := false
-	ui.PrintInfo("Opening hot reload deep link...")
-	openURLRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", map[string]string{
-		"url": deepLinkURL,
-	})
-	if err != nil {
-		if isUserCanceled(err) {
-			return nil
-		}
-		if isUnsupportedWorkerRoute(err, "/open_url") {
-			manualDeepLinkRequired = true
-			ui.PrintWarning("Device does not support /open_url; automatic deep-link navigation is unavailable for this session")
-			ui.PrintInfo("Manual step: open this deep link on device: %s", deepLinkURL)
-		} else {
-			return fmt.Errorf(
-				"deep-link navigation failed: %w\nhint: verify hotreload.providers.expo.app_scheme and try hotreload.providers.expo.use_exp_prefix: true",
-				err,
-			)
-		}
+	isBareRN := provider.Name() == "react-native"
+
+	if isBareRN {
+		// Bare React Native does not have a deep-link contract like Expo's
+		// dev client. The raw tunnel URL cannot configure the native app's
+		// packager host, so opening it would just launch Safari / Chrome and
+		// leave the RN app showing a blank screen. Skip the open_url step
+		// and surface the tunnel URL for informational purposes only.
+		ui.PrintInfo("Metro tunnel: %s", startResult.TunnelURL)
+		ui.PrintDim("  Bare React Native hot reload is active. The app loads its JS bundle")
+		ui.PrintDim("  from the Metro server configured at build time via REACT_NATIVE_PACKAGER_HOSTNAME.")
 	} else {
-		if err := ensureWorkerActionSucceeded(openURLRespBody, "open_url"); err != nil {
-			return fmt.Errorf(
-				"deep-link navigation failed: %w\nhint: verify hotreload.providers.expo.app_scheme and try hotreload.providers.expo.use_exp_prefix: true",
-				err,
-			)
+		if deepLinkURL == "" {
+			return fmt.Errorf("hot reload started but deep link URL is empty")
+		}
+		ui.PrintInfo("Opening hot reload deep link...")
+		openURLRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", map[string]string{
+			"url": deepLinkURL,
+		})
+		if err != nil {
+			if isUserCanceled(err) {
+				return nil
+			}
+			if isUnsupportedWorkerRoute(err, "/open_url") {
+				manualDeepLinkRequired = true
+				ui.PrintWarning("Device does not support /open_url; automatic deep-link navigation is unavailable for this session")
+				ui.PrintInfo("Manual step: open this deep link on device: %s", deepLinkURL)
+			} else {
+				return fmt.Errorf(
+					"deep-link navigation failed: %w\nhint: verify hotreload.providers.expo.app_scheme and try hotreload.providers.expo.use_exp_prefix: true",
+					err,
+				)
+			}
+		} else {
+			if err := ensureWorkerActionSucceeded(openURLRespBody, "open_url"); err != nil {
+				return fmt.Errorf(
+					"deep-link navigation failed: %w\nhint: verify hotreload.providers.expo.app_scheme and try hotreload.providers.expo.use_exp_prefix: true",
+					err,
+				)
+			}
 		}
 	}
 
 	viewerURL := devSessionViewerURL(session, devMode)
-	printDevReadyFooter(viewerURL, startResult.DeepLinkURL, manualDeepLinkRequired)
+	printDevReadyFooter(viewerURL, startResult.DeepLinkURL, manualDeepLinkRequired, isBareRN)
 
 	if openBrowser {
 		_ = ui.OpenBrowser(viewerURL)
@@ -821,13 +834,17 @@ func devSessionViewerURL(session *mcppkg.DeviceSession, devMode bool) string {
 	return viewerURL
 }
 
-func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired bool) {
+func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired, isBareRN bool) {
 	ui.Println()
 	ui.PrintSuccess("Dev loop ready")
 	ui.PrintLink("Viewer", viewerURL)
-	ui.PrintInfo("Deep Link: %s", deepLinkURL)
-	if manualDeepLinkRequired {
-		ui.PrintWarning("Deep link was not opened automatically on this worker. Use the Deep Link above in the device browser/dev client.")
+	if isBareRN {
+		ui.PrintInfo("Tunnel URL: %s", deepLinkURL)
+	} else {
+		ui.PrintInfo("Deep Link: %s", deepLinkURL)
+		if manualDeepLinkRequired {
+			ui.PrintWarning("Deep link was not opened automatically on this worker. Use the Deep Link above in the device browser/dev client.")
+		}
 	}
 	ui.Println()
 	ui.PrintDim("  [r] rebuild native + reinstall    [q] quit")
@@ -1146,10 +1163,18 @@ func resolveRebuildLoopPlatform(
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	buildableKeys := buildablePlatformKeys(cfg)
+	if len(buildableKeys) == 0 {
+		return "", "", fmt.Errorf("no buildable platforms configured in .revyl/config.yaml")
+	}
 
 	if explicitPlatformKey != "" {
-		if _, ok := cfg.Build.Platforms[explicitPlatformKey]; !ok {
+		platformCfg, ok := cfg.Build.Platforms[explicitPlatformKey]
+		if !ok {
 			return "", "", fmt.Errorf("build.platforms.%s not found", explicitPlatformKey)
+		}
+		if !isRunnableBuildPlatform(platformCfg) {
+			return "", "", buildPlatformNeedsSetupError(explicitPlatformKey)
 		}
 
 		devicePlatform := platformFromKey(explicitPlatformKey)
@@ -1177,24 +1202,24 @@ func resolveRebuildLoopPlatform(
 		return platformKey, normalizedPlatform, nil
 	}
 
-	if len(keys) == 1 {
-		devicePlatform := platformFromKey(keys[0])
+	if len(buildableKeys) == 1 {
+		devicePlatform := platformFromKey(buildableKeys[0])
 		if devicePlatform == "" {
 			if !platformFlagExplicit {
 				return "", "", fmt.Errorf(
 					"build.platforms.%s does not indicate ios or android; pass --platform ios|android or rename the key",
-					keys[0],
+					buildableKeys[0],
 				)
 			}
 			devicePlatform = normalizedPlatform
 		}
-		return keys[0], devicePlatform, nil
+		return buildableKeys[0], devicePlatform, nil
 	}
 
 	return "", "", fmt.Errorf(
 		"could not infer a build.platforms key for %s. Available keys: %s. Use --platform-key to choose one",
 		normalizedPlatform,
-		strings.Join(keys, ", "),
+		strings.Join(buildableKeys, ", "),
 	)
 }
 

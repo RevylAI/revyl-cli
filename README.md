@@ -130,7 +130,6 @@ See [Agent Skills](docs/SKILLS.md) for the full list and prompt examples.
 | Cloud devices | `revyl device start` | [Commands](docs/COMMANDS.md#device-management) |
 | Dev loop (Expo) | `revyl dev` | [Commands](docs/COMMANDS.md#dev-loop-expo) |
 | Build and upload | `revyl build upload` | [Commands](docs/COMMANDS.md#build-management) |
-| Publish to TestFlight | `revyl publish testflight` | [Commands](docs/COMMANDS.md#ios-publishing-testflight) |
 | CI/CD | GitHub Actions | [CI/CD](docs/CI_CD.md) |
 | Device SDK | `pip install revyl[sdk]` | [Device SDK](docs/SDK.md) |
 | Agent skills | `revyl skill install` | [Skills](docs/SKILLS.md) |

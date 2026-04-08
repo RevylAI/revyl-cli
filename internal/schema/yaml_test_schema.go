@@ -59,7 +59,7 @@ Extract a value from the screen into a variable.
 ` + "```yaml" + `
 - type: extraction
   step_description: "Extract the confirmation code from the screen"
-  variable_name: "confirmation-code"  # kebab-case required
+  variable_name: "confirmation-code"  # letters, numbers, hyphens, or underscores
 ` + "```" + `
 
 ### 4. manual
@@ -160,12 +160,12 @@ or ` + "`revyl module insert <name>`" + ` to generate a ready-to-paste snippet.
 ## Variable System
 
 ### Syntax
-Variables use double curly braces: ` + "`{{variable-name}}`" + `
+Variables use double curly braces: ` + "`{{variable-name}}`" + ` or ` + "`{{variable_name}}`" + `
 
 ### Local Variables
-- **kebab-case only**: lowercase letters, numbers, hyphens
-- No spaces, underscores, or special characters
-- Must not start or end with hyphen
+- **Allowed characters**: letters, numbers, hyphens, underscores
+- No spaces or other special characters
+- Must not start or end with a hyphen or underscore
 - Defined via extraction, code_execution, or the variables: section in YAML
 - Resolution order: runtime overrides → local → global (fallback)
 
@@ -329,7 +329,7 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 				"fields": map[string]string{
 					"type":             "extraction",
 					"step_description": "string (required)",
-					"variable_name":    "string (required, kebab-case)",
+					"variable_name":    "string (required, letters/numbers/hyphens/underscores)",
 				},
 			},
 			"manual": map[string]interface{}{
@@ -385,9 +385,9 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 			},
 		},
 		"variableSystem": map[string]interface{}{
-			"localSyntax":         "{{variable-name}}",
-			"globalSyntax":        "{{global.variable-name}}",
-			"namingRules":         "kebab-case only, no spaces/underscores/special chars",
+			"localSyntax":         "{{variable-name}} or {{variable_name}}",
+			"globalSyntax":        "{{global.variable-name}} or {{global.variable_name}}",
+			"namingRules":         "letters, numbers, hyphens, or underscores; no spaces or other special characters",
 			"mustDefineBeforeUse": true,
 			"globalVariables":     "org-level secrets referenced via {{global.name}}, never stored in YAML, validated at creation time",
 		},

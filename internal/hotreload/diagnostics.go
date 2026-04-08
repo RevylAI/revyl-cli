@@ -1,6 +1,7 @@
 package hotreload
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -35,6 +36,16 @@ type DiagnosticResult struct {
 // diagnosticHTTPTimeout is the timeout for HTTP and WebSocket probe connections.
 const diagnosticHTTPTimeout = 5 * time.Second
 
+// metroTunnelReadyTimeout bounds how long startup waits for the tunnel to
+// become externally reachable before failing fast.
+const metroTunnelReadyTimeout = 20 * time.Second
+
+// metroTunnelReadyPollInterval controls how frequently tunnel readiness is re-checked.
+const metroTunnelReadyPollInterval = 1500 * time.Millisecond
+
+// diagnosticCheckFunc probes a single post-startup hot reload invariant.
+type diagnosticCheckFunc func(localPort int, tunnelURL string) DiagnosticCheck
+
 // RunPostStartupDiagnostics probes the HMR pipeline after the dev loop reports
 // ready and returns structured pass/fail results. Checks run synchronously in
 // order so the first failure can short-circuit if needed.
@@ -53,15 +64,80 @@ const diagnosticHTTPTimeout = 5 * time.Second
 // Returns:
 //   - *DiagnosticResult: Aggregated results with per-check detail
 func RunPostStartupDiagnostics(localPort int, tunnelURL string) *DiagnosticResult {
-	result := &DiagnosticResult{AllPassed: true}
-
-	checks := []func(int, string) DiagnosticCheck{
+	checks := []diagnosticCheckFunc{
 		checkMetroHealth,
 		checkLocalWebSocket,
 		checkTunnelHTTP,
 		checkTunnelWebSocket,
 		checkManifestURLs,
 	}
+	return runDiagnosticChecks(localPort, tunnelURL, checks)
+}
+
+// WaitForMetroTunnel waits until the public Metro tunnel is reachable.
+//
+// This is primarily used by bare React Native startup. If the tunnel URL has
+// not propagated yet, the cloud device can launch before the JavaScript bundle
+// is reachable and remain on a blank white screen.
+//
+// Parameters:
+//   - ctx: Context for cancellation while waiting.
+//   - localPort: The local Metro dev server port.
+//   - tunnelURL: The public Cloudflare tunnel URL.
+//   - timeout: Maximum time to wait for the tunnel to become reachable.
+//   - interval: Delay between retry attempts.
+//
+// Returns:
+//   - *DiagnosticResult: The final probe result.
+//   - error: Any timeout, cancellation, or readiness failure.
+func WaitForMetroTunnel(
+	ctx context.Context,
+	localPort int,
+	tunnelURL string,
+	timeout time.Duration,
+	interval time.Duration,
+) (*DiagnosticResult, error) {
+	checks := []diagnosticCheckFunc{
+		checkTunnelHTTP,
+		checkTunnelWebSocket,
+	}
+
+	deadline := time.Now().Add(timeout)
+	var lastResult *DiagnosticResult
+
+	for {
+		lastResult = runDiagnosticChecks(localPort, tunnelURL, checks)
+		if lastResult.AllPassed {
+			return lastResult, nil
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return lastResult, fmt.Errorf(
+				"timed out after %s waiting for Metro tunnel readiness: %s",
+				timeout,
+				formatFailedChecks(lastResult.Checks),
+			)
+		}
+
+		sleepFor := interval
+		if sleepFor > remaining {
+			sleepFor = remaining
+		}
+
+		timer := time.NewTimer(sleepFor)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return lastResult, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// runDiagnosticChecks executes a list of diagnostic probes and aggregates the results.
+func runDiagnosticChecks(localPort int, tunnelURL string, checks []diagnosticCheckFunc) *DiagnosticResult {
+	result := &DiagnosticResult{AllPassed: true}
 
 	for _, check := range checks {
 		c := check(localPort, tunnelURL)
@@ -72,6 +148,21 @@ func RunPostStartupDiagnostics(localPort int, tunnelURL string) *DiagnosticResul
 	}
 
 	return result
+}
+
+// formatFailedChecks summarizes the failed probe names and details.
+func formatFailedChecks(checks []DiagnosticCheck) string {
+	failed := make([]string, 0, len(checks))
+	for _, check := range checks {
+		if check.Passed {
+			continue
+		}
+		failed = append(failed, fmt.Sprintf("%s (%s)", check.Name, check.Detail))
+	}
+	if len(failed) == 0 {
+		return "unknown failure"
+	}
+	return strings.Join(failed, "; ")
 }
 
 // checkMetroHealth verifies the local Metro server is responding.

@@ -197,9 +197,19 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, uploadPlatformFlag)
 	}
 
+	buildablePlatforms := buildablePlatformKeys(cfg)
+
 	// Check if both ios and android platforms exist for concurrent builds
-	_, hasIOS := cfg.Build.Platforms["ios"]
-	_, hasAndroid := cfg.Build.Platforms["android"]
+	hasIOS := false
+	hasAndroid := false
+	for _, platform := range buildablePlatforms {
+		if platform == "ios" {
+			hasIOS = true
+		}
+		if platform == "android" {
+			hasAndroid = true
+		}
+	}
 
 	if hasIOS && hasAndroid {
 		// Default: run concurrent builds for both platforms
@@ -207,27 +217,21 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle single platform case deterministically
-	platformCount := len(cfg.Build.Platforms)
+	platformCount := len(buildablePlatforms)
 	if platformCount == 0 {
-		ui.PrintError("No build platforms configured")
-		ui.PrintInfo("Please configure build.platforms in .revyl/config.yaml")
-		return fmt.Errorf("no build platforms configured")
+		ui.PrintError("No buildable platforms configured")
+		ui.PrintInfo("Please finish native setup or configure build.platforms.<key>.command/output in .revyl/config.yaml")
+		return fmt.Errorf("no buildable platforms configured")
 	}
 
 	if platformCount == 1 {
 		// Single platform - use it directly
-		for platform := range cfg.Build.Platforms {
-			return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platform)
-		}
+		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, buildablePlatforms[0])
 	}
 
 	// Multiple platforms configured — prompt the user to choose interactively,
 	// or fall back to deterministic auto-pick in non-interactive environments (CI).
-	platforms := make([]string, 0, platformCount)
-	for platform := range cfg.Build.Platforms {
-		platforms = append(platforms, platform)
-	}
-	sort.Strings(platforms)
+	platforms := buildablePlatforms
 
 	if ui.IsInteractive() {
 		options := make([]ui.SelectOption, len(platforms))
@@ -1792,6 +1796,9 @@ func resolveBuildUploadPlatform(
 
 	// Exact build.platforms key match always wins.
 	if platformCfg, ok := cfg.Build.Platforms[platformOrKey]; ok {
+		if !isRunnableBuildPlatform(platformCfg) {
+			return nil, buildPlatformNeedsSetupError(platformOrKey)
+		}
 		devicePlatform := platformFromKey(platformOrKey)
 		if normalized, err := normalizeMobilePlatform(platformOrKey, ""); err == nil {
 			devicePlatform = normalized

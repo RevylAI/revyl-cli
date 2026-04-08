@@ -85,8 +85,9 @@ func TestRunBuildUploadJSONOutputsStructuredResult(t *testing.T) {
 		Build: config.BuildConfig{
 			Platforms: map[string]config.BuildPlatform{
 				"android": {
-					Output: "build/app.apk",
-					AppID:  "app-android-123",
+					Command: "cd android && ./gradlew assembleDebug",
+					Output:  "build/app.apk",
+					AppID:   "app-android-123",
 				},
 			},
 		},

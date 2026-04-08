@@ -155,9 +155,6 @@ func init() {
 	rootCmd.AddCommand(pingCmd)
 	rootCmd.AddCommand(upgradeCmd)
 
-	// App store publishing
-	rootCmd.AddCommand(publishCmd)
-
 	// Service session management
 	rootCmd.AddCommand(servicesCmd)
 

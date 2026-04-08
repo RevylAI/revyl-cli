@@ -349,6 +349,11 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 			ui.PrintDim("  Build settings:")
 			for _, name := range platNames {
 				bp := detected.Platforms[name]
+				if strings.TrimSpace(bp.IncompleteReason) != "" {
+					ui.PrintDim("  %s: placeholder", name)
+					ui.PrintDim("  %s note: %s", name, bp.IncompleteReason)
+					continue
+				}
 				ui.PrintDim("  %s: %s", name, bp.Command)
 				if bp.Output != "" {
 					ui.PrintDim("  %s output: %s", name, bp.Output)
@@ -391,17 +396,33 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 	// Add platforms if detected
 	if len(detected.Platforms) > 0 {
 		cfg.Build.Platforms = make(map[string]config.BuildPlatform)
+		type incompleteDetectedPlatform struct {
+			key    string
+			reason string
+		}
+		incompletePlatforms := make([]incompleteDetectedPlatform, 0)
 		for name, platform := range detected.Platforms {
 			cfg.Build.Platforms[name] = config.BuildPlatform{
 				Command: platform.Command,
 				Output:  platform.Output,
 			}
+			if strings.TrimSpace(platform.IncompleteReason) != "" {
+				incompletePlatforms = append(incompletePlatforms, incompleteDetectedPlatform{
+					key:    name,
+					reason: platform.IncompleteReason,
+				})
+			}
+		}
+		for _, platform := range incompletePlatforms {
+			ui.PrintWarning("Detected %s, but its native build setup is incomplete", platform.key)
+			ui.PrintDim("  %s", platform.reason)
+			ui.PrintDim("  Revyl added build.platforms.%s as a placeholder and will skip build-specific onboarding until command/output are configured.", platform.key)
 		}
 	}
 
 	// For Xcode/React Native iOS platforms with -scheme *, prompt user to pick a scheme
 	for platformKey, platformCfg := range cfg.Build.Platforms {
-		if strings.Contains(platformCfg.Command, "-scheme *") {
+		if shouldPromptForXcodeScheme(platformCfg) {
 			allowPrompts := true
 			if overrideOpts != nil {
 				allowPrompts = overrideOpts.AllowInteractivePrompts
@@ -738,6 +759,10 @@ func wizardCreateApps(ctx context.Context, client *api.Client, cfg *config.Proje
 			ui.PrintDim("Platform %s already linked to app %s", platformKey, plat.AppID)
 			continue
 		}
+		if !isRunnableBuildPlatform(plat) {
+			ui.PrintDim("Skipping %s — build command/output are not configured yet", platformKey)
+			continue
+		}
 
 		platform := mobilePlatformForBuildKey(platformKey)
 		if platform == "" {
@@ -908,8 +933,25 @@ func promptXcodeScheme(cwd, platformKey string, allowPrompt bool) string {
 	return schemes[idx]
 }
 
+// shouldPromptForXcodeScheme returns true when a platform is buildable and still needs scheme resolution.
+//
+// Parameters:
+//   - platformCfg: The platform configuration to inspect
+//
+// Returns:
+//   - bool: True when scheme prompting should run for this platform
+func shouldPromptForXcodeScheme(platformCfg config.BuildPlatform) bool {
+	return isRunnableBuildPlatform(platformCfg) && strings.Contains(platformCfg.Command, "-scheme *")
+}
+
 func isExpoBuildSystem(system string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(system)), "expo")
+}
+
+// isReactNativeBuildSystem returns true when the build system is bare React Native (not Expo).
+func isReactNativeBuildSystem(system string) bool {
+	lower := strings.ToLower(strings.TrimSpace(system))
+	return strings.Contains(lower, "react native") && !strings.Contains(lower, "expo")
 }
 
 func normalizeExpoBuildCommand(system, command string) (string, bool) {
@@ -1350,6 +1392,16 @@ func wizardFirstBuild(ctx context.Context, client *api.Client, cfg *config.Proje
 		wizardFirstBuildExpo(ctx, client, cfg, configPath, cwd, devPlatforms)
 		return
 	}
+
+	if isReactNativeBuildSystem(cfg.Build.System) {
+		buildable := buildablePlatformKeys(cfg)
+		if len(buildable) > 0 {
+			ui.PrintDim("React Native detected: focusing first build on one platform")
+			wizardFirstBuildReactNative(ctx, client, cfg, configPath, cwd, buildable)
+			return
+		}
+	}
+
 	wizardFirstBuildSequential(ctx, client, cfg, configPath, cwd, platforms)
 }
 
@@ -1641,6 +1693,452 @@ func printExpoDeferredDevBuildHint(eligible []string, builtPlatform string) {
 	ui.PrintDim("Optional next: revyl build upload --platform %s", nextPlatformKey)
 }
 
+// ---------------------------------------------------------------------------
+// React Native first-build helpers
+// ---------------------------------------------------------------------------
+
+// defaultRNBuildTargetForHost picks the preferred platform for a bare React
+// Native first build based on the host OS. On macOS, iOS is preferred because
+// simulator builds are fast; everywhere else Android wins.
+//
+// Parameters:
+//   - platforms: sorted list of buildable platform keys
+//   - hostOS: runtime.GOOS value
+//
+// Returns:
+//   - string: the chosen platform key, or "" if none match
+func defaultRNBuildTargetForHost(platforms []string, hostOS string) string {
+	if len(platforms) == 0 {
+		return ""
+	}
+	preferred := "android"
+	if strings.EqualFold(hostOS, "darwin") {
+		preferred = "ios"
+	}
+	for _, p := range platforms {
+		if mobilePlatformForBuildKey(p) == preferred {
+			return p
+		}
+	}
+	secondary := "ios"
+	if preferred == "ios" {
+		secondary = "android"
+	}
+	for _, p := range platforms {
+		if mobilePlatformForBuildKey(p) == secondary {
+			return p
+		}
+	}
+	return platforms[0]
+}
+
+// defaultRNBuildTarget wraps defaultRNBuildTargetForHost with runtime.GOOS.
+func defaultRNBuildTarget(platforms []string) string {
+	return defaultRNBuildTargetForHost(platforms, runtime.GOOS)
+}
+
+// rnPrerequisiteIssue describes a missing dependency that blocks a bare RN build.
+type rnPrerequisiteIssue struct {
+	// Short human-readable description of what is missing.
+	Problem string
+	// Shell command that will fix it (offered to user).
+	BootstrapCmd string
+}
+
+// detectRNPrerequisiteIssues checks a React Native project directory for common
+// missing prerequisites that would cause a build failure.
+//
+// Parameters:
+//   - cwd: the project root directory
+//   - platform: "ios" or "android"
+//
+// Returns:
+//   - []rnPrerequisiteIssue: zero or more issues found, in bootstrap order
+func detectRNPrerequisiteIssues(cwd, platform string) []rnPrerequisiteIssue {
+	var issues []rnPrerequisiteIssue
+
+	if !build.DirExists(filepath.Join(cwd, "node_modules")) {
+		cmd := "npm install"
+		if fileExists(filepath.Join(cwd, "yarn.lock")) {
+			cmd = "yarn install"
+		} else if fileExists(filepath.Join(cwd, "pnpm-lock.yaml")) {
+			cmd = "pnpm install"
+		} else if fileExists(filepath.Join(cwd, "bun.lockb")) || fileExists(filepath.Join(cwd, "bun.lock")) {
+			cmd = "bun install"
+		}
+		issues = append(issues, rnPrerequisiteIssue{
+			Problem:      "node_modules/ is missing — JavaScript dependencies are not installed",
+			BootstrapCmd: cmd,
+		})
+	}
+
+	if platform == "ios" {
+		iosDir := filepath.Join(cwd, "ios")
+		hasPods := build.DirExists(filepath.Join(iosDir, "Pods"))
+		if !hasPods && fileExists(filepath.Join(iosDir, "Podfile")) {
+			cmd := "pod install"
+			if fileExists(filepath.Join(cwd, "Gemfile")) {
+				cmd = "bundle exec pod install"
+			}
+			issues = append(issues, rnPrerequisiteIssue{
+				Problem:      "ios/Pods/ is missing — CocoaPods dependencies are not installed",
+				BootstrapCmd: fmt.Sprintf("cd ios && %s", cmd),
+			})
+		}
+	}
+
+	return issues
+}
+
+// offerRNBootstrap presents detected prerequisite issues and optionally runs
+// the bootstrap commands. Returns true when all bootstrap commands succeeded or
+// none were needed.
+//
+// Parameters:
+//   - cwd: project root directory
+//   - platform: "ios" or "android"
+//
+// Returns:
+//   - bool: true if the project is ready to build (issues fixed or none found)
+func offerRNBootstrap(cwd, platform string) bool {
+	issues := detectRNPrerequisiteIssues(cwd, platform)
+	if len(issues) == 0 {
+		return true
+	}
+
+	ui.Println()
+	ui.PrintWarning("Missing prerequisites for %s build:", platform)
+	for i, issue := range issues {
+		ui.PrintDim("  %d. %s", i+1, issue.Problem)
+	}
+	ui.Println()
+
+	options := []ui.SelectOption{
+		{Label: "Install missing dependencies now", Value: "install", Description: "Runs the commands below to fix the issues"},
+		{Label: "Skip and build anyway", Value: "skip"},
+	}
+	_, selection, err := ui.Select("What would you like to do?", options, 0)
+	if err != nil || selection == "skip" {
+		return true
+	}
+
+	allOK := true
+	for _, issue := range issues {
+		ui.PrintInfo("Running: %s", issue.BootstrapCmd)
+		runner := build.NewRunner(cwd)
+		runner.Interactive = true
+		if runErr := runner.Run(issue.BootstrapCmd, func(line string) {
+			ui.PrintDim("  %s", line)
+		}); runErr != nil {
+			ui.PrintWarning("  Failed: %v", runErr)
+			allOK = false
+		} else {
+			ui.PrintSuccess("  Done")
+		}
+	}
+	return allOK
+}
+
+// printRNDeferredBuildHint prints a hint for the other platform after a
+// successful single-platform RN build.
+//
+// Parameters:
+//   - eligible: list of all buildable platform keys
+//   - builtPlatform: the key that was just built
+func printRNDeferredBuildHint(eligible []string, builtPlatform string) {
+	currentMobile := mobilePlatformForBuildKey(builtPlatform)
+	if currentMobile == "" {
+		return
+	}
+	nextMobile := "ios"
+	if currentMobile == "ios" {
+		nextMobile = "android"
+	}
+	for _, key := range eligible {
+		if mobilePlatformForBuildKey(key) == nextMobile {
+			ui.Println()
+			ui.PrintDim("Optional next: revyl build upload --platform %s", key)
+			return
+		}
+	}
+}
+
+// classifyRNBuildFailure inspects a build error and generates a concise
+// likely-cause summary for bare React Native projects.
+//
+// Parameters:
+//   - buildErr: the error returned by the build runner
+//   - platform: "ios" or "android"
+//   - cwd: the project root directory
+//
+// Returns:
+//   - string: a human-readable explanation (empty if no known cause matched)
+//   - string: a suggested fix command (empty if no specific fix is known)
+func classifyRNBuildFailure(buildErr error, platform, cwd string) (string, string) {
+	msg := buildErr.Error()
+
+	if strings.Contains(msg, "node_modules") || strings.Contains(msg, "Cannot find module") {
+		cmd := "npm install"
+		if fileExists(filepath.Join(cwd, "yarn.lock")) {
+			cmd = "yarn install"
+		} else if fileExists(filepath.Join(cwd, "pnpm-lock.yaml")) {
+			cmd = "pnpm install"
+		}
+		return "JavaScript dependencies are not installed (node_modules/ missing)", cmd
+	}
+
+	if platform == "android" {
+		if strings.Contains(msg, "gradle-plugin") || strings.Contains(msg, "@react-native/gradle-plugin") {
+			return "React Native Gradle plugin not found — run npm install first", "npm install"
+		}
+		if strings.Contains(msg, "gradlew") && strings.Contains(msg, "permission denied") {
+			return "Gradle wrapper is not executable", "chmod +x android/gradlew"
+		}
+	}
+
+	if platform == "ios" {
+		if strings.Contains(msg, "Unable to find a target named") || strings.Contains(msg, "No such module") {
+			return "CocoaPods dependencies may not be installed", "cd ios && pod install"
+		}
+	}
+
+	return "", ""
+}
+
+func wizardFirstBuildReactNative(
+	ctx context.Context,
+	client *api.Client,
+	cfg *config.ProjectConfig,
+	configPath string,
+	cwd string,
+	platforms []string,
+) {
+	eligible := make([]string, 0, len(platforms))
+	for _, platform := range platforms {
+		platformCfg, ok := cfg.Build.Platforms[platform]
+		if !ok {
+			continue
+		}
+		if !isRunnableBuildPlatform(platformCfg) {
+			ui.PrintDim("Skipping %s — build command/output are not configured yet", platform)
+			continue
+		}
+		if platformCfg.AppID == "" {
+			ui.PrintDim("Skipping %s — no app linked (run revyl build upload --platform %s later)", platform, platform)
+			continue
+		}
+		eligible = append(eligible, platform)
+	}
+
+	if len(eligible) == 0 {
+		ui.PrintDim("No React Native platforms are ready to build yet")
+		return
+	}
+
+	defaultTarget := defaultRNBuildTarget(eligible)
+
+	iosTarget := ""
+	androidTarget := ""
+	for _, key := range eligible {
+		switch mobilePlatformForBuildKey(key) {
+		case "ios":
+			if iosTarget == "" {
+				iosTarget = key
+			}
+		case "android":
+			if androidTarget == "" {
+				androidTarget = key
+			}
+		}
+	}
+
+	options := []ui.SelectOption{
+		{
+			Label:       fmt.Sprintf("Build and upload fastest platform (%s)", defaultTarget),
+			Value:       "default",
+			Description: "Builds one platform so you can start testing quickly",
+		},
+	}
+	if iosTarget != "" && iosTarget != defaultTarget {
+		options = append(options, ui.SelectOption{
+			Label:       fmt.Sprintf("Build and upload iOS only (%s)", iosTarget),
+			Value:       "ios",
+			Description: "Builds an iOS simulator .app via xcodebuild",
+		})
+	}
+	if androidTarget != "" && androidTarget != defaultTarget {
+		options = append(options, ui.SelectOption{
+			Label:       fmt.Sprintf("Build and upload Android only (%s)", androidTarget),
+			Value:       "android",
+			Description: "Builds a debug APK via Gradle",
+		})
+	}
+	if iosTarget != "" && androidTarget != "" {
+		options = append(options, ui.SelectOption{
+			Label:       "Build and upload both platforms",
+			Value:       "both",
+			Description: "Builds iOS and Android sequentially — takes longer but covers both",
+		})
+	}
+	options = append(options,
+		ui.SelectOption{
+			Label:       "Upload existing artifact(s)",
+			Value:       "upload",
+			Description: "Skip building — upload a .app/.apk you already have on disk",
+		},
+		ui.SelectOption{
+			Label:       "Skip for now",
+			Value:       "skip",
+			Description: "Continue without a build; run revyl build upload later",
+		},
+	)
+
+	_, selection, err := ui.Select("How would you like to handle the first build?", options, 0)
+	if err != nil || selection == "skip" {
+		for _, platform := range eligible {
+			ui.PrintDim("  Run later: revyl build upload --platform %s", platform)
+		}
+		return
+	}
+
+	if selection == "upload" {
+		wizardFirstBuildSequential(ctx, client, cfg, configPath, cwd, eligible)
+		return
+	}
+
+	var selected []string
+	switch selection {
+	case "default":
+		selected = []string{defaultTarget}
+	case "ios":
+		if iosTarget != "" {
+			selected = []string{iosTarget}
+		}
+	case "android":
+		if androidTarget != "" {
+			selected = []string{androidTarget}
+		}
+	case "both":
+		if iosTarget != "" {
+			selected = append(selected, iosTarget)
+		}
+		if androidTarget != "" {
+			selected = append(selected, androidTarget)
+		}
+	}
+	if len(selected) == 0 {
+		ui.PrintDim("No platforms selected")
+		return
+	}
+
+	for _, platform := range selected {
+		platformCfg := cfg.Build.Platforms[platform]
+		mobile := mobilePlatformForBuildKey(platform)
+
+		offerRNBootstrap(cwd, mobile)
+
+		buildCommand := platformCfg.Command
+		ui.PrintInfo("Building with: %s", buildCommand)
+		ui.Println()
+
+		startTime := time.Now()
+		runner := build.NewRunner(cwd)
+		runner.Interactive = true
+
+		buildErr := runner.Run(buildCommand, func(line string) {
+			ui.PrintDim("  %s", line)
+		})
+
+		buildDuration := time.Since(startTime)
+
+		if buildErr != nil {
+			ui.Println()
+			ui.PrintWarning("Build failed for %s", platform)
+
+			cause, fix := classifyRNBuildFailure(buildErr, mobile, cwd)
+			if cause != "" {
+				ui.Println()
+				ui.PrintInfo("Likely cause: %s", cause)
+				if fix != "" {
+					ui.PrintDim("  Fix: %s", fix)
+				}
+			}
+
+			ui.PrintDim("  Retry later: revyl build upload --platform %s", platform)
+			continue
+		}
+
+		ui.Println()
+		ui.PrintSuccess("Build completed in %s", buildDuration.Round(time.Second))
+
+		artifactPath, resolveErr := build.ResolveArtifactPath(cwd, platformCfg.Output)
+		if resolveErr != nil {
+			ui.PrintWarning("Artifact not found at %s", platformCfg.Output)
+			customPath, customErr := ui.Prompt(fmt.Sprintf("Enter path to %s artifact (or press Enter to skip):", platform))
+			if customErr != nil || customPath == "" {
+				ui.PrintDim("  Retry later: revyl build upload --platform %s", platform)
+				continue
+			}
+			artifactPath, resolveErr = build.ResolveArtifactPath(cwd, customPath)
+			if resolveErr != nil {
+				ui.PrintWarning("Artifact not found: %s", customPath)
+				ui.PrintDim("  Retry later: revyl build upload --platform %s", platform)
+				continue
+			}
+		}
+
+		if build.IsAppBundle(artifactPath) {
+			ui.StartSpinner("Zipping .app bundle...")
+			zipPath, zipErr := build.ZipAppBundle(artifactPath)
+			ui.StopSpinner()
+			if zipErr != nil {
+				ui.PrintWarning("Failed to zip .app bundle: %v", zipErr)
+				ui.PrintDim("  Retry later: revyl build upload --platform %s", platform)
+				continue
+			}
+			defer os.Remove(zipPath)
+			artifactPath = zipPath
+			ui.PrintSuccess("Created: %s", filepath.Base(zipPath))
+		}
+
+		metadata := build.CollectMetadata(cwd, buildCommand, platform, buildDuration)
+		versionStr := build.GenerateVersionString()
+
+		ui.Println()
+		ui.PrintInfo("Uploading: %s", filepath.Base(artifactPath))
+		ui.PrintInfo("Build Version: %s", versionStr)
+		ui.Println()
+
+		ui.StartSpinner("Uploading artifact...")
+		result, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
+			AppID:        platformCfg.AppID,
+			Version:      versionStr,
+			FilePath:     artifactPath,
+			Metadata:     metadata,
+			SetAsCurrent: true,
+		})
+		ui.StopSpinner()
+
+		if uploadErr != nil {
+			ui.PrintWarning("Upload failed for %s: %v", platform, uploadErr)
+			ui.PrintDim("  Retry later: revyl build upload --platform %s", platform)
+			continue
+		}
+
+		ui.Println()
+		ui.PrintSuccess("Upload complete!")
+		ui.PrintKeyValue("App:", platformCfg.AppID)
+		ui.PrintKeyValue("Build Version:", result.Version)
+		if result.VersionID != "" {
+			ui.PrintKeyValue("Build ID:", result.VersionID)
+		}
+	}
+
+	if len(selected) == 1 {
+		printRNDeferredBuildHint(eligible, selected[0])
+	}
+}
+
 func wizardFirstBuildSequential(
 	ctx context.Context,
 	client *api.Client,
@@ -1652,6 +2150,10 @@ func wizardFirstBuildSequential(
 	for _, platform := range platforms {
 		platformCfg, ok := cfg.Build.Platforms[platform]
 		if !ok {
+			continue
+		}
+		if !isRunnableBuildPlatform(platformCfg) {
+			ui.PrintDim("Skipping %s — build command/output are not configured yet", platform)
 			continue
 		}
 		buildCommand := platformCfg.Command

@@ -1,6 +1,7 @@
 package hotreload
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
@@ -9,7 +10,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestCheckMetroHealth_PassesOnOK(t *testing.T) {
@@ -161,6 +164,67 @@ func TestRunPostStartupDiagnostics_AllPass(t *testing.T) {
 	}
 	if len(result.Checks) != 5 {
 		t.Fatalf("got %d checks, want 5", len(result.Checks))
+	}
+}
+
+func TestWaitForMetroTunnel_PassesAfterRetry(t *testing.T) {
+	var ready atomic.Bool
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		if !ready.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/hot", func(w http.ResponseWriter, r *http.Request) {
+		if !ready.Load() {
+			http.Error(w, "warming up", http.StatusServiceUnavailable)
+			return
+		}
+		websocketUpgradeHandler(w, r)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		ready.Store(true)
+	}()
+
+	result, err := WaitForMetroTunnel(
+		context.Background(),
+		serverPort(t, srv),
+		srv.URL,
+		time.Second,
+		25*time.Millisecond,
+	)
+	if err != nil {
+		t.Fatalf("expected tunnel to become ready, got error: %v", err)
+	}
+	if result == nil || !result.AllPassed {
+		t.Fatalf("expected passing result, got %+v", result)
+	}
+}
+
+func TestWaitForMetroTunnel_TimesOutWithFailedChecks(t *testing.T) {
+	result, err := WaitForMetroTunnel(
+		context.Background(),
+		0,
+		"http://127.0.0.1:1",
+		150*time.Millisecond,
+		25*time.Millisecond,
+	)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if result == nil {
+		t.Fatal("expected final diagnostic result on failure")
+	}
+	if !strings.Contains(err.Error(), "Tunnel HTTP") {
+		t.Fatalf("expected failed check in error, got %q", err.Error())
 	}
 }
 

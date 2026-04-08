@@ -30,7 +30,6 @@ import (
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/orgguard"
-	"github.com/revyl/cli/internal/store"
 	syncpkg "github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
 	"github.com/revyl/cli/internal/util"
@@ -295,7 +294,6 @@ type hubModel struct {
 	createModel      *createModel
 	createAppModel   *createAppModel
 	uploadBuildModel *uploadBuildModel
-	publishTFModel   *publishTestFlightModel
 }
 
 // newHubModel creates the initial hub model.
@@ -1007,9 +1005,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.currentView == viewUploadBuild && m.uploadBuildModel != nil {
 		return m.updateUploadBuild(msg)
-	}
-	if m.currentView == viewPublishTestFlight && m.publishTFModel != nil {
-		return m.updatePublishTestFlight(msg)
 	}
 
 	switch msg := msg.(type) {
@@ -2676,46 +2671,6 @@ func (m hubModel) updateUploadBuild(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updatePublishTestFlight delegates messages to the publish-testflight model.
-func (m hubModel) updatePublishTestFlight(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "esc" {
-		if m.publishTFModel != nil && !m.publishTFModel.running {
-			m.currentView = viewDashboard
-			m.publishTFModel = nil
-			return m, nil
-		}
-	}
-
-	if wsMsg, ok := msg.(tea.WindowSizeMsg); ok {
-		m.width = wsMsg.Width
-		m.height = wsMsg.Height
-	}
-
-	if m.publishTFModel != nil {
-		pm, cmd := m.publishTFModel.Update(msg)
-		publishMdl := pm.(publishTestFlightModel)
-		m.publishTFModel = &publishMdl
-
-		if m.publishTFModel.done && m.publishTFModel.runAgain {
-			cfg := loadCurrentProjectConfig()
-			m.publishTFModel = nil
-			newPM := newPublishTestFlightModel(cfg, m.width, m.height)
-			m.publishTFModel = &newPM
-			return m, m.publishTFModel.Init()
-		}
-
-		if m.publishTFModel.done && !m.publishTFModel.runAgain {
-			m.currentView = viewDashboard
-			m.publishTFModel = nil
-			return m, nil
-		}
-
-		return m, cmd
-	}
-
-	return m, nil
-}
-
 // --- Helpers ---
 
 // visibleTests returns the filtered test list, or all tests if no filter is active.
@@ -3103,10 +3058,6 @@ func (m hubModel) View() string {
 	case viewUploadBuild:
 		if m.uploadBuildModel != nil {
 			return m.uploadBuildModel.View()
-		}
-	case viewPublishTestFlight:
-		if m.publishTFModel != nil {
-			return m.publishTFModel.View()
 		}
 	case viewSettings:
 		return m.renderSettings()
@@ -4720,23 +4671,7 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			})
 		}
 
-		// Check 7: ASC credentials
-		storeMgr := store.NewManager()
-		if hasASCCredentialsInEnv() || storeMgr.ValidateIOSCredentials() == nil {
-			checks = append(checks, HealthCheck{
-				Name:    "ASC Credentials",
-				Status:  "ok",
-				Message: "ASC credentials configured",
-			})
-		} else {
-			checks = append(checks, HealthCheck{
-				Name:    "ASC Credentials",
-				Status:  "warning",
-				Message: "Not configured — use 'revyl publish auth ios'",
-			})
-		}
-
-		// Check 8: Tests configured
+		// Check 7: Tests configured
 		if cwdErr == nil {
 			testsDir := filepath.Join(cwd, ".revyl", "tests")
 			if linkedCount := config.CountLinkedTests(testsDir); linkedCount > 0 {

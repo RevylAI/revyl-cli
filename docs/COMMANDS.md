@@ -256,64 +256,6 @@ Useful companion commands:
 For Expo projects, `revyl build upload` performs an EAS auth preflight first.
 If EAS login is missing, the CLI prompts to run `npx --yes eas-cli login` (interactive TTY only), or prints the exact fix command in non-interactive environments.
 
-## iOS Publishing (TestFlight)
-
-Configure App Store Connect credentials once:
-
-```bash
-revyl publish auth ios \
-  --key-id ABC123DEF4 \
-  --issuer-id 00000000-0000-0000-0000-000000000000 \
-  --private-key ./AuthKey_ABC123DEF4.p8
-```
-
-Publish from a local IPA (upload + wait + distribute):
-
-```bash
-revyl publish testflight \
-  --ipa ./build/MyApp.ipa \
-  --app-id 6758900172 \
-  --group "Internal,External" \
-  --whats-new "Fixes login crash on iOS 18"
-```
-
-Distribute the latest processed build (no upload):
-
-```bash
-revyl publish testflight --app-id 6758900172 --group "Internal"
-```
-
-Check processing/review status:
-
-```bash
-revyl publish status --app-id 6758900172
-```
-
-CI/non-interactive mode is supported through environment variables:
-
-```bash
-export REVYL_ASC_KEY_ID=ABC123DEF4
-export REVYL_ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000
-export REVYL_ASC_PRIVATE_KEY_PATH=/secure/path/AuthKey_ABC123DEF4.p8
-# or: export REVYL_ASC_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'
-export REVYL_ASC_APP_ID=6758900172
-export REVYL_TESTFLIGHT_GROUPS="Internal,External"
-
-revyl publish testflight --ipa ./build/MyApp.ipa
-```
-
-Optional project defaults in `.revyl/config.yaml`:
-
-```yaml
-publish:
-  ios:
-    bundle_id: com.example.myapp
-    asc_app_id: "6758900172"
-    testflight_groups:
-      - Internal
-      - External
-```
-
 ## Test Management
 
 For the end-to-end CLI authoring workflow, see [Creating Tests](TEST_CREATION.md).

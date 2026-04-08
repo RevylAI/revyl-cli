@@ -1,6 +1,7 @@
 // Package main provides test variable management commands.
 //
-// Test variables use {{variable-name}} syntax in step descriptions and are
+// Test variables use {{variable-name}} or {{variable_name}} syntax in step
+// descriptions and are
 // substituted at runtime. They are distinct from app-launch environment
 // variables (revyl test env) which are encrypted and injected at app start.
 package main
@@ -27,9 +28,9 @@ var testVarCmd = &cobra.Command{
 	Short: "Manage test variables ({{name}} syntax)",
 	Long: `Manage test variables for a test.
 
-Test variables use {{variable-name}} syntax in step descriptions and are
-substituted at runtime. Variable names must be kebab-case (lowercase letters,
-numbers, hyphens).
+Test variables use {{variable-name}} or {{variable_name}} syntax in step
+descriptions and are substituted at runtime. Variable names must use letters,
+numbers, hyphens, or underscores (no spaces).
 
 These are different from env vars (revyl test env), which are encrypted and
 injected at app launch.
@@ -66,7 +67,8 @@ var testVarSetCmd = &cobra.Command{
 	Long: `Add or update a test variable for a test.
 
 If the name already exists, its value is updated. Otherwise a new variable is
-created. Variable names must be kebab-case (lowercase, numbers, hyphens).
+created. Variable names must use letters, numbers, hyphens, or underscores
+(no spaces).
 
 Value is optional -- omit the '=' to create a name-only variable (useful for
 extraction blocks that fill the value at runtime).
@@ -158,25 +160,25 @@ func varSetupClientDefault(cmd *cobra.Command, testNameOrID string) (string, *ap
 	return testID, client, nil
 }
 
-// isKebabCase validates that a variable name follows kebab-case convention.
+// isValidVariableName validates the CLI variable naming rule.
 //
 // Parameters:
 //   - name: The variable name to validate
 //
 // Returns:
-//   - bool: True if the name is valid kebab-case
-func isKebabCase(name string) bool {
+//   - bool: True if the name is valid
+func isValidVariableName(name string) bool {
 	if name == "" {
 		return false
 	}
-	if name[0] == '-' || name[len(name)-1] == '-' {
+	if name[0] == '-' || name[0] == '_' || name[len(name)-1] == '-' || name[len(name)-1] == '_' {
 		return false
 	}
 	for i, c := range name {
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
 			return false
 		}
-		if c == '-' && i > 0 && name[i-1] == '-' {
+		if (c == '-' || c == '_') && i > 0 && (name[i-1] == '-' || name[i-1] == '_') {
 			return false
 		}
 	}
@@ -253,8 +255,8 @@ func runTestVarSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("empty variable name")
 	}
 
-	if !isKebabCase(name) {
-		ui.PrintError("Invalid variable name '%s': must be kebab-case (lowercase letters, numbers, hyphens)", name)
+	if !isValidVariableName(name) {
+		ui.PrintError("Invalid variable name '%s': must use letters, numbers, hyphens, or underscores", name)
 		return fmt.Errorf("invalid variable name")
 	}
 
@@ -402,8 +404,8 @@ func runTestVarRename(cmd *cobra.Command, args []string) error {
 	oldName := args[1]
 	newName := args[2]
 
-	if !isKebabCase(newName) {
-		ui.PrintError("Invalid new name '%s': must be kebab-case (lowercase letters, numbers, hyphens)", newName)
+	if !isValidVariableName(newName) {
+		ui.PrintError("Invalid new name '%s': must use letters, numbers, hyphens, or underscores", newName)
 		return fmt.Errorf("invalid variable name")
 	}
 

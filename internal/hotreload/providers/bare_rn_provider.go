@@ -22,8 +22,8 @@ func init() {
 //   - Absence of "expo" in package.json dependencies (Expo projects use ExpoProvider)
 //
 // Confidence is 0.8 -- lower than Expo (0.9) to avoid conflicts, but higher
-// than Android (0.6) and Swift (0.7) since RN projects always contain
-// android/ and ios/ directories.
+// than Android (0.6) and Swift (0.7) because bare RN projects usually expose
+// React Native-specific tooling even when one native platform is incomplete.
 type BareRNProvider struct{}
 
 // Name returns the unique identifier for this provider.
@@ -91,6 +91,12 @@ func (p *BareRNProvider) Detect(dir string) (*hotreload.DetectionResult, error) 
 	}
 	if _, err := os.Stat(filepath.Join(dir, "react-native.config.ts")); err == nil {
 		indicators = append(indicators, "react-native.config.ts")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "android")); err == nil {
+		indicators = append(indicators, "android/")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ios")); err == nil {
+		indicators = append(indicators, "ios/")
 	}
 
 	return &hotreload.DetectionResult{

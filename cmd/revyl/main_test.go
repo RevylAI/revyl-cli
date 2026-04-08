@@ -84,6 +84,14 @@ func TestSubcommandsHaveShortDescription(t *testing.T) {
 	}
 }
 
+func TestPublishCommandRemoved(t *testing.T) {
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "publish" {
+			t.Fatal("expected publish command to be removed")
+		}
+	}
+}
+
 func TestResolveCLIVersionFromCandidates_UsesInjectedVersion(t *testing.T) {
 	got := resolveCLIVersionFromCandidates("1.2.3", []string{"/tmp/does-not-exist"})
 	if got != "1.2.3" {

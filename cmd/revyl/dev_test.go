@@ -166,7 +166,7 @@ func TestPrintDevReadyFooter_PrintsInteractionShortcuts(t *testing.T) {
 	})
 
 	output := captureStdoutAndStderr(t, func() {
-		printDevReadyFooter("https://viewer.example", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false)
+		printDevReadyFooter("https://viewer.example", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false, false)
 	})
 
 	for _, expected := range []string{
@@ -202,7 +202,7 @@ func TestPrintDevReadyFooter_QuietModeSuppressesInteractionHints(t *testing.T) {
 	})
 
 	output := captureStdout(t, func() {
-		printDevReadyFooter("https://viewer.example", "nof1://example", false)
+		printDevReadyFooter("https://viewer.example", "nof1://example", false, false)
 	})
 
 	if strings.Contains(output, "Try device interactions:") {
@@ -213,6 +213,42 @@ func TestPrintDevReadyFooter_QuietModeSuppressesInteractionHints(t *testing.T) {
 	}
 	if strings.Contains(output, "revyl device screenshot") {
 		t.Fatalf("output unexpectedly contains screenshot shortcut in quiet mode:\n%s", output)
+	}
+}
+
+func TestPrintDevReadyFooter_BareRN_ShowsTunnelURLInsteadOfDeepLink(t *testing.T) {
+	ui.SetQuietMode(false)
+	t.Cleanup(func() {
+		ui.SetQuietMode(false)
+	})
+
+	output := captureStdoutAndStderr(t, func() {
+		printDevReadyFooter("https://viewer.example", "https://abc-def.trycloudflare.com", false, true)
+	})
+
+	if !strings.Contains(output, "Tunnel URL:") {
+		t.Fatalf("output missing 'Tunnel URL:' for bare RN footer\noutput:\n%s", output)
+	}
+	if strings.Contains(output, "Deep Link:") {
+		t.Fatalf("output unexpectedly contains 'Deep Link:' for bare RN footer\noutput:\n%s", output)
+	}
+}
+
+func TestPrintDevReadyFooter_Expo_ShowsDeepLink(t *testing.T) {
+	ui.SetQuietMode(false)
+	t.Cleanup(func() {
+		ui.SetQuietMode(false)
+	})
+
+	output := captureStdoutAndStderr(t, func() {
+		printDevReadyFooter("https://viewer.example", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false, false)
+	})
+
+	if !strings.Contains(output, "Deep Link:") {
+		t.Fatalf("output missing 'Deep Link:' for Expo footer\noutput:\n%s", output)
+	}
+	if strings.Contains(output, "Tunnel URL:") {
+		t.Fatalf("output unexpectedly contains 'Tunnel URL:' for Expo footer\noutput:\n%s", output)
 	}
 }
 

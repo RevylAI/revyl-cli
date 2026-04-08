@@ -222,6 +222,31 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 	// 7. Start health monitor for automatic tunnel reconnection
 	tunnel.StartHealthMonitor(ctx)
 
+	if m.providerName == "react-native" {
+		m.log("Waiting for Metro tunnel to become externally reachable...")
+		if _, err := WaitForMetroTunnel(
+			ctx,
+			devServer.GetPort(),
+			tunnelInfo.PublicURL,
+			metroTunnelReadyTimeout,
+			metroTunnelReadyPollInterval,
+		); err != nil {
+			if m.tunnel != nil {
+				_ = m.tunnel.Stop()
+				m.tunnel = nil
+			}
+			if m.devServer != nil {
+				_ = m.devServer.Stop()
+				m.devServer = nil
+			}
+			return nil, fmt.Errorf(
+				"Metro tunnel is not externally reachable yet; launching the bare React Native app would likely show a white screen: %w",
+				err,
+			)
+		}
+		m.log("Metro tunnel is reachable")
+	}
+
 	// 8. Construct deep link URL
 	deepLinkURL := devServer.GetDeepLinkURL(tunnelInfo.PublicURL)
 

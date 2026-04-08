@@ -108,28 +108,6 @@ revyl workflow report smoke-tests --json
 
 ---
 
-## TestFlight Publishing from CI
-
-Publish to TestFlight without interactive prompts using environment variables:
-
-```bash
-export REVYL_ASC_KEY_ID=ABC123DEF4
-export REVYL_ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000
-export REVYL_ASC_PRIVATE_KEY_PATH=/secure/path/AuthKey_ABC123DEF4.p8
-export REVYL_ASC_APP_ID=6758900172
-export REVYL_TESTFLIGHT_GROUPS="Internal,External"
-
-revyl publish testflight --ipa ./build/MyApp.ipa
-```
-
-Or pass the key content directly (useful in CI where file paths are ephemeral):
-
-```bash
-export REVYL_ASC_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'
-```
-
----
-
 ## Environment Variables
 
 | Variable | Description |
@@ -138,11 +116,5 @@ export REVYL_ASC_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE
 | `REVYL_BACKEND_URL` | Override the backend URL (for staging/preview environments) |
 | `REVYL_APP_URL` | Override the frontend app URL |
 | `REVYL_PROJECT_DIR` | Override the project directory for MCP |
-| `REVYL_ASC_KEY_ID` | App Store Connect API key ID (TestFlight) |
-| `REVYL_ASC_ISSUER_ID` | App Store Connect issuer ID (TestFlight) |
-| `REVYL_ASC_PRIVATE_KEY_PATH` | Path to App Store Connect private key file |
-| `REVYL_ASC_PRIVATE_KEY` | App Store Connect private key content (alternative to path) |
-| `REVYL_ASC_APP_ID` | App Store Connect app ID |
-| `REVYL_TESTFLIGHT_GROUPS` | Comma-separated TestFlight group names |
 
 Note: there is no `REVYL_DEBUG` environment variable. Use the `--debug` CLI flag instead.

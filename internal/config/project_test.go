@@ -539,3 +539,43 @@ func TestWriteLoadProjectConfig_HotReloadExpoRoundTrip(t *testing.T) {
 		t.Fatalf("loaded expo android platform key = %q, want android-dev", got)
 	}
 }
+
+func TestLoadProjectConfig_IgnoresLegacyPublishBlock(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	raw := `project:
+  name: legacy-app
+build:
+  system: Expo
+publish:
+  ios:
+    bundle_id: com.example.legacy
+    asc_app_id: "6758900172"
+  android:
+    package_name: com.example.legacy
+    track: internal
+`
+	if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := LoadProjectConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig() error = %v", err)
+	}
+
+	if cfg.Project.Name != "legacy-app" {
+		t.Fatalf("loaded project name = %q, want legacy-app", cfg.Project.Name)
+	}
+
+	if err := WriteProjectConfig(configPath, cfg); err != nil {
+		t.Fatalf("WriteProjectConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if strings.Contains(string(data), "\npublish:") {
+		t.Fatalf("expected legacy publish block to be dropped on write, got:\n%s", string(data))
+	}
+}

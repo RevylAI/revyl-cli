@@ -80,6 +80,9 @@ type BuildPlatform struct {
 
 	// Output is the expected output path for this platform.
 	Output string
+
+	// IncompleteReason explains why the platform was detected but is not yet buildable.
+	IncompleteReason string
 }
 
 // Detect attempts to detect the build system in the given directory.
@@ -224,22 +227,154 @@ func detectReactNative(dir string) (*DetectedBuild, error) {
 		Platforms: make(map[string]BuildPlatform),
 	}
 
-	// iOS build (using xcodebuild)
-	detected.Platforms["ios"] = BuildPlatform{
-		Command: "cd ios && xcodebuild -workspace *.xcworkspace -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build",
-		Output:  "ios/build/Build/Products/Debug-iphonesimulator/*.app",
+	if iosPlatform, ok := detectReactNativeIOSBuildPlatform(dir); ok {
+		detected.Platforms["ios"] = iosPlatform
+	} else if placeholderPlatform, ok := detectReactNativeIOSPlaceholderPlatform(dir); ok {
+		detected.Platforms["ios"] = placeholderPlatform
 	}
 
-	// Android build (using Gradle)
-	detected.Platforms["android"] = BuildPlatform{
-		Command: "cd android && ./gradlew assembleDebug",
-		Output:  "android/app/build/outputs/apk/debug/app-debug.apk",
+	if androidPlatform, ok := detectReactNativeAndroidBuildPlatform(dir); ok {
+		detected.Platforms["android"] = androidPlatform
 	}
 
-	detected.Command = detected.Platforms["android"].Command
-	detected.Output = detected.Platforms["android"].Output
+	if androidPlatform, ok := detected.Platforms["android"]; ok && strings.TrimSpace(androidPlatform.Command) != "" {
+		detected.Command = androidPlatform.Command
+		detected.Output = androidPlatform.Output
+	} else if iosPlatform, ok := detected.Platforms["ios"]; ok && strings.TrimSpace(iosPlatform.Command) != "" {
+		detected.Command = iosPlatform.Command
+		detected.Output = iosPlatform.Output
+	}
 
 	return detected, nil
+}
+
+// detectReactNativeIOSBuildPlatform returns the buildable iOS platform for a React Native project.
+//
+// Parameters:
+//   - dir: The React Native project directory to inspect
+//
+// Returns:
+//   - BuildPlatform: The resolved iOS build command and output path
+//   - bool: True when a concrete Xcode workspace or project was found
+func detectReactNativeIOSBuildPlatform(dir string) (BuildPlatform, bool) {
+	workspaceName := findXcodeWorkspace(dir)
+	if strings.TrimSpace(workspaceName) != "" {
+		return buildReactNativeIOSPlatform(workspaceName, true, false), true
+	}
+
+	projectName := findXcodeProject(dir)
+	if strings.TrimSpace(projectName) != "" {
+		podfilePath := filepath.Join(dir, "ios", "Podfile")
+		return buildReactNativeIOSPlatform(projectName, false, fileExists(podfilePath)), true
+	}
+
+	return BuildPlatform{}, false
+}
+
+// detectReactNativeIOSPlaceholderPlatform returns a placeholder iOS platform for incomplete native setups.
+//
+// Parameters:
+//   - dir: The React Native project directory to inspect
+//
+// Returns:
+//   - BuildPlatform: Placeholder platform metadata with an incomplete reason
+//   - bool: True when an ios/ directory exists but no Xcode project/workspace is buildable yet
+func detectReactNativeIOSPlaceholderPlatform(dir string) (BuildPlatform, bool) {
+	iosDir := filepath.Join(dir, "ios")
+	if !DirExists(iosDir) {
+		return BuildPlatform{}, false
+	}
+
+	return BuildPlatform{
+		IncompleteReason: "ios/ exists, but no .xcodeproj or .xcworkspace is present yet",
+	}, true
+}
+
+// detectReactNativeAndroidBuildPlatform returns the buildable Android platform for a React Native project.
+//
+// Parameters:
+//   - dir: The React Native project directory to inspect
+//
+// Returns:
+//   - BuildPlatform: The resolved Android build command and output path
+//   - bool: True when the expected Android Gradle structure exists
+func detectReactNativeAndroidBuildPlatform(dir string) (BuildPlatform, bool) {
+	if !hasReactNativeAndroidProject(dir) {
+		return BuildPlatform{}, false
+	}
+
+	return BuildPlatform{
+		Command: "cd android && ./gradlew assembleDebug",
+		Output:  "android/app/build/outputs/apk/debug/app-debug.apk",
+	}, true
+}
+
+// buildReactNativeIOSPlatform builds the iOS command/output pair for a React Native project.
+//
+// Parameters:
+//   - projectRef: Relative path to the Xcode workspace or project
+//   - useWorkspace: True when projectRef points to an .xcworkspace, false for .xcodeproj
+//   - installPodsIfNeeded: True when the command should bootstrap CocoaPods before building
+//
+// Returns:
+//   - BuildPlatform: A buildable iOS platform configuration
+func buildReactNativeIOSPlatform(projectRef string, useWorkspace bool, installPodsIfNeeded bool) BuildPlatform {
+	buildFlag := "-workspace"
+	if !useWorkspace {
+		buildFlag = "-project"
+	}
+
+	ref := strings.TrimSpace(projectRef)
+	outputPath := "ios/build/Build/Products/Debug-iphonesimulator/*.app"
+	if strings.HasPrefix(ref, "ios/") {
+		refBase := filepath.Base(ref)
+		if !useWorkspace && installPodsIfNeeded {
+			workspaceName := strings.TrimSuffix(refBase, filepath.Ext(refBase)) + ".xcworkspace"
+			return BuildPlatform{
+				Command: "cd ios && if [ ! -d Pods ] || [ ! -d " + workspaceName + " ]; then pod install; fi && xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build",
+				Output:  outputPath,
+			}
+		}
+		return BuildPlatform{
+			Command: "cd ios && xcodebuild " + buildFlag + " " + refBase + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build",
+			Output:  outputPath,
+		}
+	}
+
+	return BuildPlatform{
+		Command: "xcodebuild " + buildFlag + " " + ref + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath ios/build",
+		Output:  outputPath,
+	}
+}
+
+// hasReactNativeAndroidProject checks whether a React Native project has a usable Android Gradle layout.
+//
+// Parameters:
+//   - dir: The React Native project directory to inspect
+//
+// Returns:
+//   - bool: True when Android build files exist under android/
+func hasReactNativeAndroidProject(dir string) bool {
+	androidDir := filepath.Join(dir, "android")
+	if !DirExists(androidDir) {
+		return false
+	}
+
+	candidateFiles := []string{
+		filepath.Join(androidDir, "app", "build.gradle"),
+		filepath.Join(androidDir, "app", "build.gradle.kts"),
+		filepath.Join(androidDir, "build.gradle"),
+		filepath.Join(androidDir, "build.gradle.kts"),
+		filepath.Join(androidDir, "settings.gradle"),
+		filepath.Join(androidDir, "settings.gradle.kts"),
+	}
+	for _, candidate := range candidateFiles {
+		if fileExists(candidate) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // detectFlutter returns build configuration for a Flutter project.
