@@ -36,6 +36,9 @@ EXAMPLES:
   revyl schema --format markdown  # Markdown docs
   revyl schema --format llm       # LLM-optimized single file
   revyl schema > cli-schema.json  # Save to file`,
+	Example: `  revyl schema
+  revyl schema --format llm
+  revyl schema --format markdown`,
 	RunE: runSchema,
 }
 

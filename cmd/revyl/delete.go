@@ -494,7 +494,7 @@ func resolveTestNameOrID(ctx context.Context, client *api.Client, cfg *config.Pr
 		}
 	}
 
-	return "", "", fmt.Errorf("test \"%s\" not found", nameOrID)
+	return "", "", fmt.Errorf("test \"%s\" not found. Run: revyl test list", nameOrID)
 }
 
 // fileExists checks if a file exists.

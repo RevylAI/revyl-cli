@@ -53,7 +53,7 @@ var quickActions = []quickAction{
 	{Label: "Browse modules", Key: "modules", Desc: "View reusable test modules", RequiresAuth: true},
 	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels", RequiresAuth: true},
 	{Label: "Device sessions", Key: "devices", Desc: "Start, view, and stop cloud devices", RequiresAuth: true},
-	{Label: "Start Hot Reload Dev Loop", Key: "dev_loop", Desc: "Start revyl dev: hot reload + live cloud device", RequiresAuth: true},
+	{Label: "Start Dev Loop", Key: "dev_loop", Desc: "Start revyl dev: hot reload + rebuild on cloud device", RequiresAuth: true},
 	{Label: "Settings", Key: "settings", Desc: "View and edit project defaults", RequiresAuth: false},
 	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard", RequiresAuth: false},
 }
@@ -2225,8 +2225,8 @@ func validateDevLoopPrereqs() error {
 	if cfg == nil {
 		return fmt.Errorf("project not initialized — run 'revyl init' first")
 	}
-	if !cfg.HotReload.IsConfigured() {
-		return fmt.Errorf("hot reload is not configured — run 'revyl init --hotreload'")
+	if !cfg.HotReload.IsConfigured() && len(cfg.Build.Platforms) == 0 {
+		return fmt.Errorf("dev loop is not configured — run 'revyl init' first")
 	}
 	return nil
 }

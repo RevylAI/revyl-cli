@@ -6699,6 +6699,32 @@ type SeatCheckResponse struct {
 	UserBackfillStatus *[]UserBackfillStatus `json:"user_backfill_status,omitempty"`
 }
 
+// SessionArtifactUploadRequest Request body for generating an ephemeral artifact upload URL.
+//
+// Params:
+//
+//	file_size: Size of the artifact in bytes. Must be <= 100 MB.
+//	content_type: MIME type of the artifact. Defaults to application/zip.
+type SessionArtifactUploadRequest struct {
+	ContentType *string `json:"content_type,omitempty"`
+	FileSize    int     `json:"file_size"`
+}
+
+// SessionArtifactUploadResponse Presigned URLs for uploading and downloading an ephemeral artifact.
+//
+// Params:
+//
+//	upload_url: Presigned PUT URL for uploading the artifact to S3.
+//	download_url: Presigned GET URL the worker uses to fetch the artifact.
+//	s3_key: The S3 object key for the uploaded artifact.
+//	expires_in: Upload URL expiry in seconds.
+type SessionArtifactUploadResponse struct {
+	DownloadUrl string `json:"download_url"`
+	ExpiresIn   int    `json:"expires_in"`
+	S3Key       string `json:"s3_key"`
+	UploadUrl   string `json:"upload_url"`
+}
+
 // SessionStatus Device session status - the single source of truth for test execution state.
 //
 // Matches the session_status enum in the database.
@@ -10774,6 +10800,9 @@ type UpdateDeviceSessionByWorkflowRunIdApiV1ExecutionDeviceSessionsByWorkflowRun
 
 // UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatchJSONRequestBody defines body for UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatch for application/json ContentType.
 type UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatchJSONRequestBody = DeviceSessionUpdate
+
+// CreateSessionArtifactUploadUrlApiV1ExecutionDeviceSessionsSessionIdArtifactsUploadUrlPostJSONRequestBody defines body for CreateSessionArtifactUploadUrlApiV1ExecutionDeviceSessionsSessionIdArtifactsUploadUrlPost for application/json ContentType.
+type CreateSessionArtifactUploadUrlApiV1ExecutionDeviceSessionsSessionIdArtifactsUploadUrlPostJSONRequestBody = SessionArtifactUploadRequest
 
 // GroundElementApiV1ExecutionGroundPostJSONRequestBody defines body for GroundElementApiV1ExecutionGroundPost for application/json ContentType.
 type GroundElementApiV1ExecutionGroundPostJSONRequestBody = GroundRequest

@@ -69,6 +69,8 @@ OUTPUT:
 EXAMPLES:
   revyl doctor              # Run all checks
   revyl doctor --json       # Output as JSON for scripting`,
+	Example: `  revyl doctor
+  revyl doctor --json`,
 	RunE: runDoctor,
 }
 
@@ -84,7 +86,8 @@ and reports the response time.
 EXAMPLES:
   revyl ping           # Test production API
   revyl ping --dev     # Test local development API`,
-	RunE: runPing,
+	Example: `  revyl ping`,
+	RunE:    runPing,
 }
 
 func init() {

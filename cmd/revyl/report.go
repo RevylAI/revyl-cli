@@ -62,6 +62,10 @@ Examples:
   revyl test report login-flow --share   # Include shareable link
   revyl test report login-flow --no-steps # Summary only
   revyl test report <task-uuid>          # Report by task ID`,
+	Example: `  revyl test report login-flow
+  revyl test report login-flow --json
+  revyl test report login-flow --share
+  revyl test report login-flow --no-steps`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestReport,
 }
@@ -78,6 +82,8 @@ Examples:
   revyl test share login-flow
   revyl test share login-flow --json
   revyl test share <task-uuid> --open`,
+	Example: `  revyl test share login-flow
+  revyl test share login-flow --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestShare,
 }

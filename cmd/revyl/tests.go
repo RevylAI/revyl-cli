@@ -70,6 +70,8 @@ Shows sync status:
   outdated    - Remote has changes not pulled
   local-only  - Test exists only locally
   remote-only - Test exists only on remote`,
+	Example: `  revyl test list
+  revyl test list --json`,
 	RunE: runTestsList,
 }
 
@@ -86,6 +88,10 @@ Examples:
   revyl test push              # Push all modified tests
   revyl test push login-flow   # Push specific test
   revyl test push --force      # Force overwrite remote`,
+	Example: `  revyl test push
+  revyl test push login-flow
+  revyl test push login-flow --force
+  revyl test push --dry-run`,
 	RunE: runTestsPush,
 }
 
@@ -106,16 +112,21 @@ Examples:
   revyl test pull login-flow   # Pull specific test
   revyl test pull --all        # Pull all org tests (including remote-only)
   revyl test pull --force      # Force overwrite local`,
+	Example: `  revyl test pull
+  revyl test pull login-flow
+  revyl test pull --all
+  revyl test pull --force`,
 	RunE: runTestsPull,
 }
 
 // testsDiffCmd shows diff between local and remote.
 var testsDiffCmd = &cobra.Command{
-	Use:   "diff <name>",
-	Short: "Show diff between local and remote",
-	Long:  `Show the differences between local and remote versions of a test.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTestsDiff,
+	Use:     "diff <name>",
+	Short:   "Show diff between local and remote",
+	Long:    `Show the differences between local and remote versions of a test.`,
+	Example: `  revyl test diff login-flow`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runTestsDiff,
 }
 
 // testsRemoteCmd lists all tests in the organization.

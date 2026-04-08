@@ -111,14 +111,17 @@ EXAMPLES:
   revyl auth login            # Browser-based login (recommended)
   revyl auth login --api-key  # Manual API key entry
   revyl auth status           # Check authentication status`,
+	Example: `  revyl auth login
+  revyl auth login --api-key=rk_xxx
+  revyl auth login --api-key
+  REVYL_API_KEY=rk_xxx revyl auth status`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ui.PrintBanner(version)
 
-		// Get flags
-		useAPIKey, _ := cmd.Flags().GetBool("api-key")
+		apiKeyValue, _ := cmd.Flags().GetString("api-key")
+		useAPIKey := cmd.Flags().Changed("api-key")
 		devMode, _ := cmd.Flags().GetBool("dev")
 
-		// Check if already authenticated
 		mgr := auth.NewManager()
 		creds, err := mgr.GetCredentials()
 		if err == nil && creds != nil && creds.HasValidAuth() {
@@ -136,7 +139,7 @@ EXAMPLES:
 		}
 
 		if useAPIKey {
-			return loginWithAPIKey(cmd, mgr, devMode)
+			return loginWithAPIKey(cmd, mgr, devMode, apiKeyValue)
 		}
 		return loginWithBrowser(cmd, mgr, devMode)
 	},
@@ -280,10 +283,11 @@ func loginWithBrowser(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error
 //   - cmd: The cobra command (for context)
 //   - mgr: The auth manager for storing credentials
 //   - devMode: Whether to use local development URLs
+//   - providedKey: API key value from --api-key=<value>; empty or "prompt" triggers interactive prompt
 //
 // Returns:
 //   - error: Any error that occurred during authentication
-func loginWithAPIKey(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error {
+func loginWithAPIKey(cmd *cobra.Command, mgr *auth.Manager, devMode bool, providedKey string) error {
 	ui.PrintInfo("Authenticate with API Key")
 	ui.Println()
 
@@ -291,10 +295,13 @@ func loginWithAPIKey(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error 
 		ui.PrintInfo("Using local development server")
 	}
 
-	// Prompt for API key
-	apiKey, err := ui.Prompt("Enter your API key:")
-	if err != nil {
-		return err
+	apiKey := providedKey
+	if apiKey == "" || apiKey == "prompt" {
+		var err error
+		apiKey, err = ui.Prompt("Enter your API key:")
+		if err != nil {
+			return err
+		}
 	}
 
 	if apiKey == "" {
@@ -681,8 +688,8 @@ EXAMPLES:
 }
 
 func init() {
-	// Add --api-key flag to login command
-	authLoginCmd.Flags().Bool("api-key", false, "Use API key authentication instead of browser")
+	authLoginCmd.Flags().String("api-key", "", "API key for headless auth (omit value to be prompted)")
+	authLoginCmd.Flags().Lookup("api-key").NoOptDefVal = "prompt"
 
 	authCmd.AddCommand(authLoginCmd)
 	authCmd.AddCommand(authLogoutCmd)

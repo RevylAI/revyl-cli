@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -19,8 +21,10 @@ import (
 	"golang.org/x/term"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/devpush"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
 	mcppkg "github.com/revyl/cli/internal/mcp"
@@ -52,6 +56,10 @@ starts hot reload, provisions a cloud device, installs the latest
 dev build, and opens a live viewer.
 
 On first run, auto-configures dev mode if not already set up.`,
+	Example: `  revyl dev
+  revyl dev --platform ios
+  revyl dev --platform android --no-open
+  revyl dev --build --platform ios`,
 	RunE: runDevStart,
 }
 
@@ -102,11 +110,35 @@ var devTestCreateCmd = &cobra.Command{
 	},
 }
 
+var (
+	rebuildWait    bool
+	rebuildTimeout int
+	rebuildJSON    bool
+)
+
 var devRebuildCmd = &cobra.Command{
 	Use:   "rebuild",
 	Short: "Trigger a rebuild in a running dev session",
-	Long:  "Send a rebuild signal to a running `revyl dev` process.\nFor use by agents, automation, and MCP tools.",
-	RunE:  runDevRebuild,
+	Long: `Send a rebuild signal to a running revyl dev process.
+For use by agents, automation, and MCP tools.
+
+With --wait, blocks until the rebuild completes and reports the result.
+With --json, outputs machine-readable status (implies --wait).`,
+	Example: `  revyl dev rebuild
+  revyl dev rebuild --wait
+  revyl dev rebuild --wait --json
+  revyl dev rebuild --wait --timeout 60`,
+	RunE: runDevRebuild,
+}
+
+var devStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Check dev session state",
+	Long:  "Report whether a dev session is running and its current state.\nAlways outputs JSON.",
+	Example: `  revyl dev status
+  revyl dev status | jq .running
+  revyl dev status | jq .last_rebuild_status`,
+	RunE: runDevStatus,
 }
 
 func init() {
@@ -115,7 +147,12 @@ func init() {
 
 	devCmd.AddCommand(devStartCmd)
 	devCmd.AddCommand(devRebuildCmd)
+	devCmd.AddCommand(devStatusCmd)
 	devCmd.AddCommand(devTestCmd)
+
+	devRebuildCmd.Flags().BoolVar(&rebuildWait, "wait", false, "Block until rebuild completes")
+	devRebuildCmd.Flags().IntVar(&rebuildTimeout, "timeout", 120, "Timeout in seconds (with --wait)")
+	devRebuildCmd.Flags().BoolVar(&rebuildJSON, "json", false, "Output result as JSON (implies --wait)")
 
 	devTestCmd.AddCommand(devTestRunCmd)
 	devTestCmd.AddCommand(devTestOpenCmd)
@@ -552,12 +589,11 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		if isUserCanceled(err) {
 			return nil
 		}
-		ui.PrintDebug("install HTTP error: %v", err)
-		return fmt.Errorf("device started but app install failed: %w", err)
+		return fmt.Errorf("device started but app install failed: %w\nhint: try re-running with --build to force a fresh build+upload", err)
 	}
 	ui.PrintDebug("install worker response: %s", string(installRespBody))
 	if err := ensureWorkerActionSucceeded(installRespBody, "install"); err != nil {
-		return fmt.Errorf("device started but app install failed: %w", err)
+		return fmt.Errorf("device started but app install failed: %w\nhint: try re-running with --build to force a fresh build+upload", err)
 	}
 
 	bundleID := strings.TrimSpace(buildDetail.PackageName)
@@ -614,15 +650,11 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	viewerURL := session.ViewerURL
-	if devMode {
-		viewerURL = strings.Replace(viewerURL, "https://app.revyl.ai", "http://localhost:3000", 1)
-	}
-	reportURL := fmt.Sprintf("%s/tests/report?sessionId=%s", config.GetAppURL(devMode), session.SessionID)
-	printDevReadyFooter(viewerURL, reportURL, startResult.DeepLinkURL, manualDeepLinkRequired)
+	viewerURL := devSessionViewerURL(session, devMode)
+	printDevReadyFooter(viewerURL, startResult.DeepLinkURL, manualDeepLinkRequired)
 
 	if openBrowser {
-		_ = ui.OpenBrowser(reportURL)
+		_ = ui.OpenBrowser(viewerURL)
 	}
 
 	pidPath := filepath.Join(cwd, ".revyl", ".dev.pid")
@@ -638,12 +670,29 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// The worker's idle timer is the authoritative source of truth.
 	deviceMgr.StopIdleTimer(session.Index)
 
+	// Delta push setup for native rebuild fast path.
+	hrTransport := devpush.NewTransport(client, deviceMgr)
+	hrManifestPath := filepath.Join(cwd, ".revyl", ".dev-push-manifest.json")
+	hrStatusPath := filepath.Join(cwd, ".revyl", ".dev-status.json")
+	hrCachedManifest, manifestLoadErr := build.LoadManifest(hrManifestPath)
+	if manifestLoadErr != nil {
+		ui.PrintDim("  Could not load cached manifest: %v", manifestLoadErr)
+	}
+	var hrBgUploadCancel context.CancelFunc
+	defer func() {
+		if hrBgUploadCancel != nil {
+			hrBgUploadCancel()
+		}
+	}()
+	hrRebuildCount := 0
+
 	// Event loop: session liveness + [r]/SIGUSR1 rebuild + [q] quit.
-	stdinKeys, restoreTerminal := readStdinKeys(ctx)
+	stdinKeys, restoreTerminal, keybindsEnabled := readStdinKeys(ctx)
 	defer restoreTerminal()
 	ticker := time.NewTicker(defaultDevSessionPollInterval)
 	defer ticker.Stop()
 
+	var lastRebuildStart time.Time
 	for {
 		var doRebuild bool
 		select {
@@ -676,77 +725,74 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		rebuildStart := time.Now()
+		if !lastRebuildStart.IsZero() && time.Since(lastRebuildStart) < rebuildCooldown {
+			drainStdinKeys(stdinKeys)
+			continue
+		}
+		lastRebuildStart = time.Now()
+
+		hrRebuildCount++
+		result := devBuildAndDeltaPush(ctx, cancel, cmd, cfg, configPath, apiKey, platformKey, devicePlatform,
+			bundleID, session, deviceMgr, client, hrTransport, hrCachedManifest, hrManifestPath, cwd)
+
+		drainStdinKeys(stdinKeys)
+
+		writeDevStatus(hrStatusPath, session, viewerURL, devicePlatform, hrRebuildCount, hrCachedManifest != nil, result)
+
+		if result.buildErr != nil {
+			ui.PrintWarning("Rebuild failed: %v", result.buildErr)
+			if keybindsEnabled {
+				ui.PrintDim("  [r] retry rebuild    [q] quit")
+			}
+			continue
+		}
+		if result.pushErr != nil {
+			ui.PrintWarning("Push failed: %v", result.pushErr)
+			if keybindsEnabled {
+				ui.PrintDim("  [r] retry rebuild    [q] quit")
+			}
+			continue
+		}
+
+		if result.skipped {
+			ui.PrintInfo("No changes detected — skipping push")
+			if keybindsEnabled {
+				ui.PrintDim("  [r] rebuild    [q] quit")
+			}
+			continue
+		}
+
+		hrCachedManifest = result.manifest
+		if result.newBundleID != "" {
+			bundleID = result.newBundleID
+		}
+
+		elapsed := formatProgressDuration(result.elapsed)
+		timingSummary := formatRebuildTimingSummary(result)
+		if result.dataPreserved {
+			ui.PrintSuccess("Rebuilt (%s) - %s", elapsed, timingSummary)
+			ui.PrintDim("  App data preserved")
+		} else {
+			ui.PrintSuccess("Rebuilt + reinstalled (%s) - %s", elapsed, timingSummary)
+			if devicePlatform == "ios" {
+				ui.PrintDim("  Note: iOS reinstalls clear app data")
+			}
+		}
+
+		if result.usedDelta {
+			ui.PrintDim("  ↻ Background: build uploaded to cloud")
+			if hrBgUploadCancel != nil {
+				hrBgUploadCancel()
+			}
+			bgCtx, bgCancel := context.WithCancel(context.Background())
+			hrBgUploadCancel = bgCancel
+			go backgroundUploadBuild(bgCtx, client, cfg, platformKey, cwd, hrStatusPath)
+		}
+
 		ui.Println()
-		ui.PrintInfo("Rebuilding native binary (%s)...", platformKey)
-
-		rebuildCtx, rebuildCancel := context.WithCancel(ctx)
-		go monitorSessionDuringRebuild(rebuildCtx, deviceMgr, session, cancel)
-
-		if err := runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platformKey); err != nil {
-			rebuildCancel()
-			ui.PrintWarning("Rebuild failed: %v", err)
-			ui.PrintDim("  [r] retry rebuild    [q] quit")
-			continue
+		if keybindsEnabled {
+			ui.PrintDim("  [r] rebuild    [q] quit")
 		}
-		rebuildCancel()
-		if ctx.Err() != nil {
-			return nil
-		}
-
-		newCfg, loadErr := config.LoadProjectConfig(configPath)
-		if loadErr != nil {
-			ui.PrintWarning("Could not reload config: %v", loadErr)
-			ui.PrintDim("  [r] retry rebuild    [q] quit")
-			continue
-		}
-		cfg = newCfg
-		plat, ok := cfg.Build.Platforms[platformKey]
-		if !ok {
-			ui.PrintWarning("Platform %q missing from config after rebuild", platformKey)
-			ui.PrintDim("  [r] retry rebuild    [q] quit")
-			continue
-		}
-		selectedAppID = strings.TrimSpace(plat.AppID)
-
-		lv, lvErr := client.GetLatestBuildVersion(ctx, selectedAppID)
-		if lvErr != nil || lv == nil {
-			ui.PrintWarning("Could not resolve rebuilt version: %v", lvErr)
-			continue
-		}
-		bd, bdErr := client.GetBuildVersionDownloadURL(ctx, lv.ID)
-		if bdErr != nil {
-			ui.PrintWarning("Could not get download URL: %v", bdErr)
-			continue
-		}
-
-		reinstallBody := map[string]string{"app_url": strings.TrimSpace(bd.DownloadURL)}
-		if bundleID != "" {
-			reinstallBody["bundle_id"] = bundleID
-		}
-		resp, installErr := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", reinstallBody)
-		if installErr != nil {
-			ui.PrintWarning("Reinstall failed: %v", installErr)
-			continue
-		}
-		if err := ensureWorkerActionSucceeded(resp, "install"); err != nil {
-			ui.PrintWarning("Reinstall failed: %v", err)
-			continue
-		}
-		if newBundleID := extractInstallBundleID(resp); newBundleID != "" {
-			bundleID = newBundleID
-		}
-		if bundleID != "" {
-			_, _ = deviceMgr.WorkerRequestForSession(ctx, session.Index, "/launch", map[string]string{"bundle_id": bundleID})
-		}
-
-		elapsed := time.Since(rebuildStart).Round(time.Second)
-		ui.PrintSuccess("Rebuilt + reinstalled (%s)", elapsed)
-		if devicePlatform == "ios" {
-			ui.PrintDim("  Note: iOS reinstalls clear app data")
-		}
-		ui.Println()
-		ui.PrintDim("  [r] rebuild + reinstall    [q] quit")
 	}
 }
 
@@ -755,11 +801,30 @@ func isCIEnvironment() bool {
 		strings.TrimSpace(os.Getenv("GITHUB_ACTIONS")) != ""
 }
 
-func printDevReadyFooter(viewerURL, reportURL, deepLinkURL string, manualDeepLinkRequired bool) {
+// devSessionViewerURL returns the canonical session viewer route for the active
+// device session, preferring `/sessions/<session_id>` over legacy viewer paths.
+func devSessionViewerURL(session *mcppkg.DeviceSession, devMode bool) string {
+	if session == nil {
+		return ""
+	}
+
+	appURL := strings.TrimRight(config.GetAppURL(devMode), "/")
+	sessionID := strings.TrimSpace(session.SessionID)
+	if sessionID != "" && appURL != "" {
+		return fmt.Sprintf("%s/sessions/%s", appURL, url.PathEscape(sessionID))
+	}
+
+	viewerURL := strings.TrimSpace(session.ViewerURL)
+	if devMode && appURL != "" {
+		viewerURL = strings.Replace(viewerURL, "https://app.revyl.ai", appURL, 1)
+	}
+	return viewerURL
+}
+
+func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired bool) {
 	ui.Println()
 	ui.PrintSuccess("Dev loop ready")
 	ui.PrintLink("Viewer", viewerURL)
-	ui.PrintLink("Report", reportURL)
 	ui.PrintInfo("Deep Link: %s", deepLinkURL)
 	if manualDeepLinkRequired {
 		ui.PrintWarning("Deep link was not opened automatically on this worker. Use the Deep Link above in the device browser/dev client.")
@@ -1061,6 +1126,172 @@ func isNoSessionAtIndexError(err error, index int) bool {
 	return strings.Contains(err.Error(), fmt.Sprintf("no session at index %d", index))
 }
 
+func resolveRebuildLoopPlatform(
+	cfg *config.ProjectConfig,
+	requestedPlatform string,
+	explicitPlatformKey string,
+	platformFlagExplicit bool,
+) (string, string, error) {
+	if cfg == nil || len(cfg.Build.Platforms) == 0 {
+		return "", "", fmt.Errorf("no build platforms configured in .revyl/config.yaml")
+	}
+
+	normalizedPlatform, err := normalizeMobilePlatform(requestedPlatform, "ios")
+	if err != nil {
+		return "", "", err
+	}
+
+	keys := make([]string, 0, len(cfg.Build.Platforms))
+	for key := range cfg.Build.Platforms {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	if explicitPlatformKey != "" {
+		if _, ok := cfg.Build.Platforms[explicitPlatformKey]; !ok {
+			return "", "", fmt.Errorf("build.platforms.%s not found", explicitPlatformKey)
+		}
+
+		devicePlatform := platformFromKey(explicitPlatformKey)
+		if devicePlatform == "" {
+			if !platformFlagExplicit {
+				return "", "", fmt.Errorf(
+					"build.platforms.%s does not indicate ios or android; pass --platform ios|android alongside --platform-key or rename the key",
+					explicitPlatformKey,
+				)
+			}
+			devicePlatform = normalizedPlatform
+		}
+		if platformFlagExplicit && devicePlatform != normalizedPlatform {
+			return "", "", fmt.Errorf(
+				"build.platforms.%s is an %s build, but --platform %s was requested",
+				explicitPlatformKey,
+				devicePlatform,
+				normalizedPlatform,
+			)
+		}
+		return explicitPlatformKey, devicePlatform, nil
+	}
+
+	if platformKey := pickBestBuildPlatformKey(cfg, normalizedPlatform); platformKey != "" {
+		return platformKey, normalizedPlatform, nil
+	}
+
+	if len(keys) == 1 {
+		devicePlatform := platformFromKey(keys[0])
+		if devicePlatform == "" {
+			if !platformFlagExplicit {
+				return "", "", fmt.Errorf(
+					"build.platforms.%s does not indicate ios or android; pass --platform ios|android or rename the key",
+					keys[0],
+				)
+			}
+			devicePlatform = normalizedPlatform
+		}
+		return keys[0], devicePlatform, nil
+	}
+
+	return "", "", fmt.Errorf(
+		"could not infer a build.platforms key for %s. Available keys: %s. Use --platform-key to choose one",
+		normalizedPlatform,
+		strings.Join(keys, ", "),
+	)
+}
+
+func printRebuildLoopControls(keybindsEnabled bool, retry bool) {
+	if keybindsEnabled {
+		if retry {
+			ui.PrintDim("  [r] retry rebuild    [q] quit")
+			return
+		}
+		ui.PrintDim("  [r] rebuild + reinstall    [q] quit")
+		return
+	}
+
+	ui.PrintDim("  Trigger rebuild: revyl dev rebuild")
+	ui.PrintDim("  Stop session:    Ctrl+C")
+}
+
+func formatBuildVersionLabel(version *api.BuildVersion) string {
+	if version == nil {
+		return "unknown"
+	}
+
+	buildVersion := strings.TrimSpace(version.Version)
+	buildID := strings.TrimSpace(version.ID)
+	switch {
+	case buildVersion != "" && buildID != "" && buildVersion != buildID:
+		return fmt.Sprintf("%s (%s)", buildVersion, buildID)
+	case buildVersion != "":
+		return buildVersion
+	case buildID != "":
+		return buildID
+	default:
+		return "unknown"
+	}
+}
+
+func appIdentifierLabel(devicePlatform string) string {
+	if strings.EqualFold(devicePlatform, "ios") {
+		return "Bundle ID"
+	}
+	if strings.EqualFold(devicePlatform, "android") {
+		return "Package name"
+	}
+	return "App identifier"
+}
+
+func formatInstalledAppIdentifier(devicePlatform, identifier string) string {
+	value := strings.TrimSpace(identifier)
+	if value == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s %s", appIdentifierLabel(devicePlatform), value)
+}
+
+type workerSessionRequester interface {
+	WorkerRequestForSession(ctx context.Context, sessionIndex int, path string, body interface{}) ([]byte, error)
+}
+
+func tryLaunchInstalledApp(
+	ctx context.Context,
+	requester workerSessionRequester,
+	sessionIndex int,
+	devicePlatform string,
+	appIdentifier string,
+) {
+	identifier := strings.TrimSpace(appIdentifier)
+	if identifier == "" {
+		ui.PrintWarning(
+			"App install succeeded, but no %s was returned. Skipping explicit launch.",
+			strings.ToLower(appIdentifierLabel(devicePlatform)),
+		)
+		return
+	}
+
+	launchResp, err := requester.WorkerRequestForSession(
+		ctx,
+		sessionIndex,
+		"/launch",
+		map[string]string{"bundle_id": identifier},
+	)
+	if err != nil {
+		ui.PrintWarning(
+			"App install succeeded, but launch failed (%s): %v",
+			formatInstalledAppIdentifier(devicePlatform, identifier),
+			err,
+		)
+		return
+	}
+	if err := ensureWorkerActionSucceeded(launchResp, "launch"); err != nil {
+		ui.PrintWarning(
+			"App install succeeded, but launch failed (%s): %v",
+			formatInstalledAppIdentifier(devicePlatform, identifier),
+			err,
+		)
+	}
+}
+
 // maskPresignedURL redacts the query string from presigned S3/GCS URLs to
 // prevent leaking time-limited auth tokens in logs or CI output.
 func maskPresignedURL(rawURL string) string {
@@ -1078,42 +1309,20 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Resolve the platform key from configured build platforms.
-	platforms := make([]string, 0, len(cfg.Build.Platforms))
-	for k := range cfg.Build.Platforms {
-		platforms = append(platforms, k)
+	requestedPlatform, err := normalizeMobilePlatform(devStartPlatform, "ios")
+	if err != nil {
+		return err
 	}
-	sort.Strings(platforms)
-	if len(platforms) == 0 {
-		return fmt.Errorf("no build platforms configured in .revyl/config.yaml")
+	platformKey, devicePlatform, err := resolveRebuildLoopPlatform(
+		cfg,
+		requestedPlatform,
+		strings.TrimSpace(devStartPlatformKey),
+		cmd.Flags().Changed("platform"),
+	)
+	if err != nil {
+		return err
 	}
-
-	// Infer a sensible default platform from the config when the user
-	// didn't explicitly pass --platform (flag default is "ios").
-	requestedPlatform := strings.ToLower(strings.TrimSpace(devStartPlatform))
-	platformKey := ""
-	if len(platforms) == 1 {
-		platformKey = platforms[0]
-	} else {
-		for _, k := range platforms {
-			if strings.EqualFold(k, requestedPlatform) {
-				platformKey = k
-				break
-			}
-		}
-		if platformKey == "" {
-			platformKey = platforms[0]
-		}
-	}
-
 	platCfg := cfg.Build.Platforms[platformKey]
-	devicePlatform := mobilePlatformForBuildKey(platformKey)
-	if devicePlatform == "" {
-		devicePlatform = requestedPlatform
-	}
-	if devicePlatform != "ios" && devicePlatform != "android" {
-		devicePlatform = "android"
-	}
 
 	timeout := devStartTimeout
 	if !cmd.Flags().Changed("timeout") {
@@ -1133,8 +1342,8 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 
 	ui.PrintBanner(version)
 	ui.Println()
-	ui.PrintInfo("Rebuild dev loop (%s / %s)", cfg.Build.System, platformKey)
-	ui.PrintDim("No hot reload — press [r] to rebuild + reinstall, [q] to quit")
+	ui.PrintInfo("Dev loop (%s / %s)", cfg.Build.System, platformKey)
+	ui.PrintDim("Press [r] to rebuild + reinstall once the device is ready")
 	ui.Println()
 
 	// Ensure the platform has an app linked.
@@ -1181,8 +1390,11 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 	}
 
 	latestVersion, err := client.GetLatestBuildVersion(cmd.Context(), appID)
-	if err != nil || latestVersion == nil {
+	if err != nil {
 		return fmt.Errorf("could not resolve uploaded build: %w", err)
+	}
+	if latestVersion == nil {
+		return fmt.Errorf("no builds found for app %s", appID)
 	}
 	buildDetail, err := client.GetBuildVersionDownloadURL(cmd.Context(), latestVersion.ID)
 	if err != nil {
@@ -1254,38 +1466,57 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		}
 	}()
 
-	// Install + launch.
+	// Install + launch. Use install_mode=fast to seed the worker's dev cache
+	// so that subsequent delta pushes have a cached .app to patch.
+	// Retry with backoff because the worker may still be attaching the device
+	// after the session reaches "running" status.
 	ui.PrintInfo("Installing app on device...")
-	installBody := map[string]string{"app_url": strings.TrimSpace(buildDetail.DownloadURL)}
+	installBody := map[string]string{
+		"app_url":      strings.TrimSpace(buildDetail.DownloadURL),
+		"install_mode": "fast",
+	}
 	if bundleID != "" {
 		installBody["bundle_id"] = bundleID
 	}
-	installResp, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", installBody)
-	if err != nil {
-		return fmt.Errorf("install failed: %w", err)
+	var installResp []byte
+	const maxInstallRetries = 3
+	for attempt := 0; attempt <= maxInstallRetries; attempt++ {
+		installResp, err = deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", installBody)
+		if err == nil {
+			break
+		}
+		var workerErr *mcppkg.WorkerHTTPError
+		isDeviceNotReady := errors.As(err, &workerErr) && workerErr.StatusCode == 503
+		if !isDeviceNotReady || attempt == maxInstallRetries {
+			return fmt.Errorf("install failed: %w\nhint: try re-running with --build to force a fresh build+upload", err)
+		}
+		backoff := time.Duration(1<<uint(attempt)) * time.Second // 1s, 2s, 4s
+		ui.PrintDebug("device not ready, retrying install in %s (attempt %d/%d)", backoff, attempt+1, maxInstallRetries)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	if err := ensureWorkerActionSucceeded(installResp, "install"); err != nil {
-		return fmt.Errorf("install failed: %w", err)
+		return fmt.Errorf("install failed: %w\nhint: try re-running with --build to force a fresh build+upload", err)
 	}
 	if bundleID == "" {
 		bundleID = extractInstallBundleID(installResp)
 	}
-	if bundleID != "" {
-		_, _ = deviceMgr.WorkerRequestForSession(ctx, session.Index, "/launch", map[string]string{"bundle_id": bundleID})
-	}
+	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, bundleID)
 
 	deviceMgr.StopIdleTimer(session.Index)
 
-	viewerURL := session.ViewerURL
-	if devMode {
-		viewerURL = strings.Replace(viewerURL, "https://app.revyl.ai", "http://localhost:3000", 1)
-	}
+	viewerURL := devSessionViewerURL(session, devMode)
 
 	ui.Println()
 	ui.PrintSuccess("Dev loop ready")
 	ui.PrintLink("Viewer", viewerURL)
-	ui.Println()
-	ui.PrintDim("  [r] rebuild + reinstall    [q] quit")
+	ui.PrintInfo("Installed build: %s", formatBuildVersionLabel(latestVersion))
+	if identifier := formatInstalledAppIdentifier(devicePlatform, bundleID); identifier != "" {
+		ui.PrintInfo("Installed app: %s", identifier)
+	}
 	ui.Println()
 
 	pidPath := filepath.Join(cwd, ".revyl", ".dev.pid")
@@ -1297,16 +1528,42 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 	defer signal.Stop(sigusr1)
 
 	if openBrowser {
-		reportURL := fmt.Sprintf("%s/tests/report?sessionId=%s", config.GetAppURL(devMode), session.SessionID)
-		_ = ui.OpenBrowser(reportURL)
+		_ = ui.OpenBrowser(viewerURL)
 	}
 
+	transport := devpush.NewTransport(client, deviceMgr)
+	manifestPath := filepath.Join(cwd, ".revyl", ".dev-push-manifest.json")
+	statusPath := filepath.Join(cwd, ".revyl", ".dev-status.json")
+	cachedManifest, cachedManifestErr := build.LoadManifest(manifestPath)
+	if cachedManifestErr != nil {
+		ui.PrintDim("  Could not load cached manifest: %v", cachedManifestErr)
+	}
+	if cachedManifest == nil {
+		if artPath, artErr := build.ResolveArtifactPath(cwd, platCfg.Output); artErr == nil {
+			if m, mErr := build.BuildManifest(artPath); mErr == nil {
+				cachedManifest = m
+				_ = build.SaveManifest(m, manifestPath)
+			}
+		}
+	}
+
+	var bgUploadCancel context.CancelFunc
+	defer func() {
+		if bgUploadCancel != nil {
+			bgUploadCancel()
+		}
+	}()
+
 	// Interactive event loop: poll session liveness + [r]/SIGUSR1 rebuild + [q] quit.
-	stdinKeys, restoreTerminal := readStdinKeys(ctx)
+	stdinKeys, restoreTerminal, keybindsEnabled := readStdinKeys(ctx)
 	defer restoreTerminal()
 	ticker := time.NewTicker(defaultDevSessionPollInterval)
 	defer ticker.Stop()
+	printRebuildLoopControls(keybindsEnabled, false)
+	ui.Println()
 
+	rebuildCount := 0
+	var lastRebuildStart time.Time
 	for {
 		var doRebuild bool
 		select {
@@ -1339,78 +1596,66 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 			continue
 		}
 
-		rebuildStart := time.Now()
+		if !lastRebuildStart.IsZero() && time.Since(lastRebuildStart) < rebuildCooldown {
+			drainStdinKeys(stdinKeys)
+			continue
+		}
+		lastRebuildStart = time.Now()
+
+		rebuildCount++
+		result := devBuildAndDeltaPush(ctx, cancel, cmd, cfg, configPath, apiKey, platformKey, devicePlatform,
+			bundleID, session, deviceMgr, client, transport, cachedManifest, manifestPath, cwd)
+
+		drainStdinKeys(stdinKeys)
+
+		writeDevStatus(statusPath, session, viewerURL, devicePlatform, rebuildCount, cachedManifest != nil, result)
+
+		if result.buildErr != nil {
+			ui.PrintWarning("Rebuild failed: %v", result.buildErr)
+			printRebuildLoopControls(keybindsEnabled, true)
+			continue
+		}
+		if result.pushErr != nil {
+			ui.PrintWarning("Push failed: %v", result.pushErr)
+			printRebuildLoopControls(keybindsEnabled, true)
+			continue
+		}
+
+		if result.skipped {
+			ui.PrintInfo("No changes detected — skipping push")
+			printRebuildLoopControls(keybindsEnabled, false)
+			continue
+		}
+
+		cachedManifest = result.manifest
+		if result.newBundleID != "" {
+			bundleID = result.newBundleID
+		}
+
+		elapsed := formatProgressDuration(result.elapsed)
+		timingSummary := formatRebuildTimingSummary(result)
+		if result.dataPreserved {
+			ui.PrintSuccess("Rebuilt (%s) - %s", elapsed, timingSummary)
+			ui.PrintDim("  App data preserved")
+		} else {
+			ui.PrintSuccess("Rebuilt + reinstalled (%s) - %s", elapsed, timingSummary)
+			if devicePlatform == "ios" {
+				ui.PrintDim("  Note: iOS reinstalls clear app data")
+			}
+		}
+
+		if result.usedDelta {
+			ui.PrintDim("  ↻ Background: build uploaded to cloud")
+			if bgUploadCancel != nil {
+				bgUploadCancel()
+			}
+			bgCtx, bgCancel := context.WithCancel(context.Background())
+			bgUploadCancel = bgCancel
+			go backgroundUploadBuild(bgCtx, client, cfg, platformKey, cwd, statusPath)
+		}
+
 		ui.Println()
-		ui.PrintInfo("Rebuilding %s...", platformKey)
-
-		rebuildCtx, rebuildCancel := context.WithCancel(ctx)
-		go monitorSessionDuringRebuild(rebuildCtx, deviceMgr, session, cancel)
-
-		if err := runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platformKey); err != nil {
-			rebuildCancel()
-			ui.PrintWarning("Rebuild failed: %v", err)
-			ui.PrintDim("  [r] retry rebuild    [q] quit")
-			continue
-		}
-		rebuildCancel()
-		if ctx.Err() != nil {
-			return nil
-		}
-
-		newCfg, loadErr := config.LoadProjectConfig(configPath)
-		if loadErr != nil {
-			ui.PrintWarning("Could not reload config: %v", loadErr)
-			ui.PrintDim("  [r] retry rebuild    [q] quit")
-			continue
-		}
-		cfg = newCfg
-		plat, ok := cfg.Build.Platforms[platformKey]
-		if !ok {
-			ui.PrintWarning("Platform %q missing from config after rebuild", platformKey)
-			ui.PrintDim("  [r] retry rebuild    [q] quit")
-			continue
-		}
-		platCfg = plat
-		appID = strings.TrimSpace(plat.AppID)
-
-		lv, lvErr := client.GetLatestBuildVersion(ctx, appID)
-		if lvErr != nil || lv == nil {
-			ui.PrintWarning("Could not resolve rebuilt version: %v", lvErr)
-			continue
-		}
-		bd, bdErr := client.GetBuildVersionDownloadURL(ctx, lv.ID)
-		if bdErr != nil {
-			ui.PrintWarning("Could not get download URL: %v", bdErr)
-			continue
-		}
-
-		reinstallBody := map[string]string{"app_url": strings.TrimSpace(bd.DownloadURL)}
-		if bundleID != "" {
-			reinstallBody["bundle_id"] = bundleID
-		}
-		resp, installErr := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", reinstallBody)
-		if installErr != nil {
-			ui.PrintWarning("Reinstall failed: %v", installErr)
-			continue
-		}
-		if err := ensureWorkerActionSucceeded(resp, "install"); err != nil {
-			ui.PrintWarning("Reinstall failed: %v", err)
-			continue
-		}
-		if newBundleID := extractInstallBundleID(resp); newBundleID != "" {
-			bundleID = newBundleID
-		}
-		if bundleID != "" {
-			_, _ = deviceMgr.WorkerRequestForSession(ctx, session.Index, "/launch", map[string]string{"bundle_id": bundleID})
-		}
-
-		elapsed := time.Since(rebuildStart).Round(time.Second)
-		ui.PrintSuccess("Rebuilt + reinstalled (%s)", elapsed)
-		if devicePlatform == "ios" {
-			ui.PrintDim("  Note: iOS reinstalls clear app data")
-		}
-		ui.Println()
-		ui.PrintDim("  [r] rebuild + reinstall    [q] quit")
+		printRebuildLoopControls(keybindsEnabled, false)
 	}
 }
 
@@ -1423,19 +1668,21 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 // started and keybinds are silently disabled.
 //
 // Stops when ctx is cancelled or stdin reaches EOF.
-func readStdinKeys(ctx context.Context) (keys <-chan byte, restore func()) {
+func readStdinKeys(ctx context.Context) (keys <-chan byte, restore func(), enabled bool) {
 	ch := make(chan byte, 1)
 	noop := func() {}
 
 	if !ui.IsInputTTY() {
-		return ch, noop
+		return ch, noop, false
 	}
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		return ch, noop
+		return ch, noop, false
 	}
+	ui.SetRawMode(true)
 	restoreFn := func() {
+		ui.SetRawMode(false)
 		_ = term.Restore(int(os.Stdin.Fd()), oldState)
 	}
 
@@ -1458,7 +1705,24 @@ func readStdinKeys(ctx context.Context) (keys <-chan byte, restore func()) {
 			}
 		}
 	}()
-	return ch, restoreFn
+	return ch, restoreFn, true
+}
+
+// rebuildCooldown is the minimum interval between consecutive rebuild triggers
+// to prevent accidental key-repeat from cascading into back-to-back rebuilds.
+const rebuildCooldown = 1 * time.Second
+
+// drainStdinKeys discards all buffered keypresses from the channel so that
+// keys accumulated during a long-running rebuild don't trigger follow-up
+// rebuilds immediately.
+func drainStdinKeys(ch <-chan byte) {
+	for {
+		select {
+		case <-ch:
+		default:
+			return
+		}
+	}
 }
 
 // monitorSessionDuringRebuild polls session liveness in the background while
@@ -1494,8 +1758,655 @@ func monitorSessionDuringRebuild(
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Delta push rebuild + status infrastructure
+// ---------------------------------------------------------------------------
+
+const maxDeltaSizeBytes = 20 * 1024 * 1024 // 20 MB
+
+// devRebuildResult collects the outcome of a single rebuild iteration.
+type devRebuildResult struct {
+	buildErr      error
+	pushErr       error
+	buildOutput   string
+	buildErrors   []build.BuildError
+	elapsed       time.Duration
+	buildDuration time.Duration
+	pushDuration  time.Duration
+	manifest      *build.AppManifest
+	newBundleID   string
+	usedDelta     bool
+	dataPreserved bool
+	skipped       bool
+	filesChanged  int
+	deltaBytes    int64
+}
+
+// formatProgressDuration formats a duration for user-facing rebuild status messages.
+// Sub-second durations are rounded to 100ms; longer durations are rounded to 1s.
+//
+// Parameters:
+//   - d: The duration to format.
+//
+// Returns:
+//   - string: Human-readable duration string (e.g. "8s", "200ms").
+func formatProgressDuration(d time.Duration) string {
+	if d <= 0 {
+		return "0s"
+	}
+	if d < time.Second {
+		return d.Round(100 * time.Millisecond).String()
+	}
+	return d.Round(time.Second).String()
+}
+
+// formatRebuildTimingSummary returns a concise phase breakdown for a completed rebuild
+// (e.g. "build: 8s, device update: 4s").
+//
+// Parameters:
+//   - result: The rebuild result containing phase durations.
+//
+// Returns:
+//   - string: Comma-separated phase timing summary.
+func formatRebuildTimingSummary(result devRebuildResult) string {
+	parts := []string{fmt.Sprintf("build: %s", formatProgressDuration(result.buildDuration))}
+	if result.pushDuration > 0 {
+		parts = append(parts, fmt.Sprintf("device update: %s", formatProgressDuration(result.pushDuration)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// buildSpinnerMessage returns a spinner label that includes the platform and
+// the number of filtered build lines seen so far.
+//
+// Parameters:
+//   - platformKey: The build platform identifier (e.g. "ios", "android").
+//   - buildLineCount: Number of filtered build output lines emitted so far.
+//
+// Returns:
+//   - string: Spinner message like "Building ios... (3 updates)".
+func buildSpinnerMessage(platformKey string, buildLineCount int) string {
+	if buildLineCount <= 0 {
+		return fmt.Sprintf("Building %s...", platformKey)
+	}
+	return fmt.Sprintf("Building %s... (%d updates)", platformKey, buildLineCount)
+}
+
+// appendRecentBuildLine appends a line to a bounded slice, dropping the oldest
+// entry when the limit is reached. Used to maintain a rolling tail of filtered
+// build output for quiet-period recaps.
+//
+// Parameters:
+//   - lines: The current slice of recent lines.
+//   - line: The new line to append.
+//   - limit: Maximum number of lines to retain.
+//
+// Returns:
+//   - []string: Updated slice with the new line appended.
+func appendRecentBuildLine(lines []string, line string, limit int) []string {
+	lines = append(lines, line)
+	if len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
+	return lines
+}
+
+// printQuietPeriodRecap prints the most recent filtered build lines when the
+// build has gone silent for a while. Helps users understand what the build was
+// doing before the current quiet stretch.
+//
+// Parameters:
+//   - platformKey: The build platform identifier for the header message.
+//   - recentLines: The rolling tail of recent filtered build lines.
+func printQuietPeriodRecap(platformKey string, recentLines []string) {
+	if len(recentLines) == 0 {
+		return
+	}
+	ui.PrintDim("  Still building %s... recent output:", platformKey)
+	for _, l := range recentLines {
+		ui.PrintDim("    %s", l)
+	}
+}
+
+// devBuildAndDeltaPush runs the build, diffs the manifest, and either pushes
+// a delta or falls back to the full S3 upload path. Returns a structured result
+// so the caller can update UI and status files.
+func devBuildAndDeltaPush(
+	ctx context.Context,
+	cancelParent context.CancelFunc,
+	cmd *cobra.Command,
+	cfg *config.ProjectConfig,
+	configPath, apiKey, platformKey, devicePlatform, bundleID string,
+	session *mcppkg.DeviceSession,
+	deviceMgr *mcppkg.DeviceSessionManager,
+	client *api.Client,
+	transport devpush.WorkerTransport,
+	cachedManifest *build.AppManifest,
+	manifestPath, cwd string,
+) devRebuildResult {
+	result := devRebuildResult{}
+	rebuildStart := time.Now()
+
+	ui.Println()
+	ui.PrintInfo("Rebuilding %s...", platformKey)
+
+	rebuildCtx, rebuildCancel := context.WithCancel(ctx)
+	go monitorSessionDuringRebuild(rebuildCtx, deviceMgr, session, cancelParent)
+
+	platCfg, ok := cfg.Build.Platforms[platformKey]
+	if !ok {
+		rebuildCancel()
+		result.buildErr = fmt.Errorf("platform %q not found in config", platformKey)
+		result.elapsed = time.Since(rebuildStart)
+		return result
+	}
+
+	buildCommand := platCfg.Command
+	if platCfg.Scheme != "" {
+		buildCommand = build.ApplySchemeToCommand(buildCommand, platCfg.Scheme)
+	}
+
+	var buildOutput strings.Builder
+	var buildLineCount int
+	var recentBuildLines []string
+	var buildMu sync.Mutex
+	showBuildSpinner := !ui.IsDebugMode()
+
+	buildStart := time.Now()
+	runner := build.NewRunner(cwd)
+	runner.FilterOutput = !ui.IsDebugMode()
+
+	if showBuildSpinner {
+		ui.StartSpinner(buildSpinnerMessage(platformKey, 0))
+	}
+
+	var quietTicker *time.Ticker
+	var quietDone chan struct{}
+	if showBuildSpinner {
+		quietTicker = time.NewTicker(10 * time.Second)
+		quietDone = make(chan struct{})
+		go func() {
+			defer quietTicker.Stop()
+			for {
+				select {
+				case <-quietDone:
+					return
+				case <-quietTicker.C:
+					buildMu.Lock()
+					linesCopy := make([]string, len(recentBuildLines))
+					copy(linesCopy, recentBuildLines)
+					count := buildLineCount
+					buildMu.Unlock()
+					if len(linesCopy) > 0 {
+						ui.StopSpinner()
+						printQuietPeriodRecap(platformKey, linesCopy)
+						ui.StartSpinner(buildSpinnerMessage(platformKey, count))
+					}
+				}
+			}
+		}()
+	}
+
+	buildErr := runner.Run(buildCommand, func(line string) {
+		buildOutput.WriteString(line + "\n")
+		buildMu.Lock()
+		buildLineCount++
+		recentBuildLines = appendRecentBuildLine(recentBuildLines, line, 5)
+		count := buildLineCount
+		buildMu.Unlock()
+		if showBuildSpinner {
+			ui.StopSpinner()
+		}
+		ui.PrintDim("  %s", line)
+		if showBuildSpinner {
+			ui.StartSpinner(buildSpinnerMessage(platformKey, count))
+		}
+	})
+
+	if quietDone != nil {
+		close(quietDone)
+	}
+	if showBuildSpinner {
+		ui.StopSpinner()
+	}
+
+	result.buildDuration = time.Since(buildStart)
+	result.buildOutput = buildOutput.String()
+
+	if buildErr != nil {
+		ui.PrintDim("  Build failed after %s", formatProgressDuration(result.buildDuration))
+	} else if buildLineCount > 0 {
+		ui.PrintDim("  Build completed in %s (%d updates)", formatProgressDuration(result.buildDuration), buildLineCount)
+	} else {
+		ui.PrintDim("  Build completed in %s", formatProgressDuration(result.buildDuration))
+	}
+
+	rebuildCancel()
+
+	if buildErr != nil {
+		result.buildErr = buildErr
+		result.buildErrors = build.ParseXcodeBuildErrors(result.buildOutput)
+		if len(result.buildErrors) == 0 {
+			result.buildErrors = build.ParseGradleBuildErrors(result.buildOutput)
+		}
+		result.elapsed = time.Since(rebuildStart)
+		return result
+	}
+
+	if ctx.Err() != nil {
+		result.buildErr = ctx.Err()
+		result.elapsed = time.Since(rebuildStart)
+		return result
+	}
+
+	artifactPath, artErr := build.ResolveArtifactPath(cwd, platCfg.Output)
+	if artErr != nil {
+		result.buildErr = fmt.Errorf("artifact not found after build: %w", artErr)
+		result.elapsed = time.Since(rebuildStart)
+		return result
+	}
+
+	newManifest, manErr := build.BuildManifest(artifactPath)
+	if manErr != nil {
+		result.buildErr = fmt.Errorf("failed to build manifest: %w", manErr)
+		result.elapsed = time.Since(rebuildStart)
+		return result
+	}
+
+	diff := build.DiffManifest(cachedManifest, newManifest)
+
+	if len(diff.Changed) == 0 && len(diff.Deleted) == 0 && cachedManifest != nil {
+		result.skipped = true
+		result.manifest = newManifest
+		result.elapsed = time.Since(rebuildStart)
+		_ = build.SaveManifest(newManifest, manifestPath)
+		return result
+	}
+
+	deltaSize := build.DeltaSize(artifactPath, diff.Changed)
+
+	// Single-file artifacts (e.g. Android APKs) can't benefit from delta
+	// pushes -- the "delta" would be the entire file. Skip to full upload.
+	isSingleFileArtifact := len(newManifest.Files) <= 1
+
+	if cachedManifest != nil && deltaSize < maxDeltaSizeBytes && !isSingleFileArtifact {
+		changedCount := len(diff.Changed) + len(diff.Deleted)
+		ui.PrintInfo("Pushing changes to device...")
+		ui.PrintDim("  %d files changed (%.1f MB)", changedCount, float64(deltaSize)/(1024*1024))
+
+		deltaZip, zipErr := build.CreateDeltaZip(artifactPath, diff.Changed)
+		if zipErr != nil {
+			result.pushErr = fmt.Errorf("failed to create delta zip: %w", zipErr)
+			result.elapsed = time.Since(rebuildStart)
+			return result
+		}
+
+		pushStart := time.Now()
+		ui.StartSpinner("Uploading delta to device...")
+		ref, pushErr := transport.PushArtifact(ctx, session, deltaZip)
+		ui.StopSpinner()
+		if pushErr != nil {
+			result.pushErr = fmt.Errorf("failed to push delta: %w", pushErr)
+			result.elapsed = time.Since(rebuildStart)
+			return result
+		}
+
+		ui.StartSpinner("Installing delta on device...")
+		installResult, installErr := transport.SendInstall(ctx, session, ref, devpush.InstallOpts{
+			Mode:         "delta",
+			BundleID:     bundleID,
+			Platform:     devicePlatform,
+			DeletedFiles: diff.Deleted,
+		})
+		ui.StopSpinner()
+		result.pushDuration = time.Since(pushStart)
+
+		if installErr != nil {
+			// Delta failed (e.g. worker cache empty) — fall through to full
+			// upload path instead of surfacing the error to the user.
+			ui.PrintDim("  Delta push failed (%v), falling back to full install...", installErr)
+		} else {
+			result.usedDelta = true
+			result.dataPreserved = installResult.DataPreserved
+			result.newBundleID = installResult.BundleID
+			result.filesChanged = len(diff.Changed) + len(diff.Deleted)
+			result.deltaBytes = int64(len(deltaZip))
+			result.manifest = newManifest
+			result.elapsed = time.Since(rebuildStart)
+			_ = build.SaveManifest(newManifest, manifestPath)
+			return result
+		}
+	}
+
+	// Fall back to full S3 upload path — upload the already-built artifact
+	// instead of rebuilding from scratch.
+	appID := strings.TrimSpace(platCfg.AppID)
+	ui.PrintInfo("Uploading full artifact to cloud...")
+	pushStart := time.Now()
+	ui.StartSpinner("Uploading full artifact to cloud...")
+	downloadURL, detectedBID, uploadErr := uploadExistingArtifact(ctx, client, artifactPath, appID, cwd)
+	ui.StopSpinner()
+	if uploadErr != nil {
+		result.pushErr = fmt.Errorf("full artifact upload failed: %w", uploadErr)
+		result.elapsed = time.Since(rebuildStart)
+		return result
+	}
+	if detectedBID != "" && bundleID == "" {
+		bundleID = detectedBID
+	}
+
+	reinstallBody := map[string]string{
+		"app_url":      downloadURL,
+		"install_mode": "fast",
+	}
+	if bundleID != "" {
+		reinstallBody["bundle_id"] = bundleID
+	}
+	ui.StartSpinner("Installing full build on device...")
+	resp, installErr := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", reinstallBody)
+	if installErr != nil {
+		ui.StopSpinner()
+		result.pushErr = fmt.Errorf("reinstall failed: %w", installErr)
+		result.elapsed = time.Since(rebuildStart)
+		return result
+	}
+	if err := ensureWorkerActionSucceeded(resp, "install"); err != nil {
+		ui.StopSpinner()
+		result.pushErr = fmt.Errorf("reinstall failed: %w", err)
+		result.elapsed = time.Since(rebuildStart)
+		return result
+	}
+	ui.StopSpinner()
+	result.pushDuration = time.Since(pushStart)
+	if newBID := extractInstallBundleID(resp); newBID != "" {
+		result.newBundleID = newBID
+	}
+	launchID := bundleID
+	if result.newBundleID != "" {
+		launchID = result.newBundleID
+	}
+	ui.StartSpinner("Launching app...")
+	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, launchID)
+	ui.StopSpinner()
+
+	result.manifest = newManifest
+	result.filesChanged = len(diff.Changed) + len(diff.Deleted)
+	result.elapsed = time.Since(rebuildStart)
+	_ = build.SaveManifest(newManifest, manifestPath)
+	return result
+}
+
+// backgroundUploadBuild uploads the already-built artifact to S3 in a
+// background goroutine so the build version is tracked without blocking the
+// dev loop. It does NOT rebuild — only zips and uploads the existing artifact.
+// Updates the dev status file on completion or failure.
+//
+// Parameters:
+//   - ctx: cancellation context (cancelled when the next rebuild starts)
+//   - client: API client for UploadBuild
+//   - cfg: project config for platform output path and app ID
+//   - platformKey: build platform key (e.g. "ios")
+//   - cwd: working directory for artifact resolution
+//   - statusPath: path to .dev-status.json for updating background_upload_status
+func backgroundUploadBuild(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, platformKey, cwd, statusPath string) {
+	platCfg, ok := cfg.Build.Platforms[platformKey]
+	if !ok {
+		ui.PrintDim("  ✗ Background upload skipped: platform %s not found", platformKey)
+		return
+	}
+
+	artifactPath, err := build.ResolveArtifactPath(cwd, platCfg.Output)
+	if err != nil {
+		ui.PrintDim("  ✗ Background upload skipped: artifact not found")
+		return
+	}
+
+	if ctx.Err() != nil {
+		return
+	}
+
+	uploadPath := artifactPath
+	var tmpZip string
+	if build.IsAppBundle(artifactPath) {
+		zipped, zipErr := build.ZipAppBundle(artifactPath)
+		if zipErr != nil {
+			ui.PrintDim("  ✗ Background upload failed: %v", zipErr)
+			return
+		}
+		tmpZip = zipped
+		uploadPath = zipped
+	}
+	if tmpZip != "" {
+		defer os.Remove(tmpZip)
+	}
+
+	if ctx.Err() != nil {
+		return
+	}
+
+	appID := strings.TrimSpace(platCfg.AppID)
+	if appID == "" {
+		ui.PrintDim("  ✗ Background upload skipped: no app_id configured")
+		return
+	}
+
+	versionStr := build.GenerateVersionStringForWorkDir(cwd)
+	_, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
+		AppID:    appID,
+		Version:  versionStr,
+		FilePath: uploadPath,
+	})
+	if uploadErr != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		ui.PrintDim("  ✗ Background upload failed: %v", uploadErr)
+		updateBgUploadStatus(statusPath, "failed")
+		return
+	}
+	ui.PrintDim("  ✓ Background: build uploaded to cloud")
+	updateBgUploadStatus(statusPath, "completed")
+}
+
+// updateBgUploadStatus patches the background_upload_status field in the
+// dev status file without rewriting other fields.
+func updateBgUploadStatus(statusPath, status string) {
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		return
+	}
+	var ds devStatus
+	if err := json.Unmarshal(data, &ds); err != nil || ds.LastRebuild == nil {
+		return
+	}
+	ds.LastRebuild.BackgroundUpload = status
+	out, err := json.MarshalIndent(ds, "", "  ")
+	if err != nil {
+		return
+	}
+	tmp := statusPath + ".tmp"
+	if err := os.WriteFile(tmp, out, 0644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, statusPath)
+}
+
+// uploadExistingArtifact uploads an already-built artifact to S3 without
+// rebuilding. Returns the download URL for the uploaded build, or an error.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - client: API client for UploadBuild
+//   - artifactPath: resolved path to the built artifact (.app, .apk, or .tar.gz)
+//   - appID: application ID for the upload
+//   - cwd: working directory for version string generation
+//
+// Returns:
+//   - downloadURL: presigned URL the worker can fetch from
+//   - bundleID: package name from the uploaded build (may be empty)
+//   - error: upload or resolution failure
+func uploadExistingArtifact(ctx context.Context, client *api.Client, artifactPath, appID, cwd string) (downloadURL, bundleID string, err error) {
+	uploadPath := artifactPath
+	var tmpZip string
+	if build.IsTarGz(artifactPath) {
+		zipped, extractErr := build.ExtractAppFromTarGz(artifactPath)
+		if extractErr != nil {
+			return "", "", fmt.Errorf("failed to extract app from archive: %w", extractErr)
+		}
+		tmpZip = zipped
+		uploadPath = zipped
+	} else if build.IsAppBundle(artifactPath) {
+		zipped, zipErr := build.ZipAppBundle(artifactPath)
+		if zipErr != nil {
+			return "", "", fmt.Errorf("failed to zip artifact: %w", zipErr)
+		}
+		tmpZip = zipped
+		uploadPath = zipped
+	}
+	if tmpZip != "" {
+		defer os.Remove(tmpZip)
+	}
+
+	versionStr := build.GenerateVersionStringForWorkDir(cwd)
+	uploadResp, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
+		AppID:    appID,
+		Version:  versionStr,
+		FilePath: uploadPath,
+	})
+	if uploadErr != nil {
+		return "", "", fmt.Errorf("upload failed: %w", uploadErr)
+	}
+
+	versionID := strings.TrimSpace(uploadResp.VersionID)
+	if versionID == "" {
+		return "", "", fmt.Errorf("upload succeeded but no build version ID was returned for app %s", appID)
+	}
+	bd, bdErr := client.GetBuildVersionDownloadURL(ctx, versionID)
+	if bdErr != nil {
+		return "", "", fmt.Errorf("could not get download URL: %w", bdErr)
+	}
+	return strings.TrimSpace(bd.DownloadURL), strings.TrimSpace(bd.PackageName), nil
+}
+
+// ---------------------------------------------------------------------------
+// Status file
+// ---------------------------------------------------------------------------
+
+type devStatus struct {
+	State          string          `json:"state"`
+	PID            int             `json:"pid"`
+	Platform       string          `json:"platform"`
+	SessionID      string          `json:"session_id,omitempty"`
+	ViewerURL      string          `json:"viewer_url,omitempty"`
+	DeltaCacheWarm bool            `json:"delta_cache_warm"`
+	RebuildCount   int             `json:"rebuild_count"`
+	LastRebuild    *devRebuildInfo `json:"last_rebuild,omitempty"`
+}
+
+type devRebuildInfo struct {
+	CompletedAt      string             `json:"completed_at"`
+	Seq              int                `json:"seq"`
+	Status           string             `json:"status"`
+	DurationMs       int64              `json:"duration_ms"`
+	BuildDurationMs  int64              `json:"build_duration_ms"`
+	PushMode         string             `json:"push_mode"`
+	PushDurationMs   int64              `json:"push_duration_ms"`
+	FilesChanged     int                `json:"files_changed"`
+	DataPreserved    bool               `json:"data_preserved"`
+	BackgroundUpload string             `json:"background_upload_status,omitempty"`
+	BuildErrors      []build.BuildError `json:"build_errors"`
+}
+
+func readLastCompletedAt(statusPath string) string {
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		return ""
+	}
+	var ds struct {
+		LastRebuild *struct {
+			CompletedAt string `json:"completed_at"`
+		} `json:"last_rebuild"`
+	}
+	if err := json.Unmarshal(data, &ds); err != nil || ds.LastRebuild == nil {
+		return ""
+	}
+	return ds.LastRebuild.CompletedAt
+}
+
+func writeDevStatus(statusPath string, session *mcppkg.DeviceSession, viewerURL string, platform string, rebuildCount int, cacheWarm bool, result devRebuildResult) {
+	status := "success"
+	if result.buildErr != nil {
+		status = "build_failed"
+	} else if result.pushErr != nil {
+		status = "push_failed"
+	} else if result.skipped {
+		status = "skipped"
+	}
+
+	pushMode := "full"
+	if result.usedDelta {
+		pushMode = "delta"
+	}
+	if result.skipped {
+		pushMode = "none"
+	}
+
+	bgUpload := ""
+	if result.usedDelta {
+		bgUpload = "in_progress"
+	}
+
+	errs := result.buildErrors
+	if errs == nil {
+		errs = []build.BuildError{}
+	}
+
+	ds := devStatus{
+		State:          "idle",
+		PID:            os.Getpid(),
+		Platform:       platform,
+		DeltaCacheWarm: cacheWarm || result.manifest != nil,
+		RebuildCount:   rebuildCount,
+		LastRebuild: &devRebuildInfo{
+			CompletedAt:      time.Now().UTC().Format(time.RFC3339Nano),
+			Seq:              rebuildCount,
+			Status:           status,
+			DurationMs:       result.elapsed.Milliseconds(),
+			BuildDurationMs:  result.buildDuration.Milliseconds(),
+			PushMode:         pushMode,
+			PushDurationMs:   result.pushDuration.Milliseconds(),
+			FilesChanged:     result.filesChanged,
+			DataPreserved:    result.dataPreserved,
+			BackgroundUpload: bgUpload,
+			BuildErrors:      errs,
+		},
+	}
+
+	if session != nil {
+		ds.SessionID = session.SessionID
+	}
+	ds.ViewerURL = strings.TrimSpace(viewerURL)
+
+	data, err := json.MarshalIndent(ds, "", "  ")
+	if err != nil {
+		ui.PrintDim("  Failed to marshal dev status: %v", err)
+		return
+	}
+	tmp := statusPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		ui.PrintDim("  Failed to write dev status: %v", err)
+		return
+	}
+	_ = os.Rename(tmp, statusPath)
+}
+
+// ---------------------------------------------------------------------------
+// revyl dev rebuild (with --wait / --json)
+// ---------------------------------------------------------------------------
+
 // runDevRebuild sends SIGUSR1 to a running `revyl dev` process to trigger a
-// rebuild. The target process is identified by the PID stored in .revyl/.dev.pid.
+// rebuild. With --wait it polls .dev-status.json until the rebuild completes.
+// With --json it outputs the structured rebuild result.
 //
 // Returns:
 //   - error: if no dev session is running or the signal cannot be delivered
@@ -1511,19 +2422,198 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 	pidPath := filepath.Join(cwd, ".revyl", ".dev.pid")
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
+		if rebuildJSON {
+			fmt.Println(`{"status":"no_session","error":"no dev session running"}`)
+			return nil
+		}
 		return fmt.Errorf("no dev session running (missing %s)", pidPath)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
+		if rebuildJSON {
+			fmt.Printf(`{"status":"error","error":"invalid PID in %s"}`, pidPath)
+			fmt.Println()
+			return nil
+		}
 		return fmt.Errorf("invalid PID in %s", pidPath)
 	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
+		if rebuildJSON {
+			fmt.Printf(`{"status":"no_session","error":"process %d not found"}`, pid)
+			fmt.Println()
+			return nil
+		}
 		return fmt.Errorf("process %d not found", pid)
 	}
 	if err := proc.Signal(syscall.SIGUSR1); err != nil {
+		if rebuildJSON {
+			fmt.Printf(`{"status":"no_session","error":"dev session (PID %d) is not running"}`, pid)
+			fmt.Println()
+			return nil
+		}
 		return fmt.Errorf("dev session (PID %d) is not running: %w", pid, err)
 	}
-	ui.PrintSuccess("Rebuild triggered (PID %d)", pid)
+
+	if !rebuildWait && !rebuildJSON {
+		ui.PrintSuccess("Rebuild triggered (PID %d)", pid)
+		return nil
+	}
+
+	statusPath := filepath.Join(cwd, ".revyl", ".dev-status.json")
+	priorSeq := readLastRebuildSeq(statusPath)
+
+	timeout := time.Duration(rebuildTimeout) * time.Second
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		currentSeq := readLastRebuildSeq(statusPath)
+		if currentSeq > priorSeq {
+			statusData, readErr := os.ReadFile(statusPath)
+			if readErr != nil {
+				if rebuildJSON {
+					fmt.Printf(`{"status":"error","error":"rebuild completed but failed to read status: %s"}`, readErr)
+					fmt.Println()
+					return nil
+				}
+				return fmt.Errorf("rebuild completed but failed to read status: %w", readErr)
+			}
+
+			if rebuildJSON {
+				var ds devStatus
+				if jsonErr := json.Unmarshal(statusData, &ds); jsonErr == nil && ds.LastRebuild != nil {
+					out, _ := json.MarshalIndent(ds.LastRebuild, "", "  ")
+					fmt.Println(string(out))
+				} else {
+					fmt.Println(string(statusData))
+				}
+				return nil
+			}
+
+			var ds devStatus
+			if jsonErr := json.Unmarshal(statusData, &ds); jsonErr == nil && ds.LastRebuild != nil {
+				rb := ds.LastRebuild
+				if rb.Status == "success" || rb.Status == "skipped" {
+					ui.PrintSuccess("Rebuild %s (%dms)", rb.Status, rb.DurationMs)
+					ui.PrintDim("  push_mode=%s files_changed=%d data_preserved=%v", rb.PushMode, rb.FilesChanged, rb.DataPreserved)
+				} else {
+					ui.PrintError("Rebuild %s (%dms)", rb.Status, rb.DurationMs)
+					for _, be := range rb.BuildErrors {
+						ui.PrintDim("  %s:%d:%d: %s: %s", be.File, be.Line, be.Column, be.Severity, be.Message)
+					}
+				}
+			}
+			return nil
+		}
+	}
+
+	if rebuildJSON {
+		fmt.Printf(`{"status":"timeout","error":"rebuild did not complete within %ds"}`, rebuildTimeout)
+		fmt.Println()
+	} else {
+		ui.PrintWarning("Rebuild did not complete within %ds", rebuildTimeout)
+	}
+	return fmt.Errorf("rebuild did not complete within %ds", rebuildTimeout)
+}
+
+func readLastRebuildSeq(statusPath string) int {
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		return 0
+	}
+	var ds devStatus
+	if err := json.Unmarshal(data, &ds); err != nil || ds.LastRebuild == nil {
+		return 0
+	}
+	return ds.LastRebuild.Seq
+}
+
+// ---------------------------------------------------------------------------
+// revyl dev status
+// ---------------------------------------------------------------------------
+
+func runDevStatus(cmd *cobra.Command, args []string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+	if root, rootErr := config.FindRepoRoot(cwd); rootErr == nil {
+		cwd = root
+	}
+
+	pidPath := filepath.Join(cwd, ".revyl", ".dev.pid")
+	statusPath := filepath.Join(cwd, ".revyl", ".dev-status.json")
+
+	pidData, pidErr := os.ReadFile(pidPath)
+	if pidErr != nil {
+		out, _ := json.Marshal(map[string]interface{}{"running": false})
+		fmt.Println(string(out))
+		return nil
+	}
+
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(pidData)))
+	proc, procErr := os.FindProcess(pid)
+	running := procErr == nil && proc.Signal(syscall.Signal(0)) == nil
+
+	if !running {
+		out, _ := json.Marshal(map[string]interface{}{"running": false})
+		fmt.Println(string(out))
+		return nil
+	}
+
+	statusData, statusErr := os.ReadFile(statusPath)
+	if statusErr != nil {
+		out, _ := json.Marshal(map[string]interface{}{
+			"running": true,
+			"pid":     pid,
+		})
+		fmt.Println(string(out))
+		return nil
+	}
+
+	var ds devStatus
+	if err := json.Unmarshal(statusData, &ds); err != nil {
+		out, _ := json.Marshal(map[string]interface{}{
+			"running": true,
+			"pid":     pid,
+		})
+		fmt.Println(string(out))
+		return nil
+	}
+
+	ds.PID = pid
+	out, _ := json.MarshalIndent(map[string]interface{}{
+		"running":                  true,
+		"pid":                      pid,
+		"platform":                 ds.Platform,
+		"session_id":               ds.SessionID,
+		"viewer_url":               ds.ViewerURL,
+		"state":                    ds.State,
+		"delta_cache_warm":         ds.DeltaCacheWarm,
+		"rebuild_count":            ds.RebuildCount,
+		"last_rebuild_status":      safeLastRebuildField(ds.LastRebuild, "status"),
+		"last_rebuild_duration_ms": safeLastRebuildDuration(ds.LastRebuild),
+	}, "", "  ")
+	fmt.Println(string(out))
 	return nil
+}
+
+func safeLastRebuildField(rb *devRebuildInfo, field string) string {
+	if rb == nil {
+		return ""
+	}
+	switch field {
+	case "status":
+		return rb.Status
+	default:
+		return ""
+	}
+}
+
+func safeLastRebuildDuration(rb *devRebuildInfo) int64 {
+	if rb == nil {
+		return 0
+	}
+	return rb.DurationMs
 }

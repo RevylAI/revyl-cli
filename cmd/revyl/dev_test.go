@@ -2,12 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/build"
+	"github.com/revyl/cli/internal/config"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -161,13 +166,12 @@ func TestPrintDevReadyFooter_PrintsInteractionShortcuts(t *testing.T) {
 	})
 
 	output := captureStdoutAndStderr(t, func() {
-		printDevReadyFooter("https://viewer.example", "https://app.revyl.ai/tests/report?sessionId=test-session", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false)
+		printDevReadyFooter("https://viewer.example", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false)
 	})
 
 	for _, expected := range []string{
 		"Dev loop ready",
 		"Viewer:",
-		"Report:",
 		"Deep Link:",
 		"[r] rebuild native + reinstall",
 		"[q] quit",
@@ -198,7 +202,7 @@ func TestPrintDevReadyFooter_QuietModeSuppressesInteractionHints(t *testing.T) {
 	})
 
 	output := captureStdout(t, func() {
-		printDevReadyFooter("https://viewer.example", "https://app.revyl.ai/tests/report?sessionId=test-session", "nof1://example", false)
+		printDevReadyFooter("https://viewer.example", "nof1://example", false)
 	})
 
 	if strings.Contains(output, "Try device interactions:") {
@@ -209,6 +213,155 @@ func TestPrintDevReadyFooter_QuietModeSuppressesInteractionHints(t *testing.T) {
 	}
 	if strings.Contains(output, "revyl device screenshot") {
 		t.Fatalf("output unexpectedly contains screenshot shortcut in quiet mode:\n%s", output)
+	}
+}
+
+func TestPrintRebuildLoopControls_WithKeybinds(t *testing.T) {
+	ui.SetQuietMode(false)
+	t.Cleanup(func() {
+		ui.SetQuietMode(false)
+	})
+
+	output := captureStdoutAndStderr(t, func() {
+		printRebuildLoopControls(true, false)
+	})
+
+	if !strings.Contains(output, "[r] rebuild + reinstall") {
+		t.Fatalf("output missing keybinding rebuild hint:\n%s", output)
+	}
+	if !strings.Contains(output, "[q] quit") {
+		t.Fatalf("output missing quit hint:\n%s", output)
+	}
+	if strings.Contains(output, "revyl dev rebuild") {
+		t.Fatalf("output unexpectedly contains non-TTY rebuild hint:\n%s", output)
+	}
+}
+
+func TestPrintRebuildLoopControls_WithoutKeybinds(t *testing.T) {
+	ui.SetQuietMode(false)
+	t.Cleanup(func() {
+		ui.SetQuietMode(false)
+	})
+
+	output := captureStdoutAndStderr(t, func() {
+		printRebuildLoopControls(false, false)
+	})
+
+	if !strings.Contains(output, "Trigger rebuild: revyl dev rebuild") {
+		t.Fatalf("output missing non-TTY rebuild hint:\n%s", output)
+	}
+	if !strings.Contains(output, "Stop session:    Ctrl+C") {
+		t.Fatalf("output missing Ctrl+C hint:\n%s", output)
+	}
+	if strings.Contains(output, "[r] rebuild + reinstall") {
+		t.Fatalf("output unexpectedly contains TTY keybinding hint:\n%s", output)
+	}
+}
+
+func TestResolveRebuildLoopPlatform_UsesExplicitPlatformKey(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{
+			Platforms: map[string]config.BuildPlatform{
+				"custom-ios": {
+					Command: "xcodebuild",
+					Output:  "build/*.app",
+				},
+			},
+		},
+	}
+
+	platformKey, devicePlatform, err := resolveRebuildLoopPlatform(cfg, "ios", "custom-ios", false)
+	if err != nil {
+		t.Fatalf("resolveRebuildLoopPlatform() error = %v, want nil", err)
+	}
+	if platformKey != "custom-ios" {
+		t.Fatalf("platformKey = %q, want %q", platformKey, "custom-ios")
+	}
+	if devicePlatform != "ios" {
+		t.Fatalf("devicePlatform = %q, want %q", devicePlatform, "ios")
+	}
+}
+
+func TestResolveRebuildLoopPlatform_RejectsMismatchedExplicitPlatform(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{
+			Platforms: map[string]config.BuildPlatform{
+				"ios-dev": {
+					Command: "xcodebuild",
+					Output:  "build/*.app",
+				},
+			},
+		},
+	}
+
+	_, _, err := resolveRebuildLoopPlatform(cfg, "android", "ios-dev", true)
+	if err == nil {
+		t.Fatal("resolveRebuildLoopPlatform() error = nil, want mismatch error")
+	}
+	if !strings.Contains(err.Error(), "ios build") {
+		t.Fatalf("error = %q, want ios build mismatch", err.Error())
+	}
+}
+
+func TestResolveRebuildLoopPlatform_RejectsAmbiguousKeysWithoutPlatformKey(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{
+			Platforms: map[string]config.BuildPlatform{
+				"simulator": {
+					Command: "xcodebuild",
+					Output:  "build/*.app",
+				},
+				"device": {
+					Command: "./gradlew assembleDebug",
+					Output:  "app-debug.apk",
+				},
+			},
+		},
+	}
+
+	_, _, err := resolveRebuildLoopPlatform(cfg, "ios", "", false)
+	if err == nil {
+		t.Fatal("resolveRebuildLoopPlatform() error = nil, want ambiguity error")
+	}
+	if !strings.Contains(err.Error(), "Use --platform-key to choose one") {
+		t.Fatalf("error = %q, want explicit platform-key guidance", err.Error())
+	}
+}
+
+func TestFormatBuildVersionLabel_PrefersVersionAndID(t *testing.T) {
+	label := formatBuildVersionLabel(&api.BuildVersion{
+		ID:      "ver_123",
+		Version: "1.2.3-ios",
+	})
+	if label != "1.2.3-ios (ver_123)" {
+		t.Fatalf("formatBuildVersionLabel() = %q, want %q", label, "1.2.3-ios (ver_123)")
+	}
+}
+
+func TestTryLaunchInstalledApp_WarnsWithResolvedIdentifier(t *testing.T) {
+	ui.SetQuietMode(false)
+	t.Cleanup(func() {
+		ui.SetQuietMode(false)
+	})
+
+	requester := &fakeWorkerSessionRequester{
+		err: fmt.Errorf("launch route unavailable"),
+	}
+	output := captureStdoutAndStderr(t, func() {
+		tryLaunchInstalledApp(context.Background(), requester, 7, "android", "com.example.app")
+	})
+
+	if !strings.Contains(output, "launch failed") {
+		t.Fatalf("output missing launch failure warning:\n%s", output)
+	}
+	if !strings.Contains(output, "Package name com.example.app") {
+		t.Fatalf("output missing resolved package identifier:\n%s", output)
+	}
+	if requester.path != "/launch" {
+		t.Fatalf("path = %q, want /launch", requester.path)
+	}
+	if requester.sessionIndex != 7 {
+		t.Fatalf("sessionIndex = %d, want 7", requester.sessionIndex)
 	}
 }
 
@@ -425,4 +578,172 @@ func (r *devSessionProgressRecorder) snapshot() (int, int, []string) {
 	msgs := make([]string, len(r.infoMessages))
 	copy(msgs, r.infoMessages)
 	return r.startCalls, r.stopCalls, msgs
+}
+
+type fakeWorkerSessionRequester struct {
+	sessionIndex int
+	path         string
+	body         map[string]string
+	resp         []byte
+	err          error
+}
+
+func (f *fakeWorkerSessionRequester) WorkerRequestForSession(
+	ctx context.Context,
+	sessionIndex int,
+	path string,
+	body interface{},
+) ([]byte, error) {
+	_ = ctx
+	f.sessionIndex = sessionIndex
+	f.path = path
+	if payload, ok := body.(map[string]string); ok {
+		f.body = payload
+	}
+	return f.resp, f.err
+}
+
+// ---------------------------------------------------------------------------
+// Delta push / status file tests
+// ---------------------------------------------------------------------------
+
+func TestWriteDevStatus_Success(t *testing.T) {
+	dir := t.TempDir()
+	statusPath := dir + "/status.json"
+
+	session := &mcppkg.DeviceSession{
+		SessionID: "sess-123",
+		ViewerURL: "https://app.revyl.ai/device/sess-123",
+	}
+	viewerURL := devSessionViewerURL(session, false)
+
+	result := devRebuildResult{
+		elapsed:       15 * time.Second,
+		buildDuration: 14 * time.Second,
+		pushDuration:  1 * time.Second,
+		usedDelta:     true,
+		dataPreserved: true,
+		filesChanged:  2,
+		deltaBytes:    1843200,
+		manifest:      &build.AppManifest{Hash: "abc"},
+	}
+
+	writeDevStatus(statusPath, session, viewerURL, "ios", 3, true, result)
+
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	var ds devStatus
+	if err := json.Unmarshal(data, &ds); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if ds.State != "idle" {
+		t.Fatalf("expected state=idle, got %s", ds.State)
+	}
+	if ds.SessionID != "sess-123" {
+		t.Fatalf("expected session_id=sess-123, got %s", ds.SessionID)
+	}
+	if ds.ViewerURL != "https://app.revyl.ai/sessions/sess-123" {
+		t.Fatalf("expected viewer_url=%s, got %s", "https://app.revyl.ai/sessions/sess-123", ds.ViewerURL)
+	}
+	if ds.RebuildCount != 3 {
+		t.Fatalf("expected rebuild_count=3, got %d", ds.RebuildCount)
+	}
+	if ds.LastRebuild == nil {
+		t.Fatal("expected last_rebuild to be non-nil")
+	}
+	if ds.LastRebuild.Status != "success" {
+		t.Fatalf("expected status=success, got %s", ds.LastRebuild.Status)
+	}
+	if ds.LastRebuild.PushMode != "delta" {
+		t.Fatalf("expected push_mode=delta, got %s", ds.LastRebuild.PushMode)
+	}
+	if !ds.LastRebuild.DataPreserved {
+		t.Fatal("expected data_preserved=true")
+	}
+	if ds.LastRebuild.FilesChanged != 2 {
+		t.Fatalf("expected files_changed=2, got %d", ds.LastRebuild.FilesChanged)
+	}
+}
+
+func TestWriteDevStatus_BuildFailure(t *testing.T) {
+	dir := t.TempDir()
+	statusPath := dir + "/status.json"
+
+	result := devRebuildResult{
+		buildErr:      fmt.Errorf("exit code 65"),
+		elapsed:       8 * time.Second,
+		buildDuration: 8 * time.Second,
+		buildErrors: []build.BuildError{
+			{File: "LoginView.swift", Line: 42, Column: 15, Severity: "error", Message: "type mismatch"},
+		},
+	}
+
+	writeDevStatus(statusPath, nil, "", "ios", 1, false, result)
+
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	var ds devStatus
+	if err := json.Unmarshal(data, &ds); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if ds.LastRebuild.Status != "build_failed" {
+		t.Fatalf("expected status=build_failed, got %s", ds.LastRebuild.Status)
+	}
+	if len(ds.LastRebuild.BuildErrors) != 1 {
+		t.Fatalf("expected 1 build error, got %d", len(ds.LastRebuild.BuildErrors))
+	}
+	if ds.LastRebuild.BuildErrors[0].File != "LoginView.swift" {
+		t.Fatalf("expected LoginView.swift, got %s", ds.LastRebuild.BuildErrors[0].File)
+	}
+}
+
+func TestReadLastCompletedAt(t *testing.T) {
+	dir := t.TempDir()
+	statusPath := dir + "/status.json"
+
+	if got := readLastCompletedAt(statusPath); got != "" {
+		t.Fatalf("expected empty for missing file, got %q", got)
+	}
+
+	status := `{"last_rebuild":{"completed_at":"2026-04-05T14:32:25Z","status":"success"}}`
+	if err := os.WriteFile(statusPath, []byte(status), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readLastCompletedAt(statusPath)
+	if got != "2026-04-05T14:32:25Z" {
+		t.Fatalf("expected 2026-04-05T14:32:25Z, got %q", got)
+	}
+}
+
+func TestWriteDevStatus_Skipped(t *testing.T) {
+	dir := t.TempDir()
+	statusPath := dir + "/status.json"
+
+	result := devRebuildResult{
+		elapsed:  3 * time.Second,
+		skipped:  true,
+		manifest: &build.AppManifest{Hash: "abc"},
+	}
+
+	writeDevStatus(statusPath, nil, "", "ios", 5, true, result)
+
+	data, _ := os.ReadFile(statusPath)
+	var ds devStatus
+	_ = json.Unmarshal(data, &ds)
+
+	if ds.LastRebuild.Status != "skipped" {
+		t.Fatalf("expected status=skipped, got %s", ds.LastRebuild.Status)
+	}
+	if ds.LastRebuild.PushMode != "none" {
+		t.Fatalf("expected push_mode=none, got %s", ds.LastRebuild.PushMode)
+	}
 }

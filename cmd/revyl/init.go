@@ -48,6 +48,10 @@ Examples:
   revyl init --project ID       # Link to existing Revyl project
   revyl init --detect           # Re-run build system detection
   revyl init --force            # Overwrite existing configuration`,
+	Example: `  revyl init
+  revyl init -y
+  revyl init --provider expo
+  revyl init --force`,
 	RunE: runInit,
 }
 

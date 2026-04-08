@@ -326,8 +326,6 @@ The CLI detects `pubspec.yaml` and configures `flutter build apk --debug` (Andro
 
 Typical rebuild cycle: ~30-60s for incremental Flutter builds (first build takes longer).
 
-**Note:** iOS reinstalls clear app data. Android reinstalls preserve app data.
-
 ---
 
 ## Swift/iOS
@@ -347,8 +345,6 @@ revyl dev --platform ios    # Build -> upload -> device -> install -> [r] to reb
 The CLI detects `.xcodeproj` / `.xcworkspace` and configures `xcodebuild` with the discovered scheme. During `revyl dev`, press `[r]` to rebuild the native binary, upload it, and reinstall on the cloud device. The viewer stays connected throughout.
 
 Typical rebuild cycle: ~20-60s for incremental Xcode builds.
-
-**Note:** iOS reinstalls clear app data (login state, preferences). This is an inherent simulator limitation.
 
 If your project is incorrectly detected as Swift when it's actually Expo or React Native (common in monorepos), use `--provider expo` or `--provider react-native` to override.
 

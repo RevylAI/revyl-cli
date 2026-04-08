@@ -42,6 +42,10 @@ EXAMPLES:
   revyl test list                    # List tests with sync status
   revyl test status login-flow       # Check latest execution status
   revyl test report login-flow       # View detailed step report`,
+	Example: `  revyl test run login-flow
+  revyl test list
+  revyl test status login-flow --json
+  revyl test report login-flow --json`,
 }
 
 // testRunCmd runs a single test (run-only by default; use --build to build first).
@@ -60,6 +64,10 @@ Use the test NAME or UUID, not a file path.
 EXAMPLES:
   revyl test run login-flow          # Run (no build)
   revyl test run login-flow --build  # Build then run`,
+	Example: `  revyl test run login-flow
+  revyl test run login-flow --build
+  revyl test run login-flow --json --no-wait
+  revyl test run login-flow --device-model "iPhone 16" --os-version "iOS 18.5"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestExec,
 }
@@ -71,8 +79,9 @@ var testCancelCmd = &cobra.Command{
 	Long: `Cancel a running test execution by its task ID.
 
 Task ID is shown when you start a test or in the report URL.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runCancelTest,
+	Example: `  revyl test cancel <task-id>`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runCancelTest,
 }
 
 // testCreateCmd creates a new test.
@@ -88,6 +97,10 @@ EXAMPLES:
   revyl test create login-flow --platform android
   revyl test create checkout --platform ios
   revyl test create --from-file ./my-test.yaml`,
+	Example: `  revyl test create login-flow --platform android
+  revyl test create checkout --platform ios
+  revyl test create --from-file ./my-test.yaml
+  revyl test create login --platform ios --module login-module --tag smoke`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		fromFile, _ := cmd.Flags().GetString("from-file")
 		if fromFile != "" {
@@ -111,6 +124,8 @@ EXAMPLES:
   revyl test rename CLI-0-onboard-a cli-0-onboard-a
   revyl test rename login-flow smoke-login
   revyl test rename`,
+	Example: `  revyl test rename old-name new-name
+  revyl test rename old-name new-name --non-interactive`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runRenameTest,
 }
@@ -123,6 +138,9 @@ var testDeleteCmd = &cobra.Command{
 
 By default removes from remote, local .revyl/tests/<name>.yaml, and config alias.
 Use --remote-only or --local-only to limit scope.`,
+	Example: `  revyl test delete login-flow
+  revyl test delete login-flow --force
+  revyl test delete login-flow --remote-only`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDeleteTest,
 }
@@ -135,8 +153,9 @@ var testOpenCmd = &cobra.Command{
 
 EXAMPLES:
   revyl test open login-flow`,
-	Args: cobra.ExactArgs(1),
-	RunE: runOpenTest,
+	Example: `  revyl test open login-flow`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runOpenTest,
 }
 
 func init() {

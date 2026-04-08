@@ -81,6 +81,37 @@ func TestResolveStartArtifact_PropagatesBuildLookupFailure(t *testing.T) {
 	}
 }
 
+func TestResolveStartArtifact_NilResponseDoesNotWrapNilError(t *testing.T) {
+	t.Parallel()
+
+	_, err := ResolveStartArtifact(context.Background(), stubArtifactResolver{}, StartArtifactOptions{AppID: "app-nil"})
+	if err == nil {
+		t.Fatal("expected error for app with nil response")
+	}
+	got := err.Error()
+	if got != "no builds found for app app-nil" {
+		t.Fatalf("error = %q, want %q", got, "no builds found for app app-nil")
+	}
+	if errors.Unwrap(err) != nil {
+		t.Fatalf("error wraps a non-nil cause %v; nil-response errors must not use %%w", errors.Unwrap(err))
+	}
+}
+
+func TestResolveStartArtifact_PropagatesLatestBuildAPIError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("api timeout")
+	_, err := ResolveStartArtifact(context.Background(), stubArtifactResolver{
+		latestErr: sentinel,
+	}, StartArtifactOptions{AppID: "app-err"})
+	if err == nil {
+		t.Fatal("expected error from GetLatestBuildVersion failure")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("error chain does not contain sentinel; got %q", err)
+	}
+}
+
 func TestResolveStartArtifact_UsesTrimmedDirectAppURL(t *testing.T) {
 	t.Parallel()
 

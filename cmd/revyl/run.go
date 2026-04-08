@@ -256,11 +256,13 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	testID, _, err := resolveTestID(cmd.Context(), testNameOrID, cfg, validationClient)
 	if err != nil {
 		ui.PrintError("%v", err)
+		fmt.Fprintln(os.Stderr, "  Run: revyl test list")
 		return fmt.Errorf("test not found")
 	}
 	if looksLikeUUID(testNameOrID) {
 		if _, err := validationClient.GetTest(cmd.Context(), testID); err != nil {
 			ui.PrintError("test '%s' not found: %v", testNameOrID, err)
+			fmt.Fprintln(os.Stderr, "  Run: revyl test list")
 			return fmt.Errorf("test not found")
 		}
 	}
@@ -333,7 +335,8 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		}
 
 		if buildCfg.Command == "" {
-			ui.PrintError("No build command configured. Check .revyl/config.yaml")
+			ui.PrintError("No build command configured for this platform.")
+			fmt.Fprintln(os.Stderr, "  Run: revyl init --force")
 			return fmt.Errorf("no build command")
 		}
 
@@ -751,7 +754,8 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		}
 
 		if buildCfg.Command == "" {
-			ui.PrintError("No build command configured. Check .revyl/config.yaml")
+			ui.PrintError("No build command configured for this platform.")
+			fmt.Fprintln(os.Stderr, "  Run: revyl init --force")
 			return fmt.Errorf("no build command")
 		}
 

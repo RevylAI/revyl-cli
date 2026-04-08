@@ -119,8 +119,8 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 	if s.config == nil {
 		return nil, StartDevLoopOutput{Success: false, SessionIndex: -1, Error: "project config not loaded. Run revyl init first"}, nil
 	}
-	if !s.config.HotReload.IsConfigured() {
-		return nil, StartDevLoopOutput{Success: false, SessionIndex: -1, Error: "hot reload is not configured. Run revyl init --hotreload"}, nil
+	if !s.config.HotReload.IsConfigured() && len(s.config.Build.Platforms) == 0 {
+		return nil, StartDevLoopOutput{Success: false, SessionIndex: -1, Error: "dev loop is not configured. Run revyl init first"}, nil
 	}
 
 	platform := normalizePlatform(input.Platform)
@@ -128,46 +128,64 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 		return nil, StartDevLoopOutput{Success: false, SessionIndex: -1, Error: "platform must be 'ios' or 'android'"}, nil
 	}
 
-	providerName, err := s.config.HotReload.GetActiveProvider("")
-	if err != nil {
-		return nil, StartDevLoopOutput{Success: false, SessionIndex: -1, Error: fmt.Sprintf("failed to resolve hot reload provider: %v", err)}, nil
-	}
-	registry := hotreload.DefaultRegistry()
-	providerImpl, provImplErr := registry.GetProvider(providerName)
-	if provImplErr != nil {
-		return nil, StartDevLoopOutput{
-			Success:      false,
-			SessionIndex: -1,
-			Error:        fmt.Sprintf("unknown provider %q: %v", providerName, provImplErr),
-		}, nil
-	}
-	if !providerImpl.IsSupported() {
-		return nil, StartDevLoopOutput{
-			Success:      false,
-			SessionIndex: -1,
-			Error:        fmt.Sprintf("provider %q is configured but %s dev mode is not yet supported", providerName, providerImpl.DisplayName()),
-		}, nil
-	}
+	rebuildOnly := !s.config.HotReload.IsConfigured() && len(s.config.Build.Platforms) > 0
 
-	baseProviderCfg := s.config.HotReload.GetProviderConfig(providerName)
-	if baseProviderCfg == nil {
-		return nil, StartDevLoopOutput{
-			Success:      false,
-			SessionIndex: -1,
-			Error:        fmt.Sprintf("hotreload provider %q is not configured", providerName),
-		}, nil
+	var providerName string
+	var providerCfg config.ProviderConfig
+	if !rebuildOnly {
+		var provErr error
+		providerName, provErr = s.config.HotReload.GetActiveProvider("")
+		if provErr != nil {
+			if len(s.config.Build.Platforms) > 0 {
+				rebuildOnly = true
+			} else {
+				return nil, StartDevLoopOutput{Success: false, SessionIndex: -1, Error: fmt.Sprintf("failed to resolve hot reload provider: %v", provErr)}, nil
+			}
+		}
 	}
-	providerCfg := *baseProviderCfg
-	if input.Port > 0 {
-		providerCfg.Port = input.Port
+	if !rebuildOnly {
+		registry := hotreload.DefaultRegistry()
+		providerImpl, provImplErr := registry.GetProvider(providerName)
+		if provImplErr != nil {
+			return nil, StartDevLoopOutput{
+				Success:      false,
+				SessionIndex: -1,
+				Error:        fmt.Sprintf("unknown provider %q: %v", providerName, provImplErr),
+			}, nil
+		}
+		if !providerImpl.IsSupported() {
+			if len(s.config.Build.Platforms) > 0 {
+				rebuildOnly = true
+			} else {
+				return nil, StartDevLoopOutput{
+					Success:      false,
+					SessionIndex: -1,
+					Error:        fmt.Sprintf("provider %q is configured but %s dev mode is not yet supported", providerName, providerImpl.DisplayName()),
+				}, nil
+			}
+		}
 	}
+	if !rebuildOnly {
+		baseProviderCfg := s.config.HotReload.GetProviderConfig(providerName)
+		if baseProviderCfg == nil {
+			return nil, StartDevLoopOutput{
+				Success:      false,
+				SessionIndex: -1,
+				Error:        fmt.Sprintf("hotreload provider %q is not configured", providerName),
+			}, nil
+		}
+		providerCfg = *baseProviderCfg
+		if input.Port > 0 {
+			providerCfg.Port = input.Port
+		}
 
-	if providerName == "expo" && strings.TrimSpace(providerCfg.AppScheme) == "" {
-		return nil, StartDevLoopOutput{
-			Success:      false,
-			SessionIndex: -1,
-			Error:        "hotreload.providers.expo.app_scheme is required (run `revyl config set hotreload.app-scheme <scheme>`)",
-		}, nil
+		if providerName == "expo" && strings.TrimSpace(providerCfg.AppScheme) == "" {
+			return nil, StartDevLoopOutput{
+				Success:      false,
+				SessionIndex: -1,
+				Error:        "hotreload.providers.expo.app_scheme is required (run `revyl config set hotreload.app-scheme <scheme>`)",
+			}, nil
+		}
 	}
 
 	// Resolve build target.
@@ -184,12 +202,16 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 	if selectedBuildVersionID == "" {
 		if selectedAppID == "" {
 			if platformKey == "" {
-				platformKey = strings.TrimSpace(providerCfg.PlatformKeys[platform])
+				if rebuildOnly {
+					platformKey = platform
+				} else {
+					platformKey = strings.TrimSpace(providerCfg.PlatformKeys[platform])
+				}
 				if platformKey == "" {
 					return nil, StartDevLoopOutput{
 						Success:      false,
 						SessionIndex: -1,
-						Error:        fmt.Sprintf("no platform key mapping for %q in hotreload.providers.expo.platform_keys", platform),
+						Error:        fmt.Sprintf("no platform key mapping for %q; pass platform_key explicitly", platform),
 					}, nil
 				}
 			}
@@ -269,19 +291,29 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 		}, nil
 	}
 
-	manager := hotreload.NewManager(providerName, &providerCfg, s.workDir)
-	startResult, startErr := manager.Start(context.Background())
-	if startErr != nil {
-		return nil, StartDevLoopOutput{
-			Success:      false,
-			SessionIndex: -1,
-			Error:        fmt.Sprintf("failed to start hot reload: %v", startErr),
-		}, nil
+	var manager *hotreload.Manager
+	var startResult *hotreload.StartResult
+	if !rebuildOnly {
+		manager = hotreload.NewManager(providerName, &providerCfg, s.workDir)
+		var startErr error
+		startResult, startErr = manager.Start(context.Background())
+		if startErr != nil {
+			return nil, StartDevLoopOutput{
+				Success:      false,
+				SessionIndex: -1,
+				Error:        fmt.Sprintf("failed to start hot reload: %v", startErr),
+			}, nil
+		}
 	}
 
 	timeoutSecs := input.Timeout
 	if timeoutSecs <= 0 {
 		timeoutSecs = config.EffectiveTimeoutSeconds(s.config, 300)
+	}
+
+	deepLinkURL := ""
+	if startResult != nil {
+		deepLinkURL = startResult.DeepLinkURL
 	}
 
 	_, session, err := s.sessionMgr.StartSession(ctx, StartSessionOptions{
@@ -290,11 +322,13 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 		BuildVersionID: selectedBuildVersionID,
 		AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
 		AppPackage:     strings.TrimSpace(buildDetail.PackageName),
-		AppLink:        startResult.DeepLinkURL,
+		AppLink:        deepLinkURL,
 		IdleTimeout:    time.Duration(timeoutSecs) * time.Second,
 	})
 	if err != nil {
-		manager.Stop()
+		if manager != nil {
+			manager.Stop()
+		}
 		return nil, StartDevLoopOutput{
 			Success:      false,
 			SessionIndex: -1,
@@ -304,12 +338,14 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 
 	cleanupOnError := func(msg string) (*mcp.CallToolResult, StartDevLoopOutput, error) {
 		_ = s.sessionMgr.StopSession(context.Background(), session.Index)
-		manager.Stop()
+		if manager != nil {
+			manager.Stop()
+		}
 		return nil, StartDevLoopOutput{
 			Success:      false,
 			SessionIndex: session.Index,
 			ViewerURL:    session.ViewerURL,
-			DeepLinkURL:  startResult.DeepLinkURL,
+			DeepLinkURL:  deepLinkURL,
 			Error:        msg,
 		}, nil
 	}
@@ -347,7 +383,7 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 	}
 
 	manualStepRequired := false
-	if deepLink := strings.TrimSpace(startResult.DeepLinkURL); deepLink != "" {
+	if deepLink := strings.TrimSpace(deepLinkURL); deepLink != "" {
 		openURLResp, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", map[string]string{"url": deepLink})
 		if err != nil {
 			if isUnsupportedWorkerRoute(err, "/open_url") {
@@ -381,7 +417,7 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 		Success:            true,
 		SessionIndex:       session.Index,
 		ManualStepRequired: manualStepRequired,
-		DeepLinkURL:        startResult.DeepLinkURL,
+		DeepLinkURL:        deepLinkURL,
 		ViewerURL:          session.ViewerURL,
 		BuildSelection:     buildSelectionSource,
 		Preflight: &BuildPreflightInfo{

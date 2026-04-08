@@ -335,6 +335,9 @@ Examples:
 var deviceStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start a device session",
+	Example: `  revyl device start --platform ios
+  revyl device start --platform android --timeout 600
+  revyl device start --platform ios --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		platform, _ := cmd.Flags().GetString("platform")
 		timeout, _ := cmd.Flags().GetInt("timeout")
@@ -511,6 +514,9 @@ var deviceStartCmd = &cobra.Command{
 var deviceStopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop a device session (-s <index> or --all)",
+	Example: `  revyl device stop
+  revyl device stop --all
+  revyl device stop -s 1`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -552,6 +558,8 @@ var deviceStopCmd = &cobra.Command{
 var deviceScreenshotCmd = &cobra.Command{
 	Use:   "screenshot",
 	Short: "Capture device screenshot",
+	Example: `  revyl device screenshot
+  revyl device screenshot --out before.png`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -620,6 +628,9 @@ var deviceHierarchyCmd = &cobra.Command{
 var deviceTapCmd = &cobra.Command{
 	Use:   "tap",
 	Short: "Tap an element (--target or --x/--y)",
+	Example: `  revyl device tap --target "Sign In button"
+  revyl device tap --x 200 --y 450
+  revyl device tap --target "Submit" --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -718,6 +729,8 @@ var deviceLongPressCmd = &cobra.Command{
 var deviceTypeCmd = &cobra.Command{
 	Use:   "type",
 	Short: "Type text (--target or --x/--y, plus --text)",
+	Example: `  revyl device type --target "email field" --text "user@example.com"
+  revyl device type --x 200 --y 300 --text "hello"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -753,8 +766,12 @@ var deviceTypeCmd = &cobra.Command{
 }
 
 var deviceSwipeCmd = &cobra.Command{
-	Use:   "swipe",
-	Short: "Swipe (--target or --x/--y, plus --direction)",
+	Use:   "swipe [direction]",
+	Short: "Swipe (--target or --x/--y, plus direction)",
+	Example: `  revyl device swipe down
+  revyl device swipe up --target "product list"
+  revyl device swipe --direction down --x 200 --y 400`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -765,8 +782,11 @@ var deviceSwipeCmd = &cobra.Command{
 			return err
 		}
 		direction, _ := cmd.Flags().GetString("direction")
+		if len(args) > 0 && args[0] != "" {
+			direction = args[0]
+		}
 		if direction == "" {
-			return fmt.Errorf("--direction is required (up, down, left, right)")
+			return fmt.Errorf("direction is required: revyl device swipe <up|down|left|right>")
 		}
 		x, y, err := resolveTargetOrCoords(cmd, mgr, session.Index)
 		if err != nil {
@@ -937,8 +957,12 @@ var deviceBackCmd = &cobra.Command{
 }
 
 var deviceKeyCmd = &cobra.Command{
-	Use:   "key",
+	Use:   "key [key]",
 	Short: "Send a non-printable key (ENTER or BACKSPACE)",
+	Example: `  revyl device key ENTER
+  revyl device key BACKSPACE
+  revyl device key --key ENTER`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -949,8 +973,11 @@ var deviceKeyCmd = &cobra.Command{
 			return err
 		}
 		rawKey, _ := cmd.Flags().GetString("key")
+		if len(args) > 0 && args[0] != "" {
+			rawKey = args[0]
+		}
 		if rawKey == "" {
-			return fmt.Errorf("--key is required (ENTER or BACKSPACE)")
+			return fmt.Errorf("key is required: revyl device key <ENTER|BACKSPACE>")
 		}
 		normalized := strings.ToUpper(strings.TrimSpace(rawKey))
 		switch normalized {
@@ -1060,8 +1087,11 @@ var deviceInstallCmd = &cobra.Command{
 }
 
 var deviceLaunchCmd = &cobra.Command{
-	Use:   "launch",
+	Use:   "launch [bundle-id]",
 	Short: "Launch an installed app by bundle ID",
+	Example: `  revyl device launch com.example.app
+  revyl device launch --bundle-id com.example.app`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -1072,8 +1102,11 @@ var deviceLaunchCmd = &cobra.Command{
 			return err
 		}
 		bundleID, _ := cmd.Flags().GetString("bundle-id")
+		if len(args) > 0 && args[0] != "" {
+			bundleID = args[0]
+		}
 		if bundleID == "" {
-			return fmt.Errorf("--bundle-id is required (e.g. 'com.example.app')")
+			return fmt.Errorf("bundle ID is required: revyl device launch <bundle-id> (e.g. 'com.example.app')")
 		}
 		body := map[string]string{"bundle_id": bundleID}
 		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/launch", body)
@@ -1128,8 +1161,11 @@ var deviceKillAppCmd = &cobra.Command{
 }
 
 var deviceOpenAppCmd = &cobra.Command{
-	Use:   "open-app",
+	Use:   "open-app [app]",
 	Short: "Open a system app by name (e.g. settings, safari, chrome)",
+	Example: `  revyl device open-app settings
+  revyl device open-app --app safari`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -1140,8 +1176,11 @@ var deviceOpenAppCmd = &cobra.Command{
 			return err
 		}
 		appName, _ := cmd.Flags().GetString("app")
+		if len(args) > 0 && args[0] != "" {
+			appName = args[0]
+		}
 		if appName == "" {
-			return fmt.Errorf("--app is required (e.g. 'settings', 'safari', or a raw bundle ID)")
+			return fmt.Errorf("app name is required: revyl device open-app <name> (e.g. 'settings', 'safari', or a raw bundle ID)")
 		}
 		bundleID := mcppkg.ResolveSystemApp(session.Platform, appName)
 		body := map[string]string{"bundle_id": bundleID}
@@ -1161,8 +1200,11 @@ var deviceOpenAppCmd = &cobra.Command{
 }
 
 var deviceNavigateCmd = &cobra.Command{
-	Use:   "navigate",
+	Use:   "navigate [url]",
 	Short: "Open a URL or deep link on device",
+	Example: `  revyl device navigate https://example.com
+  revyl device navigate --url https://example.com`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -1173,8 +1215,11 @@ var deviceNavigateCmd = &cobra.Command{
 			return err
 		}
 		url, _ := cmd.Flags().GetString("url")
+		if len(args) > 0 && args[0] != "" {
+			url = args[0]
+		}
 		if url == "" {
-			return fmt.Errorf("--url is required")
+			return fmt.Errorf("URL is required: revyl device navigate <url>")
 		}
 		body := map[string]string{"url": url}
 		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/open_url", body)
@@ -1255,10 +1300,16 @@ var deviceNetworkCmd = &cobra.Command{
 }
 
 var deviceDownloadFileCmd = &cobra.Command{
-	Use:   "download-file",
+	Use:   "download-file [url]",
 	Short: "Download a file to device from URL",
+	Example: `  revyl device download-file https://example.com/file.pdf
+  revyl device download-file --url https://example.com/file.pdf --filename report.pdf`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		url, _ := cmd.Flags().GetString("url")
+		if len(args) > 0 && args[0] != "" {
+			url = args[0]
+		}
 		url, err := normalizeRequiredDeviceURLFlag(url, "--url", "")
 		if err != nil {
 			return err
@@ -1885,7 +1936,7 @@ func init() {
 	// Start
 	deviceStartCmd.Flags().String("platform", "ios", "Platform: ios or android")
 	deviceStartCmd.Flags().Int("timeout", 300, "Idle timeout in seconds")
-	deviceStartCmd.Flags().Bool("open", false, "Open viewer in browser after device is ready")
+	deviceStartCmd.Flags().Bool("open", true, "Open viewer in browser after device is ready")
 	deviceStartCmd.Flags().String("app-id", "", "App ID to resolve latest build from")
 	deviceStartCmd.Flags().String("build-version-id", "", "Build version ID to install")
 	deviceStartCmd.Flags().String("app-url", "", "Direct app artifact URL (.apk/.ipa/.zip)")
@@ -2056,7 +2107,7 @@ func init() {
 	deviceCodeExecutionCmd.Flags().Bool("json", false, "Output as JSON")
 	deviceCodeExecutionCmd.Flags().String("file", "", "Run code from a local file (creates ephemeral script)")
 	deviceCodeExecutionCmd.Flags().String("code", "", "Run inline code string (creates ephemeral script)")
-	deviceCodeExecutionCmd.Flags().String("runtime", "", "Script runtime for --file/--code (python, javascript, typescript, bash)")
+	deviceCodeExecutionCmd.Flags().String("runtime", "python", "Script runtime for --file/--code (python, javascript, typescript, bash)")
 	sessionFlag(deviceCodeExecutionCmd)
 
 	// Info

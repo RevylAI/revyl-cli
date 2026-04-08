@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -381,6 +382,16 @@ func (s *Server) registerDeviceTools() {
 			DestructiveHint: boolPtr(false),
 		},
 	}, s.handleSwitchDeviceSession)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "rebuild_and_verify",
+		Description: "Trigger a native rebuild in a running `revyl dev` session, wait for it to complete, and optionally capture a screenshot. Returns structured JSON with build status, duration, errors, and whether app data was preserved. Use after editing native code to see the result on device.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Rebuild and Verify",
+			DestructiveHint: boolPtr(false),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleRebuildAndVerify)
 }
 
 // --- Session Management ---
@@ -2246,4 +2257,158 @@ func (s *Server) handleGetSessionReport(ctx context.Context, req *mcp.CallToolRe
 	}
 	out.Steps = r.Steps
 	return nil, out, nil
+}
+
+// ---------------------------------------------------------------------------
+// rebuild_and_verify
+// ---------------------------------------------------------------------------
+
+// RebuildAndVerifyInput defines input for rebuild_and_verify.
+type RebuildAndVerifyInput struct {
+	TimeoutSeconds int  `json:"timeout_seconds,omitempty" jsonschema:"Max seconds to wait for rebuild (default 120)"`
+	Screenshot     bool `json:"screenshot,omitempty" jsonschema:"Capture a screenshot after rebuild (default true)"`
+}
+
+// RebuildAndVerifyOutput contains the structured rebuild result.
+type RebuildAndVerifyOutput struct {
+	Success       bool   `json:"success"`
+	Status        string `json:"status"`
+	DurationMs    int64  `json:"duration_ms"`
+	PushMode      string `json:"push_mode,omitempty"`
+	FilesChanged  int    `json:"files_changed,omitempty"`
+	DataPreserved bool   `json:"data_preserved,omitempty"`
+	ScreenToken   string `json:"screen_token,omitempty"`
+	ImagePath     string `json:"image_path,omitempty"`
+	Error         string `json:"error,omitempty"`
+	BuildErrors   []struct {
+		File     string `json:"file"`
+		Line     int    `json:"line"`
+		Column   int    `json:"column"`
+		Severity string `json:"severity"`
+		Message  string `json:"message"`
+	} `json:"build_errors,omitempty"`
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handleRebuildAndVerify(ctx context.Context, req *mcp.CallToolRequest, input RebuildAndVerifyInput) (*mcp.CallToolResult, RebuildAndVerifyOutput, error) {
+	out := RebuildAndVerifyOutput{}
+
+	if input.TimeoutSeconds <= 0 {
+		input.TimeoutSeconds = 120
+	}
+
+	cwd := s.sessionMgr.WorkDir()
+	pidPath := cwd + "/.revyl/.dev.pid"
+	statusPath := cwd + "/.revyl/.dev-status.json"
+
+	pidData, err := os.ReadFile(pidPath)
+	if err != nil {
+		out.Error = "no dev session running"
+		out.Status = "no_session"
+		out.NextSteps = []NextStep{{Tool: "start_device_session", Reason: "Start a dev session first"}}
+		return nil, out, nil
+	}
+
+	var parsedPID int
+	if n, _ := fmt.Sscanf(strings.TrimSpace(string(pidData)), "%d", &parsedPID); n == 0 || parsedPID <= 0 {
+		out.Error = "invalid PID in .dev.pid"
+		out.Status = "error"
+		return nil, out, nil
+	}
+
+	proc, procErr := os.FindProcess(parsedPID)
+	if procErr != nil {
+		out.Error = fmt.Sprintf("process %d not found", parsedPID)
+		out.Status = "no_session"
+		return nil, out, nil
+	}
+
+	priorCompleted := readDevStatusCompletedAt(statusPath)
+
+	if sigErr := proc.Signal(os.Signal(syscall.SIGUSR1)); sigErr != nil {
+		out.Error = fmt.Sprintf("dev session (PID %d) is not running: %v", parsedPID, sigErr)
+		out.Status = "no_session"
+		return nil, out, nil
+	}
+
+	deadline := time.Now().Add(time.Duration(input.TimeoutSeconds) * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		current := readDevStatusCompletedAt(statusPath)
+		if current != "" && current != priorCompleted {
+			statusData, readErr := os.ReadFile(statusPath)
+			if readErr != nil {
+				out.Error = "rebuild completed but failed to read status"
+				out.Status = "error"
+				return nil, out, nil
+			}
+
+			var ds struct {
+				LastRebuild *struct {
+					Status        string `json:"status"`
+					DurationMs    int64  `json:"duration_ms"`
+					PushMode      string `json:"push_mode"`
+					FilesChanged  int    `json:"files_changed"`
+					DataPreserved bool   `json:"data_preserved"`
+					BuildErrors   []struct {
+						File     string `json:"file"`
+						Line     int    `json:"line"`
+						Column   int    `json:"column"`
+						Severity string `json:"severity"`
+						Message  string `json:"message"`
+					} `json:"build_errors"`
+				} `json:"last_rebuild"`
+			}
+			if jsonErr := json.Unmarshal(statusData, &ds); jsonErr == nil && ds.LastRebuild != nil {
+				rb := ds.LastRebuild
+				out.Status = rb.Status
+				out.DurationMs = rb.DurationMs
+				out.PushMode = rb.PushMode
+				out.FilesChanged = rb.FilesChanged
+				out.DataPreserved = rb.DataPreserved
+				out.BuildErrors = rb.BuildErrors
+				out.Success = rb.Status == "success" || rb.Status == "skipped"
+			}
+
+			if out.Success && input.Screenshot {
+				session, sessErr := s.resolveSessionWithHydration(ctx, -1)
+				if sessErr == nil {
+					imgBytes, imgErr := s.sessionMgr.ScreenshotForSession(ctx, session.Index)
+					if imgErr == nil {
+						screenToken := s.sessionMgr.MarkScreenshotAnchorWithImage(session.Index, imgBytes)
+						imgPath, _ := s.sessionMgr.PersistAnchorImage(session.Index, screenToken, imgBytes)
+						out.ScreenToken = screenToken
+						out.ImagePath = imgPath
+						return &mcp.CallToolResult{
+							Content: []mcp.Content{
+								&mcp.ImageContent{Data: imgBytes, MIMEType: "image/png"},
+							},
+						}, out, nil
+					}
+				}
+			}
+
+			return nil, out, nil
+		}
+	}
+
+	out.Status = "timeout"
+	out.Error = fmt.Sprintf("rebuild did not complete within %ds", input.TimeoutSeconds)
+	return nil, out, nil
+}
+
+func readDevStatusCompletedAt(statusPath string) string {
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		return ""
+	}
+	var ds struct {
+		LastRebuild *struct {
+			CompletedAt string `json:"completed_at"`
+		} `json:"last_rebuild"`
+	}
+	if err := json.Unmarshal(data, &ds); err != nil || ds.LastRebuild == nil {
+		return ""
+	}
+	return ds.LastRebuild.CompletedAt
 }

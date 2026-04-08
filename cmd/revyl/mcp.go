@@ -109,7 +109,7 @@ Utilities:
 Authentication:
   Set REVYL_API_KEY environment variable, or run 'revyl auth login' first.
 
-Example Cursor configuration:
+EXAMPLE CURSOR CONFIGURATION:
   {
     "mcpServers": {
       "revyl": {
@@ -121,6 +121,8 @@ Example Cursor configuration:
       }
     }
   }`,
+	Example: `  revyl mcp serve
+  revyl --dev mcp serve`,
 	RunE: runMCPServe,
 }
 

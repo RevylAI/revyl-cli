@@ -4572,3 +4572,31 @@ func (c *Client) DeleteGlobalVariable(ctx context.Context, variableID string) er
 
 	return parseResponse(resp, nil)
 }
+
+// ---------------------------------------------------------------------------
+// Session artifact upload (ephemeral presigned URLs for dev-push deltas)
+// ---------------------------------------------------------------------------
+
+// GetSessionArtifactUploadURL generates presigned S3 URLs for an ephemeral
+// artifact scoped to the given device session. No database record is created.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - sessionID: the device session UUID
+//   - req: file size and content type
+//
+// Returns:
+//   - SessionArtifactUploadResponse with upload and download URLs
+//   - error: API or network failure
+func (c *Client) GetSessionArtifactUploadURL(ctx context.Context, sessionID string, req *SessionArtifactUploadRequest) (*SessionArtifactUploadResponse, error) {
+	path := fmt.Sprintf("/api/v1/execution/device-sessions/%s/artifacts/upload-url", sessionID)
+	resp, err := c.doRequest(ctx, "POST", path, req)
+	if err != nil {
+		return nil, err
+	}
+	var result SessionArtifactUploadResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}

@@ -2,7 +2,9 @@
 package ui
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -11,6 +13,42 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/revyl/cli/internal/status"
 )
+
+// dynamicStderr delegates to the current os.Stderr at write time so that
+// test-time reassignment of os.Stderr (e.g. to a pipe) is respected.
+type dynamicStderr struct{}
+
+func (dynamicStderr) Write(p []byte) (int, error) { return os.Stderr.Write(p) }
+
+// stderrW is the writer used for all UI output. Normally it resolves
+// os.Stderr dynamically via dynamicStderr. When the terminal is placed in
+// raw mode (e.g. for single-key dev-loop keybinds), it wraps os.Stderr with
+// crlfWriter so that \n is emitted as \r\n — the kernel's OPOST translation
+// is disabled in raw mode.
+var stderrW io.Writer = dynamicStderr{}
+
+// crlfWriter translates bare \n bytes to \r\n, compensating for the disabled
+// OPOST/ONLCR output processing in raw terminal mode.
+type crlfWriter struct{ w io.Writer }
+
+func (c *crlfWriter) Write(p []byte) (int, error) {
+	if bytes.IndexByte(p, '\n') < 0 {
+		return c.w.Write(p)
+	}
+	_, err := c.w.Write(bytes.ReplaceAll(p, []byte{'\n'}, []byte{'\r', '\n'}))
+	return len(p), err
+}
+
+// SetRawMode configures UI output for raw terminal mode. When enabled, all
+// newlines are written as \r\n since the kernel no longer performs OPOST
+// translation. Call with true after term.MakeRaw and false before term.Restore.
+func SetRawMode(enabled bool) {
+	if enabled {
+		stderrW = &crlfWriter{w: os.Stderr}
+	} else {
+		stderrW = dynamicStderr{}
+	}
+}
 
 // quietMode controls whether non-essential output is suppressed.
 // Set via SetQuietMode() based on the --quiet flag.
@@ -60,7 +98,7 @@ func Println() {
 	if quietMode {
 		return
 	}
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(stderrW)
 }
 
 // PrintSuccess prints a success message.
@@ -71,7 +109,7 @@ func Println() {
 //   - args: Printf arguments
 func PrintSuccess(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintln(os.Stderr, SuccessStyle.Render("✓ "+msg))
+	fmt.Fprintln(stderrW, SuccessStyle.Render("✓ "+msg))
 }
 
 // PrintError prints an error message.
@@ -82,7 +120,7 @@ func PrintSuccess(format string, args ...interface{}) {
 //   - args: Printf arguments
 func PrintError(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintln(os.Stderr, ErrorStyle.Render("✗ "+msg))
+	fmt.Fprintln(stderrW, ErrorStyle.Render("✗ "+msg))
 }
 
 // PrintWarning prints a warning message.
@@ -93,7 +131,7 @@ func PrintError(format string, args ...interface{}) {
 //   - args: Printf arguments
 func PrintWarning(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintln(os.Stderr, WarningStyle.Render("⚠ "+msg))
+	fmt.Fprintln(stderrW, WarningStyle.Render("⚠ "+msg))
 }
 
 // PrintInfo prints an informational message.
@@ -107,7 +145,7 @@ func PrintInfo(format string, args ...interface{}) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintln(os.Stderr, InfoStyle.Render(msg))
+	fmt.Fprintln(stderrW, InfoStyle.Render(msg))
 }
 
 // PrintDim prints a dimmed message.
@@ -121,7 +159,7 @@ func PrintDim(format string, args ...interface{}) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintln(os.Stderr, DimStyle.Render(msg))
+	fmt.Fprintln(stderrW, DimStyle.Render(msg))
 }
 
 // PrintDebug prints a debug message.
@@ -135,7 +173,7 @@ func PrintDebug(format string, args ...interface{}) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintln(os.Stderr, DimStyle.Render("[debug] "+msg))
+	fmt.Fprintln(stderrW, DimStyle.Render("[debug] "+msg))
 }
 
 // PrintLink prints a clickable link.
@@ -148,7 +186,7 @@ func PrintLink(label, url string) {
 	if quietMode {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "%s %s\n", DimStyle.Render(label+":"), LinkStyle.Render(url))
+	fmt.Fprintf(stderrW, "%s %s\n", DimStyle.Render(label+":"), LinkStyle.Render(url))
 }
 
 // PrintBox prints content in a styled box.
@@ -163,7 +201,7 @@ func PrintBox(title, content string) {
 	}
 	titleStyled := BoxTitleStyle.Render(title)
 	box := BoxStyle.Render(titleStyled + "\n" + content)
-	fmt.Fprintln(os.Stderr, box)
+	fmt.Fprintln(stderrW, box)
 }
 
 // PreflightVerdict represents the tri-state compatibility result for the pre-flight box.
@@ -282,7 +320,7 @@ func PrintPreflightBox(input PreflightBoxInput) {
 		boxStyle = BoxStyle
 	}
 
-	fmt.Fprintln(os.Stderr, boxStyle.Render(title+"\n"+content))
+	fmt.Fprintln(stderrW, boxStyle.Render(title+"\n"+content))
 }
 
 // NextStep represents a single suggested next action for the user.
@@ -308,7 +346,7 @@ func PrintNextSteps(steps []NextStep) {
 	Println()
 	PrintDim("Next:")
 	for _, s := range steps {
-		fmt.Fprintf(os.Stderr, "  %s  %s\n",
+		fmt.Fprintf(stderrW, "  %s  %s\n",
 			DimStyle.Render(s.Label),
 			InfoStyle.Render(s.Command))
 	}
@@ -329,11 +367,11 @@ func PrintStepHeader(step, total int, title string) {
 	separator := DimStyle.Render("─────────────────────────────────────────────────")
 	stepNum := AccentStyle.Render(fmt.Sprintf("Step %d/%d", step, total))
 	titleStyled := TitleStyle.Render(title)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, separator)
-	fmt.Fprintf(os.Stderr, "%s  %s\n", stepNum, titleStyled)
-	fmt.Fprintln(os.Stderr, separator)
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(stderrW)
+	fmt.Fprintln(stderrW, separator)
+	fmt.Fprintf(stderrW, "%s  %s\n", stepNum, titleStyled)
+	fmt.Fprintln(stderrW, separator)
+	fmt.Fprintln(stderrW)
 }
 
 // PrintSectionHeader renders a titled section divider without step numbers.
@@ -348,11 +386,11 @@ func PrintSectionHeader(title string) {
 	}
 	separator := DimStyle.Render("─────────────────────────────────────────────────")
 	titleStyled := TitleStyle.Render(title)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, separator)
-	fmt.Fprintln(os.Stderr, titleStyled)
-	fmt.Fprintln(os.Stderr, separator)
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(stderrW)
+	fmt.Fprintln(stderrW, separator)
+	fmt.Fprintln(stderrW, titleStyled)
+	fmt.Fprintln(stderrW, separator)
+	fmt.Fprintln(stderrW)
 }
 
 // PrintKeyValue prints a key-value pair with aligned formatting.
@@ -367,7 +405,7 @@ func PrintKeyValue(key, value string) {
 		return
 	}
 	keyStyled := DimStyle.Render(fmt.Sprintf("  %-16s", key))
-	fmt.Fprintf(os.Stderr, "%s %s\n", keyStyled, InfoStyle.Render(value))
+	fmt.Fprintf(stderrW, "%s %s\n", keyStyled, InfoStyle.Render(value))
 }
 
 // WizardSummaryItem represents a single step result in the final wizard summary.
@@ -411,7 +449,7 @@ func PrintWizardSummary(items []WizardSummaryItem) {
 
 	content := strings.Join(lines, "\n")
 	box := BoxStyle.Render(BoxTitleStyle.Render("Setup Complete") + "\n" + content)
-	fmt.Fprintln(os.Stderr, box)
+	fmt.Fprintln(stderrW, box)
 }
 
 // PrintDiff prints a diff with syntax highlighting.
@@ -427,11 +465,11 @@ func PrintDiff(diff string) {
 	for _, line := range lines {
 		switch {
 		case strings.HasPrefix(line, "+"):
-			fmt.Fprintln(os.Stderr, DiffAddStyle.Render(line))
+			fmt.Fprintln(stderrW, DiffAddStyle.Render(line))
 		case strings.HasPrefix(line, "-"):
-			fmt.Fprintln(os.Stderr, DiffRemoveStyle.Render(line))
+			fmt.Fprintln(stderrW, DiffRemoveStyle.Render(line))
 		default:
-			fmt.Fprintln(os.Stderr, DiffContextStyle.Render(line))
+			fmt.Fprintln(stderrW, DiffContextStyle.Render(line))
 		}
 	}
 }
@@ -476,7 +514,7 @@ func PrintVerboseStatus(statusStr string, progress int, currentStep string, comp
 		if duration != "" {
 			statusLine += DimStyle.Render(fmt.Sprintf(" (%s)", duration))
 		}
-		fmt.Fprintln(os.Stderr, statusLine)
+		fmt.Fprintln(stderrW, statusLine)
 		return
 	}
 
@@ -495,11 +533,11 @@ func PrintVerboseStatus(statusStr string, progress int, currentStep string, comp
 		statusLine += DimStyle.Render(fmt.Sprintf(" (%s)", duration))
 	}
 
-	fmt.Fprintln(os.Stderr, statusLine)
+	fmt.Fprintln(stderrW, statusLine)
 
 	// Print current step on next line if available
 	if currentStep != "" {
-		fmt.Fprintf(os.Stderr, "  %s %s\n", DimStyle.Render("→"), currentStep)
+		fmt.Fprintf(stderrW, "  %s %s\n", DimStyle.Render("→"), currentStep)
 	}
 }
 
@@ -535,7 +573,7 @@ func PrintBasicStatus(statusStr string, progress int, currentStep string, comple
 	}
 	if displayStatus != "" {
 		statusLine := fmt.Sprintf("%s %s", statusIcon, InfoStyle.Render(displayStatus))
-		fmt.Fprint(os.Stderr, statusLine)
+		fmt.Fprint(stderrW, statusLine)
 		return
 	}
 
@@ -555,7 +593,7 @@ func PrintBasicStatus(statusStr string, progress int, currentStep string, comple
 	}
 
 	// Print without newline so it updates in place
-	fmt.Fprint(os.Stderr, statusLine)
+	fmt.Fprint(stderrW, statusLine)
 }
 
 // ChildTestInfo contains per-test progress data for workflow status display.
@@ -608,7 +646,7 @@ func PrintVerboseWorkflowStatus(statusStr string, completedTests, totalTests, pa
 		statusLine += DimStyle.Render(fmt.Sprintf(" (%s)", duration))
 	}
 
-	fmt.Fprintln(os.Stderr, statusLine)
+	fmt.Fprintln(stderrW, statusLine)
 	printChildTestLines(childTests)
 }
 
@@ -636,13 +674,13 @@ func PrintBasicWorkflowStatus(statusStr string, completedTests, totalTests int, 
 
 	// In CI/non-TTY logs, emit line-by-line updates so progress is visible.
 	if !isTTY {
-		fmt.Fprintln(os.Stderr, statusLine)
+		fmt.Fprintln(stderrW, statusLine)
 		printChildTestLines(childTests)
 		return
 	}
 
 	// Print without newline so it updates in place
-	fmt.Fprint(os.Stderr, statusLine)
+	fmt.Fprint(stderrW, statusLine)
 }
 
 // printChildTestLines renders per-test progress lines below the aggregate status.
@@ -876,7 +914,7 @@ func (t *Table) Render() {
 		cell := padRight(header, widths[i])
 		headerCells = append(headerCells, TableHeaderStyle.Render(cell))
 	}
-	fmt.Fprintln(os.Stderr, strings.Join(headerCells, colGap))
+	fmt.Fprintln(stderrW, strings.Join(headerCells, colGap))
 
 	// Print separator
 	totalWidth := 0
@@ -884,7 +922,7 @@ func (t *Table) Render() {
 		totalWidth += w
 	}
 	totalWidth += len(colGap) * (len(widths) - 1)
-	fmt.Fprintln(os.Stderr, DimStyle.Render(strings.Repeat("─", totalWidth)))
+	fmt.Fprintln(stderrW, DimStyle.Render(strings.Repeat("─", totalWidth)))
 
 	// Print data rows
 	for _, row := range t.Rows {
@@ -903,6 +941,6 @@ func (t *Table) Render() {
 			cell := padRight(val, widths[i])
 			cells = append(cells, TableCellStyle.Render(cell))
 		}
-		fmt.Fprintln(os.Stderr, strings.Join(cells, colGap))
+		fmt.Fprintln(stderrW, strings.Join(cells, colGap))
 	}
 }

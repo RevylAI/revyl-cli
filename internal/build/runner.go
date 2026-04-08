@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -101,10 +102,12 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	if r.FilterOutput && onOutput != nil {
 		emit = func(line string) {
 			if shouldShowBuildLine(line) {
-				onOutput(strings.TrimLeft(line, " \t"))
+				onOutput(shortenBuildLine(strings.TrimLeft(line, " \t")))
 			}
 		}
 	}
+
+	var mu sync.Mutex
 
 	// Stream stdout
 	var wg sync.WaitGroup
@@ -112,9 +115,12 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	go func() {
 		defer wg.Done()
 		scanner := bufio.NewScanner(stdout)
+		scanner.Split(scanCRLF)
 		for scanner.Scan() {
 			if emit != nil {
+				mu.Lock()
 				emit(scanner.Text())
+				mu.Unlock()
 			}
 		}
 	}()
@@ -124,12 +130,15 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	go func() {
 		defer wg.Done()
 		scanner := bufio.NewScanner(stderr)
+		scanner.Split(scanCRLF)
 		for scanner.Scan() {
 			line := scanner.Text()
+			mu.Lock()
 			stderrLines = append(stderrLines, line)
 			if emit != nil {
 				emit(line)
 			}
+			mu.Unlock()
 		}
 	}()
 
@@ -148,6 +157,30 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	}
 
 	return nil
+}
+
+// scanCRLF is a bufio.SplitFunc that splits on \r\n, \r, or \n. This handles
+// xcodebuild-style progress output that uses bare \r to update in-place,
+// preventing multiple progress updates from being concatenated into one token.
+func scanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+	for i, b := range data {
+		if b == '\n' {
+			return i + 1, data[:i], nil
+		}
+		if b == '\r' {
+			if i+1 < len(data) && data[i+1] == '\n' {
+				return i + 2, data[:i], nil
+			}
+			return i + 1, data[:i], nil
+		}
+	}
+	if atEOF {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
 }
 
 // shouldShowBuildLine returns true if a build output line is significant enough
@@ -182,6 +215,73 @@ func shouldShowBuildLine(line string) bool {
 	}
 
 	return false
+}
+
+// shortenBuildLine condenses verbose compiler output into human-friendly
+// single-line summaries. Long SwiftCompile / CompileC invocations become
+// "Compiling File.swift"; SwiftEmitModule becomes "Emitting module Target".
+// Lines that don't match a known pattern are returned unchanged.
+func shortenBuildLine(line string) string {
+	trimmed := strings.TrimLeft(line, " \t")
+
+	switch {
+	case strings.HasPrefix(trimmed, "SwiftCompile "):
+		if name := extractFilenameFromCompileLine(trimmed); name != "" {
+			return "Compiling " + name
+		}
+	case strings.HasPrefix(trimmed, "CompileC "):
+		if name := extractFilenameFromCompileLine(trimmed); name != "" {
+			return "Compiling " + name
+		}
+	case strings.HasPrefix(trimmed, "SwiftEmitModule "):
+		if target := extractTarget(trimmed); target != "" {
+			return "Emitting module " + target
+		}
+		return "Emitting module"
+	case strings.HasPrefix(trimmed, "Ld "):
+		if target := extractTarget(trimmed); target != "" {
+			return "Linking " + target
+		}
+	case strings.HasPrefix(trimmed, "CodeSign "):
+		if name := extractLastPathComponent(trimmed, "CodeSign "); name != "" {
+			return "Signing " + name
+		}
+	}
+	return line
+}
+
+func extractFilenameFromCompileLine(line string) string {
+	fields := strings.Fields(line)
+	for _, f := range fields {
+		if strings.Contains(f, "/") && (strings.HasSuffix(f, ".swift") ||
+			strings.HasSuffix(f, ".m") || strings.HasSuffix(f, ".c") ||
+			strings.HasSuffix(f, ".mm") || strings.HasSuffix(f, ".cpp")) {
+			return filepath.Base(f)
+		}
+	}
+	return ""
+}
+
+func extractTarget(line string) string {
+	idx := strings.Index(line, "in target '")
+	if idx < 0 {
+		return ""
+	}
+	rest := line[idx+len("in target '"):]
+	end := strings.Index(rest, "'")
+	if end < 0 {
+		return ""
+	}
+	return rest[:end]
+}
+
+func extractLastPathComponent(line, prefix string) string {
+	rest := strings.TrimPrefix(line, prefix)
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return ""
+	}
+	return filepath.Base(fields[0])
 }
 
 // EASBuildError represents an error from Expo Application Services (EAS) builds.

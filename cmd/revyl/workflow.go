@@ -80,6 +80,9 @@ EXAMPLES:
   revyl workflow run smoke-tests --build --platform android
   revyl workflow run smoke-tests --android-app <app-uuid>
   revyl workflow run smoke-tests --ios-app <app-uuid> --android-app <app-uuid>`,
+	Example: `  revyl workflow run smoke-tests
+  revyl workflow run smoke-tests --build
+  revyl workflow run smoke-tests --json --no-wait`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkflowExec,
 }
@@ -93,6 +96,8 @@ var workflowListCmd = &cobra.Command{
 EXAMPLES:
   revyl workflow list
   revyl workflow list --json`,
+	Example: `  revyl workflow list
+  revyl workflow list --json`,
 	RunE: runWorkflowList,
 }
 
@@ -103,8 +108,9 @@ var workflowCancelCmd = &cobra.Command{
 	Long: `Cancel a running workflow execution by its task ID.
 
 This will cancel the workflow and all of its child test executions.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runCancelWorkflow,
+	Example: `  revyl workflow cancel <task-id>`,
+	Args:    cobra.ExactArgs(1),
+	RunE:    runCancelWorkflow,
 }
 
 // workflowCreateCmd creates a new workflow.
@@ -115,6 +121,8 @@ var workflowCreateCmd = &cobra.Command{
 
 EXAMPLES:
   revyl workflow create smoke-tests
+  revyl workflow create regression --tests login-flow,checkout`,
+	Example: `  revyl workflow create smoke-tests
   revyl workflow create regression --tests login-flow,checkout`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCreateWorkflow,
@@ -141,8 +149,10 @@ var workflowDeleteCmd = &cobra.Command{
 	Use:   "delete <name|id>",
 	Short: "Delete a workflow",
 	Long:  `Delete a workflow from Revyl and remove config alias.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runDeleteWorkflow,
+	Example: `  revyl workflow delete smoke-tests
+  revyl workflow delete smoke-tests --force`,
+	Args: cobra.ExactArgs(1),
+	RunE: runDeleteWorkflow,
 }
 
 // workflowOpenCmd opens a workflow in the browser.
@@ -165,6 +175,8 @@ EXAMPLES:
   revyl workflow info smoke-tests
   revyl workflow info smoke-tests --json
   revyl workflow info <workflow-uuid>`,
+	Example: `  revyl workflow info smoke-tests
+  revyl workflow info smoke-tests --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkflowInfo,
 }

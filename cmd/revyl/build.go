@@ -58,6 +58,11 @@ Examples:
   revyl build upload --name "My App" -y              # Create and auto-save to config
   revyl build upload --file ./app.apk --app <id>     # Upload a specific file
   revyl build upload -f ./build/App.ipa --name "iOS" # Upload file and create app`,
+	Example: `  revyl build upload
+  revyl build upload --platform ios
+  revyl build upload --json --yes
+  revyl build upload --file ./app.apk --app <id>
+  revyl build upload --dry-run`,
 	RunE: runBuildUpload,
 }
 
@@ -74,6 +79,9 @@ Examples:
   revyl build list                           # List builds (or show org apps)
   revyl build list --app <id>               # List builds for specific app
   revyl build list --platform android        # Filter org apps by platform`,
+	Example: `  revyl build list
+  revyl build list --app <id> --json
+  revyl build list --platform android`,
 	RunE: runBuildList,
 }
 
@@ -89,6 +97,9 @@ Examples:
   revyl build delete "My App iOS"                 # Delete entire app
   revyl build delete "My App iOS" --version v1.2.3 # Delete specific build version only
   revyl build delete "My App iOS" --force          # Skip confirmation`,
+	Example: `  revyl build delete "My App iOS"
+  revyl build delete "My App iOS" --force
+  revyl build delete "My App iOS" --version v1.2.3`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDeleteBuild,
 }
@@ -485,12 +496,10 @@ func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 			return "", err
 		}
 	} else {
-		// Build options list
-		var options []string
+		options := []string{"Create new app"}
 		for _, app := range result.Items {
 			options = append(options, fmt.Sprintf("%s (%s)", app.Name, app.Platform))
 		}
-		options = append(options, "Create new app")
 
 		// Show selection prompt
 		ui.PrintInfo("Select an app to upload to:")
@@ -499,15 +508,14 @@ func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 			return "", err
 		}
 
-		// If user selected "Create new"
-		if selection == len(result.Items) {
+		if selection == 0 {
 			appID, err = createNewApp(cmd, client, cfg, platform)
 			if err != nil {
 				return "", err
 			}
 		} else {
-			appID = result.Items[selection].ID
-			ui.PrintSuccess("Selected: %s", result.Items[selection].Name)
+			appID = result.Items[selection-1].ID
+			ui.PrintSuccess("Selected: %s", result.Items[selection-1].Name)
 		}
 	}
 
@@ -1083,12 +1091,10 @@ func selectOrCreateAppInteractive(cmd *cobra.Command, client *api.Client, cfg *c
 			return "", err
 		}
 	} else {
-		// Build options list
-		var options []string
+		options := []string{fmt.Sprintf("Create new %s app", platform)}
 		for _, app := range result.Items {
 			options = append(options, fmt.Sprintf("%s (%s)", app.Name, app.Platform))
 		}
-		options = append(options, fmt.Sprintf("Create new %s app", platform))
 
 		// Show selection prompt
 		ui.PrintInfo("Select an app for %s:", platform)
@@ -1097,15 +1103,14 @@ func selectOrCreateAppInteractive(cmd *cobra.Command, client *api.Client, cfg *c
 			return "", err
 		}
 
-		// If user selected "Create new"
-		if selection == len(result.Items) {
+		if selection == 0 {
 			appID, err = createNewAppForPlatform(cmd, client, cfg, platform)
 			if err != nil {
 				return "", err
 			}
 		} else {
-			appID = result.Items[selection].ID
-			ui.PrintSuccess("Selected: %s", result.Items[selection].Name)
+			appID = result.Items[selection-1].ID
+			ui.PrintSuccess("Selected: %s", result.Items[selection-1].Name)
 		}
 	}
 

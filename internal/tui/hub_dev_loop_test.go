@@ -34,10 +34,10 @@ func TestQuickActionsIncludesDevLoop(t *testing.T) {
 		t.Fatalf("expected quick action key %q to exist", "dev_loop")
 	}
 
-	if action.Label != "Start Hot Reload Dev Loop" {
+	if action.Label != "Start Dev Loop" {
 		t.Fatalf("unexpected label: got %q", action.Label)
 	}
-	if action.Desc != "Start revyl dev: hot reload + live cloud device" {
+	if action.Desc != "Start revyl dev: hot reload + rebuild on cloud device" {
 		t.Fatalf("unexpected description: got %q", action.Desc)
 	}
 	if !action.RequiresAuth {
@@ -292,6 +292,29 @@ build:
 	}
 	if !strings.Contains(err.Error(), "not configured") {
 		t.Fatalf("expected 'not configured' error, got %v", err)
+	}
+}
+
+func TestValidateDevLoopPrereqs_RebuildOnlyProject(t *testing.T) {
+	orig, _ := os.Getwd()
+	tmp := t.TempDir()
+	_ = os.Chdir(tmp)
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	writeTestConfig(t, tmp, `
+project:
+  name: "swift-app"
+build:
+  system: Swift
+  platforms:
+    ios:
+      command: "xcodebuild -scheme MyApp -sdk iphonesimulator"
+      output_path: "build/Build/Products/Debug-iphonesimulator/MyApp.app"
+`)
+
+	err := validateDevLoopPrereqs()
+	if err != nil {
+		t.Fatalf("expected no error for rebuild-only project with build.platforms, got %v", err)
 	}
 }
 

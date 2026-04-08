@@ -39,6 +39,10 @@ EXAMPLES:
   revyl sync --non-interactive      # No prompts; deterministic defaults
   revyl sync --prune                # Auto-prune stale mappings
   revyl sync --dry-run --json       # Preview actions as JSON`,
+	Example: `  revyl sync
+  revyl sync --non-interactive
+  revyl sync --dry-run --json
+  revyl sync --skip-import --prune`,
 	RunE: runSync,
 }
 

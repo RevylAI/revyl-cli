@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -40,6 +41,9 @@ Examples:
   revyl test status login-flow
   revyl test status login-flow --json
   revyl test status login-flow --open`,
+	Example: `  revyl test status login-flow
+  revyl test status login-flow --json
+  revyl test status login-flow --open`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestStatus,
 }
@@ -57,6 +61,8 @@ Examples:
   revyl test history login-flow
   revyl test history login-flow --limit 20
   revyl test history login-flow --json`,
+	Example: `  revyl test history login-flow
+  revyl test history login-flow --limit 20 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestHistory,
 }
@@ -86,6 +92,7 @@ func runTestStatus(cmd *cobra.Command, args []string) error {
 	testID, testName, err := resolveTestID(cmd.Context(), testNameOrID, cfg, client)
 	if err != nil {
 		ui.PrintError("%v", err)
+		fmt.Fprintln(os.Stderr, "  Run: revyl test list")
 		return fmt.Errorf("test not found")
 	}
 
@@ -249,6 +256,7 @@ func runTestHistory(cmd *cobra.Command, args []string) error {
 	testID, testName, err := resolveTestID(cmd.Context(), testNameOrID, cfg, client)
 	if err != nil {
 		ui.PrintError("%v", err)
+		fmt.Fprintln(os.Stderr, "  Run: revyl test list")
 		return fmt.Errorf("test not found")
 	}
 

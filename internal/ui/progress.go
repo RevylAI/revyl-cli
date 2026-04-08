@@ -3,7 +3,6 @@ package ui
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -49,12 +48,12 @@ func StartSpinner(message string) {
 			select {
 			case <-stopChan:
 				// Clear the spinner line
-				fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", len(message)+4))
+				fmt.Fprintf(stderrW, "\r%s\r", strings.Repeat(" ", len(message)+4))
 				return
 			default:
 				frame := spinnerFrames[i%len(spinnerFrames)]
 				styledFrame := StatusRunningStyle.Render(frame)
-				fmt.Fprintf(os.Stderr, "\r%s %s", styledFrame, message)
+				fmt.Fprintf(stderrW, "\r%s %s", styledFrame, message)
 				i++
 				time.Sleep(80 * time.Millisecond)
 			}
@@ -137,16 +136,16 @@ func (p *ProgressBar) render() {
 
 	// Pad to clear previous content; use carriage return for in-place update
 	if isTTY {
-		fmt.Fprintf(os.Stderr, "\r%-80s", line)
+		fmt.Fprintf(stderrW, "\r%-80s", line)
 	} else {
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(stderrW, line)
 	}
 }
 
 // Complete marks the progress bar as complete.
 func (p *ProgressBar) Complete() {
 	p.Update(p.total, "")
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(stderrW)
 }
 
 // UpdateProgress is a convenience function for updating progress display.
