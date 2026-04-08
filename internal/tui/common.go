@@ -265,6 +265,7 @@ const (
 	viewTagList                       // tag browse list
 	viewDeviceList                    // device session list
 	viewDeviceDetail                  // device session detail
+	viewLibrary                       // unified library hub (modules/variables/scripts/files)
 )
 
 // --- Dashboard data types ---
@@ -594,6 +595,87 @@ type ModuleDetailMsg struct {
 
 // ModuleDeletedMsg signals that a module was deleted.
 type ModuleDeletedMsg struct {
+	Err error
+}
+
+// --- Library types (scripts, files, global variables) ---
+
+// ScriptItem represents a script for the library Scripts tab.
+type ScriptItem struct {
+	ID          string
+	Name        string
+	Runtime     string
+	Description string
+	Code        string
+}
+
+// ScriptListMsg carries the fetched script list.
+type ScriptListMsg struct {
+	Scripts []ScriptItem
+	Err     error
+}
+
+// ScriptDetailMsg carries a single script's full detail.
+type ScriptDetailMsg struct {
+	Script *ScriptItem
+	Err    error
+}
+
+// ScriptUpdatedMsg signals that a script's metadata was updated.
+type ScriptUpdatedMsg struct {
+	Err error
+}
+
+// ScriptDeletedMsg signals that a script was deleted.
+type ScriptDeletedMsg struct {
+	Err error
+}
+
+// FileItem represents an org file for the library Files tab.
+type FileItem struct {
+	ID          string
+	Filename    string
+	FileSize    int64
+	ContentType string
+	Description string
+}
+
+// FileListMsg carries the fetched file list.
+type FileListMsg struct {
+	Files []FileItem
+	Err   error
+}
+
+// FileUpdatedMsg signals that a file's metadata was updated.
+type FileUpdatedMsg struct {
+	Err error
+}
+
+// FileDeletedMsg signals that a file was deleted.
+type FileDeletedMsg struct {
+	Err error
+}
+
+// VariableItem represents a global variable for the library Variables tab.
+type VariableItem struct {
+	ID    string
+	Name  string
+	Value string
+}
+
+// VariableListMsg carries the fetched global variable list.
+type VariableListMsg struct {
+	Variables []VariableItem
+	Err       error
+}
+
+// VariableSavedMsg signals that a global variable was created or updated.
+type VariableSavedMsg struct {
+	Err error
+}
+
+// VariableDeletedMsg signals that a global variable was deleted.
+type VariableDeletedMsg struct {
 	Err error
 }
 

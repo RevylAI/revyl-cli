@@ -49,7 +49,7 @@ var quickActions = []quickAction{
 	{Label: "Browse tests", Key: "tests", Desc: "View, sync, and manage tests", RequiresAuth: true},
 	{Label: "Browse workflows", Key: "workflows", Desc: "Create, run, and manage workflows", RequiresAuth: true},
 	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds", RequiresAuth: true},
-	{Label: "Browse modules", Key: "modules", Desc: "View reusable test modules", RequiresAuth: true},
+	{Label: "Browse library", Key: "library", Desc: "Modules, variables, scripts, and files", RequiresAuth: true},
 	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels", RequiresAuth: true},
 	{Label: "Device sessions", Key: "devices", Desc: "Start, view, and stop cloud devices", RequiresAuth: true},
 	{Label: "Start Dev Loop", Key: "dev_loop", Desc: "Start revyl dev: hot reload + rebuild on cloud device", RequiresAuth: true},
@@ -217,6 +217,33 @@ type hubModel struct {
 	moduleDetailScroll  int
 	moduleConfirmDelete bool
 
+	// Library hub state (tabs: modules / variables / scripts / files)
+	libraryTab  libraryTab
+	libraryMode libraryMode
+
+	scriptItems         []ScriptItem
+	scriptCursor        int
+	scriptsLoading      bool
+	selectedScript      *ScriptItem
+	scriptEditField     int // 0=name, 1=description
+	scriptEditNameInput textinput.Model
+	scriptEditDescInput textinput.Model
+
+	fileItems         []FileItem
+	fileCursor        int
+	filesLoading      bool
+	selectedFile      *FileItem
+	fileEditDescInput textinput.Model
+
+	varItems      []VariableItem
+	varCursor     int
+	varsLoading   bool
+	selectedVar   *VariableItem
+	varIsCreating bool
+	varEditField  int // 0=name, 1=value
+	varNameInput  textinput.Model
+	varValueInput textinput.Model
+
 	// Workflow management state
 	wfItems          []WorkflowItem
 	wfCursor         int
@@ -350,6 +377,26 @@ func newHubModel(version string, devMode bool) hubModel {
 	dsfi.Placeholder = "search apps..."
 	dsfi.CharLimit = 64
 
+	scrEditName := textinput.New()
+	scrEditName.Placeholder = "script name..."
+	scrEditName.CharLimit = 128
+
+	scrEditDesc := textinput.New()
+	scrEditDesc.Placeholder = "description..."
+	scrEditDesc.CharLimit = 256
+
+	fileEditDesc := textinput.New()
+	fileEditDesc.Placeholder = "description..."
+	fileEditDesc.CharLimit = 256
+
+	varName := textinput.New()
+	varName.Placeholder = "VARIABLE_NAME"
+	varName.CharLimit = 128
+
+	varValue := textinput.New()
+	varValue.Placeholder = "value..."
+	varValue.CharLimit = 1024
+
 	return hubModel{
 		version:                 version,
 		currentView:             viewDashboard,
@@ -368,6 +415,11 @@ func newHubModel(version string, devMode bool) hubModel {
 		settingsOpenBrowser:     config.DefaultOpenBrowser,
 		settingsTimeoutInput:    sti,
 		deviceStartFilterInput:  dsfi,
+		scriptEditNameInput:     scrEditName,
+		scriptEditDescInput:     scrEditDesc,
+		fileEditDescInput:       fileEditDesc,
+		varNameInput:            varName,
+		varValueInput:           varValue,
 		devMode:                 devMode,
 	}
 }
@@ -1067,6 +1119,9 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.currentView == viewWorkflowExecution {
 			return handleWorkflowExecKey(m, msg)
 		}
+		if m.currentView == viewLibrary {
+			return handleLibraryKey(m, msg)
+		}
 		if m.currentView == viewModuleList {
 			return handleModuleListKey(m, msg)
 		}
@@ -1444,20 +1499,122 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.selectedModule = msg.Module
 			m.moduleDetailScroll = 0
-			m.currentView = viewModuleDetail
+			if m.currentView == viewLibrary {
+				m.libraryMode = libModeDetail
+			} else {
+				m.currentView = viewModuleDetail
+			}
 		}
 		return m, nil
 
 	case ModuleDeletedMsg:
 		m.moduleLoading = false
 		if msg.Err == nil {
-			m.currentView = viewModuleList
 			m.selectedModule = nil
 			m.moduleDetailScroll = 0
+			if m.currentView == viewLibrary {
+				m.libraryMode = libModeList
+			} else {
+				m.currentView = viewModuleList
+			}
 			if m.client != nil {
 				m.moduleLoading = true
 				return m, fetchModulesCmd(m.client)
 			}
+		}
+		return m, nil
+
+	// --- Library tab messages (scripts / files / variables) ---
+
+	case ScriptListMsg:
+		m.scriptsLoading = false
+		if msg.Err == nil {
+			m.scriptItems = msg.Scripts
+			if m.scriptCursor >= len(m.scriptItems) {
+				m.scriptCursor = 0
+			}
+		}
+		return m, nil
+
+	case ScriptDetailMsg:
+		m.scriptsLoading = false
+		if msg.Err == nil {
+			m.selectedScript = msg.Script
+			m.libraryMode = libModeDetail
+		}
+		return m, nil
+
+	case ScriptUpdatedMsg:
+		m.scriptsLoading = false
+		if msg.Err == nil && m.client != nil {
+			m.scriptsLoading = true
+			return m, fetchScriptsCmd(m.client)
+		}
+		return m, nil
+
+	case ScriptDeletedMsg:
+		m.scriptsLoading = false
+		m.selectedScript = nil
+		m.libraryMode = libModeList
+		if msg.Err == nil && m.client != nil {
+			m.scriptsLoading = true
+			return m, fetchScriptsCmd(m.client)
+		}
+		return m, nil
+
+	case FileListMsg:
+		m.filesLoading = false
+		if msg.Err == nil {
+			m.fileItems = msg.Files
+			if m.fileCursor >= len(m.fileItems) {
+				m.fileCursor = 0
+			}
+		}
+		return m, nil
+
+	case FileUpdatedMsg:
+		m.filesLoading = false
+		if msg.Err == nil && m.client != nil {
+			m.filesLoading = true
+			return m, fetchFilesCmd(m.client)
+		}
+		return m, nil
+
+	case FileDeletedMsg:
+		m.filesLoading = false
+		m.selectedFile = nil
+		m.libraryMode = libModeList
+		if msg.Err == nil && m.client != nil {
+			m.filesLoading = true
+			return m, fetchFilesCmd(m.client)
+		}
+		return m, nil
+
+	case VariableListMsg:
+		m.varsLoading = false
+		if msg.Err == nil {
+			m.varItems = msg.Variables
+			if m.varCursor >= len(m.varItems) {
+				m.varCursor = 0
+			}
+		}
+		return m, nil
+
+	case VariableSavedMsg:
+		m.varsLoading = false
+		if msg.Err == nil && m.client != nil {
+			m.varsLoading = true
+			return m, fetchVariablesCmd(m.client)
+		}
+		return m, nil
+
+	case VariableDeletedMsg:
+		m.varsLoading = false
+		m.selectedVar = nil
+		m.libraryMode = libModeList
+		if msg.Err == nil && m.client != nil {
+			m.varsLoading = true
+			return m, fetchVariablesCmd(m.client)
 		}
 		return m, nil
 
@@ -2058,8 +2215,10 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "modules":
-		m.currentView = viewModuleList
+	case "library":
+		m.currentView = viewLibrary
+		m.libraryTab = libTabModules
+		m.libraryMode = libModeList
 		m.moduleCursor = 0
 		m.moduleLoading = true
 		if m.client != nil {
@@ -3075,6 +3234,8 @@ func (m hubModel) View() string {
 		return renderWorkflowCreate(m)
 	case viewWorkflowExecution:
 		return renderWorkflowExecution(m)
+	case viewLibrary:
+		return renderLibrary(m)
 	case viewModuleList:
 		return renderModuleList(m)
 	case viewModuleDetail:
