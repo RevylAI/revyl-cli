@@ -148,10 +148,9 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	wg.Wait()
 
 	if cmdErr != nil {
-		// Check for EAS-specific errors
 		stderrOutput := strings.Join(stderrLines, "\n")
-		if easErr := parseEASError(stderrOutput); easErr != nil {
-			return easErr
+		if toolErr := parseBuildToolError(stderrOutput, command); toolErr != nil {
+			return toolErr
 		}
 		return fmt.Errorf("command failed: %w", cmdErr)
 	}
@@ -185,7 +184,8 @@ func scanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
 
 // shouldShowBuildLine returns true if a build output line is significant enough
 // to display when FilterOutput is enabled. Hides verbose compiler invocations,
-// destination lists, and tool paths; shows build phase names, warnings, and errors.
+// destination lists, and tool paths; shows build phase names, warnings, errors,
+// and EAS/Expo lifecycle milestones.
 func shouldShowBuildLine(line string) bool {
 	trimmed := strings.TrimLeft(line, " \t")
 	if trimmed == "" {
@@ -193,6 +193,7 @@ func shouldShowBuildLine(line string) bool {
 	}
 
 	showPrefixes := []string{
+		// Xcode build phases
 		"Compiling", "Linking", "Signing",
 		"CodeSign", "Ld ", "CompileC",
 		"SwiftCompile", "SwiftEmitModule",
@@ -202,7 +203,21 @@ func shouldShowBuildLine(line string) bool {
 		"** BUILD",
 		"warning:", "error:",
 		"note: Building targets",
+		// Gradle phases
 		":app:", "> Task :",
+		// EAS / Expo lifecycle milestones
+		"Creating build",
+		"Resolving",
+		"Installing dependencies",
+		"Running prebuild",
+		"Generating sourcemaps",
+		"Bundling",
+		"Building",
+		"Archiving",
+		"Packaging",
+		"Downloading",
+		"Installing pods",
+		"Running pod install",
 	}
 	for _, p := range showPrefixes {
 		if strings.HasPrefix(trimmed, p) {
@@ -211,6 +226,14 @@ func shouldShowBuildLine(line string) bool {
 	}
 
 	if strings.Contains(trimmed, "warning:") || strings.Contains(trimmed, "error:") {
+		return true
+	}
+
+	// EAS progress markers that appear mid-line
+	lowerTrimmed := strings.ToLower(trimmed)
+	if strings.Contains(lowerTrimmed, "creating build") ||
+		strings.Contains(lowerTrimmed, "prebuild") ||
+		strings.Contains(lowerTrimmed, "pod install") {
 		return true
 	}
 
@@ -284,34 +307,106 @@ func extractLastPathComponent(line, prefix string) string {
 	return filepath.Base(fields[0])
 }
 
-// EASBuildError represents an error from Expo Application Services (EAS) builds.
-type EASBuildError struct {
-	// Message is the error message.
+// BuildToolError represents a build command failure that the CLI can diagnose
+// and provide actionable remediation guidance for. Covers missing executables
+// (Bazel, npx, EAS CLI, etc.) and misconfigured build environments.
+type BuildToolError struct {
+	// Message is a short summary of the problem (e.g. "bazel not found").
 	Message string
 
-	// Guidance provides instructions on how to fix the error.
+	// Guidance provides step-by-step instructions on how to fix the error.
 	Guidance string
 }
 
 // Error implements the error interface.
-func (e *EASBuildError) Error() string {
+func (e *BuildToolError) Error() string {
 	return e.Message
 }
 
-// parseEASError checks stderr output for known EAS error patterns and returns
-// an EASBuildError with guidance if found.
+// parseBuildToolError checks stderr output for known build-tool error patterns
+// and returns a BuildToolError with actionable guidance if a match is found.
+// Checks are ordered from most-general (missing executable) to tool-specific
+// (EAS auth, config files).
 //
 // Parameters:
-//   - stderr: The stderr output from the build command
+//   - stderr: the combined stderr output from the build command
+//   - command: the build command string from .revyl/config.yaml (used to
+//     tailor guidance to the specific tool the user configured)
 //
 // Returns:
-//   - *EASBuildError: An EAS error with guidance, or nil if not an EAS error
-func parseEASError(stderr string) *EASBuildError {
-	// Check for common EAS errors
+//   - *BuildToolError if a known pattern matched, nil otherwise
+func parseBuildToolError(stderr, command string) *BuildToolError {
 	lower := strings.ToLower(stderr)
+	cmdLower := strings.ToLower(command)
 
-	if strings.Contains(lower, "npx: command not found") {
-		return &EASBuildError{
+	// --- Generic "command not found" heuristic ---
+	// Shells emit "<tool>: command not found" or "command not found: <tool>".
+	// Check Bazel/Bazelisk first (most specific), then fall through to a
+	// catch-all that extracts the tool name from the shell message.
+	if strings.Contains(lower, "bazel: command not found") ||
+		strings.Contains(lower, "command not found: bazel") ||
+		strings.Contains(lower, "bazelisk: command not found") ||
+		strings.Contains(lower, "command not found: bazelisk") {
+		return &BuildToolError{
+			Message: "bazel not found",
+			Guidance: `Install Bazel via Bazelisk (recommended):
+  brew install bazelisk        # macOS
+  npm install -g @bazel/bazelisk  # or via npm
+
+Then verify:
+  bazel --version
+
+If your system installs the binary as "bazelisk", update .revyl/config.yaml:
+  command: bazelisk build ...`,
+		}
+	}
+
+	if strings.Contains(lower, "flutter: command not found") ||
+		strings.Contains(lower, "command not found: flutter") {
+		return &BuildToolError{
+			Message: "flutter not found",
+			Guidance: `Install Flutter:
+  https://docs.flutter.dev/get-started/install
+
+Then verify:
+  flutter --version`,
+		}
+	}
+
+	if (strings.Contains(lower, "gradle: command not found") ||
+		strings.Contains(lower, "command not found: gradle") ||
+		strings.Contains(lower, "gradlew: command not found") ||
+		strings.Contains(lower, "command not found: gradlew")) &&
+		(strings.Contains(cmdLower, "gradle") || strings.Contains(cmdLower, "gradlew")) {
+		return &BuildToolError{
+			Message: "gradle not found",
+			Guidance: `Ensure the Gradle wrapper is present in your project:
+  ls gradlew
+
+If missing, generate it:
+  gradle wrapper
+
+Or install Gradle:
+  brew install gradle`,
+		}
+	}
+
+	if strings.Contains(lower, "xcodebuild: command not found") ||
+		strings.Contains(lower, "command not found: xcodebuild") {
+		return &BuildToolError{
+			Message: "xcodebuild not found",
+			Guidance: `Install Xcode from the App Store, then accept the license:
+  sudo xcodebuild -license accept
+
+Verify:
+  xcodebuild -version`,
+		}
+	}
+
+	// --- EAS / Expo specific errors ---
+	if strings.Contains(lower, "npx: command not found") ||
+		strings.Contains(lower, "command not found: npx") {
+		return &BuildToolError{
 			Message: "npx not found",
 			Guidance: `Install Node.js (includes npm/npx):
   https://nodejs.org/
@@ -324,7 +419,7 @@ Then verify:
 	if strings.Contains(lower, "could not determine executable to run") &&
 		strings.Contains(lower, "npm exec") &&
 		strings.Contains(lower, " eas ") {
-		return &EASBuildError{
+		return &BuildToolError{
 			Message: "invalid npx eas invocation",
 			Guidance: `Use eas-cli explicitly with npx:
   npx --yes eas-cli --version
@@ -336,7 +431,7 @@ Then run builds with:
 	}
 
 	if strings.Contains(lower, "eas") && strings.Contains(lower, "not found") {
-		return &EASBuildError{
+		return &BuildToolError{
 			Message: "EAS CLI not found",
 			Guidance: `Run EAS via npx (recommended):
   npx --yes eas-cli --version
@@ -353,7 +448,7 @@ Then authenticate:
 		(strings.Contains(lower, "log in to eas") && strings.Contains(lower, "stdin is not readable")) ||
 		strings.Contains(lower, "not logged in") ||
 		strings.Contains(lower, "eas login") {
-		return &EASBuildError{
+		return &BuildToolError{
 			Message: "Not logged in to EAS",
 			Guidance: `Authenticate with EAS:
   npx --yes eas-cli login
@@ -363,7 +458,7 @@ Then try the build again.`,
 	}
 
 	if strings.Contains(stderr, "No Expo account") {
-		return &EASBuildError{
+		return &BuildToolError{
 			Message: "No Expo account configured",
 			Guidance: `Create an Expo account at https://expo.dev/signup
 Then authenticate:
@@ -372,7 +467,7 @@ Then authenticate:
 	}
 
 	if strings.Contains(stderr, "app.json") && strings.Contains(stderr, "not found") {
-		return &EASBuildError{
+		return &BuildToolError{
 			Message: "app.json not found",
 			Guidance: `Ensure you're in the correct directory with app.json.
 If this is a new project, run:
@@ -381,7 +476,7 @@ If this is a new project, run:
 	}
 
 	if strings.Contains(stderr, "eas.json") && strings.Contains(stderr, "not found") {
-		return &EASBuildError{
+		return &BuildToolError{
 			Message: "eas.json not found",
 			Guidance: `Initialize EAS in your project:
   npx --yes eas-cli build:configure

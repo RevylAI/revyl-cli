@@ -176,6 +176,11 @@ func (c *Client) GetAPIKey() string {
 	return c.apiKey
 }
 
+// BaseURL returns the resolved backend base URL for this client.
+func (c *Client) BaseURL() string {
+	return c.baseURL
+}
+
 // APIError represents an error response from the API.
 type APIError struct {
 	StatusCode int
@@ -186,6 +191,56 @@ type APIError struct {
 	DetailObject map[string]interface{}
 	// Hint is an optional user-facing suggestion (e.g., "Run 'revyl auth login' to re-authenticate").
 	Hint string
+}
+
+// HotReloadRelayCreateParams provisions a new backend-owned hot reload relay.
+type HotReloadRelayCreateParams struct {
+	Provider string `json:"provider,omitempty"`
+	Platform string `json:"platform,omitempty"`
+}
+
+// HotReloadRelaySession describes a backend-owned hot reload relay session.
+type HotReloadRelaySession struct {
+	RelayID      string `json:"relay_id"`
+	PublicURL    string `json:"public_url"`
+	ConnectURL   string `json:"connect_url"`
+	ConnectToken string `json:"connect_token"`
+	Transport    string `json:"transport"`
+	ExpiresAt    string `json:"expires_at"`
+}
+
+// ConnectWebSocketURL returns the relay websocket URL without embedding auth material.
+func (s *HotReloadRelaySession) ConnectWebSocketURL() (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("relay session is nil")
+	}
+	connectURL := strings.TrimSpace(s.ConnectURL)
+	if connectURL == "" {
+		return "", fmt.Errorf("relay connect url is empty")
+	}
+	if _, err := url.Parse(connectURL); err != nil {
+		return "", fmt.Errorf("invalid relay connect url: %w", err)
+	}
+	return connectURL, nil
+}
+
+// ConnectAuthHeader returns the Authorization header value for relay websocket authentication.
+func (s *HotReloadRelaySession) ConnectAuthHeader() string {
+	if s == nil {
+		return ""
+	}
+	token := strings.TrimSpace(s.ConnectToken)
+	if token == "" {
+		return ""
+	}
+	return "Bearer " + token
+}
+
+// HotReloadRelayHeartbeatStatus is returned by the relay heartbeat endpoint.
+type HotReloadRelayHeartbeatStatus struct {
+	RelayID   string `json:"relay_id"`
+	ExpiresAt string `json:"expires_at"`
+	Active    bool   `json:"active"`
 }
 
 // Error returns a human-readable error message.
@@ -399,7 +454,9 @@ func (c *Client) doRequestOnce(ctx context.Context, method, path string, body in
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if strings.TrimSpace(c.apiKey) != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("X-Revyl-Client", "cli")
@@ -502,7 +559,9 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, bo
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		if strings.TrimSpace(c.apiKey) != "" {
+			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", c.userAgent())
 
@@ -822,6 +881,77 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 	}
 
 	return &completeResult, nil
+}
+
+// CreateBuildFromURLRequest represents a server-side URL-based build ingestion request.
+// The backend downloads the artifact directly from the provided URL, so the CLI
+// never needs the binary on disk.
+type CreateBuildFromURLRequest struct {
+	// AppID is the target Revyl app to store the build under.
+	AppID string `json:"-"`
+
+	// FromURL is the remote artifact URL (e.g. Artifactory, S3, GCS, EAS).
+	FromURL string `json:"from_url"`
+
+	// Headers are optional HTTP headers forwarded when fetching FromURL (e.g. Authorization).
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// Version is the version label for the build (must be unique within the app).
+	Version string `json:"version"`
+
+	// Metadata is optional key-value metadata attached to the build record.
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+
+	// SetAsCurrent marks this version as the current/default version for the app.
+	SetAsCurrent bool `json:"set_as_current,omitempty"`
+}
+
+// CreateBuildFromURLResponse represents the server response after a URL-based build ingestion.
+type CreateBuildFromURLResponse struct {
+	// ID is the unique identifier of the created build version.
+	ID string `json:"id"`
+
+	// AppID is the app the build was stored under.
+	AppID string `json:"app_id"`
+
+	// Version is the version label that was assigned.
+	Version string `json:"version"`
+
+	// ArtifactURL is the S3 key where the artifact was stored.
+	ArtifactURL string `json:"artifact_url"`
+
+	// PackageName is the extracted package identifier (bundle ID / package name), if any.
+	PackageName string `json:"package_name,omitempty"`
+
+	// WasReused indicates the version already existed and was returned as-is (idempotent).
+	WasReused bool `json:"was_reused,omitempty"`
+}
+
+// CreateBuildFromURL ingests a build artifact from a remote URL server-side.
+// The backend streams the download, uploads to S3, extracts package metadata,
+// and creates the build record. The CLI does not need the binary locally.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - req: The URL-based build request (AppID, FromURL, optional Headers/Version/Metadata)
+//
+// Returns:
+//   - *CreateBuildFromURLResponse: The created build version info
+//   - error: Any error (502 if the backend cannot fetch the URL, 409 if version exists and is not idempotent)
+func (c *Client) CreateBuildFromURL(ctx context.Context, req *CreateBuildFromURLRequest) (*CreateBuildFromURLResponse, error) {
+	path := fmt.Sprintf("/api/v1/builds/%s/builds/from-url", req.AppID)
+
+	resp, err := c.doRequest(ctx, "POST", path, req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CreateBuildFromURLResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
 
 func isRetryableUploadStatus(statusCode int) bool {
@@ -1959,32 +2089,57 @@ func (c *Client) CancelWorkflow(ctx context.Context, taskID string) (*WorkflowCa
 	return &result, nil
 }
 
-// GetCloudflareCredentials fetches scoped tunnel credentials from the backend.
-//
-// Security notes:
-//   - Requires valid Revyl API key (user must be authenticated)
-//   - Credentials are scoped to tunnel operations only
-//   - Credentials expire after 1 hour
-//   - Credentials are NOT cached locally
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//
-// Returns:
-//   - *CloudflareCredentials: Scoped credentials for tunnel creation
-//   - error: Any error that occurred
-func (c *Client) GetCloudflareCredentials(ctx context.Context) (*CloudflareCredentials, error) {
-	resp, err := c.doRequest(ctx, "GET", "/api/v1/tunnels/credentials", nil)
+// CreateHotReloadRelay provisions a backend-owned relay session.
+func (c *Client) CreateHotReloadRelay(
+	ctx context.Context,
+	req HotReloadRelayCreateParams,
+) (*HotReloadRelaySession, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/hotreload/relays", req)
 	if err != nil {
 		return nil, err
 	}
 
-	var result CloudflareCredentials
+	var result HotReloadRelaySession
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
-
 	return &result, nil
+}
+
+// HeartbeatHotReloadRelay refreshes a relay session TTL.
+func (c *Client) HeartbeatHotReloadRelay(
+	ctx context.Context,
+	relayID string,
+) (*HotReloadRelayHeartbeatStatus, error) {
+	resp, err := c.doRequest(
+		ctx,
+		"POST",
+		fmt.Sprintf("/api/v1/hotreload/relays/%s/heartbeat", url.PathEscape(strings.TrimSpace(relayID))),
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var result HotReloadRelayHeartbeatStatus
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// RevokeHotReloadRelay tears down a relay session on the backend.
+func (c *Client) RevokeHotReloadRelay(ctx context.Context, relayID string) error {
+	resp, err := c.doRequest(
+		ctx,
+		"DELETE",
+		fmt.Sprintf("/api/v1/hotreload/relays/%s", url.PathEscape(strings.TrimSpace(relayID))),
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	return parseResponse(resp, nil)
 }
 
 // FindDevClientBuilds searches for development client builds in the organization.
@@ -2144,6 +2299,28 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 	}
 
 	var result StartDeviceResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetDeviceTargets fetches the backend's current device target matrix.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *AllPlatformTargets: The current device target matrix
+//   - error: Any error that occurred
+func (c *Client) GetDeviceTargets(ctx context.Context) (*AllPlatformTargets, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/execution/device-targets", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result AllPlatformTargets
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
@@ -3701,7 +3878,7 @@ func proxyWorkerMethodForAction(action string) string {
 		base = action[:idx]
 	}
 	switch base {
-	case "screenshot", "health", "device_info", "step_status", "hierarchy":
+	case "screenshot", "health", "device_info", "step_status", "hierarchy", "performance_metrics":
 		return http.MethodGet
 	default:
 		return http.MethodPost

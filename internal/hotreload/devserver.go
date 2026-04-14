@@ -2,7 +2,7 @@
 //
 // Hot reload enables near-instant testing by:
 //   - Starting a local dev server (Expo, Swift, or Android)
-//   - Creating a Cloudflare tunnel to expose it publicly
+//   - Creating a backend-owned relay to expose it publicly
 //   - Running tests against a pre-built development client
 //
 // This package supports multiple dev server providers through the DevServer interface,
@@ -75,7 +75,7 @@ type DevServer interface {
 
 	// GetPort returns the port number the development server is listening on.
 	//
-	// This port is used to configure the Cloudflare tunnel to forward traffic to the local server.
+	// This port is used to configure the public relay to forward traffic to the local server.
 	//
 	// Returns:
 	//   - int: The port number (e.g., 8081 for Expo)
@@ -87,7 +87,7 @@ type DevServer interface {
 	// and connect it to the local development server through the tunnel.
 	//
 	// Parameters:
-	//   - tunnelURL: The public Cloudflare tunnel URL (e.g., "https://cog-abc123.revyl.ai")
+	//   - tunnelURL: The public relay URL (e.g., "https://hr-abc123.revyl.ai")
 	//
 	// Returns:
 	//   - string: The deep link URL (e.g., "myapp://expo-development-client/?url=https://...")
@@ -110,7 +110,7 @@ type DevServer interface {
 	// Must be called before Start() for the setting to take effect.
 	//
 	// Parameters:
-	//   - tunnelURL: The public tunnel URL (e.g., "https://xxx.trycloudflare.com")
+	//   - tunnelURL: The public relay URL (e.g., "https://hr-abc123.revyl.ai")
 	SetProxyURL(tunnelURL string)
 }
 

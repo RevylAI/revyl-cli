@@ -17,6 +17,85 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
+func TestShouldAttemptHotReloadAutoSetup(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *config.ProjectConfig
+		want bool
+	}{
+		{
+			name: "expo with build platforms still attempts auto setup",
+			cfg: &config.ProjectConfig{
+				Build: config.BuildConfig{
+					System: "Expo",
+					Platforms: map[string]config.BuildPlatform{
+						"ios": {},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "react native with build platforms still attempts auto setup",
+			cfg: &config.ProjectConfig{
+				Build: config.BuildConfig{
+					System: "React Native",
+					Platforms: map[string]config.BuildPlatform{
+						"ios": {},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "gradle uses rebuild-only loop",
+			cfg: &config.ProjectConfig{
+				Build: config.BuildConfig{
+					System: "Gradle (Android)",
+					Platforms: map[string]config.BuildPlatform{
+						"android": {},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "no build platforms still attempts auto setup",
+			cfg: &config.ProjectConfig{
+				Build: config.BuildConfig{
+					System: "Unknown",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "existing hot reload config skips auto setup",
+			cfg: &config.ProjectConfig{
+				HotReload: config.HotReloadConfig{
+					Providers: map[string]*config.ProviderConfig{
+						"expo": {},
+					},
+				},
+				Build: config.BuildConfig{
+					System: "Expo",
+					Platforms: map[string]config.BuildPlatform{
+						"ios": {},
+					},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldAttemptHotReloadAutoSetup(tt.cfg); got != tt.want {
+				t.Fatalf("shouldAttemptHotReloadAutoSetup() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEnsureWorkerActionSucceeded_LowercaseSuccess(t *testing.T) {
 	body := []byte(`{"success":true,"action":"install"}`)
 	if err := ensureWorkerActionSucceeded(body, "install"); err != nil {
@@ -384,7 +463,7 @@ func TestTryLaunchInstalledApp_WarnsWithResolvedIdentifier(t *testing.T) {
 		err: fmt.Errorf("launch route unavailable"),
 	}
 	output := captureStdoutAndStderr(t, func() {
-		tryLaunchInstalledApp(context.Background(), requester, 7, "android", "com.example.app")
+		tryLaunchInstalledApp(context.Background(), requester, 7, "android", "com.example.app", "")
 	})
 
 	if !strings.Contains(output, "launch failed") {
@@ -660,11 +739,21 @@ func TestWriteDevStatus_Success(t *testing.T) {
 		usedDelta:     true,
 		dataPreserved: true,
 		filesChanged:  2,
-		deltaBytes:    1843200,
 		manifest:      &build.AppManifest{Hash: "abc"},
 	}
 
-	writeDevStatus(statusPath, session, viewerURL, "ios", 3, true, result)
+	writeDevStatus(
+		statusPath,
+		session,
+		viewerURL,
+		"https://hr-abc.revyl.ai",
+		"myapp://expo-development-client/?url=https://hr-abc.revyl.ai",
+		"relay",
+		"ios",
+		3,
+		true,
+		result,
+	)
 
 	data, err := os.ReadFile(statusPath)
 	if err != nil {
@@ -684,6 +773,15 @@ func TestWriteDevStatus_Success(t *testing.T) {
 	}
 	if ds.ViewerURL != "https://app.revyl.ai/sessions/sess-123" {
 		t.Fatalf("expected viewer_url=%s, got %s", "https://app.revyl.ai/sessions/sess-123", ds.ViewerURL)
+	}
+	if ds.TunnelURL != "https://hr-abc.revyl.ai" {
+		t.Fatalf("expected tunnel_url=https://hr-abc.revyl.ai, got %s", ds.TunnelURL)
+	}
+	if ds.DeepLinkURL != "myapp://expo-development-client/?url=https://hr-abc.revyl.ai" {
+		t.Fatalf("expected deep_link_url to be persisted, got %s", ds.DeepLinkURL)
+	}
+	if ds.Transport != "relay" {
+		t.Fatalf("expected transport=relay, got %s", ds.Transport)
 	}
 	if ds.RebuildCount != 3 {
 		t.Fatalf("expected rebuild_count=3, got %d", ds.RebuildCount)
@@ -718,7 +816,7 @@ func TestWriteDevStatus_BuildFailure(t *testing.T) {
 		},
 	}
 
-	writeDevStatus(statusPath, nil, "", "ios", 1, false, result)
+	writeDevStatus(statusPath, nil, "", "", "", "", "ios", 1, false, result)
 
 	data, err := os.ReadFile(statusPath)
 	if err != nil {
@@ -741,25 +839,6 @@ func TestWriteDevStatus_BuildFailure(t *testing.T) {
 	}
 }
 
-func TestReadLastCompletedAt(t *testing.T) {
-	dir := t.TempDir()
-	statusPath := dir + "/status.json"
-
-	if got := readLastCompletedAt(statusPath); got != "" {
-		t.Fatalf("expected empty for missing file, got %q", got)
-	}
-
-	status := `{"last_rebuild":{"completed_at":"2026-04-05T14:32:25Z","status":"success"}}`
-	if err := os.WriteFile(statusPath, []byte(status), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	got := readLastCompletedAt(statusPath)
-	if got != "2026-04-05T14:32:25Z" {
-		t.Fatalf("expected 2026-04-05T14:32:25Z, got %q", got)
-	}
-}
-
 func TestWriteDevStatus_Skipped(t *testing.T) {
 	dir := t.TempDir()
 	statusPath := dir + "/status.json"
@@ -770,7 +849,7 @@ func TestWriteDevStatus_Skipped(t *testing.T) {
 		manifest: &build.AppManifest{Hash: "abc"},
 	}
 
-	writeDevStatus(statusPath, nil, "", "ios", 5, true, result)
+	writeDevStatus(statusPath, nil, "", "", "", "", "ios", 5, true, result)
 
 	data, _ := os.ReadFile(statusPath)
 	var ds devStatus
@@ -781,5 +860,34 @@ func TestWriteDevStatus_Skipped(t *testing.T) {
 	}
 	if ds.LastRebuild.PushMode != "none" {
 		t.Fatalf("expected push_mode=none, got %s", ds.LastRebuild.PushMode)
+	}
+}
+
+func TestBuildDevStatusOutput_FallsBackToContextTunnelMetadata(t *testing.T) {
+	ctxMeta := &DevContext{
+		Name:         "default",
+		Platform:     "ios",
+		SessionID:    "sess-123",
+		SessionOwned: true,
+		ViewerURL:    "https://app.revyl.ai/sessions/sess-123",
+		TunnelURL:    "https://hr-abc.revyl.ai",
+		DeepLinkURL:  "myapp://expo-development-client/?url=https://hr-abc.revyl.ai",
+		Transport:    "relay",
+		State:        devContextStateRunning,
+	}
+
+	out := buildDevStatusOutput("default", 4242, ctxMeta, nil)
+
+	if got := out["tunnel_url"]; got != "https://hr-abc.revyl.ai" {
+		t.Fatalf("tunnel_url = %v, want relay URL", got)
+	}
+	if got := out["deep_link_url"]; got != "myapp://expo-development-client/?url=https://hr-abc.revyl.ai" {
+		t.Fatalf("deep_link_url = %v, want relay deep link", got)
+	}
+	if got := out["transport"]; got != "relay" {
+		t.Fatalf("transport = %v, want relay", got)
+	}
+	if got := out["session_id"]; got != "sess-123" {
+		t.Fatalf("session_id = %v, want sess-123", got)
 	}
 }

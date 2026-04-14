@@ -15,6 +15,8 @@ This guide explains how to get `revyl dev` working for each supported framework.
 | Flutter | — | `[r]` rebuild + reinstall | — |
 | Swift/iOS | — | `[r]` rebuild + reinstall | `swift` |
 | Android Native | — | `[r]` rebuild + reinstall | `android` |
+| Kotlin Multiplatform | — | `[r]` rebuild + reinstall | — |
+| Bazel | — | `[r]` rebuild + reinstall | — |
 
 ---
 
@@ -52,7 +54,7 @@ If either condition fails (common in monorepos), the Expo provider returns nil a
 Hot reload deep-links the dev client to your local Metro server via a custom URL scheme:
 
 ```
-myapp://expo-development-client/?url=https://tunnel-abc.trycloudflare.com
+myapp://expo-development-client/?url=https://hr-abc123.revyl.ai
 ```
 
 This requires a **custom URL scheme** (`myapp://`) registered in the dev client binary.
@@ -83,7 +85,7 @@ The CLI reads this value during `revyl init` and stores it as `hotreload.provide
 
 #### Why universal links don't work
 
-Apps that only use universal links (`https://example.com/...`) for deep linking cannot use those for hot reload. Apple's associated domains system requires a live HTTPS domain serving an `apple-app-site-association` file. Cloudflare tunnels generate random URLs that change every session, so the domain association never validates. Custom URL schemes (`myapp://`) bypass this entirely — no server verification needed.
+Apps that only use universal links (`https://example.com/...`) for deep linking cannot use those for hot reload. Apple's associated domains system requires a live HTTPS domain serving an `apple-app-site-association` file. Revyl hot reload uses short-lived relay hosts that are not suitable as stable associated domains. Custom URL schemes (`myapp://`) bypass this entirely — no server verification needed.
 
 #### No URL scheme in the app
 
@@ -371,6 +373,104 @@ Typical rebuild cycle: ~30-90s for incremental Gradle builds (first build takes 
 **Note:** Android reinstalls preserve app data (the `-r` flag is used).
 
 If your project is incorrectly detected as Android Native when it's actually Expo or React Native, use `--provider expo` or `--provider react-native` to override.
+
+---
+
+## Kotlin Multiplatform (KMP)
+
+KMP projects share business logic in Kotlin across iOS and Android while building native binaries for each platform. Revyl detects the KMP layout and routes you into the rebuild-based dev loop using native iOS and Android build commands underneath.
+
+### Quick start
+
+```bash
+cd my-kmp-app
+revyl init                      # Detects KMP layout (shared, iosApp, androidApp)
+revyl auth login
+revyl build upload              # Builds native binaries
+revyl dev --platform android    # Build -> upload -> device -> install -> [r] to rebuild
+```
+
+The CLI detects KMP projects by looking for a `shared` module alongside native shell directories (`iosApp`, `androidApp`, or `composeApp`) and KMP-specific Gradle markers. It generates `build.platforms.ios` and `build.platforms.android` entries using the underlying native build systems (Xcode for iOS, Gradle for Android).
+
+KMP does not have its own hot reload runtime. The dev loop uses the same rebuild model as native iOS/Android: press `[r]` to rebuild the full binary including shared Kotlin code, upload it, and reinstall.
+
+### What `revyl init` shows
+
+When KMP is detected, the CLI explains the mapping:
+
+```
+Detected: Kotlin Multiplatform
+  Shared module: shared/
+  Platforms: ios, android
+  Note: Shared KMP logic compiles into native iOS/Android binaries.
+        The dev loop uses native build commands underneath.
+```
+
+### Manual configuration
+
+If auto-detection does not trigger (e.g. a non-standard project layout), configure the native builds manually:
+
+```yaml
+build:
+  system: Kotlin Multiplatform
+  platforms:
+    ios:
+      command: "cd iosApp && xcodebuild -workspace iosApp.xcworkspace -scheme iosApp -configuration Debug -sdk iphonesimulator -derivedDataPath build"
+      output: "iosApp/build/Build/Products/Debug-iphonesimulator/*.app"
+    android:
+      command: "cd androidApp && ./gradlew assembleDebug"
+      output: "androidApp/build/outputs/apk/debug/androidApp-debug.apk"
+```
+
+---
+
+## Bazel
+
+Bazel-based mobile projects use a rebuild-based dev loop. Revyl detects Bazel workspaces and guides you through configuring build targets and artifact paths.
+
+### Quick start
+
+```bash
+cd my-bazel-app
+revyl init                      # Detects Bazel workspace
+revyl auth login
+revyl build upload              # Runs your Bazel build command
+revyl dev --platform android    # Build -> upload -> device -> install -> [r] to rebuild
+```
+
+The CLI detects Bazel workspaces by looking for `MODULE.bazel`, `WORKSPACE.bazel`, or `WORKSPACE` files. Because Bazel build targets and artifact paths vary per project, `revyl init` creates placeholder platform entries that you fill in with your specific build targets.
+
+### What `revyl init` shows
+
+```
+Detected: Bazel
+  Workspace: MODULE.bazel
+  Note: Revyl detected a Bazel workspace but cannot infer build targets automatically.
+        Configure build.platforms.ios and/or build.platforms.android in .revyl/config.yaml.
+```
+
+### Example configuration
+
+```yaml
+build:
+  system: Bazel
+  platforms:
+    ios:
+      command: "bazel build //ios:MyApp -c dbg"
+      output: "bazel-bin/ios/MyApp.app"
+    android:
+      command: "bazel build //android:app -c dbg"
+      output: "bazel-bin/android/app.apk"
+```
+
+### Skip-build workflow
+
+If you build externally (CI, local `bazel build`), skip the build step and upload the artifact directly:
+
+```bash
+bazel build //ios:MyApp -c dbg
+revyl build upload --skip-build --file bazel-bin/ios/MyApp.app --name ios
+```
 
 ---
 

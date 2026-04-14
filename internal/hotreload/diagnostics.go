@@ -51,25 +51,30 @@ type diagnosticCheckFunc func(localPort int, tunnelURL string) DiagnosticCheck
 // order so the first failure can short-circuit if needed.
 //
 // Checks performed:
-//  1. Metro health endpoint (GET http://localhost:{port}/status)
-//  2. Local HMR WebSocket upgrade (ws://localhost:{port}/hot)
+//  1. Metro health endpoint (GET http://127.0.0.1:{port}/status)
+//  2. Local HMR WebSocket upgrade (ws://127.0.0.1:{port}/hot)
 //  3. Tunnel HTTP reachability (GET {tunnelURL}/status)
 //  4. Tunnel WebSocket upgrade (wss://{tunnelURL}/hot)
-//  5. Manifest URL correctness (no local-port leaks in launchAsset.url, debuggerHost, hostUri)
+//  5. Manifest URL correctness — Expo only (no local-port leaks in launchAsset.url, debuggerHost, hostUri)
 //
 // Parameters:
 //   - localPort: The local Metro dev server port
-//   - tunnelURL: The public Cloudflare tunnel URL (e.g. "https://xxx.trycloudflare.com")
+//   - tunnelURL: The public relay URL (e.g. "https://hr-abc.revyl.ai")
+//   - providerName: The hot reload provider (e.g. "expo", "react-native").
+//     The manifest URL check is skipped for non-Expo providers because bare
+//     Metro does not serve a JSON manifest at the root path.
 //
 // Returns:
 //   - *DiagnosticResult: Aggregated results with per-check detail
-func RunPostStartupDiagnostics(localPort int, tunnelURL string) *DiagnosticResult {
+func RunPostStartupDiagnostics(localPort int, tunnelURL string, providerName string) *DiagnosticResult {
 	checks := []diagnosticCheckFunc{
 		checkMetroHealth,
 		checkLocalWebSocket,
 		checkTunnelHTTP,
 		checkTunnelWebSocket,
-		checkManifestURLs,
+	}
+	if providerName == "expo" {
+		checks = append(checks, checkManifestURLs)
 	}
 	return runDiagnosticChecks(localPort, tunnelURL, checks)
 }
@@ -83,7 +88,7 @@ func RunPostStartupDiagnostics(localPort int, tunnelURL string) *DiagnosticResul
 // Parameters:
 //   - ctx: Context for cancellation while waiting.
 //   - localPort: The local Metro dev server port.
-//   - tunnelURL: The public Cloudflare tunnel URL.
+//   - tunnelURL: The public relay URL.
 //   - timeout: Maximum time to wait for the tunnel to become reachable.
 //   - interval: Delay between retry attempts.
 //
@@ -166,9 +171,11 @@ func formatFailedChecks(checks []DiagnosticCheck) string {
 }
 
 // checkMetroHealth verifies the local Metro server is responding.
+// Uses 127.0.0.1 to match the relay path and avoid false failures on
+// machines where "localhost" resolves to IPv6.
 func checkMetroHealth(localPort int, _ string) DiagnosticCheck {
 	client := &http.Client{Timeout: diagnosticHTTPTimeout}
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/status", localPort))
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/status", localPort))
 	if err != nil {
 		return DiagnosticCheck{Name: "Metro health", Passed: false, Detail: err.Error()}
 	}
@@ -181,8 +188,10 @@ func checkMetroHealth(localPort int, _ string) DiagnosticCheck {
 }
 
 // checkLocalWebSocket attempts a WebSocket upgrade to the local HMR endpoint.
+// Uses 127.0.0.1 to match the relay path and avoid false failures on
+// machines where "localhost" resolves to IPv6.
 func checkLocalWebSocket(localPort int, _ string) DiagnosticCheck {
-	addr := fmt.Sprintf("localhost:%d", localPort)
+	addr := fmt.Sprintf("127.0.0.1:%d", localPort)
 	err := probeWebSocketUpgrade(addr, false)
 	if err != nil {
 		return DiagnosticCheck{Name: "Local WebSocket (/hot)", Passed: false, Detail: err.Error()}

@@ -39,7 +39,6 @@ var (
 	createTestHotReload         bool
 	createTestHotReloadPort     int
 	createTestHotReloadProvider string
-	createTestHotReloadPlatform string
 
 	// Interactive mode flag
 	createTestInteractive bool
@@ -523,7 +522,7 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 // runCreateTestWithHotReload creates a test with hot reload enabled.
 //
 // This function:
-//  1. Starts the dev server and creates a Cloudflare tunnel
+//  1. Starts the dev server and creates a backend-owned relay
 //  2. Builds a deep link URL for the dev client
 //  3. Creates the test with a NAVIGATE step as the first task
 //  4. Opens the browser to the test editor
@@ -586,6 +585,7 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 
 	// Get dev mode flag
 	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Select provider using registry
 	registry := hotreload.DefaultRegistry()
@@ -633,43 +633,69 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	ui.Println()
-	ui.PrintInfo("Starting hot reload for test creation...")
-	ui.Println()
+	if repoRoot, rootErr := config.FindRepoRoot(cwd); rootErr == nil {
+		cwd = repoRoot
+	}
+	var tunnelURL, deepLinkURL string
+	var tunnelOK bool
+	explicitCtx := getDevContextFlag(cmd)
+	if explicitCtx != "" {
+		resolvedCtx, resolveErr := resolveDevContextName(cwd, explicitCtx)
+		if resolveErr != nil {
+			return fmt.Errorf("--context %s: %w", explicitCtx, resolveErr)
+		}
+		tunnelURL, deepLinkURL, tunnelOK = loadDevContextTunnel(cwd, resolvedCtx)
+	}
 
-	// Start hot reload manager
-	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
-	manager.SetLogCallback(func(msg string) {
-		ui.PrintDim("  %s", msg)
-	})
-
-	// Create a context that can be cancelled
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 
-	// Start the dev server and tunnel
-	result, err := manager.Start(ctx)
-	if err != nil {
-		ui.PrintError("Failed to start hot reload: %v", err)
-		return err
+	var managerCleanup func()
+
+	if tunnelOK {
+		ui.Println()
+		ui.PrintInfo("Reusing hot reload from dev context '%s'", explicitCtx)
+		ui.PrintInfo("Tunnel URL: %s", tunnelURL)
+		ui.PrintInfo("Deep link URL:")
+		ui.PrintDim("  %s", deepLinkURL)
+		ui.Println()
+		managerCleanup = func() {}
+	} else {
+		ui.Println()
+		ui.PrintInfo("Starting hot reload for test creation...")
+		ui.Println()
+
+		manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
+		manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
+		manager.SetLogCallback(func(msg string) {
+			ui.PrintDim("  %s", msg)
+		})
+
+		result, startErr := manager.Start(ctx)
+		if startErr != nil {
+			ui.PrintError("Failed to start hot reload: %v", startErr)
+			return startErr
+		}
+		managerCleanup = func() { manager.Stop() }
+
+		tunnelURL = result.TunnelURL
+		deepLinkURL = result.DeepLinkURL
+
+		ui.Println()
+		ui.PrintSuccess("Hot reload ready!")
+		ui.Println()
+		ui.PrintInfo("Tunnel URL: %s", tunnelURL)
+		ui.PrintInfo("Deep link URL:")
+		ui.PrintDim("  %s", deepLinkURL)
+		ui.Println()
 	}
-	defer manager.Stop()
+	defer managerCleanup()
 
-	ui.Println()
-	ui.PrintSuccess("Hot reload ready!")
-	ui.Println()
-	ui.PrintInfo("Tunnel URL: %s", result.TunnelURL)
-	ui.PrintInfo("Deep link URL:")
-	ui.PrintDim("  %s", result.DeepLinkURL)
-	ui.Println()
+	_ = tunnelURL
 
-	// Create API client
-	client := api.NewClientWithDevMode(apiKey, devMode)
-
-	// Build tasks array with NAVIGATE step as first task
 	tasks := []map[string]interface{}{
 		{
-			"instruction": fmt.Sprintf("Open deep link to connect to dev server: %s", result.DeepLinkURL),
+			"instruction": fmt.Sprintf("Open deep link to connect to dev server: %s", deepLinkURL),
 		},
 	}
 
@@ -1146,6 +1172,10 @@ func getHotReloadURL(cmd *cobra.Command, cfg *config.ProjectConfig, cwd string) 
 	}
 
 	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
+	apiKey, err := getAPIKey()
+	if err == nil && strings.TrimSpace(apiKey) != "" {
+		manager.ConfigureFromHotReloadConfig(&cfg.HotReload, api.NewClient(apiKey))
+	}
 
 	result, err := manager.Start(cmd.Context())
 	if err != nil {

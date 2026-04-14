@@ -134,7 +134,7 @@ func TestBareRNDevServer_MetroEnvironment_StripsCI(t *testing.T) {
 func TestBareRNDevServer_GetDeepLinkURL(t *testing.T) {
 	server := NewBareRNDevServer(".", 8081)
 
-	tunnelURL := "https://abc-def.trycloudflare.com"
+	tunnelURL := "https://hr-abc.revyl.ai"
 	deepLink := server.GetDeepLinkURL(tunnelURL)
 
 	if deepLink != tunnelURL {
@@ -165,10 +165,10 @@ func TestBareRNDevServer_CustomPort(t *testing.T) {
 
 func TestBareRNDevServer_SetProxyURL(t *testing.T) {
 	server := NewBareRNDevServer(".", 8081)
-	server.SetProxyURL("https://abc.trycloudflare.com")
+	server.SetProxyURL("https://hr-abc.revyl.ai")
 
-	if server.proxyURL != "https://abc.trycloudflare.com" {
-		t.Fatalf("proxyURL = %q, want %q", server.proxyURL, "https://abc.trycloudflare.com")
+	if server.proxyURL != "https://hr-abc.revyl.ai" {
+		t.Fatalf("proxyURL = %q, want %q", server.proxyURL, "https://hr-abc.revyl.ai")
 	}
 }
 

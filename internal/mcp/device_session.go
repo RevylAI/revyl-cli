@@ -1598,6 +1598,101 @@ func (m *DeviceSessionManager) ScreenshotForSession(ctx context.Context, index i
 }
 
 // ---------------------------------------------------------------------------
+// Device Logs and Performance Metrics Polling
+// ---------------------------------------------------------------------------
+
+// DeviceLogsPollResponse is the JSON contract returned by the worker
+// /device_logs endpoint.
+type DeviceLogsPollResponse struct {
+	Success        bool     `json:"success"`
+	Platform       string   `json:"platform"`
+	SessionID      string   `json:"session_id,omitempty"`
+	NextCursor     string   `json:"next_cursor"`
+	CaptureRunning bool     `json:"capture_running"`
+	Items          []string `json:"items"`
+}
+
+// PerfSampleItem is a single performance sample from the worker.
+type PerfSampleItem struct {
+	Timestamp    float64                `json:"timestamp"`
+	CPU          map[string]interface{} `json:"cpu,omitempty"`
+	MemoryApp    map[string]interface{} `json:"memory_app,omitempty"`
+	MemorySystem map[string]interface{} `json:"memory_system,omitempty"`
+	FPS          *float64               `json:"fps,omitempty"`
+}
+
+// PerfPollSummary is the aggregate summary for a perf window.
+type PerfPollSummary struct {
+	SampleCount   int      `json:"sample_count"`
+	WindowStart   *float64 `json:"window_start,omitempty"`
+	WindowEnd     *float64 `json:"window_end,omitempty"`
+	AvgCPUPercent *float64 `json:"avg_cpu_percent,omitempty"`
+	PeakRSSMB     *float64 `json:"peak_rss_mb,omitempty"`
+	AvgRSSMB      *float64 `json:"avg_rss_mb,omitempty"`
+	AvgFPS        *float64 `json:"avg_fps,omitempty"`
+}
+
+// PerfPollResponse is the JSON contract returned by the worker
+// /performance_metrics endpoint.
+type PerfPollResponse struct {
+	Success        bool             `json:"success"`
+	Platform       string           `json:"platform"`
+	SessionID      string           `json:"session_id,omitempty"`
+	NextCursor     string           `json:"next_cursor"`
+	CaptureRunning bool             `json:"capture_running"`
+	Items          []PerfSampleItem `json:"items"`
+	Summary        *PerfPollSummary `json:"summary,omitempty"`
+}
+
+// PollDeviceLogsForSession fetches incremental device logs from a session.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - index: Session index to target.
+//   - cursor: Opaque cursor from a previous response ("0" for start).
+//   - limit: Maximum number of log lines to return.
+//
+// Returns:
+//   - *DeviceLogsPollResponse: Parsed response with new lines and next_cursor.
+//   - error: Any transport or parse error.
+func (m *DeviceSessionManager) PollDeviceLogsForSession(ctx context.Context, index int, cursor string, limit int) (*DeviceLogsPollResponse, error) {
+	path := fmt.Sprintf("/device_logs?cursor=%s&limit=%d", url.QueryEscape(cursor), limit)
+	respBody, err := m.WorkerRequestForSession(ctx, index, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result DeviceLogsPollResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse device_logs response: %w", err)
+	}
+	return &result, nil
+}
+
+// PollPerformanceMetricsForSession fetches incremental perf samples from a session.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - index: Session index to target.
+//   - cursor: Opaque cursor from a previous response ("0" for start).
+//   - limit: Maximum number of samples to return.
+//
+// Returns:
+//   - *PerfPollResponse: Parsed response with new samples, summary, and next_cursor.
+//   - error: Any transport or parse error.
+func (m *DeviceSessionManager) PollPerformanceMetricsForSession(ctx context.Context, index int, cursor string, limit int) (*PerfPollResponse, error) {
+	path := fmt.Sprintf("/performance_metrics?cursor=%s&limit=%d", url.QueryEscape(cursor), limit)
+	respBody, err := m.WorkerRequestForSession(ctx, index, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result PerfPollResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse performance_metrics response: %w", err)
+	}
+	return &result, nil
+}
+
+// ---------------------------------------------------------------------------
 // Grounding Client - resolves target descriptions to coordinates
 // ---------------------------------------------------------------------------
 

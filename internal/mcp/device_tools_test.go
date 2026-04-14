@@ -1024,37 +1024,38 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 	}
 
 	expectedTools := map[string]bool{
-		"start_device_session":  false,
-		"stop_device_session":   false,
-		"device_tap":            false,
-		"device_double_tap":     false,
-		"device_long_press":     false,
-		"device_type":           false,
-		"device_swipe":          false,
-		"device_drag":           false,
-		"device_pinch":          false,
-		"device_clear_text":     false,
-		"device_wait":           false,
-		"device_back":           false,
-		"device_key":            false,
-		"device_shake":          false,
-		"screenshot":            false,
-		"install_app":           false,
-		"launch_app":            false,
-		"device_go_home":        false,
-		"device_kill_app":       false,
-		"device_open_app":       false,
-		"device_navigate":       false,
-		"device_set_location":   false,
-		"device_download_file":  false,
-		"device_instruction":    false,
-		"device_validation":     false,
-		"device_extract":        false,
-		"device_code_execution": false,
-		"get_session_info":      false,
-		"device_doctor":         false,
-		"list_device_sessions":  false,
-		"switch_device_session": false,
+		"start_device_session":     false,
+		"stop_device_session":      false,
+		"device_tap":               false,
+		"device_double_tap":        false,
+		"device_long_press":        false,
+		"device_type":              false,
+		"device_swipe":             false,
+		"device_drag":              false,
+		"device_pinch":             false,
+		"device_clear_text":        false,
+		"device_wait":              false,
+		"device_back":              false,
+		"device_key":               false,
+		"device_shake":             false,
+		"screenshot":               false,
+		"install_app":              false,
+		"launch_app":               false,
+		"device_go_home":           false,
+		"device_kill_app":          false,
+		"device_open_app":          false,
+		"device_navigate":          false,
+		"device_set_location":      false,
+		"device_download_file":     false,
+		"device_instruction":       false,
+		"device_validation":        false,
+		"device_extract":           false,
+		"device_code_execution":    false,
+		"get_session_info":         false,
+		"device_doctor":            false,
+		"list_device_sessions":     false,
+		"switch_device_session":    false,
+		"poll_performance_metrics": false,
 	}
 
 	for _, tool := range result.Tools {
@@ -1075,8 +1076,8 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		}
 	}
 
-	if len(result.Tools) != 33 {
-		t.Errorf("expected 33 device tools, got %d", len(result.Tools))
+	if len(result.Tools) != 34 {
+		t.Errorf("expected 34 device tools, got %d", len(result.Tools))
 	}
 }
 

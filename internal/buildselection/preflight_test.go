@@ -137,6 +137,58 @@ func TestClassifyBuild_BuildCommand(t *testing.T) {
 			wantCompat:   CompatibleUnknown,
 			wantReasonNe: true,
 		},
+		{
+			name:       "Bazel debug build (-c dbg)",
+			metadata:   meta("bazel build //ios:MyApp -c dbg"),
+			provider:   "swift",
+			wantClass:  BuildClassDebug,
+			wantCompat: CompatibleYes,
+		},
+		{
+			name:       "Bazel fastbuild",
+			metadata:   meta("bazel build //android:app -c fastbuild"),
+			provider:   "android",
+			wantClass:  BuildClassDebug,
+			wantCompat: CompatibleYes,
+		},
+		{
+			name:         "Bazel opt build (release)",
+			metadata:     meta("bazel build //ios:MyApp -c opt"),
+			provider:     "swift",
+			wantClass:    BuildClassRelease,
+			wantCompat:   CompatibleNo,
+			wantReasonNe: true,
+		},
+		{
+			name:         "Bazel compilation_mode=opt",
+			metadata:     meta("bazel build //android:app --compilation_mode=opt"),
+			provider:     "android",
+			wantClass:    BuildClassRelease,
+			wantCompat:   CompatibleNo,
+			wantReasonNe: true,
+		},
+		{
+			name:       "Bazel compilation_mode=dbg",
+			metadata:   meta("bazel build //ios:MyApp --compilation_mode=dbg"),
+			provider:   "swift",
+			wantClass:  BuildClassDebug,
+			wantCompat: CompatibleYes,
+		},
+		{
+			name:         "Bazel no compilation mode",
+			metadata:     meta("bazel build //ios:MyApp"),
+			provider:     "swift",
+			wantClass:    BuildClassUnknown,
+			wantCompat:   CompatibleUnknown,
+			wantReasonNe: true,
+		},
+		{
+			name:       "Bazelisk debug build",
+			metadata:   meta("bazelisk build //ios:MyApp -c dbg"),
+			provider:   "swift",
+			wantClass:  BuildClassDebug,
+			wantCompat: CompatibleYes,
+		},
 	}
 
 	for _, tt := range tests {

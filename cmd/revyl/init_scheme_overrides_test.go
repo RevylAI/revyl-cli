@@ -317,10 +317,10 @@ func TestPromptBuildSetupReviewWithPromptExpoEditsPlatformConfigs(t *testing.T) 
 	}
 
 	wantPrompts := []string{
-		"command", "output",
-		"command", "output",
-		"command", "output",
-		"command", "output",
+		"build command", "artifact path",
+		"build command", "artifact path",
+		"build command", "artifact path",
+		"build command", "artifact path",
 	}
 	if !reflect.DeepEqual(prompts, wantPrompts) {
 		t.Fatalf("prompt order = %v, want %v", prompts, wantPrompts)
@@ -360,7 +360,7 @@ func TestPromptBuildSetupReviewWithPromptNonExpoUsesTopLevel(t *testing.T) {
 
 	promptBuildSetupReviewWithPrompt(cfg, promptFn)
 
-	wantPrompts := []string{"command", "output"}
+	wantPrompts := []string{"build command", "artifact path"}
 	if !reflect.DeepEqual(prompts, wantPrompts) {
 		t.Fatalf("prompts = %v, want %v", prompts, wantPrompts)
 	}
@@ -398,11 +398,11 @@ func TestPrintProjectConfigReviewPromptContextNonExpoShowsBuildInfo(t *testing.T
 		printProjectConfigReviewPromptContext(cfg)
 	})
 
-	if !strings.Contains(output, "android command") {
-		t.Fatalf("expected output to contain %q, got:\n%s", "android command", output)
+	if !strings.Contains(output, "android build command") {
+		t.Fatalf("expected output to contain %q, got:\n%s", "android build command", output)
 	}
-	if !strings.Contains(output, "android output") {
-		t.Fatalf("expected output to contain %q, got:\n%s", "android output", output)
+	if !strings.Contains(output, "android artifact path") {
+		t.Fatalf("expected output to contain %q, got:\n%s", "android artifact path", output)
 	}
 	if !strings.Contains(output, "app/build/outputs/apk/debug/app-debug.apk") {
 		t.Fatalf("expected output to contain the output path, got:\n%s", output)
@@ -425,8 +425,8 @@ func TestPrintProjectConfigReviewPromptContextNonExpoFlatBuild(t *testing.T) {
 	if !strings.Contains(output, "Build command") {
 		t.Fatalf("expected output to contain %q, got:\n%s", "Build command", output)
 	}
-	if !strings.Contains(output, "Build output") {
-		t.Fatalf("expected output to contain %q, got:\n%s", "Build output", output)
+	if !strings.Contains(output, "Artifact path") {
+		t.Fatalf("expected output to contain %q, got:\n%s", "Artifact path", output)
 	}
 	if !strings.Contains(output, "app/build/outputs/apk/debug/app-debug.apk") {
 		t.Fatalf("expected output to contain the output path, got:\n%s", output)
@@ -454,5 +454,68 @@ func TestPrintProjectConfigReviewPromptContextExpoShowsStreamTable(t *testing.T)
 	}
 	if strings.Contains(output, "build.command") {
 		t.Fatalf("Expo output should not contain non-Expo key-value format, got:\n%s", output)
+	}
+}
+
+func TestPromptBuildSetupReviewWithPromptPrintsInferredDefaultsExplainer(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{
+			System:  "Gradle (Android)",
+			Command: "./gradlew assembleDebug",
+			Output:  "app/build/outputs/apk/debug/app-debug.apk",
+		},
+	}
+
+	output := captureStdoutAndStderr(t, func() {
+		promptBuildSetupReviewWithPrompt(cfg, func(label, current string) string {
+			return current
+		})
+	})
+
+	if !strings.Contains(output, "These defaults were inferred from your project.") {
+		t.Fatalf("expected inferred-default explainer, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Artifact path is where Revyl looks") {
+		t.Fatalf("expected artifact-path explainer, got:\n%s", output)
+	}
+}
+
+func TestSkipBuildSetupForNowClearsConfigButKeepsPlatformKeys(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{
+			System:  "Xcode",
+			Command: "xcodebuild -project App.xcodeproj -scheme App -configuration Debug",
+			Output:  "build/Build/Products/Debug-iphonesimulator/*.app",
+			Platforms: map[string]config.BuildPlatform{
+				"ios": {
+					Command: "xcodebuild -project App.xcodeproj -scheme App -configuration Debug",
+					Output:  "build/Build/Products/Debug-iphonesimulator/*.app",
+					Scheme:  "App",
+					AppID:   "app-ios-123",
+				},
+			},
+		},
+	}
+
+	keys, changed := skipBuildSetupForNow(cfg)
+	if !changed {
+		t.Fatal("skipBuildSetupForNow() changed = false, want true")
+	}
+	if !reflect.DeepEqual(keys, []string{"ios"}) {
+		t.Fatalf("placeholder keys = %v, want [ios]", keys)
+	}
+	if cfg.Build.System != "Xcode" {
+		t.Fatalf("build.system = %q, want Xcode", cfg.Build.System)
+	}
+	if cfg.Build.Command != "" || cfg.Build.Output != "" {
+		t.Fatalf("top-level build config not cleared: %+v", cfg.Build)
+	}
+
+	platformCfg, ok := cfg.Build.Platforms["ios"]
+	if !ok {
+		t.Fatal("missing ios platform after skip")
+	}
+	if platformCfg.Command != "" || platformCfg.Output != "" || platformCfg.Scheme != "" || platformCfg.AppID != "" {
+		t.Fatalf("platform config not cleared: %+v", platformCfg)
 	}
 }

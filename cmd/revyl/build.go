@@ -41,6 +41,7 @@ var buildUploadCmd = &cobra.Command{
 By default, builds both iOS and Android concurrently if both platforms are configured.
 Use --platform to build only one platform.
 Use --file to upload a pre-built artifact directly (no .revyl/config.yaml required).
+Use --url to ingest an artifact from a remote URL (Artifactory, S3, GCS, GitHub Actions).
 
 This command will:
   1. Run the build command(s) from .revyl/config.yaml
@@ -57,11 +58,14 @@ Examples:
   revyl build upload --name "My App"                 # Create app with specified name
   revyl build upload --name "My App" -y              # Create and auto-save to config
   revyl build upload --file ./app.apk --app <id>     # Upload a specific file
-  revyl build upload -f ./build/App.ipa --name "iOS" # Upload file and create app`,
+  revyl build upload -f ./build/App.ipa --name "iOS" # Upload file and create app
+  revyl build upload --url https://artifacts.internal.company.com/builds/app-latest.ipa --app <id>
+  revyl build upload --url https://example.com/app.apk --header "Authorization: Bearer <token>"`,
 	Example: `  revyl build upload
   revyl build upload --platform ios
   revyl build upload --json --yes
   revyl build upload --file ./app.apk --app <id>
+  revyl build upload --url https://example.com/app.ipa --app <id>
   revyl build upload --dry-run`,
 	RunE: runBuildUpload,
 }
@@ -114,6 +118,8 @@ var (
 	uploadPlatformFlag string
 	uploadNameFlag     string
 	uploadFileFlag     string
+	uploadURLFlag      string
+	uploadHeaderFlags  []string
 	uploadYesFlag      bool
 	buildListJSON      bool
 	buildListBranch    string
@@ -140,6 +146,8 @@ func init() {
 	buildUploadCmd.Flags().BoolVar(&buildUploadJSON, "json", false, "Output results as JSON")
 	buildUploadCmd.Flags().BoolVar(&buildDryRun, "dry-run", false, "Show what would be uploaded without uploading")
 	buildUploadCmd.Flags().StringVarP(&uploadFileFlag, "file", "f", "", "Path to a build artifact to upload directly (skips config-based build)")
+	buildUploadCmd.Flags().StringVar(&uploadURLFlag, "url", "", "URL of a remote artifact to ingest (Artifactory, S3, GCS, GitHub Actions)")
+	buildUploadCmd.Flags().StringArrayVar(&uploadHeaderFlags, "header", nil, `HTTP header for authenticated URL downloads (repeatable, format "Name: value")`)
 	buildUploadCmd.Flags().StringVar(&uploadSchemeFlag, "scheme", "", "Xcode scheme to use for iOS builds (overrides config)")
 
 	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App name or ID to list builds for")
@@ -174,9 +182,18 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if err := validateUploadSourceFlags(uploadFileFlag, uploadURLFlag, uploadHeaderFlags); err != nil {
+		return err
+	}
+
 	// Direct file upload bypasses config-based build entirely.
 	if uploadFileFlag != "" {
 		return runDirectFileUpload(cmd, apiKey)
+	}
+
+	// URL-based upload: the backend fetches the artifact server-side.
+	if uploadURLFlag != "" {
+		return runURLUpload(cmd, apiKey)
 	}
 
 	// Load project config
@@ -219,8 +236,15 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	// Handle single platform case deterministically
 	platformCount := len(buildablePlatforms)
 	if platformCount == 0 {
-		ui.PrintError("No buildable platforms configured")
-		ui.PrintInfo("Please finish native setup or configure build.platforms.<key>.command/output in .revyl/config.yaml")
+		placeholderKeys := placeholderBuildPlatformKeys(cfg)
+		if len(placeholderKeys) > 0 {
+			ui.PrintError("Detected build platforms are present but not configured yet")
+			ui.PrintInfo("Placeholder platforms: %s", strings.Join(placeholderKeys, ", "))
+			ui.PrintInfo("Finish native setup or add build.platforms.<key>.command and build.platforms.<key>.output in .revyl/config.yaml")
+		} else {
+			ui.PrintError("No runnable build platforms configured")
+			ui.PrintInfo("Configure build.platforms.<key>.command and build.platforms.<key>.output in .revyl/config.yaml")
+		}
 		return fmt.Errorf("no buildable platforms configured")
 	}
 
@@ -453,6 +477,224 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 				result,
 			),
 		})
+	}
+
+	return nil
+}
+
+// validateUploadSourceFlags checks mutual exclusion between --file, --url, and --header.
+//
+// Parameters:
+//   - file: Value of --file flag
+//   - urlFlag: Value of --url flag
+//   - headers: Values of --header flags
+//
+// Returns:
+//   - error: If the flags are in an invalid combination
+func validateUploadSourceFlags(file, urlFlag string, headers []string) error {
+	if file != "" && urlFlag != "" {
+		return fmt.Errorf("--file and --url are mutually exclusive")
+	}
+	if len(headers) > 0 && urlFlag == "" {
+		return fmt.Errorf("--header requires --url")
+	}
+	return nil
+}
+
+// parseHeaderFlags parses repeatable --header "Name: value" flags into a map.
+// Returns an error if any header is malformed (missing colon separator).
+//
+// Parameters:
+//   - flags: Raw flag values from --header
+//
+// Returns:
+//   - map[string]string: Parsed header name-value pairs
+//   - error: If any flag value is not in "Name: value" format
+func parseHeaderFlags(flags []string) (map[string]string, error) {
+	if len(flags) == 0 {
+		return nil, nil
+	}
+	headers := make(map[string]string, len(flags))
+	for _, h := range flags {
+		idx := strings.Index(h, ":")
+		if idx < 1 {
+			return nil, fmt.Errorf("invalid --header format %q: expected \"Name: value\"", h)
+		}
+		name := strings.TrimSpace(h[:idx])
+		if name == "" {
+			return nil, fmt.Errorf("invalid --header format %q: header name is empty", h)
+		}
+		value := strings.TrimSpace(h[idx+1:])
+		headers[name] = value
+	}
+	return headers, nil
+}
+
+// runURLUpload uploads a build by asking the backend to fetch the artifact from
+// a remote URL. The developer does not need the binary locally. Platform is
+// inferred from the URL filename when --platform is not set.
+//
+// Parameters:
+//   - cmd: The cobra command being executed
+//   - apiKey: Authentication token for API requests
+//
+// Returns:
+//   - error: Any error that occurred during the upload
+func runURLUpload(cmd *cobra.Command, apiKey string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Parse --header flags.
+	headers, err := parseHeaderFlags(uploadHeaderFlags)
+	if err != nil {
+		return err
+	}
+
+	// Infer platform from the URL filename extension.
+	urlBase := filepath.Base(strings.SplitN(uploadURLFlag, "?", 2)[0])
+	devicePlatform := uploadPlatformFlag
+	if devicePlatform == "" {
+		devicePlatform = build.PlatformFromFilePath(urlBase)
+	}
+	if normalized, normalizeErr := normalizeMobilePlatform(devicePlatform, ""); normalizeErr == nil {
+		devicePlatform = normalized
+	} else if uploadPlatformFlag != "" {
+		ui.PrintError("Invalid platform %q (must be ios or android)", uploadPlatformFlag)
+		return fmt.Errorf("invalid platform: %s", uploadPlatformFlag)
+	} else {
+		ui.PrintError("Cannot determine platform from URL filename '%s'", urlBase)
+		ui.PrintInfo("Use --platform to specify the target platform (ios or android)")
+		return fmt.Errorf("unable to infer platform from URL: %s", uploadURLFlag)
+	}
+
+	// Handle dry-run.
+	if buildDryRun {
+		ui.PrintBanner(version)
+		ui.PrintInfo("Dry-run mode — showing what would be uploaded:")
+		ui.Println()
+		ui.PrintInfo("  Source URL:      %s", uploadURLFlag)
+		ui.PrintInfo("  Platform:        %s", devicePlatform)
+		if len(headers) > 0 {
+			ui.PrintInfo("  Custom Headers:  %d", len(headers))
+		}
+		if uploadAppFlag != "" {
+			ui.PrintInfo("  App:             %s", uploadAppFlag)
+		}
+		if buildVersion != "" {
+			ui.PrintInfo("  Build Version:   %s", buildVersion)
+		}
+		ui.Println()
+		if !buildUploadJSON {
+			ui.PrintSuccess("Dry-run complete — no changes made")
+		}
+		return nil
+	}
+
+	ui.PrintBanner(version)
+	ui.PrintInfo("URL Upload (%s)", devicePlatform)
+	ui.Println()
+
+	// Create API client.
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	// Resolve app ID: --app flag (name or UUID) -> config fallback -> interactive prompt.
+	appID := uploadAppFlag
+	if appID != "" && !looksLikeUUID(appID) {
+		resolvedID, _, resolveErr := resolveAppNameOrID(cmd, client, appID)
+		if resolveErr != nil {
+			ui.PrintError("Could not resolve app %q: %v", appID, resolveErr)
+			return resolveErr
+		}
+		appID = resolvedID
+	}
+
+	if appID == "" {
+		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+		if cfg, cfgErr := config.LoadProjectConfig(configPath); cfgErr == nil {
+			if platformKey := pickBestBuildPlatformKey(cfg, devicePlatform); platformKey != "" {
+				appID = cfg.Build.Platforms[platformKey].AppID
+			}
+		}
+	}
+
+	if appID == "" {
+		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+		cfg, cfgErr := config.LoadProjectConfig(configPath)
+		if cfgErr != nil {
+			cfg = &config.ProjectConfig{}
+			cfg.Build.Platforms = make(map[string]config.BuildPlatform)
+		}
+		selectedID, promptErr := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, devicePlatform, devicePlatform)
+		if promptErr != nil {
+			return promptErr
+		}
+		appID = selectedID
+	}
+
+	// Generate version string.
+	versionStr := buildVersion
+	if versionStr == "" {
+		versionStr = build.GenerateVersionStringForWorkDir(cwd)
+	}
+
+	ui.PrintInfo("Uploading from: %s", uploadURLFlag)
+	ui.PrintInfo("Build Version:  %s", versionStr)
+
+	// Collect metadata (no build command or duration for URL uploads).
+	metadata := build.CollectMetadata(cwd, "", devicePlatform, 0)
+	metadata["source"] = "cli_url_upload"
+
+	ui.Println()
+	ui.StartSpinner("Ingesting artifact from URL...")
+
+	result, uploadErr := client.CreateBuildFromURL(cmd.Context(), &api.CreateBuildFromURLRequest{
+		AppID:        appID,
+		FromURL:      uploadURLFlag,
+		Headers:      headers,
+		Version:      versionStr,
+		Metadata:     metadata,
+		SetAsCurrent: buildSetCurr,
+	})
+
+	ui.StopSpinner()
+
+	if uploadErr != nil {
+		ui.PrintError("Upload failed: %v", uploadErr)
+		return uploadErr
+	}
+
+	ui.Println()
+	if !buildUploadJSON {
+		if result.WasReused {
+			ui.PrintSuccess("Version already exists (idempotent)")
+		} else {
+			ui.PrintSuccess("Upload complete!")
+		}
+	}
+	ui.PrintInfo("App:             %s", appID)
+	ui.PrintInfo("Build Version:   %s", result.Version)
+	ui.PrintInfo("Build ID:        %s", result.ID)
+	if result.PackageName != "" {
+		ui.PrintInfo("Package ID:      %s", result.PackageName)
+	}
+	ui.Println()
+	ui.PrintDim("To list builds: revyl build list --app %s", appID)
+
+	if buildUploadJSON {
+		jsonOutput := map[string]interface{}{
+			"platform":     devicePlatform,
+			"app_id":       appID,
+			"version":      result.Version,
+			"version_id":   result.ID,
+			"package_name": result.PackageName,
+			"was_reused":   result.WasReused,
+			"source_url":   uploadURLFlag,
+		}
+		data, _ := json.MarshalIndent(jsonOutput, "", "  ")
+		fmt.Println(string(data))
 	}
 
 	return nil
@@ -739,8 +981,8 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 			versionStr = fmt.Sprintf("%s-%s", versionStr, platform)
 
 			ui.PrintInfo("[%s]", platform)
-			ui.PrintInfo("  Command:        %s", platformCfg.Command)
-			ui.PrintInfo("  Output:         %s", platformCfg.Output)
+			ui.PrintInfo("  Configured Build Command:  %s", platformCfg.Command)
+			ui.PrintInfo("  Configured Artifact Path:  %s", platformCfg.Output)
 			ui.PrintInfo("  Build Version:  %s", versionStr)
 			if platformCfg.AppID != "" {
 				ui.PrintInfo("  App ID:         %s", platformCfg.AppID)
@@ -831,13 +1073,11 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 		if result.Error != nil {
 			ui.PrintError("[%s] Failed: %v", result.Platform, result.Error)
 
-			// Check if this is an EAS error with guidance
-			if easErr, ok := result.Error.(*build.EASBuildError); ok {
+			if toolErr, ok := result.Error.(*build.BuildToolError); ok {
 				ui.Println()
 				ui.PrintWarning("How to fix:")
 				ui.Println()
-				// Print each line of guidance
-				for _, line := range strings.Split(easErr.Guidance, "\n") {
+				for _, line := range strings.Split(toolErr.Guidance, "\n") {
 					ui.PrintDim("  %s", line)
 				}
 				ui.Println()
@@ -949,7 +1189,8 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 	// Build
 	if !buildSkip {
 		outputMu.Lock()
-		ui.PrintInfo("[%s] Building with: %s", platform, buildCommand)
+		ui.PrintDim("[%s] Using configured build command from .revyl/config.yaml", platform)
+		ui.PrintInfo("[%s] Building with configured command: %s", platform, buildCommand)
 		outputMu.Unlock()
 
 		startTime := time.Now()
@@ -965,8 +1206,7 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 		result.Duration = time.Since(startTime)
 
 		if err != nil {
-			// Preserve EAS errors for guidance display
-			if _, ok := err.(*build.EASBuildError); ok {
+			if _, ok := err.(*build.BuildToolError); ok {
 				result.Error = err
 			} else {
 				result.Error = fmt.Errorf("build failed: %w", err)
@@ -979,12 +1219,19 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 			ui.PrintSuccess("[%s] Build completed in %s", platform, result.Duration.Round(time.Second))
 		}
 		outputMu.Unlock()
+	} else {
+		outputMu.Lock()
+		ui.PrintInfo("[%s] Skipping build step", platform)
+		outputMu.Unlock()
 	}
 
 	// Resolve artifact path
+	outputMu.Lock()
+	ui.PrintDim("[%s] Resolving configured artifact path from .revyl/config.yaml: %s", platform, platformCfg.Output)
+	outputMu.Unlock()
 	artifactPath, err := build.ResolveArtifactPath(cwd, platformCfg.Output)
 	if err != nil {
-		result.Error = fmt.Errorf("artifact not found: %w", err)
+		result.Error = fmt.Errorf("configured artifact path not found: %w", err)
 		return result
 	}
 	result.ArtifactPath = artifactPath
@@ -1189,6 +1436,15 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 
 	resolvedPlatform, err := resolveBuildUploadPlatform(cfg, platform)
 	if err != nil {
+		if setupErr, ok := asBuildPlatformNeedsSetupError(err); ok {
+			ui.PrintError("Build platform %s is not ready yet", setupErr.PlatformKey)
+			ui.PrintInfo(
+				"Finish native setup or add build.platforms.%s.command and build.platforms.%s.output in .revyl/config.yaml",
+				setupErr.PlatformKey,
+				setupErr.PlatformKey,
+			)
+			return err
+		}
 		ui.PrintError("Unknown platform: %s", platform)
 		ui.PrintInfo("Available platforms: %v", availableBuildPlatformKeys(cfg))
 		return err
@@ -1200,8 +1456,8 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 
 	// Validate platform configuration
 	if platformCfg.Output == "" {
-		ui.PrintError("Build output path not configured for %s", platformKey)
-		ui.PrintInfo("Please configure build.platforms.%s.output in .revyl/config.yaml", platformKey)
+		ui.PrintError("Artifact path not configured for %s", platformKey)
+		ui.PrintInfo("Please configure build.platforms.%s.output in .revyl/config.yaml (artifact path)", platformKey)
 		return fmt.Errorf("incomplete build config: missing output for %s", platformKey)
 	}
 	if platformCfg.Command == "" && !buildSkip {
@@ -1260,11 +1516,11 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		if devicePlatform != "" {
 			ui.PrintInfo("  Platform:       %s", devicePlatform)
 		}
-		ui.PrintInfo("  Build Command:  %s", buildCommand)
+		ui.PrintInfo("  Configured Build Command:  %s", buildCommand)
 		if scheme != "" && strings.Contains(platformCfg.Command, "-scheme") {
 			ui.PrintInfo("  Scheme:         %s", scheme)
 		}
-		ui.PrintInfo("  Output:         %s", platformCfg.Output)
+		ui.PrintInfo("  Configured Artifact Path:  %s", platformCfg.Output)
 		if platformCfg.AppID != "" {
 			ui.PrintInfo("  App ID:         %s", platformCfg.AppID)
 		}
@@ -1289,8 +1545,7 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 				ui.PrintError("Org mismatch: authenticated as %s (org %s) but config is bound to org %s",
 					info.Email, info.OrgID, configOrgID)
 				if os.Getenv("REVYL_API_KEY") != "" {
-					ui.PrintInfo("REVYL_API_KEY env var is overriding stored credentials.")
-					ui.PrintInfo("Unset it or run 'revyl auth login' to authenticate to the correct org.")
+					ui.PrintInfo("Run 'revyl auth login' to switch accounts, or unset REVYL_API_KEY.")
 				} else {
 					ui.PrintInfo("Run 'revyl auth login' to switch orgs, or 'revyl init --force' to rebind.")
 				}
@@ -1309,36 +1564,31 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 
 	// Run build if not skipped
 	if !buildSkip {
-		ui.PrintInfo("Building with: %s", buildCommand)
+		ui.PrintDim("Using configured build command from .revyl/config.yaml")
+		ui.PrintInfo("Building with configured command: %s", buildCommand)
 		ui.Println()
 
-		startTime := time.Now()
 		runner := build.NewRunner(cwd)
 		runner.Interactive = true
 		runner.FilterOutput = !ui.IsDebugMode()
 
-		err = runner.Run(buildCommand, func(line string) {
-			ui.PrintDim("  %s", line)
-		})
+		progress := RunBuildWithProgress(runner, buildCommand, platformKey, 10*time.Second)
+		buildDuration = progress.Duration
 
-		buildDuration = time.Since(startTime)
-
-		if err != nil {
+		if progress.Err != nil {
 			ui.Println()
-			ui.PrintError("Build failed: %v", err)
+			ui.PrintError("Build failed: %v", progress.Err)
 
-			// Check if this is an EAS error with guidance
-			if easErr, ok := err.(*build.EASBuildError); ok {
+			if toolErr, ok := progress.Err.(*build.BuildToolError); ok {
 				ui.Println()
 				ui.PrintWarning("How to fix:")
 				ui.Println()
-				// Print each line of guidance
-				for _, line := range strings.Split(easErr.Guidance, "\n") {
+				for _, line := range strings.Split(toolErr.Guidance, "\n") {
 					ui.PrintDim("  %s", line)
 				}
 			}
 
-			return err
+			return progress.Err
 		}
 
 		ui.Println()
@@ -1349,10 +1599,12 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		ui.PrintInfo("Skipping build step")
 	}
 
+	ui.PrintDim("Resolving configured artifact path from .revyl/config.yaml: %s", platformCfg.Output)
+
 	// Check artifact exists
 	artifactPath, err := build.ResolveArtifactPath(cwd, platformCfg.Output)
 	if err != nil {
-		ui.PrintError("Build artifact not found: %s", platformCfg.Output)
+		ui.PrintError("Configured artifact path not found: %s", platformCfg.Output)
 		return fmt.Errorf("artifact not found: %w", err)
 	}
 

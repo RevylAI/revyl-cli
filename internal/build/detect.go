@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 )
 
 // BuildSystem represents a detected build system type.
@@ -33,6 +35,12 @@ const (
 
 	// SystemSwift indicates a Swift Package Manager project.
 	SystemSwift
+
+	// SystemBazel indicates a Bazel-managed mobile project.
+	SystemBazel
+
+	// SystemKMP indicates a Kotlin Multiplatform project with shared native binaries.
+	SystemKMP
 )
 
 // String returns the human-readable name of the build system.
@@ -50,6 +58,10 @@ func (s BuildSystem) String() string {
 		return "Gradle (Android)"
 	case SystemSwift:
 		return "Swift Package Manager"
+	case SystemBazel:
+		return "Bazel"
+	case SystemKMP:
+		return "Kotlin Multiplatform"
 	default:
 		return "Unknown"
 	}
@@ -107,9 +119,21 @@ func Detect(dir string) (*DetectedBuild, error) {
 		return detectReactNative(dir)
 	}
 
-	// Check for Flutter (pubspec.yaml)
-	if fileExists(filepath.Join(dir, "pubspec.yaml")) {
+	// Check for Flutter (pubspec.yaml with flutter SDK dependency)
+	if isFlutterProject(dir) {
 		return detectFlutter(dir)
+	}
+
+	// Check for Bazel workspace before Xcode/Gradle so Bazel monorepos
+	// are not misclassified by the presence of ios/ or android/ directories.
+	if isBazelProject(dir) {
+		return detectBazel(dir)
+	}
+
+	// Check for Kotlin Multiplatform before plain Xcode/Gradle so KMP
+	// projects get explicit onboarding instead of generic native detection.
+	if isKMPProject(dir) {
+		return detectKMP(dir)
 	}
 
 	// Check for Xcode project
@@ -462,6 +486,446 @@ func detectSwift(dir string) (*DetectedBuild, error) {
 	return detected, nil
 }
 
+// isBazelProject checks whether the directory contains a Bazel workspace by
+// looking for MODULE.bazel, WORKSPACE.bazel, or WORKSPACE files.
+//
+// Parameters:
+//   - dir: The directory to check for Bazel workspace markers
+//
+// Returns:
+//   - bool: True when a recognised Bazel workspace file exists
+func isBazelProject(dir string) bool {
+	markers := []string{"MODULE.bazel", "WORKSPACE.bazel", "WORKSPACE"}
+	for _, m := range markers {
+		if fileExists(filepath.Join(dir, m)) {
+			return true
+		}
+	}
+	return false
+}
+
+// detectBazel returns build configuration for a Bazel workspace.
+// Because Bazel targets and artifact paths are project-specific, the
+// returned platforms use placeholder commands that the user fills in.
+//
+// Parameters:
+//   - dir: The Bazel workspace root directory
+//
+// Returns:
+//   - *DetectedBuild: Detected build info with placeholder platform entries
+//   - error: Any error during detection
+func detectBazel(dir string) (*DetectedBuild, error) {
+	detected := &DetectedBuild{
+		System:    SystemBazel,
+		Platforms: make(map[string]BuildPlatform),
+	}
+
+	if androidPlatform, ok := detectBazelAndroidPlatform(dir); ok {
+		detected.Platforms["android"] = androidPlatform
+		detected.Command = androidPlatform.Command
+		detected.Output = androidPlatform.Output
+	}
+
+	if iosPlatform, ok := detectBazelIOSPlatform(dir); ok {
+		detected.Platforms["ios"] = iosPlatform
+		if detected.Command == "" {
+			detected.Command = iosPlatform.Command
+			detected.Output = iosPlatform.Output
+		}
+	}
+
+	hasIOS := DirExists(filepath.Join(dir, "ios")) || hasXcodeProject(dir)
+	hasAndroid := len(detected.Platforms) > 0 ||
+		DirExists(filepath.Join(dir, "android")) ||
+		fileExists(filepath.Join(dir, "build.gradle")) ||
+		fileExists(filepath.Join(dir, "build.gradle.kts"))
+
+	if hasIOS {
+		if _, ok := detected.Platforms["ios"]; !ok {
+			detected.Platforms["ios"] = BuildPlatform{
+				IncompleteReason: "Bazel workspace detected, but build target and artifact path must be configured manually in .revyl/config.yaml",
+			}
+		}
+	}
+	if hasAndroid {
+		if _, ok := detected.Platforms["android"]; ok {
+			return detected, nil
+		}
+		detected.Platforms["android"] = BuildPlatform{
+			IncompleteReason: "Bazel workspace detected, but build target and artifact path must be configured manually in .revyl/config.yaml",
+		}
+	}
+
+	if !hasIOS && !hasAndroid {
+		detected.Platforms["ios"] = BuildPlatform{
+			IncompleteReason: "Bazel workspace detected, but no ios/ or android/ directory found. Configure build.platforms manually.",
+		}
+	}
+
+	return detected, nil
+}
+
+func detectBazelAndroidPlatform(dir string) (BuildPlatform, bool) {
+	candidates := []string{
+		".",
+		"app",
+		"android",
+		"android/app",
+		"androidApp",
+	}
+
+	for _, pkg := range candidates {
+		targetName := parseBazelAndroidTarget(filepath.Join(dir, pkg))
+		if targetName == "" {
+			continue
+		}
+
+		targetLabel := "//:" + targetName
+		outputPath := "bazel-bin/" + targetName + ".apk"
+		if pkg != "." {
+			normalizedPkg := filepath.ToSlash(pkg)
+			targetLabel = "//" + normalizedPkg + ":" + targetName
+			outputPath = "bazel-bin/" + normalizedPkg + "/" + targetName + ".apk"
+		}
+
+		return BuildPlatform{
+			Command: "bazel build " + targetLabel + " -c dbg",
+			Output:  outputPath,
+		}, true
+	}
+
+	return BuildPlatform{}, false
+}
+
+func parseBazelAndroidTarget(dir string) string {
+	buildFiles := []string{
+		filepath.Join(dir, "BUILD.bazel"),
+		filepath.Join(dir, "BUILD"),
+	}
+
+	namePattern := regexp.MustCompile(`name\s*=\s*"([^"]+)"`)
+	for _, buildFile := range buildFiles {
+		if !fileExists(buildFile) {
+			continue
+		}
+
+		content, err := os.ReadFile(buildFile)
+		if err != nil {
+			continue
+		}
+
+		lines := strings.Split(string(content), "\n")
+		for idx, line := range lines {
+			if !strings.Contains(line, "android_binary(") && !strings.Contains(line, "kt_android_binary(") {
+				continue
+			}
+
+			for lookahead := idx; lookahead < len(lines) && lookahead < idx+12; lookahead++ {
+				match := namePattern.FindStringSubmatch(lines[lookahead])
+				if len(match) == 2 {
+					return strings.TrimSpace(match[1])
+				}
+				if strings.Contains(lines[lookahead], ")") {
+					break
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// detectBazelIOSPlatform scans common iOS package directories for an
+// ios_application target in a BUILD.bazel or BUILD file. Returns a concrete
+// BuildPlatform when a target is found.
+//
+// Parameters:
+//   - dir: The Bazel workspace root directory
+//
+// Returns:
+//   - BuildPlatform: Concrete iOS build platform with command and .app output
+//   - bool: True if a concrete ios_application target was found
+func detectBazelIOSPlatform(dir string) (BuildPlatform, bool) {
+	candidates := []string{
+		".",
+		"ios",
+		"iosApp",
+	}
+
+	for _, pkg := range candidates {
+		targetName := parseBazelIOSTarget(filepath.Join(dir, pkg))
+		if targetName == "" {
+			continue
+		}
+
+		targetLabel := "//:" + targetName
+		outputPath := "bazel-bin/" + targetName + "_archive-root/Payload/" + targetName + ".app"
+		if pkg != "." {
+			normalizedPkg := filepath.ToSlash(pkg)
+			targetLabel = "//" + normalizedPkg + ":" + targetName
+			outputPath = "bazel-bin/" + normalizedPkg + "/" + targetName + "_archive-root/Payload/" + targetName + ".app"
+		}
+
+		return BuildPlatform{
+			Command: "bazel build " + targetLabel + " -c dbg --ios_multi_cpus=sim_arm64",
+			Output:  outputPath,
+		}, true
+	}
+
+	return BuildPlatform{}, false
+}
+
+// parseBazelIOSTarget extracts the target name from an ios_application rule in
+// a BUILD.bazel or BUILD file within the given directory.
+//
+// Parameters:
+//   - dir: Directory containing the BUILD file to parse
+//
+// Returns:
+//   - string: The target name, or "" if no ios_application rule was found
+func parseBazelIOSTarget(dir string) string {
+	buildFiles := []string{
+		filepath.Join(dir, "BUILD.bazel"),
+		filepath.Join(dir, "BUILD"),
+	}
+
+	namePattern := regexp.MustCompile(`name\s*=\s*"([^"]+)"`)
+	for _, buildFile := range buildFiles {
+		if !fileExists(buildFile) {
+			continue
+		}
+
+		content, err := os.ReadFile(buildFile)
+		if err != nil {
+			continue
+		}
+
+		lines := strings.Split(string(content), "\n")
+		for idx, line := range lines {
+			if !strings.Contains(line, "ios_application(") {
+				continue
+			}
+
+			for lookahead := idx; lookahead < len(lines) && lookahead < idx+12; lookahead++ {
+				match := namePattern.FindStringSubmatch(lines[lookahead])
+				if len(match) == 2 {
+					return strings.TrimSpace(match[1])
+				}
+				if strings.Contains(lines[lookahead], ")") {
+					break
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// isKMPProject checks whether the directory contains a Kotlin Multiplatform
+// project. Detection requires multi-signal evidence to avoid false positives:
+//   - A shared module directory (shared/)
+//   - At least one KMP native shell (iosApp/, androidApp/, or composeApp/)
+//   - A KMP-specific Gradle build marker in the project
+//
+// Parameters:
+//   - dir: The directory to check for KMP indicators
+//
+// Returns:
+//   - bool: True only when strong multi-signal evidence confirms KMP
+func isKMPProject(dir string) bool {
+	if !DirExists(filepath.Join(dir, "shared")) {
+		return false
+	}
+
+	hasNativeShell := DirExists(filepath.Join(dir, "iosApp")) ||
+		DirExists(filepath.Join(dir, "androidApp")) ||
+		DirExists(filepath.Join(dir, "composeApp"))
+	if !hasNativeShell {
+		return false
+	}
+
+	return hasKMPGradleMarker(dir)
+}
+
+// hasKMPGradleMarker checks for Kotlin Multiplatform-specific content in Gradle
+// build files. Looks for "kotlin(\"multiplatform\")", "kotlin-multiplatform",
+// or "KotlinMultiplatform" in settings.gradle(.kts) and shared/build.gradle(.kts).
+//
+// Parameters:
+//   - dir: The project root directory
+//
+// Returns:
+//   - bool: True when KMP-specific Gradle content is found
+func hasKMPGradleMarker(dir string) bool {
+	candidates := []string{
+		filepath.Join(dir, "settings.gradle.kts"),
+		filepath.Join(dir, "settings.gradle"),
+		filepath.Join(dir, "shared", "build.gradle.kts"),
+		filepath.Join(dir, "shared", "build.gradle"),
+		filepath.Join(dir, "build.gradle.kts"),
+		filepath.Join(dir, "build.gradle"),
+	}
+
+	kmpMarkers := []string{
+		"kotlin(\"multiplatform\")",
+		"kotlin-multiplatform",
+		"KotlinMultiplatform",
+		"org.jetbrains.kotlin.multiplatform",
+	}
+
+	for _, candidate := range candidates {
+		if !fileExists(candidate) {
+			continue
+		}
+		content, err := os.ReadFile(candidate)
+		if err != nil {
+			continue
+		}
+		text := string(content)
+		for _, marker := range kmpMarkers {
+			if strings.Contains(text, marker) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// detectKMP returns build configuration for a Kotlin Multiplatform project.
+// It detects native shell directories and generates platform-specific build
+// commands or placeholders based on the available project structure.
+//
+// Parameters:
+//   - dir: The KMP project root directory
+//
+// Returns:
+//   - *DetectedBuild: Detected build info with native platform entries
+//   - error: Any error during detection
+func detectKMP(dir string) (*DetectedBuild, error) {
+	detected := &DetectedBuild{
+		System:    SystemKMP,
+		Platforms: make(map[string]BuildPlatform),
+	}
+
+	if DirExists(filepath.Join(dir, "androidApp")) {
+		gradleFile := ""
+		for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+			if fileExists(filepath.Join(dir, "androidApp", name)) {
+				gradleFile = name
+				break
+			}
+		}
+		if gradleFile != "" {
+			command := "cd androidApp && ./gradlew assembleDebug"
+			if fileExists(filepath.Join(dir, "gradlew")) {
+				command = "./gradlew :androidApp:assembleDebug"
+			}
+			detected.Platforms["android"] = BuildPlatform{
+				Command: command,
+				Output:  "androidApp/build/outputs/apk/debug/androidApp-debug.apk",
+			}
+		} else {
+			detected.Platforms["android"] = BuildPlatform{
+				IncompleteReason: "androidApp/ exists but no build.gradle(.kts) found. Configure build command manually.",
+			}
+		}
+	} else if DirExists(filepath.Join(dir, "composeApp")) {
+		gradleFile := ""
+		for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+			if fileExists(filepath.Join(dir, "composeApp", name)) {
+				gradleFile = name
+				break
+			}
+		}
+		if gradleFile != "" {
+			command := "cd composeApp && ./gradlew assembleDebug"
+			if fileExists(filepath.Join(dir, "gradlew")) {
+				command = "./gradlew :composeApp:assembleDebug"
+			}
+			detected.Platforms["android"] = BuildPlatform{
+				Command: command,
+				Output:  "composeApp/build/outputs/apk/debug/composeApp-debug.apk",
+			}
+		} else {
+			detected.Platforms["android"] = BuildPlatform{
+				IncompleteReason: "composeApp/ exists but no build.gradle(.kts) found. Configure build command manually.",
+			}
+		}
+	}
+
+	if DirExists(filepath.Join(dir, "iosApp")) {
+		workspaceName := findXcodeWorkspaceIn(filepath.Join(dir, "iosApp"))
+		projectName := findXcodeProjectIn(filepath.Join(dir, "iosApp"))
+
+		if workspaceName != "" {
+			detected.Platforms["ios"] = BuildPlatform{
+				Command: "cd iosApp && xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build",
+				Output:  "iosApp/build/Build/Products/Debug-iphonesimulator/*.app",
+			}
+		} else if projectName != "" {
+			detected.Platforms["ios"] = BuildPlatform{
+				Command: "cd iosApp && xcodebuild -project " + projectName + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build",
+				Output:  "iosApp/build/Build/Products/Debug-iphonesimulator/*.app",
+			}
+		} else {
+			detected.Platforms["ios"] = BuildPlatform{
+				IncompleteReason: "iosApp/ exists but no .xcodeproj or .xcworkspace found. Configure build command manually.",
+			}
+		}
+	}
+
+	if androidPlatform, ok := detected.Platforms["android"]; ok && strings.TrimSpace(androidPlatform.Command) != "" {
+		detected.Command = androidPlatform.Command
+		detected.Output = androidPlatform.Output
+	} else if iosPlatform, ok := detected.Platforms["ios"]; ok && strings.TrimSpace(iosPlatform.Command) != "" {
+		detected.Command = iosPlatform.Command
+		detected.Output = iosPlatform.Output
+	}
+
+	return detected, nil
+}
+
+// findXcodeWorkspaceIn finds an .xcworkspace file directly within the given directory.
+//
+// Parameters:
+//   - dir: Directory to scan
+//
+// Returns:
+//   - string: Workspace filename, or empty if not found
+func findXcodeWorkspaceIn(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".xcworkspace" {
+			return entry.Name()
+		}
+	}
+	return ""
+}
+
+// findXcodeProjectIn finds an .xcodeproj file directly within the given directory.
+//
+// Parameters:
+//   - dir: Directory to scan
+//
+// Returns:
+//   - string: Project filename, or empty if not found
+func findXcodeProjectIn(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".xcodeproj" {
+			return entry.Name()
+		}
+	}
+	return ""
+}
+
 // findXcodeWorkspace finds an .xcworkspace file in the directory.
 func findXcodeWorkspace(dir string) string {
 	entries, err := os.ReadDir(dir)
@@ -538,6 +1002,90 @@ func DirExists(path string) bool {
 	return info.IsDir()
 }
 
+// isFlutterProject checks whether the directory contains a Flutter project by
+// looking for a pubspec.yaml that declares a flutter SDK dependency. This avoids
+// misclassifying plain Dart packages or non-mobile pubspec.yaml projects.
+//
+// Parameters:
+//   - dir: The directory to check for Flutter indicators
+//
+// Returns:
+//   - bool: True when pubspec.yaml exists and references the Flutter SDK
+func isFlutterProject(dir string) bool {
+	pubspecPath := filepath.Join(dir, "pubspec.yaml")
+	if !fileExists(pubspecPath) {
+		return false
+	}
+	content, err := os.ReadFile(pubspecPath)
+	if err != nil {
+		return false
+	}
+	// Flutter projects declare `flutter:` as an SDK dependency and/or have a
+	// top-level `flutter:` configuration key. Check for the SDK dependency
+	// pattern which is the canonical marker: "sdk: flutter".
+	return strings.Contains(string(content), "sdk: flutter")
+}
+
+// ParseBuildSystem maps a persisted build-system string (from config YAML) back
+// to a typed BuildSystem value. Handles canonical names from BuildSystem.String()
+// as well as common variants (e.g. "React Native (bare)"). This allows init UX
+// code to branch on typed constants instead of ad-hoc string comparisons.
+//
+// Parameters:
+//   - s: The build-system string (e.g. "Flutter", "Expo", "Gradle (Android)")
+//
+// Returns:
+//   - BuildSystem: The matching typed constant, or SystemUnknown
+func ParseBuildSystem(s string) BuildSystem {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	if lower == "" {
+		return SystemUnknown
+	}
+
+	// Expo check first: "expo" but not "expo react native" variants.
+	if strings.HasPrefix(lower, "expo") {
+		return SystemExpo
+	}
+
+	// React Native: "react native", "react native (bare)", etc. Must come
+	// after the Expo check so "Expo React Native" doesn't match here.
+	if strings.HasPrefix(lower, "react native") {
+		return SystemReactNative
+	}
+
+	switch lower {
+	case "flutter":
+		return SystemFlutter
+	case "xcode":
+		return SystemXcode
+	case "gradle (android)", "gradle":
+		return SystemGradle
+	case "swift package manager", "swift":
+		return SystemSwift
+	case "bazel":
+		return SystemBazel
+	case "kotlin multiplatform", "kmp":
+		return SystemKMP
+	default:
+		return SystemUnknown
+	}
+}
+
+// IsRebuildOnly reports whether this build system uses a rebuild-based dev loop
+// rather than a live hot-reload dev server. Rebuild-only systems require a full
+// binary rebuild + reinstall on each code change.
+//
+// Returns:
+//   - bool: True for Flutter, Xcode, Gradle, and Swift; false otherwise
+func (s BuildSystem) IsRebuildOnly() bool {
+	switch s {
+	case SystemFlutter, SystemXcode, SystemGradle, SystemSwift, SystemBazel, SystemKMP:
+		return true
+	default:
+		return false
+	}
+}
+
 // ListXcodeSchemes discovers available Xcode schemes by running `xcodebuild -list`
 // in the given directory.
 //
@@ -595,6 +1143,135 @@ func parseXcodebuildListOutput(output string) []string {
 		}
 	}
 	return schemes
+}
+
+// SimulatorBuildResult holds the path and modification time of a discovered
+// simulator .app bundle from DerivedData. Callers use Age() to warn about
+// stale builds.
+type SimulatorBuildResult struct {
+	// Path is the absolute path to the .app bundle directory.
+	Path string
+
+	// ModTime is when the .app was last modified by Xcode.
+	ModTime time.Time
+}
+
+// Age returns how long ago the .app was last modified.
+func (r *SimulatorBuildResult) Age() time.Duration {
+	return time.Since(r.ModTime)
+}
+
+// IsStale returns true if the build is older than the given threshold.
+func (r *SimulatorBuildResult) IsStale(threshold time.Duration) bool {
+	return r.Age() > threshold
+}
+
+// FindSimulatorBuild scans Xcode DerivedData for the most recently modified
+// simulator .app bundle that matches the Xcode project in dir. This lets
+// `revyl dev` reuse an app the developer already built in Xcode without
+// running a separate build command.
+//
+// Parameters:
+//   - dir: The project directory containing .xcodeproj or .xcworkspace
+//
+// Returns:
+//   - *SimulatorBuildResult: The discovered build with path and mod time, or nil if none found
+func FindSimulatorBuild(dir string) *SimulatorBuildResult {
+	projectName := xcodeProjectBaseName(dir)
+	if projectName == "" {
+		return nil
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+
+	derivedDataRoot := filepath.Join(homeDir, "Library", "Developer", "Xcode", "DerivedData")
+	return findSimulatorBuildInRoot(derivedDataRoot, projectName)
+}
+
+// FindSimulatorBuildInDir scans a specific DerivedData-style directory root for
+// the most recently modified simulator .app. Useful for testing with synthetic
+// directory trees.
+//
+// Parameters:
+//   - derivedDataRoot: Directory to scan for project-hash/Build/Products/Debug-iphonesimulator/*.app
+//   - projectName: Xcode project base name (without .xcodeproj)
+//
+// Returns:
+//   - *SimulatorBuildResult: The discovered build with path and mod time, or nil if none found
+func FindSimulatorBuildInDir(derivedDataRoot, projectName string) *SimulatorBuildResult {
+	return findSimulatorBuildInRoot(derivedDataRoot, projectName)
+}
+
+// findSimulatorBuildInRoot is the shared implementation for FindSimulatorBuild
+// and FindSimulatorBuildInDir.
+func findSimulatorBuildInRoot(derivedDataRoot, projectName string) *SimulatorBuildResult {
+	entries, err := os.ReadDir(derivedDataRoot)
+	if err != nil {
+		return nil
+	}
+
+	var candidates []string
+	prefix := projectName + "-"
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		productsDir := filepath.Join(derivedDataRoot, entry.Name(), "Build", "Products", "Debug-iphonesimulator")
+		apps, globErr := filepath.Glob(filepath.Join(productsDir, "*.app"))
+		if globErr != nil || len(apps) == 0 {
+			continue
+		}
+		for _, app := range apps {
+			if isTestRunnerBundle(app) {
+				continue
+			}
+			candidates = append(candidates, app)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	best, err := getMostRecentFile(candidates)
+	if err != nil {
+		return nil
+	}
+
+	info, err := os.Stat(best)
+	if err != nil {
+		return nil
+	}
+
+	return &SimulatorBuildResult{
+		Path:    best,
+		ModTime: info.ModTime(),
+	}
+}
+
+// xcodeProjectBaseName extracts the Xcode project name (without extension) from
+// the given directory. Checks for .xcworkspace first, then .xcodeproj, then
+// the ios/ subdirectory.
+func xcodeProjectBaseName(dir string) string {
+	if name := findXcodeWorkspace(dir); name != "" {
+		return strings.TrimSuffix(filepath.Base(name), ".xcworkspace")
+	}
+	if name := findXcodeProject(dir); name != "" {
+		return strings.TrimSuffix(filepath.Base(name), ".xcodeproj")
+	}
+	return ""
+}
+
+// isTestRunnerBundle returns true if the .app appears to be an XCTest runner
+// rather than a real application. Test runners are conventionally named
+// *Tests.app or *UITests.app.
+func isTestRunnerBundle(appPath string) bool {
+	base := filepath.Base(appPath)
+	name := strings.TrimSuffix(base, ".app")
+	return strings.HasSuffix(name, "Tests") || strings.HasSuffix(name, "UITests")
 }
 
 // ApplySchemeToCommand replaces `-scheme *` in a build command with `-scheme <name>`.

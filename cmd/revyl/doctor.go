@@ -462,6 +462,33 @@ func checkBuildSystem() DoctorCheck {
 		check.Details = fmt.Sprintf("Command: %s", detected.Command)
 	}
 
+	switch detected.System {
+	case build.SystemBazel:
+		hasConfiguredPlatform := false
+		for _, p := range detected.Platforms {
+			if strings.TrimSpace(p.Command) != "" {
+				hasConfiguredPlatform = true
+				break
+			}
+		}
+		if !hasConfiguredPlatform {
+			check.Status = "warning"
+			check.Details = "Bazel workspace detected but build.platforms need manual configuration in .revyl/config.yaml"
+		}
+	case build.SystemKMP:
+		hasConfiguredPlatform := false
+		for _, p := range detected.Platforms {
+			if strings.TrimSpace(p.Command) != "" {
+				hasConfiguredPlatform = true
+				break
+			}
+		}
+		if !hasConfiguredPlatform {
+			check.Status = "warning"
+			check.Details = "KMP layout detected but native build commands need configuration in .revyl/config.yaml"
+		}
+	}
+
 	return check
 }
 

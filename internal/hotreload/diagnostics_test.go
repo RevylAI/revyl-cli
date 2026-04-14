@@ -152,7 +152,7 @@ func TestRunPostStartupDiagnostics_AllPass(t *testing.T) {
 	defer srv.Close()
 
 	port := serverPort(t, srv)
-	result := RunPostStartupDiagnostics(port, srv.URL)
+	result := RunPostStartupDiagnostics(port, srv.URL, "expo")
 
 	if !result.AllPassed {
 		for _, c := range result.Checks {
@@ -164,6 +164,36 @@ func TestRunPostStartupDiagnostics_AllPass(t *testing.T) {
 	}
 	if len(result.Checks) != 5 {
 		t.Fatalf("got %d checks, want 5", len(result.Checks))
+	}
+}
+
+func TestRunPostStartupDiagnostics_BareRN_SkipsManifest(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<html><body>Metro debugger</body></html>")
+	})
+	mux.HandleFunc("/hot", websocketUpgradeHandler)
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	port := serverPort(t, srv)
+	result := RunPostStartupDiagnostics(port, srv.URL, "react-native")
+
+	if !result.AllPassed {
+		for _, c := range result.Checks {
+			if !c.Passed {
+				t.Errorf("check %q failed: %s", c.Name, c.Detail)
+			}
+		}
+		t.Fatal("expected all checks to pass for bare RN (manifest check should be skipped)")
+	}
+	if len(result.Checks) != 4 {
+		t.Fatalf("got %d checks, want 4 (manifest check should be excluded)", len(result.Checks))
 	}
 }
 

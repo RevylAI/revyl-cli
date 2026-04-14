@@ -23,11 +23,13 @@ type AppManifest struct {
 	Files   map[string]ManifestEntry `json:"files"`
 }
 
-// ManifestEntry stores size and modification time for a single file inside the
-// app bundle.
+// ManifestEntry stores size, modification time, and optional content hash for a
+// single file inside the app bundle. ContentHash is populated when mtime is
+// unreliable (e.g. Bazel sets all mtimes to 1980-01-01).
 type ManifestEntry struct {
-	Size  int64 `json:"size"`
-	Mtime int64 `json:"mtime"`
+	Size        int64  `json:"size"`
+	Mtime       int64  `json:"mtime"`
+	ContentHash string `json:"content_hash,omitempty"`
 }
 
 // BuildError represents a single compiler error extracted from build output.
@@ -39,10 +41,18 @@ type BuildError struct {
 	Message  string `json:"message"`
 }
 
+// bazelEpochMtime is the Unix timestamp Bazel assigns to all output files for
+// reproducible builds (1980-01-01T00:00:00Z). When every file in a manifest
+// has this mtime, size+mtime diffing is blind to content changes so we fall
+// back to SHA-256 content hashing.
+const bazelEpochMtime int64 = 315532800
+
 // BuildManifest walks an .app directory (or single .apk file) and records the
-// size and modification time of every regular file. The overall Hash is a
-// deterministic SHA-256 over all (relativePath, size, mtime) tuples sorted by
-// path.
+// size and modification time of every regular file. When all files share the
+// same mtime (common with Bazel reproducible builds), a per-file SHA-256
+// content hash is computed so that DiffManifest can detect changes. The overall
+// Hash is a deterministic SHA-256 over all (relativePath, size, mtime) tuples
+// sorted by path.
 //
 // Parameters:
 //   - appPath: root of the .app directory or path to an .apk file
@@ -62,10 +72,17 @@ func BuildManifest(appPath string) (*AppManifest, error) {
 	}
 
 	if !info.IsDir() {
-		m.Files[filepath.Base(appPath)] = ManifestEntry{
+		entry := ManifestEntry{
 			Size:  info.Size(),
 			Mtime: info.ModTime().Unix(),
 		}
+		if entry.Mtime == bazelEpochMtime {
+			h, hashErr := hashFileContent(appPath)
+			if hashErr == nil {
+				entry.ContentHash = h
+			}
+		}
+		m.Files[filepath.Base(appPath)] = entry
 		m.Hash = hashManifestFiles(m.Files)
 		return m, nil
 	}
@@ -91,6 +108,12 @@ func BuildManifest(appPath string) (*AppManifest, error) {
 		return nil, fmt.Errorf("walk %s: %w", appPath, err)
 	}
 
+	if needsContentHashing(m) {
+		if err := populateContentHashes(appPath, m); err != nil {
+			return nil, fmt.Errorf("content hashing: %w", err)
+		}
+	}
+
 	m.Hash = hashManifestFiles(m.Files)
 	return m, nil
 }
@@ -103,6 +126,8 @@ type ManifestDiff struct {
 
 // DiffManifest compares two manifests and returns changed/added files and
 // deleted files. A file is considered changed when its size or mtime differs.
+// When both entries have a ContentHash (Bazel builds), the hash is compared
+// instead of mtime, since Bazel freezes all mtimes to a fixed epoch.
 //
 // Parameters:
 //   - old: previous manifest (nil treats every file as new)
@@ -123,7 +148,17 @@ func DiffManifest(old, cur *AppManifest) ManifestDiff {
 	var changed []string
 	for path, entry := range cur.Files {
 		prev, exists := old.Files[path]
-		if !exists || prev.Size != entry.Size || prev.Mtime != entry.Mtime {
+		if !exists {
+			changed = append(changed, path)
+			continue
+		}
+		if prev.ContentHash != "" && entry.ContentHash != "" {
+			if prev.ContentHash != entry.ContentHash {
+				changed = append(changed, path)
+			}
+			continue
+		}
+		if prev.Size != entry.Size || prev.Mtime != entry.Mtime {
 			changed = append(changed, path)
 		}
 	}
@@ -254,7 +289,7 @@ func SaveManifest(m *AppManifest, path string) error {
 }
 
 // hashManifestFiles computes a deterministic SHA-256 over sorted (path, size,
-// mtime) tuples.
+// mtime, content_hash) tuples.
 func hashManifestFiles(files map[string]ManifestEntry) string {
 	keys := make([]string, 0, len(files))
 	for k := range files {
@@ -265,9 +300,58 @@ func hashManifestFiles(files map[string]ManifestEntry) string {
 	h := sha256.New()
 	for _, k := range keys {
 		e := files[k]
-		fmt.Fprintf(h, "%s:%d:%d\n", k, e.Size, e.Mtime)
+		if e.ContentHash != "" {
+			fmt.Fprintf(h, "%s:%d:%s\n", k, e.Size, e.ContentHash)
+		} else {
+			fmt.Fprintf(h, "%s:%d:%d\n", k, e.Size, e.Mtime)
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// needsContentHashing returns true when mtime-based diffing would be unreliable.
+// This is the case for Bazel builds where all output files share the same fixed
+// epoch mtime (1980-01-01).
+func needsContentHashing(m *AppManifest) bool {
+	if len(m.Files) == 0 {
+		return false
+	}
+	for _, e := range m.Files {
+		if e.Mtime != bazelEpochMtime {
+			return false
+		}
+	}
+	return true
+}
+
+// populateContentHashes computes SHA-256 hashes for every file in the manifest.
+//
+// Parameters:
+//   - appPath: root directory of the .app bundle
+//   - m: manifest to populate (modified in place)
+//
+// Returns:
+//   - error: filesystem or read error
+func populateContentHashes(appPath string, m *AppManifest) error {
+	for rel, entry := range m.Files {
+		h, err := hashFileContent(filepath.Join(appPath, rel))
+		if err != nil {
+			return fmt.Errorf("hash %s: %w", rel, err)
+		}
+		entry.ContentHash = h
+		m.Files[rel] = entry
+	}
+	return nil
+}
+
+// hashFileContent returns the hex-encoded SHA-256 digest of a file's contents.
+func hashFileContent(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // xcodeBuildErrorRe matches Xcode compiler errors in the format:

@@ -558,9 +558,7 @@ func outputTestResultJSON(result *execution.RunTestResult) {
 		"status":      result.Status,
 		"report_link": result.ReportURL,
 		"duration":    result.Duration,
-	}
-	if result.ErrorMessage != "" {
-		output["error"] = result.ErrorMessage
+		"error":       result.ErrorMessage,
 	}
 
 	data, _ := json.MarshalIndent(output, "", "  ")
@@ -1001,33 +999,25 @@ func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 		"passed_tests":    result.PassedTests,
 		"failed_tests":    result.FailedTests,
 		"duration":        result.Duration,
-	}
-	if result.WorkflowName != "" {
-		output["workflow_name"] = result.WorkflowName
+		"error":           result.ErrorMessage,
 	}
 	if result.Status == "queued" {
 		output["queued"] = true
 	}
-	if result.ErrorMessage != "" {
-		output["error"] = result.ErrorMessage
-	}
-	if len(result.Tests) > 0 {
-		tests := make([]map[string]interface{}, 0, len(result.Tests))
-		for _, t := range result.Tests {
-			entry := map[string]interface{}{
-				"test_name": t.TestName,
-				"platform":  t.Platform,
-				"status":    t.Status,
-				"success":   t.Success,
-				"duration":  t.Duration,
-			}
-			if t.ErrorMessage != "" {
-				entry["error_message"] = t.ErrorMessage
-			}
-			tests = append(tests, entry)
+
+	tests := make([]map[string]interface{}, 0, len(result.Tests))
+	for _, t := range result.Tests {
+		entry := map[string]interface{}{
+			"test_name":     t.TestName,
+			"platform":      t.Platform,
+			"status":        t.Status,
+			"success":       t.Success,
+			"duration":      t.Duration,
+			"error_message": t.ErrorMessage,
 		}
-		output["tests"] = tests
+		tests = append(tests, entry)
 	}
+	output["tests"] = tests
 
 	data, _ := json.MarshalIndent(output, "", "  ")
 	fmt.Println(string(data))
@@ -1038,7 +1028,7 @@ func outputWorkflowResultJSON(result *execution.RunWorkflowResult) {
 // Hot reload mode:
 //  1. Selects the appropriate provider (explicit, default, or auto-detected)
 //  2. Starts a local dev server (Expo, Swift, or Android)
-//  3. Creates a Cloudflare tunnel to expose it
+//  3. Creates a backend-owned relay to expose it
 //  4. Runs the test with a deep link URL to connect to the dev server
 //  5. Keeps the dev server running for rapid iteration
 //
@@ -1238,55 +1228,96 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	}
 	ui.PrintInfo("Dev client build: %s (%s)", buildVersionID, buildSource)
 	ui.Println()
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Create hot reload manager
-	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
-	manager.SetLogCallback(func(msg string) {
-		ui.PrintDim("  %s", msg)
-	})
+	// When --context is explicitly set and the context's dev loop has a live
+	// tunnel, piggyback on it instead of starting a separate Metro + tunnel.
+	if repoRoot, rootErr := config.FindRepoRoot(cwd); rootErr == nil {
+		cwd = repoRoot
+	}
+	var tunnelURL, deepLinkURL string
+	var tunnelOK bool
+	explicitCtx := getDevContextFlag(cmd)
+	if explicitCtx != "" {
+		resolvedCtx, resolveErr := resolveDevContextName(cwd, explicitCtx)
+		if resolveErr != nil {
+			return fmt.Errorf("--context %s: %w", explicitCtx, resolveErr)
+		}
+		tunnelURL, deepLinkURL, tunnelOK = loadDevContextTunnel(cwd, resolvedCtx)
+	} else {
+		// Warn when a live dev context exists but --context was not passed,
+		// since this will start a second independent Metro + tunnel.
+		if liveContexts := findLiveDevContexts(cwd); len(liveContexts) > 0 {
+			ui.PrintWarning("A dev loop is already running but --context was not passed.")
+			ui.PrintDim("  This test will start its own Metro server and tunnel.")
+			ui.PrintDim("  To reuse the existing dev loop, add:  --context %s", liveContexts[0])
+			ui.Println()
+		}
+	}
 
-	// Set up signal handling for graceful shutdown
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	var managerCleanup func()
+	reusingTunnel := false
+	shutdownDone := make(chan struct{})
 
-	go func() {
-		<-sigChan
+	if tunnelOK {
+		ui.PrintInfo("Reusing hot reload from dev context '%s'", explicitCtx)
+		ui.PrintInfo("Tunnel URL: %s", tunnelURL)
+		ui.PrintInfo("Deep Link: %s", deepLinkURL)
 		ui.Println()
-		ui.PrintInfo("Shutting down...")
-		manager.Stop()
-		cancel()
-	}()
+		managerCleanup = func() {}
+		reusingTunnel = true
+		close(shutdownDone)
+	} else {
+		manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
+		manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
+		manager.SetLogCallback(func(msg string) {
+			ui.PrintDim("  %s", msg)
+		})
 
-	// Start hot reload (dev server + tunnel)
-	ui.PrintInfo("Starting hot reload...")
-	ui.Println()
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	result, err := manager.Start(ctx)
-	if err != nil {
-		ui.PrintError("Failed to start hot reload: %v", err)
-		return err
+		go func() {
+			defer close(shutdownDone)
+			<-sigChan
+			signal.Stop(sigChan)
+			ui.Println()
+			ui.PrintInfo("Shutting down...")
+			manager.Stop()
+			cancel()
+		}()
+
+		ui.PrintInfo("Starting hot reload...")
+		ui.Println()
+
+		result, startErr := manager.Start(ctx)
+		if startErr != nil {
+			signal.Stop(sigChan)
+			ui.PrintError("Failed to start hot reload: %v", startErr)
+			return startErr
+		}
+		managerCleanup = func() { manager.Stop() }
+
+		tunnelURL = result.TunnelURL
+		deepLinkURL = result.DeepLinkURL
+
+		ui.Println()
+		ui.PrintSuccess("Hot reload ready!")
+		ui.Println()
+		ui.PrintInfo("Tunnel URL: %s", tunnelURL)
+		ui.PrintInfo("Deep Link: %s", deepLinkURL)
+		ui.Println()
 	}
+	defer managerCleanup()
 
-	// Ensure cleanup on exit
-	defer manager.Stop()
-
-	ui.Println()
-	ui.PrintSuccess("Hot reload ready!")
-	ui.Println()
-	ui.PrintInfo("Tunnel URL: %s", result.TunnelURL)
-	ui.PrintInfo("Deep Link: %s", result.DeepLinkURL)
-	ui.Println()
-
-	// Run the test with the deep link URL
 	ui.PrintInfo("Running test: %s", testNameOrID)
 	ui.Println()
 
 	ui.StartSpinner("Starting test execution...")
 
-	// Track if we've shown the report link yet
 	reportLinkShown := false
 
 	testResult, err := execution.RunTest(ctx, apiKey, cfg, execution.RunTestParams{
@@ -1295,7 +1326,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		BuildVersionID: buildVersionID,
 		Timeout:        effectiveTimeout,
 		DevMode:        devMode,
-		LaunchURL:      result.DeepLinkURL,
+		LaunchURL:      deepLinkURL,
 		OnProgress: func(status *sse.TestStatus) {
 			ui.StopSpinner()
 
@@ -1364,16 +1395,16 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		runOpenBrowserFn(testResult.ReportURL)
 	}
 
-	// Keep hot reload server running for rapid iteration
-	ui.Println()
-	ui.PrintInfo("────────────────────────────────────────────────────────────────")
-	ui.PrintInfo("Hot reload server still running. Make code changes and run again.")
-	ui.PrintDim("  Re-run:  revyl dev test run %s", testNameOrID)
-	ui.PrintInfo("Press Ctrl+C to stop.")
-	ui.PrintInfo("────────────────────────────────────────────────────────────────")
+	if !reusingTunnel {
+		ui.Println()
+		ui.PrintInfo("────────────────────────────────────────────────────────────────")
+		ui.PrintInfo("Hot reload server still running. Make code changes and run again.")
+		ui.PrintDim("  Re-run:  revyl dev test run %s", testNameOrID)
+		ui.PrintInfo("Press Ctrl+C to stop.")
+		ui.PrintInfo("────────────────────────────────────────────────────────────────")
 
-	// Wait for interrupt signal
-	<-sigChan
+		<-shutdownDone
+	}
 
 	if !testResult.Success {
 		switch testResult.Status {
@@ -1422,28 +1453,30 @@ func resolveDeviceSelection(
 		if deviceModel == "" || osVersion == "" {
 			return "", "", fmt.Errorf("--device-model and --os-version must both be provided")
 		}
-		// We need the platform for validation. Fetch the test.
-		test, err := client.GetTest(cmd.Context(), testID)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to fetch test for device validation: %w", err)
+	}
+
+	// Fetch the test once to determine the target platform.
+	test, err := client.GetTest(cmd.Context(), testID)
+	if err != nil {
+		if interactive {
+			return "", "", fmt.Errorf("failed to fetch test for device selection: %w", err)
 		}
-		if err := devicetargets.ValidateDevicePair(test.Platform, deviceModel, osVersion); err != nil {
+		return "", "", fmt.Errorf("failed to fetch test for device validation: %w", err)
+	}
+
+	targetCatalog := loadRuntimeDeviceTargetCatalog(cmd.Context(), client)
+	if !interactive {
+		if err := targetCatalog.ValidateDevicePair(test.Platform, deviceModel, osVersion); err != nil {
 			return "", "", err
 		}
 		return deviceModel, osVersion, nil
 	}
 
-	// Interactive: fetch platform from the test and show picker
-	test, err := client.GetTest(cmd.Context(), testID)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to fetch test for device selection: %w", err)
-	}
-
-	pairs, err := devicetargets.GetAvailableTargetPairs(test.Platform)
+	pairs, err := targetCatalog.GetAvailableTargetPairs(test.Platform)
 	if err != nil {
 		return "", "", err
 	}
-	defaultPair, _ := devicetargets.GetDefaultPair(test.Platform)
+	defaultPair, _ := targetCatalog.GetDefaultPair(test.Platform)
 
 	options := make([]ui.SelectOption, 0, len(pairs)+1)
 	options = append(options, ui.SelectOption{

@@ -24,7 +24,6 @@ var (
 	openTestHotReload         bool
 	openTestHotReloadPort     int
 	openTestHotReloadProvider string
-	openTestHotReloadPlatform string
 
 	// Interactive mode flag
 	openTestInteractive bool
@@ -132,7 +131,7 @@ func runOpenTest(cmd *cobra.Command, args []string) error {
 //
 // This function:
 //  1. Resolves the test ID
-//  2. Starts the dev server and creates a Cloudflare tunnel
+//  2. Starts the dev server and creates a backend-owned relay
 //  3. Opens the browser to the test editor
 //  4. Prints the deep link URL for the user to add as a NAVIGATE step
 //  5. Keeps the dev server running until Ctrl+C
@@ -181,6 +180,7 @@ func runOpenTestWithHotReload(cmd *cobra.Command, args []string) error {
 
 	// Get dev mode flag
 	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Resolve test ID
 	testsDir := filepath.Join(cwd, ".revyl", "tests")
@@ -195,8 +195,6 @@ func runOpenTestWithHotReload(cmd *cobra.Command, args []string) error {
 			testID = testNameOrID
 		} else {
 			// Search via API
-			client := api.NewClientWithDevMode(apiKey, devMode)
-
 			ui.StartSpinner("Searching for test...")
 			testsResp, err := client.ListOrgTests(cmd.Context(), 100, 0)
 			ui.StopSpinner()
@@ -246,36 +244,65 @@ func runOpenTestWithHotReload(cmd *cobra.Command, args []string) error {
 		providerCfg.Port = openTestHotReloadPort
 	}
 
-	ui.Println()
-	ui.PrintInfo("Starting hot reload...")
-	ui.Println()
+	if repoRoot, rootErr := config.FindRepoRoot(cwd); rootErr == nil {
+		cwd = repoRoot
+	}
+	var tunnelURL, deepLinkURL string
+	var tunnelOK bool
+	explicitCtx := getDevContextFlag(cmd)
+	if explicitCtx != "" {
+		resolvedCtx, resolveErr := resolveDevContextName(cwd, explicitCtx)
+		if resolveErr != nil {
+			return fmt.Errorf("--context %s: %w", explicitCtx, resolveErr)
+		}
+		tunnelURL, deepLinkURL, tunnelOK = loadDevContextTunnel(cwd, resolvedCtx)
+	}
 
-	// Start hot reload manager
-	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
-	manager.SetLogCallback(func(msg string) {
-		ui.PrintDim("  %s", msg)
-	})
-
-	// Create a context that can be cancelled
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 
-	// Start the dev server and tunnel
-	result, err := manager.Start(ctx)
-	if err != nil {
-		ui.PrintError("Failed to start hot reload: %v", err)
-		return err
-	}
-	defer manager.Stop()
+	var managerCleanup func()
 
-	ui.Println()
-	ui.PrintSuccess("Hot reload ready!")
-	ui.Println()
-	ui.PrintInfo("Tunnel URL: %s", result.TunnelURL)
-	ui.Println()
-	ui.PrintInfo("Deep link URL (add as NAVIGATE step in your test):")
-	ui.PrintDim("  %s", result.DeepLinkURL)
-	ui.Println()
+	if tunnelOK {
+		ui.Println()
+		ui.PrintInfo("Reusing hot reload from dev context '%s'", explicitCtx)
+		ui.PrintInfo("Tunnel URL: %s", tunnelURL)
+		ui.Println()
+		ui.PrintInfo("Deep link URL (add as NAVIGATE step in your test):")
+		ui.PrintDim("  %s", deepLinkURL)
+		ui.Println()
+		managerCleanup = func() {}
+	} else {
+		ui.Println()
+		ui.PrintInfo("Starting hot reload...")
+		ui.Println()
+
+		manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
+		manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
+		manager.SetLogCallback(func(msg string) {
+			ui.PrintDim("  %s", msg)
+		})
+
+		result, startErr := manager.Start(ctx)
+		if startErr != nil {
+			ui.PrintError("Failed to start hot reload: %v", startErr)
+			return startErr
+		}
+		managerCleanup = func() { manager.Stop() }
+
+		tunnelURL = result.TunnelURL
+		deepLinkURL = result.DeepLinkURL
+
+		ui.Println()
+		ui.PrintSuccess("Hot reload ready!")
+		ui.Println()
+		ui.PrintInfo("Tunnel URL: %s", tunnelURL)
+		ui.Println()
+		ui.PrintInfo("Deep link URL (add as NAVIGATE step in your test):")
+		ui.PrintDim("  %s", deepLinkURL)
+		ui.Println()
+	}
+	defer managerCleanup()
 
 	// Open browser to test execute page
 	testURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(devMode), testID)
@@ -493,6 +520,7 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 			}
 
 			hotReloadManager = hotreload.NewManager(provider.Name(), providerCfg, cwd)
+			hotReloadManager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
 			hotReloadManager.SetLogCallback(func(msg string) {
 				ui.PrintDim("  %s", msg)
 			})

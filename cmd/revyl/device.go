@@ -323,12 +323,17 @@ func humanizeDeviceSessionResolveError(cmd *cobra.Command, err error) error {
 
 var deviceCmd = &cobra.Command{
 	Use:   "device",
-	Short: "Direct device interaction (start, tap, type, screenshot, etc.)",
+	Short: "Cloud device sessions and actions (start, tap, type, screenshot, etc.)",
 	Long: `Provision cloud-hosted Android/iOS devices and interact with them directly.
+
+Device sessions are the foundation for all device interaction. Use 'revyl dev'
+to layer a local development loop (hot reload, rebuild, tunnel) on top of a
+device session.
 
 Examples:
   revyl device start --platform android --open
   revyl device tap --target "Sign In"
+  revyl device screenshot --out screen.png
   revyl device instruction "log in with test@example.com and verify the dashboard loads"`,
 }
 
@@ -365,6 +370,9 @@ var deviceStartCmd = &cobra.Command{
 				}
 			}
 		}
+
+		targetCatalog := loadCommandDeviceTargetCatalog(cmd.Context(), cmd)
+
 		// Resolve device model/OS version selection
 		deviceNameFlag, _ := cmd.Flags().GetString("device-name")
 		deviceSelectFlag, _ := cmd.Flags().GetBool("device")
@@ -373,7 +381,7 @@ var deviceStartCmd = &cobra.Command{
 
 		var selectedDeviceModel, selectedOsVersion string
 		if deviceNameFlag != "" {
-			presetPlatform, presetModel, presetRuntime, presetErr := devicetargets.ResolvePreset(deviceNameFlag)
+			presetPlatform, presetModel, presetRuntime, presetErr := targetCatalog.ResolvePreset(deviceNameFlag)
 			if presetErr != nil {
 				return presetErr
 			}
@@ -384,17 +392,17 @@ var deviceStartCmd = &cobra.Command{
 			if deviceModelFlag == "" || osVersionFlag == "" {
 				return fmt.Errorf("--device-model and --os-version must both be provided")
 			}
-			if err := devicetargets.ValidateDevicePair(platform, deviceModelFlag, osVersionFlag); err != nil {
+			if err := targetCatalog.ValidateDevicePair(platform, deviceModelFlag, osVersionFlag); err != nil {
 				return err
 			}
 			selectedDeviceModel = deviceModelFlag
 			selectedOsVersion = osVersionFlag
 		} else if deviceSelectFlag {
-			pairs, pairsErr := devicetargets.GetAvailableTargetPairs(platform)
+			pairs, pairsErr := targetCatalog.GetAvailableTargetPairs(platform)
 			if pairsErr != nil {
 				return pairsErr
 			}
-			defaultPair, _ := devicetargets.GetDefaultPair(platform)
+			defaultPair, _ := targetCatalog.GetDefaultPair(platform)
 			options := make([]ui.SelectOption, 0, len(pairs)+1)
 			options = append(options, ui.SelectOption{
 				Label:       fmt.Sprintf("Auto (%s)", devicetargets.FormatPairLabel(defaultPair)),
@@ -499,7 +507,6 @@ var deviceStartCmd = &cobra.Command{
 			})
 		}
 
-		// Auto-open browser if --open flag is set
 		if openBrowser {
 			devMode, _ := cmd.Flags().GetBool("dev")
 			reportURL := fmt.Sprintf("%s/tests/report?sessionId=%s",
@@ -1441,6 +1448,7 @@ var deviceTargetsCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		platform, _ := cmd.Flags().GetString("platform")
 		jsonOutput, _ := cmd.Flags().GetBool("json")
+		targetCatalog := loadCommandDeviceTargetCatalog(cmd.Context(), cmd)
 
 		platforms := []string{"ios", "android"}
 		if platform != "" {
@@ -1454,7 +1462,7 @@ var deviceTargetsCmd = &cobra.Command{
 		if jsonOutput {
 			allPairs := make(map[string][]devicetargets.DevicePair, len(platforms))
 			for _, p := range platforms {
-				pairs, err := devicetargets.GetAvailableTargetPairs(p)
+				pairs, err := targetCatalog.GetAvailableTargetPairs(p)
 				if err != nil {
 					return err
 				}
@@ -1466,11 +1474,11 @@ var deviceTargetsCmd = &cobra.Command{
 		}
 
 		for i, p := range platforms {
-			pairs, err := devicetargets.GetAvailableTargetPairs(p)
+			pairs, err := targetCatalog.GetAvailableTargetPairs(p)
 			if err != nil {
 				return err
 			}
-			defaultPair, _ := devicetargets.GetDefaultPair(p)
+			defaultPair, _ := targetCatalog.GetDefaultPair(p)
 
 			if i > 0 {
 				ui.Println()
@@ -1927,6 +1935,197 @@ Examples:
 	},
 }
 
+var devicePerfCmd = &cobra.Command{
+	Use:   "perf",
+	Short: "Poll live performance metrics (CPU%, RSS, FPS) from an active session",
+	Long: `Stream live performance metrics from a device session.
+
+By default, polls continuously (--follow) printing one compact line per batch.
+Use --no-follow for a single snapshot. Columns adapt to the platform:
+  Android: TIME  CPU%  RSS  SYS MEM
+  iOS:     TIME  CPU%  RSS  FPS`,
+	Example: `  revyl device perf
+  revyl device perf --no-follow
+  revyl device perf --interval 5s --json
+  revyl device perf -s 0 -f --json`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return err
+		}
+
+		follow, _ := cmd.Flags().GetBool("follow")
+		noFollow, _ := cmd.Flags().GetBool("no-follow")
+		if noFollow {
+			follow = false
+		}
+		intervalStr, _ := cmd.Flags().GetString("interval")
+		interval, parseErr := time.ParseDuration(intervalStr)
+		if parseErr != nil {
+			interval = 2 * time.Second
+		}
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+
+		ctx, cancel := context.WithCancel(cmd.Context())
+		defer cancel()
+
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			cancel()
+		}()
+
+		cursor := "0"
+		headerPrinted := false
+		platform := session.Platform
+
+		if !jsonOutput {
+			ui.PrintInfo("Polling session %d (%s)...", session.Index, platform)
+		}
+
+		for {
+			resp, pollErr := pollPerfWithRetry(ctx, mgr, session.Index, cursor, 100)
+			if pollErr != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return fmt.Errorf("failed to poll performance metrics: %w", pollErr)
+			}
+			cursor = resp.NextCursor
+
+			if len(resp.Items) > 0 {
+				if jsonOutput {
+					data, _ := json.Marshal(resp)
+					fmt.Println(string(data))
+				} else {
+					if !headerPrinted {
+						printPerfHeader(platform)
+						headerPrinted = true
+					}
+					printPerfSamples(resp, platform)
+				}
+			}
+
+			if !follow {
+				return nil
+			}
+
+			if !resp.CaptureRunning && len(resp.Items) == 0 {
+				if !jsonOutput {
+					ui.PrintDim("  Capture not running, waiting...")
+				}
+			}
+
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(interval):
+			}
+		}
+	},
+}
+
+func pollPerfWithRetry(
+	ctx context.Context,
+	mgr *mcppkg.DeviceSessionManager,
+	sessionIndex int,
+	cursor string,
+	limit int,
+) (*mcppkg.PerfPollResponse, error) {
+	backoffs := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
+	var lastErr error
+	for attempt := 0; attempt <= len(backoffs); attempt++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		resp, err := mgr.PollPerformanceMetricsForSession(ctx, sessionIndex, cursor, limit)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if attempt < len(backoffs) {
+			ui.PrintDim("  reconnecting...")
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoffs[attempt]):
+			}
+		}
+	}
+	return nil, lastErr
+}
+
+func printPerfHeader(platform string) {
+	switch strings.ToLower(platform) {
+	case "android":
+		fmt.Printf("%-10s  %7s  %10s  %-20s  %s\n", "TIME", "CPU%", "RSS", "SYS MEM", "[samples]")
+	case "ios":
+		fmt.Printf("%-10s  %7s  %10s  %6s  %s\n", "TIME", "CPU%", "RSS", "FPS", "[samples]")
+	default:
+		fmt.Printf("%-10s  %7s  %10s  %s\n", "TIME", "CPU%", "RSS", "[samples]")
+	}
+}
+
+func printPerfSamples(resp *mcppkg.PerfPollResponse, platform string) {
+	if resp.Summary == nil || len(resp.Items) == 0 {
+		return
+	}
+
+	ts := time.Now().Format("15:04:05")
+	sampleCount := len(resp.Items)
+
+	var cpuStr string
+	if resp.Summary.AvgCPUPercent != nil {
+		cpuStr = fmt.Sprintf("%.1f%%", *resp.Summary.AvgCPUPercent)
+	} else {
+		cpuStr = "--"
+	}
+
+	var rssStr string
+	if resp.Summary.AvgRSSMB != nil {
+		cpuStr2 := *resp.Summary.AvgRSSMB
+		if cpuStr2 >= 1024 {
+			rssStr = fmt.Sprintf("%.1f GB", cpuStr2/1024)
+		} else {
+			rssStr = fmt.Sprintf("%.1f MB", cpuStr2)
+		}
+	} else {
+		rssStr = "--"
+	}
+
+	switch strings.ToLower(platform) {
+	case "android":
+		sysMemStr := "--"
+		last := resp.Items[len(resp.Items)-1]
+		if last.MemorySystem != nil {
+			totalKB, tok := last.MemorySystem["total_kb"]
+			availKB, aok := last.MemorySystem["available_kb"]
+			usedPct, pok := last.MemorySystem["used_percent"]
+			if tok && aok && pok {
+				totalGB := totalKB.(float64) / (1024 * 1024)
+				availGB := availKB.(float64) / (1024 * 1024)
+				sysMemStr = fmt.Sprintf("%.1f/%.1f GB %.0f%%", availGB, totalGB, usedPct.(float64))
+			}
+		}
+		fmt.Printf("%-10s  %7s  %10s  %-20s  [%d]\n", ts, cpuStr, rssStr, sysMemStr, sampleCount)
+
+	case "ios":
+		fpsStr := "--"
+		if resp.Summary.AvgFPS != nil {
+			fpsStr = fmt.Sprintf("%.1f", *resp.Summary.AvgFPS)
+		}
+		fmt.Printf("%-10s  %7s  %10s  %6s  [%d]\n", ts, cpuStr, rssStr, fpsStr, sampleCount)
+
+	default:
+		fmt.Printf("%-10s  %7s  %10s  [%d]\n", ts, cpuStr, rssStr, sampleCount)
+	}
+}
+
 func init() {
 	// Global -s flag for session selection (added to all action commands)
 	sessionFlag := func(cmd *cobra.Command) {
@@ -2170,4 +2369,12 @@ func init() {
 	deviceReportCmd.Flags().String("session-id", "", "Session ID to fetch report for (bypasses active session)")
 	deviceCmd.AddCommand(deviceTargetsCmd)
 	deviceCmd.AddCommand(deviceHistoryCmd)
+
+	// Perf
+	deviceCmd.AddCommand(devicePerfCmd)
+	sessionFlag(devicePerfCmd)
+	devicePerfCmd.Flags().BoolP("follow", "f", true, "Continuously poll (default: true)")
+	devicePerfCmd.Flags().Bool("no-follow", false, "Single snapshot then exit")
+	devicePerfCmd.Flags().String("interval", "2s", "Poll interval (e.g. 1s, 500ms)")
+	devicePerfCmd.Flags().Bool("json", false, "Output raw JSON per poll")
 }

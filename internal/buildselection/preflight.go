@@ -136,8 +136,49 @@ func classifyFromBuildCommand(command, providerName string) (BuildClass, Compati
 		return BuildClassDebug, CompatibleYes, ""
 	}
 
+	if isBazelCommand(lower) {
+		return classifyBazelCommand(lower)
+	}
+
 	return BuildClassUnknown, CompatibleUnknown,
 		"Could not determine build type from command. Verify this is a debug/dev-client build."
+}
+
+// isBazelCommand checks whether the build command invokes Bazel or Bazelisk.
+func isBazelCommand(lower string) bool {
+	return strings.Contains(lower, "bazel") || strings.Contains(lower, "bazelisk")
+}
+
+// classifyBazelCommand classifies a Bazel build command by its compilation mode.
+// Looks for -c or --compilation_mode flags with dbg/fastbuild/opt values.
+//
+// Parameters:
+//   - lower: The lowercased build command string
+//
+// Returns:
+//   - class: The detected BuildClass
+//   - compat: The compatibility verdict
+//   - reason: Human-readable explanation
+func classifyBazelCommand(lower string) (BuildClass, Compatibility, string) {
+	debugSignals := []string{"-c dbg", "--compilation_mode=dbg", "-c fastbuild", "--compilation_mode=fastbuild"}
+	for _, sig := range debugSignals {
+		if strings.Contains(lower, sig) {
+			return BuildClassDebug, CompatibleYes, ""
+		}
+	}
+
+	releaseSignals := []string{"-c opt", "--compilation_mode=opt"}
+	for _, sig := range releaseSignals {
+		if strings.Contains(lower, sig) {
+			return BuildClassRelease, CompatibleNo,
+				"This Bazel build uses -c opt (optimized/release mode). " +
+					"Use -c dbg or -c fastbuild for a debug build compatible with the dev loop."
+		}
+	}
+
+	return BuildClassUnknown, CompatibleUnknown,
+		"Bazel build detected but no compilation mode flag found (-c dbg, -c opt, etc.). " +
+			"Verify this produces a debug build suitable for the dev loop."
 }
 
 // isEASDevProfile checks if the command uses an EAS development-compatible profile.

@@ -217,7 +217,6 @@ func init() {
 	testCreateCmd.Flags().StringVar(&createTestFromFile, "from-file", "", "Create test from YAML file (copies to .revyl/tests/ and pushes)")
 	testCreateCmd.Flags().IntVar(&createTestHotReloadPort, "port", 8081, "Port for local dev server")
 	testCreateCmd.Flags().StringVar(&createTestHotReloadProvider, "provider", "", "Hot reload provider (expo, react-native)")
-	testCreateCmd.Flags().StringVar(&createTestHotReloadPlatform, "platform-key", "", "Build platform key for hot reload dev client")
 	testCreateCmd.Flags().BoolVar(&createTestInteractive, "interactive", false, "Create test interactively with real-time device feedback")
 	testCreateCmd.Flags().StringSliceVar(&createTestModules, "module", nil, "Module name or ID to insert as module_import block (can be repeated)")
 	testCreateCmd.Flags().StringSliceVar(&createTestTags, "tag", nil, "Tag to assign after creation (can be repeated)")
@@ -234,7 +233,6 @@ func init() {
 	// test open flags
 	testOpenCmd.Flags().IntVar(&openTestHotReloadPort, "port", 8081, "Port for local dev server")
 	testOpenCmd.Flags().StringVar(&openTestHotReloadProvider, "provider", "", "Hot reload provider (expo, react-native)")
-	testOpenCmd.Flags().StringVar(&openTestHotReloadPlatform, "platform-key", "", "Build platform key for hot reload dev client")
 	testOpenCmd.Flags().BoolVar(&openTestInteractive, "interactive", false, "Edit test interactively with real-time device feedback")
 	testOpenCmd.Flags().BoolVar(&openTestNoOpen, "no-open", false, "Skip opening browser (with --interactive: output URL and wait for Ctrl+C)")
 }

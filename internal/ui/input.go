@@ -6,9 +6,33 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// stdinReader is a package-level buffered reader for os.Stdin.
+// A single shared reader prevents buffered-but-unconsumed bytes from being
+// lost when multiple Prompt calls each create their own bufio.Reader.
+var (
+	stdinReader   *bufio.Reader
+	stdinReaderMu sync.Mutex
+	stdinSource   *os.File
+)
+
+// getStdinReader returns the shared buffered reader for os.Stdin, creating or
+// replacing it when os.Stdin has changed (e.g. tests swap it via os.Pipe).
+func getStdinReader() *bufio.Reader {
+	stdinReaderMu.Lock()
+	defer stdinReaderMu.Unlock()
+	if stdinReader == nil || stdinSource != os.Stdin {
+		stdinReader = bufio.NewReader(os.Stdin)
+		stdinSource = os.Stdin
+	}
+	return stdinReader
+}
 
 // Prompt displays a prompt and reads user input.
 //
@@ -21,7 +45,7 @@ import (
 func Prompt(message string) (string, error) {
 	fmt.Fprintf(os.Stderr, "%s ", InfoStyle.Render(message))
 
-	reader := bufio.NewReader(os.Stdin)
+	reader := getStdinReader()
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
@@ -141,6 +165,24 @@ func (m selectModel) View() string {
 	return b.String()
 }
 
+// drainStdin discards any pending bytes in the stdin buffer.
+// Prevents stale keypresses (e.g. from a prior Prompt call) from being
+// consumed by the next bubbletea program as an immediate Enter/selection.
+func drainStdin() {
+	fd := int(os.Stdin.Fd())
+	if err := syscall.SetNonblock(fd, true); err != nil {
+		return
+	}
+	buf := make([]byte, 256)
+	for {
+		n, _ := os.Stdin.Read(buf)
+		if n == 0 {
+			break
+		}
+	}
+	_ = syscall.SetNonblock(fd, false)
+}
+
 // runSelectTea runs the bubbletea selection program.
 // Returns selected index or -1 if cancelled.
 func runSelectTea(message string, options []string, descriptions []string, initialCursor int) (int, error) {
@@ -157,6 +199,9 @@ func runSelectTea(message string, options []string, descriptions []string, initi
 		// Keep interactive menus functional when stdout is piped but stderr is a TTY.
 		programOptions = append(programOptions, tea.WithOutput(os.Stderr))
 	}
+
+	time.Sleep(50 * time.Millisecond)
+	drainStdin()
 
 	p := tea.NewProgram(m, programOptions...)
 	finalModel, err := p.Run()

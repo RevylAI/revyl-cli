@@ -319,6 +319,143 @@ func TestUploadBuild_UsesPresignVersionIDWhenCompleteOmitted(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// CreateBuildFromURL tests
+// ---------------------------------------------------------------------------
+
+func TestCreateBuildFromURL_Success(t *testing.T) {
+	var capturedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/builds/app-1/builds/from-url" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &capturedBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"ver-url-1",
+			"app_id":"app-1",
+			"version":"1.0.0",
+			"artifact_url":"org/builds/app-1/1.0.0/app.ipa",
+			"package_name":"com.example.app"
+		}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	resp, err := client.CreateBuildFromURL(context.Background(), &CreateBuildFromURLRequest{
+		AppID:   "app-1",
+		FromURL: "https://artifacts.internal.company.com/builds/app-latest.ipa",
+		Headers: map[string]string{"Authorization": "Bearer secret"},
+		Version: "1.0.0",
+		Metadata: map[string]interface{}{
+			"source": "cli_url_upload",
+		},
+		SetAsCurrent: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateBuildFromURL() error = %v", err)
+	}
+	if resp.ID != "ver-url-1" {
+		t.Fatalf("ID = %q, want %q", resp.ID, "ver-url-1")
+	}
+	if resp.Version != "1.0.0" {
+		t.Fatalf("Version = %q, want %q", resp.Version, "1.0.0")
+	}
+	if resp.PackageName != "com.example.app" {
+		t.Fatalf("PackageName = %q, want %q", resp.PackageName, "com.example.app")
+	}
+
+	// Verify the request body was correctly serialized.
+	if fromURL, ok := capturedBody["from_url"].(string); !ok || fromURL != "https://artifacts.internal.company.com/builds/app-latest.ipa" {
+		t.Fatalf("from_url = %v, want the artifact URL", capturedBody["from_url"])
+	}
+	if headers, ok := capturedBody["headers"].(map[string]interface{}); !ok || headers["Authorization"] != "Bearer secret" {
+		t.Fatalf("headers = %v, want Authorization header", capturedBody["headers"])
+	}
+}
+
+func TestCreateBuildFromURL_IdempotentReuse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"ver-existing",
+			"app_id":"app-1",
+			"version":"1.0.0",
+			"artifact_url":"org/builds/app-1/1.0.0/app.ipa",
+			"was_reused":true
+		}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	resp, err := client.CreateBuildFromURL(context.Background(), &CreateBuildFromURLRequest{
+		AppID:   "app-1",
+		FromURL: "https://example.com/app.ipa",
+		Version: "1.0.0",
+	})
+	if err != nil {
+		t.Fatalf("CreateBuildFromURL() error = %v", err)
+	}
+	if !resp.WasReused {
+		t.Fatalf("WasReused = false, want true")
+	}
+}
+
+func TestCreateBuildFromURL_BackendFetchFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, `{"detail":"Failed to fetch source URL"}`, http.StatusBadGateway)
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	_, err := client.CreateBuildFromURL(context.Background(), &CreateBuildFromURLRequest{
+		AppID:   "app-1",
+		FromURL: "https://bad-url.example.com/missing.ipa",
+		Version: "1.0.0",
+	})
+	if err == nil {
+		t.Fatal("CreateBuildFromURL() expected error for 502, got nil")
+	}
+	if !strings.Contains(err.Error(), "502") && !strings.Contains(err.Error(), "Failed to fetch") {
+		t.Fatalf("error should mention 502 or fetch failure, got: %v", err)
+	}
+}
+
+func TestCreateBuildFromURL_NoHeaders(t *testing.T) {
+	var capturedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &capturedBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"ver-2",
+			"app_id":"app-1",
+			"version":"2.0.0",
+			"artifact_url":"s3-key"
+		}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	_, err := client.CreateBuildFromURL(context.Background(), &CreateBuildFromURLRequest{
+		AppID:   "app-1",
+		FromURL: "https://public.example.com/app.apk",
+		Version: "2.0.0",
+	})
+	if err != nil {
+		t.Fatalf("CreateBuildFromURL() error = %v", err)
+	}
+	// Headers should be omitted from the JSON body when nil.
+	if _, exists := capturedBody["headers"]; exists {
+		t.Fatalf("headers should be omitted when nil, got: %v", capturedBody["headers"])
+	}
+}
+
 func TestDoRequestWithRetry_NegativeMaxRetriesStillAttemptsOnce(t *testing.T) {
 	var attempts int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -735,5 +872,65 @@ func TestUploadOrgFile_ConfirmFailure_ReturnsError(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&completeCalls); got != 1 {
 		t.Fatalf("complete-upload calls = %d, want 1", got)
+	}
+}
+
+func TestHotReloadRelaySessionConnectWebSocketURL_DoesNotEmbedToken(t *testing.T) {
+	session := &HotReloadRelaySession{
+		ConnectURL:   "wss://relay-a.revyl.ai/api/v1/hotreload/relays/a-123abc/connect",
+		ConnectToken: "secret-token",
+	}
+
+	got, err := session.ConnectWebSocketURL()
+	if err != nil {
+		t.Fatalf("ConnectWebSocketURL() error = %v", err)
+	}
+	if got != session.ConnectURL {
+		t.Fatalf("ConnectWebSocketURL() = %q, want %q", got, session.ConnectURL)
+	}
+	if strings.Contains(got, "secret-token") {
+		t.Fatalf("ConnectWebSocketURL() leaked token in url: %q", got)
+	}
+}
+
+func TestHotReloadRelaySessionConnectAuthHeader(t *testing.T) {
+	session := &HotReloadRelaySession{ConnectToken: "secret-token"}
+
+	if got := session.ConnectAuthHeader(); got != "Bearer secret-token" {
+		t.Fatalf("ConnectAuthHeader() = %q, want Bearer secret-token", got)
+	}
+}
+
+func TestCreateHotReloadRelay(t *testing.T) {
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/hotreload/relays" || r.Method != http.MethodPost {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		authorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{
+			"relay_id":"a-123abc",
+			"public_url":"https://hr-a-123abc.relay-a.revyl.ai",
+			"connect_url":"wss://relay-a.revyl.ai/api/v1/hotreload/relays/a-123abc/connect",
+			"connect_token":"relay-connect-token",
+			"expires_at":"2026-04-10T12:00:00Z",
+			"transport":"relay"
+		}`)
+	}))
+	defer server.Close()
+
+	client := NewClientWithBaseURL("backend-token", server.URL)
+	resp, err := client.CreateHotReloadRelay(context.Background(), HotReloadRelayCreateParams{
+		Provider: "expo",
+	})
+	if err != nil {
+		t.Fatalf("CreateHotReloadRelay() error = %v", err)
+	}
+	if authorization != "Bearer backend-token" {
+		t.Fatalf("Authorization header = %q, want Bearer backend-token", authorization)
+	}
+	if resp.RelayID != "a-123abc" {
+		t.Fatalf("RelayID = %q, want a-123abc", resp.RelayID)
 	}
 }

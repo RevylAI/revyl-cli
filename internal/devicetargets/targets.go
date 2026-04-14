@@ -11,6 +11,12 @@ import (
 	"strings"
 )
 
+// Catalog represents a resolved device-target matrix for all supported
+// platforms.
+type Catalog struct {
+	platformTargets map[string]*PlatformTargetConfig
+}
+
 // DevicePair is a device model + OS runtime combination.
 type DevicePair struct {
 	Model   string
@@ -26,6 +32,26 @@ type PlatformTargetConfig struct {
 	CompatibleRuntimes map[string][]string // model -> runtimes it supports
 }
 
+// NewCatalog builds an immutable device-target catalog from the provided
+// platform configs.
+//
+// Parameters:
+//   - platformTargets: platform -> target config mapping
+//
+// Returns:
+//   - *Catalog: a catalog containing cloned target data
+func NewCatalog(platformTargets map[string]*PlatformTargetConfig) *Catalog {
+	return &Catalog{platformTargets: clonePlatformTargets(platformTargets)}
+}
+
+// DefaultCatalog returns a catalog backed by the generated embedded targets.
+//
+// Returns:
+//   - *Catalog: catalog populated from targets_generated.go
+func DefaultCatalog() *Catalog {
+	return NewCatalog(platformTargets)
+}
+
 // GetPlatformTargets returns the target config for a platform.
 //
 // Parameters:
@@ -35,11 +61,23 @@ type PlatformTargetConfig struct {
 //   - *PlatformTargetConfig: the config for the platform
 //   - error: if the platform is unknown
 func GetPlatformTargets(platform string) (*PlatformTargetConfig, error) {
-	cfg, ok := platformTargets[strings.ToLower(platform)]
+	return DefaultCatalog().GetPlatformTargets(platform)
+}
+
+// GetPlatformTargets returns the target config for a platform.
+//
+// Parameters:
+//   - platform: lowercase platform name ("ios" or "android")
+//
+// Returns:
+//   - *PlatformTargetConfig: the config for the platform
+//   - error: if the platform is unknown
+func (c *Catalog) GetPlatformTargets(platform string) (*PlatformTargetConfig, error) {
+	cfg, ok := c.platformTargets[strings.ToLower(platform)]
 	if !ok {
 		return nil, fmt.Errorf("unknown platform %q; available: ios, android", platform)
 	}
-	return cfg, nil
+	return clonePlatformTargetConfig(cfg), nil
 }
 
 // GetDefaultPair returns the default DevicePair for a platform.
@@ -51,7 +89,19 @@ func GetPlatformTargets(platform string) (*PlatformTargetConfig, error) {
 //   - DevicePair: the platform default
 //   - error: if the platform is unknown
 func GetDefaultPair(platform string) (DevicePair, error) {
-	cfg, err := GetPlatformTargets(platform)
+	return DefaultCatalog().GetDefaultPair(platform)
+}
+
+// GetDefaultPair returns the default DevicePair for a platform.
+//
+// Parameters:
+//   - platform: lowercase platform name
+//
+// Returns:
+//   - DevicePair: the platform default
+//   - error: if the platform is unknown
+func (c *Catalog) GetDefaultPair(platform string) (DevicePair, error) {
+	cfg, err := c.GetPlatformTargets(platform)
 	if err != nil {
 		return DevicePair{}, err
 	}
@@ -68,7 +118,20 @@ func GetDefaultPair(platform string) (DevicePair, error) {
 //   - []DevicePair: all valid combinations
 //   - error: if the platform is unknown
 func GetAvailableTargetPairs(platform string) ([]DevicePair, error) {
-	cfg, err := GetPlatformTargets(platform)
+	return DefaultCatalog().GetAvailableTargetPairs(platform)
+}
+
+// GetAvailableTargetPairs enumerates every valid (model, runtime) combination
+// for a platform, ordered by model then runtime.
+//
+// Parameters:
+//   - platform: lowercase platform name
+//
+// Returns:
+//   - []DevicePair: all valid combinations
+//   - error: if the platform is unknown
+func (c *Catalog) GetAvailableTargetPairs(platform string) ([]DevicePair, error) {
+	cfg, err := c.GetPlatformTargets(platform)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +160,21 @@ func GetAvailableTargetPairs(platform string) ([]DevicePair, error) {
 // Returns:
 //   - error: nil when valid; descriptive error otherwise
 func ValidateDevicePair(platform, model, runtime string) error {
-	cfg, err := GetPlatformTargets(platform)
+	return DefaultCatalog().ValidateDevicePair(platform, model, runtime)
+}
+
+// ValidateDevicePair checks that a (model, runtime) combination is supported
+// for the given platform.
+//
+// Parameters:
+//   - platform: lowercase platform name
+//   - model: device model name (e.g. "iPhone 16")
+//   - runtime: OS runtime string (e.g. "iOS 18.5")
+//
+// Returns:
+//   - error: nil when valid; descriptive error otherwise
+func (c *Catalog) ValidateDevicePair(platform, model, runtime string) error {
+	cfg, err := c.GetPlatformTargets(platform)
 	if err != nil {
 		return err
 	}
@@ -154,6 +231,19 @@ var DevicePresets = map[string]struct {
 //   - platform, model, runtime strings
 //   - error if the preset name is unknown
 func ResolvePreset(name string) (platform, model, runtime string, err error) {
+	return DefaultCatalog().ResolvePreset(name)
+}
+
+// ResolvePreset looks up a named device preset and returns the platform,
+// device model, and OS runtime using the catalog's current default pair.
+//
+// Parameters:
+//   - name: preset name (e.g. "revyl-android-phone")
+//
+// Returns:
+//   - platform, model, runtime strings
+//   - error if the preset name is unknown
+func (c *Catalog) ResolvePreset(name string) (platform, model, runtime string, err error) {
 	preset, ok := DevicePresets[strings.ToLower(name)]
 	if !ok {
 		known := make([]string, 0, len(DevicePresets))
@@ -167,7 +257,7 @@ func ResolvePreset(name string) (platform, model, runtime string, err error) {
 		return preset.Platform, preset.Pair.Model, preset.Pair.Runtime, nil
 	}
 
-	defaultPair, defErr := GetDefaultPair(preset.Platform)
+	defaultPair, defErr := c.GetDefaultPair(preset.Platform)
 	if defErr != nil {
 		return "", "", "", fmt.Errorf("preset %q references platform %q: %w", name, preset.Platform, defErr)
 	}
@@ -190,4 +280,32 @@ func contains(ss []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func clonePlatformTargets(
+	src map[string]*PlatformTargetConfig,
+) map[string]*PlatformTargetConfig {
+	cloned := make(map[string]*PlatformTargetConfig, len(src))
+	for platform, cfg := range src {
+		cloned[platform] = clonePlatformTargetConfig(cfg)
+	}
+	return cloned
+}
+
+func clonePlatformTargetConfig(cfg *PlatformTargetConfig) *PlatformTargetConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	compatible := make(map[string][]string, len(cfg.CompatibleRuntimes))
+	for model, runtimes := range cfg.CompatibleRuntimes {
+		compatible[model] = append([]string(nil), runtimes...)
+	}
+
+	return &PlatformTargetConfig{
+		DefaultPair:        cfg.DefaultPair,
+		AvailableRuntimes:  append([]string(nil), cfg.AvailableRuntimes...),
+		AvailableModels:    append([]string(nil), cfg.AvailableModels...),
+		CompatibleRuntimes: compatible,
+	}
 }

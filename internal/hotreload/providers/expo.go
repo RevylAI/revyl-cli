@@ -296,7 +296,7 @@ func (e *ExpoDevServer) GetPort() int {
 // only register the base scheme.
 //
 // Parameters:
-//   - tunnelURL: The public Cloudflare tunnel URL
+//   - tunnelURL: The public relay URL
 //
 // Returns:
 //   - string: The deep link URL for launching the dev client
@@ -328,7 +328,7 @@ func (e *ExpoDevServer) Name() string {
 // Must be called before Start() for the setting to take effect.
 //
 // Parameters:
-//   - tunnelURL: The public tunnel URL (e.g., "https://xxx.trycloudflare.com")
+//   - tunnelURL: The public relay URL (e.g., "https://hr-abc.revyl.ai")
 func (e *ExpoDevServer) SetProxyURL(tunnelURL string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -436,11 +436,11 @@ func (e *ExpoDevServer) expoEnvironment() []string {
 // HTTPS URLs (Expo #42316), causing HMR connections to break.
 //
 // Parameters:
-//   - rawURL: The tunnel URL (e.g., "https://xxx.trycloudflare.com")
+//   - rawURL: The relay URL (e.g., "https://hr-abc.revyl.ai")
 //
 // Returns:
-//   - normalized: URL with explicit port (e.g., "https://xxx.trycloudflare.com:443")
-//   - hostname: The hostname portion (e.g., "xxx.trycloudflare.com")
+//   - normalized: URL with explicit port (e.g., "https://hr-abc.revyl.ai:443")
+//   - hostname: The hostname portion (e.g., "hr-abc.revyl.ai")
 func normalizeProxyURL(rawURL string) (normalized string, hostname string) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -506,7 +506,7 @@ func (e *ExpoDevServer) checkHealth() bool {
 	client := &http.Client{Timeout: 2 * time.Second}
 
 	// Try the status endpoint
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/status", e.Port))
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/status", e.Port))
 	if err != nil {
 		return false
 	}

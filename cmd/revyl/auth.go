@@ -126,9 +126,8 @@ EXAMPLES:
 		creds, err := mgr.GetCredentials()
 		if err == nil && creds != nil && creds.HasValidAuth() {
 			if creds.AuthMethod == "env" {
-				ui.PrintWarning("REVYL_API_KEY env var is set — it overrides stored credentials")
-				ui.PrintInfo("To login with a different account, first: unset REVYL_API_KEY")
-				ui.PrintDim("Proceeding with browser login (credentials will be saved for when the env var is unset)")
+				ui.PrintWarning("REVYL_API_KEY env var is set")
+				ui.PrintDim("Browser login will override it for local interactive commands")
 				ui.Println()
 			} else {
 				displayName := creds.GetDisplayName()
@@ -260,6 +259,14 @@ func loginWithBrowser(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error
 		}
 	}
 
+	// When REVYL_API_KEY is set, mark the file credentials as the local
+	// interactive override so subsequent commands resolve the browser account.
+	if os.Getenv("REVYL_API_KEY") != "" {
+		if err := mgr.SetLocalAuthOverride(); err != nil {
+			ui.PrintWarning("Could not persist local auth override: %v", err)
+		}
+	}
+
 	ui.Println()
 	if userInfo.Email != "" {
 		ui.PrintSuccess("Successfully authenticated as %s", userInfo.Email)
@@ -268,6 +275,9 @@ func loginWithBrowser(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error
 	}
 	if userInfo.OrgID != "" {
 		ui.PrintInfo("Organization: %s", userInfo.OrgID)
+	}
+	if os.Getenv("REVYL_API_KEY") != "" {
+		ui.PrintDim("  Browser login is now active (overriding REVYL_API_KEY for local commands)")
 	}
 	ui.PrintInfo("Credentials saved to ~/.revyl/credentials.json")
 	warnIfOrgMismatchAfterLogin(cmd)

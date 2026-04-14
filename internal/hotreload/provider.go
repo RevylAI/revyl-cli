@@ -131,6 +131,9 @@ type ProjectInfo struct {
 
 	// Android contains Android-specific information (nil if not an Android project).
 	Android *AndroidProjectInfo
+
+	// Flutter contains Flutter-specific information (nil if not a Flutter project).
+	Flutter *FlutterProjectInfo
 }
 
 // ExpoProjectInfo contains Expo-specific project information.
@@ -170,6 +173,12 @@ type AndroidProjectInfo struct {
 
 	// ProjectPath is the path to the Android project root.
 	ProjectPath string
+}
+
+// FlutterProjectInfo contains Flutter-specific project information.
+type FlutterProjectInfo struct {
+	// Name is the project name from pubspec.yaml.
+	Name string
 }
 
 // Registry manages available hot reload providers.
@@ -407,3 +416,7 @@ var NewSwiftProvider func() Provider
 // NewAndroidProvider creates a new Android provider.
 // This is a forward declaration - the actual implementation is in providers/android_provider.go.
 var NewAndroidProvider func() Provider
+
+// NewFlutterProvider creates a new Flutter provider.
+// This is a forward declaration - the actual implementation is in providers/flutter_provider.go.
+var NewFlutterProvider func() Provider

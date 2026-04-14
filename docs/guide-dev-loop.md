@@ -69,7 +69,7 @@ revyl dev
 This:
 
 1. Starts your local dev server (Expo via `npx expo start --dev-client`, or Metro via `npx react-native start`)
-2. Creates a Cloudflare tunnel to expose it to cloud devices
+2. Creates a Revyl relay to expose it to cloud devices
 3. Installs the dev client build on a cloud device
 4. Opens the device session in your browser
 
@@ -124,12 +124,12 @@ revyl dev --platform ios                  # Auto-picks the branch build
 
 ## When do you need a new build?
 
-- **Expo / React Native:** Only when native dependencies change (new native modules, Podfile changes, Gradle dependency changes). JS/TS changes are served live via the tunnel.
+- **Expo / React Native:** Only when native dependencies change (new native modules, Podfile changes, Gradle dependency changes). JS/TS changes are served live via the relay.
 - **Swift / Kotlin (native):** Every code change requires a new build.
 
 ## Team sharing
 
-All developers push builds to a shared app container (the `app_id` in config). Each developer gets their own cloud device session, tunnel, and local server. For JS projects, multiple developers can share the same dev build and still see their own code changes.
+All developers push builds to a shared app container (the `app_id` in config). Each developer gets their own cloud device session, relay URL, and local server. For JS projects, multiple developers can share the same dev build and still see their own code changes.
 
 ---
 

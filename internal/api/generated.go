@@ -2136,8 +2136,11 @@ type BuildResolutionRequest struct {
 	BuildVarId openapi_types.UUID `json:"build_var_id"`
 
 	// Filters Optional resolution filters matched against build metadata (e.g., pr_number, commit_sha)
-	Filters       *map[string]interface{} `json:"filters,omitempty"`
-	PinnedVersion *string                 `json:"pinned_version,omitempty"`
+	Filters *map[string]interface{} `json:"filters,omitempty"`
+
+	// OrgId Organization context for service-auth resolution requests
+	OrgId         *openapi_types.UUID `json:"org_id,omitempty"`
+	PinnedVersion *string             `json:"pinned_version,omitempty"`
 }
 
 // BuildResolutionResponse Response with resolved build information.
@@ -2539,21 +2542,6 @@ type ClaimSandboxResponse struct {
 
 // CleanupLevel Cleanup intensity level for AVD state reset between test runs.
 type CleanupLevel string
-
-// CloudflareCredentials Cloudflare credentials fetched from backend service.
-//
-// These credentials are used by the CLI service to create and manage
-// named Cloudflare tunnels with predictable URLs.
-type CloudflareCredentials struct {
-	// AccountId Cloudflare account ID
-	AccountId string `json:"account_id"`
-
-	// TunnelToken Cloudflare tunnel token for authentication
-	TunnelToken string `json:"tunnel_token"`
-
-	// ZoneId Cloudflare zone ID for DNS management
-	ZoneId string `json:"zone_id"`
-}
 
 // CodeExecutionScript Full script model with database fields.
 type CodeExecutionScript struct {
@@ -3037,6 +3025,15 @@ type CreateCLIApiKeyResponse struct {
 
 // CreateExpoProjectRequest Request to create a new Expo project configuration.
 type CreateExpoProjectRequest struct {
+	// AndroidAppId Revyl app ID for Android builds
+	AndroidAppId *string `json:"android_app_id,omitempty"`
+
+	// AutoSyncEnabled Enable automatic build sync via webhook
+	AutoSyncEnabled *bool `json:"auto_sync_enabled,omitempty"`
+
+	// IosAppId Revyl app ID for iOS builds
+	IosAppId *string `json:"ios_app_id,omitempty"`
+
 	// ProjectId Expo project ID (EAS project UUID)
 	ProjectId string `json:"project_id"`
 
@@ -3064,6 +3061,19 @@ type CreateModuleRequest struct {
 
 	// Name Name of the module
 	Name string `json:"name"`
+}
+
+// CreatePRCheckRunRequest Request to create a GitHub check run for a PR execution.
+type CreatePRCheckRunRequest struct {
+	DetailsUrl *string `json:"details_url,omitempty"`
+	ExternalId *string `json:"external_id,omitempty"`
+	HeadSha    string  `json:"head_sha"`
+	Name       string  `json:"name"`
+	Owner      string  `json:"owner"`
+	Repo       string  `json:"repo"`
+	Status     *string `json:"status,omitempty"`
+	Summary    string  `json:"summary"`
+	Title      string  `json:"title"`
 }
 
 // CreateReportRequest Request model for creating a report.
@@ -3182,6 +3192,13 @@ type CreateWorktreeRequest struct {
 
 	// SetupScript Custom setup script
 	SetupScript *string `json:"setup_script,omitempty"`
+}
+
+// CreditConversion defines model for CreditConversion.
+type CreditConversion struct {
+	CreditsPerUnit float32 `json:"credits_per_unit"`
+	FeatureId      string  `json:"feature_id"`
+	Name           string  `json:"name"`
 }
 
 // CreditsBalanceItem defines model for CreditsBalanceItem.
@@ -3691,6 +3708,20 @@ type EnhancedSummaryResponse struct {
 	WeekStartDate string `json:"week_start_date"`
 }
 
+// EntitlementItem defines model for EntitlementItem.
+type EntitlementItem struct {
+	Balance           *float32            `json:"balance,omitempty"`
+	Conversions       *[]CreditConversion `json:"conversions,omitempty"`
+	FeatureId         string              `json:"feature_id"`
+	Granted           *float32            `json:"granted,omitempty"`
+	Name              string              `json:"name"`
+	OveragePrice      *float32            `json:"overage_price,omitempty"`
+	OveragePriceLabel *string             `json:"overage_price_label,omitempty"`
+	Unit              string              `json:"unit"`
+	Unlimited         *bool               `json:"unlimited,omitempty"`
+	Usage             *float32            `json:"usage,omitempty"`
+}
+
 // Environment Environment identifier for workflow name resolution.
 //
 // Attributes:
@@ -3909,12 +3940,15 @@ type ExpoBuildsResponse struct {
 
 // ExpoProjectDbResponse Response model for Expo project configuration from database.
 type ExpoProjectDbResponse struct {
-	CreatedAt   time.Time `json:"created_at"`
-	Id          string    `json:"id"`
-	OrgId       string    `json:"org_id"`
-	ProjectId   string    `json:"project_id"`
-	ProjectName *string   `json:"project_name,omitempty"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	AndroidAppId    *string   `json:"android_app_id,omitempty"`
+	AutoSyncEnabled *bool     `json:"auto_sync_enabled,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	Id              string    `json:"id"`
+	IosAppId        *string   `json:"ios_app_id,omitempty"`
+	OrgId           string    `json:"org_id"`
+	ProjectId       string    `json:"project_id"`
+	ProjectName     *string   `json:"project_name,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // ExpoProjectFromBuildPathRequest Request to extract Expo project IDs from build paths.
@@ -3995,15 +4029,17 @@ type ExtractPackageIdResponse struct {
 	PackageId *string `json:"package_id,omitempty"`
 }
 
+// FailBillingSessionRequest defines model for FailBillingSessionRequest.
+type FailBillingSessionRequest struct {
+	Error         string `json:"error"`
+	SessionId     string `json:"session_id"`
+	WorkflowRunId string `json:"workflow_run_id"`
+}
+
 // FallbackTrigger When to trigger cache fallback.
 //
 // - FINAL_FAIL: Only trigger fallback if overall test fails
 type FallbackTrigger string
-
-// FinalizeSessionRequest defines model for FinalizeSessionRequest.
-type FinalizeSessionRequest struct {
-	SessionId string `json:"session_id"`
-}
 
 // FinalizeSessionResponse defines model for FinalizeSessionResponse.
 type FinalizeSessionResponse struct {
@@ -4791,6 +4827,35 @@ type HeatmapResponse struct {
 type Highlight struct {
 	Text string `json:"text"`
 	Type string `json:"type"`
+}
+
+// HotReloadRelayCreateRequest defines model for HotReloadRelayCreateRequest.
+type HotReloadRelayCreateRequest struct {
+	Platform *string `json:"platform,omitempty"`
+	Provider *string `json:"provider,omitempty"`
+}
+
+// HotReloadRelayHeartbeatResponse defines model for HotReloadRelayHeartbeatResponse.
+type HotReloadRelayHeartbeatResponse struct {
+	Active    bool   `json:"active"`
+	ExpiresAt string `json:"expires_at"`
+	RelayId   string `json:"relay_id"`
+}
+
+// HotReloadRelayResponse defines model for HotReloadRelayResponse.
+type HotReloadRelayResponse struct {
+	ConnectToken string  `json:"connect_token"`
+	ConnectUrl   string  `json:"connect_url"`
+	ExpiresAt    string  `json:"expires_at"`
+	PublicUrl    string  `json:"public_url"`
+	RelayId      string  `json:"relay_id"`
+	Transport    *string `json:"transport,omitempty"`
+}
+
+// HotReloadRelayRevokeResponse defines model for HotReloadRelayRevokeResponse.
+type HotReloadRelayRevokeResponse struct {
+	RelayId string `json:"relay_id"`
+	Revoked bool   `json:"revoked"`
 }
 
 // IfBlockInput Block for conditional logic.
@@ -5797,12 +5862,17 @@ type PaginatedBuildsResponse struct {
 
 // PlanInfo defines model for PlanInfo.
 type PlanInfo struct {
-	BillingExempt   *bool   `json:"billing_exempt,omitempty"`
-	DisplayName     string  `json:"display_name"`
-	FreeCreditLabel string  `json:"free_credit_label"`
-	MonthlyBase     float32 `json:"monthly_base"`
-	Plan            string  `json:"plan"`
-	ScheduledPlan   *string `json:"scheduled_plan,omitempty"`
+	BillingExempt   *bool              `json:"billing_exempt,omitempty"`
+	CancelsAt       *int               `json:"cancels_at,omitempty"`
+	DisplayName     string             `json:"display_name"`
+	Entitlements    *[]EntitlementItem `json:"entitlements,omitempty"`
+	FreeCreditLabel string             `json:"free_credit_label"`
+	MonthlyBase     float32            `json:"monthly_base"`
+	PeriodEnd       *int               `json:"period_end,omitempty"`
+	PeriodStart     *int               `json:"period_start,omitempty"`
+	Plan            string             `json:"plan"`
+	PlanStatus      *string            `json:"plan_status,omitempty"`
+	ScheduledPlan   *string            `json:"scheduled_plan,omitempty"`
 }
 
 // PlatformApp App configuration for a single platform.
@@ -5849,12 +5919,20 @@ type PortalResponse struct {
 // PostFinalPRCommentRequest Request to post final PR comment with results.
 type PostFinalPRCommentRequest struct {
 	BuildError      *string                  `json:"build_error,omitempty"`
+	CheckRunId      *string                  `json:"check_run_id,omitempty"`
 	CommentId       string                   `json:"comment_id"`
 	Owner           string                   `json:"owner"`
 	PrNumber        int                      `json:"pr_number"`
 	Repo            string                   `json:"repo"`
 	UploadedBuilds  []map[string]interface{} `json:"uploaded_builds"`
 	WorkflowResults []map[string]interface{} `json:"workflow_results"`
+}
+
+// ProcessBillingSessionRequest defines model for ProcessBillingSessionRequest.
+type ProcessBillingSessionRequest struct {
+	SessionId     string  `json:"session_id"`
+	TriggerReason *string `json:"trigger_reason,omitempty"`
+	WorkflowRunId string  `json:"workflow_run_id"`
 }
 
 // PropelMetadataResponse Response model for Propel organization metadata.
@@ -6273,6 +6351,7 @@ type ReportContextResponse struct {
 	// column in the database.
 	DeviceMetadata        *DeviceMetadata              `json:"device_metadata,omitempty"`
 	DeviceModel           *string                      `json:"device_model,omitempty"`
+	DurationSeconds       *float32                     `json:"duration_seconds,omitempty"`
 	EffectiveFailedSteps  *int                         `json:"effective_failed_steps,omitempty"`
 	EffectivePassedSteps  *int                         `json:"effective_passed_steps,omitempty"`
 	EffectivePendingSteps *int                         `json:"effective_pending_steps,omitempty"`
@@ -6355,11 +6434,13 @@ type ReportV3Response struct {
 	DeviceLogsS3Key     *string                   `json:"device_logs_s3_key,omitempty"`
 	DeviceMetadata      *map[string]interface{}   `json:"device_metadata,omitempty"`
 	DeviceModel         *string                   `json:"device_model,omitempty"`
+	DurationSeconds     *float32                  `json:"duration_seconds,omitempty"`
 	ExecutionId         *string                   `json:"execution_id,omitempty"`
 	ExpectedStates      *[]map[string]interface{} `json:"expected_states,omitempty"`
 	FailedSteps         *int                      `json:"failed_steps,omitempty"`
 	HardwareMetricsUrl  *string                   `json:"hardware_metrics_url,omitempty"`
 	Id                  string                    `json:"id"`
+	NetworkRequestsUrl  *string                   `json:"network_requests_url,omitempty"`
 	OrgId               string                    `json:"org_id"`
 	OsVersion           *string                   `json:"os_version,omitempty"`
 	PassedSteps         *int                      `json:"passed_steps,omitempty"`
@@ -8356,6 +8437,15 @@ type UpdateDeviceTargetResponse struct {
 
 // UpdateExpoProjectRequest Request to update an Expo project configuration.
 type UpdateExpoProjectRequest struct {
+	// AndroidAppId Revyl app ID for Android builds
+	AndroidAppId *string `json:"android_app_id,omitempty"`
+
+	// AutoSyncEnabled Enable/disable automatic build sync
+	AutoSyncEnabled *bool `json:"auto_sync_enabled,omitempty"`
+
+	// IosAppId Revyl app ID for iOS builds
+	IosAppId *string `json:"ios_app_id,omitempty"`
+
 	// ProjectName Display name for the project
 	ProjectName *string `json:"project_name,omitempty"`
 }
@@ -8388,6 +8478,19 @@ type UpdateModuleRequest struct {
 
 	// Name New name
 	Name *string `json:"name,omitempty"`
+}
+
+// UpdatePRCheckRunRequest Request to update a GitHub check run.
+type UpdatePRCheckRunRequest struct {
+	CheckRunId string  `json:"check_run_id"`
+	Conclusion *string `json:"conclusion,omitempty"`
+	DetailsUrl *string `json:"details_url,omitempty"`
+	ExternalId *string `json:"external_id,omitempty"`
+	Owner      string  `json:"owner"`
+	Repo       string  `json:"repo"`
+	Status     *string `json:"status,omitempty"`
+	Summary    string  `json:"summary"`
+	Title      string  `json:"title"`
 }
 
 // UpdatePRCommentRequest Request to update a PR comment.
@@ -9317,8 +9420,8 @@ type WorkflowExecutionsUpdate_WorkflowId struct {
 
 // WorkflowForTestItem defines model for WorkflowForTestItem.
 type WorkflowForTestItem struct {
-	Id   string `json:"id"`
-	Name string `json:"name"`
+	Id   openapi_types.UUID `json:"id"`
+	Name string             `json:"name"`
 }
 
 // WorkflowInfoInput Request model for triggering workflow execution.
@@ -10786,8 +10889,11 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONReques
 // BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody defines body for BillingAttachApiV1ExecutionBillingAttachPost for application/json ContentType.
 type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AppRoutesExecutionRoutesBillingXptAttachRequest
 
-// FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody defines body for FinalizeSessionApiV1ExecutionBillingFinalizeSessionPost for application/json ContentType.
-type FinalizeSessionApiV1ExecutionBillingFinalizeSessionPostJSONRequestBody = FinalizeSessionRequest
+// FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPostJSONRequestBody defines body for FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPost for application/json ContentType.
+type FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPostJSONRequestBody = FailBillingSessionRequest
+
+// ProcessBillingSessionInternalApiV1ExecutionBillingInternalProcessSessionPostJSONRequestBody defines body for ProcessBillingSessionInternalApiV1ExecutionBillingInternalProcessSessionPost for application/json ContentType.
+type ProcessBillingSessionInternalApiV1ExecutionBillingInternalProcessSessionPostJSONRequestBody = ProcessBillingSessionRequest
 
 // BillingPortalApiV1ExecutionBillingPortalPostJSONRequestBody defines body for BillingPortalApiV1ExecutionBillingPortalPost for application/json ContentType.
 type BillingPortalApiV1ExecutionBillingPortalPostJSONRequestBody = PortalRequest
@@ -10872,6 +10978,9 @@ type CreateApprovalRequestApiV1HitlCreateApprovalRequestPostJSONRequestBody = HI
 
 // RecordApprovalDecisionApiV1HitlRecordDecisionPostJSONRequestBody defines body for RecordApprovalDecisionApiV1HitlRecordDecisionPost for application/json ContentType.
 type RecordApprovalDecisionApiV1HitlRecordDecisionPostJSONRequestBody = HITLApprovalDecision
+
+// CreateHotreloadRelayApiV1HotreloadRelaysPostJSONRequestBody defines body for CreateHotreloadRelayApiV1HotreloadRelaysPost for application/json ContentType.
+type CreateHotreloadRelayApiV1HotreloadRelaysPostJSONRequestBody = HotReloadRelayCreateRequest
 
 // CreateModuleApiV1ModulesCreatePostJSONRequestBody defines body for CreateModuleApiV1ModulesCreatePost for application/json ContentType.
 type CreateModuleApiV1ModulesCreatePostJSONRequestBody = CreateModuleRequest
@@ -10998,6 +11107,12 @@ type AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody = AppRoutesRebelRo
 
 // UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody defines body for UpdateSeatsApiV1ReviewBillingUpdateSeatsPost for application/json ContentType.
 type UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody = UpdateSeatsRequest
+
+// CreatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckCreatePostJSONRequestBody defines body for CreatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckCreatePost for application/json ContentType.
+type CreatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckCreatePostJSONRequestBody = CreatePRCheckRunRequest
+
+// UpdatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckUpdatePostJSONRequestBody defines body for UpdatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckUpdatePost for application/json ContentType.
+type UpdatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckUpdatePostJSONRequestBody = UpdatePRCheckRunRequest
 
 // PostFinalPrCommentEndpointApiV1ReviewBuildTestPrCommentFinalPostJSONRequestBody defines body for PostFinalPrCommentEndpointApiV1ReviewBuildTestPrCommentFinalPost for application/json ContentType.
 type PostFinalPrCommentEndpointApiV1ReviewBuildTestPrCommentFinalPostJSONRequestBody = PostFinalPRCommentRequest

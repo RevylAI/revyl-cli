@@ -50,7 +50,7 @@ func (c *ProjectConfig) MarkSynced() {
 //
 // Hot reload enables rapid development iteration by:
 //   - Starting a local dev server (Expo, Swift, or Android)
-//   - Creating a Cloudflare tunnel to expose it
+//   - Creating a backend-owned relay to expose it
 //   - Running tests against a pre-built dev client
 //
 // Supports multiple providers for cross-platform projects. Use the Default field
@@ -60,6 +60,10 @@ type HotReloadConfig struct {
 	// Default is the default provider to use when --provider is not specified.
 	// If empty, auto-selects based on detection confidence.
 	Default string `yaml:"default,omitempty"`
+
+	// Transport selects how the local dev server is exposed publicly.
+	// Supported values: "relay" (default).
+	Transport string `yaml:"transport,omitempty"`
 
 	// Providers maps provider names to their configurations.
 	// Supported providers: "expo", "react-native", "swift" (future), "android" (future).
@@ -129,6 +133,15 @@ func (c *HotReloadConfig) IsConfigured() bool {
 	return len(c.Providers) > 0
 }
 
+// GetTransport returns the configured public transport, defaulting to relay.
+func (c *HotReloadConfig) GetTransport() string {
+	transport := strings.ToLower(strings.TrimSpace(c.Transport))
+	if transport == "" {
+		return "relay"
+	}
+	return transport
+}
+
 // GetProviderConfig returns the configuration for a specific provider.
 //
 // Parameters:
@@ -186,6 +199,10 @@ func (c *HotReloadConfig) GetActiveProvider(explicitProvider string) (string, er
 // Returns:
 //   - error: Validation error or nil if valid
 func (c *HotReloadConfig) Validate() error {
+	transport := c.GetTransport()
+	if transport != "relay" {
+		return fmt.Errorf("transport must be relay")
+	}
 	if len(c.Providers) == 0 {
 		return fmt.Errorf("no hot reload providers configured")
 	}
@@ -243,8 +260,10 @@ func (c *HotReloadConfig) validateProviderConfig(name string, cfg *ProviderConfi
 		// No hot reload, but valid for rebuild-based dev loop (revyl dev [r]).
 	case "android":
 		// No hot reload, but valid for rebuild-based dev loop (revyl dev [r]).
+	case "flutter":
+		// No hot reload dev server; uses auto-rebuild dev loop with file watching.
 	default:
-		return fmt.Errorf("unknown provider: %s (supported: expo, react-native, swift, android)", name)
+		return fmt.Errorf("unknown provider: %s (supported: expo, react-native, swift, android, flutter)", name)
 	}
 
 	return nil
@@ -480,6 +499,10 @@ func buildHotReloadAnnotations(provider string) []yamlCommentAnnotation {
 		{
 			path:    joinYAMLPath("hotreload"),
 			comment: "# Dev mode / hot reload configuration",
+		},
+		{
+			path:    joinYAMLPath("hotreload", "transport"),
+			comment: "# Public transport for hot reload: relay",
 		},
 	}
 

@@ -3136,6 +3136,84 @@ func loadCurrentProjectConfig() *config.ProjectConfig {
 	return cfg
 }
 
+// renderErrorDashboard renders the dashboard error state with diagnostics
+// (working directory, config status, auth status) and contextual next-step
+// suggestions so the user knows exactly what to fix.
+//
+// Parameters:
+//   - banner: the pre-rendered header banner string
+//   - innerW: the inner content width for separators
+//
+// Returns:
+//   - string: the full error dashboard view
+func (m hubModel) renderErrorDashboard(banner string, innerW int) string {
+	var b strings.Builder
+	b.WriteString(banner + "\n")
+
+	b.WriteString("\n" + errorStyle.Render("  ✗ "+m.err.Error()) + "\n")
+
+	// --- STATUS section ---
+	b.WriteString(sectionStyle.Render("  STATUS") + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	cwd, cwdErr := os.Getwd()
+	dirDisplay := dimStyle.Render("unknown")
+	if cwdErr == nil {
+		short := cwd
+		if home, err := os.UserHomeDir(); err == nil {
+			if cwd == home {
+				short = "~"
+			} else if strings.HasPrefix(cwd, home+string(filepath.Separator)) {
+				short = "~" + cwd[len(home):]
+			}
+		}
+		dirDisplay = normalStyle.Render(short)
+	}
+	b.WriteString("  " + dimStyle.Render("directory     ") + dirDisplay + "\n")
+
+	cfg := loadCurrentProjectConfig()
+	if cfg != nil {
+		b.WriteString("  " + dimStyle.Render("config        ") + successStyle.Render("✓") + dimStyle.Render(" .revyl/config.yaml") + "\n")
+	} else {
+		b.WriteString("  " + dimStyle.Render("config        ") + warningStyle.Render("✗") + dimStyle.Render(" .revyl/config.yaml not found") + "\n")
+	}
+
+	if m.isAuthenticated() {
+		b.WriteString("  " + dimStyle.Render("auth          ") + successStyle.Render("✓") + dimStyle.Render(" logged in") + "\n")
+	} else {
+		b.WriteString("  " + dimStyle.Render("auth          ") + warningStyle.Render("✗") + dimStyle.Render(" not logged in") + "\n")
+	}
+
+	// --- NEXT STEPS section ---
+	errText := m.err.Error()
+	b.WriteString(sectionStyle.Render("  NEXT STEPS") + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	switch {
+	case strings.Contains(errText, "not initialized"):
+		b.WriteString("  " + normalStyle.Render("Run ") + selectedStyle.Render("revyl init") + normalStyle.Render(" to detect your build system") + "\n")
+		b.WriteString("  " + normalStyle.Render("and create .revyl/config.yaml — or press ") + selectedStyle.Render("?") + normalStyle.Render(" for") + "\n")
+		b.WriteString("  " + normalStyle.Render("the guided setup wizard.") + "\n")
+	case strings.Contains(errText, "not configured"):
+		b.WriteString("  " + normalStyle.Render("Run ") + selectedStyle.Render("revyl init --detect") + normalStyle.Render(" to re-detect your") + "\n")
+		b.WriteString("  " + normalStyle.Render("build system and configure the dev loop.") + "\n")
+	case strings.Contains(errText, "not authenticated") || strings.Contains(errText, "authentication"):
+		b.WriteString("  " + normalStyle.Render("Press ") + selectedStyle.Render("?") + normalStyle.Render(" then Enter to log in via browser,") + "\n")
+		b.WriteString("  " + normalStyle.Render("or ") + selectedStyle.Render("a") + normalStyle.Render(" for API key authentication.") + "\n")
+	default:
+		b.WriteString("  " + normalStyle.Render("Press ") + selectedStyle.Render("R") + normalStyle.Render(" to refresh or ") + selectedStyle.Render("?") + normalStyle.Render(" for help.") + "\n")
+	}
+
+	b.WriteString("\n  " + separator(innerW) + "\n")
+	keys := []string{
+		helpKeyRender("R", "refresh"),
+		helpKeyRender("?", "help/setup"),
+		helpKeyRender("q", "quit"),
+	}
+	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
+	return b.String()
+}
+
 // relativeTime formats a timestamp as a human-readable relative time string.
 func relativeTime(t time.Time) string {
 	if t.IsZero() {
@@ -3266,9 +3344,7 @@ func (m hubModel) renderDashboard() string {
 	b.WriteString(banner + "\n")
 
 	if m.err != nil {
-		b.WriteString("\n" + errorStyle.Render("  ✗ "+m.err.Error()) + "\n\n")
-		b.WriteString("  " + strings.Join([]string{helpKeyRender("R", "refresh"), helpKeyRender("?", "help"), helpKeyRender("q", "quit")}, "  ") + "\n")
-		return b.String()
+		return m.renderErrorDashboard(banner, innerW)
 	}
 	if m.authErr != nil && !m.isAuthenticated() {
 		b.WriteString("\n" + warningStyle.Render("  ⚠ "+m.authErr.Error()) + "\n")

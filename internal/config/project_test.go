@@ -282,6 +282,53 @@ func TestEffectiveTimeoutFallback(t *testing.T) {
 	}
 }
 
+func TestHotReloadTransportDefaults(t *testing.T) {
+	var hr HotReloadConfig
+
+	if got := hr.GetTransport(); got != "relay" {
+		t.Fatalf("GetTransport() = %q, want relay", got)
+	}
+}
+
+func TestHotReloadTransportValidation(t *testing.T) {
+	hr := &HotReloadConfig{
+		Transport: "relay",
+		Providers: map[string]*ProviderConfig{
+			"expo": {
+				Port:      8081,
+				AppScheme: "bug-bazaar",
+			},
+		},
+	}
+
+	if got := hr.GetTransport(); got != "relay" {
+		t.Fatalf("GetTransport() = %q, want relay", got)
+	}
+	if err := hr.Validate(); err != nil {
+		t.Fatalf("Validate() unexpected error: %v", err)
+	}
+}
+
+func TestHotReloadTransportValidation_InvalidTransport(t *testing.T) {
+	hr := &HotReloadConfig{
+		Transport: "ngrok",
+		Providers: map[string]*ProviderConfig{
+			"expo": {
+				Port:      8081,
+				AppScheme: "bug-bazaar",
+			},
+		},
+	}
+
+	err := hr.Validate()
+	if err == nil {
+		t.Fatal("Validate() expected error for invalid transport")
+	}
+	if got := err.Error(); got != "transport must be relay" {
+		t.Fatalf("unexpected error message: %q", got)
+	}
+}
+
 func TestValidateProviderConfig_ReactNative_Valid(t *testing.T) {
 	hr := &HotReloadConfig{
 		Providers: map[string]*ProviderConfig{
@@ -374,15 +421,15 @@ func TestValidateProviderConfig_ReactNative_NoAppSchemeRequired(t *testing.T) {
 func TestValidateProviderConfig_UnknownProvider(t *testing.T) {
 	hr := &HotReloadConfig{
 		Providers: map[string]*ProviderConfig{
-			"flutter": {Port: 8081},
+			"unknown-framework": {Port: 8081},
 		},
 	}
 
-	err := hr.ValidateProvider("flutter")
+	err := hr.ValidateProvider("unknown-framework")
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
 	}
-	if got := err.Error(); got != "unknown provider: flutter (supported: expo, react-native, swift, android)" {
+	if got := err.Error(); got != "unknown provider: unknown-framework (supported: expo, react-native, swift, android, flutter)" {
 		t.Fatalf("unexpected error message: %q", got)
 	}
 }

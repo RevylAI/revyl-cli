@@ -46,9 +46,9 @@ func TestExpoEnvironment_DebugClearsCI(t *testing.T) {
 }
 
 func TestNormalizeProxyURL_AddsHTTPSPort(t *testing.T) {
-	normalized, hostname := normalizeProxyURL("https://abc-def.trycloudflare.com")
-	if hostname != "abc-def.trycloudflare.com" {
-		t.Fatalf("hostname = %q, want %q", hostname, "abc-def.trycloudflare.com")
+	normalized, hostname := normalizeProxyURL("https://hr-abc.revyl.ai")
+	if hostname != "hr-abc.revyl.ai" {
+		t.Fatalf("hostname = %q, want %q", hostname, "hr-abc.revyl.ai")
 	}
 	if !strings.Contains(normalized, ":443") {
 		t.Fatalf("normalized = %q, want explicit :443", normalized)

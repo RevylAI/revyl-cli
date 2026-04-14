@@ -98,6 +98,21 @@ func newDeviceStartTestCommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().String("build-version-id", "", "")
 	cmd.Flags().String("app-url", "", "")
 	cmd.Flags().String("app-link", "", "")
+	cmd.Flags().String("device-name", "", "")
+	cmd.Flags().Bool("device", false, "")
+	cmd.Flags().String("device-model", "", "")
+	cmd.Flags().String("os-version", "", "")
+	cmd.Flags().Bool("json", false, "")
+	cmd.Flags().Bool("dev", false, "")
+	return cmd
+}
+
+// newDeviceTargetsTestCommand builds a fresh command for exercising device
+// target listing without mutating global Cobra state.
+func newDeviceTargetsTestCommand(ctx context.Context) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.SetContext(ctx)
+	cmd.Flags().String("platform", "", "")
 	cmd.Flags().Bool("json", false, "")
 	cmd.Flags().Bool("dev", false, "")
 	return cmd
@@ -242,6 +257,101 @@ func TestDeviceStartCommand_PropagatesAppURLToStartDevice(t *testing.T) {
 	}
 	if capturedStartReq.AppURL != expectedAppURL {
 		t.Fatalf("start_device app_url = %q, want %q", capturedStartReq.AppURL, expectedAppURL)
+	}
+}
+
+func TestDeviceTargetsCommand_UsesLiveCatalogWhenAvailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-targets":
+			_, _ = w.Write([]byte(`{"platforms":{"ios":{"default_pair":{"model":"iPhone 17 Pro Max","runtime":"iOS 26.3.1"},"available_runtimes":["iOS 26.3.1"],"available_models":["iPhone 17 Pro Max"],"compatible_runtimes":{"iPhone 17 Pro Max":["iOS 26.3.1"]}},"android":{"default_pair":{"model":"Pixel 7","runtime":"Android 14"},"available_runtimes":["Android 14"],"available_models":["Pixel 7"],"compatible_runtimes":{"Pixel 7":["Android 14"]}}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	cmd := newDeviceTargetsTestCommand(context.Background())
+	if err := cmd.Flags().Set("platform", "ios"); err != nil {
+		t.Fatalf("set platform flag: %v", err)
+	}
+	if err := cmd.Flags().Set("json", "true"); err != nil {
+		t.Fatalf("set json flag: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := deviceTargetsCmd.RunE(cmd, nil); err != nil {
+			t.Fatalf("device targets returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "iOS 26.3.1") {
+		t.Fatalf("device targets output = %q, want live runtime", output)
+	}
+	if strings.Contains(output, "iOS 26.2") {
+		t.Fatalf("device targets output = %q, should not fall back to embedded runtime", output)
+	}
+}
+
+func TestDeviceStartCommand_UsesLiveCatalogForValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	withWorkingDirectory(t, tmpDir)
+	t.Setenv("REVYL_API_KEY", "test-api-key")
+
+	const workflowRunID = "wf-start-live-targets"
+	const expectedDeviceModel = "iPhone 17 Pro Max"
+	const expectedRuntime = "iOS 26.3.1"
+
+	var capturedStartReq struct {
+		DeviceModel string `json:"device_model"`
+		OsVersion   string `json:"os_version"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-targets":
+			_, _ = w.Write([]byte(`{"platforms":{"ios":{"default_pair":{"model":"iPhone 17 Pro Max","runtime":"iOS 26.3.1"},"available_runtimes":["iOS 26.3.1"],"available_models":["iPhone 17 Pro Max"],"compatible_runtimes":{"iPhone 17 Pro Max":["iOS 26.3.1"]}},"android":{"default_pair":{"model":"Pixel 7","runtime":"Android 14"},"available_runtimes":["Android 14"],"available_models":["Pixel 7"],"compatible_runtimes":{"Pixel 7":["Android 14"]}}}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
+			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
+				t.Fatalf("decode start_device request: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
+			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
+			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	cmd := newDeviceStartTestCommand(context.Background())
+	if err := cmd.Flags().Set("platform", "ios"); err != nil {
+		t.Fatalf("set platform flag: %v", err)
+	}
+	if err := cmd.Flags().Set("device-model", expectedDeviceModel); err != nil {
+		t.Fatalf("set device-model flag: %v", err)
+	}
+	if err := cmd.Flags().Set("os-version", expectedRuntime); err != nil {
+		t.Fatalf("set os-version flag: %v", err)
+	}
+	if err := cmd.Flags().Set("json", "true"); err != nil {
+		t.Fatalf("set json flag: %v", err)
+	}
+
+	if err := deviceStartCmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("device start returned error: %v", err)
+	}
+	if capturedStartReq.DeviceModel != expectedDeviceModel {
+		t.Fatalf("start_device device_model = %q, want %q", capturedStartReq.DeviceModel, expectedDeviceModel)
+	}
+	if capturedStartReq.OsVersion != expectedRuntime {
+		t.Fatalf("start_device os_version = %q, want %q", capturedStartReq.OsVersion, expectedRuntime)
 	}
 }
 

@@ -70,7 +70,13 @@ For CI/CD pipelines, use the `REVYL_API_KEY` environment variable instead of int
 export REVYL_API_KEY=rvl_your_api_key_here
 ```
 
-The environment variable takes precedence over stored credentials.
+By default the environment variable takes precedence over stored credentials.
+
+### Overriding with Browser Login
+
+If `REVYL_API_KEY` is set in your shell but you need to use a different account locally, run `revyl auth login`. The browser login will become the active credential for all subsequent interactive CLI commands, even while the env var remains set.
+
+This override persists across commands (`revyl dev`, `revyl build`, etc.) until you explicitly log out or log in with a different method. CI/non-interactive environments that only set `REVYL_API_KEY` without a prior browser login are unaffected.
 
 ### GitHub Actions Example
 
@@ -124,6 +130,14 @@ This file contains your API key and is automatically excluded from version contr
 
 - Check write permissions for `~/.revyl/`
 - Ensure the directory exists: `mkdir -p ~/.revyl`
+
+### "Org mismatch" After Switching Accounts
+
+If you see an org mismatch error after `revyl init` or `revyl dev`:
+
+1. Run `revyl auth login` to perform a browser login with the correct account
+2. The browser login will override `REVYL_API_KEY` for local commands
+3. Re-run `revyl init --force` to rebind the project to the new account
 
 ## Next Steps
 

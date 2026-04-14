@@ -45,7 +45,10 @@ export REVYL_API_KEY=your-api-key
 
 ```bash
 cd your-app
-revyl init                              # Guided wizard: auth, build system, apps
+revyl doctor                            # Check CLI, auth, connectivity
+revyl auth login                        # Browser-based login (if not already authed)
+revyl init                              # Guided wizard: build system, apps
+revyl build upload                      # Build and upload a dev binary
 revyl dev                               # Launch TUI: live device + hot reload
 ```
 

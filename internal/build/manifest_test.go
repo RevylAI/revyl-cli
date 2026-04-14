@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestBuildManifest(t *testing.T) {
@@ -193,6 +194,77 @@ func TestLoadManifest_Missing(t *testing.T) {
 	}
 	if m != nil {
 		t.Fatal("expected nil manifest for missing file")
+	}
+}
+
+func TestDiffManifest_BazelContentHash(t *testing.T) {
+	old := &AppManifest{
+		Files: map[string]ManifestEntry{
+			"MyApp":      {Size: 90160, Mtime: bazelEpochMtime, ContentHash: "aaa111"},
+			"Info.plist": {Size: 748, Mtime: bazelEpochMtime, ContentHash: "bbb222"},
+		},
+	}
+	cur := &AppManifest{
+		Files: map[string]ManifestEntry{
+			"MyApp":      {Size: 90160, Mtime: bazelEpochMtime, ContentHash: "ccc333"},
+			"Info.plist": {Size: 748, Mtime: bazelEpochMtime, ContentHash: "bbb222"},
+		},
+	}
+	diff := DiffManifest(old, cur)
+	if len(diff.Changed) != 1 || diff.Changed[0] != "MyApp" {
+		t.Fatalf("expected [MyApp] changed via content hash, got %v", diff.Changed)
+	}
+}
+
+func TestDiffManifest_BazelNoChangeSameHash(t *testing.T) {
+	old := &AppManifest{
+		Files: map[string]ManifestEntry{
+			"MyApp": {Size: 90160, Mtime: bazelEpochMtime, ContentHash: "aaa111"},
+		},
+	}
+	cur := &AppManifest{
+		Files: map[string]ManifestEntry{
+			"MyApp": {Size: 90160, Mtime: bazelEpochMtime, ContentHash: "aaa111"},
+		},
+	}
+	diff := DiffManifest(old, cur)
+	if len(diff.Changed) != 0 {
+		t.Fatalf("expected no changes for identical content hashes, got %v", diff.Changed)
+	}
+}
+
+func TestBuildManifest_BazelEpochPopulatesContentHash(t *testing.T) {
+	dir := t.TempDir()
+	appDir := filepath.Join(dir, "MyApp.app")
+	binPath := filepath.Join(appDir, "MyApp")
+	plistPath := filepath.Join(appDir, "Info.plist")
+	writeFile(t, binPath, "binary-content")
+	writeFile(t, plistPath, "<plist/>")
+
+	bazelTime := time.Unix(bazelEpochMtime, 0)
+	os.Chtimes(binPath, bazelTime, bazelTime)
+	os.Chtimes(plistPath, bazelTime, bazelTime)
+
+	m, err := BuildManifest(appDir)
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	for name, entry := range m.Files {
+		if entry.ContentHash == "" {
+			t.Fatalf("expected content hash for %s with Bazel epoch mtime", name)
+		}
+	}
+}
+
+func TestNeedsContentHashing_MixedMtimes(t *testing.T) {
+	m := &AppManifest{
+		Files: map[string]ManifestEntry{
+			"A": {Size: 10, Mtime: bazelEpochMtime},
+			"B": {Size: 20, Mtime: 1700000000},
+		},
+	}
+	if needsContentHashing(m) {
+		t.Fatal("should not need content hashing when mtimes differ")
 	}
 }
 

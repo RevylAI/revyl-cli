@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -47,6 +48,26 @@ func isRunnableBuildPlatform(platformCfg config.BuildPlatform) bool {
 	return strings.TrimSpace(platformCfg.Command) != "" && strings.TrimSpace(platformCfg.Output) != ""
 }
 
+// hasRunnableBuildPlatforms returns true when at least one build.platforms entry
+// has both command and output configured.
+func hasRunnableBuildPlatforms(cfg *config.ProjectConfig) bool {
+	if cfg == nil || len(cfg.Build.Platforms) == 0 {
+		return false
+	}
+	for _, platformCfg := range cfg.Build.Platforms {
+		if isRunnableBuildPlatform(platformCfg) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasOnlyPlaceholderBuildPlatforms returns true when build.platforms entries
+// exist, but none are runnable yet.
+func hasOnlyPlaceholderBuildPlatforms(cfg *config.ProjectConfig) bool {
+	return cfg != nil && len(cfg.Build.Platforms) > 0 && !hasRunnableBuildPlatforms(cfg)
+}
+
 // buildablePlatformKeys returns sorted build.platforms keys that can actually run.
 //
 // Parameters:
@@ -69,18 +90,45 @@ func buildablePlatformKeys(cfg *config.ProjectConfig) []string {
 	return keys
 }
 
-// buildPlatformNeedsSetupError returns a user-facing error for placeholder platform entries.
-//
-// Parameters:
-//   - platformKey: The build.platforms key that is still incomplete
-//
-// Returns:
-//   - error: An actionable setup error for the incomplete platform
-func buildPlatformNeedsSetupError(platformKey string) error {
-	return fmt.Errorf(
+// placeholderBuildPlatformKeys returns sorted build.platforms keys that exist
+// but are not runnable because command/output are still missing.
+func placeholderBuildPlatformKeys(cfg *config.ProjectConfig) []string {
+	if cfg == nil || len(cfg.Build.Platforms) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(cfg.Build.Platforms))
+	for key, platformCfg := range cfg.Build.Platforms {
+		if !isRunnableBuildPlatform(platformCfg) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+type buildPlatformNeedsSetup struct {
+	PlatformKey string
+}
+
+func (e *buildPlatformNeedsSetup) Error() string {
+	return fmt.Sprintf(
 		"build.platforms.%s is not ready yet; finish native setup or add both command/output before using it",
-		platformKey,
+		e.PlatformKey,
 	)
+}
+
+// buildPlatformNeedsSetupError returns a typed setup error for placeholder platform entries.
+func buildPlatformNeedsSetupError(platformKey string) error {
+	return &buildPlatformNeedsSetup{PlatformKey: platformKey}
+}
+
+func asBuildPlatformNeedsSetupError(err error) (*buildPlatformNeedsSetup, bool) {
+	var target *buildPlatformNeedsSetup
+	if errors.As(err, &target) {
+		return target, true
+	}
+	return nil, false
 }
 
 // pickBestBuildPlatformKey selects a build.platforms key for a target device platform.

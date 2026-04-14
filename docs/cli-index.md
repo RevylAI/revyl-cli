@@ -86,28 +86,38 @@ This command verifies:
 
 ## Quick Start
 
-Get up and running in 5 commands:
+Get up and running in 6 commands:
 
 ```bash
 # 1. Install the CLI
 brew install RevylAI/tap/revyl    # or: pipx install revyl
 
-# 2. Authenticate with your API key
+# 2. Check your environment
+revyl doctor
+
+# 3. Authenticate
 revyl auth login
 
-# 3. Initialize your project
+# 4. Initialize your project
 cd your-app
 revyl init
 
-# 4. Pull existing tests from Revyl
-revyl test pull
+# 5. Build and upload a dev binary
+revyl build upload
 
-# 5. Run a test
-revyl test run login-flow
+# 6. Start the dev loop
+revyl dev
+```
+
+From the dev TUI, create and run tests against your live device:
+
+```bash
+revyl dev test create login-flow
+revyl dev test run login-flow
 ```
 
 <Callout type="tip" title="First Time?">
-  If you don't have tests yet, create one in the [Revyl dashboard](https://app.revyl.ai) first, then use `revyl test pull` to download it locally.
+  `revyl doctor` checks CLI version, authentication, API connectivity, project config, and build system detection. Run it whenever something feels off.
 </Callout>
 
 ## Updating the CLI

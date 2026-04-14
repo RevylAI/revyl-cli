@@ -6,7 +6,9 @@ target: cli/agent-journey-dev-loop.mdx
 
 This journey shows a complete path from setup to productive CLI-driven verification using `revyl dev` and `revyl device` commands.
 
-## 1. Install and authenticate
+`revyl device` is the base session and action surface. `revyl dev` layers a local development loop (hot reload, rebuild, tunnel) on top of a device session. After starting, all interaction flows through `revyl device`.
+
+## 1. Install and check your environment
 
 ```bash
 brew install RevylAI/tap/revyl    # Homebrew (macOS)
@@ -15,23 +17,29 @@ uv tool install revyl             # uv
 pip install revyl                 # pip
 ```
 
-Then authenticate:
+Then verify everything is working:
 
 ```bash
-revyl auth login
-revyl auth status
+revyl doctor                      # CLI version, auth, connectivity, build detection
 ```
 
-## 2. Initialize your project
+## 2. Authenticate
+
+```bash
+revyl auth login                  # Browser-based login
+revyl auth status                 # Confirm credentials
+```
+
+## 3. Initialize your project
 
 ```bash
 cd your-app
 revyl init
 ```
 
-This creates a `.revyl/config.yaml` with your app and platform settings.
+This detects your build system (Expo, React Native, Flutter, Xcode, Gradle, Bazel, Kotlin Multiplatform) and creates `.revyl/config.yaml` with platform settings.
 
-## 3. Build and start the dev loop
+## 4. Build and start the dev loop
 
 ```bash
 git checkout -b feature/new-login
@@ -48,7 +56,7 @@ revyl build upload --platform ios-dev --skip-build
 revyl dev --platform ios
 ```
 
-## 4. Interact with the device
+## 5. Interact with the device
 
 Use `revyl device` commands to observe, act, and verify in a tight loop.
 
@@ -81,13 +89,19 @@ revyl device swipe --target "product list" --direction down
 
 Always follow the **observe-act-verify** pattern: screenshot before an action, take the action, then screenshot again to confirm the result.
 
-## 5. Run and create tests
+## 6. Run and create tests
 
-While the dev loop is active, run existing tests against your local code:
+While the dev loop is active in one terminal, run tests from another using `--context` to reuse its tunnel:
 
 ```bash
-revyl dev test run login-flow
+# Terminal 1: dev loop running
+revyl dev --context ios-main
+
+# Terminal 2: reuse the tunnel via --context
+revyl dev test run login-flow --context ios-main
 ```
+
+Without `--context`, `dev test run` starts its own Metro and tunnel independently.
 
 After verifying a flow manually, convert it to a reusable test:
 
@@ -96,9 +110,37 @@ revyl dev test create checkout-flow --platform ios
 revyl dev test open checkout-flow
 ```
 
-## 6. Close the loop
+## 7. Alternative: device-first flow
 
-1. Stop the dev session with `Ctrl+C` in the `revyl dev` terminal, or run `revyl device stop`.
+Instead of `revyl dev` creating a device session, start one first and then attach it to a dev context:
+
+```bash
+revyl device start --platform ios
+revyl dev attach active --context checkout
+revyl dev --context checkout            # reuses the attached session
+```
+
+When the dev loop exits, the attached session stays running. Run `revyl dev --context checkout` again to resume the loop on the same device, or `revyl dev stop` to detach:
+
+```bash
+revyl dev stop                          # detaches session, leaves device running
+revyl device tap --target "Sign In"     # session is still usable directly
+```
+
+## 8. Context management
+
+Check status and manage the dev loop:
+
+```bash
+revyl dev status          # JSON status of current context
+revyl dev rebuild         # Trigger a rebuild
+revyl dev list            # List all dev contexts
+revyl dev stop            # Stop current context
+```
+
+## 9. Close the loop
+
+1. Stop the dev session with `Ctrl+C` in the `revyl dev` terminal, or run `revyl dev stop`.
 2. Promote stable tests to regression:
 
 ```bash

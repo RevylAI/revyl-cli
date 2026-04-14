@@ -3,19 +3,26 @@ package hotreload
 import (
 	"context"
 	"fmt"
-	"os"
+	"strings"
 	"sync"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 )
 
 // StartResult contains the result of starting hot reload mode.
 type StartResult struct {
-	// TunnelURL is the public Cloudflare tunnel URL.
+	// TunnelURL is the public hot reload relay URL.
 	TunnelURL string
 
 	// DeepLinkURL is the deep link URL for launching the dev client.
 	DeepLinkURL string
+
+	// Transport is the public transport backing TunnelURL.
+	Transport string
+
+	// RelayID is populated when Transport=relay.
+	RelayID string
 
 	// DevServerPort is the port the dev server is running on.
 	DevServerPort int
@@ -47,6 +54,9 @@ func RegisterBareRNDevServerFactory(factory BareRNDevServerFactory) {
 	bareRNDevServerFactory = factory
 }
 
+// TunnelBackendFactory creates a TunnelBackend for tests or custom wiring.
+type TunnelBackendFactory func() TunnelBackend
+
 // Manager orchestrates the hot reload flow including dev server and tunnel lifecycle.
 type Manager struct {
 	// providerName is the name of the provider (expo, swift, android).
@@ -61,11 +71,17 @@ type Manager struct {
 	// devServer is the active development server.
 	devServer DevServer
 
-	// tunnel is the active Cloudflare tunnel.
-	tunnel *TunnelManager
+	// tunnel is the active tunnel backend.
+	tunnel TunnelBackend
 
-	// cloudflared manages the cloudflared binary.
-	cloudflared *CloudflaredManager
+	// apiClient is used by the relay transport control plane.
+	apiClient *api.Client
+
+	// transportPreference selects the preferred public transport.
+	transportPreference string
+
+	// tunnelFactory overrides the default TunnelBackend construction.
+	tunnelFactory TunnelBackendFactory
 
 	// onLog is called with log messages for the UI.
 	onLog func(message string)
@@ -94,10 +110,10 @@ type Manager struct {
 //   - *Manager: A new manager instance
 func NewManager(providerName string, providerConfig *config.ProviderConfig, workDir string) *Manager {
 	return &Manager{
-		providerName:   providerName,
-		providerConfig: providerConfig,
-		workDir:        workDir,
-		cloudflared:    NewCloudflaredManager(""),
+		providerName:        providerName,
+		providerConfig:      providerConfig,
+		workDir:             workDir,
+		transportPreference: "relay",
 	}
 }
 
@@ -122,6 +138,38 @@ func (m *Manager) SetDebugMode(enabled bool) {
 	m.debugMode = enabled
 }
 
+// SetAPIClient provides the authenticated backend client used by the relay transport.
+func (m *Manager) SetAPIClient(client *api.Client) {
+	m.apiClient = client
+}
+
+// SetTransportPreference sets the preferred public transport.
+func (m *Manager) SetTransportPreference(transport string) {
+	trimmed := strings.ToLower(strings.TrimSpace(transport))
+	if trimmed == "" {
+		trimmed = "relay"
+	}
+	m.transportPreference = trimmed
+}
+
+// ConfigureFromHotReloadConfig applies transport settings from project config.
+func (m *Manager) ConfigureFromHotReloadConfig(hr *config.HotReloadConfig, client *api.Client) {
+	m.apiClient = client
+	if hr == nil {
+		return
+	}
+	m.transportPreference = hr.GetTransport()
+}
+
+// SetTunnelBackendFactory overrides the default relay tunnel backend.
+// Must be called before Start.
+//
+// Params:
+//   - factory: function that creates a TunnelBackend
+func (m *Manager) SetTunnelBackendFactory(factory TunnelBackendFactory) {
+	m.tunnelFactory = factory
+}
+
 // log sends a message to the log callback if set.
 func (m *Manager) log(format string, args ...interface{}) {
 	if m.onLog != nil {
@@ -132,13 +180,11 @@ func (m *Manager) log(format string, args ...interface{}) {
 // Start initializes the dev server and tunnel for hot reload mode.
 //
 // This method:
-//  1. Checks network connectivity
-//  2. Ensures cloudflared is available
-//  3. Creates the dev server instance (but doesn't start it yet)
-//  4. Starts the Cloudflare tunnel first to get the URL
-//  5. Sets the proxy URL on the dev server for bundle URL rewriting
-//  6. Starts the dev server with the proxy URL configured
-//  7. Returns the URLs needed for test execution
+//  1. Creates the dev server instance (but doesn't start it yet)
+//  2. Starts the relay first to get the URL
+//  3. Sets the proxy URL on the dev server for bundle URL rewriting
+//  4. Starts the dev server with the proxy URL configured
+//  5. Returns the URLs needed for test execution
 //
 // Parameters:
 //   - ctx: Context for cancellation
@@ -154,35 +200,7 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 		return nil, fmt.Errorf("hot reload is already running")
 	}
 
-	// 1. Check network connectivity
-	m.log("Checking network connectivity...")
-	connResult, err := CheckConnectivity(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("connectivity check failed: %w", err)
-	}
-
-	if suggestion := DiagnoseAndSuggest(connResult); suggestion != "" {
-		return nil, fmt.Errorf("network connectivity check failed:\n%s", suggestion)
-	}
-	m.log("Network connectivity OK")
-
-	// 2. Ensure cloudflared is available
-	m.log("Checking cloudflared...")
-	cloudflaredPath, err := m.cloudflared.EnsureCloudflared()
-	if err != nil {
-		if isDownloadNeeded(err) {
-			m.log("Downloading cloudflared (first time setup)...")
-			cloudflaredPath, err = m.cloudflared.EnsureCloudflared()
-			if err != nil {
-				return nil, fmt.Errorf("failed to download cloudflared: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("cloudflared setup failed: %w", err)
-		}
-	}
-	m.log("cloudflared ready: %s", cloudflaredPath)
-
-	// 3. Create dev server instance (but don't start yet - we need tunnel URL first)
+	// 1. Create dev server instance (but don't start yet - we need tunnel URL first)
 	m.log("Preparing %s dev server...", m.providerName)
 	devServer, err := m.createDevServer()
 	if err != nil {
@@ -191,43 +209,40 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 	m.attachDevServerOutputCallback(devServer)
 	m.attachDevServerDebugMode(devServer)
 
-	// 4. Start Cloudflare tunnel FIRST to get the URL
+	// 2. Start tunnel FIRST to get the URL
 	// This must happen before starting the dev server so we can set EXPO_PACKAGER_PROXY_URL
-	m.log("Creating Cloudflare tunnel...")
-	tunnel := NewTunnelManager(cloudflaredPath, nil)
-	tunnel.SetLogCallback(func(msg string) { m.log("%s", msg) })
-	tunnelInfo, err := tunnel.StartTunnelWithRetry(ctx, devServer.GetPort())
+	backend, tunnelURL, err := m.createTunnelBackend(ctx, devServer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tunnel: %w", err)
 	}
-	m.tunnel = tunnel
-	m.log("Tunnel ready: %s", tunnelInfo.PublicURL)
+	m.tunnel = backend
+	m.log("Tunnel ready: %s", tunnelURL)
 
-	// 5. Set proxy URL on dev server for bundle URL rewriting
+	// 3. Set proxy URL on dev server for bundle URL rewriting
 	// This makes Metro return bundle URLs using the tunnel URL instead of localhost
-	devServer.SetProxyURL(tunnelInfo.PublicURL)
+	devServer.SetProxyURL(tunnelURL)
 	m.log("Configured proxy URL for bundle rewriting")
 
-	// 6. Now start the dev server with proxy URL configured
+	// 4. Now start the dev server with proxy URL configured
 	m.log("Starting %s dev server...", m.providerName)
 	if err := devServer.Start(ctx); err != nil {
 		// Clean up tunnel on dev server failure
-		tunnel.Stop()
+		backend.Stop()
 		m.tunnel = nil
 		return nil, fmt.Errorf("failed to start dev server: %w", err)
 	}
 	m.devServer = devServer
 	m.log("%s dev server ready on port %d", devServer.Name(), devServer.GetPort())
 
-	// 7. Start health monitor for automatic tunnel reconnection
-	tunnel.StartHealthMonitor(ctx)
+	// 5. Start health monitor for automatic tunnel reconnection
+	backend.StartHealthMonitor(ctx)
 
 	if m.providerName == "react-native" {
 		m.log("Waiting for Metro tunnel to become externally reachable...")
 		if _, err := WaitForMetroTunnel(
 			ctx,
 			devServer.GetPort(),
-			tunnelInfo.PublicURL,
+			tunnelURL,
 			metroTunnelReadyTimeout,
 			metroTunnelReadyPollInterval,
 		); err != nil {
@@ -247,20 +262,78 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 		m.log("Metro tunnel is reachable")
 	}
 
-	// 8. Construct deep link URL
-	deepLinkURL := devServer.GetDeepLinkURL(tunnelInfo.PublicURL)
+	// 6. Construct deep link URL
+	deepLinkURL := devServer.GetDeepLinkURL(tunnelURL)
 
 	m.running = true
 
-	// 9. Run HMR diagnostics in the background (non-blocking).
+	// 7. Run HMR diagnostics in the background (non-blocking).
 	// Results are logged as warnings; failures don't break the dev loop.
-	go m.runDiagnostics(devServer.GetPort(), tunnelInfo.PublicURL)
+	go m.runDiagnostics(devServer.GetPort(), tunnelURL)
+
+	transport := m.transportPreference
+	relayID := ""
+	if infoProvider, ok := backend.(TunnelBackendInfoProvider); ok {
+		info := infoProvider.Metadata()
+		if strings.TrimSpace(info.Transport) != "" {
+			transport = info.Transport
+		}
+		relayID = info.RelayID
+	}
 
 	return &StartResult{
-		TunnelURL:     tunnelInfo.PublicURL,
+		TunnelURL:     tunnelURL,
 		DeepLinkURL:   deepLinkURL,
+		Transport:     transport,
+		RelayID:       relayID,
 		DevServerPort: devServer.GetPort(),
 	}, nil
+}
+
+func (m *Manager) createTunnelBackend(
+	ctx context.Context,
+	devServer DevServer,
+) (TunnelBackend, string, error) {
+	if m.tunnelFactory != nil {
+		m.log("Creating tunnel...")
+		backend := m.tunnelFactory()
+		m.attachTunnelLogCallback(backend)
+		url, err := backend.Start(ctx, devServer.GetPort())
+		return backend, url, err
+	}
+
+	switch strings.ToLower(strings.TrimSpace(m.transportPreference)) {
+	case "", "relay":
+		return m.startRelayTunnel(ctx, devServer)
+	default:
+		return nil, "", fmt.Errorf("unsupported hotreload transport %q", m.transportPreference)
+	}
+}
+
+func (m *Manager) startRelayTunnel(
+	ctx context.Context,
+	devServer DevServer,
+) (TunnelBackend, string, error) {
+	m.log("Checking backend relay connectivity...")
+	if err := CheckRelayConnectivity(ctx, m.apiClient); err != nil {
+		return nil, "", err
+	}
+	m.log("Backend relay connectivity OK")
+
+	m.log("Creating backend-owned relay...")
+	backend := NewRelayTunnelBackend(m.apiClient, m.providerName)
+	m.attachTunnelLogCallback(backend)
+	tunnelURL, err := backend.Start(ctx, devServer.GetPort())
+	if err != nil {
+		return nil, "", err
+	}
+	return backend, tunnelURL, nil
+}
+
+func (m *Manager) attachTunnelLogCallback(backend TunnelBackend) {
+	if logSetter, ok := backend.(interface{ SetLogCallback(func(string)) }); ok {
+		logSetter.SetLogCallback(func(msg string) { m.log("%s", msg) })
+	}
 }
 
 // Stop cleans up all hot reload resources.
@@ -310,7 +383,7 @@ func (m *Manager) GetTunnelURL() string {
 	defer m.mu.Unlock()
 
 	if m.tunnel != nil {
-		return m.tunnel.GetPublicURL()
+		return m.tunnel.PublicURL()
 	}
 	return ""
 }
@@ -333,7 +406,7 @@ func (m *Manager) GetDevServerPort() int {
 // results. Intended to run in a goroutine immediately after Start() so results
 // appear shortly after "Dev loop ready".
 func (m *Manager) runDiagnostics(localPort int, tunnelURL string) {
-	result := RunPostStartupDiagnostics(localPort, tunnelURL)
+	result := RunPostStartupDiagnostics(localPort, tunnelURL, m.providerName)
 	for _, c := range result.Checks {
 		if c.Passed {
 			m.log("[hmr] %s: %s", c.Name, c.Detail)
@@ -402,16 +475,6 @@ func (m *Manager) createDevServer() (DevServer, error) {
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", m.providerName)
 	}
-}
-
-// isDownloadNeeded checks if the error indicates cloudflared needs to be downloaded.
-// Returns true only for file-not-found errors; other errors (e.g., permission denied,
-// network errors) should not trigger a re-download.
-func isDownloadNeeded(err error) bool {
-	if err == nil {
-		return false
-	}
-	return os.IsNotExist(err)
 }
 
 // GetProviderName returns the provider name.

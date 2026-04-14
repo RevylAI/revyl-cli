@@ -52,6 +52,12 @@ type Credentials struct {
 	// APIKeyID is the PropelAuth-assigned key ID when a persistent CLI key was created.
 	// Used for key rotation and cleanup on logout.
 	APIKeyID string `json:"api_key_id,omitempty"`
+
+	// LocalAuthOverride, when true, indicates that an explicit interactive browser
+	// login should take precedence over the REVYL_API_KEY environment variable.
+	// Set automatically when a user performs a browser login while REVYL_API_KEY is
+	// present. Cleared on logout or manual API-key login.
+	LocalAuthOverride bool `json:"local_auth_override,omitempty"`
 }
 
 type clientIdentity struct {
@@ -172,18 +178,30 @@ func normalizeDeviceLabel(label string) string {
 
 // GetCredentials retrieves stored credentials.
 //
-// Priority order:
-// 1. REVYL_API_KEY environment variable (for CI/CD)
-// 2. Valid (non-expired) access token from browser auth
-// 3. API key from stored credentials
+// Priority order (default):
+//  1. REVYL_API_KEY environment variable (for CI/CD)
+//  2. Valid (non-expired) access token from browser auth
+//  3. API key from stored credentials
+//
+// When the stored credentials have LocalAuthOverride set (i.e. the user
+// performed an explicit browser login while REVYL_API_KEY was present), the
+// file credentials take precedence over the environment variable so that the
+// interactive login "sticks" for subsequent local commands.
 //
 // Returns:
 //   - *Credentials: The stored credentials, or nil if not found
 //   - error: Any error that occurred during retrieval
 func (m *Manager) GetCredentials() (*Credentials, error) {
-	// Check environment variable first (for CI/CD)
-	if apiKey := os.Getenv("REVYL_API_KEY"); apiKey != "" {
-		return &Credentials{APIKey: apiKey, AuthMethod: "env"}, nil
+	envKey := os.Getenv("REVYL_API_KEY")
+
+	// When the env var is set, check whether file creds have a local
+	// override before falling back to the env-var-first default.
+	if envKey != "" {
+		fileCreds, err := m.GetFileCredentials()
+		if err == nil && fileCreds != nil && fileCreds.LocalAuthOverride && fileCreds.HasValidAuth() {
+			return fileCreds, nil
+		}
+		return &Credentials{APIKey: envKey, AuthMethod: "env"}, nil
 	}
 
 	return m.GetFileCredentials()
@@ -305,7 +323,7 @@ func (m *Manager) SaveCredentials(creds *Credentials) error {
 	return nil
 }
 
-// ClearCredentials removes stored credentials.
+// ClearCredentials removes stored credentials (and any local auth override).
 //
 // Returns:
 //   - error: Any error that occurred during removal
@@ -315,6 +333,45 @@ func (m *Manager) ClearCredentials() error {
 		return fmt.Errorf("failed to remove credentials: %w", err)
 	}
 	return nil
+}
+
+// SetLocalAuthOverride marks the stored credentials so that they take
+// precedence over REVYL_API_KEY for subsequent commands. Call this after a
+// successful interactive browser login when REVYL_API_KEY is present.
+//
+// Returns:
+//   - error: Any error reading or persisting the flag
+func (m *Manager) SetLocalAuthOverride() error {
+	creds, err := m.GetFileCredentials()
+	if err != nil {
+		return err
+	}
+	if creds == nil {
+		return fmt.Errorf("no stored credentials to override")
+	}
+	creds.LocalAuthOverride = true
+	return m.SaveCredentials(creds)
+}
+
+// ClearLocalAuthOverride removes the local override flag so that REVYL_API_KEY
+// resumes its normal env-first precedence. Called on logout or manual API-key
+// login.
+//
+// Returns:
+//   - error: Any error reading or persisting the flag
+func (m *Manager) ClearLocalAuthOverride() error {
+	creds, err := m.GetFileCredentials()
+	if err != nil {
+		return err
+	}
+	if creds == nil {
+		return nil
+	}
+	if !creds.LocalAuthOverride {
+		return nil
+	}
+	creds.LocalAuthOverride = false
+	return m.SaveCredentials(creds)
 }
 
 // IsAuthenticated checks if valid credentials exist.

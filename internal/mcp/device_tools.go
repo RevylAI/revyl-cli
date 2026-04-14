@@ -392,6 +392,16 @@ func (s *Server) registerDeviceTools() {
 			OpenWorldHint:   boolPtr(true),
 		},
 	}, s.handleRebuildAndVerify)
+
+	// Live performance polling
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "poll_performance_metrics",
+		Description: "Poll live CPU, memory, and FPS metrics from an active device session. Returns incremental samples since the last cursor. Use with cursor=\"0\" for the first call, then pass next_cursor from the response for subsequent calls.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Poll Performance Metrics",
+			ReadOnlyHint: true,
+		},
+	}, s.handlePollPerformanceMetrics)
 }
 
 // --- Session Management ---
@@ -2411,4 +2421,67 @@ func readDevStatusCompletedAt(statusPath string) string {
 		return ""
 	}
 	return ds.LastRebuild.CompletedAt
+}
+
+// ---------------------------------------------------------------------------
+// poll_performance_metrics tool
+// ---------------------------------------------------------------------------
+
+// PollPerformanceMetricsInput defines parameters for the poll_performance_metrics MCP tool.
+type PollPerformanceMetricsInput struct {
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to query. Omit for active session."`
+	Cursor       string `json:"cursor,omitempty" jsonschema:"Opaque cursor from a previous response. Use '0' for the first call."`
+	Limit        int    `json:"limit,omitempty" jsonschema:"Maximum number of samples to return. Default 100."`
+}
+
+// PollPerformanceMetricsOutput wraps the PerfPollResponse for MCP consumers.
+type PollPerformanceMetricsOutput struct {
+	PerfPollResponse
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handlePollPerformanceMetrics(ctx context.Context, req *mcp.CallToolRequest, input PollPerformanceMetricsInput) (*mcp.CallToolResult, PollPerformanceMetricsOutput, error) {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.sessionMgr.ResolveSession(sidx)
+	if err != nil {
+		return nil, PollPerformanceMetricsOutput{
+			PerfPollResponse: PerfPollResponse{Success: false},
+			NextSteps: []NextStep{
+				{Tool: "start_device_session", Reason: "No active session to poll metrics from"},
+			},
+		}, nil
+	}
+
+	cursor := input.Cursor
+	if cursor == "" {
+		cursor = "0"
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+
+	resp, pollErr := s.sessionMgr.PollPerformanceMetricsForSession(ctx, session.Index, cursor, limit)
+	if pollErr != nil {
+		return nil, PollPerformanceMetricsOutput{
+			PerfPollResponse: PerfPollResponse{
+				Success:    false,
+				Platform:   session.Platform,
+				NextCursor: cursor,
+			},
+		}, fmt.Errorf("poll failed: %w", pollErr)
+	}
+
+	output := PollPerformanceMetricsOutput{
+		PerfPollResponse: *resp,
+	}
+	if len(resp.Items) > 0 {
+		output.NextSteps = []NextStep{
+			{Tool: "poll_performance_metrics", Params: fmt.Sprintf("cursor=\"%s\"", resp.NextCursor), Reason: "Continue polling for new samples"},
+		}
+	}
+	return nil, output, nil
 }

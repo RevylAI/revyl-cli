@@ -4389,6 +4389,7 @@ func (s *Server) handleOpenTestEditor(ctx context.Context, req *mcp.CallToolRequ
 
 	// Create and start the manager with a background context (survives beyond tool call)
 	manager := hotreload.NewManager(providerName, providerCfg, s.workDir)
+	manager.ConfigureFromHotReloadConfig(&s.config.HotReload, s.apiClient)
 
 	bgCtx := context.Background()
 	result, err := manager.Start(bgCtx)

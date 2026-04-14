@@ -32,6 +32,11 @@ Running `revyl init` without flags launches an interactive wizard that walks you
 
 Use `-y` to skip the interactive steps and just generate the config file.
 
+During the interactive flow, you can also choose **Skip build setup for now**.
+Revyl keeps the detected platform keys as placeholders in `.revyl/config.yaml`,
+but clears the build command and artifact path until you are ready to finish
+native build setup later.
+
 ## Running Tests
 
 ```bash
@@ -55,11 +60,14 @@ revyl workflow run smoke-tests --build    # Build then run workflow
 
 ## Dev Loop
 
-Use `revyl dev` for the fast local iteration loop. Both **Expo** and **bare React Native** projects are supported.
+`revyl dev` starts a local development loop backed by a cloud device session. Both **Expo** and **bare React Native** projects are supported, plus native Swift/iOS and Android projects via rebuild-based loops.
+
+Each `revyl dev` invocation creates a **dev context** -- a named, worktree-local dev loop bound to one runtime platform. Use `--context` for same-repo concurrency; separate worktrees use the default context automatically.
 
 ```bash
 revyl dev                              # Start hot reload + live device (defaults to iOS)
 revyl dev --platform android           # Explicit platform
+revyl dev --context ios-main           # Named context for parallel loops
 revyl dev --no-open                    # SSH/headless: keep device running but don't open browser
 revyl dev --platform ios --build       # Force a fresh dev build before start
 revyl dev --app-id <app-id>            # Use explicit app override
@@ -69,10 +77,42 @@ revyl dev --platform-key ios-dev       # Use explicit platform key
 
 `revyl dev`:
 - starts your local dev server (Expo via `npx expo start --dev-client`, or Metro via `npx react-native start`)
-- creates a Cloudflare tunnel to expose it to cloud devices
+- creates a Revyl relay to expose it to cloud devices
 - resolves the latest build for your current git branch from your dev app mapping (`hotreload.providers.<provider>.platform_keys`), then installs it
   - if no branch-matching build exists, it falls back to the latest available build and prints a warning
 - opens a cloud device session wired to the deep link
+
+After the dev loop is running, use `revyl device` commands to interact:
+```bash
+revyl device screenshot
+revyl device tap --target "Login button"
+revyl device instruction "verify the dashboard loads"
+```
+
+### Device-first flow
+
+Start a plain device session first, then attach and run the dev loop on it:
+
+```bash
+revyl device start --platform ios
+revyl dev attach active                # or: revyl dev attach <session-id>
+revyl dev                              # reuses the attached session
+```
+
+When a context has an attached session, `revyl dev --context <name>` reuses
+it instead of provisioning a new device. Attached sessions are left running
+when the dev loop exits -- use `revyl device stop` to end them.
+
+### Context management
+
+```bash
+revyl dev list                         # List dev contexts in the current worktree
+revyl dev use ios-main                 # Switch the current context
+revyl dev status                       # Show context status (JSON)
+revyl dev rebuild                      # Trigger a rebuild
+revyl dev stop                         # Stop the current context
+revyl dev stop --all                   # Stop all contexts
+```
 
 ### Expo
 
@@ -92,7 +132,7 @@ hotreload:
 
 ### React Native (bare)
 
-Bare React Native projects (no Expo) use Metro directly. No `app_scheme` is needed -- the device loads the JS bundle over the Cloudflare tunnel.
+Bare React Native projects (no Expo) use Metro directly. No `app_scheme` is needed -- the device loads the JS bundle over the Revyl relay.
 
 1. Configure hot reload:
 
@@ -157,18 +197,20 @@ Optional explicit version label:
 revyl build upload --platform ios-dev --skip-build --version feature-new-login-20260227-153000
 ```
 
-Dev test helpers:
+Dev test helpers (pass `--context` to reuse a running dev loop's relay):
 
 ```bash
-revyl dev test run login-flow
+revyl dev test run login-flow                     # starts own Metro + relay
+revyl dev test run login-flow --context ios-main   # reuses running dev loop's relay
 revyl dev test open login-flow
 revyl dev test create new-flow --platform ios
 ```
 
-Plain device sessions (no hot reload):
+Plain device sessions (no hot reload -- these are the base layer `revyl dev` builds on):
 
 ```bash
 revyl device start --platform ios
+# Want hot reload? Run: revyl dev attach active
 ```
 
 ### Builds and Dev Mode
@@ -177,11 +219,11 @@ All `revyl build upload` commands push to a shared app container (the `app_id` i
 
 When you run `revyl dev`, the CLI scans the app container for a build matching your current git branch. If found, it uses that build. If not, it falls back to the latest available build and prints a warning.
 
-Each developer gets their own cloud device session, tunnel, and local dev server -- builds are the only shared resource.
+Each developer gets their own cloud device session, relay, and local dev server -- builds are the only shared resource.
 
 **When you need a new build (by project type):**
 
-- **Expo / React Native**: Dev mode serves your JS/TS live from your local Metro via a Cloudflare tunnel. The binary is just a "dev client shell." You only need a new build when native dependencies change (new native modules, Podfile changes, Gradle dependency changes, `app.json` native config).
+- **Expo / React Native**: Dev mode serves your JS/TS live from your local Metro via a Revyl relay. The binary is just a "dev client shell." You only need a new build when native dependencies change (new native modules, Podfile changes, Gradle dependency changes, `app.json` native config).
 - **Swift** (coming soon): Every code change requires a new build. The binary *is* the app.
 - **Kotlin/Android** (coming soon): Every code change requires a new build.
 
@@ -212,6 +254,8 @@ revyl app delete "My App"                              # Delete an app
 ```bash
 revyl build upload                       # Build and upload (--dry-run to preview)
 revyl build upload --platform android    # Build for a specific platform
+revyl build upload --file ./app.apk --app <id>  # Upload a local artifact directly
+revyl build upload --url <artifact-url> --app <id>  # Ingest from a remote URL
 revyl build list                         # List uploaded builds
 revyl build list --app <app-id>          # List builds for a specific app
 revyl build delete <app-id>              # Delete a build (all versions)
@@ -255,6 +299,47 @@ Useful companion commands:
 
 For Expo projects, `revyl build upload` performs an EAS auth preflight first.
 If EAS login is missing, the CLI prompts to run `npx --yes eas-cli login` (interactive TTY only), or prints the exact fix command in non-interactive environments.
+
+### Uploading from a URL
+
+For teams that store builds in internal artifact storage (Artifactory, S3, GCS, GitHub Actions),
+the CLI can ingest an artifact directly from a URL without downloading it locally first:
+
+```bash
+# Public or pre-signed URL
+revyl build upload --url https://artifacts.internal.company.com/builds/app-latest.ipa --app <id>
+
+# Authenticated URL with custom headers
+revyl build upload --url https://example.com/builds/app.apk \
+  --header "Authorization: Bearer <token>" \
+  --app <id>
+
+# Multiple headers
+revyl build upload --url https://example.com/builds/app.ipa \
+  --header "Authorization: Bearer <token>" \
+  --header "X-Custom-Header: value" \
+  --app <id>
+```
+
+The backend downloads, validates, and stores the artifact server-side. The
+`--url` flag is mutually exclusive with `--file`.
+
+### Native iOS: Build in Xcode, then `revyl dev`
+
+For native iOS developers, `revyl dev` automatically detects the most recent
+simulator `.app` from Xcode DerivedData. Build your app in Xcode as you
+normally would, then run:
+
+```bash
+revyl dev                     # Auto-finds and uploads the local simulator build
+revyl dev --build             # Force a rebuild from the configured build command
+revyl dev --build-version-id <id>  # Pin a specific uploaded build
+```
+
+The discovery scans `~/Library/Developer/Xcode/DerivedData/<Project>-*/Build/Products/Debug-iphonesimulator/*.app`
+for the most recently modified non-test `.app` that matches the project in the
+current directory. Test runner bundles (`*Tests.app`, `*UITests.app`) are
+automatically excluded.
 
 ## Test Management
 

@@ -240,7 +240,7 @@ func (b *BareRNDevServer) GetPort() int {
 // load its JS bundle from this URL.
 //
 // Parameters:
-//   - tunnelURL: The public Cloudflare tunnel URL
+//   - tunnelURL: The public relay URL
 //
 // Returns:
 //   - string: The tunnel URL for bundle loading
@@ -261,7 +261,7 @@ func (b *BareRNDevServer) Name() string {
 // Must be called before Start() for the setting to take effect.
 //
 // Parameters:
-//   - tunnelURL: The public tunnel URL (e.g., "https://xxx.trycloudflare.com")
+//   - tunnelURL: The public relay URL (e.g., "https://hr-abc.revyl.ai")
 func (b *BareRNDevServer) SetProxyURL(tunnelURL string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -337,7 +337,7 @@ func (b *BareRNDevServer) isReadyIndicator(line string) bool {
 func (b *BareRNDevServer) checkHealth() bool {
 	client := &http.Client{Timeout: 2 * time.Second}
 
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/status", b.Port))
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/status", b.Port))
 	if err != nil {
 		return false
 	}

@@ -21,6 +21,8 @@ type initOverrideOptions struct {
 
 const (
 	initEditDetectedSettingsPrompt = "Customize build settings? (Enter to accept defaults)"
+	initBuildCommandLabel          = "build command"
+	initArtifactPathLabel          = "artifact path"
 )
 
 func newInitOverrideOptions(xcodeSchemeArgs []string, hotReloadAppScheme string, allowInteractivePrompts bool) (*initOverrideOptions, error) {
@@ -269,12 +271,12 @@ func printProjectConfigReviewPromptContext(cfg *config.ProjectConfig) {
 		if len(cfg.Build.Platforms) > 0 {
 			for _, key := range orderedBuildPlatformKeysForReview(cfg) {
 				platformCfg := cfg.Build.Platforms[key]
-				ui.PrintKeyValue(fmt.Sprintf("%s command", key), strings.TrimSpace(platformCfg.Command))
-				ui.PrintKeyValue(fmt.Sprintf("%s output", key), strings.TrimSpace(platformCfg.Output))
+				ui.PrintKeyValue(fmt.Sprintf("%s build command", key), strings.TrimSpace(platformCfg.Command))
+				ui.PrintKeyValue(fmt.Sprintf("%s artifact path", key), strings.TrimSpace(platformCfg.Output))
 			}
 		} else {
 			ui.PrintKeyValue("Build command", strings.TrimSpace(cfg.Build.Command))
-			ui.PrintKeyValue("Build output", strings.TrimSpace(cfg.Build.Output))
+			ui.PrintKeyValue("Artifact path", strings.TrimSpace(cfg.Build.Output))
 		}
 	}
 }
@@ -391,11 +393,13 @@ func promptBuildSetupReviewWithPrompt(cfg *config.ProjectConfig, promptFn prompt
 	}
 
 	ui.PrintInfo("Build Commands")
+	ui.PrintDim("These defaults were inferred from your project. Press Enter to keep them.")
+	ui.PrintDim("Artifact path is where Revyl looks for the built .app/.apk after the build finishes.")
 
 	platformKeys := orderedBuildPlatformKeysForReview(cfg)
 	if len(platformKeys) == 0 {
-		cfg.Build.Command = promptFn("command", cfg.Build.Command)
-		cfg.Build.Output = promptFn("output", cfg.Build.Output)
+		cfg.Build.Command = promptFn(initBuildCommandLabel, cfg.Build.Command)
+		cfg.Build.Output = promptFn(initArtifactPathLabel, cfg.Build.Output)
 		return
 	}
 
@@ -405,8 +409,8 @@ func promptBuildSetupReviewWithPrompt(cfg *config.ProjectConfig, promptFn prompt
 		}
 		ui.PrintInfo("  %s  ·  %s", platformKey, describeBuildPlatformStream(platformKey))
 		platformCfg := cfg.Build.Platforms[platformKey]
-		platformCfg.Command = promptFn("command", platformCfg.Command)
-		platformCfg.Output = promptFn("output", platformCfg.Output)
+		platformCfg.Command = promptFn(initBuildCommandLabel, platformCfg.Command)
+		platformCfg.Output = promptFn(initArtifactPathLabel, platformCfg.Output)
 		cfg.Build.Platforms[platformKey] = platformCfg
 	}
 

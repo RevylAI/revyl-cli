@@ -149,7 +149,7 @@ Run: revyl dev --platform <PLATFORM>
 
 This will:
 1. Start the Expo dev server (npx expo start --dev-client)
-2. Create a Cloudflare tunnel to expose it to cloud devices
+2. Create a Revyl relay to expose it to cloud devices
 3. Install the dev client build on a cloud simulator
 4. Open the device session in the browser
 
@@ -157,7 +157,7 @@ STEP 10 — Verify
 -----------------
 Confirm that:
 - The Expo Metro bundler is running (terminal output shows "Metro waiting on...")
-- The tunnel is established (CLI prints the tunnel URL)
+- The relay is established (CLI prints the relay URL)
 - The cloud device session opened in the browser
 - The app launched on the device
 
