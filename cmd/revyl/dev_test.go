@@ -463,7 +463,7 @@ func TestTryLaunchInstalledApp_WarnsWithResolvedIdentifier(t *testing.T) {
 		err: fmt.Errorf("launch route unavailable"),
 	}
 	output := captureStdoutAndStderr(t, func() {
-		tryLaunchInstalledApp(context.Background(), requester, 7, "android", "com.example.app", "")
+		tryLaunchInstalledApp(context.Background(), requester, 7, "android", "com.example.app", "", "")
 	})
 
 	if !strings.Contains(output, "launch failed") {

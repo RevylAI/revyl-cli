@@ -718,6 +718,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 					port = "80"
 				}
 				launchPayload["packager_host"] = host + ":" + port
+				launchPayload["packager_scheme"] = parsed.Scheme
 			}
 		}
 		launchRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/launch", launchPayload)
@@ -785,6 +786,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// needs this — the worker writes RCT_jsLocation to NSUserDefaults so the
 	// app fetches its JS bundle from the relay tunnel instead of localhost.
 	hrPackagerHost := ""
+	hrPackagerScheme := ""
 	if isBareRN && devicePlatform == "ios" {
 		if parsed, pErr := url.Parse(startResult.TunnelURL); pErr == nil {
 			host := parsed.Hostname()
@@ -795,6 +797,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 				port = "80"
 			}
 			hrPackagerHost = host + ":" + port
+			hrPackagerScheme = parsed.Scheme
 		}
 	}
 
@@ -930,7 +933,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 		hrRebuildCount++
 		result := devBuildAndDeltaPush(ctx, cancel, cmd, cfg, configPath, apiKey, platformKey, devicePlatform,
-			bundleID, session, deviceMgr, client, hrTransport, hrCachedManifest, hrManifestPath, cwd, hrPackagerHost)
+			bundleID, session, deviceMgr, client, hrTransport, hrCachedManifest, hrManifestPath, cwd, hrPackagerHost, hrPackagerScheme)
 
 		if drainStdinKeys(stdinKeys) {
 			ui.Println()
@@ -1485,6 +1488,7 @@ func tryLaunchInstalledApp(
 	devicePlatform string,
 	appIdentifier string,
 	packagerHost string,
+	packagerScheme string,
 ) {
 	identifier := strings.TrimSpace(appIdentifier)
 	if identifier == "" {
@@ -1498,6 +1502,9 @@ func tryLaunchInstalledApp(
 	payload := map[string]string{"bundle_id": identifier}
 	if packagerHost != "" {
 		payload["packager_host"] = packagerHost
+	}
+	if packagerScheme != "" {
+		payload["packager_scheme"] = packagerScheme
 	}
 
 	launchResp, err := requester.WorkerRequestForSession(
@@ -1786,7 +1793,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 	if bundleID == "" {
 		bundleID = extractInstallBundleID(installResp)
 	}
-	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, bundleID, "")
+	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, bundleID, "", "")
 
 	deviceMgr.StopIdleTimer(session.Index)
 
@@ -1956,7 +1963,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 
 		rebuildCount++
 		result := devBuildAndDeltaPush(ctx, cancel, cmd, cfg, configPath, apiKey, platformKey, devicePlatform,
-			bundleID, session, deviceMgr, client, transport, cachedManifest, manifestPath, cwd, "")
+			bundleID, session, deviceMgr, client, transport, cachedManifest, manifestPath, cwd, "", "")
 
 		if drainStdinKeys(stdinKeys) {
 			ui.Println()
@@ -2243,6 +2250,7 @@ func devBuildAndDeltaPush(
 	cachedManifest *build.AppManifest,
 	manifestPath, cwd string,
 	packagerHost string,
+	packagerScheme string,
 ) devRebuildResult {
 	result := devRebuildResult{}
 	rebuildStart := time.Now()
@@ -2439,7 +2447,7 @@ func devBuildAndDeltaPush(
 		launchID = result.newBundleID
 	}
 	ui.StartSpinner("Launching app...")
-	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, launchID, packagerHost)
+	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, launchID, packagerHost, packagerScheme)
 	ui.StopSpinner()
 
 	result.manifest = newManifest
