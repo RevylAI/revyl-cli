@@ -25,7 +25,7 @@ CMD_DIR := ./cmd/revyl
 BUILD_DIR := ./build
 SCRIPTS_DIR := ./scripts
 
-.PHONY: all build clean test lint fmt deps dev generate install help check setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android device-prod-sdk-smoke device-prod-sdk-smoke-ios device-prod-sdk-smoke-android e2e e2e-quick e2e-device e2e-sdk e2e-local
+.PHONY: all build clean test lint fmt deps dev generate install help check vet-all setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android device-prod-sdk-smoke device-prod-sdk-smoke-ios device-prod-sdk-smoke-android e2e e2e-quick e2e-device e2e-sdk e2e-local
 
 ## help: Show this help message
 help:
@@ -45,6 +45,15 @@ check:
 	@$(GOBUILD) ./cmd/revyl/...
 	@$(GOCMD) vet ./...
 	@echo "✅ Go checks passed"
+
+## vet-all: Run go vet for all release platforms (catches cross-compilation errors)
+vet-all:
+	@echo "Running go vet for all platforms..."
+	@for os in darwin linux windows; do \
+		echo "  vet $$os/amd64..." ; \
+		GOOS=$$os GOARCH=amd64 $(GOCMD) vet ./... || exit 1 ; \
+	done
+	@echo "✅ Cross-platform vet passed"
 
 ## build: Build the CLI binary
 build:

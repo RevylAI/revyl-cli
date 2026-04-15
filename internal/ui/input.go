@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -163,24 +162,6 @@ func (m selectModel) View() string {
 	b.WriteString(DimStyle.Render("  ↑/↓ navigate • enter select • 1-9 jump • esc cancel"))
 
 	return b.String()
-}
-
-// drainStdin discards any pending bytes in the stdin buffer.
-// Prevents stale keypresses (e.g. from a prior Prompt call) from being
-// consumed by the next bubbletea program as an immediate Enter/selection.
-func drainStdin() {
-	fd := int(os.Stdin.Fd())
-	if err := syscall.SetNonblock(fd, true); err != nil {
-		return
-	}
-	buf := make([]byte, 256)
-	for {
-		n, _ := os.Stdin.Read(buf)
-		if n == 0 {
-			break
-		}
-	}
-	_ = syscall.SetNonblock(fd, false)
 }
 
 // runSelectTea runs the bubbletea selection program.

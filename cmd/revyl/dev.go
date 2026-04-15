@@ -26,6 +26,7 @@ import (
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
 	mcppkg "github.com/revyl/cli/internal/mcp"
+	"github.com/revyl/cli/internal/sigutil"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -851,7 +852,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}()
 
 	sigusr1 := make(chan os.Signal, 1)
-	signal.Notify(sigusr1, syscall.SIGUSR1)
+	if sigutil.RebuildSignal != nil {
+		signal.Notify(sigusr1, sigutil.RebuildSignal)
+	}
 	defer signal.Stop(sigusr1)
 
 	deviceMgr.StopIdleTimer(session.Index)
@@ -1845,7 +1848,9 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 	}()
 
 	sigusr1 := make(chan os.Signal, 1)
-	signal.Notify(sigusr1, syscall.SIGUSR1)
+	if sigutil.RebuildSignal != nil {
+		signal.Notify(sigusr1, sigutil.RebuildSignal)
+	}
 	defer signal.Stop(sigusr1)
 
 	if openBrowser {
@@ -2777,7 +2782,10 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 		}
 		return fmt.Errorf("process %d not found", pid)
 	}
-	if err := proc.Signal(syscall.SIGUSR1); err != nil {
+	if sigutil.RebuildSignal == nil {
+		return fmt.Errorf("signal-based rebuild is not supported on this platform")
+	}
+	if err := proc.Signal(sigutil.RebuildSignal); err != nil {
 		if rebuildJSON {
 			fmt.Printf(`{"status":"no_session","error":"dev session (PID %d) is not running"}`, pid)
 			fmt.Println()

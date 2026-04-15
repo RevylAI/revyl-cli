@@ -8,12 +8,12 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/sigutil"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -2335,7 +2335,13 @@ func (s *Server) handleRebuildAndVerify(ctx context.Context, req *mcp.CallToolRe
 
 	priorCompleted := readDevStatusCompletedAt(statusPath)
 
-	if sigErr := proc.Signal(os.Signal(syscall.SIGUSR1)); sigErr != nil {
+	if sigutil.RebuildSignal == nil {
+		out.Error = "signal-based rebuild is not supported on this platform"
+		out.Status = "error"
+		return nil, out, nil
+	}
+
+	if sigErr := proc.Signal(sigutil.RebuildSignal); sigErr != nil {
 		out.Error = fmt.Sprintf("dev session (PID %d) is not running: %v", parsedPID, sigErr)
 		out.Status = "no_session"
 		return nil, out, nil
