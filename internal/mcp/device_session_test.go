@@ -359,7 +359,7 @@ func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing
 				Platform:      "ios",
 				StartedAt:     now,
 				LastActivity:  now,
-				IdleTimeout:   120 * time.Millisecond,
+				IdleTimeout:   1200 * time.Millisecond,
 			},
 		},
 		idleTimers:  make(map[int]*time.Timer),
@@ -371,7 +371,7 @@ func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing
 	mgr.resetIdleTimerForSessionLocked(0, context.Background())
 	mgr.mu.Unlock()
 
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(800 * time.Millisecond)
 
 	_, err := mgr.WorkerRequestForSession(context.Background(), 0, "/tap", map[string]int{
 		"x": 1,
@@ -383,13 +383,13 @@ func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing
 
 	// This point is beyond the original timeout window, so without idle reset
 	// the session would have been auto-cleared.
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(800 * time.Millisecond)
 	if mgr.GetSession(0) == nil {
 		t.Fatal("session should still be active after worker action reset the idle timer")
 	}
 
 	// After the refreshed timeout window, the session should expire.
-	time.Sleep(90 * time.Millisecond)
+	time.Sleep(900 * time.Millisecond)
 	if mgr.GetSession(0) != nil {
 		t.Fatal("session should expire after refreshed idle timeout window")
 	}
