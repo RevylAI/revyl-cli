@@ -177,6 +177,10 @@ func repoRootForInitFixtureTests(t *testing.T) string {
 func copyInternalAppFixture(t *testing.T, src string, skipRevyl bool) string {
 	t.Helper()
 
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		t.Skipf("fixture directory %s not found (running outside monorepo?)", src)
+	}
+
 	dst := t.TempDir()
 	skipDirs := map[string]struct{}{
 		"node_modules": {},
