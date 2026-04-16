@@ -948,7 +948,7 @@ func findXcodeWorkspace(dir string) string {
 
 	for _, entry := range entries {
 		if filepath.Ext(entry.Name()) == ".xcworkspace" {
-			return filepath.Join("ios", entry.Name())
+			return "ios/" + entry.Name()
 		}
 	}
 
@@ -977,7 +977,7 @@ func findXcodeProject(dir string) string {
 
 	for _, entry := range entries {
 		if filepath.Ext(entry.Name()) == ".xcodeproj" {
-			return filepath.Join("ios", entry.Name())
+			return "ios/" + entry.Name()
 		}
 	}
 
