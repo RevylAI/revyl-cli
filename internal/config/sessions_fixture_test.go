@@ -44,6 +44,10 @@ func repoRootForConfigFixtureTests(t *testing.T) string {
 func copyConfigFixture(t *testing.T, src string) string {
 	t.Helper()
 
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		t.Skipf("fixture directory %s not found (running outside monorepo?)", src)
+	}
+
 	dst := t.TempDir()
 	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
