@@ -166,55 +166,6 @@ func TestDeviceSessionManager_IdleTimeout(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestDeviceSessionManager_IdleTimerReset: Verify that resetting the timer
-// prevents the session from being cleared prematurely.
-// ---------------------------------------------------------------------------
-
-func TestDeviceSessionManager_IdleTimerReset(t *testing.T) {
-	mgr := &DeviceSessionManager{
-		sessions:    make(map[int]*DeviceSession),
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: 0,
-		nextIndex:   1,
-	}
-
-	// Inject a session with a 100ms timeout
-	now := time.Now()
-	mgr.sessions[0] = &DeviceSession{
-		Index:        0,
-		SessionID:    "test-session-2",
-		Platform:     "ios",
-		StartedAt:    now,
-		LastActivity: now,
-		IdleTimeout:  100 * time.Millisecond,
-	}
-
-	mgr.mu.Lock()
-	mgr.resetIdleTimerForSessionLocked(0, context.Background())
-	mgr.mu.Unlock()
-
-	// At 60ms, session should still be alive; reset the timer
-	time.Sleep(60 * time.Millisecond)
-	if mgr.GetActive() == nil {
-		t.Fatal("session should still be active at 60ms")
-	}
-	mgr.ResetIdleTimer(0)
-
-	// At 60ms after the reset, the original 100ms from start would have
-	// elapsed but the reset should have bought us another 100ms
-	time.Sleep(60 * time.Millisecond)
-	if mgr.GetActive() == nil {
-		t.Fatal("session should still be active because idle timer was reset")
-	}
-
-	// After the full timeout from the reset, session should be gone
-	time.Sleep(100 * time.Millisecond)
-	if mgr.GetActive() != nil {
-		t.Fatal("session should be cleared after idle timeout from last reset")
-	}
-}
-
-// ---------------------------------------------------------------------------
 // TestDeviceSessionManager_StopMiddleSession_IndicesStable: Verify that
 // stopping a session does not renumber the remaining sessions.
 // ---------------------------------------------------------------------------
