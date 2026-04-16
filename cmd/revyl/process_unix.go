@@ -3,6 +3,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -22,6 +23,15 @@ func killProcessGroup(pid int, sig syscall.Signal) error {
 // isProcessGroupAlive checks whether any process in the group is still running.
 func isProcessGroupAlive(pid int) bool {
 	return syscall.Kill(-pid, syscall.Signal(0)) == nil
+}
+
+// isProcessAlive checks whether a single process is running.
+func isProcessAlive(pid int) bool {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 // isServiceProcess checks whether a PID belongs to a shell process spawned by

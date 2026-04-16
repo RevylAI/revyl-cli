@@ -318,11 +318,7 @@ func isDevCtxProcessAlive(pid int, startedAtNano int64, pidFilePath string) (boo
 	if pid <= 0 {
 		return false, nil
 	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false, err
-	}
-	if proc.Signal(syscall.Signal(0)) != nil {
+	if !isProcessAlive(pid) {
 		return false, nil
 	}
 	if startedAtNano == 0 {

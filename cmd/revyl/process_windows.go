@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -30,12 +29,27 @@ func killProcessGroup(pid int, sig syscall.Signal) error {
 
 // isProcessGroupAlive checks whether a process is still running on Windows.
 func isProcessGroupAlive(pid int) bool {
-	p, err := os.FindProcess(pid)
+	return isProcessAlive(pid)
+}
+
+// isProcessAlive checks whether a single process is running on Windows
+// by opening a handle with PROCESS_QUERY_LIMITED_INFORMATION and checking
+// whether the process has exited.
+func isProcessAlive(pid int) bool {
+	const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+	const STILL_ACTIVE = 259
+
+	h, err := syscall.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
 		return false
 	}
-	// On Windows, FindProcess always succeeds. Signal(0) checks liveness.
-	return p.Signal(syscall.Signal(0)) == nil
+	defer syscall.CloseHandle(h)
+
+	var exitCode uint32
+	if err := syscall.GetExitCodeProcess(h, &exitCode); err != nil {
+		return false
+	}
+	return exitCode == STILL_ACTIVE
 }
 
 // isServiceProcess checks whether a PID is still a running process on Windows.
