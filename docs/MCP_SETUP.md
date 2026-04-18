@@ -80,7 +80,7 @@ Create `.cursor/mcp.json` in your project root (project-scoped) or `~/.cursor/mc
   "mcpServers": {
     "revyl": {
       "command": "revyl",
-      "args": ["mcp", "serve", "--profile", "core"],
+      "args": ["mcp", "serve"],
       "env": {
         "REVYL_API_KEY": "your-api-key"
       }
@@ -112,7 +112,7 @@ Config file (`~/.codex/config.toml`):
 ```toml
 [mcp_servers.revyl]
 command = "revyl"
-args = ["mcp", "serve", "--profile", "core"]
+args = ["mcp", "serve"]
 env = { REVYL_API_KEY = "your-api-key" }
 ```
 
@@ -121,7 +121,7 @@ If your CLI workflow uses `--dev`, include it for MCP too:
 ```toml
 [mcp_servers.revyl]
 command = "revyl"
-args = ["--dev", "mcp", "serve", "--profile", "core"]
+args = ["--dev", "mcp", "serve"]
 env = { REVYL_API_KEY = "your-api-key" }
 ```
 
@@ -139,7 +139,7 @@ Edit the config file:
   "mcpServers": {
     "revyl": {
       "command": "revyl",
-      "args": ["mcp", "serve", "--profile", "core"],
+      "args": ["mcp", "serve"],
       "env": {
         "REVYL_API_KEY": "your-api-key"
       }
@@ -158,7 +158,7 @@ Add to your VS Code `settings.json`:
     "servers": {
       "revyl": {
         "command": "revyl",
-        "args": ["mcp", "serve", "--profile", "core"],
+        "args": ["mcp", "serve"],
         "env": {
           "REVYL_API_KEY": "your-api-key"
         }
@@ -177,7 +177,7 @@ Create or edit `~/.codeium/windsurf/mcp_config.json`:
   "mcpServers": {
     "revyl": {
       "command": "revyl",
-      "args": ["mcp", "serve", "--profile", "core"],
+      "args": ["mcp", "serve"],
       "env": {
         "REVYL_API_KEY": "your-api-key"
       }
