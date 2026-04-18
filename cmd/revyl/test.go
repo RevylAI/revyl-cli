@@ -178,6 +178,8 @@ func init() {
 	testCmd.AddCommand(testHistoryCmd)
 	testCmd.AddCommand(testReportCmd)
 	testCmd.AddCommand(testShareCmd)
+	// Add env var management
+	testCmd.AddCommand(testEnvCmd)
 	// Add test variable management
 	testCmd.AddCommand(testVarCmd)
 	// Add duplication and versioning

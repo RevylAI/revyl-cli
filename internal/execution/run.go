@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/google/uuid"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/sse"
@@ -313,18 +312,10 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 		req.BuildConfig = &api.WorkflowAppConfig{}
 		req.OverrideBuildConfig = true
 		if params.IOSAppID != "" {
-			iosAppID, err := uuid.Parse(params.IOSAppID)
-			if err != nil {
-				return nil, fmt.Errorf("invalid iOS app ID %q: %w", params.IOSAppID, err)
-			}
-			req.BuildConfig.IosBuild = &api.PlatformApp{AppId: iosAppID}
+			req.BuildConfig.IosBuild = &api.PlatformApp{AppId: params.IOSAppID}
 		}
 		if params.AndroidAppID != "" {
-			androidAppID, err := uuid.Parse(params.AndroidAppID)
-			if err != nil {
-				return nil, fmt.Errorf("invalid Android app ID %q: %w", params.AndroidAppID, err)
-			}
-			req.BuildConfig.AndroidBuild = &api.PlatformApp{AppId: androidAppID}
+			req.BuildConfig.AndroidBuild = &api.PlatformApp{AppId: params.AndroidAppID}
 		}
 	}
 	if params.HasLocation {

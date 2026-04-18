@@ -193,17 +193,17 @@ func newSessionSyncTestServer(t *testing.T) *httptest.Server {
 						"platform":"ios",
 						"source":"cli",
 						"status":"running",
-						"workflow_run_id":"55555555-5555-5555-5555-555555555555",
-						"whep_url":"https://stream.revyl.ai/whep/55555555-5555-5555-5555-555555555555",
+						"workflow_run_id":"wf-1",
+						"whep_url":"https://stream.revyl.ai/whep/wf-1",
 						"user_email":"test@example.com",
 						"created_at":"2026-02-19T00:00:00Z",
 						"started_at":"2026-02-19T00:00:00Z"
 					}
 				]
 			}`))
-		case r.URL.Path == "/api/v1/execution/streaming/worker-connection/55555555-5555-5555-5555-555555555555":
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ready","workflow_run_id":"55555555-5555-5555-5555-555555555555","worker_ws_url":"ws://%s/ws/stream?token=test"}`, r.Host)))
-		case r.URL.Path == "/api/v1/execution/device-proxy/55555555-5555-5555-5555-555555555555/health":
+		case r.URL.Path == "/api/v1/execution/streaming/worker-connection/wf-1":
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ready","workflow_run_id":"wf-1","worker_ws_url":"ws://%s/ws/stream?token=test"}`, r.Host)))
+		case r.URL.Path == "/api/v1/execution/device-proxy/wf-1/health":
 			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
 		default:
 			http.NotFound(w, r)
@@ -231,7 +231,7 @@ func TestHandleListDeviceSessions_SyncsFromBackend(t *testing.T) {
 	if output.Sessions[0].Platform != "ios" {
 		t.Fatalf("expected ios platform, got %q", output.Sessions[0].Platform)
 	}
-	if output.Sessions[0].WhepURL != "https://stream.revyl.ai/whep/55555555-5555-5555-5555-555555555555" {
+	if output.Sessions[0].WhepURL != "https://stream.revyl.ai/whep/wf-1" {
 		t.Fatalf("expected whep URL to be synced, got %q", output.Sessions[0].WhepURL)
 	}
 }
@@ -303,7 +303,7 @@ func TestHandleGetSessionInfo_SyncsBeforeResolve(t *testing.T) {
 	if output.TotalSessions != 1 {
 		t.Fatalf("expected total_sessions=1, got %d", output.TotalSessions)
 	}
-	if output.WhepURL != "https://stream.revyl.ai/whep/55555555-5555-5555-5555-555555555555" {
+	if output.WhepURL != "https://stream.revyl.ai/whep/wf-1" {
 		t.Fatalf("expected whep URL to be present, got %q", output.WhepURL)
 	}
 }

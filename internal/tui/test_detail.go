@@ -1,7 +1,7 @@
 // Package tui provides the test detail screen for viewing and managing a single test.
 //
-// Reached from "Browse tests" → enter on a test. Shows sync status and tags,
-// and provides actions for push/pull/diff, delete, run, open, and tag management.
+// Reached from "Browse tests" → enter on a test. Shows sync status, tags, env vars,
+// and provides actions for push/pull/diff, delete, run, open, tag management, and env var editing.
 package tui
 
 import (
@@ -37,6 +37,7 @@ var testDetailActions = []testDetailAction{
 	{Key: "l", Desc: "Pull remote → local"},
 	{Key: "d", Desc: "View diff"},
 	{Key: "t", Desc: "Manage tags"},
+	{Key: "e", Desc: "Manage env vars"},
 	{Key: "x", Desc: "Delete test"},
 	{Key: "n", Desc: "Rename test"},
 }
@@ -92,6 +93,12 @@ func fetchTestDetailCmd(client *api.Client, testID, testName, platform string, d
 					Color: t.Color,
 				})
 			}
+		}
+
+		// Fetch env var count
+		envResp, eErr := client.ListEnvVars(ctx, testID)
+		if eErr == nil && envResp != nil {
+			detail.EnvVarCount = len(envResp.Result)
 		}
 
 		// Fetch sync status if project config exists
@@ -294,6 +301,66 @@ func deleteTestCmd(client *api.Client, testID string) tea.Cmd {
 	}
 }
 
+// fetchEnvVarsCmd fetches environment variables for a test.
+//
+// Parameters:
+//   - client: the API client
+//   - testID: the test ID
+//
+// Returns:
+//   - tea.Cmd: command producing EnvVarListMsg
+func fetchEnvVarsCmd(client *api.Client, testID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		resp, err := client.ListEnvVars(ctx, testID)
+		if err != nil {
+			return EnvVarListMsg{Err: err}
+		}
+		var vars []EnvVarItem
+		for _, v := range resp.Result {
+			vars = append(vars, EnvVarItem{ID: v.ID, Key: v.Key, Value: v.Value})
+		}
+		return EnvVarListMsg{Vars: vars}
+	}
+}
+
+// addEnvVarCmd adds a new environment variable to a test.
+//
+// Parameters:
+//   - client: the API client
+//   - testID: the test ID
+//   - key: the env var key
+//   - value: the env var value
+//
+// Returns:
+//   - tea.Cmd: command producing EnvVarAddedMsg
+func addEnvVarCmd(client *api.Client, testID, key, value string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := client.AddEnvVar(ctx, testID, key, value)
+		return EnvVarAddedMsg{Err: err}
+	}
+}
+
+// deleteEnvVarCmd deletes an environment variable.
+//
+// Parameters:
+//   - client: the API client
+//   - envVarID: the env var ID
+//
+// Returns:
+//   - tea.Cmd: command producing EnvVarDeletedMsg
+func deleteEnvVarCmd(client *api.Client, envVarID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := client.DeleteEnvVar(ctx, envVarID)
+		return EnvVarDeletedMsg{Err: err}
+	}
+}
+
 // --- Key handling ---
 
 // handleTestDetailKey processes key events on the test detail screen.
@@ -306,6 +373,11 @@ func deleteTestCmd(client *api.Client, testID string) tea.Cmd {
 //   - tea.Model: the updated model
 //   - tea.Cmd: next command
 func handleTestDetailKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Env var editor overlay
+	if m.envVarEditorActive {
+		return handleEnvVarEditorKey(m, msg)
+	}
+
 	// Tag picker overlay
 	if m.tagPickerActive {
 		return handleTagPickerKeyFromDetail(m, msg)
@@ -501,6 +573,12 @@ func executeTestDetailActionByKey(m hubModel, key string) (tea.Model, tea.Cmd) {
 			m.tagPickerLoading = true
 			return m, fetchTagPickerDataCmd(m.client, m.selectedTestDetail.ID)
 		}
+	case "e":
+		if m.client != nil && m.selectedTestDetail != nil {
+			m.envVarEditorActive = true
+			m.envVarLoading = true
+			return m, fetchEnvVarsCmd(m.client, m.selectedTestDetail.ID)
+		}
 	case "x":
 		m.testDetailConfirmDelete = true
 	case "n":
@@ -542,6 +620,93 @@ func buildTestRenamePreview(oldName, newName string) string {
 	lines = append(lines, "Local alias/file updates: applied when mappings are unambiguous.")
 	lines = append(lines, "Conflicts are blocked to avoid overwriting another test.")
 	return strings.Join(lines, "\n")
+}
+
+// handleEnvVarEditorKey processes key events in the env var editor overlay.
+func handleEnvVarEditorKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Adding a new env var -- input mode
+	if m.envVarAddingKey {
+		switch msg.String() {
+		case "esc":
+			m.envVarAddingKey = false
+			m.envVarKeyInput.Blur()
+			return m, nil
+		case "enter":
+			m.envVarAddingKey = false
+			m.envVarAddingValue = true
+			m.envVarKeyInput.Blur()
+			m.envVarValueInput.Focus()
+			return m, textinput.Blink
+		default:
+			var cmd tea.Cmd
+			m.envVarKeyInput, cmd = m.envVarKeyInput.Update(msg)
+			return m, cmd
+		}
+	}
+	if m.envVarAddingValue {
+		switch msg.String() {
+		case "esc":
+			m.envVarAddingValue = false
+			m.envVarValueInput.Blur()
+			return m, nil
+		case "enter":
+			key := m.envVarKeyInput.Value()
+			value := m.envVarValueInput.Value()
+			m.envVarAddingValue = false
+			m.envVarValueInput.Blur()
+			m.envVarKeyInput.SetValue("")
+			m.envVarValueInput.SetValue("")
+			if key != "" && m.client != nil && m.selectedTestDetail != nil {
+				m.envVarLoading = true
+				return m, addEnvVarCmd(m.client, m.selectedTestDetail.ID, key, value)
+			}
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.envVarValueInput, cmd = m.envVarValueInput.Update(msg)
+			return m, cmd
+		}
+	}
+
+	// Delete confirmation
+	if m.envVarConfirmDelete {
+		switch msg.String() {
+		case "y":
+			m.envVarConfirmDelete = false
+			if m.envVarCursor < len(m.envVars) && m.client != nil {
+				m.envVarLoading = true
+				return m, deleteEnvVarCmd(m.client, m.envVars[m.envVarCursor].ID)
+			}
+		case "n", "esc":
+			m.envVarConfirmDelete = false
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.envVarEditorActive = false
+		return m, nil
+	case "up", "k":
+		if m.envVarCursor > 0 {
+			m.envVarCursor--
+		}
+	case "down", "j":
+		if m.envVarCursor < len(m.envVars)-1 {
+			m.envVarCursor++
+		}
+	case "n":
+		m.envVarAddingKey = true
+		m.envVarKeyInput.Focus()
+		return m, textinput.Blink
+	case "d":
+		if len(m.envVars) > 0 {
+			m.envVarConfirmDelete = true
+		}
+	case "v":
+		m.envVarShowValues = !m.envVarShowValues
+	}
+	return m, nil
 }
 
 // --- Rendering ---
@@ -628,6 +793,13 @@ func renderTestDetail(m hubModel) string {
 	}
 	b.WriteString(fmt.Sprintf("  %-12s %s\n", dimStyle.Render("Tags"), tagStr))
 
+	// Env vars
+	envStr := dimStyle.Render("none")
+	if detail.EnvVarCount > 0 {
+		envStr = normalStyle.Render(fmt.Sprintf("%d configured", detail.EnvVarCount))
+	}
+	b.WriteString(fmt.Sprintf("  %-12s %s\n", dimStyle.Render("Env Vars"), envStr))
+
 	// Sync result display
 	if m.testSyncResult != "" {
 		b.WriteString("\n")
@@ -649,6 +821,13 @@ func renderTestDetail(m hubModel) string {
 	// Delete confirmation
 	if m.testDetailConfirmDelete {
 		b.WriteString("\n  " + errorStyle.Render("Delete test \""+detail.Name+"\"? (y/n)") + "\n")
+		return b.String()
+	}
+
+	// Env var editor overlay
+	if m.envVarEditorActive {
+		b.WriteString("\n")
+		b.WriteString(renderEnvVarEditor(m, innerW))
 		return b.String()
 	}
 
@@ -694,6 +873,60 @@ func renderTestDetail(m hubModel) string {
 	}
 	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
 
+	return b.String()
+}
+
+// renderEnvVarEditor renders the env var editor overlay.
+func renderEnvVarEditor(m hubModel, innerW int) string {
+	var b strings.Builder
+
+	b.WriteString(sectionStyle.Render("  ENV VARS") + "\n")
+	b.WriteString("  " + separator(innerW) + "\n")
+
+	if m.envVarLoading {
+		b.WriteString("  " + m.spinner.View() + " Loading...\n")
+		return b.String()
+	}
+
+	if m.envVarConfirmDelete && m.envVarCursor < len(m.envVars) {
+		b.WriteString("  " + errorStyle.Render(fmt.Sprintf("Delete %s? (y/n)", m.envVars[m.envVarCursor].Key)) + "\n")
+		return b.String()
+	}
+
+	if m.envVarAddingKey {
+		b.WriteString("  Key: " + m.envVarKeyInput.View() + "\n")
+		return b.String()
+	}
+	if m.envVarAddingValue {
+		b.WriteString("  Key: " + normalStyle.Render(m.envVarKeyInput.Value()) + "\n")
+		b.WriteString("  Value: " + m.envVarValueInput.View() + "\n")
+		return b.String()
+	}
+
+	if len(m.envVars) == 0 {
+		b.WriteString("  " + dimStyle.Render("No environment variables configured") + "\n")
+	} else {
+		for i, v := range m.envVars {
+			cursor := "  "
+			if i == m.envVarCursor {
+				cursor = selectedStyle.Render("▸ ")
+			}
+			val := strings.Repeat("•", min(len(v.Value), 20))
+			if m.envVarShowValues {
+				val = v.Value
+			}
+			b.WriteString(fmt.Sprintf("  %s%-20s = %s\n", cursor, normalStyle.Render(v.Key), dimStyle.Render(val)))
+		}
+	}
+
+	b.WriteString("\n  ")
+	keys := []string{
+		helpKeyRender("n", "add"),
+		helpKeyRender("d", "delete"),
+		helpKeyRender("v", "toggle values"),
+		helpKeyRender("esc", "close"),
+	}
+	b.WriteString(strings.Join(keys, "  ") + "\n")
 	return b.String()
 }
 

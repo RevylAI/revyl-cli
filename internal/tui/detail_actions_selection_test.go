@@ -63,7 +63,7 @@ func TestHandleTestDetailKey_NumberExecutesAction(t *testing.T) {
 	m.currentView = viewTestDetail
 	m.selectedTestDetail = &TestDetail{ID: "test-1", Name: "Checkout"}
 
-	nextModel, cmd := handleTestDetailKey(m, keyRune('8')) // Delete test
+	nextModel, cmd := handleTestDetailKey(m, keyRune('9')) // Delete test
 	if cmd != nil {
 		t.Fatalf("expected nil cmd when opening delete confirmation, got %v", cmd)
 	}
@@ -72,7 +72,7 @@ func TestHandleTestDetailKey_NumberExecutesAction(t *testing.T) {
 	if !next.testDetailConfirmDelete {
 		t.Fatalf("expected numeric shortcut to trigger delete confirmation")
 	}
-	if next.testDetailCursor != 7 {
+	if next.testDetailCursor != 8 {
 		t.Fatalf("expected cursor to move to selected numbered action, got %d", next.testDetailCursor)
 	}
 }
@@ -209,7 +209,7 @@ func TestSyncTestActionCmd_PullRemoteOnlyCreatesConfigAndLocalTest(t *testing.T)
 		case r.URL.Path == "/api/v1/tests/tags/tests/test-1":
 			_, _ = w.Write([]byte(`[]`))
 		case strings.HasPrefix(r.URL.Path, "/api/v1/variables/custom/read_variables"),
-			strings.HasPrefix(r.URL.Path, "/api/v1/variables/org_launch_env/test-attachments"):
+			strings.HasPrefix(r.URL.Path, "/api/v1/variables/app_launch_env/read"):
 			_, _ = w.Write([]byte(`{"result":[]}`))
 		case strings.HasPrefix(r.URL.Path, "/api/v1/tests/scripts"):
 			_, _ = w.Write([]byte(`{"scripts":[],"count":0}`))

@@ -98,7 +98,6 @@ func newDeviceStartTestCommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().String("build-version-id", "", "")
 	cmd.Flags().String("app-url", "", "")
 	cmd.Flags().String("app-link", "", "")
-	cmd.Flags().StringArray("launch-var", nil, "")
 	cmd.Flags().String("device-name", "", "")
 	cmd.Flags().Bool("device", false, "")
 	cmd.Flags().String("device-model", "", "")
@@ -217,7 +216,7 @@ func TestDeviceStartCommand_PropagatesAppURLToStartDevice(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "test-api-key")
 
 	const expectedAppURL = "https://artifact.example/trimmed-app.ipa"
-	const workflowRunID = "66666666-6666-6666-6666-666666666666"
+	const workflowRunID = "wf-start-1"
 
 	var capturedStartReq struct {
 		AppURL string `json:"app_url"`
@@ -301,7 +300,7 @@ func TestDeviceStartCommand_UsesLiveCatalogForValidation(t *testing.T) {
 	withWorkingDirectory(t, tmpDir)
 	t.Setenv("REVYL_API_KEY", "test-api-key")
 
-	const workflowRunID = "77777777-7777-7777-7777-777777777777"
+	const workflowRunID = "wf-start-live-targets"
 	const expectedDeviceModel = "iPhone 17 Pro Max"
 	const expectedRuntime = "iOS 26.3.1"
 
@@ -353,63 +352,6 @@ func TestDeviceStartCommand_UsesLiveCatalogForValidation(t *testing.T) {
 	}
 	if capturedStartReq.OsVersion != expectedRuntime {
 		t.Fatalf("start_device os_version = %q, want %q", capturedStartReq.OsVersion, expectedRuntime)
-	}
-}
-
-func TestDeviceStartCommand_ResolvesLaunchVarsAndSendsIDs(t *testing.T) {
-	tmpDir := t.TempDir()
-	withWorkingDirectory(t, tmpDir)
-	t.Setenv("REVYL_API_KEY", "test-api-key")
-
-	const workflowRunID = "88888888-8888-8888-8888-888888888888"
-
-	var capturedStartReq struct {
-		LaunchEnvVarIds []string `json:"launch_env_var_ids"`
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/variables/org_launch_env":
-			_, _ = w.Write([]byte(`{"result":[{"id":"launch-1","key":"API_URL","value":"https://staging.example"},{"id":"launch-2","key":"FEATURE_X","value":"true"}]}`))
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
-			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
-				t.Fatalf("decode start_device request: %v", err)
-			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
-			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
-			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-	t.Setenv("REVYL_BACKEND_URL", server.URL)
-
-	cmd := newDeviceStartTestCommand(context.Background())
-	if err := cmd.Flags().Set("platform", "ios"); err != nil {
-		t.Fatalf("set platform flag: %v", err)
-	}
-	if err := cmd.Flags().Set("launch-var", "API_URL"); err != nil {
-		t.Fatalf("set launch-var flag: %v", err)
-	}
-	if err := cmd.Flags().Set("launch-var", "launch-2"); err != nil {
-		t.Fatalf("set launch-var flag by ID: %v", err)
-	}
-	if err := cmd.Flags().Set("json", "true"); err != nil {
-		t.Fatalf("set json flag: %v", err)
-	}
-
-	if err := deviceStartCmd.RunE(cmd, nil); err != nil {
-		t.Fatalf("device start returned error: %v", err)
-	}
-	if len(capturedStartReq.LaunchEnvVarIds) != 2 {
-		t.Fatalf("start_device launch_env_var_ids = %v, want 2 IDs", capturedStartReq.LaunchEnvVarIds)
-	}
-	if capturedStartReq.LaunchEnvVarIds[0] != "launch-1" || capturedStartReq.LaunchEnvVarIds[1] != "launch-2" {
-		t.Fatalf("start_device launch_env_var_ids = %v, want [launch-1 launch-2]", capturedStartReq.LaunchEnvVarIds)
 	}
 }
 

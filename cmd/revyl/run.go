@@ -17,7 +17,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
@@ -588,18 +587,10 @@ func queueWorkflowExecution(
 		req.BuildConfig = &api.WorkflowAppConfig{}
 		req.OverrideBuildConfig = true
 		if iosAppID != "" {
-			parsedIOSAppID, err := uuid.Parse(iosAppID)
-			if err != nil {
-				return nil, fmt.Errorf("invalid iOS app ID %q: %w", iosAppID, err)
-			}
-			req.BuildConfig.IosBuild = &api.PlatformApp{AppId: parsedIOSAppID}
+			req.BuildConfig.IosBuild = &api.PlatformApp{AppId: iosAppID}
 		}
 		if androidAppID != "" {
-			parsedAndroidAppID, err := uuid.Parse(androidAppID)
-			if err != nil {
-				return nil, fmt.Errorf("invalid Android app ID %q: %w", androidAppID, err)
-			}
-			req.BuildConfig.AndroidBuild = &api.PlatformApp{AppId: parsedAndroidAppID}
+			req.BuildConfig.AndroidBuild = &api.PlatformApp{AppId: androidAppID}
 		}
 	}
 	if hasLocation {

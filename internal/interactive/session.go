@@ -323,14 +323,14 @@ func (s *Session) Start(ctx context.Context) error {
 		return fmt.Errorf("device start failed: %s", *startResp.Error)
 	}
 
-	if startResp.WorkflowRunId == nil || *startResp.WorkflowRunId == uuid.Nil {
+	if startResp.WorkflowRunId == nil || *startResp.WorkflowRunId == "" {
 		s.setState(StateError)
 		return fmt.Errorf("no workflow run ID returned")
 	}
 
 	s.mu.Lock()
 	s.sessionID = startReq.SessionID
-	s.workflowRunID = startResp.WorkflowRunId.String()
+	s.workflowRunID = *startResp.WorkflowRunId
 	s.mu.Unlock()
 
 	// Wait for worker WebSocket URL

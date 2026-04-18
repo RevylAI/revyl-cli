@@ -2253,9 +2253,6 @@ type StartDeviceRequest struct {
 	// AppLink is a presigned or direct URL to the app binary artifact.
 	AppLink string `json:"app_link,omitempty"`
 
-	// LaunchEnvVarIds are org launch variable IDs selected for a raw device session.
-	LaunchEnvVarIds []string `json:"launch_env_var_ids,omitempty"`
-
 	// IsSimulation enables simulation mode (streaming without test execution).
 	IsSimulation bool `json:"is_simulation,omitempty"`
 
@@ -3557,17 +3554,39 @@ func (c *Client) GetWorkflowUnifiedReport(ctx context.Context, workflowTaskID st
 	return &result, nil
 }
 
-// --- Test Launch Var Attachment API methods ---
+// --- Env Var API methods ---
 
-// ListTestLaunchEnvVarAttachments retrieves all org launch vars attached to a test.
-func (c *Client) ListTestLaunchEnvVarAttachments(ctx context.Context, testID string) (*OrgLaunchVariablesResponse, error) {
-	path := fmt.Sprintf("/api/v1/variables/org_launch_env/test-attachments?test_id=%s", testID)
+// EnvVar represents an app launch environment variable.
+type EnvVar struct {
+	ID        string `json:"id"`
+	TestID    string `json:"test_id"`
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+}
+
+// EnvVarsResponse represents the response from listing env vars.
+type EnvVarsResponse struct {
+	Message string   `json:"message"`
+	Result  []EnvVar `json:"result"`
+}
+
+// EnvVarResponse represents the response from a single env var operation.
+type EnvVarResponse struct {
+	Message string `json:"message"`
+	Result  EnvVar `json:"result"`
+}
+
+// ListEnvVars retrieves all env vars for a test.
+func (c *Client) ListEnvVars(ctx context.Context, testID string) (*EnvVarsResponse, error) {
+	path := fmt.Sprintf("/api/v1/variables/app_launch_env/read?test_id=%s", testID)
 	resp, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var result OrgLaunchVariablesResponse
+	var result EnvVarsResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
@@ -3575,23 +3594,66 @@ func (c *Client) ListTestLaunchEnvVarAttachments(ctx context.Context, testID str
 	return &result, nil
 }
 
-// ReplaceTestLaunchEnvVarAttachments replaces the launch vars attached to a test.
-func (c *Client) ReplaceTestLaunchEnvVarAttachments(ctx context.Context, testID string, envVarIDs []string) (*OrgLaunchVariablesResponse, error) {
-	body := map[string]interface{}{
-		"test_id":     testID,
-		"env_var_ids": envVarIDs,
+// AddEnvVar adds an env var to a test.
+func (c *Client) AddEnvVar(ctx context.Context, testID, key, value string) (*EnvVarResponse, error) {
+	body := map[string]string{
+		"test_id": testID,
+		"key":     key,
+		"value":   value,
 	}
-	resp, err := c.doRequest(ctx, "PUT", "/api/v1/variables/org_launch_env/test-attachments", body)
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/variables/app_launch_env/add", body)
 	if err != nil {
 		return nil, err
 	}
 
-	var result OrgLaunchVariablesResponse
+	var result EnvVarResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
 
 	return &result, nil
+}
+
+// UpdateEnvVar updates an existing env var.
+func (c *Client) UpdateEnvVar(ctx context.Context, envVarID, key, value string) (*EnvVarResponse, error) {
+	body := map[string]string{
+		"env_var_id": envVarID,
+		"key":        key,
+		"value":      value,
+	}
+	resp, err := c.doRequest(ctx, "PUT", "/api/v1/variables/app_launch_env/update", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result EnvVarResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteEnvVar deletes a single env var by ID.
+func (c *Client) DeleteEnvVar(ctx context.Context, envVarID string) error {
+	path := fmt.Sprintf("/api/v1/variables/app_launch_env/delete?env_var_id=%s", envVarID)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
+}
+
+// DeleteAllEnvVars deletes all env vars for a test.
+func (c *Client) DeleteAllEnvVars(ctx context.Context, testID string) error {
+	path := fmt.Sprintf("/api/v1/variables/app_launch_env/delete_all?test_id=%s", testID)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+
+	return parseResponse(resp, nil)
 }
 
 // UpdateDeviceTarget updates the saved device target for a test.
@@ -4624,38 +4686,6 @@ func (c *Client) DownloadFileFromURL(ctx context.Context, fileURL, destPath stri
 
 // Global variable response models are generated in generated.go from OpenAPI.
 
-// OrgLaunchVariable represents an org-scoped reusable launch variable.
-type OrgLaunchVariable struct {
-	ID                string `json:"id"`
-	OrgID             string `json:"org_id"`
-	Key               string `json:"key"`
-	Value             string `json:"value"`
-	Description       string `json:"description,omitempty"`
-	CreatedBy         string `json:"created_by,omitempty"`
-	CreatedAt         string `json:"created_at,omitempty"`
-	UpdatedAt         string `json:"updated_at,omitempty"`
-	AttachedTestCount int    `json:"attached_test_count,omitempty"`
-}
-
-// OrgLaunchVariablesResponse represents the response from listing org launch variables.
-type OrgLaunchVariablesResponse struct {
-	Message string              `json:"message"`
-	Result  []OrgLaunchVariable `json:"result"`
-}
-
-// OrgLaunchVariableResponse represents the response from a single org launch variable operation.
-type OrgLaunchVariableResponse struct {
-	Message string            `json:"message"`
-	Result  OrgLaunchVariable `json:"result"`
-}
-
-// OrgLaunchVariableDeleteResponse represents the response from deleting an org launch variable.
-type OrgLaunchVariableDeleteResponse struct {
-	Message           string            `json:"message"`
-	Result            OrgLaunchVariable `json:"result"`
-	DetachedTestCount int               `json:"detached_test_count"`
-}
-
 // ListGlobalVariables retrieves all global variables for the authenticated user's org.
 func (c *Client) ListGlobalVariables(ctx context.Context) (*GlobalVariablesResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/variables/global", nil)
@@ -4719,86 +4749,6 @@ func (c *Client) DeleteGlobalVariable(ctx context.Context, variableID string) er
 	}
 
 	return parseResponse(resp, nil)
-}
-
-// ListOrgLaunchVariables retrieves all org launch variables for the authenticated user's org.
-func (c *Client) ListOrgLaunchVariables(ctx context.Context) (*OrgLaunchVariablesResponse, error) {
-	resp, err := c.doRequest(ctx, "GET", "/api/v1/variables/org_launch_env", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result OrgLaunchVariablesResponse
-	if err := parseResponse(resp, &result); err != nil {
-		return nil, err
-	}
-
-	return &result, nil
-}
-
-// AddOrgLaunchVariable creates a new org launch variable for the authenticated user's org.
-func (c *Client) AddOrgLaunchVariable(ctx context.Context, key, value string, description *string) (*OrgLaunchVariableResponse, error) {
-	body := map[string]interface{}{
-		"key":   key,
-		"value": value,
-	}
-	if description != nil {
-		body["description"] = *description
-	}
-	resp, err := c.doRequest(ctx, "POST", "/api/v1/variables/org_launch_env", body)
-	if err != nil {
-		return nil, err
-	}
-
-	var result OrgLaunchVariableResponse
-	if err := parseResponse(resp, &result); err != nil {
-		return nil, err
-	}
-
-	return &result, nil
-}
-
-// UpdateOrgLaunchVariable updates an existing org launch variable by UUID.
-func (c *Client) UpdateOrgLaunchVariable(ctx context.Context, variableID string, key, value, description *string) (*OrgLaunchVariableResponse, error) {
-	body := map[string]interface{}{}
-	if key != nil {
-		body["key"] = *key
-	}
-	if value != nil {
-		body["value"] = *value
-	}
-	if description != nil {
-		body["description"] = *description
-	}
-
-	path := fmt.Sprintf("/api/v1/variables/org_launch_env/%s", variableID)
-	resp, err := c.doRequest(ctx, "PUT", path, body)
-	if err != nil {
-		return nil, err
-	}
-
-	var result OrgLaunchVariableResponse
-	if err := parseResponse(resp, &result); err != nil {
-		return nil, err
-	}
-
-	return &result, nil
-}
-
-// DeleteOrgLaunchVariable deletes an org launch variable by UUID.
-func (c *Client) DeleteOrgLaunchVariable(ctx context.Context, variableID string) (*OrgLaunchVariableDeleteResponse, error) {
-	path := fmt.Sprintf("/api/v1/variables/org_launch_env/%s", variableID)
-	resp, err := c.doRequest(ctx, "DELETE", path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result OrgLaunchVariableDeleteResponse
-	if err := parseResponse(resp, &result); err != nil {
-		return nil, err
-	}
-
-	return &result, nil
 }
 
 // ---------------------------------------------------------------------------

@@ -49,7 +49,7 @@ var quickActions = []quickAction{
 	{Label: "Browse tests", Key: "tests", Desc: "View, sync, and manage tests", RequiresAuth: true},
 	{Label: "Browse workflows", Key: "workflows", Desc: "Create, run, and manage workflows", RequiresAuth: true},
 	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds", RequiresAuth: true},
-	{Label: "Browse library", Key: "library", Desc: "Modules, launch vars, variables, scripts, and files", RequiresAuth: true},
+	{Label: "Browse library", Key: "library", Desc: "Modules, variables, scripts, and files", RequiresAuth: true},
 	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels", RequiresAuth: true},
 	{Label: "Device sessions", Key: "devices", Desc: "Start, view, and stop cloud devices", RequiresAuth: true},
 	{Label: "Start Dev Loop", Key: "dev_loop", Desc: "Start revyl dev: hot reload + rebuild on cloud device", RequiresAuth: true},
@@ -157,6 +157,18 @@ type hubModel struct {
 	testRenamePreview       string
 	testRenameError         string
 
+	// Env var editor state (overlay in test detail)
+	envVarEditorActive  bool
+	envVars             []EnvVarItem
+	envVarCursor        int
+	envVarLoading       bool
+	envVarShowValues    bool
+	envVarAddingKey     bool
+	envVarAddingValue   bool
+	envVarConfirmDelete bool
+	envVarKeyInput      textinput.Model
+	envVarValueInput    textinput.Model
+
 	// Tag picker state (overlay in test detail)
 	tagPickerActive  bool
 	tagPickerLoading bool
@@ -205,20 +217,9 @@ type hubModel struct {
 	moduleDetailScroll  int
 	moduleConfirmDelete bool
 
-	// Library hub state (tabs: modules / launch vars / variables / scripts / files)
+	// Library hub state (tabs: modules / variables / scripts / files)
 	libraryTab  libraryTab
 	libraryMode libraryMode
-
-	launchVarItems            []LaunchVarItem
-	launchVarCursor           int
-	launchVarsLoading         bool
-	selectedLaunchVar         *LaunchVarItem
-	launchVarIsCreating       bool
-	launchVarEditField        int // 0=key, 1=value, 2=description
-	launchVarShowValues       bool
-	launchVarKeyInput         textinput.Model
-	launchVarValueInput       textinput.Model
-	launchVarDescriptionInput textinput.Model
 
 	scriptItems         []ScriptItem
 	scriptCursor        int
@@ -339,6 +340,14 @@ func newHubModel(version string, devMode bool) hubModel {
 	rfi.Placeholder = "filter..."
 	rfi.CharLimit = 64
 
+	eki := textinput.New()
+	eki.Placeholder = "KEY"
+	eki.CharLimit = 128
+
+	evi := textinput.New()
+	evi.Placeholder = "VALUE"
+	evi.CharLimit = 512
+
 	tni := textinput.New()
 	tni.Placeholder = "tag name..."
 	tni.CharLimit = 64
@@ -388,43 +397,30 @@ func newHubModel(version string, devMode bool) hubModel {
 	varValue.Placeholder = "value..."
 	varValue.CharLimit = 1024
 
-	launchVarKey := textinput.New()
-	launchVarKey.Placeholder = "LAUNCH_ARG_KEY"
-	launchVarKey.CharLimit = 128
-
-	launchVarValue := textinput.New()
-	launchVarValue.Placeholder = "value..."
-	launchVarValue.CharLimit = 1024
-
-	launchVarDescription := textinput.New()
-	launchVarDescription.Placeholder = "description..."
-	launchVarDescription.CharLimit = 256
-
 	return hubModel{
-		version:                   version,
-		currentView:               viewDashboard,
-		loading:                   true,
-		spinner:                   newSpinner(),
-		filterInput:               ti,
-		reportFilterInput:         rfi,
-		tagNameInput:              tni,
-		wfCreateNameInput:         wfni,
-		wfCreateTestFilterInput:   wctfi,
-		wfFilterInput:             wffi,
-		testRenameInput:           trn,
-		settingsTimeout:           config.DefaultTimeoutSeconds,
-		settingsOpenBrowser:       config.DefaultOpenBrowser,
-		settingsTimeoutInput:      sti,
-		deviceStartFilterInput:    dsfi,
-		scriptEditNameInput:       scrEditName,
-		scriptEditDescInput:       scrEditDesc,
-		fileEditDescInput:         fileEditDesc,
-		varNameInput:              varName,
-		varValueInput:             varValue,
-		launchVarKeyInput:         launchVarKey,
-		launchVarValueInput:       launchVarValue,
-		launchVarDescriptionInput: launchVarDescription,
-		devMode:                   devMode,
+		version:                 version,
+		currentView:             viewDashboard,
+		loading:                 true,
+		spinner:                 newSpinner(),
+		filterInput:             ti,
+		reportFilterInput:       rfi,
+		envVarKeyInput:          eki,
+		envVarValueInput:        evi,
+		tagNameInput:            tni,
+		wfCreateNameInput:       wfni,
+		wfCreateTestFilterInput: wctfi,
+		wfFilterInput:           wffi,
+		testRenameInput:         trn,
+		settingsTimeout:         config.DefaultTimeoutSeconds,
+		settingsOpenBrowser:     config.DefaultOpenBrowser,
+		settingsTimeoutInput:    sti,
+		deviceStartFilterInput:  dsfi,
+		scriptEditNameInput:     scrEditName,
+		scriptEditDescInput:     scrEditDesc,
+		fileEditDescInput:       fileEditDesc,
+		varNameInput:            varName,
+		varValueInput:           varValue,
+		devMode:                 devMode,
 	}
 }
 
@@ -1420,6 +1416,32 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchTestsCmd(m.client))
 		return m, tea.Batch(cmds...)
 
+	// --- Env var messages ---
+
+	case EnvVarListMsg:
+		m.envVarLoading = false
+		if msg.Err == nil {
+			m.envVars = msg.Vars
+			m.envVarCursor = 0
+		}
+		return m, nil
+
+	case EnvVarAddedMsg:
+		m.envVarLoading = false
+		if msg.Err == nil && m.client != nil && m.selectedTestDetail != nil {
+			m.envVarLoading = true
+			return m, fetchEnvVarsCmd(m.client, m.selectedTestDetail.ID)
+		}
+		return m, nil
+
+	case EnvVarDeletedMsg:
+		m.envVarLoading = false
+		if msg.Err == nil && m.client != nil && m.selectedTestDetail != nil {
+			m.envVarLoading = true
+			return m, fetchEnvVarsCmd(m.client, m.selectedTestDetail.ID)
+		}
+		return m, nil
+
 	// --- Tag messages ---
 
 	case TagListMsg:
@@ -1565,34 +1587,6 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil && m.client != nil {
 			m.filesLoading = true
 			return m, fetchFilesCmd(m.client)
-		}
-		return m, nil
-
-	case LaunchVarListMsg:
-		m.launchVarsLoading = false
-		if msg.Err == nil {
-			m.launchVarItems = msg.LaunchVars
-			if m.launchVarCursor >= len(m.launchVarItems) {
-				m.launchVarCursor = 0
-			}
-		}
-		return m, nil
-
-	case LaunchVarSavedMsg:
-		m.launchVarsLoading = false
-		if msg.Err == nil && m.client != nil {
-			m.launchVarsLoading = true
-			return m, fetchLaunchVarsCmd(m.client)
-		}
-		return m, nil
-
-	case LaunchVarDeletedMsg:
-		m.launchVarsLoading = false
-		m.selectedLaunchVar = nil
-		m.libraryMode = libModeList
-		if msg.Err == nil && m.client != nil {
-			m.launchVarsLoading = true
-			return m, fetchLaunchVarsCmd(m.client)
 		}
 		return m, nil
 

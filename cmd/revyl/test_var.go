@@ -2,8 +2,8 @@
 //
 // Test variables use {{variable-name}} or {{variable_name}} syntax in step
 // descriptions and are
-// substituted at runtime. They are distinct from org launch variables, which
-// are managed separately and attached to tests by key.
+// substituted at runtime. They are distinct from app-launch environment
+// variables (revyl test env) which are encrypted and injected at app start.
 package main
 
 import (
@@ -32,8 +32,8 @@ Test variables use {{variable-name}} or {{variable_name}} syntax in step
 descriptions and are substituted at runtime. Variable names must use letters,
 numbers, hyphens, or underscores (no spaces).
 
-These are different from org launch variables, which are managed separately and
-attached to tests by key.
+These are different from env vars (revyl test env), which are encrypted and
+injected at app launch.
 
 COMMANDS:
   list    - List all variables for a test

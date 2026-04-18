@@ -292,7 +292,7 @@ func TestStartDeviceSessionCmd_StartsBareDeviceWhenNoAppSelected(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
 			t.Fatalf("decode start request: %v", err)
 		}
-		_, _ = w.Write([]byte(`{"workflow_run_id":"33333333-3333-3333-3333-333333333333"}`))
+		_, _ = w.Write([]byte(`{"workflow_run_id":"wf-bare"}`))
 	}))
 	defer server.Close()
 
@@ -349,7 +349,7 @@ func TestStartDeviceSessionCmd_ResolvesSelectedAppToLatestBuild(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
 				t.Fatalf("decode start request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"44444444-4444-4444-4444-444444444444"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"wf-app"}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.RequestURI())
 		}

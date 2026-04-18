@@ -168,7 +168,8 @@ func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"remote-id","version":2}`))
-		case "/api/v1/variables/custom/delete_all":
+		case "/api/v1/variables/custom/delete_all",
+			"/api/v1/variables/app_launch_env/delete_all":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"message":"deleted all"}`))
 		case "/api/v1/tests/scripts", "/api/v1/modules/list":
@@ -224,7 +225,7 @@ func TestImportRemoteTest_ReusesExistingAliasForSameRemoteID(t *testing.T) {
 		case r.URL.Path == "/api/v1/tests/tags/tests/remote-id":
 			_, _ = w.Write([]byte(`[]`))
 		case strings.HasPrefix(r.URL.Path, "/api/v1/variables/custom/read_variables"),
-			strings.HasPrefix(r.URL.Path, "/api/v1/variables/org_launch_env/test-attachments"):
+			strings.HasPrefix(r.URL.Path, "/api/v1/variables/app_launch_env/read"):
 			_, _ = w.Write([]byte(`{"result":[]}`))
 		case strings.HasPrefix(r.URL.Path, "/api/v1/tests/scripts"):
 			_, _ = w.Write([]byte(`{"scripts":[],"count":0}`))
@@ -481,7 +482,8 @@ func TestSyncToRemote_UpdateExistingTest(t *testing.T) {
 			}
 			updatedVersion = 4
 			_, _ = w.Write([]byte(`{"id":"existing-id","version":4}`))
-		case strings.HasPrefix(r.URL.Path, "/api/v1/variables/custom/delete_all"):
+		case strings.HasPrefix(r.URL.Path, "/api/v1/variables/custom/delete_all"),
+			strings.HasPrefix(r.URL.Path, "/api/v1/variables/app_launch_env/delete_all"):
 			_, _ = w.Write([]byte(`{"message":"ok"}`))
 		case r.URL.Path == "/api/v1/tests/scripts" || r.URL.Path == "/api/v1/modules/list":
 			_, _ = w.Write([]byte(`{"scripts":[],"result":[]}`))

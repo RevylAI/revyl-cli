@@ -10,7 +10,7 @@ import (
 )
 
 // newLibraryHubModel returns a hub model parked on the Library view at the
-// Modules tab in list mode, with the five list slices pre-populated so the
+// Modules tab in list mode, with the four list slices pre-populated so the
 // tests can exercise navigation without an API client.
 func newLibraryHubModel() hubModel {
 	m := newHubModel("dev", false)
@@ -22,9 +22,6 @@ func newLibraryHubModel() hubModel {
 	m.moduleItems = []ModuleItem{
 		{ID: "m1", Name: "login-flow", BlockCount: 3},
 		{ID: "m2", Name: "checkout", BlockCount: 5},
-	}
-	m.launchVarItems = []LaunchVarItem{
-		{ID: "lv1", Key: "API_URL", Value: "https://staging.example.com", Description: "shared endpoint", AttachedTestCount: 2},
 	}
 	m.varItems = []VariableItem{
 		{ID: "v1", Name: "API_TOKEN", Value: "abc"},
@@ -66,7 +63,7 @@ func sendSpecialKey(t *testing.T, m hubModel, kt tea.KeyType) hubModel {
 
 func TestLibraryTabCycleForward(t *testing.T) {
 	m := newLibraryHubModel()
-	want := []libraryTab{libTabLaunchVars, libTabVariables, libTabScripts, libTabFiles, libTabModules}
+	want := []libraryTab{libTabVariables, libTabScripts, libTabFiles, libTabModules}
 	for i, expected := range want {
 		m = sendSpecialKey(t, m, tea.KeyTab)
 		if m.libraryTab != expected {
@@ -89,10 +86,9 @@ func TestLibraryTabCycleBackward(t *testing.T) {
 func TestLibraryTabDirectJump(t *testing.T) {
 	m := newLibraryHubModel()
 	cases := map[string]libraryTab{
-		"2": libTabLaunchVars,
-		"3": libTabVariables,
-		"4": libTabScripts,
-		"5": libTabFiles,
+		"2": libTabVariables,
+		"3": libTabScripts,
+		"4": libTabFiles,
 		"1": libTabModules,
 	}
 	for key, expected := range cases {
@@ -105,26 +101,18 @@ func TestLibraryTabDirectJump(t *testing.T) {
 
 func TestLibraryTabSwitchSetsLoadingFlagForActiveTab(t *testing.T) {
 	tests := []struct {
-		name              string
-		startTab          libraryTab
-		key               tea.KeyMsg
-		wantTab           libraryTab
-		moduleLoading     bool
-		launchVarsLoading bool
-		varsLoading       bool
-		scriptsLoading    bool
-		filesLoading      bool
+		name           string
+		startTab       libraryTab
+		key            tea.KeyMsg
+		wantTab        libraryTab
+		moduleLoading  bool
+		varsLoading    bool
+		scriptsLoading bool
+		filesLoading   bool
 	}{
 		{
-			name:              "tab to launch vars",
-			startTab:          libTabModules,
-			key:               tea.KeyMsg{Type: tea.KeyTab},
-			wantTab:           libTabLaunchVars,
-			launchVarsLoading: true,
-		},
-		{
 			name:        "tab to variables",
-			startTab:    libTabLaunchVars,
+			startTab:    libTabModules,
 			key:         tea.KeyMsg{Type: tea.KeyTab},
 			wantTab:     libTabVariables,
 			varsLoading: true,
@@ -174,9 +162,6 @@ func TestLibraryTabSwitchSetsLoadingFlagForActiveTab(t *testing.T) {
 			if got.moduleLoading != tt.moduleLoading {
 				t.Fatalf("moduleLoading = %v, want %v", got.moduleLoading, tt.moduleLoading)
 			}
-			if got.launchVarsLoading != tt.launchVarsLoading {
-				t.Fatalf("launchVarsLoading = %v, want %v", got.launchVarsLoading, tt.launchVarsLoading)
-			}
 			if got.varsLoading != tt.varsLoading {
 				t.Fatalf("varsLoading = %v, want %v", got.varsLoading, tt.varsLoading)
 			}
@@ -193,7 +178,7 @@ func TestLibraryTabSwitchSetsLoadingFlagForActiveTab(t *testing.T) {
 func TestLibraryRenderShowsAllTabsAndActiveHighlight(t *testing.T) {
 	m := newLibraryHubModel()
 	out := renderLibrary(m)
-	for _, label := range []string{"Modules", "Launch Vars", "Variables", "Scripts", "Files"} {
+	for _, label := range []string{"Modules", "Variables", "Scripts", "Files"} {
 		if !strings.Contains(out, label) {
 			t.Errorf("library output missing tab label %q", label)
 		}
@@ -205,11 +190,10 @@ func TestLibraryRenderShowsAllTabsAndActiveHighlight(t *testing.T) {
 
 func TestLibraryRenderShowsCLIHintPerTab(t *testing.T) {
 	hints := map[libraryTab]string{
-		libTabModules:    "revyl module create",
-		libTabLaunchVars: "revyl global launch-var list",
-		libTabVariables:  "revyl global var set",
-		libTabScripts:    "revyl script create",
-		libTabFiles:      "revyl file upload",
+		libTabModules:   "revyl module create",
+		libTabVariables: "revyl global var set",
+		libTabScripts:   "revyl script create",
+		libTabFiles:     "revyl file upload",
 	}
 	for tab, want := range hints {
 		m := newLibraryHubModel()
@@ -274,44 +258,6 @@ func TestLibraryVariablesEditPrefillsExistingValues(t *testing.T) {
 	}
 	if m.varValueInput.Value() != "abc" {
 		t.Fatalf("expected value prefilled to 'abc', got %q", m.varValueInput.Value())
-	}
-}
-
-func TestLibraryLaunchVarsEditPrefillsExistingValues(t *testing.T) {
-	m := newLibraryHubModel()
-	m.libraryTab = libTabLaunchVars
-	m = sendKey(t, m, "e")
-	if m.libraryMode != libModeEditing {
-		t.Fatalf("expected editing mode, got %v", m.libraryMode)
-	}
-	if m.launchVarIsCreating {
-		t.Fatal("editing existing launch variable should not set launchVarIsCreating")
-	}
-	if m.launchVarKeyInput.Value() != "API_URL" {
-		t.Fatalf("expected key prefilled to API_URL, got %q", m.launchVarKeyInput.Value())
-	}
-	if m.launchVarValueInput.Value() != "https://staging.example.com" {
-		t.Fatalf("expected value prefilled, got %q", m.launchVarValueInput.Value())
-	}
-	if m.launchVarDescriptionInput.Value() != "shared endpoint" {
-		t.Fatalf("expected description prefilled, got %q", m.launchVarDescriptionInput.Value())
-	}
-}
-
-func TestLibraryLaunchVarsToggleValueVisibility(t *testing.T) {
-	m := newLibraryHubModel()
-	m.libraryTab = libTabLaunchVars
-	out := renderLibrary(m)
-	if strings.Contains(out, "https://staging.example.com") {
-		t.Fatalf("expected masked values by default, got:\n%s", out)
-	}
-	m = sendKey(t, m, "v")
-	if !m.launchVarShowValues {
-		t.Fatal("expected launchVarShowValues to toggle on")
-	}
-	out = renderLibrary(m)
-	if !strings.Contains(out, "https://staging") {
-		t.Fatalf("expected unmasked value after toggle, got:\n%s", out)
 	}
 }
 
@@ -432,13 +378,6 @@ func TestLibraryMessageHandlersPopulateSlices(t *testing.T) {
 	m = res.(hubModel)
 	if len(m.varItems) != 1 || m.varItems[0].Name != "K" {
 		t.Fatalf("VariableListMsg should populate varItems, got %+v", m.varItems)
-	}
-
-	// Launch vars
-	res, _ = m.Update(LaunchVarListMsg{LaunchVars: []LaunchVarItem{{ID: "lv1", Key: "API_URL", Value: "x"}}})
-	m = res.(hubModel)
-	if len(m.launchVarItems) != 1 || m.launchVarItems[0].Key != "API_URL" {
-		t.Fatalf("LaunchVarListMsg should populate launchVarItems, got %+v", m.launchVarItems)
 	}
 }
 

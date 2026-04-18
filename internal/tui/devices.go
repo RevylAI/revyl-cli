@@ -143,7 +143,7 @@ func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osV
 			return DeviceStartedMsg{Err: fmt.Errorf("failed to start device: %w", err)}
 		}
 
-		if resp.WorkflowRunId == nil {
+		if resp.WorkflowRunId == nil || *resp.WorkflowRunId == "" {
 			errMsg := "no workflow run ID returned"
 			if resp.Error != nil {
 				errMsg = *resp.Error
@@ -157,7 +157,7 @@ func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osV
 		}
 
 		return DeviceStartedMsg{
-			WorkflowRunID: resp.WorkflowRunId.String(),
+			WorkflowRunID: *resp.WorkflowRunId,
 			Platform:      platform,
 			ViewerURL:     viewerURL,
 		}
@@ -675,7 +675,9 @@ func (m hubModel) renderDeviceList() string {
 			statusBadge := deviceStatusBadge(s.Status)
 			uptime := ""
 			if s.StartedAt != nil {
-				uptime = dimStyle.Render("  " + formatDuration(time.Since(*s.StartedAt)))
+				if t, err := time.Parse(time.RFC3339, *s.StartedAt); err == nil {
+					uptime = dimStyle.Render("  " + formatDuration(time.Since(t)))
+				}
 			}
 			idShort := s.Id
 			if len(idShort) > 8 {
@@ -891,7 +893,9 @@ func (m hubModel) renderDeviceDetail() string {
 			b.WriteString("  " + sectionStyle.Render("OS") + "            " + normalStyle.Render(*session.OsVersion) + "\n")
 		}
 		if session.StartedAt != nil {
-			b.WriteString("  " + sectionStyle.Render("Uptime") + "        " + normalStyle.Render(formatDuration(time.Since(*session.StartedAt))) + "\n")
+			if t, err := time.Parse(time.RFC3339, *session.StartedAt); err == nil {
+				b.WriteString("  " + sectionStyle.Render("Uptime") + "        " + normalStyle.Render(formatDuration(time.Since(t))) + "\n")
+			}
 		}
 		if session.UserEmail != nil && *session.UserEmail != "" {
 			b.WriteString("  " + sectionStyle.Render("User") + "          " + dimStyle.Render(*session.UserEmail) + "\n")
