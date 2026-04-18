@@ -84,12 +84,6 @@ Tag management:
   - set_test_tags: Replace all tags on a test
   - add_remove_test_tags: Add/remove tags without replacing all
 
-Environment variables:
-  - list_env_vars: List env vars for a test
-  - set_env_var: Add or update a test env var
-  - delete_env_var: Delete a test env var by key
-  - clear_env_vars: Delete all env vars for a test
-
 Workflow settings:
   - get_workflow_settings: Get workflow location and app settings
   - set_workflow_location: Set GPS location override for a workflow

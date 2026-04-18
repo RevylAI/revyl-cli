@@ -49,7 +49,7 @@ type TestContent struct {
 	Build     TestBuild         `yaml:"build"`
 	Device    *TestDeviceConfig `yaml:"device,omitempty"`
 	Variables map[string]string `yaml:"variables,omitempty"`
-	EnvVars   map[string]string `yaml:"env_vars,omitempty"`
+	EnvVars   []string          `yaml:"env_vars,omitempty"`
 	Location  *TestLocation     `yaml:"location,omitempty"`
 	Blocks    []Block           `yaml:"blocks"`
 }
@@ -187,11 +187,8 @@ func ValidateYAML(content string) *ValidationResult {
 	definedVars := make(map[string]bool)
 	usedVars := make(map[string]bool)
 
-	// Variables declared in the top-level variables: and env_vars: sections count as defined
+	// Variables declared in the top-level variables: section count as defined.
 	for varName := range test.Test.Variables {
-		definedVars[varName] = true
-	}
-	for varName := range test.Test.EnvVars {
 		definedVars[varName] = true
 	}
 

@@ -14,6 +14,11 @@ type ArtifactResolver interface {
 	GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error)
 }
 
+// LaunchVarResolver resolves org-scoped launch variables by listing the library.
+type LaunchVarResolver interface {
+	ListOrgLaunchVariables(ctx context.Context) (*api.OrgLaunchVariablesResponse, error)
+}
+
 // StartArtifactOptions contains optional app-selection inputs for device start.
 type StartArtifactOptions struct {
 	AppID          string
@@ -78,4 +83,74 @@ func ResolveStartArtifact(
 	}
 
 	return artifact, nil
+}
+
+// ResolveLaunchVar resolves a launch variable by key or ID.
+func ResolveLaunchVar(
+	ctx context.Context,
+	resolver LaunchVarResolver,
+	keyOrID string,
+) (api.OrgLaunchVariable, error) {
+	needle := strings.TrimSpace(keyOrID)
+	if needle == "" {
+		return api.OrgLaunchVariable{}, fmt.Errorf("launch variable key or ID cannot be empty")
+	}
+
+	resp, err := resolver.ListOrgLaunchVariables(ctx)
+	if err != nil {
+		return api.OrgLaunchVariable{}, fmt.Errorf("failed to list launch variables: %w", err)
+	}
+
+	for _, v := range resp.Result {
+		if strings.TrimSpace(v.ID) == needle {
+			return v, nil
+		}
+	}
+	for _, v := range resp.Result {
+		if v.Key == needle {
+			return v, nil
+		}
+	}
+
+	var folded *api.OrgLaunchVariable
+	for _, v := range resp.Result {
+		if strings.EqualFold(v.Key, needle) {
+			if folded != nil {
+				return api.OrgLaunchVariable{}, fmt.Errorf("multiple launch variables match %q; use the UUID instead", keyOrID)
+			}
+			match := v
+			folded = &match
+		}
+	}
+	if folded != nil {
+		return *folded, nil
+	}
+
+	return api.OrgLaunchVariable{}, fmt.Errorf("launch variable %q not found", keyOrID)
+}
+
+// ResolveLaunchVarIDs resolves and de-duplicates launch variable references.
+func ResolveLaunchVarIDs(
+	ctx context.Context,
+	resolver LaunchVarResolver,
+	keyOrIDs []string,
+) ([]string, error) {
+	if len(keyOrIDs) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0, len(keyOrIDs))
+	seen := make(map[string]struct{}, len(keyOrIDs))
+	for _, keyOrID := range keyOrIDs {
+		variable, err := ResolveLaunchVar(ctx, resolver, keyOrID)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := seen[variable.ID]; ok {
+			continue
+		}
+		seen[variable.ID] = struct{}{}
+		ids = append(ids, variable.ID)
+	}
+	return ids, nil
 }

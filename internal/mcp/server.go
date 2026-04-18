@@ -626,52 +626,12 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 		},
 	}, s.handleDeleteFile)
 
-	// --- Env var tools ---
-
-	// list_env_vars tool
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "list_env_vars",
-		Description: "List all environment variables for a test. Env vars are encrypted at rest and injected at app launch.",
-		Annotations: &mcp.ToolAnnotations{
-			Title:        "List Env Vars",
-			ReadOnlyHint: true,
-		},
-	}, s.handleListEnvVars)
-
-	// set_env_var tool
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "set_env_var",
-		Description: "Add or update an environment variable for a test. If the key already exists, its value is updated.",
-		Annotations: &mcp.ToolAnnotations{
-			Title: "Set Env Var",
-		},
-	}, s.handleSetEnvVar)
-
-	// delete_env_var tool
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "delete_env_var",
-		Description: "Delete an environment variable from a test by key name.",
-		Annotations: &mcp.ToolAnnotations{
-			Title: "Delete Env Var",
-		},
-	}, s.handleDeleteEnvVar)
-
-	// clear_env_vars tool
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "clear_env_vars",
-		Description: "Delete ALL environment variables for a test.",
-		Annotations: &mcp.ToolAnnotations{
-			Title:           "Clear Env Vars",
-			DestructiveHint: boolPtr(true),
-		},
-	}, s.handleClearEnvVars)
-
 	// --- Custom variable tools ({{variable-name}} in step descriptions) ---
 
 	// list_variables tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_variables",
-		Description: "List all test variables for a test. Test variables use {{name}} syntax in step descriptions and are substituted at runtime. For encrypted app-launch environment variables, use list_env_vars instead.",
+		Description: "List all test variables for a test. Test variables use {{name}} syntax in step descriptions and are substituted at runtime.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:        "List Variables",
 			ReadOnlyHint: true,
@@ -681,7 +641,7 @@ RECOMMENDED: Before creating a test, read the app's source code (screens, compon
 	// set_variable tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "set_variable",
-		Description: "Add or update a test variable. Test variables use {{name}} syntax in step descriptions. If the variable name already exists, its value is updated. Variable names must use letters, numbers, hyphens, or underscores (no spaces). For encrypted app-launch environment variables, use set_env_var instead.",
+		Description: "Add or update a test variable. Test variables use {{name}} syntax in step descriptions. If the variable name already exists, its value is updated. Variable names must use letters, numbers, hyphens, or underscores (no spaces).",
 		Annotations: &mcp.ToolAnnotations{
 			Title: "Set Variable",
 		},
@@ -3031,196 +2991,6 @@ func (s *Server) resolveWorkflowID(ctx context.Context, nameOrID string) (string
 }
 
 // --- Env var tool handlers ---
-
-// ListEnvVarsInput defines input for list_env_vars tool.
-type ListEnvVarsInput struct {
-	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
-}
-
-// EnvVarInfo contains information about an env var for MCP output.
-type EnvVarInfo struct {
-	Key       string `json:"key"`
-	Value     string `json:"value"`
-	UpdatedAt string `json:"updated_at,omitempty"`
-}
-
-// ListEnvVarsOutput defines output for list_env_vars tool.
-type ListEnvVarsOutput struct {
-	Success bool         `json:"success"`
-	TestID  string       `json:"test_id,omitempty"`
-	EnvVars []EnvVarInfo `json:"env_vars,omitempty"`
-	Error   string       `json:"error,omitempty"`
-}
-
-func (s *Server) handleListEnvVars(ctx context.Context, req *mcp.CallToolRequest, input ListEnvVarsInput) (*mcp.CallToolResult, ListEnvVarsOutput, error) {
-	if input.TestNameOrID == "" {
-		return nil, ListEnvVarsOutput{Success: false, Error: "test_name_or_id is required"}, nil
-	}
-
-	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
-	if err != nil {
-		return nil, ListEnvVarsOutput{Success: false, Error: err.Error()}, nil
-	}
-
-	resp, err := s.apiClient.ListEnvVars(ctx, testID)
-	if err != nil {
-		return nil, ListEnvVarsOutput{Success: false, Error: fmt.Sprintf("failed to list env vars: %v", err)}, nil
-	}
-
-	var envVars []EnvVarInfo
-	for _, ev := range resp.Result {
-		updated := ev.UpdatedAt
-		if updated == "" {
-			updated = ev.CreatedAt
-		}
-		envVars = append(envVars, EnvVarInfo{Key: ev.Key, Value: ev.Value, UpdatedAt: updated})
-	}
-	if envVars == nil {
-		envVars = []EnvVarInfo{}
-	}
-
-	return nil, ListEnvVarsOutput{Success: true, TestID: testID, EnvVars: envVars}, nil
-}
-
-// SetEnvVarInput defines input for set_env_var tool.
-type SetEnvVarInput struct {
-	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
-	Key          string `json:"key" jsonschema:"Environment variable key"`
-	Value        string `json:"value" jsonschema:"Environment variable value"`
-}
-
-// SetEnvVarOutput defines output for set_env_var tool.
-type SetEnvVarOutput struct {
-	Success bool   `json:"success"`
-	Action  string `json:"action,omitempty"` // "added" or "updated"
-	Key     string `json:"key,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
-
-func (s *Server) handleSetEnvVar(ctx context.Context, req *mcp.CallToolRequest, input SetEnvVarInput) (*mcp.CallToolResult, SetEnvVarOutput, error) {
-	if input.TestNameOrID == "" || input.Key == "" {
-		return nil, SetEnvVarOutput{Success: false, Error: "test_name_or_id and key are required"}, nil
-	}
-	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
-		return nil, SetEnvVarOutput{Success: false, Error: mismatchMsg}, nil
-	}
-
-	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
-	if err != nil {
-		return nil, SetEnvVarOutput{Success: false, Error: err.Error()}, nil
-	}
-
-	// Check if key already exists (upsert)
-	existing, err := s.apiClient.ListEnvVars(ctx, testID)
-	if err != nil {
-		return nil, SetEnvVarOutput{Success: false, Error: fmt.Sprintf("failed to check existing env vars: %v", err)}, nil
-	}
-
-	var existingVar *api.EnvVar
-	for _, ev := range existing.Result {
-		if ev.Key == input.Key {
-			existingVar = &ev
-			break
-		}
-	}
-
-	if existingVar != nil {
-		_, err = s.apiClient.UpdateEnvVar(ctx, existingVar.ID, input.Key, input.Value)
-		if err != nil {
-			return nil, SetEnvVarOutput{Success: false, Error: fmt.Sprintf("failed to update env var: %v", err)}, nil
-		}
-		return nil, SetEnvVarOutput{Success: true, Action: "updated", Key: input.Key}, nil
-	}
-
-	_, err = s.apiClient.AddEnvVar(ctx, testID, input.Key, input.Value)
-	if err != nil {
-		return nil, SetEnvVarOutput{Success: false, Error: fmt.Sprintf("failed to add env var: %v", err)}, nil
-	}
-	return nil, SetEnvVarOutput{Success: true, Action: "added", Key: input.Key}, nil
-}
-
-// DeleteEnvVarInput defines input for delete_env_var tool.
-type DeleteEnvVarInput struct {
-	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
-	Key          string `json:"key" jsonschema:"Environment variable key to delete"`
-}
-
-// DeleteEnvVarOutput defines output for delete_env_var tool.
-type DeleteEnvVarOutput struct {
-	Success bool   `json:"success"`
-	Key     string `json:"key,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
-
-func (s *Server) handleDeleteEnvVar(ctx context.Context, req *mcp.CallToolRequest, input DeleteEnvVarInput) (*mcp.CallToolResult, DeleteEnvVarOutput, error) {
-	if input.TestNameOrID == "" || input.Key == "" {
-		return nil, DeleteEnvVarOutput{Success: false, Error: "test_name_or_id and key are required"}, nil
-	}
-	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
-		return nil, DeleteEnvVarOutput{Success: false, Error: mismatchMsg}, nil
-	}
-
-	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
-	if err != nil {
-		return nil, DeleteEnvVarOutput{Success: false, Error: err.Error()}, nil
-	}
-
-	existing, err := s.apiClient.ListEnvVars(ctx, testID)
-	if err != nil {
-		return nil, DeleteEnvVarOutput{Success: false, Error: fmt.Sprintf("failed to list env vars: %v", err)}, nil
-	}
-
-	var found *api.EnvVar
-	for _, ev := range existing.Result {
-		if ev.Key == input.Key {
-			found = &ev
-			break
-		}
-	}
-
-	if found == nil {
-		return nil, DeleteEnvVarOutput{Success: false, Error: fmt.Sprintf("env var '%s' not found", input.Key)}, nil
-	}
-
-	err = s.apiClient.DeleteEnvVar(ctx, found.ID)
-	if err != nil {
-		return nil, DeleteEnvVarOutput{Success: false, Error: fmt.Sprintf("failed to delete env var: %v", err)}, nil
-	}
-
-	return nil, DeleteEnvVarOutput{Success: true, Key: input.Key}, nil
-}
-
-// ClearEnvVarsInput defines input for clear_env_vars tool.
-type ClearEnvVarsInput struct {
-	TestNameOrID string `json:"test_name_or_id" jsonschema:"Test name (from config) or UUID"`
-}
-
-// ClearEnvVarsOutput defines output for clear_env_vars tool.
-type ClearEnvVarsOutput struct {
-	Success bool   `json:"success"`
-	Error   string `json:"error,omitempty"`
-}
-
-func (s *Server) handleClearEnvVars(ctx context.Context, req *mcp.CallToolRequest, input ClearEnvVarsInput) (*mcp.CallToolResult, ClearEnvVarsOutput, error) {
-	if input.TestNameOrID == "" {
-		return nil, ClearEnvVarsOutput{Success: false, Error: "test_name_or_id is required"}, nil
-	}
-	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
-		return nil, ClearEnvVarsOutput{Success: false, Error: mismatchMsg}, nil
-	}
-
-	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
-	if err != nil {
-		return nil, ClearEnvVarsOutput{Success: false, Error: err.Error()}, nil
-	}
-
-	err = s.apiClient.DeleteAllEnvVars(ctx, testID)
-	if err != nil {
-		return nil, ClearEnvVarsOutput{Success: false, Error: fmt.Sprintf("failed to clear env vars: %v", err)}, nil
-	}
-
-	return nil, ClearEnvVarsOutput{Success: true}, nil
-}
 
 // --- Custom variable tool handlers ---
 

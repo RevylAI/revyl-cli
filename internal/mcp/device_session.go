@@ -280,6 +280,7 @@ type StartSessionOptions struct {
 	// Optional app launch link and package hints.
 	AppLink    string
 	AppPackage string
+	LaunchVars []string
 
 	// Optional test/session metadata.
 	TestID    string
@@ -312,6 +313,11 @@ func (m *DeviceSessionManager) StartSession(
 	if platform != "ios" && platform != "android" {
 		return -1, nil, fmt.Errorf("platform must be 'ios' or 'android'")
 	}
+	launchVars := opts.LaunchVars
+	if strings.TrimSpace(opts.TestID) != "" && len(launchVars) > 0 {
+		ui.PrintWarning("Ignoring --launch-var for test-backed device start; attached test launch vars will be used")
+		launchVars = nil
+	}
 
 	idleTimeout := opts.IdleTimeout
 	if idleTimeout == 0 {
@@ -324,6 +330,10 @@ func (m *DeviceSessionManager) StartSession(
 		AppURL:         opts.AppURL,
 		AppPackage:     opts.AppPackage,
 	})
+	if err != nil {
+		return -1, nil, err
+	}
+	resolvedLaunchVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, m.apiClient, launchVars)
 	if err != nil {
 		return -1, nil, err
 	}
@@ -348,6 +358,9 @@ func (m *DeviceSessionManager) StartSession(
 	if resolvedArtifact.AppPackage != "" {
 		req.AppPackage = resolvedArtifact.AppPackage
 	}
+	if len(resolvedLaunchVarIDs) > 0 {
+		req.LaunchEnvVarIds = resolvedLaunchVarIDs
+	}
 	_ = opts.SandboxID // Reserved for backend support.
 	if opts.DeviceModel != "" {
 		req.DeviceModel = opts.DeviceModel
@@ -362,7 +375,7 @@ func (m *DeviceSessionManager) StartSession(
 		return -1, nil, fmt.Errorf("failed to start device: %w", err)
 	}
 
-	if resp.WorkflowRunId == nil || *resp.WorkflowRunId == "" {
+	if resp.WorkflowRunId == nil {
 		errMsg := "no workflow run ID returned"
 		if resp.Error != nil {
 			errMsg = *resp.Error
@@ -370,7 +383,7 @@ func (m *DeviceSessionManager) StartSession(
 		return -1, nil, fmt.Errorf("failed to start device: %s", errMsg)
 	}
 
-	workflowRunID := *resp.WorkflowRunId
+	workflowRunID := resp.WorkflowRunId.String()
 
 	// Poll for worker URL (up to 120 seconds)
 	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, 120*time.Second)
@@ -1919,14 +1932,14 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 
 	// Sort by created_at ASC for deterministic index assignment
 	sort.Slice(backendSessions, func(i, j int) bool {
-		ci, cj := "", ""
+		var ci, cj time.Time
 		if backendSessions[i].CreatedAt != nil {
 			ci = *backendSessions[i].CreatedAt
 		}
 		if backendSessions[j].CreatedAt != nil {
 			cj = *backendSessions[j].CreatedAt
 		}
-		return ci < cj
+		return ci.Before(cj)
 	})
 
 	// Step 4: Build backend lookup maps for pruning/reconciliation.
@@ -2024,9 +2037,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 
 		startedAt := time.Now()
 		if bs.StartedAt != nil {
-			if t, parseErr := time.Parse(time.RFC3339, *bs.StartedAt); parseErr == nil {
-				startedAt = t
-			}
+			startedAt = *bs.StartedAt
 		}
 
 		idx := m.nextIndex

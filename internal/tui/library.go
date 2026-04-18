@@ -1,8 +1,8 @@
 // Package tui provides the unified Library hub: a tabbed browser for Modules,
-// Variables, Scripts, and Files. The hub stays deliberately modest -- browse,
-// delete, and light targeted edits only. Heavy operations (file upload, module
-// YAML editing, script code editing) are handled by the regular `revyl`
-// subcommands, which the footer hints at on each tab.
+// Launch Vars, Variables, Scripts, and Files. The hub stays deliberately
+// modest -- browse, delete, and light targeted edits only. Heavy operations
+// (file upload, module YAML editing, script code editing) are handled by the
+// regular `revyl` subcommands, which the footer hints at on each tab.
 package tui
 
 import (
@@ -17,6 +17,7 @@ type libraryTab int
 
 const (
 	libTabModules libraryTab = iota
+	libTabLaunchVars
 	libTabVariables
 	libTabScripts
 	libTabFiles
@@ -33,13 +34,15 @@ const (
 )
 
 // libraryTabOrder mirrors frontend/src/pages/library.tsx tab order.
-var libraryTabOrder = []libraryTab{libTabModules, libTabVariables, libTabScripts, libTabFiles}
+var libraryTabOrder = []libraryTab{libTabModules, libTabLaunchVars, libTabVariables, libTabScripts, libTabFiles}
 
 // libraryTabLabel returns the display label for a tab.
 func libraryTabLabel(t libraryTab) string {
 	switch t {
 	case libTabModules:
 		return "Modules"
+	case libTabLaunchVars:
+		return "Launch Vars"
 	case libTabVariables:
 		return "Variables"
 	case libTabScripts:
@@ -58,6 +61,8 @@ func libraryFetchCurrentTab(m hubModel) tea.Cmd {
 	switch m.libraryTab {
 	case libTabModules:
 		return fetchModulesCmd(m.client)
+	case libTabLaunchVars:
+		return fetchLaunchVarsCmd(m.client)
 	case libTabVariables:
 		return fetchVariablesCmd(m.client)
 	case libTabScripts:
@@ -76,6 +81,8 @@ func handleLibraryKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.libraryTab {
 	case libTabModules:
 		return handleLibraryModulesKey(m, msg)
+	case libTabLaunchVars:
+		return handleLibraryLaunchVarsKey(m, msg)
 	case libTabVariables:
 		return handleLibraryVariablesKey(m, msg)
 	case libTabScripts:
@@ -86,7 +93,7 @@ func handleLibraryKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleLibraryTabNav handles global key events (tab/shift+tab/1-4/esc/q)
+// handleLibraryTabNav handles global key events (tab/shift+tab/1-5/esc/q)
 // that apply when the current tab is in list mode. Returns (model, cmd, handled).
 // When handled is false the caller should process the key itself.
 func handleLibraryTabNav(m hubModel, msg tea.KeyMsg) (hubModel, tea.Cmd, bool) {
@@ -94,6 +101,8 @@ func handleLibraryTabNav(m hubModel, msg tea.KeyMsg) (hubModel, tea.Cmd, bool) {
 		switch m.libraryTab {
 		case libTabModules:
 			m.moduleLoading = true
+		case libTabLaunchVars:
+			m.launchVarsLoading = true
 		case libTabVariables:
 			m.varsLoading = true
 		case libTabScripts:
@@ -126,16 +135,21 @@ func handleLibraryTabNav(m hubModel, msg tea.KeyMsg) (hubModel, tea.Cmd, bool) {
 		m = setLibraryTabLoading(m)
 		return m, libraryFetchCurrentTab(m), true
 	case "2":
-		m.libraryTab = libTabVariables
+		m.libraryTab = libTabLaunchVars
 		m.libraryMode = libModeList
 		m = setLibraryTabLoading(m)
 		return m, libraryFetchCurrentTab(m), true
 	case "3":
-		m.libraryTab = libTabScripts
+		m.libraryTab = libTabVariables
 		m.libraryMode = libModeList
 		m = setLibraryTabLoading(m)
 		return m, libraryFetchCurrentTab(m), true
 	case "4":
+		m.libraryTab = libTabScripts
+		m.libraryMode = libModeList
+		m = setLibraryTabLoading(m)
+		return m, libraryFetchCurrentTab(m), true
+	case "5":
 		m.libraryTab = libTabFiles
 		m.libraryMode = libModeList
 		m = setLibraryTabLoading(m)
@@ -248,6 +262,8 @@ func renderLibrary(m hubModel) string {
 	switch m.libraryTab {
 	case libTabModules:
 		b.WriteString(renderLibraryModulesBody(m, innerW))
+	case libTabLaunchVars:
+		b.WriteString(renderLibraryLaunchVarsBody(m, innerW))
 	case libTabVariables:
 		b.WriteString(renderLibraryVariablesBody(m, innerW))
 	case libTabScripts:
@@ -304,6 +320,15 @@ func renderLibraryFooter(m hubModel) string {
 				helpKeyRender("enter", "detail"),
 				helpKeyRender("esc", "back"),
 			}
+		case libTabLaunchVars:
+			keys = []string{
+				helpKeyRender("tab", "next"),
+				helpKeyRender("n", "new"),
+				helpKeyRender("e", "edit"),
+				helpKeyRender("d", "delete"),
+				helpKeyRender("v", "values"),
+				helpKeyRender("esc", "back"),
+			}
 		case libTabVariables:
 			keys = []string{
 				helpKeyRender("tab", "next"),
@@ -339,6 +364,8 @@ func renderLibraryCLIHint(tab libraryTab) string {
 	switch tab {
 	case libTabModules:
 		return dimStyle.Render("Create/edit modules: revyl module create <name> --from-file blocks.yaml")
+	case libTabLaunchVars:
+		return dimStyle.Render("Or via CLI: revyl global launch-var list")
 	case libTabVariables:
 		return dimStyle.Render("Or via CLI: revyl global var set NAME=VALUE")
 	case libTabScripts:
