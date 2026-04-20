@@ -1,7 +1,5 @@
 // Package main provides tests for new CLI features:
 // - parseLocation helper
-// - maskValue helper
-// - test env commands (list, set, delete, clear)
 // - workflow location commands (set, clear, show)
 // - workflow app commands (set, clear, show)
 // - command registration for new subcommands
@@ -80,73 +78,7 @@ func TestParseLocationInvalid(t *testing.T) {
 	}
 }
 
-// --- maskValue unit tests ---
-
-func TestMaskValue(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"", "****"},
-		{"ab", "****"},
-		{"abcd", "****"},
-		{"abcde", "****bcde"},
-		{"https://staging.example.com", "****.com"},
-		{"my-secret-value-123", "****-123"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := maskValue(tt.input)
-			if got != tt.want {
-				t.Errorf("maskValue(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 // --- Command registration tests ---
-
-func TestTestEnvSubcommands(t *testing.T) {
-	// Find "test" command
-	var testCmd *cobra.Command
-	for _, cmd := range rootCmd.Commands() {
-		if cmd.Name() == "test" {
-			testCmd = cmd
-			break
-		}
-	}
-	if testCmd == nil {
-		t.Fatal("expected 'test' command to exist")
-	}
-
-	// Find "env" subcommand
-	var envCmd *cobra.Command
-	for _, cmd := range testCmd.Commands() {
-		if cmd.Name() == "env" {
-			envCmd = cmd
-			break
-		}
-	}
-	if envCmd == nil {
-		t.Fatal("expected 'test env' command to exist")
-	}
-
-	// Verify all env subcommands are registered
-	expected := []string{"list", "set", "delete", "clear"}
-	for _, name := range expected {
-		found := false
-		for _, cmd := range envCmd.Commands() {
-			if cmd.Name() == name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("expected 'test env %s' command, not found", name)
-		}
-	}
-}
 
 func TestWorkflowLocationSubcommands(t *testing.T) {
 	var wfCmd *cobra.Command
@@ -226,94 +158,11 @@ func TestWorkflowAppSubcommands(t *testing.T) {
 
 // --- Mock server for new features ---
 
-// newNewFeaturesServer creates a mock server for env var, workflow settings, and app endpoints.
+// newNewFeaturesServer creates a mock server for workflow settings and app endpoints.
 func newNewFeaturesServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
 	mux := http.NewServeMux()
-
-	// GET /api/v1/variables/app_launch_env/read?test_id=X
-	mux.HandleFunc("/api/v1/variables/app_launch_env/read", func(w http.ResponseWriter, r *http.Request) {
-		testID := r.URL.Query().Get("test_id")
-		w.Header().Set("Content-Type", "application/json")
-
-		if testID == "test-no-envvars" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"message": "success",
-				"result":  []interface{}{},
-			})
-			return
-		}
-
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"message": "success",
-			"result": []map[string]interface{}{
-				{
-					"id":         "env-001",
-					"test_id":    testID,
-					"key":        "API_URL",
-					"value":      "https://staging.example.com",
-					"created_at": "2025-01-15T10:00:00Z",
-					"updated_at": "2025-01-15T12:00:00Z",
-				},
-				{
-					"id":         "env-002",
-					"test_id":    testID,
-					"key":        "DEBUG",
-					"value":      "true",
-					"created_at": "2025-01-15T10:00:00Z",
-					"updated_at": "",
-				},
-			},
-		})
-	})
-
-	// POST /api/v1/variables/app_launch_env/add
-	mux.HandleFunc("/api/v1/variables/app_launch_env/add", func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]string
-		json.NewDecoder(r.Body).Decode(&body)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"message": "success",
-			"result": map[string]interface{}{
-				"id":      "env-new",
-				"test_id": body["test_id"],
-				"key":     body["key"],
-				"value":   body["value"],
-			},
-		})
-	})
-
-	// PUT /api/v1/variables/app_launch_env/update
-	mux.HandleFunc("/api/v1/variables/app_launch_env/update", func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]string
-		json.NewDecoder(r.Body).Decode(&body)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"message": "success",
-			"result": map[string]interface{}{
-				"id":    body["env_var_id"],
-				"key":   body["key"],
-				"value": body["value"],
-			},
-		})
-	})
-
-	// DELETE /api/v1/variables/app_launch_env/delete?env_var_id=X
-	mux.HandleFunc("/api/v1/variables/app_launch_env/delete", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"message": "deleted",
-		})
-	})
-
-	// DELETE /api/v1/variables/app_launch_env/delete_all?test_id=X
-	mux.HandleFunc("/api/v1/variables/app_launch_env/delete_all", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"message": "deleted all",
-		})
-	})
 
 	// GET /api/v1/workflows/get_workflow_info?workflow_id=X
 	mux.HandleFunc("/api/v1/workflows/get_workflow_info", func(w http.ResponseWriter, r *http.Request) {
@@ -405,24 +254,6 @@ func newNewFeaturesServer(t *testing.T) *httptest.Server {
 	return httptest.NewServer(mux)
 }
 
-// withEnvMockClient overrides envSetupClient so that env command handlers use
-// the mock HTTP server. Restores the original function via t.Cleanup.
-func withEnvMockClient(t *testing.T, server *httptest.Server, testID string) {
-	t.Helper()
-	original := envSetupClient
-	t.Cleanup(func() { envSetupClient = original })
-
-	envSetupClient = func(cmd *cobra.Command, testNameOrID string) (string, *api.Client, error) {
-		client := api.NewClientWithBaseURL("test-key", server.URL)
-		// Map alias to ID
-		resolvedID := testID
-		if testNameOrID == "empty-test" {
-			resolvedID = "test-no-envvars"
-		}
-		return resolvedID, client, nil
-	}
-}
-
 // withWfSettingsMockClient overrides wfSettingsSetupClient so that workflow settings
 // command handlers use the mock HTTP server.
 func withWfSettingsMockClient(t *testing.T, server *httptest.Server, workflowID string) {
@@ -433,145 +264,6 @@ func withWfSettingsMockClient(t *testing.T, server *httptest.Server, workflowID 
 	wfSettingsSetupClient = func(cmd *cobra.Command, nameOrID string) (string, *api.Client, error) {
 		client := api.NewClientWithBaseURL("test-key", server.URL)
 		return workflowID, client, nil
-	}
-}
-
-// --- Test Env List ---
-
-func TestTestEnvListWithVars(t *testing.T) {
-	server := newNewFeaturesServer(t)
-	defer server.Close()
-	withEnvMockClient(t, server, "test-uuid-001")
-
-	leaf := newLeafCommand("list", runTestEnvList)
-
-	// Should not error when vars exist
-	err := leaf.RunE(leaf, []string{"login-flow"})
-	if err != nil {
-		t.Fatalf("runTestEnvList: %v", err)
-	}
-}
-
-func TestTestEnvListEmpty(t *testing.T) {
-	server := newNewFeaturesServer(t)
-	defer server.Close()
-	withEnvMockClient(t, server, "test-no-envvars")
-
-	leaf := newLeafCommand("list", runTestEnvList)
-
-	err := leaf.RunE(leaf, []string{"empty-test"})
-	if err != nil {
-		t.Fatalf("runTestEnvList empty: %v", err)
-	}
-}
-
-// --- Test Env Set ---
-
-func TestTestEnvSetNewKey(t *testing.T) {
-	server := newNewFeaturesServer(t)
-	defer server.Close()
-	// Use test-no-envvars so key won't be found in existing list (triggers add path)
-	withEnvMockClient(t, server, "test-no-envvars")
-
-	leaf := newLeafCommand("set", runTestEnvSet)
-
-	err := leaf.RunE(leaf, []string{"login-flow", "NEW_KEY=new_value"})
-	if err != nil {
-		t.Fatalf("runTestEnvSet new key: %v", err)
-	}
-}
-
-func TestTestEnvSetExistingKey(t *testing.T) {
-	server := newNewFeaturesServer(t)
-	defer server.Close()
-	// Use test-uuid-001 so API_URL will be found in existing list (triggers update path)
-	withEnvMockClient(t, server, "test-uuid-001")
-
-	leaf := newLeafCommand("set", runTestEnvSet)
-
-	err := leaf.RunE(leaf, []string{"login-flow", "API_URL=https://new.example.com"})
-	if err != nil {
-		t.Fatalf("runTestEnvSet existing key: %v", err)
-	}
-}
-
-func TestTestEnvSetInvalidFormat(t *testing.T) {
-	server := newNewFeaturesServer(t)
-	defer server.Close()
-	withEnvMockClient(t, server, "test-uuid-001")
-
-	leaf := newLeafCommand("set", runTestEnvSet)
-
-	err := leaf.RunE(leaf, []string{"login-flow", "INVALID_NO_EQUALS"})
-	if err == nil {
-		t.Fatal("expected error for invalid KEY=VALUE format, got nil")
-	}
-	if !strings.Contains(err.Error(), "invalid KEY=VALUE format") {
-		t.Errorf("expected error about format, got: %v", err)
-	}
-}
-
-func TestTestEnvSetEmptyKey(t *testing.T) {
-	server := newNewFeaturesServer(t)
-	defer server.Close()
-	withEnvMockClient(t, server, "test-uuid-001")
-
-	leaf := newLeafCommand("set", runTestEnvSet)
-
-	err := leaf.RunE(leaf, []string{"login-flow", "=some_value"})
-	if err == nil {
-		t.Fatal("expected error for empty key, got nil")
-	}
-}
-
-// --- Test Env Delete ---
-
-func TestTestEnvDeleteExistingKey(t *testing.T) {
-	server := newNewFeaturesServer(t)
-	defer server.Close()
-	withEnvMockClient(t, server, "test-uuid-001")
-
-	leaf := newLeafCommand("delete", runTestEnvDelete)
-
-	err := leaf.RunE(leaf, []string{"login-flow", "API_URL"})
-	if err != nil {
-		t.Fatalf("runTestEnvDelete: %v", err)
-	}
-}
-
-func TestTestEnvDeleteNonexistentKey(t *testing.T) {
-	server := newNewFeaturesServer(t)
-	defer server.Close()
-	withEnvMockClient(t, server, "test-uuid-001")
-
-	leaf := newLeafCommand("delete", runTestEnvDelete)
-
-	err := leaf.RunE(leaf, []string{"login-flow", "NONEXISTENT_KEY"})
-	if err == nil {
-		t.Fatal("expected error for non-existent key, got nil")
-	}
-	if !strings.Contains(err.Error(), "env var not found") {
-		t.Errorf("expected 'env var not found' error, got: %v", err)
-	}
-}
-
-// --- Test Env Clear ---
-
-func TestTestEnvClearWithForce(t *testing.T) {
-	server := newNewFeaturesServer(t)
-	defer server.Close()
-	withEnvMockClient(t, server, "test-uuid-001")
-
-	// Set --force to skip interactive prompt
-	oldForce := testEnvForce
-	testEnvForce = true
-	defer func() { testEnvForce = oldForce }()
-
-	leaf := newLeafCommand("clear", runTestEnvClear)
-
-	err := leaf.RunE(leaf, []string{"login-flow"})
-	if err != nil {
-		t.Fatalf("runTestEnvClear: %v", err)
 	}
 }
 
@@ -896,58 +588,6 @@ func TestTestRunLocationFlag(t *testing.T) {
 
 // --- Verify API endpoint paths in mock server ---
 
-func TestEnvVarAPIEndpoints(t *testing.T) {
-	// Verify the API client methods use the correct endpoint paths
-	// by calling them against the mock server
-
-	server := newNewFeaturesServer(t)
-	defer server.Close()
-	client := api.NewClientWithBaseURL("test-key", server.URL)
-	ctx := context.Background()
-
-	// List env vars
-	resp, err := client.ListEnvVars(ctx, "test-uuid-001")
-	if err != nil {
-		t.Fatalf("ListEnvVars: %v", err)
-	}
-	if len(resp.Result) != 2 {
-		t.Errorf("ListEnvVars: expected 2 vars, got %d", len(resp.Result))
-	}
-	if resp.Result[0].Key != "API_URL" {
-		t.Errorf("ListEnvVars: expected key 'API_URL', got %q", resp.Result[0].Key)
-	}
-
-	// Add env var
-	addResp, err := client.AddEnvVar(ctx, "test-uuid-001", "NEW_KEY", "new_value")
-	if err != nil {
-		t.Fatalf("AddEnvVar: %v", err)
-	}
-	if addResp.Result.Key != "NEW_KEY" {
-		t.Errorf("AddEnvVar: expected key 'NEW_KEY', got %q", addResp.Result.Key)
-	}
-
-	// Update env var
-	updateResp, err := client.UpdateEnvVar(ctx, "env-001", "API_URL", "https://new.com")
-	if err != nil {
-		t.Fatalf("UpdateEnvVar: %v", err)
-	}
-	if updateResp.Result.Value != "https://new.com" {
-		t.Errorf("UpdateEnvVar: expected value 'https://new.com', got %q", updateResp.Result.Value)
-	}
-
-	// Delete env var
-	err = client.DeleteEnvVar(ctx, "env-001")
-	if err != nil {
-		t.Fatalf("DeleteEnvVar: %v", err)
-	}
-
-	// Delete all env vars
-	err = client.DeleteAllEnvVars(ctx, "test-uuid-001")
-	if err != nil {
-		t.Fatalf("DeleteAllEnvVars: %v", err)
-	}
-}
-
 func TestWorkflowSettingsAPIEndpoints(t *testing.T) {
 	server := newNewFeaturesServer(t)
 	defer server.Close()
@@ -1041,61 +681,6 @@ func TestWorkflowAppSetFlags(t *testing.T) {
 	}
 	if workflowAppSetCmd.Flags().Lookup("android") == nil {
 		t.Error("expected --android flag on workflow app set")
-	}
-}
-
-// --- Test env clear --force flag ---
-
-func TestTestEnvClearForceFlag(t *testing.T) {
-	if testEnvClearCmd.Flags().Lookup("force") == nil {
-		t.Error("expected --force flag on test env clear")
-	}
-
-	// Verify shorthand
-	f := testEnvClearCmd.Flags().ShorthandLookup("f")
-	if f == nil {
-		t.Error("expected -f shorthand for --force on test env clear")
-	}
-}
-
-// --- Verify mock endpoint request methods ---
-
-func TestEnvVarDeleteEndpointMethod(t *testing.T) {
-	// Verify that DELETE requests are sent with the correct method
-	var receivedMethod string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "delete") && !strings.Contains(r.URL.Path, "delete_all") {
-			receivedMethod = r.Method
-		}
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"message":"ok"}`)
-	}))
-	defer server.Close()
-
-	client := api.NewClientWithBaseURL("test-key", server.URL)
-	_ = client.DeleteEnvVar(context.Background(), "env-001")
-
-	if receivedMethod != "DELETE" {
-		t.Errorf("expected DELETE method, got %q", receivedMethod)
-	}
-}
-
-func TestEnvVarAddEndpointMethod(t *testing.T) {
-	var receivedMethod string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "add") {
-			receivedMethod = r.Method
-		}
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"message":"ok","result":{"id":"x","key":"k","value":"v"}}`)
-	}))
-	defer server.Close()
-
-	client := api.NewClientWithBaseURL("test-key", server.URL)
-	_, _ = client.AddEnvVar(context.Background(), "test-001", "KEY", "VALUE")
-
-	if receivedMethod != "POST" {
-		t.Errorf("expected POST method for AddEnvVar, got %q", receivedMethod)
 	}
 }
 

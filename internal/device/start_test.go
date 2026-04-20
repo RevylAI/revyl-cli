@@ -129,3 +129,68 @@ func TestResolveStartArtifact_UsesTrimmedDirectAppURL(t *testing.T) {
 		t.Fatalf("AppPackage = %q, want %q", resolved.AppPackage, "com.example.direct")
 	}
 }
+
+type stubLaunchVarResolver struct {
+	resp *api.OrgLaunchVariablesResponse
+	err  error
+}
+
+func (s stubLaunchVarResolver) ListOrgLaunchVariables(ctx context.Context) (*api.OrgLaunchVariablesResponse, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.resp, nil
+}
+
+func TestResolveLaunchVar_ResolvesByKeyOrID(t *testing.T) {
+	t.Parallel()
+
+	resp := &api.OrgLaunchVariablesResponse{
+		Result: []api.OrgLaunchVariable{
+			{ID: "launch-1", Key: "API_URL"},
+			{ID: "launch-2", Key: "FEATURE_X"},
+		},
+	}
+
+	byKey, err := ResolveLaunchVar(context.Background(), stubLaunchVarResolver{resp: resp}, "API_URL")
+	if err != nil {
+		t.Fatalf("ResolveLaunchVar by key returned error: %v", err)
+	}
+	if byKey.ID != "launch-1" {
+		t.Fatalf("ResolveLaunchVar by key ID = %q, want %q", byKey.ID, "launch-1")
+	}
+
+	byID, err := ResolveLaunchVar(context.Background(), stubLaunchVarResolver{resp: resp}, "launch-2")
+	if err != nil {
+		t.Fatalf("ResolveLaunchVar by ID returned error: %v", err)
+	}
+	if byID.Key != "FEATURE_X" {
+		t.Fatalf("ResolveLaunchVar by ID key = %q, want %q", byID.Key, "FEATURE_X")
+	}
+}
+
+func TestResolveLaunchVarIDs_DeduplicatesResolvedIDs(t *testing.T) {
+	t.Parallel()
+
+	resp := &api.OrgLaunchVariablesResponse{
+		Result: []api.OrgLaunchVariable{
+			{ID: "launch-1", Key: "API_URL"},
+			{ID: "launch-2", Key: "FEATURE_X"},
+		},
+	}
+
+	ids, err := ResolveLaunchVarIDs(
+		context.Background(),
+		stubLaunchVarResolver{resp: resp},
+		[]string{"API_URL", "launch-2", "api_url"},
+	)
+	if err != nil {
+		t.Fatalf("ResolveLaunchVarIDs returned error: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("ResolveLaunchVarIDs len = %d, want 2 (%v)", len(ids), ids)
+	}
+	if ids[0] != "launch-1" || ids[1] != "launch-2" {
+		t.Fatalf("ResolveLaunchVarIDs = %v, want [launch-1 launch-2]", ids)
+	}
+}

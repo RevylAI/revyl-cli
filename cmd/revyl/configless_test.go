@@ -74,8 +74,7 @@ func TestRunTestsPush_BootstrapsConfigWithoutProjectConfig(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"remote-test-1","version":3}`))
-		case "/api/v1/variables/custom/delete_all",
-			"/api/v1/variables/app_launch_env/delete_all":
+		case "/api/v1/variables/custom/delete_all":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"message":"deleted all"}`))
 		case "/api/v1/tests/scripts":

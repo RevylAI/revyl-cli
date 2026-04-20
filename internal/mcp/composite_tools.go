@@ -402,11 +402,7 @@ Actions:
   list_vars       - List test variables. Params: test_name (required)
   set_var         - Set a test variable. Params: test_name (required), name (required), value (required)
   delete_var      - Delete a test variable. Params: test_name (required), name (required)
-  delete_all_vars - Delete all test variables. Params: test_name (required)
-  list_env        - List env vars. Params: test_name (required)
-  set_env         - Set an env var. Params: test_name (required), key (required), value (required)
-  delete_env      - Delete an env var. Params: test_name (required), key (required)
-  clear_env       - Clear all env vars. Params: test_name (required)`,
+  delete_all_vars - Delete all test variables. Params: test_name (required)`,
 		Annotations: &mcp.ToolAnnotations{
 			Title: "Manage Variables",
 		},
@@ -423,17 +419,9 @@ func (s *Server) handleManageVariables(ctx context.Context, req *mcp.CallToolReq
 		return dispatchComposite(ctx, req, input, s.handleDeleteVariable)
 	case "delete_all_vars":
 		return dispatchComposite(ctx, req, input, s.handleDeleteAllVariables)
-	case "list_env":
-		return dispatchComposite(ctx, req, input, s.handleListEnvVars)
-	case "set_env":
-		return dispatchComposite(ctx, req, input, s.handleSetEnvVar)
-	case "delete_env":
-		return dispatchComposite(ctx, req, input, s.handleDeleteEnvVar)
-	case "clear_env":
-		return dispatchComposite(ctx, req, input, s.handleClearEnvVars)
 	default:
 		return nil, CompositeOutput{Action: input.Action},
-			fmt.Errorf("unknown action %q for manage_variables; valid: list_vars, set_var, delete_var, delete_all_vars, list_env, set_env, delete_env, clear_env", input.Action)
+			fmt.Errorf("unknown action %q for manage_variables; valid: list_vars, set_var, delete_var, delete_all_vars", input.Action)
 	}
 }
 

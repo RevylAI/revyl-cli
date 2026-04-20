@@ -5669,6 +5669,99 @@ type OrgInvestment struct {
 	WorkflowCount *int  `json:"workflow_count,omitempty"`
 }
 
+// OrgLaunchEnvVarAttachRequest Request model for attaching a launch variable to a test.
+type OrgLaunchEnvVarAttachRequest struct {
+	// EnvVarId Org launch variable ID
+	EnvVarId string `json:"env_var_id"`
+
+	// TestId Test ID
+	TestId string `json:"test_id"`
+}
+
+// OrgLaunchEnvVarCreate Request model for creating an org launch environment variable.
+type OrgLaunchEnvVarCreate struct {
+	// Description Description of the variable
+	Description *string `json:"description"`
+
+	// Key Launch variable key
+	Key string `json:"key"`
+
+	// Value Launch variable value
+	Value string `json:"value"`
+}
+
+// OrgLaunchEnvVarDeleteResponse Response model for org launch environment variable deletion.
+type OrgLaunchEnvVarDeleteResponse struct {
+	// DetachedTestCount Number of tests detached during deletion
+	DetachedTestCount int `json:"detached_test_count"`
+
+	// Message Response message
+	Message string `json:"message"`
+
+	// Result Row model for an org launch environment variable.
+	Result OrgLaunchEnvVarRow `json:"result"`
+}
+
+// OrgLaunchEnvVarResponse Response model for single org launch environment variable operations.
+type OrgLaunchEnvVarResponse struct {
+	// Message Response message
+	Message string `json:"message"`
+
+	// Result Row model for an org launch environment variable.
+	Result OrgLaunchEnvVarRow `json:"result"`
+}
+
+// OrgLaunchEnvVarRow Row model for an org launch environment variable.
+type OrgLaunchEnvVarRow struct {
+	// AttachedTestCount Number of tests currently attached to this launch variable
+	AttachedTestCount *int `json:"attached_test_count,omitempty"`
+
+	// CreatedAt Creation timestamp
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy User who created it
+	CreatedBy *openapi_types.UUID `json:"created_by"`
+
+	// Description Description
+	Description *string `json:"description"`
+
+	// Id Unique identifier
+	Id openapi_types.UUID `json:"id"`
+
+	// Key Launch variable key
+	Key string `json:"key"`
+
+	// OrgId Organization ID
+	OrgId openapi_types.UUID `json:"org_id"`
+
+	// UpdatedAt Last update timestamp
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Value Decrypted launch variable value
+	Value string `json:"value"`
+}
+
+// OrgLaunchEnvVarUpdate Request model for updating an org launch environment variable.
+type OrgLaunchEnvVarUpdate struct {
+	// Description Updated description
+	Description *string `json:"description"`
+
+	// Key Updated launch variable key
+	Key *string `json:"key"`
+
+	// Value Updated launch variable value
+	Value *string `json:"value"`
+}
+
+// OrgLaunchEnvVarsResponse Response model for org launch environment variable list operations.
+type OrgLaunchEnvVarsResponse struct {
+	// Message Response message
+	Message string `json:"message"`
+
+	// Result List of org launch environment variables
+	Result []OrgLaunchEnvVarRow `json:"result"`
+}
+
 // OrgOverviewItem defines model for OrgOverviewItem.
 type OrgOverviewItem struct {
 	ActiveUsers30d   *int       `json:"active_users_30d,omitempty"`
@@ -6309,6 +6402,15 @@ type RemoveWorkflowFromRuleResponse struct {
 	// Rule Notification rule with enriched workflow details.
 	Rule    SlackNotificationRuleWithWorkflows `json:"rule"`
 	Success bool                               `json:"success"`
+}
+
+// ReplaceTestLaunchEnvVarRefsRequest Request model for replacing launch variable attachments on a test.
+type ReplaceTestLaunchEnvVarRefsRequest struct {
+	// EnvVarIds Ordered list of org launch variable IDs to attach to the test
+	EnvVarIds *[]string `json:"env_var_ids,omitempty"`
+
+	// TestId Test ID
+	TestId string `json:"test_id"`
 }
 
 // ReportContextActionResponse High-context action payload for CLI/agent report consumption.
@@ -10700,22 +10802,6 @@ type GetTestVersionsEndpointApiV1TestsTestIdVersionsGetParams struct {
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
-// DeleteEnvVarByIdApiV1VariablesAppLaunchEnvDeleteDeleteParams defines parameters for DeleteEnvVarByIdApiV1VariablesAppLaunchEnvDeleteDelete.
-type DeleteEnvVarByIdApiV1VariablesAppLaunchEnvDeleteDeleteParams struct {
-	EnvVarId string `form:"env_var_id" json:"env_var_id"`
-}
-
-// DeleteAllEnvVarsApiV1VariablesAppLaunchEnvDeleteAllDeleteParams defines parameters for DeleteAllEnvVarsApiV1VariablesAppLaunchEnvDeleteAllDelete.
-type DeleteAllEnvVarsApiV1VariablesAppLaunchEnvDeleteAllDeleteParams struct {
-	TestId string `form:"test_id" json:"test_id"`
-}
-
-// ReadEnvVarsApiV1VariablesAppLaunchEnvReadGetParams defines parameters for ReadEnvVarsApiV1VariablesAppLaunchEnvReadGet.
-type ReadEnvVarsApiV1VariablesAppLaunchEnvReadGetParams struct {
-	TestId string  `form:"test_id" json:"test_id"`
-	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
-}
-
 // CheckVariableExistsEndpointApiV1VariablesCustomCheckExistsGetParams defines parameters for CheckVariableExistsEndpointApiV1VariablesCustomCheckExistsGet.
 type CheckVariableExistsEndpointApiV1VariablesCustomCheckExistsGetParams struct {
 	TestId       *string `form:"test_id,omitempty" json:"test_id,omitempty"`
@@ -10747,6 +10833,17 @@ type ReadVariablesEndpointApiV1VariablesCustomReadVariablesGetParams struct {
 // ResolveVariablesApiV1VariablesGlobalResolveGetParams defines parameters for ResolveVariablesApiV1VariablesGlobalResolveGet.
 type ResolveVariablesApiV1VariablesGlobalResolveGetParams struct {
 	TestUid string `form:"test_uid" json:"test_uid"`
+}
+
+// DetachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsDeleteParams defines parameters for DetachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsDelete.
+type DetachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsDeleteParams struct {
+	TestId   string `form:"test_id" json:"test_id"`
+	EnvVarId string `form:"env_var_id" json:"env_var_id"`
+}
+
+// ListTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsGetParams defines parameters for ListTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsGet.
+type ListTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsGetParams struct {
+	TestId string `form:"test_id" json:"test_id"`
 }
 
 // GetWorkflowDetailApiV1WorkflowsGetDetailWorkflowIdGetParams defines parameters for GetWorkflowDetailApiV1WorkflowsGetDetailWorkflowIdGet.
@@ -11230,12 +11327,6 @@ type RestoreTestVersionEndpointApiV1TestsTestIdRestorePostJSONRequestBody = Test
 // GetLlmDetailsBatchApiV1TraceLlmDetailsBatchPostJSONRequestBody defines body for GetLlmDetailsBatchApiV1TraceLlmDetailsBatchPost for application/json ContentType.
 type GetLlmDetailsBatchApiV1TraceLlmDetailsBatchPostJSONRequestBody = BatchLLMDetailsRequest
 
-// AddEnvVarApiV1VariablesAppLaunchEnvAddPostJSONRequestBody defines body for AddEnvVarApiV1VariablesAppLaunchEnvAddPost for application/json ContentType.
-type AddEnvVarApiV1VariablesAppLaunchEnvAddPostJSONRequestBody = AppLaunchEnvVarModel
-
-// UpdateEnvVarApiV1VariablesAppLaunchEnvUpdatePutJSONRequestBody defines body for UpdateEnvVarApiV1VariablesAppLaunchEnvUpdatePut for application/json ContentType.
-type UpdateEnvVarApiV1VariablesAppLaunchEnvUpdatePutJSONRequestBody = UpdateAppLaunchEnvVarModel
-
 // AddVariableEndpointApiV1VariablesCustomAddPostJSONRequestBody defines body for AddVariableEndpointApiV1VariablesCustomAddPost for application/json ContentType.
 type AddVariableEndpointApiV1VariablesCustomAddPostJSONRequestBody = VariableModel
 
@@ -11250,6 +11341,18 @@ type AddGlobalVariableApiV1VariablesGlobalPostJSONRequestBody = GlobalVariableCr
 
 // UpdateGlobalVariableApiV1VariablesGlobalVariableIdPutJSONRequestBody defines body for UpdateGlobalVariableApiV1VariablesGlobalVariableIdPut for application/json ContentType.
 type UpdateGlobalVariableApiV1VariablesGlobalVariableIdPutJSONRequestBody = GlobalVariableUpdate
+
+// AddOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvPostJSONRequestBody defines body for AddOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvPost for application/json ContentType.
+type AddOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvPostJSONRequestBody = OrgLaunchEnvVarCreate
+
+// AttachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsPostJSONRequestBody defines body for AttachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsPost for application/json ContentType.
+type AttachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsPostJSONRequestBody = OrgLaunchEnvVarAttachRequest
+
+// ReplaceTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsPutJSONRequestBody defines body for ReplaceTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsPut for application/json ContentType.
+type ReplaceTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsPutJSONRequestBody = ReplaceTestLaunchEnvVarRefsRequest
+
+// UpdateOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvEnvVarIdPutJSONRequestBody defines body for UpdateOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvEnvVarIdPut for application/json ContentType.
+type UpdateOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvEnvVarIdPutJSONRequestBody = OrgLaunchEnvVarUpdate
 
 // JoinWaitlistApiV1WaitlistJoinPostJSONRequestBody defines body for JoinWaitlistApiV1WaitlistJoinPost for application/json ContentType.
 type JoinWaitlistApiV1WaitlistJoinPostJSONRequestBody = WaitlistJoinRequest

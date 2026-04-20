@@ -593,6 +593,11 @@ func queueWorkflowExecution(
 				return nil, fmt.Errorf("invalid iOS app ID %q: %w", iosAppID, err)
 			}
 			req.BuildConfig.IosBuild = &api.PlatformApp{AppId: iosUUID}
+			parsedIOSAppID, err := uuid.Parse(iosAppID)
+			if err != nil {
+				return nil, fmt.Errorf("invalid iOS app ID %q: %w", iosAppID, err)
+			}
+			req.BuildConfig.IosBuild = &api.PlatformApp{AppId: parsedIOSAppID}
 		}
 		if androidAppID != "" {
 			androidUUID, err := uuid.Parse(androidAppID)
@@ -600,6 +605,11 @@ func queueWorkflowExecution(
 				return nil, fmt.Errorf("invalid Android app ID %q: %w", androidAppID, err)
 			}
 			req.BuildConfig.AndroidBuild = &api.PlatformApp{AppId: androidUUID}
+			parsedAndroidAppID, err := uuid.Parse(androidAppID)
+			if err != nil {
+				return nil, fmt.Errorf("invalid Android app ID %q: %w", androidAppID, err)
+			}
+			req.BuildConfig.AndroidBuild = &api.PlatformApp{AppId: parsedAndroidAppID}
 		}
 	}
 	if hasLocation {

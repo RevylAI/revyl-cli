@@ -649,8 +649,8 @@ type TestDefinition struct {
 	// Variables contains custom test variables (key-value pairs).
 	Variables map[string]string `yaml:"variables,omitempty"`
 
-	// EnvVars contains app launch environment variables.
-	EnvVars map[string]string `yaml:"env_vars,omitempty"`
+	// EnvVars contains attached org launch variable keys.
+	EnvVars []string `yaml:"env_vars,omitempty"`
 
 	// Location contains initial GPS coordinates.
 	Location *TestLocation `yaml:"location,omitempty"`

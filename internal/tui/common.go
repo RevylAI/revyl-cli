@@ -471,31 +471,6 @@ type TestRenamedMsg struct {
 	Err     error
 }
 
-// --- Env var types ---
-
-// EnvVarItem represents a single environment variable for display.
-type EnvVarItem struct {
-	ID    string
-	Key   string
-	Value string
-}
-
-// EnvVarListMsg carries the fetched env var list.
-type EnvVarListMsg struct {
-	Vars []EnvVarItem
-	Err  error
-}
-
-// EnvVarAddedMsg signals that an env var was added.
-type EnvVarAddedMsg struct {
-	Err error
-}
-
-// EnvVarDeletedMsg signals that an env var was deleted.
-type EnvVarDeletedMsg struct {
-	Err error
-}
-
 // --- Workflow management types ---
 
 // WorkflowItem represents a workflow in the browse list.
@@ -598,7 +573,7 @@ type ModuleDeletedMsg struct {
 	Err error
 }
 
-// --- Library types (scripts, files, global variables) ---
+// --- Library types (scripts, files, launch variables, global variables) ---
 
 // ScriptItem represents a script for the library Scripts tab.
 type ScriptItem struct {
@@ -676,6 +651,31 @@ type VariableSavedMsg struct {
 
 // VariableDeletedMsg signals that a global variable was deleted.
 type VariableDeletedMsg struct {
+	Err error
+}
+
+// LaunchVarItem represents an org launch variable for the library Launch Vars tab.
+type LaunchVarItem struct {
+	ID                string
+	Key               string
+	Value             string
+	Description       string
+	AttachedTestCount int
+}
+
+// LaunchVarListMsg carries the fetched launch variable list.
+type LaunchVarListMsg struct {
+	LaunchVars []LaunchVarItem
+	Err        error
+}
+
+// LaunchVarSavedMsg signals that an org launch variable was created or updated.
+type LaunchVarSavedMsg struct {
+	Err error
+}
+
+// LaunchVarDeletedMsg signals that an org launch variable was deleted.
+type LaunchVarDeletedMsg struct {
 	Err error
 }
 

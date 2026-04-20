@@ -282,6 +282,7 @@ type StartSessionOptions struct {
 	// Optional app launch link and package hints.
 	AppLink    string
 	AppPackage string
+	LaunchVars []string
 
 	// Optional test/session metadata.
 	TestID    string
@@ -314,6 +315,11 @@ func (m *DeviceSessionManager) StartSession(
 	if platform != "ios" && platform != "android" {
 		return -1, nil, fmt.Errorf("platform must be 'ios' or 'android'")
 	}
+	launchVars := opts.LaunchVars
+	if strings.TrimSpace(opts.TestID) != "" && len(launchVars) > 0 {
+		ui.PrintWarning("Ignoring --launch-var for test-backed device start; attached test launch vars will be used")
+		launchVars = nil
+	}
 
 	idleTimeout := opts.IdleTimeout
 	if idleTimeout == 0 {
@@ -326,6 +332,10 @@ func (m *DeviceSessionManager) StartSession(
 		AppURL:         opts.AppURL,
 		AppPackage:     opts.AppPackage,
 	})
+	if err != nil {
+		return -1, nil, err
+	}
+	resolvedLaunchVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, m.apiClient, launchVars)
 	if err != nil {
 		return -1, nil, err
 	}
@@ -349,6 +359,9 @@ func (m *DeviceSessionManager) StartSession(
 	}
 	if resolvedArtifact.AppPackage != "" {
 		req.AppPackage = resolvedArtifact.AppPackage
+	}
+	if len(resolvedLaunchVarIDs) > 0 {
+		req.LaunchEnvVarIds = resolvedLaunchVarIDs
 	}
 	_ = opts.SandboxID // Reserved for backend support.
 	if opts.DeviceModel != "" {

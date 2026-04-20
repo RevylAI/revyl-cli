@@ -351,6 +351,7 @@ var deviceStartCmd = &cobra.Command{
 		buildVersionID, _ := cmd.Flags().GetString("build-version-id")
 		appURL, _ := cmd.Flags().GetString("app-url")
 		appLink, _ := cmd.Flags().GetString("app-link")
+		launchVars, _ := cmd.Flags().GetStringArray("launch-var")
 		jsonOutput, _ := cmd.Flags().GetBool("json")
 		platform, err := normalizeDeviceStartPlatform(platform)
 		if err != nil {
@@ -466,6 +467,7 @@ var deviceStartCmd = &cobra.Command{
 			BuildVersionID: buildVersionID,
 			AppURL:         appURL,
 			AppLink:        appLink,
+			LaunchVars:     launchVars,
 			IdleTimeout:    time.Duration(timeout) * time.Second,
 			DeviceModel:    selectedDeviceModel,
 			OsVersion:      selectedOsVersion,
@@ -2140,6 +2142,7 @@ func init() {
 	deviceStartCmd.Flags().String("build-version-id", "", "Build version ID to install")
 	deviceStartCmd.Flags().String("app-url", "", "Direct app artifact URL (.apk/.ipa/.zip)")
 	deviceStartCmd.Flags().String("app-link", "", "Deep link to launch after app start")
+	deviceStartCmd.Flags().StringArray("launch-var", nil, "Org launch variable key or ID to apply to a raw session (repeatable)")
 	deviceStartCmd.Flags().Bool("json", false, "Output as JSON")
 	deviceStartCmd.Flags().Bool("device", false, "Interactively select device model and OS version")
 	deviceStartCmd.Flags().String("device-model", "", "Target device model (e.g. \"iPhone 16\")")

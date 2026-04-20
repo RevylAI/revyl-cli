@@ -516,12 +516,29 @@ func (r *Resolver) syncTestConfig(ctx context.Context, testID string, localTest 
 	}
 
 	if localTest.Test.EnvVars != nil {
-		if err := r.client.DeleteAllEnvVars(ctx, testID); err != nil {
-			errs = append(errs, fmt.Errorf("delete env vars: %w", err))
-		}
-		for key, value := range localTest.Test.EnvVars {
-			if _, err := r.client.AddEnvVar(ctx, testID, key, value); err != nil {
-				errs = append(errs, fmt.Errorf("add env var %s: %w", key, err))
+		orgVarsResp, err := r.client.ListOrgLaunchVariables(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("list org launch vars: %w", err))
+		} else {
+			idsByKey := make(map[string]string, len(orgVarsResp.Result))
+			for _, v := range orgVarsResp.Result {
+				idsByKey[v.Key] = v.ID
+			}
+
+			envVarIDs := make([]string, 0, len(localTest.Test.EnvVars))
+			for _, key := range localTest.Test.EnvVars {
+				id, ok := idsByKey[key]
+				if !ok {
+					errs = append(errs, fmt.Errorf("unknown launch var key %s", key))
+					continue
+				}
+				envVarIDs = append(envVarIDs, id)
+			}
+
+			if len(errs) == 0 {
+				if _, err := r.client.ReplaceTestLaunchEnvVarAttachments(ctx, testID, envVarIDs); err != nil {
+					errs = append(errs, fmt.Errorf("replace launch var attachments: %w", err))
+				}
 			}
 		}
 	}
@@ -681,12 +698,13 @@ func (r *Resolver) pullRemoteTest(ctx context.Context, name, remoteID, testsDir 
 		localTest.Test.Variables = vars
 	}
 
-	// Fetch app launch env vars
-	if envResp, err := r.client.ListEnvVars(ctx, remoteID); err == nil && len(envResp.Result) > 0 {
-		envVars := make(map[string]string, len(envResp.Result))
+	// Fetch attached org launch vars.
+	if envResp, err := r.client.ListTestLaunchEnvVarAttachments(ctx, remoteID); err == nil && len(envResp.Result) > 0 {
+		envVars := make([]string, 0, len(envResp.Result))
 		for _, ev := range envResp.Result {
-			envVars[ev.Key] = ev.Value
+			envVars = append(envVars, ev.Key)
 		}
+		sort.Strings(envVars)
 		localTest.Test.EnvVars = envVars
 	}
 

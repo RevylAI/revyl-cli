@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -119,6 +120,76 @@ func TestDeviceSessionManager_StopSession_NoSession(t *testing.T) {
 	}
 	if err.Error() != "no session at index 0" {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDeviceSessionManager_StartSessionRejectsLaunchVarsForTestBackedStart(t *testing.T) {
+	t.Parallel()
+
+	const workflowRunID = "99999999-9999-9999-9999-999999999999"
+
+	var capturedStartReq struct {
+		TestID          string   `json:"test_id"`
+		LaunchEnvVarIds []string `json:"launch_env_var_ids"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
+			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
+				t.Fatalf("decode start_device request: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
+			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
+			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient:   api.NewClientWithBaseURL("test-key", server.URL),
+		sessions:    make(map[int]*DeviceSession),
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: -1,
+	}
+
+	stderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = w
+	defer func() {
+		os.Stderr = stderr
+	}()
+
+	_, session, startErr := mgr.StartSession(context.Background(), StartSessionOptions{
+		Platform:   "ios",
+		TestID:     "test-123",
+		LaunchVars: []string{"API_URL"},
+	})
+	_ = w.Close()
+	var warning bytes.Buffer
+	_, _ = warning.ReadFrom(r)
+	if startErr != nil {
+		t.Fatalf("StartSession returned error: %v", startErr)
+	}
+	if session == nil {
+		t.Fatal("expected non-nil session")
+	}
+	if capturedStartReq.TestID != "test-123" {
+		t.Fatalf("test_id = %q, want %q", capturedStartReq.TestID, "test-123")
+	}
+	if len(capturedStartReq.LaunchEnvVarIds) != 0 {
+		t.Fatalf("launch_env_var_ids = %v, want omitted for test-backed start", capturedStartReq.LaunchEnvVarIds)
+	}
+	if !strings.Contains(warning.String(), "Ignoring --launch-var") {
+		t.Fatalf("expected warning about ignored launch vars, got %q", warning.String())
 	}
 }
 
