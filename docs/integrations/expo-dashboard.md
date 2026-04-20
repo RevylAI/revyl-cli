@@ -1,9 +1,3 @@
-<!-- mintlify
-title: "Expo Integration"
-description: "Automatically import builds from Expo Application Services (EAS)"
-target: integrations/expo.mdx
--->
-
 ## Overview
 
 The Expo integration enables:

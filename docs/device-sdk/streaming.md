@@ -1,9 +1,3 @@
-<!-- mintlify
-title: "Live Device Streaming"
-description: "Embed real-time device streams in your own dashboard, CI viewer, or internal tool"
-target: device/streaming.mdx
--->
-
 # Embedding the Live Device Stream
 
 Every active Revyl device session streams the screen in real time over [WHEP](https://www.ietf.org/archive/id/draft-murillo-whep-03.html) (WebRTC-HTTP Egress Protocol). You can embed this stream in your own dashboard, CI viewer, or internal tool.

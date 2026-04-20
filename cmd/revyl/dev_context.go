@@ -999,5 +999,12 @@ func printDevContextAlreadyRunning(ctx *DevContext) {
 	ui.PrintDim("  revyl dev status --context %s    # check context state", ctx.Name)
 	ui.PrintDim("  revyl dev rebuild --context %s   # trigger a rebuild", ctx.Name)
 	ui.PrintDim("  revyl dev stop --context %s      # stop this context", ctx.Name)
-	ui.PrintDim("  revyl device screenshot           # screenshot the live device")
+	ui.Println()
+	ui.PrintInfo("Interact with the device:")
+	ui.PrintDim("    revyl device tap --target \"Login button\" -s %d    # AI-grounded tap", ctx.SessionIndex)
+	ui.PrintDim("    revyl device instruction \"log in and verify\" -s %d  # multi-step AI instruction", ctx.SessionIndex)
+	ui.PrintDim("    revyl device screenshot -s %d                       # save a screenshot locally", ctx.SessionIndex)
+	ui.Println()
+	ui.PrintDim("  Attach from another terminal:")
+	ui.PrintDim("    revyl dev attach %s", ctx.Name)
 }

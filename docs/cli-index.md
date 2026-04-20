@@ -1,9 +1,3 @@
-<!-- mintlify
-title: "Revyl CLI"
-description: "Install and use the Revyl CLI for local-first mobile app testing"
-target: cli/index.mdx
--->
-
 The Revyl CLI brings AI-powered mobile testing to your terminal. Create, sync, and run tests locally without leaving your development environment.
 
 ## Why Use the CLI?
@@ -172,13 +166,13 @@ For focused device session and action workflows, see [Device Automation](/device
   <Card title="Project Setup" icon="folder" href="/cli/project-setup">
     Initialize your project
   </Card>
-  <Card title="Managing Tests" icon="list" href="/cli/tests">
+  <Card title="Managing Tests" icon="list" href="/cli/creating-tests">
     Sync and manage tests
   </Card>
   <Card title="Running Tests" icon="play" href="/cli/running-tests">
     Execute tests locally
   </Card>
-  <Card title="Dev Loop" icon="bolt" href="/cli/dev-loop-guide">
+  <Card title="Dev Loop" icon="bolt" href="/cli/dev-loop">
     Iterate quickly with revyl dev
   </Card>
   <Card title="Device Automation" icon="mobile" href="/device/index">

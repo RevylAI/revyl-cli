@@ -1,12 +1,7 @@
-<!-- mintlify
-title: "Device Automation"
-description: "Start, control, and debug Revyl cloud devices with CLI, Python, or AI agents"
-target: device/index.mdx
--->
-
-This section is the canonical home for Revyl device automation docs.
+Start, control, and debug Revyl cloud devices from the CLI.
 
 If you are new, start with [Device Quickstart](/device/quickstart).
+For Python SDK usage, see [Device SDK](/device-sdk/index).
 
 ## Choose Your Path
 
@@ -14,14 +9,14 @@ If you are new, start with [Device Quickstart](/device/quickstart).
   <Card title="Device Quickstart" icon="rocket" href="/device/quickstart">
     Learn the core session and action loop in minutes.
   </Card>
-  <Card title="Device Scripting Guide" icon="code" href="/device/scripting-guide">
-    Control sessions and actions from Python scripts.
-  </Card>
   <Card title="CLI Device Commands" icon="terminal" href="/device/cli-commands">
     Use `revyl device` directly from your terminal.
   </Card>
   <Card title="Troubleshooting" icon="screwdriver-wrench" href="/device/troubleshooting">
     Fix session, install, grounding, and action issues quickly.
+  </Card>
+  <Card title="Device SDK" icon="code" href="/device-sdk/index">
+    Control devices programmatically with the Python SDK.
   </Card>
 </CardGroup>
 
@@ -30,9 +25,9 @@ If you are new, start with [Device Quickstart](/device/quickstart).
 | Goal | Best Entry Point |
 |------|------------------|
 | First end-to-end run on a cloud device | [Device Quickstart](/device/quickstart) |
-| Scripted device actions in Python | [Device Scripting Guide](/device/scripting-guide) |
 | Full command-level control | [CLI Device Commands](/device/cli-commands) |
 | Agent-driven device control from IDE | [MCP Setup](/cli/mcp-setup) |
+| Scripted device actions in Python | [Device SDK — Scripting](/device-sdk/scripting) |
 | CI orchestration of test and workflow runs | [API Quickstart](/api-reference/quickstart) |
 
 ## Core Ergonomics Loop

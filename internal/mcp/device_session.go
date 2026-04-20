@@ -27,6 +27,8 @@ import (
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/ui"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // pngDimensions extracts width and height from a PNG file's IHDR chunk.
@@ -362,7 +364,7 @@ func (m *DeviceSessionManager) StartSession(
 		return -1, nil, fmt.Errorf("failed to start device: %w", err)
 	}
 
-	if resp.WorkflowRunId == nil || *resp.WorkflowRunId == "" {
+	if resp.WorkflowRunId == nil || *resp.WorkflowRunId == (openapi_types.UUID{}) {
 		errMsg := "no workflow run ID returned"
 		if resp.Error != nil {
 			errMsg = *resp.Error
@@ -370,7 +372,7 @@ func (m *DeviceSessionManager) StartSession(
 		return -1, nil, fmt.Errorf("failed to start device: %s", errMsg)
 	}
 
-	workflowRunID := *resp.WorkflowRunId
+	workflowRunID := resp.WorkflowRunId.String()
 
 	// Poll for worker URL (up to 120 seconds)
 	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, 120*time.Second)
@@ -1919,14 +1921,15 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 
 	// Sort by created_at ASC for deterministic index assignment
 	sort.Slice(backendSessions, func(i, j int) bool {
-		ci, cj := "", ""
+		ci := time.Time{}
+		cj := time.Time{}
 		if backendSessions[i].CreatedAt != nil {
 			ci = *backendSessions[i].CreatedAt
 		}
 		if backendSessions[j].CreatedAt != nil {
 			cj = *backendSessions[j].CreatedAt
 		}
-		return ci < cj
+		return ci.Before(cj)
 	})
 
 	// Step 4: Build backend lookup maps for pruning/reconciliation.
@@ -2024,9 +2027,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 
 		startedAt := time.Now()
 		if bs.StartedAt != nil {
-			if t, parseErr := time.Parse(time.RFC3339, *bs.StartedAt); parseErr == nil {
-				startedAt = t
-			}
+			startedAt = *bs.StartedAt
 		}
 
 		idx := m.nextIndex

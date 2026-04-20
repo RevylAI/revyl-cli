@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
@@ -1034,9 +1035,15 @@ func runTestDuplicate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	testIDParsed, err := uuid.Parse(testID)
+	if err != nil {
+		ui.PrintError("Invalid test ID %q: %v", testID, err)
+		return err
+	}
+
 	ui.StartSpinner("Duplicating test...")
 	result, err := client.DuplicateTest(cmd.Context(), &api.DuplicateTestRequest{
-		TestId:  testID,
+		TestId:  testIDParsed,
 		NewName: testDuplicateName,
 	})
 	ui.StopSpinner()
@@ -1143,8 +1150,8 @@ func runTestVersions(cmd *cobra.Command, args []string) error {
 		modifiedBy := "-"
 		if v.ModifiedByEmail != nil && *v.ModifiedByEmail != "" {
 			modifiedBy = *v.ModifiedByEmail
-		} else if v.ModifiedBy != nil && *v.ModifiedBy != "" {
-			modifiedBy = *v.ModifiedBy
+		} else if v.ModifiedBy != nil && *v.ModifiedBy != (uuid.UUID{}) {
+			modifiedBy = v.ModifiedBy.String()
 		}
 		modifiedAt := v.CreatedAt.Format("2006-01-02 15:04")
 		table.AddRow(fmt.Sprintf("v%d", v.Version), modifiedBy, modifiedAt)

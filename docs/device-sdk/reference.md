@@ -1,12 +1,6 @@
-<!-- mintlify
-title: "Python SDK Reference"
-description: "Complete API reference for the Revyl Python SDK"
-target: device/sdk-reference.mdx
--->
-
 # Device SDK Reference
 
-> [Back to README](../README.md) | [Commands](COMMANDS.md) | [MCP Setup](MCP_SETUP.md)
+> [Back to README](../README.md) | [Commands](../COMMANDS.md) | [MCP Setup](../integrations/mcp-setup.md)
 
 Use the Revyl Device SDK for programmatic device control and live test step execution.
 
@@ -427,7 +421,7 @@ The WHEP URL works with any client that speaks the WHEP protocol. A few options:
 
 The stream stays live for the lifetime of the device session and stops when the session is stopped.
 
-For copy-pasteable embedding examples (HTML, React, iframe), see [STREAMING.md](STREAMING.md).
+For copy-pasteable embedding examples (HTML, React, iframe), see [Streaming](device-sdk/streaming.md).
 
 ---
 

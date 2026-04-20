@@ -1,9 +1,3 @@
-<!-- mintlify
-title: "Device Troubleshooting"
-description: "Diagnose and fix common Revyl device automation failures"
-target: device/troubleshooting.mdx
--->
-
 When in doubt, start with:
 
 ```bash

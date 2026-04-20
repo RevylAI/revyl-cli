@@ -781,7 +781,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	viewerURL := devSessionViewerURL(session, devMode)
-	printDevReadyFooter(viewerURL, startResult.DeepLinkURL, manualDeepLinkRequired, isBareRN)
+	printDevReadyFooter(viewerURL, startResult.DeepLinkURL, manualDeepLinkRequired, isBareRN, ctxName, session.Index)
 
 	// Compute packager host once for the rebuild loop. Only bare RN on iOS
 	// needs this — the worker writes RCT_jsLocation to NSUserDefaults so the
@@ -1040,7 +1040,7 @@ func devSessionViewerURL(session *mcppkg.DeviceSession, devMode bool) string {
 	return viewerURL
 }
 
-func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired, isBareRN bool) {
+func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired, isBareRN bool, ctxName string, sessionIndex int) {
 	ui.Println()
 	ui.PrintSuccess("Dev loop ready")
 	ui.PrintLink("Viewer", viewerURL)
@@ -1055,9 +1055,29 @@ func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired, 
 	ui.Println()
 	ui.PrintDim("  [r] rebuild native + reinstall    [q] quit")
 	ui.Println()
-	ui.PrintInfo("In a new terminal, try:")
-	ui.PrintDim("  revyl device tap --target \"Login button\"")
-	ui.PrintDim("  revyl device screenshot")
+	printNewTerminalHints(ctxName, sessionIndex)
+}
+
+// printNewTerminalHints prints session management and device interaction commands
+// the user can run from a separate terminal. Includes the context name for attach
+// and the session index (-s flag) so commands work with multiple sessions.
+//
+// Parameters:
+//   - ctxName: the dev context name (e.g. "default") for attach/status commands
+//   - sessionIndex: the device session index for -s flags on device commands
+func printNewTerminalHints(ctxName string, sessionIndex int) {
+	ui.PrintInfo("In a new terminal (context: %s):", ctxName)
+	ui.Println()
+	ui.PrintDim("  Manage the session:")
+	ui.PrintDim("    revyl dev status                # session state + rebuild history")
+	ui.PrintDim("    revyl dev rebuild               # trigger native rebuild + reinstall")
+	ui.PrintDim("    revyl dev test run <name>       # run a test against this session")
+	ui.PrintDim("    revyl dev attach %s       # reuse this device in another context", ctxName)
+	ui.Println()
+	ui.PrintDim("  Interact with the device:")
+	ui.PrintDim("    revyl device tap --target \"Login button\" -s %d    # AI-grounded tap", sessionIndex)
+	ui.PrintDim("    revyl device instruction \"log in and verify\" -s %d  # multi-step AI instruction", sessionIndex)
+	ui.PrintDim("    revyl device screenshot -s %d                       # save a screenshot locally", sessionIndex)
 }
 
 // printDevPreflight renders the structured pre-flight checklist box showing
@@ -1809,6 +1829,8 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 	if identifier := formatInstalledAppIdentifier(devicePlatform, bundleID); identifier != "" {
 		ui.PrintInfo("Installed app: %s", identifier)
 	}
+	ui.Println()
+	printNewTerminalHints(ctxName, session.Index)
 	ui.Println()
 
 	pidPath := devCtxPIDPath(cwd, ctxName)

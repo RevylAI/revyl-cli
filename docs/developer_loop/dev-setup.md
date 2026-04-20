@@ -1,12 +1,6 @@
-<!-- mintlify
-title: "Guide: Dev Setup"
-description: "Set up revyl dev for different frameworks and project structures"
-target: cli/dev-setup-guide.mdx
--->
-
 # Dev Setup Guide
 
-This guide explains how to get `revyl dev` working for each supported framework. Pick your stack, follow the quick start, and refer to the subsections if you hit an edge case.
+This guide covers hot reload and rebuild-loop configuration for `revyl dev`. For build and upload instructions, see [Build Guides](../builds/).
 
 | Framework | Hot Reload | Rebuild Dev Loop | Provider Name |
 |-----------|-----------|-----------------|---------------|
@@ -22,21 +16,9 @@ This guide explains how to get `revyl dev` working for each supported framework.
 
 ## Expo
 
-### Quick start
+Expo projects use full hot reload via a Revyl relay to your local Metro server. JS/TS changes appear on the device within seconds. Press `[r]` only when native dependencies change.
 
-```bash
-cd my-expo-app
-revyl init                  # Detects Expo, writes config (lightweight)
-revyl auth login            # Authenticate
-revyl build upload          # Build and upload (uses development EAS profile)
-revyl dev --platform ios    # Start hot reload dev loop
-```
-
-Four commands: initialize, authenticate, upload a dev build, start the dev loop.
-
-`revyl init` creates `.revyl/config.yaml` with `ios` and `android` platform keys using the `development` EAS profile. This single build type supports both hot reload (`revyl dev`) and regular testing (`revyl test run`).
-
-During `revyl dev`, press `[r]` to rebuild and reinstall the native binary (for native code changes like adding a native module or editing `build.gradle`). Hot reload handles JS/TS changes automatically.
+For build and upload steps, see [Expo Build Guide](../builds/expo.md).
 
 ### How detection works
 
@@ -174,25 +156,10 @@ Or, if `expo` is genuinely missing from the local `package.json`, add it:
 npx expo install expo
 ```
 
-#### Example config for a monorepo app
+#### Example hotreload config for a monorepo app
 
 ```yaml
 # apps/native/.revyl/config.yaml
-project:
-  name: native
-
-build:
-  system: Expo
-  platforms:
-    ios-dev:
-      command: "npx --yes eas-cli build --platform ios --profile development --local --output build/dev-ios.tar.gz"
-      output: "build/dev-ios.tar.gz"
-      app_id: "your-ios-app-id"
-    android-dev:
-      command: "npx --yes eas-cli build --platform android --profile development --local --output build/dev-android.apk"
-      output: "build/dev-android.apk"
-      app_id: "your-android-app-id"
-
 hotreload:
   default: expo
   providers:
@@ -237,18 +204,6 @@ hotreload:
       app_scheme: myapp
 ```
 
-### Pre-built artifacts
-
-If you already have a dev client build on disk (from EAS, CI, or a local build), skip the build step:
-
-```bash
-revyl init
-revyl build upload --file ./dist/MyApp.app.zip --name "ios-dev"
-revyl dev --platform ios
-```
-
-iOS builds must be **simulator builds** (`.app` zipped), not device builds (`.ipa`). Your EAS development profile must set `ios.simulator: true`.
-
 ### Custom dev server port
 
 If Metro runs on a non-default port (common in monorepos with multiple Metro instances), set it in config or as a flag:
@@ -268,14 +223,9 @@ revyl dev --platform ios --port 8082
 
 ## React Native (bare)
 
-### Quick start
+Bare React Native projects use full hot reload via Metro, similar to Expo but without deep links. JS/TS changes appear on the device within seconds. Press `[r]` only when native dependencies change.
 
-```bash
-cd my-rn-app
-revyl init                # Detects React Native, configures hot reload
-revyl build upload --file ./android/app/build/outputs/apk/debug/app-debug.apk --name "android-dev"
-revyl dev --platform android
-```
+For build and upload steps, see [React Native Build Guide](../builds/react-native.md).
 
 ### How detection works
 
@@ -312,83 +262,35 @@ The same directory rules apply as Expo:
 
 ## Flutter
 
-Flutter projects use a rebuild-based dev loop. Detection triggers on `pubspec.yaml` and produces both iOS and Android platform keys.
+Flutter uses a rebuild-based dev loop (no hot reload). The CLI detects `pubspec.yaml` and configures build commands for both platforms. During `revyl dev`, press `[r]` to rebuild, upload, and reinstall on the cloud device. Typical rebuild cycle: ~30-60s.
 
-### Quick start
-
-```bash
-cd my-flutter-app
-revyl init                      # Detects Flutter, writes config
-revyl auth login
-revyl build upload              # Builds both platforms (or --platform ios/android)
-revyl dev --platform android    # Build -> upload -> device -> install -> [r] to rebuild
-```
-
-The CLI detects `pubspec.yaml` and configures `flutter build apk --debug` (Android) and `flutter build ios --simulator` (iOS). During `revyl dev`, press `[r]` to rebuild the binary, upload it, and reinstall on the cloud device. The viewer stays connected throughout.
-
-Typical rebuild cycle: ~30-60s for incremental Flutter builds (first build takes longer).
+For build and upload steps, see [Flutter Build Guide](../builds/flutter.md).
 
 ---
 
 ## Swift/iOS
 
-Native iOS projects use a rebuild-based dev loop instead of hot reload.
-
-### Quick start
-
-```bash
-cd my-ios-app
-revyl init                  # Detects Xcode project and scheme
-revyl auth login
-revyl build upload
-revyl dev --platform ios    # Build -> upload -> device -> install -> [r] to rebuild
-```
-
-The CLI detects `.xcodeproj` / `.xcworkspace` and configures `xcodebuild` with the discovered scheme. During `revyl dev`, press `[r]` to rebuild the native binary, upload it, and reinstall on the cloud device. The viewer stays connected throughout.
-
-Typical rebuild cycle: ~20-60s for incremental Xcode builds.
+Native iOS uses a rebuild-based dev loop. The CLI detects `.xcodeproj` / `.xcworkspace` and configures `xcodebuild`. During `revyl dev`, press `[r]` to rebuild and reinstall. Typical rebuild cycle: ~20-60s.
 
 If your project is incorrectly detected as Swift when it's actually Expo or React Native (common in monorepos), use `--provider expo` or `--provider react-native` to override.
+
+For build and upload steps, see [iOS Build Guide](../builds/ios-native.md).
 
 ---
 
 ## Android Native
 
-Native Android projects use a rebuild-based dev loop instead of hot reload.
-
-### Quick start
-
-```bash
-cd my-android-app
-revyl init                      # Detects Gradle project
-revyl auth login
-revyl build upload
-revyl dev --platform android    # Build -> upload -> device -> install -> [r] to rebuild
-```
-
-The CLI detects `build.gradle` / `build.gradle.kts` and configures `./gradlew assembleDebug`. During `revyl dev`, press `[r]` to rebuild the APK, upload it, and reinstall on the cloud device. The viewer stays connected throughout.
-
-Typical rebuild cycle: ~30-90s for incremental Gradle builds (first build takes longer).
-
-**Note:** Android reinstalls preserve app data (the `-r` flag is used).
+Native Android uses a rebuild-based dev loop. The CLI detects `build.gradle` / `build.gradle.kts` and configures `./gradlew assembleDebug`. During `revyl dev`, press `[r]` to rebuild and reinstall. Typical rebuild cycle: ~30-90s. Reinstalls preserve app data.
 
 If your project is incorrectly detected as Android Native when it's actually Expo or React Native, use `--provider expo` or `--provider react-native` to override.
+
+For build and upload steps, see [Android Build Guide](../builds/android-native.md).
 
 ---
 
 ## Kotlin Multiplatform (KMP)
 
 KMP projects share business logic in Kotlin across iOS and Android while building native binaries for each platform. Revyl detects the KMP layout and routes you into the rebuild-based dev loop using native iOS and Android build commands underneath.
-
-### Quick start
-
-```bash
-cd my-kmp-app
-revyl init                      # Detects KMP layout (shared, iosApp, androidApp)
-revyl auth login
-revyl build upload              # Builds native binaries
-revyl dev --platform android    # Build -> upload -> device -> install -> [r] to rebuild
-```
 
 The CLI detects KMP projects by looking for a `shared` module alongside native shell directories (`iosApp`, `androidApp`, or `composeApp`) and KMP-specific Gradle markers. It generates `build.platforms.ios` and `build.platforms.android` entries using the underlying native build systems (Xcode for iOS, Gradle for Android).
 
@@ -426,19 +328,7 @@ build:
 
 ## Bazel
 
-Bazel-based mobile projects use a rebuild-based dev loop. Revyl detects Bazel workspaces and guides you through configuring build targets and artifact paths.
-
-### Quick start
-
-```bash
-cd my-bazel-app
-revyl init                      # Detects Bazel workspace
-revyl auth login
-revyl build upload              # Runs your Bazel build command
-revyl dev --platform android    # Build -> upload -> device -> install -> [r] to rebuild
-```
-
-The CLI detects Bazel workspaces by looking for `MODULE.bazel`, `WORKSPACE.bazel`, or `WORKSPACE` files. Because Bazel build targets and artifact paths vary per project, `revyl init` creates placeholder platform entries that you fill in with your specific build targets.
+Bazel-based mobile projects use a rebuild-based dev loop. Revyl detects Bazel workspaces by looking for `MODULE.bazel`, `WORKSPACE.bazel`, or `WORKSPACE` files. Because Bazel build targets and artifact paths vary per project, `revyl init` creates placeholder platform entries that you fill in with your specific build targets.
 
 ### What `revyl init` shows
 
@@ -461,15 +351,6 @@ build:
     android:
       command: "bazel build //android:app -c dbg"
       output: "bazel-bin/android/app.apk"
-```
-
-### Skip-build workflow
-
-If you build externally (CI, local `bazel build`), skip the build step and upload the artifact directly:
-
-```bash
-bazel build //ios:MyApp -c dbg
-revyl build upload --skip-build --file bazel-bin/ios/MyApp.app --name ios
 ```
 
 ---
@@ -507,5 +388,5 @@ If `--provider` is not recognized, add the hotreload config manually:
 
 ## What's next
 
-- [Dev Loop workflow](/cli/dev-loop-guide) — running tests in dev mode
-- [Agent Prompt Pack](/cli/agent-prompt-pack) — copy-paste prompt templates for coding agents
+- [Dev Loop workflow](dev-loop.md) — running tests in dev mode
+- [Agent Prompt Pack](../integrations/skills.md) — copy-paste prompt templates for coding agents

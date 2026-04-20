@@ -1,12 +1,6 @@
-<!-- mintlify
-title: "Project Setup"
-description: "Initialize and configure your project for the Revyl CLI"
-target: cli/project-setup.mdx
--->
-
 # Project Configuration
 
-> [Back to README](../README.md) | [Commands](COMMANDS.md) | [CI/CD](CI_CD.md)
+> [Back to README](README.md) | [Commands](COMMANDS.md) | [CI/CD](ci-cd.md)
 
 The CLI uses a `.revyl/` directory for project configuration:
 

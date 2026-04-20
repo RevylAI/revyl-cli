@@ -1,12 +1,6 @@
-<!-- mintlify
-title: "Agent Prompt Pack"
-description: "Copy/paste prompt templates for high-leverage Revyl MCP workflows"
-target: cli/agent-prompt-pack.mdx
--->
-
 # Agent Skills
 
-> [Back to README](../README.md) | [MCP Setup](MCP_SETUP.md) | [Commands](COMMANDS.md)
+> [Back to README](../README.md) | [MCP Setup](mcp-setup.md) | [Commands](../COMMANDS.md)
 
 Skills are embedded playbooks that teach your AI coding agent how to use Revyl effectively. They improve execution quality for device interaction loops, test authoring, and failure triage. Skills are optional but significantly improve the experience.
 

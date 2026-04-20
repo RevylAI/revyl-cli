@@ -1,9 +1,3 @@
-<!-- mintlify
-title: "Guide: Device Scripting"
-description: "Write Python scripts that start devices, run actions, take screenshots, and generate reports"
-target: device/scripting-guide.mdx
--->
-
 # Device Scripting Guide
 
 Use the Revyl Python SDK to control cloud devices programmatically. Start sessions, interact with apps, capture screenshots, and collect reports — all from a Python script.
@@ -127,7 +121,7 @@ with DeviceClient.start(platform="ios", app_url=APP_URL) as device:
     device.screenshot(out="after_login.png")
 ```
 
-See [Live Device Streaming](/device/streaming) for embedding examples (HTML, React, iframe).
+See [Live Device Streaming](/device-sdk/streaming) for embedding examples (HTML, React, iframe).
 
 ## Multi-device scripting
 
@@ -184,6 +178,6 @@ except RevylError as e:
 
 ## What's Next
 
-- [Python SDK Reference](/device/sdk-reference) — complete method-level API docs
-- [Live Streaming](/device/streaming) — embed device streams in your own tools
+- [Python SDK Reference](/device-sdk/reference) — complete method-level API docs
+- [Live Streaming](/device-sdk/streaming) — embed device streams in your own tools
 - [Advanced Tests](/yaml/advanced-tests-guide) — scripts, modules, and control flow

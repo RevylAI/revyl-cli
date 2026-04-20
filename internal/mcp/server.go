@@ -54,6 +54,21 @@ type Server struct {
 	devLoopActive             bool
 	devLoopSessionIndex       int
 	devLoopManualStepRequired bool
+
+	// Composite tool profile (empty = legacy flat tools)
+	profile Profile
+}
+
+// ServerOption is a functional option for NewServer.
+type ServerOption func(*Server)
+
+// WithProfile sets the composite tool profile for the MCP server.
+// Use ProfileCore for ~10 tools (default agent experience) or
+// ProfileFull for ~16 tools (all functionality).
+func WithProfile(p Profile) ServerOption {
+	return func(s *Server) {
+		s.profile = p
+	}
 }
 
 // NewServer creates a new Revyl MCP server.
@@ -61,11 +76,12 @@ type Server struct {
 // Parameters:
 //   - version: The CLI version string
 //   - devMode: If true, use local development server URLs
+//   - opts: Optional functional options (WithProfile)
 //
 // Returns:
 //   - *Server: A new server instance
 //   - error: Any error that occurred during initialization
-func NewServer(version string, devMode bool) (*Server, error) {
+func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, error) {
 	// Get API key from environment or credentials
 	apiKey := os.Getenv("REVYL_API_KEY")
 	if apiKey == "" {
@@ -104,6 +120,11 @@ func NewServer(version string, devMode bool) (*Server, error) {
 		workDir:   workDir,
 		version:   version,
 		devMode:   devMode,
+	}
+
+	// Apply functional options
+	for _, opt := range opts {
+		opt(s)
 	}
 
 	// Initialize device session manager
@@ -243,7 +264,11 @@ When in doubt, call device_doctor() -- it checks auth, session, worker, groundin
 	)
 
 	// Register tools
-	s.registerTools()
+	if s.profile != "" {
+		s.registerCompositeTools(s.profile)
+	} else {
+		s.registerTools()
+	}
 
 	return s, nil
 }

@@ -1,12 +1,6 @@
-<!-- mintlify
-title: "MCP Setup"
-description: "Connect Revyl to AI coding agents via MCP"
-target: cli/mcp-setup.mdx
--->
-
 # MCP Server Setup
 
-> [Back to README](../README.md) | [Commands](COMMANDS.md) | [Agent Skills](SKILLS.md) | [SDK](SDK.md)
+> [Back to README](../README.md) | [Commands](../COMMANDS.md) | [Agent Skills](skills.md) | [SDK](../device-sdk/reference.md)
 
 Connect Revyl to your AI coding tools so your agent can provision cloud devices, run tests, and interact with mobile apps directly.
 
@@ -80,7 +74,7 @@ Create `.cursor/mcp.json` in your project root (project-scoped) or `~/.cursor/mc
   "mcpServers": {
     "revyl": {
       "command": "revyl",
-      "args": ["mcp", "serve"],
+      "args": ["mcp", "serve", "--profile", "core"],
       "env": {
         "REVYL_API_KEY": "your-api-key"
       }
@@ -112,7 +106,7 @@ Config file (`~/.codex/config.toml`):
 ```toml
 [mcp_servers.revyl]
 command = "revyl"
-args = ["mcp", "serve"]
+args = ["mcp", "serve", "--profile", "core"]
 env = { REVYL_API_KEY = "your-api-key" }
 ```
 
@@ -121,7 +115,7 @@ If your CLI workflow uses `--dev`, include it for MCP too:
 ```toml
 [mcp_servers.revyl]
 command = "revyl"
-args = ["--dev", "mcp", "serve"]
+args = ["--dev", "mcp", "serve", "--profile", "core"]
 env = { REVYL_API_KEY = "your-api-key" }
 ```
 
@@ -139,7 +133,7 @@ Edit the config file:
   "mcpServers": {
     "revyl": {
       "command": "revyl",
-      "args": ["mcp", "serve"],
+      "args": ["mcp", "serve", "--profile", "core"],
       "env": {
         "REVYL_API_KEY": "your-api-key"
       }
@@ -158,7 +152,7 @@ Add to your VS Code `settings.json`:
     "servers": {
       "revyl": {
         "command": "revyl",
-        "args": ["mcp", "serve"],
+        "args": ["mcp", "serve", "--profile", "core"],
         "env": {
           "REVYL_API_KEY": "your-api-key"
         }
@@ -177,7 +171,7 @@ Create or edit `~/.codeium/windsurf/mcp_config.json`:
   "mcpServers": {
     "revyl": {
       "command": "revyl",
-      "args": ["mcp", "serve"],
+      "args": ["mcp", "serve", "--profile", "core"],
       "env": {
         "REVYL_API_KEY": "your-api-key"
       }
@@ -203,7 +197,7 @@ The Revyl MCP server exposes tools across the following categories. Device actio
 | `switch_device_session` | Switch the active session by index |
 
 <Callout type="info" title="Multi-session targeting">
-  All device action, control, live step, vision, and app management tools accept an optional **`session_index`** parameter. When omitted, the active session is used. Pass `session_index` explicitly to target a specific device when running multiple sessions. See [Multi-Session Guide](/device/multi-session) for workflows and examples.
+  All device action, control, live step, vision, and app management tools accept an optional **`session_index`** parameter. When omitted, the active session is used. Pass `session_index` explicitly to target a specific device when running multiple sessions. See [Multi-Session Guide](/device-sdk/multi-session) for workflows and examples.
 </Callout>
 
 ### Device Actions
@@ -384,7 +378,7 @@ screenshot(session_index=1)
 stop_device_session(all=true)
 ```
 
-Indices are **stable** — stopping one session does not renumber the others. See [Multi-Session Guide](/device/multi-session) for details.
+Indices are **stable** — stopping one session does not renumber the others. See [Multi-Session Guide](/device-sdk/multi-session) for details.
 
 ---
 

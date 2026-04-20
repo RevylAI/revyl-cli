@@ -216,7 +216,7 @@ func TestDeviceStartCommand_PropagatesAppURLToStartDevice(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "test-api-key")
 
 	const expectedAppURL = "https://artifact.example/trimmed-app.ipa"
-	const workflowRunID = "wf-start-1"
+	const workflowRunID = "00000000-0000-0000-0000-000000000001"
 
 	var capturedStartReq struct {
 		AppURL string `json:"app_url"`
@@ -300,7 +300,7 @@ func TestDeviceStartCommand_UsesLiveCatalogForValidation(t *testing.T) {
 	withWorkingDirectory(t, tmpDir)
 	t.Setenv("REVYL_API_KEY", "test-api-key")
 
-	const workflowRunID = "wf-start-live-targets"
+	const workflowRunID = "00000000-0000-0000-0000-000000000002"
 	const expectedDeviceModel = "iPhone 17 Pro Max"
 	const expectedRuntime = "iOS 26.3.1"
 

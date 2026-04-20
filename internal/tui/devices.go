@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
@@ -143,7 +144,7 @@ func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osV
 			return DeviceStartedMsg{Err: fmt.Errorf("failed to start device: %w", err)}
 		}
 
-		if resp.WorkflowRunId == nil || *resp.WorkflowRunId == "" {
+		if resp.WorkflowRunId == nil || *resp.WorkflowRunId == (openapi_types.UUID{}) {
 			errMsg := "no workflow run ID returned"
 			if resp.Error != nil {
 				errMsg = *resp.Error
@@ -157,7 +158,7 @@ func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osV
 		}
 
 		return DeviceStartedMsg{
-			WorkflowRunID: *resp.WorkflowRunId,
+			WorkflowRunID: resp.WorkflowRunId.String(),
 			Platform:      platform,
 			ViewerURL:     viewerURL,
 		}
@@ -675,9 +676,7 @@ func (m hubModel) renderDeviceList() string {
 			statusBadge := deviceStatusBadge(s.Status)
 			uptime := ""
 			if s.StartedAt != nil {
-				if t, err := time.Parse(time.RFC3339, *s.StartedAt); err == nil {
-					uptime = dimStyle.Render("  " + formatDuration(time.Since(t)))
-				}
+				uptime = dimStyle.Render("  " + formatDuration(time.Since(*s.StartedAt)))
 			}
 			idShort := s.Id
 			if len(idShort) > 8 {
@@ -893,9 +892,7 @@ func (m hubModel) renderDeviceDetail() string {
 			b.WriteString("  " + sectionStyle.Render("OS") + "            " + normalStyle.Render(*session.OsVersion) + "\n")
 		}
 		if session.StartedAt != nil {
-			if t, err := time.Parse(time.RFC3339, *session.StartedAt); err == nil {
-				b.WriteString("  " + sectionStyle.Render("Uptime") + "        " + normalStyle.Render(formatDuration(time.Since(t))) + "\n")
-			}
+			b.WriteString("  " + sectionStyle.Render("Uptime") + "        " + normalStyle.Render(formatDuration(time.Since(*session.StartedAt))) + "\n")
 		}
 		if session.UserEmail != nil && *session.UserEmail != "" {
 			b.WriteString("  " + sectionStyle.Render("User") + "          " + dimStyle.Render(*session.UserEmail) + "\n")

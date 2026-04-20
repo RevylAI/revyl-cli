@@ -1,6 +1,6 @@
 # Command Reference
 
-> [Back to README](../README.md) | [Configuration](CONFIGURATION.md) | [CI/CD](CI_CD.md) | [SDK](SDK.md) | [Prod Validation](DEVICE_PROD_VALIDATION.md)
+> [Back to README](README.md) | [Configuration](CONFIGURATION.md) | [CI/CD](ci-cd.md) | [SDK](device-sdk/reference.md)
 
 ## Authentication
 
@@ -343,7 +343,7 @@ automatically excluded.
 
 ## Test Management
 
-For the end-to-end CLI authoring workflow, see [Creating Tests](TEST_CREATION.md).
+For the end-to-end CLI authoring workflow, see [Creating Tests](tests/creating-tests.md).
 
 ```bash
 # Test lifecycle
@@ -378,7 +378,7 @@ revyl dev test run login-flow
 
 ## Module Management
 
-Reusable modules can be imported into tests with `module_import` blocks. For examples, see [Creating Tests](TEST_CREATION.md#reusing-modules).
+Reusable modules can be imported into tests with `module_import` blocks. For examples, see [Creating Tests](tests/creating-tests.md#reusable-modules).
 
 ```bash
 revyl module list                                  # List modules
@@ -468,7 +468,7 @@ revyl device info --json | jq -r '.whep_url'
 revyl device list --json | jq '.[].whep_url'
 ```
 
-The stream becomes available shortly after session start. See [SDK > Live Streaming](SDK.md#live-streaming) for programmatic usage.
+The stream becomes available shortly after session start. See [SDK > Live Streaming](device-sdk/reference.md#live-streaming) for programmatic usage.
 
 ### Device Session Flags
 

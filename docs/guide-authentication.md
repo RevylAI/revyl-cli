@@ -1,9 +1,3 @@
-<!-- mintlify
-title: "Authentication"
-description: "Set up authentication for the Revyl CLI"
-target: cli/authentication.mdx
--->
-
 The Revyl CLI uses API keys for authentication. You can authenticate interactively or use environment variables for CI/CD.
 
 ## Getting an API Key

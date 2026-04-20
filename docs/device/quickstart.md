@@ -1,9 +1,3 @@
-<!-- mintlify
-title: "Device Quickstart"
-description: "Run your first Revyl cloud device session with an ergonomic, reliable action loop"
-target: device/quickstart.mdx
--->
-
 This is the fastest way to get a working device session and take real actions safely.
 
 ## 1. Install and Authenticate
@@ -109,7 +103,7 @@ device.stop_session()
 
 ## Next
 
-- Python scripting flow: [Device Scripting Guide](/device/scripting-guide)
+- Python scripting flow: [Device Scripting Guide](/device-sdk/scripting)
 - Full command coverage: [CLI Device Commands](/device/cli-commands)
 - Agent-driven device control: [MCP Setup](/cli/mcp-setup)
 - CI orchestration APIs: [API Quickstart](/api-reference/quickstart)

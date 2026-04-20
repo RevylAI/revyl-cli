@@ -773,7 +773,7 @@ func TestDeviceSessionManager_StartSession_PropagatesBuildPackageToStartDevice(t
 		buildVersionID = "build-123"
 		downloadURL    = "https://artifact.example/dev-client.ipa"
 		packageName    = "com.example.devclient"
-		workflowRunID  = "wf-run-123"
+		workflowRunID  = "00000000-0000-0000-0000-000000000003"
 	)
 
 	var capturedStartReq struct {
@@ -831,7 +831,7 @@ func TestDeviceSessionManager_StartSession_PropagatesDirectAppURLToStartDevice(t
 
 	const (
 		appURL        = "https://artifact.example/direct-app.ipa"
-		workflowRunID = "wf-run-direct"
+		workflowRunID = "00000000-0000-0000-0000-000000000004"
 	)
 
 	var capturedStartReq struct {

@@ -1,9 +1,3 @@
-<!-- mintlify
-title: "Guide: Multi-Session Devices"
-description: "Run multiple cloud devices simultaneously for cross-platform testing, parallel workflows, and side-by-side comparisons"
-target: device/multi-session.mdx
--->
-
 # Multi-Session Guide
 
 Run multiple cloud devices at the same time. Start an Android and an iOS session, interact with each one independently, and tear them down when you're done.
@@ -193,5 +187,5 @@ You may be targeting the active session unintentionally. Pass `-s` (CLI) or `ses
 
 - [Device Commands](/cli/devices) — full CLI reference for all device commands
 - [MCP Server Setup](/cli/mcp-setup) — connect device tools to your AI coding agent
-- [Device Scripting Guide](/device/scripting-guide) — write Python scripts that control devices
+- [Device Scripting Guide](/device-sdk/scripting) — write Python scripts that control devices
 - [Device Troubleshooting](/device/troubleshooting) — common issues and fixes

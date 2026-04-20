@@ -1,9 +1,3 @@
-<!-- mintlify
-title: "Running Tests"
-description: "Execute tests and workflows from the command line"
-target: cli/running-tests.mdx
--->
-
 Run individual tests or complete workflows directly from your terminal. Get real-time feedback and integrate testing into your development workflow.
 
 ## Run a Single Test
