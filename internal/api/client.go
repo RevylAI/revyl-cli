@@ -2273,11 +2273,11 @@ type StartDeviceRequest struct {
 	SessionID string `json:"session_id,omitempty"`
 
 	// RunConfig contains optional execution configuration.
-	RunConfig *TestRunConfig `json:"run_config,omitempty"`
+	RunConfig *DeviceRunConfig `json:"run_config,omitempty"`
 }
 
-// TestRunConfig contains optional execution configuration.
-type TestRunConfig struct {
+// DeviceRunConfig contains optional execution configuration for device sessions.
+type DeviceRunConfig struct {
 	// MaxRetries is the maximum number of retries for failed steps.
 	MaxRetries int `json:"max_retries,omitempty"`
 
