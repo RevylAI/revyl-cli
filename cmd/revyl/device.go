@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -166,12 +167,21 @@ func buildActionResult(action string, x, y int, target string, workerBody []byte
 }
 
 type liveStepOutputSummary struct {
-	Status           string `json:"status"`
-	StatusReason     string `json:"status_reason"`
-	ValidationResult *bool  `json:"validation_result,omitempty"`
+	Status           string                `json:"status"`
+	StatusReason     string                `json:"status_reason"`
+	ValidationResult *bool                 `json:"validation_result,omitempty"`
+	VariableName     string                `json:"variable_name,omitempty"`
+	VariableValue    *string               `json:"variable_value,omitempty"`
+	Variables        map[string]string     `json:"variables,omitempty"`
+	ExtractedData    *extractedDataSummary `json:"extracted_data,omitempty"`
+	Metadata         map[string]any        `json:"metadata,omitempty"`
 }
 
-func formatLiveStepFallback(stepLabel string, response *mcppkg.LiveStepResponse) string {
+type extractedDataSummary struct {
+	Information *string `json:"information,omitempty"`
+}
+
+func formatLiveStepFallback(stepLabel string, request mcppkg.LiveStepRequest, response *mcppkg.LiveStepResponse) string {
 	if response == nil {
 		return fmt.Sprintf("%s step completed", stepLabel)
 	}
@@ -195,6 +205,70 @@ func formatLiveStepFallback(stepLabel string, response *mcppkg.LiveStepResponse)
 	}
 	if strings.TrimSpace(summary.StatusReason) != "" && !response.Success {
 		return fmt.Sprintf("%s step %s: %s", stepLabel, status, summary.StatusReason)
+	}
+	if stepLabel == "Local var" {
+		return formatLocalVarFallback(stepLabel, request, summary, status)
+	}
+	if stepLabel == "Extract" {
+		return formatExtractFallback(stepLabel, request, summary, status)
+	}
+	if stepLabel == "Code execution" {
+		return formatCodeExecutionFallback(stepLabel, request, summary, status)
+	}
+	return fmt.Sprintf("%s step %s", stepLabel, status)
+}
+
+func formatLocalVarFallback(stepLabel string, request mcppkg.LiveStepRequest, summary liveStepOutputSummary, status string) string {
+	operation, _ := request.Metadata["operation"].(string)
+	switch strings.TrimSpace(strings.ToLower(operation)) {
+	case "list":
+		if len(summary.Variables) == 0 {
+			return "No local vars set"
+		}
+		names := make([]string, 0, len(summary.Variables))
+		for name := range summary.Variables {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		lines := make([]string, 0, len(names)+1)
+		lines = append(lines, "Local vars:")
+		for _, name := range names {
+			lines = append(lines, fmt.Sprintf("%s=%s", name, summary.Variables[name]))
+		}
+		return strings.Join(lines, "\n")
+	case "get", "set":
+		if summary.VariableName != "" && summary.VariableValue != nil {
+			return fmt.Sprintf("%s=%s", summary.VariableName, *summary.VariableValue)
+		}
+	case "delete":
+		if summary.VariableName != "" && summary.VariableValue != nil {
+			return fmt.Sprintf("Deleted %s (was %s)", summary.VariableName, *summary.VariableValue)
+		}
+		if summary.VariableName != "" {
+			return fmt.Sprintf("Deleted %s", summary.VariableName)
+		}
+	}
+	return fmt.Sprintf("%s step %s", stepLabel, status)
+}
+
+func formatExtractFallback(stepLabel string, request mcppkg.LiveStepRequest, summary liveStepOutputSummary, status string) string {
+	if summary.ExtractedData != nil && summary.ExtractedData.Information != nil {
+		value := *summary.ExtractedData.Information
+		if variableName, _ := request.Metadata["variable_name"].(string); strings.TrimSpace(variableName) != "" {
+			return fmt.Sprintf("%s=%s", strings.TrimSpace(variableName), value)
+		}
+		return value
+	}
+	return fmt.Sprintf("%s step %s", stepLabel, status)
+}
+
+func formatCodeExecutionFallback(stepLabel string, request mcppkg.LiveStepRequest, summary liveStepOutputSummary, status string) string {
+	stdoutValue, _ := summary.Metadata["stdout"].(string)
+	if strings.TrimSpace(stdoutValue) != "" {
+		if variableName, _ := request.Metadata["variable_name"].(string); strings.TrimSpace(variableName) != "" {
+			return fmt.Sprintf("%s=%s", strings.TrimSpace(variableName), stdoutValue)
+		}
+		return stdoutValue
 	}
 	return fmt.Sprintf("%s step %s", stepLabel, status)
 }
@@ -233,8 +307,38 @@ func executeLiveStepCommand(cmd *cobra.Command, request mcppkg.LiveStepRequest, 
 	if err != nil {
 		return err
 	}
-	jsonOrPrint(cmd, response, formatLiveStepFallback(stepLabel, response))
+	jsonOrPrint(cmd, response, formatLiveStepFallback(stepLabel, request, response))
 	return nil
+}
+
+func buildCodeExecutionLiveStepRequest(scriptID, variableName string) mcppkg.LiveStepRequest {
+	request := mcppkg.LiveStepRequest{
+		StepType:        "code_execution",
+		StepDescription: strings.TrimSpace(scriptID),
+	}
+	if strings.TrimSpace(variableName) != "" {
+		request.Metadata = map[string]any{
+			"variable_name": strings.TrimSpace(variableName),
+		}
+	}
+	return request
+}
+
+func buildLocalVarLiveStepRequest(operation, variableName, variableValue string) mcppkg.LiveStepRequest {
+	request := mcppkg.LiveStepRequest{
+		StepType:        "local_var",
+		StepDescription: fmt.Sprintf("local-var %s", strings.TrimSpace(operation)),
+		Metadata: map[string]any{
+			"operation": strings.TrimSpace(operation),
+		},
+	}
+	if strings.TrimSpace(variableName) != "" {
+		request.Metadata["variable_name"] = strings.TrimSpace(variableName)
+	}
+	if strings.TrimSpace(operation) == "set" {
+		request.Metadata["variable_value"] = variableValue
+	}
+	return request
 }
 
 func normalizeDeviceStartPlatform(raw string) (string, error) {
@@ -1641,6 +1745,7 @@ Modes 2 and 3 create an ephemeral script on the backend, execute it, then clean 
 		codeExecFile, _ := cmd.Flags().GetString("file")
 		codeExecInline, _ := cmd.Flags().GetString("code")
 		codeExecRuntime, _ := cmd.Flags().GetString("runtime")
+		variableName, _ := cmd.Flags().GetString("variable-name")
 
 		hasScriptID := len(args) > 0 && strings.TrimSpace(args[0]) != ""
 		hasFile := codeExecFile != ""
@@ -1667,10 +1772,7 @@ Modes 2 and 3 create an ephemeral script on the backend, execute it, then clean 
 		if hasScriptID {
 			return executeLiveStepCommand(
 				cmd,
-				mcppkg.LiveStepRequest{
-					StepType:        "code_execution",
-					StepDescription: strings.TrimSpace(args[0]),
-				},
+				buildCodeExecutionLiveStepRequest(args[0], variableName),
 				"Code execution",
 			)
 		}
@@ -1709,16 +1811,79 @@ Modes 2 and 3 create an ephemeral script on the backend, execute it, then clean 
 
 		execErr := executeLiveStepCommand(
 			cmd,
-			mcppkg.LiveStepRequest{
-				StepType:        "code_execution",
-				StepDescription: created.ID,
-			},
+			buildCodeExecutionLiveStepRequest(created.ID, variableName),
 			"Code execution",
 		)
 
 		_ = client.DeleteScript(cmd.Context(), created.ID)
 
 		return execErr
+	},
+}
+
+var deviceLocalVarCmd = &cobra.Command{
+	Use:   "local-var",
+	Short: "Manage runtime local variables on the active device session",
+}
+
+var deviceLocalVarSetCmd = &cobra.Command{
+	Use:   "set",
+	Short: "Create or update a runtime local variable",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		variableName, _ := cmd.Flags().GetString("variable-name")
+		variableValue, _ := cmd.Flags().GetString("value")
+		if strings.TrimSpace(variableName) == "" {
+			return fmt.Errorf("--variable-name is required")
+		}
+		return executeLiveStepCommand(
+			cmd,
+			buildLocalVarLiveStepRequest("set", variableName, variableValue),
+			"Local var",
+		)
+	},
+}
+
+var deviceLocalVarGetCmd = &cobra.Command{
+	Use:   "get",
+	Short: "Read a runtime local variable",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		variableName, _ := cmd.Flags().GetString("variable-name")
+		if strings.TrimSpace(variableName) == "" {
+			return fmt.Errorf("--variable-name is required")
+		}
+		return executeLiveStepCommand(
+			cmd,
+			buildLocalVarLiveStepRequest("get", variableName, ""),
+			"Local var",
+		)
+	},
+}
+
+var deviceLocalVarListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List runtime local variables",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return executeLiveStepCommand(
+			cmd,
+			buildLocalVarLiveStepRequest("list", "", ""),
+			"Local var",
+		)
+	},
+}
+
+var deviceLocalVarDeleteCmd = &cobra.Command{
+	Use:   "delete",
+	Short: "Delete a runtime local variable",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		variableName, _ := cmd.Flags().GetString("variable-name")
+		if strings.TrimSpace(variableName) == "" {
+			return fmt.Errorf("--variable-name is required")
+		}
+		return executeLiveStepCommand(
+			cmd,
+			buildLocalVarLiveStepRequest("delete", variableName, ""),
+			"Local var",
+		)
 	},
 }
 
@@ -2310,7 +2475,24 @@ func init() {
 	deviceCodeExecutionCmd.Flags().String("file", "", "Run code from a local file (creates ephemeral script)")
 	deviceCodeExecutionCmd.Flags().String("code", "", "Run inline code string (creates ephemeral script)")
 	deviceCodeExecutionCmd.Flags().String("runtime", "python", "Script runtime for --file/--code (python, javascript, typescript, bash)")
+	deviceCodeExecutionCmd.Flags().String("variable-name", "", "Optional variable name to store code execution stdout under")
 	sessionFlag(deviceCodeExecutionCmd)
+
+	deviceLocalVarSetCmd.Flags().String("variable-name", "", "Runtime local variable name")
+	deviceLocalVarSetCmd.Flags().String("value", "", "Runtime local variable value")
+	deviceLocalVarSetCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceLocalVarSetCmd)
+
+	deviceLocalVarGetCmd.Flags().String("variable-name", "", "Runtime local variable name")
+	deviceLocalVarGetCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceLocalVarGetCmd)
+
+	deviceLocalVarListCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceLocalVarListCmd)
+
+	deviceLocalVarDeleteCmd.Flags().String("variable-name", "", "Runtime local variable name")
+	deviceLocalVarDeleteCmd.Flags().Bool("json", false, "Output as JSON")
+	sessionFlag(deviceLocalVarDeleteCmd)
 
 	// Info
 	deviceInfoCmd.Flags().Bool("json", false, "Output as JSON")
@@ -2361,6 +2543,11 @@ func init() {
 	deviceCmd.AddCommand(deviceValidationCmd)
 	deviceCmd.AddCommand(deviceExtractCmd)
 	deviceCmd.AddCommand(deviceCodeExecutionCmd)
+	deviceLocalVarCmd.AddCommand(deviceLocalVarSetCmd)
+	deviceLocalVarCmd.AddCommand(deviceLocalVarGetCmd)
+	deviceLocalVarCmd.AddCommand(deviceLocalVarListCmd)
+	deviceLocalVarCmd.AddCommand(deviceLocalVarDeleteCmd)
+	deviceCmd.AddCommand(deviceLocalVarCmd)
 	deviceCmd.AddCommand(deviceInfoCmd)
 	deviceCmd.AddCommand(deviceDoctorCmd)
 	deviceCmd.AddCommand(deviceListCmd)
