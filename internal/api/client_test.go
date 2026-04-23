@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -590,6 +591,66 @@ func TestListApps_HydratesMissingVersionSummaries(t *testing.T) {
 	}
 }
 
+func TestListAllApps_PaginatesAcrossAllPages(t *testing.T) {
+	var requestedPages []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/builds/vars" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodGet {
+			t.Fatalf("unexpected method for list apps: %s", r.Method)
+		}
+
+		page := r.URL.Query().Get("page")
+		requestedPages = append(requestedPages, page)
+
+		w.Header().Set("Content-Type", "application/json")
+		switch page {
+		case "1":
+			_, _ = w.Write([]byte(`{
+				"items": [{"id":"app-1","name":"Alpha","platform":"ios","versions_count":1,"latest_version":"1.0.0"}],
+				"total": 2,
+				"page": 1,
+				"page_size": 100,
+				"total_pages": 2,
+				"has_next": true,
+				"has_previous": false
+			}`))
+		case "2":
+			_, _ = w.Write([]byte(`{
+				"items": [{"id":"app-2","name":"Zulu","platform":"ios","versions_count":1,"latest_version":"2.0.0"}],
+				"total": 2,
+				"page": 2,
+				"page_size": 100,
+				"total_pages": 2,
+				"has_next": false,
+				"has_previous": true
+			}`))
+		default:
+			t.Fatalf("unexpected page: %s", page)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+
+	apps, err := client.ListAllApps(context.Background(), "ios", 100)
+	if err != nil {
+		t.Fatalf("ListAllApps() error = %v, want nil", err)
+	}
+
+	if got, want := requestedPages, []string{"1", "2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("requested pages = %v, want %v", got, want)
+	}
+	if len(apps) != 2 {
+		t.Fatalf("ListAllApps() returned %d items, want 2", len(apps))
+	}
+	if apps[0].ID != "app-1" || apps[1].ID != "app-2" {
+		t.Fatalf("unexpected apps = %#v", apps)
+	}
+}
+
 func TestGetApp_HydratesMissingVersionSummaries(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -932,5 +993,36 @@ func TestCreateHotReloadRelay(t *testing.T) {
 	}
 	if resp.RelayID != "a-123abc" {
 		t.Fatalf("RelayID = %q, want a-123abc", resp.RelayID)
+	}
+}
+
+func TestProxyWorkerMethodForAction(t *testing.T) {
+	t.Parallel()
+
+	// Read-only device-proxy actions: the worker exposes these as GET only,
+	// so the CLI must not fall through to the POST default.
+	getActions := []string{
+		"screenshot",
+		"health",
+		"device_info",
+		"step_status",
+		"step_status/abc-123",
+		"hierarchy",
+		"performance_metrics",
+		"network_requests",
+		"device_logs",
+	}
+	for _, action := range getActions {
+		if got := proxyWorkerMethodForAction(action); got != http.MethodGet {
+			t.Errorf("proxyWorkerMethodForAction(%q) = %q, want GET", action, got)
+		}
+	}
+
+	// Mutating actions default to POST.
+	postActions := []string{"tap", "swipe", "execute_step", "install", "launch"}
+	for _, action := range postActions {
+		if got := proxyWorkerMethodForAction(action); got != http.MethodPost {
+			t.Errorf("proxyWorkerMethodForAction(%q) = %q, want POST", action, got)
+		}
 	}
 }

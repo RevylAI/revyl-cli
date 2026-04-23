@@ -25,6 +25,7 @@ const (
 	deviceStartStepPlatform deviceStartStep = iota
 	deviceStartStepApp
 	deviceStartStepDevice
+	deviceStartStepLaunchVars
 )
 
 var openBrowserFn = ui.OpenBrowser
@@ -117,16 +118,17 @@ func fetchDeviceStartAppsCmd(client *api.Client, platform string) tea.Cmd {
 //
 // Returns:
 //   - tea.Cmd: async command that sends DeviceStartedMsg on completion
-func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osVersion string) tea.Cmd {
+func startDeviceSessionCmd(client *api.Client, platform, appID, deviceModel, osVersion string, launchVarIDs []string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 		defer cancel()
 
 		req := &api.StartDeviceRequest{
-			Platform:     platform,
-			IsSimulation: true,
-			DeviceModel:  deviceModel,
-			OsVersion:    osVersion,
+			Platform:        platform,
+			IsSimulation:    true,
+			DeviceModel:     deviceModel,
+			OsVersion:       osVersion,
+			LaunchEnvVarIds: launchVarIDs,
 		}
 		if strings.TrimSpace(appID) != "" {
 			resolved, err := startdevice.ResolveStartArtifact(ctx, client, startdevice.StartArtifactOptions{
@@ -294,6 +296,8 @@ func (m hubModel) handleDeviceStartKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDeviceStartAppKey(msg)
 	case deviceStartStepDevice:
 		return m.handleDeviceStartDeviceKey(msg)
+	case deviceStartStepLaunchVars:
+		return m.handleDeviceStartLaunchVarsKey(msg)
 	default:
 		return m, nil
 	}
@@ -447,23 +451,96 @@ func (m hubModel) handleDeviceStartDeviceKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 			m.deviceStartOsVersion = pair.Runtime
 		}
 
-		selectedApp := m.selectedDeviceStartApp()
-		appID := ""
-		if selectedApp != nil {
-			appID = selectedApp.ID
-		}
-		m.deviceStarting = true
+		m.deviceStartStep = int(deviceStartStepLaunchVars)
+		m.deviceStartLaunchVarCursor = 0
 		m.deviceStartErr = ""
-		return m, startDeviceSessionCmd(
-			m.client,
-			m.deviceStartPlatform,
-			appID,
-			m.deviceStartDeviceModel,
-			m.deviceStartOsVersion,
-		)
+		if len(m.launchVarItems) == 0 {
+			m.deviceStartLaunchVarsLoading = true
+			return m, fetchLaunchVarsCmd(m.client)
+		}
+		return m, nil
 	default:
 		return m, nil
 	}
+}
+
+func (m hubModel) handleDeviceStartLaunchVarsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.deviceStarting {
+		if msg.String() == "q" {
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "q":
+		return m, tea.Quit
+	case "esc":
+		m = m.resetDeviceStartOverlay()
+		return m, nil
+	case "backspace":
+		m.deviceStartStep = int(deviceStartStepDevice)
+		m.deviceStartErr = ""
+		return m, nil
+	case "up", "k":
+		if m.deviceStartLaunchVarCursor > 0 {
+			m.deviceStartLaunchVarCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.deviceStartLaunchVarCursor < len(m.launchVarItems)-1 {
+			m.deviceStartLaunchVarCursor++
+		}
+		return m, nil
+	case " ":
+		if m.deviceStartLaunchVarCursor < len(m.launchVarItems) {
+			id := m.launchVarItems[m.deviceStartLaunchVarCursor].ID
+			if m.deviceStartLaunchVarSelected == nil {
+				m.deviceStartLaunchVarSelected = make(map[string]bool)
+			}
+			if m.deviceStartLaunchVarSelected[id] {
+				delete(m.deviceStartLaunchVarSelected, id)
+			} else {
+				m.deviceStartLaunchVarSelected[id] = true
+			}
+		}
+		return m, nil
+	case "s", "enter":
+		return m.beginDeviceStartLaunch()
+	default:
+		return m, nil
+	}
+}
+
+func (m hubModel) beginDeviceStartLaunch() (tea.Model, tea.Cmd) {
+	if m.client == nil {
+		m.deviceStartErr = "not authenticated"
+		return m, nil
+	}
+
+	selectedApp := m.selectedDeviceStartApp()
+	appID := ""
+	if selectedApp != nil {
+		appID = selectedApp.ID
+	}
+
+	launchVarIDs := make([]string, 0, len(m.deviceStartLaunchVarSelected))
+	for _, v := range m.launchVarItems {
+		if m.deviceStartLaunchVarSelected[v.ID] {
+			launchVarIDs = append(launchVarIDs, v.ID)
+		}
+	}
+
+	m.deviceStarting = true
+	m.deviceStartErr = ""
+	return m, startDeviceSessionCmd(
+		m.client,
+		m.deviceStartPlatform,
+		appID,
+		m.deviceStartDeviceModel,
+		m.deviceStartOsVersion,
+		launchVarIDs,
+	)
 }
 
 func (m hubModel) beginDeviceStart() hubModel {
@@ -481,6 +558,9 @@ func (m hubModel) beginDeviceStart() hubModel {
 	m.deviceStartDeviceCursor = 0
 	m.deviceStartDeviceModel = ""
 	m.deviceStartOsVersion = ""
+	m.deviceStartLaunchVarCursor = 0
+	m.deviceStartLaunchVarSelected = nil
+	m.deviceStartLaunchVarsLoading = false
 	return m
 }
 
@@ -523,6 +603,9 @@ func (m hubModel) resetDeviceStartOverlay() hubModel {
 	m.deviceStartDeviceCursor = 0
 	m.deviceStartDeviceModel = ""
 	m.deviceStartOsVersion = ""
+	m.deviceStartLaunchVarCursor = 0
+	m.deviceStartLaunchVarSelected = nil
+	m.deviceStartLaunchVarsLoading = false
 	return m
 }
 
@@ -825,23 +908,74 @@ func (m hubModel) renderDeviceStartOverlay(innerW int) string {
 			}
 		}
 
-		b.WriteString("\n  " + helpStyle.Render("enter to start, backspace to change app, esc to cancel") + "\n")
+		b.WriteString("\n  " + helpStyle.Render("enter to continue, backspace to change app, esc to cancel") + "\n")
+	case deviceStartStepLaunchVars:
+		b.WriteString("\n  " + dimStyle.Render("Platform: ") + platformStyle.Render(m.deviceStartPlatform) + "\n")
+		selectedApp := m.selectedDeviceStartApp()
+		appLabel := "No app"
+		if selectedApp != nil {
+			appLabel = selectedApp.Name
+		}
+		b.WriteString("  " + dimStyle.Render("App: ") + normalStyle.Render(appLabel) + "\n")
+
+		if m.deviceStarting {
+			b.WriteString("\n  " + m.spinner.View() + " Starting device...\n")
+		} else {
+			b.WriteString("\n  " + normalStyle.Render("Attach launch vars:") + "   " + dimStyle.Render(fmt.Sprintf("%d selected", len(m.deviceStartLaunchVarSelected))) + "\n\n")
+
+			if m.deviceStartLaunchVarsLoading {
+				b.WriteString("  " + m.spinner.View() + " Loading launch vars...\n")
+			} else if len(m.launchVarItems) == 0 {
+				b.WriteString("  " + dimStyle.Render("No org launch variables defined") + "\n")
+				b.WriteString("  " + dimStyle.Render("Create via: revyl global launch-var create KEY=VALUE") + "\n")
+			} else {
+				maxVisible := m.height - 18
+				if maxVisible < 5 {
+					maxVisible = 5
+				}
+				start, end := scrollWindow(m.deviceStartLaunchVarCursor, len(m.launchVarItems), maxVisible)
+				if start > 0 {
+					b.WriteString(dimStyle.Render("  ↑ more") + "\n")
+				}
+				for i := start; i < end; i++ {
+					v := m.launchVarItems[i]
+					cur := "  "
+					style := normalStyle
+					if i == m.deviceStartLaunchVarCursor {
+						cur = selectedStyle.Render("▸ ")
+						style = selectedStyle
+					}
+					box := "[ ]"
+					if m.deviceStartLaunchVarSelected[v.ID] {
+						box = successStyle.Render("[x]")
+					}
+					b.WriteString("  " + cur + box + " " + style.Render(v.Key) + "\n")
+				}
+				if end < len(m.launchVarItems) {
+					b.WriteString(dimStyle.Render("  ↓ more") + "\n")
+				}
+			}
+		}
+
+		b.WriteString("\n  " + helpStyle.Render("space to toggle, enter to start, s to skip, backspace to change device, esc to cancel") + "\n")
 	}
 
 	return b.String() + "\n"
 }
 
 func (m hubModel) renderDeviceStartProgress() string {
-	steps := []string{"Platform", "App", "Device", "Start"}
+	steps := []string{"Platform", "App", "Device", "Launch vars", "Start"}
 	current := 0
 	switch deviceStartStep(m.deviceStartStep) {
 	case deviceStartStepApp:
 		current = 1
 	case deviceStartStepDevice:
 		current = 2
+	case deviceStartStepLaunchVars:
+		current = 3
 	}
 	if m.deviceStarting {
-		current = 3
+		current = 4
 	}
 
 	parts := make([]string, 0, len(steps)*2)

@@ -69,10 +69,10 @@ func runRenameWorkflow(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.StartSpinner("Checking name availability...")
-	workflowList, listErr := client.ListWorkflows(cmd.Context())
+	workflows, listErr := client.ListAllWorkflows(cmd.Context(), 200)
 	ui.StopSpinner()
 	if listErr == nil {
-		for _, w := range workflowList.Workflows {
+		for _, w := range workflows {
 			if w.ID != workflowID && w.Name == newName {
 				err := fmt.Errorf("a different workflow already uses name %q (id: %s)", newName, w.ID)
 				ui.PrintError("%v", err)
@@ -119,12 +119,12 @@ func runRenameWorkflow(cmd *cobra.Command, args []string) error {
 
 func selectWorkflowRenameTarget(ctx context.Context, client *api.Client) (string, string, error) {
 	ui.StartSpinner("Fetching workflows...")
-	resp, err := client.ListWorkflows(ctx)
+	workflows, err := client.ListAllWorkflows(ctx, 200)
 	ui.StopSpinner()
 	if err != nil {
 		return "", "", fmt.Errorf("failed to list workflows: %w", err)
 	}
-	if len(resp.Workflows) == 0 {
+	if len(workflows) == 0 {
 		return "", "", fmt.Errorf("no workflows found in organization")
 	}
 
@@ -133,8 +133,8 @@ func selectWorkflowRenameTarget(ctx context.Context, client *api.Client) (string
 		desc  string
 		id    string
 	}
-	items := make([]item, 0, len(resp.Workflows))
-	for _, w := range resp.Workflows {
+	items := make([]item, 0, len(workflows))
+	for _, w := range workflows {
 		items = append(items, item{
 			label: w.Name,
 			desc:  fmt.Sprintf("Remote: %s | ID: %s", w.Name, w.ID),

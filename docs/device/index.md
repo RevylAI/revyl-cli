@@ -12,6 +12,9 @@ For Python SDK usage, see [Device SDK](/device-sdk/index).
   <Card title="CLI Device Commands" icon="terminal" href="/device/cli-commands">
     Use `revyl device` directly from your terminal.
   </Card>
+  <Card title="Live Observability" icon="chart-line" href="/device/live-observability">
+    Stream perf, network, and device logs live, and pull post-session artifacts.
+  </Card>
   <Card title="Troubleshooting" icon="screwdriver-wrench" href="/device/troubleshooting">
     Fix session, install, grounding, and action issues quickly.
   </Card>

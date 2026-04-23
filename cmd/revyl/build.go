@@ -723,7 +723,7 @@ func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 
 	// Fetch existing apps
 	ui.StartSpinner("Fetching apps...")
-	result, err := client.ListApps(cmd.Context(), platform, 1, 50)
+	apps, err := client.ListAllApps(cmd.Context(), platform, 100)
 	ui.StopSpinner()
 
 	if err != nil {
@@ -734,7 +734,7 @@ func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 	var appID string
 
 	// If no existing apps, skip selection and create directly
-	if len(result.Items) == 0 {
+	if len(apps) == 0 {
 		ui.PrintInfo("No existing apps found. Let's create one.")
 		ui.Println()
 		appID, err = createNewApp(cmd, client, cfg, platform)
@@ -743,7 +743,7 @@ func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 		}
 	} else {
 		options := []string{"Create new app"}
-		for _, app := range result.Items {
+		for _, app := range apps {
 			options = append(options, fmt.Sprintf("%s (%s)", app.Name, app.Platform))
 		}
 
@@ -760,8 +760,8 @@ func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 				return "", err
 			}
 		} else {
-			appID = result.Items[selection-1].ID
-			ui.PrintSuccess("Selected: %s", result.Items[selection-1].Name)
+			appID = apps[selection-1].ID
+			ui.PrintSuccess("Selected: %s", apps[selection-1].Name)
 		}
 	}
 
@@ -1324,7 +1324,7 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 func selectOrCreateAppInteractive(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, platform string) (string, error) {
 	// Fetch existing apps for this platform
 	ui.StartSpinner(fmt.Sprintf("Fetching %s apps...", platform))
-	result, err := client.ListApps(cmd.Context(), platform, 1, 50)
+	apps, err := client.ListAllApps(cmd.Context(), platform, 100)
 	ui.StopSpinner()
 
 	if err != nil {
@@ -1335,7 +1335,7 @@ func selectOrCreateAppInteractive(cmd *cobra.Command, client *api.Client, cfg *c
 	var appID string
 
 	// If no existing apps for this platform, create directly
-	if len(result.Items) == 0 {
+	if len(apps) == 0 {
 		ui.PrintInfo("No existing %s apps found. Creating one...", platform)
 		appID, err = createNewAppForPlatform(cmd, client, cfg, platform)
 		if err != nil {
@@ -1343,7 +1343,7 @@ func selectOrCreateAppInteractive(cmd *cobra.Command, client *api.Client, cfg *c
 		}
 	} else {
 		options := []string{fmt.Sprintf("Create new %s app", platform)}
-		for _, app := range result.Items {
+		for _, app := range apps {
 			options = append(options, fmt.Sprintf("%s (%s)", app.Name, app.Platform))
 		}
 
@@ -1360,8 +1360,8 @@ func selectOrCreateAppInteractive(cmd *cobra.Command, client *api.Client, cfg *c
 				return "", err
 			}
 		} else {
-			appID = result.Items[selection-1].ID
-			ui.PrintSuccess("Selected: %s", result.Items[selection-1].Name)
+			appID = apps[selection-1].ID
+			ui.PrintSuccess("Selected: %s", apps[selection-1].Name)
 		}
 	}
 
@@ -1903,7 +1903,7 @@ func listOrgApps(cmd *cobra.Command, client *api.Client) error {
 	if !jsonOutput {
 		ui.StartSpinner("Fetching apps from organization...")
 	}
-	result, err := client.ListApps(cmd.Context(), buildPlatform, 1, 50)
+	apps, err := client.ListAllApps(cmd.Context(), buildPlatform, 100)
 	if !jsonOutput {
 		ui.StopSpinner()
 	}
@@ -1915,23 +1915,23 @@ func listOrgApps(cmd *cobra.Command, client *api.Client) error {
 
 	if jsonOutput {
 		output := map[string]interface{}{
-			"apps":  result.Items,
-			"count": len(result.Items),
-			"total": result.Total,
+			"apps":  apps,
+			"count": len(apps),
+			"total": len(apps),
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(data))
 		return nil
 	}
 
-	if len(result.Items) == 0 {
+	if len(apps) == 0 {
 		ui.PrintInfo("No apps found in your organization")
 		ui.PrintInfo("Create apps at https://app.revyl.ai")
 		return nil
 	}
 
 	ui.Println()
-	ui.PrintInfo("Apps in your organization (%d total):", result.Total)
+	ui.PrintInfo("Apps in your organization (%d total):", len(apps))
 	ui.Println()
 
 	// Create table with dynamic column widths
@@ -1940,7 +1940,7 @@ func listOrgApps(cmd *cobra.Command, client *api.Client) error {
 	table.SetMinWidth(1, 8)  // PLATFORM
 	table.SetMinWidth(4, 36) // APP ID - UUIDs are 36 chars
 
-	for _, app := range result.Items {
+	for _, app := range apps {
 		latestVer := "-"
 		if app.LatestVersion != "" {
 			latestVer = app.LatestVersion

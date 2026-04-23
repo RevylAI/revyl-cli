@@ -417,7 +417,7 @@ func resolveWorkflowID(ctx context.Context, nameOrID string, cfg *config.Project
 	}
 
 	ui.StartSpinner("Searching for workflow...")
-	wfResp, err := client.ListWorkflows(ctx)
+	workflows, err := client.ListAllWorkflows(ctx, 200)
 	ui.StopSpinner()
 
 	if err != nil {
@@ -425,7 +425,7 @@ func resolveWorkflowID(ctx context.Context, nameOrID string, cfg *config.Project
 	}
 
 	var matches []api.SimpleWorkflow
-	for _, w := range wfResp.Workflows {
+	for _, w := range workflows {
 		if w.Name == nameOrID {
 			matches = append(matches, w)
 		}

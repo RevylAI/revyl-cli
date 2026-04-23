@@ -54,8 +54,10 @@ func TestDeviceStartPlatformFlagDefault(t *testing.T) {
 	if flag == nil {
 		t.Fatal("expected --platform flag on device start command")
 	}
-	if flag.DefValue != "ios" {
-		t.Fatalf("device start --platform default = %q, want %q", flag.DefValue, "ios")
+	// Default is empty so the command can detect when the user did not pass
+	// --platform and fall back to inference from --app-id/--build-version-id.
+	if flag.DefValue != "" {
+		t.Fatalf("device start --platform default = %q, want empty (inferred from app-id/build-version-id)", flag.DefValue)
 	}
 	if strings.Contains(strings.ToLower(flag.Usage), "required") {
 		t.Fatalf("device start --platform usage should not say required, got %q", flag.Usage)

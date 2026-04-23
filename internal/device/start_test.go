@@ -130,6 +130,169 @@ func TestResolveStartArtifact_UsesTrimmedDirectAppURL(t *testing.T) {
 	}
 }
 
+type stubPlatformResolver struct {
+	appByID       map[string]*api.App
+	detailByBuild map[string]*api.BuildVersionDetail
+	appErr        error
+	detailErr     error
+}
+
+func (s stubPlatformResolver) GetApp(ctx context.Context, appID string) (*api.App, error) {
+	if s.appErr != nil {
+		return nil, s.appErr
+	}
+	return s.appByID[appID], nil
+}
+
+func (s stubPlatformResolver) GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error) {
+	if s.detailErr != nil {
+		return nil, s.detailErr
+	}
+	return s.detailByBuild[versionID], nil
+}
+
+func TestInferPlatform_FromAppID(t *testing.T) {
+	t.Parallel()
+
+	resolver := stubPlatformResolver{
+		appByID: map[string]*api.App{
+			"app-1": {ID: "app-1", Platform: "Android"},
+		},
+	}
+	got, err := InferPlatform(context.Background(), resolver, StartArtifactOptions{AppID: "app-1"})
+	if err != nil {
+		t.Fatalf("InferPlatform returned error: %v", err)
+	}
+	if got != "android" {
+		t.Fatalf("InferPlatform = %q, want %q", got, "android")
+	}
+}
+
+func TestInferPlatform_FromBuildVersionID(t *testing.T) {
+	t.Parallel()
+
+	resolver := stubPlatformResolver{
+		appByID: map[string]*api.App{
+			"app-7": {ID: "app-7", Platform: "iOS"},
+		},
+		detailByBuild: map[string]*api.BuildVersionDetail{
+			"build-9": {ID: "build-9", AppID: "app-7"},
+		},
+	}
+	got, err := InferPlatform(context.Background(), resolver, StartArtifactOptions{BuildVersionID: "build-9"})
+	if err != nil {
+		t.Fatalf("InferPlatform returned error: %v", err)
+	}
+	if got != "ios" {
+		t.Fatalf("InferPlatform = %q, want %q", got, "ios")
+	}
+}
+
+func TestInferPlatform_FromAppURLExtension(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		url  string
+		want string
+	}{
+		{"https://artifact.example/app.apk", "android"},
+		{"https://artifact.example/app.aab?signature=abc", "android"},
+		{"https://artifact.example/app.ipa", "ios"},
+		{"  https://artifact.example/app.IPA#frag  ", "ios"},
+		{"https://artifact.example/app.zip", ""},
+		{"", ""},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.url, func(t *testing.T) {
+			t.Parallel()
+			got, err := InferPlatform(context.Background(), stubPlatformResolver{}, StartArtifactOptions{AppURL: tc.url})
+			if err != nil {
+				t.Fatalf("InferPlatform(%q) error = %v", tc.url, err)
+			}
+			if got != tc.want {
+				t.Fatalf("InferPlatform(%q) = %q, want %q", tc.url, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInferPlatform_BuildDownloadURLBeatsAppLookup(t *testing.T) {
+	t.Parallel()
+
+	// If the build's download URL is itself a recognizable extension we can
+	// short-circuit without calling GetApp; ensure that path works and does
+	// not require an app entry.
+	resolver := stubPlatformResolver{
+		detailByBuild: map[string]*api.BuildVersionDetail{
+			"build-1": {ID: "build-1", DownloadURL: "https://artifact.example/foo.apk"},
+		},
+	}
+	got, err := InferPlatform(context.Background(), resolver, StartArtifactOptions{BuildVersionID: "build-1"})
+	if err != nil {
+		t.Fatalf("InferPlatform returned error: %v", err)
+	}
+	if got != "android" {
+		t.Fatalf("InferPlatform = %q, want %q", got, "android")
+	}
+}
+
+func TestInferPlatform_NoInputsReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
+	got, err := InferPlatform(context.Background(), stubPlatformResolver{}, StartArtifactOptions{})
+	if err != nil {
+		t.Fatalf("InferPlatform returned error: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("InferPlatform = %q, want empty", got)
+	}
+}
+
+func TestInferPlatform_PropagatesAppLookupError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("api down")
+	_, err := InferPlatform(context.Background(), stubPlatformResolver{appErr: sentinel}, StartArtifactOptions{AppID: "app-1"})
+	if err == nil {
+		t.Fatal("expected error from GetApp failure")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("error chain does not contain sentinel; got %q", err)
+	}
+}
+
+func TestInferPlatform_PropagatesBuildLookupError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("api down")
+	_, err := InferPlatform(context.Background(), stubPlatformResolver{detailErr: sentinel}, StartArtifactOptions{BuildVersionID: "build-1"})
+	if err == nil {
+		t.Fatal("expected error from GetBuildVersionDownloadURL failure")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("error chain does not contain sentinel; got %q", err)
+	}
+}
+
+func TestInferPlatform_UnknownAppPlatformReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
+	resolver := stubPlatformResolver{
+		appByID: map[string]*api.App{
+			"app-x": {ID: "app-x", Platform: "Web"},
+		},
+	}
+	got, err := InferPlatform(context.Background(), resolver, StartArtifactOptions{AppID: "app-x"})
+	if err != nil {
+		t.Fatalf("InferPlatform returned error: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("InferPlatform = %q, want empty for unknown platform", got)
+	}
+}
+
 type stubLaunchVarResolver struct {
 	resp *api.OrgLaunchVariablesResponse
 	err  error

@@ -1056,6 +1056,7 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		"list_device_sessions":     false,
 		"switch_device_session":    false,
 		"poll_performance_metrics": false,
+		"poll_network_requests":    false,
 	}
 
 	for _, tool := range result.Tools {
@@ -1076,8 +1077,8 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		}
 	}
 
-	if len(result.Tools) != 34 {
-		t.Errorf("expected 34 device tools, got %d", len(result.Tools))
+	if len(result.Tools) != 35 {
+		t.Errorf("expected 35 device tools, got %d", len(result.Tools))
 	}
 }
 

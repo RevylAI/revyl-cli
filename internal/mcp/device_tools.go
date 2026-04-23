@@ -402,6 +402,15 @@ func (s *Server) registerDeviceTools() {
 			ReadOnlyHint: true,
 		},
 	}, s.handlePollPerformanceMetrics)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "poll_network_requests",
+		Description: "Poll live network requests from an active device session. Returns incremental request rows since the last cursor. Use with cursor=\"0\" for the first call, then pass next_cursor from the response for subsequent calls.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Poll Network Requests",
+			ReadOnlyHint: true,
+		},
+	}, s.handlePollNetworkRequests)
 }
 
 // --- Session Management ---
@@ -2489,6 +2498,74 @@ func (s *Server) handlePollPerformanceMetrics(ctx context.Context, req *mcp.Call
 	if len(resp.Items) > 0 {
 		output.NextSteps = []NextStep{
 			{Tool: "poll_performance_metrics", Params: fmt.Sprintf("cursor=\"%s\"", resp.NextCursor), Reason: "Continue polling for new samples"},
+		}
+	}
+	return nil, output, nil
+}
+
+// ---------------------------------------------------------------------------
+// poll_network_requests tool
+// ---------------------------------------------------------------------------
+
+// PollNetworkRequestsInput defines parameters for the poll_network_requests MCP tool.
+type PollNetworkRequestsInput struct {
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to query. Omit for active session."`
+	Cursor       string `json:"cursor,omitempty" jsonschema:"Opaque cursor from a previous response. Use '0' for the first call."`
+	Limit        int    `json:"limit,omitempty" jsonschema:"Maximum number of requests to return. Default 100."`
+	MaxBytes     int    `json:"max_bytes,omitempty" jsonschema:"Maximum encoded payload bytes to return. Default 262144."`
+}
+
+// PollNetworkRequestsOutput wraps the NetworkPollResponse for MCP consumers.
+type PollNetworkRequestsOutput struct {
+	NetworkPollResponse
+	NextSteps []NextStep `json:"next_steps,omitempty"`
+}
+
+func (s *Server) handlePollNetworkRequests(ctx context.Context, req *mcp.CallToolRequest, input PollNetworkRequestsInput) (*mcp.CallToolResult, PollNetworkRequestsOutput, error) {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.sessionMgr.ResolveSession(sidx)
+	if err != nil {
+		return nil, PollNetworkRequestsOutput{
+			NetworkPollResponse: NetworkPollResponse{Success: false},
+			NextSteps: []NextStep{
+				{Tool: "start_device_session", Reason: "No active session to poll network requests from"},
+			},
+		}, nil
+	}
+
+	cursor := input.Cursor
+	if cursor == "" {
+		cursor = "0"
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	maxBytes := input.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = 262144
+	}
+
+	resp, pollErr := s.sessionMgr.PollNetworkRequestsForSession(ctx, session.Index, cursor, limit, maxBytes)
+	if pollErr != nil {
+		return nil, PollNetworkRequestsOutput{
+			NetworkPollResponse: NetworkPollResponse{
+				Success:    false,
+				Platform:   session.Platform,
+				NextCursor: cursor,
+			},
+		}, fmt.Errorf("poll failed: %w", pollErr)
+	}
+
+	output := PollNetworkRequestsOutput{
+		NetworkPollResponse: *resp,
+	}
+	if len(resp.Items) > 0 {
+		output.NextSteps = []NextStep{
+			{Tool: "poll_network_requests", Params: fmt.Sprintf("cursor=\"%s\"", resp.NextCursor), Reason: "Continue polling for new requests"},
 		}
 	}
 	return nil, output, nil

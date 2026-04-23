@@ -2,7 +2,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -228,7 +227,7 @@ func runAppList(cmd *cobra.Command, args []string) error {
 	if !jsonOutput {
 		ui.StartSpinner("Fetching apps...")
 	}
-	result, err := client.ListApps(cmd.Context(), appListPlatform, 1, 50)
+	apps, err := client.ListAllApps(cmd.Context(), appListPlatform, 100)
 	if !jsonOutput {
 		ui.StopSpinner()
 	}
@@ -240,16 +239,16 @@ func runAppList(cmd *cobra.Command, args []string) error {
 
 	if jsonOutput {
 		output := map[string]interface{}{
-			"apps":  result.Items,
-			"count": len(result.Items),
-			"total": result.Total,
+			"apps":  apps,
+			"count": len(apps),
+			"total": len(apps),
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(data))
 		return nil
 	}
 
-	if len(result.Items) == 0 {
+	if len(apps) == 0 {
 		ui.PrintInfo("No apps found in your organization")
 		ui.Println()
 		ui.PrintInfo("Create one with:")
@@ -258,7 +257,7 @@ func runAppList(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.Println()
-	ui.PrintInfo("Apps (%d total):", result.Total)
+	ui.PrintInfo("Apps (%d total):", len(apps))
 	ui.Println()
 
 	// Create table with dynamic column widths
@@ -267,7 +266,7 @@ func runAppList(cmd *cobra.Command, args []string) error {
 	table.SetMinWidth(1, 8)  // PLATFORM
 	table.SetMinWidth(4, 36) // APP ID - UUIDs are 36 chars
 
-	for _, app := range result.Items {
+	for _, app := range apps {
 		latestVer := "-"
 		if app.LatestVersion != "" {
 			latestVer = app.LatestVersion
@@ -421,7 +420,7 @@ func resolveAppNameOrID(cmd *cobra.Command, client *api.Client, nameOrID string)
 	}
 
 	// Search by exact name across all pages.
-	allApps, err := listAllApps(cmd.Context(), client)
+	allApps, err := client.ListAllApps(cmd.Context(), "", 100)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to list apps: %w", err)
 	}
@@ -431,24 +430,6 @@ func resolveAppNameOrID(cmd *cobra.Command, client *api.Client, nameOrID string)
 		return "", "", err
 	}
 	return match.ID, match.Name, nil
-}
-
-// listAllApps fetches all app pages for deterministic destructive resolution.
-func listAllApps(ctx context.Context, client *api.Client) ([]api.App, error) {
-	page := 1
-	all := make([]api.App, 0, 64)
-	for {
-		result, err := client.ListApps(ctx, "", page, 100)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, result.Items...)
-		if !result.HasNext {
-			break
-		}
-		page++
-	}
-	return all, nil
 }
 
 // selectExactNameApp picks one app by exact name or returns a deterministic

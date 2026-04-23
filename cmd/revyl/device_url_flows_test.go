@@ -145,6 +145,19 @@ func newDeviceDownloadFileTestCommand(ctx context.Context) *cobra.Command {
 	return cmd
 }
 
+func newDeviceReportTestCommand(ctx context.Context) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.SetContext(ctx)
+	cmd.Flags().Bool("json", false, "")
+	cmd.Flags().String("session-id", "", "")
+	cmd.Flags().String("artifact", "", "")
+	cmd.Flags().Bool("download", false, "")
+	cmd.Flags().String("output", "", "")
+	cmd.Flags().IntP("s", "s", -1, "")
+	cmd.Flags().Bool("dev", false, "")
+	return cmd
+}
+
 func TestDeviceStartCommand_RejectsMultipleArtifactFlags(t *testing.T) {
 	cmd := newDeviceStartTestCommand(context.Background())
 	if err := cmd.Flags().Set("app-id", "app-1"); err != nil {
@@ -208,6 +221,110 @@ func TestDeviceDownloadFileCommand_RejectsWhitespaceURL(t *testing.T) {
 	}
 	if got := err.Error(); got != "--url is required" {
 		t.Fatalf("device download-file error = %q, want required url message", got)
+	}
+}
+
+func TestDeviceReportCommand_ArtifactJSONOutput(t *testing.T) {
+	t.Setenv("REVYL_API_KEY", "test-api-key")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/reports-v3/reports/by-session/sess-report/context" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id": "report-1",
+			"org_id": "org-1",
+			"network_requests_url": "https://artifact.example/network_requests.json.gz"
+		}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	cmd := newDeviceReportTestCommand(context.Background())
+	if err := cmd.Flags().Set("session-id", "sess-report"); err != nil {
+		t.Fatalf("set session-id flag: %v", err)
+	}
+	if err := cmd.Flags().Set("artifact", "network"); err != nil {
+		t.Fatalf("set artifact flag: %v", err)
+	}
+	if err := cmd.Flags().Set("json", "true"); err != nil {
+		t.Fatalf("set json flag: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := deviceReportCmd.RunE(cmd, nil); err != nil {
+			t.Fatalf("device report error = %v", err)
+		}
+	})
+
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &payload); err != nil {
+		t.Fatalf("unmarshal output: %v\noutput=%s", err, output)
+	}
+	if payload["artifact"] != "network" {
+		t.Fatalf("artifact = %q, want network", payload["artifact"])
+	}
+	if payload["session_id"] != "sess-report" {
+		t.Fatalf("session_id = %q, want sess-report", payload["session_id"])
+	}
+	if payload["url"] != "https://artifact.example/network_requests.json.gz" {
+		t.Fatalf("url = %q, want network artifact url", payload["url"])
+	}
+}
+
+func TestDeviceReportCommand_DownloadsArtifact(t *testing.T) {
+	t.Setenv("REVYL_API_KEY", "test-api-key")
+
+	tmpDir := t.TempDir()
+	destPath := filepath.Join(tmpDir, "network_requests.json.gz")
+	artifactURL := ""
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/reports-v3/reports/by-session/sess-report/context":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"id": "report-1",
+				"org_id": "org-1",
+				"network_requests_url": "` + artifactURL + `"
+			}`))
+		case "/artifacts/network_requests.json.gz":
+			_, _ = w.Write([]byte("network-artifact-bytes"))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	artifactURL = server.URL + "/artifacts/network_requests.json.gz"
+
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	cmd := newDeviceReportTestCommand(context.Background())
+	if err := cmd.Flags().Set("session-id", "sess-report"); err != nil {
+		t.Fatalf("set session-id flag: %v", err)
+	}
+	if err := cmd.Flags().Set("artifact", "network"); err != nil {
+		t.Fatalf("set artifact flag: %v", err)
+	}
+	if err := cmd.Flags().Set("download", "true"); err != nil {
+		t.Fatalf("set download flag: %v", err)
+	}
+	if err := cmd.Flags().Set("output", destPath); err != nil {
+		t.Fatalf("set output flag: %v", err)
+	}
+
+	if err := deviceReportCmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("device report error = %v", err)
+	}
+
+	data, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("read downloaded artifact: %v", err)
+	}
+	if string(data) != "network-artifact-bytes" {
+		t.Fatalf("downloaded artifact = %q, want network-artifact-bytes", string(data))
 	}
 }
 

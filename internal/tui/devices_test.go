@@ -297,7 +297,7 @@ func TestStartDeviceSessionCmd_StartsBareDeviceWhenNoAppSelected(t *testing.T) {
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
-	msgAny := startDeviceSessionCmd(client, "ios", "", "", "")()
+	msgAny := startDeviceSessionCmd(client, "ios", "", "", "", nil)()
 	msg, ok := msgAny.(DeviceStartedMsg)
 	if !ok {
 		t.Fatalf("expected DeviceStartedMsg, got %T", msgAny)
@@ -357,7 +357,7 @@ func TestStartDeviceSessionCmd_ResolvesSelectedAppToLatestBuild(t *testing.T) {
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
-	msgAny := startDeviceSessionCmd(client, "ios", appID, "", "")()
+	msgAny := startDeviceSessionCmd(client, "ios", appID, "", "", nil)()
 	msg, ok := msgAny.(DeviceStartedMsg)
 	if !ok {
 		t.Fatalf("expected DeviceStartedMsg, got %T", msgAny)
@@ -370,6 +370,101 @@ func TestStartDeviceSessionCmd_ResolvesSelectedAppToLatestBuild(t *testing.T) {
 	}
 	if capturedReq.AppPackage != packageName {
 		t.Fatalf("app_package = %q, want %q", capturedReq.AppPackage, packageName)
+	}
+}
+
+func TestStartDeviceSessionCmd_AttachesLaunchVarIDs(t *testing.T) {
+	var capturedReq struct {
+		Platform        string   `json:"platform"`
+		LaunchEnvVarIds []string `json:"launch_env_var_ids"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/execution/start_device" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+			t.Fatalf("decode start request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"workflow_run_id":"00000000-0000-0000-0000-000000000007"}`))
+	}))
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	ids := []string{"lv-1", "lv-2"}
+	msgAny := startDeviceSessionCmd(client, "android", "", "", "", ids)()
+	msg, ok := msgAny.(DeviceStartedMsg)
+	if !ok {
+		t.Fatalf("expected DeviceStartedMsg, got %T", msgAny)
+	}
+	if msg.Err != nil {
+		t.Fatalf("startDeviceSessionCmd returned error: %v", msg.Err)
+	}
+	if len(capturedReq.LaunchEnvVarIds) != 2 ||
+		capturedReq.LaunchEnvVarIds[0] != "lv-1" ||
+		capturedReq.LaunchEnvVarIds[1] != "lv-2" {
+		t.Fatalf("launch_env_var_ids = %v, want [lv-1 lv-2]", capturedReq.LaunchEnvVarIds)
+	}
+}
+
+func TestHandleDeviceStartLaunchVarsKey_ToggleAndStart(t *testing.T) {
+	m := newHubModel("dev", false)
+	m.client = &api.Client{}
+	m.deviceStartPicking = true
+	m.deviceStartStep = int(deviceStartStepLaunchVars)
+	m.deviceStartPlatform = "ios"
+	m.launchVarItems = []LaunchVarItem{
+		{ID: "lv-1", Key: "API_URL"},
+		{ID: "lv-2", Key: "DEBUG"},
+	}
+
+	// Toggle first entry.
+	next, _ := m.handleDeviceStartLaunchVarsKey(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(hubModel)
+	if !m.deviceStartLaunchVarSelected["lv-1"] {
+		t.Fatalf("expected lv-1 selected, got %v", m.deviceStartLaunchVarSelected)
+	}
+
+	// Toggle off.
+	next, _ = m.handleDeviceStartLaunchVarsKey(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(hubModel)
+	if m.deviceStartLaunchVarSelected["lv-1"] {
+		t.Fatalf("expected lv-1 unselected after second toggle")
+	}
+
+	// Select second, then press enter to start.
+	m.deviceStartLaunchVarCursor = 1
+	next, _ = m.handleDeviceStartLaunchVarsKey(tea.KeyMsg{Type: tea.KeySpace})
+	m = next.(hubModel)
+	next, cmd := m.handleDeviceStartLaunchVarsKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(hubModel)
+	if !m.deviceStarting {
+		t.Fatalf("expected deviceStarting=true after enter")
+	}
+	if cmd == nil {
+		t.Fatalf("expected start command")
+	}
+}
+
+func TestHandleDeviceStartLaunchVarsKey_SkipProceedsWithoutSelection(t *testing.T) {
+	m := newHubModel("dev", false)
+	m.client = &api.Client{}
+	m.deviceStartPicking = true
+	m.deviceStartStep = int(deviceStartStepLaunchVars)
+	m.deviceStartPlatform = "android"
+	m.launchVarItems = []LaunchVarItem{{ID: "lv-1", Key: "API_URL"}}
+
+	next, cmd := m.handleDeviceStartLaunchVarsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = next.(hubModel)
+	if !m.deviceStarting {
+		t.Fatalf("expected deviceStarting=true after skip")
+	}
+	if len(m.deviceStartLaunchVarSelected) != 0 {
+		t.Fatalf("expected no selections after skip, got %v", m.deviceStartLaunchVarSelected)
+	}
+	if cmd == nil {
+		t.Fatalf("expected start command on skip")
 	}
 }
 

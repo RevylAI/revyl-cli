@@ -261,7 +261,7 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 		ui.StartSpinner("Fetching workflows...")
 	}
 
-	resp, err := client.ListWorkflows(cmd.Context())
+	workflows, err := client.ListAllWorkflows(cmd.Context(), 200)
 	if !jsonOutput {
 		ui.StopSpinner()
 	}
@@ -272,8 +272,8 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 	}
 
 	if jsonOutput {
-		output := make([]map[string]interface{}, 0, len(resp.Workflows))
-		for _, w := range resp.Workflows {
+		output := make([]map[string]interface{}, 0, len(workflows))
+		for _, w := range workflows {
 			item := map[string]interface{}{
 				"id":   w.ID,
 				"name": w.Name,
@@ -285,7 +285,7 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if len(resp.Workflows) == 0 {
+	if len(workflows) == 0 {
 		ui.PrintInfo("No workflows found")
 		ui.Println()
 		ui.PrintNextSteps([]ui.NextStep{
@@ -295,14 +295,14 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.Println()
-	ui.PrintInfo("Workflows (%d)", len(resp.Workflows))
+	ui.PrintInfo("Workflows (%d)", len(workflows))
 	ui.Println()
 
 	table := ui.NewTable("NAME", "ID")
 	table.SetMinWidth(0, 20) // NAME
 	table.SetMinWidth(1, 36) // ID (UUID length)
 
-	for _, w := range resp.Workflows {
+	for _, w := range workflows {
 		table.AddRow(w.Name, w.ID)
 	}
 

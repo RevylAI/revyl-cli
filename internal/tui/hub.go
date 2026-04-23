@@ -172,29 +172,32 @@ type hubModel struct {
 	tagNameInput     textinput.Model
 
 	// Device session state
-	deviceSessions          []api.ActiveDeviceSessionItem
-	deviceCursor            int
-	devicesLoading          bool
-	deviceOrgID             string
-	selectedDeviceID        string
-	deviceStarting          bool   // true while provisioning a new device
-	deviceStartPicking      bool   // true when the start-device overlay is showing
-	deviceStartStep         int    // current overlay step
-	devicePlatformCursor    int    // cursor for platform picker (0=ios, 1=android)
-	deviceStartPlatform     string // selected platform for the start overlay
-	deviceStartApps         []api.App
-	deviceStartAppCursor    int
-	deviceStartLoading      bool
-	deviceStartFilterMode   bool
-	deviceStartFilterInput  textinput.Model
-	deviceStartErr          string
-	deviceStartDeviceCursor int    // cursor for device model picker (0 = auto)
-	deviceStartDeviceModel  string // selected device model (empty = auto)
-	deviceStartOsVersion    string // selected OS version (empty = auto)
-	deviceConfirmStop       bool   // true when stop confirmation is pending
-	deviceStopTarget        string // workflow run ID of the session to stop
-	deviceDetailPollSeq     int    // sequence token used to run a single detail poll loop
-	deviceListPollSeq       int    // sequence token used to run a single list poll loop
+	deviceSessions               []api.ActiveDeviceSessionItem
+	deviceCursor                 int
+	devicesLoading               bool
+	deviceOrgID                  string
+	selectedDeviceID             string
+	deviceStarting               bool   // true while provisioning a new device
+	deviceStartPicking           bool   // true when the start-device overlay is showing
+	deviceStartStep              int    // current overlay step
+	devicePlatformCursor         int    // cursor for platform picker (0=ios, 1=android)
+	deviceStartPlatform          string // selected platform for the start overlay
+	deviceStartApps              []api.App
+	deviceStartAppCursor         int
+	deviceStartLoading           bool
+	deviceStartFilterMode        bool
+	deviceStartFilterInput       textinput.Model
+	deviceStartErr               string
+	deviceStartDeviceCursor      int             // cursor for device model picker (0 = auto)
+	deviceStartDeviceModel       string          // selected device model (empty = auto)
+	deviceStartOsVersion         string          // selected OS version (empty = auto)
+	deviceStartLaunchVarCursor   int             // cursor for launch var multi-select
+	deviceStartLaunchVarSelected map[string]bool // ids of launch vars chosen for this raw session
+	deviceStartLaunchVarsLoading bool            // true while loading launch vars for the picker
+	deviceConfirmStop            bool            // true when stop confirmation is pending
+	deviceStopTarget             string          // workflow run ID of the session to stop
+	deviceDetailPollSeq          int             // sequence token used to run a single detail poll loop
+	deviceListPollSeq            int             // sequence token used to run a single list poll loop
 
 	// Module browser state
 	moduleItems         []ModuleItem
@@ -1570,10 +1573,14 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case LaunchVarListMsg:
 		m.launchVarsLoading = false
+		m.deviceStartLaunchVarsLoading = false
 		if msg.Err == nil {
 			m.launchVarItems = msg.LaunchVars
 			if m.launchVarCursor >= len(m.launchVarItems) {
 				m.launchVarCursor = 0
+			}
+			if m.deviceStartLaunchVarCursor >= len(m.launchVarItems) {
+				m.deviceStartLaunchVarCursor = 0
 			}
 		}
 		return m, nil

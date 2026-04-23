@@ -13,12 +13,14 @@ revyl auth status    # Show authentication status
 ## Project Setup (Onboarding Wizard)
 
 ```bash
-revyl init                    # Interactive 6-step guided wizard
-revyl init -y                 # Non-interactive: create config and exit
-revyl init --provider expo    # Force Expo as hot reload provider
-revyl init --project ID       # Link to existing Revyl project
-revyl init --detect           # Re-run build system detection
-revyl init --force            # Overwrite existing configuration
+revyl init                                    # Interactive 6-step guided wizard
+revyl init -y                                 # Non-interactive: create config and exit
+revyl init --provider expo                    # Force Expo as hot reload provider
+revyl init --project ID                       # Link to existing Revyl project
+revyl init --detect                           # Re-run build system detection
+revyl init --force                            # Overwrite existing configuration
+revyl init --hotreload-app-scheme myapp       # Override hotreload.providers.expo.app_scheme
+revyl init --xcode-scheme ios-dev=MyAppDev    # Override Xcode scheme by build platform key (repeatable)
 ```
 
 Running `revyl init` without flags launches an interactive wizard that walks you through the full setup:
@@ -36,6 +38,25 @@ During the interactive flow, you can also choose **Skip build setup for now**.
 Revyl keeps the detected platform keys as placeholders in `.revyl/config.yaml`,
 but clears the build command and artifact path until you are ready to finish
 native build setup later.
+
+## Project Config
+
+View and edit local project settings stored in `.revyl/config.yaml`.
+
+```bash
+revyl config path                                 # Print path to the config file
+revyl config show                                 # Show current project settings
+revyl config show --json                          # JSON for scripting
+revyl config edit                                 # Open in $EDITOR / $VISUAL / vi
+revyl config set open-browser false               # Toggle auto-open behavior
+revyl config set timeout 900                      # Default test timeout (seconds)
+revyl config set hotreload.provider expo          # Active hot reload provider
+revyl config set hotreload.app-scheme myapp       # Deep link scheme for Expo
+revyl config set hotreload.port 8081              # Dev server port
+revyl config set hotreload.use-exp-prefix true    # Expo-specific deep link behavior
+```
+
+Supported `set` keys: `open-browser`, `timeout`, `hotreload.provider`, `hotreload.app-scheme`, `hotreload.port`, `hotreload.use-exp-prefix`.
 
 ## Running Tests
 
@@ -350,6 +371,8 @@ For the end-to-end CLI authoring workflow, see [Creating Tests](tests/creating-t
 revyl test create login-flow --platform android   # Create + auto-sync YAML to .revyl/tests/
 revyl test run login-flow                          # Run a test
 revyl test open login-flow                         # Open test in browser editor
+revyl test rename login-flow new-login-flow        # Rename while preserving history
+revyl test duplicate login-flow                    # Clone an existing test
 revyl test delete login-flow                       # Delete a test
 revyl test cancel <task-id>                        # Cancel a running test
 
@@ -364,6 +387,19 @@ revyl test pull                   # Pull remote changes to local
 revyl test diff login-flow        # Show diff between local and remote
 revyl test validate test.yaml     # Validate YAML syntax (--json for CI)
 
+# Execution status & reports
+revyl test status login-flow                       # Latest execution status
+revyl test history login-flow                      # Execution history (table)
+revyl test report login-flow                       # Detailed report (latest execution)
+revyl test report <task-uuid> --json               # Report by task ID, JSON output
+revyl test report login-flow --no-steps            # Summary only, no step breakdown
+revyl test share login-flow                        # Generate shareable report link
+revyl test share login-flow --open                 # Share link and open in browser
+
+# Versioning
+revyl test versions login-flow                     # Show saved versions for a test
+revyl test restore login-flow                      # Restore to a previous version
+
 # YAML-first bootstrap (no existing .revyl/config.yaml required)
 revyl test create login-flow --from-file ./login-flow.yaml
 revyl test push login-flow --force
@@ -374,6 +410,41 @@ revyl test push login-flow --force
 # Dev loop shortcuts (use revyl dev for hot reload)
 revyl dev
 revyl dev test run login-flow
+```
+
+### Test Variables
+
+Per-test variables referenced in step descriptions via `{{name}}` syntax and substituted at runtime. Names may contain letters, numbers, hyphens, or underscores.
+
+```bash
+revyl test var list login-flow                              # List variables on a test
+revyl test var get login-flow username                      # Read a single value
+revyl test var set login-flow username=testuser@example.com # Add or update (upsert)
+revyl test var set login-flow "password=my secret"          # Values may contain spaces
+revyl test var set login-flow otp-code                      # Name-only (runtime-filled)
+revyl test var rename login-flow old-name new-name          # Preserve value, change name
+revyl test var delete login-flow username                   # Delete one
+revyl test var clear login-flow                             # Delete ALL (needs --force in non-TTY)
+```
+
+Test variables are distinct from [Global Variables](#global-variables) (org-wide `{{global.name}}`) and [Global Launch Variables](#global-launch-variables) (org-wide reusable launch env vars).
+
+## Tags
+
+Organize tests with tags for filtering and grouping.
+
+```bash
+revyl tag list                                # List all tags with test counts
+revyl tag list --search regression            # Filter by name
+revyl tag create regression --color "#22C55E" # Create (color optional, hex)
+revyl tag update regression --name regression-v2 --description "…"
+revyl tag delete regression --force           # Delete (removes from all tests)
+
+# Tag assignments on a test
+revyl tag get my-test                         # Show tags on a test
+revyl tag set my-test regression,smoke        # Replace all tags (auto-creates missing)
+revyl tag add my-test login                   # Add tags (keep existing)
+revyl tag remove my-test smoke                # Remove specific tags
 ```
 
 ## Module Management
@@ -387,19 +458,152 @@ revyl module get login                             # Show module blocks and meta
 revyl module create login-flow --from-file blocks.yaml
 revyl module update login --from-file new-blocks.yaml
 revyl module insert login                          # Print a module_import YAML snippet
+revyl module usage login                           # Show tests that import this module
+revyl module versions login                        # List saved versions (who changed what and when)
+revyl module restore login --version 2             # Restore blocks + metadata to a prior version
 revyl module delete login                          # Delete a module
 ```
+
+## Scripts
+
+Manage code-execution scripts used by `code_execution` blocks in tests. Supported runtimes: `python`, `javascript`, `typescript`, `bash`.
+
+```bash
+revyl script list                                             # List all scripts
+revyl script list --runtime python                            # Filter by runtime
+revyl script list --json                                      # JSON output
+revyl script get my-validator                                 # Show metadata + source
+revyl script create my-validator --runtime python --file validate.py
+revyl script create price-check --runtime javascript --file check.js --description "Validate prices"
+revyl script update my-validator --file validate.py           # Replace source
+revyl script update my-validator --name new-name              # Rename
+revyl script update my-validator --description "Updated"      # Change description
+revyl script delete my-validator --force                      # Delete
+revyl script usage my-validator                               # Show tests that use this script
+revyl script insert my-validator                              # Print a code_execution YAML snippet
+```
+
+## File Management
+
+Manage files (certificates, configs, images, media) in your organization's file library. Tests reference uploaded files via `revyl-file://` URIs.
+
+```bash
+revyl file list                                               # List files
+revyl file list --limit 10 --offset 20                        # Paginate
+revyl file upload ./certs/staging.pem                         # Upload a file
+revyl file upload ./config.json --name "App Config" --description "Feature flags"
+revyl file download staging.pem                               # Download to ./staging.pem
+revyl file download staging.pem ./certs/                      # Download into a directory
+revyl file download staging.pem ./renamed.pem                 # Download to exact path
+revyl file edit staging.pem --name "prod-cert.pem"            # Rename
+revyl file edit staging.pem --file ./new-cert.pem             # Replace content (preserves ID)
+revyl file delete staging.pem --force                         # Delete
+```
+
+Supported types (with size limits): certificates `.pem .cer .crt .key .p12 .pfx .der` (50 MB), config `.json .xml .yaml .yml .toml .csv .txt .conf .cfg .ini .properties` (50 MB), images `.png .jpg .jpeg .gif .pdf` (250 MB), media `.mp4 .mp3` (500 MB).
+
+## Global Resources
+
+Org-wide resources available across all tests.
+
+### Global Variables
+
+Shared variables referenced via `{{global.name}}`. Local test variables with the same name take precedence.
+
+```bash
+revyl global var list                                         # List all
+revyl global var get login-email                              # Read one
+revyl global var set login-email=testuser@example.com         # Add or update (upsert)
+revyl global var set "password=my secret"                     # Values may contain spaces
+revyl global var set otp-code                                 # Name-only (runtime-filled)
+revyl global var delete login-email                           # Delete
+```
+
+### Global Launch Variables
+
+Reusable launch variables stored at the org level and attached to tests from the web UI. Use these for shared environment config (API URLs, feature flags) passed at app launch.
+
+Getting started with raw device sessions:
+
+```bash
+revyl global launch-var create API_URL=https://staging.example.com
+revyl device start --platform ios --launch-var API_URL
+```
+
+Create the org launch variable first with a `KEY=VALUE` pair, then pass that key (or the launch variable UUID) to `revyl device start --launch-var` when booting a raw session. Repeat `--launch-var` to apply multiple launch vars.
+
+```bash
+revyl global launch-var list                                  # List (values masked)
+revyl global launch-var list --show-values                    # Unmask values
+revyl global launch-var get API_URL                           # Show one
+revyl global launch-var create API_URL=https://staging.example.com
+revyl global launch-var create DEBUG=true --description "Enable debug startup"
+revyl global launch-var update API_URL --value https://prod.example.com
+revyl global launch-var update API_URL --key API_BASE_URL --description "Shared API endpoint"
+revyl global launch-var delete API_URL --force                # Also detaches from any tests
+```
+
+Aliases: `launch-var`, `launch-vars`, `launch-variable`.
 
 ## Workflow Management
 
 ```bash
-revyl workflow create smoke-tests --tests login-flow,checkout   # Create workflow
-revyl workflow add-tests smoke-tests payment                    # Add test(s) to workflow
-revyl workflow remove-tests smoke-tests checkout                # Remove test(s) from workflow
+# Lifecycle
+revyl workflow list                                              # List all workflows
+revyl workflow list --json                                       # JSON output
+revyl workflow info smoke-tests                                  # Tests, overrides, run config, last run
+revyl workflow create smoke-tests --tests login-flow,checkout    # Create workflow
+revyl workflow add-tests smoke-tests payment                     # Add test(s) to workflow
+revyl workflow remove-tests smoke-tests checkout                 # Remove test(s) from workflow
+revyl workflow rename smoke-tests regression-smoke               # Rename (preserves history)
 revyl workflow run smoke-tests                                   # Run workflow
+revyl workflow run smoke-tests --build                           # Build + upload before running
+revyl workflow run smoke-tests --ios-app <uuid> --android-app <uuid>  # Override apps for this run
+revyl workflow run smoke-tests --location "37.7749,-122.4194"    # Override GPS for this run
 revyl workflow open smoke-tests                                  # Open in browser
 revyl workflow delete smoke-tests                                # Delete workflow
 revyl workflow cancel <task-id>                                  # Cancel running workflow
+
+# Execution status & reports
+revyl workflow status smoke-tests                                # Latest execution status
+revyl workflow history smoke-tests                               # Execution history (table)
+revyl workflow report smoke-tests                                # Detailed report (latest)
+revyl workflow report <task-uuid> --json                         # Report by task ID, JSON
+revyl workflow share smoke-tests                                 # Generate shareable link
+revyl workflow share smoke-tests --open                          # Share and open in browser
+```
+
+### Workflow Settings
+
+Stored overrides and run configuration that apply to every execution of a workflow.
+
+```bash
+# Location override (all tests in workflow use this GPS)
+revyl workflow location set my-workflow --lat 37.7749 --lng -122.4194
+revyl workflow location show my-workflow
+revyl workflow location clear my-workflow
+
+# App override (per platform)
+revyl workflow app set my-workflow --ios <app-uuid>
+revyl workflow app set my-workflow --android <app-uuid>
+revyl workflow app set my-workflow --ios <ios-uuid> --android <android-uuid>
+revyl workflow app show my-workflow
+revyl workflow app clear my-workflow
+
+# Run config (parallelism, retries)
+revyl workflow config show my-workflow
+revyl workflow config set my-workflow --parallel 3 --retries 2
+```
+
+### Workflow Quarantine
+
+Quarantined tests still run but their failures are ignored when computing overall workflow pass/fail — useful for unblocking CI while flaky tests are investigated.
+
+```bash
+revyl workflow quarantine list smoke-tests                             # Show tests and status
+revyl workflow quarantine add smoke-tests login-flow                   # Quarantine one
+revyl workflow quarantine add smoke-tests login-flow checkout payment  # Quarantine several
+revyl workflow quarantine remove smoke-tests login-flow                # Unquarantine
 ```
 
 ## Device Management
@@ -409,12 +613,19 @@ revyl workflow cancel <task-id>                                  # Cancel runnin
 revyl device start                             # Start a cloud device session (defaults to iOS)
 revyl device start --platform android --open   # Start and open viewer in browser
 revyl device start --platform ios --app-url https://example.com/app.ipa # Start a raw session with a preinstalled app
+revyl device start --platform ios --launch-var API_URL --launch-var DEBUG # Apply org launch vars to a raw session
+revyl device start --device-name revyl-ios-iphone  # Use a named device preset
+revyl device start --device-model "iPhone 16" --os-version "iOS 18.5"  # Specific model + runtime
 revyl device stop                              # Stop the active session
 revyl device stop --all                        # Stop all sessions
 revyl device list                              # List all active sessions
 revyl device use <index>                       # Switch active session
+revyl device attach <session-id>               # Attach to an existing session by ID
 revyl device info                              # Show session details (includes `whep_url` in JSON when available)
+revyl device history                           # Show recent device session history
 revyl device doctor                            # Run session diagnostics
+revyl device targets                           # List available device models and OS versions
+revyl device targets --platform android --json # Filter / JSON output
 
 # Interaction (use --target for AI grounding, or --x/--y for coordinates)
 revyl device tap --target "Login button"                         # AI-grounded tap
@@ -449,10 +660,28 @@ revyl device instruction "Open Settings and tap Wi-Fi"           # Execute one i
 revyl device validation "Verify the Settings title is visible"   # Execute one validation step
 revyl device extract "Extract the visible account email" --variable-name account_email # Execute one extract step
 revyl device code-execution script_123                          # Execute one code-execution step
+
+# UI inspection
+revyl device hierarchy                         # Dump UI hierarchy (Android XML / iOS JSON)
+
+# Live observability (perf, network, logs) and post-session artifacts
+revyl device perf                              # Stream CPU% / memory / FPS from active session
+revyl device requests                          # Stream live network requests
+revyl device logs                              # Stream raw device logs (logcat / OSLog)
+revyl device logs --no-follow                  # Single snapshot of recent log lines
+revyl device logs --json | jq -r '.items[]'    # JSON per poll; pipe to jq for scripting
+revyl device network --disconnected            # Toggle airplane mode (network off)
+revyl device network --connected               # Restore network
+revyl device report                            # View the report for the active session
+revyl device report --session-id <uuid>        # View report by session ID
+revyl device report --artifact perf --download # Download a session artifact (perf|network|trace)
 ```
+
+See [Live Observability](device/live-observability.md) for the full reference on `perf`, `requests`, `logs`, `report --artifact`, `network`, and `--device-name` presets.
 
 For raw device sessions, URL-based app flows work in two modes:
 - `revyl device start --app-url ...` preinstalls the app before the session is ready.
+- To inject launch config at boot, first create an org launch variable with `revyl global launch-var create KEY=VALUE`, then pass the key with `revyl device start --launch-var KEY`.
 - `revyl device install --app-url ...` installs into an already running raw session.
 - `revyl device download-file --url ...` only downloads the file to device storage; it does not install the app.
 
@@ -477,6 +706,23 @@ The stream becomes available shortly after session start. See [SDK > Live Stream
 --json            # Output as JSON (useful for scripting)
 --timeout <secs>  # Idle timeout for start (default: 300)
 ```
+
+## Services
+
+Manage service sessions defined in `.revyl/sessions.json` (Terminal Keeper format — shared with VS Code and Fleet Dashboard).
+
+```bash
+revyl services list                          # List session profiles with terminal counts
+revyl services start                         # Start the active/default session
+revyl services start "default + tools"       # Start a specific session
+revyl services start -s frontend -s backend  # Start only specific named services
+revyl services stop                          # Stop all services started by `revyl services`
+revyl services stop -s backend               # Stop specific services
+revyl services status                        # Per-service alive/stopped status (--json)
+revyl services docs                          # Print the full .revyl/ session format reference
+```
+
+Services write a PID file at `.revyl/.services.pid` so `stop` and `status` know what's running.
 
 ## Shell Completion
 
@@ -504,7 +750,9 @@ revyl --version  # Show CLI version (short format)
 revyl version    # Show version, commit, and build date (--json for CI)
 revyl docs       # Open Revyl documentation in browser
 revyl schema     # Display CLI command schema (for integrations)
-revyl mcp serve  # Start MCP server for AI agent integration
+revyl mcp serve                         # Start MCP server for AI agent integration (legacy flat mode)
+revyl mcp serve --profile core          # ~10 composite tools (recommended for dev-loop / test-creation)
+revyl mcp serve --profile full          # ~16 composite tools (adds workflow, module, script, tag, file, var management)
 revyl skill install           # Install agent skill for AI coding tools
 revyl skill list              # List embedded skills
 revyl skill show --name NAME  # Print a named skill to stdout

@@ -117,6 +117,20 @@ func jsonOrPrint(cmd *cobra.Command, v interface{}, fallbackMsg string) {
 	}
 }
 
+func validateLiveNetworkPlatform(platform string) error {
+	normalized := strings.ToLower(strings.TrimSpace(platform))
+	if normalized == "ios" {
+		return nil
+	}
+	if normalized == "" {
+		return fmt.Errorf("live network requests are currently supported only for iOS sessions")
+	}
+	return fmt.Errorf(
+		"live network requests are currently supported only for iOS sessions (got %s)",
+		platform,
+	)
+}
+
 // ActionResult is the enriched JSON output for device action commands (tap,
 // double-tap, long-press, type, swipe, etc.). It includes the resolved
 // coordinates, the target description (when AI-grounded), and worker-reported
@@ -446,9 +460,11 @@ var deviceStartCmd = &cobra.Command{
 	Short: "Start a device session",
 	Example: `  revyl device start --platform ios
   revyl device start --platform android --timeout 600
+  revyl device start --platform ios --launch-var API_URL --launch-var DEBUG
   revyl device start --platform ios --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		platform, _ := cmd.Flags().GetString("platform")
+		platformExplicit := cmd.Flags().Changed("platform")
 		timeout, _ := cmd.Flags().GetInt("timeout")
 		openBrowser, _ := cmd.Flags().GetBool("open")
 		appID, _ := cmd.Flags().GetString("app-id")
@@ -457,15 +473,38 @@ var deviceStartCmd = &cobra.Command{
 		appLink, _ := cmd.Flags().GetString("app-link")
 		launchVars, _ := cmd.Flags().GetStringArray("launch-var")
 		jsonOutput, _ := cmd.Flags().GetBool("json")
-		platform, err := normalizeDeviceStartPlatform(platform)
-		if err != nil {
-			return err
-		}
-		appID, buildVersionID, appURL, err = normalizeDeviceStartArtifactFlags(appID, buildVersionID, appURL)
+		appID, buildVersionID, appURL, err := normalizeDeviceStartArtifactFlags(appID, buildVersionID, appURL)
 		if err != nil {
 			return err
 		}
 		appLink = normalizeOptionalDeviceFlagValue(appLink)
+
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+
+		if !platformExplicit && (appID != "" || buildVersionID != "" || appURL != "") {
+			inferred, infErr := startdevice.InferPlatform(cmd.Context(), mgr.APIClient(), startdevice.StartArtifactOptions{
+				AppID:          appID,
+				BuildVersionID: buildVersionID,
+				AppURL:         appURL,
+			})
+			if infErr != nil {
+				return infErr
+			}
+			if inferred != "" {
+				platform = inferred
+				if !jsonOutput {
+					ui.PrintDim("Inferred platform: %s", platform)
+				}
+			}
+		}
+
+		platform, err = normalizeDeviceStartPlatform(platform)
+		if err != nil {
+			return err
+		}
 		if !cmd.Flags().Changed("timeout") {
 			cwd, cwdErr := os.Getwd()
 			if cwdErr == nil {
@@ -537,11 +576,6 @@ var deviceStartCmd = &cobra.Command{
 			ui.PrintInfo("Device: %s", devicetargets.FormatPairLabel(devicetargets.DevicePair{
 				Model: selectedDeviceModel, Runtime: selectedOsVersion,
 			}))
-		}
-
-		mgr, err := getDeviceSessionMgr(cmd)
-		if err != nil {
-			return err
 		}
 
 		// Create a cancellable context so Ctrl+C during provisioning triggers
@@ -1477,12 +1511,26 @@ var deviceReportCmd = &cobra.Command{
 Use --session-id to fetch a report by session ID directly without needing
 to attach first.
 
-Examples:
-  revyl device report                                          # active session
-  revyl device report --session-id e2b927a6-723f-4ddb-...      # by ID
-  revyl device report --session-id e2b927a6-723f-... --json    # JSON output`,
+	Examples:
+	  revyl device report                                          # active session
+	  revyl device report --session-id e2b927a6-723f-4ddb-...      # by ID
+	  revyl device report --session-id e2b927a6-723f-... --json    # JSON output
+	  revyl device report --artifact perf                          # print perf artifact URL
+	  revyl device report --artifact network --download            # download network artifact`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		directSessionID, _ := cmd.Flags().GetString("session-id")
+		artifactKind, _ := cmd.Flags().GetString("artifact")
+		artifactKind = strings.ToLower(strings.TrimSpace(artifactKind))
+		download, _ := cmd.Flags().GetBool("download")
+		outputPath, _ := cmd.Flags().GetString("output")
+		outputPath = strings.TrimSpace(outputPath)
+
+		if outputPath != "" && !download {
+			return fmt.Errorf("--output requires --download")
+		}
+		if artifactKind == "" && (download || outputPath != "") {
+			return fmt.Errorf("--artifact is required when using --download or --output")
+		}
 
 		var targetSessionID string
 		if directSessionID != "" {
@@ -1518,6 +1566,41 @@ Examples:
 			jsonOrPrint(cmd, map[string]string{"session_id": targetSessionID, "status": "no_report"}, "No report available for this session yet.")
 			return nil
 		}
+		if artifactKind != "" {
+			artifactURL, defaultFilename, err := resolveReportArtifact(envelope.Report, artifactKind)
+			if err != nil {
+				return err
+			}
+			if download {
+				if outputPath == "" {
+					outputPath = defaultFilename
+				}
+				if err := client.DownloadFileFromURL(cmd.Context(), artifactURL, outputPath); err != nil {
+					return fmt.Errorf("failed to download %s artifact: %w", artifactKind, err)
+				}
+				jsonOrPrint(
+					cmd,
+					map[string]string{
+						"session_id":    targetSessionID,
+						"artifact":      artifactKind,
+						"url":           artifactURL,
+						"downloaded_to": outputPath,
+					},
+					fmt.Sprintf("Downloaded %s artifact to %s", artifactKind, outputPath),
+				)
+				return nil
+			}
+			jsonOrPrint(
+				cmd,
+				map[string]string{
+					"session_id": targetSessionID,
+					"artifact":   artifactKind,
+					"url":        artifactURL,
+				},
+				artifactURL,
+			)
+			return nil
+		}
 		jsonOrPrint(cmd, envelope.Raw, formatSessionReportFallback(envelope.Report, targetSessionID))
 		return nil
 	},
@@ -1545,6 +1628,28 @@ func formatSessionReportFallback(r *api.CLIReportContextResponse, sessionID stri
 		b.WriteString(fmt.Sprintf("  Report:   %s\n", *r.ReportURL))
 	}
 	return b.String()
+}
+
+func resolveReportArtifact(r *api.CLIReportContextResponse, kind string) (string, string, error) {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "perf", "performance", "hardware", "hardware_metrics":
+		if r.HardwareMetricsURL == nil || strings.TrimSpace(*r.HardwareMetricsURL) == "" {
+			return "", "", fmt.Errorf("performance artifact not available for this session")
+		}
+		return strings.TrimSpace(*r.HardwareMetricsURL), "hardware_metrics.json.gz", nil
+	case "network", "requests", "network_requests":
+		if r.NetworkRequestsURL == nil || strings.TrimSpace(*r.NetworkRequestsURL) == "" {
+			return "", "", fmt.Errorf("network artifact not available for this session")
+		}
+		return strings.TrimSpace(*r.NetworkRequestsURL), "network_requests.json.gz", nil
+	case "trace", "perfetto":
+		if r.PerfettoTraceURL == nil || strings.TrimSpace(*r.PerfettoTraceURL) == "" {
+			return "", "", fmt.Errorf("trace artifact not available for this session")
+		}
+		return strings.TrimSpace(*r.PerfettoTraceURL), "perfetto_trace.pb", nil
+	default:
+		return "", "", fmt.Errorf("unsupported artifact %q (expected perf, network, or trace)", kind)
+	}
 }
 
 var deviceTargetsCmd = &cobra.Command{
@@ -2197,6 +2302,192 @@ Use --no-follow for a single snapshot. Columns adapt to the platform:
 	},
 }
 
+var deviceRequestsCmd = &cobra.Command{
+	Use:   "requests",
+	Short: "Poll live network requests from an active session",
+	Long: `Stream live network requests from a device session.
+
+By default, polls continuously (--follow) printing one compact row per request.
+Use --no-follow for a single snapshot.`,
+	Example: `  revyl device requests
+  revyl device requests --no-follow
+  revyl device requests --interval 5s --json
+  revyl device requests -s 0 -f --json`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return err
+		}
+
+		follow, _ := cmd.Flags().GetBool("follow")
+		noFollow, _ := cmd.Flags().GetBool("no-follow")
+		if noFollow {
+			follow = false
+		}
+		intervalStr, _ := cmd.Flags().GetString("interval")
+		interval, parseErr := time.ParseDuration(intervalStr)
+		if parseErr != nil {
+			interval = 2 * time.Second
+		}
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+
+		ctx, cancel := context.WithCancel(cmd.Context())
+		defer cancel()
+
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			cancel()
+		}()
+
+		cursor := "0"
+		headerPrinted := false
+		platform := session.Platform
+		if err := validateLiveNetworkPlatform(platform); err != nil {
+			return err
+		}
+
+		if !jsonOutput {
+			ui.PrintInfo("Polling session %d (%s)...", session.Index, platform)
+		}
+
+		for {
+			resp, pollErr := pollRequestsWithRetry(ctx, mgr, session.Index, cursor, 100, 262144)
+			if pollErr != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return fmt.Errorf("failed to poll network requests: %w", pollErr)
+			}
+			cursor = resp.NextCursor
+
+			if len(resp.Items) > 0 {
+				if jsonOutput {
+					data, _ := json.Marshal(resp)
+					fmt.Println(string(data))
+				} else {
+					if !headerPrinted {
+						printRequestsHeader()
+						headerPrinted = true
+					}
+					printRequestItems(resp)
+				}
+			}
+
+			if !follow {
+				return nil
+			}
+
+			if !resp.CaptureRunning && len(resp.Items) == 0 {
+				if !jsonOutput {
+					ui.PrintDim("  Capture not running, waiting...")
+				}
+			}
+
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(interval):
+			}
+		}
+	},
+}
+
+var deviceLogsCmd = &cobra.Command{
+	Use:   "logs",
+	Short: "Poll live device logs from an active session",
+	Long: `Stream live device logs from a device session.
+
+By default, polls continuously (--follow) printing one raw log line per entry
+(logcat on Android, OSLog/NSLog on iOS). Use --no-follow for a single snapshot.`,
+	Example: `  revyl device logs
+  revyl device logs --no-follow
+  revyl device logs --interval 5s --json
+  revyl device logs -s 0 -f --json`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mgr, err := getDeviceSessionMgr(cmd)
+		if err != nil {
+			return err
+		}
+		session, err := resolveSessionFlag(cmd, mgr)
+		if err != nil {
+			return err
+		}
+
+		follow, _ := cmd.Flags().GetBool("follow")
+		noFollow, _ := cmd.Flags().GetBool("no-follow")
+		if noFollow {
+			follow = false
+		}
+		intervalStr, _ := cmd.Flags().GetString("interval")
+		interval, parseErr := time.ParseDuration(intervalStr)
+		if parseErr != nil {
+			interval = 2 * time.Second
+		}
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+
+		ctx, cancel := context.WithCancel(cmd.Context())
+		defer cancel()
+
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			cancel()
+		}()
+
+		cursor := "0"
+		platform := session.Platform
+
+		if !jsonOutput {
+			ui.PrintInfo("Polling session %d (%s)...", session.Index, platform)
+		}
+
+		for {
+			resp, pollErr := pollLogsWithRetry(ctx, mgr, session.Index, cursor, 200)
+			if pollErr != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return fmt.Errorf("failed to poll device logs: %w", pollErr)
+			}
+			cursor = resp.NextCursor
+
+			if len(resp.Items) > 0 {
+				if jsonOutput {
+					data, _ := json.Marshal(resp)
+					fmt.Println(string(data))
+				} else {
+					for _, line := range resp.Items {
+						fmt.Println(line)
+					}
+				}
+			}
+
+			if !follow {
+				return nil
+			}
+
+			if !resp.CaptureRunning && len(resp.Items) == 0 {
+				if !jsonOutput {
+					ui.PrintDim("  Capture not running, waiting...")
+				}
+			}
+
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(interval):
+			}
+		}
+	},
+}
+
 func pollPerfWithRetry(
 	ctx context.Context,
 	mgr *mcppkg.DeviceSessionManager,
@@ -2211,6 +2502,67 @@ func pollPerfWithRetry(
 			return nil, ctx.Err()
 		}
 		resp, err := mgr.PollPerformanceMetricsForSession(ctx, sessionIndex, cursor, limit)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if attempt < len(backoffs) {
+			ui.PrintDim("  reconnecting...")
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoffs[attempt]):
+			}
+		}
+	}
+	return nil, lastErr
+}
+
+func pollRequestsWithRetry(
+	ctx context.Context,
+	mgr *mcppkg.DeviceSessionManager,
+	sessionIndex int,
+	cursor string,
+	limit int,
+	maxBytes int,
+) (*mcppkg.NetworkPollResponse, error) {
+	backoffs := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
+	var lastErr error
+	for attempt := 0; attempt <= len(backoffs); attempt++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		resp, err := mgr.PollNetworkRequestsForSession(ctx, sessionIndex, cursor, limit, maxBytes)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if attempt < len(backoffs) {
+			ui.PrintDim("  reconnecting...")
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoffs[attempt]):
+			}
+		}
+	}
+	return nil, lastErr
+}
+
+func pollLogsWithRetry(
+	ctx context.Context,
+	mgr *mcppkg.DeviceSessionManager,
+	sessionIndex int,
+	cursor string,
+	limit int,
+) (*mcppkg.DeviceLogsPollResponse, error) {
+	backoffs := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
+	var lastErr error
+	for attempt := 0; attempt <= len(backoffs); attempt++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		resp, err := mgr.PollDeviceLogsForSession(ctx, sessionIndex, cursor, limit)
 		if err == nil {
 			return resp, nil
 		}
@@ -2293,6 +2645,105 @@ func printPerfSamples(resp *mcppkg.PerfPollResponse, platform string) {
 	}
 }
 
+func printRequestsHeader() {
+	fmt.Printf("%-8s  %-6s  %-6s  %-8s  %-8s  %-7s  %s\n", "START", "METHOD", "STATUS", "DUR", "SIZE", "TYPE", "URL")
+}
+
+func printRequestItems(resp *mcppkg.NetworkPollResponse) {
+	for _, item := range resp.Items {
+		status := liveRequestStatus(item)
+		dur := fmt.Sprintf("%.0fms", item.DurationMs)
+		size := formatLiveRequestBytes(item.ResponseBodySize)
+		reqType := classifyLiveRequestType(item)
+		url := truncateLiveRequestURL(item.URL, 72)
+		fmt.Printf(
+			"%-8s  %-6s  %-6s  %-8s  %-8s  %-7s  %s\n",
+			formatLiveRequestStart(item),
+			truncatePrefix(strings.ToUpper(item.Method), 6),
+			status,
+			dur,
+			size,
+			reqType,
+			url,
+		)
+	}
+}
+
+func formatLiveRequestStart(item mcppkg.LiveNetworkRequestItem) string {
+	offset := item.StartTimeS
+	if item.VideoRelativeS != nil {
+		offset = *item.VideoRelativeS
+	}
+	return fmt.Sprintf("+%.1fs", offset)
+}
+
+func liveRequestStatus(item mcppkg.LiveNetworkRequestItem) string {
+	if item.Error != nil && strings.TrimSpace(*item.Error) != "" {
+		return "ERR"
+	}
+	if item.StatusCode == 0 {
+		return "--"
+	}
+	return fmt.Sprintf("%d", item.StatusCode)
+}
+
+func formatLiveRequestBytes(bytes int) string {
+	if bytes <= 0 {
+		return "0B"
+	}
+	if bytes < 1024 {
+		return fmt.Sprintf("%dB", bytes)
+	}
+	if bytes < 1024*1024 {
+		return fmt.Sprintf("%.1fKB", float64(bytes)/1024)
+	}
+	return fmt.Sprintf("%.1fMB", float64(bytes)/(1024*1024))
+}
+
+func classifyLiveRequestType(item mcppkg.LiveNetworkRequestItem) string {
+	if item.IsAuth {
+		return "auth"
+	}
+	ct := ""
+	if item.ContentType != nil {
+		ct = strings.ToLower(strings.TrimSpace(*item.ContentType))
+	}
+	urlLower := strings.ToLower(item.URL)
+	switch {
+	case strings.Contains(ct, "json"), strings.Contains(ct, "xml"), strings.Contains(ct, "grpc"):
+		return "api"
+	case strings.HasPrefix(ct, "image/"), strings.Contains(urlLower, ".png"), strings.Contains(urlLower, ".jpg"), strings.Contains(urlLower, ".jpeg"), strings.Contains(urlLower, ".gif"), strings.Contains(urlLower, ".webp"), strings.Contains(urlLower, ".svg"):
+		return "img"
+	case strings.Contains(ct, "javascript"), strings.Contains(urlLower, ".js"):
+		return "script"
+	case strings.Contains(ct, "css"), strings.Contains(urlLower, ".css"):
+		return "css"
+	case strings.Contains(ct, "font"), strings.Contains(urlLower, ".woff"), strings.Contains(urlLower, ".woff2"), strings.Contains(urlLower, ".ttf"), strings.Contains(urlLower, ".otf"):
+		return "font"
+	case strings.HasPrefix(ct, "video/"), strings.HasPrefix(ct, "audio/"):
+		return "media"
+	case strings.Contains(ct, "html"):
+		return "doc"
+	case strings.HasPrefix(strings.ToLower(item.Method), "ws"):
+		return "ws"
+	default:
+		return "other"
+	}
+}
+
+func truncateLiveRequestURL(s string, max int) string {
+	if max <= 0 || s == "" {
+		return ""
+	}
+	if len(s) <= max {
+		return s
+	}
+	if max <= 3 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
+}
+
 func init() {
 	// Global -s flag for session selection (added to all action commands)
 	sessionFlag := func(cmd *cobra.Command) {
@@ -2300,7 +2751,7 @@ func init() {
 	}
 
 	// Start
-	deviceStartCmd.Flags().String("platform", "ios", "Platform: ios or android")
+	deviceStartCmd.Flags().String("platform", "", "Platform: ios or android (inferred from --app-id/--build-version-id when omitted, defaults to ios)")
 	deviceStartCmd.Flags().Int("timeout", 300, "Idle timeout in seconds")
 	deviceStartCmd.Flags().Bool("open", true, "Open viewer in browser after device is ready")
 	deviceStartCmd.Flags().String("app-id", "", "App ID to resolve latest build from")
@@ -2557,6 +3008,9 @@ func init() {
 	sessionFlag(deviceReportCmd)
 	deviceReportCmd.Flags().Bool("json", false, "Output as JSON")
 	deviceReportCmd.Flags().String("session-id", "", "Session ID to fetch report for (bypasses active session)")
+	deviceReportCmd.Flags().String("artifact", "", "Artifact to fetch: perf, network, or trace")
+	deviceReportCmd.Flags().Bool("download", false, "Download the selected artifact to a local file")
+	deviceReportCmd.Flags().String("output", "", "Local output path for --download (defaults to a sensible filename)")
 	deviceCmd.AddCommand(deviceTargetsCmd)
 	deviceCmd.AddCommand(deviceHistoryCmd)
 
@@ -2567,4 +3021,18 @@ func init() {
 	devicePerfCmd.Flags().Bool("no-follow", false, "Single snapshot then exit")
 	devicePerfCmd.Flags().String("interval", "2s", "Poll interval (e.g. 1s, 500ms)")
 	devicePerfCmd.Flags().Bool("json", false, "Output raw JSON per poll")
+
+	deviceCmd.AddCommand(deviceRequestsCmd)
+	sessionFlag(deviceRequestsCmd)
+	deviceRequestsCmd.Flags().BoolP("follow", "f", true, "Continuously poll (default: true)")
+	deviceRequestsCmd.Flags().Bool("no-follow", false, "Single snapshot then exit")
+	deviceRequestsCmd.Flags().String("interval", "2s", "Poll interval (e.g. 1s, 500ms)")
+	deviceRequestsCmd.Flags().Bool("json", false, "Output raw JSON per poll")
+
+	deviceCmd.AddCommand(deviceLogsCmd)
+	sessionFlag(deviceLogsCmd)
+	deviceLogsCmd.Flags().BoolP("follow", "f", true, "Continuously poll (default: true)")
+	deviceLogsCmd.Flags().Bool("no-follow", false, "Single snapshot then exit")
+	deviceLogsCmd.Flags().String("interval", "2s", "Poll interval (e.g. 1s, 500ms)")
+	deviceLogsCmd.Flags().Bool("json", false, "Output raw JSON per poll")
 }

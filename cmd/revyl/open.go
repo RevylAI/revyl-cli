@@ -363,7 +363,7 @@ func runOpenWorkflow(cmd *cobra.Command, args []string) error {
 		client := api.NewClientWithDevMode(apiKey, devMode)
 
 		ui.StartSpinner("Searching for workflow...")
-		workflowsResp, err := client.ListWorkflows(cmd.Context())
+		workflows, err := client.ListAllWorkflows(cmd.Context(), 200)
 		ui.StopSpinner()
 
 		if err != nil {
@@ -371,7 +371,7 @@ func runOpenWorkflow(cmd *cobra.Command, args []string) error {
 			return err
 		}
 
-		for _, w := range workflowsResp.Workflows {
+		for _, w := range workflows {
 			if w.Name == workflowNameOrID {
 				workflowID = w.ID
 				break

@@ -1000,6 +1000,101 @@ func TestDeviceSessionManager_WorkerRequestForSession_ReturnsTypedWorkerHTTPErro
 	}
 }
 
+func TestDeviceSessionManager_PollNetworkRequestsForSession(t *testing.T) {
+	t.Parallel()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/execution/device-proxy/wf-net/network_requests" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.URL.Query().Get("cursor"); got != "0" {
+			t.Fatalf("cursor = %q, want 0", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "50" {
+			t.Fatalf("limit = %q, want 50", got)
+		}
+		if got := r.URL.Query().Get("max_bytes"); got != "4096" {
+			t.Fatalf("max_bytes = %q, want 4096", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"success": true,
+			"platform": "ios",
+			"session_id": "sess-net",
+			"next_cursor": "123",
+			"capture_running": true,
+			"items": [
+				{
+					"url": "https://example.com/api/login",
+					"method": "POST",
+					"status_code": 200,
+					"start_time_s": 1.25,
+					"video_relative_s": 0.75,
+					"duration_ms": 182.4,
+					"request_body_size": 128,
+					"response_body_size": 2048,
+					"error": null,
+					"is_auth": true,
+					"content_type": "application/json"
+				}
+			]
+		}`))
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-net",
+				WorkflowRunID: "wf-net",
+				WorkerBaseURL: "https://worker.example",
+				Platform:      "ios",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	resp, err := mgr.PollNetworkRequestsForSession(context.Background(), 0, "0", 50, 4096)
+	if err != nil {
+		t.Fatalf("PollNetworkRequestsForSession returned error: %v", err)
+	}
+	if !resp.Success {
+		t.Fatal("expected success=true")
+	}
+	if resp.NextCursor != "123" {
+		t.Fatalf("next_cursor = %q, want 123", resp.NextCursor)
+	}
+	if !resp.CaptureRunning {
+		t.Fatal("expected capture_running=true")
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("items len = %d, want 1", len(resp.Items))
+	}
+	item := resp.Items[0]
+	if item.URL != "https://example.com/api/login" {
+		t.Fatalf("url = %q", item.URL)
+	}
+	if item.Method != "POST" {
+		t.Fatalf("method = %q, want POST", item.Method)
+	}
+	if item.StatusCode != 200 {
+		t.Fatalf("status_code = %d, want 200", item.StatusCode)
+	}
+	if item.VideoRelativeS == nil || *item.VideoRelativeS != 0.75 {
+		t.Fatalf("video_relative_s = %v, want 0.75", item.VideoRelativeS)
+	}
+	if !item.IsAuth {
+		t.Fatal("expected is_auth=true")
+	}
+	if item.ContentType == nil || *item.ContentType != "application/json" {
+		t.Fatalf("content_type = %v, want application/json", item.ContentType)
+	}
+}
+
 func TestWorkerProxyActionFromPath(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1009,7 +1104,7 @@ func TestWorkerProxyActionFromPath(t *testing.T) {
 	}{
 		{name: "simple", path: "/tap", want: "tap"},
 		{name: "no-leading-slash", path: "screenshot", want: "screenshot"},
-		{name: "query-string", path: "/resolve_target?foo=bar", want: "resolve_target"},
+		{name: "query-string", path: "/resolve_target?foo=bar", want: "resolve_target?foo=bar"},
 		{name: "nested-path-invalid", path: "/foo/bar", wantErr: true},
 		{name: "empty-invalid", path: "", wantErr: true},
 	}

@@ -255,6 +255,63 @@ func TestResolveTestID_SearchesAllRemotePages(t *testing.T) {
 	}
 }
 
+func TestResolveWorkflowID_SearchesAllRemotePages(t *testing.T) {
+	ui.SetQuietMode(true)
+	t.Cleanup(func() { ui.SetQuietMode(false) })
+
+	var requestedOffsets []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/workflows/get_with_last_status" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+
+		offset := r.URL.Query().Get("offset")
+		requestedOffsets = append(requestedOffsets, offset)
+
+		w.Header().Set("Content-Type", "application/json")
+		switch offset {
+		case "0":
+			workflows := make([]api.SimpleWorkflow, 200)
+			for i := range workflows {
+				workflows[i] = api.SimpleWorkflow{
+					ID:   fmt.Sprintf("wf-%03d", i),
+					Name: fmt.Sprintf("dummy-workflow-%03d", i),
+				}
+			}
+			if err := json.NewEncoder(w).Encode(api.CLIWorkflowListResponse{Workflows: workflows}); err != nil {
+				t.Fatalf("encode first page: %v", err)
+			}
+		case "200":
+			if err := json.NewEncoder(w).Encode(api.CLIWorkflowListResponse{
+				Workflows: []api.SimpleWorkflow{{ID: "wf-target", Name: "late-workflow"}},
+			}); err != nil {
+				t.Fatalf("encode second page: %v", err)
+			}
+		default:
+			t.Fatalf("unexpected offset: %s", offset)
+		}
+	}))
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+
+	workflowID, workflowName, err := resolveWorkflowID(context.Background(), "late-workflow", nil, client)
+	if err != nil {
+		t.Fatalf("resolveWorkflowID() error = %v", err)
+	}
+	if workflowID != "wf-target" {
+		t.Fatalf("workflowID = %q, want %q", workflowID, "wf-target")
+	}
+	if workflowName != "late-workflow" {
+		t.Fatalf("workflowName = %q, want %q", workflowName, "late-workflow")
+	}
+
+	wantOffsets := []string{"0", "200"}
+	if !reflect.DeepEqual(requestedOffsets, wantOffsets) {
+		t.Fatalf("requested offsets = %v, want %v", requestedOffsets, wantOffsets)
+	}
+}
+
 func TestRunWorkflowRemoveTests_RemovesOnlyWorkflowMembership(t *testing.T) {
 	ui.SetQuietMode(true)
 	t.Cleanup(func() { ui.SetQuietMode(false) })

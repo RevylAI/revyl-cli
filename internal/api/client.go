@@ -1554,6 +1554,34 @@ func (c *Client) ListApps(ctx context.Context, platform string, page, pageSize i
 	return &result, nil
 }
 
+// ListAllApps retrieves all apps for the authenticated user's organization by
+// following page-based pagination until exhaustion.
+func (c *Client) ListAllApps(ctx context.Context, platform string, pageSize int) ([]App, error) {
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	page := 1
+	all := make([]App, 0, pageSize)
+	for {
+		result, err := c.ListApps(ctx, platform, page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+
+		all = append(all, result.Items...)
+		if !result.HasNext {
+			break
+		}
+		page++
+	}
+
+	return all, nil
+}
+
 const appVersionSummaryConcurrency = 8
 
 func (c *Client) hydrateAppVersionSummaries(ctx context.Context, apps []App) []App {
@@ -2197,6 +2225,7 @@ func (c *Client) GetLatestBuildVersion(ctx context.Context, appID string) (*Buil
 // Returned by GetBuildVersionDownloadURL.
 type BuildVersionDetail struct {
 	ID          string                 `json:"id"`
+	AppID       string                 `json:"app_id,omitempty"`
 	Version     string                 `json:"version"`
 	DownloadURL string                 `json:"download_url,omitempty"`
 	PackageName string                 `json:"package_name,omitempty"`
@@ -3320,6 +3349,7 @@ type CLIReportContextResponse struct {
 	VideoURL              *string                `json:"video_url,omitempty"`
 	PerfettoTraceURL      *string                `json:"perfetto_trace_url,omitempty"`
 	HardwareMetricsURL    *string                `json:"hardware_metrics_url,omitempty"`
+	NetworkRequestsURL    *string                `json:"network_requests_url,omitempty"`
 	Steps                 []CLIReportContextStep `json:"steps,omitempty"`
 }
 
@@ -3810,13 +3840,16 @@ func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action s
 }
 
 func proxyWorkerMethodForAction(action string) string {
+	if idx := strings.Index(action, "?"); idx >= 0 {
+		action = action[:idx]
+	}
 	// Extract base action for compound paths (e.g. "step_status/{id}").
 	base := action
 	if idx := strings.Index(action, "/"); idx >= 0 {
 		base = action[:idx]
 	}
 	switch base {
-	case "screenshot", "health", "device_info", "step_status", "hierarchy", "performance_metrics":
+	case "screenshot", "health", "device_info", "step_status", "hierarchy", "performance_metrics", "network_requests", "device_logs":
 		return http.MethodGet
 	default:
 		return http.MethodPost

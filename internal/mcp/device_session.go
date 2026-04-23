@@ -1429,9 +1429,6 @@ func workerProxyActionFromPath(path string) (string, error) {
 	if action == "" {
 		return "", fmt.Errorf("invalid worker path %q for proxy fallback", path)
 	}
-	if idx := strings.Index(action, "?"); idx >= 0 {
-		action = action[:idx]
-	}
 	action = strings.Trim(action, "/")
 	if action == "" {
 		return "", fmt.Errorf("invalid worker path %q for proxy fallback", path)
@@ -1659,6 +1656,32 @@ type PerfPollResponse struct {
 	Summary        *PerfPollSummary `json:"summary,omitempty"`
 }
 
+// LiveNetworkRequestItem is a single live network request row from the worker.
+type LiveNetworkRequestItem struct {
+	URL              string   `json:"url"`
+	Method           string   `json:"method"`
+	StatusCode       int      `json:"status_code"`
+	StartTimeS       float64  `json:"start_time_s"`
+	VideoRelativeS   *float64 `json:"video_relative_s,omitempty"`
+	DurationMs       float64  `json:"duration_ms"`
+	RequestBodySize  int      `json:"request_body_size"`
+	ResponseBodySize int      `json:"response_body_size"`
+	Error            *string  `json:"error,omitempty"`
+	IsAuth           bool     `json:"is_auth"`
+	ContentType      *string  `json:"content_type,omitempty"`
+}
+
+// NetworkPollResponse is the JSON contract returned by the worker
+// /network_requests endpoint.
+type NetworkPollResponse struct {
+	Success        bool                     `json:"success"`
+	Platform       string                   `json:"platform"`
+	SessionID      string                   `json:"session_id,omitempty"`
+	NextCursor     string                   `json:"next_cursor"`
+	CaptureRunning bool                     `json:"capture_running"`
+	Items          []LiveNetworkRequestItem `json:"items"`
+}
+
 // PollDeviceLogsForSession fetches incremental device logs from a session.
 //
 // Parameters:
@@ -1703,6 +1726,36 @@ func (m *DeviceSessionManager) PollPerformanceMetricsForSession(ctx context.Cont
 	var result PerfPollResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse performance_metrics response: %w", err)
+	}
+	return &result, nil
+}
+
+// PollNetworkRequestsForSession fetches incremental live network requests from a session.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - index: Session index to target.
+//   - cursor: Opaque cursor from a previous response ("0" for start).
+//   - limit: Maximum number of request rows to return.
+//   - maxBytes: Maximum encoded payload size to return.
+//
+// Returns:
+//   - *NetworkPollResponse: Parsed response with new rows and next_cursor.
+//   - error: Any transport or parse error.
+func (m *DeviceSessionManager) PollNetworkRequestsForSession(ctx context.Context, index int, cursor string, limit int, maxBytes int) (*NetworkPollResponse, error) {
+	path := fmt.Sprintf(
+		"/network_requests?cursor=%s&limit=%d&max_bytes=%d",
+		url.QueryEscape(cursor),
+		limit,
+		maxBytes,
+	)
+	respBody, err := m.WorkerRequestForSession(ctx, index, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result NetworkPollResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse network_requests response: %w", err)
 	}
 	return &result, nil
 }
