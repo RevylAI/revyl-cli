@@ -119,6 +119,13 @@ const (
 	NotConfigured CursorConfigurationStatusStatus = "not_configured"
 )
 
+// Defines values for DashboardMetricsDashboardState.
+const (
+	Intermediate DashboardMetricsDashboardState = "intermediate"
+	Mature       DashboardMetricsDashboardState = "mature"
+	Onboarding   DashboardMetricsDashboardState = "onboarding"
+)
+
 // Defines values for DeviceSessionCreatePlatform.
 const (
 	DeviceSessionCreatePlatformAndroid DeviceSessionCreatePlatform = "android"
@@ -1015,6 +1022,7 @@ type AppResponse struct {
 	CurrentBuildId   *openapi_types.UUID `json:"current_build_id"`
 	CurrentVersion   *string             `json:"current_version"`
 	Description      *string             `json:"description"`
+	ExpoSynced       *bool               `json:"expo_synced"`
 	Id               *openapi_types.UUID `json:"id"`
 	LatestBuildId    *openapi_types.UUID `json:"latest_build_id"`
 	LatestVersion    *string             `json:"latest_version"`
@@ -1251,14 +1259,6 @@ type BlocksToYamlRequest struct {
 // BlocksToYamlRequest_Blocks_Item defines model for BlocksToYamlRequest.blocks.Item.
 type BlocksToYamlRequest_Blocks_Item struct {
 	union json.RawMessage
-}
-
-// BodyCreateUploadFileToSupabaseApiV1StorageS3UploadDownloadToSupabaseFilePost defines model for Body_create_upload_file_to_supabase_api_v1_storage_s3_upload_download_to_supabase_file_post.
-type BodyCreateUploadFileToSupabaseApiV1StorageS3UploadDownloadToSupabaseFilePost struct {
-	File       string  `json:"file"`
-	FileType   *string `json:"file_type,omitempty"`
-	FolderName *string `json:"folder_name,omitempty"`
-	UserId     *string `json:"user_id,omitempty"`
 }
 
 // BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost defines model for Body_stream_upload_build_api_v1_apps__app_id__builds_stream_upload_post.
@@ -1691,6 +1691,18 @@ type CheckVariableExistsResponse struct {
 
 	// VariableValue Value of the variable
 	VariableValue *string `json:"variable_value"`
+}
+
+// ChecklistState defines model for ChecklistState.
+type ChecklistState struct {
+	AppUploaded    *bool `json:"app_uploaded,omitempty"`
+	SessionStarted *bool `json:"session_started,omitempty"`
+	TestCreated    *bool `json:"test_created,omitempty"`
+}
+
+// ChecklistStepRequest defines model for ChecklistStepRequest.
+type ChecklistStepRequest struct {
+	Step string `json:"step"`
 }
 
 // ChildTaskReportInfo defines model for ChildTaskReportInfo.
@@ -2546,6 +2558,33 @@ type DashboardMetrics struct {
 	// AvgTestDurationWow Week-over-week percentage change in average duration (positive = increase)
 	AvgTestDurationWow *float32 `json:"avg_test_duration_wow"`
 
+	// ChecklistAppUploaded Whether the user has uploaded an app (checklist step 1).
+	ChecklistAppUploaded *bool `json:"checklist_app_uploaded,omitempty"`
+
+	// ChecklistSessionStarted Whether the user has started a device session (checklist step 2).
+	ChecklistSessionStarted *bool `json:"checklist_session_started,omitempty"`
+
+	// ChecklistTestCreated Whether the user has created a test (checklist step 3).
+	ChecklistTestCreated *bool `json:"checklist_test_created,omitempty"`
+
+	// ConnectedIntegrations List of connected integration IDs (e.g. 'github', 'slack', 'expo'). Used for bonus session nudges.
+	ConnectedIntegrations *[]string `json:"connected_integrations,omitempty"`
+
+	// DashboardState Dashboard view state: onboarding (checklist incomplete), intermediate (checklist done but no active plan), mature (fully active)
+	DashboardState *DashboardMetricsDashboardState `json:"dashboard_state,omitempty"`
+
+	// FailureRunCount Total number of failed test execution runs.
+	FailureRunCount *int `json:"failure_run_count,omitempty"`
+
+	// HasPaymentMethod Whether the org has a payment method on file in Autumn/Stripe. When true, intermediate state shows upgrade CTA; when false, shows add-card CTA with bonus-session unlock.
+	HasPaymentMethod *bool `json:"has_payment_method,omitempty"`
+
+	// OrgHasApps Whether the org has any user-uploaded apps (controls whether 'upload app' step is shown).
+	OrgHasApps *bool `json:"org_has_apps,omitempty"`
+
+	// SuccessRunCount Total number of completed (passed) test execution runs.
+	SuccessRunCount *int `json:"success_run_count,omitempty"`
+
 	// TestRuns Total number of test executions
 	TestRuns int `json:"test_runs"`
 
@@ -2575,7 +2614,19 @@ type DashboardMetrics struct {
 
 	// TotalWorkflowsWow Week-over-week percentage change in total workflows (positive = increase)
 	TotalWorkflowsWow *float32 `json:"total_workflows_wow"`
+
+	// TrialSessionsEarned Free trial session limit earned through checklist completion (includes card-on-file bonus when applicable)
+	TrialSessionsEarned *int `json:"trial_sessions_earned,omitempty"`
+
+	// TrialSessionsUsed Number of trial sessions already consumed by the org.
+	TrialSessionsUsed *int `json:"trial_sessions_used,omitempty"`
+
+	// WorkflowRunCount Total workflow executions for the org (controls workflow slot visibility)
+	WorkflowRunCount *int `json:"workflow_run_count,omitempty"`
 }
+
+// DashboardMetricsDashboardState Dashboard view state: onboarding (checklist incomplete), intermediate (checklist done but no active plan), mature (fully active)
+type DashboardMetricsDashboardState string
 
 // DefaultRoleResponse Response for the default role setting.
 type DefaultRoleResponse struct {
@@ -4660,11 +4711,16 @@ type NotificationRuleWorkflow struct {
 
 // OnboardingStatusResponse defines model for OnboardingStatusResponse.
 type OnboardingStatusResponse struct {
+	Checklist            *ChecklistState         `json:"checklist,omitempty"`
+	ChecklistCompleted   *bool                   `json:"checklist_completed,omitempty"`
+	OrgHasApps           *bool                   `json:"org_has_apps,omitempty"`
 	ProvisionError       *string                 `json:"provision_error"`
 	ProvisionStatus      string                  `json:"provision_status"`
 	ProvisionedResources *map[string]interface{} `json:"provisioned_resources"`
 	TourCompleted        bool                    `json:"tour_completed"`
 	TourSkipped          bool                    `json:"tour_skipped"`
+	TrialSessionsLimit   *int                    `json:"trial_sessions_limit,omitempty"`
+	TrialSessionsUsed    *int                    `json:"trial_sessions_used,omitempty"`
 }
 
 // OrgDetailResponse defines model for OrgDetailResponse.
@@ -5964,12 +6020,6 @@ type S3BucketsResponse struct {
 	Buckets map[string]S3BucketInfo `json:"buckets"`
 }
 
-// S3DataUrlResponse Response model for S3 data URL contents.
-type S3DataUrlResponse struct {
-	// Contents Contents of the file
-	Contents string `json:"contents"`
-}
-
 // S3DeleteResponse Response model for S3 delete operation.
 type S3DeleteResponse struct {
 	// Bucket Name of the S3 bucket
@@ -6093,6 +6143,16 @@ type SessionSummaryBucket struct {
 type SessionSummaryResponse struct {
 	Buckets []SessionSummaryBucket `json:"buckets"`
 	OrgId   string                 `json:"org_id"`
+}
+
+// SetupCardRequest defines model for SetupCardRequest.
+type SetupCardRequest struct {
+	SuccessUrl string `json:"success_url"`
+}
+
+// SetupCardResponse defines model for SetupCardResponse.
+type SetupCardResponse struct {
+	Url string `json:"url"`
 }
 
 // SetupInstallationRequest defines model for SetupInstallationRequest.
@@ -6529,15 +6589,6 @@ type SummaryData struct {
 	Highlights  []Highlight `json:"highlights"`
 	KeyMetrics  []KeyMetric `json:"key_metrics"`
 	SummaryText string      `json:"summary_text"`
-}
-
-// SupabaseUploadResponse Response model for Supabase file upload.
-type SupabaseUploadResponse struct {
-	// Filename Name of the uploaded file
-	Filename string `json:"filename"`
-
-	// Url URL where the file can be accessed
-	Url string `json:"url"`
 }
 
 // SyncRepositoriesResponse defines model for SyncRepositoriesResponse.
@@ -9805,11 +9856,6 @@ type GithubWebhookApiV1ReviewWebhookPostParams struct {
 	XHubSignature256 *string `json:"x-hub-signature-256,omitempty"`
 }
 
-// S3DataUrlApiV1StorageS3DataUrlGetParams defines parameters for S3DataUrlApiV1StorageS3DataUrlGet.
-type S3DataUrlApiV1StorageS3DataUrlGetParams struct {
-	PresignedUrl string `form:"presigned_url" json:"presigned_url"`
-}
-
 // GetActiveTestCountApiV1TestsActiveCountGetParams defines parameters for GetActiveTestCountApiV1TestsActiveCountGet.
 type GetActiveTestCountApiV1TestsActiveCountGetParams struct {
 	// OrgId Organization ID to count active tests for
@@ -10097,6 +10143,9 @@ type ProcessBillingSessionInternalApiV1ExecutionBillingInternalProcessSessionPos
 // BillingPortalApiV1ExecutionBillingPortalPostJSONRequestBody defines body for BillingPortalApiV1ExecutionBillingPortalPost for application/json ContentType.
 type BillingPortalApiV1ExecutionBillingPortalPostJSONRequestBody = PortalRequest
 
+// BillingSetupCardApiV1ExecutionBillingSetupCardPostJSONRequestBody defines body for BillingSetupCardApiV1ExecutionBillingSetupCardPost for application/json ContentType.
+type BillingSetupCardApiV1ExecutionBillingSetupCardPostJSONRequestBody = SetupCardRequest
+
 // CreateDeviceSessionApiV1ExecutionDeviceSessionsPostJSONRequestBody defines body for CreateDeviceSessionApiV1ExecutionDeviceSessionsPost for application/json ContentType.
 type CreateDeviceSessionApiV1ExecutionDeviceSessionsPostJSONRequestBody = DeviceSessionCreate
 
@@ -10189,6 +10238,9 @@ type UpdateModuleApiV1ModulesUpdateModuleIdPutJSONRequestBody = UpdateModuleRequ
 
 // RestoreModuleVersionApiV1ModulesModuleIdRestorePostJSONRequestBody defines body for RestoreModuleVersionApiV1ModulesModuleIdRestorePost for application/json ContentType.
 type RestoreModuleVersionApiV1ModulesModuleIdRestorePostJSONRequestBody = ModuleRestoreVersionRequest
+
+// CompleteChecklistStepApiV1OnboardingChecklistStepPostJSONRequestBody defines body for CompleteChecklistStepApiV1OnboardingChecklistStepPost for application/json ContentType.
+type CompleteChecklistStepApiV1OnboardingChecklistStepPostJSONRequestBody = ChecklistStepRequest
 
 // StartCompileApiV1RecordingsCompilePostJSONRequestBody defines body for StartCompileApiV1RecordingsCompilePost for application/json ContentType.
 type StartCompileApiV1RecordingsCompilePostJSONRequestBody = CompileRecordingRequest
@@ -10360,9 +10412,6 @@ type UpdateRuleApiV1ReviewSlackRulesRuleIdPutJSONRequestBody = UpdateSlackNotifi
 
 // UploadToS3ApiV1StorageS3UploadPostMultipartRequestBody defines body for UploadToS3ApiV1StorageS3UploadPost for multipart/form-data ContentType.
 type UploadToS3ApiV1StorageS3UploadPostMultipartRequestBody = BodyUploadToS3ApiV1StorageS3UploadPost
-
-// CreateUploadFileToSupabaseApiV1StorageS3UploadDownloadToSupabaseFilePostMultipartRequestBody defines body for CreateUploadFileToSupabaseApiV1StorageS3UploadDownloadToSupabaseFilePost for multipart/form-data ContentType.
-type CreateUploadFileToSupabaseApiV1StorageS3UploadDownloadToSupabaseFilePostMultipartRequestBody = BodyCreateUploadFileToSupabaseApiV1StorageS3UploadDownloadToSupabaseFilePost
 
 // AddTaskReportEndpointApiV1TestsAddTaskReportPostJSONRequestBody defines body for AddTaskReportEndpointApiV1TestsAddTaskReportPost for application/json ContentType.
 type AddTaskReportEndpointApiV1TestsAddTaskReportPostJSONRequestBody = TaskReportRequest
