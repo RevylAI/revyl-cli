@@ -129,7 +129,7 @@ func init() {
 
 	// Global flags
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug logging")
-	rootCmd.PersistentFlags().Bool("dev", false, "Use local development servers (reads PORT from .env files)")
+	rootCmd.PersistentFlags().Bool("dev", isMahlerBinary(), "Use local development servers (reads PORT from .env files)")
 	rootCmd.PersistentFlags().Bool("json", false, "Output results as JSON (where supported)")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-essential output")
 
@@ -161,15 +161,21 @@ func init() {
 	// Shell completion (built-in Cobra support for bash, zsh, fish, powershell)
 	rootCmd.AddCommand(completionCmd)
 
-	// Internal/dev commands (gated behind --dev flag)
-	rootCmd.AddCommand(sandboxCmd)
-
 	// Device interaction commands
 	rootCmd.AddCommand(deviceCmd)
 	rootCmd.AddCommand(devCmd)
 
 	// Agent skill management
 	rootCmd.AddCommand(skillCmd)
+}
+
+// isMahlerBinary returns true when the running executable name contains
+// "mahler", enabling --dev by default for internal development builds.
+func isMahlerBinary() bool {
+	if len(os.Args) > 0 {
+		return strings.Contains(strings.ToLower(filepath.Base(os.Args[0])), "mahler")
+	}
+	return false
 }
 
 func resolveCLIVersion(current string) string {

@@ -101,8 +101,8 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	emit := onOutput
 	if r.FilterOutput && onOutput != nil {
 		emit = func(line string) {
-			if shouldShowBuildLine(line) {
-				onOutput(shortenBuildLine(strings.TrimLeft(line, " \t")))
+			if displayLine, ok := FilterBuildOutputLine(line); ok {
+				onOutput(displayLine)
 			}
 		}
 	}
@@ -158,6 +158,21 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	return nil
 }
 
+// FilterBuildOutputLine returns a display-safe build line when it is useful for normal CLI output.
+//
+// Parameters:
+//   - line: The raw stdout or stderr line from a build tool.
+//
+// Returns:
+//   - string: The shortened display line when the input should be shown.
+//   - bool: True when the line should be displayed, false when it is noisy diagnostic output.
+func FilterBuildOutputLine(line string) (string, bool) {
+	if !shouldShowBuildLine(line) {
+		return "", false
+	}
+	return shortenBuildLine(strings.TrimLeft(line, " \t")), true
+}
+
 // scanCRLF is a bufio.SplitFunc that splits on \r\n, \r, or \n. This handles
 // xcodebuild-style progress output that uses bare \r to update in-place,
 // preventing multiple progress updates from being concatenated into one token.
@@ -189,6 +204,14 @@ func scanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
 func shouldShowBuildLine(line string) bool {
 	trimmed := strings.TrimLeft(line, " \t")
 	if trimmed == "" {
+		return false
+	}
+
+	lowerTrimmed := strings.ToLower(trimmed)
+	if strings.HasPrefix(trimmed, "{ platform:") ||
+		strings.HasPrefix(trimmed, "Build settings from command line:") ||
+		strings.HasPrefix(trimmed, "SDKROOT =") ||
+		strings.Contains(lowerTrimmed, "xcodebuild: warning: using the first of multiple matching destinations") {
 		return false
 	}
 
@@ -230,7 +253,6 @@ func shouldShowBuildLine(line string) bool {
 	}
 
 	// EAS progress markers that appear mid-line
-	lowerTrimmed := strings.ToLower(trimmed)
 	if strings.Contains(lowerTrimmed, "creating build") ||
 		strings.Contains(lowerTrimmed, "prebuild") ||
 		strings.Contains(lowerTrimmed, "pod install") {

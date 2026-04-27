@@ -168,6 +168,9 @@ func TestDetectReactNative_FullProjectUsesPodBootstrapForFreshIOSClone(t *testin
 	if !strings.Contains(iosPlatform.Command, "-workspace RnBareMinimal.xcworkspace") {
 		t.Fatalf("ios command = %q, want workspace build after pod install", iosPlatform.Command)
 	}
+	if !strings.Contains(iosPlatform.Command, "-destination 'generic/platform=iOS Simulator'") {
+		t.Fatalf("ios command = %q, want explicit generic simulator destination", iosPlatform.Command)
+	}
 	if iosPlatform.Output != "ios/build/Build/Products/Debug-iphonesimulator/*.app" {
 		t.Fatalf("ios output = %q, want standard RN ios output", iosPlatform.Output)
 	}

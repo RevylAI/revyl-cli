@@ -3,6 +3,7 @@ package hotreload
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -92,6 +93,11 @@ type Manager struct {
 	// debugMode enables provider-specific debug startup behavior.
 	debugMode bool
 
+	// externalTunnelURL, when set, bypasses the relay tunnel and dev server entirely.
+	// The manager returns this URL directly as the tunnel URL and constructs the
+	// deep link from provider config. Used with --tunnel for externally-managed tunnels.
+	externalTunnelURL string
+
 	// mu protects concurrent access.
 	mu sync.Mutex
 
@@ -170,6 +176,16 @@ func (m *Manager) SetTunnelBackendFactory(factory TunnelBackendFactory) {
 	m.tunnelFactory = factory
 }
 
+// SetExternalTunnelURL configures the manager to use a user-provided tunnel URL
+// instead of provisioning a relay. When set, Start() skips the dev server and
+// relay entirely, returning the external URL and a deep link built from provider config.
+//
+// Parameters:
+//   - tunnelURL: The public tunnel URL (e.g. from npx expo start --tunnel)
+func (m *Manager) SetExternalTunnelURL(tunnelURL string) {
+	m.externalTunnelURL = strings.TrimSpace(tunnelURL)
+}
+
 // log sends a message to the log callback if set.
 func (m *Manager) log(format string, args ...interface{}) {
 	if m.onLog != nil {
@@ -198,6 +214,10 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 
 	if m.running {
 		return nil, fmt.Errorf("hot reload is already running")
+	}
+
+	if m.externalTunnelURL != "" {
+		return m.startExternal()
 	}
 
 	// 1. Create dev server instance (but don't start yet - we need tunnel URL first)
@@ -362,6 +382,37 @@ func (m *Manager) Stop() {
 
 	m.running = false
 	m.log("Cleanup complete")
+}
+
+// startExternal handles the short-circuit path when an external tunnel URL is
+// configured. No dev server or relay is started; the provided URL is used directly.
+func (m *Manager) startExternal() (*StartResult, error) {
+	tunnelURL := m.externalTunnelURL
+	backend := NewExternalTunnelBackend(tunnelURL)
+	m.tunnel = backend
+	m.running = true
+	m.log("Using external tunnel: %s", tunnelURL)
+
+	deepLinkURL := m.buildExpoDeepLink(tunnelURL)
+
+	return &StartResult{
+		TunnelURL:   tunnelURL,
+		DeepLinkURL: deepLinkURL,
+		Transport:   "external",
+	}, nil
+}
+
+// buildExpoDeepLink constructs an Expo dev client deep link from provider config
+// and a tunnel URL. Kept in-package to avoid importing providers (cycle).
+func (m *Manager) buildExpoDeepLink(tunnelURL string) string {
+	if m.providerConfig == nil || m.providerConfig.AppScheme == "" {
+		return ""
+	}
+	encodedURL := url.QueryEscape(tunnelURL)
+	if m.providerConfig.UseExpPrefix {
+		return fmt.Sprintf("exp+%s://expo-development-client/?url=%s", m.providerConfig.AppScheme, encodedURL)
+	}
+	return fmt.Sprintf("%s://expo-development-client/?url=%s", m.providerConfig.AppScheme, encodedURL)
 }
 
 // IsRunning returns whether hot reload is currently active.

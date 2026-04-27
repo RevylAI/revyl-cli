@@ -285,8 +285,7 @@ type StartSessionOptions struct {
 	LaunchVars []string
 
 	// Optional test/session metadata.
-	TestID    string
-	SandboxID string
+	TestID string
 
 	// Optional idle timeout (defaults to 5 minutes).
 	IdleTimeout time.Duration
@@ -363,7 +362,6 @@ func (m *DeviceSessionManager) StartSession(
 	if len(resolvedLaunchVarIDs) > 0 {
 		req.LaunchEnvVarIds = resolvedLaunchVarIDs
 	}
-	_ = opts.SandboxID // Reserved for backend support.
 	if opts.DeviceModel != "" {
 		req.DeviceModel = opts.DeviceModel
 	}

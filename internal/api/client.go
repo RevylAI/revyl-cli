@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -4860,4 +4861,222 @@ func (c *Client) GetSessionArtifactUploadURL(ctx context.Context, sessionID stri
 		return nil, err
 	}
 	return &result, nil
+}
+
+// ---------------------------------------------------------------------------
+// Remote iOS Build
+// ---------------------------------------------------------------------------
+
+// GetRemoteBuildUploadURL obtains a presigned S3 URL for uploading a source
+// archive used by a remote iOS build.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - appID: UUID of the target app
+//   - filename: name of the archive file (e.g. "source.tar.gz")
+//   - fileSize: size of the archive in bytes
+//
+// Returns:
+//   - *RemoteBuildSourceUploadResponse containing upload URL and S3 key
+//   - error on API or network failure
+func (c *Client) GetRemoteBuildUploadURL(ctx context.Context, appID, filename string, fileSize int64) (*RemoteBuildSourceUploadResponse, error) {
+	req := &RemoteBuildSourceUploadRequest{
+		AppId:    appID,
+		Filename: &filename,
+		FileSize: func() *int { v := int(fileSize); return &v }(),
+	}
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/apps/remote/upload-url", req)
+	if err != nil {
+		return nil, err
+	}
+	var result RemoteBuildSourceUploadResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// TriggerRemoteBuild dispatches a remote iOS build job via the backend.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - req: build parameters including source key and build command
+//
+// Returns:
+//   - *RemoteBuildTriggerResponse with the build_job_id for status polling
+//   - error on API or network failure
+func (c *Client) TriggerRemoteBuild(ctx context.Context, req *RemoteBuildRequest) (*RemoteBuildTriggerResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/apps/remote", req)
+	if err != nil {
+		return nil, err
+	}
+	var result RemoteBuildTriggerResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetRemoteBuildStatus polls the current status of a remote build job.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - buildJobID: UUID returned by TriggerRemoteBuild
+//
+// Returns:
+//   - *RemoteBuildStatusResponse with current phase, logs tail, and result
+//   - error on API or network failure
+func (c *Client) GetRemoteBuildStatus(ctx context.Context, buildJobID string) (*RemoteBuildStatusResponse, error) {
+	path := fmt.Sprintf("/api/v1/apps/remote/%s/status", buildJobID)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result RemoteBuildStatusResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// BuildRunnerStatus is defined in generated.go from the OpenAPI schema.
+
+// CheckBuildRunnersAvailable queries the backend for active iOS build
+// runners assigned to the caller's organisation. Used as a pre-flight
+// check before uploading source to avoid wasting time when no runner
+// is available.
+//
+// Parameters:
+//   - ctx: cancellation context
+//
+// Returns:
+//   - *BuildRunnerStatus with availability flag and runner count
+//   - error on API or network failure
+func (c *Client) CheckBuildRunnersAvailable(ctx context.Context) (*BuildRunnerStatus, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/apps/remote/runners/available", nil)
+	if err != nil {
+		return nil, err
+	}
+	var result BuildRunnerStatus
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UploadFileToPresignedURL uploads a file to a presigned S3 PUT URL with retry.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - uploadURL: presigned S3 PUT URL
+//   - contentType: MIME type for the upload
+//   - filePath: local file path to upload
+//   - fileSize: size of the file in bytes
+//
+// Returns:
+//   - error on upload failure after retries
+func (c *Client) UploadFileToPresignedURL(ctx context.Context, uploadURL, contentType, filePath string, fileSize int64) error {
+	return c.uploadFileWithRetry(ctx, uploadURL, contentType, filePath, fileSize)
+}
+
+// UploadFileToPresignedPost uploads a file via a presigned S3 POST policy
+// (multipart form). This enforces server-side content-length-range limits
+// that presigned PUT URLs cannot enforce.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - postURL: presigned POST URL (S3 bucket endpoint)
+//   - fields: form fields from the presigned POST policy
+//   - filePath: local file path to upload
+//
+// Returns:
+//   - error on upload failure after retries
+func (c *Client) UploadFileToPresignedPost(ctx context.Context, postURL string, fields map[string]string, filePath string) error {
+	attempts := c.maxRetries + 1
+	var lastErr error
+
+	for attempt := 0; attempt < attempts; attempt++ {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		if attempt > 0 {
+			delay := calculateBackoff(attempt-1, c.retryBaseDelay, c.retryMaxDelay)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		err := c.doPresignedPostUpload(ctx, postURL, fields, filePath)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+	return fmt.Errorf("upload failed after %d attempts: %w", attempts, lastErr)
+}
+
+func (c *Client) doPresignedPostUpload(ctx context.Context, postURL string, fields map[string]string, filePath string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("open file: %w", err)
+	}
+	defer file.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	for k, v := range fields {
+		if err := writer.WriteField(k, v); err != nil {
+			return fmt.Errorf("write field %s: %w", k, err)
+		}
+	}
+
+	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	if err != nil {
+		return fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return fmt.Errorf("copy file data: %w", err)
+	}
+	writer.Close()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", postURL, &body)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := c.uploadClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("POST upload: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("S3 POST returned %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// CancelRemoteBuild requests cancellation of a running remote build.
+// The backend releases the concurrency slot and marks the build as cancelled.
+//
+// Parameters:
+//   - ctx: cancellation context
+//   - buildJobID: UUID returned by TriggerRemoteBuild
+//
+// Returns:
+//   - error on API or network failure
+func (c *Client) CancelRemoteBuild(ctx context.Context, buildJobID string) error {
+	path := fmt.Sprintf("/api/v1/apps/remote/%s", buildJobID)
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
 }

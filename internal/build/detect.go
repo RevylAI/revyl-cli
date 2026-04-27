@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const xcodeSimulatorDestination = "-destination 'generic/platform=iOS Simulator'"
+
 // BuildSystem represents a detected build system type.
 type BuildSystem int
 
@@ -355,18 +357,18 @@ func buildReactNativeIOSPlatform(projectRef string, useWorkspace bool, installPo
 		if !useWorkspace && installPodsIfNeeded {
 			workspaceName := strings.TrimSuffix(refBase, filepath.Ext(refBase)) + ".xcworkspace"
 			return BuildPlatform{
-				Command: "cd ios && if [ ! -d Pods ] || [ ! -d " + workspaceName + " ]; then pod install; fi && xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build",
+				Command: "cd ios && if [ ! -d Pods ] || [ ! -d " + workspaceName + " ]; then pod install; fi && xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build",
 				Output:  outputPath,
 			}
 		}
 		return BuildPlatform{
-			Command: "cd ios && xcodebuild " + buildFlag + " " + refBase + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build",
+			Command: "cd ios && xcodebuild " + buildFlag + " " + refBase + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build",
 			Output:  outputPath,
 		}
 	}
 
 	return BuildPlatform{
-		Command: "xcodebuild " + buildFlag + " " + ref + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath ios/build",
+		Command: "xcodebuild " + buildFlag + " " + ref + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath ios/build",
 		Output:  outputPath,
 	}
 }
@@ -435,13 +437,13 @@ func detectXcode(dir string) (*DetectedBuild, error) {
 	// Find workspace or project
 	workspaceName := findXcodeWorkspace(dir)
 	if workspaceName != "" {
-		detected.Command = "xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build"
+		detected.Command = "xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build"
 	} else {
 		projectName := findXcodeProject(dir)
 		if projectName != "" {
-			detected.Command = "xcodebuild -project " + projectName + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build"
+			detected.Command = "xcodebuild -project " + projectName + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build"
 		} else {
-			detected.Command = "xcodebuild -configuration Debug -sdk iphonesimulator -derivedDataPath build"
+			detected.Command = "xcodebuild -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build"
 		}
 	}
 
@@ -860,12 +862,12 @@ func detectKMP(dir string) (*DetectedBuild, error) {
 
 		if workspaceName != "" {
 			detected.Platforms["ios"] = BuildPlatform{
-				Command: "cd iosApp && xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build",
+				Command: "cd iosApp && xcodebuild -workspace " + workspaceName + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build",
 				Output:  "iosApp/build/Build/Products/Debug-iphonesimulator/*.app",
 			}
 		} else if projectName != "" {
 			detected.Platforms["ios"] = BuildPlatform{
-				Command: "cd iosApp && xcodebuild -project " + projectName + " -scheme * -configuration Debug -sdk iphonesimulator -derivedDataPath build",
+				Command: "cd iosApp && xcodebuild -project " + projectName + " -scheme * -configuration Debug -sdk iphonesimulator " + xcodeSimulatorDestination + " -derivedDataPath build",
 				Output:  "iosApp/build/Build/Products/Debug-iphonesimulator/*.app",
 			}
 		} else {

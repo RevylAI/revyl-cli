@@ -245,7 +245,7 @@ func TestPrintDevReadyFooter_PrintsInteractionShortcuts(t *testing.T) {
 	})
 
 	output := captureStdoutAndStderr(t, func() {
-		printDevReadyFooter("https://viewer.example", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false, false, "default", 0)
+		printDevReadyFooter("https://viewer.example", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false, false, false, "default", 0)
 	})
 
 	for _, expected := range []string{
@@ -289,7 +289,7 @@ func TestPrintDevReadyFooter_SessionIndexInCommandHints(t *testing.T) {
 	})
 
 	output := captureStdoutAndStderr(t, func() {
-		printDevReadyFooter("https://viewer.example", "nof1://example", false, false, "ios-main", 2)
+		printDevReadyFooter("https://viewer.example", "nof1://example", false, false, false, "ios-main", 2)
 	})
 
 	for _, expected := range []string{
@@ -313,7 +313,7 @@ func TestPrintDevReadyFooter_QuietModeSuppressesInteractionHints(t *testing.T) {
 	})
 
 	output := captureStdout(t, func() {
-		printDevReadyFooter("https://viewer.example", "nof1://example", false, false, "default", 0)
+		printDevReadyFooter("https://viewer.example", "nof1://example", false, false, false, "default", 0)
 	})
 
 	if strings.Contains(output, "Try device interactions:") {
@@ -334,7 +334,7 @@ func TestPrintDevReadyFooter_BareRN_ShowsTunnelURLInsteadOfDeepLink(t *testing.T
 	})
 
 	output := captureStdoutAndStderr(t, func() {
-		printDevReadyFooter("https://viewer.example", "https://abc-def.trycloudflare.com", false, true, "default", 0)
+		printDevReadyFooter("https://viewer.example", "https://abc-def.trycloudflare.com", false, true, false, "default", 0)
 	})
 
 	if !strings.Contains(output, "Tunnel URL:") {
@@ -352,7 +352,7 @@ func TestPrintDevReadyFooter_Expo_ShowsDeepLink(t *testing.T) {
 	})
 
 	output := captureStdoutAndStderr(t, func() {
-		printDevReadyFooter("https://viewer.example", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false, false, "default", 0)
+		printDevReadyFooter("https://viewer.example", "nof1://expo-development-client/?url=https%3A%2F%2Ftunnel.example", false, false, false, "default", 0)
 	})
 
 	if !strings.Contains(output, "Deep Link:") {

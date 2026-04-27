@@ -126,6 +126,8 @@ var (
 	buildUploadJSON    bool
 	buildDryRun        bool
 	uploadSchemeFlag   string
+	uploadRemoteFlag   bool
+	uploadCleanFlag    bool
 )
 
 func init() {
@@ -149,6 +151,9 @@ func init() {
 	buildUploadCmd.Flags().StringVar(&uploadURLFlag, "url", "", "URL of a remote artifact to ingest (Artifactory, S3, GCS, GitHub Actions)")
 	buildUploadCmd.Flags().StringArrayVar(&uploadHeaderFlags, "header", nil, `HTTP header for authenticated URL downloads (repeatable, format "Name: value")`)
 	buildUploadCmd.Flags().StringVar(&uploadSchemeFlag, "scheme", "", "Xcode scheme to use for iOS builds (overrides config)")
+	buildUploadCmd.Flags().BoolVar(&uploadRemoteFlag, "remote", false, "Build remotely on a dedicated Revyl cloud runner")
+	buildUploadCmd.Flags().BoolVar(&uploadCleanFlag, "clean", false, "Wipe cached DerivedData before building (remote only)")
+	buildUploadCmd.Flags().Bool("include-dirty", false, "Proceed with remote build even if there are uncommitted changes")
 
 	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App name or ID to list builds for")
 	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org apps")
@@ -194,6 +199,11 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	// URL-based upload: the backend fetches the artifact server-side.
 	if uploadURLFlag != "" {
 		return runURLUpload(cmd, apiKey)
+	}
+
+	// Remote build: package source, upload, build on cloud runner.
+	if uploadRemoteFlag {
+		return runRemoteBuild(cmd, apiKey)
 	}
 
 	// Load project config

@@ -170,6 +170,9 @@ func TestShouldShowBuildLine(t *testing.T) {
 		{"cd command", "cd /path/to/project", false},
 		{"verbose compiler invocation", "    /usr/bin/clang -x c++ -target arm64-apple-ios15.0 ...", false},
 		{"destination list", "    { platform:iOS Simulator, id:ABC123, OS:16.4, name:iPhone 14 }", false},
+		{"xcode multiple destination warning", "--- xcodebuild: WARNING: Using the first of multiple matching destinations:", false},
+		{"xcode command line build settings header", "Build settings from command line:", false},
+		{"xcode sdkroot build setting", "    SDKROOT = iphonesimulator26.2", false},
 		{"export command", "export DEVELOPER_DIR=/Applications/Xcode.app", false},
 		{"note targets line", "note: Run script build phase", false},
 
@@ -308,6 +311,20 @@ func TestShortenBuildLine(t *testing.T) {
 				t.Errorf("shortenBuildLine(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFilterBuildOutputLine(t *testing.T) {
+	line, ok := FilterBuildOutputLine("  SwiftCompile normal arm64 /Users/dev/project/Sources/AppDelegate.swift")
+	if !ok {
+		t.Fatal("FilterBuildOutputLine() did not display compile line")
+	}
+	if line != "Compiling AppDelegate.swift" {
+		t.Fatalf("FilterBuildOutputLine() = %q, want shortened compile line", line)
+	}
+
+	if line, ok := FilterBuildOutputLine("--- xcodebuild: WARNING: Using the first of multiple matching destinations:"); ok {
+		t.Fatalf("FilterBuildOutputLine() displayed noisy destination warning: %q", line)
 	}
 }
 

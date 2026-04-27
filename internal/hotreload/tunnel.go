@@ -39,6 +39,43 @@ type TunnelBackendInfoProvider interface {
 	Metadata() TunnelBackendInfo
 }
 
+// ExternalTunnelBackend wraps a user-provided tunnel URL (e.g. from
+// npx expo start --tunnel). It implements TunnelBackend as a no-op passthrough
+// since the customer manages the tunnel lifecycle externally.
+type ExternalTunnelBackend struct {
+	publicURL string
+}
+
+// NewExternalTunnelBackend creates a backend that wraps an externally-managed tunnel URL.
+//
+// Parameters:
+//   - publicURL: The tunnel URL provided by the user (e.g. https://xxxx.exp.direct)
+//
+// Returns:
+//   - *ExternalTunnelBackend: A new backend wrapping the provided URL
+func NewExternalTunnelBackend(publicURL string) *ExternalTunnelBackend {
+	return &ExternalTunnelBackend{publicURL: publicURL}
+}
+
+// Start returns the pre-configured public URL. No tunnel is created.
+func (e *ExternalTunnelBackend) Start(_ context.Context, _ int) (string, error) {
+	return e.publicURL, nil
+}
+
+// StartHealthMonitor is a no-op; the external tunnel is managed by the user.
+func (e *ExternalTunnelBackend) StartHealthMonitor(_ context.Context) {}
+
+// Stop is a no-op; the external tunnel is managed by the user.
+func (e *ExternalTunnelBackend) Stop() error { return nil }
+
+// PublicURL returns the user-provided tunnel URL.
+func (e *ExternalTunnelBackend) PublicURL() string { return e.publicURL }
+
+// Metadata returns transport info identifying this as an external tunnel.
+func (e *ExternalTunnelBackend) Metadata() TunnelBackendInfo {
+	return TunnelBackendInfo{Transport: "external"}
+}
+
 // ConnectivityCheckResult contains the result of network connectivity checks.
 type ConnectivityCheckResult struct {
 	// CanReachRevylAPI indicates if the Revyl backend is reachable.

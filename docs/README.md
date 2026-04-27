@@ -53,6 +53,7 @@ Framework-specific guides to go from repo to test results in 3 commands.
 - [Your First Test](tests/first-test.md) — install, authenticate, create a YAML test, run it, view the report
 - [Creating Tests](tests/creating-tests.md) — YAML authoring, modules, scripts, variables, control flow, workflows
 - [Running Tests](tests/running-tests.md) — `revyl test run`, `revyl workflow run`, output formats, build pipelines
+- [Syncing Tests](tests/syncing-tests.md) — push, pull, diff, and reconcile local YAML with the Revyl server
 
 ## Device Automation
 

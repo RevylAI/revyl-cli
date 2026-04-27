@@ -36,6 +36,9 @@ var (
 	devStartAppID       string
 	devStartBuildVerID  string
 	devStartBuild       bool
+	devStartNoBuild     bool
+	devStartRemote      bool
+	devStartTunnelURL   string
 	devStartPort        int
 	devStartTimeout     int
 	devStartOpen        bool
@@ -221,6 +224,9 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&devStartAppID, "app-id", "", "App ID to resolve latest build from")
 	cmd.Flags().StringVar(&devStartBuildVerID, "build-version-id", "", "Specific build version ID to use")
 	cmd.Flags().BoolVar(&devStartBuild, "build", false, "Force build+upload before starting")
+	cmd.Flags().BoolVar(&devStartNoBuild, "no-build", false, "Never run build commands; require a pre-existing build")
+	cmd.Flags().BoolVar(&devStartRemote, "remote", false, "Build native iOS changes on a remote Revyl build runner")
+	cmd.Flags().StringVar(&devStartTunnelURL, "tunnel", "", "Use an external tunnel URL (e.g. from npx expo start --tunnel) instead of the Revyl relay")
 	cmd.Flags().IntVar(&devStartPort, "port", 8081, "Port for local dev server")
 	cmd.Flags().IntVar(&devStartTimeout, "timeout", 300, "Device idle timeout in seconds")
 	cmd.Flags().BoolVar(&devStartOpen, "open", true, "Open live device viewer in browser")
@@ -267,40 +273,72 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("project not initialized")
 	}
 
-	// Determine whether we have a supported hot reload provider. If not,
-	// native projects (Gradle/Xcode/Swift) use a rebuild-only dev loop.
-	useRebuildOnlyLoop := false
-	if !cfg.HotReload.IsConfigured() {
-		if shouldAttemptHotReloadAutoSetup(cfg) {
-			ui.PrintInfo("Dev mode not configured yet. Setting up...")
-			ui.Println()
+	externalTunnel := strings.TrimSpace(devStartTunnelURL)
 
-			devMode, _ := cmd.Flags().GetBool("dev")
-			var setupClient *api.Client
-			if apiKey != "" {
-				setupClient = api.NewClientWithDevMode(apiKey, devMode)
-			}
-
-			ready := wizardHotReloadSetup(context.Background(), setupClient, cfg, configPath, cwd, false, nil, "")
-			if !ready || !cfg.HotReload.IsConfigured() {
-				if hasOnlyPlaceholderBuildPlatforms(cfg) {
-					return fmt.Errorf("dev mode is not ready yet: configure at least one build.platforms.<key>.command and build.platforms.<key>.output")
-				}
-				ui.PrintError("Could not auto-configure dev mode.")
-				ui.PrintInfo("Try: revyl init --provider expo")
-				return fmt.Errorf("dev mode auto-setup failed")
-			}
-			ui.Println()
-		} else if len(cfg.Build.Platforms) > 0 {
-			useRebuildOnlyLoop = true
-		}
+	if devStartNoBuild && devStartBuild {
+		return fmt.Errorf("use either --no-build or --build, not both")
+	}
+	if devStartRemote {
+		return runDevRemoteRebuildOnly(cmd, cfg, configPath, cwd, apiKey, ctxName)
 	}
 
-	if !useRebuildOnlyLoop {
+	noBuild := devStartNoBuild || cfg.Build.NoBuild
+	if noBuild && devStartBuild {
+		noBuild = false
+	}
+
+	// When --tunnel is provided, the customer manages their own dev server and
+	// tunnel. Skip hot reload auto-setup and the rebuild-only loop entirely.
+	var provider hotreload.Provider
+	var providerCfg *config.ProviderConfig
+	useRebuildOnlyLoop := false
+
+	if externalTunnel != "" {
+		providerCfg = cfg.HotReload.GetProviderConfig("expo")
+		if providerCfg == nil || strings.TrimSpace(providerCfg.AppScheme) == "" {
+			return fmt.Errorf("hotreload.providers.expo.app_scheme is required for --tunnel mode (run `revyl init --provider expo`)")
+		}
 		registry := hotreload.DefaultRegistry()
-		provider, _, err := registry.SelectProvider(&cfg.HotReload, "", cwd)
-		if err != nil || !provider.IsSupported() {
-			useRebuildOnlyLoop = len(cfg.Build.Platforms) > 0
+		provider, _, err = registry.SelectProvider(&cfg.HotReload, "expo", cwd)
+		if err != nil {
+			return fmt.Errorf("--tunnel requires an expo provider configured in .revyl/config.yaml: %w", err)
+		}
+	} else {
+		// Determine whether we have a supported hot reload provider. If not,
+		// native projects (Gradle/Xcode/Swift) use a rebuild-only dev loop.
+		if !cfg.HotReload.IsConfigured() {
+			if shouldAttemptHotReloadAutoSetup(cfg) {
+				ui.PrintInfo("Dev mode not configured yet. Setting up...")
+				ui.Println()
+
+				devMode, _ := cmd.Flags().GetBool("dev")
+				var setupClient *api.Client
+				if apiKey != "" {
+					setupClient = api.NewClientWithDevMode(apiKey, devMode)
+				}
+
+				ready := wizardHotReloadSetup(context.Background(), setupClient, cfg, configPath, cwd, false, nil, "")
+				if !ready || !cfg.HotReload.IsConfigured() {
+					if hasOnlyPlaceholderBuildPlatforms(cfg) {
+						return fmt.Errorf("dev mode is not ready yet: configure at least one build.platforms.<key>.command and build.platforms.<key>.output")
+					}
+					ui.PrintError("Could not auto-configure dev mode.")
+					ui.PrintInfo("Try: revyl init --provider expo")
+					return fmt.Errorf("dev mode auto-setup failed")
+				}
+				ui.Println()
+			} else if len(cfg.Build.Platforms) > 0 {
+				useRebuildOnlyLoop = true
+			}
+		}
+
+		if !useRebuildOnlyLoop {
+			registry := hotreload.DefaultRegistry()
+			var selectErr error
+			provider, _, selectErr = registry.SelectProvider(&cfg.HotReload, "", cwd)
+			if selectErr != nil || !provider.IsSupported() {
+				useRebuildOnlyLoop = len(cfg.Build.Platforms) > 0
+			}
 		}
 	}
 
@@ -324,22 +362,24 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("use either --app-id or --build-version-id, not both")
 	}
 
-	registry := hotreload.DefaultRegistry()
-	provider, providerCfg, err := registry.SelectProvider(&cfg.HotReload, "", cwd)
-	if err != nil {
-		return fmt.Errorf("dev mode is not configured: %w", err)
-	}
-	if !provider.IsSupported() {
-		return fmt.Errorf("%s dev mode is not yet supported (coming soon)", provider.DisplayName())
-	}
-	if provider.Name() == "expo" && (providerCfg == nil || strings.TrimSpace(providerCfg.AppScheme) == "") {
-		return fmt.Errorf("hotreload.providers.expo.app_scheme is required for Expo dev mode (run `revyl init --provider expo` or `revyl config set hotreload.app-scheme <scheme>`)")
+	if externalTunnel == "" {
+		registry := hotreload.DefaultRegistry()
+		provider, providerCfg, err = registry.SelectProvider(&cfg.HotReload, "", cwd)
+		if err != nil {
+			return fmt.Errorf("dev mode is not configured: %w", err)
+		}
+		if !provider.IsSupported() {
+			return fmt.Errorf("%s dev mode is not yet supported (coming soon)", provider.DisplayName())
+		}
+		if provider.Name() == "expo" && (providerCfg == nil || strings.TrimSpace(providerCfg.AppScheme) == "") {
+			return fmt.Errorf("hotreload.providers.expo.app_scheme is required for Expo dev mode (run `revyl init --provider expo` or `revyl config set hotreload.app-scheme <scheme>`)")
+		}
 	}
 
 	devicePlatform := requestedPlatform
 	platformKey := ""
 	if strings.TrimSpace(devStartPlatformKey) != "" {
-		platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, strings.TrimSpace(devStartPlatformKey), requestedPlatform)
+		platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, strings.TrimSpace(devStartPlatformKey), requestedPlatform, noBuild)
 		if err != nil {
 			return err
 		}
@@ -388,7 +428,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if buildVersionID == "" {
 		if selectedAppID == "" {
 			if platformKey == "" {
-				platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, requestedPlatform, requestedPlatform)
+				platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, requestedPlatform, requestedPlatform, noBuild)
 				if err != nil {
 					return err
 				}
@@ -440,6 +480,16 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	needsDevBuild := devStartBuild || buildVersionID == ""
 
+	if noBuild {
+		needsDevBuild = false
+		if buildVersionID == "" {
+			return fmt.Errorf(
+				"no existing build found and --no-build is active; " +
+					"upload a build first (revyl build upload) or pass --build-version-id",
+			)
+		}
+	}
+
 	// When no uploaded build was found and --build was NOT explicitly requested,
 	// try to find a local Xcode simulator .app from DerivedData. This avoids
 	// running the full configured build when the developer already built in Xcode.
@@ -448,7 +498,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		simBuild := build.FindSimulatorBuild(cwd)
 		if simBuild != nil {
 			if platformKey == "" {
-				platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, requestedPlatform, requestedPlatform)
+				platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, requestedPlatform, requestedPlatform, noBuild)
 				if err != nil {
 					return err
 				}
@@ -488,7 +538,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("no builds found for app %s; provide --build-version-id or use config-backed dev flow", appIDOverride)
 		}
 		if platformKey == "" {
-			platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, requestedPlatform, requestedPlatform)
+			platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, requestedPlatform, requestedPlatform, noBuild)
 			if err != nil {
 				return err
 			}
@@ -557,8 +607,17 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	)
 	ui.Println()
 
-	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
+	var managerProviderName string
+	if externalTunnel != "" {
+		managerProviderName = "expo"
+	} else {
+		managerProviderName = provider.Name()
+	}
+	manager := hotreload.NewManager(managerProviderName, providerCfg, cwd)
 	manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
+	if externalTunnel != "" {
+		manager.SetExternalTunnelURL(externalTunnel)
+	}
 	manager.SetLogCallback(func(msg string) {
 		ui.PrintDim("  %s", msg)
 	})
@@ -626,6 +685,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	defer manager.Stop()
 
 	ui.PrintSuccess("Hot reload ready: %s server and tunnel are running", provider.DisplayName())
+	if startResult.RelayID != "" {
+		ui.PrintInfo("  relay: %s", startResult.RelayID)
+	}
+	if startResult.TunnelURL != "" {
+		ui.PrintDebug("  tunnel: %s", startResult.TunnelURL)
+	}
 	deviceMgr, err := getDeviceSessionMgr(cmd)
 	if err != nil {
 		return err
@@ -781,7 +846,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	viewerURL := devSessionViewerURL(session, devMode)
-	printDevReadyFooter(viewerURL, startResult.DeepLinkURL, manualDeepLinkRequired, isBareRN, ctxName, session.Index)
+	printDevReadyFooter(viewerURL, startResult.DeepLinkURL, manualDeepLinkRequired, isBareRN, noBuild, ctxName, session.Index)
 
 	// Compute packager host once for the rebuild loop. Only bare RN on iOS
 	// needs this — the worker writes RCT_jsLocation to NSUserDefaults so the
@@ -906,10 +971,18 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 				return nil
 			}
 		case <-sigusr1:
+			if noBuild {
+				ui.PrintWarning("Rebuild disabled (--no-build). Use your local dev server to reload.")
+				continue
+			}
 			doRebuild = true
 		case key := <-stdinKeys:
 			switch key {
 			case 'r':
+				if noBuild {
+					ui.PrintWarning("Rebuild disabled (--no-build). Use your local dev server to reload.")
+					continue
+				}
 				doRebuild = true
 			case 'q':
 				ui.Println()
@@ -1040,7 +1113,7 @@ func devSessionViewerURL(session *mcppkg.DeviceSession, devMode bool) string {
 	return viewerURL
 }
 
-func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired, isBareRN bool, ctxName string, sessionIndex int) {
+func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired, isBareRN, noBuild bool, ctxName string, sessionIndex int) {
 	ui.Println()
 	ui.PrintSuccess("Dev loop ready")
 	ui.PrintLink("Viewer", viewerURL)
@@ -1053,7 +1126,11 @@ func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired, 
 		}
 	}
 	ui.Println()
-	ui.PrintDim("  [r] rebuild native + reinstall    [q] quit")
+	if noBuild {
+		ui.PrintDim("  [q] quit")
+	} else {
+		ui.PrintDim("  [r] rebuild native + reinstall    [q] quit")
+	}
 	ui.Println()
 	printNewTerminalHints(ctxName, sessionIndex)
 }
@@ -2162,19 +2239,23 @@ const maxDeltaSizeBytes = 20 * 1024 * 1024 // 20 MB
 
 // devRebuildResult collects the outcome of a single rebuild iteration.
 type devRebuildResult struct {
-	buildErr      error
-	pushErr       error
-	buildOutput   string
-	buildErrors   []build.BuildError
-	elapsed       time.Duration
-	buildDuration time.Duration
-	pushDuration  time.Duration
-	manifest      *build.AppManifest
-	newBundleID   string
-	usedDelta     bool
-	dataPreserved bool
-	skipped       bool
-	filesChanged  int
+	buildErr        error
+	pushErr         error
+	buildMode       string
+	buildOutput     string
+	buildErrors     []build.BuildError
+	elapsed         time.Duration
+	buildDuration   time.Duration
+	pushDuration    time.Duration
+	manifest        *build.AppManifest
+	newBundleID     string
+	usedDelta       bool
+	dataPreserved   bool
+	skipped         bool
+	filesChanged    int
+	remoteJobID     string
+	remoteVersionID string
+	remoteVersion   string
 }
 
 // formatProgressDuration formats a duration for user-facing rebuild status messages.
@@ -2644,6 +2725,7 @@ type devStatus struct {
 	State          string          `json:"state"`
 	PID            int             `json:"pid"`
 	Platform       string          `json:"platform"`
+	BuildMode      string          `json:"build_mode,omitempty"`
 	SessionID      string          `json:"session_id,omitempty"`
 	ViewerURL      string          `json:"viewer_url,omitempty"`
 	TunnelURL      string          `json:"tunnel_url,omitempty"`
@@ -2665,6 +2747,10 @@ type devRebuildInfo struct {
 	FilesChanged     int                `json:"files_changed"`
 	DataPreserved    bool               `json:"data_preserved"`
 	BackgroundUpload string             `json:"background_upload_status,omitempty"`
+	RemoteJobID      string             `json:"remote_job_id,omitempty"`
+	RemoteVersionID  string             `json:"remote_build_version_id,omitempty"`
+	RemoteVersion    string             `json:"remote_build_version,omitempty"`
+	Error            string             `json:"error,omitempty"`
 	BuildErrors      []build.BuildError `json:"build_errors"`
 }
 
@@ -2706,11 +2792,18 @@ func writeDevStatus(
 	if errs == nil {
 		errs = []build.BuildError{}
 	}
+	lastErr := ""
+	if result.buildErr != nil {
+		lastErr = result.buildErr.Error()
+	} else if result.pushErr != nil {
+		lastErr = result.pushErr.Error()
+	}
 
 	ds := devStatus{
 		State:          "idle",
 		PID:            os.Getpid(),
 		Platform:       platform,
+		BuildMode:      strings.TrimSpace(result.buildMode),
 		TunnelURL:      strings.TrimSpace(tunnelURL),
 		DeepLinkURL:    strings.TrimSpace(deepLinkURL),
 		Transport:      strings.TrimSpace(transport),
@@ -2727,6 +2820,10 @@ func writeDevStatus(
 			FilesChanged:     result.filesChanged,
 			DataPreserved:    result.dataPreserved,
 			BackgroundUpload: bgUpload,
+			RemoteJobID:      strings.TrimSpace(result.remoteJobID),
+			RemoteVersionID:  strings.TrimSpace(result.remoteVersionID),
+			RemoteVersion:    strings.TrimSpace(result.remoteVersion),
+			Error:            lastErr,
 			BuildErrors:      errs,
 		},
 	}
@@ -2959,9 +3056,13 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 	tunnelURL := ""
 	deepLinkURL := ""
 	transport := ""
+	buildMode := ""
 	state := devContextStateRunning
 	deltaCacheWarm := false
 	rebuildCount := 0
+	remoteJobID := ""
+	remoteVersionID := ""
+	lastRebuildError := ""
 	var lastRebuild *devRebuildInfo
 
 	if ctxMeta != nil {
@@ -2995,12 +3096,20 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		if strings.TrimSpace(ds.Transport) != "" {
 			transport = strings.TrimSpace(ds.Transport)
 		}
+		if strings.TrimSpace(ds.BuildMode) != "" {
+			buildMode = strings.TrimSpace(ds.BuildMode)
+		}
 		if strings.TrimSpace(ds.State) != "" {
 			state = ds.State
 		}
 		deltaCacheWarm = ds.DeltaCacheWarm
 		rebuildCount = ds.RebuildCount
 		lastRebuild = ds.LastRebuild
+		if lastRebuild != nil {
+			remoteJobID = strings.TrimSpace(lastRebuild.RemoteJobID)
+			remoteVersionID = strings.TrimSpace(lastRebuild.RemoteVersionID)
+			lastRebuildError = strings.TrimSpace(lastRebuild.Error)
+		}
 	}
 
 	return map[string]interface{}{
@@ -3014,9 +3123,13 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		"tunnel_url":               tunnelURL,
 		"deep_link_url":            deepLinkURL,
 		"transport":                transport,
+		"build_mode":               buildMode,
 		"state":                    state,
 		"delta_cache_warm":         deltaCacheWarm,
 		"rebuild_count":            rebuildCount,
+		"remote_job_id":            remoteJobID,
+		"remote_build_version_id":  remoteVersionID,
+		"last_rebuild_error":       lastRebuildError,
 		"last_rebuild_status":      safeLastRebuildField(lastRebuild, "status"),
 		"last_rebuild_duration_ms": safeLastRebuildDuration(lastRebuild),
 	}

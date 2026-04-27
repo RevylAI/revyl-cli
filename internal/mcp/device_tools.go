@@ -424,7 +424,6 @@ type StartDeviceSessionInput struct {
 	AppLink        string   `json:"app_link,omitempty" jsonschema:"Deep link URL to launch after app start (optional)."`
 	LaunchVars     []string `json:"launch_vars,omitempty" jsonschema:"Org launch variable keys or IDs to apply to a raw session at boot."`
 	TestID         string   `json:"test_id,omitempty" jsonschema:"Test ID to link session to"`
-	SandboxID      string   `json:"sandbox_id,omitempty" jsonschema:"Sandbox ID for dedicated device"`
 	IdleTimeout    int      `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds (default 300)"`
 	NoOpen         bool     `json:"no_open,omitempty" jsonschema:"Skip opening the browser (default: false, browser opens automatically)"`
 }
@@ -467,7 +466,6 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		AppLink:        normalizeOptionalToolInput(input.AppLink),
 		LaunchVars:     input.LaunchVars,
 		TestID:         input.TestID,
-		SandboxID:      input.SandboxID,
 		IdleTimeout:    timeout,
 	})
 	if err != nil {

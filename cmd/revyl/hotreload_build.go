@@ -48,6 +48,19 @@ func isRunnableBuildPlatform(platformCfg config.BuildPlatform) bool {
 	return strings.TrimSpace(platformCfg.Command) != "" && strings.TrimSpace(platformCfg.Output) != ""
 }
 
+// isResolvableBuildPlatform returns true when a build platform can resolve an
+// existing build, even without a build command. This is the case when the
+// platform has an app_id pointing to pre-uploaded builds.
+//
+// Parameters:
+//   - platformCfg: The build platform configuration to inspect
+//
+// Returns:
+//   - bool: True when the platform can resolve builds (runnable or has app_id)
+func isResolvableBuildPlatform(platformCfg config.BuildPlatform) bool {
+	return isRunnableBuildPlatform(platformCfg) || strings.TrimSpace(platformCfg.AppID) != ""
+}
+
 // hasRunnableBuildPlatforms returns true when at least one build.platforms entry
 // has both command and output configured.
 func hasRunnableBuildPlatforms(cfg *config.ProjectConfig) bool {
@@ -132,13 +145,19 @@ func asBuildPlatformNeedsSetupError(err error) (*buildPlatformNeedsSetup, bool) 
 }
 
 // pickBestBuildPlatformKey selects a build.platforms key for a target device platform.
-func pickBestBuildPlatformKey(cfg *config.ProjectConfig, devicePlatform string) string {
+// When noBuild is true, platforms with only an app_id (no command/output) are accepted.
+func pickBestBuildPlatformKey(cfg *config.ProjectConfig, devicePlatform string, noBuild ...bool) string {
 	if cfg == nil || len(cfg.Build.Platforms) == 0 {
 		return ""
 	}
 	devicePlatform = strings.ToLower(strings.TrimSpace(devicePlatform))
 	if devicePlatform != "ios" && devicePlatform != "android" {
 		return ""
+	}
+
+	acceptPlatform := isRunnableBuildPlatform
+	if len(noBuild) > 0 && noBuild[0] {
+		acceptPlatform = isResolvableBuildPlatform
 	}
 
 	type candidate struct {
@@ -148,7 +167,7 @@ func pickBestBuildPlatformKey(cfg *config.ProjectConfig, devicePlatform string) 
 	candidates := make([]candidate, 0)
 
 	for key, platformCfg := range cfg.Build.Platforms {
-		if !isRunnableBuildPlatform(platformCfg) {
+		if !acceptPlatform(platformCfg) {
 			continue
 		}
 
@@ -234,7 +253,8 @@ func availableBuildPlatformKeys(cfg *config.ProjectConfig) []string {
 }
 
 // resolveHotReloadBuildPlatform selects a build.platforms key and device platform
-// for hot reload flows.
+// for hot reload flows. When noBuild is true, platforms with only an app_id
+// (no command/output) are accepted.
 //
 // platformOrKey accepts:
 //   - "" (use defaultPlatform + mapping/inference)
@@ -245,6 +265,7 @@ func resolveHotReloadBuildPlatform(
 	providerCfg *config.ProviderConfig,
 	platformOrKey string,
 	defaultPlatform string,
+	noBuild ...bool,
 ) (string, string, error) {
 	if cfg == nil {
 		return "", "", fmt.Errorf("project config is required")
@@ -252,6 +273,12 @@ func resolveHotReloadBuildPlatform(
 	devicePlatform, err := normalizeMobilePlatform("", defaultPlatform)
 	if err != nil {
 		return "", "", err
+	}
+
+	nb := len(noBuild) > 0 && noBuild[0]
+	acceptPlatform := isRunnableBuildPlatform
+	if nb {
+		acceptPlatform = isResolvableBuildPlatform
 	}
 
 	platformOrKey = strings.TrimSpace(platformOrKey)
@@ -269,7 +296,7 @@ func resolveHotReloadBuildPlatform(
 					strings.Join(availableBuildPlatformKeys(cfg), ", "),
 				)
 			}
-			if !isRunnableBuildPlatform(platformCfg) {
+			if !acceptPlatform(platformCfg) {
 				return "", "", buildPlatformNeedsSetupError(platformOrKey)
 			}
 			platformKey = platformOrKey
@@ -286,7 +313,7 @@ func resolveHotReloadBuildPlatform(
 	}
 
 	if platformKey == "" {
-		platformKey = pickBestBuildPlatformKey(cfg, devicePlatform)
+		platformKey = pickBestBuildPlatformKey(cfg, devicePlatform, nb)
 	}
 
 	if platformKey == "" {
@@ -305,7 +332,7 @@ func resolveHotReloadBuildPlatform(
 			strings.Join(availableBuildPlatformKeys(cfg), ", "),
 		)
 	}
-	if !isRunnableBuildPlatform(platformCfg) {
+	if !acceptPlatform(platformCfg) {
 		return "", "", buildPlatformNeedsSetupError(platformKey)
 	}
 

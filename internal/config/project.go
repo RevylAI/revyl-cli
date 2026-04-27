@@ -292,6 +292,12 @@ type BuildConfig struct {
 	// Output is the path to the build output artifact.
 	Output string `yaml:"output,omitempty"`
 
+	// NoBuild disables build commands globally. When true, revyl dev and similar
+	// commands will never execute build commands and instead require a pre-existing
+	// build (resolved via app_id or --build-version-id). The --build flag
+	// explicitly overrides this setting.
+	NoBuild bool `yaml:"no_build,omitempty"`
+
 	// Platforms contains platform-specific build configurations keyed by platform name
 	// (e.g. "ios", "android", "ios-dev").
 	Platforms map[string]BuildPlatform `yaml:"platforms,omitempty"`
@@ -314,6 +320,10 @@ type BuildPlatform struct {
 	// Scheme is the Xcode scheme to use for iOS builds.
 	// When set, replaces -scheme * in the build command with the specified scheme.
 	Scheme string `yaml:"scheme,omitempty"`
+
+	// Setup is an optional pre-build command run before the main build
+	// (e.g. "npm install && cd ios && pod install").
+	Setup string `yaml:"setup,omitempty"`
 }
 
 // Defaults contains default settings.

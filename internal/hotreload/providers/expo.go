@@ -285,6 +285,25 @@ func (e *ExpoDevServer) GetPort() int {
 	return e.Port
 }
 
+// BuildExpoDeepLinkURL constructs an Expo development client deep link URL
+// without requiring an ExpoDevServer instance. Use this when the dev server is
+// managed externally (e.g. via --tunnel).
+//
+// Parameters:
+//   - appScheme: The app's URL scheme from app.json (e.g. "myapp")
+//   - useExpPrefix: Whether to use the "exp+" prefix (Expo SDK 45+ with addGeneratedScheme: true)
+//   - tunnelURL: The public tunnel URL that the device should connect to
+//
+// Returns:
+//   - string: The deep link URL for launching the dev client
+func BuildExpoDeepLinkURL(appScheme string, useExpPrefix bool, tunnelURL string) string {
+	encodedURL := url.QueryEscape(tunnelURL)
+	if useExpPrefix {
+		return fmt.Sprintf("exp+%s://expo-development-client/?url=%s", appScheme, encodedURL)
+	}
+	return fmt.Sprintf("%s://expo-development-client/?url=%s", appScheme, encodedURL)
+}
+
 // GetDeepLinkURL constructs the deep link URL for the Expo development client.
 //
 // The deep link format depends on UseExpPrefix:
