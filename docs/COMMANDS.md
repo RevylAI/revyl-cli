@@ -94,6 +94,7 @@ revyl dev --platform ios --build       # Force a fresh dev build before start
 revyl dev --app-id <app-id>            # Use explicit app override
 revyl dev --build-version-id <id>      # Use explicit build override
 revyl dev --platform-key ios-dev       # Use explicit platform key
+revyl dev --no-build --tunnel "<expo-dev-client-link>"  # Use an existing Expo tunnel/deep link
 ```
 
 `revyl dev`:
@@ -102,6 +103,17 @@ revyl dev --platform-key ios-dev       # Use explicit platform key
 - resolves the latest build for your current git branch from your dev app mapping (`hotreload.providers.<provider>.platform_keys`), then installs it
   - if no branch-matching build exists, it falls back to the latest available build and prints a warning
 - opens a cloud device session wired to the deep link
+
+For externally managed Expo tunnels, start Expo yourself and pass either the
+full dev-client link Expo prints or the raw `https://...` tunnel URL:
+
+```bash
+npx expo start --tunnel --dev-client
+revyl dev --no-build --app-id <app-id> --tunnel "<deep-link-from-expo>"
+```
+
+When you pass the full Expo dev-client link, `revyl dev` uses that link directly
+and does not require `hotreload.providers.expo.app_scheme` in `.revyl/config.yaml`.
 
 After the dev loop is running, use `revyl device` commands to interact:
 ```bash

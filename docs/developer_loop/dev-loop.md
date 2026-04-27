@@ -77,7 +77,20 @@ revyl dev --no-open                       # Don't open browser (headless/SSH)
 revyl dev --platform ios --build          # Force a fresh dev build first
 revyl dev --build-version-id <id>         # Pin a specific build
 revyl dev --context ios-main              # Named context for parallel loops
+revyl dev --no-build --tunnel "<expo-dev-client-link>"  # Reuse an Expo tunnel
 ```
+
+If you already run Expo with its own tunnel, you can collapse the manual device
+start + deep-link step into one command:
+
+```bash
+npx expo start --tunnel --dev-client
+revyl dev --no-build --app-id <app-id> --tunnel "<deep-link-from-expo>"
+```
+
+`--tunnel` accepts either the full Expo dev-client link or the raw `https://...`
+tunnel URL. Passing the full dev-client link works even when the local Revyl
+config does not have an Expo `app_scheme`.
 
 ## Step 4: Interact with the device
 

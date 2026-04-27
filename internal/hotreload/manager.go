@@ -94,9 +94,13 @@ type Manager struct {
 	debugMode bool
 
 	// externalTunnelURL, when set, bypasses the relay tunnel and dev server entirely.
-	// The manager returns this URL directly as the tunnel URL and constructs the
-	// deep link from provider config. Used with --tunnel for externally-managed tunnels.
+	// The manager returns this URL directly as the tunnel URL. If externalDeepLinkURL
+	// is unset, the Expo deep link is constructed from provider config.
 	externalTunnelURL string
+
+	// externalDeepLinkURL, when set, is used directly for Expo dev-client launch.
+	// This lets callers pass the full deep link Expo printed without requiring app_scheme.
+	externalDeepLinkURL string
 
 	// mu protects concurrent access.
 	mu sync.Mutex
@@ -184,6 +188,12 @@ func (m *Manager) SetTunnelBackendFactory(factory TunnelBackendFactory) {
 //   - tunnelURL: The public tunnel URL (e.g. from npx expo start --tunnel)
 func (m *Manager) SetExternalTunnelURL(tunnelURL string) {
 	m.externalTunnelURL = strings.TrimSpace(tunnelURL)
+}
+
+// SetExternalDeepLinkURL configures the manager to use a user-provided Expo
+// dev-client deep link instead of deriving one from provider config.
+func (m *Manager) SetExternalDeepLinkURL(deepLinkURL string) {
+	m.externalDeepLinkURL = strings.TrimSpace(deepLinkURL)
 }
 
 // log sends a message to the log callback if set.
@@ -393,7 +403,10 @@ func (m *Manager) startExternal() (*StartResult, error) {
 	m.running = true
 	m.log("Using external tunnel: %s", tunnelURL)
 
-	deepLinkURL := m.buildExpoDeepLink(tunnelURL)
+	deepLinkURL := strings.TrimSpace(m.externalDeepLinkURL)
+	if deepLinkURL == "" {
+		deepLinkURL = m.buildExpoDeepLink(tunnelURL)
+	}
 
 	return &StartResult{
 		TunnelURL:   tunnelURL,

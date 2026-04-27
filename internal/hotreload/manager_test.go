@@ -3,6 +3,8 @@ package hotreload
 import (
 	"context"
 	"testing"
+
+	"github.com/revyl/cli/internal/config"
 )
 
 type fakeDevServer struct{}
@@ -99,4 +101,39 @@ func TestAttachDevServerDebugMode_IgnoresUnsupportedServer(t *testing.T) {
 
 	unsupported := &fakeDevServer{}
 	m.attachDevServerDebugMode(unsupported)
+}
+
+func TestManagerStartExternalUsesProvidedDeepLinkWithoutProviderConfig(t *testing.T) {
+	m := NewManager("expo", nil, ".")
+	m.SetExternalTunnelURL("https://example.ngrok.app")
+	m.SetExternalDeepLinkURL("myapp://expo-development-client/?url=https%3A%2F%2Fexample.ngrok.app")
+
+	result, err := m.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if result.TunnelURL != "https://example.ngrok.app" {
+		t.Fatalf("TunnelURL = %q, want external tunnel", result.TunnelURL)
+	}
+	if result.DeepLinkURL != "myapp://expo-development-client/?url=https%3A%2F%2Fexample.ngrok.app" {
+		t.Fatalf("DeepLinkURL = %q, want provided deep link", result.DeepLinkURL)
+	}
+	if result.Transport != "external" {
+		t.Fatalf("Transport = %q, want external", result.Transport)
+	}
+}
+
+func TestManagerStartExternalBuildsDeepLinkWhenOnlyTunnelProvided(t *testing.T) {
+	m := NewManager("expo", &config.ProviderConfig{AppScheme: "myapp"}, ".")
+	m.SetExternalTunnelURL("https://example.ngrok.app")
+
+	result, err := m.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if result.DeepLinkURL != "myapp://expo-development-client/?url=https%3A%2F%2Fexample.ngrok.app" {
+		t.Fatalf("DeepLinkURL = %q, want derived Expo deep link", result.DeepLinkURL)
+	}
 }

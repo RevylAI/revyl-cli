@@ -923,3 +923,86 @@ func TestBuildDevStatusOutput_FallsBackToContextTunnelMetadata(t *testing.T) {
 		t.Fatalf("session_id = %v, want sess-123", got)
 	}
 }
+
+func TestParseExternalTunnelInput_HTTPURL(t *testing.T) {
+	input := "https://example.ngrok.app"
+
+	parsed, err := parseExternalTunnelInput(input)
+	if err != nil {
+		t.Fatalf("parseExternalTunnelInput() error = %v", err)
+	}
+
+	if parsed.tunnelURL != input {
+		t.Fatalf("tunnelURL = %q, want %q", parsed.tunnelURL, input)
+	}
+	if parsed.deepLinkURL != "" {
+		t.Fatalf("deepLinkURL = %q, want empty", parsed.deepLinkURL)
+	}
+	if parsed.fromDeepLink {
+		t.Fatal("fromDeepLink = true, want false")
+	}
+}
+
+func TestParseExternalTunnelInput_ExpoDeepLink(t *testing.T) {
+	input := "myapp://expo-development-client/?url=https%3A%2F%2Fexample.ngrok.app"
+
+	parsed, err := parseExternalTunnelInput(input)
+	if err != nil {
+		t.Fatalf("parseExternalTunnelInput() error = %v", err)
+	}
+
+	if parsed.tunnelURL != "https://example.ngrok.app" {
+		t.Fatalf("tunnelURL = %q, want nested tunnel URL", parsed.tunnelURL)
+	}
+	if parsed.deepLinkURL != input {
+		t.Fatalf("deepLinkURL = %q, want original input", parsed.deepLinkURL)
+	}
+	if !parsed.fromDeepLink {
+		t.Fatal("fromDeepLink = false, want true")
+	}
+}
+
+func TestParseExternalTunnelInput_ExpoDeepLinkWithReadableTunnelURL(t *testing.T) {
+	input := "myapp://expo-development-client/?url=https://example.ngrok.app"
+
+	parsed, err := parseExternalTunnelInput(input)
+	if err != nil {
+		t.Fatalf("parseExternalTunnelInput() error = %v", err)
+	}
+
+	if parsed.tunnelURL != "https://example.ngrok.app" {
+		t.Fatalf("tunnelURL = %q, want nested tunnel URL", parsed.tunnelURL)
+	}
+	if parsed.deepLinkURL != input {
+		t.Fatalf("deepLinkURL = %q, want original input", parsed.deepLinkURL)
+	}
+	if !parsed.fromDeepLink {
+		t.Fatal("fromDeepLink = false, want true")
+	}
+}
+
+func TestParseExternalTunnelInput_ExpPrefixedDeepLink(t *testing.T) {
+	input := "exp+myapp://expo-development-client/?url=https%3A%2F%2Fu.expo.dev%2Fabc%3Fchannel-name%3Dmain"
+
+	parsed, err := parseExternalTunnelInput(input)
+	if err != nil {
+		t.Fatalf("parseExternalTunnelInput() error = %v", err)
+	}
+
+	if parsed.tunnelURL != "https://u.expo.dev/abc?channel-name=main" {
+		t.Fatalf("tunnelURL = %q, want decoded nested tunnel URL", parsed.tunnelURL)
+	}
+	if parsed.deepLinkURL != input {
+		t.Fatalf("deepLinkURL = %q, want original input", parsed.deepLinkURL)
+	}
+}
+
+func TestParseExternalTunnelInput_RejectsDeepLinkWithoutTunnelURL(t *testing.T) {
+	_, err := parseExternalTunnelInput("myapp://expo-development-client/")
+	if err == nil {
+		t.Fatal("parseExternalTunnelInput() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "url=") {
+		t.Fatalf("error = %v, want url= hint", err)
+	}
+}

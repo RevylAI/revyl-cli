@@ -226,11 +226,90 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&devStartBuild, "build", false, "Force build+upload before starting")
 	cmd.Flags().BoolVar(&devStartNoBuild, "no-build", false, "Never run build commands; require a pre-existing build")
 	cmd.Flags().BoolVar(&devStartRemote, "remote", false, "Build native iOS changes on a remote Revyl build runner")
-	cmd.Flags().StringVar(&devStartTunnelURL, "tunnel", "", "Use an external tunnel URL (e.g. from npx expo start --tunnel) instead of the Revyl relay")
+	cmd.Flags().StringVar(&devStartTunnelURL, "tunnel", "", "Use an external Expo tunnel URL or dev-client deep link instead of the Revyl relay")
 	cmd.Flags().IntVar(&devStartPort, "port", 8081, "Port for local dev server")
 	cmd.Flags().IntVar(&devStartTimeout, "timeout", 300, "Device idle timeout in seconds")
 	cmd.Flags().BoolVar(&devStartOpen, "open", true, "Open live device viewer in browser")
 	cmd.Flags().BoolVar(&devStartNoOpen, "no-open", false, "Do not open the live device viewer in browser")
+}
+
+type externalTunnelInput struct {
+	tunnelURL    string
+	deepLinkURL  string
+	fromDeepLink bool
+}
+
+func parseExternalTunnelInput(raw string) (externalTunnelInput, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return externalTunnelInput{}, nil
+	}
+
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" {
+		return externalTunnelInput{}, fmt.Errorf("--tunnel must be an https:// tunnel URL or an Expo dev-client deep link")
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme == "http" || scheme == "https" {
+		if parsed.Host == "" {
+			return externalTunnelInput{}, fmt.Errorf("--tunnel URL must include a host")
+		}
+		return externalTunnelInput{tunnelURL: value}, nil
+	}
+
+	nestedTunnelURL := strings.TrimSpace(parsed.Query().Get("url"))
+	if nestedTunnelURL == "" {
+		return externalTunnelInput{}, fmt.Errorf("--tunnel deep link must include a url=<https://...> parameter")
+	}
+	nested, err := url.Parse(nestedTunnelURL)
+	if err != nil || nested.Host == "" || (nested.Scheme != "http" && nested.Scheme != "https") {
+		return externalTunnelInput{}, fmt.Errorf("--tunnel deep link url parameter must be an http(s) tunnel URL")
+	}
+
+	return externalTunnelInput{
+		tunnelURL:    nestedTunnelURL,
+		deepLinkURL:  value,
+		fromDeepLink: true,
+	}, nil
+}
+
+func inferExpoProviderConfig(provider hotreload.Provider, cwd string) *config.ProviderConfig {
+	info, err := provider.GetProjectInfo(cwd)
+	if err != nil || info == nil {
+		return nil
+	}
+	return provider.GetDefaultConfig(info)
+}
+
+func externalExpoProviderConfig(provider hotreload.Provider, cfg *config.ProjectConfig, cwd string, hasDeepLink bool) (*config.ProviderConfig, error) {
+	var providerCfg *config.ProviderConfig
+	if cfg != nil {
+		providerCfg = cfg.HotReload.GetProviderConfig("expo")
+	}
+	if providerCfg == nil {
+		providerCfg = &config.ProviderConfig{}
+	}
+
+	if strings.TrimSpace(providerCfg.AppScheme) == "" && !hasDeepLink {
+		if inferred := inferExpoProviderConfig(provider, cwd); inferred != nil && strings.TrimSpace(inferred.AppScheme) != "" {
+			copied := *providerCfg
+			copied.AppScheme = strings.TrimSpace(inferred.AppScheme)
+			if copied.Port == 0 {
+				copied.Port = inferred.Port
+			}
+			if copied.PlatformKeys == nil {
+				copied.PlatformKeys = inferred.PlatformKeys
+			}
+			providerCfg = &copied
+		}
+	}
+
+	if strings.TrimSpace(providerCfg.AppScheme) == "" && !hasDeepLink {
+		return nil, fmt.Errorf("--tunnel with a raw tunnel URL needs an Expo app scheme; pass the full Expo dev-client deep link instead, or run `revyl init --provider expo`")
+	}
+
+	return providerCfg, nil
 }
 
 func runDevStart(cmd *cobra.Command, args []string) error {
@@ -273,7 +352,10 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("project not initialized")
 	}
 
-	externalTunnel := strings.TrimSpace(devStartTunnelURL)
+	externalTunnel, err := parseExternalTunnelInput(devStartTunnelURL)
+	if err != nil {
+		return err
+	}
 
 	if devStartNoBuild && devStartBuild {
 		return fmt.Errorf("use either --no-build or --build, not both")
@@ -293,15 +375,15 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	var providerCfg *config.ProviderConfig
 	useRebuildOnlyLoop := false
 
-	if externalTunnel != "" {
-		providerCfg = cfg.HotReload.GetProviderConfig("expo")
-		if providerCfg == nil || strings.TrimSpace(providerCfg.AppScheme) == "" {
-			return fmt.Errorf("hotreload.providers.expo.app_scheme is required for --tunnel mode (run `revyl init --provider expo`)")
-		}
+	if externalTunnel.tunnelURL != "" {
 		registry := hotreload.DefaultRegistry()
-		provider, _, err = registry.SelectProvider(&cfg.HotReload, "expo", cwd)
+		provider, err = registry.GetProvider("expo")
 		if err != nil {
-			return fmt.Errorf("--tunnel requires an expo provider configured in .revyl/config.yaml: %w", err)
+			return fmt.Errorf("--tunnel requires Expo support: %w", err)
+		}
+		providerCfg, err = externalExpoProviderConfig(provider, cfg, cwd, externalTunnel.fromDeepLink)
+		if err != nil {
+			return err
 		}
 	} else {
 		// Determine whether we have a supported hot reload provider. If not,
@@ -362,7 +444,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("use either --app-id or --build-version-id, not both")
 	}
 
-	if externalTunnel == "" {
+	if externalTunnel.tunnelURL == "" {
 		registry := hotreload.DefaultRegistry()
 		provider, providerCfg, err = registry.SelectProvider(&cfg.HotReload, "", cwd)
 		if err != nil {
@@ -608,15 +690,18 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	ui.Println()
 
 	var managerProviderName string
-	if externalTunnel != "" {
+	if externalTunnel.tunnelURL != "" {
 		managerProviderName = "expo"
 	} else {
 		managerProviderName = provider.Name()
 	}
 	manager := hotreload.NewManager(managerProviderName, providerCfg, cwd)
 	manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
-	if externalTunnel != "" {
-		manager.SetExternalTunnelURL(externalTunnel)
+	if externalTunnel.tunnelURL != "" {
+		manager.SetExternalTunnelURL(externalTunnel.tunnelURL)
+		if externalTunnel.deepLinkURL != "" {
+			manager.SetExternalDeepLinkURL(externalTunnel.deepLinkURL)
+		}
 	}
 	manager.SetLogCallback(func(msg string) {
 		ui.PrintDim("  %s", msg)
@@ -814,6 +899,10 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		ui.PrintDim("  Bare React Native hot reload is active. The app loads its JS bundle")
 		ui.PrintDim("  from the Metro server via the relay tunnel.")
 	} else {
+		deepLinkFailureHint := "hint: verify hotreload.providers.expo.app_scheme and try hotreload.providers.expo.use_exp_prefix: true"
+		if externalTunnel.fromDeepLink {
+			deepLinkFailureHint = "hint: verify the Expo dev-client link matches the installed build; if the scheme or native config changed, rebuild the dev client"
+		}
 		if deepLinkURL == "" {
 			return fmt.Errorf("hot reload started but deep link URL is empty")
 		}
@@ -831,15 +920,17 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 				ui.PrintInfo("Manual step: open this deep link on device: %s", deepLinkURL)
 			} else {
 				return fmt.Errorf(
-					"deep-link navigation failed: %w\nhint: verify hotreload.providers.expo.app_scheme and try hotreload.providers.expo.use_exp_prefix: true",
+					"deep-link navigation failed: %w\n%s",
 					err,
+					deepLinkFailureHint,
 				)
 			}
 		} else {
 			if err := ensureWorkerActionSucceeded(openURLRespBody, "open_url"); err != nil {
 				return fmt.Errorf(
-					"deep-link navigation failed: %w\nhint: verify hotreload.providers.expo.app_scheme and try hotreload.providers.expo.use_exp_prefix: true",
+					"deep-link navigation failed: %w\n%s",
 					err,
+					deepLinkFailureHint,
 				)
 			}
 		}
