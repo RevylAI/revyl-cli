@@ -171,7 +171,7 @@ func startRunInterruptHandler(
 				if interruptCount == 1 {
 					ui.StopSpinner()
 					ui.Println()
-					ui.PrintWarning("Cancelling %s...", opts.nounLower)
+					ui.PrintWarning("Cancelling %s... (^C again to force-exit)", opts.nounLower)
 					state.MarkCancelled()
 					cancel()
 

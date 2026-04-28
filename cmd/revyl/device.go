@@ -317,7 +317,35 @@ func executeLiveStepCommand(cmd *cobra.Command, request mcppkg.LiveStepRequest, 
 		return err
 	}
 
-	response, err := mgr.ExecuteLiveStepForSession(cmd.Context(), session.Index, request)
+	// Two-tap ^C: first interrupt cancels the step (the manager's
+	// pollStepUntilDone catches ctx.Done() and POSTs /step_cancel/{id}
+	// before returning); second interrupt force-exits. Reuses the same
+	// helper as `revyl run` so the UX is consistent.
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 2)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	nounLower := strings.ToLower(stepLabel)
+	interruptState := newRunInterruptState()
+	stopInterruptHandler := startRunInterruptHandler(ctx, cancel, sigChan, interruptState, runInterruptOptions{
+		nounLower: nounLower,
+		nounTitle: stepLabel,
+		// requestCancel intentionally nil: the cancel POST is fired from
+		// inside pollStepUntilDone, which has the step_id naturally. We
+		// don't need to surface the step_id up to this layer.
+	})
+	defer stopInterruptHandler()
+
+	response, err := mgr.ExecuteLiveStepForSession(ctx, session.Index, request)
+
+	if interruptState.Cancelled() {
+		ui.Println()
+		ui.PrintWarning("%s cancelled by user", stepLabel)
+		return fmt.Errorf("%s cancelled", nounLower)
+	}
 	if err != nil {
 		return err
 	}

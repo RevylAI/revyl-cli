@@ -1347,12 +1347,24 @@ func (m *DeviceSessionManager) pollStepUntilDone(
 
 		select {
 		case <-ctx.Done():
+			// User cancelled (typically ^C) while we were sleeping
+			// between polls. Tell the worker to stop and briefly wait
+			// for it to clear _live_step_executing, so the next
+			// live-step command won't 409.
+			m.cancelStepBestEffort(session, stepID)
 			return nil, ctx.Err()
 		case <-time.After(delay):
 		}
 
 		respBody, err := m.workerRequestForSession(ctx, session, path, nil)
 		if err != nil {
+			// User cancelled mid-request: the in-flight HTTP call aborts
+			// before the next loop iteration's <-ctx.Done() select can
+			// fire. Treat this as a cancel and tell the worker to stop.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				m.cancelStepBestEffort(session, stepID)
+				return nil, ctxErr
+			}
 			return nil, fmt.Errorf("failed to poll step status for %s: %w", stepID, err)
 		}
 
@@ -1379,6 +1391,56 @@ func (m *DeviceSessionManager) pollStepUntilDone(
 			return nil, fmt.Errorf("failed to parse step result for %s: %w", stepID, err)
 		}
 		return &result, nil
+	}
+}
+
+// stepCancelBudget caps the total time spent on POST /step_cancel + the
+// post-cancel poll for terminal status. Picked so a healthy agent loop has
+// enough yield points to land CancelledError, but a stuck step doesn't
+// block the user's terminal indefinitely.
+const stepCancelBudget = 5 * time.Second
+
+// cancelStepBestEffort sends POST /step_cancel/{stepID} and then briefly
+// polls /step_status/{stepID} until the step reaches a terminal status, so
+// that when the user's command exits, the worker's _live_step_executing
+// flag has reliably cleared and subsequent live-step commands won't 409.
+//
+// Bounded total budget (stepCancelBudget). All best-effort: errors are
+// swallowed because the user has already cancelled.
+func (m *DeviceSessionManager) cancelStepBestEffort(session *DeviceSession, stepID string) {
+	cancelCtx, cancelFn := context.WithTimeout(context.Background(), stepCancelBudget)
+	defer cancelFn()
+
+	if _, err := m.workerRequestForSession(cancelCtx, session, "/step_cancel/"+stepID, nil); err != nil {
+		return
+	}
+
+	// Poll briefly so the worker's _live_step_executing flag is cleared
+	// before we exit. If the step doesn't terminate in budget, we exit
+	// anyway -- the user has already given up.
+	statusPath := "/step_status/" + stepID
+	delay := 200 * time.Millisecond
+	for {
+		select {
+		case <-cancelCtx.Done():
+			return
+		case <-time.After(delay):
+		}
+
+		body, err := m.workerRequestForSession(cancelCtx, session, statusPath, nil)
+		if err != nil {
+			return
+		}
+		var status stepStatusResponse
+		if err := json.Unmarshal(body, &status); err != nil {
+			return
+		}
+		if status.Status != "running" {
+			return
+		}
+		if delay < time.Second {
+			delay *= 2
+		}
 	}
 }
 
@@ -1447,6 +1509,7 @@ func workerProxyActionFromPath(path string) (string, error) {
 // a sub-resource segment (e.g. step_status/{step_id}).
 var compoundPathActions = map[string]bool{
 	"step_status": true,
+	"step_cancel": true,
 }
 
 // proxyWorkerRequestForSession forwards a worker action through the backend

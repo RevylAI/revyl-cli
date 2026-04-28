@@ -1510,3 +1510,195 @@ func TestDeviceSessionManager_ResolveTargetForSession_WorkerMissDoesNotFallback(
 		t.Fatalf("backend ground should not be called on worker miss, got %d", groundCalls)
 	}
 }
+
+
+// TestDeviceSessionManager_ExecuteLiveStepForSession_CancelOnContextDone
+// verifies that when the caller cancels the context while pollStepUntilDone
+// is waiting for a step, the manager:
+//
+//  1. Returns context.Canceled to the caller.
+//  2. Sends exactly one POST /step_cancel/{step_id} to the worker proxy.
+//  3. Polls /step_status/{step_id} after the cancel until it sees a
+//     terminal status (so _live_step_executing is reliably cleared).
+func TestDeviceSessionManager_ExecuteLiveStepForSession_CancelOnContextDone(t *testing.T) {
+	t.Parallel()
+
+	const stepID = "step-cancel-001"
+
+	var (
+		executeCalls       int
+		statusPollsBefore  int
+		statusPollsAfter   int
+		cancelCalls        int
+		cancelObserved     = make(chan struct{})
+		ctxCancelFn        context.CancelFunc
+		stepStatusPath     = "/api/v1/execution/device-proxy/wf-cancel/step_status/" + stepID
+		stepCancelPath     = "/api/v1/execution/device-proxy/wf-cancel/step_cancel/" + stepID
+		executeStepPath    = "/api/v1/execution/device-proxy/wf-cancel/execute_step"
+		cancelOnce         bool
+	)
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case executeStepPath:
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected POST to execute_step, got %s", r.Method)
+			}
+			executeCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"accepted"}`))
+
+		case stepStatusPath:
+			if r.Method != http.MethodGet {
+				t.Fatalf("expected GET to step_status, got %s", r.Method)
+			}
+			if cancelCalls == 0 {
+				// Pre-cancel poll: return running, then trigger cancel.
+				statusPollsBefore++
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"running"}`))
+				if !cancelOnce {
+					cancelOnce = true
+					// Cancel the caller's context after first poll lands.
+					if ctxCancelFn != nil {
+						ctxCancelFn()
+					}
+				}
+				return
+			}
+			// Post-cancel poll: report terminal so cancelStepBestEffort returns
+			// quickly without waiting out the full budget.
+			statusPollsAfter++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"cancelled","result":{"success":false,"step_type":"instruction","step_id":"` + stepID + `","workflow_run_id":"wf-cancel","step_output":{"metadata":{"cancelled":true}}}}`))
+
+		case stepCancelPath:
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected POST to step_cancel, got %s", r.Method)
+			}
+			cancelCalls++
+			close(cancelObserved)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"cancelling"}`))
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-cancel",
+				WorkflowRunID: "wf-cancel",
+				WorkerBaseURL: "https://cog-unresolvable.revyl.ai",
+				Platform:      "android",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ctxCancelFn = cancel
+	defer cancel()
+
+	resp, err := mgr.ExecuteLiveStepForSession(ctx, 0, LiveStepRequest{
+		StepType:        "instruction",
+		StepDescription: "tap login",
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got err=%v resp=%+v", err, resp)
+	}
+
+	select {
+	case <-cancelObserved:
+	case <-time.After(time.Second):
+		t.Fatal("worker never received POST /step_cancel/{id}")
+	}
+
+	if executeCalls != 1 {
+		t.Fatalf("execute_step calls = %d, want 1", executeCalls)
+	}
+	if cancelCalls != 1 {
+		t.Fatalf("step_cancel calls = %d, want exactly 1", cancelCalls)
+	}
+	if statusPollsBefore < 1 {
+		t.Fatalf("expected at least one pre-cancel status poll, got %d", statusPollsBefore)
+	}
+	if statusPollsAfter < 1 {
+		t.Fatalf("expected at least one post-cancel status poll (wait-for-terminal), got %d", statusPollsAfter)
+	}
+}
+
+// TestDeviceSessionManager_CancelStepBestEffort_BoundedByBudget verifies
+// that cancelStepBestEffort returns within the cancel budget even when the
+// worker reports the step as still running indefinitely. This guards
+// against stuck steps blocking the user's terminal forever.
+func TestDeviceSessionManager_CancelStepBestEffort_BoundedByBudget(t *testing.T) {
+	t.Parallel()
+
+	const stepID = "step-stuck-002"
+
+	var (
+		statusCalls    int
+		cancelCalls    int
+		stepStatusPath = "/api/v1/execution/device-proxy/wf-stuck/step_status/" + stepID
+		stepCancelPath = "/api/v1/execution/device-proxy/wf-stuck/step_cancel/" + stepID
+	)
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case stepCancelPath:
+			cancelCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"cancelling"}`))
+		case stepStatusPath:
+			statusCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"step_id":"` + stepID + `","status":"running"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-stuck",
+				WorkflowRunID: "wf-stuck",
+				WorkerBaseURL: "https://cog-unresolvable.revyl.ai",
+				Platform:      "android",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	start := time.Now()
+	mgr.cancelStepBestEffort(mgr.sessions[0], stepID)
+	elapsed := time.Since(start)
+
+	// Must not exceed budget (with small fudge for scheduling).
+	maxAllowed := stepCancelBudget + 750*time.Millisecond
+	if elapsed > maxAllowed {
+		t.Fatalf("cancelStepBestEffort took %v, want <= %v", elapsed, maxAllowed)
+	}
+	// Must have actually sent the cancel.
+	if cancelCalls != 1 {
+		t.Fatalf("step_cancel calls = %d, want 1", cancelCalls)
+	}
+	// Must have polled at least once for terminal status before giving up.
+	if statusCalls < 1 {
+		t.Fatalf("expected at least one post-cancel status poll, got %d", statusCalls)
+	}
+}
