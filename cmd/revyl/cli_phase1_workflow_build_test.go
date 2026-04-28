@@ -53,6 +53,12 @@ func TestRunBuildUploadJSONOutputsStructuredResult(t *testing.T) {
 			}
 			_, _ = io.Copy(io.Discard, r.Body)
 			w.WriteHeader(http.StatusOK)
+		case "/api/v1/builds/versions/build-ver-123/extract-package-id":
+			if r.Method != http.MethodPost {
+				t.Fatalf("extract-package-id method = %s, want POST", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"package_id":"com.example.android"}`))
 		case "/api/v1/builds/versions/build-ver-123/complete-upload":
 			if r.Method != http.MethodPost {
 				t.Fatalf("complete-upload method = %s, want POST", r.Method)

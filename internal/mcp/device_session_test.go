@@ -1511,7 +1511,6 @@ func TestDeviceSessionManager_ResolveTargetForSession_WorkerMissDoesNotFallback(
 	}
 }
 
-
 // TestDeviceSessionManager_ExecuteLiveStepForSession_CancelOnContextDone
 // verifies that when the caller cancels the context while pollStepUntilDone
 // is waiting for a step, the manager:
@@ -1526,16 +1525,16 @@ func TestDeviceSessionManager_ExecuteLiveStepForSession_CancelOnContextDone(t *t
 	const stepID = "step-cancel-001"
 
 	var (
-		executeCalls       int
-		statusPollsBefore  int
-		statusPollsAfter   int
-		cancelCalls        int
-		cancelObserved     = make(chan struct{})
-		ctxCancelFn        context.CancelFunc
-		stepStatusPath     = "/api/v1/execution/device-proxy/wf-cancel/step_status/" + stepID
-		stepCancelPath     = "/api/v1/execution/device-proxy/wf-cancel/step_cancel/" + stepID
-		executeStepPath    = "/api/v1/execution/device-proxy/wf-cancel/execute_step"
-		cancelOnce         bool
+		executeCalls      int
+		statusPollsBefore int
+		statusPollsAfter  int
+		cancelCalls       int
+		cancelObserved    = make(chan struct{})
+		ctxCancelFn       context.CancelFunc
+		stepStatusPath    = "/api/v1/execution/device-proxy/wf-cancel/step_status/" + stepID
+		stepCancelPath    = "/api/v1/execution/device-proxy/wf-cancel/step_cancel/" + stepID
+		executeStepPath   = "/api/v1/execution/device-proxy/wf-cancel/execute_step"
+		cancelOnce        bool
 	)
 
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

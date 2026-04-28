@@ -11,6 +11,7 @@
 package api
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -817,6 +818,10 @@ const maxUploadErrorBodyBytes = 16 * 1024
 //   - *UploadBuildResponse: The upload response
 //   - error: Any error that occurred
 func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*UploadBuildResponse, error) {
+	if err := validateLocalBuildArtifact(req.FilePath, req.Metadata); err != nil {
+		return nil, err
+	}
+
 	// Get file name from path
 	fileName := filepath.Base(req.FilePath)
 
@@ -857,22 +862,58 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 		req.FilePath,
 		fileInfo.Size(),
 	); err != nil {
+		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
 		return nil, err
 	}
 
-	// Complete the upload
+	// One server-side round-trip downloads the artifact from S3, validates it,
+	// and extracts the package id. The Web UI uses the same endpoint; doing it
+	// here keeps the gate parity between CLI and browser uploads.
+	extractResp, err := c.doRequest(ctx, "POST",
+		fmt.Sprintf("/api/v1/builds/versions/%s/extract-package-id", presignResult.VersionID),
+		nil)
+	if err != nil {
+		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
+		return nil, err
+	}
+
+	var extractResult extractBuildPackageIDResponse
+	if err := parseResponse(extractResp, &extractResult); err != nil {
+		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
+		return nil, err
+	}
+	if extractResult.Error != "" {
+		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
+		return nil, fmt.Errorf("failed to validate uploaded build: %s", extractResult.Error)
+	}
+	if extractResult.PackageID == "" {
+		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
+		return nil, fmt.Errorf("failed to validate uploaded build: package ID could not be extracted")
+	}
+
+	metadata := map[string]interface{}{}
+	for key, value := range req.Metadata {
+		metadata[key] = value
+	}
+	metadata["package_id"] = extractResult.PackageID
+
+	// Complete the upload. The build row + S3 object exist by this point, so
+	// any failure here is cleaned up before the error bubbles up.
 	completeResp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/builds/versions/%s/complete-upload", presignResult.VersionID),
 		map[string]interface{}{
-			"version_id": presignResult.VersionID,
-			"metadata":   req.Metadata,
+			"version_id":   presignResult.VersionID,
+			"metadata":     metadata,
+			"package_name": extractResult.PackageID,
 		})
 	if err != nil {
+		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
 		return nil, err
 	}
 
 	var completeResult UploadBuildResponse
 	if err := parseResponse(completeResp, &completeResult); err != nil {
+		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
 		return nil, err
 	}
 
@@ -880,8 +921,176 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 	if completeResult.VersionID == "" {
 		completeResult.VersionID = presignResult.VersionID
 	}
+	if completeResult.PackageID == "" {
+		completeResult.PackageID = extractResult.PackageID
+	}
 
 	return &completeResult, nil
+}
+
+type extractBuildPackageIDResponse struct {
+	PackageID string `json:"package_id,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// bestEffortDeleteBuildVersion soft-deletes a build version row that was
+// created by the presigned-upload flow but never made it to ready state.
+//
+// It runs on a detached context so the cleanup still fires when the caller's
+// ctx was cancelled (e.g. user Ctrl+C mid-upload). The detached context is
+// bounded by a short timeout so a hung backend can't keep the CLI alive past
+// the user's interrupt.
+//
+// The backend's DELETE /builds/{id} is a soft delete; iOS validation failures
+// may have already hard-deleted the row server-side, in which case this 404s
+// and we just log it. Errors here never override the original upload failure.
+func (c *Client) bestEffortDeleteBuildVersion(_ context.Context, versionID string) {
+	if versionID == "" {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if _, err := c.DeleteBuildVersion(cleanupCtx, versionID); err != nil {
+		fmt.Fprintf(
+			os.Stderr,
+			"warning: failed to clean up orphaned build version %s: %v\n",
+			versionID, err,
+		)
+	}
+}
+
+// validateLocalBuildArtifact runs the same hard pre-flight checks that
+// AppUploadField applies in the web UI. Bad artifacts are rejected before any
+// HTTP work — no presigned URL, no S3 upload, no orphaned build row.
+//
+// Hard rejections (regardless of platform):
+//   - .aab (Android App Bundles aren't supported)
+//   - .ipa (real-device builds; we only run simulators)
+//   - .zip with an IPA-shaped Payload/*.app/ tree
+//
+// Platform-aware structural checks for .zip files:
+//   - iOS:     must contain a *.app/Info.plist
+//   - Android: must contain at least one .apk
+//   - unknown: must look like one of the two
+//
+// The deeper iOS simulator check (DTPlatformName != iphoneos) and the Android
+// ABI check still run server-side via /extract-package-id; this function exists
+// so obvious mistakes fail locally with a clear error instead of after upload.
+func validateLocalBuildArtifact(filePath string, metadata map[string]interface{}) error {
+	fileName := strings.ToLower(filepath.Base(filePath))
+
+	if strings.HasSuffix(fileName, ".aab") {
+		return fmt.Errorf(
+			"Android App Bundles (.aab) are not supported. Please use an APK build instead",
+		)
+	}
+	if strings.HasSuffix(fileName, ".ipa") {
+		return fmt.Errorf(
+			"IPA files are not supported. Please upload a simulator-built .app bundle (zipped). " +
+				"IPAs are for real devices, not simulators",
+		)
+	}
+
+	platform := resolveUploadPlatform(metadata)
+
+	if strings.HasSuffix(fileName, ".zip") {
+		return validateLocalZipArtifact(filePath, platform)
+	}
+
+	if strings.HasSuffix(fileName, ".apk") {
+		if platform == "ios" {
+			return fmt.Errorf(
+				"%q has an .apk extension but the iOS platform was selected; "+
+					"upload a simulator-built .app bundle (zipped) instead",
+				filepath.Base(filePath),
+			)
+		}
+		return nil
+	}
+
+	// Other extensions fall through to the backend's _validate_file_extension
+	// gate, which is the canonical source of accepted extensions.
+	return nil
+}
+
+// validateLocalZipArtifact opens a .zip and inspects its top-level contents to
+// decide whether it looks like a wrapped iOS .app or a wrapped Android APK.
+func validateLocalZipArtifact(filePath string, platform string) error {
+	reader, err := zip.OpenReader(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read .zip artifact: %w", err)
+	}
+	defer reader.Close()
+
+	hasPayload := false
+	hasAppInfoPlist := false
+	hasAPK := false
+
+	for _, file := range reader.File {
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		name := file.Name
+		lower := strings.ToLower(name)
+
+		if strings.HasPrefix(name, "Payload/") && strings.Contains(name, ".app/") {
+			hasPayload = true
+		}
+		if strings.HasSuffix(name, ".app/Info.plist") && !strings.Contains(name, "__MACOSX") {
+			hasAppInfoPlist = true
+		}
+		if strings.HasSuffix(lower, ".apk") {
+			hasAPK = true
+		}
+	}
+
+	if hasPayload {
+		return fmt.Errorf(
+			"IPA files are not supported. Please upload a simulator-built .app bundle (zipped). " +
+				"IPAs are for real devices, not simulators",
+		)
+	}
+
+	switch platform {
+	case "ios":
+		if !hasAppInfoPlist {
+			return fmt.Errorf(
+				"no valid .app bundle found in the .zip. " +
+					"Please upload a zipped simulator-built .app bundle",
+			)
+		}
+	case "android":
+		if !hasAPK {
+			return fmt.Errorf("Android ZIP artifacts must contain at least one .apk file")
+		}
+	default:
+		if !hasAppInfoPlist && !hasAPK {
+			return fmt.Errorf(
+				"no supported build found in this .zip. " +
+					"Upload a .zip containing an .apk or a simulator-built .app bundle",
+			)
+		}
+	}
+
+	return nil
+}
+
+// resolveUploadPlatform reads metadata.platform and lowercases it. Returns ""
+// when the caller didn't pin a platform — in which case the structural check
+// accepts either iOS or Android shapes.
+func resolveUploadPlatform(metadata map[string]interface{}) string {
+	if metadata == nil {
+		return ""
+	}
+	value, ok := metadata["platform"]
+	if !ok {
+		return ""
+	}
+	platform, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(platform))
 }
 
 // CreateBuildFromURLRequest represents a server-side URL-based build ingestion request.

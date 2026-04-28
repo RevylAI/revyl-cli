@@ -19,7 +19,10 @@ import (
 
 func writeTestArtifact(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "artifact.zip")
+	// .apk files bypass the local-zip structural pre-flight in
+	// validateLocalBuildArtifact. The byte contents only matter on the server
+	// side (which is mocked here), so a tiny placeholder is sufficient.
+	path := filepath.Join(t.TempDir(), "artifact.apk")
 	if err := os.WriteFile(path, []byte("fake-build-bytes"), 0o644); err != nil {
 		t.Fatalf("failed to write test artifact: %v", err)
 	}
@@ -51,18 +54,33 @@ func testUploadBuildClient(
 			if got := r.URL.Query().Get("version"); got == "" {
 				t.Fatalf("missing version query param")
 			}
-			if got := r.URL.Query().Get("file_name"); got != "artifact.zip" {
+			if got := r.URL.Query().Get("file_name"); got != "artifact.apk" {
 				t.Fatalf("unexpected file_name query param: got %q", got)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(
 				w,
-				`{"version_id":"ver-1","version":"v1","upload_url":"%s/upload","content_type":"application/octet-stream"}`,
+				`{"version_id":"ver-1","version":"v1","upload_url":"%s/upload","content_type":"application/vnd.android.package-archive"}`,
 				uploadServer.URL,
 			)
+		case "/api/v1/builds/versions/ver-1/extract-package-id":
+			// Default happy-path stub; specific tests can override the
+			// complete-upload behavior, but extraction always succeeds here
+			// because the failing-upload tests never reach this hop.
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"package_id":"com.example.app"}`))
 		case "/api/v1/builds/versions/ver-1/complete-upload":
 			atomic.AddInt32(&completeCalls, 1)
 			completeHandler(w, r)
+		case "/api/v1/builds/versions/ver-1":
+			// bestEffortDeleteBuildVersion fires on every UploadBuild failure
+			// path. It uses a detached context so it runs even when the
+			// caller cancels mid-upload — accept the call silently here.
+			if r.Method != http.MethodDelete {
+				t.Fatalf("unexpected method for version endpoint: %s", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"message":"deleted"}`))
 		default:
 			t.Fatalf("unexpected backend path: %s", r.URL.Path)
 		}
