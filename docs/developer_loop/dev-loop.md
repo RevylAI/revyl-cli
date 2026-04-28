@@ -1,11 +1,18 @@
-# Dev Loop
+---
+title: "Guide: Dev Loop"
+description: "Set up revyl dev for fast local verification with hot reload on cloud devices"
+---
+
+<!-- AUTO-GENERATED from revyl-cli/docs/guide-dev-loop.md — do not edit manually -->
+
+# Dev Loop Guide
 
 `revyl dev` gives you a live cloud device connected to your local dev server. Change code locally, see it on the device instantly, and convert successful flows into regression tests.
 
 ## Prerequisites
 
 - Revyl CLI installed and authenticated (`revyl auth login`)
-- An Expo or React Native project with a dev client build (see [Build Guides](../builds/expo.md))
+- An Expo or React Native project with a dev client build
 
 ## Step 1: Configure hot reload
 
@@ -76,49 +83,9 @@ revyl dev --platform android              # Explicit platform
 revyl dev --no-open                       # Don't open browser (headless/SSH)
 revyl dev --platform ios --build          # Force a fresh dev build first
 revyl dev --build-version-id <id>         # Pin a specific build
-revyl dev --context ios-main              # Named context for parallel loops
-revyl dev --no-build --tunnel "<expo-dev-client-link>"  # Reuse an Expo tunnel
 ```
 
-If you already run Expo with its own tunnel, you can collapse the manual device
-start + deep-link step into one command:
-
-```bash
-npx expo start --tunnel --dev-client
-revyl dev --no-build --app-id <app-id> --tunnel "<deep-link-from-expo>"
-```
-
-`--tunnel` accepts either the full Expo dev-client link or the raw `https://...`
-tunnel URL. Passing the full dev-client link works even when the local Revyl
-config does not have an Expo `app_scheme`.
-
-## Step 4: Interact with the device
-
-Use `revyl device` commands to observe, act, and verify in a tight loop.
-
-```bash
-# Observe
-revyl device screenshot --out before.png
-
-# Act
-revyl device tap --target "Sign In button"
-revyl device type --target "email field" --text "user@example.com"
-revyl device type --target "password field" --text "secret123"
-revyl device tap --target "Log In"
-
-# Verify
-revyl device screenshot --out after.png
-```
-
-Always follow the **observe-act-verify** pattern: screenshot before an action, take the action, then screenshot again to confirm the result.
-
-Scroll through content with swipe:
-
-```bash
-revyl device swipe --target "product list" --direction down
-```
-
-## Step 5: Run tests in dev mode
+## Step 4: Run tests in dev mode
 
 While the dev loop is active, run existing tests against your local code:
 
@@ -126,17 +93,7 @@ While the dev loop is active, run existing tests against your local code:
 revyl dev test run login-flow
 ```
 
-To reuse a running dev loop's relay from another terminal:
-
-```bash
-# Terminal 1: dev loop running
-revyl dev --context ios-main
-
-# Terminal 2: reuse the tunnel via --context
-revyl dev test run login-flow --context ios-main
-```
-
-## Step 6: Create tests from the dev loop
+## Step 5: Create tests from the dev loop
 
 After verifying a flow manually, convert it to a regression test:
 
@@ -145,7 +102,7 @@ revyl dev test create checkout-flow --platform ios
 revyl dev test open checkout-flow
 ```
 
-## Step 7: Promote to regression
+## Step 6: Promote to regression
 
 Once the test is stable, push and run it outside dev mode:
 
@@ -156,7 +113,7 @@ revyl test run checkout-flow
 
 ---
 
-## New Branch Workflow
+## New branch workflow
 
 When you create a new branch and want `revyl dev` to use that branch's build:
 
@@ -166,43 +123,12 @@ revyl build upload --platform ios-dev     # Tagged with your branch
 revyl dev --platform ios                  # Auto-picks the branch build
 ```
 
-If you already have a local artifact and want to skip the build step:
-
-```bash
-revyl build upload --platform ios-dev --skip-build
-revyl dev --platform ios
-```
-
-## Device-First Flow
-
-Start a plain device session first, then attach and run the dev loop on it:
-
-```bash
-revyl device start --platform ios
-revyl dev attach active --context checkout
-revyl dev --context checkout            # reuses the attached session
-```
-
-When the dev loop exits, the attached session stays running. Run `revyl dev --context checkout` again to resume, or `revyl dev stop` to detach.
-
-## Context Management
-
-```bash
-revyl dev list                         # List dev contexts in the current worktree
-revyl dev use ios-main                 # Switch the current context
-revyl dev status                       # Show context status (JSON)
-revyl dev rebuild                      # Trigger a rebuild
-revyl dev stop                         # Stop the current context
-revyl dev stop --all                   # Stop all contexts
-```
-
-## When Do You Need a New Build?
+## When do you need a new build?
 
 - **Expo / React Native:** Only when native dependencies change (new native modules, Podfile changes, Gradle dependency changes). JS/TS changes are served live via the relay.
 - **Swift / Kotlin (native):** Every code change requires a new build.
-- **Flutter:** Every code change requires a new build.
 
-## Team Sharing
+## Team sharing
 
 All developers push builds to a shared app container (the `app_id` in config). Each developer gets their own cloud device session, relay URL, and local server. For JS projects, multiple developers can share the same dev build and still see their own code changes.
 
@@ -210,6 +136,6 @@ All developers push builds to a shared app container (the `app_id` in config). E
 
 ## What's Next
 
-- [Dev Setup](dev-setup.md) -- provider configuration details for each framework
-- [Device Scripting](../device-sdk/scripting.md) -- Python SDK for programmatic device control
-- [Agent Dev Loop](../integrations/agent-dev-loop.md) -- AI agent-assisted development
+- [Dev Setup Guide](/cli/dev-setup-guide) — provider configuration details
+- [Device Management](/cli/devices) — device session management and control
+- [Agent Journeys](/cli/agent-journeys) — AI agent workflows with dev loop
