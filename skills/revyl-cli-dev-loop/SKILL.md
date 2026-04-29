@@ -13,7 +13,7 @@ Use this skill when the user wants the generic Revyl CLI dev loop instead of MCP
 # Initialize or refresh project detection.
 revyl init --detect
 
-# Start the dev loop for the default platform.
+# Start the dev loop for the default platform (iOS is the default).
 revyl dev
 ```
 
@@ -35,24 +35,56 @@ In monorepos, run Revyl from the actual app directory, not the workspace root. F
 
 ## Start or Attach
 
-Use normal `revyl dev` for a new loop. Use attach when a device session or context already exists.
+Use normal `revyl dev` for a new loop. Attach only when you are intentionally
+reusing an already-running device session.
 
 ```bash
+# Discover existing state before reusing a device.
 revyl dev list
-revyl device start --platform ios
-revyl dev attach active
-revyl dev attach <session-id>
+revyl device list
+
+# New loop: let Revyl provision the device.
+revyl dev --context <name>
+
+# Reuse the current active session only when it is unambiguous.
+revyl dev attach active --context <name>
+revyl dev --context <name>
+
+# If multiple sessions exist, attach by explicit session id or index.
+revyl dev attach <session-id> --context <name>
+revyl dev attach <index> --context <name>
 revyl dev --context <name>
 ```
 
-After attaching a session to a context, run `revyl dev --context <name>` to reuse it.
+`active` is a convenience shortcut for the current running device session. Do
+not use it when multiple sessions exist or when the desired session is unclear.
+After attaching a session to a context, run `revyl dev --context <name>` to
+start the loop on that session.
 
 ## Framework Guidance
 
-- Expo: use the Revyl-managed relay and Expo dev client for JS/TS hot reload. Rebuild only when native config, native modules, SDK/native dependencies, or URL scheme registration changes. Use external Expo tunnel only after screenshots or reports show the Revyl relay did not load.
-- React Native bare: use the Metro relay. No `app_scheme` is needed. JS/TS changes hot reload; native dependency, Podfile, Gradle, or native source changes need a rebuild.
-- Flutter: use a rebuild-first loop. `revyl dev` installs and runs the current build; code changes need `revyl dev rebuild` or a restarted loop after rebuilding.
-- Native iOS, native Android, KMP, and Bazel: use a rebuild-first loop. The binary is the app, so source changes need rebuild, upload, and reinstall instead of hot reload.
+- Expo: use the Revyl-managed relay and Expo dev client for JS/TS hot
+  reload. Rebuild only when native config, native modules, SDK/native
+  dependencies, permissions, or URL scheme registration changes. Try an
+  external Expo tunnel only after screenshots or reports show the Revyl relay,
+  app load, or HMR path failed.
+- React Native bare: use the Metro relay. No `app_scheme` is needed because
+  the device loads the JS bundle over the Revyl relay. JS/TS changes hot
+  reload; native dependency, Podfile, Gradle, or native source changes need a
+  rebuild. Do not use Expo tunnel fallback unless the app is actually an Expo
+  dev-client flow.
+- Flutter: use a rebuild-first loop. There is no Metro/Expo dev server for
+  cloud hot reload; the binary is the app. `revyl dev` installs and runs the
+  current build, and Dart file saves may auto-trigger rebuilds. In agent
+  shells, use `revyl dev rebuild --wait` when an explicit rebuild is needed,
+  then verify on the device.
+- Native iOS/Swift and native Android/Kotlin: use a rebuild-first loop. Xcode,
+  Gradle, Kotlin, Swift, resource, manifest, or native dependency changes must
+  build, upload or delta-push, reinstall, and relaunch in the cloud session.
+  Expo tunnels do not fix these stacks.
+- KMP, Bazel, and other native artifact flows: treat the configured
+  `build.platforms.<key>.output` artifact as the app. Iterate through the
+  configured build command, `revyl dev rebuild --wait`, and device verification.
 - Monorepos: if detection is confused by hoisted dependencies or nested native folders, run from the app directory and force the provider only when needed.
 
 ## Observe, Act, Verify
@@ -83,8 +115,11 @@ During exploration, capture the exact path that worked. Describe actions with vi
 `revyl dev` is a persistent process. In agent shells, run it in a background or non-blocking terminal and keep it alive while you inspect the device from separate commands.
 
 1. **Background long-running loops** -- use the agent environment's non-blocking shell mode for `revyl dev`.
-2. **Poll for readiness** -- wait for `Dev loop ready` or `Hot reload ready`
-   with a generous timeout (~120 s) to confirm startup succeeded.
+2. **Poll for readiness** -- `Hot reload ready` means the Expo/Metro transport
+   is up; `Dev loop ready`, a viewer URL, or successful `revyl device` evidence
+   means the full device loop is ready. If output stalls on device provisioning
+   after `Hot reload ready`, debug the worker/device session path instead of
+   changing the relay/tunnel strategy.
 3. **Detect failures early** -- if the process exits or output contains
    `Error:` before the ready line, stop and report the error to the user.
 4. **Device commands in a separate terminal** -- `revyl device tap`,
@@ -94,26 +129,49 @@ During exploration, capture the exact path that worked. Describe actions with vi
    `[r] rebuild native + reinstall` and `[q] quit`. These require a real
    TTY. In agent shells, use `revyl dev rebuild`, `revyl dev stop`, or restart
    the loop instead.
-6. **Attaching to an existing dev context** -- if a dev loop is already
-   running, use `revyl dev attach <context>` instead of starting a new one.
-   This can also be long-running; background it the same way and poll for
-   readiness. Use `revyl dev list` (short-lived) to discover
-   active contexts first.
+6. **Attaching to an existing session** -- if no suitable session exists, run
+   `revyl dev` normally. If exactly one relevant current session exists, attach
+   it with `revyl dev attach active --context <name>`, then start the loop with
+   `revyl dev --context <name>`. If multiple sessions exist, use an explicit
+   session id or index; do not guess.
+7. **Keep logs concise** -- use `revyl dev --debug` only for relay/HMR
+   troubleshooting. When reporting results, summarize the state transitions and
+   include only the first actionable error, relevant relay/session IDs, and a
+   small log tail. Do not paste long spinner output or full debug streams unless
+   the user asks for raw logs.
 
 ## Cloud Agent Relay Note
 
-In Cursor or similar cloud-agent environments, prefer the Revyl-managed relay before using an external Expo tunnel:
+In Cursor or similar cloud-agent environments, start with the Revyl-managed
+relay:
 
 ```bash
+export REVYL_CONTEXT="${REVYL_CONTEXT:-revyl-dev-loop}"
 revyl dev --context "$REVYL_CONTEXT" --no-build --app-id <app-id>
 ```
 
-This lets Revyl own Metro/Expo startup, relay creation, dev-client install, and the deep link opened on the cloud device. Expo `--tunnel` is only a fallback when device evidence proves the relay path did not load.
+If you need to define the context yourself, set or export it before the
+`revyl dev` command. Avoid inline shell assignment such as
+`REVYL_CONTEXT=name revyl dev --context "$REVYL_CONTEXT"` because many shells
+expand `$REVYL_CONTEXT` before the inline assignment takes effect.
 
-After `Dev loop ready`, keep the process running. Treat `Viewer:` and a
-`Deep Link:` containing `relay.revyl.ai` as a started relay session. Do not stop
-the relay because of HMR diagnostic warnings; normal runs hide advisory HMR
-diagnostics, and `revyl dev --debug` is for relay/HMR troubleshooting.
+For Expo and bare React Native, this lets Revyl own Metro/Expo startup, relay
+creation, dev-client install, and the deep link opened on the cloud device. If
+the app does not load or hot reload does not apply changes, gather device
+evidence before changing transport.
+
+If startup fails with `failed to create relay session: unauthorized` after
+`Backend relay connectivity OK`, do not assume the developer needs to log in
+again. First run `revyl auth status` and `revyl ping`; if both pass, capture a
+`revyl dev --debug` run and treat it as a Revyl relay/backend issue. For Expo
+dev-client projects, try the external tunnel fallback to keep the user moving.
+
+After `Dev loop ready`, keep the process running. Treat `Viewer:` and the
+relay/deep-link host printed by `revyl dev` as the active relay session; in
+production this may be `relay.revyl.ai`, while local or branch environments may
+use a generated relay/ngrok host. Do not stop the relay because of HMR
+diagnostic warnings; normal runs hide advisory HMR diagnostics, and
+`revyl dev --debug` is for relay/HMR troubleshooting.
 
 Before switching to Expo tunnel fallback, gather device evidence:
 
@@ -123,9 +181,17 @@ revyl device report --session-id <session-id> --json
 ```
 
 Continue using the relay if screenshots show the app downloading/loading or the
-report/network evidence shows successful `relay.revyl.ai` manifest/assets. Only
-fall back if the device remains on a dev-client error screen or the report shows
-no successful relay fetches.
+report/network evidence shows successful fetches from the relay host printed by
+`revyl dev`. Only fall back for Expo/React Native dev-client projects if the
+device remains on a dev-client error screen, the report shows no successful
+relay fetches, or the app loads but hot reload is not applying changes.
+
+For Flutter, Swift/iOS, native Android, KMP, Bazel, and other rebuild-first
+stacks, do not switch to an Expo tunnel. These stacks do not use the
+Metro/Expo transport path. If changes do not appear, inspect `revyl dev status`,
+the last build output, and the device screenshot. Then trigger
+`revyl dev rebuild --wait` from a separate shell, or stop and restart the loop
+if the rebuild session is unhealthy.
 
 If fallback is needed, start Expo in a long-running terminal and pass the full
 dev-client link that Expo prints, not just the raw `*.exp.direct` URL:
@@ -136,12 +202,13 @@ revyl dev --no-build --app-id <app-id> --tunnel '<full Expo dev-client link>'
 ```
 
 ```
-Shell(command="revyl dev --context \"$REVYL_CONTEXT\" --no-build --app-id <app-id>", block_until_ms=0)
+Shell(command="export REVYL_CONTEXT=\"${REVYL_CONTEXT:-revyl-dev-loop}\" && revyl dev --context \"$REVYL_CONTEXT\" --no-build --app-id <app-id>", block_until_ms=0)
 AwaitShell(pattern="Dev loop ready", block_until_ms=120000)
 
 # Or attach to an existing context
 Shell(command="revyl dev list")
-Shell(command="revyl dev attach default", block_until_ms=0)
+Shell(command="revyl dev attach active --context default")
+Shell(command="revyl dev --context default", block_until_ms=0)
 AwaitShell(pattern="Dev loop ready", block_until_ms=120000)
 
 Shell(command="revyl device screenshot")
