@@ -39,6 +39,7 @@ var (
 	devStartNoBuild     bool
 	devStartRemote      bool
 	devStartTunnelURL   string
+	devStartLaunchVars  []string
 	devStartPort        int
 	devStartTimeout     int
 	devStartOpen        bool
@@ -227,10 +228,26 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&devStartNoBuild, "no-build", false, "Never run build commands; require a pre-existing build")
 	cmd.Flags().BoolVar(&devStartRemote, "remote", false, "Build native iOS changes on a remote Revyl build runner")
 	cmd.Flags().StringVar(&devStartTunnelURL, "tunnel", "", "Use an external Expo tunnel URL or dev-client deep link instead of the Revyl relay")
+	cmd.Flags().StringArrayVar(&devStartLaunchVars, "launch-var", nil, "Org launch variable key or ID to apply when starting the device session (repeatable)")
 	cmd.Flags().IntVar(&devStartPort, "port", 8081, "Port for local dev server")
 	cmd.Flags().IntVar(&devStartTimeout, "timeout", 300, "Device idle timeout in seconds")
 	cmd.Flags().BoolVar(&devStartOpen, "open", true, "Open live device viewer in browser")
 	cmd.Flags().BoolVar(&devStartNoOpen, "no-open", false, "Do not open the live device viewer in browser")
+}
+
+func withDevStartLaunchVars(opts mcppkg.StartSessionOptions) mcppkg.StartSessionOptions {
+	if len(devStartLaunchVars) == 0 {
+		return opts
+	}
+	opts.LaunchVars = append([]string(nil), devStartLaunchVars...)
+	return opts
+}
+
+func warnLaunchVarsIgnoredForReusedDevSession() {
+	if len(devStartLaunchVars) == 0 {
+		return
+	}
+	ui.PrintWarning("Ignoring --launch-var because revyl dev reused an existing device session; launch vars apply only when a session starts. Run `revyl dev stop` and rerun to apply them.")
 }
 
 type externalTunnelInput struct {
@@ -788,6 +805,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		if reuse != nil {
 			session = reuse.Session
 			sessionOwned = reuse.SessionOwned
+			warnLaunchVarsIgnoredForReusedDevSession()
 		}
 	}
 
@@ -796,7 +814,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		_, session, err = startDevSessionWithProgress(
 			ctx,
 			deviceMgr,
-			mcppkg.StartSessionOptions{
+			withDevStartLaunchVars(mcppkg.StartSessionOptions{
 				Platform:       devicePlatform,
 				AppID:          selectedAppID,
 				BuildVersionID: buildVersionID,
@@ -804,7 +822,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 				AppPackage:     strings.TrimSpace(buildDetail.PackageName),
 				AppLink:        startResult.DeepLinkURL,
 				IdleTimeout:    time.Duration(timeout) * time.Second,
-			},
+			}),
 			30*time.Second,
 			nil,
 		)
@@ -1912,6 +1930,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		if reuse != nil {
 			session = reuse.Session
 			sessionOwned = reuse.SessionOwned
+			warnLaunchVarsIgnoredForReusedDevSession()
 		}
 	}
 
@@ -1920,14 +1939,14 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		_, session, err = startDevSessionWithProgress(
 			ctx,
 			deviceMgr,
-			mcppkg.StartSessionOptions{
+			withDevStartLaunchVars(mcppkg.StartSessionOptions{
 				Platform:       devicePlatform,
 				AppID:          appID,
 				BuildVersionID: latestVersion.ID,
 				AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
 				AppPackage:     bundleID,
 				IdleTimeout:    time.Duration(timeout) * time.Second,
-			},
+			}),
 			30*time.Second,
 			nil,
 		)

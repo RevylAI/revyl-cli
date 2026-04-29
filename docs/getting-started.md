@@ -30,6 +30,44 @@ pip install revyl
 revyl doctor                     # Check CLI version, auth, connectivity
 revyl auth login                 # Authenticate with your API key
 cd your-app && revyl init        # Detect framework, create .revyl/config.yaml
+revyl skill install --force      # Install agent skills: revyl-cli-dev-loop, revyl-cli-create
+```
+
+## Connect Your AI Coding Agent
+
+Revyl skills are the recommended way to teach your AI coding agent how to use
+the CLI well. During interactive `revyl init`, Revyl asks which AI coding tool
+you use and installs the public skills for that tool automatically:
+
+- **Cursor** installs to `.cursor/skills`
+- **Codex** installs to `.codex/skills`
+- **Claude Code** installs to `.claude/skills`
+- **Skip for now** leaves setup for later
+
+If you skipped that prompt or want to refresh skills after a CLI update, install
+both first-class skills:
+
+```bash
+revyl skill install --force
+```
+
+Install one skill when you want the agent focused on a specific job:
+
+| Agent intent | Install | Prompt with |
+|---|---|---|
+| Run a generic Revyl dev loop, interact with the device, and verify app behavior | `revyl skill install --name revyl-cli-dev-loop --force` | `Use the revyl-cli-dev-loop skill.` |
+| Author or refine stable Revyl YAML tests, then validate, push, run, and inspect reports | `revyl skill install --name revyl-cli-create --force` | `Use the revyl-cli-create skill.` |
+
+Useful install variants:
+
+```bash
+revyl skill list                             # List first-class skills
+revyl skill install --global --force        # Install skills for all projects
+revyl skill install --cursor --force        # Force Cursor if auto-detect is ambiguous
+revyl skill install --codex --force         # Force Codex if auto-detect is ambiguous
+revyl skill install --claude --force        # Force Claude Code if auto-detect is ambiguous
+revyl skill show --name revyl-cli-dev-loop  # Print a named skill to stdout
+revyl skill export --name revyl-cli-create -o FILE
 ```
 
 ## Pick Your Path
@@ -43,7 +81,8 @@ cd your-app && revyl init        # Detect framework, create .revyl/config.yaml
 | Test a native **Android (Kotlin/Java)** app | [Android Build Guide](builds/android-native.md) |
 | **Control a cloud device** (no app build) | [Device Quickstart](device/quickstart.md) |
 | Set up **CI/CD** testing | [CI/CD Integration](ci-cd.md) |
-| Connect my **AI coding agent** | [MCP Setup](integrations/mcp-setup.md) |
+| Install **AI agent skills** | [Agent Skills](integrations/skills.md) |
+| Connect my **AI coding agent over MCP** | [MCP Setup](integrations/mcp-setup.md) |
 
 Each build guide walks you through the exact 2-3 commands to go from your repo to a passing test.
 

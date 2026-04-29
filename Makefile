@@ -255,11 +255,13 @@ _set-version:
 	@sed -i.bak 's/"version": "$(OLD)"/"version": "$(NEW)"/' npm/package.json && rm -f npm/package.json.bak
 	@sed -i.bak 's/version = "$(OLD)"/version = "$(NEW)"/' python/pyproject.toml && rm -f python/pyproject.toml.bak
 	@sed -i.bak 's/__version__ = "$(OLD)"/__version__ = "$(NEW)"/' python/revyl/_binary.py && rm -f python/revyl/_binary.py.bak
+	@sed -E -i.bak 's#(img\.shields\.io/badge/version-)[0-9]+\.[0-9]+\.[0-9]+(-[^"]*)#\1$(NEW)\2#' README.md && rm -f README.md.bak
 	@echo "Updated files:"
 	@echo "  VERSION                    $(NEW)"
 	@echo "  npm/package.json           $(NEW)"
 	@echo "  python/pyproject.toml      $(NEW)"
 	@echo "  python/revyl/_binary.py    $(NEW)"
+	@echo "  README.md                  $(NEW)"
 	@echo ""
 	@echo "Next steps:"
 	@echo "  git add -A && git commit -m 'chore: bump version to $(NEW)'"

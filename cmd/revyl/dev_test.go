@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
@@ -93,6 +95,76 @@ func TestShouldAttemptHotReloadAutoSetup(t *testing.T) {
 				t.Fatalf("shouldAttemptHotReloadAutoSetup() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRegisterDevStartFlagsLaunchVarParsesRepeatedValues(t *testing.T) {
+	orig := devStartLaunchVars
+	t.Cleanup(func() { devStartLaunchVars = orig })
+
+	devStartLaunchVars = nil
+	cmd := &cobra.Command{Use: "dev-test"}
+	registerDevStartFlags(cmd)
+
+	if err := cmd.ParseFlags([]string{"--launch-var", "API_URL", "--launch-var", "DEBUG"}); err != nil {
+		t.Fatalf("ParseFlags() error = %v", err)
+	}
+
+	want := []string{"API_URL", "DEBUG"}
+	if fmt.Sprint(devStartLaunchVars) != fmt.Sprint(want) {
+		t.Fatalf("devStartLaunchVars = %v, want %v", devStartLaunchVars, want)
+	}
+}
+
+func TestWithDevStartLaunchVarsCopiesLaunchVarsIntoStartOptions(t *testing.T) {
+	orig := devStartLaunchVars
+	t.Cleanup(func() { devStartLaunchVars = orig })
+
+	devStartLaunchVars = []string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"}
+	opts := withDevStartLaunchVars(mcppkg.StartSessionOptions{Platform: "ios"})
+
+	want := []string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"}
+	if fmt.Sprint(opts.LaunchVars) != fmt.Sprint(want) {
+		t.Fatalf("LaunchVars = %v, want %v", opts.LaunchVars, want)
+	}
+
+	devStartLaunchVars[0] = "MUTATED"
+	if opts.LaunchVars[0] != "REVYL_AUTH_BYPASS_ENABLED" {
+		t.Fatalf("LaunchVars shared backing array; got %v", opts.LaunchVars)
+	}
+}
+
+func TestDevStartLaunchVarsReachSessionStartOptions(t *testing.T) {
+	orig := devStartLaunchVars
+	t.Cleanup(func() { devStartLaunchVars = orig })
+
+	devStartLaunchVars = nil
+	cmd := &cobra.Command{Use: "dev-test"}
+	registerDevStartFlags(cmd)
+	if err := cmd.ParseFlags([]string{"--launch-var", "A", "--launch-var", "B"}); err != nil {
+		t.Fatalf("ParseFlags() error = %v", err)
+	}
+
+	starter := &fakeDevSessionStarter{
+		index:   1,
+		session: &mcppkg.DeviceSession{Index: 1, Platform: "ios"},
+	}
+	recorder := &devSessionProgressRecorder{}
+
+	_, _, err := startDevSessionWithProgress(
+		context.Background(),
+		starter,
+		withDevStartLaunchVars(mcppkg.StartSessionOptions{Platform: "ios"}),
+		80*time.Millisecond,
+		recorder.hooks(),
+	)
+	if err != nil {
+		t.Fatalf("startDevSessionWithProgress() error = %v", err)
+	}
+
+	want := []string{"A", "B"}
+	if fmt.Sprint(starter.opts.LaunchVars) != fmt.Sprint(want) {
+		t.Fatalf("StartSession LaunchVars = %v, want %v", starter.opts.LaunchVars, want)
 	}
 }
 
@@ -665,13 +737,14 @@ type fakeDevSessionStarter struct {
 	session       *mcppkg.DeviceSession
 	err           error
 	waitForCancel bool
+	opts          mcppkg.StartSessionOptions
 }
 
 func (f *fakeDevSessionStarter) StartSession(
 	ctx context.Context,
 	opts mcppkg.StartSessionOptions,
 ) (int, *mcppkg.DeviceSession, error) {
-	_ = opts
+	f.opts = opts
 	if f.waitForCancel {
 		<-ctx.Done()
 		return -1, nil, ctx.Err()

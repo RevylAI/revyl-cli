@@ -104,6 +104,12 @@ revyl dev --no-build --tunnel "<expo-dev-client-link>"  # Use an existing Expo t
   - if no branch-matching build exists, it falls back to the latest available build and prints a warning
 - opens a cloud device session wired to the deep link
 
+Normal `revyl dev` runs suppress advisory HMR diagnostics. Use `revyl dev --debug`
+when you specifically need relay/HMR troubleshooting output. In cloud-agent
+environments, keep the Revyl relay running after `Dev loop ready` and use device
+screenshots or `revyl device report --session-id <id> --json` as source of truth
+before switching to an external Expo tunnel.
+
 For externally managed Expo tunnels, start Expo yourself and pass either the
 full dev-client link Expo prints or the raw `https://...` tunnel URL:
 
@@ -765,10 +771,14 @@ revyl schema     # Display CLI command schema (for integrations)
 revyl mcp serve                         # Start MCP server for AI agent integration (legacy flat mode)
 revyl mcp serve --profile core          # ~10 composite tools (recommended for dev-loop / test-creation)
 revyl mcp serve --profile full          # ~16 composite tools (adds workflow, module, script, tag, file, var management)
-revyl skill install           # Install agent skill for AI coding tools
-revyl skill list              # List embedded skills
-revyl skill show --name NAME  # Print a named skill to stdout
-revyl skill export --name NAME -o FILE  # Export a named skill to a file
+revyl skill list                                      # List first-class skills
+revyl skill install --force                          # Install both first-class skills
+revyl skill install --name revyl-cli-dev-loop --force # Dev loop + device exploration
+revyl skill install --name revyl-cli-create --force   # Stable YAML test authoring
+revyl skill install --cursor --force                 # Force Cursor if auto-detect is ambiguous
+revyl skill install --codex --force                  # Force Codex if auto-detect is ambiguous
+revyl skill show --name revyl-cli-dev-loop           # Print a named skill to stdout
+revyl skill export --name revyl-cli-create -o FILE   # Export a named skill to a file
 make device-prod-smoke-ios    # Local iOS branch smoke against production device relay
 make device-prod-smoke-android # Local Android branch smoke against production device relay
 make device-prod-sdk-smoke-ios # Local iOS SDK smoke against production

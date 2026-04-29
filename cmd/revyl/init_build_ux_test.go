@@ -164,7 +164,7 @@ func TestRunInitSkipBuildSetupForNowCreatesPlaceholderPlatforms(t *testing.T) {
 	cmd.Flags().Bool("dev", false, "")
 
 	output := captureStdoutAndStderr(t, func() {
-		withStdin(t, "3\n4\n", func() {
+		withStdin(t, "3\n5\n", func() {
 			if err := runInit(cmd, nil); err != nil {
 				t.Fatalf("runInit() error = %v", err)
 			}
@@ -209,10 +209,10 @@ func TestRunInitSkipBuildSetupForNowDefersHotReloadForPlaceholderProjects(t *tes
 		platform string
 		stdin    string
 	}{
-		{name: "expo", fixture: "bug-bazaar", platform: "ios", stdin: "3\n4\n"},
+		{name: "expo", fixture: "bug-bazaar", platform: "ios", stdin: "3\n5\n"},
 		// rn-bare-minimal detects iOS with -scheme *, which triggers a scheme
 		// prompt when xcodebuild is absent (CI). Prepend "\n" to skip it.
-		{name: "react-native", fixture: "rn-bare-minimal", platform: "ios", stdin: "\n3\n4\n"},
+		{name: "react-native", fixture: "rn-bare-minimal", platform: "ios", stdin: "\n3\n5\n"},
 	}
 
 	for _, tt := range tests {

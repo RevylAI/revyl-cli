@@ -74,6 +74,10 @@ This:
 3. Installs the dev client build on a cloud device
 4. Opens the device session in your browser
 
+Normal runs keep advisory HMR diagnostics quiet so they do not look like startup
+failures. If you are troubleshooting relay or HMR internals, run with
+`revyl dev --debug` to print the diagnostic probes.
+
 Now edit code locally and see changes reflected on the device instantly.
 
 ### Platform and build overrides
@@ -97,7 +101,9 @@ revyl dev --no-build --app-id <app-id> --tunnel "<deep-link-from-expo>"
 
 `--tunnel` accepts either the full Expo dev-client link or the raw `https://...`
 tunnel URL. Passing the full dev-client link works even when the local Revyl
-config does not have an Expo `app_scheme`.
+config does not have an Expo `app_scheme`. Prefer the Revyl relay first in
+cloud-agent environments; use Expo tunnel fallback only after device screenshots
+or `revyl device report --session-id <id> --json` show the relay did not load.
 
 ## Step 4: Interact with the device
 

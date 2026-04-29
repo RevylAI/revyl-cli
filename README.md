@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.13-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.18-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -26,7 +26,6 @@ curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/inst
 brew install RevylAI/tap/revyl          # Homebrew (macOS)
 pipx install revyl                      # pipx (cross-platform)
 uv tool install revyl                   # uv
-pip install revyl                       # pip
 ```
 
 ## Authenticate
@@ -50,6 +49,7 @@ cd your-app
 revyl doctor                            # Check CLI, auth, connectivity
 revyl auth login                        # Browser-based login (if not already authed)
 revyl init                              # Guided wizard: build system, apps
+revyl skill install --force             # Install agent skills: revyl-cli-dev-loop, revyl-cli-create
 revyl build upload                      # Build and upload a dev binary
 revyl dev                               # Launch TUI: live device + hot reload
 ```
@@ -76,13 +76,37 @@ See [Creating Tests](docs/TEST_CREATION.md) for the full authoring workflow, YAM
 
 ## Agent Skills
 
-Install agent skills to improve how your AI coding tool uses Revyl:
+Interactive `revyl init` asks which AI coding tool you use and installs the
+first-class Revyl skills for that tool automatically. Use the bundled install
+for both workflows, or install a single skill when the agent should focus on
+one intent:
 
 ```bash
-revyl skill install              # Auto-detect tool; install CLI skill family
+revyl skill list
+revyl skill install --force                            # Install both first-class skills
+revyl skill install --name revyl-cli-dev-loop --force  # Dev loop + device exploration
+revyl skill install --name revyl-cli-create --force    # Stable YAML test authoring
+revyl skill install --cursor --force                   # Force Cursor if auto-detect is ambiguous
+revyl skill install --codex --force                    # Force Codex if auto-detect is ambiguous
+revyl skill install --global --force                   # Install for all projects
+revyl skill show --name revyl-cli-dev-loop
+revyl skill export --name revyl-cli-create -o SKILL.md
 ```
 
-See [Agent Skills](docs/SKILLS.md) for the full list and prompt examples.
+Use `revyl-cli-dev-loop` when you want the agent to start or attach to a generic
+Revyl dev loop, interact with the device, and verify with screenshots or
+reports. Use `revyl-cli-create` when you want the agent to author or refine a
+stable Revyl YAML test, validate it, push it, run it, and iterate from reports.
+
+Example prompts:
+
+```text
+Use the revyl-cli-dev-loop skill. Detect the app stack, start or attach to the Revyl dev loop, keep it running after Dev loop ready, and verify with revyl device screenshot before changing strategy.
+```
+
+```text
+Use the revyl-cli-create skill. Create a checkout smoke test from this flow, validate it, push it, and run it once.
+```
 
 ## What You Can Do
 
@@ -95,14 +119,14 @@ See [Agent Skills](docs/SKILLS.md) for the full list and prompt examples.
 | Build and upload | `revyl build upload` | [Commands](docs/COMMANDS.md#build-management) |
 | CI/CD | GitHub Actions | [CI/CD](docs/CI_CD.md) |
 | Device SDK | `pip install revyl[sdk]` | [Device SDK](docs/SDK.md) |
-| Agent skills | `revyl skill install` | [Skills](docs/SKILLS.md) |
+| Agent skills | `revyl skill install` | [Skills](docs/integrations/skills.md) |
 
 ## Documentation
 
 - **[Command Reference](docs/COMMANDS.md)** -- full list of every command and flag
 - **[Creating Tests](docs/TEST_CREATION.md)** -- YAML-first workflows, modules, and troubleshooting
 - **[Configuration](docs/CONFIGURATION.md)** -- `.revyl/config.yaml` reference
-- **[Agent Skills](docs/SKILLS.md)** -- embedded skills for device loops, test creation, failure analysis
+- **[Agent Skills](docs/integrations/skills.md)** -- embedded skills for device loops and test creation
 - **[Device SDK](docs/SDK.md)** -- Programmatic device control
 - **[CI/CD](docs/CI_CD.md)** -- GitHub Actions integration
 - **[Development](docs/DEVELOPMENT.md)** -- internal dev workflow, hot reload, `--dev` mode

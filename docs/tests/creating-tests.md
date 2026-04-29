@@ -312,8 +312,8 @@ revyl test create my-test --platform ios --tag smoke --tag ios
 
 ## Authoring Best Practices
 
-1. **One action per instruction step.** Don't combine "tap X and type Y" into one block.
-2. **Separate validations.** Keep assertions in their own `validation` blocks.
+1. **Intent-level instruction steps.** Use one free-form instruction for a meaningful user intent instead of splitting every tap and keystroke.
+2. **Sparse separate validations.** Keep assertions in their own `validation` blocks and add them only for important user-visible outcomes.
 3. **Validate durable outcomes.** Check user-visible state (e.g. "inbox is visible") not transient state (e.g. "loading spinner disappeared").
 4. **Use variables for secrets.** Never hardcode credentials in reusable tests.
 5. **Put modules at the top.** Shared setup flows belong at the beginning.

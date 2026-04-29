@@ -47,26 +47,24 @@ var skillCmd = &cobra.Command{
 	Long: `Manage Revyl agent skills for AI coding tools.
 
 Revyl ships embedded skills:
-- revyl-cli, revyl-cli-create, revyl-cli-analyze, revyl-cli-dev-loop
-- revyl-mcp, revyl-mcp-create, revyl-mcp-analyze, revyl-mcp-dev-loop
+- revyl-cli-dev-loop: agents run or attach to revyl dev, observe the app, and act through device commands
+- revyl-cli-create: agents create or refine stable Revyl tests from YAML, source, or successful flows
+
+Additional compatibility skills remain available by exact name for existing users.
 
 EXAMPLES:
   revyl skill list
-  revyl skill install                         # Default: install CLI family
-  revyl skill install --mcp                   # Install MCP family
-  revyl skill install --cli --mcp             # Install both families
-  revyl skill install --codex
+  revyl skill install --force
+  revyl skill install --cursor --force
+  revyl skill install --codex --force
   revyl skill show --name revyl-cli-dev-loop
-  revyl skill show --name revyl-mcp-dev-loop
-  revyl skill export --name revyl-mcp-create -o SKILL.md
-  revyl skill export --name revyl-cli-analyze -o SKILL.md
-  revyl skill revyl-cli-dev-loop install --codex`,
+  revyl skill export --name revyl-cli-create -o SKILL.md`,
 }
 
 var skillListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List available embedded skills",
-	Long: `List all embedded Revyl skills that can be installed.
+	Short: "List first-class Revyl skills",
+	Long: `List first-class Revyl skills that can be installed.
 
 EXAMPLES:
   revyl skill list`,
@@ -81,8 +79,7 @@ var skillShowCmd = &cobra.Command{
 	Long: `Print an embedded SKILL.md content to stdout.
 
 EXAMPLES:
-  revyl skill show --name revyl-cli
-  revyl skill show --name revyl-mcp-dev-loop
+  revyl skill show --name revyl-cli-dev-loop
   revyl skill show --name revyl-cli-create | pbcopy`,
 	Args: cobra.NoArgs,
 	RunE: runSkillShow,
@@ -95,10 +92,8 @@ var skillExportCmd = &cobra.Command{
 	Long: `Export an embedded SKILL.md to a file on disk.
 
 EXAMPLES:
-  revyl skill export --name revyl-cli
-  revyl skill export --name revyl-mcp-analyze
-  revyl skill export --name revyl-mcp-dev-loop -o skills/SKILL.md
-  revyl skill export --name revyl-cli-dev-loop -o /tmp/SKILL.md`,
+  revyl skill export --name revyl-cli-dev-loop -o /tmp/revyl-cli-dev-loop-SKILL.md
+  revyl skill export --name revyl-cli-create -o SKILL.md`,
 	Args: cobra.NoArgs,
 	RunE: runSkillExport,
 }
@@ -132,18 +127,12 @@ By default installs to the project-level directory (e.g. .cursor/skills/).
 Use --global to install to the user-level directory instead.
 
 EXAMPLES:
-  revyl skill install              # Auto-detect tool; install CLI skill family
-  revyl skill install --cli        # Install CLI skill family
-  revyl skill install --mcp        # Install MCP skill family
-  revyl skill install --cli --mcp  # Install both families
-  revyl skill install --name revyl-mcp-dev-loop
-  revyl skill install --name revyl-cli-create --name revyl-cli-analyze
-  revyl skill install --cursor     # Install for Cursor (project)
-  revyl skill install --global     # Auto-detect, install globally
-  revyl skill install --claude     # Install for Claude Code
-  revyl skill install --codex      # Install for Codex
-  revyl skill install --force      # Overwrite existing installations
-  revyl skill revyl-mcp-dev-loop install --codex  # Install via shortcut`,
+  revyl skill install --force
+  revyl skill install --global --force
+  revyl skill install --cursor --force
+  revyl skill install --codex --force
+  revyl skill install --name revyl-cli-dev-loop --cursor --force
+  revyl skill install --name revyl-cli-create --codex --force`,
 	Args: cobra.NoArgs,
 	RunE: runSkillInstall,
 }
@@ -169,10 +158,17 @@ func init() {
 }
 
 func runSkillList(cmd *cobra.Command, args []string) error {
-	fmt.Println("Available Revyl skills:")
-	for _, s := range skillcatalog.All() {
+	fmt.Println("First-class Revyl skills:")
+	for _, s := range skillcatalog.Public() {
 		fmt.Printf("  %s - %s\n", s.Name, s.Description)
 	}
+	fmt.Println()
+	fmt.Println("Install them with:")
+	fmt.Println("  revyl skill install --force")
+	fmt.Println()
+	fmt.Println("Use a tool flag only when you need a specific target:")
+	fmt.Println("  revyl skill install --cursor --force")
+	fmt.Println("  revyl skill install --codex --force")
 	return nil
 }
 
@@ -233,6 +229,18 @@ func runSkillInstallSelected(cmd *cobra.Command, args []string, selectedNames []
 		return err
 	}
 
+	return installSkillsToTargets(targets, allSkills, skillInstallForce)
+}
+
+func installPublicSkillsForTools(tools []string, global bool, force bool) error {
+	targets := resolveDirectoriesForScope(tools, global)
+	if len(targets) == 0 {
+		return fmt.Errorf("no install target found")
+	}
+	return installSkillsToTargets(targets, skillcatalog.Public(), force)
+}
+
+func installSkillsToTargets(targets []string, allSkills []skillcatalog.Skill, force bool) error {
 	var installed []string
 	var skipped []string
 	var installErrors []string
@@ -241,7 +249,7 @@ func runSkillInstallSelected(cmd *cobra.Command, args []string, selectedNames []
 
 	for _, target := range targets {
 		for _, sk := range allSkills {
-			path, wrote, err := installSkillTo(target, sk)
+			path, wrote, err := installSkillTo(target, sk, force)
 			if err != nil {
 				installErrors = append(installErrors, fmt.Sprintf("%s (%s): %v", target, sk.Name, err))
 				continue
@@ -317,9 +325,9 @@ func resolveInstallSkills(selectedNames []string) ([]skillcatalog.Skill, error) 
 		installCLI := skillInstallCLI
 		installMCP := skillInstallMCP
 
-		// Default behavior: install CLI family when no selector is provided.
+		// Default behavior: install the first-class public skills.
 		if !installCLI && !installMCP {
-			installCLI = true
+			return skillcatalog.Public(), nil
 		}
 		return resolveInstallSkillsByFamily(installCLI, installMCP)
 	}
@@ -495,6 +503,10 @@ func resolveInstallTargets() []string {
 // resolveDirectories maps tool names to their target install directories,
 // respecting the --global flag.
 func resolveDirectories(tools []string) []string {
+	return resolveDirectoriesForScope(tools, skillInstallGlobal)
+}
+
+func resolveDirectoriesForScope(tools []string, global bool) []string {
 	paths := make([]string, 0, len(tools))
 
 	for _, toolName := range tools {
@@ -505,7 +517,7 @@ func resolveDirectories(tools []string) []string {
 
 		// dirs[0] = project-level, dirs[1] = user-level (global)
 		idx := 0
-		if skillInstallGlobal {
+		if global {
 			idx = 1
 		}
 
@@ -519,11 +531,11 @@ func resolveDirectories(tools []string) []string {
 
 // installSkillTo writes the selected SKILL.md file to the given base skill directory.
 // Creates: <baseDir>/<skill-name>/SKILL.md
-func installSkillTo(baseDir string, selected skillcatalog.Skill) (string, bool, error) {
+func installSkillTo(baseDir string, selected skillcatalog.Skill, force bool) (string, bool, error) {
 	skillDir := filepath.Join(baseDir, selected.Name)
 	skillPath := filepath.Join(skillDir, skillcatalog.SkillFileName)
 
-	if !skillInstallForce {
+	if !force {
 		if _, err := os.Stat(skillPath); err == nil {
 			return skillPath, false, nil
 		} else if !os.IsNotExist(err) {

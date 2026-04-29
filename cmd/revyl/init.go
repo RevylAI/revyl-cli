@@ -36,7 +36,7 @@ var initCmd = &cobra.Command{
 	Long: `Initialize a Revyl project in the current directory.
 
 Detects your build system, writes .revyl/config.yaml, then optionally
-walks you through authentication, app creation, and first build.
+walks you through authentication, app creation, agent skills, and first build.
 You can exit at any point — the config is saved after each step.
 
 Use -y to skip all prompts and just create the config file.
@@ -126,11 +126,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Progressive menu: continue, edit, or exit.
 	continueToAuth := false
+	agentSkillTool := ""
+	agentSkillsInstalled := false
 	for {
 		options := []string{
 			"Continue to authentication and setup",
 			"Edit build settings",
 			"Skip build setup for now",
+			"Install AI agent skills",
 			"Finish setup",
 		}
 		selection, selErr := ui.PromptSelect("What would you like to do?", options)
@@ -167,6 +170,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 			}
 			ui.PrintDim("Revyl will skip build-specific onboarding until build command and artifact path are configured.")
 			ui.PrintDim("You can finish this later in .revyl/config.yaml or by re-running revyl init --detect.")
+			ui.Println()
+			continue
+		case 3:
+			ui.Println()
+			agentSkillTool, agentSkillsInstalled = wizardAgentSkillsSetup()
 			ui.Println()
 			continue
 		}
@@ -237,6 +245,16 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// ── Dev Loop ─────────────────────────────────────────────────────────
 	ui.PrintSectionHeader("Dev Loop")
 	hotReloadReady := wizardHotReloadSetup(ctx, client, cfg, configPath, cwd, true, overrideOpts, initHotReloadProvider)
+
+	// ── AI Agent Skills ──────────────────────────────────────────────────
+	ui.PrintSectionHeader("AI Agent Skills")
+	if agentSkillTool == "" {
+		agentSkillTool, agentSkillsInstalled = wizardAgentSkillsSetup()
+	} else if agentSkillsInstalled {
+		ui.PrintDim("Agent skills already installed for %s", agentSkillTool)
+	} else {
+		ui.PrintDim("Agent skill setup already skipped")
+	}
 
 	// Determine if any apps were linked.
 	appsLinked := false
@@ -343,6 +361,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		{Title: "Authentication", OK: authOK},
 		{Title: "Create Apps", OK: appsLinked},
 		{Title: "Hot Reload", OK: hotReloadReady, Detail: hotReloadDetail},
+		{Title: "Agent Skills", OK: agentSkillsInstalled, Detail: agentSkillTool},
 		{Title: "Create Test", OK: testID != "", Detail: testName},
 	}
 	if userInfo != nil {
@@ -909,6 +928,65 @@ func wizardCreateApps(ctx context.Context, client *api.Client, cfg *config.Proje
 			cfg.Build.Platforms[platformKey] = plat
 			_ = config.WriteProjectConfig(configPath, cfg)
 		}
+	}
+}
+
+func wizardAgentSkillsSetup() (string, bool) {
+	options := []ui.SelectOption{
+		{
+			Label:       "Cursor",
+			Value:       "cursor",
+			Description: "Install Revyl dev-loop and test-creation skills into .cursor/skills",
+		},
+		{
+			Label:       "Codex",
+			Value:       "codex",
+			Description: "Install Revyl dev-loop and test-creation skills into .codex/skills",
+		},
+		{
+			Label:       "Claude Code",
+			Value:       "claude",
+			Description: "Install Revyl dev-loop and test-creation skills into .claude/skills",
+		},
+		{
+			Label:       "Skip for now",
+			Value:       "skip",
+			Description: "Run revyl skill install later",
+		},
+	}
+
+	_, selected, err := ui.Select("Which AI coding tool should Revyl set up?", options, 0)
+	if err != nil {
+		ui.PrintDim("Skipped agent skill setup")
+		ui.PrintDim("Run later: revyl skill install --cursor --force")
+		return "skipped", false
+	}
+	if selected == "skip" {
+		ui.PrintDim("Skipped agent skill setup")
+		ui.PrintDim("Run later: revyl skill install --cursor --force")
+		return "skipped", false
+	}
+
+	label := agentSkillToolLabel(selected)
+	ui.PrintInfo("Installing public Revyl skills for %s...", label)
+	if err := installPublicSkillsForTools([]string{selected}, false, true); err != nil {
+		ui.PrintWarning("Could not install agent skills for %s: %v", label, err)
+		ui.PrintDim("Run manually: revyl skill install --%s --force", selected)
+		return label, false
+	}
+	return label, true
+}
+
+func agentSkillToolLabel(tool string) string {
+	switch tool {
+	case "cursor":
+		return "Cursor"
+	case "codex":
+		return "Codex"
+	case "claude":
+		return "Claude Code"
+	default:
+		return tool
 	}
 }
 

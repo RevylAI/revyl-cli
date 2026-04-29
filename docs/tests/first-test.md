@@ -113,7 +113,7 @@ Key fields:
 - `test.metadata.name` — must be unique in your org
 - `test.metadata.platform` — `ios` or `android`
 - `test.build.name` — must match a Revyl app name exactly. Check with `revyl app list`.
-- `test.blocks` — ordered list of steps (one action per instruction, assertions in `validation` blocks)
+- `test.blocks` — ordered list of steps (intent-level instructions, assertions in separate `validation` blocks)
 
 ## Step 6: Validate the YAML
 

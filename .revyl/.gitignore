@@ -1,0 +1,11 @@
+# Most files in .revyl are local runtime state.
+# Only the shared project config and test definitions belong in git.
+*
+
+# Keep this file itself.
+!.gitignore
+
+# Shared Revyl project files.
+!config.yaml
+!tests/
+!tests/**

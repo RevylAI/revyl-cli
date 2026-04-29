@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -17,19 +19,19 @@ func withSkillFamilyFlags(cli bool, mcp bool, fn func()) {
 	fn()
 }
 
-func TestResolveInstallSkillsDefaultInstallsCLIFamily(t *testing.T) {
+func TestResolveInstallSkillsDefaultInstallsPublicSkills(t *testing.T) {
 	withSkillFamilyFlags(false, false, func() {
 		selected, err := resolveInstallSkills(nil)
 		if err != nil {
 			t.Fatalf("resolveInstallSkills(nil) error = %v", err)
 		}
-		if len(selected) == 0 {
-			t.Fatal("expected at least one CLI skill")
-		}
+		got := make([]string, 0, len(selected))
 		for _, sk := range selected {
-			if !strings.HasPrefix(sk.Name, skillFamilyCLIPrefix) {
-				t.Fatalf("expected only CLI family skills by default, got %q", sk.Name)
-			}
+			got = append(got, sk.Name)
+		}
+		want := []string{"revyl-cli-dev-loop", "revyl-cli-create"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("default skills = %v, want %v", got, want)
 		}
 	})
 }
@@ -94,4 +96,25 @@ func TestResolveInstallSkillsByName(t *testing.T) {
 			t.Fatalf("expected duplicate names to be deduped to 2 skills, got %d", len(selected))
 		}
 	})
+}
+
+func TestInstallPublicSkillsForToolsWritesOnlyFirstClassSkills(t *testing.T) {
+	workDir := t.TempDir()
+	withWorkingDir(t, workDir)
+
+	if err := installPublicSkillsForTools([]string{"cursor"}, false, true); err != nil {
+		t.Fatalf("installPublicSkillsForTools() error = %v", err)
+	}
+
+	for _, name := range []string{"revyl-cli-dev-loop", "revyl-cli-create"} {
+		path := filepath.Join(workDir, ".cursor", "skills", name, "SKILL.md")
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to exist: %v", path, err)
+		}
+	}
+
+	compatPath := filepath.Join(workDir, ".cursor", "skills", "revyl-cli-analyze", "SKILL.md")
+	if _, err := os.Stat(compatPath); !os.IsNotExist(err) {
+		t.Fatalf("expected compatibility skill not to be installed by default, stat err = %v", err)
+	}
 }

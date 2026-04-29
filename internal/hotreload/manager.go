@@ -43,6 +43,8 @@ var expoDevServerFactory DevServerFactory
 // bareRNDevServerFactory is set by the providers package during init.
 var bareRNDevServerFactory BareRNDevServerFactory
 
+var postStartupDiagnostics = RunPostStartupDiagnostics
+
 // RegisterExpoDevServerFactory registers the Expo dev server factory.
 // Called by the providers package during init.
 func RegisterExpoDevServerFactory(factory DevServerFactory) {
@@ -297,9 +299,12 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 
 	m.running = true
 
-	// 7. Run HMR diagnostics in the background (non-blocking).
-	// Results are logged as warnings; failures don't break the dev loop.
-	go m.runDiagnostics(devServer.GetPort(), tunnelURL)
+	// 7. Run advisory HMR diagnostics only in debug mode. These checks are
+	// intentionally non-blocking and can race Metro/Expo startup, so default
+	// dev-loop UX should rely on the device session as source of truth.
+	if m.debugMode {
+		go m.runDiagnostics(devServer.GetPort(), tunnelURL)
+	}
 
 	transport := m.transportPreference
 	relayID := ""
@@ -470,7 +475,7 @@ func (m *Manager) GetDevServerPort() int {
 // results. Intended to run in a goroutine immediately after Start() so results
 // appear shortly after "Dev loop ready".
 func (m *Manager) runDiagnostics(localPort int, tunnelURL string) {
-	result := RunPostStartupDiagnostics(localPort, tunnelURL, m.providerName)
+	result := postStartupDiagnostics(localPort, tunnelURL, m.providerName)
 	for _, c := range result.Checks {
 		if c.Passed {
 			m.log("[hmr] %s: %s", c.Name, c.Detail)

@@ -7,7 +7,7 @@ description: "Connect Revyl to AI coding agents via MCP"
 
 # MCP Server Setup
 
-> [Back to README](../README.md) | [Commands](COMMANDS.md) | [Agent Skills](SKILLS.md) | [SDK](SDK.md)
+> [Back to README](../README.md) | [Commands](../COMMANDS.md) | [Agent Skills](skills.md) | [SDK](../device-sdk/index.md)
 
 Connect Revyl to your AI coding tools so your agent can provision cloud devices, run tests, and interact with mobile apps directly.
 

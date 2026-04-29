@@ -58,10 +58,26 @@ var catalog = []Skill{
 	},
 }
 
+var publicSkillNames = []string{
+	skills.RevylCLIDevLoopName,
+	skills.RevylCLICreateName,
+}
+
 // All returns a copy of all embedded skills in deterministic install order.
 func All() []Skill {
 	out := make([]Skill, len(catalog))
 	copy(out, catalog)
+	return out
+}
+
+// Public returns the first-class customer-facing skills in display/install order.
+func Public() []Skill {
+	out := make([]Skill, 0, len(publicSkillNames))
+	for _, name := range publicSkillNames {
+		if sk, ok := Get(name); ok {
+			out = append(out, sk)
+		}
+	}
 	return out
 }
 

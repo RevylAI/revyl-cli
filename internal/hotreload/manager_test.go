@@ -3,6 +3,7 @@ package hotreload
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/revyl/cli/internal/config"
 )
@@ -34,6 +35,54 @@ type fakeDebugDevServer struct {
 
 func (f *fakeDebugDevServer) SetDebugMode(enabled bool) {
 	f.debugMode = enabled
+}
+
+type fakeTunnelBackend struct {
+	publicURL string
+}
+
+func (f *fakeTunnelBackend) Start(_ context.Context, _ int) (string, error) {
+	return f.publicURL, nil
+}
+
+func (f *fakeTunnelBackend) StartHealthMonitor(_ context.Context) {}
+
+func (f *fakeTunnelBackend) Stop() error { return nil }
+
+func (f *fakeTunnelBackend) PublicURL() string { return f.publicURL }
+
+func withFakeExpoDevServerFactory(t *testing.T) {
+	t.Helper()
+	previous := expoDevServerFactory
+	expoDevServerFactory = func(workDir, appScheme string, port int, useExpPrefix bool) DevServer {
+		return &fakeDevServer{}
+	}
+	t.Cleanup(func() {
+		expoDevServerFactory = previous
+	})
+}
+
+func withFakePostStartupDiagnostics(t *testing.T, called chan<- struct{}) {
+	t.Helper()
+	previous := postStartupDiagnostics
+	postStartupDiagnostics = func(localPort int, tunnelURL string, providerName string) *DiagnosticResult {
+		select {
+		case called <- struct{}{}:
+		default:
+		}
+		return &DiagnosticResult{AllPassed: true}
+	}
+	t.Cleanup(func() {
+		postStartupDiagnostics = previous
+	})
+}
+
+func newTestManagerWithFakeTunnel() *Manager {
+	m := NewManager("expo", &config.ProviderConfig{AppScheme: "myapp"}, ".")
+	m.SetTunnelBackendFactory(func() TunnelBackend {
+		return &fakeTunnelBackend{publicURL: "https://relay.example"}
+	})
+	return m
 }
 
 func TestAttachDevServerOutputCallback_AttachesWhenSupported(t *testing.T) {
@@ -135,5 +184,46 @@ func TestManagerStartExternalBuildsDeepLinkWhenOnlyTunnelProvided(t *testing.T) 
 
 	if result.DeepLinkURL != "myapp://expo-development-client/?url=https%3A%2F%2Fexample.ngrok.app" {
 		t.Fatalf("DeepLinkURL = %q, want derived Expo deep link", result.DeepLinkURL)
+	}
+}
+
+func TestManagerStartSkipsPostStartupDiagnosticsByDefault(t *testing.T) {
+	withFakeExpoDevServerFactory(t)
+	called := make(chan struct{}, 1)
+	withFakePostStartupDiagnostics(t, called)
+
+	m := newTestManagerWithFakeTunnel()
+	result, err := m.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { m.Stop() })
+	if result.TunnelURL == "" {
+		t.Fatal("expected Start to return a tunnel URL")
+	}
+
+	select {
+	case <-called:
+		t.Fatal("post-startup diagnostics ran without debug mode")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestManagerStartRunsPostStartupDiagnosticsInDebugMode(t *testing.T) {
+	withFakeExpoDevServerFactory(t)
+	called := make(chan struct{}, 1)
+	withFakePostStartupDiagnostics(t, called)
+
+	m := newTestManagerWithFakeTunnel()
+	m.SetDebugMode(true)
+	if _, err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { m.Stop() })
+
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		t.Fatal("post-startup diagnostics did not run in debug mode")
 	}
 }

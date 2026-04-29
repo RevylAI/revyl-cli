@@ -181,6 +181,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		if reuse != nil {
 			session = reuse.Session
 			sessionOwned = reuse.SessionOwned
+			warnLaunchVarsIgnoredForReusedDevSession()
 		}
 	}
 
@@ -189,14 +190,14 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		_, session, err = startDevSessionWithProgress(
 			ctx,
 			deviceMgr,
-			mcppkg.StartSessionOptions{
+			withDevStartLaunchVars(mcppkg.StartSessionOptions{
 				Platform:       devicePlatform,
 				AppID:          appID,
 				BuildVersionID: remoteBuild.versionID,
 				AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
 				AppPackage:     bundleID,
 				IdleTimeout:    time.Duration(timeout) * time.Second,
-			},
+			}),
 			30*time.Second,
 			nil,
 		)

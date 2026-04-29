@@ -25,10 +25,14 @@ revyl auth login
 # 4. Initialize your project
 cd your-app && revyl init
 
-# 5. Build and upload
+# 5. Install agent skills
+# Available: revyl-cli-dev-loop (dev loop), revyl-cli-create (test authoring)
+revyl skill install --force
+
+# 6. Build and upload
 revyl build upload
 
-# 6. Start the dev loop
+# 7. Start the dev loop
 revyl dev
 ```
 
@@ -77,7 +81,7 @@ Framework-specific guides to go from repo to test results in 3 commands.
 
 - [MCP Setup](integrations/mcp-setup.md) — Cursor, Claude Code, Codex, VS Code, Windsurf, Claude Desktop
 - [Expo Dashboard](integrations/expo-dashboard.md) — auto-import builds from EAS
-- [Agent Skills](integrations/skills.md) — embedded skills for device loops, test creation, failure analysis
+- [Agent Skills](integrations/skills.md) — embedded skills for device loops and test creation
 - [Agent Dev Loop](integrations/agent-dev-loop.md) — AI agent-assisted development workflow
 
 ## Reference

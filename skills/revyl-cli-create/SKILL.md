@@ -38,7 +38,7 @@ revyl test create <test-name> --platform ios --no-open
 revyl test push <test-name> --force
 ```
 
-For full examples and troubleshooting, see `docs/TEST_CREATION.md`.
+For full examples and troubleshooting, see `docs/tests/creating-tests.md`.
 
 If this test comes from a running `revyl dev` session:
 
@@ -49,26 +49,34 @@ revyl dev test open <test-name>
 
 ## Conversion Rules
 
-1. One action per instruction step.
-2. Keep validation in separate validation steps.
-3. Validate user-facing outcomes, not transient loading text.
-4. Replace secrets with variables.
-5. Use `module_import` blocks for reusable setup like login or onboarding.
+1. Write instruction steps at the level of a meaningful user intent, not every tiny tap or keystroke.
+2. Prefer one free-form instruction followed by one validation for the important outcome it should produce.
+3. Add validations at stable checkpoints and final outcomes. Do not validate after every small interaction.
+4. Keep validations in separate `validation` blocks from the instruction that caused the state change.
+5. Validate durable user-facing behavior, not transient loading text, animations, timing artifacts, or implementation details.
+6. Replace secrets with variables.
+7. Use `module_import` blocks for reusable setup like login or onboarding.
 
 Good:
 
 ```yaml
-- type: validation
-  step_description: "The PLACE ORDER button shows total $77.76"
 - type: instructions
-  step_description: "Tap PLACE ORDER"
+  step_description: "Complete checkout for Orchid Mantis using the saved shipping address."
+- type: validation
+  step_description: "The confirmation screen shows an order number."
 ```
 
 Bad:
 
 ```yaml
 - type: instructions
-  step_description: "Verify total is $77.76 then tap PLACE ORDER"
+  step_description: "Tap Cart, verify the total, tap Checkout, verify the shipping form, enter the address, tap Continue, verify payment, then place the order."
+- type: validation
+  step_description: "The Cart tab is visible."
+- type: validation
+  step_description: "The Checkout button is visible."
+- type: validation
+  step_description: "The payment form is visible."
 ```
 
 ## Definition of Done
