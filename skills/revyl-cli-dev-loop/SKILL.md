@@ -67,7 +67,12 @@ start the loop on that session.
   reload. Rebuild only when native config, native modules, SDK/native
   dependencies, permissions, or URL scheme registration changes. Try an
   external Expo tunnel only after screenshots or reports show the Revyl relay,
-  app load, or HMR path failed.
+  app load, or HMR path failed. If repeated web auth is slowing stable Expo
+  testing, install and use `revyl-cli-auth-bypass-expo`; implement the
+  test-only bypass in the app first, start `revyl dev` with
+  `--launch-var REVYL_AUTH_BYPASS_ENABLED --launch-var REVYL_AUTH_BYPASS_TOKEN`,
+  wait for the normal Expo app UI, then open the app-specific `revyl-auth`
+  deep link.
 - React Native bare: use the Metro relay. No `app_scheme` is needed because
   the device loads the JS bundle over the Revyl relay. JS/TS changes hot
   reload; native dependency, Podfile, Gradle, or native source changes need a
@@ -102,6 +107,39 @@ revyl device report --session-id <session-id> --json
 ```
 
 During exploration, capture the exact path that worked. Describe actions with visible target language and keep the path at intent level.
+
+## Expo Auth Bypass
+
+For Expo apps that have implemented the `revyl-cli-auth-bypass-expo` pattern,
+start the dev loop with the bypass launch vars and then navigate after the app
+loads normally:
+
+```bash
+# One-time setup if the launch vars do not already exist.
+export REVYL_AUTH_BYPASS_TOKEN="<test-only-token>"
+revyl global launch-var create REVYL_AUTH_BYPASS_ENABLED=true
+revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN="$REVYL_AUTH_BYPASS_TOKEN"
+
+export REVYL_CONTEXT="${USER:-agent}-expo-auth-$$"
+
+revyl dev --context "$REVYL_CONTEXT" --no-build \
+  --launch-var REVYL_AUTH_BYPASS_ENABLED \
+  --launch-var REVYL_AUTH_BYPASS_TOKEN
+```
+
+After `Dev loop ready`, confirm the device is on the app UI with a screenshot,
+then open the auth-bypass link from a separate shell:
+
+```bash
+revyl device navigate \
+  --url "myapp://revyl-auth?token=$REVYL_AUTH_BYPASS_TOKEN&role=buyer&redirect=%2Fcheckout"
+revyl device screenshot --out /tmp/revyl-auth-bypass.png
+```
+
+If the app has not implemented the handler yet, install/use
+`revyl-cli-auth-bypass-expo` first. If the device session was reused, launch
+vars may not have applied; run `revyl dev stop --context "$REVYL_CONTEXT"` and
+start a fresh loop with the launch vars.
 
 ## Guardrails
 

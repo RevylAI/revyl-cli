@@ -145,7 +145,7 @@ The CLI queues the test, streams progress to your terminal, and opens the report
 |------|-------------|
 | `--open` | Open report in browser when complete |
 | `--retries <n>` | Retry attempts (default: 1) |
-| `--timeout <seconds>` | Maximum execution time (default: 600) |
+| `--timeout <seconds>` | Maximum execution time (default: 3600) |
 | `--no-wait` | Queue and exit immediately |
 | `--json` | Structured JSON output |
 | `--build-version-id <id>` | Pin a specific build version |

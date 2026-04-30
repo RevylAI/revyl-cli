@@ -7,14 +7,15 @@ import (
 const SkillFileName = "SKILL.md"
 
 const (
-	RevylCLIName        = "revyl-cli"
-	RevylCLICreateName  = "revyl-cli-create"
-	RevylCLIAnalyzeName = "revyl-cli-analyze"
-	RevylCLIDevLoopName = "revyl-cli-dev-loop"
-	RevylMCPName        = "revyl-mcp"
-	RevylMCPCreateName  = "revyl-mcp-create"
-	RevylMCPAnalyzeName = "revyl-mcp-analyze"
-	RevylMCPDevLoopName = "revyl-mcp-dev-loop"
+	RevylCLIName               = "revyl-cli"
+	RevylCLICreateName         = "revyl-cli-create"
+	RevylCLIAnalyzeName        = "revyl-cli-analyze"
+	RevylCLIDevLoopName        = "revyl-cli-dev-loop"
+	RevylCLIAuthBypassExpoName = "revyl-cli-auth-bypass-expo"
+	RevylMCPName               = "revyl-mcp"
+	RevylMCPCreateName         = "revyl-mcp-create"
+	RevylMCPAnalyzeName        = "revyl-mcp-analyze"
+	RevylMCPDevLoopName        = "revyl-mcp-dev-loop"
 )
 
 //go:embed revyl-cli/SKILL.md
@@ -28,6 +29,9 @@ var RevylCLIAnalyzeContent string
 
 //go:embed revyl-cli-dev-loop/SKILL.md
 var RevylCLIDevLoopContent string
+
+//go:embed revyl-cli-auth-bypass-expo/SKILL.md
+var RevylCLIAuthBypassExpoContent string
 
 //go:embed revyl-mcp/SKILL.md
 var RevylMCPContent string

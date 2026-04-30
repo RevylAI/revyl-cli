@@ -18,6 +18,9 @@ import (
 	"github.com/revyl/cli/internal/status"
 )
 
+// DefaultRunTimeoutSeconds is the default execution timeout for test and workflow runs.
+const DefaultRunTimeoutSeconds = 60 * 60
+
 // RunTestParams contains parameters for running a test.
 //
 // Fields:
@@ -113,7 +116,7 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 	}
 	timeout := params.Timeout
 	if timeout == 0 {
-		timeout = 3600
+		timeout = DefaultRunTimeoutSeconds
 	}
 
 	// Create client and execute
@@ -300,7 +303,7 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 	}
 	timeout := params.Timeout
 	if timeout == 0 {
-		timeout = 3600
+		timeout = DefaultRunTimeoutSeconds
 	}
 
 	// Create client and execute

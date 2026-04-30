@@ -2,6 +2,7 @@ package hotreload
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,27 @@ func withFakePostStartupDiagnostics(t *testing.T, called chan<- struct{}) {
 	}
 	t.Cleanup(func() {
 		postStartupDiagnostics = previous
+	})
+}
+
+func withFakeExpoMetroRelayReady(t *testing.T, called chan<- struct{}) {
+	t.Helper()
+	previous := waitForExpoMetroRelay
+	waitForExpoMetroRelay = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+	) (*DiagnosticResult, error) {
+		select {
+		case called <- struct{}{}:
+		default:
+		}
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	t.Cleanup(func() {
+		waitForExpoMetroRelay = previous
 	})
 }
 
@@ -189,6 +211,7 @@ func TestManagerStartExternalBuildsDeepLinkWhenOnlyTunnelProvided(t *testing.T) 
 
 func TestManagerStartSkipsPostStartupDiagnosticsByDefault(t *testing.T) {
 	withFakeExpoDevServerFactory(t)
+	withFakeExpoMetroRelayReady(t, nil)
 	called := make(chan struct{}, 1)
 	withFakePostStartupDiagnostics(t, called)
 
@@ -211,6 +234,7 @@ func TestManagerStartSkipsPostStartupDiagnosticsByDefault(t *testing.T) {
 
 func TestManagerStartRunsPostStartupDiagnosticsInDebugMode(t *testing.T) {
 	withFakeExpoDevServerFactory(t)
+	withFakeExpoMetroRelayReady(t, nil)
 	called := make(chan struct{}, 1)
 	withFakePostStartupDiagnostics(t, called)
 
@@ -225,5 +249,54 @@ func TestManagerStartRunsPostStartupDiagnosticsInDebugMode(t *testing.T) {
 	case <-called:
 	case <-time.After(time.Second):
 		t.Fatal("post-startup diagnostics did not run in debug mode")
+	}
+}
+
+func TestManagerStartWaitsForExpoMetroRelay(t *testing.T) {
+	withFakeExpoDevServerFactory(t)
+	relayCalled := make(chan struct{}, 1)
+	withFakeExpoMetroRelayReady(t, relayCalled)
+
+	m := newTestManagerWithFakeTunnel()
+	if _, err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { m.Stop() })
+
+	select {
+	case <-relayCalled:
+	case <-time.After(time.Second):
+		t.Fatal("expected Start to wait for Expo relay readiness")
+	}
+}
+
+func TestRunDiagnosticsUsesAdvisoryFailureLanguage(t *testing.T) {
+	previous := postStartupDiagnostics
+	postStartupDiagnostics = func(localPort int, tunnelURL string, providerName string) *DiagnosticResult {
+		return &DiagnosticResult{
+			AllPassed: false,
+			Checks: []DiagnosticCheck{
+				{Name: "Tunnel HTTP", Passed: false, Detail: "status 502"},
+			},
+		}
+	}
+	t.Cleanup(func() {
+		postStartupDiagnostics = previous
+	})
+
+	var logs []string
+	m := &Manager{}
+	m.SetLogCallback(func(message string) {
+		logs = append(logs, message)
+	})
+
+	m.runDiagnostics(8081, "https://relay.example")
+
+	joined := strings.Join(logs, "\n")
+	if !strings.Contains(joined, "advisory warning") {
+		t.Fatalf("logs = %q, want advisory warning language", joined)
+	}
+	if strings.Contains(joined, "FAILED") {
+		t.Fatalf("logs = %q, should not use hard failure wording", joined)
 	}
 }

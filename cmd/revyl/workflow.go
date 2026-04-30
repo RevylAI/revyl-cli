@@ -12,6 +12,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -210,7 +211,7 @@ func init() {
 	workflowRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
 	workflowRunCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after workflow starts without waiting")
 	workflowRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete")
-	workflowRunCmd.Flags().IntVarP(&runTimeout, "timeout", "t", 3600, "Timeout in seconds")
+	workflowRunCmd.Flags().IntVarP(&runTimeout, "timeout", "t", execution.DefaultRunTimeoutSeconds, "Timeout in seconds")
 	workflowRunCmd.Flags().BoolVar(&runOutputJSON, "json", false, "Output results as JSON")
 	workflowRunCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	workflowRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")

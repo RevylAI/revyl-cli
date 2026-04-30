@@ -28,13 +28,18 @@ var catalog = []Skill{
 	},
 	{
 		Name:        skills.RevylCLIAnalyzeName,
-		Description: "Analyze failed Revyl runs with CLI reports and classify failures into bug/flaky/infra/test-design buckets.",
+		Description: "Analyze failed Revyl test, workflow, and device-session reports, including auth/setup failures.",
 		Content:     skills.RevylCLIAnalyzeContent,
 	},
 	{
 		Name:        skills.RevylCLIDevLoopName,
 		Description: "CLI-first dev loop for starting sessions, exploring flows, and converting successful paths into tests.",
 		Content:     skills.RevylCLIDevLoopContent,
+	},
+	{
+		Name:        skills.RevylCLIAuthBypassExpoName,
+		Description: "Implement test-only auth bypass deep links for Expo and Expo Router apps using Revyl launch variables.",
+		Content:     skills.RevylCLIAuthBypassExpoContent,
 	},
 	{
 		Name:        skills.RevylMCPName,

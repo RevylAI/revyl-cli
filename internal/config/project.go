@@ -340,7 +340,7 @@ const (
 	DefaultOpenBrowser = false
 
 	// DefaultTimeoutSeconds is the default for defaults.timeout when omitted or invalid.
-	DefaultTimeoutSeconds = 600
+	DefaultTimeoutSeconds = 30 * 60
 )
 
 // ApplyDefaults normalizes omitted/invalid project defaults in-place.

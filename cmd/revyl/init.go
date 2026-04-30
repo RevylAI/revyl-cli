@@ -464,7 +464,7 @@ func wizardProjectSetup(cwd, revylDir, configPath string, overrideOpts *initOver
 				v := true
 				return &v
 			}(),
-			Timeout: 600,
+			Timeout: config.DefaultTimeoutSeconds,
 		},
 	}
 
@@ -1704,6 +1704,18 @@ func wizardFirstBuildExpo(
 	if len(eligible) == 0 {
 		ui.PrintDim("No Expo dev streams are ready to build yet")
 		return
+	}
+
+	if changed, err := ensureExpoDevClientSchemeForBuild(cwd, cfg); err != nil {
+		printExpoSchemePreflightError(err)
+		for _, platform := range eligible {
+			if outcome != nil {
+				outcome.RecordFailure(platform)
+			}
+		}
+		return
+	} else if changed {
+		_ = config.WriteProjectConfig(configPath, cfg)
 	}
 
 	defaultTargets := defaultExpoDevBuildTargets(eligible)

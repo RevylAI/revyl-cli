@@ -12,6 +12,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/sse"
 	statusutil "github.com/revyl/cli/internal/status"
 	"github.com/revyl/cli/internal/ui"
@@ -167,7 +168,7 @@ func monitorExecutionCmd(taskID, testID, apiKey string, devMode bool) tea.Cmd {
 	go func() {
 		defer close(ch)
 
-		monitor := sse.NewMonitorWithDevMode(apiKey, 3600, devMode)
+		monitor := sse.NewMonitorWithDevMode(apiKey, execution.DefaultRunTimeoutSeconds, devMode)
 		ctx := context.Background()
 
 		onProgress := func(status *sse.TestStatus) {

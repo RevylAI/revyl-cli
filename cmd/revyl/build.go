@@ -1009,6 +1009,19 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 		return nil
 	}
 
+	if !buildSkip && isExpoBuildSystem(cfg.Build.System) {
+		changed, err := ensureExpoDevClientSchemeForBuild(cwd, cfg)
+		if err != nil {
+			printExpoSchemePreflightError(err)
+			return err
+		}
+		if changed {
+			if err := config.WriteProjectConfig(configPath, cfg); err != nil {
+				ui.PrintWarning("Failed to save Expo scheme to config: %v", err)
+			}
+		}
+	}
+
 	// Create API client
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
@@ -1542,6 +1555,22 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 			ui.PrintSuccess("Dry-run complete - no changes made")
 		}
 		return nil
+	}
+
+	if !buildSkip && isExpoBuildSystem(cfg.Build.System) {
+		changed, err := ensureExpoDevClientSchemeForBuild(cwd, cfg)
+		if err != nil {
+			printExpoSchemePreflightError(err)
+			return err
+		}
+		if changed {
+			if !resolvedPlatform.LegacyConfig {
+				cfg.Build.Platforms[platformKey] = platformCfg
+			}
+			if err := config.WriteProjectConfig(configPath, cfg); err != nil {
+				ui.PrintWarning("Failed to save Expo scheme to config: %v", err)
+			}
+		}
 	}
 
 	// Create API client early so we can validate org before building.

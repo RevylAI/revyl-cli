@@ -167,6 +167,7 @@ func getCommonWorkflows() []Workflow {
 				"revyl auth login",
 				"revyl init",
 				"revyl test create <name>",
+				"revyl test create --from-session <session-id> <name> --app <app-id>",
 			},
 		},
 		{
@@ -448,6 +449,7 @@ func ToLLMFormat(schema *CLISchema, yamlSchema string) string {
 	sb.WriteString("revyl auth status             # Check authentication\n")
 	sb.WriteString("revyl init                    # Initialize project\n")
 	sb.WriteString("revyl test create <name>      # Create new test\n")
+	sb.WriteString("revyl test create --from-session <session-id> <name> --app <app-id> # Convert session to test\n")
 	sb.WriteString("revyl test rename <old> <new> # Rename test without recreating\n")
 	sb.WriteString("revyl workflow rename <old> <new> # Rename workflow without recreating\n")
 	sb.WriteString("revyl test run <name>         # Run a test\n")

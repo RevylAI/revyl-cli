@@ -57,6 +57,7 @@ Install one skill when you want the agent focused on a specific job:
 |---|---|---|
 | Run a generic Revyl dev loop, interact with the device, and verify app behavior | `revyl skill install --name revyl-cli-dev-loop --force` | `Use the revyl-cli-dev-loop skill.` |
 | Author or refine stable Revyl YAML tests, then validate, push, run, and inspect reports | `revyl skill install --name revyl-cli-create --force` | `Use the revyl-cli-create skill.` |
+| Implement a test-only auth bypass deep link in an Expo or Expo Router app | `revyl skill install --name revyl-cli-auth-bypass-expo --force` | `Use the revyl-cli-auth-bypass-expo skill.` |
 
 Useful install variants:
 
@@ -67,6 +68,7 @@ revyl skill install --cursor --force        # Force Cursor if auto-detect is amb
 revyl skill install --codex --force         # Force Codex if auto-detect is ambiguous
 revyl skill install --claude --force        # Force Claude Code if auto-detect is ambiguous
 revyl skill show --name revyl-cli-dev-loop  # Print a named skill to stdout
+revyl skill show --name revyl-cli-auth-bypass-expo
 revyl skill export --name revyl-cli-create -o FILE
 ```
 

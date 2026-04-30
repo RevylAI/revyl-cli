@@ -26,7 +26,7 @@ func writeTestProjectConfig(t *testing.T, dir string) string {
 		},
 		Defaults: config.Defaults{
 			OpenBrowser: &open,
-			Timeout:     600,
+			Timeout:     config.DefaultTimeoutSeconds,
 		},
 	}
 

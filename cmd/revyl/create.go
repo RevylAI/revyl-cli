@@ -26,14 +26,16 @@ import (
 
 var (
 	// Test creation flags
-	createTestPlatform string
-	createTestAppID    string
-	createTestNoOpen   bool
-	createTestForce    bool
-	createTestDryRun   bool
-	createTestFromFile string
-	createTestModules  []string
-	createTestTags     []string
+	createTestPlatform       string
+	createTestAppID          string
+	createTestNoOpen         bool
+	createTestForce          bool
+	createTestDryRun         bool
+	createTestFromFile       string
+	createTestFromSession    string
+	createTestCompileTimeout int
+	createTestModules        []string
+	createTestTags           []string
 
 	// Hot reload flags for test creation
 	createTestHotReload         bool
@@ -90,6 +92,14 @@ func createRemoteTest(
 // Returns:
 //   - error: Any error that occurred during test creation
 func runCreateTest(cmd *cobra.Command, args []string) error {
+	if createTestFromFile != "" && createTestFromSession != "" {
+		return fmt.Errorf("provide --from-file or --from-session, not both")
+	}
+
+	if createTestFromSession != "" {
+		return runCreateTestFromSession(cmd, args)
+	}
+
 	// If --from-file is specified, copy to .revyl/tests/ and use push workflow
 	if createTestFromFile != "" {
 		return runCreateTestFromFile(cmd, args)

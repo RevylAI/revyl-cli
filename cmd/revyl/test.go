@@ -2,7 +2,11 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
+
+	"github.com/revyl/cli/internal/execution"
 )
 
 // testCmd is the parent command for test management operations.
@@ -92,18 +96,26 @@ var testCreateCmd = &cobra.Command{
 
 When --from-file is used, the name is optional and will be inferred from
 the YAML file's test.metadata.name field.
+When --from-session is used, the name is optional and will be inferred from
+the compiled session title.
 
 EXAMPLES:
   revyl test create login-flow --platform android
   revyl test create checkout --platform ios
-  revyl test create --from-file ./my-test.yaml`,
+  revyl test create --from-file ./my-test.yaml
+  revyl test create --from-session <session-id> checkout-regression --app <app-id>`,
 	Example: `  revyl test create login-flow --platform android
   revyl test create checkout --platform ios
   revyl test create --from-file ./my-test.yaml
+  revyl test create --from-session <session-id> checkout-regression --app <app-id>
   revyl test create login --platform ios --module login-module --tag smoke`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		fromFile, _ := cmd.Flags().GetString("from-file")
-		if fromFile != "" {
+		fromSession, _ := cmd.Flags().GetString("from-session")
+		if fromFile != "" && fromSession != "" {
+			return fmt.Errorf("provide --from-file or --from-session, not both")
+		}
+		if fromFile != "" || fromSession != "" {
 			return cobra.RangeArgs(0, 1)(cmd, args)
 		}
 		return cobra.ExactArgs(1)(cmd, args)
@@ -190,7 +202,7 @@ func init() {
 	testRunCmd.Flags().StringVarP(&runBuildID, "build-id", "b", "", "Specific build version ID")
 	testRunCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after test starts without waiting")
 	testRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete")
-	testRunCmd.Flags().IntVarP(&runTimeout, "timeout", "t", 3600, "Timeout in seconds")
+	testRunCmd.Flags().IntVarP(&runTimeout, "timeout", "t", execution.DefaultRunTimeoutSeconds, "Timeout in seconds")
 	testRunCmd.Flags().BoolVar(&runOutputJSON, "json", false, "Output results as JSON")
 	testRunCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	testRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
@@ -213,6 +225,8 @@ func init() {
 	testCreateCmd.Flags().BoolVar(&createTestForce, "force", false, "Update existing test if name already exists")
 	testCreateCmd.Flags().BoolVar(&createTestDryRun, "dry-run", false, "Show what would be created without creating")
 	testCreateCmd.Flags().StringVar(&createTestFromFile, "from-file", "", "Create test from YAML file (copies to .revyl/tests/ and pushes)")
+	testCreateCmd.Flags().StringVar(&createTestFromSession, "from-session", "", "Create test from a completed device session")
+	testCreateCmd.Flags().IntVar(&createTestCompileTimeout, "compile-timeout", 120, "Seconds to wait while compiling a session")
 	testCreateCmd.Flags().IntVar(&createTestHotReloadPort, "port", 8081, "Port for local dev server")
 	testCreateCmd.Flags().StringVar(&createTestHotReloadProvider, "provider", "", "Hot reload provider (expo, react-native)")
 	testCreateCmd.Flags().BoolVar(&createTestInteractive, "interactive", false, "Create test interactively with real-time device feedback")

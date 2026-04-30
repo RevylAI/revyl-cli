@@ -43,14 +43,25 @@ revyl test create <test-name> --platform ios --no-open
 revyl test push <test-name> --force
 ```
 
+If you have a completed exploratory device session:
+
+```bash
+revyl test create --from-session <session-id> <test-name> --app <app-id>
+revyl test run <test-name>
+```
+
+The name can be omitted; the compiler will use its suggested session title.
+
 For full examples and troubleshooting, see `docs/tests/creating-tests.md`.
 
 If this test comes from a running `revyl dev` session:
 
 ```bash
-revyl dev test create <test-name> --platform ios
-revyl dev test open <test-name>
+revyl device screenshot --out /tmp/revyl-current.png
+revyl device report --session-id <session-id> --json
 ```
+
+Then author YAML explicitly and create it with `revyl test create --from-file`. Put repeated setup such as login, onboarding, or seed data in a reusable module/setup block so feature tests do not duplicate it.
 
 ## Tool Map
 
@@ -198,14 +209,13 @@ test:
 
 ## Conversion Rules
 
-1. Write instruction steps at the level of a meaningful user intent, not every tiny tap or keystroke.
-2. Prefer one free-form instruction followed by one validation for the important outcome it should produce.
-3. Add validations at stable checkpoints and final outcomes. Do not validate after every small interaction.
-4. Keep validations in separate `validation` blocks from the instruction that caused the state change.
-5. Validate durable user-facing behavior, not transient loading text, animations, timing artifacts, or implementation details.
-6. Replace secrets with variables.
-7. Use `module_import` blocks for reusable setup like login or onboarding.
-8. Use `code_execution` for API setup, data seeding, backend checks, and deterministic helper logic.
+1. One action per instruction step.
+2. Keep validation in separate validation steps.
+3. Validate user-facing outcomes, not transient loading text.
+4. Replace secrets with variables or global variables.
+5. Use `module_import` blocks for reusable setup like login or onboarding.
+6. Preserve the exact target language that worked in the device report when it is more specific than a generic tap.
+7. Use `code_execution` for API setup, data seeding, backend checks, and deterministic helper logic.
 
 Good:
 

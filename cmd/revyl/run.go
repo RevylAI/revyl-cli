@@ -82,13 +82,10 @@ func resolveRunOpen(cmd *cobra.Command, cfg *config.ProjectConfig, flagValue boo
 	return config.EffectiveOpenBrowser(cfg)
 }
 
-// resolveRunTimeout determines the effective timeout in seconds.
-// Explicit --timeout takes precedence over config defaults.
+// resolveRunTimeout determines the effective test/workflow execution timeout.
+// Project defaults.timeout is reserved for CLI/device session timeouts.
 func resolveRunTimeout(cmd *cobra.Command, cfg *config.ProjectConfig, flagValue int) int {
-	if cmd != nil && cmd.Flags().Changed("timeout") {
-		return flagValue
-	}
-	return config.EffectiveTimeoutSeconds(cfg, flagValue)
+	return flagValue
 }
 
 type runInterruptState struct {

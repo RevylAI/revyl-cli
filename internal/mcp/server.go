@@ -974,7 +974,7 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		TestNameOrID:   input.TestName,
 		Retries:        retries,
 		BuildVersionID: input.BuildVersionID,
-		Timeout:        3600,
+		Timeout:        execution.DefaultRunTimeoutSeconds,
 		DevMode:        s.devMode,
 		OnProgress:     onProgress,
 		DeviceModel:    input.DeviceModel,
@@ -1117,7 +1117,7 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 	wfParams := execution.RunWorkflowParams{
 		WorkflowNameOrID: input.WorkflowName,
 		Retries:          retries,
-		Timeout:          3600,
+		Timeout:          execution.DefaultRunTimeoutSeconds,
 		DevMode:          s.devMode,
 		OnProgress:       onProgress,
 		IOSAppID:         input.IOSAppID,

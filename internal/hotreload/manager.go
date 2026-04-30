@@ -44,6 +44,7 @@ var expoDevServerFactory DevServerFactory
 var bareRNDevServerFactory BareRNDevServerFactory
 
 var postStartupDiagnostics = RunPostStartupDiagnostics
+var waitForExpoMetroRelay = WaitForExpoMetroRelay
 
 // RegisterExpoDevServerFactory registers the Expo dev server factory.
 // Called by the providers package during init.
@@ -269,6 +270,31 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 	// 5. Start health monitor for automatic tunnel reconnection
 	backend.StartHealthMonitor(ctx)
 
+	if m.providerName == "expo" {
+		m.log("Waiting for Expo relay to serve Metro...")
+		if _, err := waitForExpoMetroRelay(
+			ctx,
+			devServer.GetPort(),
+			tunnelURL,
+			metroTunnelReadyTimeout,
+			metroTunnelReadyPollInterval,
+		); err != nil {
+			if m.tunnel != nil {
+				_ = m.tunnel.Stop()
+				m.tunnel = nil
+			}
+			if m.devServer != nil {
+				_ = m.devServer.Stop()
+				m.devServer = nil
+			}
+			return nil, fmt.Errorf(
+				"Expo relay is not ready yet; launching the dev client would likely show a project load error: %w",
+				err,
+			)
+		}
+		m.log("Expo relay is serving Metro")
+	}
+
 	if m.providerName == "react-native" {
 		m.log("Waiting for Metro tunnel to become externally reachable...")
 		if _, err := WaitForMetroTunnel(
@@ -478,13 +504,13 @@ func (m *Manager) runDiagnostics(localPort int, tunnelURL string) {
 	result := postStartupDiagnostics(localPort, tunnelURL, m.providerName)
 	for _, c := range result.Checks {
 		if c.Passed {
-			m.log("[hmr] %s: %s", c.Name, c.Detail)
+			m.log("[hmr diagnostic] %s: %s", c.Name, c.Detail)
 		} else {
-			m.log("[hmr] %s: FAILED (%s)", c.Name, c.Detail)
+			m.log("[hmr diagnostic] %s: advisory warning (%s)", c.Name, c.Detail)
 		}
 	}
 	if !result.AllPassed {
-		m.log("[hmr] Hot reload may not work -- one or more diagnostic checks failed")
+		m.log("[hmr diagnostic] Advisory checks did not all pass; verify the device session before treating this as a hard failure")
 	}
 }
 

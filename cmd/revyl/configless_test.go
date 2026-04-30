@@ -222,7 +222,7 @@ func TestRunTestExec_ResolvesRemoteNameWithoutProjectConfig(t *testing.T) {
 
 	cmd := newLeafCommand("run", runTestExec)
 	cmd.Flags().Bool("open", false, "")
-	cmd.Flags().Int("timeout", 3600, "")
+	cmd.Flags().Int("timeout", execution.DefaultRunTimeoutSeconds, "")
 	if err := cmd.Flags().Set("open", "false"); err != nil {
 		t.Fatalf("Set(open) error = %v", err)
 	}

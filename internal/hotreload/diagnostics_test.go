@@ -258,6 +258,90 @@ func TestWaitForMetroTunnel_TimesOutWithFailedChecks(t *testing.T) {
 	}
 }
 
+func TestWaitForExpoMetroRelay_PassesAfterStatusAndManifestReady(t *testing.T) {
+	var ready atomic.Bool
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		if !ready.Load() {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if !ready.Load() {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"launchAsset": map[string]string{"url": "https://relay.example.com/bundle.js"},
+			"extra": map[string]interface{}{
+				"expoGo":     map[string]string{"debuggerHost": "relay.example.com"},
+				"expoClient": map[string]string{"hostUri": "relay.example.com"},
+			},
+		})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		ready.Store(true)
+	}()
+
+	result, err := WaitForExpoMetroRelay(
+		context.Background(),
+		8081,
+		srv.URL,
+		time.Second,
+		25*time.Millisecond,
+	)
+	if err != nil {
+		t.Fatalf("expected Expo relay to become ready, got error: %v", err)
+	}
+	if result == nil || !result.AllPassed {
+		t.Fatalf("expected passing result, got %+v", result)
+	}
+}
+
+func TestWaitForExpoMetroRelay_TimesOutOnManifestPortLeak(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"launchAsset": map[string]string{"url": "http://127.0.0.1:8081/bundle.js"},
+			"extra": map[string]interface{}{
+				"expoGo":     map[string]string{"debuggerHost": "127.0.0.1:8081"},
+				"expoClient": map[string]string{"hostUri": "127.0.0.1:8081"},
+			},
+		})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	result, err := WaitForExpoMetroRelay(
+		context.Background(),
+		8081,
+		srv.URL,
+		150*time.Millisecond,
+		25*time.Millisecond,
+	)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if result == nil {
+		t.Fatal("expected final diagnostic result on failure")
+	}
+	if !strings.Contains(err.Error(), "Manifest URLs") {
+		t.Fatalf("expected manifest failure in error, got %q", err.Error())
+	}
+}
+
 func TestProbeWebSocketUpgrade_FailsOnHTTPEndpoint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

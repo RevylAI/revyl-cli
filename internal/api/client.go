@@ -1471,6 +1471,72 @@ func (c *Client) CreateTest(ctx context.Context, req *CreateTestRequest) (*Creat
 	return &result, nil
 }
 
+// CreateTestFromBlocksRequest represents a test creation request backed by
+// already-compiled editor blocks.
+type CreateTestFromBlocksRequest struct {
+	Blocks   []map[string]interface{} `json:"blocks"`
+	Metadata map[string]interface{}   `json:"metadata"`
+	Options  map[string]interface{}   `json:"options,omitempty"`
+}
+
+// CreateTestFromBlocksResponse represents the response from /tests/yaml/from-blocks.
+type CreateTestFromBlocksResponse struct {
+	Success      bool     `json:"success"`
+	TestID       string   `json:"test_id"`
+	BlocksCount  int      `json:"blocks_count"`
+	GeneratedIDs []string `json:"generated_ids"`
+	Errors       []string `json:"errors,omitempty"`
+	CreatedAt    *string  `json:"created_at,omitempty"`
+}
+
+// CreateTestFromBlocks creates a test from editor blocks using the YAML v2 API.
+func (c *Client) CreateTestFromBlocks(ctx context.Context, req *CreateTestFromBlocksRequest) (*CreateTestFromBlocksResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/yaml/from-blocks", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CreateTestFromBlocksResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// StartRecordingCompile starts a recording/session compilation job.
+func (c *Client) StartRecordingCompile(ctx context.Context, req *CompileRecordingRequest) (*CompileRecordingStartResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/recordings/compile", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CompileRecordingStartResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GetRecordingCompileStatus fetches the current status and result for a compile job.
+func (c *Client) GetRecordingCompileStatus(ctx context.Context, jobID string) (*CompileRecordingStatusResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf(
+		"/api/v1/recordings/compile/%s",
+		url.PathEscape(jobID),
+	), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CompileRecordingStatusResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 // ValidateAPIKeyResponse represents the response from API key validation.
 // Contains user information returned when an API key is successfully validated.
 type ValidateAPIKeyResponse struct {
@@ -2684,29 +2750,32 @@ func (c *Client) GetActiveDeviceSessions(ctx context.Context, orgID string) (*Ac
 
 // DeviceSessionDetail is the response shape for GET /device-sessions/{session_id}.
 type DeviceSessionDetail struct {
-	ID            string  `json:"id"`
-	OrgID         string  `json:"org_id"`
-	Source        *string `json:"source"`
-	Platform      *string `json:"platform"`
-	DeviceModel   *string `json:"device_model"`
-	OsVersion     *string `json:"os_version"`
-	Status        string  `json:"status"`
-	WhepURL       *string `json:"whep_url"`
-	WorkflowRunID *string `json:"workflow_run_id"`
-	CreatedAt     *string `json:"created_at"`
-	StartedAt     *string `json:"started_at"`
-	EndedAt       *string `json:"ended_at"`
-	ErrorMessage  *string `json:"error_message"`
-	TraceID       *string `json:"trace_id"`
-	ScreenWidth   *int    `json:"screen_width"`
-	ScreenHeight  *int    `json:"screen_height"`
-	ReportID      *string `json:"report_id"`
-	HasVideo      bool    `json:"has_video"`
-	StepCount     int     `json:"step_count"`
-	TestID        *string `json:"test_id"`
-	TestName      *string `json:"test_name"`
-	UserEmail     *string `json:"user_email"`
-	CanCancel     bool    `json:"can_cancel"`
+	ID              string                 `json:"id"`
+	OrgID           string                 `json:"org_id"`
+	Source          *string                `json:"source"`
+	SourceMetadata  map[string]interface{} `json:"source_metadata,omitempty"`
+	Platform        *string                `json:"platform"`
+	DeviceModel     *string                `json:"device_model"`
+	OsVersion       *string                `json:"os_version"`
+	Status          string                 `json:"status"`
+	WhepURL         *string                `json:"whep_url"`
+	WorkflowRunID   *string                `json:"workflow_run_id"`
+	CreatedAt       *string                `json:"created_at"`
+	StartedAt       *string                `json:"started_at"`
+	EndedAt         *string                `json:"ended_at"`
+	ErrorMessage    *string                `json:"error_message"`
+	TraceID         *string                `json:"trace_id"`
+	ScreenWidth     *int                   `json:"screen_width"`
+	ScreenHeight    *int                   `json:"screen_height"`
+	ReportID        *string                `json:"report_id"`
+	HasVideo        bool                   `json:"has_video"`
+	StepCount       int                    `json:"step_count"`
+	ActionCount     int                    `json:"action_count"`
+	DurationSeconds *float64               `json:"duration_seconds"`
+	TestID          *string                `json:"test_id"`
+	TestName        *string                `json:"test_name"`
+	UserEmail       *string                `json:"user_email"`
+	CanCancel       bool                   `json:"can_cancel"`
 }
 
 // GetDeviceSessionByID retrieves a single device session by its ID.

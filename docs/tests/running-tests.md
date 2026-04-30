@@ -37,7 +37,7 @@ Report: https://app.revyl.ai/report/abc123
 |------|-------------|
 | `--build-version-id <id>` | Run against a specific build version |
 | `--retries <n>` | Number of retry attempts (default: 1) |
-| `--timeout <seconds>` | Maximum execution time (default: 600) |
+| `--timeout <seconds>` | Maximum execution time (default: 3600) |
 | `--no-wait` | Queue test and exit immediately |
 | `--open` | Open report in browser when complete |
 | `--json` | Output results as JSON |

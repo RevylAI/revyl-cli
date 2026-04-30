@@ -28,6 +28,7 @@ import (
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/status"
 )
@@ -197,7 +198,7 @@ func (c *Client) RunTestWithOptions(ctx context.Context, nameOrID string, opts *
 	if opts == nil {
 		opts = &RunTestOptions{
 			Retries: 1,
-			Timeout: 3600,
+			Timeout: execution.DefaultRunTimeoutSeconds,
 		}
 	}
 
@@ -285,7 +286,7 @@ func (c *Client) RunWorkflow(ctx context.Context, nameOrID string) (*WorkflowRes
 	}
 
 	// Monitor execution
-	monitor := sse.NewMonitor(c.apiKey, 3600)
+	monitor := sse.NewMonitor(c.apiKey, execution.DefaultRunTimeoutSeconds)
 	finalStatus, err := monitor.MonitorWorkflow(ctx, resp.TaskID, workflowID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("monitoring failed: %w", err)

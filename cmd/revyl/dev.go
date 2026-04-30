@@ -23,6 +23,7 @@ import (
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/devpush"
+	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
 	mcppkg "github.com/revyl/cli/internal/mcp"
@@ -192,7 +193,7 @@ func init() {
 	devTestRunCmd.Flags().StringVarP(&runBuildID, "build-id", "b", "", "Specific build version ID")
 	devTestRunCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after test starts without waiting")
 	devTestRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete")
-	devTestRunCmd.Flags().IntVarP(&runTimeout, "timeout", "t", 3600, "Timeout in seconds")
+	devTestRunCmd.Flags().IntVarP(&runTimeout, "timeout", "t", execution.DefaultRunTimeoutSeconds, "Timeout in seconds")
 	devTestRunCmd.Flags().BoolVar(&runOutputJSON, "json", false, "Output results as JSON")
 	devTestRunCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	devTestRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
@@ -248,6 +249,63 @@ func warnLaunchVarsIgnoredForReusedDevSession() {
 		return
 	}
 	ui.PrintWarning("Ignoring --launch-var because revyl dev reused an existing device session; launch vars apply only when a session starts. Run `revyl dev stop` and rerun to apply them.")
+}
+
+func formatDevActionDebugPayload(body map[string]string) string {
+	if len(body) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(body))
+	for key := range body {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		value := body[key]
+		if key == "app_url" {
+			value = maskPresignedURL(value)
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", key, value))
+	}
+	return " " + strings.Join(parts, " ")
+}
+
+func debugDevActionRequest(action string, sessionIndex int, body map[string]string) time.Time {
+	started := time.Now()
+	ui.PrintDebug(
+		"dev action %s request ts=%s session=%d%s",
+		action,
+		started.Format(time.RFC3339Nano),
+		sessionIndex,
+		formatDevActionDebugPayload(body),
+	)
+	return started
+}
+
+func debugDevActionResult(action string, sessionIndex int, started time.Time, respBody []byte, err error) {
+	elapsedMs := time.Since(started).Milliseconds()
+	now := time.Now().Format(time.RFC3339Nano)
+	if err != nil {
+		ui.PrintDebug(
+			"dev action %s error ts=%s session=%d duration_ms=%d error=%v",
+			action,
+			now,
+			sessionIndex,
+			elapsedMs,
+			err,
+		)
+		return
+	}
+	ui.PrintDebug(
+		"dev action %s ack ts=%s session=%d duration_ms=%d response=%s",
+		action,
+		now,
+		sessionIndex,
+		elapsedMs,
+		strings.TrimSpace(string(respBody)),
+	)
 }
 
 type externalTunnelInput struct {
@@ -856,7 +914,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	ui.PrintInfo("Installing dev build on device...")
 	ui.PrintDebug("install payload: app_url=%s bundle_id=%s", maskPresignedURL(installBody["app_url"]), installBody["bundle_id"])
+	installStarted := debugDevActionRequest("install", session.Index, installBody)
 	installRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", installBody)
+	debugDevActionResult("install", session.Index, installStarted, installRespBody, err)
 	if err != nil {
 		if isUserCanceled(err) {
 			return nil
@@ -890,7 +950,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 				launchPayload["packager_scheme"] = parsed.Scheme
 			}
 		}
+		launchStarted := debugDevActionRequest("launch", session.Index, launchPayload)
 		launchRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/launch", launchPayload)
+		debugDevActionResult("launch", session.Index, launchStarted, launchRespBody, err)
 		if err != nil {
 			if isUserCanceled(err) {
 				return nil
@@ -925,9 +987,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("hot reload started but deep link URL is empty")
 		}
 		ui.PrintInfo("Opening hot reload deep link...")
-		openURLRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", map[string]string{
+		openURLPayload := map[string]string{
 			"url": deepLinkURL,
-		})
+		}
+		openURLStarted := debugDevActionRequest("open_url", session.Index, openURLPayload)
+		openURLRespBody, err := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", openURLPayload)
+		debugDevActionResult("open_url", session.Index, openURLStarted, openURLRespBody, err)
 		if err != nil {
 			if isUserCanceled(err) {
 				return nil

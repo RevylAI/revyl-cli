@@ -13,6 +13,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/execution"
 )
 
 func newBuildUploadTestCommand() *cobra.Command {
@@ -24,7 +25,7 @@ func newBuildUploadTestCommand() *cobra.Command {
 func newWorkflowRunTestCommand() *cobra.Command {
 	cmd := newLeafCommand("run", runWorkflowExec)
 	cmd.Flags().Bool("open", false, "")
-	cmd.Flags().Int("timeout", 3600, "")
+	cmd.Flags().Int("timeout", execution.DefaultRunTimeoutSeconds, "")
 	cmd.Flags().Bool("dev", false, "")
 	return cmd
 }

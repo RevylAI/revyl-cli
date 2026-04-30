@@ -107,6 +107,41 @@ func WaitForMetroTunnel(
 		checkTunnelWebSocket,
 	}
 
+	return waitForDiagnosticChecks(ctx, localPort, tunnelURL, timeout, interval, checks, "Metro tunnel readiness")
+}
+
+// WaitForExpoMetroRelay waits until the public relay can serve the Expo Metro
+// status endpoint and a manifest whose bundle URLs no longer point at the
+// local Metro port.
+//
+// Expo dev clients fail with "There was a problem loading the project" if the
+// device opens the dev-client deep link before the relay can reach Metro or
+// before Expo has applied the relay URL rewriting. This check blocks that
+// launch until the externally-visible path is usable.
+func WaitForExpoMetroRelay(
+	ctx context.Context,
+	localPort int,
+	tunnelURL string,
+	timeout time.Duration,
+	interval time.Duration,
+) (*DiagnosticResult, error) {
+	checks := []diagnosticCheckFunc{
+		checkTunnelHTTP,
+		checkManifestURLs,
+	}
+
+	return waitForDiagnosticChecks(ctx, localPort, tunnelURL, timeout, interval, checks, "Expo relay readiness")
+}
+
+func waitForDiagnosticChecks(
+	ctx context.Context,
+	localPort int,
+	tunnelURL string,
+	timeout time.Duration,
+	interval time.Duration,
+	checks []diagnosticCheckFunc,
+	label string,
+) (*DiagnosticResult, error) {
 	deadline := time.Now().Add(timeout)
 	var lastResult *DiagnosticResult
 
@@ -119,8 +154,9 @@ func WaitForMetroTunnel(
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			return lastResult, fmt.Errorf(
-				"timed out after %s waiting for Metro tunnel readiness: %s",
+				"timed out after %s waiting for %s: %s",
 				timeout,
+				label,
 				formatFailedChecks(lastResult.Checks),
 			)
 		}

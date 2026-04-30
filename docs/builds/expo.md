@@ -13,6 +13,33 @@ Build an Expo dev client, upload it to Revyl, and run your first test.
 
 Build on your machine and upload the artifact directly.
 
+### Before you build: set the Expo URL scheme
+
+Expo dev-client hot reload needs a URL scheme baked into the native dev build.
+The scheme is the custom URL prefix for your app, such as `myapp-dev://`.
+Revyl uses that scheme to open the Expo dev client on the cloud device and
+connect it to Metro.
+
+If you use `app.json`, set `expo.scheme` before creating the dev build:
+
+```json
+{
+  "expo": {
+    "scheme": "myapp-dev"
+  }
+}
+```
+
+If you use `app.config.js` or `app.config.ts`, export the same `scheme` there
+and tell Revyl the value explicitly:
+
+```bash
+revyl init --provider expo --hotreload-app-scheme myapp-dev
+```
+
+Changing `scheme` is a native config change, so rebuild the dev client once
+after adding or changing it.
+
 ### iOS
 
 ```bash

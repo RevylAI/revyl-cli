@@ -12,6 +12,19 @@ import (
 	"github.com/revyl/cli/internal/testutil"
 )
 
+func TestResolveRunTimeoutUsesRunDefaultSeparateFromConfigDefault(t *testing.T) {
+	cfg := &config.ProjectConfig{
+		Defaults: config.Defaults{
+			Timeout: config.DefaultTimeoutSeconds,
+		},
+	}
+
+	got := resolveRunTimeout(nil, cfg, execution.DefaultRunTimeoutSeconds)
+	if got != execution.DefaultRunTimeoutSeconds {
+		t.Fatalf("resolveRunTimeout() = %d, want %d", got, execution.DefaultRunTimeoutSeconds)
+	}
+}
+
 func TestRunTestExec_UsesPollingMonitoringMode(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "test-key")
 	testutil.SetHomeDir(t, t.TempDir())
@@ -68,7 +81,7 @@ func TestRunTestExec_UsesPollingMonitoringMode(t *testing.T) {
 
 	cmd := newLeafCommand("run", runTestExec)
 	cmd.Flags().Bool("open", false, "")
-	cmd.Flags().Int("timeout", 3600, "")
+	cmd.Flags().Int("timeout", execution.DefaultRunTimeoutSeconds, "")
 	_ = cmd.Flags().Set("open", "false")
 
 	var runErr error
@@ -132,7 +145,7 @@ func TestRunWorkflowExec_UsesPollingMonitoringMode(t *testing.T) {
 
 	cmd := newLeafCommand("run", runWorkflowExec)
 	cmd.Flags().Bool("open", false, "")
-	cmd.Flags().Int("timeout", 3600, "")
+	cmd.Flags().Int("timeout", execution.DefaultRunTimeoutSeconds, "")
 	_ = cmd.Flags().Set("open", "false")
 
 	var runErr error

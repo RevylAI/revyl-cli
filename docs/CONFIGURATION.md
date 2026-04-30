@@ -51,7 +51,7 @@ hotreload:
 
 defaults:
   open_browser: true
-  timeout: 600
+  timeout: 1800
 
 last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 ```
@@ -110,7 +110,7 @@ Bare React Native does not require `app_scheme`. The device loads the JS bundle 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `open_browser` | `bool` | `true` | Auto-open browser for `test open`, `device start --open`, etc. |
-| `timeout` | `int` | `600` | Default timeout in seconds for device sessions and test runs |
+| `timeout` | `int` | `1800` | Default timeout in seconds for CLI/device sessions |
 
 ## Project Settings
 
@@ -118,7 +118,7 @@ Bare React Native does not require `app_scheme`. The device loads the JS bundle 
 revyl config path                   # Show config file location
 revyl config show                   # Display current configuration
 revyl config set open-browser false # Disable auto-opening browser
-revyl config set timeout 900        # Set default timeout
+revyl config set timeout 900        # Set default CLI/device timeout
 ```
 
 ## Environment Variable Overrides

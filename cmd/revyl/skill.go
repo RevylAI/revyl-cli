@@ -49,8 +49,9 @@ var skillCmd = &cobra.Command{
 Revyl ships embedded skills:
 - revyl-cli-dev-loop: agents run or attach to revyl dev, observe the app, and act through device commands
 - revyl-cli-create: agents create or refine stable Revyl tests from YAML, source, or successful flows
+- revyl-cli-auth-bypass-expo: optional Expo/Expo Router implementation guidance for test-only auth bypass deep links
 
-Additional compatibility skills remain available by exact name for existing users.
+Additional optional and compatibility skills remain available by exact name.
 
 EXAMPLES:
   revyl skill list
@@ -58,6 +59,7 @@ EXAMPLES:
   revyl skill install --cursor --force
   revyl skill install --codex --force
   revyl skill show --name revyl-cli-dev-loop
+  revyl skill install --name revyl-cli-auth-bypass-expo --force
   revyl skill export --name revyl-cli-create -o SKILL.md`,
 }
 
@@ -80,6 +82,7 @@ var skillShowCmd = &cobra.Command{
 
 EXAMPLES:
   revyl skill show --name revyl-cli-dev-loop
+  revyl skill show --name revyl-cli-auth-bypass-expo
   revyl skill show --name revyl-cli-create | pbcopy`,
 	Args: cobra.NoArgs,
 	RunE: runSkillShow,
@@ -132,7 +135,8 @@ EXAMPLES:
   revyl skill install --cursor --force
   revyl skill install --codex --force
   revyl skill install --name revyl-cli-dev-loop --cursor --force
-  revyl skill install --name revyl-cli-create --codex --force`,
+  revyl skill install --name revyl-cli-create --codex --force
+  revyl skill install --name revyl-cli-auth-bypass-expo --force`,
 	Args: cobra.NoArgs,
 	RunE: runSkillInstall,
 }
@@ -165,6 +169,9 @@ func runSkillList(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	fmt.Println("Install them with:")
 	fmt.Println("  revyl skill install --force")
+	fmt.Println()
+	fmt.Println("Optional by-name skills:")
+	fmt.Println("  revyl-cli-auth-bypass-expo - Implement test-only auth bypass deep links for Expo and Expo Router apps")
 	fmt.Println()
 	fmt.Println("Use a tool flag only when you need a specific target:")
 	fmt.Println("  revyl skill install --cursor --force")

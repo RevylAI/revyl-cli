@@ -6,7 +6,7 @@ This guide covers the full test authoring lifecycle: YAML-first creation, reusab
 
 1. **YAML-first CLI (recommended)** -- start from a local YAML file, validate it, create the remote test, and bootstrap `.revyl/config.yaml` automatically.
 2. **Scaffold first** -- create an empty or module-seeded remote test with `revyl test create`, sync the generated YAML into `.revyl/tests/`, then edit and push locally.
-3. **Dev loop to regression** -- use `revyl dev test create` after an exploratory session, then refine the synced YAML and push it back as a stable regression.
+3. **Session to regression** -- convert a completed exploratory device session with `revyl test create --from-session <session-id>`, then refine the synced YAML and push it back as a stable regression.
 
 ## Prerequisites
 
@@ -64,6 +64,18 @@ revyl test create smoke-login-ios --platform ios --module login  # Seed with a m
 ```
 
 Then edit `.revyl/tests/smoke-login-ios.yaml` and push.
+
+---
+
+## Session to Regression
+
+```bash
+revyl device report --session-id <session-id> --json
+revyl test create --from-session <session-id> smoke-login-ios --app <app-id>
+revyl test run smoke-login-ios
+```
+
+If the session is linked to an app or the project has a default app configured, `--app` can be omitted. The test name can also be omitted; Revyl will use the compiled session title.
 
 ---
 

@@ -18,13 +18,18 @@ Use this as the default Revyl skill when workflows should be expressed as `revyl
 1. Prefer explicit command sequences.
 2. Keep secrets in env vars or test variables.
 3. Keep steps deterministic and avoid hidden assumptions.
-4. Use target-style action phrasing in steps (for example "Tap Sign In button", "Type in Email input").
-5. If the user asks for MCP tool orchestration, switch to the `revyl-mcp` skill family.
 
 ## Baseline Checks
 
 ```bash
+export PATH="$HOME/.revyl/bin:$HOME/.local/bin:$PATH"
 revyl auth status
 revyl version
 revyl test list
+```
+
+For headless agents, set `REVYL_API_KEY` and run:
+
+```bash
+revyl auth login --api-key "$REVYL_API_KEY"
 ```

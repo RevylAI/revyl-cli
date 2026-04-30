@@ -17,4 +17,4 @@ build:
 
 defaults:
   open_browser: true
-  timeout: 600                       # seconds
+  timeout: 1800                      # seconds

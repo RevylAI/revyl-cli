@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.18-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.19-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -67,6 +67,7 @@ YAML-first creation can bootstrap local state without a pre-existing `.revyl/con
 
 ```bash
 revyl test create login-flow --from-file ./login-flow.yaml
+revyl test create --from-session <session-id> login-flow --app <app-id>
 ```
 
 See [Creating Tests](docs/TEST_CREATION.md) for the full authoring workflow, YAML examples, module imports, and troubleshooting.
@@ -86,6 +87,7 @@ revyl skill list
 revyl skill install --force                            # Install both first-class skills
 revyl skill install --name revyl-cli-dev-loop --force  # Dev loop + device exploration
 revyl skill install --name revyl-cli-create --force    # Stable YAML test authoring
+revyl skill install --name revyl-cli-auth-bypass-expo --force # Expo auth bypass implementation
 revyl skill install --cursor --force                   # Force Cursor if auto-detect is ambiguous
 revyl skill install --codex --force                    # Force Codex if auto-detect is ambiguous
 revyl skill install --global --force                   # Install for all projects
@@ -97,6 +99,8 @@ Use `revyl-cli-dev-loop` when you want the agent to start or attach to a generic
 Revyl dev loop, interact with the device, and verify with screenshots or
 reports. Use `revyl-cli-create` when you want the agent to author or refine a
 stable Revyl YAML test, validate it, push it, run it, and iterate from reports.
+Use `revyl-cli-auth-bypass-expo` by explicit name when the agent should add a
+test-only auth-bypass deep link to an Expo or Expo Router app.
 
 Example prompts:
 
@@ -106,6 +110,10 @@ Use the revyl-cli-dev-loop skill. Detect the app stack, start or attach to the R
 
 ```text
 Use the revyl-cli-create skill. Create a checkout smoke test from this flow, validate it, push it, and run it once.
+```
+
+```text
+Use the revyl-cli-auth-bypass-expo skill. Implement a test-only auth bypass deep link in this Expo Router app using Revyl launch vars.
 ```
 
 ## What You Can Do

@@ -189,6 +189,10 @@ If the app closes and **doesn't come back**, check the Metro/Expo terminal outpu
 
 The CLI reads the URL scheme from `app.json` at `expo.scheme`. If the project uses `app.config.js` or `app.config.ts` instead, the CLI cannot auto-detect the scheme because evaluating arbitrary JavaScript is out of scope.
 
+The scheme is the custom URL prefix baked into the Expo dev client, such as
+`myapp-dev://`. Revyl uses it to open the installed dev client on the cloud
+device and connect it to Metro for hot reload.
+
 Provide the scheme explicitly during init:
 
 ```bash
@@ -203,6 +207,9 @@ hotreload:
     expo:
       app_scheme: myapp
 ```
+
+If you add or change the scheme, rebuild the Expo dev client once. After that,
+JS/TS changes can hot reload through `revyl dev` without another build.
 
 ### Custom dev server port
 

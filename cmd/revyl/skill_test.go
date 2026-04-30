@@ -59,8 +59,8 @@ func TestResolveInstallSkillsBothFamilies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveInstallSkills(nil) error = %v", err)
 		}
-		if len(selected) != 8 {
-			t.Fatalf("expected 8 skills when both families selected, got %d", len(selected))
+		if len(selected) != 9 {
+			t.Fatalf("expected 9 skills when both families selected, got %d", len(selected))
 		}
 		var cliCount, mcpCount int
 		for _, sk := range selected {
@@ -98,6 +98,43 @@ func TestResolveInstallSkillsByName(t *testing.T) {
 	})
 }
 
+func TestResolveInstallSkillsByNameIncludesAuthBypassExpo(t *testing.T) {
+	withSkillFamilyFlags(false, false, func() {
+		selected, err := resolveInstallSkills([]string{"revyl-cli-auth-bypass-expo"})
+		if err != nil {
+			t.Fatalf("resolveInstallSkills(name) error = %v", err)
+		}
+		if len(selected) != 1 || selected[0].Name != "revyl-cli-auth-bypass-expo" {
+			t.Fatalf("selected = %#v, want only revyl-cli-auth-bypass-expo", selected)
+		}
+		if !strings.Contains(selected[0].Content, "Expo Router") {
+			t.Fatal("expected auth bypass skill content to mention Expo Router")
+		}
+	})
+}
+
+func TestInstallSelectedAuthBypassExpoSkill(t *testing.T) {
+	workDir := t.TempDir()
+	target := filepath.Join(workDir, ".codex", "skills")
+
+	selected, err := resolveInstallSkills([]string{"revyl-cli-auth-bypass-expo"})
+	if err != nil {
+		t.Fatalf("resolveInstallSkills(name) error = %v", err)
+	}
+	if err := installSkillsToTargets([]string{target}, selected, true); err != nil {
+		t.Fatalf("installSkillsToTargets() error = %v", err)
+	}
+
+	path := filepath.Join(target, "revyl-cli-auth-bypass-expo", "SKILL.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected installed skill at %s: %v", path, err)
+	}
+	if !strings.Contains(string(data), "Expo Router") {
+		t.Fatalf("installed skill content did not mention Expo Router")
+	}
+}
+
 func TestInstallPublicSkillsForToolsWritesOnlyFirstClassSkills(t *testing.T) {
 	workDir := t.TempDir()
 	withWorkingDir(t, workDir)
@@ -116,5 +153,10 @@ func TestInstallPublicSkillsForToolsWritesOnlyFirstClassSkills(t *testing.T) {
 	compatPath := filepath.Join(workDir, ".cursor", "skills", "revyl-cli-analyze", "SKILL.md")
 	if _, err := os.Stat(compatPath); !os.IsNotExist(err) {
 		t.Fatalf("expected compatibility skill not to be installed by default, stat err = %v", err)
+	}
+
+	authBypassPath := filepath.Join(workDir, ".cursor", "skills", "revyl-cli-auth-bypass-expo", "SKILL.md")
+	if _, err := os.Stat(authBypassPath); !os.IsNotExist(err) {
+		t.Fatalf("expected auth bypass skill not to be installed by default, stat err = %v", err)
 	}
 }

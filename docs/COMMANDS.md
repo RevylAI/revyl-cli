@@ -49,7 +49,7 @@ revyl config show                                 # Show current project setting
 revyl config show --json                          # JSON for scripting
 revyl config edit                                 # Open in $EDITOR / $VISUAL / vi
 revyl config set open-browser false               # Toggle auto-open behavior
-revyl config set timeout 900                      # Default test timeout (seconds)
+revyl config set timeout 900                      # Default CLI/device timeout (seconds)
 revyl config set hotreload.provider expo          # Active hot reload provider
 revyl config set hotreload.app-scheme myapp       # Deep link scheme for Expo
 revyl config set hotreload.port 8081              # Dev server port
@@ -76,7 +76,7 @@ revyl workflow run smoke-tests --build    # Build then run workflow
 --build-id <id>   # Run against a specific build version
 --no-wait         # Queue and exit without waiting for results
 --verbose / -v    # Show step-by-step execution progress
---timeout 600     # Max execution time in seconds
+--timeout 3600    # Max execution time in seconds
 ```
 
 ## Dev Loop
@@ -387,6 +387,7 @@ For the end-to-end CLI authoring workflow, see [Creating Tests](tests/creating-t
 ```bash
 # Test lifecycle
 revyl test create login-flow --platform android   # Create + auto-sync YAML to .revyl/tests/
+revyl test create --from-session <session-id> login-flow --app <app-id>
 revyl test run login-flow                          # Run a test
 revyl test open login-flow                         # Open test in browser editor
 revyl test rename login-flow new-login-flow        # Rename while preserving history
@@ -420,6 +421,7 @@ revyl test restore login-flow                      # Restore to a previous versi
 
 # YAML-first bootstrap (no existing .revyl/config.yaml required)
 revyl test create login-flow --from-file ./login-flow.yaml
+revyl test create --from-session <session-id> login-flow --app <app-id>
 revyl test push login-flow --force
 
 # Per-command flags
@@ -775,6 +777,7 @@ revyl skill list                                      # List first-class skills
 revyl skill install --force                          # Install both first-class skills
 revyl skill install --name revyl-cli-dev-loop --force # Dev loop + device exploration
 revyl skill install --name revyl-cli-create --force   # Stable YAML test authoring
+revyl skill install --name revyl-cli-auth-bypass-expo --force # Expo auth bypass implementation
 revyl skill install --cursor --force                 # Force Cursor if auto-detect is ambiguous
 revyl skill install --codex --force                  # Force Codex if auto-detect is ambiguous
 revyl skill show --name revyl-cli-dev-loop           # Print a named skill to stdout

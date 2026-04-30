@@ -134,6 +134,30 @@ func TestWithDevStartLaunchVarsCopiesLaunchVarsIntoStartOptions(t *testing.T) {
 	}
 }
 
+func TestFormatDevActionDebugPayloadShowsOpenURL(t *testing.T) {
+	got := formatDevActionDebugPayload(map[string]string{
+		"url": "myapp://expo-development-client/?url=https%3A%2F%2Frelay.example",
+	})
+
+	if !strings.Contains(got, "url=myapp://expo-development-client/?url=https%3A%2F%2Frelay.example") {
+		t.Fatalf("payload = %q, want full open_url value", got)
+	}
+}
+
+func TestFormatDevActionDebugPayloadMasksInstallAppURL(t *testing.T) {
+	got := formatDevActionDebugPayload(map[string]string{
+		"app_url":   "https://storage.example/app.ipa?X-Amz-Signature=secret",
+		"bundle_id": "com.example.app",
+	})
+
+	if strings.Contains(got, "secret") {
+		t.Fatalf("payload = %q, leaked presigned query", got)
+	}
+	if !strings.Contains(got, "bundle_id=com.example.app") {
+		t.Fatalf("payload = %q, want bundle id", got)
+	}
+}
+
 func TestDevStartLaunchVarsReachSessionStartOptions(t *testing.T) {
 	orig := devStartLaunchVars
 	t.Cleanup(func() { devStartLaunchVars = orig })
