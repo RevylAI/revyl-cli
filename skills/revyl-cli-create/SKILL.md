@@ -109,12 +109,12 @@ Use these block types:
 - Local YAML variables go under `test.variables` and are referenced as `{{variable-name}}` or `{{variable_name}}`.
 - Extracted values and code execution output become variables when the block has `variable_name`.
 - Test-scoped variables can be managed after creation with `revyl test var set/list/get/delete`.
-- Org-level secrets use `revyl global var set name=value` and are referenced as `{{global.name}}`.
+- Org-level secrets use `revyl global var set name=value --secret` and are referenced as `{{global.name}}`.
 - Define or extract variables before use. Never hardcode secrets in reusable YAML or modules.
 
 ```bash
 revyl test var set <test-name> email=test@example.com
-revyl global var set login-password='secret'
+revyl global var set login-password='secret' --secret
 revyl global launch-var create API_URL=https://staging.example.com
 ```
 

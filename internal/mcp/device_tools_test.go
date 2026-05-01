@@ -359,12 +359,9 @@ func TestDevLoopActionGuard_DoesNotGateActionsWhenActive(t *testing.T) {
 	now := time.Now()
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/execution/device-proxy/wf-1/resolve_target":
+		case "/api/v1/execution/device-proxy/wf-1/tap_target":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"found":true,"x":120,"y":240}`))
-		case "/api/v1/execution/device-proxy/wf-1/tap":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"success":true}`))
+			_, _ = w.Write([]byte(`{"success":true,"found":true,"x":120,"y":240,"latency_ms":42.5}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -403,16 +400,65 @@ func TestDevLoopActionGuard_DoesNotGateActionsWhenActive(t *testing.T) {
 	}
 }
 
+func TestHandleDeviceTap_CoordinatesUseTapEndpoint(t *testing.T) {
+	now := time.Now()
+	var sawTap bool
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/execution/device-proxy/wf-coords/tap":
+			sawTap = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true}`))
+		case "/api/v1/execution/device-proxy/wf-coords/tap_target":
+			t.Fatalf("coordinate tap should not call tap_target")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-coords",
+				WorkflowRunID: "wf-coords",
+				WorkerBaseURL: "https://worker.example",
+				Platform:      "ios",
+				StartedAt:     now,
+				LastActivity:  now,
+				IdleTimeout:   5 * time.Minute,
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+	srv := &Server{sessionMgr: mgr}
+	x, y := 120, 240
+
+	_, output, err := srv.handleDeviceTap(context.Background(), nil, DeviceTapInput{X: &x, Y: &y})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !output.Success {
+		t.Fatalf("expected coordinate tap success, got: %+v", output)
+	}
+	if output.X != 120 || output.Y != 240 {
+		t.Fatalf("coords = (%d, %d), want (120, 240)", output.X, output.Y)
+	}
+	if !sawTap {
+		t.Fatal("expected /tap endpoint to be called")
+	}
+}
+
 func TestDevLoopActionGuard_InactiveDevLoopDoesNotGateActions(t *testing.T) {
 	now := time.Now()
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/execution/device-proxy/wf-3/resolve_target":
+		case "/api/v1/execution/device-proxy/wf-3/tap_target":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"found":true,"x":120,"y":240}`))
-		case "/api/v1/execution/device-proxy/wf-3/tap":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"success":true}`))
+			_, _ = w.Write([]byte(`{"success":true,"found":true,"x":120,"y":240,"latency_ms":42.5}`))
 		default:
 			http.NotFound(w, r)
 		}

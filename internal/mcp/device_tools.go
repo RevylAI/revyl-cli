@@ -925,12 +925,68 @@ type DeviceTapOutput struct {
 	NextSteps []NextStep `json:"next_steps,omitempty"`
 }
 
+type workerTapTargetResponse struct {
+	Success   bool    `json:"success"`
+	Found     bool    `json:"found"`
+	X         int     `json:"x"`
+	Y         int     `json:"y"`
+	LatencyMs float64 `json:"latency_ms"`
+	Error     string  `json:"error,omitempty"`
+}
+
 func (s *Server) handleDeviceTap(ctx context.Context, req *mcp.CallToolRequest, input DeviceTapInput) (*mcp.CallToolResult, DeviceTapOutput, error) {
 	start := time.Now()
 	sidx := -1
 	if input.SessionIndex != nil {
 		sidx = *input.SessionIndex
 	}
+	hasTarget := input.Target != ""
+	hasCoords := input.X != nil && input.Y != nil
+	if hasTarget && hasCoords {
+		err := fmt.Errorf("provide either target OR x+y, not both")
+		return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	if !hasTarget && !hasCoords {
+		err := fmt.Errorf("provide target (element description) or x+y (pixel coordinates)")
+		return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	if (input.X != nil && input.Y == nil) || (input.X == nil && input.Y != nil) {
+		err := fmt.Errorf("both x and y are required when using coordinates")
+		return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+
+	if hasTarget {
+		session, err := s.resolveSessionWithHydration(ctx, sidx)
+		if err != nil {
+			return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		}
+		respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/tap_target", map[string]string{
+			"target":     input.Target,
+			"session_id": session.SessionID,
+		})
+		latency := float64(time.Since(start).Milliseconds())
+		if err != nil {
+			return nil, DeviceTapOutput{Success: false, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		}
+		var resp workerTapTargetResponse
+		if err := json.Unmarshal(respBody, &resp); err != nil {
+			return nil, DeviceTapOutput{Success: false, LatencyMs: latency, Error: fmt.Sprintf("worker tap_target returned invalid JSON: %v", err), NextSteps: errorNextSteps(err)}, nil
+		}
+		if !resp.Success {
+			err := fmt.Errorf("%s", resp.Error)
+			if resp.Error == "" {
+				err = fmt.Errorf("tap_target failed")
+			}
+			return nil, DeviceTapOutput{Success: false, X: resp.X, Y: resp.Y, LatencyMs: latency, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+		}
+		if resp.LatencyMs > 0 {
+			latency = resp.LatencyMs
+		}
+		return nil, DeviceTapOutput{
+			Success: true, X: resp.X, Y: resp.Y, LatencyMs: latency,
+		}, nil
+	}
+
 	rc, err := s.resolveCoords(ctx, input.Target, input.X, input.Y, sidx)
 	if err != nil {
 		return nil, DeviceTapOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil

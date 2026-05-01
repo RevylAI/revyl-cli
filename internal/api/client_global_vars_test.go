@@ -70,7 +70,7 @@ func TestAddGlobalVariable(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := NewClientWithBaseURL("test-key", server.URL)
-	resp, err := client.AddGlobalVariable(context.Background(), "my-var", "my-value")
+	resp, err := client.AddGlobalVariable(context.Background(), "my-var", "my-value", GlobalVariableWriteOptions{})
 	if err != nil {
 		t.Fatalf("AddGlobalVariable() error = %v", err)
 	}
@@ -82,6 +82,34 @@ func TestAddGlobalVariable(t *testing.T) {
 	}
 	if seenBody["variable_value"] != "my-value" {
 		t.Fatalf("expected body variable_value='my-value', got %v", seenBody["variable_value"])
+	}
+	if _, ok := seenBody["is_secret"]; ok {
+		t.Fatalf("expected body to omit is_secret, got %v", seenBody["is_secret"])
+	}
+}
+
+func TestAddGlobalVariableWithSecretOption(t *testing.T) {
+	var seenBody map[string]interface{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&seenBody)
+		w.Header().Set("Content-Type", "application/json")
+		resp := GlobalVariableResponse{
+			Message: "created",
+			Result:  newGlobalVariableRow("33333333-3333-3333-3333-333333333333", "my-var", nil),
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	isSecret := true
+	_, err := client.AddGlobalVariable(context.Background(), "my-var", "my-value", GlobalVariableWriteOptions{IsSecret: &isSecret})
+	if err != nil {
+		t.Fatalf("AddGlobalVariable() error = %v", err)
+	}
+	if seenBody["is_secret"] != true {
+		t.Fatalf("expected body is_secret=true, got %v", seenBody["is_secret"])
 	}
 }
 
@@ -106,7 +134,8 @@ func TestUpdateGlobalVariable(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := NewClientWithBaseURL("test-key", server.URL)
-	resp, err := client.UpdateGlobalVariable(context.Background(), "11111111-1111-1111-1111-111111111111", "my-var", "new-value")
+	newValue := "new-value"
+	resp, err := client.UpdateGlobalVariable(context.Background(), "11111111-1111-1111-1111-111111111111", "my-var", &newValue, GlobalVariableWriteOptions{})
 	if err != nil {
 		t.Fatalf("UpdateGlobalVariable() error = %v", err)
 	}
@@ -116,8 +145,65 @@ func TestUpdateGlobalVariable(t *testing.T) {
 	if seenBody["variable_value"] != "new-value" {
 		t.Fatalf("expected body variable_value='new-value', got %v", seenBody["variable_value"])
 	}
+	if _, ok := seenBody["is_secret"]; ok {
+		t.Fatalf("expected body to omit is_secret, got %v", seenBody["is_secret"])
+	}
 	if resp.Result.VariableName != "my-var" {
 		t.Fatalf("expected 'my-var', got %q", resp.Result.VariableName)
+	}
+}
+
+func TestUpdateGlobalVariableWithNoSecretOption(t *testing.T) {
+	var seenBody map[string]interface{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&seenBody)
+		w.Header().Set("Content-Type", "application/json")
+		resp := GlobalVariableResponse{
+			Message: "updated",
+			Result:  newGlobalVariableRow("11111111-1111-1111-1111-111111111111", "my-var", strPtr("new-value")),
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	isSecret := false
+	newValue := "new-value"
+	_, err := client.UpdateGlobalVariable(context.Background(), "11111111-1111-1111-1111-111111111111", "my-var", &newValue, GlobalVariableWriteOptions{IsSecret: &isSecret})
+	if err != nil {
+		t.Fatalf("UpdateGlobalVariable() error = %v", err)
+	}
+	if seenBody["is_secret"] != false {
+		t.Fatalf("expected body is_secret=false, got %v", seenBody["is_secret"])
+	}
+}
+
+func TestUpdateGlobalVariableOmitValue(t *testing.T) {
+	var seenBody map[string]interface{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&seenBody)
+		w.Header().Set("Content-Type", "application/json")
+		resp := GlobalVariableResponse{
+			Message: "updated",
+			Result:  newGlobalVariableRow("11111111-1111-1111-1111-111111111111", "my-var", nil),
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	isSecret := true
+	_, err := client.UpdateGlobalVariable(context.Background(), "11111111-1111-1111-1111-111111111111", "my-var", nil, GlobalVariableWriteOptions{IsSecret: &isSecret})
+	if err != nil {
+		t.Fatalf("UpdateGlobalVariable() error = %v", err)
+	}
+	if _, ok := seenBody["variable_value"]; ok {
+		t.Fatalf("expected body to omit variable_value, got %v", seenBody["variable_value"])
+	}
+	if seenBody["is_secret"] != true {
+		t.Fatalf("expected body is_secret=true, got %v", seenBody["is_secret"])
 	}
 }
 
@@ -153,7 +239,7 @@ func TestAddGlobalVariableDuplicateReturnsError(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := NewClientWithBaseURL("test-key", server.URL)
-	_, err := client.AddGlobalVariable(context.Background(), "my-var", "value")
+	_, err := client.AddGlobalVariable(context.Background(), "my-var", "value", GlobalVariableWriteOptions{})
 	if err == nil {
 		t.Fatal("expected error on 409, got nil")
 	}

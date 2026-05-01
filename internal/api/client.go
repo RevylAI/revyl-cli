@@ -4983,11 +4983,19 @@ func (c *Client) ListGlobalVariables(ctx context.Context) (*GlobalVariablesRespo
 	return &result, nil
 }
 
+// GlobalVariableWriteOptions controls optional global variable write fields.
+type GlobalVariableWriteOptions struct {
+	IsSecret *bool
+}
+
 // AddGlobalVariable creates a new global variable for the authenticated user's org.
-func (c *Client) AddGlobalVariable(ctx context.Context, name, value string) (*GlobalVariableResponse, error) {
+func (c *Client) AddGlobalVariable(ctx context.Context, name, value string, opts GlobalVariableWriteOptions) (*GlobalVariableResponse, error) {
 	body := map[string]interface{}{
 		"variable_name":  name,
 		"variable_value": value,
+	}
+	if opts.IsSecret != nil {
+		body["is_secret"] = *opts.IsSecret
 	}
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/variables/global", body)
 	if err != nil {
@@ -5003,10 +5011,15 @@ func (c *Client) AddGlobalVariable(ctx context.Context, name, value string) (*Gl
 }
 
 // UpdateGlobalVariable updates an existing global variable by its UUID.
-func (c *Client) UpdateGlobalVariable(ctx context.Context, variableID, name, value string) (*GlobalVariableResponse, error) {
+func (c *Client) UpdateGlobalVariable(ctx context.Context, variableID, name string, value *string, opts GlobalVariableWriteOptions) (*GlobalVariableResponse, error) {
 	body := map[string]interface{}{
-		"variable_name":  name,
-		"variable_value": value,
+		"variable_name": name,
+	}
+	if value != nil {
+		body["variable_value"] = *value
+	}
+	if opts.IsSecret != nil {
+		body["is_secret"] = *opts.IsSecret
 	}
 	path := fmt.Sprintf("/api/v1/variables/global/%s", variableID)
 	resp, err := c.doRequest(ctx, "PUT", path, body)

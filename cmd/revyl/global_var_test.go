@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/revyl/cli/internal/api"
+	"github.com/spf13/cobra"
 )
 
 // newGlobalVarMockServer creates a test server handling global variable endpoints.
@@ -91,7 +93,7 @@ func TestGlobalVarSetCreatesNew(t *testing.T) {
 		t.Fatalf("expected 0 vars, got %d", len(resp.Result))
 	}
 
-	addResp, err := client.AddGlobalVariable(t.Context(), "new-var", "new-value")
+	addResp, err := client.AddGlobalVariable(t.Context(), "new-var", "new-value", api.GlobalVariableWriteOptions{})
 	if err != nil {
 		t.Fatalf("add error: %v", err)
 	}
@@ -119,7 +121,8 @@ func TestGlobalVarSetUpdatesExisting(t *testing.T) {
 	}
 
 	// Update should succeed
-	updateResp, err := client.UpdateGlobalVariable(t.Context(), "11111111-1111-1111-1111-111111111111", "my-var", "new-value")
+	newValue := "new-value"
+	updateResp, err := client.UpdateGlobalVariable(t.Context(), "11111111-1111-1111-1111-111111111111", "my-var", &newValue, api.GlobalVariableWriteOptions{})
 	if err != nil {
 		t.Fatalf("update error: %v", err)
 	}
@@ -170,9 +173,52 @@ func TestGlobalVarAddDuplicateReturns409(t *testing.T) {
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
 
-	_, err := client.AddGlobalVariable(t.Context(), "my-var", "new-value")
+	_, err := client.AddGlobalVariable(t.Context(), "my-var", "new-value", api.GlobalVariableWriteOptions{})
 	if err == nil {
 		t.Fatal("expected 409 error on duplicate, got nil")
+	}
+}
+
+func TestRunGlobalVarSetSecretCreatesSecret(t *testing.T) {
+	var seenBody map[string]interface{}
+	server := newCapturingGlobalVarServer(t, nil, &seenBody)
+	t.Cleanup(server.Close)
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	restore := stubGlobalVarClient(t, client)
+	t.Cleanup(restore)
+	t.Cleanup(resetGlobalVarSetFlags)
+
+	cmd := newGlobalVarSetTestCommand()
+	if err := cmd.Flags().Set("secret", "true"); err != nil {
+		t.Fatalf("set secret flag: %v", err)
+	}
+
+	if err := runGlobalVarSet(cmd, []string{"api-token=secret-value"}); err != nil {
+		t.Fatalf("runGlobalVarSet() error = %v", err)
+	}
+	if seenBody["is_secret"] != true {
+		t.Fatalf("expected is_secret=true, got %v", seenBody["is_secret"])
+	}
+}
+
+func TestRunGlobalVarSetPreservesExistingSecret(t *testing.T) {
+	var seenBody map[string]interface{}
+	isSecret := true
+	existing := newGlobalVariableRow(t, "11111111-1111-1111-1111-111111111111", "api-token", nil)
+	existing.IsSecret = &isSecret
+	server := newCapturingGlobalVarServer(t, []api.GlobalVariableRow{existing}, &seenBody)
+	t.Cleanup(server.Close)
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	restore := stubGlobalVarClient(t, client)
+	t.Cleanup(restore)
+	t.Cleanup(resetGlobalVarSetFlags)
+
+	cmd := newGlobalVarSetTestCommand()
+	if err := runGlobalVarSet(cmd, []string{"api-token=new-secret-value"}); err != nil {
+		t.Fatalf("runGlobalVarSet() error = %v", err)
+	}
+	if seenBody["is_secret"] != true {
+		t.Fatalf("expected is_secret=true for existing secret update, got %v", seenBody["is_secret"])
 	}
 }
 
@@ -187,5 +233,124 @@ func newGlobalVariableRow(t *testing.T, id, name string, value *string) api.Glob
 		VariableValue: value,
 		CreatedAt:     timestamp,
 		UpdatedAt:     timestamp,
+	}
+}
+
+func newCapturingGlobalVarServer(t *testing.T, vars []api.GlobalVariableRow, seenBody *map[string]interface{}) *httptest.Server {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/variables/global", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			json.NewEncoder(w).Encode(api.GlobalVariablesResponse{Message: "ok", Result: vars})
+		case http.MethodPost:
+			json.NewDecoder(r.Body).Decode(seenBody)
+			name, _ := (*seenBody)["variable_name"].(string)
+			json.NewEncoder(w).Encode(api.GlobalVariableResponse{
+				Message: "created",
+				Result:  newGlobalVariableRow(t, "33333333-3333-3333-3333-333333333333", name, nil),
+			})
+		default:
+			w.WriteHeader(405)
+		}
+	})
+	mux.HandleFunc("/api/v1/variables/global/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPut {
+			w.WriteHeader(405)
+			return
+		}
+		json.NewDecoder(r.Body).Decode(seenBody)
+		name, _ := (*seenBody)["variable_name"].(string)
+		json.NewEncoder(w).Encode(api.GlobalVariableResponse{
+			Message: "updated",
+			Result:  newGlobalVariableRow(t, "11111111-1111-1111-1111-111111111111", name, nil),
+		})
+	})
+	return httptest.NewServer(mux)
+}
+
+func newGlobalVarSetTestCommand() *cobra.Command {
+	resetGlobalVarSetFlags()
+	cmd := &cobra.Command{Use: "set"}
+	cmd.SetContext(context.Background())
+	cmd.Flags().BoolVar(&globalVarSetSecret, "secret", false, "")
+	cmd.Flags().BoolVar(&globalVarSetNoSecret, "no-secret", false, "")
+	return cmd
+}
+
+func stubGlobalVarClient(t *testing.T, client *api.Client) func() {
+	t.Helper()
+	original := globalVarSetupClient
+	globalVarSetupClient = func(cmd *cobra.Command) (*api.Client, error) {
+		return client, nil
+	}
+	return func() {
+		globalVarSetupClient = original
+	}
+}
+
+func resetGlobalVarSetFlags() {
+	globalVarSetSecret = false
+	globalVarSetNoSecret = false
+}
+
+func TestGlobalVarWriteOptionsPreservesExistingSecret(t *testing.T) {
+	t.Cleanup(resetGlobalVarSetFlags)
+	cmd := newGlobalVarSetTestCommand()
+	isSecret := true
+	existing := newGlobalVariableRow(t, "11111111-1111-1111-1111-111111111111", "my-var", nil)
+	existing.IsSecret = &isSecret
+
+	opts, err := globalVarWriteOptions(cmd, &existing)
+	if err != nil {
+		t.Fatalf("globalVarWriteOptions() error = %v", err)
+	}
+	if opts.IsSecret == nil || !*opts.IsSecret {
+		t.Fatalf("expected IsSecret=true for existing secret, got %#v", opts.IsSecret)
+	}
+}
+
+func TestGlobalVarWriteOptionsRejectsConflictingFlags(t *testing.T) {
+	t.Cleanup(resetGlobalVarSetFlags)
+	cmd := newGlobalVarSetTestCommand()
+	if err := cmd.Flags().Set("secret", "true"); err != nil {
+		t.Fatalf("set secret flag: %v", err)
+	}
+	if err := cmd.Flags().Set("no-secret", "true"); err != nil {
+		t.Fatalf("set no-secret flag: %v", err)
+	}
+
+	_, err := globalVarWriteOptions(cmd, nil)
+	if err == nil {
+		t.Fatal("expected conflicting flag error")
+	}
+}
+
+func TestGlobalVarWriteOptionsNoSecretSendsFalse(t *testing.T) {
+	t.Cleanup(resetGlobalVarSetFlags)
+	cmd := newGlobalVarSetTestCommand()
+	if err := cmd.Flags().Set("no-secret", "true"); err != nil {
+		t.Fatalf("set no-secret flag: %v", err)
+	}
+
+	opts, err := globalVarWriteOptions(cmd, nil)
+	if err != nil {
+		t.Fatalf("globalVarWriteOptions() error = %v", err)
+	}
+	if opts.IsSecret == nil || *opts.IsSecret {
+		t.Fatalf("expected IsSecret=false for --no-secret, got %#v", opts.IsSecret)
+	}
+}
+
+func TestFormatGlobalVarValueMasksSecrets(t *testing.T) {
+	isSecret := true
+	row := newGlobalVariableRow(t, "11111111-1111-1111-1111-111111111111", "api-token", nil)
+	row.IsSecret = &isSecret
+
+	if got := formatGlobalVarValue(row); got != globalVarSecretMask {
+		t.Fatalf("formatGlobalVarValue() = %q, want %q", got, globalVarSecretMask)
 	}
 }

@@ -242,6 +242,7 @@ type hubModel struct {
 	varsLoading   bool
 	selectedVar   *VariableItem
 	varIsCreating bool
+	varIsSecret   bool
 	varEditField  int // 0=name, 1=value
 	varNameInput  textinput.Model
 	varValueInput textinput.Model

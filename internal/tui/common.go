@@ -633,9 +633,10 @@ type FileDeletedMsg struct {
 
 // VariableItem represents a global variable for the library Variables tab.
 type VariableItem struct {
-	ID    string
-	Name  string
-	Value string
+	ID       string
+	Name     string
+	Value    string
+	IsSecret bool
 }
 
 // VariableListMsg carries the fetched global variable list.

@@ -142,6 +142,7 @@ type ActionResult struct {
 	Y          int         `json:"y"`
 	Target     string      `json:"target,omitempty"`
 	Success    bool        `json:"success"`
+	Error      string      `json:"error,omitempty"`
 	LatencyMs  json.Number `json:"latency_ms,omitempty"`
 	DurationMs int         `json:"duration_ms,omitempty"`
 	Text       string      `json:"text,omitempty"`
@@ -156,6 +157,10 @@ type ActionResult struct {
 type workerActionResponseFull struct {
 	Success   *bool       `json:"success"`
 	LatencyMs json.Number `json:"latency_ms"`
+	X         *int        `json:"x"`
+	Y         *int        `json:"y"`
+	Target    string      `json:"target,omitempty"`
+	Error     string      `json:"error,omitempty"`
 }
 
 // buildActionResult creates an ActionResult by merging locally-known fields
@@ -176,6 +181,16 @@ func buildActionResult(action string, x, y int, target string, workerBody []byte
 			result.Success = *wr.Success
 		}
 		result.LatencyMs = wr.LatencyMs
+		if wr.X != nil {
+			result.X = *wr.X
+		}
+		if wr.Y != nil {
+			result.Y = *wr.Y
+		}
+		if wr.Target != "" {
+			result.Target = wr.Target
+		}
+		result.Error = wr.Error
 	}
 	return result
 }
@@ -815,11 +830,40 @@ var deviceTapCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		target, _ := cmd.Flags().GetString("target")
+		xChanged := cmd.Flags().Changed("x")
+		yChanged := cmd.Flags().Changed("y")
+		if target != "" {
+			if xChanged || yChanged {
+				return fmt.Errorf("provide --target OR --x/--y, not both")
+			}
+			respBody, err := mgr.WorkerRequestForSession(
+				cmd.Context(),
+				session.Index,
+				"/tap_target",
+				map[string]interface{}{
+					"target":     target,
+					"session_id": session.SessionID,
+				},
+			)
+			if err != nil {
+				return err
+			}
+			result := buildActionResult("tap", 0, 0, target, respBody)
+			if !result.Success {
+				if result.Error != "" {
+					return fmt.Errorf("%s", result.Error)
+				}
+				return fmt.Errorf("tap_target failed")
+			}
+			jsonOrPrint(cmd, result, fmt.Sprintf("Tapped (%d, %d)", result.X, result.Y))
+			return nil
+		}
+
 		x, y, err := resolveTargetOrCoords(cmd, mgr, session.Index)
 		if err != nil {
 			return err
 		}
-		target, _ := cmd.Flags().GetString("target")
 		body := map[string]interface{}{"x": x, "y": y}
 		if target != "" {
 			body["target"] = target

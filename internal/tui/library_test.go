@@ -277,6 +277,107 @@ func TestLibraryVariablesEditPrefillsExistingValues(t *testing.T) {
 	}
 }
 
+func TestLibraryVariablesMaskSecrets(t *testing.T) {
+	m := newLibraryHubModel()
+	m.libraryTab = libTabVariables
+	m.varItems[0].IsSecret = true
+	out := renderLibrary(m)
+	if !strings.Contains(out, variableSecretMask) {
+		t.Fatalf("expected masked secret value, got:\n%s", out)
+	}
+	if strings.Contains(out, "abc") {
+		t.Fatalf("expected secret value hidden, got:\n%s", out)
+	}
+}
+
+func TestLibraryVariablesEditPrefillsSecretMask(t *testing.T) {
+	m := newLibraryHubModel()
+	m.libraryTab = libTabVariables
+	m.varItems[0].IsSecret = true
+	m = sendKey(t, m, "e")
+	if !m.varIsSecret {
+		t.Fatal("expected varIsSecret to be true for existing secret")
+	}
+	if m.varValueInput.Value() != variableSecretMask {
+		t.Fatalf("expected secret mask prefilled, got %q", m.varValueInput.Value())
+	}
+}
+
+func TestLibraryVariablesToggleSecret(t *testing.T) {
+	m := newLibraryHubModel()
+	m.libraryTab = libTabVariables
+	m = sendKey(t, m, "n")
+	if m.varIsSecret {
+		t.Fatal("new variable should start non-secret")
+	}
+	m = sendSpecialKey(t, m, tea.KeyCtrlS)
+	if !m.varIsSecret {
+		t.Fatal("expected ctrl+s to toggle secret on")
+	}
+}
+
+func TestLibraryVariablesAllowsTypingLowercaseSInInputs(t *testing.T) {
+	m := newLibraryHubModel()
+	m.libraryTab = libTabVariables
+	m = sendKey(t, m, "n")
+
+	m = sendKey(t, m, "s")
+	if m.varNameInput.Value() != "s" {
+		t.Fatalf("expected name input to receive 's', got %q", m.varNameInput.Value())
+	}
+	if m.varIsSecret {
+		t.Fatal("typing s in name input should not toggle secret")
+	}
+
+	m = sendSpecialKey(t, m, tea.KeyTab)
+	m = sendKey(t, m, "s")
+	if m.varValueInput.Value() != "s" {
+		t.Fatalf("expected value input to receive 's', got %q", m.varValueInput.Value())
+	}
+	if m.varIsSecret {
+		t.Fatal("typing s in value input should not toggle secret")
+	}
+}
+
+func TestLibraryVariablesToggleExistingSecretClearsMaskWhenConvertingToPlaintext(t *testing.T) {
+	m := newLibraryHubModel()
+	m.libraryTab = libTabVariables
+	m.varItems[0].IsSecret = true
+	m = sendKey(t, m, "e")
+	if m.varValueInput.Value() != variableSecretMask {
+		t.Fatalf("expected initial secret mask, got %q", m.varValueInput.Value())
+	}
+
+	m = sendSpecialKey(t, m, tea.KeyCtrlS)
+	if m.varIsSecret {
+		t.Fatal("expected secret toggle off")
+	}
+	if m.varValueInput.Value() != "" {
+		t.Fatalf("expected value cleared when converting secret to plaintext, got %q", m.varValueInput.Value())
+	}
+}
+
+func TestLibraryVariablesSaveBlocksSecretToPlaintextWithoutReplacement(t *testing.T) {
+	m := newLibraryHubModelWithClient()
+	m.libraryTab = libTabVariables
+	m.varItems[0].IsSecret = true
+	m = sendKey(t, m, "e")
+
+	// Simulate the exact dangerous state: secret was toggled off, but the
+	// placeholder mask is still in the input.
+	m.varIsSecret = false
+	m.varValueInput.SetValue(variableSecretMask)
+
+	res, cmd := handleLibraryVariablesEditKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	got := res.(hubModel)
+	if cmd != nil {
+		t.Fatal("expected no save command when converting secret to plaintext without a replacement value")
+	}
+	if got.libraryMode != libModeEditing {
+		t.Fatalf("expected to remain in editing mode, got %v", got.libraryMode)
+	}
+}
+
 func TestLibraryLaunchVarsEditPrefillsExistingValues(t *testing.T) {
 	m := newLibraryHubModel()
 	m.libraryTab = libTabLaunchVars

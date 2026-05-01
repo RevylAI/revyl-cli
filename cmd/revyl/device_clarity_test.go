@@ -110,6 +110,31 @@ func TestHumanizeDeviceSessionResolveError_DevModeCommandPrefix(t *testing.T) {
 	}
 }
 
+func TestBuildActionResult_UsesTapTargetCoordinates(t *testing.T) {
+	t.Parallel()
+
+	result := buildActionResult(
+		"tap",
+		0,
+		0,
+		"Continue button",
+		[]byte(`{"success":true,"x":120,"y":240,"target":"Continue button","latency_ms":52.5}`),
+	)
+
+	if !result.Success {
+		t.Fatal("success = false, want true")
+	}
+	if result.X != 120 || result.Y != 240 {
+		t.Fatalf("coords = (%d, %d), want (120, 240)", result.X, result.Y)
+	}
+	if result.Target != "Continue button" {
+		t.Fatalf("target = %q, want Continue button", result.Target)
+	}
+	if result.LatencyMs.String() != "52.5" {
+		t.Fatalf("latency = %q, want 52.5", result.LatencyMs.String())
+	}
+}
+
 func TestBuildCodeExecutionLiveStepRequest(t *testing.T) {
 	t.Parallel()
 

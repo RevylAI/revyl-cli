@@ -6,6 +6,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 )
+
+const variableSecretMask = "********"
 
 // --- Commands ---
 
@@ -32,10 +35,12 @@ func fetchVariablesCmd(client *api.Client) tea.Cmd {
 			if v.VariableValue != nil {
 				value = *v.VariableValue
 			}
+			isSecret := v.IsSecret != nil && *v.IsSecret
 			items = append(items, VariableItem{
-				ID:    v.Id.String(),
-				Name:  v.VariableName,
-				Value: value,
+				ID:       v.Id.String(),
+				Name:     v.VariableName,
+				Value:    value,
+				IsSecret: isSecret,
 			})
 		}
 		return VariableListMsg{Variables: items}
@@ -44,15 +49,20 @@ func fetchVariablesCmd(client *api.Client) tea.Cmd {
 
 // saveVariableCmd creates a new variable (when id is empty) or updates an
 // existing one.
-func saveVariableCmd(client *api.Client, id, name, value string) tea.Cmd {
+func saveVariableCmd(client *api.Client, id, name string, value *string, isSecret bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		var err error
+		opts := api.GlobalVariableWriteOptions{IsSecret: &isSecret}
 		if id == "" {
-			_, err = client.AddGlobalVariable(ctx, name, value)
+			writeValue := ""
+			if value != nil {
+				writeValue = *value
+			}
+			_, err = client.AddGlobalVariable(ctx, name, writeValue, opts)
 		} else {
-			_, err = client.UpdateGlobalVariable(ctx, id, name, value)
+			_, err = client.UpdateGlobalVariable(ctx, id, name, value, opts)
 		}
 		return VariableSavedMsg{Err: err}
 	}
@@ -130,13 +140,19 @@ func libraryVariablesBeginEdit(m hubModel, v *VariableItem) hubModel {
 	if v == nil {
 		m.selectedVar = nil
 		m.varIsCreating = true
+		m.varIsSecret = false
 		m.varNameInput.SetValue("")
 		m.varValueInput.SetValue("")
 	} else {
 		m.selectedVar = v
 		m.varIsCreating = false
+		m.varIsSecret = v.IsSecret
 		m.varNameInput.SetValue(v.Name)
-		m.varValueInput.SetValue(v.Value)
+		if v.IsSecret {
+			m.varValueInput.SetValue(variableSecretMask)
+		} else {
+			m.varValueInput.SetValue(v.Value)
+		}
 	}
 	m.varNameInput.Focus()
 	m.varValueInput.Blur()
@@ -162,21 +178,52 @@ func handleLibraryVariablesEditKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.C
 			m.varValueInput.Focus()
 		}
 		return m, textinput.Blink
+	case "s":
+		if m.varNameInput.Focused() || m.varValueInput.Focused() {
+			var cmd tea.Cmd
+			if m.varEditField == 0 {
+				m.varNameInput, cmd = m.varNameInput.Update(msg)
+			} else {
+				m.varValueInput, cmd = m.varValueInput.Update(msg)
+			}
+			return m, cmd
+		}
+		fallthrough
+	case "ctrl+s":
+		nextSecret := !m.varIsSecret
+		if !nextSecret && m.selectedVar != nil && m.selectedVar.IsSecret && m.varValueInput.Value() == variableSecretMask {
+			m.varValueInput.SetValue("")
+		}
+		if nextSecret && m.selectedVar != nil && m.selectedVar.IsSecret && m.varValueInput.Value() == "" {
+			m.varValueInput.SetValue(variableSecretMask)
+		}
+		m.varIsSecret = nextSecret
+		return m, nil
 	case "enter":
 		name := strings.TrimSpace(m.varNameInput.Value())
 		value := m.varValueInput.Value()
 		if name == "" || m.client == nil {
 			return m, nil
 		}
+		if m.varIsSecret && value == "" {
+			return m, nil
+		}
 		id := ""
+		valuePtr := &value
 		if !m.varIsCreating && m.selectedVar != nil {
 			id = m.selectedVar.ID
+			if m.selectedVar.IsSecret && !m.varIsSecret && (value == "" || value == variableSecretMask) {
+				return m, nil
+			}
+			if m.selectedVar.IsSecret && m.varIsSecret && value == variableSecretMask {
+				valuePtr = nil
+			}
 		}
 		m.varsLoading = true
 		m.libraryMode = libModeList
 		m.varNameInput.Blur()
 		m.varValueInput.Blur()
-		return m, saveVariableCmd(m.client, id, name, value)
+		return m, saveVariableCmd(m.client, id, name, valuePtr, m.varIsSecret)
 	default:
 		var cmd tea.Cmd
 		if m.varEditField == 0 {
@@ -214,7 +261,12 @@ func renderLibraryVariablesBody(m hubModel, innerW int) string {
 		}
 		b.WriteString(nameLabel + m.varNameInput.View() + "\n")
 		b.WriteString(valueLabel + m.varValueInput.View() + "\n\n")
-		b.WriteString("  " + dimStyle.Render("tab: switch field  enter: save  esc: cancel") + "\n")
+		secretState := "off"
+		if m.varIsSecret {
+			secretState = "on"
+		}
+		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("Secret: %s", secretState)) + "\n")
+		b.WriteString("  " + dimStyle.Render("tab: switch field  ctrl+s: toggle secret  enter: save  esc: cancel") + "\n")
 		return b.String()
 	}
 
@@ -238,7 +290,11 @@ func renderLibraryVariablesBody(m hubModel, innerW int) string {
 			cursor = selectedStyle.Render("▸ ")
 		}
 		name := normalStyle.Render("{{global." + v.Name + "}}")
-		val := dimStyle.Render(truncate(v.Value, 32))
+		value := v.Value
+		if v.IsSecret {
+			value = variableSecretMask
+		}
+		val := dimStyle.Render(truncate(value, 32))
 		b.WriteString("  " + cursor + name + "   " + val + "\n")
 	}
 	b.WriteString("\n  " + renderLibraryCLIHint(libTabVariables) + "\n")

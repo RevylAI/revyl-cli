@@ -12,6 +12,13 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
+const globalVarSecretMask = "********"
+
+var (
+	globalVarSetSecret   bool
+	globalVarSetNoSecret bool
+)
+
 // globalCmd is the parent command for org-wide global resources.
 var globalCmd = &cobra.Command{
 	Use:   "global",
@@ -22,10 +29,10 @@ var globalCmd = &cobra.Command{
 // globalVarCmd is the subcommand for org-wide global variable operations.
 var globalVarCmd = &cobra.Command{
 	Use:   "var",
-	Short: "Manage org-wide global variables ({{name}} syntax)",
+	Short: "Manage org-wide global variables ({{global.name}} syntax)",
 	Long: `Manage global variables shared across all tests in your organization.
 
-Global variables use {{variable-name}} syntax in step descriptions and are
+Global variables use {{global.variable-name}} syntax in step descriptions and are
 available to every test. If a test defines a local variable with the same name,
 the local value takes precedence.
 
@@ -42,6 +49,7 @@ EXAMPLES:
   revyl global var list
   revyl global var get login-email
   revyl global var set login-email=testuser@example.com
+  revyl global var set "password=my secret" --secret
   revyl global var delete login-email`,
 }
 
@@ -71,9 +79,10 @@ Value is optional -- omit the '=' to create a name-only variable (useful for
 variables that are filled at runtime by extraction or code blocks).
 
 EXAMPLES:
-  revyl var set login-email=testuser@example.com
-  revyl var set "password=my secret"
-  revyl var set otp-code`,
+  revyl global var set login-email=testuser@example.com
+  revyl global var set "password=my secret" --secret
+  revyl global var set "password=new value" --no-secret
+  revyl global var set otp-code`,
 	Args: cobra.ExactArgs(1),
 	RunE: runGlobalVarSet,
 }
@@ -91,6 +100,9 @@ func init() {
 	globalVarCmd.AddCommand(globalVarGetCmd)
 	globalVarCmd.AddCommand(globalVarSetCmd)
 	globalVarCmd.AddCommand(globalVarDeleteCmd)
+
+	globalVarSetCmd.Flags().BoolVar(&globalVarSetSecret, "secret", false, "Store the value as an encrypted secret")
+	globalVarSetCmd.Flags().BoolVar(&globalVarSetNoSecret, "no-secret", false, "Store the value as plaintext")
 }
 
 // globalVarSetupClient creates an API client for global variable operations.
@@ -106,6 +118,41 @@ func globalVarSetupClientDefault(cmd *cobra.Command) (*api.Client, error) {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 	return client, nil
+}
+
+func globalVarIsSecret(v api.GlobalVariableRow) bool {
+	return v.IsSecret != nil && *v.IsSecret
+}
+
+func formatGlobalVarValue(v api.GlobalVariableRow) string {
+	if globalVarIsSecret(v) {
+		return globalVarSecretMask
+	}
+	if v.VariableValue == nil || *v.VariableValue == "" {
+		return "(empty)"
+	}
+	return *v.VariableValue
+}
+
+func globalVarWriteOptions(cmd *cobra.Command, existing *api.GlobalVariableRow) (api.GlobalVariableWriteOptions, error) {
+	secretChanged := cmd.Flags().Changed("secret")
+	noSecretChanged := cmd.Flags().Changed("no-secret")
+	if secretChanged && noSecretChanged {
+		return api.GlobalVariableWriteOptions{}, fmt.Errorf("use either --secret or --no-secret, not both")
+	}
+	if secretChanged {
+		isSecret := true
+		return api.GlobalVariableWriteOptions{IsSecret: &isSecret}, nil
+	}
+	if noSecretChanged {
+		isSecret := false
+		return api.GlobalVariableWriteOptions{IsSecret: &isSecret}, nil
+	}
+	if existing != nil && globalVarIsSecret(*existing) {
+		keepSecret := true
+		return api.GlobalVariableWriteOptions{IsSecret: &keepSecret}, nil
+	}
+	return api.GlobalVariableWriteOptions{}, nil
 }
 
 func runGlobalVarList(cmd *cobra.Command, args []string) error {
@@ -150,19 +197,12 @@ func runGlobalVarList(cmd *cobra.Command, args []string) error {
 	table.SetMinWidth(3, 20)
 
 	for _, v := range resp.Result {
-		value := ""
-		if v.VariableValue != nil {
-			value = *v.VariableValue
-		}
-		if value == "" {
-			value = "(empty)"
-		}
 		desc := ""
 		if v.Description != nil {
 			desc = *v.Description
 		}
 		usage := fmt.Sprintf("{{global.%s}}", v.VariableName)
-		table.AddRow(v.VariableName, value, desc, usage)
+		table.AddRow(v.VariableName, formatGlobalVarValue(v), desc, usage)
 	}
 
 	table.Render()
@@ -195,14 +235,7 @@ func runGlobalVarGet(cmd *cobra.Command, args []string) error {
 				enc.SetIndent("", "  ")
 				return enc.Encode(v)
 			}
-			value := ""
-			if v.VariableValue != nil {
-				value = *v.VariableValue
-			}
-			if value == "" {
-				value = "(empty)"
-			}
-			fmt.Println(value)
+			fmt.Println(formatGlobalVarValue(v))
 			return nil
 		}
 	}
@@ -213,6 +246,12 @@ func runGlobalVarGet(cmd *cobra.Command, args []string) error {
 
 func runGlobalVarSet(cmd *cobra.Command, args []string) error {
 	nameValueArg := args[0]
+
+	if cmd.Flags().Changed("secret") && cmd.Flags().Changed("no-secret") {
+		err := fmt.Errorf("use either --secret or --no-secret, not both")
+		ui.PrintError("%v", err)
+		return err
+	}
 
 	var name, value string
 	idx := strings.Index(nameValueArg, "=")
@@ -244,17 +283,24 @@ func runGlobalVarSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var existingVarID string
+	var existingVar *api.GlobalVariableRow
 	for _, v := range existing.Result {
 		if v.VariableName == name {
-			existingVarID = v.Id.String()
+			v := v
+			existingVar = &v
 			break
 		}
 	}
 
-	if existingVarID != "" {
+	opts, err := globalVarWriteOptions(cmd, existingVar)
+	if err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
+
+	if existingVar != nil {
 		ui.StartSpinner("Updating variable...")
-		_, err = client.UpdateGlobalVariable(cmd.Context(), existingVarID, name, value)
+		_, err = client.UpdateGlobalVariable(cmd.Context(), existingVar.Id.String(), name, &value, opts)
 		ui.StopSpinner()
 
 		if err != nil {
@@ -264,7 +310,7 @@ func runGlobalVarSet(cmd *cobra.Command, args []string) error {
 		ui.PrintSuccess("Updated global variable '%s'", name)
 	} else {
 		ui.StartSpinner("Adding variable...")
-		_, err = client.AddGlobalVariable(cmd.Context(), name, value)
+		_, err = client.AddGlobalVariable(cmd.Context(), name, value, opts)
 		ui.StopSpinner()
 
 		if err != nil {

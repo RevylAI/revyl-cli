@@ -528,13 +528,14 @@ Org-wide resources available across all tests.
 
 ### Global Variables
 
-Shared variables referenced via `{{global.name}}`. Local test variables with the same name take precedence.
+Shared variables referenced via `{{global.name}}`. Local test variables with the same name take precedence. Use `--secret` for credentials or tokens; secret values are encrypted and shown as `********` in list/get output.
 
 ```bash
 revyl global var list                                         # List all
-revyl global var get login-email                              # Read one
+revyl global var get login-email                              # Read one (secrets are masked)
 revyl global var set login-email=testuser@example.com         # Add or update (upsert)
-revyl global var set "password=my secret"                     # Values may contain spaces
+revyl global var set "password=my secret" --secret            # Store as encrypted secret
+revyl global var set "password=new value" --no-secret         # Convert/update as plaintext
 revyl global var set otp-code                                 # Name-only (runtime-filled)
 revyl global var delete login-email                           # Delete
 ```
