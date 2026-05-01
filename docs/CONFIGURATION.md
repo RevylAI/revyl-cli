@@ -24,12 +24,15 @@ build:
   system: Expo
   command: "npx --yes eas-cli build --platform ios --profile development --local --output build/app.tar.gz"
   output: "build/app.tar.gz"
+  no_build: false
 
   platforms:
     ios-dev:
       command: "npx --yes eas-cli build --platform ios --profile development --local --output build/dev-ios.tar.gz"
       output: "build/dev-ios.tar.gz"
       app_id: "uuid-of-ios-dev-app"
+      setup: "npm ci"
+      scheme: "MyApp"
     ios-ci:
       command: "npx --yes eas-cli build --platform ios --profile preview --local --output build/ci-ios.tar.gz"
       output: "build/ci-ios.tar.gz"
@@ -58,16 +61,132 @@ last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 
 ### Section Reference
 
-| Section | Description |
-|---------|-------------|
-| `project` | Project name |
-| `build.system` | Build system type (Expo, Gradle, Xcode, Flutter, ReactNative) |
-| `build.command` | Default build command |
-| `build.output` | Default build artifact path |
-| `build.platforms` | Named platform configurations with per-platform build commands, artifact paths, and app IDs |
-| `hotreload` | Hot reload provider configuration for `revyl dev` |
-| `defaults` | Default settings for CLI behavior |
-| `last_synced_at` | Timestamp of last sync operation (auto-managed) |
+| Option | Type | Description |
+|--------|------|-------------|
+| `project.name` | `string` | Human-readable project name. |
+| `project.id` | `string` | Optional Revyl project ID. Usually managed by Revyl. |
+| `project.org_id` | `string` | Optional organization ID. Used to bind local config to one Revyl org. |
+| `build.system` | `string` | Build system label. Common values: `Expo`, `ReactNative`, `Xcode`, `Gradle`, `Flutter`, `Bazel`, `KMP`, or `custom`. |
+| `build.source` | `object` | Optional repo-backed source settings for remote runners. Use when Revyl should fetch source from Git instead of receiving a local source archive. |
+| `build.source.type` | `string` | Source provider type. Currently use `git` for repo-backed remote builds. |
+| `build.source.repo_url` | `string` | Git URL for the source repository. |
+| `build.source.ref` | `string` | Ref, branch, tag, or commit SHA to build. In CI, usually `$CI_COMMIT_SHA`. |
+| `build.source.subdir` | `string` | Optional subdirectory to check out/build from inside a monorepo. |
+| `build.source.lfs` | `bool` | Whether the runner should fetch Git LFS objects for the selected ref/path. |
+| `build.command` | `string` | Default build command for simple single-target projects. |
+| `build.output` | `string` | Default artifact path for `build.command`. Supports files, globs, and `.app` bundle directories. |
+| `build.no_build` | `bool` | Tell `revyl dev` to avoid config-driven rebuilds and use existing uploaded builds instead. Use `revyl build upload --skip-build`, `--file`, or `--url` for explicit artifact uploads. |
+| `build.platforms.<key>` | `object` | Named build stream, such as `ios`, `android`, `ios-dev`, `ios-ci`, or `android-release`. |
+| `build.platforms.<key>.command` | `string` | Command to build that stream. Can be Xcode, Gradle, Flutter, EAS, Bazel, or a project-specific script. |
+| `build.platforms.<key>.output` | `string` | Artifact path produced by the command. iOS `.app` directories and EAS `.tar.gz` outputs are converted before upload. |
+| `build.platforms.<key>.app_id` | `string` | Revyl app ID where uploads for this stream are stored. |
+| `build.platforms.<key>.scheme` | `string` | Optional Xcode scheme. When set, the CLI applies it to Xcode build commands. |
+| `build.platforms.<key>.setup` | `string` | Optional setup command used by remote iOS builds before the main build command. |
+| `hotreload` | `object` | Hot reload provider configuration for `revyl dev`. |
+| `defaults.open_browser` | `bool` | Auto-open browser for commands that support a browser view. |
+| `defaults.timeout` | `int` | Default timeout in seconds for CLI/device sessions. |
+| `last_synced_at` | `string` | Timestamp of last sync operation. Auto-managed. |
+
+## Build Configuration
+
+The build contract is intentionally small:
+
+1. Run a command, unless the artifact already exists.
+2. Resolve an output artifact.
+3. Upload that artifact into the configured Revyl app stream.
+
+`build.platforms` is the main surface for real projects. Platform keys are
+names you choose; they do not need to be only `ios` or `android`. Use separate
+keys when the same codebase produces multiple useful streams, such as
+`ios-dev`, `ios-release`, `android-debug`, or `ios-checkout`.
+
+```yaml
+build:
+  system: Xcode
+  platforms:
+    ios-dev:
+      app_id: "uuid-of-ios-dev-app"
+      command: "xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -sdk iphonesimulator -derivedDataPath build"
+      output: "build/Build/Products/Debug-iphonesimulator/App.app"
+      scheme: "App"
+```
+
+Then run:
+
+```bash
+revyl build upload --platform ios-dev
+```
+
+### Artifact-First CI
+
+If GitLab, GitHub Actions, Bazel, or another build system already produced the
+artifact, skip the config-driven build step and upload the artifact directly:
+
+```bash
+revyl build upload --file build/App.app.zip --platform ios --app "$REVYL_IOS_APP_ID" --json
+revyl build upload --url "$ARTIFACT_URL" --header "Authorization: Bearer $ARTIFACT_TOKEN" --app "$REVYL_IOS_APP_ID" --json
+```
+
+This is the recommended shape for large monorepos, generated CI DAGs, and
+pipelines with their own cache heuristics. Revyl does not need to own the build
+graph; it needs the final mobile artifact and the Revyl app stream it belongs
+to.
+
+### Repo-Backed Remote Builds
+
+When Revyl should run the Mac/Xcode build for a large monorepo, configure a Git
+source so the remote runner can fetch code directly instead of receiving a local
+source archive:
+
+```yaml
+build:
+  source:
+    type: git
+    repo_url: git@gitlab.com:company/mobile-monorepo.git
+    ref: "$CI_COMMIT_SHA"
+    subdir: apps/ios
+    lfs: true
+
+  platforms:
+    ios:
+      app_id: "$REVYL_IOS_APP_ID"
+      scheme: "App"
+      command: "xcodebuild -workspace App.xcworkspace -scheme App -sdk iphonesimulator -configuration Debug -derivedDataPath build"
+      output: "build/Build/Products/Debug-iphonesimulator/App.app"
+```
+
+The runner keeps a cached checkout or mirror, fetches the requested ref, pulls
+the needed LFS objects, optionally narrows to `subdir`, and runs the configured
+build command. This is the scalable remote-build path for large repositories
+where artifact-first upload is not enough because Revyl still needs to own the
+Mac/Xcode execution step.
+
+Repository credentials, LFS access, and private dependency/network access must
+be provisioned on the dedicated runner.
+
+### Bazel
+
+Bazel works through the same command/output contract. Configure the concrete
+target and the artifact path Bazel writes:
+
+```yaml
+build:
+  system: Bazel
+  platforms:
+    ios:
+      app_id: "uuid-of-ios-app"
+      command: "bazel build //ios:MyApp -c dbg --ios_multi_cpus=sim_arm64"
+      output: "bazel-bin/ios/MyApp_archive-root/Payload/MyApp.app"
+    android:
+      app_id: "uuid-of-android-app"
+      command: "bazel build //android:app -c dbg"
+      output: "bazel-bin/android/app.apk"
+```
+
+If your Bazel setup uses remote cache or remote execution, keep those settings
+in your Bazel config, wrapper script, or CI environment. The current
+`.revyl/config.yaml` schema does not have first-class `target`,
+`remote_cache`, `remote_executor`, cache-volume, or pipeline-DAG fields.
 
 ## Hot Reload Configuration
 
