@@ -32,6 +32,20 @@ func writeTestArtifact(t *testing.T) string {
 	return path
 }
 
+func tracesDataShape(data *tracepb.TracesData) string {
+	resourceSpans := data.GetResourceSpans()
+	scopeSpans := 0
+	spans := 0
+	if len(resourceSpans) > 0 {
+		firstScopeSpans := resourceSpans[0].GetScopeSpans()
+		scopeSpans = len(firstScopeSpans)
+		if len(firstScopeSpans) > 0 {
+			spans = len(firstScopeSpans[0].GetSpans())
+		}
+	}
+	return fmt.Sprintf("resource_spans=%d scope_spans[0]=%d spans[0][0]=%d", len(resourceSpans), scopeSpans, spans)
+}
+
 func testUploadBuildClient(
 	t *testing.T,
 	uploadHandler http.HandlerFunc,
@@ -820,7 +834,7 @@ func TestStartDeviceExportsCLITraceHandoff(t *testing.T) {
 			if len(export.ResourceSpans) != 1 ||
 				len(export.ResourceSpans[0].ScopeSpans) != 1 ||
 				len(export.ResourceSpans[0].ScopeSpans[0].Spans) != 1 {
-				t.Fatalf("unexpected telemetry shape: %+v", export)
+				t.Fatalf("unexpected telemetry shape: %s", tracesDataShape(&export))
 			}
 			span := export.ResourceSpans[0].ScopeSpans[0].Spans[0]
 			if span.Name != cliTraceSpanName {
