@@ -1,11 +1,13 @@
 ---
 name: revyl-cli-auth-bypass-expo
-description: Implement test-only auth bypass deep links for Expo and Expo Router apps using Revyl launch variables.
+description: Expo and Expo Router leaf recipe for test-only auth bypass deep links using Revyl launch variables.
 ---
 
 # Revyl Expo Auth Bypass Skill
 
-Use this skill when an Expo or Expo Router app needs a test-only way to start Revyl runs from an authenticated state. This is app code guidance, not a Revyl authentication shortcut.
+Use this leaf skill when `revyl-cli-auth-bypass` has selected Expo or Expo Router as the app stack. This is app code guidance, not a Revyl authentication shortcut.
+
+For the first-pass setup, start from `revyl-cli-auth-bypass`; it detects the stack, applies the shared safety contract, and delegates here for Expo-specific implementation details.
 
 ## Contract
 
@@ -41,7 +43,9 @@ This skill handles the app implementation. After the hook exists, use
 `revyl-cli-dev-loop` for the everyday device loop:
 
 ```bash
-# Install both skills when setting up an agent for Expo authenticated-state work.
+# Install the auth-bypass entrypoint and this Expo leaf when setting up an agent
+# for Expo authenticated-state work.
+revyl skill install --name revyl-cli-auth-bypass --force
 revyl skill install --name revyl-cli-dev-loop --force
 revyl skill install --name revyl-cli-auth-bypass-expo --force
 
@@ -81,6 +85,8 @@ old session, stop it and start a fresh loop with the launch vars.
 5. Validate the token, role, and redirect before changing app state.
 6. Create the app's normal test session state and route only to an allowlisted destination.
 7. Show accepted and rejected states visibly in test builds, such as an Account screen status, banner, toast, or debug panel.
+
+Bug Bazaar is the reference shape: root provider, `app/revyl-auth.tsx` backstop, launch-var gate, allowlisted role/redirect handling, and visible accepted/rejected state on the Account/Auth surface.
 
 ## Expo Router Pattern
 

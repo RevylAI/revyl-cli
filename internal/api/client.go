@@ -434,7 +434,7 @@ func stripHTMLTags(s string) string {
 
 // doRequest performs an HTTP request with authentication and retry logic.
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
-	return c.doRequestWithRetry(ctx, method, path, body)
+	return c.doRequestWithRetry(ctx, method, path, body, nil)
 }
 
 // doRequestOnce performs a single HTTP request without retries.
@@ -521,7 +521,11 @@ func calculateBackoff(attempt int, baseDelay, maxDelay time.Duration) time.Durat
 // Returns:
 //   - *http.Response: The HTTP response
 //   - error: Any error that occurred
-func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
+func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, body interface{}, extraHeaders ...map[string]string) (*http.Response, error) {
+	headers := map[string]string(nil)
+	if len(extraHeaders) > 0 {
+		headers = extraHeaders[0]
+	}
 	attempts := c.maxRetries + 1
 	if attempts < 1 {
 		// Defensive: invalid negative retry configuration should still execute once.
@@ -570,6 +574,11 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, bo
 		// Set source tracking header
 		// X-Revyl-Client identifies the client type for backend source classification.
 		req.Header.Set("X-Revyl-Client", "cli")
+		for key, value := range headers {
+			if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
+				req.Header.Set(key, value)
+			}
+		}
 
 		// Execute the request
 		resp, err := c.httpClient.Do(req)
@@ -2601,7 +2610,17 @@ type DeviceRunConfig struct {
 //   - *StartDeviceResponse: The device start response with workflow run ID
 //   - error: Any error that occurred
 func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*StartDeviceResponse, error) {
-	resp, err := c.doRequest(ctx, "POST", "/api/v1/execution/start_device", req)
+	if req == nil {
+		return nil, fmt.Errorf("start device request is nil")
+	}
+	requestID := newTraceRequestID()
+	headers := map[string]string{traceRequestIDHeader: requestID}
+	if handoff, err := c.exportStartDeviceTrace(ctx, requestID); err == nil {
+		headers[cliTraceparentHeader] = handoff.Traceparent
+		headers[cliTraceHandoffHeader] = handoff.HandoffToken
+	}
+
+	resp, err := c.doRequestWithRetry(ctx, "POST", "/api/v1/execution/start_device", req, headers)
 	if err != nil {
 		return nil, err
 	}

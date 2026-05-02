@@ -68,7 +68,8 @@ start the loop on that session.
   dependencies, permissions, or URL scheme registration changes. Try an
   external Expo tunnel only after screenshots or reports show the Revyl relay,
   app load, or HMR path failed. If repeated web auth is slowing stable Expo
-  testing, install and use `revyl-cli-auth-bypass-expo`; implement the
+  testing, install and use `revyl-cli-auth-bypass`; let it detect the stack and
+  delegate to `revyl-cli-auth-bypass-expo` for Expo app code. Implement the
   test-only bypass in the app first, start `revyl dev` with
   `--launch-var REVYL_AUTH_BYPASS_ENABLED --launch-var REVYL_AUTH_BYPASS_TOKEN`,
   wait for the normal Expo app UI, then open the app-specific `revyl-auth`
@@ -92,6 +93,10 @@ start the loop on that session.
   configured build command, `revyl dev rebuild --wait`, and device verification.
 - Monorepos: if detection is confused by hoisted dependencies or nested native folders, run from the app directory and force the provider only when needed.
 
+If repeated login slows exploration on any stack, use `revyl-cli-auth-bypass`
+first. It detects the app stack and delegates to the matching platform leaf
+before this dev-loop skill starts the session with bypass launch vars.
+
 ## Observe, Act, Verify
 
 Use screenshots and reports to decide what happened before changing strategy.
@@ -110,9 +115,9 @@ During exploration, capture the exact path that worked. Describe actions with vi
 
 ## Expo Auth Bypass
 
-For Expo apps that have implemented the `revyl-cli-auth-bypass-expo` pattern,
-start the dev loop with the bypass launch vars and then navigate after the app
-loads normally:
+For apps that have implemented the `revyl-cli-auth-bypass` contract, start the
+dev loop with the bypass launch vars and then navigate after the app loads
+normally:
 
 ```bash
 # One-time setup if the launch vars do not already exist.
@@ -137,7 +142,8 @@ revyl device screenshot --out /tmp/revyl-auth-bypass.png
 ```
 
 If the app has not implemented the handler yet, install/use
-`revyl-cli-auth-bypass-expo` first. If the device session was reused, launch
+`revyl-cli-auth-bypass` first. It will delegate to `revyl-cli-auth-bypass-expo`
+when the app is Expo or Expo Router. If the device session was reused, launch
 vars may not have applied; run `revyl dev stop --context "$REVYL_CONTEXT"` and
 start a fresh loop with the launch vars.
 

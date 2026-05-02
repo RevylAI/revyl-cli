@@ -11,6 +11,7 @@ Use this as the default Revyl skill when workflows should be expressed as `revyl
 
 - Use `revyl-cli-dev-loop` for local dev loop workflows and exploratory path capture.
 - Use `revyl-cli-create` for authoring robust YAML tests.
+- Use `revyl-cli-auth-bypass` for test-only authenticated app state setup.
 - Use `revyl-cli-analyze` for failed run triage.
 
 ## Operating Rules

@@ -296,6 +296,7 @@ func (s *Server) handleStartDevLoop(ctx context.Context, req *mcp.CallToolReques
 	if !rebuildOnly {
 		manager = hotreload.NewManager(providerName, &providerCfg, s.workDir)
 		manager.ConfigureFromHotReloadConfig(&s.config.HotReload, s.apiClient)
+		manager.SetTargetPlatform(platform)
 		var startErr error
 		startResult, startErr = manager.Start(context.Background())
 		if startErr != nil {

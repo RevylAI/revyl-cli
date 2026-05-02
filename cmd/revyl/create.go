@@ -677,6 +677,7 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 
 		manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
 		manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
+		manager.SetTargetPlatform(platform)
 		manager.SetLogCallback(func(msg string) {
 			ui.PrintDim("  %s", msg)
 		})
@@ -1130,7 +1131,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 
 	// If hot reload is also enabled, get the deep link URL
 	if createTestHotReload {
-		hotReloadURL, err := getHotReloadURL(cmd, cfg, cwd)
+		hotReloadURL, err := getHotReloadURL(cmd, cfg, cwd, platform)
 		if err != nil {
 			ui.PrintWarning("Hot reload setup failed: %v", err)
 			ui.PrintInfo("Continuing without hot reload...")
@@ -1157,7 +1158,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 }
 
 // getHotReloadURL starts hot reload and returns the deep link URL.
-func getHotReloadURL(cmd *cobra.Command, cfg *config.ProjectConfig, cwd string) (string, error) {
+func getHotReloadURL(cmd *cobra.Command, cfg *config.ProjectConfig, cwd string, platform string) (string, error) {
 	if !cfg.HotReload.IsConfigured() {
 		return "", fmt.Errorf("hot reload not configured")
 	}
@@ -1186,6 +1187,7 @@ func getHotReloadURL(cmd *cobra.Command, cfg *config.ProjectConfig, cwd string) 
 	if err == nil && strings.TrimSpace(apiKey) != "" {
 		manager.ConfigureFromHotReloadConfig(&cfg.HotReload, api.NewClient(apiKey))
 	}
+	manager.SetTargetPlatform(platform)
 
 	result, err := manager.Start(cmd.Context())
 	if err != nil {

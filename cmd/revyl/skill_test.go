@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/revyl/cli/internal/skillcatalog"
 )
 
 func withSkillFamilyFlags(cli bool, mcp bool, fn func()) {
@@ -19,7 +21,15 @@ func withSkillFamilyFlags(cli bool, mcp bool, fn func()) {
 	fn()
 }
 
-func TestResolveInstallSkillsDefaultInstallsPublicSkills(t *testing.T) {
+var authBypassLeafSkillNames = []string{
+	"revyl-cli-auth-bypass-expo",
+	"revyl-cli-auth-bypass-react-native",
+	"revyl-cli-auth-bypass-ios",
+	"revyl-cli-auth-bypass-android",
+	"revyl-cli-auth-bypass-flutter",
+}
+
+func TestResolveInstallSkillsDefaultInstallsRecommendedBundle(t *testing.T) {
 	withSkillFamilyFlags(false, false, func() {
 		selected, err := resolveInstallSkills(nil)
 		if err != nil {
@@ -29,11 +39,24 @@ func TestResolveInstallSkillsDefaultInstallsPublicSkills(t *testing.T) {
 		for _, sk := range selected {
 			got = append(got, sk.Name)
 		}
-		want := []string{"revyl-cli-dev-loop", "revyl-cli-create"}
+		want := []string{"revyl-cli-dev-loop", "revyl-cli-create", "revyl-cli-auth-bypass"}
+		want = append(want, authBypassLeafSkillNames...)
 		if strings.Join(got, ",") != strings.Join(want, ",") {
 			t.Fatalf("default skills = %v, want %v", got, want)
 		}
 	})
+}
+
+func TestPublicSkillListUsesAuthBypassParent(t *testing.T) {
+	public := skillcatalog.Public()
+	got := make([]string, 0, len(public))
+	for _, sk := range public {
+		got = append(got, sk.Name)
+	}
+	want := []string{"revyl-cli-dev-loop", "revyl-cli-create", "revyl-cli-auth-bypass"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("public skills = %v, want %v", got, want)
+	}
 }
 
 func TestResolveInstallSkillsMCPFamilyOnly(t *testing.T) {
@@ -59,8 +82,8 @@ func TestResolveInstallSkillsBothFamilies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveInstallSkills(nil) error = %v", err)
 		}
-		if len(selected) != 9 {
-			t.Fatalf("expected 9 skills when both families selected, got %d", len(selected))
+		if len(selected) != 14 {
+			t.Fatalf("expected 14 skills when both families selected, got %d", len(selected))
 		}
 		var cliCount, mcpCount int
 		for _, sk := range selected {
@@ -113,29 +136,65 @@ func TestResolveInstallSkillsByNameIncludesAuthBypassExpo(t *testing.T) {
 	})
 }
 
-func TestInstallSelectedAuthBypassExpoSkill(t *testing.T) {
+func TestResolveInstallSkillsByNameIncludesAuthBypassLeaves(t *testing.T) {
+	withSkillFamilyFlags(false, false, func() {
+		for _, name := range authBypassLeafSkillNames {
+			selected, err := resolveInstallSkills([]string{name})
+			if err != nil {
+				t.Fatalf("resolveInstallSkills(%q) error = %v", name, err)
+			}
+			if len(selected) != 1 || selected[0].Name != name {
+				t.Fatalf("selected = %#v, want only %s", selected, name)
+			}
+			if !strings.Contains(selected[0].Content, "REVYL_AUTH_BYPASS_TOKEN") {
+				t.Fatalf("%s content did not mention REVYL_AUTH_BYPASS_TOKEN", name)
+			}
+		}
+	})
+}
+
+func TestResolveInstallSkillsByNameIncludesAuthBypassParent(t *testing.T) {
+	withSkillFamilyFlags(false, false, func() {
+		selected, err := resolveInstallSkills([]string{"revyl-cli-auth-bypass"})
+		if err != nil {
+			t.Fatalf("resolveInstallSkills(name) error = %v", err)
+		}
+		if len(selected) != 1 || selected[0].Name != "revyl-cli-auth-bypass" {
+			t.Fatalf("selected = %#v, want only revyl-cli-auth-bypass", selected)
+		}
+		for _, name := range authBypassLeafSkillNames {
+			if !strings.Contains(selected[0].Content, name) {
+				t.Fatalf("expected parent auth bypass skill content to mention %s", name)
+			}
+		}
+	})
+}
+
+func TestInstallSelectedAuthBypassLeafSkills(t *testing.T) {
 	workDir := t.TempDir()
 	target := filepath.Join(workDir, ".codex", "skills")
 
-	selected, err := resolveInstallSkills([]string{"revyl-cli-auth-bypass-expo"})
+	selected, err := resolveInstallSkills(authBypassLeafSkillNames)
 	if err != nil {
-		t.Fatalf("resolveInstallSkills(name) error = %v", err)
+		t.Fatalf("resolveInstallSkills(names) error = %v", err)
 	}
 	if err := installSkillsToTargets([]string{target}, selected, true); err != nil {
 		t.Fatalf("installSkillsToTargets() error = %v", err)
 	}
 
-	path := filepath.Join(target, "revyl-cli-auth-bypass-expo", "SKILL.md")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("expected installed skill at %s: %v", path, err)
-	}
-	if !strings.Contains(string(data), "Expo Router") {
-		t.Fatalf("installed skill content did not mention Expo Router")
+	for _, name := range authBypassLeafSkillNames {
+		path := filepath.Join(target, name, "SKILL.md")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("expected installed skill at %s: %v", path, err)
+		}
+		if !strings.Contains(string(data), "REVYL_AUTH_BYPASS_TOKEN") {
+			t.Fatalf("installed skill content for %s did not mention REVYL_AUTH_BYPASS_TOKEN", name)
+		}
 	}
 }
 
-func TestInstallPublicSkillsForToolsWritesOnlyFirstClassSkills(t *testing.T) {
+func TestInstallPublicSkillsForToolsWritesDefaultSkills(t *testing.T) {
 	workDir := t.TempDir()
 	withWorkingDir(t, workDir)
 
@@ -143,7 +202,9 @@ func TestInstallPublicSkillsForToolsWritesOnlyFirstClassSkills(t *testing.T) {
 		t.Fatalf("installPublicSkillsForTools() error = %v", err)
 	}
 
-	for _, name := range []string{"revyl-cli-dev-loop", "revyl-cli-create"} {
+	wantInstalled := []string{"revyl-cli-dev-loop", "revyl-cli-create", "revyl-cli-auth-bypass"}
+	wantInstalled = append(wantInstalled, authBypassLeafSkillNames...)
+	for _, name := range wantInstalled {
 		path := filepath.Join(workDir, ".cursor", "skills", name, "SKILL.md")
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected %s to exist: %v", path, err)
@@ -155,8 +216,4 @@ func TestInstallPublicSkillsForToolsWritesOnlyFirstClassSkills(t *testing.T) {
 		t.Fatalf("expected compatibility skill not to be installed by default, stat err = %v", err)
 	}
 
-	authBypassPath := filepath.Join(workDir, ".cursor", "skills", "revyl-cli-auth-bypass-expo", "SKILL.md")
-	if _, err := os.Stat(authBypassPath); !os.IsNotExist(err) {
-		t.Fatalf("expected auth bypass skill not to be installed by default, stat err = %v", err)
-	}
 }

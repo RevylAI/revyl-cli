@@ -32,19 +32,20 @@ import (
 )
 
 var (
-	devStartPlatform    string
-	devStartPlatformKey string
-	devStartAppID       string
-	devStartBuildVerID  string
-	devStartBuild       bool
-	devStartNoBuild     bool
-	devStartRemote      bool
-	devStartTunnelURL   string
-	devStartLaunchVars  []string
-	devStartPort        int
-	devStartTimeout     int
-	devStartOpen        bool
-	devStartNoOpen      bool
+	devStartPlatform       string
+	devStartPlatformKey    string
+	devStartAppID          string
+	devStartBuildVerID     string
+	devStartBuild          bool
+	devStartNoBuild        bool
+	devStartRemote         bool
+	devStartTunnelURL      string
+	devStartLaunchVars     []string
+	devStartPort           int
+	devStartTimeout        int
+	devStartOpen           bool
+	devStartNoOpen         bool
+	devStartForceHotReload bool
 
 	devTestRunPlatform    string
 	devTestRunPlatformKey string
@@ -234,6 +235,7 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&devStartTimeout, "timeout", 300, "Device idle timeout in seconds")
 	cmd.Flags().BoolVar(&devStartOpen, "open", true, "Open live device viewer in browser")
 	cmd.Flags().BoolVar(&devStartNoOpen, "no-open", false, "Do not open the live device viewer in browser")
+	cmd.Flags().BoolVar(&devStartForceHotReload, "force-hot-reload", false, "Launch even if Expo relay readiness cannot be proven")
 }
 
 func withDevStartLaunchVars(opts mcppkg.StartSessionOptions) mcppkg.StartSessionOptions {
@@ -772,6 +774,8 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	manager := hotreload.NewManager(managerProviderName, providerCfg, cwd)
 	manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
+	manager.SetTargetPlatform(devicePlatform)
+	manager.SetForceHotReload(devStartForceHotReload)
 	if externalTunnel.tunnelURL != "" {
 		manager.SetExternalTunnelURL(externalTunnel.tunnelURL)
 		if externalTunnel.deepLinkURL != "" {

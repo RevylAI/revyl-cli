@@ -2,6 +2,7 @@ package hotreload
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +53,18 @@ func (f *fakeTunnelBackend) Stop() error { return nil }
 
 func (f *fakeTunnelBackend) PublicURL() string { return f.publicURL }
 
+type failingTunnelBackend struct{}
+
+func (f *failingTunnelBackend) Start(_ context.Context, _ int) (string, error) {
+	return "", errors.New("relay unavailable")
+}
+
+func (f *failingTunnelBackend) StartHealthMonitor(_ context.Context) {}
+
+func (f *failingTunnelBackend) Stop() error { return nil }
+
+func (f *failingTunnelBackend) PublicURL() string { return "" }
+
 func withFakeExpoDevServerFactory(t *testing.T) {
 	t.Helper()
 	previous := expoDevServerFactory
@@ -66,7 +79,7 @@ func withFakeExpoDevServerFactory(t *testing.T) {
 func withFakePostStartupDiagnostics(t *testing.T, called chan<- struct{}) {
 	t.Helper()
 	previous := postStartupDiagnostics
-	postStartupDiagnostics = func(localPort int, tunnelURL string, providerName string) *DiagnosticResult {
+	postStartupDiagnostics = func(localPort int, tunnelURL string, providerName string, targetPlatform string) *DiagnosticResult {
 		select {
 		case called <- struct{}{}:
 		default:
@@ -87,6 +100,7 @@ func withFakeExpoMetroRelayReady(t *testing.T, called chan<- struct{}) {
 		tunnelURL string,
 		timeout time.Duration,
 		interval time.Duration,
+		targetPlatform string,
 	) (*DiagnosticResult, error) {
 		select {
 		case called <- struct{}{}:
@@ -270,9 +284,108 @@ func TestManagerStartWaitsForExpoMetroRelay(t *testing.T) {
 	}
 }
 
+func TestManagerStartPassesTargetPlatformToExpoMetroRelay(t *testing.T) {
+	withFakeExpoDevServerFactory(t)
+	previous := waitForExpoMetroRelay
+	platforms := make(chan string, 1)
+	waitForExpoMetroRelay = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+		targetPlatform string,
+	) (*DiagnosticResult, error) {
+		platforms <- targetPlatform
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	t.Cleanup(func() {
+		waitForExpoMetroRelay = previous
+	})
+
+	m := newTestManagerWithFakeTunnel()
+	m.SetTargetPlatform("android")
+	if _, err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { m.Stop() })
+
+	select {
+	case platform := <-platforms:
+		if platform != "android" {
+			t.Fatalf("target platform = %q, want android", platform)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected Start to call Expo relay readiness")
+	}
+}
+
+func TestManagerStartForceHotReloadContinuesAfterExpoRelayReadinessFailure(t *testing.T) {
+	withFakeExpoDevServerFactory(t)
+	previous := waitForExpoMetroRelay
+	waitForExpoMetroRelay = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+		targetPlatform string,
+	) (*DiagnosticResult, error) {
+		return &DiagnosticResult{
+			AllPassed: false,
+			Checks: []DiagnosticCheck{
+				{Name: "Manifest URLs", Passed: false, Detail: "parse failed: invalid character '<'"},
+			},
+		}, errors.New("Manifest URLs (parse failed: invalid character '<')")
+	}
+	t.Cleanup(func() {
+		waitForExpoMetroRelay = previous
+	})
+
+	var logs []string
+	m := newTestManagerWithFakeTunnel()
+	m.SetForceHotReload(true)
+	m.SetLogCallback(func(message string) {
+		logs = append(logs, message)
+	})
+
+	result, err := m.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { m.Stop() })
+	if result == nil || result.TunnelURL == "" {
+		t.Fatalf("expected Start result with tunnel URL, got %+v", result)
+	}
+	if !m.IsRunning() {
+		t.Fatal("expected manager to keep running in force mode")
+	}
+	joined := strings.Join(logs, "\n")
+	if !strings.Contains(joined, "--force-hot-reload is set") {
+		t.Fatalf("logs = %q, want force warning", joined)
+	}
+	if !strings.Contains(joined, "Manifest URLs") {
+		t.Fatalf("logs = %q, want failed readiness detail", joined)
+	}
+}
+
+func TestManagerStartForceHotReloadDoesNotBypassTunnelStartFailure(t *testing.T) {
+	withFakeExpoDevServerFactory(t)
+
+	m := NewManager("expo", &config.ProviderConfig{AppScheme: "myapp"}, ".")
+	m.SetForceHotReload(true)
+	m.SetTunnelBackendFactory(func() TunnelBackend {
+		return &failingTunnelBackend{}
+	})
+
+	if _, err := m.Start(context.Background()); err == nil {
+		t.Fatal("expected tunnel start failure")
+	}
+}
+
 func TestRunDiagnosticsUsesAdvisoryFailureLanguage(t *testing.T) {
 	previous := postStartupDiagnostics
-	postStartupDiagnostics = func(localPort int, tunnelURL string, providerName string) *DiagnosticResult {
+	postStartupDiagnostics = func(localPort int, tunnelURL string, providerName string, targetPlatform string) *DiagnosticResult {
 		return &DiagnosticResult{
 			AllPassed: false,
 			Checks: []DiagnosticCheck{

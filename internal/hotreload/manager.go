@@ -43,8 +43,8 @@ var expoDevServerFactory DevServerFactory
 // bareRNDevServerFactory is set by the providers package during init.
 var bareRNDevServerFactory BareRNDevServerFactory
 
-var postStartupDiagnostics = RunPostStartupDiagnostics
-var waitForExpoMetroRelay = WaitForExpoMetroRelay
+var postStartupDiagnostics = RunPostStartupDiagnosticsForPlatform
+var waitForExpoMetroRelay = WaitForExpoMetroRelayForPlatform
 
 // RegisterExpoDevServerFactory registers the Expo dev server factory.
 // Called by the providers package during init.
@@ -96,6 +96,13 @@ type Manager struct {
 	// debugMode enables provider-specific debug startup behavior.
 	debugMode bool
 
+	// targetPlatform is the device platform used for Expo manifest requests.
+	targetPlatform string
+
+	// forceHotReload lets callers launch even when Expo relay readiness cannot
+	// prove the manifest is ready yet. It does not bypass earlier startup errors.
+	forceHotReload bool
+
 	// externalTunnelURL, when set, bypasses the relay tunnel and dev server entirely.
 	// The manager returns this URL directly as the tunnel URL. If externalDeepLinkURL
 	// is unset, the Expo deep link is constructed from provider config.
@@ -127,6 +134,7 @@ func NewManager(providerName string, providerConfig *config.ProviderConfig, work
 		providerConfig:      providerConfig,
 		workDir:             workDir,
 		transportPreference: "relay",
+		targetPlatform:      "ios",
 	}
 }
 
@@ -149,6 +157,18 @@ func (m *Manager) SetDevServerOutputCallback(callback DevServerOutputCallback) {
 // SetDebugMode configures provider-specific debug startup behavior.
 func (m *Manager) SetDebugMode(enabled bool) {
 	m.debugMode = enabled
+}
+
+// SetTargetPlatform configures the device platform used for Expo manifest
+// readiness checks. Blank or unknown values default to iOS.
+func (m *Manager) SetTargetPlatform(platform string) {
+	m.targetPlatform = normalizeExpoPlatform(platform)
+}
+
+// SetForceHotReload allows startup to continue if the Expo relay readiness
+// proof fails after the dev server and tunnel have started.
+func (m *Manager) SetForceHotReload(enabled bool) {
+	m.forceHotReload = enabled
 }
 
 // SetAPIClient provides the authenticated backend client used by the relay transport.
@@ -278,21 +298,29 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 			tunnelURL,
 			metroTunnelReadyTimeout,
 			metroTunnelReadyPollInterval,
+			m.targetPlatform,
 		); err != nil {
-			if m.tunnel != nil {
-				_ = m.tunnel.Stop()
-				m.tunnel = nil
+			if m.forceHotReload {
+				m.log("Warning: Expo relay readiness check failed, but --force-hot-reload is set.")
+				m.log("Launching anyway; the dev client may show a project load error.")
+				m.log("Failed check: %s", err)
+			} else {
+				if m.tunnel != nil {
+					_ = m.tunnel.Stop()
+					m.tunnel = nil
+				}
+				if m.devServer != nil {
+					_ = m.devServer.Stop()
+					m.devServer = nil
+				}
+				return nil, fmt.Errorf(
+					"Expo relay is not ready yet; launching the dev client would likely show a project load error: %w",
+					err,
+				)
 			}
-			if m.devServer != nil {
-				_ = m.devServer.Stop()
-				m.devServer = nil
-			}
-			return nil, fmt.Errorf(
-				"Expo relay is not ready yet; launching the dev client would likely show a project load error: %w",
-				err,
-			)
+		} else {
+			m.log("Expo relay is serving Metro")
 		}
-		m.log("Expo relay is serving Metro")
 	}
 
 	if m.providerName == "react-native" {
@@ -501,7 +529,7 @@ func (m *Manager) GetDevServerPort() int {
 // results. Intended to run in a goroutine immediately after Start() so results
 // appear shortly after "Dev loop ready".
 func (m *Manager) runDiagnostics(localPort int, tunnelURL string) {
-	result := postStartupDiagnostics(localPort, tunnelURL, m.providerName)
+	result := postStartupDiagnostics(localPort, tunnelURL, m.providerName, m.targetPlatform)
 	for _, c := range result.Checks {
 		if c.Passed {
 			m.log("[hmr diagnostic] %s: %s", c.Name, c.Detail)

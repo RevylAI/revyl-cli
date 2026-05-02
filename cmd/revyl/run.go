@@ -1289,6 +1289,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	} else {
 		manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
 		manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
+		manager.SetTargetPlatform(resolvedDevicePlatform)
 		manager.SetLogCallback(func(msg string) {
 			ui.PrintDim("  %s", msg)
 		})

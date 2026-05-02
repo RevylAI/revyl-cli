@@ -108,6 +108,59 @@ func TestCheckManifestURLs_PassesWhenClean(t *testing.T) {
 	}
 }
 
+func TestCheckManifestURLs_RequestsExpoPlatformHeaderAndQuery(t *testing.T) {
+	manifest := map[string]interface{}{
+		"launchAsset": map[string]string{"url": "https://tunnel.example.com/bundle.js"},
+		"extra": map[string]interface{}{
+			"expoGo":     map[string]string{"debuggerHost": "tunnel.example.com"},
+			"expoClient": map[string]string{"hostUri": "tunnel.example.com"},
+		},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("expo-platform") != "ios" || r.URL.Query().Get("platform") != "ios" {
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, "<!DOCTYPE html><html><body>Expo dev tools</body></html>")
+			return
+		}
+		json.NewEncoder(w).Encode(manifest)
+	}))
+	defer srv.Close()
+
+	c := checkManifestURLsForPlatform(8082, srv.URL, "ios")
+	if !c.Passed {
+		t.Fatalf("expected pass, got fail: %s", c.Detail)
+	}
+}
+
+func TestCheckManifestURLs_RequestsAndroidPlatform(t *testing.T) {
+	var headerPlatform string
+	var queryPlatform string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headerPlatform = r.Header.Get("expo-platform")
+		queryPlatform = r.URL.Query().Get("platform")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"launchAsset": map[string]string{"url": "https://relay.example.com/index.bundle"},
+			"extra": map[string]interface{}{
+				"expoGo":     map[string]string{"debuggerHost": "relay.example.com"},
+				"expoClient": map[string]string{"hostUri": "relay.example.com"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := checkManifestURLsForPlatform(8081, srv.URL, "android")
+	if !c.Passed {
+		t.Fatalf("expected pass, got fail: %s", c.Detail)
+	}
+	if headerPlatform != "android" {
+		t.Fatalf("expo-platform = %q, want android", headerPlatform)
+	}
+	if queryPlatform != "android" {
+		t.Fatalf("platform query = %q, want android", queryPlatform)
+	}
+}
+
 func TestCheckManifestURLs_FailsOnPortLeak(t *testing.T) {
 	manifest := map[string]interface{}{
 		"launchAsset": map[string]string{"url": "https://tunnel.example.com:8082/bundle.js"},
@@ -274,6 +327,11 @@ func TestWaitForExpoMetroRelay_PassesAfterStatusAndManifestReady(t *testing.T) {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
+		if r.Header.Get("expo-platform") != "ios" || r.URL.Query().Get("platform") != "ios" {
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, "<!DOCTYPE html><html><body>Expo dev tools</body></html>")
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"launchAsset": map[string]string{"url": "https://relay.example.com/bundle.js"},
 			"extra": map[string]interface{}{
@@ -303,6 +361,51 @@ func TestWaitForExpoMetroRelay_PassesAfterStatusAndManifestReady(t *testing.T) {
 	}
 	if result == nil || !result.AllPassed {
 		t.Fatalf("expected passing result, got %+v", result)
+	}
+}
+
+func TestWaitForExpoMetroRelay_UsesAndroidPlatform(t *testing.T) {
+	var headerPlatform string
+	var queryPlatform string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		headerPlatform = r.Header.Get("expo-platform")
+		queryPlatform = r.URL.Query().Get("platform")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"launchAsset": map[string]string{"url": "https://relay.example.com/bundle.js"},
+			"extra": map[string]interface{}{
+				"expoGo":     map[string]string{"debuggerHost": "relay.example.com"},
+				"expoClient": map[string]string{"hostUri": "relay.example.com"},
+			},
+		})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	result, err := WaitForExpoMetroRelayForPlatform(
+		context.Background(),
+		8081,
+		srv.URL,
+		time.Second,
+		25*time.Millisecond,
+		"android",
+	)
+	if err != nil {
+		t.Fatalf("expected Expo relay to become ready, got error: %v", err)
+	}
+	if result == nil || !result.AllPassed {
+		t.Fatalf("expected passing result, got %+v", result)
+	}
+	if headerPlatform != "android" {
+		t.Fatalf("expo-platform = %q, want android", headerPlatform)
+	}
+	if queryPlatform != "android" {
+		t.Fatalf("platform query = %q, want android", queryPlatform)
 	}
 }
 

@@ -94,6 +94,7 @@ revyl dev --platform ios --build       # Force a fresh dev build before start
 revyl dev --app-id <app-id>            # Use explicit app override
 revyl dev --build-version-id <id>      # Use explicit build override
 revyl dev --platform-key ios-dev       # Use explicit platform key
+revyl dev --force-hot-reload           # Launch even if Expo relay readiness cannot be proven
 revyl dev --no-build --tunnel "<expo-dev-client-link>"  # Use an existing Expo tunnel/deep link
 ```
 
@@ -109,6 +110,9 @@ when you specifically need relay/HMR troubleshooting output. In cloud-agent
 environments, keep the Revyl relay running after `Dev loop ready` and use device
 screenshots or `revyl device report --session-id <id> --json` as source of truth
 before switching to an external Expo tunnel.
+For urgent Expo dev-client debugging, `--force-hot-reload` keeps the relay and
+dev server running and launches the device even if Revyl cannot prove relay
+manifest readiness yet.
 
 For externally managed Expo tunnels, start Expo yourself and pass either the
 full dev-client link Expo prints or the raw `https://...` tunnel URL:
@@ -728,23 +732,6 @@ The stream becomes available shortly after session start. See [SDK > Live Stream
 --timeout <secs>  # Idle timeout for start (default: 300)
 ```
 
-## Services
-
-Manage service sessions defined in `.revyl/sessions.json` (Terminal Keeper format — shared with VS Code and Fleet Dashboard).
-
-```bash
-revyl services list                          # List session profiles with terminal counts
-revyl services start                         # Start the active/default session
-revyl services start "default + tools"       # Start a specific session
-revyl services start -s frontend -s backend  # Start only specific named services
-revyl services stop                          # Stop all services started by `revyl services`
-revyl services stop -s backend               # Stop specific services
-revyl services status                        # Per-service alive/stopped status (--json)
-revyl services docs                          # Print the full .revyl/ session format reference
-```
-
-Services write a PID file at `.revyl/.services.pid` so `stop` and `status` know what's running.
-
 ## Shell Completion
 
 ```bash
@@ -775,10 +762,15 @@ revyl mcp serve                         # Start MCP server for AI agent integrat
 revyl mcp serve --profile core          # ~10 composite tools (recommended for dev-loop / test-creation)
 revyl mcp serve --profile full          # ~16 composite tools (adds workflow, module, script, tag, file, var management)
 revyl skill list                                      # List first-class skills
-revyl skill install --force                          # Install both first-class skills
+revyl skill install --force                          # Install recommended skills
 revyl skill install --name revyl-cli-dev-loop --force # Dev loop + device exploration
 revyl skill install --name revyl-cli-create --force   # Stable YAML test authoring
-revyl skill install --name revyl-cli-auth-bypass-expo --force # Expo auth bypass implementation
+revyl skill install --name revyl-cli-auth-bypass --force # Auth bypass setup
+revyl skill install --name revyl-cli-auth-bypass-expo --force # Expo auth bypass leaf
+revyl skill install --name revyl-cli-auth-bypass-react-native --force # React Native leaf
+revyl skill install --name revyl-cli-auth-bypass-ios --force # Native iOS leaf
+revyl skill install --name revyl-cli-auth-bypass-android --force # Native Android leaf
+revyl skill install --name revyl-cli-auth-bypass-flutter --force # Flutter leaf
 revyl skill install --cursor --force                 # Force Cursor if auto-detect is ambiguous
 revyl skill install --codex --force                  # Force Codex if auto-detect is ambiguous
 revyl skill show --name revyl-cli-dev-loop           # Print a named skill to stdout

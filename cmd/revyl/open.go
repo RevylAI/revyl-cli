@@ -521,6 +521,7 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 
 			hotReloadManager = hotreload.NewManager(provider.Name(), providerCfg, cwd)
 			hotReloadManager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
+			hotReloadManager.SetTargetPlatform(test.Platform)
 			hotReloadManager.SetLogCallback(func(msg string) {
 				ui.PrintDim("  %s", msg)
 			})

@@ -30,14 +30,14 @@ pip install revyl
 revyl doctor                     # Check CLI version, auth, connectivity
 revyl auth login                 # Authenticate with your API key
 cd your-app && revyl init        # Detect framework, create .revyl/config.yaml
-revyl skill install --force      # Install agent skills: revyl-cli-dev-loop, revyl-cli-create
+revyl skill install --force      # Install agent skills: dev-loop, create, auth-bypass
 ```
 
 ## Connect Your AI Coding Agent
 
 Revyl skills are the recommended way to teach your AI coding agent how to use
 the CLI well. During interactive `revyl init`, Revyl asks which AI coding tool
-you use and installs the public skills for that tool automatically:
+you use and installs the recommended skills for that tool automatically:
 
 - **Cursor** installs to `.cursor/skills`
 - **Codex** installs to `.codex/skills`
@@ -45,7 +45,7 @@ you use and installs the public skills for that tool automatically:
 - **Skip for now** leaves setup for later
 
 If you skipped that prompt or want to refresh skills after a CLI update, install
-both first-class skills:
+the recommended skill bundle:
 
 ```bash
 revyl skill install --force
@@ -57,7 +57,7 @@ Install one skill when you want the agent focused on a specific job:
 |---|---|---|
 | Run a generic Revyl dev loop, interact with the device, and verify app behavior | `revyl skill install --name revyl-cli-dev-loop --force` | `Use the revyl-cli-dev-loop skill.` |
 | Author or refine stable Revyl YAML tests, then validate, push, run, and inspect reports | `revyl skill install --name revyl-cli-create --force` | `Use the revyl-cli-create skill.` |
-| Implement a test-only auth bypass deep link in an Expo or Expo Router app | `revyl skill install --name revyl-cli-auth-bypass-expo --force` | `Use the revyl-cli-auth-bypass-expo skill.` |
+| Set up test-only auth bypass across a mobile app stack | `revyl skill install --name revyl-cli-auth-bypass --force` | `Use the revyl-cli-auth-bypass skill.` |
 
 Useful install variants:
 
@@ -68,7 +68,7 @@ revyl skill install --cursor --force        # Force Cursor if auto-detect is amb
 revyl skill install --codex --force         # Force Codex if auto-detect is ambiguous
 revyl skill install --claude --force        # Force Claude Code if auto-detect is ambiguous
 revyl skill show --name revyl-cli-dev-loop  # Print a named skill to stdout
-revyl skill show --name revyl-cli-auth-bypass-expo
+revyl skill show --name revyl-cli-auth-bypass
 revyl skill export --name revyl-cli-create -o FILE
 ```
 

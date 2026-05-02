@@ -17,6 +17,14 @@ func strPtr(v string) *string {
 	return &v
 }
 
+func handleTestCLITraceFallback(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodPost || r.URL.Path != "/api/v1/telemetry/cli-traces" {
+		return false
+	}
+	http.Error(w, "collector unavailable", http.StatusBadGateway)
+	return true
+}
+
 func TestSelectedDeviceViewerURL_PrefersAppViewer(t *testing.T) {
 	t.Setenv("REVYL_APP_URL", "https://viewer.example")
 
@@ -285,6 +293,9 @@ func TestStartDeviceSessionCmd_StartsBareDeviceWhenNoAppSelected(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if handleTestCLITraceFallback(w, r) {
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/execution/start_device" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -335,6 +346,7 @@ func TestStartDeviceSessionCmd_ResolvesSelectedAppToLatestBuild(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case handleTestCLITraceFallback(w, r):
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/builds/vars/"+appID+"/versions":
 			if got := r.URL.Query().Get("page_size"); got != "20" {
 				t.Fatalf("expected page_size=20, got %q", got)
@@ -380,6 +392,9 @@ func TestStartDeviceSessionCmd_AttachesLaunchVarIDs(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if handleTestCLITraceFallback(w, r) {
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/execution/start_device" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}

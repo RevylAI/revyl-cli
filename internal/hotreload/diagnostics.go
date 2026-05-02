@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -67,6 +68,13 @@ type diagnosticCheckFunc func(localPort int, tunnelURL string) DiagnosticCheck
 // Returns:
 //   - *DiagnosticResult: Aggregated results with per-check detail
 func RunPostStartupDiagnostics(localPort int, tunnelURL string, providerName string) *DiagnosticResult {
+	return RunPostStartupDiagnosticsForPlatform(localPort, tunnelURL, providerName, "")
+}
+
+// RunPostStartupDiagnosticsForPlatform is like RunPostStartupDiagnostics, but
+// requests Expo manifests using the target device platform. Expo returns HTML
+// for root requests that do not include a platform signal.
+func RunPostStartupDiagnosticsForPlatform(localPort int, tunnelURL string, providerName string, targetPlatform string) *DiagnosticResult {
 	checks := []diagnosticCheckFunc{
 		checkMetroHealth,
 		checkLocalWebSocket,
@@ -74,7 +82,9 @@ func RunPostStartupDiagnostics(localPort int, tunnelURL string, providerName str
 		checkTunnelWebSocket,
 	}
 	if providerName == "expo" {
-		checks = append(checks, checkManifestURLs)
+		checks = append(checks, func(localPort int, tunnelURL string) DiagnosticCheck {
+			return checkManifestURLsForPlatform(localPort, tunnelURL, targetPlatform)
+		})
 	}
 	return runDiagnosticChecks(localPort, tunnelURL, checks)
 }
@@ -125,9 +135,25 @@ func WaitForExpoMetroRelay(
 	timeout time.Duration,
 	interval time.Duration,
 ) (*DiagnosticResult, error) {
+	return WaitForExpoMetroRelayForPlatform(ctx, localPort, tunnelURL, timeout, interval, "")
+}
+
+// WaitForExpoMetroRelayForPlatform waits for the public Expo relay using a
+// platform-specific manifest request. Expo dev clients include the platform in
+// manifest requests; without it, current Expo CLI serves the root HTML page.
+func WaitForExpoMetroRelayForPlatform(
+	ctx context.Context,
+	localPort int,
+	tunnelURL string,
+	timeout time.Duration,
+	interval time.Duration,
+	targetPlatform string,
+) (*DiagnosticResult, error) {
 	checks := []diagnosticCheckFunc{
 		checkTunnelHTTP,
-		checkManifestURLs,
+		func(localPort int, tunnelURL string) DiagnosticCheck {
+			return checkManifestURLsForPlatform(localPort, tunnelURL, targetPlatform)
+		},
 	}
 
 	return waitForDiagnosticChecks(ctx, localPort, tunnelURL, timeout, interval, checks, "Expo relay readiness")
@@ -266,8 +292,24 @@ func checkTunnelWebSocket(_ int, tunnelURL string) DiagnosticCheck {
 // bundle/host URLs don't leak the local Metro port (which the cloud device
 // cannot reach).
 func checkManifestURLs(localPort int, tunnelURL string) DiagnosticCheck {
+	return checkManifestURLsForPlatform(localPort, tunnelURL, "")
+}
+
+func checkManifestURLsForPlatform(localPort int, tunnelURL string, targetPlatform string) DiagnosticCheck {
 	client := &http.Client{Timeout: diagnosticHTTPTimeout}
-	resp, err := client.Get(strings.TrimRight(tunnelURL, "/") + "/")
+	platform := normalizeExpoPlatform(targetPlatform)
+	manifestURL, err := expoManifestURL(tunnelURL, platform)
+	if err != nil {
+		return DiagnosticCheck{Name: "Manifest URLs", Passed: false, Detail: fmt.Sprintf("build request failed: %s", err)}
+	}
+	req, err := http.NewRequest(http.MethodGet, manifestURL, nil)
+	if err != nil {
+		return DiagnosticCheck{Name: "Manifest URLs", Passed: false, Detail: fmt.Sprintf("build request failed: %s", err)}
+	}
+	req.Header.Set("expo-platform", platform)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return DiagnosticCheck{Name: "Manifest URLs", Passed: false, Detail: fmt.Sprintf("fetch failed: %s", err)}
 	}
@@ -316,6 +358,32 @@ func checkManifestURLs(localPort int, tunnelURL string) DiagnosticCheck {
 		}
 	}
 	return DiagnosticCheck{Name: "Manifest URLs", Passed: true, Detail: "OK (no port mismatch)"}
+}
+
+func normalizeExpoPlatform(platform string) string {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case "android":
+		return "android"
+	case "ios":
+		return "ios"
+	default:
+		return "ios"
+	}
+}
+
+func expoManifestURL(tunnelURL string, platform string) (string, error) {
+	raw := strings.TrimSpace(tunnelURL)
+	if raw == "" {
+		return "", fmt.Errorf("empty tunnel URL")
+	}
+	parsed, err := url.Parse(strings.TrimRight(raw, "/") + "/")
+	if err != nil {
+		return "", err
+	}
+	q := parsed.Query()
+	q.Set("platform", normalizeExpoPlatform(platform))
+	parsed.RawQuery = q.Encode()
+	return parsed.String(), nil
 }
 
 // probeWebSocketUpgrade performs a raw TCP WebSocket upgrade handshake and

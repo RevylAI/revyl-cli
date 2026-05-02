@@ -15,6 +15,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 func writeTestArtifact(t *testing.T) string {
@@ -780,6 +783,153 @@ func TestProxyWorkerRequest_InferMethodFromAction(t *testing.T) {
 				t.Fatalf("statusCode = %d, want %d", statusCode, tt.wantStatusCode)
 			}
 		})
+	}
+}
+
+func TestStartDeviceExportsCLITraceHandoff(t *testing.T) {
+	var telemetryRequestID string
+	var startRequestID string
+	var exportedTraceID string
+	var startTraceparent string
+	var startToken string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/telemetry/cli-traces":
+			if r.Method != http.MethodPost {
+				t.Fatalf("telemetry method = %s, want POST", r.Method)
+			}
+			if got := r.Header.Get("Content-Type"); got != otlpProtobufContentType {
+				t.Fatalf("telemetry content-type = %q, want %q", got, otlpProtobufContentType)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+				t.Fatalf("telemetry authorization = %q", got)
+			}
+			telemetryRequestID = r.Header.Get(traceRequestIDHeader)
+			if telemetryRequestID == "" {
+				t.Fatal("telemetry request missing X-Request-ID")
+			}
+			payload, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read telemetry body: %v", err)
+			}
+			var export tracepb.TracesData
+			if err := proto.Unmarshal(payload, &export); err != nil {
+				t.Fatalf("decode telemetry body: %v", err)
+			}
+			if len(export.ResourceSpans) != 1 ||
+				len(export.ResourceSpans[0].ScopeSpans) != 1 ||
+				len(export.ResourceSpans[0].ScopeSpans[0].Spans) != 1 {
+				t.Fatalf("unexpected telemetry shape: %+v", export)
+			}
+			span := export.ResourceSpans[0].ScopeSpans[0].Spans[0]
+			if span.Name != cliTraceSpanName {
+				t.Fatalf("span name = %q, want %q", span.Name, cliTraceSpanName)
+			}
+			exportedTraceID = fmt.Sprintf("%x", span.TraceId)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(
+				w,
+				`{"handoff_token":"handoff-token","trace_id":%q,"request_id":%q}`,
+				exportedTraceID,
+				telemetryRequestID,
+			)
+		case "/api/v1/execution/start_device":
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode start_device request: %v", err)
+			}
+			if _, ok := body["trace_context"]; ok {
+				t.Fatalf("start_device body unexpectedly included trace_context: %#v", body)
+			}
+			startRequestID = r.Header.Get(traceRequestIDHeader)
+			startTraceparent = r.Header.Get(cliTraceparentHeader)
+			startToken = r.Header.Get(cliTraceHandoffHeader)
+			if startRequestID == "" || startRequestID != telemetryRequestID {
+				t.Fatalf("start request ID = %q, telemetry request ID = %q", startRequestID, telemetryRequestID)
+			}
+			if startToken != "handoff-token" {
+				t.Fatalf("handoff token = %q, want handoff-token", startToken)
+			}
+			if startTraceparent == "" || !strings.Contains(startTraceparent, exportedTraceID) {
+				t.Fatalf("start traceparent = %q, exported trace ID = %q", startTraceparent, exportedTraceID)
+			}
+			if got := r.Header.Get("traceparent"); got != "" {
+				t.Fatalf("standard traceparent header = %q, want empty", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"workflow_run_id":"11111111-1111-1111-1111-111111111111","trace_id":%q}`, exportedTraceID)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	req := &StartDeviceRequest{Platform: "ios"}
+	resp, err := client.StartDevice(context.Background(), req)
+	if err != nil {
+		t.Fatalf("StartDevice() error = %v, want nil", err)
+	}
+	if resp.TraceId == nil {
+		t.Fatal("StartDevice() response missing trace_id")
+	}
+	if *resp.TraceId != exportedTraceID {
+		t.Fatalf("response trace_id = %q, want %q", *resp.TraceId, exportedTraceID)
+	}
+}
+
+func TestStartDeviceFallsBackWhenCLITraceExportFails(t *testing.T) {
+	var sawStart bool
+	var startRequestID string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/telemetry/cli-traces":
+			http.Error(w, "collector unavailable", http.StatusBadGateway)
+		case "/api/v1/execution/start_device":
+			sawStart = true
+			startRequestID = r.Header.Get(traceRequestIDHeader)
+			if got := r.Header.Get(cliTraceparentHeader); got != "" {
+				t.Fatalf("fallback start sent CLI traceparent = %q", got)
+			}
+			if got := r.Header.Get(cliTraceHandoffHeader); got != "" {
+				t.Fatalf("fallback start sent handoff token = %q", got)
+			}
+			if got := r.Header.Get("traceparent"); got != "" {
+				t.Fatalf("fallback start sent standard traceparent = %q", got)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode start_device request: %v", err)
+			}
+			if _, ok := body["trace_context"]; ok {
+				t.Fatalf("fallback body unexpectedly included trace_context: %#v", body)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"workflow_run_id":"11111111-1111-1111-1111-111111111111","trace_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	resp, err := client.StartDevice(context.Background(), &StartDeviceRequest{Platform: "ios"})
+	if err != nil {
+		t.Fatalf("StartDevice() error = %v, want nil", err)
+	}
+	if !sawStart {
+		t.Fatal("StartDevice() did not call start_device after telemetry failure")
+	}
+	if startRequestID == "" {
+		t.Fatal("fallback start missing X-Request-ID")
+	}
+	if resp.TraceId == nil || *resp.TraceId != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("TraceId = %v, want backend returned fallback trace ID", resp.TraceId)
 	}
 }
 

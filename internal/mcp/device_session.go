@@ -66,6 +66,9 @@ type DeviceSession struct {
 	// WorkflowRunID is the Hatchet workflow run powering this session.
 	WorkflowRunID string `json:"workflow_run_id"`
 
+	// TraceID is the OpenTelemetry trace ID used to correlate this device session.
+	TraceID string `json:"trace_id,omitempty"`
+
 	// WorkerBaseURL is the HTTP base URL for the device worker
 	// (e.g. "https://worker-xxx.revyl.ai").
 	WorkerBaseURL string `json:"worker_base_url"`
@@ -384,6 +387,10 @@ func (m *DeviceSessionManager) StartSession(
 	}
 
 	workflowRunID := resp.WorkflowRunId.String()
+	traceID := ""
+	if resp.TraceId != nil {
+		traceID = strings.TrimSpace(*resp.TraceId)
+	}
 
 	// Poll for worker URL (up to 120 seconds)
 	workerBaseURL, err := m.waitForWorkerURL(ctx, workflowRunID, 120*time.Second)
@@ -396,7 +403,7 @@ func (m *DeviceSessionManager) StartSession(
 	// Wait for the device to actually be connected (up to 30 seconds).
 	// The worker URL can exist before the device is fully provisioned,
 	// so we poll /health until device_connected is true.
-	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID}
+	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID, TraceID: traceID}
 	deviceReady := false
 	var lastHealth workerHealthResponse
 	for i := 0; i < 15; i++ { // 15 * 2s = 30s max
@@ -433,6 +440,7 @@ func (m *DeviceSessionManager) StartSession(
 		Index:         idx,
 		SessionID:     sessionID,
 		WorkflowRunID: workflowRunID,
+		TraceID:       traceID,
 		WorkerBaseURL: workerBaseURL,
 		ViewerURL:     viewerURL,
 		Platform:      platform,
@@ -1531,7 +1539,6 @@ func (m *DeviceSessionManager) proxyWorkerRequestForSession(
 	if err != nil {
 		return nil, err
 	}
-
 	respBody, statusCode, err := m.apiClient.ProxyWorkerRequest(ctx, session.WorkflowRunID, action, body)
 	if err != nil {
 		return nil, err
@@ -2085,12 +2092,18 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	for _, ls := range m.sessions {
 		if bs, ok := backendSessionByID[ls.SessionID]; ok {
 			ls.WhepURL = bs.WhepUrl
+			if bs.TraceId != nil {
+				ls.TraceID = strings.TrimSpace(*bs.TraceId)
+			}
 			applyBackendScreenDimensions(ls, bs)
 			continue
 		}
 		if bs, ok := backendSessionByWorkflow[ls.WorkflowRunID]; ok {
 			ls.SessionID = bs.Id
 			ls.WhepURL = bs.WhepUrl
+			if bs.TraceId != nil {
+				ls.TraceID = strings.TrimSpace(*bs.TraceId)
+			}
 			applyBackendScreenDimensions(ls, bs)
 		}
 	}
@@ -2138,11 +2151,15 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		if bs.WorkflowRunId != nil {
 			workflowRunID = *bs.WorkflowRunId
 		}
+		traceID := ""
+		if bs.TraceId != nil {
+			traceID = strings.TrimSpace(*bs.TraceId)
+		}
 
 		// Validate worker is actually reachable before adding.
 		// DNS entries are cleaned up before backend DB status is updated,
 		// so a non-empty URL doesn't guarantee the worker is alive.
-		tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID}
+		tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: workflowRunID, TraceID: traceID}
 		if _, hErr := m.healthCheckSession(tmpSession); hErr != nil {
 			ui.PrintDebug("skipping session %s: worker unreachable (%v)", shortPrefix(bs.Id, 8), hErr)
 			continue
@@ -2164,6 +2181,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			Index:         idx,
 			SessionID:     bs.Id,
 			WorkflowRunID: workflowRunID,
+			TraceID:       traceID,
 			WorkerBaseURL: workerBaseURL,
 			ViewerURL:     viewerURL,
 			WhepURL:       bs.WhepUrl,
@@ -2254,6 +2272,10 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 	if detail.WorkflowRunID == nil || *detail.WorkflowRunID == "" {
 		return -1, nil, fmt.Errorf("session %s has no workflow run ID (may still be queued)", sessionID[:min(8, len(sessionID))])
 	}
+	traceID := ""
+	if detail.TraceID != nil {
+		traceID = strings.TrimSpace(*detail.TraceID)
+	}
 
 	wsResp, wsErr := m.apiClient.GetWorkerWSURL(ctx, *detail.WorkflowRunID)
 	if wsErr != nil {
@@ -2269,7 +2291,7 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 	}
 
 	// Health-check the worker.
-	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: *detail.WorkflowRunID}
+	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: *detail.WorkflowRunID, TraceID: traceID}
 	if _, hErr := m.healthCheckSession(tmpSession); hErr != nil {
 		return -1, nil, fmt.Errorf("worker unreachable for session %s: %w", sessionID[:min(8, len(sessionID))], hErr)
 	}
@@ -2297,6 +2319,7 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 		Index:         idx,
 		SessionID:     sessionID,
 		WorkflowRunID: *detail.WorkflowRunID,
+		TraceID:       traceID,
 		WorkerBaseURL: workerBaseURL,
 		ViewerURL:     viewerURL,
 		WhepURL:       detail.WhepURL,

@@ -155,9 +155,6 @@ func init() {
 	rootCmd.AddCommand(pingCmd)
 	rootCmd.AddCommand(upgradeCmd)
 
-	// Service session management
-	rootCmd.AddCommand(servicesCmd)
-
 	// Shell completion (built-in Cobra support for bash, zsh, fish, powershell)
 	rootCmd.AddCommand(completionCmd)
 

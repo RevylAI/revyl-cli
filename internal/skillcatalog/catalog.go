@@ -37,9 +37,34 @@ var catalog = []Skill{
 		Content:     skills.RevylCLIDevLoopContent,
 	},
 	{
+		Name:        skills.RevylCLIAuthBypassName,
+		Description: "Set up test-only auth bypass across mobile app stacks using Revyl launch variables and device verification.",
+		Content:     skills.RevylCLIAuthBypassContent,
+	},
+	{
 		Name:        skills.RevylCLIAuthBypassExpoName,
-		Description: "Implement test-only auth bypass deep links for Expo and Expo Router apps using Revyl launch variables.",
+		Description: "Expo and Expo Router leaf recipe for test-only auth bypass deep links using Revyl launch variables.",
 		Content:     skills.RevylCLIAuthBypassExpoContent,
+	},
+	{
+		Name:        skills.RevylCLIAuthBypassRNName,
+		Description: "React Native bare leaf recipe for test-only auth bypass deep links using Revyl launch variables.",
+		Content:     skills.RevylCLIAuthBypassRNContent,
+	},
+	{
+		Name:        skills.RevylCLIAuthBypassIOSName,
+		Description: "Native iOS leaf recipe for test-only auth bypass deep links using Revyl launch arguments.",
+		Content:     skills.RevylCLIAuthBypassIOSContent,
+	},
+	{
+		Name:        skills.RevylCLIAuthBypassAndroidName,
+		Description: "Native Android leaf recipe for test-only auth bypass deep links using Revyl launch intent extras.",
+		Content:     skills.RevylCLIAuthBypassAndroidContent,
+	},
+	{
+		Name:        skills.RevylCLIAuthBypassFlutterName,
+		Description: "Flutter leaf recipe for test-only auth bypass deep links using Revyl launch variables.",
+		Content:     skills.RevylCLIAuthBypassFlutterContent,
 	},
 	{
 		Name:        skills.RevylMCPName,
@@ -66,6 +91,18 @@ var catalog = []Skill{
 var publicSkillNames = []string{
 	skills.RevylCLIDevLoopName,
 	skills.RevylCLICreateName,
+	skills.RevylCLIAuthBypassName,
+}
+
+var defaultInstallSkillNames = []string{
+	skills.RevylCLIDevLoopName,
+	skills.RevylCLICreateName,
+	skills.RevylCLIAuthBypassName,
+	skills.RevylCLIAuthBypassExpoName,
+	skills.RevylCLIAuthBypassRNName,
+	skills.RevylCLIAuthBypassIOSName,
+	skills.RevylCLIAuthBypassAndroidName,
+	skills.RevylCLIAuthBypassFlutterName,
 }
 
 // All returns a copy of all embedded skills in deterministic install order.
@@ -77,8 +114,17 @@ func All() []Skill {
 
 // Public returns the first-class customer-facing skills in display/install order.
 func Public() []Skill {
-	out := make([]Skill, 0, len(publicSkillNames))
-	for _, name := range publicSkillNames {
+	return skillsByName(publicSkillNames)
+}
+
+// DefaultInstall returns the skills installed by the no-name install path.
+func DefaultInstall() []Skill {
+	return skillsByName(defaultInstallSkillNames)
+}
+
+func skillsByName(names []string) []Skill {
+	out := make([]Skill, 0, len(names))
+	for _, name := range names {
 		if sk, ok := Get(name); ok {
 			out = append(out, sk)
 		}

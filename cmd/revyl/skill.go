@@ -49,7 +49,8 @@ var skillCmd = &cobra.Command{
 Revyl ships embedded skills:
 - revyl-cli-dev-loop: agents run or attach to revyl dev, observe the app, and act through device commands
 - revyl-cli-create: agents create or refine stable Revyl tests from YAML, source, or successful flows
-- revyl-cli-auth-bypass-expo: optional Expo/Expo Router implementation guidance for test-only auth bypass deep links
+- revyl-cli-auth-bypass: agents set up test-only auth bypass across mobile app stacks
+- revyl-cli-auth-bypass-* leaves: platform recipes used after auth-bypass stack detection
 
 Additional optional and compatibility skills remain available by exact name.
 
@@ -59,7 +60,7 @@ EXAMPLES:
   revyl skill install --cursor --force
   revyl skill install --codex --force
   revyl skill show --name revyl-cli-dev-loop
-  revyl skill install --name revyl-cli-auth-bypass-expo --force
+  revyl skill install --name revyl-cli-auth-bypass --force
   revyl skill export --name revyl-cli-create -o SKILL.md`,
 }
 
@@ -82,7 +83,7 @@ var skillShowCmd = &cobra.Command{
 
 EXAMPLES:
   revyl skill show --name revyl-cli-dev-loop
-  revyl skill show --name revyl-cli-auth-bypass-expo
+  revyl skill show --name revyl-cli-auth-bypass
   revyl skill show --name revyl-cli-create | pbcopy`,
 	Args: cobra.NoArgs,
 	RunE: runSkillShow,
@@ -136,7 +137,7 @@ EXAMPLES:
   revyl skill install --codex --force
   revyl skill install --name revyl-cli-dev-loop --cursor --force
   revyl skill install --name revyl-cli-create --codex --force
-  revyl skill install --name revyl-cli-auth-bypass-expo --force`,
+  revyl skill install --name revyl-cli-auth-bypass --force`,
 	Args: cobra.NoArgs,
 	RunE: runSkillInstall,
 }
@@ -167,11 +168,15 @@ func runSkillList(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  %s - %s\n", s.Name, s.Description)
 	}
 	fmt.Println()
-	fmt.Println("Install them with:")
+	fmt.Println("Install the recommended bundle with:")
 	fmt.Println("  revyl skill install --force")
 	fmt.Println()
 	fmt.Println("Optional by-name skills:")
-	fmt.Println("  revyl-cli-auth-bypass-expo - Implement test-only auth bypass deep links for Expo and Expo Router apps")
+	fmt.Println("  revyl-cli-auth-bypass-expo - Expo and Expo Router leaf recipe for auth-bypass implementation")
+	fmt.Println("  revyl-cli-auth-bypass-react-native - React Native bare leaf recipe")
+	fmt.Println("  revyl-cli-auth-bypass-ios - native iOS leaf recipe")
+	fmt.Println("  revyl-cli-auth-bypass-android - native Android leaf recipe")
+	fmt.Println("  revyl-cli-auth-bypass-flutter - Flutter leaf recipe")
 	fmt.Println()
 	fmt.Println("Use a tool flag only when you need a specific target:")
 	fmt.Println("  revyl skill install --cursor --force")
@@ -244,7 +249,7 @@ func installPublicSkillsForTools(tools []string, global bool, force bool) error 
 	if len(targets) == 0 {
 		return fmt.Errorf("no install target found")
 	}
-	return installSkillsToTargets(targets, skillcatalog.Public(), force)
+	return installSkillsToTargets(targets, skillcatalog.DefaultInstall(), force)
 }
 
 func installSkillsToTargets(targets []string, allSkills []skillcatalog.Skill, force bool) error {
@@ -332,9 +337,9 @@ func resolveInstallSkills(selectedNames []string) ([]skillcatalog.Skill, error) 
 		installCLI := skillInstallCLI
 		installMCP := skillInstallMCP
 
-		// Default behavior: install the first-class public skills.
+		// Default behavior: install recommended public skills and bundled leaves.
 		if !installCLI && !installMCP {
-			return skillcatalog.Public(), nil
+			return skillcatalog.DefaultInstall(), nil
 		}
 		return resolveInstallSkillsByFamily(installCLI, installMCP)
 	}
