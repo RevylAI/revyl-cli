@@ -1,0 +1,47 @@
+{
+  "id": "revyl-sdk54-dev-client-ios",
+  "createdAt": "2026-05-04T00:00:00.000Z",
+  "runtimeVersion": "1.0.0",
+  "launchAsset": {
+    "key": "bundle",
+    "contentType": "application/javascript",
+    "url": "https://relay.revyl.test/node_modules/expo-router/entry.bundle?platform=ios&dev=true&hot=false&lazy=true&transform.engine=hermes&transform.bytecode=1&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+  },
+  "assets": [],
+  "metadata": {},
+  "extra": {
+    "expoGo": {
+      "debuggerHost": "relay.revyl.test",
+      "developer": {
+        "tool": "expo-cli",
+        "projectRoot": "/sanitized/internal-apps/bug-bazaar"
+      },
+      "packagerOpts": {
+        "dev": true
+      },
+      "mainModuleName": "node_modules/expo-router/entry"
+    },
+    "expoClient": {
+      "name": "bug-bazaar",
+      "slug": "bug-bazaar",
+      "version": "1.0.0",
+      "newArchEnabled": true,
+      "scheme": "bug-bazaar",
+      "plugins": [
+        "expo-router",
+        "./plugins/launch-args-module.js"
+      ],
+      "_internal": {
+        "projectRoot": "/sanitized/internal-apps/bug-bazaar",
+        "staticConfigPath": "/sanitized/internal-apps/bug-bazaar/app.json",
+        "packageJsonPath": "/sanitized/internal-apps/bug-bazaar/package.json"
+      },
+      "sdkVersion": "54.0.0",
+      "platforms": [
+        "ios",
+        "android"
+      ],
+      "hostUri": "relay.revyl.test"
+    }
+  }
+}

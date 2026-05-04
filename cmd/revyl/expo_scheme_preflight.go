@@ -66,11 +66,21 @@ func ensureExpoDevClientSchemeForBuild(cwd string, cfg *config.ProjectConfig) (b
 				expoCfg = &config.ProviderConfig{}
 			}
 			expoCfg.AppScheme = native.scheme
+			expoCfg.UseExpPrefix = native.useExpPrefix
 			cfg.HotReload.Providers["expo"] = expoCfg
 			if strings.TrimSpace(cfg.HotReload.Default) == "" {
 				cfg.HotReload.Default = "expo"
 			}
-			ui.PrintDim("Detected Expo scheme %q from app.json and saved it for hot reload.", native.scheme)
+			if native.useExpPrefix {
+				ui.PrintDim("Detected generated Expo dev-client scheme %q from app.json slug and saved it for hot reload.", "exp+"+native.scheme)
+			} else {
+				ui.PrintDim("Detected Expo scheme %q from app.json and saved it for hot reload.", native.scheme)
+			}
+			return true, nil
+		}
+		if native.useExpPrefix && expoCfg != nil && !expoCfg.UseExpPrefix {
+			expoCfg.UseExpPrefix = true
+			ui.PrintDim("Detected generated Expo dev-client scheme %q and enabled hotreload.providers.expo.use_exp_prefix.", "exp+"+native.scheme)
 			return true, nil
 		}
 		return false, nil
@@ -88,6 +98,7 @@ func ensureExpoDevClientSchemeForBuild(cwd string, cfg *config.ProjectConfig) (b
 
 type expoNativeScheme struct {
 	scheme           string
+	useExpPrefix     bool
 	hasAppJSON       bool
 	hasDynamicConfig bool
 }
@@ -116,6 +127,7 @@ func detectExpoNativeScheme(cwd string) (expoNativeScheme, error) {
 	var parsed struct {
 		Expo struct {
 			Scheme json.RawMessage `json:"scheme"`
+			Slug   string          `json:"slug"`
 		} `json:"expo"`
 	}
 	if err := json.Unmarshal(data, &parsed); err != nil {
@@ -129,6 +141,10 @@ func detectExpoNativeScheme(cwd string) (expoNativeScheme, error) {
 	}
 
 	result.scheme = strings.TrimSpace(parseExpoSchemeValue(parsed.Expo.Scheme))
+	if result.scheme == "" && strings.TrimSpace(parsed.Expo.Slug) != "" {
+		result.scheme = strings.TrimSpace(parsed.Expo.Slug)
+		result.useExpPrefix = true
+	}
 	return result, nil
 }
 

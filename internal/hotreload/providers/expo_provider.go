@@ -175,6 +175,10 @@ func (p *ExpoProvider) GetDefaultConfig(info *hotreload.ProjectInfo) *config.Pro
 	}
 	if info.Expo != nil {
 		cfg.AppScheme = info.Expo.Scheme
+		if strings.TrimSpace(cfg.AppScheme) == "" && strings.TrimSpace(info.Expo.Slug) != "" {
+			cfg.AppScheme = strings.TrimSpace(info.Expo.Slug)
+			cfg.UseExpPrefix = true
+		}
 	}
 	return cfg
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/hotreload"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -395,6 +396,62 @@ func TestPrintDevReadyFooter_SessionIndexInCommandHints(t *testing.T) {
 		`revyl device tap --target "Login button" -s 2`,
 		`revyl device instruction "log in and verify" -s 2`,
 		"revyl device screenshot -s 2",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output missing %q\noutput:\n%s", expected, output)
+		}
+	}
+}
+
+func TestPrintHotReloadReady_HidesRelayDetailsByDefault(t *testing.T) {
+	ui.SetQuietMode(false)
+	ui.SetDebugMode(false)
+	t.Cleanup(func() {
+		ui.SetQuietMode(false)
+		ui.SetDebugMode(false)
+	})
+
+	output := captureStdoutAndStderr(t, func() {
+		printHotReloadReady("Expo", &hotreload.StartResult{
+			RelayID:   "a-test",
+			TunnelURL: "https://hr-a-test.relay.revyl.ai",
+		})
+	})
+
+	if !strings.Contains(output, "Hot reload ready: Expo server and tunnel are running") {
+		t.Fatalf("output missing hot reload success\noutput:\n%s", output)
+	}
+	for _, unexpected := range []string{
+		"relay:",
+		"a-test",
+		"tunnel:",
+		"https://hr-a-test.relay.revyl.ai",
+	} {
+		if strings.Contains(output, unexpected) {
+			t.Fatalf("output unexpectedly contains %q\noutput:\n%s", unexpected, output)
+		}
+	}
+}
+
+func TestPrintHotReloadReady_ShowsRelayDetailsInDebugMode(t *testing.T) {
+	ui.SetQuietMode(false)
+	ui.SetDebugMode(true)
+	t.Cleanup(func() {
+		ui.SetQuietMode(false)
+		ui.SetDebugMode(false)
+	})
+
+	output := captureStdoutAndStderr(t, func() {
+		printHotReloadReady("Expo", &hotreload.StartResult{
+			RelayID:   "a-test",
+			TunnelURL: "https://hr-a-test.relay.revyl.ai",
+		})
+	})
+
+	for _, expected := range []string{
+		"Hot reload ready: Expo server and tunnel are running",
+		"relay: a-test",
+		"tunnel: https://hr-a-test.relay.revyl.ai",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output missing %q\noutput:\n%s", expected, output)

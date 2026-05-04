@@ -1,0 +1,42 @@
+{
+  "id": "revyl-sdk55-android",
+  "createdAt": "2026-05-04T00:00:00.000Z",
+  "runtimeVersion": "1.0.0",
+  "launchAsset": {
+    "key": "bundle",
+    "contentType": "application/javascript",
+    "url": "https://relay.revyl.test/index.bundle?platform=android&dev=true&hot=false&lazy=true&transform.engine=hermes&transform.bytecode=1&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+  },
+  "assets": [],
+  "metadata": {},
+  "extra": {
+    "expoGo": {
+      "debuggerHost": "relay.revyl.test",
+      "developer": {
+        "tool": "expo-cli",
+        "projectRoot": "/sanitized/expo-sdk55-smoke"
+      },
+      "packagerOpts": {
+        "dev": true
+      },
+      "mainModuleName": "index"
+    },
+    "expoClient": {
+      "name": "app",
+      "slug": "app",
+      "version": "1.0.0",
+      "newArchEnabled": true,
+      "_internal": {
+        "projectRoot": "/sanitized/expo-sdk55-smoke",
+        "staticConfigPath": "/sanitized/expo-sdk55-smoke/app.json",
+        "packageJsonPath": "/sanitized/expo-sdk55-smoke/package.json"
+      },
+      "sdkVersion": "55.0.0",
+      "platforms": [
+        "ios",
+        "android"
+      ],
+      "hostUri": "relay.revyl.test"
+    }
+  }
+}

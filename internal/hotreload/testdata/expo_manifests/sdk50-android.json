@@ -1,0 +1,50 @@
+{
+  "id": "revyl-sdk50-android",
+  "createdAt": "2026-05-04T00:00:00.000Z",
+  "runtimeVersion": "exposdk:50.0.0",
+  "launchAsset": {
+    "key": "bundle",
+    "contentType": "application/javascript",
+    "url": "https://relay.revyl.test/App.bundle?platform=android&dev=true&hot=false&transform.engine=hermes&transform.bytecode=true&transform.routerRoot=app"
+  },
+  "assets": [],
+  "metadata": {},
+  "extra": {
+    "expoGo": {
+      "debuggerHost": "relay.revyl.test",
+      "developer": {
+        "tool": "expo-cli",
+        "projectRoot": "/sanitized/revyl-ci-playground/apps/expo-minimal"
+      },
+      "packagerOpts": {
+        "dev": true
+      },
+      "mainModuleName": "App",
+      "__flipperHack": "React Native packager is running"
+    },
+    "expoClient": {
+      "name": "Revyl Expo Minimal",
+      "slug": "revyl-playground",
+      "version": "1.0.0",
+      "orientation": "portrait",
+      "ios": {
+        "supportsTablet": true,
+        "bundleIdentifier": "com.revyl.expo"
+      },
+      "android": {
+        "package": "com.revyl.expo"
+      },
+      "_internal": {
+        "projectRoot": "/sanitized/revyl-ci-playground/apps/expo-minimal",
+        "staticConfigPath": "/sanitized/revyl-ci-playground/apps/expo-minimal/app.json",
+        "packageJsonPath": "/sanitized/revyl-ci-playground/apps/expo-minimal/package.json"
+      },
+      "sdkVersion": "50.0.0",
+      "platforms": [
+        "ios",
+        "android"
+      ],
+      "hostUri": "relay.revyl.test"
+    }
+  }
+}

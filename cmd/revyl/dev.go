@@ -848,13 +848,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	defer manager.Stop()
 
-	ui.PrintSuccess("Hot reload ready: %s server and tunnel are running", provider.DisplayName())
-	if startResult.RelayID != "" {
-		ui.PrintInfo("  relay: %s", startResult.RelayID)
-	}
-	if startResult.TunnelURL != "" {
-		ui.PrintDebug("  tunnel: %s", startResult.TunnelURL)
-	}
+	printHotReloadReady(provider.DisplayName(), startResult)
 	deviceMgr, err := getDeviceSessionMgr(cmd)
 	if err != nil {
 		return err
@@ -1311,6 +1305,19 @@ func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired, 
 	}
 	ui.Println()
 	printNewTerminalHints(ctxName, sessionIndex)
+}
+
+func printHotReloadReady(providerDisplay string, startResult *hotreload.StartResult) {
+	ui.PrintSuccess("Hot reload ready: %s server and tunnel are running", providerDisplay)
+	if startResult == nil {
+		return
+	}
+	if startResult.RelayID != "" {
+		ui.PrintDebug("  relay: %s", startResult.RelayID)
+	}
+	if startResult.TunnelURL != "" {
+		ui.PrintDebug("  tunnel: %s", startResult.TunnelURL)
+	}
 }
 
 // printNewTerminalHints prints session management and device interaction commands

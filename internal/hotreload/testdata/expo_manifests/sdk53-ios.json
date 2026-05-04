@@ -1,0 +1,49 @@
+{
+  "id": "revyl-sdk53-ios",
+  "createdAt": "2026-05-04T00:00:00.000Z",
+  "runtimeVersion": "1.0.0",
+  "launchAsset": {
+    "key": "bundle",
+    "contentType": "application/javascript",
+    "url": "https://relay.revyl.test/index.bundle?platform=ios&dev=true&hot=false&transform.engine=hermes&transform.bytecode=1&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+  },
+  "assets": [],
+  "metadata": {},
+  "extra": {
+    "expoGo": {
+      "debuggerHost": "relay.revyl.test",
+      "developer": {
+        "tool": "expo-cli",
+        "projectRoot": "/sanitized/revyl-ci-playground/apps/ios-expo"
+      },
+      "packagerOpts": {
+        "dev": true
+      },
+      "mainModuleName": "index",
+      "__flipperHack": "React Native packager is running"
+    },
+    "expoClient": {
+      "name": "ios-expo",
+      "slug": "ios-expo",
+      "version": "1.0.0",
+      "ios": {
+        "bundleIdentifier": "com.revyl.iosexpo",
+        "supportsTablet": true
+      },
+      "android": {
+        "package": "com.revyl.iosexpo"
+      },
+      "_internal": {
+        "projectRoot": "/sanitized/revyl-ci-playground/apps/ios-expo",
+        "staticConfigPath": "/sanitized/revyl-ci-playground/apps/ios-expo/app.json",
+        "packageJsonPath": "/sanitized/revyl-ci-playground/apps/ios-expo/package.json"
+      },
+      "sdkVersion": "53.0.0",
+      "platforms": [
+        "ios",
+        "android"
+      ],
+      "hostUri": "relay.revyl.test"
+    }
+  }
+}

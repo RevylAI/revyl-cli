@@ -44,6 +44,51 @@ func TestEnsureExpoDevClientSchemeForBuildDetectsAppJSONScheme(t *testing.T) {
 	}
 }
 
+func TestEnsureExpoDevClientSchemeForBuildDetectsGeneratedSlugScheme(t *testing.T) {
+	dir := t.TempDir()
+	writeExpoPreflightFile(t, dir, "app.json", `{"expo":{"name":"Demo","slug":"brex-mobile"}}`)
+	cfg := expoPreflightConfig()
+
+	changed, err := ensureExpoDevClientSchemeForBuild(dir, cfg)
+	if err != nil {
+		t.Fatalf("ensureExpoDevClientSchemeForBuild() error = %v", err)
+	}
+	if !changed {
+		t.Fatal("changed = false, want true when saving generated slug scheme")
+	}
+	expoCfg := cfg.HotReload.GetProviderConfig("expo")
+	if expoCfg == nil {
+		t.Fatal("expected expo hotreload provider config")
+	}
+	if expoCfg.AppScheme != "brex-mobile" {
+		t.Fatalf("saved app_scheme = %q, want brex-mobile", expoCfg.AppScheme)
+	}
+	if !expoCfg.UseExpPrefix {
+		t.Fatal("use_exp_prefix = false, want true for generated exp+slug dev-client scheme")
+	}
+}
+
+func TestEnsureExpoDevClientSchemeForBuildEnablesExpPrefixForExistingSlugConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeExpoPreflightFile(t, dir, "app.json", `{"expo":{"name":"Demo","slug":"brex-mobile"}}`)
+	cfg := expoPreflightConfig()
+	cfg.HotReload.Providers = map[string]*config.ProviderConfig{
+		"expo": {AppScheme: "brex-mobile"},
+	}
+
+	changed, err := ensureExpoDevClientSchemeForBuild(dir, cfg)
+	if err != nil {
+		t.Fatalf("ensureExpoDevClientSchemeForBuild() error = %v", err)
+	}
+	if !changed {
+		t.Fatal("changed = false, want true when enabling exp+ prefix")
+	}
+	expoCfg := cfg.HotReload.GetProviderConfig("expo")
+	if expoCfg == nil || !expoCfg.UseExpPrefix {
+		t.Fatalf("expo config = %#v, want use_exp_prefix=true", expoCfg)
+	}
+}
+
 func TestEnsureExpoDevClientSchemeForBuildBlocksMissingStaticScheme(t *testing.T) {
 	dir := t.TempDir()
 	writeExpoPreflightFile(t, dir, "app.json", `{"expo":{"name":"Demo"}}`)

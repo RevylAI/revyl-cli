@@ -53,6 +53,30 @@ func (f *fakeTunnelBackend) Stop() error { return nil }
 
 func (f *fakeTunnelBackend) PublicURL() string { return f.publicURL }
 
+type fakeLoggingTunnelBackend struct {
+	publicURL string
+	onLog     func(string)
+}
+
+func (f *fakeLoggingTunnelBackend) SetLogCallback(callback func(string)) {
+	f.onLog = callback
+}
+
+func (f *fakeLoggingTunnelBackend) Start(_ context.Context, _ int) (string, error) {
+	if f.onLog != nil {
+		f.onLog("[relay] reserved relay session id=a-test transport=relay")
+		f.onLog("[relay] connection lost: relay websocket disconnected")
+		f.onLog("[relay] reconnected to backend relay id=a-test transport=relay")
+	}
+	return f.publicURL, nil
+}
+
+func (f *fakeLoggingTunnelBackend) StartHealthMonitor(_ context.Context) {}
+
+func (f *fakeLoggingTunnelBackend) Stop() error { return nil }
+
+func (f *fakeLoggingTunnelBackend) PublicURL() string { return f.publicURL }
+
 type failingTunnelBackend struct{}
 
 func (f *failingTunnelBackend) Start(_ context.Context, _ int) (string, error) {
@@ -93,14 +117,15 @@ func withFakePostStartupDiagnostics(t *testing.T, called chan<- struct{}) {
 
 func withFakeExpoMetroRelayReady(t *testing.T, called chan<- struct{}) {
 	t.Helper()
-	previous := waitForExpoMetroRelay
-	waitForExpoMetroRelay = func(
+	previousTransport := waitForExpoMetroTransport
+	previousManifest := waitForExpoManifestFetchResult
+	previousPrewarm := waitForExpoBundlePrewarmFromManifest
+	waitForExpoMetroTransport = func(
 		ctx context.Context,
 		localPort int,
 		tunnelURL string,
 		timeout time.Duration,
 		interval time.Duration,
-		targetPlatform string,
 	) (*DiagnosticResult, error) {
 		select {
 		case called <- struct{}{}:
@@ -108,8 +133,29 @@ func withFakeExpoMetroRelayReady(t *testing.T, called chan<- struct{}) {
 		}
 		return &DiagnosticResult{AllPassed: true}, nil
 	}
+	waitForExpoManifestFetchResult = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+		targetPlatform string,
+	) (expoManifestFetchResult, *DiagnosticResult, error) {
+		return expoManifestFetchResult{Manifest: map[string]any{}, Platform: targetPlatform}, &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoBundlePrewarmFromManifest = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		fetched expoManifestFetchResult,
+	) (*DiagnosticResult, error) {
+		return &DiagnosticResult{AllPassed: true, Checks: []DiagnosticCheck{{Name: "Bundle prewarm", Passed: true, Detail: "OK"}}}, nil
+	}
 	t.Cleanup(func() {
-		waitForExpoMetroRelay = previous
+		waitForExpoMetroTransport = previousTransport
+		waitForExpoManifestFetchResult = previousManifest
+		waitForExpoBundlePrewarmFromManifest = previousPrewarm
 	})
 }
 
@@ -117,6 +163,14 @@ func newTestManagerWithFakeTunnel() *Manager {
 	m := NewManager("expo", &config.ProviderConfig{AppScheme: "myapp"}, ".")
 	m.SetTunnelBackendFactory(func() TunnelBackend {
 		return &fakeTunnelBackend{publicURL: "https://relay.example"}
+	})
+	return m
+}
+
+func newTestManagerWithLoggingTunnel() *Manager {
+	m := NewManager("expo", &config.ProviderConfig{AppScheme: "myapp"}, ".")
+	m.SetTunnelBackendFactory(func() TunnelBackend {
+		return &fakeLoggingTunnelBackend{publicURL: "https://relay.example"}
 	})
 	return m
 }
@@ -266,10 +320,53 @@ func TestManagerStartRunsPostStartupDiagnosticsInDebugMode(t *testing.T) {
 	}
 }
 
-func TestManagerStartWaitsForExpoMetroRelay(t *testing.T) {
+func TestManagerStartWaitsForExpoMetroTransportManifestAndBundlePrewarm(t *testing.T) {
 	withFakeExpoDevServerFactory(t)
-	relayCalled := make(chan struct{}, 1)
-	withFakeExpoMetroRelayReady(t, relayCalled)
+	previousTransport := waitForExpoMetroTransport
+	previousManifest := waitForExpoManifestFetchResult
+	previousPrewarm := waitForExpoBundlePrewarmFromManifest
+	transportCalled := make(chan struct{}, 1)
+	manifestCalled := make(chan struct{}, 1)
+	prewarmCalled := make(chan struct{}, 1)
+	waitForExpoMetroTransport = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+	) (*DiagnosticResult, error) {
+		transportCalled <- struct{}{}
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoManifestFetchResult = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+		targetPlatform string,
+	) (expoManifestFetchResult, *DiagnosticResult, error) {
+		manifestCalled <- struct{}{}
+		return expoManifestFetchResult{Manifest: map[string]any{"source": "manifest-proof"}, Platform: targetPlatform}, &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoBundlePrewarmFromManifest = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		fetched expoManifestFetchResult,
+	) (*DiagnosticResult, error) {
+		prewarmCalled <- struct{}{}
+		if fetched.Manifest["source"] != "manifest-proof" {
+			t.Fatalf("prewarm fetched manifest = %+v, want manifest proof result", fetched.Manifest)
+		}
+		return &DiagnosticResult{AllPassed: true, Checks: []DiagnosticCheck{{Name: "Bundle prewarm", Passed: true, Detail: "OK"}}}, nil
+	}
+	t.Cleanup(func() {
+		waitForExpoMetroTransport = previousTransport
+		waitForExpoManifestFetchResult = previousManifest
+		waitForExpoBundlePrewarmFromManifest = previousPrewarm
+	})
 
 	m := newTestManagerWithFakeTunnel()
 	if _, err := m.Start(context.Background()); err != nil {
@@ -278,29 +375,233 @@ func TestManagerStartWaitsForExpoMetroRelay(t *testing.T) {
 	t.Cleanup(func() { m.Stop() })
 
 	select {
-	case <-relayCalled:
+	case <-transportCalled:
 	case <-time.After(time.Second):
-		t.Fatal("expected Start to wait for Expo relay readiness")
+		t.Fatal("expected Start to wait for Expo transport readiness")
+	}
+	select {
+	case <-manifestCalled:
+	case <-time.After(time.Second):
+		t.Fatal("expected Start to wait for Expo manifest readiness")
+	}
+	select {
+	case <-prewarmCalled:
+	case <-time.After(time.Second):
+		t.Fatal("expected Start to prewarm Expo bundle")
 	}
 }
 
-func TestManagerStartPassesTargetPlatformToExpoMetroRelay(t *testing.T) {
+func TestManagerStartExpoLogsAreCompactByDefault(t *testing.T) {
 	withFakeExpoDevServerFactory(t)
-	previous := waitForExpoMetroRelay
-	platforms := make(chan string, 1)
-	waitForExpoMetroRelay = func(
+	previousTransport := waitForExpoMetroTransport
+	previousManifest := waitForExpoManifestFetchResult
+	previousPrewarm := waitForExpoBundlePrewarmFromManifest
+	waitForExpoMetroTransport = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+	) (*DiagnosticResult, error) {
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoManifestFetchResult = func(
 		ctx context.Context,
 		localPort int,
 		tunnelURL string,
 		timeout time.Duration,
 		interval time.Duration,
 		targetPlatform string,
+	) (expoManifestFetchResult, *DiagnosticResult, error) {
+		return expoManifestFetchResult{Manifest: map[string]any{}, Platform: targetPlatform}, &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoBundlePrewarmFromManifest = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		fetched expoManifestFetchResult,
 	) (*DiagnosticResult, error) {
-		platforms <- targetPlatform
-		return &DiagnosticResult{AllPassed: true}, nil
+		return &DiagnosticResult{
+			AllPassed: true,
+			Checks: []DiagnosticCheck{{
+				Name:   "Bundle prewarm",
+				Passed: true,
+				Detail: "OK platform=ios status=200 ttfb=582ms first_byte=598ms path=/node_modules/expo-router/entry.bundle drain=background",
+			}},
+		}, nil
 	}
 	t.Cleanup(func() {
-		waitForExpoMetroRelay = previous
+		waitForExpoMetroTransport = previousTransport
+		waitForExpoManifestFetchResult = previousManifest
+		waitForExpoBundlePrewarmFromManifest = previousPrewarm
+	})
+
+	var logs []string
+	m := newTestManagerWithLoggingTunnel()
+	m.SetLogCallback(func(message string) {
+		logs = append(logs, message)
+	})
+	if _, err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { m.Stop() })
+
+	joined := strings.Join(logs, "\n")
+	for _, expected := range []string{
+		"Preparing expo dev server...",
+		"Starting expo dev server...",
+		"fake dev server ready",
+		"Verifying Expo relay readiness...",
+		"Expo relay readiness verified",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("logs missing %q\nlogs:\n%s", expected, joined)
+		}
+	}
+	for _, unexpected := range []string{
+		"[relay]",
+		"Tunnel ready:",
+		"Configured proxy URL",
+		"dev server port:",
+		"Waiting for Expo relay transport",
+		"Expo relay transport is ready",
+		"Waiting for Expo manifest",
+		"Expo manifest is being served",
+		"Prewarming Expo bundle",
+		"Expo bundle prewarm complete",
+		"ttfb=",
+		"first_byte=",
+		"path=/node_modules",
+	} {
+		if strings.Contains(joined, unexpected) {
+			t.Fatalf("logs unexpectedly contain %q\nlogs:\n%s", unexpected, joined)
+		}
+	}
+}
+
+func TestManagerStartExpoLogsDetailedInDebugMode(t *testing.T) {
+	withFakeExpoDevServerFactory(t)
+	diagnosticsCalled := make(chan struct{}, 1)
+	withFakePostStartupDiagnostics(t, diagnosticsCalled)
+	previousTransport := waitForExpoMetroTransport
+	previousManifest := waitForExpoManifestFetchResult
+	previousPrewarm := waitForExpoBundlePrewarmFromManifest
+	waitForExpoMetroTransport = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+	) (*DiagnosticResult, error) {
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoManifestFetchResult = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+		targetPlatform string,
+	) (expoManifestFetchResult, *DiagnosticResult, error) {
+		return expoManifestFetchResult{Manifest: map[string]any{}, Platform: targetPlatform}, &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoBundlePrewarmFromManifest = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		fetched expoManifestFetchResult,
+	) (*DiagnosticResult, error) {
+		return &DiagnosticResult{
+			AllPassed: true,
+			Checks: []DiagnosticCheck{{
+				Name:   "Bundle prewarm",
+				Passed: true,
+				Detail: "OK platform=ios status=200 ttfb=582ms first_byte=598ms path=/node_modules/expo-router/entry.bundle drain=background",
+			}},
+		}, nil
+	}
+	t.Cleanup(func() {
+		waitForExpoMetroTransport = previousTransport
+		waitForExpoManifestFetchResult = previousManifest
+		waitForExpoBundlePrewarmFromManifest = previousPrewarm
+	})
+
+	var logs []string
+	m := newTestManagerWithLoggingTunnel()
+	m.SetDebugMode(true)
+	m.SetLogCallback(func(message string) {
+		logs = append(logs, message)
+	})
+	if _, err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { m.Stop() })
+
+	joined := strings.Join(logs, "\n")
+	for _, expected := range []string{
+		"[relay] reserved relay session id=a-test transport=relay",
+		"[relay] connection lost: relay websocket disconnected",
+		"[relay] reconnected to backend relay id=a-test transport=relay",
+		"Tunnel ready: https://relay.example",
+		"Configured proxy URL for bundle rewriting",
+		"fake dev server port: 8081",
+		"Waiting for Expo relay transport...",
+		"Expo relay transport is ready",
+		"Waiting for Expo manifest to be served through the relay...",
+		"Expo manifest is being served through the relay",
+		"Prewarming Expo bundle through the relay...",
+		"Expo bundle prewarm complete: OK platform=ios status=200 ttfb=582ms first_byte=598ms path=/node_modules/expo-router/entry.bundle drain=background",
+		"Expo relay readiness verified",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("logs missing %q\nlogs:\n%s", expected, joined)
+		}
+	}
+}
+
+func TestManagerStartPassesTargetPlatformToExpoManifestAndBundlePrewarm(t *testing.T) {
+	withFakeExpoDevServerFactory(t)
+	previousTransport := waitForExpoMetroTransport
+	previousManifest := waitForExpoManifestFetchResult
+	previousPrewarm := waitForExpoBundlePrewarmFromManifest
+	manifestPlatforms := make(chan string, 1)
+	prewarmPlatforms := make(chan string, 1)
+	waitForExpoMetroTransport = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+	) (*DiagnosticResult, error) {
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoManifestFetchResult = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+		targetPlatform string,
+	) (expoManifestFetchResult, *DiagnosticResult, error) {
+		manifestPlatforms <- targetPlatform
+		return expoManifestFetchResult{Manifest: map[string]any{}, Platform: targetPlatform}, &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoBundlePrewarmFromManifest = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		fetched expoManifestFetchResult,
+	) (*DiagnosticResult, error) {
+		prewarmPlatforms <- fetched.Platform
+		return &DiagnosticResult{AllPassed: true, Checks: []DiagnosticCheck{{Name: "Bundle prewarm", Passed: true, Detail: "OK"}}}, nil
+	}
+	t.Cleanup(func() {
+		waitForExpoMetroTransport = previousTransport
+		waitForExpoManifestFetchResult = previousManifest
+		waitForExpoBundlePrewarmFromManifest = previousPrewarm
 	})
 
 	m := newTestManagerWithFakeTunnel()
@@ -311,35 +612,66 @@ func TestManagerStartPassesTargetPlatformToExpoMetroRelay(t *testing.T) {
 	t.Cleanup(func() { m.Stop() })
 
 	select {
-	case platform := <-platforms:
+	case platform := <-manifestPlatforms:
 		if platform != "android" {
-			t.Fatalf("target platform = %q, want android", platform)
+			t.Fatalf("manifest target platform = %q, want android", platform)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("expected Start to call Expo relay readiness")
+		t.Fatal("expected Start to call Expo manifest readiness")
+	}
+	select {
+	case platform := <-prewarmPlatforms:
+		if platform != "android" {
+			t.Fatalf("prewarm target platform = %q, want android", platform)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected Start to call Expo bundle prewarm")
 	}
 }
 
-func TestManagerStartForceHotReloadContinuesAfterExpoRelayReadinessFailure(t *testing.T) {
+func TestManagerStartForceHotReloadSkipsManifestReadinessAndBundlePrewarm(t *testing.T) {
 	withFakeExpoDevServerFactory(t)
-	previous := waitForExpoMetroRelay
-	waitForExpoMetroRelay = func(
+	previousTransport := waitForExpoMetroTransport
+	previousManifest := waitForExpoManifestFetchResult
+	previousPrewarm := waitForExpoBundlePrewarmFromManifest
+	transportCalled := make(chan struct{}, 1)
+	manifestCalled := make(chan struct{}, 1)
+	prewarmCalled := make(chan struct{}, 1)
+	waitForExpoMetroTransport = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+	) (*DiagnosticResult, error) {
+		transportCalled <- struct{}{}
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoManifestFetchResult = func(
 		ctx context.Context,
 		localPort int,
 		tunnelURL string,
 		timeout time.Duration,
 		interval time.Duration,
 		targetPlatform string,
+	) (expoManifestFetchResult, *DiagnosticResult, error) {
+		manifestCalled <- struct{}{}
+		return expoManifestFetchResult{}, &DiagnosticResult{AllPassed: false}, errors.New("manifest should be skipped")
+	}
+	waitForExpoBundlePrewarmFromManifest = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		fetched expoManifestFetchResult,
 	) (*DiagnosticResult, error) {
-		return &DiagnosticResult{
-			AllPassed: false,
-			Checks: []DiagnosticCheck{
-				{Name: "Manifest URLs", Passed: false, Detail: "parse failed: invalid character '<'"},
-			},
-		}, errors.New("Manifest URLs (parse failed: invalid character '<')")
+		prewarmCalled <- struct{}{}
+		return &DiagnosticResult{AllPassed: false}, errors.New("bundle prewarm should be skipped")
 	}
 	t.Cleanup(func() {
-		waitForExpoMetroRelay = previous
+		waitForExpoMetroTransport = previousTransport
+		waitForExpoManifestFetchResult = previousManifest
+		waitForExpoBundlePrewarmFromManifest = previousPrewarm
 	})
 
 	var logs []string
@@ -360,12 +692,96 @@ func TestManagerStartForceHotReloadContinuesAfterExpoRelayReadinessFailure(t *te
 	if !m.IsRunning() {
 		t.Fatal("expected manager to keep running in force mode")
 	}
+	select {
+	case <-transportCalled:
+	case <-time.After(time.Second):
+		t.Fatal("expected force mode to wait for transport readiness")
+	}
+	select {
+	case <-manifestCalled:
+		t.Fatal("force mode should skip manifest readiness")
+	case <-time.After(50 * time.Millisecond):
+	}
+	select {
+	case <-prewarmCalled:
+		t.Fatal("force mode should skip bundle prewarm")
+	case <-time.After(50 * time.Millisecond):
+	}
 	joined := strings.Join(logs, "\n")
-	if !strings.Contains(joined, "--force-hot-reload is set") {
+	if !strings.Contains(joined, "Expo relay transport verified; skipped manifest and bundle proof because --force-hot-reload is set.") {
 		t.Fatalf("logs = %q, want force warning", joined)
 	}
-	if !strings.Contains(joined, "Manifest URLs") {
-		t.Fatalf("logs = %q, want failed readiness detail", joined)
+	if strings.Contains(joined, "Launching anyway") {
+		t.Fatalf("logs = %q, should not include long force detail in normal mode", joined)
+	}
+	if strings.Contains(joined, "Manifest URLs") {
+		t.Fatalf("logs = %q, should not include manifest failure detail in force mode", joined)
+	}
+}
+
+func TestManagerStartForceHotReloadDoesNotBypassTransportFailure(t *testing.T) {
+	withFakeExpoDevServerFactory(t)
+	previousTransport := waitForExpoMetroTransport
+	previousManifest := waitForExpoManifestFetchResult
+	previousPrewarm := waitForExpoBundlePrewarmFromManifest
+	manifestCalled := make(chan struct{}, 1)
+	prewarmCalled := make(chan struct{}, 1)
+	waitForExpoMetroTransport = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+	) (*DiagnosticResult, error) {
+		return &DiagnosticResult{
+			AllPassed: false,
+			Checks: []DiagnosticCheck{
+				{Name: "Tunnel HTTP", Passed: false, Detail: "timeout"},
+			},
+		}, errors.New("Tunnel HTTP (timeout)")
+	}
+	waitForExpoManifestFetchResult = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+		targetPlatform string,
+	) (expoManifestFetchResult, *DiagnosticResult, error) {
+		manifestCalled <- struct{}{}
+		return expoManifestFetchResult{Manifest: map[string]any{}, Platform: targetPlatform}, &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoBundlePrewarmFromManifest = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		fetched expoManifestFetchResult,
+	) (*DiagnosticResult, error) {
+		prewarmCalled <- struct{}{}
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	t.Cleanup(func() {
+		waitForExpoMetroTransport = previousTransport
+		waitForExpoManifestFetchResult = previousManifest
+		waitForExpoBundlePrewarmFromManifest = previousPrewarm
+	})
+
+	m := newTestManagerWithFakeTunnel()
+	m.SetForceHotReload(true)
+
+	if _, err := m.Start(context.Background()); err == nil {
+		t.Fatal("expected transport readiness failure")
+	}
+	select {
+	case <-manifestCalled:
+		t.Fatal("manifest readiness should not run after transport failure")
+	case <-time.After(50 * time.Millisecond):
+	}
+	select {
+	case <-prewarmCalled:
+		t.Fatal("bundle prewarm should not run after transport failure")
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

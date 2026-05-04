@@ -3832,7 +3832,7 @@ type GlobalVariableCreate struct {
 	// Description Description of the variable
 	Description *string `json:"description"`
 
-	// IsSecret Whether the value should be masked
+	// IsSecret Whether the value should be encrypted and masked
 	IsSecret *bool `json:"is_secret,omitempty"`
 
 	// VariableName Name of the variable
@@ -3862,10 +3862,13 @@ type GlobalVariableRow struct {
 	// Description Description
 	Description *string `json:"description"`
 
+	// HasSecretValue Whether an encrypted value is stored for this variable
+	HasSecretValue *bool `json:"has_secret_value,omitempty"`
+
 	// Id Unique identifier
 	Id openapi_types.UUID `json:"id"`
 
-	// IsSecret Whether the value should be masked
+	// IsSecret Whether the value is encrypted and masked
 	IsSecret *bool `json:"is_secret,omitempty"`
 
 	// OrgId Organization ID
@@ -3998,6 +4001,65 @@ type GrounderHintEval struct {
 // - AUTO: Use GROUNDER_TYPE env var to determine grounder
 // - NULL: Skip grounding (for testing/debugging)
 type GrounderType string
+
+// GroundingCorrectionDetail defines model for GroundingCorrectionDetail.
+type GroundingCorrectionDetail struct {
+	ActionType     *string   `json:"action_type"`
+	ActualBboxX1   *int      `json:"actual_bbox_x1"`
+	ActualBboxX2   *int      `json:"actual_bbox_x2"`
+	ActualBboxY1   *int      `json:"actual_bbox_y1"`
+	ActualBboxY2   *int      `json:"actual_bbox_y2"`
+	ActualX        *int      `json:"actual_x"`
+	ActualY        *int      `json:"actual_y"`
+	BeforeImageKey *string   `json:"before_image_key"`
+	BeforeImageUrl *string   `json:"before_image_url"`
+	CreatedAt      time.Time `json:"created_at"`
+	GrounderTarget *string   `json:"grounder_target"`
+	Id             string    `json:"id"`
+	Instruction    *string   `json:"instruction"`
+	PredictedX     *int      `json:"predicted_x"`
+	PredictedY     *int      `json:"predicted_y"`
+	RawTarget      *string   `json:"raw_target"`
+	StepId         string    `json:"step_id"`
+	TaskId         string    `json:"task_id"`
+}
+
+// GroundingCorrectionItem defines model for GroundingCorrectionItem.
+type GroundingCorrectionItem struct {
+	ActionType     *string   `json:"action_type"`
+	ActualBboxX1   *int      `json:"actual_bbox_x1"`
+	ActualBboxX2   *int      `json:"actual_bbox_x2"`
+	ActualBboxY1   *int      `json:"actual_bbox_y1"`
+	ActualBboxY2   *int      `json:"actual_bbox_y2"`
+	ActualX        *int      `json:"actual_x"`
+	ActualY        *int      `json:"actual_y"`
+	BeforeImageKey *string   `json:"before_image_key"`
+	CreatedAt      time.Time `json:"created_at"`
+	GrounderTarget *string   `json:"grounder_target"`
+	Id             string    `json:"id"`
+	Instruction    *string   `json:"instruction"`
+	PredictedX     *int      `json:"predicted_x"`
+	PredictedY     *int      `json:"predicted_y"`
+	RawTarget      *string   `json:"raw_target"`
+	StepId         string    `json:"step_id"`
+	TaskId         string    `json:"task_id"`
+}
+
+// GroundingCorrectionQueueResponse defines model for GroundingCorrectionQueueResponse.
+type GroundingCorrectionQueueResponse struct {
+	Items []GroundingCorrectionItem `json:"items"`
+	Total int                       `json:"total"`
+}
+
+// GroundingCorrectionUpdateRequest defines model for GroundingCorrectionUpdateRequest.
+type GroundingCorrectionUpdateRequest struct {
+	ActualBboxX1 *int `json:"actual_bbox_x1"`
+	ActualBboxX2 *int `json:"actual_bbox_x2"`
+	ActualBboxY1 *int `json:"actual_bbox_y1"`
+	ActualBboxY2 *int `json:"actual_bbox_y2"`
+	ActualX      *int `json:"actual_x"`
+	ActualY      *int `json:"actual_y"`
+}
 
 // GroundingErrorType Types of grounding errors that can occur.
 type GroundingErrorType string
@@ -9844,6 +9906,12 @@ type GetEvalQueueApiV1FlywheelEvalQueueGetParams struct {
 	Offset       *int    `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// GetGroundingCorrectionsApiV1FlywheelGroundingCorrectionsGetParams defines parameters for GetGroundingCorrectionsApiV1FlywheelGroundingCorrectionsGet.
+type GetGroundingCorrectionsApiV1FlywheelGroundingCorrectionsGetParams struct {
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // GetMonitorApiV1FlywheelMonitorGetParams defines parameters for GetMonitorApiV1FlywheelMonitorGet.
 type GetMonitorApiV1FlywheelMonitorGetParams struct {
 	// Hours Time window in hours (default 7d)
@@ -10436,6 +10504,9 @@ type UpdateFlywheelConfigApiV1FlywheelConfigPatchJSONRequestBody = FlywheelConfi
 
 // DeleteEvalResultsApiV1FlywheelEvalResultsDeleteJSONRequestBody defines body for DeleteEvalResultsApiV1FlywheelEvalResultsDelete for application/json ContentType.
 type DeleteEvalResultsApiV1FlywheelEvalResultsDeleteJSONRequestBody = DeleteEvalResultsRequest
+
+// UpdateGroundingCorrectionApiV1FlywheelGroundingCorrectionsCorrectionIdPatchJSONRequestBody defines body for UpdateGroundingCorrectionApiV1FlywheelGroundingCorrectionsCorrectionIdPatch for application/json ContentType.
+type UpdateGroundingCorrectionApiV1FlywheelGroundingCorrectionsCorrectionIdPatchJSONRequestBody = GroundingCorrectionUpdateRequest
 
 // LoadStepsApiV1FlywheelInternalLoadStepsPostJSONRequestBody defines body for LoadStepsApiV1FlywheelInternalLoadStepsPost for application/json ContentType.
 type LoadStepsApiV1FlywheelInternalLoadStepsPostJSONRequestBody = FlywheelLoadStepsRequest
