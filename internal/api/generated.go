@@ -6304,6 +6304,18 @@ type S3PresignedUrlResponse struct {
 	Url string `json:"url"`
 }
 
+// S3PresignedUrlsRequest defines model for S3PresignedUrlsRequest.
+type S3PresignedUrlsRequest struct {
+	Keys *[]string `json:"keys,omitempty"`
+}
+
+// S3PresignedUrlsResponse defines model for S3PresignedUrlsResponse.
+type S3PresignedUrlsResponse struct {
+	Bucket string             `json:"bucket"`
+	Errors *map[string]string `json:"errors,omitempty"`
+	Urls   map[string]string  `json:"urls"`
+}
+
 // S3UploadResponse defines model for S3UploadResponse.
 type S3UploadResponse struct {
 	Bucket string `json:"bucket"`
@@ -10708,6 +10720,9 @@ type CreateRuleApiV1ReviewSlackRulesPostJSONRequestBody = CreateSlackNotificatio
 
 // UpdateRuleApiV1ReviewSlackRulesRuleIdPutJSONRequestBody defines body for UpdateRuleApiV1ReviewSlackRulesRuleIdPut for application/json ContentType.
 type UpdateRuleApiV1ReviewSlackRulesRuleIdPutJSONRequestBody = UpdateSlackNotificationRuleRequest
+
+// GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody defines body for GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePost for application/json ContentType.
+type GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody = S3PresignedUrlsRequest
 
 // UploadToS3ApiV1StorageS3UploadPostMultipartRequestBody defines body for UploadToS3ApiV1StorageS3UploadPost for multipart/form-data ContentType.
 type UploadToS3ApiV1StorageS3UploadPostMultipartRequestBody = BodyUploadToS3ApiV1StorageS3UploadPost
