@@ -72,7 +72,7 @@ function findBinary() {
   }
   
   console.error(`Revyl binary not found: ${binaryName}`);
-  console.error('Try reinstalling: npm install -g @revyl/cli');
+  console.error('Try reinstalling: curl -fsSL https://revyl.com/install.sh | sh');
   process.exit(1);
 }
 

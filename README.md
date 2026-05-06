@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.21-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.22-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -22,7 +22,7 @@ Revyl is an AI-powered testing platform for mobile apps. Define tests in natural
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh  # Shell (macOS / Linux)
+curl -fsSL https://revyl.com/install.sh | sh  # Shell (macOS / Linux)
 brew install RevylAI/tap/revyl          # Homebrew (macOS)
 pipx install revyl                      # pipx (cross-platform)
 uv tool install revyl                   # uv

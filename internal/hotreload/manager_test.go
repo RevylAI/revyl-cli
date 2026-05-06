@@ -3,6 +3,8 @@ package hotreload
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -274,6 +276,44 @@ func TestManagerStartExternalBuildsDeepLinkWhenOnlyTunnelProvided(t *testing.T) 
 
 	if result.DeepLinkURL != "myapp://expo-development-client/?url=https%3A%2F%2Fexample.ngrok.app" {
 		t.Fatalf("DeepLinkURL = %q, want derived Expo deep link", result.DeepLinkURL)
+	}
+}
+
+func TestManagerStopCancelsExternalExpoDiagnostics(t *testing.T) {
+	started := make(chan struct{}, 1)
+	canceled := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-r.Context().Done()
+		select {
+		case canceled <- struct{}{}:
+		default:
+		}
+	}))
+	defer server.Close()
+
+	m := NewManager("expo", &config.ProviderConfig{AppScheme: "myapp"}, ".")
+	m.SetExternalTunnelURL(server.URL)
+	m.SetDebugMode(true)
+	if _, err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("external diagnostics did not issue a manifest request")
+	}
+
+	m.Stop()
+
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("Stop() did not cancel the external diagnostics request")
 	}
 }
 
@@ -629,6 +669,74 @@ func TestManagerStartPassesTargetPlatformToExpoManifestAndBundlePrewarm(t *testi
 	}
 }
 
+func TestManagerStartExpoManifestFailureSuggestsForceHotReloadDiagnostic(t *testing.T) {
+	withFakeExpoDevServerFactory(t)
+	previousTransport := waitForExpoMetroTransport
+	previousManifest := waitForExpoManifestFetchResult
+	previousPrewarm := waitForExpoBundlePrewarmFromManifest
+	prewarmCalled := make(chan struct{}, 1)
+	waitForExpoMetroTransport = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+	) (*DiagnosticResult, error) {
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoManifestFetchResult = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+		targetPlatform string,
+	) (expoManifestFetchResult, *DiagnosticResult, error) {
+		return expoManifestFetchResult{}, &DiagnosticResult{AllPassed: false}, errors.New("timed out after 1m30s waiting for Expo manifest readiness")
+	}
+	waitForExpoBundlePrewarmFromManifest = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		fetched expoManifestFetchResult,
+	) (*DiagnosticResult, error) {
+		prewarmCalled <- struct{}{}
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	t.Cleanup(func() {
+		waitForExpoMetroTransport = previousTransport
+		waitForExpoManifestFetchResult = previousManifest
+		waitForExpoBundlePrewarmFromManifest = previousPrewarm
+	})
+
+	m := newTestManagerWithFakeTunnel()
+	m.SetTargetPlatform("ios")
+	_, err := m.Start(context.Background())
+	if err == nil {
+		t.Fatal("expected manifest readiness failure")
+	}
+	errText := err.Error()
+	for _, expected := range []string{
+		"Expo is running and the Revyl relay is reachable",
+		"could not prove the first ios manifest",
+		"revyl dev --platform ios --force-hot-reload",
+		"If the app loads, you can keep working",
+		"restart Expo/Metro",
+		"revyl device report --session-id <session-id> --json",
+		"timed out after 1m30s waiting for Expo manifest readiness",
+	} {
+		if !strings.Contains(errText, expected) {
+			t.Fatalf("error missing %q\nerror:\n%s", expected, errText)
+		}
+	}
+	select {
+	case <-prewarmCalled:
+		t.Fatal("bundle prewarm should not run after manifest readiness failure")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestManagerStartForceHotReloadSkipsManifestReadinessAndBundlePrewarm(t *testing.T) {
 	withFakeExpoDevServerFactory(t)
 	previousTransport := waitForExpoMetroTransport
@@ -805,7 +913,7 @@ func TestRunDiagnosticsUsesAdvisoryFailureLanguage(t *testing.T) {
 		return &DiagnosticResult{
 			AllPassed: false,
 			Checks: []DiagnosticCheck{
-				{Name: "Tunnel HTTP", Passed: false, Detail: "status 502"},
+				{Name: "Expo devtools plugin WebSocket", Passed: false, Detail: "unexpected response: HTTP/1.1 426 Upgrade Required"},
 			},
 		}
 	}
@@ -824,6 +932,9 @@ func TestRunDiagnosticsUsesAdvisoryFailureLanguage(t *testing.T) {
 	joined := strings.Join(logs, "\n")
 	if !strings.Contains(joined, "advisory warning") {
 		t.Fatalf("logs = %q, want advisory warning language", joined)
+	}
+	if !strings.Contains(joined, "Expo devtools plugin WebSocket") {
+		t.Fatalf("logs = %q, want Expo devtools plugin diagnostic name", joined)
 	}
 	if strings.Contains(joined, "FAILED") {
 		t.Fatalf("logs = %q, should not use hard failure wording", joined)

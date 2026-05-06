@@ -5,7 +5,7 @@ Revyl's CLI works in any environment that can run a shell. Install the native bi
 ## The universal pattern
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+curl -fsSL https://revyl.com/install.sh | sh
 export REVYL_API_KEY="$YOUR_SECRET"
 revyl workflow run <workflow-name>
 ```
@@ -37,7 +37,7 @@ This is useful when you want to:
 ## Build-to-test
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+curl -fsSL https://revyl.com/install.sh | sh
 revyl build upload --file ./app.apk --app <app-id> --set-current
 revyl workflow run <workflow-name>
 ```
@@ -72,7 +72,7 @@ echo "$result" | jq '.report_link'
 Upload an Expo build URL directly (`.tar.gz` is auto-converted to `.zip`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+curl -fsSL https://revyl.com/install.sh | sh
 revyl build upload \
   --expo-url "https://expo.dev/artifacts/eas/..." \
   --expo-headers '{"Authorization": "Bearer $EXPO_TOKEN"}' \

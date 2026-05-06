@@ -5,13 +5,14 @@ AI-powered mobile app testing. Cloud devices, natural-language tests, and a Pyth
 ## Install the CLI
 
 ```bash
+curl -fsSL https://revyl.com/install.sh | sh       # Shell (macOS / Linux)
 brew install RevylAI/tap/revyl          # Homebrew (macOS)
 pipx install revyl                      # pipx (cross-platform)
 uv tool install revyl                   # uv
 pip install revyl                       # pip
 ```
 
-All methods give you the `revyl` command. The CLI binary auto-downloads on first use when installed via pip/pipx/uv.
+All methods give you the `revyl` command. The shell installer downloads the native binary directly; pip, pipx, and uv auto-download it on first use.
 
 ## Python SDK
 

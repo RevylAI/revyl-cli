@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -135,6 +136,88 @@ func TestWithDevStartLaunchVarsCopiesLaunchVarsIntoStartOptions(t *testing.T) {
 	}
 }
 
+func TestResolveDevServerPortKeepsFreeConfiguredPort(t *testing.T) {
+	ln, port := listenOnFreePort(t)
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := resolveDevServerPort(&config.ProviderConfig{Port: port}, "expo", false, 0)
+	if err != nil {
+		t.Fatalf("resolveDevServerPort() error = %v", err)
+	}
+	if result.Port != port {
+		t.Fatalf("Port = %d, want %d", result.Port, port)
+	}
+	if result.Changed {
+		t.Fatal("Changed = true, want false")
+	}
+}
+
+func TestResolveDevServerPortAutoSelectsNextFreePort(t *testing.T) {
+	ln, port := listenOnPortWithFreeSuccessor(t)
+	defer ln.Close()
+
+	result, err := resolveDevServerPort(&config.ProviderConfig{Port: port}, "expo", false, 0)
+	if err != nil {
+		t.Fatalf("resolveDevServerPort() error = %v", err)
+	}
+	if !result.Changed {
+		t.Fatal("Changed = false, want true")
+	}
+	if result.OriginalPort != port {
+		t.Fatalf("OriginalPort = %d, want %d", result.OriginalPort, port)
+	}
+	if result.Port <= port || result.Port > port+devServerAutoPortSearchSpan {
+		t.Fatalf("Port = %d, want in (%d, %d]", result.Port, port, port+devServerAutoPortSearchSpan)
+	}
+	if !isPortAvailable(result.Port) {
+		t.Fatalf("selected port %d is not available", result.Port)
+	}
+}
+
+func TestResolveDevServerPortExplicitBusyPortFails(t *testing.T) {
+	ln, port := listenOnFreePort(t)
+	defer ln.Close()
+
+	_, err := resolveDevServerPort(&config.ProviderConfig{}, "expo", true, port)
+	if err == nil {
+		t.Fatal("expected busy explicit port error")
+	}
+	if !strings.Contains(err.Error(), fmt.Sprintf("port %d is already in use", port)) {
+		t.Fatalf("error = %q, want busy port detail", err.Error())
+	}
+}
+
+func TestIsPortAvailableDetectsWildcardListener(t *testing.T) {
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	defer ln.Close()
+
+	addr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("listener addr %T is not *net.TCPAddr", ln.Addr())
+	}
+
+	if isPortAvailable(addr.Port) {
+		t.Fatalf("isPortAvailable(%d) = true, want false for wildcard listener", addr.Port)
+	}
+}
+
+func TestDevContextPortFromStartResultUsesRuntimePort(t *testing.T) {
+	got := devContextPortFromStartResult(&hotreload.StartResult{DevServerPort: 19001}, 8081)
+	if got != 19001 {
+		t.Fatalf("port = %d, want runtime port 19001", got)
+	}
+
+	got = devContextPortFromStartResult(&hotreload.StartResult{}, 8081)
+	if got != 8081 {
+		t.Fatalf("fallback port = %d, want 8081", got)
+	}
+}
+
 func TestFormatDevActionDebugPayloadShowsOpenURL(t *testing.T) {
 	got := formatDevActionDebugPayload(map[string]string{
 		"url": "myapp://expo-development-client/?url=https%3A%2F%2Frelay.example",
@@ -143,6 +226,33 @@ func TestFormatDevActionDebugPayloadShowsOpenURL(t *testing.T) {
 	if !strings.Contains(got, "url=myapp://expo-development-client/?url=https%3A%2F%2Frelay.example") {
 		t.Fatalf("payload = %q, want full open_url value", got)
 	}
+}
+
+func listenOnFreePort(t *testing.T) (net.Listener, int) {
+	t.Helper()
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	addr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		_ = ln.Close()
+		t.Fatalf("listener addr %T is not *net.TCPAddr", ln.Addr())
+	}
+	return ln, addr.Port
+}
+
+func listenOnPortWithFreeSuccessor(t *testing.T) (net.Listener, int) {
+	t.Helper()
+	for attempt := 0; attempt < 100; attempt++ {
+		ln, port := listenOnFreePort(t)
+		if port+devServerAutoPortSearchSpan <= 65535 && isPortAvailable(port+1) {
+			return ln, port
+		}
+		_ = ln.Close()
+	}
+	t.Fatal("failed to find a busy test port with an available successor")
+	return nil, 0
 }
 
 func TestFormatDevActionDebugPayloadMasksInstallAppURL(t *testing.T) {
@@ -351,12 +461,14 @@ func TestPrintDevReadyFooter_PrintsInteractionShortcuts(t *testing.T) {
 		"Deep Link:",
 		"[r] rebuild native + reinstall",
 		"[q] quit",
-		"context: default",
+		"Context: default",
+		"Run revyl dev again; Revyl will pick a safe context name.",
+		"In a new terminal:",
 		"Manage the session:",
 		"revyl dev status",
 		"revyl dev rebuild",
 		"revyl dev test run <name>",
-		"revyl dev attach default",
+		"revyl dev list",
 		"Interact with the device:",
 		`revyl device tap --target "Login button" -s 0`,
 		"# AI-grounded tap",
@@ -390,8 +502,7 @@ func TestPrintDevReadyFooter_SessionIndexInCommandHints(t *testing.T) {
 	})
 
 	for _, expected := range []string{
-		"context: ios-main",
-		"revyl dev attach ios-main",
+		"Context: ios-main",
 		"-s 2",
 		`revyl device tap --target "Login button" -s 2`,
 		`revyl device instruction "log in and verify" -s 2`,
@@ -399,6 +510,19 @@ func TestPrintDevReadyFooter_SessionIndexInCommandHints(t *testing.T) {
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output missing %q\noutput:\n%s", expected, output)
+		}
+	}
+}
+
+func TestDevHelpExplainsContextIsOptional(t *testing.T) {
+	for _, expected := range []string{
+		"Run revyl dev for the common path.",
+		"Dev contexts are worktree-local",
+		"separate worktrees can each use the default context automatically",
+		"--context only when intentionally targeting a specific named loop",
+	} {
+		if !strings.Contains(devCmd.Long, expected) {
+			t.Fatalf("dev help missing %q\nhelp:\n%s", expected, devCmd.Long)
 		}
 	}
 }

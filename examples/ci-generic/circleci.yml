@@ -15,7 +15,7 @@ jobs:
       - checkout
       - run:
           name: Install Revyl CLI
-          command: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+          command: curl -fsSL https://revyl.com/install.sh | sh
       - run:
           name: Run tests
           command: revyl workflow run smoke-tests
@@ -30,7 +30,7 @@ jobs:
       - checkout
       - run:
           name: Install Revyl CLI
-          command: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+          command: curl -fsSL https://revyl.com/install.sh | sh
       - run:
           name: Queue tests (fire-and-forget)
           command: revyl workflow run smoke-tests --no-wait
@@ -44,7 +44,7 @@ jobs:
     steps:
       - run:
           name: Install Revyl CLI
-          command: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+          command: curl -fsSL https://revyl.com/install.sh | sh
       - run:
           name: Check workflow status
           command: revyl workflow status smoke-tests --json
@@ -57,7 +57,7 @@ jobs:
   #     REVYL_INSTALL_DIR: /usr/local/bin
   #   steps:
   #     - checkout
-  #     - run: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+  #     - run: curl -fsSL https://revyl.com/install.sh | sh
   #     - run: ./gradlew assembleDebug
   #     - run: revyl build upload --file ./app.apk --app your-app-id --set-current
   #     - run: revyl workflow run smoke-tests

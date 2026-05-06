@@ -37,7 +37,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - run: pip install revyl
+      - name: Install Revyl CLI
+        run: |
+          curl -fsSL https://revyl.com/install.sh | sh
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
 
       # Optional: upload a fresh build before review
       # - name: Upload build

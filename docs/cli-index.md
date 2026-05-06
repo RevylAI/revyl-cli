@@ -13,6 +13,10 @@ Install the CLI using your preferred method:
 
 <CodeGroup>
 
+```bash Shell (macOS/Linux)
+curl -fsSL https://revyl.com/install.sh | sh
+```
+
 ```bash Homebrew (macOS)
 brew install RevylAI/tap/revyl
 ```
@@ -31,10 +35,10 @@ pip install revyl
 
 </CodeGroup>
 
-The CLI binary auto-downloads on first use when installed via pip, pipx, or uv.
+The shell installer downloads the native binary directly. Package-manager installs via pip, pipx, or uv auto-download the CLI binary on first use.
 
 <Callout type="tip" title="macOS users">
-  On macOS, Homebrew is the recommended installation method. It handles updates automatically via `brew upgrade revyl`.
+  Homebrew remains a good macOS package-manager option when you want updates through `brew upgrade revyl`.
 </Callout>
 
 ### Direct download
@@ -84,7 +88,7 @@ Get up and running in 6 commands:
 
 ```bash
 # 1. Install the CLI
-brew install RevylAI/tap/revyl    # or: pipx install revyl
+curl -fsSL https://revyl.com/install.sh | sh
 
 # 2. Check your environment
 revyl doctor
@@ -119,6 +123,10 @@ revyl dev test run login-flow
 Use the upgrade command that matches how you installed:
 
 <CodeGroup>
+
+```bash Shell installer
+curl -fsSL https://revyl.com/install.sh | sh
+```
 
 ```bash Homebrew
 brew upgrade revyl

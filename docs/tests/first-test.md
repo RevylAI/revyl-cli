@@ -8,6 +8,10 @@ This guide takes you from zero to a passing test. By the end you'll have the CLI
 
 <CodeGroup>
 
+```bash Shell (macOS/Linux)
+curl -fsSL https://revyl.com/install.sh | sh
+```
+
 ```bash Homebrew (macOS)
 brew install RevylAI/tap/revyl
 ```

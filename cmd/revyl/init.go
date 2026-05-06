@@ -3735,9 +3735,9 @@ func ensureAvailableHotReloadPort(providerCfg *config.ProviderConfig, providerNa
 	return nextPort, true
 }
 
-// isPortAvailable checks if a TCP port can be bound on localhost.
+// isPortAvailable checks if a TCP port can be bound on any local interface.
 func isPortAvailable(port int) bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return false
 	}

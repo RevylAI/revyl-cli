@@ -74,6 +74,8 @@ type relayEnvelope struct {
 	Path         string              `json:"path,omitempty"`
 	Query        string              `json:"query,omitempty"`
 	Headers      map[string][]string `json:"headers,omitempty"`
+	Traceparent  string              `json:"traceparent,omitempty"`
+	RequestClass string              `json:"request_class,omitempty"`
 	Status       int                 `json:"status,omitempty"`
 	Message      string              `json:"message,omitempty"`
 	BodyChunkB64 string              `json:"body_chunk_b64,omitempty"`
@@ -93,12 +95,13 @@ type relayWSStream struct {
 }
 
 type relayRuntime struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	localPort  int
-	conn       *websocket.Conn
-	httpClient *http.Client
-	onLog      func(string)
+	ctx         context.Context
+	cancel      context.CancelFunc
+	localPort   int
+	conn        *websocket.Conn
+	httpClient  *http.Client
+	traceClient *api.Client
+	onLog       func(string)
 
 	writeMu  sync.Mutex
 	streamMu sync.Mutex
@@ -114,6 +117,7 @@ func newRelayRuntime(
 	parent context.Context,
 	localPort int,
 	conn *websocket.Conn,
+	traceClient *api.Client,
 	onLog func(string),
 	onDisconnect func(error),
 ) *relayRuntime {
@@ -123,6 +127,7 @@ func newRelayRuntime(
 		cancel:       cancel,
 		localPort:    localPort,
 		conn:         conn,
+		traceClient:  traceClient,
 		onLog:        onLog,
 		onDisconnect: onDisconnect,
 		httpClient: &http.Client{
@@ -232,6 +237,7 @@ func (r *relayRuntime) handleEnvelope(env relayEnvelope) {
 }
 
 func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
+	startedAt := time.Now()
 	targetURL := url.URL{
 		Scheme:   "http",
 		Host:     fmt.Sprintf("127.0.0.1:%d", r.localPort),
@@ -244,6 +250,7 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 	req, err := http.NewRequestWithContext(ctx, env.Method, targetURL.String(), bodyReader)
 	if err != nil {
 		cancel()
+		r.exportLocalMetroTrace(env, 0, startedAt, time.Now(), 0, 0, err.Error())
 		_ = r.sendEnvelope(relayEnvelope{
 			Kind:     "stream.error",
 			StreamID: env.StreamID,
@@ -258,15 +265,21 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 	r.streamMu.Unlock()
 
 	go func() {
+		statusCode := 0
+		var ttfb time.Duration
+		var firstBodyByte time.Duration
+		errorMessage := ""
 		defer func() {
 			r.streamMu.Lock()
 			delete(r.httpStreams, env.StreamID)
 			r.streamMu.Unlock()
+			r.exportLocalMetroTrace(env, statusCode, startedAt, time.Now(), ttfb, firstBodyByte, errorMessage)
 			cancel()
 		}()
 
 		resp, err := r.httpClient.Do(req)
 		if err != nil {
+			errorMessage = fmt.Sprintf("local dev server request failed: %v", err)
 			_ = r.sendEnvelope(relayEnvelope{
 				Kind:     "stream.error",
 				StreamID: env.StreamID,
@@ -275,6 +288,8 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 			return
 		}
 		defer resp.Body.Close()
+		statusCode = resp.StatusCode
+		ttfb = time.Since(startedAt)
 
 		if err := r.sendEnvelope(relayEnvelope{
 			Kind:     "http.response.start",
@@ -289,6 +304,9 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 		for {
 			n, readErr := resp.Body.Read(buf)
 			if n > 0 {
+				if firstBodyByte == 0 {
+					firstBodyByte = time.Since(startedAt)
+				}
 				chunk := base64.StdEncoding.EncodeToString(buf[:n])
 				if err := r.sendEnvelope(relayEnvelope{
 					Kind:         "http.response.body",
@@ -302,6 +320,7 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 				break
 			}
 			if readErr != nil {
+				errorMessage = fmt.Sprintf("failed reading local response body: %v", readErr)
 				_ = r.sendEnvelope(relayEnvelope{
 					Kind:     "stream.error",
 					StreamID: env.StreamID,
@@ -316,6 +335,39 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 			StreamID: env.StreamID,
 		})
 	}()
+}
+
+func (r *relayRuntime) exportLocalMetroTrace(env relayEnvelope, statusCode int, startedAt time.Time, endedAt time.Time, ttfb time.Duration, firstBodyByte time.Duration, errorMessage string) {
+	if r.traceClient == nil || strings.TrimSpace(env.Traceparent) == "" {
+		return
+	}
+	input := api.HotReloadLocalMetroSpanInput{
+		ParentTraceparent: env.Traceparent,
+		Method:            env.Method,
+		Path:              env.Path,
+		RequestClass:      env.RequestClass,
+		Platform:          relayEnvelopePlatform(env),
+		StatusCode:        statusCode,
+		StartedAt:         startedAt,
+		EndedAt:           endedAt,
+		TTFB:              ttfb,
+		FirstBodyByte:     firstBodyByte,
+		Error:             errorMessage,
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(r.ctx, time.Second)
+		defer cancel()
+		_ = r.traceClient.ExportHotReloadLocalMetroSpan(ctx, input)
+	}()
+}
+
+func relayEnvelopePlatform(env relayEnvelope) string {
+	if query, err := url.ParseQuery(env.Query); err == nil {
+		if platform := strings.TrimSpace(query.Get("platform")); platform != "" {
+			return platform
+		}
+	}
+	return strings.TrimSpace(http.Header(env.Headers).Get("expo-platform"))
 }
 
 func (r *relayRuntime) handleHTTPRequestBody(env relayEnvelope) {
@@ -648,7 +700,7 @@ func (r *RelayTunnelBackend) connectRuntime(ctx context.Context, localPort int) 
 		return fmt.Errorf("failed to connect relay websocket: %w", err)
 	}
 
-	runtime := newRelayRuntime(ctx, localPort, conn, func(msg string) {
+	runtime := newRelayRuntime(ctx, localPort, conn, r.client, func(msg string) {
 		r.log("%s", msg)
 	}, func(err error) {
 		select {

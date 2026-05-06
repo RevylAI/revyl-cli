@@ -263,16 +263,11 @@ func (e *ExpoDevServer) stopLocked() error {
 		case <-time.After(2 * time.Second):
 			// Force kill the process group
 			forceKillProcessGroup(pid)
-			// Also try to kill any remaining processes on the port
-			killProcessOnPort(e.Port)
 			<-time.After(500 * time.Millisecond)
 		}
 
 		e.cmd = nil
 	}
-
-	// Final cleanup: ensure nothing is left on the port
-	killProcessOnPort(e.Port)
 
 	return nil
 }
@@ -416,7 +411,7 @@ func classifyHMREvent(line string) string {
 
 // isPortAvailable checks if the configured port is available.
 func (e *ExpoDevServer) isPortAvailable() bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", e.Port))
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", e.Port))
 	if err != nil {
 		return false
 	}

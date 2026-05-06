@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-curl -fsSL revyl.com/install.sh | sh
+curl -fsSL https://revyl.com/install.sh | sh
 ```
 
 Or use a package manager:

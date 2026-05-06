@@ -212,14 +212,11 @@ func (b *BareRNDevServer) stopLocked() error {
 		case <-done:
 		case <-time.After(2 * time.Second):
 			forceKillProcessGroup(pid)
-			killProcessOnPort(b.Port)
 			<-time.After(500 * time.Millisecond)
 		}
 
 		b.cmd = nil
 	}
-
-	killProcessOnPort(b.Port)
 
 	return nil
 }
@@ -305,7 +302,7 @@ func (b *BareRNDevServer) streamStdout(stdout io.Reader, outputCallback hotreloa
 }
 
 func (b *BareRNDevServer) isPortAvailable() bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", b.Port))
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", b.Port))
 	if err != nil {
 		return false
 	}

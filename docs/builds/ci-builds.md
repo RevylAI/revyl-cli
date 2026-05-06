@@ -48,7 +48,8 @@ The official GitHub Action handles upload and test in one step:
 Build on the runner and upload the artifact directly:
 
 ```bash
-pip install revyl
+curl -fsSL https://revyl.com/install.sh | sh
+export PATH="$HOME/.revyl/bin:$PATH"
 revyl build upload --file ./build/app.apk --platform android --yes
 revyl workflow run smoke-tests
 ```
@@ -67,7 +68,8 @@ jobs:
       - env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
         run: |
-          pip install revyl
+          curl -fsSL https://revyl.com/install.sh | sh
+          export PATH="$HOME/.revyl/bin:$PATH"
           revyl build upload --file app.zip --platform ios --yes
           revyl workflow run smoke-tests
 ```
@@ -86,7 +88,8 @@ jobs:
       - env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
         run: |
-          pip install revyl
+          curl -fsSL https://revyl.com/install.sh | sh
+          export PATH="$HOME/.revyl/bin:$PATH"
           revyl build upload --file app/build/outputs/apk/debug/app-debug.apk --platform android --yes
           revyl workflow run smoke-tests
 ```

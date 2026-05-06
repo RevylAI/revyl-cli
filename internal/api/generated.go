@@ -1554,8 +1554,8 @@ type BulkExecuteRequest struct {
 	BuildId *string `json:"build_id"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfig `json:"run_config,omitempty"`
-	TestIds   []string       `json:"test_ids"`
+	RunConfig *TestRunConfigInput `json:"run_config,omitempty"`
+	TestIds   []string            `json:"test_ids"`
 }
 
 // BulkExecuteResponse Response from bulk execution.
@@ -1650,13 +1650,27 @@ type CachedActionElement struct {
 	WaitTimeAfterAction *float32 `json:"wait_time_after_action"`
 }
 
-// CachedActionStore Stores cached action elements for a test, indexed by node_id.
+// CachedActionStoreInput Stores cached action elements for a test, indexed by node_id.
 //
 // Attributes:
 //
 //	test_id (str): The unique identifier for the test.
 //	cached_elements (Dict[str, CachedActionElement]): Dictionary of cached action elements keyed by node_id.
-type CachedActionStore struct {
+type CachedActionStoreInput struct {
+	// CachedElements Dictionary of cached action elements keyed by node_id
+	CachedElements *map[string]CachedActionElement `json:"cached_elements,omitempty"`
+
+	// TestId Unique identifier for the test
+	TestId string `json:"test_id"`
+}
+
+// CachedActionStoreOutput Stores cached action elements for a test, indexed by node_id.
+//
+// Attributes:
+//
+//	test_id (str): The unique identifier for the test.
+//	cached_elements (Dict[str, CachedActionElement]): Dictionary of cached action elements keyed by node_id.
+type CachedActionStoreOutput struct {
 	// CachedElements Dictionary of cached action elements keyed by node_id
 	CachedElements *map[string]CachedActionElement `json:"cached_elements,omitempty"`
 
@@ -3158,8 +3172,49 @@ type ExecuteWorkflowAsyncAPIResponse struct {
 	TaskId *string `json:"task_id,omitempty"`
 }
 
-// ExecutionModeConfig Configuration for execution modes and features.
-type ExecutionModeConfig struct {
+// ExecutionModeConfigInput Configuration for execution modes and features.
+type ExecutionModeConfigInput struct {
+	// CleanupConfig Configuration for AVD cleanup between test runs.
+	//
+	// Controls what gets reset when resetting device state between tests
+	// while keeping the emulator running.
+	CleanupConfig *DeviceCleanupConfig `json:"cleanup_config,omitempty"`
+
+	// EnablePlanning Enable planning for complex steps
+	EnablePlanning *bool `json:"enable_planning,omitempty"`
+
+	// EnableReflection Enable reflection on failed steps
+	EnableReflection *bool `json:"enable_reflection,omitempty"`
+
+	// GrounderType Unified grounder configuration that determines both approach and model.
+	//
+	// - UNIFIED: Use instruction LLM for both instruction and grounding (returns coordinates)
+	// - MOONDREAM3/UI_TARS/QWEN3_VL: Two-step with specific grounder model
+	// - AUTO: Use GROUNDER_TYPE env var to determine grounder
+	// - NULL: Skip grounding (for testing/debugging)
+	GrounderType *GrounderType `json:"grounder_type,omitempty"`
+
+	// HumanInTheLoop Enable human approval for test results
+	HumanInTheLoop *bool `json:"human_in_the_loop,omitempty"`
+
+	// InitialLocation GPS location configuration for simulator/emulator.
+	InitialLocation *LocationConfig `json:"initial_location,omitempty"`
+
+	// InitialOrientation Initial device orientation: 'portrait' or 'landscape'
+	InitialOrientation *string `json:"initial_orientation"`
+
+	// ReflectionRetries Number of reflection retry attempts
+	ReflectionRetries *int `json:"reflection_retries,omitempty"`
+
+	// Retries Number of retry attempts
+	Retries *int `json:"retries,omitempty"`
+
+	// SkipAppInstall Skip app installation during test execution
+	SkipAppInstall *bool `json:"skip_app_install,omitempty"`
+}
+
+// ExecutionModeConfigOutput Configuration for execution modes and features.
+type ExecutionModeConfigOutput struct {
 	// CleanupConfig Configuration for AVD cleanup between test runs.
 	//
 	// Controls what gets reset when resetting device state between tests
@@ -5003,8 +5058,10 @@ type OrgHeadline struct {
 	OrgName          *string    `json:"org_name"`
 	Other30d         *int       `json:"other_30d,omitempty"`
 	PassRate30d      *float32   `json:"pass_rate_30d"`
+	Sessions14d      *int       `json:"sessions_14d,omitempty"`
 	Sessions30d      *int       `json:"sessions_30d,omitempty"`
 	Sessions7d       *int       `json:"sessions_7d,omitempty"`
+	SessionsPrior14d *int       `json:"sessions_prior_14d,omitempty"`
 	SessionsPrior7d  *int       `json:"sessions_prior_7d,omitempty"`
 	Spend30d         *float32   `json:"spend_30d,omitempty"`
 	TotalSessions    *int       `json:"total_sessions,omitempty"`
@@ -5131,7 +5188,9 @@ type OrgOverviewItem struct {
 	OrgName          *string    `json:"org_name"`
 	PassRate7d       *float32   `json:"pass_rate_7d"`
 	Plan             *string    `json:"plan"`
+	Sessions14d      *int       `json:"sessions_14d,omitempty"`
 	Sessions7d       *int       `json:"sessions_7d,omitempty"`
+	SessionsPrior14d *int       `json:"sessions_prior_14d,omitempty"`
 	SessionsPrior7d  *int       `json:"sessions_prior_7d,omitempty"`
 	SourceCount30d   *int       `json:"source_count_30d,omitempty"`
 	Spend30d         *float32   `json:"spend_30d,omitempty"`
@@ -5399,6 +5458,7 @@ type PropelMetadataResponse struct {
 	BrowserProvider  *string `json:"browser_provider"`
 	ConcurrencyLimit *int    `json:"concurrency_limit"`
 	ExpoToken        *string `json:"expo_token"`
+	ExpoWarning      *string `json:"expo_warning"`
 	ProxyEnabled     *bool   `json:"proxy_enabled"`
 }
 
@@ -6228,7 +6288,7 @@ type RunningTestMetadataContent struct {
 	Platform string `json:"platform"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfig `json:"run_config,omitempty"`
+	RunConfig *TestRunConfigOutput `json:"run_config,omitempty"`
 
 	// RunId OpenTelemetry trace ID for correlation
 	RunId *openapi_types.UUID `json:"run_id"`
@@ -6663,7 +6723,7 @@ type StartDeviceInfo struct {
 	Platform        *string               `json:"platform,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig                    *TestRunConfig      `json:"run_config,omitempty"`
+	RunConfig                    *TestRunConfigInput `json:"run_config,omitempty"`
 	SessionId                    *openapi_types.UUID `json:"session_id"`
 	StartupSessionStartMonotonic *float32            `json:"startup_session_start_monotonic"`
 	TestId                       *openapi_types.UUID `json:"test_id"`
@@ -6994,7 +7054,7 @@ type TaskID struct {
 	Retries   *int    `json:"retries"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfig `json:"run_config,omitempty"`
+	RunConfig *TestRunConfigInput `json:"run_config,omitempty"`
 
 	// Source Execution source: ui, cli, api, ci_cd, or workflow. Defaults to 'api' for direct API calls.
 	Source         *string            `json:"source"`
@@ -7005,8 +7065,8 @@ type TaskID struct {
 	VariableOverrides *map[string]string `json:"variable_overrides"`
 }
 
-// TaskMetadata defines model for TaskMetadata.
-type TaskMetadata struct {
+// TaskMetadataInput defines model for TaskMetadata-Input.
+type TaskMetadataInput struct {
 	// AgentDescription Human-readable instruction describing what the agent did, e.g. 'Click the Sign In button'
 	AgentDescription *string      `json:"agent_description"`
 	Download         *bool        `json:"download"`
@@ -7017,7 +7077,26 @@ type TaskMetadata struct {
 	Step *string `json:"step"`
 
 	// StepConfig Complete configuration for a test run.
-	StepConfig *TestRunConfig `json:"step_config,omitempty"`
+	StepConfig *TestRunConfigInput `json:"step_config,omitempty"`
+
+	// StepDescription Human-readable description of the step
+	StepDescription *string `json:"step_description"`
+	StepType        string  `json:"step_type"`
+}
+
+// TaskMetadataOutput defines model for TaskMetadata-Output.
+type TaskMetadataOutput struct {
+	// AgentDescription Human-readable instruction describing what the agent did, e.g. 'Click the Sign In button'
+	AgentDescription *string      `json:"agent_description"`
+	Download         *bool        `json:"download"`
+	Id               *string      `json:"id"`
+	Metadata         *DOMMetadata `json:"metadata,omitempty"`
+
+	// Step Deprecated: Use step_description instead
+	Step *string `json:"step"`
+
+	// StepConfig Complete configuration for a test run.
+	StepConfig *TestRunConfigOutput `json:"step_config,omitempty"`
 
 	// StepDescription Human-readable description of the step
 	StepDescription *string `json:"step_description"`
@@ -7081,8 +7160,8 @@ type TestInput struct {
 	// Attributes:
 	//     test_id (str): The unique identifier for the test.
 	//     cached_elements (Dict[str, CachedActionElement]): Dictionary of cached action elements keyed by node_id.
-	CachedElements *CachedActionStore `json:"cached_elements,omitempty"`
-	DeviceLocal    *bool              `json:"device_local"`
+	CachedElements *CachedActionStoreInput `json:"cached_elements,omitempty"`
+	DeviceLocal    *bool                   `json:"device_local"`
 
 	// ExpectedVersion Expected version for optimistic locking. If provided and doesn't match current version, update will fail with 409 Conflict.
 	ExpectedVersion *int                `json:"expected_version"`
@@ -7123,7 +7202,7 @@ type TestInput struct {
 	Retries       *int           `json:"retries"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfig      `json:"run_config,omitempty"`
+	RunConfig *TestRunConfigInput `json:"run_config,omitempty"`
 	RunId     *openapi_types.UUID `json:"run_id"`
 
 	// Tags Tags associated with this test for categorization and filtering
@@ -7149,7 +7228,7 @@ type TestInput_Tasks_0_Item struct {
 type TestInputTasks1 = []map[string]interface{}
 
 // TestInputTasks2 defines model for .
-type TestInputTasks2 = []TaskMetadata
+type TestInputTasks2 = []TaskMetadataInput
 
 // TestInput_Tasks defines model for TestInput.Tasks.
 type TestInput_Tasks struct {
@@ -7168,8 +7247,8 @@ type TestOutput struct {
 	// Attributes:
 	//     test_id (str): The unique identifier for the test.
 	//     cached_elements (Dict[str, CachedActionElement]): Dictionary of cached action elements keyed by node_id.
-	CachedElements *CachedActionStore `json:"cached_elements,omitempty"`
-	DeviceLocal    *bool              `json:"device_local"`
+	CachedElements *CachedActionStoreOutput `json:"cached_elements,omitempty"`
+	DeviceLocal    *bool                    `json:"device_local"`
 
 	// ExpectedVersion Expected version for optimistic locking. If provided and doesn't match current version, update will fail with 409 Conflict.
 	ExpectedVersion *int                `json:"expected_version"`
@@ -7210,8 +7289,8 @@ type TestOutput struct {
 	Retries       *int           `json:"retries"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfig      `json:"run_config,omitempty"`
-	RunId     *openapi_types.UUID `json:"run_id"`
+	RunConfig *TestRunConfigOutput `json:"run_config,omitempty"`
+	RunId     *openapi_types.UUID  `json:"run_id"`
 
 	// Tags Tags associated with this test for categorization and filtering
 	Tags   *[]Tag              `json:"tags"`
@@ -7236,7 +7315,7 @@ type TestOutput_Tasks_0_Item struct {
 type TestOutputTasks1 = []map[string]interface{}
 
 // TestOutputTasks2 defines model for .
-type TestOutputTasks2 = []TaskMetadata
+type TestOutputTasks2 = []TaskMetadataOutput
 
 // TestOutput_Tasks defines model for TestOutput.Tasks.
 type TestOutput_Tasks struct {
@@ -7629,8 +7708,8 @@ type TestRestoreVersionResponse struct {
 	RestoredFrom int `json:"restored_from"`
 }
 
-// TestRunConfig Complete configuration for a test run.
-type TestRunConfig struct {
+// TestRunConfigInput Complete configuration for a test run.
+type TestRunConfigInput struct {
 	// CacheRetryMode Cache retry policy for test execution.
 	//
 	// - NONE: No cache fallback, fail if cached steps fail
@@ -7641,7 +7720,31 @@ type TestRunConfig struct {
 	DisableGrid *bool `json:"disable_grid"`
 
 	// ExecutionMode Configuration for execution modes and features.
-	ExecutionMode *ExecutionModeConfig `json:"execution_mode,omitempty"`
+	ExecutionMode *ExecutionModeConfigInput `json:"execution_mode,omitempty"`
+
+	// FallbackTrigger When to trigger cache fallback.
+	//
+	// - FINAL_FAIL: Only trigger fallback if overall test fails
+	FallbackTrigger *FallbackTrigger `json:"fallback_trigger,omitempty"`
+
+	// LlmConfig Configuration for LLM models used in different stages.
+	LlmConfig *LLMConfig          `json:"llm_config,omitempty"`
+	RunId     *openapi_types.UUID `json:"run_id"`
+}
+
+// TestRunConfigOutput Complete configuration for a test run.
+type TestRunConfigOutput struct {
+	// CacheRetryMode Cache retry policy for test execution.
+	//
+	// - NONE: No cache fallback, fail if cached steps fail
+	// - FULL_RERUN: If cached run fails, rerun entire test without cache
+	CacheRetryMode *CacheRetryMode `json:"cache_retry_mode,omitempty"`
+
+	// DisableGrid Admin-only: Disable grid preprocessing for grounding
+	DisableGrid *bool `json:"disable_grid"`
+
+	// ExecutionMode Configuration for execution modes and features.
+	ExecutionMode *ExecutionModeConfigOutput `json:"execution_mode,omitempty"`
 
 	// FallbackTrigger When to trigger cache fallback.
 	//
@@ -8751,10 +8854,10 @@ type WorkflowDetailData struct {
 	QuarantinedTestIds *[]string `json:"quarantined_test_ids,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
-	Schedule         string         `json:"schedule"`
-	ScheduleEnabled  *bool          `json:"schedule_enabled"`
-	ScheduleTimezone *string        `json:"schedule_timezone"`
+	RunConfig        *TestRunConfigOutput `json:"run_config,omitempty"`
+	Schedule         string               `json:"schedule"`
+	ScheduleEnabled  *bool                `json:"schedule_enabled"`
+	ScheduleTimezone *string              `json:"schedule_timezone"`
 
 	// TestCount Number of tests in workflow
 	TestCount int `json:"test_count"`
@@ -8976,8 +9079,8 @@ type WorkflowInfoInput struct {
 	OverrideBuildConfig *bool `json:"override_build_config,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig  *TestRunConfig     `json:"run_config,omitempty"`
-	WorkflowId openapi_types.UUID `json:"workflow_id"`
+	RunConfig  *TestRunConfigInput `json:"run_config,omitempty"`
+	WorkflowId openapi_types.UUID  `json:"workflow_id"`
 }
 
 // WorkflowInfoOutput Basic workflow info for rule display.
@@ -9157,10 +9260,10 @@ type WorkflowWithLastStatus struct {
 	QuarantinedTestIds *[]string `json:"quarantined_test_ids,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
-	Schedule         string         `json:"schedule"`
-	ScheduleEnabled  *bool          `json:"schedule_enabled"`
-	ScheduleTimezone *string        `json:"schedule_timezone"`
+	RunConfig        *TestRunConfigOutput `json:"run_config,omitempty"`
+	Schedule         string               `json:"schedule"`
+	ScheduleEnabled  *bool                `json:"schedule_enabled"`
+	ScheduleTimezone *string              `json:"schedule_timezone"`
 
 	// TestCount Number of tests in this workflow
 	TestCount int `json:"test_count"`
@@ -9197,10 +9300,10 @@ type WorkflowsBaseSchema struct {
 	QuarantinedTestIds *[]string `json:"quarantined_test_ids,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
-	Schedule         string         `json:"schedule"`
-	ScheduleEnabled  *bool          `json:"schedule_enabled"`
-	ScheduleTimezone *string        `json:"schedule_timezone"`
+	RunConfig        *TestRunConfigOutput `json:"run_config,omitempty"`
+	Schedule         string               `json:"schedule"`
+	ScheduleEnabled  *bool                `json:"schedule_enabled"`
+	ScheduleTimezone *string              `json:"schedule_timezone"`
 
 	// TestTimeoutSeconds Per-test execution timeout in seconds. Applied to all tests dispatched by this workflow.
 	TestTimeoutSeconds *int       `json:"test_timeout_seconds"`
@@ -10788,7 +10891,7 @@ type CreateTestFromYamlApiV1TestsYamlFromYamlPostJSONRequestBody = YamlCreationR
 type ValidateYamlApiV1TestsYamlValidateYamlPostJSONRequestBody = ValidationRequest
 
 // UpdateCachedElementsEndpointApiV1TestsTestIdCachedElementsPutJSONRequestBody defines body for UpdateCachedElementsEndpointApiV1TestsTestIdCachedElementsPut for application/json ContentType.
-type UpdateCachedElementsEndpointApiV1TestsTestIdCachedElementsPutJSONRequestBody = CachedActionStore
+type UpdateCachedElementsEndpointApiV1TestsTestIdCachedElementsPutJSONRequestBody = CachedActionStoreInput
 
 // UpdateDeviceTargetApiV1TestsTestIdDeviceTargetPatchJSONRequestBody defines body for UpdateDeviceTargetApiV1TestsTestIdDeviceTargetPatch for application/json ContentType.
 type UpdateDeviceTargetApiV1TestsTestIdDeviceTargetPatchJSONRequestBody = UpdateDeviceTargetRequest

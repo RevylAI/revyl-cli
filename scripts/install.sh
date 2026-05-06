@@ -1,6 +1,6 @@
 #!/bin/sh
 # Revyl CLI installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+# Usage: curl -fsSL https://revyl.com/install.sh | sh
 #
 # Environment variables:
 #   REVYL_VERSION       - Pin a specific version (e.g. v0.1.13). Default: latest.

@@ -70,17 +70,17 @@ Auto-detects your project type (Expo, React Native, Swift, Android),
 starts hot reload, provisions a cloud device, installs the latest
 dev build, and opens a live viewer.
 
-Each dev loop is a named "dev context" in the current worktree. Use
---context to manage multiple loops in the same repo, or let separate
-worktrees use the default context automatically.
+Run revyl dev for the common path. Dev contexts are worktree-local:
+separate worktrees can each use the default context automatically. Use
+--context only when intentionally targeting a specific named loop.
 
 After starting, interact with the device using revyl device commands:
   revyl device screenshot
   revyl device tap --target "Login button"`,
 	Example: `  revyl dev
   revyl dev --platform ios
-  revyl dev --context ios-main --platform ios
   revyl dev --platform android --no-open
+  revyl dev --context ios-main --platform ios
   revyl dev attach active
   revyl dev list`,
 	RunE: runDevStart,
@@ -165,7 +165,7 @@ var devStatusCmd = &cobra.Command{
 }
 
 func init() {
-	devCmd.PersistentFlags().String("context", "", "Dev context name (defaults to 'default')")
+	devCmd.PersistentFlags().String("context", "", "Explicit dev context to target (optional; defaults are worktree-local)")
 
 	registerDevStartFlags(devCmd)
 	registerDevStartFlags(devStartCmd)
@@ -235,7 +235,7 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&devStartTimeout, "timeout", 300, "Device idle timeout in seconds")
 	cmd.Flags().BoolVar(&devStartOpen, "open", true, "Open live device viewer in browser")
 	cmd.Flags().BoolVar(&devStartNoOpen, "no-open", false, "Do not open the live device viewer in browser")
-	cmd.Flags().BoolVar(&devStartForceHotReload, "force-hot-reload", false, "Launch even if Expo relay readiness cannot be proven")
+	cmd.Flags().BoolVar(&devStartForceHotReload, "force-hot-reload", false, "Diagnostic launch after Expo relay transport, even if manifest readiness cannot be proven")
 }
 
 func withDevStartLaunchVars(opts mcppkg.StartSessionOptions) mcppkg.StartSessionOptions {
@@ -251,6 +251,59 @@ func warnLaunchVarsIgnoredForReusedDevSession() {
 		return
 	}
 	ui.PrintWarning("Ignoring --launch-var because revyl dev reused an existing device session; launch vars apply only when a session starts. Run `revyl dev stop` and rerun to apply them.")
+}
+
+const devServerAutoPortSearchSpan = 20
+
+type devServerPortResolution struct {
+	OriginalPort int
+	Port         int
+	Changed      bool
+}
+
+func resolveDevServerPort(providerCfg *config.ProviderConfig, providerName string, explicitPort bool, requestedPort int) (devServerPortResolution, error) {
+	if providerCfg == nil {
+		providerCfg = &config.ProviderConfig{}
+	}
+
+	port := providerCfg.GetPort(providerName)
+	if explicitPort {
+		port = requestedPort
+	}
+	if port <= 0 {
+		port = 8081
+	}
+
+	if isPortAvailable(port) {
+		return devServerPortResolution{OriginalPort: port, Port: port}, nil
+	}
+
+	if explicitPort {
+		return devServerPortResolution{}, fmt.Errorf("port %d is already in use. Stop the existing process or pass a different --port", port)
+	}
+
+	nextPort := findAvailablePort(port+1, port+devServerAutoPortSearchSpan)
+	if nextPort == 0 {
+		return devServerPortResolution{}, fmt.Errorf(
+			"port %d is already in use and no free port was found in %d-%d. Stop an existing dev server or pass --port",
+			port,
+			port+1,
+			port+devServerAutoPortSearchSpan,
+		)
+	}
+
+	return devServerPortResolution{
+		OriginalPort: port,
+		Port:         nextPort,
+		Changed:      true,
+	}, nil
+}
+
+func devContextPortFromStartResult(startResult *hotreload.StartResult, fallback int) int {
+	if startResult != nil && startResult.DevServerPort > 0 {
+		return startResult.DevServerPort
+	}
+	return fallback
 }
 
 func formatDevActionDebugPayload(body map[string]string) string {
@@ -410,17 +463,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		cwd = repoRoot
 	}
 
-	ctxName, err := resolveDevContextName(cwd, getDevContextFlag(cmd))
-	if err != nil {
-		return err
-	}
-	if existing, _ := loadDevContext(cwd, ctxName); existing != nil {
-		pidPath := devCtxPIDPath(cwd, ctxName)
-		if running, _ := isDevCtxProcessAlive(existing.PID, existing.StartedAtNano, pidPath); running {
-			printDevContextAlreadyRunning(existing)
-			return nil
-		}
-	}
+	ctxName := getDevContextFlag(cmd)
 
 	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
 	cfg, err := config.LoadProjectConfig(configPath)
@@ -544,9 +587,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	ctxName, err = resolveDevCtxPlatformConflict(cwd, ctxName, devicePlatform, cmd.Flags().Changed("context"))
+	ctxName, err = resolveDevStartContextName(cwd, getDevContextFlag(cmd), devicePlatform)
 	if err != nil {
 		return err
+	}
+	if printIfDevStartContextAlreadyRunning(cwd, ctxName) {
+		return nil
 	}
 
 	timeout := devStartTimeout
@@ -563,10 +609,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	if devStartNoOpen {
 		openBrowser = false
-	}
-
-	if cmd.Flags().Changed("port") && devStartPort > 0 {
-		providerCfg.Port = devStartPort
 	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")
@@ -743,6 +785,21 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		strings.TrimSpace(buildDetail.PackageName),
 	)
 
+	if providerCfg == nil {
+		providerCfg = &config.ProviderConfig{}
+	}
+	if externalTunnel.tunnelURL == "" {
+		explicitPort := cmd.Flags().Changed("port") && devStartPort > 0
+		portResolution, portErr := resolveDevServerPort(providerCfg, provider.Name(), explicitPort, devStartPort)
+		if portErr != nil {
+			return portErr
+		}
+		providerCfg.Port = portResolution.Port
+		if portResolution.Changed {
+			ui.PrintInfo("Port %d is busy; using %d for this dev loop.", portResolution.OriginalPort, portResolution.Port)
+		}
+	}
+
 	ui.PrintBanner(version)
 	ui.Println()
 
@@ -836,6 +893,15 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	isUserCanceled := func(err error) bool {
 		return atomic.LoadInt32(&interrupted) == 1 && isContextCanceledError(err)
+	}
+
+	if externalTunnel.tunnelURL == "" {
+		if handoff, traceErr := client.ExportDevTraceHandoff(ctx); traceErr == nil {
+			ctx = api.WithTraceHandoff(ctx, handoff)
+			ui.PrintDebug("created dev-loop trace context: trace_id=%s", handoff.TraceID)
+		} else {
+			ui.PrintDebug("continuing without dev-loop trace context: %v", traceErr)
+		}
 	}
 
 	ui.PrintInfo("Starting hot reload...")
@@ -1067,7 +1133,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		PID:           os.Getpid(),
 		StartedAtNano: startNonce,
 		State:         devContextStateRunning,
-		Port:          devStartPort,
+		Port:          devContextPortFromStartResult(startResult, providerCfg.GetPort(provider.Name())),
 		CreatedAt:     time.Now(),
 		LastActivity:  time.Now(),
 	}
@@ -1304,6 +1370,9 @@ func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired, 
 		ui.PrintDim("  [r] rebuild native + reinstall    [q] quit")
 	}
 	ui.Println()
+	ui.PrintInfo("Context: %s", ctxName)
+	ui.PrintDim("  Starting another loop here? Run revyl dev again; Revyl will pick a safe context name.")
+	ui.Println()
 	printNewTerminalHints(ctxName, sessionIndex)
 }
 
@@ -1321,20 +1390,20 @@ func printHotReloadReady(providerDisplay string, startResult *hotreload.StartRes
 }
 
 // printNewTerminalHints prints session management and device interaction commands
-// the user can run from a separate terminal. Includes the context name for attach
-// and the session index (-s flag) so commands work with multiple sessions.
+// the user can run from a separate terminal. Includes the session index (-s
+// flag) so device commands work with multiple sessions.
 //
 // Parameters:
 //   - ctxName: the dev context name (e.g. "default") for attach/status commands
 //   - sessionIndex: the device session index for -s flags on device commands
 func printNewTerminalHints(ctxName string, sessionIndex int) {
-	ui.PrintInfo("In a new terminal (context: %s):", ctxName)
+	ui.PrintInfo("In a new terminal:")
 	ui.Println()
 	ui.PrintDim("  Manage the session:")
 	ui.PrintDim("    revyl dev status                # session state + rebuild history")
 	ui.PrintDim("    revyl dev rebuild               # trigger native rebuild + reinstall")
 	ui.PrintDim("    revyl dev test run <name>       # run a test against this session")
-	ui.PrintDim("    revyl dev attach %s       # reuse this device in another context", ctxName)
+	ui.PrintDim("    revyl dev list                  # show named contexts")
 	ui.Println()
 	ui.PrintDim("  Interact with the device:")
 	ui.PrintDim("    revyl device tap --target \"Login button\" -s %d    # AI-grounded tap", sessionIndex)
@@ -1847,9 +1916,12 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 	}
 	platCfg := cfg.Build.Platforms[platformKey]
 
-	ctxName, err = resolveDevCtxPlatformConflict(cwd, ctxName, devicePlatform, cmd.Flags().Changed("context"))
+	ctxName, err = resolveDevStartContextName(cwd, getDevContextFlag(cmd), devicePlatform)
 	if err != nil {
 		return err
+	}
+	if printIfDevStartContextAlreadyRunning(cwd, ctxName) {
+		return nil
 	}
 
 	timeout := devStartTimeout

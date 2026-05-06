@@ -71,6 +71,7 @@ type diagnosticCheckFunc func(localPort int, tunnelURL string) DiagnosticCheck
 //  3. Tunnel HTTP reachability (GET {tunnelURL}/status)
 //  4. Tunnel WebSocket upgrade (wss://{tunnelURL}/hot)
 //  5. Manifest URL correctness — Expo only (no local-port leaks in launchAsset.url, debuggerHost, hostUri)
+//  6. Expo devtools plugin WebSocket — Expo only, advisory (ws://{relay}/expo-dev-plugins/broadcast)
 //
 // Parameters:
 //   - localPort: The local Metro dev server port
@@ -99,6 +100,7 @@ func RunPostStartupDiagnosticsForPlatform(localPort int, tunnelURL string, provi
 		checks = append(checks, func(localPort int, tunnelURL string) DiagnosticCheck {
 			return checkManifestURLsForPlatform(localPort, tunnelURL, targetPlatform)
 		})
+		checks = append(checks, checkExpoDevtoolsPluginWebSocket)
 	}
 	return runDiagnosticChecks(localPort, tunnelURL, checks)
 }
@@ -362,13 +364,26 @@ func checkTunnelHTTP(_ int, tunnelURL string) DiagnosticCheck {
 
 // checkTunnelWebSocket attempts a WebSocket upgrade through the tunnel.
 func checkTunnelWebSocket(_ int, tunnelURL string) DiagnosticCheck {
-	host := strings.TrimPrefix(strings.TrimPrefix(tunnelURL, "https://"), "http://")
-	host = strings.TrimRight(host, "/")
+	host := tunnelHost(tunnelURL)
 	err := probeWebSocketUpgrade(host, strings.HasPrefix(tunnelURL, "https://"))
 	if err != nil {
 		return DiagnosticCheck{Name: "Tunnel WebSocket", Passed: false, Detail: err.Error()}
 	}
 	return DiagnosticCheck{Name: "Tunnel WebSocket", Passed: true, Detail: "OK"}
+}
+
+func checkExpoDevtoolsPluginWebSocket(_ int, tunnelURL string) DiagnosticCheck {
+	host := tunnelHost(tunnelURL)
+	err := probeWebSocketUpgradePath(host, false, "/expo-dev-plugins/broadcast")
+	if err != nil {
+		return DiagnosticCheck{Name: "Expo devtools plugin WebSocket", Passed: false, Detail: err.Error()}
+	}
+	return DiagnosticCheck{Name: "Expo devtools plugin WebSocket", Passed: true, Detail: "OK"}
+}
+
+func tunnelHost(tunnelURL string) string {
+	host := strings.TrimPrefix(strings.TrimPrefix(tunnelURL, "https://"), "http://")
+	return strings.TrimRight(host, "/")
 }
 
 // checkManifestURLs fetches the manifest through the tunnel and verifies that
@@ -1052,6 +1067,18 @@ func expoManifestURL(tunnelURL string, platform string) (string, error) {
 // Returns:
 //   - error: nil on successful 101 response, otherwise describes the failure.
 func probeWebSocketUpgrade(hostPort string, useTLS bool) error {
+	return probeWebSocketUpgradePath(hostPort, useTLS, "/hot")
+}
+
+func probeWebSocketUpgradePath(hostPort string, useTLS bool, path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "/hot"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
 	host, port, err := net.SplitHostPort(hostPort)
 	if err != nil {
 		host = hostPort
@@ -1086,7 +1113,8 @@ func probeWebSocketUpgrade(hostPort string, useTLS bool) error {
 	}
 
 	req := fmt.Sprintf(
-		"GET /hot HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+		"GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+		path,
 		hostHeader,
 	)
 	if _, err := conn.Write([]byte(req)); err != nil {

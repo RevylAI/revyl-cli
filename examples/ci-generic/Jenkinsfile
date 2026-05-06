@@ -15,9 +15,9 @@ pipeline {
             steps {
                 sh '''
                     if command -v curl >/dev/null 2>&1; then
-                        curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+                        curl -fsSL https://revyl.com/install.sh | sh
                     elif command -v wget >/dev/null 2>&1; then
-                        wget -qO- https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+                        wget -qO- https://revyl.com/install.sh | sh
                     else
                         echo "ERROR: curl or wget is required to install Revyl CLI" >&2
                         exit 1

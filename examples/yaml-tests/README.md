@@ -215,7 +215,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Revyl
-        run: pip install revyl
+        run: |
+          curl -fsSL https://revyl.com/install.sh | sh
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
 
       - name: Push tests and run
         env:
@@ -242,7 +244,8 @@ test:
   image: alpine:latest
   before_script:
     - apk add --no-cache curl
-    - curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+    - curl -fsSL https://revyl.com/install.sh | sh
+    - export PATH="$HOME/.revyl/bin:$PATH"
   script:
     - revyl test push --force
     - revyl workflow run smoke-tests --json

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -20,6 +23,23 @@ func createTestContext(t *testing.T, root string, ctx *DevContext) {
 	t.Helper()
 	if err := saveDevContext(root, ctx); err != nil {
 		t.Fatalf("saveDevContext(%s): %v", ctx.Name, err)
+	}
+}
+
+func initTestGitBranch(t *testing.T, root, branch string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	if output, err := exec.Command("git", "-C", root, "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, output)
+	}
+	commitCmd := exec.Command("git", "-C", root, "-c", "user.email=revyl-test@example.com", "-c", "user.name=Revyl Test", "commit", "--allow-empty", "-m", "init")
+	if output, err := commitCmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, output)
+	}
+	if output, err := exec.Command("git", "-C", root, "checkout", "-b", branch).CombinedOutput(); err != nil {
+		t.Fatalf("git checkout -b: %v\n%s", err, output)
 	}
 }
 
@@ -290,68 +310,147 @@ func TestIsDevCtxProcessAlive_DeadPID(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// resolveDevCtxPlatformConflict
+// resolveDevStartContextName
 // ---------------------------------------------------------------------------
 
-func TestResolveDevCtxPlatformConflict_NoConflict(t *testing.T) {
+func TestResolveDevStartContextName_NoContextsUsesDefault(t *testing.T) {
 	root := setupTestRepo(t)
-	createTestContext(t, root, &DevContext{Name: "ctx", Platform: "ios"})
 
-	name, err := resolveDevCtxPlatformConflict(root, "ctx", "ios", false)
+	name, err := resolveDevStartContextName(root, "", "ios")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("resolveDevStartContextName() error = %v", err)
 	}
-	if name != "ctx" {
-		t.Fatalf("name = %q, want %q", name, "ctx")
+	if name != defaultDevContextName {
+		t.Fatalf("name = %q, want %q", name, defaultDevContextName)
 	}
 }
 
-func TestResolveDevCtxPlatformConflict_ExplicitConflict(t *testing.T) {
+func TestResolveDevStartContextName_ExplicitWrongPlatformFails(t *testing.T) {
 	root := setupTestRepo(t)
 	createTestContext(t, root, &DevContext{Name: "ctx", Platform: "ios"})
 
-	_, err := resolveDevCtxPlatformConflict(root, "ctx", "android", true)
+	_, err := resolveDevStartContextName(root, "ctx", "android")
 	if err == nil {
-		t.Fatal("expected platform conflict error for explicit context")
+		t.Fatal("expected explicit platform conflict")
 	}
 }
 
-func TestResolveDevCtxPlatformConflict_NoExistingContext(t *testing.T) {
+func TestResolveDevStartContextName_BusyImplicitContextAutoSelectsBranchPlatform(t *testing.T) {
 	root := setupTestRepo(t)
-	name, err := resolveDevCtxPlatformConflict(root, "nonexistent", "ios", false)
+	initTestGitBranch(t, root, "feature/signup-redesign")
+	createTestContext(t, root, &DevContext{
+		Name:     defaultDevContextName,
+		Platform: "ios",
+		PID:      os.Getpid(),
+		State:    devContextStateRunning,
+	})
+
+	var name string
+	output := captureStdoutAndStderr(t, func() {
+		var err error
+		name, err = resolveDevStartContextName(root, "", "ios")
+		if err != nil {
+			t.Fatalf("resolveDevStartContextName() error = %v", err)
+		}
+	})
+
+	if name != "feature-signup-redesign-ios" {
+		t.Fatalf("name = %q, want %q", name, "feature-signup-redesign-ios")
+	}
+	if !strings.Contains(output, "Context 'default' is already running; starting new context 'feature-signup-redesign-ios'.") {
+		t.Fatalf("output missing auto-context notice:\n%s", output)
+	}
+}
+
+func TestResolveDevStartContextName_WrongPlatformImplicitUsesMatchingContext(t *testing.T) {
+	root := setupTestRepo(t)
+	createTestContext(t, root, &DevContext{Name: defaultDevContextName, Platform: "android"})
+	createTestContext(t, root, &DevContext{Name: "ios-work", Platform: "ios"})
+	_ = setCurrentDevContext(root, defaultDevContextName)
+
+	name, err := resolveDevStartContextName(root, "", "ios")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("resolveDevStartContextName() error = %v", err)
 	}
-	if name != "nonexistent" {
-		t.Fatalf("name = %q, want %q", name, "nonexistent")
-	}
-}
-
-func TestSuggestPlatformContextName_Fresh(t *testing.T) {
-	root := setupTestRepo(t)
-	name := suggestPlatformContextName(root, "ios")
-	if name != "ios" {
-		t.Fatalf("name = %q, want %q", name, "ios")
+	if name != "ios-work" {
+		t.Fatalf("name = %q, want %q", name, "ios-work")
 	}
 }
 
-func TestSuggestPlatformContextName_ExistingMatchesPlatform(t *testing.T) {
+func TestResolveDevStartContextName_WrongPlatformImplicitAutoSelectsBranchPlatform(t *testing.T) {
 	root := setupTestRepo(t)
-	createTestContext(t, root, &DevContext{Name: "ios", Platform: "ios"})
+	initTestGitBranch(t, root, "feature/signup-redesign")
+	createTestContext(t, root, &DevContext{Name: defaultDevContextName, Platform: "android"})
+	_ = setCurrentDevContext(root, defaultDevContextName)
 
-	name := suggestPlatformContextName(root, "ios")
-	if name != "ios" {
-		t.Fatalf("name = %q, want %q", name, "ios")
+	name, err := resolveDevStartContextName(root, "", "ios")
+	if err != nil {
+		t.Fatalf("resolveDevStartContextName() error = %v", err)
+	}
+	if name != "feature-signup-redesign-ios" {
+		t.Fatalf("name = %q, want %q", name, "feature-signup-redesign-ios")
 	}
 }
 
-func TestSuggestPlatformContextName_Collision(t *testing.T) {
+func TestResolveDevStartContextName_MultipleContextsUsesMatchingPlatform(t *testing.T) {
 	root := setupTestRepo(t)
-	createTestContext(t, root, &DevContext{Name: "ios", Platform: "android"})
+	createTestContext(t, root, &DevContext{Name: "android-work", Platform: "android"})
+	createTestContext(t, root, &DevContext{Name: "ios-work", Platform: "ios"})
 
-	name := suggestPlatformContextName(root, "ios")
-	if name != "ios-2" {
-		t.Fatalf("name = %q, want %q", name, "ios-2")
+	name, err := resolveDevStartContextName(root, "", "ios")
+	if err != nil {
+		t.Fatalf("resolveDevStartContextName() error = %v", err)
+	}
+	if name != "ios-work" {
+		t.Fatalf("name = %q, want %q", name, "ios-work")
+	}
+}
+
+func TestResolveDevStartContextName_MultipleContextsAutoNamesWhenNoPlatformMatch(t *testing.T) {
+	root := setupTestRepo(t)
+	initTestGitBranch(t, root, "feature/signup-redesign")
+	createTestContext(t, root, &DevContext{Name: "android-work", Platform: "android"})
+	createTestContext(t, root, &DevContext{Name: "android-two", Platform: "android"})
+
+	name, err := resolveDevStartContextName(root, "", "ios")
+	if err != nil {
+		t.Fatalf("resolveDevStartContextName() error = %v", err)
+	}
+	if name != "feature-signup-redesign-ios" {
+		t.Fatalf("name = %q, want %q", name, "feature-signup-redesign-ios")
+	}
+}
+
+func TestSuggestAutoDevContextNameAddsSuffixOnCollision(t *testing.T) {
+	root := setupTestRepo(t)
+	initTestGitBranch(t, root, "feature/signup-redesign")
+	createTestContext(t, root, &DevContext{Name: "feature-signup-redesign-ios", Platform: "ios"})
+	createTestContext(t, root, &DevContext{Name: "feature-signup-redesign-ios-2", Platform: "ios"})
+
+	name := suggestAutoDevContextName(root, "ios")
+	if name != "feature-signup-redesign-ios-3" {
+		t.Fatalf("name = %q, want %q", name, "feature-signup-redesign-ios-3")
+	}
+}
+
+func TestSuggestAutoDevContextNameFallsBackAfterMaxAttempts(t *testing.T) {
+	root := setupTestRepo(t)
+	initTestGitBranch(t, root, "feature/signup-redesign")
+	base := "feature-signup-redesign-ios"
+	createTestContext(t, root, &DevContext{Name: base, Platform: "ios"})
+	for i := 2; i <= maxAutoDevContextNameAttempts; i++ {
+		createTestContext(t, root, &DevContext{Name: fmt.Sprintf("%s-%d", base, i), Platform: "ios"})
+	}
+
+	name := suggestAutoDevContextName(root, "ios")
+	if !strings.HasPrefix(name, base+"-") {
+		t.Fatalf("name = %q, want %q prefix", name, base+"-")
+	}
+	if name == fmt.Sprintf("%s-%d", base, maxAutoDevContextNameAttempts+1) {
+		t.Fatalf("name = %q, want timestamp fallback after bounded attempts", name)
+	}
+	if _, err := loadDevContext(root, name); err == nil {
+		t.Fatalf("fallback name %q unexpectedly exists", name)
 	}
 }
 

@@ -82,9 +82,12 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		return fmt.Errorf("revyl dev --remote v1 supports native iOS xcodebuild projects only")
 	}
 
-	ctxName, err = resolveDevCtxPlatformConflict(cwd, ctxName, devicePlatform, cmd.Flags().Changed("context"))
+	ctxName, err = resolveDevStartContextName(cwd, getDevContextFlag(cmd), devicePlatform)
 	if err != nil {
 		return err
+	}
+	if printIfDevStartContextAlreadyRunning(cwd, ctxName) {
+		return nil
 	}
 
 	timeout := devStartTimeout

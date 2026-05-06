@@ -19,6 +19,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers"
@@ -79,7 +80,8 @@ const (
 	devContextStateRunning = "running"
 	devContextStateStopped = "stopped"
 
-	defaultDevContextName = "default"
+	defaultDevContextName         = "default"
+	maxAutoDevContextNameAttempts = 1000
 )
 
 // devCtxDir returns the directory for a named dev context.
@@ -266,13 +268,171 @@ func resolveDevContextName(repoRoot, explicitContext string) (string, error) {
 		} else if len(contexts) == 1 {
 			resolved = contexts[0].Name
 		} else {
-			return "", fmt.Errorf("multiple dev contexts exist in this worktree; pass --context or run 'revyl dev list'")
+			return "", fmt.Errorf("multiple dev contexts exist in this worktree; run 'revyl dev list', then 'revyl dev use <context>' or pass '--context <context>'")
 		}
 	}
 	if err := validateDevContextName(resolved); err != nil {
 		return "", err
 	}
 	return resolved, nil
+}
+
+// resolveDevStartContextName resolves a context for starting a new dev loop.
+// Unlike resolveDevContextName, it may auto-select a new context for implicit
+// starts when the current/default context is busy or bound to another platform.
+func resolveDevStartContextName(repoRoot, explicitContext, requestedPlatform string) (string, error) {
+	explicitContext = strings.TrimSpace(explicitContext)
+	requestedPlatform = strings.TrimSpace(requestedPlatform)
+	if explicitContext != "" {
+		if err := validateDevContextName(explicitContext); err != nil {
+			return "", err
+		}
+		existing, _ := loadDevContext(repoRoot, explicitContext)
+		if existing != nil && existing.Platform != "" && requestedPlatform != "" && existing.Platform != requestedPlatform {
+			return "", fmt.Errorf(
+				"context '%s' is configured for %s, but --platform %s was requested",
+				explicitContext, existing.Platform, requestedPlatform,
+			)
+		}
+		return explicitContext, nil
+	}
+
+	contexts, err := listDevContexts(repoRoot)
+	if err != nil {
+		contexts = nil
+	}
+
+	candidate := ""
+	if current, currentErr := readCurrentDevContext(repoRoot); currentErr == nil && current != "" {
+		if currentCtx, _ := loadDevContext(repoRoot, current); currentCtx != nil {
+			candidate = current
+		}
+	}
+	if candidate == "" && len(contexts) == 0 {
+		candidate = defaultDevContextName
+	} else if candidate == "" && len(contexts) == 1 {
+		candidate = contexts[0].Name
+	} else if candidate == "" {
+		if reusable := findReusableDevStartContext(repoRoot, contexts, requestedPlatform); reusable != nil {
+			ui.PrintInfo("Using existing %s dev context '%s'.", requestedPlatform, reusable.Name)
+			return reusable.Name, nil
+		}
+		name := suggestAutoDevContextName(repoRoot, requestedPlatform)
+		ui.PrintInfo("Multiple dev contexts exist; starting new context '%s'.", name)
+		return name, nil
+	}
+
+	if err := validateDevContextName(candidate); err != nil {
+		return "", err
+	}
+
+	existing, _ := loadDevContext(repoRoot, candidate)
+	if existing == nil {
+		return candidate, nil
+	}
+	if isDevContextRunning(repoRoot, existing) {
+		name := suggestAutoDevContextName(repoRoot, requestedPlatform)
+		ui.PrintInfo("Context '%s' is already running; starting new context '%s'.", candidate, name)
+		return name, nil
+	}
+	if existing.Platform != "" && requestedPlatform != "" && existing.Platform != requestedPlatform {
+		if reusable := findReusableDevStartContext(repoRoot, contexts, requestedPlatform); reusable != nil {
+			ui.PrintInfo("Context '%s' is for %s; using '%s' for %s.", candidate, existing.Platform, reusable.Name, requestedPlatform)
+			return reusable.Name, nil
+		}
+		name := suggestAutoDevContextName(repoRoot, requestedPlatform)
+		ui.PrintInfo("Context '%s' is for %s; starting new context '%s' for %s.", candidate, existing.Platform, name, requestedPlatform)
+		return name, nil
+	}
+	return candidate, nil
+}
+
+func findReusableDevStartContext(repoRoot string, contexts []*DevContext, requestedPlatform string) *DevContext {
+	if requestedPlatform == "" {
+		return nil
+	}
+	for _, ctx := range contexts {
+		if ctx == nil || ctx.Platform != requestedPlatform {
+			continue
+		}
+		if isDevContextRunning(repoRoot, ctx) {
+			continue
+		}
+		return ctx
+	}
+	return nil
+}
+
+func isDevContextRunning(repoRoot string, ctx *DevContext) bool {
+	if ctx == nil {
+		return false
+	}
+	running, _ := isDevCtxProcessAlive(ctx.PID, ctx.StartedAtNano, devCtxPIDPath(repoRoot, ctx.Name))
+	return running
+}
+
+func printIfDevStartContextAlreadyRunning(repoRoot, ctxName string) bool {
+	existing, _ := loadDevContext(repoRoot, ctxName)
+	if !isDevContextRunning(repoRoot, existing) {
+		return false
+	}
+	printDevContextAlreadyRunning(existing)
+	return true
+}
+
+func suggestAutoDevContextName(repoRoot, platform string) string {
+	base := autoDevContextBaseName(repoRoot, platform)
+	for i, candidate := 1, base; i <= maxAutoDevContextNameAttempts; i++ {
+		if i > 1 {
+			candidate = fmt.Sprintf("%s-%d", base, i)
+		}
+		if _, err := loadDevContext(repoRoot, candidate); err != nil {
+			return candidate
+		}
+	}
+	return fmt.Sprintf("%s-%d", base, time.Now().UnixNano())
+}
+
+func autoDevContextBaseName(repoRoot, platform string) string {
+	platform = slugDevContextPart(platform)
+	branch := slugDevContextPart(buildselection.CurrentBranch(repoRoot))
+	switch {
+	case branch != "" && platform != "":
+		return branch + "-" + platform
+	case platform != "":
+		return platform
+	case branch != "":
+		return branch
+	default:
+		return defaultDevContextName
+	}
+}
+
+func slugDevContextPart(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" || value == "head" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(value))
+	lastDash := false
+	for _, r := range value {
+		isAlphaNum := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if isAlphaNum {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if len(slug) > 48 {
+		slug = strings.Trim(slug[:48], "-")
+	}
+	return slug
 }
 
 // readCurrentDevContext reads the current-context marker file.
@@ -498,74 +658,6 @@ func forceCleanupDevContext(repoRoot, ctxName string) {
 		ctx.TunnelURL = ""
 		ctx.DeepLinkURL = ""
 		_ = saveDevContext(repoRoot, ctx)
-	}
-}
-
-// resolveDevCtxPlatformConflict checks whether the existing context's platform
-// matches requestedPlatform. When there is no conflict (or no existing context)
-// it returns ctxName unchanged. When a conflict is detected and the context was
-// implicitly resolved (explicitContext == false), the user is prompted to create
-// a new context named after the requested platform. If the user accepts, the
-// new context name is returned so the caller proceeds with a fresh context.
-//
-// Params:
-//   - repoRoot: worktree root
-//   - ctxName: current context name
-//   - requestedPlatform: the platform the caller resolved ("ios" or "android")
-//   - explicitContext: true when the user passed --context explicitly
-//
-// Returns:
-//   - string: the context name to use (may differ from ctxName on auto-create)
-//   - error: if the conflict cannot be resolved
-func resolveDevCtxPlatformConflict(repoRoot, ctxName, requestedPlatform string, explicitContext bool) (string, error) {
-	existing, _ := loadDevContext(repoRoot, ctxName)
-	if existing == nil || existing.Platform == "" {
-		return ctxName, nil
-	}
-	if existing.Platform == requestedPlatform {
-		return ctxName, nil
-	}
-
-	if explicitContext {
-		return "", fmt.Errorf(
-			"context '%s' is configured for %s, but --platform %s was requested",
-			ctxName, existing.Platform, requestedPlatform,
-		)
-	}
-
-	newName := suggestPlatformContextName(repoRoot, requestedPlatform)
-
-	ui.PrintWarning("Context '%s' is configured for %s.", ctxName, existing.Platform)
-	confirmed := ui.Confirm(fmt.Sprintf("Create a new '%s' context for %s?", newName, requestedPlatform))
-	if !confirmed {
-		return "", fmt.Errorf(
-			"context '%s' is configured for %s, but --platform %s was requested\n"+
-				"  Hint: use --context %s to target a different context",
-			ctxName, existing.Platform, requestedPlatform, requestedPlatform,
-		)
-	}
-
-	return newName, nil
-}
-
-// suggestPlatformContextName picks a context name for the given platform that
-// does not collide with an existing context bound to a different platform.
-// It tries the platform name first (e.g. "ios"), then appends a numeric suffix.
-//
-// Params:
-//   - repoRoot: worktree root
-//   - platform: target platform ("ios" or "android")
-//
-// Returns:
-//   - string: a context name safe to use for the given platform
-func suggestPlatformContextName(repoRoot, platform string) string {
-	candidate := platform
-	for i := 2; ; i++ {
-		ctx, _ := loadDevContext(repoRoot, candidate)
-		if ctx == nil || ctx.Platform == "" || ctx.Platform == platform {
-			return candidate
-		}
-		candidate = fmt.Sprintf("%s-%d", platform, i)
 	}
 }
 
@@ -813,8 +905,8 @@ func runDevList(cmd *cobra.Command, _ []string) error {
 		if jsonOutput {
 			fmt.Println("[]")
 		} else {
-			ui.PrintDim("No dev contexts in this worktree.")
-			ui.PrintDim("  Start one: revyl dev")
+			ui.PrintDim("No dev contexts yet.")
+			ui.PrintDim("  Start with: revyl dev")
 		}
 		return nil
 	}
@@ -846,6 +938,9 @@ func runDevList(cmd *cobra.Command, _ []string) error {
 		fmt.Printf("%s %-16s %-10s %-10s %-8s %s%s\n",
 			marker, ctx.Name, ctx.Platform, ctx.State, sessionShort, ctx.ViewerURL, ownership)
 	}
+	ui.Println()
+	ui.PrintDim("* current context. Switch with: revyl dev use <context>")
+	ui.PrintDim("Starting another loop in this worktree? Run revyl dev; Revyl will pick a safe name if needed.")
 	return nil
 }
 
@@ -999,12 +1094,13 @@ func printDevContextAlreadyRunning(ctx *DevContext) {
 	ui.PrintDim("  revyl dev status --context %s    # check context state", ctx.Name)
 	ui.PrintDim("  revyl dev rebuild --context %s   # trigger a rebuild", ctx.Name)
 	ui.PrintDim("  revyl dev stop --context %s      # stop this context", ctx.Name)
+	ui.PrintDim("  revyl dev                         # start another loop with an automatic name")
 	ui.Println()
 	ui.PrintInfo("Interact with the device:")
 	ui.PrintDim("    revyl device tap --target \"Login button\" -s %d    # AI-grounded tap", ctx.SessionIndex)
 	ui.PrintDim("    revyl device instruction \"log in and verify\" -s %d  # multi-step AI instruction", ctx.SessionIndex)
 	ui.PrintDim("    revyl device screenshot -s %d                       # save a screenshot locally", ctx.SessionIndex)
 	ui.Println()
-	ui.PrintDim("  Attach from another terminal:")
-	ui.PrintDim("    revyl dev attach %s", ctx.Name)
+	ui.PrintDim("  To intentionally reuse this device in another context:")
+	ui.PrintDim("    revyl dev attach active --context <name>")
 }

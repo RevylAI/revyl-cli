@@ -14,7 +14,7 @@ New to Revyl? Start here: **[Getting Started](getting-started.md)** -- install, 
 
 ```bash
 # 1. Install
-brew install RevylAI/tap/revyl
+curl -fsSL https://revyl.com/install.sh | sh
 
 # 2. Check your environment
 revyl doctor

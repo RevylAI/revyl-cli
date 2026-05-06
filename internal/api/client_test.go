@@ -896,6 +896,48 @@ func TestStartDeviceExportsCLITraceHandoff(t *testing.T) {
 	}
 }
 
+func TestStartDeviceUsesContextTraceHandoff(t *testing.T) {
+	handoff := &TraceHandoff{
+		Traceparent:  "00-1234567890abcdef1234567890abcdef-1111111111111111-01",
+		HandoffToken: "handoff-token",
+		TraceID:      "1234567890abcdef1234567890abcdef",
+		RequestID:    "req-dev",
+	}
+	var sawStart bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/telemetry/cli-traces":
+			t.Fatal("StartDevice should reuse context handoff instead of exporting a new root")
+		case "/api/v1/execution/start_device":
+			sawStart = true
+			if got := r.Header.Get(traceRequestIDHeader); got != "req-dev" {
+				t.Fatalf("X-Request-ID = %q, want req-dev", got)
+			}
+			if got := r.Header.Get(cliTraceparentHeader); got != handoff.Traceparent {
+				t.Fatalf("traceparent = %q, want %q", got, handoff.Traceparent)
+			}
+			if got := r.Header.Get(cliTraceHandoffHeader); got != "handoff-token" {
+				t.Fatalf("handoff token = %q, want handoff-token", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"workflow_run_id":"11111111-1111-1111-1111-111111111111","trace_id":"1234567890abcdef1234567890abcdef"}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	_, err := client.StartDevice(WithTraceHandoff(context.Background(), handoff), &StartDeviceRequest{Platform: "ios"})
+	if err != nil {
+		t.Fatalf("StartDevice() error = %v, want nil", err)
+	}
+	if !sawStart {
+		t.Fatal("StartDevice() did not call start_device")
+	}
+}
+
 func TestStartDeviceFallsBackWhenCLITraceExportFails(t *testing.T) {
 	var sawStart bool
 	var startRequestID string
@@ -944,6 +986,232 @@ func TestStartDeviceFallsBackWhenCLITraceExportFails(t *testing.T) {
 	}
 	if resp.TraceId == nil || *resp.TraceId != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
 		t.Fatalf("TraceId = %v, want backend returned fallback trace ID", resp.TraceId)
+	}
+}
+
+func TestCreateHotReloadRelayUsesContextTraceHandoff(t *testing.T) {
+	handoff := &TraceHandoff{
+		Traceparent:  "00-1234567890abcdef1234567890abcdef-1111111111111111-01",
+		HandoffToken: "handoff-token",
+		TraceID:      "1234567890abcdef1234567890abcdef",
+		RequestID:    "req-dev",
+	}
+	var sawRelayCreate bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/hotreload/relays" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		sawRelayCreate = true
+		if got := r.Header.Get(traceRequestIDHeader); got != "req-dev" {
+			t.Fatalf("X-Request-ID = %q, want req-dev", got)
+		}
+		if got := r.Header.Get(cliTraceparentHeader); got != handoff.Traceparent {
+			t.Fatalf("traceparent = %q, want %q", got, handoff.Traceparent)
+		}
+		if got := r.Header.Get(cliTraceHandoffHeader); got != "handoff-token" {
+			t.Fatalf("handoff token = %q, want handoff-token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"relay_id":"a-123abc",
+			"public_url":"https://hr-a-123abc-public.relay-a.revyl.ai",
+			"connect_url":"wss://relay-a.revyl.ai/api/v1/hotreload/relays/a-123abc/connect",
+			"connect_token":"connect-token",
+			"transport":"relay",
+			"expires_at":"2026-04-10T12:00:00Z"
+		}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	session, err := client.CreateHotReloadRelay(WithTraceHandoff(context.Background(), handoff), HotReloadRelayCreateParams{Provider: "expo"})
+	if err != nil {
+		t.Fatalf("CreateHotReloadRelay() error = %v, want nil", err)
+	}
+	if !sawRelayCreate {
+		t.Fatal("CreateHotReloadRelay() did not call backend")
+	}
+	if session.RelayID != "a-123abc" {
+		t.Fatalf("RelayID = %q, want a-123abc", session.RelayID)
+	}
+}
+
+func TestDevTraceHandoffReusedForRelayAndStartDevice(t *testing.T) {
+	var telemetryCalls int32
+	var relayCalls int32
+	var startCalls int32
+	var exportedRequestID string
+	var exportedTraceparent string
+	var exportedTraceID string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/telemetry/cli-traces":
+			atomic.AddInt32(&telemetryCalls, 1)
+			if got := r.Header.Get("Content-Type"); got != otlpProtobufContentType {
+				t.Fatalf("telemetry content-type = %q, want %q", got, otlpProtobufContentType)
+			}
+			exportedRequestID = r.Header.Get(traceRequestIDHeader)
+			if exportedRequestID == "" {
+				t.Fatal("telemetry request missing X-Request-ID")
+			}
+			payload, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read telemetry body: %v", err)
+			}
+			var export tracepb.TracesData
+			if err := proto.Unmarshal(payload, &export); err != nil {
+				t.Fatalf("decode telemetry body: %v", err)
+			}
+			if len(export.ResourceSpans) != 1 ||
+				len(export.ResourceSpans[0].ScopeSpans) != 1 ||
+				len(export.ResourceSpans[0].ScopeSpans[0].Spans) != 1 {
+				t.Fatalf("unexpected telemetry shape: %s", tracesDataShape(&export))
+			}
+			span := export.ResourceSpans[0].ScopeSpans[0].Spans[0]
+			if span.Name != cliDevTraceSpanName {
+				t.Fatalf("span name = %q, want %q", span.Name, cliDevTraceSpanName)
+			}
+			if len(span.ParentSpanId) != 0 {
+				t.Fatalf("dev root span parent = %x, want empty", span.ParentSpanId)
+			}
+			exportedTraceID = fmt.Sprintf("%x", span.TraceId)
+			exportedTraceparent = fmt.Sprintf("00-%x-%x-01", span.TraceId, span.SpanId)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(
+				w,
+				`{"handoff_token":"dev-handoff-token","trace_id":%q,"request_id":%q}`,
+				exportedTraceID,
+				exportedRequestID,
+			)
+		case "/api/v1/hotreload/relays":
+			atomic.AddInt32(&relayCalls, 1)
+			if got := r.Header.Get(traceRequestIDHeader); got != exportedRequestID {
+				t.Fatalf("relay X-Request-ID = %q, want %q", got, exportedRequestID)
+			}
+			if got := r.Header.Get(cliTraceparentHeader); got != exportedTraceparent {
+				t.Fatalf("relay traceparent = %q, want %q", got, exportedTraceparent)
+			}
+			if got := r.Header.Get(cliTraceHandoffHeader); got != "dev-handoff-token" {
+				t.Fatalf("relay handoff token = %q, want dev-handoff-token", got)
+			}
+			if got := r.Header.Get("traceparent"); got != "" {
+				t.Fatalf("relay standard traceparent = %q, want empty", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"relay_id":"a-123abc",
+				"public_url":"https://hr-a-123abc-public.relay-a.revyl.ai",
+				"connect_url":"wss://relay-a.revyl.ai/api/v1/hotreload/relays/a-123abc/connect",
+				"connect_token":"connect-token",
+				"transport":"relay",
+				"expires_at":"2026-04-10T12:00:00Z"
+			}`))
+		case "/api/v1/execution/start_device":
+			atomic.AddInt32(&startCalls, 1)
+			if got := r.Header.Get(traceRequestIDHeader); got != exportedRequestID {
+				t.Fatalf("start_device X-Request-ID = %q, want %q", got, exportedRequestID)
+			}
+			if got := r.Header.Get(cliTraceparentHeader); got != exportedTraceparent {
+				t.Fatalf("start_device traceparent = %q, want %q", got, exportedTraceparent)
+			}
+			if got := r.Header.Get(cliTraceHandoffHeader); got != "dev-handoff-token" {
+				t.Fatalf("start_device handoff token = %q, want dev-handoff-token", got)
+			}
+			if got := r.Header.Get("traceparent"); got != "" {
+				t.Fatalf("start_device standard traceparent = %q, want empty", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"workflow_run_id":"11111111-1111-1111-1111-111111111111","trace_id":%q}`, exportedTraceID)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	handoff, err := client.ExportDevTraceHandoff(context.Background())
+	if err != nil {
+		t.Fatalf("ExportDevTraceHandoff() error = %v, want nil", err)
+	}
+	ctx := WithTraceHandoff(context.Background(), handoff)
+	session, err := client.CreateHotReloadRelay(ctx, HotReloadRelayCreateParams{Provider: "expo", Platform: "ios"})
+	if err != nil {
+		t.Fatalf("CreateHotReloadRelay() error = %v, want nil", err)
+	}
+	if session.RelayID != "a-123abc" {
+		t.Fatalf("RelayID = %q, want a-123abc", session.RelayID)
+	}
+	started, err := client.StartDevice(ctx, &StartDeviceRequest{Platform: "ios"})
+	if err != nil {
+		t.Fatalf("StartDevice() error = %v, want nil", err)
+	}
+	if started.TraceId == nil || *started.TraceId != exportedTraceID {
+		t.Fatalf("StartDevice trace_id = %v, want %q", started.TraceId, exportedTraceID)
+	}
+	if got := atomic.LoadInt32(&telemetryCalls); got != 1 {
+		t.Fatalf("telemetry calls = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&relayCalls); got != 1 {
+		t.Fatalf("relay create calls = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&startCalls); got != 1 {
+		t.Fatalf("start_device calls = %d, want 1", got)
+	}
+}
+
+func TestExportHotReloadLocalMetroSpanPostsChildSpan(t *testing.T) {
+	var sawSpan bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/telemetry/cli-spans" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		sawSpan = true
+		if got := r.Header.Get("Content-Type"); got != otlpProtobufContentType {
+			t.Fatalf("content-type = %q, want %q", got, otlpProtobufContentType)
+		}
+		payload, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read span body: %v", err)
+		}
+		var export tracepb.TracesData
+		if err := proto.Unmarshal(payload, &export); err != nil {
+			t.Fatalf("decode span body: %v", err)
+		}
+		span := export.ResourceSpans[0].ScopeSpans[0].Spans[0]
+		if span.Name != cliLocalMetroSpanName {
+			t.Fatalf("span name = %q, want %q", span.Name, cliLocalMetroSpanName)
+		}
+		if got := fmt.Sprintf("%x", span.TraceId); got != "1234567890abcdef1234567890abcdef" {
+			t.Fatalf("trace ID = %q", got)
+		}
+		if got := fmt.Sprintf("%x", span.ParentSpanId); got != "1111111111111111" {
+			t.Fatalf("parent span ID = %q", got)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	err := client.ExportHotReloadLocalMetroSpan(context.Background(), HotReloadLocalMetroSpanInput{
+		ParentTraceparent: "00-1234567890abcdef1234567890abcdef-1111111111111111-01",
+		Method:            http.MethodGet,
+		Path:              "/index.bundle",
+		RequestClass:      "bundle",
+		Platform:          "ios",
+		StatusCode:        http.StatusOK,
+		StartedAt:         time.Now().Add(-10 * time.Millisecond),
+		EndedAt:           time.Now(),
+		TTFB:              5 * time.Millisecond,
+		FirstBodyByte:     6 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("ExportHotReloadLocalMetroSpan() error = %v, want nil", err)
+	}
+	if !sawSpan {
+		t.Fatal("span ingest endpoint was not called")
 	}
 }
 

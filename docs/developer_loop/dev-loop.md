@@ -88,9 +88,15 @@ revyl dev --no-open                       # Don't open browser (headless/SSH)
 revyl dev --platform ios --build          # Force a fresh dev build first
 revyl dev --build-version-id <id>         # Pin a specific build
 revyl dev --context ios-main              # Named context for parallel loops
-revyl dev --force-hot-reload              # Launch even if Expo relay readiness cannot be proven
+revyl dev --force-hot-reload              # Diagnostic launch after Expo relay transport
 revyl dev --no-build --tunnel "<expo-dev-client-link>"  # Reuse an Expo tunnel
 ```
+
+If Revyl starts Expo and verifies relay transport but times out proving the
+first Expo manifest, retry with `--force-hot-reload` first. This launches after
+the relay and dev server start, skipping only the manifest and bundle proof. If
+the app loads, keep working; if the dev client shows a project load error,
+restart Expo/Metro or capture `revyl device report --session-id <id> --json`.
 
 If you already run Expo with its own tunnel, you can collapse the manual device
 start + deep-link step into one command:
@@ -104,10 +110,8 @@ revyl dev --no-build --app-id <app-id> --tunnel "<deep-link-from-expo>"
 tunnel URL. Passing the full dev-client link works even when the local Revyl
 config does not have an Expo `app_scheme`. Prefer the Revyl relay first in
 cloud-agent environments; use Expo tunnel fallback only after device screenshots
-or `revyl device report --session-id <id> --json` show the relay did not load.
-If you need to keep moving while debugging Expo relay readiness, use
-`--force-hot-reload` to launch after the relay and dev server start; this only
-bypasses the readiness proof and the app may still show a project load error.
+or `revyl device report --session-id <id> --json` show force mode still did not
+load through the relay.
 
 ## Step 4: Interact with the device
 

@@ -5,6 +5,7 @@ This is the fastest way to get a working device session and take real actions sa
 <CodeGroup>
 
 ```bash CLI
+curl -fsSL https://revyl.com/install.sh | sh
 brew install RevylAI/tap/revyl    # Homebrew (macOS)
 pipx install revyl                # pipx (cross-platform)
 uv tool install revyl             # uv

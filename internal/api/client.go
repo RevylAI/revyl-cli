@@ -2407,7 +2407,7 @@ func (c *Client) CreateHotReloadRelay(
 	ctx context.Context,
 	req HotReloadRelayCreateParams,
 ) (*HotReloadRelaySession, error) {
-	resp, err := c.doRequest(ctx, "POST", "/api/v1/hotreload/relays", req)
+	resp, err := c.doRequestWithRetry(ctx, "POST", "/api/v1/hotreload/relays", req, traceHandoffHeadersFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -2615,7 +2615,11 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 	}
 	requestID := newTraceRequestID()
 	headers := map[string]string{traceRequestIDHeader: requestID}
-	if handoff, err := c.exportStartDeviceTrace(ctx, requestID); err == nil {
+	if handoff, ok := TraceHandoffFromContext(ctx); ok {
+		if handoffHeaders := handoff.Headers(); len(handoffHeaders) > 0 {
+			headers = handoffHeaders
+		}
+	} else if handoff, err := c.exportStartDeviceTrace(ctx, requestID); err == nil {
 		headers[cliTraceparentHeader] = handoff.Traceparent
 		headers[cliTraceHandoffHeader] = handoff.HandoffToken
 	}
@@ -2631,6 +2635,14 @@ func (c *Client) StartDevice(ctx context.Context, req *StartDeviceRequest) (*Sta
 	}
 
 	return &result, nil
+}
+
+func traceHandoffHeadersFromContext(ctx context.Context) map[string]string {
+	handoff, ok := TraceHandoffFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	return handoff.Headers()
 }
 
 // GetDeviceTargets fetches the backend's current device target matrix.

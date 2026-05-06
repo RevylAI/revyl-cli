@@ -67,7 +67,8 @@ jobs:
         run: |
           flutter build ios --simulator --debug
           cd build/ios/iphonesimulator && zip -r ../../../build/app.zip Runner.app && cd ../../../
-          pip install revyl
+          curl -fsSL https://revyl.com/install.sh | sh
+          export PATH="$HOME/.revyl/bin:$PATH"
           revyl build upload --file build/app.zip --platform ios --yes
           revyl workflow run smoke-tests
 ```
@@ -91,7 +92,8 @@ jobs:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
         run: |
           flutter build apk --debug
-          pip install revyl
+          curl -fsSL https://revyl.com/install.sh | sh
+          export PATH="$HOME/.revyl/bin:$PATH"
           revyl build upload --file build/app/outputs/flutter-apk/app-debug.apk --platform android --yes
           revyl workflow run smoke-tests
 ```

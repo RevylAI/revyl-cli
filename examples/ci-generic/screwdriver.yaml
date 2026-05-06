@@ -14,7 +14,7 @@ jobs:
     requires: [~pr, ~commit]
     steps:
       - install-deps: apk add --no-cache curl
-      - install: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+      - install: curl -fsSL https://revyl.com/install.sh | sh
       - run-tests: revyl workflow run smoke-tests
 
   # Fire-and-forget: queue tests and exit immediately
@@ -22,7 +22,7 @@ jobs:
     requires: [~pr, ~commit]
     steps:
       - install-deps: apk add --no-cache curl
-      - install: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+      - install: curl -fsSL https://revyl.com/install.sh | sh
       - run-tests: revyl workflow run smoke-tests --no-wait
 
   # Check status of the latest execution
@@ -30,7 +30,7 @@ jobs:
     requires: [test-async]
     steps:
       - install-deps: apk add --no-cache curl
-      - install: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+      - install: curl -fsSL https://revyl.com/install.sh | sh
       - status: revyl workflow status smoke-tests --json
 
   # Build, upload, then test
@@ -38,7 +38,7 @@ jobs:
     requires: [~commit]
     steps:
       - install-deps: apk add --no-cache curl
-      - install: curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh
+      - install: curl -fsSL https://revyl.com/install.sh | sh
       - build: ./gradlew assembleDebug   # <-- replace with your build command
       - upload: revyl build upload --file ./app/build/outputs/apk/debug/app-debug.apk --app your-app-id --set-current
       - test: revyl workflow run smoke-tests

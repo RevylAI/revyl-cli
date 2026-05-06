@@ -117,6 +117,12 @@ type Manager struct {
 	// mu protects concurrent access.
 	mu sync.Mutex
 
+	// ctx is canceled when this manager stops, including advisory diagnostics.
+	ctx context.Context
+
+	// cancel stops manager-owned background work.
+	cancel context.CancelFunc
+
 	// running indicates whether hot reload is active.
 	running bool
 }
@@ -249,7 +255,7 @@ func (m *Manager) debugLog(format string, args ...interface{}) {
 // Returns:
 //   - *StartResult: URLs and information for test execution
 //   - error: Any error that occurred
-func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
+func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -257,8 +263,15 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 		return nil, fmt.Errorf("hot reload is already running")
 	}
 
+	m.ctx, m.cancel = context.WithCancel(ctx)
+	defer func() {
+		if err != nil {
+			m.cleanupLocked(false)
+		}
+	}()
+
 	if m.externalTunnelURL != "" {
-		return m.startExternal()
+		return m.startExternal(m.ctx)
 	}
 
 	// 1. Create dev server instance (but don't start yet - we need tunnel URL first)
@@ -272,7 +285,7 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 
 	// 2. Start tunnel FIRST to get the URL
 	// This must happen before starting the dev server so we can set EXPO_PACKAGER_PROXY_URL
-	backend, tunnelURL, err := m.createTunnelBackend(ctx, devServer)
+	backend, tunnelURL, err := m.createTunnelBackend(m.ctx, devServer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tunnel: %w", err)
 	}
@@ -286,10 +299,7 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 
 	// 4. Now start the dev server with proxy URL configured
 	m.log("Starting %s dev server...", m.providerName)
-	if err := devServer.Start(ctx); err != nil {
-		// Clean up tunnel on dev server failure
-		backend.Stop()
-		m.tunnel = nil
+	if err := devServer.Start(m.ctx); err != nil {
 		return nil, fmt.Errorf("failed to start dev server: %w", err)
 	}
 	m.devServer = devServer
@@ -297,26 +307,18 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 	m.debugLog("%s dev server port: %d", devServer.Name(), devServer.GetPort())
 
 	// 5. Start health monitor for automatic tunnel reconnection
-	backend.StartHealthMonitor(ctx)
+	backend.StartHealthMonitor(m.ctx)
 
 	if m.providerName == "expo" {
 		m.log("Verifying Expo relay readiness...")
 		m.debugLog("Waiting for Expo relay transport...")
 		if _, err := waitForExpoMetroTransport(
-			ctx,
+			m.ctx,
 			devServer.GetPort(),
 			tunnelURL,
 			metroTunnelReadyTimeout,
 			metroTunnelReadyPollInterval,
 		); err != nil {
-			if m.tunnel != nil {
-				_ = m.tunnel.Stop()
-				m.tunnel = nil
-			}
-			if m.devServer != nil {
-				_ = m.devServer.Stop()
-				m.devServer = nil
-			}
 			return nil, fmt.Errorf(
 				"Expo relay transport is not ready yet; launching the dev client would likely show a project load error: %w",
 				err,
@@ -330,7 +332,7 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 		} else {
 			m.debugLog("Waiting for Expo manifest to be served through the relay...")
 			manifest, _, err := waitForExpoManifestFetchResult(
-				ctx,
+				m.ctx,
 				devServer.GetPort(),
 				tunnelURL,
 				expoManifestReadyTimeout,
@@ -338,38 +340,19 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 				m.targetPlatform,
 			)
 			if err != nil {
-				if m.tunnel != nil {
-					_ = m.tunnel.Stop()
-					m.tunnel = nil
-				}
-				if m.devServer != nil {
-					_ = m.devServer.Stop()
-					m.devServer = nil
-				}
-				return nil, fmt.Errorf(
-					"Expo manifest is not ready through the relay yet; launching the dev client would likely show a project load error: %w",
-					err,
-				)
+				return nil, expoManifestReadinessError(m.targetPlatform, err)
 			}
 			m.debugLog("Expo manifest is being served through the relay")
 
 			m.debugLog("Prewarming Expo bundle through the relay...")
 			prewarmResult, err := waitForExpoBundlePrewarmFromManifest(
-				ctx,
+				m.ctx,
 				devServer.GetPort(),
 				tunnelURL,
 				expoBundlePrewarmHTTPTimeout,
 				manifest,
 			)
 			if err != nil {
-				if m.tunnel != nil {
-					_ = m.tunnel.Stop()
-					m.tunnel = nil
-				}
-				if m.devServer != nil {
-					_ = m.devServer.Stop()
-					m.devServer = nil
-				}
 				return nil, fmt.Errorf(
 					"Expo bundle could not be prewarmed through the relay yet; launching the dev client would likely show a project load error: %w",
 					err,
@@ -387,20 +370,12 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 	if m.providerName == "react-native" {
 		m.log("Waiting for Metro tunnel to become externally reachable...")
 		if _, err := WaitForMetroTunnel(
-			ctx,
+			m.ctx,
 			devServer.GetPort(),
 			tunnelURL,
 			metroTunnelReadyTimeout,
 			metroTunnelReadyPollInterval,
 		); err != nil {
-			if m.tunnel != nil {
-				_ = m.tunnel.Stop()
-				m.tunnel = nil
-			}
-			if m.devServer != nil {
-				_ = m.devServer.Stop()
-				m.devServer = nil
-			}
 			return nil, fmt.Errorf(
 				"Metro tunnel is not externally reachable yet; launching the bare React Native app would likely show a white screen: %w",
 				err,
@@ -438,6 +413,21 @@ func (m *Manager) Start(ctx context.Context) (*StartResult, error) {
 		RelayID:       relayID,
 		DevServerPort: devServer.GetPort(),
 	}, nil
+}
+
+func expoManifestReadinessError(platform string, err error) error {
+	platform = normalizeExpoPlatform(platform)
+	return fmt.Errorf(
+		"Expo is running and the Revyl relay is reachable, but Revyl could not prove the first %s manifest through the relay.\n\n"+
+			"Try diagnostic launch mode:\n"+
+			"  revyl dev --platform %s --force-hot-reload\n\n"+
+			"If the app loads, you can keep working. If the app shows a project load error, restart Expo/Metro or send:\n"+
+			"  revyl device report --session-id <session-id> --json\n\n"+
+			"Details: %w",
+		platform,
+		platform,
+		err,
+	)
 }
 
 func (m *Manager) createTunnelBackend(
@@ -496,28 +486,41 @@ func (m *Manager) Stop() {
 	defer m.mu.Unlock()
 
 	m.log("Cleaning up hot reload resources...")
+	m.cleanupLocked(true)
+	m.log("Cleanup complete")
+}
+
+func (m *Manager) cleanupLocked(logStopped bool) {
+	if m.cancel != nil {
+		m.cancel()
+		m.cancel = nil
+		m.ctx = nil
+	}
 
 	// Stop tunnel first
 	if m.tunnel != nil {
 		m.tunnel.Stop()
 		m.tunnel = nil
-		m.log("Tunnel stopped")
+		if logStopped {
+			m.log("Tunnel stopped")
+		}
 	}
 
 	// Stop dev server
 	if m.devServer != nil {
 		m.devServer.Stop()
 		m.devServer = nil
-		m.log("Dev server stopped")
+		if logStopped {
+			m.log("Dev server stopped")
+		}
 	}
 
 	m.running = false
-	m.log("Cleanup complete")
 }
 
 // startExternal handles the short-circuit path when an external tunnel URL is
 // configured. No dev server or relay is started; the provided URL is used directly.
-func (m *Manager) startExternal() (*StartResult, error) {
+func (m *Manager) startExternal(ctx context.Context) (*StartResult, error) {
 	tunnelURL := m.externalTunnelURL
 	backend := NewExternalTunnelBackend(tunnelURL)
 	m.tunnel = backend
@@ -525,7 +528,7 @@ func (m *Manager) startExternal() (*StartResult, error) {
 	m.log("Using external tunnel: %s", tunnelURL)
 	if m.providerName == "expo" && m.debugMode {
 		m.log("External tunnel readiness checks are advisory; Revyl does not own the external dev server lifecycle.")
-		go m.runExternalExpoDiagnostics(tunnelURL)
+		go m.runExternalExpoDiagnostics(ctx, tunnelURL)
 	}
 
 	deepLinkURL := strings.TrimSpace(m.externalDeepLinkURL)
@@ -608,14 +611,17 @@ func (m *Manager) runDiagnostics(localPort int, tunnelURL string) {
 	}
 }
 
-func (m *Manager) runExternalExpoDiagnostics(tunnelURL string) {
+func (m *Manager) runExternalExpoDiagnostics(ctx context.Context, tunnelURL string) {
 	fetched, manifestCheck := checkExpoManifestContractForPlatformWithTimeout(
-		context.Background(),
+		ctx,
 		0,
 		tunnelURL,
 		m.targetPlatform,
 		expoManifestHTTPTimeout,
 	)
+	if ctx.Err() != nil {
+		return
+	}
 	if manifestCheck.Passed {
 		m.log("[hmr diagnostic] External Expo manifest: %s", manifestCheck.Detail)
 	} else {
@@ -624,12 +630,15 @@ func (m *Manager) runExternalExpoDiagnostics(tunnelURL string) {
 	}
 
 	bundleCheck := checkExpoBundlePrewarmFromManifestWithTimeout(
-		context.Background(),
+		ctx,
 		0,
 		tunnelURL,
 		fetched,
 		expoBundlePrewarmHTTPTimeout,
 	)
+	if ctx.Err() != nil {
+		return
+	}
 	if bundleCheck.Passed {
 		m.log("[hmr diagnostic] External Expo bundle prewarm: %s", bundleCheck.Detail)
 		return

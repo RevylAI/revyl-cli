@@ -36,7 +36,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Revyl CLI
-        run: pip install revyl
+        run: |
+          curl -fsSL https://revyl.com/install.sh | sh
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
 
       - name: Run smoke tests
         env:
@@ -44,7 +46,7 @@ jobs:
         run: revyl workflow run smoke-tests
 ```
 
-The CLI binary downloads automatically on first use. The CLI exits with code `0` on pass, `1` on failure.
+The installer downloads the native CLI binary. The CLI exits with code `0` on pass, `1` on failure.
 
 ### Option B: Build, upload, and test
 
@@ -64,7 +66,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Revyl CLI
-        run: pip install revyl
+        run: |
+          curl -fsSL https://revyl.com/install.sh | sh
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
 
       - name: Build, upload, and run workflow
         env:
@@ -140,7 +144,8 @@ Keep remote tests in sync with your repo after merge to main:
 Install and run the CLI directly in any CI:
 
 ```bash
-pip install revyl
+curl -fsSL https://revyl.com/install.sh | sh
+export PATH="$HOME/.revyl/bin:$PATH"
 export REVYL_API_KEY=${{ secrets.REVYL_API_KEY }}
 
 revyl test run login-flow --no-wait --json    # Queue and exit immediately
@@ -190,7 +195,8 @@ revyl build upload --platform android --version $GITHUB_SHA
 ```yaml
 test:
   script:
-    - pip install revyl
+    - curl -fsSL https://revyl.com/install.sh | sh
+    - export PATH="$HOME/.revyl/bin:$PATH"
     - revyl workflow run smoke-tests
   variables:
     REVYL_API_KEY: $REVYL_API_KEY

@@ -153,7 +153,8 @@ jobs:
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
         run: |
-          pip install revyl
+          curl -fsSL https://revyl.com/install.sh | sh
+          export PATH="$HOME/.revyl/bin:$PATH"
           revyl build upload --file build/app.tar.gz --platform ios --yes
           revyl workflow run smoke-tests
 ```
@@ -174,7 +175,8 @@ jobs:
         run: |
           npm ci
           ARTIFACT_URL=$(npx eas-cli build --profile development --platform ios --non-interactive --json | jq -r '.[0].artifacts.buildUrl')
-          pip install revyl
+          curl -fsSL https://revyl.com/install.sh | sh
+          export PATH="$HOME/.revyl/bin:$PATH"
           revyl build upload --url "$ARTIFACT_URL" --app "My iOS App"
           revyl workflow run smoke-tests
 ```

@@ -80,7 +80,8 @@ jobs:
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
         run: |
-          pip install revyl
+          curl -fsSL https://revyl.com/install.sh | sh
+          export PATH="$HOME/.revyl/bin:$PATH"
           revyl build upload --file build/app.zip --platform ios --yes
           revyl workflow run smoke-tests
 ```
@@ -103,7 +104,8 @@ jobs:
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
         run: |
-          pip install revyl
+          curl -fsSL https://revyl.com/install.sh | sh
+          export PATH="$HOME/.revyl/bin:$PATH"
           revyl build upload --file android/app/build/outputs/apk/debug/app-debug.apk --platform android --yes
           revyl workflow run smoke-tests
 ```

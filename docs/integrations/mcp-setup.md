@@ -43,6 +43,7 @@ Restart Cursor after saving. If you previously ran `revyl auth login`, no API ke
 ### 1. Install the CLI
 
 ```bash
+curl -fsSL https://revyl.com/install.sh | sh
 brew install RevylAI/tap/revyl    # Homebrew (macOS)
 pipx install revyl                # pipx (cross-platform)
 uv tool install revyl             # uv

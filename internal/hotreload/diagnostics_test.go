@@ -18,6 +18,8 @@ import (
 
 func withDiagnosticProbeTimeouts(t *testing.T, fastTimeout, manifestTimeout time.Duration) {
 	t.Helper()
+	// These package-level timeout overrides are intentionally process-global.
+	// Tests using this helper must not call t.Parallel().
 	previousFastTimeout := diagnosticHTTPTimeout
 	previousManifestTimeout := expoManifestHTTPTimeout
 	diagnosticHTTPTimeout = fastTimeout
@@ -480,6 +482,7 @@ func TestRunPostStartupDiagnostics_AllPass(t *testing.T) {
 		json.NewEncoder(w).Encode(testExpoManifestForTunnel("http://" + r.Host))
 	})
 	mux.HandleFunc("/hot", websocketUpgradeHandler)
+	mux.HandleFunc("/expo-dev-plugins/broadcast", websocketUpgradeHandler)
 
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -495,8 +498,8 @@ func TestRunPostStartupDiagnostics_AllPass(t *testing.T) {
 		}
 		t.Fatal("expected all checks to pass")
 	}
-	if len(result.Checks) != 5 {
-		t.Fatalf("got %d checks, want 5", len(result.Checks))
+	if len(result.Checks) != 6 {
+		t.Fatalf("got %d checks, want 6", len(result.Checks))
 	}
 }
 
@@ -1194,6 +1197,23 @@ func TestProbeWebSocketUpgrade_FailsOnHTTPEndpoint(t *testing.T) {
 	err := probeWebSocketUpgrade(addr, false)
 	if err == nil {
 		t.Fatal("expected error for non-websocket endpoint")
+	}
+}
+
+func TestProbeWebSocketUpgradePathUsesRequestedPath(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		websocketUpgradeHandler(w, r)
+	}))
+	defer srv.Close()
+
+	addr := strings.TrimPrefix(srv.URL, "http://")
+	if err := probeWebSocketUpgradePath(addr, false, "/expo-dev-plugins/broadcast"); err != nil {
+		t.Fatalf("probeWebSocketUpgradePath() error = %v", err)
+	}
+	if gotPath != "/expo-dev-plugins/broadcast" {
+		t.Fatalf("path = %q, want /expo-dev-plugins/broadcast", gotPath)
 	}
 }
 

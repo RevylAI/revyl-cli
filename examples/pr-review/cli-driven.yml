@@ -20,7 +20,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Revyl CLI
-        run: pip install revyl
+        run: |
+          curl -fsSL https://revyl.com/install.sh | sh
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
 
       - name: Run tests
         env:
