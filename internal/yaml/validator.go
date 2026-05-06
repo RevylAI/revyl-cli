@@ -399,15 +399,10 @@ func isBlank(s string) bool {
 }
 
 // isValidVariableName checks if a variable name uses letters, numbers,
-// hyphens, or underscores without spaces. An optional "global." prefix is
-// allowed to mark assignment-target variables that write to org-level globals.
+// hyphens, or underscores without spaces.
 func isValidVariableName(name string) bool {
 	// Must not start or end with a separator.
 	// Must not have consecutive separators.
-	if name == "" {
-		return false
-	}
-	name = strings.TrimPrefix(name, "global.")
 	if name == "" {
 		return false
 	}

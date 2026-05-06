@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -446,132 +445,6 @@ func TestIsContextCanceledError(t *testing.T) {
 	}
 }
 
-func TestDevLoopStopKeysRecognizeCtrlC(t *testing.T) {
-	if !isDevLoopInterruptKey(devLoopCtrlCKey) {
-		t.Fatal("Ctrl+C key was not recognized as dev-loop interrupt")
-	}
-	if !isDevLoopStopKey(devLoopCtrlCKey) {
-		t.Fatal("Ctrl+C key was not recognized as dev-loop stop key")
-	}
-	if !isDevLoopStopKey('q') {
-		t.Fatal("q key was not recognized as dev-loop stop key")
-	}
-	if isDevLoopStopKey('r') {
-		t.Fatal("r key was recognized as dev-loop stop key")
-	}
-}
-
-func TestDevLoopDrainStdinKeysHonorsCtrlC(t *testing.T) {
-	ch := make(chan byte, 3)
-	ch <- 'r'
-	ch <- devLoopCtrlCKey
-
-	if !drainStdinKeys(ch) {
-		t.Fatal("drainStdinKeys() = false, want true for Ctrl+C")
-	}
-}
-
-func TestDevLoopDrainStdinKeysHonorsQ(t *testing.T) {
-	ch := make(chan byte, 2)
-	ch <- 'r'
-	ch <- 'q'
-
-	if !drainStdinKeys(ch) {
-		t.Fatal("drainStdinKeys() = false, want true for q")
-	}
-}
-
-func TestDevLoopStopperFirstInterruptCancelsGracefully(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var interrupted int32
-
-	stopper := newDevLoopStopper("root", "ctx-a", cancel, &interrupted)
-	cleanupCalls := make(chan string, 1)
-	exitCalls := make(chan int, 1)
-	stopper.forceCleanup = func(cwd, ctxName string) {
-		cleanupCalls <- cwd + "/" + ctxName
-	}
-	stopper.exitFunc = func(code int) {
-		exitCalls <- code
-	}
-
-	_ = captureStdoutAndStderr(t, func() {
-		stopper.RequestStop()
-	})
-
-	select {
-	case <-ctx.Done():
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for dev-loop context cancellation")
-	}
-	if got := atomic.LoadInt32(&interrupted); got != 1 {
-		t.Fatalf("interrupted = %d, want 1", got)
-	}
-	if !stopper.IsUserCanceled(context.Canceled) {
-		t.Fatal("IsUserCanceled(context.Canceled) = false, want true")
-	}
-
-	select {
-	case call := <-cleanupCalls:
-		t.Fatalf("unexpected force cleanup on first interrupt: %s", call)
-	default:
-	}
-	select {
-	case code := <-exitCalls:
-		t.Fatalf("unexpected force exit on first interrupt: %d", code)
-	default:
-	}
-}
-
-func TestDevLoopStopperSecondInterruptForcesExit(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var interrupted int32
-
-	stopper := newDevLoopStopper("root", "ctx-b", cancel, &interrupted)
-	cleanupCalls := make(chan string, 1)
-	exitCalls := make(chan int, 1)
-	stopper.forceCleanup = func(cwd, ctxName string) {
-		cleanupCalls <- cwd + "/" + ctxName
-	}
-	stopper.exitFunc = func(code int) {
-		exitCalls <- code
-	}
-
-	_ = captureStdoutAndStderr(t, func() {
-		stopper.RequestStop()
-		stopper.RequestStop()
-	})
-
-	select {
-	case <-ctx.Done():
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for dev-loop context cancellation")
-	}
-	if got := atomic.LoadInt32(&interrupted); got != 2 {
-		t.Fatalf("interrupted = %d, want 2", got)
-	}
-
-	select {
-	case call := <-cleanupCalls:
-		if call != "root/ctx-b" {
-			t.Fatalf("cleanup call = %q, want root/ctx-b", call)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for force cleanup")
-	}
-
-	select {
-	case code := <-exitCalls:
-		if code != devLoopForceExitCode {
-			t.Fatalf("exit code = %d, want %d", code, devLoopForceExitCode)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for force exit")
-	}
-}
-
 func TestPrintDevReadyFooter_PrintsInteractionShortcuts(t *testing.T) {
 	ui.SetQuietMode(false)
 	t.Cleanup(func() {
@@ -587,7 +460,7 @@ func TestPrintDevReadyFooter_PrintsInteractionShortcuts(t *testing.T) {
 		"Viewer:",
 		"Deep Link:",
 		"[r] rebuild native + reinstall",
-		"[q]/Ctrl+C quit",
+		"[q] quit",
 		"Context: default",
 		"Run revyl dev again; Revyl will pick a safe context name.",
 		"In a new terminal:",
@@ -780,8 +653,8 @@ func TestPrintRebuildLoopControls_WithKeybinds(t *testing.T) {
 	if !strings.Contains(output, "[r] rebuild + reinstall") {
 		t.Fatalf("output missing keybinding rebuild hint:\n%s", output)
 	}
-	if !strings.Contains(output, "[q]/Ctrl+C quit") {
-		t.Fatalf("output missing quit/Ctrl+C hint:\n%s", output)
+	if !strings.Contains(output, "[q] quit") {
+		t.Fatalf("output missing quit hint:\n%s", output)
 	}
 	if strings.Contains(output, "revyl dev rebuild") {
 		t.Fatalf("output unexpectedly contains non-TTY rebuild hint:\n%s", output)

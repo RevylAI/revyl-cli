@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -862,16 +861,38 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 	var interrupted int32
-	stopper := newDevLoopStopper(cwd, ctxName, cancel, &interrupted)
 
 	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
-	stopSignalHandler := startDevLoopSignalHandler(sigChan, stopper)
-	defer stopSignalHandler()
+	stopSignalHandler := make(chan struct{})
+	defer close(stopSignalHandler)
+
+	go func() {
+		interruptCount := 0
+		for {
+			select {
+			case <-stopSignalHandler:
+				return
+			case <-sigChan:
+				interruptCount++
+				if interruptCount == 1 {
+					atomic.StoreInt32(&interrupted, 1)
+					ui.Println()
+					ui.PrintInfo("Stopping dev session...")
+					cancel()
+					continue
+				}
+				ui.Println()
+				ui.PrintWarning("Force exiting — device session may not be released immediately")
+				forceCleanupDevContext(cwd, ctxName)
+				os.Exit(130)
+			}
+		}
+	}()
 
 	isUserCanceled := func(err error) bool {
-		return stopper.IsUserCanceled(err)
+		return atomic.LoadInt32(&interrupted) == 1 && isContextCanceledError(err)
 	}
 
 	if externalTunnel.tunnelURL == "" {
@@ -1166,8 +1187,8 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}()
 	hrRebuildCount := 0
 
-	// Event loop: session liveness + [r]/SIGUSR1 rebuild + [q]/Ctrl+C quit.
-	stdinKeys, restoreTerminal, keybindsEnabled := readStdinKeys(ctx, stopper.RequestStop)
+	// Event loop: session liveness + [r]/SIGUSR1 rebuild + [q] quit.
+	stdinKeys, restoreTerminal, keybindsEnabled := readStdinKeys(ctx)
 	defer restoreTerminal()
 	ticker := time.NewTicker(defaultDevSessionPollInterval)
 	defer ticker.Stop()
@@ -1202,7 +1223,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 				}
 				doRebuild = true
 			case 'q':
-				stopper.RequestStop()
+				ui.Println()
+				ui.PrintInfo("Stopping dev session...")
+				cancel()
 				return nil
 			}
 		}
@@ -1213,7 +1236,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 		if !lastRebuildStart.IsZero() && time.Since(lastRebuildStart) < rebuildCooldown {
 			if drainStdinKeys(stdinKeys) {
-				stopper.RequestStop()
+				ui.Println()
+				ui.PrintInfo("Stopping dev session...")
+				cancel()
 				return nil
 			}
 			continue
@@ -1225,10 +1250,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			bundleID, session, deviceMgr, client, hrTransport, hrCachedManifest, hrManifestPath, cwd, hrPackagerHost, hrPackagerScheme)
 
 		if drainStdinKeys(stdinKeys) {
-			stopper.RequestStop()
-			return nil
-		}
-		if isUserCanceled(result.buildErr) || isUserCanceled(result.pushErr) {
+			ui.Println()
+			ui.PrintInfo("Stopping dev session...")
+			cancel()
 			return nil
 		}
 
@@ -1248,14 +1272,14 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		if result.buildErr != nil {
 			ui.PrintWarning("Rebuild failed: %v", result.buildErr)
 			if keybindsEnabled {
-				ui.PrintDim("  [r] retry rebuild    [q]/Ctrl+C quit")
+				ui.PrintDim("  [r] retry rebuild    [q] quit")
 			}
 			continue
 		}
 		if result.pushErr != nil {
 			ui.PrintWarning("Push failed: %v", result.pushErr)
 			if keybindsEnabled {
-				ui.PrintDim("  [r] retry rebuild    [q]/Ctrl+C quit")
+				ui.PrintDim("  [r] retry rebuild    [q] quit")
 			}
 			continue
 		}
@@ -1263,7 +1287,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		if result.skipped {
 			ui.PrintInfo("No changes detected — skipping push")
 			if keybindsEnabled {
-				ui.PrintDim("  [r] rebuild    [q]/Ctrl+C quit")
+				ui.PrintDim("  [r] rebuild    [q] quit")
 			}
 			continue
 		}
@@ -1297,7 +1321,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 		ui.Println()
 		if keybindsEnabled {
-			ui.PrintDim("  [r] rebuild    [q]/Ctrl+C quit")
+			ui.PrintDim("  [r] rebuild    [q] quit")
 		}
 	}
 }
@@ -1341,9 +1365,9 @@ func printDevReadyFooter(viewerURL, deepLinkURL string, manualDeepLinkRequired, 
 	}
 	ui.Println()
 	if noBuild {
-		ui.PrintDim("  [q]/Ctrl+C quit")
+		ui.PrintDim("  [q] quit")
 	} else {
-		ui.PrintDim("  [r] rebuild native + reinstall    [q]/Ctrl+C quit")
+		ui.PrintDim("  [r] rebuild native + reinstall    [q] quit")
 	}
 	ui.Println()
 	ui.PrintInfo("Context: %s", ctxName)
@@ -1759,10 +1783,10 @@ func resolveRebuildLoopPlatform(
 func printRebuildLoopControls(keybindsEnabled bool, retry bool) {
 	if keybindsEnabled {
 		if retry {
-			ui.PrintDim("  [r] retry rebuild    [q]/Ctrl+C quit")
+			ui.PrintDim("  [r] retry rebuild    [q] quit")
 			return
 		}
-		ui.PrintDim("  [r] rebuild + reinstall    [q]/Ctrl+C quit")
+		ui.PrintDim("  [r] rebuild + reinstall    [q] quit")
 		return
 	}
 
@@ -1872,7 +1896,7 @@ func maskPresignedURL(rawURL string) string {
 // runDevRebuildOnly implements a rebuild-based dev loop for native projects
 // (Gradle, Xcode, Swift) that lack hot reload support. The loop provisions a
 // cloud device, builds and installs the app, then waits for the user to press
-// [r] to rebuild+reinstall or [q]/Ctrl+C to quit.
+// [r] to rebuild+reinstall or [q] to quit.
 func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath, cwd, apiKey, ctxName string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
@@ -2011,13 +2035,35 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 	var interrupted int32
-	stopper := newDevLoopStopper(cwd, ctxName, cancel, &interrupted)
 
 	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
-	stopSigHandler := startDevLoopSignalHandler(sigChan, stopper)
-	defer stopSigHandler()
+	stopSigHandler := make(chan struct{})
+	defer close(stopSigHandler)
+	go func() {
+		count := 0
+		for {
+			select {
+			case <-stopSigHandler:
+				return
+			case <-sigChan:
+				count++
+				if count == 1 {
+					atomic.StoreInt32(&interrupted, 1)
+					ui.Println()
+					ui.PrintInfo("Stopping dev session...")
+					cancel()
+				} else {
+					ui.Println()
+					ui.PrintWarning("Force exiting — device session may not be released immediately")
+					forceCleanupDevContext(cwd, ctxName)
+					os.Exit(130)
+				}
+			}
+		}
+	}()
+	_ = interrupted
 
 	deviceMgr, err := getDeviceSessionMgr(cmd)
 	if err != nil {
@@ -2053,9 +2099,6 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 			nil,
 		)
 		if err != nil {
-			if stopper.IsUserCanceled(err) {
-				return nil
-			}
 			return err
 		}
 	}
@@ -2092,9 +2135,6 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		var workerErr *mcppkg.WorkerHTTPError
 		isDeviceNotReady := errors.As(err, &workerErr) && workerErr.StatusCode == 503
 		if !isDeviceNotReady || attempt == maxInstallRetries {
-			if stopper.IsUserCanceled(err) {
-				return nil
-			}
 			return fmt.Errorf("install failed: %w\nhint: try re-running with --build to force a fresh build+upload", err)
 		}
 		backoff := time.Duration(1<<uint(attempt)) * time.Second // 1s, 2s, 4s
@@ -2102,9 +2142,6 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
-			if stopper.IsUserCanceled(ctx.Err()) {
-				return nil
-			}
 			return ctx.Err()
 		}
 	}
@@ -2210,8 +2247,8 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		}
 	}()
 
-	// Interactive event loop: poll session liveness + [r]/SIGUSR1 rebuild + [q]/Ctrl+C quit.
-	stdinKeys, restoreTerminal, keybindsEnabled := readStdinKeys(ctx, stopper.RequestStop)
+	// Interactive event loop: poll session liveness + [r]/SIGUSR1 rebuild + [q] quit.
+	stdinKeys, restoreTerminal, keybindsEnabled := readStdinKeys(ctx)
 	defer restoreTerminal()
 	ticker := time.NewTicker(defaultDevSessionPollInterval)
 	defer ticker.Stop()
@@ -2264,7 +2301,9 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 			case 'r':
 				doRebuild = true
 			case 'q':
-				stopper.RequestStop()
+				ui.Println()
+				ui.PrintInfo("Stopping dev session...")
+				cancel()
 				return nil
 			}
 		}
@@ -2275,7 +2314,9 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 
 		if !lastRebuildStart.IsZero() && time.Since(lastRebuildStart) < rebuildCooldown {
 			if drainStdinKeys(stdinKeys) {
-				stopper.RequestStop()
+				ui.Println()
+				ui.PrintInfo("Stopping dev session...")
+				cancel()
 				return nil
 			}
 			continue
@@ -2287,10 +2328,9 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 			bundleID, session, deviceMgr, client, transport, cachedManifest, manifestPath, cwd, "", "")
 
 		if drainStdinKeys(stdinKeys) {
-			stopper.RequestStop()
-			return nil
-		}
-		if stopper.IsUserCanceled(result.buildErr) || stopper.IsUserCanceled(result.pushErr) {
+			ui.Println()
+			ui.PrintInfo("Stopping dev session...")
+			cancel()
 			return nil
 		}
 
@@ -2349,16 +2389,12 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 // them to the returned channel. When stdin is a TTY, raw mode is enabled so
 // keypresses are received immediately without waiting for Enter. The caller
 // must defer the returned restore function to reset the terminal on exit.
-// Ctrl+C is delivered as byte 0x03 in raw mode, so it calls onInterrupt
-// directly instead of relying on SIGINT delivery.
 //
 // When stdin is not a TTY (piped, /dev/null, CI), the goroutine is never
 // started and keybinds are silently disabled.
 //
-// Non-interrupt keys stop when ctx is cancelled or stdin reaches EOF. Ctrl+C
-// remains handled directly so a second raw-mode Ctrl+C can force-exit even
-// while cleanup or a rebuild is still blocking.
-func readStdinKeys(ctx context.Context, onInterrupt func()) (keys <-chan byte, restore func(), enabled bool) {
+// Stops when ctx is cancelled or stdin reaches EOF.
+func readStdinKeys(ctx context.Context) (keys <-chan byte, restore func(), enabled bool) {
 	ch := make(chan byte, 1)
 	noop := func() {}
 
@@ -2379,15 +2415,14 @@ func readStdinKeys(ctx context.Context, onInterrupt func()) (keys <-chan byte, r
 	go func() {
 		buf := make([]byte, 1)
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			n, readErr := os.Stdin.Read(buf)
 			if readErr != nil || n == 0 {
 				return
-			}
-			if isDevLoopInterruptKey(buf[0]) {
-				if onInterrupt != nil {
-					onInterrupt()
-				}
-				continue
 			}
 			select {
 			case ch <- buf[0]:
@@ -2403,103 +2438,16 @@ func readStdinKeys(ctx context.Context, onInterrupt func()) (keys <-chan byte, r
 // to prevent accidental key-repeat from cascading into back-to-back rebuilds.
 const rebuildCooldown = 1 * time.Second
 
-const (
-	devLoopCtrlCKey      byte = 0x03
-	devLoopForceExitCode      = 130
-)
-
-type devLoopStopper struct {
-	cancel       context.CancelFunc
-	cwd          string
-	ctxName      string
-	interrupted  *int32
-	forceCleanup func(cwd, ctxName string)
-	exitFunc     func(code int)
-}
-
-func newDevLoopStopper(cwd, ctxName string, cancel context.CancelFunc, interrupted *int32) *devLoopStopper {
-	return &devLoopStopper{
-		cancel:       cancel,
-		cwd:          cwd,
-		ctxName:      ctxName,
-		interrupted:  interrupted,
-		forceCleanup: forceCleanupDevContext,
-		exitFunc:     os.Exit,
-	}
-}
-
-func (s *devLoopStopper) RequestStop() {
-	if s == nil {
-		return
-	}
-	count := int32(1)
-	if s.interrupted != nil {
-		count = atomic.AddInt32(s.interrupted, 1)
-	}
-	if count == 1 {
-		ui.Println()
-		ui.PrintInfo("Stopping dev session...")
-		if s.cancel != nil {
-			s.cancel()
-		}
-		return
-	}
-
-	ui.Println()
-	ui.PrintWarning("Force exiting — device session may not be released immediately")
-	if s.forceCleanup != nil {
-		s.forceCleanup(s.cwd, s.ctxName)
-	}
-	if s.exitFunc != nil {
-		s.exitFunc(devLoopForceExitCode)
-	}
-}
-
-func (s *devLoopStopper) IsUserCanceled(err error) bool {
-	if s == nil || s.interrupted == nil || atomic.LoadInt32(s.interrupted) == 0 {
-		return false
-	}
-	return isContextCanceledError(err)
-}
-
-func startDevLoopSignalHandler(sigChan <-chan os.Signal, stopper *devLoopStopper) func() {
-	stop := make(chan struct{})
-	var stopOnce sync.Once
-	go func() {
-		for {
-			select {
-			case <-stop:
-				return
-			case <-sigChan:
-				stopper.RequestStop()
-			}
-		}
-	}()
-	return func() {
-		stopOnce.Do(func() {
-			close(stop)
-		})
-	}
-}
-
-func isDevLoopInterruptKey(key byte) bool {
-	return key == devLoopCtrlCKey
-}
-
-func isDevLoopStopKey(key byte) bool {
-	return key == 'q' || isDevLoopInterruptKey(key)
-}
-
 // drainStdinKeys discards buffered keypresses from the channel so that
 // keys accumulated during a long-running rebuild don't trigger follow-up
-// rebuilds immediately. Returns true if a quit keypress was found among the
-// drained keys, so the caller can honour it.
+// rebuilds immediately. Returns true if a 'q' (quit) keypress was found
+// among the drained keys, so the caller can honour it.
 func drainStdinKeys(ch <-chan byte) bool {
 	sawQuit := false
 	for {
 		select {
 		case key := <-ch:
-			if isDevLoopStopKey(key) {
+			if key == 'q' {
 				sawQuit = true
 			}
 		default:

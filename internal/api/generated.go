@@ -33,12 +33,6 @@ const (
 	ActionBlockTypeValidation    ActionBlockType = "validation"
 )
 
-// Defines values for ActionBlockVariableScope.
-const (
-	Global ActionBlockVariableScope = "global"
-	Test   ActionBlockVariableScope = "test"
-)
-
 // Defines values for AppPlatform.
 const (
 	AppPlatformAndroid AppPlatform = "Android"
@@ -510,9 +504,6 @@ type ActionBlock struct {
 
 	// VariableName Name of the variable captured by extraction blocks
 	VariableName *string `json:"variable_name"`
-
-	// VariableScope Scope of the variable assigned by extraction or code-execution blocks. 'test' (or omitted) writes to the test-scoped variables table; 'global' writes to a pre-existing, non-secret org-level global variable.
-	VariableScope *ActionBlockVariableScope `json:"variable_scope"`
 }
 
 // ActionBlockStepType0 defines model for .
@@ -525,9 +516,6 @@ type ActionBlock_StepType struct {
 
 // ActionBlockType Must be one of: instructions, extraction, manual, validation, code_execution, module_import
 type ActionBlockType string
-
-// ActionBlockVariableScope Scope of the variable assigned by extraction or code-execution blocks. 'test' (or omitted) writes to the test-scoped variables table; 'global' writes to a pre-existing, non-secret org-level global variable.
-type ActionBlockVariableScope string
 
 // ActionRange A contiguous range of source action indices.
 type ActionRange struct {
@@ -3964,16 +3952,6 @@ type GlobalVariableUpdate struct {
 
 	// VariableValue New value
 	VariableValue *string `json:"variable_value"`
-}
-
-// GlobalVariableValueUpdate Request model for setting a global variable's value by name.
-//
-// Used by step-execution callers (extraction / code-execution blocks) that
-// write into pre-existing, non-secret global variables. Secrets and
-// metadata changes go through the full GlobalVariableUpdate path.
-type GlobalVariableValueUpdate struct {
-	// VariableValue New variable value
-	VariableValue string `json:"variable_value"`
 }
 
 // GlobalVariablesResponse Response model for global variable list operations.
@@ -10935,9 +10913,6 @@ type UpdateVariableValueEndpointApiV1VariablesCustomUpdateValuePutJSONRequestBod
 
 // AddGlobalVariableApiV1VariablesGlobalPostJSONRequestBody defines body for AddGlobalVariableApiV1VariablesGlobalPost for application/json ContentType.
 type AddGlobalVariableApiV1VariablesGlobalPostJSONRequestBody = GlobalVariableCreate
-
-// UpdateGlobalVariableValueByNameApiV1VariablesGlobalByNameVariableNamePutJSONRequestBody defines body for UpdateGlobalVariableValueByNameApiV1VariablesGlobalByNameVariableNamePut for application/json ContentType.
-type UpdateGlobalVariableValueByNameApiV1VariablesGlobalByNameVariableNamePutJSONRequestBody = GlobalVariableValueUpdate
 
 // UpdateGlobalVariableApiV1VariablesGlobalVariableIdPutJSONRequestBody defines body for UpdateGlobalVariableApiV1VariablesGlobalVariableIdPut for application/json ContentType.
 type UpdateGlobalVariableApiV1VariablesGlobalVariableIdPutJSONRequestBody = GlobalVariableUpdate
