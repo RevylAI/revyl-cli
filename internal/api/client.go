@@ -462,6 +462,7 @@ func (c *Client) doRequestOnce(ctx context.Context, method, path string, body in
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("X-Revyl-Client", "cli")
+	setCIHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -574,6 +575,7 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, bo
 		// Set source tracking header
 		// X-Revyl-Client identifies the client type for backend source classification.
 		req.Header.Set("X-Revyl-Client", "cli")
+		setCIHeaders(req)
 		for key, value := range headers {
 			if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
 				req.Header.Set(key, value)
