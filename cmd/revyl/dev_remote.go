@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -130,47 +129,31 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
+	var interrupted int32
+	stopper := newDevLoopStopper(cwd, ctxName, cancel, &interrupted)
+
+	sigChan := make(chan os.Signal, 2)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+	stopSigHandler := startDevLoopSignalHandler(sigChan, stopper)
+	defer stopSigHandler()
 
 	remoteBuild, err := runRemoteDevBuild(ctx, client, platCfg, platformKey, appID, cwd)
 	if err != nil {
+		if stopper.IsUserCanceled(err) {
+			return nil
+		}
 		return err
 	}
 
 	buildDetail, err := client.GetBuildVersionDownloadURL(ctx, remoteBuild.versionID)
 	if err != nil {
+		if stopper.IsUserCanceled(err) {
+			return nil
+		}
 		return fmt.Errorf("could not resolve remote build download URL: %w", err)
 	}
 	bundleID := strings.TrimSpace(buildDetail.PackageName)
-
-	var interrupted int32
-	sigChan := make(chan os.Signal, 2)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
-	stopSigHandler := make(chan struct{})
-	defer close(stopSigHandler)
-	go func() {
-		count := 0
-		for {
-			select {
-			case <-stopSigHandler:
-				return
-			case <-sigChan:
-				count++
-				if count == 1 {
-					atomic.StoreInt32(&interrupted, 1)
-					ui.Println()
-					ui.PrintInfo("Stopping dev session...")
-					cancel()
-				} else {
-					ui.Println()
-					ui.PrintWarning("Force exiting — device session may not be released immediately")
-					forceCleanupDevContext(cwd, ctxName)
-					os.Exit(130)
-				}
-			}
-		}
-	}()
-	_ = interrupted
 
 	deviceMgr, err := getDeviceSessionMgr(cmd)
 	if err != nil {
@@ -205,6 +188,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 			nil,
 		)
 		if err != nil {
+			if stopper.IsUserCanceled(err) {
+				return nil
+			}
 			return err
 		}
 	}
@@ -221,6 +207,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 
 	installedBundleID, installDuration, err := installRemoteDevBuild(ctx, deviceMgr, session, buildDetail, bundleID)
 	if err != nil {
+		if stopper.IsUserCanceled(err) {
+			return nil
+		}
 		return err
 	}
 	if installedBundleID != "" {
@@ -301,7 +290,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		_ = ui.OpenBrowser(viewerURL)
 	}
 
-	stdinKeys, restoreTerminal, keybindsEnabled := readStdinKeys(ctx)
+	stdinKeys, restoreTerminal, keybindsEnabled := readStdinKeys(ctx, stopper.RequestStop)
 	defer restoreTerminal()
 	ticker := time.NewTicker(defaultDevSessionPollInterval)
 	defer ticker.Stop()
@@ -332,9 +321,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 			case 'r':
 				doRebuild = true
 			case 'q':
-				ui.Println()
-				ui.PrintInfo("Stopping dev session...")
-				cancel()
+				stopper.RequestStop()
 				return nil
 			}
 		}
@@ -344,9 +331,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		}
 		if !lastRebuildStart.IsZero() && time.Since(lastRebuildStart) < rebuildCooldown {
 			if drainStdinKeys(stdinKeys) {
-				ui.Println()
-				ui.PrintInfo("Stopping dev session...")
-				cancel()
+				stopper.RequestStop()
 				return nil
 			}
 			continue
@@ -358,6 +343,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		result := devRebuildResult{buildMode: "remote"}
 		remoteBuild, buildErr := runRemoteDevBuild(ctx, client, platCfg, platformKey, appID, cwd)
 		if buildErr != nil {
+			if stopper.IsUserCanceled(buildErr) {
+				return nil
+			}
 			result.buildErr = buildErr
 			result.elapsed = time.Since(rebuildStart)
 			writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, result)
@@ -372,6 +360,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 
 		buildDetail, detailErr := client.GetBuildVersionDownloadURL(ctx, remoteBuild.versionID)
 		if detailErr != nil {
+			if stopper.IsUserCanceled(detailErr) {
+				return nil
+			}
 			result.pushErr = fmt.Errorf("could not resolve remote build download URL: %w", detailErr)
 			result.elapsed = time.Since(rebuildStart)
 			writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, result)
@@ -383,6 +374,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		installedBundleID, installDuration, installErr := installRemoteDevBuild(ctx, deviceMgr, session, buildDetail, bundleID)
 		result.pushDuration = installDuration
 		if installErr != nil {
+			if stopper.IsUserCanceled(installErr) {
+				return nil
+			}
 			result.pushErr = installErr
 			result.elapsed = time.Since(rebuildStart)
 			writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, result)
@@ -400,9 +394,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, result)
 
 		if drainStdinKeys(stdinKeys) {
-			ui.Println()
-			ui.PrintInfo("Stopping dev session...")
-			cancel()
+			stopper.RequestStop()
 			return nil
 		}
 

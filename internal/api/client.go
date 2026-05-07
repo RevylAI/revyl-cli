@@ -462,6 +462,7 @@ func (c *Client) doRequestOnce(ctx context.Context, method, path string, body in
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("X-Revyl-Client", "cli")
+	setCIHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -574,6 +575,7 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, bo
 		// Set source tracking header
 		// X-Revyl-Client identifies the client type for backend source classification.
 		req.Header.Set("X-Revyl-Client", "cli")
+		setCIHeaders(req)
 		for key, value := range headers {
 			if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
 				req.Header.Set(key, value)
@@ -1348,16 +1350,16 @@ func (c *Client) ListBuildVersionsPage(ctx context.Context, appID string, page i
 //   - testID: The test ID
 //
 // Returns:
-//   - *Test: The test data
+//   - *TestSummary: The test data
 //   - error: Any error that occurred
-func (c *Client) GetTest(ctx context.Context, testID string) (*Test, error) {
+func (c *Client) GetTest(ctx context.Context, testID string) (*TestSummary, error) {
 	resp, err := c.doRequest(ctx, "GET",
 		fmt.Sprintf("/api/v1/tests/get_test_by_id/%s", testID), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var result Test
+	var result TestSummary
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
@@ -1365,14 +1367,16 @@ func (c *Client) GetTest(ctx context.Context, testID string) (*Test, error) {
 	return &result, nil
 }
 
-// Test represents a test definition.
 // MobileTargetEntry represents a saved device target from test_mobile_targets.
 type MobileTargetEntry struct {
 	DeviceModel string `json:"device_model"`
 	OSVersion   string `json:"os_version"`
 }
 
-type Test struct {
+// TestSummary represents the high-level shape returned by GetTest.
+// Renamed from `Test` to avoid colliding with the generated
+// ActionBlockVariableScope enum constant `Test`.
+type TestSummary struct {
 	ID             string                 `json:"id"`
 	Name           string                 `json:"name"`
 	Platform       string                 `json:"platform"`
