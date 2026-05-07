@@ -47,6 +47,12 @@ var expoManifestHTTPTimeout = 30 * time.Second
 // manifest without weakening fast transport readiness checks.
 var expoManifestReadyTimeout = 90 * time.Second
 
+// expoManifestDeviceHeadTimeout is a short per-attempt cap for the final
+// device-facing manifest HEAD proof. It stays below the observed public
+// device/caller patience so Revyl waits in the CLI instead of launching into a
+// dev-client project-load error.
+var expoManifestDeviceHeadTimeout = 8 * time.Second
+
 // expoBundlePrewarmHTTPTimeout gives large Expo apps enough room to compile the
 // first JS bundle before the device asks for it through the relay.
 var expoBundlePrewarmHTTPTimeout = 180 * time.Second
@@ -57,6 +63,68 @@ const metroTunnelReadyTimeout = 20 * time.Second
 
 // metroTunnelReadyPollInterval controls how frequently tunnel readiness is re-checked.
 const metroTunnelReadyPollInterval = 1500 * time.Millisecond
+
+const (
+	expoLaunchStageTransport          = "relay transport"
+	expoLaunchStageManifestGET        = "manifest GET"
+	expoLaunchStageBundlePrewarm      = "bundle prewarm"
+	expoLaunchStageDeviceManifestHead = "device manifest path"
+)
+
+type expoDeviceLaunchContractEntry struct {
+	Stage               string
+	Method              string
+	Path                string
+	Query               map[string]string
+	Headers             map[string]string
+	ExpectedStatus      string
+	ResponseStartBudget time.Duration
+	BlocksLaunch        bool
+	NotGatedReason      string
+}
+
+func expoDeviceLaunchContract(targetPlatform string) []expoDeviceLaunchContractEntry {
+	platform := normalizeExpoPlatform(targetPlatform)
+	return []expoDeviceLaunchContractEntry{
+		{
+			Stage:               expoLaunchStageTransport,
+			Method:              http.MethodGet,
+			Path:                "/status",
+			ExpectedStatus:      "200",
+			ResponseStartBudget: diagnosticHTTPTimeout,
+			BlocksLaunch:        true,
+		},
+		{
+			Stage:               expoLaunchStageManifestGET,
+			Method:              http.MethodGet,
+			Path:                "/",
+			Query:               map[string]string{"platform": platform},
+			Headers:             map[string]string{"expo-platform": platform, "Accept": "application/json"},
+			ExpectedStatus:      "200",
+			ResponseStartBudget: expoManifestHTTPTimeout,
+			BlocksLaunch:        true,
+		},
+		{
+			Stage:               expoLaunchStageBundlePrewarm,
+			Method:              http.MethodGet,
+			Path:                "{manifest.launchAsset.url}",
+			Headers:             map[string]string{"expo-platform": platform, "Accept": "application/javascript, */*"},
+			ExpectedStatus:      "2xx plus first non-empty body byte",
+			ResponseStartBudget: expoBundlePrewarmHTTPTimeout,
+			BlocksLaunch:        true,
+		},
+		{
+			Stage:               expoLaunchStageDeviceManifestHead,
+			Method:              http.MethodHead,
+			Path:                "/",
+			Query:               map[string]string{"platform": platform},
+			Headers:             map[string]string{"expo-platform": platform, "Accept": "application/json"},
+			ExpectedStatus:      "200",
+			ResponseStartBudget: expoManifestDeviceHeadTimeout,
+			BlocksLaunch:        true,
+		},
+	}
+}
 
 // diagnosticCheckFunc probes a single post-startup hot reload invariant.
 type diagnosticCheckFunc func(localPort int, tunnelURL string) DiagnosticCheck
@@ -194,6 +262,62 @@ func WaitForExpoBundlePrewarmFromManifest(
 ) (*DiagnosticResult, error) {
 	check := checkExpoBundlePrewarmFromManifestWithTimeout(ctx, localPort, tunnelURL, fetched, timeout)
 	return diagnosticResultForSingleCheck("Expo bundle prewarm failed", check)
+}
+
+// WaitForExpoManifestHeadReady proves the exact Expo manifest path the device
+// uses can return response headers within the short device-safe cap. It retries
+// slow attempts inside the supplied overall readiness window.
+func WaitForExpoManifestHeadReady(
+	ctx context.Context,
+	tunnelURL string,
+	timeout time.Duration,
+	interval time.Duration,
+	targetPlatform string,
+	onSlowAttempt func(DiagnosticCheck),
+) (*DiagnosticResult, error) {
+	deadline := time.Now().Add(timeout)
+	var lastResult *DiagnosticResult
+	slowAttemptReported := false
+
+	for {
+		check := checkExpoManifestHeadForPlatformWithTimeout(ctx, tunnelURL, targetPlatform, expoManifestDeviceHeadTimeout)
+		lastResult = &DiagnosticResult{
+			Checks:    []DiagnosticCheck{check},
+			AllPassed: check.Passed,
+		}
+		if check.Passed {
+			return lastResult, nil
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return lastResult, ctxErr
+		}
+		if !slowAttemptReported && isExpoManifestHeadSlowCheck(check) && onSlowAttempt != nil {
+			slowAttemptReported = true
+			onSlowAttempt(check)
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return lastResult, fmt.Errorf(
+				"timed out after %s waiting for Expo device manifest readiness: %s",
+				timeout,
+				formatFailedChecks(lastResult.Checks),
+			)
+		}
+
+		sleepFor := interval
+		if sleepFor > remaining {
+			sleepFor = remaining
+		}
+
+		timer := time.NewTimer(sleepFor)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return lastResult, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func diagnosticResultForSingleCheck(errorPrefix string, check DiagnosticCheck) (*DiagnosticResult, error) {
@@ -567,6 +691,63 @@ func formatManifestRequestError(stage string, timeout time.Duration, platform st
 		}
 	}
 	return fmt.Sprintf("expo_manifest_%s platform=%s duration=%s error=%s", stage, platform, duration, err)
+}
+
+func checkExpoManifestHeadForPlatformWithTimeout(
+	ctx context.Context,
+	tunnelURL string,
+	targetPlatform string,
+	timeout time.Duration,
+) DiagnosticCheck {
+	if timeout <= 0 {
+		timeout = expoManifestDeviceHeadTimeout
+	}
+	client := &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	platform := normalizeExpoPlatform(targetPlatform)
+	manifestURL, err := expoManifestURL(tunnelURL, platform)
+	if err != nil {
+		return DiagnosticCheck{Name: "Manifest HEAD readiness", Passed: false, Detail: fmt.Sprintf("build request failed: %s", err)}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, manifestURL, nil)
+	if err != nil {
+		return DiagnosticCheck{Name: "Manifest HEAD readiness", Passed: false, Detail: fmt.Sprintf("build request failed: %s", err)}
+	}
+	req.Header.Set("expo-platform", platform)
+	req.Header.Set("Accept", "application/json")
+
+	start := time.Now()
+	resp, err := client.Do(req)
+	duration := time.Since(start).Round(time.Millisecond)
+	if err != nil {
+		return DiagnosticCheck{Name: "Manifest HEAD readiness", Passed: false, Detail: formatManifestHeadRequestError(timeout, platform, duration, err)}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return DiagnosticCheck{
+			Name:   "Manifest HEAD readiness",
+			Passed: false,
+			Detail: fmt.Sprintf("expo_manifest_head_http_status platform=%s status=%d duration=%s", platform, resp.StatusCode, duration),
+		}
+	}
+
+	return DiagnosticCheck{Name: "Manifest HEAD readiness", Passed: true, Detail: fmt.Sprintf("OK platform=%s status=%d duration=%s", platform, resp.StatusCode, duration)}
+}
+
+func formatManifestHeadRequestError(timeout time.Duration, platform string, duration time.Duration, err error) string {
+	if isTimeoutError(err) {
+		return fmt.Sprintf("expo_manifest_head_headers platform=%s timeout=%s duration=%s error=%s", platform, timeout, duration, err)
+	}
+	return fmt.Sprintf("expo_manifest_head_fetch platform=%s duration=%s error=%s", platform, duration, err)
+}
+
+func isExpoManifestHeadSlowCheck(check DiagnosticCheck) bool {
+	return !check.Passed && strings.Contains(check.Detail, "expo_manifest_head_headers")
 }
 
 func checkExpoBundlePrewarmForPlatformWithTimeout(

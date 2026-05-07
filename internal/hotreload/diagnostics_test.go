@@ -30,6 +30,17 @@ func withDiagnosticProbeTimeouts(t *testing.T, fastTimeout, manifestTimeout time
 	})
 }
 
+func withExpoManifestDeviceHeadTimeout(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	// This package-level timeout override is intentionally process-global.
+	// Tests using this helper must not call t.Parallel().
+	previousHeadTimeout := expoManifestDeviceHeadTimeout
+	expoManifestDeviceHeadTimeout = timeout
+	t.Cleanup(func() {
+		expoManifestDeviceHeadTimeout = previousHeadTimeout
+	})
+}
+
 func testExpoManifestForTunnel(tunnelURL string) map[string]interface{} {
 	trimmed := strings.TrimRight(tunnelURL, "/")
 	host := expectedRelayHost(trimmed)
@@ -815,6 +826,355 @@ func TestWaitForExpoMetroRelay_ManifestHeaderTimeoutDetail(t *testing.T) {
 	}
 	if strings.Contains(errText, "Tunnel HTTP") {
 		t.Fatalf("expected only manifest readiness to fail, got %q", errText)
+	}
+}
+
+func TestExpoDeviceLaunchContractCoversBlockingRequestShapes(t *testing.T) {
+	withDiagnosticProbeTimeouts(t, 25*time.Millisecond, 75*time.Millisecond)
+	withExpoManifestDeviceHeadTimeout(t, 40*time.Millisecond)
+	previousBundleTimeout := expoBundlePrewarmHTTPTimeout
+	expoBundlePrewarmHTTPTimeout = 250 * time.Millisecond
+	t.Cleanup(func() {
+		expoBundlePrewarmHTTPTimeout = previousBundleTimeout
+	})
+
+	entries := expoDeviceLaunchContract("android")
+	if len(entries) != 4 {
+		t.Fatalf("contract entries = %d, want 4", len(entries))
+	}
+
+	transport := findExpoDeviceLaunchContractEntry(t, entries, expoLaunchStageTransport)
+	if transport.Method != http.MethodGet || transport.Path != "/status" || transport.ExpectedStatus != "200" {
+		t.Fatalf("transport contract = %+v", transport)
+	}
+	if transport.ResponseStartBudget != diagnosticHTTPTimeout || !transport.BlocksLaunch {
+		t.Fatalf("transport budget/blocking = %s/%v, want %s/true", transport.ResponseStartBudget, transport.BlocksLaunch, diagnosticHTTPTimeout)
+	}
+
+	manifest := findExpoDeviceLaunchContractEntry(t, entries, expoLaunchStageManifestGET)
+	assertExpoContractPlatformRequest(t, manifest, http.MethodGet, "/", "android", "200", expoManifestHTTPTimeout)
+
+	bundle := findExpoDeviceLaunchContractEntry(t, entries, expoLaunchStageBundlePrewarm)
+	if bundle.Method != http.MethodGet || bundle.Path != "{manifest.launchAsset.url}" || bundle.Headers["expo-platform"] != "android" {
+		t.Fatalf("bundle contract = %+v", bundle)
+	}
+	if bundle.ExpectedStatus != "2xx plus first non-empty body byte" || bundle.ResponseStartBudget != expoBundlePrewarmHTTPTimeout || !bundle.BlocksLaunch {
+		t.Fatalf("bundle expected/budget/blocking = %+v", bundle)
+	}
+
+	head := findExpoDeviceLaunchContractEntry(t, entries, expoLaunchStageDeviceManifestHead)
+	assertExpoContractPlatformRequest(t, head, http.MethodHead, "/", "android", "200", expoManifestDeviceHeadTimeout)
+	for _, entry := range entries {
+		if entry.NotGatedReason != "" {
+			t.Fatalf("%s has unexpected not-gated reason %q", entry.Stage, entry.NotGatedReason)
+		}
+	}
+}
+
+func findExpoDeviceLaunchContractEntry(t *testing.T, entries []expoDeviceLaunchContractEntry, stage string) expoDeviceLaunchContractEntry {
+	t.Helper()
+	for _, entry := range entries {
+		if entry.Stage == stage {
+			return entry
+		}
+	}
+	t.Fatalf("missing contract stage %q in %+v", stage, entries)
+	return expoDeviceLaunchContractEntry{}
+}
+
+func assertExpoContractPlatformRequest(
+	t *testing.T,
+	entry expoDeviceLaunchContractEntry,
+	method string,
+	path string,
+	platform string,
+	expectedStatus string,
+	budget time.Duration,
+) {
+	t.Helper()
+	if entry.Method != method || entry.Path != path {
+		t.Fatalf("%s method/path = %s %s, want %s %s", entry.Stage, entry.Method, entry.Path, method, path)
+	}
+	if entry.Query["platform"] != platform {
+		t.Fatalf("%s platform query = %q, want %q", entry.Stage, entry.Query["platform"], platform)
+	}
+	if entry.Headers["expo-platform"] != platform {
+		t.Fatalf("%s expo-platform header = %q, want %q", entry.Stage, entry.Headers["expo-platform"], platform)
+	}
+	if entry.Headers["Accept"] != "application/json" {
+		t.Fatalf("%s Accept header = %q, want application/json", entry.Stage, entry.Headers["Accept"])
+	}
+	if entry.ExpectedStatus != expectedStatus || entry.ResponseStartBudget != budget || !entry.BlocksLaunch {
+		t.Fatalf("%s expected/budget/blocking = %s/%s/%v, want %s/%s/true", entry.Stage, entry.ExpectedStatus, entry.ResponseStartBudget, entry.BlocksLaunch, expectedStatus, budget)
+	}
+}
+
+func TestWaitForExpoManifestHeadReadyPassesWhenHeadFast(t *testing.T) {
+	var method string
+	var headerPlatform string
+	var queryPlatform string
+	var acceptHeader string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method = r.Method
+		headerPlatform = r.Header.Get("expo-platform")
+		queryPlatform = r.URL.Query().Get("platform")
+		acceptHeader = r.Header.Get("Accept")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	result, err := WaitForExpoManifestHeadReady(
+		context.Background(),
+		srv.URL,
+		time.Second,
+		25*time.Millisecond,
+		"android",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("expected manifest HEAD readiness, got error: %v", err)
+	}
+	if result == nil || !result.AllPassed {
+		t.Fatalf("expected passing result, got %+v", result)
+	}
+	if method != http.MethodHead {
+		t.Fatalf("method = %q, want HEAD", method)
+	}
+	if headerPlatform != "android" {
+		t.Fatalf("expo-platform = %q, want android", headerPlatform)
+	}
+	if queryPlatform != "android" {
+		t.Fatalf("platform query = %q, want android", queryPlatform)
+	}
+	if acceptHeader != "application/json" {
+		t.Fatalf("Accept = %q, want application/json", acceptHeader)
+	}
+}
+
+func TestWaitForExpoManifestHeadReadyRetriesUntilHeadFast(t *testing.T) {
+	withExpoManifestDeviceHeadTimeout(t, 25*time.Millisecond)
+
+	var attempts atomic.Int32
+	var slowReports atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) == 1 {
+			time.Sleep(75 * time.Millisecond)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	result, err := WaitForExpoManifestHeadReady(
+		context.Background(),
+		srv.URL,
+		500*time.Millisecond,
+		10*time.Millisecond,
+		"ios",
+		func(check DiagnosticCheck) {
+			slowReports.Add(1)
+			if !strings.Contains(check.Detail, "expo_manifest_head_headers") {
+				t.Fatalf("slow detail = %q, want header timeout detail", check.Detail)
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("expected manifest HEAD retry to pass, got error: %v", err)
+	}
+	if result == nil || !result.AllPassed {
+		t.Fatalf("expected passing result, got %+v", result)
+	}
+	if attempts.Load() < 2 {
+		t.Fatalf("attempts = %d, want retry", attempts.Load())
+	}
+	if slowReports.Load() != 1 {
+		t.Fatalf("slow reports = %d, want 1", slowReports.Load())
+	}
+}
+
+func TestWaitForExpoManifestHeadReadyFailsWhenHeadNeverDeviceSafe(t *testing.T) {
+	withExpoManifestDeviceHeadTimeout(t, 25*time.Millisecond)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(75 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	result, err := WaitForExpoManifestHeadReady(
+		context.Background(),
+		srv.URL,
+		90*time.Millisecond,
+		10*time.Millisecond,
+		"ios",
+		nil,
+	)
+	if err == nil {
+		t.Fatal("expected manifest HEAD readiness timeout")
+	}
+	if result == nil {
+		t.Fatal("expected final diagnostic result on failure")
+	}
+	errText := err.Error()
+	if !strings.Contains(errText, "Manifest HEAD readiness") {
+		t.Fatalf("expected HEAD readiness failure, got %q", errText)
+	}
+	if !strings.Contains(errText, "expo_manifest_head_headers") {
+		t.Fatalf("expected response-header timeout detail, got %q", errText)
+	}
+	if !strings.Contains(errText, "25ms") {
+		t.Fatalf("expected per-attempt timeout duration in detail, got %q", errText)
+	}
+}
+
+func TestExpoDeviceLaunchContractTraceRegressionCatchesColdManifestHead(t *testing.T) {
+	withDiagnosticProbeTimeouts(t, 25*time.Millisecond, 120*time.Millisecond)
+	withExpoManifestDeviceHeadTimeout(t, 25*time.Millisecond)
+
+	var manifestGets atomic.Int32
+	var bundleGets atomic.Int32
+	var headAttempts atomic.Int32
+	var slowReports atomic.Int32
+
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	localMetro := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/status" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer localMetro.Close()
+
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("expo-platform") != "ios" || r.URL.Query().Get("platform") != "ios" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			manifestGets.Add(1)
+			json.NewEncoder(w).Encode(map[string]any{
+				"launchAsset": map[string]string{"url": srv.URL + "/apps/o3/index.ts.bundle?platform=ios"},
+			})
+		case http.MethodHead:
+			if headAttempts.Add(1) == 1 {
+				time.Sleep(75 * time.Millisecond)
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/apps/o3/index.ts.bundle", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("expo-platform") != "ios" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		bundleGets.Add(1)
+		w.Header().Set("Content-Type", "application/javascript")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("console.log('warm');"))
+	})
+
+	localPort := serverPort(t, localMetro)
+	if result, err := WaitForExpoMetroTransport(context.Background(), localPort, srv.URL, 300*time.Millisecond, 10*time.Millisecond); err != nil || result == nil || !result.AllPassed {
+		t.Fatalf("transport result = %+v error = %v", result, err)
+	}
+	manifest, result, err := waitForExpoManifestFetch(context.Background(), localPort, srv.URL, 300*time.Millisecond, 10*time.Millisecond, "ios")
+	if err != nil || result == nil || !result.AllPassed {
+		t.Fatalf("manifest result = %+v error = %v", result, err)
+	}
+	result, err = WaitForExpoBundlePrewarmFromManifest(context.Background(), localPort, srv.URL, 300*time.Millisecond, manifest)
+	if err != nil || result == nil || !result.AllPassed {
+		t.Fatalf("bundle result = %+v error = %v", result, err)
+	}
+	result, err = WaitForExpoManifestHeadReady(
+		context.Background(),
+		srv.URL,
+		300*time.Millisecond,
+		10*time.Millisecond,
+		"ios",
+		func(check DiagnosticCheck) {
+			slowReports.Add(1)
+			if !strings.Contains(check.Detail, "expo_manifest_head_headers") {
+				t.Fatalf("slow detail = %q, want HEAD header timeout", check.Detail)
+			}
+		},
+	)
+	if err != nil || result == nil || !result.AllPassed {
+		t.Fatalf("device HEAD result = %+v error = %v", result, err)
+	}
+	if manifestGets.Load() == 0 {
+		t.Fatal("expected manifest GET proof to run")
+	}
+	if bundleGets.Load() != 1 {
+		t.Fatalf("bundle GETs = %d, want 1", bundleGets.Load())
+	}
+	if headAttempts.Load() < 2 {
+		t.Fatalf("HEAD attempts = %d, want retry after cold attempt", headAttempts.Load())
+	}
+	if slowReports.Load() != 1 {
+		t.Fatalf("slow reports = %d, want 1", slowReports.Load())
+	}
+}
+
+func TestExpoDeviceLaunchContractBlocksWhenDeviceHeadShapeDrifts(t *testing.T) {
+	withDiagnosticProbeTimeouts(t, 25*time.Millisecond, 120*time.Millisecond)
+	withExpoManifestDeviceHeadTimeout(t, 25*time.Millisecond)
+
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	localMetro := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/status" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer localMetro.Close()
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			json.NewEncoder(w).Encode(map[string]any{
+				"launchAsset": map[string]string{"url": srv.URL + "/apps/o3/index.ts.bundle?platform=ios"},
+			})
+		case http.MethodHead:
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/apps/o3/index.ts.bundle", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("console.log('warm');"))
+	})
+
+	localPort := serverPort(t, localMetro)
+	manifest, result, err := waitForExpoManifestFetch(context.Background(), localPort, srv.URL, 300*time.Millisecond, 10*time.Millisecond, "ios")
+	if err != nil || result == nil || !result.AllPassed {
+		t.Fatalf("manifest result = %+v error = %v", result, err)
+	}
+	result, err = WaitForExpoBundlePrewarmFromManifest(context.Background(), localPort, srv.URL, 300*time.Millisecond, manifest)
+	if err != nil || result == nil || !result.AllPassed {
+		t.Fatalf("bundle result = %+v error = %v", result, err)
+	}
+	result, err = WaitForExpoManifestHeadReady(context.Background(), srv.URL, 80*time.Millisecond, 10*time.Millisecond, "ios", nil)
+	if err == nil {
+		t.Fatal("expected device HEAD readiness to block launch")
+	}
+	if result == nil {
+		t.Fatal("expected final diagnostic result")
+	}
+	if !strings.Contains(err.Error(), "expo_manifest_head_http_status") {
+		t.Fatalf("error = %q, want HEAD status drift detail", err.Error())
 	}
 }
 

@@ -9902,6 +9902,9 @@ type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostParams struct {
 	XCIRunURL     *string `json:"X-CI-Run-URL,omitempty"`
 	XCIRunID      *string `json:"X-CI-Run-ID,omitempty"`
 	XCIRepository *string `json:"X-CI-Repository,omitempty"`
+	XCIActor      *string `json:"X-CI-Actor,omitempty"`
+	XCIActorURL   *string `json:"X-CI-Actor-URL,omitempty"`
+	XCIPRURL      *string `json:"X-CI-PR-URL,omitempty"`
 }
 
 // ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostParams defines parameters for ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPost.
@@ -9914,6 +9917,9 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostParams str
 	XCIRunURL     *string `json:"X-CI-Run-URL,omitempty"`
 	XCIRunID      *string `json:"X-CI-Run-ID,omitempty"`
 	XCIRepository *string `json:"X-CI-Repository,omitempty"`
+	XCIActor      *string `json:"X-CI-Actor,omitempty"`
+	XCIActorURL   *string `json:"X-CI-Actor-URL,omitempty"`
+	XCIPRURL      *string `json:"X-CI-PR-URL,omitempty"`
 }
 
 // BillingBreakdownApiV1ExecutionBillingBreakdownGetParams defines parameters for BillingBreakdownApiV1ExecutionBillingBreakdownGet.
@@ -9981,6 +9987,9 @@ type BulkExecuteTestsApiV1ExecutionTestsBulkExecutePostParams struct {
 	XCIRunURL     *string `json:"X-CI-Run-URL,omitempty"`
 	XCIRunID      *string `json:"X-CI-Run-ID,omitempty"`
 	XCIRepository *string `json:"X-CI-Repository,omitempty"`
+	XCIActor      *string `json:"X-CI-Actor,omitempty"`
+	XCIActorURL   *string `json:"X-CI-Actor-URL,omitempty"`
+	XCIPRURL      *string `json:"X-CI-PR-URL,omitempty"`
 }
 
 // ListOrgFilesApiV1FilesGetParams defines parameters for ListOrgFilesApiV1FilesGet.

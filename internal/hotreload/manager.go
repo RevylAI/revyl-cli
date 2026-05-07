@@ -47,6 +47,7 @@ var postStartupDiagnostics = RunPostStartupDiagnosticsForPlatform
 var waitForExpoMetroTransport = WaitForExpoMetroTransport
 var waitForExpoManifestFetchResult = waitForExpoManifestFetch
 var waitForExpoBundlePrewarmFromManifest = WaitForExpoBundlePrewarmFromManifest
+var waitForExpoManifestHeadReady = WaitForExpoManifestHeadReady
 
 // RegisterExpoDevServerFactory registers the Expo dev server factory.
 // Called by the providers package during init.
@@ -325,11 +326,13 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 			)
 		}
 		m.debugLog("Expo relay transport is ready")
+		m.log("Expo relay transport verified")
 
 		if m.forceHotReload {
-			m.log("Expo relay transport verified; skipped manifest and bundle proof because --force-hot-reload is set.")
+			m.log("Skipped manifest and bundle proof because --force-hot-reload is set.")
 			m.debugLog("Launching anyway; the dev client may show a project load error if the first manifest or bundle is still generating.")
 		} else {
+			m.log("Warming Expo manifest through relay...")
 			m.debugLog("Waiting for Expo manifest to be served through the relay...")
 			manifest, _, err := waitForExpoManifestFetchResult(
 				m.ctx,
@@ -344,6 +347,7 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 			}
 			m.debugLog("Expo manifest is being served through the relay")
 
+			m.log("Warming Expo bundle through relay...")
 			m.debugLog("Prewarming Expo bundle through the relay...")
 			prewarmResult, err := waitForExpoBundlePrewarmFromManifest(
 				m.ctx,
@@ -362,6 +366,28 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 				m.debugLog("Expo bundle prewarm complete: %s", prewarmResult.Checks[0].Detail)
 			} else {
 				m.debugLog("Expo bundle prewarm complete")
+			}
+
+			m.log("Checking device manifest path through relay...")
+			m.debugLog("Checking device-safe Expo manifest path through the relay...")
+			headResult, err := waitForExpoManifestHeadReady(
+				m.ctx,
+				tunnelURL,
+				expoManifestReadyTimeout,
+				metroTunnelReadyPollInterval,
+				m.targetPlatform,
+				func(check DiagnosticCheck) {
+					m.log("Metro is still warming; waiting before launching device.")
+					m.debugLog("Device-safe Expo manifest path is still slow: %s", check.Detail)
+				},
+			)
+			if err != nil {
+				return nil, expoManifestReadinessError(m.targetPlatform, err)
+			}
+			if headResult != nil && len(headResult.Checks) > 0 {
+				m.debugLog("Device-safe Expo manifest path verified: %s", headResult.Checks[0].Detail)
+			} else {
+				m.debugLog("Device-safe Expo manifest path verified")
 			}
 			m.log("Expo relay readiness verified")
 		}

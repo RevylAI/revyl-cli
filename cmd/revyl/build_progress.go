@@ -55,6 +55,8 @@ func RunBuildWithProgress(runner *build.Runner, command, platformKey string, rec
 		ui.StartSpinner(buildProgressMessage(platformKey, 0))
 	}
 
+	start := time.Now()
+
 	var ticker *time.Ticker
 	var tickerDone chan struct{}
 	if showSpinner {
@@ -74,15 +76,13 @@ func RunBuildWithProgress(runner *build.Runner, command, platformKey string, rec
 					mu.Unlock()
 					if len(snap) > 0 {
 						ui.StopSpinner()
-						printBuildRecap(platformKey, snap)
+						printBuildRecap(platformKey, snap, time.Since(start))
 						ui.StartSpinner(buildProgressMessage(platformKey, count))
 					}
 				}
 			}
 		}()
 	}
-
-	start := time.Now()
 
 	buildErr := runner.Run(command, func(line string) {
 		output = append(output, line...)
@@ -151,18 +151,36 @@ func appendBuildLine(lines []string, line string, limit int) []string {
 	return lines
 }
 
-// printBuildRecap prints the most recent filtered build lines when the build
-// has gone silent for a while.
+// printBuildRecap prints the most recent filtered build lines when the local
+// build command has gone silent for a while.
 //
 // Parameters:
 //   - platformKey: The build platform identifier for the header message.
 //   - recentLines: The rolling tail of recent filtered build lines.
-func printBuildRecap(platformKey string, recentLines []string) {
+//   - elapsed: How long the build command has been running.
+func printBuildRecap(platformKey string, recentLines []string, elapsed time.Duration) {
 	if len(recentLines) == 0 {
 		return
 	}
-	ui.PrintDim("  Still building %s... recent output:", platformKey)
+	ui.PrintDim(
+		"  Still running local build for %s (%s elapsed). Recent output:",
+		platformKey,
+		formatBuildProgressDuration(elapsed),
+	)
 	for _, l := range recentLines {
 		ui.PrintDim("    %s", l)
 	}
+}
+
+func formatBuildProgressDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return d.String()
+	}
+	minutes := int(d / time.Minute)
+	seconds := int((d % time.Minute) / time.Second)
+	if seconds == 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%dm%02ds", minutes, seconds)
 }

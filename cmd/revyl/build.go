@@ -1214,6 +1214,7 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 		outputMu.Lock()
 		ui.PrintDim("[%s] Using configured build command from .revyl/config.yaml", platform)
 		ui.PrintInfo("[%s] Building with configured command: %s", platform, buildCommand)
+		ui.PrintDim("[%s] Local build step: Revyl will upload after this command creates %s.", platform, platformCfg.Output)
 		outputMu.Unlock()
 
 		startTime := time.Now()
@@ -1605,6 +1606,9 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	if !buildSkip {
 		ui.PrintDim("Using configured build command from .revyl/config.yaml")
 		ui.PrintInfo("Building with configured command: %s", buildCommand)
+		ui.PrintDim("Local build step: Revyl will upload after this command creates %s.", platformCfg.Output)
+		ui.PrintDim("If this sits quietly, rerun with --debug for raw EAS/Xcode output, or --dry-run to inspect the command.")
+		ui.PrintDim("Already have the artifact? Use --skip-build to upload without rebuilding.")
 		ui.Println()
 
 		runner := build.NewRunner(cwd)

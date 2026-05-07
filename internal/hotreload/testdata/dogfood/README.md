@@ -36,9 +36,11 @@ revyl dev --platform ios --no-open --force-hot-reload
 Expected built-in relay sequence without `--force-hot-reload`:
 
 ```text
-Expo relay transport is ready
-Expo manifest is being served through the relay
-Expo bundle prewarm complete: OK platform=... status=... ttfb=... first_byte=... path=...
+Expo relay transport verified
+Warming Expo manifest through relay...
+Warming Expo bundle through relay...
+Checking device manifest path through relay...
+Expo relay readiness verified
 ```
 
 Expected relay logs should include low-cardinality request classes:
