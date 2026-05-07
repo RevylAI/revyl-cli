@@ -106,6 +106,7 @@ var validStepTypes = map[string]bool{
 	"navigate":        true,
 	"set_location":    true,
 	"set_orientation": true,
+	"set_appearance":  true,
 	"download_file":   true,
 	"end":             true,
 }
@@ -295,11 +296,11 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 
 	case "manual":
 		if block.StepType == "" {
-			errors = append(errors, fmt.Sprintf("%s (manual): Missing required 'step_type' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation, download_file, end", blockPath))
+			errors = append(errors, fmt.Sprintf("%s (manual): Missing required 'step_type' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation, set_appearance, download_file, end", blockPath))
 			break
 		}
 		if !validStepTypes[block.StepType] {
-			errors = append(errors, fmt.Sprintf("%s (manual): Invalid step_type '%s' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation, download_file, end", blockPath, block.StepType))
+			errors = append(errors, fmt.Sprintf("%s (manual): Invalid step_type '%s' - must be one of: wait, open_app, kill_app, go_home, navigate, set_location, set_orientation, set_appearance, download_file, end", blockPath, block.StepType))
 		}
 
 		// Validate step_description based on step_type
@@ -319,6 +320,13 @@ func validateBlock(block Block, index int, prefix string, definedVars, usedVars 
 				errors = append(errors, fmt.Sprintf("%s (manual/set_location): Missing step_description (latitude,longitude)", blockPath))
 			} else if !isValidLocation(block.StepDescription) {
 				warnings = append(warnings, fmt.Sprintf("%s (manual/set_location): step_description should be 'latitude,longitude' format, got '%s'", blockPath, block.StepDescription))
+			}
+		case "set_appearance":
+			appearance := strings.ToLower(strings.TrimSpace(block.StepDescription))
+			if appearance == "" {
+				errors = append(errors, fmt.Sprintf("%s (manual/set_appearance): Missing step_description ('light' or 'dark')", blockPath))
+			} else if appearance != "light" && appearance != "dark" {
+				errors = append(errors, fmt.Sprintf("%s (manual/set_appearance): step_description must be 'light' or 'dark', got '%s'", blockPath, block.StepDescription))
 			}
 		case "download_file":
 			hasDesc := !isBlank(block.StepDescription)

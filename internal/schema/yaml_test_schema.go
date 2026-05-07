@@ -94,6 +94,11 @@ Execute a system-level action.
   step_type: set_location
   step_description: "37.7749,-122.4194"  # latitude,longitude
 
+# Set device appearance
+- type: manual
+  step_type: set_appearance
+  step_description: "dark"  # light or dark
+
 # Download a file onto the device (URL)
 - type: manual
   step_type: download_file
@@ -307,7 +312,7 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 		"criticalBehavior": map[string]interface{}{
 			"autoAppOpen":        true,
 			"supportedPlatforms": []string{"ios", "android"},
-			"manualStepsOnlyFor": []string{"navigate", "open_app", "kill_app", "go_home", "wait", "set_location", "download_file"},
+			"manualStepsOnlyFor": []string{"navigate", "open_app", "kill_app", "go_home", "wait", "set_location", "set_orientation", "set_appearance", "download_file"},
 		},
 		"blockTypes": map[string]interface{}{
 			"instructions": map[string]interface{}{
@@ -339,15 +344,17 @@ func YAMLTestSchemaJSON() map[string]interface{} {
 					"step_type":        "enum (required)",
 					"step_description": "string (optional, depends on step_type)",
 				},
-				"stepTypes": []string{"wait", "open_app", "kill_app", "go_home", "navigate", "set_location", "download_file"},
+				"stepTypes": []string{"wait", "open_app", "kill_app", "go_home", "navigate", "set_location", "set_orientation", "set_appearance", "download_file"},
 				"stepDescriptionFormats": map[string]string{
-					"wait":          "Number of seconds (e.g., '3')",
-					"open_app":      "Bundle ID for system apps, or omit for installed app",
-					"kill_app":      "Not used",
-					"go_home":       "Not used",
-					"navigate":      "URL or deep link",
-					"set_location":  "Latitude,Longitude (e.g., '37.7749,-122.4194')",
-					"download_file": "URL or revyl-file:// URI, or use 'file' field with org file name",
+					"wait":            "Number of seconds (e.g., '3')",
+					"open_app":        "Bundle ID for system apps, or omit for installed app",
+					"kill_app":        "Not used",
+					"go_home":         "Not used",
+					"navigate":        "URL or deep link",
+					"set_location":    "Latitude,Longitude (e.g., '37.7749,-122.4194')",
+					"set_orientation": "portrait or landscape",
+					"set_appearance":  "light or dark",
+					"download_file":   "URL or revyl-file:// URI, or use 'file' field with org file name",
 				},
 			},
 			"if": map[string]interface{}{

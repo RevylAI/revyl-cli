@@ -436,6 +436,44 @@ test:
 	}
 }
 
+func TestValidateYAML_SetAppearanceDark(t *testing.T) {
+	validYAML := `
+test:
+  metadata:
+    name: "Test"
+    platform: "ios"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_type: set_appearance
+      step_description: "dark"
+`
+	result := ValidateYAML(validYAML)
+	if !result.Valid {
+		t.Errorf("Expected valid YAML for set_appearance, got errors: %v", result.Errors)
+	}
+}
+
+func TestValidateYAML_SetAppearanceInvalidValue(t *testing.T) {
+	invalidYAML := `
+test:
+  metadata:
+    name: "Test"
+    platform: "ios"
+  build:
+    name: "My App"
+  blocks:
+    - type: manual
+      step_type: set_appearance
+      step_description: "system"
+`
+	result := ValidateYAML(invalidYAML)
+	if result.Valid {
+		t.Error("Expected invalid YAML for unsupported set_appearance value")
+	}
+}
+
 func TestValidateYAML_DownloadFileWithRevylFileURI(t *testing.T) {
 	validYAML := `
 test:
