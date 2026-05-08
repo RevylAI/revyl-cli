@@ -56,6 +56,12 @@ const (
 	AsyncStatusRunning      AsyncStatus = "running"
 )
 
+// Defines values for AttachRequestBillingPeriod.
+const (
+	AttachRequestBillingPeriodMonthly AttachRequestBillingPeriod = "monthly"
+	AttachRequestBillingPeriodYearly  AttachRequestBillingPeriod = "yearly"
+)
+
 // Defines values for BoundingBoxErrorType.
 const (
 	BoundingBoxErrorTypeBboxTooLarge      BoundingBoxErrorType = "bbox_too_large"
@@ -117,12 +123,6 @@ const (
 const (
 	Recording CompileSourceType = "recording"
 	Session   CompileSourceType = "session"
-)
-
-// Defines values for CursorConfigurationStatusStatus.
-const (
-	Configured    CursorConfigurationStatusStatus = "configured"
-	NotConfigured CursorConfigurationStatusStatus = "not_configured"
 )
 
 // Defines values for DashboardMetricsDashboardState.
@@ -220,8 +220,8 @@ const (
 
 // Defines values for PlanInfoScheduledBillingPeriod.
 const (
-	PlanInfoScheduledBillingPeriodMonthly PlanInfoScheduledBillingPeriod = "monthly"
-	PlanInfoScheduledBillingPeriodYearly  PlanInfoScheduledBillingPeriod = "yearly"
+	Monthly PlanInfoScheduledBillingPeriod = "monthly"
+	Yearly  PlanInfoScheduledBillingPeriod = "yearly"
 )
 
 // Defines values for QualityGrade.
@@ -386,12 +386,6 @@ const (
 	WorkflowStatusTimeout   WorkflowStatus = "timeout"
 )
 
-// Defines values for AppRoutesExecutionRoutesBillingXptAttachRequestBillingPeriod.
-const (
-	Monthly AppRoutesExecutionRoutesBillingXptAttachRequestBillingPeriod = "monthly"
-	Yearly  AppRoutesExecutionRoutesBillingXptAttachRequestBillingPeriod = "yearly"
-)
-
 // Defines values for QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus.
 const (
 	All     QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "all"
@@ -415,82 +409,6 @@ const (
 	Asc  QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir = "asc"
 	Desc QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir = "desc"
 )
-
-// AICodeGenerationDataPoint defines model for AICodeGenerationDataPoint.
-type AICodeGenerationDataPoint struct {
-	AiAdditionPercentage float32 `json:"aiAdditionPercentage"`
-	AiAdditions          int     `json:"aiAdditions"`
-	AiDeletionPercentage float32 `json:"aiDeletionPercentage"`
-	AiDeletions          int     `json:"aiDeletions"`
-	Date                 string  `json:"date"`
-	TotalAdditions       int     `json:"totalAdditions"`
-	TotalDeletions       int     `json:"totalDeletions"`
-}
-
-// AICodeGenerationResponse defines model for AICodeGenerationResponse.
-type AICodeGenerationResponse struct {
-	Data         []AICodeGenerationDataPoint `json:"data"`
-	Repositories []string                    `json:"repositories"`
-	RetrievedAt  string                      `json:"retrieved_at"`
-	Summary      AICodeGenerationSummary     `json:"summary"`
-}
-
-// AICodeGenerationSummary defines model for AICodeGenerationSummary.
-type AICodeGenerationSummary struct {
-	AverageAiPercentage float32 `json:"averageAiPercentage"`
-	TotalAiAdditions    int     `json:"totalAiAdditions"`
-	TotalAiDeletions    int     `json:"totalAiDeletions"`
-	Trend               string  `json:"trend"`
-}
-
-// AIEffectivenessDataPoint defines model for AIEffectivenessDataPoint.
-type AIEffectivenessDataPoint struct {
-	AiAcceptanceRate float32 `json:"aiAcceptanceRate"`
-	AiUsage          int     `json:"aiUsage"`
-	CodeOutput       float32 `json:"codeOutput"`
-	Developer        string  `json:"developer"`
-	TotalLines       int     `json:"totalLines"`
-}
-
-// AIEffectivenessResponse defines model for AIEffectivenessResponse.
-type AIEffectivenessResponse struct {
-	Data         []AIEffectivenessDataPoint `json:"data"`
-	Repositories []string                   `json:"repositories"`
-	RetrievedAt  string                     `json:"retrieved_at"`
-}
-
-// AIMetric defines model for AIMetric.
-type AIMetric struct {
-	Format           *string `json:"format"`
-	Id               string  `json:"id"`
-	PercentageChange float32 `json:"percentage_change"`
-	Period           string  `json:"period"`
-	Title            string  `json:"title"`
-	Value            float32 `json:"value"`
-}
-
-// AIUsageMetricsResponse defines model for AIUsageMetricsResponse.
-type AIUsageMetricsResponse struct {
-	Metrics      []AIMetric `json:"metrics"`
-	Repositories []string   `json:"repositories"`
-	RetrievedAt  string     `json:"retrieved_at"`
-}
-
-// AIUsageOverTimeResponse defines model for AIUsageOverTimeResponse.
-type AIUsageOverTimeResponse struct {
-	Data         []AIUsageTimeSeriesDataPoint `json:"data"`
-	Repositories []string                     `json:"repositories"`
-	RetrievedAt  string                       `json:"retrieved_at"`
-}
-
-// AIUsageTimeSeriesDataPoint defines model for AIUsageTimeSeriesDataPoint.
-type AIUsageTimeSeriesDataPoint struct {
-	AiAcceptanceRate float32 `json:"aiAcceptanceRate"`
-	AiLinesAdded     int     `json:"aiLinesAdded"`
-	AiLinesDeleted   int     `json:"aiLinesDeleted"`
-	Date             string  `json:"date"`
-	NormalizedOutput float32 `json:"normalizedOutput"`
-}
 
 // ActionBlock Block for actions (instructions, extraction, manual, validation, code_execution, module_import).
 type ActionBlock struct {
@@ -1144,20 +1062,24 @@ type AppWorkspaceResponse struct {
 	RollingPassRate     *float32                  `json:"rolling_pass_rate"`
 }
 
-// AssignSeatsRequest defines model for AssignSeatsRequest.
-type AssignSeatsRequest struct {
-	UserAssignments []map[string]string `json:"user_assignments"`
-}
-
-// AssignSeatsResponse defines model for AssignSeatsResponse.
-type AssignSeatsResponse struct {
-	AssignedCount int    `json:"assigned_count"`
-	Message       string `json:"message"`
-	Success       bool   `json:"success"`
-}
-
 // AsyncStatus defines model for AsyncStatus.
 type AsyncStatus string
+
+// AttachRequest defines model for AttachRequest.
+type AttachRequest struct {
+	BillingPeriod *AttachRequestBillingPeriod `json:"billing_period,omitempty"`
+	ProductId     *string                     `json:"product_id,omitempty"`
+	RedirectUrl   string                      `json:"redirect_url"`
+}
+
+// AttachRequestBillingPeriod defines model for AttachRequest.BillingPeriod.
+type AttachRequestBillingPeriod string
+
+// AttachResponse defines model for AttachResponse.
+type AttachResponse struct {
+	CheckoutUrl *string `json:"checkout_url"`
+	Message     string  `json:"message"`
+}
 
 // AuthInfo Class that represents authentication information.
 // Can be returned from the require_auth dependency.
@@ -1173,59 +1095,6 @@ type AuthInfo struct {
 	Service          *bool               `json:"service,omitempty"`
 	UserId           string              `json:"user_id"`
 	UserRole         *string             `json:"user_role"`
-}
-
-// BackfillJobInfo Information about a single backfill job.
-type BackfillJobInfo struct {
-	GithubLogins []string `json:"github_logins"`
-	JobId        string   `json:"job_id"`
-	Repo         string   `json:"repo"`
-}
-
-// BackfillRequest Request model for backfill endpoint.
-type BackfillRequest struct {
-	GithubLogins []string `json:"github_logins"`
-	Owner        string   `json:"owner"`
-}
-
-// BackfillResponse Response model for backfill endpoint.
-type BackfillResponse struct {
-	BackfillJobs      []BackfillJobInfo `json:"backfill_jobs"`
-	FilteredUsers     []string          `json:"filtered_users"`
-	Message           string            `json:"message"`
-	ReposToBackfill   []string          `json:"repos_to_backfill"`
-	Status            string            `json:"status"`
-	UnauthorizedUsers []string          `json:"unauthorized_users"`
-}
-
-// BackfillStatusResponse defines model for BackfillStatusResponse.
-type BackfillStatusResponse struct {
-	JobId    string  `json:"job_id"`
-	Message  *string `json:"message"`
-	Progress *int    `json:"progress"`
-	Status   string  `json:"status"`
-}
-
-// BackfillSummary defines model for BackfillSummary.
-type BackfillSummary struct {
-	CompletedJobs  int    `json:"completed_jobs"`
-	FailedJobs     int    `json:"failed_jobs"`
-	InProgressJobs int    `json:"in_progress_jobs"`
-	OverallStatus  string `json:"overall_status"`
-	TotalJobs      int    `json:"total_jobs"`
-}
-
-// BackfillTaskResponse defines model for BackfillTaskResponse.
-type BackfillTaskResponse struct {
-	ErrorCount     *int    `json:"error_count,omitempty"`
-	JobId          string  `json:"job_id"`
-	Message        *string `json:"message"`
-	ProcessedCount *int    `json:"processed_count,omitempty"`
-	Progress       *int    `json:"progress"`
-	Repo           string  `json:"repo"`
-	Status         string  `json:"status"`
-	TaskId         string  `json:"task_id"`
-	TaskType       string  `json:"task_type"`
 }
 
 // BatchLLMDetailsRequest Request for batch LLM details fetch.
@@ -1264,15 +1133,6 @@ type BillingCheckResponse struct {
 	Allowed bool    `json:"allowed"`
 	Balance *int    `json:"balance"`
 	Reason  *string `json:"reason"`
-}
-
-// BillingResponse defines model for BillingResponse.
-type BillingResponse struct {
-	Allowed    bool    `json:"allowed"`
-	Balance    *int    `json:"balance"`
-	Code       string  `json:"code"`
-	CustomerId string  `json:"customer_id"`
-	FeatureId  *string `json:"feature_id"`
 }
 
 // BillingSummaryResponse defines model for BillingSummaryResponse.
@@ -1405,16 +1265,6 @@ type BuildFromUrlRequest struct {
 
 	// Version Version string (must be unique within the app)
 	Version string `json:"version"`
-}
-
-// BuildPathConfig Configuration for a build path in revyl_repo_configs JSONB.
-type BuildPathConfig struct {
-	AppId          string  `json:"app_id"`
-	AppName        *string `json:"app_name"`
-	EasTokenEnvVar *string `json:"eas_token_env_var"`
-	Path           string  `json:"path"`
-	Platform       *string `json:"platform"`
-	Type           *string `json:"type"`
 }
 
 // BuildResolutionRequest Request to resolve a build for a test.
@@ -1567,8 +1417,8 @@ type BulkExecuteRequest struct {
 	BuildId *string `json:"build_id"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfigInput `json:"run_config,omitempty"`
-	TestIds   []string            `json:"test_ids"`
+	RunConfig *TestRunConfig `json:"run_config,omitempty"`
+	TestIds   []string       `json:"test_ids"`
 }
 
 // BulkExecuteResponse Response from bulk execution.
@@ -1663,27 +1513,13 @@ type CachedActionElement struct {
 	WaitTimeAfterAction *float32 `json:"wait_time_after_action"`
 }
 
-// CachedActionStoreInput Stores cached action elements for a test, indexed by node_id.
+// CachedActionStore Stores cached action elements for a test, indexed by node_id.
 //
 // Attributes:
 //
 //	test_id (str): The unique identifier for the test.
 //	cached_elements (Dict[str, CachedActionElement]): Dictionary of cached action elements keyed by node_id.
-type CachedActionStoreInput struct {
-	// CachedElements Dictionary of cached action elements keyed by node_id
-	CachedElements *map[string]CachedActionElement `json:"cached_elements,omitempty"`
-
-	// TestId Unique identifier for the test
-	TestId string `json:"test_id"`
-}
-
-// CachedActionStoreOutput Stores cached action elements for a test, indexed by node_id.
-//
-// Attributes:
-//
-//	test_id (str): The unique identifier for the test.
-//	cached_elements (Dict[str, CachedActionElement]): Dictionary of cached action elements keyed by node_id.
-type CachedActionStoreOutput struct {
+type CachedActionStore struct {
 	// CachedElements Dictionary of cached action elements keyed by node_id
 	CachedElements *map[string]CachedActionElement `json:"cached_elements,omitempty"`
 
@@ -1745,10 +1581,25 @@ type CancelTestResponse struct {
 	TaskId  string  `json:"task_id"`
 }
 
-// CategoryValue defines model for CategoryValue.
-type CategoryValue struct {
-	Category string  `json:"category"`
-	Value    float32 `json:"value"`
+// ChartDataPoint Daily aggregated chart data point.
+type ChartDataPoint struct {
+	// AvgDuration Average execution duration in seconds for this date
+	AvgDuration *int `json:"avg_duration"`
+
+	// Date Date in YYYY-MM-DD format
+	Date string `json:"date"`
+
+	// Failed Number of failed tests on this date
+	Failed int `json:"failed"`
+
+	// Passed Number of passed tests on this date
+	Passed int `json:"passed"`
+
+	// SuccessRate Success rate as percentage (0-100)
+	SuccessRate float32 `json:"success_rate"`
+
+	// Total Total number of tests on this date
+	Total int `json:"total"`
 }
 
 // CheckFileExistsResponse Response model for checking if a file with a given name exists.
@@ -1930,16 +1781,6 @@ type CodeExecutionScriptUpdate struct {
 
 // CodeExecutionScriptUpdateRuntime Runtime language
 type CodeExecutionScriptUpdateRuntime string
-
-// CommentsOverTimeData defines model for CommentsOverTimeData.
-type CommentsOverTimeData struct {
-	BestPractices int    `json:"bestPractices"`
-	BugFix        int    `json:"bugFix"`
-	CodeStyle     int    `json:"codeStyle"`
-	Date          string `json:"date"`
-	Performance   int    `json:"performance"`
-	Security      int    `json:"security"`
-}
 
 // CompileJobProgress Progress metadata returned by the status endpoint.
 type CompileJobProgress struct {
@@ -2373,19 +2214,6 @@ type CreateModuleRequest struct {
 	Name string `json:"name"`
 }
 
-// CreatePRCheckRunRequest Request to create a GitHub check run for a PR execution.
-type CreatePRCheckRunRequest struct {
-	DetailsUrl *string `json:"details_url"`
-	ExternalId *string `json:"external_id"`
-	HeadSha    string  `json:"head_sha"`
-	Name       string  `json:"name"`
-	Owner      string  `json:"owner"`
-	Repo       string  `json:"repo"`
-	Status     *string `json:"status,omitempty"`
-	Summary    string  `json:"summary"`
-	Title      string  `json:"title"`
-}
-
 // CreateReportRequest Request model for creating a report.
 type CreateReportRequest struct {
 	ExecutionId     *string                   `json:"execution_id"`
@@ -2405,14 +2233,6 @@ type CreateReportResponse struct {
 	Id      string `json:"id"`
 	Message string `json:"message"`
 	Success bool   `json:"success"`
-}
-
-// CreateRevylRepoConfigRequest Request model for creating/updating Revyl repo config.
-type CreateRevylRepoConfigRequest struct {
-	BuildPaths    *[]BuildPathConfig `json:"build_paths,omitempty"`
-	Enabled       *bool              `json:"enabled,omitempty"`
-	TriggerEvents *[]string          `json:"trigger_events,omitempty"`
-	Workflows     *[]WorkflowConfig  `json:"workflows,omitempty"`
 }
 
 // CreateSlackNotificationRuleRequest Request to create a new notification rule.
@@ -2523,54 +2343,6 @@ type CreditsBalanceItem struct {
 // CreditsBalanceResponse defines model for CreditsBalanceResponse.
 type CreditsBalanceResponse struct {
 	Balances []CreditsBalanceItem `json:"balances"`
-}
-
-// CursorConfigurationStatus Response model for Cursor configuration status.
-type CursorConfigurationStatus struct {
-	// CursorConfigured Whether Cursor is fully configured
-	CursorConfigured bool `json:"cursor_configured"`
-
-	// Message Status message
-	Message string `json:"message"`
-
-	// RequiresSetup Whether setup is required
-	RequiresSetup bool `json:"requires_setup"`
-
-	// SetupAction Model for Cursor setup action details.
-	SetupAction CursorSetupAction `json:"setup_action"`
-
-	// Status Configuration status
-	Status CursorConfigurationStatusStatus `json:"status"`
-}
-
-// CursorConfigurationStatusStatus Configuration status
-type CursorConfigurationStatusStatus string
-
-// CursorGithubMapping Model for Cursor GitHub user mapping.
-type CursorGithubMapping struct {
-	// CursorName Cursor user name
-	CursorName string `json:"cursor_name"`
-
-	// CursorUserId Cursor user ID
-	CursorUserId string `json:"cursor_user_id"`
-
-	// DeveloperId Developer ID
-	DeveloperId string `json:"developer_id"`
-
-	// GithubLogin GitHub login username
-	GithubLogin string `json:"github_login"`
-}
-
-// CursorSetupAction Model for Cursor setup action details.
-type CursorSetupAction struct {
-	// ButtonText Text to display on action button
-	ButtonText string `json:"button_text"`
-
-	// Requirements Requirements description
-	Requirements string `json:"requirements"`
-
-	// SetupUrl URL for setup page
-	SetupUrl string `json:"setup_url"`
 }
 
 // DOMMetadata defines model for DOMMetadata.
@@ -2713,7 +2485,7 @@ type DashboardMetrics struct {
 // DashboardMetricsDashboardState Dashboard view state: onboarding (checklist incomplete), intermediate (checklist done but no active plan), mature (fully active)
 type DashboardMetricsDashboardState string
 
-// DefaultRoleResponse Response for the default role setting.
+// DefaultRoleResponse defines model for DefaultRoleResponse.
 type DefaultRoleResponse struct {
 	DefaultRole *string `json:"default_role,omitempty"`
 }
@@ -2779,19 +2551,6 @@ type DeleteWorkflowShareableLinkResponse struct {
 type DeleteWorkflowTaskResponse struct {
 	Message string `json:"message"`
 	TaskId  string `json:"task_id"`
-}
-
-// DeveloperItem defines model for DeveloperItem.
-type DeveloperItem struct {
-	AvatarUrl string `json:"avatar_url"`
-	Login     string `json:"login"`
-	Name      string `json:"name"`
-}
-
-// DeveloperProfile defines model for DeveloperProfile.
-type DeveloperProfile struct {
-	CommitTypeDistribution []CategoryValue `json:"commit_type_distribution"`
-	TechnicalSkills        []CategoryValue `json:"technical_skills"`
 }
 
 // DeviceCleanupConfig Configuration for AVD cleanup between test runs.
@@ -2978,14 +2737,6 @@ type DiscountItem struct {
 	Type          string  `json:"type"`
 }
 
-// DoraMetrics defines model for DoraMetrics.
-type DoraMetrics struct {
-	ChangeFailureRatePercent  float32 `json:"change_failure_rate_percent"`
-	DeploymentFrequencyPerDay float32 `json:"deployment_frequency_per_day"`
-	LeadTimeHours             float32 `json:"lead_time_hours"`
-	MttrHours                 float32 `json:"mttr_hours"`
-}
-
 // DuplicateTestRequest Request model for duplicating a test.
 type DuplicateTestRequest struct {
 	// CopyCookies Whether to copy cookies from the original test
@@ -3035,40 +2786,6 @@ type DuplicateTestResponse struct {
 
 	// VariablesCopied Number of custom variables copied
 	VariablesCopied *int `json:"variables_copied,omitempty"`
-}
-
-// EnhancedSummaryRequest Request model for enhanced weekly summary with What Got Done support.
-type EnhancedSummaryRequest struct {
-	AllRepos     *bool                   `json:"all_repos"`
-	Repositories *[]RepositoryIdentifier `json:"repositories"`
-	WeekOffset   *int                    `json:"week_offset,omitempty"`
-}
-
-// EnhancedSummaryResponse Response model for enhanced weekly summary.
-type EnhancedSummaryResponse struct {
-	// FromCache Whether data was served from cache
-	FromCache bool `json:"from_cache"`
-
-	// IsCompleteWeek Whether this is a complete week
-	IsCompleteWeek bool `json:"is_complete_week"`
-
-	// MergedPrsCount Total number of merged PRs
-	MergedPrsCount int `json:"merged_prs_count"`
-
-	// Repositories List of 'owner/repo' strings
-	Repositories []string `json:"repositories"`
-
-	// RetrievedAt Timestamp when data was retrieved
-	RetrievedAt string `json:"retrieved_at"`
-
-	// Summary What Got Done summary with categorized changes.
-	Summary WhatGotDoneSummary `json:"summary"`
-
-	// WeekEndDate End date of the week
-	WeekEndDate string `json:"week_end_date"`
-
-	// WeekStartDate Start date of the week
-	WeekStartDate string `json:"week_start_date"`
 }
 
 // EntitlementItem defines model for EntitlementItem.
@@ -3185,8 +2902,8 @@ type ExecuteWorkflowAsyncAPIResponse struct {
 	TaskId *string `json:"task_id,omitempty"`
 }
 
-// ExecutionModeConfigInput Configuration for execution modes and features.
-type ExecutionModeConfigInput struct {
+// ExecutionModeConfig Configuration for execution modes and features.
+type ExecutionModeConfig struct {
 	// CleanupConfig Configuration for AVD cleanup between test runs.
 	//
 	// Controls what gets reset when resetting device state between tests
@@ -3226,59 +2943,16 @@ type ExecutionModeConfigInput struct {
 	SkipAppInstall *bool `json:"skip_app_install,omitempty"`
 }
 
-// ExecutionModeConfigOutput Configuration for execution modes and features.
-type ExecutionModeConfigOutput struct {
-	// CleanupConfig Configuration for AVD cleanup between test runs.
-	//
-	// Controls what gets reset when resetting device state between tests
-	// while keeping the emulator running.
-	CleanupConfig *DeviceCleanupConfig `json:"cleanup_config,omitempty"`
-
-	// EnablePlanning Enable planning for complex steps
-	EnablePlanning *bool `json:"enable_planning,omitempty"`
-
-	// EnableReflection Enable reflection on failed steps
-	EnableReflection *bool `json:"enable_reflection,omitempty"`
-
-	// GrounderType Unified grounder configuration that determines both approach and model.
-	//
-	// - UNIFIED: Use instruction LLM for both instruction and grounding (returns coordinates)
-	// - MOONDREAM3/UI_TARS/QWEN3_VL: Two-step with specific grounder model
-	// - AUTO: Use GROUNDER_TYPE env var to determine grounder
-	// - NULL: Skip grounding (for testing/debugging)
-	GrounderType *GrounderType `json:"grounder_type,omitempty"`
-
-	// HumanInTheLoop Enable human approval for test results
-	HumanInTheLoop *bool `json:"human_in_the_loop,omitempty"`
-
-	// InitialLocation GPS location configuration for simulator/emulator.
-	InitialLocation *LocationConfig `json:"initial_location,omitempty"`
-
-	// InitialOrientation Initial device orientation: 'portrait' or 'landscape'
-	InitialOrientation *string `json:"initial_orientation"`
-
-	// ReflectionRetries Number of reflection retry attempts
-	ReflectionRetries *int `json:"reflection_retries,omitempty"`
-
-	// Retries Number of retry attempts
-	Retries *int `json:"retries,omitempty"`
-
-	// SkipAppInstall Skip app installation during test execution
-	SkipAppInstall *bool `json:"skip_app_install,omitempty"`
-}
-
-// ExpoBuildArtifacts Artifacts associated with an Expo/EAS build.
+// ExpoBuildArtifacts defines model for ExpoBuildArtifacts.
 type ExpoBuildArtifacts struct {
 	ApplicationArchiveUrl *string                `json:"applicationArchiveUrl"`
 	BuildUrl              *string                `json:"buildUrl"`
 	AdditionalProperties  map[string]interface{} `json:"-"`
 }
 
-// ExpoBuildItem A single Expo/EAS build entry.
+// ExpoBuildItem defines model for ExpoBuildItem.
 type ExpoBuildItem struct {
-	AppVersion *string `json:"appVersion"`
-
-	// Artifacts Artifacts associated with an Expo/EAS build.
+	AppVersion           *string                `json:"appVersion"`
 	Artifacts            *ExpoBuildArtifacts    `json:"artifacts,omitempty"`
 	BuildProfile         *string                `json:"buildProfile"`
 	CompletedAt          *string                `json:"completedAt"`
@@ -3292,16 +2966,13 @@ type ExpoBuildItem struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
-// ExpoBuildsResponse Response containing Expo builds.
+// ExpoBuildsResponse defines model for ExpoBuildsResponse.
 type ExpoBuildsResponse struct {
-	// Builds List of builds from all projects
-	Builds *[]ExpoBuildItem `json:"builds,omitempty"`
-
-	// TotalCount Total number of builds returned
-	TotalCount *int `json:"total_count,omitempty"`
+	Builds     *[]ExpoBuildItem `json:"builds,omitempty"`
+	TotalCount *int             `json:"total_count,omitempty"`
 }
 
-// ExpoProjectDbResponse Response model for Expo project configuration from database.
+// ExpoProjectDbResponse Response model for an Expo project configuration row.
 type ExpoProjectDbResponse struct {
 	AndroidAppId    *string   `json:"android_app_id"`
 	AutoSyncEnabled *bool     `json:"auto_sync_enabled,omitempty"`
@@ -3314,12 +2985,12 @@ type ExpoProjectDbResponse struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
-// ExpoProjectFromBuildPathRequest Request to extract Expo project IDs from build paths.
+// ExpoProjectFromBuildPathRequest defines model for ExpoProjectFromBuildPathRequest.
 type ExpoProjectFromBuildPathRequest struct {
-	// Branch Branch name (defaults to repo's default branch)
+	// Branch Branch name (defaults to default)
 	Branch *string `json:"branch"`
 
-	// BuildPaths List of paths to Expo app directories (e.g., ['apps/expo-demo'])
+	// BuildPaths List of paths to Expo app directories
 	BuildPaths []string `json:"build_paths"`
 
 	// Owner GitHub repository owner
@@ -3329,33 +3000,22 @@ type ExpoProjectFromBuildPathRequest struct {
 	Repo string `json:"repo"`
 }
 
-// ExpoProjectFromBuildPathResponse Response containing extracted Expo project info.
+// ExpoProjectFromBuildPathResponse defines model for ExpoProjectFromBuildPathResponse.
 type ExpoProjectFromBuildPathResponse struct {
-	// Projects List of extracted project info
 	Projects *[]ExpoProjectInfo `json:"projects,omitempty"`
 }
 
-// ExpoProjectInfo Extracted Expo project information.
+// ExpoProjectInfo defines model for ExpoProjectInfo.
 type ExpoProjectInfo struct {
-	// BuildPath Build path this was extracted from
-	BuildPath string `json:"build_path"`
-
-	// Name App name from app.json
-	Name *string `json:"name"`
-
-	// Owner Expo owner from app.json
-	Owner *string `json:"owner"`
-
-	// ProjectId Expo project ID (UUID)
-	ProjectId string `json:"project_id"`
-
-	// Slug App slug from app.json
-	Slug *string `json:"slug"`
+	BuildPath string  `json:"build_path"`
+	Name      *string `json:"name"`
+	Owner     *string `json:"owner"`
+	ProjectId string  `json:"project_id"`
+	Slug      *string `json:"slug"`
 }
 
-// ExpoProjectListResponse Response containing list of Expo project configurations.
+// ExpoProjectListResponse defines model for ExpoProjectListResponse.
 type ExpoProjectListResponse struct {
-	// Projects List of Expo project configurations
 	Projects *[]ExpoProjectDbResponse `json:"projects,omitempty"`
 }
 
@@ -4249,12 +3909,6 @@ type HeatmapResponse struct {
 	Orgs      []HeatmapOrgRow `json:"orgs"`
 }
 
-// Highlight defines model for Highlight.
-type Highlight struct {
-	Text string `json:"text"`
-	Type string `json:"type"`
-}
-
 // HotReloadRelayCreateRequest defines model for HotReloadRelayCreateRequest.
 type HotReloadRelayCreateRequest struct {
 	Platform *string `json:"platform"`
@@ -4342,50 +3996,6 @@ type IfBlockOutput_ThenChildren_Item struct {
 	union json.RawMessage
 }
 
-// Installation defines model for Installation.
-type Installation struct {
-	CreatedAt             Installation_CreatedAt   `json:"created_at"`
-	GhInstallationOwnerId *string                  `json:"gh_installation_owner_id"`
-	Id                    Installation_Id          `json:"id"`
-	InstallationId        int                      `json:"installation_id"`
-	PropelOrgId           string                   `json:"propel_org_id"`
-	Status                string                   `json:"status"`
-	VerifiedAt            *Installation_VerifiedAt `json:"verified_at"`
-}
-
-// InstallationCreatedAt0 defines model for .
-type InstallationCreatedAt0 = string
-
-// InstallationCreatedAt1 defines model for .
-type InstallationCreatedAt1 = time.Time
-
-// Installation_CreatedAt defines model for Installation.CreatedAt.
-type Installation_CreatedAt struct {
-	union json.RawMessage
-}
-
-// InstallationId0 defines model for .
-type InstallationId0 = string
-
-// InstallationId1 defines model for .
-type InstallationId1 = openapi_types.UUID
-
-// Installation_Id defines model for Installation.Id.
-type Installation_Id struct {
-	union json.RawMessage
-}
-
-// InstallationVerifiedAt0 defines model for .
-type InstallationVerifiedAt0 = string
-
-// InstallationVerifiedAt1 defines model for .
-type InstallationVerifiedAt1 = time.Time
-
-// Installation_VerifiedAt defines model for Installation.VerifiedAt.
-type Installation_VerifiedAt struct {
-	union json.RawMessage
-}
-
 // InstructionEval Evaluation result for instruction LLM suggestion compliance.
 type InstructionEval struct {
 	// Explanation How well it aligned or why it diverged
@@ -4460,13 +4070,6 @@ type InternalSlackNotificationRulesResponse struct {
 type InternalSlackRuleResponse struct {
 	// Rule An internal Slack notification rule.
 	Rule InternalSlackNotificationRule `json:"rule"`
-}
-
-// KeyMetric defines model for KeyMetric.
-type KeyMetric struct {
-	Change string `json:"change"`
-	Label  string `json:"label"`
-	Value  string `json:"value"`
 }
 
 // LLMCallCreate Request model for creating an LLM call record.
@@ -4581,16 +4184,7 @@ type LLMMessage_Content struct {
 	union json.RawMessage
 }
 
-// LeaderboardItemResponse defines model for LeaderboardItemResponse.
-type LeaderboardItemResponse struct {
-	Developer     DeveloperItem `json:"developer"`
-	Rank          int           `json:"rank"`
-	Trend         string        `json:"trend"`
-	UnitsOfWork   float32       `json:"units_of_work"`
-	WorkBreakdown WorkBreakdown `json:"work_breakdown"`
-}
-
-// ListExpoBuildsRequest Request to list Expo builds for a single project.
+// ListExpoBuildsRequest defines model for ListExpoBuildsRequest.
 type ListExpoBuildsRequest struct {
 	// Limit Max builds to return (1-50)
 	Limit *int `json:"limit,omitempty"`
@@ -4608,7 +4202,7 @@ type LocationConfig struct {
 	Longitude float32 `json:"longitude"`
 }
 
-// ManualTriggerRequest Request to manually upsert an Expo build to a Revyl build variable.
+// ManualTriggerRequest defines model for ManualTriggerRequest.
 type ManualTriggerRequest struct {
 	// AppId Revyl build variable ID to update
 	AppId string `json:"app_id"`
@@ -4620,7 +4214,7 @@ type ManualTriggerRequest struct {
 	Version *string `json:"version"`
 }
 
-// ManualTriggerResponse Response from manual trigger.
+// ManualTriggerResponse defines model for ManualTriggerResponse.
 type ManualTriggerResponse struct {
 	BuildId *string `json:"build_id"`
 	Message string  `json:"message"`
@@ -4770,85 +4364,6 @@ type MonitorTimeseriesPoint struct {
 	Errors        int     `json:"errors"`
 	Evals         int     `json:"evals"`
 	GroundedSteps int     `json:"grounded_steps"`
-}
-
-// MultiRepoChartDataResponse defines model for MultiRepoChartDataResponse.
-type MultiRepoChartDataResponse struct {
-	Data         []AppRoutesRebelRoutesAnalyticsXptChartDataPoint `json:"data"`
-	MetricType   string                                           `json:"metric_type"`
-	Repositories []string                                         `json:"repositories"`
-	RetrievedAt  string                                           `json:"retrieved_at"`
-}
-
-// MultiRepoCommentsOverTimeResponse defines model for MultiRepoCommentsOverTimeResponse.
-type MultiRepoCommentsOverTimeResponse struct {
-	Data         []CommentsOverTimeData `json:"data"`
-	Repositories []string               `json:"repositories"`
-	RetrievedAt  string                 `json:"retrieved_at"`
-}
-
-// MultiRepoDeveloperProfileResponse defines model for MultiRepoDeveloperProfileResponse.
-type MultiRepoDeveloperProfileResponse struct {
-	Developer    string           `json:"developer"`
-	Profile      DeveloperProfile `json:"profile"`
-	Repositories []string         `json:"repositories"`
-	RetrievedAt  string           `json:"retrieved_at"`
-}
-
-// MultiRepoDevelopersResponse defines model for MultiRepoDevelopersResponse.
-type MultiRepoDevelopersResponse struct {
-	Developers   []DeveloperItem `json:"developers"`
-	Repositories []string        `json:"repositories"`
-	RetrievedAt  string          `json:"retrieved_at"`
-}
-
-// MultiRepoDoraMetricsResponse defines model for MultiRepoDoraMetricsResponse.
-type MultiRepoDoraMetricsResponse struct {
-	DoraMetrics  DoraMetrics `json:"dora_metrics"`
-	PeriodDays   int         `json:"period_days"`
-	Repositories []string    `json:"repositories"`
-	RetrievedAt  string      `json:"retrieved_at"`
-}
-
-// MultiRepoLeaderboardResponse defines model for MultiRepoLeaderboardResponse.
-type MultiRepoLeaderboardResponse struct {
-	Leaderboard  []LeaderboardItemResponse `json:"leaderboard"`
-	Repositories []string                  `json:"repositories"`
-	RetrievedAt  string                    `json:"retrieved_at"`
-}
-
-// MultiRepoPRHistoryResponse defines model for MultiRepoPRHistoryResponse.
-type MultiRepoPRHistoryResponse struct {
-	Prs          []PullRequest `json:"prs"`
-	Repositories []string      `json:"repositories"`
-	RetrievedAt  string        `json:"retrieved_at"`
-}
-
-// MultiRepoRecentCommentsResponse defines model for MultiRepoRecentCommentsResponse.
-type MultiRepoRecentCommentsResponse struct {
-	Comments     []RecentComment `json:"comments"`
-	Repositories []string        `json:"repositories"`
-	RetrievedAt  string          `json:"retrieved_at"`
-}
-
-// MultiRepoReviewMetricsResponse defines model for MultiRepoReviewMetricsResponse.
-type MultiRepoReviewMetricsResponse struct {
-	Metrics      []ReviewMetric `json:"metrics"`
-	Repositories []string       `json:"repositories"`
-	RetrievedAt  string         `json:"retrieved_at"`
-}
-
-// MultiRepoUnitsOfWorkResponse defines model for MultiRepoUnitsOfWorkResponse.
-type MultiRepoUnitsOfWorkResponse struct {
-	ChartData    []UnitsOfWorkData `json:"chart_data"`
-	Repositories []string          `json:"repositories"`
-	RetrievedAt  string            `json:"retrieved_at"`
-}
-
-// MultiRepositoryRequest defines model for MultiRepositoryRequest.
-type MultiRepositoryRequest struct {
-	AllRepos     *bool                   `json:"all_repos"`
-	Repositories *[]RepositoryIdentifier `json:"repositories"`
 }
 
 // MultimodalContentPart A single part of multimodal content (text or image).
@@ -5091,6 +4606,17 @@ type OrgHeadline struct {
 	Trend            *string    `json:"trend,omitempty"`
 }
 
+// OrgInstallation defines model for OrgInstallation.
+type OrgInstallation struct {
+	CreatedAt             string  `json:"created_at"`
+	GhInstallationOwnerId *string `json:"gh_installation_owner_id"`
+	Id                    string  `json:"id"`
+	InstallationId        int     `json:"installation_id"`
+	PropelOrgId           string  `json:"propel_org_id"`
+	Status                string  `json:"status"`
+	VerifiedAt            *string `json:"verified_at"`
+}
+
 // OrgInvestment defines model for OrgInvestment.
 type OrgInvestment struct {
 	AppCount      *int  `json:"app_count,omitempty"`
@@ -5226,6 +4752,16 @@ type OrgOverviewResponse struct {
 	Total int               `json:"total"`
 }
 
+// OrgRepository defines model for OrgRepository.
+type OrgRepository struct {
+	AddedAt     string `json:"added_at"`
+	Id          string `json:"id"`
+	Owner       string `json:"owner"`
+	PropelOrgId string `json:"propel_org_id"`
+	Repo        string `json:"repo"`
+	Status      string `json:"status"`
+}
+
 // OrgTestMonitorItem Single test item for org-wide monitoring.
 //
 // Uses 'id' instead of 'task_id' as the primary identifier.
@@ -5310,24 +4846,15 @@ type OrgWorkflowMonitorState struct {
 
 // OrganizationRepositoriesResponse defines model for OrganizationRepositoriesResponse.
 type OrganizationRepositoriesResponse struct {
-	HasAccess    bool         `json:"has_access"`
-	Installation Installation `json:"installation"`
-	Repositories []Repository `json:"repositories"`
+	HasAccess    bool            `json:"has_access"`
+	Installation OrgInstallation `json:"installation"`
+	Repositories []OrgRepository `json:"repositories"`
 }
 
 // OrganizationUsersResponse defines model for OrganizationUsersResponse.
 type OrganizationUsersResponse struct {
 	TotalCount int          `json:"total_count"`
 	Users      []GitHubUser `json:"users"`
-}
-
-// PRReference PR reference with number and repo name.
-type PRReference struct {
-	// PrNumber Pull request number
-	PrNumber int `json:"pr_number"`
-
-	// Repo Repository name
-	Repo string `json:"repo"`
 }
 
 // PaginatedAppsResponse Paginated response for apps.
@@ -5457,18 +4984,6 @@ type PortalResponse struct {
 	Url string `json:"url"`
 }
 
-// PostFinalPRCommentRequest Request to post final PR comment with results.
-type PostFinalPRCommentRequest struct {
-	BuildError      *string                  `json:"build_error"`
-	CheckRunId      *string                  `json:"check_run_id"`
-	CommentId       string                   `json:"comment_id"`
-	Owner           string                   `json:"owner"`
-	PrNumber        int                      `json:"pr_number"`
-	Repo            string                   `json:"repo"`
-	UploadedBuilds  []map[string]interface{} `json:"uploaded_builds"`
-	WorkflowResults []map[string]interface{} `json:"workflow_results"`
-}
-
 // ProcessBillingSessionRequest defines model for ProcessBillingSessionRequest.
 type ProcessBillingSessionRequest struct {
 	SessionId     string  `json:"session_id"`
@@ -5476,7 +4991,7 @@ type ProcessBillingSessionRequest struct {
 	WorkflowRunId string  `json:"workflow_run_id"`
 }
 
-// PropelMetadataResponse Response model for Propel organization metadata.
+// PropelMetadataResponse defines model for PropelMetadataResponse.
 type PropelMetadataResponse struct {
 	BrowserProvider  *string `json:"browser_provider"`
 	ConcurrencyLimit *int    `json:"concurrency_limit"`
@@ -5490,38 +5005,6 @@ type ProvisionResponse struct {
 	Message              string                  `json:"message"`
 	ProvisionedResources *map[string]interface{} `json:"provisioned_resources"`
 	Status               string                  `json:"status"`
-}
-
-// PullRequest defines model for PullRequest.
-type PullRequest struct {
-	Author                 string     `json:"author"`
-	AuthorAvatarUrl        *string    `json:"author_avatar_url"`
-	AuthorName             *string    `json:"author_name"`
-	ClosedAt               *time.Time `json:"closed_at"`
-	CommitType             *string    `json:"commit_type"`
-	ComplexityScore        *float32   `json:"complexity_score"`
-	CreatedAt              time.Time  `json:"created_at"`
-	Description            *string    `json:"description"`
-	FilesChanged           *int       `json:"files_changed"`
-	Id                     string     `json:"id"`
-	IsHotfix               *bool      `json:"is_hotfix"`
-	IsRollback             *bool      `json:"is_rollback"`
-	Labels                 *[]string  `json:"labels"`
-	LinesAdded             *int       `json:"lines_added"`
-	LinesDeleted           *int       `json:"lines_deleted"`
-	MergeCommitSha         *string    `json:"merge_commit_sha"`
-	MergedAt               *time.Time `json:"merged_at"`
-	Owner                  *string    `json:"owner"`
-	PrNumber               int        `json:"pr_number"`
-	Repo                   *string    `json:"repo"`
-	ReviewCyclesCount      *int       `json:"review_cycles_count"`
-	State                  string     `json:"state"`
-	TechnologyTags         *[]string  `json:"technology_tags"`
-	TimeToFirstReviewHours *float32   `json:"time_to_first_review_hours"`
-	TimeToMergeHours       *float32   `json:"time_to_merge_hours"`
-	Title                  string     `json:"title"`
-	UnitsOfWork            *float32   `json:"units_of_work"`
-	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
 // PushSSHKeyRequest Request payload for pushing an SSH public key to a sandbox.
@@ -5617,36 +5100,6 @@ type RateCardItem struct {
 // RateCardResponse defines model for RateCardResponse.
 type RateCardResponse struct {
 	Rates []RateCardItem `json:"rates"`
-}
-
-// RebelOrgSettings Organization settings for Rebel Bot.
-type RebelOrgSettings struct {
-	CreatedAt        time.Time `json:"created_at"`
-	CursorApiKey     *string   `json:"cursor_api_key"`
-	CustomPrompt     *string   `json:"custom_prompt"`
-	Enabled          *bool     `json:"enabled,omitempty"`
-	ExpoToken        *string   `json:"expo_token"`
-	Model            *string   `json:"model"`
-	ModifiedAt       time.Time `json:"modified_at"`
-	PropelOrgId      string    `json:"propel_org_id"`
-	ResponseLanguage *string   `json:"response_language"`
-}
-
-// RecentComment defines model for RecentComment.
-type RecentComment struct {
-	Author     string    `json:"author"`
-	Comment    string    `json:"comment"`
-	CommentId  string    `json:"comment_id"`
-	CommitSha  string    `json:"commit_sha"`
-	Confidence float32   `json:"confidence"`
-	CreatedAt  time.Time `json:"created_at"`
-	FilePath   string    `json:"file_path"`
-	Id         string    `json:"id"`
-	LineNumber int       `json:"line_number"`
-	Owner      string    `json:"owner"`
-	PrNumber   int       `json:"pr_number"`
-	Repo       string    `json:"repo"`
-	Type       string    `json:"type"`
 }
 
 // ReflectionAttemptEval Evaluation of a single reflection/retry attempt within a step.
@@ -6127,30 +5580,6 @@ type ReportV3Response struct {
 	WorkflowRunId       *string                   `json:"workflow_run_id"`
 }
 
-// Repository defines model for Repository.
-type Repository struct {
-	AddedAt     string `json:"added_at"`
-	Id          string `json:"id"`
-	Owner       string `json:"owner"`
-	PropelOrgId string `json:"propel_org_id"`
-	Repo        string `json:"repo"`
-	Status      string `json:"status"`
-}
-
-// RepositoryIdentifier Repository identifier with owner and repo name.
-type RepositoryIdentifier struct {
-	// Owner Repository owner/organization
-	Owner string `json:"owner"`
-
-	// Repo Repository name
-	Repo string `json:"repo"`
-}
-
-// ResolveBuildVarsResponse Response model for resolved build vars from workflows.
-type ResolveBuildVarsResponse struct {
-	Apps []ResolvedApp `json:"apps"`
-}
-
 // ResolveSlackChannelRequest Request to resolve a Slack channel by free-form input.
 //
 // Accepts any of:
@@ -6159,13 +5588,6 @@ type ResolveBuildVarsResponse struct {
 // - A bare channel ID (e.g. "C0123ABCD")
 type ResolveSlackChannelRequest struct {
 	Input string `json:"input"`
-}
-
-// ResolvedApp App resolved from workflow tests.
-type ResolvedApp struct {
-	AppId    string `json:"app_id"`
-	AppName  string `json:"app_name"`
-	Platform string `json:"platform"`
 }
 
 // ResolvedBuild Normalized representation of a resolved build artifact.
@@ -6206,17 +5628,6 @@ type ResolvedVariablesResponse struct {
 	Result []ResolvedVariable `json:"result"`
 }
 
-// ReviewMetric defines model for ReviewMetric.
-type ReviewMetric struct {
-	Format           *string `json:"format"`
-	Id               string  `json:"id"`
-	PercentageChange float32 `json:"percentage_change"`
-	Period           string  `json:"period"`
-	PreviousValue    float32 `json:"previous_value"`
-	Title            string  `json:"title"`
-	Value            float32 `json:"value"`
-}
-
 // RevokeCLIApiKeyRequest Request to revoke a browser-issued CLI API key.
 type RevokeCLIApiKeyRequest struct {
 	// ApiKeyId The PropelAuth-assigned API key ID to revoke.
@@ -6230,25 +5641,6 @@ type RevokeCLIApiKeyResponse struct {
 
 	// Success Whether the CLI API key was revoked.
 	Success bool `json:"success"`
-}
-
-// RevylRepoConfig Revyl repository configuration - workflow-centric with multiple workflows.
-type RevylRepoConfig struct {
-	BuildPaths    *[]BuildPathConfig `json:"build_paths,omitempty"`
-	CreatedAt     time.Time          `json:"created_at"`
-	Enabled       bool               `json:"enabled"`
-	Id            openapi_types.UUID `json:"id"`
-	OrgId         openapi_types.UUID `json:"org_id"`
-	Owner         string             `json:"owner"`
-	Repo          string             `json:"repo"`
-	TriggerEvents *[]string          `json:"trigger_events,omitempty"`
-	UpdatedAt     time.Time          `json:"updated_at"`
-	Workflows     *[]WorkflowConfig  `json:"workflows,omitempty"`
-}
-
-// RevylRepoConfigListResponse defines model for RevylRepoConfigListResponse.
-type RevylRepoConfigListResponse struct {
-	Configs []RevylRepoConfig `json:"configs"`
 }
 
 // RunningTestCoreInfo Core identification info for a running test.
@@ -6311,7 +5703,7 @@ type RunningTestMetadataContent struct {
 	Platform string `json:"platform"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfigOutput `json:"run_config,omitempty"`
+	RunConfig *TestRunConfig `json:"run_config,omitempty"`
 
 	// RunId OpenTelemetry trace ID for correlation
 	RunId *openapi_types.UUID `json:"run_id"`
@@ -6434,19 +5826,6 @@ type ScriptUsageResponse struct {
 type ScriptUsageTestItem struct {
 	Id   openapi_types.UUID `json:"id"`
 	Name string             `json:"name"`
-}
-
-// SeatCheckResponse defines model for SeatCheckResponse.
-type SeatCheckResponse struct {
-	AssignedSeats      int                   `json:"assigned_seats"`
-	AssignedUsers      *[]map[string]string  `json:"assigned_users,omitempty"`
-	AutoAssigned       *bool                 `json:"auto_assigned"`
-	BackfillStatus     *BackfillSummary      `json:"backfill_status,omitempty"`
-	GithubUsersCount   int                   `json:"github_users_count"`
-	NeedsAssignment    bool                  `json:"needs_assignment"`
-	TotalSeats         int                   `json:"total_seats"`
-	UnassignedSeats    int                   `json:"unassigned_seats"`
-	UserBackfillStatus *[]UserBackfillStatus `json:"user_backfill_status,omitempty"`
 }
 
 // SessionArtifactUploadRequest Request body for generating an ephemeral artifact upload URL.
@@ -6746,7 +6125,7 @@ type StartDeviceInfo struct {
 	Platform        *string               `json:"platform,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig                    *TestRunConfigInput `json:"run_config,omitempty"`
+	RunConfig                    *TestRunConfig      `json:"run_config,omitempty"`
 	SessionId                    *openapi_types.UUID `json:"session_id"`
 	StartupSessionStartMonotonic *float32            `json:"startup_session_start_monotonic"`
 	TestId                       *openapi_types.UUID `json:"test_id"`
@@ -6940,14 +6319,6 @@ type SuggestionQualityEval struct {
 // SuggestionQualityRating Quality rating for reflection suggestions.
 type SuggestionQualityRating string
 
-// SummaryData defines model for SummaryData.
-type SummaryData struct {
-	GeneratedAt string      `json:"generated_at"`
-	Highlights  []Highlight `json:"highlights"`
-	KeyMetrics  []KeyMetric `json:"key_metrics"`
-	SummaryText string      `json:"summary_text"`
-}
-
 // SyncRepositoriesResponse defines model for SyncRepositoriesResponse.
 type SyncRepositoriesResponse struct {
 	Repositories int  `json:"repositories"`
@@ -7077,7 +6448,7 @@ type TaskID struct {
 	Retries   *int    `json:"retries"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfigInput `json:"run_config,omitempty"`
+	RunConfig *TestRunConfig `json:"run_config,omitempty"`
 
 	// Source Execution source: ui, cli, api, ci_cd, or workflow. Defaults to 'api' for direct API calls.
 	Source         *string            `json:"source"`
@@ -7088,8 +6459,8 @@ type TaskID struct {
 	VariableOverrides *map[string]string `json:"variable_overrides"`
 }
 
-// TaskMetadataInput defines model for TaskMetadata-Input.
-type TaskMetadataInput struct {
+// TaskMetadata defines model for TaskMetadata.
+type TaskMetadata struct {
 	// AgentDescription Human-readable instruction describing what the agent did, e.g. 'Click the Sign In button'
 	AgentDescription *string      `json:"agent_description"`
 	Download         *bool        `json:"download"`
@@ -7100,26 +6471,7 @@ type TaskMetadataInput struct {
 	Step *string `json:"step"`
 
 	// StepConfig Complete configuration for a test run.
-	StepConfig *TestRunConfigInput `json:"step_config,omitempty"`
-
-	// StepDescription Human-readable description of the step
-	StepDescription *string `json:"step_description"`
-	StepType        string  `json:"step_type"`
-}
-
-// TaskMetadataOutput defines model for TaskMetadata-Output.
-type TaskMetadataOutput struct {
-	// AgentDescription Human-readable instruction describing what the agent did, e.g. 'Click the Sign In button'
-	AgentDescription *string      `json:"agent_description"`
-	Download         *bool        `json:"download"`
-	Id               *string      `json:"id"`
-	Metadata         *DOMMetadata `json:"metadata,omitempty"`
-
-	// Step Deprecated: Use step_description instead
-	Step *string `json:"step"`
-
-	// StepConfig Complete configuration for a test run.
-	StepConfig *TestRunConfigOutput `json:"step_config,omitempty"`
+	StepConfig *TestRunConfig `json:"step_config,omitempty"`
 
 	// StepDescription Human-readable description of the step
 	StepDescription *string `json:"step_description"`
@@ -7183,8 +6535,8 @@ type TestInput struct {
 	// Attributes:
 	//     test_id (str): The unique identifier for the test.
 	//     cached_elements (Dict[str, CachedActionElement]): Dictionary of cached action elements keyed by node_id.
-	CachedElements *CachedActionStoreInput `json:"cached_elements,omitempty"`
-	DeviceLocal    *bool                   `json:"device_local"`
+	CachedElements *CachedActionStore `json:"cached_elements,omitempty"`
+	DeviceLocal    *bool              `json:"device_local"`
 
 	// ExpectedVersion Expected version for optimistic locking. If provided and doesn't match current version, update will fail with 409 Conflict.
 	ExpectedVersion *int                `json:"expected_version"`
@@ -7225,7 +6577,7 @@ type TestInput struct {
 	Retries       *int           `json:"retries"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfigInput `json:"run_config,omitempty"`
+	RunConfig *TestRunConfig      `json:"run_config,omitempty"`
 	RunId     *openapi_types.UUID `json:"run_id"`
 
 	// Tags Tags associated with this test for categorization and filtering
@@ -7251,7 +6603,7 @@ type TestInput_Tasks_0_Item struct {
 type TestInputTasks1 = []map[string]interface{}
 
 // TestInputTasks2 defines model for .
-type TestInputTasks2 = []TaskMetadataInput
+type TestInputTasks2 = []TaskMetadata
 
 // TestInput_Tasks defines model for TestInput.Tasks.
 type TestInput_Tasks struct {
@@ -7270,8 +6622,8 @@ type TestOutput struct {
 	// Attributes:
 	//     test_id (str): The unique identifier for the test.
 	//     cached_elements (Dict[str, CachedActionElement]): Dictionary of cached action elements keyed by node_id.
-	CachedElements *CachedActionStoreOutput `json:"cached_elements,omitempty"`
-	DeviceLocal    *bool                    `json:"device_local"`
+	CachedElements *CachedActionStore `json:"cached_elements,omitempty"`
+	DeviceLocal    *bool              `json:"device_local"`
 
 	// ExpectedVersion Expected version for optimistic locking. If provided and doesn't match current version, update will fail with 409 Conflict.
 	ExpectedVersion *int                `json:"expected_version"`
@@ -7312,8 +6664,8 @@ type TestOutput struct {
 	Retries       *int           `json:"retries"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfigOutput `json:"run_config,omitempty"`
-	RunId     *openapi_types.UUID  `json:"run_id"`
+	RunConfig *TestRunConfig      `json:"run_config,omitempty"`
+	RunId     *openapi_types.UUID `json:"run_id"`
 
 	// Tags Tags associated with this test for categorization and filtering
 	Tags   *[]Tag              `json:"tags"`
@@ -7338,7 +6690,7 @@ type TestOutput_Tasks_0_Item struct {
 type TestOutputTasks1 = []map[string]interface{}
 
 // TestOutputTasks2 defines model for .
-type TestOutputTasks2 = []TaskMetadataOutput
+type TestOutputTasks2 = []TaskMetadata
 
 // TestOutput_Tasks defines model for TestOutput.Tasks.
 type TestOutput_Tasks struct {
@@ -7731,8 +7083,8 @@ type TestRestoreVersionResponse struct {
 	RestoredFrom int `json:"restored_from"`
 }
 
-// TestRunConfigInput Complete configuration for a test run.
-type TestRunConfigInput struct {
+// TestRunConfig Complete configuration for a test run.
+type TestRunConfig struct {
 	// CacheRetryMode Cache retry policy for test execution.
 	//
 	// - NONE: No cache fallback, fail if cached steps fail
@@ -7743,31 +7095,7 @@ type TestRunConfigInput struct {
 	DisableGrid *bool `json:"disable_grid"`
 
 	// ExecutionMode Configuration for execution modes and features.
-	ExecutionMode *ExecutionModeConfigInput `json:"execution_mode,omitempty"`
-
-	// FallbackTrigger When to trigger cache fallback.
-	//
-	// - FINAL_FAIL: Only trigger fallback if overall test fails
-	FallbackTrigger *FallbackTrigger `json:"fallback_trigger,omitempty"`
-
-	// LlmConfig Configuration for LLM models used in different stages.
-	LlmConfig *LLMConfig          `json:"llm_config,omitempty"`
-	RunId     *openapi_types.UUID `json:"run_id"`
-}
-
-// TestRunConfigOutput Complete configuration for a test run.
-type TestRunConfigOutput struct {
-	// CacheRetryMode Cache retry policy for test execution.
-	//
-	// - NONE: No cache fallback, fail if cached steps fail
-	// - FULL_RERUN: If cached run fails, rerun entire test without cache
-	CacheRetryMode *CacheRetryMode `json:"cache_retry_mode,omitempty"`
-
-	// DisableGrid Admin-only: Disable grid preprocessing for grounding
-	DisableGrid *bool `json:"disable_grid"`
-
-	// ExecutionMode Configuration for execution modes and features.
-	ExecutionMode *ExecutionModeConfigOutput `json:"execution_mode,omitempty"`
+	ExecutionMode *ExecutionModeConfig `json:"execution_mode,omitempty"`
 
 	// FallbackTrigger When to trigger cache fallback.
 	//
@@ -8031,12 +7359,6 @@ type TrainingImageUploadResponse struct {
 	Success bool    `json:"success"`
 }
 
-// UnifiedPRHistoryRequest Unified request model for PR history that handles both single and multi-repo queries.
-type UnifiedPRHistoryRequest struct {
-	AllRepos     *bool                   `json:"all_repos"`
-	Repositories *[]RepositoryIdentifier `json:"repositories"`
-}
-
 // UnifiedReportRequest Request model for unified report endpoint that supports both token and auth-based access
 type UnifiedReportRequest struct {
 	LoadImages  *bool   `json:"loadImages"`
@@ -8065,22 +7387,13 @@ type UnifiedWorkflowReportResponse struct {
 	WorkflowTask     WorkflowTaskInfo                   `json:"workflow_task"`
 }
 
-// UnitsOfWorkData defines model for UnitsOfWorkData.
-type UnitsOfWorkData struct {
-	BugFixes    int    `json:"bug_fixes"`
-	Developer   string `json:"developer"`
-	Features    int    `json:"features"`
-	Other       int    `json:"other"`
-	Refactoring int    `json:"refactoring"`
-}
-
 // UpdateActionScreenshotRequest defines model for UpdateActionScreenshotRequest.
 type UpdateActionScreenshotRequest struct {
 	ScreenshotAfterS3Key  *string `json:"screenshot_after_s3_key"`
 	ScreenshotBeforeS3Key *string `json:"screenshot_before_s3_key"`
 }
 
-// UpdateDefaultRoleRequest Request to update the default role for new users.
+// UpdateDefaultRoleRequest defines model for UpdateDefaultRoleRequest.
 type UpdateDefaultRoleRequest struct {
 	DefaultRole string `json:"default_role"`
 }
@@ -8143,44 +7456,12 @@ type UpdateModuleRequest struct {
 	Name *string `json:"name"`
 }
 
-// UpdatePRCheckRunRequest Request to update a GitHub check run.
-type UpdatePRCheckRunRequest struct {
-	CheckRunId string  `json:"check_run_id"`
-	Conclusion *string `json:"conclusion"`
-	DetailsUrl *string `json:"details_url"`
-	ExternalId *string `json:"external_id"`
-	Owner      string  `json:"owner"`
-	Repo       string  `json:"repo"`
-	Status     *string `json:"status"`
-	Summary    string  `json:"summary"`
-	Title      string  `json:"title"`
-}
-
-// UpdatePRCommentRequest Request to update a PR comment.
-type UpdatePRCommentRequest struct {
-	CommentBody string `json:"comment_body"`
-	CommentId   string `json:"comment_id"`
-	Owner       string `json:"owner"`
-	PrNumber    int    `json:"pr_number"`
-	Repo        string `json:"repo"`
-}
-
-// UpdatePropelMetadataRequest Update request for Propel organization metadata.
+// UpdatePropelMetadataRequest defines model for UpdatePropelMetadataRequest.
 type UpdatePropelMetadataRequest struct {
 	BrowserProvider  *string `json:"browser_provider"`
 	ConcurrencyLimit *int    `json:"concurrency_limit"`
 	ExpoToken        *string `json:"expo_token"`
 	ProxyEnabled     *bool   `json:"proxy_enabled"`
-}
-
-// UpdateRebelOrgSettings Update request for organization settings.
-type UpdateRebelOrgSettings struct {
-	CursorApiKey     *string `json:"cursor_api_key"`
-	CustomPrompt     *string `json:"custom_prompt"`
-	Enabled          *bool   `json:"enabled"`
-	ExpoToken        *string `json:"expo_token"`
-	Model            *string `json:"model"`
-	ResponseLanguage *string `json:"response_language"`
 }
 
 // UpdateReportRequest Request model for updating a report.
@@ -8277,20 +7558,6 @@ type UpdateSandboxResponse struct {
 
 	// Success Whether update succeeded
 	Success bool `json:"success"`
-}
-
-// UpdateSeatsRequest defines model for UpdateSeatsRequest.
-type UpdateSeatsRequest struct {
-	Assignments   []map[string]string `json:"assignments"`
-	Unassignments []string            `json:"unassignments"`
-}
-
-// UpdateSeatsResponse defines model for UpdateSeatsResponse.
-type UpdateSeatsResponse struct {
-	AssignedCount   int    `json:"assigned_count"`
-	Message         string `json:"message"`
-	Success         bool   `json:"success"`
-	UnassignedCount int    `json:"unassigned_count"`
 }
 
 // UpdateSlackNotificationRuleRequest Request to update an existing notification rule.
@@ -8394,17 +7661,6 @@ type UserActivityItem struct {
 	SessionCount  int     `json:"session_count"`
 	UserEmail     *string `json:"user_email"`
 	UserId        string  `json:"user_id"`
-}
-
-// UserBackfillStatus defines model for UserBackfillStatus.
-type UserBackfillStatus struct {
-	CompletedTasks  int       `json:"completed_tasks"`
-	FailedTasks     int       `json:"failed_tasks"`
-	GithubLogin     string    `json:"github_login"`
-	InProgressTasks int       `json:"in_progress_tasks"`
-	OverallStatus   string    `json:"overall_status"`
-	Repos           *[]string `json:"repos,omitempty"`
-	TotalTasks      int       `json:"total_tasks"`
 }
 
 // UserTestsResponse Model representing the response from get_user_tests_with_details.
@@ -8679,42 +7935,6 @@ type WeeklyMetrics struct {
 	TotalExecutions *float32 `json:"total_executions,omitempty"`
 }
 
-// WeeklySummaryResponse defines model for WeeklySummaryResponse.
-type WeeklySummaryResponse struct {
-	RetrievedAt string      `json:"retrieved_at"`
-	Summary     SummaryData `json:"summary"`
-}
-
-// WhatGotDoneChange Individual change in the What Got Done summary.
-type WhatGotDoneChange struct {
-	// Description Description of the change
-	Description string `json:"description"`
-
-	// PrReferences Related pull requests
-	PrReferences []PRReference `json:"pr_references"`
-
-	// Title Title of the change
-	Title string `json:"title"`
-
-	// Type Type of change (feature, bug_fix, optimization)
-	Type string `json:"type"`
-}
-
-// WhatGotDoneSummary What Got Done summary with categorized changes.
-type WhatGotDoneSummary struct {
-	// BugFixes Bug fixes
-	BugFixes *[]WhatGotDoneChange `json:"bug_fixes,omitempty"`
-
-	// Features New features
-	Features *[]WhatGotDoneChange `json:"features,omitempty"`
-
-	// Optimizations Performance optimizations
-	Optimizations *[]WhatGotDoneChange `json:"optimizations,omitempty"`
-
-	// SummaryText Overall summary text
-	SummaryText string `json:"summary_text"`
-}
-
 // WhileBlockInput Block for loop logic.
 type WhileBlockInput struct {
 	// Children Blocks to execute in the loop
@@ -8755,15 +7975,6 @@ type WhileBlockOutput struct {
 // WhileBlockOutput_Children_Item defines model for WhileBlock-Output.children.Item.
 type WhileBlockOutput_Children_Item struct {
 	union json.RawMessage
-}
-
-// WorkBreakdown defines model for WorkBreakdown.
-type WorkBreakdown struct {
-	BugFixes      int `json:"bug_fixes"`
-	Documentation int `json:"documentation"`
-	Features      int `json:"features"`
-	Refactoring   int `json:"refactoring"`
-	Testing       int `json:"testing"`
 }
 
 // WorkerConnectionResponse Worker connection information.
@@ -8813,11 +8024,6 @@ type WorkflowCancelResponse struct {
 	TaskId  string `json:"task_id"`
 }
 
-// WorkflowConfig Configuration for a Revyl workflow.
-type WorkflowConfig struct {
-	WorkflowId string `json:"workflow_id"`
-}
-
 // WorkflowData defines model for WorkflowData.
 type WorkflowData struct {
 	Name     string               `json:"name"`
@@ -8833,9 +8039,9 @@ type WorkflowDetailData struct {
 	BuildConfig *map[string]interface{} `json:"build_config"`
 
 	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]CognisimSchemasSchemasBackendSchemaChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time                                           `json:"created_at"`
-	Deleted   bool                                                 `json:"deleted"`
+	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
+	CreatedAt *time.Time        `json:"created_at"`
+	Deleted   bool              `json:"deleted"`
 
 	// ExecutionHistory Complete execution history
 	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
@@ -8877,10 +8083,10 @@ type WorkflowDetailData struct {
 	QuarantinedTestIds *[]string `json:"quarantined_test_ids,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig        *TestRunConfigOutput `json:"run_config,omitempty"`
-	Schedule         string               `json:"schedule"`
-	ScheduleEnabled  *bool                `json:"schedule_enabled"`
-	ScheduleTimezone *string              `json:"schedule_timezone"`
+	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
+	Schedule         string         `json:"schedule"`
+	ScheduleEnabled  *bool          `json:"schedule_enabled"`
+	ScheduleTimezone *string        `json:"schedule_timezone"`
 
 	// TestCount Number of tests in workflow
 	TestCount int `json:"test_count"`
@@ -9102,8 +8308,8 @@ type WorkflowInfoInput struct {
 	OverrideBuildConfig *bool `json:"override_build_config,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig  *TestRunConfigInput `json:"run_config,omitempty"`
-	WorkflowId openapi_types.UUID  `json:"workflow_id"`
+	RunConfig  *TestRunConfig     `json:"run_config,omitempty"`
+	WorkflowId openapi_types.UUID `json:"workflow_id"`
 }
 
 // WorkflowInfoOutput Basic workflow info for rule display.
@@ -9283,10 +8489,10 @@ type WorkflowWithLastStatus struct {
 	QuarantinedTestIds *[]string `json:"quarantined_test_ids,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig        *TestRunConfigOutput `json:"run_config,omitempty"`
-	Schedule         string               `json:"schedule"`
-	ScheduleEnabled  *bool                `json:"schedule_enabled"`
-	ScheduleTimezone *string              `json:"schedule_timezone"`
+	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
+	Schedule         string         `json:"schedule"`
+	ScheduleEnabled  *bool          `json:"schedule_enabled"`
+	ScheduleTimezone *string        `json:"schedule_timezone"`
 
 	// TestCount Number of tests in this workflow
 	TestCount int `json:"test_count"`
@@ -9323,10 +8529,10 @@ type WorkflowsBaseSchema struct {
 	QuarantinedTestIds *[]string `json:"quarantined_test_ids,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig        *TestRunConfigOutput `json:"run_config,omitempty"`
-	Schedule         string               `json:"schedule"`
-	ScheduleEnabled  *bool                `json:"schedule_enabled"`
-	ScheduleTimezone *string              `json:"schedule_timezone"`
+	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
+	Schedule         string         `json:"schedule"`
+	ScheduleEnabled  *bool          `json:"schedule_enabled"`
+	ScheduleTimezone *string        `json:"schedule_timezone"`
 
 	// TestTimeoutSeconds Per-test execution timeout in seconds. Applied to all tests dispatched by this workflow.
 	TestTimeoutSeconds *int       `json:"test_timeout_seconds"`
@@ -9383,22 +8589,6 @@ type YamlToBlocksRequest struct {
 
 	// YamlContent YAML content to convert
 	YamlContent string `json:"yaml_content"`
-}
-
-// AppRoutesExecutionRoutesBillingXptAttachRequest defines model for app__routes__execution_routes__billing_xpt__AttachRequest.
-type AppRoutesExecutionRoutesBillingXptAttachRequest struct {
-	BillingPeriod *AppRoutesExecutionRoutesBillingXptAttachRequestBillingPeriod `json:"billing_period,omitempty"`
-	ProductId     *string                                                       `json:"product_id,omitempty"`
-	RedirectUrl   string                                                        `json:"redirect_url"`
-}
-
-// AppRoutesExecutionRoutesBillingXptAttachRequestBillingPeriod defines model for AppRoutesExecutionRoutesBillingXptAttachRequest.BillingPeriod.
-type AppRoutesExecutionRoutesBillingXptAttachRequestBillingPeriod string
-
-// AppRoutesExecutionRoutesBillingXptAttachResponse defines model for app__routes__execution_routes__billing_xpt__AttachResponse.
-type AppRoutesExecutionRoutesBillingXptAttachResponse struct {
-	CheckoutUrl *string `json:"checkout_url"`
-	Message     string  `json:"message"`
 }
 
 // AppRoutesExecutionRoutesBillingXptSessionHistoryItem defines model for app__routes__execution_routes__billing_xpt__SessionHistoryItem.
@@ -9466,31 +8656,6 @@ type AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryResponse struct {
 	Total    int                                                           `json:"total"`
 }
 
-// AppRoutesRebelRoutesAnalyticsXptChartDataPoint defines model for app__routes__rebel_routes__analytics_xpt__ChartDataPoint.
-type AppRoutesRebelRoutesAnalyticsXptChartDataPoint struct {
-	Date        string   `json:"date"`
-	Deployments *int     `json:"deployments"`
-	MedianHours *float32 `json:"median_hours"`
-	P25Hours    *float32 `json:"p25_hours"`
-	P75Hours    *float32 `json:"p75_hours"`
-	TeamAverage *float32 `json:"team_average"`
-	Trend       *string  `json:"trend"`
-	Value       *float32 `json:"value"`
-}
-
-// AppRoutesRebelRoutesBillingXptAttachRequest defines model for app__routes__rebel_routes__billing_xpt__AttachRequest.
-type AppRoutesRebelRoutesBillingXptAttachRequest struct {
-	Quantity    *int   `json:"quantity"`
-	RedirectUrl string `json:"redirect_url"`
-}
-
-// AppRoutesRebelRoutesBillingXptAttachResponse defines model for app__routes__rebel_routes__billing_xpt__AttachResponse.
-type AppRoutesRebelRoutesBillingXptAttachResponse struct {
-	CheckoutUrl *string `json:"checkout_url"`
-	Message     string  `json:"message"`
-	Success     *bool   `json:"success"`
-}
-
 // AppRoutesReportRoutesTestReportXptStepMetadata Lightweight step metadata for replay timeline.
 type AppRoutesReportRoutesTestReportXptStepMetadata struct {
 	ActionType  string  `json:"action_type"`
@@ -9507,27 +8672,6 @@ type AppRoutesWorkflowRoutesWorkflowShareXptStepMetadata struct {
 	EndTime     float32 `json:"end_time"`
 	Index       int     `json:"index"`
 	StartTime   float32 `json:"start_time"`
-}
-
-// CognisimSchemasSchemasBackendSchemaChartDataPoint Daily aggregated chart data point.
-type CognisimSchemasSchemasBackendSchemaChartDataPoint struct {
-	// AvgDuration Average execution duration in seconds for this date
-	AvgDuration *int `json:"avg_duration"`
-
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.
@@ -10068,6 +9212,35 @@ type GetMonitorApiV1FlywheelMonitorGetParams struct {
 	TimeseriesDays *int `form:"timeseries_days,omitempty" json:"timeseries_days,omitempty"`
 }
 
+// GetOrganizationUsersApiV1IntegrationsGithubOrganizationUsersGetParams defines parameters for GetOrganizationUsersApiV1IntegrationsGithubOrganizationUsersGet.
+type GetOrganizationUsersApiV1IntegrationsGithubOrganizationUsersGetParams struct {
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// HandleOauthCallbackApiV1IntegrationsSlackOauthCallbackGetParams defines parameters for HandleOauthCallbackApiV1IntegrationsSlackOauthCallbackGet.
+type HandleOauthCallbackApiV1IntegrationsSlackOauthCallbackGetParams struct {
+	// Code OAuth authorization code from Slack
+	Code string `form:"code" json:"code"`
+
+	// State State token for verification
+	State string `form:"state" json:"state"`
+
+	// RedirectUri Frontend callback URL
+	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
+}
+
+// GetOauthUrlApiV1IntegrationsSlackOauthUrlGetParams defines parameters for GetOauthUrlApiV1IntegrationsSlackOauthUrlGet.
+type GetOauthUrlApiV1IntegrationsSlackOauthUrlGetParams struct {
+	// RedirectUri Frontend callback URL
+	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
+}
+
+// GithubWebhookApiV1IntegrationsWebhookGithubPostParams defines parameters for GithubWebhookApiV1IntegrationsWebhookGithubPost.
+type GithubWebhookApiV1IntegrationsWebhookGithubPostParams struct {
+	XGithubEvent     *string `json:"x-github-event,omitempty"`
+	XHubSignature256 *string `json:"x-hub-signature-256,omitempty"`
+}
+
 // CheckModuleExistsApiV1ModulesCheckExistsGetParams defines parameters for CheckModuleExistsApiV1ModulesCheckExistsGet.
 type CheckModuleExistsApiV1ModulesCheckExistsGetParams struct {
 	Name string `form:"name" json:"name"`
@@ -10166,128 +9339,6 @@ type GetReportApiV1ReportsV3ReportsReportIdGetParams struct {
 type GetDeviceLogsDownloadUrlApiV1ReportsV3ReportsReportIdDeviceLogsGetParams struct {
 	// Token Public share token for unauthenticated access
 	Token *string `form:"token,omitempty" json:"token,omitempty"`
-}
-
-// GetAiCodeGenerationApiV1ReviewAnalyticsAiCodeGenerationPostParams defines parameters for GetAiCodeGenerationApiV1ReviewAnalyticsAiCodeGenerationPost.
-type GetAiCodeGenerationApiV1ReviewAnalyticsAiCodeGenerationPostParams struct {
-	Days *int `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// SyncCursorDataApiV1ReviewAnalyticsAiCursorSyncPostParams defines parameters for SyncCursorDataApiV1ReviewAnalyticsAiCursorSyncPost.
-type SyncCursorDataApiV1ReviewAnalyticsAiCursorSyncPostParams struct {
-	Days              *int  `form:"days,omitempty" json:"days,omitempty"`
-	OverrideRateLimit *bool `form:"override_rate_limit,omitempty" json:"override_rate_limit,omitempty"`
-}
-
-// GetAiEffectivenessDataApiV1ReviewAnalyticsAiEffectivenessPostParams defines parameters for GetAiEffectivenessDataApiV1ReviewAnalyticsAiEffectivenessPost.
-type GetAiEffectivenessDataApiV1ReviewAnalyticsAiEffectivenessPostParams struct {
-	Days *int `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// GetAiUsageMetricsApiV1ReviewAnalyticsAiUsageMetricsPostParams defines parameters for GetAiUsageMetricsApiV1ReviewAnalyticsAiUsageMetricsPost.
-type GetAiUsageMetricsApiV1ReviewAnalyticsAiUsageMetricsPostParams struct {
-	Days *int `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// GetAiUsageOverTimeApiV1ReviewAnalyticsAiUsageOverTimePostParams defines parameters for GetAiUsageOverTimeApiV1ReviewAnalyticsAiUsageOverTimePost.
-type GetAiUsageOverTimeApiV1ReviewAnalyticsAiUsageOverTimePostParams struct {
-	Days *int `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// GetChartsApiApiV1ReviewAnalyticsChartsPostParams defines parameters for GetChartsApiApiV1ReviewAnalyticsChartsPost.
-type GetChartsApiApiV1ReviewAnalyticsChartsPostParams struct {
-	MetricType *string `form:"metric_type,omitempty" json:"metric_type,omitempty"`
-	Days       *int    `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// GetUnifiedDoraMetricsApiApiV1ReviewAnalyticsDoraPostParams defines parameters for GetUnifiedDoraMetricsApiApiV1ReviewAnalyticsDoraPost.
-type GetUnifiedDoraMetricsApiApiV1ReviewAnalyticsDoraPostParams struct {
-	Days *int `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// GetUnifiedCommentsOverTimeApiApiV1ReviewAnalyticsReviewCommentsOverTimePostParams defines parameters for GetUnifiedCommentsOverTimeApiApiV1ReviewAnalyticsReviewCommentsOverTimePost.
-type GetUnifiedCommentsOverTimeApiApiV1ReviewAnalyticsReviewCommentsOverTimePostParams struct {
-	Days *int `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// GetUnifiedDeveloperProfileApiApiV1ReviewAnalyticsReviewDeveloperProfilePostParams defines parameters for GetUnifiedDeveloperProfileApiApiV1ReviewAnalyticsReviewDeveloperProfilePost.
-type GetUnifiedDeveloperProfileApiApiV1ReviewAnalyticsReviewDeveloperProfilePostParams struct {
-	Developer string `form:"developer" json:"developer"`
-	Days      *int   `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// GetUnifiedLeaderboardApiApiV1ReviewAnalyticsReviewLeaderboardPostParams defines parameters for GetUnifiedLeaderboardApiApiV1ReviewAnalyticsReviewLeaderboardPost.
-type GetUnifiedLeaderboardApiApiV1ReviewAnalyticsReviewLeaderboardPostParams struct {
-	Days *int `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// GetUnifiedReviewMetricsApiApiV1ReviewAnalyticsReviewMetricsPostParams defines parameters for GetUnifiedReviewMetricsApiApiV1ReviewAnalyticsReviewMetricsPost.
-type GetUnifiedReviewMetricsApiApiV1ReviewAnalyticsReviewMetricsPostParams struct {
-	Days *int `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// GetUnifiedPrHistoryApiApiV1ReviewAnalyticsReviewPrHistoryPostParams defines parameters for GetUnifiedPrHistoryApiApiV1ReviewAnalyticsReviewPrHistoryPost.
-type GetUnifiedPrHistoryApiApiV1ReviewAnalyticsReviewPrHistoryPostParams struct {
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
-	Days  *int `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// GetMultiRepoRecentCommentsApiApiV1ReviewAnalyticsReviewRecentCommentsPostParams defines parameters for GetMultiRepoRecentCommentsApiApiV1ReviewAnalyticsReviewRecentCommentsPost.
-type GetMultiRepoRecentCommentsApiApiV1ReviewAnalyticsReviewRecentCommentsPostParams struct {
-	Days  *int `form:"days,omitempty" json:"days,omitempty"`
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// GetUnifiedUnitsOfWorkApiApiV1ReviewAnalyticsReviewUnitsOfWorkPostParams defines parameters for GetUnifiedUnitsOfWorkApiApiV1ReviewAnalyticsReviewUnitsOfWorkPost.
-type GetUnifiedUnitsOfWorkApiApiV1ReviewAnalyticsReviewUnitsOfWorkPostParams struct {
-	Days *int `form:"days,omitempty" json:"days,omitempty"`
-}
-
-// CallbackApiV1ReviewAuthCallbackGetParams defines parameters for CallbackApiV1ReviewAuthCallbackGet.
-type CallbackApiV1ReviewAuthCallbackGetParams struct {
-	InstallationId *string `form:"installation_id,omitempty" json:"installation_id,omitempty"`
-	State          *string `form:"state,omitempty" json:"state,omitempty"`
-}
-
-// GetActiveBackfillsApiV1ReviewBackfillActiveGetParams defines parameters for GetActiveBackfillsApiV1ReviewBackfillActiveGet.
-type GetActiveBackfillsApiV1ReviewBackfillActiveGetParams struct {
-	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
-	Repo  *string `form:"repo,omitempty" json:"repo,omitempty"`
-}
-
-// GetOrganizationUsersApiV1ReviewGithubOrganizationUsersGetParams defines parameters for GetOrganizationUsersApiV1ReviewGithubOrganizationUsersGet.
-type GetOrganizationUsersApiV1ReviewGithubOrganizationUsersGetParams struct {
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// ResolveAppsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGetParams defines parameters for ResolveAppsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGet.
-type ResolveAppsFromWorkflowsApiV1ReviewRevylCiResolveBuildVarsGetParams struct {
-	// WorkflowIds List of workflow IDs
-	WorkflowIds []string `form:"workflow_ids" json:"workflow_ids"`
-}
-
-// HandleOauthCallbackApiV1ReviewSlackOauthCallbackGetParams defines parameters for HandleOauthCallbackApiV1ReviewSlackOauthCallbackGet.
-type HandleOauthCallbackApiV1ReviewSlackOauthCallbackGetParams struct {
-	// Code OAuth authorization code from Slack
-	Code string `form:"code" json:"code"`
-
-	// State State token for verification
-	State string `form:"state" json:"state"`
-
-	// RedirectUri Frontend callback URL
-	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
-}
-
-// GetOauthUrlApiV1ReviewSlackOauthUrlGetParams defines parameters for GetOauthUrlApiV1ReviewSlackOauthUrlGet.
-type GetOauthUrlApiV1ReviewSlackOauthUrlGetParams struct {
-	// RedirectUri Frontend callback URL
-	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
-}
-
-// GithubWebhookApiV1ReviewWebhookPostParams defines parameters for GithubWebhookApiV1ReviewWebhookPost.
-type GithubWebhookApiV1ReviewWebhookPostParams struct {
-	XGithubEvent     *string `json:"x-github-event,omitempty"`
-	XHubSignature256 *string `json:"x-hub-signature-256,omitempty"`
 }
 
 // GetActiveTestCountApiV1TestsActiveCountGetParams defines parameters for GetActiveTestCountApiV1TestsActiveCountGet.
@@ -10572,7 +9623,7 @@ type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody = 
 type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONRequestBody = WorkflowInfoInput
 
 // BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody defines body for BillingAttachApiV1ExecutionBillingAttachPost for application/json ContentType.
-type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AppRoutesExecutionRoutesBillingXptAttachRequest
+type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AttachRequest
 
 // FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPostJSONRequestBody defines body for FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPost for application/json ContentType.
 type FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPostJSONRequestBody = FailBillingSessionRequest
@@ -10673,6 +9724,42 @@ type RecordApprovalDecisionApiV1HitlRecordDecisionPostJSONRequestBody = HITLAppr
 // CreateHotreloadRelayApiV1HotreloadRelaysPostJSONRequestBody defines body for CreateHotreloadRelayApiV1HotreloadRelaysPost for application/json ContentType.
 type CreateHotreloadRelayApiV1HotreloadRelaysPostJSONRequestBody = HotReloadRelayCreateRequest
 
+// ListExpoBuildsEndpointApiV1IntegrationsExpoBuildsPostJSONRequestBody defines body for ListExpoBuildsEndpointApiV1IntegrationsExpoBuildsPost for application/json ContentType.
+type ListExpoBuildsEndpointApiV1IntegrationsExpoBuildsPostJSONRequestBody = ListExpoBuildsRequest
+
+// ManualTriggerExpoBuildApiV1IntegrationsExpoManualTriggerPostJSONRequestBody defines body for ManualTriggerExpoBuildApiV1IntegrationsExpoManualTriggerPost for application/json ContentType.
+type ManualTriggerExpoBuildApiV1IntegrationsExpoManualTriggerPostJSONRequestBody = ManualTriggerRequest
+
+// GetExpoProjectIdsApiV1IntegrationsExpoProjectIdsPostJSONRequestBody defines body for GetExpoProjectIdsApiV1IntegrationsExpoProjectIdsPost for application/json ContentType.
+type GetExpoProjectIdsApiV1IntegrationsExpoProjectIdsPostJSONRequestBody = ExpoProjectFromBuildPathRequest
+
+// CreateExpoProjectApiV1IntegrationsExpoProjectsPostJSONRequestBody defines body for CreateExpoProjectApiV1IntegrationsExpoProjectsPost for application/json ContentType.
+type CreateExpoProjectApiV1IntegrationsExpoProjectsPostJSONRequestBody = CreateExpoProjectRequest
+
+// UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPutJSONRequestBody defines body for UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPut for application/json ContentType.
+type UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPutJSONRequestBody = UpdateExpoProjectRequest
+
+// VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPostJSONRequestBody defines body for VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPost for application/json ContentType.
+type VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPostJSONRequestBody = SetupInstallationRequest
+
+// UpdateDefaultRoleApiV1IntegrationsSettingsDefaultRolePutJSONRequestBody defines body for UpdateDefaultRoleApiV1IntegrationsSettingsDefaultRolePut for application/json ContentType.
+type UpdateDefaultRoleApiV1IntegrationsSettingsDefaultRolePutJSONRequestBody = UpdateDefaultRoleRequest
+
+// UpdatePropelMetadataApiV1IntegrationsSettingsMetadataPutJSONRequestBody defines body for UpdatePropelMetadataApiV1IntegrationsSettingsMetadataPut for application/json ContentType.
+type UpdatePropelMetadataApiV1IntegrationsSettingsMetadataPutJSONRequestBody = UpdatePropelMetadataRequest
+
+// ResolveChannelApiV1IntegrationsSlackChannelsResolvePostJSONRequestBody defines body for ResolveChannelApiV1IntegrationsSlackChannelsResolvePost for application/json ContentType.
+type ResolveChannelApiV1IntegrationsSlackChannelsResolvePostJSONRequestBody = ResolveSlackChannelRequest
+
+// InternalSendNotificationApiV1IntegrationsSlackInternalSendNotificationPostJSONRequestBody defines body for InternalSendNotificationApiV1IntegrationsSlackInternalSendNotificationPost for application/json ContentType.
+type InternalSendNotificationApiV1IntegrationsSlackInternalSendNotificationPostJSONRequestBody = InternalSendNotificationRequest
+
+// CreateRuleApiV1IntegrationsSlackRulesPostJSONRequestBody defines body for CreateRuleApiV1IntegrationsSlackRulesPost for application/json ContentType.
+type CreateRuleApiV1IntegrationsSlackRulesPostJSONRequestBody = CreateSlackNotificationRuleRequest
+
+// UpdateRuleApiV1IntegrationsSlackRulesRuleIdPutJSONRequestBody defines body for UpdateRuleApiV1IntegrationsSlackRulesRuleIdPut for application/json ContentType.
+type UpdateRuleApiV1IntegrationsSlackRulesRuleIdPutJSONRequestBody = UpdateSlackNotificationRuleRequest
+
 // CreateModuleApiV1ModulesCreatePostJSONRequestBody defines body for CreateModuleApiV1ModulesCreatePost for application/json ContentType.
 type CreateModuleApiV1ModulesCreatePostJSONRequestBody = CreateModuleRequest
 
@@ -10738,123 +9825,6 @@ type UpdateStepApiV1ReportsV3StepsStepIdPatchJSONRequestBody = UpdateStepRequest
 
 // CreateActionApiV1ReportsV3StepsStepIdActionsPostJSONRequestBody defines body for CreateActionApiV1ReportsV3StepsStepIdActionsPost for application/json ContentType.
 type CreateActionApiV1ReportsV3StepsStepIdActionsPostJSONRequestBody = CreateActionRequest
-
-// GetAiCodeGenerationApiV1ReviewAnalyticsAiCodeGenerationPostJSONRequestBody defines body for GetAiCodeGenerationApiV1ReviewAnalyticsAiCodeGenerationPost for application/json ContentType.
-type GetAiCodeGenerationApiV1ReviewAnalyticsAiCodeGenerationPostJSONRequestBody = UnifiedPRHistoryRequest
-
-// SaveCursorGithubMappingApiV1ReviewAnalyticsAiCursorGithubMappingsPostJSONRequestBody defines body for SaveCursorGithubMappingApiV1ReviewAnalyticsAiCursorGithubMappingsPost for application/json ContentType.
-type SaveCursorGithubMappingApiV1ReviewAnalyticsAiCursorGithubMappingsPostJSONRequestBody = CursorGithubMapping
-
-// GetAiEffectivenessDataApiV1ReviewAnalyticsAiEffectivenessPostJSONRequestBody defines body for GetAiEffectivenessDataApiV1ReviewAnalyticsAiEffectivenessPost for application/json ContentType.
-type GetAiEffectivenessDataApiV1ReviewAnalyticsAiEffectivenessPostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetAiUsageMetricsApiV1ReviewAnalyticsAiUsageMetricsPostJSONRequestBody defines body for GetAiUsageMetricsApiV1ReviewAnalyticsAiUsageMetricsPost for application/json ContentType.
-type GetAiUsageMetricsApiV1ReviewAnalyticsAiUsageMetricsPostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetAiUsageOverTimeApiV1ReviewAnalyticsAiUsageOverTimePostJSONRequestBody defines body for GetAiUsageOverTimeApiV1ReviewAnalyticsAiUsageOverTimePost for application/json ContentType.
-type GetAiUsageOverTimeApiV1ReviewAnalyticsAiUsageOverTimePostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetChartsApiApiV1ReviewAnalyticsChartsPostJSONRequestBody defines body for GetChartsApiApiV1ReviewAnalyticsChartsPost for application/json ContentType.
-type GetChartsApiApiV1ReviewAnalyticsChartsPostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetUnifiedDoraMetricsApiApiV1ReviewAnalyticsDoraPostJSONRequestBody defines body for GetUnifiedDoraMetricsApiApiV1ReviewAnalyticsDoraPost for application/json ContentType.
-type GetUnifiedDoraMetricsApiApiV1ReviewAnalyticsDoraPostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetEnhancedWeeklySummaryApiApiV1ReviewAnalyticsEnhancedSummaryPostJSONRequestBody defines body for GetEnhancedWeeklySummaryApiApiV1ReviewAnalyticsEnhancedSummaryPost for application/json ContentType.
-type GetEnhancedWeeklySummaryApiApiV1ReviewAnalyticsEnhancedSummaryPostJSONRequestBody = EnhancedSummaryRequest
-
-// GetUnifiedCommentsOverTimeApiApiV1ReviewAnalyticsReviewCommentsOverTimePostJSONRequestBody defines body for GetUnifiedCommentsOverTimeApiApiV1ReviewAnalyticsReviewCommentsOverTimePost for application/json ContentType.
-type GetUnifiedCommentsOverTimeApiApiV1ReviewAnalyticsReviewCommentsOverTimePostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetUnifiedDeveloperProfileApiApiV1ReviewAnalyticsReviewDeveloperProfilePostJSONRequestBody defines body for GetUnifiedDeveloperProfileApiApiV1ReviewAnalyticsReviewDeveloperProfilePost for application/json ContentType.
-type GetUnifiedDeveloperProfileApiApiV1ReviewAnalyticsReviewDeveloperProfilePostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetUnifiedDevelopersApiApiV1ReviewAnalyticsReviewDevelopersPostJSONRequestBody defines body for GetUnifiedDevelopersApiApiV1ReviewAnalyticsReviewDevelopersPost for application/json ContentType.
-type GetUnifiedDevelopersApiApiV1ReviewAnalyticsReviewDevelopersPostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetUnifiedLeaderboardApiApiV1ReviewAnalyticsReviewLeaderboardPostJSONRequestBody defines body for GetUnifiedLeaderboardApiApiV1ReviewAnalyticsReviewLeaderboardPost for application/json ContentType.
-type GetUnifiedLeaderboardApiApiV1ReviewAnalyticsReviewLeaderboardPostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetUnifiedReviewMetricsApiApiV1ReviewAnalyticsReviewMetricsPostJSONRequestBody defines body for GetUnifiedReviewMetricsApiApiV1ReviewAnalyticsReviewMetricsPost for application/json ContentType.
-type GetUnifiedReviewMetricsApiApiV1ReviewAnalyticsReviewMetricsPostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetUnifiedPrHistoryApiApiV1ReviewAnalyticsReviewPrHistoryPostJSONRequestBody defines body for GetUnifiedPrHistoryApiApiV1ReviewAnalyticsReviewPrHistoryPost for application/json ContentType.
-type GetUnifiedPrHistoryApiApiV1ReviewAnalyticsReviewPrHistoryPostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetMultiRepoRecentCommentsApiApiV1ReviewAnalyticsReviewRecentCommentsPostJSONRequestBody defines body for GetMultiRepoRecentCommentsApiApiV1ReviewAnalyticsReviewRecentCommentsPost for application/json ContentType.
-type GetMultiRepoRecentCommentsApiApiV1ReviewAnalyticsReviewRecentCommentsPostJSONRequestBody = MultiRepositoryRequest
-
-// GetUnifiedUnitsOfWorkApiApiV1ReviewAnalyticsReviewUnitsOfWorkPostJSONRequestBody defines body for GetUnifiedUnitsOfWorkApiApiV1ReviewAnalyticsReviewUnitsOfWorkPost for application/json ContentType.
-type GetUnifiedUnitsOfWorkApiApiV1ReviewAnalyticsReviewUnitsOfWorkPostJSONRequestBody = UnifiedPRHistoryRequest
-
-// GetWeeklySummaryApiApiV1ReviewAnalyticsSummaryPostJSONRequestBody defines body for GetWeeklySummaryApiApiV1ReviewAnalyticsSummaryPost for application/json ContentType.
-type GetWeeklySummaryApiApiV1ReviewAnalyticsSummaryPostJSONRequestBody = UnifiedPRHistoryRequest
-
-// TriggerBackfillApiV1ReviewBackfillPostJSONRequestBody defines body for TriggerBackfillApiV1ReviewBackfillPost for application/json ContentType.
-type TriggerBackfillApiV1ReviewBackfillPostJSONRequestBody = BackfillRequest
-
-// AssignSeatsApiV1ReviewBillingAssignSeatsPostJSONRequestBody defines body for AssignSeatsApiV1ReviewBillingAssignSeatsPost for application/json ContentType.
-type AssignSeatsApiV1ReviewBillingAssignSeatsPostJSONRequestBody = AssignSeatsRequest
-
-// AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody defines body for AttachBillingApiV1ReviewBillingAttachPost for application/json ContentType.
-type AttachBillingApiV1ReviewBillingAttachPostJSONRequestBody = AppRoutesRebelRoutesBillingXptAttachRequest
-
-// UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody defines body for UpdateSeatsApiV1ReviewBillingUpdateSeatsPost for application/json ContentType.
-type UpdateSeatsApiV1ReviewBillingUpdateSeatsPostJSONRequestBody = UpdateSeatsRequest
-
-// CreatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckCreatePostJSONRequestBody defines body for CreatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckCreatePost for application/json ContentType.
-type CreatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckCreatePostJSONRequestBody = CreatePRCheckRunRequest
-
-// UpdatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckUpdatePostJSONRequestBody defines body for UpdatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckUpdatePost for application/json ContentType.
-type UpdatePrCheckRunEndpointApiV1ReviewBuildTestPrCheckUpdatePostJSONRequestBody = UpdatePRCheckRunRequest
-
-// PostFinalPrCommentEndpointApiV1ReviewBuildTestPrCommentFinalPostJSONRequestBody defines body for PostFinalPrCommentEndpointApiV1ReviewBuildTestPrCommentFinalPost for application/json ContentType.
-type PostFinalPrCommentEndpointApiV1ReviewBuildTestPrCommentFinalPostJSONRequestBody = PostFinalPRCommentRequest
-
-// UpdatePrCommentEndpointApiV1ReviewBuildTestPrCommentUpdatePostJSONRequestBody defines body for UpdatePrCommentEndpointApiV1ReviewBuildTestPrCommentUpdatePost for application/json ContentType.
-type UpdatePrCommentEndpointApiV1ReviewBuildTestPrCommentUpdatePostJSONRequestBody = UpdatePRCommentRequest
-
-// VerifyInstallationApiV1ReviewGithubVerifyInstallationPostJSONRequestBody defines body for VerifyInstallationApiV1ReviewGithubVerifyInstallationPost for application/json ContentType.
-type VerifyInstallationApiV1ReviewGithubVerifyInstallationPostJSONRequestBody = SetupInstallationRequest
-
-// SaveRepoRevylConfigApiV1ReviewRevylCiReposOwnerRepoPostJSONRequestBody defines body for SaveRepoRevylConfigApiV1ReviewRevylCiReposOwnerRepoPost for application/json ContentType.
-type SaveRepoRevylConfigApiV1ReviewRevylCiReposOwnerRepoPostJSONRequestBody = CreateRevylRepoConfigRequest
-
-// UpdateOrgSettingsApiV1ReviewSettingsPutJSONRequestBody defines body for UpdateOrgSettingsApiV1ReviewSettingsPut for application/json ContentType.
-type UpdateOrgSettingsApiV1ReviewSettingsPutJSONRequestBody = UpdateRebelOrgSettings
-
-// UpdateDefaultRoleApiV1ReviewSettingsDefaultRolePutJSONRequestBody defines body for UpdateDefaultRoleApiV1ReviewSettingsDefaultRolePut for application/json ContentType.
-type UpdateDefaultRoleApiV1ReviewSettingsDefaultRolePutJSONRequestBody = UpdateDefaultRoleRequest
-
-// CreateExpoProjectApiV1ReviewSettingsExpoProjectsPostJSONRequestBody defines body for CreateExpoProjectApiV1ReviewSettingsExpoProjectsPost for application/json ContentType.
-type CreateExpoProjectApiV1ReviewSettingsExpoProjectsPostJSONRequestBody = CreateExpoProjectRequest
-
-// UpdateExpoProjectApiV1ReviewSettingsExpoProjectsConfigIdPutJSONRequestBody defines body for UpdateExpoProjectApiV1ReviewSettingsExpoProjectsConfigIdPut for application/json ContentType.
-type UpdateExpoProjectApiV1ReviewSettingsExpoProjectsConfigIdPutJSONRequestBody = UpdateExpoProjectRequest
-
-// ListExpoBuildsEndpointApiV1ReviewSettingsExpoBuildsPostJSONRequestBody defines body for ListExpoBuildsEndpointApiV1ReviewSettingsExpoBuildsPost for application/json ContentType.
-type ListExpoBuildsEndpointApiV1ReviewSettingsExpoBuildsPostJSONRequestBody = ListExpoBuildsRequest
-
-// ManualTriggerExpoBuildApiV1ReviewSettingsExpoManualTriggerPostJSONRequestBody defines body for ManualTriggerExpoBuildApiV1ReviewSettingsExpoManualTriggerPost for application/json ContentType.
-type ManualTriggerExpoBuildApiV1ReviewSettingsExpoManualTriggerPostJSONRequestBody = ManualTriggerRequest
-
-// GetExpoProjectIdsApiV1ReviewSettingsExpoProjectIdsPostJSONRequestBody defines body for GetExpoProjectIdsApiV1ReviewSettingsExpoProjectIdsPost for application/json ContentType.
-type GetExpoProjectIdsApiV1ReviewSettingsExpoProjectIdsPostJSONRequestBody = ExpoProjectFromBuildPathRequest
-
-// UpdatePropelMetadataApiV1ReviewSettingsMetadataPutJSONRequestBody defines body for UpdatePropelMetadataApiV1ReviewSettingsMetadataPut for application/json ContentType.
-type UpdatePropelMetadataApiV1ReviewSettingsMetadataPutJSONRequestBody = UpdatePropelMetadataRequest
-
-// ResolveChannelApiV1ReviewSlackChannelsResolvePostJSONRequestBody defines body for ResolveChannelApiV1ReviewSlackChannelsResolvePost for application/json ContentType.
-type ResolveChannelApiV1ReviewSlackChannelsResolvePostJSONRequestBody = ResolveSlackChannelRequest
-
-// InternalSendNotificationApiV1ReviewSlackInternalSendNotificationPostJSONRequestBody defines body for InternalSendNotificationApiV1ReviewSlackInternalSendNotificationPost for application/json ContentType.
-type InternalSendNotificationApiV1ReviewSlackInternalSendNotificationPostJSONRequestBody = InternalSendNotificationRequest
-
-// CreateRuleApiV1ReviewSlackRulesPostJSONRequestBody defines body for CreateRuleApiV1ReviewSlackRulesPost for application/json ContentType.
-type CreateRuleApiV1ReviewSlackRulesPostJSONRequestBody = CreateSlackNotificationRuleRequest
-
-// UpdateRuleApiV1ReviewSlackRulesRuleIdPutJSONRequestBody defines body for UpdateRuleApiV1ReviewSlackRulesRuleIdPut for application/json ContentType.
-type UpdateRuleApiV1ReviewSlackRulesRuleIdPutJSONRequestBody = UpdateSlackNotificationRuleRequest
 
 // GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody defines body for GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePost for application/json ContentType.
 type GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody = S3PresignedUrlsRequest
@@ -10923,7 +9893,7 @@ type CreateTestFromYamlApiV1TestsYamlFromYamlPostJSONRequestBody = YamlCreationR
 type ValidateYamlApiV1TestsYamlValidateYamlPostJSONRequestBody = ValidationRequest
 
 // UpdateCachedElementsEndpointApiV1TestsTestIdCachedElementsPutJSONRequestBody defines body for UpdateCachedElementsEndpointApiV1TestsTestIdCachedElementsPut for application/json ContentType.
-type UpdateCachedElementsEndpointApiV1TestsTestIdCachedElementsPutJSONRequestBody = CachedActionStoreInput
+type UpdateCachedElementsEndpointApiV1TestsTestIdCachedElementsPutJSONRequestBody = CachedActionStore
 
 // UpdateDeviceTargetApiV1TestsTestIdDeviceTargetPatchJSONRequestBody defines body for UpdateDeviceTargetApiV1TestsTestIdDeviceTargetPatch for application/json ContentType.
 type UpdateDeviceTargetApiV1TestsTestIdDeviceTargetPatchJSONRequestBody = UpdateDeviceTargetRequest
@@ -14220,192 +13190,6 @@ func (t IfBlockOutput_ThenChildren_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *IfBlockOutput_ThenChildren_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsInstallationCreatedAt0 returns the union data inside the Installation_CreatedAt as a InstallationCreatedAt0
-func (t Installation_CreatedAt) AsInstallationCreatedAt0() (InstallationCreatedAt0, error) {
-	var body InstallationCreatedAt0
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromInstallationCreatedAt0 overwrites any union data inside the Installation_CreatedAt as the provided InstallationCreatedAt0
-func (t *Installation_CreatedAt) FromInstallationCreatedAt0(v InstallationCreatedAt0) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeInstallationCreatedAt0 performs a merge with any union data inside the Installation_CreatedAt, using the provided InstallationCreatedAt0
-func (t *Installation_CreatedAt) MergeInstallationCreatedAt0(v InstallationCreatedAt0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsInstallationCreatedAt1 returns the union data inside the Installation_CreatedAt as a InstallationCreatedAt1
-func (t Installation_CreatedAt) AsInstallationCreatedAt1() (InstallationCreatedAt1, error) {
-	var body InstallationCreatedAt1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromInstallationCreatedAt1 overwrites any union data inside the Installation_CreatedAt as the provided InstallationCreatedAt1
-func (t *Installation_CreatedAt) FromInstallationCreatedAt1(v InstallationCreatedAt1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeInstallationCreatedAt1 performs a merge with any union data inside the Installation_CreatedAt, using the provided InstallationCreatedAt1
-func (t *Installation_CreatedAt) MergeInstallationCreatedAt1(v InstallationCreatedAt1) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t Installation_CreatedAt) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *Installation_CreatedAt) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsInstallationId0 returns the union data inside the Installation_Id as a InstallationId0
-func (t Installation_Id) AsInstallationId0() (InstallationId0, error) {
-	var body InstallationId0
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromInstallationId0 overwrites any union data inside the Installation_Id as the provided InstallationId0
-func (t *Installation_Id) FromInstallationId0(v InstallationId0) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeInstallationId0 performs a merge with any union data inside the Installation_Id, using the provided InstallationId0
-func (t *Installation_Id) MergeInstallationId0(v InstallationId0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsInstallationId1 returns the union data inside the Installation_Id as a InstallationId1
-func (t Installation_Id) AsInstallationId1() (InstallationId1, error) {
-	var body InstallationId1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromInstallationId1 overwrites any union data inside the Installation_Id as the provided InstallationId1
-func (t *Installation_Id) FromInstallationId1(v InstallationId1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeInstallationId1 performs a merge with any union data inside the Installation_Id, using the provided InstallationId1
-func (t *Installation_Id) MergeInstallationId1(v InstallationId1) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t Installation_Id) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *Installation_Id) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsInstallationVerifiedAt0 returns the union data inside the Installation_VerifiedAt as a InstallationVerifiedAt0
-func (t Installation_VerifiedAt) AsInstallationVerifiedAt0() (InstallationVerifiedAt0, error) {
-	var body InstallationVerifiedAt0
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromInstallationVerifiedAt0 overwrites any union data inside the Installation_VerifiedAt as the provided InstallationVerifiedAt0
-func (t *Installation_VerifiedAt) FromInstallationVerifiedAt0(v InstallationVerifiedAt0) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeInstallationVerifiedAt0 performs a merge with any union data inside the Installation_VerifiedAt, using the provided InstallationVerifiedAt0
-func (t *Installation_VerifiedAt) MergeInstallationVerifiedAt0(v InstallationVerifiedAt0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsInstallationVerifiedAt1 returns the union data inside the Installation_VerifiedAt as a InstallationVerifiedAt1
-func (t Installation_VerifiedAt) AsInstallationVerifiedAt1() (InstallationVerifiedAt1, error) {
-	var body InstallationVerifiedAt1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromInstallationVerifiedAt1 overwrites any union data inside the Installation_VerifiedAt as the provided InstallationVerifiedAt1
-func (t *Installation_VerifiedAt) FromInstallationVerifiedAt1(v InstallationVerifiedAt1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeInstallationVerifiedAt1 performs a merge with any union data inside the Installation_VerifiedAt, using the provided InstallationVerifiedAt1
-func (t *Installation_VerifiedAt) MergeInstallationVerifiedAt1(v InstallationVerifiedAt1) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t Installation_VerifiedAt) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *Installation_VerifiedAt) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
