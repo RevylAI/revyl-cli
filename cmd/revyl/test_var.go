@@ -127,7 +127,10 @@ func init() {
 	testVarClearCmd.Flags().BoolVarP(&testVarForce, "force", "f", false, "Skip confirmation prompt")
 }
 
-// varSetupClient creates an API client and resolves test ID from name/alias.
+// resolveTestClient creates an API client and resolves a test name/alias
+// or UUID to a test UUID. Indirected through a package-level var so tests
+// can swap in a stub. Used by every `revyl test <subcommand>` that needs
+// to identify the test before making API calls.
 //
 // Parameters:
 //   - cmd: The cobra command (used for flag access)
@@ -137,9 +140,9 @@ func init() {
 //   - testID: The resolved test UUID
 //   - client: Configured API client
 //   - error: Any error during setup
-var varSetupClient = varSetupClientDefault
+var resolveTestClient = resolveTestClientDefault
 
-func varSetupClientDefault(cmd *cobra.Command, testNameOrID string) (string, *api.Client, error) {
+func resolveTestClientDefault(cmd *cobra.Command, testNameOrID string) (string, *api.Client, error) {
 	apiKey, err := getAPIKey()
 	if err != nil {
 		return "", nil, err
@@ -189,7 +192,7 @@ func isValidVariableName(name string) bool {
 func runTestVarList(cmd *cobra.Command, args []string) error {
 	testNameOrID := args[0]
 
-	testID, client, err := varSetupClient(cmd, testNameOrID)
+	testID, client, err := resolveTestClient(cmd, testNameOrID)
 	if err != nil {
 		return err
 	}
@@ -260,7 +263,7 @@ func runTestVarSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid variable name")
 	}
 
-	testID, client, err := varSetupClient(cmd, testNameOrID)
+	testID, client, err := resolveTestClient(cmd, testNameOrID)
 	if err != nil {
 		return err
 	}
@@ -315,7 +318,7 @@ func runTestVarDelete(cmd *cobra.Command, args []string) error {
 	testNameOrID := args[0]
 	name := args[1]
 
-	testID, client, err := varSetupClient(cmd, testNameOrID)
+	testID, client, err := resolveTestClient(cmd, testNameOrID)
 	if err != nil {
 		return err
 	}
@@ -346,7 +349,7 @@ func runTestVarClear(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	testID, client, err := varSetupClient(cmd, testNameOrID)
+	testID, client, err := resolveTestClient(cmd, testNameOrID)
 	if err != nil {
 		return err
 	}
@@ -369,7 +372,7 @@ func runTestVarGet(cmd *cobra.Command, args []string) error {
 	testNameOrID := args[0]
 	name := args[1]
 
-	testID, client, err := varSetupClient(cmd, testNameOrID)
+	testID, client, err := resolveTestClient(cmd, testNameOrID)
 	if err != nil {
 		return err
 	}
@@ -409,7 +412,7 @@ func runTestVarRename(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid variable name")
 	}
 
-	testID, client, err := varSetupClient(cmd, testNameOrID)
+	testID, client, err := resolveTestClient(cmd, testNameOrID)
 	if err != nil {
 		return err
 	}

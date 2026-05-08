@@ -55,6 +55,7 @@ var (
 	runDeviceModel          string
 	runOsVersion            string
 	runOrientation          string
+	runFailFast             bool
 )
 
 // minRetries is the minimum allowed retry count.
@@ -415,6 +416,13 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	})
 	defer stopInterruptHandler()
 
+	var failFastPtr *bool
+	if cmd.Flags().Changed("fail-fast") {
+		v := runFailFast
+		failFastPtr = &v
+		ui.PrintInfo("Fail Fast: %v", v)
+	}
+
 	result, err := runTestExecution(ctx, apiKey, cfg, execution.RunTestParams{
 		TestNameOrID:   testID,
 		Retries:        runRetries,
@@ -428,6 +436,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		DeviceModel:    deviceModel,
 		OsVersion:      osVersion,
 		Orientation:    runOrientation,
+		FailFast:       failFastPtr,
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},

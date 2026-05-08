@@ -668,6 +668,10 @@ func parseResponseWithRaw(resp *http.Response, target interface{}) (json.RawMess
 // CLIRunConfig contains optional runtime configuration for test execution.
 type CLIRunConfig struct {
 	ExecutionMode *CLIExecutionMode `json:"execution_mode,omitempty"`
+	// FailFast halts the run on the first failed step or validation when set.
+	// Pointer so a nil value is omitted from the request and the backend
+	// falls back to the test's stored run_config.
+	FailFast *bool `json:"fail_fast,omitempty"`
 }
 
 // CLIExecutionMode contains execution mode settings.
@@ -1389,6 +1393,10 @@ type TestSummary struct {
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 	MobileTargets  []MobileTargetEntry    `json:"mobile_targets,omitempty"`
 	Orientation    string                 `json:"orientation,omitempty"`
+	// RunConfig is the test's persisted run configuration (TestRunConfig
+	// from cognisim_schemas). Kept as a raw map so the CLI can edit
+	// individual keys without binding to every nested field type.
+	RunConfig map[string]interface{} `json:"run_config,omitempty"`
 }
 
 // UpdateTestRequest represents a test update request.
@@ -1401,6 +1409,10 @@ type UpdateTestRequest struct {
 	PinnedVersionID string      `json:"pinned_version,omitempty"`
 	ExpectedVersion int         `json:"expected_version,omitempty"`
 	Force           bool        `json:"-"`
+	// RunConfig persists the test's run configuration. Send the merged
+	// map (read-modify-write) — the backend stores it as-is, replacing
+	// any previous run_config.
+	RunConfig map[string]interface{} `json:"run_config,omitempty"`
 }
 
 // UpdateTestResponse represents a test update response.

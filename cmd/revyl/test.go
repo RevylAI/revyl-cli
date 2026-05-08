@@ -182,6 +182,8 @@ func init() {
 	testCmd.AddCommand(testRunCmd)
 	testCmd.AddCommand(testCancelCmd)
 	testCmd.AddCommand(testCreateCmd)
+	testCmd.AddCommand(testConfigCmd)
+	testCmd.AddCommand(testLaunchVarCmd)
 	testCmd.AddCommand(testRenameCmd)
 	testCmd.AddCommand(testDeleteCmd)
 	testCmd.AddCommand(testOpenCmd)
@@ -215,6 +217,7 @@ func init() {
 	testRunCmd.Flags().StringVar(&runDeviceModel, "device-model", "", "Target device model (e.g. \"iPhone 16\")")
 	testRunCmd.Flags().StringVar(&runOsVersion, "os-version", "", "Target OS version (e.g. \"iOS 18.5\")")
 	testRunCmd.Flags().StringVar(&runOrientation, "orientation", "", "Initial device orientation (portrait or landscape)")
+	testRunCmd.Flags().BoolVar(&runFailFast, "fail-fast", false, "Halt the run on the first failed step or validation (overrides the test's stored run_config for this run)")
 
 	// test cancel flags (inherits global --json)
 

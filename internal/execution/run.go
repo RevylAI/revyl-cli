@@ -57,6 +57,10 @@ type RunTestParams struct {
 	OsVersion string
 	// Orientation sets the initial device orientation ("portrait" or "landscape").
 	Orientation string
+	// FailFast halts the run on the first failed step or validation. When nil
+	// the backend uses the test's stored run_config; when set it overrides
+	// for this run only.
+	FailFast *bool
 }
 
 // RunTestResult contains the result of a test run.
@@ -129,20 +133,25 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 		DeviceModel:    params.DeviceModel,
 		OsVersion:      params.OsVersion,
 	}
-	if params.HasLocation || params.Orientation != "" {
-		execMode := &api.CLIExecutionMode{}
-		if params.HasLocation {
-			execMode.InitialLocation = &api.CLILocation{
-				Latitude:  params.Latitude,
-				Longitude: params.Longitude,
+	if params.HasLocation || params.Orientation != "" || params.FailFast != nil {
+		runCfg := &api.CLIRunConfig{}
+		if params.HasLocation || params.Orientation != "" {
+			execMode := &api.CLIExecutionMode{}
+			if params.HasLocation {
+				execMode.InitialLocation = &api.CLILocation{
+					Latitude:  params.Latitude,
+					Longitude: params.Longitude,
+				}
 			}
+			if params.Orientation != "" {
+				execMode.InitialOrientation = params.Orientation
+			}
+			runCfg.ExecutionMode = execMode
 		}
-		if params.Orientation != "" {
-			execMode.InitialOrientation = params.Orientation
+		if params.FailFast != nil {
+			runCfg.FailFast = params.FailFast
 		}
-		req.RunConfig = &api.CLIRunConfig{
-			ExecutionMode: execMode,
-		}
+		req.RunConfig = runCfg
 	}
 	resp, err := client.ExecuteTest(ctx, req)
 	if err != nil {
