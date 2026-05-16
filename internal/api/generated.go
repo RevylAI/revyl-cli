@@ -39,6 +39,30 @@ const (
 	Test   ActionBlockVariableScope = "test"
 )
 
+// Defines values for AdminOnboardingOrgDetailCurrentState.
+const (
+	AdminOnboardingOrgDetailCurrentStateAppUploaded    AdminOnboardingOrgDetailCurrentState = "app_uploaded"
+	AdminOnboardingOrgDetailCurrentStateNone           AdminOnboardingOrgDetailCurrentState = "none"
+	AdminOnboardingOrgDetailCurrentStateSessionStarted AdminOnboardingOrgDetailCurrentState = "session_started"
+	AdminOnboardingOrgDetailCurrentStateTestCreated    AdminOnboardingOrgDetailCurrentState = "test_created"
+)
+
+// Defines values for AdminOnboardingOrgDetailStateOverride.
+const (
+	AdminOnboardingOrgDetailStateOverrideAppUploaded    AdminOnboardingOrgDetailStateOverride = "app_uploaded"
+	AdminOnboardingOrgDetailStateOverrideNone           AdminOnboardingOrgDetailStateOverride = "none"
+	AdminOnboardingOrgDetailStateOverrideSessionStarted AdminOnboardingOrgDetailStateOverride = "session_started"
+	AdminOnboardingOrgDetailStateOverrideTestCreated    AdminOnboardingOrgDetailStateOverride = "test_created"
+)
+
+// Defines values for AdminUpdateOnboardingStateRequestStateOverride.
+const (
+	AdminUpdateOnboardingStateRequestStateOverrideAppUploaded    AdminUpdateOnboardingStateRequestStateOverride = "app_uploaded"
+	AdminUpdateOnboardingStateRequestStateOverrideNone           AdminUpdateOnboardingStateRequestStateOverride = "none"
+	AdminUpdateOnboardingStateRequestStateOverrideSessionStarted AdminUpdateOnboardingStateRequestStateOverride = "session_started"
+	AdminUpdateOnboardingStateRequestStateOverrideTestCreated    AdminUpdateOnboardingStateRequestStateOverride = "test_created"
+)
+
 // Defines values for AppPlatform.
 const (
 	AppPlatformAndroid AppPlatform = "Android"
@@ -335,9 +359,9 @@ const (
 
 // Defines values for ValidationErrorType.
 const (
-	FalseNegative ValidationErrorType = "false_negative"
-	FalsePositive ValidationErrorType = "false_positive"
-	None          ValidationErrorType = "none"
+	ValidationErrorTypeFalseNegative ValidationErrorType = "false_negative"
+	ValidationErrorTypeFalsePositive ValidationErrorType = "false_positive"
+	ValidationErrorTypeNone          ValidationErrorType = "none"
 )
 
 // Defines values for ValidationTypeEnum.
@@ -590,6 +614,20 @@ type AdminMetricBreakdown struct {
 	Label string `json:"label"`
 }
 
+// AdminOnboardingOrgDetail defines model for AdminOnboardingOrgDetail.
+type AdminOnboardingOrgDetail struct {
+	CurrentState  *AdminOnboardingOrgDetailCurrentState  `json:"current_state,omitempty"`
+	OrgId         string                                 `json:"org_id"`
+	OrgName       *string                                `json:"org_name"`
+	StateOverride *AdminOnboardingOrgDetailStateOverride `json:"state_override"`
+}
+
+// AdminOnboardingOrgDetailCurrentState defines model for AdminOnboardingOrgDetail.CurrentState.
+type AdminOnboardingOrgDetailCurrentState string
+
+// AdminOnboardingOrgDetailStateOverride defines model for AdminOnboardingOrgDetail.StateOverride.
+type AdminOnboardingOrgDetailStateOverride string
+
 // AdminOrg defines model for AdminOrg.
 type AdminOrg struct {
 	Domain      *string `json:"domain"`
@@ -715,6 +753,14 @@ type AdminTestListResponse struct {
 	OrgName    *string               `json:"org_name"`
 	TotalCount int                   `json:"total_count"`
 }
+
+// AdminUpdateOnboardingStateRequest defines model for AdminUpdateOnboardingStateRequest.
+type AdminUpdateOnboardingStateRequest struct {
+	StateOverride *AdminUpdateOnboardingStateRequestStateOverride `json:"state_override"`
+}
+
+// AdminUpdateOnboardingStateRequestStateOverride defines model for AdminUpdateOnboardingStateRequest.StateOverride.
+type AdminUpdateOnboardingStateRequestStateOverride string
 
 // AdminWorkflowDefinition Workflow definition for admin view.
 //
@@ -4311,6 +4357,7 @@ type ModelCostBreakdown struct {
 // (frontend, CLI, direct API) are always stored with valid IDs.
 type ModuleBlock struct {
 	Children     *[]ModuleBlock `json:"children"`
+	Condition    *string        `json:"condition"`
 	ElseChildren *[]ModuleBlock `json:"elseChildren"`
 
 	// Id Block ID (auto-generated if not provided)
@@ -8141,8 +8188,13 @@ type WhileBlockOutput_Children_Item struct {
 
 // WorkerConnectionResponse Worker connection information.
 type WorkerConnectionResponse struct {
+	DeviceHeight  *int                           `json:"device_height"`
+	DeviceWidth   *int                           `json:"device_width"`
+	IceServers    *[]map[string]interface{}      `json:"ice_servers"`
 	Message       *string                        `json:"message"`
+	SignalUrl     *string                        `json:"signal_url"`
 	Status        WorkerConnectionResponseStatus `json:"status"`
+	WhepUrl       *string                        `json:"whep_url"`
 	WorkerWsUrl   *string                        `json:"worker_ws_url"`
 	WorkflowRunId string                         `json:"workflow_run_id"`
 }
@@ -9101,6 +9153,18 @@ type DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONBody = st
 // CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody defines parameters for CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatch.
 type CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody = string
 
+// ListAdminOnboardingOrgsApiV1AdminOnboardingOrgsGetParams defines parameters for ListAdminOnboardingOrgsApiV1AdminOnboardingOrgsGet.
+type ListAdminOnboardingOrgsApiV1AdminOnboardingOrgsGetParams struct {
+	// Name Filter organisations by name substring
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+
+	// PageSize Results per page (max 100, PropelAuth limit)
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// PageNumber Page number (0-indexed)
+	PageNumber *int `form:"page_number,omitempty" json:"page_number,omitempty"`
+}
+
 // GetAllUsersApiV1AdminOrgAnalyticsUsersGetParams defines parameters for GetAllUsersApiV1AdminOrgAnalyticsUsersGet.
 type GetAllUsersApiV1AdminOrgAnalyticsUsersGetParams struct {
 	// IncludeInactive If true, also union in PropelAuth users who have never run a session (signed up but never activated). They appear with session_count=0 and null metrics.
@@ -9740,6 +9804,9 @@ type DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONRequestBo
 
 // CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONRequestBody defines body for CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatch for application/json ContentType.
 type CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONRequestBody = CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody
+
+// UpdateAdminOnboardingOrgStateApiV1AdminOnboardingOrgsOrgIdStatePatchJSONRequestBody defines body for UpdateAdminOnboardingOrgStateApiV1AdminOnboardingOrgsOrgIdStatePatch for application/json ContentType.
+type UpdateAdminOnboardingOrgStateApiV1AdminOnboardingOrgsOrgIdStatePatchJSONRequestBody = AdminUpdateOnboardingStateRequest
 
 // CreateAppApiV1AppsPostJSONRequestBody defines body for CreateAppApiV1AppsPost for application/json ContentType.
 type CreateAppApiV1AppsPostJSONRequestBody = AppCreateRequest
