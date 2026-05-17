@@ -86,6 +86,10 @@ var (
 	// brewCommandRunner creates exec.Cmd instances for brew commands.
 	// Overridden in tests to avoid running actual brew.
 	brewCommandRunner = exec.Command
+
+	// postUpgradeCommandRunner creates exec.Cmd instances for post-upgrade
+	// commands. Overridden in tests to avoid running a real revyl binary.
+	postUpgradeCommandRunner = exec.Command
 )
 
 // upgradeCmd checks for and installs CLI updates.
@@ -99,6 +103,7 @@ BEHAVIOR:
   - Homebrew: runs brew update && brew upgrade revyl automatically
   - npm/pip: shows the upgrade command to run
   - Direct downloads: downloads and replaces the binary
+  - After successful Homebrew/direct upgrades, refreshes existing agent skills
 
 FLAGS:
   --check       Only check for updates, don't install
@@ -128,7 +133,7 @@ func init() {
 //   - args: Command line arguments (unused)
 //
 // Returns:
-//   - error: Any error that occurred
+//   - error: Any error that occurred.
 func runUpgrade(cmd *cobra.Command, args []string) error {
 	// Check if --json flag is set (either local or global)
 	jsonOutput := upgradeOutputJSON
@@ -205,7 +210,12 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 
-		return performBrewUpgrade()
+		if err := performBrewUpgrade(); err != nil {
+			return err
+		}
+		refreshSkillsAfterSuccessfulUpgrade("revyl")
+		printUpgradeNextSteps()
+		return nil
 
 	case "npm":
 		result.UpgradeCommand = "npm update -g @revyl/cli"
@@ -271,7 +281,13 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		}
 
 		// Perform self-update
-		return performSelfUpdate(ctx, release.TagName)
+		upgradedBinary, err := performSelfUpdate(ctx, release.TagName)
+		if err != nil {
+			return err
+		}
+		refreshSkillsAfterSuccessfulUpgrade(upgradedBinary)
+		printUpgradeNextSteps()
+		return nil
 	}
 }
 
@@ -559,8 +575,9 @@ func parseGitHubReleaseResponse(body io.Reader, includePrerelease bool) (*GitHub
 //   - tagName: The release tag to download
 //
 // Returns:
-//   - error: Any error that occurred
-func performSelfUpdate(ctx context.Context, tagName string) error {
+//   - string: Path to the upgraded binary.
+//   - error: Any error that occurred.
+func performSelfUpdate(ctx context.Context, tagName string) (string, error) {
 	// Determine binary name for this platform
 	binaryName := fmt.Sprintf("revyl-%s-%s", runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "windows" {
@@ -576,18 +593,18 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 	checksums, err := downloadChecksums(ctx, checksumURL)
 	if err != nil {
 		ui.PrintError("Could not download checksums: %v", err)
-		return fmt.Errorf("upgrade aborted: checksum file unavailable (possible tampering or network issue): %w", err)
+		return "", fmt.Errorf("upgrade aborted: checksum file unavailable (possible tampering or network issue): %w", err)
 	}
 
 	expectedChecksum := checksums[binaryName]
 	if expectedChecksum == "" {
-		return fmt.Errorf("upgrade aborted: no checksum found for %s in checksums.txt", binaryName)
+		return "", fmt.Errorf("upgrade aborted: no checksum found for %s in checksums.txt", binaryName)
 	}
 
 	tempFile, err := downloadBinary(ctx, binaryURL)
 	if err != nil {
 		ui.PrintError("Failed to download binary: %v", err)
-		return err
+		return "", err
 	}
 	defer os.Remove(tempFile)
 
@@ -595,7 +612,7 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 	actualChecksum, err := calculateChecksum(tempFile)
 	if err != nil {
 		ui.PrintError("Failed to calculate checksum: %v", err)
-		return err
+		return "", err
 	}
 
 	if actualChecksum != expectedChecksum {
@@ -603,7 +620,7 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 		ui.PrintError("Expected: %s", expectedChecksum)
 		ui.PrintError("Got:      %s", actualChecksum)
 		ui.PrintError("Report this to security@revyl.ai")
-		return fmt.Errorf("checksum verification failed")
+		return "", fmt.Errorf("checksum verification failed")
 	}
 	ui.PrintSuccess("Checksum verified")
 
@@ -611,13 +628,13 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 	execPath, err := os.Executable()
 	if err != nil {
 		ui.PrintError("Failed to get executable path: %v", err)
-		return err
+		return "", err
 	}
 
 	execPath, err = filepath.EvalSymlinks(execPath)
 	if err != nil {
 		ui.PrintError("Failed to resolve executable path: %v", err)
-		return err
+		return "", err
 	}
 
 	// Create backup
@@ -627,7 +644,7 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 	if err := os.Rename(execPath, backupPath); err != nil {
 		ui.PrintError("Failed to create backup: %v", err)
 		ui.PrintError("You may need to run with elevated permissions (sudo)")
-		return err
+		return "", err
 	}
 
 	// Copy new binary
@@ -637,7 +654,7 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 		// Restore backup on failure
 		os.Rename(backupPath, execPath)
 		ui.PrintError("Failed to install new version: %v", err)
-		return err
+		return "", err
 	}
 
 	// Make executable
@@ -646,7 +663,7 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 		os.Remove(execPath)
 		os.Rename(backupPath, execPath)
 		ui.PrintError("Failed to set permissions: %v", err)
-		return err
+		return "", err
 	}
 
 	// Remove backup
@@ -654,11 +671,8 @@ func performSelfUpdate(ctx context.Context, tagName string) error {
 
 	ui.Println()
 	ui.PrintSuccess("Successfully upgraded to %s", tagName)
-	ui.PrintNextSteps([]ui.NextStep{
-		{Label: "Verify version:", Command: "revyl version"},
-	})
 
-	return nil
+	return execPath, nil
 }
 
 // performBrewUpgrade runs `brew update` followed by `brew upgrade revyl`,
@@ -695,11 +709,131 @@ func performBrewUpgrade() error {
 
 	ui.Println()
 	ui.PrintSuccess("Successfully upgraded via Homebrew")
+
+	return nil
+}
+
+func printUpgradeNextSteps() {
 	ui.PrintNextSteps([]ui.NextStep{
 		{Label: "Verify version:", Command: "revyl version"},
 	})
+}
 
-	return nil
+type postUpgradeSkillInstallCommand struct {
+	global bool
+	tools  []string
+}
+
+func refreshSkillsAfterSuccessfulUpgrade(binaryPath string) {
+	if os.Getenv("REVYL_NO_POST_UPGRADE_SKILL_INSTALL") != "" {
+		return
+	}
+
+	targets := discoverPostUpgradeSkillTargets()
+	if len(targets) == 0 {
+		ui.Println()
+		ui.PrintDim("No existing AI skill directories found; skipping agent skill refresh.")
+		return
+	}
+
+	binaryPath = strings.TrimSpace(binaryPath)
+	if binaryPath == "" {
+		binaryPath = "revyl"
+	}
+
+	ui.Println()
+	ui.PrintInfo("Refreshing Revyl agent skills...")
+
+	for _, installCmd := range postUpgradeSkillInstallCommands(targets) {
+		args := []string{"skill", "install", "--force"}
+		for _, tool := range installCmd.tools {
+			args = append(args, "--"+tool)
+		}
+		if installCmd.global {
+			args = append(args, "--global")
+		}
+
+		cmd := postUpgradeCommandRunner(binaryPath, args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Env = append(os.Environ(), "REVYL_NO_UPDATE_NOTIFIER=1")
+
+		if err := cmd.Run(); err != nil {
+			ui.PrintWarning("Could not refresh agent skills automatically: %v", err)
+			ui.PrintDim("  Run manually: revyl skill install --force")
+		}
+	}
+}
+
+func discoverPostUpgradeSkillTargets() []skillInstallTarget {
+	targets := make([]skillInstallTarget, 0, len(supportedSkillTools)*2)
+	seenPaths := make(map[string]struct{})
+
+	addTarget := func(toolName string, rawPath string, global bool) {
+		expanded := expandHome(rawPath)
+		info, err := os.Stat(expanded)
+		if err != nil || !info.IsDir() {
+			return
+		}
+
+		key := expanded
+		if abs, err := filepath.Abs(expanded); err == nil {
+			key = abs
+		}
+		if realPath, err := filepath.EvalSymlinks(key); err == nil {
+			key = realPath
+		}
+		key = toolName + "\x00" + key
+		if _, ok := seenPaths[key]; ok {
+			return
+		}
+		seenPaths[key] = struct{}{}
+
+		targets = append(targets, skillInstallTarget{
+			tool:   toolName,
+			path:   expanded,
+			global: global,
+		})
+	}
+
+	for _, toolName := range supportedSkillTools {
+		dirs := skillDirectories[toolName]
+		if len(dirs) > 1 {
+			addTarget(toolName, dirs[1], true)
+		}
+		if len(dirs) > 0 {
+			addTarget(toolName, dirs[0], false)
+		}
+	}
+
+	return targets
+}
+
+func postUpgradeSkillInstallCommands(targets []skillInstallTarget) []postUpgradeSkillInstallCommand {
+	grouped := make(map[bool][]string, 2)
+	seen := make(map[string]struct{}, len(targets))
+
+	for _, target := range targets {
+		key := fmt.Sprintf("%t:%s", target.global, target.tool)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		grouped[target.global] = append(grouped[target.global], target.tool)
+	}
+
+	commands := make([]postUpgradeSkillInstallCommand, 0, 2)
+	for _, global := range []bool{false, true} {
+		tools := grouped[global]
+		if len(tools) == 0 {
+			continue
+		}
+		commands = append(commands, postUpgradeSkillInstallCommand{
+			global: global,
+			tools:  tools,
+		})
+	}
+	return commands
 }
 
 // downloadChecksums downloads and parses the checksums file.

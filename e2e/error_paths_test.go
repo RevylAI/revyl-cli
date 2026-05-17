@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -50,6 +51,9 @@ func TestErrorPaths(t *testing.T) {
 	})
 
 	step(t, "invalid_api_key_returns_auth_error", func(st *testing.T) {
+		if strings.HasPrefix(backendURL, "http://localhost") {
+			st.Skip("local dev backend accepts test credentials; invalid-key auth check requires a deployed backend")
+		}
 		// Run with intentionally bad API key
 		result := runCLIWithEnv(t, map[string]string{
 			"REVYL_API_KEY":     "rev_invalid_key_for_e2e_test",

@@ -302,8 +302,9 @@ revyl build upload                       # Build and upload (--dry-run to previe
 revyl build upload --platform android    # Build for a specific platform
 revyl build upload --file ./app.apk --app <id>  # Upload a local artifact directly
 revyl build upload --url <artifact-url> --app <id>  # Ingest from a remote URL
-revyl build remote --platform ios        # Build on a dedicated remote runner
+revyl build remote --platform ios        # Build on Revyl remote capacity
 revyl build remote --platform android --json  # Remote Android build for agents
+revyl build status <job-id> --follow     # Follow a queued remote build
 revyl build upload --remote --platform ios      # Compatibility alias for remote build
 revyl build upload --remote --platform android  # Compatibility alias for remote build
 revyl build list                         # List uploaded builds
@@ -760,7 +761,7 @@ revyl completion powershell | Out-String | Invoke-Expression
 ```bash
 revyl doctor     # Check CLI health, connectivity, auth, sync status
 revyl ping       # Test API connectivity and latency
-revyl upgrade    # Check for and install CLI updates
+revyl upgrade    # Check for and install CLI updates; refresh existing agent skills after successful upgrades
 revyl --version  # Show CLI version (short format)
 revyl version    # Show version, commit, and build date (--json for CI)
 revyl docs       # Open Revyl documentation in browser

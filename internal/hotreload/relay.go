@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,12 +40,15 @@ var relayHopByHopHeaders = map[string]bool{
 	"transfer-encoding":        true,
 	"upgrade":                  true,
 	"host":                     true,
-	"content-length":           true,
 	"sec-websocket-accept":     true,
 	"sec-websocket-extensions": true,
 	"sec-websocket-key":        true,
 	"sec-websocket-version":    true,
 	"sec-websocket-protocol":   true,
+}
+
+var relayRequestManagedHeaders = map[string]bool{
+	"content-length": true,
 }
 
 // CheckRelayConnectivity validates that the backend relay control plane is reachable.
@@ -273,7 +277,7 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 	req, err := http.NewRequestWithContext(ctx, env.Method, targetURL.String(), bodyReader)
 	if err != nil {
 		cancel()
-		r.exportLocalMetroTrace(env, 0, startedAt, time.Now(), 0, 0, err.Error())
+		r.exportLocalMetroTrace(env, 0, nil, startedAt, time.Now(), 0, 0, err.Error())
 		_ = r.sendEnvelope(relayEnvelope{
 			Kind:     "stream.error",
 			StreamID: env.StreamID,
@@ -291,12 +295,13 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 		statusCode := 0
 		var ttfb time.Duration
 		var firstBodyByte time.Duration
+		var responseHeaders http.Header
 		errorMessage := ""
 		defer func() {
 			r.streamMu.Lock()
 			delete(r.httpStreams, env.StreamID)
 			r.streamMu.Unlock()
-			r.exportLocalMetroTrace(env, statusCode, startedAt, time.Now(), ttfb, firstBodyByte, errorMessage)
+			r.exportLocalMetroTrace(env, statusCode, responseHeaders, startedAt, time.Now(), ttfb, firstBodyByte, errorMessage)
 			cancel()
 		}()
 
@@ -321,6 +326,7 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 		}
 		defer resp.Body.Close()
 		statusCode = resp.StatusCode
+		responseHeaders = responseHeaderSnapshot(resp, env)
 		ttfb = time.Since(startedAt)
 		if resp.StatusCode >= http.StatusInternalServerError {
 			r.signalFailure(RuntimeFailure{
@@ -335,7 +341,7 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 			Kind:     "http.response.start",
 			StreamID: env.StreamID,
 			Status:   resp.StatusCode,
-			Headers:  relayHeadersFromHTTP(resp.Header),
+			Headers:  relayHeadersFromHTTP(responseHeaders),
 		}); err != nil {
 			return
 		}
@@ -377,7 +383,7 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 	}()
 }
 
-func (r *relayRuntime) exportLocalMetroTrace(env relayEnvelope, statusCode int, startedAt time.Time, endedAt time.Time, ttfb time.Duration, firstBodyByte time.Duration, errorMessage string) {
+func (r *relayRuntime) exportLocalMetroTrace(env relayEnvelope, statusCode int, responseHeaders http.Header, startedAt time.Time, endedAt time.Time, ttfb time.Duration, firstBodyByte time.Duration, errorMessage string) {
 	if r.traceClient == nil || strings.TrimSpace(env.Traceparent) == "" {
 		return
 	}
@@ -394,6 +400,11 @@ func (r *relayRuntime) exportLocalMetroTrace(env relayEnvelope, statusCode int, 
 		FirstBodyByte:     firstBodyByte,
 		Error:             errorMessage,
 	}
+	input.RangePresent = headerPresent(http.Header(env.Headers), "Range")
+	input.ResponseContentType = sanitizedHeaderValue(responseHeaders.Get("Content-Type"))
+	input.ResponseContentLengthPresent = headerPresent(responseHeaders, "Content-Length")
+	input.ResponseContentRangePresent = headerPresent(responseHeaders, "Content-Range")
+	input.ResponseAcceptRangesPresent = headerPresent(responseHeaders, "Accept-Ranges")
 	go func() {
 		ctx, cancel := context.WithTimeout(r.ctx, time.Second)
 		defer cancel()
@@ -584,10 +595,50 @@ func (r *relayRuntime) handleStreamError(env relayEnvelope) {
 	}
 }
 
+func responseHeaderSnapshot(resp *http.Response, env relayEnvelope) http.Header {
+	headers := make(http.Header)
+	if resp == nil {
+		return headers
+	}
+	for key, values := range resp.Header {
+		copied := append([]string(nil), values...)
+		headers[key] = copied
+	}
+	preserveContentLength := shouldPreserveResponseContentLength(env.RequestClass, env.Method, headerPresent(http.Header(env.Headers), "Range"), resp.StatusCode)
+	if !preserveContentLength {
+		headers.Del("Content-Length")
+		return headers
+	}
+	if resp.ContentLength >= 0 && !headerPresent(headers, "Content-Length") {
+		headers.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+	}
+	return headers
+}
+
+func shouldPreserveResponseContentLength(requestClass string, method string, rangePresent bool, status int) bool {
+	return strings.TrimSpace(requestClass) == "asset" ||
+		strings.EqualFold(method, http.MethodHead) ||
+		rangePresent ||
+		status == http.StatusPartialContent
+}
+
+func headerPresent(headers http.Header, key string) bool {
+	return strings.TrimSpace(headers.Get(key)) != ""
+}
+
+func sanitizedHeaderValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 120 {
+		return value[:120]
+	}
+	return value
+}
+
 func relayHeadersToHTTP(raw map[string][]string) http.Header {
 	headers := make(http.Header)
 	for key, values := range raw {
-		if relayHopByHopHeaders[strings.ToLower(key)] {
+		headerKey := strings.ToLower(key)
+		if relayHopByHopHeaders[headerKey] || relayRequestManagedHeaders[headerKey] {
 			continue
 		}
 		for _, value := range values {

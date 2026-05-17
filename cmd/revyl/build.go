@@ -29,6 +29,7 @@ var buildCmd = &cobra.Command{
 Commands:
   upload  - Build and upload the app
   remote  - Build on a dedicated Revyl cloud runner
+  status  - Show or follow a remote build
   list    - List uploaded build versions
   cancel  - Cancel a running remote build
   delete  - Delete an app or specific build version`,
@@ -141,6 +142,20 @@ output from "revyl build remote --json".`,
 	RunE: runCancelBuild,
 }
 
+// buildStatusCmd shows or follows a remote build job.
+var buildStatusCmd = &cobra.Command{
+	Use:   "status <build-job-id>",
+	Short: "Show remote build status",
+	Long: `Show the status and recent logs for a remote build job.
+
+Use --follow to stream status until the build reaches a terminal state.`,
+	Example: `  revyl build status <build-job-id>
+  revyl build status <build-job-id> --follow
+  revyl build status <build-job-id> --follow --debug --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runBuildStatus,
+}
+
 var (
 	buildSkip           bool
 	buildVersion        string
@@ -169,8 +184,9 @@ var (
 	remoteNoWaitFlag    bool
 	remoteCleanFlag     bool
 	remoteKeepDDFlag    bool
-	remoteRunnerFlag    string
 	remoteCommittedOnly bool
+	buildStatusJSON     bool
+	buildStatusFollow   bool
 )
 
 func init() {
@@ -178,6 +194,7 @@ func init() {
 	buildCmd.AddCommand(buildRemoteCmd)
 	buildCmd.AddCommand(buildListCmd)
 	buildCmd.AddCommand(buildCancelCmd)
+	buildCmd.AddCommand(buildStatusCmd)
 	buildCmd.AddCommand(buildDeleteCmd)
 
 	buildDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")
@@ -208,13 +225,15 @@ func init() {
 	buildRemoteCmd.Flags().BoolVar(&remoteNoWaitFlag, "no-wait", false, "Queue the remote build and exit without polling")
 	buildRemoteCmd.Flags().BoolVar(&remoteCleanFlag, "clean", false, "Request a clean remote build")
 	buildRemoteCmd.Flags().BoolVar(&remoteKeepDDFlag, "keep-derived-data", false, "Preserve remote iOS DerivedData between builds")
-	buildRemoteCmd.Flags().StringVar(&remoteRunnerFlag, "runner", "", "Target a specific remote build runner ID")
 	buildRemoteCmd.Flags().BoolVar(&remoteCommittedOnly, "committed-only", false, "Build committed files at HEAD instead of the current working tree")
 
 	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App name or ID to list builds for")
 	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org apps")
 	buildListCmd.Flags().BoolVar(&buildListJSON, "json", false, "Output results as JSON")
 	buildListCmd.Flags().StringVar(&buildListBranch, "branch", "", "Filter builds by git branch (use HEAD for current branch)")
+
+	buildStatusCmd.Flags().BoolVar(&buildStatusJSON, "json", false, "Output status as JSON")
+	buildStatusCmd.Flags().BoolVar(&buildStatusFollow, "follow", false, "Follow until the remote build reaches a terminal state")
 }
 
 // runBuildUpload executes the build upload command.

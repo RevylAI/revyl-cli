@@ -152,6 +152,15 @@ If you installed via direct download, `revyl upgrade` performs a self-update (do
 revyl upgrade --check
 ```
 
+When `revyl upgrade` performs a Homebrew or direct-download upgrade, it also
+refreshes existing Cursor, Codex, and Claude Code skill directories with the
+new embedded Revyl skills. If you update Revyl with a package manager command
+directly, refresh manually with:
+
+```bash
+revyl skill install --force
+```
+
 ## Global Flags
 
 These flags work with any command:

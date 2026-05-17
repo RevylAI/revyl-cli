@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -13,35 +12,56 @@ import (
 func TestVariableLifecycle(t *testing.T) {
 	testName := uniqueName("e2e-var-test")
 	testID := createTestFixture(t, testName, "android")
+	launchKey := strings.ToUpper(strings.ReplaceAll(uniqueName("e2e-key"), "-", "_"))
 
-	// --- Env vars ---
-	step(t, "env_var_set", func(st *testing.T) {
-		result := runCLI(t, "test", "env", "set", testID, "E2E_KEY", "e2e_value")
+	// --- Org launch vars attached to a test ---
+	step(t, "launch_var_create", func(st *testing.T) {
+		result := runCLI(t, "global", "launch-var", "create", launchKey+"=e2e_value", "--json")
 		if result.ExitCode != 0 {
-			st.Fatalf("env set failed: %s\n%s", result.Stdout, result.Stderr)
+			st.Fatalf("launch-var create failed: %s\n%s", result.Stdout, result.Stderr)
+		}
+		t.Cleanup(func() {
+			_ = runCLI(t, "global", "launch-var", "delete", launchKey, "--force", "--json")
+		})
+	})
+
+	step(t, "launch_var_list", func(st *testing.T) {
+		result := runCLI(t, "global", "launch-var", "list", "--json")
+		if result.ExitCode != 0 {
+			st.Fatalf("launch-var list failed: %s\n%s", result.Stdout, result.Stderr)
+		}
+		if !strings.Contains(result.Stdout, launchKey) {
+			st.Fatalf("launch-var list missing %s: %s", launchKey, result.Stdout)
 		}
 	})
 
-	step(t, "env_var_list", func(st *testing.T) {
-		result := runCLI(t, "test", "env", "list", testID, "--json")
+	step(t, "launch_var_attach", func(st *testing.T) {
+		result := runCLI(t, "test", "launch-var", "attach", testID, launchKey)
 		if result.ExitCode != 0 {
-			st.Fatalf("env list failed: %s\n%s", result.Stdout, result.Stderr)
-		}
-		if !strings.Contains(result.Stdout, "E2E_KEY") {
-			st.Fatalf("env list missing E2E_KEY: %s", result.Stdout)
+			st.Fatalf("launch-var attach failed: %s\n%s", result.Stdout, result.Stderr)
 		}
 	})
 
-	step(t, "env_var_delete", func(st *testing.T) {
-		result := runCLI(t, "test", "env", "delete", testID, "E2E_KEY")
+	step(t, "launch_var_attached_list", func(st *testing.T) {
+		result := runCLI(t, "test", "launch-var", "list", testID)
 		if result.ExitCode != 0 {
-			st.Fatalf("env delete failed: %s\n%s", result.Stdout, result.Stderr)
+			st.Fatalf("test launch-var list failed: %s\n%s", result.Stdout, result.Stderr)
+		}
+		if !strings.Contains(result.Stdout, launchKey) {
+			st.Fatalf("test launch-var list missing %s: %s", launchKey, result.Stdout)
+		}
+	})
+
+	step(t, "launch_var_detach", func(st *testing.T) {
+		result := runCLI(t, "test", "launch-var", "detach", testID, launchKey)
+		if result.ExitCode != 0 {
+			st.Fatalf("launch-var detach failed: %s\n%s", result.Stdout, result.Stderr)
 		}
 	})
 
 	// --- Custom vars ---
 	step(t, "custom_var_set", func(st *testing.T) {
-		result := runCLI(t, "test", "var", "set", testID, "MY_VAR", "my_value")
+		result := runCLI(t, "test", "var", "set", testID, "MY_VAR=my_value")
 		if result.ExitCode != 0 {
 			st.Fatalf("var set failed: %s\n%s", result.Stdout, result.Stderr)
 		}
@@ -58,13 +78,13 @@ func TestVariableLifecycle(t *testing.T) {
 	})
 
 	step(t, "custom_var_list", func(st *testing.T) {
-		result := runCLI(t, "test", "var", "list", testID, "--json")
+		result := runCLI(t, "test", "var", "list", testID)
 		if result.ExitCode != 0 {
 			st.Fatalf("var list failed: %s\n%s", result.Stdout, result.Stderr)
 		}
-		raw := extractJSON(result.Stdout)
-		if !json.Valid([]byte(raw)) {
-			st.Fatalf("var list is not valid JSON: %s", result.Stdout)
+		combined := result.Stdout + result.Stderr
+		if !strings.Contains(combined, "MY_VAR") {
+			st.Fatalf("var list missing MY_VAR: %s", combined)
 		}
 	})
 

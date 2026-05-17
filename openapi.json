@@ -800,7 +800,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CachedActionStore-Input"
+                "$ref": "#/components/schemas/CachedActionStore"
               }
             }
           }
@@ -5959,7 +5959,7 @@
           "public"
         ],
         "summary": "Get Workflow Test Matrix",
-        "description": "Return a test \u00d7 workflow-run matrix. Columns are workflow executions.",
+        "description": "Return a test × workflow-run matrix. Columns are workflow executions.",
         "operationId": "get_workflow_test_matrix_api_v1_workflows_workflow__workflow_id__test_matrix_get",
         "security": [
           {
@@ -7708,7 +7708,7 @@
           "Slack Integration"
         ],
         "summary": "Resolve Channel",
-        "description": "Resolve a Slack channel from user-typed input.\n\nAccepts a channel name (\"prod-alerts\" / \"#prod-alerts\"), a Slack\nchannel link, or a bare channel ID, and returns the matching channel.\n\nUsed by the rule-creation UI: the user types a channel, the backend\nvalidates on save. Scales to workspaces of any size because we never\nenumerate the whole channel list \u2014 we either look up the channel\ndirectly by ID (cheap Tier 3 `conversations.info`) or scan at most 5\npages of `conversations.list` searching for a name match.",
+        "description": "Resolve a Slack channel from user-typed input.\n\nAccepts a channel name (\"prod-alerts\" / \"#prod-alerts\"), a Slack\nchannel link, or a bare channel ID, and returns the matching channel.\n\nUsed by the rule-creation UI: the user types a channel, the backend\nvalidates on save. Scales to workspaces of any size because we never\nenumerate the whole channel list — we either look up the channel\ndirectly by ID (cheap Tier 3 `conversations.info`) or scan at most 5\npages of `conversations.list` searching for a name match.",
         "operationId": "resolve_channel_api_v1_integrations_slack_channels_resolve_post",
         "requestBody": {
           "content": {
@@ -9484,7 +9484,7 @@
           "public"
         ],
         "summary": "Get Test Matrix",
-        "description": "Return a test \u00d7 build matrix with pagination.",
+        "description": "Return a test × build matrix with pagination.",
         "operationId": "get_test_matrix_api_v1_apps__app_id__test_matrix_get",
         "security": [
           {
@@ -9652,7 +9652,7 @@
           "public"
         ],
         "summary": "Check Build Runners Available",
-        "description": "Check whether any build runners are online for the caller's org.\n\nQueries Hatchet's worker registry for active workers that have the selected\nplatform build workflow registered and an ``ORG_ID`` label matching the\ncaller's organisation.\n\nThis mirrors the dispatch logic in :func:`trigger_remote_build` which\nroutes via a required ``desired_worker_labels={\"ORG_ID\": org_id}``.\n\nArgs:\n    auth_info: Authenticated caller information.\n\nReturns:\n    BuildRunnerStatus with ``available`` flag and ``runner_count``.\n\nRaises:\n    HTTPException: 400 if org_id is missing.",
+        "description": "Check whether any build runners are online for the caller's org.\n\nQueries Hatchet's worker registry for active workers that have the selected\nplatform build workflow registered and an ``ORG_ID`` label matching the\ncaller's organisation. The deprecated ``runner_id`` parameter is ignored so\nstale local runner labels cannot block otherwise valid org capacity.\n\nThis mirrors the dispatch logic in :func:`trigger_remote_build` which\nroutes via a required ``desired_worker_labels={\"ORG_ID\": org_id}``.\n\nArgs:\n    auth_info: Authenticated caller information.\n\nReturns:\n    BuildRunnerStatus with ``available`` flag and ``runner_count``.\n\nRaises:\n    HTTPException: 400 if org_id is missing.",
         "operationId": "check_build_runners_available_api_v1_apps_remote_runners_available_get",
         "security": [
           {
@@ -9685,10 +9685,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Optional build runner pool label to require. This targets the runner's DEVICE_ID label, not an individual VM.",
+              "description": "Deprecated and ignored. Runner selection is managed by Revyl.",
+              "deprecated": true,
               "title": "Runner Id"
             },
-            "description": "Optional build runner pool label to require. This targets the runner's DEVICE_ID label, not an individual VM."
+            "description": "Deprecated and ignored. Runner selection is managed by Revyl.",
+            "deprecated": true
           }
         ],
         "responses": {
@@ -12586,7 +12588,7 @@
           "Admin Org Analytics"
         ],
         "summary": "Get All Users",
-        "description": "Flat list of every user who has run a device session, across all orgs.\nOne row per (user, org) pair with session metrics, PropelAuth identity,\norg name, and Autumn plan. Admin-only.\n\nNote: ``limit``/``offset`` slice the *enriched* result set at the end of\nthe handler \u2014 they bound the response payload but do not skip upstream\nwork (PropelAuth metadata fan-out, Autumn plan fan-out, PostHog batch\nquery all run for the full row set). Acceptable at current scale; if\nthis becomes hot, push pagination into the SQL with a separate\n``COUNT(*)`` for ``total``.",
+        "description": "Flat list of every user who has run a device session, across all orgs.\nOne row per (user, org) pair with session metrics, PropelAuth identity,\norg name, and Autumn plan. Admin-only.\n\nNote: ``limit``/``offset`` slice the *enriched* result set at the end of\nthe handler — they bound the response payload but do not skip upstream\nwork (PropelAuth metadata fan-out, Autumn plan fan-out, PostHog batch\nquery all run for the full row set). Acceptable at current scale; if\nthis becomes hot, push pagination into the SQL with a separate\n``COUNT(*)`` for ``total``.",
         "operationId": "get_all_users_api_v1_admin_org_analytics_users_get",
         "security": [
           {
@@ -12838,7 +12840,7 @@
           "monitoring"
         ],
         "summary": "Stream Unified Updates",
-        "description": "Unified SSE stream for all real-time updates (tests, workflows, sessions).\n\nOn connect, fetches the current state from the database and sends it as\nan ``initial_state`` event.  Then enters a blocking-read loop on three\nRedis Streams (tests, workflows, sessions) and forwards new entries as\nSSE events.  No polling \u2014 events are written to streams at DB-write time\nby the backend endpoints themselves.",
+        "description": "Unified SSE stream for all real-time updates (tests, workflows, sessions).\n\nOn connect, fetches the current state from the database and sends it as\nan ``initial_state`` event.  Then enters a blocking-read loop on three\nRedis Streams (tests, workflows, sessions) and forwards new entries as\nSSE events.  No polling — events are written to streams at DB-write time\nby the backend endpoints themselves.",
         "operationId": "stream_unified_updates_api_v1_monitor_stream_unified_get",
         "security": [
           {
@@ -13959,7 +13961,7 @@
     "/api/v1/execution/streaming/worker-connection/session/{session_id}": {
       "get": {
         "summary": "Get Worker Connection For Session",
-        "description": "Resolve worker WebSocket URL using a device_sessions row (org-scoped).\n\nUse when the UI has ``session_id`` but ``workflow_run_id`` is not yet\nloaded in client state \u2014 polls the same way as the workflow_run_id route\nonce the row has been updated after Hatchet dispatch.",
+        "description": "Resolve worker WebSocket URL using a device_sessions row (org-scoped).\n\nUse when the UI has ``session_id`` but ``workflow_run_id`` is not yet\nloaded in client state — polls the same way as the workflow_run_id route\nonce the row has been updated after Hatchet dispatch.",
         "operationId": "get_worker_connection_for_session_api_v1_execution_streaming_worker_connection_session__session_id__get",
         "security": [
           {
@@ -15266,7 +15268,7 @@
     "/api/v1/execution/billing/check": {
       "get": {
         "summary": "Billing Check",
-        "description": "Check if the org can start a device session.\n\nUses the unified pooled-credits check (falling back to per-platform for\ngrandfathered Autumn customers). The ``platform`` / ``is_real_device``\nparameters are accepted for call-site compatibility and logged for\nobservability, but do not influence the decision \u2014 the pool is shared\nacross platforms.",
+        "description": "Check if the org can start a device session.\n\nUses the unified pooled-credits check (falling back to per-platform for\ngrandfathered Autumn customers). The ``platform`` / ``is_real_device``\nparameters are accepted for call-site compatibility and logged for\nobservability, but do not influence the decision — the pool is shared\nacross platforms.",
         "operationId": "billing_check_api_v1_execution_billing_check_get",
         "security": [
           {
@@ -15793,7 +15795,7 @@
     "/api/v1/execution/billing/setup-card": {
       "post": {
         "summary": "Billing Setup Card",
-        "description": "Return a hosted payment setup URL for adding a card without attaching a plan.\n\nUsed by the post-checklist \"unlock more sessions\" flow \u2014 the customer saves a\npayment method to Stripe/Autumn without being charged, which both unlocks\nbonus trial sessions and primes the subsequent plan upgrade for a one-click\nflow.",
+        "description": "Return a hosted payment setup URL for adding a card without attaching a plan.\n\nUsed by the post-checklist \"unlock more sessions\" flow — the customer saves a\npayment method to Stripe/Autumn without being charged, which both unlocks\nbonus trial sessions and primes the subsequent plan upgrade for a one-click\nflow.",
         "operationId": "billing_setup_card_api_v1_execution_billing_setup_card_post",
         "requestBody": {
           "content": {
@@ -19982,7 +19984,7 @@
           "Org Files"
         ],
         "summary": "Get Replace Url",
-        "description": "Generate a presigned URL to replace an existing file's content.\n\nPreserves the file ID so references (e.g. revyl-file://) remain valid.\nThe DB record is NOT modified here \u2014 it stays unchanged until the\nclient confirms the upload via POST /{file_id}/complete-upload.",
+        "description": "Generate a presigned URL to replace an existing file's content.\n\nPreserves the file ID so references (e.g. revyl-file://) remain valid.\nThe DB record is NOT modified here — it stays unchanged until the\nclient confirms the upload via POST /{file_id}/complete-upload.",
         "operationId": "get_replace_url_api_v1_files__file_id__replace_url_put",
         "security": [
           {
@@ -24552,6 +24554,17 @@
           "runner_count": {
             "type": "integer",
             "title": "Runner Count"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
           }
         },
         "type": "object",
@@ -24878,7 +24891,7 @@
           "run_config": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/TestRunConfig-Input"
+                "$ref": "#/components/schemas/TestRunConfig"
               },
               {
                 "type": "null"
@@ -25190,30 +25203,7 @@
         "title": "CachedActionElement",
         "description": "Represents a cached action element for a specific step in a test.\n\nAttributes:\n    target (str): The primary grounding target of the element.\n    action_type (str): The action type of the element.\n    node_id (str): The canonical graph node ID for the cached step.\n    step_id (Optional[str]): Step index from frontend for debugging purposes.\n    value (Optional[str]): Input value for actions like INPUT (e.g., text to be entered).\n    step_description (Optional[str]): Human-readable step description.\n    agent_description (Optional[str]): Human-readable instruction describing what the agent did.\n    action_params (Optional[Dict[str, Any]]): Action-specific parameters (e.g., direction/distance/speed for SWIPE).\n    bounding_box (Optional[List[str]]): Grid cells defining the grounding region (e.g., ['A2', 'C4']).\n    reflections (Optional[List[CachedReflections]]): Recursive cache entries for child reflections/substeps.\n    wait_time_after_action (Optional[float]): Custom wait time in seconds after executing this cached action."
       },
-      "CachedActionStore-Input": {
-        "properties": {
-          "test_id": {
-            "type": "string",
-            "title": "Test Id",
-            "description": "Unique identifier for the test"
-          },
-          "cached_elements": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/CachedActionElement"
-            },
-            "type": "object",
-            "title": "Cached Elements",
-            "description": "Dictionary of cached action elements keyed by node_id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "test_id"
-        ],
-        "title": "CachedActionStore",
-        "description": "Stores cached action elements for a test, indexed by node_id.\n\nAttributes:\n    test_id (str): The unique identifier for the test.\n    cached_elements (Dict[str, CachedActionElement]): Dictionary of cached action elements keyed by node_id."
-      },
-      "CachedActionStore-Output": {
+      "CachedActionStore": {
         "properties": {
           "test_id": {
             "type": "string",
@@ -30165,95 +30155,7 @@
         "title": "ExecuteWorkflowAsyncAPIResponse",
         "description": "Response for async workflow execution start."
       },
-      "ExecutionModeConfig-Input": {
-        "properties": {
-          "human_in_the_loop": {
-            "type": "boolean",
-            "title": "Human In The Loop",
-            "description": "Enable human approval for test results",
-            "default": false
-          },
-          "enable_reflection": {
-            "type": "boolean",
-            "title": "Enable Reflection",
-            "description": "Enable reflection on failed steps",
-            "default": true
-          },
-          "enable_planning": {
-            "type": "boolean",
-            "title": "Enable Planning",
-            "description": "Enable planning for complex steps",
-            "default": false
-          },
-          "retries": {
-            "type": "integer",
-            "title": "Retries",
-            "description": "Number of retry attempts",
-            "default": 1
-          },
-          "reflection_retries": {
-            "type": "integer",
-            "title": "Reflection Retries",
-            "description": "Number of reflection retry attempts",
-            "default": 1
-          },
-          "skip_app_install": {
-            "type": "boolean",
-            "title": "Skip App Install",
-            "description": "Skip app installation during test execution",
-            "default": false
-          },
-          "grounder_type": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/GrounderType"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": "moondream3"
-          },
-          "cleanup_config": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/DeviceCleanupConfig"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Configuration for AVD cleanup between test runs"
-          },
-          "initial_location": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LocationConfig"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Initial GPS location to set when simulator boots"
-          },
-          "initial_orientation": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Initial Orientation",
-            "description": "Initial device orientation: 'portrait' or 'landscape'"
-          }
-        },
-        "type": "object",
-        "title": "ExecutionModeConfig",
-        "description": "Configuration for execution modes and features."
-      },
-      "ExecutionModeConfig-Output": {
+      "ExecutionModeConfig": {
         "properties": {
           "human_in_the_loop": {
             "type": "boolean",
@@ -38579,7 +38481,8 @@
               }
             ],
             "title": "Runner Id",
-            "description": "Optional build runner pool label to target. This maps to the runner DEVICE_ID label and may represent a runner pool, not a single VM."
+            "description": "Deprecated and ignored. Remote build capacity is selected by Revyl using the caller's organisation and platform.",
+            "deprecated": true
           },
           "version": {
             "anyOf": [
@@ -38668,7 +38571,7 @@
           "app_id"
         ],
         "title": "RemoteBuildSourceUploadRequest",
-        "description": "Request body for obtaining a presigned URL to upload source code.\n\nAttributes:\n    app_id: UUID of the target app.\n    filename: Original filename of the source archive.\n    file_size: Size of the archive in bytes. Optional \u2014 the S3\n        presigned POST ``content-length-range`` condition enforces the\n        size limit at upload time regardless of this value."
+        "description": "Request body for obtaining a presigned URL to upload source code.\n\nAttributes:\n    app_id: UUID of the target app.\n    filename: Original filename of the source archive.\n    file_size: Size of the archive in bytes. Optional — the S3\n        presigned POST ``content-length-range`` condition enforces the\n        size limit at upload time regardless of this value."
       },
       "RemoteBuildSourceUploadResponse": {
         "properties": {
@@ -40850,7 +40753,7 @@
           "run_config": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/TestRunConfig-Output"
+                "$ref": "#/components/schemas/TestRunConfig"
               },
               {
                 "type": "null"
@@ -41246,7 +41149,7 @@
           "timeout"
         ],
         "title": "SessionStatus",
-        "description": "Device session status - the single source of truth for test execution state.\n\nMatches the session_status enum in the database.\nNote: Ordering matters - follows the typical lifecycle progression.\n\nStatus flow:\n    QUEUED \u2192 STARTING \u2192 RUNNING \u2192 STOPPING \u2192 COMPLETED/FAILED/TIMEOUT/CANCELLED\n                                \u2198 VERIFYING \u2192 STOPPING"
+        "description": "Device session status - the single source of truth for test execution state.\n\nMatches the session_status enum in the database.\nNote: Ordering matters - follows the typical lifecycle progression.\n\nStatus flow:\n    QUEUED → STARTING → RUNNING → STOPPING → COMPLETED/FAILED/TIMEOUT/CANCELLED\n                                ↘ VERIFYING → STOPPING"
       },
       "SessionSummaryBucket": {
         "properties": {
@@ -42167,7 +42070,7 @@
               }
             ],
             "title": "App Id",
-            "description": "CogniSim `apps` table row UUID. The backend resolves the latest build (presigned `app_link` / `app_url`) and native `package_name` from this id. Do not use for Android package name or iOS bundle id \u2014 use `app_package`."
+            "description": "CogniSim `apps` table row UUID. The backend resolves the latest build (presigned `app_link` / `app_url`) and native `package_name` from this id. Do not use for Android package name or iOS bundle id — use `app_package`."
           },
           "build_id": {
             "anyOf": [
@@ -42297,7 +42200,7 @@
           "run_config": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/TestRunConfig-Input"
+                "$ref": "#/components/schemas/TestRunConfig"
               },
               {
                 "type": "null"
@@ -43694,7 +43597,7 @@
           "run_config": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/TestRunConfig-Input"
+                "$ref": "#/components/schemas/TestRunConfig"
               },
               {
                 "type": "null"
@@ -43724,7 +43627,7 @@
         ],
         "title": "TaskID"
       },
-      "TaskMetadata-Input": {
+      "TaskMetadata": {
         "properties": {
           "id": {
             "anyOf": [
@@ -43802,100 +43705,7 @@
           "step_config": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/TestRunConfig-Input"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Step-level configuration that overrides test-level config"
-          }
-        },
-        "type": "object",
-        "required": [
-          "step_type"
-        ],
-        "title": "TaskMetadata"
-      },
-      "TaskMetadata-Output": {
-        "properties": {
-          "id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Id"
-          },
-          "step_type": {
-            "type": "string",
-            "title": "Step Type"
-          },
-          "step": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Step",
-            "description": "Deprecated: Use step_description instead"
-          },
-          "step_description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Step Description",
-            "description": "Human-readable description of the step"
-          },
-          "agent_description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Description",
-            "description": "Human-readable instruction describing what the agent did, e.g. 'Click the Sign In button'"
-          },
-          "download": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Download",
-            "default": false
-          },
-          "metadata": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/DOMMetadata"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "step_config": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TestRunConfig-Output"
+                "$ref": "#/components/schemas/TestRunConfig"
               },
               {
                 "type": "null"
@@ -44115,7 +43925,7 @@
               },
               {
                 "items": {
-                  "$ref": "#/components/schemas/TaskMetadata-Input"
+                  "$ref": "#/components/schemas/TaskMetadata"
                 },
                 "type": "array"
               }
@@ -44126,7 +43936,7 @@
           "cached_elements": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/CachedActionStore-Input"
+                "$ref": "#/components/schemas/CachedActionStore"
               },
               {
                 "type": "null"
@@ -44287,7 +44097,7 @@
           "run_config": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/TestRunConfig-Input"
+                "$ref": "#/components/schemas/TestRunConfig"
               },
               {
                 "type": "null"
@@ -44529,7 +44339,7 @@
               },
               {
                 "items": {
-                  "$ref": "#/components/schemas/TaskMetadata-Output"
+                  "$ref": "#/components/schemas/TaskMetadata"
                 },
                 "type": "array"
               }
@@ -44540,7 +44350,7 @@
           "cached_elements": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/CachedActionStore-Output"
+                "$ref": "#/components/schemas/CachedActionStore"
               },
               {
                 "type": "null"
@@ -44701,7 +44511,7 @@
           "run_config": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/TestRunConfig-Output"
+                "$ref": "#/components/schemas/TestRunConfig"
               },
               {
                 "type": "null"
@@ -46590,7 +46400,7 @@
         "title": "TestRestoreVersionResponse",
         "description": "Response model for restoring a test version."
       },
-      "TestRunConfig-Input": {
+      "TestRunConfig": {
         "properties": {
           "llm_config": {
             "$ref": "#/components/schemas/LLMConfig",
@@ -46602,76 +46412,7 @@
             }
           },
           "execution_mode": {
-            "$ref": "#/components/schemas/ExecutionModeConfig-Input",
-            "description": "Execution mode configuration",
-            "default": {
-              "human_in_the_loop": false,
-              "enable_reflection": true,
-              "enable_planning": false,
-              "retries": 1,
-              "reflection_retries": 1,
-              "skip_app_install": false,
-              "grounder_type": "moondream3"
-            }
-          },
-          "run_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Run Id"
-          },
-          "cache_retry_mode": {
-            "$ref": "#/components/schemas/CacheRetryMode",
-            "description": "Cache retry policy",
-            "default": "full_rerun"
-          },
-          "fallback_trigger": {
-            "$ref": "#/components/schemas/FallbackTrigger",
-            "description": "When to trigger cache fallback",
-            "default": "final_fail"
-          },
-          "disable_grid": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Disable Grid",
-            "description": "Admin-only: Disable grid preprocessing for grounding"
-          },
-          "fail_fast": {
-            "type": "boolean",
-            "title": "Fail Fast",
-            "description": "When true, the test halts immediately on the first failed validation or non-zero script exit code instead of continuing through remaining steps.",
-            "default": false
-          }
-        },
-        "type": "object",
-        "title": "TestRunConfig",
-        "description": "Complete configuration for a test run."
-      },
-      "TestRunConfig-Output": {
-        "properties": {
-          "llm_config": {
-            "$ref": "#/components/schemas/LLMConfig",
-            "description": "LLM model configuration",
-            "default": {
-              "primary_model": "gemini/gemini-3-flash-preview",
-              "reflection_model": "gemini/gemini-3-flash-preview",
-              "planning_model": "gemini/gemini-3-flash-preview"
-            }
-          },
-          "execution_mode": {
-            "$ref": "#/components/schemas/ExecutionModeConfig-Output",
+            "$ref": "#/components/schemas/ExecutionModeConfig",
             "description": "Execution mode configuration",
             "default": {
               "human_in_the_loop": false,
@@ -48998,7 +48739,7 @@
               }
             ],
             "title": "Test Timeout Seconds",
-            "description": "Timeout in seconds (1\u201310800). Null to disable."
+            "description": "Timeout in seconds (1–10800). Null to disable."
           }
         },
         "type": "object",
@@ -50590,7 +50331,7 @@
           "run_config": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/TestRunConfig-Output"
+                "$ref": "#/components/schemas/TestRunConfig"
               },
               {
                 "type": "null"
@@ -51743,7 +51484,7 @@
           "run_config": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/TestRunConfig-Input"
+                "$ref": "#/components/schemas/TestRunConfig"
               },
               {
                 "type": "null"
@@ -52663,7 +52404,7 @@
           "run_config": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/TestRunConfig-Output"
+                "$ref": "#/components/schemas/TestRunConfig"
               },
               {
                 "type": "null"
@@ -52869,7 +52610,7 @@
           "run_config": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/TestRunConfig-Output"
+                "$ref": "#/components/schemas/TestRunConfig"
               },
               {
                 "type": "null"

@@ -46,8 +46,8 @@ you use and installs the recommended skills for that tool automatically:
 
 Project-level Cursor setup also installs `.cursor/rules/revyl-skills.mdc` so Cursor can route Revyl requests to the right skill. Codex and Claude Code use their native skill directories without mutating config files.
 
-If you skipped that prompt or want to refresh skills after a CLI update, install
-the recommended skill bundle:
+If you skipped that prompt or want to refresh skills manually, install the
+recommended skill bundle:
 
 ```bash
 revyl skill install --force

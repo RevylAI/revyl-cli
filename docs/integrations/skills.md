@@ -71,6 +71,10 @@ When no browser tool is available, agents should report the URL and verify throu
 
 ### Refresh skills after CLI update
 
+`revyl upgrade` refreshes existing Cursor, Codex, and Claude Code skill
+directories automatically after a successful Homebrew or direct-download
+upgrade. If you update Revyl outside the CLI, or want to refresh manually, run:
+
 ```bash
 revyl skill install --force
 ```

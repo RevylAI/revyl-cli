@@ -5335,26 +5335,22 @@ func (c *Client) GetRemoteBuildStatus(ctx context.Context, buildJobID string) (*
 
 // BuildRunnerStatus is defined in generated.go from the OpenAPI schema.
 
-// CheckBuildRunnersAvailable queries the backend for active build
-// runners assigned to the caller's organisation. Used as a pre-flight
-// check before uploading source to avoid wasting time when no runner
-// is available.
+// CheckBuildRunnersAvailable queries the backend for active build capacity
+// assigned to the caller's organisation. Used as a pre-flight check before
+// uploading source to avoid wasting time when no capacity is available.
 //
 // Parameters:
 //   - ctx: cancellation context
 //   - platform: build platform ("ios" or "android")
 //
 // Returns:
-//   - *BuildRunnerStatus with availability flag and runner count
+//   - *BuildRunnerStatus with availability flag and capacity count
 //   - error on API or network failure
-func (c *Client) CheckBuildRunnersAvailable(ctx context.Context, platform string, runnerID ...string) (*BuildRunnerStatus, error) {
+func (c *Client) CheckBuildRunnersAvailable(ctx context.Context, platform string) (*BuildRunnerStatus, error) {
 	path := "/api/v1/apps/remote/runners/available"
 	values := url.Values{}
 	if strings.TrimSpace(platform) != "" {
 		values.Set("platform", strings.TrimSpace(platform))
-	}
-	if len(runnerID) > 0 && strings.TrimSpace(runnerID[0]) != "" {
-		values.Set("runner_id", strings.TrimSpace(runnerID[0]))
 	}
 	if encoded := values.Encode(); encoded != "" {
 		path += "?" + encoded
