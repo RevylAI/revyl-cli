@@ -348,9 +348,6 @@ type BuildPlatform struct {
 
 	// KeepDerivedData preserves the remote iOS DerivedData cache between builds.
 	KeepDerivedData bool `yaml:"keep_derived_data,omitempty"`
-
-	// RunnerID targets a specific remote build runner DEVICE_ID label.
-	RunnerID string `yaml:"runner_id,omitempty"`
 }
 
 // Defaults contains default settings.

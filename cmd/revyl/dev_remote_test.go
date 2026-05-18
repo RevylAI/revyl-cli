@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/revyl/cli/internal/config"
 )
 
 func TestValidateRemoteDevStartFlags(t *testing.T) {
@@ -92,6 +94,36 @@ func TestValidateRemoteDevStartFlags(t *testing.T) {
 				t.Fatalf("validateRemoteDevStartFlags() error = %v, want containing %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestRemoteDevTriggerRequestAllowsFastlaneAndCarriesCacheConfig(t *testing.T) {
+	req := remoteDevTriggerRequest(
+		"00000000-0000-0000-0000-000000000456",
+		"org/00000000-0000-0000-0000-000000000123/build-sources/app/source.tar.gz",
+		"ios",
+		"app",
+		"abc123",
+		config.BuildPlatform{
+			Command:         "bundle exec fastlane build_simulator_debug",
+			Output:          "build/Example.app.zip",
+			AppID:           "00000000-0000-0000-0000-000000000456",
+			Setup:           "bash .revyl/setup-ios-remote.sh",
+			KeepDerivedData: true,
+		},
+	)
+
+	if req.BuildCommand != "bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("BuildCommand = %q", req.BuildCommand)
+	}
+	if req.KeepDerivedData == nil || !*req.KeepDerivedData {
+		t.Fatal("KeepDerivedData was not set")
+	}
+	if req.ArtifactPath == nil || *req.ArtifactPath != "build/Example.app.zip" {
+		t.Fatalf("ArtifactPath = %v", req.ArtifactPath)
+	}
+	if req.SetupCommand == nil || *req.SetupCommand != "bash .revyl/setup-ios-remote.sh" {
+		t.Fatalf("SetupCommand = %v", req.SetupCommand)
 	}
 }
 

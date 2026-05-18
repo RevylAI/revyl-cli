@@ -69,9 +69,6 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 	if strings.TrimSpace(platCfg.Command) == "" {
 		return fmt.Errorf("build.platforms.%s.command is required for revyl dev --remote", platformKey)
 	}
-	if devicePlatform == "ios" && !strings.Contains(strings.ToLower(platCfg.Command), "xcodebuild") {
-		return fmt.Errorf("revyl dev --remote v1 supports native iOS xcodebuild projects only")
-	}
 
 	ctxName, err = resolveDevStartContextName(cwd, getDevContextFlag(cmd), devicePlatform)
 	if err != nil {
@@ -425,6 +422,7 @@ func runRemoteDevBuild(
 	ui.Println()
 	ui.PrintInfo("Remote building %s...", platformKey)
 	ui.PrintInfo("Packaging current working tree...")
+	ui.PrintDim("  Run from the app subdirectory when using a large monorepo.")
 
 	archivePath, err := createSourceArchiveIncludingWorkingTree(cwd)
 	if err != nil {
@@ -455,28 +453,10 @@ func runRemoteDevBuild(
 		return remoteDevBuildResult{}, fmt.Errorf("failed to upload source snapshot: %w", err)
 	}
 
-	buildCommand := platCfg.Command
-	scheme := strings.TrimSpace(platCfg.Scheme)
-	if scheme != "" {
-		buildCommand = build.ApplySchemeToCommand(buildCommand, scheme)
-	}
-
-	setCurrent := true
 	platform := devicePlatform
 	artifactType := defaultRemoteArtifactType(platform)
 	versionStr := build.GenerateVersionStringForWorkDir(cwd)
-	triggerResp, err := client.TriggerRemoteBuild(ctx, &api.RemoteBuildRequest{
-		AppId:        appID,
-		SourceKey:    stringPtrOrNil(uploadResp.SourceKey),
-		BuildCommand: buildCommand,
-		BuildScheme:  stringPtrOrNil(scheme),
-		SetupCommand: stringPtrOrNil(platCfg.Setup),
-		Version:      stringPtrOrNil(versionStr),
-		SetAsCurrent: &setCurrent,
-		Platform:     &platform,
-		ArtifactPath: stringPtrOrNil(platCfg.Output),
-		ArtifactType: stringPtrOrNil(artifactType),
-	})
+	triggerResp, err := client.TriggerRemoteBuild(ctx, remoteDevTriggerRequest(appID, uploadResp.SourceKey, platform, artifactType, versionStr, platCfg))
 	if err != nil {
 		return remoteDevBuildResult{}, fmt.Errorf("failed to trigger remote build: %w", err)
 	}
@@ -499,6 +479,29 @@ func runRemoteDevBuild(
 		version:   version,
 		duration:  time.Since(start),
 	}, nil
+}
+
+func remoteDevTriggerRequest(appID, sourceKey, platform, artifactType, version string, platCfg config.BuildPlatform) *api.RemoteBuildRequest {
+	buildCommand := platCfg.Command
+	scheme := strings.TrimSpace(platCfg.Scheme)
+	if scheme != "" {
+		buildCommand = build.ApplySchemeToCommand(buildCommand, scheme)
+	}
+
+	setCurrent := true
+	return &api.RemoteBuildRequest{
+		AppId:           appID,
+		SourceKey:       stringPtrOrNil(sourceKey),
+		BuildCommand:    buildCommand,
+		BuildScheme:     stringPtrOrNil(scheme),
+		SetupCommand:    stringPtrOrNil(platCfg.Setup),
+		Version:         stringPtrOrNil(version),
+		SetAsCurrent:    &setCurrent,
+		Platform:        &platform,
+		ArtifactPath:    stringPtrOrNil(platCfg.Output),
+		ArtifactType:    stringPtrOrNil(artifactType),
+		KeepDerivedData: boolPtrOrNil(platCfg.KeepDerivedData),
+	}
 }
 
 func pollRemoteBuildStatusResult(ctx context.Context, client *api.Client, jobID string) (*api.RemoteBuildStatusResponse, error) {
@@ -568,6 +571,7 @@ func pollRemoteBuildStatusResultWithTimeout(ctx context.Context, client *api.Cli
 					return status, fmt.Errorf("remote build succeeded but returned no build version ID")
 				}
 				ui.PrintSuccess("Remote build completed")
+				printRemoteBuildPhaseTimings(status.PhaseTimings)
 				return status, nil
 			case "failed":
 				if status.Error != nil && *status.Error != "" {

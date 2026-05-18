@@ -4,10 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/revyl/cli/internal/testutil"
 )
 
 func TestDetectInstallMethodFromPath(t *testing.T) {
@@ -249,6 +253,111 @@ func TestPerformBrewUpgrade_StopsOnUpdateFailure(t *testing.T) {
 
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 brew call (should stop after update failure), got %d: %v", len(calls), calls)
+	}
+}
+
+func TestDiscoverPostUpgradeSkillTargetsUsesExistingProjectAndGlobalDirs(t *testing.T) {
+	workDir := t.TempDir()
+	homeDir := t.TempDir()
+	withWorkingDir(t, workDir)
+	testutil.SetHomeDir(t, homeDir)
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".codex", "skills"), 0755); err != nil {
+		t.Fatalf("mkdir project codex skills: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(homeDir, ".claude", "skills"), 0755); err != nil {
+		t.Fatalf("mkdir global claude skills: %v", err)
+	}
+
+	targets := discoverPostUpgradeSkillTargets()
+	got := make(map[string]bool, len(targets))
+	for _, target := range targets {
+		got[target.tool] = target.global
+	}
+
+	if global, ok := got["codex"]; !ok || global {
+		t.Fatalf("expected project codex target, got %#v", targets)
+	}
+	if global, ok := got["claude"]; !ok || !global {
+		t.Fatalf("expected global claude target, got %#v", targets)
+	}
+	if _, ok := got["cursor"]; ok {
+		t.Fatalf("did not expect cursor target, got %#v", targets)
+	}
+}
+
+func TestDiscoverPostUpgradeSkillTargetsDedupesHomeAsGlobal(t *testing.T) {
+	homeDir := t.TempDir()
+	withWorkingDir(t, homeDir)
+	testutil.SetHomeDir(t, homeDir)
+
+	if err := os.MkdirAll(filepath.Join(homeDir, ".codex", "skills"), 0755); err != nil {
+		t.Fatalf("mkdir home codex skills: %v", err)
+	}
+
+	targets := discoverPostUpgradeSkillTargets()
+	if len(targets) != 1 {
+		t.Fatalf("targets = %#v, want exactly one", targets)
+	}
+	if targets[0].tool != "codex" || !targets[0].global {
+		t.Fatalf("target = %#v, want global codex", targets[0])
+	}
+}
+
+func TestPostUpgradeSkillInstallCommandsGroupsTargetsByScope(t *testing.T) {
+	commands := postUpgradeSkillInstallCommands([]skillInstallTarget{
+		{tool: "codex", global: false},
+		{tool: "cursor", global: true},
+		{tool: "claude", global: true},
+		{tool: "codex", global: false},
+	})
+
+	if len(commands) != 2 {
+		t.Fatalf("commands = %#v, want 2", commands)
+	}
+	if commands[0].global || strings.Join(commands[0].tools, ",") != "codex" {
+		t.Fatalf("project command = %#v, want codex", commands[0])
+	}
+	if !commands[1].global || strings.Join(commands[1].tools, ",") != "cursor,claude" {
+		t.Fatalf("global command = %#v, want cursor,claude", commands[1])
+	}
+}
+
+func TestRefreshSkillsAfterSuccessfulUpgradeRunsNewBinaryForExistingTargets(t *testing.T) {
+	workDir := t.TempDir()
+	homeDir := t.TempDir()
+	withWorkingDir(t, workDir)
+	testutil.SetHomeDir(t, homeDir)
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".codex", "skills"), 0755); err != nil {
+		t.Fatalf("mkdir project codex skills: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(homeDir, ".claude", "skills"), 0755); err != nil {
+		t.Fatalf("mkdir global claude skills: %v", err)
+	}
+
+	var calls [][]string
+	original := postUpgradeCommandRunner
+	postUpgradeCommandRunner = func(name string, args ...string) *exec.Cmd {
+		call := append([]string{name}, args...)
+		calls = append(calls, call)
+		return exec.Command("true")
+	}
+	t.Cleanup(func() { postUpgradeCommandRunner = original })
+
+	refreshSkillsAfterSuccessfulUpgrade("/tmp/new-revyl")
+
+	want := [][]string{
+		{"/tmp/new-revyl", "skill", "install", "--force", "--codex"},
+		{"/tmp/new-revyl", "skill", "install", "--force", "--claude", "--global"},
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("calls = %#v, want %#v", calls, want)
+	}
+	for i := range want {
+		if strings.Join(calls[i], "\x00") != strings.Join(want[i], "\x00") {
+			t.Fatalf("call %d = %#v, want %#v", i, calls[i], want[i])
+		}
 	}
 }
 

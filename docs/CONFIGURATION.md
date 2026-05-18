@@ -83,7 +83,6 @@ last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 | `build.platforms.<key>.scheme` | `string` | Optional Xcode scheme. When set, the CLI applies it to Xcode build commands. |
 | `build.platforms.<key>.setup` | `string` | Optional setup command used by remote builds before the main build command. |
 | `build.platforms.<key>.keep_derived_data` | `bool` | Preserve remote iOS DerivedData between builds for faster repeat Xcode builds. |
-| `build.platforms.<key>.runner_id` | `string` | Optional dedicated remote build runner pool label to target for this platform stream. |
 | `hotreload` | `object` | Hot reload provider configuration for `revyl dev`. |
 | `defaults.open_browser` | `bool` | Auto-open browser for commands that support a browser view. |
 | `defaults.timeout` | `int` | Default timeout in seconds for CLI/device sessions. |
@@ -152,7 +151,6 @@ build:
   platforms:
     ios:
       app_id: "$REVYL_IOS_APP_ID"
-      runner_id: "dedicated-ios-runner"
       keep_derived_data: true
       scheme: "App"
       command: "xcodebuild -workspace App.xcworkspace -scheme App -sdk iphonesimulator -configuration Debug -derivedDataPath build"
@@ -168,9 +166,8 @@ platform build execution step.
 For iOS, set `keep_derived_data: true` when you want the dedicated runner to
 reuse a stable DerivedData cache across builds. For large native codebases this
 turns repeated remote builds into an incremental compile loop instead of a fresh
-Xcode build every time. Use `runner_id` when a platform stream should only run
-on a named dedicated runner pool. It targets the runner label Revyl uses for
-routing, not a specific VM instance.
+Xcode build every time. Revyl selects eligible build capacity for your org and
+platform automatically.
 
 Repository credentials, LFS access, and private dependency/network access must
 be provisioned on the dedicated runner.

@@ -299,6 +299,12 @@ type HotReloadLocalMetroSpanInput struct {
 	TTFB              time.Duration
 	FirstBodyByte     time.Duration
 	Error             string
+
+	RangePresent                 bool
+	ResponseContentType          string
+	ResponseContentLengthPresent bool
+	ResponseContentRangePresent  bool
+	ResponseAcceptRangesPresent  bool
 }
 
 // ExportHotReloadLocalMetroSpan exports a best-effort child span for a local Metro request.
@@ -335,6 +341,13 @@ func (c *Client) ExportHotReloadLocalMetroSpan(ctx context.Context, input HotRel
 		attribute.String("hotreload.request_class", strings.TrimSpace(input.RequestClass)),
 		attribute.String("hotreload.platform", strings.TrimSpace(input.Platform)),
 		attribute.String("hotreload.path", sanitizeSpanPath(input.Path)),
+		attribute.Bool("hotreload.range_present", input.RangePresent),
+		attribute.Bool("hotreload.response.content_length_present", input.ResponseContentLengthPresent),
+		attribute.Bool("hotreload.response.content_range_present", input.ResponseContentRangePresent),
+		attribute.Bool("hotreload.response.accept_ranges_present", input.ResponseAcceptRangesPresent),
+	}
+	if contentType := strings.TrimSpace(input.ResponseContentType); contentType != "" {
+		attrs = append(attrs, attribute.String("http.response.content_type", truncateAttribute(contentType, 120)))
 	}
 	if input.StatusCode > 0 {
 		attrs = append(attrs, attribute.Int("http.status_code", input.StatusCode))

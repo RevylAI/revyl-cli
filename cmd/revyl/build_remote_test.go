@@ -115,6 +115,12 @@ func TestRemoteBuildTimeoutFromConfigUsesProjectDefaults(t *testing.T) {
 	}
 }
 
+func TestBuildRemoteCommandDoesNotExposeRunnerFlag(t *testing.T) {
+	if flag := buildRemoteCmd.Flags().Lookup("runner"); flag != nil {
+		t.Fatalf("remote build still exposes --runner flag")
+	}
+}
+
 func TestResolveRemoteBuildPlatformAndroidReadsConfig(t *testing.T) {
 	tmp := t.TempDir()
 	configDir := filepath.Join(tmp, ".revyl")
@@ -166,29 +172,25 @@ func TestResolveRemoteBuildPlatformReadsRepoBackedSource(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatalf("MkdirAll(): %v", err)
 	}
-	cfg := &config.ProjectConfig{
-		Project: config.Project{Name: "Organic Maps"},
-		Build: config.BuildConfig{
-			Source: config.BuildSource{
-				Type:    "git",
-				RepoURL: "https://github.com/organicmaps/organicmaps.git",
-				Ref:     "master",
-				Subdir:  "android",
-				LFS:     true,
-			},
-			Platforms: map[string]config.BuildPlatform{
-				"android": {
-					AppID:           "app-android",
-					Command:         "cd android && ./gradlew assembleWebDebug",
-					Output:          "android/app/build/outputs/apk/web/debug/*.apk",
-					KeepDerivedData: true,
-					RunnerID:        "revyl-kendrick-local-build",
-				},
-			},
-		},
-	}
-	if err := config.WriteProjectConfig(filepath.Join(configDir, "config.yaml"), cfg); err != nil {
-		t.Fatalf("WriteProjectConfig(): %v", err)
+	configYAML := []byte(`project:
+  name: Organic Maps
+build:
+  source:
+    type: git
+    repo_url: https://github.com/organicmaps/organicmaps.git
+    ref: master
+    subdir: android
+    lfs: true
+  platforms:
+    android:
+      app_id: app-android
+      command: cd android && ./gradlew assembleWebDebug
+      output: android/app/build/outputs/apk/web/debug/*.apk
+      keep_derived_data: true
+      runner_id: stale-runner-label
+`)
+	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
 	}
 
 	resolved, err := resolveRemoteBuildPlatform(tmp, "android", "")
@@ -208,9 +210,6 @@ func TestResolveRemoteBuildPlatformReadsRepoBackedSource(t *testing.T) {
 	}
 	if !resolved.KeepDerivedData {
 		t.Fatalf("KeepDerivedData = false, want true")
-	}
-	if resolved.RunnerID != "revyl-kendrick-local-build" {
-		t.Fatalf("RunnerID = %q, want revyl-kendrick-local-build", resolved.RunnerID)
 	}
 }
 
@@ -242,6 +241,14 @@ func TestRemoteBuildSuccessJSONIncludesAndroidArtifactFields(t *testing.T) {
 	artifactType := "apk"
 	packageID := "com.example.app"
 	logs := "last log line"
+	durationMs := 1200
+	phaseTimings := []api.RemoteBuildPhaseTiming{
+		{
+			Phase:      "build",
+			StartedAt:  "2026-05-17T12:00:00Z",
+			DurationMs: &durationMs,
+		},
+	}
 
 	result := remoteBuildSuccessJSON(
 		remoteBuildPlatformConfig{
@@ -256,6 +263,7 @@ func TestRemoteBuildSuccessJSONIncludesAndroidArtifactFields(t *testing.T) {
 			ArtifactType: &artifactType,
 			PackageId:    &packageID,
 			LogsTail:     &logs,
+			PhaseTimings: &phaseTimings,
 		},
 	)
 
@@ -271,6 +279,9 @@ func TestRemoteBuildSuccessJSONIncludesAndroidArtifactFields(t *testing.T) {
 	if result.AppID != "app-android" || result.LogsTail != logs {
 		t.Fatalf("app/logs = %s/%s, want app-android/%s", result.AppID, result.LogsTail, logs)
 	}
+	if len(result.PhaseTimings) != 1 || result.PhaseTimings[0].Phase != "build" {
+		t.Fatalf("PhaseTimings = %#v, want build timing", result.PhaseTimings)
+	}
 }
 
 func TestRemoteBuildFailureJSONIncludesDiscoveryGuidance(t *testing.T) {
@@ -278,6 +289,14 @@ func TestRemoteBuildFailureJSONIncludesDiscoveryGuidance(t *testing.T) {
 	errMsg := "Multiple APK artifacts found"
 	fix := "Set build.platforms.android.output"
 	candidates := []string{"app-debug.apk", "app-release.apk"}
+	durationMs := 2500
+	phaseTimings := []api.RemoteBuildPhaseTiming{
+		{
+			Phase:      "artifact",
+			StartedAt:  "2026-05-17T12:00:00Z",
+			DurationMs: &durationMs,
+		},
+	}
 
 	result := remoteBuildFailureJSON(
 		remoteBuildPlatformConfig{Platform: "android", AppID: "app-android"},
@@ -288,6 +307,7 @@ func TestRemoteBuildFailureJSONIncludesDiscoveryGuidance(t *testing.T) {
 			Phase:              &phase,
 			SuggestedFix:       &fix,
 			CandidateArtifacts: &candidates,
+			PhaseTimings:       &phaseTimings,
 		},
 		context.Canceled,
 	)
@@ -300,5 +320,8 @@ func TestRemoteBuildFailureJSONIncludesDiscoveryGuidance(t *testing.T) {
 	}
 	if len(result.CandidateArtifacts) != 2 || result.CandidateArtifacts[0] != "app-debug.apk" {
 		t.Fatalf("CandidateArtifacts = %#v, want APK candidates", result.CandidateArtifacts)
+	}
+	if len(result.PhaseTimings) != 1 || result.PhaseTimings[0].Phase != "artifact" {
+		t.Fatalf("PhaseTimings = %#v, want artifact timing", result.PhaseTimings)
 	}
 }

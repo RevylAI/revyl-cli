@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -17,22 +16,11 @@ func TestTagLifecycle(t *testing.T) {
 	testID := createTestFixture(t, testName, "android")
 
 	step(t, "create_tag", func(st *testing.T) {
-		result := runCLI(t, "tag", "create", "--name", tagName, "--color", "#FF5733", "--json")
+		result := runCLI(t, "tag", "create", tagName, "--color", "#FF5733")
 		if result.ExitCode != 0 {
 			st.Fatalf("tag create failed: %s\n%s", result.Stdout, result.Stderr)
 		}
-		var resp struct {
-			ID    string `json:"id"`
-			TagID string `json:"tag_id"`
-		}
-		raw := extractJSON(result.Stdout)
-		if err := json.Unmarshal([]byte(raw), &resp); err != nil {
-			st.Fatalf("failed to parse tag create response: %v\n%s", err, result.Stdout)
-		}
-		tagID = resp.ID
-		if tagID == "" {
-			tagID = resp.TagID
-		}
+		tagID = extractUUID(result.Stdout + result.Stderr)
 		if tagID == "" {
 			st.Fatalf("tag create returned empty ID\n%s", result.Stdout)
 		}
@@ -52,7 +40,7 @@ func TestTagLifecycle(t *testing.T) {
 	})
 
 	step(t, "assign_tag_to_test", func(st *testing.T) {
-		result := runCLI(t, "tag", "add", testID, tagID)
+		result := runCLI(t, "tag", "add", testID, tagName)
 		if result.ExitCode != 0 {
 			st.Fatalf("tag add failed: %s\n%s", result.Stdout, result.Stderr)
 		}
@@ -69,7 +57,7 @@ func TestTagLifecycle(t *testing.T) {
 	})
 
 	step(t, "remove_tag_from_test", func(st *testing.T) {
-		result := runCLI(t, "tag", "remove", testID, tagID)
+		result := runCLI(t, "tag", "remove", testID, tagName)
 		if result.ExitCode != 0 {
 			st.Fatalf("tag remove failed: %s\n%s", result.Stdout, result.Stderr)
 		}

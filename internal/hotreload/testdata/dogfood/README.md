@@ -50,6 +50,13 @@ request_class=expo_manifest
 request_class=bundle
 ```
 
+If local videos or animation assets render blank after the bundle is healthy,
+check Grafana/Tempo for `request_class=asset`. Healthy media probes should show
+`hotreload.range_present` for range requests plus
+`hotreload.response.content_length_present`,
+`hotreload.response.content_range_present`, and
+`hotreload.response.accept_ranges_present` when Metro returns ranged media.
+
 If the device still does not load after bundle first-byte proof, collect:
 
 ```bash

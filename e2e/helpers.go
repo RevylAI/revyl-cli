@@ -406,7 +406,7 @@ func createAppFixture(t *testing.T, name, platform string) string {
 // Returns the workflow ID.
 func createWorkflowFixture(t *testing.T, name string, testIDs []string) string {
 	t.Helper()
-	args := []string{"workflow", "create", "--name", name, "--no-open"}
+	args := []string{"workflow", "create", name, "--no-open"}
 	if len(testIDs) > 0 {
 		args = append(args, "--tests", strings.Join(testIDs, ","))
 	}

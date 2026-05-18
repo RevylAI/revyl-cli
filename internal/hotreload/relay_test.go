@@ -2,6 +2,7 @@ package hotreload
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -581,6 +582,239 @@ func TestRelayRuntimeClassifiesLocalWebSocketConnectionRefused(t *testing.T) {
 	}
 	if !failure.Fatal {
 		t.Fatal("expected local websocket refusal to be fatal")
+	}
+}
+
+func TestRelayRuntimePreservesMediaRangeHeaders(t *testing.T) {
+	clientConn, serverConn := newRelayRuntimeTestWebSocket(t)
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/assets/auth-start.mp4" {
+			t.Fatalf("local path = %q, want /assets/auth-start.mp4", r.URL.Path)
+		}
+		if got := r.Header.Get("Range"); got != "bytes=0-1" {
+			t.Fatalf("Range = %q, want bytes=0-1", got)
+		}
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", "2")
+		w.Header().Set("Content-Range", "bytes 0-1/4")
+		w.Header().Set("Content-Type", "video/mp4")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	t.Cleanup(localServer.Close)
+	req, err := http.NewRequest(http.MethodGet, localServer.URL, nil)
+	if err != nil {
+		t.Fatalf("parse local URL: %v", err)
+	}
+	_, port, err := net.SplitHostPort(req.URL.Host)
+	if err != nil {
+		t.Fatalf("SplitHostPort() error = %v", err)
+	}
+	var portInt int
+	if _, err := fmt.Sscanf(port, "%d", &portInt); err != nil {
+		t.Fatalf("parse port %q: %v", port, err)
+	}
+
+	runtime := newRelayRuntime(context.Background(), portInt, clientConn, nil, nil, nil, nil)
+	t.Cleanup(runtime.stop)
+	t.Cleanup(func() { _ = serverConn.Close() })
+
+	runtime.handleHTTPRequestStart(relayEnvelope{
+		Kind:         "http.request.start",
+		StreamID:     "media-1",
+		Method:       http.MethodGet,
+		Path:         "/assets/auth-start.mp4",
+		Headers:      map[string][]string{"Range": {"bytes=0-1"}, "Content-Length": {"99"}},
+		RequestClass: "asset",
+	})
+	runtime.handleHTTPRequestEnd(relayEnvelope{Kind: "http.request.end", StreamID: "media-1"})
+
+	var start relayEnvelope
+	var body []byte
+	for {
+		_, payload, err := serverConn.ReadMessage()
+		if err != nil {
+			t.Fatalf("ReadMessage() error = %v", err)
+		}
+		var env relayEnvelope
+		if err := json.Unmarshal(payload, &env); err != nil {
+			t.Fatalf("decode relay envelope: %v", err)
+		}
+		switch env.Kind {
+		case "http.response.start":
+			start = env
+		case "http.response.body":
+			chunk, err := base64.StdEncoding.DecodeString(env.BodyChunkB64)
+			if err != nil {
+				t.Fatalf("decode body chunk: %v", err)
+			}
+			body = append(body, chunk...)
+		case "http.response.end":
+			headers := http.Header(start.Headers)
+			if start.Status != http.StatusPartialContent {
+				t.Fatalf("response status = %d, want %d", start.Status, http.StatusPartialContent)
+			}
+			if got := headers.Get("Content-Length"); got != "2" {
+				t.Fatalf("Content-Length = %q, want 2", got)
+			}
+			if got := headers.Get("Content-Range"); got != "bytes 0-1/4" {
+				t.Fatalf("Content-Range = %q, want bytes 0-1/4", got)
+			}
+			if got := headers.Get("Accept-Ranges"); got != "bytes" {
+				t.Fatalf("Accept-Ranges = %q, want bytes", got)
+			}
+			if got := headers.Get("Content-Type"); got != "video/mp4" {
+				t.Fatalf("Content-Type = %q, want video/mp4", got)
+			}
+			if string(body) != "ab" {
+				t.Fatalf("body = %q, want ab", string(body))
+			}
+			return
+		}
+	}
+}
+
+func TestRelayRuntimePreservesMediaHeadHeadersWithoutBody(t *testing.T) {
+	clientConn, serverConn := newRelayRuntimeTestWebSocket(t)
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/assets/auth-start.mp4" {
+			t.Fatalf("local path = %q, want /assets/auth-start.mp4", r.URL.Path)
+		}
+		if r.Method != http.MethodHead {
+			t.Fatalf("method = %q, want HEAD", r.Method)
+		}
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", "4096")
+		w.Header().Set("Content-Type", "video/mp4")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(localServer.Close)
+	req, err := http.NewRequest(http.MethodGet, localServer.URL, nil)
+	if err != nil {
+		t.Fatalf("parse local URL: %v", err)
+	}
+	_, port, err := net.SplitHostPort(req.URL.Host)
+	if err != nil {
+		t.Fatalf("SplitHostPort() error = %v", err)
+	}
+	var portInt int
+	if _, err := fmt.Sscanf(port, "%d", &portInt); err != nil {
+		t.Fatalf("parse port %q: %v", port, err)
+	}
+
+	runtime := newRelayRuntime(context.Background(), portInt, clientConn, nil, nil, nil, nil)
+	t.Cleanup(runtime.stop)
+	t.Cleanup(func() { _ = serverConn.Close() })
+
+	runtime.handleHTTPRequestStart(relayEnvelope{
+		Kind:         "http.request.start",
+		StreamID:     "media-head-1",
+		Method:       http.MethodHead,
+		Path:         "/assets/auth-start.mp4",
+		RequestClass: "asset",
+	})
+	runtime.handleHTTPRequestEnd(relayEnvelope{Kind: "http.request.end", StreamID: "media-head-1"})
+
+	var start relayEnvelope
+	var body []byte
+	for {
+		_, payload, err := serverConn.ReadMessage()
+		if err != nil {
+			t.Fatalf("ReadMessage() error = %v", err)
+		}
+		var env relayEnvelope
+		if err := json.Unmarshal(payload, &env); err != nil {
+			t.Fatalf("decode relay envelope: %v", err)
+		}
+		switch env.Kind {
+		case "http.response.start":
+			start = env
+		case "http.response.body":
+			chunk, err := base64.StdEncoding.DecodeString(env.BodyChunkB64)
+			if err != nil {
+				t.Fatalf("decode body chunk: %v", err)
+			}
+			body = append(body, chunk...)
+		case "http.response.end":
+			headers := http.Header(start.Headers)
+			if start.Status != http.StatusOK {
+				t.Fatalf("response status = %d, want %d", start.Status, http.StatusOK)
+			}
+			if got := headers.Get("Content-Length"); got != "4096" {
+				t.Fatalf("Content-Length = %q, want 4096", got)
+			}
+			if got := headers.Get("Accept-Ranges"); got != "bytes" {
+				t.Fatalf("Accept-Ranges = %q, want bytes", got)
+			}
+			if got := headers.Get("Content-Type"); got != "video/mp4" {
+				t.Fatalf("Content-Type = %q, want video/mp4", got)
+			}
+			if len(body) != 0 {
+				t.Fatalf("HEAD body length = %d, want 0", len(body))
+			}
+			return
+		}
+	}
+}
+
+func TestRelayRuntimeStripsBundleContentLength(t *testing.T) {
+	clientConn, serverConn := newRelayRuntimeTestWebSocket(t)
+	body := []byte("console.log('ok');")
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/index.bundle" {
+			t.Fatalf("local path = %q, want /index.bundle", r.URL.Path)
+		}
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+		w.Header().Set("Content-Type", "application/javascript")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(localServer.Close)
+	req, err := http.NewRequest(http.MethodGet, localServer.URL, nil)
+	if err != nil {
+		t.Fatalf("parse local URL: %v", err)
+	}
+	_, port, err := net.SplitHostPort(req.URL.Host)
+	if err != nil {
+		t.Fatalf("SplitHostPort() error = %v", err)
+	}
+	var portInt int
+	if _, err := fmt.Sscanf(port, "%d", &portInt); err != nil {
+		t.Fatalf("parse port %q: %v", port, err)
+	}
+
+	runtime := newRelayRuntime(context.Background(), portInt, clientConn, nil, nil, nil, nil)
+	t.Cleanup(runtime.stop)
+	t.Cleanup(func() { _ = serverConn.Close() })
+
+	runtime.handleHTTPRequestStart(relayEnvelope{
+		Kind:         "http.request.start",
+		StreamID:     "bundle-1",
+		Method:       http.MethodGet,
+		Path:         "/index.bundle",
+		RequestClass: "bundle",
+	})
+	runtime.handleHTTPRequestEnd(relayEnvelope{Kind: "http.request.end", StreamID: "bundle-1"})
+
+	for {
+		_, payload, err := serverConn.ReadMessage()
+		if err != nil {
+			t.Fatalf("ReadMessage() error = %v", err)
+		}
+		var env relayEnvelope
+		if err := json.Unmarshal(payload, &env); err != nil {
+			t.Fatalf("decode relay envelope: %v", err)
+		}
+		if env.Kind == "http.response.start" {
+			headers := http.Header(env.Headers)
+			if got := headers.Get("Content-Length"); got != "" {
+				t.Fatalf("Content-Length = %q, want stripped", got)
+			}
+			if got := headers.Get("Content-Type"); got != "application/javascript" {
+				t.Fatalf("Content-Type = %q, want application/javascript", got)
+			}
+			return
+		}
 	}
 }
 
