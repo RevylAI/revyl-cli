@@ -878,7 +878,7 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 
 	// Build URL with query parameters (backend expects version and file_name as query params)
 	uploadURLPath := fmt.Sprintf(
-		"/api/v1/builds/vars/%s/versions/upload-url?version=%s&file_name=%s",
+		"/api/v1/builds/vars/%s/versions/upload-url?version=%s&file_name=%s&source=cli_upload",
 		req.AppID,
 		url.QueryEscape(req.Version),
 		url.QueryEscape(fileName),
