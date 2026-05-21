@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/execution"
 )
 
@@ -218,6 +219,20 @@ func init() {
 	testRunCmd.Flags().StringVar(&runOsVersion, "os-version", "", "Target OS version (e.g. \"iOS 18.5\")")
 	testRunCmd.Flags().StringVar(&runOrientation, "orientation", "", "Initial device orientation (portrait or landscape)")
 	testRunCmd.Flags().BoolVar(&runFailFast, "fail-fast", false, "Halt the run on the first failed step or validation (overrides the test's stored run_config for this run)")
+	analytics.MarkFlagValue(testRunCmd, "retries")
+	analytics.MarkFlagValue(testRunCmd, "no-wait")
+	analytics.MarkFlagValue(testRunCmd, "open")
+	analytics.MarkFlagValue(testRunCmd, "timeout")
+	analytics.MarkFlagValue(testRunCmd, "json")
+	analytics.MarkFlagValue(testRunCmd, "github-actions")
+	analytics.MarkFlagValue(testRunCmd, "verbose")
+	analytics.MarkFlagValue(testRunCmd, "build")
+	analytics.MarkFlagValue(testRunCmd, "platform")
+	analytics.MarkFlagValue(testRunCmd, "port")
+	analytics.MarkFlagValue(testRunCmd, "provider")
+	analytics.MarkFlagValue(testRunCmd, "device")
+	analytics.MarkFlagValue(testRunCmd, "orientation")
+	analytics.MarkFlagValue(testRunCmd, "fail-fast")
 
 	// test cancel flags (inherits global --json)
 
@@ -235,6 +250,14 @@ func init() {
 	testCreateCmd.Flags().BoolVar(&createTestInteractive, "interactive", false, "Create test interactively with real-time device feedback")
 	testCreateCmd.Flags().StringSliceVar(&createTestModules, "module", nil, "Module name or ID to insert as module_import block (can be repeated)")
 	testCreateCmd.Flags().StringSliceVar(&createTestTags, "tag", nil, "Tag to assign after creation (can be repeated)")
+	analytics.MarkFlagValue(testCreateCmd, "platform")
+	analytics.MarkFlagValue(testCreateCmd, "no-open")
+	analytics.MarkFlagValue(testCreateCmd, "force")
+	analytics.MarkFlagValue(testCreateCmd, "dry-run")
+	analytics.MarkFlagValue(testCreateCmd, "compile-timeout")
+	analytics.MarkFlagValue(testCreateCmd, "port")
+	analytics.MarkFlagValue(testCreateCmd, "provider")
+	analytics.MarkFlagValue(testCreateCmd, "interactive")
 
 	// test rename flags
 	testRenameCmd.Flags().BoolVar(&renameNonInteractive, "non-interactive", false, "Disable prompts; requires both positional args")

@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/buildselection"
@@ -216,6 +217,15 @@ func init() {
 	buildUploadCmd.Flags().BoolVar(&uploadRemoteFlag, "remote", false, "Build remotely on a dedicated Revyl cloud runner")
 	buildUploadCmd.Flags().BoolVar(&uploadCleanFlag, "clean", false, "Request a clean remote build (remote only)")
 	buildUploadCmd.Flags().Bool("include-dirty", false, "Include current working-tree edits in legacy remote builds")
+	analytics.MarkFlagValue(buildUploadCmd, "skip-build")
+	analytics.MarkFlagValue(buildUploadCmd, "set-current")
+	analytics.MarkFlagValue(buildUploadCmd, "platform")
+	analytics.MarkFlagValue(buildUploadCmd, "yes")
+	analytics.MarkFlagValue(buildUploadCmd, "json")
+	analytics.MarkFlagValue(buildUploadCmd, "dry-run")
+	analytics.MarkFlagValue(buildUploadCmd, "remote")
+	analytics.MarkFlagValue(buildUploadCmd, "clean")
+	analytics.MarkFlagValue(buildUploadCmd, "include-dirty")
 
 	buildRemoteCmd.Flags().StringVar(&remotePlatformFlag, "platform", "ios", "Platform to build for (ios, android)")
 	buildRemoteCmd.Flags().StringVar(&remoteAppFlag, "app", "", "App ID to upload to (overrides .revyl/config.yaml)")
@@ -226,14 +236,25 @@ func init() {
 	buildRemoteCmd.Flags().BoolVar(&remoteCleanFlag, "clean", false, "Request a clean remote build")
 	buildRemoteCmd.Flags().BoolVar(&remoteKeepDDFlag, "keep-derived-data", false, "Preserve remote iOS DerivedData between builds")
 	buildRemoteCmd.Flags().BoolVar(&remoteCommittedOnly, "committed-only", false, "Build committed files at HEAD instead of the current working tree")
+	analytics.MarkFlagValue(buildRemoteCmd, "platform")
+	analytics.MarkFlagValue(buildRemoteCmd, "set-current")
+	analytics.MarkFlagValue(buildRemoteCmd, "json")
+	analytics.MarkFlagValue(buildRemoteCmd, "no-wait")
+	analytics.MarkFlagValue(buildRemoteCmd, "clean")
+	analytics.MarkFlagValue(buildRemoteCmd, "keep-derived-data")
+	analytics.MarkFlagValue(buildRemoteCmd, "committed-only")
 
 	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App name or ID to list builds for")
 	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org apps")
 	buildListCmd.Flags().BoolVar(&buildListJSON, "json", false, "Output results as JSON")
 	buildListCmd.Flags().StringVar(&buildListBranch, "branch", "", "Filter builds by git branch (use HEAD for current branch)")
+	analytics.MarkFlagValue(buildListCmd, "platform")
+	analytics.MarkFlagValue(buildListCmd, "json")
 
 	buildStatusCmd.Flags().BoolVar(&buildStatusJSON, "json", false, "Output status as JSON")
 	buildStatusCmd.Flags().BoolVar(&buildStatusFollow, "follow", false, "Follow until the remote build reaches a terminal state")
+	analytics.MarkFlagValue(buildStatusCmd, "json")
+	analytics.MarkFlagValue(buildStatusCmd, "follow")
 }
 
 // runBuildUpload executes the build upload command.

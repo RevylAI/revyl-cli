@@ -120,8 +120,6 @@ func (m *Manager) GetOrCreateClientInstanceID() (string, error) {
 				return id, nil
 			}
 		}
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("failed to read client identity: %w", err)
 	}
 
 	instanceID, err := generateClientInstanceID()
@@ -130,16 +128,16 @@ func (m *Manager) GetOrCreateClientInstanceID() (string, error) {
 	}
 
 	if err := os.MkdirAll(m.configDir, 0700); err != nil {
-		return "", fmt.Errorf("failed to create config directory: %w", err)
+		return instanceID, nil
 	}
 
 	data, err := json.MarshalIndent(clientIdentity{ClientInstanceID: instanceID}, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal client identity: %w", err)
+		return instanceID, nil
 	}
 
 	if err := os.WriteFile(m.clientIdentityPath(), data, 0600); err != nil {
-		return "", fmt.Errorf("failed to write client identity: %w", err)
+		return instanceID, nil
 	}
 
 	return instanceID, nil

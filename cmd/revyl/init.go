@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/build"
@@ -73,6 +74,10 @@ func init() {
 	initCmd.Flags().StringVar(&initHotReloadAppScheme, "hotreload-app-scheme", "", "Override Expo hotreload.providers.expo.app_scheme")
 	initCmd.Flags().StringVar(&initHotReloadProvider, "provider", "", "Force dev mode provider (expo, react-native, swift, android)")
 	initCmd.Flags().StringSliceVar(&initXcodeSchemeOverrides, "xcode-scheme", nil, "Override Xcode scheme by build platform key (format: key=Scheme, repeatable)")
+	analytics.MarkFlagValue(initCmd, "detect")
+	analytics.MarkFlagValue(initCmd, "force")
+	analytics.MarkFlagValue(initCmd, "non-interactive")
+	analytics.MarkFlagValue(initCmd, "provider")
 }
 
 // ---------------------------------------------------------------------------

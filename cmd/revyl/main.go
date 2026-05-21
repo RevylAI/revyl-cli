@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/tui"
 	"github.com/revyl/cli/internal/ui"
@@ -90,6 +91,8 @@ var rootCmd = &cobra.Command{
 // This function also handles "did you mean" suggestions when users type
 // commands in the wrong order (e.g., "revyl open test" instead of "revyl test open").
 func Execute() {
+	installAnalytics(rootCmd)
+
 	err := rootCmd.Execute()
 	if err != nil {
 		// Check if this is an unknown command error and provide suggestions
@@ -317,5 +320,9 @@ var docsCmd = &cobra.Command{
 }
 
 func main() {
+	if analytics.IsTelemetryHelper() {
+		analytics.RunTelemetryHelper(os.Stdin)
+		return
+	}
 	Execute()
 }

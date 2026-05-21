@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
@@ -220,6 +221,15 @@ func init() {
 	workflowRunCmd.Flags().StringVar(&runWorkflowIOSAppID, "ios-app", "", "Override iOS app ID for all tests in workflow")
 	workflowRunCmd.Flags().StringVar(&runWorkflowAndroidAppID, "android-app", "", "Override Android app ID for all tests in workflow")
 	workflowRunCmd.Flags().StringVar(&runLocation, "location", "", "Override GPS location for all tests as lat,lng (e.g. 37.7749,-122.4194)")
+	analytics.MarkFlagValue(workflowRunCmd, "retries")
+	analytics.MarkFlagValue(workflowRunCmd, "no-wait")
+	analytics.MarkFlagValue(workflowRunCmd, "open")
+	analytics.MarkFlagValue(workflowRunCmd, "timeout")
+	analytics.MarkFlagValue(workflowRunCmd, "json")
+	analytics.MarkFlagValue(workflowRunCmd, "github-actions")
+	analytics.MarkFlagValue(workflowRunCmd, "verbose")
+	analytics.MarkFlagValue(workflowRunCmd, "build")
+	analytics.MarkFlagValue(workflowRunCmd, "platform")
 
 	// workflow delete flags
 	workflowDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")

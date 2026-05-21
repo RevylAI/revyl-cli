@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/revyl/cli/internal/status"
@@ -58,6 +59,27 @@ var quietMode bool
 // Set via SetDebugMode() based on the --debug flag.
 var debugMode bool
 
+// OutputObserver receives plain UI messages after quiet/debug filtering.
+type OutputObserver func(level string, message string)
+
+var outputObserver OutputObserver
+var outputObserverMu sync.RWMutex
+
+func SetOutputObserver(observer OutputObserver) {
+	outputObserverMu.Lock()
+	defer outputObserverMu.Unlock()
+	outputObserver = observer
+}
+
+func observeOutput(level, message string) {
+	outputObserverMu.RLock()
+	observer := outputObserver
+	outputObserverMu.RUnlock()
+	if observer != nil {
+		observer(level, message)
+	}
+}
+
 // SetQuietMode enables or disables quiet mode.
 // When enabled, informational messages are suppressed; only errors and final results are shown.
 //
@@ -98,6 +120,7 @@ func Println() {
 	if quietMode {
 		return
 	}
+	observeOutput("blank", "")
 	fmt.Fprintln(stderrW)
 }
 
@@ -109,6 +132,7 @@ func Println() {
 //   - args: Printf arguments
 func PrintSuccess(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
+	observeOutput("success", msg)
 	fmt.Fprintln(stderrW, SuccessStyle.Render("✓ "+msg))
 }
 
@@ -120,6 +144,7 @@ func PrintSuccess(format string, args ...interface{}) {
 //   - args: Printf arguments
 func PrintError(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
+	observeOutput("error", msg)
 	fmt.Fprintln(stderrW, ErrorStyle.Render("✗ "+msg))
 }
 
@@ -131,6 +156,7 @@ func PrintError(format string, args ...interface{}) {
 //   - args: Printf arguments
 func PrintWarning(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
+	observeOutput("warning", msg)
 	fmt.Fprintln(stderrW, WarningStyle.Render("⚠ "+msg))
 }
 
@@ -145,6 +171,7 @@ func PrintInfo(format string, args ...interface{}) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
+	observeOutput("info", msg)
 	fmt.Fprintln(stderrW, InfoStyle.Render(msg))
 }
 
@@ -159,6 +186,7 @@ func PrintDim(format string, args ...interface{}) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
+	observeOutput("dim", msg)
 	fmt.Fprintln(stderrW, DimStyle.Render(msg))
 }
 
@@ -173,6 +201,7 @@ func PrintDebug(format string, args ...interface{}) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
+	observeOutput("debug", msg)
 	fmt.Fprintln(stderrW, DimStyle.Render("[debug] "+msg))
 }
 
@@ -186,6 +215,7 @@ func PrintLink(label, url string) {
 	if quietMode {
 		return
 	}
+	observeOutput("link", label+" "+url)
 	fmt.Fprintf(stderrW, "%s %s\n", DimStyle.Render(label+":"), LinkStyle.Render(url))
 }
 
