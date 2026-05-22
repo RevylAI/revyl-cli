@@ -5762,6 +5762,7 @@ type ReportContextResponse struct {
 	// column in the database.
 	DeviceMetadata        *DeviceMetadata              `json:"device_metadata,omitempty"`
 	DeviceModel           *string                      `json:"device_model"`
+	DeviceStateUrl        *string                      `json:"device_state_url"`
 	DurationSeconds       *float32                     `json:"duration_seconds"`
 	EffectiveFailedSteps  *int                         `json:"effective_failed_steps,omitempty"`
 	EffectivePassedSteps  *int                         `json:"effective_passed_steps,omitempty"`
@@ -5848,6 +5849,7 @@ type ReportV3Response struct {
 	DeviceLogsS3Key     *string                   `json:"device_logs_s3_key"`
 	DeviceMetadata      *map[string]interface{}   `json:"device_metadata"`
 	DeviceModel         *string                   `json:"device_model"`
+	DeviceStateUrl      *string                   `json:"device_state_url"`
 	DurationSeconds     *float32                  `json:"duration_seconds"`
 	ExecutionId         *string                   `json:"execution_id"`
 	ExpectedStates      *[]map[string]interface{} `json:"expected_states"`

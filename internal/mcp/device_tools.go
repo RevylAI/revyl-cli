@@ -403,6 +403,47 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handlePollPerformanceMetrics)
 
+	// Device-state inspection (iOS sim only — Android handlers no-op).
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_state_list",
+		Description: "List all UserDefaults plist files and SQLite databases in the app's data container, with table schemas and row counts. Use this first to discover what's available before calling device_state_query.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "List Device State",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(true),
+		},
+	}, s.handleDeviceStateList)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_state_snapshot",
+		Description: "Capture a full snapshot of the app's UserDefaults + SQLite state and return a snapshot_id. Pass that id to device_state_diff after performing actions to see what changed.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Snapshot Device State",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(true),
+		},
+	}, s.handleDeviceStateSnapshot)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_state_diff",
+		Description: "Return a rollup of all device-state changes since the given snapshot_id. UserDefaults diffs are precise (key/from/to). SQLite diffs include schema changes and row count deltas.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Diff Device State",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(true),
+		},
+	}, s.handleDeviceStateDiff)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_state_query",
+		Description: "Targeted read of one UserDefaults key OR read-only SQL against one SQLite DB. Set target='userdefaults' with plist_path (and optional key) OR target='sqlite' with db_path, sql, and optional params. SQL must be a single SELECT or WITH...SELECT.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Query Device State",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(true),
+		},
+	}, s.handleDeviceStateQuery)
+
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "poll_network_requests",
 		Description: "Poll live network requests from an active device session. Returns incremental request rows since the last cursor. Use with cursor=\"0\" for the first call, then pass next_cursor from the response for subsequent calls.",
@@ -2555,6 +2596,206 @@ func (s *Server) handlePollPerformanceMetrics(ctx context.Context, req *mcp.Call
 		}
 	}
 	return nil, output, nil
+}
+
+// --- Device State Inspector (Phase 6) ---
+//
+// These types are shared between the MCP handlers below and the
+// `revyl device state ...` CLI subcommands in cmd/revyl/device_state.go,
+// so adding a field once threads through both surfaces.
+
+// DeviceStateSessionInput is the bare session selector. All device-state
+// tools support an optional session_index.
+type DeviceStateSessionInput struct {
+	SessionIndex *int `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
+}
+
+// DeviceStateListInput defines input for device_state_list.
+type DeviceStateListInput = DeviceStateSessionInput
+
+// DeviceStateListOutput mirrors the worker's DeviceStateListResponse.
+type DeviceStateListOutput struct {
+	Success      bool                     `json:"success"`
+	Platform     string                   `json:"platform,omitempty"`
+	UserDefaults []map[string]interface{} `json:"userdefaults,omitempty"`
+	SQLite       []map[string]interface{} `json:"sqlite,omitempty"`
+	Errors       []string                 `json:"errors,omitempty"`
+	Error        string                   `json:"error,omitempty"`
+}
+
+func (s *Server) handleDeviceStateList(ctx context.Context, req *mcp.CallToolRequest, input DeviceStateListInput) (*mcp.CallToolResult, DeviceStateListOutput, error) {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceStateListOutput{Success: false, Error: err.Error()}, nil
+	}
+	body, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/device_state/list", nil)
+	if err != nil {
+		return nil, DeviceStateListOutput{Success: false, Error: err.Error()}, nil
+	}
+	var out DeviceStateListOutput
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, DeviceStateListOutput{Success: false, Error: fmt.Sprintf("decode: %v", err)}, nil
+	}
+	return nil, out, nil
+}
+
+// DeviceStateSnapshotInput defines input for device_state_snapshot.
+type DeviceStateSnapshotInput = DeviceStateSessionInput
+
+// DeviceStateSnapshotOutput mirrors the worker's DeviceStateSnapshotResponse.
+type DeviceStateSnapshotOutput struct {
+	Success    bool                   `json:"success"`
+	Platform   string                 `json:"platform,omitempty"`
+	SnapshotID string                 `json:"snapshot_id,omitempty"`
+	Line       map[string]interface{} `json:"line,omitempty"`
+	Error      string                 `json:"error,omitempty"`
+}
+
+func (s *Server) handleDeviceStateSnapshot(ctx context.Context, req *mcp.CallToolRequest, input DeviceStateSnapshotInput) (*mcp.CallToolResult, DeviceStateSnapshotOutput, error) {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceStateSnapshotOutput{Success: false, Error: err.Error()}, nil
+	}
+	body, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/device_state/snapshot", map[string]any{})
+	if err != nil {
+		return nil, DeviceStateSnapshotOutput{Success: false, Error: err.Error()}, nil
+	}
+	var out DeviceStateSnapshotOutput
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, DeviceStateSnapshotOutput{Success: false, Error: fmt.Sprintf("decode: %v", err)}, nil
+	}
+	return nil, out, nil
+}
+
+// DeviceStateDiffInput defines input for device_state_diff.
+type DeviceStateDiffInput struct {
+	SnapshotID   string `json:"snapshot_id" jsonschema:"Snapshot id returned by device_state_snapshot (REQUIRED)."`
+	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index. Omit for active session."`
+}
+
+// DeviceStateDiffOutput mirrors the worker's DeviceStateDiffResponse.
+type DeviceStateDiffOutput struct {
+	Success        bool                              `json:"success"`
+	Platform       string                            `json:"platform,omitempty"`
+	FromSnapshotID string                            `json:"from_snapshot_id,omitempty"`
+	ToCursor       string                            `json:"to_cursor,omitempty"`
+	UserDefaults   map[string]map[string]interface{} `json:"userdefaults,omitempty"`
+	SQLite         map[string]map[string]interface{} `json:"sqlite,omitempty"`
+	Error          string                            `json:"error,omitempty"`
+}
+
+func (s *Server) handleDeviceStateDiff(ctx context.Context, req *mcp.CallToolRequest, input DeviceStateDiffInput) (*mcp.CallToolResult, DeviceStateDiffOutput, error) {
+	if strings.TrimSpace(input.SnapshotID) == "" {
+		return nil, DeviceStateDiffOutput{Success: false, Error: "snapshot_id is required"}, nil
+	}
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceStateDiffOutput{Success: false, Error: err.Error()}, nil
+	}
+	body, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/device_state/diff", map[string]any{"snapshot_id": input.SnapshotID})
+	if err != nil {
+		return nil, DeviceStateDiffOutput{Success: false, Error: err.Error()}, nil
+	}
+	var out DeviceStateDiffOutput
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, DeviceStateDiffOutput{Success: false, Error: fmt.Sprintf("decode: %v", err)}, nil
+	}
+	return nil, out, nil
+}
+
+// DeviceStateQueryInput is a tagged union: target='userdefaults' OR 'sqlite'.
+// Go has no built-in unions, so we declare all the fields optional and rely
+// on the handler to enforce the right combination.
+type DeviceStateQueryInput struct {
+	Target       string        `json:"target" jsonschema:"Either 'userdefaults' or 'sqlite' (REQUIRED)."`
+	PlistPath    string        `json:"plist_path,omitempty" jsonschema:"For userdefaults target — container-relative plist path (e.g. 'Library/Preferences/com.x.plist')."`
+	Key          string        `json:"key,omitempty" jsonschema:"For userdefaults target — top-level plist key. Omit to return the whole plist."`
+	DBPath       string        `json:"db_path,omitempty" jsonschema:"For sqlite target — container-relative sqlite path."`
+	SQL          string        `json:"sql,omitempty" jsonschema:"For sqlite target — a single SELECT or WITH...SELECT statement."`
+	Params       []interface{} `json:"params,omitempty" jsonschema:"For sqlite target — positional '?' placeholders. JSON-typed."`
+	SessionIndex *int          `json:"session_index,omitempty" jsonschema:"Session index. Omit for active session."`
+}
+
+// DeviceStateQueryOutput covers both targets — only the relevant subset
+// will be populated.
+type DeviceStateQueryOutput struct {
+	Success bool `json:"success"`
+	// Common
+	Platform string `json:"platform,omitempty"`
+	Error    string `json:"error,omitempty"`
+	// userdefaults
+	Value interface{} `json:"value,omitempty"`
+	Found *bool       `json:"found,omitempty"`
+	// sqlite
+	Cols      []string        `json:"cols,omitempty"`
+	Rows      [][]interface{} `json:"rows,omitempty"`
+	Truncated bool            `json:"truncated,omitempty"`
+}
+
+func (s *Server) handleDeviceStateQuery(ctx context.Context, req *mcp.CallToolRequest, input DeviceStateQueryInput) (*mcp.CallToolResult, DeviceStateQueryOutput, error) {
+	sidx := -1
+	if input.SessionIndex != nil {
+		sidx = *input.SessionIndex
+	}
+	session, err := s.resolveSessionWithHydration(ctx, sidx)
+	if err != nil {
+		return nil, DeviceStateQueryOutput{Success: false, Error: err.Error()}, nil
+	}
+	switch input.Target {
+	case "userdefaults":
+		if input.PlistPath == "" {
+			return nil, DeviceStateQueryOutput{Success: false, Error: "plist_path required for target=userdefaults"}, nil
+		}
+		reqBody := map[string]any{"plist_path": input.PlistPath}
+		if input.Key != "" {
+			reqBody["key"] = input.Key
+		}
+		body, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/device_state/userdefaults", reqBody)
+		if err != nil {
+			return nil, DeviceStateQueryOutput{Success: false, Error: err.Error()}, nil
+		}
+		var out DeviceStateQueryOutput
+		if err := json.Unmarshal(body, &out); err != nil {
+			return nil, DeviceStateQueryOutput{Success: false, Error: fmt.Sprintf("decode: %v", err)}, nil
+		}
+		return nil, out, nil
+	case "sqlite":
+		if input.DBPath == "" || input.SQL == "" {
+			return nil, DeviceStateQueryOutput{Success: false, Error: "db_path and sql required for target=sqlite"}, nil
+		}
+		params := input.Params
+		if params == nil {
+			params = []interface{}{}
+		}
+		reqBody := map[string]any{
+			"db_path": input.DBPath,
+			"sql":     input.SQL,
+			"params":  params,
+		}
+		body, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/device_state/sqlite/query", reqBody)
+		if err != nil {
+			return nil, DeviceStateQueryOutput{Success: false, Error: err.Error()}, nil
+		}
+		var out DeviceStateQueryOutput
+		if err := json.Unmarshal(body, &out); err != nil {
+			return nil, DeviceStateQueryOutput{Success: false, Error: fmt.Sprintf("decode: %v", err)}, nil
+		}
+		return nil, out, nil
+	default:
+		return nil, DeviceStateQueryOutput{Success: false, Error: "target must be 'userdefaults' or 'sqlite'"}, nil
+	}
 }
 
 // ---------------------------------------------------------------------------

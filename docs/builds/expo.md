@@ -53,7 +53,7 @@ revyl build upload --file build/app.tar.gz --platform ios
 revyl test run login-smoke
 ```
 
-iOS builds must target the **simulator** (`ios.simulator: true` in `eas.json`). Revyl runs on cloud simulators, not physical devices.
+`ios.simulator: true` in `eas.json` is what makes the build satisfy Revyl's [iOS artifact requirements](artifact-requirements.md#ios).
 
 ### Android
 
@@ -108,18 +108,20 @@ Your `eas.json` needs a `development` profile configured for Revyl:
 
 Key settings:
 
-- `ios.simulator: true` -- produces a `.app` bundle (not `.ipa`) that runs on Revyl's cloud simulators
+- `ios.simulator: true` -- produces a `.app` bundle (not `.ipa`)
 - `android.buildType: "apk"` -- produces a directly installable APK
+
+The `development` profile is debuggable and ships all ABIs, satisfying Revyl's [build artifact requirements](artifact-requirements.md). Swapping to `preview` / `production` still runs tests but loses State-tab introspection — see the artifact requirements page for the trade-off.
 
 ## When Do You Need a New Build?
 
-Expo dev clients serve your JS/TS code live from Metro via a Revyl relay. The binary is just a "dev client shell." You only need a new build when:
+The Expo dev client is a "shell" that loads your JS over the Revyl→Metro relay. You only need a fresh build when:
 
-- Native dependencies change (new native modules, Podfile/Gradle changes)
+- Native dependencies change (new native modules, Podfile / Gradle changes)
 - `app.json` native config changes (scheme, permissions, splash screen)
 - Expo SDK version changes
 
-For JS/TS changes, just use `revyl dev` -- hot reload handles everything.
+JS/TS changes are live — see [Dev Loop: Rebuild model](../developer_loop/dev-loop.md#rebuild-model) for the full breakdown.
 
 ## CI Integration
 

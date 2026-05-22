@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/google/uuid"
+
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/sse"

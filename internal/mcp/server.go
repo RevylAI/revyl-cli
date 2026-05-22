@@ -298,6 +298,7 @@ func (s *Server) registerTools() {
 	// --- Device interaction tools ---
 	s.registerDeviceTools()
 	s.registerDevLoopTools()
+	s.registerRunInspectTools()
 
 	// run_test tool
 	mcp.AddTool(s.mcpServer, &mcp.Tool{

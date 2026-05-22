@@ -1574,8 +1574,9 @@ func workerProxyActionFromPath(path string) (string, error) {
 // compoundPathActions lists base action names whose proxy paths include
 // a sub-resource segment (e.g. step_status/{step_id}).
 var compoundPathActions = map[string]bool{
-	"step_status": true,
-	"step_cancel": true,
+	"step_status":  true,
+	"step_cancel":  true,
+	"device_state": true, // /device_state/list, /snapshot, /diff, /userdefaults, /sqlite/query
 }
 
 // proxyWorkerRequestForSession forwards a worker action through the backend
@@ -2113,8 +2114,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 
 	// Sort by created_at ASC for deterministic index assignment
 	sort.Slice(backendSessions, func(i, j int) bool {
-		ci := time.Time{}
-		cj := time.Time{}
+		var ci, cj time.Time
 		if backendSessions[i].CreatedAt != nil {
 			ci = *backendSessions[i].CreatedAt
 		}

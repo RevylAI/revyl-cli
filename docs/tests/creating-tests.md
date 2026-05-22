@@ -264,27 +264,31 @@ revyl test var delete login-flow email
 
 ```yaml
 - type: if
-  step_description: Is a cookie consent banner visible?
-  blocks:
+  condition: Is a cookie consent banner visible?
+  then:
     - type: instructions
       step_description: Tap Accept All.
-  else_blocks:
+  else:
     - type: instructions
       step_description: Continue without dismissing.
 ```
+
+The question phrase goes in `condition:`. Branches are `then:` and (optionally) `else:`.
 
 ### While Loops
 
 ```yaml
 - type: while
-  step_description: Is there a "Load More" button visible?
-  blocks:
+  condition: Is there a "Load More" button visible?
+  body:
     - type: instructions
       step_description: Tap Load More.
     - type: manual
       step_type: wait
       step_description: "2"
 ```
+
+Loop body lives under `body:`.
 
 ---
 
@@ -364,8 +368,8 @@ test:
       step_description: Tap Add to Cart.
 
     - type: if
-      step_description: Is a promotional banner visible?
-      blocks:
+      condition: Is a promotional banner visible?
+      then:
         - type: instructions
           step_description: Tap the X to dismiss the banner.
 

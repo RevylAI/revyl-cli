@@ -10,6 +10,8 @@ Build a native Android app, upload it to Revyl, and run your first test.
 
 ## Build and Upload
 
+`./gradlew assembleDebug` satisfies Revyl's [build artifact requirements](artifact-requirements.md) out of the box (debuggable, all ABIs).
+
 ```bash
 # 1. Build a debug APK
 ./gradlew assembleDebug
@@ -23,9 +25,7 @@ revyl test run login-smoke
 
 ## When Do You Need a New Build?
 
-Every code change requires a new build. The APK **is** the app.
-
-During `revyl dev`, press `[r]` to rebuild, upload, and reinstall without restarting the device session. Typical incremental rebuild: ~30-90s (first build takes longer).
+Every code change. The APK **is** the app — see [Dev Loop: Rebuild model](../developer_loop/dev-loop.md#rebuild-model) for the `[r]` shortcut and timing details.
 
 Android reinstalls preserve app data (the `-r` flag is used).
 

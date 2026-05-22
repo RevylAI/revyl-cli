@@ -24,7 +24,7 @@ revyl build upload --file build/app.zip --platform ios
 revyl test run login-smoke
 ```
 
-iOS builds must target the simulator (`--simulator`). Revyl runs on cloud simulators, not physical devices.
+`flutter build ios --simulator --debug` satisfies Revyl's [iOS artifact requirements](artifact-requirements.md#ios) (simulator-slice `.app`, not `.ipa`).
 
 ## Android
 
@@ -39,11 +39,11 @@ revyl build upload --file build/app/outputs/flutter-apk/app-debug.apk --platform
 revyl test run login-smoke
 ```
 
+`flutter build apk --debug` produces a fat APK that satisfies Revyl's [build artifact requirements](artifact-requirements.md) (all ABIs including `x86_64`, debuggable).
+
 ## When Do You Need a New Build?
 
-Flutter compiles all Dart code into the native binary. Every code change requires a new build. There is no hot reload equivalent for cloud testing -- the binary **is** the app.
-
-During `revyl dev`, press `[r]` to rebuild, upload, and reinstall without restarting the device session.
+Every code change. Dart compiles into the native binary — see [Dev Loop: Rebuild model](../developer_loop/dev-loop.md#rebuild-model) for the `[r]` shortcut.
 
 ## CI Integration
 

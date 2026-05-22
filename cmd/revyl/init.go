@@ -3861,6 +3861,27 @@ func printInitSummary(cfg *config.ProjectConfig) {
 	}
 
 	printBuildSystemExplanation(cfg.Build.System)
+	if hasAndroidPlatform(cfg) {
+		printAndroidBuildRequirements()
+	}
+}
+
+// hasAndroidPlatform reports whether the config has an android build target.
+func hasAndroidPlatform(cfg *config.ProjectConfig) bool {
+	for _, key := range platformKeys(cfg) {
+		if strings.EqualFold(key, "android") {
+			return true
+		}
+	}
+	return false
+}
+
+// printAndroidBuildRequirements points users at the canonical artifact
+// requirements doc rather than restating the rules inline. The full ruleset
+// (x86_64 ABI, debuggable, release-build trade-offs) lives at docs.revyl.ai.
+func printAndroidBuildRequirements() {
+	ui.PrintDim("Android: APK must include x86_64 and be debuggable. https://docs.revyl.ai/builds/artifact-requirements")
+	ui.Println()
 }
 
 // printBuildSystemExplanation prints a contextual explanation of how Revyl

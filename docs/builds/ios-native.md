@@ -32,7 +32,7 @@ revyl test run login-smoke
 
 For workspace-based projects, replace `-project` with `-workspace YourApp.xcworkspace`.
 
-Builds must target `iphonesimulator` SDK. Revyl runs on cloud simulators, not physical devices.
+`-sdk iphonesimulator` is what makes the build satisfy Revyl's [iOS artifact requirements](artifact-requirements.md#ios).
 
 ## Auto-Detect from DerivedData
 
@@ -47,9 +47,7 @@ The CLI scans `~/Library/Developer/Xcode/DerivedData/` for the most recently mod
 
 ## When Do You Need a New Build?
 
-Every code change requires a new build. The binary **is** the app.
-
-During `revyl dev`, press `[r]` to rebuild, upload, and reinstall without restarting the device session. Typical incremental rebuild: ~20-60s.
+Every code change. The binary **is** the app — see [Dev Loop: Rebuild model](../developer_loop/dev-loop.md#rebuild-model) for the `[r]` shortcut and timing details.
 
 ## CI Integration
 

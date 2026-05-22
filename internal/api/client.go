@@ -3861,6 +3861,7 @@ type CLIReportContextResponse struct {
 	PerfettoTraceURL      *string                `json:"perfetto_trace_url,omitempty"`
 	HardwareMetricsURL    *string                `json:"hardware_metrics_url,omitempty"`
 	NetworkRequestsURL    *string                `json:"network_requests_url,omitempty"`
+	DeviceStateURL        *string                `json:"device_state_url,omitempty"`
 	Steps                 []CLIReportContextStep `json:"steps,omitempty"`
 }
 
@@ -4359,6 +4360,18 @@ func (c *Client) ProxyWorkerRequest(ctx context.Context, workflowRunID, action s
 func proxyWorkerMethodForAction(action string) string {
 	if idx := strings.Index(action, "?"); idx >= 0 {
 		action = action[:idx]
+	}
+	// Read-only device_state sub-paths route GET; the rest go POST.
+	// (``userdefaults`` is POST despite being read-only so the proxy
+	// doesn't have to thread query strings — body carries the args.)
+	switch action {
+	case "device_state", "device_state/list":
+		return http.MethodGet
+	case "device_state/snapshot",
+		"device_state/diff",
+		"device_state/userdefaults",
+		"device_state/sqlite/query":
+		return http.MethodPost
 	}
 	// Extract base action for compound paths (e.g. "step_status/{id}").
 	base := action

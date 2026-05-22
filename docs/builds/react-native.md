@@ -31,7 +31,7 @@ revyl build upload --file build/app.zip --platform ios
 revyl test run login-smoke
 ```
 
-iOS builds must target `iphonesimulator`, not `iphoneos`. Revyl runs on cloud simulators.
+`xcodebuild -sdk iphonesimulator` satisfies Revyl's [iOS artifact requirements](artifact-requirements.md#ios) (simulator-slice `.app`, not `.ipa`).
 
 ## Android
 
@@ -46,14 +46,11 @@ revyl build upload --file android/app/build/outputs/apk/debug/app-debug.apk --pl
 revyl test run login-smoke
 ```
 
+`assembleDebug` produces a debuggable fat-ABI APK that satisfies Revyl's [build artifact requirements](artifact-requirements.md) out of the box.
+
 ## When Do You Need a New Build?
 
-Like Expo, bare React Native serves JS/TS live via Metro. You only need a new build when:
-
-- Native code changes (new native modules, Podfile/Gradle changes)
-- Build configuration changes
-
-For JS/TS changes, use `revyl dev` with hot reload.
+Only when native code changes (new native modules, Podfile/Gradle changes, build configuration). JS/TS changes hot reload via Metro — see [Dev Loop: Rebuild model](../developer_loop/dev-loop.md#rebuild-model) for the full breakdown.
 
 ## CI Integration
 

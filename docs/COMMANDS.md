@@ -160,52 +160,9 @@ revyl dev stop                         # Stop the current context
 revyl dev stop --all                   # Stop all contexts
 ```
 
-### Expo
+### Hot reload providers
 
-Expo projects use `app_scheme` for deep linking into the dev client:
-
-```yaml
-hotreload:
-  default: expo
-  providers:
-    expo:
-      app_scheme: myapp
-      port: 8081
-      platform_keys:
-        ios: ios-dev
-        android: android-dev
-```
-
-### React Native (bare)
-
-Bare React Native projects (no Expo) use Metro directly. No `app_scheme` is needed -- the device loads the JS bundle over the Revyl relay.
-
-1. Configure hot reload:
-
-```bash
-revyl init --provider react-native
-# Or set manually in .revyl/config.yaml
-```
-
-2. Ensure `.revyl/config.yaml` has:
-
-```yaml
-hotreload:
-  default: react-native
-  providers:
-    react-native:
-      port: 8081
-      platform_keys:
-        ios: ios-dev
-        android: android-dev
-```
-
-3. Start the dev loop:
-
-```bash
-revyl dev                    # Starts Metro via `npx react-native start`
-revyl dev --platform android
-```
+Expo deep-links into a dev client via `app_scheme`; bare React Native loads the JS bundle directly over the Revyl→Metro relay. For provider config schema and the full per-framework setup walkthrough, see [Configuration › Hot Reload](CONFIGURATION.md#hot-reload-configuration) and the [Dev Setup Guide](developer_loop/dev-setup.md).
 
 ### New Branch Build Flow
 

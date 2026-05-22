@@ -45,6 +45,7 @@ Framework-specific guides to go from repo to test results in 3 commands.
 - [Flutter](builds/flutter.md) — flutter build, then upload
 - [iOS Native (Swift)](builds/ios-native.md) — xcodebuild for simulator, or auto-detect from DerivedData
 - [Android Native (Kotlin/Java)](builds/android-native.md) — Gradle assembleDebug, then upload
+- [Artifact Requirements](builds/artifact-requirements.md) — what your `.app` / `.apk` must look like
 - [Building in CI](builds/ci-builds.md) — `--url` uploads, GitHub Action, EAS cloud patterns
 
 ## Developer Loop

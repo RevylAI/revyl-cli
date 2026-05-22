@@ -205,8 +205,8 @@ Package ID: com.example.app
 Version: feature-new-login-20260227-153000 (branch-aware default)
 ```
 
-<Callout type="warning" title="iOS Build Requirements">
-  iOS builds must be simulator `.app` bundles (or a zipped `.app`), not `.ipa` device builds. Use a Debug-iphonesimulator build from Xcode or a simulator profile from EAS/Expo. See [iOS build guides](/builds/xcode) for details.
+<Callout type="info" title="Build artifact requirements">
+  Default debug builds from every framework satisfy Revyl's artifact rules. For release builds, `.ipa` archives, or narrowed `abiFilters`, see [Build Artifact Requirements](../builds/artifact-requirements.md).
 </Callout>
 
 ## List Builds

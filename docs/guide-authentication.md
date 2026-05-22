@@ -2,10 +2,10 @@ The Revyl CLI uses API keys for authentication. You can authenticate interactive
 
 ## Getting an API Key
 
-1. Go to [Account → Personal API Keys](https://auth.revyl.ai/account/api_keys) in Revyl
-2. Click **New API key**
-3. Select an expiration period (recommended: 1 year for development)
-4. Click **Create** and copy the key
+1. In the Revyl dashboard, go to **Settings → API Keys**
+2. Click **Create API Key** (or **New API key**)
+3. Name your key (e.g. `local-dev`, `github-actions`) and pick an expiration
+4. Click **Create** and copy the key — it's only shown once
 
 <Callout type="warning" title="Save Your Key">
   API keys are only shown once. Store it securely - you'll need it for the next step.

@@ -1123,8 +1123,8 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		}
 	}
 
-	if len(result.Tools) != 35 {
-		t.Errorf("expected 35 device tools, got %d", len(result.Tools))
+	if len(result.Tools) != 39 {
+		t.Errorf("expected 39 device tools, got %d", len(result.Tools))
 	}
 }
 

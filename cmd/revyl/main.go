@@ -166,6 +166,9 @@ func init() {
 	rootCmd.AddCommand(deviceCmd)
 	rootCmd.AddCommand(devCmd)
 
+	// Finished-run inspection (device state, trace hints, …)
+	rootCmd.AddCommand(runCmd)
+
 	// Agent skill management
 	rootCmd.AddCommand(skillCmd)
 }

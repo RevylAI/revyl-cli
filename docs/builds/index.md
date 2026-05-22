@@ -18,6 +18,9 @@ Pick your framework to see the exact commands for building, uploading, and runni
   <Card title="Android Native" icon="android" href="/builds/android-native">
     Gradle assembleDebug, then upload.
   </Card>
+  <Card title="Artifact Requirements" icon="circle-check" href="/builds/artifact-requirements">
+    What your `.app` / `.apk` must look like.
+  </Card>
   <Card title="Building in CI" icon="rotate" href="/builds/ci-builds">
     URL uploads, GitHub Action, EAS cloud patterns.
   </Card>
@@ -33,6 +36,10 @@ Pick your framework to see the exact commands for building, uploading, and runni
 | Swift/iOS | Rebuild on every change | Every code change (binary is the app) |
 | Android Native | Rebuild on every change | Every code change (binary is the app) |
 
-For Expo and React Native, the uploaded build is a "dev client shell" -- your JS/TS code is served live from your local Metro server via a Revyl relay. You only need a new build when native modules, Podfile, or Gradle dependencies change.
+For Expo and React Native, the uploaded build is a "dev client shell" -- your JS/TS code is served live from your local Metro server via a Revyl relay. For Flutter, Swift, and Android, the binary **is** the app.
 
-For Flutter, Swift, and Android, the binary **is** the app. During `revyl dev`, press `[r]` to rebuild, upload, and reinstall without restarting the device session.
+See [Dev Loop: Rebuild model](../developer_loop/dev-loop.md#rebuild-model) for the `[r]` shortcut and per-framework rebuild timing.
+
+## Platform Build Requirements
+
+Every framework's default debug build satisfies Revyl's artifact requirements out of the box. If you're shipping a custom configuration — narrowed `abiFilters`, release builds, `.ipa` archives — see **[Build Artifact Requirements](artifact-requirements.md)** for the full rules and trade-offs.

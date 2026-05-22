@@ -20,34 +20,9 @@ description: "Set up revyl dev for fast local verification with hot reload on cl
 revyl init
 ```
 
-Hot reload is configured automatically during init. If detection picks the wrong provider (common in monorepos), use `revyl init --provider expo`. This updates `.revyl/config.yaml` with the hot reload settings.
+Hot reload is configured automatically during init. If detection picks the wrong provider (common in monorepos), use `revyl init --provider expo` — that updates `.revyl/config.yaml` with the right settings.
 
-### Expo configuration
-
-```yaml
-hotreload:
-  default: expo
-  providers:
-    expo:
-      app_scheme: myapp
-      port: 8081
-      platform_keys:
-        ios: ios-dev
-        android: android-dev
-```
-
-### React Native (bare) configuration
-
-```yaml
-hotreload:
-  default: react-native
-  providers:
-    react-native:
-      port: 8081
-      platform_keys:
-        ios: ios-dev
-        android: android-dev
-```
+For the provider config schema (`expo`, `react-native`, `app_scheme`, `platform_keys`, etc.), see [Configuration › Hot Reload](../CONFIGURATION.md#hot-reload-configuration). For per-framework setup nuances (monorepos, KMP, Flutter), see [Dev Setup Guide](dev-setup.md).
 
 ## Step 2: Upload a dev build
 
@@ -217,10 +192,21 @@ revyl dev stop                         # Stop the current context
 revyl dev stop --all                   # Stop all contexts
 ```
 
-## When do you need a new build?
+## Rebuild model
 
-- **Expo / React Native:** Only when native dependencies change (new native modules, Podfile changes, Gradle dependency changes). JS/TS changes are served live via the relay.
-- **Swift / Kotlin (native):** Every code change requires a new build.
+Whether a code change needs a new binary depends on the framework. Inside an active `revyl dev` session, press **`[r]`** to rebuild the artifact, upload it, and reinstall on the cloud device — without ending the session.
+
+| Framework | What `[r]` does | When you need it |
+|-----------|------------------|------------------|
+| **Expo** | Re-runs the EAS / native rebuild command and re-uploads | Only when native dependencies change (new native modules, Podfile / Gradle dependency changes, `app.json` native config). JS/TS reaches the device via the Metro relay. |
+| **React Native (bare)** | Re-runs the Xcode / Gradle build | Same — only native changes. JS/TS is live via Metro. |
+| **Flutter** | Re-runs `flutter build` for the active platform | Every code change. Dart compiles into the binary; there is no hot reload over a cloud relay. |
+| **Swift / Xcode** | Re-runs `xcodebuild` | Every code change. The binary **is** the app. |
+| **Kotlin / Gradle** | Re-runs `./gradlew assembleDebug` | Every code change. The binary **is** the app. |
+
+For JS-based frameworks, `revyl dev` keeps the JS bundle live via Metro and the Revyl relay; the uploaded build is a "dev client shell." For native frameworks, every change becomes a rebuild — `[r]` is the keyboard shortcut for "do that now."
+
+Typical rebuild times: Android Gradle ~30–90s, Xcode ~20–60s, Flutter Dart-only ~15–30s. First builds are longer.
 
 ## Team sharing
 

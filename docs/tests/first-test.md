@@ -82,8 +82,8 @@ If `revyl init` didn't upload a build for you, do it now:
 revyl build upload --platform android
 ```
 
-<Callout type="warning" title="iOS builds">
-  iOS builds must be simulator `.app` bundles (or a zipped `.app`), not `.ipa` device builds. See [Build Guides](../builds/expo.md) for framework-specific instructions.
+<Callout type="info" title="Build artifact requirements">
+  Default debug builds work everywhere. If you're uploading a custom build (release APK, `.ipa`, narrowed `abiFilters`), see [Build Artifact Requirements](../builds/artifact-requirements.md).
 </Callout>
 
 ## Step 5: Write a YAML test
