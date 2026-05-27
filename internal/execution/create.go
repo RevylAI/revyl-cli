@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -64,6 +65,8 @@ type createTestYAMLDefinition struct {
 		Blocks []interface{} `yaml:"blocks"`
 	} `yaml:"test"`
 }
+
+var globalBuildNamePattern = regexp.MustCompile(`\{\{\s*global\.([A-Za-z0-9_.-]+)\s*\}\}`)
 
 // CreateTest creates a new test on the server.
 //
@@ -284,6 +287,13 @@ func resolveCreateTestModule(ctx context.Context, client *api.Client, ref string
 func resolveCreateTestApp(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, platform, explicitAppID, yamlBuildName string) (*api.App, error) {
 	explicitAppID = strings.TrimSpace(explicitAppID)
 	yamlBuildName = strings.TrimSpace(yamlBuildName)
+	if yamlBuildName != "" {
+		resolvedBuildName, err := resolveGlobalBuildNamePlaceholders(ctx, client, yamlBuildName)
+		if err != nil {
+			return nil, err
+		}
+		yamlBuildName = strings.TrimSpace(resolvedBuildName)
+	}
 
 	if explicitAppID != "" {
 		appInfo, err := resolveAppByID(ctx, client, explicitAppID, platform, "app_id")
@@ -316,6 +326,48 @@ func resolveCreateTestApp(ctx context.Context, client *api.Client, cfg *config.P
 	}
 
 	return nil, fmt.Errorf("could not resolve an app for platform %s: provide app_id, include yaml_content with test.build.name, or configure a default app in .revyl/config.yaml", platform)
+}
+
+func resolveGlobalBuildNamePlaceholders(ctx context.Context, client *api.Client, buildName string) (string, error) {
+	matches := globalBuildNamePattern.FindAllStringSubmatchIndex(buildName, -1)
+	if len(matches) == 0 {
+		return buildName, nil
+	}
+
+	resp, err := client.ListGlobalVariables(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve global variable in yaml build.name: %w", err)
+	}
+	globals := make(map[string]api.GlobalVariableRow, len(resp.Result))
+	for _, row := range resp.Result {
+		globals[row.VariableName] = row
+	}
+
+	var b strings.Builder
+	last := 0
+	for _, match := range matches {
+		b.WriteString(buildName[last:match[0]])
+		varName := buildName[match[2]:match[3]]
+		row, ok := globals[varName]
+		if !ok {
+			return "", fmt.Errorf("yaml build.name references missing global variable {{global.%s}}", varName)
+		}
+		if globalVariableIsSecret(row) {
+			return "", fmt.Errorf("yaml build.name cannot reference secret global variable {{global.%s}} because app names must resolve before runtime", varName)
+		}
+		if row.VariableValue == nil || strings.TrimSpace(*row.VariableValue) == "" {
+			return "", fmt.Errorf("yaml build.name references global variable {{global.%s}} with no plaintext value", varName)
+		}
+		b.WriteString(*row.VariableValue)
+		last = match[1]
+	}
+	b.WriteString(buildName[last:])
+	return b.String(), nil
+}
+
+func globalVariableIsSecret(row api.GlobalVariableRow) bool {
+	return (row.IsSecret != nil && *row.IsSecret) ||
+		(row.HasSecretValue != nil && *row.HasSecretValue && row.VariableValue == nil)
 }
 
 func resolveAppByID(ctx context.Context, client *api.Client, appID, platform, source string) (*api.App, error) {

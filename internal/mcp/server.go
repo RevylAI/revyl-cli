@@ -30,6 +30,7 @@ import (
 	"github.com/revyl/cli/internal/schema"
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/ui"
+	"github.com/revyl/cli/internal/workflowref"
 )
 
 // Server wraps the MCP server with Revyl-specific functionality.
@@ -1102,9 +1103,17 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		}
 	}
 
+	workflowID, resolveErr := s.resolveWorkflowID(ctx, input.WorkflowName)
+	if resolveErr != nil {
+		return nil, RunWorkflowOutput{
+			Success:      false,
+			ErrorMessage: resolveErr.Error(),
+		}, nil
+	}
+
 	// Build params with optional overrides
 	wfParams := execution.RunWorkflowParams{
-		WorkflowNameOrID: input.WorkflowName,
+		WorkflowNameOrID: workflowID,
 		Retries:          retries,
 		Timeout:          execution.DefaultRunTimeoutSeconds,
 		DevMode:          s.devMode,
@@ -2964,22 +2973,13 @@ func (s *Server) resolveTestID(ctx context.Context, nameOrID string) (string, er
 	return testID, nil
 }
 
-// resolveWorkflowID resolves a workflow name or ID to a UUID using API search.
+// resolveWorkflowID resolves a workflow name or ID to a UUID using shared workflow resolution.
 func (s *Server) resolveWorkflowID(ctx context.Context, nameOrID string) (string, error) {
-	wfID := nameOrID
-	if len(wfID) != 36 {
-		resp, err := s.apiClient.ListWorkflows(ctx)
-		if err != nil {
-			return "", fmt.Errorf("failed to search for workflow '%s': %w", nameOrID, err)
-		}
-		for _, w := range resp.Workflows {
-			if w.Name == nameOrID {
-				return w.ID, nil
-			}
-		}
-		return "", fmt.Errorf("workflow '%s' not found", nameOrID)
+	resolved, err := workflowref.Resolve(ctx, s.apiClient, nameOrID)
+	if err != nil {
+		return "", err
 	}
-	return wfID, nil
+	return resolved.ID, nil
 }
 
 // --- Env var tool handlers ---

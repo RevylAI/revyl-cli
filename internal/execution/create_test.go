@@ -234,6 +234,146 @@ test:
 	}
 }
 
+func TestCreateTest_ResolvesGlobalVariableInYAMLBuildName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/variables/global":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"message":"ok",
+				"result":[{
+					"id":"11111111-1111-1111-1111-111111111111",
+					"org_id":"22222222-2222-2222-2222-222222222222",
+					"variable_name":"trulia-android-app",
+					"variable_value":"Trulia Android",
+					"is_secret":false,
+					"created_at":"2024-01-01T00:00:00Z",
+					"updated_at":"2024-01-01T00:00:00Z"
+				}]
+			}`))
+		case "/api/v1/builds/vars":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"items":[{"id":"app-trulia","name":"Trulia Android","platform":"android","versions_count":1,"latest_version":"1.0.0"}],
+				"total":1,"page":1,"page_size":100,"total_pages":1,"has_next":false,"has_previous":false
+			}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	client := api.NewClientWithBaseURL("token", srv.URL)
+	req, err := buildCreateTestRequest(context.Background(), client, CreateTestParams{
+		Name:     "dfa",
+		Platform: "android",
+		OrgID:    "org-1",
+		YAMLContent: `
+test:
+  metadata:
+    name: dfa
+    platform: android
+  build:
+    name: "{{global.trulia-android-app}}"
+  blocks:
+    - type: instructions
+      step_description: Open app
+`,
+	})
+	if err != nil {
+		t.Fatalf("buildCreateTestRequest() error = %v", err)
+	}
+	if req.AppID != "app-trulia" {
+		t.Fatalf("AppID = %q, want app-trulia", req.AppID)
+	}
+}
+
+func TestCreateTest_RejectsSecretGlobalVariableInYAMLBuildName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/variables/global":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"message":"ok",
+				"result":[{
+					"id":"11111111-1111-1111-1111-111111111111",
+					"org_id":"22222222-2222-2222-2222-222222222222",
+					"variable_name":"trulia-android-app",
+					"variable_value":null,
+					"is_secret":true,
+					"has_secret_value":true,
+					"created_at":"2024-01-01T00:00:00Z",
+					"updated_at":"2024-01-01T00:00:00Z"
+				}]
+			}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	client := api.NewClientWithBaseURL("token", srv.URL)
+	_, err := buildCreateTestRequest(context.Background(), client, CreateTestParams{
+		Name:     "dfa",
+		Platform: "android",
+		OrgID:    "org-1",
+		YAMLContent: `
+test:
+  metadata:
+    name: dfa
+    platform: android
+  build:
+    name: "{{global.trulia-android-app}}"
+  blocks:
+    - type: instructions
+      step_description: Open app
+`,
+	})
+	if err == nil {
+		t.Fatal("expected secret global build.name error")
+	}
+	if !strings.Contains(err.Error(), "cannot reference secret global variable") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCreateTest_RejectsMissingGlobalVariableInYAMLBuildName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/variables/global":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"message":"ok","result":[]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	client := api.NewClientWithBaseURL("token", srv.URL)
+	_, err := buildCreateTestRequest(context.Background(), client, CreateTestParams{
+		Name:     "dfa",
+		Platform: "android",
+		OrgID:    "org-1",
+		YAMLContent: `
+test:
+  metadata:
+    name: dfa
+    platform: android
+  build:
+    name: "{{global.trulia-android-app}}"
+  blocks:
+    - type: instructions
+      step_description: Open app
+`,
+	})
+	if err == nil {
+		t.Fatal("expected missing global build.name error")
+	}
+	if !strings.Contains(err.Error(), "references missing global variable") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestCreateTest_UsesConfiguredDefaultAppWhenYAMLDoesNotSpecifyBuild(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

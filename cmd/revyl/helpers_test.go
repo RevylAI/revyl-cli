@@ -57,6 +57,11 @@ func TestLooksLikeUUID(t *testing.T) {
 			expected: false,
 		},
 		{
+			name:     "invalid hex",
+			input:    "027b91de-4a21-4bca-acfe-32db2a628f5z",
+			expected: false,
+		},
+		{
 			name:     "empty string",
 			input:    "",
 			expected: false,

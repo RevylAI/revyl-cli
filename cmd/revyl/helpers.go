@@ -15,6 +15,7 @@ import (
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/orgguard"
 	"github.com/revyl/cli/internal/ui"
+	"github.com/revyl/cli/internal/workflowref"
 )
 
 // maxResourceNameLen is the maximum allowed length for test/workflow names.
@@ -210,8 +211,7 @@ func writeProjectConfigIfNeeded(path string, cfg *config.ProjectConfig) error {
 	return nil
 }
 
-// looksLikeUUID checks if a string looks like a UUID (36 chars with hyphens at positions 8, 13, 18, 23).
-// Does not validate hex digits; use a stricter check if needed.
+// looksLikeUUID checks if a string is a syntactically valid UUID.
 //
 // Parameters:
 //   - s: The string to check
@@ -219,10 +219,7 @@ func writeProjectConfigIfNeeded(path string, cfg *config.ProjectConfig) error {
 // Returns:
 //   - bool: True if the string has UUID-like structure
 func looksLikeUUID(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	return s[8] == '-' && s[13] == '-' && s[18] == '-' && s[23] == '-'
+	return workflowref.IsUUID(s)
 }
 
 // resolveTestID resolves a test name or ID to a test UUID and display name.
@@ -410,40 +407,16 @@ var loadConfigAndClient = func(devMode bool) (string, *config.ProjectConfig, *ap
 }
 
 // resolveWorkflowID resolves a workflow name or ID to a workflow UUID and display name.
-// Resolution chain: UUID format check → API search by name.
+// Resolution chain: valid UUID lookup → exact API search by name.
 func resolveWorkflowID(ctx context.Context, nameOrID string, cfg *config.ProjectConfig, client *api.Client) (string, string, error) {
-	if looksLikeUUID(nameOrID) {
-		return nameOrID, "", nil
-	}
-
 	ui.StartSpinner("Searching for workflow...")
-	workflows, err := client.ListAllWorkflows(ctx, 200)
+	resolved, err := workflowref.Resolve(ctx, client, nameOrID)
 	ui.StopSpinner()
-
 	if err != nil {
-		return "", "", fmt.Errorf("failed to search for workflow: %w", err)
+		return "", "", err
 	}
 
-	var matches []api.SimpleWorkflow
-	for _, w := range workflows {
-		if w.Name == nameOrID {
-			matches = append(matches, w)
-		}
-	}
-
-	if len(matches) == 1 {
-		return matches[0].ID, matches[0].Name, nil
-	}
-
-	if len(matches) > 1 {
-		var ids []string
-		for _, m := range matches {
-			ids = append(ids, m.ID)
-		}
-		return "", "", fmt.Errorf("multiple workflows named %q found -- use UUID to disambiguate:\n  %s", nameOrID, strings.Join(ids, "\n  "))
-	}
-
-	return "", "", fmt.Errorf("workflow '%s' not found\n\nHint: Run 'revyl workflow list' to see all available workflows.", nameOrID)
+	return resolved.ID, resolved.Name, nil
 }
 
 // resolveLatestWorkflowTaskID resolves the latest execution task ID for a workflow.

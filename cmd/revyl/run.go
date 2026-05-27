@@ -676,10 +676,14 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Resolve workflow name or UUID via API
-	workflowID, _, err := resolveWorkflowID(cmd.Context(), workflowNameOrID, cfg, client)
+	workflowID, workflowName, err := resolveWorkflowID(cmd.Context(), workflowNameOrID, cfg, client)
 	if err != nil {
 		ui.PrintError("%v", err)
 		return err
+	}
+	workflowDisplayName := workflowName
+	if workflowDisplayName == "" {
+		workflowDisplayName = workflowNameOrID
 	}
 
 	// Validate workflow exists before building (fail fast)
@@ -828,7 +832,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			cmd.Context(),
 			apiKey,
 			workflowID,
-			workflowNameOrID,
+			workflowDisplayName,
 			runRetries,
 			devMode,
 			runWorkflowIOSAppID,
@@ -883,7 +887,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	defer stopInterruptHandler()
 
 	result, err := runWorkflowExecution(ctx, apiKey, cfg, execution.RunWorkflowParams{
-		WorkflowNameOrID: workflowNameOrID,
+		WorkflowNameOrID: workflowID,
 		Retries:          runRetries,
 		Timeout:          effectiveTimeout,
 		DevMode:          devMode,
@@ -938,6 +942,9 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		ui.PrintError("Workflow execution failed: %v", err)
 		return err
+	}
+	if result != nil && result.WorkflowName == "" {
+		result.WorkflowName = workflowDisplayName
 	}
 
 	ui.Println()

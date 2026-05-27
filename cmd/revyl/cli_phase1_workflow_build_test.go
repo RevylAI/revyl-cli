@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -262,5 +263,98 @@ func TestRunWorkflowExecNoWaitOutputsQueuedJSON(t *testing.T) {
 	}
 	if executeReq.Retries != 2 {
 		t.Fatalf("Retries = %d, want 2", executeReq.Retries)
+	}
+}
+
+func TestRunWorkflowExecBlockingUsesResolvedWorkflowUUID(t *testing.T) {
+	t.Setenv("REVYL_API_KEY", "test-key")
+	t.Setenv("HOME", t.TempDir())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/workflows/get_with_last_status":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"id":"wf-uuid-001","name":"smoke-tests"}]}`))
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	tmp := t.TempDir()
+	withWorkingDir(t, tmp)
+	if err := os.MkdirAll(filepath.Join(tmp, ".revyl"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.revyl) error = %v", err)
+	}
+	if err := config.WriteProjectConfig(filepath.Join(tmp, ".revyl", "config.yaml"), &config.ProjectConfig{}); err != nil {
+		t.Fatalf("WriteProjectConfig() error = %v", err)
+	}
+
+	originalRunNoWait := runNoWait
+	originalRunOpen := runOpen
+	originalRunRetries := runRetries
+	originalRunOutputJSON := runOutputJSON
+	originalRunGitHubActions := runGitHubActions
+	originalRunWorkflowBuild := runWorkflowBuild
+	originalRunWorkflowPlatform := runWorkflowPlatform
+	originalRunWorkflowIOSAppID := runWorkflowIOSAppID
+	originalRunWorkflowAndroidAppID := runWorkflowAndroidAppID
+	originalRunLocation := runLocation
+	originalRunOpenBrowserFn := runOpenBrowserFn
+	originalRunWorkflowExecution := runWorkflowExecution
+	t.Cleanup(func() {
+		runNoWait = originalRunNoWait
+		runOpen = originalRunOpen
+		runRetries = originalRunRetries
+		runOutputJSON = originalRunOutputJSON
+		runGitHubActions = originalRunGitHubActions
+		runWorkflowBuild = originalRunWorkflowBuild
+		runWorkflowPlatform = originalRunWorkflowPlatform
+		runWorkflowIOSAppID = originalRunWorkflowIOSAppID
+		runWorkflowAndroidAppID = originalRunWorkflowAndroidAppID
+		runLocation = originalRunLocation
+		runOpenBrowserFn = originalRunOpenBrowserFn
+		runWorkflowExecution = originalRunWorkflowExecution
+	})
+	runOpenBrowserFn = func(_ string) error { return nil }
+
+	var captured execution.RunWorkflowParams
+	runWorkflowExecution = func(_ context.Context, _ string, _ *config.ProjectConfig, params execution.RunWorkflowParams) (*execution.RunWorkflowResult, error) {
+		captured = params
+		return &execution.RunWorkflowResult{
+			Success:      true,
+			TaskID:       "workflow-task",
+			WorkflowID:   params.WorkflowNameOrID,
+			WorkflowName: "smoke-tests",
+			Status:       "completed",
+			TotalTests:   1,
+			PassedTests:  1,
+			ReportURL:    "https://app.example/workflows/report?taskId=workflow-task",
+		}, nil
+	}
+
+	runNoWait = false
+	runOpen = false
+	runRetries = 1
+	runOutputJSON = true
+	runGitHubActions = false
+	runWorkflowBuild = false
+	runWorkflowPlatform = ""
+	runWorkflowIOSAppID = ""
+	runWorkflowAndroidAppID = ""
+	runLocation = ""
+
+	cmd := newWorkflowRunTestCommand()
+	output := captureStdout(t, func() {
+		if err := runWorkflowExec(cmd, []string{"smoke-tests"}); err != nil {
+			t.Fatalf("runWorkflowExec() error = %v", err)
+		}
+	})
+
+	result := parseJSON(t, output)
+	assertJSONString(t, result, "workflow_id", "wf-uuid-001")
+	if captured.WorkflowNameOrID != "wf-uuid-001" {
+		t.Fatalf("WorkflowNameOrID = %q, want wf-uuid-001", captured.WorkflowNameOrID)
 	}
 }

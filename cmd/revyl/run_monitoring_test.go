@@ -102,6 +102,15 @@ func TestRunWorkflowExec_UsesPollingMonitoringMode(t *testing.T) {
 
 	tmp := t.TempDir()
 	withWorkingDir(t, tmp)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/workflows/get_workflow_info" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"11111111-1111-4111-8111-111111111111","name":"workflow-by-id"}`))
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
 
 	originalRunWorkflowExecution := runWorkflowExecution
 	originalRunNoWait := runNoWait

@@ -353,40 +353,16 @@ func runOpenWorkflow(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var workflowID string
-
-	if looksLikeUUID(workflowNameOrID) {
-		workflowID = workflowNameOrID
-	} else {
-		// Search via API to verify the workflow exists
-		devMode, _ := cmd.Flags().GetBool("dev")
-		client := api.NewClientWithDevMode(apiKey, devMode)
-
-		ui.StartSpinner("Searching for workflow...")
-		workflows, err := client.ListAllWorkflows(cmd.Context(), 200)
-		ui.StopSpinner()
-
-		if err != nil {
-			ui.PrintError("Failed to search for workflow: %v", err)
-			return err
-		}
-
-		for _, w := range workflows {
-			if w.Name == workflowNameOrID {
-				workflowID = w.ID
-				break
-			}
-		}
-
-		if workflowID == "" {
-			ui.PrintError("Workflow '%s' not found", workflowNameOrID)
-			ui.PrintInfo("Use 'revyl workflow create <name>' to create a new workflow")
-			return fmt.Errorf("workflow not found")
-		}
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+	workflowID, _, err := resolveWorkflowID(cmd.Context(), workflowNameOrID, nil, client)
+	if err != nil {
+		ui.PrintError("%v", err)
+		ui.PrintInfo("Use 'revyl workflow create <name>' to create a new workflow")
+		return fmt.Errorf("workflow not found")
 	}
 
 	// Open browser
-	devMode, _ := cmd.Flags().GetBool("dev")
 	workflowURL := fmt.Sprintf("%s/workflows/%s", config.GetAppURL(devMode), workflowID)
 
 	ui.PrintInfo("Opening workflow '%s'...", workflowNameOrID)
