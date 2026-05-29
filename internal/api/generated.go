@@ -246,6 +246,12 @@ const (
 	NormalizedActionBlockTypeValidation    NormalizedActionBlockType = "validation"
 )
 
+// Defines values for NormalizedActionBlockVariableScope.
+const (
+	NormalizedActionBlockVariableScopeGlobal NormalizedActionBlockVariableScope = "global"
+	NormalizedActionBlockVariableScopeTest   NormalizedActionBlockVariableScope = "test"
+)
+
 // Defines values for PlanInfoBillingPeriod.
 const (
 	PlanInfoBillingPeriodMonthly PlanInfoBillingPeriod = "monthly"
@@ -440,14 +446,29 @@ const (
 
 // ActionBlock Block for actions (instructions, extraction, manual, validation, code_execution, module_import).
 type ActionBlock struct {
+	// File Canonical org file name for download_file blocks in authored YAML/product payloads
+	File *string `json:"file"`
+
+	// FileUri Resolved revyl-file:// URI for download_file blocks
+	FileUri *string `json:"file_uri"`
+
 	// Id Unique identifier for the block (auto-generated if not provided)
 	Id *string `json:"id"`
+
+	// Module Canonical module name for module_import blocks in authored YAML/product payloads
+	Module *string `json:"module"`
 
 	// ModuleId ID of the module to import (for module_import blocks)
 	ModuleId *string `json:"module_id"`
 
-	// StepDescription Description of the step
-	StepDescription string `json:"step_description"`
+	// Script Canonical script name for code_execution blocks in authored YAML/product payloads
+	Script *string `json:"script"`
+
+	// ScriptId Resolved script UUID for code_execution blocks
+	ScriptId *string `json:"script_id"`
+
+	// StepDescription Authored step text or legacy payload. Optional for canonical reference blocks such as code_execution.script, module_import.module, download_file.file, and no-parameter manual steps.
+	StepDescription *string `json:"step_description"`
 
 	// StepType Type of step action (inferred when omitted)
 	StepType *ActionBlock_StepType `json:"step_type"`
@@ -1169,6 +1190,8 @@ type AtlasV2BackfillScopeRequest struct {
 
 // AtlasV2Candidate defines model for AtlasV2Candidate.
 type AtlasV2Candidate struct {
+	ActionId                    *string                 `json:"action_id"`
+	ActionIndex                 *int                    `json:"action_index"`
 	CanonicalDisplayName        *string                 `json:"canonical_display_name"`
 	CanonicalEntityId           *string                 `json:"canonical_entity_id"`
 	DisplayName                 *string                 `json:"display_name"`
@@ -1183,16 +1206,22 @@ type AtlasV2Candidate struct {
 	ParentEntityId              *string                 `json:"parent_entity_id"`
 	PerceptualHash              *string                 `json:"perceptual_hash"`
 	PhashDistance               *int                    `json:"phash_distance"`
+	ReportId                    *string                 `json:"report_id"`
 	RepresentativeObservationId *string                 `json:"representative_observation_id"`
 	RootDisplayName             *string                 `json:"root_display_name"`
 	RootEntityId                string                  `json:"root_entity_id"`
 	Scores                      *map[string]interface{} `json:"scores,omitempty"`
 	ScreenKind                  *string                 `json:"screen_kind"`
+	ScreenshotRole              *string                 `json:"screenshot_role"`
 	ScreenshotS3Bucket          *string                 `json:"screenshot_s3_bucket"`
 	ScreenshotS3Key             *string                 `json:"screenshot_s3_key"`
 	ScreenshotUrl               *string                 `json:"screenshot_url"`
 	SemanticSummary             *map[string]interface{} `json:"semantic_summary,omitempty"`
 	SourceContext               *map[string]interface{} `json:"source_context,omitempty"`
+	StepId                      *string                 `json:"step_id"`
+	StepIndex                   *int                    `json:"step_index"`
+	TestId                      *string                 `json:"test_id"`
+	TestName                    *string                 `json:"test_name"`
 	UiFingerprint               *map[string]interface{} `json:"ui_fingerprint,omitempty"`
 	VariantKind                 *string                 `json:"variant_kind"`
 }
@@ -1243,8 +1272,11 @@ type AtlasV2LayerJobResponse struct {
 	BuildId        *string               `json:"build_id"`
 	IdempotencyKey string                `json:"idempotency_key"`
 	JobId          string                `json:"job_id"`
+	ParentTraceId  *string               `json:"parent_trace_id"`
 	ReportId       *string               `json:"report_id"`
 	Status         AtlasV2LayerJobStatus `json:"status"`
+	TraceId        *string               `json:"trace_id"`
+	Traceparent    *string               `json:"traceparent"`
 }
 
 // AtlasV2LayerJobStatus defines model for AtlasV2LayerJobStatus.
@@ -1269,6 +1301,21 @@ type AtlasV2LayerReportRequest struct {
 	PromptVersion  *string                 `json:"prompt_version,omitempty"`
 	ReportId       string                  `json:"report_id"`
 	Source         *string                 `json:"source,omitempty"`
+}
+
+// AtlasV2ManualMergeRequest defines model for AtlasV2ManualMergeRequest.
+type AtlasV2ManualMergeRequest struct {
+	EntityIds []string `json:"entity_ids"`
+	Reason    *string  `json:"reason"`
+}
+
+// AtlasV2ManualMergeResponse defines model for AtlasV2ManualMergeResponse.
+type AtlasV2ManualMergeResponse struct {
+	AppId           string                    `json:"app_id"`
+	Decisions       *[]map[string]interface{} `json:"decisions,omitempty"`
+	MergedEntityIds []string                  `json:"merged_entity_ids"`
+	RootEntityId    string                    `json:"root_entity_id"`
+	Unions          *[]map[string]interface{} `json:"unions,omitempty"`
 }
 
 // AtlasV2ObservationFeatureInput defines model for AtlasV2ObservationFeatureInput.
@@ -4505,10 +4552,15 @@ type ModuleBlock struct {
 	Children     *[]ModuleBlock `json:"children"`
 	Condition    *string        `json:"condition"`
 	ElseChildren *[]ModuleBlock `json:"elseChildren"`
+	File         *string        `json:"file"`
+	FileUri      *string        `json:"file_uri"`
 
 	// Id Block ID (auto-generated if not provided)
 	Id              *string        `json:"id"`
+	Module          *string        `json:"module"`
 	ModuleId        *string        `json:"module_id"`
+	Script          *string        `json:"script"`
+	ScriptId        *string        `json:"script_id"`
 	StepDescription *string        `json:"step_description"`
 	StepType        *string        `json:"step_type"`
 	ThenChildren    *[]ModuleBlock `json:"thenChildren"`
@@ -4632,16 +4684,25 @@ type MultimodalContentPart struct {
 //
 // Note: ID is always present after conversion (auto-generated by ConversionService).
 type NormalizedActionBlock struct {
-	Id              string                    `json:"id"`
-	ModuleId        *string                   `json:"module_id,omitempty"`
-	StepDescription string                    `json:"step_description"`
-	StepType        string                    `json:"step_type"`
-	Type            NormalizedActionBlockType `json:"type"`
-	VariableName    *string                   `json:"variable_name,omitempty"`
+	File            *string                             `json:"file,omitempty"`
+	FileUri         *string                             `json:"file_uri,omitempty"`
+	Id              string                              `json:"id"`
+	Module          *string                             `json:"module,omitempty"`
+	ModuleId        *string                             `json:"module_id,omitempty"`
+	Script          *string                             `json:"script,omitempty"`
+	ScriptId        *string                             `json:"script_id,omitempty"`
+	StepDescription *string                             `json:"step_description,omitempty"`
+	StepType        string                              `json:"step_type"`
+	Type            NormalizedActionBlockType           `json:"type"`
+	VariableName    *string                             `json:"variable_name,omitempty"`
+	VariableScope   *NormalizedActionBlockVariableScope `json:"variable_scope,omitempty"`
 }
 
 // NormalizedActionBlockType defines model for NormalizedActionBlock.Type.
 type NormalizedActionBlockType string
+
+// NormalizedActionBlockVariableScope defines model for NormalizedActionBlock.VariableScope.
+type NormalizedActionBlockVariableScope string
 
 // NormalizedIfBlock Conditional block in normalized dictionary form.
 //
@@ -6894,9 +6955,12 @@ type Test struct {
 	RunId     *openapi_types.UUID `json:"run_id"`
 
 	// Tags Tags associated with this test for categorization and filtering
-	Tags   *[]Tag              `json:"tags"`
-	Tasks  *Test_Tasks         `json:"tasks,omitempty"`
-	UserId *openapi_types.UUID `json:"user_id"`
+	Tags  *[]Tag      `json:"tags"`
+	Tasks *Test_Tasks `json:"tasks,omitempty"`
+
+	// TestTimeoutSeconds Per-test execution timeout in seconds. Null disables the override.
+	TestTimeoutSeconds *int                `json:"test_timeout_seconds"`
+	UserId             *openapi_types.UUID `json:"user_id"`
 
 	// Version Current version number for optimistic locking. Increments on each save.
 	Version              *int                    `json:"version"`
@@ -8468,6 +8532,9 @@ type WorkflowLastExecution struct {
 	// Duration Duration of the last execution in seconds
 	Duration *float32 `json:"duration"`
 
+	// FailedCount Number of tests that failed in the last execution
+	FailedCount *int `json:"failed_count"`
+
 	// Id Execution ID of the last execution (was task_id)
 	Id *string `json:"id"`
 
@@ -8479,6 +8546,9 @@ type WorkflowLastExecution struct {
 
 	// Status Status of the last execution
 	Status WorkflowLastExecutionStatus `json:"status"`
+
+	// TotalTests Total number of tests in the last execution
+	TotalTests *int `json:"total_tests"`
 }
 
 // WorkflowLastExecutionStatus Status of the last execution
@@ -9220,6 +9290,9 @@ type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 
 	// FileName Name of the file to upload
 	FileName string `form:"file_name" json:"file_name"`
+
+	// Source Build upload source for backend-owned lifecycle analytics
+	Source *string `form:"source,omitempty" json:"source,omitempty"`
 }
 
 // GetTestMatrixApiV1AppsAppIdTestMatrixGetParams defines parameters for GetTestMatrixApiV1AppsAppIdTestMatrixGet.
@@ -9332,7 +9405,21 @@ type GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams struct {
 	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
 	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeDetails  *bool   `form:"include_details,omitempty" json:"include_details,omitempty"`
 	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams defines parameters for GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGet.
+type GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams struct {
+	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 }
 
 // GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams defines parameters for GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGet.
@@ -9399,7 +9486,10 @@ type RunAtlasV2BackfillScopeApiV1AtlasV2BackfillJobsJobIdRunPostParams struct {
 
 // GetAtlasV2IndexApiV1AtlasV2IndexGetParams defines parameters for GetAtlasV2IndexApiV1AtlasV2IndexGet.
 type GetAtlasV2IndexApiV1AtlasV2IndexGetParams struct {
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Limit       *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset      *int    `form:"offset,omitempty" json:"offset,omitempty"`
+	Search      *string `form:"search,omitempty" json:"search,omitempty"`
+	ContentOnly *bool   `form:"content_only,omitempty" json:"content_only,omitempty"`
 }
 
 // CompleteAtlasV2LayerJobApiV1AtlasV2LayerJobsJobIdCompletePostParams defines parameters for CompleteAtlasV2LayerJobApiV1AtlasV2LayerJobsJobIdCompletePost.
@@ -10000,6 +10090,9 @@ type CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody = BuildFro
 
 // StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody defines body for StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost for multipart/form-data ContentType.
 type StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody = BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost
+
+// ManualMergeAtlasV2EntitiesApiV1AtlasV2AppsAppIdManualMergePostJSONRequestBody defines body for ManualMergeAtlasV2EntitiesApiV1AtlasV2AppsAppIdManualMergePost for application/json ContentType.
+type ManualMergeAtlasV2EntitiesApiV1AtlasV2AppsAppIdManualMergePostJSONRequestBody = AtlasV2ManualMergeRequest
 
 // StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePostJSONRequestBody defines body for StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePost for application/json ContentType.
 type StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePostJSONRequestBody = AtlasV2BackfillScopeRequest
@@ -12206,6 +12299,14 @@ func (a *Test) UnmarshalJSON(b []byte) error {
 		delete(object, "tasks")
 	}
 
+	if raw, found := object["test_timeout_seconds"]; found {
+		err = json.Unmarshal(raw, &a.TestTimeoutSeconds)
+		if err != nil {
+			return fmt.Errorf("error reading 'test_timeout_seconds': %w", err)
+		}
+		delete(object, "test_timeout_seconds")
+	}
+
 	if raw, found := object["user_id"]; found {
 		err = json.Unmarshal(raw, &a.UserId)
 		if err != nil {
@@ -12456,6 +12557,13 @@ func (a Test) MarshalJSON() ([]byte, error) {
 		object["tasks"], err = json.Marshal(a.Tasks)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'tasks': %w", err)
+		}
+	}
+
+	if a.TestTimeoutSeconds != nil {
+		object["test_timeout_seconds"], err = json.Marshal(a.TestTimeoutSeconds)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'test_timeout_seconds': %w", err)
 		}
 	}
 
