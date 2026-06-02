@@ -8610,6 +8610,10 @@ type WorkflowTaskInfo struct {
 
 // WorkflowTaskReportInfo Enriched task info for workflow report cards.
 type WorkflowTaskReportInfo struct {
+	AppId                *string                 `json:"app_id"`
+	AppName              *string                 `json:"app_name"`
+	BuildId              *string                 `json:"build_id"`
+	BuildVersion         *string                 `json:"build_version"`
 	CompletedAt          *string                 `json:"completed_at"`
 	CurrentStep          *string                 `json:"current_step"`
 	CurrentStepIndex     *int                    `json:"current_step_index"`
@@ -9396,30 +9400,33 @@ type GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGetParams struct {
 
 // GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams defines parameters for GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGet.
 type GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams struct {
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	IncludeDetails  *bool   `form:"include_details,omitempty" json:"include_details,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	BuildId             *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId            *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId              *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	WorkflowExecutionId *string `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
+	SourceKind          *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime            *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime              *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope        *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants     *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeDetails      *bool   `form:"include_details,omitempty" json:"include_details,omitempty"`
+	IncludeFlows        *bool   `form:"include_flows,omitempty" json:"include_flows,omitempty"`
+	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams defines parameters for GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGet.
 type GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams struct {
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	BuildId             *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId            *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId              *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	WorkflowExecutionId *string `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
+	SourceKind          *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime            *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime              *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope        *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants     *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 }
 
 // GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams defines parameters for GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGet.
@@ -9520,6 +9527,15 @@ type UpdateAtlasV2LayerStatusApiV1AtlasV2LayerJobsJobIdStatusPostParams struct {
 // ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPostParams defines parameters for ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPost.
 type ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPostParams struct {
 	XServiceKey *string `json:"x-service-key,omitempty"`
+}
+
+// GetAtlasV2WorkflowForestApiV1AtlasV2WorkflowsWorkflowExecutionIdForestGetParams defines parameters for GetAtlasV2WorkflowForestApiV1AtlasV2WorkflowsWorkflowExecutionIdForestGet.
+type GetAtlasV2WorkflowForestApiV1AtlasV2WorkflowsWorkflowExecutionIdForestGetParams struct {
+	IncludeVariants *bool `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeDetails  *bool `form:"include_details,omitempty" json:"include_details,omitempty"`
+	IncludeFlows    *bool `form:"include_flows,omitempty" json:"include_flows,omitempty"`
+	Limit           *int  `form:"limit,omitempty" json:"limit,omitempty"`
+	AppLimit        *int  `form:"app_limit,omitempty" json:"app_limit,omitempty"`
 }
 
 // GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGetParams defines parameters for GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGet.
