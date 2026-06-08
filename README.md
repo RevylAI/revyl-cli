@@ -39,7 +39,7 @@ brew install RevylAI/tap/revyl
 pipx install revyl
 ```
 
-### ux 
+### uv
 
 ```bash
 uv tool install revyl
