@@ -21,11 +21,28 @@ Revyl is an AI-powered testing platform for mobile apps. Define tests in natural
 
 ## Install
 
+### sh
+
 ```bash
-curl -fsSL https://revyl.com/install.sh | sh  # Shell (macOS / Linux)
-brew install RevylAI/tap/revyl          # Homebrew (macOS)
-pipx install revyl                      # pipx (cross-platform)
-uv tool install revyl                   # uv
+curl -fsSL https://revyl.com/install.sh | sh
+```
+
+### Homebrew (macOS)
+
+```bash
+brew install RevylAI/tap/revyl
+```
+
+### pipx (cross-platform)
+
+```bash
+pipx install revyl
+```
+
+### ux 
+
+```bash
+uv tool install revyl
 ```
 
 ## Authenticate
