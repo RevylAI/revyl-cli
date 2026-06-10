@@ -86,7 +86,7 @@ func runCreateTestFromSession(cmd *cobra.Command, args []string) error {
 	}
 
 	startResp, err := client.StartRecordingCompile(cmd.Context(), &api.CompileRecordingRequest{
-		SourceType: api.Session,
+		SourceType: api.CompileSourceTypeSession,
 		SourceId:   sessionID,
 	})
 	if err != nil {

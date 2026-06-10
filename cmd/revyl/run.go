@@ -57,6 +57,7 @@ var (
 	runOsVersion            string
 	runOrientation          string
 	runFailFast             bool
+	runLaunchEnv            []string
 )
 
 // minRetries is the minimum allowed retry count.
@@ -308,6 +309,15 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid --orientation value %q: must be 'portrait' or 'landscape'", runOrientation)
 	}
 
+	// Parse --launch-env KEY=VALUE flags
+	launchEnvVars, err := parseLaunchEnvVars(runLaunchEnv)
+	if err != nil {
+		return err
+	}
+	if len(launchEnvVars) > 0 {
+		ui.PrintInfo("Launch env vars: %d", len(launchEnvVars))
+	}
+
 	if devMode {
 		ui.PrintInfo("Mode: Development (localhost)")
 	}
@@ -439,6 +449,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		OsVersion:      osVersion,
 		Orientation:    runOrientation,
 		FailFast:       failFastPtr,
+		LaunchEnvVars:  launchEnvVars,
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},
@@ -1405,6 +1416,11 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 
 	reportLinkShown := false
 
+	launchEnvVars, err := parseLaunchEnvVars(runLaunchEnv)
+	if err != nil {
+		return err
+	}
+
 	testResult, err := execution.RunTest(ctx, apiKey, cfg, execution.RunTestParams{
 		TestNameOrID:   testNameOrID,
 		Retries:        runRetries,
@@ -1412,6 +1428,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 		Timeout:        effectiveTimeout,
 		DevMode:        devMode,
 		LaunchURL:      deepLinkURL,
+		LaunchEnvVars:  launchEnvVars,
 		OnProgress: func(status *sse.TestStatus) {
 			ui.StopSpinner()
 
@@ -1589,6 +1606,60 @@ func resolveDeviceSelection(
 		return "", "", fmt.Errorf("unexpected device selection value: %q", selected)
 	}
 	return parts[0], parts[1], nil
+}
+
+// parseLaunchEnvVars parses repeatable --launch-env KEY=VALUE flags into a map.
+// Only the first '=' splits, so values may contain '='; empty input returns nil.
+func parseLaunchEnvVars(pairs []string) (map[string]string, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(pairs))
+	for _, raw := range pairs {
+		kv := strings.SplitN(raw, "=", 2)
+		if len(kv) != 2 {
+			return nil, fmt.Errorf("invalid --launch-env %q: expected KEY=VALUE", raw)
+		}
+		key := strings.TrimSpace(kv[0])
+		if key == "" {
+			return nil, fmt.Errorf("invalid --launch-env %q: empty key", raw)
+		}
+		if !isValidLaunchEnvKey(key) {
+			return nil, fmt.Errorf(
+				"invalid --launch-env %q: key %q must match [A-Za-z_][A-Za-z0-9_]*",
+				raw,
+				key,
+			)
+		}
+		out[key] = kv[1]
+	}
+	return out, nil
+}
+
+func isValidLaunchEnvKey(key string) bool {
+	if key == "" {
+		return false
+	}
+
+	for i := 0; i < len(key); i++ {
+		ch := key[i]
+		isLetter := (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
+		isDigit := ch >= '0' && ch <= '9'
+		isUnderscore := ch == '_'
+
+		if i == 0 {
+			if !isLetter && !isUnderscore {
+				return false
+			}
+			continue
+		}
+
+		if !isLetter && !isDigit && !isUnderscore {
+			return false
+		}
+	}
+
+	return true
 }
 
 // parseLocation parses a "lat,lng" string into float64 values.

@@ -166,8 +166,17 @@ func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
 			if got := req["org_id"]; got != "org-config" {
 				t.Fatalf("org_id = %v, want org-config", got)
 			}
+			if got := req["app_id"]; got != "app-ios" {
+				t.Fatalf("app_id = %v, want app-ios", got)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"remote-id","version":2}`))
+		case "/api/v1/builds/vars":
+			if got := r.URL.Query().Get("platform"); !strings.EqualFold(got, "ios") {
+				t.Fatalf("platform query = %q, want ios", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"items":[{"id":"app-ios","name":"Login App","platform":"ios","versions_count":1,"latest_version":"1"}],"total":1,"page":1,"page_size":100,"total_pages":1,"has_next":false,"has_previous":false}`))
 		case "/api/v1/variables/custom/delete_all":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"message":"deleted all"}`))
@@ -184,6 +193,7 @@ func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
 		Meta: config.TestMeta{},
 		Test: config.TestDefinition{
 			Metadata: config.TestMetadata{Name: "Login", Platform: "ios"},
+			Build:    config.TestBuildConfig{Name: "Login App"},
 			Blocks: []config.TestBlock{
 				{Type: "instructions", StepDescription: "Tap login"},
 			},

@@ -211,11 +211,11 @@ cd "$PROJECT_DIR"
 echo ""
 echo "Generating Go types..."
 
-# Generate types only (not full client) to keep it lightweight
-# We use our own client implementation for better control
+# Generate types only (not full client) to keep it lightweight.
+# We use our own client implementation for better control.
+# Generation options live in oapi-codegen-config.yaml.
 oapi-codegen \
-    -generate types \
-    -package api \
+    -config "$SCRIPT_DIR/oapi-codegen-config.yaml" \
     -o "$OUTPUT_FILE" \
     "$PROCESSED_SPEC"
 

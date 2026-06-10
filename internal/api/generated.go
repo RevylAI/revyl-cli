@@ -136,10 +136,10 @@ const (
 
 // Defines values for CodeExecutionScriptUpdateRuntime.
 const (
-	Bash       CodeExecutionScriptUpdateRuntime = "bash"
-	Javascript CodeExecutionScriptUpdateRuntime = "javascript"
-	Python     CodeExecutionScriptUpdateRuntime = "python"
-	Typescript CodeExecutionScriptUpdateRuntime = "typescript"
+	CodeExecutionScriptUpdateRuntimeBash       CodeExecutionScriptUpdateRuntime = "bash"
+	CodeExecutionScriptUpdateRuntimeJavascript CodeExecutionScriptUpdateRuntime = "javascript"
+	CodeExecutionScriptUpdateRuntimePython     CodeExecutionScriptUpdateRuntime = "python"
+	CodeExecutionScriptUpdateRuntimeTypescript CodeExecutionScriptUpdateRuntime = "typescript"
 )
 
 // Defines values for CompileJobStatus.
@@ -155,15 +155,15 @@ const (
 
 // Defines values for CompileSourceType.
 const (
-	Recording CompileSourceType = "recording"
-	Session   CompileSourceType = "session"
+	CompileSourceTypeRecording CompileSourceType = "recording"
+	CompileSourceTypeSession   CompileSourceType = "session"
 )
 
 // Defines values for DashboardMetricsDashboardState.
 const (
-	Intermediate DashboardMetricsDashboardState = "intermediate"
-	Mature       DashboardMetricsDashboardState = "mature"
-	Onboarding   DashboardMetricsDashboardState = "onboarding"
+	DashboardMetricsDashboardStateIntermediate DashboardMetricsDashboardState = "intermediate"
+	DashboardMetricsDashboardStateMature       DashboardMetricsDashboardState = "mature"
+	DashboardMetricsDashboardStateOnboarding   DashboardMetricsDashboardState = "onboarding"
 )
 
 // Defines values for DeviceSessionCreatePlatform.
@@ -180,13 +180,13 @@ const (
 
 // Defines values for FallbackTrigger.
 const (
-	FinalFail FallbackTrigger = "final_fail"
+	FallbackTriggerFinalFail FallbackTrigger = "final_fail"
 )
 
 // Defines values for FleetSandboxSandboxType.
 const (
-	Container FleetSandboxSandboxType = "container"
-	Dedicated FleetSandboxSandboxType = "dedicated"
+	FleetSandboxSandboxTypeContainer FleetSandboxSandboxType = "container"
+	FleetSandboxSandboxTypeDedicated FleetSandboxSandboxType = "dedicated"
 )
 
 // Defines values for FleetSandboxStatus.
@@ -208,15 +208,15 @@ const (
 
 // Defines values for GrounderType.
 const (
-	Auto            GrounderType = "auto"
-	ModalCustom     GrounderType = "modal-custom"
-	Moondream       GrounderType = "moondream"
-	Moondream3      GrounderType = "moondream3"
-	MoondreamCustom GrounderType = "moondream_custom"
-	Null            GrounderType = "null"
-	Qwen3Vl         GrounderType = "qwen3-vl"
-	UiTars          GrounderType = "ui-tars"
-	Unified         GrounderType = "unified"
+	GrounderTypeAuto            GrounderType = "auto"
+	GrounderTypeModalCustom     GrounderType = "modal-custom"
+	GrounderTypeMoondream       GrounderType = "moondream"
+	GrounderTypeMoondream3      GrounderType = "moondream3"
+	GrounderTypeMoondreamCustom GrounderType = "moondream_custom"
+	GrounderTypeNull            GrounderType = "null"
+	GrounderTypeQwen3Vl         GrounderType = "qwen3-vl"
+	GrounderTypeUiTars          GrounderType = "ui-tars"
+	GrounderTypeUnified         GrounderType = "unified"
 )
 
 // Defines values for GroundingErrorType.
@@ -232,8 +232,15 @@ const (
 
 // Defines values for HITLApprovalDecisionDecision.
 const (
-	Approved HITLApprovalDecisionDecision = "approved"
-	Rejected HITLApprovalDecisionDecision = "rejected"
+	HITLApprovalDecisionDecisionApproved HITLApprovalDecisionDecision = "approved"
+	HITLApprovalDecisionDecisionRejected HITLApprovalDecisionDecision = "rejected"
+)
+
+// Defines values for LinearIssueRequestSource.
+const (
+	LinearIssueRequestSourceAtlas    LinearIssueRequestSource = "atlas"
+	LinearIssueRequestSourceReport   LinearIssueRequestSource = "report"
+	LinearIssueRequestSourceWorkflow LinearIssueRequestSource = "workflow"
 )
 
 // Defines values for NormalizedActionBlockType.
@@ -260,17 +267,17 @@ const (
 
 // Defines values for PlanInfoScheduledBillingPeriod.
 const (
-	Monthly PlanInfoScheduledBillingPeriod = "monthly"
-	Yearly  PlanInfoScheduledBillingPeriod = "yearly"
+	PlanInfoScheduledBillingPeriodMonthly PlanInfoScheduledBillingPeriod = "monthly"
+	PlanInfoScheduledBillingPeriodYearly  PlanInfoScheduledBillingPeriod = "yearly"
 )
 
 // Defines values for QualityGrade.
 const (
-	A QualityGrade = "A"
-	B QualityGrade = "B"
-	C QualityGrade = "C"
-	D QualityGrade = "D"
-	F QualityGrade = "F"
+	QualityGradeA QualityGrade = "A"
+	QualityGradeB QualityGrade = "B"
+	QualityGradeC QualityGrade = "C"
+	QualityGradeD QualityGrade = "D"
+	QualityGradeF QualityGrade = "F"
 )
 
 // Defines values for ReflectionErrorType.
@@ -296,9 +303,9 @@ const (
 
 // Defines values for ReliabilityEstimate.
 const (
-	High   ReliabilityEstimate = "high"
-	Low    ReliabilityEstimate = "low"
-	Medium ReliabilityEstimate = "medium"
+	ReliabilityEstimateHigh   ReliabilityEstimate = "high"
+	ReliabilityEstimateLow    ReliabilityEstimate = "low"
+	ReliabilityEstimateMedium ReliabilityEstimate = "medium"
 )
 
 // Defines values for SessionStatus.
@@ -352,26 +359,26 @@ const (
 
 // Defines values for SuggestionQualityRating.
 const (
-	Adequate  SuggestionQualityRating = "adequate"
-	Excellent SuggestionQualityRating = "excellent"
-	Good      SuggestionQualityRating = "good"
-	Incorrect SuggestionQualityRating = "incorrect"
-	Poor      SuggestionQualityRating = "poor"
+	SuggestionQualityRatingAdequate  SuggestionQualityRating = "adequate"
+	SuggestionQualityRatingExcellent SuggestionQualityRating = "excellent"
+	SuggestionQualityRatingGood      SuggestionQualityRating = "good"
+	SuggestionQualityRatingIncorrect SuggestionQualityRating = "incorrect"
+	SuggestionQualityRatingPoor      SuggestionQualityRating = "poor"
 )
 
 // Defines values for TestEvalReportTestOutcome.
 const (
-	ERROR  TestEvalReportTestOutcome = "ERROR"
-	FAILED TestEvalReportTestOutcome = "FAILED"
-	PASSED TestEvalReportTestOutcome = "PASSED"
+	TestEvalReportTestOutcomeERROR  TestEvalReportTestOutcome = "ERROR"
+	TestEvalReportTestOutcomeFAILED TestEvalReportTestOutcome = "FAILED"
+	TestEvalReportTestOutcomePASSED TestEvalReportTestOutcome = "PASSED"
 )
 
 // Defines values for UpdateSandboxRequestStatus.
 const (
-	Available   UpdateSandboxRequestStatus = "available"
-	Claimed     UpdateSandboxRequestStatus = "claimed"
-	Maintenance UpdateSandboxRequestStatus = "maintenance"
-	Reserved    UpdateSandboxRequestStatus = "reserved"
+	UpdateSandboxRequestStatusAvailable   UpdateSandboxRequestStatus = "available"
+	UpdateSandboxRequestStatusClaimed     UpdateSandboxRequestStatus = "claimed"
+	UpdateSandboxRequestStatusMaintenance UpdateSandboxRequestStatus = "maintenance"
+	UpdateSandboxRequestStatusReserved    UpdateSandboxRequestStatus = "reserved"
 )
 
 // Defines values for ValidationErrorType.
@@ -412,37 +419,37 @@ const (
 
 // Defines values for WorkflowStatus.
 const (
-	Cancelled WorkflowStatus = "cancelled"
-	Completed WorkflowStatus = "completed"
-	Failed    WorkflowStatus = "failed"
-	Queued    WorkflowStatus = "queued"
-	Running   WorkflowStatus = "running"
-	Setup     WorkflowStatus = "setup"
-	Timeout   WorkflowStatus = "timeout"
+	WorkflowStatusCancelled WorkflowStatus = "cancelled"
+	WorkflowStatusCompleted WorkflowStatus = "completed"
+	WorkflowStatusFailed    WorkflowStatus = "failed"
+	WorkflowStatusQueued    WorkflowStatus = "queued"
+	WorkflowStatusRunning   WorkflowStatus = "running"
+	WorkflowStatusSetup     WorkflowStatus = "setup"
+	WorkflowStatusTimeout   WorkflowStatus = "timeout"
 )
 
 // Defines values for QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus.
 const (
-	All     QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "all"
-	Failing QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "failing"
-	NotRun  QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "notRun"
-	Passing QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "passing"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsStatusAll     QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "all"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsStatusFailing QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "failing"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsStatusNotRun  QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "notRun"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsStatusPassing QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "passing"
 )
 
 // Defines values for QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy.
 const (
-	Build    QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "build"
-	Duration QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "duration"
-	LastRun  QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "lastRun"
-	Name     QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "name"
-	Platform QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "platform"
-	Status   QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "status"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsSortByBuild    QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "build"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsSortByDuration QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "duration"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsSortByLastRun  QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "lastRun"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsSortByName     QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "name"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsSortByPlatform QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "platform"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsSortByStatus   QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy = "status"
 )
 
 // Defines values for QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir.
 const (
-	Asc  QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir = "asc"
-	Desc QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir = "desc"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDirAsc  QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir = "asc"
+	QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDirDesc QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir = "desc"
 )
 
 // ActionBlock Block for actions (instructions, extraction, manual, validation, code_execution, module_import).
@@ -1220,6 +1227,7 @@ type AtlasV2Candidate struct {
 	EntityKind                  string                  `json:"entity_kind"`
 	EntityPath                  *[]string               `json:"entity_path,omitempty"`
 	ExactHash                   *string                 `json:"exact_hash"`
+	LandmarkContext             *map[string]interface{} `json:"landmark_context,omitempty"`
 	OcrSummary                  *AtlasOCRSummary        `json:"ocr_summary,omitempty"`
 	ParentDisplayName           *string                 `json:"parent_display_name"`
 	ParentEntityId              *string                 `json:"parent_entity_id"`
@@ -1303,13 +1311,17 @@ type AtlasV2LayerJobStatus string
 
 // AtlasV2LayerObservationResponse defines model for AtlasV2LayerObservationResponse.
 type AtlasV2LayerObservationResponse struct {
-	AssignedEntityId     *string             `json:"assigned_entity_id"`
-	AssignedRootEntityId *string             `json:"assigned_root_entity_id"`
-	Candidates           *[]AtlasV2Candidate `json:"candidates,omitempty"`
-	DecisionId           *string             `json:"decision_id"`
-	ObservationId        string              `json:"observation_id"`
-	Reason               *string             `json:"reason"`
-	Status               string              `json:"status"`
+	AssignedDisplayName     *string                 `json:"assigned_display_name"`
+	AssignedEntityId        *string                 `json:"assigned_entity_id"`
+	AssignedLandmarkContext *map[string]interface{} `json:"assigned_landmark_context,omitempty"`
+	AssignedRootDisplayName *string                 `json:"assigned_root_display_name"`
+	AssignedRootEntityId    *string                 `json:"assigned_root_entity_id"`
+	AssignedSemanticSummary *map[string]interface{} `json:"assigned_semantic_summary,omitempty"`
+	Candidates              *[]AtlasV2Candidate     `json:"candidates,omitempty"`
+	DecisionId              *string                 `json:"decision_id"`
+	ObservationId           string                  `json:"observation_id"`
+	Reason                  *string                 `json:"reason"`
+	Status                  string                  `json:"status"`
 }
 
 // AtlasV2LayerReportRequest defines model for AtlasV2LayerReportRequest.
@@ -4501,6 +4513,100 @@ type LLMMessage_Content struct {
 	union json.RawMessage
 }
 
+// LinearAtlasContextRequest defines model for LinearAtlasContextRequest.
+type LinearAtlasContextRequest struct {
+	AppId           string  `json:"app_id"`
+	AtlasUrl        *string `json:"atlas_url"`
+	BuildId         *string `json:"build_id"`
+	Kind            *string `json:"kind"`
+	NodeId          string  `json:"node_id"`
+	PreviewEntityId *string `json:"preview_entity_id"`
+	ScreenshotUrl   *string `json:"screenshot_url"`
+	Title           *string `json:"title"`
+}
+
+// LinearIntegration defines model for LinearIntegration.
+type LinearIntegration struct {
+	ConnectedAt        *time.Time `json:"connected_at"`
+	ConnectedBy        *string    `json:"connected_by"`
+	DefaultLabelIds    *[]string  `json:"default_label_ids,omitempty"`
+	DefaultProjectId   *string    `json:"default_project_id"`
+	DefaultProjectName *string    `json:"default_project_name"`
+	DefaultTeamId      *string    `json:"default_team_id"`
+	DefaultTeamName    *string    `json:"default_team_name"`
+	Enabled            *bool      `json:"enabled,omitempty"`
+	Id                 string     `json:"id"`
+	OrgId              string     `json:"org_id"`
+	WorkspaceId        *string    `json:"workspace_id"`
+	WorkspaceName      *string    `json:"workspace_name"`
+}
+
+// LinearIntegrationResponse defines model for LinearIntegrationResponse.
+type LinearIntegrationResponse struct {
+	Configured      *bool              `json:"configured,omitempty"`
+	Connected       bool               `json:"connected"`
+	Integration     *LinearIntegration `json:"integration,omitempty"`
+	OauthConfigured *bool              `json:"oauth_configured,omitempty"`
+}
+
+// LinearIssueRequest defines model for LinearIssueRequest.
+type LinearIssueRequest struct {
+	AssigneeId          *string                    `json:"assignee_id"`
+	Atlas               *LinearAtlasContextRequest `json:"atlas,omitempty"`
+	Description         *string                    `json:"description"`
+	ExecutionId         *string                    `json:"execution_id"`
+	LabelIds            *[]string                  `json:"label_ids,omitempty"`
+	Priority            *int                       `json:"priority"`
+	ProjectId           *string                    `json:"project_id"`
+	ReportId            *string                    `json:"report_id"`
+	Source              LinearIssueRequestSource   `json:"source"`
+	StateId             *string                    `json:"state_id"`
+	TeamId              *string                    `json:"team_id"`
+	Title               *string                    `json:"title"`
+	WorkflowExecutionId *string                    `json:"workflow_execution_id"`
+}
+
+// LinearIssueRequestSource defines model for LinearIssueRequest.Source.
+type LinearIssueRequestSource string
+
+// LinearIssueResponse defines model for LinearIssueResponse.
+type LinearIssueResponse struct {
+	Identifier         string `json:"identifier"`
+	IssueId            string `json:"issue_id"`
+	ScreenshotAttached *bool  `json:"screenshot_attached,omitempty"`
+	Url                string `json:"url"`
+}
+
+// LinearOAuthUrlResponse defines model for LinearOAuthUrlResponse.
+type LinearOAuthUrlResponse struct {
+	OauthUrl   string `json:"oauth_url"`
+	StateToken string `json:"state_token"`
+}
+
+// LinearOption defines model for LinearOption.
+type LinearOption struct {
+	Color *string `json:"color"`
+	Email *string `json:"email"`
+	Id    string  `json:"id"`
+	Key   *string `json:"key"`
+	Name  string  `json:"name"`
+	State *string `json:"state"`
+}
+
+// LinearOptionsResponse defines model for LinearOptionsResponse.
+type LinearOptionsResponse struct {
+	Items []LinearOption `json:"items"`
+}
+
+// LinearSettingsRequest defines model for LinearSettingsRequest.
+type LinearSettingsRequest struct {
+	DefaultLabelIds    *[]string `json:"default_label_ids,omitempty"`
+	DefaultProjectId   *string   `json:"default_project_id"`
+	DefaultProjectName *string   `json:"default_project_name"`
+	DefaultTeamId      string    `json:"default_team_id"`
+	DefaultTeamName    *string   `json:"default_team_name"`
+}
+
 // ListExpoBuildsRequest defines model for ListExpoBuildsRequest.
 type ListExpoBuildsRequest struct {
 	// Limit Max builds to return (1-50)
@@ -6847,6 +6953,9 @@ type TaskID struct {
 	// DeviceModel Override the target device model for this execution
 	DeviceModel  *string `json:"device_model"`
 	GetDownloads *bool   `json:"get_downloads"`
+
+	// LaunchEnvVars Inline launch environment variables (KEY=VALUE) applied to the app's launch environment for this execution. Merged over org launch variables attached to the test; inline values take precedence.
+	LaunchEnvVars *map[string]string `json:"launch_env_vars"`
 
 	// LlmModelName Simple way to set the primary LLM model (automatically configures run_config.llm_config.primary_model)
 	LlmModelName *string `json:"llm_model_name"`
@@ -9765,6 +9874,38 @@ type GetOrganizationUsersApiV1IntegrationsGithubOrganizationUsersGetParams struc
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListLabelsApiV1IntegrationsLinearLabelsGetParams defines parameters for ListLabelsApiV1IntegrationsLinearLabelsGet.
+type ListLabelsApiV1IntegrationsLinearLabelsGetParams struct {
+	TeamId *string `form:"team_id,omitempty" json:"team_id,omitempty"`
+}
+
+// HandleOauthCallbackApiV1IntegrationsLinearOauthCallbackGetParams defines parameters for HandleOauthCallbackApiV1IntegrationsLinearOauthCallbackGet.
+type HandleOauthCallbackApiV1IntegrationsLinearOauthCallbackGetParams struct {
+	Code        string `form:"code" json:"code"`
+	State       string `form:"state" json:"state"`
+	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
+}
+
+// GetOauthUrlApiV1IntegrationsLinearOauthUrlGetParams defines parameters for GetOauthUrlApiV1IntegrationsLinearOauthUrlGet.
+type GetOauthUrlApiV1IntegrationsLinearOauthUrlGetParams struct {
+	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
+}
+
+// ListProjectsApiV1IntegrationsLinearProjectsGetParams defines parameters for ListProjectsApiV1IntegrationsLinearProjectsGet.
+type ListProjectsApiV1IntegrationsLinearProjectsGetParams struct {
+	TeamId *string `form:"team_id,omitempty" json:"team_id,omitempty"`
+}
+
+// ListStatesApiV1IntegrationsLinearStatesGetParams defines parameters for ListStatesApiV1IntegrationsLinearStatesGet.
+type ListStatesApiV1IntegrationsLinearStatesGetParams struct {
+	TeamId string `form:"team_id" json:"team_id"`
+}
+
+// ListUsersApiV1IntegrationsLinearUsersGetParams defines parameters for ListUsersApiV1IntegrationsLinearUsersGet.
+type ListUsersApiV1IntegrationsLinearUsersGetParams struct {
+	TeamId *string `form:"team_id,omitempty" json:"team_id,omitempty"`
+}
+
 // HandleOauthCallbackApiV1IntegrationsSlackOauthCallbackGetParams defines parameters for HandleOauthCallbackApiV1IntegrationsSlackOauthCallbackGet.
 type HandleOauthCallbackApiV1IntegrationsSlackOauthCallbackGetParams struct {
 	// Code OAuth authorization code from Slack
@@ -10319,6 +10460,12 @@ type UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPutJSONRequestBody = 
 
 // VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPostJSONRequestBody defines body for VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPost for application/json ContentType.
 type VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPostJSONRequestBody = SetupInstallationRequest
+
+// CreateIssueApiV1IntegrationsLinearIssuesPostJSONRequestBody defines body for CreateIssueApiV1IntegrationsLinearIssuesPost for application/json ContentType.
+type CreateIssueApiV1IntegrationsLinearIssuesPostJSONRequestBody = LinearIssueRequest
+
+// UpdateSettingsApiV1IntegrationsLinearSettingsPutJSONRequestBody defines body for UpdateSettingsApiV1IntegrationsLinearSettingsPut for application/json ContentType.
+type UpdateSettingsApiV1IntegrationsLinearSettingsPutJSONRequestBody = LinearSettingsRequest
 
 // UpdateDefaultRoleApiV1IntegrationsSettingsDefaultRolePutJSONRequestBody defines body for UpdateDefaultRoleApiV1IntegrationsSettingsDefaultRolePut for application/json ContentType.
 type UpdateDefaultRoleApiV1IntegrationsSettingsDefaultRolePutJSONRequestBody = UpdateDefaultRoleRequest

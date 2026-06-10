@@ -218,6 +218,7 @@ func init() {
 	testRunCmd.Flags().StringVar(&runOsVersion, "os-version", "", "Target OS version (e.g. \"iOS 18.5\")")
 	testRunCmd.Flags().StringVar(&runOrientation, "orientation", "", "Initial device orientation (portrait or landscape)")
 	testRunCmd.Flags().BoolVar(&runFailFast, "fail-fast", false, "Halt the run on the first failed step or validation (overrides the test's stored run_config for this run)")
+	testRunCmd.Flags().StringArrayVar(&runLaunchEnv, "launch-env", nil, "Inline launch environment variable as KEY=VALUE applied to the app launch (repeatable; overrides attached launch vars)")
 	analytics.MarkFlagValue(testRunCmd, "retries")
 	analytics.MarkFlagValue(testRunCmd, "no-wait")
 	analytics.MarkFlagValue(testRunCmd, "open")

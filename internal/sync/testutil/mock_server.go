@@ -22,6 +22,13 @@ type MockTest struct {
 	AppID    string
 }
 
+// MockApp represents an app stored in the mock server's in-memory store.
+type MockApp struct {
+	ID       string
+	Name     string
+	Platform string
+}
+
 // APICall records a single API request received by the mock server.
 type APICall struct {
 	Method string
@@ -37,6 +44,7 @@ type MockServer struct {
 	Client *api.Client
 
 	tests  map[string]MockTest
+	apps   map[string]MockApp
 	calls  []APICall
 	errors map[string]int // path prefix -> forced HTTP status code
 	nextID int
@@ -51,6 +59,7 @@ type MockServer struct {
 func NewMockServer() *MockServer {
 	m := &MockServer{
 		tests:  make(map[string]MockTest),
+		apps:   make(map[string]MockApp),
 		errors: make(map[string]int),
 		nextID: 1,
 	}
@@ -69,6 +78,13 @@ func (m *MockServer) SeedTest(t MockTest) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tests[t.ID] = t
+}
+
+// SeedApp adds an app to the mock server's in-memory store.
+func (m *MockServer) SeedApp(app MockApp) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.apps[app.ID] = app
 }
 
 // ForceError injects an error response for any request whose path starts
@@ -177,6 +193,8 @@ func (m *MockServer) handler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"scripts": []interface{}{}, "count": 0})
 	case r.Method == "GET" && r.URL.Path == "/api/v1/modules/list":
 		writeJSON(w, http.StatusOK, map[string]interface{}{"message": "ok", "result": []interface{}{}})
+	case r.Method == "GET" && r.URL.Path == "/api/v1/builds/vars":
+		m.handleListApps(w, r)
 	case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/api/v1/variables/"):
 		writeJSON(w, http.StatusOK, map[string]string{"message": "deleted all"})
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v1/variables/custom/read_variables"):
@@ -207,6 +225,37 @@ func (m *MockServer) handleGetTest(w http.ResponseWriter, r *http.Request) {
 		"tasks":    t.Tasks,
 		"version":  t.Version,
 		"app_id":   t.AppID,
+	})
+}
+
+func (m *MockServer) handleListApps(w http.ResponseWriter, r *http.Request) {
+	platform := strings.TrimSpace(r.URL.Query().Get("platform"))
+
+	m.mu.Lock()
+	items := make([]api.App, 0, len(m.apps))
+	for _, app := range m.apps {
+		if platform != "" && !strings.EqualFold(app.Platform, platform) {
+			continue
+		}
+		items = append(items, api.App{
+			ID:             app.ID,
+			Name:           app.Name,
+			Platform:       app.Platform,
+			VersionsCount:  1,
+			LatestVersion:  "1",
+			CurrentVersion: "1",
+		})
+	}
+	m.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"items":        items,
+		"total":        len(items),
+		"page":         1,
+		"page_size":    100,
+		"total_pages":  1,
+		"has_next":     false,
+		"has_previous": false,
 	})
 }
 

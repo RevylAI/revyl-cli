@@ -13,12 +13,14 @@ import (
 func TestIntegrationSyncPushCreatesRemoteTest(t *testing.T) {
 	mock := testutil.NewMockServer()
 	defer mock.Close()
+	mock.SeedApp(testutil.MockApp{ID: "app-ios", Name: "Login App", Platform: "ios"})
 
 	testsDir := t.TempDir()
 
 	local := &config.LocalTest{
 		Test: config.TestDefinition{
 			Metadata: config.TestMetadata{Name: "Login Flow", Platform: "ios"},
+			Build:    config.TestBuildConfig{Name: "Login App"},
 			Blocks: []config.TestBlock{
 				{Type: "instructions", StepDescription: "Tap the login button"},
 			},
@@ -50,6 +52,9 @@ func TestIntegrationSyncPushCreatesRemoteTest(t *testing.T) {
 
 	if local.Meta.RemoteID == "" {
 		t.Fatal("local.Meta.RemoteID is empty after push; expected mock-assigned ID")
+	}
+	if created, ok := mock.TestByID(local.Meta.RemoteID); !ok || created.AppID != "app-ios" {
+		t.Fatalf("created app_id = %q (found %v), want app-ios", created.AppID, ok)
 	}
 
 	saved, err := config.LoadLocalTest(filepath.Join(testsDir, "login-flow.yaml"))

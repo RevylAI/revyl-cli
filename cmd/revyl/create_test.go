@@ -84,6 +84,9 @@ func TestCreateRemoteTest_FallsBackToValidatedOrgIDAndNormalizesEmptyTasks(t *te
 			if got := req["org_id"]; got != "org-live" {
 				t.Fatalf("org_id = %v, want org-live", got)
 			}
+			if got := req["app_id"]; got != "app-live" {
+				t.Fatalf("app_id = %v, want app-live", got)
+			}
 			taskList, ok := req["tasks"].([]any)
 			if !ok || len(taskList) != 0 {
 				t.Fatalf("tasks = %#v, want empty list", req["tasks"])
@@ -99,7 +102,7 @@ func TestCreateRemoteTest_FallsBackToValidatedOrgIDAndNormalizesEmptyTasks(t *te
 
 	client := api.NewClientWithBaseURL("test-key", srv.URL)
 
-	resp, err := createRemoteTest(context.Background(), client, &config.ProjectConfig{}, "dfa", "android", nil, "")
+	resp, err := createRemoteTest(context.Background(), client, &config.ProjectConfig{}, "dfa", "android", nil, "app-live")
 	if err != nil {
 		t.Fatalf("createRemoteTest() error = %v", err)
 	}

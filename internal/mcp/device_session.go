@@ -287,6 +287,10 @@ type StartSessionOptions struct {
 	AppPackage string
 	LaunchVars []string
 
+	// LaunchEnv holds inline launch environment variables (KEY=VALUE) applied to
+	// the app's launch environment. Merged over LaunchVars; inline takes precedence.
+	LaunchEnv map[string]string
+
 	// Optional test/session metadata.
 	TestID string
 
@@ -295,6 +299,10 @@ type StartSessionOptions struct {
 	// behavior can then install through the worker HTTP API after the session is
 	// connected.
 	SkipAppInstall bool
+
+	// Optional runtime state applied before the app launch.
+	InitialOrientation string
+	InitialLocale      string
 
 	// Optional idle timeout (defaults to 5 minutes).
 	IdleTimeout time.Duration
@@ -379,11 +387,26 @@ func (m *DeviceSessionManager) StartSession(
 	if len(resolvedLaunchVarIDs) > 0 {
 		req.LaunchEnvVarIds = resolvedLaunchVarIDs
 	}
-	if opts.SkipAppInstall {
+	if len(opts.LaunchEnv) > 0 {
+		req.EnvVars = opts.LaunchEnv
+	}
+	initialOrientation := strings.TrimSpace(opts.InitialOrientation)
+	initialLocale := strings.TrimSpace(opts.InitialLocale)
+	if opts.SkipAppInstall || initialOrientation != "" || initialLocale != "" {
+		executionMode := &api.DeviceExecutionModeConfig{
+			SkipAppInstall: opts.SkipAppInstall,
+		}
+		if initialOrientation != "" {
+			if initialOrientation != "portrait" && initialOrientation != "landscape" {
+				return -1, nil, fmt.Errorf("initial orientation must be 'portrait' or 'landscape'")
+			}
+			executionMode.InitialOrientation = initialOrientation
+		}
+		if initialLocale != "" {
+			executionMode.InitialLocale = initialLocale
+		}
 		req.RunConfig = &api.DeviceRunConfig{
-			ExecutionMode: &api.DeviceExecutionModeConfig{
-				SkipAppInstall: true,
-			},
+			ExecutionMode: executionMode,
 		}
 	}
 	if opts.DeviceModel != "" {

@@ -66,6 +66,10 @@ type RunTestParams struct {
 	// the backend uses the test's stored run_config; when set it overrides
 	// for this run only.
 	FailFast *bool
+	// LaunchEnvVars are inline launch environment variables (KEY=VALUE) applied
+	// to the app's launch environment for this run. Merged over org launch
+	// variables attached to the test; inline values take precedence.
+	LaunchEnvVars map[string]string
 }
 
 // RunTestResult contains the result of a test run.
@@ -137,6 +141,7 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 		LaunchURL:      params.LaunchURL,
 		DeviceModel:    params.DeviceModel,
 		OsVersion:      params.OsVersion,
+		LaunchEnvVars:  params.LaunchEnvVars,
 	}
 	if params.HasLocation || params.Orientation != "" || params.FailFast != nil {
 		runCfg := &api.CLIRunConfig{}

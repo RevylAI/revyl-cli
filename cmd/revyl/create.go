@@ -82,6 +82,27 @@ func createRemoteTest(
 	})
 }
 
+// requireTestAppID enforces that every test is created with an app association.
+// A test with no app is unrunnable, so we fail fast with actionable guidance
+// rather than creating one. This mirrors the backend guard in
+// create_test_supabase and the api.Client.CreateTest backstop.
+func requireTestAppID(appID, platform string) error {
+	if appID != "" {
+		return nil
+	}
+	ui.Println()
+	ui.PrintError("No app configured for platform '%s'.", platform)
+	ui.PrintDim("Every test must be associated with an app.")
+	ui.Println()
+	ui.PrintInfo("Pass --app-id <app-id>, or upload a build to associate one:")
+	ui.PrintDim("  revyl build upload --platform %s", platform)
+	ui.Println()
+	return fmt.Errorf(
+		"a test must be associated with an app: pass --app-id or upload a build for platform %q",
+		platform,
+	)
+}
+
 // runCreateTest creates a new test on the server and adds it to the local config.
 //
 // Parameters:
@@ -185,15 +206,13 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Warn the user if no build is configured -- the test won't be runnable without one
-	if appID == "" && !createTestDryRun {
-		ui.Println()
-		ui.PrintWarning("No app configured for platform '%s'.", platform)
-		ui.PrintDim("This test won't be runnable until a build is uploaded and associated.")
-		ui.Println()
-		ui.PrintInfo("To upload a build, run:")
-		ui.PrintDim("  revyl build upload --platform %s", platform)
-		ui.Println()
+	// A test must be associated with an app. Fail fast with actionable guidance
+	// instead of creating an unrunnable, app-less test. Dry-run still previews
+	// below without an app.
+	if !createTestDryRun {
+		if err := requireTestAppID(appID, platform); err != nil {
+			return err
+		}
 	}
 
 	// Handle dry-run mode
@@ -627,6 +646,10 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if err := requireTestAppID(appID, platform); err != nil {
+		return err
+	}
+
 	if repoRoot, rootErr := config.FindRepoRoot(cwd); rootErr == nil {
 		cwd = repoRoot
 	}
@@ -1017,6 +1040,10 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 			appID = platformCfg.AppID
 			ui.PrintInfo("Using app from config: %s", appID)
 		}
+	}
+
+	if err := requireTestAppID(appID, platform); err != nil {
+		return err
 	}
 
 	// Get dev mode flag

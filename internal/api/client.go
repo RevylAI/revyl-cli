@@ -736,6 +736,9 @@ type ExecuteTestRequest struct {
 	DeviceModel string `json:"device_model,omitempty"`
 	// OsVersion overrides the target OS runtime (e.g. "iOS 18.5", "Android 14").
 	OsVersion string `json:"os_version,omitempty"`
+	// LaunchEnvVars are inline launch environment variables (KEY=VALUE) applied to
+	// the app's launch environment; they override org launch vars attached to the test.
+	LaunchEnvVars map[string]string `json:"launch_env_vars,omitempty"`
 }
 
 // ExecuteTestResponse represents a test execution response.
@@ -1508,6 +1511,16 @@ type CreateTestResponse struct {
 //   - *CreateTestResponse: The creation response
 //   - error: Any error that occurred
 func (c *Client) CreateTest(ctx context.Context, req *CreateTestRequest) (*CreateTestResponse, error) {
+	// Every test must be associated with an app. This is the single chokepoint
+	// all CLI test creation funnels through, so enforcing here guarantees no
+	// command path (create, hot-reload, interactive, init) can create an
+	// app-less test. Mirrors the backend guard in create_test_supabase.
+	if req == nil || strings.TrimSpace(req.AppID) == "" {
+		return nil, fmt.Errorf(
+			"a test must be associated with an app: provide an app_id before creating a test",
+		)
+	}
+
 	normalizedReq := req
 	if req != nil {
 		normalizedReq = &CreateTestRequest{
@@ -2797,6 +2810,10 @@ type StartDeviceRequest struct {
 	// LaunchEnvVarIds are org launch variable IDs selected for a raw device session.
 	LaunchEnvVarIds []string `json:"launch_env_var_ids,omitempty"`
 
+	// EnvVars are inline launch environment variables (KEY=VALUE) applied to the
+	// app's launch environment. Merged over LaunchEnvVarIds; inline takes precedence.
+	EnvVars map[string]string `json:"env_vars,omitempty"`
+
 	// IsSimulation enables simulation mode (streaming without test execution).
 	IsSimulation bool `json:"is_simulation,omitempty"`
 
@@ -2838,6 +2855,13 @@ type DeviceExecutionModeConfig struct {
 	// Dev-loop flows use this so the CLI-owned install/relaunch step is the
 	// single source of truth.
 	SkipAppInstall bool `json:"skip_app_install,omitempty"`
+
+	// InitialOrientation sets the device orientation before the session app
+	// launches.
+	InitialOrientation string `json:"initial_orientation,omitempty"`
+
+	// InitialLocale sets the device locale before the session app launches.
+	InitialLocale string `json:"initial_locale,omitempty"`
 }
 
 // StartDevice starts a device session for interactive test creation.

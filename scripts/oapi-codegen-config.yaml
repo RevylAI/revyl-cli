@@ -1,0 +1,12 @@
+# oapi-codegen config for the Revyl CLI. We generate models only and share the
+# `api` package with the hand-written client (internal/api/client.go).
+#
+# always-prefix-enum-values prefixes each enum const with its type name (so the
+# LinearIssueRequest.source "workflow" becomes LinearIssueRequestSourceWorkflow,
+# not a bare `Workflow`) — otherwise generated consts collide with hand-written
+# types of the same name in the api package.
+package: api
+generate:
+  models: true
+compatibility:
+  always-prefix-enum-values: true
