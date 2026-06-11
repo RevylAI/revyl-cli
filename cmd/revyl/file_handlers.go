@@ -62,7 +62,7 @@ var orgFileAllowedExtensions = map[string]bool{
 	".toml": true, ".csv": true, ".txt": true, ".conf": true,
 	".cfg": true, ".ini": true, ".properties": true,
 	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".pdf": true,
-	".mp4": true, ".mp3": true,
+	".mp4": true, ".mp3": true, ".wav": true, ".m4a": true, ".aac": true,
 }
 
 // Size limits in bytes by extension category.
@@ -70,7 +70,7 @@ var orgFileImageExts = map[string]bool{
 	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".pdf": true,
 }
 var orgFileMediaExts = map[string]bool{
-	".mp4": true, ".mp3": true,
+	".mp4": true, ".mp3": true, ".wav": true, ".m4a": true, ".aac": true,
 }
 
 const (
@@ -91,7 +91,7 @@ func validateFileForUpload(filePath string) (os.FileInfo, error) {
 
 	ext := strings.ToLower(filepath.Ext(filePath))
 	if !orgFileAllowedExtensions[ext] {
-		return nil, fmt.Errorf("unsupported file extension %q; allowed: .pem .cer .crt .key .p12 .pfx .der .json .xml .yaml .yml .toml .csv .txt .conf .cfg .ini .properties .png .jpg .jpeg .gif .pdf .mp4 .mp3", ext)
+		return nil, fmt.Errorf("unsupported file extension %q; allowed: .pem .cer .crt .key .p12 .pfx .der .json .xml .yaml .yml .toml .csv .txt .conf .cfg .ini .properties .png .jpg .jpeg .gif .pdf .mp4 .mp3 .wav .m4a .aac", ext)
 	}
 
 	var maxBytes int64
