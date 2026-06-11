@@ -219,6 +219,21 @@ oapi-codegen \
     -o "$OUTPUT_FILE" \
     "$PROCESSED_SPEC"
 
+# oapi-codegen derives enum constant names from values when they are unique
+# enough. "workflow" collides with the CLI's existing Workflow type.
+python3 - "$OUTPUT_FILE" << 'PYTHON_SCRIPT'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+contents = path.read_text()
+contents = contents.replace(
+    '\tWorkflow LinearIssueRequestSource = "workflow"',
+    '\tLinearIssueRequestSourceWorkflow LinearIssueRequestSource = "workflow"',
+)
+path.write_text(contents)
+PYTHON_SCRIPT
+
 # Add header comment
 TEMP_FILE=$(mktemp)
 cat > "$TEMP_FILE" << 'EOF'

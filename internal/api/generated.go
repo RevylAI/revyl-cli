@@ -349,6 +349,7 @@ const (
 	StepTypeScrollUp       StepType = "scroll_up"
 	StepTypeSelect         StepType = "select"
 	StepTypeSetAppearance  StepType = "set_appearance"
+	StepTypeSetFontSize    StepType = "set_font_size"
 	StepTypeSetLocation    StepType = "set_location"
 	StepTypeSetOrientation StepType = "set_orientation"
 	StepTypeSwipe          StepType = "swipe"
@@ -1183,6 +1184,24 @@ type AtlasOCRSummaryStats struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// AtlasShareLinkRequest defines model for AtlasShareLinkRequest.
+type AtlasShareLinkRequest struct {
+	BuildId         *string `json:"build_id"`
+	ExpirationHours *int    `json:"expiration_hours"`
+	FromTime        *string `json:"from_time"`
+	Origin          *string `json:"origin"`
+	ToTime          *string `json:"to_time"`
+}
+
+// AtlasShareLinkStatusResponse defines model for AtlasShareLinkStatusResponse.
+type AtlasShareLinkStatusResponse struct {
+	Enabled       bool    `json:"enabled"`
+	ExpiresAt     *string `json:"expires_at"`
+	ShareId       *string `json:"share_id"`
+	ShareableLink *string `json:"shareable_link"`
+	Token         *string `json:"token"`
+}
+
 // AtlasV2BackfillScopeRequest defines model for AtlasV2BackfillScopeRequest.
 type AtlasV2BackfillScopeRequest struct {
 	AppId              string                  `json:"app_id"`
@@ -1241,6 +1260,19 @@ type AtlasV2CompleteRequest struct {
 	Stats *map[string]interface{}        `json:"stats,omitempty"`
 }
 
+// AtlasV2CurationRequest defines model for AtlasV2CurationRequest.
+type AtlasV2CurationRequest struct {
+	Enabled      *bool  `json:"enabled,omitempty"`
+	Kind         string `json:"kind"`
+	RootEntityId string `json:"root_entity_id"`
+}
+
+// AtlasV2CurationResponse defines model for AtlasV2CurationResponse.
+type AtlasV2CurationResponse struct {
+	AppId    string                  `json:"app_id"`
+	Curation *map[string]interface{} `json:"curation,omitempty"`
+}
+
 // AtlasV2EdgeObservationBatchRequest defines model for AtlasV2EdgeObservationBatchRequest.
 type AtlasV2EdgeObservationBatchRequest struct {
 	Edges *[]AtlasV2EdgeObservationInput `json:"edges,omitempty"`
@@ -1267,12 +1299,33 @@ type AtlasV2GraphResponse struct {
 	AppId         string                    `json:"app_id"`
 	AttachedTests *[]map[string]interface{} `json:"attached_tests,omitempty"`
 	BuildId       *string                   `json:"build_id"`
+	Curation      *map[string]interface{}   `json:"curation,omitempty"`
 	Edges         *[]map[string]interface{} `json:"edges,omitempty"`
 	Flows         *[]map[string]interface{} `json:"flows,omitempty"`
 	Nodes         *[]map[string]interface{} `json:"nodes,omitempty"`
 	Projection    *map[string]interface{}   `json:"projection,omitempty"`
 	Stats         *map[string]interface{}   `json:"stats,omitempty"`
 	Structure     *map[string]interface{}   `json:"structure,omitempty"`
+}
+
+// AtlasV2IdentitySplitRequest defines model for AtlasV2IdentitySplitRequest.
+type AtlasV2IdentitySplitRequest struct {
+	DecisionId string  `json:"decision_id"`
+	EntityId   string  `json:"entity_id"`
+	Reason     *string `json:"reason"`
+}
+
+// AtlasV2IdentitySplitResponse defines model for AtlasV2IdentitySplitResponse.
+type AtlasV2IdentitySplitResponse struct {
+	AppId                string                    `json:"app_id"`
+	Applied              *bool                     `json:"applied,omitempty"`
+	CorrectionDecisionId *string                   `json:"correction_decision_id"`
+	CutDecision          *map[string]interface{}   `json:"cut_decision,omitempty"`
+	DecisionId           string                    `json:"decision_id"`
+	DsuVersion           *int                      `json:"dsu_version"`
+	EntityId             string                    `json:"entity_id"`
+	RemainingComponent   *[]map[string]interface{} `json:"remaining_component,omitempty"`
+	SelectedComponent    *[]map[string]interface{} `json:"selected_component,omitempty"`
 }
 
 // AtlasV2LayerJobResponse defines model for AtlasV2LayerJobResponse.
@@ -2209,7 +2262,7 @@ type CompiledIntentStep struct {
 	// Confidence Model confidence 0-1 if available
 	Confidence *float32 `json:"confidence"`
 
-	// ManualSubtype For manual steps: go_home, open_app, kill_app, back, set_location, set_orientation, set_appearance, wait, navigate
+	// ManualSubtype For manual steps: go_home, open_app, kill_app, back, set_location, set_orientation, set_appearance, set_font_size, wait, navigate
 	ManualSubtype *string `json:"manual_subtype"`
 
 	// SourceActionRanges Which raw actions this step covers
@@ -3263,6 +3316,9 @@ type ExecutionModeConfig struct {
 
 	// HumanInTheLoop Enable human approval for test results
 	HumanInTheLoop *bool `json:"human_in_the_loop,omitempty"`
+
+	// InitialLocale Initial device locale identifier, for example 'en_US' or 'fr_FR'
+	InitialLocale *string `json:"initial_locale"`
 
 	// InitialLocation GPS location configuration for simulator/emulator.
 	InitialLocation *LocationConfig `json:"initial_location,omitempty"`
@@ -4956,6 +5012,27 @@ type OrgFileListResponse struct {
 	Files []OrgFile `json:"files"`
 }
 
+// OrgFileReferenceTest A test that references an org file (via play_audio / download_file).
+type OrgFileReferenceTest struct {
+	// Id Test id
+	Id string `json:"id"`
+
+	// Name Test name
+	Name string `json:"name"`
+
+	// Platform Test platform
+	Platform *string `json:"platform"`
+}
+
+// OrgFileReferencesResponse Response model for the tests that reference an org file.
+type OrgFileReferencesResponse struct {
+	// Count Number of referencing tests
+	Count int `json:"count"`
+
+	// Tests Non-deleted tests referencing this file
+	Tests []OrgFileReferenceTest `json:"tests"`
+}
+
 // OrgFileUpdate Model for updating an org file.
 type OrgFileUpdate struct {
 	// Description Description
@@ -5933,6 +6010,8 @@ type ReportContextResponse struct {
 	EffectivePendingSteps  *int                         `json:"effective_pending_steps,omitempty"`
 	EffectiveRunningSteps  *int                         `json:"effective_running_steps,omitempty"`
 	EffectiveWarningSteps  *int                         `json:"effective_warning_steps,omitempty"`
+	ErrorMessage           *string                      `json:"error_message"`
+	ErrorType              *string                      `json:"error_type"`
 	ExecutionId            *string                      `json:"execution_id"`
 	FailedSteps            *int                         `json:"failed_steps,omitempty"`
 	HardwareMetricsPartial *bool                        `json:"hardware_metrics_partial"`
@@ -5940,6 +6019,7 @@ type ReportContextResponse struct {
 	Id                     string                       `json:"id"`
 	LaunchEnvVarIds        *[]string                    `json:"launch_env_var_ids"`
 	LaunchEnvVarKeys       *[]string                    `json:"launch_env_var_keys"`
+	Locale                 *string                      `json:"locale"`
 	NetworkRequestsPartial *bool                        `json:"network_requests_partial"`
 	NetworkRequestsUrl     *string                      `json:"network_requests_url"`
 	OrgId                  string                       `json:"org_id"`
@@ -6018,6 +6098,8 @@ type ReportV3Response struct {
 	DeviceStatePartial     *bool                     `json:"device_state_partial"`
 	DeviceStateUrl         *string                   `json:"device_state_url"`
 	DurationSeconds        *float32                  `json:"duration_seconds"`
+	ErrorMessage           *string                   `json:"error_message"`
+	ErrorType              *string                   `json:"error_type"`
 	ExecutionId            *string                   `json:"execution_id"`
 	ExpectedStates         *[]map[string]interface{} `json:"expected_states"`
 	FailedSteps            *int                      `json:"failed_steps,omitempty"`
@@ -6026,6 +6108,7 @@ type ReportV3Response struct {
 	Id                     string                    `json:"id"`
 	LaunchEnvVarIds        *[]string                 `json:"launch_env_var_ids"`
 	LaunchEnvVarKeys       *[]string                 `json:"launch_env_var_keys"`
+	Locale                 *string                   `json:"locale"`
 	NetworkRequestsPartial *bool                     `json:"network_requests_partial"`
 	NetworkRequestsUrl     *string                   `json:"network_requests_url"`
 	OrgId                  string                    `json:"org_id"`
@@ -6065,7 +6148,6 @@ type ReportV3Response struct {
 // ResolveSlackChannelRequest Request to resolve a Slack channel by free-form input.
 //
 // Accepts any of:
-// - A channel name (e.g. "prod-alerts" or "#prod-alerts")
 // - A Slack channel URL (e.g. "https://foo.slack.com/archives/C0123ABCD")
 // - A bare channel ID (e.g. "C0123ABCD")
 type ResolveSlackChannelRequest struct {
@@ -6507,8 +6589,8 @@ type SlackChannel struct {
 	Name      string `json:"name"`
 }
 
-// SlackChannelsResponse Response containing a single Slack channel resolved from a user-typed
-// name, link, or ID.
+// SlackChannelsResponse Response containing a single Slack channel resolved from a Slack
+// channel link or ID.
 type SlackChannelsResponse struct {
 	// Channel A Slack channel that the bot can post to.
 	Channel SlackChannel `json:"channel"`
@@ -6806,6 +6888,12 @@ type SuggestionQualityEval struct {
 
 // SuggestionQualityRating Quality rating for reflection suggestions.
 type SuggestionQualityRating string
+
+// SupportRequestResponse defines model for SupportRequestResponse.
+type SupportRequestResponse struct {
+	AttachmentsUploaded *bool `json:"attachments_uploaded,omitempty"`
+	Sent                bool  `json:"sent"`
+}
 
 // SyncRepositoriesResponse defines model for SyncRepositoriesResponse.
 type SyncRepositoriesResponse struct {
@@ -8727,6 +8815,10 @@ type WorkflowTaskInfo struct {
 
 // WorkflowTaskReportInfo Enriched task info for workflow report cards.
 type WorkflowTaskReportInfo struct {
+	AppId                *string                 `json:"app_id"`
+	AppName              *string                 `json:"app_name"`
+	BuildId              *string                 `json:"build_id"`
+	BuildVersion         *string                 `json:"build_version"`
 	CompletedAt          *string                 `json:"completed_at"`
 	CurrentStep          *string                 `json:"current_step"`
 	CurrentStepIndex     *int                    `json:"current_step_index"`
@@ -9513,31 +9605,35 @@ type GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGetParams struct {
 
 // GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams defines parameters for GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGet.
 type GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams struct {
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	IncludeDetails  *bool   `form:"include_details,omitempty" json:"include_details,omitempty"`
-	IncludeFlows    *bool   `form:"include_flows,omitempty" json:"include_flows,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	BuildId             *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId            *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId              *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	WorkflowExecutionId *string `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
+	SourceKind          *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime            *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime              *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope        *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants     *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeDetails      *bool   `form:"include_details,omitempty" json:"include_details,omitempty"`
+	IncludeFlows        *bool   `form:"include_flows,omitempty" json:"include_flows,omitempty"`
+	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams defines parameters for GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGet.
 type GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams struct {
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	BuildId                *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId               *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId                 *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	WorkflowExecutionId    *string `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
+	SourceKind             *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime               *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime                 *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope           *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility             *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants        *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	DetailStackLimit       *int    `form:"detail_stack_limit,omitempty" json:"detail_stack_limit,omitempty"`
+	DetailObservationLimit *int    `form:"detail_observation_limit,omitempty" json:"detail_observation_limit,omitempty"`
 }
 
 // GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams defines parameters for GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGet.
@@ -9581,6 +9677,14 @@ type SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGetParams struct {
 	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGetParams defines parameters for GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGet.
+type GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGetParams struct {
+	BuildId  *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	FromTime *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime   *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	Origin   *string `form:"origin,omitempty" json:"origin,omitempty"`
 }
 
 // GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams defines parameters for GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGet.
@@ -9638,6 +9742,21 @@ type UpdateAtlasV2LayerStatusApiV1AtlasV2LayerJobsJobIdStatusPostParams struct {
 // ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPostParams defines parameters for ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPost.
 type ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPostParams struct {
 	XServiceKey *string `json:"x-service-key,omitempty"`
+}
+
+// GetPublicAtlasShareNodeDetailsApiV1AtlasV2ShareTokenNodesNodeIdDetailsGetParams defines parameters for GetPublicAtlasShareNodeDetailsApiV1AtlasV2ShareTokenNodesNodeIdDetailsGet.
+type GetPublicAtlasShareNodeDetailsApiV1AtlasV2ShareTokenNodesNodeIdDetailsGetParams struct {
+	DetailStackLimit       *int `form:"detail_stack_limit,omitempty" json:"detail_stack_limit,omitempty"`
+	DetailObservationLimit *int `form:"detail_observation_limit,omitempty" json:"detail_observation_limit,omitempty"`
+}
+
+// GetAtlasV2WorkflowForestApiV1AtlasV2WorkflowsWorkflowExecutionIdForestGetParams defines parameters for GetAtlasV2WorkflowForestApiV1AtlasV2WorkflowsWorkflowExecutionIdForestGet.
+type GetAtlasV2WorkflowForestApiV1AtlasV2WorkflowsWorkflowExecutionIdForestGetParams struct {
+	IncludeVariants *bool `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeDetails  *bool `form:"include_details,omitempty" json:"include_details,omitempty"`
+	IncludeFlows    *bool `form:"include_flows,omitempty" json:"include_flows,omitempty"`
+	Limit           *int  `form:"limit,omitempty" json:"limit,omitempty"`
+	AppLimit        *int  `form:"app_limit,omitempty" json:"app_limit,omitempty"`
 }
 
 // GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGetParams defines parameters for GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGet.
@@ -10241,8 +10360,20 @@ type CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody = BuildFro
 // StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody defines body for StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost for multipart/form-data ContentType.
 type StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody = BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost
 
+// UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatchJSONRequestBody defines body for UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatch for application/json ContentType.
+type UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatchJSONRequestBody = AtlasV2CurationRequest
+
+// SplitAtlasV2IdentityRouteApiV1AtlasV2AppsAppIdIdentitySplitPostJSONRequestBody defines body for SplitAtlasV2IdentityRouteApiV1AtlasV2AppsAppIdIdentitySplitPost for application/json ContentType.
+type SplitAtlasV2IdentityRouteApiV1AtlasV2AppsAppIdIdentitySplitPostJSONRequestBody = AtlasV2IdentitySplitRequest
+
+// PreviewAtlasV2IdentitySplitRouteApiV1AtlasV2AppsAppIdIdentitySplitPreviewPostJSONRequestBody defines body for PreviewAtlasV2IdentitySplitRouteApiV1AtlasV2AppsAppIdIdentitySplitPreviewPost for application/json ContentType.
+type PreviewAtlasV2IdentitySplitRouteApiV1AtlasV2AppsAppIdIdentitySplitPreviewPostJSONRequestBody = AtlasV2IdentitySplitRequest
+
 // ManualMergeAtlasV2EntitiesApiV1AtlasV2AppsAppIdManualMergePostJSONRequestBody defines body for ManualMergeAtlasV2EntitiesApiV1AtlasV2AppsAppIdManualMergePost for application/json ContentType.
 type ManualMergeAtlasV2EntitiesApiV1AtlasV2AppsAppIdManualMergePostJSONRequestBody = AtlasV2ManualMergeRequest
+
+// CreateAtlasShareLinkApiV1AtlasV2AppsAppIdSharePostJSONRequestBody defines body for CreateAtlasShareLinkApiV1AtlasV2AppsAppIdSharePost for application/json ContentType.
+type CreateAtlasShareLinkApiV1AtlasV2AppsAppIdSharePostJSONRequestBody = AtlasShareLinkRequest
 
 // StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePostJSONRequestBody defines body for StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePost for application/json ContentType.
 type StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePostJSONRequestBody = AtlasV2BackfillScopeRequest
