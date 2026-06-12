@@ -569,6 +569,9 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 	if result.PackageID != "" {
 		ui.PrintInfo("Package ID:      %s", result.PackageID)
 	}
+	for _, warning := range result.Warnings {
+		ui.PrintWarning("%s", warning)
+	}
 	ui.Println()
 	ui.PrintDim("To list builds: revyl build list --app %s", appID)
 
@@ -985,14 +988,15 @@ type BuildResult struct {
 
 // BuildUploadJSONBuild represents one uploaded build in machine-readable output.
 type BuildUploadJSONBuild struct {
-	PlatformKey          string  `json:"platform_key"`
-	Platform             string  `json:"platform"`
-	AppID                string  `json:"app_id"`
-	BuildVersion         string  `json:"build_version"`
-	BuildID              string  `json:"build_id"`
-	ArtifactPath         string  `json:"artifact_path"`
-	BuildDurationSeconds float64 `json:"build_duration_seconds,omitempty"`
-	PackageID            string  `json:"package_id,omitempty"`
+	PlatformKey          string   `json:"platform_key"`
+	Platform             string   `json:"platform"`
+	AppID                string   `json:"app_id"`
+	BuildVersion         string   `json:"build_version"`
+	BuildID              string   `json:"build_id"`
+	ArtifactPath         string   `json:"artifact_path"`
+	BuildDurationSeconds float64  `json:"build_duration_seconds,omitempty"`
+	PackageID            string   `json:"package_id,omitempty"`
+	Warnings             []string `json:"warnings,omitempty"`
 }
 
 // BuildUploadJSONOutput is the machine-readable payload for build uploads.
@@ -1021,6 +1025,7 @@ func newBuildUploadJSONBuild(
 		build.BuildVersion = uploadResult.Version
 		build.BuildID = uploadResult.VersionID
 		build.PackageID = uploadResult.PackageID
+		build.Warnings = uploadResult.Warnings
 	}
 	if buildDuration > 0 {
 		build.BuildDurationSeconds = buildDuration.Seconds()
@@ -1220,6 +1225,9 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 			ui.PrintInfo("  Build ID:        %s", result.UploadResult.VersionID)
 			if result.UploadResult.PackageID != "" {
 				ui.PrintInfo("  Package ID:      %s", result.UploadResult.PackageID)
+			}
+			for _, warning := range result.UploadResult.Warnings {
+				ui.PrintWarning("  %s", warning)
 			}
 		}
 	}
@@ -1844,6 +1852,9 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	ui.PrintInfo("Build ID:        %s", result.VersionID)
 	if result.PackageID != "" {
 		ui.PrintInfo("Package ID:      %s", result.PackageID)
+	}
+	for _, warning := range result.Warnings {
+		ui.PrintWarning("%s", warning)
 	}
 	ui.Println()
 	ui.PrintDim("To list builds: revyl build list --app %s", appID)

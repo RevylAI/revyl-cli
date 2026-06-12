@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"mime"
@@ -23,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +45,18 @@ var defaultVersion string
 //   - version: The CLI version (e.g. "1.2.3" or "dev")
 func SetDefaultVersion(version string) {
 	defaultVersion = version
+}
+
+// debugLogf emits verbose upload diagnostics (part counts, per-part retries).
+// A no-op unless the CLI wires a logger via SetDebugLogger at startup.
+var debugLogf = func(format string, args ...interface{}) {}
+
+// SetDebugLogger routes api-package debug output to the given printf-style
+// logger (typically ui.PrintDebug, which itself gates on --debug).
+func SetDebugLogger(fn func(format string, args ...interface{})) {
+	if fn != nil {
+		debugLogf = fn
+	}
 }
 
 const (
@@ -855,14 +869,41 @@ type UploadBuildRequest struct {
 
 // UploadBuildResponse represents a build upload response.
 type UploadBuildResponse struct {
-	VersionID string `json:"version_id"`
-	Version   string `json:"version"`
-	PackageID string `json:"package_id,omitempty"`
+	VersionID string   `json:"version_id"`
+	Version   string   `json:"version"`
+	PackageID string   `json:"package_id,omitempty"`
+	Warnings  []string `json:"warnings,omitempty"`
 }
 
 const maxUploadErrorBodyBytes = 16 * 1024
 
-// UploadBuild uploads a build artifact.
+const androidSplitAPKError = "Android split APKs and APK Set archives are not supported. Upload one installable APK instead, preferably a universal/fat APK or an x86_64-specific APK"
+
+// uploadSessionResponse mirrors the backend BuildUploadSessionResponse.
+type uploadSessionResponse struct {
+	UploadID    string `json:"upload_id"`
+	UploadURL   string `json:"upload_url"`
+	ContentType string `json:"content_type"`
+}
+
+// buildCreatedResponse mirrors the subset of BuildVersionResponse the CLI uses.
+type buildCreatedResponse struct {
+	ID          string                 `json:"id"`
+	Version     string                 `json:"version"`
+	PackageName string                 `json:"package_name,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
+type extractBuildPackageIDResponse struct {
+	PackageID string `json:"package_id,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// UploadBuild uploads a build artifact. Files at or under
+// multipartUploadThresholdBytes go through the staging upload-session flow
+// (single presigned PUT); larger files use an S3 multipart upload so a
+// mid-transfer failure only retries the affected part instead of the whole
+// artifact.
 //
 // Parameters:
 //   - ctx: Context for cancellation
@@ -876,10 +917,125 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 		return nil, err
 	}
 
-	// Get file name from path
 	fileName := filepath.Base(req.FilePath)
+	fileInfo, err := os.Stat(req.FilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file: %w", err)
+	}
 
-	// Build URL with query parameters (backend expects version and file_name as query params)
+	if fileInfo.Size() > multipartUploadThresholdBytes {
+		return c.uploadBuildMultipart(ctx, req, fileName, fileInfo.Size())
+	}
+	return c.uploadBuildViaSession(ctx, req, fileName, fileInfo.Size())
+}
+
+// uploadBuildViaSession uploads via the staging upload-session flow: open a
+// session, PUT to the presigned staging URL, then finalize via
+// createBuildFromStagedUpload.
+func (c *Client) uploadBuildViaSession(ctx context.Context, req *UploadBuildRequest, fileName string, fileSize int64) (*UploadBuildResponse, error) {
+	sessionResp, err := c.doRequest(ctx, "POST",
+		fmt.Sprintf("/api/v1/apps/%s/builds/upload-session?source=cli_upload", req.AppID),
+		map[string]interface{}{
+			"version":   req.Version,
+			"file_name": fileName,
+		})
+	if err != nil {
+		return nil, err
+	}
+	var session uploadSessionResponse
+	if err := parseResponse(sessionResp, &session); err != nil {
+		if isUploadSessionUnsupported(err) {
+			return c.uploadBuildLegacyPresigned(ctx, req, fileName)
+		}
+		return nil, err
+	}
+
+	if err := c.uploadFileWithRetry(
+		ctx,
+		session.UploadURL,
+		session.ContentType,
+		req.FilePath,
+		fileSize,
+	); err != nil {
+		return nil, err
+	}
+
+	return c.createBuildFromStagedUpload(ctx, req, session.UploadID)
+}
+
+// createBuildFromStagedUpload finalizes a staging upload (single PUT or
+// multipart): one create call validates the staged artifact server-side and
+// inserts the build row. No build row exists until validation passes, so
+// there is nothing to clean up on failure — abandoned staging objects are
+// swept server-side on later session starts.
+func (c *Client) createBuildFromStagedUpload(ctx context.Context, req *UploadBuildRequest, uploadID string) (*UploadBuildResponse, error) {
+	metadata := map[string]interface{}{"source": "cli_upload"}
+	for key, value := range req.Metadata {
+		metadata[key] = value
+	}
+
+	createResp, err := c.doRequest(ctx, "POST",
+		fmt.Sprintf("/api/v1/apps/%s/builds", req.AppID),
+		map[string]interface{}{
+			"upload_id":      uploadID,
+			"version":        req.Version,
+			"metadata":       metadata,
+			"set_as_current": req.SetAsCurrent,
+		})
+	if err != nil {
+		return nil, err
+	}
+	var created buildCreatedResponse
+	if err := parseResponse(createResp, &created); err != nil {
+		return nil, err
+	}
+
+	return &UploadBuildResponse{
+		VersionID: created.ID,
+		Version:   created.Version,
+		PackageID: created.PackageName,
+		Warnings:  artifactValidationWarnings(created.Metadata),
+	}, nil
+}
+
+func isUploadSessionUnsupported(err error) bool {
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		return false
+	}
+	if apiErr.StatusCode == http.StatusMethodNotAllowed {
+		return true
+	}
+	if apiErr.StatusCode != http.StatusNotFound {
+		return false
+	}
+	// A 404 can also be a matched route reporting a missing resource ("App
+	// not found"), which no fallback endpoint can fix — without this check a
+	// bad app id would cascade through every legacy flow and surface its
+	// error from the wrong endpoint.
+	detail := strings.ToLower(apiErr.Detail + " " + apiErr.Message)
+	return !strings.Contains(detail, "app not found")
+}
+
+func artifactValidationWarnings(metadata map[string]interface{}) []string {
+	validation, ok := metadata["artifact_validation"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	rawWarnings, ok := validation["warnings"].([]interface{})
+	if !ok {
+		return nil
+	}
+	warnings := make([]string, 0, len(rawWarnings))
+	for _, raw := range rawWarnings {
+		if warning, ok := raw.(string); ok && strings.TrimSpace(warning) != "" {
+			warnings = append(warnings, warning)
+		}
+	}
+	return warnings
+}
+
+func (c *Client) uploadBuildLegacyPresigned(ctx context.Context, req *UploadBuildRequest, fileName string) (*UploadBuildResponse, error) {
 	uploadURLPath := fmt.Sprintf(
 		"/api/v1/builds/vars/%s/versions/upload-url?version=%s&file_name=%s&source=cli_upload",
 		req.AppID,
@@ -887,12 +1043,10 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 		url.QueryEscape(fileName),
 	)
 
-	// POST with empty body to get presigned URL
 	presignResp, err := c.doRequest(ctx, "POST", uploadURLPath, nil)
 	if err != nil {
 		return nil, err
 	}
-
 	var presignResult struct {
 		VersionID   string `json:"version_id"`
 		Version     string `json:"version"`
@@ -903,12 +1057,10 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 		return nil, err
 	}
 
-	// Upload the file to S3
 	fileInfo, err := os.Stat(req.FilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat file: %w", err)
 	}
-
 	if err := c.uploadFileWithRetry(
 		ctx,
 		presignResult.UploadURL,
@@ -916,89 +1068,420 @@ func (c *Client) UploadBuild(ctx context.Context, req *UploadBuildRequest) (*Upl
 		req.FilePath,
 		fileInfo.Size(),
 	); err != nil {
-		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
+		c.bestEffortDeleteBuildVersion(presignResult.VersionID)
 		return nil, err
 	}
 
-	// One server-side round-trip downloads the artifact from S3, validates it,
-	// and extracts the package id. The Web UI uses the same endpoint; doing it
-	// here keeps the gate parity between CLI and browser uploads.
+	return c.finalizeRowBackedUpload(ctx, req, presignResult.VersionID)
+}
+
+// finalizeRowBackedUpload validates an already-uploaded artifact server-side
+// (extract-package-id) and finalizes its pending build row (complete-upload)
+// for the legacy presigned PUT flow, which creates the build row before
+// uploading; on any failure the pending row is deleted best-effort.
+func (c *Client) finalizeRowBackedUpload(ctx context.Context, req *UploadBuildRequest, versionID string) (*UploadBuildResponse, error) {
 	extractResp, err := c.doRequest(ctx, "POST",
-		fmt.Sprintf("/api/v1/builds/versions/%s/extract-package-id", presignResult.VersionID),
+		fmt.Sprintf("/api/v1/builds/versions/%s/extract-package-id", versionID),
 		nil)
 	if err != nil {
-		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
+		c.bestEffortDeleteBuildVersion(versionID)
 		return nil, err
 	}
-
 	var extractResult extractBuildPackageIDResponse
 	if err := parseResponse(extractResp, &extractResult); err != nil {
-		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
+		c.bestEffortDeleteBuildVersion(versionID)
 		return nil, err
 	}
 	if extractResult.Error != "" {
-		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
+		c.bestEffortDeleteBuildVersion(versionID)
 		return nil, fmt.Errorf("failed to validate uploaded build: %s", extractResult.Error)
 	}
 	if extractResult.PackageID == "" {
-		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
+		c.bestEffortDeleteBuildVersion(versionID)
 		return nil, fmt.Errorf("failed to validate uploaded build: package ID could not be extracted")
 	}
 
-	metadata := map[string]interface{}{}
+	metadata := map[string]interface{}{"source": "cli_upload"}
 	for key, value := range req.Metadata {
 		metadata[key] = value
 	}
 	metadata["package_id"] = extractResult.PackageID
 
-	// Complete the upload. The build row + S3 object exist by this point, so
-	// any failure here is cleaned up before the error bubbles up.
 	completeResp, err := c.doRequest(ctx, "POST",
-		fmt.Sprintf("/api/v1/builds/versions/%s/complete-upload", presignResult.VersionID),
+		fmt.Sprintf("/api/v1/builds/versions/%s/complete-upload", versionID),
 		map[string]interface{}{
-			"version_id":   presignResult.VersionID,
-			"metadata":     metadata,
-			"package_name": extractResult.PackageID,
+			"version_id":     versionID,
+			"metadata":       metadata,
+			"package_name":   extractResult.PackageID,
+			"set_as_current": req.SetAsCurrent,
 		})
 	if err != nil {
-		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
+		c.bestEffortDeleteBuildVersion(versionID)
 		return nil, err
 	}
 
 	var completeResult UploadBuildResponse
 	if err := parseResponse(completeResp, &completeResult); err != nil {
-		c.bestEffortDeleteBuildVersion(ctx, presignResult.VersionID)
+		c.bestEffortDeleteBuildVersion(versionID)
 		return nil, err
 	}
-
-	// Backend complete-upload doesn't return version_id; use the presign value.
 	if completeResult.VersionID == "" {
-		completeResult.VersionID = presignResult.VersionID
+		completeResult.VersionID = versionID
 	}
 	if completeResult.PackageID == "" {
 		completeResult.PackageID = extractResult.PackageID
 	}
-
 	return &completeResult, nil
 }
 
-type extractBuildPackageIDResponse struct {
-	PackageID string `json:"package_id,omitempty"`
-	Error     string `json:"error,omitempty"`
+// multipartUploadThresholdBytes is the file size above which UploadBuild
+// switches from a single presigned PUT to an S3 multipart upload. A var so
+// tests can lower it.
+var multipartUploadThresholdBytes int64 = 64 * 1024 * 1024
+
+// multipartUploadConcurrency is how many parts upload in parallel.
+const multipartUploadConcurrency = 4
+
+// maxSinglePutUploadBytes is S3's hard cap on a single (non-multipart) PUT.
+// A var so tests can lower it.
+var maxSinglePutUploadBytes int64 = 5 * 1024 * 1024 * 1024
+
+// multipartUploadPartURL mirrors the backend BuildMultipartUploadPartURL.
+type multipartUploadPartURL struct {
+	PartNumber int    `json:"part_number"`
+	UploadURL  string `json:"upload_url"`
 }
 
-// bestEffortDeleteBuildVersion soft-deletes a build version row that was
-// created by the presigned-upload flow but never made it to ready state.
-//
-// It runs on a detached context so the cleanup still fires when the caller's
-// ctx was cancelled (e.g. user Ctrl+C mid-upload). The detached context is
-// bounded by a short timeout so a hung backend can't keep the CLI alive past
-// the user's interrupt.
-//
-// The backend's DELETE /builds/{id} is a soft delete; iOS validation failures
-// may have already hard-deleted the row server-side, in which case this 404s
-// and we just log it. Errors here never override the original upload failure.
-func (c *Client) bestEffortDeleteBuildVersion(_ context.Context, versionID string) {
+// multipartUploadStartResponse mirrors the backend
+// BuildMultipartUploadStartResponse.
+type multipartUploadStartResponse struct {
+	UploadID    string                   `json:"upload_id"`
+	PartSize    int64                    `json:"part_size"`
+	Parts       []multipartUploadPartURL `json:"parts"`
+	CompleteURL string                   `json:"complete_url"`
+	AbortURL    string                   `json:"abort_url"`
+}
+
+// multipartCompletedPart is the ETag collected for one uploaded part.
+type multipartCompletedPart struct {
+	PartNumber int
+	ETag       string
+}
+
+// uploadBuildMultipart uploads a large artifact via S3 multipart upload into
+// the staging area: start presigns one URL per part plus complete/abort URLs,
+// parts upload in parallel with per-part retries, the parts are assembled
+// directly at S3, then finalize via createBuildFromStagedUpload. A failed or
+// abandoned upload leaves only unfinished parts that the bucket lifecycle
+// rule aborts (abort merely frees them promptly).
+func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildRequest, fileName string, fileSize int64) (*UploadBuildResponse, error) {
+	startResp, err := c.doRequest(ctx, "POST",
+		fmt.Sprintf("/api/v1/apps/%s/builds/multipart-upload/start?source=cli_upload", req.AppID),
+		map[string]interface{}{
+			"version":   req.Version,
+			"file_name": fileName,
+			"file_size": fileSize,
+		})
+	if err != nil {
+		return nil, err
+	}
+	var start multipartUploadStartResponse
+	if err := parseResponse(startResp, &start); err != nil {
+		if isUploadSessionUnsupported(err) {
+			// Older backends without multipart support: the single PUT still
+			// works below S3's 5 GiB PUT cap, it is just less resilient for
+			// large artifacts. Above the cap the PUT can never succeed, so
+			// fail fast with the real reason instead of an opaque S3 error
+			// after a long dead-end transfer.
+			if fileSize > maxSinglePutUploadBytes {
+				return nil, fmt.Errorf(
+					"this backend does not support multipart uploads and the artifact (%d bytes) exceeds S3's 5 GiB single-upload limit; upgrade the backend to upload artifacts this large",
+					fileSize,
+				)
+			}
+			return c.uploadBuildViaSession(ctx, req, fileName, fileSize)
+		}
+		return nil, err
+	}
+	if start.PartSize <= 0 || len(start.Parts) == 0 || start.CompleteURL == "" ||
+		int64(len(start.Parts))*start.PartSize < fileSize {
+		c.bestEffortAbortMultipartUpload(start.AbortURL)
+		return nil, fmt.Errorf(
+			"multipart upload start returned %d parts of %d bytes for a %d byte file",
+			len(start.Parts), start.PartSize, fileSize,
+		)
+	}
+
+	debugLogf(
+		"multipart upload: %d parts of %d bytes (file %d bytes, concurrency %d)",
+		len(start.Parts), start.PartSize, fileSize, multipartUploadConcurrency,
+	)
+
+	completedParts, err := c.uploadMultipartParts(ctx, req.FilePath, fileSize, &start)
+	if err != nil {
+		c.bestEffortAbortMultipartUpload(start.AbortURL)
+		return nil, err
+	}
+
+	if err := c.completeMultipartUploadAtS3(ctx, start.CompleteURL, completedParts); err != nil {
+		c.bestEffortAbortMultipartUpload(start.AbortURL)
+		return nil, err
+	}
+
+	return c.createBuildFromStagedUpload(ctx, req, start.UploadID)
+}
+
+// multipartCompletePartXML and multipartCompleteRequestXML form the S3
+// CompleteMultipartUpload request body.
+type multipartCompletePartXML struct {
+	PartNumber int    `xml:"PartNumber"`
+	ETag       string `xml:"ETag"`
+}
+
+type multipartCompleteRequestXML struct {
+	XMLName xml.Name                   `xml:"CompleteMultipartUpload"`
+	Parts   []multipartCompletePartXML `xml:"Part"`
+}
+
+// completeMultipartUploadAtS3 assembles the uploaded parts by POSTing the
+// part ETags to the presigned CompleteMultipartUpload URL. Quirks handled:
+// S3 may return 200 with an <Error> document in the body (retryable), and a
+// retry whose earlier attempt already assembled the object gets NoSuchUpload
+// — treated as success, because the subsequent create call fails cleanly if
+// the staged object genuinely doesn't exist. A first-attempt NoSuchUpload
+// means the upload was aborted or expired out-of-band, which no retry can
+// fix, so it fails with the real reason.
+func (c *Client) completeMultipartUploadAtS3(ctx context.Context, completeURL string, parts []multipartCompletedPart) error {
+	xmlParts := make([]multipartCompletePartXML, len(parts))
+	for i, part := range parts {
+		xmlParts[i] = multipartCompletePartXML{PartNumber: part.PartNumber, ETag: part.ETag}
+	}
+	body, err := xml.Marshal(multipartCompleteRequestXML{Parts: xmlParts})
+	if err != nil {
+		return fmt.Errorf("failed to encode complete multipart request: %w", err)
+	}
+
+	return c.retryUploadAttempts(ctx, "complete multipart upload", func(attempt int) (bool, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, completeURL, bytes.NewReader(body))
+		if err != nil {
+			return true, fmt.Errorf("failed to create complete multipart request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/xml")
+
+		resp, err := c.uploadClient.Do(httpReq)
+		if err != nil {
+			return false, fmt.Errorf("complete multipart upload failed: %w", err)
+		}
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxUploadErrorBodyBytes))
+		resp.Body.Close()
+		if readErr != nil {
+			return false, fmt.Errorf("complete multipart upload failed: %w", readErr)
+		}
+
+		payload := string(respBody)
+		switch {
+		case resp.StatusCode < 400 && strings.Contains(payload, "<CompleteMultipartUploadResult"):
+			return true, nil
+		case strings.Contains(payload, "NoSuchUpload"):
+			if attempt > 0 {
+				return true, nil
+			}
+			return true, fmt.Errorf(
+				"multipart upload no longer exists; it may have been aborted or expired before completion",
+			)
+		case resp.StatusCode >= 400:
+			statusErr := formatUploadStatusError(resp.StatusCode, respBody, nil)
+			if !isRetryableUploadStatus(resp.StatusCode) {
+				return true, statusErr
+			}
+			return false, statusErr
+		default:
+			return false, fmt.Errorf(
+				"complete multipart upload failed: %s",
+				strings.TrimSpace(payload),
+			)
+		}
+	})
+}
+
+// uploadMultipartParts uploads every part with bounded concurrency and
+// returns their ETags sorted by part number. The first part failure cancels
+// the remaining uploads.
+func (c *Client) uploadMultipartParts(ctx context.Context, filePath string, fileSize int64, start *multipartUploadStartResponse) ([]multipartCompletedPart, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	uploadCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	parts := start.Parts
+	completed := make([]multipartCompletedPart, len(parts))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+
+	fail := func(err error) {
+		mu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		mu.Unlock()
+		cancel()
+	}
+
+	workers := multipartUploadConcurrency
+	if workers > len(parts) {
+		workers = len(parts)
+	}
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				part := parts[idx]
+				offset := int64(part.PartNumber-1) * start.PartSize
+				length := start.PartSize
+				if remaining := fileSize - offset; remaining < length {
+					length = remaining
+				}
+				if length <= 0 {
+					fail(fmt.Errorf("part %d is out of range for a %d byte file", part.PartNumber, fileSize))
+					return
+				}
+				etag, err := c.uploadPartWithRetry(uploadCtx, file, part, offset, length)
+				if err != nil {
+					fail(err)
+					return
+				}
+				completed[idx] = multipartCompletedPart{PartNumber: part.PartNumber, ETag: etag}
+			}
+		}()
+	}
+
+dispatch:
+	for idx := range parts {
+		select {
+		case <-uploadCtx.Done():
+			break dispatch
+		case jobs <- idx:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	sort.Slice(completed, func(i, j int) bool {
+		return completed[i].PartNumber < completed[j].PartNumber
+	})
+	return completed, nil
+}
+
+// partUploadAttemptTimeout bounds one attempt of one part PUT. The deadline
+// scales with part size at a conservative floor rate so slow links can still
+// finish within the 24h presigned-URL window — a fixed whole-request timeout
+// would put a hard bandwidth floor under every part that no retry can clear.
+func partUploadAttemptTimeout(length int64) time.Duration {
+	const floorBytesPerSecond = 32 * 1024 // ~0.25 Mbps per concurrent part
+	timeout := 2*time.Minute + time.Duration(length/floorBytesPerSecond)*time.Second
+	if timeout < UploadTimeout {
+		return UploadTimeout
+	}
+	return timeout
+}
+
+// uploadPartWithRetry PUTs one part to its presigned URL and returns the ETag
+// S3 responds with. Each part retries independently using the same retryable
+// status / backoff rules as single-shot uploads, so one broken pipe costs one
+// part, not the whole artifact.
+func (c *Client) uploadPartWithRetry(ctx context.Context, file *os.File, part multipartUploadPartURL, offset, length int64) (string, error) {
+	var etag string
+	err := c.retryUploadAttempts(ctx, fmt.Sprintf("part %d upload", part.PartNumber), func(int) (bool, error) {
+		attemptCtx, cancel := context.WithTimeout(ctx, partUploadAttemptTimeout(length))
+		defer cancel()
+
+		// ReadAt is safe for concurrent use, so all workers share one *os.File.
+		reader := io.NewSectionReader(file, offset, length)
+		uploadReq, err := http.NewRequestWithContext(attemptCtx, http.MethodPut, part.UploadURL, reader)
+		if err != nil {
+			return true, fmt.Errorf("failed to create part upload request: %w", err)
+		}
+		uploadReq.ContentLength = length
+
+		// A copy of uploadClient without its whole-request timeout: attemptCtx
+		// bounds the attempt instead, scaled to the part size. The copy shares
+		// the transport, so connection pooling is unaffected.
+		partClient := *c.uploadClient
+		partClient.Timeout = 0
+		uploadResp, err := partClient.Do(uploadReq)
+		if err != nil {
+			return false, fmt.Errorf("part %d upload failed: %w", part.PartNumber, err)
+		}
+
+		if uploadResp.StatusCode < 400 {
+			etag = uploadResp.Header.Get("ETag")
+			_, _ = io.Copy(io.Discard, uploadResp.Body)
+			uploadResp.Body.Close()
+			if etag == "" {
+				// Deterministic: S3 always returns an ETag on a successful
+				// part PUT, so a missing header (e.g. stripped by a proxy)
+				// will be missing on every attempt — retrying just re-uploads
+				// the part for the same outcome.
+				return true, fmt.Errorf(
+					"part %d upload returned no ETag (a proxy may be stripping response headers)",
+					part.PartNumber,
+				)
+			}
+			return true, nil
+		}
+
+		body, readErr := io.ReadAll(io.LimitReader(uploadResp.Body, maxUploadErrorBodyBytes))
+		uploadResp.Body.Close()
+		statusErr := fmt.Errorf("part %d: %w", part.PartNumber, formatUploadStatusError(uploadResp.StatusCode, body, readErr))
+		if !isRetryableUploadStatus(uploadResp.StatusCode) {
+			return true, statusErr
+		}
+		return false, statusErr
+	})
+	if err != nil {
+		return "", err
+	}
+	return etag, nil
+}
+
+// bestEffortAbortMultipartUpload promptly frees the parts of a failed upload
+// via the presigned AbortMultipartUpload URL. Purely a courtesy: no build row
+// exists yet, and S3 lifecycle rules expire abandoned multipart uploads
+// regardless, so failures here are only worth a debug line.
+func (c *Client) bestEffortAbortMultipartUpload(abortURL string) {
+	if abortURL == "" {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete, abortURL, nil)
+	if err != nil {
+		return
+	}
+	resp, err := c.uploadClient.Do(httpReq)
+	if err != nil {
+		debugLogf("multipart upload: abort failed: %v", err)
+		return
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+}
+
+func (c *Client) bestEffortDeleteBuildVersion(versionID string) {
 	if versionID == "" {
 		return
 	}
@@ -1020,16 +1503,18 @@ func (c *Client) bestEffortDeleteBuildVersion(_ context.Context, versionID strin
 // Hard rejections (regardless of platform):
 //   - .aab (Android App Bundles aren't supported)
 //   - .ipa (real-device builds; we only run simulators)
+//   - .apks / split APK archives (we install one APK artifact)
 //   - .zip with an IPA-shaped Payload/*.app/ tree
 //
 // Platform-aware structural checks for .zip files:
 //   - iOS:     must contain a *.app/Info.plist
-//   - Android: must contain at least one .apk
+//   - Android: must contain exactly one non-split .apk
 //   - unknown: must look like one of the two
 //
 // The deeper iOS simulator check (DTPlatformName != iphoneos) and the Android
-// ABI check still run server-side via /extract-package-id; this function exists
-// so obvious mistakes fail locally with a clear error instead of after upload.
+// ABI check still run server-side when the build is created; this function
+// exists so obvious mistakes fail locally with a clear error instead of after
+// upload.
 func validateLocalBuildArtifact(filePath string, metadata map[string]interface{}) error {
 	fileName := strings.ToLower(filepath.Base(filePath))
 
@@ -1037,6 +1522,9 @@ func validateLocalBuildArtifact(filePath string, metadata map[string]interface{}
 		return fmt.Errorf(
 			"Android App Bundles (.aab) are not supported. Please use an APK build instead",
 		)
+	}
+	if strings.HasSuffix(fileName, ".apks") {
+		return fmt.Errorf(androidSplitAPKError)
 	}
 	if strings.HasSuffix(fileName, ".ipa") {
 		return fmt.Errorf(
@@ -1059,12 +1547,22 @@ func validateLocalBuildArtifact(filePath string, metadata map[string]interface{}
 				filepath.Base(filePath),
 			)
 		}
+		if looksLikeLocalSplitAPKName(filePath) {
+			return fmt.Errorf(androidSplitAPKError)
+		}
 		return nil
 	}
 
 	// Other extensions fall through to the backend's _validate_file_extension
 	// gate, which is the canonical source of accepted extensions.
 	return nil
+}
+
+func looksLikeLocalSplitAPKName(path string) bool {
+	baseName := strings.ToLower(filepath.Base(path))
+	return strings.HasPrefix(baseName, "split_") ||
+		strings.HasPrefix(baseName, "split.") ||
+		strings.HasPrefix(baseName, "config.")
 }
 
 // validateLocalZipArtifact opens a .zip and inspects its top-level contents to
@@ -1078,7 +1576,7 @@ func validateLocalZipArtifact(filePath string, platform string) error {
 
 	hasPayload := false
 	hasAppInfoPlist := false
-	hasAPK := false
+	var apkPaths []string
 
 	for _, file := range reader.File {
 		if file.FileInfo().IsDir() {
@@ -1094,7 +1592,7 @@ func validateLocalZipArtifact(filePath string, platform string) error {
 			hasAppInfoPlist = true
 		}
 		if strings.HasSuffix(lower, ".apk") {
-			hasAPK = true
+			apkPaths = append(apkPaths, name)
 		}
 	}
 
@@ -1105,6 +1603,8 @@ func validateLocalZipArtifact(filePath string, platform string) error {
 		)
 	}
 
+	androidZipErr := validateLocalAndroidAPKPaths(apkPaths)
+
 	switch platform {
 	case "ios":
 		if !hasAppInfoPlist {
@@ -1114,11 +1614,17 @@ func validateLocalZipArtifact(filePath string, platform string) error {
 			)
 		}
 	case "android":
-		if !hasAPK {
-			return fmt.Errorf("Android ZIP artifacts must contain at least one .apk file")
+		if androidZipErr != nil {
+			return androidZipErr
 		}
 	default:
-		if !hasAppInfoPlist && !hasAPK {
+		if len(apkPaths) > 0 {
+			if androidZipErr != nil {
+				return androidZipErr
+			}
+			return nil
+		}
+		if !hasAppInfoPlist {
 			return fmt.Errorf(
 				"no supported build found in this .zip. " +
 					"Upload a .zip containing an .apk or a simulator-built .app bundle",
@@ -1126,6 +1632,19 @@ func validateLocalZipArtifact(filePath string, platform string) error {
 		}
 	}
 
+	return nil
+}
+
+func validateLocalAndroidAPKPaths(apkPaths []string) error {
+	if len(apkPaths) == 0 {
+		return fmt.Errorf("Android ZIP artifacts must contain exactly one .apk file")
+	}
+	if len(apkPaths) > 1 {
+		return fmt.Errorf(androidSplitAPKError)
+	}
+	if looksLikeLocalSplitAPKName(apkPaths[0]) {
+		return fmt.Errorf(androidSplitAPKError)
+	}
 	return nil
 }
 
@@ -1234,18 +1753,26 @@ func formatUploadStatusError(statusCode int, body []byte, readErr error) error {
 	return fmt.Errorf("upload failed with status %d: %s", statusCode, msg)
 }
 
-func (c *Client) uploadFileWithRetry(ctx context.Context, uploadURL, contentType, filePath string, fileSize int64) error {
+// retryUploadAttempts runs attemptFn with the client's retry budget and
+// exponential backoff, stopping early on context cancellation. attemptFn
+// returns done=true to stop immediately (err nil = success, err non-nil =
+// permanent failure) or done=false with a retryable error; when the budget is
+// exhausted the last retryable error is wrapped as
+// "<operation> failed after N attempts".
+func (c *Client) retryUploadAttempts(ctx context.Context, operation string, attemptFn func(attempt int) (bool, error)) error {
 	attempts := c.maxRetries + 1
 	var lastErr error
 
 	for attempt := 0; attempt < attempts; attempt++ {
-		// Check context cancellation before each attempt.
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
-		// Wait before retry (skip on first attempt).
 		if attempt > 0 {
+			debugLogf(
+				"retrying %s (attempt %d/%d): %v",
+				operation, attempt+1, attempts, lastErr,
+			)
 			delay := calculateBackoff(attempt-1, c.retryBaseDelay, c.retryMaxDelay)
 			select {
 			case <-ctx.Done():
@@ -1254,51 +1781,49 @@ func (c *Client) uploadFileWithRetry(ctx context.Context, uploadURL, contentType
 			}
 		}
 
+		done, err := attemptFn(attempt)
+		if done {
+			return err
+		}
+		lastErr = err
+	}
+
+	return fmt.Errorf("%s failed after %d attempts: %w", operation, attempts, lastErr)
+}
+
+func (c *Client) uploadFileWithRetry(ctx context.Context, uploadURL, contentType, filePath string, fileSize int64) error {
+	return c.retryUploadAttempts(ctx, "upload", func(int) (bool, error) {
 		file, err := os.Open(filePath)
 		if err != nil {
-			return fmt.Errorf("failed to open file: %w", err)
+			return true, fmt.Errorf("failed to open file: %w", err)
 		}
+		defer file.Close()
 
 		uploadReq, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, file)
 		if err != nil {
-			file.Close()
-			return fmt.Errorf("failed to create upload request: %w", err)
+			return true, fmt.Errorf("failed to create upload request: %w", err)
 		}
 		uploadReq.Header.Set("Content-Type", contentType)
 		uploadReq.ContentLength = fileSize
 
 		uploadResp, err := c.uploadClient.Do(uploadReq)
-		file.Close()
 		if err != nil {
-			lastErr = fmt.Errorf("upload failed: %w", err)
-			if attempt == attempts-1 {
-				return fmt.Errorf("upload failed after %d attempts: %w", attempts, lastErr)
-			}
-			continue
+			return false, fmt.Errorf("upload failed: %w", err)
 		}
 
 		if uploadResp.StatusCode < 400 {
 			uploadResp.Body.Close()
-			return nil
+			return true, nil
 		}
 
 		body, readErr := io.ReadAll(io.LimitReader(uploadResp.Body, maxUploadErrorBodyBytes))
 		uploadResp.Body.Close()
 		statusErr := formatUploadStatusError(uploadResp.StatusCode, body, readErr)
 		if !isRetryableUploadStatus(uploadResp.StatusCode) {
-			return statusErr
+			return true, statusErr
 		}
-
-		lastErr = statusErr
-		if attempt == attempts-1 {
-			return fmt.Errorf("upload failed after %d attempts: %w", attempts, lastErr)
-		}
-	}
-
-	if lastErr != nil {
-		return fmt.Errorf("upload failed after %d attempts: %w", attempts, lastErr)
-	}
-	return fmt.Errorf("upload failed")
+		return false, statusErr
+	})
 }
 
 // BuildVersion represents a build version.

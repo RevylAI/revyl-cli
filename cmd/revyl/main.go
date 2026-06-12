@@ -68,6 +68,10 @@ var rootCmd = &cobra.Command{
 		// automatically sends the correct User-Agent header.
 		api.SetDefaultVersion(version)
 
+		// Route api-package debug output (multipart upload part counts,
+		// per-part retries) through the UI debug printer.
+		api.SetDebugLogger(ui.PrintDebug)
+
 		// Start background version check (non-blocking).
 		// Skip for commands that already handle versioning or produce
 		// machine-readable output that shouldn't be polluted.

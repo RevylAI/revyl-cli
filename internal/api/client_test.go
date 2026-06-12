@@ -1,6 +1,7 @@
 package api
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,11 +26,79 @@ func writeTestArtifact(t *testing.T) string {
 	// .apk files bypass the local-zip structural pre-flight in
 	// validateLocalBuildArtifact. The byte contents only matter on the server
 	// side (which is mocked here), so a tiny placeholder is sufficient.
-	path := filepath.Join(t.TempDir(), "artifact.apk")
-	if err := os.WriteFile(path, []byte("fake-build-bytes"), 0o644); err != nil {
-		t.Fatalf("failed to write test artifact: %v", err)
+	return writeTestArtifactOfSize(t, 16)
+}
+
+func writeZipArtifact(t *testing.T, files map[string][]byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "artifact.zip")
+	out, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("failed to create zip artifact: %v", err)
+	}
+	zw := zip.NewWriter(out)
+	for name, payload := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("failed to create zip entry %s: %v", name, err)
+		}
+		if _, err := w.Write(payload); err != nil {
+			t.Fatalf("failed to write zip entry %s: %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("failed to close zip writer: %v", err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("failed to close zip artifact: %v", err)
 	}
 	return path
+}
+
+func TestValidateLocalBuildArtifactRejectsAPKS(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.apks")
+	if err := os.WriteFile(path, []byte("apk-set"), 0o644); err != nil {
+		t.Fatalf("failed to write artifact: %v", err)
+	}
+
+	err := validateLocalBuildArtifact(path, map[string]interface{}{"platform": "android"})
+	if err == nil {
+		t.Fatal("validateLocalBuildArtifact() error = nil, want split APK error")
+	}
+	if !strings.Contains(err.Error(), "split APKs") {
+		t.Fatalf("error = %q, want split APK message", err)
+	}
+}
+
+func TestValidateLocalBuildArtifactRejectsSplitNamedAPK(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "split_config.en.apk")
+	if err := os.WriteFile(path, []byte("apk"), 0o644); err != nil {
+		t.Fatalf("failed to write artifact: %v", err)
+	}
+
+	err := validateLocalBuildArtifact(path, map[string]interface{}{"platform": "android"})
+	if err == nil {
+		t.Fatal("validateLocalBuildArtifact() error = nil, want split APK error")
+	}
+	if !strings.Contains(err.Error(), "split APKs") {
+		t.Fatalf("error = %q, want split APK message", err)
+	}
+}
+
+func TestValidateLocalBuildArtifactRejectsZipWithMultipleAPKs(t *testing.T) {
+	path := writeZipArtifact(t, map[string][]byte{
+		"base.apk":                []byte("base"),
+		"split_config.en.apk":     []byte("config"),
+		"split_config.x86_64.apk": []byte("abi"),
+	})
+
+	err := validateLocalBuildArtifact(path, map[string]interface{}{"platform": "android"})
+	if err == nil {
+		t.Fatal("validateLocalBuildArtifact() error = nil, want split APK error")
+	}
+	if !strings.Contains(err.Error(), "split APKs") {
+		t.Fatalf("error = %q, want split APK message", err)
+	}
 }
 
 func tracesDataShape(data *tracepb.TracesData) string {
@@ -64,40 +133,29 @@ func testUploadBuildClient(
 
 	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/builds/vars/app-1/versions/upload-url":
+		case "/api/v1/apps/app-1/builds/upload-session":
 			if r.Method != http.MethodPost {
-				t.Fatalf("unexpected method for presign endpoint: %s", r.Method)
+				t.Fatalf("unexpected method for upload-session endpoint: %s", r.Method)
 			}
-			if got := r.URL.Query().Get("version"); got == "" {
-				t.Fatalf("missing version query param")
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("failed to decode upload-session body: %v", err)
 			}
-			if got := r.URL.Query().Get("file_name"); got != "artifact.apk" {
-				t.Fatalf("unexpected file_name query param: got %q", got)
+			if got := body["file_name"]; got != "artifact.apk" {
+				t.Fatalf("unexpected file_name in session body: got %v", got)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(
 				w,
-				`{"version_id":"ver-1","version":"v1","upload_url":"%s/upload","content_type":"application/vnd.android.package-archive"}`,
+				`{"upload_id":"up-1","upload_url":"%s/upload","upload_expires_at":123,"content_type":"application/vnd.android.package-archive"}`,
 				uploadServer.URL,
 			)
-		case "/api/v1/builds/versions/ver-1/extract-package-id":
-			// Default happy-path stub; specific tests can override the
-			// complete-upload behavior, but extraction always succeeds here
-			// because the failing-upload tests never reach this hop.
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"package_id":"com.example.app"}`))
-		case "/api/v1/builds/versions/ver-1/complete-upload":
+		case "/api/v1/apps/app-1/builds":
+			if r.Method != http.MethodPost {
+				t.Fatalf("unexpected method for create-build endpoint: %s", r.Method)
+			}
 			atomic.AddInt32(&completeCalls, 1)
 			completeHandler(w, r)
-		case "/api/v1/builds/versions/ver-1":
-			// bestEffortDeleteBuildVersion fires on every UploadBuild failure
-			// path. It uses a detached context so it runs even when the
-			// caller cancels mid-upload — accept the call silently here.
-			if r.Method != http.MethodDelete {
-				t.Fatalf("unexpected method for version endpoint: %s", r.Method)
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"message":"deleted"}`))
 		default:
 			t.Fatalf("unexpected backend path: %s", r.URL.Path)
 		}
@@ -131,7 +189,7 @@ func TestUploadBuild_RetriesRetryableStatusThenSucceeds(t *testing.T) {
 				t.Fatalf("unexpected complete method: %s", r.Method)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"version":"v1"}`))
+			_, _ = w.Write([]byte(`{"id":"ver-1","version":"v1"}`))
 		},
 	)
 
@@ -151,6 +209,100 @@ func TestUploadBuild_RetriesRetryableStatusThenSucceeds(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(completeCalls); got != 1 {
 		t.Fatalf("complete-upload calls = %d, want 1", got)
+	}
+}
+
+func TestUploadBuild_PropagatesArtifactWarnings(t *testing.T) {
+	client, artifactPath, _, _ := testUploadBuildClient(
+		t,
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"id":"ver-1",
+				"version":"v1",
+				"package_name":"com.example.app",
+				"metadata":{
+					"artifact_validation":{
+						"warnings":["This Android APK does not appear to be debuggable."]
+					}
+				}
+			}`))
+		},
+	)
+
+	resp, err := client.UploadBuild(context.Background(), &UploadBuildRequest{
+		AppID:    "app-1",
+		Version:  "v1",
+		FilePath: artifactPath,
+	})
+	if err != nil {
+		t.Fatalf("UploadBuild() error = %v, want nil", err)
+	}
+	if len(resp.Warnings) != 1 || !strings.Contains(resp.Warnings[0], "debuggable") {
+		t.Fatalf("warnings = %#v, want debuggable warning", resp.Warnings)
+	}
+}
+
+func TestUploadBuild_FallsBackToLegacyPresignedFlow(t *testing.T) {
+	uploadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/upload" {
+			t.Fatalf("unexpected upload path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPut {
+			t.Fatalf("upload method = %s, want PUT", r.Method)
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(uploadServer.Close)
+
+	var legacyPresignCalled bool
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/apps/app-1/builds/upload-session":
+			http.Error(w, "not found", http.StatusNotFound)
+		case "/api/v1/builds/vars/app-1/versions/upload-url":
+			legacyPresignCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(
+				w,
+				`{"version_id":"legacy-ver-1","version":"v1","upload_url":"%s/upload","content_type":"application/vnd.android.package-archive"}`,
+				uploadServer.URL,
+			)
+		case "/api/v1/builds/versions/legacy-ver-1/extract-package-id":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"package_id":"com.example.legacy"}`))
+		case "/api/v1/builds/versions/legacy-ver-1/complete-upload":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"version":"v1"}`))
+		default:
+			t.Fatalf("unexpected backend path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(backendServer.Close)
+
+	client := NewClientWithBaseURL("test-key", backendServer.URL)
+	client.uploadClient = uploadServer.Client()
+
+	resp, err := client.UploadBuild(context.Background(), &UploadBuildRequest{
+		AppID:    "app-1",
+		Version:  "v1",
+		FilePath: writeTestArtifact(t),
+	})
+	if err != nil {
+		t.Fatalf("UploadBuild() error = %v, want nil", err)
+	}
+	if !legacyPresignCalled {
+		t.Fatal("legacy upload-url endpoint was not called")
+	}
+	if resp.VersionID != "legacy-ver-1" {
+		t.Fatalf("version_id = %q, want legacy-ver-1", resp.VersionID)
+	}
+	if resp.PackageID != "com.example.legacy" {
+		t.Fatalf("package_id = %q, want com.example.legacy", resp.PackageID)
 	}
 }
 
@@ -200,7 +352,7 @@ func TestUploadBuild_RetriesTransportErrorThenSucceeds(t *testing.T) {
 		},
 		func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"version":"v1"}`))
+			_, _ = w.Write([]byte(`{"id":"ver-1","version":"v1"}`))
 		},
 	)
 
@@ -356,43 +508,6 @@ func TestUploadBuild_CancelledDuringRetryBackoff(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(completeCalls); got != 0 {
 		t.Fatalf("complete-upload calls = %d, want 0", got)
-	}
-}
-
-func TestUploadBuild_UsesPresignVersionIDWhenCompleteOmitted(t *testing.T) {
-	client, artifactPath, _, completeCalls := testUploadBuildClient(
-		t,
-		func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPut {
-				t.Fatalf("unexpected upload method: %s", r.Method)
-			}
-			if _, err := io.ReadAll(r.Body); err != nil {
-				t.Fatalf("failed to read upload body: %v", err)
-			}
-			w.WriteHeader(http.StatusOK)
-		},
-		func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"version":"v1","package_id":"com.example.app"}`))
-		},
-	)
-
-	resp, err := client.UploadBuild(context.Background(), &UploadBuildRequest{
-		AppID:    "app-1",
-		Version:  "v1",
-		FilePath: artifactPath,
-	})
-	if err != nil {
-		t.Fatalf("UploadBuild() error = %v, want nil", err)
-	}
-	if resp.VersionID != "ver-1" {
-		t.Fatalf("UploadBuild() version_id = %q, want %q", resp.VersionID, "ver-1")
-	}
-	if resp.PackageID != "com.example.app" {
-		t.Fatalf("UploadBuild() package_id = %q, want %q", resp.PackageID, "com.example.app")
-	}
-	if got := atomic.LoadInt32(completeCalls); got != 1 {
-		t.Fatalf("complete-upload calls = %d, want 1", got)
 	}
 }
 

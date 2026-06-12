@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -38,37 +39,37 @@ func TestRunBuildUploadJSONOutputsStructuredResult(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/builds/vars/app-android-123/versions/upload-url":
+		case "/api/v1/apps/app-android-123/builds/upload-session":
 			if r.Method != http.MethodPost {
-				t.Fatalf("upload-url method = %s, want POST", r.Method)
+				t.Fatalf("upload-session method = %s, want POST", r.Method)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{
-				"version_id":"build-ver-123",
-				"version":"1.2.3",
-				"upload_url":"` + server.URL + `/uploads/build-ver-123",
+				"upload_id":"upload-123",
+				"upload_url":"` + server.URL + `/uploads/upload-123",
+				"upload_expires_at":123,
 				"content_type":"application/vnd.android.package-archive"
 			}`))
-		case "/uploads/build-ver-123":
+		case "/uploads/upload-123":
 			if r.Method != http.MethodPut {
 				t.Fatalf("upload target method = %s, want PUT", r.Method)
 			}
 			_, _ = io.Copy(io.Discard, r.Body)
 			w.WriteHeader(http.StatusOK)
-		case "/api/v1/builds/versions/build-ver-123/extract-package-id":
+		case "/api/v1/apps/app-android-123/builds":
 			if r.Method != http.MethodPost {
-				t.Fatalf("extract-package-id method = %s, want POST", r.Method)
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"package_id":"com.example.android"}`))
-		case "/api/v1/builds/versions/build-ver-123/complete-upload":
-			if r.Method != http.MethodPost {
-				t.Fatalf("complete-upload method = %s, want POST", r.Method)
+				t.Fatalf("create build method = %s, want POST", r.Method)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{
+				"id":"build-ver-123",
 				"version":"1.2.3",
-				"package_id":"com.example.android"
+				"package_name":"com.example.android",
+				"metadata":{
+					"artifact_validation":{
+						"warnings":["This Android APK does not appear to be debuggable."]
+					}
+				}
 			}`))
 		default:
 			t.Fatalf("unexpected request path: %s", r.URL.Path)
@@ -162,6 +163,13 @@ func TestRunBuildUploadJSONOutputsStructuredResult(t *testing.T) {
 	assertJSONString(t, buildObj, "build_version", "1.2.3")
 	assertJSONString(t, buildObj, "build_id", "build-ver-123")
 	assertJSONString(t, buildObj, "package_id", "com.example.android")
+	warnings, ok := buildObj["warnings"].([]interface{})
+	if !ok || len(warnings) != 1 {
+		t.Fatalf("warnings = %#v, want one warning", buildObj["warnings"])
+	}
+	if got, _ := warnings[0].(string); !strings.Contains(got, "debuggable") {
+		t.Fatalf("warning = %q, want debuggable warning", got)
+	}
 	assertJSONKey(t, buildObj, "artifact_path")
 }
 

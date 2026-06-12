@@ -31,8 +31,9 @@ Not supported. If your CI produces an `.ipa`, you need a parallel simulator-slic
 
 Two requirements:
 
-1. **APK must include `x86_64` in its ABI set.** Revyl's cloud emulators are `x86_64`; `arm64-v8a`-only APKs won't install.
-2. **APK must be debuggable** (`android:debuggable="true"` in the merged manifest).
+1. **Upload one installable `.apk` artifact.** `.aab`, `.apks`, APK Set archives, and split APK archives are not supported.
+2. **APK must include `x86_64` in its ABI set.** Revyl's cloud emulators are `x86_64`; `arm64-v8a`-only APKs won't install.
+3. **APK must be debuggable** (`android:debuggable="true"` in the merged manifest).
 
 ### Why x86_64
 
@@ -57,9 +58,13 @@ The runtime *will* install a non-debuggable release APK — tests still execute,
 
 Don't upload them. Tests will run, but you lose the State tab (SharedPreferences / DataStore / SQLite inspection) and any debugging-dependent execution paths. Produce a debug-flavored variant for Revyl alongside your release pipeline — it's a one-line Gradle task in most projects.
 
-### What about per-ABI APK splits?
+### What about per-ABI APKs?
 
-Fine as long as the APK you upload to Revyl contains `x86_64`. Universal / fat APKs are simplest. If you're uploading a single-ABI APK, it must be the `x86_64` variant.
+Upload a single APK that contains `x86_64`. Universal / fat APKs are simplest. If you upload a single-ABI APK, it must be the `x86_64` variant. Do not upload `.apks` files or ZIPs containing multiple split APKs; Revyl does not install APK sets.
+
+### Upload API validation
+
+The Revyl web UI and CLI inspect uploaded artifacts before finalizing the build. Direct API integrations that upload with the presigned upload URL and then call `complete-upload` without first calling `extract-package-id` are still supported; `complete-upload` validates the uploaded artifact server-side before saving the build. For large mobile artifacts, that fallback can add one S3 download to the finalize request, so API clients that need lower finalize latency should call `extract-package-id` after the upload completes.
 
 ## FAQ
 

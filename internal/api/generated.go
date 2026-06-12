@@ -236,6 +236,32 @@ const (
 	HITLApprovalDecisionDecisionRejected HITLApprovalDecisionDecision = "rejected"
 )
 
+// Defines values for IosStoreKitConfigRefMode.
+const (
+	IosStoreKitConfigRefModeDisabled IosStoreKitConfigRefMode = "disabled"
+	IosStoreKitConfigRefModeFile     IosStoreKitConfigRefMode = "file"
+)
+
+// Defines values for IosStoreKitConfigRefScopeType.
+const (
+	IosStoreKitConfigRefScopeTypeApp   IosStoreKitConfigRefScopeType = "app"
+	IosStoreKitConfigRefScopeTypeBuild IosStoreKitConfigRefScopeType = "build"
+	IosStoreKitConfigRefScopeTypeTest  IosStoreKitConfigRefScopeType = "test"
+)
+
+// Defines values for IosStoreKitConfigRefUpsertRequestMode.
+const (
+	IosStoreKitConfigRefUpsertRequestModeDisabled IosStoreKitConfigRefUpsertRequestMode = "disabled"
+	IosStoreKitConfigRefUpsertRequestModeFile     IosStoreKitConfigRefUpsertRequestMode = "file"
+)
+
+// Defines values for IosStoreKitConfigRefUpsertRequestScopeType.
+const (
+	IosStoreKitConfigRefUpsertRequestScopeTypeApp   IosStoreKitConfigRefUpsertRequestScopeType = "app"
+	IosStoreKitConfigRefUpsertRequestScopeTypeBuild IosStoreKitConfigRefUpsertRequestScopeType = "build"
+	IosStoreKitConfigRefUpsertRequestScopeTypeTest  IosStoreKitConfigRefUpsertRequestScopeType = "test"
+)
+
 // Defines values for LinearIssueRequestSource.
 const (
 	LinearIssueRequestSourceAtlas    LinearIssueRequestSource = "atlas"
@@ -306,6 +332,28 @@ const (
 	ReliabilityEstimateHigh   ReliabilityEstimate = "high"
 	ReliabilityEstimateLow    ReliabilityEstimate = "low"
 	ReliabilityEstimateMedium ReliabilityEstimate = "medium"
+)
+
+// Defines values for ResolvedIosStoreKitConfigMode.
+const (
+	ResolvedIosStoreKitConfigModeDisabled ResolvedIosStoreKitConfigMode = "disabled"
+	ResolvedIosStoreKitConfigModeFile     ResolvedIosStoreKitConfigMode = "file"
+)
+
+// Defines values for ResolvedIosStoreKitConfigScopeType.
+const (
+	ResolvedIosStoreKitConfigScopeTypeApp   ResolvedIosStoreKitConfigScopeType = "app"
+	ResolvedIosStoreKitConfigScopeTypeBuild ResolvedIosStoreKitConfigScopeType = "build"
+	ResolvedIosStoreKitConfigScopeTypeTest  ResolvedIosStoreKitConfigScopeType = "test"
+)
+
+// Defines values for ResolvedIosStoreKitConfigSource.
+const (
+	ResolvedIosStoreKitConfigSourceApp             ResolvedIosStoreKitConfigSource = "app"
+	ResolvedIosStoreKitConfigSourceBuild           ResolvedIosStoreKitConfigSource = "build"
+	ResolvedIosStoreKitConfigSourceNone            ResolvedIosStoreKitConfigSource = "none"
+	ResolvedIosStoreKitConfigSourceSessionOverride ResolvedIosStoreKitConfigSource = "session_override"
+	ResolvedIosStoreKitConfigSourceTest            ResolvedIosStoreKitConfigSource = "test"
 )
 
 // Defines values for SessionStatus.
@@ -1624,6 +1672,20 @@ type BuildCoverageItem struct {
 	TestName            string     `json:"test_name"`
 }
 
+// BuildCreateFromUploadRequest Request to create a build from a completed staging upload.
+type BuildCreateFromUploadRequest struct {
+	Metadata *map[string]interface{} `json:"metadata"`
+
+	// SetAsCurrent Set this build as the app's current version
+	SetAsCurrent *bool `json:"set_as_current,omitempty"`
+
+	// UploadId Upload session id returned by upload-session
+	UploadId openapi_types.UUID `json:"upload_id"`
+
+	// Version Version string (must be unique)
+	Version string `json:"version"`
+}
+
 // BuildCreateResponse Response model for creating a build with upload URL.
 type BuildCreateResponse struct {
 	ContentType     string             `json:"content_type"`
@@ -1647,6 +1709,53 @@ type BuildFromUrlRequest struct {
 
 	// Version Version string (must be unique within the app)
 	Version string `json:"version"`
+}
+
+// BuildMultipartUploadPartURL A presigned URL for uploading one part of a multipart upload.
+type BuildMultipartUploadPartURL struct {
+	// PartNumber 1-indexed S3 part number
+	PartNumber int `json:"part_number"`
+
+	// UploadUrl Presigned upload_part URL
+	UploadUrl string `json:"upload_url"`
+}
+
+// BuildMultipartUploadStartRequest Request to start an S3 multipart upload for a large build artifact.
+type BuildMultipartUploadStartRequest struct {
+	// FileName Name of the file to upload
+	FileName string `json:"file_name"`
+
+	// FileSize Total artifact size in bytes; the server rejects sizes above its maximum supported artifact size
+	FileSize int `json:"file_size"`
+
+	// Version Version string (must be unique)
+	Version string `json:"version"`
+}
+
+// BuildMultipartUploadStartResponse Response with everything a client needs to upload parts directly to S3.
+//
+// Like upload-session, no build row exists yet: the client uploads the
+// parts, assembles them by POSTing the part ETags to complete_url, then
+// creates the build via POST /{app_id}/builds with upload_id. Unfinished
+// multipart uploads are aborted by the bucket lifecycle rule and abandoned
+// staging objects are swept server-side; abort_url is a courtesy for
+// prompt cleanup.
+type BuildMultipartUploadStartResponse struct {
+	// AbortUrl Presigned S3 AbortMultipartUpload URL
+	AbortUrl string `json:"abort_url"`
+
+	// CompleteUrl Presigned S3 CompleteMultipartUpload URL
+	CompleteUrl string `json:"complete_url"`
+
+	// PartSize Size in bytes of every part except the last
+	PartSize int                           `json:"part_size"`
+	Parts    []BuildMultipartUploadPartURL `json:"parts"`
+
+	// UploadExpiresAt Unix timestamp after which the presigned URLs expire
+	UploadExpiresAt int `json:"upload_expires_at"`
+
+	// UploadId Staging upload session id, passed to POST /{app_id}/builds
+	UploadId openapi_types.UUID `json:"upload_id"`
 }
 
 // BuildResolutionRequest Request to resolve a build for a test.
@@ -1733,8 +1842,32 @@ type BuildUploadCompleteRequest struct {
 	Metadata *map[string]interface{} `json:"metadata"`
 
 	// PackageName Package name
-	PackageName *string            `json:"package_name"`
-	VersionId   openapi_types.UUID `json:"version_id"`
+	PackageName *string `json:"package_name"`
+
+	// SetAsCurrent Set this build as the app's current version
+	SetAsCurrent *bool              `json:"set_as_current,omitempty"`
+	VersionId    openapi_types.UUID `json:"version_id"`
+}
+
+// BuildUploadSessionRequest Request to open a staging upload session for a new build artifact.
+type BuildUploadSessionRequest struct {
+	// FileName Name of the file to upload
+	FileName string `json:"file_name"`
+
+	// Version Version string (must be unique)
+	Version string `json:"version"`
+}
+
+// BuildUploadSessionResponse Response with a presigned URL targeting the staging area.
+//
+// No build row exists yet; the build is created by POST /{app_id}/builds
+// after the artifact is uploaded and validated. Abandoned staging objects
+// are swept server-side when a later session for the same app starts.
+type BuildUploadSessionResponse struct {
+	ContentType     string             `json:"content_type"`
+	UploadExpiresAt int                `json:"upload_expires_at"`
+	UploadId        openapi_types.UUID `json:"upload_id"`
+	UploadUrl       string             `json:"upload_url"`
 }
 
 // BuildWorkspaceResponse defines model for BuildWorkspaceResponse.
@@ -4436,6 +4569,70 @@ type InternalSlackRuleResponse struct {
 	Rule InternalSlackNotificationRule `json:"rule"`
 }
 
+// IosStoreKitConfigRef Explicit iOS StoreKit Testing config choice for one scope.
+type IosStoreKitConfigRef struct {
+	ContentType *string                       `json:"content_type"`
+	CreatedAt   time.Time                     `json:"created_at"`
+	FileId      *openapi_types.UUID           `json:"file_id"`
+	FileSize    *int                          `json:"file_size"`
+	Filename    *string                       `json:"filename"`
+	Id          openapi_types.UUID            `json:"id"`
+	Mode        IosStoreKitConfigRefMode      `json:"mode"`
+	OrgId       openapi_types.UUID            `json:"org_id"`
+	ScopeId     openapi_types.UUID            `json:"scope_id"`
+	ScopeType   IosStoreKitConfigRefScopeType `json:"scope_type"`
+	UpdatedAt   time.Time                     `json:"updated_at"`
+}
+
+// IosStoreKitConfigRefMode defines model for IosStoreKitConfigRef.Mode.
+type IosStoreKitConfigRefMode string
+
+// IosStoreKitConfigRefScopeType defines model for IosStoreKitConfigRef.ScopeType.
+type IosStoreKitConfigRefScopeType string
+
+// IosStoreKitConfigRefResponse Response for a single iOS StoreKit config ref mutation/read.
+type IosStoreKitConfigRefResponse struct {
+	Message string `json:"message"`
+
+	// Result Explicit iOS StoreKit Testing config choice for one scope.
+	Result *IosStoreKitConfigRef `json:"result,omitempty"`
+}
+
+// IosStoreKitConfigRefUpsertRequest Create or replace an explicit iOS StoreKit config choice.
+type IosStoreKitConfigRefUpsertRequest struct {
+	FileId    *openapi_types.UUID                        `json:"file_id"`
+	Mode      IosStoreKitConfigRefUpsertRequestMode      `json:"mode"`
+	ScopeId   openapi_types.UUID                         `json:"scope_id"`
+	ScopeType IosStoreKitConfigRefUpsertRequestScopeType `json:"scope_type"`
+}
+
+// IosStoreKitConfigRefUpsertRequestMode defines model for IosStoreKitConfigRefUpsertRequest.Mode.
+type IosStoreKitConfigRefUpsertRequestMode string
+
+// IosStoreKitConfigRefUpsertRequestScopeType defines model for IosStoreKitConfigRefUpsertRequest.ScopeType.
+type IosStoreKitConfigRefUpsertRequestScopeType string
+
+// IosStoreKitConfigRefsResponse Response for iOS StoreKit config ref lists.
+type IosStoreKitConfigRefsResponse struct {
+	Message string                  `json:"message"`
+	Result  *[]IosStoreKitConfigRef `json:"result,omitempty"`
+}
+
+// IosStoreKitConfigSnapshot Resolved iOS StoreKit config snapshot carried to worker launch.
+type IosStoreKitConfigSnapshot struct {
+	Available   *bool               `json:"available,omitempty"`
+	ContentType *string             `json:"content_type"`
+	Enabled     *bool               `json:"enabled,omitempty"`
+	Error       *string             `json:"error"`
+	FileId      *openapi_types.UUID `json:"file_id"`
+	FileSize    *int                `json:"file_size"`
+	Filename    *string             `json:"filename"`
+	Mode        *string             `json:"mode"`
+	ScopeId     *openapi_types.UUID `json:"scope_id"`
+	ScopeType   *string             `json:"scope_type"`
+	Source      *string             `json:"source"`
+}
+
 // LLMCallCreate Request model for creating an LLM call record.
 type LLMCallCreate struct {
 	CompletionTokens *int     `json:"completion_tokens,omitempty"`
@@ -6145,6 +6342,14 @@ type ReportV3Response struct {
 	WorkflowRunId          *string                   `json:"workflow_run_id"`
 }
 
+// ResolveIosStoreKitConfigResponse Response for resolving the effective iOS StoreKit config.
+type ResolveIosStoreKitConfigResponse struct {
+	Message string `json:"message"`
+
+	// Result Resolved StoreKit config snapshot for a run/session.
+	Result ResolvedIosStoreKitConfig `json:"result"`
+}
+
 // ResolveSlackChannelRequest Request to resolve a Slack channel by free-form input.
 //
 // Accepts any of:
@@ -6170,6 +6375,30 @@ type ResolvedBuild struct {
 	Version      *string                 `json:"version"`
 	VersionId    *openapi_types.UUID     `json:"version_id"`
 }
+
+// ResolvedIosStoreKitConfig Resolved StoreKit config snapshot for a run/session.
+type ResolvedIosStoreKitConfig struct {
+	Available   *bool                               `json:"available,omitempty"`
+	ContentType *string                             `json:"content_type"`
+	Enabled     *bool                               `json:"enabled,omitempty"`
+	Error       *string                             `json:"error"`
+	FileId      *openapi_types.UUID                 `json:"file_id"`
+	FileSize    *int                                `json:"file_size"`
+	Filename    *string                             `json:"filename"`
+	Mode        *ResolvedIosStoreKitConfigMode      `json:"mode"`
+	ScopeId     *openapi_types.UUID                 `json:"scope_id"`
+	ScopeType   *ResolvedIosStoreKitConfigScopeType `json:"scope_type"`
+	Source      *ResolvedIosStoreKitConfigSource    `json:"source,omitempty"`
+}
+
+// ResolvedIosStoreKitConfigMode defines model for ResolvedIosStoreKitConfig.Mode.
+type ResolvedIosStoreKitConfigMode string
+
+// ResolvedIosStoreKitConfigScopeType defines model for ResolvedIosStoreKitConfig.ScopeType.
+type ResolvedIosStoreKitConfigScopeType string
+
+// ResolvedIosStoreKitConfigSource defines model for ResolvedIosStoreKitConfig.Source.
+type ResolvedIosStoreKitConfigSource string
 
 // ResolvedVariable A variable resolved from either local or global scope.
 type ResolvedVariable struct {
@@ -6698,9 +6927,12 @@ type StartDeviceInfo struct {
 	RunConfig                    *TestRunConfig      `json:"run_config,omitempty"`
 	SessionId                    *openapi_types.UUID `json:"session_id"`
 	StartupSessionStartMonotonic *float32            `json:"startup_session_start_monotonic"`
-	TestId                       *openapi_types.UUID `json:"test_id"`
-	TestInfo                     *Test               `json:"test_info,omitempty"`
-	UserId                       *openapi_types.UUID `json:"user_id"`
+
+	// StorekitConfig Resolved iOS StoreKit config snapshot carried to worker launch.
+	StorekitConfig *IosStoreKitConfigSnapshot `json:"storekit_config,omitempty"`
+	TestId         *openapi_types.UUID        `json:"test_id"`
+	TestInfo       *Test                      `json:"test_info,omitempty"`
+	UserId         *openapi_types.UUID        `json:"user_id"`
 
 	// Viewport Model for viewport dimensions used in browser sessions.
 	Viewport       *Viewport           `json:"viewport,omitempty"`
@@ -9486,10 +9718,22 @@ type ListBuildsApiV1AppsAppIdBuildsGetParams struct {
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 }
 
+// StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostParams defines parameters for StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPost.
+type StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostParams struct {
+	// Source Build upload source for backend-owned lifecycle analytics
+	Source *string `form:"source,omitempty" json:"source,omitempty"`
+}
+
 // StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostParams defines parameters for StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost.
 type StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostParams struct {
 	// Version Version string (must be unique)
 	Version string `form:"version" json:"version"`
+}
+
+// CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostParams defines parameters for CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPost.
+type CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostParams struct {
+	// Source Build upload source for backend-owned lifecycle analytics
+	Source *string `form:"source,omitempty" json:"source,omitempty"`
 }
 
 // CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams defines parameters for CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPost.
@@ -10243,6 +10487,30 @@ type ResolveVariablesApiV1VariablesGlobalResolveGetParams struct {
 	TestUid string `form:"test_uid" json:"test_uid"`
 }
 
+// ListIosStorekitConfigRefsForFileApiV1VariablesIosStorekitFileRefsGetParams defines parameters for ListIosStorekitConfigRefsForFileApiV1VariablesIosStorekitFileRefsGet.
+type ListIosStorekitConfigRefsForFileApiV1VariablesIosStorekitFileRefsGetParams struct {
+	FileId openapi_types.UUID `form:"file_id" json:"file_id"`
+}
+
+// DeleteIosStorekitConfigRefApiV1VariablesIosStorekitRefsDeleteParams defines parameters for DeleteIosStorekitConfigRefApiV1VariablesIosStorekitRefsDelete.
+type DeleteIosStorekitConfigRefApiV1VariablesIosStorekitRefsDeleteParams struct {
+	ScopeType string             `form:"scope_type" json:"scope_type"`
+	ScopeId   openapi_types.UUID `form:"scope_id" json:"scope_id"`
+}
+
+// GetIosStorekitConfigRefApiV1VariablesIosStorekitRefsGetParams defines parameters for GetIosStorekitConfigRefApiV1VariablesIosStorekitRefsGet.
+type GetIosStorekitConfigRefApiV1VariablesIosStorekitRefsGetParams struct {
+	ScopeType string             `form:"scope_type" json:"scope_type"`
+	ScopeId   openapi_types.UUID `form:"scope_id" json:"scope_id"`
+}
+
+// ResolveIosStorekitConfigRefApiV1VariablesIosStorekitResolveGetParams defines parameters for ResolveIosStorekitConfigRefApiV1VariablesIosStorekitResolveGet.
+type ResolveIosStorekitConfigRefApiV1VariablesIosStorekitResolveGetParams struct {
+	AppId   *openapi_types.UUID `form:"app_id,omitempty" json:"app_id,omitempty"`
+	BuildId *openapi_types.UUID `form:"build_id,omitempty" json:"build_id,omitempty"`
+	TestId  *openapi_types.UUID `form:"test_id,omitempty" json:"test_id,omitempty"`
+}
+
 // DetachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsDeleteParams defines parameters for DetachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsDelete.
 type DetachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsDeleteParams struct {
 	TestId   string `form:"test_id" json:"test_id"`
@@ -10363,11 +10631,20 @@ type ResolveBuildApiV1AppsResolvePostJSONRequestBody = BuildResolutionRequest
 // UpdateAppApiV1AppsAppIdPatchJSONRequestBody defines body for UpdateAppApiV1AppsAppIdPatch for application/json ContentType.
 type UpdateAppApiV1AppsAppIdPatchJSONRequestBody = AppUpdateRequest
 
+// CreateBuildFromUploadApiV1AppsAppIdBuildsPostJSONRequestBody defines body for CreateBuildFromUploadApiV1AppsAppIdBuildsPost for application/json ContentType.
+type CreateBuildFromUploadApiV1AppsAppIdBuildsPostJSONRequestBody = BuildCreateFromUploadRequest
+
 // CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody defines body for CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPost for application/json ContentType.
 type CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody = BuildFromUrlRequest
 
+// StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostJSONRequestBody defines body for StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPost for application/json ContentType.
+type StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostJSONRequestBody = BuildMultipartUploadStartRequest
+
 // StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody defines body for StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost for multipart/form-data ContentType.
 type StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody = BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost
+
+// CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostJSONRequestBody defines body for CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPost for application/json ContentType.
+type CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostJSONRequestBody = BuildUploadSessionRequest
 
 // UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatchJSONRequestBody defines body for UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatch for application/json ContentType.
 type UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatchJSONRequestBody = AtlasV2CurationRequest
@@ -10731,6 +11008,9 @@ type UpdateGlobalVariableValueByNameApiV1VariablesGlobalByNameVariableNamePutJSO
 
 // UpdateGlobalVariableApiV1VariablesGlobalVariableIdPutJSONRequestBody defines body for UpdateGlobalVariableApiV1VariablesGlobalVariableIdPut for application/json ContentType.
 type UpdateGlobalVariableApiV1VariablesGlobalVariableIdPutJSONRequestBody = GlobalVariableUpdate
+
+// UpsertIosStorekitConfigRefApiV1VariablesIosStorekitRefsPutJSONRequestBody defines body for UpsertIosStorekitConfigRefApiV1VariablesIosStorekitRefsPut for application/json ContentType.
+type UpsertIosStorekitConfigRefApiV1VariablesIosStorekitRefsPutJSONRequestBody = IosStoreKitConfigRefUpsertRequest
 
 // AddOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvPostJSONRequestBody defines body for AddOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvPost for application/json ContentType.
 type AddOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvPostJSONRequestBody = OrgLaunchEnvVarCreate
