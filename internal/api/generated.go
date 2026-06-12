@@ -9518,75 +9518,80 @@ type GetAppWorkspaceApiV1AppsAppIdWorkspaceGetParams struct {
 
 // CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGetParams defines parameters for CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGet.
 type CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGetParams struct {
-	LeftEntityId    string  `form:"left_entity_id" json:"left_entity_id"`
-	RightEntityId   string  `form:"right_entity_id" json:"right_entity_id"`
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	LeftEntityId       string  `form:"left_entity_id" json:"left_entity_id"`
+	RightEntityId      string  `form:"right_entity_id" json:"right_entity_id"`
+	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2EntityApiV1AtlasV2AppsAppIdEntitiesEntityIdGetParams defines parameters for GetAtlasV2EntityApiV1AtlasV2AppsAppIdEntitiesEntityIdGet.
 type GetAtlasV2EntityApiV1AtlasV2AppsAppIdEntitiesEntityIdGetParams struct {
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2EntityCandidatesApiV1AtlasV2AppsAppIdEntitiesEntityIdCandidatesGetParams defines parameters for GetAtlasV2EntityCandidatesApiV1AtlasV2AppsAppIdEntitiesEntityIdCandidatesGet.
 type GetAtlasV2EntityCandidatesApiV1AtlasV2AppsAppIdEntitiesEntityIdCandidatesGetParams struct {
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2EntityNeighborsApiV1AtlasV2AppsAppIdEntitiesEntityIdNeighborsGetParams defines parameters for GetAtlasV2EntityNeighborsApiV1AtlasV2AppsAppIdEntitiesEntityIdNeighborsGet.
 type GetAtlasV2EntityNeighborsApiV1AtlasV2AppsAppIdEntitiesEntityIdNeighborsGetParams struct {
-	Direction       *string `form:"direction,omitempty" json:"direction,omitempty"`
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Direction          *string `form:"direction,omitempty" json:"direction,omitempty"`
+	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservationsGetParams defines parameters for GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservationsGet.
 type GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservationsGetParams struct {
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGetParams defines parameters for GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGet.
@@ -9638,45 +9643,48 @@ type GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams struc
 
 // GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams defines parameters for GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGet.
 type GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams struct {
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2OverviewApiV1AtlasV2AppsAppIdOverviewGetParams defines parameters for GetAtlasV2OverviewApiV1AtlasV2AppsAppIdOverviewGet.
 type GetAtlasV2OverviewApiV1AtlasV2AppsAppIdOverviewGetParams struct {
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGetParams defines parameters for SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGet.
 type SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGetParams struct {
-	Q               string  `form:"q" json:"q"`
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Q                  string  `form:"q" json:"q"`
+	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGetParams defines parameters for GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGet.
@@ -9689,16 +9697,17 @@ type GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGetParams struct {
 
 // GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams defines parameters for GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGet.
 type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	BuildId             *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId            *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId              *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	WorkflowExecutionId *string `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
+	SourceKind          *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime            *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime              *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope        *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	IncludeVariants     *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // RunAtlasV2BackfillScopeApiV1AtlasV2BackfillJobsJobIdRunPostParams defines parameters for RunAtlasV2BackfillScopeApiV1AtlasV2BackfillJobsJobIdRunPost.

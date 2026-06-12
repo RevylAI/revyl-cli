@@ -1,12 +1,20 @@
 package main
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
@@ -22,9 +30,11 @@ var atlasCmd = &cobra.Command{
 Start with:
   revyl atlas apps
   revyl atlas map --app "My App"
-  revyl atlas audit --app "My App"
+  revyl atlas graph --app "My App" --json
   revyl atlas overview --app "My App"
-  revyl atlas search "checkout error" --app "My App"`,
+  revyl atlas search "checkout error" --app "My App"
+  revyl atlas screen <screen-id> --app "My App" --screenshots --screenshot-dir /tmp/atlas-shots`,
+	Args: cobra.NoArgs,
 	RunE: runAtlasGuide,
 }
 
@@ -46,17 +56,10 @@ var atlasMapCmd = &cobra.Command{
 	RunE:  runAtlasMap,
 }
 
-var atlasAuditCmd = &cobra.Command{
-	Use:   "audit",
-	Short: "Find user-facing app structure issues from an Atlas",
-	RunE:  runAtlasAudit,
-}
-
-var atlasAreaCmd = &cobra.Command{
-	Use:   "area <area-name>",
-	Short: "Drill into one Atlas product area",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runAtlasArea,
+var atlasGraphCmd = &cobra.Command{
+	Use:   "graph",
+	Short: "Show the exact Atlas graph payload used by the frontend",
+	RunE:  runAtlasGraph,
 }
 
 var atlasOpenCmd = &cobra.Command{
@@ -77,13 +80,6 @@ var atlasObservationsCmd = &cobra.Command{
 	Short: "List grouped screenshots for a screen",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runAtlasObservations,
-}
-
-var atlasVariantsCmd = &cobra.Command{
-	Use:   "variants <screen-id>",
-	Short: "Summarize variants for one Atlas screen",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runAtlasVariants,
 }
 
 var atlasObservationCmd = &cobra.Command{
@@ -107,13 +103,6 @@ var atlasSearchCmd = &cobra.Command{
 	RunE:  runAtlasSearch,
 }
 
-var atlasCompareCmd = &cobra.Command{
-	Use:   "compare <left-screen-id> <right-screen-id>",
-	Short: "Compare two Atlas screens",
-	Args:  cobra.ExactArgs(2),
-	RunE:  runAtlasCompare,
-}
-
 var atlasCandidatesCmd = &cobra.Command{
 	Use:   "candidates <screen-id>",
 	Short: "Show Atlas candidates and match decisions",
@@ -121,28 +110,26 @@ var atlasCandidatesCmd = &cobra.Command{
 	RunE:  runAtlasCandidates,
 }
 
-var atlasCoverageCmd = &cobra.Command{
-	Use:   "coverage",
-	Short: "Compare one report/session to its Atlas coverage",
-	RunE:  runAtlasCoverage,
-}
-
 var (
-	atlasApp             string
-	atlasBuild           string
-	atlasFrom            string
-	atlasTo              string
-	atlasSince           string
-	atlasReportID        string
-	atlasTestID          string
-	atlasSourceKind      string
-	atlasSurfaceScope    string
-	atlasVisibility      string
-	atlasIncludeVariants bool
-	atlasLimit           int
-	atlasJSON            bool
-	atlasOpenBrowser     bool
-	atlasDirection       string
+	atlasApp                 string
+	atlasBuild               string
+	atlasFrom                string
+	atlasTo                  string
+	atlasSince               string
+	atlasReportID            string
+	atlasTestID              string
+	atlasWorkflowExecutionID string
+	atlasSourceKind          string
+	atlasSurfaceScope        string
+	atlasVisibility          string
+	atlasIncludeVariants     bool
+	atlasLimit               int
+	atlasJSON                bool
+	atlasOpenBrowser         bool
+	atlasDirection           string
+	atlasAppsSearch          string
+	atlasScreenshots         bool
+	atlasScreenshotDir       string
 )
 
 const atlasStructureFetchLimit = 100
@@ -152,42 +139,35 @@ func init() {
 		atlasAppsCmd,
 		atlasOverviewCmd,
 		atlasMapCmd,
-		atlasAuditCmd,
-		atlasAreaCmd,
+		atlasGraphCmd,
 		atlasOpenCmd,
 		atlasScreenCmd,
 		atlasObservationsCmd,
-		atlasVariantsCmd,
 		atlasObservationCmd,
 		atlasNeighborsCmd,
 		atlasSearchCmd,
-		atlasCompareCmd,
 		atlasCandidatesCmd,
-		atlasCoverageCmd,
 	)
 	for _, cmd := range []*cobra.Command{
 		atlasOverviewCmd,
 		atlasMapCmd,
-		atlasAuditCmd,
-		atlasAreaCmd,
+		atlasGraphCmd,
 		atlasOpenCmd,
 		atlasScreenCmd,
 		atlasObservationsCmd,
-		atlasVariantsCmd,
 		atlasObservationCmd,
 		atlasNeighborsCmd,
 		atlasSearchCmd,
-		atlasCompareCmd,
 		atlasCandidatesCmd,
-		atlasCoverageCmd,
 	} {
 		cmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
-		cmd.Flags().StringVar(&atlasBuild, "build", "latest", "Build id, build version, latest, or all")
+		cmd.Flags().StringVar(&atlasBuild, "build", "all", "Build id, build version, latest, or all")
 		cmd.Flags().StringVar(&atlasFrom, "from", "", "Start time filter (ISO timestamp)")
 		cmd.Flags().StringVar(&atlasTo, "to", "", "End time filter (ISO timestamp)")
 		cmd.Flags().StringVar(&atlasSince, "since", "", "Relative start time hint, such as 7d (sent as-is if backend supports it)")
 		cmd.Flags().StringVar(&atlasReportID, "report-id", "", "Filter to one report")
 		cmd.Flags().StringVar(&atlasTestID, "test-id", "", "Filter to one test")
+		cmd.Flags().StringVar(&atlasWorkflowExecutionID, "workflow-execution-id", "", "Filter to one workflow execution")
 		cmd.Flags().StringVar(&atlasSourceKind, "source-kind", "", "Filter by Atlas source kind")
 		cmd.Flags().StringVar(&atlasSurfaceScope, "surface-scope", "app", "Surface scope: app, app+system, app+external, all")
 		cmd.Flags().StringVar(&atlasVisibility, "visibility", "included", "Visibility: included or included+excluded_debug")
@@ -195,39 +175,36 @@ func init() {
 		cmd.Flags().IntVar(&atlasLimit, "limit", 20, "Maximum results to return")
 		cmd.Flags().BoolVar(&atlasJSON, "json", false, "Output raw JSON")
 		cmd.Flags().BoolVar(&atlasOpenBrowser, "open", false, "Open the focused Atlas viewer URL in the browser")
+		cmd.Flags().BoolVar(&atlasScreenshots, "screenshots", false, "Include presigned screenshot URLs for visual inspection")
+		cmd.Flags().StringVar(&atlasScreenshotDir, "screenshot-dir", "", "Download Atlas screenshots into this directory and add local_screenshot_path fields")
 	}
 	atlasAppsCmd.Flags().StringVar(&appListPlatform, "platform", "", "Filter by platform (android, ios)")
+	atlasAppsCmd.Flags().StringVar(&atlasAppsSearch, "search", "", "Search by app name")
 	atlasAppsCmd.Flags().BoolVar(&atlasJSON, "json", false, "Output raw JSON")
 	atlasNeighborsCmd.Flags().StringVar(&atlasDirection, "direction", "both", "Neighbor direction: both, in, or out")
 	_ = atlasOverviewCmd.MarkFlagRequired("app")
 	_ = atlasMapCmd.MarkFlagRequired("app")
-	_ = atlasAuditCmd.MarkFlagRequired("app")
-	_ = atlasAreaCmd.MarkFlagRequired("app")
+	_ = atlasGraphCmd.MarkFlagRequired("app")
 	_ = atlasOpenCmd.MarkFlagRequired("app")
 	_ = atlasScreenCmd.MarkFlagRequired("app")
 	_ = atlasObservationsCmd.MarkFlagRequired("app")
-	_ = atlasVariantsCmd.MarkFlagRequired("app")
 	_ = atlasObservationCmd.MarkFlagRequired("app")
 	_ = atlasNeighborsCmd.MarkFlagRequired("app")
 	_ = atlasSearchCmd.MarkFlagRequired("app")
-	_ = atlasCompareCmd.MarkFlagRequired("app")
 	_ = atlasCandidatesCmd.MarkFlagRequired("app")
-	_ = atlasCoverageCmd.MarkFlagRequired("app")
 }
 
 func runAtlasGuide(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("Start with one of these:")
 	ui.PrintDim("  revyl atlas apps")
-	ui.PrintDim("  revyl atlas map --app \"My App\"")
-	ui.PrintDim("  revyl atlas audit --app \"My App\"")
 	ui.PrintDim("  revyl atlas overview --app \"My App\"")
+	ui.PrintDim("  revyl atlas map --app \"My App\"")
+	ui.PrintDim("  revyl atlas graph --app \"My App\" --json")
 	ui.PrintDim("  revyl atlas search \"checkout error\" --app \"My App\"")
 	ui.Println()
 	ui.PrintInfo("Then inspect and traverse:")
-	ui.PrintDim("  revyl atlas area Home --app \"My App\"")
-	ui.PrintDim("  revyl atlas variants <screen-id> --app \"My App\"")
-	ui.PrintDim("  revyl atlas coverage --app \"My App\" --report-id <report-id>")
 	ui.PrintDim("  revyl atlas screen <screen-id> --app \"My App\" --open")
+	ui.PrintDim("  revyl atlas screen <screen-id> --app \"My App\" --screenshots --screenshot-dir /tmp/atlas-shots")
 	ui.PrintDim("  revyl atlas observations <screen-id> --app \"My App\"")
 	ui.PrintDim("  revyl atlas neighbors <screen-id> --app \"My App\"")
 	return nil
@@ -246,10 +223,14 @@ func resolveAtlasApp(cmd *cobra.Command, client *api.Client, app string) (*api.A
 	if app == "" {
 		return nil, fmt.Errorf("--app is required")
 	}
-	apps, err := client.ListAllApps(cmd.Context(), "", 100)
+	if parsed, err := uuid.Parse(app); err == nil && strings.EqualFold(app, parsed.String()) {
+		return &api.App{ID: parsed.String(), Name: parsed.String()}, nil
+	}
+	result, err := client.SearchApps(cmd.Context(), app, "", 10)
 	if err != nil {
 		return nil, err
 	}
+	apps := result.Items
 	lower := strings.ToLower(app)
 	var exact []api.App
 	var fuzzy []api.App
@@ -321,18 +302,20 @@ func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api
 		fromTime = atlasSinceToTime(atlasSince)
 	}
 	return api.AtlasQuery{
-		AppID:           app.ID,
-		BuildID:         buildID,
-		ReportID:        atlasReportID,
-		TestID:          atlasTestID,
-		SourceKind:      atlasSourceKind,
-		FromTime:        fromTime,
-		ToTime:          atlasTo,
-		SurfaceScope:    atlasSurfaceScope,
-		Visibility:      atlasVisibility,
-		IncludeVariants: atlasIncludeVariants,
-		Limit:           atlasLimit,
-		Direction:       atlasDirection,
+		AppID:               app.ID,
+		BuildID:             buildID,
+		ReportID:            atlasReportID,
+		TestID:              atlasTestID,
+		WorkflowExecutionID: atlasWorkflowExecutionID,
+		SourceKind:          atlasSourceKind,
+		FromTime:            fromTime,
+		ToTime:              atlasTo,
+		SurfaceScope:        atlasSurfaceScope,
+		Visibility:          atlasVisibility,
+		IncludeVariants:     atlasIncludeVariants,
+		Limit:               atlasLimit,
+		Direction:           atlasDirection,
+		IncludeScreenshots:  atlasScreenshots || atlasScreenshotDir != "",
 	}, app, nil
 }
 
@@ -365,6 +348,9 @@ func atlasJSONOutput(cmd *cobra.Command) bool {
 }
 
 func printAtlasResponse(cmd *cobra.Command, title string, response api.AtlasResponse) error {
+	if err := materializeAtlasScreenshots(response); err != nil {
+		return err
+	}
 	if atlasJSONOutput(cmd) {
 		data, _ := json.MarshalIndent(response, "", "  ")
 		fmt.Println(string(data))
@@ -388,6 +374,104 @@ func printAtlasResponse(cmd *cobra.Command, title string, response api.AtlasResp
 	printAtlasCandidates(response["candidates"])
 	printAtlasNext(response["next_actions"])
 	return nil
+}
+
+func materializeAtlasScreenshots(value interface{}) error {
+	if strings.TrimSpace(atlasScreenshotDir) == "" {
+		return nil
+	}
+	if err := os.MkdirAll(atlasScreenshotDir, 0o755); err != nil {
+		return err
+	}
+	seen := map[string]string{}
+	return materializeAtlasScreenshotsValue(value, seen)
+}
+
+func materializeAtlasScreenshotsValue(value interface{}, seen map[string]string) error {
+	switch typed := value.(type) {
+	case api.AtlasResponse:
+		return materializeAtlasScreenshotsValue(map[string]interface{}(typed), seen)
+	case map[string]interface{}:
+		if rawURL := atlasString(typed, "screenshot_url"); rawURL != "" {
+			path, err := downloadAtlasScreenshot(rawURL, seen)
+			if err != nil {
+				return err
+			}
+			typed["local_screenshot_path"] = path
+		}
+		for _, child := range typed {
+			if err := materializeAtlasScreenshotsValue(child, seen); err != nil {
+				return err
+			}
+		}
+	case []interface{}:
+		for _, child := range typed {
+			if err := materializeAtlasScreenshotsValue(child, seen); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func downloadAtlasScreenshot(rawURL string, seen map[string]string) (string, error) {
+	if path, ok := seen[rawURL]; ok {
+		return path, nil
+	}
+	sum := sha1.Sum([]byte(rawURL))
+	initialExt := atlasScreenshotExtension(rawURL, "")
+	filename := fmt.Sprintf("atlas-%x%s", sum[:8], initialExt)
+	path := filepath.Join(atlasScreenshotDir, filename)
+	if _, err := os.Stat(path); err == nil {
+		seen[rawURL] = path
+		return path, nil
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(rawURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("download screenshot: %s", resp.Status)
+	}
+	finalExt := atlasScreenshotExtension(rawURL, resp.Header.Get("Content-Type"))
+	if finalExt != initialExt {
+		filename = fmt.Sprintf("atlas-%x%s", sum[:8], finalExt)
+		path = filepath.Join(atlasScreenshotDir, filename)
+		if _, err := os.Stat(path); err == nil {
+			seen[rawURL] = path
+			return path, nil
+		}
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	if _, err := io.Copy(file, io.LimitReader(resp.Body, 20<<20)); err != nil {
+		return "", err
+	}
+	seen[rawURL] = path
+	return path, nil
+}
+
+func atlasScreenshotExtension(rawURL string, contentType string) string {
+	if mediaType, _, err := mime.ParseMediaType(contentType); err == nil {
+		if exts, err := mime.ExtensionsByType(mediaType); err == nil && len(exts) > 0 {
+			switch exts[0] {
+			case ".jpg", ".jpeg", ".png", ".webp", ".gif":
+				return exts[0]
+			}
+		}
+	}
+	if parsed, err := url.Parse(rawURL); err == nil {
+		switch ext := strings.ToLower(filepath.Ext(parsed.Path)); ext {
+		case ".jpg", ".jpeg", ".png", ".webp", ".gif":
+			return ext
+		}
+	}
+	return ".img"
 }
 
 func printAtlasURL(label string, value interface{}) {
@@ -575,19 +659,29 @@ func runAtlasApps(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	apps, err := client.ListAllApps(cmd.Context(), appListPlatform, 100)
+	result, err := client.SearchApps(cmd.Context(), atlasAppsSearch, appListPlatform, 50)
 	if err != nil {
 		return err
 	}
+	apps := result.Items
 	if atlasJSONOutput(cmd) {
-		data, _ := json.MarshalIndent(apps, "", "  ")
+		data, _ := json.MarshalIndent(map[string]interface{}{
+			"apps":     apps,
+			"count":    len(apps),
+			"total":    result.Total,
+			"page":     result.Page,
+			"has_next": result.HasNext,
+		}, "", "  ")
 		fmt.Println(string(data))
 		return nil
 	}
-	ui.PrintInfo("Apps:")
+	ui.PrintInfo("Apps (%d shown, %d total):", len(apps), result.Total)
 	for _, app := range apps {
 		ui.PrintDim("  %s  %s (%s)", app.ID, app.Name, app.Platform)
 		ui.PrintDim("    revyl atlas overview --app %s", app.ID)
+	}
+	if result.HasNext {
+		ui.PrintDim("  Use revyl app list --search <name> to narrow results.")
 	}
 	return nil
 }
@@ -624,6 +718,9 @@ func runAtlasMap(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	result := buildAtlasStructureMapSummary(app, structure)
+	if err := materializeAtlasScreenshots(result); err != nil {
+		return err
+	}
 	if atlasJSONOutput(cmd) {
 		data, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(data))
@@ -631,6 +728,23 @@ func runAtlasMap(cmd *cobra.Command, args []string) error {
 	}
 	printAtlasMapSummary(result)
 	return nil
+}
+
+func runAtlasGraph(cmd *cobra.Command, args []string) error {
+	client, err := atlasClient(cmd)
+	if err != nil {
+		return err
+	}
+	query, _, err := atlasQueryFor(cmd, client)
+	if err != nil {
+		return err
+	}
+	query = atlasFrontendGraphQuery(query)
+	graph, err := client.GetAtlasGraph(cmd.Context(), query)
+	if err != nil {
+		return err
+	}
+	return printAtlasResponse(cmd, "Atlas graph", graph)
 }
 
 func runAtlasAudit(cmd *cobra.Command, args []string) error {
@@ -648,6 +762,9 @@ func runAtlasAudit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	result := buildAtlasStructureAuditSummary(app, structure)
+	if err := materializeAtlasScreenshots(result); err != nil {
+		return err
+	}
 	if atlasJSONOutput(cmd) {
 		data, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(data))
@@ -672,6 +789,9 @@ func runAtlasArea(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	result := buildAtlasStructureAreaSummary(app, structure, args[0])
+	if err := materializeAtlasScreenshots(result); err != nil {
+		return err
+	}
 	if atlasJSONOutput(cmd) {
 		data, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(data))
@@ -685,6 +805,14 @@ func atlasStructureQuery(query api.AtlasQuery) api.AtlasQuery {
 	if query.Limit < atlasStructureFetchLimit {
 		query.Limit = atlasStructureFetchLimit
 	}
+	return atlasFrontendGraphQuery(query)
+}
+
+func atlasFrontendGraphQuery(query api.AtlasQuery) api.AtlasQuery {
+	includeDetails := false
+	includeFlows := true
+	query.IncludeDetails = &includeDetails
+	query.IncludeFlows = &includeFlows
 	return query
 }
 
@@ -753,11 +881,10 @@ func runAtlasVariants(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	observations, err := client.GetAtlasEntityObservations(cmd.Context(), query, args[0])
-	if err != nil {
+	result := buildAtlasVariantSummary(screen, screen)
+	if err := materializeAtlasScreenshots(result); err != nil {
 		return err
 	}
-	result := buildAtlasVariantSummary(screen, observations)
 	if atlasJSONOutput(cmd) {
 		data, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(data))
@@ -852,8 +979,11 @@ func runAtlasCandidates(cmd *cobra.Command, args []string) error {
 }
 
 func runAtlasCoverage(cmd *cobra.Command, args []string) error {
+	if strings.TrimSpace(atlasReportID) == "" && len(args) == 1 {
+		atlasReportID = strings.TrimSpace(args[0])
+	}
 	if strings.TrimSpace(atlasReportID) == "" {
-		return fmt.Errorf("--report-id is required")
+		return fmt.Errorf("report id is required as coverage <report-id> or --report-id")
 	}
 	client, err := atlasClient(cmd)
 	if err != nil {
@@ -872,6 +1002,9 @@ func runAtlasCoverage(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	result := buildAtlasCoverageSummary(app, overview, flows, atlasReportID)
+	if err := materializeAtlasScreenshots(result); err != nil {
+		return err
+	}
 	if atlasJSONOutput(cmd) {
 		data, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(data))
@@ -1037,6 +1170,9 @@ func buildAtlasVariantSummary(screenResp, observations api.AtlasResponse) map[st
 		screen = atlasMap(screenResp["entity"])
 	}
 	groups := atlasMap(observations["groups"])
+	if len(groups) == 0 {
+		groups = atlasMap(observations["observation_groups"])
+	}
 	distinct := atlasSlice(groups["distinct"])
 	latest := atlasSlice(groups["latest"])
 	mostCommon := atlasSlice(groups["most_common"])
@@ -1115,7 +1251,7 @@ func buildAtlasCoverageSummary(app *api.App, overview, flows api.AtlasResponse, 
 		"low_support_states":  atlasTopScreens(lowSupport, 8),
 		"next_actions": []string{
 			fmt.Sprintf("revyl atlas map --app %s --report-id %s", atlasApp, reportID),
-			fmt.Sprintf("revyl atlas audit --app %s --report-id %s", atlasApp, reportID),
+			fmt.Sprintf("revyl atlas search <query> --app %s --report-id %s", atlasApp, reportID),
 		},
 	}
 }
@@ -1136,7 +1272,7 @@ func atlasStructuralIssues(screens []map[string]interface{}, stats map[string]in
 				Title:    fmt.Sprintf("Potential duplicate app screen: %s", label),
 				Detail:   "Multiple Atlas screens share the same user-facing label. If these are only scroll/content differences, the app map may be overstating distinct screens.",
 				Evidence: atlasTopScreens(group, 4),
-				Command:  atlasCompareCommand(group),
+				Command:  atlasScreenCommand(group),
 			})
 		}
 	}
@@ -1149,7 +1285,7 @@ func atlasStructuralIssues(screens []map[string]interface{}, stats map[string]in
 				Title:    fmt.Sprintf("High state variation: %s", atlasScreenLabel(screen)),
 				Detail:   "This user-facing area has many variants relative to observations. It may be a complex stateful flow, or similar content states may be split too finely.",
 				Evidence: []map[string]interface{}{atlasScreenBrief(screen)},
-				Command:  fmt.Sprintf("revyl atlas variants %s --app %s", atlasString(screen, "id"), atlasApp),
+				Command:  fmt.Sprintf("revyl atlas observations %s --app %s", atlasString(screen, "id"), atlasApp),
 			})
 		}
 		if isSystemLikeScreen(screen) {
@@ -1184,7 +1320,7 @@ func atlasStructuralIssues(screens []map[string]interface{}, stats map[string]in
 			Severity: "review",
 			Title:    "Sparse transition structure",
 			Detail:   fmt.Sprintf("Atlas has %d screens but only %d transitions. The app may be under-explored, or report sequencing may not have produced enough edges.", nodes, edges),
-			Command:  fmt.Sprintf("revyl atlas coverage --app %s --report-id <report-id>", atlasApp),
+			Command:  fmt.Sprintf("revyl atlas map --app %s", atlasApp),
 		})
 	}
 	sort.SliceStable(issues, func(i, j int) bool {
@@ -1220,7 +1356,6 @@ func printAtlasMapSummary(result map[string]interface{}) {
 		if !atlasIncludeVariants {
 			ui.PrintDim("Use --include-variants to include variant/state nodes in the map.")
 		}
-		ui.PrintDim("Use atlas audit to review possible duplicate screens or weak placements.")
 	}
 	printAtlasNext(result["next_actions"])
 }
@@ -1703,11 +1838,11 @@ func atlasFlowTouchesScreens(flow map[string]interface{}, screenIDs map[string]b
 	return false
 }
 
-func atlasCompareCommand(group []map[string]interface{}) string {
-	if len(group) < 2 {
+func atlasScreenCommand(group []map[string]interface{}) string {
+	if len(group) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("revyl atlas compare %s %s --app %s", atlasString(group[0], "id"), atlasString(group[1], "id"), atlasApp)
+	return fmt.Sprintf("revyl atlas screen %s --app %s", atlasString(group[0], "id"), atlasApp)
 }
 
 func isSystemLikeScreen(screen map[string]interface{}) bool {

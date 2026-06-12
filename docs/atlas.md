@@ -46,7 +46,41 @@ The dashboard gives you a few ways to inspect the same data:
 
 ## CLI Usage
 
-For CLI setup and command usage, see the [Atlas CLI docs on GitHub](https://github.com/RevylAI/revyl-cli/blob/main/docs/atlas.md).
+The Atlas CLI is meant to be a small product-understanding surface for coding
+agents. Start broad, then inspect screens with visual evidence.
+
+```bash
+revyl atlas apps --search "Riot"
+revyl atlas overview --app "Riot"
+revyl atlas map --app "Riot"
+revyl atlas search "settings social profile" --app "Riot" --screenshots
+revyl atlas screen <screen-id> --app "Riot" --screenshots --screenshot-dir /tmp/atlas-shots
+```
+
+Use `overview` for a compact summary of the app, `map` for the tree-style
+structure, and `graph --json` when you need the exact graph payload used by the
+frontend Atlas view.
+
+The focused inspection commands are:
+
+- `screen <screen-id>` - inspect one screen, including semantic details and sample observations.
+- `observations <screen-id>` - list grouped screenshot evidence for a screen.
+- `neighbors <screen-id>` - show incoming and outgoing screen transitions.
+- `observation <observation-id>` - inspect one screenshot observation.
+- `candidates <screen-id>` - inspect Atlas identity candidates and match decisions.
+
+Add `--screenshots` to include presigned screenshot URLs. Add
+`--screenshot-dir <dir>` to download those screenshots and include
+`local_screenshot_path` fields in JSON output.
+
+Advanced exact-data command:
+
+```bash
+revyl atlas graph --app "Riot" --json
+```
+
+`graph` returns the same canonical graph/structure payload that the frontend
+uses for the Atlas tree and graph views.
 
 ## Troubleshooting
 

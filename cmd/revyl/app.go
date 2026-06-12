@@ -81,6 +81,7 @@ var (
 
 	// app list flags
 	appListPlatform string
+	appListSearch   string
 	appListJSON     bool
 
 	// app delete flags
@@ -99,6 +100,7 @@ func init() {
 	_ = appCreateCmd.MarkFlagRequired("platform")
 
 	appListCmd.Flags().StringVar(&appListPlatform, "platform", "", "Filter by platform (android, ios)")
+	appListCmd.Flags().StringVar(&appListSearch, "search", "", "Search by app name")
 	appListCmd.Flags().BoolVar(&appListJSON, "json", false, "Output results as JSON")
 
 	appDeleteCmd.Flags().BoolVarP(&appDeleteForce, "force", "f", false, "Skip confirmation prompt")
@@ -227,7 +229,19 @@ func runAppList(cmd *cobra.Command, args []string) error {
 	if !jsonOutput {
 		ui.StartSpinner("Fetching apps...")
 	}
-	apps, err := client.ListAllApps(cmd.Context(), appListPlatform, 100)
+	var apps []api.App
+	var total int
+	if strings.TrimSpace(appListSearch) != "" {
+		result, listErr := client.SearchApps(cmd.Context(), appListSearch, appListPlatform, 100)
+		if listErr == nil {
+			apps = result.Items
+			total = result.Total
+		}
+		err = listErr
+	} else {
+		apps, err = client.ListAllApps(cmd.Context(), appListPlatform, 100)
+		total = len(apps)
+	}
 	if !jsonOutput {
 		ui.StopSpinner()
 	}
@@ -241,7 +255,7 @@ func runAppList(cmd *cobra.Command, args []string) error {
 		output := map[string]interface{}{
 			"apps":  apps,
 			"count": len(apps),
-			"total": len(apps),
+			"total": total,
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(data))
@@ -257,7 +271,7 @@ func runAppList(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.Println()
-	ui.PrintInfo("Apps (%d total):", len(apps))
+	ui.PrintInfo("Apps (%d shown, %d total):", len(apps), total)
 	ui.Println()
 
 	// Create table with dynamic column widths
@@ -419,13 +433,13 @@ func resolveAppNameOrID(cmd *cobra.Command, client *api.Client, nameOrID string)
 		}
 	}
 
-	// Search by exact name across all pages.
-	allApps, err := client.ListAllApps(cmd.Context(), "", 100)
+	// Search by exact name without scanning every app in the org.
+	result, err := client.SearchApps(cmd.Context(), nameOrID, "", 20)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to list apps: %w", err)
+		return "", "", fmt.Errorf("failed to search apps: %w", err)
 	}
 
-	match, err := selectExactNameApp(allApps, nameOrID)
+	match, err := selectExactNameApp(result.Items, nameOrID)
 	if err != nil {
 		return "", "", err
 	}

@@ -1893,21 +1893,25 @@ type App struct {
 
 // AtlasQuery carries the shared filters supported by Atlas inspection endpoints.
 type AtlasQuery struct {
-	AppID           string
-	BuildID         string
-	ReportID        string
-	TestID          string
-	SourceKind      string
-	FromTime        string
-	ToTime          string
-	SurfaceScope    string
-	Visibility      string
-	IncludeVariants bool
-	Limit           int
-	Query           string
-	Direction       string
-	LeftEntityID    string
-	RightEntityID   string
+	AppID               string
+	BuildID             string
+	ReportID            string
+	TestID              string
+	WorkflowExecutionID string
+	SourceKind          string
+	FromTime            string
+	ToTime              string
+	SurfaceScope        string
+	Visibility          string
+	IncludeVariants     bool
+	IncludeDetails      *bool
+	IncludeFlows        *bool
+	Limit               int
+	Query               string
+	Direction           string
+	LeftEntityID        string
+	RightEntityID       string
+	IncludeScreenshots  bool
 }
 
 // AtlasResponse is a generic JSON object returned by Atlas inspection endpoints.
@@ -1923,6 +1927,9 @@ func (q AtlasQuery) values() url.Values {
 	}
 	if q.TestID != "" {
 		values.Set("test_id", q.TestID)
+	}
+	if q.WorkflowExecutionID != "" {
+		values.Set("workflow_execution_id", q.WorkflowExecutionID)
 	}
 	if q.SourceKind != "" {
 		values.Set("source_kind", q.SourceKind)
@@ -1942,6 +1949,12 @@ func (q AtlasQuery) values() url.Values {
 	if q.IncludeVariants {
 		values.Set("include_variants", "true")
 	}
+	if q.IncludeDetails != nil {
+		values.Set("include_details", fmt.Sprintf("%t", *q.IncludeDetails))
+	}
+	if q.IncludeFlows != nil {
+		values.Set("include_flows", fmt.Sprintf("%t", *q.IncludeFlows))
+	}
 	if q.Limit > 0 {
 		values.Set("limit", fmt.Sprintf("%d", q.Limit))
 	}
@@ -1956,6 +1969,9 @@ func (q AtlasQuery) values() url.Values {
 	}
 	if q.RightEntityID != "" {
 		values.Set("right_entity_id", q.RightEntityID)
+	}
+	if q.IncludeScreenshots {
+		values.Set("include_screenshots", "true")
 	}
 	return values
 }
@@ -2047,6 +2063,14 @@ type CLIPaginatedAppsResponse struct {
 //   - *CLIPaginatedAppsResponse: Paginated list of apps
 //   - error: Any error that occurred
 func (c *Client) ListApps(ctx context.Context, platform string, page, pageSize int) (*CLIPaginatedAppsResponse, error) {
+	return c.listApps(ctx, platform, "", page, pageSize, true)
+}
+
+func (c *Client) SearchApps(ctx context.Context, query string, platform string, pageSize int) (*CLIPaginatedAppsResponse, error) {
+	return c.listApps(ctx, platform, query, 1, pageSize, false)
+}
+
+func (c *Client) listApps(ctx context.Context, platform string, search string, page, pageSize int, hydrateVersions bool) (*CLIPaginatedAppsResponse, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -2057,10 +2081,16 @@ func (c *Client) ListApps(ctx context.Context, platform string, page, pageSize i
 		pageSize = 100
 	}
 
-	path := fmt.Sprintf("/api/v1/builds/vars?page=%d&page_size=%d", page, pageSize)
+	values := url.Values{}
+	values.Set("page", fmt.Sprintf("%d", page))
+	values.Set("page_size", fmt.Sprintf("%d", pageSize))
 	if platform != "" {
-		path += "&platform=" + normalizePlatform(platform)
+		values.Set("platform", normalizePlatform(platform))
 	}
+	if strings.TrimSpace(search) != "" {
+		values.Set("search", strings.TrimSpace(search))
+	}
+	path := "/api/v1/builds/vars?" + values.Encode()
 
 	resp, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
@@ -2071,7 +2101,9 @@ func (c *Client) ListApps(ctx context.Context, platform string, page, pageSize i
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
-	result.Items = c.hydrateAppVersionSummaries(ctx, result.Items)
+	if hydrateVersions {
+		result.Items = c.hydrateAppVersionSummaries(ctx, result.Items)
+	}
 
 	return &result, nil
 }
