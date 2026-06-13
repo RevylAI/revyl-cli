@@ -159,6 +159,12 @@ const (
 	CompileSourceTypeSession   CompileSourceType = "session"
 )
 
+// Defines values for CreateExpoProjectRequestSyncProfileMode.
+const (
+	CreateExpoProjectRequestSyncProfileModeAll       CreateExpoProjectRequestSyncProfileMode = "all"
+	CreateExpoProjectRequestSyncProfileModeAllowlist CreateExpoProjectRequestSyncProfileMode = "allowlist"
+)
+
 // Defines values for DashboardMetricsDashboardState.
 const (
 	DashboardMetricsDashboardStateIntermediate DashboardMetricsDashboardState = "intermediate"
@@ -176,6 +182,12 @@ const (
 const (
 	EnvironmentProduction Environment = "production"
 	EnvironmentStaging    Environment = "staging"
+)
+
+// Defines values for ExpoProjectDbResponseSyncProfileMode.
+const (
+	ExpoProjectDbResponseSyncProfileModeAll       ExpoProjectDbResponseSyncProfileMode = "all"
+	ExpoProjectDbResponseSyncProfileModeAllowlist ExpoProjectDbResponseSyncProfileMode = "allowlist"
 )
 
 // Defines values for FallbackTrigger.
@@ -420,6 +432,12 @@ const (
 	TestEvalReportTestOutcomeERROR  TestEvalReportTestOutcome = "ERROR"
 	TestEvalReportTestOutcomeFAILED TestEvalReportTestOutcome = "FAILED"
 	TestEvalReportTestOutcomePASSED TestEvalReportTestOutcome = "PASSED"
+)
+
+// Defines values for UpdateExpoProjectRequestSyncProfileMode.
+const (
+	UpdateExpoProjectRequestSyncProfileModeAll       UpdateExpoProjectRequestSyncProfileMode = "all"
+	UpdateExpoProjectRequestSyncProfileModeAllowlist UpdateExpoProjectRequestSyncProfileMode = "allowlist"
 )
 
 // Defines values for UpdateSandboxRequestStatus.
@@ -2706,7 +2724,16 @@ type CreateExpoProjectRequest struct {
 
 	// ProjectName Display name for the project
 	ProjectName *string `json:"project_name"`
+
+	// SyncProfileMode Controls which EAS build profiles auto-sync. 'all' imports every eligible profile; 'allowlist' imports only synced_profiles.
+	SyncProfileMode *CreateExpoProjectRequestSyncProfileMode `json:"sync_profile_mode,omitempty"`
+
+	// SyncedProfiles EAS build profiles to auto-sync when sync_profile_mode is 'allowlist'.
+	SyncedProfiles *[]string `json:"synced_profiles"`
 }
+
+// CreateExpoProjectRequestSyncProfileMode Controls which EAS build profiles auto-sync. 'all' imports every eligible profile; 'allowlist' imports only synced_profiles.
+type CreateExpoProjectRequestSyncProfileMode string
 
 // CreateInternalSlackRuleRequest Request to create an internal notification rule.
 type CreateInternalSlackRuleRequest struct {
@@ -3500,16 +3527,26 @@ type ExpoBuildsResponse struct {
 
 // ExpoProjectDbResponse Response model for an Expo project configuration row.
 type ExpoProjectDbResponse struct {
-	AndroidAppId    *string   `json:"android_app_id"`
-	AutoSyncEnabled *bool     `json:"auto_sync_enabled,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	Id              string    `json:"id"`
-	IosAppId        *string   `json:"ios_app_id"`
-	OrgId           string    `json:"org_id"`
-	ProjectId       string    `json:"project_id"`
-	ProjectName     *string   `json:"project_name"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	AndroidAppId          *string                               `json:"android_app_id"`
+	AutoSyncEnabled       *bool                                 `json:"auto_sync_enabled,omitempty"`
+	CreatedAt             time.Time                             `json:"created_at"`
+	ExpoAccountName       *string                               `json:"expo_account_name"`
+	ExpoProjectName       *string                               `json:"expo_project_name"`
+	ExpoProjectResolvedAt *time.Time                            `json:"expo_project_resolved_at"`
+	ExpoProjectSlug       *string                               `json:"expo_project_slug"`
+	ExpoProjectUrl        *string                               `json:"expo_project_url"`
+	Id                    string                                `json:"id"`
+	IosAppId              *string                               `json:"ios_app_id"`
+	OrgId                 string                                `json:"org_id"`
+	ProjectId             string                                `json:"project_id"`
+	ProjectName           *string                               `json:"project_name"`
+	SyncProfileMode       *ExpoProjectDbResponseSyncProfileMode `json:"sync_profile_mode,omitempty"`
+	SyncedProfiles        *[]string                             `json:"synced_profiles"`
+	UpdatedAt             time.Time                             `json:"updated_at"`
 }
+
+// ExpoProjectDbResponseSyncProfileMode defines model for ExpoProjectDbResponse.SyncProfileMode.
+type ExpoProjectDbResponseSyncProfileMode string
 
 // ExpoProjectFromBuildPathRequest defines model for ExpoProjectFromBuildPathRequest.
 type ExpoProjectFromBuildPathRequest struct {
@@ -6342,6 +6379,22 @@ type ReportV3Response struct {
 	WorkflowRunId          *string                   `json:"workflow_run_id"`
 }
 
+// ResolveExpoProjectRequest defines model for ResolveExpoProjectRequest.
+type ResolveExpoProjectRequest struct {
+	// ProjectId Expo project ID (EAS project UUID)
+	ProjectId string `json:"project_id"`
+}
+
+// ResolveExpoProjectResponse defines model for ResolveExpoProjectResponse.
+type ResolveExpoProjectResponse struct {
+	ExpoAccountName       *string   `json:"expo_account_name"`
+	ExpoProjectName       *string   `json:"expo_project_name"`
+	ExpoProjectResolvedAt time.Time `json:"expo_project_resolved_at"`
+	ExpoProjectSlug       *string   `json:"expo_project_slug"`
+	ExpoProjectUrl        *string   `json:"expo_project_url"`
+	ProjectId             string    `json:"project_id"`
+}
+
 // ResolveIosStoreKitConfigResponse Response for resolving the effective iOS StoreKit config.
 type ResolveIosStoreKitConfigResponse struct {
 	Message string `json:"message"`
@@ -8155,7 +8208,16 @@ type UpdateExpoProjectRequest struct {
 
 	// ProjectName Display name for the project
 	ProjectName *string `json:"project_name"`
+
+	// SyncProfileMode Controls which EAS build profiles auto-sync. Omit to leave unchanged.
+	SyncProfileMode *UpdateExpoProjectRequestSyncProfileMode `json:"sync_profile_mode"`
+
+	// SyncedProfiles EAS build profiles to auto-sync when sync_profile_mode is 'allowlist'. Omit to leave unchanged.
+	SyncedProfiles *[]string `json:"synced_profiles"`
 }
+
+// UpdateExpoProjectRequestSyncProfileMode Controls which EAS build profiles auto-sync. Omit to leave unchanged.
+type UpdateExpoProjectRequestSyncProfileMode string
 
 // UpdateFailurePolicyRequest defines model for UpdateFailurePolicyRequest.
 type UpdateFailurePolicyRequest struct {
@@ -10819,6 +10881,9 @@ type GetExpoProjectIdsApiV1IntegrationsExpoProjectIdsPostJSONRequestBody = ExpoP
 
 // CreateExpoProjectApiV1IntegrationsExpoProjectsPostJSONRequestBody defines body for CreateExpoProjectApiV1IntegrationsExpoProjectsPost for application/json ContentType.
 type CreateExpoProjectApiV1IntegrationsExpoProjectsPostJSONRequestBody = CreateExpoProjectRequest
+
+// ResolveExpoProjectEndpointApiV1IntegrationsExpoProjectsResolvePostJSONRequestBody defines body for ResolveExpoProjectEndpointApiV1IntegrationsExpoProjectsResolvePost for application/json ContentType.
+type ResolveExpoProjectEndpointApiV1IntegrationsExpoProjectsResolvePostJSONRequestBody = ResolveExpoProjectRequest
 
 // UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPutJSONRequestBody defines body for UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPut for application/json ContentType.
 type UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPutJSONRequestBody = UpdateExpoProjectRequest
