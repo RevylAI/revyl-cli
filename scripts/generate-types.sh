@@ -16,6 +16,12 @@ OUTPUT_DIR="$PROJECT_DIR/internal/api"
 OUTPUT_FILE="$OUTPUT_DIR/generated.go"
 CACHED_SPEC="$PROJECT_DIR/openapi.json"
 PROCESSED_SPEC="/tmp/openapi-processed.json"
+FETCHED_SPEC="$(mktemp "${TMPDIR:-/tmp}/revyl-openapi.XXXXXX")"
+
+cleanup() {
+    rm -f "$FETCHED_SPEC"
+}
+trap cleanup EXIT
 
 # Resolve backend port from cognisim_backend/.env when BACKEND_URL is not set
 if [ -z "$BACKEND_URL" ]; then
@@ -49,9 +55,22 @@ fi
 mkdir -p "$OUTPUT_DIR"
 
 # Only fetch from backend if --fetch flag is passed
-if [ "$1" = "--fetch" ]; then
+if [ "${1:-}" = "--fetch" ]; then
     echo "Fetching fresh OpenAPI spec from $OPENAPI_URL..."
-    if curl -s --fail "$OPENAPI_URL" > "$CACHED_SPEC" 2>/dev/null; then
+    if curl -s --fail "$OPENAPI_URL" -o "$FETCHED_SPEC" 2>/dev/null \
+        && [ -s "$FETCHED_SPEC" ] \
+        && python3 - "$FETCHED_SPEC" >/dev/null << 'PYTHON_SCRIPT'
+import json
+import sys
+
+with open(sys.argv[1], 'r') as f:
+    spec = json.load(f)
+
+if not isinstance(spec, dict) or not spec.get('openapi') or not spec.get('paths'):
+    raise SystemExit(1)
+PYTHON_SCRIPT
+    then
+        mv "$FETCHED_SPEC" "$CACHED_SPEC"
         echo "✓ Updated cached spec: $CACHED_SPEC"
     else
         echo "✗ Failed to fetch from backend at $BACKEND_URL"
@@ -65,8 +84,8 @@ else
 fi
 
 # Check if cached spec exists
-if [ ! -f "$CACHED_SPEC" ]; then
-    echo "✗ No cached openapi.json found at $CACHED_SPEC"
+if [ ! -s "$CACHED_SPEC" ]; then
+    echo "✗ No usable cached openapi.json found at $CACHED_SPEC"
     echo ""
     echo "Options:"
     echo "  1. Run with --fetch flag (requires running backend)"
@@ -81,6 +100,7 @@ echo ""
 # - Downgrade from 3.1.0 to 3.0.3
 # - Convert nullable types from [type, null] to type with nullable: true
 echo "Processing OpenAPI spec for compatibility..."
+cd "$PROJECT_DIR"
 python3 << 'PYTHON_SCRIPT'
 import json
 import sys
@@ -205,8 +225,6 @@ with open('/tmp/openapi-processed.json', 'w') as f:
 
 print("✓ Processed spec for OpenAPI 3.0.3 compatibility")
 PYTHON_SCRIPT
-
-cd "$PROJECT_DIR"
 
 echo ""
 echo "Generating Go types..."

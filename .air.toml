@@ -15,7 +15,7 @@ tmp_dir = "tmp"
 [build]
   # Pre-build: Try to fetch fresh types from backend, fall back to cached spec
   # This allows internal devs to get fresh types while external contributors use cached
-  pre_cmd = ["./scripts/generate-types.sh --fetch 2>/dev/null || ./scripts/generate-types.sh 2>/dev/null || true"]
+  pre_cmd = ["./scripts/generate-types.sh --fetch >/dev/null 2>&1 || ./scripts/generate-types.sh >/dev/null 2>&1 || true"]
   # Build command
   cmd = "VERSION=$(cat VERSION 2>/dev/null | tr -d '[:space:]') && go build -ldflags \"-X main.version=${VERSION:-dev}\" -o ./tmp/revyl ./cmd/revyl"
   # Binary to run
