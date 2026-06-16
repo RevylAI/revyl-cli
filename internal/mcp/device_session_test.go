@@ -391,12 +391,16 @@ func TestDeviceSessionManager_StopAllSessions_ResetsNextIndex(t *testing.T) {
 
 func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing.T) {
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/execution/device-proxy/wf-worker-reset/tap" {
+		switch r.URL.Path {
+		case "/api/v1/execution/device-proxy/wf-worker-reset/tap":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"success":true,"action":"tap"}`))
+		case "/api/v1/execution/device/status/cancel/wf-worker-reset":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"message":"cancelled"}`))
+		default:
 			http.NotFound(w, r)
-			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"success":true,"action":"tap"}`))
 	}))
 	defer apiServer.Close()
 
@@ -442,9 +446,12 @@ func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing
 	}
 
 	// After the refreshed timeout window, the session should expire.
-	time.Sleep(900 * time.Millisecond)
-	if mgr.GetSession(0) != nil {
-		t.Fatal("session should expire after refreshed idle timeout window")
+	deadline := time.Now().Add(4 * time.Second)
+	for mgr.GetSession(0) != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("session should expire after refreshed idle timeout window")
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 }
 

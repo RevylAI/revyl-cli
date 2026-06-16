@@ -48,6 +48,8 @@ var (
 	runWorkflowPlatform     string
 	runWorkflowIOSAppID     string
 	runWorkflowAndroidAppID string
+	runWorkflowIOSBuild     string
+	runWorkflowAndroidBuild string
 	runHotReload            bool
 	runHotReloadPort        int
 	runHotReloadProvider    string
@@ -70,6 +72,8 @@ const (
 	runCancelRequestTimeout = 10 * time.Second
 	runForceExitCode        = 130
 )
+
+const workflowBuildVersionValidationMaxPages = 500
 
 var runInterruptExit = os.Exit
 var runTestExecution = execution.RunTest
@@ -589,6 +593,59 @@ func outputTestResultJSON(result *execution.RunTestResult) {
 	fmt.Println(string(data))
 }
 
+// validateWorkflowBuildVersion verifies that a build version exists for the given app,
+// returning a helpful error listing recent versions if it does not.
+func validateWorkflowBuildVersion(ctx context.Context, client *api.Client, appID, version, platformLabel string) error {
+	const pageSize = 100
+
+	ui.StartSpinner(fmt.Sprintf("Validating %s build version...", platformLabel))
+	found := false
+	var samples []string
+	for page := 1; !found && page <= workflowBuildVersionValidationMaxPages; page++ {
+		resp, err := client.ListBuildVersionsPage(ctx, appID, page, pageSize)
+		if err != nil {
+			ui.StopSpinner()
+			return fmt.Errorf("failed to look up %s builds for app %s: %w", platformLabel, appID, err)
+		}
+		for _, v := range resp.Items {
+			if v.Version == version {
+				found = true
+				break
+			}
+			if len(samples) < 5 {
+				samples = append(samples, v.Version)
+			}
+		}
+		if found || !hasNextWorkflowBuildVersionsPage(resp, page) {
+			break
+		}
+	}
+	ui.StopSpinner()
+
+	if found {
+		return nil
+	}
+	if len(samples) > 0 {
+		ui.PrintError("%s build version %q not found for app %s (recent versions: %s)", platformLabel, version, appID, strings.Join(samples, ", "))
+	} else {
+		ui.PrintError("%s build version %q not found for app %s (app has no builds)", platformLabel, version, appID)
+	}
+	return fmt.Errorf("invalid --%s-build version", strings.ToLower(platformLabel))
+}
+
+func hasNextWorkflowBuildVersionsPage(resp *api.BuildVersionsPage, requestedPage int) bool {
+	if resp == nil || len(resp.Items) == 0 {
+		return false
+	}
+	if resp.HasNext {
+		return true
+	}
+	if resp.TotalPages > 0 && requestedPage < resp.TotalPages {
+		return true
+	}
+	return false
+}
+
 func queueWorkflowExecution(
 	ctx context.Context,
 	apiKey string,
@@ -598,6 +655,8 @@ func queueWorkflowExecution(
 	devMode bool,
 	iosAppID string,
 	androidAppID string,
+	iosBuild string,
+	androidBuild string,
 	hasLocation bool,
 	latitude float64,
 	longitude float64,
@@ -615,14 +674,22 @@ func queueWorkflowExecution(
 			if err != nil {
 				return nil, fmt.Errorf("invalid iOS app ID %q: %w", iosAppID, err)
 			}
-			req.BuildConfig.IosBuild = &api.PlatformApp{AppId: iosUUID}
+			iosApp := &api.PlatformApp{AppId: iosUUID}
+			if iosBuild != "" {
+				iosApp.PinnedVersion = &iosBuild
+			}
+			req.BuildConfig.IosBuild = iosApp
 		}
 		if androidAppID != "" {
 			androidUUID, err := uuid.Parse(androidAppID)
 			if err != nil {
 				return nil, fmt.Errorf("invalid Android app ID %q: %w", androidAppID, err)
 			}
-			req.BuildConfig.AndroidBuild = &api.PlatformApp{AppId: androidUUID}
+			androidApp := &api.PlatformApp{AppId: androidUUID}
+			if androidBuild != "" {
+				androidApp.PinnedVersion = &androidBuild
+			}
+			req.BuildConfig.AndroidBuild = androidApp
 		}
 	}
 	if hasLocation {
@@ -734,6 +801,29 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Validate build-version overrides: app-scoped, so they require the matching app.
+	if runWorkflowIOSBuild != "" || runWorkflowAndroidBuild != "" {
+		buildClient := api.NewClientWithDevMode(apiKey, devMode)
+		if runWorkflowIOSBuild != "" {
+			if runWorkflowIOSAppID == "" {
+				ui.PrintError("--ios-build requires --ios-app")
+				return fmt.Errorf("--ios-build requires --ios-app")
+			}
+			if err := validateWorkflowBuildVersion(cmd.Context(), buildClient, runWorkflowIOSAppID, runWorkflowIOSBuild, "iOS"); err != nil {
+				return err
+			}
+		}
+		if runWorkflowAndroidBuild != "" {
+			if runWorkflowAndroidAppID == "" {
+				ui.PrintError("--android-build requires --android-app")
+				return fmt.Errorf("--android-build requires --android-app")
+			}
+			if err := validateWorkflowBuildVersion(cmd.Context(), buildClient, runWorkflowAndroidAppID, runWorkflowAndroidBuild, "Android"); err != nil {
+				return err
+			}
+		}
+	}
+
 	ui.PrintBanner(version)
 	ui.PrintInfo("Running Workflow")
 	ui.Println()
@@ -746,6 +836,12 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	}
 	if runWorkflowAndroidAppID != "" {
 		ui.PrintInfo("Android App Override: %s", runWorkflowAndroidAppID)
+	}
+	if runWorkflowIOSBuild != "" {
+		ui.PrintInfo("iOS Build Override: %s", runWorkflowIOSBuild)
+	}
+	if runWorkflowAndroidBuild != "" {
+		ui.PrintInfo("Android Build Override: %s", runWorkflowAndroidBuild)
 	}
 
 	// Parse --location flag for workflow
@@ -854,6 +950,8 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			devMode,
 			runWorkflowIOSAppID,
 			runWorkflowAndroidAppID,
+			runWorkflowIOSBuild,
+			runWorkflowAndroidBuild,
 			wfHasLocation,
 			wfLat,
 			wfLng,
@@ -911,6 +1009,8 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		MonitoringMode:   sse.MonitoringModePolling,
 		IOSAppID:         runWorkflowIOSAppID,
 		AndroidAppID:     runWorkflowAndroidAppID,
+		IOSBuild:         runWorkflowIOSBuild,
+		AndroidBuild:     runWorkflowAndroidBuild,
 		Latitude:         wfLat,
 		Longitude:        wfLng,
 		HasLocation:      wfHasLocation,

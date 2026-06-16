@@ -1,6 +1,6 @@
 {
   "name": "@revyl/cli",
-  "version": "0.1.32",
+  "version": "0.1.34",
   "description": "Revyl CLI - AI-powered mobile app testing",
   "keywords": [
     "revyl",

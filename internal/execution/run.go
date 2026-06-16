@@ -245,6 +245,8 @@ type RunWorkflowParams struct {
 	DevMode          bool
 	IOSAppID         string // Optional iOS app ID override
 	AndroidAppID     string // Optional Android app ID override
+	IOSBuild         string // Optional iOS build version to pin (requires IOSAppID)
+	AndroidBuild     string // Optional Android build version to pin (requires AndroidAppID)
 	// Location fields for initial GPS location override.
 	Latitude       float64
 	Longitude      float64
@@ -350,14 +352,22 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 			if err != nil {
 				return nil, fmt.Errorf("invalid iOS app ID %q: %w", params.IOSAppID, err)
 			}
-			req.BuildConfig.IosBuild = &api.PlatformApp{AppId: iosUUID}
+			iosApp := &api.PlatformApp{AppId: iosUUID}
+			if params.IOSBuild != "" {
+				iosApp.PinnedVersion = &params.IOSBuild
+			}
+			req.BuildConfig.IosBuild = iosApp
 		}
 		if params.AndroidAppID != "" {
 			androidUUID, err := uuid.Parse(params.AndroidAppID)
 			if err != nil {
 				return nil, fmt.Errorf("invalid Android app ID %q: %w", params.AndroidAppID, err)
 			}
-			req.BuildConfig.AndroidBuild = &api.PlatformApp{AppId: androidUUID}
+			androidApp := &api.PlatformApp{AppId: androidUUID}
+			if params.AndroidBuild != "" {
+				androidApp.PinnedVersion = &params.AndroidBuild
+			}
+			req.BuildConfig.AndroidBuild = androidApp
 		}
 	}
 	if params.HasLocation {

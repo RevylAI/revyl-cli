@@ -75,13 +75,17 @@ var workflowRunCmd = &cobra.Command{
 Use --build to build and upload before running.
 Use --ios-app / --android-app to override the app for all tests in the
 workflow (useful for testing a specific app across platforms).
+Use --ios-build / --android-build to additionally pin a specific build
+version of that app (defaults to the app's current/latest build). A pinned
+build requires the matching app override.
 
 EXAMPLES:
   revyl workflow run smoke-tests
   revyl workflow run smoke-tests --build
   revyl workflow run smoke-tests --build --platform android
   revyl workflow run smoke-tests --android-app <app-uuid>
-  revyl workflow run smoke-tests --ios-app <app-uuid> --android-app <app-uuid>`,
+  revyl workflow run smoke-tests --ios-app <app-uuid> --android-app <app-uuid>
+  revyl workflow run smoke-tests --ios-app <app-uuid> --ios-build 1.4.2`,
 	Example: `  revyl workflow run smoke-tests
   revyl workflow run smoke-tests --build
   revyl workflow run smoke-tests --json --no-wait`,
@@ -220,6 +224,8 @@ func init() {
 	workflowRunCmd.Flags().StringVar(&runWorkflowPlatform, "platform", "", "Platform to use (requires --build)")
 	workflowRunCmd.Flags().StringVar(&runWorkflowIOSAppID, "ios-app", "", "Override iOS app ID for all tests in workflow")
 	workflowRunCmd.Flags().StringVar(&runWorkflowAndroidAppID, "android-app", "", "Override Android app ID for all tests in workflow")
+	workflowRunCmd.Flags().StringVar(&runWorkflowIOSBuild, "ios-build", "", "Pin a specific iOS build version for all tests (requires --ios-app)")
+	workflowRunCmd.Flags().StringVar(&runWorkflowAndroidBuild, "android-build", "", "Pin a specific Android build version for all tests (requires --android-app)")
 	workflowRunCmd.Flags().StringVar(&runLocation, "location", "", "Override GPS location for all tests as lat,lng (e.g. 37.7749,-122.4194)")
 	analytics.MarkFlagValue(workflowRunCmd, "retries")
 	analytics.MarkFlagValue(workflowRunCmd, "no-wait")

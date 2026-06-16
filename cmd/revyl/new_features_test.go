@@ -684,6 +684,91 @@ func TestWorkflowAppSetFlags(t *testing.T) {
 	}
 }
 
+// --- Workflow run build override flag registration ---
+
+func TestWorkflowRunBuildOverrideFlags(t *testing.T) {
+	for _, name := range []string{"ios-app", "android-app", "ios-build", "android-build"} {
+		if workflowRunCmd.Flags().Lookup(name) == nil {
+			t.Errorf("expected --%s flag on workflow run", name)
+		}
+	}
+}
+
+func TestValidateWorkflowBuildVersionSearchesBeyondFiftyPages(t *testing.T) {
+	var requestedPages []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/builds/vars/app-ios/versions" {
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("page_size") != "100" {
+			t.Fatalf("page_size = %q, want 100", r.URL.Query().Get("page_size"))
+		}
+
+		page := r.URL.Query().Get("page")
+		if page == "" {
+			t.Fatal("missing page query param")
+		}
+		requestedPages = append(requestedPages, page)
+
+		hasNext := page != "51"
+		version := "other-" + page
+		if page == "51" {
+			version = "target-version"
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(
+			w,
+			`{"items":[{"version":%q}],"total":5100,"page":%s,"page_size":100,"total_pages":51,"has_next":%t,"has_previous":%t}`,
+			version,
+			page,
+			hasNext,
+			page != "1",
+		)
+	}))
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	if err := validateWorkflowBuildVersion(context.Background(), client, "app-ios", "target-version", "iOS"); err != nil {
+		t.Fatalf("validateWorkflowBuildVersion() error = %v", err)
+	}
+
+	if got := len(requestedPages); got != 51 {
+		t.Fatalf("requested %d pages, want 51", got)
+	}
+	if requestedPages[0] != "1" || requestedPages[50] != "51" {
+		t.Fatalf("requested pages first/last = %q/%q, want 1/51", requestedPages[0], requestedPages[50])
+	}
+}
+
+func TestValidateWorkflowBuildVersionStopsAtDefensivePageCap(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/builds/vars/app-ios/versions" {
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+		requestCount++
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(
+			w,
+			`{"items":[{"version":"other-%d"}],"total":999999,"page":1,"page_size":100,"total_pages":999999,"has_next":true,"has_previous":false}`,
+			requestCount,
+		)
+	}))
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	err := validateWorkflowBuildVersion(context.Background(), client, "app-ios", "target-version", "iOS")
+	if err == nil {
+		t.Fatal("validateWorkflowBuildVersion() error = nil, want invalid version error")
+	}
+
+	if requestCount != workflowBuildVersionValidationMaxPages {
+		t.Fatalf("requested %d pages, want %d", requestCount, workflowBuildVersionValidationMaxPages)
+	}
+}
+
 func TestWorkflowLocationConfigEndpointMethod(t *testing.T) {
 	var receivedMethod string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
