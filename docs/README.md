@@ -53,6 +53,11 @@ Framework-specific guides to go from repo to test results in 3 commands.
 - [Dev Loop](developer_loop/dev-loop.md) — `revyl dev` with hot reload, device interaction, test creation
 - [Dev Setup](developer_loop/dev-setup.md) — framework detection and provider configuration for Expo, React Native, Flutter, Swift, Android, KMP, Bazel
 
+## Guides
+
+- [Run your app on a cloud device](guides/run-your-app-from-anywhere.md) — use cloud development to iterate with your agent
+- [Map your app with Atlas](guides/map-your-app-with-atlas.md) — see which screens, flows, and product areas Revyl has explored
+
 ## Tests
 
 - [Your First Test](tests/first-test.md) — install, authenticate, create a YAML test, run it, view the report
