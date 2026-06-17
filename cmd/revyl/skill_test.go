@@ -300,3 +300,70 @@ func TestDefaultInstalledSkillContentIncludesNativeAgentBehavior(t *testing.T) {
 		}
 	})
 }
+
+func withoutExplicitSkillTools(t *testing.T) {
+	t.Helper()
+
+	prevCursor, prevClaude, prevCodex, prevGlobal := skillInstallCursor, skillInstallClaude, skillInstallCodex, skillInstallGlobal
+	skillInstallCursor, skillInstallClaude, skillInstallCodex, skillInstallGlobal = false, false, false, false
+	t.Cleanup(func() {
+		skillInstallCursor, skillInstallClaude, skillInstallCodex, skillInstallGlobal = prevCursor, prevClaude, prevCodex, prevGlobal
+	})
+}
+
+func detectedSkillTools(targets []skillInstallTarget) map[string]bool {
+	tools := make(map[string]bool, len(targets))
+	for _, target := range targets {
+		tools[target.tool] = true
+	}
+	return tools
+}
+
+func TestResolveInstallTargetsDetectsClaudeFromParentDir(t *testing.T) {
+	workDir := t.TempDir()
+	homeDir := t.TempDir()
+	withWorkingDir(t, workDir)
+	testutil.SetHomeDir(t, homeDir)
+	withoutExplicitSkillTools(t)
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".claude"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.claude) error = %v", err)
+	}
+
+	tools := detectedSkillTools(resolveInstallTargets())
+	if !tools["claude"] {
+		t.Fatalf("expected claude to be auto-detected from .claude/ parent dir, got %v", tools)
+	}
+	if tools["cursor"] || tools["codex"] {
+		t.Fatalf("expected only claude to be detected, got %v", tools)
+	}
+}
+
+func TestResolveInstallTargetsDetectsToolFromSkillsDir(t *testing.T) {
+	workDir := t.TempDir()
+	homeDir := t.TempDir()
+	withWorkingDir(t, workDir)
+	testutil.SetHomeDir(t, homeDir)
+	withoutExplicitSkillTools(t)
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".cursor", "skills"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.cursor/skills) error = %v", err)
+	}
+
+	tools := detectedSkillTools(resolveInstallTargets())
+	if !tools["cursor"] {
+		t.Fatalf("expected cursor to be auto-detected from .cursor/skills, got %v", tools)
+	}
+}
+
+func TestResolveInstallTargetsNoToolsReturnsNil(t *testing.T) {
+	workDir := t.TempDir()
+	homeDir := t.TempDir()
+	withWorkingDir(t, workDir)
+	testutil.SetHomeDir(t, homeDir)
+	withoutExplicitSkillTools(t)
+
+	if targets := resolveInstallTargets(); targets != nil {
+		t.Fatalf("expected no install targets when no tool dirs exist, got %v", targets)
+	}
+}

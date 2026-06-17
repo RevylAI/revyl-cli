@@ -571,13 +571,8 @@ func resolveInstallTargets() []skillInstallTarget {
 	// Auto-detect: check which tool directories exist
 	detected := make([]string, 0)
 	for _, toolName := range supportedSkillTools {
-		dirs := skillDirectories[toolName]
-		for _, dir := range dirs {
-			expanded := expandHome(dir)
-			if _, err := os.Stat(expanded); err == nil {
-				detected = append(detected, toolName)
-				break
-			}
+		if skillToolPresent(skillDirectories[toolName]) {
+			detected = append(detected, toolName)
 		}
 	}
 
@@ -586,6 +581,18 @@ func resolveInstallTargets() []skillInstallTarget {
 	}
 
 	return resolveDirectories(detected)
+}
+
+func skillToolPresent(dirs []string) bool {
+	for _, dir := range dirs {
+		expanded := expandHome(dir)
+		for _, candidate := range []string{expanded, filepath.Dir(expanded)} {
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // resolveDirectories maps tool names to their target install directories,
