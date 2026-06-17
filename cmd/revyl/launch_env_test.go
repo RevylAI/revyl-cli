@@ -48,6 +48,21 @@ func TestParseLaunchEnvVars(t *testing.T) {
 			want: map[string]string{"KEY": "  spaced value "},
 		},
 		{
+			name: "key with hyphens is allowed (android intent extra)",
+			in:   []string{"hp-skip-onboarding=true"},
+			want: map[string]string{"hp-skip-onboarding": "true"},
+		},
+		{
+			name: "namespaced key with dots is allowed",
+			in:   []string{"com.example.feature-flag=on"},
+			want: map[string]string{"com.example.feature-flag": "on"},
+		},
+		{
+			name:    "storekit key rejected for customer input (worker materializes it)",
+			in:      []string{"COGNISIM_STOREKIT_CONFIG_JSON={}"},
+			wantErr: true,
+		},
+		{
 			name:    "missing '=' is rejected",
 			in:      []string{"NOEQUALS"},
 			wantErr: true,
@@ -65,6 +80,36 @@ func TestParseLaunchEnvVars(t *testing.T) {
 		{
 			name:    "key starting with number is rejected",
 			in:      []string{"1KEY=value"},
+			wantErr: true,
+		},
+		{
+			name:    "key starting with hyphen is rejected (flag ambiguity)",
+			in:      []string{"-skip=true"},
+			wantErr: true,
+		},
+		{
+			name:    "key starting with dot is rejected",
+			in:      []string{".hidden=true"},
+			wantErr: true,
+		},
+		{
+			name:    "reserved DYLD_ key is rejected (dylib injection)",
+			in:      []string{"DYLD_INSERT_LIBRARIES=/tmp/evil.dylib"},
+			wantErr: true,
+		},
+		{
+			name:    "reserved DYLD_ key is rejected case-insensitively",
+			in:      []string{"dyld_library_path=/tmp"},
+			wantErr: true,
+		},
+		{
+			name:    "reserved SIMCTL_CHILD_ prefix is rejected",
+			in:      []string{"SIMCTL_CHILD_FOO=bar"},
+			wantErr: true,
+		},
+		{
+			name:    "reserved COGNISIM_ instrumentation key is rejected",
+			in:      []string{"COGNISIM_PASTE_SOCK=/tmp/x.sock"},
 			wantErr: true,
 		},
 	}

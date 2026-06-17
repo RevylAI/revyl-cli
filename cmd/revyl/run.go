@@ -1726,7 +1726,15 @@ func parseLaunchEnvVars(pairs []string) (map[string]string, error) {
 		}
 		if !isValidLaunchEnvKey(key) {
 			return nil, fmt.Errorf(
-				"invalid --launch-env %q: key %q must match [A-Za-z_][A-Za-z0-9_]*",
+				"invalid --launch-env %q: key %q must match [A-Za-z_][A-Za-z0-9_.-]*",
+				raw,
+				key,
+			)
+		}
+		if isReservedLaunchEnvKey(key) {
+			return nil, fmt.Errorf(
+				"invalid --launch-env %q: key %q uses a reserved prefix "+
+					"(DYLD_, SIMCTL_CHILD_, COGNISIM_) and is not allowed",
 				raw,
 				key,
 			)
@@ -1754,12 +1762,23 @@ func isValidLaunchEnvKey(key string) bool {
 			continue
 		}
 
-		if !isLetter && !isDigit && !isUnderscore {
+		isDotOrHyphen := ch == '.' || ch == '-'
+		if !isLetter && !isDigit && !isUnderscore && !isDotOrHyphen {
 			return false
 		}
 	}
 
 	return true
+}
+
+// isReservedLaunchEnvKey blocks DYLD_/SIMCTL_CHILD_/COGNISIM_ keys, which reach
+// dyld or our namespaces on the device launch path. Keep in sync with
+// cognisim_schemas/utils/launch_env.py.
+func isReservedLaunchEnvKey(key string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(key))
+	return strings.HasPrefix(upper, "DYLD_") ||
+		strings.HasPrefix(upper, "SIMCTL_CHILD_") ||
+		strings.HasPrefix(upper, "COGNISIM_")
 }
 
 // parseLocation parses a "lat,lng" string into float64 values.
