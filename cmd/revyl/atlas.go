@@ -59,7 +59,10 @@ var atlasMapCmd = &cobra.Command{
 var atlasGraphCmd = &cobra.Command{
 	Use:   "graph",
 	Short: "Show the exact Atlas graph payload used by the frontend",
-	RunE:  runAtlasGraph,
+	Example: `  revyl atlas graph --app "My App"
+  revyl atlas graph --app "My App" --screenshots --json
+  revyl atlas graph --app "My App" --screenshot-dir /tmp/atlas-shots --json`,
+	RunE: runAtlasGraph,
 }
 
 var atlasOpenCmd = &cobra.Command{
@@ -347,6 +350,10 @@ func atlasJSONOutput(cmd *cobra.Command) bool {
 	return atlasJSON || globalJSON
 }
 
+func atlasScreenshotsRequested() bool {
+	return atlasScreenshots || strings.TrimSpace(atlasScreenshotDir) != ""
+}
+
 func printAtlasResponse(cmd *cobra.Command, title string, response api.AtlasResponse) error {
 	if err := materializeAtlasScreenshots(response); err != nil {
 		return err
@@ -362,6 +369,7 @@ func printAtlasResponse(cmd *cobra.Command, title string, response api.AtlasResp
 		ui.PrintInfo("%s", title)
 	}
 	printAtlasURL("Viewer", response["viewer_url"])
+	printAtlasScreens(response["nodes"])
 	printAtlasScreens(response["top_screens"])
 	printAtlasScreens(response["results"])
 	if screen, ok := response["screen"].(map[string]interface{}); ok {
@@ -373,7 +381,39 @@ func printAtlasResponse(cmd *cobra.Command, title string, response api.AtlasResp
 	printAtlasFlows(response["flows"])
 	printAtlasCandidates(response["candidates"])
 	printAtlasNext(response["next_actions"])
+	printAtlasScreenshotHint(response)
 	return nil
+}
+
+func printAtlasScreenshotHint(response api.AtlasResponse) {
+	if atlasScreenshotsRequested() || !atlasContainsKey(response, "screenshot_s3_key") {
+		return
+	}
+	ui.Println()
+	ui.PrintDim("Screenshots are omitted by default. Re-run with --screenshots for signed URLs or --screenshot-dir <dir> to download image files.")
+}
+
+func atlasContainsKey(value interface{}, key string) bool {
+	switch typed := value.(type) {
+	case api.AtlasResponse:
+		return atlasContainsKey(map[string]interface{}(typed), key)
+	case map[string]interface{}:
+		if _, ok := typed[key]; ok {
+			return true
+		}
+		for _, child := range typed {
+			if atlasContainsKey(child, key) {
+				return true
+			}
+		}
+	case []interface{}:
+		for _, child := range typed {
+			if atlasContainsKey(child, key) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func materializeAtlasScreenshots(value interface{}) error {

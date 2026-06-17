@@ -1250,6 +1250,40 @@ type AtlasOCRSummaryStats struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// AtlasReportObservationAttachment defines model for AtlasReportObservationAttachment.
+type AtlasReportObservationAttachment struct {
+	ActionId           *string `json:"action_id"`
+	ActionIndex        *int    `json:"action_index"`
+	CanonicalEntityId  *string `json:"canonical_entity_id"`
+	DecisionId         *string `json:"decision_id"`
+	DisplayName        *string `json:"display_name"`
+	EntityId           string  `json:"entity_id"`
+	EntityKind         *string `json:"entity_kind"`
+	ExecutionId        *string `json:"execution_id"`
+	NodeEntityId       string  `json:"node_entity_id"`
+	ObservationId      string  `json:"observation_id"`
+	ReportId           string  `json:"report_id"`
+	RootEntityId       string  `json:"root_entity_id"`
+	ScreenKind         *string `json:"screen_kind"`
+	ScreenshotRole     *string `json:"screenshot_role"`
+	ScreenshotS3Bucket *string `json:"screenshot_s3_bucket"`
+	ScreenshotS3Key    *string `json:"screenshot_s3_key"`
+	SessionId          *string `json:"session_id"`
+	StepId             *string `json:"step_id"`
+	StepIndex          *int    `json:"step_index"`
+	TestId             *string `json:"test_id"`
+	VariantKind        *string `json:"variant_kind"`
+	ViewerUrl          string  `json:"viewer_url"`
+}
+
+// AtlasReportObservationAttachmentsResponse defines model for AtlasReportObservationAttachmentsResponse.
+type AtlasReportObservationAttachmentsResponse struct {
+	AppId       string                             `json:"app_id"`
+	Attachments []AtlasReportObservationAttachment `json:"attachments"`
+	BuildId     *string                            `json:"build_id"`
+	ReportId    string                             `json:"report_id"`
+}
+
 // AtlasShareLinkRequest defines model for AtlasShareLinkRequest.
 type AtlasShareLinkRequest struct {
 	BuildId         *string `json:"build_id"`
@@ -9928,6 +9962,7 @@ type GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams struct {
 	IncludeVariants     *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	IncludeDetails      *bool   `form:"include_details,omitempty" json:"include_details,omitempty"`
 	IncludeFlows        *bool   `form:"include_flows,omitempty" json:"include_flows,omitempty"`
+	IncludeScreenshots  *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
 	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
@@ -9945,6 +9980,8 @@ type GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams struc
 	IncludeVariants        *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	DetailStackLimit       *int    `form:"detail_stack_limit,omitempty" json:"detail_stack_limit,omitempty"`
 	DetailObservationLimit *int    `form:"detail_observation_limit,omitempty" json:"detail_observation_limit,omitempty"`
+	FocusObservationId     *string `form:"focus_observation_id,omitempty" json:"focus_observation_id,omitempty"`
+	IncludeScreenshots     *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
 }
 
 // GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams defines parameters for GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGet.
@@ -9975,6 +10012,11 @@ type GetAtlasV2OverviewApiV1AtlasV2AppsAppIdOverviewGetParams struct {
 	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
 	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetAtlasV2ReportAttachmentsApiV1AtlasV2AppsAppIdReportsReportIdAttachmentsGetParams defines parameters for GetAtlasV2ReportAttachmentsApiV1AtlasV2AppsAppIdReportsReportIdAttachmentsGet.
+type GetAtlasV2ReportAttachmentsApiV1AtlasV2AppsAppIdReportsReportIdAttachmentsGetParams struct {
+	BuildId *string `form:"build_id,omitempty" json:"build_id,omitempty"`
 }
 
 // SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGetParams defines parameters for SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGet.
@@ -10059,10 +10101,16 @@ type ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPostParams stru
 	XServiceKey *string `json:"x-service-key,omitempty"`
 }
 
+// GetPublicAtlasShareGraphApiV1AtlasV2ShareTokenGraphGetParams defines parameters for GetPublicAtlasShareGraphApiV1AtlasV2ShareTokenGraphGet.
+type GetPublicAtlasShareGraphApiV1AtlasV2ShareTokenGraphGetParams struct {
+	IncludeScreenshots *bool `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+}
+
 // GetPublicAtlasShareNodeDetailsApiV1AtlasV2ShareTokenNodesNodeIdDetailsGetParams defines parameters for GetPublicAtlasShareNodeDetailsApiV1AtlasV2ShareTokenNodesNodeIdDetailsGet.
 type GetPublicAtlasShareNodeDetailsApiV1AtlasV2ShareTokenNodesNodeIdDetailsGetParams struct {
-	DetailStackLimit       *int `form:"detail_stack_limit,omitempty" json:"detail_stack_limit,omitempty"`
-	DetailObservationLimit *int `form:"detail_observation_limit,omitempty" json:"detail_observation_limit,omitempty"`
+	IncludeScreenshots     *bool `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
+	DetailStackLimit       *int  `form:"detail_stack_limit,omitempty" json:"detail_stack_limit,omitempty"`
+	DetailObservationLimit *int  `form:"detail_observation_limit,omitempty" json:"detail_observation_limit,omitempty"`
 }
 
 // GetAtlasV2WorkflowForestApiV1AtlasV2WorkflowsWorkflowExecutionIdForestGetParams defines parameters for GetAtlasV2WorkflowForestApiV1AtlasV2WorkflowsWorkflowExecutionIdForestGet.
