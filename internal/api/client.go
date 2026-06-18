@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -25,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -89,6 +91,9 @@ type Client struct {
 	maxRetries     int
 	retryBaseDelay time.Duration
 	retryMaxDelay  time.Duration
+	// uploadStateDir overrides where resumable-upload records are stored.
+	// Empty resolves lazily to ~/.revyl/uploads; tests point it at a temp dir.
+	uploadStateDir string
 }
 
 // NewClient creates a new API client using the resolved backend URL.
@@ -1139,8 +1144,38 @@ func (c *Client) finalizeRowBackedUpload(ctx context.Context, req *UploadBuildRe
 // tests can lower it.
 var multipartUploadThresholdBytes int64 = 64 * 1024 * 1024
 
-// multipartUploadConcurrency is how many parts upload in parallel.
-const multipartUploadConcurrency = 4
+// defaultMultipartUploadConcurrency is how many parts upload in parallel when
+// REVYL_UPLOAD_CONCURRENCY is unset.
+const defaultMultipartUploadConcurrency = 4
+
+// maxMultipartUploadConcurrency caps REVYL_UPLOAD_CONCURRENCY so a runaway value
+// can't open thousands of simultaneous connections.
+const maxMultipartUploadConcurrency = 64
+
+// uploadMaxStallPasses is how many consecutive part-upload passes may make zero
+// progress while already at a single connection before the run gives up and
+// leaves the rest to be resumed later.
+const uploadMaxStallPasses = 3
+
+// uploadConcurrency resolves how many parts upload in parallel, honoring
+// REVYL_UPLOAD_CONCURRENCY so users on a constrained or proxied uplink can cap
+// (or serialize with =1) the simultaneous PUTs that otherwise saturate the link
+// and cause connection resets.
+func uploadConcurrency() int {
+	if v := strings.TrimSpace(os.Getenv("REVYL_UPLOAD_CONCURRENCY")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			// Clamp the upper end: an unbounded value would spawn thousands of
+			// simultaneous PUTs/goroutines and worsen the saturated-uplink
+			// failure this exists to fix.
+			if n > maxMultipartUploadConcurrency {
+				n = maxMultipartUploadConcurrency
+			}
+			return n
+		}
+		debugLogf("ignoring invalid REVYL_UPLOAD_CONCURRENCY=%q", v)
+	}
+	return defaultMultipartUploadConcurrency
+}
 
 // maxSinglePutUploadBytes is S3's hard cap on a single (non-multipart) PUT.
 // A var so tests can lower it.
@@ -1156,10 +1191,27 @@ type multipartUploadPartURL struct {
 // BuildMultipartUploadStartResponse.
 type multipartUploadStartResponse struct {
 	UploadID    string                   `json:"upload_id"`
+	S3UploadID  string                   `json:"s3_upload_id"`
 	PartSize    int64                    `json:"part_size"`
 	Parts       []multipartUploadPartURL `json:"parts"`
 	CompleteURL string                   `json:"complete_url"`
 	AbortURL    string                   `json:"abort_url"`
+}
+
+// multipartResumeResponse mirrors the backend
+// BuildMultipartUploadResumeResponse.
+type multipartResumeResponse struct {
+	UploadID      string                   `json:"upload_id"`
+	S3UploadID    string                   `json:"s3_upload_id"`
+	PartSize      int64                    `json:"part_size"`
+	Parts         []multipartUploadPartURL `json:"parts"`
+	UploadedParts []struct {
+		PartNumber int    `json:"part_number"`
+		ETag       string `json:"etag"`
+		Size       int64  `json:"size"`
+	} `json:"uploaded_parts"`
+	CompleteURL string `json:"complete_url"`
+	AbortURL    string `json:"abort_url"`
 }
 
 // multipartCompletedPart is the ETag collected for one uploaded part.
@@ -1168,13 +1220,82 @@ type multipartCompletedPart struct {
 	ETag       string
 }
 
+// multipartPlan is everything driveMultipartUpload needs to finish an upload,
+// whether it was freshly started or resumed from an earlier interruption.
+type multipartPlan struct {
+	uploadID    string
+	partSize    int64
+	parts       []multipartUploadPartURL
+	uploaded    map[int]string // part number -> ETag for parts already in S3
+	completeURL string
+	abortURL    string
+}
+
+// uploadInterruptedError marks a part-upload run that stopped before finishing
+// without an unrecoverable cause: the parts so far are safe in S3 and the
+// resume record is kept, so a re-run continues. The driver detects it to append
+// the "re-run to resume" hint exactly once.
+type uploadInterruptedError struct{ err error }
+
+func (e *uploadInterruptedError) Error() string { return e.err.Error() }
+func (e *uploadInterruptedError) Unwrap() error { return e.err }
+
+// permanentUploadError marks a part failure that re-uploading cannot fix — a
+// non-retryable S3 status, a missing ETag (a header-stripping proxy), or a part
+// out of range. The driver abandons the upload instead of looping or keeping
+// resume state, because no re-run would do better.
+type permanentUploadError struct{ err error }
+
+func (e *permanentUploadError) Error() string { return e.err.Error() }
+func (e *permanentUploadError) Unwrap() error { return e.err }
+
 // uploadBuildMultipart uploads a large artifact via S3 multipart upload into
-// the staging area: start presigns one URL per part plus complete/abort URLs,
-// parts upload in parallel with per-part retries, the parts are assembled
-// directly at S3, then finalize via createBuildFromStagedUpload. A failed or
-// abandoned upload leaves only unfinished parts that the bucket lifecycle
-// rule aborts (abort merely frees them promptly).
+// the staging area. If an earlier attempt on this exact artifact was
+// interrupted, it resumes — asking S3 which parts it already holds and
+// uploading only the rest; otherwise it starts a fresh upload. Either way it
+// records resume state before transferring any part, so a dropped connection,
+// crash, or Ctrl-C never throws away completed parts: the next run continues
+// from where it stopped.
 func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildRequest, fileName string, fileSize int64) (*UploadBuildResponse, error) {
+	fileHash, err := fileSHA256(req.FilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+	stateKey := uploadStateKey(req.AppID, req.Version, req.FilePath, fileSize)
+
+	if st := c.loadResumableUploadState(stateKey); st != nil {
+		if !st.matches(fileSize, fileHash) {
+			// The artifact was rebuilt; the parts in S3 belong to a stale
+			// build, so abandon them (lifecycle rule sweeps them) and restart.
+			debugLogf("multipart upload: artifact changed since saved upload; starting fresh")
+			c.deleteResumableUploadState(stateKey)
+		} else if st.Assembled {
+			// A prior run finished assembling the object but failed at the
+			// create call; the multipart session is gone, so skip straight to
+			// finalize rather than re-listing parts (which would 410) and
+			// re-uploading the whole artifact.
+			debugLogf("multipart upload: object already assembled; finalizing")
+			return c.finalizeStagedUpload(ctx, req, stateKey, st.UploadID)
+		} else if plan, rerr := c.resumeMultipartPlan(ctx, req, fileName, fileSize, st); rerr == nil {
+			debugLogf(
+				"multipart upload: resuming, %d/%d parts already in S3 (concurrency %d)",
+				len(plan.uploaded), len(plan.parts), uploadConcurrency(),
+			)
+			return c.driveMultipartUpload(ctx, req, fileSize, stateKey, plan)
+		} else if resumeSessionUnusable(rerr) {
+			// The stored upload can't be resumed (gone/expired, a version
+			// conflict, or parts inconsistent with the file) — discarding it and
+			// starting fresh either succeeds or surfaces the same clear error at
+			// start, instead of looping the same failure on every re-run.
+			debugLogf("multipart upload: stored upload unusable (%v); starting fresh", rerr)
+			c.deleteResumableUploadState(stateKey)
+		} else {
+			// Transient resume failure (network/5xx). Keep the state so the
+			// user can simply re-run rather than restart from zero.
+			return nil, rerr
+		}
+	}
+
 	startResp, err := c.doRequest(ctx, "POST",
 		fmt.Sprintf("/api/v1/apps/%s/builds/multipart-upload/start?source=cli_upload", req.AppID),
 		map[string]interface{}{
@@ -1214,21 +1335,172 @@ func (c *Client) uploadBuildMultipart(ctx context.Context, req *UploadBuildReque
 
 	debugLogf(
 		"multipart upload: %d parts of %d bytes (file %d bytes, concurrency %d)",
-		len(start.Parts), start.PartSize, fileSize, multipartUploadConcurrency,
+		len(start.Parts), start.PartSize, fileSize, uploadConcurrency(),
 	)
 
-	completedParts, err := c.uploadMultipartParts(ctx, req.FilePath, fileSize, &start)
+	// Persist the resume record before uploading any part so an interruption at
+	// any point is recoverable. s3_upload_id lets resume re-presign the upload.
+	c.saveResumableUploadState(stateKey, &resumableUploadState{
+		UploadID:   start.UploadID,
+		S3UploadID: start.S3UploadID,
+		AppID:      req.AppID,
+		Version:    req.Version,
+		FileName:   fileName,
+		FilePath:   req.FilePath,
+		FileSize:   fileSize,
+		FileHash:   fileHash,
+		PartSize:   start.PartSize,
+	})
+
+	return c.driveMultipartUpload(ctx, req, fileSize, stateKey, &multipartPlan{
+		uploadID:    start.UploadID,
+		partSize:    start.PartSize,
+		parts:       start.Parts,
+		completeURL: start.CompleteURL,
+		abortURL:    start.AbortURL,
+	})
+}
+
+// resumeMultipartPlan asks the backend to re-presign an interrupted upload and
+// report which parts S3 already holds. A listed part is trusted only when its
+// stored size matches what this artifact expects for that part number, so a
+// mismatched or partial part is simply re-uploaded.
+func (c *Client) resumeMultipartPlan(ctx context.Context, req *UploadBuildRequest, fileName string, fileSize int64, st *resumableUploadState) (*multipartPlan, error) {
+	resp, err := c.doRequest(ctx, "POST",
+		fmt.Sprintf("/api/v1/apps/%s/builds/multipart-upload/resume", req.AppID),
+		map[string]interface{}{
+			"upload_id":    st.UploadID,
+			"s3_upload_id": st.S3UploadID,
+			"version":      req.Version,
+			"file_name":    fileName,
+			"file_size":    fileSize,
+		})
 	if err != nil {
-		c.bestEffortAbortMultipartUpload(start.AbortURL)
 		return nil, err
 	}
-
-	if err := c.completeMultipartUploadAtS3(ctx, start.CompleteURL, completedParts); err != nil {
-		c.bestEffortAbortMultipartUpload(start.AbortURL)
+	var resume multipartResumeResponse
+	if err := parseResponse(resp, &resume); err != nil {
 		return nil, err
 	}
+	if resume.PartSize <= 0 || len(resume.Parts) == 0 || resume.CompleteURL == "" ||
+		int64(len(resume.Parts))*resume.PartSize < fileSize {
+		return nil, fmt.Errorf(
+			"multipart upload resume returned %d parts of %d bytes for a %d byte file",
+			len(resume.Parts), resume.PartSize, fileSize,
+		)
+	}
 
-	return c.createBuildFromStagedUpload(ctx, req, start.UploadID)
+	// Trust a part S3 reports only when it has a non-empty ETag and its stored
+	// size matches what this artifact expects for that part number; a mismatched,
+	// partial, or ETag-less part is dropped here so it gets re-uploaded rather
+	// than poisoning the final CompleteMultipartUpload with a bad ETag.
+	uploaded := make(map[int]string, len(resume.UploadedParts))
+	for _, p := range resume.UploadedParts {
+		if p.ETag == "" {
+			continue
+		}
+		if expected := partLength(p.PartNumber, resume.PartSize, fileSize); expected > 0 && p.Size == expected {
+			uploaded[p.PartNumber] = p.ETag
+		}
+	}
+
+	return &multipartPlan{
+		uploadID:    resume.UploadID,
+		partSize:    resume.PartSize,
+		parts:       resume.Parts,
+		uploaded:    uploaded,
+		completeURL: resume.CompleteURL,
+		abortURL:    resume.AbortURL,
+	}, nil
+}
+
+// driveMultipartUpload uploads the parts S3 doesn't already have, assembles the
+// object, finalizes the build, and clears the resume record on success. Transfer
+// failures route through classifyUploadFailure: a transient interruption keeps
+// the parts and resume record so the next run continues, while an unrecoverable
+// failure abandons the upload outright.
+func (c *Client) driveMultipartUpload(ctx context.Context, req *UploadBuildRequest, fileSize int64, stateKey string, plan *multipartPlan) (*UploadBuildResponse, error) {
+	completed, err := c.uploadMultipartParts(ctx, req.FilePath, fileSize, plan)
+	if err != nil {
+		return nil, c.classifyUploadFailure(stateKey, plan, err)
+	}
+
+	if err := c.completeMultipartUploadAtS3(ctx, plan.completeURL, completed); err != nil {
+		return nil, c.classifyUploadFailure(stateKey, plan, err)
+	}
+
+	// The object is assembled; record that so a create failure resumes at
+	// finalize instead of re-uploading everything.
+	c.markUploadAssembled(stateKey)
+	return c.finalizeStagedUpload(ctx, req, stateKey, plan.uploadID)
+}
+
+// finalizeStagedUpload turns the assembled staging object into a build and
+// clears the resume record. A failure here keeps the record (the object is
+// safe) so a re-run retries finalize directly — see the Assembled branch in
+// uploadBuildMultipart.
+func (c *Client) finalizeStagedUpload(ctx context.Context, req *UploadBuildRequest, stateKey, uploadID string) (*UploadBuildResponse, error) {
+	resp, err := c.createBuildFromStagedUpload(ctx, req, uploadID)
+	if err != nil {
+		return nil, fmt.Errorf("%w; re-run the same command to resume from where it stopped", err)
+	}
+	c.deleteResumableUploadState(stateKey)
+	return resp, nil
+}
+
+// markUploadAssembled flips the persisted resume record to the assembled phase
+// (best effort: if it can't be written, a re-run simply re-uploads as before).
+func (c *Client) markUploadAssembled(stateKey string) {
+	st := c.loadResumableUploadState(stateKey)
+	if st == nil {
+		return
+	}
+	st.Assembled = true
+	c.saveResumableUploadState(stateKey, st)
+}
+
+// classifyUploadFailure decides whether a failed transfer is resumable. A
+// permanent failure (a part or the assembly step S3 will reject on every
+// attempt) is checked first — even under cancellation — and abandons the upload
+// so a re-run starts clean instead of looping on a transfer that can never
+// finish. Anything else (a transient stall, a dropped connection, Ctrl-C) keeps
+// the parts and resume record and tells the user to re-run.
+func (c *Client) classifyUploadFailure(stateKey string, plan *multipartPlan, err error) error {
+	var permanent *permanentUploadError
+	if errors.As(err, &permanent) {
+		c.bestEffortAbortMultipartUpload(plan.abortURL)
+		c.deleteResumableUploadState(stateKey)
+		return err
+	}
+	return fmt.Errorf("%w; re-run the same command to resume from where it stopped", err)
+}
+
+// resumeSessionUnusable reports whether a resume failed for a reason that means
+// the stored upload can never be resumed: 409 (a version conflict, or parts
+// inconsistent with the file) or 410 (gone/expired). Only then should the client
+// discard its saved state and start fresh. Every other failure — a transient 4xx
+// like 401/403 (token expired mid-upload), 408/429 (timeout/rate limit), or any
+// 5xx/network error — keeps the state so a plain re-run resumes instead of
+// re-uploading from zero.
+func resumeSessionUnusable(err error) bool {
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		return false
+	}
+	return apiErr.StatusCode == http.StatusConflict || apiErr.StatusCode == http.StatusGone
+}
+
+// partLength returns the byte length of one part, accounting for the short
+// final part, or 0 if the part number is out of range for the file.
+func partLength(partNumber int, partSize, fileSize int64) int64 {
+	offset := int64(partNumber-1) * partSize
+	if offset >= fileSize {
+		return 0
+	}
+	if remaining := fileSize - offset; remaining < partSize {
+		return remaining
+	}
+	return partSize
 }
 
 // multipartCompletePartXML and multipartCompleteRequestXML form the S3
@@ -1249,8 +1521,10 @@ type multipartCompleteRequestXML struct {
 // retry whose earlier attempt already assembled the object gets NoSuchUpload
 // — treated as success, because the subsequent create call fails cleanly if
 // the staged object genuinely doesn't exist. A first-attempt NoSuchUpload
-// means the upload was aborted or expired out-of-band, which no retry can
-// fix, so it fails with the real reason.
+// means the upload was aborted or expired out-of-band, and a non-retryable
+// status (e.g. InvalidPart) means the parts list S3 holds can never assemble;
+// both are wrapped as *permanentUploadError so the caller abandons the upload
+// instead of looping a re-run that re-completes the same broken parts.
 func (c *Client) completeMultipartUploadAtS3(ctx context.Context, completeURL string, parts []multipartCompletedPart) error {
 	xmlParts := make([]multipartCompletePartXML, len(parts))
 	for i, part := range parts {
@@ -1258,12 +1532,14 @@ func (c *Client) completeMultipartUploadAtS3(ctx context.Context, completeURL st
 	}
 	body, err := xml.Marshal(multipartCompleteRequestXML{Parts: xmlParts})
 	if err != nil {
-		return fmt.Errorf("failed to encode complete multipart request: %w", err)
+		return &permanentUploadError{err: fmt.Errorf("failed to encode complete multipart request: %w", err)}
 	}
 
-	return c.retryUploadAttempts(ctx, "complete multipart upload", func(attempt int) (bool, error) {
+	var permanent bool
+	err = c.retryUploadAttempts(ctx, "complete multipart upload", func(attempt int) (bool, error) {
 		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, completeURL, bytes.NewReader(body))
 		if err != nil {
+			permanent = true
 			return true, fmt.Errorf("failed to create complete multipart request: %w", err)
 		}
 		httpReq.Header.Set("Content-Type", "application/xml")
@@ -1286,12 +1562,14 @@ func (c *Client) completeMultipartUploadAtS3(ctx context.Context, completeURL st
 			if attempt > 0 {
 				return true, nil
 			}
+			permanent = true
 			return true, fmt.Errorf(
 				"multipart upload no longer exists; it may have been aborted or expired before completion",
 			)
 		case resp.StatusCode >= 400:
 			statusErr := formatUploadStatusError(resp.StatusCode, respBody, nil)
 			if !isRetryableUploadStatus(resp.StatusCode) {
+				permanent = true
 				return true, statusErr
 			}
 			return false, statusErr
@@ -1302,88 +1580,170 @@ func (c *Client) completeMultipartUploadAtS3(ctx context.Context, completeURL st
 			)
 		}
 	})
+	if err != nil && permanent {
+		return &permanentUploadError{err: err}
+	}
+	return err
 }
 
-// uploadMultipartParts uploads every part with bounded concurrency and
-// returns their ETags sorted by part number. The first part failure cancels
-// the remaining uploads.
-func (c *Client) uploadMultipartParts(ctx context.Context, filePath string, fileSize int64, start *multipartUploadStartResponse) ([]multipartCompletedPart, error) {
+// uploadMultipartParts uploads every part not already in S3, retrying across
+// passes so a transient drop costs one part, not the whole artifact. Within a
+// pass each missing part uploads concurrently with its own retry budget and,
+// unlike a fail-fast pass, a sibling failure no longer cancels the rest — so a
+// pass makes as much forward progress as the link allows. A pass that makes no
+// progress drops to a single connection (the usual cause is a constrained or
+// proxied uplink that cannot sustain parallel PUTs); only after repeated
+// no-progress passes at one connection does the run give up, returning an
+// *uploadInterruptedError so the caller keeps the resume record. Returns all
+// parts' ETags (freshly uploaded plus pre-existing) sorted by part number.
+func (c *Client) uploadMultipartParts(ctx context.Context, filePath string, fileSize int64, plan *multipartPlan) ([]multipartCompletedPart, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
-	uploadCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	completed := make(map[int]string, len(plan.parts))
+	for partNumber, etag := range plan.uploaded {
+		completed[partNumber] = etag
+	}
 
-	parts := start.Parts
-	completed := make([]multipartCompletedPart, len(parts))
-	jobs := make(chan int)
+	concurrency := uploadConcurrency()
+	stalls := 0
+	var lastErr error
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		missing := make([]multipartUploadPartURL, 0, len(plan.parts))
+		for _, part := range plan.parts {
+			if _, done := completed[part.PartNumber]; !done {
+				missing = append(missing, part)
+			}
+		}
+		if len(missing) == 0 {
+			break
+		}
+
+		before := len(completed)
+		if passErr := c.uploadPartsPass(ctx, file, fileSize, plan.partSize, missing, concurrency, completed); passErr != nil {
+			lastErr = passErr
+			// A part that can never succeed dooms the artifact; surface it now
+			// so the caller abandons the upload rather than looping or saving
+			// resume state for a transfer no re-run could finish.
+			var pe *permanentUploadError
+			if errors.As(passErr, &pe) {
+				return nil, passErr
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		if len(completed) > before {
+			stalls = 0
+			continue
+		}
+
+		// No part landed this pass. Shed parallelism first — a single
+		// connection is far likelier to survive a saturated uplink — and only
+		// give up once even that makes no progress repeatedly.
+		if concurrency > 1 {
+			concurrency = 1
+			debugLogf("multipart upload: no progress, dropping to a single connection")
+			continue
+		}
+		stalls++
+		if stalls >= uploadMaxStallPasses {
+			if lastErr == nil {
+				lastErr = fmt.Errorf("upload stalled with %d of %d parts remaining", len(missing), len(plan.parts))
+			}
+			return nil, &uploadInterruptedError{err: lastErr}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(calculateBackoff(stalls-1, c.retryBaseDelay, c.retryMaxDelay)):
+		}
+	}
+
+	result := make([]multipartCompletedPart, 0, len(completed))
+	for partNumber, etag := range completed {
+		result = append(result, multipartCompletedPart{PartNumber: partNumber, ETag: etag})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].PartNumber < result[j].PartNumber })
+	return result, nil
+}
+
+// uploadPartsPass uploads the given missing parts with the given concurrency,
+// recording each success into completed (guarded by mu). It attempts every part
+// regardless of sibling failures and returns the last part error seen (nil if
+// all succeeded), leaving the caller to decide whether to retry the stragglers.
+func (c *Client) uploadPartsPass(ctx context.Context, file *os.File, fileSize, partSize int64, missing []multipartUploadPartURL, concurrency int, completed map[int]string) error {
+	if concurrency > len(missing) {
+		concurrency = len(missing)
+	}
+
+	jobs := make(chan multipartUploadPartURL)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var firstErr error
+	var lastErr error
+	var permErr error
 
-	fail := func(err error) {
+	record := func(err error) {
 		mu.Lock()
-		if firstErr == nil {
-			firstErr = err
+		lastErr = err
+		var pe *permanentUploadError
+		if permErr == nil && errors.As(err, &pe) {
+			permErr = err
 		}
 		mu.Unlock()
-		cancel()
 	}
 
-	workers := multipartUploadConcurrency
-	if workers > len(parts) {
-		workers = len(parts)
-	}
-	for w := 0; w < workers; w++ {
+	for w := 0; w < concurrency; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for idx := range jobs {
-				part := parts[idx]
-				offset := int64(part.PartNumber-1) * start.PartSize
-				length := start.PartSize
-				if remaining := fileSize - offset; remaining < length {
-					length = remaining
+			for part := range jobs {
+				if ctx.Err() != nil {
+					return
 				}
+				length := partLength(part.PartNumber, partSize, fileSize)
 				if length <= 0 {
-					fail(fmt.Errorf("part %d is out of range for a %d byte file", part.PartNumber, fileSize))
-					return
+					record(&permanentUploadError{err: fmt.Errorf("part %d is out of range for a %d byte file", part.PartNumber, fileSize)})
+					continue
 				}
-				etag, err := c.uploadPartWithRetry(uploadCtx, file, part, offset, length)
+				offset := int64(part.PartNumber-1) * partSize
+				etag, err := c.uploadPartWithRetry(ctx, file, part, offset, length)
 				if err != nil {
-					fail(err)
-					return
+					record(err)
+					continue
 				}
-				completed[idx] = multipartCompletedPart{PartNumber: part.PartNumber, ETag: etag}
+				mu.Lock()
+				completed[part.PartNumber] = etag
+				mu.Unlock()
 			}
 		}()
 	}
 
 dispatch:
-	for idx := range parts {
+	for _, part := range missing {
 		select {
-		case <-uploadCtx.Done():
+		case <-ctx.Done():
 			break dispatch
-		case jobs <- idx:
+		case jobs <- part:
 		}
 	}
 	close(jobs)
 	wg.Wait()
-
-	if firstErr != nil {
-		return nil, firstErr
+	// A permanent failure takes precedence: it dooms the whole upload, so the
+	// caller must see it even if a later transient failure overwrote lastErr.
+	if permErr != nil {
+		return permErr
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	sort.Slice(completed, func(i, j int) bool {
-		return completed[i].PartNumber < completed[j].PartNumber
-	})
-	return completed, nil
+	return lastErr
 }
 
 // partUploadAttemptTimeout bounds one attempt of one part PUT. The deadline
@@ -1405,6 +1765,7 @@ func partUploadAttemptTimeout(length int64) time.Duration {
 // part, not the whole artifact.
 func (c *Client) uploadPartWithRetry(ctx context.Context, file *os.File, part multipartUploadPartURL, offset, length int64) (string, error) {
 	var etag string
+	var permanent bool
 	err := c.retryUploadAttempts(ctx, fmt.Sprintf("part %d upload", part.PartNumber), func(int) (bool, error) {
 		attemptCtx, cancel := context.WithTimeout(ctx, partUploadAttemptTimeout(length))
 		defer cancel()
@@ -1413,6 +1774,7 @@ func (c *Client) uploadPartWithRetry(ctx context.Context, file *os.File, part mu
 		reader := io.NewSectionReader(file, offset, length)
 		uploadReq, err := http.NewRequestWithContext(attemptCtx, http.MethodPut, part.UploadURL, reader)
 		if err != nil {
+			permanent = true
 			return true, fmt.Errorf("failed to create part upload request: %w", err)
 		}
 		uploadReq.ContentLength = length
@@ -1436,6 +1798,7 @@ func (c *Client) uploadPartWithRetry(ctx context.Context, file *os.File, part mu
 				// part PUT, so a missing header (e.g. stripped by a proxy)
 				// will be missing on every attempt — retrying just re-uploads
 				// the part for the same outcome.
+				permanent = true
 				return true, fmt.Errorf(
 					"part %d upload returned no ETag (a proxy may be stripping response headers)",
 					part.PartNumber,
@@ -1448,11 +1811,15 @@ func (c *Client) uploadPartWithRetry(ctx context.Context, file *os.File, part mu
 		uploadResp.Body.Close()
 		statusErr := fmt.Errorf("part %d: %w", part.PartNumber, formatUploadStatusError(uploadResp.StatusCode, body, readErr))
 		if !isRetryableUploadStatus(uploadResp.StatusCode) {
+			permanent = true
 			return true, statusErr
 		}
 		return false, statusErr
 	})
 	if err != nil {
+		if permanent {
+			return "", &permanentUploadError{err: err}
+		}
 		return "", err
 	}
 	return etag, nil
