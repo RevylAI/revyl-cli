@@ -22,9 +22,10 @@ func setCIHeaders(req *http.Request) {
 	server := os.Getenv("GITHUB_SERVER_URL")
 	repo := os.Getenv("GITHUB_REPOSITORY")
 	actor := os.Getenv("GITHUB_ACTOR")
-	sha := os.Getenv("GITHUB_SHA")
 	branch := os.Getenv("GITHUB_REF_NAME")
 	runID := os.Getenv("GITHUB_RUN_ID")
+	prURL, prNum, prHeadSHA := readPullRequestFromEvent(os.Getenv("GITHUB_EVENT_PATH"))
+	sha := firstCIValue(prHeadSHA, os.Getenv("REVYL_PR_HEAD_SHA"), os.Getenv("GITHUB_SHA"))
 
 	setIf(req, "X-CI-System", "github-actions")
 	setIf(req, "X-CI-Commit-SHA", sha)
@@ -40,7 +41,6 @@ func setCIHeaders(req *http.Request) {
 		setIf(req, "X-CI-Run-URL", server+"/"+repo+"/actions/runs/"+runID)
 	}
 
-	prURL, prNum := readPullRequestFromEvent(os.Getenv("GITHUB_EVENT_PATH"))
 	setIf(req, "X-CI-PR-URL", prURL)
 	if prNum > 0 {
 		setIf(req, "X-CI-PR-Number", strconv.Itoa(prNum))
@@ -56,25 +56,37 @@ func setIf(req *http.Request, key, value string) {
 // readPullRequestFromEvent parses the GitHub event payload JSON for the
 // triggering pull request URL and number. Returns zero values for non-PR
 // events (push, schedule, workflow_dispatch) or unreadable payloads.
-func readPullRequestFromEvent(eventPath string) (string, int) {
+func readPullRequestFromEvent(eventPath string) (string, int, string) {
 	if eventPath == "" {
-		return "", 0
+		return "", 0, ""
 	}
 	data, err := os.ReadFile(eventPath)
 	if err != nil {
-		return "", 0
+		return "", 0, ""
 	}
 	var payload struct {
 		PullRequest *struct {
 			HTMLURL string `json:"html_url"`
 			Number  int    `json:"number"`
+			Head    struct {
+				SHA string `json:"sha"`
+			} `json:"head"`
 		} `json:"pull_request"`
 	}
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return "", 0
+		return "", 0, ""
 	}
 	if payload.PullRequest == nil {
-		return "", 0
+		return "", 0, ""
 	}
-	return payload.PullRequest.HTMLURL, payload.PullRequest.Number
+	return payload.PullRequest.HTMLURL, payload.PullRequest.Number, payload.PullRequest.Head.SHA
+}
+
+func firstCIValue(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

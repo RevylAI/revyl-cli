@@ -21,7 +21,7 @@ func TestSetCIHeaders_NotInActions(t *testing.T) {
 func TestSetCIHeaders_PullRequest(t *testing.T) {
 	dir := t.TempDir()
 	eventPath := filepath.Join(dir, "event.json")
-	payload := `{"pull_request":{"html_url":"https://github.com/acme/web/pull/482","number":482}}`
+	payload := `{"pull_request":{"html_url":"https://github.com/acme/web/pull/482","number":482,"head":{"sha":"true-head-sha"}}}`
 	if err := os.WriteFile(eventPath, []byte(payload), 0o600); err != nil {
 		t.Fatalf("write event: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestSetCIHeaders_PullRequest(t *testing.T) {
 
 	checks := map[string]string{
 		"X-CI-System":     "github-actions",
-		"X-CI-Commit-SHA": "9f2c1ab0",
+		"X-CI-Commit-SHA": "true-head-sha",
 		"X-CI-Branch":     "feat/cool",
 		"X-CI-Run-ID":     "12345",
 		"X-CI-Repository": "acme/web",

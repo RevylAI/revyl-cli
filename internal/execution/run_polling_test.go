@@ -94,6 +94,66 @@ func TestRunTest_PollingModeCompletesWithoutSSE(t *testing.T) {
 	}
 }
 
+func TestRunTest_ResolvesLaunchVarsIntoExecuteRequest(t *testing.T) {
+	var executeBody struct {
+		TestID          string   `json:"test_id"`
+		LaunchEnvVarIds []string `json:"launch_env_var_ids"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/variables/org_launch_env":
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %s, want GET", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"message": "ok",
+				"result": [
+					{"id": "launch-1", "key": "API_URL", "value": "https://example.test"},
+					{"id": "launch-2", "key": "SKIP_ONBOARDING", "value": "true"}
+				]
+			}`))
+		case "/api/v1/execution/api/execute_test_id_async":
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			if err := json.NewDecoder(r.Body).Decode(&executeBody); err != nil {
+				t.Fatalf("decode execute request: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"task_id":"task-test-123"}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	t.Setenv("REVYL_APP_URL", "https://app.example")
+
+	result, err := RunTest(context.Background(), "token", nil, RunTestParams{
+		TestNameOrID: "test-123",
+		NoWait:       true,
+		LaunchVars:   []string{"API_URL", "launch-2"},
+	})
+	if err != nil {
+		t.Fatalf("RunTest() error = %v", err)
+	}
+	if result.TaskID != "task-test-123" {
+		t.Fatalf("TaskID = %q, want task-test-123", result.TaskID)
+	}
+	if executeBody.TestID != "test-123" {
+		t.Fatalf("execute test_id = %q, want test-123", executeBody.TestID)
+	}
+	if len(executeBody.LaunchEnvVarIds) != 2 {
+		t.Fatalf("launch_env_var_ids = %v, want 2 IDs", executeBody.LaunchEnvVarIds)
+	}
+	if executeBody.LaunchEnvVarIds[0] != "launch-1" || executeBody.LaunchEnvVarIds[1] != "launch-2" {
+		t.Fatalf("launch_env_var_ids = %v, want [launch-1 launch-2]", executeBody.LaunchEnvVarIds)
+	}
+}
+
 func TestRunWorkflow_PollingModeCompletesWithoutSSE(t *testing.T) {
 	var sseRequested bool
 	var statusCalls int

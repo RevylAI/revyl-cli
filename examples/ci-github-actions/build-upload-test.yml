@@ -16,20 +16,28 @@ jobs:
       # - name: Build APK
       #   run: ./gradlew assembleDebug
 
+      - name: Install Revyl CLI
+        run: curl -fsSL https://revyl.com/install.sh | sh
+
       - name: Upload Build to Revyl
         id: upload
-        uses: RevylAI/revyl-gh-action/upload-build@v1
-        with:
-          build-var-id: "your-build-var-id"   # <-- replace
-          version: ${{ github.sha }}
-          file-path: ./app/build/outputs/apk/debug/app-debug.apk
+        run: |
+          revyl build upload \
+            --file ./app/build/outputs/apk/debug/app-debug.apk \
+            --app "$REVYL_ANDROID_APP_ID" \
+            --platform android \
+            --version "$REVYL_PR_HEAD_SHA" \
+            --set-current \
+            --yes \
+            --json
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+          REVYL_ANDROID_APP_ID: ${{ vars.REVYL_ANDROID_APP_ID }}
+          REVYL_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Run Tests on New Build
-        uses: RevylAI/revyl-gh-action/run-workflow@v1
-        with:
-          workflow-id: "your-workflow-id"     # <-- replace
-          build-version-id: ${{ steps.upload.outputs.version-id }}
+        run: revyl workflow run "$REVYL_WORKFLOW_ID" --android-app "$REVYL_ANDROID_APP_ID"
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+          REVYL_WORKFLOW_ID: ${{ vars.REVYL_WORKFLOW_ID }}
+          REVYL_ANDROID_APP_ID: ${{ vars.REVYL_ANDROID_APP_ID }}

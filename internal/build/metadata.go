@@ -2,6 +2,7 @@
 package build
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -100,7 +101,121 @@ func CollectMetadata(workDir, buildCommand, platform string, duration time.Durat
 		metadata["git"] = gitInfo
 	}
 
+	attachGitHubActionsMetadata(metadata, platform)
+
 	return metadata
+}
+
+// attachGitHubActionsMetadata normalizes GitHub Actions context into the
+// provider-neutral SCM metadata keys expected by Revyl's GitHub automation.
+func attachGitHubActionsMetadata(metadata map[string]interface{}, platform string) {
+	if os.Getenv("GITHUB_ACTIONS") != "true" {
+		return
+	}
+
+	event := readGitHubActionsEvent(os.Getenv("GITHUB_EVENT_PATH"))
+	repo := strings.TrimSpace(os.Getenv("GITHUB_REPOSITORY"))
+	namespace, project := splitGitHubRepository(repo)
+	headSHA := firstNonEmpty(event.PullRequest.Head.SHA, os.Getenv("REVYL_PR_HEAD_SHA"), os.Getenv("GITHUB_SHA"))
+	runURL := githubActionsRunURL(
+		os.Getenv("GITHUB_SERVER_URL"),
+		repo,
+		os.Getenv("GITHUB_RUN_ID"),
+	)
+
+	metadata["ci_system"] = "github-actions"
+	if runID := strings.TrimSpace(os.Getenv("GITHUB_RUN_ID")); runID != "" {
+		metadata["ci_run_id"] = runID
+	}
+	if runURL != "" {
+		metadata["ci_run_url"] = runURL
+	}
+	if actor := strings.TrimSpace(os.Getenv("GITHUB_ACTOR")); actor != "" {
+		metadata["ci_actor"] = actor
+	}
+	if repo != "" {
+		metadata["github_repository"] = repo
+		metadata["scm_provider"] = "github"
+		metadata["scm_repo"] = repo
+	}
+	if namespace != "" {
+		metadata["scm_namespace"] = namespace
+	}
+	if project != "" {
+		metadata["scm_project"] = project
+	}
+	if event.PullRequest.Number > 0 {
+		metadata["scm_review_number"] = event.PullRequest.Number
+		metadata["pr_number"] = event.PullRequest.Number
+	}
+	if headSHA != "" {
+		metadata["scm_head_sha"] = headSHA
+	}
+	if baseSHA := strings.TrimSpace(event.PullRequest.Base.SHA); baseSHA != "" {
+		metadata["scm_base_sha"] = baseSHA
+	}
+	if platform != "" {
+		metadata["scm_platform"] = strings.ToLower(strings.TrimSpace(platform))
+	}
+}
+
+type githubActionsEvent struct {
+	PullRequest struct {
+		HTMLURL string `json:"html_url"`
+		Number  int    `json:"number"`
+		Head    struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+		Base struct {
+			SHA string `json:"sha"`
+		} `json:"base"`
+	} `json:"pull_request"`
+}
+
+func readGitHubActionsEvent(eventPath string) githubActionsEvent {
+	var event githubActionsEvent
+	if strings.TrimSpace(eventPath) == "" {
+		return event
+	}
+	data, err := os.ReadFile(eventPath)
+	if err != nil {
+		return event
+	}
+	_ = json.Unmarshal(data, &event)
+	return event
+}
+
+func splitGitHubRepository(repo string) (string, string) {
+	repo = strings.TrimSpace(repo)
+	if repo == "" || !strings.Contains(repo, "/") {
+		return "", ""
+	}
+	parts := strings.SplitN(repo, "/", 2)
+	namespace := strings.TrimSpace(parts[0])
+	project := strings.TrimSpace(parts[1])
+	if namespace == "" || project == "" {
+		return "", ""
+	}
+	return namespace, project
+}
+
+func githubActionsRunURL(server, repo, runID string) string {
+	server = strings.TrimRight(strings.TrimSpace(server), "/")
+	repo = strings.TrimSpace(repo)
+	runID = strings.TrimSpace(runID)
+	if server == "" || repo == "" || runID == "" {
+		return ""
+	}
+	return server + "/" + repo + "/actions/runs/" + runID
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // collectGitInfo gathers git repository information.

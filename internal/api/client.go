@@ -751,6 +751,8 @@ type ExecuteTestRequest struct {
 	// LaunchURL is the deep link URL for hot reload mode.
 	// When provided, the test will launch the app via this URL instead of the normal app launch.
 	LaunchURL string `json:"launch_url,omitempty"`
+	// LaunchEnvVarIds are org launch variable IDs selected for this execution.
+	LaunchEnvVarIds []string `json:"launch_env_var_ids,omitempty"`
 	// DeviceModel overrides the target device model (e.g. "iPhone 16", "Pixel 7").
 	DeviceModel string `json:"device_model,omitempty"`
 	// OsVersion overrides the target OS runtime (e.g. "iOS 18.5", "Android 14").

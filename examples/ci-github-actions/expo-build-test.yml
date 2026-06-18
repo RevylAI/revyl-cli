@@ -23,6 +23,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Revyl CLI
+        run: curl -fsSL https://revyl.com/install.sh | sh
+
       - name: Build with EAS
         id: eas-build
         run: |
@@ -33,19 +36,25 @@ jobs:
 
       - name: Upload to Revyl
         id: upload
-        uses: RevylAI/revyl-gh-action/upload-build@v1
-        with:
-          build-var-id: "your-build-var-id"   # <-- replace
-          version: ${{ github.sha }}
-          expo-url: ${{ steps.eas-build.outputs.build-url }}
-          expo-headers: '{"Authorization": "Bearer ${{ secrets.EXPO_TOKEN }}"}'
+        run: |
+          revyl build upload \
+            --url "${{ steps.eas-build.outputs.build-url }}" \
+            --header "Authorization: Bearer $EXPO_TOKEN" \
+            --app "$REVYL_IOS_APP_ID" \
+            --platform ios \
+            --version "$REVYL_PR_HEAD_SHA" \
+            --set-current \
+            --yes \
+            --json
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+          REVYL_IOS_APP_ID: ${{ vars.REVYL_IOS_APP_ID }}
+          REVYL_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
       - name: Run Tests
-        uses: RevylAI/revyl-gh-action/run-workflow@v1
-        with:
-          workflow-id: "your-workflow-id"     # <-- replace
-          build-version-id: ${{ steps.upload.outputs.version-id }}
+        run: revyl workflow run "$REVYL_WORKFLOW_ID" --ios-app "$REVYL_IOS_APP_ID"
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+          REVYL_WORKFLOW_ID: ${{ vars.REVYL_WORKFLOW_ID }}
+          REVYL_IOS_APP_ID: ${{ vars.REVYL_IOS_APP_ID }}

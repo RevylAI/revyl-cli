@@ -60,6 +60,7 @@ var (
 	runOrientation          string
 	runFailFast             bool
 	runLaunchEnv            []string
+	runLaunchVars           []string
 )
 
 // minRetries is the minimum allowed retry count.
@@ -282,6 +283,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if runBuildID != "" {
 		ui.PrintInfo("Build Version: %s", runBuildID)
 	}
+	if len(runLaunchVars) > 0 {
+		ui.PrintInfo("Launch Vars: %s", strings.Join(runLaunchVars, ", "))
+	}
 
 	// Parse --location flag
 	var hasLocation bool
@@ -454,6 +458,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		Orientation:    runOrientation,
 		FailFast:       failFastPtr,
 		LaunchEnvVars:  launchEnvVars,
+		LaunchVars:     append([]string(nil), runLaunchVars...),
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},

@@ -15,6 +15,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/status"
 )
@@ -52,6 +53,8 @@ type RunTestParams struct {
 	// LaunchURL is the deep link URL for hot reload mode.
 	// When provided, the test will launch the app via this URL instead of the normal app launch.
 	LaunchURL string
+	// LaunchVars are org launch variable keys or IDs to apply to this run.
+	LaunchVars []string
 	// Location fields for initial GPS location at execution time.
 	Latitude    float64
 	Longitude   float64
@@ -134,14 +137,19 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 
 	// Create client and execute
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
+	launchEnvVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, client, params.LaunchVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve launch variables: %w", err)
+	}
 	req := &api.ExecuteTestRequest{
-		TestID:         testID,
-		Retries:        retries,
-		BuildVersionID: params.BuildVersionID,
-		LaunchURL:      params.LaunchURL,
-		DeviceModel:    params.DeviceModel,
-		OsVersion:      params.OsVersion,
-		LaunchEnvVars:  params.LaunchEnvVars,
+		TestID:          testID,
+		Retries:         retries,
+		BuildVersionID:  params.BuildVersionID,
+		LaunchURL:       params.LaunchURL,
+		LaunchEnvVarIds: launchEnvVarIDs,
+		DeviceModel:     params.DeviceModel,
+		OsVersion:       params.OsVersion,
+		LaunchEnvVars:   params.LaunchEnvVars,
 	}
 	if params.HasLocation || params.Orientation != "" || params.FailFast != nil {
 		runCfg := &api.CLIRunConfig{}

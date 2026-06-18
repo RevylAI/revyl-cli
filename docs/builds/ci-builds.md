@@ -21,26 +21,37 @@ revyl build upload \
   --app "My iOS App"
 ```
 
-## Pattern 2: Revyl GitHub Action
+## Pattern 2: Revyl CLI in GitHub Actions
 
-The official GitHub Action handles upload and test in one step:
+Use the CLI after your workflow builds the app. In GitHub Actions, pass the PR
+head SHA as the build version so Revyl can match the artifact back to the pull
+request.
 
 ```yaml
+- name: Install Revyl CLI
+  run: curl -fsSL https://revyl.com/install.sh | sh
+
 - name: Upload Build
   id: upload
-  uses: RevylAI/revyl-gh-action/upload-build@v1
-  with:
-    api-key: ${{ secrets.REVYL_API_KEY }}
-    build-var-id: ${{ vars.BUILD_VAR_ID }}
-    version: ${{ github.sha }}
-    file-path: ./build/app.apk
+  run: |
+    revyl build upload \
+      --file ./build/app.apk \
+      --app "$REVYL_ANDROID_APP_ID" \
+      --platform android \
+      --version "$REVYL_PR_HEAD_SHA" \
+      --set-current \
+      --yes \
+      --json
+  env:
+    REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+    REVYL_ANDROID_APP_ID: ${{ vars.REVYL_ANDROID_APP_ID }}
+    REVYL_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 - name: Run Tests
-  uses: RevylAI/revyl-gh-action/run-workflow@v1
-  with:
-    api-key: ${{ secrets.REVYL_API_KEY }}
-    workflow: smoke-tests
-    build-version-id: ${{ steps.upload.outputs.version-id }}
+  run: revyl workflow run smoke-tests --android-app "$REVYL_ANDROID_APP_ID"
+  env:
+    REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+    REVYL_ANDROID_APP_ID: ${{ vars.REVYL_ANDROID_APP_ID }}
 ```
 
 ## Pattern 3: Build on CI, Upload File

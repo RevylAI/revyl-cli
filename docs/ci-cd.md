@@ -78,53 +78,54 @@ jobs:
 
 `revyl run <workflow> -w` builds your app, uploads the artifact, and runs all tests. Use `--no-build` to skip the build step.
 
-### Option C: Use the Revyl GitHub Action
+### Option C: Use the Revyl CLI in GitHub Actions
 
 ```yaml
-- uses: RevylAI/revyl-gh-action/run-workflow@v1
-  with:
-    api-key: ${{ secrets.REVYL_API_KEY }}
-    workflow: smoke-tests
+- name: Install Revyl CLI
+  run: curl -fsSL https://revyl.com/install.sh | sh
+
+- name: Upload Android build to Revyl
+  run: |
+    revyl build upload \
+      --file ./build/app.apk \
+      --app "$REVYL_ANDROID_APP_ID" \
+      --platform android \
+      --version "$REVYL_PR_HEAD_SHA" \
+      --yes \
+      --json
+  env:
+    REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+    REVYL_ANDROID_APP_ID: ${{ vars.REVYL_ANDROID_APP_ID }}
+    REVYL_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 ```
 
-Other actions available:
-
-```yaml
-# Upload a build
-- uses: RevylAI/revyl-gh-action/upload-build@v1
-  with:
-    api-key: ${{ secrets.REVYL_API_KEY }}
-    platform: android
-
-# Run a single test
-- uses: RevylAI/revyl-gh-action/run-test@v1
-  with:
-    api-key: ${{ secrets.REVYL_API_KEY }}
-    test: login-flow
-```
-
-### Build-to-test pipeline (GitHub Action)
+### Build-to-test pipeline (GitHub Actions)
 
 Upload a build and test it in the same workflow:
 
 ```yaml
 - name: Upload Build
   id: upload
-  uses: RevylAI/revyl-gh-action/upload-build@v1
-  with:
-    build-var-id: ${{ vars.BUILD_VAR_ID }}
-    version: ${{ github.sha }}
-    file-path: ./build/app.apk
+  run: |
+    revyl build upload \
+      --file ./build/app.apk \
+      --app "$BUILD_VAR_ID" \
+      --platform android \
+      --version "$REVYL_PR_HEAD_SHA" \
+      --set-current \
+      --yes \
+      --json
   env:
     REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+    BUILD_VAR_ID: ${{ vars.BUILD_VAR_ID }}
+    REVYL_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
-- name: Run Workflow on New Build
-  uses: RevylAI/revyl-gh-action/run-workflow@v1
-  with:
-    workflow-id: ${{ vars.WORKFLOW_ID }}
-    build-version-id: ${{ steps.upload.outputs.version-id }}
+- name: Run Workflow on Current Build
+  run: revyl workflow run "$WORKFLOW_ID" --android-app "$BUILD_VAR_ID"
   env:
     REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+    WORKFLOW_ID: ${{ vars.WORKFLOW_ID }}
+    BUILD_VAR_ID: ${{ vars.BUILD_VAR_ID }}
 ```
 
 ## Step 3: Sync tests from CI
@@ -187,7 +188,7 @@ revyl workflow run regression --no-wait
 ### Version-tagged builds
 
 ```bash
-revyl build upload --platform android --version $GITHUB_SHA
+revyl build upload --platform android --version "$REVYL_PR_HEAD_SHA"
 ```
 
 ## GitLab CI
