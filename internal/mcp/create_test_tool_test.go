@@ -46,7 +46,7 @@ func TestHandleCreateTest_CreatesRunnablePayloadWithModules(t *testing.T) {
 		case "/api/v1/modules/list":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"message":"ok","result":[{"id":"mod-1","name":"login-flow","blocks":[]}]}`))
-		case "/api/v1/builds/vars":
+		case "/api/v1/apps/":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{
 				"items":[{"id":"app-yaml","name":"My Test App","platform":"ios","versions_count":2,"latest_version":"1.2.3"}],
@@ -122,7 +122,7 @@ func TestHandleCreateTest_UsesConfiguredDefaultAppWhenBuildNameIsOmitted(t *test
 		case "/api/v1/entity/users/get_user_uuid":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
-		case "/api/v1/builds/vars/app-config":
+		case "/api/v1/apps/app-config":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"app-config","name":"Configured App","platform":"ios","versions_count":3,"latest_version":"2.0.0"}`))
 		case "/api/v1/tests/create":

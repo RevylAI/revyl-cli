@@ -65,7 +65,7 @@ func TestRunTestsPush_BootstrapsConfigWithoutProjectConfig(t *testing.T) {
 		case "/api/v1/entity/users/get_user_uuid":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
-		case "/api/v1/builds/vars":
+		case "/api/v1/apps/":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"items":[{"id":"app-ios","name":"ios-test","platform":"ios","versions_count":2,"latest_version":"1.0.0"}],"total":1,"page":1,"page_size":100,"total_pages":1,"has_next":false,"has_previous":false}`))
 		case "/api/v1/tests/create":

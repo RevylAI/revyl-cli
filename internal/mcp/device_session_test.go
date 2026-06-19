@@ -895,7 +895,7 @@ func TestDeviceSessionManager_StartSession_PropagatesBuildPackageToStartDevice(t
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/builds/builds/"+buildVersionID:
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps/builds/"+buildVersionID:
 			_, _ = w.Write([]byte(`{"id":"` + buildVersionID + `","app_id":"app-123","version":"1","download_url":"` + downloadURL + `","package_name":"` + packageName + `"}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
 			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {

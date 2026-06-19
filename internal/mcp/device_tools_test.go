@@ -839,7 +839,7 @@ func TestHandleInstallApp_ResolvesBuildVersionAndTrimsBundleHint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/builds/builds/"+buildVersionID:
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps/builds/"+buildVersionID:
 			_, _ = w.Write([]byte(`{"id":"` + buildVersionID + `","version":"1","download_url":"` + downloadURL + `","package_name":"` + packageName + `"}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/device-proxy/wf-install-1/install":
 			if err := json.NewDecoder(r.Body).Decode(&capturedInstallReq); err != nil {

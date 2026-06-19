@@ -26,7 +26,7 @@ func TestCreateTest_ResolvesOrgIDBuildModulesAndCreatesRunnablePayload(t *testin
 		case "/api/v1/modules/list":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"message":"ok","result":[{"id":"mod-1","name":"login-flow","blocks":[]}]}`))
-		case "/api/v1/builds/vars":
+		case "/api/v1/apps/":
 			if got := r.URL.Query().Get("platform"); got != "iOS" {
 				t.Fatalf("platform query = %q, want iOS", got)
 			}
@@ -144,7 +144,7 @@ func TestCreateTest_AllowEmptyShellUsesExplicitAppID(t *testing.T) {
 		case "/api/v1/entity/users/get_user_uuid":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
-		case "/api/v1/builds/vars/app-123":
+		case "/api/v1/apps/app-123":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"app-123","name":"Shell App","platform":"ios","versions_count":1,"latest_version":"1.0.0"}`))
 		case "/api/v1/tests/create":
@@ -192,10 +192,10 @@ func TestCreateTest_AllowEmptyShellUsesExplicitAppID(t *testing.T) {
 func TestCreateTest_RejectsExplicitAppConflictWithYAMLBuildIntent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/builds/vars/app-explicit":
+		case "/api/v1/apps/app-explicit":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"app-explicit","name":"Explicit App","platform":"ios","versions_count":1,"latest_version":"1.0.0"}`))
-		case "/api/v1/builds/vars":
+		case "/api/v1/apps/":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{
 				"items":[{"id":"app-yaml","name":"My Test App","platform":"ios","versions_count":2,"latest_version":"1.2.3"}],
@@ -251,7 +251,7 @@ func TestCreateTest_ResolvesGlobalVariableInYAMLBuildName(t *testing.T) {
 					"updated_at":"2024-01-01T00:00:00Z"
 				}]
 			}`))
-		case "/api/v1/builds/vars":
+		case "/api/v1/apps/":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{
 				"items":[{"id":"app-trulia","name":"Trulia Android","platform":"android","versions_count":1,"latest_version":"1.0.0"}],
@@ -377,7 +377,7 @@ test:
 func TestCreateTest_UsesConfiguredDefaultAppWhenYAMLDoesNotSpecifyBuild(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/builds/vars/app-dev":
+		case "/api/v1/apps/app-dev":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"app-dev","name":"Configured App","platform":"ios","versions_count":3,"latest_version":"2.0.0"}`))
 		default:

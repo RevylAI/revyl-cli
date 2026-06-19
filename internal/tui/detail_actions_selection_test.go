@@ -295,7 +295,7 @@ func TestSyncTestActionCmd_PushConflictReturnsError(t *testing.T) {
 			_, _ = w.Write([]byte(`{"scripts":[],"count":0}`))
 		case r.URL.Path == "/api/v1/modules/list":
 			_, _ = w.Write([]byte(`{"message":"ok","result":[]}`))
-		case r.URL.Path == "/api/v1/builds/vars":
+		case r.URL.Path == "/api/v1/apps/":
 			_, _ = w.Write([]byte(`{"items":[{"id":"app-1","name":"MyApp","platform":"ios","versions_count":1,"latest_version":"1.0.0"}],"total":1,"page":1,"page_size":100,"total_pages":1,"has_next":false,"has_previous":false}`))
 		case r.URL.Path == "/api/v1/tests/update/test-1":
 			w.WriteHeader(http.StatusConflict)

@@ -292,7 +292,7 @@ func TestUpdateCreate_MissingCreatedTestShowsExplicitError(t *testing.T) {
 
 func TestUpdateCreate_ManageAppsRoutesToAppList(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/builds/vars" {
+		if r.URL.Path != "/api/v1/apps/" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")

@@ -34,7 +34,7 @@ func TestCanonicalAppName(t *testing.T) {
 
 func TestFindAppIDByNameMatchesCanonicalizedNames(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/builds/vars" {
+		if r.URL.Path != "/api/v1/apps/" {
 			http.NotFound(w, r)
 			return
 		}
@@ -64,7 +64,7 @@ func TestFindAppIDByNameMatchesCanonicalizedNames(t *testing.T) {
 
 func TestCreateOrLinkAppByNameLinksExistingOnConflict(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/builds/vars" {
+		if r.URL.Path != "/api/v1/apps/" {
 			http.NotFound(w, r)
 			return
 		}
@@ -108,7 +108,7 @@ func TestCreateOrLinkAppByNameLinksExistingOnConflict(t *testing.T) {
 
 func TestCreateOrLinkAppByNameReturnsConflictWhenNoMatchFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/builds/vars" {
+		if r.URL.Path != "/api/v1/apps/" {
 			http.NotFound(w, r)
 			return
 		}

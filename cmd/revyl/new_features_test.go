@@ -230,8 +230,8 @@ func newNewFeaturesServer(t *testing.T) *httptest.Server {
 		})
 	})
 
-	// GET /api/v1/builds/vars/{id} (GetApp)
-	mux.HandleFunc("/api/v1/builds/vars/", func(w http.ResponseWriter, r *http.Request) {
+	// GET /api/v1/apps/{id} (GetApp)
+	mux.HandleFunc("/api/v1/apps/", func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(r.URL.Path, "/")
 		appID := parts[len(parts)-1]
 		w.Header().Set("Content-Type", "application/json")
@@ -697,7 +697,7 @@ func TestWorkflowRunBuildOverrideFlags(t *testing.T) {
 func TestValidateWorkflowBuildVersionSearchesBeyondFiftyPages(t *testing.T) {
 	var requestedPages []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/builds/vars/app-ios/versions" {
+		if r.URL.Path != "/api/v1/apps/app-ios/builds" {
 			t.Fatalf("unexpected request path: %s", r.URL.Path)
 		}
 		if r.URL.Query().Get("page_size") != "100" {
@@ -744,7 +744,7 @@ func TestValidateWorkflowBuildVersionSearchesBeyondFiftyPages(t *testing.T) {
 func TestValidateWorkflowBuildVersionStopsAtDefensivePageCap(t *testing.T) {
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/builds/vars/app-ios/versions" {
+		if r.URL.Path != "/api/v1/apps/app-ios/builds" {
 			t.Fatalf("unexpected request path: %s", r.URL.Path)
 		}
 		requestCount++

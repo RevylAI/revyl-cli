@@ -1044,7 +1044,7 @@ func artifactValidationWarnings(metadata map[string]interface{}) []string {
 
 func (c *Client) uploadBuildLegacyPresigned(ctx context.Context, req *UploadBuildRequest, fileName string) (*UploadBuildResponse, error) {
 	uploadURLPath := fmt.Sprintf(
-		"/api/v1/builds/vars/%s/versions/upload-url?version=%s&file_name=%s&source=cli_upload",
+		"/api/v1/apps/%s/builds/upload-url?version=%s&file_name=%s&source=cli_upload",
 		req.AppID,
 		url.QueryEscape(req.Version),
 		url.QueryEscape(fileName),
@@ -1088,7 +1088,7 @@ func (c *Client) uploadBuildLegacyPresigned(ctx context.Context, req *UploadBuil
 // uploading; on any failure the pending row is deleted best-effort.
 func (c *Client) finalizeRowBackedUpload(ctx context.Context, req *UploadBuildRequest, versionID string) (*UploadBuildResponse, error) {
 	extractResp, err := c.doRequest(ctx, "POST",
-		fmt.Sprintf("/api/v1/builds/versions/%s/extract-package-id", versionID),
+		fmt.Sprintf("/api/v1/apps/builds/%s/extract-package-id", versionID),
 		nil)
 	if err != nil {
 		c.bestEffortDeleteBuildVersion(versionID)
@@ -1115,7 +1115,7 @@ func (c *Client) finalizeRowBackedUpload(ctx context.Context, req *UploadBuildRe
 	metadata["package_id"] = extractResult.PackageID
 
 	completeResp, err := c.doRequest(ctx, "POST",
-		fmt.Sprintf("/api/v1/builds/versions/%s/complete-upload", versionID),
+		fmt.Sprintf("/api/v1/apps/builds/%s/complete-upload", versionID),
 		map[string]interface{}{
 			"version_id":     versionID,
 			"metadata":       metadata,
@@ -2091,7 +2091,7 @@ type CreateBuildFromURLResponse struct {
 //   - *CreateBuildFromURLResponse: The created build version info
 //   - error: Any error (502 if the backend cannot fetch the URL, 409 if version exists and is not idempotent)
 func (c *Client) CreateBuildFromURL(ctx context.Context, req *CreateBuildFromURLRequest) (*CreateBuildFromURLResponse, error) {
-	path := fmt.Sprintf("/api/v1/builds/%s/builds/from-url", req.AppID)
+	path := fmt.Sprintf("/api/v1/apps/%s/builds/from-url", req.AppID)
 
 	resp, err := c.doRequest(ctx, "POST", path, req)
 	if err != nil {
@@ -2264,7 +2264,7 @@ func (c *Client) ListBuildVersionsPage(ctx context.Context, appID string, page i
 	}
 
 	resp, err := c.doRequest(ctx, "GET",
-		fmt.Sprintf("/api/v1/builds/vars/%s/versions?page=%d&page_size=%d", appID, page, pageSize), nil)
+		fmt.Sprintf("/api/v1/apps/%s/builds?page=%d&page_size=%d", appID, page, pageSize), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2984,7 +2984,7 @@ func (c *Client) listApps(ctx context.Context, platform string, search string, p
 	if strings.TrimSpace(search) != "" {
 		values.Set("search", strings.TrimSpace(search))
 	}
-	path := "/api/v1/builds/vars?" + values.Encode()
+	path := "/api/v1/apps/?" + values.Encode()
 
 	resp, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
@@ -3103,7 +3103,7 @@ func appNeedsVersionSummaryHydration(app App) bool {
 //   - error: Any error that occurred
 func (c *Client) GetApp(ctx context.Context, appID string) (*App, error) {
 	resp, err := c.doRequest(ctx, "GET",
-		fmt.Sprintf("/api/v1/builds/vars/%s", appID), nil)
+		fmt.Sprintf("/api/v1/apps/%s", appID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -3158,7 +3158,7 @@ func (c *Client) CreateApp(ctx context.Context, req *CreateAppRequest) (*CreateA
 		Description: req.Description,
 	}
 
-	resp, err := c.doRequest(ctx, "POST", "/api/v1/builds/vars", normalizedReq)
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/apps/", normalizedReq)
 	if err != nil {
 		return nil, err
 	}
@@ -3691,7 +3691,7 @@ type BuildVersionDetail struct {
 //   - error: Any error that occurred (404 if not found, 403 if not authorized)
 func (c *Client) GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*BuildVersionDetail, error) {
 	resp, err := c.doRequest(ctx, "GET",
-		fmt.Sprintf("/api/v1/builds/builds/%s?include_download_url=true", versionID), nil)
+		fmt.Sprintf("/api/v1/apps/builds/%s?include_download_url=true", versionID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -4147,7 +4147,7 @@ type CLIDeleteAppResponse struct {
 //   - error: Any error that occurred (404 if not found, 403 if not authorized)
 func (c *Client) DeleteApp(ctx context.Context, appID string) (*CLIDeleteAppResponse, error) {
 	resp, err := c.doRequest(ctx, "DELETE",
-		fmt.Sprintf("/api/v1/builds/vars/%s", appID), nil)
+		fmt.Sprintf("/api/v1/apps/%s", appID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -5174,7 +5174,7 @@ func (c *Client) GetDeviceSessionHistory(ctx context.Context, limit, offset int)
 //   - error: Any error that occurred (404 if not found, 403 if not authorized)
 func (c *Client) DeleteBuildVersion(ctx context.Context, versionID string) (*DeleteBuildVersionResponse, error) {
 	resp, err := c.doRequest(ctx, "DELETE",
-		fmt.Sprintf("/api/v1/builds/versions/%s", versionID), nil)
+		fmt.Sprintf("/api/v1/apps/builds/%s", versionID), nil)
 	if err != nil {
 		return nil, err
 	}

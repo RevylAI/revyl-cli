@@ -264,7 +264,7 @@ func TestUploadBuild_FallsBackToLegacyPresignedFlow(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/apps/app-1/builds/upload-session":
 			http.Error(w, "not found", http.StatusNotFound)
-		case "/api/v1/builds/vars/app-1/versions/upload-url":
+		case "/api/v1/apps/app-1/builds/upload-url":
 			legacyPresignCalled = true
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(
@@ -272,10 +272,10 @@ func TestUploadBuild_FallsBackToLegacyPresignedFlow(t *testing.T) {
 				`{"version_id":"legacy-ver-1","version":"v1","upload_url":"%s/upload","content_type":"application/vnd.android.package-archive"}`,
 				uploadServer.URL,
 			)
-		case "/api/v1/builds/versions/legacy-ver-1/extract-package-id":
+		case "/api/v1/apps/builds/legacy-ver-1/extract-package-id":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"package_id":"com.example.legacy"}`))
-		case "/api/v1/builds/versions/legacy-ver-1/complete-upload":
+		case "/api/v1/apps/builds/legacy-ver-1/complete-upload":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"version":"v1"}`))
 		default:
@@ -518,7 +518,7 @@ func TestUploadBuild_CancelledDuringRetryBackoff(t *testing.T) {
 func TestCreateBuildFromURL_Success(t *testing.T) {
 	var capturedBody map[string]interface{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/builds/app-1/builds/from-url" {
+		if r.URL.Path != "/api/v1/apps/app-1/builds/from-url" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		if r.Method != http.MethodPost {
@@ -719,7 +719,7 @@ func TestDoRequestWithRetry_ReturnsFinalRetryableResponseWithReadableBody(t *tes
 func TestListApps_HydratesMissingVersionSummaries(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/builds/vars":
+		case "/api/v1/apps/":
 			if r.Method != http.MethodGet {
 				t.Fatalf("unexpected method for list apps: %s", r.Method)
 			}
@@ -736,7 +736,7 @@ func TestListApps_HydratesMissingVersionSummaries(t *testing.T) {
 				"has_next": false,
 				"has_previous": false
 			}`))
-		case "/api/v1/builds/vars/app-1/versions":
+		case "/api/v1/apps/app-1/builds":
 			if got := r.URL.Query().Get("page"); got != "1" {
 				t.Fatalf("unexpected page query for app-1 versions: %q", got)
 			}
@@ -786,7 +786,7 @@ func TestListAllApps_PaginatesAcrossAllPages(t *testing.T) {
 	var requestedPages []string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/builds/vars" {
+		if r.URL.Path != "/api/v1/apps/" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		if r.Method != http.MethodGet {
@@ -845,7 +845,7 @@ func TestListAllApps_PaginatesAcrossAllPages(t *testing.T) {
 func TestGetApp_HydratesMissingVersionSummaries(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/builds/vars/app-1":
+		case "/api/v1/apps/app-1":
 			if r.Method != http.MethodGet {
 				t.Fatalf("unexpected method for get app: %s", r.Method)
 			}
@@ -856,7 +856,7 @@ func TestGetApp_HydratesMissingVersionSummaries(t *testing.T) {
 				"platform":"ios",
 				"versions_count":0
 			}`))
-		case "/api/v1/builds/vars/app-1/versions":
+		case "/api/v1/apps/app-1/builds":
 			if got := r.URL.Query().Get("page"); got != "1" {
 				t.Fatalf("unexpected page query for app-1 versions: %q", got)
 			}

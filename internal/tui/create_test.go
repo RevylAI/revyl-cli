@@ -20,10 +20,10 @@ func TestCreateTestCmd_UsesSelectedAppAndCreatesEmptyShell(t *testing.T) {
 	sawCreate := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/builds/vars/app-ios":
+		case "/api/v1/apps/app-ios":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"app-ios","name":"Shell App","platform":"ios","versions_count":0}`))
-		case "/api/v1/builds/vars/app-ios/versions":
+		case "/api/v1/apps/app-ios/builds":
 			if got := r.URL.Query().Get("page"); got != "1" {
 				t.Fatalf("page = %q, want 1", got)
 			}
@@ -95,7 +95,7 @@ func TestCreateModel_UpdateResolverFailureReturnsToConfirm(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/builds/vars/app-ios":
+		case "/api/v1/apps/app-ios":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"app-ios","name":"Shell App","platform":"ios","versions_count":1,"latest_version":"1.0.0"}`))
 		case "/api/v1/entity/users/get_user_uuid":

@@ -347,12 +347,12 @@ func TestStartDeviceSessionCmd_ResolvesSelectedAppToLatestBuild(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case handleTestCLITraceFallback(w, r):
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/builds/vars/"+appID+"/versions":
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps/"+appID+"/builds":
 			if got := r.URL.Query().Get("page_size"); got != "20" {
 				t.Fatalf("expected page_size=20, got %q", got)
 			}
 			_, _ = w.Write([]byte(`{"items":[{"id":"` + buildID + `","version":"1.0.0"}],"total":1,"page":1,"page_size":20,"total_pages":1,"has_next":false,"has_previous":false}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/builds/builds/"+buildID:
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/apps/builds/"+buildID:
 			if got := r.URL.Query().Get("include_download_url"); got != "true" {
 				t.Fatalf("expected include_download_url=true, got %q", got)
 			}

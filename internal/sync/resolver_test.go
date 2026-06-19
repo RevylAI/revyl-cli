@@ -171,7 +171,7 @@ func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"remote-id","version":2}`))
-		case "/api/v1/builds/vars":
+		case "/api/v1/apps/":
 			if got := r.URL.Query().Get("platform"); !strings.EqualFold(got, "ios") {
 				t.Fatalf("platform query = %q, want ios", got)
 			}

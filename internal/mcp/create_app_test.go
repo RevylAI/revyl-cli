@@ -12,7 +12,7 @@ import (
 
 func TestHandleCreateAppLinksExistingOnConflict(t *testing.T) {
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/builds/vars" {
+		if r.URL.Path != "/api/v1/apps/" {
 			http.NotFound(w, r)
 			return
 		}
@@ -59,7 +59,7 @@ func TestHandleCreateAppLinksExistingOnConflict(t *testing.T) {
 
 func TestHandleCreateAppFailsWhenConflictCannotBeResolved(t *testing.T) {
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/builds/vars" {
+		if r.URL.Path != "/api/v1/apps/" {
 			http.NotFound(w, r)
 			return
 		}
