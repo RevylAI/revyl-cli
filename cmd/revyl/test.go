@@ -184,6 +184,7 @@ func init() {
 	testCmd.AddCommand(testCreateCmd)
 	testCmd.AddCommand(testConfigCmd)
 	testCmd.AddCommand(testLaunchVarCmd)
+	testCmd.AddCommand(testStoreKitCmd)
 	testCmd.AddCommand(testRenameCmd)
 	testCmd.AddCommand(testDeleteCmd)
 	testCmd.AddCommand(testOpenCmd)

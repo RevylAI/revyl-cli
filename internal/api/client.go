@@ -6520,3 +6520,76 @@ func (c *Client) CancelRemoteBuild(ctx context.Context, buildJobID string) error
 	resp.Body.Close()
 	return nil
 }
+
+// StoreKitConfigRefUpsertRequest creates or replaces the explicit iOS StoreKit
+// config choice for one scope. ScopeType is "app", "build", or "test". Mode is
+// "file" (FileID required) or "disabled" (FileID nil).
+type StoreKitConfigRefUpsertRequest struct {
+	ScopeType string  `json:"scope_type"`
+	ScopeID   string  `json:"scope_id"`
+	Mode      string  `json:"mode"`
+	FileID    *string `json:"file_id"`
+}
+
+// StoreKitConfigRef is the explicit StoreKit config attached to one scope.
+type StoreKitConfigRef struct {
+	ID        string  `json:"id"`
+	ScopeType string  `json:"scope_type"`
+	ScopeID   string  `json:"scope_id"`
+	Mode      string  `json:"mode"`
+	FileID    *string `json:"file_id"`
+	Filename  *string `json:"filename"`
+	FileSize  *int64  `json:"file_size"`
+}
+
+// StoreKitConfigRefResponse wraps a single StoreKit config ref read/mutation.
+type StoreKitConfigRefResponse struct {
+	Message string             `json:"message"`
+	Result  *StoreKitConfigRef `json:"result,omitempty"`
+}
+
+// UpsertStoreKitConfigRef attaches (mode=file) or disables (mode=disabled) a
+// StoreKit config for an app/build/test scope.
+func (c *Client) UpsertStoreKitConfigRef(ctx context.Context, req *StoreKitConfigRefUpsertRequest) (*StoreKitConfigRefResponse, error) {
+	resp, err := c.doRequest(ctx, "PUT", "/api/v1/variables/ios_storekit/refs", req)
+	if err != nil {
+		return nil, err
+	}
+	var result StoreKitConfigRefResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetStoreKitConfigRef returns the explicit StoreKit config for one scope.
+// Result is nil when the scope has no explicit config (it inherits the default).
+func (c *Client) GetStoreKitConfigRef(ctx context.Context, scopeType, scopeID string) (*StoreKitConfigRefResponse, error) {
+	path := fmt.Sprintf("/api/v1/variables/ios_storekit/refs?scope_type=%s&scope_id=%s",
+		url.QueryEscape(scopeType), url.QueryEscape(scopeID))
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result StoreKitConfigRefResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// DeleteStoreKitConfigRef removes the explicit StoreKit config for one scope,
+// so the scope inherits the default again.
+func (c *Client) DeleteStoreKitConfigRef(ctx context.Context, scopeType, scopeID string) error {
+	path := fmt.Sprintf("/api/v1/variables/ios_storekit/refs?scope_type=%s&scope_id=%s",
+		url.QueryEscape(scopeType), url.QueryEscape(scopeID))
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == 204 {
+		resp.Body.Close()
+		return nil
+	}
+	return parseResponse(resp, nil)
+}

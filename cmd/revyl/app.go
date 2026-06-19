@@ -92,6 +92,7 @@ func init() {
 	appCmd.AddCommand(appCreateCmd)
 	appCmd.AddCommand(appListCmd)
 	appCmd.AddCommand(appDeleteCmd)
+	appCmd.AddCommand(appStoreKitCmd)
 
 	appCreateCmd.Flags().StringVar(&appCreateName, "name", "", "Name for the app (required)")
 	appCreateCmd.Flags().StringVar(&appCreatePlatform, "platform", "", "Target platform: ios or android (required)")
