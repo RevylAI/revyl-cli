@@ -255,9 +255,6 @@ These environment variables override CLI defaults and config values:
 | Variable | Description |
 |----------|-------------|
 | `REVYL_API_KEY` | API key for authentication (overrides stored credentials) |
-| `REVYL_BACKEND_URL` | Override the backend API URL (e.g. `http://127.0.0.1:8000`) |
-| `REVYL_APP_URL` | Override the frontend app URL |
-| `REVYL_BACKEND_PORT` | Override the auto-detected backend port in `--dev` mode |
 | `REVYL_PROJECT_DIR` | Override the project directory for MCP server |
 
 ## .gitignore Defaults

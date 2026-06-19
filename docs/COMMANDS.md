@@ -752,7 +752,6 @@ These flags are available on all commands:
 
 ```bash
 --debug       # Enable debug logging
---dev         # Use local development servers
 --json        # Output as JSON (where supported)
 --version     # Show CLI version and exit
 --quiet / -q  # Suppress non-essential output

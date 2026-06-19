@@ -118,16 +118,7 @@ args = ["mcp", "serve"]
 env = { REVYL_API_KEY = "your-api-key" }
 ```
 
-If your CLI workflow uses `--dev`, include it for MCP too:
-
-```toml
-[mcp_servers.revyl]
-command = "revyl"
-args = ["--dev", "mcp", "serve"]
-env = { REVYL_API_KEY = "your-api-key" }
-```
-
-Keep MCP and your shell CLI pointed at the same binary and flags. A mismatch can make session lists appear inconsistent.
+Keep MCP and your shell CLI pointed at the same binary. A mismatch can make session lists appear inconsistent.
 
 ### Claude Desktop
 

@@ -295,7 +295,7 @@ func TestHandleTestRunsKey_ShowJSONCommandUsesCurrentExecutableName(t *testing.T
 		return nil
 	}
 	currentReportCommandName = func() string {
-		return "revyl-mahler"
+		return "revyl-dev"
 	}
 
 	nextModel, cmd := m.handleTestRunsKey(keyRune('y'))
@@ -304,7 +304,7 @@ func TestHandleTestRunsKey_ShowJSONCommandUsesCurrentExecutableName(t *testing.T
 	}
 
 	out := nextModel.(hubModel).renderTestRuns()
-	if !strings.Contains(out, "revyl-mahler test report task-456 --json --dev") {
+	if !strings.Contains(out, "revyl-dev test report task-456 --json --dev") {
 		t.Fatalf("expected rendered output to include executable-specific report command, got: %s", out)
 	}
 
@@ -312,7 +312,7 @@ func TestHandleTestRunsKey_ShowJSONCommandUsesCurrentExecutableName(t *testing.T
 	updatedModel, _ := nextModel.(hubModel).Update(msg)
 	updated := updatedModel.(hubModel)
 
-	if copied != "revyl-mahler test report task-456 --json --dev" {
+	if copied != "revyl-dev test report task-456 --json --dev" {
 		t.Fatalf("expected executable-specific command to be copied to clipboard, got %q", copied)
 	}
 	if updated.reportJSONError {

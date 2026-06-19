@@ -56,12 +56,11 @@ version = cli.run("version")                            # Returns stdout as stri
 tests = cli.run("test", "list", json_output=True)       # Returns parsed JSON
 ```
 
-### `RevylCLI(binary_path=None, dev_mode=False)`
+### `RevylCLI(binary_path=None)`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `binary_path` | `Optional[str]` | Path to the `revyl` binary. If `None`, auto-resolved via `ensure_binary()`. |
-| `dev_mode` | `bool` | When `True`, prepends `--dev` to every command for local development servers. |
 
 ### `cli.run(*args, json_output=False)`
 

@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/testutil"
 )
@@ -204,6 +208,102 @@ func TestFetchLatestReleaseFormatsRateLimitErrors(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "API rate limit exceeded") {
 		t.Fatalf("error %q does not include rate-limit message", err.Error())
+	}
+}
+
+func TestRunUpgradeDoesNotApplyFetchTimeoutToDownload(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	// Avoid running `revyl skill install` against real skill dirs after the
+	// (mocked) upgrade succeeds.
+	t.Setenv("REVYL_NO_POST_UPGRADE_SKILL_INSTALL", "1")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// A version far ahead of the build version so the self-update path runs.
+		_, _ = w.Write([]byte(`{"tag_name":"v999.0.0"}`))
+	}))
+	defer server.Close()
+	configureGitHubTestRequest(t, server.URL)
+
+	originalDetect := detectInstallMethodFn
+	detectInstallMethodFn = func() string { return "direct" }
+	t.Cleanup(func() { detectInstallMethodFn = originalDetect })
+
+	var captured context.Context
+	originalSelfUpdate := performSelfUpdateFn
+	performSelfUpdateFn = func(ctx context.Context, tagName string) (string, error) {
+		captured = ctx
+		return "/tmp/revyl", nil
+	}
+	t.Cleanup(func() { performSelfUpdateFn = originalSelfUpdate })
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+
+	if err := runUpgrade(cmd, nil); err != nil {
+		t.Fatalf("runUpgrade() error = %v, want nil", err)
+	}
+
+	if captured == nil {
+		t.Fatal("performSelfUpdate was not invoked; self-update path not reached")
+	}
+
+	// Regression guard: the download phase must NOT inherit the 30s deadline
+	// scoped to the GitHub release check. A short deadline here is the bug that
+	// produced "context deadline exceeded" while downloading the binary.
+	if deadline, ok := captured.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < 2*time.Minute {
+			t.Fatalf("download context deadline = %v, want no short deadline (got <2m)", remaining)
+		}
+	}
+}
+
+func TestDownloadBinaryRespectsContextDeadlineNotReleaseCheckTimeout(t *testing.T) {
+	// Trickle the body so the transfer outlasts a short context deadline but
+	// finishes well within downloadBinary's own 5-minute client timeout.
+	payload := bytes.Repeat([]byte("x"), 64*1024)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		flusher, _ := w.(http.Flusher)
+		const chunk = 4 * 1024
+		for i := 0; i < len(payload); i += chunk {
+			end := i + chunk
+			if end > len(payload) {
+				end = len(payload)
+			}
+			_, _ = w.Write(payload[i:end])
+			if flusher != nil {
+				flusher.Flush()
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+
+	// The bug: the download shared the 30s release-check context. Any short
+	// deadline aborts the slow transfer mid-stream.
+	shortCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if path, err := downloadBinary(shortCtx, server.URL); err == nil {
+		os.Remove(path)
+		t.Fatal("expected download to fail under a short context deadline")
+	}
+
+	// The fix: with the root context the client's own timeout governs, so the
+	// slow transfer completes.
+	path, err := downloadBinary(context.Background(), server.URL)
+	if err != nil {
+		t.Fatalf("download under root context failed: %v", err)
+	}
+	defer os.Remove(path)
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read temp file: %v", err)
+	}
+	if len(got) != len(payload) {
+		t.Fatalf("downloaded %d bytes, want %d", len(got), len(payload))
 	}
 }
 

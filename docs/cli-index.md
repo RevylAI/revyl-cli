@@ -168,7 +168,6 @@ These flags work with any command:
 | Flag | Description |
 |------|-------------|
 | `--debug` | Enable debug logging |
-| `--dev` | Use local development servers |
 | `--json` | Output results as JSON |
 | `--quiet, -q` | Suppress non-essential output |
 

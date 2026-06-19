@@ -224,8 +224,6 @@ test:
 | Variable | Description |
 |----------|-------------|
 | `REVYL_API_KEY` | API key for authentication (required in CI) |
-| `REVYL_BACKEND_URL` | Override the backend URL (for staging/preview environments) |
-| `REVYL_APP_URL` | Override the frontend app URL |
 
 ---
 

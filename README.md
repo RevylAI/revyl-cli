@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.34-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.36-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -162,7 +162,7 @@ Use the revyl-cli-auth-bypass skill. Set up test-only auth bypass for this app a
 - **[Agent Skills](docs/integrations/skills.md)** -- embedded skills for device loops and test creation
 - **[Device SDK](docs/SDK.md)** -- Programmatic device control
 - **[CI/CD](docs/CI_CD.md)** -- GitHub Actions integration
-- **[Development](docs/DEVELOPMENT.md)** -- internal dev workflow, hot reload, `--dev` mode
+- **[Development](docs/DEVELOPMENT.md)** -- internal dev workflow, hot reload
 - **[Releasing](docs/RELEASING.md)** -- version bumping, release pipeline
 - **[Public Docs](https://docs.revyl.ai)** -- full documentation site
 

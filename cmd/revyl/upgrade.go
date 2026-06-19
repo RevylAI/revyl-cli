@@ -90,6 +90,16 @@ var (
 	// postUpgradeCommandRunner creates exec.Cmd instances for post-upgrade
 	// commands. Overridden in tests to avoid running a real revyl binary.
 	postUpgradeCommandRunner = exec.Command
+
+	// detectInstallMethodFn resolves the install method. Overridden in tests to
+	// force a deterministic upgrade path without depending on the test binary's
+	// location on disk.
+	detectInstallMethodFn = detectInstallMethod
+
+	// performSelfUpdateFn downloads and installs a new version. Overridden in
+	// tests to avoid replacing the running binary and to inspect the context
+	// handed to the download phase.
+	performSelfUpdateFn = performSelfUpdate
 )
 
 // upgradeCmd checks for and installs CLI updates.
@@ -146,7 +156,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	// Detect installation method
-	result.InstallMethod = detectInstallMethod()
+	result.InstallMethod = detectInstallMethodFn()
 
 	if !jsonOutput {
 		ui.PrintBanner(version)
@@ -154,11 +164,12 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		ui.Println()
 	}
 
-	// Fetch latest release from GitHub
-	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-	defer cancel()
-
-	release, err := fetchLatestRelease(ctx, upgradePrerelease)
+	// Fetch latest release from GitHub. The short timeout is scoped to the API
+	// check only; the binary download phase uses its own (longer) per-request
+	// HTTP client timeouts and must not inherit this deadline.
+	fetchCtx, fetchCancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+	release, err := fetchLatestRelease(fetchCtx, upgradePrerelease)
+	fetchCancel()
 	if err != nil {
 		if jsonOutput {
 			result.Message = fmt.Sprintf("Failed to check for updates: %v", err)
@@ -280,8 +291,9 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 
-		// Perform self-update
-		upgradedBinary, err := performSelfUpdate(ctx, release.TagName)
+		// Perform self-update. Use the root context (no short deadline) so the
+		// download is governed by downloadBinary's own 5-minute client timeout.
+		upgradedBinary, err := performSelfUpdateFn(cmd.Context(), release.TagName)
 		if err != nil {
 			return err
 		}
