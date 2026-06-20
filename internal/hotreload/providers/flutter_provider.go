@@ -149,26 +149,35 @@ func (p *FlutterProvider) GetDefaultConfig(info *hotreload.ProjectInfo) *config.
 	return &config.ProviderConfig{}
 }
 
-// CreateDevServer returns an error because Flutter uses a rebuild-based dev loop
-// rather than a live dev server. The rebuild loop is handled by runDevRebuildOnly
-// in dev.go with automatic file watching.
+// CreateDevServer returns a Flutter attach dev server. The VM Service debug URL
+// is supplied at runtime via SetDebugURL once the reverse tunnel to the device
+// is established (see the attach orchestration in the hot-reload Manager).
 //
 // Parameters:
-//   - cfg: Provider configuration (unused)
-//   - workDir: Working directory (unused)
+//   - cfg: Provider configuration (currently unused)
+//   - workDir: Working directory for the Flutter project
 //
 // Returns:
-//   - hotreload.DevServer: nil
-//   - error: Explanation that Flutter uses rebuild-based dev loop
+//   - hotreload.DevServer: a FlutterAttachDevServer (debug URL set later)
+//   - error: nil
 func (p *FlutterProvider) CreateDevServer(cfg *config.ProviderConfig, workDir string) (hotreload.DevServer, error) {
-	return nil, fmt.Errorf("Flutter uses an auto-rebuild dev loop — no dev server needed")
+	return NewFlutterAttachDevServer(workDir, ""), nil
 }
 
-// IsSupported returns false because Flutter does not use a hot-reload dev server.
-// It routes through the rebuild-only path in revyl dev with file watching.
+// DevLoopStyle reports that Flutter uses the attach-based reload model, driving
+// hot reload over a reverse relay to the device's Dart VM Service.
+func (p *FlutterProvider) DevLoopStyle() string {
+	return hotreload.DevLoopStyleAttach
+}
+
+// IsSupported reports whether the attach-based Flutter hot-reload path is fully
+// wired end to end. It returns false until backend reverse-relay support and
+// the Manager attach orchestration land; until then revyl dev keeps routing
+// Flutter through the rebuild-only loop. See
+// docs/developer_loop/flutter-hot-reload-design.md.
 //
 // Returns:
-//   - bool: false
+//   - bool: false (gated)
 func (p *FlutterProvider) IsSupported() bool {
 	return false
 }

@@ -90,6 +90,39 @@ type Provider interface {
 	IsSupported() bool
 }
 
+// Dev-loop styles describe how a provider delivers code changes to a device.
+const (
+	// DevLoopStyleMetro is the JS bundler model: the device pulls a fresh
+	// bundle from a local dev server through a forward relay.
+	DevLoopStyleMetro = "metro"
+
+	// DevLoopStyleAttach is the in-place reload model: the host attaches to the
+	// running app's debug port (via a reverse relay) and pushes code (Flutter).
+	DevLoopStyleAttach = "attach"
+
+	// DevLoopStyleRebuild is the rebuild-on-change model: every change produces
+	// a new binary that is re-uploaded and reinstalled (native iOS/Android).
+	DevLoopStyleRebuild = "rebuild"
+)
+
+// ProviderDevLoopStyler is an optional interface a Provider may implement to
+// declare how its dev loop delivers changes. Providers that do not implement it
+// are treated as DevLoopStyleRebuild by ProviderDevLoopStyle.
+type ProviderDevLoopStyler interface {
+	DevLoopStyle() string
+}
+
+// ProviderDevLoopStyle returns the dev-loop style for a provider, defaulting to
+// DevLoopStyleRebuild when the provider does not declare one.
+func ProviderDevLoopStyle(p Provider) string {
+	if styler, ok := p.(ProviderDevLoopStyler); ok {
+		if style := styler.DevLoopStyle(); style != "" {
+			return style
+		}
+	}
+	return DevLoopStyleRebuild
+}
+
 // DetectionResult contains the result of provider detection.
 type DetectionResult struct {
 	// Provider is the provider name that detected this project.

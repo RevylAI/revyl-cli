@@ -135,6 +135,23 @@ type DevServerFailureReporter interface {
 	Failures() <-chan RuntimeFailure
 }
 
+// Reloadable is implemented by attach-based dev servers (e.g. Flutter) that can
+// inject code into an already-running app without a full reinstall.
+//
+// Unlike the Metro/JS dev loop — where the device pulls a fresh bundle and the
+// dev server is passive — attach-based providers actively drive reload and
+// restart against the running app. The hot-reload driver calls these in
+// response to file-change events.
+type Reloadable interface {
+	// Reload performs an in-place hot reload, preserving app state where the
+	// framework allows it (e.g. Flutter "r").
+	Reload(ctx context.Context) error
+
+	// HotRestart performs a hot restart, re-running the app from its entrypoint
+	// without reinstalling the binary (e.g. Flutter "R"). State is lost.
+	HotRestart(ctx context.Context) error
+}
+
 // DevServerStatus represents the current status of a development server.
 type DevServerStatus string
 

@@ -214,10 +214,32 @@ type APIError struct {
 	Hint string
 }
 
+// Relay transport modes.
+const (
+	// HotReloadRelayModeForward is the default device -> laptop transport used
+	// by the Metro/JS dev loop: the device dials a local port on the laptop.
+	HotReloadRelayModeForward = "forward"
+
+	// HotReloadRelayModeReverse is the laptop -> device transport used by
+	// attach-based dev loops (Flutter): the laptop dials a port on the device
+	// (the Dart VM Service). Requires backend support; see
+	// docs/developer_loop/flutter-hot-reload-design.md.
+	HotReloadRelayModeReverse = "reverse"
+)
+
 // HotReloadRelayCreateParams provisions a new backend-owned hot reload relay.
 type HotReloadRelayCreateParams struct {
 	Provider string `json:"provider,omitempty"`
 	Platform string `json:"platform,omitempty"`
+
+	// Mode selects the transport direction. Empty defaults to "forward" on the
+	// backend for backward compatibility. Set to HotReloadRelayModeReverse for
+	// attach-based providers.
+	Mode string `json:"mode,omitempty"`
+
+	// DevicePort is the port on the cloud device the relay should dial when
+	// Mode is "reverse" (the Dart VM Service port). Ignored for "forward".
+	DevicePort int `json:"device_port,omitempty"`
 }
 
 // HotReloadRelaySession describes a backend-owned hot reload relay session.
@@ -228,6 +250,11 @@ type HotReloadRelaySession struct {
 	ConnectToken string `json:"connect_token"`
 	Transport    string `json:"transport"`
 	ExpiresAt    string `json:"expires_at"`
+
+	// DeviceVMServicePort is populated for reverse-mode sessions when the
+	// backend has discovered the Dart VM Service port on the device. Zero when
+	// not yet known or not applicable.
+	DeviceVMServicePort int `json:"device_vm_service_port,omitempty"`
 }
 
 // ConnectWebSocketURL returns the relay websocket URL without embedding auth material.
