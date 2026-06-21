@@ -118,6 +118,10 @@ type Manager struct {
 	// directly to this VM Service URL. Used for local-emulator validation.
 	externalDebugURL string
 
+	// attachDeviceID targets a specific device for the attach dev server
+	// (Flutter's `attach -d <id>`), required when multiple devices are present.
+	attachDeviceID string
+
 	// reverseTunnelFactory overrides the default ReverseTunnelBackend
 	// construction (for tests and custom wiring).
 	reverseTunnelFactory func() ReverseTunnelBackend
@@ -314,6 +318,12 @@ func (m *Manager) SetDeviceVMServicePort(port int) {
 // Start.
 func (m *Manager) SetExternalDebugURL(debugURL string) {
 	m.externalDebugURL = strings.TrimSpace(debugURL)
+}
+
+// SetAttachDeviceID targets a specific device for the attach dev server
+// (Flutter's `attach -d <id>`). Must be called before Start.
+func (m *Manager) SetAttachDeviceID(deviceID string) {
+	m.attachDeviceID = strings.TrimSpace(deviceID)
 }
 
 // SetReverseTunnelBackendFactory overrides the default reverse tunnel backend
@@ -1262,6 +1272,11 @@ func (m *Manager) startAttach(ctx context.Context) (*StartResult, error) {
 		return nil, err
 	}
 	m.attachDevServerOutputCallback(devServer)
+	if m.attachDeviceID != "" {
+		if cfg, ok := devServer.(DeviceIDConfigurable); ok {
+			cfg.SetDeviceID(m.attachDeviceID)
+		}
+	}
 
 	debugURL := m.externalDebugURL
 	transport := "external-attach"

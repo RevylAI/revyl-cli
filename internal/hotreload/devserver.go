@@ -143,6 +143,14 @@ type DebugURLConfigurable interface {
 	SetDebugURL(debugURL string)
 }
 
+// DeviceIDConfigurable is implemented by attach-based dev servers that target a
+// specific device (e.g. Flutter's `attach -d <id>`, required when more than one
+// device is connected).
+type DeviceIDConfigurable interface {
+	// SetDeviceID sets the target device id. Must be called before Start.
+	SetDeviceID(deviceID string)
+}
+
 // Reloadable is implemented by attach-based dev servers (e.g. Flutter) that can
 // inject code into an already-running app without a full reinstall.
 //

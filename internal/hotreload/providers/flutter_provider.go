@@ -169,6 +169,9 @@ func (p *FlutterProvider) CreateDevServer(cfg *config.ProviderConfig, workDir st
 
 // DevLoopStyle reports that Flutter uses the attach-based reload model, driving
 // hot reload over a reverse relay to the device's Dart VM Service.
+//
+// Returns:
+//   - string: hotreload.DevLoopStyleAttach
 func (p *FlutterProvider) DevLoopStyle() string {
 	return hotreload.DevLoopStyleAttach
 }
