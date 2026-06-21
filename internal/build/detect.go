@@ -410,8 +410,13 @@ func detectFlutter(dir string) (*DetectedBuild, error) {
 		Platforms: make(map[string]BuildPlatform),
 	}
 
+	// Debug builds run the Dart VM in JIT mode with the VM Service enabled, which
+	// is required for `flutter attach` hot reload on cloud devices and also keeps
+	// the build debuggable for the State tab. This matches the documented Flutter
+	// artifact requirements (docs/builds/artifact-requirements.md). Android was
+	// already --debug; iOS previously defaulted to release.
 	detected.Platforms["ios"] = BuildPlatform{
-		Command: "flutter build ios --simulator",
+		Command: "flutter build ios --simulator --debug",
 		Output:  "build/ios/iphonesimulator/*.app",
 	}
 
