@@ -52,7 +52,7 @@ test:
     - revyl workflow run smoke-tests
   # Optional: upload build first
   # script:
-  #   - revyl build upload --file ./app.apk --app your-app-id --set-current
+  #   - revyl build upload --file ./app.apk --app your-app-id
   #   - revyl workflow run smoke-tests
 
 # Fire-and-forget: queue tests and exit immediately

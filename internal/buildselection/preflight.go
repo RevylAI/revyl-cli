@@ -288,7 +288,7 @@ func extractBuildCommand(metadata map[string]interface{}) string {
 // Returns:
 //   - ordered list of fix suggestion strings
 func fixCommandsForPlatform(platformKey, providerName string) []string {
-	uploadCmd := "revyl build upload"
+	uploadCmd := "revyl build"
 	if platformKey != "" {
 		uploadCmd += " --platform " + platformKey
 	}

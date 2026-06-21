@@ -101,7 +101,7 @@ cd your-app
 revyl init
 
 # 5. Build and upload a dev binary
-revyl build upload
+revyl build
 
 # 6. Start the dev loop
 revyl dev

@@ -224,12 +224,12 @@ func TestClassifyBuild_FixCommands(t *testing.T) {
 
 	foundUpload := false
 	for _, cmd := range result.FixCommands {
-		if cmd == "revyl build upload --platform ios-dev" {
+		if cmd == "revyl build --platform ios-dev" {
 			foundUpload = true
 		}
 	}
 	if !foundUpload {
-		t.Errorf("expected 'revyl build upload --platform ios-dev' in fix commands, got %v", result.FixCommands)
+		t.Errorf("expected 'revyl build --platform ios-dev' in fix commands, got %v", result.FixCommands)
 	}
 
 	compatible := meta("eas build --profile development --platform ios")

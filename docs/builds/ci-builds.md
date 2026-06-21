@@ -39,7 +39,6 @@ request.
       --app "$REVYL_ANDROID_APP_ID" \
       --platform android \
       --version "$REVYL_PR_HEAD_SHA" \
-      --set-current \
       --yes \
       --json
   env:
@@ -116,15 +115,15 @@ revyl build upload --url "$ARTIFACT_URL" --app "My iOS App"
 
 Zero Mac needed on the customer side. Expo's cloud does the build, Revyl just ingests the artifact.
 
-## Pattern 5: revyl build upload (config-driven)
+## Pattern 5: revyl build (config-driven)
 
 If `.revyl/config.yaml` has build commands configured, the CLI can build and upload in one step:
 
 ```bash
-revyl build upload --platform ios --yes
+revyl build --platform ios --json
 ```
 
-This runs the `build.platforms.ios.command` from your config, then uploads the output artifact.
+This runs `build.platforms.ios.commands` in order when configured, otherwise `build.platforms.ios.command`, then uploads the output artifact.
 
 ## CI-Friendly Flags
 
@@ -133,7 +132,6 @@ This runs the `build.platforms.ios.command` from your config, then uploads the o
 | `--json` | Machine-readable JSON output |
 | `--no-wait` | Queue the run and exit without waiting for results |
 | `--quiet` / `-q` | Suppress non-essential output |
-| `--yes` | Skip interactive confirmations |
 | `--version <string>` | Tag the build with a version (default: `<branch>-<timestamp>`) |
 
 ## When Would Remote Builds Be Worth Building?

@@ -97,7 +97,7 @@ func TestValidateRemoteDevStartFlags(t *testing.T) {
 	}
 }
 
-func TestRemoteDevTriggerRequestAllowsFastlaneAndCarriesCacheConfig(t *testing.T) {
+func TestRemoteDevTriggerRequestAllowsFastlane(t *testing.T) {
 	req := remoteDevTriggerRequest(
 		"00000000-0000-0000-0000-000000000456",
 		"org/00000000-0000-0000-0000-000000000123/build-sources/app/source.tar.gz",
@@ -105,25 +105,49 @@ func TestRemoteDevTriggerRequestAllowsFastlaneAndCarriesCacheConfig(t *testing.T
 		"app",
 		"abc123",
 		config.BuildPlatform{
-			Command:         "bundle exec fastlane build_simulator_debug",
-			Output:          "build/Example.app.zip",
-			AppID:           "00000000-0000-0000-0000-000000000456",
-			Setup:           "bash .revyl/setup-ios-remote.sh",
-			KeepDerivedData: true,
+			Command: "bundle exec fastlane build_simulator_debug",
+			Output:  "build/Example.app.zip",
+			AppID:   "00000000-0000-0000-0000-000000000456",
+			Setup:   "bash .revyl/setup-ios-remote.sh",
 		},
 	)
 
-	if req.BuildCommand != "bundle exec fastlane build_simulator_debug" {
-		t.Fatalf("BuildCommand = %q", req.BuildCommand)
-	}
-	if req.KeepDerivedData == nil || !*req.KeepDerivedData {
-		t.Fatal("KeepDerivedData was not set")
+	if req.BuildCommand == nil || *req.BuildCommand != "bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("BuildCommand = %v", req.BuildCommand)
 	}
 	if req.ArtifactPath == nil || *req.ArtifactPath != "build/Example.app.zip" {
 		t.Fatalf("ArtifactPath = %v", req.ArtifactPath)
 	}
 	if req.SetupCommand == nil || *req.SetupCommand != "bash .revyl/setup-ios-remote.sh" {
 		t.Fatalf("SetupCommand = %v", req.SetupCommand)
+	}
+}
+
+func TestRemoteDevTriggerRequestCarriesMultipleBuildCommands(t *testing.T) {
+	req := remoteDevTriggerRequest(
+		"00000000-0000-0000-0000-000000000456",
+		"org/00000000-0000-0000-0000-000000000123/build-sources/app/source.tar.gz",
+		"ios",
+		"app",
+		"abc123",
+		config.BuildPlatform{
+			Commands: []string{
+				"npm ci",
+				"bundle exec fastlane build_simulator_debug",
+			},
+			Output: "build/Example.app.zip",
+			AppID:  "00000000-0000-0000-0000-000000000456",
+		},
+	)
+
+	if req.BuildCommand == nil || *req.BuildCommand != "npm ci && bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("BuildCommand = %v", req.BuildCommand)
+	}
+	if req.BuildCommands == nil || len(*req.BuildCommands) != 2 {
+		t.Fatalf("BuildCommands = %#v", req.BuildCommands)
+	}
+	if (*req.BuildCommands)[0] != "npm ci" || (*req.BuildCommands)[1] != "bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("BuildCommands = %#v", *req.BuildCommands)
 	}
 }
 

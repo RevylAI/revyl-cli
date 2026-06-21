@@ -238,25 +238,25 @@ class BuildClientTests(unittest.TestCase):
         )
         result = self.client.upload()
         self.assertEqual(result["app_id"], "a1")
-        self._assert_last_json_call(("build", "upload", "--yes"))
+        self._assert_last_json_call(("build",))
 
     def test_upload_with_all_options(self) -> None:
         self.cli.json_responses.append({"app_id": "a1"})
         self.client.upload(
             app_name="my-app",
             platform="android",
-            skip_build=True,
+            file_path="./app.apk",
             version="v1.2.3",
-            set_current=True,
+            no_set_current=True,
         )
         self._assert_last_json_call(
             (
                 "build", "upload",
-                "--name", "my-app",
+                "--app", "my-app",
                 "--platform", "android",
-                "--skip-build",
+                "--file", "./app.apk",
                 "--version", "v1.2.3",
-                "--set-current",
+                "--no-set-current",
                 "--yes",
             )
         )

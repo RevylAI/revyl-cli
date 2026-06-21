@@ -109,23 +109,22 @@ Upload a build and test it in the same workflow:
   run: |
     revyl build upload \
       --file ./build/app.apk \
-      --app "$BUILD_VAR_ID" \
+      --app "$REVYL_ANDROID_APP_ID" \
       --platform android \
       --version "$REVYL_PR_HEAD_SHA" \
-      --set-current \
       --yes \
       --json
   env:
     REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
-    BUILD_VAR_ID: ${{ vars.BUILD_VAR_ID }}
+    REVYL_ANDROID_APP_ID: ${{ vars.REVYL_ANDROID_APP_ID }}
     REVYL_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 - name: Run Workflow on Current Build
-  run: revyl workflow run "$WORKFLOW_ID" --android-app "$BUILD_VAR_ID"
+  run: revyl workflow run "$WORKFLOW_ID" --android-app "$REVYL_ANDROID_APP_ID"
   env:
     REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
     WORKFLOW_ID: ${{ vars.WORKFLOW_ID }}
-    BUILD_VAR_ID: ${{ vars.BUILD_VAR_ID }}
+    REVYL_ANDROID_APP_ID: ${{ vars.REVYL_ANDROID_APP_ID }}
 ```
 
 ## Step 3: Sync tests from CI
@@ -156,8 +155,8 @@ revyl workflow run smoke-tests --no-wait      # Queue a workflow
 ### Build upload from CI
 
 ```bash
-revyl build upload --platform ios --skip-build --yes    # Upload pre-built artifact
-revyl build upload --platform android --yes             # Build and upload
+revyl build upload --file build/App.app.zip --platform ios --yes    # Upload pre-built artifact
+revyl build --platform android --json                              # Build and upload from config
 ```
 
 ## Useful CI Patterns
@@ -188,7 +187,7 @@ revyl workflow run regression --no-wait
 ### Version-tagged builds
 
 ```bash
-revyl build upload --platform android --version "$REVYL_PR_HEAD_SHA"
+revyl build --platform android --version "$REVYL_PR_HEAD_SHA"
 ```
 
 ## GitLab CI
@@ -210,7 +209,6 @@ test:
 | `--json` | Machine-readable JSON output |
 | `--no-wait` | Queue the run and exit without waiting for results |
 | `--quiet` / `-q` | Suppress non-essential output |
-| `--yes` | Skip interactive confirmations |
 
 ## Exit Codes
 

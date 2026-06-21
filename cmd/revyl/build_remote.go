@@ -28,42 +28,34 @@ import (
 var remoteBuildPollInterval = 3 * time.Second
 var remoteBuildDefaultTimeout = 30 * time.Minute
 
-type remoteBuildRunnerAvailabilityDecision int
-
-const (
-	remoteBuildRunnerAvailabilityUnknown remoteBuildRunnerAvailabilityDecision = iota
-	remoteBuildRunnerAvailabilityAvailable
-	remoteBuildRunnerAvailabilityUnavailable
-)
-
 type remoteBuildOptions struct {
-	Platform        string
-	AppID           string
-	Version         string
-	SetCurrent      bool
-	Clean           bool
-	JSON            bool
-	Wait            bool
-	IncludeDirty    bool
-	CommittedOnly   bool
-	LegacyUpload    bool
-	KeepDerivedData bool
+	Platform      string
+	AppID         string
+	Version       string
+	SetCurrent    bool
+	Clean         bool
+	JSON          bool
+	Wait          bool
+	IncludeDirty  bool
+	CommittedOnly bool
+	LegacyUpload  bool
 }
 
 type remoteBuildPlatformConfig struct {
-	Platform        string
-	PlatformKey     string
-	Command         string
-	Setup           string
-	Output          string
-	Scheme          string
-	AppID           string
-	Source          config.BuildSource
-	KeepDerivedData bool
+	Platform    string
+	PlatformKey string
+	Command     string
+	Commands    []string
+	Setup       string
+	Output      string
+	Scheme      string
+	AppID       string
+	Source      config.BuildSource
+	Env         map[string]string
 }
 
-// runBuildRemote is the canonical remote-build UX:
-// `revyl build remote --platform ios|android`.
+// runBuildRemote is retained for older internal callers. The public UX is
+// `revyl build --remote --platform ios|android`.
 func runBuildRemote(cmd *cobra.Command, args []string) error {
 	if v, _ := cmd.Flags().GetBool("json"); v {
 		remoteJSONFlag = true
@@ -82,22 +74,20 @@ func runBuildRemote(cmd *cobra.Command, args []string) error {
 	}
 
 	return runRemoteBuildWithOptions(cmd, apiKey, remoteBuildOptions{
-		Platform:        remotePlatformFlag,
-		AppID:           remoteAppFlag,
-		Version:         remoteVersionFlag,
-		SetCurrent:      remoteSetCurrFlag,
-		Clean:           remoteCleanFlag,
-		JSON:            remoteJSONFlag,
-		Wait:            !remoteNoWaitFlag,
-		IncludeDirty:    !remoteCommittedOnly,
-		CommittedOnly:   remoteCommittedOnly,
-		KeepDerivedData: remoteKeepDDFlag,
+		Platform:      remotePlatformFlag,
+		AppID:         remoteAppFlag,
+		Version:       remoteVersionFlag,
+		SetCurrent:    remoteSetCurrFlag,
+		Clean:         remoteCleanFlag,
+		JSON:          remoteJSONFlag,
+		Wait:          !remoteNoWaitFlag,
+		IncludeDirty:  !remoteCommittedOnly,
+		CommittedOnly: remoteCommittedOnly,
 	})
 }
 
 // runRemoteBuild packages source, uploads it, triggers a remote build on a
-// dedicated cloud runner, and polls until completion. This wrapper preserves
-// `revyl build upload --remote` compatibility.
+// Revyl cloud build runner, and polls until completion.
 func runRemoteBuild(cmd *cobra.Command, apiKey string) error {
 	includeDirty, _ := cmd.Flags().GetBool("include-dirty")
 	platform := uploadPlatformFlag
@@ -105,17 +95,16 @@ func runRemoteBuild(cmd *cobra.Command, apiKey string) error {
 		platform = "ios"
 	}
 	return runRemoteBuildWithOptions(cmd, apiKey, remoteBuildOptions{
-		Platform:        platform,
-		AppID:           uploadAppFlag,
-		Version:         buildVersion,
-		SetCurrent:      buildSetCurr,
-		Clean:           uploadCleanFlag,
-		JSON:            buildUploadJSON,
-		Wait:            true,
-		IncludeDirty:    includeDirty,
-		CommittedOnly:   !includeDirty,
-		LegacyUpload:    true,
-		KeepDerivedData: false,
+		Platform:      platform,
+		AppID:         uploadAppFlag,
+		Version:       buildVersion,
+		SetCurrent:    buildSetCurr,
+		Clean:         uploadCleanFlag,
+		JSON:          buildUploadJSON,
+		Wait:          true,
+		IncludeDirty:  includeDirty,
+		CommittedOnly: !includeDirty,
+		LegacyUpload:  true,
 	})
 }
 
@@ -123,6 +112,8 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	ctx := cmd.Context()
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
+	debugOutput := ui.IsDebugMode()
+	interactiveOutput := !opts.JSON
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -141,48 +132,15 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		}
 		return err
 	}
-
-	// ── 1. Pre-flight: verify build capacity is online for this org ──
-	ui.PrintInfo("Checking build runner availability…")
-	runnerStatus, runnerErr := client.CheckBuildRunnersAvailable(ctx, resolved.Platform)
-	switch decideRemoteBuildRunnerAvailability(runnerStatus, runnerErr) {
-	case remoteBuildRunnerAvailabilityUnknown:
-		if runnerErr != nil {
-			ui.PrintWarning("Could not verify runner availability: %v (proceeding anyway)", runnerErr)
-		} else {
-			ui.PrintWarning("Could not confirm runner availability (proceeding anyway)")
-		}
-	case remoteBuildRunnerAvailabilityUnavailable:
-		ui.PrintError("No %s build capacity is available for your org.", remoteBuildPlatformLabel(resolved.Platform))
-		ui.PrintError("")
-		ui.PrintError("Remote builds require dedicated build capacity assigned to your org.")
-		ui.PrintError("This can happen if:")
-		ui.PrintError("  - Your org doesn't have remote build capacity provisioned yet")
-		ui.PrintError("  - Build capacity for your org is offline or being updated")
-		ui.PrintError("  - All build capacity is currently occupied (try again shortly)")
-		ui.PrintError("")
-		ui.PrintError("What to do:")
-		ui.PrintError("  - Try again in a few minutes")
-		ui.PrintError("  - Contact support to provision build capacity for your org")
-		ui.PrintError("  - Build locally with: revyl build upload --platform %s", resolved.Platform)
-		if opts.JSON {
-			printRemoteBuildJSON(remoteBuildJSONResult{
-				Status:       "failed",
-				Platform:     resolved.Platform,
-				AppID:        resolved.AppID,
-				Phase:        "runner_availability",
-				Error:        fmt.Sprintf("no %s build capacity available for your org", resolved.Platform),
-				SuggestedFix: "Try again shortly or provision remote build capacity for this org.",
-			})
-		}
-		return fmt.Errorf("no %s build capacity available for your org", resolved.Platform)
-	case remoteBuildRunnerAvailabilityAvailable:
-		if runnerStatus.RunnerCount > 0 {
-			ui.PrintInfo("Found %d active build capacity slot(s) for your org", runnerStatus.RunnerCount)
-		}
+	// Remote builds run on a shared pool of Revyl sandbox build runners. There
+	// is no org-scoped capacity to pre-flight; the enqueue call is authoritative
+	// and surfaces a clear error if the pool is full or unavailable.
+	if debugOutput {
+		ui.PrintInfo("Starting remote %s build for app %s", resolved.Platform, resolved.AppID)
+	} else if interactiveOutput {
+		ui.PrintInfo("Creating remote %s build for app %s", resolved.Platform, resolved.AppID)
+		ui.Println()
 	}
-
-	ui.PrintInfo("Starting remote %s build for app %s", resolved.Platform, resolved.AppID)
 
 	var uploadResp *api.RemoteBuildSourceUploadResponse
 	var repoSource *config.BuildSource
@@ -190,11 +148,13 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	if remoteBuildUsesGitSource(resolved.Source) {
 		normalized := normalizeRemoteGitSource(resolved.Source)
 		repoSource = &normalized
-		ui.PrintInfo("Using repo-backed Git source: %s", normalized.RepoURL)
-		if normalized.Ref != "" {
+		if debugOutput {
+			ui.PrintInfo("Using repo-backed Git source: %s", normalized.RepoURL)
+		}
+		if debugOutput && normalized.Ref != "" {
 			ui.PrintInfo("Git ref: %s", normalized.Ref)
 		}
-		if normalized.Subdir != "" {
+		if debugOutput && normalized.Subdir != "" {
 			ui.PrintInfo("Git subdir: %s", normalized.Subdir)
 		}
 		if dirty, count := checkDirtyTree(cwd); dirty {
@@ -214,13 +174,17 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 						return fmt.Errorf("failed to upload repo-backed source patch: %w", err)
 					}
 					sourcePatchKey = patchResp.SourceKey
-					ui.PrintSuccess("Source patch uploaded")
+					if interactiveOutput {
+						ui.PrintSuccess("Uploaded source patch to Revyl")
+					}
 				}
 			}
 		}
 	} else {
 		// ── 4. Package source via git archive ────────────────────────
-		ui.PrintInfo("Packaging source code…")
+		if debugOutput {
+			ui.PrintInfo("Packaging source code…")
+		}
 
 		if dirty, count := checkDirtyTree(cwd); dirty {
 			if opts.CommittedOnly || !opts.IncludeDirty {
@@ -234,11 +198,19 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 			}
 		}
 
+		if !debugOutput && interactiveOutput {
+			ui.StartSpinner("Compressing project files")
+		}
+
 		var archivePath string
+		compressStart := time.Now()
 		if opts.IncludeDirty && !opts.CommittedOnly {
 			archivePath, err = createSourceArchiveIncludingWorkingTree(cwd)
 		} else {
 			archivePath, err = createSourceArchive(cwd)
+		}
+		if !debugOutput && interactiveOutput {
+			ui.StopSpinner()
 		}
 		if err != nil {
 			return fmt.Errorf("failed to package source: %w", err)
@@ -247,16 +219,28 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 
 		archiveInfo, _ := os.Stat(archivePath)
 		sizeMB := float64(archiveInfo.Size()) / (1024 * 1024)
-		ui.PrintInfo("Source archive: %.1f MB", sizeMB)
+		if debugOutput {
+			ui.PrintInfo("Source archive: %.1f MB", sizeMB)
+		} else if interactiveOutput {
+			ui.PrintSuccess("Compressed project files %s (%.1f MB)", formatBuildProgressDuration(time.Since(compressStart)), sizeMB)
+		}
 
 		if sizeMB > 500 {
 			return fmt.Errorf("source archive too large (%.0f MB). Max 500 MB", sizeMB)
 		}
 
 		// ── 5. Get presigned upload URL ──────────────────────────────
-		ui.PrintInfo("Uploading source to Revyl…")
+		if debugOutput {
+			ui.PrintInfo("Uploading source to Revyl…")
+		} else if interactiveOutput {
+			ui.StartSpinner("Uploading to Revyl")
+		}
+		uploadStart := time.Now()
 		uploadResp, err = client.GetRemoteBuildUploadURL(ctx, resolved.AppID, "source.tar.gz", archiveInfo.Size())
 		if err != nil {
+			if !debugOutput && interactiveOutput {
+				ui.StopSpinner()
+			}
 			return fmt.Errorf("failed to get upload URL: %w", err)
 		}
 
@@ -266,33 +250,52 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 			uploadFields = *uploadResp.UploadFields
 		}
 		if err := client.UploadFileToPresignedPost(ctx, uploadResp.UploadUrl, uploadFields, archivePath); err != nil {
+			if !debugOutput && interactiveOutput {
+				ui.StopSpinner()
+			}
 			return fmt.Errorf("failed to upload source: %w", err)
 		}
 
-		ui.PrintSuccess("Source uploaded")
+		if !debugOutput && interactiveOutput {
+			ui.StopSpinner()
+			ui.PrintSuccess("Uploaded to Revyl %s", formatBuildProgressDuration(time.Since(uploadStart)))
+		} else if debugOutput {
+			ui.PrintSuccess("Source uploaded")
+		}
 	}
 
 	// ── 7. Trigger remote build ──────────────────────────────────
-	ui.PrintInfo("Triggering remote build…")
-	setCurrent := opts.SetCurrent
-	buildCommand := resolved.Command
-	if resolved.Scheme != "" {
-		buildCommand = build.ApplySchemeToCommand(buildCommand, resolved.Scheme)
+	if debugOutput {
+		ui.PrintInfo("Triggering remote build…")
+	} else if interactiveOutput {
+		ui.StartSpinner("Triggering remote build job")
 	}
+	triggerStart := time.Now()
+	setCurrent := opts.SetCurrent
+	buildCommands := append([]string(nil), resolved.Commands...)
+	if len(buildCommands) == 0 && strings.TrimSpace(resolved.Command) != "" {
+		buildCommands = []string{strings.TrimSpace(resolved.Command)}
+	}
+	if resolved.Scheme != "" {
+		for i, command := range buildCommands {
+			buildCommands[i] = build.ApplySchemeToCommand(command, resolved.Scheme)
+		}
+	}
+	buildCommand := strings.Join(buildCommands, " && ")
 	artifactType := defaultRemoteArtifactType(resolved.Platform)
-	keepDerivedData := opts.KeepDerivedData || resolved.KeepDerivedData
 	triggerReq := &api.RemoteBuildRequest{
-		AppId:           resolved.AppID,
-		BuildCommand:    buildCommand,
-		BuildScheme:     stringPtrOrNil(resolved.Scheme),
-		SetupCommand:    stringPtrOrNil(resolved.Setup),
-		CleanBuild:      boolPtrOrNil(opts.Clean),
-		KeepDerivedData: boolPtrOrNil(keepDerivedData),
-		Version:         stringPtrOrNil(opts.Version),
-		SetAsCurrent:    &setCurrent,
-		Platform:        &resolved.Platform,
-		ArtifactPath:    stringPtrOrNil(resolved.Output),
-		ArtifactType:    stringPtrOrNil(artifactType),
+		AppId:         resolved.AppID,
+		BuildCommand:  stringPtrOrNil(buildCommand),
+		BuildCommands: stringSlicePtrOrNil(buildCommands),
+		BuildScheme:   stringPtrOrNil(resolved.Scheme),
+		SetupCommand:  stringPtrOrNil(resolved.Setup),
+		CleanBuild:    boolPtrOrNil(opts.Clean),
+		Version:       stringPtrOrNil(opts.Version),
+		SetAsCurrent:  &setCurrent,
+		Platform:      &resolved.Platform,
+		ArtifactPath:  stringPtrOrNil(resolved.Output),
+		ArtifactType:  stringPtrOrNil(artifactType),
+		Env:           stringMapPtrOrNil(resolved.Env),
 	}
 	if repoSource != nil {
 		triggerReq.SourceType = stringPtrOrNil(repoSource.Type)
@@ -305,12 +308,20 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		triggerReq.SourceKey = stringPtrOrNil(uploadResp.SourceKey)
 	}
 	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq)
+	if !debugOutput && interactiveOutput {
+		ui.StopSpinner()
+	}
 	if err != nil {
 		return fmt.Errorf("failed to trigger build: %w", err)
 	}
+	if !debugOutput && interactiveOutput {
+		ui.PrintSuccess("Triggered remote build job %s", formatBuildProgressDuration(time.Since(triggerStart)))
+	}
 
 	jobID := triggerResp.BuildJobId
-	ui.PrintInfo("Build queued: %s", jobID)
+	if interactiveOutput {
+		ui.PrintInfo("Build queued: %s", jobID)
+	}
 
 	if !opts.Wait {
 		if opts.JSON {
@@ -321,7 +332,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 				AppID:      resolved.AppID,
 			})
 		} else {
-			printRemoteBuildQueuedNextSteps(devMode, jobID)
+			printRemoteBuildQueuedNextSteps(jobID)
 		}
 		return nil
 	}
@@ -363,16 +374,6 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	return nil
 }
 
-func decideRemoteBuildRunnerAvailability(status *api.BuildRunnerStatus, err error) remoteBuildRunnerAvailabilityDecision {
-	if err != nil || status == nil || status.RunnerCount < 0 {
-		return remoteBuildRunnerAvailabilityUnavailable
-	}
-	if !status.Available {
-		return remoteBuildRunnerAvailabilityUnavailable
-	}
-	return remoteBuildRunnerAvailabilityAvailable
-}
-
 func remoteBuildTimeoutFromConfig(cwd string) time.Duration {
 	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
 	cfg, err := config.LoadProjectConfig(configPath)
@@ -383,18 +384,7 @@ func remoteBuildTimeoutFromConfig(cwd string) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-func remoteBuildPlatformLabel(platform string) string {
-	switch strings.ToLower(strings.TrimSpace(platform)) {
-	case "ios":
-		return "iOS"
-	case "android":
-		return "Android"
-	default:
-		return platform
-	}
-}
-
-func printRemoteBuildQueuedNextSteps(devMode bool, jobID string) {
+func printRemoteBuildQueuedNextSteps(jobID string) {
 	ui.PrintNextSteps([]ui.NextStep{
 		{
 			Label:   "Follow build:",
@@ -405,7 +395,6 @@ func printRemoteBuildQueuedNextSteps(devMode bool, jobID string) {
 			Command: fmt.Sprintf("revyl build cancel %s", jobID),
 		},
 	})
-	ui.PrintLink("Build logs", remoteBuildDashboardURL(devMode, jobID))
 }
 
 func remoteBuildDashboardURL(devMode bool, jobID string) string {
@@ -414,6 +403,7 @@ func remoteBuildDashboardURL(devMode bool, jobID string) string {
 }
 
 func runBuildStatus(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
 	if v, _ := cmd.Flags().GetBool("json"); v {
 		buildStatusJSON = true
 	}
@@ -452,7 +442,7 @@ func runBuildStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if status != nil && !buildStatusFollow {
-		printRemoteBuildStatusSummary(devMode, jobID, status)
+		printRemoteBuildStatusSummary(status)
 	}
 	if buildStatusFollow {
 		return completedRemoteBuildStatusError(jobID, status, err)
@@ -460,17 +450,10 @@ func runBuildStatus(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-func printRemoteBuildStatusSummary(devMode bool, jobID string, status *api.RemoteBuildStatusResponse) {
-	ui.PrintKeyValue("Job:", jobID)
+func printRemoteBuildStatusSummary(status *api.RemoteBuildStatusResponse) {
 	ui.PrintKeyValue("Status:", status.Status)
-	if status.Phase != nil && strings.TrimSpace(*status.Phase) != "" {
-		ui.PrintKeyValue("Phase:", strings.TrimSpace(*status.Phase))
-	}
 	if status.Platform != nil && strings.TrimSpace(*status.Platform) != "" {
 		ui.PrintKeyValue("Platform:", strings.TrimSpace(*status.Platform))
-	}
-	if status.RunnerId != nil && strings.TrimSpace(*status.RunnerId) != "" {
-		ui.PrintKeyValue("Runner:", strings.TrimSpace(*status.RunnerId))
 	}
 	if status.StartedAt != nil && strings.TrimSpace(*status.StartedAt) != "" {
 		ui.PrintKeyValue("Started:", strings.TrimSpace(*status.StartedAt))
@@ -488,7 +471,6 @@ func printRemoteBuildStatusSummary(devMode bool, jobID string, status *api.Remot
 	if status.VersionId != nil && strings.TrimSpace(*status.VersionId) != "" {
 		ui.PrintKeyValue("Version ID:", strings.TrimSpace(*status.VersionId))
 	}
-	ui.PrintLink("Build logs", remoteBuildDashboardURL(devMode, jobID))
 	if status.LogsTail != nil && strings.TrimSpace(*status.LogsTail) != "" {
 		ui.Println()
 		ui.PrintDim("Recent logs:")
@@ -518,6 +500,14 @@ func printRemoteBuildPhaseTimings(timings *[]api.RemoteBuildPhaseTiming) {
 		}
 		fmt.Fprintf(os.Stderr, "  %-14s %s\n", phase+":", duration)
 	}
+}
+
+func printRemoteBuildLogTail(status *api.RemoteBuildStatusResponse) {
+	if status == nil || status.LogsTail == nil || strings.TrimSpace(*status.LogsTail) == "" {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "\n--- Build log tail ---")
+	fmt.Fprintln(os.Stderr, *status.LogsTail)
 }
 
 // detectBuildCommand determines the xcodebuild command for the project.
@@ -623,7 +613,8 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 				ok = true
 			}
 		}
-		if ok && strings.TrimSpace(platCfg.Command) != "" {
+		buildCommands := platCfg.BuildCommands()
+		if ok && len(buildCommands) > 0 {
 			appID := strings.TrimSpace(appOverride)
 			if appID == "" {
 				appID = strings.TrimSpace(platCfg.AppID)
@@ -632,15 +623,16 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 				return remoteBuildPlatformConfig{}, fmt.Errorf("no app specified. Use --app <id> or configure build.platforms.%s.app_id in .revyl/config.yaml", key)
 			}
 			return remoteBuildPlatformConfig{
-				Platform:        platform,
-				PlatformKey:     key,
-				Command:         strings.TrimSpace(platCfg.Command),
-				Setup:           strings.TrimSpace(platCfg.Setup),
-				Output:          strings.TrimSpace(platCfg.Output),
-				Scheme:          strings.TrimSpace(resolveRemoteBuildScheme(platform, platCfg.Scheme)),
-				AppID:           appID,
-				Source:          cfg.Build.Source,
-				KeepDerivedData: platCfg.KeepDerivedData,
+				Platform:    platform,
+				PlatformKey: key,
+				Command:     strings.Join(buildCommands, " && "),
+				Commands:    buildCommands,
+				Setup:       strings.TrimSpace(platCfg.Setup),
+				Output:      strings.TrimSpace(platCfg.Output),
+				Scheme:      strings.TrimSpace(resolveRemoteBuildScheme(platform, platCfg.Scheme)),
+				AppID:       appID,
+				Source:      cfg.Build.Source,
+				Env:         platCfg.Env,
 			}, nil
 		}
 	}
@@ -667,6 +659,7 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 		Platform:    platform,
 		PlatformKey: platform,
 		Command:     strings.TrimSpace(platBuild.Command),
+		Commands:    []string{strings.TrimSpace(platBuild.Command)},
 		Output:      strings.TrimSpace(platBuild.Output),
 		Scheme:      strings.TrimSpace(resolveRemoteBuildScheme(platform, "")),
 		AppID:       appID,
@@ -1331,10 +1324,7 @@ func pollBuildStatusWithTimeout(ctx context.Context, client *api.Client, jobID s
 				} else {
 					ui.PrintError("Build failed")
 				}
-				if status.LogsTail != nil && *status.LogsTail != "" {
-					fmt.Fprintln(os.Stderr, "\n--- Build log tail ---")
-					fmt.Fprintln(os.Stderr, *status.LogsTail)
-				}
+				printRemoteBuildLogTail(status)
 				return fmt.Errorf("remote build failed")
 			case "cancelled":
 				if status.Error != nil && *status.Error != "" {
@@ -1342,10 +1332,7 @@ func pollBuildStatusWithTimeout(ctx context.Context, client *api.Client, jobID s
 				} else {
 					ui.PrintError("Build cancelled")
 				}
-				if status.LogsTail != nil && *status.LogsTail != "" {
-					fmt.Fprintln(os.Stderr, "\n--- Build log tail ---")
-					fmt.Fprintln(os.Stderr, *status.LogsTail)
-				}
+				printRemoteBuildLogTail(status)
 				return fmt.Errorf("remote build cancelled")
 			}
 		}
@@ -1366,6 +1353,22 @@ func boolPtrOrNil(b bool) *bool {
 		return nil
 	}
 	return &b
+}
+
+// stringMapPtrOrNil returns a pointer to m if non-empty, or nil.
+func stringMapPtrOrNil(m map[string]string) *map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	return &m
+}
+
+// stringSlicePtrOrNil returns a pointer to s if non-empty, or nil.
+func stringSlicePtrOrNil(s []string) *[]string {
+	if len(s) == 0 {
+		return nil
+	}
+	return &s
 }
 
 // checkDirtyTree reports whether the git working tree has uncommitted

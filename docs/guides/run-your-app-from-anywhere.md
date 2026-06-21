@@ -39,7 +39,7 @@ You can upload from the dashboard in **Apps**, or from the CLI:
 
 ```bash
 revyl init
-revyl build upload
+revyl build
 ```
 
 For framework-specific build commands, use the [build guides](../builds/index.md).

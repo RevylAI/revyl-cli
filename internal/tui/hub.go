@@ -4910,7 +4910,7 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 					checks = append(checks, HealthCheck{
 						Name:    "Build Uploaded",
 						Status:  "warning",
-						Message: "No builds — run 'revyl build upload'",
+						Message: "No builds — run 'revyl build'",
 					})
 				}
 			}

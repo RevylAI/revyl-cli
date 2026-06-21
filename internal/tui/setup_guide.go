@@ -85,11 +85,11 @@ func deriveSetupSteps(checks []HealthCheck, cfg *config.ProjectConfig) []SetupSt
 	// Step 5: Build uploaded
 	buildCheck := findCheck("Build Uploaded")
 	if buildCheck != nil && buildCheck.Status == "ok" {
-		steps[4] = SetupStep{Label: "Upload a build", Status: "done", Message: "build available"}
+		steps[4] = SetupStep{Label: "Build and upload", Status: "done", Message: "build available"}
 	} else if steps[3].Status != "done" {
-		steps[4] = SetupStep{Label: "Upload a build", Status: "blocked", Message: "requires step 4"}
+		steps[4] = SetupStep{Label: "Build and upload", Status: "blocked", Message: "requires step 4"}
 	} else {
-		steps[4] = SetupStep{Label: "Upload a build", Status: "hint", Message: "revyl build upload --platform <platform>"}
+		steps[4] = SetupStep{Label: "Build and upload", Status: "hint", Message: "revyl build --platform <platform>"}
 	}
 
 	// Step 6: First test

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -70,6 +71,13 @@ func resetBuildUploadGlobals(t *testing.T) {
 	originalBuildSkip := buildSkip
 	originalBuildVersion := buildVersion
 	originalBuildSetCurr := buildSetCurr
+	originalBuildNoSetCurrent := buildNoSetCurrent
+	originalBuildCommandJSON := buildCommandJSON
+	originalBuildCommandPlatform := buildCommandPlatform
+	originalBuildCommandRemote := buildCommandRemote
+	originalBuildDetachFlag := buildDetachFlag
+	originalBuildNoCacheFlag := buildNoCacheFlag
+	originalBuildRequireConfiguredApp := buildRequireConfiguredApp
 	originalUploadPlatformFlag := uploadPlatformFlag
 	originalUploadAppFlag := uploadAppFlag
 	originalUploadNameFlag := uploadNameFlag
@@ -79,12 +87,22 @@ func resetBuildUploadGlobals(t *testing.T) {
 	originalBuildUploadJSON := buildUploadJSON
 	originalBuildDryRun := buildDryRun
 	originalUploadYesFlag := uploadYesFlag
+	originalUploadIncludeDirtyFlag := uploadIncludeDirtyFlag
 	originalUploadSchemeFlag := uploadSchemeFlag
+	originalUploadRemoteFlag := uploadRemoteFlag
+	originalUploadCleanFlag := uploadCleanFlag
 
 	t.Cleanup(func() {
 		buildSkip = originalBuildSkip
 		buildVersion = originalBuildVersion
 		buildSetCurr = originalBuildSetCurr
+		buildNoSetCurrent = originalBuildNoSetCurrent
+		buildCommandJSON = originalBuildCommandJSON
+		buildCommandPlatform = originalBuildCommandPlatform
+		buildCommandRemote = originalBuildCommandRemote
+		buildDetachFlag = originalBuildDetachFlag
+		buildNoCacheFlag = originalBuildNoCacheFlag
+		buildRequireConfiguredApp = originalBuildRequireConfiguredApp
 		uploadPlatformFlag = originalUploadPlatformFlag
 		uploadAppFlag = originalUploadAppFlag
 		uploadNameFlag = originalUploadNameFlag
@@ -94,12 +112,22 @@ func resetBuildUploadGlobals(t *testing.T) {
 		buildUploadJSON = originalBuildUploadJSON
 		buildDryRun = originalBuildDryRun
 		uploadYesFlag = originalUploadYesFlag
+		uploadIncludeDirtyFlag = originalUploadIncludeDirtyFlag
 		uploadSchemeFlag = originalUploadSchemeFlag
+		uploadRemoteFlag = originalUploadRemoteFlag
+		uploadCleanFlag = originalUploadCleanFlag
 	})
 
 	buildSkip = false
 	buildVersion = ""
 	buildSetCurr = false
+	buildNoSetCurrent = false
+	buildCommandJSON = false
+	buildCommandPlatform = ""
+	buildCommandRemote = false
+	buildDetachFlag = false
+	buildNoCacheFlag = false
+	buildRequireConfiguredApp = false
 	uploadPlatformFlag = ""
 	uploadAppFlag = ""
 	uploadNameFlag = ""
@@ -109,7 +137,10 @@ func resetBuildUploadGlobals(t *testing.T) {
 	buildUploadJSON = false
 	buildDryRun = false
 	uploadYesFlag = false
+	uploadIncludeDirtyFlag = false
 	uploadSchemeFlag = ""
+	uploadRemoteFlag = false
+	uploadCleanFlag = false
 }
 
 func writeBuildUploadProjectConfig(t *testing.T, dir string, cfg *config.ProjectConfig) string {
@@ -262,7 +293,11 @@ func TestRunInitSkipBuildSetupForNowDefersHotReloadForPlaceholderProjects(t *tes
 	}
 }
 
-func TestRunBuildUploadPlaceholderGuidanceListsPlaceholderPlatforms(t *testing.T) {
+func TestRunBuildPlaceholderGuidanceListsPlaceholderPlatforms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local revyl build config guidance is not reachable on Windows")
+	}
+
 	resetBuildUploadGlobals(t)
 	t.Setenv("REVYL_API_KEY", "test-key")
 	t.Setenv("HOME", t.TempDir())
@@ -279,11 +314,11 @@ func TestRunBuildUploadPlaceholderGuidanceListsPlaceholderPlatforms(t *testing.T
 		},
 	})
 
-	cmd := newBuildUploadTestCommand()
+	cmd := newBuildTestCommand()
 	output := captureStdoutAndStderr(t, func() {
-		err := runBuildUpload(cmd, nil)
+		err := runBuild(cmd, nil)
 		if err == nil {
-			t.Fatal("runBuildUpload() error = nil, want placeholder guidance error")
+			t.Fatal("runBuild() error = nil, want placeholder guidance error")
 		}
 	})
 
@@ -295,7 +330,11 @@ func TestRunBuildUploadPlaceholderGuidanceListsPlaceholderPlatforms(t *testing.T
 	}
 }
 
-func TestRunBuildUploadExplicitPlaceholderPlatformShowsSetupGuidance(t *testing.T) {
+func TestRunBuildExplicitPlaceholderPlatformShowsSetupGuidance(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local revyl build config guidance is not reachable on Windows")
+	}
+
 	resetBuildUploadGlobals(t)
 	t.Setenv("REVYL_API_KEY", "test-key")
 	t.Setenv("HOME", t.TempDir())
@@ -312,13 +351,13 @@ func TestRunBuildUploadExplicitPlaceholderPlatformShowsSetupGuidance(t *testing.
 		},
 	})
 
-	uploadPlatformFlag = "android"
+	buildCommandPlatform = "android"
 
-	cmd := newBuildUploadTestCommand()
+	cmd := newBuildTestCommand()
 	output := captureStdoutAndStderr(t, func() {
-		err := runBuildUpload(cmd, nil)
+		err := runBuild(cmd, nil)
 		if err == nil {
-			t.Fatal("runBuildUpload() error = nil, want placeholder guidance error")
+			t.Fatal("runBuild() error = nil, want placeholder guidance error")
 		}
 		if !strings.Contains(err.Error(), "not ready yet") {
 			t.Fatalf("error = %q, want placeholder readiness guidance", err.Error())
@@ -336,84 +375,43 @@ func TestRunBuildUploadExplicitPlaceholderPlatformShowsSetupGuidance(t *testing.
 	}
 }
 
-func TestRunBuildUploadDryRunUsesConfiguredLabels(t *testing.T) {
+func TestRunBuildUploadRequiresArtifactSource(t *testing.T) {
 	resetBuildUploadGlobals(t)
 	t.Setenv("REVYL_API_KEY", "test-key")
 	t.Setenv("HOME", t.TempDir())
 
-	tmp := t.TempDir()
-	withWorkingDir(t, tmp)
-
-	writeBuildUploadProjectConfig(t, tmp, &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System: "Gradle (Android)",
-			Platforms: map[string]config.BuildPlatform{
-				"android": {
-					Command: "./gradlew assembleDebug",
-					Output:  "app/build/outputs/apk/debug/app-debug.apk",
-				},
-			},
-		},
-	})
-
-	buildDryRun = true
-	uploadPlatformFlag = "android"
-
 	cmd := newBuildUploadTestCommand()
-	output := captureStdoutAndStderr(t, func() {
-		if err := runBuildUpload(cmd, nil); err != nil {
-			t.Fatalf("runBuildUpload() error = %v", err)
-		}
-	})
-
-	if !strings.Contains(output, "Configured Build Command") {
-		t.Fatalf("expected configured build command label, got:\n%s", output)
-	}
-	if !strings.Contains(output, "Configured Artifact Path") {
-		t.Fatalf("expected configured artifact path label, got:\n%s", output)
-	}
-}
-
-func TestRunBuildUploadSkipBuildMentionsConfiguredArtifactPath(t *testing.T) {
-	resetBuildUploadGlobals(t)
-	t.Setenv("REVYL_API_KEY", "test-key")
-	t.Setenv("HOME", t.TempDir())
-
-	tmp := t.TempDir()
-	withWorkingDir(t, tmp)
-
-	writeBuildUploadProjectConfig(t, tmp, &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System: "Gradle (Android)",
-			Platforms: map[string]config.BuildPlatform{
-				"android": {
-					Command: "./gradlew assembleDebug",
-					Output:  "app/build/outputs/apk/debug/app-debug.apk",
-				},
-			},
-		},
-	})
-
-	buildSkip = true
-	uploadPlatformFlag = "android"
-
-	cmd := newBuildUploadTestCommand()
-	output := captureStdoutAndStderr(t, func() {
+	captureStdoutAndStderr(t, func() {
 		err := runBuildUpload(cmd, nil)
 		if err == nil {
-			t.Fatal("runBuildUpload() error = nil, want missing artifact error")
+			t.Fatal("runBuildUpload() error = nil, want artifact-source guidance error")
+		}
+		if !strings.Contains(err.Error(), "requires --file or --url") {
+			t.Fatalf("error = %q, want artifact-source guidance", err.Error())
 		}
 	})
+}
 
-	if !strings.Contains(output, "Skipping build step") {
-		t.Fatalf("expected skip-build message, got:\n%s", output)
-	}
-	if !strings.Contains(output, "Resolving configured artifact path from .revyl/config.yaml") {
-		t.Fatalf("expected configured artifact resolution message, got:\n%s", output)
-	}
-	if !strings.Contains(output, "Configured artifact path not found") {
-		t.Fatalf("expected configured artifact-path error, got:\n%s", output)
-	}
+func TestRunBuildUploadSkipBuildPrintsMigrationGuidance(t *testing.T) {
+	resetBuildUploadGlobals(t)
+	t.Setenv("REVYL_API_KEY", "test-key")
+	t.Setenv("HOME", t.TempDir())
+
+	buildSkip = true
+
+	cmd := newBuildUploadTestCommand()
+	captureStdoutAndStderr(t, func() {
+		err := runBuildUpload(cmd, nil)
+		if err == nil {
+			t.Fatal("runBuildUpload() error = nil, want migration guidance error")
+		}
+		if !strings.Contains(err.Error(), "requires --file or --url") {
+			t.Fatalf("error = %q, want artifact-source guidance", err.Error())
+		}
+		if !strings.Contains(err.Error(), "revyl build") || !strings.Contains(err.Error(), "revyl build upload --file") {
+			t.Fatalf("expected migration guidance, got: %v", err)
+		}
+	})
 }
 
 func TestFirstBuildOutcomeTracking(t *testing.T) {

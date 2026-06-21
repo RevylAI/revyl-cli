@@ -514,7 +514,7 @@ List tests that import this module.
 
 ## BuildClient
 
-Upload and manage app builds on Revyl.
+Build, upload, and manage app builds on Revyl.
 
 ```python
 from revyl import BuildClient
@@ -523,13 +523,15 @@ builds = BuildClient()              # Uses default CLI runner
 builds = BuildClient(cli=my_cli)    # Custom CLI runner
 ```
 
-### `upload(app_name=None, platform=None, skip_build=False, version=None, set_current=False) -> dict`
+### `upload(app_name=None, platform=None, file_path=None, url=None, version=None, set_current=True, no_set_current=False) -> dict`
 
 Build and upload an app. Uses the project's `.revyl/config.yaml` build commands by default.
+Pass `file_path` or `url` to upload an existing artifact directly.
 
 ```python
-builds.upload(app_name="my-app", platform="android")
-builds.upload(skip_build=True)  # upload existing artifact without rebuilding
+builds.upload(platform="android")
+builds.upload(app_name="my-app", file_path="./app.apk")
+builds.upload(app_name="my-app", url="https://example.com/app.apk")
 ```
 
 ### `list(app_name=None, platform=None) -> list[dict]`

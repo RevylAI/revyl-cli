@@ -30,7 +30,7 @@ pipeline {
         // stage('Build & Upload') {
         //     steps {
         //         sh './gradlew assembleDebug'
-        //         sh 'revyl build upload --file ./app.apk --app your-app-id --set-current'
+        //         sh 'revyl build upload --file ./app.apk --app your-app-id'
         //     }
         // }
 

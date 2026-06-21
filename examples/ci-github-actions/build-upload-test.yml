@@ -27,7 +27,6 @@ jobs:
             --app "$REVYL_ANDROID_APP_ID" \
             --platform android \
             --version "$REVYL_PR_HEAD_SHA" \
-            --set-current \
             --yes \
             --json
         env:

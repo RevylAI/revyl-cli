@@ -38,7 +38,7 @@ This is useful when you want to:
 
 ```bash
 curl -fsSL https://revyl.com/install.sh | sh
-revyl build upload --file ./app.apk --app <app-id> --set-current
+revyl build upload --file ./app.apk --app <app-id>
 revyl workflow run <workflow-name>
 ```
 
@@ -74,10 +74,9 @@ Upload an Expo build URL directly (`.tar.gz` is auto-converted to `.zip`):
 ```bash
 curl -fsSL https://revyl.com/install.sh | sh
 revyl build upload \
-  --expo-url "https://expo.dev/artifacts/eas/..." \
-  --expo-headers '{"Authorization": "Bearer $EXPO_TOKEN"}' \
-  --app <app-id> \
-  --set-current
+  --url "https://expo.dev/artifacts/eas/..." \
+  --header "Authorization: Bearer $EXPO_TOKEN" \
+  --app <app-id>
 revyl workflow run smoke-tests
 ```
 

@@ -47,8 +47,7 @@ jobs:
       #   run: |
       #     revyl build upload \
       #       --file ./path/to/app.apk \
-      #       --app "$REVYL_APP_ID" \
-      #       --set-current
+      #       --app "$REVYL_APP_ID"
       #   env:
       #     REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
       #     REVYL_APP_ID: your-app-id

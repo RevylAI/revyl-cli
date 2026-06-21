@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -23,72 +24,43 @@ import (
 
 // buildCmd is the parent command for build operations.
 var buildCmd = &cobra.Command{
-	Use:   "build",
-	Short: "Manage app builds",
-	Long: `Manage app builds for testing.
+	Use:   "build [--platform ios|android|<config-key>] [--remote] [--version <version>] [--detach] [--no-cache] [--no-set-current] [--json]",
+	Short: "Build and manage app builds",
+	Long: `Build the app from source and upload the generated artifact to Revyl.
 
-Commands:
-  upload  - Build and upload the app
-  remote  - Build on a dedicated Revyl cloud runner
-  status  - Show or follow a remote build
-  list    - List uploaded build versions
-  cancel  - Cancel a running remote build
-  delete  - Delete an app or specific build version`,
+By default, this runs the configured local build command from .revyl/config.yaml,
+finds the generated artifact, and registers it as a Revyl build version.
+
+Use --remote to run the build on Revyl cloud build runners.`,
+	DisableFlagsInUseLine: true,
+	Args:                  cobra.NoArgs,
+	RunE:                  runBuild,
 }
 
-// buildUploadCmd builds and uploads the app.
+// buildUploadCmd uploads an existing app artifact.
 var buildUploadCmd = &cobra.Command{
 	Use:   "upload",
-	Short: "Build and upload the app",
-	Long: `Build the app and upload it to Revyl.
+	Short: "Upload an existing build artifact",
+	Long: `Upload an existing build artifact and register it in Revyl.
 
-By default, builds both iOS and Android concurrently if both platforms are configured.
-Use --platform to build only one platform.
-Use --file to upload a pre-built artifact directly (no .revyl/config.yaml required).
-Use --url to ingest an artifact from a remote URL (Artifactory, S3, GCS, GitHub Actions).
-
-This command will:
-  1. Run the build command(s) from .revyl/config.yaml
-  2. Upload the resulting artifact(s) to Revyl
-  3. Track metadata (git commit, branch, machine, etc.)
-
-Examples:
-  revyl build upload                                 # Build both iOS and Android concurrently
-  revyl build upload --platform ios                  # Build iOS only
-  revyl build upload --platform android              # Build Android only
-  revyl build upload --skip-build                    # Upload existing artifacts
-  revyl build upload --app <id>                      # Upload to specific app
-  revyl build upload --app "My App"                  # Upload to app by name
-  revyl build upload --name "My App"                 # Create app with specified name
-  revyl build upload --name "My App" -y              # Create and auto-save to config
-  revyl build upload --file ./app.apk --app <id>     # Upload a specific file
-  revyl build upload -f ./build/App.ipa --name "iOS" # Upload file and create app
-  revyl build upload --url https://artifacts.internal.company.com/builds/app-latest.ipa --app <id>
-  revyl build upload --url https://example.com/app.apk --header "Authorization: Bearer <token>"`,
-	Example: `  revyl build upload
-  revyl build upload --platform ios
-  revyl build upload --json --yes
-  revyl build upload --file ./app.apk --app <id>
-  revyl build upload --url https://example.com/app.ipa --app <id>
-  revyl build upload --dry-run`,
+This command does not run a build. Use ` + "`revyl build`" + ` to build from source.`,
+	Example: `  revyl build upload --file ./app.apk --app <id>
+  revyl build upload --file ./build/App.app.zip --platform ios --yes
+  revyl build upload --url https://artifacts.example.com/app.apk --app <id>
+  revyl build upload --url https://artifacts.example.com/app.ipa --header "Authorization: Bearer <token>"
+  revyl build upload --file ./app.apk --version 1.2.3 --no-set-current --json`,
 	RunE: runBuildUpload,
 }
 
-// buildRemoteCmd builds remotely and registers the resulting artifact.
+// buildRemoteCmd is retained only to guide users to the new --remote flag.
 var buildRemoteCmd = &cobra.Command{
-	Use:   "remote",
-	Short: "Build on a dedicated Revyl cloud runner",
-	Long: `Build the app on a dedicated Revyl cloud runner and register the
-resulting artifact as a Revyl build version.
-
-By default, this command packages the current working tree, including
-uncommitted edits. Use --committed-only to build the committed tree at HEAD.`,
-	Example: `  revyl build remote --platform ios
-  revyl build remote --platform android
-  revyl build remote --platform android --json
-  revyl build remote --platform android --no-wait
-  revyl build remote --platform android --clean`,
-	RunE: runBuildRemote,
+	Use:    "remote",
+	Short:  "Deprecated: use revyl build --remote",
+	Long:   "`revyl build remote` has been replaced by `revyl build --remote`.",
+	Hidden: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return deprecatedBuildRemoteError()
+	},
 }
 
 // buildListCmd lists uploaded build versions.
@@ -110,33 +82,14 @@ Examples:
 	RunE: runBuildList,
 }
 
-// buildDeleteCmd deletes an app or build version.
-var buildDeleteCmd = &cobra.Command{
-	Use:   "delete <name|id>",
-	Short: "Delete an app or build version",
-	Long: `Delete an app (and all build versions) or a specific build version.
-
-Use --version to delete only a specific build version.
-
-Examples:
-  revyl build delete "My App iOS"                 # Delete entire app
-  revyl build delete "My App iOS" --version v1.2.3 # Delete specific build version only
-  revyl build delete "My App iOS" --force          # Skip confirmation`,
-	Example: `  revyl build delete "My App iOS"
-  revyl build delete "My App iOS" --force
-  revyl build delete "My App iOS" --version v1.2.3`,
-	Args: cobra.ExactArgs(1),
-	RunE: runDeleteBuild,
-}
-
 // buildCancelCmd cancels a running remote build job.
 var buildCancelCmd = &cobra.Command{
 	Use:   "cancel <build-job-id>",
 	Short: "Cancel a running remote build",
 	Long: `Cancel a running remote build by its build job ID.
 
-The job ID is returned by "revyl build remote --no-wait" and shown in JSON
-output from "revyl build remote --json".`,
+The job ID is returned by "revyl build --remote --detach" and shown in JSON
+output from "revyl build --remote --json".`,
 	Example: `  revyl build cancel <build-job-id>
   revyl build cancel <build-job-id> --json`,
 	Args: cobra.ExactArgs(1),
@@ -158,91 +111,120 @@ Use --follow to stream status until the build reaches a terminal state.`,
 }
 
 var (
-	buildSkip           bool
-	buildVersion        string
-	buildSetCurr        bool
-	appIDFlag           string
-	buildPlatform       string
-	uploadAppFlag       string
-	uploadPlatformFlag  string
-	uploadNameFlag      string
-	uploadFileFlag      string
-	uploadURLFlag       string
-	uploadHeaderFlags   []string
-	uploadYesFlag       bool
-	buildListJSON       bool
-	buildListBranch     string
-	buildUploadJSON     bool
-	buildDryRun         bool
-	uploadSchemeFlag    string
-	uploadRemoteFlag    bool
-	uploadCleanFlag     bool
-	remotePlatformFlag  string
-	remoteAppFlag       string
-	remoteVersionFlag   string
-	remoteSetCurrFlag   bool
-	remoteJSONFlag      bool
-	remoteNoWaitFlag    bool
-	remoteCleanFlag     bool
-	remoteKeepDDFlag    bool
-	remoteCommittedOnly bool
-	buildStatusJSON     bool
-	buildStatusFollow   bool
+	buildSkip                 bool
+	buildVersion              string
+	buildSetCurr              bool
+	buildNoSetCurrent         bool
+	buildCommandJSON          bool
+	buildCommandPlatform      string
+	buildCommandRemote        bool
+	buildDetachFlag           bool
+	buildNoCacheFlag          bool
+	buildRequireConfiguredApp bool
+	appIDFlag                 string
+	buildPlatform             string
+	uploadAppFlag             string
+	uploadPlatformFlag        string
+	uploadNameFlag            string
+	uploadFileFlag            string
+	uploadURLFlag             string
+	uploadHeaderFlags         []string
+	uploadYesFlag             bool
+	uploadIncludeDirtyFlag    bool
+	buildListJSON             bool
+	buildListBranch           string
+	buildUploadJSON           bool
+	buildDryRun               bool
+	uploadSchemeFlag          string
+	uploadRemoteFlag          bool
+	uploadCleanFlag           bool
+	remotePlatformFlag        string
+	remoteAppFlag             string
+	remoteVersionFlag         string
+	remoteSetCurrFlag         bool
+	remoteJSONFlag            bool
+	remoteNoWaitFlag          bool
+	remoteCleanFlag           bool
+	remoteCommittedOnly       bool
+	remoteDeprecatedEnvFlags  []string
+	buildStatusJSON           bool
+	buildStatusFollow         bool
 )
 
+var buildHostGOOS = runtime.GOOS
+
 func init() {
-	buildCmd.AddCommand(buildUploadCmd)
-	buildCmd.AddCommand(buildRemoteCmd)
+	buildCmd.AddCommand(buildStatusCmd)
 	buildCmd.AddCommand(buildListCmd)
 	buildCmd.AddCommand(buildCancelCmd)
-	buildCmd.AddCommand(buildStatusCmd)
-	buildCmd.AddCommand(buildDeleteCmd)
+	buildCmd.AddCommand(buildUploadCmd)
+	buildCmd.AddCommand(buildRemoteCmd)
 
-	buildDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")
-	buildDeleteCmd.Flags().StringVar(&deleteBuildVersion, "version", "", "Delete specific build version only")
+	buildCmd.Flags().SortFlags = false
+	buildUploadCmd.Flags().SortFlags = false
+	buildStatusCmd.Flags().SortFlags = false
 
-	buildUploadCmd.Flags().BoolVar(&buildSkip, "skip-build", false, "Skip build step, upload existing artifact")
-	buildUploadCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the upload (default: auto-generated)")
-	buildUploadCmd.Flags().BoolVar(&buildSetCurr, "set-current", false, "Set this version as the current version")
+	buildCmd.Flags().StringVar(&buildCommandPlatform, "platform", "", "Build platform key from .revyl/config.yaml, e.g. ios, android, ios-dev")
+	buildCmd.Flags().BoolVar(&buildCommandRemote, "remote", false, "Run the build on Revyl cloud build runners")
+	buildCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the build (default: auto-generated)")
+	buildCmd.Flags().BoolVar(&buildDetachFlag, "detach", false, "Queue remote build and return immediately")
+	buildCmd.Flags().BoolVar(&buildNoCacheFlag, "no-cache", false, "Run remote build without restoring or saving configured caches")
+	buildCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Do not set this build version as the app's current version")
+	buildCmd.Flags().BoolVar(&buildCommandJSON, "json", false, "Output result as JSON")
+	analytics.MarkFlagValue(buildCmd, "platform")
+	analytics.MarkFlagValue(buildCmd, "version")
+	analytics.MarkFlagValue(buildCmd, "remote")
+	analytics.MarkFlagValue(buildCmd, "detach")
+	analytics.MarkFlagValue(buildCmd, "no-cache")
+	analytics.MarkFlagValue(buildCmd, "no-set-current")
+	analytics.MarkFlagValue(buildCmd, "json")
+
+	buildUploadCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the uploaded artifact (default: auto-generated)")
+	buildUploadCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Do not set this build version as the app's current version")
 	buildUploadCmd.Flags().StringVar(&uploadAppFlag, "app", "", "App name or ID to upload to")
-	buildUploadCmd.Flags().StringVar(&uploadPlatformFlag, "platform", "", "Platform to build for (ios, android)")
+	buildUploadCmd.Flags().StringVar(&uploadPlatformFlag, "platform", "", "Mobile platform or build key from .revyl/config.yaml, e.g. ios, android, ios-dev")
 	buildUploadCmd.Flags().StringVar(&uploadNameFlag, "name", "", "Name for new app (used when creating)")
 	buildUploadCmd.Flags().BoolVarP(&uploadYesFlag, "yes", "y", false, "Automatically confirm prompts (e.g., save to config)")
 	buildUploadCmd.Flags().BoolVar(&buildUploadJSON, "json", false, "Output results as JSON")
-	buildUploadCmd.Flags().BoolVar(&buildDryRun, "dry-run", false, "Show what would be uploaded without uploading")
 	buildUploadCmd.Flags().StringVarP(&uploadFileFlag, "file", "f", "", "Path to a build artifact to upload directly (skips config-based build)")
-	buildUploadCmd.Flags().StringVar(&uploadURLFlag, "url", "", "URL of a remote artifact to ingest (Artifactory, S3, GCS, GitHub Actions)")
+	buildUploadCmd.Flags().StringVar(&uploadURLFlag, "url", "", "URL of a remote artifact to register (Artifactory, S3, GCS, GitHub Actions)")
 	buildUploadCmd.Flags().StringArrayVar(&uploadHeaderFlags, "header", nil, `HTTP header for authenticated URL downloads (repeatable, format "Name: value")`)
-	buildUploadCmd.Flags().StringVar(&uploadSchemeFlag, "scheme", "", "Xcode scheme to use for iOS builds (overrides config)")
-	buildUploadCmd.Flags().BoolVar(&uploadRemoteFlag, "remote", false, "Build remotely on a dedicated Revyl cloud runner")
-	buildUploadCmd.Flags().BoolVar(&uploadCleanFlag, "clean", false, "Request a clean remote build (remote only)")
-	buildUploadCmd.Flags().Bool("include-dirty", false, "Include current working-tree edits in legacy remote builds")
-	analytics.MarkFlagValue(buildUploadCmd, "skip-build")
-	analytics.MarkFlagValue(buildUploadCmd, "set-current")
+	buildUploadCmd.Flags().BoolVar(&uploadRemoteFlag, "remote", false, "Build remotely on Revyl's cloud build runners")
+	_ = buildUploadCmd.Flags().MarkHidden("remote")
+	buildUploadCmd.Flags().BoolVar(&buildSkip, "skip-build", false, "Deprecated")
+	_ = buildUploadCmd.Flags().MarkHidden("skip-build")
+	buildUploadCmd.Flags().BoolVar(&buildDryRun, "dry-run", false, "Deprecated")
+	_ = buildUploadCmd.Flags().MarkHidden("dry-run")
+	buildUploadCmd.Flags().BoolVar(&uploadCleanFlag, "clean", false, "Deprecated")
+	_ = buildUploadCmd.Flags().MarkHidden("clean")
+	buildUploadCmd.Flags().BoolVar(&uploadIncludeDirtyFlag, "include-dirty", false, "Deprecated")
+	_ = buildUploadCmd.Flags().MarkHidden("include-dirty")
+	buildUploadCmd.Flags().BoolVar(&buildSetCurr, "set-current", true, "Deprecated")
+	_ = buildUploadCmd.Flags().MarkHidden("set-current")
 	analytics.MarkFlagValue(buildUploadCmd, "platform")
 	analytics.MarkFlagValue(buildUploadCmd, "yes")
 	analytics.MarkFlagValue(buildUploadCmd, "json")
-	analytics.MarkFlagValue(buildUploadCmd, "dry-run")
-	analytics.MarkFlagValue(buildUploadCmd, "remote")
-	analytics.MarkFlagValue(buildUploadCmd, "clean")
-	analytics.MarkFlagValue(buildUploadCmd, "include-dirty")
+	analytics.MarkFlagValue(buildUploadCmd, "version")
+	analytics.MarkFlagValue(buildUploadCmd, "no-set-current")
 
-	buildRemoteCmd.Flags().StringVar(&remotePlatformFlag, "platform", "ios", "Platform to build for (ios, android)")
-	buildRemoteCmd.Flags().StringVar(&remoteAppFlag, "app", "", "App ID to upload to (overrides .revyl/config.yaml)")
-	buildRemoteCmd.Flags().StringVar(&remoteVersionFlag, "version", "", "Version string for the remote build (default: auto-generated)")
-	buildRemoteCmd.Flags().BoolVar(&remoteSetCurrFlag, "set-current", false, "Set this version as the current version")
-	buildRemoteCmd.Flags().BoolVar(&remoteJSONFlag, "json", false, "Output result as JSON")
-	buildRemoteCmd.Flags().BoolVar(&remoteNoWaitFlag, "no-wait", false, "Queue the remote build and exit without polling")
-	buildRemoteCmd.Flags().BoolVar(&remoteCleanFlag, "clean", false, "Request a clean remote build")
-	buildRemoteCmd.Flags().BoolVar(&remoteKeepDDFlag, "keep-derived-data", false, "Preserve remote iOS DerivedData between builds")
-	buildRemoteCmd.Flags().BoolVar(&remoteCommittedOnly, "committed-only", false, "Build committed files at HEAD instead of the current working tree")
-	analytics.MarkFlagValue(buildRemoteCmd, "platform")
-	analytics.MarkFlagValue(buildRemoteCmd, "set-current")
-	analytics.MarkFlagValue(buildRemoteCmd, "json")
-	analytics.MarkFlagValue(buildRemoteCmd, "no-wait")
-	analytics.MarkFlagValue(buildRemoteCmd, "clean")
-	analytics.MarkFlagValue(buildRemoteCmd, "keep-derived-data")
-	analytics.MarkFlagValue(buildRemoteCmd, "committed-only")
+	buildRemoteCmd.Flags().StringVar(&remotePlatformFlag, "platform", "", "Deprecated")
+	buildRemoteCmd.Flags().StringVar(&remoteAppFlag, "app", "", "Deprecated")
+	buildRemoteCmd.Flags().StringVar(&remoteVersionFlag, "version", "", "Deprecated")
+	buildRemoteCmd.Flags().BoolVar(&remoteSetCurrFlag, "set-current", true, "Deprecated")
+	buildRemoteCmd.Flags().BoolVar(&remoteJSONFlag, "json", false, "Deprecated")
+	buildRemoteCmd.Flags().BoolVar(&remoteNoWaitFlag, "no-wait", false, "Deprecated")
+	buildRemoteCmd.Flags().BoolVar(&remoteCleanFlag, "clean", false, "Deprecated")
+	buildRemoteCmd.Flags().BoolVar(&remoteCommittedOnly, "committed-only", false, "Deprecated")
+	buildRemoteCmd.Flags().StringArrayVar(&remoteDeprecatedEnvFlags, "env", nil, "Deprecated")
+	_ = buildRemoteCmd.Flags().MarkHidden("platform")
+	_ = buildRemoteCmd.Flags().MarkHidden("app")
+	_ = buildRemoteCmd.Flags().MarkHidden("version")
+	_ = buildRemoteCmd.Flags().MarkHidden("set-current")
+	_ = buildRemoteCmd.Flags().MarkHidden("json")
+	_ = buildRemoteCmd.Flags().MarkHidden("no-wait")
+	_ = buildRemoteCmd.Flags().MarkHidden("clean")
+	_ = buildRemoteCmd.Flags().MarkHidden("committed-only")
+	_ = buildRemoteCmd.Flags().MarkHidden("env")
 
 	buildListCmd.Flags().StringVar(&appIDFlag, "app", "", "App name or ID to list builds for")
 	buildListCmd.Flags().StringVar(&buildPlatform, "platform", "", "Filter by platform (android, ios) when listing org apps")
@@ -257,52 +239,94 @@ func init() {
 	analytics.MarkFlagValue(buildStatusCmd, "follow")
 }
 
-// runBuildUpload executes the build upload command.
-//
-// Parameters:
-//   - cmd: The cobra command being executed
-//   - args: Command line arguments
-//
-// Returns:
-//   - error: Any error that occurred during the build/upload process
-func runBuildUpload(cmd *cobra.Command, args []string) error {
-	if v, _ := cmd.Flags().GetBool("json"); v {
-		buildUploadJSON = true
-	}
+func runBuild(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
+	jsonOutput := buildCommandJSON
 	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
-		buildUploadJSON = true
+		jsonOutput = true
 	}
-	if buildUploadJSON {
+	if jsonOutput {
 		ui.SetQuietMode(true)
 		defer ui.SetQuietMode(false)
 	}
 
-	// Check authentication
+	if !buildCommandRemote {
+		if buildDetachFlag {
+			return fmt.Errorf("--detach is only supported with --remote")
+		}
+		if buildNoCacheFlag {
+			return fmt.Errorf("--no-cache is only supported with --remote")
+		}
+		if err := checkLocalBuildSupported(); err != nil {
+			return err
+		}
+	}
+
 	apiKey, err := getAPIKey()
 	if err != nil {
 		return err
 	}
 
-	if err := validateUploadSourceFlags(uploadFileFlag, uploadURLFlag, uploadHeaderFlags); err != nil {
-		return err
+	setCurrent := !buildNoSetCurrent
+	if buildCommandRemote {
+		platform := strings.TrimSpace(buildCommandPlatform)
+		if platform == "" {
+			platform = "ios"
+		}
+		return runRemoteBuildWithOptions(cmd, apiKey, remoteBuildOptions{
+			Platform:      platform,
+			Version:       buildVersion,
+			SetCurrent:    setCurrent,
+			Clean:         buildNoCacheFlag,
+			JSON:          jsonOutput,
+			Wait:          !buildDetachFlag,
+			IncludeDirty:  true,
+			CommittedOnly: false,
+		})
 	}
 
-	// Direct file upload bypasses config-based build entirely.
-	if uploadFileFlag != "" {
-		return runDirectFileUpload(cmd, apiKey)
-	}
+	return runConfiguredBuild(cmd, apiKey, buildCommandPlatform, buildVersion, setCurrent, jsonOutput)
+}
 
-	// URL-based upload: the backend fetches the artifact server-side.
-	if uploadURLFlag != "" {
-		return runURLUpload(cmd, apiKey)
-	}
+func runConfiguredBuild(cmd *cobra.Command, apiKey, platform, version string, setCurrent, jsonOutput bool) error {
+	previousVersion := buildVersion
+	previousSetCurrent := buildSetCurr
+	previousJSON := buildUploadJSON
+	previousSkip := buildSkip
+	previousDryRun := buildDryRun
+	previousApp := uploadAppFlag
+	previousName := uploadNameFlag
+	previousYes := uploadYesFlag
+	previousScheme := uploadSchemeFlag
+	previousRequireApp := buildRequireConfiguredApp
+	defer func() {
+		buildVersion = previousVersion
+		buildSetCurr = previousSetCurrent
+		buildUploadJSON = previousJSON
+		buildSkip = previousSkip
+		buildDryRun = previousDryRun
+		uploadAppFlag = previousApp
+		uploadNameFlag = previousName
+		uploadYesFlag = previousYes
+		uploadSchemeFlag = previousScheme
+		buildRequireConfiguredApp = previousRequireApp
+	}()
 
-	// Remote build: package source, upload, build on cloud runner.
-	if uploadRemoteFlag {
-		return runRemoteBuild(cmd, apiKey)
-	}
+	buildVersion = version
+	buildSetCurr = setCurrent
+	buildUploadJSON = jsonOutput
+	buildSkip = false
+	buildDryRun = false
+	uploadAppFlag = ""
+	uploadNameFlag = ""
+	uploadYesFlag = false
+	uploadSchemeFlag = ""
+	buildRequireConfiguredApp = true
 
-	// Load project config
+	return runConfigDrivenBuild(cmd, apiKey, platform)
+}
+
+func runConfigDrivenBuild(cmd *cobra.Command, apiKey, platform string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
@@ -315,14 +339,12 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// If --platform is specified, run single platform build
-	if uploadPlatformFlag != "" {
-		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, uploadPlatformFlag)
+	if platform != "" {
+		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platform)
 	}
 
 	buildablePlatforms := buildablePlatformKeys(cfg)
 
-	// Check if both ios and android platforms exist for concurrent builds
 	hasIOS := false
 	hasAndroid := false
 	for _, platform := range buildablePlatforms {
@@ -335,11 +357,9 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	}
 
 	if hasIOS && hasAndroid {
-		// Default: run concurrent builds for both platforms
 		return runConcurrentBuilds(cmd, cfg, configPath, apiKey)
 	}
 
-	// Handle single platform case deterministically
 	platformCount := len(buildablePlatforms)
 	if platformCount == 0 {
 		placeholderKeys := placeholderBuildPlatformKeys(cfg)
@@ -355,14 +375,10 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 	}
 
 	if platformCount == 1 {
-		// Single platform - use it directly
 		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, buildablePlatforms[0])
 	}
 
-	// Multiple platforms configured — prompt the user to choose interactively,
-	// or fall back to deterministic auto-pick in non-interactive environments (CI).
 	platforms := buildablePlatforms
-
 	if ui.IsInteractive() {
 		options := make([]ui.SelectOption, len(platforms))
 		for i, p := range platforms {
@@ -380,10 +396,83 @@ func runBuildUpload(cmd *cobra.Command, args []string) error {
 		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, selected)
 	}
 
-	// Non-interactive: pick first alphabetically for determinism
 	ui.PrintWarning("Multiple platforms configured without --platform flag, using '%s'", platforms[0])
 	ui.PrintInfo("Use --platform to specify which platform to build")
 	return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platforms[0])
+}
+
+// runBuildUpload executes the build upload command.
+//
+// Parameters:
+//   - cmd: The cobra command being executed
+//   - args: Command line arguments
+//
+// Returns:
+//   - error: Any error that occurred during the build/upload process
+func runBuildUpload(cmd *cobra.Command, args []string) error {
+	if v, _ := cmd.Flags().GetBool("json"); v {
+		buildUploadJSON = true
+	}
+	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
+		buildUploadJSON = true
+	}
+	buildSetCurr = !buildNoSetCurrent
+	if buildUploadJSON {
+		ui.SetQuietMode(true)
+		defer ui.SetQuietMode(false)
+	}
+
+	// Check authentication
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	if err := validateUploadSourceFlags(uploadFileFlag, uploadURLFlag, uploadHeaderFlags); err != nil {
+		return err
+	}
+
+	if uploadRemoteFlag {
+		return deprecatedBuildUploadRemoteError()
+	}
+	if buildSkip || buildDryRun || uploadCleanFlag || uploadIncludeDirtyFlag {
+		return deprecatedBuildUploadLocalBuildError()
+	}
+
+	// Direct file upload bypasses config-based build entirely.
+	if uploadFileFlag != "" {
+		return runDirectFileUpload(cmd, apiKey)
+	}
+
+	// URL-based upload: the backend fetches the artifact server-side.
+	if uploadURLFlag != "" {
+		return runURLUpload(cmd, apiKey)
+	}
+
+	return deprecatedBuildUploadLocalBuildError()
+}
+
+func deprecatedBuildRemoteError() error {
+	return fmt.Errorf("`revyl build remote` has been replaced.\n\nUse:\n  revyl build --remote --platform ios\n  revyl build --remote --platform android\n  revyl build --remote --detach")
+}
+
+func deprecatedBuildUploadRemoteError() error {
+	return fmt.Errorf("`revyl build upload --remote` has been replaced.\n\nUse:\n  revyl build --remote")
+}
+
+func deprecatedBuildUploadLocalBuildError() error {
+	return fmt.Errorf("`revyl build upload` requires --file or --url.\n\nUse:\n  revyl build                         Build from source and upload\n  revyl build upload --file ./app.apk Upload an existing artifact\n  revyl build upload --url <url>      Ingest an artifact from a URL")
+}
+
+func missingConfiguredBuildAppError(platform string) error {
+	return fmt.Errorf("no app is configured for platform %q; run revyl init or add build.platforms.%s.app_id to .revyl/config.yaml", platform, platform)
+}
+
+func checkLocalBuildSupported() error {
+	if buildHostGOOS == "windows" {
+		return fmt.Errorf("local builds are not supported on Windows; use `revyl build --remote` or upload an existing artifact with `revyl build upload --file` or `revyl build upload --url`")
+	}
+	return nil
 }
 
 // runDirectFileUpload uploads a user-supplied artifact without requiring a
@@ -1051,6 +1140,67 @@ func outputBuildUploadJSON(builds []BuildUploadJSONBuild) {
 	fmt.Println(string(data))
 }
 
+func buildPlatformUsesCommandList(platformCfg config.BuildPlatform) bool {
+	for _, command := range platformCfg.Commands {
+		if strings.TrimSpace(command) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func setBuildPlatformCommands(platformCfg config.BuildPlatform, commands []string, useCommandList bool) config.BuildPlatform {
+	trimmed := make([]string, 0, len(commands))
+	for _, command := range commands {
+		if command = strings.TrimSpace(command); command != "" {
+			trimmed = append(trimmed, command)
+		}
+	}
+
+	if useCommandList {
+		platformCfg.Commands = trimmed
+		if len(trimmed) == 1 {
+			platformCfg.Command = trimmed[0]
+		}
+		return platformCfg
+	}
+
+	platformCfg.Commands = nil
+	if len(trimmed) == 1 {
+		platformCfg.Command = trimmed[0]
+	} else {
+		platformCfg.Command = strings.Join(trimmed, " && ")
+	}
+	return platformCfg
+}
+
+func normalizeExpoBuildCommands(system string, commands []string) ([]string, bool) {
+	normalized := append([]string(nil), commands...)
+	changed := false
+	for i, command := range normalized {
+		if next, didChange := normalizeExpoBuildCommand(system, command); didChange {
+			normalized[i] = next
+			changed = true
+		}
+	}
+	return normalized, changed
+}
+
+func applyFixedBuildCommandToCommands(commands []string, originalJoined, fixedJoined string) []string {
+	if originalProfile, usesListProfile := build.ExtractProfileFromCommand(originalJoined); usesListProfile {
+		if fixedProfile, ok := build.ExtractProfileFromCommand(fixedJoined); ok {
+			fixed := append([]string(nil), commands...)
+			for i, command := range fixed {
+				if commandProfile, ok := build.ExtractProfileFromCommand(command); ok && commandProfile == originalProfile {
+					fixed[i] = build.ReplaceProfileInCommand(command, fixedProfile)
+				}
+			}
+			return fixed
+		}
+	}
+	return []string{fixedJoined}
+}
+
 // runConcurrentBuilds builds and uploads both iOS and Android platforms concurrently.
 //
 // Parameters:
@@ -1134,6 +1284,9 @@ func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPa
 		appID := platformCfg.AppID
 
 		if appID == "" {
+			if buildRequireConfiguredApp {
+				return missingConfiguredBuildAppError(platform)
+			}
 			ui.Println()
 			ui.PrintWarning("No app configured for %s", platform)
 			selectedID, err := selectOrCreateAppInteractive(cmd, client, cfg, platform)
@@ -1274,15 +1427,17 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 	outputMu.Lock()
 	platformCfg := cfg.Build.Platforms[platform]
 	outputMu.Unlock()
-	buildCommand := platformCfg.Command
-	if normalized, changed := normalizeExpoBuildCommand(cfg.Build.System, platformCfg.Command); changed {
-		buildCommand = normalized
-		platformCfg.Command = normalized
+	usesCommandList := buildPlatformUsesCommandList(platformCfg)
+	buildCommands := platformCfg.BuildCommands()
+	if normalized, changed := normalizeExpoBuildCommands(cfg.Build.System, buildCommands); changed {
+		buildCommands = normalized
+		platformCfg = setBuildPlatformCommands(platformCfg, buildCommands, usesCommandList)
 		outputMu.Lock()
 		cfg.Build.Platforms[platform] = platformCfg
 		ui.PrintDim("[%s] Updated build command to use npx eas", platform)
 		outputMu.Unlock()
 	}
+	buildCommand := strings.Join(buildCommands, " && ")
 
 	// Apply Xcode scheme: --scheme flag > config scheme > leave as-is
 	scheme := uploadSchemeFlag
@@ -1290,7 +1445,10 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 		scheme = platformCfg.Scheme
 	}
 	if scheme != "" {
-		buildCommand = build.ApplySchemeToCommand(buildCommand, scheme)
+		for i, command := range buildCommands {
+			buildCommands[i] = build.ApplySchemeToCommand(command, scheme)
+		}
+		buildCommand = strings.Join(buildCommands, " && ")
 	}
 
 	// Validate EAS simulator profile for iOS builds (non-interactive in concurrent mode)
@@ -1317,7 +1475,11 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 	if !buildSkip {
 		outputMu.Lock()
 		ui.PrintDim("[%s] Using configured build command from .revyl/config.yaml", platform)
-		ui.PrintInfo("[%s] Building with configured command: %s", platform, buildCommand)
+		if len(buildCommands) == 1 {
+			ui.PrintInfo("[%s] Building with configured command: %s", platform, buildCommands[0])
+		} else {
+			ui.PrintInfo("[%s] Building with %d configured commands", platform, len(buildCommands))
+		}
 		ui.PrintDim("[%s] Local build step: Revyl will upload after this command creates %s.", platform, platformCfg.Output)
 		outputMu.Unlock()
 
@@ -1325,11 +1487,22 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 		runner := build.NewRunner(cwd)
 		runner.Interactive = !concurrent
 
-		err := runner.Run(buildCommand, func(line string) {
-			outputMu.Lock()
-			ui.PrintDim("  [%s] %s", platform, line)
-			outputMu.Unlock()
-		})
+		var err error
+		for i, command := range buildCommands {
+			if len(buildCommands) > 1 {
+				outputMu.Lock()
+				ui.PrintDim("[%s] Build command %d/%d: %s", platform, i+1, len(buildCommands), command)
+				outputMu.Unlock()
+			}
+			err = runner.Run(command, func(line string) {
+				outputMu.Lock()
+				ui.PrintDim("  [%s] %s", platform, line)
+				outputMu.Unlock()
+			})
+			if err != nil {
+				break
+			}
+		}
 
 		result.Duration = time.Since(startTime)
 
@@ -1366,6 +1539,10 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 
 	// Get app ID from platform config
 	appID := platformCfg.AppID
+	if buildRequireConfiguredApp && strings.TrimSpace(appID) == "" {
+		result.Error = missingConfiguredBuildAppError(platform)
+		return result
+	}
 	result.AppID = appID
 
 	// Generate version string with platform suffix
@@ -1561,6 +1738,9 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
+	if err := checkLocalBuildSupported(); err != nil {
+		return err
+	}
 
 	resolvedPlatform, err := resolveBuildUploadPlatform(cfg, platform)
 	if err != nil {
@@ -1588,21 +1768,23 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		ui.PrintInfo("Please configure build.platforms.%s.output in .revyl/config.yaml (artifact path)", platformKey)
 		return fmt.Errorf("incomplete build config: missing output for %s", platformKey)
 	}
-	if platformCfg.Command == "" && !buildSkip {
+	buildCommands := platformCfg.BuildCommands()
+	if len(buildCommands) == 0 && !buildSkip {
 		ui.PrintError("Build command not configured for %s", platformKey)
-		ui.PrintInfo("Please configure build.platforms.%s.command in .revyl/config.yaml, or use --skip-build to upload an existing artifact", platformKey)
+		ui.PrintInfo("Please configure build.platforms.%s.command or build.platforms.%s.commands in .revyl/config.yaml, or use revyl build upload --file to upload an existing artifact", platformKey, platformKey)
 		return fmt.Errorf("incomplete build config: missing command for %s", platformKey)
 	}
-	buildCommand := platformCfg.Command
-	if normalized, changed := normalizeExpoBuildCommand(cfg.Build.System, platformCfg.Command); changed {
-		buildCommand = normalized
-		platformCfg.Command = normalized
+	usesCommandList := buildPlatformUsesCommandList(platformCfg)
+	if normalized, changed := normalizeExpoBuildCommands(cfg.Build.System, buildCommands); changed {
+		buildCommands = normalized
+		platformCfg = setBuildPlatformCommands(platformCfg, buildCommands, usesCommandList)
 		if !resolvedPlatform.LegacyConfig {
 			cfg.Build.Platforms[platformKey] = platformCfg
 			_ = config.WriteProjectConfig(configPath, cfg)
 		}
 		ui.PrintDim("Updated build.platforms.%s.command to use npx eas", platformKey)
 	}
+	buildCommand := strings.Join(buildCommands, " && ")
 
 	// Apply Xcode scheme: --scheme flag > config scheme > leave as-is
 	scheme := uploadSchemeFlag
@@ -1610,7 +1792,10 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 		scheme = platformCfg.Scheme
 	}
 	if scheme != "" {
-		buildCommand = build.ApplySchemeToCommand(buildCommand, scheme)
+		for i, command := range buildCommands {
+			buildCommands[i] = build.ApplySchemeToCommand(command, scheme)
+		}
+		buildCommand = strings.Join(buildCommands, " && ")
 	}
 
 	// Validate EAS simulator profile for iOS builds (before dry-run/build)
@@ -1620,8 +1805,9 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 			return err
 		}
 		if fixedCmd != buildCommand {
-			buildCommand = fixedCmd
-			platformCfg.Command = fixedCmd
+			buildCommands = applyFixedBuildCommandToCommands(buildCommands, buildCommand, fixedCmd)
+			buildCommand = strings.Join(buildCommands, " && ")
+			platformCfg = setBuildPlatformCommands(platformCfg, buildCommands, usesCommandList)
 			if !resolvedPlatform.LegacyConfig {
 				cfg.Build.Platforms[platformKey] = platformCfg
 				_ = config.WriteProjectConfig(configPath, cfg)
@@ -1709,17 +1895,21 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	// Run build if not skipped
 	if !buildSkip {
 		ui.PrintDim("Using configured build command from .revyl/config.yaml")
-		ui.PrintInfo("Building with configured command: %s", buildCommand)
+		if len(buildCommands) == 1 {
+			ui.PrintInfo("Building with configured command: %s", buildCommands[0])
+		} else {
+			ui.PrintInfo("Building with %d configured commands", len(buildCommands))
+		}
 		ui.PrintDim("Local build step: Revyl will upload after this command creates %s.", platformCfg.Output)
-		ui.PrintDim("If this sits quietly, rerun with --debug for raw EAS/Xcode output, or --dry-run to inspect the command.")
-		ui.PrintDim("Already have the artifact? Use --skip-build to upload without rebuilding.")
+		ui.PrintDim("If this sits quietly, rerun with --debug for raw EAS/Xcode output.")
+		ui.PrintDim("Already have the artifact? Use revyl build upload --file to upload without rebuilding.")
 		ui.Println()
 
 		runner := build.NewRunner(cwd)
 		runner.Interactive = true
 		runner.FilterOutput = !ui.IsDebugMode()
 
-		progress := RunBuildWithProgress(runner, buildCommand, platformKey, 10*time.Second)
+		progress := RunBuildCommandsWithProgress(runner, buildCommands, platformKey, 10*time.Second)
 		buildDuration = progress.Duration
 
 		if progress.Err != nil {
@@ -1767,6 +1957,14 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	}
 	if appID == "" {
 		appID = platformCfg.AppID
+	}
+
+	if buildRequireConfiguredApp && strings.TrimSpace(appID) == "" {
+		err := missingConfiguredBuildAppError(platformKey)
+		ui.PrintError("No app is configured for platform %q.", platformKey)
+		ui.PrintInfo("Run: revyl init")
+		ui.PrintInfo("Or add build.platforms.%s.app_id to .revyl/config.yaml.", platformKey)
+		return err
 	}
 
 	if appID == "" {
@@ -1989,7 +2187,7 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 	if len(versions) == 0 {
 		if branchFilter != "" {
 			ui.PrintInfo("No builds found for branch %q", branchFilter)
-			ui.PrintDim("Upload one with: revyl build upload --platform <key>")
+			ui.PrintDim("Build one with: revyl build --platform <key>")
 		} else {
 			ui.PrintInfo("No builds found")
 		}
@@ -2029,7 +2227,7 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 	table.Render()
 
 	ui.PrintNextSteps([]ui.NextStep{
-		{Label: "Upload a new build:", Command: "revyl build upload"},
+		{Label: "Build and upload:", Command: "revyl build"},
 	})
 
 	return nil
@@ -2102,7 +2300,7 @@ func listOrgApps(cmd *cobra.Command, client *api.Client) error {
 
 	ui.PrintNextSteps([]ui.NextStep{
 		{Label: "List builds for an app:", Command: "revyl build list --app <id>"},
-		{Label: "Upload a new build:", Command: "revyl build upload"},
+		{Label: "Build and upload:", Command: "revyl build"},
 	})
 
 	return nil

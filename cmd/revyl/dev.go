@@ -705,7 +705,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		if buildVersionID == "" {
 			return fmt.Errorf(
 				"no existing build found and --no-build is active; " +
-					"upload a build first (revyl build upload) or pass --build-version-id",
+					"build and upload first (revyl build) or pass --build-version-id",
 			)
 		}
 	}
@@ -3021,16 +3021,19 @@ func devBuildAndDeltaPush(
 		return result
 	}
 
-	buildCommand := platCfg.Command
+	buildCommands := platCfg.BuildCommands()
 	if platCfg.Scheme != "" {
-		buildCommand = build.ApplySchemeToCommand(buildCommand, platCfg.Scheme)
+		for i, command := range buildCommands {
+			buildCommands[i] = build.ApplySchemeToCommand(command, platCfg.Scheme)
+		}
 	}
+	buildCommand := strings.Join(buildCommands, " && ")
 	appendAndPublishDevRebuildLog(&result, publishLog, "info", "Build command started: %s", buildCommand)
 
 	runner := build.NewRunner(cwd)
 	runner.FilterOutput = !ui.IsDebugMode()
 
-	progress := RunBuildWithProgressWithHooks(runner, buildCommand, platformKey, 10*time.Second, &BuildProgressHooks{
+	progress := RunBuildCommandsWithProgressWithHooks(runner, buildCommands, platformKey, 10*time.Second, &BuildProgressHooks{
 		OnLine: func(line string) {
 			appendAndPublishDevRebuildLog(&result, publishLog, "info", "Build: %s", line)
 		},

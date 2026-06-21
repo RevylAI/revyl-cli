@@ -30,7 +30,7 @@ cd your-app && revyl init
 revyl skill install --force
 
 # 6. Build and upload
-revyl build upload
+revyl build
 
 # 7. Start the dev loop
 revyl dev

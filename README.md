@@ -67,7 +67,7 @@ revyl doctor                            # Check CLI, auth, connectivity
 revyl auth login                        # Browser-based login (if not already authed)
 revyl init                              # Guided wizard: build system, apps
 revyl skill install --force             # Install recommended agent skills
-revyl build upload                      # Build and upload a dev binary
+revyl build                             # Build and upload a dev binary
 revyl dev                               # Launch TUI: live device + hot reload
 ```
 
@@ -149,7 +149,7 @@ Use the revyl-cli-auth-bypass skill. Set up test-only auth bypass for this app a
 | Run workflows | `revyl workflow run <name>` | [Commands](docs/COMMANDS.md#workflow-management) |
 | Cloud devices | `revyl device start` | [Commands](docs/COMMANDS.md#device-management) |
 | Dev loop (Expo) | `revyl dev` | [Commands](docs/COMMANDS.md#dev-loop-expo) |
-| Build and upload | `revyl build upload` | [Commands](docs/COMMANDS.md#build-management) |
+| Build and upload | `revyl build` | [Commands](docs/COMMANDS.md#build-management) |
 | CI/CD | GitHub Actions | [CI/CD](docs/ci-cd.md) |
 | Device SDK | `pip install revyl[sdk]` | [Device SDK](docs/SDK.md) |
 | Agent skills | `revyl skill install` | [Skills](docs/integrations/skills.md) |

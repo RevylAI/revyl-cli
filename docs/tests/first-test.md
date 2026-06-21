@@ -79,7 +79,7 @@ revyl init -y
 If `revyl init` didn't upload a build for you, do it now:
 
 ```bash
-revyl build upload --platform android
+revyl build --platform android
 ```
 
 <Callout type="info" title="Build artifact requirements">

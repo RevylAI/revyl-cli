@@ -1342,12 +1342,13 @@ class ModuleClient:
 
 
 class BuildClient:
-    """Helper for uploading and managing Revyl app builds.
+    """Helper for building, uploading, and managing Revyl app builds.
 
     Example::
 
         builds = BuildClient()
-        builds.upload("my-app", platform="android")
+        builds.upload(platform="android")
+        builds.upload(app_name="my-app", file_path="./app.apk")
         all_builds = builds.list()
     """
 
@@ -1358,35 +1359,48 @@ class BuildClient:
         self,
         app_name: Optional[str] = None,
         platform: Optional[Platform] = None,
-        skip_build: bool = False,
+        file_path: Optional[str] = None,
+        url: Optional[str] = None,
         version: Optional[str] = None,
-        set_current: bool = False,
+        set_current: bool = True,
+        no_set_current: bool = False,
     ) -> JSONObject:
-        """Build and upload an app to Revyl.
+        """Build from source or upload an existing app artifact to Revyl.
 
         Args:
-            app_name: App name (used when creating a new app on first upload).
-            platform: Target platform.
-            skip_build: If ``True``, skip the local build step and upload
-                the existing artifact.
+            app_name: App name or ID for direct artifact uploads.
+            platform: Target platform or build platform key.
+            file_path: Existing artifact path to upload directly.
+            url: Existing remote artifact URL to ingest directly.
             version: Explicit version string (auto-generated if omitted).
             set_current: Mark this version as the current version.
+            no_set_current: Do not mark this version as current.
 
         Returns:
             Dict with upload result including ``app_id`` and ``build_version_id``.
         """
-        args = ["build", "upload"]
-        if app_name:
-            args.extend(["--name", app_name])
+        direct_upload = bool(file_path or url)
+        if app_name and not direct_upload:
+            raise ValueError(
+                "app_name is only supported for direct artifact uploads; "
+                "config-driven builds use .revyl/config.yaml"
+            )
+
+        args = ["build", "upload"] if direct_upload else ["build"]
+        if app_name and direct_upload:
+            args.extend(["--app", app_name])
         if platform:
             args.extend(["--platform", platform])
-        if skip_build:
-            args.append("--skip-build")
+        if file_path:
+            args.extend(["--file", file_path])
+        if url:
+            args.extend(["--url", url])
         if version:
             args.extend(["--version", version])
-        if set_current:
-            args.append("--set-current")
-        args.append("--yes")
+        if no_set_current or not set_current:
+            args.append("--no-set-current")
+        if direct_upload:
+            args.append("--yes")
         result = self.cli.run(*args, json_output=True)
         return result if isinstance(result, dict) else {}
 

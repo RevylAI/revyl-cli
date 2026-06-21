@@ -23,4 +23,4 @@ Copy-paste workflows for running Revyl tests in GitHub Actions using [RevylAI/re
 ## Finding your IDs
 
 - **Workflow ID:** Open your workflow in Revyl, copy from the URL or the copy button
-- **Build Variable ID:** Open your app in Revyl, go to Builds, copy the build variable ID
+- **App ID:** Open your app in Revyl, go to Builds, copy the app ID

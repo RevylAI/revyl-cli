@@ -59,7 +59,7 @@ jobs:
   #     - checkout
   #     - run: curl -fsSL https://revyl.com/install.sh | sh
   #     - run: ./gradlew assembleDebug
-  #     - run: revyl build upload --file ./app.apk --app your-app-id --set-current
+  #     - run: revyl build upload --file ./app.apk --app your-app-id
   #     - run: revyl workflow run smoke-tests
 
 workflows:

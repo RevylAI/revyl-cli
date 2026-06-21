@@ -124,6 +124,8 @@ func Execute() {
 }
 
 func init() {
+	cobra.EnableCommandSorting = false
+
 	// Prefer linker-injected version metadata, but fall back to local VERSION
 	// file hints for source/dev builds.
 	version = resolveCLIVersion(version)

@@ -348,11 +348,18 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 				ui.PrintError("Unknown platform: %s", runTestPlatform)
 				return fmt.Errorf("unknown platform: %s", runTestPlatform)
 			}
-			buildCfg.Command = platformCfg.Command
+			buildCfg.Command = platformCfg.JoinedBuildCommand()
 			buildCfg.Output = platformCfg.Output
 		}
 
-		if buildCfg.Command == "" {
+		var buildCommands []string
+		if trimmed := strings.TrimSpace(buildCfg.Command); trimmed != "" {
+			buildCommands = []string{trimmed}
+		}
+		if runTestPlatform != "" {
+			buildCommands = platformCfg.BuildCommands()
+		}
+		if len(buildCommands) == 0 {
 			ui.PrintError("No build command configured for this platform.")
 			fmt.Fprintln(os.Stderr, "  Run: revyl init --force")
 			return fmt.Errorf("no build command")
@@ -365,9 +372,14 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		runner := build.NewRunner(cwd)
 		runner.Interactive = true
 
-		err = runner.Run(buildCfg.Command, func(line string) {
-			ui.PrintDim("  %s", line)
-		})
+		for _, buildCommand := range buildCommands {
+			err = runner.Run(buildCommand, func(line string) {
+				ui.PrintDim("  %s", line)
+			})
+			if err != nil {
+				break
+			}
+		}
 
 		buildDuration := time.Since(startTime)
 
@@ -884,11 +896,18 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 				ui.PrintError("Unknown platform: %s", runWorkflowPlatform)
 				return fmt.Errorf("unknown platform: %s", runWorkflowPlatform)
 			}
-			buildCfg.Command = platformCfg.Command
+			buildCfg.Command = platformCfg.JoinedBuildCommand()
 			buildCfg.Output = platformCfg.Output
 		}
 
-		if buildCfg.Command == "" {
+		var buildCommands []string
+		if trimmed := strings.TrimSpace(buildCfg.Command); trimmed != "" {
+			buildCommands = []string{trimmed}
+		}
+		if runWorkflowPlatform != "" {
+			buildCommands = platformCfg.BuildCommands()
+		}
+		if len(buildCommands) == 0 {
 			ui.PrintError("No build command configured for this platform.")
 			fmt.Fprintln(os.Stderr, "  Run: revyl init --force")
 			return fmt.Errorf("no build command")
@@ -901,9 +920,14 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		runner := build.NewRunner(cwd)
 		runner.Interactive = true
 
-		err = runner.Run(buildCfg.Command, func(line string) {
-			ui.PrintDim("  %s", line)
-		})
+		for _, buildCommand := range buildCommands {
+			err = runner.Run(buildCommand, func(line string) {
+				ui.PrintDim("  %s", line)
+			})
+			if err != nil {
+				break
+			}
+		}
 
 		buildDuration := time.Since(startTime)
 
@@ -1354,7 +1378,7 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 			ui.Println()
 			ui.PrintInfo("Run one of:")
 			ui.PrintDim("  revyl init")
-			ui.PrintDim("  revyl build upload --platform %s", platformKey)
+			ui.PrintDim("  revyl build --platform %s", platformKey)
 			return fmt.Errorf("platform missing app_id: %s", platformKey)
 		}
 
@@ -1391,8 +1415,8 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	if buildVersionID == "" {
 		ui.PrintError("No build versions found for platform '%s'.", platformKey)
 		ui.Println()
-		ui.PrintInfo("Upload a build first:")
-		ui.PrintDim("  revyl build upload --platform %s", platformKey)
+		ui.PrintInfo("Build and upload first:")
+		ui.PrintDim("  revyl build --platform %s", platformKey)
 		return fmt.Errorf("no builds for platform: %s", platformKey)
 	}
 

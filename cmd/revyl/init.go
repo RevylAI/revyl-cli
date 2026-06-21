@@ -1453,7 +1453,7 @@ func wizardCreateExpoAppStreams(ctx context.Context, client *api.Client, cfg *co
 
 	confirmed, err := ui.PromptConfirm("Create these apps?", true)
 	if err != nil || !confirmed {
-		ui.PrintDim("Skipped app creation. You can create apps later with: revyl build upload")
+		ui.PrintDim("Skipped app creation. You can create apps later with: revyl build")
 		return
 	}
 
@@ -1513,7 +1513,7 @@ func wizardFirstBuild(ctx context.Context, client *api.Client, cfg *config.Proje
 		}
 		ui.PrintDim("Expo detected: focusing first build on dev streams (%s)", strings.Join(devPlatforms, ", "))
 		if len(platforms) > len(devPlatforms) {
-			ui.PrintDim("Other platforms can be uploaded later with: revyl build upload --platform <platform>")
+			ui.PrintDim("Other platforms can be built and uploaded later with: revyl build --platform <platform>")
 		}
 		wizardFirstBuildExpo(ctx, client, cfg, configPath, cwd, devPlatforms, outcome)
 		return
@@ -1635,7 +1635,7 @@ func wizardFirstBuildExpo(
 			ui.PrintWarning("No app linked for %s", platform)
 			proceed, _ := ui.PromptConfirm(fmt.Sprintf("Create an app for %s now?", platform), true)
 			if !proceed {
-				ui.PrintDim("Skipping %s — run revyl build upload --platform %s later", platform, platform)
+				ui.PrintDim("Skipping %s — run revyl build --platform %s later", platform, platform)
 				continue
 			}
 			appID := createAppInteractive(ctx, client, cfg.Project.Name, mobPlatform)
@@ -1715,14 +1715,14 @@ func wizardFirstBuildExpo(
 		ui.SelectOption{
 			Label:       "Skip for now",
 			Value:       "skip",
-			Description: "Continue without a build; run revyl build upload later",
+			Description: "Continue without a build; run revyl build later",
 		},
 	)
 
 	_, selection, err := ui.Select("How would you like to handle dev streams?", options, 0)
 	if err != nil || selection == "skip" {
 		for _, platform := range eligible {
-			ui.PrintDim("  Run later: revyl build upload --platform %s", platform)
+			ui.PrintDim("  Run later: revyl build --platform %s", platform)
 		}
 		return
 	}
@@ -1768,7 +1768,7 @@ func wizardFirstBuildExpo(
 				choice, _, choiceErr := ui.Select("Could not verify EAS login. What next?", recoveryOptions, 0)
 				if choiceErr != nil || choice == 1 {
 					for _, platform := range pending {
-						ui.PrintDim("  Retry later: revyl build upload --platform %s", platform)
+						ui.PrintDim("  Retry later: revyl build --platform %s", platform)
 					}
 					return
 				}
@@ -1807,7 +1807,7 @@ func wizardFirstBuildExpo(
 		choice, _, choiceErr := ui.Select("Some dev streams failed. What next?", recoveryOptions, 0)
 		if choiceErr != nil || choice == 1 {
 			for _, platform := range failed {
-				ui.PrintDim("  Retry later: revyl build upload --platform %s", platform)
+				ui.PrintDim("  Retry later: revyl build --platform %s", platform)
 			}
 			return
 		}
@@ -1847,7 +1847,7 @@ func offerBuildRetry(platform string) bool {
 		recoveryOptions, 0,
 	)
 	if choiceErr != nil || choice == 1 {
-		ui.PrintDim("  You can retry later: revyl build upload --platform %s", platform)
+		ui.PrintDim("  You can retry later: revyl build --platform %s", platform)
 		return false
 	}
 	return true
@@ -1949,7 +1949,7 @@ func printExpoDeferredDevBuildHint(eligible []string, builtPlatform string) {
 	}
 
 	ui.Println()
-	ui.PrintDim("Optional next: revyl build upload --platform %s", nextPlatformKey)
+	ui.PrintDim("Optional next: revyl build --platform %s", nextPlatformKey)
 }
 
 // ---------------------------------------------------------------------------
@@ -2116,7 +2116,7 @@ func printRNDeferredBuildHint(eligible []string, builtPlatform string) {
 	for _, key := range eligible {
 		if mobilePlatformForBuildKey(key) == nextMobile {
 			ui.Println()
-			ui.PrintDim("Optional next: revyl build upload --platform %s", key)
+			ui.PrintDim("Optional next: revyl build --platform %s", key)
 			return
 		}
 	}
@@ -2192,7 +2192,7 @@ func wizardFirstBuildReactNative(
 			ui.PrintWarning("No app linked for %s", platform)
 			proceed, _ := ui.PromptConfirm(fmt.Sprintf("Create an app for %s now?", platform), true)
 			if !proceed {
-				ui.PrintDim("Skipping %s — run revyl build upload --platform %s later", platform, platform)
+				ui.PrintDim("Skipping %s — run revyl build --platform %s later", platform, platform)
 				continue
 			}
 			appID := createAppInteractive(ctx, client, cfg.Project.Name, mobPlatform)
@@ -2265,14 +2265,14 @@ func wizardFirstBuildReactNative(
 		ui.SelectOption{
 			Label:       "Skip for now",
 			Value:       "skip",
-			Description: "Continue without a build; run revyl build upload later",
+			Description: "Continue without a build; run revyl build later",
 		},
 	)
 
 	_, selection, err := ui.Select("How would you like to handle the first build?", options, 0)
 	if err != nil || selection == "skip" {
 		for _, platform := range eligible {
-			ui.PrintDim("  Run later: revyl build upload --platform %s", platform)
+			ui.PrintDim("  Run later: revyl build --platform %s", platform)
 		}
 		return
 	}
@@ -2459,7 +2459,7 @@ func wizardFirstBuildSequential(
 			ui.PrintWarning("No app linked for %s", platform)
 			proceed, _ := ui.PromptConfirm(fmt.Sprintf("Create an app for %s now?", platform), true)
 			if !proceed {
-				ui.PrintDim("Skipping %s — run revyl build upload --platform %s later", platform, platform)
+				ui.PrintDim("Skipping %s — run revyl build --platform %s later", platform, platform)
 				continue
 			}
 			appID := createAppInteractive(ctx, client, cfg.Project.Name, mobPlatform)
@@ -2485,7 +2485,7 @@ func wizardFirstBuildSequential(
 		}
 		idx, _, promptErr := ui.Select(fmt.Sprintf("What would you like to do for %s?", platform), buildOptions, 0)
 		if promptErr != nil || idx == 2 {
-			ui.PrintDim("  Run later: revyl build upload --platform %s", platform)
+			ui.PrintDim("  Run later: revyl build --platform %s", platform)
 			continue
 		}
 		skipBuild := idx == 1
@@ -2541,7 +2541,7 @@ func sequentialBuildAndUpload(
 					ui.Println()
 					ui.PrintInfo("Tip: use npx to avoid requiring global EAS CLI:")
 					ui.PrintDim("  npx --yes eas-cli build ...")
-					ui.PrintDim("  revyl build upload --platform %s", platform)
+					ui.PrintDim("  revyl build --platform %s", platform)
 				}
 
 				if offerBuildRetry(platform) {
@@ -2657,7 +2657,7 @@ func collectWizardUploadArtifacts(cwd string, cfg *config.ProjectConfig, platfor
 			prepResults = append(prepResults, wizardBuildResult{
 				Platform:   platform,
 				Err:        fmt.Errorf("platform %s is not configured", platform),
-				RetryLater: fmt.Sprintf("revyl build upload --platform %s", platform),
+				RetryLater: fmt.Sprintf("revyl build --platform %s", platform),
 			})
 			continue
 		}
@@ -2670,7 +2670,7 @@ func collectWizardUploadArtifacts(cwd string, cfg *config.ProjectConfig, platfor
 				prepResults = append(prepResults, wizardBuildResult{
 					Platform:   platform,
 					Err:        fmt.Errorf("artifact path not provided"),
-					RetryLater: fmt.Sprintf("revyl build upload --platform %s", platform),
+					RetryLater: fmt.Sprintf("revyl build upload --file <artifact-path> --platform %s", platform),
 				})
 				continue
 			}
@@ -2681,7 +2681,7 @@ func collectWizardUploadArtifacts(cwd string, cfg *config.ProjectConfig, platfor
 				prepResults = append(prepResults, wizardBuildResult{
 					Platform:   platform,
 					Err:        fmt.Errorf("artifact not found: %s", customPath),
-					RetryLater: fmt.Sprintf("revyl build upload --platform %s", platform),
+					RetryLater: fmt.Sprintf("revyl build upload --file <artifact-path> --platform %s", platform),
 				})
 				continue
 			}
@@ -2723,7 +2723,7 @@ func runWizardBuildBatch(
 				result: wizardBuildResult{
 					Platform:   platform,
 					Err:        fmt.Errorf("platform %s is not configured", platform),
-					RetryLater: fmt.Sprintf("revyl build upload --platform %s", platform),
+					RetryLater: fmt.Sprintf("revyl build --platform %s", platform),
 				},
 			}
 			continue
@@ -2770,7 +2770,7 @@ func runWizardBuildForPlatform(
 	result := wizardBuildResult{
 		Platform:   platform,
 		AppID:      strings.TrimSpace(platformCfg.AppID),
-		RetryLater: fmt.Sprintf("revyl build upload --platform %s", platform),
+		RetryLater: fmt.Sprintf("revyl build --platform %s", platform),
 	}
 
 	if result.AppID == "" {
@@ -3957,11 +3957,11 @@ func printInitNextSteps(cfg *config.ProjectConfig) {
 
 	platforms := platformKeys(cfg)
 	if len(platforms) > 0 {
-		ui.PrintInfo("  2. revyl build upload            # Build and upload")
+		ui.PrintInfo("  2. revyl build                   # Build and upload")
 		ui.PrintInfo("  3. revyl test create smoke-test  # Create your first test")
 		ui.PrintInfo("  4. revyl test run smoke-test     # Run it")
 	} else {
-		ui.PrintInfo("  2. revyl build upload --platform <ios|android>")
+		ui.PrintInfo("  2. revyl build --platform <ios|android>")
 		ui.PrintInfo("  3. revyl test create <name> --platform <ios|android>")
 		ui.PrintInfo("  4. revyl test run <name>")
 	}
@@ -4057,9 +4057,9 @@ func printDynamicNextSteps(cfg *config.ProjectConfig, authOK bool, testID string
 	// Build upload is always a useful next step.
 	platforms := platformKeys(cfg)
 	if len(platforms) > 0 {
-		steps = append(steps, ui.NextStep{Label: "Upload a build:", Command: fmt.Sprintf("revyl build upload --platform %s", platforms[0])})
+		steps = append(steps, ui.NextStep{Label: "Build and upload:", Command: fmt.Sprintf("revyl build --platform %s", platforms[0])})
 	} else {
-		steps = append(steps, ui.NextStep{Label: "Upload a build:", Command: "revyl build upload --platform <ios|android>"})
+		steps = append(steps, ui.NextStep{Label: "Build and upload:", Command: "revyl build --platform <ios|android>"})
 	}
 
 	if testID == "" {

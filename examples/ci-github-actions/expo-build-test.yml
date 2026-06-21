@@ -43,7 +43,6 @@ jobs:
             --app "$REVYL_IOS_APP_ID" \
             --platform ios \
             --version "$REVYL_PR_HEAD_SHA" \
-            --set-current \
             --yes \
             --json
         env:

@@ -105,6 +105,15 @@ const (
 	BoundingBoxErrorTypeTargetOutside     BoundingBoxErrorType = "target_outside"
 )
 
+// Defines values for BuildJobStatusUpdateRequestStatus.
+const (
+	BuildJobStatusUpdateRequestStatusCancelled BuildJobStatusUpdateRequestStatus = "cancelled"
+	BuildJobStatusUpdateRequestStatusFailed    BuildJobStatusUpdateRequestStatus = "failed"
+	BuildJobStatusUpdateRequestStatusQueued    BuildJobStatusUpdateRequestStatus = "queued"
+	BuildJobStatusUpdateRequestStatusRunning   BuildJobStatusUpdateRequestStatus = "running"
+	BuildJobStatusUpdateRequestStatusSucceeded BuildJobStatusUpdateRequestStatus = "succeeded"
+)
+
 // Defines values for CacheRetryMode.
 const (
 	CacheRetryModeFullRerun CacheRetryMode = "full_rerun"
@@ -596,31 +605,32 @@ type ActiveDeviceSessionCountResponse struct {
 
 // ActiveDeviceSessionItem Response model for a single active device session.
 type ActiveDeviceSessionItem struct {
-	AppPackage                *string    `json:"app_package"`
-	CanCancel                 *bool      `json:"can_cancel,omitempty"`
-	CanInteract               *bool      `json:"can_interact,omitempty"`
-	CreatedAt                 *time.Time `json:"created_at"`
-	DeviceModel               *string    `json:"device_model"`
-	HasTestExecution          *bool      `json:"has_test_execution,omitempty"`
-	Id                        string     `json:"id"`
-	IdleTimeoutSeconds        *int       `json:"idle_timeout_seconds"`
-	InteractionDisabledReason *string    `json:"interaction_disabled_reason"`
-	LastActivityAt            *string    `json:"last_activity_at"`
-	OrgId                     string     `json:"org_id"`
-	OsVersion                 *string    `json:"os_version"`
-	Platform                  string     `json:"platform"`
-	ScreenHeight              *int       `json:"screen_height"`
-	ScreenWidth               *int       `json:"screen_width"`
-	Source                    string     `json:"source"`
-	StartedAt                 *time.Time `json:"started_at"`
-	Status                    string     `json:"status"`
-	TestId                    *string    `json:"test_id"`
-	TestName                  *string    `json:"test_name"`
-	TraceId                   *string    `json:"trace_id"`
-	UserEmail                 *string    `json:"user_email"`
-	UserId                    *string    `json:"user_id"`
-	WhepUrl                   *string    `json:"whep_url"`
-	WorkflowRunId             *string    `json:"workflow_run_id"`
+	AppPackage                *string                 `json:"app_package"`
+	CanCancel                 *bool                   `json:"can_cancel,omitempty"`
+	CanInteract               *bool                   `json:"can_interact,omitempty"`
+	CreatedAt                 *time.Time              `json:"created_at"`
+	DeviceModel               *string                 `json:"device_model"`
+	HasTestExecution          *bool                   `json:"has_test_execution,omitempty"`
+	Id                        string                  `json:"id"`
+	IdleTimeoutSeconds        *int                    `json:"idle_timeout_seconds"`
+	InteractionDisabledReason *string                 `json:"interaction_disabled_reason"`
+	LastActivityAt            *string                 `json:"last_activity_at"`
+	OrgId                     string                  `json:"org_id"`
+	OsVersion                 *string                 `json:"os_version"`
+	Platform                  string                  `json:"platform"`
+	ScreenHeight              *int                    `json:"screen_height"`
+	ScreenWidth               *int                    `json:"screen_width"`
+	Source                    string                  `json:"source"`
+	SourceMetadata            *map[string]interface{} `json:"source_metadata"`
+	StartedAt                 *time.Time              `json:"started_at"`
+	Status                    string                  `json:"status"`
+	TestId                    *string                 `json:"test_id"`
+	TestName                  *string                 `json:"test_name"`
+	TraceId                   *string                 `json:"trace_id"`
+	UserEmail                 *string                 `json:"user_email"`
+	UserId                    *string                 `json:"user_id"`
+	WhepUrl                   *string                 `json:"whep_url"`
+	WorkflowRunId             *string                 `json:"workflow_run_id"`
 }
 
 // ActiveDeviceSessionsResponse Response model for list of active device sessions.
@@ -1702,6 +1712,19 @@ type BoundingBoxEval struct {
 	UsedBbox *string `json:"used_bbox"`
 }
 
+// BuildBillingResponse defines model for BuildBillingResponse.
+type BuildBillingResponse struct {
+	BuildJobId    *string `json:"build_job_id"`
+	Message       string  `json:"message"`
+	Success       bool    `json:"success"`
+	WorkflowRunId *string `json:"workflow_run_id"`
+}
+
+// BuildBillingStartedRequest defines model for BuildBillingStartedRequest.
+type BuildBillingStartedRequest struct {
+	BuildJobId string `json:"build_job_id"`
+}
+
 // BuildComparisonItem defines model for BuildComparisonItem.
 type BuildComparisonItem struct {
 	CurrentExecutionId  *string `json:"current_execution_id"`
@@ -1711,6 +1734,50 @@ type BuildComparisonItem struct {
 	PreviousStatus      *string `json:"previous_status"`
 	TestId              string  `json:"test_id"`
 	TestName            string  `json:"test_name"`
+}
+
+// BuildConfigurationCreateRequest Saved per-app build configuration for sandbox build runners.
+type BuildConfigurationCreateRequest struct {
+	AppId        string                    `json:"app_id"`
+	Artifacts    *[]map[string]interface{} `json:"artifacts,omitempty"`
+	Caches       *[]map[string]interface{} `json:"caches,omitempty"`
+	Env          *map[string]interface{}   `json:"env,omitempty"`
+	Framework    *string                   `json:"framework"`
+	IsDefault    *bool                     `json:"is_default,omitempty"`
+	Name         *string                   `json:"name,omitempty"`
+	Platform     *string                   `json:"platform,omitempty"`
+	SecretRefs   *[]string                 `json:"secret_refs,omitempty"`
+	SourceSubdir *string                   `json:"source_subdir"`
+	Steps        *[]map[string]interface{} `json:"steps,omitempty"`
+}
+
+// BuildConfigurationResponse defines model for BuildConfigurationResponse.
+type BuildConfigurationResponse struct {
+	AppId        string                   `json:"app_id"`
+	Artifacts    []map[string]interface{} `json:"artifacts"`
+	Caches       []map[string]interface{} `json:"caches"`
+	Env          map[string]interface{}   `json:"env"`
+	Framework    *string                  `json:"framework"`
+	Id           string                   `json:"id"`
+	IsDefault    bool                     `json:"is_default"`
+	Name         string                   `json:"name"`
+	Platform     string                   `json:"platform"`
+	SecretRefs   []string                 `json:"secret_refs"`
+	SourceSubdir *string                  `json:"source_subdir"`
+	Steps        []map[string]interface{} `json:"steps"`
+}
+
+// BuildConfigurationUpdateRequest defines model for BuildConfigurationUpdateRequest.
+type BuildConfigurationUpdateRequest struct {
+	Artifacts    *[]map[string]interface{} `json:"artifacts"`
+	Caches       *[]map[string]interface{} `json:"caches"`
+	Env          *map[string]interface{}   `json:"env"`
+	Framework    *string                   `json:"framework"`
+	IsDefault    *bool                     `json:"is_default"`
+	Name         *string                   `json:"name"`
+	SecretRefs   *[]string                 `json:"secret_refs"`
+	SourceSubdir *string                   `json:"source_subdir"`
+	Steps        *[]map[string]interface{} `json:"steps"`
 }
 
 // BuildCoverageItem defines model for BuildCoverageItem.
@@ -1763,6 +1830,42 @@ type BuildFromUrlRequest struct {
 	Version string `json:"version"`
 }
 
+// BuildJobLogAppendRequest defines model for BuildJobLogAppendRequest.
+type BuildJobLogAppendRequest struct {
+	Lines *[]string `json:"lines,omitempty"`
+	OrgId string    `json:"org_id"`
+}
+
+// BuildJobStatusUpdateRequest defines model for BuildJobStatusUpdateRequest.
+type BuildJobStatusUpdateRequest struct {
+	ArtifactS3Key *string                           `json:"artifact_s3_key"`
+	ArtifactType  *string                           `json:"artifact_type"`
+	BuildId       *string                           `json:"build_id"`
+	CompletedAt   *time.Time                        `json:"completed_at"`
+	Error         *string                           `json:"error"`
+	OrgId         string                            `json:"org_id"`
+	PackageId     *string                           `json:"package_id"`
+	Phase         *string                           `json:"phase"`
+	RunnerId      *string                           `json:"runner_id"`
+	StartedAt     *time.Time                        `json:"started_at"`
+	Status        BuildJobStatusUpdateRequestStatus `json:"status"`
+}
+
+// BuildJobStatusUpdateRequestStatus defines model for BuildJobStatusUpdateRequest.Status.
+type BuildJobStatusUpdateRequestStatus string
+
+// BuildMultipartUploadCompletedPart A part S3 already holds for an in-progress multipart upload.
+type BuildMultipartUploadCompletedPart struct {
+	// Etag ETag S3 returned when the part was stored
+	Etag string `json:"etag"`
+
+	// PartNumber 1-indexed S3 part number
+	PartNumber int `json:"part_number"`
+
+	// Size Size in bytes of the stored part
+	Size int `json:"size"`
+}
+
 // BuildMultipartUploadPartURL A presigned URL for uploading one part of a multipart upload.
 type BuildMultipartUploadPartURL struct {
 	// PartNumber 1-indexed S3 part number
@@ -1770,6 +1873,55 @@ type BuildMultipartUploadPartURL struct {
 
 	// UploadUrl Presigned upload_part URL
 	UploadUrl string `json:"upload_url"`
+}
+
+// BuildMultipartUploadResumeRequest Request to resume an interrupted multipart upload.
+//
+// The client persists the start response and replays the identifying fields
+// here; the server reconstructs the same staging key, asks S3 which parts it
+// already holds, and re-presigns fresh URLs for the remaining parts.
+type BuildMultipartUploadResumeRequest struct {
+	// FileName Name of the file being uploaded
+	FileName string `json:"file_name"`
+
+	// FileSize Total artifact size in bytes; must match the original start
+	FileSize int `json:"file_size"`
+
+	// S3UploadId Native S3 UploadId from multipart-upload/start
+	S3UploadId string `json:"s3_upload_id"`
+
+	// UploadId Staging upload session id from multipart-upload/start
+	UploadId openapi_types.UUID `json:"upload_id"`
+
+	// Version Version string (must still be unclaimed)
+	Version string `json:"version"`
+}
+
+// BuildMultipartUploadResumeResponse Response that lets a client finish an interrupted multipart upload.
+//
+// parts re-presigns every part (URLs from the original start may have
+// expired); uploaded_parts tells the client which of those to skip and
+// carries the ETags it needs to assemble the object at complete_url.
+type BuildMultipartUploadResumeResponse struct {
+	// AbortUrl Presigned S3 AbortMultipartUpload URL
+	AbortUrl string `json:"abort_url"`
+
+	// CompleteUrl Presigned S3 CompleteMultipartUpload URL
+	CompleteUrl string `json:"complete_url"`
+
+	// PartSize Size in bytes of every part except the last
+	PartSize int `json:"part_size"`
+
+	// Parts Freshly presigned upload_part URL for every part
+	Parts      []BuildMultipartUploadPartURL `json:"parts"`
+	S3UploadId string                        `json:"s3_upload_id"`
+
+	// UploadExpiresAt Unix timestamp after which the presigned URLs expire
+	UploadExpiresAt int                `json:"upload_expires_at"`
+	UploadId        openapi_types.UUID `json:"upload_id"`
+
+	// UploadedParts Parts S3 already holds; skip these and reuse their ETags
+	UploadedParts *[]BuildMultipartUploadCompletedPart `json:"uploaded_parts,omitempty"`
 }
 
 // BuildMultipartUploadStartRequest Request to start an S3 multipart upload for a large build artifact.
@@ -1802,6 +1954,9 @@ type BuildMultipartUploadStartResponse struct {
 	// PartSize Size in bytes of every part except the last
 	PartSize int                           `json:"part_size"`
 	Parts    []BuildMultipartUploadPartURL `json:"parts"`
+
+	// S3UploadId Native S3 multipart UploadId. Already embedded in every presigned URL above; surfaced explicitly so a client can persist it and resume an interrupted upload via the multipart-upload/resume route.
+	S3UploadId string `json:"s3_upload_id"`
 
 	// UploadExpiresAt Unix timestamp after which the presigned URLs expire
 	UploadExpiresAt int `json:"upload_expires_at"`
@@ -3372,6 +3527,13 @@ type DuplicateTestResponse struct {
 	VariablesCopied *int `json:"variables_copied,omitempty"`
 }
 
+// EnqueueBuildBillingRequest defines model for EnqueueBuildBillingRequest.
+type EnqueueBuildBillingRequest struct {
+	BuildJobId    string  `json:"build_job_id"`
+	OrgId         *string `json:"org_id"`
+	TriggerReason *string `json:"trigger_reason,omitempty"`
+}
+
 // EntitlementItem defines model for EntitlementItem.
 type EntitlementItem struct {
 	Balance           *float32            `json:"balance"`
@@ -3644,6 +3806,13 @@ type ExtractPackageIdResponse struct {
 type FailBillingSessionRequest struct {
 	Error         string `json:"error"`
 	SessionId     string `json:"session_id"`
+	WorkflowRunId string `json:"workflow_run_id"`
+}
+
+// FailBuildBillingRequest defines model for FailBuildBillingRequest.
+type FailBuildBillingRequest struct {
+	BuildJobId    string `json:"build_job_id"`
+	Error         string `json:"error"`
 	WorkflowRunId string `json:"workflow_run_id"`
 }
 
@@ -4073,7 +4242,8 @@ type FlywheelTriggerResponse struct {
 
 // GenerateStateTokenResponse defines model for GenerateStateTokenResponse.
 type GenerateStateTokenResponse struct {
-	StateToken string `json:"state_token"`
+	InstallUrl *string `json:"install_url"`
+	StateToken string  `json:"state_token"`
 }
 
 // GenerateWorkflowShareableLinkRequest defines model for GenerateWorkflowShareableLinkRequest.
@@ -4144,12 +4314,77 @@ type GetWorkflowsWithLastStatusResponse struct {
 	TotalWorkflowsWow *float32 `json:"total_workflows_wow"`
 }
 
+// GitHubInstallUrlResponse defines model for GitHubInstallUrlResponse.
+type GitHubInstallUrlResponse struct {
+	InstallUrl string `json:"install_url"`
+	StateToken string `json:"state_token"`
+}
+
 // GitHubUser defines model for GitHubUser.
 type GitHubUser struct {
 	AvatarUrl string  `json:"avatar_url"`
 	Id        int     `json:"id"`
 	Login     string  `json:"login"`
 	Name      *string `json:"name"`
+}
+
+// GithubScmConfigCreateRequest defines model for GithubScmConfigCreateRequest.
+type GithubScmConfigCreateRequest struct {
+	Namespace string `json:"namespace"`
+	Project   string `json:"project"`
+}
+
+// GithubScmConfigDeleteResponse defines model for GithubScmConfigDeleteResponse.
+type GithubScmConfigDeleteResponse struct {
+	Id           openapi_types.UUID `json:"id"`
+	RepoFullName string             `json:"repo_full_name"`
+}
+
+// GithubScmConfigResponse defines model for GithubScmConfigResponse.
+type GithubScmConfigResponse struct {
+	Actions                  map[string]interface{}   `json:"actions"`
+	BuildTargets             []ScmBuildTargetResponse `json:"build_targets"`
+	Enabled                  bool                     `json:"enabled"`
+	GithubInstallationId     *int                     `json:"github_installation_id"`
+	GithubInstallationStatus *string                  `json:"github_installation_status"`
+	GithubRepositoryId       *openapi_types.UUID      `json:"github_repository_id"`
+	Id                       openapi_types.UUID       `json:"id"`
+	LabelFilters             []string                 `json:"label_filters"`
+	LastSyncedAt             *time.Time               `json:"last_synced_at"`
+	Namespace                string                   `json:"namespace"`
+	PathFilters              []string                 `json:"path_filters"`
+	Preset                   string                   `json:"preset"`
+	Profiles                 map[string]interface{}   `json:"profiles"`
+	Project                  string                   `json:"project"`
+	Provider                 string                   `json:"provider"`
+	RepoFullName             string                   `json:"repo_full_name"`
+	SkipDrafts               bool                     `json:"skip_drafts"`
+}
+
+// GithubScmConfigSyncResponse defines model for GithubScmConfigSyncResponse.
+type GithubScmConfigSyncResponse struct {
+	Config       GithubScmConfigResponse `json:"config"`
+	Repositories int                     `json:"repositories"`
+	Success      bool                    `json:"success"`
+}
+
+// GithubScmConfigUpdateRequest defines model for GithubScmConfigUpdateRequest.
+type GithubScmConfigUpdateRequest struct {
+	Actions      *ScmActions       `json:"actions,omitempty"`
+	BuildTargets *[]ScmBuildTarget `json:"build_targets"`
+	Enabled      *bool             `json:"enabled,omitempty"`
+	LabelFilters *[]string         `json:"label_filters,omitempty"`
+	PathFilters  *[]string         `json:"path_filters,omitempty"`
+	Preset       *string           `json:"preset,omitempty"`
+	Profiles     *ScmProfiles      `json:"profiles,omitempty"`
+	SkipDrafts   *bool             `json:"skip_drafts,omitempty"`
+}
+
+// GithubScmConfigsResponse defines model for GithubScmConfigsResponse.
+type GithubScmConfigsResponse struct {
+	Configs                  []GithubScmConfigResponse `json:"configs"`
+	GithubIntegrationEnabled bool                      `json:"github_integration_enabled"`
+	HasAccess                bool                      `json:"has_access"`
 }
 
 // GlobalVariableCreate Request model for creating a global variable.
@@ -5185,6 +5420,7 @@ type OnboardingStatusResponse struct {
 	FirstActivationAt     *time.Time              `json:"first_activation_at"`
 	OrgHasApps            *bool                   `json:"org_has_apps,omitempty"`
 	OrgHasPriorActivation *bool                   `json:"org_has_prior_activation,omitempty"`
+	Personalization       *PersonalizationState   `json:"personalization,omitempty"`
 	ProvisionError        *string                 `json:"provision_error"`
 	ProvisionStatus       string                  `json:"provision_status"`
 	ProvisionedResources  *map[string]interface{} `json:"provisioned_resources"`
@@ -5517,12 +5753,43 @@ type OrgOverviewResponse struct {
 
 // OrgRepository defines model for OrgRepository.
 type OrgRepository struct {
-	AddedAt     string `json:"added_at"`
-	Id          string `json:"id"`
-	Owner       string `json:"owner"`
-	PropelOrgId string `json:"propel_org_id"`
-	Repo        string `json:"repo"`
-	Status      string `json:"status"`
+	InstallationId int    `json:"installation_id"`
+	Owner          string `json:"owner"`
+	Repo           string `json:"repo"`
+}
+
+// OrgSessionBillingItem defines model for OrgSessionBillingItem.
+type OrgSessionBillingItem struct {
+	AutumnError            *string                 `json:"autumn_error"`
+	AutumnTrackedAt        *time.Time              `json:"autumn_tracked_at"`
+	BillingStatus          *string                 `json:"billing_status"`
+	CreatedAt              *time.Time              `json:"created_at"`
+	DeviceCostUsd          *float32                `json:"device_cost_usd"`
+	EndedAt                *time.Time              `json:"ended_at"`
+	IsRealDevice           *bool                   `json:"is_real_device"`
+	LlmCostUsd             *float32                `json:"llm_cost_usd"`
+	ManualBillingExemption *map[string]interface{} `json:"manual_billing_exemption"`
+	OrgId                  string                  `json:"org_id"`
+	Platform               *string                 `json:"platform"`
+	SessionDurationSeconds *float32                `json:"session_duration_seconds"`
+	SessionId              string                  `json:"session_id"`
+	SessionStatus          string                  `json:"session_status"`
+	Source                 *string                 `json:"source"`
+	SourceMetadata         *map[string]interface{} `json:"source_metadata"`
+	StartedAt              *time.Time              `json:"started_at"`
+	TotalCostUsd           *float32                `json:"total_cost_usd"`
+	TraceId                *string                 `json:"trace_id"`
+	UsageCreatedAt         *time.Time              `json:"usage_created_at"`
+	UsageDurationSeconds   *float32                `json:"usage_duration_seconds"`
+	UsageId                *string                 `json:"usage_id"`
+}
+
+// OrgSessionBillingResponse defines model for OrgSessionBillingResponse.
+type OrgSessionBillingResponse struct {
+	Limit    int                     `json:"limit"`
+	Offset   int                     `json:"offset"`
+	OrgId    string                  `json:"org_id"`
+	Sessions []OrgSessionBillingItem `json:"sessions"`
 }
 
 // OrgTestMonitorItemInput Single test item for org-wide monitoring.
@@ -5603,9 +5870,10 @@ type OrgWorkflowMonitorState struct {
 
 // OrganizationRepositoriesResponse defines model for OrganizationRepositoriesResponse.
 type OrganizationRepositoriesResponse struct {
-	HasAccess    bool            `json:"has_access"`
-	Installation OrgInstallation `json:"installation"`
-	Repositories []OrgRepository `json:"repositories"`
+	GithubIntegrationEnabled bool            `json:"github_integration_enabled"`
+	HasAccess                bool            `json:"has_access"`
+	Installation             OrgInstallation `json:"installation"`
+	Repositories             []OrgRepository `json:"repositories"`
 }
 
 // OrganizationUsersResponse defines model for OrganizationUsersResponse.
@@ -5674,6 +5942,19 @@ type PaginatedBuildsResponse struct {
 
 	// TotalPages Total number of pages
 	TotalPages int `json:"total_pages"`
+}
+
+// PersonalizationRequest defines model for PersonalizationRequest.
+type PersonalizationRequest struct {
+	Answers *map[string]interface{} `json:"answers,omitempty"`
+}
+
+// PersonalizationState defines model for PersonalizationState.
+type PersonalizationState struct {
+	Answers     *map[string]interface{} `json:"answers,omitempty"`
+	Completed   *bool                   `json:"completed,omitempty"`
+	CompletedAt *time.Time              `json:"completed_at"`
+	ShouldShow  *bool                   `json:"should_show,omitempty"`
 }
 
 // PlanInfo defines model for PlanInfo.
@@ -5746,6 +6027,12 @@ type ProcessBillingSessionRequest struct {
 	SessionId     string  `json:"session_id"`
 	TriggerReason *string `json:"trigger_reason,omitempty"`
 	WorkflowRunId string  `json:"workflow_run_id"`
+}
+
+// ProcessBuildBillingRequest defines model for ProcessBuildBillingRequest.
+type ProcessBuildBillingRequest struct {
+	BuildJobId    string `json:"build_job_id"`
+	WorkflowRunId string `json:"workflow_run_id"`
 }
 
 // PropelMetadataResponse defines model for PropelMetadataResponse.
@@ -5931,6 +6218,12 @@ type ReflectionEval struct {
 	Explanation *string `json:"explanation"`
 }
 
+// RefreshInstallationRequest defines model for RefreshInstallationRequest.
+type RefreshInstallationRequest struct {
+	InstallationId int    `json:"installation_id"`
+	StateToken     string `json:"state_token"`
+}
+
 // RegisterSandboxRequest Request payload for registering (upserting) a sandbox during provisioning.
 //
 // Called by the fleet CLI or Ansible playbook after provisioning a Mac.
@@ -6071,6 +6364,7 @@ type RemoteBuildPhaseTiming struct {
 //	app_id: UUID of the app to build.
 //	source_key: S3 key of the uploaded source archive.
 //	build_command: Shell command that compiles the project.
+//	build_commands: Ordered shell commands that compile the project.
 //	build_scheme: Optional Xcode scheme override.
 //	setup_command: Optional pre-build setup command
 //	    (e.g. ``npm install && cd ios && pod install``).
@@ -6081,6 +6375,8 @@ type RemoteBuildPhaseTiming struct {
 //	platform: Target platform (``ios`` or ``android``).
 //	artifact_path: Optional output artifact path or glob.
 //	artifact_type: Optional expected artifact type (``app`` or ``apk``).
+//	env: Environment variables passed to the remote build runner.
+//	cache_paths: Paths the remote build runner should cache and restore.
 type RemoteBuildRequest struct {
 	AppId string `json:"app_id"`
 
@@ -6088,14 +6384,18 @@ type RemoteBuildRequest struct {
 	ArtifactPath *string `json:"artifact_path"`
 
 	// ArtifactType Expected artifact type: app for iOS or apk for Android.
-	ArtifactType *string `json:"artifact_type"`
-	BuildCommand string  `json:"build_command"`
-	BuildScheme  *string `json:"build_scheme"`
-	CleanBuild   *bool   `json:"clean_build,omitempty"`
+	ArtifactType  *string   `json:"artifact_type"`
+	BuildCommand  *string   `json:"build_command"`
+	BuildCommands *[]string `json:"build_commands"`
+	BuildScheme   *string   `json:"build_scheme"`
 
-	// KeepDerivedData Preserve remote iOS DerivedData between builds.
-	KeepDerivedData *bool   `json:"keep_derived_data,omitempty"`
-	Platform        *string `json:"platform,omitempty"`
+	// CachePaths Paths the remote build runner should cache and restore between builds.
+	CachePaths *[]string `json:"cache_paths,omitempty"`
+	CleanBuild *bool     `json:"clean_build,omitempty"`
+
+	// Env Environment variables passed to the remote build runner. Sent per build; not persisted.
+	Env      *map[string]string `json:"env,omitempty"`
+	Platform *string            `json:"platform,omitempty"`
 
 	// RunnerId Deprecated and ignored. Remote build capacity is selected by Revyl using the caller's organisation and platform.
 	// Deprecated:
@@ -6181,7 +6481,6 @@ type RemoteBuildSourceUploadResponse struct {
 //	started_at: ISO timestamp when the build started executing.
 //	completed_at: ISO timestamp when the build finished.
 //	duration_ms: Build duration in milliseconds when known.
-//	runner_id: Build runner label/name that executed the job.
 //	phase_timings: Per-phase build timings when emitted by the worker.
 type RemoteBuildStatusResponse struct {
 	AppId              *string                   `json:"app_id"`
@@ -6195,7 +6494,6 @@ type RemoteBuildStatusResponse struct {
 	Phase              *string                   `json:"phase"`
 	PhaseTimings       *[]RemoteBuildPhaseTiming `json:"phase_timings"`
 	Platform           *string                   `json:"platform"`
-	RunnerId           *string                   `json:"runner_id"`
 	StartedAt          *string                   `json:"started_at"`
 	Status             string                    `json:"status"`
 	SuggestedFix       *string                   `json:"suggested_fix"`
@@ -6411,6 +6709,17 @@ type ReportV3Response struct {
 	WhepUrl                *string                   `json:"whep_url"`
 	WorkflowExecutionId    *string                   `json:"workflow_execution_id"`
 	WorkflowRunId          *string                   `json:"workflow_run_id"`
+}
+
+// ResolveBuildSecretsRequest defines model for ResolveBuildSecretsRequest.
+type ResolveBuildSecretsRequest struct {
+	OrgId      string   `json:"org_id"`
+	SecretRefs []string `json:"secret_refs"`
+}
+
+// ResolveBuildSecretsResponse defines model for ResolveBuildSecretsResponse.
+type ResolveBuildSecretsResponse struct {
+	Secrets map[string]string `json:"secrets"`
 }
 
 // ResolveExpoProjectRequest defines model for ResolveExpoProjectRequest.
@@ -6699,6 +7008,88 @@ type SSHKeyStatusResponse struct {
 	SandboxReachable *bool `json:"sandbox_reachable,omitempty"`
 }
 
+// ScmActions defines model for ScmActions.
+type ScmActions struct {
+	AdaptiveSystemPrompt      *string   `json:"adaptive_system_prompt"`
+	AdaptiveValidation        *bool     `json:"adaptive_validation,omitempty"`
+	CuratedWorkflows          *[]string `json:"curated_workflows,omitempty"`
+	NaturalLanguageAssertions *[]string `json:"natural_language_assertions,omitempty"`
+	PreviewLink               *bool     `json:"preview_link,omitempty"`
+}
+
+// ScmAdaptiveReportFailRequest defines model for ScmAdaptiveReportFailRequest.
+type ScmAdaptiveReportFailRequest struct {
+	Error         string             `json:"error"`
+	ReviewRunId   openapi_types.UUID `json:"review_run_id"`
+	WorkflowRunId *string            `json:"workflow_run_id"`
+}
+
+// ScmAdaptiveReportProcessRequest defines model for ScmAdaptiveReportProcessRequest.
+type ScmAdaptiveReportProcessRequest struct {
+	ReviewRunId   openapi_types.UUID `json:"review_run_id"`
+	TriggerSource *string            `json:"trigger_source,omitempty"`
+	WorkflowRunId *string            `json:"workflow_run_id"`
+}
+
+// ScmAdaptiveReportProcessResponse defines model for ScmAdaptiveReportProcessResponse.
+type ScmAdaptiveReportProcessResponse struct {
+	Message   string             `json:"message"`
+	ReportUrl *string            `json:"report_url"`
+	RunId     openapi_types.UUID `json:"run_id"`
+	Status    string             `json:"status"`
+	Success   bool               `json:"success"`
+}
+
+// ScmBuildTarget defines model for ScmBuildTarget.
+type ScmBuildTarget struct {
+	BuildConfigurationId openapi_types.UUID `json:"build_configuration_id"`
+	Enabled              *bool              `json:"enabled,omitempty"`
+	UseExistingCi        *bool              `json:"use_existing_ci,omitempty"`
+}
+
+// ScmBuildTargetResponse defines model for ScmBuildTargetResponse.
+type ScmBuildTargetResponse struct {
+	AppId                openapi_types.UUID         `json:"app_id"`
+	BuildConfiguration   BuildConfigurationResponse `json:"build_configuration"`
+	BuildConfigurationId openapi_types.UUID         `json:"build_configuration_id"`
+	Enabled              *bool                      `json:"enabled,omitempty"`
+	Framework            *string                    `json:"framework"`
+	Name                 *string                    `json:"name"`
+	Platform             string                     `json:"platform"`
+	SourceSubdir         *string                    `json:"source_subdir"`
+	UseExistingCi        *bool                      `json:"use_existing_ci,omitempty"`
+}
+
+// ScmPlatformProfile defines model for ScmPlatformProfile.
+type ScmPlatformProfile struct {
+	DeviceModel        *string               `json:"device_model"`
+	Enabled            *bool                 `json:"enabled,omitempty"`
+	IdleTimeoutSeconds *int                  `json:"idle_timeout_seconds"`
+	LaunchEnvVarIds    *[]openapi_types.UUID `json:"launch_env_var_ids,omitempty"`
+	OsVersion          *string               `json:"os_version"`
+	WorkflowIds        *[]string             `json:"workflow_ids,omitempty"`
+}
+
+// ScmPreviewLaunchResponse defines model for ScmPreviewLaunchResponse.
+type ScmPreviewLaunchResponse struct {
+	AppId        openapi_types.UUID     `json:"app_id"`
+	BuildId      openapi_types.UUID     `json:"build_id"`
+	HeadSha      string                 `json:"head_sha"`
+	Platform     string                 `json:"platform"`
+	Provider     string                 `json:"provider"`
+	RepoFullName string                 `json:"repo_full_name"`
+	Session      map[string]interface{} `json:"session"`
+	SessionId    openapi_types.UUID     `json:"session_id"`
+	SessionUrl   string                 `json:"session_url"`
+	Status       string                 `json:"status"`
+}
+
+// ScmProfiles defines model for ScmProfiles.
+type ScmProfiles struct {
+	Android *ScmPlatformProfile `json:"android,omitempty"`
+	Ios     *ScmPlatformProfile `json:"ios,omitempty"`
+}
+
 // ScriptUsageResponse Response model for script usage lookup
 type ScriptUsageResponse struct {
 	Tests []ScriptUsageTestItem `json:"tests"`
@@ -6735,6 +7126,29 @@ type SessionArtifactUploadResponse struct {
 	ExpiresIn   int    `json:"expires_in"`
 	S3Key       string `json:"s3_key"`
 	UploadUrl   string `json:"upload_url"`
+}
+
+// SessionBillingExemptionRequest defines model for SessionBillingExemptionRequest.
+type SessionBillingExemptionRequest struct {
+	// ForceTracked Allow local exemption when the row has already been tracked to Autumn. Autumn usage will be reversed automatically; a Stripe cash refund may still be required if the usage was already paid.
+	ForceTracked *bool `json:"force_tracked,omitempty"`
+
+	// Reason Required admin reason for the billing exemption
+	Reason string `json:"reason"`
+}
+
+// SessionBillingExemptionResponse defines model for SessionBillingExemptionResponse.
+type SessionBillingExemptionResponse struct {
+	AutumnReversalStatus     *string                `json:"autumn_reversal_status,omitempty"`
+	BillingStatus            string                 `json:"billing_status"`
+	ExternalReversalRequired *bool                  `json:"external_reversal_required,omitempty"`
+	ManualBillingExemption   map[string]interface{} `json:"manual_billing_exemption"`
+	Message                  string                 `json:"message"`
+	OrgId                    string                 `json:"org_id"`
+	PreviousBillingStatus    string                 `json:"previous_billing_status"`
+	SessionId                string                 `json:"session_id"`
+	StripeRefundStatus       *string                `json:"stripe_refund_status,omitempty"`
+	UsageId                  string                 `json:"usage_id"`
 }
 
 // SessionStatus Device session status - the single source of truth for test execution state.
@@ -7334,6 +7748,9 @@ type TaskID struct {
 	// DeviceModel Override the target device model for this execution
 	DeviceModel  *string `json:"device_model"`
 	GetDownloads *bool   `json:"get_downloads"`
+
+	// LaunchEnvVarIds Org launch variable IDs selected for this execution. For mobile test runs, these are merged with the test's attached launch vars.
+	LaunchEnvVarIds *[]openapi_types.UUID `json:"launch_env_var_ids"`
 
 	// LaunchEnvVars Inline launch environment variables (KEY=VALUE) applied to the app's launch environment for this execution. Merged over org launch variables attached to the test; inline values take precedence.
 	LaunchEnvVars *map[string]string `json:"launch_env_vars"`
@@ -9740,6 +10157,12 @@ type ListAdminOnboardingOrgsApiV1AdminOnboardingOrgsGetParams struct {
 	PageNumber *int `form:"page_number,omitempty" json:"page_number,omitempty"`
 }
 
+// GetOrgSessionBillingApiV1AdminOrgAnalyticsOrgsOrgIdSessionsGetParams defines parameters for GetOrgSessionBillingApiV1AdminOrgAnalyticsOrgsOrgIdSessionsGet.
+type GetOrgSessionBillingApiV1AdminOrgAnalyticsOrgsOrgIdSessionsGetParams struct {
+	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // GetAllUsersApiV1AdminOrgAnalyticsUsersGetParams defines parameters for GetAllUsersApiV1AdminOrgAnalyticsUsersGet.
 type GetAllUsersApiV1AdminOrgAnalyticsUsersGetParams struct {
 	// IncludeInactive If true, also union in PropelAuth users who have never run a session (signed up but never activated). They appear with session_count=0 and null metrics.
@@ -9791,6 +10214,12 @@ type CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParams struct {
 
 	// RunnerId Deprecated and ignored. Runner selection is managed by Revyl.
 	RunnerId *string `form:"runner_id,omitempty" json:"runner_id,omitempty"`
+}
+
+// ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParams defines parameters for ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGet.
+type ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParams struct {
+	AppId    *string `form:"app_id,omitempty" json:"app_id,omitempty"`
+	Platform *string `form:"platform,omitempty" json:"platform,omitempty"`
 }
 
 // ResolveBuildApiV1AppsResolvePostParams defines parameters for ResolveBuildApiV1AppsResolvePost.
@@ -10361,6 +10790,7 @@ type GetOauthUrlApiV1IntegrationsSlackOauthUrlGetParams struct {
 type GithubWebhookApiV1IntegrationsWebhookGithubPostParams struct {
 	XGithubEvent     *string `json:"x-github-event,omitempty"`
 	XHubSignature256 *string `json:"x-hub-signature-256,omitempty"`
+	XGithubDelivery  *string `json:"x-github-delivery,omitempty"`
 }
 
 // CheckModuleExistsApiV1ModulesCheckExistsGetParams defines parameters for CheckModuleExistsApiV1ModulesCheckExistsGet.
@@ -10720,6 +11150,9 @@ type CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONRequ
 // UpdateAdminOnboardingOrgStateApiV1AdminOnboardingOrgsOrgIdStatePatchJSONRequestBody defines body for UpdateAdminOnboardingOrgStateApiV1AdminOnboardingOrgsOrgIdStatePatch for application/json ContentType.
 type UpdateAdminOnboardingOrgStateApiV1AdminOnboardingOrgsOrgIdStatePatchJSONRequestBody = AdminUpdateOnboardingStateRequest
 
+// ExemptSessionFromBillingApiV1AdminOrgAnalyticsSessionsSessionIdBillingExemptionPostJSONRequestBody defines body for ExemptSessionFromBillingApiV1AdminOrgAnalyticsSessionsSessionIdBillingExemptionPost for application/json ContentType.
+type ExemptSessionFromBillingApiV1AdminOrgAnalyticsSessionsSessionIdBillingExemptionPostJSONRequestBody = SessionBillingExemptionRequest
+
 // CreateAppApiV1AppsPostJSONRequestBody defines body for CreateAppApiV1AppsPost for application/json ContentType.
 type CreateAppApiV1AppsPostJSONRequestBody = AppCreateRequest
 
@@ -10731,6 +11164,21 @@ type CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPostJSONRequestBod
 
 // TriggerRemoteBuildApiV1AppsRemotePostJSONRequestBody defines body for TriggerRemoteBuildApiV1AppsRemotePost for application/json ContentType.
 type TriggerRemoteBuildApiV1AppsRemotePostJSONRequestBody = RemoteBuildRequest
+
+// CreateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsPostJSONRequestBody defines body for CreateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsPost for application/json ContentType.
+type CreateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsPostJSONRequestBody = BuildConfigurationCreateRequest
+
+// UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatchJSONRequestBody defines body for UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatch for application/json ContentType.
+type UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatchJSONRequestBody = BuildConfigurationUpdateRequest
+
+// AppendBuildJobLogsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdLogsPostJSONRequestBody defines body for AppendBuildJobLogsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdLogsPost for application/json ContentType.
+type AppendBuildJobLogsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdLogsPostJSONRequestBody = BuildJobLogAppendRequest
+
+// ResolveBuildJobSecretsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdSecretsPostJSONRequestBody defines body for ResolveBuildJobSecretsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdSecretsPost for application/json ContentType.
+type ResolveBuildJobSecretsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdSecretsPostJSONRequestBody = ResolveBuildSecretsRequest
+
+// UpdateBuildJobStatusInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdStatusPostJSONRequestBody defines body for UpdateBuildJobStatusInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdStatusPost for application/json ContentType.
+type UpdateBuildJobStatusInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdStatusPostJSONRequestBody = BuildJobStatusUpdateRequest
 
 // GetSourceUploadUrlApiV1AppsRemoteUploadUrlPostJSONRequestBody defines body for GetSourceUploadUrlApiV1AppsRemoteUploadUrlPost for application/json ContentType.
 type GetSourceUploadUrlApiV1AppsRemoteUploadUrlPostJSONRequestBody = RemoteBuildSourceUploadRequest
@@ -10746,6 +11194,9 @@ type CreateBuildFromUploadApiV1AppsAppIdBuildsPostJSONRequestBody = BuildCreateF
 
 // CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody defines body for CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPost for application/json ContentType.
 type CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostJSONRequestBody = BuildFromUrlRequest
+
+// ResumeBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadResumePostJSONRequestBody defines body for ResumeBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadResumePost for application/json ContentType.
+type ResumeBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadResumePostJSONRequestBody = BuildMultipartUploadResumeRequest
 
 // StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostJSONRequestBody defines body for StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPost for application/json ContentType.
 type StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostJSONRequestBody = BuildMultipartUploadStartRequest
@@ -10819,8 +11270,20 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONReques
 // BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody defines body for BillingAttachApiV1ExecutionBillingAttachPost for application/json ContentType.
 type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AttachRequest
 
+// BuildBillingStartedInternalApiV1ExecutionBillingInternalBuildStartedPostJSONRequestBody defines body for BuildBillingStartedInternalApiV1ExecutionBillingInternalBuildStartedPost for application/json ContentType.
+type BuildBillingStartedInternalApiV1ExecutionBillingInternalBuildStartedPostJSONRequestBody = BuildBillingStartedRequest
+
+// EnqueueBuildBillingInternalApiV1ExecutionBillingInternalEnqueueBuildPostJSONRequestBody defines body for EnqueueBuildBillingInternalApiV1ExecutionBillingInternalEnqueueBuildPost for application/json ContentType.
+type EnqueueBuildBillingInternalApiV1ExecutionBillingInternalEnqueueBuildPostJSONRequestBody = EnqueueBuildBillingRequest
+
+// FailBuildBillingInternalApiV1ExecutionBillingInternalFailBuildPostJSONRequestBody defines body for FailBuildBillingInternalApiV1ExecutionBillingInternalFailBuildPost for application/json ContentType.
+type FailBuildBillingInternalApiV1ExecutionBillingInternalFailBuildPostJSONRequestBody = FailBuildBillingRequest
+
 // FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPostJSONRequestBody defines body for FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPost for application/json ContentType.
 type FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPostJSONRequestBody = FailBillingSessionRequest
+
+// ProcessBuildBillingInternalApiV1ExecutionBillingInternalProcessBuildPostJSONRequestBody defines body for ProcessBuildBillingInternalApiV1ExecutionBillingInternalProcessBuildPost for application/json ContentType.
+type ProcessBuildBillingInternalApiV1ExecutionBillingInternalProcessBuildPostJSONRequestBody = ProcessBuildBillingRequest
 
 // ProcessBillingSessionInternalApiV1ExecutionBillingInternalProcessSessionPostJSONRequestBody defines body for ProcessBillingSessionInternalApiV1ExecutionBillingInternalProcessSessionPost for application/json ContentType.
 type ProcessBillingSessionInternalApiV1ExecutionBillingInternalProcessSessionPostJSONRequestBody = ProcessBillingSessionRequest
@@ -10936,6 +11399,9 @@ type ResolveExpoProjectEndpointApiV1IntegrationsExpoProjectsResolvePostJSONReque
 // UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPutJSONRequestBody defines body for UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPut for application/json ContentType.
 type UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPutJSONRequestBody = UpdateExpoProjectRequest
 
+// RefreshInstallationApiV1IntegrationsGithubRefreshInstallationPostJSONRequestBody defines body for RefreshInstallationApiV1IntegrationsGithubRefreshInstallationPost for application/json ContentType.
+type RefreshInstallationApiV1IntegrationsGithubRefreshInstallationPostJSONRequestBody = RefreshInstallationRequest
+
 // VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPostJSONRequestBody defines body for VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPost for application/json ContentType.
 type VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPostJSONRequestBody = SetupInstallationRequest
 
@@ -10974,6 +11440,9 @@ type RestoreModuleVersionApiV1ModulesModuleIdRestorePostJSONRequestBody = Module
 
 // CompleteChecklistStepApiV1OnboardingChecklistStepPostJSONRequestBody defines body for CompleteChecklistStepApiV1OnboardingChecklistStepPost for application/json ContentType.
 type CompleteChecklistStepApiV1OnboardingChecklistStepPostJSONRequestBody = ChecklistStepRequest
+
+// CompletePersonalizationApiV1OnboardingPersonalizationPostJSONRequestBody defines body for CompletePersonalizationApiV1OnboardingPersonalizationPost for application/json ContentType.
+type CompletePersonalizationApiV1OnboardingPersonalizationPostJSONRequestBody = PersonalizationRequest
 
 // StartCompileApiV1RecordingsCompilePostJSONRequestBody defines body for StartCompileApiV1RecordingsCompilePost for application/json ContentType.
 type StartCompileApiV1RecordingsCompilePostJSONRequestBody = CompileRecordingRequest
@@ -11028,6 +11497,18 @@ type UpdateStepApiV1ReportsV3StepsStepIdPatchJSONRequestBody = UpdateStepRequest
 
 // CreateActionApiV1ReportsV3StepsStepIdActionsPostJSONRequestBody defines body for CreateActionApiV1ReportsV3StepsStepIdActionsPost for application/json ContentType.
 type CreateActionApiV1ReportsV3StepsStepIdActionsPostJSONRequestBody = CreateActionRequest
+
+// CreateGithubScmConfigApiV1ScmGithubConfigsPostJSONRequestBody defines body for CreateGithubScmConfigApiV1ScmGithubConfigsPost for application/json ContentType.
+type CreateGithubScmConfigApiV1ScmGithubConfigsPostJSONRequestBody = GithubScmConfigCreateRequest
+
+// UpdateGithubScmConfigApiV1ScmGithubConfigsRepoConfigIdPutJSONRequestBody defines body for UpdateGithubScmConfigApiV1ScmGithubConfigsRepoConfigIdPut for application/json ContentType.
+type UpdateGithubScmConfigApiV1ScmGithubConfigsRepoConfigIdPutJSONRequestBody = GithubScmConfigUpdateRequest
+
+// FailScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportFailPostJSONRequestBody defines body for FailScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportFailPost for application/json ContentType.
+type FailScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportFailPostJSONRequestBody = ScmAdaptiveReportFailRequest
+
+// ProcessScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportProcessPostJSONRequestBody defines body for ProcessScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportProcessPost for application/json ContentType.
+type ProcessScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportProcessPostJSONRequestBody = ScmAdaptiveReportProcessRequest
 
 // GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody defines body for GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePost for application/json ContentType.
 type GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody = S3PresignedUrlsRequest

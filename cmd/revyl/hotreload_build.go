@@ -45,7 +45,7 @@ func platformFromKey(key string) string {
 // Returns:
 //   - bool: True when both command and output are configured
 func isRunnableBuildPlatform(platformCfg config.BuildPlatform) bool {
-	return strings.TrimSpace(platformCfg.Command) != "" && strings.TrimSpace(platformCfg.Output) != ""
+	return len(platformCfg.BuildCommands()) > 0 && strings.TrimSpace(platformCfg.Output) != ""
 }
 
 // isResolvableBuildPlatform returns true when a build platform can resolve an

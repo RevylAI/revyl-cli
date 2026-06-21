@@ -33,7 +33,7 @@ type BuildProgressHooks struct {
 // RunBuildWithProgress executes a build command using the given runner and
 // displays live progress via a spinner, line count, and periodic quiet-period
 // recaps. This centralises the build-progress UX used by both `revyl dev`
-// initial builds and `revyl build upload`.
+// initial builds and `revyl build`.
 //
 // Parameters:
 //   - runner: A configured build.Runner (caller sets FilterOutput, Interactive, etc.).
@@ -45,6 +45,28 @@ type BuildProgressHooks struct {
 //   - BuildProgressResult: Timing, captured output, and any error.
 func RunBuildWithProgress(runner *build.Runner, command, platformKey string, recapInterval time.Duration) BuildProgressResult {
 	return RunBuildWithProgressWithHooks(runner, command, platformKey, recapInterval, nil)
+}
+
+func RunBuildCommandsWithProgress(runner *build.Runner, commands []string, platformKey string, recapInterval time.Duration) BuildProgressResult {
+	return RunBuildCommandsWithProgressWithHooks(runner, commands, platformKey, recapInterval, nil)
+}
+
+func RunBuildCommandsWithProgressWithHooks(runner *build.Runner, commands []string, platformKey string, recapInterval time.Duration, hooks *BuildProgressHooks) BuildProgressResult {
+	var total BuildProgressResult
+	for i, command := range commands {
+		if len(commands) > 1 {
+			ui.PrintDim("[%s] Build command %d/%d: %s", platformKey, i+1, len(commands), command)
+		}
+		result := RunBuildWithProgressWithHooks(runner, command, platformKey, recapInterval, hooks)
+		total.Duration += result.Duration
+		total.Output += result.Output
+		total.LineCount += result.LineCount
+		if result.Err != nil {
+			total.Err = result.Err
+			return total
+		}
+	}
+	return total
 }
 
 func RunBuildWithProgressWithHooks(runner *build.Runner, command, platformKey string, recapInterval time.Duration, hooks *BuildProgressHooks) BuildProgressResult {

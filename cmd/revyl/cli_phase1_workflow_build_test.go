@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -24,6 +25,12 @@ func newBuildUploadTestCommand() *cobra.Command {
 	return cmd
 }
 
+func newBuildTestCommand() *cobra.Command {
+	cmd := newLeafCommand("build", runBuild)
+	cmd.Flags().Bool("dev", false, "")
+	return cmd
+}
+
 func newWorkflowRunTestCommand() *cobra.Command {
 	cmd := newLeafCommand("run", runWorkflowExec)
 	cmd.Flags().Bool("open", false, "")
@@ -32,7 +39,98 @@ func newWorkflowRunTestCommand() *cobra.Command {
 	return cmd
 }
 
-func TestRunBuildUploadJSONOutputsStructuredResult(t *testing.T) {
+func TestRunBuildLocalBuildUnsupportedOnWindows(t *testing.T) {
+	previousGOOS := buildHostGOOS
+	previousPlatform := buildCommandPlatform
+	previousRemote := buildCommandRemote
+	previousDetach := buildDetachFlag
+	previousNoCache := buildNoCacheFlag
+	previousJSON := buildCommandJSON
+	defer func() {
+		buildHostGOOS = previousGOOS
+		buildCommandPlatform = previousPlatform
+		buildCommandRemote = previousRemote
+		buildDetachFlag = previousDetach
+		buildNoCacheFlag = previousNoCache
+		buildCommandJSON = previousJSON
+	}()
+
+	buildHostGOOS = "windows"
+	buildCommandPlatform = ""
+	buildCommandRemote = false
+	buildDetachFlag = false
+	buildNoCacheFlag = false
+	buildCommandJSON = false
+
+	err := runBuild(newBuildTestCommand(), nil)
+	if err == nil {
+		t.Fatal("runBuild() error = nil, want unsupported Windows local build error")
+	}
+	if !strings.Contains(err.Error(), "local builds are not supported on Windows") {
+		t.Fatalf("runBuild() error = %q, want unsupported Windows local build guidance", err.Error())
+	}
+}
+
+func TestRunSinglePlatformBuildUnsupportedOnWindows(t *testing.T) {
+	previousGOOS := buildHostGOOS
+	defer func() {
+		buildHostGOOS = previousGOOS
+	}()
+
+	buildHostGOOS = "windows"
+
+	err := runSinglePlatformBuild(newBuildTestCommand(), &config.ProjectConfig{}, filepath.Join(t.TempDir(), "config.yaml"), "test-key", "ios")
+	if err == nil {
+		t.Fatal("runSinglePlatformBuild() error = nil, want unsupported Windows local build error")
+	}
+	if !strings.Contains(err.Error(), "local builds are not supported on Windows") {
+		t.Fatalf("runSinglePlatformBuild() error = %q, want unsupported Windows local build guidance", err.Error())
+	}
+}
+
+func TestRunConcurrentBuildsRequiresConfiguredApps(t *testing.T) {
+	previousRequireApp := buildRequireConfiguredApp
+	previousDryRun := buildDryRun
+	previousSkip := buildSkip
+	defer func() {
+		buildRequireConfiguredApp = previousRequireApp
+		buildDryRun = previousDryRun
+		buildSkip = previousSkip
+	}()
+
+	buildRequireConfiguredApp = true
+	buildDryRun = false
+	buildSkip = false
+
+	cfg := &config.ProjectConfig{
+		Build: config.BuildConfig{
+			Platforms: map[string]config.BuildPlatform{
+				"ios": {
+					Command: "xcodebuild -scheme Example",
+					Output:  "build/Example.app.zip",
+				},
+				"android": {
+					Command: "./gradlew assembleDebug",
+					Output:  "app/build/outputs/apk/debug/app-debug.apk",
+				},
+			},
+		},
+	}
+
+	err := runConcurrentBuilds(newBuildTestCommand(), cfg, filepath.Join(t.TempDir(), "config.yaml"), "test-key")
+	if err == nil {
+		t.Fatal("runConcurrentBuilds() error = nil, want missing configured app error")
+	}
+	if !strings.Contains(err.Error(), `no app is configured for platform "ios"`) {
+		t.Fatalf("runConcurrentBuilds() error = %q, want missing ios app guidance", err.Error())
+	}
+}
+
+func TestRunBuildJSONOutputsStructuredResult(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local revyl build execution is unsupported on Windows")
+	}
+
 	t.Setenv("REVYL_API_KEY", "test-key")
 	t.Setenv("HOME", t.TempDir())
 
@@ -94,7 +192,7 @@ func TestRunBuildUploadJSONOutputsStructuredResult(t *testing.T) {
 		Build: config.BuildConfig{
 			Platforms: map[string]config.BuildPlatform{
 				"android": {
-					Command: "cd android && ./gradlew assembleDebug",
+					Command: "true",
 					Output:  "build/app.apk",
 					AppID:   "app-android-123",
 				},
@@ -105,44 +203,38 @@ func TestRunBuildUploadJSONOutputsStructuredResult(t *testing.T) {
 		t.Fatalf("WriteProjectConfig() error = %v", err)
 	}
 
-	originalBuildSkip := buildSkip
 	originalBuildVersion := buildVersion
-	originalUploadPlatformFlag := uploadPlatformFlag
-	originalBuildUploadJSON := buildUploadJSON
-	originalBuildDryRun := buildDryRun
-	originalBuildSetCurr := buildSetCurr
-	originalUploadAppFlag := uploadAppFlag
-	originalUploadNameFlag := uploadNameFlag
-	originalUploadYesFlag := uploadYesFlag
-	originalUploadSchemeFlag := uploadSchemeFlag
+	originalBuildNoSetCurrent := buildNoSetCurrent
+	originalBuildCommandJSON := buildCommandJSON
+	originalBuildCommandPlatform := buildCommandPlatform
+	originalBuildCommandRemote := buildCommandRemote
+	originalBuildDetachFlag := buildDetachFlag
+	originalBuildNoCacheFlag := buildNoCacheFlag
+	originalBuildRequireConfiguredApp := buildRequireConfiguredApp
 	t.Cleanup(func() {
-		buildSkip = originalBuildSkip
 		buildVersion = originalBuildVersion
-		uploadPlatformFlag = originalUploadPlatformFlag
-		buildUploadJSON = originalBuildUploadJSON
-		buildDryRun = originalBuildDryRun
-		buildSetCurr = originalBuildSetCurr
-		uploadAppFlag = originalUploadAppFlag
-		uploadNameFlag = originalUploadNameFlag
-		uploadYesFlag = originalUploadYesFlag
-		uploadSchemeFlag = originalUploadSchemeFlag
+		buildNoSetCurrent = originalBuildNoSetCurrent
+		buildCommandJSON = originalBuildCommandJSON
+		buildCommandPlatform = originalBuildCommandPlatform
+		buildCommandRemote = originalBuildCommandRemote
+		buildDetachFlag = originalBuildDetachFlag
+		buildNoCacheFlag = originalBuildNoCacheFlag
+		buildRequireConfiguredApp = originalBuildRequireConfiguredApp
 	})
 
-	buildSkip = true
 	buildVersion = "1.2.3"
-	uploadPlatformFlag = "android"
-	buildUploadJSON = true
-	buildDryRun = false
-	buildSetCurr = false
-	uploadAppFlag = ""
-	uploadNameFlag = ""
-	uploadYesFlag = false
-	uploadSchemeFlag = ""
+	buildNoSetCurrent = false
+	buildCommandJSON = true
+	buildCommandPlatform = "android"
+	buildCommandRemote = false
+	buildDetachFlag = false
+	buildNoCacheFlag = false
+	buildRequireConfiguredApp = false
 
-	cmd := newBuildUploadTestCommand()
+	cmd := newBuildTestCommand()
 	output := captureStdout(t, func() {
-		if err := runBuildUpload(cmd, nil); err != nil {
-			t.Fatalf("runBuildUpload() error = %v", err)
+		if err := runBuild(cmd, nil); err != nil {
+			t.Fatalf("runBuild() error = %v", err)
 		}
 	})
 

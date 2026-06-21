@@ -101,6 +101,31 @@ func TestPollRemoteBuildStatusResultRejectsSuccessWithoutVersionID(t *testing.T)
 	}
 }
 
+func TestPollRemoteBuildStatusResultPrintsFailureLogTail(t *testing.T) {
+	withFastRemoteBuildPolling(t)
+	errMsg := "xcodebuild failed"
+	logs := "CompileSwift AppDelegate.swift\nerror: no such module 'DemoKit'"
+	server := remoteBuildStatusServer(t, api.RemoteBuildStatusResponse{
+		Status:   "failed",
+		Error:    &errMsg,
+		LogsTail: &logs,
+	})
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	var err error
+	output := captureStdoutAndStderr(t, func() {
+		_, err = pollRemoteBuildStatusResult(context.Background(), client, "job-1")
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "xcodebuild failed") {
+		t.Fatalf("pollRemoteBuildStatusResult() error = %v, want xcodebuild failure", err)
+	}
+	if !strings.Contains(output, "--- Build log tail ---") || !strings.Contains(output, "no such module 'DemoKit'") {
+		t.Fatalf("output did not include failure log tail:\n%s", output)
+	}
+}
+
 func TestRemoteBuildTimeoutFromConfigUsesProjectDefaults(t *testing.T) {
 	cwd := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(cwd, ".revyl"), 0o755); err != nil {
@@ -138,6 +163,9 @@ func TestResolveRemoteBuildPlatformAndroidReadsConfig(t *testing.T) {
 					Setup:   "pnpm install",
 					Command: "./gradlew assembleDebug",
 					Output:  "app/build/outputs/apk/debug/app-debug.apk",
+					Env: map[string]string{
+						"API_URL": "https://config.example.com",
+					},
 				},
 			},
 		},
@@ -166,6 +194,44 @@ func TestResolveRemoteBuildPlatformAndroidReadsConfig(t *testing.T) {
 	if resolved.Output != "app/build/outputs/apk/debug/app-debug.apk" {
 		t.Fatalf("Output = %q, want APK path", resolved.Output)
 	}
+	if resolved.Env["API_URL"] != "https://config.example.com" {
+		t.Fatalf("Env = %#v, want API_URL from config", resolved.Env)
+	}
+}
+
+func TestResolveRemoteBuildPlatformReadsMultipleCommands(t *testing.T) {
+	tmp := t.TempDir()
+	configDir := filepath.Join(tmp, ".revyl")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	configYAML := []byte(`project:
+  name: Demo
+build:
+  platforms:
+    ios:
+      app_id: app-ios
+      command: legacy build
+      commands:
+        - npm ci
+        - bundle exec fastlane build_simulator_debug
+      output: build/Example.app.zip
+`)
+	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+
+	resolved, err := resolveRemoteBuildPlatform(tmp, "ios", "")
+	if err != nil {
+		t.Fatalf("resolveRemoteBuildPlatform(): %v", err)
+	}
+
+	if len(resolved.Commands) != 2 || resolved.Commands[0] != "npm ci" || resolved.Commands[1] != "bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("Commands = %#v", resolved.Commands)
+	}
+	if resolved.Command != "npm ci && bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("Command = %q", resolved.Command)
+	}
 }
 
 func TestResolveRemoteBuildPlatformReadsRepoBackedSource(t *testing.T) {
@@ -188,7 +254,6 @@ build:
       app_id: app-android
       command: cd android && ./gradlew assembleWebDebug
       output: android/app/build/outputs/apk/web/debug/*.apk
-      keep_derived_data: true
       runner_id: stale-runner-label
 `)
 	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), configYAML, 0o644); err != nil {
@@ -209,31 +274,6 @@ build:
 	}
 	if normalized.Ref != "master" || normalized.Subdir != "android" || !normalized.LFS {
 		t.Fatalf("source = %#v, want ref/subdir/lfs preserved", normalized)
-	}
-	if !resolved.KeepDerivedData {
-		t.Fatalf("KeepDerivedData = false, want true")
-	}
-}
-
-func TestRemoteBuildRunnerAvailabilityUnknownFailsClosed(t *testing.T) {
-	decision := decideRemoteBuildRunnerAvailability(&api.BuildRunnerStatus{
-		Available:   false,
-		RunnerCount: -1,
-	}, nil)
-
-	if decision != remoteBuildRunnerAvailabilityUnavailable {
-		t.Fatalf("decision = %v, want unavailable", decision)
-	}
-}
-
-func TestRemoteBuildRunnerAvailabilityConfirmedUnavailableFails(t *testing.T) {
-	decision := decideRemoteBuildRunnerAvailability(&api.BuildRunnerStatus{
-		Available:   false,
-		RunnerCount: 0,
-	}, nil)
-
-	if decision != remoteBuildRunnerAvailabilityUnavailable {
-		t.Fatalf("decision = %v, want unavailable", decision)
 	}
 }
 

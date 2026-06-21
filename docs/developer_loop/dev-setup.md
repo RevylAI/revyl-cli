@@ -84,7 +84,7 @@ If your app has no `expo.scheme` (common in apps that only use universal links),
 After adding the scheme, **rebuild the dev client** — the scheme is baked into the native binary at build time:
 
 ```bash
-revyl build upload --platform ios-dev
+revyl build --platform ios-dev
 ```
 
 Then set `app_scheme: myapp-dev` in `.revyl/config.yaml`.
@@ -324,12 +324,17 @@ build:
   system: Kotlin Multiplatform
   platforms:
     ios:
-      command: "cd iosApp && xcodebuild -workspace iosApp.xcworkspace -scheme iosApp -configuration Debug -sdk iphonesimulator -derivedDataPath build"
+      commands:
+        - "cd shared && ./gradlew assemble"
+        - "cd iosApp && xcodebuild -workspace iosApp.xcworkspace -scheme iosApp -configuration Debug -sdk iphonesimulator -derivedDataPath build"
       output: "iosApp/build/Build/Products/Debug-iphonesimulator/*.app"
     android:
       command: "cd androidApp && ./gradlew assembleDebug"
       output: "androidApp/build/outputs/apk/debug/androidApp-debug.apk"
 ```
+
+Use `commands` for ordered local rebuild steps. Use singular `command` when the
+platform only needs one shell command.
 
 ---
 
@@ -353,7 +358,9 @@ build:
   system: Bazel
   platforms:
     ios:
-      command: "bazel build //ios:MyApp -c dbg"
+      commands:
+        - "bazel run //tools:generate_mobile_sources"
+        - "bazel build //ios:MyApp -c dbg"
       output: "bazel-bin/ios/MyApp.app"
     android:
       command: "bazel build //android:app -c dbg"

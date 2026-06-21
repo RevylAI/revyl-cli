@@ -66,8 +66,8 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		return err
 	}
 	platCfg := cfg.Build.Platforms[platformKey]
-	if strings.TrimSpace(platCfg.Command) == "" {
-		return fmt.Errorf("build.platforms.%s.command is required for revyl dev --remote", platformKey)
+	if len(platCfg.BuildCommands()) == 0 {
+		return fmt.Errorf("build.platforms.%s.command or build.platforms.%s.commands is required for revyl dev --remote", platformKey, platformKey)
 	}
 
 	ctxName, err = resolveDevStartContextName(cwd, getDevContextFlag(cmd), devicePlatform)
@@ -482,25 +482,29 @@ func runRemoteDevBuild(
 }
 
 func remoteDevTriggerRequest(appID, sourceKey, platform, artifactType, version string, platCfg config.BuildPlatform) *api.RemoteBuildRequest {
-	buildCommand := platCfg.Command
+	buildCommands := platCfg.BuildCommands()
 	scheme := strings.TrimSpace(platCfg.Scheme)
 	if scheme != "" {
-		buildCommand = build.ApplySchemeToCommand(buildCommand, scheme)
+		for i, command := range buildCommands {
+			buildCommands[i] = build.ApplySchemeToCommand(command, scheme)
+		}
 	}
+	buildCommand := strings.Join(buildCommands, " && ")
 
 	setCurrent := true
 	return &api.RemoteBuildRequest{
-		AppId:           appID,
-		SourceKey:       stringPtrOrNil(sourceKey),
-		BuildCommand:    buildCommand,
-		BuildScheme:     stringPtrOrNil(scheme),
-		SetupCommand:    stringPtrOrNil(platCfg.Setup),
-		Version:         stringPtrOrNil(version),
-		SetAsCurrent:    &setCurrent,
-		Platform:        &platform,
-		ArtifactPath:    stringPtrOrNil(platCfg.Output),
-		ArtifactType:    stringPtrOrNil(artifactType),
-		KeepDerivedData: boolPtrOrNil(platCfg.KeepDerivedData),
+		AppId:         appID,
+		SourceKey:     stringPtrOrNil(sourceKey),
+		BuildCommand:  stringPtrOrNil(buildCommand),
+		BuildCommands: stringSlicePtrOrNil(buildCommands),
+		BuildScheme:   stringPtrOrNil(scheme),
+		SetupCommand:  stringPtrOrNil(platCfg.Setup),
+		Version:       stringPtrOrNil(version),
+		SetAsCurrent:  &setCurrent,
+		Platform:      &platform,
+		ArtifactPath:  stringPtrOrNil(platCfg.Output),
+		ArtifactType:  stringPtrOrNil(artifactType),
+		Env:           stringMapPtrOrNil(platCfg.Env),
 	}
 }
 
@@ -574,11 +578,13 @@ func pollRemoteBuildStatusResultWithTimeout(ctx context.Context, client *api.Cli
 				printRemoteBuildPhaseTimings(status.PhaseTimings)
 				return status, nil
 			case "failed":
+				printRemoteBuildLogTail(status)
 				if status.Error != nil && *status.Error != "" {
 					return status, fmt.Errorf("remote build failed: %s", *status.Error)
 				}
 				return status, fmt.Errorf("remote build failed")
 			case "cancelled":
+				printRemoteBuildLogTail(status)
 				if status.Error != nil && *status.Error != "" {
 					return status, fmt.Errorf("remote build cancelled: %s", *status.Error)
 				}

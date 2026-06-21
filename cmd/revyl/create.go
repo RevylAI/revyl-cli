@@ -94,8 +94,8 @@ func requireTestAppID(appID, platform string) error {
 	ui.PrintError("No app configured for platform '%s'.", platform)
 	ui.PrintDim("Every test must be associated with an app.")
 	ui.Println()
-	ui.PrintInfo("Pass --app-id <app-id>, or upload a build to associate one:")
-	ui.PrintDim("  revyl build upload --platform %s", platform)
+	ui.PrintInfo("Pass --app-id <app-id>, or build and upload to associate one:")
+	ui.PrintDim("  revyl build --platform %s", platform)
 	ui.Println()
 	return fmt.Errorf(
 		"a test must be associated with an app: pass --app-id or upload a build for platform %q",

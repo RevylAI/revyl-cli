@@ -40,5 +40,5 @@ jobs:
       - install-deps: apk add --no-cache curl
       - install: curl -fsSL https://revyl.com/install.sh | sh
       - build: ./gradlew assembleDebug   # <-- replace with your build command
-      - upload: revyl build upload --file ./app/build/outputs/apk/debug/app-debug.apk --app your-app-id --set-current
+      - upload: revyl build upload --file ./app/build/outputs/apk/debug/app-debug.apk --app your-app-id
       - test: revyl workflow run smoke-tests

@@ -587,6 +587,25 @@ func TestWriteLoadProjectConfig_HotReloadExpoRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuildPlatformBuildCommandsPrefersCommandsList(t *testing.T) {
+	platform := BuildPlatform{
+		Command: "legacy build",
+		Commands: []string{
+			"npm ci",
+			" ",
+			"bundle exec fastlane build_simulator_debug",
+		},
+	}
+
+	got := platform.BuildCommands()
+	if len(got) != 2 || got[0] != "npm ci" || got[1] != "bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("BuildCommands() = %#v", got)
+	}
+	if joined := platform.JoinedBuildCommand(); joined != "npm ci && bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("JoinedBuildCommand() = %q", joined)
+	}
+}
+
 func TestLoadProjectConfig_IgnoresLegacyPublishBlock(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	raw := `project:

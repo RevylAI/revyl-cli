@@ -197,7 +197,7 @@ func runAppCreate(cmd *cobra.Command, args []string) error {
 
 	ui.Println()
 	ui.PrintInfo("Next:")
-	ui.PrintDim("  revyl build upload --platform %s        Upload a build to this app", platform)
+	ui.PrintDim("  revyl build --platform %s        Build and upload to this app", platform)
 
 	return nil
 }
@@ -293,7 +293,7 @@ func runAppList(cmd *cobra.Command, args []string) error {
 
 	ui.Println()
 	ui.PrintDim("  revyl build list --app <APP ID>              List builds for an app")
-	ui.PrintDim("  revyl build upload --platform <key>          Upload a new build")
+	ui.PrintDim("  revyl build --platform <key>                 Build and upload a new build")
 
 	return nil
 }

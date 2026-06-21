@@ -332,6 +332,11 @@ type BuildPlatform struct {
 	// Command is the build command for this platform.
 	Command string `yaml:"command"`
 
+	// Commands is an ordered list of build commands for this platform.
+	// When set, commands are run in order and Command is retained only as a
+	// backwards-compatible single-command fallback.
+	Commands []string `yaml:"commands,omitempty"`
+
 	// Output is the output artifact path for this platform.
 	Output string `yaml:"output"`
 
@@ -346,8 +351,34 @@ type BuildPlatform struct {
 	// (e.g. "npm install && cd ios && pod install").
 	Setup string `yaml:"setup,omitempty"`
 
-	// KeepDerivedData preserves the remote iOS DerivedData cache between builds.
-	KeepDerivedData bool `yaml:"keep_derived_data,omitempty"`
+	// Env holds environment variables passed to the remote build runner for
+	// this platform. Sent with every remote build; not persisted server-side.
+	Env map[string]string `yaml:"env,omitempty"`
+}
+
+// BuildCommands returns the ordered build commands configured for a platform.
+// The commands list takes precedence over the legacy single command field.
+func (p BuildPlatform) BuildCommands() []string {
+	var commands []string
+	for _, command := range p.Commands {
+		if trimmed := strings.TrimSpace(command); trimmed != "" {
+			commands = append(commands, trimmed)
+		}
+	}
+	if len(commands) > 0 {
+		return commands
+	}
+	if trimmed := strings.TrimSpace(p.Command); trimmed != "" {
+		return []string{trimmed}
+	}
+	return nil
+}
+
+// JoinedBuildCommand returns the effective build commands as one shell string.
+// It is used as a compatibility fallback for older API surfaces that still
+// accept only build_command.
+func (p BuildPlatform) JoinedBuildCommand() string {
+	return strings.Join(p.BuildCommands(), " && ")
 }
 
 // Defaults contains default settings.

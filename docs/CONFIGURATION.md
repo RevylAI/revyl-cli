@@ -28,10 +28,11 @@ build:
 
   platforms:
     ios-dev:
-      command: "npx --yes eas-cli build --platform ios --profile development --local --output build/dev-ios.tar.gz"
+      commands:
+        - "npm ci"
+        - "npx --yes eas-cli build --platform ios --profile development --local --output build/dev-ios.tar.gz"
       output: "build/dev-ios.tar.gz"
       app_id: "uuid-of-ios-dev-app"
-      setup: "npm ci"
       scheme: "MyApp"
     ios-ci:
       command: "npx --yes eas-cli build --platform ios --profile preview --local --output build/ci-ios.tar.gz"
@@ -75,14 +76,15 @@ last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 | `build.source.lfs` | `bool` | Whether the runner should fetch Git LFS objects for the selected ref/path. |
 | `build.command` | `string` | Default build command for simple single-target projects. |
 | `build.output` | `string` | Default artifact path for `build.command`. Supports files, globs, and `.app` bundle directories. |
-| `build.no_build` | `bool` | Tell `revyl dev` to avoid config-driven rebuilds and use existing uploaded builds instead. Use `revyl build upload --skip-build`, `--file`, or `--url` for explicit artifact uploads. |
+| `build.no_build` | `bool` | Tell `revyl dev` to avoid config-driven rebuilds and use existing uploaded builds instead. Use `revyl build upload --file` or `--url` for explicit artifact uploads. |
 | `build.platforms.<key>` | `object` | Named build stream, such as `ios`, `android`, `ios-dev`, `ios-ci`, or `android-release`. |
 | `build.platforms.<key>.command` | `string` | Command to build that stream. Can be Xcode, Gradle, Flutter, EAS, Bazel, or a project-specific script. |
+| `build.platforms.<key>.commands` | `string[]` | Ordered build commands for that stream. When set, Revyl runs these commands in order and uses them instead of `command`. Works for local builds, `revyl dev` rebuilds, and remote sandbox builds. |
 | `build.platforms.<key>.output` | `string` | Artifact path produced by the command. iOS `.app` directories and EAS `.tar.gz` outputs are converted before upload. |
 | `build.platforms.<key>.app_id` | `string` | Revyl app ID where uploads for this stream are stored. |
 | `build.platforms.<key>.scheme` | `string` | Optional Xcode scheme. When set, the CLI applies it to Xcode build commands. |
 | `build.platforms.<key>.setup` | `string` | Optional setup command used by remote builds before the main build command. |
-| `build.platforms.<key>.keep_derived_data` | `bool` | Preserve remote iOS DerivedData between builds for faster repeat Xcode builds. |
+| `build.platforms.<key>.env` | `map[string]string` | Environment variables passed to the remote build runner for this platform. Sent with each build and not persisted server-side. |
 | `hotreload` | `object` | Hot reload provider configuration for `revyl dev`. |
 | `defaults.open_browser` | `bool` | Auto-open browser for commands that support a browser view. |
 | `defaults.timeout` | `int` | Default timeout in seconds for CLI/device sessions. |
@@ -92,7 +94,7 @@ last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 
 The build contract is intentionally small:
 
-1. Run a command, unless the artifact already exists.
+1. Run `commands` in order, or run `command` for single-command streams, unless the artifact already exists.
 2. Resolve an output artifact.
 3. Upload that artifact into the configured Revyl app stream.
 
@@ -107,15 +109,22 @@ build:
   platforms:
     ios-dev:
       app_id: "uuid-of-ios-dev-app"
-      command: "xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -sdk iphonesimulator -derivedDataPath build"
+      commands:
+        - "npm ci"
+        - "cd ios && pod install"
+        - "xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -sdk iphonesimulator -derivedDataPath build"
       output: "build/Build/Products/Debug-iphonesimulator/App.app"
       scheme: "App"
 ```
 
+Use `commands` when a build stream needs multiple ordered shell steps. Keep
+using `command` for a single build command. If both are present, `commands`
+takes precedence.
+
 Then run:
 
 ```bash
-revyl build upload --platform ios-dev
+revyl build --platform ios-dev
 ```
 
 ### Artifact-First CI
@@ -151,23 +160,20 @@ build:
   platforms:
     ios:
       app_id: "$REVYL_IOS_APP_ID"
-      keep_derived_data: true
+      env:
+        NODE_ENV: development
       scheme: "App"
-      command: "xcodebuild -workspace App.xcworkspace -scheme App -sdk iphonesimulator -configuration Debug -derivedDataPath build"
+      commands:
+        - "npm ci"
+        - "xcodebuild -workspace App.xcworkspace -scheme App -sdk iphonesimulator -configuration Debug -derivedDataPath build"
       output: "build/Build/Products/Debug-iphonesimulator/App.app"
 ```
 
 The runner keeps a cached checkout or mirror, fetches the requested ref, pulls
 the needed LFS objects, optionally narrows to `subdir`, and runs the configured
-build command. This is the scalable remote-build path for large repositories
-where artifact-first upload is not enough because Revyl still needs to own the
-platform build execution step.
-
-For iOS, set `keep_derived_data: true` when you want the dedicated runner to
-reuse a stable DerivedData cache across builds. For large native codebases this
-turns repeated remote builds into an incremental compile loop instead of a fresh
-Xcode build every time. Revyl selects eligible build capacity for your org and
-platform automatically.
+build command or ordered `commands`. This is the scalable remote-build path for
+large repositories where artifact-first upload is not enough because Revyl still
+needs to own the platform build execution step.
 
 Repository credentials, LFS access, and private dependency/network access must
 be provisioned on the dedicated runner.
@@ -230,7 +236,7 @@ Bare React Native does not require `app_scheme`. The device loads the JS bundle 
 
 `revyl dev` resolves builds within the selected app stream (`platform_keys` / `build.platforms`), and prefers builds whose metadata branch matches your current git branch.
 
-**Team usage**: The `platform_keys` (e.g. `ios: ios-dev`) map to `build.platforms.<key>.app_id`, which is a shared app container for your team. All developers' `revyl build upload` commands push to this container, tagged with their git branch. `revyl dev` automatically picks the right build for your branch. For JS projects (Expo/React Native), the binary changes infrequently so sharing works well. For native projects (Swift/Kotlin), each code change needs a fresh build -- branch-specific uploads become essential.
+**Team usage**: The `platform_keys` (e.g. `ios: ios-dev`) map to `build.platforms.<key>.app_id`, which is a shared app container for your team. Developers' `revyl build` and `revyl build upload` commands push to this container, tagged with their git branch. `revyl dev` automatically picks the right build for your branch. For JS projects (Expo/React Native), the binary changes infrequently so sharing works well. For native projects (Swift/Kotlin), each code change needs a fresh build -- branch-specific uploads become essential.
 
 ## Defaults
 

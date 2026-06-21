@@ -631,7 +631,7 @@ func printAuthNextSteps(cmd *cobra.Command) {
 	if len(aliases) > 0 {
 		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", aliases[0])})
 	} else {
-		steps = append(steps, ui.NextStep{Label: "Upload a build:", Command: "revyl build upload"})
+		steps = append(steps, ui.NextStep{Label: "Build and upload:", Command: "revyl build"})
 		steps = append(steps, ui.NextStep{Label: "Create a test:", Command: "revyl test create <name>"})
 	}
 

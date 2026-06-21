@@ -173,21 +173,19 @@ revyl workflow run smoke-tests --build --platform android
 Upload a build without running tests:
 
 ```bash
-revyl build upload --platform android
+revyl build --platform android
 ```
 
 ### Upload Options
 
 | Flag | Description |
 |------|-------------|
-| `--platform <name>` | Build platform to use |
-| `--skip-build` | Upload existing artifact without building |
+| `--platform <name>` | Build platform to use when running `revyl build` |
 | `--version <string>` | Version label (default: `<branch-slug>-<timestamp>`) |
-| `--set-current` | Set as the current/default build |
-| `--platform <ios\|android>` | Override detected platform |
-| `--name <string>` | Custom build name |
-| `--yes` | Skip confirmation prompts |
-| `--dry-run` | Show what would be uploaded |
+| `--no-set-current` | Do not set the uploaded build as the current/default build |
+| `--remote` | Run the build on Revyl cloud build runners |
+| `--detach` | Queue a remote build and return immediately |
+| `--no-cache` | Run a remote build without restoring or saving configured caches |
 | `--json` | JSON output |
 
 ### Example Output
@@ -326,7 +324,7 @@ revyl run login-flow --platform android
 export REVYL_API_KEY=${{ secrets.REVYL_API_KEY }}
 
 # Build and upload
-revyl build upload --platform android --version $GITHUB_SHA
+revyl build --platform android --version $GITHUB_SHA
 
 # Run workflow, fail pipeline if tests fail
 revyl workflow run regression --retries 2

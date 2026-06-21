@@ -170,7 +170,7 @@ Use this when you create a new branch and want `revyl dev` to run that branch's 
 
 ```bash
 git checkout -b feature/new-login
-revyl build upload --platform ios-dev   # or android-dev
+revyl build --platform ios-dev          # or android-dev
 revyl dev --platform ios
 ```
 
@@ -184,20 +184,20 @@ revyl dev --build-version-id <build-id>
 
 Use this when you already have a local artifact and want to upload it without running the build command.
 
-1. Ensure your `.revyl/config.yaml` `build.platforms.<key>.output` points at the artifact path.
-2. Upload with `--skip-build`.
+1. Build the artifact with your normal local or CI build command.
+2. Upload it with `revyl build upload --file`.
 3. Run `revyl dev`.
 
 ```bash
 git checkout -b feature/new-login
-revyl build upload --platform ios-dev --skip-build
+revyl build upload --file build/dev-ios.tar.gz --platform ios
 revyl dev --platform ios
 ```
 
 Optional explicit version label:
 
 ```bash
-revyl build upload --platform ios-dev --skip-build --version feature-new-login-20260227-153000
+revyl build upload --file build/dev-ios.tar.gz --platform ios --version feature-new-login-20260227-153000
 ```
 
 Dev test helpers (pass `--context` to reuse a running dev loop's relay):
@@ -218,7 +218,7 @@ revyl device start --platform ios
 
 ### Builds and Dev Mode
 
-All `revyl build upload` commands push to a shared app container (the `app_id` in your config). Each upload is tagged with your git branch and commit via metadata.
+All `revyl build` and `revyl build upload` commands push to a shared app container (the `app_id` in your config). Each upload is tagged with your git branch and commit via metadata.
 
 When you run `revyl dev`, the CLI scans the app container for a build matching your current git branch. If found, it uses that build. If not, it falls back to the latest available build and prints a warning.
 
@@ -234,7 +234,7 @@ Each developer gets their own cloud device session, relay, and local dev server 
 
 ```bash
 revyl build list --branch HEAD               # Does my branch have a build?
-revyl build upload --platform ios-dev        # Upload build tagged with current branch
+revyl build --platform ios-dev               # Build/upload tagged with current branch
 revyl dev                                     # Auto-picks branch-matched build
 revyl dev --build-version-id <id>            # Pin a specific build
 ```
@@ -255,24 +255,23 @@ revyl app delete "My App"                              # Delete an app
 ## Build Management
 
 ```bash
-revyl build upload                       # Build and upload (--dry-run to preview)
-revyl build upload --platform android    # Build for a specific platform
+revyl build                              # Build from config and upload
+revyl build --platform android           # Build a specific config platform
+revyl build --remote --platform ios      # Build on Revyl cloud build runners
+revyl build --remote --platform android --json  # Remote Android build for agents
+revyl build --remote --platform android --detach # Queue and return a build_job_id
+revyl build --remote --platform android --no-cache # Skip configured remote caches
+revyl build status <job-id> --follow     # Follow a queued remote build
+revyl build cancel <job-id>              # Cancel a queued/running remote build
 revyl build upload --file ./app.apk --app <id>  # Upload a local artifact directly
 revyl build upload --url <artifact-url> --app <id>  # Ingest from a remote URL
-revyl build remote --platform ios        # Build on Revyl remote capacity
-revyl build remote --platform android --json  # Remote Android build for agents
-revyl build status <job-id> --follow     # Follow a queued remote build
-revyl build upload --remote --platform ios      # Compatibility alias for remote build
-revyl build upload --remote --platform android  # Compatibility alias for remote build
 revyl build list                         # List uploaded builds
 revyl build list --app <app-id>          # List builds for a specific app
-revyl build delete <app-id>              # Delete a build (all versions)
-revyl build delete <app-id> --version <id>  # Delete a specific version
 ```
 
 ### Uploading a Build
 
-Use `revyl build upload` any time you want to refresh the binary on Revyl without re-running tests.
+Use `revyl build` any time you want to refresh the binary on Revyl without re-running tests.
 
 Common flow:
 
@@ -281,7 +280,7 @@ Common flow:
 
 ```bash
 cd your-app
-revyl build upload --platform ios        # or --platform android
+revyl build --platform ios        # or --platform android
 ```
 
 When `--version` is omitted, the CLI defaults to a branch-aware version label:
@@ -305,7 +304,7 @@ Useful companion commands:
 - `revyl build list` to verify uploads and inspect platform/app history
 - `revyl test run <test> --build-id <id>` to pin a specific build
 
-For Expo projects, `revyl build upload` performs an EAS auth preflight first.
+For Expo projects, `revyl build` performs an EAS auth preflight first.
 If EAS login is missing, the CLI prompts to run `npx --yes eas-cli login` (interactive TTY only), or prints the exact fix command in non-interactive environments.
 
 ### Uploading from a URL

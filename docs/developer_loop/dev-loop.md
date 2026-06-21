@@ -29,7 +29,7 @@ For the provider config schema (`expo`, `react-native`, `app_scheme`, `platform_
 Upload a development client build for the branch you're working on:
 
 ```bash
-revyl build upload --platform ios-dev
+revyl build --platform ios-dev
 ```
 
 For Expo, this is a dev client build. For bare React Native, it's your debug build.
@@ -158,14 +158,14 @@ When you create a new branch and want `revyl dev` to use that branch's build:
 
 ```bash
 git checkout -b feature/new-login
-revyl build upload --platform ios-dev     # Tagged with your branch
+revyl build --platform ios-dev            # Tagged with your branch
 revyl dev --platform ios                  # Auto-picks the branch build
 ```
 
 If you already have a local artifact and want to skip the build step:
 
 ```bash
-revyl build upload --platform ios-dev --skip-build
+revyl build upload --file build/dev-ios.tar.gz --platform ios
 revyl dev --platform ios
 ```
 
