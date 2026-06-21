@@ -2,7 +2,11 @@ package hotreload
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/revyl/cli/internal/config"
 )
@@ -11,7 +15,9 @@ import (
 type fakeAttachDevServer struct {
 	debugURL string
 	started  bool
-	reloads  int
+
+	mu      sync.Mutex
+	reloads int
 }
 
 func (f *fakeAttachDevServer) Start(ctx context.Context) error  { f.started = true; return nil }
@@ -21,8 +27,20 @@ func (f *fakeAttachDevServer) GetDeepLinkURL(string) string     { return "" }
 func (f *fakeAttachDevServer) SetProxyURL(string)               {}
 func (f *fakeAttachDevServer) Name() string                     { return "FakeFlutter" }
 func (f *fakeAttachDevServer) SetDebugURL(u string)             { f.debugURL = u }
-func (f *fakeAttachDevServer) Reload(context.Context) error     { f.reloads++; return nil }
 func (f *fakeAttachDevServer) HotRestart(context.Context) error { return nil }
+
+func (f *fakeAttachDevServer) Reload(context.Context) error {
+	f.mu.Lock()
+	f.reloads++
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakeAttachDevServer) reloadCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reloads
+}
 
 // fakeReverseTunnel records the reverse-forward request for tests.
 type fakeReverseTunnel struct {
@@ -107,6 +125,47 @@ func TestStartAttachRequiresDevicePort(t *testing.T) {
 	if _, err := m.Start(context.Background()); err == nil {
 		t.Fatal("Start should error when neither device port nor external debug URL is set")
 	}
+}
+
+func TestStartAttachDrivesReloadOnFileChange(t *testing.T) {
+	// Use a real temp dir so the file watcher can start, and a .dart file so a
+	// change classifies as a hot reload.
+	dir := t.TempDir()
+	libDir := filepath.Join(dir, "lib")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mainDart := filepath.Join(libDir, "main.dart")
+	if err := os.WriteFile(mainDart, []byte("void main() {}\n"), 0o644); err != nil {
+		t.Fatalf("write main.dart: %v", err)
+	}
+
+	ds := &fakeAttachDevServer{}
+	RegisterFlutterAttachDevServerFactory(func(workDir string) DevServer { return ds })
+	t.Cleanup(func() { RegisterFlutterAttachDevServerFactory(nil) })
+
+	m := NewManager("flutter", &config.ProviderConfig{}, dir)
+	m.SetDevLoopStyle(DevLoopStyleAttach)
+	m.SetExternalDebugURL("http://127.0.0.1:1/")
+
+	if _, err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	defer m.Stop()
+
+	// Edit the .dart file; the watcher (800ms debounce) -> driver -> Reload().
+	if err := os.WriteFile(mainDart, []byte("void main() {}\n// changed\n"), 0o644); err != nil {
+		t.Fatalf("edit main.dart: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if ds.reloadCount() > 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("file change did not drive a hot reload through the Manager attach loop")
 }
 
 func TestStartAttachStopsReverseTunnel(t *testing.T) {

@@ -122,6 +122,13 @@ type Manager struct {
 	// construction (for tests and custom wiring).
 	reverseTunnelFactory func() ReverseTunnelBackend
 
+	// reloadWatcher is the file watcher driving the attach reload loop.
+	reloadWatcher *FileWatcher
+
+	// onAttachRebuild is invoked when an attach-loop change requires a full
+	// rebuild (pubspec/native). When nil, such changes are logged and skipped.
+	onAttachRebuild func(files []string)
+
 	// apiClient is used by the relay transport control plane.
 	apiClient *api.Client
 
@@ -313,6 +320,13 @@ func (m *Manager) SetExternalDebugURL(debugURL string) {
 // construction (for tests and custom wiring). Must be called before Start.
 func (m *Manager) SetReverseTunnelBackendFactory(factory func() ReverseTunnelBackend) {
 	m.reverseTunnelFactory = factory
+}
+
+// SetAttachRebuildHandler registers a callback invoked when an attach-loop file
+// change requires a full rebuild (pubspec/native changes the attach session
+// cannot apply). Must be called before Start.
+func (m *Manager) SetAttachRebuildHandler(fn func(files []string)) {
+	m.onAttachRebuild = fn
 }
 
 // log sends a message to the log callback if set.
@@ -633,6 +647,15 @@ func (m *Manager) cleanupLocked(logStopped bool) {
 		m.reverseTunnel = nil
 		if logStopped {
 			m.log("Reverse tunnel stopped")
+		}
+	}
+
+	// Stop the attach reload-loop file watcher
+	if m.reloadWatcher != nil {
+		m.reloadWatcher.Stop()
+		m.reloadWatcher = nil
+		if logStopped {
+			m.log("Reload watcher stopped")
 		}
 	}
 
@@ -1272,10 +1295,46 @@ func (m *Manager) startAttach(ctx context.Context) (*StartResult, error) {
 	m.running = true
 	m.log("%s attach ready", devServer.Name())
 
+	// Start the file-change reload loop so saving source hot reloads the device.
+	// Best-effort: a watcher failure degrades to manual reload, it does not abort
+	// the attach session.
+	m.startReloadLoop(ctx, devServer)
+
 	return &StartResult{
 		TunnelURL: debugURL,
 		Transport: transport,
 	}, nil
+}
+
+// startReloadLoop wires a file watcher to the attach dev server so that source
+// changes drive hot reload. It is a no-op if the dev server is not Reloadable,
+// and best-effort otherwise (watcher failures are logged, not fatal).
+func (m *Manager) startReloadLoop(ctx context.Context, devServer DevServer) {
+	target, ok := devServer.(Reloadable)
+	if !ok {
+		m.debugLog("attach dev server %q is not reloadable; skipping reload loop", devServer.Name())
+		return
+	}
+
+	driver, watcher, err := NewFlutterReloadDriver(m.workDir, target)
+	if err != nil {
+		m.log("Hot reload on save unavailable (watcher init failed: %v)", err)
+		return
+	}
+	if m.onLog != nil {
+		driver.SetLogCallback(m.onLog)
+	}
+	if m.onAttachRebuild != nil {
+		driver.SetRebuildHandler(m.onAttachRebuild)
+	}
+
+	if err := watcher.Start(ctx); err != nil {
+		m.log("Hot reload on save unavailable (watcher failed to start: %v)", err)
+		return
+	}
+	m.reloadWatcher = watcher
+	go func() { _ = driver.Run(ctx) }()
+	m.log("Watching %s for changes (hot reload on save)", m.workDir)
 }
 
 // createAttachDevServer builds the dev server for an attach-based provider.
