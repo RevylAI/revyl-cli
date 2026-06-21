@@ -168,6 +168,37 @@ func TestStartAttachDrivesReloadOnFileChange(t *testing.T) {
 	t.Fatal("file change did not drive a hot reload through the Manager attach loop")
 }
 
+func TestManagerReloadDelegatesToDevServer(t *testing.T) {
+	ds := &fakeAttachDevServer{}
+	m := newAttachManager(t, ds)
+	m.SetExternalDebugURL("http://127.0.0.1:1/")
+
+	if _, err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	defer m.Stop()
+
+	if err := m.Reload(context.Background()); err != nil {
+		t.Fatalf("Reload error: %v", err)
+	}
+	if ds.reloadCount() != 1 {
+		t.Fatalf("reloadCount = %d, want 1", ds.reloadCount())
+	}
+	if err := m.HotRestart(context.Background()); err != nil {
+		t.Fatalf("HotRestart error: %v", err)
+	}
+}
+
+func TestManagerReloadWithoutDevServerErrors(t *testing.T) {
+	m := NewManager("flutter", &config.ProviderConfig{}, "/work")
+	if err := m.Reload(context.Background()); err == nil {
+		t.Fatal("Reload should error when no dev server is running")
+	}
+	if err := m.HotRestart(context.Background()); err == nil {
+		t.Fatal("HotRestart should error when no dev server is running")
+	}
+}
+
 func TestStartAttachStopsReverseTunnel(t *testing.T) {
 	ds := &fakeAttachDevServer{}
 	m := newAttachManager(t, ds)

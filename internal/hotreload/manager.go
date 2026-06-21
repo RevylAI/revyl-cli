@@ -1374,6 +1374,41 @@ func (m *Manager) newReverseTunnelBackend() ReverseTunnelBackend {
 	return NewReverseRelayTunnelBackend(m.apiClient, m.providerName, m.targetPlatform)
 }
 
+// Reload triggers a manual hot reload on the active attach dev server.
+// It is an error if no reloadable dev server is running.
+func (m *Manager) Reload(ctx context.Context) error {
+	target, err := m.reloadable()
+	if err != nil {
+		return err
+	}
+	return target.Reload(ctx)
+}
+
+// HotRestart triggers a manual hot restart on the active attach dev server.
+// It is an error if no reloadable dev server is running.
+func (m *Manager) HotRestart(ctx context.Context) error {
+	target, err := m.reloadable()
+	if err != nil {
+		return err
+	}
+	return target.HotRestart(ctx)
+}
+
+// reloadable returns the active dev server as a Reloadable, or an error.
+func (m *Manager) reloadable() (Reloadable, error) {
+	m.mu.Lock()
+	devServer := m.devServer
+	m.mu.Unlock()
+	if devServer == nil {
+		return nil, fmt.Errorf("no active dev server")
+	}
+	target, ok := devServer.(Reloadable)
+	if !ok {
+		return nil, fmt.Errorf("dev server %q does not support hot reload", devServer.Name())
+	}
+	return target, nil
+}
+
 // GetProviderName returns the provider name.
 //
 // Returns:

@@ -1469,6 +1469,9 @@ func runDevFlutterAttach(cwd string) error {
 	mgr.SetDevLoopStyle(hotreload.DevLoopStyleAttach)
 	mgr.SetExternalDebugURL(debugURL)
 	mgr.SetAttachDeviceID(strings.TrimSpace(os.Getenv("REVYL_FLUTTER_DEVICE")))
+	mgr.SetAttachRebuildHandler(func(files []string) {
+		ui.PrintWarning("Native/dependency change detected (%s) — hot reload can't apply this; a full rebuild + reinstall is required.", formatChangedFiles(files))
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1479,16 +1482,45 @@ func runDevFlutterAttach(cwd string) error {
 	}
 	defer mgr.Stop()
 
-	ui.PrintSuccess("Flutter hot reload active. Edit .dart files to reload; press Ctrl+C to stop.")
+	ui.PrintSuccess("Flutter hot reload active. Edit .dart files to reload.")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
-	<-sigChan
 
-	ui.Println()
-	ui.PrintInfo("Stopping Flutter hot reload...")
-	return nil
+	stdinKeys, restore, _ := readStdinKeys(ctx, func() {
+		select {
+		case sigChan <- os.Interrupt:
+		default:
+		}
+	})
+	defer restore()
+
+	ui.PrintDim("  [r] hot reload    [R] hot restart    [q]/Ctrl+C quit")
+
+	for {
+		select {
+		case <-sigChan:
+			ui.Println()
+			ui.PrintInfo("Stopping Flutter hot reload...")
+			return nil
+		case key := <-stdinKeys:
+			switch key {
+			case 'r':
+				if err := mgr.Reload(ctx); err != nil {
+					ui.PrintWarning("Hot reload failed: %v", err)
+				}
+			case 'R':
+				if err := mgr.HotRestart(ctx); err != nil {
+					ui.PrintWarning("Hot restart failed: %v", err)
+				}
+			case 'q':
+				ui.Println()
+				ui.PrintInfo("Stopping Flutter hot reload...")
+				return nil
+			}
+		}
+	}
 }
 
 // devSessionViewerURL returns the canonical session viewer route for the active
