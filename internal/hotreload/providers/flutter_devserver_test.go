@@ -20,6 +20,21 @@ func TestFlutterAttachArgs(t *testing.T) {
 	}
 }
 
+func TestFlutterAttachArgsWithDeviceID(t *testing.T) {
+	srv := NewFlutterAttachDevServer("/work", "http://127.0.0.1:54321/")
+	srv.SetDeviceID("sim-123")
+	args := srv.attachArgs()
+	want := []string{"attach", "--no-version-check", "-d", "sim-123", "--debug-url", "http://127.0.0.1:54321/"}
+	if len(args) != len(want) {
+		t.Fatalf("attachArgs = %v, want %v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("attachArgs[%d] = %q, want %q", i, args[i], want[i])
+		}
+	}
+}
+
 func TestFlutterAttachStartRequiresDebugURL(t *testing.T) {
 	srv := NewFlutterAttachDevServer("/work", "")
 	err := srv.Start(context.Background())

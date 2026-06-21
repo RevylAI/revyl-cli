@@ -23,6 +23,7 @@ import (
 type FlutterAttachDevServer struct {
 	workDir  string
 	debugURL string
+	deviceID string
 
 	// commandFn is injectable for tests. Defaults to exec.CommandContext.
 	commandFn func(ctx context.Context, name string, args ...string) *exec.Cmd
@@ -59,6 +60,14 @@ func (f *FlutterAttachDevServer) SetDebugURL(debugURL string) {
 	f.mu.Unlock()
 }
 
+// SetDeviceID sets the target device for `flutter attach -d <id>`. Required when
+// more than one Flutter device is connected. Must be called before Start.
+func (f *FlutterAttachDevServer) SetDeviceID(deviceID string) {
+	f.mu.Lock()
+	f.deviceID = strings.TrimSpace(deviceID)
+	f.mu.Unlock()
+}
+
 // SetOutputCallback registers a callback for process output lines.
 func (f *FlutterAttachDevServer) SetOutputCallback(cb hotreload.DevServerOutputCallback) {
 	f.mu.Lock()
@@ -68,7 +77,12 @@ func (f *FlutterAttachDevServer) SetOutputCallback(cb hotreload.DevServerOutputC
 
 // attachArgs builds the `flutter attach` argument list. Exposed for testing.
 func (f *FlutterAttachDevServer) attachArgs() []string {
-	return []string{"attach", "--no-version-check", "--debug-url", f.debugURL}
+	args := []string{"attach", "--no-version-check"}
+	if f.deviceID != "" {
+		args = append(args, "-d", f.deviceID)
+	}
+	args = append(args, "--debug-url", f.debugURL)
+	return args
 }
 
 // Start launches `flutter attach` and begins streaming its output.
