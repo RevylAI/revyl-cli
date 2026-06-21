@@ -135,6 +135,14 @@ type DevServerFailureReporter interface {
 	Failures() <-chan RuntimeFailure
 }
 
+// DebugURLConfigurable is implemented by attach-based dev servers (e.g. Flutter)
+// that attach to a VM Service URL supplied after the dev server is created —
+// once the reverse tunnel (or local emulator address) is known.
+type DebugURLConfigurable interface {
+	// SetDebugURL sets the VM Service URL to attach to. Must be called before Start.
+	SetDebugURL(debugURL string)
+}
+
 // Reloadable is implemented by attach-based dev servers (e.g. Flutter) that can
 // inject code into an already-running app without a full reinstall.
 //

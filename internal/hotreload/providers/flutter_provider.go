@@ -12,6 +12,9 @@ import (
 
 func init() {
 	hotreload.RegisterProvider(&FlutterProvider{})
+	hotreload.RegisterFlutterAttachDevServerFactory(func(workDir string) hotreload.DevServer {
+		return NewFlutterAttachDevServer(workDir, "")
+	})
 }
 
 // FlutterProvider implements the Provider interface for Flutter projects.

@@ -38,6 +38,7 @@ var (
 	_ hotreload.DevServer              = (*FlutterAttachDevServer)(nil)
 	_ hotreload.Reloadable             = (*FlutterAttachDevServer)(nil)
 	_ hotreload.DevServerOutputEmitter = (*FlutterAttachDevServer)(nil)
+	_ hotreload.DebugURLConfigurable   = (*FlutterAttachDevServer)(nil)
 )
 
 // NewFlutterAttachDevServer creates a Flutter attach dev server. debugURL is
