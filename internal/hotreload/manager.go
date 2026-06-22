@@ -38,11 +38,19 @@ type DevServerFactory func(workDir, appScheme string, port int, useExpPrefix boo
 // Simpler signature than DevServerFactory since bare RN has no app scheme or exp prefix.
 type BareRNDevServerFactory func(workDir string, port int) DevServer
 
+// FlutterAttachDevServerFactory creates a Flutter attach DevServer. The VM
+// Service debug URL is supplied later via DebugURLConfigurable.SetDebugURL,
+// once the reverse tunnel (or a local emulator address) is known.
+type FlutterAttachDevServerFactory func(workDir string) DevServer
+
 // expoDevServerFactory is set by the providers package during init.
 var expoDevServerFactory DevServerFactory
 
 // bareRNDevServerFactory is set by the providers package during init.
 var bareRNDevServerFactory BareRNDevServerFactory
+
+// flutterAttachDevServerFactory is set by the providers package during init.
+var flutterAttachDevServerFactory FlutterAttachDevServerFactory
 
 var postStartupDiagnostics = RunPostStartupDiagnosticsForPlatform
 var waitForExpoMetroTransport = WaitForExpoMetroTransport
@@ -68,6 +76,12 @@ func RegisterBareRNDevServerFactory(factory BareRNDevServerFactory) {
 	bareRNDevServerFactory = factory
 }
 
+// RegisterFlutterAttachDevServerFactory registers the Flutter attach dev server
+// factory. Called by the providers package during init.
+func RegisterFlutterAttachDevServerFactory(factory FlutterAttachDevServerFactory) {
+	flutterAttachDevServerFactory = factory
+}
+
 // TunnelBackendFactory creates a TunnelBackend for tests or custom wiring.
 type TunnelBackendFactory func() TunnelBackend
 
@@ -87,6 +101,37 @@ type Manager struct {
 
 	// tunnel is the active tunnel backend.
 	tunnel TunnelBackend
+
+	// reverseTunnel is the active reverse tunnel backend for attach-based dev
+	// loops (Flutter). It exposes the device's VM Service port locally.
+	reverseTunnel ReverseTunnelBackend
+
+	// devLoopStyle selects the orchestration in Start: "" / "metro" use the
+	// Metro relay path; "attach" uses the reverse-tunnel + flutter attach path.
+	devLoopStyle string
+
+	// deviceVMServicePort is the Dart VM Service port on the device to reverse
+	// forward for attach-based dev loops. Supplied by discovery (backend).
+	deviceVMServicePort int
+
+	// externalDebugURL, when set, bypasses the reverse tunnel and attaches
+	// directly to this VM Service URL. Used for local-emulator validation.
+	externalDebugURL string
+
+	// attachDeviceID targets a specific device for the attach dev server
+	// (Flutter's `attach -d <id>`), required when multiple devices are present.
+	attachDeviceID string
+
+	// reverseTunnelFactory overrides the default ReverseTunnelBackend
+	// construction (for tests and custom wiring).
+	reverseTunnelFactory func() ReverseTunnelBackend
+
+	// reloadWatcher is the file watcher driving the attach reload loop.
+	reloadWatcher *FileWatcher
+
+	// onAttachRebuild is invoked when an attach-loop change requires a full
+	// rebuild (pubspec/native). When nil, such changes are logged and skipped.
+	onAttachRebuild func(files []string)
 
 	// apiClient is used by the relay transport control plane.
 	apiClient *api.Client
@@ -255,6 +300,45 @@ func (m *Manager) SetExternalDeepLinkURL(deepLinkURL string) {
 	m.externalDeepLinkURL = strings.TrimSpace(deepLinkURL)
 }
 
+// SetDevLoopStyle selects the dev-loop orchestration. Use DevLoopStyleAttach to
+// take the reverse-tunnel + flutter attach path; any other value uses the
+// default Metro path. Must be called before Start.
+func (m *Manager) SetDevLoopStyle(style string) {
+	m.devLoopStyle = strings.ToLower(strings.TrimSpace(style))
+}
+
+// SetDeviceVMServicePort sets the Dart VM Service port on the device to reverse
+// forward for attach-based dev loops. Must be called before Start.
+func (m *Manager) SetDeviceVMServicePort(port int) {
+	m.deviceVMServicePort = port
+}
+
+// SetExternalDebugURL attaches directly to the given VM Service URL, bypassing
+// the reverse tunnel. Used for local-emulator validation. Must be called before
+// Start.
+func (m *Manager) SetExternalDebugURL(debugURL string) {
+	m.externalDebugURL = strings.TrimSpace(debugURL)
+}
+
+// SetAttachDeviceID targets a specific device for the attach dev server
+// (Flutter's `attach -d <id>`). Must be called before Start.
+func (m *Manager) SetAttachDeviceID(deviceID string) {
+	m.attachDeviceID = strings.TrimSpace(deviceID)
+}
+
+// SetReverseTunnelBackendFactory overrides the default reverse tunnel backend
+// construction (for tests and custom wiring). Must be called before Start.
+func (m *Manager) SetReverseTunnelBackendFactory(factory func() ReverseTunnelBackend) {
+	m.reverseTunnelFactory = factory
+}
+
+// SetAttachRebuildHandler registers a callback invoked when an attach-loop file
+// change requires a full rebuild (pubspec/native changes the attach session
+// cannot apply). Must be called before Start.
+func (m *Manager) SetAttachRebuildHandler(fn func(files []string)) {
+	m.onAttachRebuild = fn
+}
+
 // log sends a message to the log callback if set.
 func (m *Manager) log(format string, args ...interface{}) {
 	if m.onLog != nil {
@@ -303,6 +387,10 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 
 	if m.externalTunnelURL != "" {
 		return m.startExternal(m.ctx)
+	}
+
+	if m.devLoopStyle == DevLoopStyleAttach {
+		return m.startAttach(m.ctx)
 	}
 
 	// 1. Create dev server instance (but don't start yet - we need tunnel URL first)
@@ -560,6 +648,24 @@ func (m *Manager) cleanupLocked(logStopped bool) {
 		m.tunnel = nil
 		if logStopped {
 			m.log("Tunnel stopped")
+		}
+	}
+
+	// Stop reverse tunnel (attach-based dev loops)
+	if m.reverseTunnel != nil {
+		m.reverseTunnel.StopReverse()
+		m.reverseTunnel = nil
+		if logStopped {
+			m.log("Reverse tunnel stopped")
+		}
+	}
+
+	// Stop the attach reload-loop file watcher
+	if m.reloadWatcher != nil {
+		m.reloadWatcher.Stop()
+		m.reloadWatcher = nil
+		if logStopped {
+			m.log("Reload watcher stopped")
 		}
 	}
 
@@ -1152,6 +1258,155 @@ func (m *Manager) createDevServer() (DevServer, error) {
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", m.providerName)
 	}
+}
+
+// startAttach orchestrates the attach-based dev loop (Flutter). It establishes a
+// reverse tunnel to the device's Dart VM Service (or uses an external debug URL
+// for local-emulator validation), then launches `flutter attach` against it.
+//
+// Must be called with m.mu held (it is invoked from Start).
+func (m *Manager) startAttach(ctx context.Context) (*StartResult, error) {
+	m.log("Preparing %s attach dev server...", m.providerName)
+	devServer, err := m.createAttachDevServer()
+	if err != nil {
+		return nil, err
+	}
+	m.attachDevServerOutputCallback(devServer)
+	if m.attachDeviceID != "" {
+		if cfg, ok := devServer.(DeviceIDConfigurable); ok {
+			cfg.SetDeviceID(m.attachDeviceID)
+		}
+	}
+
+	debugURL := m.externalDebugURL
+	transport := "external-attach"
+
+	if debugURL == "" {
+		if m.deviceVMServicePort <= 0 {
+			return nil, fmt.Errorf("attach hot reload requires a device VM Service port (discovery unavailable)")
+		}
+		backend := m.newReverseTunnelBackend()
+		localAddr, err := backend.StartReverse(ctx, m.deviceVMServicePort)
+		if err != nil {
+			return nil, fmt.Errorf("failed to start reverse tunnel: %w", err)
+		}
+		m.reverseTunnel = backend
+		debugURL = fmt.Sprintf("http://%s/", localAddr)
+		transport = "reverse-relay"
+		m.debugLog("Reverse tunnel ready: %s -> device port %d", debugURL, m.deviceVMServicePort)
+	}
+
+	setter, ok := devServer.(DebugURLConfigurable)
+	if !ok {
+		return nil, fmt.Errorf("attach dev server %q does not support debug URL configuration", devServer.Name())
+	}
+	setter.SetDebugURL(debugURL)
+
+	m.log("Starting %s attach...", m.providerName)
+	if err := devServer.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start attach dev server: %w", err)
+	}
+	m.devServer = devServer
+	m.running = true
+	m.log("%s attach ready", devServer.Name())
+
+	// Start the file-change reload loop so saving source hot reloads the device.
+	// Best-effort: a watcher failure degrades to manual reload, it does not abort
+	// the attach session.
+	m.startReloadLoop(ctx, devServer)
+
+	return &StartResult{
+		TunnelURL: debugURL,
+		Transport: transport,
+	}, nil
+}
+
+// startReloadLoop wires a file watcher to the attach dev server so that source
+// changes drive hot reload. It is a no-op if the dev server is not Reloadable,
+// and best-effort otherwise (watcher failures are logged, not fatal).
+func (m *Manager) startReloadLoop(ctx context.Context, devServer DevServer) {
+	target, ok := devServer.(Reloadable)
+	if !ok {
+		m.debugLog("attach dev server %q is not reloadable; skipping reload loop", devServer.Name())
+		return
+	}
+
+	driver, watcher, err := NewFlutterReloadDriver(m.workDir, target)
+	if err != nil {
+		m.log("Hot reload on save unavailable (watcher init failed: %v)", err)
+		return
+	}
+	if m.onLog != nil {
+		driver.SetLogCallback(m.onLog)
+	}
+	if m.onAttachRebuild != nil {
+		driver.SetRebuildHandler(m.onAttachRebuild)
+	}
+
+	if err := watcher.Start(ctx); err != nil {
+		m.log("Hot reload on save unavailable (watcher failed to start: %v)", err)
+		return
+	}
+	m.reloadWatcher = watcher
+	go func() { _ = driver.Run(ctx) }()
+	m.log("Watching %s for changes (hot reload on save)", m.workDir)
+}
+
+// createAttachDevServer builds the dev server for an attach-based provider.
+func (m *Manager) createAttachDevServer() (DevServer, error) {
+	switch m.providerName {
+	case "flutter":
+		if flutterAttachDevServerFactory == nil {
+			return nil, fmt.Errorf("flutter attach dev server factory not registered - import github.com/revyl/cli/internal/hotreload/providers")
+		}
+		return flutterAttachDevServerFactory(m.workDir), nil
+	default:
+		return nil, fmt.Errorf("attach dev loop is not supported for provider: %s", m.providerName)
+	}
+}
+
+// newReverseTunnelBackend constructs the reverse tunnel backend, honoring the
+// injected factory when present.
+func (m *Manager) newReverseTunnelBackend() ReverseTunnelBackend {
+	if m.reverseTunnelFactory != nil {
+		return m.reverseTunnelFactory()
+	}
+	return NewReverseRelayTunnelBackend(m.apiClient, m.providerName, m.targetPlatform)
+}
+
+// Reload triggers a manual hot reload on the active attach dev server.
+// It is an error if no reloadable dev server is running.
+func (m *Manager) Reload(ctx context.Context) error {
+	target, err := m.reloadable()
+	if err != nil {
+		return err
+	}
+	return target.Reload(ctx)
+}
+
+// HotRestart triggers a manual hot restart on the active attach dev server.
+// It is an error if no reloadable dev server is running.
+func (m *Manager) HotRestart(ctx context.Context) error {
+	target, err := m.reloadable()
+	if err != nil {
+		return err
+	}
+	return target.HotRestart(ctx)
+}
+
+// reloadable returns the active dev server as a Reloadable, or an error.
+func (m *Manager) reloadable() (Reloadable, error) {
+	m.mu.Lock()
+	devServer := m.devServer
+	m.mu.Unlock()
+	if devServer == nil {
+		return nil, fmt.Errorf("no active dev server")
+	}
+	target, ok := devServer.(Reloadable)
+	if !ok {
+		return nil, fmt.Errorf("dev server %q does not support hot reload", devServer.Name())
+	}
+	return target, nil
 }
 
 // GetProviderName returns the provider name.

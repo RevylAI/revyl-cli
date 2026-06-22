@@ -39,6 +39,30 @@ type TunnelBackendInfoProvider interface {
 	Metadata() TunnelBackendInfo
 }
 
+// ReverseTunnelBackend exposes a REMOTE port on the cloud device as a LOCAL
+// address on the developer's machine.
+//
+// This is the mirror image of TunnelBackend. Where TunnelBackend lets the
+// device reach a local port on the laptop (device -> laptop, used by the
+// Metro/JS dev loop), ReverseTunnelBackend lets the laptop reach a port on the
+// device (laptop -> device). It is required by attach-based dev loops such as
+// Flutter, where the host tool (`flutter attach`) must connect into the Dart
+// VM Service that the running app exposes on the device.
+//
+// The returned localAddr is a "host:port" on 127.0.0.1 that proxies, byte for
+// byte, to devicePort on the cloud device through the backend relay.
+type ReverseTunnelBackend interface {
+	// StartReverse opens a local listener and bridges it to devicePort on the
+	// cloud device. It returns the local "host:port" the caller should dial.
+	StartReverse(ctx context.Context, devicePort int) (localAddr string, err error)
+
+	// StopReverse tears down the local listener and the relay session.
+	StopReverse() error
+
+	// LocalAddr returns the current local proxy address, or "" if not running.
+	LocalAddr() string
+}
+
 // RelayReacquireResult describes a replacement relay session created in place.
 type RelayReacquireResult struct {
 	TunnelURL string

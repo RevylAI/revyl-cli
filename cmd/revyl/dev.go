@@ -454,6 +454,22 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("`revyl dev` is for local development loops. In CI, use `revyl test run` or `revyl device start`")
 	}
 
+	// Experimental: Flutter attach-based hot reload, opted in via
+	// REVYL_FLUTTER_HOT_RELOAD. The local path needs no auth or relay, so it
+	// short-circuits the standard dev-loop setup. Dormant by default; other
+	// stacks are unaffected.
+	if flutterAttachHotReloadEnabled() {
+		root, rootErr := os.Getwd()
+		if rootErr == nil {
+			if repoRoot, frErr := config.FindRepoRoot(root); frErr == nil {
+				root = repoRoot
+			}
+			if isFlutterAttachProject(root) {
+				return runDevFlutterAttach(root)
+			}
+		}
+	}
+
 	apiKey, err := getAPIKey()
 	if err != nil {
 		return err
@@ -1407,6 +1423,104 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 func isCIEnvironment() bool {
 	return strings.TrimSpace(os.Getenv("CI")) != "" ||
 		strings.TrimSpace(os.Getenv("GITHUB_ACTIONS")) != ""
+}
+
+// flutterAttachHotReloadEnabled reports whether the experimental Flutter
+// attach-based hot reload loop is opted in via REVYL_FLUTTER_HOT_RELOAD.
+//
+// It is off by default. The cloud path additionally requires backend
+// reverse-relay support and VM Service port discovery (not yet available); the
+// local path attaches to a running VM Service via REVYL_FLUTTER_DEBUG_URL.
+func flutterAttachHotReloadEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("REVYL_FLUTTER_HOT_RELOAD"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+// isFlutterAttachProject reports whether the directory is a Flutter project that
+// uses the attach-based dev loop.
+func isFlutterAttachProject(cwd string) bool {
+	provider, _, err := hotreload.DefaultRegistry().DetectProvider(cwd)
+	if err != nil || provider == nil {
+		return false
+	}
+	return provider.Name() == "flutter" &&
+		hotreload.ProviderDevLoopStyle(provider) == hotreload.DevLoopStyleAttach
+}
+
+// runDevFlutterAttach runs the experimental Flutter attach-based hot reload loop.
+//
+// The Manager owns the full loop (attach + file watch + reload). Cloud device
+// discovery is not available yet, so this currently requires a local VM Service
+// URL via REVYL_FLUTTER_DEBUG_URL (optionally REVYL_FLUTTER_DEVICE to select a
+// device). See docs/developer_loop/flutter-hot-reload-design.md.
+func runDevFlutterAttach(cwd string) error {
+	debugURL := strings.TrimSpace(os.Getenv("REVYL_FLUTTER_DEBUG_URL"))
+	if debugURL == "" {
+		return fmt.Errorf("experimental Flutter hot reload requires a local VM Service URL via REVYL_FLUTTER_DEBUG_URL; cloud device discovery is not available yet (see docs/developer_loop/flutter-hot-reload-design.md)")
+	}
+
+	mgr := hotreload.NewManager("flutter", &config.ProviderConfig{}, cwd)
+	mgr.SetLogCallback(func(msg string) { ui.PrintInfo("%s", msg) })
+	mgr.SetDevServerOutputCallback(func(o hotreload.DevServerOutput) { ui.PrintDim("  %s", o.Line) })
+	mgr.SetDevLoopStyle(hotreload.DevLoopStyleAttach)
+	mgr.SetExternalDebugURL(debugURL)
+	mgr.SetAttachDeviceID(strings.TrimSpace(os.Getenv("REVYL_FLUTTER_DEVICE")))
+	mgr.SetAttachRebuildHandler(func(files []string) {
+		ui.PrintWarning("Native/dependency change detected (%s) — hot reload can't apply this; a full rebuild + reinstall is required.", formatChangedFiles(files))
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ui.PrintInfo("Starting experimental Flutter hot reload (attach)...")
+	if _, err := mgr.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start Flutter hot reload: %w", err)
+	}
+	defer mgr.Stop()
+
+	ui.PrintSuccess("Flutter hot reload active. Edit .dart files to reload.")
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	stdinKeys, restore, _ := readStdinKeys(ctx, func() {
+		select {
+		case sigChan <- os.Interrupt:
+		default:
+		}
+	})
+	defer restore()
+
+	ui.PrintDim("  [r] hot reload    [R] hot restart    [q]/Ctrl+C quit")
+
+	for {
+		select {
+		case <-sigChan:
+			ui.Println()
+			ui.PrintInfo("Stopping Flutter hot reload...")
+			return nil
+		case key := <-stdinKeys:
+			switch key {
+			case 'r':
+				if err := mgr.Reload(ctx); err != nil {
+					ui.PrintWarning("Hot reload failed: %v", err)
+				}
+			case 'R':
+				if err := mgr.HotRestart(ctx); err != nil {
+					ui.PrintWarning("Hot restart failed: %v", err)
+				}
+			case 'q':
+				ui.Println()
+				ui.PrintInfo("Stopping Flutter hot reload...")
+				return nil
+			}
+		}
+	}
 }
 
 // devSessionViewerURL returns the canonical session viewer route for the active
