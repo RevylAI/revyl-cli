@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/analytics"
@@ -52,6 +53,7 @@ type remoteBuildPlatformConfig struct {
 	AppID       string
 	Source      config.BuildSource
 	Env         map[string]string
+	Caches      []config.BuildCache
 }
 
 // runBuildRemote is retained for older internal callers. The public UX is
@@ -132,6 +134,10 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		}
 		return err
 	}
+	appID, err := uuid.Parse(strings.TrimSpace(resolved.AppID))
+	if err != nil {
+		return fmt.Errorf("app id must be a valid UUID: %w", err)
+	}
 	// Remote builds run on a shared pool of Revyl sandbox build runners. There
 	// is no org-scoped capacity to pre-flight; the enqueue call is authoritative
 	// and surfaces a clear error if the pool is full or unavailable.
@@ -169,7 +175,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 				if empty {
 					ui.PrintWarning("Working tree is dirty, but no tracked diff was found for the repo-backed source patch.")
 				} else {
-					patchResp, err := uploadRemoteBuildSourceFile(ctx, client, resolved.AppID, "source.patch", patchPath)
+					patchResp, err := uploadRemoteBuildSourceFile(ctx, client, appID, "source.patch", patchPath)
 					if err != nil {
 						return fmt.Errorf("failed to upload repo-backed source patch: %w", err)
 					}
@@ -236,7 +242,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 			ui.StartSpinner("Uploading to Revyl")
 		}
 		uploadStart := time.Now()
-		uploadResp, err = client.GetRemoteBuildUploadURL(ctx, resolved.AppID, "source.tar.gz", archiveInfo.Size())
+		uploadResp, err = client.GetRemoteBuildUploadURL(ctx, appID, "source.tar.gz", archiveInfo.Size())
 		if err != nil {
 			if !debugOutput && interactiveOutput {
 				ui.StopSpinner()
@@ -272,40 +278,16 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	}
 	triggerStart := time.Now()
 	setCurrent := opts.SetCurrent
-	buildCommands := append([]string(nil), resolved.Commands...)
-	if len(buildCommands) == 0 && strings.TrimSpace(resolved.Command) != "" {
-		buildCommands = []string{strings.TrimSpace(resolved.Command)}
+	source, err := remoteBuildRequestSource(repoSource, uploadedSourceKey(uploadResp), sourcePatchKey)
+	if err != nil {
+		return err
 	}
-	if resolved.Scheme != "" {
-		for i, command := range buildCommands {
-			buildCommands[i] = build.ApplySchemeToCommand(command, resolved.Scheme)
-		}
-	}
-	buildCommand := strings.Join(buildCommands, " && ")
-	artifactType := defaultRemoteArtifactType(resolved.Platform)
 	triggerReq := &api.RemoteBuildRequest{
-		AppId:         resolved.AppID,
-		BuildCommand:  stringPtrOrNil(buildCommand),
-		BuildCommands: stringSlicePtrOrNil(buildCommands),
-		BuildScheme:   stringPtrOrNil(resolved.Scheme),
-		SetupCommand:  stringPtrOrNil(resolved.Setup),
-		CleanBuild:    boolPtrOrNil(opts.Clean),
-		Version:       stringPtrOrNil(opts.Version),
-		SetAsCurrent:  &setCurrent,
-		Platform:      &resolved.Platform,
-		ArtifactPath:  stringPtrOrNil(resolved.Output),
-		ArtifactType:  stringPtrOrNil(artifactType),
-		Env:           stringMapPtrOrNil(resolved.Env),
-	}
-	if repoSource != nil {
-		triggerReq.SourceType = stringPtrOrNil(repoSource.Type)
-		triggerReq.SourceRepoUrl = stringPtrOrNil(repoSource.RepoURL)
-		triggerReq.SourceRef = stringPtrOrNil(repoSource.Ref)
-		triggerReq.SourceSubdir = stringPtrOrNil(repoSource.Subdir)
-		triggerReq.SourceLfs = boolPtrOrNil(repoSource.LFS)
-		triggerReq.SourcePatchKey = stringPtrOrNil(sourcePatchKey)
-	} else if uploadResp != nil {
-		triggerReq.SourceKey = stringPtrOrNil(uploadResp.SourceKey)
+		Source:       source,
+		Config:       remoteBuildConfigFromResolved(appID, resolved),
+		CleanBuild:   boolPtrOrNil(opts.Clean),
+		Version:      stringPtrOrNil(opts.Version),
+		SetAsCurrent: &setCurrent,
 	}
 	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq)
 	if !debugOutput && interactiveOutput {
@@ -455,11 +437,11 @@ func printRemoteBuildStatusSummary(status *api.RemoteBuildStatusResponse) {
 	if status.Platform != nil && strings.TrimSpace(*status.Platform) != "" {
 		ui.PrintKeyValue("Platform:", strings.TrimSpace(*status.Platform))
 	}
-	if status.StartedAt != nil && strings.TrimSpace(*status.StartedAt) != "" {
-		ui.PrintKeyValue("Started:", strings.TrimSpace(*status.StartedAt))
+	if status.StartedAt != nil && !status.StartedAt.IsZero() {
+		ui.PrintKeyValue("Started:", formatAbsoluteTime(status.StartedAt.Format(time.RFC3339Nano)))
 	}
-	if status.CompletedAt != nil && strings.TrimSpace(*status.CompletedAt) != "" {
-		ui.PrintKeyValue("Completed:", strings.TrimSpace(*status.CompletedAt))
+	if status.CompletedAt != nil && !status.CompletedAt.IsZero() {
+		ui.PrintKeyValue("Completed:", formatAbsoluteTime(status.CompletedAt.Format(time.RFC3339Nano)))
 	}
 	if status.DurationMs != nil {
 		ui.PrintKeyValue("Duration:", (time.Duration(*status.DurationMs) * time.Millisecond).Round(time.Second).String())
@@ -615,6 +597,7 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 		}
 		buildCommands := platCfg.BuildCommands()
 		if ok && len(buildCommands) > 0 {
+			caches := config.EffectiveBuildCaches(cfg.Build, platCfg)
 			appID := strings.TrimSpace(appOverride)
 			if appID == "" {
 				appID = strings.TrimSpace(platCfg.AppID)
@@ -633,6 +616,7 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 				AppID:       appID,
 				Source:      cfg.Build.Source,
 				Env:         platCfg.Env,
+				Caches:      caches,
 			}, nil
 		}
 	}
@@ -962,7 +946,7 @@ func createRepoBackedSourcePatch(cwd string) (string, bool, error) {
 	return tmpFile.Name(), len(bytes.TrimSpace(out)) == 0, nil
 }
 
-func uploadRemoteBuildSourceFile(ctx context.Context, client *api.Client, appID, filename, path string) (*api.RemoteBuildSourceUploadResponse, error) {
+func uploadRemoteBuildSourceFile(ctx context.Context, client *api.Client, appID uuid.UUID, filename, path string) (*api.RemoteBuildSourceUploadResponse, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat %s: %w", filename, err)
@@ -1355,20 +1339,38 @@ func boolPtrOrNil(b bool) *bool {
 	return &b
 }
 
-// stringMapPtrOrNil returns a pointer to m if non-empty, or nil.
-func stringMapPtrOrNil(m map[string]string) *map[string]string {
-	if len(m) == 0 {
-		return nil
+func remoteBuildRequestSource(repoSource *config.BuildSource, sourceKey string, patchKey string) (api.RemoteBuildRequest_Source, error) {
+	var source api.RemoteBuildRequest_Source
+	if repoSource != nil {
+		lfs := repoSource.LFS
+		if err := source.FromRemoteBuildGitSource(api.RemoteBuildGitSource{
+			RepoUrl:  repoSource.RepoURL,
+			Ref:      stringPtrOrNil(repoSource.Ref),
+			Lfs:      &lfs,
+			PatchKey: stringPtrOrNil(patchKey),
+		}); err != nil {
+			return source, err
+		}
+		return source, nil
 	}
-	return &m
+
+	sourceKey = strings.TrimSpace(sourceKey)
+	if sourceKey == "" {
+		return source, fmt.Errorf("remote build source is required")
+	}
+	if err := source.FromRemoteBuildArchiveSource(api.RemoteBuildArchiveSource{
+		Key: sourceKey,
+	}); err != nil {
+		return source, err
+	}
+	return source, nil
 }
 
-// stringSlicePtrOrNil returns a pointer to s if non-empty, or nil.
-func stringSlicePtrOrNil(s []string) *[]string {
-	if len(s) == 0 {
-		return nil
+func uploadedSourceKey(resp *api.RemoteBuildSourceUploadResponse) string {
+	if resp == nil {
+		return ""
 	}
-	return &s
+	return strings.TrimSpace(resp.SourceKey)
 }
 
 // checkDirtyTree reports whether the git working tree has uncommitted

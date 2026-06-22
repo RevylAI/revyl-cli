@@ -301,9 +301,21 @@ type BuildConfig struct {
 	// Source describes where remote build runners should fetch source from.
 	Source BuildSource `yaml:"source,omitempty"`
 
+	// Caches contains cache disks shared across build platforms.
+	Caches []BuildCache `yaml:"caches,omitempty"`
+
 	// Platforms contains platform-specific build configurations keyed by platform name
 	// (e.g. "ios", "android", "ios-dev").
 	Platforms map[string]BuildPlatform `yaml:"platforms,omitempty"`
+}
+
+// BuildCache describes one remote build cache disk.
+type BuildCache struct {
+	// Key is the org-local cache key. The backend prefixes it with the org ID.
+	Key string `yaml:"key"`
+
+	// Paths are project-relative paths mounted into this cache disk.
+	Paths []string `yaml:"paths"`
 }
 
 // BuildSource contains repo-backed source settings for remote build runners.
@@ -354,6 +366,9 @@ type BuildPlatform struct {
 	// Env holds environment variables passed to the remote build runner for
 	// this platform. Sent with every remote build; not persisted server-side.
 	Env map[string]string `yaml:"env,omitempty"`
+
+	// Caches contains cache disks used by this platform's remote builds.
+	Caches []BuildCache `yaml:"caches,omitempty"`
 }
 
 // BuildCommands returns the ordered build commands configured for a platform.
@@ -379,6 +394,30 @@ func (p BuildPlatform) BuildCommands() []string {
 // accept only build_command.
 func (p BuildPlatform) JoinedBuildCommand() string {
 	return strings.Join(p.BuildCommands(), " && ")
+}
+
+// EffectiveBuildCaches returns the merged global and platform cache disks.
+func EffectiveBuildCaches(buildCfg BuildConfig, platformCfg BuildPlatform) []BuildCache {
+	var result []BuildCache
+	indexByKey := make(map[string]int)
+
+	appendCaches := func(caches []BuildCache) {
+		for _, cache := range caches {
+			key := strings.TrimSpace(cache.Key)
+			resultIndex, ok := indexByKey[key]
+			if !ok {
+				result = append(result, BuildCache{Key: key})
+				resultIndex = len(result) - 1
+				indexByKey[key] = resultIndex
+			}
+
+			result[resultIndex].Paths = append(result[resultIndex].Paths, cache.Paths...)
+		}
+	}
+
+	appendCaches(buildCfg.Caches)
+	appendCaches(platformCfg.Caches)
+	return result
 }
 
 // Defaults contains default settings.

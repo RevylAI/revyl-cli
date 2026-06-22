@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/revyl/cli/internal/config"
 )
 
@@ -98,11 +100,11 @@ func TestValidateRemoteDevStartFlags(t *testing.T) {
 }
 
 func TestRemoteDevTriggerRequestAllowsFastlane(t *testing.T) {
-	req := remoteDevTriggerRequest(
-		"00000000-0000-0000-0000-000000000456",
+	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
+	req, err := remoteDevTriggerRequest(
+		appID,
 		"org/00000000-0000-0000-0000-000000000123/build-sources/app/source.tar.gz",
 		"ios",
-		"app",
 		"abc123",
 		config.BuildPlatform{
 			Command: "bundle exec fastlane build_simulator_debug",
@@ -110,25 +112,29 @@ func TestRemoteDevTriggerRequestAllowsFastlane(t *testing.T) {
 			AppID:   "00000000-0000-0000-0000-000000000456",
 			Setup:   "bash .revyl/setup-ios-remote.sh",
 		},
+		nil,
 	)
+	if err != nil {
+		t.Fatalf("remoteDevTriggerRequest(): %v", err)
+	}
 
-	if req.BuildCommand == nil || *req.BuildCommand != "bundle exec fastlane build_simulator_debug" {
-		t.Fatalf("BuildCommand = %v", req.BuildCommand)
+	if len(*req.Config.Steps) != 3 || *(*req.Config.Steps)[2].Command != "bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("Config.Steps = %#v", *req.Config.Steps)
 	}
-	if req.ArtifactPath == nil || *req.ArtifactPath != "build/Example.app.zip" {
-		t.Fatalf("ArtifactPath = %v", req.ArtifactPath)
+	if len(*req.Config.Artifacts) != 1 || (*req.Config.Artifacts)[0].Path != "build/Example.app.zip" {
+		t.Fatalf("Config.Artifacts = %#v", *req.Config.Artifacts)
 	}
-	if req.SetupCommand == nil || *req.SetupCommand != "bash .revyl/setup-ios-remote.sh" {
-		t.Fatalf("SetupCommand = %v", req.SetupCommand)
+	if *(*req.Config.Steps)[1].Command != "bash .revyl/setup-ios-remote.sh" {
+		t.Fatalf("setup step = %#v", (*req.Config.Steps)[1])
 	}
 }
 
 func TestRemoteDevTriggerRequestCarriesMultipleBuildCommands(t *testing.T) {
-	req := remoteDevTriggerRequest(
-		"00000000-0000-0000-0000-000000000456",
+	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
+	req, err := remoteDevTriggerRequest(
+		appID,
 		"org/00000000-0000-0000-0000-000000000123/build-sources/app/source.tar.gz",
 		"ios",
-		"app",
 		"abc123",
 		config.BuildPlatform{
 			Commands: []string{
@@ -138,16 +144,20 @@ func TestRemoteDevTriggerRequestCarriesMultipleBuildCommands(t *testing.T) {
 			Output: "build/Example.app.zip",
 			AppID:  "00000000-0000-0000-0000-000000000456",
 		},
+		nil,
 	)
+	if err != nil {
+		t.Fatalf("remoteDevTriggerRequest(): %v", err)
+	}
 
-	if req.BuildCommand == nil || *req.BuildCommand != "npm ci && bundle exec fastlane build_simulator_debug" {
-		t.Fatalf("BuildCommand = %v", req.BuildCommand)
+	if len(*req.Config.Steps) != 3 {
+		t.Fatalf("Config.Steps = %#v", *req.Config.Steps)
 	}
-	if req.BuildCommands == nil || len(*req.BuildCommands) != 2 {
-		t.Fatalf("BuildCommands = %#v", req.BuildCommands)
+	if *(*req.Config.Steps)[1].Command != "npm ci" {
+		t.Fatalf("first build step = %#v", (*req.Config.Steps)[1])
 	}
-	if (*req.BuildCommands)[0] != "npm ci" || (*req.BuildCommands)[1] != "bundle exec fastlane build_simulator_debug" {
-		t.Fatalf("BuildCommands = %#v", *req.BuildCommands)
+	if *(*req.Config.Steps)[2].Command != "bundle exec fastlane build_simulator_debug" {
+		t.Fatalf("second build step = %#v", (*req.Config.Steps)[2])
 	}
 }
 

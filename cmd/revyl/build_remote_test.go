@@ -284,10 +284,11 @@ func TestRemoteBuildSuccessJSONIncludesAndroidArtifactFields(t *testing.T) {
 	packageID := "com.example.app"
 	logs := "last log line"
 	durationMs := 1200
+	startedAt := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
 	phaseTimings := []api.RemoteBuildPhaseTiming{
 		{
 			Phase:      "build",
-			StartedAt:  "2026-05-17T12:00:00Z",
+			StartedAt:  startedAt,
 			DurationMs: &durationMs,
 		},
 	}
@@ -332,10 +333,11 @@ func TestRemoteBuildFailureJSONIncludesDiscoveryGuidance(t *testing.T) {
 	fix := "Set build.platforms.android.output"
 	candidates := []string{"app-debug.apk", "app-release.apk"}
 	durationMs := 2500
+	startedAt := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
 	phaseTimings := []api.RemoteBuildPhaseTiming{
 		{
 			Phase:      "artifact",
-			StartedAt:  "2026-05-17T12:00:00Z",
+			StartedAt:  startedAt,
 			DurationMs: &durationMs,
 		},
 	}

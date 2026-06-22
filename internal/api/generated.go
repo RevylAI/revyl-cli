@@ -12,6 +12,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -105,6 +106,12 @@ const (
 	BoundingBoxErrorTypeTargetOutside     BoundingBoxErrorType = "target_outside"
 )
 
+// Defines values for BuildConfigPlatform.
+const (
+	BuildConfigPlatformAndroid BuildConfigPlatform = "android"
+	BuildConfigPlatformIos     BuildConfigPlatform = "ios"
+)
+
 // Defines values for BuildJobStatusUpdateRequestStatus.
 const (
 	BuildJobStatusUpdateRequestStatusCancelled BuildJobStatusUpdateRequestStatus = "cancelled"
@@ -112,6 +119,12 @@ const (
 	BuildJobStatusUpdateRequestStatusQueued    BuildJobStatusUpdateRequestStatus = "queued"
 	BuildJobStatusUpdateRequestStatusRunning   BuildJobStatusUpdateRequestStatus = "running"
 	BuildJobStatusUpdateRequestStatusSucceeded BuildJobStatusUpdateRequestStatus = "succeeded"
+)
+
+// Defines values for BuildStepType.
+const (
+	BuildStepTypeCheckout BuildStepType = "checkout"
+	BuildStepTypeRun      BuildStepType = "run"
 )
 
 // Defines values for CacheRetryMode.
@@ -377,6 +390,12 @@ const (
 	ResolvedIosStoreKitConfigSourceTest            ResolvedIosStoreKitConfigSource = "test"
 )
 
+// Defines values for ScmBuildTargetResponsePlatform.
+const (
+	ScmBuildTargetResponsePlatformAndroid ScmBuildTargetResponsePlatform = "android"
+	ScmBuildTargetResponsePlatformIos     ScmBuildTargetResponsePlatform = "ios"
+)
+
 // Defines values for SessionStatus.
 const (
 	SessionStatusCancelled SessionStatus = "cancelled"
@@ -502,6 +521,18 @@ const (
 	WorkflowStatusRunning   WorkflowStatus = "running"
 	WorkflowStatusSetup     WorkflowStatus = "setup"
 	WorkflowStatusTimeout   WorkflowStatus = "timeout"
+)
+
+// Defines values for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform.
+const (
+	CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformAndroid CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform = "android"
+	CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformIos     CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform = "ios"
+)
+
+// Defines values for ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform.
+const (
+	ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatformAndroid ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform = "android"
+	ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatformIos     ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform = "ios"
 )
 
 // Defines values for QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus.
@@ -1712,6 +1743,13 @@ type BoundingBoxEval struct {
 	UsedBbox *string `json:"used_bbox"`
 }
 
+// BuildArtifact Artifact produced by a sandbox build.
+type BuildArtifact struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Type string `json:"type"`
+}
+
 // BuildBillingResponse defines model for BuildBillingResponse.
 type BuildBillingResponse struct {
 	BuildJobId    *string `json:"build_job_id"`
@@ -1725,6 +1763,15 @@ type BuildBillingStartedRequest struct {
 	BuildJobId string `json:"build_job_id"`
 }
 
+// BuildCache Cache disk definition stored on a sandbox build configuration.
+type BuildCache struct {
+	// Key Org-local cache key. The build runner prefixes it with the org ID.
+	Key string `json:"key"`
+
+	// Paths Project-relative paths mounted into this cache disk.
+	Paths []string `json:"paths"`
+}
+
 // BuildComparisonItem defines model for BuildComparisonItem.
 type BuildComparisonItem struct {
 	CurrentExecutionId  *string `json:"current_execution_id"`
@@ -1736,48 +1783,36 @@ type BuildComparisonItem struct {
 	TestName            string  `json:"test_name"`
 }
 
-// BuildConfigurationCreateRequest Saved per-app build configuration for sandbox build runners.
-type BuildConfigurationCreateRequest struct {
-	AppId        string                    `json:"app_id"`
-	Artifacts    *[]map[string]interface{} `json:"artifacts,omitempty"`
-	Caches       *[]map[string]interface{} `json:"caches,omitempty"`
-	Env          *map[string]interface{}   `json:"env,omitempty"`
-	Framework    *string                   `json:"framework"`
-	IsDefault    *bool                     `json:"is_default,omitempty"`
-	Name         *string                   `json:"name,omitempty"`
-	Platform     *string                   `json:"platform,omitempty"`
-	SecretRefs   *[]string                 `json:"secret_refs,omitempty"`
-	SourceSubdir *string                   `json:"source_subdir"`
-	Steps        *[]map[string]interface{} `json:"steps,omitempty"`
+// BuildConfig Sandbox build configuration stored by the API and used by build jobs.
+type BuildConfig struct {
+	AppId        openapi_types.UUID   `json:"app_id"`
+	Artifacts    *[]BuildArtifact     `json:"artifacts,omitempty"`
+	Caches       *[]BuildCache        `json:"caches,omitempty"`
+	Env          *map[string]string   `json:"env,omitempty"`
+	Framework    *string              `json:"framework"`
+	Id           *openapi_types.UUID  `json:"id"`
+	IsDefault    *bool                `json:"is_default,omitempty"`
+	Name         *string              `json:"name,omitempty"`
+	Platform     *BuildConfigPlatform `json:"platform,omitempty"`
+	SecretRefs   *[]string            `json:"secret_refs,omitempty"`
+	SourceSubdir *string              `json:"source_subdir"`
+	Steps        *[]BuildStep         `json:"steps,omitempty"`
 }
 
-// BuildConfigurationResponse defines model for BuildConfigurationResponse.
-type BuildConfigurationResponse struct {
-	AppId        string                   `json:"app_id"`
-	Artifacts    []map[string]interface{} `json:"artifacts"`
-	Caches       []map[string]interface{} `json:"caches"`
-	Env          map[string]interface{}   `json:"env"`
-	Framework    *string                  `json:"framework"`
-	Id           string                   `json:"id"`
-	IsDefault    bool                     `json:"is_default"`
-	Name         string                   `json:"name"`
-	Platform     string                   `json:"platform"`
-	SecretRefs   []string                 `json:"secret_refs"`
-	SourceSubdir *string                  `json:"source_subdir"`
-	Steps        []map[string]interface{} `json:"steps"`
-}
+// BuildConfigPlatform defines model for BuildConfig.Platform.
+type BuildConfigPlatform string
 
 // BuildConfigurationUpdateRequest defines model for BuildConfigurationUpdateRequest.
 type BuildConfigurationUpdateRequest struct {
-	Artifacts    *[]map[string]interface{} `json:"artifacts"`
-	Caches       *[]map[string]interface{} `json:"caches"`
-	Env          *map[string]interface{}   `json:"env"`
-	Framework    *string                   `json:"framework"`
-	IsDefault    *bool                     `json:"is_default"`
-	Name         *string                   `json:"name"`
-	SecretRefs   *[]string                 `json:"secret_refs"`
-	SourceSubdir *string                   `json:"source_subdir"`
-	Steps        *[]map[string]interface{} `json:"steps"`
+	Artifacts    *[]BuildArtifact        `json:"artifacts"`
+	Caches       *[]BuildCache           `json:"caches"`
+	Env          *map[string]interface{} `json:"env"`
+	Framework    *string                 `json:"framework"`
+	IsDefault    *bool                   `json:"is_default"`
+	Name         *string                 `json:"name"`
+	SecretRefs   *[]string               `json:"secret_refs"`
+	SourceSubdir *string                 `json:"source_subdir"`
+	Steps        *[]BuildStep            `json:"steps"`
 }
 
 // BuildCoverageItem defines model for BuildCoverageItem.
@@ -2032,6 +2067,16 @@ type BuildRunnerStatus struct {
 	RunnerCount       int     `json:"runner_count"`
 	UnavailableReason *string `json:"unavailable_reason"`
 }
+
+// BuildStep One step executed by a sandbox build runner.
+type BuildStep struct {
+	Command *string       `json:"command"`
+	Name    *string       `json:"name"`
+	Type    BuildStepType `json:"type"`
+}
+
+// BuildStepType defines model for BuildStep.Type.
+type BuildStepType string
 
 // BuildUpdateRequest Request model for updating a build.
 type BuildUpdateRequest struct {
@@ -3465,6 +3510,7 @@ type DisconnectSlackResponse struct {
 
 // DiscountItem A reward/discount applied to the customer (from Autumn `rewards.discounts`).
 type DiscountItem struct {
+	Code          *string `json:"code"`
 	Currency      *string `json:"currency"`
 	DiscountValue float32 `json:"discount_value"`
 	DurationType  *string `json:"duration_type"`
@@ -4342,7 +4388,7 @@ type GithubScmConfigDeleteResponse struct {
 
 // GithubScmConfigResponse defines model for GithubScmConfigResponse.
 type GithubScmConfigResponse struct {
-	Actions                  map[string]interface{}   `json:"actions"`
+	Actions                  ScmActions               `json:"actions"`
 	BuildTargets             []ScmBuildTargetResponse `json:"build_targets"`
 	Enabled                  bool                     `json:"enabled"`
 	GithubInstallationId     *int                     `json:"github_installation_id"`
@@ -4354,7 +4400,7 @@ type GithubScmConfigResponse struct {
 	Namespace                string                   `json:"namespace"`
 	PathFilters              []string                 `json:"path_filters"`
 	Preset                   string                   `json:"preset"`
-	Profiles                 map[string]interface{}   `json:"profiles"`
+	Profiles                 ScmProfiles              `json:"profiles"`
 	Project                  string                   `json:"project"`
 	Provider                 string                   `json:"provider"`
 	RepoFullName             string                   `json:"repo_full_name"`
@@ -6348,82 +6394,47 @@ type ReleaseSandboxResponse struct {
 // ReliabilityEstimate Estimate of how reliably this test would pass on re-run.
 type ReliabilityEstimate string
 
+// RemoteBuildArchiveSource Archive source previously uploaded through the remote upload-url endpoint.
+type RemoteBuildArchiveSource struct {
+	// Key S3 source archive key returned by upload-url.
+	Key  string `json:"key"`
+	Type string `json:"type"`
+}
+
+// RemoteBuildGitSource Git source checked out by the remote build runner.
+type RemoteBuildGitSource struct {
+	Lfs      *bool   `json:"lfs,omitempty"`
+	PatchKey *string `json:"patch_key"`
+	Ref      *string `json:"ref"`
+	RepoUrl  string  `json:"repo_url"`
+	Type     string  `json:"type"`
+}
+
 // RemoteBuildPhaseTiming Duration metadata for one remote-build phase.
 type RemoteBuildPhaseTiming struct {
-	CompletedAt *string                 `json:"completed_at"`
+	CompletedAt *time.Time              `json:"completed_at"`
 	DurationMs  *int                    `json:"duration_ms"`
 	Metadata    *map[string]interface{} `json:"metadata,omitempty"`
 	Phase       string                  `json:"phase"`
-	StartedAt   string                  `json:"started_at"`
+	StartedAt   time.Time               `json:"started_at"`
 }
 
 // RemoteBuildRequest Request body to trigger a remote build.
-//
-// Attributes:
-//
-//	app_id: UUID of the app to build.
-//	source_key: S3 key of the uploaded source archive.
-//	build_command: Shell command that compiles the project.
-//	build_commands: Ordered shell commands that compile the project.
-//	build_scheme: Optional Xcode scheme override.
-//	setup_command: Optional pre-build setup command
-//	    (e.g. ``npm install && cd ios && pod install``).
-//	clean_build: If true, wipe per-job build cache before building.
-//	version: Desired version string. Auto-generated
-//	    when omitted.
-//	set_as_current: Set new build as app's current.
-//	platform: Target platform (``ios`` or ``android``).
-//	artifact_path: Optional output artifact path or glob.
-//	artifact_type: Optional expected artifact type (``app`` or ``apk``).
-//	env: Environment variables passed to the remote build runner.
-//	cache_paths: Paths the remote build runner should cache and restore.
 type RemoteBuildRequest struct {
-	AppId string `json:"app_id"`
+	CleanBuild *bool `json:"clean_build,omitempty"`
 
-	// ArtifactPath Expected output artifact path or glob relative to source root.
-	ArtifactPath *string `json:"artifact_path"`
-
-	// ArtifactType Expected artifact type: app for iOS or apk for Android.
-	ArtifactType  *string   `json:"artifact_type"`
-	BuildCommand  *string   `json:"build_command"`
-	BuildCommands *[]string `json:"build_commands"`
-	BuildScheme   *string   `json:"build_scheme"`
-
-	// CachePaths Paths the remote build runner should cache and restore between builds.
-	CachePaths *[]string `json:"cache_paths,omitempty"`
-	CleanBuild *bool     `json:"clean_build,omitempty"`
-
-	// Env Environment variables passed to the remote build runner. Sent per build; not persisted.
-	Env      *map[string]string `json:"env,omitempty"`
-	Platform *string            `json:"platform,omitempty"`
-
-	// RunnerId Deprecated and ignored. Remote build capacity is selected by Revyl using the caller's organisation and platform.
-	// Deprecated:
-	RunnerId     *string `json:"runner_id"`
-	SetAsCurrent *bool   `json:"set_as_current,omitempty"`
-	SetupCommand *string `json:"setup_command"`
-	SourceKey    *string `json:"source_key"`
-
-	// SourceLfs Whether the runner should fetch Git LFS objects.
-	SourceLfs *bool `json:"source_lfs,omitempty"`
-
-	// SourcePatchKey Optional S3 key for a git patch applied after repo checkout.
-	SourcePatchKey *string `json:"source_patch_key"`
-
-	// SourceRef Git branch, tag, or commit SHA for repo-backed builds.
-	SourceRef *string `json:"source_ref"`
-
-	// SourceRepoUrl Git repository URL for repo-backed builds.
-	SourceRepoUrl *string `json:"source_repo_url"`
-
-	// SourceSubdir Optional subdirectory inside the repo-backed checkout.
-	SourceSubdir *string `json:"source_subdir"`
-
-	// SourceType Source provider for repo-backed builds. Currently git.
-	SourceType *string `json:"source_type"`
+	// Config Sandbox build configuration stored by the API and used by build jobs.
+	Config       BuildConfig               `json:"config"`
+	SetAsCurrent *bool                     `json:"set_as_current,omitempty"`
+	Source       RemoteBuildRequest_Source `json:"source"`
 
 	// Version Version string. Auto-generated when omitted.
 	Version *string `json:"version"`
+}
+
+// RemoteBuildRequest_Source defines model for RemoteBuildRequest.Source.
+type RemoteBuildRequest_Source struct {
+	union json.RawMessage
 }
 
 // RemoteBuildSourceUploadRequest Request body for obtaining a presigned URL to upload source code.
@@ -6436,7 +6447,7 @@ type RemoteBuildRequest struct {
 //	    presigned POST ``content-length-range`` condition enforces the
 //	    size limit at upload time regardless of this value.
 type RemoteBuildSourceUploadRequest struct {
-	AppId string `json:"app_id"`
+	AppId openapi_types.UUID `json:"app_id"`
 
 	// FileSize Archive size in bytes (max 500 MB). Optional client-side hint.
 	FileSize *int    `json:"file_size"`
@@ -6486,7 +6497,7 @@ type RemoteBuildStatusResponse struct {
 	AppId              *string                   `json:"app_id"`
 	ArtifactType       *string                   `json:"artifact_type"`
 	CandidateArtifacts *[]string                 `json:"candidate_artifacts"`
-	CompletedAt        *string                   `json:"completed_at"`
+	CompletedAt        *time.Time                `json:"completed_at"`
 	DurationMs         *int                      `json:"duration_ms"`
 	Error              *string                   `json:"error"`
 	LogsTail           *string                   `json:"logs_tail"`
@@ -6494,7 +6505,7 @@ type RemoteBuildStatusResponse struct {
 	Phase              *string                   `json:"phase"`
 	PhaseTimings       *[]RemoteBuildPhaseTiming `json:"phase_timings"`
 	Platform           *string                   `json:"platform"`
-	StartedAt          *string                   `json:"started_at"`
+	StartedAt          *time.Time                `json:"started_at"`
 	Status             string                    `json:"status"`
 	SuggestedFix       *string                   `json:"suggested_fix"`
 	Version            *string                   `json:"version"`
@@ -7049,16 +7060,21 @@ type ScmBuildTarget struct {
 
 // ScmBuildTargetResponse defines model for ScmBuildTargetResponse.
 type ScmBuildTargetResponse struct {
-	AppId                openapi_types.UUID         `json:"app_id"`
-	BuildConfiguration   BuildConfigurationResponse `json:"build_configuration"`
-	BuildConfigurationId openapi_types.UUID         `json:"build_configuration_id"`
-	Enabled              *bool                      `json:"enabled,omitempty"`
-	Framework            *string                    `json:"framework"`
-	Name                 *string                    `json:"name"`
-	Platform             string                     `json:"platform"`
-	SourceSubdir         *string                    `json:"source_subdir"`
-	UseExistingCi        *bool                      `json:"use_existing_ci,omitempty"`
+	AppId openapi_types.UUID `json:"app_id"`
+
+	// BuildConfiguration Sandbox build configuration stored by the API and used by build jobs.
+	BuildConfiguration   BuildConfig                    `json:"build_configuration"`
+	BuildConfigurationId openapi_types.UUID             `json:"build_configuration_id"`
+	Enabled              *bool                          `json:"enabled,omitempty"`
+	Framework            *string                        `json:"framework"`
+	Name                 *string                        `json:"name"`
+	Platform             ScmBuildTargetResponsePlatform `json:"platform"`
+	SourceSubdir         *string                        `json:"source_subdir"`
+	UseExistingCi        *bool                          `json:"use_existing_ci,omitempty"`
 }
+
+// ScmBuildTargetResponsePlatform defines model for ScmBuildTargetResponse.Platform.
+type ScmBuildTargetResponsePlatform string
 
 // ScmPlatformProfile defines model for ScmPlatformProfile.
 type ScmPlatformProfile struct {
@@ -10210,17 +10226,23 @@ type GetBuildRunsApiV1AppsBuildsVersionIdRunsGetParams struct {
 
 // CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParams defines parameters for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGet.
 type CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParams struct {
-	Platform *string `form:"platform,omitempty" json:"platform,omitempty"`
+	Platform *CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform `form:"platform,omitempty" json:"platform,omitempty"`
 
 	// RunnerId Deprecated and ignored. Runner selection is managed by Revyl.
 	RunnerId *string `form:"runner_id,omitempty" json:"runner_id,omitempty"`
 }
 
+// CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform defines parameters for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGet.
+type CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform string
+
 // ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParams defines parameters for ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGet.
 type ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParams struct {
-	AppId    *string `form:"app_id,omitempty" json:"app_id,omitempty"`
-	Platform *string `form:"platform,omitempty" json:"platform,omitempty"`
+	AppId    *openapi_types.UUID                                                                `form:"app_id,omitempty" json:"app_id,omitempty"`
+	Platform *ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform `form:"platform,omitempty" json:"platform,omitempty"`
 }
+
+// ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform defines parameters for ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGet.
+type ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform string
 
 // ResolveBuildApiV1AppsResolvePostParams defines parameters for ResolveBuildApiV1AppsResolvePost.
 type ResolveBuildApiV1AppsResolvePostParams struct {
@@ -11166,7 +11188,7 @@ type CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPostJSONRequestBod
 type TriggerRemoteBuildApiV1AppsRemotePostJSONRequestBody = RemoteBuildRequest
 
 // CreateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsPostJSONRequestBody defines body for CreateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsPost for application/json ContentType.
-type CreateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsPostJSONRequestBody = BuildConfigurationCreateRequest
+type CreateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsPostJSONRequestBody = BuildConfig
 
 // UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatchJSONRequestBody defines body for UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatch for application/json ContentType.
 type UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatchJSONRequestBody = BuildConfigurationUpdateRequest
@@ -14905,6 +14927,95 @@ func (t NormalizedWhileBlock_Children_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *NormalizedWhileBlock_Children_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsRemoteBuildArchiveSource returns the union data inside the RemoteBuildRequest_Source as a RemoteBuildArchiveSource
+func (t RemoteBuildRequest_Source) AsRemoteBuildArchiveSource() (RemoteBuildArchiveSource, error) {
+	var body RemoteBuildArchiveSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRemoteBuildArchiveSource overwrites any union data inside the RemoteBuildRequest_Source as the provided RemoteBuildArchiveSource
+func (t *RemoteBuildRequest_Source) FromRemoteBuildArchiveSource(v RemoteBuildArchiveSource) error {
+	v.Type = "archive"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeRemoteBuildArchiveSource performs a merge with any union data inside the RemoteBuildRequest_Source, using the provided RemoteBuildArchiveSource
+func (t *RemoteBuildRequest_Source) MergeRemoteBuildArchiveSource(v RemoteBuildArchiveSource) error {
+	v.Type = "archive"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRemoteBuildGitSource returns the union data inside the RemoteBuildRequest_Source as a RemoteBuildGitSource
+func (t RemoteBuildRequest_Source) AsRemoteBuildGitSource() (RemoteBuildGitSource, error) {
+	var body RemoteBuildGitSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRemoteBuildGitSource overwrites any union data inside the RemoteBuildRequest_Source as the provided RemoteBuildGitSource
+func (t *RemoteBuildRequest_Source) FromRemoteBuildGitSource(v RemoteBuildGitSource) error {
+	v.Type = "git"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeRemoteBuildGitSource performs a merge with any union data inside the RemoteBuildRequest_Source, using the provided RemoteBuildGitSource
+func (t *RemoteBuildRequest_Source) MergeRemoteBuildGitSource(v RemoteBuildGitSource) error {
+	v.Type = "git"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RemoteBuildRequest_Source) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t RemoteBuildRequest_Source) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "archive":
+		return t.AsRemoteBuildArchiveSource()
+	case "git":
+		return t.AsRemoteBuildGitSource()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t RemoteBuildRequest_Source) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *RemoteBuildRequest_Source) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

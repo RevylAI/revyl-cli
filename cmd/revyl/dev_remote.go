@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
@@ -115,6 +116,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		}
 	}
 	appID := strings.TrimSpace(platCfg.AppID)
+	buildCaches := config.EffectiveBuildCaches(cfg.Build, platCfg)
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
@@ -127,7 +129,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 	stopSigHandler := startDevLoopSignalHandler(sigChan, stopper)
 	defer stopSigHandler()
 
-	remoteBuild, err := runRemoteDevBuild(ctx, client, platCfg, platformKey, devicePlatform, appID, cwd)
+	remoteBuild, err := runRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
 	if err != nil {
 		if stopper.IsUserCanceled(err) {
 			return nil
@@ -342,7 +344,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		rebuildCount++
 		rebuildStart := time.Now()
 		result := devRebuildResult{buildMode: "remote"}
-		remoteBuild, buildErr := runRemoteDevBuild(ctx, client, platCfg, platformKey, devicePlatform, appID, cwd)
+		remoteBuild, buildErr := runRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
 		if buildErr != nil {
 			if stopper.IsUserCanceled(buildErr) {
 				return nil
@@ -413,12 +415,17 @@ func runRemoteDevBuild(
 	ctx context.Context,
 	client *api.Client,
 	platCfg config.BuildPlatform,
+	buildCaches []config.BuildCache,
 	platformKey string,
 	devicePlatform string,
 	appID string,
 	cwd string,
 ) (remoteDevBuildResult, error) {
 	start := time.Now()
+	parsedAppID, err := uuid.Parse(strings.TrimSpace(appID))
+	if err != nil {
+		return remoteDevBuildResult{}, fmt.Errorf("app id must be a valid UUID: %w", err)
+	}
 	ui.Println()
 	ui.PrintInfo("Remote building %s...", platformKey)
 	ui.PrintInfo("Packaging current working tree...")
@@ -440,7 +447,7 @@ func runRemoteDevBuild(
 		return remoteDevBuildResult{}, fmt.Errorf("source archive too large (%.0f MB). Max 500 MB", sizeMB)
 	}
 
-	uploadResp, err := client.GetRemoteBuildUploadURL(ctx, appID, "source.tar.gz", archiveInfo.Size())
+	uploadResp, err := client.GetRemoteBuildUploadURL(ctx, parsedAppID, "source.tar.gz", archiveInfo.Size())
 	if err != nil {
 		return remoteDevBuildResult{}, fmt.Errorf("failed to get remote build upload URL: %w", err)
 	}
@@ -454,9 +461,12 @@ func runRemoteDevBuild(
 	}
 
 	platform := devicePlatform
-	artifactType := defaultRemoteArtifactType(platform)
 	versionStr := build.GenerateVersionStringForWorkDir(cwd)
-	triggerResp, err := client.TriggerRemoteBuild(ctx, remoteDevTriggerRequest(appID, uploadResp.SourceKey, platform, artifactType, versionStr, platCfg))
+	triggerReq, err := remoteDevTriggerRequest(parsedAppID, uploadResp.SourceKey, platform, versionStr, platCfg, buildCaches)
+	if err != nil {
+		return remoteDevBuildResult{}, err
+	}
+	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq)
 	if err != nil {
 		return remoteDevBuildResult{}, fmt.Errorf("failed to trigger remote build: %w", err)
 	}
@@ -481,31 +491,27 @@ func runRemoteDevBuild(
 	}, nil
 }
 
-func remoteDevTriggerRequest(appID, sourceKey, platform, artifactType, version string, platCfg config.BuildPlatform) *api.RemoteBuildRequest {
-	buildCommands := platCfg.BuildCommands()
-	scheme := strings.TrimSpace(platCfg.Scheme)
-	if scheme != "" {
-		for i, command := range buildCommands {
-			buildCommands[i] = build.ApplySchemeToCommand(command, scheme)
-		}
-	}
-	buildCommand := strings.Join(buildCommands, " && ")
-
+func remoteDevTriggerRequest(appID uuid.UUID, sourceKey, platform, version string, platCfg config.BuildPlatform, buildCaches []config.BuildCache) (*api.RemoteBuildRequest, error) {
 	setCurrent := true
-	return &api.RemoteBuildRequest{
-		AppId:         appID,
-		SourceKey:     stringPtrOrNil(sourceKey),
-		BuildCommand:  stringPtrOrNil(buildCommand),
-		BuildCommands: stringSlicePtrOrNil(buildCommands),
-		BuildScheme:   stringPtrOrNil(scheme),
-		SetupCommand:  stringPtrOrNil(platCfg.Setup),
-		Version:       stringPtrOrNil(version),
-		SetAsCurrent:  &setCurrent,
-		Platform:      &platform,
-		ArtifactPath:  stringPtrOrNil(platCfg.Output),
-		ArtifactType:  stringPtrOrNil(artifactType),
-		Env:           stringMapPtrOrNil(platCfg.Env),
+	source, err := remoteBuildRequestSource(nil, sourceKey, "")
+	if err != nil {
+		return nil, err
 	}
+	resolved := remoteBuildPlatformConfig{
+		Platform: platform,
+		Setup:    strings.TrimSpace(platCfg.Setup),
+		Commands: platCfg.BuildCommands(),
+		Output:   strings.TrimSpace(platCfg.Output),
+		Scheme:   strings.TrimSpace(platCfg.Scheme),
+		Env:      platCfg.Env,
+		Caches:   buildCaches,
+	}
+	return &api.RemoteBuildRequest{
+		Source:       source,
+		Config:       remoteBuildConfigFromResolved(appID, resolved),
+		Version:      stringPtrOrNil(version),
+		SetAsCurrent: &setCurrent,
+	}, nil
 }
 
 func pollRemoteBuildStatusResult(ctx context.Context, client *api.Client, jobID string) (*api.RemoteBuildStatusResponse, error) {

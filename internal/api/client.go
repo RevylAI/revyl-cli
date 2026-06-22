@@ -31,6 +31,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/revyl/cli/internal/config"
 )
 
@@ -6311,11 +6313,12 @@ func (c *Client) GetSessionArtifactUploadURL(ctx context.Context, sessionID stri
 // Returns:
 //   - *RemoteBuildSourceUploadResponse containing upload URL and S3 key
 //   - error on API or network failure
-func (c *Client) GetRemoteBuildUploadURL(ctx context.Context, appID, filename string, fileSize int64) (*RemoteBuildSourceUploadResponse, error) {
+func (c *Client) GetRemoteBuildUploadURL(ctx context.Context, appID uuid.UUID, filename string, fileSize int64) (*RemoteBuildSourceUploadResponse, error) {
+	size := int(fileSize)
 	req := &RemoteBuildSourceUploadRequest{
 		AppId:    appID,
 		Filename: &filename,
-		FileSize: func() *int { v := int(fileSize); return &v }(),
+		FileSize: &size,
 	}
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/apps/remote/upload-url", req)
 	if err != nil {
