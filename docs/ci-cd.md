@@ -202,6 +202,37 @@ test:
     REVYL_API_KEY: $REVYL_API_KEY
 ```
 
+## Azure Pipelines
+
+Store your API key as a **secret** pipeline variable (Pipelines → Edit → Variables → *Keep this value secret*), or in a variable group / Azure Key Vault.
+
+```yaml
+trigger:
+  - main
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - script: |
+      curl -fsSL https://revyl.com/install.sh | sh
+      echo "##vso[task.prependpath]$HOME/.revyl/bin"
+    displayName: Install Revyl CLI
+
+  # Replace `smoke-tests` with your Revyl workflow name.
+  - script: revyl workflow run smoke-tests
+    displayName: Run smoke tests
+    env:
+      REVYL_API_KEY: $(REVYL_API_KEY)
+```
+
+Two Azure specifics differ from GitHub Actions:
+
+- **Secret variables are not auto-exposed to scripts.** Map them per step with an `env:` block (`REVYL_API_KEY: $(REVYL_API_KEY)`), otherwise the CLI sees no key.
+- **PATH does not persist between steps.** GitHub's `echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"` becomes the Azure logging command `echo "##vso[task.prependpath]$HOME/.revyl/bin"` (or install and run in a single `script:` step).
+
+A fuller example with blocking, fire-and-forget, and status stages lives in [`examples/ci-generic/azure-pipelines.yml`](../examples/ci-generic/azure-pipelines.yml).
+
 ## CI-Friendly Flags
 
 | Flag | Effect |
