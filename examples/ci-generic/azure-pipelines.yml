@@ -1,0 +1,122 @@
+# Azure Pipelines -- Revyl test pipeline
+#
+# Add REVYL_API_KEY as a *secret* pipeline variable:
+#   Pipelines > Edit > Variables > New variable > "Keep this value secret"
+# or store it in a variable group / Azure Key Vault and reference it below.
+#
+# IMPORTANT (Azure-specific):
+#   1. Secret variables are NOT injected into the script environment
+#      automatically. You must map them explicitly with an `env:` block on
+#      each step that needs them (see the `env:` blocks below).
+#   2. Each `script` step runs in a fresh shell, so PATH does not persist.
+#      The install step publishes the CLI dir with the logging command
+#      `##vso[task.prependpath]` so later steps can find `revyl`.
+
+# `trigger` lists the branches whose *commits* start a pipeline run. With
+# `main` here, every push to main runs the pipeline. Omit/replace to fit your
+# branching model (e.g. `none` to disable commit-triggered runs).
+trigger:
+  - main
+
+# `pr` lists the target branches whose *pull requests* start a pipeline run.
+# With `main`, any PR targeting main is validated. (GitHub/Bitbucket repos
+# honor this key; Azure Repos uses branch policies instead.)
+pr:
+  - main
+
+# `pool` selects the agent that runs the jobs. `vmImage: ubuntu-latest` uses a
+# Microsoft-hosted Linux agent — enough to install and run the CLI, since the
+# build/devices live on Revyl's infrastructure, not on this agent.
+pool:
+  vmImage: ubuntu-latest
+
+# `stages` is the top-level grouping. Each stage holds jobs; each job holds
+# steps. Stages run sequentially by default unless `dependsOn` overrides it.
+stages:
+  # ---------------------------------------------------------------------------
+  # Blocking: install the CLI, run the workflow, wait for the result.
+  # The CLI exits 0 on pass / 1 on failure, which Azure maps to step status.
+  # ---------------------------------------------------------------------------
+  # `- stage:` declares a stage; the value is its internal ID (used by
+  # `dependsOn`). `displayName` is the human-readable label shown in the UI.
+  - stage: test
+    displayName: Revyl tests
+    # `jobs` holds the units of work for this stage. Each job gets its own agent.
+    jobs:
+      # `- job:` declares a job; the value is its internal ID.
+      - job: revyl_tests
+        displayName: Run smoke tests
+        # `steps` are the ordered commands the job runs on its agent.
+        steps:
+          # `script` runs a command-line script (bash on Linux/macOS agents).
+          # The `|` starts a multi-line block scalar — every indented line below
+          # is one script passed to the shell.
+          - script: |
+              # `set -euo pipefail`: fail the step on any error (-e), on an
+              # unset variable (-u), or on a failed command in a pipe
+              # (-o pipefail). Makes the step fail loudly instead of silently.
+              set -euo pipefail
+              # Download and run the Revyl install script. It drops the `revyl`
+              # binary into ~/.revyl/bin.
+              curl -fsSL https://revyl.com/install.sh | sh
+              # Azure logging command: prepend the CLI dir to PATH for all
+              # *subsequent* steps (PATH set inside one step does not carry over,
+              # so this is how you make `revyl` resolvable later).
+              echo "##vso[task.prependpath]$HOME/.revyl/bin"
+            # `displayName` labels this step in the run timeline.
+            displayName: Install Revyl CLI
+
+          # Second step: run the workflow. `revyl` is on PATH thanks to the
+          # prependpath above. Replace `smoke-tests` with your Revyl workflow name.
+          - script: revyl workflow run smoke-tests
+            displayName: Run workflow (blocking)
+            # `env` maps pipeline variables into this step's environment.
+            # Secret variables are ONLY available to a script when mapped here.
+            # `$(REVYL_API_KEY)` is Azure's variable-reference syntax.
+            env:
+              REVYL_API_KEY: $(REVYL_API_KEY)
+
+          # Optional: upload a build first, then test against it.
+          # - script: |
+          #     set -euo pipefail
+          #     revyl build upload --file ./app.apk --app your-app-id --set-current
+          #     revyl workflow run smoke-tests  # Replace with your Revyl workflow name.
+          #   displayName: Upload build and run workflow
+          #   env:
+          #     REVYL_API_KEY: $(REVYL_API_KEY)
+
+  # ---------------------------------------------------------------------------
+  # Async: queue then check status later. Uncomment this stage if you prefer
+  # fire-and-forget execution instead of the blocking `test` stage above.
+  # ---------------------------------------------------------------------------
+  # - stage: test_async
+  #   displayName: Revyl tests (async)
+  #   jobs:
+  #     - job: queue_tests
+  #       displayName: Queue tests (fire-and-forget)
+  #       steps:
+  #         - script: |
+  #             set -euo pipefail
+  #             curl -fsSL https://revyl.com/install.sh | sh
+  #             echo "##vso[task.prependpath]$HOME/.revyl/bin"
+  #           displayName: Install Revyl CLI
+  #
+  #         - script: revyl workflow run smoke-tests --no-wait  # Replace with your Revyl workflow name.
+  #           displayName: Queue workflow
+  #           env:
+  #             REVYL_API_KEY: $(REVYL_API_KEY)
+  #
+  #     - job: check_status
+  #       displayName: Check workflow status
+  #       dependsOn: queue_tests
+  #       steps:
+  #         - script: |
+  #             set -euo pipefail
+  #             curl -fsSL https://revyl.com/install.sh | sh
+  #             echo "##vso[task.prependpath]$HOME/.revyl/bin"
+  #           displayName: Install Revyl CLI
+  #
+  #         - script: revyl workflow status smoke-tests --json
+  #           displayName: Check status
+  #           env:
+  #             REVYL_API_KEY: $(REVYL_API_KEY)
