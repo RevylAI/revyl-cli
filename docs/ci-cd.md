@@ -219,6 +219,7 @@ steps:
       echo "##vso[task.prependpath]$HOME/.revyl/bin"
     displayName: Install Revyl CLI
 
+  # Replace `smoke-tests` with your Revyl workflow name.
   - script: revyl workflow run smoke-tests
     displayName: Run smoke tests
     env:
