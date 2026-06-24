@@ -88,6 +88,5 @@ revyl workflow run smoke-tests
 | [`gitlab-ci.yml`](gitlab-ci.yml) | GitLab CI/CD |
 | [`Jenkinsfile`](Jenkinsfile) | Jenkins |
 | [`circleci.yml`](circleci.yml) | CircleCI |
-| [`azure-pipelines.yml`](azure-pipelines.yml) | Azure Pipelines |
 
 Each follows the same flow: install CLI, (optionally) upload build, run tests. All examples include both blocking and fire-and-forget patterns.

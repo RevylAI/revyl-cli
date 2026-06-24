@@ -1253,6 +1253,39 @@ type AppWorkspaceResponse struct {
 // AsyncStatus defines model for AsyncStatus.
 type AsyncStatus string
 
+// AtlasEdgeClipVideo Presigned video for one run, used by the edge-clip player/run switcher.
+type AtlasEdgeClipVideo struct {
+	ReportId      string   `json:"report_id"`
+	VideoDuration *float32 `json:"video_duration"`
+	VideoUrl      *string  `json:"video_url"`
+}
+
+// AtlasEdgeRun A single observed run behind a selected map edge (latest first).
+//
+// Powers the transition clip in the edge sidebar: the video timestamps bound
+// the source->target delta so the player can loop just that segment.
+type AtlasEdgeRun struct {
+	ExecutionId       *string    `json:"execution_id"`
+	ObservedAt        *time.Time `json:"observed_at"`
+	ReportId          *string    `json:"report_id"`
+	SessionId         *string    `json:"session_id"`
+	SourceActionIndex *int       `json:"source_action_index"`
+	SourceStepIndex   *int       `json:"source_step_index"`
+	SourceVideoEnd    *float32   `json:"source_video_end"`
+	SourceVideoStart  *float32   `json:"source_video_start"`
+	TargetVideoEnd    *float32   `json:"target_video_end"`
+	TargetVideoStart  *float32   `json:"target_video_start"`
+	TestId            *string    `json:"test_id"`
+}
+
+// AtlasEdgeRunsResponse defines model for AtlasEdgeRunsResponse.
+type AtlasEdgeRunsResponse struct {
+	// ActiveVideo Presigned video for one run, used by the edge-clip player/run switcher.
+	ActiveVideo *AtlasEdgeClipVideo `json:"active_video,omitempty"`
+	AppId       string              `json:"app_id"`
+	Runs        *[]AtlasEdgeRun     `json:"runs,omitempty"`
+}
+
 // AtlasOCRError defines model for AtlasOCRError.
 type AtlasOCRError struct {
 	Code    string `json:"code"`
@@ -1289,6 +1322,24 @@ type AtlasOCRSummaryStats struct {
 	LatencyMs            *float32               `json:"latency_ms"`
 	TokenCount           *int                   `json:"token_count,omitempty"`
 	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// AtlasObservationClip Presigned run video + capture timestamp for a single screenshot.
+//
+// Powers the lazy "animate" overlay on the screen-detail screenshot: the
+// player loops a short window (~1s either side of `screenshot_timestamp`) so
+// designers can see the motion that produced the captured frame.
+type AtlasObservationClip struct {
+	ClipEnd             *float32 `json:"clip_end"`
+	ClipStart           *float32 `json:"clip_start"`
+	ObservationId       string   `json:"observation_id"`
+	ReportId            *string  `json:"report_id"`
+	ScreenshotRole      *string  `json:"screenshot_role"`
+	ScreenshotTimestamp *float32 `json:"screenshot_timestamp"`
+	VideoDuration       *float32 `json:"video_duration"`
+	VideoTimestampEnd   *float32 `json:"video_timestamp_end"`
+	VideoTimestampStart *float32 `json:"video_timestamp_start"`
+	VideoUrl            *string  `json:"video_url"`
 }
 
 // AtlasReportObservationAttachment defines model for AtlasReportObservationAttachment.
@@ -10322,6 +10373,19 @@ type CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGetParams struct {
 	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
 	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams defines parameters for GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGet.
+type GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams struct {
+	// Source Source node entity id
+	Source string `form:"source" json:"source"`
+
+	// Target Target node entity id
+	Target      string  `form:"target" json:"target"`
+	ActionType  string  `form:"action_type" json:"action_type"`
+	ActionLabel string  `form:"action_label" json:"action_label"`
+	BuildId     *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	Limit       *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2EntityApiV1AtlasV2AppsAppIdEntitiesEntityIdGetParams defines parameters for GetAtlasV2EntityApiV1AtlasV2AppsAppIdEntitiesEntityIdGet.
