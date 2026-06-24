@@ -205,6 +205,7 @@ func init() {
 	devTestRunCmd.Flags().StringVar(&runLocation, "location", "", "Initial GPS location as lat,lng (e.g. 37.7749,-122.4194)")
 	devTestRunCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for dev server")
 	devTestRunCmd.Flags().StringArrayVar(&runLaunchVars, "launch-var", nil, "Org launch variable key or ID to apply to this run (repeatable)")
+	devTestRunCmd.Flags().StringArrayVar(&runVars, "var", nil, "Runtime variable override as key=value (repeatable, referenced as {{key}})")
 
 	// dev test open flags
 	devTestOpenCmd.Flags().IntVar(&openTestHotReloadPort, "port", 8081, "Port for dev server")

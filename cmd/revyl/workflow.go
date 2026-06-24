@@ -85,7 +85,8 @@ EXAMPLES:
   revyl workflow run smoke-tests --build --platform android
   revyl workflow run smoke-tests --android-app <app-uuid>
   revyl workflow run smoke-tests --ios-app <app-uuid> --android-app <app-uuid>
-  revyl workflow run smoke-tests --ios-app <app-uuid> --ios-build 1.4.2`,
+  revyl workflow run smoke-tests --ios-app <app-uuid> --ios-build 1.4.2
+  revyl workflow run smoke-tests --var pr-preview-link=<deep-link>`,
 	Example: `  revyl workflow run smoke-tests
   revyl workflow run smoke-tests --build
   revyl workflow run smoke-tests --json --no-wait`,
@@ -227,6 +228,7 @@ func init() {
 	workflowRunCmd.Flags().StringVar(&runWorkflowIOSBuild, "ios-build", "", "Pin a specific iOS build version for all tests (requires --ios-app)")
 	workflowRunCmd.Flags().StringVar(&runWorkflowAndroidBuild, "android-build", "", "Pin a specific Android build version for all tests (requires --android-app)")
 	workflowRunCmd.Flags().StringVar(&runLocation, "location", "", "Override GPS location for all tests as lat,lng (e.g. 37.7749,-122.4194)")
+	workflowRunCmd.Flags().StringArrayVar(&runVars, "var", nil, "Runtime variable override for all tests as key=value (repeatable, referenced as {{key}})")
 	analytics.MarkFlagValue(workflowRunCmd, "retries")
 	analytics.MarkFlagValue(workflowRunCmd, "no-wait")
 	analytics.MarkFlagValue(workflowRunCmd, "open")
@@ -236,6 +238,7 @@ func init() {
 	analytics.MarkFlagValue(workflowRunCmd, "verbose")
 	analytics.MarkFlagValue(workflowRunCmd, "build")
 	analytics.MarkFlagValue(workflowRunCmd, "platform")
+	analytics.MarkFlagValue(workflowRunCmd, "var")
 
 	// workflow delete flags
 	workflowDeleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation prompt")

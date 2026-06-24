@@ -138,6 +138,79 @@ func TestParseLaunchEnvVars(t *testing.T) {
 	}
 }
 
+func TestParseRuntimeVars(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      []string
+		want    map[string]string
+		wantErr bool
+	}{
+		{
+			name: "nil input yields nil map",
+			in:   nil,
+			want: nil,
+		},
+		{
+			name: "single pair",
+			in:   []string{"pr-preview-link=exp+app://expo-development-client/?url=https%3A%2F%2Fu.expo.dev%2Fabc"},
+			want: map[string]string{"pr-preview-link": "exp+app://expo-development-client/?url=https%3A%2F%2Fu.expo.dev%2Fabc"},
+		},
+		{
+			name: "value may contain equals",
+			in:   []string{"preview_url=https://example.test?a=b"},
+			want: map[string]string{"preview_url": "https://example.test?a=b"},
+		},
+		{
+			name: "empty value is allowed",
+			in:   []string{"preview_url="},
+			want: map[string]string{"preview_url": ""},
+		},
+		{
+			name:    "missing equals is rejected",
+			in:      []string{"preview_url"},
+			wantErr: true,
+		},
+		{
+			name:    "empty key is rejected",
+			in:      []string{"=value"},
+			wantErr: true,
+		},
+		{
+			name:    "spaces are rejected",
+			in:      []string{"preview url=value"},
+			wantErr: true,
+		},
+		{
+			name:    "dots are rejected",
+			in:      []string{"preview.url=value"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseRuntimeVars(tt.in)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil (result=%v)", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("len mismatch: got %v, want %v", got, tt.want)
+			}
+			for k, v := range tt.want {
+				if got[k] != v {
+					t.Errorf("key %q: got %q, want %q", k, got[k], v)
+				}
+			}
+		})
+	}
+}
+
 // TestExecuteTestRequestLaunchEnvWire verifies the test-run wire contract: inline
 // launch env vars serialize as `launch_env_vars`, and are omitted when unset.
 func TestExecuteTestRequestLaunchEnvWire(t *testing.T) {
@@ -158,6 +231,52 @@ func TestExecuteTestRequestLaunchEnvWire(t *testing.T) {
 	}
 	if strings.Contains(string(without), "launch_env_vars") {
 		t.Errorf("expected launch_env_vars omitted when unset, got: %s", without)
+	}
+}
+
+func TestExecuteTestRequestVariableOverridesWire(t *testing.T) {
+	withVars, err := json.Marshal(&api.ExecuteTestRequest{
+		TestID: "abc",
+		VariableOverrides: map[string]string{
+			"pr-preview-link": "exp+app://expo-development-client/?url=https%3A%2F%2Fu.expo.dev%2Fabc",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(withVars), `"variable_overrides":{"pr-preview-link":"exp+app://expo-development-client/?url=https%3A%2F%2Fu.expo.dev%2Fabc"}`) {
+		t.Errorf("expected variable_overrides in body, got: %s", withVars)
+	}
+
+	without, err := json.Marshal(&api.ExecuteTestRequest{TestID: "abc"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(without), "variable_overrides") {
+		t.Errorf("expected variable_overrides omitted when unset, got: %s", without)
+	}
+}
+
+func TestExecuteWorkflowRequestVariableOverridesWire(t *testing.T) {
+	withVars, err := json.Marshal(&api.ExecuteWorkflowRequest{
+		WorkflowID: "workflow-123",
+		VariableOverrides: map[string]string{
+			"pr-preview-link": "exp+app://expo-development-client/?url=https%3A%2F%2Fu.expo.dev%2Fabc",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(withVars), `"variable_overrides":{"pr-preview-link":"exp+app://expo-development-client/?url=https%3A%2F%2Fu.expo.dev%2Fabc"}`) {
+		t.Errorf("expected variable_overrides in body, got: %s", withVars)
+	}
+
+	without, err := json.Marshal(&api.ExecuteWorkflowRequest{WorkflowID: "workflow-123"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(without), "variable_overrides") {
+		t.Errorf("expected variable_overrides omitted when unset, got: %s", without)
 	}
 }
 

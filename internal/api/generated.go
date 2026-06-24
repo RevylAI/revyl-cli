@@ -9928,6 +9928,7 @@ type AppRoutesWorkflowRoutesWorkflowShareXptStepMetadata struct {
 //	run_config: Optional run configuration override for workflow-triggered tests.
 //	build_config: Optional build configuration override for this execution.
 //	override_build_config: When True with build_config, overrides test builds.
+//	variable_overrides: Runtime variable overrides applied to every child test.
 type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 	// BuildConfig Workflow-level app configuration for iOS and Android.
 	//
@@ -9943,8 +9944,11 @@ type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 	OverrideBuildConfig *bool `json:"override_build_config,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig  *TestRunConfig     `json:"run_config,omitempty"`
-	WorkflowId openapi_types.UUID `json:"workflow_id"`
+	RunConfig *TestRunConfig `json:"run_config,omitempty"`
+
+	// VariableOverrides Runtime variable overrides applied to every child test in this workflow execution
+	VariableOverrides *map[string]string `json:"variable_overrides,omitempty"`
+	WorkflowId        openapi_types.UUID `json:"workflow_id"`
 }
 
 // GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.

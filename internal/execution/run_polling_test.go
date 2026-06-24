@@ -154,6 +154,53 @@ func TestRunTest_ResolvesLaunchVarsIntoExecuteRequest(t *testing.T) {
 	}
 }
 
+func TestRunTest_SendsVariableOverrides(t *testing.T) {
+	var executeBody struct {
+		TestID            string            `json:"test_id"`
+		VariableOverrides map[string]string `json:"variable_overrides"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/execution/api/execute_test_id_async":
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			if err := json.NewDecoder(r.Body).Decode(&executeBody); err != nil {
+				t.Fatalf("decode execute request: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"task_id":"task-test-vars-123"}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	t.Setenv("REVYL_APP_URL", "https://app.example")
+
+	result, err := RunTest(context.Background(), "token", nil, RunTestParams{
+		TestNameOrID: "test-123",
+		NoWait:       true,
+		VariableOverrides: map[string]string{
+			"pr-preview-link": "exp+app://expo-development-client/?url=https%3A%2F%2Fu.expo.dev%2Fabc",
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunTest() error = %v", err)
+	}
+	if result.TaskID != "task-test-vars-123" {
+		t.Fatalf("TaskID = %q, want task-test-vars-123", result.TaskID)
+	}
+	if executeBody.TestID != "test-123" {
+		t.Fatalf("execute test_id = %q, want test-123", executeBody.TestID)
+	}
+	if got := executeBody.VariableOverrides["pr-preview-link"]; got != "exp+app://expo-development-client/?url=https%3A%2F%2Fu.expo.dev%2Fabc" {
+		t.Fatalf("variable_overrides.pr-preview-link = %q", got)
+	}
+}
+
 func TestRunWorkflow_PollingModeCompletesWithoutSSE(t *testing.T) {
 	var sseRequested bool
 	var statusCalls int
@@ -364,5 +411,51 @@ func TestRunWorkflow_PinsBuildVersion(t *testing.T) {
 				t.Fatalf("android_build.pinned_version = %v, want %v", got, tc.wantAndroidVers)
 			}
 		})
+	}
+}
+
+func TestRunWorkflow_SendsVariableOverrides(t *testing.T) {
+	var captured map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/execution/api/execute_workflow_id_async":
+			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+				t.Fatalf("decode request body: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"task_id":"task-vars-123"}`))
+		case "/api/v1/workflows/status/task-vars-123":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"completed","total_tests":1,"completed_tests":1,"passed_tests":1,"failed_tests":0}`))
+		case "/api/v1/workflows/share/unified-report":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"workflow_task":{"id":"task-vars-123","status":"completed"},"workflow_detail":{"id":"workflow-123","name":"Smoke Tests","tests":[]},"test_info":[],"child_tasks":[]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	t.Setenv("REVYL_APP_URL", "https://app.example")
+
+	_, err := RunWorkflow(context.Background(), "token", nil, RunWorkflowParams{
+		WorkflowNameOrID: "workflow-123",
+		Timeout:          5,
+		MonitoringMode:   sse.MonitoringModePolling,
+		VariableOverrides: map[string]string{
+			"pr-preview-link": "exp+app://expo-development-client/?url=https%3A%2F%2Fu.expo.dev%2Fabc",
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunWorkflow() error = %v", err)
+	}
+
+	variables, ok := captured["variable_overrides"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("variable_overrides missing or wrong type: %v", captured["variable_overrides"])
+	}
+	if got := variables["pr-preview-link"]; got != "exp+app://expo-development-client/?url=https%3A%2F%2Fu.expo.dev%2Fabc" {
+		t.Fatalf("variable_overrides.pr-preview-link = %v", got)
 	}
 }

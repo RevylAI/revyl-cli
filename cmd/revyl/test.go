@@ -67,11 +67,13 @@ Use the test NAME or UUID, not a file path.
 
 EXAMPLES:
   revyl test run login-flow          # Run (no build)
-  revyl test run login-flow --build  # Build then run`,
+  revyl test run login-flow --build  # Build then run
+  revyl test run login-flow --var pr-preview-link=<deep-link>`,
 	Example: `  revyl test run login-flow
   revyl test run login-flow --build
   revyl test run login-flow --json --no-wait
-  revyl test run login-flow --device-model "iPhone 16" --os-version "iOS 18.5"`,
+  revyl test run login-flow --device-model "iPhone 16" --os-version "iOS 18.5"
+  revyl test run login-flow --var pr-preview-link=<deep-link>`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTestExec,
 }
@@ -221,6 +223,7 @@ func init() {
 	testRunCmd.Flags().BoolVar(&runFailFast, "fail-fast", false, "Halt the run on the first failed step or validation (overrides the test's stored run_config for this run)")
 	testRunCmd.Flags().StringArrayVar(&runLaunchEnv, "launch-env", nil, "Inline launch environment variable as KEY=VALUE applied to the app launch (repeatable; overrides attached launch vars)")
 	testRunCmd.Flags().StringArrayVar(&runLaunchVars, "launch-var", nil, "Org launch variable key or ID to apply to this run (repeatable)")
+	testRunCmd.Flags().StringArrayVar(&runVars, "var", nil, "Runtime variable override as key=value (repeatable, referenced as {{key}})")
 	analytics.MarkFlagValue(testRunCmd, "retries")
 	analytics.MarkFlagValue(testRunCmd, "no-wait")
 	analytics.MarkFlagValue(testRunCmd, "open")
@@ -236,6 +239,7 @@ func init() {
 	analytics.MarkFlagValue(testRunCmd, "orientation")
 	analytics.MarkFlagValue(testRunCmd, "fail-fast")
 	analytics.MarkFlagValue(testRunCmd, "launch-var")
+	analytics.MarkFlagValue(testRunCmd, "var")
 
 	// test cancel flags (inherits global --json)
 

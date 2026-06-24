@@ -584,6 +584,37 @@ func TestTestRunLocationFlag(t *testing.T) {
 	if testRunCmd.Flags().Lookup("location") == nil {
 		t.Error("expected --location flag on test run")
 	}
+	if testRunCmd.Flags().Lookup("var") == nil {
+		t.Error("expected --var flag on test run")
+	}
+}
+
+func TestDevTestRunVarFlag(t *testing.T) {
+	var devTestRunCmd *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() != "dev" {
+			continue
+		}
+		for _, sub := range cmd.Commands() {
+			if sub.Name() != "test" {
+				continue
+			}
+			for _, runSub := range sub.Commands() {
+				if runSub.Name() == "run" {
+					devTestRunCmd = runSub
+					break
+				}
+			}
+			break
+		}
+		break
+	}
+	if devTestRunCmd == nil {
+		t.Fatal("expected 'dev test run' command to exist")
+	}
+	if devTestRunCmd.Flags().Lookup("var") == nil {
+		t.Error("expected --var flag on dev test run")
+	}
 }
 
 // --- Verify API endpoint paths in mock server ---
@@ -687,7 +718,7 @@ func TestWorkflowAppSetFlags(t *testing.T) {
 // --- Workflow run build override flag registration ---
 
 func TestWorkflowRunBuildOverrideFlags(t *testing.T) {
-	for _, name := range []string{"ios-app", "android-app", "ios-build", "android-build"} {
+	for _, name := range []string{"ios-app", "android-app", "ios-build", "android-build", "var"} {
 		if workflowRunCmd.Flags().Lookup(name) == nil {
 			t.Errorf("expected --%s flag on workflow run", name)
 		}

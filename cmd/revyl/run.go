@@ -61,6 +61,7 @@ var (
 	runFailFast             bool
 	runLaunchEnv            []string
 	runLaunchVars           []string
+	runVars                 []string
 )
 
 // minRetries is the minimum allowed retry count.
@@ -326,6 +327,14 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Launch env vars: %d", len(launchEnvVars))
 	}
 
+	variableOverrides, err := parseRuntimeVars(runVars)
+	if err != nil {
+		return err
+	}
+	if len(variableOverrides) > 0 {
+		ui.PrintInfo("Runtime Vars: %d", len(variableOverrides))
+	}
+
 	if devMode {
 		ui.PrintInfo("Mode: Development (localhost)")
 	}
@@ -455,22 +464,23 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 
 	result, err := runTestExecution(ctx, apiKey, cfg, execution.RunTestParams{
-		TestNameOrID:   testID,
-		Retries:        runRetries,
-		BuildVersionID: runBuildID,
-		Timeout:        effectiveTimeout,
-		DevMode:        devMode,
-		NoWait:         runNoWait,
-		MonitoringMode: sse.MonitoringModePolling,
-		Latitude:       lat,
-		Longitude:      lng,
-		HasLocation:    hasLocation,
-		DeviceModel:    deviceModel,
-		OsVersion:      osVersion,
-		Orientation:    runOrientation,
-		FailFast:       failFastPtr,
-		LaunchEnvVars:  launchEnvVars,
-		LaunchVars:     append([]string(nil), runLaunchVars...),
+		TestNameOrID:      testID,
+		Retries:           runRetries,
+		BuildVersionID:    runBuildID,
+		Timeout:           effectiveTimeout,
+		DevMode:           devMode,
+		NoWait:            runNoWait,
+		MonitoringMode:    sse.MonitoringModePolling,
+		Latitude:          lat,
+		Longitude:         lng,
+		HasLocation:       hasLocation,
+		DeviceModel:       deviceModel,
+		OsVersion:         osVersion,
+		Orientation:       runOrientation,
+		FailFast:          failFastPtr,
+		LaunchEnvVars:     launchEnvVars,
+		VariableOverrides: variableOverrides,
+		LaunchVars:        append([]string(nil), runLaunchVars...),
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},
@@ -677,11 +687,13 @@ func queueWorkflowExecution(
 	hasLocation bool,
 	latitude float64,
 	longitude float64,
+	variableOverrides map[string]string,
 ) (*execution.RunWorkflowResult, error) {
 	client := api.NewClientWithDevMode(apiKey, devMode)
 	req := &api.ExecuteWorkflowRequest{
-		WorkflowID: workflowID,
-		Retries:    retries,
+		WorkflowID:        workflowID,
+		Retries:           retries,
+		VariableOverrides: variableOverrides,
 	}
 	if iosAppID != "" || androidAppID != "" {
 		req.BuildConfig = &api.WorkflowAppConfig{}
@@ -861,6 +873,14 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Android Build Override: %s", runWorkflowAndroidBuild)
 	}
 
+	variableOverrides, err := parseRuntimeVars(runVars)
+	if err != nil {
+		return err
+	}
+	if len(variableOverrides) > 0 {
+		ui.PrintInfo("Runtime Vars: %d", len(variableOverrides))
+	}
+
 	// Parse --location flag for workflow
 	var wfHasLocation bool
 	var wfLat, wfLng float64
@@ -984,6 +1004,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			wfHasLocation,
 			wfLat,
 			wfLng,
+			variableOverrides,
 		)
 		if err != nil {
 			ui.PrintError("Failed to queue workflow: %v", err)
@@ -1031,18 +1052,19 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	defer stopInterruptHandler()
 
 	result, err := runWorkflowExecution(ctx, apiKey, cfg, execution.RunWorkflowParams{
-		WorkflowNameOrID: workflowID,
-		Retries:          runRetries,
-		Timeout:          effectiveTimeout,
-		DevMode:          devMode,
-		MonitoringMode:   sse.MonitoringModePolling,
-		IOSAppID:         runWorkflowIOSAppID,
-		AndroidAppID:     runWorkflowAndroidAppID,
-		IOSBuild:         runWorkflowIOSBuild,
-		AndroidBuild:     runWorkflowAndroidBuild,
-		Latitude:         wfLat,
-		Longitude:        wfLng,
-		HasLocation:      wfHasLocation,
+		WorkflowNameOrID:  workflowID,
+		Retries:           runRetries,
+		Timeout:           effectiveTimeout,
+		DevMode:           devMode,
+		MonitoringMode:    sse.MonitoringModePolling,
+		IOSAppID:          runWorkflowIOSAppID,
+		AndroidAppID:      runWorkflowAndroidAppID,
+		IOSBuild:          runWorkflowIOSBuild,
+		AndroidBuild:      runWorkflowAndroidBuild,
+		Latitude:          wfLat,
+		Longitude:         wfLng,
+		HasLocation:       wfHasLocation,
+		VariableOverrides: variableOverrides,
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},
@@ -1549,15 +1571,20 @@ func runTestWithHotReload(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	variableOverrides, err := parseRuntimeVars(runVars)
+	if err != nil {
+		return err
+	}
 
 	testResult, err := execution.RunTest(ctx, apiKey, cfg, execution.RunTestParams{
-		TestNameOrID:   testNameOrID,
-		Retries:        runRetries,
-		BuildVersionID: buildVersionID,
-		Timeout:        effectiveTimeout,
-		DevMode:        devMode,
-		LaunchURL:      deepLinkURL,
-		LaunchEnvVars:  launchEnvVars,
+		TestNameOrID:      testNameOrID,
+		Retries:           runRetries,
+		BuildVersionID:    buildVersionID,
+		Timeout:           effectiveTimeout,
+		DevMode:           devMode,
+		LaunchURL:         deepLinkURL,
+		LaunchEnvVars:     launchEnvVars,
+		VariableOverrides: variableOverrides,
 		OnProgress: func(status *sse.TestStatus) {
 			ui.StopSpinner()
 
@@ -1735,6 +1762,35 @@ func resolveDeviceSelection(
 		return "", "", fmt.Errorf("unexpected device selection value: %q", selected)
 	}
 	return parts[0], parts[1], nil
+}
+
+// parseRuntimeVars parses repeatable --var KEY=VALUE flags into a map.
+// Values may contain '='; empty values are allowed.
+func parseRuntimeVars(pairs []string) (map[string]string, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(pairs))
+	for _, raw := range pairs {
+		kv := strings.SplitN(raw, "=", 2)
+		if len(kv) != 2 {
+			return nil, fmt.Errorf("invalid --var %q: expected KEY=VALUE", raw)
+		}
+		key := strings.TrimSpace(kv[0])
+		if key == "" {
+			return nil, fmt.Errorf("invalid --var %q: empty key", raw)
+		}
+		if !isValidVariableName(key) {
+			return nil, fmt.Errorf(
+				"invalid --var %q: key %q must use letters, numbers, hyphens, or underscores; "+
+					"hyphens and underscores cannot be first, last, or adjacent",
+				raw,
+				key,
+			)
+		}
+		out[key] = kv[1]
+	}
+	return out, nil
 }
 
 // parseLaunchEnvVars parses repeatable --launch-env KEY=VALUE flags into a map.

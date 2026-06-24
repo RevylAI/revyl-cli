@@ -762,6 +762,8 @@ type ExecuteTestRequest struct {
 	// LaunchEnvVars are inline launch environment variables (KEY=VALUE) applied to
 	// the app's launch environment; they override org launch vars attached to the test.
 	LaunchEnvVars map[string]string `json:"launch_env_vars,omitempty"`
+	// VariableOverrides are runtime variable overrides for this execution.
+	VariableOverrides map[string]string `json:"variable_overrides,omitempty"`
 }
 
 // ExecuteTestResponse represents a test execution response.
@@ -835,6 +837,7 @@ type ExecuteWorkflowRequest struct {
 	OverrideBuildConfig bool               `json:"override_build_config,omitempty"`
 	LocationConfig      *CLILocation       `json:"location_config,omitempty"`
 	OverrideLocation    bool               `json:"override_location,omitempty"`
+	VariableOverrides   map[string]string  `json:"variable_overrides,omitempty"`
 }
 
 // ExecuteWorkflowResponse represents a workflow execution response.

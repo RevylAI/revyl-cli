@@ -73,6 +73,9 @@ type RunTestParams struct {
 	// to the app's launch environment for this run. Merged over org launch
 	// variables attached to the test; inline values take precedence.
 	LaunchEnvVars map[string]string
+	// VariableOverrides are test variable values applied to this run. They are
+	// referenced as {{name}} and override test/global variables for that run only.
+	VariableOverrides map[string]string
 }
 
 // RunTestResult contains the result of a test run.
@@ -142,14 +145,15 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 		return nil, fmt.Errorf("failed to resolve launch variables: %w", err)
 	}
 	req := &api.ExecuteTestRequest{
-		TestID:          testID,
-		Retries:         retries,
-		BuildVersionID:  params.BuildVersionID,
-		LaunchURL:       params.LaunchURL,
-		LaunchEnvVarIds: launchEnvVarIDs,
-		DeviceModel:     params.DeviceModel,
-		OsVersion:       params.OsVersion,
-		LaunchEnvVars:   params.LaunchEnvVars,
+		TestID:            testID,
+		Retries:           retries,
+		BuildVersionID:    params.BuildVersionID,
+		LaunchURL:         params.LaunchURL,
+		LaunchEnvVarIds:   launchEnvVarIDs,
+		DeviceModel:       params.DeviceModel,
+		OsVersion:         params.OsVersion,
+		LaunchEnvVars:     params.LaunchEnvVars,
+		VariableOverrides: params.VariableOverrides,
 	}
 	if params.HasLocation || params.Orientation != "" || params.FailFast != nil {
 		runCfg := &api.CLIRunConfig{}
@@ -256,11 +260,15 @@ type RunWorkflowParams struct {
 	IOSBuild         string // Optional iOS build version to pin (requires IOSAppID)
 	AndroidBuild     string // Optional Android build version to pin (requires AndroidAppID)
 	// Location fields for initial GPS location override.
-	Latitude       float64
-	Longitude      float64
-	HasLocation    bool
-	MonitoringMode sse.MonitoringMode
-	OnProgress     func(status *sse.WorkflowStatus)
+	Latitude    float64
+	Longitude   float64
+	HasLocation bool
+	// VariableOverrides are test variable values applied to every child test in
+	// this workflow run. They are referenced as {{name}} and override test/global
+	// variables for that run only.
+	VariableOverrides map[string]string
+	MonitoringMode    sse.MonitoringMode
+	OnProgress        func(status *sse.WorkflowStatus)
 	// OnTaskStarted is called immediately after the workflow execution is started.
 	// This provides the task ID early, enabling cancellation before monitoring completes.
 	OnTaskStarted func(taskID string)
@@ -349,8 +357,9 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 	// Create client and execute
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
 	req := &api.ExecuteWorkflowRequest{
-		WorkflowID: workflowID,
-		Retries:    retries,
+		WorkflowID:        workflowID,
+		Retries:           retries,
+		VariableOverrides: params.VariableOverrides,
 	}
 	if params.IOSAppID != "" || params.AndroidAppID != "" {
 		req.BuildConfig = &api.WorkflowAppConfig{}
