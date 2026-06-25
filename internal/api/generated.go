@@ -3779,6 +3779,9 @@ type ExecutionModeConfig struct {
 	// InitialOrientation Initial device orientation: 'portrait' or 'landscape'
 	InitialOrientation *string `json:"initial_orientation"`
 
+	// NetworkCapture Attach an in-process TLS-capture agent to the (debuggable) app under test to record decrypted HTTP traffic. On by default (no-op/graceful on non-debuggable apps or attach failure); set False to disable as a per-run kill switch.
+	NetworkCapture *bool `json:"network_capture,omitempty"`
+
 	// ReflectionRetries Number of reflection retry attempts
 	ReflectionRetries *int `json:"reflection_retries,omitempty"`
 

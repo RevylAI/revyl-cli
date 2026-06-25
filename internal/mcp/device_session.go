@@ -1806,19 +1806,30 @@ type PerfPollResponse struct {
 	Summary        *PerfPollSummary `json:"summary,omitempty"`
 }
 
+// LiveNetworkTiming is an optional per-request timing breakdown for the waterfall view.
+type LiveNetworkTiming struct {
+	DNSMs      *float64 `json:"dns_ms,omitempty"`
+	ConnectMs  *float64 `json:"connect_ms,omitempty"`
+	TLSMs      *float64 `json:"tls_ms,omitempty"`
+	TTFBMs     *float64 `json:"ttfb_ms,omitempty"`
+	DownloadMs *float64 `json:"download_ms,omitempty"`
+	Protocol   *string  `json:"protocol,omitempty"`
+}
+
 // LiveNetworkRequestItem is a single live network request row from the worker.
 type LiveNetworkRequestItem struct {
-	URL              string   `json:"url"`
-	Method           string   `json:"method"`
-	StatusCode       int      `json:"status_code"`
-	StartTimeS       float64  `json:"start_time_s"`
-	VideoRelativeS   *float64 `json:"video_relative_s,omitempty"`
-	DurationMs       float64  `json:"duration_ms"`
-	RequestBodySize  int      `json:"request_body_size"`
-	ResponseBodySize int      `json:"response_body_size"`
-	Error            *string  `json:"error,omitempty"`
-	IsAuth           bool     `json:"is_auth"`
-	ContentType      *string  `json:"content_type,omitempty"`
+	URL              string             `json:"url"`
+	Method           string             `json:"method"`
+	StatusCode       int                `json:"status_code"`
+	StartTimeS       float64            `json:"start_time_s"`
+	VideoRelativeS   *float64           `json:"video_relative_s,omitempty"`
+	DurationMs       float64            `json:"duration_ms"`
+	RequestBodySize  int                `json:"request_body_size"`
+	ResponseBodySize int                `json:"response_body_size"`
+	Error            *string            `json:"error,omitempty"`
+	IsAuth           bool               `json:"is_auth"`
+	ContentType      *string            `json:"content_type,omitempty"`
+	Timing           *LiveNetworkTiming `json:"timing,omitempty"`
 }
 
 // NetworkPollResponse is the JSON contract returned by the worker
