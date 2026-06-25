@@ -352,6 +352,9 @@ type BuildPlatform struct {
 	// Output is the output artifact path for this platform.
 	Output string `yaml:"output"`
 
+	// Image is the sandbox build image key for remote builds.
+	Image string `yaml:"image,omitempty"`
+
 	// AppID is the Revyl app ID that stores builds for this platform.
 	AppID string `yaml:"app_id,omitempty"`
 

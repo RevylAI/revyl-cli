@@ -502,6 +502,7 @@ func remoteDevTriggerRequest(appID uuid.UUID, sourceKey, platform, version strin
 		Setup:    strings.TrimSpace(platCfg.Setup),
 		Commands: platCfg.BuildCommands(),
 		Output:   strings.TrimSpace(platCfg.Output),
+		Image:    strings.TrimSpace(platCfg.Image),
 		Scheme:   strings.TrimSpace(platCfg.Scheme),
 		Env:      platCfg.Env,
 		Caches:   buildCaches,

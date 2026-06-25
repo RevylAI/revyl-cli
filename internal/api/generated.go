@@ -112,6 +112,12 @@ const (
 	BuildConfigPlatformIos     BuildConfigPlatform = "ios"
 )
 
+// Defines values for BuildImageOptionPlatform.
+const (
+	BuildImageOptionPlatformAndroid BuildImageOptionPlatform = "android"
+	BuildImageOptionPlatformIos     BuildImageOptionPlatform = "ios"
+)
+
 // Defines values for BuildJobStatusUpdateRequestStatus.
 const (
 	BuildJobStatusUpdateRequestStatusCancelled BuildJobStatusUpdateRequestStatus = "cancelled"
@@ -521,6 +527,12 @@ const (
 	WorkflowStatusRunning   WorkflowStatus = "running"
 	WorkflowStatusSetup     WorkflowStatus = "setup"
 	WorkflowStatusTimeout   WorkflowStatus = "timeout"
+)
+
+// Defines values for ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform.
+const (
+	ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatformAndroid ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform = "android"
+	ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatformIos     ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform = "ios"
 )
 
 // Defines values for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform.
@@ -1836,12 +1848,15 @@ type BuildComparisonItem struct {
 
 // BuildConfig Sandbox build configuration stored by the API and used by build jobs.
 type BuildConfig struct {
-	AppId        openapi_types.UUID   `json:"app_id"`
-	Artifacts    *[]BuildArtifact     `json:"artifacts,omitempty"`
-	Caches       *[]BuildCache        `json:"caches,omitempty"`
-	Env          *map[string]string   `json:"env,omitempty"`
-	Framework    *string              `json:"framework"`
-	Id           *openapi_types.UUID  `json:"id"`
+	AppId     openapi_types.UUID  `json:"app_id"`
+	Artifacts *[]BuildArtifact    `json:"artifacts,omitempty"`
+	Caches    *[]BuildCache       `json:"caches,omitempty"`
+	Env       *map[string]string  `json:"env,omitempty"`
+	Framework *string             `json:"framework"`
+	Id        *openapi_types.UUID `json:"id"`
+
+	// Image Optional sandbox build image key.
+	Image        *string              `json:"image"`
 	IsDefault    *bool                `json:"is_default,omitempty"`
 	Name         *string              `json:"name,omitempty"`
 	Platform     *BuildConfigPlatform `json:"platform,omitempty"`
@@ -1859,6 +1874,7 @@ type BuildConfigurationUpdateRequest struct {
 	Caches       *[]BuildCache           `json:"caches"`
 	Env          *map[string]interface{} `json:"env"`
 	Framework    *string                 `json:"framework"`
+	Image        *string                 `json:"image"`
 	IsDefault    *bool                   `json:"is_default"`
 	Name         *string                 `json:"name"`
 	SecretRefs   *[]string               `json:"secret_refs"`
@@ -1916,6 +1932,16 @@ type BuildFromUrlRequest struct {
 	Version string `json:"version"`
 }
 
+// BuildImageOption Selectable sandbox build image.
+type BuildImageOption struct {
+	Image     string                   `json:"image"`
+	IsDefault *bool                    `json:"is_default,omitempty"`
+	Platform  BuildImageOptionPlatform `json:"platform"`
+}
+
+// BuildImageOptionPlatform defines model for BuildImageOption.Platform.
+type BuildImageOptionPlatform string
+
 // BuildJobLogAppendRequest defines model for BuildJobLogAppendRequest.
 type BuildJobLogAppendRequest struct {
 	Lines *[]string `json:"lines,omitempty"`
@@ -1929,6 +1955,7 @@ type BuildJobStatusUpdateRequest struct {
 	BuildId       *string                           `json:"build_id"`
 	CompletedAt   *time.Time                        `json:"completed_at"`
 	Error         *string                           `json:"error"`
+	Image         *string                           `json:"image"`
 	OrgId         string                            `json:"org_id"`
 	PackageId     *string                           `json:"package_id"`
 	Phase         *string                           `json:"phase"`
@@ -6478,7 +6505,10 @@ type RemoteBuildRequest struct {
 	CleanBuild *bool `json:"clean_build,omitempty"`
 
 	// Config Sandbox build configuration stored by the API and used by build jobs.
-	Config       BuildConfig               `json:"config"`
+	Config BuildConfig `json:"config"`
+
+	// Image Optional sandbox build image key. Defaults to latest.
+	Image        *string                   `json:"image"`
 	SetAsCurrent *bool                     `json:"set_as_current,omitempty"`
 	Source       RemoteBuildRequest_Source `json:"source"`
 
@@ -9950,7 +9980,7 @@ type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 	RunConfig *TestRunConfig `json:"run_config,omitempty"`
 
 	// VariableOverrides Runtime variable overrides applied to every child test in this workflow execution
-	VariableOverrides *map[string]string `json:"variable_overrides,omitempty"`
+	VariableOverrides *map[string]string `json:"variable_overrides"`
 	WorkflowId        openapi_types.UUID `json:"workflow_id"`
 }
 
@@ -10282,12 +10312,23 @@ type GetBuildRunsApiV1AppsBuildsVersionIdRunsGetParams struct {
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
+// ListBuildImagesApiV1AppsRemoteBuildImagesGetParams defines parameters for ListBuildImagesApiV1AppsRemoteBuildImagesGet.
+type ListBuildImagesApiV1AppsRemoteBuildImagesGetParams struct {
+	Platform *ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform `form:"platform,omitempty" json:"platform,omitempty"`
+}
+
+// ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform defines parameters for ListBuildImagesApiV1AppsRemoteBuildImagesGet.
+type ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform string
+
 // CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParams defines parameters for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGet.
 type CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParams struct {
 	Platform *CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform `form:"platform,omitempty" json:"platform,omitempty"`
 
 	// RunnerId Deprecated and ignored. Runner selection is managed by Revyl.
 	RunnerId *string `form:"runner_id,omitempty" json:"runner_id,omitempty"`
+
+	// Image Optional sandbox build image key. Defaults to latest.
+	Image *string `form:"image,omitempty" json:"image,omitempty"`
 }
 
 // CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform defines parameters for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGet.

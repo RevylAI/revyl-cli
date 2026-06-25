@@ -33,6 +33,7 @@ type remoteBuildOptions struct {
 	Platform      string
 	AppID         string
 	Version       string
+	Image         string
 	SetCurrent    bool
 	Clean         bool
 	JSON          bool
@@ -49,6 +50,7 @@ type remoteBuildPlatformConfig struct {
 	Commands    []string
 	Setup       string
 	Output      string
+	Image       string
 	Scheme      string
 	AppID       string
 	Source      config.BuildSource
@@ -287,6 +289,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		Config:       remoteBuildConfigFromResolved(appID, resolved),
 		CleanBuild:   boolPtrOrNil(opts.Clean),
 		Version:      stringPtrOrNil(opts.Version),
+		Image:        stringPtrOrNil(opts.Image),
 		SetAsCurrent: &setCurrent,
 	}
 	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq)
@@ -612,6 +615,7 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 				Commands:    buildCommands,
 				Setup:       strings.TrimSpace(platCfg.Setup),
 				Output:      strings.TrimSpace(platCfg.Output),
+				Image:       strings.TrimSpace(platCfg.Image),
 				Scheme:      strings.TrimSpace(resolveRemoteBuildScheme(platform, platCfg.Scheme)),
 				AppID:       appID,
 				Source:      cfg.Build.Source,

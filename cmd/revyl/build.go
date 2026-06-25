@@ -117,6 +117,7 @@ var (
 	buildNoSetCurrent         bool
 	buildCommandJSON          bool
 	buildCommandPlatform      string
+	buildCommandImage         string
 	buildCommandRemote        bool
 	buildDetachFlag           bool
 	buildNoCacheFlag          bool
@@ -165,6 +166,7 @@ func init() {
 	buildStatusCmd.Flags().SortFlags = false
 
 	buildCmd.Flags().StringVar(&buildCommandPlatform, "platform", "", "Build platform key from .revyl/config.yaml, e.g. ios, android, ios-dev")
+	buildCmd.Flags().StringVar(&buildCommandImage, "image", "", "Remote build image key, e.g. ios-macos-26-xcode-26.2")
 	buildCmd.Flags().BoolVar(&buildCommandRemote, "remote", false, "Run the build on Revyl cloud build runners")
 	buildCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the build (default: auto-generated)")
 	buildCmd.Flags().BoolVar(&buildDetachFlag, "detach", false, "Queue remote build and return immediately")
@@ -172,6 +174,7 @@ func init() {
 	buildCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Do not set this build version as the app's current version")
 	buildCmd.Flags().BoolVar(&buildCommandJSON, "json", false, "Output result as JSON")
 	analytics.MarkFlagValue(buildCmd, "platform")
+	analytics.MarkFlagValue(buildCmd, "image")
 	analytics.MarkFlagValue(buildCmd, "version")
 	analytics.MarkFlagValue(buildCmd, "remote")
 	analytics.MarkFlagValue(buildCmd, "detach")
@@ -276,6 +279,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return runRemoteBuildWithOptions(cmd, apiKey, remoteBuildOptions{
 			Platform:      platform,
 			Version:       buildVersion,
+			Image:         strings.TrimSpace(buildCommandImage),
 			SetCurrent:    setCurrent,
 			Clean:         buildNoCacheFlag,
 			JSON:          jsonOutput,
