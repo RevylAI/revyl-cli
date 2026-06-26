@@ -402,6 +402,12 @@ const (
 	ScmBuildTargetResponsePlatformIos     ScmBuildTargetResponsePlatform = "ios"
 )
 
+// Defines values for SessionInstallRequestInstallMode.
+const (
+	SessionInstallRequestInstallModeDelta SessionInstallRequestInstallMode = "delta"
+	SessionInstallRequestInstallModeFast  SessionInstallRequestInstallMode = "fast"
+)
+
 // Defines values for SessionStatus.
 const (
 	SessionStatusCancelled SessionStatus = "cancelled"
@@ -7202,6 +7208,33 @@ type ScriptUsageTestItem struct {
 	Name string             `json:"name"`
 }
 
+// SessionAppUploadUrlRequest Request body for a session-scoped app upload URL.
+type SessionAppUploadUrlRequest struct {
+	// ContentType MIME content type
+	ContentType *string `json:"content_type"`
+
+	// FileSize File size in bytes
+	FileSize int `json:"file_size"`
+
+	// Filename Original filename (e.g. MyApp.zip / MyApp.apk)
+	Filename string `json:"filename"`
+}
+
+// SessionAppUploadUrlResponse Presigned PUT for an ephemeral, session-scoped app object.
+type SessionAppUploadUrlResponse struct {
+	// ContentType Content-Type to use in the PUT request
+	ContentType string `json:"content_type"`
+
+	// ExpiresIn URL expiry in seconds
+	ExpiresIn int `json:"expires_in"`
+
+	// S3Key S3 key to pass back to the install endpoint
+	S3Key string `json:"s3_key"`
+
+	// UploadUrl Presigned S3 PUT URL
+	UploadUrl string `json:"upload_url"`
+}
+
 // SessionArtifactUploadRequest Request body for generating an ephemeral artifact upload URL.
 //
 // Params:
@@ -7250,6 +7283,28 @@ type SessionBillingExemptionResponse struct {
 	StripeRefundStatus       *string                `json:"stripe_refund_status,omitempty"`
 	UsageId                  string                 `json:"usage_id"`
 }
+
+// SessionInstallAcceptedResponse Returned when an async install is accepted. Poll the result via the
+// device-proxy: GET /device-proxy/{workflow_run_id}/install_status/{install_id}.
+type SessionInstallAcceptedResponse struct {
+	// InstallId Install id to poll for status
+	InstallId string `json:"install_id"`
+
+	// Status Always 'accepted'
+	Status *string `json:"status,omitempty"`
+}
+
+// SessionInstallRequest Request body to install a previously-uploaded app onto the session.
+type SessionInstallRequest struct {
+	// InstallMode Worker install strategy; omit for the default install
+	InstallMode *SessionInstallRequestInstallMode `json:"install_mode"`
+
+	// S3Key s3_key returned by the app-upload-url endpoint
+	S3Key string `json:"s3_key"`
+}
+
+// SessionInstallRequestInstallMode Worker install strategy; omit for the default install
+type SessionInstallRequestInstallMode string
 
 // SessionStatus Device session status - the single source of truth for test execution state.
 //
@@ -11445,6 +11500,12 @@ type GroundElementApiV1ExecutionGroundPostJSONRequestBody = GroundRequest
 
 // CreateLlmCallApiV1ExecutionLlmCallsPostJSONRequestBody defines body for CreateLlmCallApiV1ExecutionLlmCallsPost for application/json ContentType.
 type CreateLlmCallApiV1ExecutionLlmCallsPostJSONRequestBody = LLMCallCreate
+
+// CreateSessionAppUploadUrlApiV1ExecutionSessionsWorkflowRunIdAppUploadUrlPostJSONRequestBody defines body for CreateSessionAppUploadUrlApiV1ExecutionSessionsWorkflowRunIdAppUploadUrlPost for application/json ContentType.
+type CreateSessionAppUploadUrlApiV1ExecutionSessionsWorkflowRunIdAppUploadUrlPostJSONRequestBody = SessionAppUploadUrlRequest
+
+// InstallAppOnSessionApiV1ExecutionSessionsWorkflowRunIdInstallPostJSONRequestBody defines body for InstallAppOnSessionApiV1ExecutionSessionsWorkflowRunIdInstallPost for application/json ContentType.
+type InstallAppOnSessionApiV1ExecutionSessionsWorkflowRunIdInstallPostJSONRequestBody = SessionInstallRequest
 
 // StartDeviceApiV1ExecutionStartDevicePostJSONRequestBody defines body for StartDeviceApiV1ExecutionStartDevicePost for application/json ContentType.
 type StartDeviceApiV1ExecutionStartDevicePostJSONRequestBody = StartDeviceInfo
