@@ -53,6 +53,7 @@ var quickActions = []quickAction{
 	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels", RequiresAuth: true},
 	{Label: "Device sessions", Key: "devices", Desc: "Start, view, and stop cloud devices", RequiresAuth: true},
 	{Label: "Start Dev Loop", Key: "dev_loop", Desc: "Start revyl dev: hot reload + rebuild on cloud device", RequiresAuth: true},
+	{Label: "Integrations", Key: "integrations", Desc: "Connect GitHub and push PR-automation config", RequiresAuth: true},
 	{Label: "Settings", Key: "settings", Desc: "View and edit project defaults", RequiresAuth: false},
 	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard", RequiresAuth: false},
 }
@@ -318,6 +319,18 @@ type hubModel struct {
 	settingsConfigPath   string
 	settingsStatus       string
 	settingsStatusError  bool
+
+	// Integrations hub state (GitHub connect + config push)
+	integrationsCursor           int                             // selected action row
+	integrationsLoading          bool                            // status fetch in flight
+	integrationsRepos            *api.GithubRepositoriesResponse // latest GitHub install state
+	integrationsStatus           string                          // inline status/result message
+	integrationsStatusErr        bool                            // whether integrationsStatus is an error
+	integrationsConnecting       bool                            // browser install + poll in progress
+	integrationsPollSeq          int                             // sequence token for the connect poll loop
+	integrationsConnectDeadline  time.Time                       // when the connect poll gives up
+	integrationsPushAfterConnect bool                            // chain a push once connect succeeds (setup)
+	integrationsBusy             bool                            // a push action is running
 
 	// Sub-models
 	executionModel   *executionModel
@@ -1145,6 +1158,9 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.currentView == viewDeviceDetail {
 			return m.handleDeviceDetailKey(msg)
 		}
+		if m.currentView == viewIntegrations {
+			return handleIntegrationsKey(m, msg)
+		}
 		return m.handleDashboardKey(msg)
 
 	case spinner.TickMsg:
@@ -1742,6 +1758,23 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	// --- Integrations messages ---
+
+	case IntegrationsStatusMsg:
+		return updateIntegrationsStatus(m, msg)
+
+	case IntegrationsConnectStartedMsg:
+		return updateIntegrationsConnectStarted(m, msg)
+
+	case IntegrationsPollTickMsg:
+		return updateIntegrationsPollTick(m, msg)
+
+	case IntegrationsConnectCheckMsg:
+		return updateIntegrationsConnectCheck(m, msg)
+
+	case IntegrationsPushDoneMsg:
+		return updateIntegrationsPushDone(m, msg)
+
 	// --- Workflow management messages ---
 
 	case WorkflowBrowseListMsg:
@@ -2269,6 +2302,9 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, runDevLoopProcessCmd(m.devMode)
+
+	case "integrations":
+		return m.enterIntegrationsView()
 
 	case "settings":
 		cwd, err := os.Getwd()
@@ -3338,6 +3374,8 @@ func (m hubModel) View() string {
 		return m.renderDeviceList()
 	case viewDeviceDetail:
 		return m.renderDeviceDetail()
+	case viewIntegrations:
+		return renderIntegrations(m)
 	}
 	return m.renderDashboard()
 }

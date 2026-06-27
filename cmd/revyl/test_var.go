@@ -440,7 +440,7 @@ func runTestVarRename(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.StartSpinner("Renaming variable...")
-	err = client.RenameCustomVariable(cmd.Context(), variableID, newName)
+	err = client.RenameCustomVariable(cmd.Context(), testID, variableID, newName)
 	ui.StopSpinner()
 
 	if err != nil {

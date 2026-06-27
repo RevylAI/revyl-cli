@@ -4461,6 +4461,67 @@ type GitHubUser struct {
 	Name      *string `json:"name"`
 }
 
+// GithubConfigFilePushRequest A “.revyl/config.yaml“ pushed directly from the CLI.
+//
+// Attributes:
+//
+//	namespace: Repository owner/namespace (e.g. ``revyl``).
+//	project: Repository name (e.g. ``my-app``).
+//	content: The raw YAML contents of the config file.
+//	config_file_path: The repo-relative path the file lives at; used only
+//	    for display in the settings UI.
+type GithubConfigFilePushRequest struct {
+	ConfigFilePath *string `json:"config_file_path,omitempty"`
+	Content        string  `json:"content"`
+	Namespace      string  `json:"namespace"`
+	Project        string  `json:"project"`
+}
+
+// GithubConfigFileRescanResponse Result of an on-demand config-file re-scan.
+type GithubConfigFileRescanResponse struct {
+	Config GithubScmConfigResponse `json:"config"`
+
+	// State Detection state of the committed ``.revyl/config.yaml`` for a repo.
+	//
+	// Attributes:
+	//     status: ``managed`` (file applied), ``error`` (file present but
+	//         unusable), or ``none`` (UI-managed; no usable file).
+	//     config_file_path: The detected file path, if any.
+	//     commit_sha: The detected file blob sha, if any.
+	//     html_url: A link to the file on GitHub, if any.
+	//     error: An actionable error message, if any.
+	//     summary: Compact summary of the applied config, if managed.
+	//     synced_at: ISO timestamp of the last reconcile, if any.
+	State GithubConfigFileStateResponse `json:"state"`
+}
+
+// GithubConfigFileStateResponse Detection state of the committed “.revyl/config.yaml“ for a repo.
+//
+// Attributes:
+//
+//	status: ``managed`` (file applied), ``error`` (file present but
+//	    unusable), or ``none`` (UI-managed; no usable file).
+//	config_file_path: The detected file path, if any.
+//	commit_sha: The detected file blob sha, if any.
+//	html_url: A link to the file on GitHub, if any.
+//	error: An actionable error message, if any.
+//	summary: Compact summary of the applied config, if managed.
+//	synced_at: ISO timestamp of the last reconcile, if any.
+type GithubConfigFileStateResponse struct {
+	CommitSha      *string `json:"commit_sha"`
+	ConfigFilePath *string `json:"config_file_path"`
+	Error          *string `json:"error"`
+	HtmlUrl        *string `json:"html_url"`
+	Status         string  `json:"status"`
+
+	// Summary Compact, serializable summary of a parsed ``pr_review`` config.
+	//
+	// Used for the settings-page banner and the PR comment. Persisted into
+	// ``scm_review_configs.metadata`` via ``model_dump(mode="json")``.
+	Summary  *PrReviewConfigSummary `json:"summary,omitempty"`
+	SyncedAt *string                `json:"synced_at"`
+}
+
 // GithubScmConfigCreateRequest defines model for GithubScmConfigCreateRequest.
 type GithubScmConfigCreateRequest struct {
 	Namespace string `json:"namespace"`
@@ -6155,6 +6216,28 @@ type PortalResponse struct {
 	Url string `json:"url"`
 }
 
+// PrReviewConfigSummary Compact, serializable summary of a parsed “pr_review“ config.
+//
+// Used for the settings-page banner and the PR comment. Persisted into
+// “scm_review_configs.metadata“ via “model_dump(mode="json")“.
+type PrReviewConfigSummary struct {
+	Builds         *[]PrReviewConfigSummaryBuild `json:"builds,omitempty"`
+	Checks         *[]string                     `json:"checks,omitempty"`
+	Enabled        *bool                         `json:"enabled,omitempty"`
+	Preset         *string                       `json:"preset"`
+	PreviewLink    *bool                         `json:"preview_link,omitempty"`
+	ProofOfChanges *bool                         `json:"proof_of_changes,omitempty"`
+	Workflows      *[]string                     `json:"workflows,omitempty"`
+}
+
+// PrReviewConfigSummaryBuild One enabled preview build in a config summary.
+type PrReviewConfigSummaryBuild struct {
+	App           *string `json:"app"`
+	Framework     *string `json:"framework"`
+	Platform      string  `json:"platform"`
+	UseExistingCi *bool   `json:"use_existing_ci,omitempty"`
+}
+
 // ProcessBillingSessionRequest defines model for ProcessBillingSessionRequest.
 type ProcessBillingSessionRequest struct {
 	SessionId     string  `json:"session_id"`
@@ -7165,6 +7248,29 @@ type ScmBuildTargetResponse struct {
 
 // ScmBuildTargetResponsePlatform defines model for ScmBuildTargetResponse.Platform.
 type ScmBuildTargetResponsePlatform string
+
+// ScmCuratedWorkflowFailRequest Internal request to mark a curated workflow PR run failed.
+type ScmCuratedWorkflowFailRequest struct {
+	Error         string             `json:"error"`
+	ReviewRunId   openapi_types.UUID `json:"review_run_id"`
+	WorkflowRunId *string            `json:"workflow_run_id"`
+}
+
+// ScmCuratedWorkflowProcessRequest Internal request to process one curated workflow PR run.
+type ScmCuratedWorkflowProcessRequest struct {
+	ReviewRunId   openapi_types.UUID `json:"review_run_id"`
+	TriggerSource *string            `json:"trigger_source,omitempty"`
+	WorkflowRunId *string            `json:"workflow_run_id"`
+}
+
+// ScmCuratedWorkflowProcessResponse Internal response for curated workflow PR run processing.
+type ScmCuratedWorkflowProcessResponse struct {
+	Message   string             `json:"message"`
+	ReportUrl *string            `json:"report_url"`
+	RunId     openapi_types.UUID `json:"run_id"`
+	Status    string             `json:"status"`
+	Success   bool               `json:"success"`
+}
 
 // ScmPlatformProfile defines model for ScmPlatformProfile.
 type ScmPlatformProfile struct {
@@ -11696,6 +11802,9 @@ type CreateActionApiV1ReportsV3StepsStepIdActionsPostJSONRequestBody = CreateAct
 // CreateGithubScmConfigApiV1ScmGithubConfigsPostJSONRequestBody defines body for CreateGithubScmConfigApiV1ScmGithubConfigsPost for application/json ContentType.
 type CreateGithubScmConfigApiV1ScmGithubConfigsPostJSONRequestBody = GithubScmConfigCreateRequest
 
+// PushGithubScmConfigFileApiV1ScmGithubConfigsPushPostJSONRequestBody defines body for PushGithubScmConfigFileApiV1ScmGithubConfigsPushPost for application/json ContentType.
+type PushGithubScmConfigFileApiV1ScmGithubConfigsPushPostJSONRequestBody = GithubConfigFilePushRequest
+
 // UpdateGithubScmConfigApiV1ScmGithubConfigsRepoConfigIdPutJSONRequestBody defines body for UpdateGithubScmConfigApiV1ScmGithubConfigsRepoConfigIdPut for application/json ContentType.
 type UpdateGithubScmConfigApiV1ScmGithubConfigsRepoConfigIdPutJSONRequestBody = GithubScmConfigUpdateRequest
 
@@ -11704,6 +11813,12 @@ type FailScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportFailPostJSONRequ
 
 // ProcessScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportProcessPostJSONRequestBody defines body for ProcessScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportProcessPost for application/json ContentType.
 type ProcessScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportProcessPostJSONRequestBody = ScmAdaptiveReportProcessRequest
+
+// FailScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowFailPostJSONRequestBody defines body for FailScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowFailPost for application/json ContentType.
+type FailScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowFailPostJSONRequestBody = ScmCuratedWorkflowFailRequest
+
+// ProcessScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowProcessPostJSONRequestBody defines body for ProcessScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowProcessPost for application/json ContentType.
+type ProcessScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowProcessPostJSONRequestBody = ScmCuratedWorkflowProcessRequest
 
 // GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody defines body for GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePost for application/json ContentType.
 type GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody = S3PresignedUrlsRequest

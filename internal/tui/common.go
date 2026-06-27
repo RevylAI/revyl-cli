@@ -266,6 +266,7 @@ const (
 	viewDeviceList                    // device session list
 	viewDeviceDetail                  // device session detail
 	viewLibrary                       // unified library hub (modules/variables/scripts/files)
+	viewIntegrations                  // integrations hub (GitHub connect + config push)
 )
 
 // --- Dashboard data types ---

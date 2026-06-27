@@ -2622,6 +2622,255 @@ func (c *Client) RevokeCLIAPIKey(ctx context.Context, apiKeyID string) error {
 	return nil
 }
 
+// PushPRReviewConfigRequest is the body for POST /api/v1/scm/github/configs/push.
+// It uploads a local .revyl/config.yaml so Revyl applies the pr_review section
+// immediately, without requiring a commit to the repo's default branch.
+type PushPRReviewConfigRequest struct {
+	// Namespace is the repository owner/namespace (e.g. "revyl").
+	Namespace string `json:"namespace"`
+
+	// Project is the repository name (e.g. "my-app").
+	Project string `json:"project"`
+
+	// Content is the raw YAML contents of the config file.
+	Content string `json:"content"`
+
+	// ConfigFilePath is the repo-relative path of the file (display only).
+	ConfigFilePath string `json:"config_file_path,omitempty"`
+}
+
+// PRReviewConfigFileBuildSummary is one enabled preview build in a pushed config.
+type PRReviewConfigFileBuildSummary struct {
+	Platform      string `json:"platform"`
+	App           string `json:"app"`
+	Framework     string `json:"framework"`
+	UseExistingCI bool   `json:"use_existing_ci"`
+}
+
+// PRReviewConfigFileSummary summarizes the applied pr_review config.
+type PRReviewConfigFileSummary struct {
+	Enabled        bool                             `json:"enabled"`
+	Preset         string                           `json:"preset"`
+	PreviewLink    bool                             `json:"preview_link"`
+	ProofOfChanges bool                             `json:"proof_of_changes"`
+	Checks         []string                         `json:"checks"`
+	Workflows      []string                         `json:"workflows"`
+	Builds         []PRReviewConfigFileBuildSummary `json:"builds"`
+}
+
+// PRReviewConfigFileState mirrors the backend GithubConfigFileStateResponse.
+type PRReviewConfigFileState struct {
+	// Status is "managed", "error", or "none".
+	Status string `json:"status"`
+
+	// ConfigFilePath is the detected file path, if any.
+	ConfigFilePath string `json:"config_file_path"`
+
+	// Error is an actionable message when Status is "error".
+	Error string `json:"error"`
+
+	// Summary describes the applied config when managed.
+	Summary *PRReviewConfigFileSummary `json:"summary"`
+
+	// SyncedAt is the ISO timestamp of the reconcile, if any.
+	SyncedAt string `json:"synced_at"`
+}
+
+// PushPRReviewConfigResponse is the response from the push endpoint.
+type PushPRReviewConfigResponse struct {
+	// State is the post-reconcile detection state for the repo.
+	State PRReviewConfigFileState `json:"state"`
+}
+
+// PushPRReviewConfig uploads a local .revyl/config.yaml and applies its
+// pr_review section to the matching repo for the authenticated organization.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - req: The repo identity plus the raw config file contents.
+//
+// Returns:
+//   - *PushPRReviewConfigResponse: The post-reconcile state.
+//   - error: APIError (e.g. 400 for a malformed file, 403 when GitHub
+//     automation is disabled, 404 when no installation/config exists), or a
+//     transport error.
+func (c *Client) PushPRReviewConfig(
+	ctx context.Context,
+	req PushPRReviewConfigRequest,
+) (*PushPRReviewConfigResponse, error) {
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/scm/github/configs/push", &req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result PushPRReviewConfigResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GithubInstallURLResponse is the response from GET
+// /api/v1/integrations/github/install-url. It carries the GitHub App
+// installation URL (with the CSRF state token already embedded) plus the bare
+// state token for callers that need it separately.
+type GithubInstallURLResponse struct {
+	// StateToken is the CSRF token bound to the user+org for this install.
+	StateToken string `json:"state_token"`
+
+	// InstallURL is the GitHub App installation URL to open in a browser.
+	InstallURL string `json:"install_url"`
+}
+
+// GithubOrgRepository is a single repository visible to the org's GitHub App
+// installation.
+type GithubOrgRepository struct {
+	// Owner is the repository owner/namespace (e.g. "revyl").
+	Owner string `json:"owner"`
+
+	// Repo is the repository name (e.g. "my-app").
+	Repo string `json:"repo"`
+
+	// InstallationID is the GitHub App installation that exposes this repo.
+	InstallationID int64 `json:"installation_id"`
+}
+
+// GithubOrgInstallation describes the org's GitHub App installation row.
+type GithubOrgInstallation struct {
+	// ID is the Revyl-side installation record UUID.
+	ID string `json:"id"`
+
+	// PropelOrgID is the PropelAuth organization ID that owns the install.
+	PropelOrgID string `json:"propel_org_id"`
+
+	// InstallationID is the numeric GitHub App installation ID.
+	InstallationID int64 `json:"installation_id"`
+
+	// Status is the installation status (e.g. "active").
+	Status string `json:"status"`
+
+	// CreatedAt is the ISO timestamp the installation was recorded.
+	CreatedAt string `json:"created_at"`
+
+	// GHInstallationOwnerID is the GitHub account ID that owns the install.
+	GHInstallationOwnerID string `json:"gh_installation_owner_id,omitempty"`
+
+	// VerifiedAt is the ISO timestamp the install was last verified, if any.
+	VerifiedAt string `json:"verified_at,omitempty"`
+}
+
+// GithubRepositoriesResponse mirrors the backend OrganizationRepositoriesResponse
+// from GET /api/v1/integrations/github/repositories. It is the richest single
+// signal for whether GitHub is connected for the authenticated org.
+type GithubRepositoriesResponse struct {
+	// Repositories are the repos accessible to the active installation.
+	Repositories []GithubOrgRepository `json:"repositories"`
+
+	// Installation is the org's installation row, or nil when not installed.
+	Installation *GithubOrgInstallation `json:"installation"`
+
+	// HasAccess is true when the org has an active GitHub App installation.
+	HasAccess bool `json:"has_access"`
+
+	// GithubIntegrationEnabled gates PR automation (config push). When false,
+	// pushing a pr_review config is rejected with HTTP 403 by the backend.
+	GithubIntegrationEnabled bool `json:"github_integration_enabled"`
+}
+
+// IsConnected reports whether the org has an active GitHub App installation.
+//
+// Returns:
+//   - bool: true when an installation row exists and the org has access.
+func (r *GithubRepositoriesResponse) IsConnected() bool {
+	if r == nil {
+		return false
+	}
+	return r.Installation != nil && r.HasAccess
+}
+
+// GetGithubInstallURL fetches the GitHub App installation URL for the
+// authenticated organization. The org is resolved from the API key; no org
+// header is required.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//
+// Returns:
+//   - *GithubInstallURLResponse: The install URL plus its CSRF state token.
+//   - error: APIError (e.g. 401 when unauthenticated) or a transport error.
+func (c *Client) GetGithubInstallURL(ctx context.Context) (*GithubInstallURLResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/integrations/github/install-url", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GithubInstallURLResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetGithubRepositories fetches the GitHub App installation state and visible
+// repositories for the authenticated organization. This endpoint returns HTTP
+// 200 whether or not GitHub is connected, so callers should inspect
+// IsConnected (active install) and GithubIntegrationEnabled (PR automation gate)
+// rather than relying on error status.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//
+// Returns:
+//   - *GithubRepositoriesResponse: Installation state plus accessible repos.
+//   - error: APIError (e.g. 401 when unauthenticated) or a transport error.
+func (c *Client) GetGithubRepositories(ctx context.Context) (*GithubRepositoriesResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/integrations/github/repositories", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GithubRepositoriesResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// IsAutomationEnabled reports whether PR automation is actively running for the
+// repo: the config is enabled and linked to a GitHub App installation. Mirrors
+// the dashboard's per-repo "enabled" indicator. The type itself is
+// OpenAPI-generated (see generated.go); this helper lives here so the CLI can
+// reason about per-repo automation state.
+//
+// Returns:
+//   - bool: true when the config is enabled and installation-linked.
+func (c *GithubScmConfigResponse) IsAutomationEnabled() bool {
+	return c != nil && c.Enabled && c.GithubInstallationId != nil
+}
+
+// ListGithubScmConfigs fetches the per-repository PR-automation configs for the
+// authenticated organization. This is how PR automation is determined per repo
+// (the org-level GithubIntegrationEnabled flag only gates feature access).
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//
+// Returns:
+//   - *GithubScmConfigsResponse: Per-repo configs plus org-level gates.
+//   - error: APIError (e.g. 401 when unauthenticated) or a transport error.
+func (c *Client) ListGithubScmConfigs(ctx context.Context) (*GithubScmConfigsResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/scm/github/configs", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GithubScmConfigsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // StreamUploadBuild uploads a build using streaming (alternative to presigned URL).
 //
 // SimpleTest represents a lightweight test item for listing.
@@ -5565,13 +5814,15 @@ func (c *Client) UpdateCustomVariableValue(ctx context.Context, testID, variable
 //
 // Parameters:
 //   - ctx: Context for cancellation
+//   - testID: The owning test UID (required by the backend for ownership checks)
 //   - variableID: The variable UUID
 //   - newName: The new variable name
 //
 // Returns:
 //   - error: Any error that occurred
-func (c *Client) RenameCustomVariable(ctx context.Context, variableID, newName string) error {
+func (c *Client) RenameCustomVariable(ctx context.Context, testID, variableID, newName string) error {
 	body := map[string]string{
+		"test_uid":      testID,
 		"variable_name": newName,
 	}
 	resp, err := c.doRequest(ctx, "PUT",

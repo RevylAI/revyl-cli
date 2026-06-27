@@ -182,8 +182,47 @@ schemas = spec.get('components', {}).get('schemas', {})
 for schema_name in ('ValidationRequest', 'ValidationResponse', 'ValidationTypeEnum'):
     schemas.pop(schema_name, None)
 
+# Admin surface is internal-only and must never ship in the customer-facing CLI
+# client. Drop every admin path so private models (billing, org analytics, etc.)
+# don't get generated into generated.go / the committed CLI openapi.json.
+for admin_path in [p for p in paths if p.startswith('/api/v1/admin/')]:
+    paths.pop(admin_path, None)
+
+# Prune component schemas down to only those still reachable from the remaining
+# paths, so models orphaned by the path removals above disappear too.
+SCHEMA_REF_PREFIX = '#/components/schemas/'
+
+
+def iter_schema_refs(node):
+    """Yield schema names referenced via $ref anywhere within ``node``."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == '$ref' and isinstance(value, str) and value.startswith(SCHEMA_REF_PREFIX):
+                yield value[len(SCHEMA_REF_PREFIX):]
+            else:
+                yield from iter_schema_refs(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from iter_schema_refs(item)
+
+
+if schemas:
+    reachable = set()
+    queue = list(iter_schema_refs(paths))
+    while queue:
+        name = queue.pop()
+        if name in reachable:
+            continue
+        reachable.add(name)
+        queue.extend(iter_schema_refs(schemas.get(name)))
+    spec['components']['schemas'] = {
+        name: schema for name, schema in schemas.items() if name in reachable
+    }
+    schemas = spec['components']['schemas']
+
 # Keep the cached CLI spec aligned with the CLI surface. The backend may expose
-# YAML validation for product surfaces, but the CLI spec should not advertise it.
+# YAML validation and admin endpoints for product surfaces, but the CLI spec
+# should not advertise them.
 with open('openapi.json', 'w') as f:
     json.dump(spec, f)
 

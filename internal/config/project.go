@@ -33,6 +33,11 @@ type ProjectConfig struct {
 	// HotReload contains hot reload configuration for rapid development iteration.
 	HotReload HotReloadConfig `yaml:"hotreload,omitempty"`
 
+	// PRReview contains GitHub PR automation config-as-code (the pr_review section).
+	// When committed to the default branch, Revyl reconciles it into the repo's
+	// PR automation. Nil/omitted means PR automation is managed in the Revyl UI.
+	PRReview *PRReviewConfig `yaml:"pr_review,omitempty"`
+
 	// LastSyncedAt records when this config was last synced with the server (RFC3339).
 	LastSyncedAt string `yaml:"last_synced_at,omitempty"`
 

@@ -594,6 +594,26 @@ revyl workflow quarantine add smoke-tests login-flow checkout payment  # Quarant
 revyl workflow quarantine remove smoke-tests login-flow                # Unquarantine
 ```
 
+## GitHub PR Automation
+
+Connect the Revyl GitHub App and manage PR automation (`pr_review` in `.revyl/config.yaml`) without leaving the terminal.
+
+```bash
+revyl github setup                       # Connect, scaffold pr_review, and push it (one-shot)
+revyl github connect                     # Install the Revyl GitHub App in your browser
+revyl github status                      # Show connection status + repo access
+revyl github init                        # Scaffold a pr_review block from the detected build
+revyl github init --framework expo_ios   # Force a build framework when scaffolding
+revyl github push                        # Apply .revyl/config.yaml now (no commit required)
+revyl github push --repo owner/name      # Target a specific repository
+```
+
+- `revyl github connect` opens the GitHub App install page in your browser, then waits and confirms once the install is active. It's a no-op if already connected.
+- `revyl github push` applies your local config immediately (no commit/merge needed). If no `pr_review` section exists yet, it scaffolds one from the detected build first.
+- The repo's settings page updates automatically once a push lands.
+
+See [GitHub PR Automation](https://docs.revyl.ai/integrations/github-pr-automation) for the full `pr_review` schema.
+
 ## Device Management
 
 ```bash
