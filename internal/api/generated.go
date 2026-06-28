@@ -40,30 +40,6 @@ const (
 	ActionBlockVariableScopeTest   ActionBlockVariableScope = "test"
 )
 
-// Defines values for AdminOnboardingOrgDetailCurrentState.
-const (
-	AdminOnboardingOrgDetailCurrentStateAppUploaded    AdminOnboardingOrgDetailCurrentState = "app_uploaded"
-	AdminOnboardingOrgDetailCurrentStateNone           AdminOnboardingOrgDetailCurrentState = "none"
-	AdminOnboardingOrgDetailCurrentStateSessionStarted AdminOnboardingOrgDetailCurrentState = "session_started"
-	AdminOnboardingOrgDetailCurrentStateTestCreated    AdminOnboardingOrgDetailCurrentState = "test_created"
-)
-
-// Defines values for AdminOnboardingOrgDetailStateOverride.
-const (
-	AdminOnboardingOrgDetailStateOverrideAppUploaded    AdminOnboardingOrgDetailStateOverride = "app_uploaded"
-	AdminOnboardingOrgDetailStateOverrideNone           AdminOnboardingOrgDetailStateOverride = "none"
-	AdminOnboardingOrgDetailStateOverrideSessionStarted AdminOnboardingOrgDetailStateOverride = "session_started"
-	AdminOnboardingOrgDetailStateOverrideTestCreated    AdminOnboardingOrgDetailStateOverride = "test_created"
-)
-
-// Defines values for AdminUpdateOnboardingStateRequestStateOverride.
-const (
-	AdminUpdateOnboardingStateRequestStateOverrideAppUploaded    AdminUpdateOnboardingStateRequestStateOverride = "app_uploaded"
-	AdminUpdateOnboardingStateRequestStateOverrideNone           AdminUpdateOnboardingStateRequestStateOverride = "none"
-	AdminUpdateOnboardingStateRequestStateOverrideSessionStarted AdminUpdateOnboardingStateRequestStateOverride = "session_started"
-	AdminUpdateOnboardingStateRequestStateOverrideTestCreated    AdminUpdateOnboardingStateRequestStateOverride = "test_created"
-)
-
 // Defines values for AppPlatform.
 const (
 	AppPlatformAndroid AppPlatform = "Android"
@@ -337,6 +313,12 @@ const (
 	PlanInfoScheduledBillingPeriodYearly  PlanInfoScheduledBillingPeriod = "yearly"
 )
 
+// Defines values for ProviderCapabilitiesAuthType.
+const (
+	ProviderCapabilitiesAuthTypeApiKey ProviderCapabilitiesAuthType = "api_key"
+	ProviderCapabilitiesAuthTypeOauth  ProviderCapabilitiesAuthType = "oauth"
+)
+
 // Defines values for QualityGrade.
 const (
 	QualityGradeA QualityGrade = "A"
@@ -394,6 +376,16 @@ const (
 	ResolvedIosStoreKitConfigSourceNone            ResolvedIosStoreKitConfigSource = "none"
 	ResolvedIosStoreKitConfigSourceSessionOverride ResolvedIosStoreKitConfigSource = "session_override"
 	ResolvedIosStoreKitConfigSourceTest            ResolvedIosStoreKitConfigSource = "test"
+)
+
+// Defines values for RunState.
+const (
+	RunStateCANCELLED RunState = "CANCELLED"
+	RunStateERROR     RunState = "ERROR"
+	RunStateEXPIRED   RunState = "EXPIRED"
+	RunStateFINISHED  RunState = "FINISHED"
+	RunStateRUNNING   RunState = "RUNNING"
+	RunStateUNKNOWN   RunState = "UNKNOWN"
 )
 
 // Defines values for ScmBuildTargetResponsePlatform.
@@ -695,20 +687,6 @@ type ActiveTestCountResponse struct {
 	OrgId openapi_types.UUID `json:"org_id"`
 }
 
-// ActiveUser defines model for ActiveUser.
-type ActiveUser struct {
-	Completed     *int       `json:"completed,omitempty"`
-	DeviceMinutes *float32   `json:"device_minutes,omitempty"`
-	Email         *string    `json:"email"`
-	Failed        *int       `json:"failed,omitempty"`
-	LastActive    *time.Time `json:"last_active"`
-	PassRate      *float32   `json:"pass_rate"`
-	Platforms     *[]string  `json:"platforms,omitempty"`
-	SessionCount  *int       `json:"session_count,omitempty"`
-	Surfaces      *[]string  `json:"surfaces,omitempty"`
-	UserId        string     `json:"user_id"`
-}
-
 // ActivityResponse Aggregate activity metrics for the team pulse view.
 type ActivityResponse struct {
 	ActiveUsers7d      int                  `json:"active_users_7d"`
@@ -730,271 +708,45 @@ type AddWorkflowToRuleResponse struct {
 	Success bool                               `json:"success"`
 }
 
-// AdminDashboardSummary defines model for AdminDashboardSummary.
-type AdminDashboardSummary struct {
-	GeneratedAt     time.Time              `json:"generated_at"`
-	TestPlatforms   []AdminMetricBreakdown `json:"test_platforms"`
-	Tests           AdminSummaryMetric     `json:"tests"`
-	TimeWindowHours int                    `json:"time_window_hours"`
-	Workflows       AdminSummaryMetric     `json:"workflows"`
-}
-
-// AdminKPIMetrics Quick KPI metrics for dashboard display.
-type AdminKPIMetrics struct {
-	ActiveOrgsCount            int                    `json:"active_orgs_count"`
-	AvgTestDurationSeconds     *float32               `json:"avg_test_duration_seconds"`
-	AvgWorkflowDurationSeconds *float32               `json:"avg_workflow_duration_seconds"`
-	ErrorRate                  float32                `json:"error_rate"`
-	GeneratedAt                time.Time              `json:"generated_at"`
-	MostCommonErrorType        *string                `json:"most_common_error_type"`
-	OverallSuccessRate         float32                `json:"overall_success_rate"`
-	PeakConcurrentTests        int                    `json:"peak_concurrent_tests"`
-	PeakConcurrentWorkflows    int                    `json:"peak_concurrent_workflows"`
-	PlatformDistribution       []AdminMetricBreakdown `json:"platform_distribution"`
-	SuccessRateTrend           *float32               `json:"success_rate_trend"`
-	TestSuccessRate            float32                `json:"test_success_rate"`
-	TestTrend                  *float32               `json:"test_trend"`
-	TestsInProgress            int                    `json:"tests_in_progress"`
-	TestsQueued                int                    `json:"tests_queued"`
-	TimeWindowHours            int                    `json:"time_window_hours"`
-	TopFailingTests            []AdminMetricBreakdown `json:"top_failing_tests"`
-	TotalTestsRun              int                    `json:"total_tests_run"`
-	TotalUniqueUsers           int                    `json:"total_unique_users"`
-	TotalWorkflowsRun          int                    `json:"total_workflows_run"`
-	WorkflowSuccessRate        float32                `json:"workflow_success_rate"`
-	WorkflowTrend              *float32               `json:"workflow_trend"`
-	WorkflowsInProgress        int                    `json:"workflows_in_progress"`
-	WorkflowsQueued            int                    `json:"workflows_queued"`
-}
-
-// AdminMetricBreakdown defines model for AdminMetricBreakdown.
-type AdminMetricBreakdown struct {
-	Count int    `json:"count"`
-	Label string `json:"label"`
-}
-
-// AdminOnboardingOrgDetail defines model for AdminOnboardingOrgDetail.
-type AdminOnboardingOrgDetail struct {
-	CurrentState  *AdminOnboardingOrgDetailCurrentState  `json:"current_state,omitempty"`
-	OrgId         string                                 `json:"org_id"`
-	OrgName       *string                                `json:"org_name"`
-	StateOverride *AdminOnboardingOrgDetailStateOverride `json:"state_override"`
-}
-
-// AdminOnboardingOrgDetailCurrentState defines model for AdminOnboardingOrgDetail.CurrentState.
-type AdminOnboardingOrgDetailCurrentState string
-
-// AdminOnboardingOrgDetailStateOverride defines model for AdminOnboardingOrgDetail.StateOverride.
-type AdminOnboardingOrgDetailStateOverride string
-
-// AdminOrg defines model for AdminOrg.
-type AdminOrg struct {
-	Domain      *string `json:"domain"`
+// AgentRun Normalized view of a cloud-agent run across providers.
+//
+// Attributes:
+//
+//	id: Provider agent id (e.g. Cursor's ``bc_...``).
+//	provider: The provider that owns this run.
+//	name: Auto-generated human name (from the task), if present.
+//	status: Raw upstream status, kept for display/debugging.
+//	state: Normalized lifecycle state derived from ``status``.
+//	repository: Source repository URL, if returned.
+//	ref: Starting ref/branch, if returned.
+//	branch_name: Working branch (carries Revyl tenancy prefix).
+//	pr_url: Pull request URL once opened.
+//	provider_url: Open-in-provider URL for the run.
+//	summary: Short summary of the run, if present.
+//	created_at: Creation timestamp, if present.
+type AgentRun struct {
+	BranchName  *string `json:"branch_name"`
+	CreatedAt   *string `json:"created_at"`
 	Id          string  `json:"id"`
-	LegacyOrgId *string `json:"legacy_org_id"`
 	Name        *string `json:"name"`
+	PrUrl       *string `json:"pr_url"`
+	Provider    *string `json:"provider,omitempty"`
+	ProviderUrl *string `json:"provider_url"`
+	Ref         *string `json:"ref"`
+	Repository  *string `json:"repository"`
+
+	// State Normalized lifecycle state of a cloud-agent run.
+	//
+	// Providers translate their own status vocabulary into one of these so the
+	// UI can style runs without knowing vendor-specific strings.
+	State   *RunState `json:"state,omitempty"`
+	Status  *string   `json:"status,omitempty"`
+	Summary *string   `json:"summary"`
 }
 
-// AdminOrgActivity defines model for AdminOrgActivity.
-type AdminOrgActivity struct {
-	ActiveTestCount     int      `json:"active_test_count"`
-	ActiveWorkflowCount int      `json:"active_workflow_count"`
-	OrgId               string   `json:"org_id"`
-	OrphanTestIds       []string `json:"orphan_test_ids"`
-
-	// TestExecutionIds Test execution IDs (was test_task_ids)
-	TestExecutionIds *[]string `json:"test_execution_ids,omitempty"`
-	UpdatedAt        time.Time `json:"updated_at"`
-
-	// WorkflowExecutionIds Workflow execution IDs (was workflow_task_ids)
-	WorkflowExecutionIds *[]string `json:"workflow_execution_ids,omitempty"`
-	WorkflowIds          []string  `json:"workflow_ids"`
-}
-
-// AdminOrgActivityList defines model for AdminOrgActivityList.
-type AdminOrgActivityList struct {
-	GeneratedAt time.Time          `json:"generated_at"`
-	Items       []AdminOrgActivity `json:"items"`
-}
-
-// AdminOrgList defines model for AdminOrgList.
-type AdminOrgList struct {
-	HasMore    *bool      `json:"has_more,omitempty"`
-	Items      []AdminOrg `json:"items"`
-	NextPage   *int       `json:"next_page"`
-	PageNumber int        `json:"page_number"`
-	TotalCount *int       `json:"total_count"`
-}
-
-// AdminSummaryMetric defines model for AdminSummaryMetric.
-type AdminSummaryMetric struct {
-	Cancelled   int     `json:"cancelled"`
-	Failed      int     `json:"failed"`
-	Other       int     `json:"other"`
-	Queued      int     `json:"queued"`
-	Running     int     `json:"running"`
-	Success     int     `json:"success"`
-	SuccessRate float32 `json:"success_rate"`
-	Total       int     `json:"total"`
-}
-
-// AdminTestDefinition Test definition for admin view.
-//
-// Attributes:
-//
-//	id: Test UUID.
-//	name: Test name.
-//	platform: Test platform (ios, android).
-//	org_id: Organization ID.
-//	owner: Owner user ID.
-//	created_at: Test creation timestamp.
-//	updated_at: Test update timestamp.
-//	app_id: Associated app ID.
-//	deleted: Soft delete flag.
-type AdminTestDefinition struct {
-	AppId     *string `json:"app_id"`
-	CreatedAt *string `json:"created_at"`
-	Deleted   *bool   `json:"deleted,omitempty"`
-	Id        string  `json:"id"`
-	Name      string  `json:"name"`
-	OrgId     *string `json:"org_id"`
-	Owner     *string `json:"owner"`
-	Platform  *string `json:"platform"`
-	UpdatedAt *string `json:"updated_at"`
-}
-
-// AdminTestExecution Test execution data for admin dashboard.
-type AdminTestExecution struct {
-	CompletedAt      *time.Time `json:"completed_at"`
-	CurrentStep      *string    `json:"current_step"`
-	CurrentStepIndex *int       `json:"current_step_index"`
-
-	// Id Execution ID
-	Id       string   `json:"id"`
-	OrgId    *string  `json:"org_id"`
-	OrgName  *string  `json:"org_name"`
-	Platform *string  `json:"platform"`
-	Progress *float32 `json:"progress"`
-
-	// Source Execution source: ui, cli, api, ci_cd, or workflow (was user_id)
-	Source        *string    `json:"source"`
-	StartedAt     *time.Time `json:"started_at"`
-	Status        string     `json:"status"`
-	Success       *bool      `json:"success"`
-	TestHistoryId *string    `json:"test_history_id"`
-	TestId        string     `json:"test_id"`
-	TestName      *string    `json:"test_name"`
-	TotalSteps    *int       `json:"total_steps"`
-	TraceId       *string    `json:"trace_id"`
-	UpdatedAt     *time.Time `json:"updated_at"`
-
-	// WorkflowExecutionId Parent workflow execution ID
-	WorkflowExecutionId *string `json:"workflow_execution_id"`
-}
-
-// AdminTestExecutionList defines model for AdminTestExecutionList.
-type AdminTestExecutionList struct {
-	Items      []AdminTestExecution `json:"items"`
-	NextCursor *string              `json:"next_cursor"`
-}
-
-// AdminTestListResponse Response model for admin test list endpoint.
-//
-// Attributes:
-//
-//	items: List of test definitions.
-//	total_count: Total number of tests matching the query.
-//	org_id: Organization ID for the query.
-//	org_name: Organization name (if available).
-type AdminTestListResponse struct {
-	Items      []AdminTestDefinition `json:"items"`
-	OrgId      string                `json:"org_id"`
-	OrgName    *string               `json:"org_name"`
-	TotalCount int                   `json:"total_count"`
-}
-
-// AdminUpdateOnboardingStateRequest defines model for AdminUpdateOnboardingStateRequest.
-type AdminUpdateOnboardingStateRequest struct {
-	StateOverride *AdminUpdateOnboardingStateRequestStateOverride `json:"state_override"`
-}
-
-// AdminUpdateOnboardingStateRequestStateOverride defines model for AdminUpdateOnboardingStateRequest.StateOverride.
-type AdminUpdateOnboardingStateRequestStateOverride string
-
-// AdminWorkflowDefinition Workflow definition for admin view.
-//
-// Attributes:
-//
-//	id: Workflow UUID.
-//	name: Workflow name.
-//	org_id: Organization ID.
-//	owner: Owner user ID.
-//	tests: List of test IDs in the workflow.
-//	test_count: Number of tests in the workflow.
-//	schedule: Cron schedule string (if any).
-//	schedule_enabled: Whether schedule is active.
-//	created_at: Workflow creation timestamp.
-//	updated_at: Workflow update timestamp.
-//	deleted: Soft delete flag.
-type AdminWorkflowDefinition struct {
-	CreatedAt       *string   `json:"created_at"`
-	Deleted         *bool     `json:"deleted,omitempty"`
-	Id              string    `json:"id"`
-	Name            string    `json:"name"`
-	OrgId           *string   `json:"org_id"`
-	Owner           *string   `json:"owner"`
-	Schedule        *string   `json:"schedule"`
-	ScheduleEnabled *bool     `json:"schedule_enabled"`
-	TestCount       *int      `json:"test_count,omitempty"`
-	Tests           *[]string `json:"tests,omitempty"`
-	UpdatedAt       *string   `json:"updated_at"`
-}
-
-// AdminWorkflowListResponse Response model for admin workflow list endpoint.
-//
-// Attributes:
-//
-//	items: List of workflow definitions.
-//	total_count: Total number of workflows matching the query.
-//	org_id: Organization ID for the query.
-//	org_name: Organization name (if available).
-type AdminWorkflowListResponse struct {
-	Items      []AdminWorkflowDefinition `json:"items"`
-	OrgId      string                    `json:"org_id"`
-	OrgName    *string                   `json:"org_name"`
-	TotalCount int                       `json:"total_count"`
-}
-
-// AdminWorkflowTask Workflow task data for admin dashboard.
-type AdminWorkflowTask struct {
-	CompletedTests   *int     `json:"completed_tests"`
-	ConcurrencyLimit *int     `json:"concurrency_limit"`
-	DurationSeconds  *float32 `json:"duration_seconds"`
-
-	// Id Execution ID
-	Id      string  `json:"id"`
-	OrgId   *string `json:"org_id"`
-	OrgName *string `json:"org_name"`
-
-	// Progress 0-1 progress ratio
-	Progress *float32 `json:"progress"`
-
-	// Source Execution source: ui, cli, api, ci_cd, or workflow (was user_id)
-	Source       *string    `json:"source"`
-	StartedAt    *time.Time `json:"started_at"`
-	Status       string     `json:"status"`
-	Success      *bool      `json:"success"`
-	TotalTests   *int       `json:"total_tests"`
-	TraceId      *string    `json:"trace_id"`
-	UpdatedAt    *time.Time `json:"updated_at"`
-	WorkflowId   *string    `json:"workflow_id"`
-	WorkflowName *string    `json:"workflow_name"`
-}
-
-// AdminWorkflowTaskList defines model for AdminWorkflowTaskList.
-type AdminWorkflowTaskList struct {
-	Items      []AdminWorkflowTask `json:"items"`
-	NextCursor *string             `json:"next_cursor"`
+// AgentRunListResponse List of agent runs for an app.
+type AgentRunListResponse struct {
+	Agents []AgentRun `json:"agents"`
 }
 
 // AllPlatformTargets Device target configs for every supported platform.
@@ -1010,34 +762,6 @@ type AllSystemAppsResponse struct {
 
 	// Ios iOS system apps
 	Ios map[string]SystemApp `json:"ios"`
-}
-
-// AllUsersResponse defines model for AllUsersResponse.
-type AllUsersResponse struct {
-	Items []AllUsersUserRow `json:"items"`
-	Total int               `json:"total"`
-}
-
-// AllUsersUserRow defines model for AllUsersUserRow.
-type AllUsersUserRow struct {
-	Completed     *int       `json:"completed,omitempty"`
-	CreatedAt     *time.Time `json:"created_at"`
-	DeviceMinutes *float32   `json:"device_minutes,omitempty"`
-	Email         *string    `json:"email"`
-	Failed        *int       `json:"failed,omitempty"`
-	FirstName     *string    `json:"first_name"`
-	FirstSession  *time.Time `json:"first_session"`
-	LastActive    *time.Time `json:"last_active"`
-	LastName      *string    `json:"last_name"`
-	OrgId         *string    `json:"org_id"`
-	OrgName       *string    `json:"org_name"`
-	PassRate      *float32   `json:"pass_rate"`
-	Plan          *string    `json:"plan"`
-	Platforms     *[]string  `json:"platforms,omitempty"`
-	PosthogUrl    *string    `json:"posthog_url"`
-	SessionCount  *int       `json:"session_count,omitempty"`
-	Surfaces      *[]string  `json:"surfaces,omitempty"`
-	UserId        string     `json:"user_id"`
 }
 
 // AndroidTaskCountResponse Response model for Android task count endpoint.
@@ -2228,12 +1952,6 @@ type BuildWorkspaceResponse struct {
 	Readiness            *string                `json:"readiness,omitempty"`
 }
 
-// BulkDeleteTasksRequest Request to delete multiple tasks.
-type BulkDeleteTasksRequest struct {
-	Reason  *string  `json:"reason"`
-	TaskIds []string `json:"task_ids"`
-}
-
 // BulkDeleteTestExecutionsRequest Request model for bulk deleting test executions.
 //
 // Attributes:
@@ -2787,6 +2505,18 @@ type CompletionMessage struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// ConnectCursorRequest Request body to connect (or update) an org's Cursor API key.
+type ConnectCursorRequest struct {
+	// ApiKey Cursor API key (user or service account)
+	ApiKey string `json:"api_key"`
+
+	// DefaultModel Optional default Cursor model for spawns
+	DefaultModel *string `json:"default_model"`
+
+	// DefaultRepoUrl Optional default repository URL for spawns
+	DefaultRepoUrl *string `json:"default_repo_url"`
+}
+
 // ConversionResponse Response model for conversion operations
 type ConversionResponse struct {
 	// ConvertedContent Converted content (YAML string or blocks array)
@@ -2816,138 +2546,6 @@ type ConversionResponse_ConvertedContent_1_Item struct {
 // ConversionResponse_ConvertedContent Converted content (YAML string or blocks array)
 type ConversionResponse_ConvertedContent struct {
 	union json.RawMessage
-}
-
-// CopyTestToBenchmarksRequest Request model for copying a test to the benchmarks organization.
-//
-// Attributes:
-//
-//	test_id: UUID of the test to copy.
-//	new_name: Optional new name for the copied test.
-//	    Defaults to "{original_name}_bench_{timestamp}" if not provided.
-//	source_from_other_env: Whether to read source test from the other environment's database.
-type CopyTestToBenchmarksRequest struct {
-	// NewName New name for the copied test. Defaults to '{original}_bench_{timestamp}'
-	NewName *string `json:"new_name"`
-
-	// SourceFromOtherEnv Read source test from the other environment's database (staging if on prod, production if on staging)
-	SourceFromOtherEnv *bool `json:"source_from_other_env,omitempty"`
-
-	// TargetOrgId Target organization ID. Defaults to benchmarks org if not provided.
-	TargetOrgId *string `json:"target_org_id"`
-
-	// TargetOtherEnv Write target test to the other environment's database (staging if on prod, production if on staging)
-	TargetOtherEnv *bool `json:"target_other_env,omitempty"`
-
-	// TestId UUID of the test to copy
-	TestId string `json:"test_id"`
-}
-
-// CopyTestToBenchmarksResponse Response model for copy test to benchmarks operation.
-//
-// Attributes:
-//
-//	success: Whether the copy operation completed successfully.
-//	message: Human-readable summary of the operation.
-//	new_test_id: UUID of the newly created test (if successful).
-//	new_app_id: UUID of the newly created app (if any).
-//	builds_copied: Number of builds copied.
-//	env_vars_copied: Number of environment variables copied.
-//	cookies_copied: Number of cookies copied.
-//	variables_copied: Number of custom variables copied.
-//	scripts_copied: Number of scripts copied.
-//	is_resync: Whether this was a resync of an existing benchmark test.
-type CopyTestToBenchmarksResponse struct {
-	// BuildsCopied Number of builds copied
-	BuildsCopied *int `json:"builds_copied,omitempty"`
-
-	// CookiesCopied Number of cookies copied
-	CookiesCopied *int `json:"cookies_copied,omitempty"`
-
-	// EnvVarsCopied Number of environment variables copied
-	EnvVarsCopied *int `json:"env_vars_copied,omitempty"`
-
-	// IsResync Whether this was a resync of an existing benchmark test
-	IsResync *bool `json:"is_resync,omitempty"`
-
-	// Message Human-readable summary of the operation
-	Message string `json:"message"`
-
-	// ModulesCopied Number of modules copied
-	ModulesCopied *int `json:"modules_copied,omitempty"`
-
-	// NewAppId UUID of the newly created app
-	NewAppId *string `json:"new_app_id"`
-
-	// NewTestId UUID of the newly created test
-	NewTestId *string `json:"new_test_id"`
-
-	// ScriptsCopied Number of scripts copied
-	ScriptsCopied *int `json:"scripts_copied,omitempty"`
-
-	// Success Whether the copy operation succeeded
-	Success bool `json:"success"`
-
-	// VariablesCopied Number of custom variables copied
-	VariablesCopied *int `json:"variables_copied,omitempty"`
-}
-
-// CopyWorkflowToBenchmarksRequest Request model for copying a workflow to the benchmarks organization.
-//
-// Attributes:
-//
-//	workflow_id: UUID of the workflow to copy.
-//	new_name: Optional new name for the copied workflow.
-//	source_from_other_env: Whether to read source workflow from the other environment's database.
-type CopyWorkflowToBenchmarksRequest struct {
-	// NewName New name for the copied workflow
-	NewName *string `json:"new_name"`
-
-	// SourceFromOtherEnv Read source workflow from the other environment's database (staging if on prod, production if on staging)
-	SourceFromOtherEnv *bool `json:"source_from_other_env,omitempty"`
-
-	// TargetOrgId Target organization ID. Defaults to benchmarks org if not provided.
-	TargetOrgId *string `json:"target_org_id"`
-
-	// TargetOtherEnv Write target workflow to the other environment's database (staging if on prod, production if on staging)
-	TargetOtherEnv *bool `json:"target_other_env,omitempty"`
-
-	// WorkflowId UUID of the workflow to copy
-	WorkflowId string `json:"workflow_id"`
-}
-
-// CopyWorkflowToBenchmarksResponse Response model for copy workflow to benchmarks operation.
-//
-// Attributes:
-//
-//	success: Whether the copy operation completed successfully.
-//	message: Human-readable summary of the operation.
-//	new_workflow_id: UUID of the newly created workflow (if successful).
-//	tests_copied: Number of tests newly copied.
-//	tests_resynced: Number of existing tests that were resynced.
-//	tests_failed: Number of tests that failed to copy.
-//	is_resync: Whether this was a resync of an existing benchmark workflow.
-type CopyWorkflowToBenchmarksResponse struct {
-	// IsResync Whether this was a resync of an existing benchmark workflow
-	IsResync *bool `json:"is_resync,omitempty"`
-
-	// Message Human-readable summary of the operation
-	Message string `json:"message"`
-
-	// NewWorkflowId UUID of the newly created workflow
-	NewWorkflowId *string `json:"new_workflow_id"`
-
-	// Success Whether the copy operation succeeded
-	Success bool `json:"success"`
-
-	// TestsCopied Number of tests newly copied
-	TestsCopied *int `json:"tests_copied,omitempty"`
-
-	// TestsFailed Number of tests that failed
-	TestsFailed *int `json:"tests_failed,omitempty"`
-
-	// TestsResynced Number of existing tests resynced
-	TestsResynced *int `json:"tests_resynced,omitempty"`
 }
 
 // CostAnalysisResponse Response containing cost analysis for a session or execution.
@@ -3052,16 +2650,6 @@ type CreateExpoProjectRequest struct {
 
 // CreateExpoProjectRequestSyncProfileMode Controls which EAS build profiles auto-sync. 'all' imports every eligible profile; 'allowlist' imports only synced_profiles.
 type CreateExpoProjectRequestSyncProfileMode string
-
-// CreateInternalSlackRuleRequest Request to create an internal notification rule.
-type CreateInternalSlackRuleRequest struct {
-	ChannelId       string  `json:"channel_id"`
-	ChannelName     *string `json:"channel_name"`
-	Enabled         *bool   `json:"enabled,omitempty"`
-	NotifyOnFailure *bool   `json:"notify_on_failure,omitempty"`
-	NotifyOnSuccess *bool   `json:"notify_on_success,omitempty"`
-	NotifyOnTimeout *bool   `json:"notify_on_timeout,omitempty"`
-}
 
 // CreateModuleRequest Request model for creating a new module
 type CreateModuleRequest struct {
@@ -3206,6 +2794,26 @@ type CreditsBalanceResponse struct {
 	Balances []CreditsBalanceItem `json:"balances"`
 }
 
+// CursorConnectionStatus Connection status for the Cursor integration.
+type CursorConnectionStatus struct {
+	// AccountEmail User email behind the connected key
+	AccountEmail *string `json:"account_email"`
+
+	// AccountLabel API key name behind the connected key
+	AccountLabel *string `json:"account_label"`
+
+	// Configured Whether spawning is possible (org key or platform fallback)
+	Configured bool `json:"configured"`
+
+	// Connected Whether this org has its own Cursor key stored
+	Connected      bool    `json:"connected"`
+	DefaultModel   *string `json:"default_model"`
+	DefaultRepoUrl *string `json:"default_repo_url"`
+
+	// FeatureEnabled Whether this org may use the Cursor agents feature
+	FeatureEnabled *bool `json:"feature_enabled,omitempty"`
+}
+
 // DOMMetadata defines model for DOMMetadata.
 type DOMMetadata struct {
 	A11yData             *map[string]interface{} `json:"a11y_data"`
@@ -3254,18 +2862,6 @@ type DailyUsageItem struct {
 // DailyUsageResponse defines model for DailyUsageResponse.
 type DailyUsageResponse struct {
 	DataPoints []DailyUsageItem `json:"data_points"`
-}
-
-// DailyUsageTrend defines model for DailyUsageTrend.
-type DailyUsageTrend struct {
-	DashboardViews *int    `json:"dashboard_views,omitempty"`
-	Day            string  `json:"day"`
-	Email          *string `json:"email"`
-	ExecuteViews   *int    `json:"execute_views,omitempty"`
-	Pageviews      *int    `json:"pageviews,omitempty"`
-	SessionsViews  *int    `json:"sessions_views,omitempty"`
-	TestsViews     *int    `json:"tests_views,omitempty"`
-	WorkflowsViews *int    `json:"workflows_views,omitempty"`
 }
 
 // DashboardMetrics Model representing dashboard metrics with week-over-week comparisons.
@@ -3366,12 +2962,6 @@ type DeleteEvalResultsRequest struct {
 // DeleteEvalResultsResponse Response for bulk delete.
 type DeleteEvalResultsResponse struct {
 	DeletedCount int `json:"deleted_count"`
-}
-
-// DeleteInternalSlackRuleResponse Response for deleting a rule.
-type DeleteInternalSlackRuleResponse struct {
-	Message string `json:"message"`
-	Success bool   `json:"success"`
 }
 
 // DeleteModuleResponse Response model for delete operations
@@ -4907,34 +4497,6 @@ type HealthCheckResponse struct {
 	Status string `json:"status"`
 }
 
-// HeatmapDayData defines model for HeatmapDayData.
-type HeatmapDayData struct {
-	Android      *int `json:"android,omitempty"`
-	Completed    *int `json:"completed,omitempty"`
-	Failed       *int `json:"failed,omitempty"`
-	FromApi      *int `json:"from_api,omitempty"`
-	FromCi       *int `json:"from_ci,omitempty"`
-	FromUi       *int `json:"from_ui,omitempty"`
-	FromWorkflow *int `json:"from_workflow,omitempty"`
-	Ios          *int `json:"ios,omitempty"`
-	Other        *int `json:"other,omitempty"`
-	Total        *int `json:"total,omitempty"`
-	UniqueUsers  *int `json:"unique_users,omitempty"`
-}
-
-// HeatmapOrgRow defines model for HeatmapOrgRow.
-type HeatmapOrgRow struct {
-	Days    map[string]HeatmapDayData `json:"days"`
-	OrgId   string                    `json:"org_id"`
-	OrgName *string                   `json:"org_name"`
-}
-
-// HeatmapResponse defines model for HeatmapResponse.
-type HeatmapResponse struct {
-	DateRange []string        `json:"date_range"`
-	Orgs      []HeatmapOrgRow `json:"orgs"`
-}
-
 // HotReloadRelayCreateRequest defines model for HotReloadRelayCreateRequest.
 type HotReloadRelayCreateRequest struct {
 	Platform *string `json:"platform"`
@@ -5024,49 +4586,6 @@ type InternalSendNotificationResponse struct {
 	FailedCount  *int `json:"failed_count,omitempty"`
 	SentCount    *int `json:"sent_count,omitempty"`
 	SkippedCount *int `json:"skipped_count,omitempty"`
-}
-
-// InternalSlackChannel A Slack channel available for internal notifications.
-type InternalSlackChannel struct {
-	Id        string `json:"id"`
-	IsPrivate *bool  `json:"is_private,omitempty"`
-	Name      string `json:"name"`
-}
-
-// InternalSlackChannelsResponse Response for listing internal Slack channels.
-type InternalSlackChannelsResponse struct {
-	Channels   []InternalSlackChannel `json:"channels"`
-	Configured bool                   `json:"configured"`
-}
-
-// InternalSlackNotificationRule An internal Slack notification rule.
-type InternalSlackNotificationRule struct {
-	ChannelId       string                                                `json:"channel_id"`
-	ChannelName     *string                                               `json:"channel_name"`
-	CreatedAt       time.Time                                             `json:"created_at"`
-	CreatedBy       *openapi_types.UUID                                   `json:"created_by"`
-	Enabled         *bool                                                 `json:"enabled,omitempty"`
-	Id              openapi_types.UUID                                    `json:"id"`
-	NotifyOnFailure *bool                                                 `json:"notify_on_failure,omitempty"`
-	NotifyOnSuccess *bool                                                 `json:"notify_on_success,omitempty"`
-	NotifyOnTimeout *bool                                                 `json:"notify_on_timeout,omitempty"`
-	OrgId           *openapi_types.UUID                                   `json:"org_id"`
-	OrgName         *string                                               `json:"org_name"`
-	UpdatedAt       time.Time                                             `json:"updated_at"`
-	WorkflowIds     *[]openapi_types.UUID                                 `json:"workflow_ids,omitempty"`
-	Workflows       *[]AppRoutesAdminRoutesAdminInternalSlackWorkflowInfo `json:"workflows,omitempty"`
-}
-
-// InternalSlackNotificationRulesResponse Response for listing internal notification rules.
-type InternalSlackNotificationRulesResponse struct {
-	Configured bool                            `json:"configured"`
-	Rules      []InternalSlackNotificationRule `json:"rules"`
-}
-
-// InternalSlackRuleResponse Response for a single rule operation.
-type InternalSlackRuleResponse struct {
-	// Rule An internal Slack notification rule.
-	Rule InternalSlackNotificationRule `json:"rule"`
 }
 
 // IosStoreKitConfigRef Explicit iOS StoreKit Testing config choice for one scope.
@@ -5625,19 +5144,6 @@ type OnboardingStatusResponse struct {
 	TrialSessionsUsed     *int                    `json:"trial_sessions_used,omitempty"`
 }
 
-// OrgDetailResponse defines model for OrgDetailResponse.
-type OrgDetailResponse struct {
-	ActiveUsers    []ActiveUser          `json:"active_users"`
-	Headline       OrgHeadline           `json:"headline"`
-	Investment     OrgInvestment         `json:"investment"`
-	SourceMix      []SourceMixItem       `json:"source_mix"`
-	Timeline       []TimelineEvent       `json:"timeline"`
-	TopTests       []TopTest             `json:"top_tests"`
-	TopWorkflows   []TopWorkflow         `json:"top_workflows"`
-	WebEngagement  *WebEngagement        `json:"web_engagement,omitempty"`
-	WeeklyActivity []WeeklyActivityPoint `json:"weekly_activity"`
-}
-
 // OrgFile Full org file model with database fields.
 type OrgFile struct {
 	// ContentType MIME content type
@@ -5776,29 +5282,6 @@ type OrgFileUploadResponse struct {
 	UploadUrl string `json:"upload_url"`
 }
 
-// OrgHeadline defines model for OrgHeadline.
-type OrgHeadline struct {
-	ActiveUsers30d   *int       `json:"active_users_30d,omitempty"`
-	ActiveUsers7d    *int       `json:"active_users_7d,omitempty"`
-	Completed30d     *int       `json:"completed_30d,omitempty"`
-	DeviceMinutes30d *float32   `json:"device_minutes_30d,omitempty"`
-	Failed30d        *int       `json:"failed_30d,omitempty"`
-	FirstSeen        *time.Time `json:"first_seen"`
-	LastActivity     *time.Time `json:"last_activity"`
-	OrgId            string     `json:"org_id"`
-	OrgName          *string    `json:"org_name"`
-	Other30d         *int       `json:"other_30d,omitempty"`
-	PassRate30d      *float32   `json:"pass_rate_30d"`
-	Sessions14d      *int       `json:"sessions_14d,omitempty"`
-	Sessions30d      *int       `json:"sessions_30d,omitempty"`
-	Sessions7d       *int       `json:"sessions_7d,omitempty"`
-	SessionsPrior14d *int       `json:"sessions_prior_14d,omitempty"`
-	SessionsPrior7d  *int       `json:"sessions_prior_7d,omitempty"`
-	Spend30d         *float32   `json:"spend_30d,omitempty"`
-	TotalSessions    *int       `json:"total_sessions,omitempty"`
-	Trend            *string    `json:"trend,omitempty"`
-}
-
 // OrgInstallation defines model for OrgInstallation.
 type OrgInstallation struct {
 	CreatedAt             time.Time          `json:"created_at"`
@@ -5808,20 +5291,6 @@ type OrgInstallation struct {
 	PropelOrgId           string             `json:"propel_org_id"`
 	Status                string             `json:"status"`
 	VerifiedAt            *time.Time         `json:"verified_at"`
-}
-
-// OrgInvestment defines model for OrgInvestment.
-type OrgInvestment struct {
-	AppCount      *int  `json:"app_count,omitempty"`
-	HasCiConfig   *bool `json:"has_ci_config,omitempty"`
-	HasSlack      *bool `json:"has_slack,omitempty"`
-	ModuleCount   *int  `json:"module_count,omitempty"`
-	PlatformCount *int  `json:"platform_count,omitempty"`
-	ScriptCount   *int  `json:"script_count,omitempty"`
-	SharedReports *int  `json:"shared_reports,omitempty"`
-	TagCount      *int  `json:"tag_count,omitempty"`
-	TestCount     *int  `json:"test_count,omitempty"`
-	WorkflowCount *int  `json:"workflow_count,omitempty"`
 }
 
 // OrgLaunchEnvVarAttachRequest Request model for attaching a launch variable to a test.
@@ -5917,73 +5386,11 @@ type OrgLaunchEnvVarsResponse struct {
 	Result []OrgLaunchEnvVarRow `json:"result"`
 }
 
-// OrgOverviewItem defines model for OrgOverviewItem.
-type OrgOverviewItem struct {
-	ActiveUsers30d   *int       `json:"active_users_30d,omitempty"`
-	ActiveUsers7d    *int       `json:"active_users_7d,omitempty"`
-	Completed7d      *int       `json:"completed_7d,omitempty"`
-	DeviceMinutes30d *float32   `json:"device_minutes_30d,omitempty"`
-	Failed7d         *int       `json:"failed_7d,omitempty"`
-	HasCiActivity    *bool      `json:"has_ci_activity,omitempty"`
-	LastActivity     *time.Time `json:"last_activity"`
-	OrgId            string     `json:"org_id"`
-	OrgName          *string    `json:"org_name"`
-	PassRate7d       *float32   `json:"pass_rate_7d"`
-	Plan             *string    `json:"plan"`
-	Sessions14d      *int       `json:"sessions_14d,omitempty"`
-	Sessions7d       *int       `json:"sessions_7d,omitempty"`
-	SessionsPrior14d *int       `json:"sessions_prior_14d,omitempty"`
-	SessionsPrior7d  *int       `json:"sessions_prior_7d,omitempty"`
-	SourceCount30d   *int       `json:"source_count_30d,omitempty"`
-	Spend30d         *float32   `json:"spend_30d,omitempty"`
-	Trend            *string    `json:"trend,omitempty"`
-}
-
-// OrgOverviewResponse defines model for OrgOverviewResponse.
-type OrgOverviewResponse struct {
-	Items []OrgOverviewItem `json:"items"`
-	Total int               `json:"total"`
-}
-
 // OrgRepository defines model for OrgRepository.
 type OrgRepository struct {
 	InstallationId int    `json:"installation_id"`
 	Owner          string `json:"owner"`
 	Repo           string `json:"repo"`
-}
-
-// OrgSessionBillingItem defines model for OrgSessionBillingItem.
-type OrgSessionBillingItem struct {
-	AutumnError            *string                 `json:"autumn_error"`
-	AutumnTrackedAt        *time.Time              `json:"autumn_tracked_at"`
-	BillingStatus          *string                 `json:"billing_status"`
-	CreatedAt              *time.Time              `json:"created_at"`
-	DeviceCostUsd          *float32                `json:"device_cost_usd"`
-	EndedAt                *time.Time              `json:"ended_at"`
-	IsRealDevice           *bool                   `json:"is_real_device"`
-	LlmCostUsd             *float32                `json:"llm_cost_usd"`
-	ManualBillingExemption *map[string]interface{} `json:"manual_billing_exemption"`
-	OrgId                  string                  `json:"org_id"`
-	Platform               *string                 `json:"platform"`
-	SessionDurationSeconds *float32                `json:"session_duration_seconds"`
-	SessionId              string                  `json:"session_id"`
-	SessionStatus          string                  `json:"session_status"`
-	Source                 *string                 `json:"source"`
-	SourceMetadata         *map[string]interface{} `json:"source_metadata"`
-	StartedAt              *time.Time              `json:"started_at"`
-	TotalCostUsd           *float32                `json:"total_cost_usd"`
-	TraceId                *string                 `json:"trace_id"`
-	UsageCreatedAt         *time.Time              `json:"usage_created_at"`
-	UsageDurationSeconds   *float32                `json:"usage_duration_seconds"`
-	UsageId                *string                 `json:"usage_id"`
-}
-
-// OrgSessionBillingResponse defines model for OrgSessionBillingResponse.
-type OrgSessionBillingResponse struct {
-	Limit    int                     `json:"limit"`
-	Offset   int                     `json:"offset"`
-	OrgId    string                  `json:"org_id"`
-	Sessions []OrgSessionBillingItem `json:"sessions"`
 }
 
 // OrgTestMonitorItemInput Single test item for org-wide monitoring.
@@ -6234,6 +5641,7 @@ type PrReviewConfigSummary struct {
 type PrReviewConfigSummaryBuild struct {
 	App           *string `json:"app"`
 	Framework     *string `json:"framework"`
+	Image         *string `json:"image"`
 	Platform      string  `json:"platform"`
 	UseExistingCi *bool   `json:"use_existing_ci,omitempty"`
 }
@@ -6258,6 +5666,62 @@ type PropelMetadataResponse struct {
 	ExpoToken        *string `json:"expo_token"`
 	ExpoWarning      *string `json:"expo_warning"`
 	ProxyEnabled     *bool   `json:"proxy_enabled"`
+}
+
+// ProviderCapabilities What a given provider supports, used to drive routing and UI.
+//
+// Attributes:
+//
+//	auth_type: How the provider authenticates (``api_key`` or ``oauth``).
+//	supports_followup: Whether a running agent accepts follow-up messages.
+//	supports_cancel: Whether a running agent can be cancelled.
+//	supports_model: Whether a model can be selected at spawn time.
+//	supports_listing: Whether runs can be listed for an app.
+//	requires_repository: Whether a repository must be supplied to spawn.
+type ProviderCapabilities struct {
+	AuthType           *ProviderCapabilitiesAuthType `json:"auth_type,omitempty"`
+	RequiresRepository *bool                         `json:"requires_repository,omitempty"`
+	SupportsCancel     *bool                         `json:"supports_cancel,omitempty"`
+	SupportsFollowup   *bool                         `json:"supports_followup,omitempty"`
+	SupportsListing    *bool                         `json:"supports_listing,omitempty"`
+	SupportsModel      *bool                         `json:"supports_model,omitempty"`
+}
+
+// ProviderCapabilitiesAuthType defines model for ProviderCapabilities.AuthType.
+type ProviderCapabilitiesAuthType string
+
+// ProviderDescriptor Static description of a provider plus its per-org connection status.
+//
+// Attributes:
+//
+//	id: Canonical provider id.
+//	label: Human-friendly provider name.
+//	capabilities: What the provider supports.
+//	connected: Whether the caller's org has connected this provider.
+//	configured: Whether the caller's org can spawn with this provider.
+//	account_label: Label for the connected credential, if known.
+type ProviderDescriptor struct {
+	AccountLabel *string `json:"account_label"`
+
+	// Capabilities What a given provider supports, used to drive routing and UI.
+	//
+	// Attributes:
+	//     auth_type: How the provider authenticates (``api_key`` or ``oauth``).
+	//     supports_followup: Whether a running agent accepts follow-up messages.
+	//     supports_cancel: Whether a running agent can be cancelled.
+	//     supports_model: Whether a model can be selected at spawn time.
+	//     supports_listing: Whether runs can be listed for an app.
+	//     requires_repository: Whether a repository must be supplied to spawn.
+	Capabilities ProviderCapabilities `json:"capabilities"`
+	Configured   *bool                `json:"configured,omitempty"`
+	Connected    *bool                `json:"connected,omitempty"`
+	Id           string               `json:"id"`
+	Label        string               `json:"label"`
+}
+
+// ProvidersResponse Available cloud-agent providers + the caller's connection status.
+type ProvidersResponse struct {
+	Providers []ProviderDescriptor `json:"providers"`
 }
 
 // ProvisionResponse defines model for ProvisionResponse.
@@ -6580,6 +6044,19 @@ type RemoteBuildGitSource struct {
 	Type     string  `json:"type"`
 }
 
+// RemoteBuildListResponse Response listing remote build jobs for an app, newest first.
+//
+// Attributes:
+//
+//	app_id: UUID of the app the builds belong to.
+//	builds: Build job summaries ordered by creation time (newest first).
+//	active_count: Number of builds in the list still queued or running.
+type RemoteBuildListResponse struct {
+	ActiveCount *int                  `json:"active_count,omitempty"`
+	AppId       string                `json:"app_id"`
+	Builds      *[]RemoteBuildSummary `json:"builds,omitempty"`
+}
+
 // RemoteBuildPhaseTiming Duration metadata for one remote-build phase.
 type RemoteBuildPhaseTiming struct {
 	CompletedAt *time.Time              `json:"completed_at"`
@@ -6683,6 +6160,36 @@ type RemoteBuildStatusResponse struct {
 	SuggestedFix       *string                   `json:"suggested_fix"`
 	Version            *string                   `json:"version"`
 	VersionId          *string                   `json:"version_id"`
+}
+
+// RemoteBuildSummary Compact summary of a single remote build job for list views.
+//
+// Attributes:
+//
+//	build_job_id: Unique identifier of the build job (used to poll status).
+//	status: Normalized public status (``pending`` / ``building`` /
+//	    ``success`` / ``failed`` / ``cancelled``).
+//	version: Version string of the build.
+//	platform: Build platform.
+//	phase: Detailed status/failure phase when available.
+//	build_id: UUID of the produced build version on success, when known.
+//	created_at: ISO timestamp when the build job was created.
+//	started_at: ISO timestamp when the build started executing.
+//	completed_at: ISO timestamp when the build finished.
+//	duration_ms: Build duration in milliseconds when known.
+//	is_active: Whether the build is still queued or running.
+type RemoteBuildSummary struct {
+	BuildId     *string    `json:"build_id"`
+	BuildJobId  string     `json:"build_job_id"`
+	CompletedAt *time.Time `json:"completed_at"`
+	CreatedAt   *time.Time `json:"created_at"`
+	DurationMs  *int       `json:"duration_ms"`
+	IsActive    *bool      `json:"is_active,omitempty"`
+	Phase       *string    `json:"phase"`
+	Platform    *string    `json:"platform"`
+	StartedAt   *time.Time `json:"started_at"`
+	Status      string     `json:"status"`
+	Version     *string    `json:"version"`
 }
 
 // RemoteBuildTriggerResponse Response returned immediately after a build is enqueued.
@@ -6939,6 +6446,15 @@ type ResolveSlackChannelRequest struct {
 	Input string `json:"input"`
 }
 
+// ResolvedAppRepository Repository auto-resolved for an Atlas app (for spawn pre-selection).
+type ResolvedAppRepository struct {
+	// Repository Resolved repository URL, or null when unknown
+	Repository *string `json:"repository"`
+
+	// Source Where the repository came from ('scm' = GitHub preview link)
+	Source *string `json:"source"`
+}
+
 // ResolvedBuild Normalized representation of a resolved build artifact.
 type ResolvedBuild struct {
 	ArtifactUrl  *string                 `json:"artifact_url"`
@@ -7018,6 +6534,12 @@ type RevokeCLIApiKeyResponse struct {
 	// Success Whether the CLI API key was revoked.
 	Success bool `json:"success"`
 }
+
+// RunState Normalized lifecycle state of a cloud-agent run.
+//
+// Providers translate their own status vocabulary into one of these so the
+// UI can style runs without knowing vendor-specific strings.
+type RunState string
 
 // RunningTestCoreInfo Core identification info for a running test.
 type RunningTestCoreInfo struct {
@@ -7314,6 +6836,11 @@ type ScriptUsageTestItem struct {
 	Name string             `json:"name"`
 }
 
+// SendMessageRequest Follow-up message body.
+type SendMessageRequest struct {
+	Message string `json:"message"`
+}
+
 // SessionAppUploadUrlRequest Request body for a session-scoped app upload URL.
 type SessionAppUploadUrlRequest struct {
 	// ContentType MIME content type
@@ -7365,29 +6892,6 @@ type SessionArtifactUploadResponse struct {
 	ExpiresIn   int    `json:"expires_in"`
 	S3Key       string `json:"s3_key"`
 	UploadUrl   string `json:"upload_url"`
-}
-
-// SessionBillingExemptionRequest defines model for SessionBillingExemptionRequest.
-type SessionBillingExemptionRequest struct {
-	// ForceTracked Allow local exemption when the row has already been tracked to Autumn. Autumn usage will be reversed automatically; a Stripe cash refund may still be required if the usage was already paid.
-	ForceTracked *bool `json:"force_tracked,omitempty"`
-
-	// Reason Required admin reason for the billing exemption
-	Reason string `json:"reason"`
-}
-
-// SessionBillingExemptionResponse defines model for SessionBillingExemptionResponse.
-type SessionBillingExemptionResponse struct {
-	AutumnReversalStatus     *string                `json:"autumn_reversal_status,omitempty"`
-	BillingStatus            string                 `json:"billing_status"`
-	ExternalReversalRequired *bool                  `json:"external_reversal_required,omitempty"`
-	ManualBillingExemption   map[string]interface{} `json:"manual_billing_exemption"`
-	Message                  string                 `json:"message"`
-	OrgId                    string                 `json:"org_id"`
-	PreviousBillingStatus    string                 `json:"previous_billing_status"`
-	SessionId                string                 `json:"session_id"`
-	StripeRefundStatus       *string                `json:"stripe_refund_status,omitempty"`
-	UsageId                  string                 `json:"usage_id"`
 }
 
 // SessionInstallAcceptedResponse Returned when an async install is accepted. Poll the result via the
@@ -7648,15 +7152,34 @@ type SlackOAuthUrlResponse struct {
 	StateToken string `json:"state_token"`
 }
 
-// SourceMixItem defines model for SourceMixItem.
-type SourceMixItem struct {
-	Completed     *int     `json:"completed,omitempty"`
-	DeviceMinutes *float32 `json:"device_minutes,omitempty"`
-	Failed        *int     `json:"failed,omitempty"`
-	Platform      *string  `json:"platform"`
-	SessionCount  *int     `json:"session_count,omitempty"`
-	Source        *string  `json:"source"`
-	UniqueUsers   *int     `json:"unique_users,omitempty"`
+// SpawnAgentRequest Request body to spawn a cloud agent from Atlas.
+type SpawnAgentRequest struct {
+	// AppId Atlas app id the task targets
+	AppId        string    `json:"app_id"`
+	AppName      *string   `json:"app_name"`
+	BuildId      *string   `json:"build_id"`
+	CoverageGaps *[]string `json:"coverage_gaps,omitempty"`
+
+	// Model Model override
+	Model    *string `json:"model"`
+	Notes    *string `json:"notes"`
+	Platform *string `json:"platform"`
+
+	// Provider Cloud agent provider to spawn
+	Provider *string `json:"provider,omitempty"`
+
+	// Ref Starting ref/branch
+	Ref *string `json:"ref,omitempty"`
+
+	// ReportId Related failing report id for context
+	ReportId *string `json:"report_id"`
+
+	// Repository Repository URL (defaults to org/demo repo)
+	Repository     *string `json:"repository"`
+	SelectedScreen *string `json:"selected_screen"`
+
+	// Task What the agent should do
+	Task string `json:"task"`
 }
 
 // StartDeviceInfo defines model for StartDeviceInfo.
@@ -8768,14 +8291,6 @@ type TestWithDetails struct {
 	RecentStatuses *[]bool `json:"recent_statuses,omitempty"`
 }
 
-// TimelineEvent defines model for TimelineEvent.
-type TimelineEvent struct {
-	Detail     *string   `json:"detail"`
-	EventType  string    `json:"event_type"`
-	OccurredAt time.Time `json:"occurred_at"`
-	Title      string    `json:"title"`
-}
-
 // ToolCall A tool/function call made by the assistant.
 type ToolCall struct {
 	// Function Function details within a tool call.
@@ -8796,32 +8311,6 @@ type ToolCallFunction struct {
 
 	// Name Name of the function to call
 	Name string `json:"name"`
-}
-
-// TopTest defines model for TopTest.
-type TopTest struct {
-	AvgDurationMin *float32   `json:"avg_duration_min,omitempty"`
-	Failed         *int       `json:"failed,omitempty"`
-	LastRun        *time.Time `json:"last_run"`
-	PassRate       *float32   `json:"pass_rate"`
-	Passed         *int       `json:"passed,omitempty"`
-	Platform       *string    `json:"platform"`
-	RunCount       *int       `json:"run_count,omitempty"`
-	TestId         string     `json:"test_id"`
-	TestName       string     `json:"test_name"`
-}
-
-// TopWorkflow defines model for TopWorkflow.
-type TopWorkflow struct {
-	AvgDurationMin *float32   `json:"avg_duration_min,omitempty"`
-	Failed         *int       `json:"failed,omitempty"`
-	LastRun        *time.Time `json:"last_run"`
-	PassRate       *float32   `json:"pass_rate"`
-	Passed         *int       `json:"passed,omitempty"`
-	RunCount       *int       `json:"run_count,omitempty"`
-	TestCount      *int       `json:"test_count,omitempty"`
-	WorkflowId     string     `json:"workflow_id"`
-	WorkflowName   string     `json:"workflow_name"`
 }
 
 // TourResponse defines model for TourResponse.
@@ -8934,16 +8423,6 @@ type UpdateExpoProjectRequestSyncProfileMode string
 // UpdateFailurePolicyRequest defines model for UpdateFailurePolicyRequest.
 type UpdateFailurePolicyRequest struct {
 	FailurePolicy string `json:"failure_policy"`
-}
-
-// UpdateInternalSlackRuleRequest Request to update an internal notification rule.
-type UpdateInternalSlackRuleRequest struct {
-	AddWorkflowIds    *[]openapi_types.UUID `json:"add_workflow_ids"`
-	Enabled           *bool                 `json:"enabled"`
-	NotifyOnFailure   *bool                 `json:"notify_on_failure"`
-	NotifyOnSuccess   *bool                 `json:"notify_on_success"`
-	NotifyOnTimeout   *bool                 `json:"notify_on_timeout"`
-	RemoveWorkflowIds *[]openapi_types.UUID `json:"remove_workflow_ids"`
 }
 
 // UpdateModuleRequest Request model for updating an existing module
@@ -9151,15 +8630,6 @@ type UpdateWorkflowTimeoutConfigRequest struct {
 	TestTimeoutSeconds *int `json:"test_timeout_seconds"`
 }
 
-// UsageHeatmapCell defines model for UsageHeatmapCell.
-type UsageHeatmapCell struct {
-	Dow       int     `json:"dow"`
-	Email     *string `json:"email"`
-	Events    *int    `json:"events,omitempty"`
-	Hour      int     `json:"hour"`
-	Pageviews *int    `json:"pageviews,omitempty"`
-}
-
 // UserActivityItem Per-user activity breakdown.
 type UserActivityItem struct {
 	DeviceMinutes float32 `json:"device_minutes"`
@@ -9172,19 +8642,6 @@ type UserActivityItem struct {
 type UserTestsResponse struct {
 	// Tests List of tests with their execution details
 	Tests *[]TestWithDetails `json:"tests,omitempty"`
-}
-
-// UserWebActivity defines model for UserWebActivity.
-type UserWebActivity struct {
-	DashboardViews *int    `json:"dashboard_views,omitempty"`
-	Email          string  `json:"email"`
-	ExecuteViews   *int    `json:"execute_views,omitempty"`
-	LastSeen       *string `json:"last_seen"`
-	Pageviews      *int    `json:"pageviews,omitempty"`
-	ReportViews    *int    `json:"report_views,omitempty"`
-	SessionsViews  *int    `json:"sessions_views,omitempty"`
-	TestsViews     *int    `json:"tests_views,omitempty"`
-	WorkflowsViews *int    `json:"workflows_views,omitempty"`
 }
 
 // ValidationError defines model for ValidationError.
@@ -9360,37 +8817,6 @@ type WaitlistJoinResponse struct {
 
 // WeakestComponent Which component was weakest in the test execution.
 type WeakestComponent string
-
-// WebEngagement defines model for WebEngagement.
-type WebEngagement struct {
-	Available       *bool               `json:"available,omitempty"`
-	DailyTrend      *[]DailyUsageTrend  `json:"daily_trend,omitempty"`
-	LastWebActivity *string             `json:"last_web_activity"`
-	PageViews       *int                `json:"page_views,omitempty"`
-	TopPages        *[]WebPageVisit     `json:"top_pages,omitempty"`
-	TopSections     *map[string]int     `json:"top_sections,omitempty"`
-	UniqueUsers     *int                `json:"unique_users,omitempty"`
-	UsageHeatmap    *[]UsageHeatmapCell `json:"usage_heatmap,omitempty"`
-	UserActivity    *[]UserWebActivity  `json:"user_activity,omitempty"`
-}
-
-// WebPageVisit defines model for WebPageVisit.
-type WebPageVisit struct {
-	Page           string `json:"page"`
-	UniqueVisitors *int   `json:"unique_visitors,omitempty"`
-	Views          *int   `json:"views,omitempty"`
-}
-
-// WeeklyActivityPoint defines model for WeeklyActivityPoint.
-type WeeklyActivityPoint struct {
-	Completed     *int     `json:"completed,omitempty"`
-	DeviceMinutes *float32 `json:"device_minutes,omitempty"`
-	Failed        *int     `json:"failed,omitempty"`
-	Other         *int     `json:"other,omitempty"`
-	Total         *int     `json:"total,omitempty"`
-	UniqueUsers   *int     `json:"unique_users,omitempty"`
-	Week          string   `json:"week"`
-}
 
 // WeeklyMetrics Weekly metrics for workflow performance.
 type WeeklyMetrics struct {
@@ -10019,14 +9445,6 @@ type YamlToBlocksRequest struct {
 	YamlContent string `json:"yaml_content"`
 }
 
-// AppRoutesAdminRoutesAdminInternalSlackWorkflowInfo Basic workflow info for rule display.
-type AppRoutesAdminRoutesAdminInternalSlackWorkflowInfo struct {
-	Id      openapi_types.UUID  `json:"id"`
-	Name    string              `json:"name"`
-	OrgId   *openapi_types.UUID `json:"org_id"`
-	OrgName *string             `json:"org_name"`
-}
-
 // AppRoutesExecutionRoutesBillingXptSessionHistoryItem defines model for app__routes__execution_routes__billing_xpt__SessionHistoryItem.
 type AppRoutesExecutionRoutesBillingXptSessionHistoryItem struct {
 	BilledAt         string  `json:"billed_at"`
@@ -10145,304 +9563,6 @@ type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 	WorkflowId        openapi_types.UUID `json:"workflow_id"`
 }
 
-// GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams defines parameters for GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGet.
-type GetActiveWorkflowsApiV1AdminDashboardActiveWorkflowsGetParams struct {
-	// OrgId Restrict results to a single organisation
-	OrgId *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-
-	// OrgIds Restrict results to any of these organisations
-	OrgIds *[]string `form:"org_ids,omitempty" json:"org_ids,omitempty"`
-
-	// AllOrgs Return workflows from every organisation (admin only)
-	AllOrgs *bool `form:"all_orgs,omitempty" json:"all_orgs,omitempty"`
-	Limit   *int  `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Status Override default active statuses
-	Status *[]string `form:"status,omitempty" json:"status,omitempty"`
-
-	// UserId Filter by workflow owner
-	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
-
-	// WorkflowId Filter by workflow id
-	WorkflowId *string `form:"workflow_id,omitempty" json:"workflow_id,omitempty"`
-}
-
-// GetActivitySummaryApiV1AdminDashboardActivitySummaryGetParams defines parameters for GetActivitySummaryApiV1AdminDashboardActivitySummaryGet.
-type GetActivitySummaryApiV1AdminDashboardActivitySummaryGetParams struct {
-	// OrgIds Restrict results to the specified organisations
-	OrgIds *[]string `form:"org_ids,omitempty" json:"org_ids,omitempty"`
-}
-
-// DebugTestStatusesApiV1AdminDashboardDebugTestStatusesGetParams defines parameters for DebugTestStatusesApiV1AdminDashboardDebugTestStatusesGet.
-type DebugTestStatusesApiV1AdminDashboardDebugTestStatusesGetParams struct {
-	// Hours Hours to look back
-	Hours *int `form:"hours,omitempty" json:"hours,omitempty"`
-}
-
-// GetKpiMetricsApiV1AdminDashboardKpiGetParams defines parameters for GetKpiMetricsApiV1AdminDashboardKpiGet.
-type GetKpiMetricsApiV1AdminDashboardKpiGetParams struct {
-	// Hours Number of hours to analyze
-	Hours *int `form:"hours,omitempty" json:"hours,omitempty"`
-
-	// OrgId Restrict to a single organisation
-	OrgId *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-
-	// OrgIds Restrict to specific organisations
-	OrgIds *[]string `form:"org_ids,omitempty" json:"org_ids,omitempty"`
-
-	// AllOrgs Include all organisations (admin only)
-	AllOrgs *bool `form:"all_orgs,omitempty" json:"all_orgs,omitempty"`
-
-	// ComparePrevious Calculate trends vs previous period
-	ComparePrevious *bool `form:"compare_previous,omitempty" json:"compare_previous,omitempty"`
-
-	// UseCache Use cached KPI data when available (set false to force refresh)
-	UseCache *bool `form:"use_cache,omitempty" json:"use_cache,omitempty"`
-}
-
-// ListAdminOrgsApiV1AdminDashboardOrgsGetParams defines parameters for ListAdminOrgsApiV1AdminDashboardOrgsGet.
-type ListAdminOrgsApiV1AdminDashboardOrgsGetParams struct {
-	// Search Filter organisations by name substring
-	Search *string `form:"search,omitempty" json:"search,omitempty"`
-
-	// PageSize Results per page (max 100, PropelAuth limit)
-	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
-
-	// PageNumber Page number (0-indexed)
-	PageNumber *int `form:"page_number,omitempty" json:"page_number,omitempty"`
-}
-
-// StreamAdminTestsApiV1AdminDashboardStreamTestsGetParams defines parameters for StreamAdminTestsApiV1AdminDashboardStreamTestsGet.
-type StreamAdminTestsApiV1AdminDashboardStreamTestsGetParams struct {
-	// OrgId Restrict results to a single organisation
-	OrgId *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-
-	// OrgIds Restrict results to any of these organisations
-	OrgIds *[]string `form:"org_ids,omitempty" json:"org_ids,omitempty"`
-
-	// AllOrgs Return test executions from every organisation (admin only)
-	AllOrgs *bool `form:"all_orgs,omitempty" json:"all_orgs,omitempty"`
-
-	// Status Filter by execution status
-	Status *[]string `form:"status,omitempty" json:"status,omitempty"`
-
-	// UserId Filter by user
-	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
-
-	// TestId Filter by test id
-	TestId *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-
-	// WorkflowTaskId Filter by parent workflow task id
-	WorkflowTaskId *string `form:"workflow_task_id,omitempty" json:"workflow_task_id,omitempty"`
-
-	// Success Filter by success state
-	Success *bool `form:"success,omitempty" json:"success,omitempty"`
-
-	// FromTime ISO timestamp inclusive lower bound
-	FromTime *time.Time `form:"from_time,omitempty" json:"from_time,omitempty"`
-
-	// ToTime ISO timestamp inclusive upper bound
-	ToTime *time.Time `form:"to_time,omitempty" json:"to_time,omitempty"`
-	Limit  *int       `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// PollInterval Seconds between polling snapshots
-	PollInterval *float32 `form:"poll_interval,omitempty" json:"poll_interval,omitempty"`
-}
-
-// StreamAdminWorkflowsApiV1AdminDashboardStreamWorkflowsGetParams defines parameters for StreamAdminWorkflowsApiV1AdminDashboardStreamWorkflowsGet.
-type StreamAdminWorkflowsApiV1AdminDashboardStreamWorkflowsGetParams struct {
-	// OrgId Restrict results to a single organisation
-	OrgId *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-
-	// OrgIds Restrict results to any of these organisations
-	OrgIds *[]string `form:"org_ids,omitempty" json:"org_ids,omitempty"`
-
-	// AllOrgs Return workflows from every organisation (admin only)
-	AllOrgs *bool `form:"all_orgs,omitempty" json:"all_orgs,omitempty"`
-
-	// Status Override default active statuses
-	Status *[]string `form:"status,omitempty" json:"status,omitempty"`
-
-	// UserId Filter by workflow owner
-	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
-
-	// WorkflowId Filter by workflow id
-	WorkflowId *string `form:"workflow_id,omitempty" json:"workflow_id,omitempty"`
-	Limit      *int    `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// PollInterval Seconds between polling snapshots
-	PollInterval *float32 `form:"poll_interval,omitempty" json:"poll_interval,omitempty"`
-}
-
-// GetDashboardSummaryApiV1AdminDashboardSummaryGetParams defines parameters for GetDashboardSummaryApiV1AdminDashboardSummaryGet.
-type GetDashboardSummaryApiV1AdminDashboardSummaryGetParams struct {
-	// Hours Number of hours to summarise
-	Hours *int `form:"hours,omitempty" json:"hours,omitempty"`
-
-	// OrgId Restrict results to a single organisation
-	OrgId *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-
-	// OrgIds Restrict results to any of these organisations
-	OrgIds *[]string `form:"org_ids,omitempty" json:"org_ids,omitempty"`
-
-	// AllOrgs Include all organisations (admin only)
-	AllOrgs *bool `form:"all_orgs,omitempty" json:"all_orgs,omitempty"`
-}
-
-// GetTestExecutionsApiV1AdminDashboardTestExecutionsGetParams defines parameters for GetTestExecutionsApiV1AdminDashboardTestExecutionsGet.
-type GetTestExecutionsApiV1AdminDashboardTestExecutionsGetParams struct {
-	// OrgId Restrict results to a single organisation
-	OrgId *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-
-	// OrgIds Restrict results to any of these organisations
-	OrgIds *[]string `form:"org_ids,omitempty" json:"org_ids,omitempty"`
-
-	// AllOrgs Return test executions from every organisation (admin only)
-	AllOrgs *bool `form:"all_orgs,omitempty" json:"all_orgs,omitempty"`
-	Limit   *int  `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Status Filter by execution status
-	Status *[]string `form:"status,omitempty" json:"status,omitempty"`
-
-	// FromTime ISO timestamp inclusive lower bound; defaults to last 24 hours
-	FromTime *time.Time `form:"from_time,omitempty" json:"from_time,omitempty"`
-
-	// ToTime ISO timestamp inclusive upper bound
-	ToTime *time.Time `form:"to_time,omitempty" json:"to_time,omitempty"`
-
-	// Cursor Pagination cursor based on started_at (exclusive)
-	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
-
-	// UserId Filter by user
-	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
-
-	// TestId Filter by test id
-	TestId *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-
-	// WorkflowTaskId Filter by parent workflow task id
-	WorkflowTaskId *string `form:"workflow_task_id,omitempty" json:"workflow_task_id,omitempty"`
-
-	// Success Filter by success status
-	Success *bool `form:"success,omitempty" json:"success,omitempty"`
-}
-
-// TestStatusDebugApiV1AdminDashboardTestStatusDebugGetParams defines parameters for TestStatusDebugApiV1AdminDashboardTestStatusDebugGet.
-type TestStatusDebugApiV1AdminDashboardTestStatusDebugGetParams struct {
-	Hours *int `form:"hours,omitempty" json:"hours,omitempty"`
-}
-
-// GetTestsByOrgApiV1AdminDashboardTestsByOrgGetParams defines parameters for GetTestsByOrgApiV1AdminDashboardTestsByOrgGet.
-type GetTestsByOrgApiV1AdminDashboardTestsByOrgGetParams struct {
-	// OrgId Organization ID to fetch tests for
-	OrgId string `form:"org_id" json:"org_id"`
-
-	// IncludeDeleted Include soft-deleted tests
-	IncludeDeleted *bool `form:"include_deleted,omitempty" json:"include_deleted,omitempty"`
-
-	// UseOtherEnv Query the other environment's database (staging if on prod, production if on staging)
-	UseOtherEnv *bool `form:"use_other_env,omitempty" json:"use_other_env,omitempty"`
-
-	// Limit Maximum tests to return
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Offset Offset for pagination
-	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
-}
-
-// GetWorkflowHistoryApiV1AdminDashboardWorkflowRunsGetParams defines parameters for GetWorkflowHistoryApiV1AdminDashboardWorkflowRunsGet.
-type GetWorkflowHistoryApiV1AdminDashboardWorkflowRunsGetParams struct {
-	// OrgId Restrict results to a single organisation
-	OrgId *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-
-	// OrgIds Restrict results to any of these organisations
-	OrgIds *[]string `form:"org_ids,omitempty" json:"org_ids,omitempty"`
-
-	// AllOrgs Return workflows from every organisation (admin only)
-	AllOrgs *bool `form:"all_orgs,omitempty" json:"all_orgs,omitempty"`
-	Limit   *int  `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Status Filter by workflow status (defaults to completed states)
-	Status *[]string `form:"status,omitempty" json:"status,omitempty"`
-
-	// FromTime ISO timestamp inclusive lower bound; defaults to last 24 hours
-	FromTime *time.Time `form:"from_time,omitempty" json:"from_time,omitempty"`
-
-	// ToTime ISO timestamp inclusive upper bound
-	ToTime *time.Time `form:"to_time,omitempty" json:"to_time,omitempty"`
-
-	// Cursor Pagination cursor based on started_at (exclusive, RFC3339)
-	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
-
-	// UserId Filter by workflow owner
-	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
-
-	// WorkflowId Filter by workflow id
-	WorkflowId *string `form:"workflow_id,omitempty" json:"workflow_id,omitempty"`
-
-	// Success Filter by success flag
-	Success *bool `form:"success,omitempty" json:"success,omitempty"`
-}
-
-// GetWorkflowsByOrgApiV1AdminDashboardWorkflowsByOrgGetParams defines parameters for GetWorkflowsByOrgApiV1AdminDashboardWorkflowsByOrgGet.
-type GetWorkflowsByOrgApiV1AdminDashboardWorkflowsByOrgGetParams struct {
-	// OrgId Organization ID to fetch workflows for
-	OrgId string `form:"org_id" json:"org_id"`
-
-	// IncludeDeleted Include soft-deleted workflows
-	IncludeDeleted *bool `form:"include_deleted,omitempty" json:"include_deleted,omitempty"`
-
-	// UseOtherEnv Query the other environment's database (staging if on prod, production if on staging)
-	UseOtherEnv *bool `form:"use_other_env,omitempty" json:"use_other_env,omitempty"`
-
-	// Limit Maximum workflows to return
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Offset Offset for pagination
-	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
-}
-
-// DeleteTestExecutionTaskApiV1AdminManagementTestExecutionTaskTaskIdDeleteJSONBody defines parameters for DeleteTestExecutionTaskApiV1AdminManagementTestExecutionTaskTaskIdDelete.
-type DeleteTestExecutionTaskApiV1AdminManagementTestExecutionTaskTaskIdDeleteJSONBody = string
-
-// DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONBody defines parameters for DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDelete.
-type DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONBody = string
-
-// CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody defines parameters for CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatch.
-type CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody = string
-
-// ListAdminOnboardingOrgsApiV1AdminOnboardingOrgsGetParams defines parameters for ListAdminOnboardingOrgsApiV1AdminOnboardingOrgsGet.
-type ListAdminOnboardingOrgsApiV1AdminOnboardingOrgsGetParams struct {
-	// Name Filter organisations by name substring
-	Name *string `form:"name,omitempty" json:"name,omitempty"`
-
-	// PageSize Results per page (max 100, PropelAuth limit)
-	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
-
-	// PageNumber Page number (0-indexed)
-	PageNumber *int `form:"page_number,omitempty" json:"page_number,omitempty"`
-}
-
-// GetOrgSessionBillingApiV1AdminOrgAnalyticsOrgsOrgIdSessionsGetParams defines parameters for GetOrgSessionBillingApiV1AdminOrgAnalyticsOrgsOrgIdSessionsGet.
-type GetOrgSessionBillingApiV1AdminOrgAnalyticsOrgsOrgIdSessionsGetParams struct {
-	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
-}
-
-// GetAllUsersApiV1AdminOrgAnalyticsUsersGetParams defines parameters for GetAllUsersApiV1AdminOrgAnalyticsUsersGet.
-type GetAllUsersApiV1AdminOrgAnalyticsUsersGetParams struct {
-	// IncludeInactive If true, also union in PropelAuth users who have never run a session (signed up but never activated). They appear with session_count=0 and null metrics.
-	IncludeInactive *bool `form:"include_inactive,omitempty" json:"include_inactive,omitempty"`
-
-	// OrgId Optional organization id to scope returned users.
-	OrgId *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-
-	// Limit Optional cap on the number of rows returned. Default is no cap (current behavior). `total` always reflects the full row count regardless of pagination.
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
-
-	// Offset Row offset for pagination. Ignored when limit is unset.
-	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
-}
-
 // ListAppsApiV1AppsGetParams defines parameters for ListAppsApiV1AppsGet.
 type ListAppsApiV1AppsGetParams struct {
 	// Platform Filter by platform
@@ -10471,6 +9591,16 @@ type GetBuildRunsApiV1AppsBuildsVersionIdRunsGetParams struct {
 
 	// PageSize Number of items per page (max 100)
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
+// ListRemoteBuildsApiV1AppsRemoteGetParams defines parameters for ListRemoteBuildsApiV1AppsRemoteGet.
+type ListRemoteBuildsApiV1AppsRemoteGetParams struct {
+	// AppId App to list build jobs for.
+	AppId openapi_types.UUID `form:"app_id" json:"app_id"`
+
+	// ActiveOnly When true, only return queued or running build jobs.
+	ActiveOnly *bool `form:"active_only,omitempty" json:"active_only,omitempty"`
+	Limit      *int  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListBuildImagesApiV1AppsRemoteBuildImagesGetParams defines parameters for ListBuildImagesApiV1AppsRemoteBuildImagesGet.
@@ -10565,6 +9695,42 @@ type GetTestMatrixApiV1AppsAppIdTestMatrixGetParams struct {
 type GetAppWorkspaceApiV1AppsAppIdWorkspaceGetParams struct {
 	// TrendDays Trend window in days
 	TrendDays *int `form:"trend_days,omitempty" json:"trend_days,omitempty"`
+}
+
+// ListAgentsApiV1AtlasAgentsGetParams defines parameters for ListAgentsApiV1AtlasAgentsGet.
+type ListAgentsApiV1AtlasAgentsGetParams struct {
+	// AppId Atlas app id to list runs for
+	AppId string `form:"app_id" json:"app_id"`
+
+	// Provider Cloud agent provider
+	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
+}
+
+// ResolveAppRepositoryApiV1AtlasAgentsRepositoryGetParams defines parameters for ResolveAppRepositoryApiV1AtlasAgentsRepositoryGet.
+type ResolveAppRepositoryApiV1AtlasAgentsRepositoryGetParams struct {
+	// AppId Atlas app id to resolve a repo for
+	AppId string `form:"app_id" json:"app_id"`
+
+	// Platform Optional platform hint to disambiguate
+	Platform *string `form:"platform,omitempty" json:"platform,omitempty"`
+}
+
+// GetAgentApiV1AtlasAgentsBcIdGetParams defines parameters for GetAgentApiV1AtlasAgentsBcIdGet.
+type GetAgentApiV1AtlasAgentsBcIdGetParams struct {
+	// Provider Cloud agent provider
+	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
+}
+
+// CancelAgentApiV1AtlasAgentsBcIdCancelPostParams defines parameters for CancelAgentApiV1AtlasAgentsBcIdCancelPost.
+type CancelAgentApiV1AtlasAgentsBcIdCancelPostParams struct {
+	// Provider Cloud agent provider
+	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
+}
+
+// SendAgentMessageApiV1AtlasAgentsBcIdMessagesPostParams defines parameters for SendAgentMessageApiV1AtlasAgentsBcIdMessagesPost.
+type SendAgentMessageApiV1AtlasAgentsBcIdMessagesPostParams struct {
+	// Provider Cloud agent provider
+	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
 }
 
 // CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGetParams defines parameters for CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGet.
@@ -11415,39 +10581,6 @@ type GetAndroidTaskCountInternalAndroidTaskCountGetParams struct {
 	Env Environment `form:"env" json:"env"`
 }
 
-// CopyTestToBenchmarksApiV1AdminDashboardCopyToBenchmarksPostJSONRequestBody defines body for CopyTestToBenchmarksApiV1AdminDashboardCopyToBenchmarksPost for application/json ContentType.
-type CopyTestToBenchmarksApiV1AdminDashboardCopyToBenchmarksPostJSONRequestBody = CopyTestToBenchmarksRequest
-
-// CopyWorkflowToBenchmarksApiV1AdminDashboardCopyWorkflowToBenchmarksPostJSONRequestBody defines body for CopyWorkflowToBenchmarksApiV1AdminDashboardCopyWorkflowToBenchmarksPost for application/json ContentType.
-type CopyWorkflowToBenchmarksApiV1AdminDashboardCopyWorkflowToBenchmarksPostJSONRequestBody = CopyWorkflowToBenchmarksRequest
-
-// CreateInternalSlackRuleApiV1AdminDashboardInternalSlackRulesPostJSONRequestBody defines body for CreateInternalSlackRuleApiV1AdminDashboardInternalSlackRulesPost for application/json ContentType.
-type CreateInternalSlackRuleApiV1AdminDashboardInternalSlackRulesPostJSONRequestBody = CreateInternalSlackRuleRequest
-
-// UpdateInternalSlackRuleApiV1AdminDashboardInternalSlackRulesRuleIdPatchJSONRequestBody defines body for UpdateInternalSlackRuleApiV1AdminDashboardInternalSlackRulesRuleIdPatch for application/json ContentType.
-type UpdateInternalSlackRuleApiV1AdminDashboardInternalSlackRulesRuleIdPatchJSONRequestBody = UpdateInternalSlackRuleRequest
-
-// BulkDeleteTestExecutionTasksApiV1AdminManagementBulkDeleteTestExecutionTasksPostJSONRequestBody defines body for BulkDeleteTestExecutionTasksApiV1AdminManagementBulkDeleteTestExecutionTasksPost for application/json ContentType.
-type BulkDeleteTestExecutionTasksApiV1AdminManagementBulkDeleteTestExecutionTasksPostJSONRequestBody = BulkDeleteTasksRequest
-
-// BulkDeleteWorkflowTasksApiV1AdminManagementBulkDeleteWorkflowTasksPostJSONRequestBody defines body for BulkDeleteWorkflowTasksApiV1AdminManagementBulkDeleteWorkflowTasksPost for application/json ContentType.
-type BulkDeleteWorkflowTasksApiV1AdminManagementBulkDeleteWorkflowTasksPostJSONRequestBody = BulkDeleteTasksRequest
-
-// DeleteTestExecutionTaskApiV1AdminManagementTestExecutionTaskTaskIdDeleteJSONRequestBody defines body for DeleteTestExecutionTaskApiV1AdminManagementTestExecutionTaskTaskIdDelete for application/json ContentType.
-type DeleteTestExecutionTaskApiV1AdminManagementTestExecutionTaskTaskIdDeleteJSONRequestBody = DeleteTestExecutionTaskApiV1AdminManagementTestExecutionTaskTaskIdDeleteJSONBody
-
-// DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONRequestBody defines body for DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDelete for application/json ContentType.
-type DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONRequestBody = DeleteWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdDeleteJSONBody
-
-// CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONRequestBody defines body for CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatch for application/json ContentType.
-type CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONRequestBody = CancelWorkflowTaskApiV1AdminManagementWorkflowTaskTaskIdCancelPatchJSONBody
-
-// UpdateAdminOnboardingOrgStateApiV1AdminOnboardingOrgsOrgIdStatePatchJSONRequestBody defines body for UpdateAdminOnboardingOrgStateApiV1AdminOnboardingOrgsOrgIdStatePatch for application/json ContentType.
-type UpdateAdminOnboardingOrgStateApiV1AdminOnboardingOrgsOrgIdStatePatchJSONRequestBody = AdminUpdateOnboardingStateRequest
-
-// ExemptSessionFromBillingApiV1AdminOrgAnalyticsSessionsSessionIdBillingExemptionPostJSONRequestBody defines body for ExemptSessionFromBillingApiV1AdminOrgAnalyticsSessionsSessionIdBillingExemptionPost for application/json ContentType.
-type ExemptSessionFromBillingApiV1AdminOrgAnalyticsSessionsSessionIdBillingExemptionPostJSONRequestBody = SessionBillingExemptionRequest
-
 // CreateAppApiV1AppsPostJSONRequestBody defines body for CreateAppApiV1AppsPost for application/json ContentType.
 type CreateAppApiV1AppsPostJSONRequestBody = AppCreateRequest
 
@@ -11501,6 +10634,12 @@ type StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody =
 
 // CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostJSONRequestBody defines body for CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPost for application/json ContentType.
 type CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostJSONRequestBody = BuildUploadSessionRequest
+
+// SpawnAgentApiV1AtlasAgentsPostJSONRequestBody defines body for SpawnAgentApiV1AtlasAgentsPost for application/json ContentType.
+type SpawnAgentApiV1AtlasAgentsPostJSONRequestBody = SpawnAgentRequest
+
+// SendAgentMessageApiV1AtlasAgentsBcIdMessagesPostJSONRequestBody defines body for SendAgentMessageApiV1AtlasAgentsBcIdMessagesPost for application/json ContentType.
+type SendAgentMessageApiV1AtlasAgentsBcIdMessagesPostJSONRequestBody = SendMessageRequest
 
 // UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatchJSONRequestBody defines body for UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatch for application/json ContentType.
 type UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatchJSONRequestBody = AtlasV2CurationRequest
@@ -11681,6 +10820,9 @@ type RecordApprovalDecisionApiV1HitlRecordDecisionPostJSONRequestBody = HITLAppr
 
 // CreateHotreloadRelayApiV1HotreloadRelaysPostJSONRequestBody defines body for CreateHotreloadRelayApiV1HotreloadRelaysPost for application/json ContentType.
 type CreateHotreloadRelayApiV1HotreloadRelaysPostJSONRequestBody = HotReloadRelayCreateRequest
+
+// ConnectCursorApiV1IntegrationsCursorConnectPostJSONRequestBody defines body for ConnectCursorApiV1IntegrationsCursorConnectPost for application/json ContentType.
+type ConnectCursorApiV1IntegrationsCursorConnectPostJSONRequestBody = ConnectCursorRequest
 
 // ListExpoBuildsEndpointApiV1IntegrationsExpoBuildsPostJSONRequestBody defines body for ListExpoBuildsEndpointApiV1IntegrationsExpoBuildsPost for application/json ContentType.
 type ListExpoBuildsEndpointApiV1IntegrationsExpoBuildsPostJSONRequestBody = ListExpoBuildsRequest

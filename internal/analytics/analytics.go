@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/revyl/cli/internal/agentinfo"
 	"github.com/revyl/cli/internal/auth"
 )
 
@@ -75,7 +76,7 @@ func NewWithFlusher(cfg Config, flush func(TelemetryPayload)) *Recorder {
 	if ciProvider := detectCIProvider(); ciProvider != "" {
 		baseProps["ci_provider"] = ciProvider
 	}
-	if agent := detectAgent(); agent.Name != "" {
+	if agent := agentinfo.Detect(); agent.Name != "" {
 		baseProps["agent"] = agent.Name
 		if agent.SessionID != "" {
 			baseProps["agent_session_id"] = sanitizeString(agent.SessionID)
@@ -195,34 +196,5 @@ func detectCIProvider() string {
 		return "generic"
 	default:
 		return ""
-	}
-}
-
-type agentInfo struct {
-	Name       string
-	SessionID  string
-	Originator string
-	Remote     bool
-}
-
-func detectAgent() agentInfo {
-	switch {
-	case os.Getenv("CODEX_SHELL") != "" || os.Getenv("CODEX_CI") != "" || strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")) != "":
-		return agentInfo{
-			Name:       "codex",
-			SessionID:  strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")),
-			Originator: strings.TrimSpace(os.Getenv("CODEX_INTERNAL_ORIGINATOR_OVERRIDE")),
-		}
-	case os.Getenv("CURSOR_AGENT") == "1":
-		return agentInfo{
-			Name:       "cursor",
-			Originator: strings.TrimSpace(os.Getenv("CURSOR_EXTENSION_HOST_ROLE")),
-		}
-	case os.Getenv("CLAUDE_CODE_REMOTE") == "true":
-		return agentInfo{Name: "claude_code", Remote: true}
-	case os.Getenv("CLAUDECODE") != "":
-		return agentInfo{Name: "claude_code"}
-	default:
-		return agentInfo{}
 	}
 }
