@@ -153,6 +153,7 @@ func init() {
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(workflowCmd)
+	rootCmd.AddCommand(sessionCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(githubCmd)
 	rootCmd.AddCommand(globalCmd)

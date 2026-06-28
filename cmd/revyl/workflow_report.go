@@ -24,6 +24,7 @@ var (
 	wfReportNoTests     bool
 	wfShareOutputJSON   bool
 	wfShareOpen         bool
+	wfShareExpires      string
 )
 
 func init() {
@@ -39,6 +40,7 @@ func init() {
 
 	workflowShareCmd.Flags().BoolVar(&wfShareOutputJSON, "json", false, "Output results as JSON")
 	workflowShareCmd.Flags().BoolVar(&wfShareOpen, "open", false, "Open shareable link in browser")
+	workflowShareCmd.Flags().StringVar(&wfShareExpires, "expires", "", "Link expiry, e.g. 24h, 30d, 4w (default: never)")
 }
 
 // workflowStatusCmd shows the latest execution status for a workflow.
@@ -822,6 +824,12 @@ func runWorkflowShare(cmd *cobra.Command, args []string) error {
 
 	nameOrID := args[0]
 
+	expirationHours, err := parseExpirationFlag(wfShareExpires)
+	if err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
+
 	if jsonOutput {
 		ui.SetQuietMode(true)
 		defer ui.SetQuietMode(false)
@@ -838,20 +846,20 @@ func runWorkflowShare(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not resolve workflow execution")
 	}
 
-	// Build shareable URL using the app URL since the backend
-	// generate_shareable_link endpoint requires an Origin header
-	// that the CLI doesn't send. We construct the link client-side.
-	appURL := config.GetAppURL(devMode)
-	shareURL := fmt.Sprintf("%s/workflows/report?taskId=%s", appURL, taskID)
-
+	shareResp, err := client.GenerateWorkflowShareableLink(cmd.Context(), taskID, config.GetAppURL(devMode), expirationHours)
 	if !jsonOutput {
 		ui.StopSpinner()
 	}
 
+	if err != nil {
+		ui.PrintError("Failed to generate shareable link: %v", err)
+		return err
+	}
+
 	if jsonOutput {
 		output := map[string]interface{}{
-			"task_id":    taskID,
-			"report_url": shareURL,
+			"task_id":        taskID,
+			"shareable_link": shareResp.ShareableLink,
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(data))
@@ -859,12 +867,12 @@ func runWorkflowShare(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.Println()
-	ui.PrintSuccess("Report link generated")
+	ui.PrintSuccess("Shareable link generated")
 	ui.Println()
-	ui.PrintLink("Link", shareURL)
+	ui.PrintLink("Link", shareResp.ShareableLink)
 
 	if wfShareOpen {
-		ui.OpenBrowser(shareURL)
+		ui.OpenBrowser(shareResp.ShareableLink)
 	}
 
 	return nil

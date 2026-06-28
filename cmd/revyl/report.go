@@ -23,6 +23,7 @@ var (
 	reportNoSteps    bool
 	shareOutputJSON  bool
 	shareOpen        bool
+	shareExpires     string
 )
 
 var internalReportJSONKeys = map[string]struct{}{
@@ -45,6 +46,7 @@ func init() {
 
 	testShareCmd.Flags().BoolVar(&shareOutputJSON, "json", false, "Output results as JSON")
 	testShareCmd.Flags().BoolVar(&shareOpen, "open", false, "Open shareable link in browser")
+	testShareCmd.Flags().StringVar(&shareExpires, "expires", "", "Link expiry, e.g. 24h, 30d, 4w (default: never)")
 }
 
 // testReportCmd shows a detailed report for a test execution.
@@ -271,7 +273,7 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to parse report JSON: %w", err)
 		}
 
-		shareResp, shareErr := client.GenerateShareableLink(cmd.Context(), taskID)
+		shareResp, shareErr := client.GenerateShareableLink(cmd.Context(), taskID, config.GetAppURL(devMode), nil)
 		if shareErr == nil {
 			output["shareable_link"] = shareResp.ShareableLink
 		}
@@ -427,7 +429,7 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 	// Handle --share flag
 	if reportShare {
 		ui.StartSpinner("Generating shareable link...")
-		shareResp, shareErr := client.GenerateShareableLink(cmd.Context(), taskID)
+		shareResp, shareErr := client.GenerateShareableLink(cmd.Context(), taskID, config.GetAppURL(devMode), nil)
 		ui.StopSpinner()
 
 		if shareErr != nil {
@@ -462,6 +464,12 @@ func runTestShare(cmd *cobra.Command, args []string) error {
 
 	nameOrID := args[0]
 
+	expirationHours, err := parseExpirationFlag(shareExpires)
+	if err != nil {
+		ui.PrintError("%v", err)
+		return err
+	}
+
 	if jsonOutput {
 		ui.SetQuietMode(true)
 		defer ui.SetQuietMode(false)
@@ -478,7 +486,7 @@ func runTestShare(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not resolve execution")
 	}
 
-	shareResp, err := client.GenerateShareableLink(cmd.Context(), taskID)
+	shareResp, err := client.GenerateShareableLink(cmd.Context(), taskID, config.GetAppURL(devMode), expirationHours)
 	if !jsonOutput {
 		ui.StopSpinner()
 	}

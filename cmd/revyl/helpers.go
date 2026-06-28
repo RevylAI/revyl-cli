@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -220,6 +221,37 @@ func writeProjectConfigIfNeeded(path string, cfg *config.ProjectConfig) error {
 //   - bool: True if the string has UUID-like structure
 func looksLikeUUID(s string) bool {
 	return workflowref.IsUUID(s)
+}
+
+// parseExpirationFlag parses a human-friendly --expires value into a number of
+// hours for the share endpoints. Accepts forms like "24h", "30d", "4w", or
+// "never" (case-insensitive). An empty string, "never", or "0" yields nil,
+// meaning the link never expires (the backend default).
+func parseExpirationFlag(s string) (*int, error) {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" || s == "never" || s == "0" {
+		return nil, nil
+	}
+
+	var perUnitHours int
+	switch s[len(s)-1] {
+	case 'h':
+		perUnitHours = 1
+	case 'd':
+		perUnitHours = 24
+	case 'w':
+		perUnitHours = 24 * 7
+	default:
+		return nil, fmt.Errorf("invalid --expires value %q (use e.g. 24h, 30d, 4w, or never)", s)
+	}
+
+	n, err := strconv.Atoi(s[:len(s)-1])
+	if err != nil || n <= 0 {
+		return nil, fmt.Errorf("invalid --expires value %q (use e.g. 24h, 30d, 4w, or never)", s)
+	}
+
+	hours := n * perUnitHours
+	return &hours, nil
 }
 
 // resolveTestID resolves a test name or ID to a test UUID and display name.

@@ -305,6 +305,17 @@ func newMockAPIServer(t *testing.T) *httptest.Server {
 		})
 	})
 
+	// POST /api/v1/workflows/share/generate_shareable_link
+	mux.HandleFunc("/api/v1/workflows/share/generate_shareable_link", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&body)
+		taskID, _ := body["workflow_task_id"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"shareable_link": fmt.Sprintf("https://app.revyl.ai/workflows/report?token=%s", taskID),
+		})
+	})
+
 	// GET /api/v1/workflows/get_with_last_status (ListWorkflows)
 	mux.HandleFunc("/api/v1/workflows/get_with_last_status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1288,10 +1299,10 @@ func TestWorkflowShareJSON(t *testing.T) {
 
 	result := parseJSON(t, output)
 	assertJSONKey(t, result, "task_id")
-	assertJSONKey(t, result, "report_url")
+	assertJSONKey(t, result, "shareable_link")
 
-	reportURL := result["report_url"].(string)
-	if !strings.Contains(reportURL, "workflows/report") {
-		t.Errorf("expected report_url to contain 'workflows/report', got: %s", reportURL)
+	link := result["shareable_link"].(string)
+	if !strings.Contains(link, "workflows/report") {
+		t.Errorf("expected shareable_link to contain 'workflows/report', got: %s", link)
 	}
 }

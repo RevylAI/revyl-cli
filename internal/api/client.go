@@ -5072,6 +5072,23 @@ func (c *Client) GetDeviceLogsDownloadURL(ctx context.Context, reportID string) 
 // CLIShareableLinkRequest represents a request to generate a shareable report link.
 type CLIShareableLinkRequest struct {
 	TaskID          string `json:"task_id"`
+	Origin          string `json:"origin,omitempty"`
+	ExpirationHours *int   `json:"expiration_hours"`
+}
+
+// CLIShareableSessionLinkRequest represents a request to generate a shareable
+// device-session report link.
+type CLIShareableSessionLinkRequest struct {
+	SessionID       string `json:"session_id"`
+	Origin          string `json:"origin,omitempty"`
+	ExpirationHours *int   `json:"expiration_hours"`
+}
+
+// CLIWorkflowShareableLinkRequest represents a request to generate a shareable
+// workflow report link.
+type CLIWorkflowShareableLinkRequest struct {
+	WorkflowTaskID  string `json:"workflow_task_id"`
+	Origin          string `json:"origin,omitempty"`
 	ExpirationHours *int   `json:"expiration_hours"`
 }
 
@@ -5080,19 +5097,22 @@ type CLIShareableLinkResponse struct {
 	ShareableLink string `json:"shareable_link"`
 }
 
-// GenerateShareableLink creates a shareable link for a test execution report.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - taskID: The execution task ID
-//
-// Returns:
-//   - *CLIShareableLinkResponse: The shareable link
-//   - error: Any error that occurred
-func (c *Client) GenerateShareableLink(ctx context.Context, taskID string) (*CLIShareableLinkResponse, error) {
+// CLIWorkflowShareableLinkResponse represents the workflow share response, which
+// can also report how many child test links were created.
+type CLIWorkflowShareableLinkResponse struct {
+	ShareableLink     string `json:"shareable_link"`
+	ChildLinksCreated *int   `json:"child_links_created,omitempty"`
+}
+
+// GenerateShareableLink creates a public shareable link for a test execution
+// report. origin is the front-end app URL (e.g. https://app.revyl.ai); the
+// backend validates it against an allowlist and uses it as the link base.
+// expirationHours is nil for a link that never expires.
+func (c *Client) GenerateShareableLink(ctx context.Context, taskID, origin string, expirationHours *int) (*CLIShareableLinkResponse, error) {
 	req := &CLIShareableLinkRequest{
 		TaskID:          taskID,
-		ExpirationHours: nil,
+		Origin:          origin,
+		ExpirationHours: expirationHours,
 	}
 
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/report/async-run/generate_shareable_report_link_by_task", req)
@@ -5101,6 +5121,50 @@ func (c *Client) GenerateShareableLink(ctx context.Context, taskID string) (*CLI
 	}
 
 	var result CLIShareableLinkResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GenerateShareableSessionLink creates a public shareable link for a device
+// session report. See GenerateShareableLink for the origin/expiration contract.
+func (c *Client) GenerateShareableSessionLink(ctx context.Context, sessionID, origin string, expirationHours *int) (*CLIShareableLinkResponse, error) {
+	req := &CLIShareableSessionLinkRequest{
+		SessionID:       sessionID,
+		Origin:          origin,
+		ExpirationHours: expirationHours,
+	}
+
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/report/async-run/generate_shareable_report_link_by_session", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIShareableLinkResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// GenerateWorkflowShareableLink creates a public shareable link for a workflow
+// execution report. See GenerateShareableLink for the origin/expiration contract.
+func (c *Client) GenerateWorkflowShareableLink(ctx context.Context, workflowTaskID, origin string, expirationHours *int) (*CLIWorkflowShareableLinkResponse, error) {
+	req := &CLIWorkflowShareableLinkRequest{
+		WorkflowTaskID:  workflowTaskID,
+		Origin:          origin,
+		ExpirationHours: expirationHours,
+	}
+
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/workflows/share/generate_shareable_link", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var result CLIWorkflowShareableLinkResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
