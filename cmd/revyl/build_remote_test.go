@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,12 +30,43 @@ func withFastRemoteBuildPolling(t *testing.T) {
 func remoteBuildStatusServer(t *testing.T, status api.RemoteBuildStatusResponse) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/apps/remote/job-1/status" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(status); err != nil {
-			t.Fatalf("failed to encode response: %v", err)
+		switch r.URL.Path {
+		case "/api/v1/apps/remote/job-1/status":
+			if err := json.NewEncoder(w).Encode(status); err != nil {
+				t.Fatalf("failed to encode response: %v", err)
+			}
+		case "/api/v1/apps/remote/job-1/logs":
+			events := []api.RemoteBuildLogEvent{}
+			nextCursor := ""
+			if status.LogsTail != nil {
+				for i, line := range strings.Split(*status.LogsTail, "\n") {
+					if strings.TrimSpace(line) == "" {
+						continue
+					}
+					level := "info"
+					lower := strings.ToLower(line)
+					if strings.Contains(lower, "error:") {
+						level = "error"
+					} else if strings.Contains(lower, "warning:") {
+						level = "warning"
+					}
+					nextCursor = strconv.Itoa(i+1) + "-0"
+					events = append(events, api.RemoteBuildLogEvent{
+						Id:      nextCursor,
+						Level:   &level,
+						Message: line,
+					})
+				}
+			}
+			if err := json.NewEncoder(w).Encode(api.RemoteBuildLogsResponse{
+				Events:     &events,
+				NextCursor: &nextCursor,
+			}); err != nil {
+				t.Fatalf("failed to encode response: %v", err)
+			}
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
 }
@@ -123,6 +155,31 @@ func TestPollRemoteBuildStatusResultPrintsFailureLogTail(t *testing.T) {
 	}
 	if !strings.Contains(output, "--- Build log tail ---") || !strings.Contains(output, "no such module 'DemoKit'") {
 		t.Fatalf("output did not include failure log tail:\n%s", output)
+	}
+}
+
+func TestPrintRemoteBuildStatusSummaryPrintsStatusAfterLogs(t *testing.T) {
+	logs := "first log line\n** BUILD SUCCEEDED **"
+	platform := "ios"
+	versionID := "version-1"
+	output := captureStdoutAndStderr(t, func() {
+		printRemoteBuildStatusSummary(&api.RemoteBuildStatusResponse{
+			Status:    "success",
+			Platform:  &platform,
+			VersionId: &versionID,
+			LogsTail:  &logs,
+		})
+	})
+
+	logIndex := strings.LastIndex(output, "** BUILD SUCCEEDED **")
+	statusIndex := strings.LastIndex(output, "Status:")
+	if logIndex == -1 || statusIndex == -1 || statusIndex < logIndex {
+		t.Fatalf("status should print after logs:\n%s", output)
+	}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	lastLine := lines[len(lines)-1]
+	if !strings.Contains(lastLine, "Status:") || !strings.Contains(lastLine, "success") {
+		t.Fatalf("last line = %q, want final status", lastLine)
 	}
 }
 

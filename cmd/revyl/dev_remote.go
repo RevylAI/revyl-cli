@@ -527,18 +527,29 @@ func pollRemoteBuildStatusResultWithTimeout(ctx context.Context, client *api.Cli
 	defer ticker.Stop()
 
 	lastStatus := ""
-	lastLogLines := 0
+	logCursor := "0-0"
+	logFormatter := &remoteBuildLogFormatter{}
 	startTime := time.Now()
+	if !ui.IsDebugMode() {
+		ui.StartSpinner("Build queued")
+		defer ui.StopSpinner()
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
+			if !ui.IsDebugMode() {
+				ui.StopSpinner()
+			}
 			cancelCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			_ = client.CancelRemoteBuild(cancelCtx, jobID)
 			return nil, ctx.Err()
 		case <-ticker.C:
 			if time.Since(startTime) > timeout {
+				if !ui.IsDebugMode() {
+					ui.StopSpinner()
+				}
 				cancelCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				_ = client.CancelRemoteBuild(cancelCtx, jobID)
@@ -547,51 +558,70 @@ func pollRemoteBuildStatusResultWithTimeout(ctx context.Context, client *api.Cli
 
 			status, err := client.GetRemoteBuildStatus(ctx, jobID)
 			if err != nil {
-				ui.PrintWarning("Failed to poll status: %v", err)
+				ui.PrintDebug("failed to poll remote build status: %v", err)
 				continue
 			}
 
 			if status.Status != lastStatus {
-				elapsed := time.Since(startTime).Round(time.Second)
-				ui.PrintInfo("[%s] Remote build status: %s", elapsed, status.Status)
+				if ui.IsDebugMode() {
+					elapsed := time.Since(startTime).Round(time.Second)
+					ui.PrintInfo("[%s] Remote build status: %s", elapsed, status.Status)
+				} else {
+					ui.StopSpinner()
+					switch status.Status {
+					case "queued", "pending":
+						ui.StartSpinner("Build queued")
+					case "building", "running":
+						ui.StartSpinner("Build in progress")
+					case "success", "failed", "cancelled":
+					default:
+						ui.StartSpinner("Build " + status.Status)
+					}
+				}
 				lastStatus = status.Status
 			}
 
-			if status.LogsTail != nil && *status.LogsTail != "" {
-				lines := strings.Split(*status.LogsTail, "\n")
-				if len(lines) > lastLogLines {
-					for _, line := range lines[lastLogLines:] {
-						if line == "" {
-							continue
-						}
-						if ui.IsDebugMode() {
-							fmt.Fprintf(os.Stderr, "  %s\n", line)
-							continue
-						}
-						if displayLine, ok := build.FilterBuildOutputLine(line); ok {
-							fmt.Fprintf(os.Stderr, "  %s\n", displayLine)
+			if ui.IsDebugMode() {
+				logs, err := client.GetRemoteBuildLogs(ctx, jobID, logCursor)
+				if err != nil {
+					ui.PrintDebug("failed to poll build logs: %v", err)
+				} else {
+					if logs.Events != nil {
+						for _, event := range *logs.Events {
+							logFormatter.Print(event)
 						}
 					}
-					lastLogLines = len(lines)
+					if logs.NextCursor != nil && *logs.NextCursor != "" {
+						logCursor = *logs.NextCursor
+					}
 				}
 			}
 
 			switch status.Status {
 			case "success":
+				if !ui.IsDebugMode() {
+					ui.StopSpinner()
+				}
 				if status.VersionId == nil || strings.TrimSpace(*status.VersionId) == "" {
 					return status, fmt.Errorf("remote build succeeded but returned no build version ID")
 				}
-				ui.PrintSuccess("Remote build completed")
+				ui.PrintSuccess("Remote build completed in %s", formatBuildProgressDuration(time.Since(startTime)))
 				printRemoteBuildPhaseTimings(status.PhaseTimings)
 				return status, nil
 			case "failed":
-				printRemoteBuildLogTail(status)
+				if !ui.IsDebugMode() {
+					ui.StopSpinner()
+				}
+				printRemoteBuildLogTail(ctx, client, jobID, status)
 				if status.Error != nil && *status.Error != "" {
 					return status, fmt.Errorf("remote build failed: %s", *status.Error)
 				}
 				return status, fmt.Errorf("remote build failed")
 			case "cancelled":
-				printRemoteBuildLogTail(status)
+				if !ui.IsDebugMode() {
+					ui.StopSpinner()
+				}
+				printRemoteBuildLogTail(ctx, client, jobID, status)
 				if status.Error != nil && *status.Error != "" {
 					return status, fmt.Errorf("remote build cancelled: %s", *status.Error)
 				}

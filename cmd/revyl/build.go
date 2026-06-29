@@ -144,7 +144,6 @@ var (
 	remoteVersionFlag         string
 	remoteSetCurrFlag         bool
 	remoteJSONFlag            bool
-	remoteNoWaitFlag          bool
 	remoteCleanFlag           bool
 	remoteCommittedOnly       bool
 	remoteDeprecatedEnvFlags  []string
@@ -215,7 +214,6 @@ func init() {
 	buildRemoteCmd.Flags().StringVar(&remoteVersionFlag, "version", "", "Deprecated")
 	buildRemoteCmd.Flags().BoolVar(&remoteSetCurrFlag, "set-current", true, "Deprecated")
 	buildRemoteCmd.Flags().BoolVar(&remoteJSONFlag, "json", false, "Deprecated")
-	buildRemoteCmd.Flags().BoolVar(&remoteNoWaitFlag, "no-wait", false, "Deprecated")
 	buildRemoteCmd.Flags().BoolVar(&remoteCleanFlag, "clean", false, "Deprecated")
 	buildRemoteCmd.Flags().BoolVar(&remoteCommittedOnly, "committed-only", false, "Deprecated")
 	buildRemoteCmd.Flags().StringArrayVar(&remoteDeprecatedEnvFlags, "env", nil, "Deprecated")
@@ -224,7 +222,6 @@ func init() {
 	_ = buildRemoteCmd.Flags().MarkHidden("version")
 	_ = buildRemoteCmd.Flags().MarkHidden("set-current")
 	_ = buildRemoteCmd.Flags().MarkHidden("json")
-	_ = buildRemoteCmd.Flags().MarkHidden("no-wait")
 	_ = buildRemoteCmd.Flags().MarkHidden("clean")
 	_ = buildRemoteCmd.Flags().MarkHidden("committed-only")
 	_ = buildRemoteCmd.Flags().MarkHidden("env")

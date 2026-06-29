@@ -122,6 +122,11 @@ const (
 	CleanupLevelThorough  CleanupLevel = "thorough"
 )
 
+// Defines values for CloudAgentProviderId.
+const (
+	CloudAgentProviderIdCursor CloudAgentProviderId = "cursor"
+)
+
 // Defines values for CodeExecutionScriptRuntime.
 const (
 	CodeExecutionScriptRuntimeBash       CodeExecutionScriptRuntime = "bash"
@@ -386,6 +391,19 @@ const (
 	RunStateFINISHED  RunState = "FINISHED"
 	RunStateRUNNING   RunState = "RUNNING"
 	RunStateUNKNOWN   RunState = "UNKNOWN"
+)
+
+// Defines values for RunnerResultRequestStatus.
+const (
+	RunnerResultRequestStatusFailed    RunnerResultRequestStatus = "failed"
+	RunnerResultRequestStatusSucceeded RunnerResultRequestStatus = "succeeded"
+)
+
+// Defines values for SandboxBuildLogEventLevel.
+const (
+	SandboxBuildLogEventLevelError   SandboxBuildLogEventLevel = "error"
+	SandboxBuildLogEventLevelInfo    SandboxBuildLogEventLevel = "info"
+	SandboxBuildLogEventLevelWarning SandboxBuildLogEventLevel = "warning"
 )
 
 // Defines values for ScmBuildTargetResponsePlatform.
@@ -725,15 +743,20 @@ type AddWorkflowToRuleResponse struct {
 //	summary: Short summary of the run, if present.
 //	created_at: Creation timestamp, if present.
 type AgentRun struct {
-	BranchName  *string `json:"branch_name"`
-	CreatedAt   *string `json:"created_at"`
-	Id          string  `json:"id"`
-	Name        *string `json:"name"`
-	PrUrl       *string `json:"pr_url"`
-	Provider    *string `json:"provider,omitempty"`
-	ProviderUrl *string `json:"provider_url"`
-	Ref         *string `json:"ref"`
-	Repository  *string `json:"repository"`
+	BranchName *string `json:"branch_name"`
+	CreatedAt  *string `json:"created_at"`
+	Id         string  `json:"id"`
+	Name       *string `json:"name"`
+	PrUrl      *string `json:"pr_url"`
+
+	// Provider Canonical cloud-agent provider identifiers.
+	//
+	// Only Cursor is implemented today; add a member here when adding a provider
+	// so request bodies, the registry, and the frontend can do exhaustive handling.
+	Provider    *CloudAgentProviderId `json:"provider,omitempty"`
+	ProviderUrl *string               `json:"provider_url"`
+	Ref         *string               `json:"ref"`
+	Repository  *string               `json:"repository"`
 
 	// State Normalized lifecycle state of a cloud-agent run.
 	//
@@ -1672,12 +1695,6 @@ type BuildImageOption struct {
 // BuildImageOptionPlatform defines model for BuildImageOption.Platform.
 type BuildImageOptionPlatform string
 
-// BuildJobLogAppendRequest defines model for BuildJobLogAppendRequest.
-type BuildJobLogAppendRequest struct {
-	Lines *[]string `json:"lines,omitempty"`
-	OrgId string    `json:"org_id"`
-}
-
 // BuildJobStatusUpdateRequest defines model for BuildJobStatusUpdateRequest.
 type BuildJobStatusUpdateRequest struct {
 	ArtifactS3Key *string                           `json:"artifact_s3_key"`
@@ -2273,6 +2290,12 @@ type ClaimSandboxResponse struct {
 
 // CleanupLevel Cleanup intensity level for AVD state reset between test runs.
 type CleanupLevel string
+
+// CloudAgentProviderId Canonical cloud-agent provider identifiers.
+//
+// Only Cursor is implemented today; add a member here when adding a provider
+// so request bodies, the registry, and the frontend can do exhaustive handling.
+type CloudAgentProviderId string
 
 // CodeExecutionScript Full script model with database fields.
 type CodeExecutionScript struct {
@@ -4895,6 +4918,17 @@ type ManualTriggerResponse struct {
 	Version *string `json:"version"`
 }
 
+// MintRunnerTokenRequest defines model for MintRunnerTokenRequest.
+type MintRunnerTokenRequest struct {
+	OrgId string `json:"org_id"`
+}
+
+// MintRunnerTokenResponse defines model for MintRunnerTokenResponse.
+type MintRunnerTokenResponse struct {
+	BackendUrl string `json:"backend_url"`
+	Token      string `json:"token"`
+}
+
 // MobileTarget Persisted device target for a test (from “test_mobile_targets“).
 //
 // “AUTO/AUTO“ represents "follow the platform default at runtime".
@@ -5715,8 +5749,13 @@ type ProviderDescriptor struct {
 	Capabilities ProviderCapabilities `json:"capabilities"`
 	Configured   *bool                `json:"configured,omitempty"`
 	Connected    *bool                `json:"connected,omitempty"`
-	Id           string               `json:"id"`
-	Label        string               `json:"label"`
+
+	// Id Canonical cloud-agent provider identifiers.
+	//
+	// Only Cursor is implemented today; add a member here when adding a provider
+	// so request bodies, the registry, and the frontend can do exhaustive handling.
+	Id    CloudAgentProviderId `json:"id"`
+	Label string               `json:"label"`
 }
 
 // ProvidersResponse Available cloud-agent providers + the caller's connection status.
@@ -6057,6 +6096,21 @@ type RemoteBuildListResponse struct {
 	Builds      *[]RemoteBuildSummary `json:"builds,omitempty"`
 }
 
+// RemoteBuildLogEvent defines model for RemoteBuildLogEvent.
+type RemoteBuildLogEvent struct {
+	Id        string     `json:"id"`
+	Level     *string    `json:"level,omitempty"`
+	Message   string     `json:"message"`
+	StepIndex *int       `json:"step_index"`
+	Ts        *time.Time `json:"ts"`
+}
+
+// RemoteBuildLogsResponse defines model for RemoteBuildLogsResponse.
+type RemoteBuildLogsResponse struct {
+	Events     *[]RemoteBuildLogEvent `json:"events,omitempty"`
+	NextCursor *string                `json:"next_cursor"`
+}
+
 // RemoteBuildPhaseTiming Duration metadata for one remote-build phase.
 type RemoteBuildPhaseTiming struct {
 	CompletedAt *time.Time              `json:"completed_at"`
@@ -6127,7 +6181,7 @@ type RemoteBuildSourceUploadResponse struct {
 //
 // Attributes:
 //
-//	status: Current build phase.
+//	status: Current public build status.
 //	version_id: UUID of the created build version on success.
 //	version: Version string of the created build.
 //	logs_tail: Last N log lines from the build process.
@@ -6197,7 +6251,7 @@ type RemoteBuildSummary struct {
 // Attributes:
 //
 //	build_job_id: Unique identifier used to poll build status.
-//	status: Initial status (always ``pending``).
+//	status: Initial public status (usually ``pending``).
 type RemoteBuildTriggerResponse struct {
 	BuildJobId string  `json:"build_job_id"`
 	Status     *string `json:"status,omitempty"`
@@ -6541,6 +6595,23 @@ type RevokeCLIApiKeyResponse struct {
 // UI can style runs without knowing vendor-specific strings.
 type RunState string
 
+// RunnerLogAppendRequest defines model for RunnerLogAppendRequest.
+type RunnerLogAppendRequest struct {
+	Events *[]SandboxBuildLogEvent `json:"events,omitempty"`
+}
+
+// RunnerResultRequest defines model for RunnerResultRequest.
+type RunnerResultRequest struct {
+	ArtifactS3Key *string                   `json:"artifact_s3_key"`
+	ArtifactType  *string                   `json:"artifact_type"`
+	Error         *string                   `json:"error"`
+	PackageId     *string                   `json:"package_id"`
+	Status        RunnerResultRequestStatus `json:"status"`
+}
+
+// RunnerResultRequestStatus defines model for RunnerResultRequest.Status.
+type RunnerResultRequestStatus string
+
 // RunningTestCoreInfo Core identification info for a running test.
 type RunningTestCoreInfo struct {
 	// Platform Platform (ios, android)
@@ -6713,6 +6784,17 @@ type SSHKeyStatusResponse struct {
 	// SandboxReachable Whether sandbox is reachable
 	SandboxReachable *bool `json:"sandbox_reachable,omitempty"`
 }
+
+// SandboxBuildLogEvent defines model for SandboxBuildLogEvent.
+type SandboxBuildLogEvent struct {
+	Level     *SandboxBuildLogEventLevel `json:"level,omitempty"`
+	Message   string                     `json:"message"`
+	StepIndex int                        `json:"step_index"`
+	Ts        time.Time                  `json:"ts"`
+}
+
+// SandboxBuildLogEventLevel defines model for SandboxBuildLogEvent.Level.
+type SandboxBuildLogEventLevel string
 
 // ScmActions defines model for ScmActions.
 type ScmActions struct {
@@ -7165,8 +7247,11 @@ type SpawnAgentRequest struct {
 	Notes    *string `json:"notes"`
 	Platform *string `json:"platform"`
 
-	// Provider Cloud agent provider to spawn
-	Provider *string `json:"provider,omitempty"`
+	// Provider Canonical cloud-agent provider identifiers.
+	//
+	// Only Cursor is implemented today; add a member here when adding a provider
+	// so request bodies, the registry, and the frontend can do exhaustive handling.
+	Provider *CloudAgentProviderId `json:"provider,omitempty"`
 
 	// Ref Starting ref/branch
 	Ref *string `json:"ref,omitempty"`
@@ -9634,6 +9719,23 @@ type ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParams s
 // ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform defines parameters for ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGet.
 type ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform string
 
+// AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPostParams defines parameters for AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPost.
+type AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPostParams struct {
+	Authorization *string `json:"authorization,omitempty"`
+}
+
+// UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPostParams defines parameters for UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPost.
+type UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPostParams struct {
+	Authorization *string `json:"authorization,omitempty"`
+}
+
+// GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGetParams defines parameters for GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGet.
+type GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGetParams struct {
+	// AfterId Redis stream cursor. Omit for latest tail; pass 0-0 to read from the beginning.
+	AfterId *string `form:"after_id,omitempty" json:"after_id,omitempty"`
+	Limit   *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ResolveBuildApiV1AppsResolvePostParams defines parameters for ResolveBuildApiV1AppsResolvePost.
 type ResolveBuildApiV1AppsResolvePostParams struct {
 	// IncludeDownloadUrl Include presigned download URL
@@ -9703,7 +9805,7 @@ type ListAgentsApiV1AtlasAgentsGetParams struct {
 	AppId string `form:"app_id" json:"app_id"`
 
 	// Provider Cloud agent provider
-	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
+	Provider *CloudAgentProviderId `form:"provider,omitempty" json:"provider,omitempty"`
 }
 
 // ResolveAppRepositoryApiV1AtlasAgentsRepositoryGetParams defines parameters for ResolveAppRepositoryApiV1AtlasAgentsRepositoryGet.
@@ -9717,20 +9819,29 @@ type ResolveAppRepositoryApiV1AtlasAgentsRepositoryGetParams struct {
 
 // GetAgentApiV1AtlasAgentsBcIdGetParams defines parameters for GetAgentApiV1AtlasAgentsBcIdGet.
 type GetAgentApiV1AtlasAgentsBcIdGetParams struct {
+	// AppId Atlas app id the run must belong to
+	AppId string `form:"app_id" json:"app_id"`
+
 	// Provider Cloud agent provider
-	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
+	Provider *CloudAgentProviderId `form:"provider,omitempty" json:"provider,omitempty"`
 }
 
 // CancelAgentApiV1AtlasAgentsBcIdCancelPostParams defines parameters for CancelAgentApiV1AtlasAgentsBcIdCancelPost.
 type CancelAgentApiV1AtlasAgentsBcIdCancelPostParams struct {
+	// AppId Atlas app id the run must belong to
+	AppId string `form:"app_id" json:"app_id"`
+
 	// Provider Cloud agent provider
-	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
+	Provider *CloudAgentProviderId `form:"provider,omitempty" json:"provider,omitempty"`
 }
 
 // SendAgentMessageApiV1AtlasAgentsBcIdMessagesPostParams defines parameters for SendAgentMessageApiV1AtlasAgentsBcIdMessagesPost.
 type SendAgentMessageApiV1AtlasAgentsBcIdMessagesPostParams struct {
+	// AppId Atlas app id the run must belong to
+	AppId string `form:"app_id" json:"app_id"`
+
 	// Provider Cloud agent provider
-	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
+	Provider *CloudAgentProviderId `form:"provider,omitempty" json:"provider,omitempty"`
 }
 
 // CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGetParams defines parameters for CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGet.
@@ -10599,14 +10710,20 @@ type CreateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsPostJSONRe
 // UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatchJSONRequestBody defines body for UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatch for application/json ContentType.
 type UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatchJSONRequestBody = BuildConfigurationUpdateRequest
 
-// AppendBuildJobLogsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdLogsPostJSONRequestBody defines body for AppendBuildJobLogsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdLogsPost for application/json ContentType.
-type AppendBuildJobLogsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdLogsPostJSONRequestBody = BuildJobLogAppendRequest
+// MintBuildRunnerTokenInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdRunnerTokenPostJSONRequestBody defines body for MintBuildRunnerTokenInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdRunnerTokenPost for application/json ContentType.
+type MintBuildRunnerTokenInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdRunnerTokenPostJSONRequestBody = MintRunnerTokenRequest
 
 // ResolveBuildJobSecretsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdSecretsPostJSONRequestBody defines body for ResolveBuildJobSecretsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdSecretsPost for application/json ContentType.
 type ResolveBuildJobSecretsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdSecretsPostJSONRequestBody = ResolveBuildSecretsRequest
 
 // UpdateBuildJobStatusInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdStatusPostJSONRequestBody defines body for UpdateBuildJobStatusInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdStatusPost for application/json ContentType.
 type UpdateBuildJobStatusInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdStatusPostJSONRequestBody = BuildJobStatusUpdateRequest
+
+// AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPostJSONRequestBody defines body for AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPost for application/json ContentType.
+type AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPostJSONRequestBody = RunnerLogAppendRequest
+
+// UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPostJSONRequestBody defines body for UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPost for application/json ContentType.
+type UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPostJSONRequestBody = RunnerResultRequest
 
 // GetSourceUploadUrlApiV1AppsRemoteUploadUrlPostJSONRequestBody defines body for GetSourceUploadUrlApiV1AppsRemoteUploadUrlPost for application/json ContentType.
 type GetSourceUploadUrlApiV1AppsRemoteUploadUrlPostJSONRequestBody = RemoteBuildSourceUploadRequest

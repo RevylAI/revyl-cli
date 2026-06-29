@@ -6694,6 +6694,27 @@ func (c *Client) GetRemoteBuildStatus(ctx context.Context, buildJobID string) (*
 	return &result, nil
 }
 
+func (c *Client) GetRemoteBuildLogs(ctx context.Context, buildJobID string, afterID string) (*RemoteBuildLogsResponse, error) {
+	path := fmt.Sprintf("/api/v1/apps/remote/%s/logs", buildJobID)
+	values := url.Values{}
+	if afterID != "" {
+		values.Set("after_id", afterID)
+	}
+	values.Set("limit", "500")
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result RemoteBuildLogsResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // BuildRunnerStatus is defined in generated.go from the OpenAPI schema.
 
 // CheckBuildRunnersAvailable queries the backend for active build capacity

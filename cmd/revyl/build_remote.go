@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,7 +85,7 @@ func runBuildRemote(cmd *cobra.Command, args []string) error {
 		SetCurrent:    remoteSetCurrFlag,
 		Clean:         remoteCleanFlag,
 		JSON:          remoteJSONFlag,
-		Wait:          !remoteNoWaitFlag,
+		Wait:          true,
 		IncludeDirty:  !remoteCommittedOnly,
 		CommittedOnly: remoteCommittedOnly,
 	})
@@ -278,7 +279,6 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	} else if interactiveOutput {
 		ui.StartSpinner("Triggering remote build job")
 	}
-	triggerStart := time.Now()
 	setCurrent := opts.SetCurrent
 	source, err := remoteBuildRequestSource(repoSource, uploadedSourceKey(uploadResp), sourcePatchKey)
 	if err != nil {
@@ -299,13 +299,16 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	if err != nil {
 		return fmt.Errorf("failed to trigger build: %w", err)
 	}
-	if !debugOutput && interactiveOutput {
-		ui.PrintSuccess("Triggered remote build job %s", formatBuildProgressDuration(time.Since(triggerStart)))
-	}
 
 	jobID := triggerResp.BuildJobId
 	if interactiveOutput {
-		ui.PrintInfo("Build queued: %s", jobID)
+		if !debugOutput {
+			ui.Println()
+		}
+		ui.PrintInfo("Started build with id: %s", jobID)
+		if !debugOutput && opts.Wait {
+			ui.Println()
+		}
 	}
 
 	if !opts.Wait {
@@ -436,7 +439,20 @@ func runBuildStatus(cmd *cobra.Command, args []string) error {
 }
 
 func printRemoteBuildStatusSummary(status *api.RemoteBuildStatusResponse) {
-	ui.PrintKeyValue("Status:", status.Status)
+	printedLogs := false
+	if status.LogsTail != nil && strings.TrimSpace(*status.LogsTail) != "" {
+		ui.PrintDim("Recent logs:")
+		for _, line := range strings.Split(*status.LogsTail, "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "  %s\n", line)
+		}
+		printedLogs = true
+	}
+	if printedLogs {
+		ui.Println()
+	}
 	if status.Platform != nil && strings.TrimSpace(*status.Platform) != "" {
 		ui.PrintKeyValue("Platform:", strings.TrimSpace(*status.Platform))
 	}
@@ -456,16 +472,7 @@ func printRemoteBuildStatusSummary(status *api.RemoteBuildStatusResponse) {
 	if status.VersionId != nil && strings.TrimSpace(*status.VersionId) != "" {
 		ui.PrintKeyValue("Version ID:", strings.TrimSpace(*status.VersionId))
 	}
-	if status.LogsTail != nil && strings.TrimSpace(*status.LogsTail) != "" {
-		ui.Println()
-		ui.PrintDim("Recent logs:")
-		for _, line := range strings.Split(*status.LogsTail, "\n") {
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-			fmt.Fprintf(os.Stderr, "  %s\n", line)
-		}
-	}
+	ui.PrintKeyValue("Status:", status.Status)
 }
 
 func printRemoteBuildPhaseTimings(timings *[]api.RemoteBuildPhaseTiming) {
@@ -487,12 +494,134 @@ func printRemoteBuildPhaseTimings(timings *[]api.RemoteBuildPhaseTiming) {
 	}
 }
 
-func printRemoteBuildLogTail(status *api.RemoteBuildStatusResponse) {
+type remoteBuildLogFormatter struct {
+	currentStep    string
+	currentCommand string
+	printedAny     bool
+}
+
+func (f *remoteBuildLogFormatter) Print(event api.RemoteBuildLogEvent) {
+	message := strings.TrimRight(event.Message, "\r\n")
+	if strings.TrimSpace(message) == "" {
+		return
+	}
+
+	switch {
+	case strings.HasPrefix(message, "step:start "):
+		f.currentStep = strings.TrimSpace(strings.TrimPrefix(message, "step:start "))
+		f.currentCommand = ""
+		return
+	case message == "source:download":
+		f.printPlain("Downloading source")
+		return
+	case message == "source:extract":
+		f.printPlain("Extracting source")
+		return
+	case strings.HasPrefix(message, "command "):
+		command := strings.TrimSpace(strings.TrimPrefix(message, "command "))
+		if f.currentStep == "checkout" {
+			return
+		}
+		f.currentCommand = command
+		if f.printedAny {
+			fmt.Fprintln(os.Stderr)
+		}
+		f.printPlain(command)
+		return
+	case strings.HasPrefix(message, "step:end "):
+		label := f.completionLabel(message)
+		fmt.Fprintf(os.Stderr, "%s\n", ui.SuccessStyle.Render("✓ "+label+" completed"+durationSuffix(message)))
+		f.currentCommand = ""
+		f.printedAny = true
+		return
+	case strings.HasPrefix(message, "step:failed "):
+		label := f.completionLabel(message)
+		fmt.Fprintf(os.Stderr, "%s\n", ui.ErrorStyle.Render("✗ "+label+" failed"+durationSuffix(message)))
+		f.currentCommand = ""
+		f.printedAny = true
+		return
+	}
+
+	indent := ""
+	if f.currentCommand != "" {
+		indent = "  "
+	}
+	level := "info"
+	if event.Level != nil {
+		level = strings.ToLower(strings.TrimSpace(*event.Level))
+	}
+	switch level {
+	case "warning", "warn":
+		fmt.Fprintf(os.Stderr, "%s%s\n", indent, ui.WarningStyle.Render(message))
+	case "error":
+		fmt.Fprintf(os.Stderr, "%s%s\n", indent, ui.ErrorStyle.Render(message))
+	default:
+		fmt.Fprintf(os.Stderr, "%s%s\n", indent, message)
+	}
+	f.printedAny = true
+}
+
+func (f *remoteBuildLogFormatter) printPlain(message string) {
+	fmt.Fprintln(os.Stderr, message)
+	f.printedAny = true
+}
+
+func (f *remoteBuildLogFormatter) completionLabel(message string) string {
+	if f.currentStep == "checkout" {
+		return "Checkout"
+	}
+	if f.currentCommand != "" {
+		return commandCompletionLabel(f.currentCommand)
+	}
+	fields := strings.Fields(message)
+	if len(fields) >= 2 {
+		return strings.TrimPrefix(fields[1], "build-")
+	}
+	return "Step"
+}
+
+func commandCompletionLabel(command string) string {
+	for _, marker := range []string{" --", " -"} {
+		if idx := strings.Index(command, marker); idx > 0 {
+			return strings.TrimSpace(command[:idx])
+		}
+	}
+	return command
+}
+
+func durationSuffix(message string) string {
+	for _, field := range strings.Fields(message) {
+		raw, ok := strings.CutPrefix(field, "duration_ms=")
+		if !ok {
+			continue
+		}
+		ms, err := strconv.Atoi(raw)
+		if err != nil {
+			break
+		}
+		return fmt.Sprintf(" in %.1fs", float64(ms)/1000)
+	}
+	return ""
+}
+
+func printRemoteBuildLogTail(ctx context.Context, client *api.Client, jobID string, status *api.RemoteBuildStatusResponse) {
+	if logs, err := client.GetRemoteBuildLogs(ctx, jobID, ""); err == nil && logs.Events != nil && len(*logs.Events) > 0 {
+		fmt.Fprintln(os.Stderr, "\n--- Build log tail ---")
+		formatter := &remoteBuildLogFormatter{}
+		for _, event := range *logs.Events {
+			formatter.Print(event)
+		}
+		return
+	}
 	if status == nil || status.LogsTail == nil || strings.TrimSpace(*status.LogsTail) == "" {
 		return
 	}
 	fmt.Fprintln(os.Stderr, "\n--- Build log tail ---")
-	fmt.Fprintln(os.Stderr, *status.LogsTail)
+	for _, line := range strings.Split(*status.LogsTail, "\n") {
+		if strings.TrimSpace(line) != "" {
+			fmt.Fprintf(os.Stderr, "  %s\n", line)
+		}
+	}
 }
 
 // detectBuildCommand determines the xcodebuild command for the project.
@@ -1216,10 +1345,18 @@ func pollBuildStatusWithTimeout(ctx context.Context, client *api.Client, jobID s
 	defer ticker.Stop()
 
 	lastStatus := ""
-	lastLogLines := 0
+	logCursor := "0-0"
+	logFormatter := &remoteBuildLogFormatter{}
 	startTime := time.Now()
+	if !ui.IsDebugMode() {
+		ui.StartSpinner("Build queued")
+		defer ui.StopSpinner()
+	}
 
 	cancelBuild := func(reason string) {
+		if !ui.IsDebugMode() {
+			ui.StopSpinner()
+		}
 		ui.PrintWarning("Cancelling remote build (%s)…", reason)
 		cancelCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -1241,42 +1378,55 @@ func pollBuildStatusWithTimeout(ctx context.Context, client *api.Client, jobID s
 
 			status, err := client.GetRemoteBuildStatus(ctx, jobID)
 			if err != nil {
-				ui.PrintWarning("Failed to poll status: %v", err)
+				ui.PrintDebug("failed to poll remote build status: %v", err)
 				continue
 			}
 
 			if status.Status != lastStatus {
-				elapsed := time.Since(startTime).Round(time.Second)
-				ui.PrintInfo("[%s] Build status: %s", elapsed, status.Status)
+				if ui.IsDebugMode() {
+					elapsed := time.Since(startTime).Round(time.Second)
+					ui.PrintInfo("[%s] Build status: %s", elapsed, status.Status)
+				} else {
+					ui.StopSpinner()
+					switch status.Status {
+					case "queued", "pending":
+						ui.StartSpinner("Build queued")
+					case "building", "running":
+						ui.StartSpinner("Build in progress")
+					case "success", "failed", "cancelled":
+					default:
+						ui.StartSpinner("Build " + status.Status)
+					}
+				}
 				lastStatus = status.Status
 			}
 
-			if status.LogsTail != nil && *status.LogsTail != "" {
-				lines := strings.Split(*status.LogsTail, "\n")
-				if len(lines) > lastLogLines {
-					for _, line := range lines[lastLogLines:] {
-						if line == "" {
-							continue
-						}
-						if ui.IsDebugMode() {
-							fmt.Fprintf(os.Stderr, "  %s\n", line)
-							continue
-						}
-						if displayLine, ok := build.FilterBuildOutputLine(line); ok {
-							fmt.Fprintf(os.Stderr, "  %s\n", displayLine)
+			if ui.IsDebugMode() {
+				logs, err := client.GetRemoteBuildLogs(ctx, jobID, logCursor)
+				if err != nil {
+					ui.PrintDebug("failed to poll build logs: %v", err)
+				} else {
+					if logs.Events != nil {
+						for _, event := range *logs.Events {
+							logFormatter.Print(event)
 						}
 					}
-					lastLogLines = len(lines)
+					if logs.NextCursor != nil && *logs.NextCursor != "" {
+						logCursor = *logs.NextCursor
+					}
 				}
 			}
 
 			switch status.Status {
 			case "success":
+				if !ui.IsDebugMode() {
+					ui.StopSpinner()
+				}
 				if status.VersionId == nil || strings.TrimSpace(*status.VersionId) == "" {
 					return fmt.Errorf("remote build succeeded but returned no build version ID")
 				}
 				elapsed := time.Since(startTime).Round(time.Second)
-				ui.PrintSuccess("Build completed successfully in %s!", elapsed)
+				ui.PrintSuccess("Build completed successfully in %s", formatBuildProgressDuration(elapsed))
 				if status.Version != nil && *status.Version != "" {
 					ui.PrintInfo("Version: %s", *status.Version)
 				}
@@ -1307,20 +1457,26 @@ func pollBuildStatusWithTimeout(ctx context.Context, client *api.Client, jobID s
 				return nil
 
 			case "failed":
+				if !ui.IsDebugMode() {
+					ui.StopSpinner()
+				}
 				if status.Error != nil && *status.Error != "" {
 					ui.PrintError("Build failed: %s", *status.Error)
 				} else {
 					ui.PrintError("Build failed")
 				}
-				printRemoteBuildLogTail(status)
+				printRemoteBuildLogTail(ctx, client, jobID, status)
 				return fmt.Errorf("remote build failed")
 			case "cancelled":
+				if !ui.IsDebugMode() {
+					ui.StopSpinner()
+				}
 				if status.Error != nil && *status.Error != "" {
 					ui.PrintError("Build cancelled: %s", *status.Error)
 				} else {
 					ui.PrintError("Build cancelled")
 				}
-				printRemoteBuildLogTail(status)
+				printRemoteBuildLogTail(ctx, client, jobID, status)
 				return fmt.Errorf("remote build cancelled")
 			}
 		}
