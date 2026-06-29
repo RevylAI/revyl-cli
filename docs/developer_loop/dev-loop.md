@@ -216,6 +216,6 @@ All developers push builds to a shared app container (the `app_id` in config). E
 
 ## What's Next
 
-- [Dev Setup Guide](/cli/dev-setup-guide) — provider configuration details
-- [Device Management](/cli/devices) — device session management and control
-- [Agent Journeys](/cli/agent-journeys) — AI agent workflows with dev loop
+- [Dev Setup Guide](dev-setup.md) — provider configuration details
+- [Device Management](../device/index.md) — device session management and control
+- [Agent Skills](../integrations/skills.md) — AI agent workflows with dev loop
