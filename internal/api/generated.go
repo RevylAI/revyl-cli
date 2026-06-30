@@ -3986,12 +3986,6 @@ type FlywheelTriggerResponse struct {
 	Message  string `json:"message"`
 }
 
-// GenerateStateTokenResponse defines model for GenerateStateTokenResponse.
-type GenerateStateTokenResponse struct {
-	InstallUrl *string `json:"install_url"`
-	StateToken string  `json:"state_token"`
-}
-
 // GenerateWorkflowShareableLinkRequest defines model for GenerateWorkflowShareableLinkRequest.
 type GenerateWorkflowShareableLinkRequest struct {
 	ExpirationHours   *int    `json:"expiration_hours"`
@@ -5863,6 +5857,19 @@ type RateCardItem struct {
 // RateCardResponse defines model for RateCardResponse.
 type RateCardResponse struct {
 	Rates []RateCardItem `json:"rates"`
+}
+
+// RecordInstallRequestRequest defines model for RecordInstallRequestRequest.
+type RecordInstallRequestRequest struct {
+	GithubCode string `json:"github_code"`
+	StateToken string `json:"state_token"`
+}
+
+// RecordInstallRequestResponse defines model for RecordInstallRequestResponse.
+type RecordInstallRequestResponse struct {
+	MatchedRequest bool    `json:"matched_request"`
+	Reason         *string `json:"reason"`
+	Success        bool    `json:"success"`
 }
 
 // ReflectionAttemptEval Evaluation of a single reflection/retry attempt within a step.
@@ -10958,6 +10965,9 @@ type ResolveExpoProjectEndpointApiV1IntegrationsExpoProjectsResolvePostJSONReque
 
 // UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPutJSONRequestBody defines body for UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPut for application/json ContentType.
 type UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPutJSONRequestBody = UpdateExpoProjectRequest
+
+// RecordRequestedInstallApiV1IntegrationsGithubInstallRequestRequestedPostJSONRequestBody defines body for RecordRequestedInstallApiV1IntegrationsGithubInstallRequestRequestedPost for application/json ContentType.
+type RecordRequestedInstallApiV1IntegrationsGithubInstallRequestRequestedPostJSONRequestBody = RecordInstallRequestRequest
 
 // RefreshInstallationApiV1IntegrationsGithubRefreshInstallationPostJSONRequestBody defines body for RefreshInstallationApiV1IntegrationsGithubRefreshInstallationPost for application/json ContentType.
 type RefreshInstallationApiV1IntegrationsGithubRefreshInstallationPostJSONRequestBody = RefreshInstallationRequest
