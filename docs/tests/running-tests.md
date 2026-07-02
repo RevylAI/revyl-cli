@@ -183,19 +183,16 @@ revyl build --platform android
 | `--platform <name>` | Build platform to use when running `revyl build` |
 | `--version <string>` | Version label (default: `<branch-slug>-<timestamp>`) |
 | `--no-set-current` | Do not set the uploaded build as the current/default build |
-| `--remote` | Run the build on Revyl cloud build runners |
-| `--detach` | Queue a remote build and return immediately |
-| `--no-cache` | Run a remote build without restoring or saving configured caches |
 | `--json` | JSON output |
 
 ### Example Output
 
 ```
 Building Android platform...
-Running: ./gradlew assembleDebug
+Running: ./gradlew assembleRelease
 ✓ Build completed in 45s
 
-Uploading app-debug.apk...
+Uploading app-release.apk...
 ✓ Uploaded 24.5 MB in 8s
 
 Build Version: bv_abc123

@@ -257,12 +257,6 @@ revyl app delete "My App"                              # Delete an app
 ```bash
 revyl build                              # Build from config and upload
 revyl build --platform android           # Build a specific config platform
-revyl build --remote --platform ios      # Build on Revyl cloud build runners
-revyl build --remote --platform android --json  # Remote Android build for agents
-revyl build --remote --platform android --detach # Queue and return a build_job_id
-revyl build --remote --platform android --no-cache # Skip configured remote caches
-revyl build status <job-id> --follow     # Follow a queued remote build
-revyl build cancel <job-id>              # Cancel a queued/running remote build
 revyl build upload --file ./app.apk --app <id>  # Upload a local artifact directly
 revyl build upload --url <artifact-url> --app <id>  # Ingest from a remote URL
 revyl build list                         # List uploaded builds
@@ -612,7 +606,7 @@ revyl github push --repo owner/name      # Target a specific repository
 - `revyl github push` applies your local config immediately (no commit/merge needed). If no `pr_review` section exists yet, it scaffolds one from the detected build first.
 - The repo's settings page updates automatically once a push lands.
 
-See [GitHub PR Automation](https://docs.revyl.ai/integrations/github-pr-automation) for the full `pr_review` schema.
+See the [GitHub integration](https://docs.revyl.ai/integrations/github) for the full `pr_review` schema.
 
 ## Device Management
 

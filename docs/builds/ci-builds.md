@@ -72,15 +72,18 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
       - run: |
-          xcodebuild -scheme MyApp -sdk iphonesimulator -derivedDataPath build -quiet
-          cd build/Build/Products/Debug-iphonesimulator && zip -r ../../../../app.zip MyApp.app
+          bun install
+          bunx expo prebuild --platform ios
+          cd ios && pod install
+          cd ios && xcodebuild -workspace YourApp.xcworkspace -scheme YourApp -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build ARCHS=arm64
       - env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
         run: |
           curl -fsSL https://revyl.com/install.sh | sh
           export PATH="$HOME/.revyl/bin:$PATH"
-          revyl build upload --file app.zip --platform ios --yes
+          revyl build upload --file ios/build/Build/Products/Release-iphonesimulator/*.app --platform ios --yes
           revyl workflow run smoke-tests
 ```
 
@@ -94,13 +97,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: ./gradlew assembleDebug
+      - uses: oven-sh/setup-bun@v2
+      - run: |
+          bun install
+          bunx expo prebuild --platform android
+          cd android && ./gradlew assembleRelease
       - env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
         run: |
           curl -fsSL https://revyl.com/install.sh | sh
           export PATH="$HOME/.revyl/bin:$PATH"
-          revyl build upload --file app/build/outputs/apk/debug/app-debug.apk --platform android --yes
+          revyl build upload --file android/app/build/outputs/apk/release/*.apk --platform android --yes
           revyl workflow run smoke-tests
 ```
 
@@ -133,16 +140,6 @@ This runs `build.platforms.ios.commands` in order when configured, otherwise `bu
 | `--no-wait` | Queue the run and exit without waiting for results |
 | `--quiet` / `-q` | Suppress non-essential output |
 | `--version <string>` | Tag the build with a version (default: `<branch>-<timestamp>`) |
-
-## When Would Remote Builds Be Worth Building?
-
-You don't need Revyl to build your app. But here's when a managed build service makes sense:
-
-- **>50% of your customers can't produce a simulator build** -- they don't have Macs, don't know Xcode, or can't configure EAS. Today this is rare: Expo handles it with `eas build`, and GitHub Actions provides macOS runners.
-- **Build times exceed 30 minutes** and customers are blocked waiting. Caching, parallelization, or dedicated build infra could help.
-- **You need to patch or instrument the binary** before testing (e.g., inject a test harness, mock network layer). This requires control over the build step.
-
-Until you hit one of these, the combination of customer CI + `revyl build upload` covers the workflow.
 
 ## Next Steps
 
