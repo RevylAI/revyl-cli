@@ -9,11 +9,12 @@ import (
 )
 
 var (
-	spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	spinnerMu     sync.Mutex
-	spinnerStop   chan struct{}
-	spinnerDone   chan struct{} // signals goroutine has finished cleanup
-	spinnerActive bool
+	spinnerFrames         = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	spinnerMu             sync.Mutex
+	spinnerStop           chan struct{}
+	spinnerDone           chan struct{} // signals goroutine has finished cleanup
+	spinnerActive         bool
+	lastLogSpinnerMessage string
 )
 
 // StartSpinner starts an animated spinner with a message.
@@ -28,6 +29,14 @@ func StartSpinner(message string) {
 
 	spinnerMu.Lock()
 	defer spinnerMu.Unlock()
+
+	if !isTTY {
+		if message != lastLogSpinnerMessage {
+			fmt.Fprintln(stderrW, message)
+			lastLogSpinnerMessage = message
+		}
+		return
+	}
 
 	if spinnerActive {
 		return
@@ -66,6 +75,10 @@ func StartSpinner(message string) {
 // writes to stderr, preventing race conditions with progress display.
 func StopSpinner() {
 	spinnerMu.Lock()
+
+	// Reset the non-TTY dedup so the same message prints again if the next
+	// operation legitimately reuses it after this one finishes.
+	lastLogSpinnerMessage = ""
 
 	if !spinnerActive {
 		spinnerMu.Unlock()

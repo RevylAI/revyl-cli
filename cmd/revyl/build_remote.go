@@ -35,6 +35,7 @@ type remoteBuildOptions struct {
 	AppID         string
 	Version       string
 	Image         string
+	Env           map[string]string
 	SetCurrent    bool
 	Clean         bool
 	JSON          bool
@@ -137,6 +138,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		}
 		return err
 	}
+	resolved.Env = mergeRemoteBuildEnv(resolved.Env, opts.Env)
 	appID, err := uuid.Parse(strings.TrimSpace(resolved.AppID))
 	if err != nil {
 		return fmt.Errorf("app id must be a valid UUID: %w", err)
@@ -360,6 +362,61 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	}
 
 	return nil
+}
+
+// parseRemoteBuildEnvOverrides parses repeatable --env KEY=VALUE flags into a
+// map. Only the first '=' splits, so values may contain '='.
+func parseRemoteBuildEnvOverrides(flags []string) (map[string]string, error) {
+	if len(flags) == 0 {
+		return nil, nil
+	}
+
+	out := make(map[string]string, len(flags))
+	for _, raw := range flags {
+		key, value, ok := strings.Cut(raw, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid --env %q: expected KEY=VALUE", raw)
+		}
+		key = strings.TrimSpace(key)
+		if !isValidRemoteBuildEnvKey(key) {
+			return nil, fmt.Errorf("invalid --env %q: key %q must match [A-Za-z_][A-Za-z0-9_]*", raw, key)
+		}
+		out[key] = value
+	}
+	return out, nil
+}
+
+func isValidRemoteBuildEnvKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for i, r := range key {
+		if i == 0 {
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_' {
+				continue
+			}
+			return false
+		}
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func mergeRemoteBuildEnv(base, overrides map[string]string) map[string]string {
+	if len(base) == 0 && len(overrides) == 0 {
+		return nil
+	}
+	merged := make(map[string]string, len(base)+len(overrides))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range overrides {
+		merged[key] = value
+	}
+	return merged
 }
 
 func remoteBuildTimeoutFromConfig(cwd string) time.Duration {
@@ -707,21 +764,23 @@ func resolveAppForRemoteBuild(ctx context.Context, client *api.Client, platform 
 }
 
 func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBuildPlatformConfig, error) {
-	platform := strings.TrimSpace(strings.ToLower(rawPlatform))
-	if platform == "" {
-		platform = "ios"
-	}
-	if platform != "ios" && platform != "android" {
-		return remoteBuildPlatformConfig{}, fmt.Errorf("platform must be ios or android")
+	platformOrKey := strings.TrimSpace(rawPlatform)
+	if platformOrKey == "" {
+		platformOrKey = "ios"
 	}
 
 	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
 	cfg, cfgErr := config.LoadProjectConfig(configPath)
 	if cfgErr == nil {
-		key := platform
+		key := platformOrKey
+		devicePlatform := platformFromKey(key)
+		if normalized, err := normalizeMobilePlatform(platformOrKey, ""); err == nil {
+			devicePlatform = normalized
+		}
+
 		platCfg, ok := cfg.Build.Platforms[key]
-		if !ok {
-			if picked := pickBestBuildPlatformKey(cfg, platform); picked != "" {
+		if !ok && (devicePlatform == "ios" || devicePlatform == "android") {
+			if picked := pickBestBuildPlatformKey(cfg, devicePlatform); picked != "" {
 				key = picked
 				platCfg = cfg.Build.Platforms[picked]
 				ok = true
@@ -729,6 +788,9 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 		}
 		buildCommands := platCfg.BuildCommands()
 		if ok && len(buildCommands) > 0 {
+			if devicePlatform != "ios" && devicePlatform != "android" {
+				return remoteBuildPlatformConfig{}, fmt.Errorf("build.platforms.%s must include ios or android in its key", key)
+			}
 			caches := config.EffectiveBuildCaches(cfg.Build, platCfg)
 			appID := strings.TrimSpace(appOverride)
 			if appID == "" {
@@ -738,20 +800,25 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 				return remoteBuildPlatformConfig{}, fmt.Errorf("no app specified. Use --app <id> or configure build.platforms.%s.app_id in .revyl/config.yaml", key)
 			}
 			return remoteBuildPlatformConfig{
-				Platform:    platform,
+				Platform:    devicePlatform,
 				PlatformKey: key,
 				Command:     strings.Join(buildCommands, " && "),
 				Commands:    buildCommands,
 				Setup:       strings.TrimSpace(platCfg.Setup),
 				Output:      strings.TrimSpace(platCfg.Output),
 				Image:       strings.TrimSpace(platCfg.Image),
-				Scheme:      strings.TrimSpace(resolveRemoteBuildScheme(platform, platCfg.Scheme)),
+				Scheme:      strings.TrimSpace(resolveRemoteBuildScheme(devicePlatform, platCfg.Scheme)),
 				AppID:       appID,
 				Source:      cfg.Build.Source,
 				Env:         platCfg.Env,
 				Caches:      caches,
 			}, nil
 		}
+	}
+
+	platform, err := normalizeMobilePlatform(platformOrKey, "")
+	if err != nil {
+		return remoteBuildPlatformConfig{}, fmt.Errorf("unknown platform/platform-key %q", platformOrKey)
 	}
 
 	detected, err := build.Detect(cwd)
