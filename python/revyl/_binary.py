@@ -1,5 +1,10 @@
 """
-Binary management helpers for the Revyl Python package.
+Binary management for the Revyl Python package.
+
+The pip package is a thin launcher for the Revyl CLI (a Go binary). Each
+wheel version keeps its own copy of the binary at ``~/.revyl/bin/v<version>/``
+and downloads it from the matching GitHub release on first run, so upgrading
+the package always upgrades the binary.
 """
 
 from __future__ import annotations
@@ -10,13 +15,12 @@ import platform
 import shutil
 import subprocess
 import sys
-import sysconfig
 import tempfile
 import urllib.request
 from pathlib import Path
 from typing import Sequence
 
-__version__ = "0.1.36"
+__version__ = "0.1.46"
 REPO = "RevylAI/revyl-cli"
 _HASH_CHUNK_SIZE = 1024 * 1024
 
@@ -53,14 +57,19 @@ def _binary_name() -> str:
     return f"revyl-{platform_str}-{arch_str}{ext}"
 
 
-def _release_asset_url(asset_name: str, version: str = "latest") -> str:
-    if version == "latest":
-        return f"https://github.com/{REPO}/releases/latest/download/{asset_name}"
-    return f"https://github.com/{REPO}/releases/download/{version}/{asset_name}"
+def get_binary_path() -> Path:
+    """
+    Return the local path of the binary matching this wheel version.
+    """
+    return Path.home() / ".revyl" / "bin" / f"v{__version__}" / _binary_name()
 
 
-def _checksum_path(binary_path: Path) -> Path:
-    return Path(f"{binary_path}.sha256")
+def _sha256_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as file_handle:
+        for chunk in iter(lambda: file_handle.read(_HASH_CHUNK_SIZE), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 def _parse_checksums(raw_checksums: str) -> dict[str, str]:
@@ -83,30 +92,14 @@ def _parse_checksums(raw_checksums: str) -> dict[str, str]:
     return checksums
 
 
-def _sha256_file(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with path.open("rb") as file_handle:
-        for chunk in iter(lambda: file_handle.read(_HASH_CHUNK_SIZE), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
-def _fetch_expected_checksum(binary_name: str, version: str = "latest") -> str | None:
+def _fetch_expected_checksum(binary_name: str, tag: str) -> str | None:
     """
     Fetch the expected SHA-256 checksum for a release binary.
 
     Returns None (with a stderr warning) when checksums.txt is unavailable
     so callers can still proceed with an unverified download.
-
-    Args:
-        binary_name: Filename of the binary asset (e.g. ``revyl-darwin-arm64``).
-        version: Release version tag, or ``"latest"``.
-
-    Returns:
-        Hex-encoded SHA-256 digest, or ``None`` if the checksum could not be
-        retrieved.
     """
-    checksum_url = _release_asset_url("checksums.txt", version)
+    checksum_url = f"https://github.com/{REPO}/releases/download/{tag}/checksums.txt"
     try:
         with urllib.request.urlopen(checksum_url) as response:
             raw_checksums = response.read().decode("utf-8", errors="replace")
@@ -118,8 +111,7 @@ def _fetch_expected_checksum(binary_name: str, version: str = "latest") -> str |
         )
         return None
 
-    checksums = _parse_checksums(raw_checksums)
-    expected = checksums.get(binary_name)
+    expected = _parse_checksums(raw_checksums).get(binary_name)
     if not expected:
         print(
             f"Warning: No checksum found for '{binary_name}' in release checksums. "
@@ -131,123 +123,37 @@ def _fetch_expected_checksum(binary_name: str, version: str = "latest") -> str |
     return expected
 
 
-def _download_to_temp(url: str, suffix: str) -> Path:
-    with urllib.request.urlopen(url) as response, tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(response, tmp)
-        return Path(tmp.name)
+def download_binary() -> Path:
+    """
+    Download the release binary matching this wheel version.
 
-
-def _write_checksum_sidecar(binary_path: Path, digest: str) -> None:
-    _checksum_path(binary_path).write_text(digest.strip().lower() + "\n", encoding="utf-8")
-
-
-def _is_verified_binary(binary_path: Path) -> bool:
-    if not binary_path.exists():
-        return False
-
-    checksum_file = _checksum_path(binary_path)
-    if not checksum_file.exists():
-        return False
-
-    try:
-        expected = checksum_file.read_text(encoding="utf-8").strip().lower()
-        if not expected:
-            return False
-        actual = _sha256_file(binary_path)
-    except Exception:
-        return False
-
-    return actual == expected
-
-
-def _python_wrapper_dirs() -> set[Path]:
-    """Return directories that may contain Python-generated console wrappers."""
-    executable_dir = Path(sys.executable).resolve().parent
-    wrapper_dirs = {executable_dir}
-
-    scripts_dir = sysconfig.get_path("scripts")
-    if scripts_dir:
-        wrapper_dirs.add(Path(scripts_dir).resolve())
-
-    if sys.platform == "win32":
-        wrapper_dirs.add((executable_dir / "Scripts").resolve())
-        wrapper_dirs.add((executable_dir.parent / "Scripts").resolve())
-
-    return wrapper_dirs
-
-
-def _find_native_binary() -> Path | None:
-    """Search PATH for a native ``revyl`` binary, skipping Python wrappers.
-
-    The pip-installed console script may live next to ``sys.executable`` or in
-    Python's scripts directory.
-    Running it via ``subprocess`` would cause infinite recursion, so we
-    skip candidates in those directories and any file with a script shebang.
+    The download is verified against the release's checksums.txt when
+    available; if the checksum file is unavailable the binary is still
+    installed, with a warning printed to stderr.
 
     Returns:
-        Path to a native revyl binary, or ``None`` if not found.
-    """
-    wrapper_dirs = _python_wrapper_dirs()
-    suffix = ".exe" if sys.platform == "win32" else ""
-    for entry in os.environ.get("PATH", "").split(os.pathsep):
-        if not entry:
-            continue
-        candidate = Path(entry) / f"revyl{suffix}"
-        if not candidate.exists() or not os.access(str(candidate), os.X_OK):
-            continue
-        resolved = candidate.resolve()
-        if resolved.parent in wrapper_dirs:
-            continue
-        try:
-            with open(resolved, "rb") as f:
-                if f.read(2) == b"#!":
-                    continue
-        except OSError:
-            continue
-        return resolved
-    return None
-
-
-def get_binary_path() -> Path:
-    """
-    Return the expected local path for the downloaded Revyl binary.
-    """
-    revyl_dir = Path.home() / ".revyl" / "bin"
-    revyl_dir.mkdir(parents=True, exist_ok=True)
-
-    return revyl_dir / _binary_name()
-
-
-def download_binary(version: str = "latest") -> Path:
-    """
-    Download the Revyl binary for the current platform.
-
-    Checksum verification is performed when checksums.txt is available.
-    If checksums are unavailable the binary is still downloaded with a
-    warning printed to stderr.
-
-    Args:
-        version: Release version tag, or ``"latest"``.
-
-    Returns:
-        Path to the downloaded (and optionally verified) binary.
+        Path to the downloaded binary.
 
     Raises:
-        RuntimeError: If the download itself fails or checksum verification
-            fails when a checksum *is* available.
+        RuntimeError: If the download fails or the checksum does not match.
     """
-    platform_str, arch_str, ext = get_platform_info()
-    binary_name = f"revyl-{platform_str}-{arch_str}{ext}"
-    binary_url = _release_asset_url(binary_name, version)
-    expected_checksum = _fetch_expected_checksum(binary_name, version)
+    tag = f"v{__version__}"
+    binary_name = _binary_name()
+    binary_url = f"https://github.com/{REPO}/releases/download/{tag}/{binary_name}"
+    expected_checksum = _fetch_expected_checksum(binary_name, tag)
 
     binary_path = get_binary_path()
+    binary_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"Downloading Revyl CLI from {binary_url}...")
 
     temp_path: Path | None = None
     try:
-        temp_suffix = ext if ext else ".tmp"
-        temp_path = _download_to_temp(binary_url, suffix=temp_suffix)
+        # Download next to the destination so os.replace is an atomic rename.
+        with urllib.request.urlopen(binary_url) as response, tempfile.NamedTemporaryFile(
+            delete=False, dir=binary_path.parent
+        ) as tmp:
+            shutil.copyfileobj(response, tmp)
+            temp_path = Path(tmp.name)
         if expected_checksum is not None:
             actual_checksum = _sha256_file(temp_path)
             if actual_checksum != expected_checksum:
@@ -257,37 +163,38 @@ def download_binary(version: str = "latest") -> Path:
                 )
     except Exception as exc:
         if temp_path is not None:
-            try:
-                temp_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            temp_path.unlink(missing_ok=True)
         raise RuntimeError(f"Failed to download binary: {exc}") from exc
 
     if platform.system() != "Windows":
         temp_path.chmod(0o755)
-
     os.replace(temp_path, binary_path)
-    if expected_checksum is not None:
-        _write_checksum_sidecar(binary_path, expected_checksum)
+
+    # Drop binaries kept for other wheel versions, including the legacy
+    # flat layout (bin/revyl-<platform>-<arch> + .sha256 sidecar).
+    bin_dir = binary_path.parent.parent
+    for stale_dir in bin_dir.glob("v*"):
+        if stale_dir != binary_path.parent:
+            shutil.rmtree(stale_dir, ignore_errors=True)
+    for legacy in bin_dir.glob("revyl-*"):
+        if legacy.is_file():
+            try:
+                legacy.unlink()
+            except OSError:
+                pass
 
     print(f"Downloaded to {binary_path}")
     return binary_path
 
 
 def ensure_binary() -> Path:
-    """Ensure the Revyl binary exists locally and return its path.
+    """
+    Return the path of the binary to run, downloading it on first use.
 
-    Resolution order:
-      0. ``REVYL_BINARY`` env var — explicit path for local dev / CI.
-      1. SDK-managed binary at ``~/.revyl/bin/`` with a valid checksum sidecar.
-      2. ``revyl`` found on the system ``PATH`` (e.g. Homebrew, npm global).
-      3. Download from GitHub Releases as a last resort.
-
-    Returns:
-        Path to a usable ``revyl`` binary.
+    ``REVYL_BINARY`` overrides everything (local dev / CI).
 
     Raises:
-        RuntimeError: If the binary cannot be located or downloaded, or if
+        RuntimeError: If the binary cannot be downloaded, or if
             ``REVYL_BINARY`` points to a non-existent file.
     """
     env_override = os.environ.get("REVYL_BINARY")
@@ -300,19 +207,14 @@ def ensure_binary() -> Path:
         return resolved
 
     binary_path = get_binary_path()
-    if _is_verified_binary(binary_path):
+    if binary_path.exists():
         return binary_path
-
-    system_binary = _find_native_binary()
-    if system_binary is not None:
-        return system_binary
-
     return download_binary()
 
 
 def run_binary(args: Sequence[str]) -> int:
     """
-    Run the downloaded Revyl binary with the provided args.
+    Run the Revyl binary with the provided args.
     """
     binary_path = ensure_binary()
     result = subprocess.run([str(binary_path), *args], check=False)
