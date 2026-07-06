@@ -27,8 +27,13 @@ func withStdin(t *testing.T, input string, fn func()) {
 		t.Fatalf("Close(stdin writer): %v", err)
 	}
 	os.Stdin = r
+	// Piped stdin simulates interactive menu input, so keep runInit's
+	// non-TTY guard from short-circuiting the wizard.
+	oldTTY := initStdinIsTTY
+	initStdinIsTTY = func() bool { return true }
 	t.Cleanup(func() {
 		os.Stdin = old
+		initStdinIsTTY = oldTTY
 		_ = r.Close()
 	})
 

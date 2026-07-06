@@ -164,7 +164,7 @@ func runOpenTestWithHotReload(cmd *cobra.Command, args []string) error {
 	// Load project config (required for hot reload)
 	cfg, err := config.LoadProjectConfig(configPath)
 	if err != nil {
-		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		printProjectNotInitialized()
 		return fmt.Errorf("project not initialized")
 	}
 

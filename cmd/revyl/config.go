@@ -122,10 +122,45 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	if jsonOutput {
 		out := map[string]interface{}{
 			"path": configPath,
+			"project": map[string]interface{}{
+				"name":   cfg.Project.Name,
+				"org_id": cfg.Project.OrgID,
+			},
 			"defaults": map[string]interface{}{
 				"open_browser": openBrowser,
 				"timeout":      timeout,
 			},
+		}
+		if cfg.Build.System != "" || len(cfg.Build.Platforms) > 0 {
+			platforms := map[string]interface{}{}
+			for key, plat := range cfg.Build.Platforms {
+				platformOS := "ios"
+				if strings.Contains(strings.ToLower(key), "android") {
+					platformOS = "android"
+				}
+				platforms[key] = map[string]interface{}{
+					"app_id":       plat.AppID,
+					"scheme":       plat.Scheme,
+					"output":       plat.Output,
+					"image":        plat.Image,
+					"has_setup":    strings.TrimSpace(plat.Setup) != "",
+					"has_commands": len(plat.BuildCommands()) > 0,
+					// Effective remote-build caches, including the framework
+					// default injected when none are configured.
+					"caches": config.EffectiveBuildCachesWithDefaults(cfg.Build, plat, platformOS, plat.AppID),
+				}
+			}
+			out["build"] = map[string]interface{}{
+				"system":    cfg.Build.System,
+				"no_build":  cfg.Build.NoBuild,
+				"platforms": platforms,
+			}
+		}
+		if cfg.AuthBypass.IsConfigured() {
+			out["auth_bypass"] = map[string]interface{}{
+				"launch_vars": cfg.AuthBypass.LaunchVars,
+				"deep_link":   cfg.AuthBypass.DeepLink,
+			}
 		}
 		if cfg.HotReload.IsConfigured() {
 			hrOut := map[string]interface{}{
@@ -187,6 +222,15 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 				}
 				ui.PrintKeyValue("    "+name+":", fmt.Sprintf("app_id=%s", appID))
 			}
+		}
+	}
+
+	if cfg.AuthBypass.IsConfigured() {
+		ui.Println()
+		ui.PrintInfo("Auth bypass")
+		ui.PrintKeyValue("  launch_vars:", strings.Join(cfg.AuthBypass.LaunchVars, ", "))
+		if cfg.AuthBypass.DeepLink != "" {
+			ui.PrintKeyValue("  deep_link:", cfg.AuthBypass.DeepLink)
 		}
 	}
 

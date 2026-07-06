@@ -4,6 +4,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"syscall"
 )
 
@@ -14,4 +15,8 @@ func isProcessAlive(pid int) bool {
 		return false
 	}
 	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+func configureDetachedDevCommand(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }

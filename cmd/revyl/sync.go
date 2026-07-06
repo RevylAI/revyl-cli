@@ -224,7 +224,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	cfg, err := config.LoadProjectConfig(configPath)
 	if err != nil {
-		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		printProjectNotInitialized()
 		return err
 	}
 

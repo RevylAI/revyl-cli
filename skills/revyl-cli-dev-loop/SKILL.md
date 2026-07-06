@@ -88,10 +88,9 @@ target the attached context explicitly.
   app load, or HMR path failed. If repeated web auth is slowing stable Expo
   testing, install and use `revyl-cli-auth-bypass`; let it detect the stack and
   delegate to `revyl-cli-auth-bypass-expo` for Expo app code. Implement the
-  test-only bypass in the app first, start `revyl dev` with
-  `--launch-var REVYL_AUTH_BYPASS_ENABLED --launch-var REVYL_AUTH_BYPASS_TOKEN`,
-  wait for the normal Expo app UI, then open the app-specific `revyl-auth`
-  deep link.
+  test-only bypass in the app first, then add an `auth_bypass` section to
+  `.revyl/config.yaml` (see Auth Bypass below) so `revyl dev` applies the
+  launch vars and fires the `revyl-auth` deep link automatically.
 - React Native bare: use the Metro relay. No `app_scheme` is needed because
   the device loads the JS bundle over the Revyl relay. JS/TS changes hot
   reload; native dependency, Podfile, Gradle, or native source changes need a
@@ -131,11 +130,28 @@ revyl device report --session-id <session-id> --json
 
 During exploration, capture the exact path that worked. Describe actions with visible target language and keep the path at intent level.
 
-## Expo Auth Bypass
+## Auth Bypass
 
-For apps that have implemented the `revyl-cli-auth-bypass` contract, start the
-dev loop with the bypass launch vars and then navigate after the app loads
-normally:
+Preferred: configure it once in `.revyl/config.yaml` and every session — cold
+start, rebuild relaunch, reused session — launches authenticated with no flags:
+
+```yaml
+auth_bypass:
+  launch_vars: [REVYL_AUTH_BYPASS_ENABLED, REVYL_AUTH_BYPASS_TOKEN]
+  deep_link: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home"
+```
+
+`${VAR}` placeholders resolve from org launch-variable values at fire time.
+The deep link fires automatically after every app (re)launch. If the app ever
+shows a logged-out state mid-session (expired mint), recover by re-minting the
+launch vars with the repo's own mint script (check the repo's AGENTS.md or
+scripts/), then re-firing the deep link with fresh values:
+
+```bash
+revyl dev auth refresh --json
+```
+
+Manual fallback (no config section yet):
 
 ```bash
 # One-time setup if the launch vars do not already exist.
@@ -146,22 +162,18 @@ revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN="$REVYL_AUTH_BYPASS_TOKEN
 revyl dev --no-build \
   --launch-var REVYL_AUTH_BYPASS_ENABLED \
   --launch-var REVYL_AUTH_BYPASS_TOKEN
-```
 
-After `Dev loop ready`, confirm the device is on the app UI with a screenshot,
-then open the auth-bypass link from a separate shell:
-
-```bash
+# After the app loads, open the auth-bypass link from a separate shell:
 revyl device navigate \
   --url "myapp://revyl-auth?token=$REVYL_AUTH_BYPASS_TOKEN&role=buyer&redirect=%2Fcheckout"
 revyl device screenshot --out /tmp/revyl-auth-bypass.png
 ```
 
 If the app has not implemented the handler yet, install/use
-`revyl-cli-auth-bypass` first. It will delegate to `revyl-cli-auth-bypass-expo`
-when the app is Expo or Expo Router. If the device session was reused, launch
-vars may not have applied; use the context name printed by `revyl dev`, stop it
-with `revyl dev stop <context>`, and start a fresh loop with the launch vars.
+`revyl-cli-auth-bypass` first. It will delegate to the platform leaf (e.g.
+`revyl-cli-auth-bypass-expo`) for the app-side handler, then add the
+`auth_bypass` section to `.revyl/config.yaml` so future sessions need no
+manual steps. Never paste launch-var values into code, logs, or PRs.
 
 ## Guardrails
 
@@ -172,7 +184,30 @@ with `revyl dev stop <context>`, and start a fresh loop with the launch vars.
 
 ## Agent Execution
 
-`revyl dev` is a persistent process. In agent shells, run it in a background or non-blocking terminal and keep it alive while you inspect the device from separate commands.
+`revyl dev` is a persistent process. In agent shells, prefer `--detach`: the
+loop daemonizes itself and the command returns a machine-readable handshake as
+soon as the device session is live (the build may still be running behind it).
+
+```bash
+# Preferred agent start: returns JSON with viewer_url within seconds. On a
+# local machine the CLI also opens the viewer in the user's browser
+# (opened_browser in the handshake; --no-open disables). Still post
+# viewer_url as a clickable link; never open a browser yourself.
+revyl dev --remote --detach --json    # native / rebuild-first stacks
+revyl dev --detach --json             # hot-reload stacks
+
+# Share viewer_url with the user immediately, then monitor until installed:
+revyl dev status                      # state: building -> idle
+revyl dev logs --build --follow       # stream remote build output
+revyl dev status --wait-ready --timeout 300   # block until the session is live
+
+# Iterate and stop:
+revyl dev rebuild --wait --json
+revyl dev stop --json
+```
+
+If `--detach` is unavailable (older CLI), fall back to the environment's
+non-blocking shell mode:
 
 1. **Background long-running loops** -- use the agent environment's non-blocking shell mode for `revyl dev`.
 2. **Poll for readiness** -- `Hot reload ready` means the Expo/Metro transport

@@ -166,7 +166,7 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 
 	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
 	if err != nil {
-		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		printProjectNotInitialized()
 		return err
 	}
 
@@ -415,7 +415,7 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
 	cfg, err := config.LoadProjectConfig(configPath)
 	if err != nil {
-		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		printProjectNotInitialized()
 		return err
 	}
 
@@ -591,7 +591,7 @@ func runTestsDiff(cmd *cobra.Command, args []string) error {
 
 	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
 	if err != nil {
-		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		printProjectNotInitialized()
 		return err
 	}
 

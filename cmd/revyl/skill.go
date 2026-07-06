@@ -57,7 +57,16 @@ alwaysApply: false
 
 # Revyl Agent Skills
 
-Use this rule when the user asks Cursor to work with Revyl, mobile cloud devices, revyl dev, Revyl test creation, Revyl run analysis, or test-only auth bypass.
+Use this rule when the user asks Cursor to run the app, verify a change on a device, work with Revyl, mobile cloud devices, revyl dev, Revyl test creation, Revyl run analysis, or test-only auth bypass.
+
+The core loop ("make this change and run it"):
+
+1. Start in the background: revyl dev --remote --detach --json (native stacks) or revyl dev --detach --json (hot-reload stacks). It returns JSON with viewer_url as soon as the simulator is watchable — the CLI opens it in the user's browser automatically on local machines (opened_browser in the handshake; --no-open disables). Still share viewer_url as a clickable link immediately (the fallback on cloud VMs); never try to open a browser yourself. The build continues behind it.
+2. Monitor: revyl dev status (state building -> idle, last_rebuild.status running -> success) and revyl dev logs --build --follow for remote build output.
+3. Iterate: after each code change run revyl dev rebuild --wait --json.
+4. Verify like a user: revyl device screenshot / revyl device validation -s 0 "<expected outcome>" --json / revyl device report --session-id <id> --json.
+5. Auth: with an auth_bypass section in .revyl/config.yaml the app launches authenticated automatically; if it ever shows a logged-out state, re-mint the launch vars with the repo's own mint script, then run revyl dev auth refresh.
+6. Stop with revyl dev stop when done.
 
 Load the matching installed skill from .cursor/skills:
 
@@ -69,6 +78,8 @@ Load the matching installed skill from .cursor/skills:
 Ask at most 1-3 concise clarification questions only when the repo and Revyl CLI cannot identify the target app, platform, session, URL, or sensitive action. Prefer revyl init --detect, revyl dev list, revyl app list, screenshots, and reports before asking.
 
 When Revyl prints a viewer, editor, report, or local app URL, open it with Cursor MCP/browser tools when Cursor exposes them. If no browser tool is available, report the URL and verify through revyl device screenshot or revyl device report instead of claiming browser access.
+
+Never paste launch-var values or tokens into code, logs, screenshots, or PRs — reference key names only.
 `
 
 // skillCmd is the parent command for agent skill management.
@@ -319,6 +330,17 @@ func installSkillsToTargets(targets []skillInstallTarget, allSkills []skillcatal
 					companionInstalled = append(companionInstalled, rulePath)
 				} else {
 					companionSkipped = append(companionSkipped, rulePath)
+				}
+			}
+
+			agentsPath, agentsWrote, err := installAgentsMDForTarget(target, force)
+			if err != nil {
+				installErrors = append(installErrors, fmt.Sprintf("%s (AGENTS.md): %v", target.path, err))
+			} else if agentsPath != "" {
+				if agentsWrote {
+					companionInstalled = append(companionInstalled, agentsPath)
+				} else {
+					companionSkipped = append(companionSkipped, agentsPath)
 				}
 			}
 		}

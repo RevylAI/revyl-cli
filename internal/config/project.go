@@ -38,6 +38,12 @@ type ProjectConfig struct {
 	// PR automation. Nil/omitted means PR automation is managed in the Revyl UI.
 	PRReview *PRReviewConfig `yaml:"pr_review,omitempty"`
 
+	// AuthBypass contains the test-only auth bypass contract for the app under
+	// test. When configured, device sessions started by revyl dev and revyl
+	// device start automatically apply the launch vars and fire the deep link
+	// after app launch so the app always opens authenticated.
+	AuthBypass *AuthBypassConfig `yaml:"auth_bypass,omitempty"`
+
 	// LastSyncedAt records when this config was last synced with the server (RFC3339).
 	LastSyncedAt string `yaml:"last_synced_at,omitempty"`
 
@@ -49,6 +55,31 @@ type ProjectConfig struct {
 // MarkSynced sets the LastSyncedAt timestamp to now (UTC, RFC3339).
 func (c *ProjectConfig) MarkSynced() {
 	c.LastSyncedAt = time.Now().UTC().Format(time.RFC3339)
+}
+
+// AuthBypassConfig configures the test-only auth bypass contract for the app
+// under test (see the revyl-cli-auth-bypass-* skills for the app-side handler).
+//
+// The contract: org launch variables gate and feed the bypass
+// (e.g. REVYL_AUTH_BYPASS_ENABLED, REVYL_AUTH_BYPASS_TOKEN), and a deep link
+// fired after app launch signs the session in
+// (e.g. myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home).
+type AuthBypassConfig struct {
+	// LaunchVars are org launch-variable keys (or IDs) applied to every device
+	// session start. Explicit --launch-var flags override this list.
+	LaunchVars []string `yaml:"launch_vars,omitempty"`
+
+	// DeepLink is the auth deep link fired after the app launches. ${VAR}
+	// placeholders are resolved from org launch-variable values.
+	DeepLink string `yaml:"deep_link,omitempty"`
+}
+
+// IsConfigured returns true if any auth bypass behavior is configured.
+func (a *AuthBypassConfig) IsConfigured() bool {
+	if a == nil {
+		return false
+	}
+	return len(a.LaunchVars) > 0 || strings.TrimSpace(a.DeepLink) != ""
 }
 
 // HotReloadConfig contains configuration for hot reload mode.
@@ -317,10 +348,10 @@ type BuildConfig struct {
 // BuildCache describes one remote build cache disk.
 type BuildCache struct {
 	// Key is the org-local cache key. The backend prefixes it with the org ID.
-	Key string `yaml:"key"`
+	Key string `yaml:"key" json:"key"`
 
 	// Paths are project-relative paths mounted into this cache disk.
-	Paths []string `yaml:"paths"`
+	Paths []string `yaml:"paths" json:"paths"`
 }
 
 // BuildSource contains repo-backed source settings for remote build runners.
@@ -431,6 +462,46 @@ func EffectiveBuildCaches(buildCfg BuildConfig, platformCfg BuildPlatform) []Bui
 	appendCaches(buildCfg.Caches)
 	appendCaches(platformCfg.Caches)
 	return result
+}
+
+// DefaultBuildCachePaths returns the framework-default cache paths for remote
+// builds, mirroring the backend PR-review defaults (FRAMEWORK_DEFAULTS in
+// cognisim_backend scm_config_file.py). Empty when the build system has no
+// sensible default.
+func DefaultBuildCachePaths(buildSystem, devicePlatform string) []string {
+	system := strings.ToLower(strings.TrimSpace(buildSystem))
+	platform := strings.ToLower(strings.TrimSpace(devicePlatform))
+	switch system {
+	case "expo", "react-native", "react native":
+		if platform == "android" {
+			return []string{"node_modules", "android/.gradle"}
+		}
+		return []string{"node_modules", "ios/Pods"}
+	case "xcode", "swift":
+		return []string{"Pods"}
+	case "gradle":
+		return []string{".gradle"}
+	}
+	return nil
+}
+
+// EffectiveBuildCachesWithDefaults returns the explicitly configured cache
+// disks, falling back to one framework-default cache when none are configured
+// so remote builds are cached without any user setup. Explicit caches win
+// entirely; `revyl build --remote --no-cache` still disables cache use.
+func EffectiveBuildCachesWithDefaults(buildCfg BuildConfig, platformCfg BuildPlatform, devicePlatform, appID string) []BuildCache {
+	if caches := EffectiveBuildCaches(buildCfg, platformCfg); len(caches) > 0 {
+		return caches
+	}
+	paths := DefaultBuildCachePaths(buildCfg.System, devicePlatform)
+	appID = strings.TrimSpace(appID)
+	if len(paths) == 0 || appID == "" {
+		return nil
+	}
+	return []BuildCache{{
+		Key:   fmt.Sprintf("revyl-default-%s-%s", appID, strings.ToLower(strings.TrimSpace(devicePlatform))),
+		Paths: paths,
+	}}
 }
 
 // Defaults contains default settings.

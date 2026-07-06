@@ -87,4 +87,9 @@ type PRReviewBuildEntry struct {
 
 	// Env lists org launch env var names (refs only, never values) the build needs.
 	Env []string `yaml:"env,omitempty"`
+
+	// Caches contains remote-build cache disks for this platform's preview
+	// builds. Omitted -> the backend applies framework-default caches (e.g.
+	// node_modules, ios/Pods); an explicit empty list disables caching.
+	Caches []BuildCache `yaml:"caches,omitempty"`
 }

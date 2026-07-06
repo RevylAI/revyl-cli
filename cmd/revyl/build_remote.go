@@ -790,8 +790,8 @@ func detectBuildCommand(cwd, platform string) (string, string, string, error) {
 	}
 
 	return "", "", "", fmt.Errorf(
-		"no %s build configuration found. Add build.platforms.%s.command to .revyl/config.yaml or run 'revyl init'",
-		platform, platform,
+		"no %s build configuration found in %s%s. Add build.platforms.%s.command to .revyl/config.yaml or run 'revyl init'",
+		platform, cwd, nestedProjectHint(cwd), platform,
 	)
 }
 
@@ -852,7 +852,6 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 			if devicePlatform != "ios" && devicePlatform != "android" {
 				return remoteBuildPlatformConfig{}, fmt.Errorf("build.platforms.%s must include ios or android in its key", key)
 			}
-			caches := config.EffectiveBuildCaches(cfg.Build, platCfg)
 			appID := strings.TrimSpace(appOverride)
 			if appID == "" {
 				appID = strings.TrimSpace(platCfg.AppID)
@@ -863,6 +862,10 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 			timeoutSeconds, err := buildPlatformTimeoutSeconds(platCfg, key)
 			if err != nil {
 				return remoteBuildPlatformConfig{}, err
+			}
+			caches := config.EffectiveBuildCachesWithDefaults(cfg.Build, platCfg, devicePlatform, appID)
+			if len(config.EffectiveBuildCaches(cfg.Build, platCfg)) == 0 && len(caches) > 0 {
+				ui.PrintDim("No caches configured; using framework default cache %s (%s)", caches[0].Key, strings.Join(caches[0].Paths, ", "))
 			}
 			return remoteBuildPlatformConfig{
 				Platform:       devicePlatform,
@@ -897,8 +900,8 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 	platBuild, ok := detected.Platforms[platform]
 	if !ok || strings.TrimSpace(platBuild.Command) == "" {
 		return remoteBuildPlatformConfig{}, fmt.Errorf(
-			"no %s build configuration found. Add build.platforms.%s.command to .revyl/config.yaml or run 'revyl init'",
-			platform, platform,
+			"no %s build configuration found in %s%s. Add build.platforms.%s.command to .revyl/config.yaml or run 'revyl init'",
+			platform, cwd, nestedProjectHint(cwd), platform,
 		)
 	}
 	appID := strings.TrimSpace(appOverride)

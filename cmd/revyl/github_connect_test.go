@@ -126,16 +126,20 @@ func TestWaitForGithubInstallationTimesOut(t *testing.T) {
 
 func intPtr(v int) *int { return &v }
 
-func TestGithubScmConfigIsAutomationEnabled(t *testing.T) {
+func stringPtr(v string) *string { return &v }
+
+func TestScmConfigIsAutomationEnabled(t *testing.T) {
 	tests := []struct {
 		name string
-		cfg  *api.GithubScmConfigResponse
+		cfg  *api.ScmConfigResponse
 		want bool
 	}{
 		{name: "nil", cfg: nil, want: false},
-		{name: "enabled and installed", cfg: &api.GithubScmConfigResponse{Enabled: true, GithubInstallationId: intPtr(1)}, want: true},
-		{name: "enabled no install", cfg: &api.GithubScmConfigResponse{Enabled: true}, want: false},
-		{name: "installed not enabled", cfg: &api.GithubScmConfigResponse{GithubInstallationId: intPtr(1)}, want: false},
+		{name: "enabled with neutral install id", cfg: &api.ScmConfigResponse{Enabled: true, InstallationId: stringPtr("1")}, want: true},
+		{name: "enabled with deprecated github install id", cfg: &api.ScmConfigResponse{Enabled: true, GithubInstallationId: intPtr(1)}, want: true},
+		{name: "enabled no install", cfg: &api.ScmConfigResponse{Enabled: true}, want: false},
+		{name: "enabled empty neutral install id", cfg: &api.ScmConfigResponse{Enabled: true, InstallationId: stringPtr("")}, want: false},
+		{name: "installed not enabled", cfg: &api.ScmConfigResponse{GithubInstallationId: intPtr(1)}, want: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -147,7 +151,7 @@ func TestGithubScmConfigIsAutomationEnabled(t *testing.T) {
 }
 
 func TestFindRepoConfig(t *testing.T) {
-	configs := []api.GithubScmConfigResponse{
+	configs := []api.ScmConfigResponse{
 		{RepoFullName: "revyl/app", Enabled: true, GithubInstallationId: intPtr(1)},
 		{RepoFullName: "revyl/web"},
 	}

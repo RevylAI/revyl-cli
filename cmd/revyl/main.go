@@ -33,6 +33,9 @@ var rootCmd = &cobra.Command{
 	Use:   "revyl",
 	Short: "Proactive reliability for mobile apps",
 	Long:  ui.GetHelpText(),
+	// Never dump usage/help after a runtime error: agents parse output, and a
+	// help dump buries the actual error. `revyl <cmd> --help` still works.
+	SilenceUsage: true,
 	// Run handles the no-args case. When running in an interactive TTY
 	// (no --json, no --quiet, stdout is a terminal), launches the Bubble Tea TUI hub.
 	// Otherwise falls back to the condensed cheat-sheet for agents, CI, and pipes.
@@ -52,6 +55,16 @@ var rootCmd = &cobra.Command{
 		fmt.Print(ui.GetCondensedHelp())
 	},
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Honor -C/--chdir before anything reads the working directory, so
+		// agents can target a project without relying on shell cd (which is
+		// easily lost between tool calls).
+		if chdir, _ := cmd.Flags().GetString("chdir"); strings.TrimSpace(chdir) != "" {
+			if err := os.Chdir(chdir); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: --chdir %s: %v\n", chdir, err)
+				os.Exit(1)
+			}
+		}
+
 		debug, _ := cmd.Flags().GetBool("debug")
 		if debug {
 			log.SetLevel(log.DebugLevel)
@@ -61,9 +74,13 @@ var rootCmd = &cobra.Command{
 		// Set debug mode for UI package
 		ui.SetDebugMode(debug)
 
-		// Set quiet mode from global flag
+		// Set quiet mode from the global flag, and force it whenever the
+		// invoked command runs with --json: machine-readable output must never
+		// be preceded by spinner or progress text (agents pipe stdout+stderr
+		// to JSON parsers).
 		quiet, _ := cmd.Flags().GetBool("quiet")
-		ui.SetQuietMode(quiet)
+		jsonFlag, _ := cmd.Flags().GetBool("json")
+		ui.SetQuietMode(quiet || jsonFlag)
 
 		// Propagate CLI version to the API package so every client
 		// automatically sends the correct User-Agent header.
@@ -142,6 +159,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("dev", false, "Use local development servers (reads PORT from .env files)")
 	rootCmd.PersistentFlags().Bool("json", false, "Output results as JSON (where supported)")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-essential output")
+	rootCmd.PersistentFlags().StringP("chdir", "C", "", "Run as if started in this directory (the project dir containing .revyl/)")
 
 	_ = rootCmd.PersistentFlags().MarkHidden("dev")
 

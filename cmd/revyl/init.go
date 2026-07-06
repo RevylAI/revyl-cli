@@ -85,6 +85,10 @@ func init() {
 // ---------------------------------------------------------------------------
 
 // runInit executes the init wizard.
+// initStdinIsTTY reports whether stdin is interactive. Overridable in tests
+// that simulate menu input through a piped stdin.
+var initStdinIsTTY = ui.IsInputTTY
+
 func runInit(cmd *cobra.Command, args []string) error {
 	ui.PrintBanner(version)
 
@@ -108,6 +112,25 @@ func runInit(cmd *cobra.Command, args []string) error {
 		ui.PrintWarning("Project already initialized")
 		ui.PrintInfo("Use --force to overwrite or --detect to re-run detection")
 		return nil
+	}
+
+	// Never open interactive menus when stdin is not a TTY (agents, CI):
+	// fall back to non-interactive config creation instead of hanging on a
+	// selection prompt.
+	if !initNonInteractive && !initStdinIsTTY() {
+		ui.PrintDim("Non-interactive shell detected; running init without prompts.")
+		initNonInteractive = true
+	}
+
+	// Monorepo guard: don't scaffold a duplicate project at a repo root when
+	// the app project already lives in a subdirectory.
+	if !configExists && !initForce {
+		if nested := nestedProjectDirs(cwd); len(nested) > 0 {
+			ui.PrintError("A Revyl project already exists in: %s", strings.Join(nested, ", "))
+			ui.PrintInfo("Run revyl commands from that directory (cd %s) or pass -C %s.", nested[0], nested[0])
+			ui.PrintDim("Use --force to initialize a separate project here anyway.")
+			return fmt.Errorf("nested Revyl project found in %s; not initializing at %s", nested[0], cwd)
+		}
 	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")

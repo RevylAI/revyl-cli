@@ -1046,12 +1046,24 @@ func stopOneDevContext(cmd *cobra.Command, cwd, name string) error {
 		ui.PrintDim("  To reuse it in a new loop:   revyl dev --context %s", name)
 	}
 
+	stoppedSessionID := ctx.SessionID
 	ctx.State = devContextStateStopped
 	ctx.PID = 0
 	ctx.SessionID = ""
 	ctx.SessionIndex = 0
 	ctx.ViewerURL = ""
 	_ = saveDevContext(cwd, ctx)
+
+	if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
+		data, _ := json.MarshalIndent(map[string]interface{}{
+			"context":       name,
+			"stopped":       true,
+			"session_id":    stoppedSessionID,
+			"session_owned": ctx.SessionOwned,
+		}, "", "  ")
+		fmt.Println(string(data))
+		return nil
+	}
 
 	ui.PrintSuccess("Stopped dev context '%s'", name)
 	if ctx.SessionOwned {

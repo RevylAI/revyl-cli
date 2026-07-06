@@ -645,3 +645,91 @@ publish:
 		t.Fatalf("expected legacy publish block to be dropped on write, got:\n%s", string(data))
 	}
 }
+
+func TestLoadProjectConfig_AuthBypassRoundTrip(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	raw := `project:
+  name: bypass-app
+build:
+  system: Xcode
+auth_bypass:
+  launch_vars:
+    - REVYL_AUTH_BYPASS_ENABLED
+    - REVYL_AUTH_BYPASS_TOKEN
+  deep_link: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home"
+`
+	if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := LoadProjectConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig() error = %v", err)
+	}
+	if !cfg.AuthBypass.IsConfigured() {
+		t.Fatal("AuthBypass.IsConfigured() = false, want true")
+	}
+	if got := len(cfg.AuthBypass.LaunchVars); got != 2 {
+		t.Fatalf("len(LaunchVars) = %d, want 2", got)
+	}
+
+	if err := WriteProjectConfig(configPath, cfg); err != nil {
+		t.Fatalf("WriteProjectConfig() error = %v", err)
+	}
+	reloaded, err := LoadProjectConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig() after write error = %v", err)
+	}
+	if !reloaded.AuthBypass.IsConfigured() {
+		t.Fatal("auth_bypass section did not survive a write round-trip")
+	}
+	if reloaded.AuthBypass.DeepLink != cfg.AuthBypass.DeepLink {
+		t.Fatalf("DeepLink after round-trip = %q", reloaded.AuthBypass.DeepLink)
+	}
+}
+
+func TestAuthBypassConfig_Validation(t *testing.T) {
+	var nilCfg *AuthBypassConfig
+	if nilCfg.IsConfigured() {
+		t.Fatal("nil AuthBypassConfig should not be configured")
+	}
+	if (&AuthBypassConfig{}).IsConfigured() {
+		t.Fatal("empty AuthBypassConfig should not be configured")
+	}
+	if !(&AuthBypassConfig{DeepLink: "app://auth"}).IsConfigured() {
+		t.Fatal("deep-link-only AuthBypassConfig should be configured")
+	}
+}
+
+func TestEffectiveBuildCachesWithDefaults(t *testing.T) {
+	explicit := BuildConfig{
+		System: "Xcode",
+		Caches: []BuildCache{{Key: "my-cache", Paths: []string{"custom"}}},
+	}
+	got := EffectiveBuildCachesWithDefaults(explicit, BuildPlatform{}, "ios", "app-1")
+	if len(got) != 1 || got[0].Key != "my-cache" {
+		t.Fatalf("explicit caches should win entirely, got %#v", got)
+	}
+
+	xcode := BuildConfig{System: "Xcode"}
+	got = EffectiveBuildCachesWithDefaults(xcode, BuildPlatform{}, "ios", "app-1")
+	if len(got) != 1 || got[0].Key != "revyl-default-app-1-ios" {
+		t.Fatalf("expected xcode default cache, got %#v", got)
+	}
+	if len(got[0].Paths) == 0 {
+		t.Fatal("default cache must have paths")
+	}
+
+	expo := BuildConfig{System: "Expo"}
+	got = EffectiveBuildCachesWithDefaults(expo, BuildPlatform{}, "android", "app-2")
+	if len(got) != 1 || got[0].Paths[0] != "node_modules" {
+		t.Fatalf("expected expo android default with node_modules, got %#v", got)
+	}
+
+	if got := EffectiveBuildCachesWithDefaults(xcode, BuildPlatform{}, "ios", ""); got != nil {
+		t.Fatalf("no app id -> no default cache, got %#v", got)
+	}
+	if got := EffectiveBuildCachesWithDefaults(BuildConfig{System: "Bazel"}, BuildPlatform{}, "ios", "app-3"); got != nil {
+		t.Fatalf("unknown system -> no default cache, got %#v", got)
+	}
+}

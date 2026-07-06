@@ -153,3 +153,24 @@ test:
 ```
 
 Use the app's real variable/global naming conventions. Do not put raw secrets in YAML.
+
+## Persist the Config (final step)
+
+After the app-side handler works, add an `auth_bypass` section to
+`.revyl/config.yaml` so every `revyl dev` and `revyl device start` session
+launches authenticated automatically — no flags, no manual deep link:
+
+```yaml
+auth_bypass:
+  launch_vars: [REVYL_AUTH_BYPASS_ENABLED, REVYL_AUTH_BYPASS_TOKEN]
+  deep_link: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home"
+```
+
+`${VAR}` placeholders resolve from org launch-variable values at fire time.
+The deep link re-fires after every app (re)launch. If the app shows a
+logged-out state mid-session (expired mint), re-mint the launch vars with the
+repo's own mint script, then run `revyl dev auth refresh` to re-fire the link
+with fresh values. Mint tokens with a TTL that comfortably covers a dev or
+preview session. This section is also honored by Revyl PR review previews, so
+preview devices open signed in. Verify with a fresh `revyl dev` session and a
+screenshot.

@@ -48,6 +48,8 @@ var (
 	devStartOpen           bool
 	devStartNoOpen         bool
 	devStartForceHotReload bool
+	devStartDetach         bool
+	devStartJSON           bool
 
 	devTestRunPlatform    string
 	devTestRunPlatformKey string
@@ -185,10 +187,14 @@ func init() {
 	devCmd.AddCommand(devStopCmd)
 
 	devStopCmd.Flags().BoolVar(&devStopAll, "all", false, "Stop all dev contexts in the current worktree")
+	devStopCmd.Flags().Bool("json", false, "Output result as JSON")
 
 	devRebuildCmd.Flags().BoolVar(&rebuildWait, "wait", false, "Block until rebuild completes")
 	devRebuildCmd.Flags().IntVar(&rebuildTimeout, "timeout", 120, "Timeout in seconds (with --wait)")
 	devRebuildCmd.Flags().BoolVar(&rebuildJSON, "json", false, "Output result as JSON (implies --wait)")
+
+	devStatusCmd.Flags().Bool("wait-ready", false, "Block until the dev loop has a live device session")
+	devStatusCmd.Flags().Int("timeout", 300, "Timeout in seconds (with --wait-ready)")
 
 	devTestCmd.AddCommand(devTestRunCmd)
 	devTestCmd.AddCommand(devTestOpenCmd)
@@ -244,14 +250,32 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&devStartOpen, "open", true, "Open live device viewer in browser")
 	cmd.Flags().BoolVar(&devStartNoOpen, "no-open", false, "Do not open the live device viewer in browser")
 	cmd.Flags().BoolVar(&devStartForceHotReload, "force-hot-reload", false, "Diagnostic launch after Expo relay transport, even if manifest readiness cannot be proven")
+	cmd.Flags().BoolVar(&devStartDetach, "detach", false, "Run the dev loop in the background and return once the device session is ready")
+	cmd.Flags().BoolVar(&devStartJSON, "json", false, "With --detach, print a machine-readable handshake once the session is ready")
+}
+
+// effectiveDevOpenBrowser resolves whether a dev loop should open the live
+// viewer in the browser: explicit --open/--no-open flag > explicit config
+// defaults.open_browser > open by default (watching the device IS the
+// product; suppress with --no-open).
+func effectiveDevOpenBrowser(cmd *cobra.Command, cfg *config.ProjectConfig) bool {
+	if devStartNoOpen {
+		return false
+	}
+	if cmd.Flags().Changed("open") {
+		return devStartOpen
+	}
+	if cfg != nil && cfg.Defaults.OpenBrowser != nil {
+		return *cfg.Defaults.OpenBrowser
+	}
+	return true
 }
 
 func withDevStartLaunchVars(opts mcppkg.StartSessionOptions) mcppkg.StartSessionOptions {
-	if len(devStartLaunchVars) == 0 {
-		return opts
+	if len(devStartLaunchVars) > 0 {
+		opts.LaunchVars = append([]string(nil), devStartLaunchVars...)
 	}
-	opts.LaunchVars = append([]string(nil), devStartLaunchVars...)
-	return opts
+	return applyAuthBypassSessionDefaults(context.Background(), opts)
 }
 
 func warnLaunchVarsIgnoredForReusedDevSession() {
@@ -471,13 +495,22 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		cwd = repoRoot
 	}
 
+	if devStartDetach && !isDetachedDevChild() {
+		return spawnDetachedDevLoop(cwd)
+	}
+
 	ctxName := getDevContextFlag(cmd)
 
 	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
 	cfg, err := config.LoadProjectConfig(configPath)
 	if err != nil {
-		ui.PrintError("Project not initialized. Run 'revyl init' first.")
+		printProjectNotInitialized()
 		return fmt.Errorf("project not initialized")
+	}
+
+	if cfg.AuthBypass.IsConfigured() {
+		devMode, _ := cmd.Flags().GetBool("dev")
+		initDevAuthBypass(cfg, api.NewClientWithDevMode(apiKey, devMode))
 	}
 
 	externalTunnel, err := parseExternalTunnelInput(devStartTunnelURL)
@@ -611,13 +644,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		timeout = 300
 	}
 
-	openBrowser := devStartOpen
-	if !cmd.Flags().Changed("open") {
-		openBrowser = config.EffectiveOpenBrowser(cfg)
-	}
-	if devStartNoOpen {
-		openBrowser = false
-	}
+	openBrowser := effectiveDevOpenBrowser(cmd, cfg)
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
@@ -2099,7 +2126,11 @@ func tryLaunchInstalledApp(
 			formatInstalledAppIdentifier(devicePlatform, identifier),
 			err,
 		)
+		return
 	}
+
+	// A (re)launch starts a fresh app process, so re-authenticate it.
+	fireAuthBypassAfterLaunch(ctx, requester, sessionIndex)
 }
 
 // maskPresignedURL redacts the query string from presigned S3/GCS URLs to
@@ -2150,13 +2181,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		timeout = 300
 	}
 
-	openBrowser := devStartOpen
-	if !cmd.Flags().Changed("open") {
-		openBrowser = config.EffectiveOpenBrowser(cfg)
-	}
-	if devStartNoOpen {
-		openBrowser = false
-	}
+	openBrowser := effectiveDevOpenBrowser(cmd, cfg)
 
 	ui.PrintBanner(version)
 	ui.Println()
@@ -3406,19 +3431,20 @@ func uploadExistingArtifact(ctx context.Context, client *api.Client, artifactPat
 // ---------------------------------------------------------------------------
 
 type devStatus struct {
-	State          string          `json:"state"`
-	PID            int             `json:"pid"`
-	Platform       string          `json:"platform"`
-	BuildMode      string          `json:"build_mode,omitempty"`
-	SessionID      string          `json:"session_id,omitempty"`
-	ViewerURL      string          `json:"viewer_url,omitempty"`
-	TunnelURL      string          `json:"tunnel_url,omitempty"`
-	DeepLinkURL    string          `json:"deep_link_url,omitempty"`
-	Transport      string          `json:"transport,omitempty"`
-	RelayID        string          `json:"relay_id,omitempty"`
-	DeltaCacheWarm bool            `json:"delta_cache_warm"`
-	RebuildCount   int             `json:"rebuild_count"`
-	LastRebuild    *devRebuildInfo `json:"last_rebuild,omitempty"`
+	State          string            `json:"state"`
+	PID            int               `json:"pid"`
+	Platform       string            `json:"platform"`
+	BuildMode      string            `json:"build_mode,omitempty"`
+	SessionID      string            `json:"session_id,omitempty"`
+	ViewerURL      string            `json:"viewer_url,omitempty"`
+	TunnelURL      string            `json:"tunnel_url,omitempty"`
+	DeepLinkURL    string            `json:"deep_link_url,omitempty"`
+	Transport      string            `json:"transport,omitempty"`
+	RelayID        string            `json:"relay_id,omitempty"`
+	DeltaCacheWarm bool              `json:"delta_cache_warm"`
+	RebuildCount   int               `json:"rebuild_count"`
+	LastRebuild    *devRebuildInfo   `json:"last_rebuild,omitempty"`
+	AuthBypass     *authBypassStatus `json:"auth_bypass,omitempty"`
 }
 
 type devRebuildLogEntry struct {
@@ -3649,6 +3675,9 @@ func writeDevStatus(
 }
 
 func writeDevStatusSnapshot(statusPath string, ds devStatus) {
+	if ds.AuthBypass == nil {
+		ds.AuthBypass = devAuthBypass.Status()
+	}
 	data, err := json.MarshalIndent(ds, "", "  ")
 	if err != nil {
 		ui.PrintDim("  Failed to marshal dev status: %v", err)
@@ -3851,14 +3880,43 @@ func runDevStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	waitReady, _ := cmd.Flags().GetBool("wait-ready")
+	if waitReady {
+		waitTimeout, _ := cmd.Flags().GetInt("timeout")
+		if waitTimeout <= 0 {
+			waitTimeout = 300
+		}
+		deadline := time.Now().Add(time.Duration(waitTimeout) * time.Second)
+		for {
+			out := collectDevStatusOutput(cwd, ctxName)
+			if devStatusOutputReady(out) {
+				data, _ := json.MarshalIndent(out, "", "  ")
+				fmt.Println(string(data))
+				return nil
+			}
+			if time.Now().After(deadline) {
+				data, _ := json.MarshalIndent(out, "", "  ")
+				fmt.Println(string(data))
+				return fmt.Errorf("dev session not ready after %ds", waitTimeout)
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	out := collectDevStatusOutput(cwd, ctxName)
+	data, _ := json.MarshalIndent(out, "", "  ")
+	fmt.Println(string(data))
+	return nil
+}
+
+// collectDevStatusOutput gathers the status JSON for a dev context.
+func collectDevStatusOutput(cwd, ctxName string) map[string]interface{} {
 	pidPath := devCtxPIDPath(cwd, ctxName)
 	statusPath := devCtxStatusPath(cwd, ctxName)
 
 	pid, nonce := readDevCtxPIDFile(pidPath)
 	if pid == 0 {
-		out, _ := json.Marshal(map[string]interface{}{"running": false})
-		fmt.Println(string(out))
-		return nil
+		return map[string]interface{}{"running": false}
 	}
 
 	ctxMeta, _ := loadDevContext(cwd, ctxName)
@@ -3867,30 +3925,30 @@ func runDevStatus(cmd *cobra.Command, args []string) error {
 		expectedNonce = ctxMeta.StartedAtNano
 	}
 	running, _ := isDevCtxProcessAlive(pid, expectedNonce, pidPath)
-
 	if !running {
-		out, _ := json.Marshal(map[string]interface{}{"running": false})
-		fmt.Println(string(out))
-		return nil
+		return map[string]interface{}{"running": false}
 	}
 
 	statusData, statusErr := os.ReadFile(statusPath)
 	if statusErr != nil {
-		out, _ := json.MarshalIndent(buildDevStatusOutput(ctxName, pid, ctxMeta, nil), "", "  ")
-		fmt.Println(string(out))
-		return nil
+		return buildDevStatusOutput(ctxName, pid, ctxMeta, nil)
 	}
 
 	var ds devStatus
 	if err := json.Unmarshal(statusData, &ds); err != nil {
-		out, _ := json.MarshalIndent(buildDevStatusOutput(ctxName, pid, ctxMeta, nil), "", "  ")
-		fmt.Println(string(out))
-		return nil
+		return buildDevStatusOutput(ctxName, pid, ctxMeta, nil)
 	}
+	return buildDevStatusOutput(ctxName, pid, ctxMeta, &ds)
+}
 
-	out, _ := json.MarshalIndent(buildDevStatusOutput(ctxName, pid, ctxMeta, &ds), "", "  ")
-	fmt.Println(string(out))
-	return nil
+// devStatusOutputReady reports whether a status snapshot represents a live
+// loop with a usable device session (build may still be running).
+func devStatusOutputReady(out map[string]interface{}) bool {
+	if running, _ := out["running"].(bool); !running {
+		return false
+	}
+	sessionID, _ := out["session_id"].(string)
+	return strings.TrimSpace(sessionID) != ""
 }
 
 func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devStatus) map[string]interface{} {
@@ -3987,7 +4045,16 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		"last_rebuild_error":       lastRebuildError,
 		"last_rebuild_status":      safeLastRebuildField(lastRebuild, "status"),
 		"last_rebuild_duration_ms": safeLastRebuildDuration(lastRebuild),
+		"last_rebuild":             lastRebuild,
+		"auth_bypass":              devStatusAuthBypass(ds),
 	}
+}
+
+func devStatusAuthBypass(ds *devStatus) *authBypassStatus {
+	if ds == nil {
+		return nil
+	}
+	return ds.AuthBypass
 }
 
 func safeLastRebuildField(rb *devRebuildInfo, field string) string {

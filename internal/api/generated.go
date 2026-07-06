@@ -412,6 +412,11 @@ const (
 	ScmBuildTargetResponsePlatformIos     ScmBuildTargetResponsePlatform = "ios"
 )
 
+// Defines values for ScmProvider.
+const (
+	ScmProviderGithub ScmProvider = "github"
+)
+
 // Defines values for SessionInstallRequestInstallMode.
 const (
 	SessionInstallRequestInstallModeDelta SessionInstallRequestInstallMode = "delta"
@@ -4068,126 +4073,6 @@ type GitHubUser struct {
 	Name      *string `json:"name"`
 }
 
-// GithubConfigFilePushRequest A “.revyl/config.yaml“ pushed directly from the CLI.
-//
-// Attributes:
-//
-//	namespace: Repository owner/namespace (e.g. ``revyl``).
-//	project: Repository name (e.g. ``my-app``).
-//	content: The raw YAML contents of the config file.
-//	config_file_path: The repo-relative path the file lives at; used only
-//	    for display in the settings UI.
-type GithubConfigFilePushRequest struct {
-	ConfigFilePath *string `json:"config_file_path,omitempty"`
-	Content        string  `json:"content"`
-	Namespace      string  `json:"namespace"`
-	Project        string  `json:"project"`
-}
-
-// GithubConfigFileRescanResponse Result of an on-demand config-file re-scan.
-type GithubConfigFileRescanResponse struct {
-	Config GithubScmConfigResponse `json:"config"`
-
-	// State Detection state of the committed ``.revyl/config.yaml`` for a repo.
-	//
-	// Attributes:
-	//     status: ``managed`` (file applied), ``error`` (file present but
-	//         unusable), or ``none`` (UI-managed; no usable file).
-	//     config_file_path: The detected file path, if any.
-	//     commit_sha: The detected file blob sha, if any.
-	//     html_url: A link to the file on GitHub, if any.
-	//     error: An actionable error message, if any.
-	//     summary: Compact summary of the applied config, if managed.
-	//     synced_at: ISO timestamp of the last reconcile, if any.
-	State GithubConfigFileStateResponse `json:"state"`
-}
-
-// GithubConfigFileStateResponse Detection state of the committed “.revyl/config.yaml“ for a repo.
-//
-// Attributes:
-//
-//	status: ``managed`` (file applied), ``error`` (file present but
-//	    unusable), or ``none`` (UI-managed; no usable file).
-//	config_file_path: The detected file path, if any.
-//	commit_sha: The detected file blob sha, if any.
-//	html_url: A link to the file on GitHub, if any.
-//	error: An actionable error message, if any.
-//	summary: Compact summary of the applied config, if managed.
-//	synced_at: ISO timestamp of the last reconcile, if any.
-type GithubConfigFileStateResponse struct {
-	CommitSha      *string `json:"commit_sha"`
-	ConfigFilePath *string `json:"config_file_path"`
-	Error          *string `json:"error"`
-	HtmlUrl        *string `json:"html_url"`
-	Status         string  `json:"status"`
-
-	// Summary Compact, serializable summary of a parsed ``pr_review`` config.
-	//
-	// Used for the settings-page banner and the PR comment. Persisted into
-	// ``scm_review_configs.metadata`` via ``model_dump(mode="json")``.
-	Summary  *PrReviewConfigSummary `json:"summary,omitempty"`
-	SyncedAt *string                `json:"synced_at"`
-}
-
-// GithubScmConfigCreateRequest defines model for GithubScmConfigCreateRequest.
-type GithubScmConfigCreateRequest struct {
-	Namespace string `json:"namespace"`
-	Project   string `json:"project"`
-}
-
-// GithubScmConfigDeleteResponse defines model for GithubScmConfigDeleteResponse.
-type GithubScmConfigDeleteResponse struct {
-	Id           openapi_types.UUID `json:"id"`
-	RepoFullName string             `json:"repo_full_name"`
-}
-
-// GithubScmConfigResponse defines model for GithubScmConfigResponse.
-type GithubScmConfigResponse struct {
-	Actions                  ScmActions               `json:"actions"`
-	BuildTargets             []ScmBuildTargetResponse `json:"build_targets"`
-	Enabled                  bool                     `json:"enabled"`
-	GithubInstallationId     *int                     `json:"github_installation_id"`
-	GithubInstallationStatus *string                  `json:"github_installation_status"`
-	GithubRepositoryId       *openapi_types.UUID      `json:"github_repository_id"`
-	Id                       openapi_types.UUID       `json:"id"`
-	LabelFilters             []string                 `json:"label_filters"`
-	LastSyncedAt             *time.Time               `json:"last_synced_at"`
-	Namespace                string                   `json:"namespace"`
-	PathFilters              []string                 `json:"path_filters"`
-	Preset                   string                   `json:"preset"`
-	Profiles                 ScmProfiles              `json:"profiles"`
-	Project                  string                   `json:"project"`
-	Provider                 string                   `json:"provider"`
-	RepoFullName             string                   `json:"repo_full_name"`
-	SkipDrafts               bool                     `json:"skip_drafts"`
-}
-
-// GithubScmConfigSyncResponse defines model for GithubScmConfigSyncResponse.
-type GithubScmConfigSyncResponse struct {
-	Config       GithubScmConfigResponse `json:"config"`
-	Repositories int                     `json:"repositories"`
-	Success      bool                    `json:"success"`
-}
-
-// GithubScmConfigUpdateRequest defines model for GithubScmConfigUpdateRequest.
-type GithubScmConfigUpdateRequest struct {
-	Actions      *ScmActions       `json:"actions,omitempty"`
-	BuildTargets *[]ScmBuildTarget `json:"build_targets"`
-	Enabled      *bool             `json:"enabled,omitempty"`
-	LabelFilters *[]string         `json:"label_filters,omitempty"`
-	PathFilters  *[]string         `json:"path_filters,omitempty"`
-	Preset       *string           `json:"preset,omitempty"`
-	Profiles     *ScmProfiles      `json:"profiles,omitempty"`
-	SkipDrafts   *bool             `json:"skip_drafts,omitempty"`
-}
-
-// GithubScmConfigsResponse defines model for GithubScmConfigsResponse.
-type GithubScmConfigsResponse struct {
-	Configs                  []GithubScmConfigResponse `json:"configs"`
-	GithubIntegrationEnabled bool                      `json:"github_integration_enabled"`
-	HasAccess                bool                      `json:"has_access"`
-}
-
 // GlobalVariableCreate Request model for creating a global variable.
 type GlobalVariableCreate struct {
 	// Description Description of the variable
@@ -6863,6 +6748,135 @@ type ScmBuildTargetResponse struct {
 // ScmBuildTargetResponsePlatform defines model for ScmBuildTargetResponse.Platform.
 type ScmBuildTargetResponsePlatform string
 
+// ScmConfigCreateRequest defines model for ScmConfigCreateRequest.
+type ScmConfigCreateRequest struct {
+	Namespace string `json:"namespace"`
+	Project   string `json:"project"`
+}
+
+// ScmConfigDeleteResponse defines model for ScmConfigDeleteResponse.
+type ScmConfigDeleteResponse struct {
+	Id           openapi_types.UUID `json:"id"`
+	RepoFullName string             `json:"repo_full_name"`
+}
+
+// ScmConfigFilePushRequest A “.revyl/config.yaml“ pushed directly from the CLI.
+//
+// Attributes:
+//
+//	namespace: Repository owner/namespace (e.g. ``revyl``).
+//	project: Repository name (e.g. ``my-app``).
+//	content: The raw YAML contents of the config file.
+//	config_file_path: The repo-relative path the file lives at; used only
+//	    for display in the settings UI.
+type ScmConfigFilePushRequest struct {
+	ConfigFilePath *string `json:"config_file_path,omitempty"`
+	Content        string  `json:"content"`
+	Namespace      string  `json:"namespace"`
+	Project        string  `json:"project"`
+}
+
+// ScmConfigFileRescanResponse Result of an on-demand config-file re-scan (or CLI config push).
+type ScmConfigFileRescanResponse struct {
+	// State Detection state of the committed ``.revyl/config.yaml`` for a repo.
+	//
+	// Attributes:
+	//     status: ``managed`` (file applied), ``error`` (file present but
+	//         unusable), or ``none`` (UI-managed; no usable file).
+	//     config_file_path: The detected file path, if any.
+	//     commit_sha: The detected file blob sha, if any.
+	//     html_url: A link to the file on the provider, if any.
+	//     error: An actionable error message, if any.
+	//     summary: Compact summary of the applied config, if managed.
+	//     synced_at: ISO timestamp of the last reconcile, if any.
+	State ScmConfigFileStateResponse `json:"state"`
+}
+
+// ScmConfigFileStateResponse Detection state of the committed “.revyl/config.yaml“ for a repo.
+//
+// Attributes:
+//
+//	status: ``managed`` (file applied), ``error`` (file present but
+//	    unusable), or ``none`` (UI-managed; no usable file).
+//	config_file_path: The detected file path, if any.
+//	commit_sha: The detected file blob sha, if any.
+//	html_url: A link to the file on the provider, if any.
+//	error: An actionable error message, if any.
+//	summary: Compact summary of the applied config, if managed.
+//	synced_at: ISO timestamp of the last reconcile, if any.
+type ScmConfigFileStateResponse struct {
+	CommitSha      *string `json:"commit_sha"`
+	ConfigFilePath *string `json:"config_file_path"`
+	Error          *string `json:"error"`
+	HtmlUrl        *string `json:"html_url"`
+	Status         string  `json:"status"`
+
+	// Summary Compact, serializable summary of a parsed ``pr_review`` config.
+	//
+	// Used for the settings-page banner and the PR comment. Persisted into
+	// ``scm_review_configs.metadata`` via ``model_dump(mode="json")``.
+	Summary  *PrReviewConfigSummary `json:"summary,omitempty"`
+	SyncedAt *string                `json:"synced_at"`
+}
+
+// ScmConfigResponse defines model for ScmConfigResponse.
+type ScmConfigResponse struct {
+	Actions      ScmActions               `json:"actions"`
+	BuildTargets []ScmBuildTargetResponse `json:"build_targets"`
+	Enabled      bool                     `json:"enabled"`
+
+	// GithubInstallationId Deprecated: use installation_id. Kept on the wire for released revyl-cli binaries; removal requires a CLI deprecation window.
+	// Deprecated:
+	GithubInstallationId *int                `json:"github_installation_id"`
+	GithubRepositoryId   *openapi_types.UUID `json:"github_repository_id"`
+	Id                   openapi_types.UUID  `json:"id"`
+
+	// InstallationId Provider-native installation id (neutral twin of the github_* fields).
+	InstallationId *string     `json:"installation_id"`
+	LabelFilters   []string    `json:"label_filters"`
+	LastSyncedAt   *time.Time  `json:"last_synced_at"`
+	Namespace      string      `json:"namespace"`
+	PathFilters    []string    `json:"path_filters"`
+	Preset         string      `json:"preset"`
+	Profiles       ScmProfiles `json:"profiles"`
+	Project        string      `json:"project"`
+	Provider       string      `json:"provider"`
+	RepoFullName   string      `json:"repo_full_name"`
+	SkipDrafts     bool        `json:"skip_drafts"`
+}
+
+// ScmConfigSyncResponse defines model for ScmConfigSyncResponse.
+type ScmConfigSyncResponse struct {
+	Config       ScmConfigResponse `json:"config"`
+	Repositories int               `json:"repositories"`
+	Success      bool              `json:"success"`
+}
+
+// ScmConfigUpdateRequest defines model for ScmConfigUpdateRequest.
+type ScmConfigUpdateRequest struct {
+	Actions      *ScmActions       `json:"actions,omitempty"`
+	BuildTargets *[]ScmBuildTarget `json:"build_targets"`
+	Enabled      *bool             `json:"enabled,omitempty"`
+	LabelFilters *[]string         `json:"label_filters,omitempty"`
+	PathFilters  *[]string         `json:"path_filters,omitempty"`
+	Preset       *string           `json:"preset,omitempty"`
+	Profiles     *ScmProfiles      `json:"profiles,omitempty"`
+	SkipDrafts   *bool             `json:"skip_drafts,omitempty"`
+}
+
+// ScmConfigsResponse defines model for ScmConfigsResponse.
+type ScmConfigsResponse struct {
+	Configs []ScmConfigResponse `json:"configs"`
+
+	// GithubIntegrationEnabled Deprecated: use integration_enabled. Kept on the wire for released revyl-cli binaries; removal requires a CLI deprecation window.
+	// Deprecated:
+	GithubIntegrationEnabled bool `json:"github_integration_enabled"`
+	HasAccess                bool `json:"has_access"`
+
+	// IntegrationEnabled Whether the requested provider's integration is enabled.
+	IntegrationEnabled *bool `json:"integration_enabled"`
+}
+
 // ScmCuratedWorkflowFailRequest Internal request to mark a curated workflow PR run failed.
 type ScmCuratedWorkflowFailRequest struct {
 	Error         string             `json:"error"`
@@ -6915,6 +6929,9 @@ type ScmProfiles struct {
 	Android *ScmPlatformProfile `json:"android,omitempty"`
 	Ios     *ScmPlatformProfile `json:"ios,omitempty"`
 }
+
+// ScmProvider Supported SCM providers. Add new members as providers are implemented.
+type ScmProvider string
 
 // ScriptUsageResponse Response model for script usage lookup
 type ScriptUsageResponse struct {
@@ -11071,15 +11088,6 @@ type UpdateStepApiV1ReportsV3StepsStepIdPatchJSONRequestBody = UpdateStepRequest
 // CreateActionApiV1ReportsV3StepsStepIdActionsPostJSONRequestBody defines body for CreateActionApiV1ReportsV3StepsStepIdActionsPost for application/json ContentType.
 type CreateActionApiV1ReportsV3StepsStepIdActionsPostJSONRequestBody = CreateActionRequest
 
-// CreateGithubScmConfigApiV1ScmGithubConfigsPostJSONRequestBody defines body for CreateGithubScmConfigApiV1ScmGithubConfigsPost for application/json ContentType.
-type CreateGithubScmConfigApiV1ScmGithubConfigsPostJSONRequestBody = GithubScmConfigCreateRequest
-
-// PushGithubScmConfigFileApiV1ScmGithubConfigsPushPostJSONRequestBody defines body for PushGithubScmConfigFileApiV1ScmGithubConfigsPushPost for application/json ContentType.
-type PushGithubScmConfigFileApiV1ScmGithubConfigsPushPostJSONRequestBody = GithubConfigFilePushRequest
-
-// UpdateGithubScmConfigApiV1ScmGithubConfigsRepoConfigIdPutJSONRequestBody defines body for UpdateGithubScmConfigApiV1ScmGithubConfigsRepoConfigIdPut for application/json ContentType.
-type UpdateGithubScmConfigApiV1ScmGithubConfigsRepoConfigIdPutJSONRequestBody = GithubScmConfigUpdateRequest
-
 // FailScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportFailPostJSONRequestBody defines body for FailScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportFailPost for application/json ContentType.
 type FailScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportFailPostJSONRequestBody = ScmAdaptiveReportFailRequest
 
@@ -11091,6 +11099,15 @@ type FailScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowFailPostJSONRe
 
 // ProcessScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowProcessPostJSONRequestBody defines body for ProcessScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowProcessPost for application/json ContentType.
 type ProcessScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowProcessPostJSONRequestBody = ScmCuratedWorkflowProcessRequest
+
+// CreateScmConfigApiV1ScmProviderConfigsPostJSONRequestBody defines body for CreateScmConfigApiV1ScmProviderConfigsPost for application/json ContentType.
+type CreateScmConfigApiV1ScmProviderConfigsPostJSONRequestBody = ScmConfigCreateRequest
+
+// PushScmConfigFileApiV1ScmProviderConfigsPushPostJSONRequestBody defines body for PushScmConfigFileApiV1ScmProviderConfigsPushPost for application/json ContentType.
+type PushScmConfigFileApiV1ScmProviderConfigsPushPostJSONRequestBody = ScmConfigFilePushRequest
+
+// UpdateScmConfigApiV1ScmProviderConfigsRepoConfigIdPutJSONRequestBody defines body for UpdateScmConfigApiV1ScmProviderConfigsRepoConfigIdPut for application/json ContentType.
+type UpdateScmConfigApiV1ScmProviderConfigsRepoConfigIdPutJSONRequestBody = ScmConfigUpdateRequest
 
 // GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody defines body for GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePost for application/json ContentType.
 type GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody = S3PresignedUrlsRequest

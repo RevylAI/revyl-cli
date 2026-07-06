@@ -343,7 +343,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	// Handle --build flag: build and upload before running test
 	if runTestBuild {
 		if !hasProjectConfig {
-			ui.PrintError("Project not initialized. Run 'revyl init' first.")
+			printProjectNotInitialized()
 			return fmt.Errorf("project not initialized")
 		}
 
@@ -902,7 +902,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	// Handle --build flag: build and upload before running workflow
 	if runWorkflowBuild {
 		if cfg == nil {
-			ui.PrintError("Project not initialized. Run 'revyl init' first.")
+			printProjectNotInitialized()
 			return fmt.Errorf("project not initialized")
 		}
 

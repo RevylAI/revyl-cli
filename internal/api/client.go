@@ -2665,7 +2665,7 @@ type PRReviewConfigFileSummary struct {
 	Builds         []PRReviewConfigFileBuildSummary `json:"builds"`
 }
 
-// PRReviewConfigFileState mirrors the backend GithubConfigFileStateResponse.
+// PRReviewConfigFileState mirrors the backend ScmConfigFileStateResponse.
 type PRReviewConfigFileState struct {
 	// Status is "managed", "error", or "none".
 	Status string `json:"status"`
@@ -2851,8 +2851,10 @@ func (c *Client) GetGithubRepositories(ctx context.Context) (*GithubRepositories
 //
 // Returns:
 //   - bool: true when the config is enabled and installation-linked.
-func (c *GithubScmConfigResponse) IsAutomationEnabled() bool {
-	return c != nil && c.Enabled && c.GithubInstallationId != nil
+func (c *ScmConfigResponse) IsAutomationEnabled() bool {
+	return c != nil &&
+		c.Enabled &&
+		((c.InstallationId != nil && *c.InstallationId != "") || c.GithubInstallationId != nil)
 }
 
 // ListGithubScmConfigs fetches the per-repository PR-automation configs for the
@@ -2863,15 +2865,15 @@ func (c *GithubScmConfigResponse) IsAutomationEnabled() bool {
 //   - ctx: Context for cancellation.
 //
 // Returns:
-//   - *GithubScmConfigsResponse: Per-repo configs plus org-level gates.
+//   - *ScmConfigsResponse: Per-repo configs plus org-level gates.
 //   - error: APIError (e.g. 401 when unauthenticated) or a transport error.
-func (c *Client) ListGithubScmConfigs(ctx context.Context) (*GithubScmConfigsResponse, error) {
+func (c *Client) ListGithubScmConfigs(ctx context.Context) (*ScmConfigsResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/scm/github/configs", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var result GithubScmConfigsResponse
+	var result ScmConfigsResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}

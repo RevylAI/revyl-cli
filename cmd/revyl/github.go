@@ -396,7 +396,7 @@ func printGithubStatus(repos *api.GithubRepositoriesResponse) {
 //   - cfgErr: A non-nil error when configs could not be loaded.
 func printGithubStatusDetailed(
 	repos *api.GithubRepositoriesResponse,
-	configs *api.GithubScmConfigsResponse,
+	configs *api.ScmConfigsResponse,
 	cfgErr error,
 ) {
 	ui.PrintSuccess("GitHub App connected")
@@ -463,8 +463,8 @@ func currentRepoSlug() (string, string, error) {
 //   - fullName: The "owner/name" identity to match (case-insensitive).
 //
 // Returns:
-//   - *api.GithubScmConfigResponse: The matching config, or nil when none matches.
-func findRepoConfig(configs []api.GithubScmConfigResponse, fullName string) *api.GithubScmConfigResponse {
+//   - *api.ScmConfigResponse: The matching config, or nil when none matches.
+func findRepoConfig(configs []api.ScmConfigResponse, fullName string) *api.ScmConfigResponse {
 	for i := range configs {
 		if strings.EqualFold(configs[i].RepoFullName, fullName) {
 			return &configs[i]

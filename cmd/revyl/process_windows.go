@@ -3,6 +3,7 @@
 package main
 
 import (
+	"os/exec"
 	"syscall"
 )
 
@@ -24,4 +25,8 @@ func isProcessAlive(pid int) bool {
 		return false
 	}
 	return exitCode == STILL_ACTIVE
+}
+
+func configureDetachedDevCommand(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
 }

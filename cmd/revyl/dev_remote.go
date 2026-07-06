@@ -87,13 +87,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		timeout = 300
 	}
 
-	openBrowser := devStartOpen
-	if !cmd.Flags().Changed("open") {
-		openBrowser = config.EffectiveOpenBrowser(cfg)
-	}
-	if devStartNoOpen {
-		openBrowser = false
-	}
+	openBrowser := effectiveDevOpenBrowser(cmd, cfg)
 
 	ui.PrintBanner(version)
 	ui.Println()
@@ -116,7 +110,10 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		}
 	}
 	appID := strings.TrimSpace(platCfg.AppID)
-	buildCaches := config.EffectiveBuildCaches(cfg.Build, platCfg)
+	buildCaches := config.EffectiveBuildCachesWithDefaults(cfg.Build, platCfg, devicePlatform, appID)
+	if len(config.EffectiveBuildCaches(cfg.Build, platCfg)) == 0 && len(buildCaches) > 0 {
+		ui.PrintDim("No caches configured; using framework default cache %s (%s)", buildCaches[0].Key, strings.Join(buildCaches[0].Paths, ", "))
+	}
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
@@ -129,22 +126,16 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 	stopSigHandler := startDevLoopSignalHandler(sigChan, stopper)
 	defer stopSigHandler()
 
-	remoteBuild, err := runRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
+	// Trigger the remote build first (package + upload + enqueue), then boot
+	// the device while the build runs on the runner. The simulator is watchable
+	// within seconds; the app installs the moment the artifact lands.
+	buildJob, err := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
 	if err != nil {
 		if stopper.IsUserCanceled(err) {
 			return nil
 		}
 		return err
 	}
-
-	buildDetail, err := client.GetBuildVersionDownloadURL(ctx, remoteBuild.versionID)
-	if err != nil {
-		if stopper.IsUserCanceled(err) {
-			return nil
-		}
-		return fmt.Errorf("could not resolve remote build download URL: %w", err)
-	}
-	bundleID := strings.TrimSpace(buildDetail.PackageName)
 
 	deviceMgr, err := getDeviceSessionMgr(cmd)
 	if err != nil {
@@ -163,18 +154,18 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 	}
 
 	if session == nil {
-		ui.PrintInfo("Starting cloud device session...")
+		ui.PrintInfo("Starting cloud device session (build continues in background)...")
+		startOpts := withDevStartLaunchVars(mcppkg.StartSessionOptions{
+			Platform:    devicePlatform,
+			IdleTimeout: time.Duration(timeout) * time.Second,
+		})
+		// No app is installed at boot; the post-install launch fires the auth
+		// deep link instead of a boot-time app link.
+		startOpts.AppLink = ""
 		_, session, err = startDevSessionWithProgress(
 			ctx,
 			deviceMgr,
-			withDevStartLaunchVars(mcppkg.StartSessionOptions{
-				Platform:       devicePlatform,
-				AppID:          appID,
-				BuildVersionID: remoteBuild.versionID,
-				AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
-				AppPackage:     bundleID,
-				IdleTimeout:    time.Duration(timeout) * time.Second,
-			}),
+			startOpts,
 			30*time.Second,
 			nil,
 		)
@@ -195,18 +186,6 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 			}
 		}()
 	}
-
-	installedBundleID, installDuration, err := installRemoteDevBuild(ctx, deviceMgr, session, buildDetail, bundleID)
-	if err != nil {
-		if stopper.IsUserCanceled(err) {
-			return nil
-		}
-		return err
-	}
-	if installedBundleID != "" {
-		bundleID = installedBundleID
-	}
-	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, bundleID, "", "")
 
 	deviceMgr.StopIdleTimer(session.Index)
 	viewerURL := devSessionViewerURL(session, devMode)
@@ -247,18 +226,10 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		_ = saveDevContext(cwd, devCtx)
 	}()
 
+	// Publish the session with the build still running so `revyl dev status`,
+	// `--detach`, and the cockpit see it immediately.
 	statusPath := devCtxStatusPath(cwd, ctxName)
-	initialResult := devRebuildResult{
-		buildMode:       "remote",
-		buildDuration:   remoteBuild.duration,
-		pushDuration:    installDuration,
-		elapsed:         remoteBuild.duration + installDuration,
-		newBundleID:     bundleID,
-		remoteJobID:     remoteBuild.jobID,
-		remoteVersionID: remoteBuild.versionID,
-		remoteVersion:   remoteBuild.version,
-	}
-	writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, initialResult)
+	writeDevStatusRemoteBuildRunning(statusPath, session, viewerURL, devicePlatform, platformKey, buildJob.jobID, buildCaches)
 
 	cockpitRebuilds := make(chan struct{}, 1)
 	cockpit, cockpitErr := startDevCockpitForContext(ctx, cwd, ctxName, viewerURL, true, cockpitRebuilds, stopper.RequestStop)
@@ -271,12 +242,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 	}
 
 	ui.Println()
-	ui.PrintSuccess("Remote dev loop ready")
+	ui.PrintSuccess("Device ready — remote build in progress")
 	printDevBrowserLinks(cockpitURL, viewerURL)
-	ui.PrintInfo("Installed remote build: %s", strings.TrimSpace(buildDetail.Version))
-	if identifier := formatInstalledAppIdentifier(devicePlatform, bundleID); identifier != "" {
-		ui.PrintInfo("Installed app: %s", identifier)
-	}
+	ui.PrintDim("Watch the build: revyl dev logs --build --follow")
 	ui.Println()
 	printNewTerminalHints(ctxName, session.Index)
 	ui.Println()
@@ -289,6 +257,34 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 
 	if openBrowser {
 		_ = ui.OpenBrowser(devBrowserOpenTarget(cockpitURL, viewerURL))
+	}
+
+	// Wait for the initial build, then install + launch. A failed initial
+	// build keeps the simulator alive so a fix + rebuild reuses this device.
+	bundleID := ""
+	remoteBuild, buildErr := waitRemoteDevBuild(ctx, client, buildJob, cwd)
+	if buildErr != nil {
+		if stopper.IsUserCanceled(buildErr) {
+			return nil
+		}
+		failResult := devRebuildResult{
+			buildMode:   "remote",
+			buildErr:    buildErr,
+			elapsed:     time.Since(buildJob.started),
+			remoteJobID: buildJob.jobID,
+		}
+		writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, failResult)
+		ui.PrintWarning("Initial remote build failed: %v", buildErr)
+		ui.PrintInfo("Device session stays alive — fix the issue and trigger a rebuild.")
+	} else {
+		installErr := installAndLaunchRemoteDevBuild(ctx, client, deviceMgr, session, devicePlatform, remoteBuild, &bundleID, statusPath, viewerURL)
+		if installErr != nil {
+			if stopper.IsUserCanceled(installErr) {
+				return nil
+			}
+			ui.PrintWarning("%v", installErr)
+			ui.PrintInfo("Device session stays alive — fix the issue and trigger a rebuild.")
+		}
 	}
 
 	stdinKeys, restoreTerminal, keybindsEnabled := readStdinKeys(ctx, stopper.RequestStop)
@@ -344,7 +340,53 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		rebuildCount++
 		rebuildStart := time.Now()
 		result := devRebuildResult{buildMode: "remote"}
-		remoteBuild, buildErr := runRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
+
+		// Publish "running" before any work so `revyl dev status` and
+		// `rebuild --wait` never see the prior rebuild's result as current.
+		writeDevStatusRebuildStarted(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, platformKey)
+
+		// Reload the project config so edits to build commands, caches, and
+		// auth_bypass take effect without restarting the loop.
+		if reloaded, reloadErr := config.LoadProjectConfig(configPath); reloadErr != nil {
+			result.buildErr = fmt.Errorf("config_invalid: failed to reload %s: %w", configPath, reloadErr)
+			result.elapsed = time.Since(rebuildStart)
+			writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, result)
+			ui.PrintWarning("Rebuild skipped: %v", result.buildErr)
+			printRebuildLoopControls(keybindsEnabled, true)
+			continue
+		} else {
+			reloadedPlat, ok := reloaded.Build.Platforms[platformKey]
+			if !ok || len(reloadedPlat.BuildCommands()) == 0 {
+				result.buildErr = fmt.Errorf("config_invalid: build.platforms.%s no longer has build commands in %s", platformKey, configPath)
+				result.elapsed = time.Since(rebuildStart)
+				writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, result)
+				ui.PrintWarning("Rebuild skipped: %v", result.buildErr)
+				printRebuildLoopControls(keybindsEnabled, true)
+				continue
+			}
+			platCfg = reloadedPlat
+			if newAppID := strings.TrimSpace(reloadedPlat.AppID); newAppID != "" {
+				appID = newAppID
+			}
+			buildCaches = config.EffectiveBuildCachesWithDefaults(reloaded.Build, reloadedPlat, devicePlatform, appID)
+			initDevAuthBypass(reloaded, client)
+		}
+
+		buildJob, buildErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
+		if buildErr == nil {
+			// Surface the live job id while the runner builds.
+			appendDevStatusRebuildLog(statusPath, newDevRebuildLog("info", fmt.Sprintf("Remote build job %s running", buildJob.jobID)), 16)
+			var remoteBuild remoteDevBuildResult
+			remoteBuild, buildErr = waitRemoteDevBuild(ctx, client, buildJob, cwd)
+			if buildErr == nil {
+				result.remoteJobID = remoteBuild.jobID
+				result.remoteVersionID = remoteBuild.versionID
+				result.remoteVersion = remoteBuild.version
+				result.buildDuration = remoteBuild.duration
+			} else {
+				result.remoteJobID = buildJob.jobID
+			}
+		}
 		if buildErr != nil {
 			if stopper.IsUserCanceled(buildErr) {
 				return nil
@@ -356,10 +398,12 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 			printRebuildLoopControls(keybindsEnabled, true)
 			continue
 		}
-		result.remoteJobID = remoteBuild.jobID
-		result.remoteVersionID = remoteBuild.versionID
-		result.remoteVersion = remoteBuild.version
-		result.buildDuration = remoteBuild.duration
+		remoteBuild := remoteDevBuildResult{
+			jobID:     result.remoteJobID,
+			versionID: result.remoteVersionID,
+			version:   result.remoteVersion,
+			duration:  result.buildDuration,
+		}
 
 		buildDetail, detailErr := client.GetBuildVersionDownloadURL(ctx, remoteBuild.versionID)
 		if detailErr != nil {
@@ -411,6 +455,111 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 	}
 }
 
+// remoteDevBuildJob identifies a triggered remote build that has not
+// completed yet.
+type remoteDevBuildJob struct {
+	jobID   string
+	started time.Time
+}
+
+// triggerRemoteDevBuild packages the working tree, uploads it, and enqueues a
+// remote build. It returns as soon as the job is accepted so the caller can do
+// other work (e.g. boot a device) while the runner builds.
+func triggerRemoteDevBuild(
+	ctx context.Context,
+	client *api.Client,
+	platCfg config.BuildPlatform,
+	buildCaches []config.BuildCache,
+	platformKey string,
+	devicePlatform string,
+	appID string,
+	cwd string,
+) (remoteDevBuildJob, error) {
+	start := time.Now()
+	parsedAppID, err := uuid.Parse(strings.TrimSpace(appID))
+	if err != nil {
+		return remoteDevBuildJob{}, fmt.Errorf("app id must be a valid UUID: %w", err)
+	}
+	ui.Println()
+	ui.PrintInfo("Remote building %s...", platformKey)
+	ui.PrintInfo("Packaging current working tree...")
+	ui.PrintDim("  Run from the app subdirectory when using a large monorepo.")
+
+	archivePath, err := createSourceArchiveIncludingWorkingTree(cwd)
+	if err != nil {
+		return remoteDevBuildJob{}, fmt.Errorf("failed to package current working tree: %w", err)
+	}
+	defer os.Remove(archivePath)
+
+	archiveInfo, err := os.Stat(archivePath)
+	if err != nil {
+		return remoteDevBuildJob{}, fmt.Errorf("failed to stat source archive: %w", err)
+	}
+	sizeMB := float64(archiveInfo.Size()) / (1024 * 1024)
+	ui.PrintDim("  Source snapshot: %.1f MB", sizeMB)
+	if sizeMB > 500 {
+		return remoteDevBuildJob{}, fmt.Errorf("source archive too large (%.0f MB). Max 500 MB", sizeMB)
+	}
+
+	uploadResp, err := client.GetRemoteBuildUploadURL(ctx, parsedAppID, "source.tar.gz", archiveInfo.Size())
+	if err != nil {
+		return remoteDevBuildJob{}, fmt.Errorf("failed to get remote build upload URL: %w", err)
+	}
+
+	var uploadFields map[string]string
+	if uploadResp.UploadFields != nil {
+		uploadFields = *uploadResp.UploadFields
+	}
+	if err := client.UploadFileToPresignedPost(ctx, uploadResp.UploadUrl, uploadFields, archivePath); err != nil {
+		return remoteDevBuildJob{}, fmt.Errorf("failed to upload source snapshot: %w", err)
+	}
+
+	platform := devicePlatform
+	versionStr := build.GenerateVersionStringForWorkDir(cwd)
+	triggerReq, err := remoteDevTriggerRequest(parsedAppID, uploadResp.SourceKey, platform, versionStr, platCfg, buildCaches)
+	if err != nil {
+		return remoteDevBuildJob{}, err
+	}
+	timeoutSeconds, err := buildPlatformTimeoutSeconds(platCfg, platformKey)
+	if err != nil {
+		return remoteDevBuildJob{}, err
+	}
+	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq, timeoutSeconds)
+	if err != nil {
+		return remoteDevBuildJob{}, fmt.Errorf("failed to trigger remote build: %w", err)
+	}
+
+	return remoteDevBuildJob{jobID: triggerResp.BuildJobId, started: start}, nil
+}
+
+// waitRemoteDevBuild blocks until a triggered remote build completes and
+// resolves its build version.
+func waitRemoteDevBuild(
+	ctx context.Context,
+	client *api.Client,
+	job remoteDevBuildJob,
+	cwd string,
+) (remoteDevBuildResult, error) {
+	status, err := pollRemoteBuildStatusResult(ctx, client, job.jobID, false)
+	if err != nil {
+		return remoteDevBuildResult{jobID: job.jobID, duration: time.Since(job.started)}, err
+	}
+	if status.VersionId == nil || strings.TrimSpace(*status.VersionId) == "" {
+		return remoteDevBuildResult{jobID: job.jobID, duration: time.Since(job.started)}, fmt.Errorf("remote build succeeded but returned no build version ID")
+	}
+	version := ""
+	if status.Version != nil {
+		version = strings.TrimSpace(*status.Version)
+	}
+
+	return remoteDevBuildResult{
+		jobID:     job.jobID,
+		versionID: strings.TrimSpace(*status.VersionId),
+		version:   version,
+		duration:  time.Since(job.started),
+	}, nil
+}
+
 func runRemoteDevBuild(
 	ctx context.Context,
 	client *api.Client,
@@ -421,78 +570,116 @@ func runRemoteDevBuild(
 	appID string,
 	cwd string,
 ) (remoteDevBuildResult, error) {
-	start := time.Now()
-	parsedAppID, err := uuid.Parse(strings.TrimSpace(appID))
+	job, err := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
 	if err != nil {
-		return remoteDevBuildResult{}, fmt.Errorf("app id must be a valid UUID: %w", err)
+		return remoteDevBuildResult{}, err
+	}
+	return waitRemoteDevBuild(ctx, client, job, cwd)
+}
+
+// writeDevStatusRemoteBuildRunning publishes a live session whose initial
+// remote build is still running, so status consumers (agents, cockpit,
+// --detach handshakes) can see the device and the build job immediately.
+func writeDevStatusRemoteBuildRunning(
+	statusPath string,
+	session *mcppkg.DeviceSession,
+	viewerURL string,
+	platform string,
+	platformKey string,
+	buildJobID string,
+	caches []config.BuildCache,
+) {
+	logs := []devRebuildLogEntry{
+		newDevRebuildLog("info", fmt.Sprintf("Remote build running for %s (job %s)", platformKey, buildJobID)),
+	}
+	for _, cache := range caches {
+		logs = append(logs, newDevRebuildLog("info", fmt.Sprintf("Cache configured: %s (%s)", cache.Key, strings.Join(cache.Paths, ", "))))
+	}
+	ds := devStatus{
+		State:        "building",
+		PID:          os.Getpid(),
+		Platform:     strings.TrimSpace(platform),
+		BuildMode:    "remote",
+		ViewerURL:    strings.TrimSpace(viewerURL),
+		RebuildCount: 0,
+		LastRebuild: &devRebuildInfo{
+			StartedAt:   time.Now().UTC().Format(time.RFC3339Nano),
+			Seq:         0,
+			Status:      "running",
+			PushMode:    "pending",
+			RemoteJobID: strings.TrimSpace(buildJobID),
+			BuildErrors: []build.BuildError{},
+			Logs:        logs,
+		},
+	}
+	if session != nil {
+		ds.SessionID = session.SessionID
+	}
+	writeDevStatusSnapshot(statusPath, ds)
+}
+
+// installAndLaunchRemoteDevBuild resolves a completed remote build, installs
+// it on the session's device, launches it (which fires the auth bypass deep
+// link), and records the successful initial build in the status file.
+func installAndLaunchRemoteDevBuild(
+	ctx context.Context,
+	client *api.Client,
+	deviceMgr *mcppkg.DeviceSessionManager,
+	session *mcppkg.DeviceSession,
+	devicePlatform string,
+	remoteBuild remoteDevBuildResult,
+	bundleID *string,
+	statusPath string,
+	viewerURL string,
+) error {
+	buildDetail, err := client.GetBuildVersionDownloadURL(ctx, remoteBuild.versionID)
+	if err != nil {
+		writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, devRebuildResult{
+			buildMode:   "remote",
+			pushErr:     err,
+			elapsed:     remoteBuild.duration,
+			remoteJobID: remoteBuild.jobID,
+		})
+		return fmt.Errorf("could not resolve remote build download URL: %w", err)
+	}
+	if *bundleID == "" {
+		*bundleID = strings.TrimSpace(buildDetail.PackageName)
+	}
+
+	installedBundleID, installDuration, err := installRemoteDevBuild(ctx, deviceMgr, session, buildDetail, *bundleID)
+	if err != nil {
+		writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, devRebuildResult{
+			buildMode:   "remote",
+			pushErr:     err,
+			elapsed:     remoteBuild.duration + installDuration,
+			remoteJobID: remoteBuild.jobID,
+		})
+		return err
+	}
+	if installedBundleID != "" {
+		*bundleID = installedBundleID
+	}
+	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, *bundleID, "", "")
+
+	writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, devRebuildResult{
+		buildMode:       "remote",
+		buildDuration:   remoteBuild.duration,
+		pushDuration:    installDuration,
+		elapsed:         remoteBuild.duration + installDuration,
+		newBundleID:     *bundleID,
+		remoteJobID:     remoteBuild.jobID,
+		remoteVersionID: remoteBuild.versionID,
+		remoteVersion:   remoteBuild.version,
+	})
+
+	ui.Println()
+	ui.PrintSuccess("Remote dev loop ready")
+	ui.PrintInfo("Installed remote build: %s", strings.TrimSpace(buildDetail.Version))
+	if identifier := formatInstalledAppIdentifier(devicePlatform, *bundleID); identifier != "" {
+		ui.PrintInfo("Installed app: %s", identifier)
 	}
 	ui.Println()
-	ui.PrintInfo("Remote building %s...", platformKey)
-	ui.PrintInfo("Packaging current working tree...")
-	ui.PrintDim("  Run from the app subdirectory when using a large monorepo.")
-
-	archivePath, err := createSourceArchiveIncludingWorkingTree(cwd)
-	if err != nil {
-		return remoteDevBuildResult{}, fmt.Errorf("failed to package current working tree: %w", err)
-	}
-	defer os.Remove(archivePath)
-
-	archiveInfo, err := os.Stat(archivePath)
-	if err != nil {
-		return remoteDevBuildResult{}, fmt.Errorf("failed to stat source archive: %w", err)
-	}
-	sizeMB := float64(archiveInfo.Size()) / (1024 * 1024)
-	ui.PrintDim("  Source snapshot: %.1f MB", sizeMB)
-	if sizeMB > 500 {
-		return remoteDevBuildResult{}, fmt.Errorf("source archive too large (%.0f MB). Max 500 MB", sizeMB)
-	}
-
-	uploadResp, err := client.GetRemoteBuildUploadURL(ctx, parsedAppID, "source.tar.gz", archiveInfo.Size())
-	if err != nil {
-		return remoteDevBuildResult{}, fmt.Errorf("failed to get remote build upload URL: %w", err)
-	}
-
-	var uploadFields map[string]string
-	if uploadResp.UploadFields != nil {
-		uploadFields = *uploadResp.UploadFields
-	}
-	if err := client.UploadFileToPresignedPost(ctx, uploadResp.UploadUrl, uploadFields, archivePath); err != nil {
-		return remoteDevBuildResult{}, fmt.Errorf("failed to upload source snapshot: %w", err)
-	}
-
-	platform := devicePlatform
-	versionStr := build.GenerateVersionStringForWorkDir(cwd)
-	triggerReq, err := remoteDevTriggerRequest(parsedAppID, uploadResp.SourceKey, platform, versionStr, platCfg, buildCaches)
-	if err != nil {
-		return remoteDevBuildResult{}, err
-	}
-	timeoutSeconds, err := buildPlatformTimeoutSeconds(platCfg, platformKey)
-	if err != nil {
-		return remoteDevBuildResult{}, err
-	}
-	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq, timeoutSeconds)
-	if err != nil {
-		return remoteDevBuildResult{}, fmt.Errorf("failed to trigger remote build: %w", err)
-	}
-
-	status, err := pollRemoteBuildStatusResult(ctx, client, triggerResp.BuildJobId, false)
-	if err != nil {
-		return remoteDevBuildResult{jobID: triggerResp.BuildJobId, duration: time.Since(start)}, err
-	}
-	if status.VersionId == nil || strings.TrimSpace(*status.VersionId) == "" {
-		return remoteDevBuildResult{jobID: triggerResp.BuildJobId, duration: time.Since(start)}, fmt.Errorf("remote build succeeded but returned no build version ID")
-	}
-	version := ""
-	if status.Version != nil {
-		version = strings.TrimSpace(*status.Version)
-	}
-
-	return remoteDevBuildResult{
-		jobID:     triggerResp.BuildJobId,
-		versionID: strings.TrimSpace(*status.VersionId),
-		version:   version,
-		duration:  time.Since(start),
-	}, nil
+	return nil
 }
 
 func remoteDevTriggerRequest(appID uuid.UUID, sourceKey, platform, version string, platCfg config.BuildPlatform, buildCaches []config.BuildCache) (*api.RemoteBuildRequest, error) {
