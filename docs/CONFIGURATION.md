@@ -77,6 +77,7 @@ last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 | `build.platforms.<key>.output` | `string` | Artifact path produced by the command. iOS `.app` directories and EAS `.tar.gz` outputs are converted before upload. |
 | `build.platforms.<key>.app_id` | `string` | Revyl app ID where uploads for this stream are stored. |
 | `build.platforms.<key>.scheme` | `string` | Optional Xcode scheme. When set, the CLI applies it to Xcode build commands. |
+| `build.platforms.<key>.timeout` | `int` | Optional timeout in seconds for remote builds of this stream. When omitted, the server default of 60 minutes applies. Local builds have no timeout. |
 | `hotreload` | `object` | Hot reload provider configuration for `revyl dev`. |
 | `defaults.open_browser` | `bool` | Auto-open browser for commands that support a browser view. |
 | `defaults.timeout` | `int` | Default timeout in seconds for CLI/device sessions. |

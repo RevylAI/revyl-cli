@@ -794,8 +794,8 @@ type AllSystemAppsResponse struct {
 // Attributes:
 //
 //	all: Aggregated counts across all workflow types.
-//	live_sessions: Counts for durable (interactive) workflows.
-//	test_executions: Counts for headless test execution workflows.
+//	live_sessions: Counts for durable (interactive) sessions.
+//	test_executions: Counts for headless test execution sessions.
 //	environment: The environment these counts are for.
 //	timestamp: When this count was taken.
 type AndroidTaskCountResponse struct {
@@ -3291,7 +3291,7 @@ type EntitlementItem struct {
 	Usage             *float32            `json:"usage,omitempty"`
 }
 
-// Environment Environment identifier for workflow name resolution.
+// Environment Environment identifier.
 //
 // Attributes:
 //
@@ -6139,6 +6139,9 @@ type RemoteBuildRequest struct {
 	SetAsCurrent *bool                     `json:"set_as_current,omitempty"`
 	Source       RemoteBuildRequest_Source `json:"source"`
 
+	// TimeoutSeconds Server-enforced build timeout in seconds. Clamped to the platform maximum; defaults to 60 minutes when omitted.
+	TimeoutSeconds *int `json:"timeout_seconds"`
+
 	// Version Version string. Auto-generated when omitted.
 	Version *string `json:"version"`
 }
@@ -6191,7 +6194,6 @@ type RemoteBuildSourceUploadResponse struct {
 //	status: Current public build status.
 //	version_id: UUID of the created build version on success.
 //	version: Version string of the created build.
-//	logs_tail: Last N log lines from the build process.
 //	error: Error message when the build has failed.
 //	phase: Detailed failure/status phase when available.
 //	suggested_fix: Suggested next action when available.
@@ -6204,6 +6206,7 @@ type RemoteBuildSourceUploadResponse struct {
 //	completed_at: ISO timestamp when the build finished.
 //	duration_ms: Build duration in milliseconds when known.
 //	phase_timings: Per-phase build timings when emitted by the worker.
+//	timeout_seconds: Server-enforced build timeout in seconds when known.
 type RemoteBuildStatusResponse struct {
 	AppId              *string                   `json:"app_id"`
 	ArtifactType       *string                   `json:"artifact_type"`
@@ -6211,7 +6214,6 @@ type RemoteBuildStatusResponse struct {
 	CompletedAt        *time.Time                `json:"completed_at"`
 	DurationMs         *int                      `json:"duration_ms"`
 	Error              *string                   `json:"error"`
-	LogsTail           *string                   `json:"logs_tail"`
 	PackageId          *string                   `json:"package_id"`
 	Phase              *string                   `json:"phase"`
 	PhaseTimings       *[]RemoteBuildPhaseTiming `json:"phase_timings"`
@@ -6219,6 +6221,7 @@ type RemoteBuildStatusResponse struct {
 	StartedAt          *time.Time                `json:"started_at"`
 	Status             string                    `json:"status"`
 	SuggestedFix       *string                   `json:"suggested_fix"`
+	TimeoutSeconds     *int                      `json:"timeout_seconds"`
 	Version            *string                   `json:"version"`
 	VersionId          *string                   `json:"version_id"`
 }

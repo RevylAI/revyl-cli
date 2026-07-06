@@ -64,8 +64,11 @@ func shouldAttemptHotReloadAutoSetup(cfg *config.ProjectConfig) bool {
 }
 
 var devCmd = &cobra.Command{
-	Use:   "dev",
-	Short: "Start or attach a dev loop on a cloud device session",
+	Use: "dev",
+	// Runtime failures (device provisioning, remote builds) are not usage
+	// errors; don't bury them under the flag reference.
+	SilenceUsage: true,
+	Short:        "Start or attach a dev loop on a cloud device session",
 	Long: `Start and manage local development loops backed by cloud device sessions.
 
 Auto-detects your project type (Expo, React Native, Swift, Android),

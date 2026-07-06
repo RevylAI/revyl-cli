@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel"
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
@@ -328,5 +329,11 @@ func main() {
 		analytics.RunTelemetryHelper(os.Stdin)
 		return
 	}
+	// CLI telemetry is best-effort: route OTel export failures (e.g. the
+	// trace-handoff POST timing out) to debug output instead of letting the
+	// default handler write raw stdlib-log lines into command output.
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		ui.PrintDebug("telemetry export failed: %v", err)
+	}))
 	Execute()
 }

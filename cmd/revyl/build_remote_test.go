@@ -27,7 +27,7 @@ func withFastRemoteBuildPolling(t *testing.T) {
 	})
 }
 
-func remoteBuildStatusServer(t *testing.T, status api.RemoteBuildStatusResponse) *httptest.Server {
+func remoteBuildStatusServer(t *testing.T, status api.RemoteBuildStatusResponse, logLines ...string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -39,25 +39,23 @@ func remoteBuildStatusServer(t *testing.T, status api.RemoteBuildStatusResponse)
 		case "/api/v1/apps/remote/job-1/logs":
 			events := []api.RemoteBuildLogEvent{}
 			nextCursor := ""
-			if status.LogsTail != nil {
-				for i, line := range strings.Split(*status.LogsTail, "\n") {
-					if strings.TrimSpace(line) == "" {
-						continue
-					}
-					level := "info"
-					lower := strings.ToLower(line)
-					if strings.Contains(lower, "error:") {
-						level = "error"
-					} else if strings.Contains(lower, "warning:") {
-						level = "warning"
-					}
-					nextCursor = strconv.Itoa(i+1) + "-0"
-					events = append(events, api.RemoteBuildLogEvent{
-						Id:      nextCursor,
-						Level:   &level,
-						Message: line,
-					})
+			for i, line := range logLines {
+				if strings.TrimSpace(line) == "" {
+					continue
 				}
+				level := "info"
+				lower := strings.ToLower(line)
+				if strings.Contains(lower, "error:") {
+					level = "error"
+				} else if strings.Contains(lower, "warning:") {
+					level = "warning"
+				}
+				nextCursor = strconv.Itoa(i+1) + "-0"
+				events = append(events, api.RemoteBuildLogEvent{
+					Id:      nextCursor,
+					Level:   &level,
+					Message: line,
+				})
 			}
 			if err := json.NewEncoder(w).Encode(api.RemoteBuildLogsResponse{
 				Events:     &events,
@@ -71,38 +69,6 @@ func remoteBuildStatusServer(t *testing.T, status api.RemoteBuildStatusResponse)
 	}))
 }
 
-func TestPollBuildStatusTreatsCancelledAsTerminalError(t *testing.T) {
-	withFastRemoteBuildPolling(t)
-	errMsg := "Build cancelled"
-	server := remoteBuildStatusServer(t, api.RemoteBuildStatusResponse{
-		Status: "cancelled",
-		Error:  &errMsg,
-	})
-	defer server.Close()
-
-	client := api.NewClientWithBaseURL("test-key", server.URL)
-	err := pollBuildStatus(context.Background(), client, "job-1")
-
-	if err == nil || !strings.Contains(err.Error(), "cancelled") {
-		t.Fatalf("pollBuildStatus() error = %v, want cancelled", err)
-	}
-}
-
-func TestPollBuildStatusRejectsSuccessWithoutVersionID(t *testing.T) {
-	withFastRemoteBuildPolling(t)
-	server := remoteBuildStatusServer(t, api.RemoteBuildStatusResponse{
-		Status: "success",
-	})
-	defer server.Close()
-
-	client := api.NewClientWithBaseURL("test-key", server.URL)
-	err := pollBuildStatus(context.Background(), client, "job-1")
-
-	if err == nil || !strings.Contains(err.Error(), "no build version ID") {
-		t.Fatalf("pollBuildStatus() error = %v, want missing version ID", err)
-	}
-}
-
 func TestPollRemoteBuildStatusResultTreatsCancelledAsTerminalError(t *testing.T) {
 	withFastRemoteBuildPolling(t)
 	server := remoteBuildStatusServer(t, api.RemoteBuildStatusResponse{
@@ -111,7 +77,7 @@ func TestPollRemoteBuildStatusResultTreatsCancelledAsTerminalError(t *testing.T)
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
-	_, err := pollRemoteBuildStatusResult(context.Background(), client, "job-1")
+	_, err := pollRemoteBuildStatusResult(context.Background(), client, "job-1", false)
 
 	if err == nil || !strings.Contains(err.Error(), "cancelled") {
 		t.Fatalf("pollRemoteBuildStatusResult() error = %v, want cancelled", err)
@@ -126,7 +92,7 @@ func TestPollRemoteBuildStatusResultRejectsSuccessWithoutVersionID(t *testing.T)
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
-	_, err := pollRemoteBuildStatusResult(context.Background(), client, "job-1")
+	_, err := pollRemoteBuildStatusResult(context.Background(), client, "job-1", false)
 
 	if err == nil || !strings.Contains(err.Error(), "no build version ID") {
 		t.Fatalf("pollRemoteBuildStatusResult() error = %v, want missing version ID", err)
@@ -136,18 +102,16 @@ func TestPollRemoteBuildStatusResultRejectsSuccessWithoutVersionID(t *testing.T)
 func TestPollRemoteBuildStatusResultPrintsFailureLogTail(t *testing.T) {
 	withFastRemoteBuildPolling(t)
 	errMsg := "xcodebuild failed"
-	logs := "CompileSwift AppDelegate.swift\nerror: no such module 'DemoKit'"
 	server := remoteBuildStatusServer(t, api.RemoteBuildStatusResponse{
-		Status:   "failed",
-		Error:    &errMsg,
-		LogsTail: &logs,
-	})
+		Status: "failed",
+		Error:  &errMsg,
+	}, "CompileSwift AppDelegate.swift", "error: no such module 'DemoKit'")
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
 	var err error
 	output := captureStdoutAndStderr(t, func() {
-		_, err = pollRemoteBuildStatusResult(context.Background(), client, "job-1")
+		_, err = pollRemoteBuildStatusResult(context.Background(), client, "job-1", false)
 	})
 
 	if err == nil || !strings.Contains(err.Error(), "xcodebuild failed") {
@@ -159,16 +123,19 @@ func TestPollRemoteBuildStatusResultPrintsFailureLogTail(t *testing.T) {
 }
 
 func TestPrintRemoteBuildStatusSummaryPrintsStatusAfterLogs(t *testing.T) {
-	logs := "first log line\n** BUILD SUCCEEDED **"
 	platform := "ios"
 	versionID := "version-1"
+	status := api.RemoteBuildStatusResponse{
+		Status:    "success",
+		Platform:  &platform,
+		VersionId: &versionID,
+	}
+	server := remoteBuildStatusServer(t, status, "first log line", "** BUILD SUCCEEDED **")
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
 	output := captureStdoutAndStderr(t, func() {
-		printRemoteBuildStatusSummary(&api.RemoteBuildStatusResponse{
-			Status:    "success",
-			Platform:  &platform,
-			VersionId: &versionID,
-			LogsTail:  &logs,
-		})
+		printRemoteBuildStatusSummary(context.Background(), client, "job-1", &status)
 	})
 
 	logIndex := strings.LastIndex(output, "** BUILD SUCCEEDED **")
@@ -180,22 +147,6 @@ func TestPrintRemoteBuildStatusSummaryPrintsStatusAfterLogs(t *testing.T) {
 	lastLine := lines[len(lines)-1]
 	if !strings.Contains(lastLine, "Status:") || !strings.Contains(lastLine, "success") {
 		t.Fatalf("last line = %q, want final status", lastLine)
-	}
-}
-
-func TestRemoteBuildTimeoutFromConfigUsesProjectDefaults(t *testing.T) {
-	cwd := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(cwd, ".revyl"), 0o755); err != nil {
-		t.Fatalf("mkdir .revyl: %v", err)
-	}
-	configYAML := []byte("defaults:\n  timeout: 7200\n")
-	if err := os.WriteFile(filepath.Join(cwd, ".revyl", "config.yaml"), configYAML, 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	got := remoteBuildTimeoutFromConfig(cwd)
-	if got != 2*time.Hour {
-		t.Fatalf("remoteBuildTimeoutFromConfig() = %v, want 2h", got)
 	}
 }
 
@@ -291,6 +242,91 @@ build:
 	}
 }
 
+func TestResolveRemoteBuildPlatformTimeoutFromNonCanonicalKey(t *testing.T) {
+	tmp := t.TempDir()
+	configDir := filepath.Join(tmp, ".revyl")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	configYAML := []byte(`project:
+  name: Demo
+build:
+  platforms:
+    ios-release:
+      app_id: app-ios
+      command: bundle exec fastlane build_release
+      output: build/Example.app.zip
+      timeout: 5400
+`)
+	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+
+	resolved, err := resolveRemoteBuildPlatform(tmp, "ios", "")
+	if err != nil {
+		t.Fatalf("resolveRemoteBuildPlatform(): %v", err)
+	}
+
+	if resolved.PlatformKey != "ios-release" {
+		t.Fatalf("PlatformKey = %q, want ios-release", resolved.PlatformKey)
+	}
+	if resolved.TimeoutSeconds == nil || *resolved.TimeoutSeconds != 5400 {
+		t.Fatalf("TimeoutSeconds = %v, want 5400", resolved.TimeoutSeconds)
+	}
+}
+
+func TestResolveRemoteBuildPlatformRejectsNegativeTimeout(t *testing.T) {
+	tmp := t.TempDir()
+	configDir := filepath.Join(tmp, ".revyl")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	configYAML := []byte(`project:
+  name: Demo
+build:
+  platforms:
+    ios:
+      app_id: app-ios
+      command: xcodebuild
+      output: build/Example.app.zip
+      timeout: -60
+`)
+	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+
+	_, err := resolveRemoteBuildPlatform(tmp, "ios", "")
+	if err == nil || !strings.Contains(err.Error(), "build.platforms.ios.timeout") {
+		t.Fatalf("error = %v, want negative timeout rejection", err)
+	}
+}
+
+func TestBuildPlatformTimeoutSeconds(t *testing.T) {
+	if got, err := buildPlatformTimeoutSeconds(config.BuildPlatform{}, "ios"); err != nil || got != nil {
+		t.Fatalf("unset timeout = (%v, %v), want (nil, nil)", got, err)
+	}
+	got, err := buildPlatformTimeoutSeconds(config.BuildPlatform{Timeout: 900}, "ios-dev")
+	if err != nil || got == nil || *got != 900 {
+		t.Fatalf("timeout 900 = (%v, %v), want 900", got, err)
+	}
+	if _, err := buildPlatformTimeoutSeconds(config.BuildPlatform{Timeout: -1}, "ios-dev"); err == nil || !strings.Contains(err.Error(), "build.platforms.ios-dev.timeout") {
+		t.Fatalf("negative timeout error = %v, want key-labeled error", err)
+	}
+}
+
+func TestRemoteBuildTimeoutFlagSeconds(t *testing.T) {
+	if got, err := remoteBuildTimeoutFlagSeconds(0, false); err != nil || got != nil {
+		t.Fatalf("unchanged flag = (%v, %v), want (nil, nil)", got, err)
+	}
+	got, err := remoteBuildTimeoutFlagSeconds(120, true)
+	if err != nil || got == nil || *got != 120 {
+		t.Fatalf("flag 120 = (%v, %v), want 120", got, err)
+	}
+	if _, err := remoteBuildTimeoutFlagSeconds(0, true); err == nil {
+		t.Fatal("flag 0 error = nil, want positive-seconds error")
+	}
+}
+
 func TestResolveRemoteBuildPlatformReadsRepoBackedSource(t *testing.T) {
 	tmp := t.TempDir()
 	configDir := filepath.Join(tmp, ".revyl")
@@ -339,7 +375,6 @@ func TestRemoteBuildSuccessJSONIncludesAndroidArtifactFields(t *testing.T) {
 	version := "remote-1"
 	artifactType := "apk"
 	packageID := "com.example.app"
-	logs := "last log line"
 	durationMs := 1200
 	startedAt := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
 	phaseTimings := []api.RemoteBuildPhaseTiming{
@@ -362,7 +397,6 @@ func TestRemoteBuildSuccessJSONIncludesAndroidArtifactFields(t *testing.T) {
 			Version:      &version,
 			ArtifactType: &artifactType,
 			PackageId:    &packageID,
-			LogsTail:     &logs,
 			PhaseTimings: &phaseTimings,
 		},
 	)
@@ -376,8 +410,8 @@ func TestRemoteBuildSuccessJSONIncludesAndroidArtifactFields(t *testing.T) {
 	if result.ArtifactType != "apk" || result.PackageID != packageID {
 		t.Fatalf("artifact/package = %s/%s, want apk/%s", result.ArtifactType, result.PackageID, packageID)
 	}
-	if result.AppID != "app-android" || result.LogsTail != logs {
-		t.Fatalf("app/logs = %s/%s, want app-android/%s", result.AppID, result.LogsTail, logs)
+	if result.AppID != "app-android" {
+		t.Fatalf("app = %s, want app-android", result.AppID)
 	}
 	if len(result.PhaseTimings) != 1 || result.PhaseTimings[0].Phase != "build" {
 		t.Fatalf("PhaseTimings = %#v, want build timing", result.PhaseTimings)

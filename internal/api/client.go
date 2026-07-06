@@ -498,11 +498,16 @@ func (c *Client) doRequestOnceWithClient(ctx context.Context, method, path strin
 
 	var bodyReader io.Reader
 	if body != nil {
-		jsonBody, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		switch payload := body.(type) {
+		case []byte:
+			bodyReader = bytes.NewReader(payload)
+		default:
+			jsonBody, err := json.Marshal(body)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal request body: %w", err)
+			}
+			bodyReader = bytes.NewReader(jsonBody)
 		}
-		bodyReader = bytes.NewReader(jsonBody)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
@@ -6656,11 +6661,18 @@ func (c *Client) GetRemoteBuildUploadURL(ctx context.Context, appID uuid.UUID, f
 // Parameters:
 //   - ctx: cancellation context
 //   - req: build parameters including source key and build command
+//   - timeoutSeconds: optional server-side build timeout in seconds (omit for backend default)
 //
 // Returns:
 //   - *RemoteBuildTriggerResponse with the build_job_id for status polling
 //   - error on API or network failure
-func (c *Client) TriggerRemoteBuild(ctx context.Context, req *RemoteBuildRequest) (*RemoteBuildTriggerResponse, error) {
+func (c *Client) TriggerRemoteBuild(ctx context.Context, req *RemoteBuildRequest, timeoutSeconds *int) (*RemoteBuildTriggerResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("remote build request is nil")
+	}
+	if timeoutSeconds != nil {
+		req.TimeoutSeconds = timeoutSeconds
+	}
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/apps/remote", req)
 	if err != nil {
 		return nil, err
@@ -6861,8 +6873,9 @@ func (c *Client) CancelRemoteBuild(ctx context.Context, buildJobID string) error
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
-	return nil
+	// Surface non-2xx as *APIError so callers can distinguish 404/403/409
+	// (e.g. cancelling an already-terminal build) instead of reporting success.
+	return parseResponse(resp, nil)
 }
 
 // StoreKitConfigRefUpsertRequest creates or replaces the explicit iOS StoreKit

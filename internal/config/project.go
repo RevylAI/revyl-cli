@@ -371,6 +371,11 @@ type BuildPlatform struct {
 	// (e.g. "npm install && cd ios && pod install").
 	Setup string `yaml:"setup,omitempty"`
 
+	// Timeout is the remote build timeout in seconds for this platform.
+	// Optional: when omitted the server default applies. Local builds
+	// ignore it (they have no deadline).
+	Timeout int `yaml:"timeout,omitempty"`
+
 	// Env holds environment variables passed to the remote build runner for
 	// this platform. Sent with every remote build; not persisted server-side.
 	Env map[string]string `yaml:"env,omitempty"`

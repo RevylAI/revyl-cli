@@ -466,12 +466,16 @@ func runRemoteDevBuild(
 	if err != nil {
 		return remoteDevBuildResult{}, err
 	}
-	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq)
+	timeoutSeconds, err := buildPlatformTimeoutSeconds(platCfg, platformKey)
+	if err != nil {
+		return remoteDevBuildResult{}, err
+	}
+	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq, timeoutSeconds)
 	if err != nil {
 		return remoteDevBuildResult{}, fmt.Errorf("failed to trigger remote build: %w", err)
 	}
 
-	status, err := pollRemoteBuildStatusResultWithTimeout(ctx, client, triggerResp.BuildJobId, remoteBuildTimeoutFromConfig(cwd))
+	status, err := pollRemoteBuildStatusResult(ctx, client, triggerResp.BuildJobId, false)
 	if err != nil {
 		return remoteDevBuildResult{jobID: triggerResp.BuildJobId, duration: time.Since(start)}, err
 	}
@@ -515,14 +519,7 @@ func remoteDevTriggerRequest(appID uuid.UUID, sourceKey, platform, version strin
 	}, nil
 }
 
-func pollRemoteBuildStatusResult(ctx context.Context, client *api.Client, jobID string) (*api.RemoteBuildStatusResponse, error) {
-	return pollRemoteBuildStatusResultWithTimeout(ctx, client, jobID, remoteBuildDefaultTimeout)
-}
-
-func pollRemoteBuildStatusResultWithTimeout(ctx context.Context, client *api.Client, jobID string, timeout time.Duration) (*api.RemoteBuildStatusResponse, error) {
-	if timeout <= 0 {
-		timeout = remoteBuildDefaultTimeout
-	}
+func pollRemoteBuildStatusResult(ctx context.Context, client *api.Client, jobID string, jsonMode bool) (*api.RemoteBuildStatusResponse, error) {
 	ticker := time.NewTicker(remoteBuildPollInterval)
 	defer ticker.Stop()
 
@@ -541,21 +538,8 @@ func pollRemoteBuildStatusResultWithTimeout(ctx context.Context, client *api.Cli
 			if !ui.IsDebugMode() {
 				ui.StopSpinner()
 			}
-			cancelCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_ = client.CancelRemoteBuild(cancelCtx, jobID)
-			return nil, ctx.Err()
+			return nil, remoteBuildPollingInterruptedError(jobID, jsonMode)
 		case <-ticker.C:
-			if time.Since(startTime) > timeout {
-				if !ui.IsDebugMode() {
-					ui.StopSpinner()
-				}
-				cancelCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				_ = client.CancelRemoteBuild(cancelCtx, jobID)
-				return nil, fmt.Errorf("remote build timed out after %v", timeout)
-			}
-
 			status, err := client.GetRemoteBuildStatus(ctx, jobID)
 			if err != nil {
 				ui.PrintDebug("failed to poll remote build status: %v", err)
@@ -612,7 +596,7 @@ func pollRemoteBuildStatusResultWithTimeout(ctx context.Context, client *api.Cli
 				if !ui.IsDebugMode() {
 					ui.StopSpinner()
 				}
-				printRemoteBuildLogTail(ctx, client, jobID, status)
+				printRemoteBuildLogTail(ctx, client, jobID)
 				if status.Error != nil && *status.Error != "" {
 					return status, fmt.Errorf("remote build failed: %s", *status.Error)
 				}
@@ -621,7 +605,7 @@ func pollRemoteBuildStatusResultWithTimeout(ctx context.Context, client *api.Cli
 				if !ui.IsDebugMode() {
 					ui.StopSpinner()
 				}
-				printRemoteBuildLogTail(ctx, client, jobID, status)
+				printRemoteBuildLogTail(ctx, client, jobID)
 				if status.Error != nil && *status.Error != "" {
 					return status, fmt.Errorf("remote build cancelled: %s", *status.Error)
 				}

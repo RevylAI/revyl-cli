@@ -24,7 +24,7 @@ import (
 
 // buildCmd is the parent command for build operations.
 var buildCmd = &cobra.Command{
-	Use:   "build [--platform ios|android|<config-key>] [--remote] [--env KEY=VALUE] [--version <version>] [--detach] [--no-cache] [--no-set-current] [--json]",
+	Use:   "build [--platform ios|android|<config-key>] [--remote] [--env KEY=VALUE] [--timeout <seconds>] [--version <version>] [--detach] [--no-cache] [--no-set-current] [--json]",
 	Short: "Build and manage app builds",
 	Long: `Build the app from source and upload the generated artifact to Revyl.
 
@@ -93,7 +93,9 @@ output from "revyl build --remote --json".`,
 	Example: `  revyl build cancel <build-job-id>
   revyl build cancel <build-job-id> --json`,
 	Args: cobra.ExactArgs(1),
-	RunE: runCancelBuild,
+	// API failures (already terminal, not found) are not usage errors.
+	SilenceUsage: true,
+	RunE:         runCancelBuild,
 }
 
 // buildStatusCmd shows or follows a remote build job.
@@ -140,6 +142,7 @@ var (
 	uploadRemoteFlag          bool
 	uploadCleanFlag           bool
 	buildEnvFlags             []string
+	buildTimeoutSeconds       int
 	remotePlatformFlag        string
 	remoteAppFlag             string
 	remoteVersionFlag         string
@@ -169,6 +172,7 @@ func init() {
 	buildCmd.Flags().StringVar(&buildCommandImage, "image", "", "Remote build image key, e.g. ios-macos-26-xcode-26.2")
 	buildCmd.Flags().BoolVar(&buildCommandRemote, "remote", false, "Run the build on Revyl cloud build runners")
 	buildCmd.Flags().StringArrayVar(&buildEnvFlags, "env", nil, "Remote build environment override (repeatable: --env KEY=VALUE)")
+	buildCmd.Flags().IntVar(&buildTimeoutSeconds, "timeout", 0, "Remote build timeout in seconds (overrides build.platforms.<platform>.timeout from config when set)")
 	buildCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the build (default: auto-generated)")
 	buildCmd.Flags().BoolVar(&buildDetachFlag, "detach", false, "Queue remote build and return immediately")
 	buildCmd.Flags().BoolVar(&buildNoCacheFlag, "no-cache", false, "Run remote build without restoring or saving configured caches")
@@ -178,6 +182,7 @@ func init() {
 	analytics.MarkFlagValue(buildCmd, "image")
 	analytics.MarkFlagValue(buildCmd, "version")
 	analytics.MarkFlagValue(buildCmd, "remote")
+	analytics.MarkFlagValue(buildCmd, "timeout")
 	analytics.MarkFlagValue(buildCmd, "detach")
 	analytics.MarkFlagValue(buildCmd, "no-cache")
 	analytics.MarkFlagValue(buildCmd, "no-set-current")
@@ -256,6 +261,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		if len(buildEnvFlags) > 0 {
 			return fmt.Errorf("--env is only supported with --remote")
 		}
+		if cmd.Flags().Changed("timeout") {
+			return fmt.Errorf("--timeout is only supported with --remote")
+		}
 		if buildDetachFlag {
 			return fmt.Errorf("--detach is only supported with --remote")
 		}
@@ -282,17 +290,25 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		if platform == "" {
 			platform = "ios"
 		}
+		// Only the --timeout flag resolves here; the per-platform config timeout
+		// is applied in runRemoteBuildWithOptions once the actual platform key
+		// (possibly non-canonical, e.g. ios-release) is known.
+		timeoutSeconds, err := remoteBuildTimeoutFlagSeconds(buildTimeoutSeconds, cmd.Flags().Changed("timeout"))
+		if err != nil {
+			return err
+		}
 		return runRemoteBuildWithOptions(cmd, apiKey, remoteBuildOptions{
-			Platform:      platform,
-			Version:       buildVersion,
-			Image:         strings.TrimSpace(buildCommandImage),
-			Env:           envOverrides,
-			SetCurrent:    setCurrent,
-			Clean:         buildNoCacheFlag,
-			JSON:          jsonOutput,
-			Wait:          !buildDetachFlag,
-			IncludeDirty:  true,
-			CommittedOnly: false,
+			Platform:       platform,
+			Version:        buildVersion,
+			Image:          strings.TrimSpace(buildCommandImage),
+			Env:            envOverrides,
+			SetCurrent:     setCurrent,
+			Clean:          buildNoCacheFlag,
+			JSON:           jsonOutput,
+			Wait:           !buildDetachFlag,
+			IncludeDirty:   true,
+			CommittedOnly:  false,
+			TimeoutSeconds: timeoutSeconds,
 		})
 	}
 

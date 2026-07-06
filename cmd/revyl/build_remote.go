@@ -11,10 +11,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,21 +30,21 @@ import (
 )
 
 var remoteBuildPollInterval = 3 * time.Second
-var remoteBuildDefaultTimeout = 30 * time.Minute
 
 type remoteBuildOptions struct {
-	Platform      string
-	AppID         string
-	Version       string
-	Image         string
-	Env           map[string]string
-	SetCurrent    bool
-	Clean         bool
-	JSON          bool
-	Wait          bool
-	IncludeDirty  bool
-	CommittedOnly bool
-	LegacyUpload  bool
+	Platform       string
+	AppID          string
+	Version        string
+	Image          string
+	Env            map[string]string
+	SetCurrent     bool
+	Clean          bool
+	JSON           bool
+	Wait           bool
+	IncludeDirty   bool
+	CommittedOnly  bool
+	LegacyUpload   bool
+	TimeoutSeconds *int
 }
 
 type remoteBuildPlatformConfig struct {
@@ -58,6 +60,9 @@ type remoteBuildPlatformConfig struct {
 	Source      config.BuildSource
 	Env         map[string]string
 	Caches      []config.BuildCache
+	// TimeoutSeconds is the optional build.platforms.<PlatformKey>.timeout, nil
+	// when unset so the trigger request omits it and the server default applies.
+	TimeoutSeconds *int
 }
 
 // runBuildRemote is retained for older internal callers. The public UX is
@@ -139,6 +144,11 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		return err
 	}
 	resolved.Env = mergeRemoteBuildEnv(resolved.Env, opts.Env)
+	// --timeout (opts.TimeoutSeconds) wins over the resolved platform key's
+	// build.platforms.<key>.timeout; both nil means the server default applies.
+	if opts.TimeoutSeconds == nil {
+		opts.TimeoutSeconds = resolved.TimeoutSeconds
+	}
 	appID, err := uuid.Parse(strings.TrimSpace(resolved.AppID))
 	if err != nil {
 		return fmt.Errorf("app id must be a valid UUID: %w", err)
@@ -294,7 +304,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		Image:        stringPtrOrNil(opts.Image),
 		SetAsCurrent: &setCurrent,
 	}
-	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq)
+	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq, opts.TimeoutSeconds)
 	if !debugOutput && interactiveOutput {
 		ui.StopSpinner()
 	}
@@ -328,15 +338,21 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	}
 
 	// ── 8. Poll for status ───────────────────────────────────────
-	status, err := pollRemoteBuildStatusResultWithTimeout(ctx, client, jobID, remoteBuildTimeoutFromConfig(cwd))
+	waitCtx, stopWaitSignals := interruptibleBuildWaitContext(ctx)
+	defer stopWaitSignals()
+	status, err := pollRemoteBuildStatusResult(waitCtx, client, jobID, opts.JSON)
 	if err != nil {
 		if opts.JSON {
-			printRemoteBuildJSON(remoteBuildFailureJSON(resolved, jobID, status, err))
+			result := remoteBuildFailureJSON(resolved, jobID, status, err)
+			result.LogEvents = fetchRemoteBuildLogEvents(ctx, client, jobID)
+			printRemoteBuildJSON(result)
 		}
 		return completedRemoteBuildError(resolved, jobID, status, err)
 	}
 	if opts.JSON {
-		printRemoteBuildJSON(remoteBuildSuccessJSON(resolved, jobID, status))
+		result := remoteBuildSuccessJSON(resolved, jobID, status)
+		result.LogEvents = fetchRemoteBuildLogEvents(ctx, client, jobID)
+		printRemoteBuildJSON(result)
 	}
 
 	if !opts.JSON {
@@ -419,14 +435,62 @@ func mergeRemoteBuildEnv(base, overrides map[string]string) map[string]string {
 	return merged
 }
 
-func remoteBuildTimeoutFromConfig(cwd string) time.Duration {
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		return remoteBuildDefaultTimeout
+// remoteBuildTimeoutFlagSeconds validates the --timeout flag value for a
+// remote build trigger. Returns nil when the flag was not set so config or
+// server defaults apply.
+func remoteBuildTimeoutFlagSeconds(flagSeconds int, flagChanged bool) (*int, error) {
+	if !flagChanged {
+		return nil, nil
 	}
-	seconds := config.EffectiveTimeoutSeconds(cfg, int(remoteBuildDefaultTimeout.Seconds()))
-	return time.Duration(seconds) * time.Second
+	if flagSeconds <= 0 {
+		return nil, fmt.Errorf("--timeout must be a positive number of seconds")
+	}
+	return &flagSeconds, nil
+}
+
+// buildPlatformTimeoutSeconds returns the optional per-platform remote build
+// timeout configured at build.platforms.<key>.timeout, or nil when unset so
+// the trigger request omits timeout_seconds and the server default applies.
+// The key must be the resolved platform key actually used for the build (which
+// may be non-canonical, e.g. ios-release), not the raw device platform.
+func buildPlatformTimeoutSeconds(platCfg config.BuildPlatform, key string) (*int, error) {
+	if platCfg.Timeout == 0 {
+		return nil, nil
+	}
+	if platCfg.Timeout < 0 {
+		return nil, fmt.Errorf(
+			"build.platforms.%s.timeout in .revyl/config.yaml must be a positive number of seconds",
+			key,
+		)
+	}
+	seconds := platCfg.Timeout
+	return &seconds, nil
+}
+
+// interruptibleBuildWaitContext wires SIGINT/SIGTERM into a remote-build wait.
+// Ctrl-C detaches from the build rather than cancelling it; cancelling the
+// polling context lets the interrupted path say so ("remote build continues
+// in the cloud") instead of the process dying silently. A second Ctrl-C
+// force-exits as usual once stop() restores the default disposition.
+func interruptibleBuildWaitContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+}
+
+func remoteBuildPollingInterruptedError(jobID string, jsonMode bool) error {
+	if !jsonMode && !ui.IsQuietMode() {
+		ui.PrintWarning("Stopped waiting; remote build continues in the cloud.")
+		ui.PrintNextSteps([]ui.NextStep{
+			{
+				Label:   "Follow build:",
+				Command: fmt.Sprintf("revyl build status %s --follow", jobID),
+			},
+			{
+				Label:   "Cancel build:",
+				Command: fmt.Sprintf("revyl build cancel %s", jobID),
+			},
+		})
+	}
+	return fmt.Errorf("interrupted while waiting for remote build")
 }
 
 func printRemoteBuildQueuedNextSteps(jobID string) {
@@ -470,8 +534,9 @@ func runBuildStatus(cmd *cobra.Command, args []string) error {
 
 	var status *api.RemoteBuildStatusResponse
 	if buildStatusFollow {
-		cwd, _ := os.Getwd()
-		status, err = pollRemoteBuildStatusResultWithTimeout(cmd.Context(), client, jobID, remoteBuildTimeoutFromConfig(cwd))
+		followCtx, stopFollowSignals := interruptibleBuildWaitContext(cmd.Context())
+		defer stopFollowSignals()
+		status, err = pollRemoteBuildStatusResult(followCtx, client, jobID, buildStatusJSON)
 	} else {
 		status, err = client.GetRemoteBuildStatus(cmd.Context(), jobID)
 	}
@@ -487,7 +552,7 @@ func runBuildStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if status != nil && !buildStatusFollow {
-		printRemoteBuildStatusSummary(status)
+		printRemoteBuildStatusSummary(cmd.Context(), client, jobID, status)
 	}
 	if buildStatusFollow {
 		return completedRemoteBuildStatusError(jobID, status, err)
@@ -495,19 +560,13 @@ func runBuildStatus(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-func printRemoteBuildStatusSummary(status *api.RemoteBuildStatusResponse) {
-	printedLogs := false
-	if status.LogsTail != nil && strings.TrimSpace(*status.LogsTail) != "" {
+func printRemoteBuildStatusSummary(ctx context.Context, client *api.Client, jobID string, status *api.RemoteBuildStatusResponse) {
+	if events := fetchRemoteBuildLogEvents(ctx, client, jobID); len(events) > 0 {
 		ui.PrintDim("Recent logs:")
-		for _, line := range strings.Split(*status.LogsTail, "\n") {
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-			fmt.Fprintf(os.Stderr, "  %s\n", line)
+		formatter := &remoteBuildLogFormatter{}
+		for _, event := range events {
+			formatter.Print(event)
 		}
-		printedLogs = true
-	}
-	if printedLogs {
 		ui.Println()
 	}
 	if status.Platform != nil && strings.TrimSpace(*status.Platform) != "" {
@@ -661,24 +720,26 @@ func durationSuffix(message string) string {
 	return ""
 }
 
-func printRemoteBuildLogTail(ctx context.Context, client *api.Client, jobID string, status *api.RemoteBuildStatusResponse) {
-	if logs, err := client.GetRemoteBuildLogs(ctx, jobID, ""); err == nil && logs.Events != nil && len(*logs.Events) > 0 {
-		fmt.Fprintln(os.Stderr, "\n--- Build log tail ---")
-		formatter := &remoteBuildLogFormatter{}
-		for _, event := range *logs.Events {
-			formatter.Print(event)
-		}
-		return
-	}
-	if status == nil || status.LogsTail == nil || strings.TrimSpace(*status.LogsTail) == "" {
+func printRemoteBuildLogTail(ctx context.Context, client *api.Client, jobID string) {
+	events := fetchRemoteBuildLogEvents(ctx, client, jobID)
+	if len(events) == 0 {
 		return
 	}
 	fmt.Fprintln(os.Stderr, "\n--- Build log tail ---")
-	for _, line := range strings.Split(*status.LogsTail, "\n") {
-		if strings.TrimSpace(line) != "" {
-			fmt.Fprintf(os.Stderr, "  %s\n", line)
-		}
+	formatter := &remoteBuildLogFormatter{}
+	for _, event := range events {
+		formatter.Print(event)
 	}
+}
+
+// fetchRemoteBuildLogEvents returns the latest structured log events for a
+// build job, or nil when logs are unavailable — log display is best-effort.
+func fetchRemoteBuildLogEvents(ctx context.Context, client *api.Client, jobID string) []api.RemoteBuildLogEvent {
+	logs, err := client.GetRemoteBuildLogs(ctx, jobID, "")
+	if err != nil || logs == nil || logs.Events == nil {
+		return nil
+	}
+	return *logs.Events
 }
 
 // detectBuildCommand determines the xcodebuild command for the project.
@@ -799,19 +860,24 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 			if appID == "" {
 				return remoteBuildPlatformConfig{}, fmt.Errorf("no app specified. Use --app <id> or configure build.platforms.%s.app_id in .revyl/config.yaml", key)
 			}
+			timeoutSeconds, err := buildPlatformTimeoutSeconds(platCfg, key)
+			if err != nil {
+				return remoteBuildPlatformConfig{}, err
+			}
 			return remoteBuildPlatformConfig{
-				Platform:    devicePlatform,
-				PlatformKey: key,
-				Command:     strings.Join(buildCommands, " && "),
-				Commands:    buildCommands,
-				Setup:       strings.TrimSpace(platCfg.Setup),
-				Output:      strings.TrimSpace(platCfg.Output),
-				Image:       strings.TrimSpace(platCfg.Image),
-				Scheme:      strings.TrimSpace(resolveRemoteBuildScheme(devicePlatform, platCfg.Scheme)),
-				AppID:       appID,
-				Source:      cfg.Build.Source,
-				Env:         platCfg.Env,
-				Caches:      caches,
+				Platform:       devicePlatform,
+				PlatformKey:    key,
+				Command:        strings.Join(buildCommands, " && "),
+				Commands:       buildCommands,
+				Setup:          strings.TrimSpace(platCfg.Setup),
+				Output:         strings.TrimSpace(platCfg.Output),
+				Image:          strings.TrimSpace(platCfg.Image),
+				Scheme:         strings.TrimSpace(resolveRemoteBuildScheme(devicePlatform, platCfg.Scheme)),
+				AppID:          appID,
+				Source:         cfg.Build.Source,
+				Env:            platCfg.Env,
+				Caches:         caches,
+				TimeoutSeconds: timeoutSeconds,
 			}, nil
 		}
 	}
@@ -839,14 +905,25 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 	if appID == "" {
 		return remoteBuildPlatformConfig{}, fmt.Errorf("no app specified. Use --app <id> or configure build.platforms.%s.app_id in .revyl/config.yaml", platform)
 	}
+	// Auto-detected builds can still carry a config-only timeout entry.
+	var timeoutSeconds *int
+	if cfgErr == nil {
+		if platCfg, hasCfg := cfg.Build.Platforms[platform]; hasCfg {
+			timeoutSeconds, err = buildPlatformTimeoutSeconds(platCfg, platform)
+			if err != nil {
+				return remoteBuildPlatformConfig{}, err
+			}
+		}
+	}
 	return remoteBuildPlatformConfig{
-		Platform:    platform,
-		PlatformKey: platform,
-		Command:     strings.TrimSpace(platBuild.Command),
-		Commands:    []string{strings.TrimSpace(platBuild.Command)},
-		Output:      strings.TrimSpace(platBuild.Output),
-		Scheme:      strings.TrimSpace(resolveRemoteBuildScheme(platform, "")),
-		AppID:       appID,
+		Platform:       platform,
+		PlatformKey:    platform,
+		Command:        strings.TrimSpace(platBuild.Command),
+		Commands:       []string{strings.TrimSpace(platBuild.Command)},
+		Output:         strings.TrimSpace(platBuild.Output),
+		Scheme:         strings.TrimSpace(resolveRemoteBuildScheme(platform, "")),
+		AppID:          appID,
+		TimeoutSeconds: timeoutSeconds,
 	}, nil
 }
 
@@ -888,7 +965,7 @@ type remoteBuildJSONResult struct {
 	ArtifactType       string                       `json:"artifact_type,omitempty"`
 	PackageID          string                       `json:"package_id,omitempty"`
 	AppID              string                       `json:"app_id,omitempty"`
-	LogsTail           string                       `json:"logs_tail,omitempty"`
+	LogEvents          []api.RemoteBuildLogEvent    `json:"log_events,omitempty"`
 	Phase              string                       `json:"phase,omitempty"`
 	PhaseTimings       []api.RemoteBuildPhaseTiming `json:"phase_timings,omitempty"`
 	Error              string                       `json:"error,omitempty"`
@@ -922,9 +999,6 @@ func remoteBuildSuccessJSON(resolved remoteBuildPlatformConfig, jobID string, st
 	if status.AppId != nil && strings.TrimSpace(*status.AppId) != "" {
 		result.AppID = strings.TrimSpace(*status.AppId)
 	}
-	if status.LogsTail != nil {
-		result.LogsTail = *status.LogsTail
-	}
 	result.PhaseTimings = remoteBuildPhaseTimings(status)
 	return result
 }
@@ -954,9 +1028,6 @@ func remoteBuildFailureJSON(resolved remoteBuildPlatformConfig, jobID string, st
 	}
 	if status.CandidateArtifacts != nil {
 		result.CandidateArtifacts = append([]string(nil), (*status.CandidateArtifacts)...)
-	}
-	if status.LogsTail != nil {
-		result.LogsTail = *status.LogsTail
 	}
 	if status.ArtifactType != nil {
 		result.ArtifactType = strings.TrimSpace(*status.ArtifactType)
@@ -1388,166 +1459,6 @@ func pathBase(rel string) string {
 		return rel[idx+1:]
 	}
 	return rel
-}
-
-// pollBuildStatus polls the remote build status endpoint until the build
-// reaches a terminal state (success or failure).
-//
-// Parameters:
-//   - ctx: Cancellation context.
-//   - client: API client.
-//   - jobID: Build job UUID to poll.
-//
-// Returns:
-//   - error: If the build fails or polling encounters an error.
-func pollBuildStatus(ctx context.Context, client *api.Client, jobID string) error {
-	return pollBuildStatusWithTimeout(ctx, client, jobID, remoteBuildDefaultTimeout)
-}
-
-func pollBuildStatusWithTimeout(ctx context.Context, client *api.Client, jobID string, timeout time.Duration) error {
-	if timeout <= 0 {
-		timeout = remoteBuildDefaultTimeout
-	}
-	ticker := time.NewTicker(remoteBuildPollInterval)
-	defer ticker.Stop()
-
-	lastStatus := ""
-	logCursor := "0-0"
-	logFormatter := &remoteBuildLogFormatter{}
-	startTime := time.Now()
-	if !ui.IsDebugMode() {
-		ui.StartSpinner("Build queued")
-		defer ui.StopSpinner()
-	}
-
-	cancelBuild := func(reason string) {
-		if !ui.IsDebugMode() {
-			ui.StopSpinner()
-		}
-		ui.PrintWarning("Cancelling remote build (%s)…", reason)
-		cancelCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := client.CancelRemoteBuild(cancelCtx, jobID); err != nil {
-			ui.PrintWarning("Failed to cancel build: %v", err)
-		}
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			cancelBuild("interrupted")
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Since(startTime) > timeout {
-				cancelBuild("timeout")
-				return fmt.Errorf("build timed out after %v", timeout)
-			}
-
-			status, err := client.GetRemoteBuildStatus(ctx, jobID)
-			if err != nil {
-				ui.PrintDebug("failed to poll remote build status: %v", err)
-				continue
-			}
-
-			if status.Status != lastStatus {
-				if ui.IsDebugMode() {
-					elapsed := time.Since(startTime).Round(time.Second)
-					ui.PrintInfo("[%s] Build status: %s", elapsed, status.Status)
-				} else {
-					ui.StopSpinner()
-					switch status.Status {
-					case "queued", "pending":
-						ui.StartSpinner("Build queued")
-					case "building", "running":
-						ui.StartSpinner("Build in progress")
-					case "success", "failed", "cancelled":
-					default:
-						ui.StartSpinner("Build " + status.Status)
-					}
-				}
-				lastStatus = status.Status
-			}
-
-			if ui.IsDebugMode() {
-				logs, err := client.GetRemoteBuildLogs(ctx, jobID, logCursor)
-				if err != nil {
-					ui.PrintDebug("failed to poll build logs: %v", err)
-				} else {
-					if logs.Events != nil {
-						for _, event := range *logs.Events {
-							logFormatter.Print(event)
-						}
-					}
-					if logs.NextCursor != nil && *logs.NextCursor != "" {
-						logCursor = *logs.NextCursor
-					}
-				}
-			}
-
-			switch status.Status {
-			case "success":
-				if !ui.IsDebugMode() {
-					ui.StopSpinner()
-				}
-				if status.VersionId == nil || strings.TrimSpace(*status.VersionId) == "" {
-					return fmt.Errorf("remote build succeeded but returned no build version ID")
-				}
-				elapsed := time.Since(startTime).Round(time.Second)
-				ui.PrintSuccess("Build completed successfully in %s", formatBuildProgressDuration(elapsed))
-				if status.Version != nil && *status.Version != "" {
-					ui.PrintInfo("Version: %s", *status.Version)
-				}
-				if status.VersionId != nil && *status.VersionId != "" {
-					ui.PrintInfo("Version ID: %s", *status.VersionId)
-				}
-				printRemoteBuildPhaseTimings(status.PhaseTimings)
-
-				if buildUploadJSON {
-					ver := ""
-					verID := ""
-					if status.Version != nil {
-						ver = *status.Version
-					}
-					if status.VersionId != nil {
-						verID = *status.VersionId
-					}
-					out := map[string]string{
-						"status":     "success",
-						"version":    ver,
-						"version_id": verID,
-						"job_id":     jobID,
-					}
-					enc := json.NewEncoder(os.Stdout)
-					enc.SetIndent("", "  ")
-					enc.Encode(out)
-				}
-				return nil
-
-			case "failed":
-				if !ui.IsDebugMode() {
-					ui.StopSpinner()
-				}
-				if status.Error != nil && *status.Error != "" {
-					ui.PrintError("Build failed: %s", *status.Error)
-				} else {
-					ui.PrintError("Build failed")
-				}
-				printRemoteBuildLogTail(ctx, client, jobID, status)
-				return fmt.Errorf("remote build failed")
-			case "cancelled":
-				if !ui.IsDebugMode() {
-					ui.StopSpinner()
-				}
-				if status.Error != nil && *status.Error != "" {
-					ui.PrintError("Build cancelled: %s", *status.Error)
-				} else {
-					ui.PrintError("Build cancelled")
-				}
-				printRemoteBuildLogTail(ctx, client, jobID, status)
-				return fmt.Errorf("remote build cancelled")
-			}
-		}
-	}
 }
 
 // stringPtrOrNil returns a pointer to s if non-empty, or nil.
