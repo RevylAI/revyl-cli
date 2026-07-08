@@ -193,6 +193,25 @@ const (
 	EnvironmentStaging    Environment = "staging"
 )
 
+// Defines values for ExplorationEventCreateEventType.
+const (
+	ExplorationEventCreateEventTypeBlocked        ExplorationEventCreateEventType = "blocked"
+	ExplorationEventCreateEventTypeDeadEnd        ExplorationEventCreateEventType = "dead_end"
+	ExplorationEventCreateEventTypeGoalCompleted  ExplorationEventCreateEventType = "goal_completed"
+	ExplorationEventCreateEventTypeHandoffSummary ExplorationEventCreateEventType = "handoff_summary"
+	ExplorationEventCreateEventTypeNewAreaFound   ExplorationEventCreateEventType = "new_area_found"
+	ExplorationEventCreateEventTypeScreenSeen     ExplorationEventCreateEventType = "screen_seen"
+)
+
+// Defines values for ExplorationRunStatusUpdateExecutionStatus.
+const (
+	ExplorationRunStatusUpdateExecutionStatusCancelled ExplorationRunStatusUpdateExecutionStatus = "cancelled"
+	ExplorationRunStatusUpdateExecutionStatusCompleted ExplorationRunStatusUpdateExecutionStatus = "completed"
+	ExplorationRunStatusUpdateExecutionStatusFailed    ExplorationRunStatusUpdateExecutionStatus = "failed"
+	ExplorationRunStatusUpdateExecutionStatusQueued    ExplorationRunStatusUpdateExecutionStatus = "queued"
+	ExplorationRunStatusUpdateExecutionStatusRunning   ExplorationRunStatusUpdateExecutionStatus = "running"
+)
+
 // Defines values for ExpoProjectDbResponseSyncProfileMode.
 const (
 	ExpoProjectDbResponseSyncProfileModeAll       ExpoProjectDbResponseSyncProfileMode = "all"
@@ -361,6 +380,31 @@ const (
 	ReliabilityEstimateMedium ReliabilityEstimate = "medium"
 )
 
+// Defines values for ReportFindingCreateKind.
+const (
+	ReportFindingCreateKindAgentComment ReportFindingCreateKind = "agent_comment"
+	ReportFindingCreateKindAtlasNote    ReportFindingCreateKind = "atlas_note"
+	ReportFindingCreateKindBlockedSetup ReportFindingCreateKind = "blocked_setup"
+	ReportFindingCreateKindBug          ReportFindingCreateKind = "bug"
+	ReportFindingCreateKindInsight      ReportFindingCreateKind = "insight"
+	ReportFindingCreateKindManualNote   ReportFindingCreateKind = "manual_note"
+	ReportFindingCreateKindProductIssue ReportFindingCreateKind = "product_issue"
+	ReportFindingCreateKindRisk         ReportFindingCreateKind = "risk"
+	ReportFindingCreateKindTestIssue    ReportFindingCreateKind = "test_issue"
+	ReportFindingCreateKindWarning      ReportFindingCreateKind = "warning"
+)
+
+// Defines values for ReportFindingCreateSource.
+const (
+	ReportFindingCreateSourceAtlasLayer    ReportFindingCreateSource = "atlas_layer"
+	ReportFindingCreateSourceCodex         ReportFindingCreateSource = "codex"
+	ReportFindingCreateSourceEval          ReportFindingCreateSource = "eval"
+	ReportFindingCreateSourceExploration   ReportFindingCreateSource = "exploration"
+	ReportFindingCreateSourceHuman         ReportFindingCreateSource = "human"
+	ReportFindingCreateSourceSupport       ReportFindingCreateSource = "support"
+	ReportFindingCreateSourceTestExecution ReportFindingCreateSource = "test_execution"
+)
+
 // Defines values for ResolvedIosStoreKitConfigMode.
 const (
 	ResolvedIosStoreKitConfigModeDisabled ResolvedIosStoreKitConfigMode = "disabled"
@@ -438,39 +482,40 @@ const (
 
 // Defines values for StepType.
 const (
-	StepTypeBack           StepType = "back"
-	StepTypeClearText      StepType = "clear_text"
-	StepTypeClick          StepType = "click"
-	StepTypeCodeExecution  StepType = "code_execution"
-	StepTypeDecision       StepType = "decision"
-	StepTypeDoubleTap      StepType = "double_tap"
-	StepTypeDownloadFile   StepType = "download_file"
-	StepTypeDrag           StepType = "drag"
-	StepTypeEnd            StepType = "end"
-	StepTypeExtract        StepType = "extract"
-	StepTypeGoHome         StepType = "go_home"
-	StepTypeInput          StepType = "input"
-	StepTypeInstruction    StepType = "instruction"
-	StepTypeKillApp        StepType = "kill_app"
-	StepTypeLongPress      StepType = "long_press"
-	StepTypeLoop           StepType = "loop"
-	StepTypeModuleImport   StepType = "module_import"
-	StepTypeNavigate       StepType = "navigate"
-	StepTypeOpenApp        StepType = "open_app"
-	StepTypePinch          StepType = "pinch"
-	StepTypePlayAudio      StepType = "play_audio"
-	StepTypeScrape         StepType = "scrape"
-	StepTypeScrollDown     StepType = "scroll_down"
-	StepTypeScrollUp       StepType = "scroll_up"
-	StepTypeSelect         StepType = "select"
-	StepTypeSetAppearance  StepType = "set_appearance"
-	StepTypeSetFontSize    StepType = "set_font_size"
-	StepTypeSetLocation    StepType = "set_location"
-	StepTypeSetOrientation StepType = "set_orientation"
-	StepTypeSwipe          StepType = "swipe"
-	StepTypeTap            StepType = "tap"
-	StepTypeValidation     StepType = "validation"
-	StepTypeWait           StepType = "wait"
+	StepTypeBack            StepType = "back"
+	StepTypeClearText       StepType = "clear_text"
+	StepTypeClick           StepType = "click"
+	StepTypeCodeExecution   StepType = "code_execution"
+	StepTypeDecision        StepType = "decision"
+	StepTypeDoubleTap       StepType = "double_tap"
+	StepTypeDownloadFile    StepType = "download_file"
+	StepTypeDrag            StepType = "drag"
+	StepTypeEnd             StepType = "end"
+	StepTypeExploreContinue StepType = "explore_continue"
+	StepTypeExtract         StepType = "extract"
+	StepTypeGoHome          StepType = "go_home"
+	StepTypeInput           StepType = "input"
+	StepTypeInstruction     StepType = "instruction"
+	StepTypeKillApp         StepType = "kill_app"
+	StepTypeLongPress       StepType = "long_press"
+	StepTypeLoop            StepType = "loop"
+	StepTypeModuleImport    StepType = "module_import"
+	StepTypeNavigate        StepType = "navigate"
+	StepTypeOpenApp         StepType = "open_app"
+	StepTypePinch           StepType = "pinch"
+	StepTypePlayAudio       StepType = "play_audio"
+	StepTypeScrape          StepType = "scrape"
+	StepTypeScrollDown      StepType = "scroll_down"
+	StepTypeScrollUp        StepType = "scroll_up"
+	StepTypeSelect          StepType = "select"
+	StepTypeSetAppearance   StepType = "set_appearance"
+	StepTypeSetFontSize     StepType = "set_font_size"
+	StepTypeSetLocation     StepType = "set_location"
+	StepTypeSetOrientation  StepType = "set_orientation"
+	StepTypeSwipe           StepType = "swipe"
+	StepTypeTap             StepType = "tap"
+	StepTypeValidation      StepType = "validation"
+	StepTypeWait            StepType = "wait"
 )
 
 // Defines values for SuggestionQualityRating.
@@ -1054,6 +1099,78 @@ type AtlasEdgeRunsResponse struct {
 	ActiveVideo *AtlasEdgeClipVideo `json:"active_video,omitempty"`
 	AppId       string              `json:"app_id"`
 	Runs        *[]AtlasEdgeRun     `json:"runs,omitempty"`
+}
+
+// AtlasExploreCancelResponse defines model for AtlasExploreCancelResponse.
+type AtlasExploreCancelResponse struct {
+	ExecutionStatus  string `json:"execution_status"`
+	HatchetCancelled bool   `json:"hatchet_cancelled"`
+	RunId            string `json:"run_id"`
+}
+
+// AtlasExploreLaneConfig defines model for AtlasExploreLaneConfig.
+type AtlasExploreLaneConfig struct {
+	AuthInstructions *string `json:"auth_instructions"`
+	LaneIndex        int     `json:"lane_index"`
+	Role             *string `json:"role"`
+	SeedInstructions *string `json:"seed_instructions"`
+}
+
+// AtlasExploreLaunchRequest defines model for AtlasExploreLaunchRequest.
+type AtlasExploreLaunchRequest struct {
+	AuthInstructions   *string                   `json:"auth_instructions"`
+	BuildId            *openapi_types.UUID       `json:"build_id"`
+	DeviceModel        *string                   `json:"device_model"`
+	EnvVars            *map[string]string        `json:"env_vars,omitempty"`
+	IdleTimeoutSeconds *int                      `json:"idle_timeout_seconds"`
+	LaneCount          *int                      `json:"lane_count,omitempty"`
+	Lanes              *[]AtlasExploreLaneConfig `json:"lanes,omitempty"`
+	LaunchEnvVarIds    *[]openapi_types.UUID     `json:"launch_env_var_ids,omitempty"`
+	MaxDurationSeconds *int                      `json:"max_duration_seconds,omitempty"`
+	MaxTurns           *int                      `json:"max_turns,omitempty"`
+	OsVersion          *string                   `json:"os_version"`
+	Platform           *string                   `json:"platform,omitempty"`
+
+	// RunConfig Complete configuration for a test run.
+	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
+	SeedInstructions *string        `json:"seed_instructions"`
+}
+
+// AtlasExploreLaunchResponse defines model for AtlasExploreLaunchResponse.
+type AtlasExploreLaunchResponse struct {
+	ReportUrl string                  `json:"report_url"`
+	Run       AtlasExploreRunResponse `json:"run"`
+}
+
+// AtlasExploreRunResponse defines model for AtlasExploreRunResponse.
+type AtlasExploreRunResponse struct {
+	AppId           string                         `json:"app_id"`
+	AtlasStatus     string                         `json:"atlas_status"`
+	BuildId         *string                        `json:"build_id"`
+	CompletedAt     *time.Time                     `json:"completed_at"`
+	Config          *map[string]interface{}        `json:"config,omitempty"`
+	CreatedAt       time.Time                      `json:"created_at"`
+	CustomerStatus  string                         `json:"customer_status"`
+	ExecutionStatus string                         `json:"execution_status"`
+	Findings        *[]map[string]interface{}      `json:"findings,omitempty"`
+	Id              string                         `json:"id"`
+	Mode            string                         `json:"mode"`
+	Sessions        *[]AtlasExploreSessionResponse `json:"sessions,omitempty"`
+	Summary         *map[string]interface{}        `json:"summary,omitempty"`
+	UpdatedAt       time.Time                      `json:"updated_at"`
+}
+
+// AtlasExploreSessionResponse defines model for AtlasExploreSessionResponse.
+type AtlasExploreSessionResponse struct {
+	AtlasLayerJobId *string                 `json:"atlas_layer_job_id"`
+	Id              string                  `json:"id"`
+	LaneIndex       int                     `json:"lane_index"`
+	LaneRole        *string                 `json:"lane_role"`
+	ReportId        *string                 `json:"report_id"`
+	SessionId       *string                 `json:"session_id"`
+	SessionStatus   *string                 `json:"session_status"`
+	Summary         *map[string]interface{} `json:"summary,omitempty"`
+	WorkflowRunId   *string                 `json:"workflow_run_id"`
 }
 
 // AtlasOCRError defines model for AtlasOCRError.
@@ -3441,6 +3558,105 @@ type ExecutionModeConfig struct {
 
 	// SkipAppInstall Skip app installation during test execution
 	SkipAppInstall *bool `json:"skip_app_install,omitempty"`
+}
+
+// ExplorationEventCreate defines model for ExplorationEventCreate.
+type ExplorationEventCreate struct {
+	EventType    ExplorationEventCreateEventType `json:"event_type"`
+	Payload      *map[string]interface{}         `json:"payload,omitempty"`
+	RunSessionId *openapi_types.UUID             `json:"run_session_id"`
+	SessionId    *openapi_types.UUID             `json:"session_id"`
+	Summary      *string                         `json:"summary"`
+	Title        string                          `json:"title"`
+}
+
+// ExplorationEventCreateEventType defines model for ExplorationEventCreate.EventType.
+type ExplorationEventCreateEventType string
+
+// ExplorationLaneStartInput defines model for ExplorationLaneStartInput.
+type ExplorationLaneStartInput struct {
+	AuthInstructions   *string                      `json:"auth_instructions"`
+	BuildId            *openapi_types.UUID          `json:"build_id"`
+	DeviceModel        *string                      `json:"device_model"`
+	EnvVars            *map[string]string           `json:"env_vars,omitempty"`
+	IdleTimeoutSeconds *int                         `json:"idle_timeout_seconds"`
+	Lane               ExplorationLaneWorkflowInput `json:"lane"`
+	LaunchEnvVarIds    *[]openapi_types.UUID        `json:"launch_env_var_ids,omitempty"`
+	MaxDurationSeconds *int                         `json:"max_duration_seconds,omitempty"`
+	MaxTurns           *int                         `json:"max_turns,omitempty"`
+	OsVersion          *string                      `json:"os_version"`
+	Platform           *string                      `json:"platform,omitempty"`
+
+	// RunConfig Complete configuration for a test run.
+	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
+	SeedInstructions *string        `json:"seed_instructions"`
+}
+
+// ExplorationLaneWorkflowInput defines model for ExplorationLaneWorkflowInput.
+type ExplorationLaneWorkflowInput struct {
+	AuthInstructions *string `json:"auth_instructions"`
+	LaneIndex        int     `json:"lane_index"`
+	Role             *string `json:"role"`
+	SeedInstructions *string `json:"seed_instructions"`
+}
+
+// ExplorationRunReportChild A single exploration lane shaped as a run-report child card.
+type ExplorationRunReportChild struct {
+	AppId         *string    `json:"app_id"`
+	AppName       *string    `json:"app_name"`
+	CompletedAt   *time.Time `json:"completed_at"`
+	DeviceModel   *string    `json:"device_model"`
+	Duration      *float32   `json:"duration"`
+	ErrorMessage  *string    `json:"error_message"`
+	LaneIndex     int        `json:"lane_index"`
+	LaneLabel     string     `json:"lane_label"`
+	LaneRole      *string    `json:"lane_role"`
+	Platform      *string    `json:"platform"`
+	ReportId      *string    `json:"report_id"`
+	SessionId     *string    `json:"session_id"`
+	StartedAt     *time.Time `json:"started_at"`
+	Status        *string    `json:"status"`
+	StepCount     *int       `json:"step_count"`
+	Success       *bool      `json:"success"`
+	TaskId        string     `json:"task_id"`
+	TraceId       *string    `json:"trace_id"`
+	WhepUrl       *string    `json:"whep_url"`
+	WorkflowRunId *string    `json:"workflow_run_id"`
+}
+
+// ExplorationRunReportResponse defines model for ExplorationRunReportResponse.
+type ExplorationRunReportResponse struct {
+	AppName           *string                      `json:"app_name"`
+	AppPlatform       *string                      `json:"app_platform"`
+	Children          *[]ExplorationRunReportChild `json:"children,omitempty"`
+	CompletedChildren *int                         `json:"completed_children,omitempty"`
+	Progress          *float32                     `json:"progress,omitempty"`
+	Run               AtlasExploreRunResponse      `json:"run"`
+	TotalChildren     *int                         `json:"total_children,omitempty"`
+}
+
+// ExplorationRunStatusUpdate defines model for ExplorationRunStatusUpdate.
+type ExplorationRunStatusUpdate struct {
+	ExecutionStatus ExplorationRunStatusUpdateExecutionStatus `json:"execution_status"`
+	Summary         *map[string]interface{}                   `json:"summary,omitempty"`
+}
+
+// ExplorationRunStatusUpdateExecutionStatus defines model for ExplorationRunStatusUpdate.ExecutionStatus.
+type ExplorationRunStatusUpdateExecutionStatus string
+
+// ExplorationSessionConfig Per-device-session exploration contract passed from API to worker.
+type ExplorationSessionConfig struct {
+	AtlasContext       *string             `json:"atlas_context"`
+	AuthInstructions   *string             `json:"auth_instructions"`
+	InitialInstruction string              `json:"initial_instruction"`
+	LaneIndex          int                 `json:"lane_index"`
+	LaneRole           string              `json:"lane_role"`
+	MaxDurationSeconds *int                `json:"max_duration_seconds,omitempty"`
+	MaxTurns           *int                `json:"max_turns,omitempty"`
+	Mode               *string             `json:"mode,omitempty"`
+	RunId              openapi_types.UUID  `json:"run_id"`
+	RunSessionId       *openapi_types.UUID `json:"run_session_id"`
+	SeedInstructions   *string             `json:"seed_instructions"`
 }
 
 // ExpoBuildArtifacts defines model for ExpoBuildArtifacts.
@@ -6291,6 +6507,31 @@ type ReportContextStepResponse struct {
 	VideoTimestampStart   *float32                       `json:"video_timestamp_start"`
 }
 
+// ReportFindingCreate defines model for ReportFindingCreate.
+type ReportFindingCreate struct {
+	Body                    *string                    `json:"body"`
+	ExplorationRunSessionId *openapi_types.UUID        `json:"exploration_run_session_id"`
+	FeatureArea             *string                    `json:"feature_area"`
+	Kind                    *ReportFindingCreateKind   `json:"kind,omitempty"`
+	ReportActionId          *openapi_types.UUID        `json:"report_action_id"`
+	ReportId                *openapi_types.UUID        `json:"report_id"`
+	ReportStepId            *openapi_types.UUID        `json:"report_step_id"`
+	ScreenName              *string                    `json:"screen_name"`
+	SessionId               *openapi_types.UUID        `json:"session_id"`
+	Severity                *string                    `json:"severity"`
+	Source                  *ReportFindingCreateSource `json:"source,omitempty"`
+	StructuredPayload       *map[string]interface{}    `json:"structured_payload,omitempty"`
+	Title                   string                     `json:"title"`
+	WhatBlocked             *string                    `json:"what_blocked"`
+	WhatCustomerCanProvide  *string                    `json:"what_customer_can_provide"`
+}
+
+// ReportFindingCreateKind defines model for ReportFindingCreate.Kind.
+type ReportFindingCreateKind string
+
+// ReportFindingCreateSource defines model for ReportFindingCreate.Source.
+type ReportFindingCreateSource string
+
 // ReportV3Response Full report with steps and actions.
 type ReportV3Response struct {
 	AppId                  *string                   `json:"app_id"`
@@ -7309,10 +7550,13 @@ type StartDeviceInfo struct {
 	DeviceModel *string             `json:"device_model"`
 
 	// DeviceRunnerId Optional worker DEVICE_ID label to require for direct device sessions.
-	DeviceRunnerId     *string            `json:"device_runner_id"`
-	EnvVars            *map[string]string `json:"env_vars"`
-	IdleTimeoutSeconds *int               `json:"idle_timeout_seconds"`
-	IsSimulation       *bool              `json:"is_simulation,omitempty"`
+	DeviceRunnerId *string            `json:"device_runner_id"`
+	EnvVars        *map[string]string `json:"env_vars"`
+
+	// ExplorationConfig Per-device-session exploration contract passed from API to worker.
+	ExplorationConfig  *ExplorationSessionConfig `json:"exploration_config,omitempty"`
+	IdleTimeoutSeconds *int                      `json:"idle_timeout_seconds"`
+	IsSimulation       *bool                     `json:"is_simulation,omitempty"`
 
 	// LaunchEnvVarIds Org launch variable IDs selected for a raw device session. Only valid when `test_id` is absent.
 	LaunchEnvVarIds *[]openapi_types.UUID `json:"launch_env_var_ids"`
@@ -7339,12 +7583,13 @@ type StartDeviceInfo struct {
 
 // StartDeviceResponse Structured response for the `start_device` endpoint.
 type StartDeviceResponse struct {
-	Error        *string     `json:"error"`
-	IframeUrl    *string     `json:"iframe_url"`
-	Message      *string     `json:"message"`
-	Platform     string      `json:"platform"`
-	RetryAllowed *bool       `json:"retry_allowed"`
-	Status       AsyncStatus `json:"status"`
+	Error        *string             `json:"error"`
+	IframeUrl    *string             `json:"iframe_url"`
+	Message      *string             `json:"message"`
+	Platform     string              `json:"platform"`
+	RetryAllowed *bool               `json:"retry_allowed"`
+	SessionId    *openapi_types.UUID `json:"session_id"`
+	Status       AsyncStatus         `json:"status"`
 
 	// TraceId OpenTelemetry trace ID (32 hex chars, no dashes) for Grafana correlation
 	TraceId       *string             `json:"trace_id"`
@@ -8838,6 +9083,11 @@ type VariablesResponse struct {
 	Result []VariableRow `json:"result"`
 }
 
+// VideoMetadataBatchBySessionRequest Request for batch video metadata keyed by device session id.
+type VideoMetadataBatchBySessionRequest struct {
+	SessionIds []string `json:"session_ids"`
+}
+
 // VideoMetadataBatchRequest Request for batch video metadata.
 type VideoMetadataBatchRequest struct {
 	ExecutionIds []string `json:"execution_ids"`
@@ -9962,6 +10212,11 @@ type GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservatio
 	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListAtlasExplorationsApiV1AtlasV2AppsAppIdExplorationsGetParams defines parameters for ListAtlasExplorationsApiV1AtlasV2AppsAppIdExplorationsGet.
+type ListAtlasExplorationsApiV1AtlasV2AppsAppIdExplorationsGetParams struct {
+	BuildId *openapi_types.UUID `form:"build_id,omitempty" json:"build_id,omitempty"`
+}
+
 // GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGetParams defines parameters for GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGet.
 type GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGetParams struct {
 	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
@@ -10089,6 +10344,14 @@ type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
 // RunAtlasV2BackfillScopeApiV1AtlasV2BackfillJobsJobIdRunPostParams defines parameters for RunAtlasV2BackfillScopeApiV1AtlasV2BackfillJobsJobIdRunPost.
 type RunAtlasV2BackfillScopeApiV1AtlasV2BackfillJobsJobIdRunPostParams struct {
 	XServiceKey *string `json:"x-service-key,omitempty"`
+}
+
+// GetAtlasExplorationForestApiV1AtlasV2ExplorationsRunIdForestGetParams defines parameters for GetAtlasExplorationForestApiV1AtlasV2ExplorationsRunIdForestGet.
+type GetAtlasExplorationForestApiV1AtlasV2ExplorationsRunIdForestGetParams struct {
+	IncludeVariants *bool `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeDetails  *bool `form:"include_details,omitempty" json:"include_details,omitempty"`
+	IncludeFlows    *bool `form:"include_flows,omitempty" json:"include_flows,omitempty"`
+	Limit           *int  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2IndexApiV1AtlasV2IndexGetParams defines parameters for GetAtlasV2IndexApiV1AtlasV2IndexGet.
@@ -10623,7 +10886,7 @@ type ReadVariablesEndpointApiV1VariablesCustomReadVariablesGetParams struct {
 
 // ResolveVariablesApiV1VariablesGlobalResolveGetParams defines parameters for ResolveVariablesApiV1VariablesGlobalResolveGet.
 type ResolveVariablesApiV1VariablesGlobalResolveGetParams struct {
-	TestUid string `form:"test_uid" json:"test_uid"`
+	TestUid *string `form:"test_uid,omitempty" json:"test_uid,omitempty"`
 }
 
 // ListIosStorekitConfigRefsForFileApiV1VariablesIosStorekitFileRefsGetParams defines parameters for ListIosStorekitConfigRefsForFileApiV1VariablesIosStorekitFileRefsGet.
@@ -10788,6 +11051,9 @@ type SendAgentMessageApiV1AtlasAgentsBcIdMessagesPostJSONRequestBody = SendMessa
 // UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatchJSONRequestBody defines body for UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatch for application/json ContentType.
 type UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatchJSONRequestBody = AtlasV2CurationRequest
 
+// LaunchAtlasExplorationApiV1AtlasV2AppsAppIdExplorationsPostJSONRequestBody defines body for LaunchAtlasExplorationApiV1AtlasV2AppsAppIdExplorationsPost for application/json ContentType.
+type LaunchAtlasExplorationApiV1AtlasV2AppsAppIdExplorationsPostJSONRequestBody = AtlasExploreLaunchRequest
+
 // SplitAtlasV2IdentityRouteApiV1AtlasV2AppsAppIdIdentitySplitPostJSONRequestBody defines body for SplitAtlasV2IdentityRouteApiV1AtlasV2AppsAppIdIdentitySplitPost for application/json ContentType.
 type SplitAtlasV2IdentityRouteApiV1AtlasV2AppsAppIdIdentitySplitPostJSONRequestBody = AtlasV2IdentitySplitRequest
 
@@ -10802,6 +11068,18 @@ type CreateAtlasShareLinkApiV1AtlasV2AppsAppIdSharePostJSONRequestBody = AtlasSh
 
 // StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePostJSONRequestBody defines body for StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePost for application/json ContentType.
 type StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePostJSONRequestBody = AtlasV2BackfillScopeRequest
+
+// CreateAtlasExplorationEventApiV1AtlasV2ExplorationsRunIdEventsPostJSONRequestBody defines body for CreateAtlasExplorationEventApiV1AtlasV2ExplorationsRunIdEventsPost for application/json ContentType.
+type CreateAtlasExplorationEventApiV1AtlasV2ExplorationsRunIdEventsPostJSONRequestBody = ExplorationEventCreate
+
+// CreateAtlasExplorationFindingApiV1AtlasV2ExplorationsRunIdFindingsPostJSONRequestBody defines body for CreateAtlasExplorationFindingApiV1AtlasV2ExplorationsRunIdFindingsPost for application/json ContentType.
+type CreateAtlasExplorationFindingApiV1AtlasV2ExplorationsRunIdFindingsPostJSONRequestBody = ReportFindingCreate
+
+// StartAtlasExplorationLaneApiV1AtlasV2ExplorationsRunIdLanesLaneIndexStartPostJSONRequestBody defines body for StartAtlasExplorationLaneApiV1AtlasV2ExplorationsRunIdLanesLaneIndexStartPost for application/json ContentType.
+type StartAtlasExplorationLaneApiV1AtlasV2ExplorationsRunIdLanesLaneIndexStartPostJSONRequestBody = ExplorationLaneStartInput
+
+// UpdateAtlasExplorationStatusApiV1AtlasV2ExplorationsRunIdStatusPostJSONRequestBody defines body for UpdateAtlasExplorationStatusApiV1AtlasV2ExplorationsRunIdStatusPost for application/json ContentType.
+type UpdateAtlasExplorationStatusApiV1AtlasV2ExplorationsRunIdStatusPostJSONRequestBody = ExplorationRunStatusUpdate
 
 // CompleteAtlasV2LayerJobApiV1AtlasV2LayerJobsJobIdCompletePostJSONRequestBody defines body for CompleteAtlasV2LayerJobApiV1AtlasV2LayerJobsJobIdCompletePost for application/json ContentType.
 type CompleteAtlasV2LayerJobApiV1AtlasV2LayerJobsJobIdCompletePostJSONRequestBody = AtlasV2CompleteRequest
@@ -11075,6 +11353,9 @@ type GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPostJSONRequest
 
 // GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPost for application/json ContentType.
 type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
+
+// GetVideoMetadataBatchBySessionApiV1ReportsV3ReportsVideoMetadataBatchBySessionPostJSONRequestBody defines body for GetVideoMetadataBatchBySessionApiV1ReportsV3ReportsVideoMetadataBatchBySessionPost for application/json ContentType.
+type GetVideoMetadataBatchBySessionApiV1ReportsV3ReportsVideoMetadataBatchBySessionPostJSONRequestBody = VideoMetadataBatchBySessionRequest
 
 // UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody defines body for UpdateReportApiV1ReportsV3ReportsReportIdPatch for application/json ContentType.
 type UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody = UpdateReportRequest
