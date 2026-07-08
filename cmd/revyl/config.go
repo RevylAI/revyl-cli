@@ -134,10 +134,6 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 		if cfg.Build.System != "" || len(cfg.Build.Platforms) > 0 {
 			platforms := map[string]interface{}{}
 			for key, plat := range cfg.Build.Platforms {
-				platformOS := "ios"
-				if strings.Contains(strings.ToLower(key), "android") {
-					platformOS = "android"
-				}
 				platforms[key] = map[string]interface{}{
 					"app_id":       plat.AppID,
 					"scheme":       plat.Scheme,
@@ -145,9 +141,7 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 					"image":        plat.Image,
 					"has_setup":    strings.TrimSpace(plat.Setup) != "",
 					"has_commands": len(plat.BuildCommands()) > 0,
-					// Effective remote-build caches, including the framework
-					// default injected when none are configured.
-					"caches": config.EffectiveBuildCachesWithDefaults(cfg.Build, plat, platformOS, plat.AppID),
+					"caches":       config.EffectiveBuildCaches(cfg.Build, plat),
 				}
 			}
 			out["build"] = map[string]interface{}{

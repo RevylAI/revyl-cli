@@ -110,10 +110,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		}
 	}
 	appID := strings.TrimSpace(platCfg.AppID)
-	buildCaches := config.EffectiveBuildCachesWithDefaults(cfg.Build, platCfg, devicePlatform, appID)
-	if len(config.EffectiveBuildCaches(cfg.Build, platCfg)) == 0 && len(buildCaches) > 0 {
-		ui.PrintDim("No caches configured; using framework default cache %s (%s)", buildCaches[0].Key, strings.Join(buildCaches[0].Paths, ", "))
-	}
+	buildCaches := config.EffectiveBuildCaches(cfg.Build, platCfg)
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
@@ -368,7 +365,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 			if newAppID := strings.TrimSpace(reloadedPlat.AppID); newAppID != "" {
 				appID = newAppID
 			}
-			buildCaches = config.EffectiveBuildCachesWithDefaults(reloaded.Build, reloadedPlat, devicePlatform, appID)
+			buildCaches = config.EffectiveBuildCaches(reloaded.Build, reloadedPlat)
 			initDevAuthBypass(reloaded, client)
 		}
 

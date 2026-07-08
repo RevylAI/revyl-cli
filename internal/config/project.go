@@ -464,46 +464,6 @@ func EffectiveBuildCaches(buildCfg BuildConfig, platformCfg BuildPlatform) []Bui
 	return result
 }
 
-// DefaultBuildCachePaths returns the framework-default cache paths for remote
-// builds, mirroring the backend PR-review defaults (FRAMEWORK_DEFAULTS in
-// cognisim_backend scm_config_file.py). Empty when the build system has no
-// sensible default.
-func DefaultBuildCachePaths(buildSystem, devicePlatform string) []string {
-	system := strings.ToLower(strings.TrimSpace(buildSystem))
-	platform := strings.ToLower(strings.TrimSpace(devicePlatform))
-	switch system {
-	case "expo", "react-native", "react native":
-		if platform == "android" {
-			return []string{"node_modules", "android/.gradle"}
-		}
-		return []string{"node_modules", "ios/Pods"}
-	case "xcode", "swift":
-		return []string{"Pods"}
-	case "gradle":
-		return []string{".gradle"}
-	}
-	return nil
-}
-
-// EffectiveBuildCachesWithDefaults returns the explicitly configured cache
-// disks, falling back to one framework-default cache when none are configured
-// so remote builds are cached without any user setup. Explicit caches win
-// entirely; `revyl build --remote --no-cache` still disables cache use.
-func EffectiveBuildCachesWithDefaults(buildCfg BuildConfig, platformCfg BuildPlatform, devicePlatform, appID string) []BuildCache {
-	if caches := EffectiveBuildCaches(buildCfg, platformCfg); len(caches) > 0 {
-		return caches
-	}
-	paths := DefaultBuildCachePaths(buildCfg.System, devicePlatform)
-	appID = strings.TrimSpace(appID)
-	if len(paths) == 0 || appID == "" {
-		return nil
-	}
-	return []BuildCache{{
-		Key:   fmt.Sprintf("revyl-default-%s-%s", appID, strings.ToLower(strings.TrimSpace(devicePlatform))),
-		Paths: paths,
-	}}
-}
-
 // Defaults contains default settings.
 type Defaults struct {
 	// OpenBrowser controls whether to open browser after test completion.

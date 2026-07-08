@@ -863,10 +863,7 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 			if err != nil {
 				return remoteBuildPlatformConfig{}, err
 			}
-			caches := config.EffectiveBuildCachesWithDefaults(cfg.Build, platCfg, devicePlatform, appID)
-			if len(config.EffectiveBuildCaches(cfg.Build, platCfg)) == 0 && len(caches) > 0 {
-				ui.PrintDim("No caches configured; using framework default cache %s (%s)", caches[0].Key, strings.Join(caches[0].Paths, ", "))
-			}
+			caches := config.EffectiveBuildCaches(cfg.Build, platCfg)
 			return remoteBuildPlatformConfig{
 				Platform:       devicePlatform,
 				PlatformKey:    key,

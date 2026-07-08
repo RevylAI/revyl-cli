@@ -701,35 +701,28 @@ func TestAuthBypassConfig_Validation(t *testing.T) {
 	}
 }
 
-func TestEffectiveBuildCachesWithDefaults(t *testing.T) {
+func TestEffectiveBuildCachesExplicitOnly(t *testing.T) {
 	explicit := BuildConfig{
 		System: "Xcode",
 		Caches: []BuildCache{{Key: "my-cache", Paths: []string{"custom"}}},
 	}
-	got := EffectiveBuildCachesWithDefaults(explicit, BuildPlatform{}, "ios", "app-1")
+	got := EffectiveBuildCaches(explicit, BuildPlatform{})
 	if len(got) != 1 || got[0].Key != "my-cache" {
-		t.Fatalf("explicit caches should win entirely, got %#v", got)
+		t.Fatalf("explicit global caches should be used, got %#v", got)
 	}
 
-	xcode := BuildConfig{System: "Xcode"}
-	got = EffectiveBuildCachesWithDefaults(xcode, BuildPlatform{}, "ios", "app-1")
-	if len(got) != 1 || got[0].Key != "revyl-default-app-1-ios" {
-		t.Fatalf("expected xcode default cache, got %#v", got)
-	}
-	if len(got[0].Paths) == 0 {
-		t.Fatal("default cache must have paths")
-	}
-
-	expo := BuildConfig{System: "Expo"}
-	got = EffectiveBuildCachesWithDefaults(expo, BuildPlatform{}, "android", "app-2")
-	if len(got) != 1 || got[0].Paths[0] != "node_modules" {
-		t.Fatalf("expected expo android default with node_modules, got %#v", got)
+	got = EffectiveBuildCaches(
+		BuildConfig{System: "Expo"},
+		BuildPlatform{Caches: []BuildCache{{Key: "platform-cache", Paths: []string{"deps"}}}},
+	)
+	if len(got) != 1 || got[0].Key != "platform-cache" {
+		t.Fatalf("explicit platform caches should be used, got %#v", got)
 	}
 
-	if got := EffectiveBuildCachesWithDefaults(xcode, BuildPlatform{}, "ios", ""); got != nil {
-		t.Fatalf("no app id -> no default cache, got %#v", got)
-	}
-	if got := EffectiveBuildCachesWithDefaults(BuildConfig{System: "Bazel"}, BuildPlatform{}, "ios", "app-3"); got != nil {
-		t.Fatalf("unknown system -> no default cache, got %#v", got)
+	for _, system := range []string{"Expo", "react-native", "Xcode", "Swift", "Gradle"} {
+		got = EffectiveBuildCaches(BuildConfig{System: system}, BuildPlatform{})
+		if len(got) != 0 {
+			t.Fatalf("system %q with no explicit caches = %#v, want none", system, got)
+		}
 	}
 }
