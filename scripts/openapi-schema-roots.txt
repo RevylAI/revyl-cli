@@ -1,0 +1,9 @@
+# Additional OpenAPI component schemas needed by handwritten CLI code but not
+# reachable from an allowlisted operation. Prefer leaving this file empty;
+# every exception must include a justification.
+
+# Handwritten compatibility endpoints intentionally excluded from OpenAPI
+# operation exposure still deserialize these backend-owned response models.
+ScmConfigResponse
+ScmConfigsResponse
+WorkflowCancelResponse

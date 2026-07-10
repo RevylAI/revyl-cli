@@ -10,3 +10,8 @@ generate:
   models: true
 compatibility:
   always-prefix-enum-values: true
+output-options:
+  # The input has already been reduced to the transitive allowlisted schema
+  # closure. Keep explicit schema roots used by schema-hidden compatibility
+  # endpoints instead of pruning them a second time.
+  skip-prune: true

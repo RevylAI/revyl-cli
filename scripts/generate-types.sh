@@ -17,9 +17,10 @@ OUTPUT_FILE="$OUTPUT_DIR/generated.go"
 CACHED_SPEC="$PROJECT_DIR/openapi.json"
 PROCESSED_SPEC="/tmp/openapi-processed.json"
 FETCHED_SPEC="$(mktemp "${TMPDIR:-/tmp}/revyl-openapi.XXXXXX")"
+FILTERED_SPEC="$(mktemp "${TMPDIR:-/tmp}/revyl-cli-openapi.XXXXXX")"
 
 cleanup() {
-    rm -f "$FETCHED_SPEC"
+    rm -f "$FETCHED_SPEC" "$FILTERED_SPEC"
 }
 trap cleanup EXIT
 
@@ -94,6 +95,21 @@ if [ ! -s "$CACHED_SPEC" ]; then
 fi
 
 echo "✓ Using spec: $CACHED_SPEC"
+echo ""
+
+# Fail closed through the explicit CLI operation allowlist. The filter also
+# verifies that every production /api/v1 path is either allowlisted or listed
+# as an intentional schema-hidden exception, and removes unreachable schemas.
+echo "Applying explicit CLI OpenAPI allowlist..."
+python3 "$SCRIPT_DIR/filter_openapi_for_cli.py" \
+    --input "$CACHED_SPEC" \
+    --output "$FILTERED_SPEC" \
+    --project-dir "$PROJECT_DIR" \
+    --allowlist "$SCRIPT_DIR/openapi-allowlist.txt" \
+    --excluded-paths "$SCRIPT_DIR/openapi-excluded-paths.txt" \
+    --schema-roots "$SCRIPT_DIR/openapi-schema-roots.txt"
+mv "$FILTERED_SPEC" "$CACHED_SPEC"
+echo "✓ Cached spec contains allowlisted CLI operations only"
 echo ""
 
 # Process the OpenAPI spec to make it compatible with oapi-codegen
@@ -173,56 +189,9 @@ def process_schema(schema):
 with open('openapi.json', 'r') as f:
     spec = json.load(f)
 
-# The CLI intentionally does not expose YAML validation. Backend/product own
-# YAML validation semantics, while CLI create/push paths only parse/transport
-# YAML and let backend mutation endpoints return authoritative errors.
-paths = spec.get('paths', {})
-paths.pop('/api/v1/tests/yaml/validate-yaml', None)
-schemas = spec.get('components', {}).get('schemas', {})
-for schema_name in ('ValidationRequest', 'ValidationResponse', 'ValidationTypeEnum'):
-    schemas.pop(schema_name, None)
-
-# Admin surface is internal-only and must never ship in the customer-facing CLI
-# client. Drop every admin path so private models (billing, org analytics, etc.)
-# don't get generated into generated.go / the committed CLI openapi.json.
-for admin_path in [p for p in paths if p.startswith('/api/v1/admin/')]:
-    paths.pop(admin_path, None)
-
-# Prune component schemas down to only those still reachable from the remaining
-# paths, so models orphaned by the path removals above disappear too.
-SCHEMA_REF_PREFIX = '#/components/schemas/'
-
-
-def iter_schema_refs(node):
-    """Yield schema names referenced via $ref anywhere within ``node``."""
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if key == '$ref' and isinstance(value, str) and value.startswith(SCHEMA_REF_PREFIX):
-                yield value[len(SCHEMA_REF_PREFIX):]
-            else:
-                yield from iter_schema_refs(value)
-    elif isinstance(node, list):
-        for item in node:
-            yield from iter_schema_refs(item)
-
-
-if schemas:
-    reachable = set()
-    queue = list(iter_schema_refs(paths))
-    while queue:
-        name = queue.pop()
-        if name in reachable:
-            continue
-        reachable.add(name)
-        queue.extend(iter_schema_refs(schemas.get(name)))
-    spec['components']['schemas'] = {
-        name: schema for name, schema in schemas.items() if name in reachable
-    }
-    schemas = spec['components']['schemas']
-
-# Keep the cached CLI spec aligned with the CLI surface. The backend may expose
-# YAML validation and admin endpoints for product surfaces, but the CLI spec
-# should not advertise them.
+# Persist only the already allowlisted CLI contract. Filtering, sensitive-path
+# rejection, explicit schema roots, and transitive schema pruning happen in
+# filter_openapi_for_cli.py before compatibility conversion.
 with open('openapi.json', 'w') as f:
     json.dump(spec, f)
 

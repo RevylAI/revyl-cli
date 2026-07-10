@@ -1,0 +1,19 @@
+# Runtime backend paths that intentionally do not contribute generated models.
+# Keep this list narrow. Entries must still be present in production Go code;
+# stale entries fail generation.
+
+# Telemetry and SSE endpoints are deliberately hidden from backend OpenAPI.
+/api/v1/monitor/stream/unified
+/api/v1/telemetry/cli-analytics
+/api/v1/telemetry/cli-spans
+/api/v1/telemetry/cli-traces
+
+# These handwritten compatibility endpoints are intentionally hidden from the
+# backend schema.
+/api/v1/scm/github/configs
+/api/v1/scm/github/configs/push
+/api/v1/workflows/status/cancel/%s
+
+# YAML validation uses handwritten CLI transport models and is intentionally
+# omitted from the customer-facing generated model surface.
+/api/v1/tests/yaml/validate-yaml

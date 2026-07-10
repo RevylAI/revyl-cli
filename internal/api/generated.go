@@ -57,50 +57,10 @@ const (
 	AsyncStatusRunning      AsyncStatus = "running"
 )
 
-// Defines values for AtlasV2LayerJobStatus.
-const (
-	AtlasV2LayerJobStatusCancelled AtlasV2LayerJobStatus = "cancelled"
-	AtlasV2LayerJobStatusCompleted AtlasV2LayerJobStatus = "completed"
-	AtlasV2LayerJobStatusFailed    AtlasV2LayerJobStatus = "failed"
-	AtlasV2LayerJobStatusQueued    AtlasV2LayerJobStatus = "queued"
-	AtlasV2LayerJobStatusRunning   AtlasV2LayerJobStatus = "running"
-	AtlasV2LayerJobStatusSkipped   AtlasV2LayerJobStatus = "skipped"
-)
-
-// Defines values for AttachRequestBillingPeriod.
-const (
-	AttachRequestBillingPeriodMonthly AttachRequestBillingPeriod = "monthly"
-	AttachRequestBillingPeriodYearly  AttachRequestBillingPeriod = "yearly"
-)
-
-// Defines values for BoundingBoxErrorType.
-const (
-	BoundingBoxErrorTypeBboxTooLarge      BoundingBoxErrorType = "bbox_too_large"
-	BoundingBoxErrorTypeElementNotVisible BoundingBoxErrorType = "element_not_visible"
-	BoundingBoxErrorTypeNone              BoundingBoxErrorType = "none"
-	BoundingBoxErrorTypePartialOverlap    BoundingBoxErrorType = "partial_overlap"
-	BoundingBoxErrorTypeTargetOutside     BoundingBoxErrorType = "target_outside"
-)
-
 // Defines values for BuildConfigPlatform.
 const (
 	BuildConfigPlatformAndroid BuildConfigPlatform = "android"
 	BuildConfigPlatformIos     BuildConfigPlatform = "ios"
-)
-
-// Defines values for BuildImageOptionPlatform.
-const (
-	BuildImageOptionPlatformAndroid BuildImageOptionPlatform = "android"
-	BuildImageOptionPlatformIos     BuildImageOptionPlatform = "ios"
-)
-
-// Defines values for BuildJobStatusUpdateRequestStatus.
-const (
-	BuildJobStatusUpdateRequestStatusCancelled BuildJobStatusUpdateRequestStatus = "cancelled"
-	BuildJobStatusUpdateRequestStatusFailed    BuildJobStatusUpdateRequestStatus = "failed"
-	BuildJobStatusUpdateRequestStatusQueued    BuildJobStatusUpdateRequestStatus = "queued"
-	BuildJobStatusUpdateRequestStatusRunning   BuildJobStatusUpdateRequestStatus = "running"
-	BuildJobStatusUpdateRequestStatusSucceeded BuildJobStatusUpdateRequestStatus = "succeeded"
 )
 
 // Defines values for BuildStepType.
@@ -120,11 +80,6 @@ const (
 	CleanupLevelDeepClean CleanupLevel = "deep_clean"
 	CleanupLevelNone      CleanupLevel = "none"
 	CleanupLevelThorough  CleanupLevel = "thorough"
-)
-
-// Defines values for CloudAgentProviderId.
-const (
-	CloudAgentProviderIdCursor CloudAgentProviderId = "cursor"
 )
 
 // Defines values for CodeExecutionScriptRuntime.
@@ -168,12 +123,6 @@ const (
 	CompileSourceTypeSession   CompileSourceType = "session"
 )
 
-// Defines values for CreateExpoProjectRequestSyncProfileMode.
-const (
-	CreateExpoProjectRequestSyncProfileModeAll       CreateExpoProjectRequestSyncProfileMode = "all"
-	CreateExpoProjectRequestSyncProfileModeAllowlist CreateExpoProjectRequestSyncProfileMode = "allowlist"
-)
-
 // Defines values for DashboardMetricsDashboardState.
 const (
 	DashboardMetricsDashboardStateIntermediate DashboardMetricsDashboardState = "intermediate"
@@ -181,69 +130,9 @@ const (
 	DashboardMetricsDashboardStateOnboarding   DashboardMetricsDashboardState = "onboarding"
 )
 
-// Defines values for DeviceSessionCreatePlatform.
-const (
-	DeviceSessionCreatePlatformAndroid DeviceSessionCreatePlatform = "android"
-	DeviceSessionCreatePlatformIos     DeviceSessionCreatePlatform = "ios"
-)
-
-// Defines values for Environment.
-const (
-	EnvironmentProduction Environment = "production"
-	EnvironmentStaging    Environment = "staging"
-)
-
-// Defines values for ExplorationEventCreateEventType.
-const (
-	ExplorationEventCreateEventTypeBlocked        ExplorationEventCreateEventType = "blocked"
-	ExplorationEventCreateEventTypeDeadEnd        ExplorationEventCreateEventType = "dead_end"
-	ExplorationEventCreateEventTypeGoalCompleted  ExplorationEventCreateEventType = "goal_completed"
-	ExplorationEventCreateEventTypeHandoffSummary ExplorationEventCreateEventType = "handoff_summary"
-	ExplorationEventCreateEventTypeNewAreaFound   ExplorationEventCreateEventType = "new_area_found"
-	ExplorationEventCreateEventTypeScreenSeen     ExplorationEventCreateEventType = "screen_seen"
-)
-
-// Defines values for ExplorationRunStatusUpdateExecutionStatus.
-const (
-	ExplorationRunStatusUpdateExecutionStatusCancelled ExplorationRunStatusUpdateExecutionStatus = "cancelled"
-	ExplorationRunStatusUpdateExecutionStatusCompleted ExplorationRunStatusUpdateExecutionStatus = "completed"
-	ExplorationRunStatusUpdateExecutionStatusFailed    ExplorationRunStatusUpdateExecutionStatus = "failed"
-	ExplorationRunStatusUpdateExecutionStatusQueued    ExplorationRunStatusUpdateExecutionStatus = "queued"
-	ExplorationRunStatusUpdateExecutionStatusRunning   ExplorationRunStatusUpdateExecutionStatus = "running"
-)
-
-// Defines values for ExpoProjectDbResponseSyncProfileMode.
-const (
-	ExpoProjectDbResponseSyncProfileModeAll       ExpoProjectDbResponseSyncProfileMode = "all"
-	ExpoProjectDbResponseSyncProfileModeAllowlist ExpoProjectDbResponseSyncProfileMode = "allowlist"
-)
-
 // Defines values for FallbackTrigger.
 const (
 	FallbackTriggerFinalFail FallbackTrigger = "final_fail"
-)
-
-// Defines values for FleetSandboxSandboxType.
-const (
-	FleetSandboxSandboxTypeContainer FleetSandboxSandboxType = "container"
-	FleetSandboxSandboxTypeDedicated FleetSandboxSandboxType = "dedicated"
-)
-
-// Defines values for FleetSandboxStatus.
-const (
-	FleetSandboxStatusAvailable   FleetSandboxStatus = "available"
-	FleetSandboxStatusClaimed     FleetSandboxStatus = "claimed"
-	FleetSandboxStatusMaintenance FleetSandboxStatus = "maintenance"
-	FleetSandboxStatusReserved    FleetSandboxStatus = "reserved"
-)
-
-// Defines values for GrounderHintErrorType.
-const (
-	GrounderHintErrorTypeEmptySpaceNotDescribed GrounderHintErrorType = "empty_space_not_described"
-	GrounderHintErrorTypeNoVisualCues           GrounderHintErrorType = "no_visual_cues"
-	GrounderHintErrorTypeNone                   GrounderHintErrorType = "none"
-	GrounderHintErrorTypeUiJargon               GrounderHintErrorType = "ui_jargon"
-	GrounderHintErrorTypeWrongElement           GrounderHintErrorType = "wrong_element"
 )
 
 // Defines values for GrounderType.
@@ -257,23 +146,6 @@ const (
 	GrounderTypeQwen3Vl         GrounderType = "qwen3-vl"
 	GrounderTypeUiTars          GrounderType = "ui-tars"
 	GrounderTypeUnified         GrounderType = "unified"
-)
-
-// Defines values for GroundingErrorType.
-const (
-	GroundingErrorTypeEmptySpace     GroundingErrorType = "empty_space"
-	GroundingErrorTypeEvalFailure    GroundingErrorType = "eval_failure"
-	GroundingErrorTypeNearMiss       GroundingErrorType = "near_miss"
-	GroundingErrorTypeNone           GroundingErrorType = "none"
-	GroundingErrorTypeWrongArea      GroundingErrorType = "wrong_area"
-	GroundingErrorTypeWrongDirection GroundingErrorType = "wrong_direction"
-	GroundingErrorTypeWrongElement   GroundingErrorType = "wrong_element"
-)
-
-// Defines values for HITLApprovalDecisionDecision.
-const (
-	HITLApprovalDecisionDecisionApproved HITLApprovalDecisionDecision = "approved"
-	HITLApprovalDecisionDecisionRejected HITLApprovalDecisionDecision = "rejected"
 )
 
 // Defines values for IosStoreKitConfigRefMode.
@@ -302,29 +174,6 @@ const (
 	IosStoreKitConfigRefUpsertRequestScopeTypeTest  IosStoreKitConfigRefUpsertRequestScopeType = "test"
 )
 
-// Defines values for LinearIssueRequestSource.
-const (
-	LinearIssueRequestSourceAtlas    LinearIssueRequestSource = "atlas"
-	LinearIssueRequestSourceReport   LinearIssueRequestSource = "report"
-	LinearIssueRequestSourceWorkflow LinearIssueRequestSource = "workflow"
-)
-
-// Defines values for NormalizedActionBlockType.
-const (
-	NormalizedActionBlockTypeCodeExecution NormalizedActionBlockType = "code_execution"
-	NormalizedActionBlockTypeExtraction    NormalizedActionBlockType = "extraction"
-	NormalizedActionBlockTypeInstructions  NormalizedActionBlockType = "instructions"
-	NormalizedActionBlockTypeManual        NormalizedActionBlockType = "manual"
-	NormalizedActionBlockTypeModuleImport  NormalizedActionBlockType = "module_import"
-	NormalizedActionBlockTypeValidation    NormalizedActionBlockType = "validation"
-)
-
-// Defines values for NormalizedActionBlockVariableScope.
-const (
-	NormalizedActionBlockVariableScopeGlobal NormalizedActionBlockVariableScope = "global"
-	NormalizedActionBlockVariableScopeTest   NormalizedActionBlockVariableScope = "test"
-)
-
 // Defines values for PlanInfoBillingPeriod.
 const (
 	PlanInfoBillingPeriodMonthly PlanInfoBillingPeriod = "monthly"
@@ -337,134 +186,10 @@ const (
 	PlanInfoScheduledBillingPeriodYearly  PlanInfoScheduledBillingPeriod = "yearly"
 )
 
-// Defines values for ProviderCapabilitiesAuthType.
-const (
-	ProviderCapabilitiesAuthTypeApiKey ProviderCapabilitiesAuthType = "api_key"
-	ProviderCapabilitiesAuthTypeOauth  ProviderCapabilitiesAuthType = "oauth"
-)
-
-// Defines values for QualityGrade.
-const (
-	QualityGradeA QualityGrade = "A"
-	QualityGradeB QualityGrade = "B"
-	QualityGradeC QualityGrade = "C"
-	QualityGradeD QualityGrade = "D"
-	QualityGradeF QualityGrade = "F"
-)
-
-// Defines values for ReflectionErrorType.
-const (
-	ReflectionErrorTypeFalseNegative ReflectionErrorType = "false_negative"
-	ReflectionErrorTypeFalsePositive ReflectionErrorType = "false_positive"
-	ReflectionErrorTypeNone          ReflectionErrorType = "none"
-)
-
-// Defines values for RegisterSandboxRequestDbEnv.
-const (
-	RegisterSandboxRequestDbEnvProduction RegisterSandboxRequestDbEnv = "production"
-	RegisterSandboxRequestDbEnvStaging    RegisterSandboxRequestDbEnv = "staging"
-)
-
-// Defines values for RegisterSandboxRequestStatus.
-const (
-	RegisterSandboxRequestStatusAvailable   RegisterSandboxRequestStatus = "available"
-	RegisterSandboxRequestStatusClaimed     RegisterSandboxRequestStatus = "claimed"
-	RegisterSandboxRequestStatusMaintenance RegisterSandboxRequestStatus = "maintenance"
-	RegisterSandboxRequestStatusReserved    RegisterSandboxRequestStatus = "reserved"
-)
-
-// Defines values for ReliabilityEstimate.
-const (
-	ReliabilityEstimateHigh   ReliabilityEstimate = "high"
-	ReliabilityEstimateLow    ReliabilityEstimate = "low"
-	ReliabilityEstimateMedium ReliabilityEstimate = "medium"
-)
-
-// Defines values for ReportFindingCreateKind.
-const (
-	ReportFindingCreateKindAgentComment ReportFindingCreateKind = "agent_comment"
-	ReportFindingCreateKindAtlasNote    ReportFindingCreateKind = "atlas_note"
-	ReportFindingCreateKindBlockedSetup ReportFindingCreateKind = "blocked_setup"
-	ReportFindingCreateKindBug          ReportFindingCreateKind = "bug"
-	ReportFindingCreateKindInsight      ReportFindingCreateKind = "insight"
-	ReportFindingCreateKindManualNote   ReportFindingCreateKind = "manual_note"
-	ReportFindingCreateKindProductIssue ReportFindingCreateKind = "product_issue"
-	ReportFindingCreateKindRisk         ReportFindingCreateKind = "risk"
-	ReportFindingCreateKindTestIssue    ReportFindingCreateKind = "test_issue"
-	ReportFindingCreateKindWarning      ReportFindingCreateKind = "warning"
-)
-
-// Defines values for ReportFindingCreateSource.
-const (
-	ReportFindingCreateSourceAtlasLayer    ReportFindingCreateSource = "atlas_layer"
-	ReportFindingCreateSourceCodex         ReportFindingCreateSource = "codex"
-	ReportFindingCreateSourceEval          ReportFindingCreateSource = "eval"
-	ReportFindingCreateSourceExploration   ReportFindingCreateSource = "exploration"
-	ReportFindingCreateSourceHuman         ReportFindingCreateSource = "human"
-	ReportFindingCreateSourceSupport       ReportFindingCreateSource = "support"
-	ReportFindingCreateSourceTestExecution ReportFindingCreateSource = "test_execution"
-)
-
-// Defines values for ResolvedIosStoreKitConfigMode.
-const (
-	ResolvedIosStoreKitConfigModeDisabled ResolvedIosStoreKitConfigMode = "disabled"
-	ResolvedIosStoreKitConfigModeFile     ResolvedIosStoreKitConfigMode = "file"
-)
-
-// Defines values for ResolvedIosStoreKitConfigScopeType.
-const (
-	ResolvedIosStoreKitConfigScopeTypeApp   ResolvedIosStoreKitConfigScopeType = "app"
-	ResolvedIosStoreKitConfigScopeTypeBuild ResolvedIosStoreKitConfigScopeType = "build"
-	ResolvedIosStoreKitConfigScopeTypeTest  ResolvedIosStoreKitConfigScopeType = "test"
-)
-
-// Defines values for ResolvedIosStoreKitConfigSource.
-const (
-	ResolvedIosStoreKitConfigSourceApp             ResolvedIosStoreKitConfigSource = "app"
-	ResolvedIosStoreKitConfigSourceBuild           ResolvedIosStoreKitConfigSource = "build"
-	ResolvedIosStoreKitConfigSourceNone            ResolvedIosStoreKitConfigSource = "none"
-	ResolvedIosStoreKitConfigSourceSessionOverride ResolvedIosStoreKitConfigSource = "session_override"
-	ResolvedIosStoreKitConfigSourceTest            ResolvedIosStoreKitConfigSource = "test"
-)
-
-// Defines values for RunState.
-const (
-	RunStateCANCELLED RunState = "CANCELLED"
-	RunStateERROR     RunState = "ERROR"
-	RunStateEXPIRED   RunState = "EXPIRED"
-	RunStateFINISHED  RunState = "FINISHED"
-	RunStateRUNNING   RunState = "RUNNING"
-	RunStateUNKNOWN   RunState = "UNKNOWN"
-)
-
-// Defines values for RunnerResultRequestStatus.
-const (
-	RunnerResultRequestStatusFailed    RunnerResultRequestStatus = "failed"
-	RunnerResultRequestStatusSucceeded RunnerResultRequestStatus = "succeeded"
-)
-
-// Defines values for SandboxBuildLogEventLevel.
-const (
-	SandboxBuildLogEventLevelError   SandboxBuildLogEventLevel = "error"
-	SandboxBuildLogEventLevelInfo    SandboxBuildLogEventLevel = "info"
-	SandboxBuildLogEventLevelWarning SandboxBuildLogEventLevel = "warning"
-)
-
 // Defines values for ScmBuildTargetResponsePlatform.
 const (
 	ScmBuildTargetResponsePlatformAndroid ScmBuildTargetResponsePlatform = "android"
 	ScmBuildTargetResponsePlatformIos     ScmBuildTargetResponsePlatform = "ios"
-)
-
-// Defines values for ScmProvider.
-const (
-	ScmProviderGithub ScmProvider = "github"
-)
-
-// Defines values for SessionInstallRequestInstallMode.
-const (
-	SessionInstallRequestInstallModeDelta SessionInstallRequestInstallMode = "delta"
-	SessionInstallRequestInstallModeFast  SessionInstallRequestInstallMode = "fast"
 )
 
 // Defines values for SessionStatus.
@@ -518,53 +243,6 @@ const (
 	StepTypeWait            StepType = "wait"
 )
 
-// Defines values for SuggestionQualityRating.
-const (
-	SuggestionQualityRatingAdequate  SuggestionQualityRating = "adequate"
-	SuggestionQualityRatingExcellent SuggestionQualityRating = "excellent"
-	SuggestionQualityRatingGood      SuggestionQualityRating = "good"
-	SuggestionQualityRatingIncorrect SuggestionQualityRating = "incorrect"
-	SuggestionQualityRatingPoor      SuggestionQualityRating = "poor"
-)
-
-// Defines values for TestEvalReportTestOutcome.
-const (
-	TestEvalReportTestOutcomeERROR  TestEvalReportTestOutcome = "ERROR"
-	TestEvalReportTestOutcomeFAILED TestEvalReportTestOutcome = "FAILED"
-	TestEvalReportTestOutcomePASSED TestEvalReportTestOutcome = "PASSED"
-)
-
-// Defines values for UpdateExpoProjectRequestSyncProfileMode.
-const (
-	UpdateExpoProjectRequestSyncProfileModeAll       UpdateExpoProjectRequestSyncProfileMode = "all"
-	UpdateExpoProjectRequestSyncProfileModeAllowlist UpdateExpoProjectRequestSyncProfileMode = "allowlist"
-)
-
-// Defines values for UpdateSandboxRequestStatus.
-const (
-	UpdateSandboxRequestStatusAvailable   UpdateSandboxRequestStatus = "available"
-	UpdateSandboxRequestStatusClaimed     UpdateSandboxRequestStatus = "claimed"
-	UpdateSandboxRequestStatusMaintenance UpdateSandboxRequestStatus = "maintenance"
-	UpdateSandboxRequestStatusReserved    UpdateSandboxRequestStatus = "reserved"
-)
-
-// Defines values for ValidationErrorType.
-const (
-	ValidationErrorTypeFalseNegative ValidationErrorType = "false_negative"
-	ValidationErrorTypeFalsePositive ValidationErrorType = "false_positive"
-	ValidationErrorTypeNone          ValidationErrorType = "none"
-)
-
-// Defines values for WeakestComponent.
-const (
-	WeakestComponentBoundingBox  WeakestComponent = "bounding_box"
-	WeakestComponentGrounderHint WeakestComponent = "grounder_hint"
-	WeakestComponentGrounding    WeakestComponent = "grounding"
-	WeakestComponentInstruction  WeakestComponent = "instruction"
-	WeakestComponentReflection   WeakestComponent = "reflection"
-	WeakestComponentValidation   WeakestComponent = "validation"
-)
-
 // Defines values for WorkerConnectionResponseStatus.
 const (
 	WorkerConnectionResponseStatusCancelled WorkerConnectionResponseStatus = "cancelled"
@@ -595,22 +273,10 @@ const (
 	WorkflowStatusTimeout   WorkflowStatus = "timeout"
 )
 
-// Defines values for ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform.
-const (
-	ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatformAndroid ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform = "android"
-	ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatformIos     ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform = "ios"
-)
-
 // Defines values for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform.
 const (
 	CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformAndroid CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform = "android"
 	CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatformIos     CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform = "ios"
-)
-
-// Defines values for ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform.
-const (
-	ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatformAndroid ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform = "android"
-	ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatformIos     ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform = "ios"
 )
 
 // Defines values for QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus.
@@ -699,19 +365,6 @@ type ActionRange struct {
 	Start int `json:"start"`
 }
 
-// ActionStatusResponse Response model for step action endpoints (dismiss, annotate, review).
-type ActionStatusResponse struct {
-	EvalId    *string `json:"eval_id"`
-	Status    string  `json:"status"`
-	StepIndex *string `json:"step_index"`
-}
-
-// ActiveDeviceSessionCountResponse Response model for active device session count.
-type ActiveDeviceSessionCountResponse struct {
-	Count int    `json:"count"`
-	OrgId string `json:"org_id"`
-}
-
 // ActiveDeviceSessionItem Response model for a single active device session.
 type ActiveDeviceSessionItem struct {
 	AppPackage                *string                 `json:"app_package"`
@@ -719,10 +372,13 @@ type ActiveDeviceSessionItem struct {
 	CanInteract               *bool                   `json:"can_interact,omitempty"`
 	CreatedAt                 *time.Time              `json:"created_at"`
 	DeviceModel               *string                 `json:"device_model"`
+	ExplorationRunId          *string                 `json:"exploration_run_id"`
 	HasTestExecution          *bool                   `json:"has_test_execution,omitempty"`
 	Id                        string                  `json:"id"`
 	IdleTimeoutSeconds        *int                    `json:"idle_timeout_seconds"`
 	InteractionDisabledReason *string                 `json:"interaction_disabled_reason"`
+	LaneIndex                 *int                    `json:"lane_index"`
+	LaneRole                  *string                 `json:"lane_role"`
 	LastActivityAt            *string                 `json:"last_activity_at"`
 	OrgId                     string                  `json:"org_id"`
 	OsVersion                 *string                 `json:"os_version"`
@@ -749,213 +405,10 @@ type ActiveDeviceSessionsResponse struct {
 	Sessions         []ActiveDeviceSessionItem `json:"sessions"`
 }
 
-// ActiveTestCountResponse Response model for active test count endpoint.
-type ActiveTestCountResponse struct {
-	Count int                `json:"count"`
-	OrgId openapi_types.UUID `json:"org_id"`
-}
-
-// ActivityResponse Aggregate activity metrics for the team pulse view.
-type ActivityResponse struct {
-	ActiveUsers7d      int                  `json:"active_users_7d"`
-	AndroidMinutes     float32              `json:"android_minutes"`
-	DailyActivity      []DailyActivityPoint `json:"daily_activity"`
-	DeviceTimeWow      *float32             `json:"device_time_wow"`
-	IosMinutes         float32              `json:"ios_minutes"`
-	OrgId              string               `json:"org_id"`
-	SessionsToday      int                  `json:"sessions_today"`
-	SessionsYesterday  int                  `json:"sessions_yesterday"`
-	TotalDeviceMinutes float32              `json:"total_device_minutes"`
-	UserActivity       []UserActivityItem   `json:"user_activity"`
-}
-
-// AddWorkflowToRuleResponse Response after adding a workflow to a rule.
-type AddWorkflowToRuleResponse struct {
-	// Rule Notification rule with enriched workflow details.
-	Rule    SlackNotificationRuleWithWorkflows `json:"rule"`
-	Success bool                               `json:"success"`
-}
-
-// AgentRun Normalized view of a cloud-agent run across providers.
-//
-// Attributes:
-//
-//	id: Provider agent id (e.g. Cursor's ``bc_...``).
-//	provider: The provider that owns this run.
-//	name: Auto-generated human name (from the task), if present.
-//	status: Raw upstream status, kept for display/debugging.
-//	state: Normalized lifecycle state derived from ``status``.
-//	repository: Source repository URL, if returned.
-//	ref: Starting ref/branch, if returned.
-//	branch_name: Working branch (carries Revyl tenancy prefix).
-//	pr_url: Pull request URL once opened.
-//	provider_url: Open-in-provider URL for the run.
-//	summary: Short summary of the run, if present.
-//	created_at: Creation timestamp, if present.
-type AgentRun struct {
-	BranchName *string `json:"branch_name"`
-	CreatedAt  *string `json:"created_at"`
-	Id         string  `json:"id"`
-	Name       *string `json:"name"`
-	PrUrl      *string `json:"pr_url"`
-
-	// Provider Canonical cloud-agent provider identifiers.
-	//
-	// Only Cursor is implemented today; add a member here when adding a provider
-	// so request bodies, the registry, and the frontend can do exhaustive handling.
-	Provider    *CloudAgentProviderId `json:"provider,omitempty"`
-	ProviderUrl *string               `json:"provider_url"`
-	Ref         *string               `json:"ref"`
-	Repository  *string               `json:"repository"`
-
-	// State Normalized lifecycle state of a cloud-agent run.
-	//
-	// Providers translate their own status vocabulary into one of these so the
-	// UI can style runs without knowing vendor-specific strings.
-	State   *RunState `json:"state,omitempty"`
-	Status  *string   `json:"status,omitempty"`
-	Summary *string   `json:"summary"`
-}
-
-// AgentRunListResponse List of agent runs for an app.
-type AgentRunListResponse struct {
-	Agents []AgentRun `json:"agents"`
-}
-
 // AllPlatformTargets Device target configs for every supported platform.
 type AllPlatformTargets struct {
 	// Platforms Keyed by lowercase platform name
 	Platforms map[string]PlatformTargetConfig `json:"platforms"`
-}
-
-// AllSystemAppsResponse Response model for all system apps across platforms.
-type AllSystemAppsResponse struct {
-	// Android Android system apps
-	Android map[string]SystemApp `json:"android"`
-
-	// Ios iOS system apps
-	Ios map[string]SystemApp `json:"ios"`
-}
-
-// AndroidTaskCountResponse Response model for Android task count endpoint.
-//
-// Used by KEDA to determine scaling decisions for GKE Android worker pods.
-//
-// Attributes:
-//
-//	all: Aggregated counts across all workflow types.
-//	live_sessions: Counts for durable (interactive) sessions.
-//	test_executions: Counts for headless test execution sessions.
-//	environment: The environment these counts are for.
-//	timestamp: When this count was taken.
-type AndroidTaskCountResponse struct {
-	// All Task count metrics for a workflow type.
-	//
-	// Attributes:
-	//     running: Number of currently running tasks.
-	//     queued: Number of tasks waiting in queue.
-	//     total: Sum of running and queued tasks.
-	All TaskCount `json:"all"`
-
-	// Environment Environment identifier
-	Environment string `json:"environment"`
-
-	// LiveSessions Task count metrics for a workflow type.
-	//
-	// Attributes:
-	//     running: Number of currently running tasks.
-	//     queued: Number of tasks waiting in queue.
-	//     total: Sum of running and queued tasks.
-	LiveSessions TaskCount `json:"live_sessions"`
-
-	// TestExecutions Task count metrics for a workflow type.
-	//
-	// Attributes:
-	//     running: Number of currently running tasks.
-	//     queued: Number of tasks waiting in queue.
-	//     total: Sum of running and queued tasks.
-	TestExecutions TaskCount `json:"test_executions"`
-
-	// Timestamp Timestamp of the count
-	Timestamp time.Time `json:"timestamp"`
-}
-
-// AppBinaryDeleteRequest Request model for deleting an app binary file.
-type AppBinaryDeleteRequest struct {
-	// Id Test ID whose app binary should be deleted
-	Id string `json:"id"`
-}
-
-// AppBinaryDownloadRequest Request model for generating a presigned download url for an app binary file
-type AppBinaryDownloadRequest struct {
-	// Id Test id for which to fetch the app binary download url
-	Id string `json:"id"`
-}
-
-// AppBinaryDownloadResponse Response model for a presigned download url for an app binary file
-type AppBinaryDownloadResponse struct {
-	// DownloadUrl Presigned download url for the app binary file
-	DownloadUrl string `json:"download_url"`
-
-	// ExpiresAt Timestamp (unix) when the download url expires
-	ExpiresAt int `json:"expires_at"`
-}
-
-// AppBinaryUploadRequest defines model for AppBinaryUploadRequest.
-type AppBinaryUploadRequest struct {
-	FileName string             `json:"file_name"`
-	Id       openapi_types.UUID `json:"id"`
-}
-
-// AppBinaryUploadResponseWithPackageId Extended response that includes extracted package ID
-type AppBinaryUploadResponseWithPackageId struct {
-	ContentType string `json:"content_type"`
-	DownloadUrl string `json:"download_url"`
-	ExpiresAt   int    `json:"expires_at"`
-
-	// PackageId Extracted package identifier (bundle ID for iOS, package name for Android)
-	PackageId *string `json:"package_id"`
-	UploadUrl string  `json:"upload_url"`
-}
-
-// AppBuildHealthItem defines model for AppBuildHealthItem.
-type AppBuildHealthItem struct {
-	BuildId       string     `json:"build_id"`
-	CompletedRuns *int       `json:"completed_runs,omitempty"`
-	CoverageRate  *float32   `json:"coverage_rate"`
-	ExactRuns     *int       `json:"exact_runs,omitempty"`
-	FailedRuns    *int       `json:"failed_runs,omitempty"`
-	FailedTests   *int       `json:"failed_tests,omitempty"`
-	ObservedTests *int       `json:"observed_tests,omitempty"`
-	PassRate      *float32   `json:"pass_rate"`
-	PassedRuns    *int       `json:"passed_runs,omitempty"`
-	PassedTests   *int       `json:"passed_tests,omitempty"`
-	UploadedAt    *time.Time `json:"uploaded_at"`
-	Version       string     `json:"version"`
-}
-
-// AppCoverageItem defines model for AppCoverageItem.
-type AppCoverageItem struct {
-	LastDurationSeconds      *float32   `json:"last_duration_seconds"`
-	LastExecutionId          *string    `json:"last_execution_id"`
-	LastExecutionTime        *time.Time `json:"last_execution_time"`
-	LastObservedBuildId      *string    `json:"last_observed_build_id"`
-	LastObservedBuildVersion *string    `json:"last_observed_build_version"`
-	LastStatus               *string    `json:"last_status"`
-	PinnedVersion            *string    `json:"pinned_version"`
-	Relationship             string     `json:"relationship"`
-	TargetBuildVersion       *string    `json:"target_build_version"`
-	TestId                   string     `json:"test_id"`
-	TestName                 string     `json:"test_name"`
-}
-
-// AppCoverageResponse defines model for AppCoverageResponse.
-type AppCoverageResponse struct {
-	AppId               string             `json:"app_id"`
-	CurrentBuildVersion *string            `json:"current_build_version"`
-	Items               *[]AppCoverageItem `json:"items,omitempty"`
-	LatestBuildVersion  *string            `json:"latest_build_version"`
-	Total               *int               `json:"total,omitempty"`
 }
 
 // AppCreateRequest Request model for creating an app.
@@ -968,14 +421,6 @@ type AppCreateRequest struct {
 
 	// Platform Platform types for apps.
 	Platform AppPlatform `json:"platform"`
-}
-
-// AppExecutionTrendPoint defines model for AppExecutionTrendPoint.
-type AppExecutionTrendPoint struct {
-	Date       string `json:"date"`
-	Executions *int   `json:"executions,omitempty"`
-	Failed     *int   `json:"failed,omitempty"`
-	Passed     *int   `json:"passed,omitempty"`
 }
 
 // AppPlatform Platform types for apps.
@@ -1017,361 +462,8 @@ type AppResponse struct {
 	VersionsCount    *int                `json:"versions_count"`
 }
 
-// AppUpdateRequest Request model for updating an app.
-type AppUpdateRequest struct {
-	// CurrentVersion Current version pointer
-	CurrentVersion *string `json:"current_version"`
-
-	// Description Description
-	Description *string `json:"description"`
-
-	// Name App name
-	Name *string `json:"name"`
-
-	// StaticUrl Static URL for legacy web builds
-	StaticUrl *string `json:"static_url"`
-
-	// SystemPrompt App-level system prompt injected into LLM calls
-	SystemPrompt *string `json:"system_prompt"`
-}
-
-// AppUsageResponse defines model for AppUsageResponse.
-type AppUsageResponse struct {
-	Tests []AppUsageTestItem `json:"tests"`
-	Total int                `json:"total"`
-}
-
-// AppUsageTestItem defines model for AppUsageTestItem.
-type AppUsageTestItem struct {
-	Id            string  `json:"id"`
-	Name          string  `json:"name"`
-	PinnedVersion *string `json:"pinned_version"`
-}
-
-// AppWorkspaceResponse defines model for AppWorkspaceResponse.
-type AppWorkspaceResponse struct {
-	// App Response model for an app.
-	App                 AppResponse               `json:"app"`
-	AttachedTests       *int                      `json:"attached_tests,omitempty"`
-	AttributionReady    *bool                     `json:"attribution_ready,omitempty"`
-	BuildHealth         *[]AppBuildHealthItem     `json:"build_health,omitempty"`
-	CurrentBuildId      *string                   `json:"current_build_id"`
-	CurrentBuildVersion *string                   `json:"current_build_version"`
-	ExecutionTrend      *[]AppExecutionTrendPoint `json:"execution_trend,omitempty"`
-	LatestBuildId       *string                   `json:"latest_build_id"`
-	LatestBuildVersion  *string                   `json:"latest_build_version"`
-	PinnedTests         *int                      `json:"pinned_tests,omitempty"`
-	RecentExecutions    *int                      `json:"recent_executions,omitempty"`
-	RollingPassRate     *float32                  `json:"rolling_pass_rate"`
-}
-
 // AsyncStatus defines model for AsyncStatus.
 type AsyncStatus string
-
-// AtlasEdgeClipVideo Presigned video for one run, used by the edge-clip player/run switcher.
-type AtlasEdgeClipVideo struct {
-	ReportId      string   `json:"report_id"`
-	VideoDuration *float32 `json:"video_duration"`
-	VideoUrl      *string  `json:"video_url"`
-}
-
-// AtlasEdgeRun A single observed run behind a selected map edge (latest first).
-//
-// Powers the transition clip in the edge sidebar: the video timestamps bound
-// the source->target delta so the player can loop just that segment.
-type AtlasEdgeRun struct {
-	ExecutionId       *string    `json:"execution_id"`
-	ObservedAt        *time.Time `json:"observed_at"`
-	ReportId          *string    `json:"report_id"`
-	SessionId         *string    `json:"session_id"`
-	SourceActionIndex *int       `json:"source_action_index"`
-	SourceStepIndex   *int       `json:"source_step_index"`
-	SourceVideoEnd    *float32   `json:"source_video_end"`
-	SourceVideoStart  *float32   `json:"source_video_start"`
-	TargetVideoEnd    *float32   `json:"target_video_end"`
-	TargetVideoStart  *float32   `json:"target_video_start"`
-	TestId            *string    `json:"test_id"`
-}
-
-// AtlasEdgeRunsResponse defines model for AtlasEdgeRunsResponse.
-type AtlasEdgeRunsResponse struct {
-	// ActiveVideo Presigned video for one run, used by the edge-clip player/run switcher.
-	ActiveVideo *AtlasEdgeClipVideo `json:"active_video,omitempty"`
-	AppId       string              `json:"app_id"`
-	Runs        *[]AtlasEdgeRun     `json:"runs,omitempty"`
-}
-
-// AtlasExploreCancelResponse defines model for AtlasExploreCancelResponse.
-type AtlasExploreCancelResponse struct {
-	ExecutionStatus  string `json:"execution_status"`
-	HatchetCancelled bool   `json:"hatchet_cancelled"`
-	RunId            string `json:"run_id"`
-}
-
-// AtlasExploreLaneConfig defines model for AtlasExploreLaneConfig.
-type AtlasExploreLaneConfig struct {
-	AuthInstructions *string `json:"auth_instructions"`
-	LaneIndex        int     `json:"lane_index"`
-	Role             *string `json:"role"`
-	SeedInstructions *string `json:"seed_instructions"`
-}
-
-// AtlasExploreLaunchRequest defines model for AtlasExploreLaunchRequest.
-type AtlasExploreLaunchRequest struct {
-	AuthInstructions   *string                   `json:"auth_instructions"`
-	BuildId            *openapi_types.UUID       `json:"build_id"`
-	DeviceModel        *string                   `json:"device_model"`
-	EnvVars            *map[string]string        `json:"env_vars,omitempty"`
-	IdleTimeoutSeconds *int                      `json:"idle_timeout_seconds"`
-	LaneCount          *int                      `json:"lane_count,omitempty"`
-	Lanes              *[]AtlasExploreLaneConfig `json:"lanes,omitempty"`
-	LaunchEnvVarIds    *[]openapi_types.UUID     `json:"launch_env_var_ids,omitempty"`
-	MaxDurationSeconds *int                      `json:"max_duration_seconds,omitempty"`
-	MaxTurns           *int                      `json:"max_turns,omitempty"`
-	OsVersion          *string                   `json:"os_version"`
-	Platform           *string                   `json:"platform,omitempty"`
-
-	// RunConfig Complete configuration for a test run.
-	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
-	SeedInstructions *string        `json:"seed_instructions"`
-}
-
-// AtlasExploreLaunchResponse defines model for AtlasExploreLaunchResponse.
-type AtlasExploreLaunchResponse struct {
-	ReportUrl string                  `json:"report_url"`
-	Run       AtlasExploreRunResponse `json:"run"`
-}
-
-// AtlasExploreRunResponse defines model for AtlasExploreRunResponse.
-type AtlasExploreRunResponse struct {
-	AppId           string                         `json:"app_id"`
-	AtlasStatus     string                         `json:"atlas_status"`
-	BuildId         *string                        `json:"build_id"`
-	CompletedAt     *time.Time                     `json:"completed_at"`
-	Config          *map[string]interface{}        `json:"config,omitempty"`
-	CreatedAt       time.Time                      `json:"created_at"`
-	CustomerStatus  string                         `json:"customer_status"`
-	ExecutionStatus string                         `json:"execution_status"`
-	Findings        *[]map[string]interface{}      `json:"findings,omitempty"`
-	Id              string                         `json:"id"`
-	Mode            string                         `json:"mode"`
-	Sessions        *[]AtlasExploreSessionResponse `json:"sessions,omitempty"`
-	Summary         *map[string]interface{}        `json:"summary,omitempty"`
-	UpdatedAt       time.Time                      `json:"updated_at"`
-}
-
-// AtlasExploreSessionResponse defines model for AtlasExploreSessionResponse.
-type AtlasExploreSessionResponse struct {
-	AtlasLayerJobId *string                 `json:"atlas_layer_job_id"`
-	Id              string                  `json:"id"`
-	LaneIndex       int                     `json:"lane_index"`
-	LaneRole        *string                 `json:"lane_role"`
-	ReportId        *string                 `json:"report_id"`
-	SessionId       *string                 `json:"session_id"`
-	SessionStatus   *string                 `json:"session_status"`
-	Summary         *map[string]interface{} `json:"summary,omitempty"`
-	WorkflowRunId   *string                 `json:"workflow_run_id"`
-}
-
-// AtlasOCRError defines model for AtlasOCRError.
-type AtlasOCRError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-// AtlasOCRLine defines model for AtlasOCRLine.
-type AtlasOCRLine struct {
-	Bbox                 *[]float32             `json:"bbox,omitempty"`
-	Confidence           *float32               `json:"confidence"`
-	Text                 *string                `json:"text,omitempty"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// AtlasOCRSummary defines model for AtlasOCRSummary.
-type AtlasOCRSummary struct {
-	Error                *AtlasOCRError         `json:"error,omitempty"`
-	ImportantTokens      *[]string              `json:"important_tokens,omitempty"`
-	Lines                *[]AtlasOCRLine        `json:"lines,omitempty"`
-	Ok                   *bool                  `json:"ok,omitempty"`
-	Provider             *string                `json:"provider,omitempty"`
-	Stats                *AtlasOCRSummaryStats  `json:"stats,omitempty"`
-	Text                 *string                `json:"text,omitempty"`
-	Tokens               *[]string              `json:"tokens,omitempty"`
-	Version              *string                `json:"version,omitempty"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// AtlasOCRSummaryStats defines model for AtlasOCRSummaryStats.
-type AtlasOCRSummaryStats struct {
-	AvgConfidence        *float32               `json:"avg_confidence"`
-	BatchLatencyMs       *float32               `json:"batch_latency_ms"`
-	ImportantTokenCount  *int                   `json:"important_token_count,omitempty"`
-	LatencyMs            *float32               `json:"latency_ms"`
-	TokenCount           *int                   `json:"token_count,omitempty"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// AtlasObservationClip Presigned run video + capture timestamp for a single screenshot.
-//
-// Powers the lazy "animate" overlay on the screen-detail screenshot: the
-// player loops a short window (~1s either side of `screenshot_timestamp`) so
-// designers can see the motion that produced the captured frame.
-type AtlasObservationClip struct {
-	ClipEnd             *float32 `json:"clip_end"`
-	ClipStart           *float32 `json:"clip_start"`
-	ObservationId       string   `json:"observation_id"`
-	ReportId            *string  `json:"report_id"`
-	ScreenshotRole      *string  `json:"screenshot_role"`
-	ScreenshotTimestamp *float32 `json:"screenshot_timestamp"`
-	VideoDuration       *float32 `json:"video_duration"`
-	VideoTimestampEnd   *float32 `json:"video_timestamp_end"`
-	VideoTimestampStart *float32 `json:"video_timestamp_start"`
-	VideoUrl            *string  `json:"video_url"`
-}
-
-// AtlasReportObservationAttachment defines model for AtlasReportObservationAttachment.
-type AtlasReportObservationAttachment struct {
-	ActionId           *string `json:"action_id"`
-	ActionIndex        *int    `json:"action_index"`
-	CanonicalEntityId  *string `json:"canonical_entity_id"`
-	DecisionId         *string `json:"decision_id"`
-	DisplayName        *string `json:"display_name"`
-	EntityId           string  `json:"entity_id"`
-	EntityKind         *string `json:"entity_kind"`
-	ExecutionId        *string `json:"execution_id"`
-	NodeEntityId       string  `json:"node_entity_id"`
-	ObservationId      string  `json:"observation_id"`
-	ReportId           string  `json:"report_id"`
-	RootEntityId       string  `json:"root_entity_id"`
-	ScreenKind         *string `json:"screen_kind"`
-	ScreenshotRole     *string `json:"screenshot_role"`
-	ScreenshotS3Bucket *string `json:"screenshot_s3_bucket"`
-	ScreenshotS3Key    *string `json:"screenshot_s3_key"`
-	SessionId          *string `json:"session_id"`
-	StepId             *string `json:"step_id"`
-	StepIndex          *int    `json:"step_index"`
-	TestId             *string `json:"test_id"`
-	VariantKind        *string `json:"variant_kind"`
-	ViewerUrl          string  `json:"viewer_url"`
-}
-
-// AtlasReportObservationAttachmentsResponse defines model for AtlasReportObservationAttachmentsResponse.
-type AtlasReportObservationAttachmentsResponse struct {
-	AppId       string                             `json:"app_id"`
-	Attachments []AtlasReportObservationAttachment `json:"attachments"`
-	BuildId     *string                            `json:"build_id"`
-	ReportId    string                             `json:"report_id"`
-}
-
-// AtlasShareLinkRequest defines model for AtlasShareLinkRequest.
-type AtlasShareLinkRequest struct {
-	BuildId         *string `json:"build_id"`
-	ExpirationHours *int    `json:"expiration_hours"`
-	FromTime        *string `json:"from_time"`
-	Origin          *string `json:"origin"`
-	ToTime          *string `json:"to_time"`
-}
-
-// AtlasShareLinkStatusResponse defines model for AtlasShareLinkStatusResponse.
-type AtlasShareLinkStatusResponse struct {
-	Enabled       bool    `json:"enabled"`
-	ExpiresAt     *string `json:"expires_at"`
-	ShareId       *string `json:"share_id"`
-	ShareableLink *string `json:"shareable_link"`
-	Token         *string `json:"token"`
-}
-
-// AtlasV2BackfillScopeRequest defines model for AtlasV2BackfillScopeRequest.
-type AtlasV2BackfillScopeRequest struct {
-	AppId              string                  `json:"app_id"`
-	BuildId            *string                 `json:"build_id"`
-	FeatureVersion     *string                 `json:"feature_version,omitempty"`
-	Force              *bool                   `json:"force,omitempty"`
-	FromTime           *string                 `json:"from_time"`
-	MatchConfig        *map[string]interface{} `json:"match_config,omitempty"`
-	PromptVersion      *string                 `json:"prompt_version,omitempty"`
-	ReprocessCompleted *bool                   `json:"reprocess_completed,omitempty"`
-	ToTime             *string                 `json:"to_time"`
-}
-
-// AtlasV2Candidate defines model for AtlasV2Candidate.
-type AtlasV2Candidate struct {
-	ActionId                    *string                 `json:"action_id"`
-	ActionIndex                 *int                    `json:"action_index"`
-	CanonicalDisplayName        *string                 `json:"canonical_display_name"`
-	CanonicalEntityId           *string                 `json:"canonical_entity_id"`
-	DisplayName                 *string                 `json:"display_name"`
-	EmbeddingKind               *string                 `json:"embedding_kind"`
-	EmbeddingSimilarity         *float32                `json:"embedding_similarity"`
-	EntityId                    string                  `json:"entity_id"`
-	EntityKind                  string                  `json:"entity_kind"`
-	EntityPath                  *[]string               `json:"entity_path,omitempty"`
-	ExactHash                   *string                 `json:"exact_hash"`
-	LandmarkContext             *map[string]interface{} `json:"landmark_context,omitempty"`
-	OcrSummary                  *AtlasOCRSummary        `json:"ocr_summary,omitempty"`
-	ParentDisplayName           *string                 `json:"parent_display_name"`
-	ParentEntityId              *string                 `json:"parent_entity_id"`
-	PerceptualHash              *string                 `json:"perceptual_hash"`
-	PhashDistance               *int                    `json:"phash_distance"`
-	ReportId                    *string                 `json:"report_id"`
-	RepresentativeObservationId *string                 `json:"representative_observation_id"`
-	RootDisplayName             *string                 `json:"root_display_name"`
-	RootEntityId                string                  `json:"root_entity_id"`
-	Scores                      *map[string]interface{} `json:"scores,omitempty"`
-	ScreenKind                  *string                 `json:"screen_kind"`
-	ScreenshotRole              *string                 `json:"screenshot_role"`
-	ScreenshotS3Bucket          *string                 `json:"screenshot_s3_bucket"`
-	ScreenshotS3Key             *string                 `json:"screenshot_s3_key"`
-	ScreenshotUrl               *string                 `json:"screenshot_url"`
-	SemanticSummary             *map[string]interface{} `json:"semantic_summary,omitempty"`
-	SourceContext               *map[string]interface{} `json:"source_context,omitempty"`
-	StepId                      *string                 `json:"step_id"`
-	StepIndex                   *int                    `json:"step_index"`
-	TestId                      *string                 `json:"test_id"`
-	TestName                    *string                 `json:"test_name"`
-	UiFingerprint               *map[string]interface{} `json:"ui_fingerprint,omitempty"`
-	VariantKind                 *string                 `json:"variant_kind"`
-}
-
-// AtlasV2CompleteRequest defines model for AtlasV2CompleteRequest.
-type AtlasV2CompleteRequest struct {
-	Edges *[]AtlasV2EdgeObservationInput `json:"edges,omitempty"`
-	Stats *map[string]interface{}        `json:"stats,omitempty"`
-}
-
-// AtlasV2CurationRequest defines model for AtlasV2CurationRequest.
-type AtlasV2CurationRequest struct {
-	Enabled      *bool  `json:"enabled,omitempty"`
-	Kind         string `json:"kind"`
-	RootEntityId string `json:"root_entity_id"`
-}
-
-// AtlasV2CurationResponse defines model for AtlasV2CurationResponse.
-type AtlasV2CurationResponse struct {
-	AppId    string                  `json:"app_id"`
-	Curation *map[string]interface{} `json:"curation,omitempty"`
-}
-
-// AtlasV2EdgeObservationBatchRequest defines model for AtlasV2EdgeObservationBatchRequest.
-type AtlasV2EdgeObservationBatchRequest struct {
-	Edges *[]AtlasV2EdgeObservationInput `json:"edges,omitempty"`
-}
-
-// AtlasV2EdgeObservationInput defines model for AtlasV2EdgeObservationInput.
-type AtlasV2EdgeObservationInput struct {
-	ActionContext       *map[string]interface{} `json:"action_context,omitempty"`
-	ActionId            string                  `json:"action_id"`
-	ActionLabel         *string                 `json:"action_label"`
-	ActionType          *string                 `json:"action_type"`
-	ExecutionId         *string                 `json:"execution_id"`
-	ObservedAt          *string                 `json:"observed_at"`
-	ReportId            string                  `json:"report_id"`
-	SessionId           *string                 `json:"session_id"`
-	SourceObservationId *string                 `json:"source_observation_id"`
-	StepId              string                  `json:"step_id"`
-	TargetObservationId *string                 `json:"target_observation_id"`
-	TestId              *string                 `json:"test_id"`
-}
 
 // AtlasV2GraphResponse defines model for AtlasV2GraphResponse.
 type AtlasV2GraphResponse struct {
@@ -1385,161 +477,6 @@ type AtlasV2GraphResponse struct {
 	Projection    *map[string]interface{}   `json:"projection,omitempty"`
 	Stats         *map[string]interface{}   `json:"stats,omitempty"`
 	Structure     *map[string]interface{}   `json:"structure,omitempty"`
-}
-
-// AtlasV2IdentitySplitRequest defines model for AtlasV2IdentitySplitRequest.
-type AtlasV2IdentitySplitRequest struct {
-	DecisionId string  `json:"decision_id"`
-	EntityId   string  `json:"entity_id"`
-	Reason     *string `json:"reason"`
-}
-
-// AtlasV2IdentitySplitResponse defines model for AtlasV2IdentitySplitResponse.
-type AtlasV2IdentitySplitResponse struct {
-	AppId                string                    `json:"app_id"`
-	Applied              *bool                     `json:"applied,omitempty"`
-	CorrectionDecisionId *string                   `json:"correction_decision_id"`
-	CutDecision          *map[string]interface{}   `json:"cut_decision,omitempty"`
-	DecisionId           string                    `json:"decision_id"`
-	DsuVersion           *int                      `json:"dsu_version"`
-	EntityId             string                    `json:"entity_id"`
-	RemainingComponent   *[]map[string]interface{} `json:"remaining_component,omitempty"`
-	SelectedComponent    *[]map[string]interface{} `json:"selected_component,omitempty"`
-}
-
-// AtlasV2LayerJobResponse defines model for AtlasV2LayerJobResponse.
-type AtlasV2LayerJobResponse struct {
-	AppId          string                `json:"app_id"`
-	BuildId        *string               `json:"build_id"`
-	IdempotencyKey string                `json:"idempotency_key"`
-	JobId          string                `json:"job_id"`
-	ParentTraceId  *string               `json:"parent_trace_id"`
-	ReportId       *string               `json:"report_id"`
-	Status         AtlasV2LayerJobStatus `json:"status"`
-	TraceId        *string               `json:"trace_id"`
-	Traceparent    *string               `json:"traceparent"`
-}
-
-// AtlasV2LayerJobStatus defines model for AtlasV2LayerJobStatus.
-type AtlasV2LayerJobStatus string
-
-// AtlasV2LayerObservationResponse defines model for AtlasV2LayerObservationResponse.
-type AtlasV2LayerObservationResponse struct {
-	AssignedDisplayName     *string                 `json:"assigned_display_name"`
-	AssignedEntityId        *string                 `json:"assigned_entity_id"`
-	AssignedLandmarkContext *map[string]interface{} `json:"assigned_landmark_context,omitempty"`
-	AssignedRootDisplayName *string                 `json:"assigned_root_display_name"`
-	AssignedRootEntityId    *string                 `json:"assigned_root_entity_id"`
-	AssignedSemanticSummary *map[string]interface{} `json:"assigned_semantic_summary,omitempty"`
-	Candidates              *[]AtlasV2Candidate     `json:"candidates,omitempty"`
-	DecisionId              *string                 `json:"decision_id"`
-	ObservationId           string                  `json:"observation_id"`
-	Reason                  *string                 `json:"reason"`
-	Status                  string                  `json:"status"`
-}
-
-// AtlasV2LayerReportRequest defines model for AtlasV2LayerReportRequest.
-type AtlasV2LayerReportRequest struct {
-	FeatureVersion *string                 `json:"feature_version,omitempty"`
-	Force          *bool                   `json:"force,omitempty"`
-	MatchConfig    *map[string]interface{} `json:"match_config,omitempty"`
-	PromptVersion  *string                 `json:"prompt_version,omitempty"`
-	ReportId       string                  `json:"report_id"`
-	Source         *string                 `json:"source,omitempty"`
-}
-
-// AtlasV2ManualMergeRequest defines model for AtlasV2ManualMergeRequest.
-type AtlasV2ManualMergeRequest struct {
-	EntityIds []string `json:"entity_ids"`
-	Reason    *string  `json:"reason"`
-}
-
-// AtlasV2ManualMergeResponse defines model for AtlasV2ManualMergeResponse.
-type AtlasV2ManualMergeResponse struct {
-	AppId           string                    `json:"app_id"`
-	Decisions       *[]map[string]interface{} `json:"decisions,omitempty"`
-	MergedEntityIds []string                  `json:"merged_entity_ids"`
-	RootEntityId    string                    `json:"root_entity_id"`
-	Unions          *[]map[string]interface{} `json:"unions,omitempty"`
-}
-
-// AtlasV2ObservationFeatureInput defines model for AtlasV2ObservationFeatureInput.
-type AtlasV2ObservationFeatureInput struct {
-	ActionId               string                  `json:"action_id"`
-	ActionIndex            int                     `json:"action_index"`
-	ActionLabel            *string                 `json:"action_label"`
-	ActionType             *string                 `json:"action_type"`
-	Embedding              *[]float32              `json:"embedding"`
-	EmbeddingDim           *int                    `json:"embedding_dim,omitempty"`
-	EmbeddingModel         *string                 `json:"embedding_model,omitempty"`
-	EmbeddingPreprocessing *string                 `json:"embedding_preprocessing,omitempty"`
-	ExactHash              *string                 `json:"exact_hash"`
-	ExclusionReason        *string                 `json:"exclusion_reason"`
-	ExecutionId            *string                 `json:"execution_id"`
-	Height                 *int                    `json:"height"`
-	ObservedAt             *string                 `json:"observed_at"`
-	OcrSummary             *AtlasOCRSummary        `json:"ocr_summary,omitempty"`
-	PerceptualHash         *string                 `json:"perceptual_hash"`
-	ReportId               string                  `json:"report_id"`
-	ScreenshotRole         string                  `json:"screenshot_role"`
-	ScreenshotS3Bucket     *string                 `json:"screenshot_s3_bucket"`
-	ScreenshotS3Key        string                  `json:"screenshot_s3_key"`
-	SessionId              *string                 `json:"session_id"`
-	SourceContext          *map[string]interface{} `json:"source_context,omitempty"`
-	SourceKind             *string                 `json:"source_kind,omitempty"`
-	StepId                 string                  `json:"step_id"`
-	StepIndex              int                     `json:"step_index"`
-	SurfaceScope           *string                 `json:"surface_scope,omitempty"`
-	TestId                 *string                 `json:"test_id"`
-	TestName               *string                 `json:"test_name"`
-	UiFingerprint          *map[string]interface{} `json:"ui_fingerprint,omitempty"`
-	VisibilityStatus       *string                 `json:"visibility_status,omitempty"`
-	Width                  *int                    `json:"width"`
-}
-
-// AtlasV2ProgressUpdate defines model for AtlasV2ProgressUpdate.
-type AtlasV2ProgressUpdate struct {
-	ErrorMessage *string                 `json:"error_message"`
-	Stats        *map[string]interface{} `json:"stats"`
-	Status       AtlasV2LayerJobStatus   `json:"status"`
-}
-
-// AtlasV2VLMDecisionRequest defines model for AtlasV2VLMDecisionRequest.
-type AtlasV2VLMDecisionRequest struct {
-	CandidateEntityId    *string                   `json:"candidate_entity_id"`
-	Confidence           *float32                  `json:"confidence"`
-	Embedding            *[]float32                `json:"embedding"`
-	EmbeddingDim         *int                      `json:"embedding_dim,omitempty"`
-	EmbeddingModel       *string                   `json:"embedding_model,omitempty"`
-	Evidence             *map[string]interface{}   `json:"evidence,omitempty"`
-	ModelName            *string                   `json:"model_name"`
-	ModelVersion         *string                   `json:"model_version"`
-	ObservationId        string                    `json:"observation_id"`
-	PromptVersion        *string                   `json:"prompt_version,omitempty"`
-	Reasoning            *string                   `json:"reasoning"`
-	RejectedCandidates   *[]map[string]interface{} `json:"rejected_candidates,omitempty"`
-	Relation             string                    `json:"relation"`
-	Scores               *map[string]interface{}   `json:"scores,omitempty"`
-	SemanticSummary      *map[string]interface{}   `json:"semantic_summary,omitempty"`
-	SuggestedScreenName  *string                   `json:"suggested_screen_name"`
-	SuggestedVariantName *string                   `json:"suggested_variant_name"`
-	VariantKind          *string                   `json:"variant_kind"`
-}
-
-// AttachRequest defines model for AttachRequest.
-type AttachRequest struct {
-	BillingPeriod *AttachRequestBillingPeriod `json:"billing_period,omitempty"`
-	ProductId     *string                     `json:"product_id,omitempty"`
-	RedirectUrl   string                      `json:"redirect_url"`
-}
-
-// AttachRequestBillingPeriod defines model for AttachRequest.BillingPeriod.
-type AttachRequestBillingPeriod string
-
-// AttachResponse defines model for AttachResponse.
-type AttachResponse struct {
-	CheckoutUrl *string `json:"checkout_url"`
-	Message     string  `json:"message"`
 }
 
 // AuthInfo Class that represents authentication information.
@@ -1556,55 +493,6 @@ type AuthInfo struct {
 	Service          *bool               `json:"service,omitempty"`
 	UserId           string              `json:"user_id"`
 	UserRole         *string             `json:"user_role"`
-}
-
-// BatchLLMDetailsRequest Request for batch LLM details fetch.
-type BatchLLMDetailsRequest struct {
-	// UniqueIds List of KeywordsAI unique IDs to fetch
-	UniqueIds []string `json:"unique_ids"`
-}
-
-// BatchTestInfoRequest Batch request for test metadata lookups.
-type BatchTestInfoRequest struct {
-	OrgId   *string  `json:"org_id"`
-	TestIds []string `json:"test_ids"`
-	UserId  *string  `json:"user_id"`
-}
-
-// BillingBreakdownItem defines model for BillingBreakdownItem.
-type BillingBreakdownItem struct {
-	DeviceCost   float32 `json:"device_cost"`
-	IsRealDevice bool    `json:"is_real_device"`
-	LlmCost      float32 `json:"llm_cost"`
-	Platform     string  `json:"platform"`
-	SessionCount int     `json:"session_count"`
-	TotalCost    float32 `json:"total_cost"`
-	TotalSeconds float32 `json:"total_seconds"`
-}
-
-// BillingBreakdownResponse defines model for BillingBreakdownResponse.
-type BillingBreakdownResponse struct {
-	Breakdown   []BillingBreakdownItem `json:"breakdown"`
-	PeriodEnd   string                 `json:"period_end"`
-	PeriodStart string                 `json:"period_start"`
-}
-
-// BillingCheckResponse defines model for BillingCheckResponse.
-type BillingCheckResponse struct {
-	Allowed bool    `json:"allowed"`
-	Balance *int    `json:"balance"`
-	Reason  *string `json:"reason"`
-}
-
-// BillingSummaryResponse defines model for BillingSummaryResponse.
-type BillingSummaryResponse struct {
-	PeriodEnd       string  `json:"period_end"`
-	PeriodStart     string  `json:"period_start"`
-	TotalCost       float32 `json:"total_cost"`
-	TotalDeviceCost float32 `json:"total_device_cost"`
-	TotalLlmCost    float32 `json:"total_llm_cost"`
-	TotalSeconds    float32 `json:"total_seconds"`
-	TotalSessions   int     `json:"total_sessions"`
 }
 
 // BlocksCreationRequest Request model for creating tests from blocks
@@ -1624,81 +512,11 @@ type BlocksCreationRequest_Blocks_Item struct {
 	union json.RawMessage
 }
 
-// BlocksToYamlRequest Request model for blocks to YAML conversion
-type BlocksToYamlRequest struct {
-	// Blocks Blocks to convert
-	Blocks []BlocksToYamlRequest_Blocks_Item `json:"blocks"`
-
-	// Metadata Optional metadata to include
-	Metadata *map[string]interface{} `json:"metadata"`
-
-	// Options Conversion options
-	Options *map[string]interface{} `json:"options"`
-}
-
-// BlocksToYamlRequest_Blocks_Item defines model for BlocksToYamlRequest.blocks.Item.
-type BlocksToYamlRequest_Blocks_Item struct {
-	union json.RawMessage
-}
-
-// BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost defines model for Body_stream_upload_build_api_v1_apps__app_id__builds_stream_upload_post.
-type BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost struct {
-	// File The build artifact file to upload
-	File string `json:"file"`
-}
-
-// BodyUploadToS3ApiV1StorageS3UploadPost defines model for Body_upload_to_s3_api_v1_storage_s3_upload_post.
-type BodyUploadToS3ApiV1StorageS3UploadPost struct {
-	BucketName string `json:"bucket_name"`
-	File       string `json:"file"`
-	TestId     string `json:"test_id"`
-}
-
-// BoundingBoxErrorType Types of bounding box errors that can occur.
-type BoundingBoxErrorType string
-
-// BoundingBoxEval Evaluation result for Instructional LLM bounding box accuracy.
-type BoundingBoxEval struct {
-	// Correct Whether the specified bounding box contained the target element
-	Correct bool `json:"correct"`
-
-	// ErrorType Types of bounding box errors that can occur.
-	ErrorType *BoundingBoxErrorType `json:"error_type,omitempty"`
-
-	// Explanation Brief reasoning
-	Explanation *string `json:"explanation"`
-
-	// FallbackUsed True if fallback expansion was needed to find the element
-	FallbackUsed *bool `json:"fallback_used,omitempty"`
-
-	// SpecifiedBbox The bbox specified by Instructional LLM (e.g., 'A2-C4')
-	SpecifiedBbox *string `json:"specified_bbox"`
-
-	// TargetDescription What element the bbox was supposed to contain
-	TargetDescription *string `json:"target_description"`
-
-	// UsedBbox The bbox actually used after fallback expansion
-	UsedBbox *string `json:"used_bbox"`
-}
-
 // BuildArtifact Artifact produced by a sandbox build.
 type BuildArtifact struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 	Type string `json:"type"`
-}
-
-// BuildBillingResponse defines model for BuildBillingResponse.
-type BuildBillingResponse struct {
-	BuildJobId    *string `json:"build_job_id"`
-	Message       string  `json:"message"`
-	Success       bool    `json:"success"`
-	WorkflowRunId *string `json:"workflow_run_id"`
-}
-
-// BuildBillingStartedRequest defines model for BuildBillingStartedRequest.
-type BuildBillingStartedRequest struct {
-	BuildJobId string `json:"build_job_id"`
 }
 
 // BuildCache Cache disk definition stored on a sandbox build configuration.
@@ -1708,17 +526,6 @@ type BuildCache struct {
 
 	// Paths Project-relative paths mounted into this cache disk.
 	Paths []string `json:"paths"`
-}
-
-// BuildComparisonItem defines model for BuildComparisonItem.
-type BuildComparisonItem struct {
-	CurrentExecutionId  *string `json:"current_execution_id"`
-	CurrentStatus       *string `json:"current_status"`
-	Delta               *string `json:"delta"`
-	PreviousExecutionId *string `json:"previous_execution_id"`
-	PreviousStatus      *string `json:"previous_status"`
-	TestId              string  `json:"test_id"`
-	TestName            string  `json:"test_name"`
 }
 
 // BuildConfig Sandbox build configuration stored by the API and used by build jobs.
@@ -1742,31 +549,6 @@ type BuildConfig struct {
 
 // BuildConfigPlatform defines model for BuildConfig.Platform.
 type BuildConfigPlatform string
-
-// BuildConfigurationUpdateRequest defines model for BuildConfigurationUpdateRequest.
-type BuildConfigurationUpdateRequest struct {
-	Artifacts    *[]BuildArtifact        `json:"artifacts"`
-	Caches       *[]BuildCache           `json:"caches"`
-	Env          *map[string]interface{} `json:"env"`
-	Framework    *string                 `json:"framework"`
-	Image        *string                 `json:"image"`
-	IsDefault    *bool                   `json:"is_default"`
-	Name         *string                 `json:"name"`
-	SecretRefs   *[]string               `json:"secret_refs"`
-	SourceSubdir *string                 `json:"source_subdir"`
-	Steps        *[]BuildStep            `json:"steps"`
-}
-
-// BuildCoverageItem defines model for BuildCoverageItem.
-type BuildCoverageItem struct {
-	LastDurationSeconds *float32   `json:"last_duration_seconds"`
-	LastExecutionId     *string    `json:"last_execution_id"`
-	LastExecutionTime   *time.Time `json:"last_execution_time"`
-	LastStatus          *string    `json:"last_status"`
-	PinnedVersion       *string    `json:"pinned_version"`
-	TestId              string     `json:"test_id"`
-	TestName            string     `json:"test_name"`
-}
 
 // BuildCreateFromUploadRequest Request to create a build from a completed staging upload.
 type BuildCreateFromUploadRequest struct {
@@ -1806,35 +588,6 @@ type BuildFromUrlRequest struct {
 	// Version Version string (must be unique within the app)
 	Version string `json:"version"`
 }
-
-// BuildImageOption Selectable sandbox build image.
-type BuildImageOption struct {
-	Image     string                   `json:"image"`
-	IsDefault *bool                    `json:"is_default,omitempty"`
-	Platform  BuildImageOptionPlatform `json:"platform"`
-}
-
-// BuildImageOptionPlatform defines model for BuildImageOption.Platform.
-type BuildImageOptionPlatform string
-
-// BuildJobStatusUpdateRequest defines model for BuildJobStatusUpdateRequest.
-type BuildJobStatusUpdateRequest struct {
-	ArtifactS3Key *string                           `json:"artifact_s3_key"`
-	ArtifactType  *string                           `json:"artifact_type"`
-	BuildId       *string                           `json:"build_id"`
-	CompletedAt   *time.Time                        `json:"completed_at"`
-	Error         *string                           `json:"error"`
-	Image         *string                           `json:"image"`
-	OrgId         string                            `json:"org_id"`
-	PackageId     *string                           `json:"package_id"`
-	Phase         *string                           `json:"phase"`
-	RunnerId      *string                           `json:"runner_id"`
-	StartedAt     *time.Time                        `json:"started_at"`
-	Status        BuildJobStatusUpdateRequestStatus `json:"status"`
-}
-
-// BuildJobStatusUpdateRequestStatus defines model for BuildJobStatusUpdateRequest.Status.
-type BuildJobStatusUpdateRequestStatus string
 
 // BuildMultipartUploadCompletedPart A part S3 already holds for an in-progress multipart upload.
 type BuildMultipartUploadCompletedPart struct {
@@ -1947,31 +700,6 @@ type BuildMultipartUploadStartResponse struct {
 	UploadId openapi_types.UUID `json:"upload_id"`
 }
 
-// BuildResolutionRequest Request to resolve a build for a test.
-type BuildResolutionRequest struct {
-	BuildVarId openapi_types.UUID `json:"build_var_id"`
-
-	// Filters Optional resolution filters matched against build metadata (e.g., pr_number, commit_sha)
-	Filters *map[string]interface{} `json:"filters"`
-
-	// OrgId Organization context for service-auth resolution requests
-	OrgId         *openapi_types.UUID `json:"org_id"`
-	PinnedVersion *string             `json:"pinned_version"`
-}
-
-// BuildResolutionResponse Response with resolved build information.
-type BuildResolutionResponse struct {
-	ArtifactUrl *string            `json:"artifact_url"`
-	BuildVarId  openapi_types.UUID `json:"build_var_id"`
-	DownloadUrl *string            `json:"download_url"`
-	Platform    string             `json:"platform"`
-	StaticUrl   *string            `json:"static_url"`
-	Version     *string            `json:"version"`
-
-	// VersionId Resolved build row ID for fetching build details
-	VersionId *openapi_types.UUID `json:"version_id"`
-}
-
 // BuildResponse Response model for a build (specific artifact/version of an app).
 type BuildResponse struct {
 	AppId       *openapi_types.UUID     `json:"app_id"`
@@ -1984,22 +712,6 @@ type BuildResponse struct {
 	UploadedAt  *time.Time              `json:"uploaded_at"`
 	Version     *string                 `json:"version"`
 	WasReused   *bool                   `json:"was_reused"`
-}
-
-// BuildRunItem defines model for BuildRunItem.
-type BuildRunItem struct {
-	CompletedAt          *time.Time              `json:"completed_at"`
-	ExecutionId          string                  `json:"execution_id"`
-	ExecutionTimeSeconds *float32                `json:"execution_time_seconds"`
-	Metadata             *map[string]interface{} `json:"metadata"`
-	ReportMetadata       *map[string]interface{} `json:"report_metadata"`
-	ResolvedBuildVersion *string                 `json:"resolved_build_version"`
-	Source               *string                 `json:"source"`
-	StartedAt            *time.Time              `json:"started_at"`
-	Status               *string                 `json:"status"`
-	Success              *bool                   `json:"success"`
-	TestId               *string                 `json:"test_id"`
-	TestName             *string                 `json:"test_name"`
 }
 
 // BuildRunnerStatus Response for the build runner availability pre-flight check.
@@ -2017,24 +729,16 @@ type BuildRunnerStatus struct {
 
 // BuildStep One step executed by a sandbox build runner.
 type BuildStep struct {
-	Command *string       `json:"command"`
-	Name    *string       `json:"name"`
-	Type    BuildStepType `json:"type"`
+	Command *string `json:"command"`
+	Name    *string `json:"name"`
+
+	// SecretEnv Names of build secrets exported into this step's environment, in addition to the configuration-level secret_refs.
+	SecretEnv *[]string     `json:"secret_env,omitempty"`
+	Type      BuildStepType `json:"type"`
 }
 
 // BuildStepType defines model for BuildStep.Type.
 type BuildStepType string
-
-// BuildUpdateRequest Request model for updating a build.
-type BuildUpdateRequest struct {
-	Metadata *map[string]interface{} `json:"metadata"`
-
-	// PackageName Package name override
-	PackageName *string `json:"package_name"`
-
-	// Version Rename version string (must be unique within app)
-	Version *string `json:"version"`
-}
 
 // BuildUploadCompleteRequest Request to mark upload as complete.
 type BuildUploadCompleteRequest struct {
@@ -2067,82 +771,6 @@ type BuildUploadSessionResponse struct {
 	UploadExpiresAt int                `json:"upload_expires_at"`
 	UploadId        openapi_types.UUID `json:"upload_id"`
 	UploadUrl       string             `json:"upload_url"`
-}
-
-// BuildWorkspaceResponse defines model for BuildWorkspaceResponse.
-type BuildWorkspaceResponse struct {
-	// App Response model for an app.
-	App             AppResponse `json:"app"`
-	AttachedTests   *int        `json:"attached_tests,omitempty"`
-	AttributionNote *string     `json:"attribution_note"`
-
-	// Build Response model for a build (specific artifact/version of an app).
-	Build                BuildResponse          `json:"build"`
-	Compare              *[]BuildComparisonItem `json:"compare,omitempty"`
-	CompletedRuns        *int                   `json:"completed_runs,omitempty"`
-	Coverage             *[]BuildCoverageItem   `json:"coverage,omitempty"`
-	ExactRuns            *int                   `json:"exact_runs,omitempty"`
-	FixedTests           *int                   `json:"fixed_tests,omitempty"`
-	NewFailures          *int                   `json:"new_failures,omitempty"`
-	NotRun               *int                   `json:"not_run,omitempty"`
-	PassRate             *float32               `json:"pass_rate"`
-	PreviousBuildId      *string                `json:"previous_build_id"`
-	PreviousBuildVersion *string                `json:"previous_build_version"`
-	Readiness            *string                `json:"readiness,omitempty"`
-}
-
-// BulkDeleteTestExecutionsRequest Request model for bulk deleting test executions.
-//
-// Attributes:
-//
-//	task_ids: List of task IDs to delete.
-type BulkDeleteTestExecutionsRequest struct {
-	TaskIds []string `json:"task_ids"`
-}
-
-// BulkDeleteTestsRequest Request model for bulk test deletion.
-type BulkDeleteTestsRequest struct {
-	// TestIds List of test IDs to delete
-	TestIds []string `json:"test_ids"`
-}
-
-// BulkDeleteTestsResponse Response model for bulk test deletion.
-type BulkDeleteTestsResponse struct {
-	// DeletedIds List of successfully deleted test IDs
-	DeletedIds *[]string `json:"deleted_ids,omitempty"`
-
-	// ErrorCount Number of tests that failed to delete
-	ErrorCount int `json:"error_count"`
-
-	// FailedIds List of test IDs that failed to delete
-	FailedIds *[]string `json:"failed_ids,omitempty"`
-
-	// SuccessCount Number of tests successfully deleted
-	SuccessCount int `json:"success_count"`
-}
-
-// BulkExecuteRequest Request model for bulk test execution.
-type BulkExecuteRequest struct {
-	BuildId *string `json:"build_id"`
-
-	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfig `json:"run_config,omitempty"`
-	TestIds   []string       `json:"test_ids"`
-}
-
-// BulkExecuteResponse Response from bulk execution.
-type BulkExecuteResponse struct {
-	ErrorCount   int                     `json:"error_count"`
-	Results      []BulkExecuteResultItem `json:"results"`
-	SuccessCount int                     `json:"success_count"`
-}
-
-// BulkExecuteResultItem Result item for a single test in bulk execution.
-type BulkExecuteResultItem struct {
-	Error   *string `json:"error"`
-	Success bool    `json:"success"`
-	TaskId  *string `json:"task_id"`
-	TestId  string  `json:"test_id"`
 }
 
 // BulkSyncTagsRequest Request to bulk sync tags for multiple tests.
@@ -2290,42 +918,6 @@ type CancelTestResponse struct {
 	TaskId  string  `json:"task_id"`
 }
 
-// ChartDataPoint Daily aggregated chart data point.
-type ChartDataPoint struct {
-	// AvgDuration Average execution duration in seconds for this date
-	AvgDuration *int `json:"avg_duration"`
-
-	// Date Date in YYYY-MM-DD format
-	Date string `json:"date"`
-
-	// Failed Number of failed tests on this date
-	Failed int `json:"failed"`
-
-	// Passed Number of passed tests on this date
-	Passed int `json:"passed"`
-
-	// SuccessRate Success rate as percentage (0-100)
-	SuccessRate float32 `json:"success_rate"`
-
-	// Total Total number of tests on this date
-	Total int `json:"total"`
-}
-
-// CheckFileExistsResponse Response model for checking if a file with a given name exists.
-type CheckFileExistsResponse struct {
-	// Exists Whether a file with this name exists
-	Exists bool `json:"exists"`
-
-	// Name The filename if it exists
-	Name *string `json:"name"`
-}
-
-// CheckModuleExistsResponse Response model for checking if a module exists
-type CheckModuleExistsResponse struct {
-	Exists bool    `json:"exists"`
-	Name   *string `json:"name"`
-}
-
 // CheckVariableExistsResponse Response for check variable exists endpoint.
 type CheckVariableExistsResponse struct {
 	// Exists Whether the variable exists
@@ -2336,18 +928,6 @@ type CheckVariableExistsResponse struct {
 
 	// VariableValue Value of the variable
 	VariableValue *string `json:"variable_value"`
-}
-
-// ChecklistState defines model for ChecklistState.
-type ChecklistState struct {
-	AppUploaded    *bool `json:"app_uploaded,omitempty"`
-	SessionStarted *bool `json:"session_started,omitempty"`
-	TestCreated    *bool `json:"test_created,omitempty"`
-}
-
-// ChecklistStepRequest defines model for ChecklistStepRequest.
-type ChecklistStepRequest struct {
-	Step string `json:"step"`
 }
 
 // ChildTaskReportInfo defines model for ChildTaskReportInfo.
@@ -2371,53 +951,8 @@ type ChildTaskReportInfo struct {
 	TotalSteps           *int     `json:"total_steps"`
 }
 
-// ClaimSandboxResponse Response from claiming a sandbox.
-//
-// Attributes:
-//
-//	success: Whether the claim was successful.
-//	sandbox: The claimed sandbox details (if successful).
-//	message: Human-readable status message.
-type ClaimSandboxResponse struct {
-	// Message Status message
-	Message string `json:"message"`
-
-	// Sandbox Represents a virtual machine sandbox in the Fleet pool.
-	//
-	// Sandboxes are Mac Mini VMs that developers can claim for development work.
-	// Each sandbox can host multiple git repositories and worktrees.
-	//
-	// Attributes:
-	//     id: Unique identifier for the sandbox (UUID).
-	//     org_id: Organization ID that owns this sandbox (NULL = shared pool).
-	//     vm_name: VM name (e.g., "sandbox-1").
-	//     hostname: Human-readable hostname for display.
-	//     sandbox_type: Type of sandbox (dedicated machine or container).
-	//     host_identifier: Groups sandboxes running on the same physical host.
-	//     tunnel_hostname: Cloudflare tunnel hostname for SSH access.
-	//     status: Current sandbox state (available, claimed, maintenance, reserved).
-	//     claimed_by: User ID of the developer who claimed this sandbox.
-	//     claimed_at: Timestamp when the sandbox was claimed.
-	//     ssh_user: SSH username for connections (default: revyl-admin).
-	//     ssh_port: SSH port number (default: 22).
-	//     specs: Hardware specifications (cpu_cores, memory_gb, chip).
-	//     tags: Flexible labels for filtering (location, tier, etc.).
-	//     created_at: When the sandbox was added to the pool.
-	//     updated_at: Last modification timestamp.
-	Sandbox *FleetSandbox `json:"sandbox,omitempty"`
-
-	// Success Whether claim succeeded
-	Success bool `json:"success"`
-}
-
 // CleanupLevel Cleanup intensity level for AVD state reset between test runs.
 type CleanupLevel string
-
-// CloudAgentProviderId Canonical cloud-agent provider identifiers.
-//
-// Only Cursor is implemented today; add a member here when adding a provider
-// so request bodies, the registry, and the frontend can do exhaustive handling.
-type CloudAgentProviderId string
 
 // CodeExecutionScript Full script model with database fields.
 type CodeExecutionScript struct {
@@ -2514,14 +1049,6 @@ type CompileJobProgress struct {
 // CompileJobStatus Lifecycle states for a recording compile job.
 type CompileJobStatus string
 
-// CompileProgressUpdate Callback payload from the action service to update job progress.
-type CompileProgressUpdate struct {
-	ErrorMessage     *string                 `json:"error_message"`
-	ProgressMetadata *map[string]interface{} `json:"progress_metadata"`
-	ResultPayload    *map[string]interface{} `json:"result_payload"`
-	Status           string                  `json:"status"`
-}
-
 // CompileRecordingRequest Request body for POST /recordings/compile.
 type CompileRecordingRequest struct {
 	// IntervalEnd End action index (inclusive)
@@ -2607,195 +1134,6 @@ type CompiledIntentStep struct {
 	StepType string `json:"step_type"`
 }
 
-// CompletedTestData Model for completed test data structure used in SSE events.
-type CompletedTestData struct {
-	// EnhancedTask Enhanced test execution tasks model with tracking fields.
-	//
-	// When queried via test_executions_full view, includes status and timing
-	// from device_sessions (the source of truth for state).
-	EnhancedTask TestExecutionTasksEnhanced `json:"enhanced_task"`
-
-	// ExecutionTime Execution timestamp
-	ExecutionTime *time.Time `json:"execution_time"`
-
-	// ExecutionTimeSeconds Test duration in seconds
-	ExecutionTimeSeconds *float32 `json:"execution_time_seconds"`
-
-	// Id Test history ID or task-based ID
-	Id openapi_types.UUID `json:"id"`
-
-	// Metadata JSON metadata string
-	Metadata *string `json:"metadata"`
-
-	// Status Test status (completed, failed, etc.)
-	Status string `json:"status"`
-
-	// TestUid Test ID
-	TestUid openapi_types.UUID `json:"test_uid"`
-}
-
-// CompletionMessage The assistant's completion/response message.
-type CompletionMessage struct {
-	// Content Text response content
-	Content *string `json:"content"`
-
-	// Refusal Refusal message if request was refused
-	Refusal *string `json:"refusal"`
-
-	// Role Always 'assistant' for completions
-	Role *string `json:"role,omitempty"`
-
-	// ToolCalls Tool/function calls made by the assistant
-	ToolCalls            *[]ToolCall            `json:"tool_calls"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// ConnectCursorRequest Request body to connect (or update) an org's Cursor API key.
-type ConnectCursorRequest struct {
-	// ApiKey Cursor API key (user or service account)
-	ApiKey string `json:"api_key"`
-
-	// DefaultModel Optional default Cursor model for spawns
-	DefaultModel *string `json:"default_model"`
-
-	// DefaultRepoUrl Optional default repository URL for spawns
-	DefaultRepoUrl *string `json:"default_repo_url"`
-}
-
-// ConversionResponse Response model for conversion operations
-type ConversionResponse struct {
-	// ConvertedContent Converted content (YAML string or blocks array)
-	ConvertedContent ConversionResponse_ConvertedContent `json:"converted_content"`
-
-	// Errors Any errors that occurred
-	Errors *[]string `json:"errors,omitempty"`
-
-	// Metadata Extracted or included metadata
-	Metadata *map[string]interface{} `json:"metadata"`
-
-	// Success Whether the conversion was successful
-	Success bool `json:"success"`
-}
-
-// ConversionResponseConvertedContent0 defines model for .
-type ConversionResponseConvertedContent0 = string
-
-// ConversionResponseConvertedContent1 defines model for .
-type ConversionResponseConvertedContent1 = []ConversionResponse_ConvertedContent_1_Item
-
-// ConversionResponse_ConvertedContent_1_Item defines model for ConversionResponse.ConvertedContent.1.Item.
-type ConversionResponse_ConvertedContent_1_Item struct {
-	union json.RawMessage
-}
-
-// ConversionResponse_ConvertedContent Converted content (YAML string or blocks array)
-type ConversionResponse_ConvertedContent struct {
-	union json.RawMessage
-}
-
-// CostAnalysisResponse Response containing cost analysis for a session or execution.
-type CostAnalysisResponse struct {
-	// ByModel Cost breakdown by model
-	ByModel *[]ModelCostBreakdown `json:"by_model,omitempty"`
-
-	// ExecutionId Execution ID if queried by execution
-	ExecutionId *string `json:"execution_id"`
-
-	// SessionId Session ID if queried by session
-	SessionId *string `json:"session_id"`
-
-	// TotalCalls Total number of LLM calls
-	TotalCalls int `json:"total_calls"`
-
-	// TotalCompletionTokens Total completion tokens across all calls
-	TotalCompletionTokens int `json:"total_completion_tokens"`
-
-	// TotalCostUsd Total cost in USD
-	TotalCostUsd float32 `json:"total_cost_usd"`
-
-	// TotalPromptTokens Total prompt tokens across all calls
-	TotalPromptTokens int `json:"total_prompt_tokens"`
-
-	// TotalTokens Total tokens across all calls
-	TotalTokens int `json:"total_tokens"`
-}
-
-// CreateActionRequest Request model for creating a report action (normalized structure).
-type CreateActionRequest struct {
-	ActionData                 *map[string]interface{} `json:"action_data"`
-	ActionIndex                int                     `json:"action_index"`
-	ActionType                 *string                 `json:"action_type"`
-	AgentDescription           *string                 `json:"agent_description"`
-	CompletedAt                *string                 `json:"completed_at"`
-	IsTerminal                 *bool                   `json:"is_terminal,omitempty"`
-	LlmCallId                  *string                 `json:"llm_call_id"`
-	Reasoning                  *string                 `json:"reasoning"`
-	ReflectionDecision         *string                 `json:"reflection_decision"`
-	ReflectionLlmCallId        *string                 `json:"reflection_llm_call_id"`
-	ReflectionReasoning        *string                 `json:"reflection_reasoning"`
-	ReflectionSuggestion       *string                 `json:"reflection_suggestion"`
-	ScreenshotAfterS3Key       *string                 `json:"screenshot_after_s3_key"`
-	ScreenshotBeforeCleanS3Key *string                 `json:"screenshot_before_clean_s3_key"`
-	ScreenshotBeforeS3Key      *string                 `json:"screenshot_before_s3_key"`
-	StartedAt                  *string                 `json:"started_at"`
-	VideoTimestampEnd          *float32                `json:"video_timestamp_end"`
-	VideoTimestampStart        *float32                `json:"video_timestamp_start"`
-}
-
-// CreateActionResponse Response model for action creation.
-type CreateActionResponse struct {
-	Id      string `json:"id"`
-	Message string `json:"message"`
-	Success bool   `json:"success"`
-}
-
-// CreateCLIApiKeyRequest Request to create or rotate a browser-issued CLI API key.
-type CreateCLIApiKeyRequest struct {
-	// ClientInstanceId Stable per-install CLI identifier used to rotate only this device's key.
-	ClientInstanceId *string `json:"client_instance_id"`
-
-	// DeviceLabel Human-readable device label to attach to the browser-issued CLI key.
-	DeviceLabel *string `json:"device_label"`
-}
-
-// CreateCLIApiKeyResponse Response from creating a long-lived CLI API key via PropelAuth.
-//
-// Attributes:
-//
-//	api_key_token: The API key token string used for authentication.
-//	api_key_id: The PropelAuth-assigned ID for this API key (used for deletion/rotation).
-type CreateCLIApiKeyResponse struct {
-	ApiKeyId    string `json:"api_key_id"`
-	ApiKeyToken string `json:"api_key_token"`
-}
-
-// CreateExpoProjectRequest Request to create a new Expo project configuration.
-type CreateExpoProjectRequest struct {
-	// AndroidAppId Revyl app ID for Android builds
-	AndroidAppId *string `json:"android_app_id"`
-
-	// AutoSyncEnabled Enable automatic build sync via webhook
-	AutoSyncEnabled *bool `json:"auto_sync_enabled,omitempty"`
-
-	// IosAppId Revyl app ID for iOS builds
-	IosAppId *string `json:"ios_app_id"`
-
-	// ProjectId Expo project ID (EAS project UUID)
-	ProjectId string `json:"project_id"`
-
-	// ProjectName Display name for the project
-	ProjectName *string `json:"project_name"`
-
-	// SyncProfileMode Controls which EAS build profiles auto-sync. 'all' imports every eligible profile; 'allowlist' imports only synced_profiles.
-	SyncProfileMode *CreateExpoProjectRequestSyncProfileMode `json:"sync_profile_mode,omitempty"`
-
-	// SyncedProfiles EAS build profiles to auto-sync when sync_profile_mode is 'allowlist'.
-	SyncedProfiles *[]string `json:"synced_profiles"`
-}
-
-// CreateExpoProjectRequestSyncProfileMode Controls which EAS build profiles auto-sync. 'all' imports every eligible profile; 'allowlist' imports only synced_profiles.
-type CreateExpoProjectRequestSyncProfileMode string
-
 // CreateModuleRequest Request model for creating a new module
 type CreateModuleRequest struct {
 	// Blocks Array of block objects
@@ -2806,70 +1144,6 @@ type CreateModuleRequest struct {
 
 	// Name Name of the module
 	Name string `json:"name"`
-}
-
-// CreateReportRequest Request model for creating a report.
-type CreateReportRequest struct {
-	ExecutionId     *string                   `json:"execution_id"`
-	ExpectedStates  *[]map[string]interface{} `json:"expected_states"`
-	OrgId           openapi_types.UUID        `json:"org_id"`
-	RunConfig       *map[string]interface{}   `json:"run_config"`
-	S3Bucket        *string                   `json:"s3_bucket"`
-	SessionId       *string                   `json:"session_id"`
-	StartedAt       *string                   `json:"started_at"`
-	TestGoalSummary *string                   `json:"test_goal_summary"`
-	TestId          *string                   `json:"test_id"`
-	TestVersionId   *string                   `json:"test_version_id"`
-}
-
-// CreateReportResponse Response model for report creation.
-type CreateReportResponse struct {
-	Id      string `json:"id"`
-	Message string `json:"message"`
-	Success bool   `json:"success"`
-}
-
-// CreateSlackNotificationRuleRequest Request to create a new notification rule.
-type CreateSlackNotificationRuleRequest struct {
-	AppliesToAll      *bool                 `json:"applies_to_all,omitempty"`
-	ChannelId         string                `json:"channel_id"`
-	ChannelName       *string               `json:"channel_name"`
-	Enabled           *bool                 `json:"enabled,omitempty"`
-	MentionPreference *string               `json:"mention_preference"`
-	Name              string                `json:"name"`
-	NotifyOnCancelled *bool                 `json:"notify_on_cancelled,omitempty"`
-	NotifyOnFailure   *bool                 `json:"notify_on_failure,omitempty"`
-	NotifyOnStart     *bool                 `json:"notify_on_start,omitempty"`
-	NotifyOnSuccess   *bool                 `json:"notify_on_success,omitempty"`
-	NotifyOnTimeout   *bool                 `json:"notify_on_timeout,omitempty"`
-	WorkflowIds       *[]openapi_types.UUID `json:"workflow_ids,omitempty"`
-}
-
-// CreateStepRequest Request model for creating a report step.
-type CreateStepRequest struct {
-	CodeExecutionData   *map[string]interface{} `json:"code_execution_data"`
-	DecisionData        *map[string]interface{} `json:"decision_data"`
-	ExecutionOrder      int                     `json:"execution_order"`
-	ExtractionData      *map[string]interface{} `json:"extraction_data"`
-	LlmCallId           *string                 `json:"llm_call_id"`
-	LoopData            *map[string]interface{} `json:"loop_data"`
-	ManualData          *map[string]interface{} `json:"manual_data"`
-	NodeId              *string                 `json:"node_id"`
-	ParentStepId        *string                 `json:"parent_step_id"`
-	SourceModuleId      *string                 `json:"source_module_id"`
-	StartedAt           *string                 `json:"started_at"`
-	StepDescription     *string                 `json:"step_description"`
-	StepType            string                  `json:"step_type"`
-	ValidationData      *map[string]interface{} `json:"validation_data"`
-	VideoTimestampEnd   *float32                `json:"video_timestamp_end"`
-	VideoTimestampStart *float32                `json:"video_timestamp_start"`
-}
-
-// CreateStepResponse Response model for step creation.
-type CreateStepResponse struct {
-	Id      string `json:"id"`
-	Message string `json:"message"`
-	Success bool   `json:"success"`
 }
 
 // CreateTagRequest Request to create a tag.
@@ -2884,79 +1158,11 @@ type CreateWorkflowResponse struct {
 	Data WorkflowsBaseSchema `json:"data"`
 }
 
-// CreateWorktreeRequest Request payload for creating a new worktree.
-//
-// Attributes:
-//
-//	branch: Name for the new branch/worktree.
-//	base_branch: Branch to create the worktree from (default: main).
-//	sandbox_id: Optional specific sandbox to create on (uses claimed if not specified).
-//	repo: Repository name (default: cognisim-monorepo).
-//	copy_env: Whether to copy .env files from local repo.
-//	install_deps: Whether to run dependency installation.
-//	setup_script: Optional custom setup script to run.
-type CreateWorktreeRequest struct {
-	// BaseBranch Base branch to branch from
-	BaseBranch *string `json:"base_branch,omitempty"`
-
-	// Branch New branch name
-	Branch string `json:"branch"`
-
-	// CopyEnv Copy .env files from local
-	CopyEnv *bool `json:"copy_env,omitempty"`
-
-	// InstallDeps Run dependency installation
-	InstallDeps *bool `json:"install_deps,omitempty"`
-
-	// Repo Repository name
-	Repo *string `json:"repo,omitempty"`
-
-	// SandboxId Target sandbox (uses claimed if not specified)
-	SandboxId *string `json:"sandbox_id"`
-
-	// SetupScript Custom setup script
-	SetupScript *string `json:"setup_script"`
-}
-
 // CreditConversion defines model for CreditConversion.
 type CreditConversion struct {
 	CreditsPerUnit float32 `json:"credits_per_unit"`
 	FeatureId      string  `json:"feature_id"`
 	Name           string  `json:"name"`
-}
-
-// CreditsBalanceItem defines model for CreditsBalanceItem.
-type CreditsBalanceItem struct {
-	Balance     *int   `json:"balance"`
-	FeatureId   string `json:"feature_id"`
-	FeatureName string `json:"feature_name"`
-	Granted     *int   `json:"granted,omitempty"`
-	Usage       *int   `json:"usage,omitempty"`
-}
-
-// CreditsBalanceResponse defines model for CreditsBalanceResponse.
-type CreditsBalanceResponse struct {
-	Balances []CreditsBalanceItem `json:"balances"`
-}
-
-// CursorConnectionStatus Connection status for the Cursor integration.
-type CursorConnectionStatus struct {
-	// AccountEmail User email behind the connected key
-	AccountEmail *string `json:"account_email"`
-
-	// AccountLabel API key name behind the connected key
-	AccountLabel *string `json:"account_label"`
-
-	// Configured Whether spawning is possible (org key or platform fallback)
-	Configured bool `json:"configured"`
-
-	// Connected Whether this org has its own Cursor key stored
-	Connected      bool    `json:"connected"`
-	DefaultModel   *string `json:"default_model"`
-	DefaultRepoUrl *string `json:"default_repo_url"`
-
-	// FeatureEnabled Whether this org may use the Cursor agents feature
-	FeatureEnabled *bool `json:"feature_enabled,omitempty"`
 }
 
 // DOMMetadata defines model for DOMMetadata.
@@ -2971,42 +1177,6 @@ type DOMMetadata struct {
 	VariableName         *string                 `json:"variable_name"`
 	WaitTime             *int                    `json:"wait_time"`
 	AdditionalProperties map[string]interface{}  `json:"-"`
-}
-
-// DailyActivityPoint Single day+source in the activity time series.
-type DailyActivityPoint struct {
-	Date          string  `json:"date"`
-	DeviceMinutes float32 `json:"device_minutes"`
-	SessionCount  int     `json:"session_count"`
-	Source        *string `json:"source"`
-}
-
-// DailySpendItem defines model for DailySpendItem.
-type DailySpendItem struct {
-	Date         string  `json:"date"`
-	DeviceCost   float32 `json:"device_cost"`
-	LlmCost      float32 `json:"llm_cost"`
-	SessionCount int     `json:"session_count"`
-	TotalCost    float32 `json:"total_cost"`
-}
-
-// DailySpendResponse defines model for DailySpendResponse.
-type DailySpendResponse struct {
-	DataPoints []DailySpendItem `json:"data_points"`
-}
-
-// DailyUsageItem defines model for DailyUsageItem.
-type DailyUsageItem struct {
-	AndroidMinutes float32 `json:"android_minutes"`
-	Date           string  `json:"date"`
-	IosMinutes     float32 `json:"ios_minutes"`
-	SessionCount   int     `json:"session_count"`
-	TotalMinutes   float32 `json:"total_minutes"`
-}
-
-// DailyUsageResponse defines model for DailyUsageResponse.
-type DailyUsageResponse struct {
-	DataPoints []DailyUsageItem `json:"data_points"`
 }
 
 // DashboardMetrics Model representing dashboard metrics with week-over-week comparisons.
@@ -3087,11 +1257,6 @@ type DashboardMetrics struct {
 // DashboardMetricsDashboardState Dashboard view state: onboarding (checklist incomplete), intermediate (checklist done but no active plan), mature (fully active)
 type DashboardMetricsDashboardState string
 
-// DefaultRoleResponse defines model for DefaultRoleResponse.
-type DefaultRoleResponse struct {
-	DefaultRole *string `json:"default_role,omitempty"`
-}
-
 // DeleteAppResponse Response after deleting an app.
 type DeleteAppResponse struct {
 	// DetachedTests Number of tests that were detached from this app
@@ -3099,33 +1264,9 @@ type DeleteAppResponse struct {
 	Message       string `json:"message"`
 }
 
-// DeleteEvalResultsRequest Request body for bulk-deleting eval results.
-type DeleteEvalResultsRequest struct {
-	EvalIds []string `json:"eval_ids"`
-}
-
-// DeleteEvalResultsResponse Response for bulk delete.
-type DeleteEvalResultsResponse struct {
-	DeletedCount int `json:"deleted_count"`
-}
-
 // DeleteModuleResponse Response model for delete operations
 type DeleteModuleResponse struct {
 	Message string `json:"message"`
-}
-
-// DeleteSlackNotificationRuleResponse Response after deleting a notification rule.
-type DeleteSlackNotificationRuleResponse struct {
-	Message string `json:"message"`
-	Success bool   `json:"success"`
-}
-
-// DeleteTaskResponse Response after deleting tasks.
-type DeleteTaskResponse struct {
-	DeletedCount  int       `json:"deleted_count"`
-	FailedCount   int       `json:"failed_count"`
-	FailedTaskIds *[]string `json:"failed_task_ids,omitempty"`
-	Message       string    `json:"message"`
 }
 
 // DeleteWorkflowResponse defines model for DeleteWorkflowResponse.
@@ -3135,18 +1276,6 @@ type DeleteWorkflowResponse struct {
 
 	// Message Status message
 	Message string `json:"message"`
-}
-
-// DeleteWorkflowShareableLinkResponse defines model for DeleteWorkflowShareableLinkResponse.
-type DeleteWorkflowShareableLinkResponse struct {
-	ChildLinksRevoked *int  `json:"child_links_revoked"`
-	Enabled           *bool `json:"enabled,omitempty"`
-}
-
-// DeleteWorkflowTaskResponse Response after deleting a workflow task.
-type DeleteWorkflowTaskResponse struct {
-	Message string `json:"message"`
-	TaskId  string `json:"task_id"`
 }
 
 // DeviceCleanupConfig Configuration for AVD cleanup between test runs.
@@ -3233,30 +1362,6 @@ type DevicePair struct {
 	Runtime string `json:"runtime"`
 }
 
-// DeviceSessionClaimStartResponse Response model for atomic queued->starting claim.
-type DeviceSessionClaimStartResponse struct {
-	Claimed   bool    `json:"claimed"`
-	Message   string  `json:"message"`
-	SessionId string  `json:"session_id"`
-	Status    *string `json:"status"`
-}
-
-// DeviceSessionCreate Request model for creating a device session.
-type DeviceSessionCreate struct {
-	AppId          *openapi_types.UUID         `json:"app_id"`
-	BuildId        *openapi_types.UUID         `json:"build_id"`
-	Id             *string                     `json:"id"`
-	OrgId          *string                     `json:"org_id"`
-	Platform       DeviceSessionCreatePlatform `json:"platform"`
-	Source         string                      `json:"source"`
-	SourceMetadata *map[string]interface{}     `json:"source_metadata"`
-	Status         *string                     `json:"status,omitempty"`
-	WorkflowRunId  *string                     `json:"workflow_run_id"`
-}
-
-// DeviceSessionCreatePlatform defines model for DeviceSessionCreate.Platform.
-type DeviceSessionCreatePlatform string
-
 // DeviceSessionDetailItem Detailed device session payload for the canonical session viewer.
 type DeviceSessionDetailItem struct {
 	ActionCount               *int                    `json:"action_count,omitempty"`
@@ -3296,35 +1401,6 @@ type DeviceSessionDetailItem struct {
 	WorkflowExecutionId       *string                 `json:"workflow_execution_id"`
 	WorkflowName              *string                 `json:"workflow_name"`
 	WorkflowRunId             *string                 `json:"workflow_run_id"`
-}
-
-// DeviceSessionResponse Response model for device session operations.
-type DeviceSessionResponse struct {
-	Id      *string `json:"id"`
-	Message string  `json:"message"`
-	Success bool    `json:"success"`
-}
-
-// DeviceSessionUpdate Request model for updating a device session.
-type DeviceSessionUpdate struct {
-	DeviceModel         *string                 `json:"device_model"`
-	EndedAt             *time.Time              `json:"ended_at"`
-	Error               *string                 `json:"error"`
-	OsVersion           *string                 `json:"os_version"`
-	ScreenHeight        *int                    `json:"screen_height"`
-	ScreenWidth         *int                    `json:"screen_width"`
-	SourceMetadataPatch *map[string]interface{} `json:"source_metadata_patch"`
-	StartedAt           *time.Time              `json:"started_at"`
-	Status              *string                 `json:"status"`
-	TraceId             *string                 `json:"trace_id"`
-	WhepUrl             *string                 `json:"whep_url"`
-	WorkflowRunId       *string                 `json:"workflow_run_id"`
-}
-
-// DisconnectSlackResponse Response after disconnecting Slack.
-type DisconnectSlackResponse struct {
-	Message string `json:"message"`
-	Success bool   `json:"success"`
 }
 
 // DiscountItem A reward/discount applied to the customer (from Autumn `rewards.discounts`).
@@ -3392,13 +1468,6 @@ type DuplicateTestResponse struct {
 	VariablesCopied *int `json:"variables_copied,omitempty"`
 }
 
-// EnqueueBuildBillingRequest defines model for EnqueueBuildBillingRequest.
-type EnqueueBuildBillingRequest struct {
-	BuildJobId    string  `json:"build_job_id"`
-	OrgId         *string `json:"org_id"`
-	TriggerReason *string `json:"trigger_reason,omitempty"`
-}
-
 // EntitlementItem defines model for EntitlementItem.
 type EntitlementItem struct {
 	Balance           *float32            `json:"balance"`
@@ -3411,84 +1480,6 @@ type EntitlementItem struct {
 	Unit              string              `json:"unit"`
 	Unlimited         *bool               `json:"unlimited,omitempty"`
 	Usage             *float32            `json:"usage,omitempty"`
-}
-
-// Environment Environment identifier.
-//
-// Attributes:
-//
-//	STAGING: Staging environment.
-//	PRODUCTION: Production environment.
-type Environment string
-
-// ErrorImage Model for error images returned in eval response.
-type ErrorImage struct {
-	Data            *string `json:"data"`
-	ErrorType       *string `json:"error_type"`
-	ImageType       string  `json:"image_type"`
-	RetryIndex      *int    `json:"retry_index"`
-	StepDescription *string `json:"step_description"`
-	StepIndex       int     `json:"step_index"`
-	Url             *string `json:"url"`
-}
-
-// ErrorTypeBreakdownItem A single row in the grounding error type breakdown.
-type ErrorTypeBreakdownItem struct {
-	Errors int    `json:"errors"`
-	Label  string `json:"label"`
-}
-
-// EvalErrorSummary Summary of errors from evaluation.
-type EvalErrorSummary struct {
-	BoundingBoxErrors  *int `json:"bounding_box_errors,omitempty"`
-	GrounderHintErrors *int `json:"grounder_hint_errors,omitempty"`
-	GroundingErrors    *int `json:"grounding_errors,omitempty"`
-	InstructionErrors  *int `json:"instruction_errors,omitempty"`
-	ReflectionErrors   *int `json:"reflection_errors,omitempty"`
-	ValidationErrors   *int `json:"validation_errors,omitempty"`
-}
-
-// EvalQueueItem defines model for EvalQueueItem.
-type EvalQueueItem struct {
-	AnnotatedCount     *int                `json:"annotated_count,omitempty"`
-	CreatedAt          time.Time           `json:"created_at"`
-	ErrorTypes         *map[string]int     `json:"error_types"`
-	FalsePositiveCount *int                `json:"false_positive_count,omitempty"`
-	GroundedSteps      int                 `json:"grounded_steps"`
-	GrounderType       *string             `json:"grounder_type"`
-	GroundingErrors    int                 `json:"grounding_errors"`
-	Id                 openapi_types.UUID  `json:"id"`
-	OrgId              *openapi_types.UUID `json:"org_id"`
-	Platform           *string             `json:"platform"`
-	ReviewStatus       string              `json:"review_status"`
-	TaskId             openapi_types.UUID  `json:"task_id"`
-	TestId             *openapi_types.UUID `json:"test_id"`
-	TestName           *string             `json:"test_name"`
-	TotalSteps         int                 `json:"total_steps"`
-	WorkflowId         *openapi_types.UUID `json:"workflow_id"`
-}
-
-// EvalQueueResponse defines model for EvalQueueResponse.
-type EvalQueueResponse struct {
-	Items []EvalQueueItem `json:"items"`
-	Total int             `json:"total"`
-}
-
-// EvalRequest Request model for running an eval.
-type EvalRequest struct {
-	EnabledJudges map[string]bool `json:"enabled_judges"`
-	TaskId        string          `json:"task_id"`
-}
-
-// EvalResponse Response model for eval results.
-type EvalResponse struct {
-	Error       *string       `json:"error"`
-	ErrorImages *[]ErrorImage `json:"error_images"`
-	LogText     *string       `json:"log_text"`
-
-	// Report Complete evaluation report for a test run.
-	Report  *TestEvalReport `json:"report,omitempty"`
-	Success bool            `json:"success"`
 }
 
 // ExecuteTestAsyncAPIResponse Response for async test execution start.
@@ -3560,90 +1551,6 @@ type ExecutionModeConfig struct {
 	SkipAppInstall *bool `json:"skip_app_install,omitempty"`
 }
 
-// ExplorationEventCreate defines model for ExplorationEventCreate.
-type ExplorationEventCreate struct {
-	EventType    ExplorationEventCreateEventType `json:"event_type"`
-	Payload      *map[string]interface{}         `json:"payload,omitempty"`
-	RunSessionId *openapi_types.UUID             `json:"run_session_id"`
-	SessionId    *openapi_types.UUID             `json:"session_id"`
-	Summary      *string                         `json:"summary"`
-	Title        string                          `json:"title"`
-}
-
-// ExplorationEventCreateEventType defines model for ExplorationEventCreate.EventType.
-type ExplorationEventCreateEventType string
-
-// ExplorationLaneStartInput defines model for ExplorationLaneStartInput.
-type ExplorationLaneStartInput struct {
-	AuthInstructions   *string                      `json:"auth_instructions"`
-	BuildId            *openapi_types.UUID          `json:"build_id"`
-	DeviceModel        *string                      `json:"device_model"`
-	EnvVars            *map[string]string           `json:"env_vars,omitempty"`
-	IdleTimeoutSeconds *int                         `json:"idle_timeout_seconds"`
-	Lane               ExplorationLaneWorkflowInput `json:"lane"`
-	LaunchEnvVarIds    *[]openapi_types.UUID        `json:"launch_env_var_ids,omitempty"`
-	MaxDurationSeconds *int                         `json:"max_duration_seconds,omitempty"`
-	MaxTurns           *int                         `json:"max_turns,omitempty"`
-	OsVersion          *string                      `json:"os_version"`
-	Platform           *string                      `json:"platform,omitempty"`
-
-	// RunConfig Complete configuration for a test run.
-	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
-	SeedInstructions *string        `json:"seed_instructions"`
-}
-
-// ExplorationLaneWorkflowInput defines model for ExplorationLaneWorkflowInput.
-type ExplorationLaneWorkflowInput struct {
-	AuthInstructions *string `json:"auth_instructions"`
-	LaneIndex        int     `json:"lane_index"`
-	Role             *string `json:"role"`
-	SeedInstructions *string `json:"seed_instructions"`
-}
-
-// ExplorationRunReportChild A single exploration lane shaped as a run-report child card.
-type ExplorationRunReportChild struct {
-	AppId         *string    `json:"app_id"`
-	AppName       *string    `json:"app_name"`
-	CompletedAt   *time.Time `json:"completed_at"`
-	DeviceModel   *string    `json:"device_model"`
-	Duration      *float32   `json:"duration"`
-	ErrorMessage  *string    `json:"error_message"`
-	LaneIndex     int        `json:"lane_index"`
-	LaneLabel     string     `json:"lane_label"`
-	LaneRole      *string    `json:"lane_role"`
-	Platform      *string    `json:"platform"`
-	ReportId      *string    `json:"report_id"`
-	SessionId     *string    `json:"session_id"`
-	StartedAt     *time.Time `json:"started_at"`
-	Status        *string    `json:"status"`
-	StepCount     *int       `json:"step_count"`
-	Success       *bool      `json:"success"`
-	TaskId        string     `json:"task_id"`
-	TraceId       *string    `json:"trace_id"`
-	WhepUrl       *string    `json:"whep_url"`
-	WorkflowRunId *string    `json:"workflow_run_id"`
-}
-
-// ExplorationRunReportResponse defines model for ExplorationRunReportResponse.
-type ExplorationRunReportResponse struct {
-	AppName           *string                      `json:"app_name"`
-	AppPlatform       *string                      `json:"app_platform"`
-	Children          *[]ExplorationRunReportChild `json:"children,omitempty"`
-	CompletedChildren *int                         `json:"completed_children,omitempty"`
-	Progress          *float32                     `json:"progress,omitempty"`
-	Run               AtlasExploreRunResponse      `json:"run"`
-	TotalChildren     *int                         `json:"total_children,omitempty"`
-}
-
-// ExplorationRunStatusUpdate defines model for ExplorationRunStatusUpdate.
-type ExplorationRunStatusUpdate struct {
-	ExecutionStatus ExplorationRunStatusUpdateExecutionStatus `json:"execution_status"`
-	Summary         *map[string]interface{}                   `json:"summary,omitempty"`
-}
-
-// ExplorationRunStatusUpdateExecutionStatus defines model for ExplorationRunStatusUpdate.ExecutionStatus.
-type ExplorationRunStatusUpdateExecutionStatus string
-
 // ExplorationSessionConfig Per-device-session exploration contract passed from API to worker.
 type ExplorationSessionConfig struct {
 	AtlasContext       *string             `json:"atlas_context"`
@@ -3652,97 +1559,11 @@ type ExplorationSessionConfig struct {
 	LaneIndex          int                 `json:"lane_index"`
 	LaneRole           string              `json:"lane_role"`
 	MaxDurationSeconds *int                `json:"max_duration_seconds,omitempty"`
-	MaxTurns           *int                `json:"max_turns,omitempty"`
+	MaxTurns           *int                `json:"max_turns"`
 	Mode               *string             `json:"mode,omitempty"`
 	RunId              openapi_types.UUID  `json:"run_id"`
 	RunSessionId       *openapi_types.UUID `json:"run_session_id"`
 	SeedInstructions   *string             `json:"seed_instructions"`
-}
-
-// ExpoBuildArtifacts defines model for ExpoBuildArtifacts.
-type ExpoBuildArtifacts struct {
-	ApplicationArchiveUrl *string                `json:"applicationArchiveUrl"`
-	BuildUrl              *string                `json:"buildUrl"`
-	AdditionalProperties  map[string]interface{} `json:"-"`
-}
-
-// ExpoBuildItem defines model for ExpoBuildItem.
-type ExpoBuildItem struct {
-	AppVersion           *string                `json:"appVersion"`
-	Artifacts            *ExpoBuildArtifacts    `json:"artifacts,omitempty"`
-	BuildProfile         *string                `json:"buildProfile"`
-	CompletedAt          *string                `json:"completedAt"`
-	CreatedAt            *string                `json:"createdAt"`
-	Distribution         *string                `json:"distribution"`
-	GitCommitHash        *string                `json:"gitCommitHash"`
-	Id                   *string                `json:"id"`
-	Platform             *string                `json:"platform"`
-	SdkVersion           *string                `json:"sdkVersion"`
-	Status               *string                `json:"status"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// ExpoBuildsResponse defines model for ExpoBuildsResponse.
-type ExpoBuildsResponse struct {
-	Builds     *[]ExpoBuildItem `json:"builds,omitempty"`
-	TotalCount *int             `json:"total_count,omitempty"`
-}
-
-// ExpoProjectDbResponse Response model for an Expo project configuration row.
-type ExpoProjectDbResponse struct {
-	AndroidAppId          *string                               `json:"android_app_id"`
-	AutoSyncEnabled       *bool                                 `json:"auto_sync_enabled,omitempty"`
-	CreatedAt             time.Time                             `json:"created_at"`
-	ExpoAccountName       *string                               `json:"expo_account_name"`
-	ExpoProjectName       *string                               `json:"expo_project_name"`
-	ExpoProjectResolvedAt *time.Time                            `json:"expo_project_resolved_at"`
-	ExpoProjectSlug       *string                               `json:"expo_project_slug"`
-	ExpoProjectUrl        *string                               `json:"expo_project_url"`
-	Id                    string                                `json:"id"`
-	IosAppId              *string                               `json:"ios_app_id"`
-	OrgId                 string                                `json:"org_id"`
-	ProjectId             string                                `json:"project_id"`
-	ProjectName           *string                               `json:"project_name"`
-	SyncProfileMode       *ExpoProjectDbResponseSyncProfileMode `json:"sync_profile_mode,omitempty"`
-	SyncedProfiles        *[]string                             `json:"synced_profiles"`
-	UpdatedAt             time.Time                             `json:"updated_at"`
-}
-
-// ExpoProjectDbResponseSyncProfileMode defines model for ExpoProjectDbResponse.SyncProfileMode.
-type ExpoProjectDbResponseSyncProfileMode string
-
-// ExpoProjectFromBuildPathRequest defines model for ExpoProjectFromBuildPathRequest.
-type ExpoProjectFromBuildPathRequest struct {
-	// Branch Branch name (defaults to default)
-	Branch *string `json:"branch"`
-
-	// BuildPaths List of paths to Expo app directories
-	BuildPaths []string `json:"build_paths"`
-
-	// Owner GitHub repository owner
-	Owner string `json:"owner"`
-
-	// Repo GitHub repository name
-	Repo string `json:"repo"`
-}
-
-// ExpoProjectFromBuildPathResponse defines model for ExpoProjectFromBuildPathResponse.
-type ExpoProjectFromBuildPathResponse struct {
-	Projects *[]ExpoProjectInfo `json:"projects,omitempty"`
-}
-
-// ExpoProjectInfo defines model for ExpoProjectInfo.
-type ExpoProjectInfo struct {
-	BuildPath string  `json:"build_path"`
-	Name      *string `json:"name"`
-	Owner     *string `json:"owner"`
-	ProjectId string  `json:"project_id"`
-	Slug      *string `json:"slug"`
-}
-
-// ExpoProjectListResponse defines model for ExpoProjectListResponse.
-type ExpoProjectListResponse struct {
-	Projects *[]ExpoProjectDbResponse `json:"projects,omitempty"`
 }
 
 // ExtractBuildPackageIdResponse Response model for extracting package ID for a build.
@@ -3754,458 +1575,10 @@ type ExtractBuildPackageIdResponse struct {
 	PackageId *string `json:"package_id"`
 }
 
-// ExtractPackageIdRequest Request to extract package ID from uploaded binary
-type ExtractPackageIdRequest struct {
-	// Id Test ID
-	Id string `json:"id"`
-}
-
-// ExtractPackageIdResponse Response with extracted package identifier
-type ExtractPackageIdResponse struct {
-	// Error Error message if extraction failed
-	Error *string `json:"error"`
-
-	// PackageId Extracted bundle ID or package name
-	PackageId *string `json:"package_id"`
-}
-
-// FailBillingSessionRequest defines model for FailBillingSessionRequest.
-type FailBillingSessionRequest struct {
-	Error         string `json:"error"`
-	SessionId     string `json:"session_id"`
-	WorkflowRunId string `json:"workflow_run_id"`
-}
-
-// FailBuildBillingRequest defines model for FailBuildBillingRequest.
-type FailBuildBillingRequest struct {
-	BuildJobId    string `json:"build_job_id"`
-	Error         string `json:"error"`
-	WorkflowRunId string `json:"workflow_run_id"`
-}
-
 // FallbackTrigger When to trigger cache fallback.
 //
 // - FINAL_FAIL: Only trigger fallback if overall test fails
 type FallbackTrigger string
-
-// FinalizeSessionResponse defines model for FinalizeSessionResponse.
-type FinalizeSessionResponse struct {
-	Message string  `json:"message"`
-	Success bool    `json:"success"`
-	UsageId *string `json:"usage_id"`
-}
-
-// FleetAuthValidateResponse Response from validating an API key for Fleet access.
-//
-// Used by FleetDashboard to verify API key and get user info.
-//
-// Attributes:
-//
-//	valid: Whether the API key is valid.
-//	user_id: User ID associated with the key.
-//	email: User's email address.
-//	org_id: Organization ID.
-//	permissions: List of user permissions.
-type FleetAuthValidateResponse struct {
-	// Email User email
-	Email *string `json:"email"`
-
-	// OrgId Organization ID
-	OrgId *string `json:"org_id"`
-
-	// Permissions User permissions
-	Permissions *[]string `json:"permissions"`
-
-	// UserId User ID
-	UserId *string `json:"user_id"`
-
-	// Valid Whether API key is valid
-	Valid bool `json:"valid"`
-}
-
-// FleetDashboardResponse Combined response for the Fleet dashboard view.
-//
-// Provides all data needed to render the main Fleet Dashboard UI
-// in a single API call.
-//
-// Attributes:
-//
-//	status: Pool status summary.
-//	sandboxes: List of all sandboxes.
-//	worktrees: List of worktrees on user's claimed sandbox(es).
-//	claimed_sandbox: The user's currently claimed sandbox (if any).
-//	tunnels: List of active tunnels on user's sandbox(es).
-type FleetDashboardResponse struct {
-	// ClaimedSandbox Represents a virtual machine sandbox in the Fleet pool.
-	//
-	// Sandboxes are Mac Mini VMs that developers can claim for development work.
-	// Each sandbox can host multiple git repositories and worktrees.
-	//
-	// Attributes:
-	//     id: Unique identifier for the sandbox (UUID).
-	//     org_id: Organization ID that owns this sandbox (NULL = shared pool).
-	//     vm_name: VM name (e.g., "sandbox-1").
-	//     hostname: Human-readable hostname for display.
-	//     sandbox_type: Type of sandbox (dedicated machine or container).
-	//     host_identifier: Groups sandboxes running on the same physical host.
-	//     tunnel_hostname: Cloudflare tunnel hostname for SSH access.
-	//     status: Current sandbox state (available, claimed, maintenance, reserved).
-	//     claimed_by: User ID of the developer who claimed this sandbox.
-	//     claimed_at: Timestamp when the sandbox was claimed.
-	//     ssh_user: SSH username for connections (default: revyl-admin).
-	//     ssh_port: SSH port number (default: 22).
-	//     specs: Hardware specifications (cpu_cores, memory_gb, chip).
-	//     tags: Flexible labels for filtering (location, tier, etc.).
-	//     created_at: When the sandbox was added to the pool.
-	//     updated_at: Last modification timestamp.
-	ClaimedSandbox *FleetSandbox `json:"claimed_sandbox,omitempty"`
-
-	// Sandboxes All sandboxes
-	Sandboxes []FleetSandbox `json:"sandboxes"`
-
-	// Status Summary statistics for the Fleet sandbox pool.
-	//
-	// Provides a quick overview of pool availability and usage.
-	//
-	// Attributes:
-	//     total: Total number of sandboxes in the pool.
-	//     available: Number of sandboxes available for claiming.
-	//     claimed: Number of sandboxes currently claimed.
-	//     maintenance: Number of sandboxes under maintenance.
-	Status FleetPoolStatus `json:"status"`
-
-	// Tunnels Active tunnels
-	Tunnels *[]FleetTunnel `json:"tunnels,omitempty"`
-
-	// Worktrees User's worktrees
-	Worktrees *[]FleetWorktree `json:"worktrees,omitempty"`
-}
-
-// FleetPoolStatus Summary statistics for the Fleet sandbox pool.
-//
-// Provides a quick overview of pool availability and usage.
-//
-// Attributes:
-//
-//	total: Total number of sandboxes in the pool.
-//	available: Number of sandboxes available for claiming.
-//	claimed: Number of sandboxes currently claimed.
-//	maintenance: Number of sandboxes under maintenance.
-type FleetPoolStatus struct {
-	// Available Available sandboxes
-	Available int `json:"available"`
-
-	// Claimed Claimed sandboxes
-	Claimed int `json:"claimed"`
-
-	// Maintenance Sandboxes under maintenance
-	Maintenance *int `json:"maintenance,omitempty"`
-
-	// Total Total sandboxes in pool
-	Total int `json:"total"`
-}
-
-// FleetSandbox Represents a virtual machine sandbox in the Fleet pool.
-//
-// Sandboxes are Mac Mini VMs that developers can claim for development work.
-// Each sandbox can host multiple git repositories and worktrees.
-//
-// Attributes:
-//
-//	id: Unique identifier for the sandbox (UUID).
-//	org_id: Organization ID that owns this sandbox (NULL = shared pool).
-//	vm_name: VM name (e.g., "sandbox-1").
-//	hostname: Human-readable hostname for display.
-//	sandbox_type: Type of sandbox (dedicated machine or container).
-//	host_identifier: Groups sandboxes running on the same physical host.
-//	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
-//	status: Current sandbox state (available, claimed, maintenance, reserved).
-//	claimed_by: User ID of the developer who claimed this sandbox.
-//	claimed_at: Timestamp when the sandbox was claimed.
-//	ssh_user: SSH username for connections (default: revyl-admin).
-//	ssh_port: SSH port number (default: 22).
-//	specs: Hardware specifications (cpu_cores, memory_gb, chip).
-//	tags: Flexible labels for filtering (location, tier, etc.).
-//	created_at: When the sandbox was added to the pool.
-//	updated_at: Last modification timestamp.
-type FleetSandbox struct {
-	// ClaimedAt When sandbox was claimed
-	ClaimedAt *time.Time `json:"claimed_at"`
-
-	// ClaimedBy User ID of claiming developer
-	ClaimedBy *string `json:"claimed_by"`
-
-	// CreatedAt Creation timestamp
-	CreatedAt *time.Time `json:"created_at"`
-
-	// HostIdentifier Physical host grouping identifier
-	HostIdentifier *string `json:"host_identifier"`
-
-	// Hostname Human-readable hostname
-	Hostname *string `json:"hostname"`
-
-	// Id Unique sandbox identifier (UUID)
-	Id string `json:"id"`
-
-	// OrgId Organization ID (NULL = shared pool)
-	OrgId *string `json:"org_id"`
-
-	// SandboxType Sandbox type (dedicated or container)
-	SandboxType *FleetSandboxSandboxType `json:"sandbox_type,omitempty"`
-
-	// Specs Hardware specs (cpu_cores, memory_gb, chip)
-	Specs *map[string]interface{} `json:"specs"`
-
-	// SshPort SSH port
-	SshPort *int `json:"ssh_port,omitempty"`
-
-	// SshUser SSH username
-	SshUser *string `json:"ssh_user,omitempty"`
-
-	// SsmInstanceId AWS SSM managed instance ID for remote command execution
-	SsmInstanceId *string `json:"ssm_instance_id"`
-
-	// Status Current sandbox state
-	Status *FleetSandboxStatus `json:"status,omitempty"`
-
-	// Tags Flexible labels for filtering
-	Tags *map[string]interface{} `json:"tags"`
-
-	// TunnelHostname Cloudflare tunnel hostname for SSH
-	TunnelHostname *string `json:"tunnel_hostname"`
-
-	// UpdatedAt Last update timestamp
-	UpdatedAt *time.Time `json:"updated_at"`
-
-	// VmName VM name (e.g., 'sandbox-1')
-	VmName string `json:"vm_name"`
-}
-
-// FleetSandboxSandboxType Sandbox type (dedicated or container)
-type FleetSandboxSandboxType string
-
-// FleetSandboxStatus Current sandbox state
-type FleetSandboxStatus string
-
-// FleetTunnel Represents an active Cloudflare tunnel on a sandbox.
-//
-// Tunnels provide temporary public URLs for accessing services
-// running on sandboxes (e.g., frontend dev server, API).
-//
-// Attributes:
-//
-//	port: Local port being tunneled.
-//	url: Public Cloudflare tunnel URL.
-//	pid: Process ID of the cloudflared process.
-//	branch: Optional worktree branch associated with this tunnel.
-//	sandbox_name: Name of the sandbox hosting this tunnel.
-//	service_name: Human-readable service name (e.g., "frontend", "backend").
-type FleetTunnel struct {
-	// Branch Associated worktree branch
-	Branch *string `json:"branch"`
-
-	// Pid cloudflared process ID
-	Pid int `json:"pid"`
-
-	// Port Local port being tunneled
-	Port int `json:"port"`
-
-	// SandboxName Sandbox VM name
-	SandboxName *string `json:"sandbox_name"`
-
-	// ServiceName Service name
-	ServiceName *string `json:"service_name"`
-
-	// Url Public tunnel URL
-	Url string `json:"url"`
-}
-
-// FleetWorktree Represents a git worktree on a Fleet sandbox.
-//
-// Worktrees allow multiple branches to be checked out simultaneously
-// on the same sandbox, enabling parallel development work.
-//
-// Attributes:
-//
-//	branch: Git branch name for this worktree.
-//	path: Filesystem path on the sandbox.
-//	is_main: Whether this is the main/primary worktree.
-//	repo: Repository name (e.g., "cognisim-monorepo").
-//	sandbox_name: Name of the sandbox hosting this worktree.
-//	sandbox_id: UUID of the sandbox hosting this worktree.
-//	branched_from: Base branch this worktree was created from.
-//	created_at: When the worktree was created.
-type FleetWorktree struct {
-	// Branch Git branch name
-	Branch string `json:"branch"`
-
-	// BranchedFrom Base branch for this worktree
-	BranchedFrom *string `json:"branched_from"`
-
-	// CreatedAt Creation timestamp
-	CreatedAt *time.Time `json:"created_at"`
-
-	// IsMain Is main worktree
-	IsMain *bool `json:"is_main,omitempty"`
-
-	// Path Filesystem path on sandbox
-	Path string `json:"path"`
-
-	// Repo Repository name
-	Repo string `json:"repo"`
-
-	// SandboxId Sandbox UUID
-	SandboxId *string `json:"sandbox_id"`
-
-	// SandboxName Sandbox VM name
-	SandboxName string `json:"sandbox_name"`
-}
-
-// FlywheelConfigResponse defines model for FlywheelConfigResponse.
-type FlywheelConfigResponse struct {
-	Enabled bool `json:"enabled"`
-}
-
-// FlywheelConfigUpdateRequest defines model for FlywheelConfigUpdateRequest.
-type FlywheelConfigUpdateRequest struct {
-	Enabled bool `json:"enabled"`
-}
-
-// FlywheelEvalResultResponse Response model for a single flywheel eval result.
-type FlywheelEvalResultResponse struct {
-	AnnotatedCount     *int                  `json:"annotated_count,omitempty"`
-	CreatedAt          *time.Time            `json:"created_at"`
-	DeviceHeight       *int                  `json:"device_height"`
-	DeviceWidth        *int                  `json:"device_width"`
-	EnabledJudges      *map[string]bool      `json:"enabled_judges"`
-	ErrorTypes         *map[string]int       `json:"error_types"`
-	FalsePositiveCount *int                  `json:"false_positive_count,omitempty"`
-	GroundedSteps      *int                  `json:"grounded_steps,omitempty"`
-	GrounderType       *string               `json:"grounder_type"`
-	GroundingErrors    *int                  `json:"grounding_errors,omitempty"`
-	Id                 openapi_types.UUID    `json:"id"`
-	ManifestUrl        *string               `json:"manifest_url"`
-	OrgId              *openapi_types.UUID   `json:"org_id"`
-	Platform           *string               `json:"platform"`
-	ReviewStatus       *string               `json:"review_status,omitempty"`
-	ReviewedAt         *time.Time            `json:"reviewed_at"`
-	ReviewedBy         *string               `json:"reviewed_by"`
-	StepResults        *[]FlywheelStepResult `json:"step_results"`
-	TaskId             openapi_types.UUID    `json:"task_id"`
-	TestId             *openapi_types.UUID   `json:"test_id"`
-	TestName           *string               `json:"test_name"`
-	TotalSteps         *int                  `json:"total_steps,omitempty"`
-	WorkflowId         *openapi_types.UUID   `json:"workflow_id"`
-}
-
-// FlywheelLoadStepsRequest Request body for the internal load-steps endpoint.
-type FlywheelLoadStepsRequest struct {
-	GrounderType *string `json:"grounder_type"`
-	ManifestUrl  *string `json:"manifest_url"`
-	OrgId        *string `json:"org_id"`
-	TaskId       string  `json:"task_id"`
-}
-
-// FlywheelLoadStepsResponse Response from the internal load-steps endpoint.
-//
-// step_inputs is a list of dicts (serialized StepEvalInput) to avoid
-// importing the full eval schema in the workflow.
-type FlywheelLoadStepsResponse struct {
-	GroundedSteps int                      `json:"grounded_steps"`
-	ManifestUrl   *string                  `json:"manifest_url"`
-	StepInputs    []map[string]interface{} `json:"step_inputs"`
-	TestId        *string                  `json:"test_id"`
-	TotalSteps    int                      `json:"total_steps"`
-}
-
-// FlywheelMonitorResponse Top-level response for GET /monitor.
-type FlywheelMonitorResponse struct {
-	ErrorRate          float32                  `json:"error_rate"`
-	ErrorTrend         *float32                 `json:"error_trend"`
-	ErrorTypeBreakdown []ErrorTypeBreakdownItem `json:"error_type_breakdown"`
-	ErrorsDelta        *int                     `json:"errors_delta"`
-	EvalsDelta         *int                     `json:"evals_delta"`
-	GrounderBreakdown  []MonitorBreakdownItem   `json:"grounder_breakdown"`
-	PlatformBreakdown  []MonitorBreakdownItem   `json:"platform_breakdown"`
-	Timeseries         []MonitorTimeseriesPoint `json:"timeseries"`
-	TotalErrors        int                      `json:"total_errors"`
-	TotalEvals         int                      `json:"total_evals"`
-	TotalGroundedSteps int                      `json:"total_grounded_steps"`
-}
-
-// FlywheelStepImageUrls Image URLs for a flywheel step result.
-type FlywheelStepImageUrls struct {
-	After  *string `json:"after"`
-	Before *string `json:"before"`
-	Tagged *string `json:"tagged"`
-}
-
-// FlywheelStepResult A single step result in a flywheel eval.
-type FlywheelStepResult struct {
-	ActionType       *string `json:"action_type"`
-	ActualElement    *string `json:"actual_element"`
-	AgentDescription *string `json:"agent_description"`
-	Annotated        *bool   `json:"annotated,omitempty"`
-	Correct          *bool   `json:"correct"`
-	Dismissed        *bool   `json:"dismissed,omitempty"`
-	ErrorType        *string `json:"error_type"`
-	Explanation      *string `json:"explanation"`
-	GrounderHint     *string `json:"grounder_hint"`
-
-	// ImageUrls Image URLs for a flywheel step result.
-	ImageUrls       *FlywheelStepImageUrls `json:"image_urls,omitempty"`
-	IsRetry         *bool                  `json:"is_retry,omitempty"`
-	RetryIndex      *int                   `json:"retry_index"`
-	Reviewed        *bool                  `json:"reviewed,omitempty"`
-	StepDescription *string                `json:"step_description"`
-	StepId          *string                `json:"step_id"`
-	StepIndex       int                    `json:"step_index"`
-	Target          *string                `json:"target"`
-	X               *int                   `json:"x"`
-	Y               *int                   `json:"y"`
-}
-
-// FlywheelStoreResultsRequest Request body for the internal store-results endpoint.
-type FlywheelStoreResultsRequest struct {
-	EnabledJudges   *map[string]bool      `json:"enabled_judges"`
-	ErrorTypes      *map[string]int       `json:"error_types"`
-	GroundedSteps   *int                  `json:"grounded_steps,omitempty"`
-	GrounderType    *string               `json:"grounder_type"`
-	GroundingErrors *int                  `json:"grounding_errors,omitempty"`
-	ManifestUrl     *string               `json:"manifest_url"`
-	OrgId           *string               `json:"org_id"`
-	Platform        *string               `json:"platform"`
-	ReviewStatus    *string               `json:"review_status,omitempty"`
-	StepResults     *[]FlywheelStepResult `json:"step_results,omitempty"`
-	TaskId          string                `json:"task_id"`
-	TestId          *string               `json:"test_id"`
-	TestName        *string               `json:"test_name"`
-	TotalSteps      *int                  `json:"total_steps,omitempty"`
-	WorkflowId      *string               `json:"workflow_id"`
-}
-
-// FlywheelStoreResultsResponse Response from the internal store-results endpoint.
-type FlywheelStoreResultsResponse struct {
-	EvalResultId *string `json:"eval_result_id"`
-}
-
-// FlywheelTriggerRequest Request from CLI to trigger flywheel eval for a completed test.
-type FlywheelTriggerRequest struct {
-	GrounderType *string `json:"grounder_type"`
-	ManifestUrl  *string `json:"manifest_url"`
-	OrgId        *string `json:"org_id"`
-	Platform     *string `json:"platform"`
-	TaskId       string  `json:"task_id"`
-	TestId       *string `json:"test_id"`
-	TestName     *string `json:"test_name"`
-	WorkflowId   *string `json:"workflow_id"`
-}
-
-// FlywheelTriggerResponse defines model for FlywheelTriggerResponse.
-type FlywheelTriggerResponse struct {
-	Accepted bool   `json:"accepted"`
-	Message  string `json:"message"`
-}
 
 // GenerateWorkflowShareableLinkRequest defines model for GenerateWorkflowShareableLinkRequest.
 type GenerateWorkflowShareableLinkRequest struct {
@@ -4219,27 +1592,6 @@ type GenerateWorkflowShareableLinkRequest struct {
 type GenerateWorkflowShareableLinkResponse struct {
 	ChildLinksCreated *int   `json:"child_links_created"`
 	ShareableLink     string `json:"shareable_link"`
-}
-
-// GetVariableValueResponse Response for get variable value endpoint.
-type GetVariableValueResponse struct {
-	// Message Status message
-	Message string `json:"message"`
-
-	// Result Value of the variable
-	Result string `json:"result"`
-}
-
-// GetWorkflowDetailResponse defines model for GetWorkflowDetailResponse.
-type GetWorkflowDetailResponse struct {
-	// Data Enriched workflow data for detail view.
-	Data WorkflowDetailData `json:"data"`
-}
-
-// GetWorkflowTaskStatusResponse defines model for GetWorkflowTaskStatusResponse.
-type GetWorkflowTaskStatusResponse struct {
-	// Status Status of the workflow task
-	Status string `json:"status"`
 }
 
 // GetWorkflowsWithLastStatusResponse defines model for GetWorkflowsWithLastStatusResponse.
@@ -4279,14 +1631,6 @@ type GetWorkflowsWithLastStatusResponse struct {
 type GitHubInstallUrlResponse struct {
 	InstallUrl string `json:"install_url"`
 	StateToken string `json:"state_token"`
-}
-
-// GitHubUser defines model for GitHubUser.
-type GitHubUser struct {
-	AvatarUrl string  `json:"avatar_url"`
-	Id        int     `json:"id"`
-	Login     string  `json:"login"`
-	Name      *string `json:"name"`
 }
 
 // GlobalVariableCreate Request model for creating a global variable.
@@ -4361,16 +1705,6 @@ type GlobalVariableUpdate struct {
 	VariableValue *string `json:"variable_value"`
 }
 
-// GlobalVariableValueUpdate Request model for setting a global variable's value by name.
-//
-// Used by step-execution callers (extraction / code-execution blocks) that
-// write into pre-existing, non-secret global variables. Secrets and
-// metadata changes go through the full GlobalVariableUpdate path.
-type GlobalVariableValueUpdate struct {
-	// VariableValue New variable value
-	VariableValue string `json:"variable_value"`
-}
-
 // GlobalVariablesResponse Response model for global variable list operations.
 type GlobalVariablesResponse struct {
 	// Message Response message
@@ -4436,36 +1770,6 @@ type GroundResponse struct {
 	Y *int `json:"y,omitempty"`
 }
 
-// GrounderHintErrorType Types of grounder_hint quality errors that can occur.
-type GrounderHintErrorType string
-
-// GrounderHintEval Evaluation result for grounder_hint quality (Moondream-friendliness).
-type GrounderHintEval struct {
-	// AvoidsUiJargon Whether it avoids UI-specific terminology
-	AvoidsUiJargon *bool `json:"avoids_ui_jargon,omitempty"`
-
-	// Correct Whether the grounder_hint is a good Moondream-friendly description
-	Correct bool `json:"correct"`
-
-	// DescribesEmptySpace For INPUT actions: whether it describes the empty area
-	DescribesEmptySpace *bool `json:"describes_empty_space"`
-
-	// ErrorType Types of grounder_hint quality errors that can occur.
-	ErrorType *GrounderHintErrorType `json:"error_type,omitempty"`
-
-	// Explanation Brief reasoning
-	Explanation *string `json:"explanation"`
-
-	// GrounderHint The grounder_hint that was evaluated
-	GrounderHint *string `json:"grounder_hint"`
-
-	// Target The original target for comparison
-	Target *string `json:"target"`
-
-	// UsesVisualCues Whether it describes shapes, colors, or visible text
-	UsesVisualCues *bool `json:"uses_visual_cues,omitempty"`
-}
-
 // GrounderType Unified grounder configuration that determines both approach and model.
 //
 // - UNIFIED: Use instruction LLM for both instruction and grounding (returns coordinates)
@@ -4474,145 +1778,9 @@ type GrounderHintEval struct {
 // - NULL: Skip grounding (for testing/debugging)
 type GrounderType string
 
-// GroundingCorrectionDetail defines model for GroundingCorrectionDetail.
-type GroundingCorrectionDetail struct {
-	ActionType     *string   `json:"action_type"`
-	ActualBboxX1   *int      `json:"actual_bbox_x1"`
-	ActualBboxX2   *int      `json:"actual_bbox_x2"`
-	ActualBboxY1   *int      `json:"actual_bbox_y1"`
-	ActualBboxY2   *int      `json:"actual_bbox_y2"`
-	ActualX        *int      `json:"actual_x"`
-	ActualY        *int      `json:"actual_y"`
-	BeforeImageKey *string   `json:"before_image_key"`
-	BeforeImageUrl *string   `json:"before_image_url"`
-	CreatedAt      time.Time `json:"created_at"`
-	GrounderTarget *string   `json:"grounder_target"`
-	Id             string    `json:"id"`
-	Instruction    *string   `json:"instruction"`
-	PredictedX     *int      `json:"predicted_x"`
-	PredictedY     *int      `json:"predicted_y"`
-	RawTarget      *string   `json:"raw_target"`
-	StepId         string    `json:"step_id"`
-	TaskId         string    `json:"task_id"`
-}
-
-// GroundingCorrectionItem defines model for GroundingCorrectionItem.
-type GroundingCorrectionItem struct {
-	ActionType     *string   `json:"action_type"`
-	ActualBboxX1   *int      `json:"actual_bbox_x1"`
-	ActualBboxX2   *int      `json:"actual_bbox_x2"`
-	ActualBboxY1   *int      `json:"actual_bbox_y1"`
-	ActualBboxY2   *int      `json:"actual_bbox_y2"`
-	ActualX        *int      `json:"actual_x"`
-	ActualY        *int      `json:"actual_y"`
-	BeforeImageKey *string   `json:"before_image_key"`
-	CreatedAt      time.Time `json:"created_at"`
-	GrounderTarget *string   `json:"grounder_target"`
-	Id             string    `json:"id"`
-	Instruction    *string   `json:"instruction"`
-	PredictedX     *int      `json:"predicted_x"`
-	PredictedY     *int      `json:"predicted_y"`
-	RawTarget      *string   `json:"raw_target"`
-	StepId         string    `json:"step_id"`
-	TaskId         string    `json:"task_id"`
-}
-
-// GroundingCorrectionQueueResponse defines model for GroundingCorrectionQueueResponse.
-type GroundingCorrectionQueueResponse struct {
-	Items []GroundingCorrectionItem `json:"items"`
-	Total int                       `json:"total"`
-}
-
-// GroundingCorrectionUpdateRequest defines model for GroundingCorrectionUpdateRequest.
-type GroundingCorrectionUpdateRequest struct {
-	ActualBboxX1 *int `json:"actual_bbox_x1"`
-	ActualBboxX2 *int `json:"actual_bbox_x2"`
-	ActualBboxY1 *int `json:"actual_bbox_y1"`
-	ActualBboxY2 *int `json:"actual_bbox_y2"`
-	ActualX      *int `json:"actual_x"`
-	ActualY      *int `json:"actual_y"`
-}
-
-// GroundingErrorType Types of grounding errors that can occur.
-type GroundingErrorType string
-
-// GroundingEval Evaluation result for grounding accuracy.
-type GroundingEval struct {
-	// ActualElement What the click actually hit
-	ActualElement *string `json:"actual_element"`
-
-	// Correct Whether the click landed on the correct element
-	Correct bool `json:"correct"`
-
-	// ErrorType Types of grounding errors that can occur.
-	ErrorType *GroundingErrorType `json:"error_type,omitempty"`
-
-	// Explanation Brief reasoning
-	Explanation *string `json:"explanation"`
-
-	// Target The intended target element
-	Target *string `json:"target"`
-}
-
-// HITLApprovalDecision Request to record approval decision
-type HITLApprovalDecision struct {
-	ApprovalId openapi_types.UUID           `json:"approval_id"`
-	Comments   *string                      `json:"comments"`
-	Decision   HITLApprovalDecisionDecision `json:"decision"`
-}
-
-// HITLApprovalDecisionDecision defines model for HITLApprovalDecision.Decision.
-type HITLApprovalDecisionDecision string
-
-// HITLApprovalRequest Request to create HITL approval record.
-//
-// Note: 'test_execution_task_id' is kept for API compatibility.
-// Internally this maps to 'test_execution_id' in the new schema.
-type HITLApprovalRequest struct {
-	AutomatedResult     bool               `json:"automated_result"`
-	OrgId               string             `json:"org_id"`
-	ReportUrl           string             `json:"report_url"`
-	TestExecutionTaskId openapi_types.UUID `json:"test_execution_task_id"`
-	TimeoutMinutes      *int               `json:"timeout_minutes,omitempty"`
-	UserId              string             `json:"user_id"`
-}
-
-// HITLApprovalResponse Response with approval record details.
-//
-// Note: 'test_execution_task_id' is kept for API compatibility.
-type HITLApprovalResponse struct {
-	ApprovalTimestamp   *time.Time          `json:"approval_timestamp"`
-	ApproverUserId      *openapi_types.UUID `json:"approver_user_id"`
-	AutomatedResult     bool                `json:"automated_result"`
-	Comments            *string             `json:"comments"`
-	CreatedAt           time.Time           `json:"created_at"`
-	Decision            string              `json:"decision"`
-	FinalResult         bool                `json:"final_result"`
-	Id                  openapi_types.UUID  `json:"id"`
-	OrgId               string              `json:"org_id"`
-	ReportUrl           string              `json:"report_url"`
-	TestExecutionTaskId openapi_types.UUID  `json:"test_execution_task_id"`
-	TimeoutMinutes      int                 `json:"timeout_minutes"`
-	UpdatedAt           time.Time           `json:"updated_at"`
-}
-
-// HITLDecisionRecorded Response after recording decision
-type HITLDecisionRecorded struct {
-	ApprovalId  openapi_types.UUID `json:"approval_id"`
-	Decision    string             `json:"decision"`
-	FinalResult bool               `json:"final_result"`
-	Success     bool               `json:"success"`
-}
-
 // HTTPValidationError defines model for HTTPValidationError.
 type HTTPValidationError struct {
 	Detail *[]ValidationError `json:"detail,omitempty"`
-}
-
-// HealthCheckResponse defines model for HealthCheckResponse.
-type HealthCheckResponse struct {
-	// Status Status of the health check
-	Status string `json:"status"`
 }
 
 // HotReloadRelayCreateRequest defines model for HotReloadRelayCreateRequest.
@@ -4673,39 +1841,6 @@ type IfBlock_ThenChildren_Item struct {
 	union json.RawMessage
 }
 
-// InstructionEval Evaluation result for instruction LLM suggestion compliance.
-type InstructionEval struct {
-	// Explanation How well it aligned or why it diverged
-	Explanation *string `json:"explanation"`
-
-	// FollowedSuggestion Whether the instruction LLM followed the reflection suggestion
-	FollowedSuggestion bool `json:"followed_suggestion"`
-
-	// Suggestion The suggestion that was given
-	Suggestion *string `json:"suggestion"`
-}
-
-// InternalSendNotificationRequest Request from workflow runtime to send notifications.
-type InternalSendNotificationRequest struct {
-	DurationSeconds float32                  `json:"duration_seconds"`
-	OrgId           openapi_types.UUID       `json:"org_id"`
-	ReportUrl       *string                  `json:"report_url"`
-	Status          *string                  `json:"status,omitempty"`
-	Success         bool                     `json:"success"`
-	TaskId          *string                  `json:"task_id"`
-	TestCount       *int                     `json:"test_count"`
-	TestResults     []map[string]interface{} `json:"test_results"`
-	WorkflowId      string                   `json:"workflow_id"`
-	WorkflowName    string                   `json:"workflow_name"`
-}
-
-// InternalSendNotificationResponse Response from internal notification endpoint.
-type InternalSendNotificationResponse struct {
-	FailedCount  *int `json:"failed_count,omitempty"`
-	SentCount    *int `json:"sent_count,omitempty"`
-	SkippedCount *int `json:"skipped_count,omitempty"`
-}
-
 // IosStoreKitConfigRef Explicit iOS StoreKit Testing config choice for one scope.
 type IosStoreKitConfigRef struct {
 	ContentType *string                       `json:"content_type"`
@@ -4749,12 +1884,6 @@ type IosStoreKitConfigRefUpsertRequestMode string
 // IosStoreKitConfigRefUpsertRequestScopeType defines model for IosStoreKitConfigRefUpsertRequest.ScopeType.
 type IosStoreKitConfigRefUpsertRequestScopeType string
 
-// IosStoreKitConfigRefsResponse Response for iOS StoreKit config ref lists.
-type IosStoreKitConfigRefsResponse struct {
-	Message string                  `json:"message"`
-	Result  *[]IosStoreKitConfigRef `json:"result,omitempty"`
-}
-
 // IosStoreKitConfigSnapshot Resolved iOS StoreKit config snapshot carried to worker launch.
 type IosStoreKitConfigSnapshot struct {
 	Available   *bool               `json:"available,omitempty"`
@@ -4770,25 +1899,6 @@ type IosStoreKitConfigSnapshot struct {
 	Source      *string             `json:"source"`
 }
 
-// LLMCallCreate Request model for creating an LLM call record.
-type LLMCallCreate struct {
-	CompletionTokens *int     `json:"completion_tokens,omitempty"`
-	CostUsd          *float32 `json:"cost_usd"`
-	FunctionName     *string  `json:"function_name"`
-	LatencyMs        *int     `json:"latency_ms"`
-	ModelName        string   `json:"model_name"`
-	PromptTokens     *int     `json:"prompt_tokens,omitempty"`
-	SessionId        string   `json:"session_id"`
-	SourceId         *string  `json:"source_id"`
-}
-
-// LLMCallResponse Response model for LLM call operations.
-type LLMCallResponse struct {
-	Id      *string `json:"id"`
-	Message string  `json:"message"`
-	Success bool    `json:"success"`
-}
-
 // LLMConfig Configuration for LLM models used in different stages.
 type LLMConfig struct {
 	// PlanningModel LLM model for planning, defaults to primary_model if not set
@@ -4801,190 +1911,6 @@ type LLMConfig struct {
 	ReflectionModel *string `json:"reflection_model"`
 }
 
-// LLMDetailsResponse Response containing full LLM call details from KeywordsAI.
-type LLMDetailsResponse struct {
-	// CompletionMessage The assistant's completion/response message.
-	CompletionMessage *CompletionMessage `json:"completion_message,omitempty"`
-
-	// CompletionTokens Output token count
-	CompletionTokens *int `json:"completion_tokens"`
-
-	// Cost Request cost in USD
-	Cost *float32 `json:"cost"`
-
-	// LatencySeconds Total latency in seconds
-	LatencySeconds *float32 `json:"latency_seconds"`
-
-	// LogType Type of log (chat, completion, etc.)
-	LogType *string `json:"log_type"`
-
-	// Model LLM model used
-	Model *string `json:"model"`
-
-	// PromptMessages Full input messages array
-	PromptMessages *[]LLMMessage `json:"prompt_messages"`
-
-	// PromptTokens Input token count
-	PromptTokens *int `json:"prompt_tokens"`
-
-	// RawInput JSON-serialized raw input
-	RawInput *string `json:"raw_input"`
-
-	// RawOutput JSON-serialized raw output
-	RawOutput *string `json:"raw_output"`
-
-	// Status Request status
-	Status *string `json:"status"`
-
-	// TimeToFirstToken TTFT in seconds
-	TimeToFirstToken *float32 `json:"time_to_first_token"`
-
-	// Timestamp Request timestamp
-	Timestamp *string `json:"timestamp"`
-
-	// TokensPerSecond Output throughput
-	TokensPerSecond *float32 `json:"tokens_per_second"`
-
-	// TotalTokens Total token count
-	TotalTokens *int `json:"total_tokens"`
-
-	// UniqueId KeywordsAI unique identifier
-	UniqueId string `json:"unique_id"`
-}
-
-// LLMMessage A single message in the LLM conversation (OpenAI-compatible format).
-type LLMMessage struct {
-	// Content Message content (string or multimodal array)
-	Content *LLMMessage_Content `json:"content"`
-
-	// Name Name for tool/function messages
-	Name *string `json:"name"`
-
-	// Role Message role (system, user, assistant, tool)
-	Role string `json:"role"`
-
-	// ToolCallId ID of the tool call this message responds to
-	ToolCallId *string `json:"tool_call_id"`
-
-	// ToolCalls Tool/function calls if role is assistant
-	ToolCalls            *[]ToolCall            `json:"tool_calls"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// LLMMessageContent0 defines model for .
-type LLMMessageContent0 = string
-
-// LLMMessageContent1 defines model for .
-type LLMMessageContent1 = []MultimodalContentPart
-
-// LLMMessage_Content Message content (string or multimodal array)
-type LLMMessage_Content struct {
-	union json.RawMessage
-}
-
-// LinearAtlasContextRequest defines model for LinearAtlasContextRequest.
-type LinearAtlasContextRequest struct {
-	AppId           string  `json:"app_id"`
-	AtlasUrl        *string `json:"atlas_url"`
-	BuildId         *string `json:"build_id"`
-	Kind            *string `json:"kind"`
-	NodeId          string  `json:"node_id"`
-	PreviewEntityId *string `json:"preview_entity_id"`
-	ScreenshotUrl   *string `json:"screenshot_url"`
-	Title           *string `json:"title"`
-}
-
-// LinearIntegration defines model for LinearIntegration.
-type LinearIntegration struct {
-	ConnectedAt        *time.Time `json:"connected_at"`
-	ConnectedBy        *string    `json:"connected_by"`
-	DefaultLabelIds    *[]string  `json:"default_label_ids,omitempty"`
-	DefaultProjectId   *string    `json:"default_project_id"`
-	DefaultProjectName *string    `json:"default_project_name"`
-	DefaultTeamId      *string    `json:"default_team_id"`
-	DefaultTeamName    *string    `json:"default_team_name"`
-	Enabled            *bool      `json:"enabled,omitempty"`
-	Id                 string     `json:"id"`
-	OrgId              string     `json:"org_id"`
-	WorkspaceId        *string    `json:"workspace_id"`
-	WorkspaceName      *string    `json:"workspace_name"`
-}
-
-// LinearIntegrationResponse defines model for LinearIntegrationResponse.
-type LinearIntegrationResponse struct {
-	Configured      *bool              `json:"configured,omitempty"`
-	Connected       bool               `json:"connected"`
-	Integration     *LinearIntegration `json:"integration,omitempty"`
-	OauthConfigured *bool              `json:"oauth_configured,omitempty"`
-}
-
-// LinearIssueRequest defines model for LinearIssueRequest.
-type LinearIssueRequest struct {
-	AssigneeId          *string                    `json:"assignee_id"`
-	Atlas               *LinearAtlasContextRequest `json:"atlas,omitempty"`
-	Description         *string                    `json:"description"`
-	ExecutionId         *string                    `json:"execution_id"`
-	LabelIds            *[]string                  `json:"label_ids,omitempty"`
-	Priority            *int                       `json:"priority"`
-	ProjectId           *string                    `json:"project_id"`
-	ReportId            *string                    `json:"report_id"`
-	Source              LinearIssueRequestSource   `json:"source"`
-	StateId             *string                    `json:"state_id"`
-	TeamId              *string                    `json:"team_id"`
-	Title               *string                    `json:"title"`
-	WorkflowExecutionId *string                    `json:"workflow_execution_id"`
-}
-
-// LinearIssueRequestSource defines model for LinearIssueRequest.Source.
-type LinearIssueRequestSource string
-
-// LinearIssueResponse defines model for LinearIssueResponse.
-type LinearIssueResponse struct {
-	Identifier         string `json:"identifier"`
-	IssueId            string `json:"issue_id"`
-	ScreenshotAttached *bool  `json:"screenshot_attached,omitempty"`
-	Url                string `json:"url"`
-}
-
-// LinearOAuthUrlResponse defines model for LinearOAuthUrlResponse.
-type LinearOAuthUrlResponse struct {
-	OauthUrl   string `json:"oauth_url"`
-	StateToken string `json:"state_token"`
-}
-
-// LinearOption defines model for LinearOption.
-type LinearOption struct {
-	Color *string `json:"color"`
-	Email *string `json:"email"`
-	Id    string  `json:"id"`
-	Key   *string `json:"key"`
-	Name  string  `json:"name"`
-	State *string `json:"state"`
-}
-
-// LinearOptionsResponse defines model for LinearOptionsResponse.
-type LinearOptionsResponse struct {
-	Items []LinearOption `json:"items"`
-}
-
-// LinearSettingsRequest defines model for LinearSettingsRequest.
-type LinearSettingsRequest struct {
-	DefaultLabelIds    *[]string `json:"default_label_ids,omitempty"`
-	DefaultProjectId   *string   `json:"default_project_id"`
-	DefaultProjectName *string   `json:"default_project_name"`
-	DefaultTeamId      string    `json:"default_team_id"`
-	DefaultTeamName    *string   `json:"default_team_name"`
-}
-
-// ListExpoBuildsRequest defines model for ListExpoBuildsRequest.
-type ListExpoBuildsRequest struct {
-	// Limit Max builds to return (1-50)
-	Limit *int `json:"limit,omitempty"`
-
-	// ProjectId Expo project ID (UUID)
-	ProjectId string `json:"project_id"`
-}
-
 // LocationConfig GPS location configuration for simulator/emulator.
 type LocationConfig struct {
 	// Latitude GPS latitude coordinate (-90 to 90)
@@ -4994,63 +1920,12 @@ type LocationConfig struct {
 	Longitude float32 `json:"longitude"`
 }
 
-// ManualTriggerRequest defines model for ManualTriggerRequest.
-type ManualTriggerRequest struct {
-	// AppId Revyl build variable ID to update
-	AppId string `json:"app_id"`
-
-	// ExpoBuildUrl URL to the Expo build artifact
-	ExpoBuildUrl string `json:"expo_build_url"`
-
-	// Version Version string for the build (auto-generated if not provided)
-	Version *string `json:"version"`
-}
-
-// ManualTriggerResponse defines model for ManualTriggerResponse.
-type ManualTriggerResponse struct {
-	BuildId *string `json:"build_id"`
-	Message string  `json:"message"`
-	Version *string `json:"version"`
-}
-
-// MintRunnerTokenRequest defines model for MintRunnerTokenRequest.
-type MintRunnerTokenRequest struct {
-	OrgId string `json:"org_id"`
-}
-
-// MintRunnerTokenResponse defines model for MintRunnerTokenResponse.
-type MintRunnerTokenResponse struct {
-	BackendUrl string `json:"backend_url"`
-	Token      string `json:"token"`
-}
-
 // MobileTarget Persisted device target for a test (from “test_mobile_targets“).
 //
 // “AUTO/AUTO“ represents "follow the platform default at runtime".
 type MobileTarget struct {
 	DeviceModel string `json:"device_model"`
 	OsVersion   string `json:"os_version"`
-}
-
-// ModelCostBreakdown Cost breakdown for a single model.
-type ModelCostBreakdown struct {
-	// CallCount Number of calls to this model
-	CallCount int `json:"call_count"`
-
-	// CompletionTokens Total completion tokens
-	CompletionTokens int `json:"completion_tokens"`
-
-	// CostUsd Total cost in USD
-	CostUsd float32 `json:"cost_usd"`
-
-	// ModelName Name of the LLM model
-	ModelName string `json:"model_name"`
-
-	// PromptTokens Total prompt tokens
-	PromptTokens int `json:"prompt_tokens"`
-
-	// TotalTokens Total tokens (prompt + completion)
-	TotalTokens int `json:"total_tokens"`
 }
 
 // ModuleBlock Individual block within a module - matches FrontendBlock structure.
@@ -5117,11 +1992,6 @@ type ModuleSingleResponse struct {
 	Result ModuleResponse `json:"result"`
 }
 
-// ModuleUsageCountsResponse Response model for batch module usage counts
-type ModuleUsageCountsResponse struct {
-	Counts map[string]int `json:"counts"`
-}
-
 // ModuleUsageResponse Response model for module usage lookup
 type ModuleUsageResponse struct {
 	Tests []ModuleUsageTestItem `json:"tests"`
@@ -5157,120 +2027,6 @@ type ModuleVersionListResponse struct {
 type ModulesListResponse struct {
 	Message string           `json:"message"`
 	Result  []ModuleResponse `json:"result"`
-}
-
-// MonitorBreakdownItem A single row in platform or grounder breakdown.
-type MonitorBreakdownItem struct {
-	Errors        int    `json:"errors"`
-	EvalCount     int    `json:"eval_count"`
-	GroundedSteps int    `json:"grounded_steps"`
-	Label         string `json:"label"`
-}
-
-// MonitorTimeseriesPoint A single day in the timeseries chart.
-type MonitorTimeseriesPoint struct {
-	Date          string  `json:"date"`
-	ErrorRate     float32 `json:"error_rate"`
-	Errors        int     `json:"errors"`
-	Evals         int     `json:"evals"`
-	GroundedSteps int     `json:"grounded_steps"`
-}
-
-// MultimodalContentPart A single part of multimodal content (text or image).
-type MultimodalContentPart struct {
-	// ImageUrl Image URL object if type is 'image_url'
-	ImageUrl *map[string]string `json:"image_url"`
-
-	// Text Text content if type is 'text'
-	Text *string `json:"text"`
-
-	// Type Content type: 'text' or 'image_url'
-	Type                 string                 `json:"type"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// NormalizedActionBlock Leaf/action block in normalized dictionary form.
-//
-// Note: ID is always present after conversion (auto-generated by ConversionService).
-type NormalizedActionBlock struct {
-	File            *string                             `json:"file,omitempty"`
-	FileUri         *string                             `json:"file_uri,omitempty"`
-	Id              string                              `json:"id"`
-	Module          *string                             `json:"module,omitempty"`
-	ModuleId        *string                             `json:"module_id,omitempty"`
-	Script          *string                             `json:"script,omitempty"`
-	ScriptId        *string                             `json:"script_id,omitempty"`
-	StepDescription *string                             `json:"step_description,omitempty"`
-	StepType        string                              `json:"step_type"`
-	Type            NormalizedActionBlockType           `json:"type"`
-	VariableName    *string                             `json:"variable_name,omitempty"`
-	VariableScope   *NormalizedActionBlockVariableScope `json:"variable_scope,omitempty"`
-}
-
-// NormalizedActionBlockType defines model for NormalizedActionBlock.Type.
-type NormalizedActionBlockType string
-
-// NormalizedActionBlockVariableScope defines model for NormalizedActionBlock.VariableScope.
-type NormalizedActionBlockVariableScope string
-
-// NormalizedIfBlock Conditional block in normalized dictionary form.
-//
-// Note: ID is always present after conversion (auto-generated by ConversionService).
-type NormalizedIfBlock struct {
-	ElseChildren    []NormalizedIfBlock_ElseChildren_Item `json:"elseChildren"`
-	Id              string                                `json:"id"`
-	StepDescription string                                `json:"step_description"`
-	ThenChildren    []NormalizedIfBlock_ThenChildren_Item `json:"thenChildren"`
-	Type            string                                `json:"type"`
-}
-
-// NormalizedIfBlock_ElseChildren_Item defines model for NormalizedIfBlock.elseChildren.Item.
-type NormalizedIfBlock_ElseChildren_Item struct {
-	union json.RawMessage
-}
-
-// NormalizedIfBlock_ThenChildren_Item defines model for NormalizedIfBlock.thenChildren.Item.
-type NormalizedIfBlock_ThenChildren_Item struct {
-	union json.RawMessage
-}
-
-// NormalizedWhileBlock Loop block in normalized dictionary form.
-//
-// Note: ID is always present after conversion (auto-generated by ConversionService).
-type NormalizedWhileBlock struct {
-	Children        []NormalizedWhileBlock_Children_Item `json:"children"`
-	Id              string                               `json:"id"`
-	StepDescription string                               `json:"step_description"`
-	Type            string                               `json:"type"`
-}
-
-// NormalizedWhileBlock_Children_Item defines model for NormalizedWhileBlock.children.Item.
-type NormalizedWhileBlock_Children_Item struct {
-	union json.RawMessage
-}
-
-// NotificationRuleWorkflow Minimal workflow info for display in notification rules.
-type NotificationRuleWorkflow struct {
-	Id   openapi_types.UUID `json:"id"`
-	Name string             `json:"name"`
-}
-
-// OnboardingStatusResponse defines model for OnboardingStatusResponse.
-type OnboardingStatusResponse struct {
-	Checklist             *ChecklistState         `json:"checklist,omitempty"`
-	ChecklistCompleted    *bool                   `json:"checklist_completed,omitempty"`
-	FirstActivationAt     *time.Time              `json:"first_activation_at"`
-	OrgHasApps            *bool                   `json:"org_has_apps,omitempty"`
-	OrgHasPriorActivation *bool                   `json:"org_has_prior_activation,omitempty"`
-	Personalization       *PersonalizationState   `json:"personalization,omitempty"`
-	ProvisionError        *string                 `json:"provision_error"`
-	ProvisionStatus       string                  `json:"provision_status"`
-	ProvisionedResources  *map[string]interface{} `json:"provisioned_resources"`
-	SignupCohort          *string                 `json:"signup_cohort,omitempty"`
-	TourCompleted         bool                    `json:"tour_completed"`
-	TourSkipped           bool                    `json:"tour_skipped"`
-	TrialSessionsLimit    *int                    `json:"trial_sessions_limit,omitempty"`
-	TrialSessionsUsed     *int                    `json:"trial_sessions_used,omitempty"`
 }
 
 // OrgFile Full org file model with database fields.
@@ -5345,27 +2101,6 @@ type OrgFileListResponse struct {
 	Files []OrgFile `json:"files"`
 }
 
-// OrgFileReferenceTest A test that references an org file (via play_audio / download_file).
-type OrgFileReferenceTest struct {
-	// Id Test id
-	Id string `json:"id"`
-
-	// Name Test name
-	Name string `json:"name"`
-
-	// Platform Test platform
-	Platform *string `json:"platform"`
-}
-
-// OrgFileReferencesResponse Response model for the tests that reference an org file.
-type OrgFileReferencesResponse struct {
-	// Count Number of referencing tests
-	Count int `json:"count"`
-
-	// Tests Non-deleted tests referencing this file
-	Tests []OrgFileReferenceTest `json:"tests"`
-}
-
 // OrgFileUpdate Model for updating an org file.
 type OrgFileUpdate struct {
 	// Description Description
@@ -5420,15 +2155,6 @@ type OrgInstallation struct {
 	PropelOrgId           string             `json:"propel_org_id"`
 	Status                string             `json:"status"`
 	VerifiedAt            *time.Time         `json:"verified_at"`
-}
-
-// OrgLaunchEnvVarAttachRequest Request model for attaching a launch variable to a test.
-type OrgLaunchEnvVarAttachRequest struct {
-	// EnvVarId Org launch variable ID
-	EnvVarId string `json:"env_var_id"`
-
-	// TestId Test ID
-	TestId string `json:"test_id"`
 }
 
 // OrgLaunchEnvVarCreate Request model for creating an org launch environment variable.
@@ -5522,94 +2248,12 @@ type OrgRepository struct {
 	Repo           string `json:"repo"`
 }
 
-// OrgTestMonitorItemInput Single test item for org-wide monitoring.
-//
-// Uses 'id' instead of 'task_id' as the primary identifier.
-// Status uses SessionStatus directly (queued, starting, running, etc.).
-type OrgTestMonitorItemInput struct {
-	AppPackage *string `json:"app_package"`
-
-	// CanCancel Whether current user can cancel this test
-	CanCancel        *bool      `json:"can_cancel,omitempty"`
-	CreatedAt        *time.Time `json:"created_at"`
-	CurrentStep      *string    `json:"current_step"`
-	CurrentStepIndex *int       `json:"current_step_index,omitempty"`
-
-	// ErrorMessage Error headline, empty if no errors
-	ErrorMessage             *string `json:"error_message,omitempty"`
-	EstimatedDurationSeconds *int    `json:"estimated_duration_seconds"`
-
-	// Id Execution ID
-	Id       openapi_types.UUID `json:"id"`
-	Platform *string            `json:"platform"`
-	Progress float32            `json:"progress"`
-
-	// Source Execution source: ui, cli, api, ci_cd, or workflow
-	Source    *string    `json:"source,omitempty"`
-	StartedAt *time.Time `json:"started_at"`
-
-	// Status Device session status - the single source of truth for test execution state.
-	//
-	// Matches the session_status enum in the database.
-	// Note: Ordering matters - follows the typical lifecycle progression.
-	//
-	// Status flow:
-	//     QUEUED → STARTING → RUNNING → STOPPING → COMPLETED/FAILED/TIMEOUT/CANCELLED
-	//                                 ↘ VERIFYING → STOPPING
-	Status         SessionStatus      `json:"status"`
-	StepsCompleted *int               `json:"steps_completed,omitempty"`
-	TestId         openapi_types.UUID `json:"test_id"`
-	TestName       string             `json:"test_name"`
-	TotalSteps     *int               `json:"total_steps,omitempty"`
-
-	// TraceId OpenTelemetry trace ID (32 hex chars, no dashes) for Grafana correlation
-	TraceId   *string    `json:"trace_id"`
-	UpdatedAt *time.Time `json:"updated_at"`
-
-	// WhepUrl WHEP URL for live video stream playback
-	WhepUrl *string `json:"whep_url"`
-
-	// WorkflowExecutionId Workflow execution ID if running as part of a workflow
-	WorkflowExecutionId *openapi_types.UUID `json:"workflow_execution_id"`
-}
-
-// OrgWorkflowMonitorItem Workflow monitor item for organization monitoring.
-//
-// Uses WorkflowExecutionsBaseSchema (new schema with 'id' instead of 'task_id').
-type OrgWorkflowMonitorItem struct {
-	CanCancel bool    `json:"can_cancel"`
-	Progress  float32 `json:"progress"`
-	Source    *string `json:"source,omitempty"`
-
-	// Task WorkflowExecutions Base Schema for the new workflow_executions table.
-	//
-	// This replaces WorkflowTasksBaseSchema with cleaner field names:
-	// - id (was task_id) - Primary key
-	// - source (was user_id) - Execution source enum
-	Task         WorkflowExecutionsBaseSchema `json:"task"`
-	WorkflowName string                       `json:"workflow_name"`
-}
-
-// OrgWorkflowMonitorState State model for organization workflow monitoring.
-type OrgWorkflowMonitorState struct {
-	LastUpdate       time.Time                `json:"last_update"`
-	OrgId            string                   `json:"org_id"`
-	RunningWorkflows []OrgWorkflowMonitorItem `json:"running_workflows"`
-	TotalActive      int                      `json:"total_active"`
-}
-
 // OrganizationRepositoriesResponse defines model for OrganizationRepositoriesResponse.
 type OrganizationRepositoriesResponse struct {
 	GithubIntegrationEnabled bool            `json:"github_integration_enabled"`
 	HasAccess                bool            `json:"has_access"`
 	Installation             OrgInstallation `json:"installation"`
 	Repositories             []OrgRepository `json:"repositories"`
-}
-
-// OrganizationUsersResponse defines model for OrganizationUsersResponse.
-type OrganizationUsersResponse struct {
-	TotalCount int          `json:"total_count"`
-	Users      []GitHubUser `json:"users"`
 }
 
 // PaginatedAppsResponse Paginated response for apps.
@@ -5639,17 +2283,6 @@ type PaginatedAppsResponse struct {
 	TotalPages int `json:"total_pages"`
 }
 
-// PaginatedBuildRunsResponse defines model for PaginatedBuildRunsResponse.
-type PaginatedBuildRunsResponse struct {
-	HasNext     bool            `json:"has_next"`
-	HasPrevious bool            `json:"has_previous"`
-	Items       *[]BuildRunItem `json:"items,omitempty"`
-	Page        int             `json:"page"`
-	PageSize    int             `json:"page_size"`
-	Total       int             `json:"total"`
-	TotalPages  int             `json:"total_pages"`
-}
-
 // PaginatedBuildsResponse Paginated response for builds.
 type PaginatedBuildsResponse struct {
 	// HasNext Whether there is a next page
@@ -5672,19 +2305,6 @@ type PaginatedBuildsResponse struct {
 
 	// TotalPages Total number of pages
 	TotalPages int `json:"total_pages"`
-}
-
-// PersonalizationRequest defines model for PersonalizationRequest.
-type PersonalizationRequest struct {
-	Answers *map[string]interface{} `json:"answers,omitempty"`
-}
-
-// PersonalizationState defines model for PersonalizationState.
-type PersonalizationState struct {
-	Answers     *map[string]interface{} `json:"answers,omitempty"`
-	Completed   *bool                   `json:"completed,omitempty"`
-	CompletedAt *time.Time              `json:"completed_at"`
-	ShouldShow  *bool                   `json:"should_show,omitempty"`
 }
 
 // PlanInfo defines model for PlanInfo.
@@ -5742,439 +2362,6 @@ type PlatformTargetConfig struct {
 	DefaultPair DevicePair `json:"default_pair"`
 }
 
-// PortalRequest defines model for PortalRequest.
-type PortalRequest struct {
-	ReturnUrl string `json:"return_url"`
-}
-
-// PortalResponse defines model for PortalResponse.
-type PortalResponse struct {
-	Url string `json:"url"`
-}
-
-// PrReviewConfigSummary Compact, serializable summary of a parsed “pr_review“ config.
-//
-// Used for the settings-page banner and the PR comment. Persisted into
-// “scm_review_configs.metadata“ via “model_dump(mode="json")“.
-type PrReviewConfigSummary struct {
-	Builds         *[]PrReviewConfigSummaryBuild `json:"builds,omitempty"`
-	Checks         *[]string                     `json:"checks,omitempty"`
-	Enabled        *bool                         `json:"enabled,omitempty"`
-	Preset         *string                       `json:"preset"`
-	PreviewLink    *bool                         `json:"preview_link,omitempty"`
-	ProofOfChanges *bool                         `json:"proof_of_changes,omitempty"`
-	Workflows      *[]string                     `json:"workflows,omitempty"`
-}
-
-// PrReviewConfigSummaryBuild One enabled preview build in a config summary.
-type PrReviewConfigSummaryBuild struct {
-	App           *string `json:"app"`
-	Framework     *string `json:"framework"`
-	Image         *string `json:"image"`
-	Platform      string  `json:"platform"`
-	UseExistingCi *bool   `json:"use_existing_ci,omitempty"`
-}
-
-// ProcessBillingSessionRequest defines model for ProcessBillingSessionRequest.
-type ProcessBillingSessionRequest struct {
-	SessionId     string  `json:"session_id"`
-	TriggerReason *string `json:"trigger_reason,omitempty"`
-	WorkflowRunId string  `json:"workflow_run_id"`
-}
-
-// ProcessBuildBillingRequest defines model for ProcessBuildBillingRequest.
-type ProcessBuildBillingRequest struct {
-	BuildJobId    string `json:"build_job_id"`
-	WorkflowRunId string `json:"workflow_run_id"`
-}
-
-// PropelMetadataResponse defines model for PropelMetadataResponse.
-type PropelMetadataResponse struct {
-	BrowserProvider  *string `json:"browser_provider"`
-	ConcurrencyLimit *int    `json:"concurrency_limit"`
-	ExpoToken        *string `json:"expo_token"`
-	ExpoWarning      *string `json:"expo_warning"`
-	ProxyEnabled     *bool   `json:"proxy_enabled"`
-}
-
-// ProviderCapabilities What a given provider supports, used to drive routing and UI.
-//
-// Attributes:
-//
-//	auth_type: How the provider authenticates (``api_key`` or ``oauth``).
-//	supports_followup: Whether a running agent accepts follow-up messages.
-//	supports_cancel: Whether a running agent can be cancelled.
-//	supports_model: Whether a model can be selected at spawn time.
-//	supports_listing: Whether runs can be listed for an app.
-//	requires_repository: Whether a repository must be supplied to spawn.
-type ProviderCapabilities struct {
-	AuthType           *ProviderCapabilitiesAuthType `json:"auth_type,omitempty"`
-	RequiresRepository *bool                         `json:"requires_repository,omitempty"`
-	SupportsCancel     *bool                         `json:"supports_cancel,omitempty"`
-	SupportsFollowup   *bool                         `json:"supports_followup,omitempty"`
-	SupportsListing    *bool                         `json:"supports_listing,omitempty"`
-	SupportsModel      *bool                         `json:"supports_model,omitempty"`
-}
-
-// ProviderCapabilitiesAuthType defines model for ProviderCapabilities.AuthType.
-type ProviderCapabilitiesAuthType string
-
-// ProviderDescriptor Static description of a provider plus its per-org connection status.
-//
-// Attributes:
-//
-//	id: Canonical provider id.
-//	label: Human-friendly provider name.
-//	capabilities: What the provider supports.
-//	connected: Whether the caller's org has connected this provider.
-//	configured: Whether the caller's org can spawn with this provider.
-//	account_label: Label for the connected credential, if known.
-type ProviderDescriptor struct {
-	AccountLabel *string `json:"account_label"`
-
-	// Capabilities What a given provider supports, used to drive routing and UI.
-	//
-	// Attributes:
-	//     auth_type: How the provider authenticates (``api_key`` or ``oauth``).
-	//     supports_followup: Whether a running agent accepts follow-up messages.
-	//     supports_cancel: Whether a running agent can be cancelled.
-	//     supports_model: Whether a model can be selected at spawn time.
-	//     supports_listing: Whether runs can be listed for an app.
-	//     requires_repository: Whether a repository must be supplied to spawn.
-	Capabilities ProviderCapabilities `json:"capabilities"`
-	Configured   *bool                `json:"configured,omitempty"`
-	Connected    *bool                `json:"connected,omitempty"`
-
-	// Id Canonical cloud-agent provider identifiers.
-	//
-	// Only Cursor is implemented today; add a member here when adding a provider
-	// so request bodies, the registry, and the frontend can do exhaustive handling.
-	Id    CloudAgentProviderId `json:"id"`
-	Label string               `json:"label"`
-}
-
-// ProvidersResponse Available cloud-agent providers + the caller's connection status.
-type ProvidersResponse struct {
-	Providers []ProviderDescriptor `json:"providers"`
-}
-
-// ProvisionResponse defines model for ProvisionResponse.
-type ProvisionResponse struct {
-	Message              string                  `json:"message"`
-	ProvisionedResources *map[string]interface{} `json:"provisioned_resources"`
-	Status               string                  `json:"status"`
-}
-
-// PushSSHKeyRequest Request payload for pushing an SSH public key to a sandbox.
-//
-// The backend will SSH into the sandbox and add the key to authorized_keys.
-//
-// Attributes:
-//
-//	public_key: The SSH public key content (e.g., "ssh-ed25519 AAAA... user@host").
-type PushSSHKeyRequest struct {
-	// PublicKey SSH public key content
-	PublicKey string `json:"public_key"`
-}
-
-// PushSSHKeyResponse Response from pushing an SSH key to a sandbox.
-//
-// Attributes:
-//
-//	success: Whether the key was successfully added.
-//	message: Human-readable status message.
-//	already_exists: Whether the key was already present.
-type PushSSHKeyResponse struct {
-	// AlreadyExists Whether key was already present
-	AlreadyExists *bool `json:"already_exists,omitempty"`
-
-	// Message Status message
-	Message string `json:"message"`
-
-	// Success Whether key push succeeded
-	Success bool `json:"success"`
-}
-
-// QualityBreakdown Breakdown of quality score components.
-type QualityBreakdown struct {
-	// BoundingBoxAccuracy Score for bounding box accuracy (0-100)
-	BoundingBoxAccuracy *float32 `json:"bounding_box_accuracy,omitempty"`
-
-	// GroundingAccuracy Score for grounding accuracy (0-100)
-	GroundingAccuracy float32 `json:"grounding_accuracy"`
-
-	// PathEfficiency Score for path efficiency (0-100)
-	PathEfficiency float32 `json:"path_efficiency"`
-
-	// ReflectionAccuracy Score for reflection accuracy (0-100)
-	ReflectionAccuracy float32 `json:"reflection_accuracy"`
-
-	// RetryRate Score for retry rate (0-100)
-	RetryRate float32 `json:"retry_rate"`
-
-	// SuggestionCompliance Score for suggestion compliance (0-100)
-	SuggestionCompliance float32 `json:"suggestion_compliance"`
-}
-
-// QualityGrade Quality grades for test execution.
-type QualityGrade string
-
-// QualityScore Overall quality assessment for a test execution.
-type QualityScore struct {
-	// Breakdown Breakdown of quality score components.
-	Breakdown QualityBreakdown `json:"breakdown"`
-
-	// FalsePositiveReason Reason for false positive flag
-	FalsePositiveReason *string `json:"false_positive_reason"`
-
-	// Grade Quality grades for test execution.
-	Grade QualityGrade `json:"grade"`
-
-	// ImprovementSuggestions Suggestions for improvement
-	ImprovementSuggestions *[]string `json:"improvement_suggestions,omitempty"`
-
-	// IsFalsePositive Whether this might be an accidental success
-	IsFalsePositive *bool `json:"is_false_positive,omitempty"`
-
-	// ReliabilityEstimate Estimate of how reliably this test would pass on re-run.
-	ReliabilityEstimate ReliabilityEstimate `json:"reliability_estimate"`
-
-	// Score Overall quality score (0-100)
-	Score float32 `json:"score"`
-
-	// WeakestComponent Which component was weakest in the test execution.
-	WeakestComponent WeakestComponent `json:"weakest_component"`
-}
-
-// RateCardItem defines model for RateCardItem.
-type RateCardItem struct {
-	AutumnFeatureId string  `json:"autumn_feature_id"`
-	DeviceType      string  `json:"device_type"`
-	Platform        string  `json:"platform"`
-	RatePerMinute   float32 `json:"rate_per_minute"`
-	RatePerSecond   float32 `json:"rate_per_second"`
-}
-
-// RateCardResponse defines model for RateCardResponse.
-type RateCardResponse struct {
-	Rates []RateCardItem `json:"rates"`
-}
-
-// RecordInstallRequestRequest defines model for RecordInstallRequestRequest.
-type RecordInstallRequestRequest struct {
-	GithubCode string `json:"github_code"`
-	StateToken string `json:"state_token"`
-}
-
-// RecordInstallRequestResponse defines model for RecordInstallRequestResponse.
-type RecordInstallRequestResponse struct {
-	MatchedRequest bool    `json:"matched_request"`
-	Reason         *string `json:"reason"`
-	Success        bool    `json:"success"`
-}
-
-// ReflectionAttemptEval Evaluation of a single reflection/retry attempt within a step.
-type ReflectionAttemptEval struct {
-	// AgentDescription Human-readable action description from Instructional LLM for this retry
-	AgentDescription *string `json:"agent_description"`
-
-	// BoundingBoxEval Evaluation result for Instructional LLM bounding box accuracy.
-	BoundingBoxEval *BoundingBoxEval `json:"bounding_box_eval,omitempty"`
-
-	// GrounderHintEval Evaluation result for grounder_hint quality (Moondream-friendliness).
-	GrounderHintEval *GrounderHintEval `json:"grounder_hint_eval,omitempty"`
-
-	// GroundingEval Evaluation result for grounding accuracy.
-	GroundingEval *GroundingEval `json:"grounding_eval,omitempty"`
-
-	// ImageBase64 Base64 before screenshot (fallback)
-	ImageBase64 *string `json:"image_base64"`
-
-	// ImageUrl URL to before screenshot
-	ImageUrl *string `json:"image_url"`
-
-	// InstructionEval Evaluation result for instruction LLM suggestion compliance.
-	InstructionEval *InstructionEval `json:"instruction_eval,omitempty"`
-
-	// PostActionImageBase64 Base64 after screenshot (fallback)
-	PostActionImageBase64 *string `json:"post_action_image_base64"`
-
-	// PostActionImageUrl URL to after screenshot
-	PostActionImageUrl *string `json:"post_action_image_url"`
-
-	// PrevSuggestion The suggestion from the previous attempt that led to this retry
-	PrevSuggestion *string `json:"prev_suggestion"`
-
-	// Reasoning Instructional LLM's visual analysis and reasoning for this retry
-	Reasoning *string `json:"reasoning"`
-
-	// ReflectionEval Evaluation result for reflection decision.
-	ReflectionEval *ReflectionEval `json:"reflection_eval,omitempty"`
-
-	// RetryIndex Index of this retry (0-based)
-	RetryIndex int `json:"retry_index"`
-
-	// SuggestionEval Evaluation result for reflection suggestion quality.
-	SuggestionEval *SuggestionQualityEval `json:"suggestion_eval,omitempty"`
-
-	// TaggedImageBase64 Base64 tagged screenshot (fallback)
-	TaggedImageBase64 *string `json:"tagged_image_base64"`
-
-	// TaggedImageUrl URL to tagged screenshot (with crosshair)
-	TaggedImageUrl *string `json:"tagged_image_url"`
-}
-
-// ReflectionErrorType Types of reflection errors that can occur.
-type ReflectionErrorType string
-
-// ReflectionEval Evaluation result for reflection decision.
-type ReflectionEval struct {
-	// ActualNextStep What next_step was
-	ActualNextStep *bool `json:"actual_next_step"`
-
-	// Correct Whether the reflection decision (next_step) was correct
-	Correct bool `json:"correct"`
-
-	// ErrorType Types of reflection errors that can occur.
-	ErrorType *ReflectionErrorType `json:"error_type,omitempty"`
-
-	// ExpectedNextStep What next_step should have been
-	ExpectedNextStep *bool `json:"expected_next_step"`
-
-	// Explanation Brief reasoning
-	Explanation *string `json:"explanation"`
-}
-
-// RefreshInstallationRequest defines model for RefreshInstallationRequest.
-type RefreshInstallationRequest struct {
-	InstallationId int    `json:"installation_id"`
-	StateToken     string `json:"state_token"`
-}
-
-// RegisterSandboxRequest Request payload for registering (upserting) a sandbox during provisioning.
-//
-// Called by the fleet CLI or Ansible playbook after provisioning a Mac.
-// Upserts into fleet_sandboxes by vm_name so the sandbox is discoverable
-// by the developer CLI and FleetDashboard.
-//
-// Attributes:
-//
-//	vm_name: Unique VM name (e.g., "Revyl-Mac-mini-W641QMFKQR").
-//	hostname: mDNS hostname (e.g., "Revyl-Mac-mini-W641QMFKQR.local").
-//	org_id: Organization ID to reserve this sandbox for. If set, only
-//	    users from this org can claim it. NULL means shared pool.
-//	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
-//	ssh_user: SSH username for connections (default: revyl-admin).
-//	ssh_port: SSH port number (default: 22).
-//	status: Initial sandbox status (default: available).
-//	specs: Hardware specifications (cpu_cores, memory_gb, chip).
-//	tags: Flexible labels for filtering (location, tier, etc.).
-//	db_env: Target database environment override. When set, the backend
-//	    routes the registration to the specified Supabase instance
-//	    instead of the backend's default. Use "staging" for internal
-//	    sandboxes and "production" for external/customer sandboxes.
-type RegisterSandboxRequest struct {
-	// DbEnv Target database environment override. If not specified, uses the backend's configured default.
-	DbEnv *RegisterSandboxRequestDbEnv `json:"db_env"`
-
-	// Hostname mDNS hostname
-	Hostname *string `json:"hostname"`
-
-	// OrgId Organization ID to reserve this sandbox for. If set, only users from this org can claim it. NULL means shared pool (available to all orgs).
-	OrgId *string `json:"org_id"`
-
-	// Specs Hardware specs (cpu_cores, memory_gb, chip)
-	Specs *map[string]interface{} `json:"specs"`
-
-	// SshPort SSH port
-	SshPort *int `json:"ssh_port,omitempty"`
-
-	// SshUser SSH username
-	SshUser *string `json:"ssh_user,omitempty"`
-
-	// SsmInstanceId AWS SSM managed instance ID (e.g., mi-0123...) for remote command execution
-	SsmInstanceId *string `json:"ssm_instance_id"`
-
-	// Status Initial sandbox status
-	Status *RegisterSandboxRequestStatus `json:"status,omitempty"`
-
-	// Tags Flexible labels for filtering
-	Tags *map[string]interface{} `json:"tags"`
-
-	// TunnelHostname Cloudflare tunnel hostname for SSH
-	TunnelHostname *string `json:"tunnel_hostname"`
-
-	// VmName Unique VM name (e.g., 'Revyl-Mac-mini-W641QMFKQR')
-	VmName string `json:"vm_name"`
-}
-
-// RegisterSandboxRequestDbEnv Target database environment override. If not specified, uses the backend's configured default.
-type RegisterSandboxRequestDbEnv string
-
-// RegisterSandboxRequestStatus Initial sandbox status
-type RegisterSandboxRequestStatus string
-
-// RegisterSandboxResponse Response from registering a sandbox.
-//
-// Attributes:
-//
-//	success: Whether the registration succeeded.
-//	created: True if a new row was inserted, False if
-//	    an existing row was updated.
-//	sandbox: The registered sandbox data.
-//	message: Human-readable status message.
-type RegisterSandboxResponse struct {
-	// Created True if new row inserted, False if updated
-	Created bool `json:"created"`
-
-	// Message Status message
-	Message string `json:"message"`
-
-	// Sandbox Represents a virtual machine sandbox in the Fleet pool.
-	//
-	// Sandboxes are Mac Mini VMs that developers can claim for development work.
-	// Each sandbox can host multiple git repositories and worktrees.
-	//
-	// Attributes:
-	//     id: Unique identifier for the sandbox (UUID).
-	//     org_id: Organization ID that owns this sandbox (NULL = shared pool).
-	//     vm_name: VM name (e.g., "sandbox-1").
-	//     hostname: Human-readable hostname for display.
-	//     sandbox_type: Type of sandbox (dedicated machine or container).
-	//     host_identifier: Groups sandboxes running on the same physical host.
-	//     tunnel_hostname: Cloudflare tunnel hostname for SSH access.
-	//     status: Current sandbox state (available, claimed, maintenance, reserved).
-	//     claimed_by: User ID of the developer who claimed this sandbox.
-	//     claimed_at: Timestamp when the sandbox was claimed.
-	//     ssh_user: SSH username for connections (default: revyl-admin).
-	//     ssh_port: SSH port number (default: 22).
-	//     specs: Hardware specifications (cpu_cores, memory_gb, chip).
-	//     tags: Flexible labels for filtering (location, tier, etc.).
-	//     created_at: When the sandbox was added to the pool.
-	//     updated_at: Last modification timestamp.
-	Sandbox FleetSandbox `json:"sandbox"`
-
-	// Success Whether registration succeeded
-	Success bool `json:"success"`
-}
-
-// ReleaseSandboxResponse Response from releasing a sandbox.
-//
-// Attributes:
-//
-//	success: Whether the release was successful.
-//	message: Human-readable status message.
-type ReleaseSandboxResponse struct {
-	// Message Status message
-	Message string `json:"message"`
-
-	// Success Whether release succeeded
-	Success bool `json:"success"`
-}
-
-// ReliabilityEstimate Estimate of how reliably this test would pass on re-run.
-type ReliabilityEstimate string
-
 // RemoteBuildArchiveSource Archive source previously uploaded through the remote upload-url endpoint.
 type RemoteBuildArchiveSource struct {
 	// Key S3 source archive key returned by upload-url.
@@ -6189,19 +2376,6 @@ type RemoteBuildGitSource struct {
 	Ref      *string `json:"ref"`
 	RepoUrl  string  `json:"repo_url"`
 	Type     string  `json:"type"`
-}
-
-// RemoteBuildListResponse Response listing remote build jobs for an app, newest first.
-//
-// Attributes:
-//
-//	app_id: UUID of the app the builds belong to.
-//	builds: Build job summaries ordered by creation time (newest first).
-//	active_count: Number of builds in the list still queued or running.
-type RemoteBuildListResponse struct {
-	ActiveCount *int                  `json:"active_count,omitempty"`
-	AppId       string                `json:"app_id"`
-	Builds      *[]RemoteBuildSummary `json:"builds,omitempty"`
 }
 
 // RemoteBuildLogEvent defines model for RemoteBuildLogEvent.
@@ -6327,36 +2501,6 @@ type RemoteBuildStatusResponse struct {
 	VersionId          *string                   `json:"version_id"`
 }
 
-// RemoteBuildSummary Compact summary of a single remote build job for list views.
-//
-// Attributes:
-//
-//	build_job_id: Unique identifier of the build job (used to poll status).
-//	status: Normalized public status (``pending`` / ``building`` /
-//	    ``success`` / ``failed`` / ``cancelled``).
-//	version: Version string of the build.
-//	platform: Build platform.
-//	phase: Detailed status/failure phase when available.
-//	build_id: UUID of the produced build version on success, when known.
-//	created_at: ISO timestamp when the build job was created.
-//	started_at: ISO timestamp when the build started executing.
-//	completed_at: ISO timestamp when the build finished.
-//	duration_ms: Build duration in milliseconds when known.
-//	is_active: Whether the build is still queued or running.
-type RemoteBuildSummary struct {
-	BuildId     *string    `json:"build_id"`
-	BuildJobId  string     `json:"build_job_id"`
-	CompletedAt *time.Time `json:"completed_at"`
-	CreatedAt   *time.Time `json:"created_at"`
-	DurationMs  *int       `json:"duration_ms"`
-	IsActive    *bool      `json:"is_active,omitempty"`
-	Phase       *string    `json:"phase"`
-	Platform    *string    `json:"platform"`
-	StartedAt   *time.Time `json:"started_at"`
-	Status      string     `json:"status"`
-	Version     *string    `json:"version"`
-}
-
 // RemoteBuildTriggerResponse Response returned immediately after a build is enqueued.
 //
 // Attributes:
@@ -6366,13 +2510,6 @@ type RemoteBuildSummary struct {
 type RemoteBuildTriggerResponse struct {
 	BuildJobId string  `json:"build_job_id"`
 	Status     *string `json:"status,omitempty"`
-}
-
-// RemoveWorkflowFromRuleResponse Response after removing a workflow from a rule.
-type RemoveWorkflowFromRuleResponse struct {
-	// Rule Notification rule with enriched workflow details.
-	Rule    SlackNotificationRuleWithWorkflows `json:"rule"`
-	Success bool                               `json:"success"`
 }
 
 // ReplaceTestLaunchEnvVarRefsRequest Request model for replacing launch variable attachments on a test.
@@ -6507,144 +2644,6 @@ type ReportContextStepResponse struct {
 	VideoTimestampStart   *float32                       `json:"video_timestamp_start"`
 }
 
-// ReportFindingCreate defines model for ReportFindingCreate.
-type ReportFindingCreate struct {
-	Body                    *string                    `json:"body"`
-	ExplorationRunSessionId *openapi_types.UUID        `json:"exploration_run_session_id"`
-	FeatureArea             *string                    `json:"feature_area"`
-	Kind                    *ReportFindingCreateKind   `json:"kind,omitempty"`
-	ReportActionId          *openapi_types.UUID        `json:"report_action_id"`
-	ReportId                *openapi_types.UUID        `json:"report_id"`
-	ReportStepId            *openapi_types.UUID        `json:"report_step_id"`
-	ScreenName              *string                    `json:"screen_name"`
-	SessionId               *openapi_types.UUID        `json:"session_id"`
-	Severity                *string                    `json:"severity"`
-	Source                  *ReportFindingCreateSource `json:"source,omitempty"`
-	StructuredPayload       *map[string]interface{}    `json:"structured_payload,omitempty"`
-	Title                   string                     `json:"title"`
-	WhatBlocked             *string                    `json:"what_blocked"`
-	WhatCustomerCanProvide  *string                    `json:"what_customer_can_provide"`
-}
-
-// ReportFindingCreateKind defines model for ReportFindingCreate.Kind.
-type ReportFindingCreateKind string
-
-// ReportFindingCreateSource defines model for ReportFindingCreate.Source.
-type ReportFindingCreateSource string
-
-// ReportV3Response Full report with steps and actions.
-type ReportV3Response struct {
-	AppId                  *string                   `json:"app_id"`
-	AppName                *string                   `json:"app_name"`
-	BuildVersion           *string                   `json:"build_version"`
-	CompletedAt            *string                   `json:"completed_at"`
-	CreatedAt              *string                   `json:"created_at"`
-	DeviceLogsS3Key        *string                   `json:"device_logs_s3_key"`
-	DeviceMetadata         *map[string]interface{}   `json:"device_metadata"`
-	DeviceModel            *string                   `json:"device_model"`
-	DeviceStatePartial     *bool                     `json:"device_state_partial"`
-	DeviceStateUrl         *string                   `json:"device_state_url"`
-	DurationSeconds        *float32                  `json:"duration_seconds"`
-	ErrorMessage           *string                   `json:"error_message"`
-	ErrorType              *string                   `json:"error_type"`
-	ExecutionId            *string                   `json:"execution_id"`
-	ExpectedStates         *[]map[string]interface{} `json:"expected_states"`
-	FailedSteps            *int                      `json:"failed_steps,omitempty"`
-	HardwareMetricsPartial *bool                     `json:"hardware_metrics_partial"`
-	HardwareMetricsUrl     *string                   `json:"hardware_metrics_url"`
-	Id                     string                    `json:"id"`
-	LaunchEnvVarIds        *[]string                 `json:"launch_env_var_ids"`
-	LaunchEnvVarKeys       *[]string                 `json:"launch_env_var_keys"`
-	Locale                 *string                   `json:"locale"`
-	NetworkRequestsPartial *bool                     `json:"network_requests_partial"`
-	NetworkRequestsUrl     *string                   `json:"network_requests_url"`
-	OrgId                  string                    `json:"org_id"`
-	OsVersion              *string                   `json:"os_version"`
-	PassedSteps            *int                      `json:"passed_steps,omitempty"`
-	PerfettoTraceUrl       *string                   `json:"perfetto_trace_url"`
-	Platform               *string                   `json:"platform"`
-	ResolvedBuildId        *string                   `json:"resolved_build_id"`
-	RunConfig              *map[string]interface{}   `json:"run_config"`
-	S3Bucket               *string                   `json:"s3_bucket"`
-	ScreenHeight           *int                      `json:"screen_height"`
-	ScreenWidth            *int                      `json:"screen_width"`
-	SessionId              *string                   `json:"session_id"`
-	SessionStatus          *string                   `json:"session_status"`
-	StartedAt              *string                   `json:"started_at"`
-	Steps                  *[]map[string]interface{} `json:"steps,omitempty"`
-	Success                *bool                     `json:"success"`
-	SystemPrompt           *string                   `json:"system_prompt"`
-	TestGoalSummary        *string                   `json:"test_goal_summary"`
-	TestId                 *string                   `json:"test_id"`
-	TestName               *string                   `json:"test_name"`
-	TestVersionId          *string                   `json:"test_version_id"`
-	TestVersionNumber      *int                      `json:"test_version_number"`
-	Tldr                   *map[string]interface{}   `json:"tldr"`
-	TotalSteps             *int                      `json:"total_steps,omitempty"`
-	TotalValidations       *int                      `json:"total_validations,omitempty"`
-	TraceId                *string                   `json:"trace_id"`
-	UpdatedAt              *string                   `json:"updated_at"`
-	ValidationsPassed      *int                      `json:"validations_passed,omitempty"`
-	VideoS3Key             *string                   `json:"video_s3_key"`
-	VideoUrl               *string                   `json:"video_url"`
-	WhepUrl                *string                   `json:"whep_url"`
-	WorkflowExecutionId    *string                   `json:"workflow_execution_id"`
-	WorkflowRunId          *string                   `json:"workflow_run_id"`
-}
-
-// ResolveBuildSecretsRequest defines model for ResolveBuildSecretsRequest.
-type ResolveBuildSecretsRequest struct {
-	OrgId      string   `json:"org_id"`
-	SecretRefs []string `json:"secret_refs"`
-}
-
-// ResolveBuildSecretsResponse defines model for ResolveBuildSecretsResponse.
-type ResolveBuildSecretsResponse struct {
-	Secrets map[string]string `json:"secrets"`
-}
-
-// ResolveExpoProjectRequest defines model for ResolveExpoProjectRequest.
-type ResolveExpoProjectRequest struct {
-	// ProjectId Expo project ID (EAS project UUID)
-	ProjectId string `json:"project_id"`
-}
-
-// ResolveExpoProjectResponse defines model for ResolveExpoProjectResponse.
-type ResolveExpoProjectResponse struct {
-	ExpoAccountName       *string   `json:"expo_account_name"`
-	ExpoProjectName       *string   `json:"expo_project_name"`
-	ExpoProjectResolvedAt time.Time `json:"expo_project_resolved_at"`
-	ExpoProjectSlug       *string   `json:"expo_project_slug"`
-	ExpoProjectUrl        *string   `json:"expo_project_url"`
-	ProjectId             string    `json:"project_id"`
-}
-
-// ResolveIosStoreKitConfigResponse Response for resolving the effective iOS StoreKit config.
-type ResolveIosStoreKitConfigResponse struct {
-	Message string `json:"message"`
-
-	// Result Resolved StoreKit config snapshot for a run/session.
-	Result ResolvedIosStoreKitConfig `json:"result"`
-}
-
-// ResolveSlackChannelRequest Request to resolve a Slack channel by free-form input.
-//
-// Accepts any of:
-// - A Slack channel URL (e.g. "https://foo.slack.com/archives/C0123ABCD")
-// - A bare channel ID (e.g. "C0123ABCD")
-type ResolveSlackChannelRequest struct {
-	Input string `json:"input"`
-}
-
-// ResolvedAppRepository Repository auto-resolved for an Atlas app (for spawn pre-selection).
-type ResolvedAppRepository struct {
-	// Repository Resolved repository URL, or null when unknown
-	Repository *string `json:"repository"`
-
-	// Source Where the repository came from ('scm' = GitHub preview link)
-	Source *string `json:"source"`
-}
-
 // ResolvedBuild Normalized representation of a resolved build artifact.
 type ResolvedBuild struct {
 	ArtifactUrl  *string                 `json:"artifact_url"`
@@ -6662,54 +2661,6 @@ type ResolvedBuild struct {
 	VersionId    *openapi_types.UUID     `json:"version_id"`
 }
 
-// ResolvedIosStoreKitConfig Resolved StoreKit config snapshot for a run/session.
-type ResolvedIosStoreKitConfig struct {
-	Available   *bool                               `json:"available,omitempty"`
-	ContentType *string                             `json:"content_type"`
-	Enabled     *bool                               `json:"enabled,omitempty"`
-	Error       *string                             `json:"error"`
-	FileId      *openapi_types.UUID                 `json:"file_id"`
-	FileSize    *int                                `json:"file_size"`
-	Filename    *string                             `json:"filename"`
-	Mode        *ResolvedIosStoreKitConfigMode      `json:"mode"`
-	ScopeId     *openapi_types.UUID                 `json:"scope_id"`
-	ScopeType   *ResolvedIosStoreKitConfigScopeType `json:"scope_type"`
-	Source      *ResolvedIosStoreKitConfigSource    `json:"source,omitempty"`
-}
-
-// ResolvedIosStoreKitConfigMode defines model for ResolvedIosStoreKitConfig.Mode.
-type ResolvedIosStoreKitConfigMode string
-
-// ResolvedIosStoreKitConfigScopeType defines model for ResolvedIosStoreKitConfig.ScopeType.
-type ResolvedIosStoreKitConfigScopeType string
-
-// ResolvedIosStoreKitConfigSource defines model for ResolvedIosStoreKitConfig.Source.
-type ResolvedIosStoreKitConfigSource string
-
-// ResolvedVariable A variable resolved from either local or global scope.
-type ResolvedVariable struct {
-	// IsSecret True for org-level secret globals. Callers must keep the value off any client-facing surface (instruction text, reports, logs).
-	IsSecret *bool `json:"is_secret,omitempty"`
-
-	// Source Source: 'local' or 'global'
-	Source string `json:"source"`
-
-	// VariableName Name of the variable
-	VariableName string `json:"variable_name"`
-
-	// VariableValue Resolved value
-	VariableValue *string `json:"variable_value"`
-}
-
-// ResolvedVariablesResponse Response model for the resolve endpoint.
-type ResolvedVariablesResponse struct {
-	// Message Response message
-	Message string `json:"message"`
-
-	// Result Merged list of resolved variables
-	Result []ResolvedVariable `json:"result"`
-}
-
 // RevokeCLIApiKeyRequest Request to revoke a browser-issued CLI API key.
 type RevokeCLIApiKeyRequest struct {
 	// ApiKeyId The PropelAuth-assigned API key ID to revoke.
@@ -6725,213 +2676,6 @@ type RevokeCLIApiKeyResponse struct {
 	Success bool `json:"success"`
 }
 
-// RunState Normalized lifecycle state of a cloud-agent run.
-//
-// Providers translate their own status vocabulary into one of these so the
-// UI can style runs without knowing vendor-specific strings.
-type RunState string
-
-// RunnerLogAppendRequest defines model for RunnerLogAppendRequest.
-type RunnerLogAppendRequest struct {
-	Events *[]SandboxBuildLogEvent `json:"events,omitempty"`
-}
-
-// RunnerResultRequest defines model for RunnerResultRequest.
-type RunnerResultRequest struct {
-	ArtifactS3Key *string                   `json:"artifact_s3_key"`
-	ArtifactType  *string                   `json:"artifact_type"`
-	Error         *string                   `json:"error"`
-	PackageId     *string                   `json:"package_id"`
-	Status        RunnerResultRequestStatus `json:"status"`
-}
-
-// RunnerResultRequestStatus defines model for RunnerResultRequest.Status.
-type RunnerResultRequestStatus string
-
-// RunningTestCoreInfo Core identification info for a running test.
-type RunningTestCoreInfo struct {
-	// Platform Platform (ios, android)
-	Platform string `json:"platform"`
-
-	// TestId Test identifier
-	TestId *openapi_types.UUID `json:"test_id"`
-
-	// TestName Name of the test
-	TestName string `json:"test_name"`
-}
-
-// RunningTestMetadataContent Typed metadata content for running tests (partial reports).
-//
-// This model provides structured fields for the metadata_content when a test
-// is still in progress. It shares a common interface with ReportView (used for
-// completed tests) to ensure consistent frontend consumption.
-//
-// Common fields with ReportView:
-//   - test_name, test_id, platform: Test identification
-//   - success: Test result (None = in-progress, True/False = completed)
-//   - steps_data: Step execution data
-//   - run_config: LLM and execution configuration
-//   - device_metadata: Device screen size, type, runtime
-//   - run_id: OpenTelemetry trace ID for correlation
-//   - workflow_run_id: Hatchet workflow ID (if part of workflow)
-//
-// Running-test specific fields:
-//   - _partial: Always True for running tests
-//   - _upload_status: Upload progress information
-//   - core_info: Nested test identification (for backwards compatibility)
-type RunningTestMetadataContent struct {
-	// Partial Indicates this is a partial report
-	Partial *bool `json:"_partial,omitempty"`
-
-	// UploadStatus Upload status for a running test.
-	UploadStatus *RunningTestUploadStatus `json:"_upload_status,omitempty"`
-
-	// AppName Name of the app used for this test
-	AppName *string `json:"app_name"`
-
-	// BuildVersion Version of the build used for this test
-	BuildVersion *string `json:"build_version"`
-
-	// CoreInfo Core identification info for a running test.
-	CoreInfo RunningTestCoreInfo `json:"core_info"`
-
-	// DeviceMetadata Device metadata captured at runtime for accurate coordinate scaling.
-	//
-	// This schema is still actively used and stored in the reports.device_metadata
-	// column in the database.
-	DeviceMetadata *DeviceMetadata `json:"device_metadata,omitempty"`
-
-	// ExecutionTime ISO timestamp when execution started
-	ExecutionTime string `json:"execution_time"`
-
-	// Platform Platform (ios, android)
-	Platform string `json:"platform"`
-
-	// RunConfig Complete configuration for a test run.
-	RunConfig *TestRunConfig `json:"run_config,omitempty"`
-
-	// RunId OpenTelemetry trace ID for correlation
-	RunId *openapi_types.UUID `json:"run_id"`
-
-	// StepsData Steps uploaded so far
-	StepsData *[]interface{} `json:"steps_data,omitempty"`
-
-	// Success None indicates in-progress, True/False for completed
-	Success *bool `json:"success"`
-
-	// TestId Test identifier
-	TestId *openapi_types.UUID `json:"test_id"`
-
-	// TestName Name of the test
-	TestName string `json:"test_name"`
-
-	// TotalValidations Total validation steps
-	TotalValidations *int `json:"total_validations,omitempty"`
-
-	// ValidationsPassed Validations passed so far
-	ValidationsPassed *int `json:"validations_passed,omitempty"`
-
-	// WorkflowRunId Hatchet workflow run ID if part of a workflow
-	WorkflowRunId        *openapi_types.UUID    `json:"workflow_run_id"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// RunningTestUploadStatus Upload status for a running test.
-type RunningTestUploadStatus struct {
-	// Message Human-readable status message
-	Message *string `json:"message,omitempty"`
-
-	// Status Status indicating test is still running
-	Status *string `json:"status,omitempty"`
-}
-
-// S3BucketInfo Model for S3 bucket information.
-type S3BucketInfo struct {
-	// Description Description of the bucket's purpose
-	Description string `json:"description"`
-
-	// Patterns Allowed file patterns for the bucket
-	Patterns []string `json:"patterns"`
-}
-
-// S3BucketsResponse Response model for listing allowed S3 buckets.
-type S3BucketsResponse struct {
-	// Buckets Map of bucket names to their configurations
-	Buckets map[string]S3BucketInfo `json:"buckets"`
-}
-
-// S3DeleteResponse Response model for S3 delete operation.
-type S3DeleteResponse struct {
-	// Bucket Name of the S3 bucket
-	Bucket string `json:"bucket"`
-
-	// Key Key/path of the deleted file
-	Key string `json:"key"`
-
-	// Message Status message
-	Message string `json:"message"`
-}
-
-// S3PresignedUrlResponse Response model for S3 presigned URL generation.
-type S3PresignedUrlResponse struct {
-	// Bucket Name of the S3 bucket
-	Bucket string `json:"bucket"`
-
-	// Key Key/path of the file
-	Key string `json:"key"`
-
-	// Url The presigned URL
-	Url string `json:"url"`
-}
-
-// S3PresignedUrlsRequest defines model for S3PresignedUrlsRequest.
-type S3PresignedUrlsRequest struct {
-	Keys *[]string `json:"keys,omitempty"`
-}
-
-// S3PresignedUrlsResponse defines model for S3PresignedUrlsResponse.
-type S3PresignedUrlsResponse struct {
-	Bucket string             `json:"bucket"`
-	Errors *map[string]string `json:"errors,omitempty"`
-	Urls   map[string]string  `json:"urls"`
-}
-
-// S3UploadResponse defines model for S3UploadResponse.
-type S3UploadResponse struct {
-	Bucket string `json:"bucket"`
-	Key    string `json:"key"`
-	Url    string `json:"url"`
-}
-
-// SSHKeyStatusResponse Response from checking SSH key status on a sandbox.
-//
-// Attributes:
-//
-//	configured: Whether an SSH key is configured for the user.
-//	key_fingerprint: Fingerprint of the configured key (if any).
-//	sandbox_reachable: Whether the sandbox is reachable via SSH.
-type SSHKeyStatusResponse struct {
-	// Configured Whether SSH key is configured
-	Configured bool `json:"configured"`
-
-	// KeyFingerprint Key fingerprint if configured
-	KeyFingerprint *string `json:"key_fingerprint"`
-
-	// SandboxReachable Whether sandbox is reachable
-	SandboxReachable *bool `json:"sandbox_reachable,omitempty"`
-}
-
-// SandboxBuildLogEvent defines model for SandboxBuildLogEvent.
-type SandboxBuildLogEvent struct {
-	Level     *SandboxBuildLogEventLevel `json:"level,omitempty"`
-	Message   string                     `json:"message"`
-	StepIndex int                        `json:"step_index"`
-	Ts        time.Time                  `json:"ts"`
-}
-
-// SandboxBuildLogEventLevel defines model for SandboxBuildLogEvent.Level.
-type SandboxBuildLogEventLevel string
-
 // ScmActions defines model for ScmActions.
 type ScmActions struct {
 	AdaptiveSystemPrompt      *string   `json:"adaptive_system_prompt"`
@@ -6939,36 +2683,6 @@ type ScmActions struct {
 	CuratedWorkflows          *[]string `json:"curated_workflows,omitempty"`
 	NaturalLanguageAssertions *[]string `json:"natural_language_assertions,omitempty"`
 	PreviewLink               *bool     `json:"preview_link,omitempty"`
-}
-
-// ScmAdaptiveReportFailRequest defines model for ScmAdaptiveReportFailRequest.
-type ScmAdaptiveReportFailRequest struct {
-	Error         string             `json:"error"`
-	ReviewRunId   openapi_types.UUID `json:"review_run_id"`
-	WorkflowRunId *string            `json:"workflow_run_id"`
-}
-
-// ScmAdaptiveReportProcessRequest defines model for ScmAdaptiveReportProcessRequest.
-type ScmAdaptiveReportProcessRequest struct {
-	ReviewRunId   openapi_types.UUID `json:"review_run_id"`
-	TriggerSource *string            `json:"trigger_source,omitempty"`
-	WorkflowRunId *string            `json:"workflow_run_id"`
-}
-
-// ScmAdaptiveReportProcessResponse defines model for ScmAdaptiveReportProcessResponse.
-type ScmAdaptiveReportProcessResponse struct {
-	Message   string             `json:"message"`
-	ReportUrl *string            `json:"report_url"`
-	RunId     openapi_types.UUID `json:"run_id"`
-	Status    string             `json:"status"`
-	Success   bool               `json:"success"`
-}
-
-// ScmBuildTarget defines model for ScmBuildTarget.
-type ScmBuildTarget struct {
-	BuildConfigurationId openapi_types.UUID `json:"build_configuration_id"`
-	Enabled              *bool              `json:"enabled,omitempty"`
-	UseExistingCi        *bool              `json:"use_existing_ci,omitempty"`
 }
 
 // ScmBuildTargetResponse defines model for ScmBuildTargetResponse.
@@ -6988,77 +2702,6 @@ type ScmBuildTargetResponse struct {
 
 // ScmBuildTargetResponsePlatform defines model for ScmBuildTargetResponse.Platform.
 type ScmBuildTargetResponsePlatform string
-
-// ScmConfigCreateRequest defines model for ScmConfigCreateRequest.
-type ScmConfigCreateRequest struct {
-	Namespace string `json:"namespace"`
-	Project   string `json:"project"`
-}
-
-// ScmConfigDeleteResponse defines model for ScmConfigDeleteResponse.
-type ScmConfigDeleteResponse struct {
-	Id           openapi_types.UUID `json:"id"`
-	RepoFullName string             `json:"repo_full_name"`
-}
-
-// ScmConfigFilePushRequest A “.revyl/config.yaml“ pushed directly from the CLI.
-//
-// Attributes:
-//
-//	namespace: Repository owner/namespace (e.g. ``revyl``).
-//	project: Repository name (e.g. ``my-app``).
-//	content: The raw YAML contents of the config file.
-//	config_file_path: The repo-relative path the file lives at; used only
-//	    for display in the settings UI.
-type ScmConfigFilePushRequest struct {
-	ConfigFilePath *string `json:"config_file_path,omitempty"`
-	Content        string  `json:"content"`
-	Namespace      string  `json:"namespace"`
-	Project        string  `json:"project"`
-}
-
-// ScmConfigFileRescanResponse Result of an on-demand config-file re-scan (or CLI config push).
-type ScmConfigFileRescanResponse struct {
-	// State Detection state of the committed ``.revyl/config.yaml`` for a repo.
-	//
-	// Attributes:
-	//     status: ``managed`` (file applied), ``error`` (file present but
-	//         unusable), or ``none`` (UI-managed; no usable file).
-	//     config_file_path: The detected file path, if any.
-	//     commit_sha: The detected file blob sha, if any.
-	//     html_url: A link to the file on the provider, if any.
-	//     error: An actionable error message, if any.
-	//     summary: Compact summary of the applied config, if managed.
-	//     synced_at: ISO timestamp of the last reconcile, if any.
-	State ScmConfigFileStateResponse `json:"state"`
-}
-
-// ScmConfigFileStateResponse Detection state of the committed “.revyl/config.yaml“ for a repo.
-//
-// Attributes:
-//
-//	status: ``managed`` (file applied), ``error`` (file present but
-//	    unusable), or ``none`` (UI-managed; no usable file).
-//	config_file_path: The detected file path, if any.
-//	commit_sha: The detected file blob sha, if any.
-//	html_url: A link to the file on the provider, if any.
-//	error: An actionable error message, if any.
-//	summary: Compact summary of the applied config, if managed.
-//	synced_at: ISO timestamp of the last reconcile, if any.
-type ScmConfigFileStateResponse struct {
-	CommitSha      *string `json:"commit_sha"`
-	ConfigFilePath *string `json:"config_file_path"`
-	Error          *string `json:"error"`
-	HtmlUrl        *string `json:"html_url"`
-	Status         string  `json:"status"`
-
-	// Summary Compact, serializable summary of a parsed ``pr_review`` config.
-	//
-	// Used for the settings-page banner and the PR comment. Persisted into
-	// ``scm_review_configs.metadata`` via ``model_dump(mode="json")``.
-	Summary  *PrReviewConfigSummary `json:"summary,omitempty"`
-	SyncedAt *string                `json:"synced_at"`
-}
 
 // ScmConfigResponse defines model for ScmConfigResponse.
 type ScmConfigResponse struct {
@@ -7086,25 +2729,6 @@ type ScmConfigResponse struct {
 	SkipDrafts     bool        `json:"skip_drafts"`
 }
 
-// ScmConfigSyncResponse defines model for ScmConfigSyncResponse.
-type ScmConfigSyncResponse struct {
-	Config       ScmConfigResponse `json:"config"`
-	Repositories int               `json:"repositories"`
-	Success      bool              `json:"success"`
-}
-
-// ScmConfigUpdateRequest defines model for ScmConfigUpdateRequest.
-type ScmConfigUpdateRequest struct {
-	Actions      *ScmActions       `json:"actions,omitempty"`
-	BuildTargets *[]ScmBuildTarget `json:"build_targets"`
-	Enabled      *bool             `json:"enabled,omitempty"`
-	LabelFilters *[]string         `json:"label_filters,omitempty"`
-	PathFilters  *[]string         `json:"path_filters,omitempty"`
-	Preset       *string           `json:"preset,omitempty"`
-	Profiles     *ScmProfiles      `json:"profiles,omitempty"`
-	SkipDrafts   *bool             `json:"skip_drafts,omitempty"`
-}
-
 // ScmConfigsResponse defines model for ScmConfigsResponse.
 type ScmConfigsResponse struct {
 	Configs []ScmConfigResponse `json:"configs"`
@@ -7118,29 +2742,6 @@ type ScmConfigsResponse struct {
 	IntegrationEnabled *bool `json:"integration_enabled"`
 }
 
-// ScmCuratedWorkflowFailRequest Internal request to mark a curated workflow PR run failed.
-type ScmCuratedWorkflowFailRequest struct {
-	Error         string             `json:"error"`
-	ReviewRunId   openapi_types.UUID `json:"review_run_id"`
-	WorkflowRunId *string            `json:"workflow_run_id"`
-}
-
-// ScmCuratedWorkflowProcessRequest Internal request to process one curated workflow PR run.
-type ScmCuratedWorkflowProcessRequest struct {
-	ReviewRunId   openapi_types.UUID `json:"review_run_id"`
-	TriggerSource *string            `json:"trigger_source,omitempty"`
-	WorkflowRunId *string            `json:"workflow_run_id"`
-}
-
-// ScmCuratedWorkflowProcessResponse Internal response for curated workflow PR run processing.
-type ScmCuratedWorkflowProcessResponse struct {
-	Message   string             `json:"message"`
-	ReportUrl *string            `json:"report_url"`
-	RunId     openapi_types.UUID `json:"run_id"`
-	Status    string             `json:"status"`
-	Success   bool               `json:"success"`
-}
-
 // ScmPlatformProfile defines model for ScmPlatformProfile.
 type ScmPlatformProfile struct {
 	DeviceModel        *string               `json:"device_model"`
@@ -7151,28 +2752,11 @@ type ScmPlatformProfile struct {
 	WorkflowIds        *[]string             `json:"workflow_ids,omitempty"`
 }
 
-// ScmPreviewLaunchResponse defines model for ScmPreviewLaunchResponse.
-type ScmPreviewLaunchResponse struct {
-	AppId        openapi_types.UUID     `json:"app_id"`
-	BuildId      openapi_types.UUID     `json:"build_id"`
-	HeadSha      string                 `json:"head_sha"`
-	Platform     string                 `json:"platform"`
-	Provider     string                 `json:"provider"`
-	RepoFullName string                 `json:"repo_full_name"`
-	Session      map[string]interface{} `json:"session"`
-	SessionId    openapi_types.UUID     `json:"session_id"`
-	SessionUrl   string                 `json:"session_url"`
-	Status       string                 `json:"status"`
-}
-
 // ScmProfiles defines model for ScmProfiles.
 type ScmProfiles struct {
 	Android *ScmPlatformProfile `json:"android,omitempty"`
 	Ios     *ScmPlatformProfile `json:"ios,omitempty"`
 }
-
-// ScmProvider Supported SCM providers. Add new members as providers are implemented.
-type ScmProvider string
 
 // ScriptUsageResponse Response model for script usage lookup
 type ScriptUsageResponse struct {
@@ -7184,38 +2768,6 @@ type ScriptUsageResponse struct {
 type ScriptUsageTestItem struct {
 	Id   openapi_types.UUID `json:"id"`
 	Name string             `json:"name"`
-}
-
-// SendMessageRequest Follow-up message body.
-type SendMessageRequest struct {
-	Message string `json:"message"`
-}
-
-// SessionAppUploadUrlRequest Request body for a session-scoped app upload URL.
-type SessionAppUploadUrlRequest struct {
-	// ContentType MIME content type
-	ContentType *string `json:"content_type"`
-
-	// FileSize File size in bytes
-	FileSize int `json:"file_size"`
-
-	// Filename Original filename (e.g. MyApp.zip / MyApp.apk)
-	Filename string `json:"filename"`
-}
-
-// SessionAppUploadUrlResponse Presigned PUT for an ephemeral, session-scoped app object.
-type SessionAppUploadUrlResponse struct {
-	// ContentType Content-Type to use in the PUT request
-	ContentType string `json:"content_type"`
-
-	// ExpiresIn URL expiry in seconds
-	ExpiresIn int `json:"expires_in"`
-
-	// S3Key S3 key to pass back to the install endpoint
-	S3Key string `json:"s3_key"`
-
-	// UploadUrl Presigned S3 PUT URL
-	UploadUrl string `json:"upload_url"`
 }
 
 // SessionArtifactUploadRequest Request body for generating an ephemeral artifact upload URL.
@@ -7244,28 +2796,6 @@ type SessionArtifactUploadResponse struct {
 	UploadUrl   string `json:"upload_url"`
 }
 
-// SessionInstallAcceptedResponse Returned when an async install is accepted. Poll the result via the
-// device-proxy: GET /device-proxy/{workflow_run_id}/install_status/{install_id}.
-type SessionInstallAcceptedResponse struct {
-	// InstallId Install id to poll for status
-	InstallId string `json:"install_id"`
-
-	// Status Always 'accepted'
-	Status *string `json:"status,omitempty"`
-}
-
-// SessionInstallRequest Request body to install a previously-uploaded app onto the session.
-type SessionInstallRequest struct {
-	// InstallMode Worker install strategy; omit for the default install
-	InstallMode *SessionInstallRequestInstallMode `json:"install_mode"`
-
-	// S3Key s3_key returned by the app-upload-url endpoint
-	S3Key string `json:"s3_key"`
-}
-
-// SessionInstallRequestInstallMode Worker install strategy; omit for the default install
-type SessionInstallRequestInstallMode string
-
 // SessionStatus Device session status - the single source of truth for test execution state.
 //
 // Matches the session_status enum in the database.
@@ -7276,55 +2806,6 @@ type SessionInstallRequestInstallMode string
 //	QUEUED → STARTING → RUNNING → STOPPING → COMPLETED/FAILED/TIMEOUT/CANCELLED
 //	                            ↘ VERIFYING → STOPPING
 type SessionStatus string
-
-// SessionSummaryBucket A single aggregation bucket in the session summary.
-type SessionSummaryBucket struct {
-	Count    int     `json:"count"`
-	Platform *string `json:"platform"`
-	Source   *string `json:"source"`
-	Status   *string `json:"status"`
-}
-
-// SessionSummaryResponse Aggregated session counts for the overview metrics.
-type SessionSummaryResponse struct {
-	Buckets []SessionSummaryBucket `json:"buckets"`
-	OrgId   string                 `json:"org_id"`
-}
-
-// SetupCardRequest defines model for SetupCardRequest.
-type SetupCardRequest struct {
-	SuccessUrl string `json:"success_url"`
-}
-
-// SetupCardResponse defines model for SetupCardResponse.
-type SetupCardResponse struct {
-	Url string `json:"url"`
-}
-
-// SetupInstallationRequest defines model for SetupInstallationRequest.
-type SetupInstallationRequest struct {
-	GithubCode     string `json:"github_code"`
-	InstallationId int    `json:"installation_id"`
-	StateToken     string `json:"state_token"`
-}
-
-// SetupInstallationResponse defines model for SetupInstallationResponse.
-type SetupInstallationResponse struct {
-	Action         string `json:"action"`
-	InstallationId int    `json:"installation_id"`
-	PropelOrgId    string `json:"propel_org_id"`
-	Repositories   int    `json:"repositories"`
-	Success        bool   `json:"success"`
-}
-
-// ShardedReportMetadata Metadata string we store in DB for sharded reports (v2).
-type ShardedReportMetadata struct {
-	CreatedAt   string `json:"created_at"`
-	ManifestUrl string `json:"manifest_url"`
-	Processing  *bool  `json:"processing,omitempty"`
-	Type        string `json:"type"`
-	Version     string `json:"version"`
-}
 
 // ShareableReportBySessionModel Request model for generating a shareable report link by session_id.
 type ShareableReportBySessionModel struct {
@@ -7345,54 +2826,10 @@ type ShareableReportByTaskModel struct {
 	TaskId          string  `json:"task_id"`
 }
 
-// ShareableReportModel Model for generating shareable report links.
-//
-// Note: 'task_id' is kept for URL compatibility (existing shareable links).
-// Internally this maps to 'id' in the new test_executions schema.
-type ShareableReportModel struct {
-	Origin *string            `json:"origin"`
-	TaskId openapi_types.UUID `json:"task_id"`
-	TestId openapi_types.UUID `json:"test_id"`
-}
-
 // ShareableReportResponse Response model for generate_shareable_report_link endpoint.
 type ShareableReportResponse struct {
 	// ShareableLink Generated shareable link for the report
 	ShareableLink string `json:"shareable_link"`
-}
-
-// ShareableReportStatusResponse Response model describing whether a shareable report link exists for a task.
-type ShareableReportStatusResponse struct {
-	Enabled       bool    `json:"enabled"`
-	ExpiresAt     *string `json:"expires_at"`
-	ShareableLink *string `json:"shareable_link"`
-}
-
-// SharedReportOptimizedResponse Response model combining shared report metadata, execution history info, and optional video data.
-// This is used by the `/shared-report-optimized` endpoint for a single consolidated payload.
-type SharedReportOptimizedResponse struct {
-	// CachedAt ISO timestamp when this response was created or cached
-	CachedAt string `json:"cached_at"`
-
-	// ExecutionId ID of the test execution record (was task_id)
-	ExecutionId openapi_types.UUID `json:"execution_id"`
-
-	// MetadataContent Full or partial metadata content for the execution (can be _partial)
-	MetadataContent *SharedReportOptimizedResponse_MetadataContent `json:"metadata_content"`
-
-	// Status Status of the request, always 'success' on success
-	Status string `json:"status"`
-
-	// VideoData Video events or data associated with the test execution, if available
-	VideoData *interface{} `json:"video_data"`
-}
-
-// SharedReportOptimizedResponseMetadataContent1 defines model for .
-type SharedReportOptimizedResponseMetadataContent1 map[string]interface{}
-
-// SharedReportOptimizedResponse_MetadataContent Full or partial metadata content for the execution (can be _partial)
-type SharedReportOptimizedResponse_MetadataContent struct {
-	union json.RawMessage
 }
 
 // SimpleTestItem Simple test item with essential fields for dropdowns/lists.
@@ -7425,114 +2862,6 @@ type SimpleTestTagItem struct {
 	Color *string `json:"color"`
 	Id    string  `json:"id"`
 	Name  string  `json:"name"`
-}
-
-// SlackChannel A Slack channel that the bot can post to.
-type SlackChannel struct {
-	Id        string `json:"id"`
-	IsPrivate *bool  `json:"is_private,omitempty"`
-	Name      string `json:"name"`
-}
-
-// SlackChannelsResponse Response containing a single Slack channel resolved from a Slack
-// channel link or ID.
-type SlackChannelsResponse struct {
-	// Channel A Slack channel that the bot can post to.
-	Channel SlackChannel `json:"channel"`
-}
-
-// SlackIntegration Slack integration details for an organization.
-type SlackIntegration struct {
-	BotUserId     *string             `json:"bot_user_id"`
-	ConnectedAt   *time.Time          `json:"connected_at"`
-	ConnectedBy   *openapi_types.UUID `json:"connected_by"`
-	CreatedAt     time.Time           `json:"created_at"`
-	Enabled       *bool               `json:"enabled,omitempty"`
-	Id            openapi_types.UUID  `json:"id"`
-	OrgId         openapi_types.UUID  `json:"org_id"`
-	UpdatedAt     time.Time           `json:"updated_at"`
-	WorkspaceId   string              `json:"workspace_id"`
-	WorkspaceName *string             `json:"workspace_name"`
-}
-
-// SlackIntegrationResponse Response for getting Slack integration status.
-type SlackIntegrationResponse struct {
-	Connected bool `json:"connected"`
-
-	// Integration Slack integration details for an organization.
-	Integration *SlackIntegration `json:"integration,omitempty"`
-}
-
-// SlackNotificationRuleResponse Response containing a single notification rule.
-type SlackNotificationRuleResponse struct {
-	// Rule Notification rule with enriched workflow details.
-	Rule SlackNotificationRuleWithWorkflows `json:"rule"`
-}
-
-// SlackNotificationRuleWithWorkflows Notification rule with enriched workflow details.
-type SlackNotificationRuleWithWorkflows struct {
-	AppliesToAll       *bool                       `json:"applies_to_all,omitempty"`
-	ChannelId          string                      `json:"channel_id"`
-	ChannelName        *string                     `json:"channel_name"`
-	CreatedAt          time.Time                   `json:"created_at"`
-	Enabled            *bool                       `json:"enabled,omitempty"`
-	Id                 openapi_types.UUID          `json:"id"`
-	MentionPreference  *string                     `json:"mention_preference"`
-	Name               string                      `json:"name"`
-	NotifyOnCancelled  *bool                       `json:"notify_on_cancelled,omitempty"`
-	NotifyOnFailure    *bool                       `json:"notify_on_failure,omitempty"`
-	NotifyOnStart      *bool                       `json:"notify_on_start,omitempty"`
-	NotifyOnSuccess    *bool                       `json:"notify_on_success,omitempty"`
-	NotifyOnTimeout    *bool                       `json:"notify_on_timeout,omitempty"`
-	OrgId              openapi_types.UUID          `json:"org_id"`
-	SlackIntegrationId openapi_types.UUID          `json:"slack_integration_id"`
-	UpdatedAt          time.Time                   `json:"updated_at"`
-	WorkflowIds        *[]openapi_types.UUID       `json:"workflow_ids,omitempty"`
-	Workflows          *[]NotificationRuleWorkflow `json:"workflows,omitempty"`
-}
-
-// SlackNotificationRulesResponse Response containing list of notification rules.
-type SlackNotificationRulesResponse struct {
-	Rules []SlackNotificationRuleWithWorkflows `json:"rules"`
-}
-
-// SlackOAuthUrlResponse Response containing the Slack OAuth URL for authorization.
-type SlackOAuthUrlResponse struct {
-	OauthUrl   string `json:"oauth_url"`
-	StateToken string `json:"state_token"`
-}
-
-// SpawnAgentRequest Request body to spawn a cloud agent from Atlas.
-type SpawnAgentRequest struct {
-	// AppId Atlas app id the task targets
-	AppId        string    `json:"app_id"`
-	AppName      *string   `json:"app_name"`
-	BuildId      *string   `json:"build_id"`
-	CoverageGaps *[]string `json:"coverage_gaps,omitempty"`
-
-	// Model Model override
-	Model    *string `json:"model"`
-	Notes    *string `json:"notes"`
-	Platform *string `json:"platform"`
-
-	// Provider Canonical cloud-agent provider identifiers.
-	//
-	// Only Cursor is implemented today; add a member here when adding a provider
-	// so request bodies, the registry, and the frontend can do exhaustive handling.
-	Provider *CloudAgentProviderId `json:"provider,omitempty"`
-
-	// Ref Starting ref/branch
-	Ref *string `json:"ref,omitempty"`
-
-	// ReportId Related failing report id for context
-	ReportId *string `json:"report_id"`
-
-	// Repository Repository URL (defaults to org/demo repo)
-	Repository     *string `json:"repository"`
-	SelectedScreen *string `json:"selected_screen"`
-
-	// Task What the agent should do
-	Task string `json:"task"`
 }
 
 // StartDeviceInfo defines model for StartDeviceInfo.
@@ -7597,183 +2926,11 @@ type StartDeviceResponse struct {
 	WorkflowRunId *openapi_types.UUID `json:"workflow_run_id"`
 }
 
-// StepEval Complete evaluation of a single step including all retries.
-type StepEval struct {
-	// ActionType Type of action taken
-	ActionType *string `json:"action_type"`
-
-	// AgentDescription Human-readable action description from Instructional LLM
-	AgentDescription *string `json:"agent_description"`
-
-	// BoundingBoxApplicable Whether bbox eval applies (needs grounder_bounding_box in llm_metadata)
-	BoundingBoxApplicable *bool `json:"bounding_box_applicable,omitempty"`
-
-	// BoundingBoxEval Evaluation result for Instructional LLM bounding box accuracy.
-	BoundingBoxEval *BoundingBoxEval `json:"bounding_box_eval,omitempty"`
-
-	// GrounderHintApplicable Whether grounder_hint eval applies (needs grounder_hint in llm_metadata)
-	GrounderHintApplicable *bool `json:"grounder_hint_applicable,omitempty"`
-
-	// GrounderHintEval Evaluation result for grounder_hint quality (Moondream-friendliness).
-	GrounderHintEval *GrounderHintEval `json:"grounder_hint_eval,omitempty"`
-
-	// GroundingApplicable Whether grounding eval applies (needs x,y coords)
-	GroundingApplicable *bool `json:"grounding_applicable,omitempty"`
-
-	// GroundingEval Evaluation result for grounding accuracy.
-	GroundingEval *GroundingEval `json:"grounding_eval,omitempty"`
-
-	// ImageBase64 Base64 before screenshot (fallback)
-	ImageBase64 *string `json:"image_base64"`
-
-	// ImageUrl URL to before screenshot
-	ImageUrl *string `json:"image_url"`
-
-	// InstructionEval Evaluation result for instruction LLM suggestion compliance.
-	InstructionEval *InstructionEval `json:"instruction_eval,omitempty"`
-
-	// PostActionImageBase64 Base64 after screenshot (fallback)
-	PostActionImageBase64 *string `json:"post_action_image_base64"`
-
-	// PostActionImageUrl URL to after screenshot
-	PostActionImageUrl *string `json:"post_action_image_url"`
-
-	// Reasoning Instructional LLM's visual analysis and reasoning
-	Reasoning *string `json:"reasoning"`
-
-	// ReflectionApplicable Whether reflection eval applies (needs before/after images)
-	ReflectionApplicable *bool `json:"reflection_applicable,omitempty"`
-
-	// ReflectionEval Evaluation result for reflection decision.
-	ReflectionEval *ReflectionEval `json:"reflection_eval,omitempty"`
-
-	// Reflections Evaluations of retry attempts
-	Reflections *[]ReflectionAttemptEval `json:"reflections,omitempty"`
-
-	// Retries Number of retries for this step
-	Retries *int `json:"retries,omitempty"`
-
-	// StepDescription Description of the step
-	StepDescription *string `json:"step_description"`
-
-	// StepIndex Index of this step
-	StepIndex int `json:"step_index"`
-
-	// SuggestionEval Evaluation result for reflection suggestion quality.
-	SuggestionEval *SuggestionQualityEval `json:"suggestion_eval,omitempty"`
-
-	// TaggedImageBase64 Base64 tagged screenshot (fallback)
-	TaggedImageBase64 *string `json:"tagged_image_base64"`
-
-	// TaggedImageUrl URL to tagged screenshot (with crosshair)
-	TaggedImageUrl *string `json:"tagged_image_url"`
-
-	// ValidationApplicable Whether validation eval applies (validation steps only)
-	ValidationApplicable *bool `json:"validation_applicable,omitempty"`
-
-	// ValidationEval Evaluation result for validation step accuracy.
-	ValidationEval *ValidationEval `json:"validation_eval,omitempty"`
-}
-
-// StepSummariesBatchRequest Request for batch step summaries.
-type StepSummariesBatchRequest struct {
-	TaskIds []string `json:"task_ids"`
-}
-
-// StepSummariesBatchResponse Response for batch step summaries.
-type StepSummariesBatchResponse struct {
-	FoundCount     int                         `json:"found_count"`
-	RequestedCount int                         `json:"requested_count"`
-	Summaries      map[string]*[]StepSummaryV3 `json:"summaries"`
-}
-
-// StepSummaryV3 Lightweight step summary for progress visualization.
-type StepSummaryV3 struct {
-	ErrorMessage     *string `json:"error_message"`
-	ExecutionOrder   int     `json:"execution_order"`
-	Status           *string `json:"status"`
-	StepDescription  *string `json:"step_description"`
-	StepType         string  `json:"step_type"`
-	ValidationResult *bool   `json:"validation_result"`
-}
-
 // StepType User-facing step types for YAML test definitions.
 //
 // These are the high-level step types that users write in their tests.
 // They map to TASK_TYPES for routing and ActionType for execution.
 type StepType string
-
-// StreamingReportMetadata DEPRECATED: Metadata persisted in the database for streaming reports.
-//
-// Used only for reading legacy S3 reports. New reports use the
-// reports_v3 database tables directly.
-type StreamingReportMetadata struct {
-	CompletedAt       *time.Time             `json:"completed_at"`
-	CreatedAt         time.Time              `json:"created_at"`
-	HasTldr           bool                   `json:"has_tldr"`
-	ManifestUrl       string                 `json:"manifest_url"`
-	Platform          *string                `json:"platform"`
-	Status            string                 `json:"status"`
-	StepResults       *[]StreamingStepResult `json:"step_results,omitempty"`
-	StepsUploaded     int                    `json:"steps_uploaded"`
-	TestId            *string                `json:"test_id"`
-	TestName          *string                `json:"test_name"`
-	TotalValidations  *int                   `json:"total_validations,omitempty"`
-	Type              *string                `json:"type,omitempty"`
-	ValidationsPassed *int                   `json:"validations_passed,omitempty"`
-	Version           string                 `json:"version"`
-	Viewable          bool                   `json:"viewable"`
-}
-
-// StreamingStepResult DEPRECATED: Aggregated step result for downstream analytics.
-//
-// Used only for reading legacy S3 reports.
-type StreamingStepResult struct {
-	ActionType   *string `json:"action_type"`
-	CacheUsed    *bool   `json:"cache_used,omitempty"`
-	ErrorMessage *string `json:"error_message"`
-	HasError     *bool   `json:"has_error,omitempty"`
-
-	// StepIndex Step index for ordering (extracted from step_id)
-	StepIndex        *int         `json:"step_index"`
-	ValidationResult *interface{} `json:"validation_result"`
-}
-
-// SuggestionQualityEval Evaluation result for reflection suggestion quality.
-type SuggestionQualityEval struct {
-	// AddressesFailure Whether the suggestion addresses why the previous action failed
-	AddressesFailure bool `json:"addresses_failure"`
-
-	// Explanation Reasoning for the evaluation
-	Explanation *string `json:"explanation"`
-
-	// IsActionable Whether the suggestion is specific and actionable
-	IsActionable bool `json:"is_actionable"`
-
-	// IsCorrectApproach Whether the suggestion identifies the right approach to complete the step
-	IsCorrectApproach bool `json:"is_correct_approach"`
-
-	// QualityRating Quality rating for reflection suggestions.
-	QualityRating SuggestionQualityRating `json:"quality_rating"`
-
-	// Suggestion The suggestion that was evaluated
-	Suggestion *string `json:"suggestion"`
-}
-
-// SuggestionQualityRating Quality rating for reflection suggestions.
-type SuggestionQualityRating string
-
-// SupportRequestResponse defines model for SupportRequestResponse.
-type SupportRequestResponse struct {
-	AttachmentsUploaded *bool `json:"attachments_uploaded,omitempty"`
-	Sent                bool  `json:"sent"`
-}
-
-// SyncRepositoriesResponse defines model for SyncRepositoriesResponse.
-type SyncRepositoriesResponse struct {
-	Repositories int  `json:"repositories"`
-	Success      bool `json:"success"`
-}
 
 // SyncTagsRequest Request to sync tags for a test by name.
 type SyncTagsRequest struct {
@@ -7784,27 +2941,6 @@ type SyncTagsRequest struct {
 type SyncTagsResponse struct {
 	Tags   []TagSyncResultItem `json:"tags"`
 	TestId string              `json:"test_id"`
-}
-
-// SystemApp Represents a system application on a mobile device.
-type SystemApp struct {
-	// BundleId Platform-specific bundle/package ID
-	BundleId string `json:"bundle_id"`
-
-	// Description Brief description of the app's purpose
-	Description string `json:"description"`
-
-	// DisplayName Human-readable name for the app
-	DisplayName string `json:"display_name"`
-}
-
-// SystemAppsResponse Response model for system apps endpoint.
-type SystemAppsResponse struct {
-	// Apps Dictionary of app key to SystemApp
-	Apps map[string]SystemApp `json:"apps"`
-
-	// Platform Platform identifier (ios or android)
-	Platform string `json:"platform"`
 }
 
 // TLDRKeyMoment Key moment extracted from test execution
@@ -7857,24 +2993,6 @@ type TagWithCountResponse struct {
 	Id          string  `json:"id"`
 	Name        string  `json:"name"`
 	TestCount   int     `json:"test_count"`
-}
-
-// TaskCount Task count metrics for a workflow type.
-//
-// Attributes:
-//
-//	running: Number of currently running tasks.
-//	queued: Number of tasks waiting in queue.
-//	total: Sum of running and queued tasks.
-type TaskCount struct {
-	// Queued Number of tasks waiting in queue
-	Queued int `json:"queued"`
-
-	// Running Number of currently running tasks
-	Running int `json:"running"`
-
-	// Total Sum of running and queued tasks
-	Total int `json:"total"`
 }
 
 // TaskID defines model for TaskID.
@@ -7932,51 +3050,6 @@ type TaskMetadata struct {
 	// StepDescription Human-readable description of the step
 	StepDescription *string `json:"step_description"`
 	StepType        string  `json:"step_type"`
-}
-
-// TaskReportRequest Request model for adding report to test executions.
-//
-// Note: 'task_id' and 'user_id' are kept for API compatibility.
-// Internally these map to 'id' and 'source' in the new schema.
-type TaskReportRequest struct {
-	Duration             float32                   `json:"duration"`
-	ExecutionTimeSeconds *float32                  `json:"execution_time_seconds"`
-	RunInfo              TaskReportRequest_RunInfo `json:"run_info"`
-	RunInfoCompressed    *bool                     `json:"run_info_compressed"`
-	Success              bool                      `json:"success"`
-	TaskId               openapi_types.UUID        `json:"task_id"`
-	TestId               openapi_types.UUID        `json:"test_id"`
-	UserId               string                    `json:"user_id"`
-}
-
-// TaskReportRequestRunInfo0 defines model for .
-type TaskReportRequestRunInfo0 = string
-
-// TaskReportRequest_RunInfo defines model for TaskReportRequest.RunInfo.
-type TaskReportRequest_RunInfo struct {
-	union json.RawMessage
-}
-
-// TaskReportResponse Response model for task report endpoint.
-//
-// Uses 'id' as the primary identifier (was 'task_id' in old schema).
-// 'source' replaces 'user_id' to indicate how the test was triggered.
-type TaskReportResponse struct {
-	CompletedAt    *string                           `json:"completed_at"`
-	Duration       float32                           `json:"duration"`
-	Id             openapi_types.UUID                `json:"id"`
-	ReportMetadata TaskReportResponse_ReportMetadata `json:"report_metadata"`
-
-	// Source Execution source: ui, cli, api, ci_cd, or workflow
-	Source  *string            `json:"source,omitempty"`
-	Status  string             `json:"status"`
-	Success bool               `json:"success"`
-	TestId  openapi_types.UUID `json:"test_id"`
-}
-
-// TaskReportResponse_ReportMetadata defines model for TaskReportResponse.ReportMetadata.
-type TaskReportResponse_ReportMetadata struct {
-	union json.RawMessage
 }
 
 // Test defines model for Test.
@@ -8123,93 +3196,6 @@ type TestEnhancedHistoryResponse struct {
 	TotalCount     int                       `json:"total_count"`
 }
 
-// TestEvalReport Complete evaluation report for a test run.
-type TestEvalReport struct {
-	// ErrorSummary Summary of errors from evaluation.
-	ErrorSummary EvalErrorSummary `json:"error_summary"`
-
-	// Quality Overall quality assessment for a test execution.
-	Quality *QualityScore `json:"quality,omitempty"`
-
-	// RawManifest Raw manifest data for debugging
-	RawManifest  *map[string]interface{}   `json:"raw_manifest"`
-	Steps        *[]StepEval               `json:"steps,omitempty"`
-	TaskId       string                    `json:"task_id"`
-	TestId       string                    `json:"test_id"`
-	TestOutcome  TestEvalReportTestOutcome `json:"test_outcome"`
-	TotalRetries int                       `json:"total_retries"`
-	TotalSteps   int                       `json:"total_steps"`
-}
-
-// TestEvalReportTestOutcome defines model for TestEvalReport.TestOutcome.
-type TestEvalReportTestOutcome string
-
-// TestExecutionBatchResponse Response model for batch test status requests.
-type TestExecutionBatchResponse struct {
-	FoundCount     int                           `json:"found_count"`
-	RequestedCount int                           `json:"requested_count"`
-	TaskStatuses   map[string]TestStatusResponse `json:"task_statuses"`
-}
-
-// TestExecutionCreate Request model for creating a test execution.
-//
-// Note: source, platform, status, phase, and timing are NOT stored on test_executions.
-// They come from the linked device_sessions table via session_id FK.
-// Use test_executions_full view to read these fields.
-type TestExecutionCreate struct {
-	Id                  *string                 `json:"id"`
-	Metadata            *map[string]interface{} `json:"metadata"`
-	OrgId               openapi_types.UUID      `json:"org_id"`
-	Progress            *float32                `json:"progress"`
-	ResolvedBuildId     *string                 `json:"resolved_build_id"`
-	RunConfig           *map[string]interface{} `json:"run_config"`
-	SessionId           string                  `json:"session_id"`
-	TestId              *string                 `json:"test_id"`
-	WasQuarantined      *bool                   `json:"was_quarantined,omitempty"`
-	WorkflowExecutionId *string                 `json:"workflow_execution_id"`
-}
-
-// TestExecutionResponse Response model for test execution operations.
-type TestExecutionResponse struct {
-	Id      *string `json:"id"`
-	Message string  `json:"message"`
-	Success bool    `json:"success"`
-}
-
-// TestExecutionSummary Summary of a test execution for workflow operations (e.g., cancellation).
-//
-// Contains the minimal data needed to perform workflow-level operations on child tests
-// without requiring N+1 queries to fetch each test's details individually.
-type TestExecutionSummary struct {
-	// Id Test execution ID
-	Id string `json:"id"`
-
-	// SessionId Device session ID for the test execution
-	SessionId *string `json:"session_id"`
-
-	// WorkflowRunId Hatchet workflow run ID for direct cancellation support
-	WorkflowRunId *string `json:"workflow_run_id"`
-}
-
-// TestExecutionTaskCreateResponse Response for test execution task creation
-type TestExecutionTaskCreateResponse struct {
-	Id      openapi_types.UUID `json:"id"`
-	Message string             `json:"message"`
-}
-
-// TestExecutionTaskUpdateResponse Response for test execution task update
-type TestExecutionTaskUpdateResponse struct {
-	Id      openapi_types.UUID `json:"id"`
-	Message string             `json:"message"`
-}
-
-// TestExecutionTasksBatchResponse Response for batch test execution tasks request
-type TestExecutionTasksBatchResponse struct {
-	FoundCount     int                                   `json:"found_count"`
-	RequestedCount int                                   `json:"requested_count"`
-	Tasks          map[string]TestExecutionTasksEnhanced `json:"tasks"`
-}
-
 // TestExecutionTasksEnhanced Enhanced test execution tasks model with tracking fields.
 //
 // When queried via test_executions_full view, includes status and timing
@@ -8240,105 +3226,6 @@ type TestExecutionTasksEnhanced struct {
 	UpdatedAt           *time.Time              `json:"updated_at"`
 	WasQuarantined      *bool                   `json:"was_quarantined,omitempty"`
 	WorkflowExecutionId *openapi_types.UUID     `json:"workflow_execution_id"`
-}
-
-// TestExecutionTasksEnhancedCreate Create model for enhanced test execution tasks (writer input).
-//
-// Note: status, phase, and timing are NOT on this model.
-// Device_sessions is the source of truth for these fields.
-//
-// created_at and updated_at are auto-generated by the database:
-// - created_at: DEFAULT NOW()
-// - updated_at: tr_test_executions_updated_at trigger
-type TestExecutionTasksEnhancedCreate struct {
-	CurrentStep      *string `json:"current_step"`
-	CurrentStepIndex *int    `json:"current_step_index"`
-	ErrorMessage     *string `json:"error_message"`
-
-	// Id Execution ID (primary key)
-	Id              openapi_types.UUID      `json:"id"`
-	Metadata        *map[string]interface{} `json:"metadata"`
-	OrgId           *openapi_types.UUID     `json:"org_id"`
-	Progress        *float32                `json:"progress,omitempty"`
-	ReportMetadata  *map[string]interface{} `json:"report_metadata"`
-	ResolvedBuildId *openapi_types.UUID     `json:"resolved_build_id"`
-
-	// SessionId FK to device_sessions (required in DB, but optional here for update-fallback pattern)
-	SessionId           *openapi_types.UUID `json:"session_id"`
-	StepsCompleted      *int                `json:"steps_completed,omitempty"`
-	Success             *bool               `json:"success"`
-	TestId              openapi_types.UUID  `json:"test_id"`
-	TotalSteps          *int                `json:"total_steps"`
-	WasQuarantined      *bool               `json:"was_quarantined,omitempty"`
-	WorkflowExecutionId *openapi_types.UUID `json:"workflow_execution_id"`
-}
-
-// TestExecutionTasksEnhancedUpdate Partial update model for enhanced test execution tasks (writer input).
-//
-// Note: status, phase, and timing are NOT written to test_executions.
-// Device_sessions is the source of truth for state and timing.
-//
-// created_at and updated_at are auto-managed by the database:
-// - created_at: set once at insert (DEFAULT NOW())
-// - updated_at: auto-updated by tr_test_executions_updated_at trigger
-type TestExecutionTasksEnhancedUpdate struct {
-	CurrentStep      *string `json:"current_step"`
-	CurrentStepIndex *int    `json:"current_step_index"`
-	ErrorMessage     *string `json:"error_message"`
-
-	// Id Execution ID (primary key, used for lookup)
-	Id                  openapi_types.UUID      `json:"id"`
-	Metadata            *map[string]interface{} `json:"metadata"`
-	OrgId               *openapi_types.UUID     `json:"org_id"`
-	Progress            *float32                `json:"progress"`
-	ReportMetadata      *map[string]interface{} `json:"report_metadata"`
-	ResolvedBuildId     *openapi_types.UUID     `json:"resolved_build_id"`
-	StepsCompleted      *int                    `json:"steps_completed"`
-	Success             *bool                   `json:"success"`
-	TestId              *openapi_types.UUID     `json:"test_id"`
-	TotalSteps          *int                    `json:"total_steps"`
-	WasQuarantined      *bool                   `json:"was_quarantined"`
-	WorkflowExecutionId *openapi_types.UUID     `json:"workflow_execution_id"`
-}
-
-// TestExecutionUpdate Request model for updating a test execution.
-//
-// Note: status, phase, and timing are NOT stored on test_executions.
-// They come from the linked device_sessions table via session_id FK.
-// To update status/timing, update device_sessions directly.
-type TestExecutionUpdate struct {
-	CurrentStep      *string                 `json:"current_step"`
-	CurrentStepIndex *int                    `json:"current_step_index"`
-	Error            *string                 `json:"error"`
-	Metadata         *map[string]interface{} `json:"metadata"`
-	Progress         *float32                `json:"progress"`
-	StepsCompleted   *int                    `json:"steps_completed"`
-	Success          *bool                   `json:"success"`
-	TotalSteps       *int                    `json:"total_steps"`
-}
-
-// TestHealthTimePoint A single data point for test health over time.
-type TestHealthTimePoint struct {
-	// Date Date string (e.g., 'Jan 5' or '2024-01-05')
-	Date string `json:"date"`
-
-	// Failing Number of failing tests at this point
-	Failing int `json:"failing"`
-
-	// Passing Number of passing tests at this point
-	Passing int `json:"passing"`
-}
-
-// TestHealthTimeSeries Time series data for test health graph showing passing/failing trends.
-type TestHealthTimeSeries struct {
-	// DataPoints List of time points with passing/failing counts
-	DataPoints []TestHealthTimePoint `json:"data_points"`
-
-	// TotalFailing Current total failing tests
-	TotalFailing int `json:"total_failing"`
-
-	// TotalPassing Current total passing tests
-	TotalPassing int `json:"total_passing"`
 }
 
 // TestInfo defines model for TestInfo.
@@ -8387,57 +3274,6 @@ type TestListResponse struct {
 	TotalTestsWow *float32 `json:"total_tests_wow"`
 }
 
-// TestMatrixBuild defines model for TestMatrixBuild.
-type TestMatrixBuild struct {
-	BuildId    string     `json:"build_id"`
-	UploadedAt *time.Time `json:"uploaded_at"`
-	Version    string     `json:"version"`
-}
-
-// TestMatrixCell defines model for TestMatrixCell.
-type TestMatrixCell struct {
-	BuildId           string                    `json:"build_id"`
-	BuildVersion      string                    `json:"build_version"`
-	CancelledRuns     *int                      `json:"cancelled_runs,omitempty"`
-	FailedRuns        *int                      `json:"failed_runs,omitempty"`
-	FailureDetails    *[]map[string]interface{} `json:"failure_details"`
-	LastRunAt         *time.Time                `json:"last_run_at"`
-	LatestExecutionId *string                   `json:"latest_execution_id"`
-	PassedRuns        *int                      `json:"passed_runs,omitempty"`
-	TestVersionNumber *int                      `json:"test_version_number"`
-	TopFailureReason  *string                   `json:"top_failure_reason"`
-	TotalRuns         *int                      `json:"total_runs,omitempty"`
-}
-
-// TestMatrixResponse defines model for TestMatrixResponse.
-type TestMatrixResponse struct {
-	AppId       string             `json:"app_id"`
-	BuildCount  *int               `json:"build_count,omitempty"`
-	Builds      *[]TestMatrixBuild `json:"builds,omitempty"`
-	Page        *int               `json:"page,omitempty"`
-	PageSize    *int               `json:"page_size,omitempty"`
-	TestCount   *int               `json:"test_count,omitempty"`
-	Tests       *[]TestMatrixRow   `json:"tests,omitempty"`
-	TotalBuilds *int               `json:"total_builds,omitempty"`
-}
-
-// TestMatrixRow defines model for TestMatrixRow.
-type TestMatrixRow struct {
-	Cells                *[]TestMatrixCell `json:"cells,omitempty"`
-	Classification       *string           `json:"classification"`
-	ClassificationDetail *string           `json:"classification_detail"`
-	FlakyScore           *float32          `json:"flaky_score"`
-	TestId               string            `json:"test_id"`
-	TestName             string            `json:"test_name"`
-}
-
-// TestNotificationResponse Response after sending a test notification.
-type TestNotificationResponse struct {
-	ChannelName *string `json:"channel_name"`
-	Message     string  `json:"message"`
-	Success     bool    `json:"success"`
-}
-
 // TestRestoreVersionRequest Request model for restoring a test to a previous version.
 type TestRestoreVersionRequest struct {
 	// Version Version number to restore to
@@ -8481,51 +3317,6 @@ type TestRunConfig struct {
 	// LlmConfig Configuration for LLM models used in different stages.
 	LlmConfig *LLMConfig          `json:"llm_config,omitempty"`
 	RunId     *openapi_types.UUID `json:"run_id"`
-}
-
-// TestRunInfo Test run information that can be stored as run_info.
-type TestRunInfo struct {
-	AppLink              *string                `json:"app_link"`
-	AppPackage           *string                `json:"app_package"`
-	EndTime              *string                `json:"end_time"`
-	ErrorMessage         *string                `json:"error_message"`
-	Platform             *string                `json:"platform"`
-	StartTime            *string                `json:"start_time"`
-	TestName             *string                `json:"test_name"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// TestStatistics Model representing test execution statistics for a user.
-type TestStatistics struct {
-	// AverageDuration Average duration of test executions
-	AverageDuration *float32 `json:"average_duration"`
-
-	// AverageDurationWow Week-over-week percentage change in average duration (positive = increase)
-	AverageDurationWow *float32 `json:"average_duration_wow"`
-
-	// CurrentlyFailing Number of currently failing tests
-	CurrentlyFailing int `json:"currently_failing"`
-
-	// CurrentlyFailingWow Week-over-week percentage change in failing tests (positive = increase)
-	CurrentlyFailingWow *float32 `json:"currently_failing_wow"`
-
-	// FailureCount Number of failed test executions
-	FailureCount int `json:"failure_count"`
-
-	// SuccessCount Number of successful test executions
-	SuccessCount int `json:"success_count"`
-
-	// SuccessRate Percentage of successful test executions
-	SuccessRate float32 `json:"success_rate"`
-
-	// TestHistoryCount Total number of test executions
-	TestHistoryCount int `json:"test_history_count"`
-
-	// TestHistoryCountWow Week-over-week percentage change in test executions (positive = increase)
-	TestHistoryCountWow *float32 `json:"test_history_count_wow"`
-
-	// UserId Unique identifier of the user
-	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // TestStatusCounts Server-side test counts by status, computed across all tests (not just the current page).
@@ -8618,99 +3409,6 @@ type TestVersionListResponse struct {
 	Versions []TestVersionInfo `json:"versions"`
 }
 
-// TestWithDetails Model representing a single test with its execution details.
-type TestWithDetails struct {
-	// Id Unique identifier of the test
-	Id openapi_types.UUID `json:"id"`
-
-	// LastDuration Duration of the most recent execution in seconds
-	LastDuration *float32 `json:"last_duration"`
-
-	// LastExecutionTime ISO timestamp of the most recent execution
-	LastExecutionTime *string `json:"last_execution_time"`
-
-	// LastStatus Success status of the most recent execution
-	LastStatus *bool `json:"last_status"`
-
-	// LatestExecutionId Execution ID of the most recent execution for deep-linking to report (was latest_task_id)
-	LatestExecutionId *openapi_types.UUID `json:"latest_execution_id"`
-
-	// Link URL or link associated with the test
-	Link *string `json:"link"`
-
-	// Name Name of the test
-	Name string `json:"name"`
-
-	// Platform Platform the test runs on (ios, android)
-	Platform string `json:"platform"`
-
-	// RecentStatuses List of success statuses from recent executions
-	RecentStatuses *[]bool `json:"recent_statuses,omitempty"`
-}
-
-// ToolCall A tool/function call made by the assistant.
-type ToolCall struct {
-	// Function Function details within a tool call.
-	Function ToolCallFunction `json:"function"`
-
-	// Id Unique identifier for this tool call
-	Id string `json:"id"`
-
-	// Type Type of tool call
-	Type                 *string                `json:"type,omitempty"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// ToolCallFunction Function details within a tool call.
-type ToolCallFunction struct {
-	// Arguments JSON-encoded function arguments
-	Arguments string `json:"arguments"`
-
-	// Name Name of the function to call
-	Name string `json:"name"`
-}
-
-// TourResponse defines model for TourResponse.
-type TourResponse struct {
-	Success bool `json:"success"`
-}
-
-// TrainingImageUploadRequest defines model for TrainingImageUploadRequest.
-type TrainingImageUploadRequest struct {
-	ActionType     *string `json:"action_type"`
-	ActualBboxX1   *int    `json:"actual_bbox_x1"`
-	ActualBboxX2   *int    `json:"actual_bbox_x2"`
-	ActualBboxY1   *int    `json:"actual_bbox_y1"`
-	ActualBboxY2   *int    `json:"actual_bbox_y2"`
-	ActualX        *int    `json:"actual_x"`
-	ActualY        *int    `json:"actual_y"`
-	GrounderTarget *string `json:"grounder_target"`
-	Instruction    *string `json:"instruction"`
-	PredictedX     *int    `json:"predicted_x"`
-	PredictedY     *int    `json:"predicted_y"`
-	RawTarget      *string `json:"raw_target"`
-	StepId         string  `json:"step_id"`
-	TaskId         string  `json:"task_id"`
-}
-
-// TrainingImageUploadResponse defines model for TrainingImageUploadResponse.
-type TrainingImageUploadResponse struct {
-	Bucket  string  `json:"bucket"`
-	Id      *string `json:"id"`
-	Key     string  `json:"key"`
-	Success bool    `json:"success"`
-}
-
-// UnifiedReportRequest Request model for unified report endpoint that supports both token and auth-based access
-type UnifiedReportRequest struct {
-	LoadImages  *bool   `json:"loadImages"`
-	Normalize   *bool   `json:"normalize"`
-	Progressive *bool   `json:"progressive,omitempty"`
-	TaskId      *string `json:"taskId"`
-	TestId      *string `json:"testId"`
-	Token       *string `json:"token"`
-}
-
 // UnifiedWorkflowReportRequest defines model for UnifiedWorkflowReportRequest.
 type UnifiedWorkflowReportRequest struct {
 	IncludeVideoMetadata *bool   `json:"include_video_metadata,omitempty"`
@@ -8729,17 +3427,6 @@ type UnifiedWorkflowReportResponse struct {
 	WorkflowTask     WorkflowTaskInfo                   `json:"workflow_task"`
 }
 
-// UpdateActionScreenshotRequest defines model for UpdateActionScreenshotRequest.
-type UpdateActionScreenshotRequest struct {
-	ScreenshotAfterS3Key  *string `json:"screenshot_after_s3_key"`
-	ScreenshotBeforeS3Key *string `json:"screenshot_before_s3_key"`
-}
-
-// UpdateDefaultRoleRequest defines model for UpdateDefaultRoleRequest.
-type UpdateDefaultRoleRequest struct {
-	DefaultRole string `json:"default_role"`
-}
-
 // UpdateDeviceTargetRequest defines model for UpdateDeviceTargetRequest.
 type UpdateDeviceTargetRequest struct {
 	DeviceModel *string `json:"device_model"`
@@ -8752,30 +3439,6 @@ type UpdateDeviceTargetResponse struct {
 	DeviceModel string `json:"device_model"`
 	OsVersion   string `json:"os_version"`
 }
-
-// UpdateExpoProjectRequest Request to update an Expo project configuration.
-type UpdateExpoProjectRequest struct {
-	// AndroidAppId Revyl app ID for Android builds
-	AndroidAppId *string `json:"android_app_id"`
-
-	// AutoSyncEnabled Enable/disable automatic build sync
-	AutoSyncEnabled *bool `json:"auto_sync_enabled"`
-
-	// IosAppId Revyl app ID for iOS builds
-	IosAppId *string `json:"ios_app_id"`
-
-	// ProjectName Display name for the project
-	ProjectName *string `json:"project_name"`
-
-	// SyncProfileMode Controls which EAS build profiles auto-sync. Omit to leave unchanged.
-	SyncProfileMode *UpdateExpoProjectRequestSyncProfileMode `json:"sync_profile_mode"`
-
-	// SyncedProfiles EAS build profiles to auto-sync when sync_profile_mode is 'allowlist'. Omit to leave unchanged.
-	SyncedProfiles *[]string `json:"synced_profiles"`
-}
-
-// UpdateExpoProjectRequestSyncProfileMode Controls which EAS build profiles auto-sync. Omit to leave unchanged.
-type UpdateExpoProjectRequestSyncProfileMode string
 
 // UpdateFailurePolicyRequest defines model for UpdateFailurePolicyRequest.
 type UpdateFailurePolicyRequest struct {
@@ -8795,148 +3458,6 @@ type UpdateModuleRequest struct {
 
 	// Name New name
 	Name *string `json:"name"`
-}
-
-// UpdatePropelMetadataRequest defines model for UpdatePropelMetadataRequest.
-type UpdatePropelMetadataRequest struct {
-	BrowserProvider  *string `json:"browser_provider"`
-	ConcurrencyLimit *int    `json:"concurrency_limit"`
-	ExpoToken        *string `json:"expo_token"`
-	ProxyEnabled     *bool   `json:"proxy_enabled"`
-}
-
-// UpdateReportRequest Request model for updating a report.
-type UpdateReportRequest struct {
-	CompletedAt     *string                   `json:"completed_at"`
-	DeviceLogsS3Key *string                   `json:"device_logs_s3_key"`
-	ExpectedStates  *[]map[string]interface{} `json:"expected_states"`
-	TestGoalSummary *string                   `json:"test_goal_summary"`
-	Tldr            *map[string]interface{}   `json:"tldr"`
-	VideoDuration   *float32                  `json:"video_duration"`
-	VideoS3Key      *string                   `json:"video_s3_key"`
-}
-
-// UpdateReportResponse Response model for report update.
-type UpdateReportResponse struct {
-	Message string `json:"message"`
-	Success bool   `json:"success"`
-}
-
-// UpdateSandboxRequest Request payload for updating sandbox properties (admin only).
-//
-// All fields are optional - only provided fields will be updated.
-//
-// Attributes:
-//
-//	org_id: Organization ID to assign this sandbox to. Set to empty string
-//	    to clear (move to shared pool). Admin only.
-//	tunnel_hostname: Cloudflare tunnel hostname for SSH access.
-//	status: Sandbox status (available, claimed, maintenance, reserved).
-//	ssh_user: SSH username for connections.
-//	ssh_port: SSH port number.
-//	specs: Hardware specifications.
-//	tags: Flexible labels for filtering.
-type UpdateSandboxRequest struct {
-	// OrgId Organization ID to assign this sandbox to. Set to empty string to clear (move to shared pool). Admin only.
-	OrgId *string `json:"org_id"`
-
-	// Specs Hardware specs
-	Specs *map[string]interface{} `json:"specs"`
-
-	// SshPort SSH port
-	SshPort *int `json:"ssh_port"`
-
-	// SshUser SSH username
-	SshUser *string `json:"ssh_user"`
-
-	// Status Sandbox status
-	Status *UpdateSandboxRequestStatus `json:"status"`
-
-	// Tags Flexible labels
-	Tags *map[string]interface{} `json:"tags"`
-
-	// TunnelHostname Cloudflare tunnel hostname for SSH
-	TunnelHostname *string `json:"tunnel_hostname"`
-}
-
-// UpdateSandboxRequestStatus Sandbox status
-type UpdateSandboxRequestStatus string
-
-// UpdateSandboxResponse Response from updating a sandbox.
-//
-// Attributes:
-//
-//	success: Whether the update succeeded.
-//	message: Human-readable status message.
-//	sandbox: Updated sandbox data.
-type UpdateSandboxResponse struct {
-	// Message Status message
-	Message string `json:"message"`
-
-	// Sandbox Represents a virtual machine sandbox in the Fleet pool.
-	//
-	// Sandboxes are Mac Mini VMs that developers can claim for development work.
-	// Each sandbox can host multiple git repositories and worktrees.
-	//
-	// Attributes:
-	//     id: Unique identifier for the sandbox (UUID).
-	//     org_id: Organization ID that owns this sandbox (NULL = shared pool).
-	//     vm_name: VM name (e.g., "sandbox-1").
-	//     hostname: Human-readable hostname for display.
-	//     sandbox_type: Type of sandbox (dedicated machine or container).
-	//     host_identifier: Groups sandboxes running on the same physical host.
-	//     tunnel_hostname: Cloudflare tunnel hostname for SSH access.
-	//     status: Current sandbox state (available, claimed, maintenance, reserved).
-	//     claimed_by: User ID of the developer who claimed this sandbox.
-	//     claimed_at: Timestamp when the sandbox was claimed.
-	//     ssh_user: SSH username for connections (default: revyl-admin).
-	//     ssh_port: SSH port number (default: 22).
-	//     specs: Hardware specifications (cpu_cores, memory_gb, chip).
-	//     tags: Flexible labels for filtering (location, tier, etc.).
-	//     created_at: When the sandbox was added to the pool.
-	//     updated_at: Last modification timestamp.
-	Sandbox *FleetSandbox `json:"sandbox,omitempty"`
-
-	// Success Whether update succeeded
-	Success bool `json:"success"`
-}
-
-// UpdateSlackNotificationRuleRequest Request to update an existing notification rule.
-type UpdateSlackNotificationRuleRequest struct {
-	AppliesToAll      *bool                 `json:"applies_to_all"`
-	ChannelId         *string               `json:"channel_id"`
-	ChannelName       *string               `json:"channel_name"`
-	Enabled           *bool                 `json:"enabled"`
-	MentionPreference *string               `json:"mention_preference"`
-	Name              *string               `json:"name"`
-	NotifyOnCancelled *bool                 `json:"notify_on_cancelled"`
-	NotifyOnFailure   *bool                 `json:"notify_on_failure"`
-	NotifyOnStart     *bool                 `json:"notify_on_start"`
-	NotifyOnSuccess   *bool                 `json:"notify_on_success"`
-	NotifyOnTimeout   *bool                 `json:"notify_on_timeout"`
-	WorkflowIds       *[]openapi_types.UUID `json:"workflow_ids"`
-}
-
-// UpdateStepRequest Request model for updating a report step.
-type UpdateStepRequest struct {
-	CodeExecutionData   *map[string]interface{} `json:"code_execution_data"`
-	CompletedAt         *string                 `json:"completed_at"`
-	DecisionData        *map[string]interface{} `json:"decision_data"`
-	ExtractionData      *map[string]interface{} `json:"extraction_data"`
-	LlmCallId           *string                 `json:"llm_call_id"`
-	LoopData            *map[string]interface{} `json:"loop_data"`
-	Status              *string                 `json:"status"`
-	StatusReason        *string                 `json:"status_reason"`
-	ValidationData      *map[string]interface{} `json:"validation_data"`
-	VideoTimestampEnd   *float32                `json:"video_timestamp_end"`
-	VideoTimestampStart *float32                `json:"video_timestamp_start"`
-	VideoValidationData *map[string]interface{} `json:"video_validation_data"`
-}
-
-// UpdateStepResponse Response model for step update.
-type UpdateStepResponse struct {
-	Message string `json:"message"`
-	Success bool   `json:"success"`
 }
 
 // UpdateTagRequest Request to update a tag.
@@ -8981,26 +3502,6 @@ type UpdateWorkflowRunConfigRequest struct {
 	RunConfig         map[string]interface{} `json:"run_config"`
 }
 
-// UpdateWorkflowTimeoutConfigRequest defines model for UpdateWorkflowTimeoutConfigRequest.
-type UpdateWorkflowTimeoutConfigRequest struct {
-	// TestTimeoutSeconds Timeout in seconds (1–10800). Null to disable.
-	TestTimeoutSeconds *int `json:"test_timeout_seconds"`
-}
-
-// UserActivityItem Per-user activity breakdown.
-type UserActivityItem struct {
-	DeviceMinutes float32 `json:"device_minutes"`
-	SessionCount  int     `json:"session_count"`
-	UserEmail     *string `json:"user_email"`
-	UserId        string  `json:"user_id"`
-}
-
-// UserTestsResponse Model representing the response from get_user_tests_with_details.
-type UserTestsResponse struct {
-	// Tests List of tests with their execution details
-	Tests *[]TestWithDetails `json:"tests,omitempty"`
-}
-
 // ValidationError defines model for ValidationError.
 type ValidationError struct {
 	Ctx   *map[string]interface{}    `json:"ctx,omitempty"`
@@ -9019,30 +3520,6 @@ type ValidationErrorLoc1 = int
 // ValidationError_Loc_Item defines model for ValidationError.loc.Item.
 type ValidationError_Loc_Item struct {
 	union json.RawMessage
-}
-
-// ValidationErrorType Types of validation errors that can occur.
-type ValidationErrorType string
-
-// ValidationEval Evaluation result for validation step accuracy.
-type ValidationEval struct {
-	// AgentResult What the agent returned (True/False)
-	AgentResult *bool `json:"agent_result"`
-
-	// Correct Whether the validation result was correct
-	Correct bool `json:"correct"`
-
-	// ErrorType Types of validation errors that can occur.
-	ErrorType *ValidationErrorType `json:"error_type,omitempty"`
-
-	// ExpectedResult What the result should have been
-	ExpectedResult *bool `json:"expected_result"`
-
-	// Explanation Reasoning for the evaluation
-	Explanation *string `json:"explanation"`
-
-	// ValidationInstruction What was being validated
-	ValidationInstruction *string `json:"validation_instruction"`
 }
 
 // VariableModel defines model for VariableModel.
@@ -9083,35 +3560,6 @@ type VariablesResponse struct {
 	Result []VariableRow `json:"result"`
 }
 
-// VideoMetadataBatchBySessionRequest Request for batch video metadata keyed by device session id.
-type VideoMetadataBatchBySessionRequest struct {
-	SessionIds []string `json:"session_ids"`
-}
-
-// VideoMetadataBatchRequest Request for batch video metadata.
-type VideoMetadataBatchRequest struct {
-	ExecutionIds []string `json:"execution_ids"`
-}
-
-// VideoMetadataBatchRequestV1 Request model for batch video metadata.
-type VideoMetadataBatchRequestV1 struct {
-	TaskIds []string `json:"task_ids"`
-}
-
-// VideoMetadataBatchResponse Response for batch video metadata.
-type VideoMetadataBatchResponse struct {
-	FoundCount     int                            `json:"found_count"`
-	RequestedCount int                            `json:"requested_count"`
-	Videos         map[string]VideoMetadataItemV3 `json:"videos"`
-}
-
-// VideoMetadataBatchResponseV1 Response model for batch video metadata.
-type VideoMetadataBatchResponseV1 struct {
-	FoundCount     int                          `json:"found_count"`
-	RequestedCount int                          `json:"requested_count"`
-	Videos         map[string]VideoMetadataItem `json:"videos"`
-}
-
 // VideoMetadataInfo defines model for VideoMetadataInfo.
 type VideoMetadataInfo struct {
 	Duration      float32                                                `json:"duration"`
@@ -9124,75 +3572,10 @@ type VideoMetadataInfo struct {
 	VideoUrl      *string                                                `json:"video_url"`
 }
 
-// VideoMetadataItem Lightweight video + step metadata for a single task.
-type VideoMetadataItem struct {
-	Duration      *float32                                          `json:"duration"`
-	Platform      *string                                           `json:"platform"`
-	Steps         *[]AppRoutesReportRoutesTestReportXptStepMetadata `json:"steps,omitempty"`
-	Success       *bool                                             `json:"success"`
-	TaskId        string                                            `json:"task_id"`
-	TestName      *string                                           `json:"test_name"`
-	VideoDuration *float32                                          `json:"video_duration"`
-	VideoUrl      *string                                           `json:"video_url"`
-}
-
-// VideoMetadataItemV3 Video metadata for a single execution.
-type VideoMetadataItemV3 struct {
-	Duration      *float32               `json:"duration"`
-	ExecutionId   string                 `json:"execution_id"`
-	Platform      *string                `json:"platform"`
-	Steps         *[]VideoMetadataStepV3 `json:"steps,omitempty"`
-	Success       *bool                  `json:"success"`
-	TestName      *string                `json:"test_name"`
-	VideoDuration *float32               `json:"video_duration"`
-	VideoUrl      *string                `json:"video_url"`
-}
-
-// VideoMetadataStepV3 Lightweight step data for video timeline.
-type VideoMetadataStepV3 struct {
-	Description         *string  `json:"description"`
-	Index               int      `json:"index"`
-	StepType            string   `json:"step_type"`
-	VideoTimestampEnd   *float32 `json:"video_timestamp_end"`
-	VideoTimestampStart *float32 `json:"video_timestamp_start"`
-}
-
 // Viewport Model for viewport dimensions used in browser sessions.
 type Viewport struct {
 	Height *int `json:"height,omitempty"`
 	Width  *int `json:"width,omitempty"`
-}
-
-// WaitlistJoinRequest defines model for WaitlistJoinRequest.
-type WaitlistJoinRequest struct {
-	CompanyName    string              `json:"company_name"`
-	Email          openapi_types.Email `json:"email"`
-	Name           string              `json:"name"`
-	ReferralSource string              `json:"referral_source"`
-}
-
-// WaitlistJoinResponse defines model for WaitlistJoinResponse.
-type WaitlistJoinResponse struct {
-	Message string `json:"message"`
-	Success bool   `json:"success"`
-}
-
-// WeakestComponent Which component was weakest in the test execution.
-type WeakestComponent string
-
-// WeeklyMetrics Weekly metrics for workflow performance.
-type WeeklyMetrics struct {
-	// AvgSuccessRate Average test success rate as percentage
-	AvgSuccessRate *float32 `json:"avg_success_rate,omitempty"`
-
-	// FailedRuns Number of failed workflow runs
-	FailedRuns *float32 `json:"failed_runs,omitempty"`
-
-	// SuccessfulRuns Number of successful workflow runs
-	SuccessfulRuns *float32 `json:"successful_runs,omitempty"`
-
-	// TotalExecutions Total workflow executions in the period
-	TotalExecutions *float32 `json:"total_executions,omitempty"`
 }
 
 // WhileBlock Block for loop logic.
@@ -9277,73 +3660,6 @@ type WorkflowData struct {
 	Tests    []openapi_types.UUID `json:"tests"`
 }
 
-// WorkflowDetailData Enriched workflow data for detail view.
-type WorkflowDetailData struct {
-	// BuildConfig Workflow-level build configuration (JSONB with ios_build and android_build)
-	BuildConfig *map[string]interface{} `json:"build_config"`
-
-	// ChartData Aggregated chart data for the past 90 days with daily pass/fail counts and success rates (independent of pagination)
-	ChartData *[]ChartDataPoint `json:"chart_data,omitempty"`
-	CreatedAt *time.Time        `json:"created_at"`
-	Deleted   bool              `json:"deleted"`
-
-	// ExecutionHistory Complete execution history
-	ExecutionHistory *[]WorkflowExecutionHistoryItem `json:"execution_history,omitempty"`
-
-	// ExecutionTotalCount Total number of executions for pagination
-	ExecutionTotalCount *int   `json:"execution_total_count,omitempty"`
-	Id                  string `json:"id"`
-
-	// LastExecution Model for workflow last execution data.
-	LastExecution *WorkflowLastExecution `json:"last_execution,omitempty"`
-	LastRun       *time.Time             `json:"last_run"`
-
-	// LocationConfig Workflow-level location configuration (JSONB with latitude, longitude)
-	LocationConfig *map[string]interface{} `json:"location_config"`
-
-	// MetricsCurrentWeek Weekly metrics for workflow performance.
-	MetricsCurrentWeek *WeeklyMetrics `json:"metrics_current_week,omitempty"`
-
-	// MetricsPreviousWeek Weekly metrics for workflow performance.
-	MetricsPreviousWeek *WeeklyMetrics `json:"metrics_previous_week,omitempty"`
-
-	// MetricsWeeklyChange Weekly metrics for workflow performance.
-	MetricsWeeklyChange *WeeklyMetrics `json:"metrics_weekly_change,omitempty"`
-	Name                string         `json:"name"`
-	OrgId               *string        `json:"org_id"`
-
-	// OverallMetrics Weekly metrics for workflow performance.
-	OverallMetrics *WeeklyMetrics `json:"overall_metrics,omitempty"`
-
-	// OverrideBuildConfig When True, build_config overrides individual test build configurations
-	OverrideBuildConfig *bool `json:"override_build_config,omitempty"`
-
-	// OverrideLocation When True, location_config overrides individual test locations. Independent of override_run_config.
-	OverrideLocation  *bool  `json:"override_location,omitempty"`
-	OverrideRunConfig bool   `json:"override_run_config"`
-	Owner             string `json:"owner"`
-
-	// QuarantinedTestIds Test IDs with failure_policy='ignore_failure'. Failures in these tests do not fail the workflow.
-	QuarantinedTestIds *[]string `json:"quarantined_test_ids,omitempty"`
-
-	// RunConfig Complete configuration for a test run.
-	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
-	Schedule         string         `json:"schedule"`
-	ScheduleEnabled  *bool          `json:"schedule_enabled"`
-	ScheduleTimezone *string        `json:"schedule_timezone"`
-
-	// TestCount Number of tests in workflow
-	TestCount int `json:"test_count"`
-
-	// TestInfo Detailed test information
-	TestInfo *[]WorkflowTestInfo `json:"test_info,omitempty"`
-
-	// TestTimeoutSeconds Per-test execution timeout in seconds. Applied to all tests dispatched by this workflow.
-	TestTimeoutSeconds *int       `json:"test_timeout_seconds"`
-	Tests              *[]string  `json:"tests,omitempty"`
-	UpdatedAt          *time.Time `json:"updated_at"`
-}
-
 // WorkflowDetailInfo defines model for WorkflowDetailInfo.
 type WorkflowDetailInfo struct {
 	CreatedAt         *string                 `json:"created_at"`
@@ -9357,48 +3673,6 @@ type WorkflowDetailInfo struct {
 	ScheduleTimezone  *string                 `json:"schedule_timezone"`
 	Tests             *[]string               `json:"tests,omitempty"`
 	UpdatedAt         *string                 `json:"updated_at"`
-}
-
-// WorkflowExecutionCreate Request model for creating a workflow execution.
-type WorkflowExecutionCreate struct {
-	ConcurrencyLimit *int                   `json:"concurrency_limit,omitempty"`
-	OrgId            string                 `json:"org_id"`
-	Source           string                 `json:"source"`
-	SourceMetadata   map[string]interface{} `json:"source_metadata"`
-	Status           *string                `json:"status,omitempty"`
-	TotalTests       *int                   `json:"total_tests,omitempty"`
-	TraceId          *string                `json:"trace_id"`
-	WorkflowId       string                 `json:"workflow_id"`
-	WorkflowRunId    *string                `json:"workflow_run_id"`
-}
-
-// WorkflowExecutionHistoryItem Single execution history item for workflow detail view.
-//
-// Note: 'id' is now the primary identifier (was task_id in old schema).
-type WorkflowExecutionHistoryItem struct {
-	// CreatedAt Execution timestamp
-	CreatedAt string `json:"created_at"`
-
-	// Duration Execution duration
-	Duration *float32 `json:"duration"`
-
-	// Id Execution ID (was task_id)
-	Id string `json:"id"`
-
-	// Status Execution status
-	Status string `json:"status"`
-
-	// Success Success flag
-	Success *bool `json:"success"`
-
-	// TestResults Individual test results
-	TestResults *[]map[string]interface{} `json:"test_results"`
-
-	// TraceId OpenTelemetry trace ID (32 hex chars, no dashes) for Grafana correlation
-	TraceId *string `json:"trace_id"`
-
-	// TriggeredBy How execution was triggered
-	TriggeredBy *string `json:"triggered_by"`
 }
 
 // WorkflowExecutionHistoryResponse Response model for workflow execution history.
@@ -9420,110 +3694,6 @@ type WorkflowExecutionHistoryStatus struct {
 
 	// Status Execution status (success/failure/unknown)
 	Status string `json:"status"`
-}
-
-// WorkflowExecutionResponse Response model for workflow execution operations.
-type WorkflowExecutionResponse struct {
-	Id      *openapi_types.UUID `json:"id"`
-	Message string              `json:"message"`
-	Success bool                `json:"success"`
-}
-
-// WorkflowExecutionUpdate Request model for updating a workflow execution.
-type WorkflowExecutionUpdate struct {
-	CompletedAt    *string `json:"completed_at"`
-	CompletedTests *int    `json:"completed_tests"`
-	Error          *string `json:"error"`
-	StartedAt      *string `json:"started_at"`
-	Status         *string `json:"status"`
-	Success        *bool   `json:"success"`
-	TotalTests     *int    `json:"total_tests"`
-	TraceId        *string `json:"trace_id"`
-	WorkflowRunId  *string `json:"workflow_run_id"`
-}
-
-// WorkflowExecutionsBaseSchema WorkflowExecutions Base Schema for the new workflow_executions table.
-//
-// This replaces WorkflowTasksBaseSchema with cleaner field names:
-// - id (was task_id) - Primary key
-// - source (was user_id) - Execution source enum
-type WorkflowExecutionsBaseSchema struct {
-	CompletedTests   *int       `json:"completed_tests"`
-	ConcurrencyLimit *int       `json:"concurrency_limit,omitempty"`
-	CreatedAt        *time.Time `json:"created_at"`
-	Duration         *float32   `json:"duration"`
-	Id               string     `json:"id"`
-
-	// Source Execution source: ui, cli, api, ci_cd, or workflow
-	Source    *string    `json:"source,omitempty"`
-	StartedAt *time.Time `json:"started_at"`
-	Status    string     `json:"status"`
-	Success   *bool      `json:"success"`
-
-	// TestExecutions Child test executions with session data for efficient operations
-	TestExecutions *[]TestExecutionSummary `json:"test_executions,omitempty"`
-	TotalTests     *int                    `json:"total_tests"`
-
-	// TraceId OpenTelemetry trace ID for Grafana correlation
-	TraceId    *string    `json:"trace_id"`
-	UpdatedAt  *time.Time `json:"updated_at"`
-	WorkflowId string     `json:"workflow_id"`
-
-	// WorkflowRunId Hatchet workflow run ID for cancellation support
-	WorkflowRunId *string `json:"workflow_run_id"`
-}
-
-// WorkflowExecutionsInsert WorkflowExecutions Insert Schema for the new workflow_executions table.
-type WorkflowExecutionsInsert struct {
-	CompletedTests   *int                    `json:"completed_tests"`
-	ConcurrencyLimit *int                    `json:"concurrency_limit,omitempty"`
-	CreatedAt        *time.Time              `json:"created_at"`
-	Duration         *float32                `json:"duration"`
-	Id               string                  `json:"id"`
-	Source           *string                 `json:"source,omitempty"`
-	SourceMetadata   *map[string]interface{} `json:"source_metadata"`
-	StartedAt        *time.Time              `json:"started_at"`
-	Status           string                  `json:"status"`
-	Success          *bool                   `json:"success"`
-	TestExecutions   *[]TestExecutionSummary `json:"test_executions,omitempty"`
-	TotalTests       *int                    `json:"total_tests"`
-	TraceId          *string                 `json:"trace_id"`
-	WorkflowId       string                  `json:"workflow_id"`
-	WorkflowRunId    *string                 `json:"workflow_run_id"`
-}
-
-// WorkflowExecutionsUpdate WorkflowExecutions Update Schema for the new workflow_executions table.
-type WorkflowExecutionsUpdate struct {
-	CompletedTests   *int                                 `json:"completed_tests"`
-	ConcurrencyLimit *int                                 `json:"concurrency_limit"`
-	Id               *string                              `json:"id"`
-	Source           *string                              `json:"source"`
-	StartedAt        *time.Time                           `json:"started_at"`
-	Status           *string                              `json:"status"`
-	Success          *bool                                `json:"success"`
-	TestExecutions   *[]TestExecutionSummary              `json:"test_executions"`
-	TotalTests       *int                                 `json:"total_tests"`
-	TraceId          *string                              `json:"trace_id"`
-	UpdatedAt        *time.Time                           `json:"updated_at"`
-	WorkflowId       *WorkflowExecutionsUpdate_WorkflowId `json:"workflow_id"`
-	WorkflowRunId    *string                              `json:"workflow_run_id"`
-}
-
-// WorkflowExecutionsUpdateWorkflowId0 defines model for .
-type WorkflowExecutionsUpdateWorkflowId0 = string
-
-// WorkflowExecutionsUpdateWorkflowId1 defines model for .
-type WorkflowExecutionsUpdateWorkflowId1 = string
-
-// WorkflowExecutionsUpdate_WorkflowId defines model for WorkflowExecutionsUpdate.WorkflowId.
-type WorkflowExecutionsUpdate_WorkflowId struct {
-	union json.RawMessage
-}
-
-// WorkflowForTestItem defines model for WorkflowForTestItem.
-type WorkflowForTestItem struct {
-	Id   openapi_types.UUID `json:"id"`
-	Name string             `json:"name"`
 }
 
 // WorkflowLastExecution Model for workflow last execution data.
@@ -9552,21 +3722,6 @@ type WorkflowLastExecution struct {
 
 // WorkflowLastExecutionStatus Status of the last execution
 type WorkflowLastExecutionStatus string
-
-// WorkflowRulesResponse Response containing rules for a specific workflow.
-type WorkflowRulesResponse struct {
-	Rules      []SlackNotificationRuleWithWorkflows `json:"rules"`
-	WorkflowId openapi_types.UUID                   `json:"workflow_id"`
-}
-
-// WorkflowShareStatusResponse defines model for WorkflowShareStatusResponse.
-type WorkflowShareStatusResponse struct {
-	ChildTestsShared *int    `json:"child_tests_shared,omitempty"`
-	ChildTestsTotal  *int    `json:"child_tests_total,omitempty"`
-	Enabled          bool    `json:"enabled"`
-	ExpiresAt        *string `json:"expires_at"`
-	ShareableLink    *string `json:"shareable_link"`
-}
 
 // WorkflowStatus Workflow execution status.
 type WorkflowStatus string
@@ -9605,66 +3760,6 @@ type WorkflowTaskInfo struct {
 	TriggeredBy    *string   `json:"triggered_by"`
 	UpdatedAt      *string   `json:"updated_at"`
 	WorkflowId     *string   `json:"workflow_id"`
-}
-
-// WorkflowTaskReportInfo Enriched task info for workflow report cards.
-type WorkflowTaskReportInfo struct {
-	AppId                *string                 `json:"app_id"`
-	AppName              *string                 `json:"app_name"`
-	BuildId              *string                 `json:"build_id"`
-	BuildVersion         *string                 `json:"build_version"`
-	CompletedAt          *string                 `json:"completed_at"`
-	CurrentStep          *string                 `json:"current_step"`
-	CurrentStepIndex     *int                    `json:"current_step_index"`
-	DeviceModel          *string                 `json:"device_model"`
-	Duration             *float32                `json:"duration"`
-	ErrorMessage         *string                 `json:"error_message"`
-	ExecutionTimeSeconds *float32                `json:"execution_time_seconds"`
-	Metadata             *map[string]interface{} `json:"metadata"`
-	Platform             *string                 `json:"platform"`
-	Progress             *float32                `json:"progress"`
-	StartedAt            *string                 `json:"started_at"`
-	Status               *string                 `json:"status"`
-	StepsCompleted       *int                    `json:"steps_completed"`
-	Success              *bool                   `json:"success"`
-	TaskId               string                  `json:"task_id"`
-	TestId               *string                 `json:"test_id"`
-	TestName             *string                 `json:"test_name"`
-	TotalSteps           *int                    `json:"total_steps"`
-	WasQuarantined       *bool                   `json:"was_quarantined,omitempty"`
-}
-
-// WorkflowTasksReportBatchRequest Request model for batch workflow task report info.
-type WorkflowTasksReportBatchRequest struct {
-	TaskIds []string `json:"task_ids"`
-}
-
-// WorkflowTasksReportBatchResponse Response model for batch workflow task report info.
-type WorkflowTasksReportBatchResponse struct {
-	FoundCount     int                               `json:"found_count"`
-	RequestedCount int                               `json:"requested_count"`
-	Tasks          map[string]WorkflowTaskReportInfo `json:"tasks"`
-}
-
-// WorkflowTestInfo Test information for workflow detail view.
-type WorkflowTestInfo struct {
-	// Id Test ID
-	Id string `json:"id"`
-
-	// LastDuration Last execution duration
-	LastDuration *float32 `json:"last_duration"`
-
-	// LastExecutionTime Last execution timestamp
-	LastExecutionTime *string `json:"last_execution_time"`
-
-	// LastStatus Last execution status
-	LastStatus *string `json:"last_status"`
-
-	// Name Test name
-	Name string `json:"name"`
-
-	// Platform Test platform
-	Platform string `json:"platform"`
 }
 
 // WorkflowUpdateResponse defines model for WorkflowUpdateResponse.
@@ -9756,85 +3851,6 @@ type WorkflowsBaseSchema struct {
 	UpdatedAt          *time.Time `json:"updated_at"`
 }
 
-// WorkflowsForTestResponse defines model for WorkflowsForTestResponse.
-type WorkflowsForTestResponse struct {
-	Total     int                   `json:"total"`
-	Workflows []WorkflowForTestItem `json:"workflows"`
-}
-
-// YamlCreationRequest Request model for creating tests from YAML
-type YamlCreationRequest struct {
-	// MetadataOverrides Metadata overrides
-	MetadataOverrides *map[string]interface{} `json:"metadata_overrides"`
-
-	// YamlContent YAML content
-	YamlContent string `json:"yaml_content"`
-}
-
-// YamlCreationResponse Response model for YAML test creation
-type YamlCreationResponse struct {
-	// BlocksCount Number of blocks created
-	BlocksCount int `json:"blocks_count"`
-
-	// CreatedAt Creation timestamp
-	CreatedAt *time.Time `json:"created_at"`
-
-	// Error Error message
-	Error *string `json:"error"`
-
-	// Errors Any errors that occurred
-	Errors *[]string `json:"errors,omitempty"`
-
-	// ExtractedMetadata Metadata extracted from YAML
-	ExtractedMetadata map[string]interface{} `json:"extracted_metadata"`
-
-	// GeneratedIds List of generated block IDs
-	GeneratedIds []string `json:"generated_ids"`
-
-	// Success Whether the operation was successful
-	Success bool `json:"success"`
-
-	// TestId Generated test ID
-	TestId string `json:"test_id"`
-}
-
-// YamlToBlocksRequest Request model for YAML to blocks conversion
-type YamlToBlocksRequest struct {
-	// Options Conversion options
-	Options *map[string]interface{} `json:"options"`
-
-	// YamlContent YAML content to convert
-	YamlContent string `json:"yaml_content"`
-}
-
-// AppRoutesExecutionRoutesBillingXptSessionHistoryItem defines model for app__routes__execution_routes__billing_xpt__SessionHistoryItem.
-type AppRoutesExecutionRoutesBillingXptSessionHistoryItem struct {
-	BilledAt         string  `json:"billed_at"`
-	BillingStatus    string  `json:"billing_status"`
-	DeviceCostUsd    float32 `json:"device_cost_usd"`
-	DeviceModel      *string `json:"device_model"`
-	DurationSeconds  float32 `json:"duration_seconds"`
-	IsRealDevice     bool    `json:"is_real_device"`
-	LlmCostUsd       float32 `json:"llm_cost_usd"`
-	OsVersion        *string `json:"os_version"`
-	Platform         string  `json:"platform"`
-	SessionEndedAt   *string `json:"session_ended_at"`
-	SessionId        string  `json:"session_id"`
-	SessionStartedAt *string `json:"session_started_at"`
-	SessionStatus    string  `json:"session_status"`
-	TotalCostUsd     float32 `json:"total_cost_usd"`
-	UsageId          string  `json:"usage_id"`
-}
-
-// AppRoutesExecutionRoutesBillingXptSessionHistoryResponse defines model for app__routes__execution_routes__billing_xpt__SessionHistoryResponse.
-type AppRoutesExecutionRoutesBillingXptSessionHistoryResponse struct {
-	Limit       int                                                    `json:"limit"`
-	Offset      int                                                    `json:"offset"`
-	PeriodEnd   string                                                 `json:"period_end"`
-	PeriodStart string                                                 `json:"period_start"`
-	Sessions    []AppRoutesExecutionRoutesBillingXptSessionHistoryItem `json:"sessions"`
-}
-
 // AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem Single row in the device session history listing.
 type AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem struct {
 	AppId               *string                 `json:"app_id"`
@@ -9874,15 +3890,6 @@ type AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryResponse struct {
 	OrgId    string                                                        `json:"org_id"`
 	Sessions []AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem `json:"sessions"`
 	Total    int                                                           `json:"total"`
-}
-
-// AppRoutesReportRoutesTestReportXptStepMetadata Lightweight step metadata for replay timeline.
-type AppRoutesReportRoutesTestReportXptStepMetadata struct {
-	ActionType  string  `json:"action_type"`
-	Description *string `json:"description"`
-	EndTime     float32 `json:"end_time"`
-	Index       int     `json:"index"`
-	StartTime   float32 `json:"start_time"`
 }
 
 // AppRoutesWorkflowRoutesWorkflowShareXptStepMetadata defines model for app__routes__workflow_routes__workflow_share_xpt__StepMetadata.
@@ -9946,33 +3953,6 @@ type GetBuildApiV1AppsBuildsVersionIdGetParams struct {
 	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
 }
 
-// GetBuildRunsApiV1AppsBuildsVersionIdRunsGetParams defines parameters for GetBuildRunsApiV1AppsBuildsVersionIdRunsGet.
-type GetBuildRunsApiV1AppsBuildsVersionIdRunsGetParams struct {
-	// Page Page number (1-indexed)
-	Page *int `form:"page,omitempty" json:"page,omitempty"`
-
-	// PageSize Number of items per page (max 100)
-	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
-}
-
-// ListRemoteBuildsApiV1AppsRemoteGetParams defines parameters for ListRemoteBuildsApiV1AppsRemoteGet.
-type ListRemoteBuildsApiV1AppsRemoteGetParams struct {
-	// AppId App to list build jobs for.
-	AppId openapi_types.UUID `form:"app_id" json:"app_id"`
-
-	// ActiveOnly When true, only return queued or running build jobs.
-	ActiveOnly *bool `form:"active_only,omitempty" json:"active_only,omitempty"`
-	Limit      *int  `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// ListBuildImagesApiV1AppsRemoteBuildImagesGetParams defines parameters for ListBuildImagesApiV1AppsRemoteBuildImagesGet.
-type ListBuildImagesApiV1AppsRemoteBuildImagesGetParams struct {
-	Platform *ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform `form:"platform,omitempty" json:"platform,omitempty"`
-}
-
-// ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform defines parameters for ListBuildImagesApiV1AppsRemoteBuildImagesGet.
-type ListBuildImagesApiV1AppsRemoteBuildImagesGetParamsPlatform string
-
 // CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParams defines parameters for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGet.
 type CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParams struct {
 	Platform *CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform `form:"platform,omitempty" json:"platform,omitempty"`
@@ -9987,36 +3967,11 @@ type CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParams struct {
 // CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform defines parameters for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGet.
 type CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform string
 
-// ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParams defines parameters for ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGet.
-type ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParams struct {
-	AppId    *openapi_types.UUID                                                                `form:"app_id,omitempty" json:"app_id,omitempty"`
-	Platform *ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform `form:"platform,omitempty" json:"platform,omitempty"`
-}
-
-// ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform defines parameters for ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGet.
-type ListBuildConfigurationsApiV1AppsRemoteSandboxBuildConfigurationsGetParamsPlatform string
-
-// AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPostParams defines parameters for AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPost.
-type AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPostParams struct {
-	Authorization *string `json:"authorization,omitempty"`
-}
-
-// UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPostParams defines parameters for UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPost.
-type UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPostParams struct {
-	Authorization *string `json:"authorization,omitempty"`
-}
-
 // GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGetParams defines parameters for GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGet.
 type GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGetParams struct {
 	// AfterId Redis stream cursor. Omit for latest tail; pass 0-0 to read from the beginning.
 	AfterId *string `form:"after_id,omitempty" json:"after_id,omitempty"`
 	Limit   *int    `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// ResolveBuildApiV1AppsResolvePostParams defines parameters for ResolveBuildApiV1AppsResolvePost.
-type ResolveBuildApiV1AppsResolvePostParams struct {
-	// IncludeDownloadUrl Include presigned download URL
-	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
 }
 
 // ListBuildsApiV1AppsAppIdBuildsGetParams defines parameters for ListBuildsApiV1AppsAppIdBuildsGet.
@@ -10040,12 +3995,6 @@ type StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostParams
 	Source *string `form:"source,omitempty" json:"source,omitempty"`
 }
 
-// StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostParams defines parameters for StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost.
-type StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostParams struct {
-	// Version Version string (must be unique)
-	Version string `form:"version" json:"version"`
-}
-
 // CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostParams defines parameters for CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPost.
 type CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostParams struct {
 	// Source Build upload source for backend-owned lifecycle analytics
@@ -10064,63 +4013,6 @@ type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 	Source *string `form:"source,omitempty" json:"source,omitempty"`
 }
 
-// GetTestMatrixApiV1AppsAppIdTestMatrixGetParams defines parameters for GetTestMatrixApiV1AppsAppIdTestMatrixGet.
-type GetTestMatrixApiV1AppsAppIdTestMatrixGetParams struct {
-	Page     *int `form:"page,omitempty" json:"page,omitempty"`
-	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
-}
-
-// GetAppWorkspaceApiV1AppsAppIdWorkspaceGetParams defines parameters for GetAppWorkspaceApiV1AppsAppIdWorkspaceGet.
-type GetAppWorkspaceApiV1AppsAppIdWorkspaceGetParams struct {
-	// TrendDays Trend window in days
-	TrendDays *int `form:"trend_days,omitempty" json:"trend_days,omitempty"`
-}
-
-// ListAgentsApiV1AtlasAgentsGetParams defines parameters for ListAgentsApiV1AtlasAgentsGet.
-type ListAgentsApiV1AtlasAgentsGetParams struct {
-	// AppId Atlas app id to list runs for
-	AppId string `form:"app_id" json:"app_id"`
-
-	// Provider Cloud agent provider
-	Provider *CloudAgentProviderId `form:"provider,omitempty" json:"provider,omitempty"`
-}
-
-// ResolveAppRepositoryApiV1AtlasAgentsRepositoryGetParams defines parameters for ResolveAppRepositoryApiV1AtlasAgentsRepositoryGet.
-type ResolveAppRepositoryApiV1AtlasAgentsRepositoryGetParams struct {
-	// AppId Atlas app id to resolve a repo for
-	AppId string `form:"app_id" json:"app_id"`
-
-	// Platform Optional platform hint to disambiguate
-	Platform *string `form:"platform,omitempty" json:"platform,omitempty"`
-}
-
-// GetAgentApiV1AtlasAgentsBcIdGetParams defines parameters for GetAgentApiV1AtlasAgentsBcIdGet.
-type GetAgentApiV1AtlasAgentsBcIdGetParams struct {
-	// AppId Atlas app id the run must belong to
-	AppId string `form:"app_id" json:"app_id"`
-
-	// Provider Cloud agent provider
-	Provider *CloudAgentProviderId `form:"provider,omitempty" json:"provider,omitempty"`
-}
-
-// CancelAgentApiV1AtlasAgentsBcIdCancelPostParams defines parameters for CancelAgentApiV1AtlasAgentsBcIdCancelPost.
-type CancelAgentApiV1AtlasAgentsBcIdCancelPostParams struct {
-	// AppId Atlas app id the run must belong to
-	AppId string `form:"app_id" json:"app_id"`
-
-	// Provider Cloud agent provider
-	Provider *CloudAgentProviderId `form:"provider,omitempty" json:"provider,omitempty"`
-}
-
-// SendAgentMessageApiV1AtlasAgentsBcIdMessagesPostParams defines parameters for SendAgentMessageApiV1AtlasAgentsBcIdMessagesPost.
-type SendAgentMessageApiV1AtlasAgentsBcIdMessagesPostParams struct {
-	// AppId Atlas app id the run must belong to
-	AppId string `form:"app_id" json:"app_id"`
-
-	// Provider Cloud agent provider
-	Provider *CloudAgentProviderId `form:"provider,omitempty" json:"provider,omitempty"`
-}
-
 // CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGetParams defines parameters for CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGet.
 type CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGetParams struct {
 	LeftEntityId       string  `form:"left_entity_id" json:"left_entity_id"`
@@ -10136,19 +4028,6 @@ type CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGetParams struct {
 	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
 	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams defines parameters for GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGet.
-type GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams struct {
-	// Source Source node entity id
-	Source string `form:"source" json:"source"`
-
-	// Target Target node entity id
-	Target      string  `form:"target" json:"target"`
-	ActionType  string  `form:"action_type" json:"action_type"`
-	ActionLabel string  `form:"action_label" json:"action_label"`
-	BuildId     *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	Limit       *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2EntityApiV1AtlasV2AppsAppIdEntitiesEntityIdGetParams defines parameters for GetAtlasV2EntityApiV1AtlasV2AppsAppIdEntitiesEntityIdGet.
@@ -10212,11 +4091,6 @@ type GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservatio
 	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// ListAtlasExplorationsApiV1AtlasV2AppsAppIdExplorationsGetParams defines parameters for ListAtlasExplorationsApiV1AtlasV2AppsAppIdExplorationsGet.
-type ListAtlasExplorationsApiV1AtlasV2AppsAppIdExplorationsGetParams struct {
-	BuildId *openapi_types.UUID `form:"build_id,omitempty" json:"build_id,omitempty"`
-}
-
 // GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGetParams defines parameters for GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGet.
 type GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGetParams struct {
 	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
@@ -10249,24 +4123,6 @@ type GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams struct {
 	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams defines parameters for GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGet.
-type GetAtlasV2NodeDetailsApiV1AtlasV2AppsAppIdNodesNodeIdDetailsGetParams struct {
-	BuildId                *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId               *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId                 *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	WorkflowExecutionId    *string `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
-	SourceKind             *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime               *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime                 *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope           *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility             *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants        *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	DetailStackLimit       *int    `form:"detail_stack_limit,omitempty" json:"detail_stack_limit,omitempty"`
-	DetailObservationLimit *int    `form:"detail_observation_limit,omitempty" json:"detail_observation_limit,omitempty"`
-	FocusObservationId     *string `form:"focus_observation_id,omitempty" json:"focus_observation_id,omitempty"`
-	IncludeScreenshots     *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
-}
-
 // GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams defines parameters for GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGet.
 type GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParams struct {
 	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
@@ -10297,11 +4153,6 @@ type GetAtlasV2OverviewApiV1AtlasV2AppsAppIdOverviewGetParams struct {
 	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// GetAtlasV2ReportAttachmentsApiV1AtlasV2AppsAppIdReportsReportIdAttachmentsGetParams defines parameters for GetAtlasV2ReportAttachmentsApiV1AtlasV2AppsAppIdReportsReportIdAttachmentsGet.
-type GetAtlasV2ReportAttachmentsApiV1AtlasV2AppsAppIdReportsReportIdAttachmentsGetParams struct {
-	BuildId *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-}
-
 // SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGetParams defines parameters for SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGet.
 type SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGetParams struct {
 	Q                  string  `form:"q" json:"q"`
@@ -10318,14 +4169,6 @@ type SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGetParams struct {
 	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGetParams defines parameters for GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGet.
-type GetAtlasShareLinkStatusApiV1AtlasV2AppsAppIdShareGetParams struct {
-	BuildId  *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	FromTime *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime   *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	Origin   *string `form:"origin,omitempty" json:"origin,omitempty"`
-}
-
 // GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams defines parameters for GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGet.
 type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
 	BuildId             *string `form:"build_id,omitempty" json:"build_id,omitempty"`
@@ -10339,83 +4182,6 @@ type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
 	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	IncludeVariants     *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// RunAtlasV2BackfillScopeApiV1AtlasV2BackfillJobsJobIdRunPostParams defines parameters for RunAtlasV2BackfillScopeApiV1AtlasV2BackfillJobsJobIdRunPost.
-type RunAtlasV2BackfillScopeApiV1AtlasV2BackfillJobsJobIdRunPostParams struct {
-	XServiceKey *string `json:"x-service-key,omitempty"`
-}
-
-// GetAtlasExplorationForestApiV1AtlasV2ExplorationsRunIdForestGetParams defines parameters for GetAtlasExplorationForestApiV1AtlasV2ExplorationsRunIdForestGet.
-type GetAtlasExplorationForestApiV1AtlasV2ExplorationsRunIdForestGetParams struct {
-	IncludeVariants *bool `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	IncludeDetails  *bool `form:"include_details,omitempty" json:"include_details,omitempty"`
-	IncludeFlows    *bool `form:"include_flows,omitempty" json:"include_flows,omitempty"`
-	Limit           *int  `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// GetAtlasV2IndexApiV1AtlasV2IndexGetParams defines parameters for GetAtlasV2IndexApiV1AtlasV2IndexGet.
-type GetAtlasV2IndexApiV1AtlasV2IndexGetParams struct {
-	Limit       *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset      *int    `form:"offset,omitempty" json:"offset,omitempty"`
-	Search      *string `form:"search,omitempty" json:"search,omitempty"`
-	ContentOnly *bool   `form:"content_only,omitempty" json:"content_only,omitempty"`
-}
-
-// CompleteAtlasV2LayerJobApiV1AtlasV2LayerJobsJobIdCompletePostParams defines parameters for CompleteAtlasV2LayerJobApiV1AtlasV2LayerJobsJobIdCompletePost.
-type CompleteAtlasV2LayerJobApiV1AtlasV2LayerJobsJobIdCompletePostParams struct {
-	XServiceKey *string `json:"x-service-key,omitempty"`
-}
-
-// InsertAtlasV2EdgeObservationsApiV1AtlasV2LayerJobsJobIdEdgesPostParams defines parameters for InsertAtlasV2EdgeObservationsApiV1AtlasV2LayerJobsJobIdEdgesPost.
-type InsertAtlasV2EdgeObservationsApiV1AtlasV2LayerJobsJobIdEdgesPostParams struct {
-	XServiceKey *string `json:"x-service-key,omitempty"`
-}
-
-// LayerAtlasV2ObservationApiV1AtlasV2LayerJobsJobIdObservationsPostParams defines parameters for LayerAtlasV2ObservationApiV1AtlasV2LayerJobsJobIdObservationsPost.
-type LayerAtlasV2ObservationApiV1AtlasV2LayerJobsJobIdObservationsPostParams struct {
-	XServiceKey *string `json:"x-service-key,omitempty"`
-}
-
-// GetAtlasV2LayerSourceApiV1AtlasV2LayerJobsJobIdSourceGetParams defines parameters for GetAtlasV2LayerSourceApiV1AtlasV2LayerJobsJobIdSourceGet.
-type GetAtlasV2LayerSourceApiV1AtlasV2LayerJobsJobIdSourceGetParams struct {
-	XServiceKey *string `json:"x-service-key,omitempty"`
-}
-
-// UpdateAtlasV2LayerStatusApiV1AtlasV2LayerJobsJobIdStatusPostParams defines parameters for UpdateAtlasV2LayerStatusApiV1AtlasV2LayerJobsJobIdStatusPost.
-type UpdateAtlasV2LayerStatusApiV1AtlasV2LayerJobsJobIdStatusPostParams struct {
-	XServiceKey *string `json:"x-service-key,omitempty"`
-}
-
-// ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPostParams defines parameters for ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPost.
-type ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPostParams struct {
-	XServiceKey *string `json:"x-service-key,omitempty"`
-}
-
-// GetPublicAtlasShareGraphApiV1AtlasV2ShareTokenGraphGetParams defines parameters for GetPublicAtlasShareGraphApiV1AtlasV2ShareTokenGraphGet.
-type GetPublicAtlasShareGraphApiV1AtlasV2ShareTokenGraphGetParams struct {
-	IncludeScreenshots *bool `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
-}
-
-// GetPublicAtlasShareNodeDetailsApiV1AtlasV2ShareTokenNodesNodeIdDetailsGetParams defines parameters for GetPublicAtlasShareNodeDetailsApiV1AtlasV2ShareTokenNodesNodeIdDetailsGet.
-type GetPublicAtlasShareNodeDetailsApiV1AtlasV2ShareTokenNodesNodeIdDetailsGetParams struct {
-	IncludeScreenshots     *bool `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
-	DetailStackLimit       *int  `form:"detail_stack_limit,omitempty" json:"detail_stack_limit,omitempty"`
-	DetailObservationLimit *int  `form:"detail_observation_limit,omitempty" json:"detail_observation_limit,omitempty"`
-}
-
-// GetAtlasV2WorkflowForestApiV1AtlasV2WorkflowsWorkflowExecutionIdForestGetParams defines parameters for GetAtlasV2WorkflowForestApiV1AtlasV2WorkflowsWorkflowExecutionIdForestGet.
-type GetAtlasV2WorkflowForestApiV1AtlasV2WorkflowsWorkflowExecutionIdForestGetParams struct {
-	IncludeVariants *bool `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	IncludeDetails  *bool `form:"include_details,omitempty" json:"include_details,omitempty"`
-	IncludeFlows    *bool `form:"include_flows,omitempty" json:"include_flows,omitempty"`
-	Limit           *int  `form:"limit,omitempty" json:"limit,omitempty"`
-	AppLimit        *int  `form:"app_limit,omitempty" json:"app_limit,omitempty"`
-}
-
-// GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGetParams defines parameters for GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGet.
-type GetUserTestsWithDetailsEndpointApiV1EntityUsersGetUserTestsWithDetailsGetParams struct {
-	StatusHistoryLimit *int `form:"status_history_limit,omitempty" json:"status_history_limit,omitempty"`
 }
 
 // ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostParams defines parameters for ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPost.
@@ -10448,45 +4214,6 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostParams str
 	XCIPRURL      *string `json:"X-CI-PR-URL,omitempty"`
 }
 
-// BillingBreakdownApiV1ExecutionBillingBreakdownGetParams defines parameters for BillingBreakdownApiV1ExecutionBillingBreakdownGet.
-type BillingBreakdownApiV1ExecutionBillingBreakdownGetParams struct {
-	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
-	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
-}
-
-// BillingCheckApiV1ExecutionBillingCheckGetParams defines parameters for BillingCheckApiV1ExecutionBillingCheckGet.
-type BillingCheckApiV1ExecutionBillingCheckGetParams struct {
-	// Platform ios or android
-	Platform     string `form:"platform" json:"platform"`
-	IsRealDevice *bool  `form:"is_real_device,omitempty" json:"is_real_device,omitempty"`
-}
-
-// BillingDailySpendApiV1ExecutionBillingDailySpendGetParams defines parameters for BillingDailySpendApiV1ExecutionBillingDailySpendGet.
-type BillingDailySpendApiV1ExecutionBillingDailySpendGetParams struct {
-	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
-	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
-}
-
-// BillingDailyUsageApiV1ExecutionBillingDailyUsageGetParams defines parameters for BillingDailyUsageApiV1ExecutionBillingDailyUsageGet.
-type BillingDailyUsageApiV1ExecutionBillingDailyUsageGetParams struct {
-	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
-	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
-}
-
-// BillingSessionsApiV1ExecutionBillingSessionsGetParams defines parameters for BillingSessionsApiV1ExecutionBillingSessionsGet.
-type BillingSessionsApiV1ExecutionBillingSessionsGetParams struct {
-	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
-	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
-	Limit       *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset      *int    `form:"offset,omitempty" json:"offset,omitempty"`
-}
-
-// BillingSummaryApiV1ExecutionBillingSummaryGetParams defines parameters for BillingSummaryApiV1ExecutionBillingSummaryGet.
-type BillingSummaryApiV1ExecutionBillingSummaryGetParams struct {
-	PeriodStart *string `form:"period_start,omitempty" json:"period_start,omitempty"`
-	PeriodEnd   *string `form:"period_end,omitempty" json:"period_end,omitempty"`
-}
-
 // GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams defines parameters for GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGet.
 type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
 	Limit    *int    `form:"limit,omitempty" json:"limit,omitempty"`
@@ -10503,207 +4230,16 @@ type StartDeviceApiV1ExecutionStartDevicePostParams struct {
 	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
 }
 
-// BulkExecuteTestsApiV1ExecutionTestsBulkExecutePostParams defines parameters for BulkExecuteTestsApiV1ExecutionTestsBulkExecutePost.
-type BulkExecuteTestsApiV1ExecutionTestsBulkExecutePostParams struct {
-	XRevylClient  *string `json:"X-Revyl-Client,omitempty"`
-	XCISystem     *string `json:"X-CI-System,omitempty"`
-	XCICommitSHA  *string `json:"X-CI-Commit-SHA,omitempty"`
-	XCIBranch     *string `json:"X-CI-Branch,omitempty"`
-	XCIPRNumber   *int    `json:"X-CI-PR-Number,omitempty"`
-	XCIRunURL     *string `json:"X-CI-Run-URL,omitempty"`
-	XCIRunID      *string `json:"X-CI-Run-ID,omitempty"`
-	XCIRepository *string `json:"X-CI-Repository,omitempty"`
-	XCIActor      *string `json:"X-CI-Actor,omitempty"`
-	XCIActorURL   *string `json:"X-CI-Actor-URL,omitempty"`
-	XCIPRURL      *string `json:"X-CI-PR-URL,omitempty"`
-}
-
 // ListOrgFilesApiV1FilesGetParams defines parameters for ListOrgFilesApiV1FilesGet.
 type ListOrgFilesApiV1FilesGetParams struct {
 	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
-// CheckFileExistsApiV1FilesCheckExistsGetParams defines parameters for CheckFileExistsApiV1FilesCheckExistsGet.
-type CheckFileExistsApiV1FilesCheckExistsGetParams struct {
-	// Name Filename to check
-	Name string `form:"name" json:"name"`
-}
-
-// ListSandboxesApiV1FleetSandboxesGetParams defines parameters for ListSandboxesApiV1FleetSandboxesGet.
-type ListSandboxesApiV1FleetSandboxesGetParams struct {
-	OrgOnly *bool `form:"org_only,omitempty" json:"org_only,omitempty"`
-}
-
-// ClaimSandboxApiV1FleetSandboxesClaimPostParams defines parameters for ClaimSandboxApiV1FleetSandboxesClaimPost.
-type ClaimSandboxApiV1FleetSandboxesClaimPostParams struct {
-	AllowMultiple *bool `form:"allow_multiple,omitempty" json:"allow_multiple,omitempty"`
-}
-
-// GetDashboardApiV1FleetSandboxesDashboardGetParams defines parameters for GetDashboardApiV1FleetSandboxesDashboardGet.
-type GetDashboardApiV1FleetSandboxesDashboardGetParams struct {
-	OrgOnly *bool `form:"org_only,omitempty" json:"org_only,omitempty"`
-}
-
-// GetPoolStatusApiV1FleetSandboxesStatusGetParams defines parameters for GetPoolStatusApiV1FleetSandboxesStatusGet.
-type GetPoolStatusApiV1FleetSandboxesStatusGetParams struct {
-	OrgOnly *bool `form:"org_only,omitempty" json:"org_only,omitempty"`
-}
-
-// SetMaintenanceModeApiV1FleetSandboxesSandboxIdMaintenancePostParams defines parameters for SetMaintenanceModeApiV1FleetSandboxesSandboxIdMaintenancePost.
-type SetMaintenanceModeApiV1FleetSandboxesSandboxIdMaintenancePostParams struct {
-	Enable *bool `form:"enable,omitempty" json:"enable,omitempty"`
-}
-
-// ReleaseSandboxApiV1FleetSandboxesSandboxIdReleasePostParams defines parameters for ReleaseSandboxApiV1FleetSandboxesSandboxIdReleasePost.
-type ReleaseSandboxApiV1FleetSandboxesSandboxIdReleasePostParams struct {
-	Force *bool `form:"force,omitempty" json:"force,omitempty"`
-}
-
-// ListWorktreesApiV1FleetWorktreesGetParams defines parameters for ListWorktreesApiV1FleetWorktreesGet.
-type ListWorktreesApiV1FleetWorktreesGetParams struct {
-	SandboxId *string `form:"sandbox_id,omitempty" json:"sandbox_id,omitempty"`
-}
-
-// RemoveWorktreeApiV1FleetWorktreesBranchDeleteParams defines parameters for RemoveWorktreeApiV1FleetWorktreesBranchDelete.
-type RemoveWorktreeApiV1FleetWorktreesBranchDeleteParams struct {
-	SandboxId *string `form:"sandbox_id,omitempty" json:"sandbox_id,omitempty"`
-}
-
-// GetEvalQueueApiV1FlywheelEvalQueueGetParams defines parameters for GetEvalQueueApiV1FlywheelEvalQueueGet.
-type GetEvalQueueApiV1FlywheelEvalQueueGetParams struct {
-	// ReviewStatus Filter by review_status (pending, in_progress, reviewed, dismissed)
-	ReviewStatus *string `form:"review_status,omitempty" json:"review_status,omitempty"`
-	Limit        *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset       *int    `form:"offset,omitempty" json:"offset,omitempty"`
-}
-
-// GetGroundingCorrectionsApiV1FlywheelGroundingCorrectionsGetParams defines parameters for GetGroundingCorrectionsApiV1FlywheelGroundingCorrectionsGet.
-type GetGroundingCorrectionsApiV1FlywheelGroundingCorrectionsGetParams struct {
-	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
-}
-
-// GetMonitorApiV1FlywheelMonitorGetParams defines parameters for GetMonitorApiV1FlywheelMonitorGet.
-type GetMonitorApiV1FlywheelMonitorGetParams struct {
-	// Hours Time window in hours (default 7d)
-	Hours *int `form:"hours,omitempty" json:"hours,omitempty"`
-
-	// TimeseriesDays Days of timeseries data
-	TimeseriesDays *int `form:"timeseries_days,omitempty" json:"timeseries_days,omitempty"`
-}
-
-// GetOrganizationUsersApiV1IntegrationsGithubOrganizationUsersGetParams defines parameters for GetOrganizationUsersApiV1IntegrationsGithubOrganizationUsersGet.
-type GetOrganizationUsersApiV1IntegrationsGithubOrganizationUsersGetParams struct {
-	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// ListLabelsApiV1IntegrationsLinearLabelsGetParams defines parameters for ListLabelsApiV1IntegrationsLinearLabelsGet.
-type ListLabelsApiV1IntegrationsLinearLabelsGetParams struct {
-	TeamId *string `form:"team_id,omitempty" json:"team_id,omitempty"`
-}
-
-// HandleOauthCallbackApiV1IntegrationsLinearOauthCallbackGetParams defines parameters for HandleOauthCallbackApiV1IntegrationsLinearOauthCallbackGet.
-type HandleOauthCallbackApiV1IntegrationsLinearOauthCallbackGetParams struct {
-	Code        string `form:"code" json:"code"`
-	State       string `form:"state" json:"state"`
-	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
-}
-
-// GetOauthUrlApiV1IntegrationsLinearOauthUrlGetParams defines parameters for GetOauthUrlApiV1IntegrationsLinearOauthUrlGet.
-type GetOauthUrlApiV1IntegrationsLinearOauthUrlGetParams struct {
-	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
-}
-
-// ListProjectsApiV1IntegrationsLinearProjectsGetParams defines parameters for ListProjectsApiV1IntegrationsLinearProjectsGet.
-type ListProjectsApiV1IntegrationsLinearProjectsGetParams struct {
-	TeamId *string `form:"team_id,omitempty" json:"team_id,omitempty"`
-}
-
-// ListStatesApiV1IntegrationsLinearStatesGetParams defines parameters for ListStatesApiV1IntegrationsLinearStatesGet.
-type ListStatesApiV1IntegrationsLinearStatesGetParams struct {
-	TeamId string `form:"team_id" json:"team_id"`
-}
-
-// ListUsersApiV1IntegrationsLinearUsersGetParams defines parameters for ListUsersApiV1IntegrationsLinearUsersGet.
-type ListUsersApiV1IntegrationsLinearUsersGetParams struct {
-	TeamId *string `form:"team_id,omitempty" json:"team_id,omitempty"`
-}
-
-// HandleOauthCallbackApiV1IntegrationsSlackOauthCallbackGetParams defines parameters for HandleOauthCallbackApiV1IntegrationsSlackOauthCallbackGet.
-type HandleOauthCallbackApiV1IntegrationsSlackOauthCallbackGetParams struct {
-	// Code OAuth authorization code from Slack
-	Code string `form:"code" json:"code"`
-
-	// State State token for verification
-	State string `form:"state" json:"state"`
-
-	// RedirectUri Frontend callback URL
-	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
-}
-
-// GetOauthUrlApiV1IntegrationsSlackOauthUrlGetParams defines parameters for GetOauthUrlApiV1IntegrationsSlackOauthUrlGet.
-type GetOauthUrlApiV1IntegrationsSlackOauthUrlGetParams struct {
-	// RedirectUri Frontend callback URL
-	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
-}
-
-// GithubWebhookApiV1IntegrationsWebhookGithubPostParams defines parameters for GithubWebhookApiV1IntegrationsWebhookGithubPost.
-type GithubWebhookApiV1IntegrationsWebhookGithubPostParams struct {
-	XGithubEvent     *string `json:"x-github-event,omitempty"`
-	XHubSignature256 *string `json:"x-hub-signature-256,omitempty"`
-	XGithubDelivery  *string `json:"x-github-delivery,omitempty"`
-}
-
-// CheckModuleExistsApiV1ModulesCheckExistsGetParams defines parameters for CheckModuleExistsApiV1ModulesCheckExistsGet.
-type CheckModuleExistsApiV1ModulesCheckExistsGetParams struct {
-	Name string `form:"name" json:"name"`
-}
-
 // GetModuleVersionsApiV1ModulesModuleIdVersionsGetParams defines parameters for GetModuleVersionsApiV1ModulesModuleIdVersionsGet.
 type GetModuleVersionsApiV1ModulesModuleIdVersionsGetParams struct {
 	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
-}
-
-// GetStreamDebugApiV1MonitorStreamDebugEntityIdGetParams defines parameters for GetStreamDebugApiV1MonitorStreamDebugEntityIdGet.
-type GetStreamDebugApiV1MonitorStreamDebugEntityIdGetParams struct {
-	// StreamType Stream type: tests, workflows, sessions
-	StreamType *string `form:"stream_type,omitempty" json:"stream_type,omitempty"`
-	Limit      *int    `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// StreamUnifiedUpdatesApiV1MonitorStreamUnifiedGetParams defines parameters for StreamUnifiedUpdatesApiV1MonitorStreamUnifiedGet.
-type StreamUnifiedUpdatesApiV1MonitorStreamUnifiedGetParams struct {
-	// IncludeQueued Include queued tests
-	IncludeQueued *bool `form:"include_queued,omitempty" json:"include_queued,omitempty"`
-}
-
-// UpdateCompileStatusApiV1RecordingsCompileJobIdStatusPostParams defines parameters for UpdateCompileStatusApiV1RecordingsCompileJobIdStatusPost.
-type UpdateCompileStatusApiV1RecordingsCompileJobIdStatusPostParams struct {
-	XServiceKey *string `json:"x-service-key,omitempty"`
-}
-
-// GetShareableReportLinkBySessionApiV1ReportAsyncRunShareableReportLinkBySessionGetParams defines parameters for GetShareableReportLinkBySessionApiV1ReportAsyncRunShareableReportLinkBySessionGet.
-type GetShareableReportLinkBySessionApiV1ReportAsyncRunShareableReportLinkBySessionGetParams struct {
-	SessionId string  `form:"session_id" json:"session_id"`
-	Origin    *string `form:"origin,omitempty" json:"origin,omitempty"`
-}
-
-// GetShareableReportLinkByTaskApiV1ReportAsyncRunShareableReportLinkByTaskGetParams defines parameters for GetShareableReportLinkByTaskApiV1ReportAsyncRunShareableReportLinkByTaskGet.
-type GetShareableReportLinkByTaskApiV1ReportAsyncRunShareableReportLinkByTaskGetParams struct {
-	TaskId string  `form:"task_id" json:"task_id"`
-	Origin *string `form:"origin,omitempty" json:"origin,omitempty"`
-}
-
-// GetReportByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdGetParams defines parameters for GetReportByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdGet.
-type GetReportByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdGetParams struct {
-	IncludeSteps    *bool `form:"include_steps,omitempty" json:"include_steps,omitempty"`
-	IncludeActions  *bool `form:"include_actions,omitempty" json:"include_actions,omitempty"`
-	IncludeLlmCalls *bool `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
-
-	// Token Public share token for unauthenticated access
-	Token *string `form:"token,omitempty" json:"token,omitempty"`
 }
 
 // GetReportContextByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdContextGetParams defines parameters for GetReportContextByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdContextGet.
@@ -10716,13 +4252,6 @@ type GetReportContextByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdConte
 	Token *string `form:"token,omitempty" json:"token,omitempty"`
 }
 
-// GetReportBySessionApiV1ReportsV3ReportsBySessionSessionIdGetParams defines parameters for GetReportBySessionApiV1ReportsV3ReportsBySessionSessionIdGet.
-type GetReportBySessionApiV1ReportsV3ReportsBySessionSessionIdGetParams struct {
-	IncludeSteps    *bool `form:"include_steps,omitempty" json:"include_steps,omitempty"`
-	IncludeActions  *bool `form:"include_actions,omitempty" json:"include_actions,omitempty"`
-	IncludeLlmCalls *bool `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
-}
-
 // GetReportContextBySessionApiV1ReportsV3ReportsBySessionSessionIdContextGetParams defines parameters for GetReportContextBySessionApiV1ReportsV3ReportsBySessionSessionIdContextGet.
 type GetReportContextBySessionApiV1ReportsV3ReportsBySessionSessionIdContextGetParams struct {
 	IncludeSteps    *bool `form:"include_steps,omitempty" json:"include_steps,omitempty"`
@@ -10730,50 +4259,10 @@ type GetReportContextBySessionApiV1ReportsV3ReportsBySessionSessionIdContextGetP
 	IncludeLlmCalls *bool `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
 }
 
-// GetReportByTokenApiV1ReportsV3ReportsByTokenGetParams defines parameters for GetReportByTokenApiV1ReportsV3ReportsByTokenGet.
-type GetReportByTokenApiV1ReportsV3ReportsByTokenGetParams struct {
-	// Token Public share token
-	Token           string `form:"token" json:"token"`
-	IncludeSteps    *bool  `form:"include_steps,omitempty" json:"include_steps,omitempty"`
-	IncludeActions  *bool  `form:"include_actions,omitempty" json:"include_actions,omitempty"`
-	IncludeLlmCalls *bool  `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
-}
-
-// GetReportApiV1ReportsV3ReportsReportIdGetParams defines parameters for GetReportApiV1ReportsV3ReportsReportIdGet.
-type GetReportApiV1ReportsV3ReportsReportIdGetParams struct {
-	IncludeSteps    *bool `form:"include_steps,omitempty" json:"include_steps,omitempty"`
-	IncludeActions  *bool `form:"include_actions,omitempty" json:"include_actions,omitempty"`
-	IncludeLlmCalls *bool `form:"include_llm_calls,omitempty" json:"include_llm_calls,omitempty"`
-
-	// Token Public share token for unauthenticated access
-	Token *string `form:"token,omitempty" json:"token,omitempty"`
-}
-
 // GetDeviceLogsDownloadUrlApiV1ReportsV3ReportsReportIdDeviceLogsGetParams defines parameters for GetDeviceLogsDownloadUrlApiV1ReportsV3ReportsReportIdDeviceLogsGet.
 type GetDeviceLogsDownloadUrlApiV1ReportsV3ReportsReportIdDeviceLogsGetParams struct {
 	// Token Public share token for unauthenticated access
 	Token *string `form:"token,omitempty" json:"token,omitempty"`
-}
-
-// GetActiveTestCountApiV1TestsActiveCountGetParams defines parameters for GetActiveTestCountApiV1TestsActiveCountGet.
-type GetActiveTestCountApiV1TestsActiveCountGetParams struct {
-	// OrgId Organization ID to count active tests for
-	OrgId openapi_types.UUID `form:"org_id" json:"org_id"`
-}
-
-// AddTaskReportEndpointApiV1TestsAddTaskReportPostParams defines parameters for AddTaskReportEndpointApiV1TestsAddTaskReportPost.
-type AddTaskReportEndpointApiV1TestsAddTaskReportPostParams struct {
-	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
-}
-
-// GetEnhancedTestExecutionTaskApiV1TestsGetEnhancedTestExecutionTaskGetParams defines parameters for GetEnhancedTestExecutionTaskApiV1TestsGetEnhancedTestExecutionTaskGet.
-type GetEnhancedTestExecutionTaskApiV1TestsGetEnhancedTestExecutionTaskGetParams struct {
-	TaskId string `form:"task_id" json:"task_id"`
-}
-
-// GetEnhancedTestExecutionTasksBatchApiV1TestsGetEnhancedTestExecutionTasksBatchGetParams defines parameters for GetEnhancedTestExecutionTasksBatchApiV1TestsGetEnhancedTestExecutionTasksBatchGet.
-type GetEnhancedTestExecutionTasksBatchApiV1TestsGetEnhancedTestExecutionTasksBatchGetParams struct {
-	TaskIds string `form:"task_ids" json:"task_ids"`
 }
 
 // GetSimpleTestsEndpointApiV1TestsGetSimpleTestsGetParams defines parameters for GetSimpleTestsEndpointApiV1TestsGetSimpleTestsGet.
@@ -10797,15 +4286,6 @@ type GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGetParams struct {
 // GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGetParams defines parameters for GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGet.
 type GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGetParams struct {
 	TaskId string `form:"task_id" json:"task_id"`
-}
-
-// GetTestInfoEndpointApiV1TestsGetTestInfoGetParams defines parameters for GetTestInfoEndpointApiV1TestsGetTestInfoGet.
-type GetTestInfoEndpointApiV1TestsGetTestInfoGetParams struct {
-	TestId  string  `form:"test_id" json:"test_id"`
-	OrgId   *string `form:"org_id,omitempty" json:"org_id,omitempty"`
-	UserId  *string `form:"user_id,omitempty" json:"user_id,omitempty"`
-	BuildId *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	AppId   *string `form:"app_id,omitempty" json:"app_id,omitempty"`
 }
 
 // QueryTestsEndpointApiV1TestsGetTestsGetParams defines parameters for QueryTestsEndpointApiV1TestsGetTestsGet.
@@ -10842,11 +4322,6 @@ type ListScriptsApiV1TestsScriptsGetParams struct {
 	Runtime *string `form:"runtime,omitempty" json:"runtime,omitempty"`
 }
 
-// GetTestStatusBatchApiV1TestsStatusBatchGetParams defines parameters for GetTestStatusBatchApiV1TestsStatusBatchGet.
-type GetTestStatusBatchApiV1TestsStatusBatchGetParams struct {
-	TaskIds string `form:"task_ids" json:"task_ids"`
-}
-
 // GetTestVersionsEndpointApiV1TestsTestIdVersionsGetParams defines parameters for GetTestVersionsEndpointApiV1TestsTestIdVersionsGet.
 type GetTestVersionsEndpointApiV1TestsTestIdVersionsGetParams struct {
 	// Limit Maximum number of versions to return
@@ -10873,25 +4348,9 @@ type DeleteAllVariablesEndpointApiV1VariablesCustomDeleteAllDeleteParams struct 
 	TestUid string `form:"test_uid" json:"test_uid"`
 }
 
-// GetVariableValueEndpointApiV1VariablesCustomGetValueGetParams defines parameters for GetVariableValueEndpointApiV1VariablesCustomGetValueGet.
-type GetVariableValueEndpointApiV1VariablesCustomGetValueGetParams struct {
-	TestUid      string `form:"test_uid" json:"test_uid"`
-	VariableName string `form:"variable_name" json:"variable_name"`
-}
-
 // ReadVariablesEndpointApiV1VariablesCustomReadVariablesGetParams defines parameters for ReadVariablesEndpointApiV1VariablesCustomReadVariablesGet.
 type ReadVariablesEndpointApiV1VariablesCustomReadVariablesGetParams struct {
 	TestUid string `form:"test_uid" json:"test_uid"`
-}
-
-// ResolveVariablesApiV1VariablesGlobalResolveGetParams defines parameters for ResolveVariablesApiV1VariablesGlobalResolveGet.
-type ResolveVariablesApiV1VariablesGlobalResolveGetParams struct {
-	TestUid *string `form:"test_uid,omitempty" json:"test_uid,omitempty"`
-}
-
-// ListIosStorekitConfigRefsForFileApiV1VariablesIosStorekitFileRefsGetParams defines parameters for ListIosStorekitConfigRefsForFileApiV1VariablesIosStorekitFileRefsGet.
-type ListIosStorekitConfigRefsForFileApiV1VariablesIosStorekitFileRefsGetParams struct {
-	FileId openapi_types.UUID `form:"file_id" json:"file_id"`
 }
 
 // DeleteIosStorekitConfigRefApiV1VariablesIosStorekitRefsDeleteParams defines parameters for DeleteIosStorekitConfigRefApiV1VariablesIosStorekitRefsDelete.
@@ -10906,33 +4365,9 @@ type GetIosStorekitConfigRefApiV1VariablesIosStorekitRefsGetParams struct {
 	ScopeId   openapi_types.UUID `form:"scope_id" json:"scope_id"`
 }
 
-// ResolveIosStorekitConfigRefApiV1VariablesIosStorekitResolveGetParams defines parameters for ResolveIosStorekitConfigRefApiV1VariablesIosStorekitResolveGet.
-type ResolveIosStorekitConfigRefApiV1VariablesIosStorekitResolveGetParams struct {
-	AppId   *openapi_types.UUID `form:"app_id,omitempty" json:"app_id,omitempty"`
-	BuildId *openapi_types.UUID `form:"build_id,omitempty" json:"build_id,omitempty"`
-	TestId  *openapi_types.UUID `form:"test_id,omitempty" json:"test_id,omitempty"`
-}
-
-// DetachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsDeleteParams defines parameters for DetachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsDelete.
-type DetachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsDeleteParams struct {
-	TestId   string `form:"test_id" json:"test_id"`
-	EnvVarId string `form:"env_var_id" json:"env_var_id"`
-}
-
 // ListTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsGetParams defines parameters for ListTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsGet.
 type ListTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsGetParams struct {
 	TestId string `form:"test_id" json:"test_id"`
-}
-
-// GetWorkflowDetailApiV1WorkflowsGetDetailWorkflowIdGetParams defines parameters for GetWorkflowDetailApiV1WorkflowsGetDetailWorkflowIdGet.
-type GetWorkflowDetailApiV1WorkflowsGetDetailWorkflowIdGetParams struct {
-	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
-}
-
-// GetWorkflowTaskStatusApiV1WorkflowsGetTaskStatusGetParams defines parameters for GetWorkflowTaskStatusApiV1WorkflowsGetTaskStatusGet.
-type GetWorkflowTaskStatusApiV1WorkflowsGetTaskStatusGetParams struct {
-	TaskId string `form:"task_id" json:"task_id"`
 }
 
 // GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParams defines parameters for GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGet.
@@ -10947,11 +4382,6 @@ type GetWorkflowInfoEndpointApiV1WorkflowsGetWorkflowInfoGetParams struct {
 	WorkflowId string `form:"workflow_id" json:"workflow_id"`
 }
 
-// DeleteWorkflowShareableLinkApiV1WorkflowsShareShareableLinkWorkflowTaskIdDeleteParams defines parameters for DeleteWorkflowShareableLinkApiV1WorkflowsShareShareableLinkWorkflowTaskIdDelete.
-type DeleteWorkflowShareableLinkApiV1WorkflowsShareShareableLinkWorkflowTaskIdDeleteParams struct {
-	RevokeChildTests *bool `form:"revoke_child_tests,omitempty" json:"revoke_child_tests,omitempty"`
-}
-
 // GetWorkflowExecutionHistoryApiV1WorkflowsStatusHistoryWorkflowIdGetParams defines parameters for GetWorkflowExecutionHistoryApiV1WorkflowsStatusHistoryWorkflowIdGet.
 type GetWorkflowExecutionHistoryApiV1WorkflowsStatusHistoryWorkflowIdGetParams struct {
 	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
@@ -10961,32 +4391,11 @@ type GetWorkflowExecutionHistoryApiV1WorkflowsStatusHistoryWorkflowIdGetParams s
 	StartDate *string `form:"start_date,omitempty" json:"start_date,omitempty"`
 }
 
-// CreateTestTaskApiV1WorkflowsTasksCreateTestTaskPostJSONBody defines parameters for CreateTestTaskApiV1WorkflowsTasksCreateTestTaskPost.
-type CreateTestTaskApiV1WorkflowsTasksCreateTestTaskPostJSONBody map[string]interface{}
-
-// UpdateTestTaskApiV1WorkflowsTasksUpdateTestTaskPutJSONBody defines parameters for UpdateTestTaskApiV1WorkflowsTasksUpdateTestTaskPut.
-type UpdateTestTaskApiV1WorkflowsTasksUpdateTestTaskPutJSONBody map[string]interface{}
-
 // UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPutJSONBody defines parameters for UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPut.
 type UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPutJSONBody = []openapi_types.UUID
 
-// GetWorkflowTestMatrixApiV1WorkflowsWorkflowWorkflowIdTestMatrixGetParams defines parameters for GetWorkflowTestMatrixApiV1WorkflowsWorkflowWorkflowIdTestMatrixGet.
-type GetWorkflowTestMatrixApiV1WorkflowsWorkflowWorkflowIdTestMatrixGetParams struct {
-	Page     *int `form:"page,omitempty" json:"page,omitempty"`
-	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
-}
-
-// GetAndroidTaskCountInternalAndroidTaskCountGetParams defines parameters for GetAndroidTaskCountInternalAndroidTaskCountGet.
-type GetAndroidTaskCountInternalAndroidTaskCountGetParams struct {
-	// Env Environment to get counts for
-	Env Environment `form:"env" json:"env"`
-}
-
 // CreateAppApiV1AppsPostJSONRequestBody defines body for CreateAppApiV1AppsPost for application/json ContentType.
 type CreateAppApiV1AppsPostJSONRequestBody = AppCreateRequest
-
-// UpdateBuildApiV1AppsBuildsVersionIdPatchJSONRequestBody defines body for UpdateBuildApiV1AppsBuildsVersionIdPatch for application/json ContentType.
-type UpdateBuildApiV1AppsBuildsVersionIdPatchJSONRequestBody = BuildUpdateRequest
 
 // CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPostJSONRequestBody defines body for CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPost for application/json ContentType.
 type CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPostJSONRequestBody = BuildUploadCompleteRequest
@@ -10994,35 +4403,8 @@ type CompleteBuildUploadApiV1AppsBuildsVersionIdCompleteUploadPostJSONRequestBod
 // TriggerRemoteBuildApiV1AppsRemotePostJSONRequestBody defines body for TriggerRemoteBuildApiV1AppsRemotePost for application/json ContentType.
 type TriggerRemoteBuildApiV1AppsRemotePostJSONRequestBody = RemoteBuildRequest
 
-// CreateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsPostJSONRequestBody defines body for CreateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsPost for application/json ContentType.
-type CreateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsPostJSONRequestBody = BuildConfig
-
-// UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatchJSONRequestBody defines body for UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatch for application/json ContentType.
-type UpdateBuildConfigurationApiV1AppsRemoteSandboxBuildConfigurationsConfigurationIdPatchJSONRequestBody = BuildConfigurationUpdateRequest
-
-// MintBuildRunnerTokenInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdRunnerTokenPostJSONRequestBody defines body for MintBuildRunnerTokenInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdRunnerTokenPost for application/json ContentType.
-type MintBuildRunnerTokenInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdRunnerTokenPostJSONRequestBody = MintRunnerTokenRequest
-
-// ResolveBuildJobSecretsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdSecretsPostJSONRequestBody defines body for ResolveBuildJobSecretsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdSecretsPost for application/json ContentType.
-type ResolveBuildJobSecretsInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdSecretsPostJSONRequestBody = ResolveBuildSecretsRequest
-
-// UpdateBuildJobStatusInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdStatusPostJSONRequestBody defines body for UpdateBuildJobStatusInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdStatusPost for application/json ContentType.
-type UpdateBuildJobStatusInternalApiV1AppsRemoteSandboxInternalBuildJobsBuildJobIdStatusPostJSONRequestBody = BuildJobStatusUpdateRequest
-
-// AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPostJSONRequestBody defines body for AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPost for application/json ContentType.
-type AppendBuildJobLogsFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdLogsPostJSONRequestBody = RunnerLogAppendRequest
-
-// UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPostJSONRequestBody defines body for UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPost for application/json ContentType.
-type UpdateBuildJobResultFromRunnerApiV1AppsRemoteSandboxRunnerBuildJobsBuildJobIdResultPostJSONRequestBody = RunnerResultRequest
-
 // GetSourceUploadUrlApiV1AppsRemoteUploadUrlPostJSONRequestBody defines body for GetSourceUploadUrlApiV1AppsRemoteUploadUrlPost for application/json ContentType.
 type GetSourceUploadUrlApiV1AppsRemoteUploadUrlPostJSONRequestBody = RemoteBuildSourceUploadRequest
-
-// ResolveBuildApiV1AppsResolvePostJSONRequestBody defines body for ResolveBuildApiV1AppsResolvePost for application/json ContentType.
-type ResolveBuildApiV1AppsResolvePostJSONRequestBody = BuildResolutionRequest
-
-// UpdateAppApiV1AppsAppIdPatchJSONRequestBody defines body for UpdateAppApiV1AppsAppIdPatch for application/json ContentType.
-type UpdateAppApiV1AppsAppIdPatchJSONRequestBody = AppUpdateRequest
 
 // CreateBuildFromUploadApiV1AppsAppIdBuildsPostJSONRequestBody defines body for CreateBuildFromUploadApiV1AppsAppIdBuildsPost for application/json ContentType.
 type CreateBuildFromUploadApiV1AppsAppIdBuildsPostJSONRequestBody = BuildCreateFromUploadRequest
@@ -11036,83 +4418,8 @@ type ResumeBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadResumePostJSON
 // StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostJSONRequestBody defines body for StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPost for application/json ContentType.
 type StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostJSONRequestBody = BuildMultipartUploadStartRequest
 
-// StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody defines body for StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost for multipart/form-data ContentType.
-type StreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPostMultipartRequestBody = BodyStreamUploadBuildApiV1AppsAppIdBuildsStreamUploadPost
-
 // CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostJSONRequestBody defines body for CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPost for application/json ContentType.
 type CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostJSONRequestBody = BuildUploadSessionRequest
-
-// SpawnAgentApiV1AtlasAgentsPostJSONRequestBody defines body for SpawnAgentApiV1AtlasAgentsPost for application/json ContentType.
-type SpawnAgentApiV1AtlasAgentsPostJSONRequestBody = SpawnAgentRequest
-
-// SendAgentMessageApiV1AtlasAgentsBcIdMessagesPostJSONRequestBody defines body for SendAgentMessageApiV1AtlasAgentsBcIdMessagesPost for application/json ContentType.
-type SendAgentMessageApiV1AtlasAgentsBcIdMessagesPostJSONRequestBody = SendMessageRequest
-
-// UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatchJSONRequestBody defines body for UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatch for application/json ContentType.
-type UpdateAtlasV2AppCurationApiV1AtlasV2AppsAppIdCurationPatchJSONRequestBody = AtlasV2CurationRequest
-
-// LaunchAtlasExplorationApiV1AtlasV2AppsAppIdExplorationsPostJSONRequestBody defines body for LaunchAtlasExplorationApiV1AtlasV2AppsAppIdExplorationsPost for application/json ContentType.
-type LaunchAtlasExplorationApiV1AtlasV2AppsAppIdExplorationsPostJSONRequestBody = AtlasExploreLaunchRequest
-
-// SplitAtlasV2IdentityRouteApiV1AtlasV2AppsAppIdIdentitySplitPostJSONRequestBody defines body for SplitAtlasV2IdentityRouteApiV1AtlasV2AppsAppIdIdentitySplitPost for application/json ContentType.
-type SplitAtlasV2IdentityRouteApiV1AtlasV2AppsAppIdIdentitySplitPostJSONRequestBody = AtlasV2IdentitySplitRequest
-
-// PreviewAtlasV2IdentitySplitRouteApiV1AtlasV2AppsAppIdIdentitySplitPreviewPostJSONRequestBody defines body for PreviewAtlasV2IdentitySplitRouteApiV1AtlasV2AppsAppIdIdentitySplitPreviewPost for application/json ContentType.
-type PreviewAtlasV2IdentitySplitRouteApiV1AtlasV2AppsAppIdIdentitySplitPreviewPostJSONRequestBody = AtlasV2IdentitySplitRequest
-
-// ManualMergeAtlasV2EntitiesApiV1AtlasV2AppsAppIdManualMergePostJSONRequestBody defines body for ManualMergeAtlasV2EntitiesApiV1AtlasV2AppsAppIdManualMergePost for application/json ContentType.
-type ManualMergeAtlasV2EntitiesApiV1AtlasV2AppsAppIdManualMergePostJSONRequestBody = AtlasV2ManualMergeRequest
-
-// CreateAtlasShareLinkApiV1AtlasV2AppsAppIdSharePostJSONRequestBody defines body for CreateAtlasShareLinkApiV1AtlasV2AppsAppIdSharePost for application/json ContentType.
-type CreateAtlasShareLinkApiV1AtlasV2AppsAppIdSharePostJSONRequestBody = AtlasShareLinkRequest
-
-// StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePostJSONRequestBody defines body for StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePost for application/json ContentType.
-type StartAtlasV2BackfillScopeApiV1AtlasV2BackfillScopePostJSONRequestBody = AtlasV2BackfillScopeRequest
-
-// CreateAtlasExplorationEventApiV1AtlasV2ExplorationsRunIdEventsPostJSONRequestBody defines body for CreateAtlasExplorationEventApiV1AtlasV2ExplorationsRunIdEventsPost for application/json ContentType.
-type CreateAtlasExplorationEventApiV1AtlasV2ExplorationsRunIdEventsPostJSONRequestBody = ExplorationEventCreate
-
-// CreateAtlasExplorationFindingApiV1AtlasV2ExplorationsRunIdFindingsPostJSONRequestBody defines body for CreateAtlasExplorationFindingApiV1AtlasV2ExplorationsRunIdFindingsPost for application/json ContentType.
-type CreateAtlasExplorationFindingApiV1AtlasV2ExplorationsRunIdFindingsPostJSONRequestBody = ReportFindingCreate
-
-// StartAtlasExplorationLaneApiV1AtlasV2ExplorationsRunIdLanesLaneIndexStartPostJSONRequestBody defines body for StartAtlasExplorationLaneApiV1AtlasV2ExplorationsRunIdLanesLaneIndexStartPost for application/json ContentType.
-type StartAtlasExplorationLaneApiV1AtlasV2ExplorationsRunIdLanesLaneIndexStartPostJSONRequestBody = ExplorationLaneStartInput
-
-// UpdateAtlasExplorationStatusApiV1AtlasV2ExplorationsRunIdStatusPostJSONRequestBody defines body for UpdateAtlasExplorationStatusApiV1AtlasV2ExplorationsRunIdStatusPost for application/json ContentType.
-type UpdateAtlasExplorationStatusApiV1AtlasV2ExplorationsRunIdStatusPostJSONRequestBody = ExplorationRunStatusUpdate
-
-// CompleteAtlasV2LayerJobApiV1AtlasV2LayerJobsJobIdCompletePostJSONRequestBody defines body for CompleteAtlasV2LayerJobApiV1AtlasV2LayerJobsJobIdCompletePost for application/json ContentType.
-type CompleteAtlasV2LayerJobApiV1AtlasV2LayerJobsJobIdCompletePostJSONRequestBody = AtlasV2CompleteRequest
-
-// InsertAtlasV2EdgeObservationsApiV1AtlasV2LayerJobsJobIdEdgesPostJSONRequestBody defines body for InsertAtlasV2EdgeObservationsApiV1AtlasV2LayerJobsJobIdEdgesPost for application/json ContentType.
-type InsertAtlasV2EdgeObservationsApiV1AtlasV2LayerJobsJobIdEdgesPostJSONRequestBody = AtlasV2EdgeObservationBatchRequest
-
-// LayerAtlasV2ObservationApiV1AtlasV2LayerJobsJobIdObservationsPostJSONRequestBody defines body for LayerAtlasV2ObservationApiV1AtlasV2LayerJobsJobIdObservationsPost for application/json ContentType.
-type LayerAtlasV2ObservationApiV1AtlasV2LayerJobsJobIdObservationsPostJSONRequestBody = AtlasV2ObservationFeatureInput
-
-// UpdateAtlasV2LayerStatusApiV1AtlasV2LayerJobsJobIdStatusPostJSONRequestBody defines body for UpdateAtlasV2LayerStatusApiV1AtlasV2LayerJobsJobIdStatusPost for application/json ContentType.
-type UpdateAtlasV2LayerStatusApiV1AtlasV2LayerJobsJobIdStatusPostJSONRequestBody = AtlasV2ProgressUpdate
-
-// ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPostJSONRequestBody defines body for ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPost for application/json ContentType.
-type ApplyAtlasV2VlmDecisionApiV1AtlasV2LayerJobsJobIdVlmDecisionPostJSONRequestBody = AtlasV2VLMDecisionRequest
-
-// StartAtlasV2LayerReportApiV1AtlasV2LayerReportPostJSONRequestBody defines body for StartAtlasV2LayerReportApiV1AtlasV2LayerReportPost for application/json ContentType.
-type StartAtlasV2LayerReportApiV1AtlasV2LayerReportPostJSONRequestBody = AtlasV2LayerReportRequest
-
-// DeleteAppBinaryApiV1BinariesTestAppDeleteDeleteJSONRequestBody defines body for DeleteAppBinaryApiV1BinariesTestAppDeleteDelete for application/json ContentType.
-type DeleteAppBinaryApiV1BinariesTestAppDeleteDeleteJSONRequestBody = AppBinaryDeleteRequest
-
-// GetAppBinaryDownloadUrlApiV1BinariesTestAppDownloadUrlPostJSONRequestBody defines body for GetAppBinaryDownloadUrlApiV1BinariesTestAppDownloadUrlPost for application/json ContentType.
-type GetAppBinaryDownloadUrlApiV1BinariesTestAppDownloadUrlPostJSONRequestBody = AppBinaryDownloadRequest
-
-// ExtractPackageIdApiV1BinariesTestAppExtractPackageIdPostJSONRequestBody defines body for ExtractPackageIdApiV1BinariesTestAppExtractPackageIdPost for application/json ContentType.
-type ExtractPackageIdApiV1BinariesTestAppExtractPackageIdPostJSONRequestBody = ExtractPackageIdRequest
-
-// GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPostJSONRequestBody defines body for GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPost for application/json ContentType.
-type GetAppBinaryUploadUrlApiV1BinariesTestAppUploadUrlPostJSONRequestBody = AppBinaryUploadRequest
-
-// CreateCliApiKeyEndpointApiV1EntityUsersCreateCliApiKeyPostJSONRequestBody defines body for CreateCliApiKeyEndpointApiV1EntityUsersCreateCliApiKeyPost for application/json ContentType.
-type CreateCliApiKeyEndpointApiV1EntityUsersCreateCliApiKeyPostJSONRequestBody = CreateCLIApiKeyRequest
 
 // RevokeCliApiKeyEndpointApiV1EntityUsersRevokeCliApiKeyPostJSONRequestBody defines body for RevokeCliApiKeyEndpointApiV1EntityUsersRevokeCliApiKeyPost for application/json ContentType.
 type RevokeCliApiKeyEndpointApiV1EntityUsersRevokeCliApiKeyPostJSONRequestBody = RevokeCLIApiKeyRequest
@@ -11123,74 +4430,14 @@ type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody = 
 // ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONRequestBody defines body for ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPost for application/json ContentType.
 type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONRequestBody = CognisimSchemasSchemasDeviceSchemaWorkflowInfo
 
-// BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody defines body for BillingAttachApiV1ExecutionBillingAttachPost for application/json ContentType.
-type BillingAttachApiV1ExecutionBillingAttachPostJSONRequestBody = AttachRequest
-
-// BuildBillingStartedInternalApiV1ExecutionBillingInternalBuildStartedPostJSONRequestBody defines body for BuildBillingStartedInternalApiV1ExecutionBillingInternalBuildStartedPost for application/json ContentType.
-type BuildBillingStartedInternalApiV1ExecutionBillingInternalBuildStartedPostJSONRequestBody = BuildBillingStartedRequest
-
-// EnqueueBuildBillingInternalApiV1ExecutionBillingInternalEnqueueBuildPostJSONRequestBody defines body for EnqueueBuildBillingInternalApiV1ExecutionBillingInternalEnqueueBuildPost for application/json ContentType.
-type EnqueueBuildBillingInternalApiV1ExecutionBillingInternalEnqueueBuildPostJSONRequestBody = EnqueueBuildBillingRequest
-
-// FailBuildBillingInternalApiV1ExecutionBillingInternalFailBuildPostJSONRequestBody defines body for FailBuildBillingInternalApiV1ExecutionBillingInternalFailBuildPost for application/json ContentType.
-type FailBuildBillingInternalApiV1ExecutionBillingInternalFailBuildPostJSONRequestBody = FailBuildBillingRequest
-
-// FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPostJSONRequestBody defines body for FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPost for application/json ContentType.
-type FailBillingSessionInternalApiV1ExecutionBillingInternalFailSessionPostJSONRequestBody = FailBillingSessionRequest
-
-// ProcessBuildBillingInternalApiV1ExecutionBillingInternalProcessBuildPostJSONRequestBody defines body for ProcessBuildBillingInternalApiV1ExecutionBillingInternalProcessBuildPost for application/json ContentType.
-type ProcessBuildBillingInternalApiV1ExecutionBillingInternalProcessBuildPostJSONRequestBody = ProcessBuildBillingRequest
-
-// ProcessBillingSessionInternalApiV1ExecutionBillingInternalProcessSessionPostJSONRequestBody defines body for ProcessBillingSessionInternalApiV1ExecutionBillingInternalProcessSessionPost for application/json ContentType.
-type ProcessBillingSessionInternalApiV1ExecutionBillingInternalProcessSessionPostJSONRequestBody = ProcessBillingSessionRequest
-
-// BillingPortalApiV1ExecutionBillingPortalPostJSONRequestBody defines body for BillingPortalApiV1ExecutionBillingPortalPost for application/json ContentType.
-type BillingPortalApiV1ExecutionBillingPortalPostJSONRequestBody = PortalRequest
-
-// BillingSetupCardApiV1ExecutionBillingSetupCardPostJSONRequestBody defines body for BillingSetupCardApiV1ExecutionBillingSetupCardPost for application/json ContentType.
-type BillingSetupCardApiV1ExecutionBillingSetupCardPostJSONRequestBody = SetupCardRequest
-
-// CreateDeviceSessionApiV1ExecutionDeviceSessionsPostJSONRequestBody defines body for CreateDeviceSessionApiV1ExecutionDeviceSessionsPost for application/json ContentType.
-type CreateDeviceSessionApiV1ExecutionDeviceSessionsPostJSONRequestBody = DeviceSessionCreate
-
-// UpdateDeviceSessionByWorkflowRunIdApiV1ExecutionDeviceSessionsByWorkflowRunWorkflowRunIdPatchJSONRequestBody defines body for UpdateDeviceSessionByWorkflowRunIdApiV1ExecutionDeviceSessionsByWorkflowRunWorkflowRunIdPatch for application/json ContentType.
-type UpdateDeviceSessionByWorkflowRunIdApiV1ExecutionDeviceSessionsByWorkflowRunWorkflowRunIdPatchJSONRequestBody = DeviceSessionUpdate
-
-// UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatchJSONRequestBody defines body for UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatch for application/json ContentType.
-type UpdateDeviceSessionByIdApiV1ExecutionDeviceSessionsSessionIdPatchJSONRequestBody = DeviceSessionUpdate
-
 // CreateSessionArtifactUploadUrlApiV1ExecutionDeviceSessionsSessionIdArtifactsUploadUrlPostJSONRequestBody defines body for CreateSessionArtifactUploadUrlApiV1ExecutionDeviceSessionsSessionIdArtifactsUploadUrlPost for application/json ContentType.
 type CreateSessionArtifactUploadUrlApiV1ExecutionDeviceSessionsSessionIdArtifactsUploadUrlPostJSONRequestBody = SessionArtifactUploadRequest
 
 // GroundElementApiV1ExecutionGroundPostJSONRequestBody defines body for GroundElementApiV1ExecutionGroundPost for application/json ContentType.
 type GroundElementApiV1ExecutionGroundPostJSONRequestBody = GroundRequest
 
-// CreateLlmCallApiV1ExecutionLlmCallsPostJSONRequestBody defines body for CreateLlmCallApiV1ExecutionLlmCallsPost for application/json ContentType.
-type CreateLlmCallApiV1ExecutionLlmCallsPostJSONRequestBody = LLMCallCreate
-
-// CreateSessionAppUploadUrlApiV1ExecutionSessionsWorkflowRunIdAppUploadUrlPostJSONRequestBody defines body for CreateSessionAppUploadUrlApiV1ExecutionSessionsWorkflowRunIdAppUploadUrlPost for application/json ContentType.
-type CreateSessionAppUploadUrlApiV1ExecutionSessionsWorkflowRunIdAppUploadUrlPostJSONRequestBody = SessionAppUploadUrlRequest
-
-// InstallAppOnSessionApiV1ExecutionSessionsWorkflowRunIdInstallPostJSONRequestBody defines body for InstallAppOnSessionApiV1ExecutionSessionsWorkflowRunIdInstallPost for application/json ContentType.
-type InstallAppOnSessionApiV1ExecutionSessionsWorkflowRunIdInstallPostJSONRequestBody = SessionInstallRequest
-
 // StartDeviceApiV1ExecutionStartDevicePostJSONRequestBody defines body for StartDeviceApiV1ExecutionStartDevicePost for application/json ContentType.
 type StartDeviceApiV1ExecutionStartDevicePostJSONRequestBody = StartDeviceInfo
-
-// CreateTestExecutionApiV1ExecutionTestExecutionsPostJSONRequestBody defines body for CreateTestExecutionApiV1ExecutionTestExecutionsPost for application/json ContentType.
-type CreateTestExecutionApiV1ExecutionTestExecutionsPostJSONRequestBody = TestExecutionCreate
-
-// UpdateTestExecutionApiV1ExecutionTestExecutionsExecutionIdPatchJSONRequestBody defines body for UpdateTestExecutionApiV1ExecutionTestExecutionsExecutionIdPatch for application/json ContentType.
-type UpdateTestExecutionApiV1ExecutionTestExecutionsExecutionIdPatchJSONRequestBody = TestExecutionUpdate
-
-// BulkExecuteTestsApiV1ExecutionTestsBulkExecutePostJSONRequestBody defines body for BulkExecuteTestsApiV1ExecutionTestsBulkExecutePost for application/json ContentType.
-type BulkExecuteTestsApiV1ExecutionTestsBulkExecutePostJSONRequestBody = BulkExecuteRequest
-
-// CreateWorkflowExecutionApiV1ExecutionWorkflowExecutionsPostJSONRequestBody defines body for CreateWorkflowExecutionApiV1ExecutionWorkflowExecutionsPost for application/json ContentType.
-type CreateWorkflowExecutionApiV1ExecutionWorkflowExecutionsPostJSONRequestBody = WorkflowExecutionCreate
-
-// UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatchJSONRequestBody defines body for UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatch for application/json ContentType.
-type UpdateWorkflowExecutionApiV1ExecutionWorkflowExecutionsExecutionIdPatchJSONRequestBody = WorkflowExecutionUpdate
 
 // GetUploadUrlApiV1FilesUploadUrlPostJSONRequestBody defines body for GetUploadUrlApiV1FilesUploadUrlPost for application/json ContentType.
 type GetUploadUrlApiV1FilesUploadUrlPostJSONRequestBody = OrgFileUploadRequest
@@ -11204,98 +4451,8 @@ type CompleteUploadApiV1FilesFileIdCompleteUploadPostJSONRequestBody = OrgFileCo
 // GetReplaceUrlApiV1FilesFileIdReplaceUrlPutJSONRequestBody defines body for GetReplaceUrlApiV1FilesFileIdReplaceUrlPut for application/json ContentType.
 type GetReplaceUrlApiV1FilesFileIdReplaceUrlPutJSONRequestBody = OrgFileUploadRequest
 
-// RegisterSandboxApiV1FleetSandboxesRegisterPostJSONRequestBody defines body for RegisterSandboxApiV1FleetSandboxesRegisterPost for application/json ContentType.
-type RegisterSandboxApiV1FleetSandboxesRegisterPostJSONRequestBody = RegisterSandboxRequest
-
-// UpdateSandboxApiV1FleetSandboxesSandboxIdPatchJSONRequestBody defines body for UpdateSandboxApiV1FleetSandboxesSandboxIdPatch for application/json ContentType.
-type UpdateSandboxApiV1FleetSandboxesSandboxIdPatchJSONRequestBody = UpdateSandboxRequest
-
-// PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPostJSONRequestBody defines body for PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPost for application/json ContentType.
-type PushSshKeyApiV1FleetSandboxesSandboxIdSshKeyPostJSONRequestBody = PushSSHKeyRequest
-
-// CreateWorktreeApiV1FleetWorktreesPostJSONRequestBody defines body for CreateWorktreeApiV1FleetWorktreesPost for application/json ContentType.
-type CreateWorktreeApiV1FleetWorktreesPostJSONRequestBody = CreateWorktreeRequest
-
-// UpdateFlywheelConfigApiV1FlywheelConfigPatchJSONRequestBody defines body for UpdateFlywheelConfigApiV1FlywheelConfigPatch for application/json ContentType.
-type UpdateFlywheelConfigApiV1FlywheelConfigPatchJSONRequestBody = FlywheelConfigUpdateRequest
-
-// DeleteEvalResultsApiV1FlywheelEvalResultsDeleteJSONRequestBody defines body for DeleteEvalResultsApiV1FlywheelEvalResultsDelete for application/json ContentType.
-type DeleteEvalResultsApiV1FlywheelEvalResultsDeleteJSONRequestBody = DeleteEvalResultsRequest
-
-// UpdateGroundingCorrectionApiV1FlywheelGroundingCorrectionsCorrectionIdPatchJSONRequestBody defines body for UpdateGroundingCorrectionApiV1FlywheelGroundingCorrectionsCorrectionIdPatch for application/json ContentType.
-type UpdateGroundingCorrectionApiV1FlywheelGroundingCorrectionsCorrectionIdPatchJSONRequestBody = GroundingCorrectionUpdateRequest
-
-// LoadStepsApiV1FlywheelInternalLoadStepsPostJSONRequestBody defines body for LoadStepsApiV1FlywheelInternalLoadStepsPost for application/json ContentType.
-type LoadStepsApiV1FlywheelInternalLoadStepsPostJSONRequestBody = FlywheelLoadStepsRequest
-
-// StoreResultsApiV1FlywheelInternalStoreResultsPostJSONRequestBody defines body for StoreResultsApiV1FlywheelInternalStoreResultsPost for application/json ContentType.
-type StoreResultsApiV1FlywheelInternalStoreResultsPostJSONRequestBody = FlywheelStoreResultsRequest
-
-// TriggerFlywheelEvalApiV1FlywheelTriggerPostJSONRequestBody defines body for TriggerFlywheelEvalApiV1FlywheelTriggerPost for application/json ContentType.
-type TriggerFlywheelEvalApiV1FlywheelTriggerPostJSONRequestBody = FlywheelTriggerRequest
-
-// CreateApprovalRequestApiV1HitlCreateApprovalRequestPostJSONRequestBody defines body for CreateApprovalRequestApiV1HitlCreateApprovalRequestPost for application/json ContentType.
-type CreateApprovalRequestApiV1HitlCreateApprovalRequestPostJSONRequestBody = HITLApprovalRequest
-
-// RecordApprovalDecisionApiV1HitlRecordDecisionPostJSONRequestBody defines body for RecordApprovalDecisionApiV1HitlRecordDecisionPost for application/json ContentType.
-type RecordApprovalDecisionApiV1HitlRecordDecisionPostJSONRequestBody = HITLApprovalDecision
-
 // CreateHotreloadRelayApiV1HotreloadRelaysPostJSONRequestBody defines body for CreateHotreloadRelayApiV1HotreloadRelaysPost for application/json ContentType.
 type CreateHotreloadRelayApiV1HotreloadRelaysPostJSONRequestBody = HotReloadRelayCreateRequest
-
-// ConnectCursorApiV1IntegrationsCursorConnectPostJSONRequestBody defines body for ConnectCursorApiV1IntegrationsCursorConnectPost for application/json ContentType.
-type ConnectCursorApiV1IntegrationsCursorConnectPostJSONRequestBody = ConnectCursorRequest
-
-// ListExpoBuildsEndpointApiV1IntegrationsExpoBuildsPostJSONRequestBody defines body for ListExpoBuildsEndpointApiV1IntegrationsExpoBuildsPost for application/json ContentType.
-type ListExpoBuildsEndpointApiV1IntegrationsExpoBuildsPostJSONRequestBody = ListExpoBuildsRequest
-
-// ManualTriggerExpoBuildApiV1IntegrationsExpoManualTriggerPostJSONRequestBody defines body for ManualTriggerExpoBuildApiV1IntegrationsExpoManualTriggerPost for application/json ContentType.
-type ManualTriggerExpoBuildApiV1IntegrationsExpoManualTriggerPostJSONRequestBody = ManualTriggerRequest
-
-// GetExpoProjectIdsApiV1IntegrationsExpoProjectIdsPostJSONRequestBody defines body for GetExpoProjectIdsApiV1IntegrationsExpoProjectIdsPost for application/json ContentType.
-type GetExpoProjectIdsApiV1IntegrationsExpoProjectIdsPostJSONRequestBody = ExpoProjectFromBuildPathRequest
-
-// CreateExpoProjectApiV1IntegrationsExpoProjectsPostJSONRequestBody defines body for CreateExpoProjectApiV1IntegrationsExpoProjectsPost for application/json ContentType.
-type CreateExpoProjectApiV1IntegrationsExpoProjectsPostJSONRequestBody = CreateExpoProjectRequest
-
-// ResolveExpoProjectEndpointApiV1IntegrationsExpoProjectsResolvePostJSONRequestBody defines body for ResolveExpoProjectEndpointApiV1IntegrationsExpoProjectsResolvePost for application/json ContentType.
-type ResolveExpoProjectEndpointApiV1IntegrationsExpoProjectsResolvePostJSONRequestBody = ResolveExpoProjectRequest
-
-// UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPutJSONRequestBody defines body for UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPut for application/json ContentType.
-type UpdateExpoProjectApiV1IntegrationsExpoProjectsConfigIdPutJSONRequestBody = UpdateExpoProjectRequest
-
-// RecordRequestedInstallApiV1IntegrationsGithubInstallRequestRequestedPostJSONRequestBody defines body for RecordRequestedInstallApiV1IntegrationsGithubInstallRequestRequestedPost for application/json ContentType.
-type RecordRequestedInstallApiV1IntegrationsGithubInstallRequestRequestedPostJSONRequestBody = RecordInstallRequestRequest
-
-// RefreshInstallationApiV1IntegrationsGithubRefreshInstallationPostJSONRequestBody defines body for RefreshInstallationApiV1IntegrationsGithubRefreshInstallationPost for application/json ContentType.
-type RefreshInstallationApiV1IntegrationsGithubRefreshInstallationPostJSONRequestBody = RefreshInstallationRequest
-
-// VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPostJSONRequestBody defines body for VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPost for application/json ContentType.
-type VerifyInstallationApiV1IntegrationsGithubVerifyInstallationPostJSONRequestBody = SetupInstallationRequest
-
-// CreateIssueApiV1IntegrationsLinearIssuesPostJSONRequestBody defines body for CreateIssueApiV1IntegrationsLinearIssuesPost for application/json ContentType.
-type CreateIssueApiV1IntegrationsLinearIssuesPostJSONRequestBody = LinearIssueRequest
-
-// UpdateSettingsApiV1IntegrationsLinearSettingsPutJSONRequestBody defines body for UpdateSettingsApiV1IntegrationsLinearSettingsPut for application/json ContentType.
-type UpdateSettingsApiV1IntegrationsLinearSettingsPutJSONRequestBody = LinearSettingsRequest
-
-// UpdateDefaultRoleApiV1IntegrationsSettingsDefaultRolePutJSONRequestBody defines body for UpdateDefaultRoleApiV1IntegrationsSettingsDefaultRolePut for application/json ContentType.
-type UpdateDefaultRoleApiV1IntegrationsSettingsDefaultRolePutJSONRequestBody = UpdateDefaultRoleRequest
-
-// UpdatePropelMetadataApiV1IntegrationsSettingsMetadataPutJSONRequestBody defines body for UpdatePropelMetadataApiV1IntegrationsSettingsMetadataPut for application/json ContentType.
-type UpdatePropelMetadataApiV1IntegrationsSettingsMetadataPutJSONRequestBody = UpdatePropelMetadataRequest
-
-// ResolveChannelApiV1IntegrationsSlackChannelsResolvePostJSONRequestBody defines body for ResolveChannelApiV1IntegrationsSlackChannelsResolvePost for application/json ContentType.
-type ResolveChannelApiV1IntegrationsSlackChannelsResolvePostJSONRequestBody = ResolveSlackChannelRequest
-
-// InternalSendNotificationApiV1IntegrationsSlackInternalSendNotificationPostJSONRequestBody defines body for InternalSendNotificationApiV1IntegrationsSlackInternalSendNotificationPost for application/json ContentType.
-type InternalSendNotificationApiV1IntegrationsSlackInternalSendNotificationPostJSONRequestBody = InternalSendNotificationRequest
-
-// CreateRuleApiV1IntegrationsSlackRulesPostJSONRequestBody defines body for CreateRuleApiV1IntegrationsSlackRulesPost for application/json ContentType.
-type CreateRuleApiV1IntegrationsSlackRulesPostJSONRequestBody = CreateSlackNotificationRuleRequest
-
-// UpdateRuleApiV1IntegrationsSlackRulesRuleIdPutJSONRequestBody defines body for UpdateRuleApiV1IntegrationsSlackRulesRuleIdPut for application/json ContentType.
-type UpdateRuleApiV1IntegrationsSlackRulesRuleIdPutJSONRequestBody = UpdateSlackNotificationRuleRequest
 
 // CreateModuleApiV1ModulesCreatePostJSONRequestBody defines body for CreateModuleApiV1ModulesCreatePost for application/json ContentType.
 type CreateModuleApiV1ModulesCreatePostJSONRequestBody = CreateModuleRequest
@@ -11306,20 +4463,8 @@ type UpdateModuleApiV1ModulesUpdateModuleIdPutJSONRequestBody = UpdateModuleRequ
 // RestoreModuleVersionApiV1ModulesModuleIdRestorePostJSONRequestBody defines body for RestoreModuleVersionApiV1ModulesModuleIdRestorePost for application/json ContentType.
 type RestoreModuleVersionApiV1ModulesModuleIdRestorePostJSONRequestBody = ModuleRestoreVersionRequest
 
-// CompleteChecklistStepApiV1OnboardingChecklistStepPostJSONRequestBody defines body for CompleteChecklistStepApiV1OnboardingChecklistStepPost for application/json ContentType.
-type CompleteChecklistStepApiV1OnboardingChecklistStepPostJSONRequestBody = ChecklistStepRequest
-
-// CompletePersonalizationApiV1OnboardingPersonalizationPostJSONRequestBody defines body for CompletePersonalizationApiV1OnboardingPersonalizationPost for application/json ContentType.
-type CompletePersonalizationApiV1OnboardingPersonalizationPostJSONRequestBody = PersonalizationRequest
-
 // StartCompileApiV1RecordingsCompilePostJSONRequestBody defines body for StartCompileApiV1RecordingsCompilePost for application/json ContentType.
 type StartCompileApiV1RecordingsCompilePostJSONRequestBody = CompileRecordingRequest
-
-// UpdateCompileStatusApiV1RecordingsCompileJobIdStatusPostJSONRequestBody defines body for UpdateCompileStatusApiV1RecordingsCompileJobIdStatusPost for application/json ContentType.
-type UpdateCompileStatusApiV1RecordingsCompileJobIdStatusPostJSONRequestBody = CompileProgressUpdate
-
-// GenerateShareableReportLinkApiV1ReportAsyncRunGenerateShareableReportLinkPostJSONRequestBody defines body for GenerateShareableReportLinkApiV1ReportAsyncRunGenerateShareableReportLinkPost for application/json ContentType.
-type GenerateShareableReportLinkApiV1ReportAsyncRunGenerateShareableReportLinkPostJSONRequestBody = ShareableReportModel
 
 // GenerateShareableReportLinkBySessionApiV1ReportAsyncRunGenerateShareableReportLinkBySessionPostJSONRequestBody defines body for GenerateShareableReportLinkBySessionApiV1ReportAsyncRunGenerateShareableReportLinkBySessionPost for application/json ContentType.
 type GenerateShareableReportLinkBySessionApiV1ReportAsyncRunGenerateShareableReportLinkBySessionPostJSONRequestBody = ShareableReportBySessionModel
@@ -11327,95 +4472,11 @@ type GenerateShareableReportLinkBySessionApiV1ReportAsyncRunGenerateShareableRep
 // GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPostJSONRequestBody defines body for GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPost for application/json ContentType.
 type GenerateShareableReportLinkByTaskApiV1ReportAsyncRunGenerateShareableReportLinkByTaskPostJSONRequestBody = ShareableReportByTaskModel
 
-// UploadTrainingImageApiV1ReportAsyncRunTrainingImagePostJSONRequestBody defines body for UploadTrainingImageApiV1ReportAsyncRunTrainingImagePost for application/json ContentType.
-type UploadTrainingImageApiV1ReportAsyncRunTrainingImagePostJSONRequestBody = TrainingImageUploadRequest
-
-// GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPostJSONRequestBody defines body for GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPost for application/json ContentType.
-type GetUnifiedReportOptimizedApiV1ReportAsyncRunUnifiedReportOptimizedPostJSONRequestBody = UnifiedReportRequest
-
-// GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportAsyncRunVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequestV1
-
-// GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody defines body for GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPost for application/json ContentType.
-type GetWorkflowTasksReportBatchApiV1ReportAsyncRunWorkflowTasksReportBatchPostJSONRequestBody = WorkflowTasksReportBatchRequest
-
-// RunEvalApiV1ReportEvalsRunEvalPostJSONRequestBody defines body for RunEvalApiV1ReportEvalsRunEvalPost for application/json ContentType.
-type RunEvalApiV1ReportEvalsRunEvalPostJSONRequestBody = EvalRequest
-
-// UpdateActionScreenshotApiV1ReportsV3ActionsActionIdScreenshotPatchJSONRequestBody defines body for UpdateActionScreenshotApiV1ReportsV3ActionsActionIdScreenshotPatch for application/json ContentType.
-type UpdateActionScreenshotApiV1ReportsV3ActionsActionIdScreenshotPatchJSONRequestBody = UpdateActionScreenshotRequest
-
-// CreateReportApiV1ReportsV3ReportsPostJSONRequestBody defines body for CreateReportApiV1ReportsV3ReportsPost for application/json ContentType.
-type CreateReportApiV1ReportsV3ReportsPostJSONRequestBody = CreateReportRequest
-
-// GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPostJSONRequestBody defines body for GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPost for application/json ContentType.
-type GetStepSummariesBatchApiV1ReportsV3ReportsStepSummariesBatchPostJSONRequestBody = StepSummariesBatchRequest
-
-// GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody defines body for GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPost for application/json ContentType.
-type GetVideoMetadataBatchApiV1ReportsV3ReportsVideoMetadataBatchPostJSONRequestBody = VideoMetadataBatchRequest
-
-// GetVideoMetadataBatchBySessionApiV1ReportsV3ReportsVideoMetadataBatchBySessionPostJSONRequestBody defines body for GetVideoMetadataBatchBySessionApiV1ReportsV3ReportsVideoMetadataBatchBySessionPost for application/json ContentType.
-type GetVideoMetadataBatchBySessionApiV1ReportsV3ReportsVideoMetadataBatchBySessionPostJSONRequestBody = VideoMetadataBatchBySessionRequest
-
-// UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody defines body for UpdateReportApiV1ReportsV3ReportsReportIdPatch for application/json ContentType.
-type UpdateReportApiV1ReportsV3ReportsReportIdPatchJSONRequestBody = UpdateReportRequest
-
-// CreateStepApiV1ReportsV3ReportsReportIdStepsPostJSONRequestBody defines body for CreateStepApiV1ReportsV3ReportsReportIdStepsPost for application/json ContentType.
-type CreateStepApiV1ReportsV3ReportsReportIdStepsPostJSONRequestBody = CreateStepRequest
-
-// UpdateStepApiV1ReportsV3StepsStepIdPatchJSONRequestBody defines body for UpdateStepApiV1ReportsV3StepsStepIdPatch for application/json ContentType.
-type UpdateStepApiV1ReportsV3StepsStepIdPatchJSONRequestBody = UpdateStepRequest
-
-// CreateActionApiV1ReportsV3StepsStepIdActionsPostJSONRequestBody defines body for CreateActionApiV1ReportsV3StepsStepIdActionsPost for application/json ContentType.
-type CreateActionApiV1ReportsV3StepsStepIdActionsPostJSONRequestBody = CreateActionRequest
-
-// FailScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportFailPostJSONRequestBody defines body for FailScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportFailPost for application/json ContentType.
-type FailScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportFailPostJSONRequestBody = ScmAdaptiveReportFailRequest
-
-// ProcessScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportProcessPostJSONRequestBody defines body for ProcessScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportProcessPost for application/json ContentType.
-type ProcessScmAdaptiveReportInternalApiV1ScmInternalAdaptiveReportProcessPostJSONRequestBody = ScmAdaptiveReportProcessRequest
-
-// FailScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowFailPostJSONRequestBody defines body for FailScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowFailPost for application/json ContentType.
-type FailScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowFailPostJSONRequestBody = ScmCuratedWorkflowFailRequest
-
-// ProcessScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowProcessPostJSONRequestBody defines body for ProcessScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowProcessPost for application/json ContentType.
-type ProcessScmCuratedWorkflowInternalApiV1ScmInternalCuratedWorkflowProcessPostJSONRequestBody = ScmCuratedWorkflowProcessRequest
-
-// CreateScmConfigApiV1ScmProviderConfigsPostJSONRequestBody defines body for CreateScmConfigApiV1ScmProviderConfigsPost for application/json ContentType.
-type CreateScmConfigApiV1ScmProviderConfigsPostJSONRequestBody = ScmConfigCreateRequest
-
-// PushScmConfigFileApiV1ScmProviderConfigsPushPostJSONRequestBody defines body for PushScmConfigFileApiV1ScmProviderConfigsPushPost for application/json ContentType.
-type PushScmConfigFileApiV1ScmProviderConfigsPushPostJSONRequestBody = ScmConfigFilePushRequest
-
-// UpdateScmConfigApiV1ScmProviderConfigsRepoConfigIdPutJSONRequestBody defines body for UpdateScmConfigApiV1ScmProviderConfigsRepoConfigIdPut for application/json ContentType.
-type UpdateScmConfigApiV1ScmProviderConfigsRepoConfigIdPutJSONRequestBody = ScmConfigUpdateRequest
-
-// GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody defines body for GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePost for application/json ContentType.
-type GetPresignedUrlsApiV1StorageS3PresignedUrlsBucketNamePostJSONRequestBody = S3PresignedUrlsRequest
-
-// UploadToS3ApiV1StorageS3UploadPostMultipartRequestBody defines body for UploadToS3ApiV1StorageS3UploadPost for multipart/form-data ContentType.
-type UploadToS3ApiV1StorageS3UploadPostMultipartRequestBody = BodyUploadToS3ApiV1StorageS3UploadPost
-
-// AddTaskReportEndpointApiV1TestsAddTaskReportPostJSONRequestBody defines body for AddTaskReportEndpointApiV1TestsAddTaskReportPost for application/json ContentType.
-type AddTaskReportEndpointApiV1TestsAddTaskReportPostJSONRequestBody = TaskReportRequest
-
-// BulkDeleteTestsEndpointApiV1TestsBulkDeletePostJSONRequestBody defines body for BulkDeleteTestsEndpointApiV1TestsBulkDeletePost for application/json ContentType.
-type BulkDeleteTestsEndpointApiV1TestsBulkDeletePostJSONRequestBody = BulkDeleteTestsRequest
-
-// BulkDeleteTestExecutionsEndpointApiV1TestsBulkDeleteTestExecutionsPostJSONRequestBody defines body for BulkDeleteTestExecutionsEndpointApiV1TestsBulkDeleteTestExecutionsPost for application/json ContentType.
-type BulkDeleteTestExecutionsEndpointApiV1TestsBulkDeleteTestExecutionsPostJSONRequestBody = BulkDeleteTestExecutionsRequest
-
 // CreateTestEndpointApiV1TestsCreatePostJSONRequestBody defines body for CreateTestEndpointApiV1TestsCreatePost for application/json ContentType.
 type CreateTestEndpointApiV1TestsCreatePostJSONRequestBody = Test
 
-// CreateEnhancedTestExecutionTaskApiV1TestsCreateEnhancedTestExecutionTaskPostJSONRequestBody defines body for CreateEnhancedTestExecutionTaskApiV1TestsCreateEnhancedTestExecutionTaskPost for application/json ContentType.
-type CreateEnhancedTestExecutionTaskApiV1TestsCreateEnhancedTestExecutionTaskPostJSONRequestBody = TestExecutionTasksEnhancedCreate
-
 // DuplicateTestEndpointApiV1TestsDuplicatePostJSONRequestBody defines body for DuplicateTestEndpointApiV1TestsDuplicatePost for application/json ContentType.
 type DuplicateTestEndpointApiV1TestsDuplicatePostJSONRequestBody = DuplicateTestRequest
-
-// GetTestInfoBatchEndpointApiV1TestsGetTestInfoBatchPostJSONRequestBody defines body for GetTestInfoBatchEndpointApiV1TestsGetTestInfoBatchPost for application/json ContentType.
-type GetTestInfoBatchEndpointApiV1TestsGetTestInfoBatchPostJSONRequestBody = BatchTestInfoRequest
 
 // CreateScriptApiV1TestsScriptsPostJSONRequestBody defines body for CreateScriptApiV1TestsScriptsPost for application/json ContentType.
 type CreateScriptApiV1TestsScriptsPostJSONRequestBody = CodeExecutionScriptCreate
@@ -11438,32 +4499,14 @@ type UpdateTagApiV1TestsTagsTagIdPatchJSONRequestBody = UpdateTagRequest
 // UpdateTestEndpointApiV1TestsUpdateTestIdPutJSONRequestBody defines body for UpdateTestEndpointApiV1TestsUpdateTestIdPut for application/json ContentType.
 type UpdateTestEndpointApiV1TestsUpdateTestIdPutJSONRequestBody = Test
 
-// UpdateEnhancedTestExecutionTaskApiV1TestsUpdateEnhancedTestExecutionTaskPutJSONRequestBody defines body for UpdateEnhancedTestExecutionTaskApiV1TestsUpdateEnhancedTestExecutionTaskPut for application/json ContentType.
-type UpdateEnhancedTestExecutionTaskApiV1TestsUpdateEnhancedTestExecutionTaskPutJSONRequestBody = TestExecutionTasksEnhancedUpdate
-
-// ConvertBlocksToYamlApiV1TestsYamlConversionBlocksToYamlPostJSONRequestBody defines body for ConvertBlocksToYamlApiV1TestsYamlConversionBlocksToYamlPost for application/json ContentType.
-type ConvertBlocksToYamlApiV1TestsYamlConversionBlocksToYamlPostJSONRequestBody = BlocksToYamlRequest
-
-// ConvertYamlToBlocksApiV1TestsYamlConversionYamlToBlocksPostJSONRequestBody defines body for ConvertYamlToBlocksApiV1TestsYamlConversionYamlToBlocksPost for application/json ContentType.
-type ConvertYamlToBlocksApiV1TestsYamlConversionYamlToBlocksPostJSONRequestBody = YamlToBlocksRequest
-
 // CreateTestFromBlocksApiV1TestsYamlFromBlocksPostJSONRequestBody defines body for CreateTestFromBlocksApiV1TestsYamlFromBlocksPost for application/json ContentType.
 type CreateTestFromBlocksApiV1TestsYamlFromBlocksPostJSONRequestBody = BlocksCreationRequest
-
-// CreateTestFromYamlApiV1TestsYamlFromYamlPostJSONRequestBody defines body for CreateTestFromYamlApiV1TestsYamlFromYamlPost for application/json ContentType.
-type CreateTestFromYamlApiV1TestsYamlFromYamlPostJSONRequestBody = YamlCreationRequest
-
-// UpdateCachedElementsEndpointApiV1TestsTestIdCachedElementsPutJSONRequestBody defines body for UpdateCachedElementsEndpointApiV1TestsTestIdCachedElementsPut for application/json ContentType.
-type UpdateCachedElementsEndpointApiV1TestsTestIdCachedElementsPutJSONRequestBody = CachedActionStore
 
 // UpdateDeviceTargetApiV1TestsTestIdDeviceTargetPatchJSONRequestBody defines body for UpdateDeviceTargetApiV1TestsTestIdDeviceTargetPatch for application/json ContentType.
 type UpdateDeviceTargetApiV1TestsTestIdDeviceTargetPatchJSONRequestBody = UpdateDeviceTargetRequest
 
 // RestoreTestVersionEndpointApiV1TestsTestIdRestorePostJSONRequestBody defines body for RestoreTestVersionEndpointApiV1TestsTestIdRestorePost for application/json ContentType.
 type RestoreTestVersionEndpointApiV1TestsTestIdRestorePostJSONRequestBody = TestRestoreVersionRequest
-
-// GetLlmDetailsBatchApiV1TraceLlmDetailsBatchPostJSONRequestBody defines body for GetLlmDetailsBatchApiV1TraceLlmDetailsBatchPost for application/json ContentType.
-type GetLlmDetailsBatchApiV1TraceLlmDetailsBatchPostJSONRequestBody = BatchLLMDetailsRequest
 
 // AddVariableEndpointApiV1VariablesCustomAddPostJSONRequestBody defines body for AddVariableEndpointApiV1VariablesCustomAddPost for application/json ContentType.
 type AddVariableEndpointApiV1VariablesCustomAddPostJSONRequestBody = VariableModel
@@ -11477,9 +4520,6 @@ type UpdateVariableValueEndpointApiV1VariablesCustomUpdateValuePutJSONRequestBod
 // AddGlobalVariableApiV1VariablesGlobalPostJSONRequestBody defines body for AddGlobalVariableApiV1VariablesGlobalPost for application/json ContentType.
 type AddGlobalVariableApiV1VariablesGlobalPostJSONRequestBody = GlobalVariableCreate
 
-// UpdateGlobalVariableValueByNameApiV1VariablesGlobalByNameVariableNamePutJSONRequestBody defines body for UpdateGlobalVariableValueByNameApiV1VariablesGlobalByNameVariableNamePut for application/json ContentType.
-type UpdateGlobalVariableValueByNameApiV1VariablesGlobalByNameVariableNamePutJSONRequestBody = GlobalVariableValueUpdate
-
 // UpdateGlobalVariableApiV1VariablesGlobalVariableIdPutJSONRequestBody defines body for UpdateGlobalVariableApiV1VariablesGlobalVariableIdPut for application/json ContentType.
 type UpdateGlobalVariableApiV1VariablesGlobalVariableIdPutJSONRequestBody = GlobalVariableUpdate
 
@@ -11489,17 +4529,11 @@ type UpsertIosStorekitConfigRefApiV1VariablesIosStorekitRefsPutJSONRequestBody =
 // AddOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvPostJSONRequestBody defines body for AddOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvPost for application/json ContentType.
 type AddOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvPostJSONRequestBody = OrgLaunchEnvVarCreate
 
-// AttachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsPostJSONRequestBody defines body for AttachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsPost for application/json ContentType.
-type AttachTestLaunchEnvVarApiV1VariablesOrgLaunchEnvTestAttachmentsPostJSONRequestBody = OrgLaunchEnvVarAttachRequest
-
 // ReplaceTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsPutJSONRequestBody defines body for ReplaceTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsPut for application/json ContentType.
 type ReplaceTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsPutJSONRequestBody = ReplaceTestLaunchEnvVarRefsRequest
 
 // UpdateOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvEnvVarIdPutJSONRequestBody defines body for UpdateOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvEnvVarIdPut for application/json ContentType.
 type UpdateOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvEnvVarIdPutJSONRequestBody = OrgLaunchEnvVarUpdate
-
-// JoinWaitlistApiV1WaitlistJoinPostJSONRequestBody defines body for JoinWaitlistApiV1WaitlistJoinPost for application/json ContentType.
-type JoinWaitlistApiV1WaitlistJoinPostJSONRequestBody = WaitlistJoinRequest
 
 // CreateWorkflowApiV1WorkflowsCreatePostJSONRequestBody defines body for CreateWorkflowApiV1WorkflowsCreatePost for application/json ContentType.
 type CreateWorkflowApiV1WorkflowsCreatePostJSONRequestBody = WorkflowData
@@ -11510,23 +4544,8 @@ type GenerateWorkflowShareableLinkApiV1WorkflowsShareGenerateShareableLinkPostJS
 // GetUnifiedWorkflowReportApiV1WorkflowsShareUnifiedReportPostJSONRequestBody defines body for GetUnifiedWorkflowReportApiV1WorkflowsShareUnifiedReportPost for application/json ContentType.
 type GetUnifiedWorkflowReportApiV1WorkflowsShareUnifiedReportPostJSONRequestBody = UnifiedWorkflowReportRequest
 
-// CreateTestTaskApiV1WorkflowsTasksCreateTestTaskPostJSONRequestBody defines body for CreateTestTaskApiV1WorkflowsTasksCreateTestTaskPost for application/json ContentType.
-type CreateTestTaskApiV1WorkflowsTasksCreateTestTaskPostJSONRequestBody CreateTestTaskApiV1WorkflowsTasksCreateTestTaskPostJSONBody
-
-// CreateWorkflowTaskApiV1WorkflowsTasksCreateWorkflowTaskPostJSONRequestBody defines body for CreateWorkflowTaskApiV1WorkflowsTasksCreateWorkflowTaskPost for application/json ContentType.
-type CreateWorkflowTaskApiV1WorkflowsTasksCreateWorkflowTaskPostJSONRequestBody = WorkflowExecutionsInsert
-
-// UpdateTestTaskApiV1WorkflowsTasksUpdateTestTaskPutJSONRequestBody defines body for UpdateTestTaskApiV1WorkflowsTasksUpdateTestTaskPut for application/json ContentType.
-type UpdateTestTaskApiV1WorkflowsTasksUpdateTestTaskPutJSONRequestBody UpdateTestTaskApiV1WorkflowsTasksUpdateTestTaskPutJSONBody
-
-// UpdateWorkflowTaskApiV1WorkflowsTasksUpdateWorkflowTaskPutJSONRequestBody defines body for UpdateWorkflowTaskApiV1WorkflowsTasksUpdateWorkflowTaskPut for application/json ContentType.
-type UpdateWorkflowTaskApiV1WorkflowsTasksUpdateWorkflowTaskPutJSONRequestBody = WorkflowExecutionsUpdate
-
 // UpdateWorkflowBuildConfigApiV1WorkflowsUpdateBuildConfigWorkflowIdPutJSONRequestBody defines body for UpdateWorkflowBuildConfigApiV1WorkflowsUpdateBuildConfigWorkflowIdPut for application/json ContentType.
 type UpdateWorkflowBuildConfigApiV1WorkflowsUpdateBuildConfigWorkflowIdPutJSONRequestBody = UpdateWorkflowBuildConfigRequest
-
-// UpdateWorkflowFullApiV1WorkflowsUpdateFullWorkflowIdPutJSONRequestBody defines body for UpdateWorkflowFullApiV1WorkflowsUpdateFullWorkflowIdPut for application/json ContentType.
-type UpdateWorkflowFullApiV1WorkflowsUpdateFullWorkflowIdPutJSONRequestBody = WorkflowData
 
 // UpdateWorkflowLocationConfigApiV1WorkflowsUpdateLocationConfigWorkflowIdPutJSONRequestBody defines body for UpdateWorkflowLocationConfigApiV1WorkflowsUpdateLocationConfigWorkflowIdPut for application/json ContentType.
 type UpdateWorkflowLocationConfigApiV1WorkflowsUpdateLocationConfigWorkflowIdPutJSONRequestBody = UpdateWorkflowLocationConfigRequest
@@ -11540,538 +4559,8 @@ type UpdateWorkflowRunConfigApiV1WorkflowsUpdateRunConfigWorkflowIdPutJSONReques
 // UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPutJSONRequestBody defines body for UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPut for application/json ContentType.
 type UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPutJSONRequestBody = UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPutJSONBody
 
-// UpdateWorkflowTimeoutConfigApiV1WorkflowsUpdateTimeoutConfigWorkflowIdPutJSONRequestBody defines body for UpdateWorkflowTimeoutConfigApiV1WorkflowsUpdateTimeoutConfigWorkflowIdPut for application/json ContentType.
-type UpdateWorkflowTimeoutConfigApiV1WorkflowsUpdateTimeoutConfigWorkflowIdPutJSONRequestBody = UpdateWorkflowTimeoutConfigRequest
-
 // UpdateWorkflowTestFailurePolicyApiV1WorkflowsWorkflowTestsWorkflowTestIdPatchJSONRequestBody defines body for UpdateWorkflowTestFailurePolicyApiV1WorkflowsWorkflowTestsWorkflowTestIdPatch for application/json ContentType.
 type UpdateWorkflowTestFailurePolicyApiV1WorkflowsWorkflowTestsWorkflowTestIdPatchJSONRequestBody = UpdateFailurePolicyRequest
-
-// Getter for additional properties for AtlasOCRLine. Returns the specified
-// element and whether it was found
-func (a AtlasOCRLine) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for AtlasOCRLine
-func (a *AtlasOCRLine) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for AtlasOCRLine to handle AdditionalProperties
-func (a *AtlasOCRLine) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["bbox"]; found {
-		err = json.Unmarshal(raw, &a.Bbox)
-		if err != nil {
-			return fmt.Errorf("error reading 'bbox': %w", err)
-		}
-		delete(object, "bbox")
-	}
-
-	if raw, found := object["confidence"]; found {
-		err = json.Unmarshal(raw, &a.Confidence)
-		if err != nil {
-			return fmt.Errorf("error reading 'confidence': %w", err)
-		}
-		delete(object, "confidence")
-	}
-
-	if raw, found := object["text"]; found {
-		err = json.Unmarshal(raw, &a.Text)
-		if err != nil {
-			return fmt.Errorf("error reading 'text': %w", err)
-		}
-		delete(object, "text")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for AtlasOCRLine to handle AdditionalProperties
-func (a AtlasOCRLine) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.Bbox != nil {
-		object["bbox"], err = json.Marshal(a.Bbox)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'bbox': %w", err)
-		}
-	}
-
-	if a.Confidence != nil {
-		object["confidence"], err = json.Marshal(a.Confidence)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'confidence': %w", err)
-		}
-	}
-
-	if a.Text != nil {
-		object["text"], err = json.Marshal(a.Text)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'text': %w", err)
-		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for AtlasOCRSummary. Returns the specified
-// element and whether it was found
-func (a AtlasOCRSummary) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for AtlasOCRSummary
-func (a *AtlasOCRSummary) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for AtlasOCRSummary to handle AdditionalProperties
-func (a *AtlasOCRSummary) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["error"]; found {
-		err = json.Unmarshal(raw, &a.Error)
-		if err != nil {
-			return fmt.Errorf("error reading 'error': %w", err)
-		}
-		delete(object, "error")
-	}
-
-	if raw, found := object["important_tokens"]; found {
-		err = json.Unmarshal(raw, &a.ImportantTokens)
-		if err != nil {
-			return fmt.Errorf("error reading 'important_tokens': %w", err)
-		}
-		delete(object, "important_tokens")
-	}
-
-	if raw, found := object["lines"]; found {
-		err = json.Unmarshal(raw, &a.Lines)
-		if err != nil {
-			return fmt.Errorf("error reading 'lines': %w", err)
-		}
-		delete(object, "lines")
-	}
-
-	if raw, found := object["ok"]; found {
-		err = json.Unmarshal(raw, &a.Ok)
-		if err != nil {
-			return fmt.Errorf("error reading 'ok': %w", err)
-		}
-		delete(object, "ok")
-	}
-
-	if raw, found := object["provider"]; found {
-		err = json.Unmarshal(raw, &a.Provider)
-		if err != nil {
-			return fmt.Errorf("error reading 'provider': %w", err)
-		}
-		delete(object, "provider")
-	}
-
-	if raw, found := object["stats"]; found {
-		err = json.Unmarshal(raw, &a.Stats)
-		if err != nil {
-			return fmt.Errorf("error reading 'stats': %w", err)
-		}
-		delete(object, "stats")
-	}
-
-	if raw, found := object["text"]; found {
-		err = json.Unmarshal(raw, &a.Text)
-		if err != nil {
-			return fmt.Errorf("error reading 'text': %w", err)
-		}
-		delete(object, "text")
-	}
-
-	if raw, found := object["tokens"]; found {
-		err = json.Unmarshal(raw, &a.Tokens)
-		if err != nil {
-			return fmt.Errorf("error reading 'tokens': %w", err)
-		}
-		delete(object, "tokens")
-	}
-
-	if raw, found := object["version"]; found {
-		err = json.Unmarshal(raw, &a.Version)
-		if err != nil {
-			return fmt.Errorf("error reading 'version': %w", err)
-		}
-		delete(object, "version")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for AtlasOCRSummary to handle AdditionalProperties
-func (a AtlasOCRSummary) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.Error != nil {
-		object["error"], err = json.Marshal(a.Error)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'error': %w", err)
-		}
-	}
-
-	if a.ImportantTokens != nil {
-		object["important_tokens"], err = json.Marshal(a.ImportantTokens)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'important_tokens': %w", err)
-		}
-	}
-
-	if a.Lines != nil {
-		object["lines"], err = json.Marshal(a.Lines)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'lines': %w", err)
-		}
-	}
-
-	if a.Ok != nil {
-		object["ok"], err = json.Marshal(a.Ok)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'ok': %w", err)
-		}
-	}
-
-	if a.Provider != nil {
-		object["provider"], err = json.Marshal(a.Provider)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'provider': %w", err)
-		}
-	}
-
-	if a.Stats != nil {
-		object["stats"], err = json.Marshal(a.Stats)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'stats': %w", err)
-		}
-	}
-
-	if a.Text != nil {
-		object["text"], err = json.Marshal(a.Text)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'text': %w", err)
-		}
-	}
-
-	if a.Tokens != nil {
-		object["tokens"], err = json.Marshal(a.Tokens)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'tokens': %w", err)
-		}
-	}
-
-	if a.Version != nil {
-		object["version"], err = json.Marshal(a.Version)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'version': %w", err)
-		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for AtlasOCRSummaryStats. Returns the specified
-// element and whether it was found
-func (a AtlasOCRSummaryStats) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for AtlasOCRSummaryStats
-func (a *AtlasOCRSummaryStats) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for AtlasOCRSummaryStats to handle AdditionalProperties
-func (a *AtlasOCRSummaryStats) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["avg_confidence"]; found {
-		err = json.Unmarshal(raw, &a.AvgConfidence)
-		if err != nil {
-			return fmt.Errorf("error reading 'avg_confidence': %w", err)
-		}
-		delete(object, "avg_confidence")
-	}
-
-	if raw, found := object["batch_latency_ms"]; found {
-		err = json.Unmarshal(raw, &a.BatchLatencyMs)
-		if err != nil {
-			return fmt.Errorf("error reading 'batch_latency_ms': %w", err)
-		}
-		delete(object, "batch_latency_ms")
-	}
-
-	if raw, found := object["important_token_count"]; found {
-		err = json.Unmarshal(raw, &a.ImportantTokenCount)
-		if err != nil {
-			return fmt.Errorf("error reading 'important_token_count': %w", err)
-		}
-		delete(object, "important_token_count")
-	}
-
-	if raw, found := object["latency_ms"]; found {
-		err = json.Unmarshal(raw, &a.LatencyMs)
-		if err != nil {
-			return fmt.Errorf("error reading 'latency_ms': %w", err)
-		}
-		delete(object, "latency_ms")
-	}
-
-	if raw, found := object["token_count"]; found {
-		err = json.Unmarshal(raw, &a.TokenCount)
-		if err != nil {
-			return fmt.Errorf("error reading 'token_count': %w", err)
-		}
-		delete(object, "token_count")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for AtlasOCRSummaryStats to handle AdditionalProperties
-func (a AtlasOCRSummaryStats) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.AvgConfidence != nil {
-		object["avg_confidence"], err = json.Marshal(a.AvgConfidence)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'avg_confidence': %w", err)
-		}
-	}
-
-	if a.BatchLatencyMs != nil {
-		object["batch_latency_ms"], err = json.Marshal(a.BatchLatencyMs)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'batch_latency_ms': %w", err)
-		}
-	}
-
-	if a.ImportantTokenCount != nil {
-		object["important_token_count"], err = json.Marshal(a.ImportantTokenCount)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'important_token_count': %w", err)
-		}
-	}
-
-	if a.LatencyMs != nil {
-		object["latency_ms"], err = json.Marshal(a.LatencyMs)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'latency_ms': %w", err)
-		}
-	}
-
-	if a.TokenCount != nil {
-		object["token_count"], err = json.Marshal(a.TokenCount)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'token_count': %w", err)
-		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for CompletionMessage. Returns the specified
-// element and whether it was found
-func (a CompletionMessage) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for CompletionMessage
-func (a *CompletionMessage) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for CompletionMessage to handle AdditionalProperties
-func (a *CompletionMessage) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["content"]; found {
-		err = json.Unmarshal(raw, &a.Content)
-		if err != nil {
-			return fmt.Errorf("error reading 'content': %w", err)
-		}
-		delete(object, "content")
-	}
-
-	if raw, found := object["refusal"]; found {
-		err = json.Unmarshal(raw, &a.Refusal)
-		if err != nil {
-			return fmt.Errorf("error reading 'refusal': %w", err)
-		}
-		delete(object, "refusal")
-	}
-
-	if raw, found := object["role"]; found {
-		err = json.Unmarshal(raw, &a.Role)
-		if err != nil {
-			return fmt.Errorf("error reading 'role': %w", err)
-		}
-		delete(object, "role")
-	}
-
-	if raw, found := object["tool_calls"]; found {
-		err = json.Unmarshal(raw, &a.ToolCalls)
-		if err != nil {
-			return fmt.Errorf("error reading 'tool_calls': %w", err)
-		}
-		delete(object, "tool_calls")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for CompletionMessage to handle AdditionalProperties
-func (a CompletionMessage) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.Content != nil {
-		object["content"], err = json.Marshal(a.Content)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'content': %w", err)
-		}
-	}
-
-	if a.Refusal != nil {
-		object["refusal"], err = json.Marshal(a.Refusal)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'refusal': %w", err)
-		}
-	}
-
-	if a.Role != nil {
-		object["role"], err = json.Marshal(a.Role)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'role': %w", err)
-		}
-	}
-
-	if a.ToolCalls != nil {
-		object["tool_calls"], err = json.Marshal(a.ToolCalls)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'tool_calls': %w", err)
-		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
 
 // Getter for additional properties for DOMMetadata. Returns the specified
 // element and whether it was found
@@ -12249,829 +4738,6 @@ func (a DOMMetadata) MarshalJSON() ([]byte, error) {
 		object["wait_time"], err = json.Marshal(a.WaitTime)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'wait_time': %w", err)
-		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for ExpoBuildArtifacts. Returns the specified
-// element and whether it was found
-func (a ExpoBuildArtifacts) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for ExpoBuildArtifacts
-func (a *ExpoBuildArtifacts) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for ExpoBuildArtifacts to handle AdditionalProperties
-func (a *ExpoBuildArtifacts) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["applicationArchiveUrl"]; found {
-		err = json.Unmarshal(raw, &a.ApplicationArchiveUrl)
-		if err != nil {
-			return fmt.Errorf("error reading 'applicationArchiveUrl': %w", err)
-		}
-		delete(object, "applicationArchiveUrl")
-	}
-
-	if raw, found := object["buildUrl"]; found {
-		err = json.Unmarshal(raw, &a.BuildUrl)
-		if err != nil {
-			return fmt.Errorf("error reading 'buildUrl': %w", err)
-		}
-		delete(object, "buildUrl")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for ExpoBuildArtifacts to handle AdditionalProperties
-func (a ExpoBuildArtifacts) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.ApplicationArchiveUrl != nil {
-		object["applicationArchiveUrl"], err = json.Marshal(a.ApplicationArchiveUrl)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'applicationArchiveUrl': %w", err)
-		}
-	}
-
-	if a.BuildUrl != nil {
-		object["buildUrl"], err = json.Marshal(a.BuildUrl)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'buildUrl': %w", err)
-		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for ExpoBuildItem. Returns the specified
-// element and whether it was found
-func (a ExpoBuildItem) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for ExpoBuildItem
-func (a *ExpoBuildItem) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for ExpoBuildItem to handle AdditionalProperties
-func (a *ExpoBuildItem) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["appVersion"]; found {
-		err = json.Unmarshal(raw, &a.AppVersion)
-		if err != nil {
-			return fmt.Errorf("error reading 'appVersion': %w", err)
-		}
-		delete(object, "appVersion")
-	}
-
-	if raw, found := object["artifacts"]; found {
-		err = json.Unmarshal(raw, &a.Artifacts)
-		if err != nil {
-			return fmt.Errorf("error reading 'artifacts': %w", err)
-		}
-		delete(object, "artifacts")
-	}
-
-	if raw, found := object["buildProfile"]; found {
-		err = json.Unmarshal(raw, &a.BuildProfile)
-		if err != nil {
-			return fmt.Errorf("error reading 'buildProfile': %w", err)
-		}
-		delete(object, "buildProfile")
-	}
-
-	if raw, found := object["completedAt"]; found {
-		err = json.Unmarshal(raw, &a.CompletedAt)
-		if err != nil {
-			return fmt.Errorf("error reading 'completedAt': %w", err)
-		}
-		delete(object, "completedAt")
-	}
-
-	if raw, found := object["createdAt"]; found {
-		err = json.Unmarshal(raw, &a.CreatedAt)
-		if err != nil {
-			return fmt.Errorf("error reading 'createdAt': %w", err)
-		}
-		delete(object, "createdAt")
-	}
-
-	if raw, found := object["distribution"]; found {
-		err = json.Unmarshal(raw, &a.Distribution)
-		if err != nil {
-			return fmt.Errorf("error reading 'distribution': %w", err)
-		}
-		delete(object, "distribution")
-	}
-
-	if raw, found := object["gitCommitHash"]; found {
-		err = json.Unmarshal(raw, &a.GitCommitHash)
-		if err != nil {
-			return fmt.Errorf("error reading 'gitCommitHash': %w", err)
-		}
-		delete(object, "gitCommitHash")
-	}
-
-	if raw, found := object["id"]; found {
-		err = json.Unmarshal(raw, &a.Id)
-		if err != nil {
-			return fmt.Errorf("error reading 'id': %w", err)
-		}
-		delete(object, "id")
-	}
-
-	if raw, found := object["platform"]; found {
-		err = json.Unmarshal(raw, &a.Platform)
-		if err != nil {
-			return fmt.Errorf("error reading 'platform': %w", err)
-		}
-		delete(object, "platform")
-	}
-
-	if raw, found := object["sdkVersion"]; found {
-		err = json.Unmarshal(raw, &a.SdkVersion)
-		if err != nil {
-			return fmt.Errorf("error reading 'sdkVersion': %w", err)
-		}
-		delete(object, "sdkVersion")
-	}
-
-	if raw, found := object["status"]; found {
-		err = json.Unmarshal(raw, &a.Status)
-		if err != nil {
-			return fmt.Errorf("error reading 'status': %w", err)
-		}
-		delete(object, "status")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for ExpoBuildItem to handle AdditionalProperties
-func (a ExpoBuildItem) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.AppVersion != nil {
-		object["appVersion"], err = json.Marshal(a.AppVersion)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'appVersion': %w", err)
-		}
-	}
-
-	if a.Artifacts != nil {
-		object["artifacts"], err = json.Marshal(a.Artifacts)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'artifacts': %w", err)
-		}
-	}
-
-	if a.BuildProfile != nil {
-		object["buildProfile"], err = json.Marshal(a.BuildProfile)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'buildProfile': %w", err)
-		}
-	}
-
-	if a.CompletedAt != nil {
-		object["completedAt"], err = json.Marshal(a.CompletedAt)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'completedAt': %w", err)
-		}
-	}
-
-	if a.CreatedAt != nil {
-		object["createdAt"], err = json.Marshal(a.CreatedAt)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'createdAt': %w", err)
-		}
-	}
-
-	if a.Distribution != nil {
-		object["distribution"], err = json.Marshal(a.Distribution)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'distribution': %w", err)
-		}
-	}
-
-	if a.GitCommitHash != nil {
-		object["gitCommitHash"], err = json.Marshal(a.GitCommitHash)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'gitCommitHash': %w", err)
-		}
-	}
-
-	if a.Id != nil {
-		object["id"], err = json.Marshal(a.Id)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'id': %w", err)
-		}
-	}
-
-	if a.Platform != nil {
-		object["platform"], err = json.Marshal(a.Platform)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'platform': %w", err)
-		}
-	}
-
-	if a.SdkVersion != nil {
-		object["sdkVersion"], err = json.Marshal(a.SdkVersion)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'sdkVersion': %w", err)
-		}
-	}
-
-	if a.Status != nil {
-		object["status"], err = json.Marshal(a.Status)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'status': %w", err)
-		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for LLMMessage. Returns the specified
-// element and whether it was found
-func (a LLMMessage) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for LLMMessage
-func (a *LLMMessage) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for LLMMessage to handle AdditionalProperties
-func (a *LLMMessage) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["content"]; found {
-		err = json.Unmarshal(raw, &a.Content)
-		if err != nil {
-			return fmt.Errorf("error reading 'content': %w", err)
-		}
-		delete(object, "content")
-	}
-
-	if raw, found := object["name"]; found {
-		err = json.Unmarshal(raw, &a.Name)
-		if err != nil {
-			return fmt.Errorf("error reading 'name': %w", err)
-		}
-		delete(object, "name")
-	}
-
-	if raw, found := object["role"]; found {
-		err = json.Unmarshal(raw, &a.Role)
-		if err != nil {
-			return fmt.Errorf("error reading 'role': %w", err)
-		}
-		delete(object, "role")
-	}
-
-	if raw, found := object["tool_call_id"]; found {
-		err = json.Unmarshal(raw, &a.ToolCallId)
-		if err != nil {
-			return fmt.Errorf("error reading 'tool_call_id': %w", err)
-		}
-		delete(object, "tool_call_id")
-	}
-
-	if raw, found := object["tool_calls"]; found {
-		err = json.Unmarshal(raw, &a.ToolCalls)
-		if err != nil {
-			return fmt.Errorf("error reading 'tool_calls': %w", err)
-		}
-		delete(object, "tool_calls")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for LLMMessage to handle AdditionalProperties
-func (a LLMMessage) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.Content != nil {
-		object["content"], err = json.Marshal(a.Content)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'content': %w", err)
-		}
-	}
-
-	if a.Name != nil {
-		object["name"], err = json.Marshal(a.Name)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'name': %w", err)
-		}
-	}
-
-	object["role"], err = json.Marshal(a.Role)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'role': %w", err)
-	}
-
-	if a.ToolCallId != nil {
-		object["tool_call_id"], err = json.Marshal(a.ToolCallId)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'tool_call_id': %w", err)
-		}
-	}
-
-	if a.ToolCalls != nil {
-		object["tool_calls"], err = json.Marshal(a.ToolCalls)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'tool_calls': %w", err)
-		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for MultimodalContentPart. Returns the specified
-// element and whether it was found
-func (a MultimodalContentPart) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for MultimodalContentPart
-func (a *MultimodalContentPart) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for MultimodalContentPart to handle AdditionalProperties
-func (a *MultimodalContentPart) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["image_url"]; found {
-		err = json.Unmarshal(raw, &a.ImageUrl)
-		if err != nil {
-			return fmt.Errorf("error reading 'image_url': %w", err)
-		}
-		delete(object, "image_url")
-	}
-
-	if raw, found := object["text"]; found {
-		err = json.Unmarshal(raw, &a.Text)
-		if err != nil {
-			return fmt.Errorf("error reading 'text': %w", err)
-		}
-		delete(object, "text")
-	}
-
-	if raw, found := object["type"]; found {
-		err = json.Unmarshal(raw, &a.Type)
-		if err != nil {
-			return fmt.Errorf("error reading 'type': %w", err)
-		}
-		delete(object, "type")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for MultimodalContentPart to handle AdditionalProperties
-func (a MultimodalContentPart) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.ImageUrl != nil {
-		object["image_url"], err = json.Marshal(a.ImageUrl)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'image_url': %w", err)
-		}
-	}
-
-	if a.Text != nil {
-		object["text"], err = json.Marshal(a.Text)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'text': %w", err)
-		}
-	}
-
-	object["type"], err = json.Marshal(a.Type)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'type': %w", err)
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for RunningTestMetadataContent. Returns the specified
-// element and whether it was found
-func (a RunningTestMetadataContent) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for RunningTestMetadataContent
-func (a *RunningTestMetadataContent) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for RunningTestMetadataContent to handle AdditionalProperties
-func (a *RunningTestMetadataContent) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["_partial"]; found {
-		err = json.Unmarshal(raw, &a.Partial)
-		if err != nil {
-			return fmt.Errorf("error reading '_partial': %w", err)
-		}
-		delete(object, "_partial")
-	}
-
-	if raw, found := object["_upload_status"]; found {
-		err = json.Unmarshal(raw, &a.UploadStatus)
-		if err != nil {
-			return fmt.Errorf("error reading '_upload_status': %w", err)
-		}
-		delete(object, "_upload_status")
-	}
-
-	if raw, found := object["app_name"]; found {
-		err = json.Unmarshal(raw, &a.AppName)
-		if err != nil {
-			return fmt.Errorf("error reading 'app_name': %w", err)
-		}
-		delete(object, "app_name")
-	}
-
-	if raw, found := object["build_version"]; found {
-		err = json.Unmarshal(raw, &a.BuildVersion)
-		if err != nil {
-			return fmt.Errorf("error reading 'build_version': %w", err)
-		}
-		delete(object, "build_version")
-	}
-
-	if raw, found := object["core_info"]; found {
-		err = json.Unmarshal(raw, &a.CoreInfo)
-		if err != nil {
-			return fmt.Errorf("error reading 'core_info': %w", err)
-		}
-		delete(object, "core_info")
-	}
-
-	if raw, found := object["device_metadata"]; found {
-		err = json.Unmarshal(raw, &a.DeviceMetadata)
-		if err != nil {
-			return fmt.Errorf("error reading 'device_metadata': %w", err)
-		}
-		delete(object, "device_metadata")
-	}
-
-	if raw, found := object["execution_time"]; found {
-		err = json.Unmarshal(raw, &a.ExecutionTime)
-		if err != nil {
-			return fmt.Errorf("error reading 'execution_time': %w", err)
-		}
-		delete(object, "execution_time")
-	}
-
-	if raw, found := object["platform"]; found {
-		err = json.Unmarshal(raw, &a.Platform)
-		if err != nil {
-			return fmt.Errorf("error reading 'platform': %w", err)
-		}
-		delete(object, "platform")
-	}
-
-	if raw, found := object["run_config"]; found {
-		err = json.Unmarshal(raw, &a.RunConfig)
-		if err != nil {
-			return fmt.Errorf("error reading 'run_config': %w", err)
-		}
-		delete(object, "run_config")
-	}
-
-	if raw, found := object["run_id"]; found {
-		err = json.Unmarshal(raw, &a.RunId)
-		if err != nil {
-			return fmt.Errorf("error reading 'run_id': %w", err)
-		}
-		delete(object, "run_id")
-	}
-
-	if raw, found := object["steps_data"]; found {
-		err = json.Unmarshal(raw, &a.StepsData)
-		if err != nil {
-			return fmt.Errorf("error reading 'steps_data': %w", err)
-		}
-		delete(object, "steps_data")
-	}
-
-	if raw, found := object["success"]; found {
-		err = json.Unmarshal(raw, &a.Success)
-		if err != nil {
-			return fmt.Errorf("error reading 'success': %w", err)
-		}
-		delete(object, "success")
-	}
-
-	if raw, found := object["test_id"]; found {
-		err = json.Unmarshal(raw, &a.TestId)
-		if err != nil {
-			return fmt.Errorf("error reading 'test_id': %w", err)
-		}
-		delete(object, "test_id")
-	}
-
-	if raw, found := object["test_name"]; found {
-		err = json.Unmarshal(raw, &a.TestName)
-		if err != nil {
-			return fmt.Errorf("error reading 'test_name': %w", err)
-		}
-		delete(object, "test_name")
-	}
-
-	if raw, found := object["total_validations"]; found {
-		err = json.Unmarshal(raw, &a.TotalValidations)
-		if err != nil {
-			return fmt.Errorf("error reading 'total_validations': %w", err)
-		}
-		delete(object, "total_validations")
-	}
-
-	if raw, found := object["validations_passed"]; found {
-		err = json.Unmarshal(raw, &a.ValidationsPassed)
-		if err != nil {
-			return fmt.Errorf("error reading 'validations_passed': %w", err)
-		}
-		delete(object, "validations_passed")
-	}
-
-	if raw, found := object["workflow_run_id"]; found {
-		err = json.Unmarshal(raw, &a.WorkflowRunId)
-		if err != nil {
-			return fmt.Errorf("error reading 'workflow_run_id': %w", err)
-		}
-		delete(object, "workflow_run_id")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for RunningTestMetadataContent to handle AdditionalProperties
-func (a RunningTestMetadataContent) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.Partial != nil {
-		object["_partial"], err = json.Marshal(a.Partial)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '_partial': %w", err)
-		}
-	}
-
-	if a.UploadStatus != nil {
-		object["_upload_status"], err = json.Marshal(a.UploadStatus)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '_upload_status': %w", err)
-		}
-	}
-
-	if a.AppName != nil {
-		object["app_name"], err = json.Marshal(a.AppName)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'app_name': %w", err)
-		}
-	}
-
-	if a.BuildVersion != nil {
-		object["build_version"], err = json.Marshal(a.BuildVersion)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'build_version': %w", err)
-		}
-	}
-
-	object["core_info"], err = json.Marshal(a.CoreInfo)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'core_info': %w", err)
-	}
-
-	if a.DeviceMetadata != nil {
-		object["device_metadata"], err = json.Marshal(a.DeviceMetadata)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'device_metadata': %w", err)
-		}
-	}
-
-	object["execution_time"], err = json.Marshal(a.ExecutionTime)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'execution_time': %w", err)
-	}
-
-	object["platform"], err = json.Marshal(a.Platform)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'platform': %w", err)
-	}
-
-	if a.RunConfig != nil {
-		object["run_config"], err = json.Marshal(a.RunConfig)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'run_config': %w", err)
-		}
-	}
-
-	if a.RunId != nil {
-		object["run_id"], err = json.Marshal(a.RunId)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'run_id': %w", err)
-		}
-	}
-
-	if a.StepsData != nil {
-		object["steps_data"], err = json.Marshal(a.StepsData)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'steps_data': %w", err)
-		}
-	}
-
-	if a.Success != nil {
-		object["success"], err = json.Marshal(a.Success)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'success': %w", err)
-		}
-	}
-
-	if a.TestId != nil {
-		object["test_id"], err = json.Marshal(a.TestId)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'test_id': %w", err)
-		}
-	}
-
-	object["test_name"], err = json.Marshal(a.TestName)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'test_name': %w", err)
-	}
-
-	if a.TotalValidations != nil {
-		object["total_validations"], err = json.Marshal(a.TotalValidations)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'total_validations': %w", err)
-		}
-	}
-
-	if a.ValidationsPassed != nil {
-		object["validations_passed"], err = json.Marshal(a.ValidationsPassed)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'validations_passed': %w", err)
-		}
-	}
-
-	if a.WorkflowRunId != nil {
-		object["workflow_run_id"], err = json.Marshal(a.WorkflowRunId)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'workflow_run_id': %w", err)
 		}
 	}
 
@@ -13647,258 +5313,6 @@ func (a Test) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
-// Getter for additional properties for TestRunInfo. Returns the specified
-// element and whether it was found
-func (a TestRunInfo) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for TestRunInfo
-func (a *TestRunInfo) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for TestRunInfo to handle AdditionalProperties
-func (a *TestRunInfo) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["app_link"]; found {
-		err = json.Unmarshal(raw, &a.AppLink)
-		if err != nil {
-			return fmt.Errorf("error reading 'app_link': %w", err)
-		}
-		delete(object, "app_link")
-	}
-
-	if raw, found := object["app_package"]; found {
-		err = json.Unmarshal(raw, &a.AppPackage)
-		if err != nil {
-			return fmt.Errorf("error reading 'app_package': %w", err)
-		}
-		delete(object, "app_package")
-	}
-
-	if raw, found := object["end_time"]; found {
-		err = json.Unmarshal(raw, &a.EndTime)
-		if err != nil {
-			return fmt.Errorf("error reading 'end_time': %w", err)
-		}
-		delete(object, "end_time")
-	}
-
-	if raw, found := object["error_message"]; found {
-		err = json.Unmarshal(raw, &a.ErrorMessage)
-		if err != nil {
-			return fmt.Errorf("error reading 'error_message': %w", err)
-		}
-		delete(object, "error_message")
-	}
-
-	if raw, found := object["platform"]; found {
-		err = json.Unmarshal(raw, &a.Platform)
-		if err != nil {
-			return fmt.Errorf("error reading 'platform': %w", err)
-		}
-		delete(object, "platform")
-	}
-
-	if raw, found := object["start_time"]; found {
-		err = json.Unmarshal(raw, &a.StartTime)
-		if err != nil {
-			return fmt.Errorf("error reading 'start_time': %w", err)
-		}
-		delete(object, "start_time")
-	}
-
-	if raw, found := object["test_name"]; found {
-		err = json.Unmarshal(raw, &a.TestName)
-		if err != nil {
-			return fmt.Errorf("error reading 'test_name': %w", err)
-		}
-		delete(object, "test_name")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for TestRunInfo to handle AdditionalProperties
-func (a TestRunInfo) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.AppLink != nil {
-		object["app_link"], err = json.Marshal(a.AppLink)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'app_link': %w", err)
-		}
-	}
-
-	if a.AppPackage != nil {
-		object["app_package"], err = json.Marshal(a.AppPackage)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'app_package': %w", err)
-		}
-	}
-
-	if a.EndTime != nil {
-		object["end_time"], err = json.Marshal(a.EndTime)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'end_time': %w", err)
-		}
-	}
-
-	if a.ErrorMessage != nil {
-		object["error_message"], err = json.Marshal(a.ErrorMessage)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'error_message': %w", err)
-		}
-	}
-
-	if a.Platform != nil {
-		object["platform"], err = json.Marshal(a.Platform)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'platform': %w", err)
-		}
-	}
-
-	if a.StartTime != nil {
-		object["start_time"], err = json.Marshal(a.StartTime)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'start_time': %w", err)
-		}
-	}
-
-	if a.TestName != nil {
-		object["test_name"], err = json.Marshal(a.TestName)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'test_name': %w", err)
-		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for ToolCall. Returns the specified
-// element and whether it was found
-func (a ToolCall) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for ToolCall
-func (a *ToolCall) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for ToolCall to handle AdditionalProperties
-func (a *ToolCall) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["function"]; found {
-		err = json.Unmarshal(raw, &a.Function)
-		if err != nil {
-			return fmt.Errorf("error reading 'function': %w", err)
-		}
-		delete(object, "function")
-	}
-
-	if raw, found := object["id"]; found {
-		err = json.Unmarshal(raw, &a.Id)
-		if err != nil {
-			return fmt.Errorf("error reading 'id': %w", err)
-		}
-		delete(object, "id")
-	}
-
-	if raw, found := object["type"]; found {
-		err = json.Unmarshal(raw, &a.Type)
-		if err != nil {
-			return fmt.Errorf("error reading 'type': %w", err)
-		}
-		delete(object, "type")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for ToolCall to handle AdditionalProperties
-func (a ToolCall) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	object["function"], err = json.Marshal(a.Function)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'function': %w", err)
-	}
-
-	object["id"], err = json.Marshal(a.Id)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'id': %w", err)
-	}
-
-	if a.Type != nil {
-		object["type"], err = json.Marshal(a.Type)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'type': %w", err)
-		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
 // AsActionBlockStepType0 returns the union data inside the ActionBlock_StepType as a ActionBlockStepType0
 func (t ActionBlock_StepType) AsActionBlockStepType0() (ActionBlockStepType0, error) {
 	var body ActionBlockStepType0
@@ -14045,244 +5459,6 @@ func (t BlocksCreationRequest_Blocks_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *BlocksCreationRequest_Blocks_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsActionBlock returns the union data inside the BlocksToYamlRequest_Blocks_Item as a ActionBlock
-func (t BlocksToYamlRequest_Blocks_Item) AsActionBlock() (ActionBlock, error) {
-	var body ActionBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromActionBlock overwrites any union data inside the BlocksToYamlRequest_Blocks_Item as the provided ActionBlock
-func (t *BlocksToYamlRequest_Blocks_Item) FromActionBlock(v ActionBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeActionBlock performs a merge with any union data inside the BlocksToYamlRequest_Blocks_Item, using the provided ActionBlock
-func (t *BlocksToYamlRequest_Blocks_Item) MergeActionBlock(v ActionBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsIfBlock returns the union data inside the BlocksToYamlRequest_Blocks_Item as a IfBlock
-func (t BlocksToYamlRequest_Blocks_Item) AsIfBlock() (IfBlock, error) {
-	var body IfBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromIfBlock overwrites any union data inside the BlocksToYamlRequest_Blocks_Item as the provided IfBlock
-func (t *BlocksToYamlRequest_Blocks_Item) FromIfBlock(v IfBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeIfBlock performs a merge with any union data inside the BlocksToYamlRequest_Blocks_Item, using the provided IfBlock
-func (t *BlocksToYamlRequest_Blocks_Item) MergeIfBlock(v IfBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsWhileBlock returns the union data inside the BlocksToYamlRequest_Blocks_Item as a WhileBlock
-func (t BlocksToYamlRequest_Blocks_Item) AsWhileBlock() (WhileBlock, error) {
-	var body WhileBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromWhileBlock overwrites any union data inside the BlocksToYamlRequest_Blocks_Item as the provided WhileBlock
-func (t *BlocksToYamlRequest_Blocks_Item) FromWhileBlock(v WhileBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeWhileBlock performs a merge with any union data inside the BlocksToYamlRequest_Blocks_Item, using the provided WhileBlock
-func (t *BlocksToYamlRequest_Blocks_Item) MergeWhileBlock(v WhileBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t BlocksToYamlRequest_Blocks_Item) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *BlocksToYamlRequest_Blocks_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsNormalizedActionBlock returns the union data inside the ConversionResponse_ConvertedContent_1_Item as a NormalizedActionBlock
-func (t ConversionResponse_ConvertedContent_1_Item) AsNormalizedActionBlock() (NormalizedActionBlock, error) {
-	var body NormalizedActionBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedActionBlock overwrites any union data inside the ConversionResponse_ConvertedContent_1_Item as the provided NormalizedActionBlock
-func (t *ConversionResponse_ConvertedContent_1_Item) FromNormalizedActionBlock(v NormalizedActionBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedActionBlock performs a merge with any union data inside the ConversionResponse_ConvertedContent_1_Item, using the provided NormalizedActionBlock
-func (t *ConversionResponse_ConvertedContent_1_Item) MergeNormalizedActionBlock(v NormalizedActionBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsNormalizedIfBlock returns the union data inside the ConversionResponse_ConvertedContent_1_Item as a NormalizedIfBlock
-func (t ConversionResponse_ConvertedContent_1_Item) AsNormalizedIfBlock() (NormalizedIfBlock, error) {
-	var body NormalizedIfBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedIfBlock overwrites any union data inside the ConversionResponse_ConvertedContent_1_Item as the provided NormalizedIfBlock
-func (t *ConversionResponse_ConvertedContent_1_Item) FromNormalizedIfBlock(v NormalizedIfBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedIfBlock performs a merge with any union data inside the ConversionResponse_ConvertedContent_1_Item, using the provided NormalizedIfBlock
-func (t *ConversionResponse_ConvertedContent_1_Item) MergeNormalizedIfBlock(v NormalizedIfBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsNormalizedWhileBlock returns the union data inside the ConversionResponse_ConvertedContent_1_Item as a NormalizedWhileBlock
-func (t ConversionResponse_ConvertedContent_1_Item) AsNormalizedWhileBlock() (NormalizedWhileBlock, error) {
-	var body NormalizedWhileBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedWhileBlock overwrites any union data inside the ConversionResponse_ConvertedContent_1_Item as the provided NormalizedWhileBlock
-func (t *ConversionResponse_ConvertedContent_1_Item) FromNormalizedWhileBlock(v NormalizedWhileBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedWhileBlock performs a merge with any union data inside the ConversionResponse_ConvertedContent_1_Item, using the provided NormalizedWhileBlock
-func (t *ConversionResponse_ConvertedContent_1_Item) MergeNormalizedWhileBlock(v NormalizedWhileBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t ConversionResponse_ConvertedContent_1_Item) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *ConversionResponse_ConvertedContent_1_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsConversionResponseConvertedContent0 returns the union data inside the ConversionResponse_ConvertedContent as a ConversionResponseConvertedContent0
-func (t ConversionResponse_ConvertedContent) AsConversionResponseConvertedContent0() (ConversionResponseConvertedContent0, error) {
-	var body ConversionResponseConvertedContent0
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromConversionResponseConvertedContent0 overwrites any union data inside the ConversionResponse_ConvertedContent as the provided ConversionResponseConvertedContent0
-func (t *ConversionResponse_ConvertedContent) FromConversionResponseConvertedContent0(v ConversionResponseConvertedContent0) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeConversionResponseConvertedContent0 performs a merge with any union data inside the ConversionResponse_ConvertedContent, using the provided ConversionResponseConvertedContent0
-func (t *ConversionResponse_ConvertedContent) MergeConversionResponseConvertedContent0(v ConversionResponseConvertedContent0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsConversionResponseConvertedContent1 returns the union data inside the ConversionResponse_ConvertedContent as a ConversionResponseConvertedContent1
-func (t ConversionResponse_ConvertedContent) AsConversionResponseConvertedContent1() (ConversionResponseConvertedContent1, error) {
-	var body ConversionResponseConvertedContent1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromConversionResponseConvertedContent1 overwrites any union data inside the ConversionResponse_ConvertedContent as the provided ConversionResponseConvertedContent1
-func (t *ConversionResponse_ConvertedContent) FromConversionResponseConvertedContent1(v ConversionResponseConvertedContent1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeConversionResponseConvertedContent1 performs a merge with any union data inside the ConversionResponse_ConvertedContent, using the provided ConversionResponseConvertedContent1
-func (t *ConversionResponse_ConvertedContent) MergeConversionResponseConvertedContent1(v ConversionResponseConvertedContent1) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t ConversionResponse_ConvertedContent) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *ConversionResponse_ConvertedContent) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -14463,332 +5639,6 @@ func (t *IfBlock_ThenChildren_Item) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsLLMMessageContent0 returns the union data inside the LLMMessage_Content as a LLMMessageContent0
-func (t LLMMessage_Content) AsLLMMessageContent0() (LLMMessageContent0, error) {
-	var body LLMMessageContent0
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromLLMMessageContent0 overwrites any union data inside the LLMMessage_Content as the provided LLMMessageContent0
-func (t *LLMMessage_Content) FromLLMMessageContent0(v LLMMessageContent0) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeLLMMessageContent0 performs a merge with any union data inside the LLMMessage_Content, using the provided LLMMessageContent0
-func (t *LLMMessage_Content) MergeLLMMessageContent0(v LLMMessageContent0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsLLMMessageContent1 returns the union data inside the LLMMessage_Content as a LLMMessageContent1
-func (t LLMMessage_Content) AsLLMMessageContent1() (LLMMessageContent1, error) {
-	var body LLMMessageContent1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromLLMMessageContent1 overwrites any union data inside the LLMMessage_Content as the provided LLMMessageContent1
-func (t *LLMMessage_Content) FromLLMMessageContent1(v LLMMessageContent1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeLLMMessageContent1 performs a merge with any union data inside the LLMMessage_Content, using the provided LLMMessageContent1
-func (t *LLMMessage_Content) MergeLLMMessageContent1(v LLMMessageContent1) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t LLMMessage_Content) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *LLMMessage_Content) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsNormalizedActionBlock returns the union data inside the NormalizedIfBlock_ElseChildren_Item as a NormalizedActionBlock
-func (t NormalizedIfBlock_ElseChildren_Item) AsNormalizedActionBlock() (NormalizedActionBlock, error) {
-	var body NormalizedActionBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedActionBlock overwrites any union data inside the NormalizedIfBlock_ElseChildren_Item as the provided NormalizedActionBlock
-func (t *NormalizedIfBlock_ElseChildren_Item) FromNormalizedActionBlock(v NormalizedActionBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedActionBlock performs a merge with any union data inside the NormalizedIfBlock_ElseChildren_Item, using the provided NormalizedActionBlock
-func (t *NormalizedIfBlock_ElseChildren_Item) MergeNormalizedActionBlock(v NormalizedActionBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsNormalizedIfBlock returns the union data inside the NormalizedIfBlock_ElseChildren_Item as a NormalizedIfBlock
-func (t NormalizedIfBlock_ElseChildren_Item) AsNormalizedIfBlock() (NormalizedIfBlock, error) {
-	var body NormalizedIfBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedIfBlock overwrites any union data inside the NormalizedIfBlock_ElseChildren_Item as the provided NormalizedIfBlock
-func (t *NormalizedIfBlock_ElseChildren_Item) FromNormalizedIfBlock(v NormalizedIfBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedIfBlock performs a merge with any union data inside the NormalizedIfBlock_ElseChildren_Item, using the provided NormalizedIfBlock
-func (t *NormalizedIfBlock_ElseChildren_Item) MergeNormalizedIfBlock(v NormalizedIfBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsNormalizedWhileBlock returns the union data inside the NormalizedIfBlock_ElseChildren_Item as a NormalizedWhileBlock
-func (t NormalizedIfBlock_ElseChildren_Item) AsNormalizedWhileBlock() (NormalizedWhileBlock, error) {
-	var body NormalizedWhileBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedWhileBlock overwrites any union data inside the NormalizedIfBlock_ElseChildren_Item as the provided NormalizedWhileBlock
-func (t *NormalizedIfBlock_ElseChildren_Item) FromNormalizedWhileBlock(v NormalizedWhileBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedWhileBlock performs a merge with any union data inside the NormalizedIfBlock_ElseChildren_Item, using the provided NormalizedWhileBlock
-func (t *NormalizedIfBlock_ElseChildren_Item) MergeNormalizedWhileBlock(v NormalizedWhileBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t NormalizedIfBlock_ElseChildren_Item) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *NormalizedIfBlock_ElseChildren_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsNormalizedActionBlock returns the union data inside the NormalizedIfBlock_ThenChildren_Item as a NormalizedActionBlock
-func (t NormalizedIfBlock_ThenChildren_Item) AsNormalizedActionBlock() (NormalizedActionBlock, error) {
-	var body NormalizedActionBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedActionBlock overwrites any union data inside the NormalizedIfBlock_ThenChildren_Item as the provided NormalizedActionBlock
-func (t *NormalizedIfBlock_ThenChildren_Item) FromNormalizedActionBlock(v NormalizedActionBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedActionBlock performs a merge with any union data inside the NormalizedIfBlock_ThenChildren_Item, using the provided NormalizedActionBlock
-func (t *NormalizedIfBlock_ThenChildren_Item) MergeNormalizedActionBlock(v NormalizedActionBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsNormalizedIfBlock returns the union data inside the NormalizedIfBlock_ThenChildren_Item as a NormalizedIfBlock
-func (t NormalizedIfBlock_ThenChildren_Item) AsNormalizedIfBlock() (NormalizedIfBlock, error) {
-	var body NormalizedIfBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedIfBlock overwrites any union data inside the NormalizedIfBlock_ThenChildren_Item as the provided NormalizedIfBlock
-func (t *NormalizedIfBlock_ThenChildren_Item) FromNormalizedIfBlock(v NormalizedIfBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedIfBlock performs a merge with any union data inside the NormalizedIfBlock_ThenChildren_Item, using the provided NormalizedIfBlock
-func (t *NormalizedIfBlock_ThenChildren_Item) MergeNormalizedIfBlock(v NormalizedIfBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsNormalizedWhileBlock returns the union data inside the NormalizedIfBlock_ThenChildren_Item as a NormalizedWhileBlock
-func (t NormalizedIfBlock_ThenChildren_Item) AsNormalizedWhileBlock() (NormalizedWhileBlock, error) {
-	var body NormalizedWhileBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedWhileBlock overwrites any union data inside the NormalizedIfBlock_ThenChildren_Item as the provided NormalizedWhileBlock
-func (t *NormalizedIfBlock_ThenChildren_Item) FromNormalizedWhileBlock(v NormalizedWhileBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedWhileBlock performs a merge with any union data inside the NormalizedIfBlock_ThenChildren_Item, using the provided NormalizedWhileBlock
-func (t *NormalizedIfBlock_ThenChildren_Item) MergeNormalizedWhileBlock(v NormalizedWhileBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t NormalizedIfBlock_ThenChildren_Item) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *NormalizedIfBlock_ThenChildren_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsNormalizedActionBlock returns the union data inside the NormalizedWhileBlock_Children_Item as a NormalizedActionBlock
-func (t NormalizedWhileBlock_Children_Item) AsNormalizedActionBlock() (NormalizedActionBlock, error) {
-	var body NormalizedActionBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedActionBlock overwrites any union data inside the NormalizedWhileBlock_Children_Item as the provided NormalizedActionBlock
-func (t *NormalizedWhileBlock_Children_Item) FromNormalizedActionBlock(v NormalizedActionBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedActionBlock performs a merge with any union data inside the NormalizedWhileBlock_Children_Item, using the provided NormalizedActionBlock
-func (t *NormalizedWhileBlock_Children_Item) MergeNormalizedActionBlock(v NormalizedActionBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsNormalizedIfBlock returns the union data inside the NormalizedWhileBlock_Children_Item as a NormalizedIfBlock
-func (t NormalizedWhileBlock_Children_Item) AsNormalizedIfBlock() (NormalizedIfBlock, error) {
-	var body NormalizedIfBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedIfBlock overwrites any union data inside the NormalizedWhileBlock_Children_Item as the provided NormalizedIfBlock
-func (t *NormalizedWhileBlock_Children_Item) FromNormalizedIfBlock(v NormalizedIfBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedIfBlock performs a merge with any union data inside the NormalizedWhileBlock_Children_Item, using the provided NormalizedIfBlock
-func (t *NormalizedWhileBlock_Children_Item) MergeNormalizedIfBlock(v NormalizedIfBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsNormalizedWhileBlock returns the union data inside the NormalizedWhileBlock_Children_Item as a NormalizedWhileBlock
-func (t NormalizedWhileBlock_Children_Item) AsNormalizedWhileBlock() (NormalizedWhileBlock, error) {
-	var body NormalizedWhileBlock
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromNormalizedWhileBlock overwrites any union data inside the NormalizedWhileBlock_Children_Item as the provided NormalizedWhileBlock
-func (t *NormalizedWhileBlock_Children_Item) FromNormalizedWhileBlock(v NormalizedWhileBlock) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeNormalizedWhileBlock performs a merge with any union data inside the NormalizedWhileBlock_Children_Item, using the provided NormalizedWhileBlock
-func (t *NormalizedWhileBlock_Children_Item) MergeNormalizedWhileBlock(v NormalizedWhileBlock) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t NormalizedWhileBlock_Children_Item) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *NormalizedWhileBlock_Children_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
 // AsRemoteBuildArchiveSource returns the union data inside the RemoteBuildRequest_Source as a RemoteBuildArchiveSource
 func (t RemoteBuildRequest_Source) AsRemoteBuildArchiveSource() (RemoteBuildArchiveSource, error) {
 	var body RemoteBuildArchiveSource
@@ -14874,192 +5724,6 @@ func (t RemoteBuildRequest_Source) MarshalJSON() ([]byte, error) {
 }
 
 func (t *RemoteBuildRequest_Source) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsRunningTestMetadataContent returns the union data inside the SharedReportOptimizedResponse_MetadataContent as a RunningTestMetadataContent
-func (t SharedReportOptimizedResponse_MetadataContent) AsRunningTestMetadataContent() (RunningTestMetadataContent, error) {
-	var body RunningTestMetadataContent
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromRunningTestMetadataContent overwrites any union data inside the SharedReportOptimizedResponse_MetadataContent as the provided RunningTestMetadataContent
-func (t *SharedReportOptimizedResponse_MetadataContent) FromRunningTestMetadataContent(v RunningTestMetadataContent) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeRunningTestMetadataContent performs a merge with any union data inside the SharedReportOptimizedResponse_MetadataContent, using the provided RunningTestMetadataContent
-func (t *SharedReportOptimizedResponse_MetadataContent) MergeRunningTestMetadataContent(v RunningTestMetadataContent) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsSharedReportOptimizedResponseMetadataContent1 returns the union data inside the SharedReportOptimizedResponse_MetadataContent as a SharedReportOptimizedResponseMetadataContent1
-func (t SharedReportOptimizedResponse_MetadataContent) AsSharedReportOptimizedResponseMetadataContent1() (SharedReportOptimizedResponseMetadataContent1, error) {
-	var body SharedReportOptimizedResponseMetadataContent1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromSharedReportOptimizedResponseMetadataContent1 overwrites any union data inside the SharedReportOptimizedResponse_MetadataContent as the provided SharedReportOptimizedResponseMetadataContent1
-func (t *SharedReportOptimizedResponse_MetadataContent) FromSharedReportOptimizedResponseMetadataContent1(v SharedReportOptimizedResponseMetadataContent1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeSharedReportOptimizedResponseMetadataContent1 performs a merge with any union data inside the SharedReportOptimizedResponse_MetadataContent, using the provided SharedReportOptimizedResponseMetadataContent1
-func (t *SharedReportOptimizedResponse_MetadataContent) MergeSharedReportOptimizedResponseMetadataContent1(v SharedReportOptimizedResponseMetadataContent1) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t SharedReportOptimizedResponse_MetadataContent) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *SharedReportOptimizedResponse_MetadataContent) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsTaskReportRequestRunInfo0 returns the union data inside the TaskReportRequest_RunInfo as a TaskReportRequestRunInfo0
-func (t TaskReportRequest_RunInfo) AsTaskReportRequestRunInfo0() (TaskReportRequestRunInfo0, error) {
-	var body TaskReportRequestRunInfo0
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromTaskReportRequestRunInfo0 overwrites any union data inside the TaskReportRequest_RunInfo as the provided TaskReportRequestRunInfo0
-func (t *TaskReportRequest_RunInfo) FromTaskReportRequestRunInfo0(v TaskReportRequestRunInfo0) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeTaskReportRequestRunInfo0 performs a merge with any union data inside the TaskReportRequest_RunInfo, using the provided TaskReportRequestRunInfo0
-func (t *TaskReportRequest_RunInfo) MergeTaskReportRequestRunInfo0(v TaskReportRequestRunInfo0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsTestRunInfo returns the union data inside the TaskReportRequest_RunInfo as a TestRunInfo
-func (t TaskReportRequest_RunInfo) AsTestRunInfo() (TestRunInfo, error) {
-	var body TestRunInfo
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromTestRunInfo overwrites any union data inside the TaskReportRequest_RunInfo as the provided TestRunInfo
-func (t *TaskReportRequest_RunInfo) FromTestRunInfo(v TestRunInfo) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeTestRunInfo performs a merge with any union data inside the TaskReportRequest_RunInfo, using the provided TestRunInfo
-func (t *TaskReportRequest_RunInfo) MergeTestRunInfo(v TestRunInfo) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t TaskReportRequest_RunInfo) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *TaskReportRequest_RunInfo) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsStreamingReportMetadata returns the union data inside the TaskReportResponse_ReportMetadata as a StreamingReportMetadata
-func (t TaskReportResponse_ReportMetadata) AsStreamingReportMetadata() (StreamingReportMetadata, error) {
-	var body StreamingReportMetadata
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromStreamingReportMetadata overwrites any union data inside the TaskReportResponse_ReportMetadata as the provided StreamingReportMetadata
-func (t *TaskReportResponse_ReportMetadata) FromStreamingReportMetadata(v StreamingReportMetadata) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeStreamingReportMetadata performs a merge with any union data inside the TaskReportResponse_ReportMetadata, using the provided StreamingReportMetadata
-func (t *TaskReportResponse_ReportMetadata) MergeStreamingReportMetadata(v StreamingReportMetadata) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsShardedReportMetadata returns the union data inside the TaskReportResponse_ReportMetadata as a ShardedReportMetadata
-func (t TaskReportResponse_ReportMetadata) AsShardedReportMetadata() (ShardedReportMetadata, error) {
-	var body ShardedReportMetadata
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromShardedReportMetadata overwrites any union data inside the TaskReportResponse_ReportMetadata as the provided ShardedReportMetadata
-func (t *TaskReportResponse_ReportMetadata) FromShardedReportMetadata(v ShardedReportMetadata) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeShardedReportMetadata performs a merge with any union data inside the TaskReportResponse_ReportMetadata, using the provided ShardedReportMetadata
-func (t *TaskReportResponse_ReportMetadata) MergeShardedReportMetadata(v ShardedReportMetadata) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t TaskReportResponse_ReportMetadata) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *TaskReportResponse_ReportMetadata) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -15386,68 +6050,6 @@ func (t WhileBlock_Children_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *WhileBlock_Children_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsWorkflowExecutionsUpdateWorkflowId0 returns the union data inside the WorkflowExecutionsUpdate_WorkflowId as a WorkflowExecutionsUpdateWorkflowId0
-func (t WorkflowExecutionsUpdate_WorkflowId) AsWorkflowExecutionsUpdateWorkflowId0() (WorkflowExecutionsUpdateWorkflowId0, error) {
-	var body WorkflowExecutionsUpdateWorkflowId0
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromWorkflowExecutionsUpdateWorkflowId0 overwrites any union data inside the WorkflowExecutionsUpdate_WorkflowId as the provided WorkflowExecutionsUpdateWorkflowId0
-func (t *WorkflowExecutionsUpdate_WorkflowId) FromWorkflowExecutionsUpdateWorkflowId0(v WorkflowExecutionsUpdateWorkflowId0) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeWorkflowExecutionsUpdateWorkflowId0 performs a merge with any union data inside the WorkflowExecutionsUpdate_WorkflowId, using the provided WorkflowExecutionsUpdateWorkflowId0
-func (t *WorkflowExecutionsUpdate_WorkflowId) MergeWorkflowExecutionsUpdateWorkflowId0(v WorkflowExecutionsUpdateWorkflowId0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsWorkflowExecutionsUpdateWorkflowId1 returns the union data inside the WorkflowExecutionsUpdate_WorkflowId as a WorkflowExecutionsUpdateWorkflowId1
-func (t WorkflowExecutionsUpdate_WorkflowId) AsWorkflowExecutionsUpdateWorkflowId1() (WorkflowExecutionsUpdateWorkflowId1, error) {
-	var body WorkflowExecutionsUpdateWorkflowId1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromWorkflowExecutionsUpdateWorkflowId1 overwrites any union data inside the WorkflowExecutionsUpdate_WorkflowId as the provided WorkflowExecutionsUpdateWorkflowId1
-func (t *WorkflowExecutionsUpdate_WorkflowId) FromWorkflowExecutionsUpdateWorkflowId1(v WorkflowExecutionsUpdateWorkflowId1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeWorkflowExecutionsUpdateWorkflowId1 performs a merge with any union data inside the WorkflowExecutionsUpdate_WorkflowId, using the provided WorkflowExecutionsUpdateWorkflowId1
-func (t *WorkflowExecutionsUpdate_WorkflowId) MergeWorkflowExecutionsUpdateWorkflowId1(v WorkflowExecutionsUpdateWorkflowId1) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t WorkflowExecutionsUpdate_WorkflowId) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *WorkflowExecutionsUpdate_WorkflowId) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

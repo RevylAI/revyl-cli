@@ -25,7 +25,7 @@ CMD_DIR := ./cmd/revyl
 BUILD_DIR := ./build
 SCRIPTS_DIR := ./scripts
 
-.PHONY: all build clean test lint fmt deps dev generate install help check vet-all setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android device-prod-sdk-smoke device-prod-sdk-smoke-ios device-prod-sdk-smoke-android e2e e2e-quick e2e-device e2e-sdk e2e-local
+.PHONY: all build clean test lint fmt deps dev generate check-openapi-allowlist install help check vet-all setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android device-prod-sdk-smoke device-prod-sdk-smoke-ios device-prod-sdk-smoke-android e2e e2e-quick e2e-device e2e-sdk e2e-local
 
 ## help: Show this help message
 help:
@@ -115,6 +115,18 @@ deps:
 generate:
 	@echo "Generating types from cached OpenAPI spec..."
 	@$(SCRIPTS_DIR)/generate-types.sh
+
+## check-openapi-allowlist: Fail if runtime API paths are not explicitly reviewed
+check-openapi-allowlist:
+	@PYTHONPATH=$(SCRIPTS_DIR) python3 -m unittest $(SCRIPTS_DIR)/test_filter_openapi_for_cli.py
+	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
+	python3 $(SCRIPTS_DIR)/filter_openapi_for_cli.py \
+		--input openapi.json \
+		--output "$$tmp" \
+		--project-dir . \
+		--allowlist $(SCRIPTS_DIR)/openapi-allowlist.txt \
+		--excluded-paths $(SCRIPTS_DIR)/openapi-excluded-paths.txt \
+		--schema-roots $(SCRIPTS_DIR)/openapi-schema-roots.txt
 
 ## generate-fetch: Fetch fresh OpenAPI spec and generate types (for internal devs)
 generate-fetch:
@@ -231,9 +243,9 @@ bump-major:
 _set-version:
 	@echo "Bumping version: $(OLD) -> $(NEW)"
 	@printf "$(NEW)\n" > VERSION
-	@sed -i.bak 's/"version": "$(OLD)"/"version": "$(NEW)"/' npm/package.json && rm -f npm/package.json.bak
-	@sed -i.bak 's/version = "$(OLD)"/version = "$(NEW)"/' python/pyproject.toml && rm -f python/pyproject.toml.bak
-	@sed -i.bak 's/__version__ = "$(OLD)"/__version__ = "$(NEW)"/' python/revyl/_binary.py && rm -f python/revyl/_binary.py.bak
+	@sed -E -i.bak 's/"version": "[0-9]+\.[0-9]+\.[0-9]+"/"version": "$(NEW)"/' npm/package.json && rm -f npm/package.json.bak
+	@sed -E -i.bak 's/^version = "[0-9]+\.[0-9]+\.[0-9]+"/version = "$(NEW)"/' python/pyproject.toml && rm -f python/pyproject.toml.bak
+	@sed -E -i.bak 's/^__version__ = "[0-9]+\.[0-9]+\.[0-9]+"/__version__ = "$(NEW)"/' python/revyl/_binary.py && rm -f python/revyl/_binary.py.bak
 	@sed -E -i.bak 's#(img\.shields\.io/badge/version-)[0-9]+\.[0-9]+\.[0-9]+(-[^"]*)#\1$(NEW)\2#' README.md && rm -f README.md.bak
 	@echo "Updated files:"
 	@echo "  VERSION                    $(NEW)"
