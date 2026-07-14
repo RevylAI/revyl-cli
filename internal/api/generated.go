@@ -3303,6 +3303,9 @@ type TestRunConfig struct {
 	// DisableGrid Admin-only: Disable grid preprocessing for grounding
 	DisableGrid *bool `json:"disable_grid"`
 
+	// DisableVideoValidation When true, skip the background video validation check on VALIDATION steps; the screenshot verdict alone decides validation outcomes.
+	DisableVideoValidation *bool `json:"disable_video_validation,omitempty"`
+
 	// ExecutionMode Configuration for execution modes and features.
 	ExecutionMode *ExecutionModeConfig `json:"execution_mode,omitempty"`
 
