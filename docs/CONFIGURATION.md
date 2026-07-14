@@ -227,6 +227,7 @@ These environment variables override CLI defaults and config values:
 |----------|-------------|
 | `REVYL_API_KEY` | API key for authentication (overrides stored credentials) |
 | `REVYL_PROJECT_DIR` | Override the project directory for MCP server |
+| `REVYL_READY_TIMEOUT` | Seconds to wait for the dev-server relay to become reachable in dev loops (default 60); `--ready-timeout` takes precedence |
 
 ## .gitignore Defaults
 

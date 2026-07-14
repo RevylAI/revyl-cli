@@ -45,6 +45,7 @@ var (
 	devStartDeviceRunnerID string
 	devStartPort           int
 	devStartTimeout        int
+	devStartReadyTimeout   int
 	devStartOpen           bool
 	devStartNoOpen         bool
 	devStartForceHotReload bool
@@ -247,6 +248,9 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&devStartDeviceRunnerID, "device-runner", "", "Target a specific device runner ID")
 	cmd.Flags().IntVar(&devStartPort, "port", 8081, "Port for local dev server")
 	cmd.Flags().IntVar(&devStartTimeout, "timeout", 300, "Device idle timeout in seconds")
+	cmd.Flags().IntVar(&devStartReadyTimeout, "ready-timeout",
+		int(hotreload.DefaultMetroReadyTimeout/time.Second),
+		"Seconds to wait for the dev-server relay to become reachable (env: REVYL_READY_TIMEOUT)")
 	cmd.Flags().BoolVar(&devStartOpen, "open", true, "Open live device viewer in browser")
 	cmd.Flags().BoolVar(&devStartNoOpen, "no-open", false, "Do not open the live device viewer in browser")
 	cmd.Flags().BoolVar(&devStartForceHotReload, "force-hot-reload", false, "Diagnostic launch after Expo relay transport, even if manifest readiness cannot be proven")
@@ -883,6 +887,13 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
 	manager.SetTargetPlatform(devicePlatform)
 	manager.SetForceHotReload(devStartForceHotReload)
+	if cmd.Flags().Changed("ready-timeout") {
+		if devStartReadyTimeout > 0 {
+			manager.SetReadyTimeout(time.Duration(devStartReadyTimeout) * time.Second)
+		} else {
+			ui.PrintWarning("--ready-timeout must be a positive number of seconds; using default")
+		}
+	}
 	if externalTunnel.tunnelURL != "" {
 		manager.SetExternalTunnelURL(externalTunnel.tunnelURL)
 		if externalTunnel.deepLinkURL != "" {

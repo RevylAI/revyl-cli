@@ -57,9 +57,11 @@ var expoManifestDeviceHeadTimeout = 8 * time.Second
 // first JS bundle before the device asks for it through the relay.
 var expoBundlePrewarmHTTPTimeout = 180 * time.Second
 
-// metroTunnelReadyTimeout bounds how long startup waits for the tunnel to
-// become externally reachable before failing fast.
-const metroTunnelReadyTimeout = 20 * time.Second
+// DefaultMetroReadyTimeout bounds how long startup waits for the tunnel to
+// become externally reachable before failing. 60s matches the Metro bind
+// budget; large Expo apps can need 25-30s+ before the relay path is warm.
+// Overridable per-run via Manager.SetReadyTimeout or REVYL_READY_TIMEOUT.
+const DefaultMetroReadyTimeout = 60 * time.Second
 
 // metroTunnelReadyPollInterval controls how frequently tunnel readiness is re-checked.
 const metroTunnelReadyPollInterval = 1500 * time.Millisecond

@@ -1958,3 +1958,153 @@ func TestRunDiagnosticsUsesAdvisoryFailureLanguage(t *testing.T) {
 		t.Fatalf("logs = %q, should not use hard failure wording", joined)
 	}
 }
+
+// withTimeoutCapturingExpoStubs stubs the Expo readiness waits so Start()
+// succeeds, capturing the timeout passed to the relay transport wait.
+func withTimeoutCapturingExpoStubs(t *testing.T) *time.Duration {
+	t.Helper()
+	var captured time.Duration
+	previousTransport := waitForExpoMetroTransport
+	previousManifest := waitForExpoManifestFetchResult
+	previousPrewarm := waitForExpoBundlePrewarmFromManifest
+	previousHead := waitForExpoManifestHeadReady
+	waitForExpoMetroTransport = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+	) (*DiagnosticResult, error) {
+		captured = timeout
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoManifestFetchResult = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+		targetPlatform string,
+	) (expoManifestFetchResult, *DiagnosticResult, error) {
+		return expoManifestFetchResult{Manifest: map[string]any{}, Platform: targetPlatform}, &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoBundlePrewarmFromManifest = func(
+		ctx context.Context,
+		localPort int,
+		tunnelURL string,
+		timeout time.Duration,
+		fetched expoManifestFetchResult,
+	) (*DiagnosticResult, error) {
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	waitForExpoManifestHeadReady = func(
+		ctx context.Context,
+		tunnelURL string,
+		timeout time.Duration,
+		interval time.Duration,
+		targetPlatform string,
+		onSlowAttempt func(DiagnosticCheck),
+	) (*DiagnosticResult, error) {
+		return &DiagnosticResult{AllPassed: true}, nil
+	}
+	t.Cleanup(func() {
+		waitForExpoMetroTransport = previousTransport
+		waitForExpoManifestFetchResult = previousManifest
+		waitForExpoBundlePrewarmFromManifest = previousPrewarm
+		waitForExpoManifestHeadReady = previousHead
+	})
+	return &captured
+}
+
+func TestManagerStartUsesDefaultReadyTimeout(t *testing.T) {
+	t.Setenv(readyTimeoutEnvVar, "")
+	withFakeExpoDevServerFactory(t)
+	captured := withTimeoutCapturingExpoStubs(t)
+
+	m := newTestManagerWithFakeTunnel()
+	if _, err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { m.Stop() })
+
+	if *captured != DefaultMetroReadyTimeout {
+		t.Fatalf("transport wait timeout = %v, want %v", *captured, DefaultMetroReadyTimeout)
+	}
+}
+
+func TestManagerSetReadyTimeoutOverridesTransportWait(t *testing.T) {
+	t.Setenv(readyTimeoutEnvVar, "")
+	withFakeExpoDevServerFactory(t)
+	captured := withTimeoutCapturingExpoStubs(t)
+
+	m := newTestManagerWithFakeTunnel()
+	m.SetReadyTimeout(45 * time.Second)
+	if _, err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { m.Stop() })
+
+	if *captured != 45*time.Second {
+		t.Fatalf("transport wait timeout = %v, want %v", *captured, 45*time.Second)
+	}
+}
+
+func TestManagerReadyTimeoutFromEnv(t *testing.T) {
+	tests := []struct {
+		value    string
+		want     time.Duration
+		wantWarn bool
+	}{
+		{"", DefaultMetroReadyTimeout, false},
+		{"45", 45 * time.Second, false},
+		{" 45 ", 45 * time.Second, false},
+		{"0", DefaultMetroReadyTimeout, true},
+		{"-3", DefaultMetroReadyTimeout, true},
+		{"abc", DefaultMetroReadyTimeout, true},
+		{"30s", DefaultMetroReadyTimeout, true},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("value=%q", tt.value), func(t *testing.T) {
+			t.Setenv(readyTimeoutEnvVar, tt.value)
+			got, warning := readyTimeoutFromEnv()
+			if got != tt.want {
+				t.Fatalf("readyTimeoutFromEnv() timeout = %v, want %v", got, tt.want)
+			}
+			if (warning != "") != tt.wantWarn {
+				t.Fatalf("readyTimeoutFromEnv() warning = %q, wantWarn %v", warning, tt.wantWarn)
+			}
+		})
+	}
+}
+
+func TestManagerReadyTimeoutEnvGarbageWarnsOnceAtStart(t *testing.T) {
+	t.Setenv(readyTimeoutEnvVar, "not-a-number")
+	withFakeExpoDevServerFactory(t)
+	captured := withTimeoutCapturingExpoStubs(t)
+
+	m := NewManager("expo", &config.ProviderConfig{AppScheme: "myapp"}, ".")
+	m.SetTunnelBackendFactory(func() TunnelBackend {
+		return &fakeTunnelBackend{publicURL: "https://relay.example"}
+	})
+	var logs []string
+	m.SetLogCallback(func(message string) {
+		logs = append(logs, message)
+	})
+	if _, err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { m.Stop() })
+
+	if *captured != DefaultMetroReadyTimeout {
+		t.Fatalf("transport wait timeout = %v, want default %v", *captured, DefaultMetroReadyTimeout)
+	}
+	warnings := 0
+	for _, line := range logs {
+		if strings.Contains(line, readyTimeoutEnvVar) {
+			warnings++
+		}
+	}
+	if warnings != 1 {
+		t.Fatalf("logs mention %s %d times, want exactly 1; logs = %q", readyTimeoutEnvVar, warnings, logs)
+	}
+}

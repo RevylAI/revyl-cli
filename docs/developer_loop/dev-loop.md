@@ -64,11 +64,15 @@ revyl dev --platform ios --build          # Force a fresh dev build first
 revyl dev --build-version-id <id>         # Pin a specific build
 revyl dev --context ios-main              # Named context for parallel loops
 revyl dev --force-hot-reload              # Diagnostic launch after Expo relay transport
+revyl dev --ready-timeout 120             # Large apps / slow Metro: extend relay readiness wait
 revyl dev --no-build --tunnel "<expo-dev-client-link>"  # Reuse an Expo tunnel
 ```
 
-If Revyl starts Expo and verifies relay transport but times out proving the
-first Expo manifest, retry with `--force-hot-reload` first. This launches after
+If startup fails because the relay transport is not ready yet (slow Metro
+startup on large apps), raise `--ready-timeout` (or set `REVYL_READY_TIMEOUT`;
+seconds, default 60). If Revyl starts Expo and verifies relay transport but
+times out proving the first Expo manifest, retry with `--force-hot-reload`
+first. This launches after
 the relay and dev server start, skipping only the manifest and bundle proof. If
 the app loads, keep working; if the dev client shows a project load error,
 restart Expo/Metro or capture `revyl device report --session-id <id> --json`.

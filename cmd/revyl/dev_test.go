@@ -119,6 +119,45 @@ func TestRegisterDevStartFlagsLaunchVarParsesRepeatedValues(t *testing.T) {
 	}
 }
 
+func TestRegisterDevStartFlagsReadyTimeoutParses(t *testing.T) {
+	orig := devStartReadyTimeout
+	t.Cleanup(func() { devStartReadyTimeout = orig })
+
+	devStartReadyTimeout = 0
+	cmd := &cobra.Command{Use: "dev-test"}
+	registerDevStartFlags(cmd)
+
+	if err := cmd.ParseFlags([]string{"--ready-timeout", "45"}); err != nil {
+		t.Fatalf("ParseFlags() error = %v", err)
+	}
+	if devStartReadyTimeout != 45 {
+		t.Fatalf("devStartReadyTimeout = %d, want 45", devStartReadyTimeout)
+	}
+	if !cmd.Flags().Changed("ready-timeout") {
+		t.Fatal("expected ready-timeout flag to be marked changed")
+	}
+}
+
+func TestRegisterDevStartFlagsReadyTimeoutDefault(t *testing.T) {
+	orig := devStartReadyTimeout
+	t.Cleanup(func() { devStartReadyTimeout = orig })
+
+	devStartReadyTimeout = 0
+	cmd := &cobra.Command{Use: "dev-test"}
+	registerDevStartFlags(cmd)
+
+	if err := cmd.ParseFlags(nil); err != nil {
+		t.Fatalf("ParseFlags() error = %v", err)
+	}
+	want := int(hotreload.DefaultMetroReadyTimeout / time.Second)
+	if devStartReadyTimeout != want {
+		t.Fatalf("devStartReadyTimeout = %d, want default %d", devStartReadyTimeout, want)
+	}
+	if cmd.Flags().Changed("ready-timeout") {
+		t.Fatal("expected ready-timeout flag to be unchanged by default")
+	}
+}
+
 func TestWithDevStartLaunchVarsCopiesLaunchVarsIntoStartOptions(t *testing.T) {
 	orig := devStartLaunchVars
 	t.Cleanup(func() { devStartLaunchVars = orig })

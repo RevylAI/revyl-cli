@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -55,6 +57,27 @@ var (
 	localDevServerHealthInterval      = 5 * time.Second
 	localDevServerFailuresBeforeFatal = 3
 )
+
+// readyTimeoutEnvVar overrides the relay-readiness timeout without a flag,
+// e.g. for automation paths (revyl run/open/create, MCP dev loop).
+const readyTimeoutEnvVar = "REVYL_READY_TIMEOUT"
+
+// readyTimeoutFromEnv resolves REVYL_READY_TIMEOUT as a positive integer
+// number of seconds. Invalid values fall back to the default and return a
+// warning for the caller to surface.
+func readyTimeoutFromEnv() (time.Duration, string) {
+	raw := strings.TrimSpace(os.Getenv(readyTimeoutEnvVar))
+	if raw == "" {
+		return DefaultMetroReadyTimeout, ""
+	}
+	secs, err := strconv.Atoi(raw)
+	if err != nil || secs <= 0 {
+		return DefaultMetroReadyTimeout, fmt.Sprintf(
+			"Ignoring %s=%q: expected a positive number of seconds; using default %s",
+			readyTimeoutEnvVar, raw, DefaultMetroReadyTimeout)
+	}
+	return time.Duration(secs) * time.Second, ""
+}
 
 // RegisterExpoDevServerFactory registers the Expo dev server factory.
 // Called by the providers package during init.
@@ -113,6 +136,15 @@ type Manager struct {
 	// prove the manifest is ready yet. It does not bypass earlier startup errors.
 	forceHotReload bool
 
+	// readyTimeout bounds relay-readiness waits (transport probe at startup and
+	// after relay recovery). Resolved from REVYL_READY_TIMEOUT at construction;
+	// SetReadyTimeout overrides.
+	readyTimeout time.Duration
+
+	// readyTimeoutWarning holds a deferred warning about an invalid
+	// REVYL_READY_TIMEOUT value, logged once at Start.
+	readyTimeoutWarning string
+
 	// externalTunnelURL, when set, bypasses the relay tunnel and dev server entirely.
 	// The manager returns this URL directly as the tunnel URL. If externalDeepLinkURL
 	// is unset, the Expo deep link is constructed from provider config.
@@ -163,6 +195,7 @@ type Manager struct {
 // Returns:
 //   - *Manager: A new manager instance
 func NewManager(providerName string, providerConfig *config.ProviderConfig, workDir string) *Manager {
+	readyTimeout, readyTimeoutWarning := readyTimeoutFromEnv()
 	return &Manager{
 		providerName:        providerName,
 		providerConfig:      providerConfig,
@@ -171,6 +204,8 @@ func NewManager(providerName string, providerConfig *config.ProviderConfig, work
 		targetPlatform:      "ios",
 		failures:            make(chan RuntimeFailure, 16),
 		failureLast:         make(map[string]time.Time),
+		readyTimeout:        readyTimeout,
+		readyTimeoutWarning: readyTimeoutWarning,
 	}
 }
 
@@ -205,6 +240,16 @@ func (m *Manager) SetTargetPlatform(platform string) {
 // proof fails after the dev server and tunnel have started.
 func (m *Manager) SetForceHotReload(enabled bool) {
 	m.forceHotReload = enabled
+}
+
+// SetReadyTimeout overrides how long startup and relay recovery wait for the
+// relay transport to become reachable. Non-positive values are ignored,
+// keeping the env-resolved or default timeout.
+func (m *Manager) SetReadyTimeout(timeout time.Duration) {
+	if timeout > 0 {
+		m.readyTimeout = timeout
+		m.readyTimeoutWarning = ""
+	}
 }
 
 // SetAPIClient provides the authenticated backend client used by the relay transport.
@@ -301,6 +346,11 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 		}
 	}()
 
+	if m.readyTimeoutWarning != "" {
+		m.log("%s", m.readyTimeoutWarning)
+		m.readyTimeoutWarning = ""
+	}
+
 	if m.externalTunnelURL != "" {
 		return m.startExternal(m.ctx)
 	}
@@ -347,11 +397,11 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 			m.ctx,
 			devServer.GetPort(),
 			tunnelURL,
-			metroTunnelReadyTimeout,
+			m.readyTimeout,
 			metroTunnelReadyPollInterval,
 		); err != nil {
 			return nil, fmt.Errorf(
-				"Expo relay transport is not ready yet; launching the dev client would likely show a project load error: %w",
+				"Expo relay transport is not ready yet; launching the dev client would likely show a project load error (increase --ready-timeout or set REVYL_READY_TIMEOUT if Metro needs longer to start): %w",
 				err,
 			)
 		}
@@ -429,11 +479,11 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 			m.ctx,
 			devServer.GetPort(),
 			tunnelURL,
-			metroTunnelReadyTimeout,
+			m.readyTimeout,
 			metroTunnelReadyPollInterval,
 		); err != nil {
 			return nil, fmt.Errorf(
-				"Metro tunnel is not externally reachable yet; launching the bare React Native app would likely show a white screen: %w",
+				"Metro tunnel is not externally reachable yet; launching the bare React Native app would likely show a white screen (increase --ready-timeout or set REVYL_READY_TIMEOUT if Metro needs longer to start): %w",
 				err,
 			)
 		}
@@ -926,7 +976,7 @@ func (m *Manager) waitForRecoveredDevServer(ctx context.Context, providerName st
 			ctx,
 			localPort,
 			tunnelURL,
-			metroTunnelReadyTimeout,
+			m.readyTimeout,
 			metroTunnelReadyPollInterval,
 		)
 		return err
@@ -935,7 +985,7 @@ func (m *Manager) waitForRecoveredDevServer(ctx context.Context, providerName st
 			ctx,
 			localPort,
 			tunnelURL,
-			metroTunnelReadyTimeout,
+			m.readyTimeout,
 			metroTunnelReadyPollInterval,
 		)
 		return err

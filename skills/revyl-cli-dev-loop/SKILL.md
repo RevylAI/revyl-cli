@@ -268,6 +268,18 @@ use a generated relay/ngrok host. Do not stop the relay because of HMR
 diagnostic warnings; normal runs hide advisory HMR diagnostics, and
 `revyl dev --debug` is for relay/HMR troubleshooting.
 
+If startup fails because the relay transport is not ready yet (slow Metro
+startup on large apps), extend the readiness wait instead of switching
+transports:
+
+```bash
+revyl dev --platform ios --ready-timeout 120   # seconds; or set REVYL_READY_TIMEOUT
+```
+
+Metro inherits your shell environment (for example `EXPO_OFFLINE=1` speeds up
+Expo startup); `CI` is intentionally stripped from the Metro environment
+because `CI=1` disables Fast Refresh.
+
 For Expo manifest readiness timeouts, use diagnostic launch mode before
 switching transports:
 
