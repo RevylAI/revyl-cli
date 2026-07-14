@@ -586,9 +586,16 @@ func calculateBackoff(attempt int, baseDelay, maxDelay time.Duration) time.Durat
 //   - *http.Response: The HTTP response
 //   - error: Any error that occurred
 func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, body interface{}, extraHeaders ...map[string]string) (*http.Response, error) {
+	return c.doRequestWithRetryClient(ctx, method, path, body, c.httpClient, extraHeaders...)
+}
+
+func (c *Client) doRequestWithRetryClient(ctx context.Context, method, path string, body interface{}, client *http.Client, extraHeaders ...map[string]string) (*http.Response, error) {
 	headers := map[string]string(nil)
 	if len(extraHeaders) > 0 {
 		headers = extraHeaders[0]
+	}
+	if client == nil {
+		client = http.DefaultClient
 	}
 	attempts := c.maxRetries + 1
 	if attempts < 1 {
@@ -647,7 +654,7 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, path string, bo
 		}
 
 		// Execute the request
-		resp, err := c.httpClient.Do(req)
+		resp, err := client.Do(req)
 
 		// Check if we should retry
 		statusCode := 0
@@ -2105,7 +2112,7 @@ type CreateBuildFromURLResponse struct {
 func (c *Client) CreateBuildFromURL(ctx context.Context, req *CreateBuildFromURLRequest) (*CreateBuildFromURLResponse, error) {
 	path := fmt.Sprintf("/api/v1/apps/%s/builds/from-url", req.AppID)
 
-	resp, err := c.doRequest(ctx, "POST", path, req)
+	resp, err := c.doRequestWithRetryClient(ctx, http.MethodPost, path, req, c.uploadClient)
 	if err != nil {
 		return nil, err
 	}

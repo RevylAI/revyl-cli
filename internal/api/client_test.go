@@ -648,6 +648,34 @@ func TestCreateBuildFromURL_NoHeaders(t *testing.T) {
 	}
 }
 
+func TestCreateBuildFromURL_UsesUploadClient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(25 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"ver-url-1",
+			"app_id":"app-1",
+			"version":"1.0.0",
+			"artifact_url":"s3-key"
+		}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	client.httpClient = &http.Client{Timeout: time.Nanosecond}
+	client.uploadClient = &http.Client{Timeout: time.Second}
+	client.maxRetries = 0
+
+	_, err := client.CreateBuildFromURL(context.Background(), &CreateBuildFromURLRequest{
+		AppID:   "app-1",
+		FromURL: "https://example.com/app.ipa",
+		Version: "1.0.0",
+	})
+	if err != nil {
+		t.Fatalf("CreateBuildFromURL() error = %v, want nil", err)
+	}
+}
+
 func TestDoRequestWithRetry_NegativeMaxRetriesStillAttemptsOnce(t *testing.T) {
 	var attempts int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
