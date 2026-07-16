@@ -1077,6 +1077,7 @@ func TestManagerStartWaitsForExpoMetroTransportManifestBundlePrewarmAndDeviceHea
 	transportCalled := make(chan struct{}, 1)
 	manifestCalled := make(chan struct{}, 1)
 	prewarmCalled := make(chan struct{}, 1)
+	prewarmTimeouts := make(chan time.Duration, 1)
 	headCalled := make(chan struct{}, 1)
 	waitForExpoMetroTransport = func(
 		ctx context.Context,
@@ -1107,6 +1108,7 @@ func TestManagerStartWaitsForExpoMetroTransportManifestBundlePrewarmAndDeviceHea
 		fetched expoManifestFetchResult,
 	) (*DiagnosticResult, error) {
 		prewarmCalled <- struct{}{}
+		prewarmTimeouts <- timeout
 		if fetched.Manifest["source"] != "manifest-proof" {
 			t.Fatalf("prewarm fetched manifest = %+v, want manifest proof result", fetched.Manifest)
 		}
@@ -1131,6 +1133,7 @@ func TestManagerStartWaitsForExpoMetroTransportManifestBundlePrewarmAndDeviceHea
 	})
 
 	m := newTestManagerWithFakeTunnel()
+	m.SetBundlePrewarmTimeout(7 * time.Second)
 	if _, err := m.Start(context.Background()); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -1150,6 +1153,14 @@ func TestManagerStartWaitsForExpoMetroTransportManifestBundlePrewarmAndDeviceHea
 	case <-prewarmCalled:
 	case <-time.After(time.Second):
 		t.Fatal("expected Start to prewarm Expo bundle")
+	}
+	select {
+	case timeout := <-prewarmTimeouts:
+		if timeout != 7*time.Second {
+			t.Fatalf("bundle prewarm timeout = %v, want 7s", timeout)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected Start to pass the configured Expo bundle prewarm timeout")
 	}
 	select {
 	case <-headCalled:
@@ -2074,6 +2085,44 @@ func TestManagerReadyTimeoutFromEnv(t *testing.T) {
 				t.Fatalf("readyTimeoutFromEnv() warning = %q, wantWarn %v", warning, tt.wantWarn)
 			}
 		})
+	}
+}
+
+func TestManagerBundlePrewarmTimeoutFromEnv(t *testing.T) {
+	tests := []struct {
+		value    string
+		want     time.Duration
+		wantWarn bool
+	}{
+		{"", DefaultExpoBundlePrewarmTimeout, false},
+		{"420", 7 * time.Minute, false},
+		{" 420 ", 7 * time.Minute, false},
+		{"0", DefaultExpoBundlePrewarmTimeout, true},
+		{"-3", DefaultExpoBundlePrewarmTimeout, true},
+		{"abc", DefaultExpoBundlePrewarmTimeout, true},
+		{"601", DefaultExpoBundlePrewarmTimeout, true},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("value=%q", tt.value), func(t *testing.T) {
+			t.Setenv(bundlePrewarmTimeoutEnvVar, tt.value)
+			got, warning := bundlePrewarmTimeoutFromEnv()
+			if got != tt.want {
+				t.Fatalf("bundlePrewarmTimeoutFromEnv() timeout = %v, want %v", got, tt.want)
+			}
+			if (warning != "") != tt.wantWarn {
+				t.Fatalf("bundlePrewarmTimeoutFromEnv() warning = %q, wantWarn %v", warning, tt.wantWarn)
+			}
+		})
+	}
+}
+
+func TestManagerSetBundlePrewarmTimeoutRejectsValuesBeyondRelayBudget(t *testing.T) {
+	t.Setenv(bundlePrewarmTimeoutEnvVar, "")
+	m := NewManager("expo", &config.ProviderConfig{}, ".")
+	m.SetBundlePrewarmTimeout(MaxExpoBundlePrewarmTimeout + time.Second)
+
+	if m.bundlePrewarmTimeout != DefaultExpoBundlePrewarmTimeout {
+		t.Fatalf("bundle prewarm timeout = %v, want default %v", m.bundlePrewarmTimeout, DefaultExpoBundlePrewarmTimeout)
 	}
 }
 

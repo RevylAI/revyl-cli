@@ -62,6 +62,10 @@ var (
 // e.g. for automation paths (revyl run/open/create, MCP dev loop).
 const readyTimeoutEnvVar = "REVYL_READY_TIMEOUT"
 
+// bundlePrewarmTimeoutEnvVar overrides the cold Expo bundle prewarm timeout
+// for automation paths that cannot pass the revyl dev flag.
+const bundlePrewarmTimeoutEnvVar = "REVYL_PREWARM_TIMEOUT"
+
 // readyTimeoutFromEnv resolves REVYL_READY_TIMEOUT as a positive integer
 // number of seconds. Invalid values fall back to the default and return a
 // warning for the caller to surface.
@@ -75,6 +79,23 @@ func readyTimeoutFromEnv() (time.Duration, string) {
 		return DefaultMetroReadyTimeout, fmt.Sprintf(
 			"Ignoring %s=%q: expected a positive number of seconds; using default %s",
 			readyTimeoutEnvVar, raw, DefaultMetroReadyTimeout)
+	}
+	return time.Duration(secs) * time.Second, ""
+}
+
+// bundlePrewarmTimeoutFromEnv resolves REVYL_PREWARM_TIMEOUT as a positive
+// integer number of seconds within the relay's supported response-start budget.
+func bundlePrewarmTimeoutFromEnv() (time.Duration, string) {
+	raw := strings.TrimSpace(os.Getenv(bundlePrewarmTimeoutEnvVar))
+	if raw == "" {
+		return DefaultExpoBundlePrewarmTimeout, ""
+	}
+	secs, err := strconv.Atoi(raw)
+	maxSecs := int(MaxExpoBundlePrewarmTimeout / time.Second)
+	if err != nil || secs <= 0 || secs > maxSecs {
+		return DefaultExpoBundlePrewarmTimeout, fmt.Sprintf(
+			"Ignoring %s=%q: expected a positive number of seconds no greater than %d; using default %s",
+			bundlePrewarmTimeoutEnvVar, raw, maxSecs, DefaultExpoBundlePrewarmTimeout)
 	}
 	return time.Duration(secs) * time.Second, ""
 }
@@ -145,6 +166,15 @@ type Manager struct {
 	// REVYL_READY_TIMEOUT value, logged once at Start.
 	readyTimeoutWarning string
 
+	// bundlePrewarmTimeout bounds the first cold Expo bundle transform through
+	// the public relay. Resolved from REVYL_PREWARM_TIMEOUT at construction;
+	// SetBundlePrewarmTimeout overrides.
+	bundlePrewarmTimeout time.Duration
+
+	// bundlePrewarmTimeoutWarning holds a deferred warning about an invalid
+	// REVYL_PREWARM_TIMEOUT value, logged once at Start.
+	bundlePrewarmTimeoutWarning string
+
 	// externalTunnelURL, when set, bypasses the relay tunnel and dev server entirely.
 	// The manager returns this URL directly as the tunnel URL. If externalDeepLinkURL
 	// is unset, the Expo deep link is constructed from provider config.
@@ -196,16 +226,19 @@ type Manager struct {
 //   - *Manager: A new manager instance
 func NewManager(providerName string, providerConfig *config.ProviderConfig, workDir string) *Manager {
 	readyTimeout, readyTimeoutWarning := readyTimeoutFromEnv()
+	bundlePrewarmTimeout, bundlePrewarmTimeoutWarning := bundlePrewarmTimeoutFromEnv()
 	return &Manager{
-		providerName:        providerName,
-		providerConfig:      providerConfig,
-		workDir:             workDir,
-		transportPreference: "relay",
-		targetPlatform:      "ios",
-		failures:            make(chan RuntimeFailure, 16),
-		failureLast:         make(map[string]time.Time),
-		readyTimeout:        readyTimeout,
-		readyTimeoutWarning: readyTimeoutWarning,
+		providerName:                providerName,
+		providerConfig:              providerConfig,
+		workDir:                     workDir,
+		transportPreference:         "relay",
+		targetPlatform:              "ios",
+		failures:                    make(chan RuntimeFailure, 16),
+		failureLast:                 make(map[string]time.Time),
+		readyTimeout:                readyTimeout,
+		readyTimeoutWarning:         readyTimeoutWarning,
+		bundlePrewarmTimeout:        bundlePrewarmTimeout,
+		bundlePrewarmTimeoutWarning: bundlePrewarmTimeoutWarning,
 	}
 }
 
@@ -249,6 +282,16 @@ func (m *Manager) SetReadyTimeout(timeout time.Duration) {
 	if timeout > 0 {
 		m.readyTimeout = timeout
 		m.readyTimeoutWarning = ""
+	}
+}
+
+// SetBundlePrewarmTimeout overrides how long startup waits for the first cold
+// Expo bundle transform through the relay. Values outside the supported relay
+// budget are ignored, keeping the env-resolved or default timeout.
+func (m *Manager) SetBundlePrewarmTimeout(timeout time.Duration) {
+	if timeout > 0 && timeout <= MaxExpoBundlePrewarmTimeout {
+		m.bundlePrewarmTimeout = timeout
+		m.bundlePrewarmTimeoutWarning = ""
 	}
 }
 
@@ -350,6 +393,10 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 		m.log("%s", m.readyTimeoutWarning)
 		m.readyTimeoutWarning = ""
 	}
+	if m.bundlePrewarmTimeoutWarning != "" {
+		m.log("%s", m.bundlePrewarmTimeoutWarning)
+		m.bundlePrewarmTimeoutWarning = ""
+	}
 
 	if m.externalTunnelURL != "" {
 		return m.startExternal(m.ctx)
@@ -433,12 +480,12 @@ func (m *Manager) Start(ctx context.Context) (result *StartResult, err error) {
 				m.ctx,
 				devServer.GetPort(),
 				tunnelURL,
-				expoBundlePrewarmHTTPTimeout,
+				m.bundlePrewarmTimeout,
 				manifest,
 			)
 			if err != nil {
 				return nil, fmt.Errorf(
-					"Expo bundle could not be prewarmed through the relay yet; launching the dev client would likely show a project load error: %w",
+					"Expo bundle could not be prewarmed through the relay yet; launching the dev client would likely show a project load error (increase --prewarm-timeout or set REVYL_PREWARM_TIMEOUT for a large cold bundle): %w",
 					err,
 				)
 			}
@@ -1104,7 +1151,7 @@ func (m *Manager) runExternalExpoDiagnostics(ctx context.Context, tunnelURL stri
 		0,
 		tunnelURL,
 		fetched,
-		expoBundlePrewarmHTTPTimeout,
+		m.bundlePrewarmTimeout,
 	)
 	if ctx.Err() != nil {
 		return

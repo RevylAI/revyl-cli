@@ -53,9 +53,18 @@ var expoManifestReadyTimeout = 90 * time.Second
 // dev-client project-load error.
 var expoManifestDeviceHeadTimeout = 8 * time.Second
 
-// expoBundlePrewarmHTTPTimeout gives large Expo apps enough room to compile the
-// first JS bundle before the device asks for it through the relay.
-var expoBundlePrewarmHTTPTimeout = 180 * time.Second
+// DefaultExpoBundlePrewarmTimeout gives large Expo apps enough room to compile
+// the first JS bundle before the device asks for it through the relay.
+const DefaultExpoBundlePrewarmTimeout = 5 * time.Minute
+
+// MaxExpoBundlePrewarmTimeout bounds how long a dev-loop startup can wait for a
+// cold Expo bundle transform. The relay keeps a separate response-start margin
+// above this maximum so accepted values can complete end to end.
+const MaxExpoBundlePrewarmTimeout = 10 * time.Minute
+
+// expoBundlePrewarmHTTPTimeout remains a variable so focused diagnostics tests
+// can use short budgets without waiting for the production default.
+var expoBundlePrewarmHTTPTimeout = DefaultExpoBundlePrewarmTimeout
 
 // DefaultMetroReadyTimeout bounds how long startup waits for the tunnel to
 // become externally reachable before failing. 60s matches the Metro bind

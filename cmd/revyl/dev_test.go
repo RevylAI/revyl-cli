@@ -158,6 +158,45 @@ func TestRegisterDevStartFlagsReadyTimeoutDefault(t *testing.T) {
 	}
 }
 
+func TestRegisterDevStartFlagsPrewarmTimeoutParses(t *testing.T) {
+	orig := devStartPrewarmTimeout
+	t.Cleanup(func() { devStartPrewarmTimeout = orig })
+
+	devStartPrewarmTimeout = 0
+	cmd := &cobra.Command{Use: "dev-test"}
+	registerDevStartFlags(cmd)
+
+	if err := cmd.ParseFlags([]string{"--prewarm-timeout", "420"}); err != nil {
+		t.Fatalf("ParseFlags() error = %v", err)
+	}
+	if devStartPrewarmTimeout != 420 {
+		t.Fatalf("devStartPrewarmTimeout = %d, want 420", devStartPrewarmTimeout)
+	}
+	if !cmd.Flags().Changed("prewarm-timeout") {
+		t.Fatal("expected prewarm-timeout flag to be marked changed")
+	}
+}
+
+func TestRegisterDevStartFlagsPrewarmTimeoutDefault(t *testing.T) {
+	orig := devStartPrewarmTimeout
+	t.Cleanup(func() { devStartPrewarmTimeout = orig })
+
+	devStartPrewarmTimeout = 0
+	cmd := &cobra.Command{Use: "dev-test"}
+	registerDevStartFlags(cmd)
+
+	if err := cmd.ParseFlags(nil); err != nil {
+		t.Fatalf("ParseFlags() error = %v", err)
+	}
+	want := int(hotreload.DefaultExpoBundlePrewarmTimeout / time.Second)
+	if devStartPrewarmTimeout != want {
+		t.Fatalf("devStartPrewarmTimeout = %d, want default %d", devStartPrewarmTimeout, want)
+	}
+	if cmd.Flags().Changed("prewarm-timeout") {
+		t.Fatal("expected prewarm-timeout flag to be unchanged by default")
+	}
+}
+
 func TestWithDevStartLaunchVarsCopiesLaunchVarsIntoStartOptions(t *testing.T) {
 	orig := devStartLaunchVars
 	t.Cleanup(func() { devStartLaunchVars = orig })

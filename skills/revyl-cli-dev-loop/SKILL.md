@@ -276,6 +276,14 @@ transports:
 revyl dev --platform ios --ready-timeout 120   # seconds; or set REVYL_READY_TIMEOUT
 ```
 
+If relay transport and manifest checks pass but a large Expo app times out on
+the first cold bundle transform, extend the separate prewarm budget (default
+300 seconds, maximum 600):
+
+```bash
+revyl dev --platform ios --prewarm-timeout 600 # or set REVYL_PREWARM_TIMEOUT
+```
+
 Metro inherits your shell environment (for example `EXPO_OFFLINE=1` speeds up
 Expo startup); `CI` is intentionally stripped from the Metro environment
 because `CI=1` disables Fast Refresh.

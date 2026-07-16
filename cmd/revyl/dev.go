@@ -46,6 +46,7 @@ var (
 	devStartPort           int
 	devStartTimeout        int
 	devStartReadyTimeout   int
+	devStartPrewarmTimeout int
 	devStartOpen           bool
 	devStartNoOpen         bool
 	devStartForceHotReload bool
@@ -251,6 +252,9 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().IntVar(&devStartReadyTimeout, "ready-timeout",
 		int(hotreload.DefaultMetroReadyTimeout/time.Second),
 		"Seconds to wait for the dev-server relay to become reachable (env: REVYL_READY_TIMEOUT)")
+	cmd.Flags().IntVar(&devStartPrewarmTimeout, "prewarm-timeout",
+		int(hotreload.DefaultExpoBundlePrewarmTimeout/time.Second),
+		"Seconds to wait for a cold Expo bundle prewarm (env: REVYL_PREWARM_TIMEOUT)")
 	cmd.Flags().BoolVar(&devStartOpen, "open", true, "Open live device viewer in browser")
 	cmd.Flags().BoolVar(&devStartNoOpen, "no-open", false, "Do not open the live device viewer in browser")
 	cmd.Flags().BoolVar(&devStartForceHotReload, "force-hot-reload", false, "Diagnostic launch after Expo relay transport, even if manifest readiness cannot be proven")
@@ -892,6 +896,14 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			manager.SetReadyTimeout(time.Duration(devStartReadyTimeout) * time.Second)
 		} else {
 			ui.PrintWarning("--ready-timeout must be a positive number of seconds; using default")
+		}
+	}
+	if cmd.Flags().Changed("prewarm-timeout") {
+		maxSeconds := int(hotreload.MaxExpoBundlePrewarmTimeout / time.Second)
+		if devStartPrewarmTimeout > 0 && devStartPrewarmTimeout <= maxSeconds {
+			manager.SetBundlePrewarmTimeout(time.Duration(devStartPrewarmTimeout) * time.Second)
+		} else {
+			ui.PrintWarning("--prewarm-timeout must be between 1 and %d seconds; using the configured or default value", maxSeconds)
 		}
 	}
 	if externalTunnel.tunnelURL != "" {

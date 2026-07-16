@@ -65,6 +65,7 @@ revyl dev --build-version-id <id>         # Pin a specific build
 revyl dev --context ios-main              # Named context for parallel loops
 revyl dev --force-hot-reload              # Diagnostic launch after Expo relay transport
 revyl dev --ready-timeout 120             # Large apps / slow Metro: extend relay readiness wait
+revyl dev --prewarm-timeout 600           # Very large Expo apps: extend cold bundle prewarm (max 600s)
 revyl dev --no-build --tunnel "<expo-dev-client-link>"  # Reuse an Expo tunnel
 ```
 
@@ -76,6 +77,9 @@ first. This launches after
 the relay and dev server start, skipping only the manifest and bundle proof. If
 the app loads, keep working; if the dev client shows a project load error,
 restart Expo/Metro or capture `revyl device report --session-id <id> --json`.
+If Revyl reaches the bundle prewarm stage but the first cold JavaScript
+transform times out, raise `--prewarm-timeout` (or set
+`REVYL_PREWARM_TIMEOUT`; seconds, default 300, maximum 600).
 
 If you already run Expo with its own tunnel, you can collapse the manual device
 start + deep-link step into one command:
