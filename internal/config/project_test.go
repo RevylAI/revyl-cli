@@ -726,3 +726,130 @@ func TestEffectiveBuildCachesExplicitOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestHasDefinition verifies that HasDefinition distinguishes user-authored
+// definition content from empty stubs.
+func TestHasDefinition(t *testing.T) {
+	cases := []struct {
+		name string
+		test TestDefinition
+		want bool
+	}{
+		{"empty", TestDefinition{}, false},
+		{"stub with empty non-nil blocks", TestDefinition{Blocks: []TestBlock{}}, false},
+		{"name and platform only", TestDefinition{Metadata: TestMetadata{Name: "t", Platform: "ios"}}, false},
+		{"blocks", TestDefinition{Blocks: []TestBlock{{Type: "instructions", StepDescription: "tap login"}}}, true},
+		{"env vars", TestDefinition{EnvVars: []string{"API_URL"}}, true},
+		{"variables", TestDefinition{Variables: map[string]string{"user": "demo"}}, true},
+		{"description", TestDefinition{Metadata: TestMetadata{Description: "login flow"}}, true},
+		{"tags", TestDefinition{Metadata: TestMetadata{Tags: []string{"smoke"}}}, true},
+		{"build", TestDefinition{Build: TestBuildConfig{Name: "MyApp"}}, true},
+		{"device", TestDefinition{Device: &TestDeviceConfig{Model: "iPhone 15"}}, true},
+		{"location", TestDefinition{Location: &TestLocation{Latitude: 1, Longitude: 2}}, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lt := &LocalTest{Test: tc.test}
+			if got := lt.HasDefinition(); got != tc.want {
+				t.Errorf("HasDefinition() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestLinkLocalTestToRemote_PreservesExistingDefinition verifies that linking
+// a hand-written local YAML (no _meta.remote_id) to a remote test keeps its
+// env_vars and blocks instead of replacing the file with an empty stub.
+func TestLinkLocalTestToRemote_PreservesExistingDefinition(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "login-flow.yaml")
+
+	handWritten := []byte(`test:
+  metadata:
+    name: login-flow
+    platform: ios
+  env_vars:
+    - API_URL
+  blocks:
+    - type: instructions
+      step_description: tap login button
+    - type: validation
+      step_description: verify home screen is visible
+`)
+	if err := os.WriteFile(path, handWritten, 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	preserved, err := LinkLocalTestToRemote(path, "remote-123")
+	if err != nil {
+		t.Fatalf("LinkLocalTestToRemote() error = %v", err)
+	}
+	if !preserved {
+		t.Error("preserved = false, want true for a file with a definition")
+	}
+
+	loaded, err := LoadLocalTest(path)
+	if err != nil {
+		t.Fatalf("LoadLocalTest() error = %v", err)
+	}
+	if loaded.Meta.RemoteID != "remote-123" {
+		t.Errorf("RemoteID = %q, want %q", loaded.Meta.RemoteID, "remote-123")
+	}
+	if len(loaded.Test.Blocks) != 2 {
+		t.Fatalf("Blocks count = %d, want 2 (local content lost)", len(loaded.Test.Blocks))
+	}
+	if loaded.Test.Blocks[0].StepDescription != "tap login button" {
+		t.Errorf("Blocks[0].StepDescription = %q, want original content", loaded.Test.Blocks[0].StepDescription)
+	}
+	if len(loaded.Test.EnvVars) != 1 || loaded.Test.EnvVars[0] != "API_URL" {
+		t.Errorf("EnvVars = %v, want [API_URL]", loaded.Test.EnvVars)
+	}
+}
+
+// TestLinkLocalTestToRemote_CreatesStubWhenMissing verifies fresh stub
+// creation when no local file exists.
+func TestLinkLocalTestToRemote_CreatesStubWhenMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "new-test.yaml")
+
+	preserved, err := LinkLocalTestToRemote(path, "remote-456")
+	if err != nil {
+		t.Fatalf("LinkLocalTestToRemote() error = %v", err)
+	}
+	if preserved {
+		t.Error("preserved = true, want false for a missing file")
+	}
+
+	loaded, err := LoadLocalTest(path)
+	if err != nil {
+		t.Fatalf("LoadLocalTest() error = %v", err)
+	}
+	if loaded.Meta.RemoteID != "remote-456" {
+		t.Errorf("RemoteID = %q, want %q", loaded.Meta.RemoteID, "remote-456")
+	}
+	if loaded.HasDefinition() {
+		t.Error("fresh stub should have no definition content")
+	}
+}
+
+// TestLinkLocalTestToRemote_LeavesUnparseableFileUntouched verifies that a
+// file that fails to parse is not overwritten.
+func TestLinkLocalTestToRemote_LeavesUnparseableFileUntouched(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "broken.yaml")
+
+	broken := []byte("test:\n  blocks:\n - [unclosed\n")
+	if err := os.WriteFile(path, broken, 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if _, err := LinkLocalTestToRemote(path, "remote-789"); err == nil {
+		t.Fatal("LinkLocalTestToRemote() error = nil, want parse error")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(after) != string(broken) {
+		t.Error("unparseable file was modified")
+	}
+}

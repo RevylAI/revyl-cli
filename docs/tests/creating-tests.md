@@ -393,6 +393,7 @@ test:
 | Problem | Fix |
 |---------|-----|
 | "A test with that name already exists" | Choose a new name, or use `revyl test remote` to inspect existing tests |
+| `revyl test create` warns the local YAML already contains a definition | The file in `.revyl/tests/` was authored before the remote test existed. Decline the overwrite and run `revyl test push <name>` to create the remote test from the file instead |
 | `build.name` does not resolve | Run `revyl app list --platform ios` and update `test.build.name` to match |
 | Test shows as stale | Run `revyl sync --tests --prune` then `revyl test push <name> --force` |
 

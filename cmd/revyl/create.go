@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -103,6 +104,22 @@ func requireTestAppID(appID, platform string) error {
 	)
 }
 
+// saveLinkedLocalTest links .revyl/tests/<name>.yaml to a remote test ID,
+// preserving any existing local definition, and reports the outcome.
+// Failures are non-fatal warnings, matching the other local-save sites.
+func saveLinkedLocalTest(testsDir, testName, remoteID string) {
+	preserved, err := config.LinkLocalTestToRemote(filepath.Join(testsDir, testName+".yaml"), remoteID)
+	switch {
+	case err != nil:
+		ui.PrintWarning("Failed to save local test: %v", err)
+	case preserved:
+		ui.PrintSuccess("Linked existing .revyl/tests/%s.yaml (local definition kept)", testName)
+		ui.PrintDim("  Sync it to the new test with: revyl test push %s", testName)
+	default:
+		ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
+	}
+}
+
 // runCreateTest creates a new test on the server and adds it to the local config.
 //
 // Parameters:
@@ -174,12 +191,28 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	testsDir := filepath.Join(cwd, ".revyl", "tests")
 
 	// Check if test name already exists as a local YAML file
-	if existingID, _ := config.GetLocalTestRemoteID(testsDir, testName); existingID != "" {
-		ui.PrintWarning("Test '%s' already exists locally (id: %s)", testName, existingID)
-		overwrite, err := ui.PromptConfirm("Overwrite with new test?", false)
-		if err != nil || !overwrite {
-			ui.PrintInfo("Cancelled. Use a different name or remove the existing entry.")
-			return nil
+	existingLocal, loadErr := config.LoadLocalTest(filepath.Join(testsDir, testName+".yaml"))
+	if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) {
+		ui.PrintError("Cannot read existing .revyl/tests/%s.yaml: %v", testName, loadErr)
+		return loadErr
+	}
+	if existingLocal != nil {
+		if existingLocal.Meta.RemoteID != "" {
+			ui.PrintWarning("Test '%s' already exists locally (id: %s)", testName, existingLocal.Meta.RemoteID)
+			overwrite, err := ui.PromptConfirm("Overwrite with new test?", false)
+			if err != nil || !overwrite {
+				ui.PrintInfo("Cancelled. Use a different name or remove the existing entry.")
+				return nil
+			}
+		} else if existingLocal.HasDefinition() {
+			ui.PrintWarning(".revyl/tests/%s.yaml already contains a test definition that has not been pushed.", testName)
+			ui.PrintDim("Overwriting replaces its env_vars and blocks with an empty test.")
+			overwrite, err := ui.PromptConfirm("Overwrite and discard the local definition?", false)
+			if err != nil || !overwrite {
+				ui.PrintInfo("Cancelled. To create the remote test from the local file instead:")
+				ui.PrintDim("  revyl test push %s", testName)
+				return nil
+			}
 		}
 	}
 
@@ -282,10 +315,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 		if err := os.MkdirAll(testsDir, 0755); err != nil {
 			ui.PrintWarning("Failed to create tests directory: %v", err)
 		} else {
-			localTest := &config.LocalTest{
-				Meta: config.TestMeta{RemoteID: existingTestID},
-			}
-			if err := config.SaveLocalTest(filepath.Join(testsDir, testName+".yaml"), localTest); err != nil {
+			if _, err := config.LinkLocalTestToRemote(filepath.Join(testsDir, testName+".yaml"), existingTestID); err != nil {
 				ui.PrintWarning("Failed to save local test: %v", err)
 			} else {
 				ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
@@ -364,10 +394,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(testsDir, 0755); err != nil {
 		ui.PrintWarning("Failed to create tests directory: %v", err)
 	} else {
-		localTest := &config.LocalTest{
-			Meta: config.TestMeta{RemoteID: createResp.ID},
-		}
-		if err := config.SaveLocalTest(filepath.Join(testsDir, testName+".yaml"), localTest); err != nil {
+		if _, err := config.LinkLocalTestToRemote(filepath.Join(testsDir, testName+".yaml"), createResp.ID); err != nil {
 			ui.PrintWarning("Failed to save local test: %v", err)
 		} else {
 			ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
@@ -778,14 +805,7 @@ func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(testsDir, 0755); err != nil {
 		ui.PrintWarning("Failed to create tests directory: %v", err)
 	} else {
-		localTest := &config.LocalTest{
-			Meta: config.TestMeta{RemoteID: testID},
-		}
-		if err := config.SaveLocalTest(filepath.Join(testsDir, testName+".yaml"), localTest); err != nil {
-			ui.PrintWarning("Failed to save local test: %v", err)
-		} else {
-			ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
-		}
+		saveLinkedLocalTest(testsDir, testName, testID)
 	}
 
 	// Open browser to test execute page
@@ -1118,14 +1138,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(testsDir, 0755); err != nil {
 		ui.PrintWarning("Failed to create tests directory: %v", err)
 	} else {
-		localTest := &config.LocalTest{
-			Meta: config.TestMeta{RemoteID: testID},
-		}
-		if err := config.SaveLocalTest(filepath.Join(testsDir, testName+".yaml"), localTest); err != nil {
-			ui.PrintWarning("Failed to save local test: %v", err)
-		} else {
-			ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
-		}
+		saveLinkedLocalTest(testsDir, testName, testID)
 	}
 
 	ui.Println()

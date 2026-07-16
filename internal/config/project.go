@@ -1105,3 +1105,39 @@ func SaveLocalTest(path string, test *LocalTest) error {
 
 	return nil
 }
+
+// HasDefinition reports whether the local test carries definition content
+// that would be lost on overwrite. Name and platform are excluded: they carry
+// no information beyond the filename and create flags. New TestDefinition
+// fields that hold user-authored content must be added here.
+func (t *LocalTest) HasDefinition() bool {
+	d := t.Test
+	return len(d.Blocks) > 0 ||
+		len(d.EnvVars) > 0 ||
+		len(d.Variables) > 0 ||
+		d.Metadata.Description != "" ||
+		len(d.Metadata.Tags) > 0 ||
+		d.Build != (TestBuildConfig{}) ||
+		d.Device != nil ||
+		d.Location != nil
+}
+
+// LinkLocalTestToRemote saves a local test YAML linked to the given remote
+// test ID. If the file already exists, its test definition and remaining sync
+// metadata are preserved and only _meta.remote_id is updated; a missing file
+// gets a fresh stub. An existing file that cannot be parsed is left untouched
+// and the parse error is returned.
+//
+// Returns whether an existing local definition was preserved, so callers can
+// tell the user their local content still needs a push.
+func LinkLocalTestToRemote(path, remoteID string) (preserved bool, err error) {
+	test, loadErr := LoadLocalTest(path)
+	if loadErr != nil {
+		if !errors.Is(loadErr, os.ErrNotExist) {
+			return false, loadErr
+		}
+		test = &LocalTest{}
+	}
+	test.Meta.RemoteID = remoteID
+	return test.HasDefinition(), SaveLocalTest(path, test)
+}

@@ -20,7 +20,7 @@ import urllib.request
 from pathlib import Path
 from typing import Sequence
 
-__version__ = "0.1.51"
+__version__ = "0.1.55"
 REPO = "RevylAI/revyl-cli"
 _HASH_CHUNK_SIZE = 1024 * 1024
 
