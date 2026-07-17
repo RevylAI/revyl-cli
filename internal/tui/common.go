@@ -47,7 +47,6 @@ var (
 	green    = lipgloss.Color("#22C55E")
 	gray     = lipgloss.Color("#6B7280")
 	dimGray  = lipgloss.Color("#9CA3AF")
-	white    = lipgloss.Color("#E5E7EB")
 	darkGray = lipgloss.Color("#374151")
 	subtleBg = lipgloss.Color("#1F2937")
 )
@@ -94,8 +93,7 @@ var (
 				Background(subtleBg)
 
 	// normalStyle renders unselected list items.
-	normalStyle = lipgloss.NewStyle().
-			Foreground(white)
+	normalStyle = lipgloss.NewStyle()
 
 	// dimStyle renders low-priority text.
 	dimStyle = lipgloss.NewStyle().

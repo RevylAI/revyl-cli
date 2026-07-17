@@ -80,8 +80,7 @@ var (
 			Foreground(Amber)
 
 	// InfoStyle for informational messages
-	InfoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#E5E7EB"))
+	InfoStyle = lipgloss.NewStyle()
 
 	// DimStyle for less important text
 	DimStyle = lipgloss.NewStyle().
@@ -98,7 +97,6 @@ var (
 
 	// BoldInfoStyle for highlighted option labels
 	BoldInfoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#E5E7EB")).
 			Bold(true)
 )
 

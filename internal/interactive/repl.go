@@ -88,7 +88,7 @@ func NewREPLStyles() *REPLStyles {
 		Prompt:    lipgloss.NewStyle().Foreground(lipgloss.Color("#9D61FF")).Bold(true),
 		Success:   lipgloss.NewStyle().Foreground(lipgloss.Color("#22C55E")),
 		Error:     lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")),
-		Info:      lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")),
+		Info:      lipgloss.NewStyle(),
 		Dim:       lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")),
 		StepIndex: lipgloss.NewStyle().Foreground(lipgloss.Color("#9D61FF")).Bold(true),
 		StepType:  lipgloss.NewStyle().Foreground(lipgloss.Color("#9D61FF")),
@@ -534,7 +534,7 @@ func (r *REPL) printReadyBanner() {
 func (r *REPL) printHelp() {
 	purple := lipgloss.NewStyle().Foreground(lipgloss.Color("#9D61FF"))
 	teal := lipgloss.NewStyle().Foreground(lipgloss.Color("#14B8A6"))
-	cmd := lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Bold(true)
+	cmd := lipgloss.NewStyle().Bold(true)
 	desc := lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
 	example := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
 	divider := lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))

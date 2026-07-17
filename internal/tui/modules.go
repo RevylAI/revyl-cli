@@ -495,15 +495,8 @@ func moduleBlockBadgeStyle(block moduleDisplayBlock) lipgloss.Style {
 		Bold(true)
 }
 
-func moduleBlockBodyStyle(block moduleDisplayBlock) lipgloss.Style {
-	switch block.Type {
-	case "validation":
-		return lipgloss.NewStyle().Foreground(white)
-	case "manual":
-		return lipgloss.NewStyle().Foreground(white)
-	default:
-		return normalStyle
-	}
+func moduleBlockBodyStyle(_ moduleDisplayBlock) lipgloss.Style {
+	return normalStyle
 }
 
 func wrapModuleText(text string, width int) []string {
