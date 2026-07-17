@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1311,6 +1313,109 @@ func TestRetargetHotReloadDeviceBareRNAndroidUnsupported(t *testing.T) {
 // Delta push / status file tests
 // ---------------------------------------------------------------------------
 
+func TestWaitForDevRebuildCompletion_IgnoresRunningSnapshot(t *testing.T) {
+	previousInterval := devRebuildPollInterval
+	devRebuildPollInterval = time.Millisecond
+	t.Cleanup(func() { devRebuildPollInterval = previousInterval })
+
+	statusPath := filepath.Join(t.TempDir(), "status.json")
+	writeDevStatusSnapshot(statusPath, devStatus{
+		LastRebuild: &devRebuildInfo{
+			Seq:         3,
+			Status:      "success",
+			CompletedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		},
+	})
+
+	type waitResult struct {
+		rebuild *devRebuildInfo
+		err     error
+	}
+	resultCh := make(chan waitResult, 1)
+	go func() {
+		rebuild, err := waitForDevRebuildCompletion(context.Background(), statusPath, 3, time.Second)
+		resultCh <- waitResult{rebuild: rebuild, err: err}
+	}()
+
+	writeDevStatusSnapshot(statusPath, devStatus{
+		LastRebuild: &devRebuildInfo{
+			Seq:    4,
+			Status: "running",
+		},
+	})
+
+	select {
+	case result := <-resultCh:
+		t.Fatalf("wait returned for running snapshot: rebuild=%#v err=%v", result.rebuild, result.err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	writeDevStatusSnapshot(statusPath, devStatus{
+		LastRebuild: &devRebuildInfo{
+			Seq:         4,
+			Status:      "success",
+			CompletedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		},
+	})
+
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			t.Fatalf("waitForDevRebuildCompletion() error = %v", result.err)
+		}
+		if result.rebuild == nil || result.rebuild.Seq != 4 || result.rebuild.Status != "success" {
+			t.Fatalf("waitForDevRebuildCompletion() = %#v, want completed seq 4", result.rebuild)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waitForDevRebuildCompletion() did not return after terminal snapshot")
+	}
+}
+
+func TestWaitForDevRebuildCompletion_TimesOut(t *testing.T) {
+	previousInterval := devRebuildPollInterval
+	devRebuildPollInterval = time.Millisecond
+	t.Cleanup(func() { devRebuildPollInterval = previousInterval })
+
+	statusPath := filepath.Join(t.TempDir(), "status.json")
+	writeDevStatusSnapshot(statusPath, devStatus{
+		LastRebuild: &devRebuildInfo{
+			Seq:    2,
+			Status: "running",
+		},
+	})
+
+	rebuild, err := waitForDevRebuildCompletion(context.Background(), statusPath, 1, 20*time.Millisecond)
+	if rebuild != nil {
+		t.Fatalf("waitForDevRebuildCompletion() rebuild = %#v, want nil", rebuild)
+	}
+	if !errors.Is(err, errDevRebuildWaitTimeout) {
+		t.Fatalf("waitForDevRebuildCompletion() error = %v, want timeout", err)
+	}
+}
+
+func TestDevRebuildTerminalError(t *testing.T) {
+	tests := []struct {
+		name    string
+		rebuild *devRebuildInfo
+		wantErr bool
+	}{
+		{name: "success", rebuild: &devRebuildInfo{Status: "success"}},
+		{name: "skipped", rebuild: &devRebuildInfo{Status: "skipped"}},
+		{name: "build failed", rebuild: &devRebuildInfo{Status: "build_failed", Error: "compile failed"}, wantErr: true},
+		{name: "push failed", rebuild: &devRebuildInfo{Status: "push_failed"}, wantErr: true},
+		{name: "missing result", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := devRebuildTerminalError(tt.rebuild)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("devRebuildTerminalError() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestWriteDevStatus_Success(t *testing.T) {
 	dir := t.TempDir()
 	statusPath := dir + "/status.json"
@@ -1395,6 +1500,112 @@ func TestWriteDevStatus_Success(t *testing.T) {
 	}
 	if ds.LastRebuild.Logs[0].Kind != "success" {
 		t.Fatalf("expected synthesized success log, got %#v", ds.LastRebuild.Logs[0])
+	}
+}
+
+func TestWriteDevStatus_PreservesSeedMetadata(t *testing.T) {
+	statusPath := filepath.Join(t.TempDir(), "status.json")
+	session := &mcppkg.DeviceSession{SessionID: "sess-seeded"}
+
+	writeDevStatusRemoteBuildRunning(
+		statusPath,
+		session,
+		"https://app.revyl.ai/sessions/sess-seeded",
+		"ios",
+		"ios-dev",
+		"",
+		nil,
+		"1.2.3",
+		true,
+	)
+	writeDevStatus(
+		statusPath,
+		session,
+		"https://app.revyl.ai/sessions/sess-seeded",
+		"",
+		"",
+		"",
+		"ios",
+		0,
+		false,
+		devRebuildResult{buildMode: "remote"},
+	)
+
+	var completed devStatus
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &completed); err != nil {
+		t.Fatal(err)
+	}
+	if !completed.InstalledSeed || completed.SeededVersion != "1.2.3" {
+		t.Fatalf("completed seed metadata = (%v, %q), want (true, %q)", completed.InstalledSeed, completed.SeededVersion, "1.2.3")
+	}
+
+	writeDevStatusRebuildStarted(
+		statusPath,
+		session,
+		"https://app.revyl.ai/sessions/sess-seeded",
+		"",
+		"",
+		"",
+		"ios",
+		1,
+		false,
+		"ios-dev",
+	)
+	var rebuilding devStatus
+	data, err = os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &rebuilding); err != nil {
+		t.Fatal(err)
+	}
+	if !rebuilding.InstalledSeed || rebuilding.SeededVersion != "1.2.3" {
+		t.Fatalf("rebuild seed metadata = (%v, %q), want (true, %q)", rebuilding.InstalledSeed, rebuilding.SeededVersion, "1.2.3")
+	}
+	if rebuilding.BuildMode != "remote" {
+		t.Fatalf("rebuild build_mode = %q, want remote", rebuilding.BuildMode)
+	}
+}
+
+func TestWriteDevStatus_DoesNotCarrySeedToDifferentSession(t *testing.T) {
+	statusPath := filepath.Join(t.TempDir(), "status.json")
+	writeDevStatusSnapshot(statusPath, devStatus{
+		PID:            os.Getpid(),
+		SessionID:      "old-session",
+		InstalledSeed:  true,
+		SeededVersion:  "1.2.3",
+		LastRebuild:    &devRebuildInfo{Status: "running"},
+		RebuildCount:   0,
+		DeltaCacheWarm: false,
+	})
+
+	writeDevStatus(
+		statusPath,
+		&mcppkg.DeviceSession{SessionID: "new-session"},
+		"",
+		"",
+		"",
+		"",
+		"ios",
+		0,
+		false,
+		devRebuildResult{buildMode: "remote"},
+	)
+
+	var status devStatus
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.InstalledSeed || status.SeededVersion != "" {
+		t.Fatalf("seed metadata leaked into new session: (%v, %q)", status.InstalledSeed, status.SeededVersion)
 	}
 }
 
@@ -1544,6 +1755,20 @@ func TestBuildDevStatusOutput_FallsBackToContextTunnelMetadata(t *testing.T) {
 	}
 	if got := out["session_id"]; got != "sess-123" {
 		t.Fatalf("session_id = %v, want sess-123", got)
+	}
+}
+
+func TestBuildDevStatusOutput_IncludesSeedMetadata(t *testing.T) {
+	out := buildDevStatusOutput("default", 4242, nil, &devStatus{
+		InstalledSeed: true,
+		SeededVersion: "1.2.3",
+	})
+
+	if got := out["installed_seed"]; got != true {
+		t.Fatalf("installed_seed = %v, want true", got)
+	}
+	if got := out["seeded_version"]; got != "1.2.3" {
+		t.Fatalf("seeded_version = %v, want 1.2.3", got)
 	}
 }
 

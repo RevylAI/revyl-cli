@@ -170,6 +170,7 @@ func init() {
 	rootCmd.AddCommand(appCmd)
 	rootCmd.AddCommand(atlasCmd)
 	rootCmd.AddCommand(buildCmd)
+	rootCmd.AddCommand(cacheCmd)
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(workflowCmd)
 	rootCmd.AddCommand(sessionCmd)

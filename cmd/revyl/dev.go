@@ -40,6 +40,7 @@ var (
 	devStartBuild          bool
 	devStartNoBuild        bool
 	devStartRemote         bool
+	devStartSeedLatest     bool
 	devStartTunnelURL      string
 	devStartLaunchVars     []string
 	devStartDeviceRunnerID string
@@ -148,6 +149,11 @@ var (
 	rebuildJSON    bool
 )
 
+var (
+	devRebuildPollInterval   = 500 * time.Millisecond
+	errDevRebuildWaitTimeout = errors.New("timed out waiting for dev rebuild")
+)
+
 var devRebuildCmd = &cobra.Command{
 	Use:   "rebuild",
 	Short: "Trigger a rebuild in a running dev session",
@@ -244,6 +250,7 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&devStartBuild, "build", false, "Force build+upload before starting")
 	cmd.Flags().BoolVar(&devStartNoBuild, "no-build", false, "Never run build commands; require a pre-existing build")
 	cmd.Flags().BoolVar(&devStartRemote, "remote", false, "Build native iOS changes on a remote Revyl build runner")
+	cmd.Flags().BoolVar(&devStartSeedLatest, "seed-latest", false, "With --remote, install the latest existing build immediately (seed) so the app is interactive within seconds, then hot-swap the fresh build when it lands")
 	cmd.Flags().StringVar(&devStartTunnelURL, "tunnel", "", "Use an external Expo tunnel URL or dev-client deep link instead of the Revyl relay")
 	cmd.Flags().StringArrayVar(&devStartLaunchVars, "launch-var", nil, "Org launch variable key or ID to apply when starting the device session (repeatable)")
 	cmd.Flags().StringVar(&devStartDeviceRunnerID, "device-runner", "", "Target a specific device runner ID")
@@ -262,19 +269,23 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&devStartJSON, "json", false, "With --detach, print a machine-readable handshake once the session is ready")
 }
 
-// effectiveDevOpenBrowser resolves whether a dev loop should open the live
-// viewer in the browser: explicit --open/--no-open flag > explicit config
-// defaults.open_browser > open by default (watching the device IS the
-// product; suppress with --no-open).
-func effectiveDevOpenBrowser(cmd *cobra.Command, cfg *config.ProjectConfig) bool {
+// effectiveDevOpenBrowser resolves whether a dev loop should open the live viewer.
+//
+// Parameters:
+//   - cmd: Active dev command containing explicit flag state
+//   - configPath: Project configuration path used to detect an explicit default
+//
+// Returns:
+//   - bool: Whether the caller should open the viewer
+func effectiveDevOpenBrowser(cmd *cobra.Command, configPath string) bool {
 	if devStartNoOpen {
 		return false
 	}
 	if cmd.Flags().Changed("open") {
 		return devStartOpen
 	}
-	if cfg != nil && cfg.Defaults.OpenBrowser != nil {
-		return *cfg.Defaults.OpenBrowser
+	if configured, err := config.LoadExplicitOpenBrowserDefault(configPath); err == nil && configured != nil {
+		return *configured
 	}
 	return true
 }
@@ -504,7 +515,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	if devStartDetach && !isDetachedDevChild() {
-		return spawnDetachedDevLoop(cwd)
+		return spawnDetachedDevLoop(cmd, cwd)
 	}
 
 	ctxName := getDevContextFlag(cmd)
@@ -652,7 +663,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		timeout = 300
 	}
 
-	openBrowser := effectiveDevOpenBrowser(cmd, cfg)
+	openBrowser := effectiveDevOpenBrowser(cmd, configPath)
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
@@ -2204,7 +2215,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		timeout = 300
 	}
 
-	openBrowser := effectiveDevOpenBrowser(cmd, cfg)
+	openBrowser := effectiveDevOpenBrowser(cmd, configPath)
 
 	ui.PrintBanner(version)
 	ui.Println()
@@ -3468,6 +3479,11 @@ type devStatus struct {
 	RebuildCount   int               `json:"rebuild_count"`
 	LastRebuild    *devRebuildInfo   `json:"last_rebuild,omitempty"`
 	AuthBypass     *authBypassStatus `json:"auth_bypass,omitempty"`
+	// SeededVersion / InstalledSeed describe a prior build installed
+	// immediately (revyl dev --remote --seed-latest) so the app is interactive
+	// while the fresh remote build is still compiling.
+	SeededVersion string `json:"seeded_version,omitempty"`
+	InstalledSeed bool   `json:"installed_seed,omitempty"`
 }
 
 type devRebuildLogEntry struct {
@@ -3495,6 +3511,8 @@ type devRebuildInfo struct {
 	BuildErrors      []build.BuildError   `json:"build_errors"`
 	Logs             []devRebuildLogEntry `json:"logs,omitempty"`
 }
+
+var devStatusWriteMu sync.Mutex
 
 func writeDevStatusIdle(
 	statusPath string,
@@ -3698,6 +3716,20 @@ func writeDevStatus(
 }
 
 func writeDevStatusSnapshot(statusPath string, ds devStatus) {
+	devStatusWriteMu.Lock()
+	defer devStatusWriteMu.Unlock()
+
+	writeDevStatusSnapshotLocked(statusPath, ds)
+}
+
+// writeDevStatusSnapshotLocked persists one status snapshot while the caller
+// holds devStatusWriteMu.
+//
+// Parameters:
+//   - statusPath: Destination status file path
+//   - ds: Status snapshot to persist
+func writeDevStatusSnapshotLocked(statusPath string, ds devStatus) {
+	preserveDevStatusMetadata(statusPath, &ds)
 	if ds.AuthBypass == nil {
 		ds.AuthBypass = devAuthBypass.Status()
 	}
@@ -3712,6 +3744,147 @@ func writeDevStatusSnapshot(statusPath string, ds devStatus) {
 		return
 	}
 	_ = os.Rename(tmp, statusPath)
+}
+
+// updateDevStatusSnapshot atomically mutates the latest persisted status.
+//
+// Parameters:
+//   - statusPath: Existing status file path
+//   - update: Mutation applied while status reads and writes are serialized
+//
+// Edge cases:
+//   - Missing or malformed snapshots are left unchanged.
+//   - Returning false from update skips the write.
+func updateDevStatusSnapshot(statusPath string, update func(*devStatus) bool) {
+	if strings.TrimSpace(statusPath) == "" || update == nil {
+		return
+	}
+
+	devStatusWriteMu.Lock()
+	defer devStatusWriteMu.Unlock()
+
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		return
+	}
+	var ds devStatus
+	if err := json.Unmarshal(data, &ds); err != nil {
+		return
+	}
+	if !update(&ds) {
+		return
+	}
+	writeDevStatusSnapshotLocked(statusPath, ds)
+}
+
+// preserveDevStatusMetadata carries runtime metadata across writes in the same dev loop.
+//
+// Parameters:
+//   - statusPath: Existing status file path
+//   - next: New snapshot to enrich in place
+//
+// Edge cases:
+//   - Metadata is not copied across different processes or device sessions.
+func preserveDevStatusMetadata(statusPath string, next *devStatus) {
+	if next == nil {
+		return
+	}
+
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		return
+	}
+	var current devStatus
+	if err := json.Unmarshal(data, &current); err != nil {
+		return
+	}
+	if current.PID == 0 || next.PID == 0 || current.PID != next.PID {
+		return
+	}
+	if strings.TrimSpace(current.SessionID) == "" || current.SessionID != next.SessionID {
+		return
+	}
+
+	if !next.InstalledSeed && strings.TrimSpace(next.SeededVersion) == "" && current.InstalledSeed {
+		next.InstalledSeed = true
+		next.SeededVersion = strings.TrimSpace(current.SeededVersion)
+	}
+	if strings.TrimSpace(next.BuildMode) == "" {
+		next.BuildMode = strings.TrimSpace(current.BuildMode)
+	}
+	if next.LastRebuild != nil &&
+		current.LastRebuild != nil &&
+		strings.TrimSpace(next.LastRebuild.RemoteJobID) == "" &&
+		strings.TrimSpace(current.LastRebuild.RemoteJobID) != "" &&
+		next.LastRebuild.Seq == current.LastRebuild.Seq &&
+		devCockpitRebuildRunningStatus(current.LastRebuild.Status) &&
+		devCockpitRebuildRunningStatus(next.LastRebuild.Status) {
+		next.LastRebuild.RemoteJobID = strings.TrimSpace(current.LastRebuild.RemoteJobID)
+	}
+}
+
+// setDevStatusRemoteJobID publishes a registered remote job without replacing status metadata.
+//
+// Parameters:
+//   - statusPath: Dev status file to update
+//   - jobID: Registered remote build job identifier
+//
+// Edge cases:
+//   - Missing, malformed, or terminal status snapshots are left unchanged.
+func setDevStatusRemoteJobID(statusPath, jobID string) {
+	jobID = strings.TrimSpace(jobID)
+	if strings.TrimSpace(statusPath) == "" || jobID == "" {
+		return
+	}
+
+	updateDevStatusSnapshot(statusPath, func(ds *devStatus) bool {
+		if ds.LastRebuild == nil || !devCockpitRebuildRunningStatus(ds.LastRebuild.Status) {
+			return false
+		}
+
+		ds.LastRebuild.RemoteJobID = jobID
+		entry := newDevRebuildLog("info", fmt.Sprintf("Remote build job %s running", jobID))
+		if len(ds.LastRebuild.Logs) == 0 || ds.LastRebuild.Logs[len(ds.LastRebuild.Logs)-1].Message != entry.Message {
+			ds.LastRebuild.Logs = append(ds.LastRebuild.Logs, entry)
+			if len(ds.LastRebuild.Logs) > 16 {
+				ds.LastRebuild.Logs = ds.LastRebuild.Logs[len(ds.LastRebuild.Logs)-16:]
+			}
+		}
+		return true
+	})
+}
+
+// setDevStatusSeedInstalled records a seeded build without replacing rebuild state.
+//
+// Parameters:
+//   - statusPath: Dev status file to update
+//   - seededVersion: Human-readable version installed before the fresh build
+//
+// Edge cases:
+//   - Missing or malformed status snapshots are left unchanged.
+//   - Seed metadata is retained even when no running rebuild entry is available.
+func setDevStatusSeedInstalled(statusPath, seededVersion string) {
+	seededVersion = strings.TrimSpace(seededVersion)
+	updateDevStatusSnapshot(statusPath, func(ds *devStatus) bool {
+		ds.InstalledSeed = true
+		ds.SeededVersion = seededVersion
+		if ds.LastRebuild == nil || !devCockpitRebuildRunningStatus(ds.LastRebuild.Status) {
+			return true
+		}
+
+		message := "Seeded existing build on device; hot-swap pending"
+		if seededVersion != "" {
+			message = fmt.Sprintf("Seeded existing build %s on device; hot-swap pending", seededVersion)
+		}
+		entry := newDevRebuildLog("info", message)
+		if len(ds.LastRebuild.Logs) == 0 || ds.LastRebuild.Logs[len(ds.LastRebuild.Logs)-1].Message != entry.Message {
+			ds.LastRebuild.Logs = append(ds.LastRebuild.Logs, entry)
+			if len(ds.LastRebuild.Logs) > 16 {
+				ds.LastRebuild.Logs = ds.LastRebuild.Logs[len(ds.LastRebuild.Logs)-16:]
+			}
+		}
+		return true
+	})
 }
 
 func updateDevStatusHotReloadURLs(statusPath string, result *hotreload.StartResult) {
@@ -3790,6 +3963,9 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("dev session (PID %d) is not running", pid)
 	}
 
+	statusPath := devCtxStatusPath(cwd, ctxName)
+	priorSeq := readLastRebuildSeq(statusPath)
+
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		if rebuildJSON {
@@ -3816,76 +3992,126 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	statusPath := devCtxStatusPath(cwd, ctxName)
-	priorSeq := readLastRebuildSeq(statusPath)
-
 	timeout := time.Duration(rebuildTimeout) * time.Second
-	deadline := time.Now().Add(timeout)
-
-	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
-		currentSeq := readLastRebuildSeq(statusPath)
-		if currentSeq > priorSeq {
-			statusData, readErr := os.ReadFile(statusPath)
-			if readErr != nil {
-				if rebuildJSON {
-					fmt.Printf(`{"status":"error","error":"rebuild completed but failed to read status: %s"}`, readErr)
-					fmt.Println()
-					return nil
-				}
-				return fmt.Errorf("rebuild completed but failed to read status: %w", readErr)
-			}
-
+	rb, waitErr := waitForDevRebuildCompletion(cmd.Context(), statusPath, priorSeq, timeout)
+	if waitErr != nil {
+		if errors.Is(waitErr, errDevRebuildWaitTimeout) {
 			if rebuildJSON {
-				var ds devStatus
-				if jsonErr := json.Unmarshal(statusData, &ds); jsonErr == nil && ds.LastRebuild != nil {
-					out, _ := json.MarshalIndent(ds.LastRebuild, "", "  ")
-					fmt.Println(string(out))
-				} else {
-					fmt.Println(string(statusData))
-				}
-				return nil
+				fmt.Printf(`{"status":"timeout","error":"rebuild did not complete within %ds"}`, rebuildTimeout)
+				fmt.Println()
+			} else {
+				ui.PrintWarning("Rebuild did not complete within %ds", rebuildTimeout)
 			}
+			return fmt.Errorf("rebuild did not complete within %ds", rebuildTimeout)
+		}
+		return waitErr
+	}
 
-			var ds devStatus
-			if jsonErr := json.Unmarshal(statusData, &ds); jsonErr == nil && ds.LastRebuild != nil {
-				rb := ds.LastRebuild
-				if rb.Status == "success" || rb.Status == "skipped" {
-					ui.PrintSuccess("Rebuild %s (%dms)", rb.Status, rb.DurationMs)
-					ui.PrintDim("  push_mode=%s files_changed=%d data_preserved=%v", rb.PushMode, rb.FilesChanged, rb.DataPreserved)
-				} else {
-					ui.PrintError("Rebuild %s (%dms)", rb.Status, rb.DurationMs)
-					if strings.TrimSpace(rb.Error) != "" {
-						ui.PrintDim("  %s", strings.TrimSpace(rb.Error))
-					}
-					for _, be := range rb.BuildErrors {
-						ui.PrintDim("  %s:%d:%d: %s: %s", be.File, be.Line, be.Column, be.Severity, be.Message)
-					}
-				}
+	resultErr := devRebuildTerminalError(rb)
+	if rebuildJSON {
+		out, _ := json.MarshalIndent(rb, "", "  ")
+		fmt.Println(string(out))
+		return resultErr
+	}
+
+	if resultErr == nil {
+		ui.PrintSuccess("Rebuild %s (%dms)", rb.Status, rb.DurationMs)
+		ui.PrintDim("  push_mode=%s files_changed=%d data_preserved=%v", rb.PushMode, rb.FilesChanged, rb.DataPreserved)
+		return nil
+	}
+
+	ui.PrintError("Rebuild %s (%dms)", rb.Status, rb.DurationMs)
+	if strings.TrimSpace(rb.Error) != "" {
+		ui.PrintDim("  %s", strings.TrimSpace(rb.Error))
+	}
+	for _, be := range rb.BuildErrors {
+		ui.PrintDim("  %s:%d:%d: %s: %s", be.File, be.Line, be.Column, be.Severity, be.Message)
+	}
+	return resultErr
+}
+
+// waitForDevRebuildCompletion waits for a newer rebuild to reach a terminal status.
+//
+// Parameters:
+//   - ctx: Cancellation context
+//   - statusPath: Dev status file to poll
+//   - priorSeq: Rebuild sequence observed before signaling
+//   - timeout: Maximum wait duration
+//
+// Returns:
+//   - *devRebuildInfo: New terminal rebuild snapshot
+//   - error: Cancellation or errDevRebuildWaitTimeout
+func waitForDevRebuildCompletion(ctx context.Context, statusPath string, priorSeq int, timeout time.Duration) (*devRebuildInfo, error) {
+	timeoutTimer := time.NewTimer(timeout)
+	defer timeoutTimer.Stop()
+
+	pollTicker := time.NewTicker(devRebuildPollInterval)
+	defer pollTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timeoutTimer.C:
+			return nil, errDevRebuildWaitTimeout
+		case <-pollTicker.C:
+			rb := readLastRebuildInfo(statusPath)
+			if rb == nil || rb.Seq <= priorSeq {
+				continue
 			}
-			return nil
+			if devCockpitRebuildRunningStatus(rb.Status) || strings.TrimSpace(rb.CompletedAt) == "" {
+				continue
+			}
+			return rb, nil
 		}
 	}
+}
 
-	if rebuildJSON {
-		fmt.Printf(`{"status":"timeout","error":"rebuild did not complete within %ds"}`, rebuildTimeout)
-		fmt.Println()
-	} else {
-		ui.PrintWarning("Rebuild did not complete within %ds", rebuildTimeout)
+// devRebuildTerminalError reports whether a completed rebuild failed.
+//
+// Parameters:
+//   - rb: Completed rebuild snapshot
+//
+// Returns:
+//   - error: Failure details, or nil for success and skipped rebuilds
+func devRebuildTerminalError(rb *devRebuildInfo) error {
+	if rb == nil {
+		return errors.New("rebuild completed without a result")
 	}
-	return fmt.Errorf("rebuild did not complete within %ds", rebuildTimeout)
+	if !devCockpitFailureStatus(rb.Status) {
+		return nil
+	}
+	if message := strings.TrimSpace(rb.Error); message != "" {
+		return fmt.Errorf("rebuild %s: %s", rb.Status, message)
+	}
+	return fmt.Errorf("rebuild %s", rb.Status)
 }
 
 func readLastRebuildSeq(statusPath string) int {
+	rb := readLastRebuildInfo(statusPath)
+	if rb == nil {
+		return 0
+	}
+	return rb.Seq
+}
+
+// readLastRebuildInfo reads the latest rebuild snapshot from a dev status file.
+//
+// Parameters:
+//   - statusPath: Dev status file path
+//
+// Returns:
+//   - *devRebuildInfo: Latest snapshot, or nil when unavailable or malformed
+func readLastRebuildInfo(statusPath string) *devRebuildInfo {
 	data, err := os.ReadFile(statusPath)
 	if err != nil {
-		return 0
+		return nil
 	}
 	var ds devStatus
 	if err := json.Unmarshal(data, &ds); err != nil || ds.LastRebuild == nil {
-		return 0
+		return nil
 	}
-	return ds.LastRebuild.Seq
+	return ds.LastRebuild
 }
 
 // ---------------------------------------------------------------------------
@@ -3994,6 +4220,8 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 	remoteJobID := ""
 	remoteVersionID := ""
 	lastRebuildError := ""
+	seededVersion := ""
+	installedSeed := false
 	var lastRebuild *devRebuildInfo
 
 	if ctxMeta != nil {
@@ -4039,6 +4267,8 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		}
 		deltaCacheWarm = ds.DeltaCacheWarm
 		rebuildCount = ds.RebuildCount
+		seededVersion = strings.TrimSpace(ds.SeededVersion)
+		installedSeed = ds.InstalledSeed
 		lastRebuild = ds.LastRebuild
 		if lastRebuild != nil {
 			remoteJobID = strings.TrimSpace(lastRebuild.RemoteJobID)
@@ -4070,6 +4300,8 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		"last_rebuild_duration_ms": safeLastRebuildDuration(lastRebuild),
 		"last_rebuild":             lastRebuild,
 		"auth_bypass":              devStatusAuthBypass(ds),
+		"seeded_version":           seededVersion,
+		"installed_seed":           installedSeed,
 	}
 }
 

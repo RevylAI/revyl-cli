@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"golang.org/x/term"
 )
 
 // stdinReader is a package-level buffered reader for os.Stdin.
@@ -51,6 +52,27 @@ func Prompt(message string) (string, error) {
 	}
 
 	return strings.TrimSpace(input), nil
+}
+
+// PromptSecret reads a secret from an interactive terminal without echoing it.
+//
+// Parameters:
+//   - message: The prompt message to display.
+//
+// Returns:
+//   - string: The exact secret value, excluding a trailing line ending.
+//   - error: An input or terminal error.
+func PromptSecret(message string) (string, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", fmt.Errorf("secret prompt requires an interactive terminal")
+	}
+	fmt.Fprintf(os.Stderr, "%s ", InfoStyle.Render(message))
+	value, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(strings.TrimSuffix(string(value), "\n"), "\r"), nil
 }
 
 // PromptConfirm displays a yes/no confirmation prompt.

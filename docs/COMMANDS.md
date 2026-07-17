@@ -264,6 +264,10 @@ revyl app delete "My App"                              # Delete an app
 ```bash
 revyl build                              # Build from config and upload
 revyl build --platform android           # Build a specific config platform
+revyl build --remote --platform ios --secret EXPO_TOKEN
+revyl build secret set EXPO_TOKEN        # Masked encrypted-secret prompt
+revyl build secret list                  # Names only; values are never printed
+revyl build secret delete EXPO_TOKEN
 revyl build upload --file ./app.apk --app <id>  # Upload a local artifact directly
 revyl build upload --url <artifact-url> --app <id>  # Ingest from a remote URL
 revyl build list                         # List uploaded builds
@@ -307,6 +311,25 @@ Useful companion commands:
 
 For Expo projects, `revyl build` performs an EAS auth preflight first.
 If EAS login is missing, the CLI prompts to run `npx --yes eas-cli login` (interactive TTY only), or prints the exact fix command in non-interactive environments.
+
+### Build secrets
+
+Build secret values are encrypted in the organization store and referenced by
+name in `.revyl/config.yaml`:
+
+```yaml
+build:
+  platforms:
+    ios:
+      secrets:
+        - EXPO_TOKEN
+```
+
+For CI, pipe values to `revyl build secret set EXPO_TOKEN --stdin`; never put
+them in `env`, `--env`, or command arguments. Remote builds resolve encrypted
+values inside the sandbox. Local builds do not download them: export the same
+names in the process environment (or source a gitignored `.env.local`) before
+running `revyl build`.
 
 ### Uploading from a URL
 

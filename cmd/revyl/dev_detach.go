@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/revyl/cli/internal/config"
+	"github.com/spf13/cobra"
+
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -25,6 +26,8 @@ const (
 	devDetachPollInterval  = 500 * time.Millisecond
 	devDetachLogTailOnFail = 40
 )
+
+var openDetachedDevBrowser = ui.OpenBrowser
 
 func isDetachedDevChild() bool {
 	return os.Getenv(devDetachedEnv) == "1"
@@ -44,24 +47,29 @@ type devDetachHandshake struct {
 	LogPath      string            `json:"log_path,omitempty"`
 	Build        *devRebuildInfo   `json:"build,omitempty"`
 	AuthBypass   *authBypassStatus `json:"auth_bypass,omitempty"`
+	// SeededVersion / InstalledSeed surface a prior build installed immediately
+	// (revyl dev --remote --seed-latest) so consumers know the app is already
+	// interactive while the fresh build is still compiling.
+	SeededVersion string `json:"seeded_version,omitempty"`
+	InstalledSeed bool   `json:"installed_seed,omitempty"`
 	// OpenedBrowser reports whether the CLI opened the live viewer in the
 	// user's browser. When false (headless VM, --no-open), whoever consumes
 	// this handshake should present viewer_url as a clickable link instead.
 	OpenedBrowser bool `json:"opened_browser"`
 }
 
-// shouldAutoOpenViewer decides whether the detach parent should pop the live
-// viewer in the user's browser after the handshake. Opt-outs: --no-open (or
-// --open=false), explicit defaults.open_browser: false in the project config,
-// and headless contexts where there is no user-facing display.
-func shouldAutoOpenViewer(cwd string) bool {
-	if devStartNoOpen || !devStartOpen {
+// shouldAutoOpenViewer reports whether the detach parent can open the live viewer.
+//
+// Parameters:
+//   - cmd: Active parent command containing explicit flag state
+//   - cwd: Project root containing .revyl/config.yaml
+//
+// Returns:
+//   - bool: Whether browser opening is enabled and supported by the environment
+func shouldAutoOpenViewer(cmd *cobra.Command, cwd string) bool {
+	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
+	if !effectiveDevOpenBrowser(cmd, configPath) {
 		return false
-	}
-	if cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml")); err == nil {
-		if cfg.Defaults.OpenBrowser != nil && !*cfg.Defaults.OpenBrowser {
-			return false
-		}
 	}
 	if os.Getenv("CI") != "" || os.Getenv("SSH_CONNECTION") != "" {
 		return false
@@ -103,7 +111,7 @@ func devDetachLogPath(cwd string) string {
 // process, waits for it to publish a live device session, and prints a
 // machine-readable handshake. Returns once the session is ready (build may
 // still be running in the background).
-func spawnDetachedDevLoop(cwd string) error {
+func spawnDetachedDevLoop(cmd *cobra.Command, cwd string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to resolve executable for --detach: %w", err)
@@ -165,7 +173,7 @@ func spawnDetachedDevLoop(cwd string) error {
 		}
 
 		if devCtx := findDevContextByPID(cwd, childPID); devCtx != nil && devCtx.SessionID != "" {
-			printDetachHandshake(cwd, devCtx, logPath)
+			printDetachHandshake(cmd, cwd, devCtx, logPath)
 			return nil
 		}
 		time.Sleep(devDetachPollInterval)
@@ -231,7 +239,7 @@ func findDevContextByPID(cwd string, pid int) *DevContext {
 	return nil
 }
 
-func printDetachHandshake(cwd string, devCtx *DevContext, logPath string) {
+func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, logPath string) {
 	handshake := devDetachHandshake{
 		Context:      devCtx.Name,
 		State:        "ready",
@@ -248,6 +256,8 @@ func printDetachHandshake(cwd string, devCtx *DevContext, logPath string) {
 		if json.Unmarshal(data, &ds) == nil {
 			handshake.Build = ds.LastRebuild
 			handshake.AuthBypass = ds.AuthBypass
+			handshake.SeededVersion = ds.SeededVersion
+			handshake.InstalledSeed = ds.InstalledSeed
 			if ds.State == "building" {
 				handshake.State = "building"
 			}
@@ -256,8 +266,8 @@ func printDetachHandshake(cwd string, devCtx *DevContext, logPath string) {
 
 	// The live viewer IS the product moment: pop it for the user unless they
 	// opted out or there is no display to reach them on. Best-effort only.
-	if handshake.ViewerURL != "" && shouldAutoOpenViewer(cwd) {
-		if err := ui.OpenBrowser(handshake.ViewerURL); err == nil {
+	if handshake.ViewerURL != "" && shouldAutoOpenViewer(cmd, cwd) {
+		if err := openDetachedDevBrowser(handshake.ViewerURL); err == nil {
 			handshake.OpenedBrowser = true
 		}
 	}
@@ -274,6 +284,9 @@ func printDetachHandshake(cwd string, devCtx *DevContext, logPath string) {
 		if handshake.OpenedBrowser {
 			ui.PrintDim("Opened the live viewer in your browser (--no-open to disable)")
 		}
+	}
+	if handshake.InstalledSeed {
+		ui.PrintInfo("Seeded build %s is on the device now; the fresh build will hot-swap when it lands", strings.TrimSpace(handshake.SeededVersion))
 	}
 	if handshake.Build != nil && devCockpitRebuildRunningStatus(handshake.Build.Status) {
 		ui.PrintInfo("Build in progress — watch with `revyl dev status` or `revyl dev logs --build --follow`")

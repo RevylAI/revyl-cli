@@ -446,11 +446,14 @@ func normalizeRequiredDeviceURLFlag(rawValue, flagName, usage string) (string, e
 	return "", fmt.Errorf("%s is required (%s)", flagName, usage)
 }
 
-func deviceCommandPrefix(cmd *cobra.Command) string {
-	devMode, _ := cmd.Flags().GetBool("dev")
-	if devMode {
-		return "revyl --dev"
-	}
+// deviceCommandPrefix returns the public CLI prefix used in device command hints.
+//
+// Parameters:
+//   - _: Command context; backend-selection flags intentionally do not affect hints
+//
+// Returns:
+//   - string: Public Revyl command prefix
+func deviceCommandPrefix(_ *cobra.Command) string {
 	return "revyl"
 }
 

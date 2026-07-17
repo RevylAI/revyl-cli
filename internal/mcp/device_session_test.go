@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1256,6 +1257,7 @@ func TestWorkerProxyActionFromPath(t *testing.T) {
 		{name: "simple", path: "/tap", want: "tap"},
 		{name: "no-leading-slash", path: "screenshot", want: "screenshot"},
 		{name: "query-string", path: "/resolve_target?foo=bar", want: "resolve_target?foo=bar"},
+		{name: "install-status", path: "/install_status/install-123", want: "install_status/install-123"},
 		{name: "nested-path-invalid", path: "/foo/bar", wantErr: true},
 		{name: "empty-invalid", path: "", wantErr: true},
 	}
@@ -1441,6 +1443,153 @@ func TestDeviceSessionManager_DownloadFileForSession_ReturnsTypedResponse(t *tes
 	}
 	if resp.DevicePath != "/sdcard/Download/report.pdf" {
 		t.Fatalf("DevicePath = %q, want %q", resp.DevicePath, "/sdcard/Download/report.pdf")
+	}
+}
+
+// newInstallTestSessionManager creates a manager with one session backed by apiURL.
+//
+// Parameters:
+//   - apiURL: Base URL for the fake backend device proxy.
+//
+// Returns:
+//   - *DeviceSessionManager: Manager targeting workflow wf-install.
+func newInstallTestSessionManager(apiURL string) *DeviceSessionManager {
+	return &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiURL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-install",
+				WorkflowRunID: "wf-install",
+				Platform:      "ios",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+}
+
+func TestDeviceSessionManager_InstallAppForSession_PollsToCompletion(t *testing.T) {
+	t.Parallel()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/execution/device-proxy/wf-install/install_async":
+			if r.Method != http.MethodPost {
+				t.Fatalf("install_async method = %s, want POST", r.Method)
+			}
+			var request DeviceInstallRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode install request: %v", err)
+			}
+			if request.AppURL != "https://example.test/app.zip" {
+				t.Fatalf("AppURL = %q", request.AppURL)
+			}
+			if request.InstallMode != DeviceInstallModeFast {
+				t.Fatalf("InstallMode = %q, want %q", request.InstallMode, DeviceInstallModeFast)
+			}
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"install_id":"install-1","status":"accepted"}`))
+		case "/api/v1/execution/device-proxy/wf-install/install_status/install-1":
+			if r.Method != http.MethodGet {
+				t.Fatalf("install_status method = %s, want GET", r.Method)
+			}
+			_, _ = w.Write([]byte(`{"install_id":"install-1","status":"completed","result":{"success":true,"action":"install","latency_ms":1250,"bundle_id":"com.example.app","install_method":"simctl_install"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(apiServer.Close)
+
+	result, err := newInstallTestSessionManager(apiServer.URL).InstallAppForSession(
+		context.Background(),
+		0,
+		DeviceInstallRequest{
+			AppURL:      "https://example.test/app.zip",
+			InstallMode: DeviceInstallModeFast,
+		},
+	)
+	if err != nil {
+		t.Fatalf("InstallAppForSession() error = %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("install result = %#v, want success", result)
+	}
+	if result.BundleID != "com.example.app" {
+		t.Fatalf("BundleID = %q, want %q", result.BundleID, "com.example.app")
+	}
+	if result.InstallMethod != "simctl_install" {
+		t.Fatalf("InstallMethod = %q, want %q", result.InstallMethod, "simctl_install")
+	}
+}
+
+func TestDeviceSessionManager_InstallAppForSession_WaitsForBusyInstall(t *testing.T) {
+	var startCalls int32
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/execution/device-proxy/wf-install/install_async":
+			call := atomic.AddInt32(&startCalls, 1)
+			if call == 1 {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"detail":"An app install is already in progress on this session."}`))
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"install_id":"fresh-install","status":"accepted"}`))
+		case "/api/v1/execution/device-proxy/wf-install/install_status/fresh-install":
+			_, _ = w.Write([]byte(`{"install_id":"fresh-install","status":"completed","result":{"success":true,"action":"install","latency_ms":800,"bundle_id":"com.example.fresh"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(apiServer.Close)
+
+	result, err := newInstallTestSessionManager(apiServer.URL).InstallAppForSession(
+		context.Background(),
+		0,
+		DeviceInstallRequest{AppURL: "https://example.test/fresh.zip"},
+	)
+	if err != nil {
+		t.Fatalf("InstallAppForSession() error = %v", err)
+	}
+	if result.BundleID != "com.example.fresh" {
+		t.Fatalf("BundleID = %q, want %q", result.BundleID, "com.example.fresh")
+	}
+	if got := atomic.LoadInt32(&startCalls); got != 2 {
+		t.Fatalf("install_async calls = %d, want 2", got)
+	}
+}
+
+func TestDeviceSessionManager_InstallAppForSession_ReturnsTerminalFailure(t *testing.T) {
+	t.Parallel()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/execution/device-proxy/wf-install/install_async":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"install_id":"install-failed","status":"accepted"}`))
+		case "/api/v1/execution/device-proxy/wf-install/install_status/install-failed":
+			_, _ = w.Write([]byte(`{"install_id":"install-failed","status":"failed","result":{"success":false,"action":"install","latency_ms":0,"error":"simctl install failed"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(apiServer.Close)
+
+	result, err := newInstallTestSessionManager(apiServer.URL).InstallAppForSession(
+		context.Background(),
+		0,
+		DeviceInstallRequest{AppURL: "https://example.test/broken.zip"},
+	)
+	if err != nil {
+		t.Fatalf("InstallAppForSession() error = %v, want terminal result", err)
+	}
+	if result.Success {
+		t.Fatalf("install result = %#v, want failure", result)
+	}
+	if result.Error != "simctl install failed" {
+		t.Fatalf("Error = %q, want worker failure", result.Error)
 	}
 }
 

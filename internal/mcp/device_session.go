@@ -1270,12 +1270,14 @@ type WorkerHTTPError struct {
 // WorkerActionResponse captures the standard worker action envelope used by
 // device actions such as download_file.
 type WorkerActionResponse struct {
-	Success    bool    `json:"success"`
-	Action     string  `json:"action"`
-	LatencyMs  float64 `json:"latency_ms"`
-	Error      string  `json:"error,omitempty"`
-	BundleID   string  `json:"bundle_id,omitempty"`
-	DevicePath string  `json:"device_path,omitempty"`
+	Success       bool    `json:"success"`
+	Action        string  `json:"action"`
+	LatencyMs     float64 `json:"latency_ms"`
+	Error         string  `json:"error,omitempty"`
+	BundleID      string  `json:"bundle_id,omitempty"`
+	DevicePath    string  `json:"device_path,omitempty"`
+	DataPreserved bool    `json:"data_preserved,omitempty"`
+	InstallMethod string  `json:"install_method,omitempty"`
 }
 
 // DeviceDownloadFileRequest is the canonical request body for download_file.
@@ -1283,6 +1285,47 @@ type DeviceDownloadFileRequest struct {
 	URL      string `json:"url"`
 	Filename string `json:"filename,omitempty"`
 }
+
+// DeviceInstallMode identifies the worker strategy used to install an app.
+type DeviceInstallMode string
+
+const (
+	// DeviceInstallModeFast downloads and caches a complete app artifact.
+	DeviceInstallModeFast DeviceInstallMode = "fast"
+	// DeviceInstallModeDelta applies a delta to the worker's cached artifact.
+	DeviceInstallModeDelta DeviceInstallMode = "delta"
+)
+
+// DeviceInstallRequest is the canonical request body for asynchronous app installation.
+type DeviceInstallRequest struct {
+	AppURL       string            `json:"app_url,omitempty"`
+	AppPath      string            `json:"app_path,omitempty"`
+	BundleID     string            `json:"bundle_id,omitempty"`
+	InstallMode  DeviceInstallMode `json:"install_mode,omitempty"`
+	DeletedFiles []string          `json:"deleted_files,omitempty"`
+}
+
+// installAcceptedResponse is returned when the worker accepts an asynchronous install.
+type installAcceptedResponse struct {
+	InstallID string `json:"install_id"`
+	Status    string `json:"status"`
+}
+
+// installStatusResponse reports the current state and optional terminal result of an install.
+type installStatusResponse struct {
+	InstallID string                `json:"install_id"`
+	Status    string                `json:"status"`
+	Result    *WorkerActionResponse `json:"result,omitempty"`
+}
+
+const (
+	installPollBaseDelay              = 500 * time.Millisecond
+	installPollMaxDelay               = 5 * time.Second
+	installStartWaitTimeout           = 31 * time.Minute
+	installExecutionTimeout           = 31 * time.Minute
+	installStartMaxUnavailableRetries = 3
+	installPollMaxConsecutiveErrors   = 6
+)
 
 // LiveStepRequest is the canonical worker request body for execute_step.
 type LiveStepRequest struct {
@@ -1351,6 +1394,199 @@ func (m *DeviceSessionManager) DownloadFileForSession(
 		return nil, fmt.Errorf("failed to parse download_file response: %w", err)
 	}
 	return &result, nil
+}
+
+// InstallAppForSession starts an asynchronous install and waits for its terminal result.
+//
+// Parameters:
+//   - ctx: Context controlling install submission, waiting, and polling.
+//   - index: Local session index to target.
+//   - req: Typed app source and install strategy.
+//
+// Returns:
+//   - *WorkerActionResponse: Terminal worker result for a completed or failed install.
+//   - error: Session resolution, submission, polling, timeout, cancellation, or protocol failure.
+func (m *DeviceSessionManager) InstallAppForSession(
+	ctx context.Context,
+	index int,
+	req DeviceInstallRequest,
+) (*WorkerActionResponse, error) {
+	session, err := m.ResolveSession(index)
+	if err != nil {
+		return nil, err
+	}
+
+	deadline := time.Now().Add(installStartWaitTimeout)
+	delay := installPollBaseDelay
+	unavailableRetries := 0
+	for {
+		respBody, requestErr := m.workerRequestForSession(
+			ctx,
+			session,
+			"/install_async",
+			req,
+		)
+		if requestErr == nil {
+			var accepted installAcceptedResponse
+			if err := json.Unmarshal(respBody, &accepted); err != nil {
+				return nil, fmt.Errorf("failed to parse install_async response: %w", err)
+			}
+			if accepted.Status != "accepted" || strings.TrimSpace(accepted.InstallID) == "" {
+				return nil, fmt.Errorf(
+					"worker returned invalid install acceptance: status=%q install_id=%q",
+					accepted.Status,
+					accepted.InstallID,
+				)
+			}
+			return m.pollInstallUntilDone(ctx, session, accepted.InstallID)
+		}
+
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+
+		var workerErr *WorkerHTTPError
+		if !errors.As(requestErr, &workerErr) {
+			return nil, requestErr
+		}
+		switch workerErr.StatusCode {
+		case http.StatusConflict:
+			if time.Now().After(deadline) {
+				return nil, fmt.Errorf(
+					"install could not start within %v: %w",
+					installStartWaitTimeout,
+					requestErr,
+				)
+			}
+		case http.StatusServiceUnavailable:
+			if unavailableRetries >= installStartMaxUnavailableRetries {
+				return nil, requestErr
+			}
+			unavailableRetries++
+		default:
+			return nil, requestErr
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+		if delay < installPollMaxDelay {
+			delay *= 2
+			if delay > installPollMaxDelay {
+				delay = installPollMaxDelay
+			}
+		}
+	}
+}
+
+// pollInstallUntilDone polls a worker install operation until it reaches a terminal state.
+//
+// Parameters:
+//   - ctx: Context controlling status polling and cancellation.
+//   - session: Resolved device session that owns the install.
+//   - installID: Worker-generated operation identifier returned by install_async.
+//
+// Returns:
+//   - *WorkerActionResponse: Terminal install result.
+//   - error: Polling, timeout, cancellation, or protocol failure.
+func (m *DeviceSessionManager) pollInstallUntilDone(
+	ctx context.Context,
+	session *DeviceSession,
+	installID string,
+) (*WorkerActionResponse, error) {
+	deadline := time.Now().Add(installExecutionTimeout)
+	delay := installPollBaseDelay
+	consecutiveErrors := 0
+	path := "/install_status/" + installID
+
+	for {
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf(
+				"install %s did not complete within %v",
+				installID,
+				installExecutionTimeout,
+			)
+		}
+
+		respBody, err := m.workerRequestForSession(ctx, session, path, nil)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+
+			var workerErr *WorkerHTTPError
+			if errors.As(err, &workerErr) &&
+				workerErr.StatusCode < http.StatusInternalServerError &&
+				workerErr.StatusCode != http.StatusTooManyRequests {
+				return nil, fmt.Errorf(
+					"failed to poll install status for %s: %w",
+					installID,
+					err,
+				)
+			}
+
+			consecutiveErrors++
+			if consecutiveErrors > installPollMaxConsecutiveErrors {
+				return nil, fmt.Errorf(
+					"failed to poll install status for %s after %d attempts: %w",
+					installID,
+					consecutiveErrors,
+					err,
+				)
+			}
+		} else {
+			consecutiveErrors = 0
+
+			var status installStatusResponse
+			if err := json.Unmarshal(respBody, &status); err != nil {
+				return nil, fmt.Errorf(
+					"failed to parse install_status response for %s: %w",
+					installID,
+					err,
+				)
+			}
+			if status.InstallID != "" && status.InstallID != installID {
+				return nil, fmt.Errorf(
+					"worker returned install_id %q while polling %q",
+					status.InstallID,
+					installID,
+				)
+			}
+
+			switch status.Status {
+			case "running":
+			case "completed", "failed", "cancelled":
+				if status.Result == nil {
+					return nil, fmt.Errorf(
+						"install %s finished with status %q but no result",
+						installID,
+						status.Status,
+					)
+				}
+				return status.Result, nil
+			default:
+				return nil, fmt.Errorf(
+					"install %s returned unknown status %q",
+					installID,
+					status.Status,
+				)
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+		if delay < installPollMaxDelay {
+			delay *= 2
+			if delay > installPollMaxDelay {
+				delay = installPollMaxDelay
+			}
+		}
+	}
 }
 
 // stepAcceptedResponse is the 202 body returned when the worker accepts a
@@ -1597,9 +1833,10 @@ func workerProxyActionFromPath(path string) (string, error) {
 // compoundPathActions lists base action names whose proxy paths include
 // a sub-resource segment (e.g. step_status/{step_id}).
 var compoundPathActions = map[string]bool{
-	"step_status":  true,
-	"step_cancel":  true,
-	"device_state": true, // /device_state/list, /snapshot, /diff, /userdefaults, /sqlite/query
+	"step_status":    true,
+	"step_cancel":    true,
+	"install_status": true,
+	"device_state":   true, // /device_state/list, /snapshot, /diff, /userdefaults, /sqlite/query
 }
 
 // proxyWorkerRequestForSession forwards a worker action through the backend
@@ -1677,7 +1914,8 @@ func (m *DeviceSessionManager) WorkerRequestForSession(ctx context.Context, inde
 // nonIdempotentPaths lists worker paths whose side-effects make retry unsafe.
 // Retrying these creates duplicate work (e.g. duplicate agent steps).
 var nonIdempotentPaths = map[string]bool{
-	"/execute_step": true,
+	"/execute_step":  true,
+	"/install_async": true,
 }
 
 // workerRequestForSession is the internal implementation that sends a worker

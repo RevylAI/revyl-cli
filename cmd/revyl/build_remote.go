@@ -37,6 +37,7 @@ type remoteBuildOptions struct {
 	Version        string
 	Image          string
 	Env            map[string]string
+	Secrets        []string
 	SetCurrent     bool
 	Clean          bool
 	JSON           bool
@@ -59,6 +60,7 @@ type remoteBuildPlatformConfig struct {
 	AppID       string
 	Source      config.BuildSource
 	Env         map[string]string
+	Secrets     []string
 	Caches      []config.BuildCache
 	// TimeoutSeconds is the optional build.platforms.<PlatformKey>.timeout, nil
 	// when unset so the trigger request omits it and the server default applies.
@@ -144,6 +146,13 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		return err
 	}
 	resolved.Env = mergeRemoteBuildEnv(resolved.Env, opts.Env)
+	resolved.Secrets, err = mergeBuildSecretRefs(resolved.Secrets, opts.Secrets)
+	if err != nil {
+		return err
+	}
+	if err := validateBuildEnvSecretCollisions(resolved.Env, resolved.Secrets); err != nil {
+		return err
+	}
 	// --timeout (opts.TimeoutSeconds) wins over the resolved platform key's
 	// build.platforms.<key>.timeout; both nil means the server default applies.
 	if opts.TimeoutSeconds == nil {
@@ -433,6 +442,47 @@ func mergeRemoteBuildEnv(base, overrides map[string]string) map[string]string {
 		merged[key] = value
 	}
 	return merged
+}
+
+// mergeBuildSecretRefs validates, de-duplicates, and combines configured and
+// command-line build secret names.
+func mergeBuildSecretRefs(base, overrides []string) ([]string, error) {
+	merged := make([]string, 0, len(base)+len(overrides))
+	seen := make(map[string]struct{}, len(base)+len(overrides))
+	for _, raw := range append(append([]string(nil), base...), overrides...) {
+		name := strings.TrimSpace(raw)
+		if !isValidRemoteBuildEnvKey(name) {
+			return nil, fmt.Errorf(
+				"invalid build secret %q: name must match [A-Za-z_][A-Za-z0-9_]*",
+				raw,
+			)
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		merged = append(merged, name)
+	}
+	return merged, nil
+}
+
+// validateBuildEnvSecretCollisions prevents a secret value from being
+// accidentally duplicated in the plaintext build environment.
+func validateBuildEnvSecretCollisions(env map[string]string, secrets []string) error {
+	var collisions []string
+	for _, name := range secrets {
+		if _, exists := env[name]; exists {
+			collisions = append(collisions, name)
+		}
+	}
+	if len(collisions) == 0 {
+		return nil
+	}
+	sort.Strings(collisions)
+	return fmt.Errorf(
+		"build variables cannot be both plaintext env and encrypted secrets: %s",
+		strings.Join(collisions, ", "),
+	)
 }
 
 // remoteBuildTimeoutFlagSeconds validates the --timeout flag value for a
@@ -876,6 +926,7 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 				AppID:          appID,
 				Source:         cfg.Build.Source,
 				Env:            platCfg.Env,
+				Secrets:        append([]string(nil), platCfg.Secrets...),
 				Caches:         caches,
 				TimeoutSeconds: timeoutSeconds,
 			}, nil

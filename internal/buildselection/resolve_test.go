@@ -188,6 +188,79 @@ func TestSelectPreferredBuildVersionForBranch_ErrorsWhenLaterPageFails(t *testin
 	}
 }
 
+// TestSelectPreferredBuildVersionForBranch_EmptyBranchReturnsLatestOverall locks
+// the --seed-latest contract: empty branch picks page-1 item-0 immediately and
+// does not scan later pages for a branch match.
+func TestSelectPreferredBuildVersionForBranch_EmptyBranchReturnsLatestOverall(t *testing.T) {
+	client := &fakeClient{
+		pages: map[int]*api.BuildVersionsPage{
+			1: {
+				Items: []api.BuildVersion{
+					{
+						ID:      "latest-overall",
+						Version: "v2",
+						Metadata: map[string]interface{}{
+							"git": map[string]interface{}{
+								"branch": "main",
+							},
+						},
+					},
+					{
+						ID:      "older-on-feature",
+						Version: "v1",
+						Metadata: map[string]interface{}{
+							"git": map[string]interface{}{
+								"branch": "feature/new-login",
+							},
+						},
+					},
+				},
+				Page:       1,
+				TotalPages: 2,
+				HasNext:    true,
+			},
+			2: {
+				Items: []api.BuildVersion{
+					{
+						ID:      "should-not-reach",
+						Version: "v0",
+						Metadata: map[string]interface{}{
+							"git": map[string]interface{}{
+								"branch": "feature/new-login",
+							},
+						},
+					},
+				},
+				Page:       2,
+				TotalPages: 2,
+				HasNext:    false,
+			},
+		},
+	}
+
+	selected, source, warnings, err := SelectPreferredBuildVersionForBranch(
+		context.Background(),
+		client,
+		"app-id",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("SelectPreferredBuildVersionForBranch() error = %v", err)
+	}
+	if selected == nil {
+		t.Fatal("selected build is nil")
+	}
+	if selected.ID != "latest-overall" {
+		t.Fatalf("selected.ID = %q, want %q", selected.ID, "latest-overall")
+	}
+	if source != "latest" {
+		t.Fatalf("source = %q, want %q", source, "latest")
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+}
+
 func TestExtractBranch(t *testing.T) {
 	tests := []struct {
 		name     string

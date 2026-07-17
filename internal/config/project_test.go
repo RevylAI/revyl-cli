@@ -701,6 +701,50 @@ func TestAuthBypassConfig_Validation(t *testing.T) {
 	}
 }
 
+func TestLoadProjectConfig_CacheFileAndGlobPaths(t *testing.T) {
+	// Cache paths may be directories, single files, or glob patterns; the
+	// build runner binds directories and copy-materializes files/globs. The
+	// CLI must pass all three through verbatim.
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	raw := `project:
+  name: whop-ios
+build:
+  system: Xcode
+  caches:
+    - key: whop-ios-apollo-codegen-v1
+      paths:
+        - Layers/Foundation/WhopAPI/Sources/**/*.graphql.swift
+        - .apollo-codegen-hash
+        - Layers/Foundation/WhopAPI/Sources/WhopAPI/Operations
+`
+	if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := LoadProjectConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig() error = %v", err)
+	}
+
+	caches := cfg.Build.Caches
+	if len(caches) != 1 || caches[0].Key != "whop-ios-apollo-codegen-v1" {
+		t.Fatalf("caches = %#v, want one whop-ios-apollo-codegen-v1 entry", caches)
+	}
+	wantPaths := []string{
+		"Layers/Foundation/WhopAPI/Sources/**/*.graphql.swift",
+		".apollo-codegen-hash",
+		"Layers/Foundation/WhopAPI/Sources/WhopAPI/Operations",
+	}
+	if len(caches[0].Paths) != len(wantPaths) {
+		t.Fatalf("cache paths = %#v, want %#v", caches[0].Paths, wantPaths)
+	}
+	for i, want := range wantPaths {
+		if caches[0].Paths[i] != want {
+			t.Fatalf("cache path[%d] = %q, want %q", i, caches[0].Paths[i], want)
+		}
+	}
+}
+
 func TestEffectiveBuildCachesExplicitOnly(t *testing.T) {
 	explicit := BuildConfig{
 		System: "Xcode",

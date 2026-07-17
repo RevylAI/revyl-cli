@@ -1,6 +1,10 @@
 package ui
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestCanRunInteractiveSelect(t *testing.T) {
 	origInputTTY := isInputTTY
@@ -59,5 +63,24 @@ func TestCanRunInteractiveSelect(t *testing.T) {
 				t.Fatalf("canRunInteractiveSelect() = %t, want %t", got, tc.expectable)
 			}
 		})
+	}
+}
+
+func TestPromptSecretRejectsNonTerminalStdin(t *testing.T) {
+	originalStdin := os.Stdin
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error = %v", err)
+	}
+	os.Stdin = reader
+	t.Cleanup(func() {
+		os.Stdin = originalStdin
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+
+	_, err = PromptSecret("Secret:")
+	if err == nil || !strings.Contains(err.Error(), "interactive terminal") {
+		t.Fatalf("PromptSecret() error = %v, want non-terminal error", err)
 	}
 }

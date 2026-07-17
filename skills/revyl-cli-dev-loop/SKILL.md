@@ -191,20 +191,34 @@ soon as the device session is live (the build may still be running behind it).
 ```bash
 # Preferred agent start: returns JSON with viewer_url within seconds. On a
 # local machine the CLI also opens the viewer in the user's browser
-# (opened_browser in the handshake; --no-open disables). Still post
-# viewer_url as a clickable link; never open a browser yourself.
+# (opened_browser in the handshake; --no-open disables). When opened_browser is
+# false (headless/CI/SSH), always post viewer_url as a clickable link; never
+# open a browser yourself.
 revyl dev --remote --detach --json    # native / rebuild-first stacks
 revyl dev --detach --json             # hot-reload stacks
 
-# Share viewer_url with the user immediately, then monitor until installed:
-revyl dev status                      # state: building -> idle
+# Optional: install the latest existing build immediately (seed) so the app is
+# interactive + authenticated within seconds while the fresh build compiles,
+# then it hot-swaps automatically. Best when time-to-first-build is slow.
+revyl dev --remote --seed-latest --detach --json
+
+# Share viewer_url with the user immediately, then monitor the BUILD:
+revyl dev status                      # build_mode=remote; state: building -> idle
 revyl dev logs --build --follow       # stream remote build output
-revyl dev status --wait-ready --timeout 300   # block until the session is live
 
 # Iterate and stop:
-revyl dev rebuild --wait --json
+revyl dev rebuild --wait --json       # signals the running loop (SIGUSR1); no separate build cmd
 revyl dev stop --json
 ```
+
+Do NOT combine `--remote` with `--no-build` or `--tunnel` (the CLI rejects both).
+`--build-version-id` is allowed with `--remote` only as an explicit seed source.
+
+`revyl dev status --wait-ready` blocks until the device SESSION is live, which
+in `--remote` happens while the build is still running — it does NOT mean the
+build finished. Track build completion via `dev status` (`building` -> `idle`)
+or `dev logs --build --follow`. With `--seed-latest`, the handshake/status
+report `installed_seed` + `seeded_version` for the build already on screen.
 
 If `--detach` is unavailable (older CLI), fall back to the environment's
 non-blocking shell mode:

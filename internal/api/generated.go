@@ -519,6 +519,18 @@ type BuildArtifact struct {
 	Type string `json:"type"`
 }
 
+// BuildArtifactRejectionDetail Machine-readable reason a downloaded artifact cannot be imported.
+type BuildArtifactRejectionDetail struct {
+	Code    *string `json:"code,omitempty"`
+	Message string  `json:"message"`
+}
+
+// BuildArtifactRejectionResponse HTTP 400 response for an artifact rejected during ingestion.
+type BuildArtifactRejectionResponse struct {
+	// Detail Machine-readable reason a downloaded artifact cannot be imported.
+	Detail BuildArtifactRejectionDetail `json:"detail"`
+}
+
 // BuildCache Cache disk definition stored on a sandbox build configuration.
 type BuildCache struct {
 	// Key Org-local cache key. The build runner prefixes it with the org ID.
@@ -526,6 +538,27 @@ type BuildCache struct {
 
 	// Paths Project-relative paths mounted into this cache disk.
 	Paths []string `json:"paths"`
+}
+
+// BuildCacheDeleteResponse defines model for BuildCacheDeleteResponse.
+type BuildCacheDeleteResponse struct {
+	// DeletedObjects Number of platform variants removed from storage.
+	DeletedObjects int    `json:"deleted_objects"`
+	Key            string `json:"key"`
+}
+
+// BuildCacheListResponse defines model for BuildCacheListResponse.
+type BuildCacheListResponse struct {
+	Caches []BuildCacheSummary `json:"caches"`
+}
+
+// BuildCacheSummary One stored build cache object.
+type BuildCacheSummary struct {
+	// Key Org-local cache key as written in build configs.
+	Key          string    `json:"key"`
+	LastModified time.Time `json:"last_modified"`
+	Platform     string    `json:"platform"`
+	SizeBytes    int       `json:"size_bytes"`
 }
 
 // BuildConfig Sandbox build configuration stored by the API and used by build jobs.
@@ -702,16 +735,17 @@ type BuildMultipartUploadStartResponse struct {
 
 // BuildResponse Response model for a build (specific artifact/version of an app).
 type BuildResponse struct {
-	AppId       *openapi_types.UUID     `json:"app_id"`
-	ArtifactUrl *string                 `json:"artifact_url"`
-	DownloadUrl *string                 `json:"download_url"`
-	Id          *openapi_types.UUID     `json:"id"`
-	Metadata    *map[string]interface{} `json:"metadata,omitempty"`
-	Owner       *openapi_types.UUID     `json:"owner"`
-	PackageName *string                 `json:"package_name"`
-	UploadedAt  *time.Time              `json:"uploaded_at"`
-	Version     *string                 `json:"version"`
-	WasReused   *bool                   `json:"was_reused"`
+	AppId        *openapi_types.UUID     `json:"app_id"`
+	ArtifactKind *string                 `json:"artifact_kind"`
+	ArtifactUrl  *string                 `json:"artifact_url"`
+	DownloadUrl  *string                 `json:"download_url"`
+	Id           *openapi_types.UUID     `json:"id"`
+	Metadata     *map[string]interface{} `json:"metadata,omitempty"`
+	Owner        *openapi_types.UUID     `json:"owner"`
+	PackageName  *string                 `json:"package_name"`
+	UploadedAt   *time.Time              `json:"uploaded_at"`
+	Version      *string                 `json:"version"`
+	WasReused    *bool                   `json:"was_reused"`
 }
 
 // BuildRunnerStatus Response for the build runner availability pre-flight check.
@@ -2646,6 +2680,7 @@ type ReportContextStepResponse struct {
 
 // ResolvedBuild Normalized representation of a resolved build artifact.
 type ResolvedBuild struct {
+	ArtifactKind *string                 `json:"artifact_kind"`
 	ArtifactUrl  *string                 `json:"artifact_url"`
 	BuildName    *string                 `json:"build_name"`
 	BuildVarId   openapi_types.UUID      `json:"build_var_id"`

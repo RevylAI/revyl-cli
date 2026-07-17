@@ -15,9 +15,12 @@ import (
 )
 
 var (
-	devLogsBuild  bool
-	devLogsFollow bool
+	devLogsBuild   bool
+	devLogsFollow  bool
+	devLogsTimeout int
 )
+
+var devLogsJobPollInterval = 500 * time.Millisecond
 
 var devLogsCmd = &cobra.Command{
 	Use:   "logs",
@@ -46,7 +49,17 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	jobID, err := currentDevBuildJobID(cwd, ctxName)
+	timeout := devLogsTimeout
+	if timeout <= 0 {
+		timeout = 300
+	}
+	jobID, err := resolveDevBuildJobID(
+		cmd.Context(),
+		cwd,
+		ctxName,
+		devLogsFollow,
+		time.Duration(timeout)*time.Second,
+	)
 	if err != nil {
 		return err
 	}
@@ -61,21 +74,94 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 	return streamRemoteBuildLogs(cmd.Context(), client, jobID, devLogsFollow)
 }
 
-// currentDevBuildJobID reads the most recent remote build job id from the dev
-// context status file.
-func currentDevBuildJobID(cwd, ctxName string) (string, error) {
+type devBuildJobRegistration struct {
+	BuildMode  string
+	Status     string
+	JobID      string
+	HasRebuild bool
+}
+
+// resolveDevBuildJobID resolves a registered remote build, waiting when follow is enabled.
+//
+// Parameters:
+//   - ctx: Cancellation context
+//   - cwd: Project root
+//   - ctxName: Dev context name
+//   - follow: Whether to wait for an in-flight registration
+//   - timeout: Maximum registration wait
+//
+// Returns:
+//   - string: Registered remote job identifier
+//   - error: Invalid context state, cancellation, or timeout
+func resolveDevBuildJobID(ctx context.Context, cwd, ctxName string, follow bool, timeout time.Duration) (string, error) {
+	if timeout <= 0 {
+		timeout = 300 * time.Second
+	}
+
+	timeoutTimer := time.NewTimer(timeout)
+	defer timeoutTimer.Stop()
+	pollTicker := time.NewTicker(devLogsJobPollInterval)
+	defer pollTicker.Stop()
+
+	for {
+		registration, err := readDevBuildJobRegistration(cwd, ctxName)
+		if err != nil {
+			return "", err
+		}
+		if registration.JobID != "" {
+			return registration.JobID, nil
+		}
+		if registration.BuildMode != "remote" {
+			return "", fmt.Errorf("no remote build recorded for context %q (local builds have no remote logs)", ctxName)
+		}
+		if !registration.HasRebuild {
+			return "", fmt.Errorf("no remote build recorded for context %q", ctxName)
+		}
+		if !devCockpitRebuildRunningStatus(registration.Status) {
+			return "", fmt.Errorf("remote build for context %q ended with status %q without a job id", ctxName, registration.Status)
+		}
+		if !follow {
+			return "", fmt.Errorf("remote build is starting and its job id is not available yet; retry shortly or use --follow")
+		}
+
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-timeoutTimer.C:
+			return "", fmt.Errorf("remote build job id not available after %s", timeout)
+		case <-pollTicker.C:
+		}
+	}
+}
+
+// readDevBuildJobRegistration reads remote build registration state from a dev status file.
+//
+// Parameters:
+//   - cwd: Project root
+//   - ctxName: Dev context name
+//
+// Returns:
+//   - devBuildJobRegistration: Current registration state
+//   - error: Missing or malformed status file
+func readDevBuildJobRegistration(cwd, ctxName string) (devBuildJobRegistration, error) {
 	data, err := os.ReadFile(devCtxStatusPath(cwd, ctxName))
 	if err != nil {
-		return "", fmt.Errorf("no dev status for context %q — is `revyl dev` running here?", ctxName)
+		return devBuildJobRegistration{}, fmt.Errorf("no dev status for context %q — is `revyl dev` running here?", ctxName)
 	}
 	var ds devStatus
 	if err := json.Unmarshal(data, &ds); err != nil {
-		return "", fmt.Errorf("could not parse dev status: %w", err)
+		return devBuildJobRegistration{}, fmt.Errorf("could not parse dev status: %w", err)
 	}
-	if ds.LastRebuild == nil || strings.TrimSpace(ds.LastRebuild.RemoteJobID) == "" {
-		return "", fmt.Errorf("no remote build recorded for context %q (local builds have no remote logs)", ctxName)
+	registration := devBuildJobRegistration{
+		BuildMode: strings.ToLower(strings.TrimSpace(ds.BuildMode)),
 	}
-	return strings.TrimSpace(ds.LastRebuild.RemoteJobID), nil
+	if ds.LastRebuild == nil {
+		return registration, nil
+	}
+	registration.HasRebuild = true
+	registration.Status = strings.ToLower(strings.TrimSpace(ds.LastRebuild.Status))
+	registration.JobID = strings.TrimSpace(ds.LastRebuild.RemoteJobID)
+	return registration, nil
 }
 
 // streamRemoteBuildLogs prints remote build runner logs from the beginning.
@@ -142,5 +228,6 @@ func streamRemoteBuildLogs(ctx context.Context, client *api.Client, jobID string
 func init() {
 	devLogsCmd.Flags().BoolVar(&devLogsBuild, "build", false, "Stream remote build runner logs for the latest build")
 	devLogsCmd.Flags().BoolVar(&devLogsFollow, "follow", false, "Keep streaming until the build completes")
+	devLogsCmd.Flags().IntVar(&devLogsTimeout, "timeout", 300, "Seconds to wait for a remote build job to register (with --follow)")
 	devCmd.AddCommand(devLogsCmd)
 }

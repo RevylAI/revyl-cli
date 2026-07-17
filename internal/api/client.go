@@ -5544,7 +5544,8 @@ func (c *Client) DeleteBuildVersion(ctx context.Context, versionID string) (*Del
 // proxyNoRetryActions lists worker actions that are not idempotent.
 // Retrying these creates duplicate side-effects (e.g. duplicate agent steps).
 var proxyNoRetryActions = map[string]bool{
-	"execute_step": true,
+	"execute_step":  true,
+	"install_async": true,
 }
 
 var proxyLongRunningActions = map[string]bool{
@@ -5603,7 +5604,7 @@ func proxyWorkerMethodForAction(action string) string {
 		base = action[:idx]
 	}
 	switch base {
-	case "screenshot", "health", "device_info", "step_status", "hierarchy", "performance_metrics", "network_requests", "device_logs":
+	case "screenshot", "health", "device_info", "step_status", "install_status", "hierarchy", "performance_metrics", "network_requests", "device_logs":
 		return http.MethodGet
 	default:
 		return http.MethodPost
@@ -6958,4 +6959,51 @@ func (c *Client) DeleteStoreKitConfigRef(ctx context.Context, scopeType, scopeID
 		return nil
 	}
 	return parseResponse(resp, nil)
+}
+
+// ListBuildCaches lists the org's stored remote-build cache objects.
+// Response types (BuildCacheListResponse etc.) live in generated.go.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns:
+//   - *BuildCacheListResponse: Cache objects with size and last-use time
+//   - error: Any error that occurred
+func (c *Client) ListBuildCaches(ctx context.Context) (*BuildCacheListResponse, error) {
+	resp, err := c.doRequest(ctx, "GET", "/api/v1/apps/build-caches", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result BuildCacheListResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// DeleteBuildCache evicts one remote-build cache key so the next build runs
+// cold and re-uploads a fresh cache. Always safe: eviction can only cost
+// build time, never correctness.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - key: Org-local cache key as written in .revyl config (e.g. "ios-derived-data")
+//
+// Returns:
+//   - *BuildCacheDeleteResponse: The eviction result
+//   - error: Any error that occurred (404 when no objects are stored for the key)
+func (c *Client) DeleteBuildCache(ctx context.Context, key string) (*BuildCacheDeleteResponse, error) {
+	path := fmt.Sprintf("/api/v1/apps/build-caches/%s", url.PathEscape(key))
+	resp, err := c.doRequest(ctx, "DELETE", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result BuildCacheDeleteResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }

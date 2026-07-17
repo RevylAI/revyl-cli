@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +18,13 @@ import (
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/ui"
 )
+
+// authBypassLaunchVarCacheTTL bounds how long resolved org launch-variable
+// values are reused within a single dev-loop process. It keeps rapid rebuild ->
+// relaunch bursts from re-hitting ListOrgLaunchVariables on every deep-link
+// fire, while still short enough that an externally re-minted value is picked
+// up automatically on the next relaunch after the window.
+const authBypassLaunchVarCacheTTL = 60 * time.Second
 
 // orgLaunchVarLister is the api.Client surface needed to resolve ${VAR}
 // placeholders in the auth bypass deep link.
@@ -30,6 +39,12 @@ type orgLaunchVarLister interface {
 type authBypassRuntime struct {
 	cfg    *config.AuthBypassConfig
 	client orgLaunchVarLister
+
+	// mu guards the short-lived launch-variable value cache so concurrent
+	// relaunches (loop + device commands) don't race on it.
+	mu           sync.Mutex
+	cachedValues map[string]string
+	cachedAt     time.Time
 }
 
 // devAuthBypass is the active runtime for the current command invocation.
@@ -80,13 +95,9 @@ func (r *authBypassRuntime) ResolveDeepLink(ctx context.Context) (string, error)
 	if !strings.Contains(link, "${") {
 		return link, nil
 	}
-	resp, err := r.client.ListOrgLaunchVariables(ctx)
+	values, err := r.launchVarValues(ctx)
 	if err != nil {
 		return "", fmt.Errorf("could not resolve auth bypass deep link variables: %w", err)
-	}
-	values := make(map[string]string, len(resp.Result))
-	for _, v := range resp.Result {
-		values[v.Key] = v.Value
 	}
 	var missing []string
 	resolved := authBypassPlaceholderRe.ReplaceAllStringFunc(link, func(match string) string {
@@ -104,6 +115,36 @@ func (r *authBypassRuntime) ResolveDeepLink(ctx context.Context) (string, error)
 		)
 	}
 	return resolved, nil
+}
+
+// launchVarValues returns current org launch-variable values keyed by name,
+// served from a short-lived per-runtime cache to avoid re-hitting
+// ListOrgLaunchVariables on every relaunch/rebuild deep-link fire. The cache
+// TTL is short enough that an externally re-minted value is picked up on the
+// next relaunch after the window without an explicit refresh.
+func (r *authBypassRuntime) launchVarValues(ctx context.Context) (map[string]string, error) {
+	r.mu.Lock()
+	if r.cachedValues != nil && time.Since(r.cachedAt) < authBypassLaunchVarCacheTTL {
+		cached := r.cachedValues
+		r.mu.Unlock()
+		return cached, nil
+	}
+	r.mu.Unlock()
+
+	resp, err := r.client.ListOrgLaunchVariables(ctx)
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]string, len(resp.Result))
+	for _, v := range resp.Result {
+		values[v.Key] = v.Value
+	}
+
+	r.mu.Lock()
+	r.cachedValues = values
+	r.cachedAt = time.Now()
+	r.mu.Unlock()
+	return values, nil
 }
 
 // FireDeepLink resolves and opens the auth deep link on the session's device.

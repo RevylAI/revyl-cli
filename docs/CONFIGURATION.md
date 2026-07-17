@@ -34,6 +34,14 @@ build:
       output: "build/dev-ios.tar.gz"
       app_id: "uuid-of-ios-dev-app"
       scheme: "MyApp"
+      env:
+        NODE_ENV: "production"
+      secrets:
+        - "EXPO_TOKEN"
+      caches:
+        - key: "ios-derived-data"
+          paths:
+            - "ios/build"
     ios-ci:
       command: "npx --yes eas-cli build --platform ios --profile preview --local --output build/ci-ios.tar.gz"
       output: "build/ci-ios.tar.gz"
@@ -78,6 +86,9 @@ last_synced_at: "2026-02-10T14:30:00Z"  # Auto-updated on sync operations
 | `build.platforms.<key>.app_id` | `string` | Revyl app ID where uploads for this stream are stored. |
 | `build.platforms.<key>.scheme` | `string` | Optional Xcode scheme. When set, the CLI applies it to Xcode build commands. |
 | `build.platforms.<key>.timeout` | `int` | Optional timeout in seconds for remote builds of this stream. When omitted, the server default of 60 minutes applies. Local builds have no timeout. |
+| `build.platforms.<key>.env` | `map[string]string` | Non-secret environment values exported to each remote build command. |
+| `build.platforms.<key>.secrets` | `string[]` | Encrypted organization build-secret names. |
+| `build.platforms.<key>.caches` | `object[]` | Explicit cache disks with a `key` and project-relative `paths`. Omit or use `[]` to disable caching. |
 | `hotreload` | `object` | Hot reload provider configuration for `revyl dev`. |
 | `defaults.open_browser` | `bool` | Auto-open browser for commands that support a browser view. |
 | `defaults.timeout` | `int` | Default timeout in seconds for CLI/device sessions. |
@@ -165,7 +176,37 @@ build:
 If your Bazel setup uses remote cache or remote execution, keep those settings
 in your Bazel config, wrapper script, or CI environment. The current
 `.revyl/config.yaml` schema does not have first-class `target`,
-`remote_cache`, `remote_executor`, cache-volume, or pipeline-DAG fields.
+`remote_cache`, `remote_executor`, or pipeline-DAG fields.
+
+## PR Review Configuration
+
+`pr_review.builds.ios` and `pr_review.builds.android` use the same `env`,
+`secrets`, and `caches` shapes as `build.platforms.*`:
+
+```yaml
+pr_review:
+  builds:
+    ios:
+      enabled: true
+      framework: expo_ios
+      env:
+        NODE_ENV: production
+      secrets:
+        - EXPO_TOKEN
+      caches:
+        - key: ios-derived-data
+          paths:
+            - ios/build
+```
+
+Plaintext values belong only in `env`; `secrets` stores names whose values were
+uploaded with `revyl build secret set`. The two fields cannot contain the same
+name. Build and PR-review cache lists are independent, and omitted or empty
+PR-review caches mean no caching.
+
+For backward compatibility, PR-review entries still accept the deprecated
+`env: [SECRET_NAME]` form and normalize those names into `secrets`. New files
+must use the canonical mapping and list shown above.
 
 ## Hot Reload Configuration
 

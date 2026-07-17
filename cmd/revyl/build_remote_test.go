@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
@@ -174,6 +175,7 @@ func TestResolveRemoteBuildPlatformAndroidReadsConfig(t *testing.T) {
 					Env: map[string]string{
 						"API_URL": "https://config.example.com",
 					},
+					Secrets: []string{"EXPO_TOKEN"},
 				},
 			},
 		},
@@ -204,6 +206,9 @@ func TestResolveRemoteBuildPlatformAndroidReadsConfig(t *testing.T) {
 	}
 	if resolved.Env["API_URL"] != "https://config.example.com" {
 		t.Fatalf("Env = %#v, want API_URL from config", resolved.Env)
+	}
+	if len(resolved.Secrets) != 1 || resolved.Secrets[0] != "EXPO_TOKEN" {
+		t.Fatalf("Secrets = %#v, want EXPO_TOKEN from config", resolved.Secrets)
 	}
 }
 
@@ -511,5 +516,50 @@ func TestCompletedRemoteBuildStatusErrorKeepsNonTerminalErrorsAsCommandFailures(
 	var completed *analytics.CompletedError
 	if errors.As(err, &completed) {
 		t.Fatalf("running status should not be wrapped as completed domain result")
+	}
+}
+
+func TestMergeBuildSecretRefsValidatesAndDeduplicates(t *testing.T) {
+	got, err := mergeBuildSecretRefs(
+		[]string{"EXPO_TOKEN", " SHARED_TOKEN "},
+		[]string{"EXPO_TOKEN", "CLI_TOKEN"},
+	)
+	if err != nil {
+		t.Fatalf("mergeBuildSecretRefs() error = %v", err)
+	}
+	want := []string{"EXPO_TOKEN", "SHARED_TOKEN", "CLI_TOKEN"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("mergeBuildSecretRefs() = %#v, want %#v", got, want)
+	}
+
+	if _, err := mergeBuildSecretRefs([]string{"invalid-name"}, nil); err == nil {
+		t.Fatal("mergeBuildSecretRefs() error = nil, want invalid name error")
+	}
+}
+
+func TestValidateBuildEnvSecretCollisions(t *testing.T) {
+	err := validateBuildEnvSecretCollisions(
+		map[string]string{"EXPO_TOKEN": "plaintext"},
+		[]string{"EXPO_TOKEN"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "EXPO_TOKEN") {
+		t.Fatalf("validateBuildEnvSecretCollisions() error = %v, want EXPO_TOKEN collision", err)
+	}
+}
+
+func TestRemoteBuildConfigIncludesSecretReferences(t *testing.T) {
+	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
+	config := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+		Platform: "ios",
+		Command:  "xcodebuild",
+		Output:   "build/App.app",
+		Secrets:  []string{"EXPO_TOKEN"},
+	})
+
+	if config.SecretRefs == nil || len(*config.SecretRefs) != 1 || (*config.SecretRefs)[0] != "EXPO_TOKEN" {
+		t.Fatalf("SecretRefs = %#v, want EXPO_TOKEN", config.SecretRefs)
+	}
+	if config.Env != nil {
+		t.Fatalf("Env = %#v, want nil", config.Env)
 	}
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/build"
+	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/sigutil"
@@ -29,6 +29,15 @@ type remoteDevBuildResult struct {
 	duration  time.Duration
 }
 
+// remoteDevInstaller installs an artifact onto a specific device session.
+type remoteDevInstaller interface {
+	InstallAppForSession(
+		ctx context.Context,
+		index int,
+		req mcppkg.DeviceInstallRequest,
+	) (*mcppkg.WorkerActionResponse, error)
+}
+
 func validateRemoteDevStartFlags() error {
 	if _, err := normalizeMobilePlatform(devStartPlatform, "ios"); err != nil {
 		return err
@@ -36,13 +45,20 @@ func validateRemoteDevStartFlags() error {
 	if devStartNoBuild {
 		return fmt.Errorf("use either --remote or --no-build, not both")
 	}
-	if strings.TrimSpace(devStartBuildVerID) != "" {
-		return fmt.Errorf("use either --remote or --build-version-id, not both")
-	}
 	if strings.TrimSpace(devStartTunnelURL) != "" {
 		return fmt.Errorf("use either --remote or --tunnel, not both")
 	}
+	// --build-version-id is allowed with --remote: it names the build to seed
+	// (install immediately) while the fresh source builds remotely.
 	return nil
+}
+
+// seedRequested reports whether the remote dev loop should install an existing
+// build immediately (before the fresh remote build lands). Seeding is opt-in:
+// either --seed-latest (newest build overall for the config app-id) or an
+// explicit --build-version-id (that specific build) turns it on.
+func seedRequested() bool {
+	return devStartSeedLatest || strings.TrimSpace(devStartBuildVerID) != ""
 }
 
 // runDevRemoteRebuildOnly starts a native dev loop where all builds run on
@@ -87,7 +103,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		timeout = 300
 	}
 
-	openBrowser := effectiveDevOpenBrowser(cmd, cfg)
+	openBrowser := effectiveDevOpenBrowser(cmd, configPath)
 
 	ui.PrintBanner(version)
 	ui.Println()
@@ -123,21 +139,20 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 	stopSigHandler := startDevLoopSignalHandler(sigChan, stopper)
 	defer stopSigHandler()
 
-	// Trigger the remote build first (package + upload + enqueue), then boot
-	// the device while the build runs on the runner. The simulator is watchable
-	// within seconds; the app installs the moment the artifact lands.
-	buildJob, err := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
-	if err != nil {
-		if stopper.IsUserCanceled(err) {
-			return nil
-		}
-		return err
-	}
-
 	deviceMgr, err := getDeviceSessionMgr(cmd)
 	if err != nil {
 		return err
 	}
+
+	// Kick off the remote build (package + upload + enqueue) concurrently with
+	// device boot + optional seed install so time-to-app-open is not gated on
+	// the source upload. The simulator is watchable within seconds; the fresh
+	// build installs (hot-swap) the moment the artifact lands.
+	triggerCh := make(chan remoteDevBuildTrigger, 1)
+	go func() {
+		job, triggerErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
+		triggerCh <- remoteDevBuildTrigger{job: job, err: triggerErr}
+	}()
 
 	var session *mcppkg.DeviceSession
 	sessionOwned := true
@@ -224,9 +239,18 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 	}()
 
 	// Publish the session with the build still running so `revyl dev status`,
-	// `--detach`, and the cockpit see it immediately.
+	// `--detach`, and the cockpit see it immediately. The build job id is not
+	// known yet (the trigger runs concurrently), so it is filled in later.
 	statusPath := devCtxStatusPath(cwd, ctxName)
-	writeDevStatusRemoteBuildRunning(statusPath, session, viewerURL, devicePlatform, platformKey, buildJob.jobID, buildCaches)
+	writeDevStatusRemoteBuildRunning(statusPath, session, viewerURL, devicePlatform, platformKey, "", buildCaches, "", false)
+	registeredTriggerCh := make(chan remoteDevBuildTrigger, 1)
+	go func() {
+		trigger := <-triggerCh
+		if trigger.err == nil {
+			setDevStatusRemoteJobID(statusPath, trigger.job.jobID)
+		}
+		registeredTriggerCh <- trigger
+	}()
 
 	cockpitRebuilds := make(chan struct{}, 1)
 	cockpit, cockpitErr := startDevCockpitForContext(ctx, cwd, ctxName, viewerURL, true, cockpitRebuilds, stopper.RequestStop)
@@ -256,31 +280,70 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		_ = ui.OpenBrowser(devBrowserOpenTarget(cockpitURL, viewerURL))
 	}
 
-	// Wait for the initial build, then install + launch. A failed initial
-	// build keeps the simulator alive so a fix + rebuild reuses this device.
+	// Seed an existing build immediately (opt-in) so the app is interactive and
+	// authenticated within seconds while the fresh source builds remotely. The
+	// bundle id from the seed is reused for the later hot-swap.
 	bundleID := ""
-	remoteBuild, buildErr := waitRemoteDevBuild(ctx, client, buildJob, cwd)
-	if buildErr != nil {
-		if stopper.IsUserCanceled(buildErr) {
+	if seedRequested() {
+		seededBundleID, seededVersion, seedErr := seedLatestDevBuild(
+			ctx, client, deviceMgr, session, devicePlatform, appID,
+			strings.TrimSpace(devStartBuildVerID),
+		)
+		if seedErr != nil {
+			if stopper.IsUserCanceled(seedErr) {
+				return nil
+			}
+			ui.PrintWarning("Seed install skipped: %v", seedErr)
+		} else if seededBundleID != "" {
+			bundleID = seededBundleID
+			setDevStatusSeedInstalled(statusPath, seededVersion)
+			ui.PrintSuccess("Seeded build on device (%s) — hot-swap when the fresh build lands", seededVersion)
+		} else {
+			ui.PrintInfo("No existing build to seed; device stays on the home screen until the fresh build lands.")
+		}
+	}
+
+	// Join the concurrent build trigger, then wait for it to complete and
+	// install + launch (hot-swap). A failed initial build keeps the simulator
+	// alive so a fix + rebuild reuses this device (a seeded build stays on
+	// screen in the meantime).
+	trigger := <-registeredTriggerCh
+	if trigger.err != nil {
+		if stopper.IsUserCanceled(trigger.err) {
 			return nil
 		}
 		failResult := devRebuildResult{
-			buildMode:   "remote",
-			buildErr:    buildErr,
-			elapsed:     time.Since(buildJob.started),
-			remoteJobID: buildJob.jobID,
+			buildMode: "remote",
+			buildErr:  trigger.err,
 		}
 		writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, failResult)
-		ui.PrintWarning("Initial remote build failed: %v", buildErr)
+		ui.PrintWarning("Failed to start remote build: %v", trigger.err)
 		ui.PrintInfo("Device session stays alive — fix the issue and trigger a rebuild.")
 	} else {
-		installErr := installAndLaunchRemoteDevBuild(ctx, client, deviceMgr, session, devicePlatform, remoteBuild, &bundleID, statusPath, viewerURL)
-		if installErr != nil {
-			if stopper.IsUserCanceled(installErr) {
+		buildJob := trigger.job
+		remoteBuild, buildErr := waitRemoteDevBuild(ctx, client, buildJob, cwd)
+		if buildErr != nil {
+			if stopper.IsUserCanceled(buildErr) {
 				return nil
 			}
-			ui.PrintWarning("%v", installErr)
+			failResult := devRebuildResult{
+				buildMode:   "remote",
+				buildErr:    buildErr,
+				elapsed:     time.Since(buildJob.started),
+				remoteJobID: buildJob.jobID,
+			}
+			writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, failResult)
+			ui.PrintWarning("Initial remote build failed: %v", buildErr)
 			ui.PrintInfo("Device session stays alive — fix the issue and trigger a rebuild.")
+		} else {
+			installErr := installAndLaunchRemoteDevBuild(ctx, client, deviceMgr, session, devicePlatform, remoteBuild, &bundleID, statusPath, viewerURL)
+			if installErr != nil {
+				if stopper.IsUserCanceled(installErr) {
+					return nil
+				}
+				ui.PrintWarning("%v", installErr)
+				ui.PrintInfo("Device session stays alive — fix the issue and trigger a rebuild.")
+			}
 		}
 	}
 
@@ -372,7 +435,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		buildJob, buildErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
 		if buildErr == nil {
 			// Surface the live job id while the runner builds.
-			appendDevStatusRebuildLog(statusPath, newDevRebuildLog("info", fmt.Sprintf("Remote build job %s running", buildJob.jobID)), 16)
+			setDevStatusRemoteJobID(statusPath, buildJob.jobID)
 			var remoteBuild remoteDevBuildResult
 			remoteBuild, buildErr = waitRemoteDevBuild(ctx, client, buildJob, cwd)
 			if buildErr == nil {
@@ -457,6 +520,77 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 type remoteDevBuildJob struct {
 	jobID   string
 	started time.Time
+}
+
+// remoteDevBuildTrigger carries the result of an asynchronous
+// triggerRemoteDevBuild call back to the dev loop, so the build can be
+// packaged and enqueued concurrently with device boot and seed install.
+type remoteDevBuildTrigger struct {
+	job remoteDevBuildJob
+	err error
+}
+
+// seedLatestDevBuild installs an existing build on the session's device
+// immediately so the app is interactive (and, with auth bypass configured,
+// authenticated) within seconds while the fresh source builds remotely.
+//
+// Parameters:
+//   - explicitVersionID: a specific build version to seed; when empty the
+//     newest build overall for appID is resolved (not branch-aware).
+//
+// Returns the installed bundle id and a human-readable version label, or
+// ("", "", nil) when there is no existing build to seed (a clean no-op so the
+// loop falls back to the blank-device experience). A non-nil error means the
+// resolve or install failed and should be surfaced as a warning.
+func seedLatestDevBuild(
+	ctx context.Context,
+	client *api.Client,
+	deviceMgr *mcppkg.DeviceSessionManager,
+	session *mcppkg.DeviceSession,
+	devicePlatform string,
+	appID string,
+	explicitVersionID string,
+) (string, string, error) {
+	versionID := strings.TrimSpace(explicitVersionID)
+	if versionID == "" {
+		// Seed uses latest-overall (empty branch), not branch-aware selection.
+		// TODO: For Expo/RN, skip CompatibleNo builds via ClassifyBuild so we
+		// do not seed production/preview EAS artifacts.
+		// TODO: Consider making latest-overall the default beyond --seed-latest
+		// once revyl run / normal revyl dev callers agree.
+		selected, _, warnings, err := buildselection.SelectPreferredBuildVersionForBranch(ctx, client, appID, "")
+		if err != nil {
+			return "", "", fmt.Errorf("could not resolve latest build to seed: %w", err)
+		}
+		for _, warning := range warnings {
+			ui.PrintWarning("%s", warning)
+		}
+		if selected == nil {
+			return "", "", nil
+		}
+		versionID = selected.ID
+	}
+
+	ui.PrintInfo("Seeding existing build on device (interactive while the fresh build runs)...")
+	buildDetail, err := client.GetBuildVersionDownloadURL(ctx, versionID)
+	if err != nil {
+		return "", "", fmt.Errorf("could not resolve seed build download URL: %w", err)
+	}
+
+	bundleID := strings.TrimSpace(buildDetail.PackageName)
+	installedBundleID, _, err := installRemoteDevBuild(ctx, deviceMgr, session, buildDetail, bundleID)
+	if err != nil {
+		return "", "", err
+	}
+	if installedBundleID != "" {
+		bundleID = installedBundleID
+	}
+
+	// Launch fires the auth bypass deep link (fireAuthBypassAfterLaunch) so the
+	// seeded app lands authenticated without waiting on the fresh build.
+	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, bundleID, "", "")
+
+	return bundleID, strings.TrimSpace(buildDetail.Version), nil
 }
 
 // triggerRemoteDevBuild packages the working tree, uploads it, and enqueues a
@@ -585,26 +719,38 @@ func writeDevStatusRemoteBuildRunning(
 	platformKey string,
 	buildJobID string,
 	caches []config.BuildCache,
+	seededVersion string,
+	installedSeed bool,
 ) {
+	buildJobID = strings.TrimSpace(buildJobID)
+	runningMsg := fmt.Sprintf("Remote build running for %s", platformKey)
+	if buildJobID != "" {
+		runningMsg = fmt.Sprintf("%s (job %s)", runningMsg, buildJobID)
+	}
 	logs := []devRebuildLogEntry{
-		newDevRebuildLog("info", fmt.Sprintf("Remote build running for %s (job %s)", platformKey, buildJobID)),
+		newDevRebuildLog("info", runningMsg),
+	}
+	if installedSeed {
+		logs = append(logs, newDevRebuildLog("info", fmt.Sprintf("Seeded existing build %s on device; hot-swap pending", strings.TrimSpace(seededVersion))))
 	}
 	for _, cache := range caches {
 		logs = append(logs, newDevRebuildLog("info", fmt.Sprintf("Cache configured: %s (%s)", cache.Key, strings.Join(cache.Paths, ", "))))
 	}
 	ds := devStatus{
-		State:        "building",
-		PID:          os.Getpid(),
-		Platform:     strings.TrimSpace(platform),
-		BuildMode:    "remote",
-		ViewerURL:    strings.TrimSpace(viewerURL),
-		RebuildCount: 0,
+		State:         "building",
+		PID:           os.Getpid(),
+		Platform:      strings.TrimSpace(platform),
+		BuildMode:     "remote",
+		ViewerURL:     strings.TrimSpace(viewerURL),
+		RebuildCount:  0,
+		SeededVersion: strings.TrimSpace(seededVersion),
+		InstalledSeed: installedSeed,
 		LastRebuild: &devRebuildInfo{
 			StartedAt:   time.Now().UTC().Format(time.RFC3339Nano),
 			Seq:         0,
 			Status:      "running",
 			PushMode:    "pending",
-			RemoteJobID: strings.TrimSpace(buildJobID),
+			RemoteJobID: buildJobID,
 			BuildErrors: []build.BuildError{},
 			Logs:        logs,
 		},
@@ -801,57 +947,35 @@ func pollRemoteBuildStatusResult(ctx context.Context, client *api.Client, jobID 
 
 func installRemoteDevBuild(
 	ctx context.Context,
-	deviceMgr *mcppkg.DeviceSessionManager,
+	deviceMgr remoteDevInstaller,
 	session *mcppkg.DeviceSession,
 	buildDetail *api.BuildVersionDetail,
 	bundleID string,
 ) (string, time.Duration, error) {
 	start := time.Now()
-	body := map[string]string{
-		"app_url":      strings.TrimSpace(buildDetail.DownloadURL),
-		"install_mode": "fast",
-	}
-	if bundleID != "" {
-		body["bundle_id"] = bundleID
+	request := mcppkg.DeviceInstallRequest{
+		AppURL:      strings.TrimSpace(buildDetail.DownloadURL),
+		BundleID:    strings.TrimSpace(bundleID),
+		InstallMode: mcppkg.DeviceInstallModeFast,
 	}
 
 	ui.PrintInfo("Installing remote build on device...")
-	var resp []byte
-	var err error
-	const maxInstallRetries = 3
-	for attempt := 0; attempt <= maxInstallRetries; attempt++ {
-		resp, err = deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", body)
-		if err == nil {
-			break
-		}
-		var workerErr *mcppkg.WorkerHTTPError
-		isDeviceNotReady := errorsAsWorkerHTTPError(err, &workerErr) && workerErr.StatusCode == 503
-		if !isDeviceNotReady || attempt == maxInstallRetries {
-			return "", time.Since(start), fmt.Errorf("install failed: %w", err)
-		}
-		backoff := time.Duration(1<<uint(attempt)) * time.Second
-		ui.PrintDebug("device not ready, retrying install in %s (attempt %d/%d)", backoff, attempt+1, maxInstallRetries)
-		select {
-		case <-time.After(backoff):
-		case <-ctx.Done():
-			return "", time.Since(start), ctx.Err()
-		}
-	}
-
-	if err := ensureWorkerActionSucceeded(resp, "install"); err != nil {
+	result, err := deviceMgr.InstallAppForSession(ctx, session.Index, request)
+	if err != nil {
 		return "", time.Since(start), fmt.Errorf("install failed: %w", err)
 	}
-	if extracted := extractInstallBundleID(resp); extracted != "" {
-		bundleID = extracted
+	if result == nil {
+		return "", time.Since(start), fmt.Errorf("install failed: worker returned no result")
+	}
+	if !result.Success {
+		message := strings.TrimSpace(result.Error)
+		if message == "" {
+			message = "worker reported an unsuccessful install"
+		}
+		return "", time.Since(start), fmt.Errorf("install failed: %s", message)
+	}
+	if installedBundleID := strings.TrimSpace(result.BundleID); installedBundleID != "" {
+		bundleID = installedBundleID
 	}
 	return bundleID, time.Since(start), nil
-}
-
-func errorsAsWorkerHTTPError(err error, target **mcppkg.WorkerHTTPError) bool {
-	var workerErr *mcppkg.WorkerHTTPError
-	if !errors.As(err, &workerErr) {
-		return false
-	}
-	*target = workerErr
-	return true
 }

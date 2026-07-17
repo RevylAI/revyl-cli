@@ -407,9 +407,13 @@ type BuildPlatform struct {
 	// ignore it (they have no deadline).
 	Timeout int `yaml:"timeout,omitempty"`
 
-	// Env holds environment variables passed to the remote build runner for
-	// this platform. Sent with every remote build; not persisted server-side.
+	// Env holds non-secret environment variables passed to the remote build
+	// runner for this platform. Use Secrets for credentials and tokens.
 	Env map[string]string `yaml:"env,omitempty"`
+
+	// Secrets contains names of encrypted org build secrets. Values are never
+	// serialized into project configuration.
+	Secrets []string `yaml:"secrets,omitempty"`
 
 	// Caches contains cache disks used by this platform's remote builds.
 	Caches []BuildCache `yaml:"caches,omitempty"`
@@ -511,6 +515,29 @@ func EffectiveOpenBrowser(cfg *ProjectConfig) bool {
 		return DefaultOpenBrowser
 	}
 	return *cfg.Defaults.OpenBrowser
+}
+
+// LoadExplicitOpenBrowserDefault reads defaults.open_browser without applying project defaults.
+//
+// Parameters:
+//   - path: Path to the config.yaml file
+//
+// Returns:
+//   - *bool: Explicit setting, or nil when the key is omitted
+//   - error: File read or YAML parsing failure
+func LoadExplicitOpenBrowserDefault(path string) (*bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var raw struct {
+		Defaults Defaults `yaml:"defaults,omitempty"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+	return raw.Defaults.OpenBrowser, nil
 }
 
 // EffectiveTimeoutSeconds returns the effective timeout.

@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -12,8 +13,131 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	mcppkg "github.com/revyl/cli/internal/mcp"
 )
+
+type fakeRemoteDevInstaller struct {
+	requests []mcppkg.DeviceInstallRequest
+	results  []*mcppkg.WorkerActionResponse
+	errors   []error
+}
+
+// InstallAppForSession records an install and returns the configured result.
+//
+// Parameters:
+//   - ctx: Context controlling the fake call.
+//   - index: Session index targeted by the caller.
+//   - req: Typed install request to record.
+//
+// Returns:
+//   - *mcppkg.WorkerActionResponse: Configured result for this invocation.
+//   - error: Configured error for this invocation.
+func (f *fakeRemoteDevInstaller) InstallAppForSession(
+	ctx context.Context,
+	index int,
+	req mcppkg.DeviceInstallRequest,
+) (*mcppkg.WorkerActionResponse, error) {
+	_ = ctx
+	_ = index
+	call := len(f.requests)
+	f.requests = append(f.requests, req)
+	if call < len(f.errors) && f.errors[call] != nil {
+		return nil, f.errors[call]
+	}
+	return f.results[call], nil
+}
+
+func TestInstallRemoteDevBuild_OrdersSeedAndFreshInstalls(t *testing.T) {
+	installer := &fakeRemoteDevInstaller{
+		results: []*mcppkg.WorkerActionResponse{
+			{
+				Success:  true,
+				Action:   "install",
+				BundleID: "com.whop.ios",
+			},
+			{
+				Success:  true,
+				Action:   "install",
+				BundleID: "com.whop.ios",
+			},
+		},
+	}
+	session := &mcppkg.DeviceSession{Index: 7}
+
+	seedBundleID, _, err := installRemoteDevBuild(
+		context.Background(),
+		installer,
+		session,
+		&api.BuildVersionDetail{DownloadURL: "https://example.test/seed.zip"},
+		"",
+	)
+	if err != nil {
+		t.Fatalf("seed install error = %v", err)
+	}
+
+	freshBundleID, _, err := installRemoteDevBuild(
+		context.Background(),
+		installer,
+		session,
+		&api.BuildVersionDetail{DownloadURL: "https://example.test/fresh.zip"},
+		seedBundleID,
+	)
+	if err != nil {
+		t.Fatalf("fresh install error = %v", err)
+	}
+
+	if len(installer.requests) != 2 {
+		t.Fatalf("install requests = %d, want 2", len(installer.requests))
+	}
+	if installer.requests[0].AppURL != "https://example.test/seed.zip" {
+		t.Fatalf("seed AppURL = %q", installer.requests[0].AppURL)
+	}
+	if installer.requests[1].AppURL != "https://example.test/fresh.zip" {
+		t.Fatalf("fresh AppURL = %q", installer.requests[1].AppURL)
+	}
+	if installer.requests[1].BundleID != seedBundleID {
+		t.Fatalf(
+			"fresh BundleID = %q, want seeded bundle %q",
+			installer.requests[1].BundleID,
+			seedBundleID,
+		)
+	}
+	if installer.requests[0].InstallMode != mcppkg.DeviceInstallModeFast ||
+		installer.requests[1].InstallMode != mcppkg.DeviceInstallModeFast {
+		t.Fatalf("install modes = %q, %q; want fast", installer.requests[0].InstallMode, installer.requests[1].InstallMode)
+	}
+	if freshBundleID != "com.whop.ios" {
+		t.Fatalf("fresh BundleID result = %q", freshBundleID)
+	}
+}
+
+func TestInstallRemoteDevBuild_ReturnsTerminalWorkerFailure(t *testing.T) {
+	installer := &fakeRemoteDevInstaller{
+		results: []*mcppkg.WorkerActionResponse{
+			{
+				Success: false,
+				Action:  "install",
+				Error:   "simctl install failed",
+			},
+		},
+	}
+
+	_, _, err := installRemoteDevBuild(
+		context.Background(),
+		installer,
+		&mcppkg.DeviceSession{Index: 1},
+		&api.BuildVersionDetail{DownloadURL: "https://example.test/broken.zip"},
+		"",
+	)
+	if err == nil {
+		t.Fatal("installRemoteDevBuild() error = nil, want terminal failure")
+	}
+	if !strings.Contains(err.Error(), "simctl install failed") {
+		t.Fatalf("install error = %q", err)
+	}
+}
 
 func TestValidateRemoteDevStartFlags(t *testing.T) {
 	oldPlatform := devStartPlatform
@@ -61,14 +185,13 @@ func TestValidateRemoteDevStartFlags(t *testing.T) {
 			wantErr: "--no-build",
 		},
 		{
-			name: "build version rejected",
+			name: "build version allowed as seed source",
 			setup: func() {
 				devStartPlatform = "ios"
 				devStartNoBuild = false
 				devStartBuildVerID = "bv_123"
 				devStartTunnelURL = ""
 			},
-			wantErr: "--build-version-id",
 		},
 		{
 			name: "tunnel rejected",
@@ -94,6 +217,37 @@ func TestValidateRemoteDevStartFlags(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("validateRemoteDevStartFlags() error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSeedRequested(t *testing.T) {
+	oldSeedLatest := devStartSeedLatest
+	oldBuildVersionID := devStartBuildVerID
+	defer func() {
+		devStartSeedLatest = oldSeedLatest
+		devStartBuildVerID = oldBuildVersionID
+	}()
+
+	tests := []struct {
+		name        string
+		seedLatest  bool
+		buildVerID  string
+		wantSeeding bool
+	}{
+		{name: "default no seed", seedLatest: false, buildVerID: "", wantSeeding: false},
+		{name: "seed-latest flag", seedLatest: true, buildVerID: "", wantSeeding: true},
+		{name: "explicit build version seeds", seedLatest: false, buildVerID: "bv_123", wantSeeding: true},
+		{name: "blank build version ignored", seedLatest: false, buildVerID: "   ", wantSeeding: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			devStartSeedLatest = tt.seedLatest
+			devStartBuildVerID = tt.buildVerID
+			if got := seedRequested(); got != tt.wantSeeding {
+				t.Fatalf("seedRequested() = %v, want %v", got, tt.wantSeeding)
 			}
 		})
 	}

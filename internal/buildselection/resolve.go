@@ -19,6 +19,11 @@ type ResolverClient interface {
 // Precedence:
 //  1. Latest build matching the current git branch in build metadata
 //  2. Latest build overall
+//
+// TODO: --seed-latest already uses latest-overall via
+// SelectPreferredBuildVersionForBranch(..., ""). Consider making latest-overall
+// the default here once revyl run / normal revyl dev callers agree, and add
+// Expo/RN ClassifyBuild filtering so production/preview EAS builds are skipped.
 func SelectPreferredBuildVersion(
 	ctx context.Context,
 	client ResolverClient,

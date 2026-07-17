@@ -29,6 +29,7 @@ func remoteBuildConfigFromResolved(appID uuid.UUID, resolved remoteBuildPlatform
 		Steps:        &steps,
 		Artifacts:    &artifacts,
 		Env:          stringMapPtrOrNil(resolved.Env),
+		SecretRefs:   stringSlicePtrOrNil(resolved.Secrets),
 		Caches:       remoteBuildCachesPtrOrNil(resolved.Caches),
 	}
 }
@@ -109,6 +110,14 @@ func stringMapPtrOrNil(m map[string]string) *map[string]string {
 	for key, value := range m {
 		result[key] = value
 	}
+	return &result
+}
+
+func stringSlicePtrOrNil(values []string) *[]string {
+	if len(values) == 0 {
+		return nil
+	}
+	result := append([]string(nil), values...)
 	return &result
 }
 

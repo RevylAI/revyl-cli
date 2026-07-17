@@ -24,7 +24,7 @@ import (
 
 // buildCmd is the parent command for build operations.
 var buildCmd = &cobra.Command{
-	Use:   "build [--platform ios|android|<config-key>] [--remote] [--env KEY=VALUE] [--timeout <seconds>] [--version <version>] [--detach] [--no-cache] [--no-set-current] [--json]",
+	Use:   "build [--platform ios|android|<config-key>] [--remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--detach] [--no-cache] [--no-set-current] [--json]",
 	Short: "Build and manage app builds",
 	Long: `Build the app from source and upload the generated artifact to Revyl.
 
@@ -142,6 +142,7 @@ var (
 	uploadRemoteFlag          bool
 	uploadCleanFlag           bool
 	buildEnvFlags             []string
+	buildSecretRefFlags       []string
 	buildTimeoutSeconds       int
 	remotePlatformFlag        string
 	remoteAppFlag             string
@@ -172,6 +173,7 @@ func init() {
 	buildCmd.Flags().StringVar(&buildCommandImage, "image", "", "Remote build image key, e.g. ios-macos-26-xcode-26.2")
 	buildCmd.Flags().BoolVar(&buildCommandRemote, "remote", false, "Run the build on Revyl cloud build runners")
 	buildCmd.Flags().StringArrayVar(&buildEnvFlags, "env", nil, "Remote build environment override (repeatable: --env KEY=VALUE)")
+	buildCmd.Flags().StringArrayVar(&buildSecretRefFlags, "secret", nil, "Build secret name (repeatable; local builds read the process environment)")
 	buildCmd.Flags().IntVar(&buildTimeoutSeconds, "timeout", 0, "Remote build timeout in seconds (overrides build.platforms.<platform>.timeout from config when set)")
 	buildCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the build (default: auto-generated)")
 	buildCmd.Flags().BoolVar(&buildDetachFlag, "detach", false, "Queue remote build and return immediately")
@@ -302,6 +304,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			Version:        buildVersion,
 			Image:          strings.TrimSpace(buildCommandImage),
 			Env:            envOverrides,
+			Secrets:        append([]string(nil), buildSecretRefFlags...),
 			SetCurrent:     setCurrent,
 			Clean:          buildNoCacheFlag,
 			JSON:           jsonOutput,
@@ -500,6 +503,33 @@ func checkLocalBuildSupported() error {
 		return fmt.Errorf("local builds are not supported on Windows; use `revyl build --remote` or upload an existing artifact with `revyl build upload --file` or `revyl build upload --url`")
 	}
 	return nil
+}
+
+// validateLocalBuildSecrets verifies that local builds can inherit every
+// configured secret from the current process environment.
+func validateLocalBuildSecrets(platformKey string, platformCfg config.BuildPlatform) error {
+	secretRefs, err := mergeBuildSecretRefs(platformCfg.Secrets, buildSecretRefFlags)
+	if err != nil {
+		return fmt.Errorf("build.platforms.%s.secrets: %w", platformKey, err)
+	}
+	if err := validateBuildEnvSecretCollisions(platformCfg.Env, secretRefs); err != nil {
+		return fmt.Errorf("build.platforms.%s: %w", platformKey, err)
+	}
+
+	var missing []string
+	for _, name := range secretRefs {
+		if _, exists := os.LookupEnv(name); !exists {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	sort.Strings(missing)
+	return fmt.Errorf(
+		"local build secrets are not set in the process environment: %s; export them or source a gitignored .env.local before running revyl build",
+		strings.Join(missing, ", "),
+	)
 }
 
 // runDirectFileUpload uploads a user-supplied artifact without requiring a
@@ -1454,6 +1484,10 @@ func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd s
 	outputMu.Lock()
 	platformCfg := cfg.Build.Platforms[platform]
 	outputMu.Unlock()
+	if err := validateLocalBuildSecrets(platform, platformCfg); err != nil {
+		result.Error = err
+		return result
+	}
 	usesCommandList := buildPlatformUsesCommandList(platformCfg)
 	buildCommands := platformCfg.BuildCommands()
 	if normalized, changed := normalizeExpoBuildCommands(cfg.Build.System, buildCommands); changed {
@@ -1788,6 +1822,9 @@ func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, confi
 	platformKey := resolvedPlatform.PlatformKey
 	devicePlatform := resolvedPlatform.DevicePlatform
 	platformCfg := resolvedPlatform.Config
+	if err := validateLocalBuildSecrets(platformKey, platformCfg); err != nil {
+		return err
+	}
 
 	// Validate platform configuration
 	if platformCfg.Output == "" {

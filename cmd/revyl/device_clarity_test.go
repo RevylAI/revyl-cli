@@ -32,8 +32,8 @@ func TestDeviceCommandPrefix(t *testing.T) {
 	}
 
 	devCmd := newDeviceTestCommand(t, true)
-	if got := deviceCommandPrefix(devCmd); got != "revyl --dev" {
-		t.Fatalf("deviceCommandPrefix() with --dev = %q, want %q", got, "revyl --dev")
+	if got := deviceCommandPrefix(devCmd); got != "revyl" {
+		t.Fatalf("deviceCommandPrefix() with --dev = %q, want %q", got, "revyl")
 	}
 }
 
@@ -105,8 +105,8 @@ func TestHumanizeDeviceSessionResolveError_DevModeCommandPrefix(t *testing.T) {
 		t.Fatal("humanizeDeviceSessionResolveError() error = nil, want non-nil")
 	}
 	got := err.Error()
-	if !strings.Contains(got, "Run 'revyl --dev device list' to see active sessions") {
-		t.Fatalf("error = %q, want dev-mode CLI guidance", got)
+	if !strings.Contains(got, "Run 'revyl device list' to see active sessions") {
+		t.Fatalf("error = %q, want public CLI guidance", got)
 	}
 }
 

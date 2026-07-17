@@ -1012,6 +1012,38 @@ func TestProxyWorkerRequest_InstallUsesLongRunningClient(t *testing.T) {
 	}
 }
 
+func TestProxyWorkerRequest_InstallAsyncDoesNotRetry(t *testing.T) {
+	t.Parallel()
+
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		if got := r.URL.Path; got != "/api/v1/execution/device-proxy/wf-1/install_async" {
+			t.Fatalf("unexpected path: %s", got)
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"detail":"device not ready"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClientWithBaseURL("test-key", server.URL)
+	_, statusCode, err := client.ProxyWorkerRequest(
+		context.Background(),
+		"wf-1",
+		"install_async",
+		map[string]string{"app_url": "https://example.test/app.apk"},
+	)
+	if err != nil {
+		t.Fatalf("ProxyWorkerRequest() error = %v, want nil", err)
+	}
+	if statusCode != http.StatusServiceUnavailable {
+		t.Fatalf("statusCode = %d, want %d", statusCode, http.StatusServiceUnavailable)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Fatalf("attempts = %d, want 1 for non-idempotent install_async", got)
+	}
+}
+
 func TestStartDeviceExportsCLITraceHandoff(t *testing.T) {
 	var telemetryRequestID string
 	var startRequestID string
@@ -1669,6 +1701,8 @@ func TestProxyWorkerMethodForAction(t *testing.T) {
 		"device_info",
 		"step_status",
 		"step_status/abc-123",
+		"install_status",
+		"install_status/install-123",
 		"hierarchy",
 		"performance_metrics",
 		"network_requests",
@@ -1681,7 +1715,7 @@ func TestProxyWorkerMethodForAction(t *testing.T) {
 	}
 
 	// Mutating actions default to POST.
-	postActions := []string{"tap", "swipe", "execute_step", "install", "launch"}
+	postActions := []string{"tap", "swipe", "execute_step", "install", "install_async", "launch"}
 	for _, action := range postActions {
 		if got := proxyWorkerMethodForAction(action); got != http.MethodPost {
 			t.Errorf("proxyWorkerMethodForAction(%q) = %q, want POST", action, got)
