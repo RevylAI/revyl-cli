@@ -157,6 +157,25 @@ func TestBuildRemoteCommandDoesNotExposeRunnerFlag(t *testing.T) {
 	}
 }
 
+func TestPrintRemoteBuildStartedLinksToAppScopedLogs(t *testing.T) {
+	t.Setenv("REVYL_APP_URL", "https://preview.revyl.example/")
+	output := captureStdoutAndStderr(t, func() {
+		printRemoteBuildStarted(false, "app-123", "job-456")
+	})
+
+	buildStartedIndex := strings.Index(output, "Build started")
+	viewLogsIndex := strings.Index(output, "View logs:")
+	if buildStartedIndex == -1 || viewLogsIndex < buildStartedIndex {
+		t.Fatalf("output should print the logs link after the build confirmation:\n%s", output)
+	}
+	if !strings.Contains(output, "https://preview.revyl.example/apps/app-123/builds/job-456#logs") {
+		t.Fatalf("output did not include the app-scoped logs URL:\n%s", output)
+	}
+	if strings.Contains(output, "Started build with id") {
+		t.Fatalf("output still exposes the legacy build-id message:\n%s", output)
+	}
+}
+
 func TestResolveRemoteBuildPlatformAndroidReadsConfig(t *testing.T) {
 	tmp := t.TempDir()
 	configDir := filepath.Join(tmp, ".revyl")

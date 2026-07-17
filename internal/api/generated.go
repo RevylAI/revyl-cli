@@ -561,6 +561,51 @@ type BuildCacheSummary struct {
 	SizeBytes    int       `json:"size_bytes"`
 }
 
+// BuildCollectionBuildItem defines model for BuildCollectionBuildItem.
+type BuildCollectionBuildItem struct {
+	// Build Response model for a build (specific artifact/version of an app).
+	Build BuildResponse `json:"build"`
+
+	// Job Compact summary of a single remote build job for list views.
+	//
+	// Attributes:
+	//     build_job_id: Unique identifier of the build job (used to poll status).
+	//     status: Normalized public status (``pending`` / ``building`` /
+	//         ``success`` / ``failed`` / ``cancelled``).
+	//     version: Version string of the build.
+	//     platform: Build platform.
+	//     phase: Detailed status/failure phase when available.
+	//     build_id: UUID of the produced build version on success, when known.
+	//     created_at: ISO timestamp when the build job was created.
+	//     started_at: ISO timestamp when the build started executing.
+	//     completed_at: ISO timestamp when the build finished.
+	//     duration_ms: Build duration in milliseconds when known.
+	//     is_active: Whether the build is still queued or running.
+	Job  *RemoteBuildSummary `json:"job,omitempty"`
+	Kind string              `json:"kind"`
+}
+
+// BuildCollectionJobItem defines model for BuildCollectionJobItem.
+type BuildCollectionJobItem struct {
+	// Job Compact summary of a single remote build job for list views.
+	//
+	// Attributes:
+	//     build_job_id: Unique identifier of the build job (used to poll status).
+	//     status: Normalized public status (``pending`` / ``building`` /
+	//         ``success`` / ``failed`` / ``cancelled``).
+	//     version: Version string of the build.
+	//     platform: Build platform.
+	//     phase: Detailed status/failure phase when available.
+	//     build_id: UUID of the produced build version on success, when known.
+	//     created_at: ISO timestamp when the build job was created.
+	//     started_at: ISO timestamp when the build started executing.
+	//     completed_at: ISO timestamp when the build finished.
+	//     duration_ms: Build duration in milliseconds when known.
+	//     is_active: Whether the build is still queued or running.
+	Job  RemoteBuildSummary `json:"job"`
+	Kind string             `json:"kind"`
+}
+
 // BuildConfig Sandbox build configuration stored by the API and used by build jobs.
 type BuildConfig struct {
 	AppId     openapi_types.UUID  `json:"app_id"`
@@ -2341,6 +2386,35 @@ type PaginatedBuildsResponse struct {
 	TotalPages int `json:"total_pages"`
 }
 
+// PaginatedBuildsWithJobsResponse Paginated response for the Builds tab when build jobs are included.
+type PaginatedBuildsWithJobsResponse struct {
+	// HasNext Whether there is a next page
+	HasNext bool `json:"has_next"`
+
+	// HasPrevious Whether there is a previous page
+	HasPrevious bool `json:"has_previous"`
+
+	// Items Build artifacts and build jobs for the current page
+	Items *[]PaginatedBuildsWithJobsResponse_Items_Item `json:"items,omitempty"`
+
+	// Page Current page number (1-indexed)
+	Page int `json:"page"`
+
+	// PageSize Number of items per page
+	PageSize int `json:"page_size"`
+
+	// Total Total number of build collection items
+	Total int `json:"total"`
+
+	// TotalPages Total number of pages
+	TotalPages int `json:"total_pages"`
+}
+
+// PaginatedBuildsWithJobsResponse_Items_Item defines model for PaginatedBuildsWithJobsResponse.items.Item.
+type PaginatedBuildsWithJobsResponse_Items_Item struct {
+	union json.RawMessage
+}
+
 // PlanInfo defines model for PlanInfo.
 type PlanInfo struct {
 	BillingExempt          *bool                           `json:"billing_exempt,omitempty"`
@@ -2396,6 +2470,29 @@ type PlatformTargetConfig struct {
 	DefaultPair DevicePair `json:"default_pair"`
 }
 
+// PrReviewConfigSummary Compact, serializable summary of a parsed “pr_review“ config.
+//
+// Used for the settings-page banner and the PR comment. Persisted into
+// “scm_review_configs.metadata“ via “model_dump(mode="json")“.
+type PrReviewConfigSummary struct {
+	Builds         *[]PrReviewConfigSummaryBuild `json:"builds,omitempty"`
+	Checks         *[]string                     `json:"checks,omitempty"`
+	Enabled        *bool                         `json:"enabled,omitempty"`
+	Preset         *string                       `json:"preset"`
+	PreviewLink    *bool                         `json:"preview_link,omitempty"`
+	ProofOfChanges *bool                         `json:"proof_of_changes,omitempty"`
+	Workflows      *[]string                     `json:"workflows,omitempty"`
+}
+
+// PrReviewConfigSummaryBuild One enabled preview build in a config summary.
+type PrReviewConfigSummaryBuild struct {
+	App           *string `json:"app"`
+	Framework     *string `json:"framework"`
+	Image         *string `json:"image"`
+	Platform      string  `json:"platform"`
+	UseExistingCi *bool   `json:"use_existing_ci,omitempty"`
+}
+
 // RemoteBuildArchiveSource Archive source previously uploaded through the remote upload-url endpoint.
 type RemoteBuildArchiveSource struct {
 	// Key S3 source archive key returned by upload-url.
@@ -2423,8 +2520,10 @@ type RemoteBuildLogEvent struct {
 
 // RemoteBuildLogsResponse defines model for RemoteBuildLogsResponse.
 type RemoteBuildLogsResponse struct {
-	Events     *[]RemoteBuildLogEvent `json:"events,omitempty"`
-	NextCursor *string                `json:"next_cursor"`
+	Events         *[]RemoteBuildLogEvent `json:"events,omitempty"`
+	HasMoreBefore  *bool                  `json:"has_more_before,omitempty"`
+	NextCursor     *string                `json:"next_cursor"`
+	PreviousCursor *string                `json:"previous_cursor"`
 }
 
 // RemoteBuildPhaseTiming Duration metadata for one remote-build phase.
@@ -2511,6 +2610,7 @@ type RemoteBuildSourceUploadResponse struct {
 //	package_id: Bundle/package identifier extracted from the artifact.
 //	app_id: UUID of the app built.
 //	platform: Build platform.
+//	created_at: ISO timestamp when the build job was created.
 //	started_at: ISO timestamp when the build started executing.
 //	completed_at: ISO timestamp when the build finished.
 //	duration_ms: Build duration in milliseconds when known.
@@ -2521,6 +2621,7 @@ type RemoteBuildStatusResponse struct {
 	ArtifactType       *string                   `json:"artifact_type"`
 	CandidateArtifacts *[]string                 `json:"candidate_artifacts"`
 	CompletedAt        *time.Time                `json:"completed_at"`
+	CreatedAt          *time.Time                `json:"created_at"`
 	DurationMs         *int                      `json:"duration_ms"`
 	Error              *string                   `json:"error"`
 	PackageId          *string                   `json:"package_id"`
@@ -2533,6 +2634,36 @@ type RemoteBuildStatusResponse struct {
 	TimeoutSeconds     *int                      `json:"timeout_seconds"`
 	Version            *string                   `json:"version"`
 	VersionId          *string                   `json:"version_id"`
+}
+
+// RemoteBuildSummary Compact summary of a single remote build job for list views.
+//
+// Attributes:
+//
+//	build_job_id: Unique identifier of the build job (used to poll status).
+//	status: Normalized public status (``pending`` / ``building`` /
+//	    ``success`` / ``failed`` / ``cancelled``).
+//	version: Version string of the build.
+//	platform: Build platform.
+//	phase: Detailed status/failure phase when available.
+//	build_id: UUID of the produced build version on success, when known.
+//	created_at: ISO timestamp when the build job was created.
+//	started_at: ISO timestamp when the build started executing.
+//	completed_at: ISO timestamp when the build finished.
+//	duration_ms: Build duration in milliseconds when known.
+//	is_active: Whether the build is still queued or running.
+type RemoteBuildSummary struct {
+	BuildId     *string    `json:"build_id"`
+	BuildJobId  string     `json:"build_job_id"`
+	CompletedAt *time.Time `json:"completed_at"`
+	CreatedAt   *time.Time `json:"created_at"`
+	DurationMs  *int       `json:"duration_ms"`
+	IsActive    *bool      `json:"is_active,omitempty"`
+	Phase       *string    `json:"phase"`
+	Platform    *string    `json:"platform"`
+	StartedAt   *time.Time `json:"started_at"`
+	Status      string     `json:"status"`
+	Version     *string    `json:"version"`
 }
 
 // RemoteBuildTriggerResponse Response returned immediately after a build is enqueued.
@@ -2738,11 +2869,51 @@ type ScmBuildTargetResponse struct {
 // ScmBuildTargetResponsePlatform defines model for ScmBuildTargetResponse.Platform.
 type ScmBuildTargetResponsePlatform string
 
+// ScmConfigFileStateResponse Detection state of the committed “.revyl/config.yaml“ for a repo.
+//
+// Attributes:
+//
+//	status: ``managed`` (file applied), ``error`` (file present but
+//	    unusable), or ``none`` (UI-managed; no usable file).
+//	config_file_path: The detected file path, if any.
+//	commit_sha: The detected file blob sha, if any.
+//	html_url: A link to the file on the provider, if any.
+//	error: An actionable error message, if any.
+//	summary: Compact summary of the applied config, if managed.
+//	synced_at: ISO timestamp of the last reconcile, if any.
+type ScmConfigFileStateResponse struct {
+	CommitSha      *string `json:"commit_sha"`
+	ConfigFilePath *string `json:"config_file_path"`
+	Error          *string `json:"error"`
+	HtmlUrl        *string `json:"html_url"`
+	Status         string  `json:"status"`
+
+	// Summary Compact, serializable summary of a parsed ``pr_review`` config.
+	//
+	// Used for the settings-page banner and the PR comment. Persisted into
+	// ``scm_review_configs.metadata`` via ``model_dump(mode="json")``.
+	Summary  *PrReviewConfigSummary `json:"summary,omitempty"`
+	SyncedAt *string                `json:"synced_at"`
+}
+
 // ScmConfigResponse defines model for ScmConfigResponse.
 type ScmConfigResponse struct {
 	Actions      ScmActions               `json:"actions"`
 	BuildTargets []ScmBuildTargetResponse `json:"build_targets"`
-	Enabled      bool                     `json:"enabled"`
+
+	// ConfigFileState Detection state of the committed ``.revyl/config.yaml`` for a repo.
+	//
+	// Attributes:
+	//     status: ``managed`` (file applied), ``error`` (file present but
+	//         unusable), or ``none`` (UI-managed; no usable file).
+	//     config_file_path: The detected file path, if any.
+	//     commit_sha: The detected file blob sha, if any.
+	//     html_url: A link to the file on the provider, if any.
+	//     error: An actionable error message, if any.
+	//     summary: Compact summary of the applied config, if managed.
+	//     synced_at: ISO timestamp of the last reconcile, if any.
+	ConfigFileState *ScmConfigFileStateResponse `json:"config_file_state,omitempty"`
+	Enabled         bool                        `json:"enabled"`
 
 	// GithubInstallationId Deprecated: use installation_id. Kept on the wire for released revyl-cli binaries; removal requires a CLI deprecation window.
 	// Deprecated:
@@ -4009,13 +4180,19 @@ type CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform 
 type GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGetParams struct {
 	// AfterId Redis stream cursor. Omit for latest tail; pass 0-0 to read from the beginning.
 	AfterId *string `form:"after_id,omitempty" json:"after_id,omitempty"`
-	Limit   *int    `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// BeforeId Redis stream cursor. Fetch events older than this id.
+	BeforeId *string `form:"before_id,omitempty" json:"before_id,omitempty"`
+	Limit    *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListBuildsApiV1AppsAppIdBuildsGetParams defines parameters for ListBuildsApiV1AppsAppIdBuildsGet.
 type ListBuildsApiV1AppsAppIdBuildsGetParams struct {
 	// IncludeDownloadUrls Include presigned download URLs
 	IncludeDownloadUrls *bool `form:"include_download_urls,omitempty" json:"include_download_urls,omitempty"`
+
+	// IncludeJobs Include queued, running, failed, and cancelled build jobs in the collection.
+	IncludeJobs *bool `form:"include_jobs,omitempty" json:"include_jobs,omitempty"`
 
 	// Page Page number (1-indexed)
 	Page *int `form:"page,omitempty" json:"page,omitempty"`
@@ -5673,6 +5850,68 @@ func (t IfBlock_ThenChildren_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *IfBlock_ThenChildren_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsBuildCollectionBuildItem returns the union data inside the PaginatedBuildsWithJobsResponse_Items_Item as a BuildCollectionBuildItem
+func (t PaginatedBuildsWithJobsResponse_Items_Item) AsBuildCollectionBuildItem() (BuildCollectionBuildItem, error) {
+	var body BuildCollectionBuildItem
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBuildCollectionBuildItem overwrites any union data inside the PaginatedBuildsWithJobsResponse_Items_Item as the provided BuildCollectionBuildItem
+func (t *PaginatedBuildsWithJobsResponse_Items_Item) FromBuildCollectionBuildItem(v BuildCollectionBuildItem) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBuildCollectionBuildItem performs a merge with any union data inside the PaginatedBuildsWithJobsResponse_Items_Item, using the provided BuildCollectionBuildItem
+func (t *PaginatedBuildsWithJobsResponse_Items_Item) MergeBuildCollectionBuildItem(v BuildCollectionBuildItem) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsBuildCollectionJobItem returns the union data inside the PaginatedBuildsWithJobsResponse_Items_Item as a BuildCollectionJobItem
+func (t PaginatedBuildsWithJobsResponse_Items_Item) AsBuildCollectionJobItem() (BuildCollectionJobItem, error) {
+	var body BuildCollectionJobItem
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBuildCollectionJobItem overwrites any union data inside the PaginatedBuildsWithJobsResponse_Items_Item as the provided BuildCollectionJobItem
+func (t *PaginatedBuildsWithJobsResponse_Items_Item) FromBuildCollectionJobItem(v BuildCollectionJobItem) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBuildCollectionJobItem performs a merge with any union data inside the PaginatedBuildsWithJobsResponse_Items_Item, using the provided BuildCollectionJobItem
+func (t *PaginatedBuildsWithJobsResponse_Items_Item) MergeBuildCollectionJobItem(v BuildCollectionJobItem) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t PaginatedBuildsWithJobsResponse_Items_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *PaginatedBuildsWithJobsResponse_Items_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

@@ -326,7 +326,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		if !debugOutput {
 			ui.Println()
 		}
-		ui.PrintInfo("Started build with id: %s", jobID)
+		printRemoteBuildStarted(devMode, appID.String(), jobID)
 		if !debugOutput && opts.Wait {
 			ui.Println()
 		}
@@ -556,9 +556,14 @@ func printRemoteBuildQueuedNextSteps(jobID string) {
 	})
 }
 
-func remoteBuildDashboardURL(devMode bool, jobID string) string {
+func printRemoteBuildStarted(devMode bool, appID, jobID string) {
+	ui.PrintSuccess("Build started")
+	ui.PrintLink("  View logs", remoteBuildDashboardURL(devMode, appID, jobID))
+}
+
+func remoteBuildDashboardURL(devMode bool, appID, jobID string) string {
 	base := strings.TrimRight(config.GetAppURL(devMode), "/")
-	return fmt.Sprintf("%s/builds/remote/%s", base, jobID)
+	return fmt.Sprintf("%s/apps/%s/builds/%s#logs", base, appID, jobID)
 }
 
 func runBuildStatus(cmd *cobra.Command, args []string) error {
