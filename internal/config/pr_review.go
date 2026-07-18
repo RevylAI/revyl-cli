@@ -30,7 +30,7 @@ type PRReviewConfig struct {
 	// PathFilters limits automation to PRs touching matching glob paths.
 	PathFilters []string `yaml:"path_filters,omitempty"`
 
-	// LabelFilters limits automation to PRs carrying matching labels.
+	// LabelFilters includes matching labels; entries prefixed with ! exclude them.
 	LabelFilters []string `yaml:"label_filters,omitempty"`
 
 	// Actions controls what Revyl posts on the PR.

@@ -180,6 +180,16 @@ in your Bazel config, wrapper script, or CI environment. The current
 
 ## PR Review Configuration
 
+`pr_review.label_filters` accepts PR label names. Prefix a label with `!` to
+exclude matching pull requests; exclusions take precedence over positive matches:
+
+```yaml
+pr_review:
+  label_filters:
+    - mobile-review
+    - "!revyl-skip"
+```
+
 `pr_review.builds.ios` and `pr_review.builds.android` use the same `env`,
 `secrets`, and `caches` shapes as `build.platforms.*`:
 
