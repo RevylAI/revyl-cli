@@ -83,11 +83,11 @@ func FetchReport(ctx context.Context, client *api.Client, taskID string) (*Repor
 		TestID:    strDeref(src.TestId),
 		TestName:  strDeref(src.TestName),
 		Platform:  strDeref(src.Platform),
-		StartedAt: strDeref(src.StartedAt),
+		StartedAt: timeToRFC3339(src.StartedAt),
 		Success:   src.Success,
 	}
 	if src.CompletedAt != nil {
-		out.CompletedAt = *src.CompletedAt
+		out.CompletedAt = src.CompletedAt.Format(time.RFC3339)
 	}
 	if src.TotalSteps != nil {
 		out.TotalSteps = *src.TotalSteps
@@ -293,6 +293,17 @@ func strDeref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// timeToRFC3339 renders an optional timestamp as an RFC3339 string (the shape
+// the report consumers expect), or "" when absent. The backend types
+// started_at/completed_at as date-times, so the generated client yields
+// *time.Time here rather than *string.
+func timeToRFC3339(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 // isNotFound recognises a 404 from the backend so callers can map

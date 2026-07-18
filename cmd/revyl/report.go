@@ -320,9 +320,12 @@ func runTestReport(cmd *cobra.Command, args []string) error {
 		ui.PrintKeyValue("Device:", deviceInfo)
 	}
 
-	// Duration from started_at / completed_at
-	if stringValue(report.StartedAt) != "" && stringValue(report.CompletedAt) != "" {
-		duration := computeDuration(stringValue(report.StartedAt), stringValue(report.CompletedAt))
+	// Duration from started_at / completed_at (backend types these as
+	// date-times, so the generated client yields *time.Time here).
+	startedAt := timePtrString(report.StartedAt)
+	completedAt := timePtrString(report.CompletedAt)
+	if startedAt != "" && completedAt != "" {
+		duration := computeDuration(startedAt, completedAt)
 		if duration != "" {
 			ui.PrintKeyValue("Duration:", duration)
 		}
@@ -592,6 +595,14 @@ func normalizePlatform(p string) string {
 	default:
 		return p
 	}
+}
+
+// timePtrString renders an optional timestamp as RFC3339, or "" when absent.
+func timePtrString(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 // computeDuration calculates a human-readable duration from two ISO 8601 timestamps.

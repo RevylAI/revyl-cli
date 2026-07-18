@@ -561,51 +561,6 @@ type BuildCacheSummary struct {
 	SizeBytes    int       `json:"size_bytes"`
 }
 
-// BuildCollectionBuildItem defines model for BuildCollectionBuildItem.
-type BuildCollectionBuildItem struct {
-	// Build Response model for a build (specific artifact/version of an app).
-	Build BuildResponse `json:"build"`
-
-	// Job Compact summary of a single remote build job for list views.
-	//
-	// Attributes:
-	//     build_job_id: Unique identifier of the build job (used to poll status).
-	//     status: Normalized public status (``pending`` / ``building`` /
-	//         ``success`` / ``failed`` / ``cancelled``).
-	//     version: Version string of the build.
-	//     platform: Build platform.
-	//     phase: Detailed status/failure phase when available.
-	//     build_id: UUID of the produced build version on success, when known.
-	//     created_at: ISO timestamp when the build job was created.
-	//     started_at: ISO timestamp when the build started executing.
-	//     completed_at: ISO timestamp when the build finished.
-	//     duration_ms: Build duration in milliseconds when known.
-	//     is_active: Whether the build is still queued or running.
-	Job  *RemoteBuildSummary `json:"job,omitempty"`
-	Kind string              `json:"kind"`
-}
-
-// BuildCollectionJobItem defines model for BuildCollectionJobItem.
-type BuildCollectionJobItem struct {
-	// Job Compact summary of a single remote build job for list views.
-	//
-	// Attributes:
-	//     build_job_id: Unique identifier of the build job (used to poll status).
-	//     status: Normalized public status (``pending`` / ``building`` /
-	//         ``success`` / ``failed`` / ``cancelled``).
-	//     version: Version string of the build.
-	//     platform: Build platform.
-	//     phase: Detailed status/failure phase when available.
-	//     build_id: UUID of the produced build version on success, when known.
-	//     created_at: ISO timestamp when the build job was created.
-	//     started_at: ISO timestamp when the build started executing.
-	//     completed_at: ISO timestamp when the build finished.
-	//     duration_ms: Build duration in milliseconds when known.
-	//     is_active: Whether the build is still queued or running.
-	Job  RemoteBuildSummary `json:"job"`
-	Kind string             `json:"kind"`
-}
-
 // BuildConfig Sandbox build configuration stored by the API and used by build jobs.
 type BuildConfig struct {
 	AppId     openapi_types.UUID  `json:"app_id"`
@@ -878,116 +833,6 @@ type BulkSyncTagsResultItem struct {
 // - NONE: No cache fallback, fail if cached steps fail
 // - FULL_RERUN: If cached run fails, rerun entire test without cache
 type CacheRetryMode string
-
-// CachedActionElement Represents a cached action element for a specific step in a test.
-//
-// Attributes:
-//
-//	target (str): The primary grounding target of the element.
-//	action_type (str): The action type of the element.
-//	node_id (str): The canonical graph node ID for the cached step.
-//	step_id (Optional[str]): Step index from frontend for debugging purposes.
-//	value (Optional[str]): Input value for actions like INPUT (e.g., text to be entered).
-//	step_description (Optional[str]): Human-readable step description.
-//	agent_description (Optional[str]): Human-readable instruction describing what the agent did.
-//	action_params (Optional[Dict[str, Any]]): Action-specific parameters (e.g., direction/distance/speed for SWIPE).
-//	bounding_box (Optional[List[str]]): Grid cells defining the grounding region (e.g., ['A2', 'C4']).
-//	reflections (Optional[List[CachedReflections]]): Recursive cache entries for child reflections/substeps.
-//	wait_time_after_action (Optional[float]): Custom wait time in seconds after executing this cached action.
-type CachedActionElement struct {
-	// ActionParams Action-specific parameters (e.g., direction/distance/speed for SWIPE, end_target for DRAG)
-	ActionParams *map[string]interface{} `json:"action_params"`
-
-	// ActionType Action type of the element
-	ActionType string `json:"action_type"`
-
-	// AgentDescription Human-readable instruction describing what the agent did, e.g. 'Click the Sign In button'
-	AgentDescription *string `json:"agent_description"`
-
-	// BoundingBox Grid cells defining the grounding region for cropping, e.g. ['A2', 'C4']
-	BoundingBox *[]string `json:"bounding_box"`
-
-	// NodeId Canonical graph node identifier for the cached step
-	NodeId string `json:"node_id"`
-
-	// Reflections Cached reflection/substep actions, preserving nested structure
-	Reflections *[]CachedReflections `json:"reflections"`
-
-	// StepDescription Human-readable step description
-	StepDescription *string `json:"step_description"`
-
-	// StepId Step index from frontend for debugging purposes
-	StepId *string `json:"step_id"`
-
-	// Target Primary grounding target for the element
-	Target string `json:"target"`
-
-	// Value Input value for actions like INPUT (e.g., text to be entered)
-	Value *string `json:"value"`
-
-	// WaitTimeAfterAction Custom wait time in seconds after executing this cached action (to allow UI transitions)
-	WaitTimeAfterAction *float32 `json:"wait_time_after_action"`
-}
-
-// CachedActionStore Stores cached action elements for a test, indexed by node_id.
-//
-// Attributes:
-//
-//	test_id (str): The unique identifier for the test.
-//	cached_elements (Dict[str, CachedActionElement]): Dictionary of cached action elements keyed by node_id.
-type CachedActionStore struct {
-	// CachedElements Dictionary of cached action elements keyed by node_id
-	CachedElements *map[string]CachedActionElement `json:"cached_elements,omitempty"`
-
-	// TestId Unique identifier for the test
-	TestId string `json:"test_id"`
-}
-
-// CachedReflections Represents a cached reflection/substep action.
-//
-// Attributes:
-//
-//	node_id (str): Canonical graph node identifier for the cached reflection/substep.
-//	step_id (Optional[str]): Step index from frontend for debugging purposes.
-//	action_type (str): Action type of the element.
-//	target (str): Primary grounding target for the element.
-//	value (Optional[str]): Input value for actions like INPUT (e.g., text to be entered).
-//	step_description (Optional[str]): Human-readable step description for this reflection.
-//	agent_description (Optional[str]): Human-readable instruction describing what the agent did.
-//	action_params (Optional[Dict[str, Any]]): Action-specific parameters (e.g., direction/distance/speed for SWIPE).
-//	bounding_box (Optional[List[str]]): Grid cells defining the grounding region (e.g., ['A2', 'C4']).
-//	wait_time_after_action (Optional[float]): Custom wait time in seconds after executing this cached action.
-type CachedReflections struct {
-	// ActionParams Action-specific parameters (e.g., direction/distance/speed for SWIPE, end_target for DRAG)
-	ActionParams *map[string]interface{} `json:"action_params"`
-
-	// ActionType Action type of the element
-	ActionType string `json:"action_type"`
-
-	// AgentDescription Human-readable instruction describing what the agent did, e.g. 'Click the Sign In button'
-	AgentDescription *string `json:"agent_description"`
-
-	// BoundingBox Grid cells defining the grounding region for cropping, e.g. ['A2', 'C4']
-	BoundingBox *[]string `json:"bounding_box"`
-
-	// NodeId Canonical graph node identifier for the cached reflection/substep
-	NodeId string `json:"node_id"`
-
-	// StepDescription Human-readable step description for this reflection
-	StepDescription *string `json:"step_description"`
-
-	// StepId Step index from frontend for debugging purposes
-	StepId *string `json:"step_id"`
-
-	// Target Primary grounding target for the element
-	Target string `json:"target"`
-
-	// Value Input value for actions like INPUT (e.g., text to be entered)
-	Value *string `json:"value"`
-
-	// WaitTimeAfterAction Custom wait time in seconds after executing this cached action (to allow UI transitions)
-	WaitTimeAfterAction *float32 `json:"wait_time_after_action"`
-}
 
 // CancelTestResponse Response model for test cancellation.
 type CancelTestResponse struct {
@@ -1604,9 +1449,6 @@ type ExecutionModeConfig struct {
 	// - AUTO: Use GROUNDER_TYPE env var to determine grounder
 	// - NULL: Skip grounding (for testing/debugging)
 	GrounderType *GrounderType `json:"grounder_type,omitempty"`
-
-	// HumanInTheLoop Enable human approval for test results
-	HumanInTheLoop *bool `json:"human_in_the_loop,omitempty"`
 
 	// InitialLocale Initial device locale identifier, for example 'en_US' or 'fr_FR'
 	InitialLocale *string `json:"initial_locale"`
@@ -2283,6 +2125,9 @@ type OrgLaunchEnvVarRow struct {
 	// Description Description
 	Description *string `json:"description"`
 
+	// HasValue Whether an encrypted value is stored for this variable
+	HasValue *bool `json:"has_value,omitempty"`
+
 	// Id Unique identifier
 	Id openapi_types.UUID `json:"id"`
 
@@ -2295,8 +2140,8 @@ type OrgLaunchEnvVarRow struct {
 	// UpdatedAt Last update timestamp
 	UpdatedAt time.Time `json:"updated_at"`
 
-	// Value Decrypted launch variable value
-	Value string `json:"value"`
+	// Value Always null on client-facing responses — launch variable values are write-only and decrypted only server-side at device start.
+	Value *string `json:"value"`
 }
 
 // OrgLaunchEnvVarUpdate Request model for updating an org launch environment variable.
@@ -2384,35 +2229,6 @@ type PaginatedBuildsResponse struct {
 
 	// TotalPages Total number of pages
 	TotalPages int `json:"total_pages"`
-}
-
-// PaginatedBuildsWithJobsResponse Paginated response for the Builds tab when build jobs are included.
-type PaginatedBuildsWithJobsResponse struct {
-	// HasNext Whether there is a next page
-	HasNext bool `json:"has_next"`
-
-	// HasPrevious Whether there is a previous page
-	HasPrevious bool `json:"has_previous"`
-
-	// Items Build artifacts and build jobs for the current page
-	Items *[]PaginatedBuildsWithJobsResponse_Items_Item `json:"items,omitempty"`
-
-	// Page Current page number (1-indexed)
-	Page int `json:"page"`
-
-	// PageSize Number of items per page
-	PageSize int `json:"page_size"`
-
-	// Total Total number of build collection items
-	Total int `json:"total"`
-
-	// TotalPages Total number of pages
-	TotalPages int `json:"total_pages"`
-}
-
-// PaginatedBuildsWithJobsResponse_Items_Item defines model for PaginatedBuildsWithJobsResponse.items.Item.
-type PaginatedBuildsWithJobsResponse_Items_Item struct {
-	union json.RawMessage
 }
 
 // PlanInfo defines model for PlanInfo.
@@ -2520,10 +2336,8 @@ type RemoteBuildLogEvent struct {
 
 // RemoteBuildLogsResponse defines model for RemoteBuildLogsResponse.
 type RemoteBuildLogsResponse struct {
-	Events         *[]RemoteBuildLogEvent `json:"events,omitempty"`
-	HasMoreBefore  *bool                  `json:"has_more_before,omitempty"`
-	NextCursor     *string                `json:"next_cursor"`
-	PreviousCursor *string                `json:"previous_cursor"`
+	Events     *[]RemoteBuildLogEvent `json:"events,omitempty"`
+	NextCursor *string                `json:"next_cursor"`
 }
 
 // RemoteBuildPhaseTiming Duration metadata for one remote-build phase.
@@ -2610,7 +2424,6 @@ type RemoteBuildSourceUploadResponse struct {
 //	package_id: Bundle/package identifier extracted from the artifact.
 //	app_id: UUID of the app built.
 //	platform: Build platform.
-//	created_at: ISO timestamp when the build job was created.
 //	started_at: ISO timestamp when the build started executing.
 //	completed_at: ISO timestamp when the build finished.
 //	duration_ms: Build duration in milliseconds when known.
@@ -2621,7 +2434,6 @@ type RemoteBuildStatusResponse struct {
 	ArtifactType       *string                   `json:"artifact_type"`
 	CandidateArtifacts *[]string                 `json:"candidate_artifacts"`
 	CompletedAt        *time.Time                `json:"completed_at"`
-	CreatedAt          *time.Time                `json:"created_at"`
 	DurationMs         *int                      `json:"duration_ms"`
 	Error              *string                   `json:"error"`
 	PackageId          *string                   `json:"package_id"`
@@ -2634,36 +2446,6 @@ type RemoteBuildStatusResponse struct {
 	TimeoutSeconds     *int                      `json:"timeout_seconds"`
 	Version            *string                   `json:"version"`
 	VersionId          *string                   `json:"version_id"`
-}
-
-// RemoteBuildSummary Compact summary of a single remote build job for list views.
-//
-// Attributes:
-//
-//	build_job_id: Unique identifier of the build job (used to poll status).
-//	status: Normalized public status (``pending`` / ``building`` /
-//	    ``success`` / ``failed`` / ``cancelled``).
-//	version: Version string of the build.
-//	platform: Build platform.
-//	phase: Detailed status/failure phase when available.
-//	build_id: UUID of the produced build version on success, when known.
-//	created_at: ISO timestamp when the build job was created.
-//	started_at: ISO timestamp when the build started executing.
-//	completed_at: ISO timestamp when the build finished.
-//	duration_ms: Build duration in milliseconds when known.
-//	is_active: Whether the build is still queued or running.
-type RemoteBuildSummary struct {
-	BuildId     *string    `json:"build_id"`
-	BuildJobId  string     `json:"build_job_id"`
-	CompletedAt *time.Time `json:"completed_at"`
-	CreatedAt   *time.Time `json:"created_at"`
-	DurationMs  *int       `json:"duration_ms"`
-	IsActive    *bool      `json:"is_active,omitempty"`
-	Phase       *string    `json:"phase"`
-	Platform    *string    `json:"platform"`
-	StartedAt   *time.Time `json:"started_at"`
-	Status      string     `json:"status"`
-	Version     *string    `json:"version"`
 }
 
 // RemoteBuildTriggerResponse Response returned immediately after a build is enqueued.
@@ -2691,7 +2473,7 @@ type ReportContextActionResponse struct {
 	ActionIndex              int                     `json:"action_index"`
 	ActionType               *string                 `json:"action_type"`
 	AgentDescription         *string                 `json:"agent_description"`
-	CompletedAt              *string                 `json:"completed_at"`
+	CompletedAt              *time.Time              `json:"completed_at"`
 	CreatedAt                *string                 `json:"created_at"`
 	Id                       *string                 `json:"id"`
 	IsTerminal               *bool                   `json:"is_terminal,omitempty"`
@@ -2706,7 +2488,7 @@ type ReportContextActionResponse struct {
 	ScreenshotAfterUrl       *string                 `json:"screenshot_after_url"`
 	ScreenshotBeforeCleanUrl *string                 `json:"screenshot_before_clean_url"`
 	ScreenshotBeforeUrl      *string                 `json:"screenshot_before_url"`
-	StartedAt                *string                 `json:"started_at"`
+	StartedAt                *time.Time              `json:"started_at"`
 	StepId                   *string                 `json:"step_id"`
 	TypeData                 *map[string]interface{} `json:"type_data"`
 	VideoTimestampEnd        *float32                `json:"video_timestamp_end"`
@@ -2715,10 +2497,10 @@ type ReportContextActionResponse struct {
 
 // ReportContextResponse Canonical high-context report payload for CLI JSON consumption.
 type ReportContextResponse struct {
-	AppName      *string `json:"app_name"`
-	BuildVersion *string `json:"build_version"`
-	CompletedAt  *string `json:"completed_at"`
-	CreatedAt    *string `json:"created_at"`
+	AppName      *string    `json:"app_name"`
+	BuildVersion *string    `json:"build_version"`
+	CompletedAt  *time.Time `json:"completed_at"`
+	CreatedAt    *string    `json:"created_at"`
 
 	// DeviceMetadata Device metadata captured at runtime for accurate coordinate scaling.
 	//
@@ -2756,7 +2538,7 @@ type ReportContextResponse struct {
 	ScreenWidth            *int                         `json:"screen_width"`
 	SessionId              *string                      `json:"session_id"`
 	SessionStatus          *string                      `json:"session_status"`
-	StartedAt              *string                      `json:"started_at"`
+	StartedAt              *time.Time                   `json:"started_at"`
 	Steps                  *[]ReportContextStepResponse `json:"steps"`
 	Success                *bool                        `json:"success"`
 	SystemPrompt           *string                      `json:"system_prompt"`
@@ -2782,7 +2564,7 @@ type ReportContextResponse struct {
 // ReportContextStepResponse High-context step payload for CLI/agent report consumption.
 type ReportContextStepResponse struct {
 	Actions               *[]ReportContextActionResponse `json:"actions,omitempty"`
-	CompletedAt           *string                        `json:"completed_at"`
+	CompletedAt           *time.Time                     `json:"completed_at"`
 	CreatedAt             *string                        `json:"created_at"`
 	EffectiveStatus       *string                        `json:"effective_status,omitempty"`
 	EffectiveStatusReason *string                        `json:"effective_status_reason"`
@@ -2796,7 +2578,7 @@ type ReportContextStepResponse struct {
 	ReportId              *string                        `json:"report_id"`
 	SourceModuleId        *string                        `json:"source_module_id"`
 	SourceModuleName      *string                        `json:"source_module_name"`
-	StartedAt             *string                        `json:"started_at"`
+	StartedAt             *time.Time                     `json:"started_at"`
 	Status                *string                        `json:"status"`
 	StatusReason          *string                        `json:"status_reason"`
 	StepDescription       *string                        `json:"step_description"`
@@ -3260,18 +3042,11 @@ type TaskMetadata struct {
 
 // Test defines model for Test.
 type Test struct {
-	AppId      *openapi_types.UUID `json:"app_id"`
-	AppLink    *string             `json:"app_link"`
-	AppPackage *string             `json:"app_package"`
-	BackendUrl *string             `json:"backend_url"`
-
-	// CachedElements Stores cached action elements for a test, indexed by node_id.
-	//
-	// Attributes:
-	//     test_id (str): The unique identifier for the test.
-	//     cached_elements (Dict[str, CachedActionElement]): Dictionary of cached action elements keyed by node_id.
-	CachedElements *CachedActionStore `json:"cached_elements,omitempty"`
-	DeviceLocal    *bool              `json:"device_local"`
+	AppId       *openapi_types.UUID `json:"app_id"`
+	AppLink     *string             `json:"app_link"`
+	AppPackage  *string             `json:"app_package"`
+	BackendUrl  *string             `json:"backend_url"`
+	DeviceLocal *bool               `json:"device_local"`
 
 	// ExpectedVersion Expected version for optimistic locking. If provided and doesn't match current version, update will fail with 409 Conflict.
 	ExpectedVersion *int                `json:"expected_version"`
@@ -3676,10 +3451,16 @@ type UpdateTagRequest struct {
 	Name        *string `json:"name"`
 }
 
-// UpdateVariableNameModel defines model for UpdateVariableNameModel.
-type UpdateVariableNameModel struct {
-	TestUid      openapi_types.UUID `json:"test_uid"`
-	VariableName string             `json:"variable_name"`
+// UpdateVariableModel Partial-merge update for a local variable (rename / value / secret).
+//
+// Mirrors GlobalVariableUpdate: only fields that are set are applied.
+// variable_value is treated as "provided" when not None, so the frontend
+// omits it to keep an existing secret's value unchanged.
+type UpdateVariableModel struct {
+	IsSecret      *bool              `json:"is_secret"`
+	TestUid       openapi_types.UUID `json:"test_uid"`
+	VariableName  *string            `json:"variable_name"`
+	VariableValue *string            `json:"variable_value"`
 }
 
 // UpdateVariableValueModel defines model for UpdateVariableValueModel.
@@ -3733,6 +3514,7 @@ type ValidationError_Loc_Item struct {
 
 // VariableModel defines model for VariableModel.
 type VariableModel struct {
+	IsSecret      *bool              `json:"is_secret,omitempty"`
 	TestUid       openapi_types.UUID `json:"test_uid"`
 	VariableName  string             `json:"variable_name"`
 	VariableValue *string            `json:"variable_value"`
@@ -3747,8 +3529,14 @@ type VariableResponse struct {
 
 // VariableRow defines model for VariableRow.
 type VariableRow struct {
+	// HasSecretValue Whether an encrypted value is stored for this variable
+	HasSecretValue *bool `json:"has_secret_value,omitempty"`
+
 	// Id Unique identifier of the variable
 	Id openapi_types.UUID `json:"id"`
+
+	// IsSecret Whether the value is encrypted and masked
+	IsSecret *bool `json:"is_secret,omitempty"`
 
 	// TestUid Test UID associated with variable
 	TestUid openapi_types.UUID `json:"test_uid"`
@@ -4180,19 +3968,13 @@ type CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParamsPlatform 
 type GetRemoteBuildLogsApiV1AppsRemoteBuildJobIdLogsGetParams struct {
 	// AfterId Redis stream cursor. Omit for latest tail; pass 0-0 to read from the beginning.
 	AfterId *string `form:"after_id,omitempty" json:"after_id,omitempty"`
-
-	// BeforeId Redis stream cursor. Fetch events older than this id.
-	BeforeId *string `form:"before_id,omitempty" json:"before_id,omitempty"`
-	Limit    *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Limit   *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListBuildsApiV1AppsAppIdBuildsGetParams defines parameters for ListBuildsApiV1AppsAppIdBuildsGet.
 type ListBuildsApiV1AppsAppIdBuildsGetParams struct {
 	// IncludeDownloadUrls Include presigned download URLs
 	IncludeDownloadUrls *bool `form:"include_download_urls,omitempty" json:"include_download_urls,omitempty"`
-
-	// IncludeJobs Include queued, running, failed, and cancelled build jobs in the collection.
-	IncludeJobs *bool `form:"include_jobs,omitempty" json:"include_jobs,omitempty"`
 
 	// Page Page number (1-indexed)
 	Page *int `form:"page,omitempty" json:"page,omitempty"`
@@ -4603,7 +4385,7 @@ type GetWorkflowExecutionHistoryApiV1WorkflowsStatusHistoryWorkflowIdGetParams s
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 
 	// StartDate Start date in ISO format (YYYY-MM-DD) - get executions from this date to now
-	StartDate *string `form:"start_date,omitempty" json:"start_date,omitempty"`
+	StartDate *time.Time `form:"start_date,omitempty" json:"start_date,omitempty"`
 }
 
 // UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPutJSONBody defines parameters for UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPut.
@@ -4727,7 +4509,7 @@ type RestoreTestVersionEndpointApiV1TestsTestIdRestorePostJSONRequestBody = Test
 type AddVariableEndpointApiV1VariablesCustomAddPostJSONRequestBody = VariableModel
 
 // UpdateVariableEndpointApiV1VariablesCustomUpdateVariableIdPutJSONRequestBody defines body for UpdateVariableEndpointApiV1VariablesCustomUpdateVariableIdPut for application/json ContentType.
-type UpdateVariableEndpointApiV1VariablesCustomUpdateVariableIdPutJSONRequestBody = UpdateVariableNameModel
+type UpdateVariableEndpointApiV1VariablesCustomUpdateVariableIdPutJSONRequestBody = UpdateVariableModel
 
 // UpdateVariableValueEndpointApiV1VariablesCustomUpdateValuePutJSONRequestBody defines body for UpdateVariableValueEndpointApiV1VariablesCustomUpdateValuePut for application/json ContentType.
 type UpdateVariableValueEndpointApiV1VariablesCustomUpdateValuePutJSONRequestBody = UpdateVariableValueModel
@@ -5022,14 +4804,6 @@ func (a *Test) UnmarshalJSON(b []byte) error {
 		delete(object, "backend_url")
 	}
 
-	if raw, found := object["cached_elements"]; found {
-		err = json.Unmarshal(raw, &a.CachedElements)
-		if err != nil {
-			return fmt.Errorf("error reading 'cached_elements': %w", err)
-		}
-		delete(object, "cached_elements")
-	}
-
 	if raw, found := object["device_local"]; found {
 		err = json.Unmarshal(raw, &a.DeviceLocal)
 		if err != nil {
@@ -5306,13 +5080,6 @@ func (a Test) MarshalJSON() ([]byte, error) {
 		object["backend_url"], err = json.Marshal(a.BackendUrl)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'backend_url': %w", err)
-		}
-	}
-
-	if a.CachedElements != nil {
-		object["cached_elements"], err = json.Marshal(a.CachedElements)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'cached_elements': %w", err)
 		}
 	}
 
@@ -5850,68 +5617,6 @@ func (t IfBlock_ThenChildren_Item) MarshalJSON() ([]byte, error) {
 }
 
 func (t *IfBlock_ThenChildren_Item) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsBuildCollectionBuildItem returns the union data inside the PaginatedBuildsWithJobsResponse_Items_Item as a BuildCollectionBuildItem
-func (t PaginatedBuildsWithJobsResponse_Items_Item) AsBuildCollectionBuildItem() (BuildCollectionBuildItem, error) {
-	var body BuildCollectionBuildItem
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromBuildCollectionBuildItem overwrites any union data inside the PaginatedBuildsWithJobsResponse_Items_Item as the provided BuildCollectionBuildItem
-func (t *PaginatedBuildsWithJobsResponse_Items_Item) FromBuildCollectionBuildItem(v BuildCollectionBuildItem) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeBuildCollectionBuildItem performs a merge with any union data inside the PaginatedBuildsWithJobsResponse_Items_Item, using the provided BuildCollectionBuildItem
-func (t *PaginatedBuildsWithJobsResponse_Items_Item) MergeBuildCollectionBuildItem(v BuildCollectionBuildItem) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsBuildCollectionJobItem returns the union data inside the PaginatedBuildsWithJobsResponse_Items_Item as a BuildCollectionJobItem
-func (t PaginatedBuildsWithJobsResponse_Items_Item) AsBuildCollectionJobItem() (BuildCollectionJobItem, error) {
-	var body BuildCollectionJobItem
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromBuildCollectionJobItem overwrites any union data inside the PaginatedBuildsWithJobsResponse_Items_Item as the provided BuildCollectionJobItem
-func (t *PaginatedBuildsWithJobsResponse_Items_Item) FromBuildCollectionJobItem(v BuildCollectionJobItem) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeBuildCollectionJobItem performs a merge with any union data inside the PaginatedBuildsWithJobsResponse_Items_Item, using the provided BuildCollectionJobItem
-func (t *PaginatedBuildsWithJobsResponse_Items_Item) MergeBuildCollectionJobItem(v BuildCollectionJobItem) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t PaginatedBuildsWithJobsResponse_Items_Item) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *PaginatedBuildsWithJobsResponse_Items_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
