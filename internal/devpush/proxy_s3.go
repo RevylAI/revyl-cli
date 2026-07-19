@@ -63,29 +63,39 @@ func (t *ProxyS3Transport) PushArtifact(ctx context.Context, session *mcp.Device
 //   - InstallResult: worker response
 //   - error: proxy or worker error
 func (t *ProxyS3Transport) SendInstall(ctx context.Context, session *mcp.DeviceSession, ref ArtifactRef, opts InstallOpts) (*InstallResult, error) {
-	body := map[string]interface{}{
-		"app_url":      ref.URL,
-		"install_mode": opts.Mode,
-	}
-	if ref.Path != "" {
-		body["app_path"] = ref.Path
-	}
-	if opts.BundleID != "" {
-		body["bundle_id"] = opts.BundleID
-	}
-	if opts.Platform != "" {
-		body["platform"] = opts.Platform
-	}
-	if len(opts.DeletedFiles) > 0 {
-		body["deleted_files"] = opts.DeletedFiles
-	}
-
-	respBody, err := t.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/install", body)
+	// Async install: submit to /install_async and poll /install_status so a
+	// large or slow install never exceeds the device-proxy gateway timeout. A
+	// synchronous /install through the worker's Cloudflare tunnel returns a 502
+	// once the install runs longer than the gateway allows (e.g. a big app with
+	// a bundled framework), so hot-reload must not depend on install duration.
+	resp, err := t.sessionMgr.InstallAppForSession(ctx, session.Index, mcp.DeviceInstallRequest{
+		AppURL:       ref.URL,
+		AppPath:      ref.Path,
+		BundleID:     opts.BundleID,
+		Platform:     opts.Platform,
+		InstallMode:  mcp.DeviceInstallMode(opts.Mode),
+		DeletedFiles: opts.DeletedFiles,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("install request failed: %w", err)
 	}
 
-	return parseInstallResponse(respBody)
+	result := &InstallResult{
+		Success:       resp.Success,
+		BundleID:      resp.BundleID,
+		DataPreserved: resp.DataPreserved,
+		InstallMethod: resp.InstallMethod,
+		LatencyMs:     resp.LatencyMs,
+		Error:         resp.Error,
+	}
+	if !resp.Success {
+		errMsg := resp.Error
+		if errMsg == "" {
+			errMsg = "install action failed"
+		}
+		return result, fmt.Errorf("worker install failed: %s", errMsg)
+	}
+	return result, nil
 }
 
 // parseInstallResponse unmarshals the worker JSON and enforces the success

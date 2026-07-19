@@ -1488,6 +1488,9 @@ func TestDeviceSessionManager_InstallAppForSession_PollsToCompletion(t *testing.
 			if request.InstallMode != DeviceInstallModeFast {
 				t.Fatalf("InstallMode = %q, want %q", request.InstallMode, DeviceInstallModeFast)
 			}
+			if request.Platform != "ios" {
+				t.Fatalf("Platform = %q, want %q", request.Platform, "ios")
+			}
 			w.WriteHeader(http.StatusAccepted)
 			_, _ = w.Write([]byte(`{"install_id":"install-1","status":"accepted"}`))
 		case "/api/v1/execution/device-proxy/wf-install/install_status/install-1":
@@ -1506,6 +1509,7 @@ func TestDeviceSessionManager_InstallAppForSession_PollsToCompletion(t *testing.
 		0,
 		DeviceInstallRequest{
 			AppURL:      "https://example.test/app.zip",
+			Platform:    "ios",
 			InstallMode: DeviceInstallModeFast,
 		},
 	)
@@ -1520,6 +1524,48 @@ func TestDeviceSessionManager_InstallAppForSession_PollsToCompletion(t *testing.
 	}
 	if result.InstallMethod != "simctl_install" {
 		t.Fatalf("InstallMethod = %q, want %q", result.InstallMethod, "simctl_install")
+	}
+}
+
+func TestDeviceSessionManager_InstallAppForSessionWithProgress_ReportsStatus(t *testing.T) {
+	t.Parallel()
+
+	var statusCalls int
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/execution/device-proxy/wf-install/install_async":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"install_id":"install-1","status":"accepted"}`))
+		case "/api/v1/execution/device-proxy/wf-install/install_status/install-1":
+			statusCalls++
+			if statusCalls == 1 {
+				// First poll is still installing; the callback should see it.
+				_, _ = w.Write([]byte(`{"install_id":"install-1","status":"running"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"install_id":"install-1","status":"completed","result":{"success":true,"action":"install","bundle_id":"com.example.app"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(apiServer.Close)
+
+	var got []string
+	result, err := newInstallTestSessionManager(apiServer.URL).InstallAppForSessionWithProgress(
+		context.Background(),
+		0,
+		DeviceInstallRequest{AppURL: "https://example.test/app.zip", InstallMode: DeviceInstallModeFast},
+		func(status string) { got = append(got, status) },
+	)
+	if err != nil {
+		t.Fatalf("InstallAppForSessionWithProgress() error = %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("install result = %#v, want success", result)
+	}
+	want := []string{"running", "completed"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("status callbacks = %v, want %v", got, want)
 	}
 }
 

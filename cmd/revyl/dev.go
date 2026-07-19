@@ -3262,34 +3262,46 @@ func devBuildAndDeltaPush(
 		bundleID = detectedBID
 	}
 
-	reinstallBody := map[string]string{
-		"app_url":      downloadURL,
-		"install_mode": "fast",
+	installReq := mcppkg.DeviceInstallRequest{
+		AppURL:      downloadURL,
+		Platform:    devicePlatform,
+		InstallMode: mcppkg.DeviceInstallModeFast,
 	}
 	if bundleID != "" {
-		reinstallBody["bundle_id"] = bundleID
+		installReq.BundleID = bundleID
 	}
 	ui.StartSpinner("Installing full build on device...")
 	appendAndPublishDevRebuildLog(&result, publishLog, "info", "Installing full build on device")
-	resp, installErr := deviceMgr.WorkerRequestForSession(ctx, session.Index, "/install", reinstallBody)
+	// Async install (submit + poll) so a large app never exceeds the
+	// device-proxy gateway timeout; surface each status change as progress.
+	installResp, installErr := deviceMgr.InstallAppForSessionWithProgress(
+		ctx, session.Index, installReq,
+		func(status string) {
+			ui.StopSpinner()
+			ui.StartSpinner(fmt.Sprintf("Installing full build on device (%s)...", status))
+			appendAndPublishDevRebuildLog(&result, publishLog, "info", "Install status: %s", status)
+		},
+	)
+	ui.StopSpinner()
 	if installErr != nil {
-		ui.StopSpinner()
 		result.pushErr = fmt.Errorf("reinstall failed: %w", installErr)
 		appendAndPublishDevRebuildLog(&result, publishLog, "error", "%v", result.pushErr)
 		result.elapsed = time.Since(rebuildStart)
 		return result
 	}
-	if err := ensureWorkerActionSucceeded(resp, "install"); err != nil {
-		ui.StopSpinner()
-		result.pushErr = fmt.Errorf("reinstall failed: %w", err)
+	if !installResp.Success {
+		msg := installResp.Error
+		if msg == "" {
+			msg = "install action failed"
+		}
+		result.pushErr = fmt.Errorf("reinstall failed: %s", msg)
 		appendAndPublishDevRebuildLog(&result, publishLog, "error", "%v", result.pushErr)
 		result.elapsed = time.Since(rebuildStart)
 		return result
 	}
-	ui.StopSpinner()
 	result.pushDuration = time.Since(pushStart)
-	if newBID := extractInstallBundleID(resp); newBID != "" {
-		result.newBundleID = newBID
+	if installResp.BundleID != "" {
+		result.newBundleID = installResp.BundleID
 	}
 	launchID := bundleID
 	if result.newBundleID != "" {

@@ -1301,6 +1301,7 @@ type DeviceInstallRequest struct {
 	AppURL       string            `json:"app_url,omitempty"`
 	AppPath      string            `json:"app_path,omitempty"`
 	BundleID     string            `json:"bundle_id,omitempty"`
+	Platform     string            `json:"platform,omitempty"`
 	InstallMode  DeviceInstallMode `json:"install_mode,omitempty"`
 	DeletedFiles []string          `json:"deleted_files,omitempty"`
 }
@@ -1411,6 +1412,19 @@ func (m *DeviceSessionManager) InstallAppForSession(
 	index int,
 	req DeviceInstallRequest,
 ) (*WorkerActionResponse, error) {
+	return m.InstallAppForSessionWithProgress(ctx, index, req, nil)
+}
+
+// InstallAppForSessionWithProgress is InstallAppForSession with an optional
+// onStatus callback invoked whenever the worker's install status changes
+// (e.g. "running", "completed"), so callers can surface install progress
+// instead of a silent wait. onStatus may be nil.
+func (m *DeviceSessionManager) InstallAppForSessionWithProgress(
+	ctx context.Context,
+	index int,
+	req DeviceInstallRequest,
+	onStatus func(status string),
+) (*WorkerActionResponse, error) {
 	session, err := m.ResolveSession(index)
 	if err != nil {
 		return nil, err
@@ -1438,7 +1452,7 @@ func (m *DeviceSessionManager) InstallAppForSession(
 					accepted.InstallID,
 				)
 			}
-			return m.pollInstallUntilDone(ctx, session, accepted.InstallID)
+			return m.pollInstallUntilDone(ctx, session, accepted.InstallID, onStatus)
 		}
 
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -1495,11 +1509,13 @@ func (m *DeviceSessionManager) pollInstallUntilDone(
 	ctx context.Context,
 	session *DeviceSession,
 	installID string,
+	onStatus func(status string),
 ) (*WorkerActionResponse, error) {
 	deadline := time.Now().Add(installExecutionTimeout)
 	delay := installPollBaseDelay
 	consecutiveErrors := 0
 	path := "/install_status/" + installID
+	lastStatus := ""
 
 	for {
 		if time.Now().After(deadline) {
@@ -1553,6 +1569,11 @@ func (m *DeviceSessionManager) pollInstallUntilDone(
 					status.InstallID,
 					installID,
 				)
+			}
+
+			if onStatus != nil && status.Status != "" && status.Status != lastStatus {
+				lastStatus = status.Status
+				onStatus(status.Status)
 			}
 
 			switch status.Status {
