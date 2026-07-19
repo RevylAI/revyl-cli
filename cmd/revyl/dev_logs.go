@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -81,6 +82,21 @@ type devBuildJobRegistration struct {
 	HasRebuild bool
 }
 
+type devBuildStatusReadError struct {
+	contextName string
+	cause       error
+}
+
+// Error describes an unavailable dev status without exposing filesystem details.
+func (e *devBuildStatusReadError) Error() string {
+	return fmt.Sprintf("no dev status for context %q — is `revyl dev` running here?", e.contextName)
+}
+
+// Unwrap exposes the filesystem cause for retry classification.
+func (e *devBuildStatusReadError) Unwrap() error {
+	return e.cause
+}
+
 // resolveDevBuildJobID resolves a registered remote build, waiting when follow is enabled.
 //
 // Parameters:
@@ -93,6 +109,10 @@ type devBuildJobRegistration struct {
 // Returns:
 //   - string: Registered remote job identifier
 //   - error: Invalid context state, cancellation, or timeout
+//
+// Edge cases:
+//   - With follow enabled, a missing status snapshot is retried only while its
+//     dev context is running because Windows file replacement can briefly hide it.
 func resolveDevBuildJobID(ctx context.Context, cwd, ctxName string, follow bool, timeout time.Duration) (string, error) {
 	if timeout <= 0 {
 		timeout = 300 * time.Second
@@ -106,22 +126,25 @@ func resolveDevBuildJobID(ctx context.Context, cwd, ctxName string, follow bool,
 	for {
 		registration, err := readDevBuildJobRegistration(cwd, ctxName)
 		if err != nil {
-			return "", err
-		}
-		if registration.JobID != "" {
-			return registration.JobID, nil
-		}
-		if registration.BuildMode != "remote" {
-			return "", fmt.Errorf("no remote build recorded for context %q (local builds have no remote logs)", ctxName)
-		}
-		if !registration.HasRebuild {
-			return "", fmt.Errorf("no remote build recorded for context %q", ctxName)
-		}
-		if !devCockpitRebuildRunningStatus(registration.Status) {
-			return "", fmt.Errorf("remote build for context %q ended with status %q without a job id", ctxName, registration.Status)
-		}
-		if !follow {
-			return "", fmt.Errorf("remote build is starting and its job id is not available yet; retry shortly or use --follow")
+			if !follow || !shouldRetryDevBuildStatusRead(cwd, ctxName, err) {
+				return "", err
+			}
+		} else {
+			if registration.JobID != "" {
+				return registration.JobID, nil
+			}
+			if registration.BuildMode != "remote" {
+				return "", fmt.Errorf("no remote build recorded for context %q (local builds have no remote logs)", ctxName)
+			}
+			if !registration.HasRebuild {
+				return "", fmt.Errorf("no remote build recorded for context %q", ctxName)
+			}
+			if !devCockpitRebuildRunningStatus(registration.Status) {
+				return "", fmt.Errorf("remote build for context %q ended with status %q without a job id", ctxName, registration.Status)
+			}
+			if !follow {
+				return "", fmt.Errorf("remote build is starting and its job id is not available yet; retry shortly or use --follow")
+			}
 		}
 
 		select {
@@ -132,6 +155,27 @@ func resolveDevBuildJobID(ctx context.Context, cwd, ctxName string, follow bool,
 		case <-pollTicker.C:
 		}
 	}
+}
+
+// shouldRetryDevBuildStatusRead identifies transient replacement gaps for a live dev context.
+//
+// Parameters:
+//   - cwd: Project root
+//   - ctxName: Dev context name
+//   - err: Status read failure
+//
+// Returns:
+//   - bool: Whether the read should be retried
+func shouldRetryDevBuildStatusRead(cwd, ctxName string, err error) bool {
+	var readErr *devBuildStatusReadError
+	if !errors.As(err, &readErr) || !errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	devContext, loadErr := loadDevContext(cwd, ctxName)
+	if loadErr != nil {
+		return false
+	}
+	return isDevContextRunning(cwd, devContext)
 }
 
 // readDevBuildJobRegistration reads remote build registration state from a dev status file.
@@ -146,7 +190,10 @@ func resolveDevBuildJobID(ctx context.Context, cwd, ctxName string, follow bool,
 func readDevBuildJobRegistration(cwd, ctxName string) (devBuildJobRegistration, error) {
 	data, err := os.ReadFile(devCtxStatusPath(cwd, ctxName))
 	if err != nil {
-		return devBuildJobRegistration{}, fmt.Errorf("no dev status for context %q — is `revyl dev` running here?", ctxName)
+		return devBuildJobRegistration{}, &devBuildStatusReadError{
+			contextName: ctxName,
+			cause:       err,
+		}
 	}
 	var ds devStatus
 	if err := json.Unmarshal(data, &ds); err != nil {

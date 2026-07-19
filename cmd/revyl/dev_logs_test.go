@@ -20,6 +20,29 @@ func writeDevLogsTestStatus(t *testing.T, cwd, ctxName string, status devStatus)
 	writeDevStatusSnapshot(statusPath, status)
 }
 
+// writeDevLogsTestRunningContext records the current test process as a live dev context.
+//
+// Parameters:
+//   - t: Test instance
+//   - cwd: Project root
+//   - ctxName: Dev context name
+func writeDevLogsTestRunningContext(t *testing.T, cwd, ctxName string) {
+	t.Helper()
+	startedAtNano := time.Now().UnixNano()
+	devContext := &DevContext{
+		Name:          ctxName,
+		PID:           os.Getpid(),
+		StartedAtNano: startedAtNano,
+		State:         devContextStateRunning,
+	}
+	if err := saveDevContext(cwd, devContext); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeDevCtxPIDFile(devCtxPIDPath(cwd, ctxName), os.Getpid(), startedAtNano); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResolveDevBuildJobID_Immediate(t *testing.T) {
 	cwd := t.TempDir()
 	writeDevLogsTestStatus(t, cwd, "default", devStatus{
@@ -57,7 +80,9 @@ func TestResolveDevBuildJobID_FollowWaitsForRegistration(t *testing.T) {
 	writeDevLogsTestStatus(t, cwd, "default", status)
 	statusPath := devCtxStatusPath(cwd, "default")
 
+	registrationDone := make(chan struct{})
 	go func() {
+		defer close(registrationDone)
 		time.Sleep(10 * time.Millisecond)
 		setDevStatusSeedInstalled(statusPath, "1.2.3")
 		setDevStatusRemoteJobID(statusPath, "job-delayed")
@@ -70,6 +95,11 @@ func TestResolveDevBuildJobID_FollowWaitsForRegistration(t *testing.T) {
 	if jobID != "job-delayed" {
 		t.Fatalf("resolveDevBuildJobID() = %q, want job-delayed", jobID)
 	}
+	select {
+	case <-registrationDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for build registration writer")
+	}
 	data, err := os.ReadFile(statusPath)
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +110,67 @@ func TestResolveDevBuildJobID_FollowWaitsForRegistration(t *testing.T) {
 	}
 	if !updated.InstalledSeed || updated.SeededVersion != "1.2.3" {
 		t.Fatalf("seed metadata = (%v, %q), want (true, 1.2.3)", updated.InstalledSeed, updated.SeededVersion)
+	}
+}
+
+func TestResolveDevBuildJobID_FollowRetriesTransientMissingStatus(t *testing.T) {
+	previousInterval := devLogsJobPollInterval
+	devLogsJobPollInterval = time.Millisecond
+	t.Cleanup(func() { devLogsJobPollInterval = previousInterval })
+
+	cwd := t.TempDir()
+	writeDevLogsTestRunningContext(t, cwd, "default")
+	statusPath := devCtxStatusPath(cwd, "default")
+
+	statusWritten := make(chan struct{})
+	go func() {
+		defer close(statusWritten)
+		time.Sleep(10 * time.Millisecond)
+		writeDevStatusSnapshot(statusPath, devStatus{
+			BuildMode: "remote",
+			LastRebuild: &devRebuildInfo{
+				Status:      "running",
+				RemoteJobID: "job-after-gap",
+			},
+		})
+	}()
+
+	jobID, err := resolveDevBuildJobID(
+		context.Background(),
+		cwd,
+		"default",
+		true,
+		time.Second,
+	)
+	if err != nil {
+		t.Fatalf("resolveDevBuildJobID() error = %v", err)
+	}
+	if jobID != "job-after-gap" {
+		t.Fatalf("resolveDevBuildJobID() = %q, want job-after-gap", jobID)
+	}
+	select {
+	case <-statusWritten:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for transient status writer")
+	}
+}
+
+func TestResolveDevBuildJobID_FollowRejectsMissingSession(t *testing.T) {
+	previousInterval := devLogsJobPollInterval
+	devLogsJobPollInterval = time.Millisecond
+	t.Cleanup(func() { devLogsJobPollInterval = previousInterval })
+
+	cwd := t.TempDir()
+
+	_, err := resolveDevBuildJobID(
+		context.Background(),
+		cwd,
+		"default",
+		true,
+		20*time.Millisecond,
+	)
+	if err == nil || !strings.Contains(err.Error(), "no dev status") {
+		t.Fatalf("resolveDevBuildJobID() error = %v, want immediate missing-session error", err)
 	}
 }
 
