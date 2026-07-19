@@ -492,7 +492,7 @@ revyl auth status    # Check current status
 
 ### "no active device session"
 
-Sessions auto-terminate after 5 minutes of idle time. Call `start_device_session` to provision a new device.
+Sessions auto-terminate after 15 minutes of idle time (default; configurable per session via idle_timeout). Call `start_device_session` to provision a new device.
 
 ### DNS failures in sandboxed agents
 

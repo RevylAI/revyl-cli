@@ -465,20 +465,21 @@ type StartDeviceSessionInput struct {
 	AppLink        string   `json:"app_link,omitempty" jsonschema:"Deep link URL to launch after app start (optional)."`
 	LaunchVars     []string `json:"launch_vars,omitempty" jsonschema:"Org launch variable keys or IDs to apply to a raw session at boot."`
 	TestID         string   `json:"test_id,omitempty" jsonschema:"Test ID to link session to"`
-	IdleTimeout    int      `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds (default 300)"`
+	IdleTimeout    int      `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds (default 900)"`
 	NoOpen         bool     `json:"no_open,omitempty" jsonschema:"Skip opening the browser (default: false, browser opens automatically)"`
 }
 
 // StartDeviceSessionOutput defines output for start_device_session.
 type StartDeviceSessionOutput struct {
-	Success      bool       `json:"success"`
-	SessionID    string     `json:"session_id,omitempty"`
-	SessionIndex int        `json:"session_index"`
-	Platform     string     `json:"platform,omitempty"`
-	ViewerURL    string     `json:"viewer_url,omitempty"`
-	WhepURL      string     `json:"whep_url,omitempty"`
-	Error        string     `json:"error,omitempty"`
-	NextSteps    []NextStep `json:"next_steps,omitempty"`
+	Success            bool       `json:"success"`
+	SessionID          string     `json:"session_id,omitempty"`
+	SessionIndex       int        `json:"session_index"`
+	Platform           string     `json:"platform,omitempty"`
+	ViewerURL          string     `json:"viewer_url,omitempty"`
+	WhepURL            string     `json:"whep_url,omitempty"`
+	IdleTimeoutSeconds float64    `json:"idle_timeout_seconds,omitempty"`
+	Error              string     `json:"error,omitempty"`
+	NextSteps          []NextStep `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallToolRequest, input StartDeviceSessionInput) (*mcp.CallToolResult, StartDeviceSessionOutput, error) {
@@ -496,7 +497,7 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 
 	timeoutSecs := input.IdleTimeout
 	if timeoutSecs <= 0 {
-		timeoutSecs = config.EffectiveTimeoutSeconds(s.config, 300)
+		timeoutSecs = config.EffectiveTimeoutSeconds(s.config, 900)
 	}
 	timeout := time.Duration(timeoutSecs) * time.Second
 	idx, session, err := s.sessionMgr.StartSession(ctx, StartSessionOptions{
@@ -521,12 +522,13 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 	}
 
 	return nil, StartDeviceSessionOutput{
-		Success:      true,
-		SessionID:    session.SessionID,
-		SessionIndex: idx,
-		Platform:     session.Platform,
-		ViewerURL:    session.ViewerURL,
-		WhepURL:      stringValue(session.WhepURL),
+		Success:            true,
+		SessionID:          session.SessionID,
+		SessionIndex:       idx,
+		Platform:           session.Platform,
+		ViewerURL:          session.ViewerURL,
+		WhepURL:            stringValue(session.WhepURL),
+		IdleTimeoutSeconds: timeout.Seconds(),
 		NextSteps: []NextStep{
 			{Tool: "screenshot", Reason: "See the current device screen"},
 			{Tool: "install_app", Reason: "Install an app on the device"},
@@ -1759,17 +1761,21 @@ type GetSessionInfoInput struct {
 }
 
 type GetSessionInfoOutput struct {
-	Active        bool       `json:"active"`
-	SessionID     string     `json:"session_id,omitempty"`
-	SessionIndex  int        `json:"session_index"`
-	Platform      string     `json:"platform,omitempty"`
-	ViewerURL     string     `json:"viewer_url,omitempty"`
-	WhepURL       string     `json:"whep_url,omitempty"`
-	UptimeSeconds float64    `json:"uptime_seconds,omitempty"`
-	IdleSeconds   float64    `json:"idle_seconds,omitempty"`
-	TotalSessions int        `json:"total_sessions"`
-	Error         string     `json:"error,omitempty"`
-	NextSteps     []NextStep `json:"next_steps,omitempty"`
+	Active        bool    `json:"active"`
+	SessionID     string  `json:"session_id,omitempty"`
+	SessionIndex  int     `json:"session_index"`
+	Platform      string  `json:"platform,omitempty"`
+	ViewerURL     string  `json:"viewer_url,omitempty"`
+	WhepURL       string  `json:"whep_url,omitempty"`
+	UptimeSeconds float64 `json:"uptime_seconds,omitempty"`
+	IdleSeconds   float64 `json:"idle_seconds,omitempty"`
+	// IdleTimeoutSeconds is the auto-stop threshold; the session ends when
+	// IdleSeconds reaches it. Any tool call resets the idle timer.
+	IdleTimeoutSeconds float64    `json:"idle_timeout_seconds,omitempty"`
+	LastActivityAt     string     `json:"last_activity_at,omitempty"`
+	TotalSessions      int        `json:"total_sessions"`
+	Error              string     `json:"error,omitempty"`
+	NextSteps          []NextStep `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleGetSessionInfo(ctx context.Context, req *mcp.CallToolRequest, input GetSessionInfoInput) (*mcp.CallToolResult, GetSessionInfoOutput, error) {
@@ -1791,15 +1797,17 @@ func (s *Server) handleGetSessionInfo(ctx context.Context, req *mcp.CallToolRequ
 
 	now := time.Now()
 	return nil, GetSessionInfoOutput{
-		Active:        true,
-		SessionID:     session.SessionID,
-		SessionIndex:  session.Index,
-		Platform:      session.Platform,
-		ViewerURL:     session.ViewerURL,
-		WhepURL:       stringValue(session.WhepURL),
-		UptimeSeconds: now.Sub(session.StartedAt).Seconds(),
-		IdleSeconds:   now.Sub(session.LastActivity).Seconds(),
-		TotalSessions: s.sessionMgr.SessionCount(),
+		Active:             true,
+		SessionID:          session.SessionID,
+		SessionIndex:       session.Index,
+		Platform:           session.Platform,
+		ViewerURL:          session.ViewerURL,
+		WhepURL:            stringValue(session.WhepURL),
+		UptimeSeconds:      now.Sub(session.StartedAt).Seconds(),
+		IdleSeconds:        now.Sub(session.LastActivity).Seconds(),
+		IdleTimeoutSeconds: session.IdleTimeout.Seconds(),
+		LastActivityAt:     session.LastActivity.UTC().Format(time.RFC3339),
+		TotalSessions:      s.sessionMgr.SessionCount(),
 		NextSteps: []NextStep{
 			{Tool: "screenshot", Reason: "Re-anchor on the current screen before taking action"},
 		},
@@ -1898,7 +1906,7 @@ func (s *Server) handleDeviceDoctor(ctx context.Context, req *mcp.CallToolReques
 	tips := []string{
 		"If worker is unreachable, stop and start a new session.",
 		"If grounding fails, try a more specific target description.",
-		"Sessions auto-terminate after 5 min idle. Use get_session_info() to check.",
+		"Sessions auto-stop after the idle timeout (default 15 min). Use get_session_info() to check idle_seconds vs idle_timeout_seconds.",
 		"Use screenshot() before every action to see the current screen state.",
 	}
 
@@ -1940,12 +1948,14 @@ type ListDeviceSessionsInput struct{}
 
 // ListDeviceSessionsSessionItem represents a single session in the list output.
 type ListDeviceSessionsSessionItem struct {
-	Index    int     `json:"index"`
-	Platform string  `json:"platform"`
-	Status   string  `json:"status"`
-	Uptime   float64 `json:"uptime_seconds"`
-	Active   bool    `json:"active"`
-	WhepURL  string  `json:"whep_url,omitempty"`
+	Index              int     `json:"index"`
+	Platform           string  `json:"platform"`
+	Status             string  `json:"status"`
+	Uptime             float64 `json:"uptime_seconds"`
+	IdleSeconds        float64 `json:"idle_seconds,omitempty"`
+	IdleTimeoutSeconds float64 `json:"idle_timeout_seconds,omitempty"`
+	Active             bool    `json:"active"`
+	WhepURL            string  `json:"whep_url,omitempty"`
 }
 
 // ListDeviceSessionsOutput defines output for list_device_sessions.
@@ -1963,12 +1973,14 @@ func (s *Server) handleListDeviceSessions(ctx context.Context, req *mcp.CallTool
 	items := make([]ListDeviceSessionsSessionItem, 0, len(sessions))
 	for _, sess := range sessions {
 		items = append(items, ListDeviceSessionsSessionItem{
-			Index:    sess.Index,
-			Platform: sess.Platform,
-			Status:   "running",
-			Uptime:   time.Since(sess.StartedAt).Seconds(),
-			Active:   sess.Index == activeIdx,
-			WhepURL:  stringValue(sess.WhepURL),
+			Index:              sess.Index,
+			Platform:           sess.Platform,
+			Status:             "running",
+			Uptime:             time.Since(sess.StartedAt).Seconds(),
+			IdleSeconds:        time.Since(sess.LastActivity).Seconds(),
+			IdleTimeoutSeconds: sess.IdleTimeout.Seconds(),
+			Active:             sess.Index == activeIdx,
+			WhepURL:            stringValue(sess.WhepURL),
 		})
 	}
 

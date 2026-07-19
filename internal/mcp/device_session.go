@@ -56,6 +56,20 @@ func pngDimensions(data []byte) (int, int, bool) {
 }
 
 // DeviceSession represents an active device session with its connection info.
+// defaultSessionIdleTimeout is how long a session may sit idle before
+// auto-stop when no explicit timeout is provided. Agent-driven sessions
+// routinely have multi-minute gaps between device actions (builds, file
+// reading, reasoning); 15 minutes absorbs that without leaking devices.
+const defaultSessionIdleTimeout = 15 * time.Minute
+
+// resolveIdleTimeout applies the default idle timeout when none is set.
+func resolveIdleTimeout(d time.Duration) time.Duration {
+	if d == 0 {
+		return defaultSessionIdleTimeout
+	}
+	return d
+}
+
 type DeviceSession struct {
 	// Index is the local session index (tmux-style numbering, 0-based).
 	Index int `json:"index"`
@@ -304,7 +318,7 @@ type StartSessionOptions struct {
 	InitialOrientation string
 	InitialLocale      string
 
-	// Optional idle timeout (defaults to 5 minutes).
+	// Optional idle timeout (defaults to 15 minutes).
 	IdleTimeout time.Duration
 
 	// DeviceModel overrides the target device model (e.g. "iPhone 16").
@@ -339,10 +353,7 @@ func (m *DeviceSessionManager) StartSession(
 		launchVars = nil
 	}
 
-	idleTimeout := opts.IdleTimeout
-	if idleTimeout == 0 {
-		idleTimeout = 5 * time.Minute
-	}
+	idleTimeout := resolveIdleTimeout(opts.IdleTimeout)
 
 	resolvedArtifact, err := startdevice.ResolveStartArtifact(ctx, m.apiClient, startdevice.StartArtifactOptions{
 		AppID:          opts.AppID,

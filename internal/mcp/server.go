@@ -248,8 +248,10 @@ direction='down' moves the finger DOWN (scrolls content UP to reveal content abo
 
 ## Idle Timeout
 
-Sessions auto-terminate after 5 minutes of inactivity. The timer resets on every tool call.
-Use get_session_info() to check remaining time.
+Sessions auto-terminate after 15 minutes of inactivity. The timer resets on every tool call,
+including failed ones. During long non-device work (builds, log reading), call screenshot()
+or get_session_info() every few minutes as a heartbeat. Use get_session_info() to check
+idle_seconds against idle_timeout_seconds.
 
 ## Error Recovery
 

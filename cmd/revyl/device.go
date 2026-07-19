@@ -2843,7 +2843,7 @@ func init() {
 
 	// Start
 	deviceStartCmd.Flags().String("platform", "", "Platform: ios or android (inferred from --app-id/--build-version-id when omitted, defaults to ios)")
-	deviceStartCmd.Flags().Int("timeout", 300, "Idle timeout in seconds")
+	deviceStartCmd.Flags().Int("timeout", 900, "Idle timeout in seconds")
 	deviceStartCmd.Flags().Bool("open", true, "Open viewer in browser after device is ready")
 	deviceStartCmd.Flags().String("app-id", "", "App ID to resolve latest build from")
 	deviceStartCmd.Flags().String("build-version-id", "", "Build version ID to install")

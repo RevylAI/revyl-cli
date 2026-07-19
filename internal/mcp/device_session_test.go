@@ -2047,3 +2047,15 @@ func TestDeviceSessionManager_CancelStepBestEffort_BoundedByBudget(t *testing.T)
 		t.Fatalf("expected at least one post-cancel status poll, got %d", statusCalls)
 	}
 }
+
+func TestResolveIdleTimeout(t *testing.T) {
+	if defaultSessionIdleTimeout != 15*time.Minute {
+		t.Fatalf("defaultSessionIdleTimeout = %v, want 15m", defaultSessionIdleTimeout)
+	}
+	if got := resolveIdleTimeout(0); got != defaultSessionIdleTimeout {
+		t.Fatalf("resolveIdleTimeout(0) = %v, want %v", got, defaultSessionIdleTimeout)
+	}
+	if got := resolveIdleTimeout(42 * time.Second); got != 42*time.Second {
+		t.Fatalf("resolveIdleTimeout(42s) = %v, want 42s", got)
+	}
+}
