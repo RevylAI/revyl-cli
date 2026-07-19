@@ -3577,6 +3577,7 @@ type Workflow struct {
 	BuildConfig         map[string]interface{} `json:"build_config,omitempty"`
 	OverrideBuildConfig bool                   `json:"override_build_config,omitempty"`
 	RunConfig           *WorkflowRunConfig     `json:"run_config,omitempty"`
+	OverrideRunConfig   bool                   `json:"override_run_config,omitempty"`
 }
 
 // CLIWorkflowLastExecution holds the last execution metadata returned by the
@@ -5447,12 +5448,26 @@ type WorkflowRunConfig struct {
 //   - ctx: Context for cancellation
 //   - workflowID: The workflow UUID
 //   - config: The run configuration to apply
+//   - override: Whether to override inherited run config from project defaults
 //
 // Returns:
 //   - error: Any error that occurred
-func (c *Client) UpdateWorkflowRunConfig(ctx context.Context, workflowID string, config *WorkflowRunConfig) error {
+func (c *Client) UpdateWorkflowRunConfig(ctx context.Context, workflowID string, config *WorkflowRunConfig, override bool) error {
+	runConfig := map[string]interface{}{}
+	if config != nil {
+		if config.Parallelism > 0 {
+			runConfig["parallelism"] = config.Parallelism
+		}
+		if config.MaxRetries >= 0 {
+			runConfig["max_retries"] = config.MaxRetries
+		}
+	}
+	body := map[string]interface{}{
+		"run_config":          runConfig,
+		"override_run_config": override,
+	}
 	path := fmt.Sprintf("/api/v1/workflows/update_run_config/%s", workflowID)
-	resp, err := c.doRequest(ctx, "PUT", path, config)
+	resp, err := c.doRequest(ctx, "PUT", path, body)
 	if err != nil {
 		return err
 	}

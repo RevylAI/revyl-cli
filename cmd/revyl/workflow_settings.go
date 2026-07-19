@@ -550,7 +550,7 @@ func runWorkflowConfigSet(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.StartSpinner("Updating run config...")
-	err = client.UpdateWorkflowRunConfig(cmd.Context(), workflowID, cfg)
+	err = client.UpdateWorkflowRunConfig(cmd.Context(), workflowID, cfg, true)
 	ui.StopSpinner()
 
 	if err != nil {
