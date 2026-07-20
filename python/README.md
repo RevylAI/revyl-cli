@@ -1,46 +1,27 @@
-# Revyl
+# Revyl CLI
 
-AI-powered mobile app testing. Cloud devices, natural-language tests, and a Python SDK for programmatic control.
+AI-powered mobile app testing from the command line. The PyPI package contains
+the native Revyl CLI for the target platform and performs no runtime download.
 
-## Install the CLI
-
-```bash
-curl -fsSL https://revyl.com/install.sh | sh       # Shell (macOS / Linux)
-brew install RevylAI/tap/revyl          # Homebrew (macOS)
-pipx install revyl                      # pipx (cross-platform)
-uv tool install revyl                   # uv
-pip install revyl                       # pip
-```
-
-All methods give you the `revyl` command. The shell installer downloads the native binary directly; pip, pipx, and uv auto-download it on first use.
-
-## Python SDK
+## Install
 
 ```bash
-pip install revyl[sdk]                  # Python SDK (includes CLI)
+uv tool install revyl
 ```
 
-```python
-from revyl import DeviceClient
-
-with DeviceClient.start(platform="ios") as device:
-    device.tap(target="Login button")
-    device.type_text(target="Email", text="user@example.com")
-    device.screenshot(out="after-login.png")
-```
-
-The `[sdk]` extra signals that you want the Python SDK. The SDK is included in the base package, so `pip install revyl` also works.
+You can also use `pipx install revyl` or `pip install revyl`. Each package
+manager selects the wheel containing the native binary for your operating
+system and architecture.
 
 ## Authenticate
 
 ```bash
-revyl auth login                        # Browser-based login
-export REVYL_API_KEY="rev_..."          # Or set an API key
+revyl auth login
+# Or:
+export REVYL_API_KEY="rev_..."
 ```
 
 ## Documentation
 
 - [CLI Command Reference](https://docs.revyl.ai/cli)
-- [Python SDK Reference](https://docs.revyl.ai/device/sdk-reference)
-- [Device Scripting Guide](https://docs.revyl.ai/device/scripting-guide)
 - [CI/CD Pipeline Guide](https://docs.revyl.ai/ci-cd/pipeline-guide)

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.61-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.62-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -44,6 +44,9 @@ pipx install revyl
 ```bash
 uv tool install revyl
 ```
+
+The PyPI package is CLI-only and contains the native binary for your platform,
+so `uv`, `pipx`, and `pip` do not download executable code at first run.
 
 ## Authenticate
 
@@ -151,7 +154,6 @@ Use the revyl-cli-auth-bypass skill. Set up test-only auth bypass for this app a
 | Dev loop (Expo) | `revyl dev` | [Commands](docs/COMMANDS.md#dev-loop-expo) |
 | Build and upload | `revyl build` | [Commands](docs/COMMANDS.md#build-management) |
 | CI/CD | GitHub Actions | [CI/CD](docs/ci-cd.md) |
-| Device SDK | `pip install revyl[sdk]` | [Device SDK](docs/SDK.md) |
 | Agent skills | `revyl skill install` | [Skills](docs/integrations/skills.md) |
 
 ## Documentation
@@ -160,7 +162,6 @@ Use the revyl-cli-auth-bypass skill. Set up test-only auth bypass for this app a
 - **[Creating Tests](docs/TEST_CREATION.md)** -- YAML-first workflows, modules, and troubleshooting
 - **[Configuration](docs/CONFIGURATION.md)** -- `.revyl/config.yaml` reference
 - **[Agent Skills](docs/integrations/skills.md)** -- embedded skills for device loops and test creation
-- **[Device SDK](docs/SDK.md)** -- Programmatic device control
 - **[CI/CD](docs/CI_CD.md)** -- GitHub Actions integration
 - **[Development](docs/DEVELOPMENT.md)** -- internal dev workflow, hot reload
 - **[Releasing](docs/RELEASING.md)** -- version bumping, release pipeline

@@ -1,6 +1,6 @@
 # Command Reference
 
-> [Back to README](README.md) | [Configuration](CONFIGURATION.md) | [CI/CD](ci-cd.md) | [SDK](device-sdk/reference.md)
+> [Back to README](README.md) | [Configuration](CONFIGURATION.md) | [CI/CD](ci-cd.md)
 
 ## Authentication
 
@@ -729,7 +729,7 @@ revyl device info --json | jq -r '.whep_url'
 revyl device list --json | jq '.[].whep_url'
 ```
 
-The stream becomes available shortly after session start. See [SDK > Live Streaming](device-sdk/reference.md#live-streaming) for programmatic usage.
+The stream becomes available shortly after session start.
 
 ### Device Session Flags
 
@@ -785,8 +785,6 @@ revyl skill show --name revyl-cli-dev-loop           # Print a named skill to st
 revyl skill export --name revyl-cli-create -o FILE   # Export a named skill to a file
 make device-prod-smoke-ios    # Local iOS branch smoke against production device relay
 make device-prod-smoke-android # Local Android branch smoke against production device relay
-make device-prod-sdk-smoke-ios # Local iOS SDK smoke against production
-make device-prod-sdk-smoke-android # Local Android SDK smoke against production
 ```
 
 ## Global Flags

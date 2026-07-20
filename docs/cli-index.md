@@ -35,7 +35,9 @@ pip install revyl
 
 </CodeGroup>
 
-The shell installer downloads the native binary directly. Package-manager installs via pip, pipx, or uv auto-download the CLI binary on first use.
+The shell installer downloads the native binary directly. The PyPI package is
+CLI-only and includes the native binary selected for the target platform, so
+pip, pipx, and uv do not fetch a second executable on first use.
 
 <Callout type="tip" title="macOS users">
   Homebrew remains a good macOS package-manager option when you want updates through `brew upgrade revyl`.

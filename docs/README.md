@@ -75,14 +75,6 @@ Framework-specific guides to go from repo to test results in 3 commands.
 
 - [Atlas](atlas.md) — app maps built from observed screens, variants, and transitions
 
-## Device SDK
-
-- [Overview](device-sdk/index.md) — Python SDK overview and quick example
-- [Scripting](device-sdk/scripting.md) — automate multi-step device workflows with Python
-- [Multi-Session](device-sdk/multi-session.md) — run parallel device sessions
-- [Streaming](device-sdk/streaming.md) — embed live WebRTC video from cloud devices
-- [SDK Reference](device-sdk/reference.md) — DeviceClient, ScriptClient, ModuleClient, BuildClient
-
 ## CI/CD
 
 - [CI/CD Integration](ci-cd.md) — GitHub Actions, raw CLI in CI, GitLab, environment variables
@@ -97,7 +89,6 @@ Framework-specific guides to go from repo to test results in 3 commands.
 ## Reference
 
 - [Command Reference](COMMANDS.md) — every command and flag
-- [SDK Reference](device-sdk/reference.md) — Python SDK: DeviceClient, ScriptClient, ModuleClient, BuildClient
 - [Project Configuration](CONFIGURATION.md) — `.revyl/config.yaml` reference
 - [Authentication](guide-authentication.md) — API keys, browser login, environment variables
 - [CLI Landing Page](cli-index.md) — installation, global flags, updating

@@ -25,7 +25,7 @@ CMD_DIR := ./cmd/revyl
 BUILD_DIR := ./build
 SCRIPTS_DIR := ./scripts
 
-.PHONY: all build clean test lint fmt deps dev generate check-openapi-allowlist install help check vet-all setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android device-prod-sdk-smoke device-prod-sdk-smoke-ios device-prod-sdk-smoke-android e2e e2e-quick e2e-device e2e-sdk e2e-local
+.PHONY: all build clean test lint fmt deps dev generate check-openapi-allowlist install help check vet-all setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android e2e e2e-quick e2e-device e2e-local
 
 ## help: Show this help message
 help:
@@ -193,18 +193,6 @@ device-prod-smoke-ios: build
 device-prod-smoke-android: build
 	@REVYL_BIN=$(BUILD_DIR)/$(BINARY) $(SCRIPTS_DIR)/device_prod_smoke.sh --platform android $(ARGS)
 
-## device-prod-sdk-smoke: Build the local CLI and run the Python SDK prod smoke script
-device-prod-sdk-smoke: build
-	@cd python && UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run python scripts/device_prod_smoke.py --binary ../build/revyl $(ARGS)
-
-## device-prod-sdk-smoke-ios: Build the local CLI and run the iOS Python SDK prod smoke script
-device-prod-sdk-smoke-ios: build
-	@cd python && UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run python scripts/device_prod_smoke.py --binary ../build/revyl --platform ios $(ARGS)
-
-## device-prod-sdk-smoke-android: Build the local CLI and run the Android Python SDK prod smoke script
-device-prod-sdk-smoke-android: build
-	@cd python && UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run python scripts/device_prod_smoke.py --binary ../build/revyl --platform android $(ARGS)
-
 # ---------- Version management ----------
 
 # Read the current version from the VERSION file
@@ -282,11 +270,6 @@ e2e-quick:
 e2e-device:
 	@echo "Running device e2e tests..."
 	@REVYL_E2E_DEVICE=true $(GOTEST) -tags e2e -v -timeout 15m -run TestDevice ./e2e/...
-
-## e2e-sdk: Run Python SDK regression tests
-e2e-sdk:
-	@echo "Running Python SDK regression tests..."
-	@cd python && UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run pytest tests/test_sdk_regression.py -v --tb=short
 
 ## e2e-local: Run CLI-local tests only (zero backend, always passes)
 e2e-local:
