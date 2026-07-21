@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,6 +69,12 @@ func TestResolveDevBuildJobID_FollowWaitsForRegistration(t *testing.T) {
 	t.Cleanup(func() { devLogsJobPollInterval = previousInterval })
 
 	cwd := t.TempDir()
+	// `revyl dev logs --follow` only runs against a live dev context, and the
+	// goroutine below replaces the status file while the resolver polls it.
+	// Without registering the context as running, the resolver cannot treat a
+	// concurrent-replace read failure as transient, which made this flaky on
+	// Windows where os.Rename is not atomic for readers.
+	writeDevLogsTestRunningContext(t, cwd, "default")
 	status := devStatus{
 		PID:       os.Getpid(),
 		SessionID: "session-1",
@@ -317,5 +324,54 @@ func TestSetDevStatusSeedInstalled_PreservesRemoteJobAndRebuildState(t *testing.
 	}
 	if len(updated.LastRebuild.Logs) != 3 {
 		t.Fatalf("logs = %#v, want existing, registration, and seed entries", updated.LastRebuild.Logs)
+	}
+}
+
+// TestShouldRetryDevBuildStatusRead_TransientErrorsOnLiveContext pins the retry
+// classification that keeps `--follow` alive across a status-file replacement.
+//
+// The writer swaps this file with os.Rename. That is atomic for POSIX readers,
+// but on Windows a concurrent open can fail with a sharing violation or access
+// denial rather than a not-exist gap, so classifying only os.ErrNotExist as
+// transient made the resolver fail whenever it lost that race. The Windows
+// errno values are not reproducible here, so assert the classification instead.
+func TestShouldRetryDevBuildStatusRead_TransientErrorsOnLiveContext(t *testing.T) {
+	cwd := t.TempDir()
+	writeDevLogsTestRunningContext(t, cwd, "default")
+
+	for _, tc := range []struct {
+		name  string
+		cause error
+	}{
+		{"not exist", os.ErrNotExist},
+		{"permission denied", os.ErrPermission},
+		{"sharing violation", errors.New("CreateFile: The process cannot access the file because it is being used by another process.")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &devBuildStatusReadError{contextName: "default", cause: tc.cause}
+			if !shouldRetryDevBuildStatusRead(cwd, "default", err) {
+				t.Fatalf("shouldRetryDevBuildStatusRead(%v) = false, want true for a live context", tc.cause)
+			}
+		})
+	}
+}
+
+// TestShouldRetryDevBuildStatusRead_DeadContextIsTerminal keeps the widened
+// retry from masking a genuinely absent dev context.
+func TestShouldRetryDevBuildStatusRead_DeadContextIsTerminal(t *testing.T) {
+	cwd := t.TempDir()
+	err := &devBuildStatusReadError{contextName: "default", cause: os.ErrNotExist}
+	if shouldRetryDevBuildStatusRead(cwd, "default", err) {
+		t.Fatal("shouldRetryDevBuildStatusRead() = true, want false when no dev context is registered")
+	}
+}
+
+// TestShouldRetryDevBuildStatusRead_NonReadErrorIsTerminal keeps parse failures
+// and other non-filesystem errors terminal.
+func TestShouldRetryDevBuildStatusRead_NonReadErrorIsTerminal(t *testing.T) {
+	cwd := t.TempDir()
+	writeDevLogsTestRunningContext(t, cwd, "default")
+	if shouldRetryDevBuildStatusRead(cwd, "default", errors.New("could not parse dev status")) {
+		t.Fatal("shouldRetryDevBuildStatusRead() = true, want false for a non-read error")
 	}
 }

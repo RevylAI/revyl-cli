@@ -123,13 +123,19 @@ func resolveDevBuildJobID(ctx context.Context, cwd, ctxName string, follow bool,
 	pollTicker := time.NewTicker(devLogsJobPollInterval)
 	defer pollTicker.Stop()
 
+	// Retained so a status file we never manage to read is reported as the read
+	// failure it is, rather than as a bare timeout.
+	var lastReadErr error
+
 	for {
 		registration, err := readDevBuildJobRegistration(cwd, ctxName)
 		if err != nil {
 			if !follow || !shouldRetryDevBuildStatusRead(cwd, ctxName, err) {
 				return "", err
 			}
+			lastReadErr = err
 		} else {
+			lastReadErr = nil
 			if registration.JobID != "" {
 				return registration.JobID, nil
 			}
@@ -151,6 +157,9 @@ func resolveDevBuildJobID(ctx context.Context, cwd, ctxName string, follow bool,
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-timeoutTimer.C:
+			if lastReadErr != nil {
+				return "", fmt.Errorf("remote build job id not available after %s: %w", timeout, lastReadErr)
+			}
 			return "", fmt.Errorf("remote build job id not available after %s", timeout)
 		case <-pollTicker.C:
 		}
@@ -168,9 +177,17 @@ func resolveDevBuildJobID(ctx context.Context, cwd, ctxName string, follow bool,
 //   - bool: Whether the read should be retried
 func shouldRetryDevBuildStatusRead(cwd, ctxName string, err error) bool {
 	var readErr *devBuildStatusReadError
-	if !errors.As(err, &readErr) || !errors.Is(err, os.ErrNotExist) {
+	if !errors.As(err, &readErr) {
 		return false
 	}
+	// Any read failure counts, not just os.ErrNotExist. The writer replaces this
+	// file with os.Rename, which is atomic for POSIX readers but not on Windows:
+	// a concurrent open there can also fail with a sharing violation or access
+	// denial, and those map to errno values Go does not normalise to ErrNotExist.
+	// Enumerating them per platform is exactly the kind of detail that rots, so
+	// treat a live context that cannot be read right now as transient and let the
+	// caller's timeout bound the wait. A context that is not running still fails
+	// immediately below.
 	devContext, loadErr := loadDevContext(cwd, ctxName)
 	if loadErr != nil {
 		return false
