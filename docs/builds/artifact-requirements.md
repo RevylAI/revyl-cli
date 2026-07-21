@@ -29,15 +29,15 @@ Not supported. If your CI produces an `.ipa`, you need a parallel simulator-slic
 
 ## Android
 
-Two requirements:
+Three requirements:
 
 1. **Upload one installable `.apk` artifact.** `.aab`, `.apks`, APK Set archives, and split APK archives are not supported.
-2. **APK must include `x86_64` in its ABI set.** Revyl's cloud emulators are `x86_64`; `arm64-v8a`-only APKs won't install.
+2. **Native libraries must include a supported 64-bit ABI.** Revyl accepts `x86_64` and `arm64-v8a`. APKs without native libraries are also supported.
 3. **APK must be debuggable** (`android:debuggable="true"` in the merged manifest).
 
-### Why x86_64
+### Why a supported 64-bit ABI
 
-Cloud emulators run a Google Play `x86_64` system image. Install fails immediately if the APK has no `x86_64` native libs. Default debug builds from every framework include all ABIs in one fat APK, so this only bites if you've narrowed `abiFilters` or `android.ndkAbiFilters`.
+Cloud emulators run `x86_64` Android images with Android's NDK translation layer enabled for `arm64-v8a` native code. APKs with either 64-bit ABI can run; APKs whose native libraries are only `x86` or `armeabi-v7a` cannot. Default debug builds from every framework usually include a compatible ABI, so this mainly matters if you've narrowed `abiFilters` or `android.ndkAbiFilters`.
 
 ### Why debuggable
 
@@ -60,7 +60,7 @@ Don't upload them. Tests will run, but you lose the State tab (SharedPreferences
 
 ### What about per-ABI APKs?
 
-Upload a single APK that contains `x86_64`. Universal / fat APKs are simplest. If you upload a single-ABI APK, it must be the `x86_64` variant. Do not upload `.apks` files or ZIPs containing multiple split APKs; Revyl does not install APK sets.
+Upload one standalone APK. Universal / fat APKs are simplest, but single-ABI `x86_64` and `arm64-v8a` APKs are both supported. Do not upload `.apks` files or ZIPs containing multiple split APKs; Revyl does not install APK sets.
 
 ### Upload API validation
 
@@ -71,7 +71,7 @@ The Revyl web UI and CLI inspect uploaded artifacts before finalizing the build.
 **Can I use a physical-device archive (`.ipa` / non-debuggable release APK)?**
 No. `.ipa` won't install on simulators. Release APKs will install but lose the State tab and other debugging-dependent paths. Use a debug build for Revyl.
 
-**Why does Revyl insist on the simulator slice / x86_64?**
+**Why does Revyl insist on a simulator slice / supported Android ABI?**
 Cloud test infra runs on shared hosts. Simulators (iOS) and emulators (Android) give us isolation and snapshot-restore. Physical-device farms exist but aren't what Revyl is.
 
 **What about Apple Silicon `arm64` simulators?**
@@ -81,7 +81,7 @@ Xcode produces a fat simulator `.app` (`x86_64` + `arm64`) by default. Both slic
 Add a parallel debug job for Revyl, or accept that release-build runs lose State-tab features.
 
 **My build uses `abiFilters` for size reasons. Help.**
-Add `x86_64` to the filter set, or produce a separate Revyl-targeted variant that includes it. The full ABI set is only ~10–20 MB larger.
+Include `x86_64` or `arm64-v8a`, or produce a separate Revyl-targeted variant with at least one of them. You do not need both ABIs in the same APK.
 
 ## Related
 

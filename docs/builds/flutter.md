@@ -39,7 +39,7 @@ revyl build upload --file build/app/outputs/flutter-apk/app-debug.apk --platform
 revyl test run login-smoke
 ```
 
-`flutter build apk --debug` produces a fat APK that satisfies Revyl's [build artifact requirements](artifact-requirements.md) (all ABIs including `x86_64`, debuggable).
+`flutter build apk --debug` produces a fat APK that satisfies Revyl's [build artifact requirements](artifact-requirements.md) (supported 64-bit ABIs and debuggable).
 
 ## When Do You Need a New Build?
 

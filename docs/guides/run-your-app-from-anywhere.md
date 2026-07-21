@@ -21,7 +21,7 @@ For Expo and React Native, most JavaScript and TypeScript changes hot reload thr
 - A Revyl app with an uploaded development build.
 - A project directory that Revyl can run locally.
 
-For iOS, use a simulator `.app` or zipped `.app`, not an `.ipa`. For Android, use a debuggable APK with `x86_64` support. See [Artifact Requirements](../builds/artifact-requirements.md).
+For iOS, use a simulator `.app` or zipped `.app`, not an `.ipa`. For Android, use a debuggable APK whose native libraries include `x86_64` or `arm64-v8a`. See [Artifact Requirements](../builds/artifact-requirements.md).
 
 ## 1. Upload a development build
 
@@ -138,7 +138,7 @@ For the dashboard authoring path, see [Create AI-powered mobile tests](../tests/
 | Symptom | What to check |
 |---------|---------------|
 | iOS build will not install | Confirm it is a simulator `.app`, not an `.ipa`. |
-| Android build will not install | Confirm the APK is debuggable and includes `x86_64`. |
+| Android build will not install | Confirm it is one standalone APK and its native libraries include `x86_64` or `arm64-v8a`. |
 | Expo opens but does not load local code | Check the URL scheme, Metro output, and dev client profile. |
 | Revyl detects the wrong framework | Run from the app directory or re-run `revyl init --provider expo` / `react-native`. |
 | Native changes do not appear | Press **`r`** in `revyl dev` to rebuild and reinstall. |

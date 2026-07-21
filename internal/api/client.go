@@ -903,7 +903,7 @@ type UploadBuildResponse struct {
 
 const maxUploadErrorBodyBytes = 16 * 1024
 
-const androidSplitAPKError = "Android split APKs and APK Set archives are not supported. Upload one installable APK instead, preferably a universal/fat APK or an x86_64-specific APK"
+const androidSplitAPKError = "Android split APKs and APK Set archives are not supported. Upload one standalone installable APK instead"
 
 // uploadSessionResponse mirrors the backend BuildUploadSessionResponse.
 type uploadSessionResponse struct {
