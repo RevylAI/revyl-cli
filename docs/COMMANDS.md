@@ -690,6 +690,7 @@ revyl device kill-app                          # Kill the current installed app
 # Live step execution on an active session
 revyl device instruction "Open Settings and tap Wi-Fi"           # Execute one instruction step
 revyl device validation "Verify the Settings title is visible"   # Execute one validation step
+# A false/missing validation verdict exits non-zero; --json stdout remains parseable with success=false
 revyl device extract "Extract the visible account email" --variable-name account_email # Execute one extract step
 revyl device code-execution script_123                          # Execute one code-execution step
 
@@ -766,8 +767,9 @@ revyl version    # Show version, commit, and build date (--json for CI)
 revyl docs       # Open Revyl documentation in browser
 revyl schema     # Display CLI command schema (for integrations)
 revyl mcp serve                         # Start MCP server for AI agent integration (legacy flat mode)
-revyl mcp serve --profile core          # ~10 composite tools (recommended for dev-loop / test-creation)
-revyl mcp serve --profile full          # ~16 composite tools (adds workflow, module, script, tag, file, var management)
+revyl mcp serve --profile dev           # 11 focused setup, dev-loop, and device tools
+revyl mcp serve --profile core          # Broad device + test/build compatibility surface
+revyl mcp serve --profile full          # Core plus workflow/module/script/tag/file/variable management
 revyl skill list                                      # List first-class skills
 revyl skill install --force                          # Install recommended skills
 revyl skill install --name revyl-cli-dev-loop --force # Dev loop + device exploration

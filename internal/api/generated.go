@@ -1150,6 +1150,9 @@ type DOMMetadata struct {
 
 // DashboardMetrics Model representing dashboard metrics with week-over-week comparisons.
 type DashboardMetrics struct {
+	// AtlasGenerationRunning Whether an Atlas exploration run is currently queued/running. Drives the 'map is building' onboarding state and defers session-based activation while generating.
+	AtlasGenerationRunning *bool `json:"atlas_generation_running,omitempty"`
+
 	// AvgTestDuration Average test execution duration in seconds
 	AvgTestDuration *float32 `json:"avg_test_duration"`
 
@@ -1173,6 +1176,9 @@ type DashboardMetrics struct {
 
 	// FailureRunCount Total number of failed test execution runs.
 	FailureRunCount *int `json:"failure_run_count,omitempty"`
+
+	// HasAtlasMap Whether the org has a renderable Atlas map (any exploration run with atlas_status completed/partial). Own-milestone fact for the atlas onboarding lens.
+	HasAtlasMap *bool `json:"has_atlas_map,omitempty"`
 
 	// HasPaymentMethod Whether the org has a payment method on file in Autumn/Stripe. When true, intermediate state shows upgrade CTA; when false, shows add-card CTA with bonus-session unlock.
 	HasPaymentMethod *bool `json:"has_payment_method,omitempty"`
@@ -1212,6 +1218,12 @@ type DashboardMetrics struct {
 
 	// TotalWorkflowsWow Week-over-week percentage change in total workflows (positive = increase)
 	TotalWorkflowsWow *float32 `json:"total_workflows_wow"`
+
+	// TrialCardBonusSeconds Trial seconds granted for putting a card on file (CARD_BONUS_SECONDS). Static config value so the frontend can state the concrete reward in add-card CTAs.
+	TrialCardBonusSeconds *int `json:"trial_card_bonus_seconds,omitempty"`
+
+	// TrialIntegrationBonusSeconds Trial seconds granted per connected integration (INTEGRATION_BONUS_SECONDS). Static config value so integration CTAs can state the concrete reward.
+	TrialIntegrationBonusSeconds *int `json:"trial_integration_bonus_seconds,omitempty"`
 
 	// TrialSessionsEarned Free trial session limit earned through checklist completion (includes card-on-file bonus when applicable)
 	TrialSessionsEarned *int `json:"trial_sessions_earned,omitempty"`

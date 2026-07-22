@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ import (
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/devloop"
 	"github.com/revyl/cli/internal/devpush"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/hotreload"
@@ -57,6 +59,11 @@ var (
 
 	devTestRunPlatform    string
 	devTestRunPlatformKey string
+)
+
+var (
+	renameDevStatusFile = os.Rename
+	removeDevStatusFile = os.Remove
 )
 
 func shouldAttemptHotReloadAutoSetup(cfg *config.ProjectConfig) bool {
@@ -153,7 +160,10 @@ var (
 var (
 	devRebuildPollInterval   = 500 * time.Millisecond
 	errDevRebuildWaitTimeout = errors.New("timed out waiting for dev rebuild")
+	errDevRebuildSuperseded  = errors.New("rebuild handle was superseded")
 )
+
+const devRebuildHistoryLimit = 16
 
 var devRebuildCmd = &cobra.Command{
 	Use:   "rebuild",
@@ -529,8 +539,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	if cfg.AuthBypass.IsConfigured() {
-		devMode, _ := cmd.Flags().GetBool("dev")
-		initDevAuthBypass(cfg, api.NewClientWithDevMode(apiKey, devMode))
+		initDevAuthBypass(cfg)
 	}
 
 	externalTunnel, err := parseExternalTunnelInput(devStartTunnelURL)
@@ -1161,6 +1170,11 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 				)
 			}
 		}
+	}
+
+	// The dev-client link must open first; then authenticate the running app.
+	if !manualDeepLinkRequired {
+		fireAuthBypassAfterLaunch(ctx, deviceMgr, session.Index)
 	}
 
 	viewerURL := devSessionViewerURL(session, devMode)
@@ -3409,7 +3423,9 @@ func updateBgUploadStatus(statusPath, status string) {
 	if err != nil {
 		return
 	}
-	_ = writeDevStatusFile(statusPath, out)
+	if err := writeDevStatusFile(statusPath, out, 0644); err != nil {
+		ui.PrintDim("  Failed to update background upload status: %v", err)
+	}
 }
 
 // uploadExistingArtifact uploads an already-built artifact to S3 without
@@ -3474,20 +3490,22 @@ func uploadExistingArtifact(ctx context.Context, client *api.Client, artifactPat
 // ---------------------------------------------------------------------------
 
 type devStatus struct {
-	State          string            `json:"state"`
-	PID            int               `json:"pid"`
-	Platform       string            `json:"platform"`
-	BuildMode      string            `json:"build_mode,omitempty"`
-	SessionID      string            `json:"session_id,omitempty"`
-	ViewerURL      string            `json:"viewer_url,omitempty"`
-	TunnelURL      string            `json:"tunnel_url,omitempty"`
-	DeepLinkURL    string            `json:"deep_link_url,omitempty"`
-	Transport      string            `json:"transport,omitempty"`
-	RelayID        string            `json:"relay_id,omitempty"`
-	DeltaCacheWarm bool              `json:"delta_cache_warm"`
-	RebuildCount   int               `json:"rebuild_count"`
-	LastRebuild    *devRebuildInfo   `json:"last_rebuild,omitempty"`
-	AuthBypass     *authBypassStatus `json:"auth_bypass,omitempty"`
+	State          string               `json:"state"`
+	PID            int                  `json:"pid"`
+	Platform       string               `json:"platform"`
+	BuildMode      string               `json:"build_mode,omitempty"`
+	SessionID      string               `json:"session_id,omitempty"`
+	ViewerURL      string               `json:"viewer_url,omitempty"`
+	TunnelURL      string               `json:"tunnel_url,omitempty"`
+	DeepLinkURL    string               `json:"deep_link_url,omitempty"`
+	Transport      string               `json:"transport,omitempty"`
+	RelayID        string               `json:"relay_id,omitempty"`
+	DeltaCacheWarm bool                 `json:"delta_cache_warm"`
+	RebuildCount   int                  `json:"rebuild_count"`
+	LastRebuild    *devRebuildInfo      `json:"last_rebuild,omitempty"`
+	RecentRebuilds []devRebuildInfo     `json:"recent_rebuilds,omitempty"`
+	Build          *devloop.BuildStatus `json:"build,omitempty"`
+	AuthBypass     *authBypassStatus    `json:"auth_bypass,omitempty"`
 	// SeededVersion / InstalledSeed describe a prior build installed
 	// immediately (revyl dev --remote --seed-latest) so the app is interactive
 	// while the fresh remote build is still compiling.
@@ -3582,6 +3600,9 @@ func writeDevStatusRebuildStarted(
 		Transport:      strings.TrimSpace(transport),
 		DeltaCacheWarm: cacheWarm,
 		RebuildCount:   rebuildCount,
+		Build: &devloop.BuildStatus{
+			State: devloop.BuildStateBuilding,
+		},
 		LastRebuild: &devRebuildInfo{
 			StartedAt:     time.Now().UTC().Format(time.RFC3339Nano),
 			Seq:           rebuildCount,
@@ -3675,15 +3696,29 @@ func writeDevStatus(
 	} else if result.pushErr != nil {
 		lastErr = result.pushErr.Error()
 	}
+	buildState := devloop.BuildStateSuccess
+	retryable := false
+	if strings.Contains(strings.ToLower(lastErr), "capacity") {
+		buildState = devloop.BuildStateCapacityBlocked
+		retryable = true
+	} else if result.buildErr != nil || result.pushErr != nil {
+		buildState = devloop.BuildStateFailed
+	} else if result.skipped {
+		buildState = devloop.BuildStateSuccess
+	}
 	logs := result.logs
 	if len(logs) == 0 {
-		switch status {
-		case "build_failed", "push_failed":
-			logs = []devRebuildLogEntry{newDevRebuildLog("error", devCockpitDisplayValue(lastErr, "Rebuild failed"))}
-		case "skipped":
-			logs = []devRebuildLogEntry{newDevRebuildLog("info", "No native file changes detected; skipping device push")}
-		default:
-			logs = []devRebuildLogEntry{newDevRebuildLog("success", "Rebuild completed")}
+		if buildState == devloop.BuildStateCapacityBlocked {
+			logs = []devRebuildLogEntry{newDevRebuildLog("warning", devCockpitDisplayValue(lastErr, "Build capacity unavailable"))}
+		} else {
+			switch status {
+			case "build_failed", "push_failed":
+				logs = []devRebuildLogEntry{newDevRebuildLog("error", devCockpitDisplayValue(lastErr, "Rebuild failed"))}
+			case "skipped":
+				logs = []devRebuildLogEntry{newDevRebuildLog("info", "No native file changes detected; skipping device push")}
+			default:
+				logs = []devRebuildLogEntry{newDevRebuildLog("success", "Rebuild completed")}
+			}
 		}
 	}
 
@@ -3697,6 +3732,14 @@ func writeDevStatus(
 		Transport:      strings.TrimSpace(transport),
 		DeltaCacheWarm: cacheWarm || result.manifest != nil,
 		RebuildCount:   rebuildCount,
+		Build: &devloop.BuildStatus{
+			State:             buildState,
+			RemoteJobID:       strings.TrimSpace(result.remoteJobID),
+			FreshBuildApplied: buildState == devloop.BuildStateSuccess && strings.TrimSpace(result.remoteVersionID) != "",
+			BuiltVersion:      firstNonEmptyDevValue(result.remoteVersion, result.remoteVersionID),
+			Retryable:         retryable,
+			Reason:            lastErr,
+		},
 		LastRebuild: &devRebuildInfo{
 			CompletedAt:      time.Now().UTC().Format(time.RFC3339Nano),
 			Seq:              rebuildCount,
@@ -3724,6 +3767,16 @@ func writeDevStatus(
 	writeDevStatusSnapshot(statusPath, ds)
 }
 
+// firstNonEmptyDevValue returns the first non-empty dev status value.
+func firstNonEmptyDevValue(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 func writeDevStatusSnapshot(statusPath string, ds devStatus) {
 	devStatusWriteMu.Lock()
 	defer devStatusWriteMu.Unlock()
@@ -3747,28 +3800,87 @@ func writeDevStatusSnapshotLocked(statusPath string, ds devStatus) {
 		ui.PrintDim("  Failed to marshal dev status: %v", err)
 		return
 	}
-	if err := writeDevStatusFile(statusPath, data); err != nil {
+	if err := writeDevStatusFile(statusPath, data, 0644); err != nil {
 		ui.PrintDim("  Failed to write dev status: %v", err)
 	}
 }
 
-func writeDevStatusFile(statusPath string, data []byte) error {
-	tmp := statusPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+func writeDevStatusFile(statusPath string, data []byte, perm fs.FileMode) error {
+	dir := filepath.Dir(statusPath)
+	tmp, err := os.CreateTemp(dir, filepath.Base(statusPath)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, statusPath); err == nil {
-		return nil
-	} else if runtime.GOOS != "windows" {
-		_ = os.Remove(tmp)
+	tmpPath := tmp.Name()
+	defer func() {
+		if tmpPath != "" {
+			_ = removeDevStatusFile(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
 		return err
-	} else if writeErr := os.WriteFile(statusPath, data, 0644); writeErr != nil {
-		_ = os.Remove(tmp)
-		return errors.Join(err, writeErr)
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := replaceDevStatusFile(tmpPath, statusPath); err != nil {
+		return err
+	}
+	tmpPath = ""
+	return nil
+}
+
+func replaceDevStatusFile(tmp, statusPath string) error {
+	if err := renameDevStatusFile(tmp, statusPath); err == nil {
+		return nil
 	}
 
-	_ = os.Remove(tmp)
+	backupPath, err := reserveDevStatusBackupPath(statusPath)
+	if err != nil {
+		_ = removeDevStatusFile(tmp)
+		return err
+	}
+	defer removeDevStatusFile(backupPath)
+
+	movedExisting := false
+	if err := renameDevStatusFile(statusPath, backupPath); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			_ = removeDevStatusFile(tmp)
+			return err
+		}
+	} else {
+		movedExisting = true
+	}
+	if err := renameDevStatusFile(tmp, statusPath); err != nil {
+		if movedExisting {
+			_ = renameDevStatusFile(backupPath, statusPath)
+		}
+		_ = removeDevStatusFile(tmp)
+		return err
+	}
 	return nil
+}
+
+func reserveDevStatusBackupPath(statusPath string) (string, error) {
+	backup, err := os.CreateTemp(filepath.Dir(statusPath), filepath.Base(statusPath)+".*.bak")
+	if err != nil {
+		return "", err
+	}
+	backupPath := backup.Name()
+	if err := backup.Close(); err != nil {
+		_ = removeDevStatusFile(backupPath)
+		return "", err
+	}
+	if err := removeDevStatusFile(backupPath); err != nil {
+		return "", err
+	}
+	return backupPath, nil
 }
 
 // updateDevStatusSnapshot atomically mutates the latest persisted status.
@@ -3837,6 +3949,7 @@ func preserveDevStatusMetadata(statusPath string, next *devStatus) {
 	if strings.TrimSpace(next.BuildMode) == "" {
 		next.BuildMode = strings.TrimSpace(current.BuildMode)
 	}
+	preserveRecentDevRebuilds(current, next)
 	if next.LastRebuild != nil &&
 		current.LastRebuild != nil &&
 		strings.TrimSpace(next.LastRebuild.RemoteJobID) == "" &&
@@ -3846,6 +3959,66 @@ func preserveDevStatusMetadata(statusPath string, next *devStatus) {
 		devCockpitRebuildRunningStatus(next.LastRebuild.Status) {
 		next.LastRebuild.RemoteJobID = strings.TrimSpace(current.LastRebuild.RemoteJobID)
 	}
+}
+
+// preserveRecentDevRebuilds retains bounded terminal results for exact-sequence waiters.
+//
+// Parameters:
+//   - current: Previously persisted status from the same dev-loop session.
+//   - next: New status snapshot to enrich in place.
+//
+// Edge cases:
+//   - Running or incomplete rebuilds are excluded.
+//   - Duplicate sequences keep the most recently observed terminal snapshot.
+func preserveRecentDevRebuilds(current devStatus, next *devStatus) {
+	if next == nil {
+		return
+	}
+
+	rebuildsBySequence := make(map[int]devRebuildInfo, len(current.RecentRebuilds)+len(next.RecentRebuilds)+2)
+	retain := func(rebuild devRebuildInfo) {
+		if !devRebuildTerminal(rebuild) {
+			return
+		}
+		rebuildsBySequence[rebuild.Seq] = rebuild
+	}
+	for _, rebuild := range current.RecentRebuilds {
+		retain(rebuild)
+	}
+	if current.LastRebuild != nil {
+		retain(*current.LastRebuild)
+	}
+	for _, rebuild := range next.RecentRebuilds {
+		retain(rebuild)
+	}
+	if next.LastRebuild != nil {
+		retain(*next.LastRebuild)
+	}
+
+	sequences := make([]int, 0, len(rebuildsBySequence))
+	for sequence := range rebuildsBySequence {
+		sequences = append(sequences, sequence)
+	}
+	sort.Ints(sequences)
+	if len(sequences) > devRebuildHistoryLimit {
+		sequences = sequences[len(sequences)-devRebuildHistoryLimit:]
+	}
+
+	next.RecentRebuilds = make([]devRebuildInfo, 0, len(sequences))
+	for _, sequence := range sequences {
+		next.RecentRebuilds = append(next.RecentRebuilds, rebuildsBySequence[sequence])
+	}
+}
+
+// devRebuildTerminal reports whether a rebuild snapshot is complete and no longer running.
+//
+// Parameters:
+//   - rebuild: Rebuild snapshot to classify.
+//
+// Returns:
+//   - bool: True when the snapshot contains a terminal result.
+func devRebuildTerminal(rebuild devRebuildInfo) bool {
+	return !devCockpitRebuildRunningStatus(rebuild.Status) && strings.TrimSpace(rebuild.CompletedAt) != ""
 }
 
 // setDevStatusRemoteJobID publishes a registered remote job without replacing status metadata.
@@ -3868,12 +4041,61 @@ func setDevStatusRemoteJobID(statusPath, jobID string) {
 		}
 
 		ds.LastRebuild.RemoteJobID = jobID
-		entry := newDevRebuildLog("info", fmt.Sprintf("Remote build job %s running", jobID))
+		ds.LastRebuild.Status = "running"
+		if ds.Build == nil {
+			ds.Build = &devloop.BuildStatus{}
+		}
+		ds.Build.State = devloop.BuildStateQueued
+		ds.Build.Phase = "remote_queue"
+		ds.Build.RemoteJobID = jobID
+		entry := newDevRebuildLog("info", fmt.Sprintf("Remote build job %s queued", jobID))
 		if len(ds.LastRebuild.Logs) == 0 || ds.LastRebuild.Logs[len(ds.LastRebuild.Logs)-1].Message != entry.Message {
 			ds.LastRebuild.Logs = append(ds.LastRebuild.Logs, entry)
 			if len(ds.LastRebuild.Logs) > 16 {
 				ds.LastRebuild.Logs = ds.LastRebuild.Logs[len(ds.LastRebuild.Logs)-16:]
 			}
+		}
+		return true
+	})
+}
+
+// setDevStatusBuildProgress publishes one active build phase without replacing rebuild metadata.
+//
+// Parameters:
+//   - statusPath: Dev status file to update.
+//   - state: Stable build lifecycle state.
+//   - phase: Detailed local or remote build phase.
+//   - message: Sanitized progress message appended to the rebuild log.
+//
+// Edge cases:
+//   - Missing, malformed, or terminal status snapshots are left unchanged.
+func setDevStatusBuildProgress(
+	statusPath string,
+	state devloop.BuildState,
+	phase string,
+	message string,
+) {
+	phase = strings.TrimSpace(phase)
+	message = sanitizeDevRebuildLogMessage(message)
+	updateDevStatusSnapshot(statusPath, func(ds *devStatus) bool {
+		if ds.LastRebuild == nil || !devCockpitRebuildRunningStatus(ds.LastRebuild.Status) {
+			return false
+		}
+		if ds.Build == nil {
+			ds.Build = &devloop.BuildStatus{}
+		}
+		ds.Build.State = state
+		ds.Build.Phase = phase
+		if message == "" {
+			return true
+		}
+		entry := newDevRebuildLog("info", message)
+		if len(ds.LastRebuild.Logs) > 0 && ds.LastRebuild.Logs[len(ds.LastRebuild.Logs)-1].Message == entry.Message {
+			return true
+		}
+		ds.LastRebuild.Logs = append(ds.LastRebuild.Logs, entry)
+		if len(ds.LastRebuild.Logs) > 16 {
+			ds.LastRebuild.Logs = ds.LastRebuild.Logs[len(ds.LastRebuild.Logs)-16:]
 		}
 		return true
 	})
@@ -3893,6 +4115,10 @@ func setDevStatusSeedInstalled(statusPath, seededVersion string) {
 	updateDevStatusSnapshot(statusPath, func(ds *devStatus) bool {
 		ds.InstalledSeed = true
 		ds.SeededVersion = seededVersion
+		if ds.Build == nil {
+			ds.Build = &devloop.BuildStatus{}
+		}
+		ds.Build.SeededVersion = seededVersion
 		if ds.LastRebuild == nil || !devCockpitRebuildRunningStatus(ds.LastRebuild.Status) {
 			return true
 		}
@@ -3934,7 +4160,7 @@ func updateDevStatusHotReloadURLs(statusPath string, result *hotreload.StartResu
 		ui.PrintDim("  Failed to marshal dev status after relay recovery: %v", err)
 		return
 	}
-	if err := writeDevStatusFile(statusPath, out); err != nil {
+	if err := writeDevStatusFile(statusPath, out, 0644); err != nil {
 		ui.PrintDim("  Failed to write dev status after relay recovery: %v", err)
 	}
 }
@@ -3959,9 +4185,18 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	controlMode := strings.TrimSpace(os.Getenv(devloop.RebuildControlEnvironment))
+	var waitHandle *devloop.RebuildHandle
+	if controlMode == devloop.RebuildControlWaitMode {
+		handle, decodeErr := decodeInternalRebuildHandle()
+		if decodeErr != nil {
+			return decodeErr
+		}
+		waitHandle = &handle
+	}
 
 	pidPath := devCtxPIDPath(cwd, ctxName)
-	pid, _ := readDevCtxPIDFile(pidPath)
+	pid, pidNonce := readDevCtxPIDFile(pidPath)
 	if pid == 0 {
 		if rebuildJSON {
 			fmt.Println(`{"status":"no_session","error":"no dev session running"}`)
@@ -3971,7 +4206,7 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 	}
 
 	ctxMeta, _ := loadDevContext(cwd, ctxName)
-	expectedNonce := int64(0)
+	expectedNonce := pidNonce
 	if ctxMeta != nil {
 		expectedNonce = ctxMeta.StartedAtNano
 	}
@@ -3987,6 +4222,12 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 
 	statusPath := devCtxStatusPath(cwd, ctxName)
 	priorSeq := readLastRebuildSeq(statusPath)
+	if waitHandle != nil {
+		if err := validateInternalRebuildHandle(*waitHandle, cwd, ctxName, pid, expectedNonce); err != nil {
+			return err
+		}
+		return waitForInternalRebuildHandle(cmd, statusPath, *waitHandle)
+	}
 
 	proc, err := os.FindProcess(pid)
 	if err != nil {
@@ -4008,6 +4249,24 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 		}
 		return fmt.Errorf("dev session (PID %d) is not running: %w", pid, err)
 	}
+	if controlMode == devloop.RebuildControlTriggerMode {
+		handle := devloop.RebuildHandle{
+			ProjectDir:           filepath.Clean(cwd),
+			Context:              ctxName,
+			BaselineSequence:     priorSeq,
+			ExpectedSequence:     priorSeq + 1,
+			ProcessID:            pid,
+			ProcessStartedAtNano: expectedNonce,
+			ProcessGeneration:    internalRebuildProcessGeneration(expectedNonce),
+			RequestedAt:          time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		encoded, encodeErr := json.Marshal(handle)
+		if encodeErr != nil {
+			return fmt.Errorf("encode rebuild handle: %w", encodeErr)
+		}
+		fmt.Println(string(encoded))
+		return nil
+	}
 
 	if !rebuildWait && !rebuildJSON {
 		ui.PrintSuccess("Rebuild triggered (PID %d)", pid)
@@ -4015,7 +4274,13 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 	}
 
 	timeout := time.Duration(rebuildTimeout) * time.Second
-	rb, waitErr := waitForDevRebuildCompletion(cmd.Context(), statusPath, priorSeq, timeout)
+	var onProgress func(devloop.RebuildProgressEvent)
+	if os.Getenv(devloop.RebuildProgressEnvironment) == devloop.RebuildProgressJSONLMode {
+		onProgress = func(event devloop.RebuildProgressEvent) {
+			writeDevRebuildProgressEvent(os.Stderr, event)
+		}
+	}
+	rb, waitErr := waitForDevRebuildCompletionWithProgress(cmd.Context(), statusPath, priorSeq, timeout, onProgress)
 	if waitErr != nil {
 		if errors.Is(waitErr, errDevRebuildWaitTimeout) {
 			if rebuildJSON {
@@ -4052,6 +4317,134 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 	return resultErr
 }
 
+// decodeInternalRebuildHandle decodes the private wait-only handle environment.
+//
+// Returns:
+//   - devloop.RebuildHandle: Decoded asynchronous rebuild handle.
+//   - error: Missing or malformed handle error.
+func decodeInternalRebuildHandle() (devloop.RebuildHandle, error) {
+	var handle devloop.RebuildHandle
+	encoded := strings.TrimSpace(os.Getenv(devloop.RebuildHandleEnvironment))
+	if encoded == "" {
+		return handle, fmt.Errorf("%s is required for wait-only rebuild mode", devloop.RebuildHandleEnvironment)
+	}
+	if err := json.Unmarshal([]byte(encoded), &handle); err != nil {
+		return handle, fmt.Errorf("decode rebuild handle: %w", err)
+	}
+	return handle, nil
+}
+
+// internalRebuildProcessGeneration returns an exact JSON-safe process generation token.
+func internalRebuildProcessGeneration(processStartedAtNano int64) string {
+	if processStartedAtNano == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d", processStartedAtNano)
+}
+
+// validateInternalRebuildHandle ensures a wait still targets the triggering dev loop.
+//
+// Parameters:
+//   - handle: Asynchronous rebuild handle.
+//   - projectDir: Resolved current project directory.
+//   - contextName: Resolved current dev context.
+//   - processID: Current dev-loop process ID.
+//   - processStartedAtNano: Current dev-loop process generation.
+//
+// Returns:
+//   - error: Correlation mismatch or invalid sequence.
+func validateInternalRebuildHandle(
+	handle devloop.RebuildHandle,
+	projectDir string,
+	contextName string,
+	processID int,
+	processStartedAtNano int64,
+) error {
+	if filepath.Clean(handle.ProjectDir) != filepath.Clean(projectDir) {
+		return fmt.Errorf("rebuild handle project %q does not match %q", handle.ProjectDir, projectDir)
+	}
+	if strings.TrimSpace(handle.Context) != strings.TrimSpace(contextName) {
+		return fmt.Errorf("rebuild handle context %q does not match %q", handle.Context, contextName)
+	}
+	if handle.ExpectedSequence <= handle.BaselineSequence ||
+		handle.ExpectedSequence != handle.BaselineSequence+1 {
+		return fmt.Errorf(
+			"rebuild handle sequence is invalid: baseline=%d expected=%d",
+			handle.BaselineSequence,
+			handle.ExpectedSequence,
+		)
+	}
+	if handle.ProcessID != processID {
+		return fmt.Errorf(
+			"rebuild handle process %d does not match current dev loop %d",
+			handle.ProcessID,
+			processID,
+		)
+	}
+	if handle.ProcessGeneration != "" &&
+		processStartedAtNano != 0 &&
+		handle.ProcessGeneration != internalRebuildProcessGeneration(processStartedAtNano) {
+		return fmt.Errorf("rebuild handle belongs to a previous dev-loop process generation")
+	}
+	if handle.ProcessGeneration == "" &&
+		handle.ProcessStartedAtNano != 0 &&
+		processStartedAtNano != 0 &&
+		handle.ProcessStartedAtNano != processStartedAtNano {
+		return fmt.Errorf("rebuild handle belongs to a previous dev-loop process generation")
+	}
+	return nil
+}
+
+// waitForInternalRebuildHandle waits without signaling and writes the private terminal JSON contract.
+//
+// Parameters:
+//   - cmd: Cobra command carrying cancellation.
+//   - statusPath: Active dev-loop status path.
+//   - handle: Validated asynchronous rebuild handle.
+//
+// Returns:
+//   - error: Timeout, cancellation, supersession, or terminal rebuild failure.
+func waitForInternalRebuildHandle(
+	cmd *cobra.Command,
+	statusPath string,
+	handle devloop.RebuildHandle,
+) error {
+	timeout := time.Duration(rebuildTimeout) * time.Second
+	var onProgress func(devloop.RebuildProgressEvent)
+	if os.Getenv(devloop.RebuildProgressEnvironment) == devloop.RebuildProgressJSONLMode {
+		onProgress = func(event devloop.RebuildProgressEvent) {
+			writeDevRebuildProgressEvent(os.Stderr, event)
+		}
+	}
+	rb, waitErr := waitForExpectedDevRebuildCompletion(
+		cmd.Context(),
+		statusPath,
+		handle.ExpectedSequence,
+		timeout,
+		onProgress,
+	)
+	if waitErr != nil {
+		status := "wait_failed"
+		if errors.Is(waitErr, errDevRebuildWaitTimeout) {
+			status = "timeout"
+		} else if errors.Is(waitErr, errDevRebuildSuperseded) {
+			status = "superseded"
+		}
+		encoded, _ := json.Marshal(struct {
+			Status string `json:"status"`
+			Error  string `json:"error"`
+		}{
+			Status: status,
+			Error:  waitErr.Error(),
+		})
+		fmt.Println(string(encoded))
+		return waitErr
+	}
+	encoded, _ := json.MarshalIndent(rb, "", "  ")
+	fmt.Println(string(encoded))
+	return devRebuildTerminalError(rb)
+}
+
 // waitForDevRebuildCompletion waits for a newer rebuild to reach a terminal status.
 //
 // Parameters:
@@ -4064,11 +4457,75 @@ func runDevRebuild(cmd *cobra.Command, args []string) error {
 //   - *devRebuildInfo: New terminal rebuild snapshot
 //   - error: Cancellation or errDevRebuildWaitTimeout
 func waitForDevRebuildCompletion(ctx context.Context, statusPath string, priorSeq int, timeout time.Duration) (*devRebuildInfo, error) {
+	return waitForDevRebuildCompletionWithProgress(ctx, statusPath, priorSeq, timeout, nil)
+}
+
+// waitForDevRebuildCompletionWithProgress waits for completion and publishes changed snapshots.
+//
+// Parameters:
+//   - ctx: Cancellation context.
+//   - statusPath: Dev status file to poll.
+//   - priorSeq: Rebuild sequence observed before signaling.
+//   - timeout: Maximum wait duration.
+//   - onProgress: Optional ordered progress callback.
+//
+// Returns:
+//   - *devRebuildInfo: New terminal rebuild snapshot.
+//   - error: Cancellation or errDevRebuildWaitTimeout.
+func waitForDevRebuildCompletionWithProgress(
+	ctx context.Context,
+	statusPath string,
+	priorSeq int,
+	timeout time.Duration,
+	onProgress func(devloop.RebuildProgressEvent),
+) (*devRebuildInfo, error) {
+	return waitForDevRebuildSequence(ctx, statusPath, priorSeq, 0, timeout, onProgress)
+}
+
+// waitForExpectedDevRebuildCompletion waits for one exact asynchronous rebuild sequence.
+//
+// Parameters:
+//   - ctx: Cancellation context.
+//   - statusPath: Dev status file to poll.
+//   - expectedSequence: Exact rebuild sequence represented by the handle.
+//   - timeout: Maximum wait duration.
+//   - onProgress: Optional ordered progress callback.
+//
+// Returns:
+//   - *devRebuildInfo: Exact terminal rebuild snapshot.
+//   - error: Cancellation, timeout, or supersession.
+func waitForExpectedDevRebuildCompletion(
+	ctx context.Context,
+	statusPath string,
+	expectedSequence int,
+	timeout time.Duration,
+	onProgress func(devloop.RebuildProgressEvent),
+) (*devRebuildInfo, error) {
+	return waitForDevRebuildSequence(
+		ctx,
+		statusPath,
+		expectedSequence-1,
+		expectedSequence,
+		timeout,
+		onProgress,
+	)
+}
+
+// waitForDevRebuildSequence polls until a newer or exact rebuild reaches terminal state.
+func waitForDevRebuildSequence(
+	ctx context.Context,
+	statusPath string,
+	priorSeq int,
+	expectedSequence int,
+	timeout time.Duration,
+	onProgress func(devloop.RebuildProgressEvent),
+) (*devRebuildInfo, error) {
 	timeoutTimer := time.NewTimer(timeout)
 	defer timeoutTimer.Stop()
 
 	pollTicker := time.NewTicker(devRebuildPollInterval)
 	defer pollTicker.Stop()
+	progressTracker := newDevRebuildProgressTracker()
 
 	for {
 		select {
@@ -4077,9 +4534,36 @@ func waitForDevRebuildCompletion(ctx context.Context, statusPath string, priorSe
 		case <-timeoutTimer.C:
 			return nil, errDevRebuildWaitTimeout
 		case <-pollTicker.C:
-			rb := readLastRebuildInfo(statusPath)
+			snapshot := readDevStatusSnapshot(statusPath)
+			if snapshot == nil {
+				continue
+			}
+			if expectedSequence > 0 {
+				if retained := retainedDevRebuild(snapshot, expectedSequence); retained != nil {
+					return retained, nil
+				}
+			}
+			rb := snapshot.LastRebuild
 			if rb == nil || rb.Seq <= priorSeq {
 				continue
+			}
+			if expectedSequence > 0 {
+				if rb.Seq > expectedSequence {
+					return nil, fmt.Errorf(
+						"%w: expected sequence %d, observed %d",
+						errDevRebuildSuperseded,
+						expectedSequence,
+						rb.Seq,
+					)
+				}
+				if rb.Seq < expectedSequence {
+					continue
+				}
+			}
+			if onProgress != nil {
+				for _, event := range progressTracker.events(snapshot) {
+					onProgress(event)
+				}
 			}
 			if devCockpitRebuildRunningStatus(rb.Status) || strings.TrimSpace(rb.CompletedAt) == "" {
 				continue
@@ -4087,6 +4571,109 @@ func waitForDevRebuildCompletion(ctx context.Context, statusPath string, priorSe
 			return rb, nil
 		}
 	}
+}
+
+// retainedDevRebuild returns a retained terminal result for one exact sequence.
+//
+// Parameters:
+//   - snapshot: Latest persisted dev-loop status.
+//   - expectedSequence: Exact rebuild sequence represented by a wait handle.
+//
+// Returns:
+//   - *devRebuildInfo: Retained terminal result, or nil when it is unavailable.
+func retainedDevRebuild(snapshot *devStatus, expectedSequence int) *devRebuildInfo {
+	if snapshot == nil || expectedSequence <= 0 {
+		return nil
+	}
+	for index := len(snapshot.RecentRebuilds) - 1; index >= 0; index-- {
+		rebuild := &snapshot.RecentRebuilds[index]
+		if rebuild.Seq == expectedSequence && devRebuildTerminal(*rebuild) {
+			return rebuild
+		}
+	}
+	return nil
+}
+
+// devRebuildProgressTracker deduplicates lifecycle and log events from status snapshots.
+type devRebuildProgressTracker struct {
+	lastLifecycleKey string
+	seenLogs         map[string]struct{}
+}
+
+// newDevRebuildProgressTracker creates an empty per-rebuild event tracker.
+//
+// Returns:
+//   - *devRebuildProgressTracker: Empty event tracker.
+func newDevRebuildProgressTracker() *devRebuildProgressTracker {
+	return &devRebuildProgressTracker{seenLogs: make(map[string]struct{})}
+}
+
+// events returns lifecycle and log updates not emitted for earlier snapshots.
+//
+// Parameters:
+//   - snapshot: Latest persisted dev-loop status.
+//
+// Returns:
+//   - []devloop.RebuildProgressEvent: Ordered new progress events.
+func (t *devRebuildProgressTracker) events(snapshot *devStatus) []devloop.RebuildProgressEvent {
+	if t == nil || snapshot == nil || snapshot.LastRebuild == nil {
+		return nil
+	}
+	rebuild := snapshot.LastRebuild
+	state := devloop.BuildState("")
+	phase := ""
+	remoteJobID := strings.TrimSpace(rebuild.RemoteJobID)
+	if snapshot.Build != nil {
+		state = snapshot.Build.State
+		phase = strings.TrimSpace(snapshot.Build.Phase)
+		if remoteJobID == "" {
+			remoteJobID = strings.TrimSpace(snapshot.Build.RemoteJobID)
+		}
+	}
+	base := devloop.RebuildProgressEvent{
+		Sequence:    rebuild.Seq,
+		Status:      strings.TrimSpace(rebuild.Status),
+		State:       state,
+		Phase:       phase,
+		RemoteJobID: remoteJobID,
+	}
+	lifecycleKey := fmt.Sprintf("%d\x00%s\x00%s\x00%s", base.Sequence, base.Status, base.State, base.Phase)
+	events := make([]devloop.RebuildProgressEvent, 0, len(rebuild.Logs)+1)
+	if lifecycleKey != t.lastLifecycleKey {
+		events = append(events, base)
+		t.lastLifecycleKey = lifecycleKey
+	}
+	for _, entry := range rebuild.Logs {
+		logKey := entry.At + "\x00" + entry.Kind + "\x00" + entry.Message
+		if _, seen := t.seenLogs[logKey]; seen || strings.TrimSpace(entry.Message) == "" {
+			continue
+		}
+		t.seenLogs[logKey] = struct{}{}
+		event := base
+		event.Message = strings.TrimSpace(entry.Message)
+		event.Kind = strings.TrimSpace(entry.Kind)
+		events = append(events, event)
+	}
+	return events
+}
+
+// writeDevRebuildProgressEvent writes one fixed-prefix JSONL record to stderr.
+//
+// Parameters:
+//   - writer: Progress stream destination.
+//   - event: Typed rebuild progress event.
+//
+// Edge cases:
+//   - Encoding or write failures are intentionally ignored so progress cannot alter rebuild semantics.
+func writeDevRebuildProgressEvent(writer io.Writer, event devloop.RebuildProgressEvent) {
+	if writer == nil {
+		return
+	}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintf(writer, "%s%s\n", devloop.RebuildProgressPrefix, encoded)
 }
 
 // devRebuildTerminalError reports whether a completed rebuild failed.
@@ -4125,6 +4712,21 @@ func readLastRebuildSeq(statusPath string) int {
 // Returns:
 //   - *devRebuildInfo: Latest snapshot, or nil when unavailable or malformed
 func readLastRebuildInfo(statusPath string) *devRebuildInfo {
+	snapshot := readDevStatusSnapshot(statusPath)
+	if snapshot == nil {
+		return nil
+	}
+	return snapshot.LastRebuild
+}
+
+// readDevStatusSnapshot reads one complete atomic dev status snapshot.
+//
+// Parameters:
+//   - statusPath: Dev status file path.
+//
+// Returns:
+//   - *devStatus: Latest snapshot, or nil when unavailable or malformed.
+func readDevStatusSnapshot(statusPath string) *devStatus {
 	data, err := os.ReadFile(statusPath)
 	if err != nil {
 		return nil
@@ -4133,7 +4735,7 @@ func readLastRebuildInfo(statusPath string) *devRebuildInfo {
 	if err := json.Unmarshal(data, &ds); err != nil || ds.LastRebuild == nil {
 		return nil
 	}
-	return ds.LastRebuild
+	return &ds
 }
 
 // ---------------------------------------------------------------------------
@@ -4245,6 +4847,7 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 	seededVersion := ""
 	installedSeed := false
 	var lastRebuild *devRebuildInfo
+	var buildStatus *devloop.BuildStatus
 
 	if ctxMeta != nil {
 		platform = strings.TrimSpace(ctxMeta.Platform)
@@ -4292,10 +4895,14 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		seededVersion = strings.TrimSpace(ds.SeededVersion)
 		installedSeed = ds.InstalledSeed
 		lastRebuild = ds.LastRebuild
+		buildStatus = ds.Build
 		if lastRebuild != nil {
 			remoteJobID = strings.TrimSpace(lastRebuild.RemoteJobID)
 			remoteVersionID = strings.TrimSpace(lastRebuild.RemoteVersionID)
 			lastRebuildError = strings.TrimSpace(lastRebuild.Error)
+		}
+		if buildStatus != nil && buildStatus.SeededVersion == "" {
+			buildStatus.SeededVersion = seededVersion
 		}
 	}
 
@@ -4324,6 +4931,7 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		"auth_bypass":              devStatusAuthBypass(ds),
 		"seeded_version":           seededVersion,
 		"installed_seed":           installedSeed,
+		"build":                    buildStatus,
 	}
 }
 

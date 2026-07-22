@@ -86,6 +86,7 @@ const (
 // Client is the Revyl API client.
 type Client struct {
 	baseURL        string
+	apiKeyMu       sync.RWMutex
 	apiKey         string
 	version        string // CLI version string for User-Agent header
 	httpClient     *http.Client
@@ -196,7 +197,19 @@ func (c *Client) userAgent() string {
 // Returns:
 //   - string: The API key
 func (c *Client) GetAPIKey() string {
+	c.apiKeyMu.RLock()
+	defer c.apiKeyMu.RUnlock()
 	return c.apiKey
+}
+
+// SetAPIKey replaces the credential used by subsequent API requests.
+//
+// Parameters:
+//   - apiKey: Active API key or access token; empty clears authentication.
+func (c *Client) SetAPIKey(apiKey string) {
+	c.apiKeyMu.Lock()
+	defer c.apiKeyMu.Unlock()
+	c.apiKey = apiKey
 }
 
 // BaseURL returns the resolved backend base URL for this client.
@@ -515,8 +528,9 @@ func (c *Client) doRequestOnceWithClient(ctx context.Context, method, path strin
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	if strings.TrimSpace(c.apiKey) != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	apiKey := c.GetAPIKey()
+	if strings.TrimSpace(apiKey) != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", c.userAgent())
@@ -636,8 +650,9 @@ func (c *Client) doRequestWithRetryClient(ctx context.Context, method, path stri
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		if strings.TrimSpace(c.apiKey) != "" {
-			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		apiKey := c.GetAPIKey()
+		if strings.TrimSpace(apiKey) != "" {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", c.userAgent())
@@ -2434,15 +2449,12 @@ func (c *Client) CreateTest(ctx context.Context, req *CreateTestRequest) (*Creat
 		)
 	}
 
-	normalizedReq := req
-	if req != nil {
-		normalizedReq = &CreateTestRequest{
-			Name:     req.Name,
-			Platform: normalizePlatform(req.Platform),
-			Tasks:    req.Tasks,
-			AppID:    req.AppID,
-			OrgID:    req.OrgID,
-		}
+	normalizedReq := &CreateTestRequest{
+		Name:     req.Name,
+		Platform: normalizePlatform(req.Platform),
+		Tasks:    req.Tasks,
+		AppID:    req.AppID,
+		OrgID:    req.OrgID,
 	}
 
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/tests/create", normalizedReq)
@@ -5525,6 +5537,17 @@ func (c *Client) DeleteBuildVersion(ctx context.Context, versionID string) (*Del
 // Worker Control Relay
 // ---------------------------------------------------------------------------
 
+// DeviceOpenURLTemplateRequest asks the backend relay to resolve session launch
+// variables before forwarding the URL to the worker.
+type DeviceOpenURLTemplateRequest struct {
+	URLTemplate string `json:"url_template"`
+}
+
+// DeviceOpenURLRequest asks the worker to open a fully resolved URL.
+type DeviceOpenURLRequest struct {
+	URL string `json:"url"`
+}
+
 // ProxyWorkerRequest forwards a device action request through the backend.
 // CLI/MCP device control uses this relay as the canonical transport so
 // sandboxed environments do not depend on direct worker DNS reachability.
@@ -6420,6 +6443,7 @@ type OrgLaunchVariable struct {
 	OrgID             string `json:"org_id"`
 	Key               string `json:"key"`
 	Value             string `json:"value"`
+	HasValue          *bool  `json:"has_value,omitempty"`
 	Description       string `json:"description,omitempty"`
 	CreatedBy         string `json:"created_by,omitempty"`
 	CreatedAt         string `json:"created_at,omitempty"`

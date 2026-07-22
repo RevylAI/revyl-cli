@@ -34,14 +34,17 @@ Cursor or Claude Desktop.
 
 PROFILES:
 
-  --profile core (default)
-    ~10 composite tools: device session/actions, test management,
-    build management, dev loop, schema, auth. Enough for the
-    dev-loop and test-creation journey.
+  --profile dev
+    11 focused tools: setup diagnostics, dev loop, device lifecycle,
+    screenshots, interactions, navigation, instructions, and validation.
+    Recommended for Cursor.
+
+  --profile core
+    Broad flat device surface plus test/build management, schema, and auth.
+    Kept for compatibility and advanced development/test workflows.
 
   --profile full
-    ~16 composite tools: adds workflow, module, script, tag, file,
-    and variable management.
+    Adds workflow, module, script, tag, file, and variable management.
 
   (no --profile flag)
     Legacy mode: all ~95 individual tools registered flat.
@@ -121,21 +124,18 @@ EXAMPLE CURSOR CONFIGURATION:
     "mcpServers": {
       "revyl": {
         "command": "revyl",
-        "args": ["mcp", "serve", "--profile", "core"],
-        "env": {
-          "REVYL_API_KEY": "your-api-key"
-        }
+        "args": ["mcp", "serve", "--profile", "dev"]
       }
     }
   }`,
-	Example: `  revyl mcp serve
-  revyl --dev mcp serve`,
+	Example: `  revyl mcp serve --profile dev
+  revyl --dev mcp serve --profile dev`,
 	RunE: runMCPServe,
 }
 
 func init() {
 	mcpCmd.AddCommand(mcpServeCmd)
-	mcpServeCmd.Flags().String("profile", "", "Tool profile: 'core' (~10 tools, recommended) or 'full' (~16 tools). Omit for legacy flat mode.")
+	mcpServeCmd.Flags().String("profile", "", "Tool profile: 'dev' (focused), 'core', or 'full'. Omit for legacy flat mode.")
 }
 
 // runMCPServe starts the MCP server.
@@ -145,6 +145,8 @@ func runMCPServe(cmd *cobra.Command, args []string) error {
 
 	var opts []mcp.ServerOption
 	switch profileStr {
+	case "dev":
+		opts = append(opts, mcp.WithProfile(mcp.ProfileDev))
 	case "core":
 		opts = append(opts, mcp.WithProfile(mcp.ProfileCore))
 	case "full":
@@ -152,7 +154,7 @@ func runMCPServe(cmd *cobra.Command, args []string) error {
 	case "":
 		// Legacy flat mode — no profile option
 	default:
-		ui.PrintError("Unknown profile %q; valid values: core, full", profileStr)
+		ui.PrintError("Unknown profile %q; valid values: dev, core, full", profileStr)
 		return nil
 	}
 

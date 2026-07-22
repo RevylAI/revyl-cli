@@ -287,3 +287,28 @@ b: build
 
 ## t: Shortcut for 'make test'
 t: test
+
+# Cursor plugin skill sync
+# Pure-copy skills come from skills/ (source of truth, embedded by embed.go).
+# Authored plugin skills (revyl-dev-loop, revyl-cloud-agent, revyl-ci-sync)
+# are maintained directly in cursor-plugin/skills/ and are NOT synced.
+.PHONY: sync-cursor-plugin-skills prepare-cursor-plugin-release
+
+CURSOR_PLUGIN_COPY_SKILLS := revyl-mcp-dev-loop
+
+## sync-cursor-plugin-skills: Regenerate the copied skills under cursor-plugin/skills/
+sync-cursor-plugin-skills:
+	@for s in $(CURSOR_PLUGIN_COPY_SKILLS); do \
+		mkdir -p cursor-plugin/skills/$$s; \
+		cp skills/$$s/SKILL.md cursor-plugin/skills/$$s/SKILL.md; \
+	done
+	@echo "cursor-plugin skills synced"
+
+## prepare-cursor-plugin-release: Pin a published CLI runtime into the Cursor plugin
+prepare-cursor-plugin-release:
+	@test -n "$(PLUGIN_VERSION)" || (echo "PLUGIN_VERSION is required" >&2; exit 2)
+	@test -n "$(RUNTIME_VERSION)" || (echo "RUNTIME_VERSION is required" >&2; exit 2)
+	@$(GOCMD) run ./cmd/prepare-cursor-plugin-release \
+		--plugin-version "$(PLUGIN_VERSION)" \
+		--runtime-version "$(RUNTIME_VERSION)" \
+		$(if $(filter 1 true yes,$(CHECK)),--check,)

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "./hooks/ensure-revyl",
+        "timeout": 30
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "./hooks/ensure-revyl",
+        "matcher": "revyl",
+        "timeout": 60
+      }
+    ]
+  }
+}

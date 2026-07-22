@@ -126,7 +126,7 @@ func (c *Client) exportStartDeviceTrace(ctx context.Context, requestID string) (
 }
 
 func (c *Client) exportRootCLITrace(ctx context.Context, requestID string, spanName string, command string) (*TraceHandoff, error) {
-	if strings.TrimSpace(c.apiKey) == "" {
+	if strings.TrimSpace(c.GetAPIKey()) == "" {
 		return nil, fmt.Errorf("missing API key")
 	}
 	if strings.TrimSpace(requestID) == "" {
@@ -224,7 +224,7 @@ func (c *Client) postCLITrace(ctx context.Context, requestID string, payload []b
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Authorization", "Bearer "+c.GetAPIKey())
 	req.Header.Set("Content-Type", otlpProtobufContentType)
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("X-Revyl-Client", "cli")
@@ -268,7 +268,7 @@ func (c *Client) postCLISpan(ctx context.Context, requestID string, payload []by
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Authorization", "Bearer "+c.GetAPIKey())
 	req.Header.Set("Content-Type", otlpProtobufContentType)
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("X-Revyl-Client", "cli")
@@ -309,7 +309,7 @@ type HotReloadLocalMetroSpanInput struct {
 
 // ExportHotReloadLocalMetroSpan exports a best-effort child span for a local Metro request.
 func (c *Client) ExportHotReloadLocalMetroSpan(ctx context.Context, input HotReloadLocalMetroSpanInput) error {
-	if strings.TrimSpace(c.apiKey) == "" {
+	if strings.TrimSpace(c.GetAPIKey()) == "" {
 		return fmt.Errorf("missing API key")
 	}
 	traceID, parentSpanID, ok := parseTraceparentIDs(input.ParentTraceparent)

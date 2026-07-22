@@ -1,0 +1,20 @@
+---
+description: Route mobile run/preview/device/verify requests to the Revyl dev loop, skills, and MCP tools.
+globs:
+alwaysApply: false
+---
+
+# Revyl (mobile dev loops + cloud devices)
+
+Use this rule when the user asks to run, change, preview, debug, screenshot, or
+verify a mobile app on a Revyl device.
+
+Load `revyl-mcp-dev-loop` and prefer the Revyl MCP `dev` profile. It delegates
+to the canonical CLI behavior while adding state, structured outcomes, and
+inline images. Use shell CLI commands only when MCP is unavailable.
+
+Share the viewer immediately, distinguish device readiness from build success,
+verify through screenshots and semantic validation, and stop owned sessions
+when finished. Load the cloud-agent skill only when that context applies.
+
+Never expose credentials or launch-variable values.

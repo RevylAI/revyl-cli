@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "generated_by": "make -C revyl-cli prepare-cursor-plugin-release",
+  "prepared": false,
+  "plugin_version": "0.1.0",
+  "runtime_version": "0.1.63",
+  "release_tag": "v0.1.63",
+  "release_base_url": "https://github.com/RevylAI/revyl-cli/releases/download/v0.1.63",
+  "darwin_amd64_asset": "revyl-darwin-amd64",
+  "darwin_amd64_sha256": "",
+  "darwin_arm64_asset": "revyl-darwin-arm64",
+  "darwin_arm64_sha256": "",
+  "linux_amd64_asset": "revyl-linux-amd64",
+  "linux_amd64_sha256": "",
+  "linux_arm64_asset": "revyl-linux-arm64",
+  "linux_arm64_sha256": "",
+  "windows_amd64_asset": "revyl-windows-amd64.exe",
+  "windows_amd64_sha256": "",
+  "windows_arm64_asset": "revyl-windows-arm64.exe",
+  "windows_arm64_sha256": ""
+}

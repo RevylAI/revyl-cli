@@ -10,6 +10,10 @@ Or use a package manager:
 
 <CodeGroup>
 
+```powershell Windows
+irm https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.ps1 | iex
+```
+
 ```bash Homebrew (macOS)
 brew install RevylAI/tap/revyl
 ```
@@ -86,7 +90,7 @@ revyl skill export --name revyl-cli-create -o FILE
 | **Control a cloud device** (no app build) | [Device Quickstart](device/quickstart.md) |
 | Set up **CI/CD** testing | [CI/CD Integration](ci-cd.md) |
 | Install **AI agent skills** | [Agent Skills](integrations/skills.md) |
-| Connect my **AI coding agent over MCP** | [MCP Setup](integrations/mcp-setup.md) |
+| Connect my **AI coding agent over MCP** | [MCP Setup](https://docs.revyl.ai/cli/mcp-setup) |
 
 Each build guide walks you through the exact 2-3 commands to go from your repo to a passing test.
 

@@ -25,7 +25,7 @@ If you are new, start with [Device Quickstart](/device/quickstart).
 |------|------------------|
 | First end-to-end run on a cloud device | [Device Quickstart](/device/quickstart) |
 | Full command-level control | [CLI Device Commands](/device/cli-commands) |
-| Agent-driven device control from IDE | [MCP Setup](/cli/mcp-setup) |
+| Agent-driven device control from IDE | [MCP Setup](https://docs.revyl.ai/cli/mcp-setup) |
 | CI orchestration of test and workflow runs | [API Quickstart](/api-reference/quickstart) |
 
 ## Core Ergonomics Loop

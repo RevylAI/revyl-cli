@@ -1,0 +1,29 @@
+{
+  "name": "revyl",
+  "displayName": "Revyl",
+  "description": "One-install mobile dev loops on cloud iOS/Android devices — run the current app, verify changes with screenshots, and ship with device-backed evidence.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Revyl",
+    "email": "support@revyl.ai"
+  },
+  "homepage": "https://revyl.com",
+  "repository": "https://github.com/RevylAI/revyl-cli",
+  "license": "MIT",
+  "keywords": [
+    "mobile",
+    "testing",
+    "e2e",
+    "ios",
+    "android",
+    "mcp",
+    "react-native",
+    "expo",
+    "flutter"
+  ],
+  "logo": "assets/icon.svg",
+  "skills": "./skills/",
+  "rules": "./rules/",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./mcp.json"
+}

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/revyl/cli/internal/devloop"
 )
 
 func TestFilterDetachArgs(t *testing.T) {
@@ -139,5 +141,50 @@ func TestPrintDetachHandshake_ReportsOpenedBrowser(t *testing.T) {
 	}
 	if openedURL != devCtx.ViewerURL {
 		t.Fatalf("opened URL = %q, want %q", openedURL, devCtx.ViewerURL)
+	}
+}
+
+func TestPrintDetachHandshakeReportsBuildingDuringDetailedBuildPhase(t *testing.T) {
+	prevJSON, prevNoOpen, prevOpen := devStartJSON, devStartNoOpen, devStartOpen
+	t.Cleanup(func() {
+		devStartJSON, devStartNoOpen, devStartOpen = prevJSON, prevNoOpen, prevOpen
+	})
+	devStartJSON, devStartNoOpen, devStartOpen = true, true, false
+
+	cwd := t.TempDir()
+	devCtx := &DevContext{
+		Name:         "default",
+		PID:          42,
+		SessionID:    "session-1",
+		SessionIndex: 3,
+		ViewerURL:    "https://viewer.example",
+	}
+	writeDevLogsTestStatus(t, cwd, "default", devStatus{
+		State: "building",
+		Build: &devloop.BuildStatus{State: devloop.BuildStateBuilding},
+		LastRebuild: &devRebuildInfo{
+			Status: "running",
+		},
+	})
+	setDevStatusBuildProgress(
+		devCtxStatusPath(cwd, "default"),
+		devloop.BuildStateQueued,
+		"remote_queue",
+		"Remote build queued",
+	)
+
+	output := captureStdout(t, func() {
+		printDetachHandshake(&cobra.Command{Use: "dev"}, cwd, devCtx, "/tmp/detach.log")
+	})
+
+	var handshake devDetachHandshake
+	if err := json.Unmarshal([]byte(output), &handshake); err != nil {
+		t.Fatalf("parse handshake: %v\noutput: %s", err, output)
+	}
+	if handshake.State != "building" {
+		t.Fatalf("handshake state = %q, want building", handshake.State)
+	}
+	if handshake.Build == nil || handshake.Build.Status != "running" {
+		t.Fatalf("handshake build = %+v, want running", handshake.Build)
 	}
 }

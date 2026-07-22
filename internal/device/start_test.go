@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/revyl/cli/internal/api"
@@ -389,5 +390,29 @@ func TestResolveLaunchVarIDs_DeduplicatesResolvedIDs(t *testing.T) {
 	}
 	if ids[0] != "launch-1" || ids[1] != "launch-2" {
 		t.Fatalf("ResolveLaunchVarIDs = %v, want [launch-1 launch-2]", ids)
+	}
+}
+
+func TestResolveLaunchVarIDs_RejectsVariableWithoutValue(t *testing.T) {
+	t.Parallel()
+
+	hasValue := false
+	resp := &api.OrgLaunchVariablesResponse{
+		Result: []api.OrgLaunchVariable{
+			{
+				ID:       "launch-1",
+				Key:      "REVYL_AUTH_BYPASS_TOKEN",
+				HasValue: &hasValue,
+			},
+		},
+	}
+
+	_, err := ResolveLaunchVarIDs(
+		context.Background(),
+		stubLaunchVarResolver{resp: resp},
+		[]string{"REVYL_AUTH_BYPASS_TOKEN"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "has no stored value") {
+		t.Fatalf("ResolveLaunchVarIDs error = %v, want missing-value error", err)
 	}
 }

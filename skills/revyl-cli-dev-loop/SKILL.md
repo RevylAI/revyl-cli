@@ -124,9 +124,14 @@ revyl device tap --target "Sign In button"
 revyl device type --target "Email field" --text "user@example.com"
 revyl device swipe --target "Product list" --direction down
 revyl device instruction "Open the checkout screen"
+revyl device validation "The checkout screen is visible"
 revyl device screenshot --out after.png
 revyl device report --session-id <session-id> --json
 ```
+
+Validation is semantic: a false or missing verdict exits non-zero even when the
+worker request completed successfully. In JSON mode, inspect `success` and
+`step_output.validation_result`.
 
 During exploration, capture the exact path that worked. Describe actions with visible target language and keep the path at intent level.
 
@@ -141,7 +146,8 @@ auth_bypass:
   deep_link: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home"
 ```
 
-`${VAR}` placeholders resolve from org launch-variable values at fire time.
+`${VAR}` placeholders resolve server-side from launch variables already
+attached to the session; secret values never enter CLI or MCP output.
 The deep link fires automatically after every app (re)launch. If the app ever
 shows a logged-out state mid-session (expired mint), recover by re-minting the
 launch vars with the repo's own mint script (check the repo's AGENTS.md or

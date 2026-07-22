@@ -166,7 +166,8 @@ auth_bypass:
   deep_link: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home"
 ```
 
-`${VAR}` placeholders resolve from org launch-variable values at fire time.
+`${VAR}` placeholders resolve server-side from launch variables already
+attached to the device session; secret values never enter CLI or MCP output.
 The deep link re-fires after every app (re)launch. If the app shows a
 logged-out state mid-session (expired mint), re-mint the launch vars with the
 repo's own mint script, then run `revyl dev auth refresh` to re-fire the link

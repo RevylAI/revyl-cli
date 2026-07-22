@@ -734,6 +734,7 @@ func printUpgradeNextSteps() {
 type postUpgradeSkillInstallCommand struct {
 	global bool
 	tools  []string
+	family string
 }
 
 func refreshSkillsAfterSuccessfulUpgrade(binaryPath string) {
@@ -757,7 +758,7 @@ func refreshSkillsAfterSuccessfulUpgrade(binaryPath string) {
 	ui.PrintInfo("Refreshing Revyl agent skills...")
 
 	for _, installCmd := range postUpgradeSkillInstallCommands(targets) {
-		args := []string{"skill", "install", "--force"}
+		args := []string{"skill", "install", "--force", "--" + installCmd.family}
 		for _, tool := range installCmd.tools {
 			args = append(args, "--"+tool)
 		}
@@ -822,30 +823,71 @@ func discoverPostUpgradeSkillTargets() []skillInstallTarget {
 }
 
 func postUpgradeSkillInstallCommands(targets []skillInstallTarget) []postUpgradeSkillInstallCommand {
-	grouped := make(map[bool][]string, 2)
-	seen := make(map[string]struct{}, len(targets))
-
-	for _, target := range targets {
-		key := fmt.Sprintf("%t:%s", target.global, target.tool)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		grouped[target.global] = append(grouped[target.global], target.tool)
-	}
-
-	commands := make([]postUpgradeSkillInstallCommand, 0, 2)
+	commands := make([]postUpgradeSkillInstallCommand, 0, 4)
 	for _, global := range []bool{false, true} {
-		tools := grouped[global]
-		if len(tools) == 0 {
-			continue
+		for _, family := range []string{"cli", "mcp"} {
+			var tools []string
+			seenTools := make(map[string]struct{}, len(targets))
+			for _, target := range targets {
+				if target.global != global ||
+					!targetHasSkillFamily(target, family) {
+					continue
+				}
+				if _, exists := seenTools[target.tool]; exists {
+					continue
+				}
+				seenTools[target.tool] = struct{}{}
+				tools = append(tools, target.tool)
+			}
+			if len(tools) == 0 {
+				continue
+			}
+			commands = append(commands, postUpgradeSkillInstallCommand{
+				global: global,
+				tools:  tools,
+				family: family,
+			})
 		}
-		commands = append(commands, postUpgradeSkillInstallCommand{
-			global: global,
-			tools:  tools,
-		})
 	}
 	return commands
+}
+
+// targetHasSkillFamily reports whether an existing target contains one skill family.
+//
+// Parameters:
+//   - target: Existing project or global agent skill directory.
+//   - family: Revyl skill family name: cli or mcp.
+//
+// Returns:
+//   - bool: Whether that family should be refreshed for the target.
+func targetHasSkillFamily(target skillInstallTarget, family string) bool {
+	entries, err := os.ReadDir(target.path)
+	if err != nil {
+		return family == "cli"
+	}
+
+	hasRevylSkill := false
+	hasCLISkill := false
+	hasMCPSkill := false
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, "revyl-") {
+			hasRevylSkill = true
+		}
+		if strings.HasPrefix(name, skillFamilyCLIPrefix) {
+			hasCLISkill = true
+		}
+		if strings.HasPrefix(name, skillFamilyMCPPrefix) {
+			hasMCPSkill = true
+		}
+	}
+	if family == "mcp" {
+		return hasMCPSkill
+	}
+	return hasCLISkill || (!hasMCPSkill && hasRevylSkill) || !hasRevylSkill
 }
 
 // downloadChecksums downloads and parses the checksums file.

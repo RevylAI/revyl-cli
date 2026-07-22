@@ -94,5 +94,5 @@ If a screen looks duplicated, inspect its variants and observations from the det
 
 - [Running Tests](tests/running-tests.md)
 - [Device Automation](device/index.md)
-- [MCP Setup](integrations/mcp-setup.md)
+- [MCP Setup](https://docs.revyl.ai/cli/mcp-setup)
 - [Command Reference](COMMANDS.md)

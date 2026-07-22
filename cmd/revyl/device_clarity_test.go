@@ -229,6 +229,26 @@ func TestDeviceLocalVarFlagsRegistered(t *testing.T) {
 	}
 }
 
+func TestFormatLiveStepFallback_ValidationFalseIsFailure(t *testing.T) {
+	t.Parallel()
+
+	response := &mcppkg.LiveStepResponse{
+		Success:    true,
+		StepType:   "validation",
+		StepOutput: json.RawMessage(`{"status":"success","validation_result":false}`),
+	}
+
+	got := formatLiveStepFallback(
+		"Validation",
+		mcppkg.LiveStepRequest{StepType: "validation"},
+		response,
+	)
+
+	if got != "Validation step failed (validation=false)" {
+		t.Fatalf("formatLiveStepFallback() = %q", got)
+	}
+}
+
 func TestFormatLiveStepFallback_LocalVarList(t *testing.T) {
 	t.Parallel()
 

@@ -13,61 +13,84 @@ import (
 	mcppkg "github.com/revyl/cli/internal/mcp"
 )
 
-type fakeOrgLaunchVarLister struct {
-	vars []api.OrgLaunchVariable
-	err  error
-}
-
-func (f *fakeOrgLaunchVarLister) ListOrgLaunchVariables(ctx context.Context) (*api.OrgLaunchVariablesResponse, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return &api.OrgLaunchVariablesResponse{Result: f.vars}, nil
-}
-
 type fakeWorkerRequester struct {
 	paths  []string
 	bodies []interface{}
+	err    error
 }
 
 func (f *fakeWorkerRequester) WorkerRequestForSession(ctx context.Context, sessionIndex int, path string, body interface{}) ([]byte, error) {
 	f.paths = append(f.paths, path)
 	f.bodies = append(f.bodies, body)
+	if f.err != nil {
+		return nil, f.err
+	}
 	return []byte(`{"status":"success"}`), nil
 }
 
-func withTestAuthBypass(t *testing.T, cfg *config.AuthBypassConfig, lister orgLaunchVarLister) *authBypassRuntime {
+func withTestAuthBypass(t *testing.T, cfg *config.AuthBypassConfig) *authBypassRuntime {
 	t.Helper()
 	prev := devAuthBypass
 	t.Cleanup(func() { devAuthBypass = prev })
-	devAuthBypass = &authBypassRuntime{cfg: cfg, client: lister}
+	devAuthBypass = &authBypassRuntime{cfg: cfg, state: "pending"}
 	return devAuthBypass
 }
 
-func TestAuthBypassResolveDeepLinkSubstitutesOrgVars(t *testing.T) {
+func TestAuthBypassDelegatesTemplateResolutionToWorkerProxy(t *testing.T) {
 	rt := withTestAuthBypass(t, &config.AuthBypassConfig{
 		DeepLink: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home",
-	}, &fakeOrgLaunchVarLister{vars: []api.OrgLaunchVariable{
-		{Key: "REVYL_AUTH_BYPASS_TOKEN", Value: "tok-123"},
-	}})
+	})
+	requester := &fakeWorkerRequester{}
 
-	link, err := rt.ResolveDeepLink(context.Background())
-	if err != nil {
-		t.Fatalf("ResolveDeepLink() error = %v", err)
+	if err := rt.FireDeepLink(context.Background(), requester, 0); err != nil {
+		t.Fatalf("FireDeepLink() error = %v", err)
 	}
-	if link != "myapp://revyl-auth?token=tok-123&redirect=/home" {
-		t.Fatalf("ResolveDeepLink() = %q", link)
+	if len(requester.paths) != 1 || requester.paths[0] != "/open_url_template" {
+		t.Fatalf("worker paths = %v, want one /open_url_template", requester.paths)
+	}
+	body, ok := requester.bodies[0].(api.DeviceOpenURLTemplateRequest)
+	if !ok || body.URLTemplate != rt.cfg.DeepLink {
+		t.Fatalf("open_url_template body = %#v", requester.bodies[0])
+	}
+	status := rt.Status()
+	if status == nil || status.State != "ready" || status.Error != "" {
+		t.Fatalf("Status() = %+v, want ready", status)
 	}
 }
 
-func TestAuthBypassResolveDeepLinkMissingVarFails(t *testing.T) {
+func TestAuthBypassFailureRedactsWorkerResponseFromErrorAndStatus(t *testing.T) {
+	const secret = "resolved-bypass-token"
 	rt := withTestAuthBypass(t, &config.AuthBypassConfig{
-		DeepLink: "myapp://revyl-auth?token=${MISSING_VAR}",
-	}, &fakeOrgLaunchVarLister{})
+		DeepLink: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}",
+	})
+	requester := &fakeWorkerRequester{
+		err: &mcppkg.WorkerHTTPError{
+			StatusCode: 500,
+			Path:       "/open_url_template",
+			Body:       `{"error":"failed to open myapp://revyl-auth?token=` + secret + `"}`,
+		},
+	}
 
-	_, err := rt.ResolveDeepLink(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "MISSING_VAR") {
-		t.Fatalf("ResolveDeepLink() error = %v, want missing-var error", err)
+	err := rt.FireDeepLink(context.Background(), requester, 0)
+	if err == nil {
+		t.Fatal("FireDeepLink() error = nil, want sanitized failure")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("FireDeepLink() error exposed secret: %q", err)
+	}
+	if !strings.Contains(err.Error(), "worker status 500") {
+		t.Fatalf("FireDeepLink() error = %q, want worker status", err)
+	}
+
+	status := rt.Status()
+	if status == nil || status.State != "failed" {
+		t.Fatalf("Status() = %+v, want failed", status)
+	}
+	if strings.Contains(status.Error, secret) {
+		t.Fatalf("Status().Error exposed secret: %q", status.Error)
+	}
+	if status.Error != err.Error() {
+		t.Fatalf("Status().Error = %q, want %q", status.Error, err.Error())
 	}
 }
 
@@ -75,71 +98,77 @@ func TestInitDevAuthBypassClearsRuntimeOnRemoval(t *testing.T) {
 	prev := devAuthBypass
 	t.Cleanup(func() { devAuthBypass = prev })
 
-	lister := &fakeOrgLaunchVarLister{}
 	initDevAuthBypass(&config.ProjectConfig{
 		AuthBypass: &config.AuthBypassConfig{DeepLink: "myapp://revyl-auth?static=true"},
-	}, lister)
+	})
 	if devAuthBypass == nil {
 		t.Fatal("initDevAuthBypass() left runtime nil for a configured section")
 	}
 
 	// A reload whose config no longer configures auth bypass must clear the
 	// previously active runtime so a removed section stops firing.
-	initDevAuthBypass(&config.ProjectConfig{}, lister)
+	initDevAuthBypass(&config.ProjectConfig{})
 	if devAuthBypass != nil {
 		t.Fatalf("initDevAuthBypass() = %+v, want nil after auth_bypass removed", devAuthBypass)
 	}
 }
 
-func TestAuthBypassResolveDeepLinkLeavesLiteralDollar(t *testing.T) {
-	// A literal `$` (e.g. in a query value) must survive resolution, matching
-	// the backend's ${VAR}-only substitution. os.Expand would treat `$5` as a
-	// special var and error.
-	rt := withTestAuthBypass(t, &config.AuthBypassConfig{
-		DeepLink: "myapp://revyl-auth?token=${TOKEN}&price=$5",
-	}, &fakeOrgLaunchVarLister{vars: []api.OrgLaunchVariable{
-		{Key: "TOKEN", Value: "tok"},
-	}})
-
-	link, err := rt.ResolveDeepLink(context.Background())
-	if err != nil {
-		t.Fatalf("ResolveDeepLink() error = %v", err)
+func TestInitDevAuthBypassPreservesOutcomeWhenConfigIsUnchanged(t *testing.T) {
+	testCases := []struct {
+		name      string
+		state     string
+		lastError string
+	}{
+		{name: "ready", state: "ready"},
+		{name: "failed", state: "failed", lastError: "auth bypass deep link failed to open"},
 	}
-	if link != "myapp://revyl-auth?token=tok&price=$5" {
-		t.Fatalf("ResolveDeepLink() = %q", link)
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			rt := withTestAuthBypass(t, &config.AuthBypassConfig{
+				LaunchVars: []string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"},
+				DeepLink:   "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}",
+			})
+			rt.setAttemptState(testCase.state, testCase.lastError)
+
+			initDevAuthBypass(&config.ProjectConfig{
+				AuthBypass: &config.AuthBypassConfig{
+					LaunchVars: []string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"},
+					DeepLink:   "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}",
+				},
+			})
+
+			if devAuthBypass != rt {
+				t.Fatal("initDevAuthBypass() replaced the runtime for unchanged config")
+			}
+			status := devAuthBypass.Status()
+			if status.State != testCase.state || status.Error != testCase.lastError {
+				t.Fatalf("Status() = %+v, want state %q and error %q", status, testCase.state, testCase.lastError)
+			}
+		})
 	}
 }
 
-func TestAuthBypassResolveDeepLinkIgnoresBareVarForm(t *testing.T) {
-	// The bare `$VAR` form is not a placeholder (only `${VAR}` is), so it is
-	// left literal rather than expanded or reported as a missing var.
+func TestInitDevAuthBypassResetsOutcomeWhenConfigChanges(t *testing.T) {
 	rt := withTestAuthBypass(t, &config.AuthBypassConfig{
-		DeepLink: "myapp://revyl-auth?a=${TOKEN}&b=$RAW",
-	}, &fakeOrgLaunchVarLister{vars: []api.OrgLaunchVariable{
-		{Key: "TOKEN", Value: "tok"},
-	}})
+		LaunchVars: []string{"REVYL_AUTH_BYPASS_ENABLED"},
+		DeepLink:   "myapp://revyl-auth?mode=old",
+	})
+	rt.setAttemptState("ready", "")
 
-	link, err := rt.ResolveDeepLink(context.Background())
-	if err != nil {
-		t.Fatalf("ResolveDeepLink() error = %v", err)
-	}
-	if link != "myapp://revyl-auth?a=tok&b=$RAW" {
-		t.Fatalf("ResolveDeepLink() = %q", link)
-	}
-}
+	initDevAuthBypass(&config.ProjectConfig{
+		AuthBypass: &config.AuthBypassConfig{
+			LaunchVars: []string{"REVYL_AUTH_BYPASS_ENABLED"},
+			DeepLink:   "myapp://revyl-auth?mode=new",
+		},
+	})
 
-func TestAuthBypassResolveDeepLinkStaticNoAPICall(t *testing.T) {
-	// A deep link without placeholders must not require the API at all.
-	rt := withTestAuthBypass(t, &config.AuthBypassConfig{
-		DeepLink: "myapp://revyl-auth?static=true",
-	}, &fakeOrgLaunchVarLister{err: context.DeadlineExceeded})
-
-	link, err := rt.ResolveDeepLink(context.Background())
-	if err != nil {
-		t.Fatalf("ResolveDeepLink() error = %v", err)
+	if devAuthBypass == rt {
+		t.Fatal("initDevAuthBypass() preserved the runtime after config changed")
 	}
-	if link != "myapp://revyl-auth?static=true" {
-		t.Fatalf("ResolveDeepLink() = %q", link)
+	status := devAuthBypass.Status()
+	if status.State != "pending" || status.Error != "" {
+		t.Fatalf("Status() = %+v, want fresh pending outcome", status)
 	}
 }
 
@@ -147,15 +176,15 @@ func TestApplyAuthBypassSessionDefaults(t *testing.T) {
 	withTestAuthBypass(t, &config.AuthBypassConfig{
 		LaunchVars: []string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"},
 		DeepLink:   "myapp://revyl-auth?static=true",
-	}, &fakeOrgLaunchVarLister{})
+	})
 
 	// Defaults apply when the caller provided nothing.
 	opts := applyAuthBypassSessionDefaults(context.Background(), mcppkg.StartSessionOptions{})
 	if len(opts.LaunchVars) != 2 {
 		t.Fatalf("LaunchVars = %v, want 2 config vars", opts.LaunchVars)
 	}
-	if opts.AppLink != "myapp://revyl-auth?static=true" {
-		t.Fatalf("AppLink = %q, want config deep link", opts.AppLink)
+	if opts.AppLink != "" {
+		t.Fatalf("AppLink = %q, want post-launch proxy handling", opts.AppLink)
 	}
 
 	// Explicit values win over config.
@@ -185,17 +214,17 @@ func TestApplyAuthBypassSessionDefaultsNoConfig(t *testing.T) {
 func TestFireAuthBypassAfterLaunchOpensURL(t *testing.T) {
 	withTestAuthBypass(t, &config.AuthBypassConfig{
 		DeepLink: "myapp://revyl-auth?token=${TOKEN}",
-	}, &fakeOrgLaunchVarLister{vars: []api.OrgLaunchVariable{{Key: "TOKEN", Value: "abc"}}})
+	})
 
 	requester := &fakeWorkerRequester{}
 	fireAuthBypassAfterLaunch(context.Background(), requester, 0)
 
-	if len(requester.paths) != 1 || requester.paths[0] != "/open_url" {
-		t.Fatalf("worker paths = %v, want one /open_url", requester.paths)
+	if len(requester.paths) != 1 || requester.paths[0] != "/open_url_template" {
+		t.Fatalf("worker paths = %v, want one /open_url_template", requester.paths)
 	}
-	body, ok := requester.bodies[0].(map[string]string)
-	if !ok || body["url"] != "myapp://revyl-auth?token=abc" {
-		t.Fatalf("open_url body = %#v", requester.bodies[0])
+	body, ok := requester.bodies[0].(api.DeviceOpenURLTemplateRequest)
+	if !ok || body.URLTemplate != "myapp://revyl-auth?token=${TOKEN}" {
+		t.Fatalf("open_url_template body = %#v", requester.bodies[0])
 	}
 }
 

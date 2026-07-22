@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -19,58 +19,56 @@ import (
 	"github.com/revyl/cli/internal/ui"
 )
 
-// authBypassLaunchVarCacheTTL bounds how long resolved org launch-variable
-// values are reused within a single dev-loop process. It keeps rapid rebuild ->
-// relaunch bursts from re-hitting ListOrgLaunchVariables on every deep-link
-// fire, while still short enough that an externally re-minted value is picked
-// up automatically on the next relaunch after the window.
-const authBypassLaunchVarCacheTTL = 60 * time.Second
-
-// orgLaunchVarLister is the api.Client surface needed to resolve ${VAR}
-// placeholders in the auth bypass deep link.
-type orgLaunchVarLister interface {
-	ListOrgLaunchVariables(ctx context.Context) (*api.OrgLaunchVariablesResponse, error)
-}
-
 // authBypassRuntime applies a project's auth_bypass config to device sessions:
 // launch vars at session start and the deep link after each app (re)launch.
 // Expiry recovery is agent-driven: re-mint the org launch vars with the repo's
 // own script, then `revyl dev auth refresh` re-fires the deep link.
 type authBypassRuntime struct {
-	cfg    *config.AuthBypassConfig
-	client orgLaunchVarLister
-
-	// mu guards the short-lived launch-variable value cache so concurrent
-	// relaunches (loop + device commands) don't race on it.
-	mu           sync.Mutex
-	cachedValues map[string]string
-	cachedAt     time.Time
+	cfg       *config.AuthBypassConfig
+	mu        sync.RWMutex
+	state     string
+	lastError string
 }
 
 // devAuthBypass is the active runtime for the current command invocation.
 // Initialized by initDevAuthBypass from paths that load the project config.
 var devAuthBypass *authBypassRuntime
 
-// authBypassPlaceholderRe matches ${VAR} placeholders in an auth bypass deep
-// link. It mirrors AUTH_BYPASS_PLACEHOLDER_RE in the backend
-// (cognisim_backend/app/services/scm_config_file.py) so the CLI and the
-// preview/proof path resolve deep links identically. Unlike os.Expand it does
-// NOT expand the bare $VAR form or treat $$ / $5 as special vars.
-var authBypassPlaceholderRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
-
 // initDevAuthBypass activates auth bypass handling for this invocation when
 // the project config has an auth_bypass section. Safe to call more than once:
 // a reload whose config no longer configures auth bypass clears any previously
 // active runtime so a removed auth_bypass section stops firing.
-func initDevAuthBypass(cfg *config.ProjectConfig, client orgLaunchVarLister) {
+func initDevAuthBypass(cfg *config.ProjectConfig) {
 	if cfg == nil || !cfg.AuthBypass.IsConfigured() {
 		devAuthBypass = nil
 		return
 	}
-	devAuthBypass = &authBypassRuntime{
-		cfg:    cfg.AuthBypass,
-		client: client,
+	if devAuthBypass.matchesConfig(cfg.AuthBypass) {
+		return
 	}
+	state := "configured"
+	if strings.TrimSpace(cfg.AuthBypass.DeepLink) != "" {
+		state = "pending"
+	}
+	devAuthBypass = &authBypassRuntime{
+		cfg:   cfg.AuthBypass,
+		state: state,
+	}
+}
+
+// matchesConfig reports whether a reload preserves the active auth-bypass behavior.
+//
+// Parameters:
+//   - cfg: Reloaded auth-bypass configuration to compare with the active runtime.
+//
+// Returns:
+//   - bool: True when the configurations have equivalent runtime behavior.
+func (r *authBypassRuntime) matchesConfig(cfg *config.AuthBypassConfig) bool {
+	if r == nil || r.cfg == nil || cfg == nil {
+		return false
+	}
+	return slices.Equal(r.cfg.LaunchVars, cfg.LaunchVars) &&
+		strings.TrimSpace(r.cfg.DeepLink) == strings.TrimSpace(cfg.DeepLink)
 }
 
 // LaunchVarKeys returns the configured org launch-variable keys.
@@ -81,91 +79,79 @@ func (r *authBypassRuntime) LaunchVarKeys() []string {
 	return append([]string(nil), r.cfg.LaunchVars...)
 }
 
-// ResolveDeepLink returns the deep link with ${VAR} placeholders substituted
-// from current org launch-variable values. Returns "" when no deep link is
-// configured.
-func (r *authBypassRuntime) ResolveDeepLink(ctx context.Context) (string, error) {
-	if r == nil {
-		return "", nil
-	}
-	link := strings.TrimSpace(r.cfg.DeepLink)
-	if link == "" {
-		return "", nil
-	}
-	if !strings.Contains(link, "${") {
-		return link, nil
-	}
-	values, err := r.launchVarValues(ctx)
-	if err != nil {
-		return "", fmt.Errorf("could not resolve auth bypass deep link variables: %w", err)
-	}
-	var missing []string
-	resolved := authBypassPlaceholderRe.ReplaceAllStringFunc(link, func(match string) string {
-		key := match[2 : len(match)-1] // strip "${" and "}"
-		if value, ok := values[key]; ok {
-			return value
-		}
-		missing = append(missing, key)
-		return ""
-	})
-	if len(missing) > 0 {
-		return "", fmt.Errorf(
-			"auth bypass deep link references org launch vars that don't exist: %s (mint them, e.g. `revyl global launch-var add`)",
-			strings.Join(missing, ", "),
-		)
-	}
-	return resolved, nil
-}
-
-// launchVarValues returns current org launch-variable values keyed by name,
-// served from a short-lived per-runtime cache to avoid re-hitting
-// ListOrgLaunchVariables on every relaunch/rebuild deep-link fire. The cache
-// TTL is short enough that an externally re-minted value is picked up on the
-// next relaunch after the window without an explicit refresh.
-func (r *authBypassRuntime) launchVarValues(ctx context.Context) (map[string]string, error) {
-	r.mu.Lock()
-	if r.cachedValues != nil && time.Since(r.cachedAt) < authBypassLaunchVarCacheTTL {
-		cached := r.cachedValues
-		r.mu.Unlock()
-		return cached, nil
-	}
-	r.mu.Unlock()
-
-	resp, err := r.client.ListOrgLaunchVariables(ctx)
-	if err != nil {
-		return nil, err
-	}
-	values := make(map[string]string, len(resp.Result))
-	for _, v := range resp.Result {
-		values[v.Key] = v.Value
-	}
-
-	r.mu.Lock()
-	r.cachedValues = values
-	r.cachedAt = time.Now()
-	r.mu.Unlock()
-	return values, nil
-}
-
-// FireDeepLink resolves and opens the auth deep link on the session's device.
-// Used after app (re)launches; the initial session start authenticates via
-// StartSessionOptions.AppLink instead.
+// FireDeepLink asks the existing worker proxy to resolve and open the auth
+// template with launch variables already attached to the session.
 func (r *authBypassRuntime) FireDeepLink(ctx context.Context, requester workerSessionRequester, sessionIndex int) error {
 	if r == nil {
 		return nil
 	}
-	link, err := r.ResolveDeepLink(ctx)
-	if err != nil {
-		return err
-	}
-	if link == "" {
+	template := strings.TrimSpace(r.cfg.DeepLink)
+	if template == "" {
 		return nil
 	}
-	if _, err := requester.WorkerRequestForSession(ctx, sessionIndex, "/open_url", map[string]string{"url": link}); err != nil {
-		return fmt.Errorf("auth bypass deep link failed to open: %w", err)
+	err := openURLAfterLaunch(ctx, requester, sessionIndex, template)
+	if err != nil {
+		publicError := authBypassPublicError(err)
+		r.setAttemptState("failed", publicError)
+		return errors.New(publicError)
 	}
+	r.setAttemptState("ready", "")
 	ui.PrintDim("Fired auth bypass deep link")
 	return nil
+}
+
+// openURLAfterLaunch opens a literal URL or delegates template resolution to
+// the existing backend worker proxy.
+func openURLAfterLaunch(ctx context.Context, requester workerSessionRequester, sessionIndex int, urlOrTemplate string) error {
+	value := strings.TrimSpace(urlOrTemplate)
+	if value == "" {
+		return nil
+	}
+	path := "/open_url"
+	body := interface{}(api.DeviceOpenURLRequest{URL: value})
+	if strings.Contains(value, "${") {
+		path = "/open_url_template"
+		body = api.DeviceOpenURLTemplateRequest{URLTemplate: value}
+	}
+	_, err := requester.WorkerRequestForSession(ctx, sessionIndex, path, body)
+	return err
+}
+
+// authBypassPublicError converts an internal failure into a secret-free message.
+//
+// Parameters:
+//   - err: Internal worker, transport, or cancellation failure.
+//
+// Returns:
+//   - string: Stable message safe for CLI, MCP, and persisted status output.
+func authBypassPublicError(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "auth bypass deep link request was cancelled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "auth bypass deep link request timed out"
+	}
+
+	var workerErr *mcppkg.WorkerHTTPError
+	if errors.As(err, &workerErr) {
+		return fmt.Sprintf(
+			"auth bypass deep link failed to open (worker status %d)",
+			workerErr.StatusCode,
+		)
+	}
+	return "auth bypass deep link failed to open"
+}
+
+// setAttemptState records a secret-free auth-bypass outcome for dev status.
+//
+// Parameters:
+//   - state: Public auth-bypass lifecycle state.
+//   - publicError: Sanitized message safe for persisted status output.
+func (r *authBypassRuntime) setAttemptState(state string, publicError string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.state = state
+	r.lastError = strings.TrimSpace(publicError)
 }
 
 // authBypassStatus is the auth_bypass block surfaced in `revyl dev status`.
@@ -173,6 +159,8 @@ type authBypassStatus struct {
 	Configured bool     `json:"configured"`
 	LaunchVars []string `json:"launch_vars,omitempty"`
 	DeepLink   bool     `json:"deep_link_configured"`
+	State      string   `json:"state"`
+	Error      string   `json:"error,omitempty"`
 }
 
 // Status reports auth bypass state for dev status consumers. Nil receiver
@@ -181,10 +169,14 @@ func (r *authBypassRuntime) Status() *authBypassStatus {
 	if r == nil {
 		return nil
 	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return &authBypassStatus{
 		Configured: true,
 		LaunchVars: r.LaunchVarKeys(),
 		DeepLink:   strings.TrimSpace(r.cfg.DeepLink) != "",
+		State:      r.state,
+		Error:      r.lastError,
 	}
 }
 
@@ -200,23 +192,15 @@ func fireAuthBypassAfterLaunch(ctx context.Context, requester workerSessionReque
 }
 
 // applyAuthBypassSessionDefaults merges auth bypass defaults into session start
-// options: config launch vars when no explicit --launch-var flags were given,
-// and the auth deep link as the post-launch AppLink when the caller has none
-// (hot-reload loops keep their dev-client link and fire the auth link after).
-func applyAuthBypassSessionDefaults(ctx context.Context, opts mcppkg.StartSessionOptions) mcppkg.StartSessionOptions {
+// options by adding config launch vars when no explicit flags were provided.
+// Session-start callers fire the deep-link template after the app is ready
+// through the worker proxy so secret values never cross into the CLI.
+func applyAuthBypassSessionDefaults(_ context.Context, opts mcppkg.StartSessionOptions) mcppkg.StartSessionOptions {
 	if devAuthBypass == nil {
 		return opts
 	}
 	if len(opts.LaunchVars) == 0 {
 		opts.LaunchVars = devAuthBypass.LaunchVarKeys()
-	}
-	if strings.TrimSpace(opts.AppLink) == "" {
-		link, err := devAuthBypass.ResolveDeepLink(ctx)
-		if err != nil {
-			ui.PrintWarning("%v", err)
-		} else if link != "" {
-			opts.AppLink = link
-		}
 	}
 	return opts
 }
@@ -284,7 +268,7 @@ func runDevAuthRefresh(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	initDevAuthBypass(cfg, deviceMgr.APIClient())
+	initDevAuthBypass(cfg)
 
 	session, err := resolveSessionFlag(cmd, deviceMgr)
 	if err != nil {

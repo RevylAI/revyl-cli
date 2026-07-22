@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/devloop"
 	"github.com/revyl/cli/internal/hotreload"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/ui"
@@ -1331,9 +1333,18 @@ func TestWaitForDevRebuildCompletion_IgnoresRunningSnapshot(t *testing.T) {
 		rebuild *devRebuildInfo
 		err     error
 	}
+	var progress []devloop.RebuildProgressEvent
 	resultCh := make(chan waitResult, 1)
 	go func() {
-		rebuild, err := waitForDevRebuildCompletion(context.Background(), statusPath, 3, time.Second)
+		rebuild, err := waitForDevRebuildCompletionWithProgress(
+			context.Background(),
+			statusPath,
+			3,
+			time.Second,
+			func(event devloop.RebuildProgressEvent) {
+				progress = append(progress, event)
+			},
+		)
 		resultCh <- waitResult{rebuild: rebuild, err: err}
 	}()
 
@@ -1366,9 +1377,22 @@ func TestWaitForDevRebuildCompletion_IgnoresRunningSnapshot(t *testing.T) {
 		if result.rebuild == nil || result.rebuild.Seq != 4 || result.rebuild.Status != "success" {
 			t.Fatalf("waitForDevRebuildCompletion() = %#v, want completed seq 4", result.rebuild)
 		}
+		if !containsRebuildProgressStatus(progress, "running") || !containsRebuildProgressStatus(progress, "success") {
+			t.Fatalf("rebuild progress = %#v, want running and success", progress)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("waitForDevRebuildCompletion() did not return after terminal snapshot")
 	}
+}
+
+// containsRebuildProgressStatus reports whether events contain one status.
+func containsRebuildProgressStatus(events []devloop.RebuildProgressEvent, status string) bool {
+	for _, event := range events {
+		if event.Status == status {
+			return true
+		}
+	}
+	return false
 }
 
 func TestWaitForDevRebuildCompletion_TimesOut(t *testing.T) {
@@ -1390,6 +1414,347 @@ func TestWaitForDevRebuildCompletion_TimesOut(t *testing.T) {
 	}
 	if !errors.Is(err, errDevRebuildWaitTimeout) {
 		t.Fatalf("waitForDevRebuildCompletion() error = %v, want timeout", err)
+	}
+}
+
+func TestDevRebuildProgressTrackerDeduplicatesLifecycleAndLogs(t *testing.T) {
+	tracker := newDevRebuildProgressTracker()
+	queuedLog := newDevRebuildLog("info", "Remote build queued")
+	queued := &devStatus{
+		Build: &devloop.BuildStatus{
+			State:       devloop.BuildStateQueued,
+			Phase:       "remote_queue",
+			RemoteJobID: "job-1",
+		},
+		LastRebuild: &devRebuildInfo{
+			Seq:         4,
+			Status:      "running",
+			RemoteJobID: "job-1",
+			Logs:        []devRebuildLogEntry{queuedLog},
+		},
+	}
+
+	first := tracker.events(queued)
+	if len(first) != 2 {
+		t.Fatalf("first progress events = %#v, want lifecycle and log", first)
+	}
+	if first[0].State != devloop.BuildStateQueued || first[0].Phase != "remote_queue" {
+		t.Fatalf("queued lifecycle = %+v", first[0])
+	}
+	if first[1].Message != "Remote build queued" || first[1].RemoteJobID != "job-1" {
+		t.Fatalf("queued log = %+v", first[1])
+	}
+	if duplicate := tracker.events(queued); len(duplicate) != 0 {
+		t.Fatalf("duplicate progress events = %#v", duplicate)
+	}
+
+	building := &devStatus{
+		Build: &devloop.BuildStatus{
+			State:       devloop.BuildStateBuilding,
+			Phase:       "compile",
+			RemoteJobID: "job-1",
+		},
+		LastRebuild: &devRebuildInfo{
+			Seq:         4,
+			Status:      "running",
+			RemoteJobID: "job-1",
+			Logs: []devRebuildLogEntry{
+				queuedLog,
+				newDevRebuildLog("info", "Compiling app"),
+			},
+		},
+	}
+	next := tracker.events(building)
+	if len(next) != 2 || next[0].Phase != "compile" || next[1].Message != "Compiling app" {
+		t.Fatalf("building progress events = %#v", next)
+	}
+
+	terminal := &devStatus{
+		Build: &devloop.BuildStatus{
+			State:             devloop.BuildStateSuccess,
+			RemoteJobID:       "job-1",
+			FreshBuildApplied: true,
+			BuiltVersion:      "version-1",
+		},
+		LastRebuild: &devRebuildInfo{
+			Seq:         4,
+			Status:      "success",
+			CompletedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			RemoteJobID: "job-1",
+			Logs:        building.LastRebuild.Logs,
+		},
+	}
+	final := tracker.events(terminal)
+	if len(final) != 1 || final[0].State != devloop.BuildStateSuccess || final[0].Status != "success" {
+		t.Fatalf("terminal progress events = %#v", final)
+	}
+}
+
+func TestWriteDevRebuildProgressEventUsesPrefixedJSONL(t *testing.T) {
+	event := devloop.RebuildProgressEvent{
+		Sequence: 4,
+		Status:   "running",
+		State:    devloop.BuildStateInstalling,
+		Phase:    "device_install",
+		Message:  "Installing remote build on device",
+	}
+	var output bytes.Buffer
+
+	writeDevRebuildProgressEvent(&output, event)
+
+	line := strings.TrimSpace(output.String())
+	if !strings.HasPrefix(line, devloop.RebuildProgressPrefix) {
+		t.Fatalf("progress line = %q, missing prefix", line)
+	}
+	var decoded devloop.RebuildProgressEvent
+	payload := strings.TrimPrefix(line, devloop.RebuildProgressPrefix)
+	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+		t.Fatalf("decode progress event: %v", err)
+	}
+	if decoded != event {
+		t.Fatalf("decoded progress = %+v, want %+v", decoded, event)
+	}
+}
+
+func TestWaitForDevRebuildCompletionReturnsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	rebuild, err := waitForDevRebuildCompletion(ctx, filepath.Join(t.TempDir(), "status.json"), 0, time.Second)
+
+	if rebuild != nil {
+		t.Fatalf("cancelled rebuild = %#v, want nil", rebuild)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled error = %v, want context.Canceled", err)
+	}
+}
+
+func TestWaitForExpectedDevRebuildCompletionReturnsExistingTerminalResult(t *testing.T) {
+	previousInterval := devRebuildPollInterval
+	devRebuildPollInterval = time.Millisecond
+	t.Cleanup(func() { devRebuildPollInterval = previousInterval })
+	statusPath := filepath.Join(t.TempDir(), "status.json")
+	writeDevStatusSnapshot(statusPath, devStatus{
+		Build: &devloop.BuildStatus{State: devloop.BuildStateSuccess},
+		LastRebuild: &devRebuildInfo{
+			Seq:         7,
+			Status:      "success",
+			CompletedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		},
+	})
+
+	rebuild, err := waitForExpectedDevRebuildCompletion(
+		context.Background(),
+		statusPath,
+		7,
+		time.Second,
+		nil,
+	)
+
+	if err != nil {
+		t.Fatalf("waitForExpectedDevRebuildCompletion(): %v", err)
+	}
+	if rebuild == nil || rebuild.Seq != 7 || rebuild.Status != "success" {
+		t.Fatalf("terminal rebuild = %#v", rebuild)
+	}
+}
+
+func TestWaitForExpectedDevRebuildCompletionReturnsRetainedResultAfterNextRebuildStarts(t *testing.T) {
+	previousInterval := devRebuildPollInterval
+	devRebuildPollInterval = time.Millisecond
+	t.Cleanup(func() { devRebuildPollInterval = previousInterval })
+	statusPath := filepath.Join(t.TempDir(), "status.json")
+	session := &mcppkg.DeviceSession{SessionID: "session-1"}
+	writeDevStatus(
+		statusPath,
+		session,
+		"https://app.revyl.ai/sessions/session-1",
+		"",
+		"",
+		"",
+		"ios",
+		7,
+		false,
+		devRebuildResult{elapsed: time.Second},
+	)
+	writeDevStatusRebuildStarted(
+		statusPath,
+		session,
+		"https://app.revyl.ai/sessions/session-1",
+		"",
+		"",
+		"",
+		"ios",
+		8,
+		false,
+		"ios-dev",
+	)
+
+	rebuild, err := waitForExpectedDevRebuildCompletion(
+		context.Background(),
+		statusPath,
+		7,
+		time.Second,
+		nil,
+	)
+
+	if err != nil {
+		t.Fatalf("waitForExpectedDevRebuildCompletion(): %v", err)
+	}
+	if rebuild == nil || rebuild.Seq != 7 || rebuild.Status != "success" {
+		t.Fatalf("retained terminal rebuild = %#v", rebuild)
+	}
+}
+
+func TestWaitForExpectedDevRebuildCompletionRejectsSupersededHandle(t *testing.T) {
+	previousInterval := devRebuildPollInterval
+	devRebuildPollInterval = time.Millisecond
+	t.Cleanup(func() { devRebuildPollInterval = previousInterval })
+	statusPath := filepath.Join(t.TempDir(), "status.json")
+	writeDevStatusSnapshot(statusPath, devStatus{
+		LastRebuild: &devRebuildInfo{
+			Seq:         8,
+			Status:      "success",
+			CompletedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		},
+	})
+
+	rebuild, err := waitForExpectedDevRebuildCompletion(
+		context.Background(),
+		statusPath,
+		7,
+		time.Second,
+		nil,
+	)
+
+	if rebuild != nil {
+		t.Fatalf("superseded rebuild = %#v, want nil", rebuild)
+	}
+	if !errors.Is(err, errDevRebuildSuperseded) {
+		t.Fatalf("superseded error = %v", err)
+	}
+}
+
+func TestValidateInternalRebuildHandleRejectsDifferentProcessGeneration(t *testing.T) {
+	handle := devloop.RebuildHandle{
+		ProjectDir:           "/tmp/project",
+		Context:              "default",
+		BaselineSequence:     3,
+		ExpectedSequence:     4,
+		ProcessID:            42,
+		ProcessStartedAtNano: 100,
+	}
+
+	err := validateInternalRebuildHandle(handle, "/tmp/project", "default", 42, 101)
+
+	if err == nil || !strings.Contains(err.Error(), "previous dev-loop process generation") {
+		t.Fatalf("validateInternalRebuildHandle() error = %v", err)
+	}
+}
+
+func TestValidateInternalRebuildHandleAcceptsLegacyNumericGeneration(t *testing.T) {
+	handle := devloop.RebuildHandle{
+		ProjectDir:           "/tmp/project",
+		Context:              "default",
+		BaselineSequence:     3,
+		ExpectedSequence:     4,
+		ProcessID:            42,
+		ProcessStartedAtNano: 100,
+	}
+
+	err := validateInternalRebuildHandle(handle, "/tmp/project", "default", 42, 100)
+
+	if err != nil {
+		t.Fatalf("validateInternalRebuildHandle() error = %v", err)
+	}
+}
+
+func TestValidateInternalRebuildHandleAcceptsExactGenerationAfterJSONNumberRounding(t *testing.T) {
+	const exactProcessStartedAtNano int64 = 1784692688213490950
+	handle := devloop.RebuildHandle{
+		ProjectDir:           "/tmp/project",
+		Context:              "default",
+		BaselineSequence:     3,
+		ExpectedSequence:     4,
+		ProcessID:            42,
+		ProcessStartedAtNano: 1784692688213491000,
+		ProcessGeneration:    "1784692688213490950",
+	}
+
+	err := validateInternalRebuildHandle(
+		handle,
+		"/tmp/project",
+		"default",
+		42,
+		exactProcessStartedAtNano,
+	)
+
+	if err != nil {
+		t.Fatalf("validateInternalRebuildHandle() error = %v", err)
+	}
+}
+
+func TestValidateInternalRebuildHandleRejectsDifferentExactGeneration(t *testing.T) {
+	handle := devloop.RebuildHandle{
+		ProjectDir:           "/tmp/project",
+		Context:              "default",
+		BaselineSequence:     3,
+		ExpectedSequence:     4,
+		ProcessID:            42,
+		ProcessStartedAtNano: 100,
+		ProcessGeneration:    "101",
+	}
+
+	err := validateInternalRebuildHandle(handle, "/tmp/project", "default", 42, 100)
+
+	if err == nil || !strings.Contains(err.Error(), "previous dev-loop process generation") {
+		t.Fatalf("validateInternalRebuildHandle() error = %v", err)
+	}
+}
+
+func TestValidateInternalRebuildHandleRejectsCorrelationMismatch(t *testing.T) {
+	base := devloop.RebuildHandle{
+		ProjectDir:           "/tmp/project",
+		Context:              "default",
+		BaselineSequence:     3,
+		ExpectedSequence:     4,
+		ProcessID:            42,
+		ProcessStartedAtNano: 100,
+	}
+	tests := []struct {
+		name    string
+		handle  devloop.RebuildHandle
+		project string
+		context string
+		pid     int
+		want    string
+	}{
+		{name: "project", handle: base, project: "/tmp/other", context: "default", pid: 42, want: "does not match"},
+		{name: "context", handle: base, project: "/tmp/project", context: "other", pid: 42, want: "does not match"},
+		{name: "pid", handle: base, project: "/tmp/project", context: "default", pid: 43, want: "does not match"},
+		{
+			name: "sequence",
+			handle: devloop.RebuildHandle{
+				ProjectDir:       "/tmp/project",
+				Context:          "default",
+				BaselineSequence: 3,
+				ExpectedSequence: 5,
+				ProcessID:        42,
+			},
+			project: "/tmp/project",
+			context: "default",
+			pid:     42,
+			want:    "sequence is invalid",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateInternalRebuildHandle(test.handle, test.project, test.context, test.pid, 100)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validateInternalRebuildHandle() error = %v, want containing %q", err, test.want)
+			}
+		})
 	}
 }
 
@@ -1571,6 +1936,92 @@ func TestWriteDevStatus_PreservesSeedMetadata(t *testing.T) {
 	}
 }
 
+func TestWriteDevStatusRemoteBuildRunningPreservesLegacyValues(t *testing.T) {
+	tests := []struct {
+		name           string
+		remoteJobID    string
+		wantBuildState devloop.BuildState
+	}{
+		{name: "preparing", wantBuildState: devloop.BuildStatePreparing},
+		{name: "building", remoteJobID: "job-1", wantBuildState: devloop.BuildStateBuilding},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			statusPath := filepath.Join(t.TempDir(), "status.json")
+			writeDevStatusRemoteBuildRunning(
+				statusPath,
+				&mcppkg.DeviceSession{SessionID: "session-1"},
+				"https://viewer.example",
+				"ios",
+				"ios-dev",
+				test.remoteJobID,
+				nil,
+				"",
+				false,
+			)
+
+			data, err := os.ReadFile(statusPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var status devStatus
+			if err := json.Unmarshal(data, &status); err != nil {
+				t.Fatal(err)
+			}
+			if status.State != "building" || status.LastRebuild == nil || status.LastRebuild.Status != "running" {
+				t.Fatalf("legacy status = %+v", status)
+			}
+			if status.Build == nil || status.Build.State != test.wantBuildState {
+				t.Fatalf("build status = %+v, want %q", status.Build, test.wantBuildState)
+			}
+		})
+	}
+}
+
+func TestSetDevStatusBuildProgressPreservesLoopState(t *testing.T) {
+	tests := []struct {
+		name  string
+		state devloop.BuildState
+		phase string
+	}{
+		{name: "preparing", state: devloop.BuildStatePreparing, phase: "packaging"},
+		{name: "queued", state: devloop.BuildStateQueued, phase: "remote_queue"},
+		{name: "building", state: devloop.BuildStateBuilding, phase: "compile"},
+		{name: "installing", state: devloop.BuildStateInstalling, phase: "device_install"},
+		{name: "launching", state: devloop.BuildStateLaunching, phase: "app_launch"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			statusPath := filepath.Join(t.TempDir(), "status.json")
+			writeDevStatusSnapshot(statusPath, devStatus{
+				State: "building",
+				Build: &devloop.BuildStatus{State: devloop.BuildStateBuilding},
+				LastRebuild: &devRebuildInfo{
+					Status: "running",
+				},
+			})
+
+			setDevStatusBuildProgress(statusPath, test.state, test.phase, "Build progress")
+
+			data, err := os.ReadFile(statusPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var status devStatus
+			if err := json.Unmarshal(data, &status); err != nil {
+				t.Fatal(err)
+			}
+			if status.State != "building" {
+				t.Fatalf("loop state = %q, want building", status.State)
+			}
+			if status.Build == nil || status.Build.State != test.state || status.Build.Phase != test.phase {
+				t.Fatalf("build status = %+v, want state=%q phase=%q", status.Build, test.state, test.phase)
+			}
+		})
+	}
+}
+
 func TestWriteDevStatus_DoesNotCarrySeedToDifferentSession(t *testing.T) {
 	statusPath := filepath.Join(t.TempDir(), "status.json")
 	writeDevStatusSnapshot(statusPath, devStatus{
@@ -1702,6 +2153,33 @@ func TestWriteDevStatus_BuildFailure(t *testing.T) {
 	}
 	if len(ds.LastRebuild.Logs) == 0 || ds.LastRebuild.Logs[0].Kind != "error" {
 		t.Fatalf("expected error rebuild log, got %#v", ds.LastRebuild.Logs)
+	}
+}
+
+func TestWriteDevStatus_CapacityBlockPreservesLegacyFailure(t *testing.T) {
+	statusPath := filepath.Join(t.TempDir(), "status.json")
+	writeDevStatus(statusPath, nil, "", "", "", "", "ios", 1, false, devRebuildResult{
+		buildErr: fmt.Errorf("remote build capacity unavailable"),
+	})
+
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status devStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.LastRebuild == nil || status.LastRebuild.Status != "build_failed" {
+		t.Fatalf("legacy rebuild status = %+v", status.LastRebuild)
+	}
+	if status.Build == nil ||
+		status.Build.State != devloop.BuildStateCapacityBlocked ||
+		!status.Build.Retryable {
+		t.Fatalf("additive build status = %+v", status.Build)
+	}
+	if len(status.LastRebuild.Logs) == 0 || status.LastRebuild.Logs[0].Kind != "warning" {
+		t.Fatalf("capacity logs = %+v", status.LastRebuild.Logs)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/devloop"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/sigutil"
 	"github.com/revyl/cli/internal/ui"
@@ -36,6 +37,17 @@ type remoteDevInstaller interface {
 		index int,
 		req mcppkg.DeviceInstallRequest,
 	) (*mcppkg.WorkerActionResponse, error)
+}
+
+// remoteDevBuildDetailResolver resolves a completed remote build artifact.
+type remoteDevBuildDetailResolver interface {
+	GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error)
+}
+
+// remoteDevInstallLauncher installs and launches an app on a device session.
+type remoteDevInstallLauncher interface {
+	remoteDevInstaller
+	workerSessionRequester
 }
 
 func validateRemoteDevStartFlags() error {
@@ -150,7 +162,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 	// build installs (hot-swap) the moment the artifact lands.
 	triggerCh := make(chan remoteDevBuildTrigger, 1)
 	go func() {
-		job, triggerErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
+		job, triggerErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd, nil)
 		triggerCh <- remoteDevBuildTrigger{job: job, err: triggerErr}
 	}()
 
@@ -321,7 +333,8 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		ui.PrintInfo("Device session stays alive — fix the issue and trigger a rebuild.")
 	} else {
 		buildJob := trigger.job
-		remoteBuild, buildErr := waitRemoteDevBuild(ctx, client, buildJob, cwd)
+		progressSink := newDevStatusRemoteBuildProgressSink(statusPath)
+		remoteBuild, buildErr := waitRemoteDevBuild(ctx, client, buildJob, cwd, progressSink)
 		if buildErr != nil {
 			if stopper.IsUserCanceled(buildErr) {
 				return nil
@@ -336,7 +349,18 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 			ui.PrintWarning("Initial remote build failed: %v", buildErr)
 			ui.PrintInfo("Device session stays alive — fix the issue and trigger a rebuild.")
 		} else {
-			installErr := installAndLaunchRemoteDevBuild(ctx, client, deviceMgr, session, devicePlatform, remoteBuild, &bundleID, statusPath, viewerURL)
+			installErr := installAndLaunchRemoteDevBuild(
+				ctx,
+				client,
+				deviceMgr,
+				session,
+				devicePlatform,
+				remoteBuild,
+				&bundleID,
+				statusPath,
+				viewerURL,
+				progressSink,
+			)
 			if installErr != nil {
 				if stopper.IsUserCanceled(installErr) {
 					return nil
@@ -404,6 +428,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		// Publish "running" before any work so `revyl dev status` and
 		// `rebuild --wait` never see the prior rebuild's result as current.
 		writeDevStatusRebuildStarted(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, platformKey)
+		progressSink := newDevStatusRemoteBuildProgressSink(statusPath)
 
 		// Reload the project config so edits to build commands, caches, and
 		// auth_bypass take effect without restarting the loop.
@@ -429,15 +454,15 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 				appID = newAppID
 			}
 			buildCaches = config.EffectiveBuildCaches(reloaded.Build, reloadedPlat)
-			initDevAuthBypass(reloaded, client)
+			initDevAuthBypass(reloaded)
 		}
 
-		buildJob, buildErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
+		buildJob, buildErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd, progressSink)
 		if buildErr == nil {
 			// Surface the live job id while the runner builds.
 			setDevStatusRemoteJobID(statusPath, buildJob.jobID)
 			var remoteBuild remoteDevBuildResult
-			remoteBuild, buildErr = waitRemoteDevBuild(ctx, client, buildJob, cwd)
+			remoteBuild, buildErr = waitRemoteDevBuild(ctx, client, buildJob, cwd, progressSink)
 			if buildErr == nil {
 				result.remoteJobID = remoteBuild.jobID
 				result.remoteVersionID = remoteBuild.versionID
@@ -478,6 +503,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 			continue
 		}
 
+		publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
+			State: devloop.BuildStateInstalling, Phase: "device_install", Message: "Installing remote build on device",
+		})
 		installedBundleID, installDuration, installErr := installRemoteDevBuild(ctx, deviceMgr, session, buildDetail, bundleID)
 		result.pushDuration = installDuration
 		if installErr != nil {
@@ -496,6 +524,9 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 			result.newBundleID = installedBundleID
 		}
 
+		publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
+			State: devloop.BuildStateLaunching, Phase: "app_launch", Message: "Launching rebuilt app",
+		})
 		tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, bundleID, "", "")
 		result.elapsed = time.Since(rebuildStart)
 		writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, result)
@@ -520,6 +551,40 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 type remoteDevBuildJob struct {
 	jobID   string
 	started time.Time
+}
+
+// remoteDevBuildProgress describes one remote build phase published to status consumers.
+type remoteDevBuildProgress struct {
+	State   devloop.BuildState
+	Phase   string
+	Message string
+}
+
+// remoteDevBuildProgressSink receives typed remote build progress.
+type remoteDevBuildProgressSink func(remoteDevBuildProgress)
+
+// newDevStatusRemoteBuildProgressSink returns a sink that atomically updates dev status.
+//
+// Parameters:
+//   - statusPath: Dev status snapshot to update.
+//
+// Returns:
+//   - remoteDevBuildProgressSink: Sink that persists typed progress.
+func newDevStatusRemoteBuildProgressSink(statusPath string) remoteDevBuildProgressSink {
+	return func(progress remoteDevBuildProgress) {
+		setDevStatusBuildProgress(statusPath, progress.State, progress.Phase, progress.Message)
+	}
+}
+
+// publishRemoteDevBuildProgress delivers one update when a sink is configured.
+//
+// Parameters:
+//   - sink: Optional progress destination.
+//   - progress: Typed remote build update.
+func publishRemoteDevBuildProgress(sink remoteDevBuildProgressSink, progress remoteDevBuildProgress) {
+	if sink != nil {
+		sink(progress)
+	}
 }
 
 // remoteDevBuildTrigger carries the result of an asynchronous
@@ -596,6 +661,21 @@ func seedLatestDevBuild(
 // triggerRemoteDevBuild packages the working tree, uploads it, and enqueues a
 // remote build. It returns as soon as the job is accepted so the caller can do
 // other work (e.g. boot a device) while the runner builds.
+//
+// Parameters:
+//   - ctx: Remote build cancellation context.
+//   - client: Revyl API client.
+//   - platCfg: Selected remote build platform configuration.
+//   - buildCaches: Cache configuration sent to the remote runner.
+//   - platformKey: Project build-platform key.
+//   - devicePlatform: Device platform targeted by the artifact.
+//   - appID: Revyl app identifier.
+//   - cwd: Working tree to package.
+//   - progressSink: Optional typed progress destination.
+//
+// Returns:
+//   - remoteDevBuildJob: Accepted remote job metadata.
+//   - error: Packaging, upload, validation, capacity, or admission failure.
 func triggerRemoteDevBuild(
 	ctx context.Context,
 	client *api.Client,
@@ -605,16 +685,33 @@ func triggerRemoteDevBuild(
 	devicePlatform string,
 	appID string,
 	cwd string,
+	progressSink remoteDevBuildProgressSink,
 ) (remoteDevBuildJob, error) {
 	start := time.Now()
 	parsedAppID, err := uuid.Parse(strings.TrimSpace(appID))
 	if err != nil {
 		return remoteDevBuildJob{}, fmt.Errorf("app id must be a valid UUID: %w", err)
 	}
+	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
+		State: devloop.BuildStatePreparing, Phase: "capacity_check", Message: "Checking remote build capacity",
+	})
+	availability, availabilityErr := client.CheckBuildRunnersAvailable(ctx, devicePlatform)
+	if availabilityErr != nil {
+		ui.PrintWarning("Build capacity preflight unavailable; continuing to authoritative admission: %v", availabilityErr)
+	} else if availability != nil && !availability.Available && availability.RunnerCount >= 0 {
+		reason := "no active runner"
+		if availability.UnavailableReason != nil && strings.TrimSpace(*availability.UnavailableReason) != "" {
+			reason = strings.TrimSpace(*availability.UnavailableReason)
+		}
+		return remoteDevBuildJob{}, fmt.Errorf("build capacity unavailable: %s", reason)
+	}
 	ui.Println()
 	ui.PrintInfo("Remote building %s...", platformKey)
 	ui.PrintInfo("Packaging current working tree...")
 	ui.PrintDim("  Run from the app subdirectory when using a large monorepo.")
+	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
+		State: devloop.BuildStatePreparing, Phase: "packaging", Message: "Packaging current working tree",
+	})
 
 	archivePath, err := createSourceArchiveIncludingWorkingTree(cwd)
 	if err != nil {
@@ -632,6 +729,9 @@ func triggerRemoteDevBuild(
 		return remoteDevBuildJob{}, fmt.Errorf("source archive too large (%.0f MB). Max 500 MB", sizeMB)
 	}
 
+	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
+		State: devloop.BuildStatePreparing, Phase: "uploading", Message: "Uploading source snapshot",
+	})
 	uploadResp, err := client.GetRemoteBuildUploadURL(ctx, parsedAppID, "source.tar.gz", archiveInfo.Size())
 	if err != nil {
 		return remoteDevBuildJob{}, fmt.Errorf("failed to get remote build upload URL: %w", err)
@@ -655,6 +755,9 @@ func triggerRemoteDevBuild(
 	if err != nil {
 		return remoteDevBuildJob{}, err
 	}
+	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
+		State: devloop.BuildStatePreparing, Phase: "admission", Message: "Submitting remote build",
+	})
 	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq, timeoutSeconds)
 	if err != nil {
 		return remoteDevBuildJob{}, fmt.Errorf("failed to trigger remote build: %w", err)
@@ -665,13 +768,25 @@ func triggerRemoteDevBuild(
 
 // waitRemoteDevBuild blocks until a triggered remote build completes and
 // resolves its build version.
+//
+// Parameters:
+//   - ctx: Remote build cancellation context.
+//   - client: Revyl API client.
+//   - job: Accepted remote job metadata.
+//   - cwd: Packaged working directory.
+//   - progressSink: Optional typed progress destination.
+//
+// Returns:
+//   - remoteDevBuildResult: Terminal job and version metadata.
+//   - error: Polling or terminal remote build failure.
 func waitRemoteDevBuild(
 	ctx context.Context,
 	client *api.Client,
 	job remoteDevBuildJob,
 	cwd string,
+	progressSink remoteDevBuildProgressSink,
 ) (remoteDevBuildResult, error) {
-	status, err := pollRemoteBuildStatusResult(ctx, client, job.jobID, false)
+	status, err := pollRemoteBuildStatusResultWithProgress(ctx, client, job.jobID, false, progressSink)
 	if err != nil {
 		return remoteDevBuildResult{jobID: job.jobID, duration: time.Since(job.started)}, err
 	}
@@ -701,11 +816,11 @@ func runRemoteDevBuild(
 	appID string,
 	cwd string,
 ) (remoteDevBuildResult, error) {
-	job, err := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd)
+	job, err := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd, nil)
 	if err != nil {
 		return remoteDevBuildResult{}, err
 	}
-	return waitRemoteDevBuild(ctx, client, job, cwd)
+	return waitRemoteDevBuild(ctx, client, job, cwd, nil)
 }
 
 // writeDevStatusRemoteBuildRunning publishes a live session whose initial
@@ -736,6 +851,10 @@ func writeDevStatusRemoteBuildRunning(
 	for _, cache := range caches {
 		logs = append(logs, newDevRebuildLog("info", fmt.Sprintf("Cache configured: %s (%s)", cache.Key, strings.Join(cache.Paths, ", "))))
 	}
+	buildState := devloop.BuildStatePreparing
+	if buildJobID != "" {
+		buildState = devloop.BuildStateBuilding
+	}
 	ds := devStatus{
 		State:         "building",
 		PID:           os.Getpid(),
@@ -745,6 +864,11 @@ func writeDevStatusRemoteBuildRunning(
 		RebuildCount:  0,
 		SeededVersion: strings.TrimSpace(seededVersion),
 		InstalledSeed: installedSeed,
+		Build: &devloop.BuildStatus{
+			State:         buildState,
+			RemoteJobID:   buildJobID,
+			SeededVersion: strings.TrimSpace(seededVersion),
+		},
 		LastRebuild: &devRebuildInfo{
 			StartedAt:   time.Now().UTC().Format(time.RFC3339Nano),
 			Seq:         0,
@@ -761,21 +885,35 @@ func writeDevStatusRemoteBuildRunning(
 	writeDevStatusSnapshot(statusPath, ds)
 }
 
-// installAndLaunchRemoteDevBuild resolves a completed remote build, installs
-// it on the session's device, launches it (which fires the auth bypass deep
-// link), and records the successful initial build in the status file.
+// installAndLaunchRemoteDevBuild installs and launches a completed remote build.
+//
+// Parameters:
+//   - ctx: Context controlling artifact resolution and device operations.
+//   - resolver: Client used to resolve the completed build artifact.
+//   - deviceMgr: Device operations used to install and launch the artifact.
+//   - session: Device session receiving the artifact.
+//   - devicePlatform: Normalized target platform.
+//   - remoteBuild: Completed remote build metadata.
+//   - bundleID: App identifier updated from artifact or install metadata.
+//   - statusPath: Dev status snapshot updated on completion or failure.
+//   - viewerURL: Device viewer URL retained in the status snapshot.
+//   - progressSink: Optional destination for install and launch transitions.
+//
+// Returns:
+//   - error: Artifact resolution or installation failure.
 func installAndLaunchRemoteDevBuild(
 	ctx context.Context,
-	client *api.Client,
-	deviceMgr *mcppkg.DeviceSessionManager,
+	resolver remoteDevBuildDetailResolver,
+	deviceMgr remoteDevInstallLauncher,
 	session *mcppkg.DeviceSession,
 	devicePlatform string,
 	remoteBuild remoteDevBuildResult,
 	bundleID *string,
 	statusPath string,
 	viewerURL string,
+	progressSink remoteDevBuildProgressSink,
 ) error {
-	buildDetail, err := client.GetBuildVersionDownloadURL(ctx, remoteBuild.versionID)
+	buildDetail, err := resolver.GetBuildVersionDownloadURL(ctx, remoteBuild.versionID)
 	if err != nil {
 		writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, devRebuildResult{
 			buildMode:   "remote",
@@ -789,6 +927,9 @@ func installAndLaunchRemoteDevBuild(
 		*bundleID = strings.TrimSpace(buildDetail.PackageName)
 	}
 
+	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
+		State: devloop.BuildStateInstalling, Phase: "device_install", Message: "Installing remote build on device",
+	})
 	installedBundleID, installDuration, err := installRemoteDevBuild(ctx, deviceMgr, session, buildDetail, *bundleID)
 	if err != nil {
 		writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, devRebuildResult{
@@ -802,6 +943,9 @@ func installAndLaunchRemoteDevBuild(
 	if installedBundleID != "" {
 		*bundleID = installedBundleID
 	}
+	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
+		State: devloop.BuildStateLaunching, Phase: "app_launch", Message: "Launching remote build",
+	})
 	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, *bundleID, "", "")
 
 	writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, devRebuildResult{
@@ -850,10 +994,33 @@ func remoteDevTriggerRequest(appID uuid.UUID, sourceKey, platform, version strin
 }
 
 func pollRemoteBuildStatusResult(ctx context.Context, client *api.Client, jobID string, jsonMode bool) (*api.RemoteBuildStatusResponse, error) {
+	return pollRemoteBuildStatusResultWithProgress(ctx, client, jobID, jsonMode, nil)
+}
+
+// pollRemoteBuildStatusResultWithProgress waits for a remote build and publishes status transitions.
+//
+// Parameters:
+//   - ctx: Polling cancellation context.
+//   - client: Revyl API client.
+//   - jobID: Remote build job identifier.
+//   - jsonMode: Whether interruption errors should follow JSON-mode semantics.
+//   - progressSink: Optional typed progress destination.
+//
+// Returns:
+//   - *api.RemoteBuildStatusResponse: Terminal remote build status.
+//   - error: Polling interruption or terminal remote build failure.
+func pollRemoteBuildStatusResultWithProgress(
+	ctx context.Context,
+	client *api.Client,
+	jobID string,
+	jsonMode bool,
+	progressSink remoteDevBuildProgressSink,
+) (*api.RemoteBuildStatusResponse, error) {
 	ticker := time.NewTicker(remoteBuildPollInterval)
 	defer ticker.Stop()
 
 	lastStatus := ""
+	lastProgressKey := ""
 	logCursor := "0-0"
 	logFormatter := &remoteBuildLogFormatter{}
 	startTime := time.Now()
@@ -876,6 +1043,12 @@ func pollRemoteBuildStatusResult(ctx context.Context, client *api.Client, jobID 
 				continue
 			}
 
+			progress := remoteBuildProgressFromStatus(status)
+			progressKey := string(progress.State) + "\x00" + progress.Phase
+			if progressKey != lastProgressKey {
+				publishRemoteDevBuildProgress(progressSink, progress)
+				lastProgressKey = progressKey
+			}
 			if status.Status != lastStatus {
 				if ui.IsDebugMode() {
 					elapsed := time.Since(startTime).Round(time.Second)
@@ -943,6 +1116,42 @@ func pollRemoteBuildStatusResult(ctx context.Context, client *api.Client, jobID 
 			}
 		}
 	}
+}
+
+// remoteBuildProgressFromStatus maps a backend build status to the stable dev lifecycle.
+//
+// Parameters:
+//   - status: Backend remote build status.
+//
+// Returns:
+//   - remoteDevBuildProgress: Stable state, detailed phase, and display message.
+func remoteBuildProgressFromStatus(status *api.RemoteBuildStatusResponse) remoteDevBuildProgress {
+	if status == nil {
+		return remoteDevBuildProgress{}
+	}
+	phase := strings.TrimSpace(status.Status)
+	if status.Phase != nil && strings.TrimSpace(*status.Phase) != "" {
+		phase = strings.TrimSpace(*status.Phase)
+	}
+	progress := remoteDevBuildProgress{
+		State:   devloop.BuildStateBuilding,
+		Phase:   phase,
+		Message: "Remote build " + strings.TrimSpace(status.Status),
+	}
+	switch strings.ToLower(strings.TrimSpace(status.Status)) {
+	case "pending", "queued":
+		progress.State = devloop.BuildStateQueued
+	case "success":
+		progress.State = devloop.BuildStateInstalling
+		progress.Message = "Remote build completed"
+	case "failed":
+		progress.State = devloop.BuildStateFailed
+		progress.Message = "Remote build failed"
+	case "cancelled", "canceled":
+		progress.State = devloop.BuildStateCancelled
+		progress.Message = "Remote build cancelled"
+	}
+	return progress
 }
 
 func installRemoteDevBuild(

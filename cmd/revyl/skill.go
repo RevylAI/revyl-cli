@@ -50,12 +50,16 @@ const (
 )
 
 const cursorRuleContent = `---
-description: Use Revyl CLI agent skills for mobile dev loops, test authoring, failure analysis, and auth bypass.
+description: Use Revyl CLI fallback skills when the Revyl MCP plugin is unavailable.
 globs:
 alwaysApply: false
 ---
 
-# Revyl Agent Skills
+# Revyl CLI-Only Agent Skills
+
+This is the explicit CLI-only fallback. When the Revyl MCP tools are available,
+load ` + "`revyl-mcp-dev-loop`" + ` and use ` + "`start_dev_loop`" + ` instead.
+Do not run a parallel CLI dev loop alongside an MCP-owned loop.
 
 Use this rule when the user asks Cursor to run the app, verify a change on a device, work with Revyl, mobile cloud devices, revyl dev, Revyl test creation, Revyl run analysis, or test-only auth bypass.
 
@@ -172,6 +176,8 @@ to that specific tool's skill directory.
 
 By default installs to the project-level directory (e.g. .cursor/skills/).
 Use --global to install to the user-level directory instead.
+Cursor Marketplace plugin users do not need this command because the plugin
+already bundles its MCP-first skills and routing rule.
 
 EXAMPLES:
   revyl skill install --force
@@ -306,8 +312,18 @@ func installSkillsToTargets(targets []skillInstallTarget, allSkills []skillcatal
 	var pruned []string
 	var pruneErrors []string
 	installCompanionRule := includesCLISkill(allSkills)
+	removeCompanionRule := includesMCPSkill(allSkills) && !installCompanionRule
 
 	for _, target := range targets {
+		if removeCompanionRule {
+			removedRule, removeErr := removeCursorCLICompanionRule(target)
+			if removeErr != nil {
+				pruneErrors = append(pruneErrors, removeErr.Error())
+			} else if removedRule != "" {
+				pruned = append(pruned, removedRule)
+			}
+		}
+
 		for _, sk := range allSkills {
 			path, wrote, err := installSkillTo(target.path, sk, force)
 			if err != nil {
@@ -461,6 +477,22 @@ func resolveInstallSkills(selectedNames []string) ([]skillcatalog.Skill, error) 
 func includesCLISkill(allSkills []skillcatalog.Skill) bool {
 	for _, sk := range allSkills {
 		if strings.HasPrefix(sk.Name, skillFamilyCLIPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// includesMCPSkill reports whether one install selection contains MCP skills.
+//
+// Parameters:
+//   - allSkills: Resolved skills selected for installation.
+//
+// Returns:
+//   - bool: Whether at least one MCP-family skill is present.
+func includesMCPSkill(allSkills []skillcatalog.Skill) bool {
+	for _, sk := range allSkills {
+		if strings.HasPrefix(sk.Name, skillFamilyMCPPrefix) {
 			return true
 		}
 	}
@@ -701,6 +733,30 @@ func installCursorCompanionRule(target skillInstallTarget, force bool) (string, 
 	}
 
 	return rulePath, true, nil
+}
+
+// removeCursorCLICompanionRule removes the CLI-first rule for an MCP-only install.
+//
+// Parameters:
+//   - target: Skill installation target whose sibling rules directory is inspected.
+//
+// Returns:
+//   - string: Removed rule path, or empty when no action was needed.
+//   - error: Filesystem inspection or removal failure.
+func removeCursorCLICompanionRule(target skillInstallTarget) (string, error) {
+	if target.tool != "cursor" || target.global {
+		return "", nil
+	}
+
+	cursorDir := filepath.Dir(target.path)
+	rulePath := filepath.Join(cursorDir, "rules", cursorRuleFileName)
+	if err := os.Remove(rulePath); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("remove CLI-only Cursor rule %s: %w", rulePath, err)
+	}
+	return rulePath, nil
 }
 
 // expandHome replaces a leading ~ with the user's home directory.

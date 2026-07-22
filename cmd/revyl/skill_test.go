@@ -255,10 +255,46 @@ func TestCursorProjectInstallWritesCompanionRule(t *testing.T) {
 	}
 
 	rule := string(data)
-	for _, want := range []string{"alwaysApply: false", "revyl-cli-dev-loop", "revyl-cli-create", "revyl-cli-auth-bypass", "revyl device screenshot"} {
+	for _, want := range []string{
+		"alwaysApply: false",
+		"explicit CLI-only fallback",
+		"revyl-mcp-dev-loop",
+		"revyl-cli-dev-loop",
+		"revyl-cli-create",
+		"revyl-cli-auth-bypass",
+		"revyl device screenshot",
+	} {
 		if !strings.Contains(rule, want) {
 			t.Fatalf("Cursor rule did not contain %q", want)
 		}
+	}
+}
+
+func TestCursorMCPInstallRemovesCLIOnlyCompanionRule(t *testing.T) {
+	workDir := t.TempDir()
+	withWorkingDir(t, workDir)
+	target := skillInstallTarget{
+		tool: "cursor",
+		path: filepath.Join(workDir, ".cursor", "skills"),
+	}
+
+	if err := installPublicSkillsForTools([]string{"cursor"}, false, true); err != nil {
+		t.Fatalf("installPublicSkillsForTools() error = %v", err)
+	}
+	rulePath := filepath.Join(workDir, ".cursor", "rules", cursorRuleFileName)
+	if _, err := os.Stat(rulePath); err != nil {
+		t.Fatalf("expected CLI-only rule before MCP install: %v", err)
+	}
+
+	mcpSkills, err := resolveInstallSkillsByFamily(false, true)
+	if err != nil {
+		t.Fatalf("resolve MCP skills: %v", err)
+	}
+	if err := installSkillsToTargets([]skillInstallTarget{target}, mcpSkills, true); err != nil {
+		t.Fatalf("install MCP skills: %v", err)
+	}
+	if _, err := os.Stat(rulePath); !os.IsNotExist(err) {
+		t.Fatalf("CLI-only rule remains after MCP install: %v", err)
 	}
 }
 

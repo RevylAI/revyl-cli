@@ -1,0 +1,98 @@
+#!/bin/sh
+#
+# Reports plugin runtime readiness without blocking work or installing software.
+
+RUNTIME_UNAVAILABLE_MESSAGE='The Revyl plugin runtime is not ready. Update or reinstall the plugin, or set REVYL_BINARY to an executable Revyl CLI path.'
+
+# plugin_directory returns the logical install root instead of a linked source root.
+plugin_directory() {
+  if [ -n "${CURSOR_PLUGIN_ROOT:-}" ] &&
+    [ "$CURSOR_PLUGIN_ROOT" != '${CURSOR_PLUGIN_ROOT}' ] &&
+    [ -d "$CURSOR_PLUGIN_ROOT" ]; then
+    CDPATH= cd -L -- "$CURSOR_PLUGIN_ROOT" && pwd -L
+    return
+  fi
+
+  script_directory=$(CDPATH= cd -L -- "$(dirname -- "$0")" && pwd -L)
+  CDPATH= cd -L -- "$script_directory/.." && pwd -L
+}
+
+PLUGIN_DIR=$(plugin_directory)
+MANIFEST_PATH="$PLUGIN_DIR/runtime-manifest.json"
+MCP_CONFIG_PATH="$PLUGIN_DIR/mcp.json"
+
+INPUT=$(cat 2>/dev/null) || INPUT=''
+EVENT=$(printf '%s' "$INPUT" | sed -n 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+
+# emit MESSAGE returns only fields supported by the active Cursor hook event.
+emit() {
+  case "$EVENT" in
+    beforeShellExecution)
+      if [ -n "$1" ]; then
+        printf '{"permission":"allow","agent_message":"%s"}\n' "$1"
+      else
+        printf '{"permission":"allow"}\n'
+      fi
+      ;;
+    sessionStart)
+      if [ -n "$1" ]; then
+        printf '{"additional_context":"%s"}\n' "$1"
+      else
+        printf '{}\n'
+      fi
+      ;;
+    *)
+      printf '{}\n'
+      ;;
+  esac
+  exit 0
+}
+
+case "$EVENT" in
+  beforeShellExecution|sessionStart) ;;
+  *) emit '' ;;
+esac
+
+# runtime_ready verifies either an explicit override or a prepared bundled manifest.
+runtime_ready() {
+  if [ -n "${REVYL_BINARY:-}" ] &&
+    [ "$REVYL_BINARY" != '${env:REVYL_BINARY}' ]; then
+    if command -v "$REVYL_BINARY" >/dev/null 2>&1; then
+      return 0
+    fi
+    [ -f "$REVYL_BINARY" ] && [ -x "$REVYL_BINARY" ]
+    return
+  fi
+
+  if [ -f "$MCP_CONFIG_PATH" ]; then
+    configured_binary=$(
+      sed -n 's/^[[:space:]]*"REVYL_BINARY"[[:space:]]*:[[:space:]]*"\([^"]*\)"[[:space:]]*,*[[:space:]]*$/\1/p' "$MCP_CONFIG_PATH"
+    )
+    if [ -n "$configured_binary" ] &&
+      [ "$configured_binary" != '${env:REVYL_BINARY}' ] &&
+      [ -f "$configured_binary" ] &&
+      [ -x "$configured_binary" ]; then
+      return 0
+    fi
+  fi
+
+  [ -f "$MANIFEST_PATH" ] || return 1
+  grep -Eq '"prepared"[[:space:]]*:[[:space:]]*true' "$MANIFEST_PATH" ||
+    return 1
+
+  case "$(uname -s 2>/dev/null || true):$(uname -m 2>/dev/null || true)" in
+    Darwin:x86_64|Darwin:amd64|Darwin:arm64|Darwin:aarch64) ;;
+    Linux:x86_64|Linux:amd64|Linux:arm64|Linux:aarch64) ;;
+    *) return 1 ;;
+  esac
+
+  command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 ||
+    return 1
+  command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1
+}
+
+if ! runtime_ready; then
+  emit "$RUNTIME_UNAVAILABLE_MESSAGE"
+fi
+
+emit ''

@@ -58,5 +58,5 @@ revyl device stop
 ## Next
 
 - Full command coverage: [CLI Device Commands](/device/cli-commands)
-- Agent-driven device control: [MCP Setup](/cli/mcp-setup)
+- Agent-driven device control: [MCP Setup](https://docs.revyl.ai/cli/mcp-setup)
 - CI orchestration APIs: [API Quickstart](/api-reference/quickstart)

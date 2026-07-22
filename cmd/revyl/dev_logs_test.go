@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/revyl/cli/internal/devloop"
 )
 
 // writeDevLogsTestStatus writes a status snapshot for build-job resolution tests.
@@ -41,6 +43,56 @@ func writeDevLogsTestRunningContext(t *testing.T, cwd, ctxName string) {
 	}
 	if err := writeDevCtxPIDFile(devCtxPIDPath(cwd, ctxName), os.Getpid(), startedAtNano); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWriteDevStatusFileReplacesExistingDestinationAfterRenameFailure(t *testing.T) {
+	statusPath := filepath.Join(t.TempDir(), ".dev-status.json")
+	if err := os.WriteFile(statusPath, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	originalRename := renameDevStatusFile
+	renameCalls := [][2]string{}
+	renameDevStatusFile = func(oldPath, newPath string) error {
+		renameCalls = append(renameCalls, [2]string{oldPath, newPath})
+		if len(renameCalls) == 1 && newPath != statusPath {
+			t.Fatalf("rename target = %q, want %q", newPath, statusPath)
+		}
+		if len(renameCalls) == 1 {
+			return errors.New("destination exists")
+		}
+		return originalRename(oldPath, newPath)
+	}
+	t.Cleanup(func() {
+		renameDevStatusFile = originalRename
+	})
+
+	if err := writeDevStatusFile(statusPath, []byte(`{"state":"idle"}`), 0644); err != nil {
+		t.Fatalf("writeDevStatusFile() error = %v", err)
+	}
+	if len(renameCalls) != 3 {
+		t.Fatalf("rename calls = %v, want initial replace, backup, retry", renameCalls)
+	}
+	if renameCalls[1][0] != statusPath || !strings.HasSuffix(renameCalls[1][1], ".bak") {
+		t.Fatalf("backup rename = %v, want existing status moved aside", renameCalls[1])
+	}
+	if renameCalls[2][1] != statusPath {
+		t.Fatalf("retry rename target = %q, want %q", renameCalls[2][1], statusPath)
+	}
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `{"state":"idle"}` {
+		t.Fatalf("status contents = %q, want replacement", string(data))
+	}
+	backups, err := filepath.Glob(statusPath + ".*.bak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 0 {
+		t.Fatalf("backup files remained: %v", backups)
 	}
 }
 
@@ -248,6 +300,7 @@ func TestResolveDevBuildJobID_NonFollowDoesNotWait(t *testing.T) {
 func TestSetDevStatusRemoteJobID_PreservesSeedAndLogs(t *testing.T) {
 	cwd := t.TempDir()
 	status := devStatus{
+		State:          "building",
 		PID:            os.Getpid(),
 		SessionID:      "session-1",
 		BuildMode:      "remote",
@@ -276,6 +329,12 @@ func TestSetDevStatusRemoteJobID_PreservesSeedAndLogs(t *testing.T) {
 	}
 	if updated.LastRebuild == nil || updated.LastRebuild.RemoteJobID != "job-123" {
 		t.Fatalf("remote_job_id = %#v, want job-123", updated.LastRebuild)
+	}
+	if updated.Build == nil || updated.Build.State != devloop.BuildStateQueued || updated.Build.Phase != "remote_queue" {
+		t.Fatalf("remote queue progress = %+v", updated.Build)
+	}
+	if updated.State != "building" {
+		t.Fatalf("loop state = %q, want building", updated.State)
 	}
 	if !updated.InstalledSeed || updated.SeededVersion != "1.2.3" {
 		t.Fatalf("seed metadata = (%v, %q), want (true, 1.2.3)", updated.InstalledSeed, updated.SeededVersion)

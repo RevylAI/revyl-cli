@@ -117,6 +117,88 @@ func jsonOrPrint(cmd *cobra.Command, v interface{}, fallbackMsg string) {
 	}
 }
 
+const deviceStartPostLaunchCleanupTimeout = 15 * time.Second
+
+type deviceStartSessionIdentity struct {
+	Index         int    `json:"index"`
+	SessionID     string `json:"session_id,omitempty"`
+	WorkflowRunID string `json:"workflow_run_id"`
+}
+
+type deviceStartPostLaunchCleanup struct {
+	Attempted bool   `json:"attempted"`
+	Succeeded bool   `json:"succeeded"`
+	Action    string `json:"action,omitempty"`
+}
+
+// deviceStartPostLaunchFailure is the stable --json error contract when the
+// device became ready but the requested post-launch navigation failed.
+type deviceStartPostLaunchFailure struct {
+	OK      bool                         `json:"ok"`
+	Code    string                       `json:"code"`
+	Message string                       `json:"message"`
+	Session deviceStartSessionIdentity   `json:"session"`
+	Cleanup deviceStartPostLaunchCleanup `json:"cleanup"`
+}
+
+func handleDeviceStartPostLaunchFailure(
+	cmd *cobra.Command,
+	mgr *mcppkg.DeviceSessionManager,
+	session *mcppkg.DeviceSession,
+	postLaunchErr error,
+) error {
+	cleanupCtx, cleanupCancel := context.WithTimeout(
+		context.Background(),
+		deviceStartPostLaunchCleanupTimeout,
+	)
+	defer cleanupCancel()
+
+	cleanupErr := mgr.StopSession(cleanupCtx, session.Index)
+	stopAction := fmt.Sprintf(
+		"%s device stop -s %d",
+		deviceCommandPrefix(cmd),
+		session.Index,
+	)
+	message := "post-launch navigation failed; device session was stopped"
+	cleanup := deviceStartPostLaunchCleanup{
+		Attempted: true,
+		Succeeded: cleanupErr == nil,
+	}
+	if cleanupErr != nil {
+		message = "post-launch navigation failed; automatic device session cleanup failed"
+		cleanup.Action = stopAction
+	}
+
+	if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
+		data, _ := json.MarshalIndent(deviceStartPostLaunchFailure{
+			OK:      false,
+			Code:    "post_launch_navigation_failed",
+			Message: message,
+			Session: deviceStartSessionIdentity{
+				Index:         session.Index,
+				SessionID:     session.SessionID,
+				WorkflowRunID: session.WorkflowRunID,
+			},
+			Cleanup: cleanup,
+		}, "", "  ")
+		fmt.Println(string(data))
+	}
+
+	if cleanupErr == nil {
+		return fmt.Errorf("%s: %w", message, postLaunchErr)
+	}
+	return fmt.Errorf(
+		"%s for session_id=%q workflow_run_id=%q index=%d (%v); retry with %q: %w",
+		message,
+		session.SessionID,
+		session.WorkflowRunID,
+		session.Index,
+		cleanupErr,
+		stopAction,
+		postLaunchErr,
+	)
+}
+
 func validateLiveNetworkPlatform(platform string) error {
 	normalized := strings.ToLower(strings.TrimSpace(platform))
 	if normalized == "ios" {
@@ -229,6 +311,9 @@ func formatLiveStepFallback(stepLabel string, request mcppkg.LiveStepRequest, re
 		}
 	}
 
+	if mcppkg.EvaluateLiveStepOutcome(response, request.StepType) != nil {
+		status = "failed"
+	}
 	if summary.ValidationResult != nil {
 		status = fmt.Sprintf("%s (validation=%t)", status, *summary.ValidationResult)
 	}
@@ -364,8 +449,12 @@ func executeLiveStepCommand(cmd *cobra.Command, request mcppkg.LiveStepRequest, 
 	if err != nil {
 		return err
 	}
+	outcomeErr := mcppkg.EvaluateLiveStepOutcome(response, request.StepType)
+	if outcomeErr != nil && response != nil {
+		response.Success = false
+	}
 	jsonOrPrint(cmd, response, formatLiveStepFallback(stepLabel, request, response))
-	return nil
+	return outcomeErr
 }
 
 func buildCodeExecutionLiveStepRequest(scriptID, variableName string) mcppkg.LiveStepRequest {
@@ -569,7 +658,7 @@ var deviceStartCmd = &cobra.Command{
 					timeout = config.EffectiveTimeoutSeconds(cfg, timeout)
 				}
 				if cfg.AuthBypass.IsConfigured() {
-					initDevAuthBypass(cfg, mgr.APIClient())
+					initDevAuthBypass(cfg)
 				}
 			}
 		}
@@ -663,7 +752,6 @@ var deviceStartCmd = &cobra.Command{
 			AppID:              appID,
 			BuildVersionID:     buildVersionID,
 			AppURL:             appURL,
-			AppLink:            appLink,
 			LaunchVars:         launchVars,
 			LaunchEnv:          launchEnvVars,
 			InitialLocale:      initialLocale,
@@ -687,6 +775,16 @@ var deviceStartCmd = &cobra.Command{
 		}
 		if err != nil {
 			return err
+		}
+
+		var postLaunchErr error
+		if appLink != "" {
+			postLaunchErr = openURLAfterLaunch(ctx, mgr, session.Index, appLink)
+		} else if devAuthBypass != nil {
+			postLaunchErr = devAuthBypass.FireDeepLink(ctx, mgr, session.Index)
+		}
+		if postLaunchErr != nil {
+			return handleDeviceStartPostLaunchFailure(cmd, mgr, session, postLaunchErr)
 		}
 
 		if jsonOutput {
@@ -715,7 +813,6 @@ var deviceStartCmd = &cobra.Command{
 				config.GetAppURL(devMode), session.SessionID)
 			_ = ui.OpenBrowser(reportURL)
 		}
-
 		return nil
 	},
 }

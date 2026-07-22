@@ -245,6 +245,12 @@ func ResolveLaunchVarIDs(
 		if err != nil {
 			return nil, err
 		}
+		if variable.HasValue != nil && !*variable.HasValue {
+			return nil, fmt.Errorf(
+				"launch variable %q has no stored value",
+				variable.Key,
+			)
+		}
 		if _, ok := seen[variable.ID]; ok {
 			continue
 		}

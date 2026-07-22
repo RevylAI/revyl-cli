@@ -1,0 +1,190 @@
+#!/bin/sh
+#
+# Resolves the plugin-pinned Revyl runtime, then replaces this process with it.
+
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PLUGIN_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+MANIFEST_PATH=${REVYL_RUNTIME_MANIFEST:-"$PLUGIN_DIR/runtime-manifest.json"}
+TEMPORARY_PATH=
+
+# cleanup removes only this process's incomplete download.
+cleanup() {
+  if [ -n "$TEMPORARY_PATH" ]; then
+    rm -f "$TEMPORARY_PATH"
+  fi
+}
+
+# fail reports a bootstrap failure without corrupting MCP stdout.
+fail() {
+  printf 'Revyl plugin runtime error: %s\n' "$1" >&2
+  exit 1
+}
+
+# manifest_string reads one flat string property from the generated manifest.
+manifest_string() {
+  key=$1
+  sed -n "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\"[[:space:]]*,\\{0,1\\}[[:space:]]*$/\\1/p" "$MANIFEST_PATH"
+}
+
+# manifest_scalar reads one flat number or boolean property.
+manifest_scalar() {
+  key=$1
+  sed -n "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*\\([^,[:space:]]*\\)[[:space:]]*,\\{0,1\\}[[:space:]]*$/\\1/p" "$MANIFEST_PATH"
+}
+
+# resolve_override returns an explicitly selected executable when configured.
+resolve_override() {
+  requested=$1
+  if command -v "$requested" >/dev/null 2>&1; then
+    command -v "$requested"
+    return
+  fi
+  if [ -f "$requested" ] && [ -x "$requested" ]; then
+    case "$requested" in
+      /*) printf '%s\n' "$requested" ;;
+      *)
+        requested_directory=$(CDPATH= cd -- "$(dirname -- "$requested")" && pwd)
+        printf '%s/%s\n' "$requested_directory" "$(basename -- "$requested")"
+        ;;
+    esac
+    return
+  fi
+  fail "REVYL_BINARY is not executable: $requested"
+}
+
+# run_runtime exposes the executable for setup remediation, then replaces this process.
+run_runtime() {
+  selected_binary=$1
+  shift
+  REVYL_MCP_EXECUTABLE=$selected_binary
+  export REVYL_MCP_EXECUTABLE
+  trap - EXIT HUP INT TERM
+  exec "$selected_binary" "$@"
+}
+
+# detect_platform maps the current host to one release manifest prefix.
+detect_platform() {
+  case "$(uname -s 2>/dev/null || true)" in
+    Darwin) operating_system=darwin ;;
+    Linux) operating_system=linux ;;
+    *) fail "unsupported operating system: $(uname -s 2>/dev/null || printf unknown)" ;;
+  esac
+
+  case "$(uname -m 2>/dev/null || true)" in
+    x86_64|amd64) architecture=amd64 ;;
+    arm64|aarch64) architecture=arm64 ;;
+    *) fail "unsupported architecture: $(uname -m 2>/dev/null || printf unknown)" ;;
+  esac
+
+  printf '%s_%s\n' "$operating_system" "$architecture"
+}
+
+# sha256_file returns the lowercase SHA256 digest for one file.
+sha256_file() {
+  path=$1
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$path" | awk '{print tolower($1)}'
+    return
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$path" | awk '{print tolower($1)}'
+    return
+  fi
+  fail "sha256sum or shasum is required to verify the Revyl runtime"
+}
+
+# checksum_matches verifies one file without writing output.
+checksum_matches() {
+  path=$1
+  expected=$2
+  [ -f "$path" ] && [ "$(sha256_file "$path")" = "$expected" ]
+}
+
+# download fetches one bounded HTTPS resource.
+download() {
+  url=$1
+  destination=$2
+  if command -v curl >/dev/null 2>&1; then
+    curl --fail --silent --show-error --location \
+      --connect-timeout 10 \
+      --max-time 180 \
+      --output "$destination" \
+      "$url"
+    return
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    wget --quiet \
+      --timeout=30 \
+      --tries=2 \
+      --output-document="$destination" \
+      "$url"
+    return
+  fi
+  fail "curl or wget is required for the first Revyl plugin run"
+}
+
+trap cleanup EXIT HUP INT TERM
+umask 077
+
+if [ -n "${REVYL_BINARY:-}" ] && [ "$REVYL_BINARY" != '${env:REVYL_BINARY}' ]; then
+  selected_binary=$(resolve_override "$REVYL_BINARY")
+  run_runtime "$selected_binary" "$@"
+fi
+
+[ -f "$MANIFEST_PATH" ] || fail "runtime manifest not found at $MANIFEST_PATH"
+
+schema_version=$(manifest_scalar schema_version)
+prepared=$(manifest_scalar prepared)
+plugin_version=$(manifest_string plugin_version)
+runtime_version=$(manifest_string runtime_version)
+release_tag=$(manifest_string release_tag)
+release_base_url=$(manifest_string release_base_url)
+
+[ "$schema_version" = "1" ] || fail "unsupported runtime manifest schema: ${schema_version:-missing}"
+[ "$prepared" = "true" ] || fail "this plugin release has no prepared runtime; reinstall or update the Revyl plugin"
+printf '%s' "$plugin_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' ||
+  fail "invalid plugin version in runtime manifest"
+printf '%s' "$runtime_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$' ||
+  fail "invalid runtime version in runtime manifest"
+[ "$release_tag" = "v$runtime_version" ] || fail "runtime release tag does not match its version"
+expected_base_url="https://github.com/RevylAI/revyl-cli/releases/download/$release_tag"
+[ "$release_base_url" = "$expected_base_url" ] || fail "runtime release URL is not immutable"
+
+platform=$(detect_platform)
+asset=$(manifest_string "${platform}_asset")
+expected_checksum=$(manifest_string "${platform}_sha256")
+
+[ -n "$asset" ] || fail "runtime manifest has no asset for $platform"
+printf '%s' "$asset" | grep -Eq '^revyl-(darwin|linux)-(amd64|arm64)$' ||
+  fail "runtime manifest contains an invalid asset name for $platform"
+printf '%s' "$expected_checksum" | grep -Eq '^[0-9a-f]{64}$' ||
+  fail "runtime manifest contains an invalid checksum for $platform"
+
+cache_root=${REVYL_PLUGIN_CACHE_DIR:-"${XDG_CACHE_HOME:-$HOME/.cache}/revyl/cursor-plugin"}
+runtime_directory="$cache_root/$runtime_version/$platform"
+runtime_binary="$runtime_directory/revyl"
+
+if checksum_matches "$runtime_binary" "$expected_checksum"; then
+  chmod 0700 "$runtime_binary"
+  run_runtime "$runtime_binary" "$@"
+fi
+
+mkdir -p "$runtime_directory"
+chmod 0700 "$runtime_directory"
+TEMPORARY_PATH="$runtime_directory/.revyl.download.$$"
+download "$release_base_url/$asset" "$TEMPORARY_PATH" ||
+  fail "could not download $asset for plugin $plugin_version"
+
+checksum_matches "$TEMPORARY_PATH" "$expected_checksum" ||
+  fail "checksum verification failed for $asset"
+
+chmod 0700 "$TEMPORARY_PATH"
+mv -f "$TEMPORARY_PATH" "$runtime_binary"
+TEMPORARY_PATH=
+
+checksum_matches "$runtime_binary" "$expected_checksum" ||
+  fail "cached runtime verification failed after installation"
+
+run_runtime "$runtime_binary" "$@"

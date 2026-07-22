@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -375,6 +376,196 @@ func TestDeviceStartCommand_PropagatesAppURLToStartDevice(t *testing.T) {
 	}
 	if capturedStartReq.AppURL != expectedAppURL {
 		t.Fatalf("start_device app_url = %q, want %q", capturedStartReq.AppURL, expectedAppURL)
+	}
+}
+
+type deviceStartPostLaunchTestResult struct {
+	RunErr         error
+	Output         string
+	CancelRequests int32
+	Persisted      persistedDeviceSessionState
+}
+
+func runDeviceStartPostLaunchFailureTest(
+	t *testing.T,
+	useAuthBypass bool,
+	cancelStatus int,
+) deviceStartPostLaunchTestResult {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	withWorkingDirectory(t, tmpDir)
+	t.Setenv("REVYL_API_KEY", "test-api-key")
+	previousAuthBypass := devAuthBypass
+	devAuthBypass = nil
+	t.Cleanup(func() { devAuthBypass = previousAuthBypass })
+
+	if useAuthBypass {
+		revylDir := filepath.Join(tmpDir, ".revyl")
+		if err := os.MkdirAll(revylDir, 0o755); err != nil {
+			t.Fatalf("mkdir .revyl: %v", err)
+		}
+		configYAML := `project:
+  name: post-launch-cleanup-test
+auth_bypass:
+  deep_link: "revyl-test://auth?token=${REVYL_AUTH_BYPASS_TOKEN}"
+`
+		if err := os.WriteFile(filepath.Join(revylDir, "config.yaml"), []byte(configYAML), 0o600); err != nil {
+			t.Fatalf("write config.yaml: %v", err)
+		}
+	}
+
+	const workflowRunID = "00000000-0000-0000-0000-000000000009"
+	const sessionID = "session-post-launch-failure"
+	const userEmail = "cli-test@example.com"
+
+	var startCalled atomic.Bool
+	var cancelRequests atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/entity/users/get_user_uuid":
+			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-1","email":"` + userEmail + `"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-sessions/active":
+			if !startCalled.Load() {
+				_, _ = w.Write([]byte(`{"org_id":"org-1","sessions":[]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"org_id":"org-1","sessions":[{"id":"` + sessionID + `","org_id":"org-1","platform":"ios","source":"cli","status":"running","user_email":"` + userEmail + `","workflow_run_id":"` + workflowRunID + `"}]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
+			startCalled.Store(true)
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
+			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
+			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/execution/device-proxy/"+workflowRunID+"/open_url"):
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"success":false,"action":"open_url","error":"bad link"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/device/status/cancel/"+workflowRunID:
+			cancelRequests.Add(1)
+			if cancelStatus != 0 && cancelStatus != http.StatusOK {
+				w.WriteHeader(cancelStatus)
+				_, _ = w.Write([]byte(`{"detail":"cancel unavailable"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"success":true,"message":"cancelled","workflow_run_id":"` + workflowRunID + `"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+
+	cmd := newDeviceStartTestCommand(context.Background())
+	if err := cmd.Flags().Set("platform", "ios"); err != nil {
+		t.Fatalf("set platform flag: %v", err)
+	}
+	if !useAuthBypass {
+		if err := cmd.Flags().Set("app-link", "revyl-test://bad-link"); err != nil {
+			t.Fatalf("set app-link flag: %v", err)
+		}
+	}
+	if err := cmd.Flags().Set("json", "true"); err != nil {
+		t.Fatalf("set json flag: %v", err)
+	}
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = deviceStartCmd.RunE(cmd, nil)
+	})
+
+	var persisted persistedDeviceSessionState
+	persistedData, err := os.ReadFile(filepath.Join(tmpDir, ".revyl", "device-sessions.json"))
+	if err != nil {
+		t.Fatalf("read persisted sessions: %v", err)
+	}
+	if err := json.Unmarshal(persistedData, &persisted); err != nil {
+		t.Fatalf("unmarshal persisted sessions: %v", err)
+	}
+
+	return deviceStartPostLaunchTestResult{
+		RunErr:         runErr,
+		Output:         output,
+		CancelRequests: cancelRequests.Load(),
+		Persisted:      persisted,
+	}
+}
+
+func TestDeviceStartCommand_PostLaunchFailureCleansSessionAndEmitsJSONContract(t *testing.T) {
+	testCases := []struct {
+		name          string
+		authBypass    bool
+		workflowRunID string
+	}{
+		{name: "app link", authBypass: false, workflowRunID: "00000000-0000-0000-0000-000000000009"},
+		{name: "auth bypass", authBypass: true, workflowRunID: "00000000-0000-0000-0000-000000000009"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := runDeviceStartPostLaunchFailureTest(t, tc.authBypass, http.StatusOK)
+			if result.RunErr == nil || !strings.Contains(result.RunErr.Error(), "device session was stopped") {
+				t.Fatalf("device start error = %v, want stopped-session failure", result.RunErr)
+			}
+			if result.CancelRequests != 1 {
+				t.Fatalf("cancel requests = %d, want 1", result.CancelRequests)
+			}
+			if len(result.Persisted.Sessions) != 0 {
+				t.Fatalf("persisted sessions = %+v, want none after cleanup", result.Persisted.Sessions)
+			}
+
+			var payload deviceStartPostLaunchFailure
+			if err := json.Unmarshal([]byte(result.Output), &payload); err != nil {
+				t.Fatalf("device start stdout is not pure JSON: %v\n%s", err, result.Output)
+			}
+			if payload.OK || payload.Code != "post_launch_navigation_failed" {
+				t.Fatalf("unexpected failure payload: %+v", payload)
+			}
+			if payload.Session.SessionID != "session-post-launch-failure" || payload.Session.WorkflowRunID != tc.workflowRunID || payload.Session.Index != 0 {
+				t.Fatalf("session identity = %+v, want cleanup identifiers", payload.Session)
+			}
+			if !payload.Cleanup.Attempted || !payload.Cleanup.Succeeded || payload.Cleanup.Action != "" {
+				t.Fatalf("cleanup result = %+v, want successful cleanup", payload.Cleanup)
+			}
+		})
+	}
+}
+
+func TestDeviceStartCommand_PostLaunchCleanupFailureReturnsSessionForRetry(t *testing.T) {
+	result := runDeviceStartPostLaunchFailureTest(t, false, http.StatusServiceUnavailable)
+	if result.RunErr == nil || !strings.Contains(result.RunErr.Error(), "automatic device session cleanup failed") {
+		t.Fatalf("device start error = %v, want cleanup failure", result.RunErr)
+	}
+	for _, identifier := range []string{
+		`session_id="session-post-launch-failure"`,
+		`workflow_run_id="00000000-0000-0000-0000-000000000009"`,
+		"index=0",
+	} {
+		if !strings.Contains(result.RunErr.Error(), identifier) {
+			t.Fatalf("device start error = %q, want %q", result.RunErr, identifier)
+		}
+	}
+	if result.CancelRequests < 1 {
+		t.Fatalf("cancel requests = %d, want at least 1", result.CancelRequests)
+	}
+	if len(result.Persisted.Sessions) != 1 || result.Persisted.Sessions[0].SessionID != "session-post-launch-failure" {
+		t.Fatalf("persisted sessions = %+v, want failed-cleanup session retained", result.Persisted.Sessions)
+	}
+
+	var payload deviceStartPostLaunchFailure
+	if err := json.Unmarshal([]byte(result.Output), &payload); err != nil {
+		t.Fatalf("device start stdout is not pure JSON: %v\n%s", err, result.Output)
+	}
+	if payload.Cleanup.Succeeded || !payload.Cleanup.Attempted {
+		t.Fatalf("cleanup result = %+v, want attempted failure", payload.Cleanup)
+	}
+	if payload.Cleanup.Action != "revyl device stop -s 0" {
+		t.Fatalf("cleanup action = %q, want retry command", payload.Cleanup.Action)
+	}
+	if payload.Session.SessionID != "session-post-launch-failure" || payload.Session.WorkflowRunID == "" {
+		t.Fatalf("session identity = %+v, want cleanup identifiers", payload.Session)
 	}
 }
 

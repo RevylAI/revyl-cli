@@ -3,6 +3,8 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -66,6 +68,25 @@ func TestWsURLToHTTP(t *testing.T) {
 				t.Errorf("wsURLToHTTP(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestWorkerHTTPErrorOmitsResponseBody(t *testing.T) {
+	const secret = "resolved-bypass-token"
+	err := &WorkerHTTPError{
+		StatusCode: http.StatusInternalServerError,
+		Path:       "/open_url_template",
+		Body:       `{"url":"myapp://revyl-auth?token=` + secret + `"}`,
+	}
+
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("WorkerHTTPError.Error() exposed response body: %q", err.Error())
+	}
+	if err.Error() != "worker returned 500 on /open_url_template" {
+		t.Fatalf("WorkerHTTPError.Error() = %q", err.Error())
+	}
+	if !strings.Contains(err.Body, secret) {
+		t.Fatal("WorkerHTTPError.Body should remain available for controlled handling")
 	}
 }
 
@@ -155,6 +176,57 @@ func TestDeviceSessionManager_StopSession_NoSession(t *testing.T) {
 	}
 }
 
+func TestDeviceSessionManager_StopSessionRetainsSessionWhenBackendCancelFails(t *testing.T) {
+	workDir := t.TempDir()
+	now := time.Now()
+	mgr := &DeviceSessionManager{
+		apiClient:         api.NewClientWithBaseURL("test-api-key", "http://127.0.0.1:1"),
+		workDir:           workDir,
+		sessions:          map[int]*DeviceSession{},
+		ownedSessions:     map[int]bool{0: true},
+		idleTimerDisabled: make(map[int]bool),
+		idleTimers:        make(map[int]*time.Timer),
+		screenAnchors:     make(map[int]*screenAnchorState),
+		activeIndex:       0,
+		nextIndex:         1,
+	}
+	mgr.sessions[0] = &DeviceSession{
+		Index:         0,
+		SessionID:     "session-cancel-retry",
+		WorkflowRunID: "workflow-cancel-retry",
+		Platform:      "ios",
+		StartedAt:     now,
+		LastActivity:  now,
+		IdleTimeout:   5 * time.Minute,
+	}
+	t.Cleanup(func() { mgr.StopIdleTimer(0) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := mgr.StopSession(ctx, 0)
+	if err == nil || !strings.Contains(err.Error(), "backend cancel failed") {
+		t.Fatalf("StopSession() error = %v, want backend cancel failure", err)
+	}
+	if mgr.GetSession(0) == nil || mgr.ActiveIndex() != 0 {
+		t.Fatalf("failed cancellation removed addressable session: %+v", mgr.GetSession(0))
+	}
+	if len(mgr.idleTimers) != 1 {
+		t.Fatalf("idle timers = %d, want cleanup safety net restored", len(mgr.idleTimers))
+	}
+
+	persistedData, err := os.ReadFile(filepath.Join(workDir, ".revyl", "device-sessions.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(device-sessions.json) error = %v", err)
+	}
+	var persisted persistedState
+	if err := json.Unmarshal(persistedData, &persisted); err != nil {
+		t.Fatalf("Unmarshal(device-sessions.json) error = %v", err)
+	}
+	if len(persisted.Sessions) != 1 || persisted.Sessions[0].SessionID != "session-cancel-retry" {
+		t.Fatalf("persisted sessions = %+v, want retained cleanup identity", persisted.Sessions)
+	}
+}
+
 func TestDeviceSessionManager_StartSessionRejectsLaunchVarsForTestBackedStart(t *testing.T) {
 	t.Parallel()
 
@@ -232,10 +304,11 @@ func TestDeviceSessionManager_StartSessionRejectsLaunchVarsForTestBackedStart(t 
 
 func TestDeviceSessionManager_IdleTimeout(t *testing.T) {
 	mgr := &DeviceSessionManager{
-		sessions:    make(map[int]*DeviceSession),
-		idleTimers:  make(map[int]*time.Timer),
-		activeIndex: 0,
-		nextIndex:   1,
+		sessions:      make(map[int]*DeviceSession),
+		ownedSessions: map[int]bool{0: true},
+		idleTimers:    make(map[int]*time.Timer),
+		activeIndex:   0,
+		nextIndex:     1,
 	}
 
 	// Manually inject a session with a very short timeout
@@ -265,6 +338,53 @@ func TestDeviceSessionManager_IdleTimeout(t *testing.T) {
 	// Session should be auto-cleared
 	if mgr.GetActive() != nil {
 		t.Fatal("session should have been auto-cleared after idle timeout")
+	}
+}
+
+func TestDeviceSessionManager_NonOwnedSessionDoesNotIdleCancel(t *testing.T) {
+	mgr := NewDeviceSessionManager(nil, "")
+	now := time.Now()
+	mgr.sessions[0] = &DeviceSession{
+		Index:        0,
+		SessionID:    "attached-session",
+		StartedAt:    now,
+		LastActivity: now,
+		IdleTimeout:  40 * time.Millisecond,
+	}
+	mgr.activeIndex = 0
+
+	mgr.ResetIdleTimer(0)
+
+	if mgr.GetSession(0) == nil {
+		t.Fatal("attached session was removed by manager-owned idle enforcement")
+	}
+	if len(mgr.idleTimers) != 0 {
+		t.Fatalf("attached session idle timers = %d, want 0", len(mgr.idleTimers))
+	}
+}
+
+func TestDeviceSessionManager_StopIdleTimerPreventsRearming(t *testing.T) {
+	mgr := NewDeviceSessionManager(nil, "")
+	now := time.Now()
+	mgr.sessions[0] = &DeviceSession{
+		Index:        0,
+		SessionID:    "delegated-session",
+		StartedAt:    now,
+		LastActivity: now,
+		IdleTimeout:  40 * time.Millisecond,
+	}
+	mgr.ownedSessions[0] = true
+	mgr.activeIndex = 0
+
+	mgr.ResetIdleTimer(0)
+	mgr.StopIdleTimer(0)
+	mgr.ResetIdleTimer(0)
+
+	if mgr.GetSession(0) == nil {
+		t.Fatal("delegated session was removed after idle enforcement was disabled")
+	}
+	if len(mgr.idleTimers) != 0 {
+		t.Fatalf("disabled session idle timers = %d, want 0", len(mgr.idleTimers))
 	}
 }
 
@@ -407,7 +527,8 @@ func TestDeviceSessionManager_WorkerRequestForSession_ResetsIdleTimer(t *testing
 
 	now := time.Now()
 	mgr := &DeviceSessionManager{
-		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		apiClient:     api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		ownedSessions: map[int]bool{0: true},
 		sessions: map[int]*DeviceSession{
 			0: {
 				Index:         0,
@@ -1756,6 +1877,69 @@ func TestDeviceSessionManager_ResolveTargetForSession_UsesWorkerResolveEndpoint(
 	}
 }
 
+func TestDeviceSessionManager_ResolveTargetFromAnchorUsesCapturedImage(t *testing.T) {
+	t.Parallel()
+
+	anchoredImage := make([]byte, 24)
+	copy(anchoredImage[:8], []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A})
+	binary.BigEndian.PutUint32(anchoredImage[16:20], 1179)
+	binary.BigEndian.PutUint32(anchoredImage[20:24], 2556)
+	groundCalls := 0
+	workerCalls := 0
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/execution/ground":
+			groundCalls++
+			var request api.GroundElementRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Errorf("decode grounding request: %v", err)
+			}
+			if request.ImageBase64 != base64.StdEncoding.EncodeToString(anchoredImage) {
+				t.Errorf("grounding image = %q", request.ImageBase64)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"found":true,"x":900,"y":1500}`))
+		default:
+			workerCalls++
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "session-1",
+				WorkflowRunID: "workflow-1",
+				Platform:      "ios",
+				ScreenWidth:   393,
+				ScreenHeight:  852,
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+	screenToken := mgr.MarkScreenshotAnchorWithImage(0, anchoredImage)
+
+	resolved, err := mgr.ResolveTargetFromAnchor(
+		context.Background(),
+		0,
+		screenToken,
+		"Continue button",
+	)
+	if err != nil {
+		t.Fatalf("ResolveTargetFromAnchor(): %v", err)
+	}
+	if resolved.X != 300 || resolved.Y != 500 {
+		t.Fatalf("resolved = (%d,%d), want (300,500)", resolved.X, resolved.Y)
+	}
+	if groundCalls != 1 || workerCalls != 0 {
+		t.Fatalf("ground calls = %d, worker calls = %d", groundCalls, workerCalls)
+	}
+}
+
 func TestDeviceSessionManager_ResolveTargetForSession_FallbacksToBackendOnLegacyWorker(t *testing.T) {
 	t.Parallel()
 
@@ -2045,6 +2229,24 @@ func TestDeviceSessionManager_CancelStepBestEffort_BoundedByBudget(t *testing.T)
 	// Must have polled at least once for terminal status before giving up.
 	if statusCalls < 1 {
 		t.Fatalf("expected at least one post-cancel status poll, got %d", statusCalls)
+	}
+}
+
+func TestStopOwnedSessionsPreservesAttachedSessions(t *testing.T) {
+	manager := NewDeviceSessionManager(nil, "")
+	manager.sessions[0] = &DeviceSession{Index: 0, SessionID: "owned"}
+	manager.sessions[1] = &DeviceSession{Index: 1, SessionID: "attached"}
+	manager.ownedSessions[0] = true
+	manager.activeIndex = 0
+
+	if err := manager.StopOwnedSessions(context.Background()); err != nil {
+		t.Fatalf("StopOwnedSessions(): %v", err)
+	}
+	if manager.GetSession(0) != nil {
+		t.Fatal("owned session still present")
+	}
+	if manager.GetSession(1) == nil {
+		t.Fatal("attached session was stopped")
 	}
 }
 

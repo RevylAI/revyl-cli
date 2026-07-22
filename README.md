@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.63-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.64-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -25,6 +25,12 @@ Revyl is an AI-powered testing platform for mobile apps. Define tests in natural
 
 ```bash
 curl -fsSL https://revyl.com/install.sh | sh
+```
+
+### Windows PowerShell
+
+```powershell
+irm https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.ps1 | iex
 ```
 
 ### Homebrew (macOS)
@@ -144,6 +150,17 @@ Use the revyl-cli-create skill. Create a checkout smoke test from this flow, val
 Use the revyl-cli-auth-bypass skill. Set up test-only auth bypass for this app and verify valid and rejected links on a Revyl device.
 ```
 
+## Cursor Plugin and MCP
+
+The official Revyl Cursor Marketplace plugin is coming soon. It will bundle
+the focused MCP server with mobile-development skills, routing rules, and a
+pinned runtime bootstrap. See **[Revyl for Cursor](cursor-plugin/README.md)**
+for the plugin preview and release status.
+
+Today, connect Cursor through the Revyl CLI. For current Cursor, Claude Code,
+or Codex setup, follow the canonical
+**[MCP setup guide](https://docs.revyl.ai/cli/mcp-setup)**.
+
 ## What You Can Do
 
 | Feature | Command | Docs |
@@ -155,6 +172,7 @@ Use the revyl-cli-auth-bypass skill. Set up test-only auth bypass for this app a
 | Build and upload | `revyl build` | [Commands](docs/COMMANDS.md#build-management) |
 | CI/CD | GitHub Actions | [CI/CD](docs/ci-cd.md) |
 | Agent skills | `revyl skill install` | [Skills](docs/integrations/skills.md) |
+| Cursor integration | MCP now; plugin coming soon | [MCP Setup](https://docs.revyl.ai/cli/mcp-setup) |
 
 ## Documentation
 
@@ -162,6 +180,8 @@ Use the revyl-cli-auth-bypass skill. Set up test-only auth bypass for this app a
 - **[Creating Tests](docs/TEST_CREATION.md)** -- YAML-first workflows, modules, and troubleshooting
 - **[Configuration](docs/CONFIGURATION.md)** -- `.revyl/config.yaml` reference
 - **[Agent Skills](docs/integrations/skills.md)** -- embedded skills for device loops and test creation
+- **[Revyl for Cursor](cursor-plugin/README.md)** -- plugin preview and release status
+- **[MCP Setup](https://docs.revyl.ai/cli/mcp-setup)** -- connect Revyl tools to AI coding agents
 - **[CI/CD](docs/CI_CD.md)** -- GitHub Actions integration
 - **[Development](docs/DEVELOPMENT.md)** -- internal dev workflow, hot reload
 - **[Releasing](docs/RELEASING.md)** -- version bumping, release pipeline

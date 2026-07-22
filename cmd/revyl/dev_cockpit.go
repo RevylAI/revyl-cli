@@ -518,7 +518,7 @@ func devCockpitFailureStatus(status string) bool {
 
 func devCockpitRebuildRunningStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "running", "building", "rebuilding", "installing", "uploading", "pushing", "pending", "queued", "requested":
+	case "preparing", "running", "building", "rebuilding", "installing", "uploading", "pushing", "pending", "queued", "requested":
 		return true
 	default:
 		return false

@@ -122,11 +122,9 @@ type persistedState struct {
 }
 
 type screenAnchorState struct {
-	Token       string
-	CapturedAt  time.Time
-	ActionsUsed int
-	ImageBytes  []byte
-	ImagePath   string
+	Token      string
+	ImageBytes []byte
+	ImagePath  string
 }
 
 // DeviceSessionManager manages multiple concurrent device sessions.
@@ -136,16 +134,18 @@ type screenAnchorState struct {
 // is provided. The manager syncs with the backend to discover sessions
 // started from other clients (browser, MCP, CLI in another directory).
 type DeviceSessionManager struct {
-	sessions      map[int]*DeviceSession
-	activeIndex   int
-	nextIndex     int
-	mu            sync.RWMutex
-	apiClient     *api.Client
-	idleTimers    map[int]*time.Timer
-	screenAnchors map[int]*screenAnchorState
-	workDir       string
-	orgID         string
-	userEmail     string
+	sessions          map[int]*DeviceSession
+	ownedSessions     map[int]bool
+	idleTimerDisabled map[int]bool
+	activeIndex       int
+	nextIndex         int
+	mu                sync.RWMutex
+	apiClient         *api.Client
+	idleTimers        map[int]*time.Timer
+	screenAnchors     map[int]*screenAnchorState
+	workDir           string
+	orgID             string
+	userEmail         string
 
 	// httpClient is used for worker HTTP requests.
 	// Has a 30-second timeout to prevent hanging on unresponsive services.
@@ -171,13 +171,15 @@ func (m *DeviceSessionManager) SetDevMode(devMode bool) {
 //   - *DeviceSessionManager: A new session manager instance.
 func NewDeviceSessionManager(apiClient *api.Client, workDir string) *DeviceSessionManager {
 	return &DeviceSessionManager{
-		apiClient:     apiClient,
-		workDir:       workDir,
-		httpClient:    &http.Client{Timeout: 30 * time.Second},
-		sessions:      make(map[int]*DeviceSession),
-		idleTimers:    make(map[int]*time.Timer),
-		screenAnchors: make(map[int]*screenAnchorState),
-		activeIndex:   -1,
+		apiClient:         apiClient,
+		workDir:           workDir,
+		httpClient:        &http.Client{Timeout: 30 * time.Second},
+		sessions:          make(map[int]*DeviceSession),
+		ownedSessions:     make(map[int]bool),
+		idleTimerDisabled: make(map[int]bool),
+		idleTimers:        make(map[int]*time.Timer),
+		screenAnchors:     make(map[int]*screenAnchorState),
+		activeIndex:       -1,
 	}
 }
 
@@ -513,6 +515,11 @@ func (m *DeviceSessionManager) StartSession(
 	}
 
 	m.sessions[idx] = session
+	if m.ownedSessions == nil {
+		m.ownedSessions = make(map[int]bool)
+	}
+	m.ownedSessions[idx] = true
+	delete(m.idleTimerDisabled, idx)
 
 	// Auto-set as active if this is the first session
 	if m.activeIndex < 0 || len(m.sessions) == 1 {
@@ -566,7 +573,27 @@ func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) error {
 			firstErr = err
 		}
 	}
-	m.nextIndex = 0
+	if len(m.sessions) == 0 {
+		m.nextIndex = 0
+	}
+	m.persistSessions()
+	return firstErr
+}
+
+// StopOwnedSessions stops only sessions provisioned by this manager process.
+func (m *DeviceSessionManager) StopOwnedSessions(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var firstErr error
+	for idx, session := range m.sessions {
+		if !m.ownedSessions[idx] {
+			continue
+		}
+		if err := m.stopSessionAtIndexLocked(ctx, idx, session); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
 	m.persistSessions()
 	return firstErr
 }
@@ -717,15 +744,22 @@ func (m *DeviceSessionManager) ResetIdleTimer(index int) {
 	m.resetIdleTimerForSessionLocked(index, context.Background())
 }
 
-// StopIdleTimer cancels the idle timer for a session without stopping the
-// session itself. Used by `revyl dev` to delegate idle timeout enforcement
-// to the worker process, which has accurate cross-source activity tracking.
+// StopIdleTimer disables manager-owned idle enforcement without stopping the
+// session. Used by `revyl dev` to delegate idle timeout enforcement to the
+// worker process, which has accurate cross-source activity tracking.
 //
 // Parameters:
 //   - index: The session index whose timer should be cancelled.
 func (m *DeviceSessionManager) StopIdleTimer(index int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, ok := m.sessions[index]; !ok {
+		return
+	}
+	if m.idleTimerDisabled == nil {
+		m.idleTimerDisabled = make(map[int]bool)
+	}
+	m.idleTimerDisabled[index] = true
 	if timer, ok := m.idleTimers[index]; ok {
 		timer.Stop()
 		delete(m.idleTimers, index)
@@ -755,12 +789,17 @@ func (m *DeviceSessionManager) MarkScreenshotAnchorWithImage(index int, imageByt
 	imageCopy := make([]byte, len(imageBytes))
 	copy(imageCopy, imageBytes)
 	m.screenAnchors[index] = &screenAnchorState{
-		Token:       token,
-		CapturedAt:  time.Now(),
-		ActionsUsed: 0,
-		ImageBytes:  imageCopy,
+		Token:      token,
+		ImageBytes: imageCopy,
 	}
 	return token
+}
+
+// ClearScreenshotAnchor removes stale visual state after navigation or session replacement.
+func (m *DeviceSessionManager) ClearScreenshotAnchor(index int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.screenAnchors, index)
 }
 
 // PersistAnchorImage writes the anchored screenshot to disk and associates it
@@ -878,10 +917,18 @@ func (m *DeviceSessionManager) stopSessionAtIndexLocked(ctx context.Context, ind
 			ui.PrintDebug("CancelDevice succeeded for %s: %s", session.WorkflowRunID, resp.Message)
 		}
 	}
+	if cancelErr != nil {
+		// Keep the session addressable so callers can retry cleanup. Restoring
+		// the idle timer also preserves the manager's eventual-cleanup safety net.
+		m.resetIdleTimerForSessionLocked(index, context.Background())
+		return cancelErr
+	}
 
 	// Remove from map
 	delete(m.sessions, index)
 	delete(m.screenAnchors, index)
+	delete(m.ownedSessions, index)
+	delete(m.idleTimerDisabled, index)
 
 	// Adjust active index if needed
 	if m.activeIndex == index {
@@ -904,17 +951,27 @@ func (m *DeviceSessionManager) stopSessionAtIndexLocked(ctx context.Context, ind
 func (m *DeviceSessionManager) resetIdleTimerForSessionLocked(index int, ctx context.Context) {
 	if timer, ok := m.idleTimers[index]; ok {
 		timer.Stop()
+		delete(m.idleTimers, index)
 	}
 
 	session, ok := m.sessions[index]
 	if !ok {
 		return
 	}
+	if !m.ownedSessions[index] || m.idleTimerDisabled[index] {
+		return
+	}
 
 	timeout := session.IdleTimeout
+	if timeout <= 0 {
+		return
+	}
 	m.idleTimers[index] = time.AfterFunc(timeout, func() {
 		m.mu.Lock()
 		defer m.mu.Unlock()
+		if !m.ownedSessions[index] || m.idleTimerDisabled[index] {
+			return
+		}
 		if s, ok := m.sessions[index]; ok {
 			_ = m.stopSessionAtIndexLocked(ctx, index, s)
 			m.persistSessions()
@@ -1371,22 +1428,11 @@ type LiveStepResponse struct {
 	StepOutput    json.RawMessage `json:"step_output"`
 }
 
-// maxErrorBodyLen caps the response body surfaced in error messages to avoid
-// leaking internal stack traces, tokens, or verbose HTML error pages.
-const maxErrorBodyLen = 512
-
 func (e *WorkerHTTPError) Error() string {
 	if e == nil {
 		return "worker request failed"
 	}
-	body := strings.TrimSpace(e.Body)
-	if body == "" {
-		return fmt.Sprintf("worker returned %d on %s", e.StatusCode, e.Path)
-	}
-	if len(body) > maxErrorBodyLen {
-		body = body[:maxErrorBodyLen] + "... (truncated)"
-	}
-	return fmt.Sprintf("worker returned %d on %s: %s", e.StatusCode, e.Path, body)
+	return fmt.Sprintf("worker returned %d on %s", e.StatusCode, e.Path)
 }
 
 // DownloadFileForSession executes the worker download_file action and returns
@@ -2256,6 +2302,34 @@ func (m *DeviceSessionManager) ResolveTargetForSession(ctx context.Context, inde
 	return m.resolveTargetForSession(ctx, session, target)
 }
 
+// ResolveTargetFromAnchor resolves a target against one previously captured screenshot.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - index: The session index that owns the screenshot anchor.
+//   - screenToken: Token returned by the screenshot used for grounding.
+//   - target: Natural-language element description to locate.
+//
+// Returns:
+//   - *ResolvedTarget: Coordinates grounded against the anchored image.
+//   - error: If the session, anchor, or grounding request is invalid.
+func (m *DeviceSessionManager) ResolveTargetFromAnchor(
+	ctx context.Context,
+	index int,
+	screenToken string,
+	target string,
+) (*ResolvedTarget, error) {
+	session, err := m.ResolveSession(index)
+	if err != nil {
+		return nil, err
+	}
+	screenshotBytes, _, err := m.LoadAnchorImage(session.Index, screenToken)
+	if err != nil {
+		return nil, fmt.Errorf("load screenshot anchor for grounding: %w", err)
+	}
+	return m.resolveTargetFromImageForSession(ctx, session, target, screenshotBytes)
+}
+
 // resolveTargetForSession is the internal implementation of target resolution.
 func (m *DeviceSessionManager) resolveTargetForSession(ctx context.Context, session *DeviceSession, target string) (*ResolvedTarget, error) {
 	// Prefer worker-native grounding (single hop + device-space coordinates).
@@ -2335,18 +2409,27 @@ func (m *DeviceSessionManager) resolveTargetViaBackendForSession(ctx context.Con
 	if err != nil {
 		return nil, fmt.Errorf("failed to capture screenshot for grounding: %w", err)
 	}
+	return m.resolveTargetFromImageForSession(ctx, session, target, screenshotBytes)
+}
 
-	// Step 2: Base64-encode the screenshot
+// resolveTargetFromImageForSession resolves coordinates against the supplied screenshot bytes.
+func (m *DeviceSessionManager) resolveTargetFromImageForSession(
+	ctx context.Context,
+	session *DeviceSession,
+	target string,
+	screenshotBytes []byte,
+) (*ResolvedTarget, error) {
+	// Step 1: Base64-encode the screenshot
 	imageBase64 := base64.StdEncoding.EncodeToString(screenshotBytes)
 
-	// Step 3: Get image dimensions from PNG header; fall back to standard mobile
+	// Step 2: Get image dimensions from PNG header; fall back to standard mobile
 	width, height, ok := pngDimensions(screenshotBytes)
 	if !ok {
 		width = 1080
 		height = 1920
 	}
 
-	// Step 4: Call backend grounding endpoint (routes through Hatchet)
+	// Step 3: Call backend grounding endpoint (routes through Hatchet)
 	sessionID := session.SessionID
 	platform := session.Platform
 
@@ -2370,10 +2453,25 @@ func (m *DeviceSessionManager) resolveTargetViaBackendForSession(ctx context.Con
 		return nil, fmt.Errorf("%s. Try screenshot() to see the current screen and adjust the target description", errMsg)
 	}
 
+	resolvedX := groundResp.X
+	resolvedY := groundResp.Y
+	if session.ScreenWidth > 0 && session.ScreenHeight > 0 {
+		resolvedX = scaleGroundedCoordinate(groundResp.X, width, session.ScreenWidth)
+		resolvedY = scaleGroundedCoordinate(groundResp.Y, height, session.ScreenHeight)
+	}
 	return &ResolvedTarget{
-		X: groundResp.X,
-		Y: groundResp.Y,
+		X: resolvedX,
+		Y: resolvedY,
 	}, nil
+}
+
+// scaleGroundedCoordinate converts image-pixel output into device-space coordinates.
+func scaleGroundedCoordinate(imageCoordinate, imageSize, deviceSize int) int {
+	if imageSize <= 0 || deviceSize <= 0 {
+		return imageCoordinate
+	}
+	scaled := imageCoordinate * deviceSize / imageSize
+	return max(0, min(scaled, deviceSize-1))
 }
 
 // SyncSessions synchronizes local session state with the backend.
@@ -2479,6 +2577,8 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			delete(m.idleTimers, idx)
 		}
 		delete(m.sessions, idx)
+		delete(m.ownedSessions, idx)
+		delete(m.idleTimerDisabled, idx)
 	}
 
 	// Step 6: Add backend sessions not in local map

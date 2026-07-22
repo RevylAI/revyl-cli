@@ -385,11 +385,7 @@ func TestDevLoopActionGuard_DoesNotGateActionsWhenActive(t *testing.T) {
 		idleTimers:  make(map[int]*time.Timer),
 		activeIndex: 0,
 	}
-	srv := &Server{
-		sessionMgr:          mgr,
-		devLoopActive:       true,
-		devLoopSessionIndex: 0,
-	}
+	srv := &Server{sessionMgr: mgr}
 
 	_, output, err := srv.handleDeviceTap(context.Background(), nil, DeviceTapInput{Target: "Continue button"})
 	if err != nil {
@@ -482,11 +478,7 @@ func TestDevLoopActionGuard_InactiveDevLoopDoesNotGateActions(t *testing.T) {
 		idleTimers:  make(map[int]*time.Timer),
 		activeIndex: 0,
 	}
-	srv := &Server{
-		sessionMgr:          mgr,
-		devLoopActive:       false,
-		devLoopSessionIndex: 0,
-	}
+	srv := &Server{sessionMgr: mgr}
 
 	_, output, err := srv.handleDeviceTap(context.Background(), nil, DeviceTapInput{Target: "Continue button"})
 	if err != nil {
@@ -1123,8 +1115,8 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 		}
 	}
 
-	if len(result.Tools) != 39 {
-		t.Errorf("expected 39 device tools, got %d", len(result.Tools))
+	if len(result.Tools) != 40 {
+		t.Errorf("expected 40 device tools, got %d", len(result.Tools))
 	}
 }
 

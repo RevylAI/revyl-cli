@@ -81,7 +81,7 @@ Framework-specific guides to go from repo to test results in 3 commands.
 
 ## Integrations
 
-- [MCP Setup](integrations/mcp-setup.md) — Cursor, Claude Code, Codex, VS Code, Windsurf, Claude Desktop
+- [MCP Setup](https://docs.revyl.ai/cli/mcp-setup) — connect Cursor, Claude Code, or Codex
 - [Expo Dashboard](integrations/expo-dashboard.md) — auto-import builds from EAS
 - [Agent Skills](integrations/skills.md) — embedded skills for device loops and test creation
 - [Agent Dev Loop](integrations/agent-dev-loop.md) — AI agent-assisted development workflow

@@ -4,24 +4,33 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/devloop"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 )
 
 type fakeRemoteDevInstaller struct {
-	requests []mcppkg.DeviceInstallRequest
-	results  []*mcppkg.WorkerActionResponse
-	errors   []error
+	requests    []mcppkg.DeviceInstallRequest
+	workerPaths []string
+	results     []*mcppkg.WorkerActionResponse
+	errors      []error
+}
+
+type fakeRemoteDevBuildDetailResolver struct {
+	detail *api.BuildVersionDetail
+	err    error
 }
 
 // InstallAppForSession records an install and returns the configured result.
@@ -47,6 +56,48 @@ func (f *fakeRemoteDevInstaller) InstallAppForSession(
 		return nil, f.errors[call]
 	}
 	return f.results[call], nil
+}
+
+// WorkerRequestForSession records a worker request and returns a successful action.
+//
+// Parameters:
+//   - ctx: Context controlling the fake call.
+//   - sessionIndex: Session index targeted by the caller.
+//   - path: Worker endpoint requested by the caller.
+//   - body: Typed request payload sent to the worker.
+//
+// Returns:
+//   - []byte: Successful worker response.
+//   - error: Always nil.
+func (f *fakeRemoteDevInstaller) WorkerRequestForSession(
+	ctx context.Context,
+	sessionIndex int,
+	path string,
+	body interface{},
+) ([]byte, error) {
+	_ = ctx
+	_ = sessionIndex
+	_ = body
+	f.workerPaths = append(f.workerPaths, path)
+	return []byte(`{"status":"success"}`), nil
+}
+
+// GetBuildVersionDownloadURL returns the configured remote build artifact.
+//
+// Parameters:
+//   - ctx: Context controlling the fake call.
+//   - versionID: Build version requested by the caller.
+//
+// Returns:
+//   - *api.BuildVersionDetail: Configured artifact metadata.
+//   - error: Configured resolver error.
+func (f *fakeRemoteDevBuildDetailResolver) GetBuildVersionDownloadURL(
+	ctx context.Context,
+	versionID string,
+) (*api.BuildVersionDetail, error) {
+	_ = ctx
+	_ = versionID
+	return f.detail, f.err
 }
 
 func TestInstallRemoteDevBuild_OrdersSeedAndFreshInstalls(t *testing.T) {
@@ -136,6 +187,176 @@ func TestInstallRemoteDevBuild_ReturnsTerminalWorkerFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "simctl install failed") {
 		t.Fatalf("install error = %q", err)
+	}
+}
+
+func TestDevStatusRemoteBuildProgressSinkPreservesRemoteMetadata(t *testing.T) {
+	cwd := t.TempDir()
+	status := devStatus{
+		PID:           os.Getpid(),
+		SessionID:     "session-1",
+		BuildMode:     "remote",
+		InstalledSeed: true,
+		SeededVersion: "1.2.3",
+		RebuildCount:  2,
+		Build: &devloop.BuildStatus{
+			State:         devloop.BuildStateQueued,
+			RemoteJobID:   "job-123",
+			SeededVersion: "1.2.3",
+		},
+		LastRebuild: &devRebuildInfo{
+			Status:      "running",
+			Seq:         2,
+			RemoteJobID: "job-123",
+			Logs:        []devRebuildLogEntry{newDevRebuildLog("info", "Remote build queued")},
+		},
+	}
+	writeDevLogsTestStatus(t, cwd, "default", status)
+	statusPath := devCtxStatusPath(cwd, "default")
+	sink := newDevStatusRemoteBuildProgressSink(statusPath)
+
+	publishRemoteDevBuildProgress(sink, remoteDevBuildProgress{
+		State: devloop.BuildStateInstalling, Phase: "device_install", Message: "Installing remote build on device",
+	})
+
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var updated devStatus
+	if err := json.Unmarshal(data, &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Build == nil ||
+		updated.Build.State != devloop.BuildStateInstalling ||
+		updated.Build.Phase != "device_install" {
+		t.Fatalf("build progress = %+v", updated.Build)
+	}
+	if updated.Build.RemoteJobID != "job-123" || updated.LastRebuild.RemoteJobID != "job-123" {
+		t.Fatalf("remote job metadata was not preserved: build=%+v rebuild=%+v", updated.Build, updated.LastRebuild)
+	}
+	if !updated.InstalledSeed || updated.SeededVersion != "1.2.3" {
+		t.Fatalf("seed metadata = (%v, %q)", updated.InstalledSeed, updated.SeededVersion)
+	}
+	if got := updated.LastRebuild.Logs[len(updated.LastRebuild.Logs)-1].Message; got != "Installing remote build on device" {
+		t.Fatalf("last progress log = %q", got)
+	}
+}
+
+func TestRemoteBuildProgressFromStatusPreservesBackendPhase(t *testing.T) {
+	phase := "xcodebuild"
+	progress := remoteBuildProgressFromStatus(&api.RemoteBuildStatusResponse{
+		Status: "building",
+		Phase:  &phase,
+	})
+
+	if progress.State != devloop.BuildStateBuilding || progress.Phase != phase {
+		t.Fatalf("remote progress = %+v", progress)
+	}
+}
+
+func TestRemoteBuildProgressFromStatusMovesSuccessfulBuildToInstalling(t *testing.T) {
+	phase := "artifact_upload"
+	progress := remoteBuildProgressFromStatus(&api.RemoteBuildStatusResponse{
+		Status: "success",
+		Phase:  &phase,
+	})
+
+	if progress.State != devloop.BuildStateInstalling ||
+		progress.Phase != phase ||
+		progress.Message != "Remote build completed" {
+		t.Fatalf("remote progress = %+v", progress)
+	}
+}
+
+func TestInstallAndLaunchRemoteDevBuildPublishesDeviceProgress(t *testing.T) {
+	resolver := &fakeRemoteDevBuildDetailResolver{
+		detail: &api.BuildVersionDetail{
+			DownloadURL: "https://example.test/fresh.zip",
+			PackageName: "com.example.app",
+			Version:     "1.2.3",
+		},
+	}
+	deviceMgr := &fakeRemoteDevInstaller{
+		results: []*mcppkg.WorkerActionResponse{{
+			Success:  true,
+			Action:   "install",
+			BundleID: "com.example.app",
+		}},
+	}
+	bundleID := ""
+	var progress []remoteDevBuildProgress
+
+	err := installAndLaunchRemoteDevBuild(
+		context.Background(),
+		resolver,
+		deviceMgr,
+		&mcppkg.DeviceSession{Index: 7, SessionID: "session-1"},
+		"ios",
+		remoteDevBuildResult{
+			jobID:     "job-1",
+			versionID: "version-1",
+			version:   "1.2.3",
+			duration:  time.Second,
+		},
+		&bundleID,
+		filepath.Join(t.TempDir(), "status.json"),
+		"https://example.test/viewer",
+		func(update remoteDevBuildProgress) {
+			progress = append(progress, update)
+		},
+	)
+	if err != nil {
+		t.Fatalf("installAndLaunchRemoteDevBuild() error = %v", err)
+	}
+	if len(progress) != 2 {
+		t.Fatalf("progress updates = %+v, want install and launch", progress)
+	}
+	if progress[0].State != devloop.BuildStateInstalling || progress[0].Phase != "device_install" {
+		t.Fatalf("install progress = %+v", progress[0])
+	}
+	if progress[1].State != devloop.BuildStateLaunching || progress[1].Phase != "app_launch" {
+		t.Fatalf("launch progress = %+v", progress[1])
+	}
+	if len(deviceMgr.workerPaths) != 1 || deviceMgr.workerPaths[0] != "/launch" {
+		t.Fatalf("worker paths = %+v, want launch", deviceMgr.workerPaths)
+	}
+}
+
+func TestWaitRemoteDevBuildPublishesPhaseAndVersion(t *testing.T) {
+	withFastRemoteBuildPolling(t)
+	versionID := "version-123"
+	version := "1.2.3"
+	phase := "artifact_upload"
+	server := remoteBuildStatusServer(t, api.RemoteBuildStatusResponse{
+		Status:    "success",
+		VersionId: &versionID,
+		Version:   &version,
+		Phase:     &phase,
+	})
+	defer server.Close()
+
+	var progress []remoteDevBuildProgress
+	result, err := waitRemoteDevBuild(
+		context.Background(),
+		api.NewClientWithBaseURL("test-key", server.URL),
+		remoteDevBuildJob{jobID: "job-1", started: time.Now()},
+		t.TempDir(),
+		func(update remoteDevBuildProgress) {
+			progress = append(progress, update)
+		},
+	)
+	if err != nil {
+		t.Fatalf("waitRemoteDevBuild(): %v", err)
+	}
+	if result.jobID != "job-1" || result.versionID != versionID || result.version != version {
+		t.Fatalf("remote build result = %+v", result)
+	}
+	if len(progress) != 1 ||
+		progress[0].State != devloop.BuildStateInstalling ||
+		progress[0].Phase != phase ||
+		progress[0].Message != "Remote build completed" {
+		t.Fatalf("remote progress = %+v", progress)
 	}
 }
 

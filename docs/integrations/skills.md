@@ -1,14 +1,26 @@
 # Agent Skills
 
-> [Back to README](../README.md) | [MCP Setup](mcp-setup.md) | [Commands](../COMMANDS.md)
+> [Back to README](../README.md) | [MCP Setup](https://docs.revyl.ai/cli/mcp-setup) | [Commands](../COMMANDS.md)
 
 Skills are embedded playbooks that teach your AI coding agent how to use Revyl effectively. The first-class public skills are focused on the customer workflows agents run most often: dev loops, test creation, and test-only auth bypass. Optional by-name skills cover narrower implementation jobs.
 
-## Install
+## Choose the right skill family
+
+| Setup | Skill behavior |
+|-------|----------------|
+| Revyl Cursor Marketplace plugin (coming soon) | Bundles `revyl-mcp-dev-loop`, `revyl-cloud-agent`, and `revyl-ci-sync`; do not install a second copy |
+| CLI-backed MCP with the focused `dev` profile | Install `revyl-mcp-dev-loop` for the selected client |
+| CLI-only workflows | Install the default `revyl-cli-*` skills |
+
+The `revyl-mcp-*` family expects MCP tools. The `revyl-cli-*` family runs
+terminal commands as an explicit fallback. Do not run both families against
+the same active dev loop.
+
+## Install CLI skills
 
 Interactive `revyl init` asks which AI coding tool you use and installs the
-public skills for Cursor, Codex, or Claude Code automatically. Use these
-commands when you want to install, refresh, or export skills manually:
+CLI skill family for Cursor, Codex, or Claude Code automatically. Use these
+commands when you want to install, refresh, or export CLI skills manually:
 
 ```bash
 revyl skill list
@@ -41,6 +53,18 @@ revyl skill install --cursor --force
 revyl skill install --codex --force
 revyl skill install --claude --force
 ```
+
+### MCP-specific install
+
+For the focused dev profile used by the current Cursor MCP setup:
+
+```bash
+revyl skill install --name revyl-mcp-dev-loop --cursor --force
+```
+
+Replace `--cursor` with `--codex` or `--claude` for another client. Use
+`revyl skill install --mcp --force` only when the MCP server exposes the
+broader tool profiles required by the full MCP skill family.
 
 ### Global install
 

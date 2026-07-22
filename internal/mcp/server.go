@@ -6,6 +6,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -23,6 +24,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/devloop"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers"
@@ -35,14 +37,15 @@ import (
 
 // Server wraps the MCP server with Revyl-specific functionality.
 type Server struct {
-	mcpServer  *mcp.Server
-	apiClient  *api.Client
-	config     *config.ProjectConfig
-	workDir    string
-	version    string
-	devMode    bool
-	rootCmd    *cobra.Command
-	sessionMgr *DeviceSessionManager
+	mcpServer   *mcp.Server
+	apiClient   *api.Client
+	authManager *auth.Manager
+	config      *config.ProjectConfig
+	workDir     string
+	version     string
+	devMode     bool
+	rootCmd     *cobra.Command
+	sessionMgr  *DeviceSessionManager
 
 	// Hot reload session state (persists across tool calls)
 	hotReloadManager *hotreload.Manager
@@ -50,10 +53,10 @@ type Server struct {
 	hotReloadTestID  string                 // Test ID the session was started for
 	hotReloadResult  *hotreload.StartResult // Cached URLs
 
-	// Dev-loop MCP session state
-	devLoopActive             bool
-	devLoopSessionIndex       int
-	devLoopManualStepRequired bool
+	// Canonical delegated dev-loop state.
+	devLoopRunner       devloop.Runner
+	delegatedDevWorkDir string
+	delegatedDevContext string
 
 	// Composite tool profile (empty = legacy flat tools)
 	profile Profile
@@ -63,12 +66,38 @@ type Server struct {
 type ServerOption func(*Server)
 
 // WithProfile sets the composite tool profile for the MCP server.
-// Use ProfileCore for ~10 tools (default agent experience) or
-// ProfileFull for ~16 tools (all functionality).
+// Use ProfileDev for the focused eleven-tool experience, ProfileCore for the
+// broad development/test surface, or ProfileFull for all functionality.
 func WithProfile(p Profile) ServerOption {
 	return func(s *Server) {
 		s.profile = p
 	}
+}
+
+// WithDevLoopRunner injects the canonical dev-loop adapter for tests or alternate runtimes.
+func WithDevLoopRunner(runner devloop.Runner) ServerOption {
+	return func(s *Server) {
+		s.devLoopRunner = runner
+	}
+}
+
+// instructionsForProfile keeps the focused dev surface free of duplicated workflows.
+func instructionsForProfile(profile Profile, fallback string) string {
+	if profile != ProfileDev {
+		return fallback
+	}
+	return `Revyl runs agent-driven mobile development on cloud devices.
+
+Call start_dev_loop first and return its viewer immediately on success.
+If start_dev_loop reports a setup failure, follow its one remediation action and retry start_dev_loop once.
+setup_status is optional diagnostics, not a prerequisite.
+Stop and report the remediation when restart_required is true, or when the one retry fails.
+Use rebuild to trigger local or remote work without blocking, wait_for_rebuild when its result is needed, and get_dev_status for independent status snapshots.
+Do not infer build success from device readiness.
+Use screenshot, interact, and device_validation for device work.
+Interact captures its own pre/post screenshots and resolves natural-language targets inside Revyl. Do not calculate or supply coordinates.
+Treat structured outcome fields as authoritative, including validation and degraded build states.
+Always call stop_dev_loop or device_session(action="stop") when finished unless keep-alive was explicitly requested.`
 }
 
 // NewServer creates a new Revyl MCP server.
@@ -82,15 +111,20 @@ func WithProfile(p Profile) ServerOption {
 //   - *Server: A new server instance
 //   - error: Any error that occurred during initialization
 func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, error) {
-	// Get API key from environment or credentials
-	apiKey := os.Getenv("REVYL_API_KEY")
-	if apiKey == "" {
-		mgr := auth.NewManager()
-		creds, err := mgr.GetCredentials()
-		if err != nil || creds == nil || creds.APIKey == "" {
-			return nil, fmt.Errorf("not authenticated: set REVYL_API_KEY or run 'revyl auth login'")
-		}
-		apiKey = creds.APIKey
+	s := &Server{}
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	// Resolve authentication through the same active-token contract used by the
+	// rest of the CLI so browser access tokens and persistent API keys both work.
+	credentialManager := auth.NewManager()
+	authentication := resolveMCPAuthentication(credentialManager, isCloudEnvironment())
+	if authentication.LoadError != nil && s.profile != ProfileDev {
+		return nil, fmt.Errorf("could not load Revyl credentials: %w", authentication.LoadError)
+	}
+	if authentication.State != authenticationStateAuthenticated && s.profile != ProfileDev {
+		return nil, fmt.Errorf("not authenticated: set REVYL_API_KEY or run 'revyl auth login'")
 	}
 
 	// Get working directory: prefer explicit env so Cursor (or any host) can set it
@@ -114,17 +148,21 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 	configPath := filepath.Join(workDir, ".revyl", "config.yaml")
 	cfg, _ = config.LoadProjectConfig(configPath)
 
-	s := &Server{
-		apiClient: api.NewClientWithDevMode(apiKey, devMode),
-		config:    cfg,
-		workDir:   workDir,
-		version:   version,
-		devMode:   devMode,
+	binaryPath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve Revyl executable for dev loop: %w", err)
 	}
-
-	// Apply functional options
-	for _, opt := range opts {
-		opt(s)
+	s.apiClient = api.NewClientWithDevMode(authentication.Token, devMode)
+	s.authManager = credentialManager
+	s.config = cfg
+	s.workDir = workDir
+	s.version = version
+	s.devMode = devMode
+	if s.devLoopRunner == nil {
+		s.devLoopRunner = &devloop.CommandRunner{
+			BinaryPath: binaryPath,
+			DevMode:    devMode,
+		}
 	}
 
 	// Initialize device session manager
@@ -142,7 +180,7 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 			Version: version,
 		},
 		&mcp.ServerOptions{
-			Instructions: `Revyl provides cloud-hosted Android and iOS device interaction for AI agents, plus test/workflow management, modules, scripts, and build management.
+			Instructions: instructionsForProfile(s.profile, `Revyl provides cloud-hosted Android and iOS device interaction for AI agents, plus test/workflow management, modules, scripts, and build management.
 
 ## Tool Categories
 
@@ -260,9 +298,10 @@ idle_seconds against idle_timeout_seconds.
 - "worker returned 5xx" → Call device_doctor() to diagnose; may need to restart session
 - "grounding request failed" → Check network; call device_doctor() for more info
 
-When in doubt, call device_doctor() -- it checks auth, session, worker, grounding, and environment.`,
+When in doubt, call device_doctor() -- it checks auth, session, worker, grounding, and environment.`),
 		},
 	)
+	s.registerScreenshotAppResource()
 
 	// Register tools
 	if s.profile != "" {
@@ -1433,10 +1472,10 @@ type GetSchemaInput struct {
 
 // GetSchemaOutput defines output for get_schema tool.
 type GetSchemaOutput struct {
-	CLISchema      interface{} `json:"cli_schema,omitempty"`
-	YAMLTestSchema interface{} `json:"yaml_test_schema,omitempty"`
-	Markdown       string      `json:"markdown,omitempty"`
-	LLMFormat      string      `json:"llm_format,omitempty"`
+	CLISchema      map[string]any `json:"cli_schema,omitempty"`
+	YAMLTestSchema map[string]any `json:"yaml_test_schema,omitempty"`
+	Markdown       string         `json:"markdown,omitempty"`
+	LLMFormat      string         `json:"llm_format,omitempty"`
 }
 
 // handleGetSchema handles the get_schema tool call.
@@ -1451,11 +1490,21 @@ func (s *Server) handleGetSchema(ctx context.Context, req *mcp.CallToolRequest, 
 	if s.rootCmd != nil {
 		cliSchema = schema.GetCLISchema(s.rootCmd, s.version)
 	}
+	cliSchemaOutput := make(map[string]any)
+	if cliSchema != nil {
+		encoded, err := json.Marshal(cliSchema)
+		if err != nil {
+			return nil, GetSchemaOutput{}, fmt.Errorf("encode CLI schema: %w", err)
+		}
+		if err := json.Unmarshal(encoded, &cliSchemaOutput); err != nil {
+			return nil, GetSchemaOutput{}, fmt.Errorf("normalize CLI schema: %w", err)
+		}
+	}
 
 	switch format {
 	case "json":
 		return nil, GetSchemaOutput{
-			CLISchema:      cliSchema,
+			CLISchema:      cliSchemaOutput,
 			YAMLTestSchema: schema.YAMLTestSchemaJSON(),
 		}, nil
 	case "markdown":
@@ -1479,7 +1528,7 @@ func (s *Server) handleGetSchema(ctx context.Context, req *mcp.CallToolRequest, 
 		}, nil
 	default:
 		return nil, GetSchemaOutput{
-			CLISchema:      cliSchema,
+			CLISchema:      cliSchemaOutput,
 			YAMLTestSchema: schema.YAMLTestSchemaJSON(),
 		}, nil
 	}
@@ -4254,12 +4303,25 @@ func (s *Server) handleHotReloadStatus(ctx context.Context, req *mcp.CallToolReq
 	}, nil
 }
 
-// Shutdown cleans up server resources, including any active hot reload session.
+// Shutdown cleans up process-owned raw sessions and hot reload state.
+// Detached CLI dev loops outlive individual MCP stdio clients and stop only
+// through stop_dev_loop or server-side idle expiry.
 func (s *Server) Shutdown() {
 	s.hotReloadMu.Lock()
-	defer s.hotReloadMu.Unlock()
-	if s.hotReloadManager != nil {
-		s.hotReloadManager.Stop()
-		s.hotReloadManager = nil
+	manager := s.hotReloadManager
+	s.hotReloadManager = nil
+	s.delegatedDevWorkDir = ""
+	s.delegatedDevContext = ""
+	s.hotReloadMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if s.sessionMgr != nil {
+		if err := s.sessionMgr.StopOwnedSessions(ctx); err != nil {
+			ui.PrintWarning("Could not stop MCP-owned device sessions during shutdown: %v", err)
+		}
+	}
+	if manager != nil {
+		manager.Stop()
 	}
 }

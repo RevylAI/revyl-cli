@@ -12,6 +12,7 @@ import (
 type Profile string
 
 const (
+	ProfileDev  Profile = "dev"
 	ProfileCore Profile = "core"
 	ProfileFull Profile = "full"
 )
@@ -26,15 +27,19 @@ type CompositeInput struct {
 
 // CompositeOutput is a thin wrapper returned by all composite dispatchers.
 type CompositeOutput struct {
-	Action string      `json:"action"`
-	Result interface{} `json:"result"`
+	Action string         `json:"action"`
+	Result map[string]any `json:"result"`
 }
 
-// registerCompositeTools registers composite (action-dispatched) tools
-// based on the selected profile. Core profile registers ~10 tools
-// sufficient for the dev-loop and test-creation journey. Full profile
-// adds workflow, module, script, tag, file, and variable management.
+// registerCompositeTools registers the focused dev surface or broader
+// compatibility profiles. Full adds workflow, module, script, tag, file, and
+// variable management to the core development/test surface.
 func (s *Server) registerCompositeTools(profile Profile) {
+	if profile == ProfileDev {
+		s.registerDevProfileTools()
+		return
+	}
+
 	// --- Always registered (core + full) ---
 	s.registerDeviceTools()
 	s.registerDevLoopTools()
@@ -71,7 +76,20 @@ func dispatchComposite[I any, O any](
 		}
 	}
 	toolResult, out, err := handler(ctx, req, typed)
-	return toolResult, CompositeOutput{Action: input.Action, Result: out}, err
+	if err != nil {
+		return toolResult, CompositeOutput{Action: input.Action, Result: nil}, err
+	}
+	encoded, marshalErr := json.Marshal(out)
+	if marshalErr != nil {
+		return toolResult, CompositeOutput{Action: input.Action, Result: nil},
+			fmt.Errorf("encode result for action %q: %w", input.Action, marshalErr)
+	}
+	var result map[string]any
+	if unmarshalErr := json.Unmarshal(encoded, &result); unmarshalErr != nil {
+		return toolResult, CompositeOutput{Action: input.Action, Result: nil},
+			fmt.Errorf("normalize result for action %q: %w", input.Action, unmarshalErr)
+	}
+	return toolResult, CompositeOutput{Action: input.Action, Result: result}, nil
 }
 
 // ---------------------------------------------------------------------------

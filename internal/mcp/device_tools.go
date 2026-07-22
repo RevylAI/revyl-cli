@@ -13,7 +13,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/sigutil"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -59,6 +58,32 @@ func (s *Server) resolveSessionWithHydration(ctx context.Context, index int) (*D
 	}
 	s.syncSessionsBestEffort(ctx)
 	return s.sessionMgr.ResolveSession(index)
+}
+
+// registerScreenshotTool registers the standalone native screenshot tool.
+func (s *Server) registerScreenshotTool() {
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Meta:        screenshotAppToolMeta(),
+		Name:        "screenshot",
+		Description: "Capture the current device screen as a PNG image. Returns the image natively for rendering.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Take Screenshot",
+			ReadOnlyHint: true,
+		},
+	}, s.handleScreenshot)
+}
+
+// registerDeviceNavigateTool registers URL and deep-link navigation.
+func (s *Server) registerDeviceNavigateTool() {
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "device_navigate",
+		Description: "Open a URL or deep link on the device.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Navigate to URL",
+			DestructiveHint: boolPtr(true),
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, s.handleDeviceNavigate)
 }
 
 // registerDeviceTools registers all device interaction MCP tools.
@@ -204,14 +229,7 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleDeviceShake)
 
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "screenshot",
-		Description: "Capture the current device screen as a PNG image. Returns the image natively for rendering.",
-		Annotations: &mcp.ToolAnnotations{
-			Title:        "Take Screenshot",
-			ReadOnlyHint: true,
-		},
-	}, s.handleScreenshot)
+	s.registerScreenshotTool()
 
 	// App management
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -265,15 +283,7 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleDeviceOpenApp)
 
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "device_navigate",
-		Description: "Open a URL or deep link on the device.",
-		Annotations: &mcp.ToolAnnotations{
-			Title:           "Navigate to URL",
-			DestructiveHint: boolPtr(true),
-			OpenWorldHint:   boolPtr(true),
-		},
-	}, s.handleDeviceNavigate)
+	s.registerDeviceNavigateTool()
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "device_set_location",
@@ -383,15 +393,7 @@ func (s *Server) registerDeviceTools() {
 		},
 	}, s.handleSwitchDeviceSession)
 
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "rebuild_and_verify",
-		Description: "Trigger a native rebuild in a running `revyl dev` session, wait for it to complete, and optionally capture a screenshot. Returns structured JSON with build status, duration, errors, and whether app data was preserved. Use after editing native code to see the result on device.",
-		Annotations: &mcp.ToolAnnotations{
-			Title:           "Rebuild and Verify",
-			DestructiveHint: boolPtr(false),
-			OpenWorldHint:   boolPtr(true),
-		},
-	}, s.handleRebuildAndVerify)
+	s.registerRebuildTool()
 
 	// Live performance polling
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -636,6 +638,47 @@ func (s *Server) resolveCoords(ctx context.Context, target string, x, y *int, se
 	}, nil
 }
 
+// resolveCoordsFromAnchor grounds a target against one captured screenshot.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - target: Natural-language element description.
+//   - screenToken: Token for the screenshot that must be used for grounding.
+//   - sessionIndex: Session index that owns the screenshot anchor.
+//
+// Returns:
+//   - *resolveCoordsResult: Grounded coordinates and the concrete session index.
+//   - error: Validation, session, anchor, or grounding failure.
+func (s *Server) resolveCoordsFromAnchor(
+	ctx context.Context,
+	target string,
+	screenToken string,
+	sessionIndex int,
+) (*resolveCoordsResult, error) {
+	if strings.TrimSpace(target) == "" {
+		return nil, fmt.Errorf("target is required for anchored grounding")
+	}
+	if strings.TrimSpace(screenToken) == "" {
+		return nil, fmt.Errorf("screen_token is required for anchored grounding")
+	}
+
+	session, err := s.resolveSessionWithHydration(ctx, sessionIndex)
+	if err != nil {
+		return nil, err
+	}
+	s.sessionMgr.ResetIdleTimer(session.Index)
+
+	resolved, err := s.sessionMgr.ResolveTargetFromAnchor(ctx, session.Index, screenToken, target)
+	if err != nil {
+		return nil, err
+	}
+	return &resolveCoordsResult{
+		X:            resolved.X,
+		Y:            resolved.Y,
+		SessionIndex: session.Index,
+	}, nil
+}
+
 // errorNextSteps returns recovery-oriented NextSteps based on the error type.
 func errorNextSteps(err error) []NextStep {
 	msg := err.Error()
@@ -750,16 +793,16 @@ type liveStepOutputSummary struct {
 }
 
 type DeviceLiveStepOutput struct {
-	Success       bool            `json:"success"`
-	StepType      string          `json:"step_type,omitempty"`
-	StepID        string          `json:"step_id,omitempty"`
-	WorkflowRunID string          `json:"workflow_run_id,omitempty"`
-	SessionID     string          `json:"session_id,omitempty"`
-	ExecutionID   string          `json:"execution_id,omitempty"`
-	ReportID      string          `json:"report_id,omitempty"`
-	StepOutput    json.RawMessage `json:"step_output,omitempty"`
-	Error         string          `json:"error,omitempty"`
-	NextSteps     []NextStep      `json:"next_steps,omitempty"`
+	Success       bool           `json:"success"`
+	StepType      string         `json:"step_type,omitempty"`
+	StepID        string         `json:"step_id,omitempty"`
+	WorkflowRunID string         `json:"workflow_run_id,omitempty"`
+	SessionID     string         `json:"session_id,omitempty"`
+	ExecutionID   string         `json:"execution_id,omitempty"`
+	ReportID      string         `json:"report_id,omitempty"`
+	StepOutput    map[string]any `json:"step_output,omitempty"`
+	Error         string         `json:"error,omitempty"`
+	NextSteps     []NextStep     `json:"next_steps,omitempty"`
 }
 
 func liveStepErrorFromResponse(response *LiveStepResponse) string {
@@ -804,6 +847,14 @@ func (s *Server) executeLiveStep(
 		}, nil
 	}
 
+	outcomeErr := EvaluateLiveStepOutcome(response, request.StepType)
+	if outcomeErr != nil {
+		response.Success = false
+	}
+	stepOutput := make(map[string]any)
+	if len(response.StepOutput) > 0 {
+		_ = json.Unmarshal(response.StepOutput, &stepOutput)
+	}
 	output := &DeviceLiveStepOutput{
 		Success:       response.Success,
 		StepType:      response.StepType,
@@ -812,7 +863,7 @@ func (s *Server) executeLiveStep(
 		SessionID:     response.SessionID,
 		ExecutionID:   response.ExecutionID,
 		ReportID:      response.ReportID,
-		StepOutput:    response.StepOutput,
+		StepOutput:    stepOutput,
 	}
 	if response.Success {
 		output.NextSteps = []NextStep{
@@ -821,7 +872,11 @@ func (s *Server) executeLiveStep(
 		return output, nil
 	}
 
-	output.Error = liveStepErrorFromResponse(response)
+	if outcomeErr != nil {
+		output.Error = outcomeErr.Error()
+	} else {
+		output.Error = liveStepErrorFromResponse(response)
+	}
 	output.NextSteps = errorNextSteps(fmt.Errorf("%s", output.Error))
 	return output, nil
 }
@@ -867,6 +922,9 @@ func (s *Server) handleDeviceInstruction(ctx context.Context, req *mcp.CallToolR
 	if err != nil {
 		return nil, DeviceLiveStepOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
+	if !output.Success {
+		return &mcp.CallToolResult{IsError: true}, *output, nil
+	}
 	return nil, *output, nil
 }
 
@@ -889,6 +947,9 @@ func (s *Server) handleDeviceValidation(ctx context.Context, req *mcp.CallToolRe
 	)
 	if err != nil {
 		return nil, DeviceLiveStepOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	if !output.Success {
+		return &mcp.CallToolResult{IsError: true}, *output, nil
 	}
 	return nil, *output, nil
 }
@@ -1547,11 +1608,19 @@ type ScreenshotOutput struct {
 	LatencyMs   float64    `json:"latency_ms"`
 	ScreenToken string     `json:"screen_token,omitempty"`
 	ImagePath   string     `json:"image_path,omitempty"`
+	ErrorCode   string     `json:"error_code,omitempty"`
 	Error       string     `json:"error,omitempty"`
 	NextSteps   []NextStep `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest, input ScreenshotInput) (*mcp.CallToolResult, ScreenshotOutput, error) {
+	if failure := s.refreshDevAuthentication(); failure != nil {
+		return &mcp.CallToolResult{IsError: true}, ScreenshotOutput{
+			Success:   false,
+			ErrorCode: string(failure.Code),
+			Error:     failure.Message,
+		}, nil
+	}
 	sidx := -1
 	if input.SessionIndex != nil {
 		sidx = *input.SessionIndex
@@ -1570,11 +1639,7 @@ func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest,
 		}, nil
 	}
 
-	result := &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.ImageContent{Data: imgBytes, MIMEType: "image/png"},
-		},
-	}
+	result := nativeImageResult(imgBytes)
 	screenToken := s.sessionMgr.MarkScreenshotAnchorWithImage(session.Index, imgBytes)
 	imagePath, err := s.sessionMgr.PersistAnchorImage(session.Index, screenToken, imgBytes)
 	if err != nil {
@@ -1583,6 +1648,15 @@ func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest,
 	return result, ScreenshotOutput{
 		Success: true, LatencyMs: latency, ScreenToken: screenToken, ImagePath: imagePath,
 	}, nil
+}
+
+// nativeImageResult returns one image-only MCP chat result.
+func nativeImageResult(imageBytes []byte) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.ImageContent{Data: imageBytes, MIMEType: "image/png"},
+		},
+	}
 }
 
 // --- Install App ---
@@ -2027,6 +2101,7 @@ func (s *Server) handleSwitchDeviceSession(ctx context.Context, req *mcp.CallToo
 	platform := ""
 	if session != nil {
 		platform = session.Platform
+		s.sessionMgr.ClearScreenshotAnchor(session.Index)
 	}
 
 	return nil, SwitchDeviceSessionOutput{
@@ -2167,11 +2242,19 @@ type DeviceNavigateInput struct {
 type DeviceNavigateOutput struct {
 	Success   bool       `json:"success"`
 	URL       string     `json:"url,omitempty"`
+	ErrorCode string     `json:"error_code,omitempty"`
 	Error     string     `json:"error,omitempty"`
 	NextSteps []NextStep `json:"next_steps,omitempty"`
 }
 
 func (s *Server) handleDeviceNavigate(ctx context.Context, req *mcp.CallToolRequest, input DeviceNavigateInput) (*mcp.CallToolResult, DeviceNavigateOutput, error) {
+	if failure := s.refreshDevAuthentication(); failure != nil {
+		return &mcp.CallToolResult{IsError: true}, DeviceNavigateOutput{
+			Success:   false,
+			ErrorCode: string(failure.Code),
+			Error:     failure.Message,
+		}, nil
+	}
 	if input.URL == "" {
 		return nil, DeviceNavigateOutput{Success: false, Error: "url is required"}, nil
 	}
@@ -2190,6 +2273,7 @@ func (s *Server) handleDeviceNavigate(ctx context.Context, req *mcp.CallToolRequ
 	if err != nil {
 		return nil, DeviceNavigateOutput{Success: false, URL: input.URL, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
+	s.sessionMgr.ClearScreenshotAnchor(session.Index)
 
 	return nil, DeviceNavigateOutput{
 		Success: true,
@@ -2387,166 +2471,6 @@ func (s *Server) handleGetSessionReport(ctx context.Context, req *mcp.CallToolRe
 		out.Steps = *r.Steps
 	}
 	return nil, out, nil
-}
-
-// ---------------------------------------------------------------------------
-// rebuild_and_verify
-// ---------------------------------------------------------------------------
-
-// RebuildAndVerifyInput defines input for rebuild_and_verify.
-type RebuildAndVerifyInput struct {
-	TimeoutSeconds int  `json:"timeout_seconds,omitempty" jsonschema:"Max seconds to wait for rebuild (default 120)"`
-	Screenshot     bool `json:"screenshot,omitempty" jsonschema:"Capture a screenshot after rebuild (default true)"`
-}
-
-// RebuildAndVerifyOutput contains the structured rebuild result.
-type RebuildAndVerifyOutput struct {
-	Success       bool   `json:"success"`
-	Status        string `json:"status"`
-	DurationMs    int64  `json:"duration_ms"`
-	PushMode      string `json:"push_mode,omitempty"`
-	FilesChanged  int    `json:"files_changed,omitempty"`
-	DataPreserved bool   `json:"data_preserved,omitempty"`
-	ScreenToken   string `json:"screen_token,omitempty"`
-	ImagePath     string `json:"image_path,omitempty"`
-	Error         string `json:"error,omitempty"`
-	BuildErrors   []struct {
-		File     string `json:"file"`
-		Line     int    `json:"line"`
-		Column   int    `json:"column"`
-		Severity string `json:"severity"`
-		Message  string `json:"message"`
-	} `json:"build_errors,omitempty"`
-	NextSteps []NextStep `json:"next_steps,omitempty"`
-}
-
-func (s *Server) handleRebuildAndVerify(ctx context.Context, req *mcp.CallToolRequest, input RebuildAndVerifyInput) (*mcp.CallToolResult, RebuildAndVerifyOutput, error) {
-	out := RebuildAndVerifyOutput{}
-
-	if input.TimeoutSeconds <= 0 {
-		input.TimeoutSeconds = 120
-	}
-
-	cwd := s.sessionMgr.WorkDir()
-	pidPath := cwd + "/.revyl/.dev.pid"
-	statusPath := cwd + "/.revyl/.dev-status.json"
-
-	pidData, err := os.ReadFile(pidPath)
-	if err != nil {
-		out.Error = "no dev session running"
-		out.Status = "no_session"
-		out.NextSteps = []NextStep{{Tool: "start_device_session", Reason: "Start a dev session first"}}
-		return nil, out, nil
-	}
-
-	var parsedPID int
-	if n, _ := fmt.Sscanf(strings.TrimSpace(string(pidData)), "%d", &parsedPID); n == 0 || parsedPID <= 0 {
-		out.Error = "invalid PID in .dev.pid"
-		out.Status = "error"
-		return nil, out, nil
-	}
-
-	proc, procErr := os.FindProcess(parsedPID)
-	if procErr != nil {
-		out.Error = fmt.Sprintf("process %d not found", parsedPID)
-		out.Status = "no_session"
-		return nil, out, nil
-	}
-
-	priorCompleted := readDevStatusCompletedAt(statusPath)
-
-	if sigutil.RebuildSignal == nil {
-		out.Error = "signal-based rebuild is not supported on this platform"
-		out.Status = "error"
-		return nil, out, nil
-	}
-
-	if sigErr := proc.Signal(sigutil.RebuildSignal); sigErr != nil {
-		out.Error = fmt.Sprintf("dev session (PID %d) is not running: %v", parsedPID, sigErr)
-		out.Status = "no_session"
-		return nil, out, nil
-	}
-
-	deadline := time.Now().Add(time.Duration(input.TimeoutSeconds) * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
-		current := readDevStatusCompletedAt(statusPath)
-		if current != "" && current != priorCompleted {
-			statusData, readErr := os.ReadFile(statusPath)
-			if readErr != nil {
-				out.Error = "rebuild completed but failed to read status"
-				out.Status = "error"
-				return nil, out, nil
-			}
-
-			var ds struct {
-				LastRebuild *struct {
-					Status        string `json:"status"`
-					DurationMs    int64  `json:"duration_ms"`
-					PushMode      string `json:"push_mode"`
-					FilesChanged  int    `json:"files_changed"`
-					DataPreserved bool   `json:"data_preserved"`
-					BuildErrors   []struct {
-						File     string `json:"file"`
-						Line     int    `json:"line"`
-						Column   int    `json:"column"`
-						Severity string `json:"severity"`
-						Message  string `json:"message"`
-					} `json:"build_errors"`
-				} `json:"last_rebuild"`
-			}
-			if jsonErr := json.Unmarshal(statusData, &ds); jsonErr == nil && ds.LastRebuild != nil {
-				rb := ds.LastRebuild
-				out.Status = rb.Status
-				out.DurationMs = rb.DurationMs
-				out.PushMode = rb.PushMode
-				out.FilesChanged = rb.FilesChanged
-				out.DataPreserved = rb.DataPreserved
-				out.BuildErrors = rb.BuildErrors
-				out.Success = rb.Status == "success" || rb.Status == "skipped"
-			}
-
-			if out.Success && input.Screenshot {
-				session, sessErr := s.resolveSessionWithHydration(ctx, -1)
-				if sessErr == nil {
-					imgBytes, imgErr := s.sessionMgr.ScreenshotForSession(ctx, session.Index)
-					if imgErr == nil {
-						screenToken := s.sessionMgr.MarkScreenshotAnchorWithImage(session.Index, imgBytes)
-						imgPath, _ := s.sessionMgr.PersistAnchorImage(session.Index, screenToken, imgBytes)
-						out.ScreenToken = screenToken
-						out.ImagePath = imgPath
-						return &mcp.CallToolResult{
-							Content: []mcp.Content{
-								&mcp.ImageContent{Data: imgBytes, MIMEType: "image/png"},
-							},
-						}, out, nil
-					}
-				}
-			}
-
-			return nil, out, nil
-		}
-	}
-
-	out.Status = "timeout"
-	out.Error = fmt.Sprintf("rebuild did not complete within %ds", input.TimeoutSeconds)
-	return nil, out, nil
-}
-
-func readDevStatusCompletedAt(statusPath string) string {
-	data, err := os.ReadFile(statusPath)
-	if err != nil {
-		return ""
-	}
-	var ds struct {
-		LastRebuild *struct {
-			CompletedAt string `json:"completed_at"`
-		} `json:"last_rebuild"`
-	}
-	if err := json.Unmarshal(data, &ds); err != nil || ds.LastRebuild == nil {
-		return ""
-	}
-	return ds.LastRebuild.CompletedAt
 }
 
 // ---------------------------------------------------------------------------
@@ -2750,8 +2674,8 @@ type DeviceStateQueryOutput struct {
 	Platform string `json:"platform,omitempty"`
 	Error    string `json:"error,omitempty"`
 	// userdefaults
-	Value interface{} `json:"value,omitempty"`
-	Found *bool       `json:"found,omitempty"`
+	Value json.RawMessage `json:"value,omitempty"`
+	Found *bool           `json:"found,omitempty"`
 	// sqlite
 	Cols      []string        `json:"cols,omitempty"`
 	Rows      [][]interface{} `json:"rows,omitempty"`

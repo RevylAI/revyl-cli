@@ -272,11 +272,12 @@ revyl config set timeout 900        # Set default CLI/device timeout
 
 ## Environment Variable Overrides
 
-These environment variables override CLI defaults and config values:
+These environment variables configure CLI defaults, credentials, and integration behavior:
 
 | Variable | Description |
 |----------|-------------|
-| `REVYL_API_KEY` | API key for authentication (overrides stored credentials) |
+| `REVYL_API_KEY` | API key for authentication; normally takes precedence over stored credentials, except after an explicit local browser login |
+| `REVYL_BINARY` | Executable path or command name used by SDK and MCP subprocess delegation; resolved again for each delegated command |
 | `REVYL_PROJECT_DIR` | Override the project directory for MCP server |
 | `REVYL_READY_TIMEOUT` | Seconds to wait for the dev-server relay to become reachable in dev loops (default 60); `--ready-timeout` takes precedence |
 | `REVYL_PREWARM_TIMEOUT` | Seconds to wait for the first cold Expo bundle through the relay (default 300, maximum 600); `--prewarm-timeout` takes precedence |

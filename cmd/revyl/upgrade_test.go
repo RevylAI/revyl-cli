@@ -415,11 +415,57 @@ func TestPostUpgradeSkillInstallCommandsGroupsTargetsByScope(t *testing.T) {
 	if len(commands) != 2 {
 		t.Fatalf("commands = %#v, want 2", commands)
 	}
-	if commands[0].global || strings.Join(commands[0].tools, ",") != "codex" {
+	if commands[0].global ||
+		commands[0].family != "cli" ||
+		strings.Join(commands[0].tools, ",") != "codex" {
 		t.Fatalf("project command = %#v, want codex", commands[0])
 	}
-	if !commands[1].global || strings.Join(commands[1].tools, ",") != "cursor,claude" {
+	if !commands[1].global ||
+		commands[1].family != "cli" ||
+		strings.Join(commands[1].tools, ",") != "cursor,claude" {
 		t.Fatalf("global command = %#v, want cursor,claude", commands[1])
+	}
+}
+
+func TestPostUpgradeSkillInstallCommandsPreservesMCPFamily(t *testing.T) {
+	workDir := t.TempDir()
+	skillsDir := filepath.Join(workDir, ".cursor", "skills")
+	if err := os.MkdirAll(
+		filepath.Join(skillsDir, "revyl-mcp-dev-loop"),
+		0o755,
+	); err != nil {
+		t.Fatalf("mkdir MCP skill fixture: %v", err)
+	}
+
+	commands := postUpgradeSkillInstallCommands([]skillInstallTarget{{
+		tool: "cursor",
+		path: skillsDir,
+	}})
+	if len(commands) != 1 ||
+		commands[0].family != "mcp" ||
+		strings.Join(commands[0].tools, ",") != "cursor" {
+		t.Fatalf("MCP refresh commands = %#v", commands)
+	}
+}
+
+func TestPostUpgradeSkillInstallCommandsMigratesLegacySkillsAsCLI(t *testing.T) {
+	workDir := t.TempDir()
+	skillsDir := filepath.Join(workDir, ".cursor", "skills")
+	if err := os.MkdirAll(
+		filepath.Join(skillsDir, "revyl-device"),
+		0o755,
+	); err != nil {
+		t.Fatalf("mkdir legacy skill fixture: %v", err)
+	}
+
+	commands := postUpgradeSkillInstallCommands([]skillInstallTarget{{
+		tool: "cursor",
+		path: skillsDir,
+	}})
+	if len(commands) != 1 ||
+		commands[0].family != "cli" ||
+		strings.Join(commands[0].tools, ",") != "cursor" {
+		t.Fatalf("legacy refresh commands = %#v", commands)
 	}
 }
 
@@ -448,8 +494,8 @@ func TestRefreshSkillsAfterSuccessfulUpgradeRunsNewBinaryForExistingTargets(t *t
 	refreshSkillsAfterSuccessfulUpgrade("/tmp/new-revyl")
 
 	want := [][]string{
-		{"/tmp/new-revyl", "skill", "install", "--force", "--codex"},
-		{"/tmp/new-revyl", "skill", "install", "--force", "--claude", "--global"},
+		{"/tmp/new-revyl", "skill", "install", "--force", "--cli", "--codex"},
+		{"/tmp/new-revyl", "skill", "install", "--force", "--cli", "--claude", "--global"},
 	}
 	if len(calls) != len(want) {
 		t.Fatalf("calls = %#v, want %#v", calls, want)
