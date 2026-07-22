@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -3408,11 +3409,7 @@ func updateBgUploadStatus(statusPath, status string) {
 	if err != nil {
 		return
 	}
-	tmp := statusPath + ".tmp"
-	if err := os.WriteFile(tmp, out, 0644); err != nil {
-		return
-	}
-	_ = os.Rename(tmp, statusPath)
+	_ = writeDevStatusFile(statusPath, out)
 }
 
 // uploadExistingArtifact uploads an already-built artifact to S3 without
@@ -3750,12 +3747,28 @@ func writeDevStatusSnapshotLocked(statusPath string, ds devStatus) {
 		ui.PrintDim("  Failed to marshal dev status: %v", err)
 		return
 	}
+	if err := writeDevStatusFile(statusPath, data); err != nil {
+		ui.PrintDim("  Failed to write dev status: %v", err)
+	}
+}
+
+func writeDevStatusFile(statusPath string, data []byte) error {
 	tmp := statusPath + ".tmp"
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		ui.PrintDim("  Failed to write dev status: %v", err)
-		return
+		return err
 	}
-	_ = os.Rename(tmp, statusPath)
+	if err := os.Rename(tmp, statusPath); err == nil {
+		return nil
+	} else if runtime.GOOS != "windows" {
+		_ = os.Remove(tmp)
+		return err
+	} else if writeErr := os.WriteFile(statusPath, data, 0644); writeErr != nil {
+		_ = os.Remove(tmp)
+		return errors.Join(err, writeErr)
+	}
+
+	_ = os.Remove(tmp)
+	return nil
 }
 
 // updateDevStatusSnapshot atomically mutates the latest persisted status.
@@ -3921,12 +3934,9 @@ func updateDevStatusHotReloadURLs(statusPath string, result *hotreload.StartResu
 		ui.PrintDim("  Failed to marshal dev status after relay recovery: %v", err)
 		return
 	}
-	tmp := statusPath + ".tmp"
-	if err := os.WriteFile(tmp, out, 0644); err != nil {
+	if err := writeDevStatusFile(statusPath, out); err != nil {
 		ui.PrintDim("  Failed to write dev status after relay recovery: %v", err)
-		return
 	}
-	_ = os.Rename(tmp, statusPath)
 }
 
 // ---------------------------------------------------------------------------

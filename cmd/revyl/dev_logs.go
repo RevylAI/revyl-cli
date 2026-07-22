@@ -166,7 +166,7 @@ func resolveDevBuildJobID(ctx context.Context, cwd, ctxName string, follow bool,
 	}
 }
 
-// shouldRetryDevBuildStatusRead identifies transient replacement gaps for a live dev context.
+// shouldRetryDevBuildStatusRead identifies transient status read gaps for a live dev context.
 //
 // Parameters:
 //   - cwd: Project root
