@@ -2377,13 +2377,14 @@ type PlatformTargetConfig struct {
 // Used for the settings-page banner and the PR comment. Persisted into
 // “scm_review_configs.metadata“ via “model_dump(mode="json")“.
 type PrReviewConfigSummary struct {
-	Builds         *[]PrReviewConfigSummaryBuild `json:"builds,omitempty"`
-	Checks         *[]string                     `json:"checks,omitempty"`
-	Enabled        *bool                         `json:"enabled,omitempty"`
-	Preset         *string                       `json:"preset"`
-	PreviewLink    *bool                         `json:"preview_link,omitempty"`
-	ProofOfChanges *bool                         `json:"proof_of_changes,omitempty"`
-	Workflows      *[]string                     `json:"workflows,omitempty"`
+	Builds            *[]PrReviewConfigSummaryBuild `json:"builds,omitempty"`
+	Checks            *[]string                     `json:"checks,omitempty"`
+	Enabled           *bool                         `json:"enabled,omitempty"`
+	Preset            *string                       `json:"preset"`
+	PreviewLink       *bool                         `json:"preview_link,omitempty"`
+	ProofOfChanges    *bool                         `json:"proof_of_changes,omitempty"`
+	StrictBuildChecks *bool                         `json:"strict_build_checks,omitempty"`
+	Workflows         *[]string                     `json:"workflows,omitempty"`
 }
 
 // PrReviewConfigSummaryBuild One enabled preview build in a config summary.
@@ -2751,6 +2752,7 @@ type ScmActions struct {
 	CuratedWorkflows          *[]string `json:"curated_workflows,omitempty"`
 	NaturalLanguageAssertions *[]string `json:"natural_language_assertions,omitempty"`
 	PreviewLink               *bool     `json:"preview_link,omitempty"`
+	StrictBuildChecks         *bool     `json:"strict_build_checks,omitempty"`
 }
 
 // ScmBuildTargetResponse defines model for ScmBuildTargetResponse.

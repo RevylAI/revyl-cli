@@ -45,6 +45,9 @@ type PRReviewActions struct {
 	// PreviewLink posts a link to a running preview session.
 	PreviewLink bool `yaml:"preview_link"`
 
+	// StrictBuildChecks makes failed Revyl builds emit a failing SCM check.
+	StrictBuildChecks *bool `yaml:"strict_build_checks,omitempty"`
+
 	// ProofOfChanges has the agent verify the change and attach a screenshot.
 	ProofOfChanges bool `yaml:"proof_of_changes"`
 

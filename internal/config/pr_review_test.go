@@ -7,6 +7,38 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// TestPRReviewActionsStrictBuildChecks verifies the SCM check policy parses.
+func TestPRReviewActionsStrictBuildChecks(t *testing.T) {
+	var cfg ProjectConfig
+	err := yaml.Unmarshal([]byte(`
+project:
+  name: demo
+pr_review:
+  enabled: true
+  actions:
+    strict_build_checks: false
+`), &cfg)
+	if err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+	if cfg.PRReview == nil {
+		t.Fatal("PRReview = nil, want configured PR review")
+	}
+	if cfg.PRReview.Actions.StrictBuildChecks == nil {
+		t.Fatal("StrictBuildChecks = nil, want explicit false")
+	}
+	if *cfg.PRReview.Actions.StrictBuildChecks {
+		t.Fatal("StrictBuildChecks = true, want false")
+	}
+	normalizedYAML, err := yaml.Marshal(cfg.PRReview.Actions)
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(normalizedYAML), "strict_build_checks: false") {
+		t.Fatalf("normalized YAML lost explicit false:\n%s", normalizedYAML)
+	}
+}
+
 // TestPRReviewBuildEntryCanonicalEnvironment verifies the shared env/secrets schema.
 func TestPRReviewBuildEntryCanonicalEnvironment(t *testing.T) {
 	var cfg ProjectConfig
