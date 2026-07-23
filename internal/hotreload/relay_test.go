@@ -98,6 +98,7 @@ func TestRelayTunnelBackendReacquireCreatesReplacementSession(t *testing.T) {
 	var createCalls int32
 	var connectCalls int32
 	var revokedOld int32
+	connectObserved := make(chan struct{}, 1)
 
 	upgrader := websocket.Upgrader{CheckOrigin: func(_ *http.Request) bool { return true }}
 	var backendServer *httptest.Server
@@ -127,6 +128,10 @@ func TestRelayTunnelBackendReacquireCreatesReplacementSession(t *testing.T) {
 				return
 			}
 			atomic.AddInt32(&connectCalls, 1)
+			select {
+			case connectObserved <- struct{}{}:
+			default:
+			}
 			t.Cleanup(func() { _ = conn.Close() })
 		case r.URL.Path == "/api/v1/hotreload/relays/a-old" && r.Method == http.MethodDelete:
 			atomic.AddInt32(&revokedOld, 1)
@@ -164,6 +169,11 @@ func TestRelayTunnelBackendReacquireCreatesReplacementSession(t *testing.T) {
 	}
 	if result.RelayID != "a-new-1" {
 		t.Fatalf("RelayID = %q, want a-new-1", result.RelayID)
+	}
+	select {
+	case <-connectObserved:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for replacement relay connection")
 	}
 	if got := atomic.LoadInt32(&connectCalls); got != 1 {
 		t.Fatalf("connect calls = %d, want 1", got)

@@ -251,7 +251,7 @@ func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, lo
 		LogPath:      logPath,
 	}
 
-	if data, err := os.ReadFile(devCtxStatusPath(cwd, devCtx.Name)); err == nil {
+	if data, err := readDevStatusFile(devCtxStatusPath(cwd, devCtx.Name)); err == nil {
 		var ds devStatus
 		if json.Unmarshal(data, &ds) == nil {
 			handshake.Build = ds.LastRebuild

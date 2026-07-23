@@ -364,7 +364,7 @@ func (c *devCockpitServer) snapshot() devCockpitSnapshot {
 	}
 
 	var ds *devStatus
-	if data, err := os.ReadFile(statusPath); err == nil {
+	if data, err := readDevStatusFile(statusPath); err == nil {
 		var parsed devStatus
 		if json.Unmarshal(data, &parsed) == nil {
 			ds = &parsed

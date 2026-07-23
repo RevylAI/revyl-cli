@@ -3410,7 +3410,7 @@ func backgroundUploadBuild(ctx context.Context, client *api.Client, cfg *config.
 // updateBgUploadStatus patches the background_upload_status field in the
 // dev status file without rewriting other fields.
 func updateBgUploadStatus(statusPath, status string) {
-	data, err := os.ReadFile(statusPath)
+	data, err := readDevStatusFile(statusPath)
 	if err != nil {
 		return
 	}
@@ -3626,7 +3626,7 @@ func appendDevStatusRebuildLog(statusPath string, entry devRebuildLogEntry, maxE
 	if maxEntries <= 0 {
 		maxEntries = 16
 	}
-	data, err := os.ReadFile(statusPath)
+	data, err := readDevStatusFile(statusPath)
 	if err != nil {
 		return
 	}
@@ -3900,7 +3900,7 @@ func updateDevStatusSnapshot(statusPath string, update func(*devStatus) bool) {
 	devStatusWriteMu.Lock()
 	defer devStatusWriteMu.Unlock()
 
-	data, err := os.ReadFile(statusPath)
+	data, err := readDevStatusFile(statusPath)
 	if err != nil {
 		return
 	}
@@ -3927,7 +3927,7 @@ func preserveDevStatusMetadata(statusPath string, next *devStatus) {
 		return
 	}
 
-	data, err := os.ReadFile(statusPath)
+	data, err := readDevStatusFile(statusPath)
 	if err != nil {
 		return
 	}
@@ -4142,7 +4142,7 @@ func updateDevStatusHotReloadURLs(statusPath string, result *hotreload.StartResu
 	if strings.TrimSpace(statusPath) == "" || result == nil {
 		return
 	}
-	data, err := os.ReadFile(statusPath)
+	data, err := readDevStatusFile(statusPath)
 	if err != nil {
 		return
 	}
@@ -4727,7 +4727,7 @@ func readLastRebuildInfo(statusPath string) *devRebuildInfo {
 // Returns:
 //   - *devStatus: Latest snapshot, or nil when unavailable or malformed.
 func readDevStatusSnapshot(statusPath string) *devStatus {
-	data, err := os.ReadFile(statusPath)
+	data, err := readDevStatusFile(statusPath)
 	if err != nil {
 		return nil
 	}
@@ -4802,7 +4802,7 @@ func collectDevStatusOutput(cwd, ctxName string) map[string]interface{} {
 		return map[string]interface{}{"running": false}
 	}
 
-	statusData, statusErr := os.ReadFile(statusPath)
+	statusData, statusErr := readDevStatusFile(statusPath)
 	if statusErr != nil {
 		return buildDevStatusOutput(ctxName, pid, ctxMeta, nil)
 	}

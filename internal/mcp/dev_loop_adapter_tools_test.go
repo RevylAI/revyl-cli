@@ -793,11 +793,18 @@ func TestWaitForRebuildToolStreamsChildProgressWithoutStatusPolling(t *testing.T
 
 	var messagesMu sync.Mutex
 	var messages []string
+	terminalProgressReceived := make(chan struct{}, 1)
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test-client", Version: "test"}, &mcpsdk.ClientOptions{
 		ProgressNotificationHandler: func(_ context.Context, req *mcpsdk.ProgressNotificationClientRequest) {
 			messagesMu.Lock()
-			defer messagesMu.Unlock()
 			messages = append(messages, req.Params.Message)
+			messagesMu.Unlock()
+			if req.Params.Message == "Rebuild success in 1200ms" {
+				select {
+				case terminalProgressReceived <- struct{}{}:
+				default:
+				}
+			}
 		},
 	})
 	ctx := context.Background()
@@ -869,6 +876,11 @@ func TestWaitForRebuildToolStreamsChildProgressWithoutStatusPolling(t *testing.T
 	}
 	if result.IsError {
 		t.Fatalf("CallTool(wait_for_rebuild) result = %+v", result)
+	}
+	select {
+	case <-terminalProgressReceived:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for terminal rebuild progress")
 	}
 
 	messagesMu.Lock()
