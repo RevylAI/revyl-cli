@@ -56,7 +56,7 @@ so `uv`, `pipx`, and `pip` do not download executable code at first run.
 
 ## Authenticate
 
-Create a free account at [app.revyl.ai](https://app.revyl.ai), then log in via the CLI:
+Create a free account at [app.revyl.com](https://app.revyl.com), then log in via the CLI:
 
 ```bash
 revyl auth login                        # Browser-based login (stores credentials locally)
@@ -96,7 +96,7 @@ revyl test create login-flow --from-file ./login-flow.yaml
 revyl test create --from-session <session-id> login-flow --app <app-id>
 ```
 
-See [Creating Tests](docs/TEST_CREATION.md) for the full authoring workflow, YAML examples, module imports, and troubleshooting.
+See the [Revyl Docs](https://docs.revyl.com/) for the full authoring workflow, YAML examples, module imports, and troubleshooting.
 
 > `revyl dev` starts your local dev server, tunnels it to a cloud device, and installs the latest build automatically. Use `--platform android` or `--platform ios` to pick a platform (defaults to iOS).
 
@@ -159,33 +159,11 @@ for the plugin preview and release status.
 
 Today, connect Cursor through the Revyl CLI. For current Cursor, Claude Code,
 or Codex setup, follow the canonical
-**[MCP setup guide](https://docs.revyl.ai/cli/mcp-setup)**.
-
-## What You Can Do
-
-| Feature | Command | Docs |
-|---------|---------|------|
-| Run tests | `revyl test run <name>` | [Commands](docs/COMMANDS.md#running-tests) |
-| Run workflows | `revyl workflow run <name>` | [Commands](docs/COMMANDS.md#workflow-management) |
-| Cloud devices | `revyl device start` | [Commands](docs/COMMANDS.md#device-management) |
-| Dev loop (Expo) | `revyl dev` | [Commands](docs/COMMANDS.md#dev-loop-expo) |
-| Build and upload | `revyl build` | [Commands](docs/COMMANDS.md#build-management) |
-| CI/CD | GitHub Actions | [CI/CD](docs/ci-cd.md) |
-| Agent skills | `revyl skill install` | [Skills](docs/integrations/skills.md) |
-| Cursor integration | MCP now; plugin coming soon | [MCP Setup](https://docs.revyl.ai/cli/mcp-setup) |
+**[MCP setup guide](https://docs.revyl.com/cli/mcp-setup)**.
 
 ## Documentation
 
-- **[Command Reference](docs/COMMANDS.md)** -- full list of every command and flag
-- **[Creating Tests](docs/TEST_CREATION.md)** -- YAML-first workflows, modules, and troubleshooting
-- **[Configuration](docs/CONFIGURATION.md)** -- `.revyl/config.yaml` reference
-- **[Agent Skills](docs/integrations/skills.md)** -- embedded skills for device loops and test creation
-- **[Revyl for Cursor](cursor-plugin/README.md)** -- plugin preview and release status
-- **[MCP Setup](https://docs.revyl.ai/cli/mcp-setup)** -- connect Revyl tools to AI coding agents
-- **[CI/CD](docs/CI_CD.md)** -- GitHub Actions integration
-- **[Development](docs/DEVELOPMENT.md)** -- internal dev workflow, hot reload
-- **[Releasing](docs/RELEASING.md)** -- version bumping, release pipeline
-- **[Public Docs](https://docs.revyl.ai)** -- full documentation site
+For full documentation of the CLI see the [Revyl Docs](https://docs.revyl.com/).
 
 ## Troubleshooting
 
