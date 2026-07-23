@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/revyl/cli/internal/backendheaders"
 	"github.com/revyl/cli/internal/config"
 	statusutil "github.com/revyl/cli/internal/status"
 )
@@ -300,6 +301,7 @@ func (m *Monitor) monitorTestSSE(ctx context.Context, taskID, testID string, onP
 	req.Header.Set("Authorization", "Bearer "+m.apiKey)
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
+	backendheaders.SetCloudAgentConversationContext(req)
 
 	// Use a client with no timeout for streaming connections
 	client := &http.Client{Timeout: 0}
@@ -548,6 +550,7 @@ func (m *Monitor) pollTestStatus(ctx context.Context, taskID, testID string, onP
 		}
 
 		req.Header.Set("Authorization", "Bearer "+m.apiKey)
+		backendheaders.SetCloudAgentConversationContext(req)
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -705,6 +708,7 @@ func (m *Monitor) monitorWorkflowSSE(ctx context.Context, taskID, workflowID str
 	req.Header.Set("Authorization", "Bearer "+m.apiKey)
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
+	backendheaders.SetCloudAgentConversationContext(req)
 
 	// Use a client with no timeout for streaming connections
 	client := &http.Client{Timeout: 0}
@@ -907,6 +911,7 @@ func (m *Monitor) pollWorkflowStatus(ctx context.Context, taskID, workflowID str
 		}
 
 		req.Header.Set("Authorization", "Bearer "+m.apiKey)
+		backendheaders.SetCloudAgentConversationContext(req)
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -994,6 +999,7 @@ func (m *Monitor) fetchChildTestProgress(ctx context.Context, client *http.Clien
 	}
 	req.Header.Set("Authorization", "Bearer "+m.apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	backendheaders.SetCloudAgentConversationContext(req)
 
 	resp, err := client.Do(req)
 	if err != nil {

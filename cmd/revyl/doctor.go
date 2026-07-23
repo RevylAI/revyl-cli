@@ -16,6 +16,7 @@ import (
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/backendheaders"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/orgguard"
@@ -376,6 +377,7 @@ func checkAPIConnectivity(ctx context.Context, devMode bool) DoctorCheck {
 		check.Details = err.Error()
 		return check
 	}
+	backendheaders.SetCloudAgentConversationContext(req)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -599,6 +601,7 @@ func runPing(cmd *cobra.Command, args []string) error {
 		ui.PrintError("Failed to create request: %v", err)
 		return err
 	}
+	backendheaders.SetCloudAgentConversationContext(req)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)

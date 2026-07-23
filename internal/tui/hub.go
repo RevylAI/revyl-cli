@@ -26,6 +26,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/backendheaders"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
@@ -4809,6 +4810,7 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 				Message: "Failed to create request",
 			})
 		} else {
+			backendheaders.SetCloudAgentConversationContext(req)
 			httpClient := &http.Client{Timeout: 5 * time.Second}
 			start := time.Now()
 			resp, httpErr := httpClient.Do(req)

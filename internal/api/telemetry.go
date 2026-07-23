@@ -24,6 +24,8 @@ import (
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/revyl/cli/internal/backendheaders"
 )
 
 const (
@@ -228,6 +230,7 @@ func (c *Client) postCLITrace(ctx context.Context, requestID string, payload []b
 	req.Header.Set("Content-Type", otlpProtobufContentType)
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("X-Revyl-Client", "cli")
+	backendheaders.SetCloudAgentConversationContext(req)
 	req.Header.Set(traceRequestIDHeader, requestID)
 
 	resp, err := c.httpClient.Do(req)
@@ -272,6 +275,7 @@ func (c *Client) postCLISpan(ctx context.Context, requestID string, payload []by
 	req.Header.Set("Content-Type", otlpProtobufContentType)
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("X-Revyl-Client", "cli")
+	backendheaders.SetCloudAgentConversationContext(req)
 	req.Header.Set(traceRequestIDHeader, requestID)
 
 	resp, err := c.httpClient.Do(req)

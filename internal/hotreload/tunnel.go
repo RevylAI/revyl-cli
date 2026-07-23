@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/revyl/cli/internal/backendheaders"
 	"github.com/revyl/cli/internal/config"
 )
 
@@ -135,6 +136,7 @@ func CheckConnectivity(ctx context.Context) (*ConnectivityCheckResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+	backendheaders.SetCloudAgentConversationContext(req)
 
 	resp, err := client.Do(req)
 	if err != nil {

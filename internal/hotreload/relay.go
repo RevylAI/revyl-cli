@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/backendheaders"
 )
 
 const relayChunkSize = 32 * 1024
@@ -62,6 +63,7 @@ func CheckRelayConnectivity(ctx context.Context, apiClient *api.Client) error {
 	if err != nil {
 		return fmt.Errorf("failed to create relay health check request: %w", err)
 	}
+	backendheaders.SetCloudAgentConversationContext(req)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)

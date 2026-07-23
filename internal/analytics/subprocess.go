@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/auth"
+	"github.com/revyl/cli/internal/backendheaders"
 	"github.com/revyl/cli/internal/config"
 )
 
@@ -103,6 +104,7 @@ func postTelemetryPayload(ctx context.Context, body []byte, token, backendURL st
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "revyl-cli")
 	req.Header.Set("X-Revyl-Client", "cli")
+	backendheaders.SetCloudAgentConversationContext(req)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

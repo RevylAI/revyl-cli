@@ -33,6 +33,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/revyl/cli/internal/backendheaders"
 	"github.com/revyl/cli/internal/config"
 )
 
@@ -535,6 +536,7 @@ func (c *Client) doRequestOnceWithClient(ctx context.Context, method, path strin
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("X-Revyl-Client", "cli")
+	backendheaders.SetCloudAgentConversationContext(req)
 	setCIHeaders(req)
 	setAgentHeaders(req)
 
@@ -660,6 +662,7 @@ func (c *Client) doRequestWithRetryClient(ctx context.Context, method, path stri
 		// Set source tracking header
 		// X-Revyl-Client identifies the client type for backend source classification.
 		req.Header.Set("X-Revyl-Client", "cli")
+		backendheaders.SetCloudAgentConversationContext(req)
 		setCIHeaders(req)
 		setAgentHeaders(req)
 		for key, value := range headers {
