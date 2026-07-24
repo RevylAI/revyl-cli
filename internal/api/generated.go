@@ -448,6 +448,9 @@ type AppResponse struct {
 	CurrentVersion   *string             `json:"current_version"`
 	Description      *string             `json:"description"`
 	ExpoSynced       *bool               `json:"expo_synced"`
+
+	// HasAtlas Whether this app has renderable Atlas content. Populated by app collection endpoints; null when the caller did not request Atlas enrichment.
+	HasAtlas         *bool               `json:"has_atlas"`
 	Id               *openapi_types.UUID `json:"id"`
 	LatestBuildId    *openapi_types.UUID `json:"latest_build_id"`
 	LatestVersion    *string             `json:"latest_version"`
@@ -482,17 +485,19 @@ type AtlasV2GraphResponse struct {
 // AuthInfo Class that represents authentication information.
 // Can be returned from the require_auth dependency.
 type AuthInfo struct {
-	ApiKey           *string             `json:"api_key"`
-	BillingExempt    *bool               `json:"billing_exempt,omitempty"`
-	ConcurrencyLimit *int                `json:"concurrency_limit,omitempty"`
-	Email            *string             `json:"email"`
-	OrgId            *openapi_types.UUID `json:"org_id"`
-	OrgName          *string             `json:"org_name"`
-	Permissions      *[]string           `json:"permissions"`
-	ProxyEnabled     *bool               `json:"proxy_enabled"`
-	Service          *bool               `json:"service,omitempty"`
-	UserId           string              `json:"user_id"`
-	UserRole         *string             `json:"user_role"`
+	AndroidConcurrencyLimit *int                `json:"android_concurrency_limit"`
+	ApiKey                  *string             `json:"api_key"`
+	BillingExempt           *bool               `json:"billing_exempt,omitempty"`
+	ConcurrencyLimit        *int                `json:"concurrency_limit,omitempty"`
+	Email                   *string             `json:"email"`
+	IosConcurrencyLimit     *int                `json:"ios_concurrency_limit"`
+	OrgId                   *openapi_types.UUID `json:"org_id"`
+	OrgName                 *string             `json:"org_name"`
+	Permissions             *[]string           `json:"permissions"`
+	ProxyEnabled            *bool               `json:"proxy_enabled"`
+	Service                 *bool               `json:"service,omitempty"`
+	UserId                  string              `json:"user_id"`
+	UserRole                *string             `json:"user_role"`
 }
 
 // BlocksCreationRequest Request model for creating tests from blocks
@@ -4029,6 +4034,8 @@ type AppRoutesWorkflowRoutesWorkflowShareXptStepMetadata struct {
 //	build_config: Optional build configuration override for this execution.
 //	override_build_config: When True with build_config, overrides test builds.
 //	variable_overrides: Runtime variable overrides applied to every child test.
+//	launch_env_var_ids: Stored organization launch variables applied to every child test.
+//	launch_env_vars: Inline launch variables applied to every child test.
 type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 	// BuildConfig Workflow-level app configuration for iOS and Android.
 	//
@@ -4039,6 +4046,12 @@ type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 	//     ios_app: Optional iOS app override configuration.
 	//     android_app: Optional Android app override configuration.
 	BuildConfig *WorkflowAppConfig `json:"build_config,omitempty"`
+
+	// LaunchEnvVarIds Org launch variable IDs selected for this workflow execution. They are merged over each child test's attached launch variables.
+	LaunchEnvVarIds *[]openapi_types.UUID `json:"launch_env_var_ids"`
+
+	// LaunchEnvVars Inline launch environment variables applied to every child test. Inline values override attached and run-selected org launch variables.
+	LaunchEnvVars *map[string]string `json:"launch_env_vars"`
 
 	// OverrideBuildConfig When True, build_config overrides individual test build configurations
 	OverrideBuildConfig *bool `json:"override_build_config,omitempty"`

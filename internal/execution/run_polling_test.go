@@ -459,3 +459,52 @@ func TestRunWorkflow_SendsVariableOverrides(t *testing.T) {
 		t.Fatalf("variable_overrides.pr-preview-link = %v", got)
 	}
 }
+
+func TestRunWorkflow_SendsLaunchVars(t *testing.T) {
+	var captured map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/variables/org_launch_env":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"message":"ok","result":[{"id":"launch-1","key":"API_URL","value":"https://stored.example"}]}`))
+		case "/api/v1/execution/api/execute_workflow_id_async":
+			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+				t.Fatalf("decode request body: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"task_id":"task-launch-vars-123"}`))
+		case "/api/v1/workflows/status/task-launch-vars-123":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"completed","total_tests":1,"completed_tests":1,"passed_tests":1,"failed_tests":0}`))
+		case "/api/v1/workflows/share/unified-report":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"workflow_task":{"id":"task-launch-vars-123","status":"completed"},"workflow_detail":{"id":"workflow-123","name":"Smoke Tests","tests":[]},"test_info":[],"child_tasks":[]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("REVYL_BACKEND_URL", server.URL)
+	t.Setenv("REVYL_APP_URL", "https://app.example")
+
+	_, err := RunWorkflow(context.Background(), "token", nil, RunWorkflowParams{
+		WorkflowNameOrID: "workflow-123",
+		Timeout:          5,
+		MonitoringMode:   sse.MonitoringModePolling,
+		LaunchVars:       []string{"API_URL"},
+		LaunchEnvVars:    map[string]string{"API_URL": "https://inline.example"},
+	})
+	if err != nil {
+		t.Fatalf("RunWorkflow() error = %v", err)
+	}
+
+	ids, ok := captured["launch_env_var_ids"].([]interface{})
+	if !ok || len(ids) != 1 || ids[0] != "launch-1" {
+		t.Fatalf("launch_env_var_ids = %v, want [launch-1]", captured["launch_env_var_ids"])
+	}
+	inline, ok := captured["launch_env_vars"].(map[string]interface{})
+	if !ok || inline["API_URL"] != "https://inline.example" {
+		t.Fatalf("launch_env_vars = %v", captured["launch_env_vars"])
+	}
+}

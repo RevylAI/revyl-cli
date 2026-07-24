@@ -267,8 +267,13 @@ type RunWorkflowParams struct {
 	// this workflow run. They are referenced as {{name}} and override test/global
 	// variables for that run only.
 	VariableOverrides map[string]string
-	MonitoringMode    sse.MonitoringMode
-	OnProgress        func(status *sse.WorkflowStatus)
+	// LaunchVars are org launch variable keys or IDs applied to every child test.
+	LaunchVars []string
+	// LaunchEnvVars are inline app launch values applied to every child test.
+	// They override stored launch variables with the same key.
+	LaunchEnvVars  map[string]string
+	MonitoringMode sse.MonitoringMode
+	OnProgress     func(status *sse.WorkflowStatus)
 	// OnTaskStarted is called immediately after the workflow execution is started.
 	// This provides the task ID early, enabling cancellation before monitoring completes.
 	OnTaskStarted func(taskID string)
@@ -356,10 +361,16 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 
 	// Create client and execute
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
+	launchEnvVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, client, params.LaunchVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve launch variables: %w", err)
+	}
 	req := &api.ExecuteWorkflowRequest{
 		WorkflowID:        workflowID,
 		Retries:           retries,
 		VariableOverrides: params.VariableOverrides,
+		LaunchEnvVarIds:   launchEnvVarIDs,
+		LaunchEnvVars:     params.LaunchEnvVars,
 	}
 	if params.IOSAppID != "" || params.AndroidAppID != "" {
 		req.BuildConfig = &api.WorkflowAppConfig{}

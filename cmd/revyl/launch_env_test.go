@@ -280,6 +280,41 @@ func TestExecuteWorkflowRequestVariableOverridesWire(t *testing.T) {
 	}
 }
 
+func TestExecuteWorkflowRequestLaunchEnvWire(t *testing.T) {
+	withVars, err := json.Marshal(&api.ExecuteWorkflowRequest{
+		WorkflowID:      "workflow-123",
+		LaunchEnvVarIds: []string{"launch-1"},
+		LaunchEnvVars:   map[string]string{"API_URL": "https://x"},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	body := string(withVars)
+	if !strings.Contains(body, `"launch_env_var_ids":["launch-1"]`) {
+		t.Errorf("expected launch_env_var_ids in body, got: %s", body)
+	}
+	if !strings.Contains(body, `"launch_env_vars":{"API_URL":"https://x"}`) {
+		t.Errorf("expected launch_env_vars in body, got: %s", body)
+	}
+
+	without, err := json.Marshal(&api.ExecuteWorkflowRequest{WorkflowID: "workflow-123"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(without), "launch_env_var") {
+		t.Errorf("expected launch env fields omitted when unset, got: %s", without)
+	}
+}
+
+func TestWorkflowRunSupportsLaunchEnvFlags(t *testing.T) {
+	if workflowRunCmd.Flags().Lookup("launch-var") == nil {
+		t.Fatal("workflow run is missing --launch-var")
+	}
+	if workflowRunCmd.Flags().Lookup("launch-env") == nil {
+		t.Fatal("workflow run is missing --launch-env")
+	}
+}
+
 // TestStartDeviceRequestEnvVarsWire verifies the device-start wire contract:
 // inline launch env vars serialize as `env_vars`, and are omitted when unset.
 func TestStartDeviceRequestEnvVarsWire(t *testing.T) {

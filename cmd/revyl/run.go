@@ -25,6 +25,7 @@ import (
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
+	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/devicetargets"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/hotreload"
@@ -688,12 +689,20 @@ func queueWorkflowExecution(
 	latitude float64,
 	longitude float64,
 	variableOverrides map[string]string,
+	launchVars []string,
+	launchEnvVars map[string]string,
 ) (*execution.RunWorkflowResult, error) {
 	client := api.NewClientWithDevMode(apiKey, devMode)
+	launchEnvVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, client, launchVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve launch variables: %w", err)
+	}
 	req := &api.ExecuteWorkflowRequest{
 		WorkflowID:        workflowID,
 		Retries:           retries,
 		VariableOverrides: variableOverrides,
+		LaunchEnvVarIds:   launchEnvVarIDs,
+		LaunchEnvVars:     launchEnvVars,
 	}
 	if iosAppID != "" || androidAppID != "" {
 		req.BuildConfig = &api.WorkflowAppConfig{}
@@ -880,6 +889,16 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	if len(variableOverrides) > 0 {
 		ui.PrintInfo("Runtime Vars: %d", len(variableOverrides))
 	}
+	launchEnvVars, err := parseLaunchEnvVars(runLaunchEnv)
+	if err != nil {
+		return err
+	}
+	if len(runLaunchVars) > 0 {
+		ui.PrintInfo("Stored Launch Vars: %d", len(runLaunchVars))
+	}
+	if len(launchEnvVars) > 0 {
+		ui.PrintInfo("Inline Launch Vars: %d", len(launchEnvVars))
+	}
 
 	// Parse --location flag for workflow
 	var wfHasLocation bool
@@ -1005,6 +1024,8 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			wfLat,
 			wfLng,
 			variableOverrides,
+			runLaunchVars,
+			launchEnvVars,
 		)
 		if err != nil {
 			ui.PrintError("Failed to queue workflow: %v", err)
@@ -1065,6 +1086,8 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		Longitude:         wfLng,
 		HasLocation:       wfHasLocation,
 		VariableOverrides: variableOverrides,
+		LaunchVars:        runLaunchVars,
+		LaunchEnvVars:     launchEnvVars,
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},

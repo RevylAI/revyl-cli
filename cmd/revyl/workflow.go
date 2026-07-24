@@ -78,6 +78,8 @@ workflow (useful for testing a specific app across platforms).
 Use --ios-build / --android-build to additionally pin a specific build
 version of that app (defaults to the app's current/latest build). A pinned
 build requires the matching app override.
+Use --launch-var to apply a stored organization launch variable to every test,
+or --launch-env to apply an inline launch value to every test in this run.
 
 EXAMPLES:
   revyl workflow run smoke-tests
@@ -86,6 +88,7 @@ EXAMPLES:
   revyl workflow run smoke-tests --android-app <app-uuid>
   revyl workflow run smoke-tests --ios-app <app-uuid> --android-app <app-uuid>
   revyl workflow run smoke-tests --ios-app <app-uuid> --ios-build 1.4.2
+  revyl workflow run smoke-tests --launch-var API_URL --launch-env DEBUG=true
   revyl workflow run smoke-tests --var pr-preview-link=<deep-link>`,
 	Example: `  revyl workflow run smoke-tests
   revyl workflow run smoke-tests --build
@@ -228,6 +231,8 @@ func init() {
 	workflowRunCmd.Flags().StringVar(&runWorkflowIOSBuild, "ios-build", "", "Pin a specific iOS build version for all tests (requires --ios-app)")
 	workflowRunCmd.Flags().StringVar(&runWorkflowAndroidBuild, "android-build", "", "Pin a specific Android build version for all tests (requires --android-app)")
 	workflowRunCmd.Flags().StringVar(&runLocation, "location", "", "Override GPS location for all tests as lat,lng (e.g. 37.7749,-122.4194)")
+	workflowRunCmd.Flags().StringArrayVar(&runLaunchEnv, "launch-env", nil, "Inline launch environment variable for every test as KEY=VALUE (repeatable; overrides stored launch variables)")
+	workflowRunCmd.Flags().StringArrayVar(&runLaunchVars, "launch-var", nil, "Stored launch variable key or ID to apply to every test (repeatable)")
 	workflowRunCmd.Flags().StringArrayVar(&runVars, "var", nil, "Runtime variable override for all tests as key=value (repeatable, referenced as {{key}})")
 	analytics.MarkFlagValue(workflowRunCmd, "retries")
 	analytics.MarkFlagValue(workflowRunCmd, "no-wait")
@@ -238,6 +243,7 @@ func init() {
 	analytics.MarkFlagValue(workflowRunCmd, "verbose")
 	analytics.MarkFlagValue(workflowRunCmd, "build")
 	analytics.MarkFlagValue(workflowRunCmd, "platform")
+	analytics.MarkFlagValue(workflowRunCmd, "launch-var")
 	analytics.MarkFlagValue(workflowRunCmd, "var")
 
 	// workflow delete flags
