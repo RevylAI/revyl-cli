@@ -128,6 +128,10 @@ download() {
 trap cleanup EXIT HUP INT TERM
 umask 077
 
+if [ "${REVYL_API_KEY:-}" = '${env:REVYL_API_KEY}' ]; then
+  unset REVYL_API_KEY
+fi
+
 if [ -n "${REVYL_BINARY:-}" ] && [ "$REVYL_BINARY" != '${env:REVYL_BINARY}' ]; then
   selected_binary=$(resolve_override "$REVYL_BINARY")
   run_runtime "$selected_binary" "$@"

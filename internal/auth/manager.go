@@ -1,7 +1,7 @@
 // Package auth provides authentication management for the Revyl CLI.
 //
-// This package handles storing and retrieving API credentials from
-// the user's home directory (~/.revyl/credentials.json).
+// This package handles stored API credentials and isolated headless Cloud
+// context under the user's Revyl configuration directory.
 //
 // The CLI supports two authentication methods:
 // 1. Browser-based OAuth flow (default) - stores AccessToken with expiration
@@ -16,11 +16,23 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
 
-const defaultDeviceLabel = "Revyl CLI"
+const (
+	defaultDeviceLabel                     = "Revyl CLI"
+	cloudRuntimeContextFilename            = "cloud-runtime.json"
+	cloudRuntimeContextSchema              = 1
+	unresolvedAPIKeyEnvironmentPlaceholder = "${env:REVYL_API_KEY}"
+)
+
+// IsUnresolvedAPIKeyEnvironmentValue reports whether a host passed through its
+// literal REVYL_API_KEY interpolation syntax instead of resolving the secret.
+func IsUnresolvedAPIKeyEnvironmentValue(value string) bool {
+	return value == unresolvedAPIKeyEnvironmentPlaceholder
+}
 
 // Credentials represents stored authentication credentials.
 // Supports both browser-based OAuth tokens and API keys.
@@ -62,6 +74,19 @@ type Credentials struct {
 
 type clientIdentity struct {
 	ClientInstanceID string `json:"client_instance_id"`
+}
+
+// cloudRuntimeContext stores ephemeral headless Cloud state outside normal user credentials.
+type cloudRuntimeContext struct {
+	SchemaVersion    int    `json:"schema_version"`
+	APIKeyConfigured bool   `json:"api_key_configured"`
+	APIKey           string `json:"api_key,omitempty"`
+}
+
+// CredentialResolution contains credentials and provider-neutral runtime context from one read.
+type CredentialResolution struct {
+	Credentials   *Credentials
+	HeadlessCloud bool
 }
 
 // Manager handles credential storage and retrieval.
@@ -106,6 +131,14 @@ func (m *Manager) credentialsPath() string {
 // clientIdentityPath returns the path to the stable client identity file.
 func (m *Manager) clientIdentityPath() string {
 	return filepath.Join(m.configDir, "client-identity.json")
+}
+
+// cloudRuntimeContextPath returns the isolated headless Cloud context path.
+//
+// Returns:
+//   - string: Path to the ephemeral Cloud context file.
+func (m *Manager) cloudRuntimeContextPath() string {
+	return filepath.Join(m.configDir, cloudRuntimeContextFilename)
 }
 
 // GetOrCreateClientInstanceID returns a stable per-install CLI identifier.
@@ -178,8 +211,9 @@ func normalizeDeviceLabel(label string) string {
 //
 // Priority order (default):
 //  1. REVYL_API_KEY environment variable (for CI/CD)
-//  2. Valid (non-expired) access token from browser auth
-//  3. API key from stored credentials
+//  2. Cloud Runtime Secret imported by trusted bootstrap
+//  3. Valid (non-expired) access token from browser auth
+//  4. API key from stored credentials
 //
 // When the stored credentials have LocalAuthOverride set (i.e. the user
 // performed an explicit browser login while REVYL_API_KEY was present), the
@@ -190,19 +224,56 @@ func normalizeDeviceLabel(label string) string {
 //   - *Credentials: The stored credentials, or nil if not found
 //   - error: Any error that occurred during retrieval
 func (m *Manager) GetCredentials() (*Credentials, error) {
+	resolution, err := m.ResolveCredentials()
+	if err != nil {
+		return nil, err
+	}
+	return resolution.Credentials, nil
+}
+
+// ResolveCredentials reads active credentials and headless Cloud context as one consistent snapshot.
+//
+// Returns:
+//   - CredentialResolution: Active credentials and whether bootstrap established a headless Cloud runtime.
+//   - error: Any Cloud-context or credential read error.
+func (m *Manager) ResolveCredentials() (CredentialResolution, error) {
 	envKey := os.Getenv("REVYL_API_KEY")
+	if IsUnresolvedAPIKeyEnvironmentValue(envKey) {
+		envKey = ""
+	}
+
+	cloudContext, err := m.getCloudRuntimeContext()
+	resolution := CredentialResolution{HeadlessCloud: cloudContext != nil || err != nil}
 
 	// When the env var is set, check whether file creds have a local
 	// override before falling back to the env-var-first default.
 	if envKey != "" {
 		fileCreds, err := m.GetFileCredentials()
 		if err == nil && fileCreds != nil && fileCreds.LocalAuthOverride && fileCreds.HasValidAuth() {
-			return fileCreds, nil
+			resolution.Credentials = fileCreds
+			return resolution, nil
 		}
-		return &Credentials{APIKey: envKey, AuthMethod: "env"}, nil
+		resolution.Credentials = &Credentials{APIKey: envKey, AuthMethod: "env"}
+		return resolution, nil
+	}
+	if err != nil {
+		return resolution, err
 	}
 
-	return m.GetFileCredentials()
+	if cloudContext != nil && cloudContext.APIKeyConfigured {
+		resolution.Credentials = &Credentials{
+			APIKey:     cloudContext.APIKey,
+			AuthMethod: "api_key",
+		}
+		return resolution, nil
+	}
+
+	fileCredentials, err := m.GetFileCredentials()
+	if err != nil {
+		return resolution, err
+	}
+	resolution.Credentials = fileCredentials
+	return resolution, nil
 }
 
 // GetFileCredentials retrieves credentials directly from the file,
@@ -229,6 +300,30 @@ func (m *Manager) GetFileCredentials() (*Credentials, error) {
 	}
 
 	return &creds, nil
+}
+
+// getCloudRuntimeContext retrieves the isolated headless Cloud bootstrap state.
+//
+// Returns:
+//   - *cloudRuntimeContext: Persisted Cloud state, or nil when bootstrap has not marked this VM.
+//   - error: Any read, schema, or decoding error.
+func (m *Manager) getCloudRuntimeContext() (*cloudRuntimeContext, error) {
+	data, err := os.ReadFile(m.cloudRuntimeContextPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read Cloud runtime context: %w", err)
+	}
+
+	var context cloudRuntimeContext
+	if err := json.Unmarshal(data, &context); err != nil {
+		return nil, fmt.Errorf("failed to parse Cloud runtime context: %w", err)
+	}
+	if context.SchemaVersion != cloudRuntimeContextSchema {
+		return nil, fmt.Errorf("unsupported Cloud runtime context schema: %d", context.SchemaVersion)
+	}
+	return &context, nil
 }
 
 // GetActiveToken returns the token to use for API authentication.
@@ -303,21 +398,98 @@ func (c *Credentials) HasValidAuth() bool {
 // Returns:
 //   - error: Any error that occurred during storage
 func (m *Manager) SaveCredentials(creds *Credentials) error {
-	// Ensure config directory exists
-	if err := os.MkdirAll(m.configDir, 0700); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-
 	data, err := json.MarshalIndent(creds, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal credentials: %w", err)
 	}
-
-	// Write with restricted permissions (owner read/write only)
-	if err := os.WriteFile(m.credentialsPath(), data, 0600); err != nil {
+	if err := m.writePrivateFile(m.credentialsPath(), data); err != nil {
 		return fmt.Errorf("failed to write credentials: %w", err)
 	}
+	return nil
+}
 
+// saveUserCredentialsAndClearCloudContext activates an explicit user login.
+//
+// Parameters:
+//   - creds: Browser or API-key credentials selected by the user.
+//
+// Returns:
+//   - error: A credential write error or a Cloud-context cleanup error.
+func (m *Manager) saveUserCredentialsAndClearCloudContext(creds *Credentials) error {
+	if err := m.SaveCredentials(creds); err != nil {
+		return err
+	}
+	if err := m.ClearCloudRuntimeContext(); err != nil {
+		return fmt.Errorf(
+			"credentials were saved but could not become active; remove the Cloud runtime context or start a fresh Cloud session: %w",
+			err,
+		)
+	}
+	return nil
+}
+
+// writePrivateFile atomically replaces one regular file inside the owner-only config directory.
+//
+// Parameters:
+//   - destinationPath: Final path inside the manager's config directory.
+//   - content: Exact bytes to persist.
+//
+// Returns:
+//   - error: A directory, file-type, permission, write, sync, or rename error.
+func (m *Manager) writePrivateFile(destinationPath string, content []byte) error {
+	if err := os.MkdirAll(m.configDir, 0o700); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+	directoryInfo, err := os.Lstat(m.configDir)
+	if err != nil {
+		return fmt.Errorf("inspect config directory: %w", err)
+	}
+	if directoryInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("config directory must not be a symlink; use a real owner-only directory at %s", m.configDir)
+	}
+	if !directoryInfo.IsDir() {
+		return fmt.Errorf("config path is not a directory: %s", m.configDir)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(m.configDir, 0o700); err != nil {
+			return fmt.Errorf("restrict config directory permissions: %w", err)
+		}
+	}
+
+	if destinationInfo, statErr := os.Lstat(destinationPath); statErr == nil {
+		if destinationInfo.Mode()&os.ModeSymlink != 0 || !destinationInfo.Mode().IsRegular() {
+			return fmt.Errorf("destination must be a regular file, not a symlink or special file: %s", destinationPath)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return fmt.Errorf("inspect destination: %w", statErr)
+	}
+
+	temporaryFile, err := os.CreateTemp(m.configDir, "."+filepath.Base(destinationPath)+".*")
+	if err != nil {
+		return fmt.Errorf("create temporary file: %w", err)
+	}
+	temporaryPath := temporaryFile.Name()
+	defer os.Remove(temporaryPath)
+
+	if err := temporaryFile.Chmod(0o600); err != nil {
+		temporaryFile.Close()
+		return fmt.Errorf("restrict temporary file permissions: %w", err)
+	}
+	if _, err := temporaryFile.Write(content); err != nil {
+		temporaryFile.Close()
+		return fmt.Errorf("write temporary file: %w", err)
+	}
+	if err := temporaryFile.Sync(); err != nil {
+		temporaryFile.Close()
+		return fmt.Errorf("sync temporary file: %w", err)
+	}
+	if err := temporaryFile.Close(); err != nil {
+		return fmt.Errorf("close temporary file: %w", err)
+	}
+
+	if err := replacePrivateFile(temporaryPath, destinationPath); err != nil {
+		return fmt.Errorf("replace destination: %w", err)
+	}
 	return nil
 }
 
@@ -329,6 +501,35 @@ func (m *Manager) ClearCredentials() error {
 	err := os.Remove(m.credentialsPath())
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove credentials: %w", err)
+	}
+	return nil
+}
+
+// ClearCloudRuntimeContext removes the bootstrap-imported headless Cloud context and key.
+//
+// Returns:
+//   - error: Any error other than an already-absent context file.
+func (m *Manager) ClearCloudRuntimeContext() error {
+	err := os.Remove(m.cloudRuntimeContextPath())
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove Cloud runtime context: %w", err)
+	}
+	return nil
+}
+
+// ClearAuthenticationState removes every local authentication store.
+//
+// Cloud context is removed first so a cleanup failure cannot delete the user's
+// fallback credentials while leaving an imported Cloud key active.
+//
+// Returns:
+//   - error: The first Cloud-context or user-credential removal error.
+func (m *Manager) ClearAuthenticationState() error {
+	if err := m.ClearCloudRuntimeContext(); err != nil {
+		return err
+	}
+	if err := m.ClearCredentials(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -414,7 +615,7 @@ func (m *Manager) SaveBrowserCredentials(result *BrowserAuthResult, expiresIn ti
 		UserID:      result.UserID,
 		AuthMethod:  "browser",
 	}
-	return m.SaveCredentials(creds)
+	return m.saveUserCredentialsAndClearCloudContext(creds)
 }
 
 // extractJWTExpiry decodes a JWT (without signature verification) and returns
@@ -482,7 +683,31 @@ func (m *Manager) SaveAPIKeyCredentials(apiKey, email, orgID, userID string) err
 		UserID:     userID,
 		AuthMethod: "api_key",
 	}
-	return m.SaveCredentials(creds)
+	return m.saveUserCredentialsAndClearCloudContext(creds)
+}
+
+// SaveCloudRuntimeContext stores Cloud context and an optional injected API key separately.
+//
+// Parameters:
+//   - apiKey: Exact API key injected into the trusted Cloud bootstrap process.
+//   - apiKeyConfigured: Whether the Runtime Secret was configured, including an explicitly empty value.
+//
+// Returns:
+//   - error: Any error that occurred during owner-only credential persistence.
+func (m *Manager) SaveCloudRuntimeContext(apiKey string, apiKeyConfigured bool) error {
+	context := cloudRuntimeContext{
+		SchemaVersion:    cloudRuntimeContextSchema,
+		APIKeyConfigured: apiKeyConfigured,
+		APIKey:           apiKey,
+	}
+	data, err := json.MarshalIndent(context, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal Cloud runtime context: %w", err)
+	}
+	if err := m.writePrivateFile(m.cloudRuntimeContextPath(), data); err != nil {
+		return fmt.Errorf("failed to write Cloud runtime context: %w", err)
+	}
+	return nil
 }
 
 // SaveBrowserAPIKeyCredentials stores credentials from browser-based auth
@@ -505,5 +730,5 @@ func (m *Manager) SaveBrowserAPIKeyCredentials(result *BrowserAuthResult, apiKey
 		AuthMethod: "browser_api_key",
 		APIKeyID:   apiKeyID,
 	}
-	return m.SaveCredentials(creds)
+	return m.saveUserCredentialsAndClearCloudContext(creds)
 }

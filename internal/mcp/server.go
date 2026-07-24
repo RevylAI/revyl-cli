@@ -119,7 +119,7 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 	// Resolve authentication through the same active-token contract used by the
 	// rest of the CLI so browser access tokens and persistent API keys both work.
 	credentialManager := auth.NewManager()
-	authentication := resolveMCPAuthentication(credentialManager, isCloudEnvironment())
+	authentication := resolveMCPAuthentication(credentialManager)
 	if authentication.LoadError != nil && s.profile != ProfileDev {
 		return nil, fmt.Errorf("could not load Revyl credentials: %w", authentication.LoadError)
 	}

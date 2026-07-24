@@ -23,6 +23,7 @@ const (
 	remediationActionEnvironmentVariable RemediationActionKind = "environment_variable"
 	remediationActionSelectProjectDir    RemediationActionKind = "select_project_dir"
 	remediationActionRepairProjectConfig RemediationActionKind = "repair_project_config"
+	remediationActionRestartSession      RemediationActionKind = "restart_session"
 )
 
 // Remediation describes at most one exact, secret-free setup recovery action.
@@ -87,6 +88,16 @@ func authenticationRemediation(state SetupAuthState) *Remediation {
 			ActionKind:      remediationActionEnvironmentVariable,
 			EnvName:         "REVYL_API_KEY",
 			RestartRequired: true,
+		}
+	case authenticationStateCloudContextInvalid:
+		return &Remediation{
+			ActionKind:      remediationActionRestartSession,
+			RestartRequired: true,
+		}
+	case authenticationStateInvalid:
+		return &Remediation{
+			ActionKind: remediationActionCommand,
+			Command:    revylRemediationCommand("auth", "logout"),
 		}
 	case authenticationStateAuthenticated:
 		return nil

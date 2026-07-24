@@ -163,6 +163,10 @@ function Invoke-RevylRuntime {
 
 $temporaryPath = $null
 try {
+    if ($env:REVYL_API_KEY -eq '${env:REVYL_API_KEY}') {
+        Remove-Item -Path Env:REVYL_API_KEY -ErrorAction SilentlyContinue
+    }
+
     if (
         -not [string]::IsNullOrWhiteSpace($env:REVYL_BINARY) -and
         $env:REVYL_BINARY -ne '${env:REVYL_BINARY}'

@@ -97,6 +97,7 @@ func TestRuntimeLauncherUsesExplicitOverride(t *testing.T) {
 	command.Env = environmentWithOverrides(
 		"REVYL_BINARY="+fakeRuntime,
 		"REVYL_RUNTIME_OUTPUT="+outputPath,
+		"REVYL_API_KEY=${env:REVYL_API_KEY}",
 	)
 	command.Args = append(command.Args, "mcp", "serve", "--profile", "dev")
 
@@ -113,6 +114,9 @@ func TestRuntimeLauncherUsesExplicitOverride(t *testing.T) {
 	}
 	if !strings.Contains(recording, "args=mcp serve --profile dev") {
 		t.Fatalf("runtime recording %q does not contain args=mcp serve --profile dev", recording)
+	}
+	if !strings.Contains(recording, "api_key_set=no") {
+		t.Fatalf("runtime recording %q retained the unresolved API-key placeholder", recording)
 	}
 }
 
@@ -351,7 +355,8 @@ func writeRecordingRuntime(t *testing.T, directory, outputPath string) string {
 	if runtime.GOOS == "windows" {
 		content := "@echo off\r\n" +
 			"> \"%REVYL_RUNTIME_OUTPUT%\" echo executable=%REVYL_MCP_EXECUTABLE%\r\n" +
-			">> \"%REVYL_RUNTIME_OUTPUT%\" echo args=%*\r\n"
+			">> \"%REVYL_RUNTIME_OUTPUT%\" echo args=%*\r\n" +
+			"if defined REVYL_API_KEY (>> \"%REVYL_RUNTIME_OUTPUT%\" echo api_key_set=yes) else (>> \"%REVYL_RUNTIME_OUTPUT%\" echo api_key_set=no)\r\n"
 		path := filepath.Join(directory, "revyl.cmd")
 		if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
 			t.Fatalf("write Windows recording runtime: %v", err)
@@ -359,7 +364,9 @@ func writeRecordingRuntime(t *testing.T, directory, outputPath string) string {
 		return path
 	}
 	content := fmt.Sprintf(
-		"#!/bin/sh\nprintf 'executable=%%s\\n' \"$REVYL_MCP_EXECUTABLE\" > %q\nprintf 'args=%%s\\n' \"$*\" >> %q\n",
+		"#!/bin/sh\nprintf 'executable=%%s\\n' \"$REVYL_MCP_EXECUTABLE\" > %q\nprintf 'args=%%s\\n' \"$*\" >> %q\nif [ \"${REVYL_API_KEY+x}\" = x ]; then printf 'api_key_set=yes\\n' >> %q; else printf 'api_key_set=no\\n' >> %q; fi\n",
+		outputPath,
+		outputPath,
 		outputPath,
 		outputPath,
 	)

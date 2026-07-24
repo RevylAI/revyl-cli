@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"os"
 	"strings"
 
 	"github.com/revyl/cli/internal/auth"
@@ -16,13 +15,16 @@ const (
 	authenticationStateRequired            SetupAuthState = "auth_required"
 	authenticationStateExpired             SetupAuthState = "auth_expired"
 	authenticationStateCloudSecretRequired SetupAuthState = "cloud_secret_required"
+	authenticationStateInvalid             SetupAuthState = "auth_invalid"
+	authenticationStateCloudContextInvalid SetupAuthState = "cloud_context_invalid"
 )
 
 // mcpAuthentication describes the current credential resolution without exposing secret material.
 type mcpAuthentication struct {
-	State     SetupAuthState
-	Token     string
-	LoadError error
+	State         SetupAuthState
+	Token         string
+	HeadlessCloud bool
+	LoadError     error
 }
 
 // devAuthenticationFailure describes one structured authentication gate failure.
@@ -35,34 +37,66 @@ type devAuthenticationFailure struct {
 //
 // Parameters:
 //   - manager: Shared CLI credential manager.
-//   - cloud: Whether the MCP server is running in Cursor Cloud.
 //
 // Returns:
 //   - mcpAuthentication: Credential state and active token, when available.
-func resolveMCPAuthentication(manager *auth.Manager, cloud bool) mcpAuthentication {
-	credentials, err := manager.GetCredentials()
+func resolveMCPAuthentication(manager *auth.Manager) mcpAuthentication {
+	resolution, err := manager.ResolveCredentials()
 	if err != nil {
 		return mcpAuthentication{
-			State:     unavailableAuthenticationState(cloud),
-			LoadError: err,
+			State:         invalidAuthenticationState(resolution.HeadlessCloud),
+			HeadlessCloud: resolution.HeadlessCloud,
+			LoadError:     err,
 		}
 	}
+	credentials := resolution.Credentials
 	if credentials == nil {
-		return mcpAuthentication{State: unavailableAuthenticationState(cloud)}
+		return mcpAuthentication{
+			State:         unavailableAuthenticationState(resolution.HeadlessCloud),
+			HeadlessCloud: resolution.HeadlessCloud,
+		}
 	}
 
 	apiKey := strings.TrimSpace(credentials.APIKey)
 	accessToken := strings.TrimSpace(credentials.AccessToken)
 	if accessToken != "" && !credentials.IsExpired() {
-		return mcpAuthentication{State: authenticationStateAuthenticated, Token: accessToken}
+		return mcpAuthentication{
+			State:         authenticationStateAuthenticated,
+			Token:         accessToken,
+			HeadlessCloud: resolution.HeadlessCloud,
+		}
 	}
 	if apiKey != "" {
-		return mcpAuthentication{State: authenticationStateAuthenticated, Token: apiKey}
+		return mcpAuthentication{
+			State:         authenticationStateAuthenticated,
+			Token:         apiKey,
+			HeadlessCloud: resolution.HeadlessCloud,
+		}
 	}
 	if accessToken != "" && credentials.IsExpired() {
-		return mcpAuthentication{State: authenticationStateExpired}
+		return mcpAuthentication{
+			State:         authenticationStateExpired,
+			HeadlessCloud: resolution.HeadlessCloud,
+		}
 	}
-	return mcpAuthentication{State: unavailableAuthenticationState(cloud)}
+	return mcpAuthentication{
+		State:         unavailableAuthenticationState(resolution.HeadlessCloud),
+		HeadlessCloud: resolution.HeadlessCloud,
+	}
+}
+
+// invalidAuthenticationState classifies unreadable authentication state by runtime context.
+//
+// Parameters:
+//   - cloud: Whether bootstrap established a headless Cloud runtime.
+//
+// Returns:
+//   - SetupAuthState: Structured local-storage or Cloud-context failure.
+func invalidAuthenticationState(cloud bool) SetupAuthState {
+	if cloud {
+		return authenticationStateCloudContextInvalid
+	}
+	return authenticationStateInvalid
 }
 
 // unavailableAuthenticationState returns the setup state for an environment without credentials.
@@ -77,14 +111,6 @@ func unavailableAuthenticationState(cloud bool) SetupAuthState {
 		return authenticationStateCloudSecretRequired
 	}
 	return authenticationStateRequired
-}
-
-// isCloudEnvironment reports whether Cursor marks this process as a Cloud agent.
-//
-// Returns:
-//   - bool: Whether the established Cursor Cloud signal is present.
-func isCloudEnvironment() bool {
-	return os.Getenv("CURSOR_AGENT") == "1"
 }
 
 // refreshDevAuthentication re-resolves credentials and updates the shared API client in place.
@@ -111,7 +137,7 @@ func (s *Server) refreshDevAuthentication() *devAuthenticationFailure {
 // Returns:
 //   - mcpAuthentication: Current credential state after applying any valid token.
 func (s *Server) resolveAndApplyDevAuthentication() mcpAuthentication {
-	authentication := resolveMCPAuthentication(s.authManager, isCloudEnvironment())
+	authentication := resolveMCPAuthentication(s.authManager)
 	if authentication.State == authenticationStateAuthenticated {
 		s.apiClient.SetAPIKey(authentication.Token)
 		return authentication
@@ -136,6 +162,10 @@ func authenticationFailureMessage(state SetupAuthState) string {
 		return "Revyl authentication expired; run 'revyl auth login'"
 	case authenticationStateCloudSecretRequired:
 		return "Revyl authentication requires the REVYL_API_KEY Runtime Secret and a new Cloud session"
+	case authenticationStateCloudContextInvalid:
+		return "Revyl Cloud authentication context is invalid; start a fresh Cloud session"
+	case authenticationStateInvalid:
+		return "Revyl authentication state is invalid; run 'revyl auth logout'"
 	default:
 		return "Revyl authentication required; run 'revyl auth login'"
 	}

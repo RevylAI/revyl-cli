@@ -33,6 +33,9 @@ type AuthExpiredError struct {
 	Inner error
 }
 
+// headlessCloudEnvironmentSignal is the provider-neutral Revyl Cloud process marker.
+const headlessCloudEnvironmentSignal = "REVYL_HEADLESS_CLOUD"
+
 // Error returns a user-friendly message instructing re-authentication.
 func (e *AuthExpiredError) Error() string {
 	return "Session expired. Run 'revyl auth login' to re-authenticate."
@@ -142,6 +145,75 @@ EXAMPLES:
 		}
 		return loginWithBrowser(cmd, mgr, devMode)
 	},
+}
+
+// authPersistCloudEnvironmentOutput reports which Cloud bootstrap state was stored.
+type authPersistCloudEnvironmentOutput struct {
+	CloudContextPersisted bool   `json:"cloud_context_persisted"`
+	CredentialPersisted   bool   `json:"credential_persisted"`
+	Source                string `json:"source,omitempty"`
+}
+
+// authPersistCloudEnvCmd imports Cloud context and the injected API key into the shared credential store.
+var authPersistCloudEnvCmd = &cobra.Command{
+	Use:    "persist-cloud-env",
+	Short:  "Persist Cloud context and its injected API key",
+	Hidden: true,
+	Args:   cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := persistCloudAuthenticationContext(auth.NewManager())
+		if err != nil {
+			return err
+		}
+
+		jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
+		if jsonOutput {
+			data, err := json.Marshal(result)
+			if err != nil {
+				return fmt.Errorf("failed to encode Cloud credential result: %w", err)
+			}
+			fmt.Println(string(data))
+			return nil
+		}
+
+		if result.CredentialPersisted {
+			ui.PrintSuccess("Persisted Cloud context and the injected API key")
+		} else {
+			ui.PrintSuccess("Persisted Cloud context; REVYL_API_KEY is not configured")
+		}
+		return nil
+	},
+}
+
+// persistCloudAuthenticationContext saves Cloud context and an optional injected key without process arguments.
+//
+// Parameters:
+//   - manager: Credential manager that owns the protected local credential store.
+//
+// Returns:
+//   - authPersistCloudEnvironmentOutput: Secret-free persistence result.
+//   - error: A Cloud-context validation or persistence error; error text never contains the API key.
+func persistCloudAuthenticationContext(manager *auth.Manager) (authPersistCloudEnvironmentOutput, error) {
+	if os.Getenv(headlessCloudEnvironmentSignal) != "1" {
+		return authPersistCloudEnvironmentOutput{}, fmt.Errorf("%s must be set to 1", headlessCloudEnvironmentSignal)
+	}
+
+	apiKey, apiKeyConfigured := os.LookupEnv("REVYL_API_KEY")
+	if auth.IsUnresolvedAPIKeyEnvironmentValue(apiKey) {
+		apiKey = ""
+		apiKeyConfigured = false
+	}
+	if err := manager.SaveCloudRuntimeContext(apiKey, apiKeyConfigured); err != nil {
+		return authPersistCloudEnvironmentOutput{}, fmt.Errorf("failed to persist Cloud authentication context: %w", err)
+	}
+	result := authPersistCloudEnvironmentOutput{
+		CloudContextPersisted: true,
+		CredentialPersisted:   apiKeyConfigured,
+	}
+	if apiKeyConfigured {
+		result.Source = "REVYL_API_KEY"
+	}
+	return result, nil
 }
 
 // loginWithBrowser performs browser-based OAuth authentication.
@@ -371,6 +443,11 @@ var authLogoutCmd = &cobra.Command{
 		creds, _ := mgr.GetFileCredentials()
 		devMode, _ := cmd.Flags().GetBool("dev")
 
+		if err := mgr.ClearAuthenticationState(); err != nil {
+			ui.PrintError("Failed to clear authentication state: %v", err)
+			return err
+		}
+
 		if creds != nil && creds.AuthMethod == "browser_api_key" && creds.APIKeyID != "" && creds.APIKey != "" {
 			client := api.NewClientWithDevMode(creds.APIKey, devMode)
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -388,13 +465,8 @@ var authLogoutCmd = &cobra.Command{
 			}
 		}
 
-		if err := mgr.ClearCredentials(); err != nil {
-			ui.PrintError("Failed to clear credentials: %v", err)
-			return err
-		}
-
 		ui.PrintSuccess("Cleared stored credentials")
-		if os.Getenv("REVYL_API_KEY") != "" {
+		if apiKey := os.Getenv("REVYL_API_KEY"); apiKey != "" && !auth.IsUnresolvedAPIKeyEnvironmentValue(apiKey) {
 			ui.PrintWarning("REVYL_API_KEY env var is still set — it will continue to authenticate.")
 			ui.PrintInfo("To fully log out: unset REVYL_API_KEY")
 		}
@@ -706,4 +778,5 @@ func init() {
 	authCmd.AddCommand(authLogoutCmd)
 	authCmd.AddCommand(authStatusCmd)
 	authCmd.AddCommand(authBillingCmd)
+	authCmd.AddCommand(authPersistCloudEnvCmd)
 }

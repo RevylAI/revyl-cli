@@ -134,7 +134,9 @@ func TestDevProfileReportsExpiredCredentials(t *testing.T) {
 // TestDevProfileReportsCloudSecretRequirement verifies Cloud remediation never suggests browser login.
 func TestDevProfileReportsCloudSecretRequirement(t *testing.T) {
 	prepareServerAuthTest(t)
-	t.Setenv("CURSOR_AGENT", "1")
+	if err := auth.NewManager().SaveCloudRuntimeContext("", false); err != nil {
+		t.Fatalf("SaveCloudRuntimeContext() error = %v", err)
+	}
 	runner := &fakeDevLoopRunner{}
 
 	server, err := NewServer(
@@ -177,6 +179,116 @@ func TestDevProfileReportsCloudSecretRequirement(t *testing.T) {
 	)
 	if screenshot.ErrorCode != string(authenticationStateCloudSecretRequired) {
 		t.Fatalf("cloud screenshot error code = %q", screenshot.ErrorCode)
+	}
+}
+
+// TestDevProfileAcceptsPersistedCloudAPIKey verifies the bootstrap bridge works without MCP env propagation.
+func TestDevProfileAcceptsPersistedCloudAPIKey(t *testing.T) {
+	prepareServerAuthTest(t)
+	projectDir := os.Getenv("REVYL_PROJECT_DIR")
+	writeDevLoopProjectAt(t, projectDir)
+	const apiKey = "persisted-cloud-api-key"
+	if err := auth.NewManager().SaveCloudRuntimeContext(apiKey, true); err != nil {
+		t.Fatalf("SaveCloudRuntimeContext() error = %v", err)
+	}
+
+	server, err := NewServer("test", false, WithProfile(ProfileDev))
+	if err != nil {
+		t.Fatalf("NewServer() with persisted Cloud API key: %v", err)
+	}
+	status := decodeStructuredToolResult[SetupStatusOutput](
+		t,
+		callServerTool(t, server, "setup_status", nil),
+	)
+	if !status.Ready ||
+		status.AuthState != authenticationStateAuthenticated ||
+		status.Environment != setupEnvironmentCloud ||
+		status.ProjectState != projectStateInitialized ||
+		status.Remediation != nil {
+		t.Fatalf("persisted Cloud setup status = %+v", status)
+	}
+	if got := server.apiClient.GetAPIKey(); got != apiKey {
+		t.Fatalf("API key = %q, want persisted Cloud credential", got)
+	}
+	requireSetupStatusSecretFree(t, status, apiKey)
+}
+
+// TestDevProfileReportsPersistedCloudSecretRequirement verifies missing-secret guidance survives host filtering.
+func TestDevProfileReportsPersistedCloudSecretRequirement(t *testing.T) {
+	prepareServerAuthTest(t)
+	if err := auth.NewManager().SaveCloudRuntimeContext("", false); err != nil {
+		t.Fatalf("SaveCloudRuntimeContext() error = %v", err)
+	}
+
+	server, err := NewServer("test", false, WithProfile(ProfileDev))
+	if err != nil {
+		t.Fatalf("NewServer() with persisted Cloud context: %v", err)
+	}
+	status := decodeStructuredToolResult[SetupStatusOutput](
+		t,
+		callServerTool(t, server, "setup_status", nil),
+	)
+	if status.AuthState != authenticationStateCloudSecretRequired ||
+		status.Environment != setupEnvironmentCloud ||
+		status.Remediation == nil ||
+		status.Remediation.EnvName != "REVYL_API_KEY" ||
+		!status.Remediation.RestartRequired {
+		t.Fatalf("persisted missing-secret setup status = %+v", status)
+	}
+}
+
+// TestDevProfileReportsInvalidCloudContext verifies corrupted bootstrap state has exact restart guidance.
+func TestDevProfileReportsInvalidCloudContext(t *testing.T) {
+	prepareServerAuthTest(t)
+	contextDirectory := filepath.Join(os.Getenv("HOME"), ".revyl")
+	if err := os.MkdirAll(contextDirectory, 0o700); err != nil {
+		t.Fatalf("create Cloud context directory: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(contextDirectory, "cloud-runtime.json"),
+		[]byte("not-json"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write malformed Cloud context: %v", err)
+	}
+
+	server, err := NewServer("test", false, WithProfile(ProfileDev))
+	if err != nil {
+		t.Fatalf("NewServer() with malformed Cloud context: %v", err)
+	}
+	status := decodeStructuredToolResult[SetupStatusOutput](
+		t,
+		callServerTool(t, server, "setup_status", nil),
+	)
+	if status.AuthState != authenticationStateCloudContextInvalid ||
+		status.Environment != setupEnvironmentCloud ||
+		status.Remediation == nil ||
+		status.Remediation.ActionKind != remediationActionRestartSession ||
+		!status.Remediation.RestartRequired {
+		t.Fatalf("malformed Cloud context status = %+v", status)
+	}
+}
+
+// TestDevProfileKeepsNormalFileCredentialsLocal verifies ordinary CLI login does not imply Cloud execution.
+func TestDevProfileKeepsNormalFileCredentialsLocal(t *testing.T) {
+	prepareServerAuthTest(t)
+	projectDir := os.Getenv("REVYL_PROJECT_DIR")
+	writeDevLoopProjectAt(t, projectDir)
+	saveServerCredentials(t, &auth.Credentials{
+		APIKey:     "normal-file-api-key",
+		AuthMethod: "api_key",
+	})
+
+	server, err := NewServer("test", false, WithProfile(ProfileDev))
+	if err != nil {
+		t.Fatalf("NewServer() with normal file API key: %v", err)
+	}
+	status := decodeStructuredToolResult[SetupStatusOutput](
+		t,
+		callServerTool(t, server, "setup_status", nil),
+	)
+	if !status.Ready || status.Environment != setupEnvironmentLocal {
+		t.Fatalf("normal file credential setup status = %+v, want ready local setup", status)
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 // SetupProjectState identifies the current Revyl project setup state.
 type SetupProjectState string
 
-// SetupEnvironment identifies whether setup runs locally or in Cursor Cloud.
+// SetupEnvironment identifies whether setup runs locally or in a headless Cloud runtime.
 type SetupEnvironment string
 
 const (
@@ -63,14 +63,13 @@ func (s *Server) handleSetupStatus(
 	_ *mcp.CallToolRequest,
 	_ SetupStatusInput,
 ) (*mcp.CallToolResult, SetupStatusOutput, error) {
-	cloud := isCloudEnvironment()
 	authentication := s.resolveAndApplyDevAuthentication()
 	project := resolveSetupProjectState(s.workDir)
 	output := SetupStatusOutput{
 		Ready:            authentication.State == authenticationStateAuthenticated && project.State == projectStateInitialized,
 		AuthState:        authentication.State,
 		ProjectState:     project.State,
-		Environment:      setupEnvironment(cloud),
+		Environment:      setupEnvironment(authentication.HeadlessCloud),
 		ProjectDirectory: project.ProjectDirectory,
 	}
 
@@ -85,7 +84,7 @@ func (s *Server) handleSetupStatus(
 // setupEnvironment returns the stable setup-status environment name.
 //
 // Parameters:
-//   - cloud: Whether the established Cursor Cloud signal is present.
+//   - cloud: Whether the bootstrap-established headless Cloud context is present.
 //
 // Returns:
 //   - SetupEnvironment: "cloud" or "local".
