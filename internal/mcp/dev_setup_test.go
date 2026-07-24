@@ -269,6 +269,136 @@ func TestDevProfileReportsInvalidCloudContext(t *testing.T) {
 	}
 }
 
+func TestDevProfileReportsInvalidFileCredentialsBySource(t *testing.T) {
+	testCases := []struct {
+		name            string
+		headlessCloud   bool
+		wantEnvironment SetupEnvironment
+	}{
+		{
+			name:            "local",
+			wantEnvironment: setupEnvironmentLocal,
+		},
+		{
+			name:            "headless Cloud",
+			headlessCloud:   true,
+			wantEnvironment: setupEnvironmentCloud,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			prepareServerAuthTest(t)
+			manager := auth.NewManager()
+			if testCase.headlessCloud {
+				if err := manager.SaveCloudRuntimeContext("", false); err != nil {
+					t.Fatalf("SaveCloudRuntimeContext() error = %v", err)
+				}
+			}
+			contextDirectory := filepath.Join(os.Getenv("HOME"), ".revyl")
+			if err := os.MkdirAll(contextDirectory, 0o700); err != nil {
+				t.Fatalf("create credential directory: %v", err)
+			}
+			if err := os.WriteFile(
+				filepath.Join(contextDirectory, "credentials.json"),
+				[]byte("not-json"),
+				0o600,
+			); err != nil {
+				t.Fatalf("write malformed credentials: %v", err)
+			}
+			runner := &fakeDevLoopRunner{}
+
+			server, err := NewServer(
+				"test",
+				false,
+				WithProfile(ProfileDev),
+				WithDevLoopRunner(runner),
+			)
+			if err != nil {
+				t.Fatalf("NewServer() with malformed credentials: %v", err)
+			}
+			status := decodeStructuredToolResult[SetupStatusOutput](
+				t,
+				callServerTool(t, server, "setup_status", nil),
+			)
+			if status.AuthState != authenticationStateInvalid ||
+				status.Environment != testCase.wantEnvironment ||
+				status.Remediation == nil ||
+				status.Remediation.ActionKind != remediationActionCommand ||
+				status.Remediation.Command != "revyl auth login" ||
+				status.Remediation.RestartRequired {
+				t.Fatalf("malformed credential setup status = %+v", status)
+			}
+
+			startResult := callServerTool(t, server, "start_dev_loop", nil)
+			if !startResult.IsError {
+				t.Fatalf("start_dev_loop result = %+v, want auth error", startResult)
+			}
+			start := decodeStructuredToolResult[DevLoopStartOutput](t, startResult)
+			if start.Outcome.OutcomeCode != string(authenticationStateInvalid) ||
+				!strings.Contains(start.Error, "run 'revyl auth login'") {
+				t.Fatalf("start outcome = %+v, want login-remediable invalid auth", start)
+			}
+			requireRemediationParity(t, start.Remediation, status.Remediation)
+			requireRunnerStartCalls(t, runner, 0)
+		})
+	}
+}
+
+func TestDevProfileInvalidCredentialsRecoverAfterLogin(t *testing.T) {
+	prepareServerAuthTest(t)
+	projectDirectory := os.Getenv("REVYL_PROJECT_DIR")
+	writeDevLoopProjectAt(t, projectDirectory)
+	contextDirectory := filepath.Join(os.Getenv("HOME"), ".revyl")
+	if err := os.MkdirAll(contextDirectory, 0o700); err != nil {
+		t.Fatalf("create credential directory: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(contextDirectory, "credentials.json"),
+		[]byte("not-json"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write malformed credentials: %v", err)
+	}
+	runner := &fakeDevLoopRunner{}
+
+	server, err := NewServer(
+		"test",
+		false,
+		WithProfile(ProfileDev),
+		WithDevLoopRunner(runner),
+	)
+	if err != nil {
+		t.Fatalf("NewServer() with malformed credentials: %v", err)
+	}
+	firstStart := callServerTool(t, server, "start_dev_loop", map[string]any{"remote": true})
+	if !firstStart.IsError {
+		t.Fatalf("first start_dev_loop result = %+v, want auth error", firstStart)
+	}
+	firstOutput := decodeStructuredToolResult[DevLoopStartOutput](t, firstStart)
+	if firstOutput.Remediation == nil || firstOutput.Remediation.Command != "revyl auth login" {
+		t.Fatalf("first start remediation = %+v, want login", firstOutput.Remediation)
+	}
+
+	if err := auth.NewManager().SaveAPIKeyCredentials(
+		"recovered-api-key",
+		"user@example.com",
+		"org",
+		"user",
+	); err != nil {
+		t.Fatalf("simulate successful auth login: %v", err)
+	}
+	secondStart := callServerTool(t, server, "start_dev_loop", map[string]any{"remote": true})
+	if secondStart.IsError {
+		t.Fatalf("second start_dev_loop result = %+v, want success", secondStart)
+	}
+	secondOutput := decodeStructuredToolResult[DevLoopStartOutput](t, secondStart)
+	if !secondOutput.Success || secondOutput.Outcome.OperationStatus != "completed" {
+		t.Fatalf("second start output = %+v, want completed recovery", secondOutput)
+	}
+	requireRunnerStartCalls(t, runner, 1)
+}
+
 // TestDevProfileKeepsNormalFileCredentialsLocal verifies ordinary CLI login does not imply Cloud execution.
 func TestDevProfileKeepsNormalFileCredentialsLocal(t *testing.T) {
 	prepareServerAuthTest(t)

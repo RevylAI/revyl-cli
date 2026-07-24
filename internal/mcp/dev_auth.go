@@ -44,7 +44,7 @@ func resolveMCPAuthentication(manager *auth.Manager) mcpAuthentication {
 	resolution, err := manager.ResolveCredentials()
 	if err != nil {
 		return mcpAuthentication{
-			State:         invalidAuthenticationState(resolution.HeadlessCloud),
+			State:         invalidAuthenticationState(resolution.CloudContextInvalid),
 			HeadlessCloud: resolution.HeadlessCloud,
 			LoadError:     err,
 		}
@@ -88,12 +88,12 @@ func resolveMCPAuthentication(manager *auth.Manager) mcpAuthentication {
 // invalidAuthenticationState classifies unreadable authentication state by runtime context.
 //
 // Parameters:
-//   - cloud: Whether bootstrap established a headless Cloud runtime.
+//   - cloudContextInvalid: Whether the Cloud runtime context itself failed to load.
 //
 // Returns:
 //   - SetupAuthState: Structured local-storage or Cloud-context failure.
-func invalidAuthenticationState(cloud bool) SetupAuthState {
-	if cloud {
+func invalidAuthenticationState(cloudContextInvalid bool) SetupAuthState {
+	if cloudContextInvalid {
 		return authenticationStateCloudContextInvalid
 	}
 	return authenticationStateInvalid
@@ -165,7 +165,7 @@ func authenticationFailureMessage(state SetupAuthState) string {
 	case authenticationStateCloudContextInvalid:
 		return "Revyl Cloud authentication context is invalid; start a fresh Cloud session"
 	case authenticationStateInvalid:
-		return "Revyl authentication state is invalid; run 'revyl auth logout'"
+		return "Revyl authentication state is invalid; run 'revyl auth login'"
 	default:
 		return "Revyl authentication required; run 'revyl auth login'"
 	}

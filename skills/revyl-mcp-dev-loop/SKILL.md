@@ -34,7 +34,7 @@ Fallback to plain device session only when dev loop is unavailable.
 
 Handle setup outcomes as bounded recovery steps:
 
-- `auth_required` / `auth_expired`: run `remediation.command` once, then retry `start_dev_loop`.
+- `auth_required` / `auth_expired` / `auth_invalid`: run `remediation.command` once, then retry `start_dev_loop`.
 - `cloud_secret_required`: tell the user to add `remediation.env_name` as a Runtime Secret and start a new Cloud session. Do not retry when `restart_required` is true.
 - `project_not_initialized`: run the exact command from `remediation.command` once with the working directory set to `remediation.working_directory`, then retry `start_dev_loop`. The command ends with `init --non-interactive`; its executable may be the plugin-pinned runtime rather than `revyl` on `PATH`. Do not rewrite it, add `--force`, or initialize silently.
 - `project_ambiguous`: inspect `remediation.candidate_roots`, select the intended project from repository context, and retry with that exact root as `project_dir`. If the intended project is unclear, ask the user to choose. Do not initialize another project or retry without an explicit `project_dir`.

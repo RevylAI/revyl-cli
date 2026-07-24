@@ -97,7 +97,7 @@ func authenticationRemediation(state SetupAuthState) *Remediation {
 	case authenticationStateInvalid:
 		return &Remediation{
 			ActionKind: remediationActionCommand,
-			Command:    revylRemediationCommand("auth", "logout"),
+			Command:    revylRemediationCommand("auth", "login"),
 		}
 	case authenticationStateAuthenticated:
 		return nil

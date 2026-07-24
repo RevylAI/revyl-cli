@@ -83,10 +83,12 @@ type cloudRuntimeContext struct {
 	APIKey           string `json:"api_key,omitempty"`
 }
 
-// CredentialResolution contains credentials and provider-neutral runtime context from one read.
+// CredentialResolution contains credentials, provider-neutral runtime context,
+// and Cloud-context error provenance from one read.
 type CredentialResolution struct {
-	Credentials   *Credentials
-	HeadlessCloud bool
+	Credentials         *Credentials
+	HeadlessCloud       bool
+	CloudContextInvalid bool
 }
 
 // Manager handles credential storage and retrieval.
@@ -234,7 +236,7 @@ func (m *Manager) GetCredentials() (*Credentials, error) {
 // ResolveCredentials reads active credentials and headless Cloud context as one consistent snapshot.
 //
 // Returns:
-//   - CredentialResolution: Active credentials and whether bootstrap established a headless Cloud runtime.
+//   - CredentialResolution: Active credentials, headless Cloud presence, and Cloud-context error provenance.
 //   - error: Any Cloud-context or credential read error.
 func (m *Manager) ResolveCredentials() (CredentialResolution, error) {
 	envKey := os.Getenv("REVYL_API_KEY")
@@ -243,7 +245,10 @@ func (m *Manager) ResolveCredentials() (CredentialResolution, error) {
 	}
 
 	cloudContext, err := m.getCloudRuntimeContext()
-	resolution := CredentialResolution{HeadlessCloud: cloudContext != nil || err != nil}
+	resolution := CredentialResolution{
+		HeadlessCloud:       cloudContext != nil || err != nil,
+		CloudContextInvalid: err != nil,
+	}
 
 	// When the env var is set, check whether file creds have a local
 	// override before falling back to the env-var-first default.

@@ -176,6 +176,79 @@ func TestResolveCredentialsPlaceholderFallsThroughToCloudRuntimeContext(t *testi
 	}
 }
 
+func TestResolveCredentialsDistinguishesCloudContextAndFileErrors(t *testing.T) {
+	t.Setenv("REVYL_API_KEY", "")
+
+	testCases := []struct {
+		name               string
+		prepare            func(t *testing.T, manager *Manager, configDirectory string)
+		wantHeadlessCloud  bool
+		wantContextInvalid bool
+		wantErrorText      string
+	}{
+		{
+			name: "malformed Cloud context",
+			prepare: func(t *testing.T, _ *Manager, configDirectory string) {
+				t.Helper()
+				if err := os.WriteFile(
+					filepath.Join(configDirectory, cloudRuntimeContextFilename),
+					[]byte("not-json"),
+					0o600,
+				); err != nil {
+					t.Fatalf("write malformed Cloud context: %v", err)
+				}
+			},
+			wantHeadlessCloud:  true,
+			wantContextInvalid: true,
+			wantErrorText:      "failed to parse Cloud runtime context",
+		},
+		{
+			name: "malformed file credentials in Cloud",
+			prepare: func(t *testing.T, manager *Manager, configDirectory string) {
+				t.Helper()
+				if err := manager.SaveCloudRuntimeContext("", false); err != nil {
+					t.Fatalf("SaveCloudRuntimeContext() error = %v", err)
+				}
+				if err := os.WriteFile(
+					filepath.Join(configDirectory, "credentials.json"),
+					[]byte("not-json"),
+					0o600,
+				); err != nil {
+					t.Fatalf("write malformed credentials: %v", err)
+				}
+			},
+			wantHeadlessCloud:  true,
+			wantContextInvalid: false,
+			wantErrorText:      "failed to parse credentials",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			configDirectory := t.TempDir()
+			manager := NewManagerWithDir(configDirectory)
+			testCase.prepare(t, manager, configDirectory)
+
+			resolution, err := manager.ResolveCredentials()
+			if err == nil {
+				t.Fatal("ResolveCredentials() error = nil, want load failure")
+			}
+			if !strings.Contains(err.Error(), testCase.wantErrorText) {
+				t.Fatalf("ResolveCredentials() error = %q, want %q", err, testCase.wantErrorText)
+			}
+			if resolution.HeadlessCloud != testCase.wantHeadlessCloud ||
+				resolution.CloudContextInvalid != testCase.wantContextInvalid {
+				t.Fatalf(
+					"resolution = %+v, want headless=%t Cloud context invalid=%t",
+					resolution,
+					testCase.wantHeadlessCloud,
+					testCase.wantContextInvalid,
+				)
+			}
+		})
+	}
+}
+
 func TestGetActiveToken_HonorsOverride(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "env-key")
 
