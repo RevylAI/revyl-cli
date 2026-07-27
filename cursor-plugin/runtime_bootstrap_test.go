@@ -143,7 +143,7 @@ func TestRuntimeLauncherFailureKeepsStdoutClean(t *testing.T) {
 	command.Args = append(command.Args, "mcp", "serve", "--profile", "dev")
 	command.Env = environmentWithOverrides(
 		"REVYL_BINARY=",
-		"REVYL_RUNTIME_MANIFEST="+filepath.Join(pluginRoot, "runtime-manifest.json"),
+		"REVYL_RUNTIME_MANIFEST="+writeUnpreparedRuntimeManifest(t, t.TempDir()),
 	)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -418,6 +418,41 @@ func writePreparedRuntimeManifest(
 		t.Fatalf("write runtime manifest fixture: %v", err)
 	}
 	return manifestPath, platform, assetName
+}
+
+// writeUnpreparedRuntimeManifest creates a manifest fixture that pins no runtime.
+//
+// Release preparation flips the maintained manifest to prepared, so unavailable-runtime
+// coverage owns an explicit fixture instead of depending on the shipped file's state.
+//
+// Returns:
+//   - string: Path to the unprepared runtime manifest fixture.
+func writeUnpreparedRuntimeManifest(t *testing.T, directory string) string {
+	t.Helper()
+	manifest := runtimeManifest{
+		SchemaVersion:     1,
+		GeneratedBy:       "make -C revyl-cli prepare-cursor-plugin-release",
+		Prepared:          false,
+		PluginVersion:     "0.0.0",
+		RuntimeVersion:    "0.0.0",
+		ReleaseTag:        "v0.0.0",
+		ReleaseBaseURL:    "https://github.com/RevylAI/revyl-cli/releases/download/v0.0.0",
+		DarwinAMD64Asset:  "revyl-darwin-amd64",
+		DarwinARM64Asset:  "revyl-darwin-arm64",
+		LinuxAMD64Asset:   "revyl-linux-amd64",
+		LinuxARM64Asset:   "revyl-linux-arm64",
+		WindowsAMD64Asset: "revyl-windows-amd64.exe",
+		WindowsARM64Asset: "revyl-windows-arm64.exe",
+	}
+	content, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("encode unprepared runtime manifest fixture: %v", err)
+	}
+	manifestPath := filepath.Join(directory, "runtime-manifest.json")
+	if err := os.WriteFile(manifestPath, append(content, '\n'), 0o600); err != nil {
+		t.Fatalf("write unprepared runtime manifest fixture: %v", err)
+	}
+	return manifestPath
 }
 
 // writeFakeCurl creates a deterministic downloader or an intentional failure.

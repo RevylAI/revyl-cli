@@ -257,8 +257,12 @@ func TestHookRuntimeBehavior(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		isolatedPath += string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
 	}
+	unpreparedPluginRoot := t.TempDir()
+	writeUnpreparedRuntimeManifest(t, unpreparedPluginRoot)
 	missingEnvironment := environmentWithOverrides(
 		"PATH="+isolatedPath,
+		"REVYL_BINARY=",
+		"CURSOR_PLUGIN_ROOT="+unpreparedPluginRoot,
 		"REVYL_API_KEY="+testSecret(),
 	)
 	missingSession := runHook(t, hookPath, `{"hook_event_name":"sessionStart"}`, missingEnvironment)
@@ -271,6 +275,26 @@ func TestHookRuntimeBehavior(t *testing.T) {
 		"agent_message": runtimeUnavailableMessage,
 	})
 	requireNoSecret(t, missingShell)
+
+	// A prepared manifest makes the runtime obtainable on first launch, so the hook
+	// must stay silent even when no Revyl executable is on PATH yet.
+	if runtime.GOOS != "windows" {
+		preparedPluginRoot := t.TempDir()
+		writePreparedRuntimeManifest(t, preparedPluginRoot, strings.Repeat("a", 64))
+		preparedEnvironment := environmentWithOverrides(
+			"PATH="+isolatedPath,
+			"REVYL_BINARY=",
+			"CURSOR_PLUGIN_ROOT="+preparedPluginRoot,
+			"REVYL_API_KEY="+testSecret(),
+		)
+		preparedSession := runHook(t, hookPath, `{"hook_event_name":"sessionStart"}`, preparedEnvironment)
+		requireHookOutput(t, preparedSession, map[string]string{})
+		requireNoSecret(t, preparedSession)
+
+		preparedShell := runHook(t, hookPath, `{"hook_event_name":"beforeShellExecution","command":"revyl dev"}`, preparedEnvironment)
+		requireHookOutput(t, preparedShell, map[string]string{"permission": "allow"})
+		requireNoSecret(t, preparedShell)
+	}
 
 	fakeBin := t.TempDir()
 	fakeCLIPath := fakeBin
