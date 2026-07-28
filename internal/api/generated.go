@@ -82,6 +82,27 @@ const (
 	CleanupLevelThorough  CleanupLevel = "thorough"
 )
 
+// Defines values for CloudAgentConversationLaunchSubmissionStatus.
+const (
+	CloudAgentConversationLaunchSubmissionStatusAccepted     CloudAgentConversationLaunchSubmissionStatus = "accepted"
+	CloudAgentConversationLaunchSubmissionStatusDispatching  CloudAgentConversationLaunchSubmissionStatus = "dispatching"
+	CloudAgentConversationLaunchSubmissionStatusNotAttempted CloudAgentConversationLaunchSubmissionStatus = "not_attempted"
+	CloudAgentConversationLaunchSubmissionStatusRejected     CloudAgentConversationLaunchSubmissionStatus = "rejected"
+	CloudAgentConversationLaunchSubmissionStatusUnconfirmed  CloudAgentConversationLaunchSubmissionStatus = "unconfirmed"
+)
+
+// Defines values for CloudAgentConversationRelatedResourceMatchType.
+const (
+	CloudAgentConversationRelatedResourceMatchTypeChildTestExecution     CloudAgentConversationRelatedResourceMatchType = "child_test_execution"
+	CloudAgentConversationRelatedResourceMatchTypeChildWorkflowExecution CloudAgentConversationRelatedResourceMatchType = "child_workflow_execution"
+	CloudAgentConversationRelatedResourceMatchTypeDirect                 CloudAgentConversationRelatedResourceMatchType = "direct"
+)
+
+// Defines values for CloudAgentProviderKey.
+const (
+	CloudAgentProviderKeyCursorCloud CloudAgentProviderKey = "cursor_cloud"
+)
+
 // Defines values for CodeExecutionScriptRuntime.
 const (
 	CodeExecutionScriptRuntimeBash       CodeExecutionScriptRuntime = "bash"
@@ -121,6 +142,12 @@ const (
 const (
 	CompileSourceTypeRecording CompileSourceType = "recording"
 	CompileSourceTypeSession   CompileSourceType = "session"
+)
+
+// Defines values for CursorConnectionType.
+const (
+	CursorConnectionTypeOrganizationDefault CursorConnectionType = "organization_default"
+	CursorConnectionTypePersonal            CursorConnectionType = "personal"
 )
 
 // Defines values for DashboardMetricsDashboardState.
@@ -440,14 +467,15 @@ type AppPlatformCounts struct {
 
 // AppResponse Response model for an app.
 type AppResponse struct {
-	AttachedTests    *int                `json:"attached_tests"`
-	AttributionReady *bool               `json:"attribution_ready"`
-	BuildsCount      *int                `json:"builds_count"`
-	CreatedAt        *time.Time          `json:"created_at"`
-	CurrentBuildId   *openapi_types.UUID `json:"current_build_id"`
-	CurrentVersion   *string             `json:"current_version"`
-	Description      *string             `json:"description"`
-	ExpoSynced       *bool               `json:"expo_synced"`
+	AttachedTests          *int                                      `json:"attached_tests"`
+	AttributionReady       *bool                                     `json:"attribution_ready"`
+	BuildsCount            *int                                      `json:"builds_count"`
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+	CreatedAt              *time.Time                                `json:"created_at"`
+	CurrentBuildId         *openapi_types.UUID                       `json:"current_build_id"`
+	CurrentVersion         *string                                   `json:"current_version"`
+	Description            *string                                   `json:"description"`
+	ExpoSynced             *bool                                     `json:"expo_synced"`
 
 	// HasAtlas Whether this app has renderable Atlas content. Populated by app collection endpoints; null when the caller did not request Atlas enrichment.
 	HasAtlas         *bool               `json:"has_atlas"`
@@ -785,17 +813,18 @@ type BuildMultipartUploadStartResponse struct {
 
 // BuildResponse Response model for a build (specific artifact/version of an app).
 type BuildResponse struct {
-	AppId        *openapi_types.UUID     `json:"app_id"`
-	ArtifactKind *string                 `json:"artifact_kind"`
-	ArtifactUrl  *string                 `json:"artifact_url"`
-	DownloadUrl  *string                 `json:"download_url"`
-	Id           *openapi_types.UUID     `json:"id"`
-	Metadata     *map[string]interface{} `json:"metadata,omitempty"`
-	Owner        *openapi_types.UUID     `json:"owner"`
-	PackageName  *string                 `json:"package_name"`
-	UploadedAt   *time.Time              `json:"uploaded_at"`
-	Version      *string                 `json:"version"`
-	WasReused    *bool                   `json:"was_reused"`
+	AppId                  *openapi_types.UUID                       `json:"app_id"`
+	ArtifactKind           *string                                   `json:"artifact_kind"`
+	ArtifactUrl            *string                                   `json:"artifact_url"`
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+	DownloadUrl            *string                                   `json:"download_url"`
+	Id                     *openapi_types.UUID                       `json:"id"`
+	Metadata               *map[string]interface{}                   `json:"metadata,omitempty"`
+	Owner                  *openapi_types.UUID                       `json:"owner"`
+	PackageName            *string                                   `json:"package_name"`
+	UploadedAt             *time.Time                                `json:"uploaded_at"`
+	Version                *string                                   `json:"version"`
+	WasReused              *bool                                     `json:"was_reused"`
 }
 
 // BuildRunnerStatus Response for the build runner availability pre-flight check.
@@ -927,6 +956,33 @@ type ChildTaskReportInfo struct {
 
 // CleanupLevel Cleanup intensity level for AVD state reset between test runs.
 type CleanupLevel string
+
+// CloudAgentConversationAttributionSummary defines model for CloudAgentConversationAttributionSummary.
+type CloudAgentConversationAttributionSummary struct {
+	// CloudAgentProviderKey Immutable provider identity for one cloud-agent conversation.
+	CloudAgentProviderKey CloudAgentProviderKey `json:"cloud_agent_provider_key"`
+	ConversationId        openapi_types.UUID    `json:"conversation_id"`
+
+	// Launch Launch facts displayed with an ordinary related-resource attribution.
+	Launch                  *CursorCloudAgentConversationAttributionLaunch `json:"launch,omitempty"`
+	ProviderConversationId  *string                                        `json:"provider_conversation_id"`
+	ProviderConversationUrl *string                                        `json:"provider_conversation_url"`
+	RecordedUser            CloudAgentConversationRecordedUser             `json:"recorded_user"`
+}
+
+// CloudAgentConversationLaunchSubmissionStatus Once-only result of submitting the founding launch to its provider.
+type CloudAgentConversationLaunchSubmissionStatus string
+
+// CloudAgentConversationRecordedUser defines model for CloudAgentConversationRecordedUser.
+type CloudAgentConversationRecordedUser struct {
+	UserId openapi_types.UUID `json:"user_id"`
+}
+
+// CloudAgentConversationRelatedResourceMatchType Why a resource appears in a conversation-scoped related-resource read.
+type CloudAgentConversationRelatedResourceMatchType string
+
+// CloudAgentProviderKey Immutable provider identity for one cloud-agent conversation.
+type CloudAgentProviderKey string
 
 // CodeExecutionScript Full script model with database fields.
 type CodeExecutionScript struct {
@@ -1139,6 +1195,17 @@ type CreditConversion struct {
 	Name           string  `json:"name"`
 }
 
+// CursorCloudAgentConversationAttributionLaunch Launch facts displayed with an ordinary related-resource attribution.
+type CursorCloudAgentConversationAttributionLaunch struct {
+	LaunchConnectionType CursorConnectionType `json:"launch_connection_type"`
+
+	// LaunchSubmissionStatus Once-only result of submitting the founding launch to its provider.
+	LaunchSubmissionStatus CloudAgentConversationLaunchSubmissionStatus `json:"launch_submission_status"`
+}
+
+// CursorConnectionType defines model for CursorConnectionType.
+type CursorConnectionType string
+
 // DOMMetadata defines model for DOMMetadata.
 type DOMMetadata struct {
 	A11yData             *map[string]interface{} `json:"a11y_data"`
@@ -1350,43 +1417,44 @@ type DevicePair struct {
 
 // DeviceSessionDetailItem Detailed device session payload for the canonical session viewer.
 type DeviceSessionDetailItem struct {
-	ActionCount               *int                    `json:"action_count,omitempty"`
-	AppId                     *string                 `json:"app_id"`
-	AppName                   *string                 `json:"app_name"`
-	BuildId                   *string                 `json:"build_id"`
-	BuildVersion              *string                 `json:"build_version"`
-	CanCancel                 *bool                   `json:"can_cancel,omitempty"`
-	CanInteract               *bool                   `json:"can_interact,omitempty"`
-	CreatedAt                 *string                 `json:"created_at"`
-	DeviceModel               *string                 `json:"device_model"`
-	DurationSeconds           *float32                `json:"duration_seconds"`
-	EndedAt                   *string                 `json:"ended_at"`
-	ErrorMessage              *string                 `json:"error_message"`
-	HasTestExecution          *bool                   `json:"has_test_execution,omitempty"`
-	HasVideo                  *bool                   `json:"has_video,omitempty"`
-	Id                        string                  `json:"id"`
-	InteractionDisabledReason *string                 `json:"interaction_disabled_reason"`
-	OrgId                     string                  `json:"org_id"`
-	OsVersion                 *string                 `json:"os_version"`
-	Platform                  *string                 `json:"platform"`
-	ReportId                  *string                 `json:"report_id"`
-	ScreenHeight              *int                    `json:"screen_height"`
-	ScreenWidth               *int                    `json:"screen_width"`
-	Source                    *string                 `json:"source"`
-	SourceMetadata            *map[string]interface{} `json:"source_metadata"`
-	StartedAt                 *string                 `json:"started_at"`
-	Status                    string                  `json:"status"`
-	StepCount                 *int                    `json:"step_count,omitempty"`
-	TestExecutionId           *string                 `json:"test_execution_id"`
-	TestId                    *string                 `json:"test_id"`
-	TestName                  *string                 `json:"test_name"`
-	TraceId                   *string                 `json:"trace_id"`
-	UserEmail                 *string                 `json:"user_email"`
-	UserId                    *string                 `json:"user_id"`
-	WhepUrl                   *string                 `json:"whep_url"`
-	WorkflowExecutionId       *string                 `json:"workflow_execution_id"`
-	WorkflowName              *string                 `json:"workflow_name"`
-	WorkflowRunId             *string                 `json:"workflow_run_id"`
+	ActionCount               *int                                      `json:"action_count,omitempty"`
+	AppId                     *string                                   `json:"app_id"`
+	AppName                   *string                                   `json:"app_name"`
+	BuildId                   *string                                   `json:"build_id"`
+	BuildVersion              *string                                   `json:"build_version"`
+	CanCancel                 *bool                                     `json:"can_cancel,omitempty"`
+	CanInteract               *bool                                     `json:"can_interact,omitempty"`
+	CloudAgentConversation    *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+	CreatedAt                 *string                                   `json:"created_at"`
+	DeviceModel               *string                                   `json:"device_model"`
+	DurationSeconds           *float32                                  `json:"duration_seconds"`
+	EndedAt                   *string                                   `json:"ended_at"`
+	ErrorMessage              *string                                   `json:"error_message"`
+	HasTestExecution          *bool                                     `json:"has_test_execution,omitempty"`
+	HasVideo                  *bool                                     `json:"has_video,omitempty"`
+	Id                        string                                    `json:"id"`
+	InteractionDisabledReason *string                                   `json:"interaction_disabled_reason"`
+	OrgId                     string                                    `json:"org_id"`
+	OsVersion                 *string                                   `json:"os_version"`
+	Platform                  *string                                   `json:"platform"`
+	ReportId                  *string                                   `json:"report_id"`
+	ScreenHeight              *int                                      `json:"screen_height"`
+	ScreenWidth               *int                                      `json:"screen_width"`
+	Source                    *string                                   `json:"source"`
+	SourceMetadata            *map[string]interface{}                   `json:"source_metadata"`
+	StartedAt                 *string                                   `json:"started_at"`
+	Status                    string                                    `json:"status"`
+	StepCount                 *int                                      `json:"step_count,omitempty"`
+	TestExecutionId           *string                                   `json:"test_execution_id"`
+	TestId                    *string                                   `json:"test_id"`
+	TestName                  *string                                   `json:"test_name"`
+	TraceId                   *string                                   `json:"trace_id"`
+	UserEmail                 *string                                   `json:"user_email"`
+	UserId                    *string                                   `json:"user_id"`
+	WhepUrl                   *string                                   `json:"whep_url"`
+	WorkflowExecutionId       *string                                   `json:"workflow_execution_id"`
+	WorkflowName              *string                                   `json:"workflow_name"`
+	WorkflowRunId             *string                                   `json:"workflow_run_id"`
 }
 
 // DiscountItem A reward/discount applied to the customer (from Autumn `rewards.discounts`).
@@ -2525,23 +2593,24 @@ type RemoteBuildSourceUploadResponse struct {
 //	phase_timings: Per-phase build timings when emitted by the worker.
 //	timeout_seconds: Server-enforced build timeout in seconds when known.
 type RemoteBuildStatusResponse struct {
-	AppId              *string                   `json:"app_id"`
-	ArtifactType       *string                   `json:"artifact_type"`
-	CandidateArtifacts *[]string                 `json:"candidate_artifacts"`
-	CompletedAt        *time.Time                `json:"completed_at"`
-	CreatedAt          *time.Time                `json:"created_at"`
-	DurationMs         *int                      `json:"duration_ms"`
-	Error              *string                   `json:"error"`
-	PackageId          *string                   `json:"package_id"`
-	Phase              *string                   `json:"phase"`
-	PhaseTimings       *[]RemoteBuildPhaseTiming `json:"phase_timings"`
-	Platform           *string                   `json:"platform"`
-	StartedAt          *time.Time                `json:"started_at"`
-	Status             string                    `json:"status"`
-	SuggestedFix       *string                   `json:"suggested_fix"`
-	TimeoutSeconds     *int                      `json:"timeout_seconds"`
-	Version            *string                   `json:"version"`
-	VersionId          *string                   `json:"version_id"`
+	AppId                  *string                                   `json:"app_id"`
+	ArtifactType           *string                                   `json:"artifact_type"`
+	CandidateArtifacts     *[]string                                 `json:"candidate_artifacts"`
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+	CompletedAt            *time.Time                                `json:"completed_at"`
+	CreatedAt              *time.Time                                `json:"created_at"`
+	DurationMs             *int                                      `json:"duration_ms"`
+	Error                  *string                                   `json:"error"`
+	PackageId              *string                                   `json:"package_id"`
+	Phase                  *string                                   `json:"phase"`
+	PhaseTimings           *[]RemoteBuildPhaseTiming                 `json:"phase_timings"`
+	Platform               *string                                   `json:"platform"`
+	StartedAt              *time.Time                                `json:"started_at"`
+	Status                 string                                    `json:"status"`
+	SuggestedFix           *string                                   `json:"suggested_fix"`
+	TimeoutSeconds         *int                                      `json:"timeout_seconds"`
+	Version                *string                                   `json:"version"`
+	VersionId              *string                                   `json:"version_id"`
 }
 
 // RemoteBuildSummary Compact summary of a single remote build job for list views.
@@ -2561,17 +2630,18 @@ type RemoteBuildStatusResponse struct {
 //	duration_ms: Build duration in milliseconds when known.
 //	is_active: Whether the build is still queued or running.
 type RemoteBuildSummary struct {
-	BuildId     *string    `json:"build_id"`
-	BuildJobId  string     `json:"build_job_id"`
-	CompletedAt *time.Time `json:"completed_at"`
-	CreatedAt   *time.Time `json:"created_at"`
-	DurationMs  *int       `json:"duration_ms"`
-	IsActive    *bool      `json:"is_active,omitempty"`
-	Phase       *string    `json:"phase"`
-	Platform    *string    `json:"platform"`
-	StartedAt   *time.Time `json:"started_at"`
-	Status      string     `json:"status"`
-	Version     *string    `json:"version"`
+	BuildId                *string                                   `json:"build_id"`
+	BuildJobId             string                                    `json:"build_job_id"`
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+	CompletedAt            *time.Time                                `json:"completed_at"`
+	CreatedAt              *time.Time                                `json:"created_at"`
+	DurationMs             *int                                      `json:"duration_ms"`
+	IsActive               *bool                                     `json:"is_active,omitempty"`
+	Phase                  *string                                   `json:"phase"`
+	Platform               *string                                   `json:"platform"`
+	StartedAt              *time.Time                                `json:"started_at"`
+	Status                 string                                    `json:"status"`
+	Version                *string                                   `json:"version"`
 }
 
 // RemoteBuildTriggerResponse Response returned immediately after a build is enqueued.
@@ -3282,7 +3352,11 @@ type TestDeleteResponse struct {
 
 // TestEnhancedHistoryItem Enhanced history item with task tracking details
 type TestEnhancedHistoryItem struct {
-	Duration *float32 `json:"duration"`
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+
+	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
+	CloudAgentConversationMatchType *CloudAgentConversationRelatedResourceMatchType `json:"cloud_agent_conversation_match_type,omitempty"`
+	Duration                        *float32                                        `json:"duration"`
 
 	// EnhancedTask Enhanced test execution tasks model with tracking fields.
 	//
@@ -3373,13 +3447,100 @@ type TestListResponse struct {
 	StatusCounts *TestStatusCounts `json:"status_counts,omitempty"`
 
 	// Tests List of tests
-	Tests []Test `json:"tests"`
+	Tests []TestResourceResponse `json:"tests"`
 
 	// TotalCount Total number of tests across all pages
 	TotalCount *int `json:"total_count,omitempty"`
 
 	// TotalTestsWow Week-over-week percentage change in total tests (positive = increase)
 	TotalTestsWow *float32 `json:"total_tests_wow"`
+}
+
+// TestResourceResponse Authenticated product read projection for one test resource.
+type TestResourceResponse struct {
+	AppId                  *openapi_types.UUID                       `json:"app_id"`
+	AppLink                *string                                   `json:"app_link"`
+	AppPackage             *string                                   `json:"app_package"`
+	BackendUrl             *string                                   `json:"backend_url"`
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+
+	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
+	CloudAgentConversationMatchType *CloudAgentConversationRelatedResourceMatchType `json:"cloud_agent_conversation_match_type,omitempty"`
+	DeviceLocal                     *bool                                           `json:"device_local"`
+
+	// ExpectedVersion Expected version for optimistic locking. If provided and doesn't match current version, update will fail with 409 Conflict.
+	ExpectedVersion *int                `json:"expected_version"`
+	Flowdescription *string             `json:"flowdescription"`
+	GetDownloads    *bool               `json:"get_downloads"`
+	Id              *openapi_types.UUID `json:"id"`
+
+	// LastDuration Duration of the most recent execution in seconds
+	LastDuration *float32 `json:"last_duration"`
+
+	// LastExecutionId Execution ID of the most recent execution for deep-linking to report (was last_task_id)
+	LastExecutionId *openapi_types.UUID `json:"last_execution_id"`
+
+	// LastExecutionTime ISO timestamp of the most recent execution completion
+	LastExecutionTime *string `json:"last_execution_time"`
+
+	// LastModifiedBy UUID of the user who last modified this test.
+	LastModifiedBy *openapi_types.UUID `json:"last_modified_by"`
+
+	// LastStatus Status of the most recent execution (success, failure, timeout, cancelled, running, queued, setup, verifying, or None)
+	LastStatus   *string `json:"last_status"`
+	Link         *string `json:"link"`
+	LlmModelName *string `json:"llm_model_name"`
+
+	// MobileTargets Saved device model + runtime targets for this test
+	MobileTargets *[]MobileTarget `json:"mobile_targets"`
+	Name          *string         `json:"name"`
+
+	// Orientation Device orientation from test_mobile_details ('portrait' or 'landscape')
+	Orientation   *string             `json:"orientation"`
+	Owner         *openapi_types.UUID `json:"owner"`
+	PackageName   *string             `json:"package_name"`
+	PinnedVersion *string             `json:"pinned_version"`
+	Platform      *string             `json:"platform,omitempty"`
+
+	// ResolvedBuild Normalized representation of a resolved build artifact.
+	ResolvedBuild *ResolvedBuild `json:"resolved_build,omitempty"`
+	Retries       *int           `json:"retries"`
+
+	// RunConfig Complete configuration for a test run.
+	RunConfig *TestRunConfig      `json:"run_config,omitempty"`
+	RunId     *openapi_types.UUID `json:"run_id"`
+
+	// Tags Tags associated with this test for categorization and filtering
+	Tags  *[]Tag                      `json:"tags"`
+	Tasks *TestResourceResponse_Tasks `json:"tasks,omitempty"`
+
+	// TestTimeoutSeconds Per-test execution timeout in seconds. Null disables the override.
+	TestTimeoutSeconds *int                `json:"test_timeout_seconds"`
+	UserId             *openapi_types.UUID `json:"user_id"`
+
+	// Version Current version number for optimistic locking. Increments on each save.
+	Version              *int                    `json:"version"`
+	Viewport             *map[string]interface{} `json:"viewport"`
+	AdditionalProperties map[string]interface{}  `json:"-"`
+}
+
+// TestResourceResponseTasks0 defines model for .
+type TestResourceResponseTasks0 = []TestResourceResponse_Tasks_0_Item
+
+// TestResourceResponse_Tasks_0_Item defines model for TestResourceResponse.Tasks.0.Item.
+type TestResourceResponse_Tasks_0_Item struct {
+	union json.RawMessage
+}
+
+// TestResourceResponseTasks1 defines model for .
+type TestResourceResponseTasks1 = []map[string]interface{}
+
+// TestResourceResponseTasks2 defines model for .
+type TestResourceResponseTasks2 = []TaskMetadata
+
+// TestResourceResponse_Tasks defines model for TestResourceResponse.Tasks.
+type TestResourceResponse_Tasks struct {
+	union json.RawMessage
 }
 
 // TestRestoreVersionRequest Request model for restoring a test to a previous version.
@@ -3810,6 +3971,11 @@ type WorkflowExecutionHistoryResponse struct {
 
 // WorkflowExecutionHistoryStatus Simplified execution history status for workflow cards.
 type WorkflowExecutionHistoryStatus struct {
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+
+	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
+	CloudAgentConversationMatchType *CloudAgentConversationRelatedResourceMatchType `json:"cloud_agent_conversation_match_type,omitempty"`
+
 	// CreatedAt Execution timestamp
 	CreatedAt *string `json:"created_at"`
 
@@ -3822,6 +3988,11 @@ type WorkflowExecutionHistoryStatus struct {
 
 // WorkflowLastExecution Model for workflow last execution data.
 type WorkflowLastExecution struct {
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+
+	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
+	CloudAgentConversationMatchType *CloudAgentConversationRelatedResourceMatchType `json:"cloud_agent_conversation_match_type,omitempty"`
+
 	// Duration Duration of the last execution in seconds
 	Duration *float32 `json:"duration"`
 
@@ -3895,9 +4066,13 @@ type WorkflowUpdateResponse struct {
 // WorkflowWithLastStatus Workflow model with last execution status for workflow cards.
 type WorkflowWithLastStatus struct {
 	// BuildConfig Workflow-level build configuration (JSONB with ios_build and android_build)
-	BuildConfig *map[string]interface{} `json:"build_config"`
-	CreatedAt   *time.Time              `json:"created_at"`
-	Deleted     bool                    `json:"deleted"`
+	BuildConfig            *map[string]interface{}                   `json:"build_config"`
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+
+	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
+	CloudAgentConversationMatchType *CloudAgentConversationRelatedResourceMatchType `json:"cloud_agent_conversation_match_type,omitempty"`
+	CreatedAt                       *time.Time                                      `json:"created_at"`
+	Deleted                         bool                                            `json:"deleted"`
 
 	// ExecutionHistory Last N execution statuses
 	ExecutionHistory *[]WorkflowExecutionHistoryStatus `json:"execution_history,omitempty"`
@@ -3977,34 +4152,38 @@ type WorkflowsBaseSchema struct {
 
 // AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem Single row in the device session history listing.
 type AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryItem struct {
-	AppId               *string                 `json:"app_id"`
-	AppName             *string                 `json:"app_name"`
-	BuildId             *string                 `json:"build_id"`
-	BuildVersion        *string                 `json:"build_version"`
-	CreatedAt           *string                 `json:"created_at"`
-	DeviceModel         *string                 `json:"device_model"`
-	DurationSeconds     *float32                `json:"duration_seconds"`
-	EndedAt             *string                 `json:"ended_at"`
-	ErrorMessage        *string                 `json:"error_message"`
-	HasVideo            *bool                   `json:"has_video,omitempty"`
-	Id                  string                  `json:"id"`
-	OrgId               string                  `json:"org_id"`
-	OsVersion           *string                 `json:"os_version"`
-	Platform            *string                 `json:"platform"`
-	ReportId            *string                 `json:"report_id"`
-	Source              *string                 `json:"source"`
-	SourceMetadata      *map[string]interface{} `json:"source_metadata"`
-	StartedAt           *string                 `json:"started_at"`
-	Status              string                  `json:"status"`
-	StepCount           *int                    `json:"step_count,omitempty"`
-	TestExecutionId     *string                 `json:"test_execution_id"`
-	TestId              *string                 `json:"test_id"`
-	TestName            *string                 `json:"test_name"`
-	TraceId             *string                 `json:"trace_id"`
-	UserEmail           *string                 `json:"user_email"`
-	WorkflowExecutionId *string                 `json:"workflow_execution_id"`
-	WorkflowName        *string                 `json:"workflow_name"`
-	WorkflowRunId       *string                 `json:"workflow_run_id"`
+	AppId                  *string                                   `json:"app_id"`
+	AppName                *string                                   `json:"app_name"`
+	BuildId                *string                                   `json:"build_id"`
+	BuildVersion           *string                                   `json:"build_version"`
+	CloudAgentConversation *CloudAgentConversationAttributionSummary `json:"cloud_agent_conversation,omitempty"`
+
+	// CloudAgentConversationMatchType Why a resource appears in a conversation-scoped related-resource read.
+	CloudAgentConversationMatchType *CloudAgentConversationRelatedResourceMatchType `json:"cloud_agent_conversation_match_type,omitempty"`
+	CreatedAt                       *string                                         `json:"created_at"`
+	DeviceModel                     *string                                         `json:"device_model"`
+	DurationSeconds                 *float32                                        `json:"duration_seconds"`
+	EndedAt                         *string                                         `json:"ended_at"`
+	ErrorMessage                    *string                                         `json:"error_message"`
+	HasVideo                        *bool                                           `json:"has_video,omitempty"`
+	Id                              string                                          `json:"id"`
+	OrgId                           string                                          `json:"org_id"`
+	OsVersion                       *string                                         `json:"os_version"`
+	Platform                        *string                                         `json:"platform"`
+	ReportId                        *string                                         `json:"report_id"`
+	Source                          *string                                         `json:"source"`
+	SourceMetadata                  *map[string]interface{}                         `json:"source_metadata"`
+	StartedAt                       *string                                         `json:"started_at"`
+	Status                          string                                          `json:"status"`
+	StepCount                       *int                                            `json:"step_count,omitempty"`
+	TestExecutionId                 *string                                         `json:"test_execution_id"`
+	TestId                          *string                                         `json:"test_id"`
+	TestName                        *string                                         `json:"test_name"`
+	TraceId                         *string                                         `json:"trace_id"`
+	UserEmail                       *string                                         `json:"user_email"`
+	WorkflowExecutionId             *string                                         `json:"workflow_execution_id"`
+	WorkflowName                    *string                                         `json:"workflow_name"`
+	WorkflowRunId                   *string                                         `json:"workflow_run_id"`
 }
 
 // AppRoutesExecutionRoutesDeviceSessionsXptSessionHistoryResponse Paginated device session history response.
@@ -4077,12 +4256,27 @@ type ListAppsApiV1AppsGetParams struct {
 
 	// Search Search by app name
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// AttributedToCloudAgentConversationId Show apps directly attributed to this cloud-agent conversation or containing an attributed build/job
+	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
+}
+
+// CreateAppApiV1AppsPostParams defines parameters for CreateAppApiV1AppsPost.
+type CreateAppApiV1AppsPostParams struct {
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
 
 // GetBuildApiV1AppsBuildsVersionIdGetParams defines parameters for GetBuildApiV1AppsBuildsVersionIdGet.
 type GetBuildApiV1AppsBuildsVersionIdGetParams struct {
 	// IncludeDownloadUrl Include presigned download URL
 	IncludeDownloadUrl *bool `form:"include_download_url,omitempty" json:"include_download_url,omitempty"`
+}
+
+// TriggerRemoteBuildApiV1AppsRemotePostParams defines parameters for TriggerRemoteBuildApiV1AppsRemotePost.
+type TriggerRemoteBuildApiV1AppsRemotePostParams struct {
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
 
 // CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGetParams defines parameters for CheckBuildRunnersAvailableApiV1AppsRemoteRunnersAvailableGet.
@@ -4125,6 +4319,21 @@ type ListBuildsApiV1AppsAppIdBuildsGetParams struct {
 
 	// Search Search by version name or package name
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// AttributedToCloudAgentConversationId Filter the build/job collection by cloud-agent conversation (requires include_jobs=true)
+	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
+}
+
+// CreateBuildFromUploadApiV1AppsAppIdBuildsPostParams defines parameters for CreateBuildFromUploadApiV1AppsAppIdBuildsPost.
+type CreateBuildFromUploadApiV1AppsAppIdBuildsPostParams struct {
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
+}
+
+// CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostParams defines parameters for CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPost.
+type CreateBuildFromUrlApiV1AppsAppIdBuildsFromUrlPostParams struct {
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
 
 // StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostParams defines parameters for StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPost.
@@ -4148,7 +4357,9 @@ type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 	FileName string `form:"file_name" json:"file_name"`
 
 	// Source Build upload source for backend-owned lifecycle analytics
-	Source *string `form:"source,omitempty" json:"source,omitempty"`
+	Source                                 *string `form:"source,omitempty" json:"source,omitempty"`
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
 
 // CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGetParams defines parameters for CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGet.
@@ -4324,48 +4535,55 @@ type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
 
 // ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostParams defines parameters for ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPost.
 type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostParams struct {
-	XRevylClient  *string `json:"X-Revyl-Client,omitempty"`
-	XCISystem     *string `json:"X-CI-System,omitempty"`
-	XCICommitSHA  *string `json:"X-CI-Commit-SHA,omitempty"`
-	XCIBranch     *string `json:"X-CI-Branch,omitempty"`
-	XCIPRNumber   *int    `json:"X-CI-PR-Number,omitempty"`
-	XCIRunURL     *string `json:"X-CI-Run-URL,omitempty"`
-	XCIRunID      *string `json:"X-CI-Run-ID,omitempty"`
-	XCIRepository *string `json:"X-CI-Repository,omitempty"`
-	XCIActor      *string `json:"X-CI-Actor,omitempty"`
-	XCIActorURL   *string `json:"X-CI-Actor-URL,omitempty"`
-	XCIPRURL      *string `json:"X-CI-PR-URL,omitempty"`
+	XRevylClient                           *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem                              *string `json:"X-CI-System,omitempty"`
+	XCICommitSHA                           *string `json:"X-CI-Commit-SHA,omitempty"`
+	XCIBranch                              *string `json:"X-CI-Branch,omitempty"`
+	XCIPRNumber                            *int    `json:"X-CI-PR-Number,omitempty"`
+	XCIRunURL                              *string `json:"X-CI-Run-URL,omitempty"`
+	XCIRunID                               *string `json:"X-CI-Run-ID,omitempty"`
+	XCIRepository                          *string `json:"X-CI-Repository,omitempty"`
+	XCIActor                               *string `json:"X-CI-Actor,omitempty"`
+	XCIActorURL                            *string `json:"X-CI-Actor-URL,omitempty"`
+	XCIPRURL                               *string `json:"X-CI-PR-URL,omitempty"`
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
 
 // ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostParams defines parameters for ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPost.
 type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostParams struct {
-	XRevylClient  *string `json:"X-Revyl-Client,omitempty"`
-	XCISystem     *string `json:"X-CI-System,omitempty"`
-	XCICommitSHA  *string `json:"X-CI-Commit-SHA,omitempty"`
-	XCIBranch     *string `json:"X-CI-Branch,omitempty"`
-	XCIPRNumber   *int    `json:"X-CI-PR-Number,omitempty"`
-	XCIRunURL     *string `json:"X-CI-Run-URL,omitempty"`
-	XCIRunID      *string `json:"X-CI-Run-ID,omitempty"`
-	XCIRepository *string `json:"X-CI-Repository,omitempty"`
-	XCIActor      *string `json:"X-CI-Actor,omitempty"`
-	XCIActorURL   *string `json:"X-CI-Actor-URL,omitempty"`
-	XCIPRURL      *string `json:"X-CI-PR-URL,omitempty"`
+	XRevylClient                           *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem                              *string `json:"X-CI-System,omitempty"`
+	XCICommitSHA                           *string `json:"X-CI-Commit-SHA,omitempty"`
+	XCIBranch                              *string `json:"X-CI-Branch,omitempty"`
+	XCIPRNumber                            *int    `json:"X-CI-PR-Number,omitempty"`
+	XCIRunURL                              *string `json:"X-CI-Run-URL,omitempty"`
+	XCIRunID                               *string `json:"X-CI-Run-ID,omitempty"`
+	XCIRepository                          *string `json:"X-CI-Repository,omitempty"`
+	XCIActor                               *string `json:"X-CI-Actor,omitempty"`
+	XCIActorURL                            *string `json:"X-CI-Actor-URL,omitempty"`
+	XCIPRURL                               *string `json:"X-CI-PR-URL,omitempty"`
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
 
 // GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams defines parameters for GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGet.
 type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
-	Limit    *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset   *int    `form:"offset,omitempty" json:"offset,omitempty"`
-	Source   *string `form:"source,omitempty" json:"source,omitempty"`
-	Platform *string `form:"platform,omitempty" json:"platform,omitempty"`
-	Status   *string `form:"status,omitempty" json:"status,omitempty"`
-	Search   *string `form:"search,omitempty" json:"search,omitempty"`
-	UserId   *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+	Limit                                *int                `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset                               *int                `form:"offset,omitempty" json:"offset,omitempty"`
+	Source                               *string             `form:"source,omitempty" json:"source,omitempty"`
+	Platform                             *string             `form:"platform,omitempty" json:"platform,omitempty"`
+	Status                               *string             `form:"status,omitempty" json:"status,omitempty"`
+	Search                               *string             `form:"search,omitempty" json:"search,omitempty"`
+	UserId                               *string             `form:"user_id,omitempty" json:"user_id,omitempty"`
+	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
 }
 
 // StartDeviceApiV1ExecutionStartDevicePostParams defines parameters for StartDeviceApiV1ExecutionStartDevicePost.
 type StartDeviceApiV1ExecutionStartDevicePostParams struct {
-	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XRevylClient                           *string `json:"X-Revyl-Client,omitempty"`
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
 
 // ListOrgFilesApiV1FilesGetParams defines parameters for ListOrgFilesApiV1FilesGet.
@@ -4403,6 +4621,28 @@ type GetDeviceLogsDownloadUrlApiV1ReportsV3ReportsReportIdDeviceLogsGetParams st
 	Token *string `form:"token,omitempty" json:"token,omitempty"`
 }
 
+// CreateTestEndpointApiV1TestsCreatePostParams defines parameters for CreateTestEndpointApiV1TestsCreatePost.
+type CreateTestEndpointApiV1TestsCreatePostParams struct {
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
+	XRevylClient                           *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem                              *string `json:"X-CI-System,omitempty"`
+}
+
+// DeleteTestEndpointApiV1TestsDeleteTestIdDeleteParams defines parameters for DeleteTestEndpointApiV1TestsDeleteTestIdDelete.
+type DeleteTestEndpointApiV1TestsDeleteTestIdDeleteParams struct {
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem    *string `json:"X-CI-System,omitempty"`
+}
+
+// DuplicateTestEndpointApiV1TestsDuplicatePostParams defines parameters for DuplicateTestEndpointApiV1TestsDuplicatePost.
+type DuplicateTestEndpointApiV1TestsDuplicatePostParams struct {
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
+	XRevylClient                           *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem                              *string `json:"X-CI-System,omitempty"`
+}
+
 // GetSimpleTestsEndpointApiV1TestsGetSimpleTestsGetParams defines parameters for GetSimpleTestsEndpointApiV1TestsGetSimpleTestsGet.
 type GetSimpleTestsEndpointApiV1TestsGetSimpleTestsGetParams struct {
 	// Limit Maximum number of tests to return
@@ -4414,11 +4654,12 @@ type GetSimpleTestsEndpointApiV1TestsGetSimpleTestsGetParams struct {
 
 // GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGetParams defines parameters for GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGet.
 type GetTestEnhancedHistoryApiV1TestsGetTestEnhancedHistoryGetParams struct {
-	TestId    string  `form:"test_id" json:"test_id"`
-	Limit     *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset    *int    `form:"offset,omitempty" json:"offset,omitempty"`
-	Status    *string `form:"status,omitempty" json:"status,omitempty"`
-	SortOrder *string `form:"sort_order,omitempty" json:"sort_order,omitempty"`
+	TestId                               string              `form:"test_id" json:"test_id"`
+	Limit                                *int                `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset                               *int                `form:"offset,omitempty" json:"offset,omitempty"`
+	Status                               *string             `form:"status,omitempty" json:"status,omitempty"`
+	SortOrder                            *string             `form:"sort_order,omitempty" json:"sort_order,omitempty"`
+	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
 }
 
 // GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGetParams defines parameters for GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGet.
@@ -4428,15 +4669,16 @@ type GetTestExecutionTaskApiV1TestsGetTestExecutionTaskGetParams struct {
 
 // QueryTestsEndpointApiV1TestsGetTestsGetParams defines parameters for QueryTestsEndpointApiV1TestsGetTestsGet.
 type QueryTestsEndpointApiV1TestsGetTestsGetParams struct {
-	Limit    *int                                                  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset   *int                                                  `form:"offset,omitempty" json:"offset,omitempty"`
-	Search   *string                                               `form:"search,omitempty" json:"search,omitempty"`
-	Status   *QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus  `form:"status,omitempty" json:"status,omitempty"`
-	Platform *string                                               `form:"platform,omitempty" json:"platform,omitempty"`
-	AppId    *openapi_types.UUID                                   `form:"app_id,omitempty" json:"app_id,omitempty"`
-	Tags     *string                                               `form:"tags,omitempty" json:"tags,omitempty"`
-	SortBy   *QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy  `form:"sort_by,omitempty" json:"sort_by,omitempty"`
-	SortDir  *QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir `form:"sort_dir,omitempty" json:"sort_dir,omitempty"`
+	Limit                                *int                                                  `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset                               *int                                                  `form:"offset,omitempty" json:"offset,omitempty"`
+	Search                               *string                                               `form:"search,omitempty" json:"search,omitempty"`
+	Status                               *QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus  `form:"status,omitempty" json:"status,omitempty"`
+	Platform                             *string                                               `form:"platform,omitempty" json:"platform,omitempty"`
+	AppId                                *openapi_types.UUID                                   `form:"app_id,omitempty" json:"app_id,omitempty"`
+	Tags                                 *string                                               `form:"tags,omitempty" json:"tags,omitempty"`
+	AttributedToCloudAgentConversationId *openapi_types.UUID                                   `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
+	SortBy                               *QueryTestsEndpointApiV1TestsGetTestsGetParamsSortBy  `form:"sort_by,omitempty" json:"sort_by,omitempty"`
+	SortDir                              *QueryTestsEndpointApiV1TestsGetTestsGetParamsSortDir `form:"sort_dir,omitempty" json:"sort_dir,omitempty"`
 }
 
 // QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus defines parameters for QueryTestsEndpointApiV1TestsGetTestsGet.
@@ -4458,6 +4700,24 @@ type ListScriptsApiV1TestsScriptsGetParams struct {
 
 	// Runtime Filter by runtime (python, javascript, typescript, bash)
 	Runtime *string `form:"runtime,omitempty" json:"runtime,omitempty"`
+}
+
+// UpdateTestEndpointApiV1TestsUpdateTestIdPutParams defines parameters for UpdateTestEndpointApiV1TestsUpdateTestIdPut.
+type UpdateTestEndpointApiV1TestsUpdateTestIdPutParams struct {
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem    *string `json:"X-CI-System,omitempty"`
+}
+
+// CreateTestFromBlocksApiV1TestsYamlFromBlocksPostParams defines parameters for CreateTestFromBlocksApiV1TestsYamlFromBlocksPost.
+type CreateTestFromBlocksApiV1TestsYamlFromBlocksPostParams struct {
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
+}
+
+// RestoreTestVersionEndpointApiV1TestsTestIdRestorePostParams defines parameters for RestoreTestVersionEndpointApiV1TestsTestIdRestorePost.
+type RestoreTestVersionEndpointApiV1TestsTestIdRestorePostParams struct {
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem    *string `json:"X-CI-System,omitempty"`
 }
 
 // GetTestVersionsEndpointApiV1TestsTestIdVersionsGetParams defines parameters for GetTestVersionsEndpointApiV1TestsTestIdVersionsGet.
@@ -4508,11 +4768,26 @@ type ListTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsGet
 	TestId string `form:"test_id" json:"test_id"`
 }
 
+// CreateWorkflowApiV1WorkflowsCreatePostParams defines parameters for CreateWorkflowApiV1WorkflowsCreatePost.
+type CreateWorkflowApiV1WorkflowsCreatePostParams struct {
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
+	XRevylClient                           *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem                              *string `json:"X-CI-System,omitempty"`
+}
+
+// DeleteWorkflowEndpointApiV1WorkflowsDeleteWorkflowIdDeleteParams defines parameters for DeleteWorkflowEndpointApiV1WorkflowsDeleteWorkflowIdDelete.
+type DeleteWorkflowEndpointApiV1WorkflowsDeleteWorkflowIdDeleteParams struct {
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem    *string `json:"X-CI-System,omitempty"`
+}
+
 // GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParams defines parameters for GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGet.
 type GetWorkflowsWithLastStatusApiV1WorkflowsGetWithLastStatusGetParams struct {
-	Limit        *int `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset       *int `form:"offset,omitempty" json:"offset,omitempty"`
-	HistoryLimit *int `form:"history_limit,omitempty" json:"history_limit,omitempty"`
+	Limit                                *int                `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset                               *int                `form:"offset,omitempty" json:"offset,omitempty"`
+	HistoryLimit                         *int                `form:"history_limit,omitempty" json:"history_limit,omitempty"`
+	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
 }
 
 // GetWorkflowInfoEndpointApiV1WorkflowsGetWorkflowInfoGetParams defines parameters for GetWorkflowInfoEndpointApiV1WorkflowsGetWorkflowInfoGet.
@@ -4529,8 +4804,38 @@ type GetWorkflowExecutionHistoryApiV1WorkflowsStatusHistoryWorkflowIdGetParams s
 	StartDate *time.Time `form:"start_date,omitempty" json:"start_date,omitempty"`
 }
 
+// UpdateWorkflowBuildConfigApiV1WorkflowsUpdateBuildConfigWorkflowIdPutParams defines parameters for UpdateWorkflowBuildConfigApiV1WorkflowsUpdateBuildConfigWorkflowIdPut.
+type UpdateWorkflowBuildConfigApiV1WorkflowsUpdateBuildConfigWorkflowIdPutParams struct {
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem    *string `json:"X-CI-System,omitempty"`
+}
+
+// UpdateWorkflowLocationConfigApiV1WorkflowsUpdateLocationConfigWorkflowIdPutParams defines parameters for UpdateWorkflowLocationConfigApiV1WorkflowsUpdateLocationConfigWorkflowIdPut.
+type UpdateWorkflowLocationConfigApiV1WorkflowsUpdateLocationConfigWorkflowIdPutParams struct {
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem    *string `json:"X-CI-System,omitempty"`
+}
+
+// UpdateWorkflowNameApiV1WorkflowsUpdateNameWorkflowIdPutParams defines parameters for UpdateWorkflowNameApiV1WorkflowsUpdateNameWorkflowIdPut.
+type UpdateWorkflowNameApiV1WorkflowsUpdateNameWorkflowIdPutParams struct {
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem    *string `json:"X-CI-System,omitempty"`
+}
+
+// UpdateWorkflowRunConfigApiV1WorkflowsUpdateRunConfigWorkflowIdPutParams defines parameters for UpdateWorkflowRunConfigApiV1WorkflowsUpdateRunConfigWorkflowIdPut.
+type UpdateWorkflowRunConfigApiV1WorkflowsUpdateRunConfigWorkflowIdPutParams struct {
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem    *string `json:"X-CI-System,omitempty"`
+}
+
 // UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPutJSONBody defines parameters for UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPut.
 type UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPutJSONBody = []openapi_types.UUID
+
+// UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPutParams defines parameters for UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPut.
+type UpdateWorkflowTestsApiV1WorkflowsUpdateTestsWorkflowIdPutParams struct {
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem    *string `json:"X-CI-System,omitempty"`
+}
 
 // CreateAppApiV1AppsPostJSONRequestBody defines body for CreateAppApiV1AppsPost for application/json ContentType.
 type CreateAppApiV1AppsPostJSONRequestBody = AppCreateRequest
@@ -5436,6 +5741,584 @@ func (a Test) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
+// Getter for additional properties for TestResourceResponse. Returns the specified
+// element and whether it was found
+func (a TestResourceResponse) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for TestResourceResponse
+func (a *TestResourceResponse) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for TestResourceResponse to handle AdditionalProperties
+func (a *TestResourceResponse) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["app_id"]; found {
+		err = json.Unmarshal(raw, &a.AppId)
+		if err != nil {
+			return fmt.Errorf("error reading 'app_id': %w", err)
+		}
+		delete(object, "app_id")
+	}
+
+	if raw, found := object["app_link"]; found {
+		err = json.Unmarshal(raw, &a.AppLink)
+		if err != nil {
+			return fmt.Errorf("error reading 'app_link': %w", err)
+		}
+		delete(object, "app_link")
+	}
+
+	if raw, found := object["app_package"]; found {
+		err = json.Unmarshal(raw, &a.AppPackage)
+		if err != nil {
+			return fmt.Errorf("error reading 'app_package': %w", err)
+		}
+		delete(object, "app_package")
+	}
+
+	if raw, found := object["backend_url"]; found {
+		err = json.Unmarshal(raw, &a.BackendUrl)
+		if err != nil {
+			return fmt.Errorf("error reading 'backend_url': %w", err)
+		}
+		delete(object, "backend_url")
+	}
+
+	if raw, found := object["cloud_agent_conversation"]; found {
+		err = json.Unmarshal(raw, &a.CloudAgentConversation)
+		if err != nil {
+			return fmt.Errorf("error reading 'cloud_agent_conversation': %w", err)
+		}
+		delete(object, "cloud_agent_conversation")
+	}
+
+	if raw, found := object["cloud_agent_conversation_match_type"]; found {
+		err = json.Unmarshal(raw, &a.CloudAgentConversationMatchType)
+		if err != nil {
+			return fmt.Errorf("error reading 'cloud_agent_conversation_match_type': %w", err)
+		}
+		delete(object, "cloud_agent_conversation_match_type")
+	}
+
+	if raw, found := object["device_local"]; found {
+		err = json.Unmarshal(raw, &a.DeviceLocal)
+		if err != nil {
+			return fmt.Errorf("error reading 'device_local': %w", err)
+		}
+		delete(object, "device_local")
+	}
+
+	if raw, found := object["expected_version"]; found {
+		err = json.Unmarshal(raw, &a.ExpectedVersion)
+		if err != nil {
+			return fmt.Errorf("error reading 'expected_version': %w", err)
+		}
+		delete(object, "expected_version")
+	}
+
+	if raw, found := object["flowdescription"]; found {
+		err = json.Unmarshal(raw, &a.Flowdescription)
+		if err != nil {
+			return fmt.Errorf("error reading 'flowdescription': %w", err)
+		}
+		delete(object, "flowdescription")
+	}
+
+	if raw, found := object["get_downloads"]; found {
+		err = json.Unmarshal(raw, &a.GetDownloads)
+		if err != nil {
+			return fmt.Errorf("error reading 'get_downloads': %w", err)
+		}
+		delete(object, "get_downloads")
+	}
+
+	if raw, found := object["id"]; found {
+		err = json.Unmarshal(raw, &a.Id)
+		if err != nil {
+			return fmt.Errorf("error reading 'id': %w", err)
+		}
+		delete(object, "id")
+	}
+
+	if raw, found := object["last_duration"]; found {
+		err = json.Unmarshal(raw, &a.LastDuration)
+		if err != nil {
+			return fmt.Errorf("error reading 'last_duration': %w", err)
+		}
+		delete(object, "last_duration")
+	}
+
+	if raw, found := object["last_execution_id"]; found {
+		err = json.Unmarshal(raw, &a.LastExecutionId)
+		if err != nil {
+			return fmt.Errorf("error reading 'last_execution_id': %w", err)
+		}
+		delete(object, "last_execution_id")
+	}
+
+	if raw, found := object["last_execution_time"]; found {
+		err = json.Unmarshal(raw, &a.LastExecutionTime)
+		if err != nil {
+			return fmt.Errorf("error reading 'last_execution_time': %w", err)
+		}
+		delete(object, "last_execution_time")
+	}
+
+	if raw, found := object["last_modified_by"]; found {
+		err = json.Unmarshal(raw, &a.LastModifiedBy)
+		if err != nil {
+			return fmt.Errorf("error reading 'last_modified_by': %w", err)
+		}
+		delete(object, "last_modified_by")
+	}
+
+	if raw, found := object["last_status"]; found {
+		err = json.Unmarshal(raw, &a.LastStatus)
+		if err != nil {
+			return fmt.Errorf("error reading 'last_status': %w", err)
+		}
+		delete(object, "last_status")
+	}
+
+	if raw, found := object["link"]; found {
+		err = json.Unmarshal(raw, &a.Link)
+		if err != nil {
+			return fmt.Errorf("error reading 'link': %w", err)
+		}
+		delete(object, "link")
+	}
+
+	if raw, found := object["llm_model_name"]; found {
+		err = json.Unmarshal(raw, &a.LlmModelName)
+		if err != nil {
+			return fmt.Errorf("error reading 'llm_model_name': %w", err)
+		}
+		delete(object, "llm_model_name")
+	}
+
+	if raw, found := object["mobile_targets"]; found {
+		err = json.Unmarshal(raw, &a.MobileTargets)
+		if err != nil {
+			return fmt.Errorf("error reading 'mobile_targets': %w", err)
+		}
+		delete(object, "mobile_targets")
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &a.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+		delete(object, "name")
+	}
+
+	if raw, found := object["orientation"]; found {
+		err = json.Unmarshal(raw, &a.Orientation)
+		if err != nil {
+			return fmt.Errorf("error reading 'orientation': %w", err)
+		}
+		delete(object, "orientation")
+	}
+
+	if raw, found := object["owner"]; found {
+		err = json.Unmarshal(raw, &a.Owner)
+		if err != nil {
+			return fmt.Errorf("error reading 'owner': %w", err)
+		}
+		delete(object, "owner")
+	}
+
+	if raw, found := object["package_name"]; found {
+		err = json.Unmarshal(raw, &a.PackageName)
+		if err != nil {
+			return fmt.Errorf("error reading 'package_name': %w", err)
+		}
+		delete(object, "package_name")
+	}
+
+	if raw, found := object["pinned_version"]; found {
+		err = json.Unmarshal(raw, &a.PinnedVersion)
+		if err != nil {
+			return fmt.Errorf("error reading 'pinned_version': %w", err)
+		}
+		delete(object, "pinned_version")
+	}
+
+	if raw, found := object["platform"]; found {
+		err = json.Unmarshal(raw, &a.Platform)
+		if err != nil {
+			return fmt.Errorf("error reading 'platform': %w", err)
+		}
+		delete(object, "platform")
+	}
+
+	if raw, found := object["resolved_build"]; found {
+		err = json.Unmarshal(raw, &a.ResolvedBuild)
+		if err != nil {
+			return fmt.Errorf("error reading 'resolved_build': %w", err)
+		}
+		delete(object, "resolved_build")
+	}
+
+	if raw, found := object["retries"]; found {
+		err = json.Unmarshal(raw, &a.Retries)
+		if err != nil {
+			return fmt.Errorf("error reading 'retries': %w", err)
+		}
+		delete(object, "retries")
+	}
+
+	if raw, found := object["run_config"]; found {
+		err = json.Unmarshal(raw, &a.RunConfig)
+		if err != nil {
+			return fmt.Errorf("error reading 'run_config': %w", err)
+		}
+		delete(object, "run_config")
+	}
+
+	if raw, found := object["run_id"]; found {
+		err = json.Unmarshal(raw, &a.RunId)
+		if err != nil {
+			return fmt.Errorf("error reading 'run_id': %w", err)
+		}
+		delete(object, "run_id")
+	}
+
+	if raw, found := object["tags"]; found {
+		err = json.Unmarshal(raw, &a.Tags)
+		if err != nil {
+			return fmt.Errorf("error reading 'tags': %w", err)
+		}
+		delete(object, "tags")
+	}
+
+	if raw, found := object["tasks"]; found {
+		err = json.Unmarshal(raw, &a.Tasks)
+		if err != nil {
+			return fmt.Errorf("error reading 'tasks': %w", err)
+		}
+		delete(object, "tasks")
+	}
+
+	if raw, found := object["test_timeout_seconds"]; found {
+		err = json.Unmarshal(raw, &a.TestTimeoutSeconds)
+		if err != nil {
+			return fmt.Errorf("error reading 'test_timeout_seconds': %w", err)
+		}
+		delete(object, "test_timeout_seconds")
+	}
+
+	if raw, found := object["user_id"]; found {
+		err = json.Unmarshal(raw, &a.UserId)
+		if err != nil {
+			return fmt.Errorf("error reading 'user_id': %w", err)
+		}
+		delete(object, "user_id")
+	}
+
+	if raw, found := object["version"]; found {
+		err = json.Unmarshal(raw, &a.Version)
+		if err != nil {
+			return fmt.Errorf("error reading 'version': %w", err)
+		}
+		delete(object, "version")
+	}
+
+	if raw, found := object["viewport"]; found {
+		err = json.Unmarshal(raw, &a.Viewport)
+		if err != nil {
+			return fmt.Errorf("error reading 'viewport': %w", err)
+		}
+		delete(object, "viewport")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for TestResourceResponse to handle AdditionalProperties
+func (a TestResourceResponse) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.AppId != nil {
+		object["app_id"], err = json.Marshal(a.AppId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'app_id': %w", err)
+		}
+	}
+
+	if a.AppLink != nil {
+		object["app_link"], err = json.Marshal(a.AppLink)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'app_link': %w", err)
+		}
+	}
+
+	if a.AppPackage != nil {
+		object["app_package"], err = json.Marshal(a.AppPackage)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'app_package': %w", err)
+		}
+	}
+
+	if a.BackendUrl != nil {
+		object["backend_url"], err = json.Marshal(a.BackendUrl)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'backend_url': %w", err)
+		}
+	}
+
+	if a.CloudAgentConversation != nil {
+		object["cloud_agent_conversation"], err = json.Marshal(a.CloudAgentConversation)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'cloud_agent_conversation': %w", err)
+		}
+	}
+
+	if a.CloudAgentConversationMatchType != nil {
+		object["cloud_agent_conversation_match_type"], err = json.Marshal(a.CloudAgentConversationMatchType)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'cloud_agent_conversation_match_type': %w", err)
+		}
+	}
+
+	if a.DeviceLocal != nil {
+		object["device_local"], err = json.Marshal(a.DeviceLocal)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'device_local': %w", err)
+		}
+	}
+
+	if a.ExpectedVersion != nil {
+		object["expected_version"], err = json.Marshal(a.ExpectedVersion)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'expected_version': %w", err)
+		}
+	}
+
+	if a.Flowdescription != nil {
+		object["flowdescription"], err = json.Marshal(a.Flowdescription)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'flowdescription': %w", err)
+		}
+	}
+
+	if a.GetDownloads != nil {
+		object["get_downloads"], err = json.Marshal(a.GetDownloads)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'get_downloads': %w", err)
+		}
+	}
+
+	if a.Id != nil {
+		object["id"], err = json.Marshal(a.Id)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'id': %w", err)
+		}
+	}
+
+	if a.LastDuration != nil {
+		object["last_duration"], err = json.Marshal(a.LastDuration)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'last_duration': %w", err)
+		}
+	}
+
+	if a.LastExecutionId != nil {
+		object["last_execution_id"], err = json.Marshal(a.LastExecutionId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'last_execution_id': %w", err)
+		}
+	}
+
+	if a.LastExecutionTime != nil {
+		object["last_execution_time"], err = json.Marshal(a.LastExecutionTime)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'last_execution_time': %w", err)
+		}
+	}
+
+	if a.LastModifiedBy != nil {
+		object["last_modified_by"], err = json.Marshal(a.LastModifiedBy)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'last_modified_by': %w", err)
+		}
+	}
+
+	if a.LastStatus != nil {
+		object["last_status"], err = json.Marshal(a.LastStatus)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'last_status': %w", err)
+		}
+	}
+
+	if a.Link != nil {
+		object["link"], err = json.Marshal(a.Link)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'link': %w", err)
+		}
+	}
+
+	if a.LlmModelName != nil {
+		object["llm_model_name"], err = json.Marshal(a.LlmModelName)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'llm_model_name': %w", err)
+		}
+	}
+
+	if a.MobileTargets != nil {
+		object["mobile_targets"], err = json.Marshal(a.MobileTargets)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'mobile_targets': %w", err)
+		}
+	}
+
+	if a.Name != nil {
+		object["name"], err = json.Marshal(a.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+
+	if a.Orientation != nil {
+		object["orientation"], err = json.Marshal(a.Orientation)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'orientation': %w", err)
+		}
+	}
+
+	if a.Owner != nil {
+		object["owner"], err = json.Marshal(a.Owner)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'owner': %w", err)
+		}
+	}
+
+	if a.PackageName != nil {
+		object["package_name"], err = json.Marshal(a.PackageName)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'package_name': %w", err)
+		}
+	}
+
+	if a.PinnedVersion != nil {
+		object["pinned_version"], err = json.Marshal(a.PinnedVersion)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'pinned_version': %w", err)
+		}
+	}
+
+	if a.Platform != nil {
+		object["platform"], err = json.Marshal(a.Platform)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'platform': %w", err)
+		}
+	}
+
+	if a.ResolvedBuild != nil {
+		object["resolved_build"], err = json.Marshal(a.ResolvedBuild)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'resolved_build': %w", err)
+		}
+	}
+
+	if a.Retries != nil {
+		object["retries"], err = json.Marshal(a.Retries)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'retries': %w", err)
+		}
+	}
+
+	if a.RunConfig != nil {
+		object["run_config"], err = json.Marshal(a.RunConfig)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'run_config': %w", err)
+		}
+	}
+
+	if a.RunId != nil {
+		object["run_id"], err = json.Marshal(a.RunId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'run_id': %w", err)
+		}
+	}
+
+	if a.Tags != nil {
+		object["tags"], err = json.Marshal(a.Tags)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'tags': %w", err)
+		}
+	}
+
+	if a.Tasks != nil {
+		object["tasks"], err = json.Marshal(a.Tasks)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'tasks': %w", err)
+		}
+	}
+
+	if a.TestTimeoutSeconds != nil {
+		object["test_timeout_seconds"], err = json.Marshal(a.TestTimeoutSeconds)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'test_timeout_seconds': %w", err)
+		}
+	}
+
+	if a.UserId != nil {
+		object["user_id"], err = json.Marshal(a.UserId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'user_id': %w", err)
+		}
+	}
+
+	if a.Version != nil {
+		object["version"], err = json.Marshal(a.Version)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'version': %w", err)
+		}
+	}
+
+	if a.Viewport != nil {
+		object["viewport"], err = json.Marshal(a.Viewport)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'viewport': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
 // AsActionBlockStepType0 returns the union data inside the ActionBlock_StepType as a ActionBlockStepType0
 func (t ActionBlock_StepType) AsActionBlockStepType0() (ActionBlockStepType0, error) {
 	var body ActionBlockStepType0
@@ -6085,6 +6968,182 @@ func (t Test_Tasks) MarshalJSON() ([]byte, error) {
 }
 
 func (t *Test_Tasks) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsActionBlock returns the union data inside the TestResourceResponse_Tasks_0_Item as a ActionBlock
+func (t TestResourceResponse_Tasks_0_Item) AsActionBlock() (ActionBlock, error) {
+	var body ActionBlock
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromActionBlock overwrites any union data inside the TestResourceResponse_Tasks_0_Item as the provided ActionBlock
+func (t *TestResourceResponse_Tasks_0_Item) FromActionBlock(v ActionBlock) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeActionBlock performs a merge with any union data inside the TestResourceResponse_Tasks_0_Item, using the provided ActionBlock
+func (t *TestResourceResponse_Tasks_0_Item) MergeActionBlock(v ActionBlock) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsIfBlock returns the union data inside the TestResourceResponse_Tasks_0_Item as a IfBlock
+func (t TestResourceResponse_Tasks_0_Item) AsIfBlock() (IfBlock, error) {
+	var body IfBlock
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIfBlock overwrites any union data inside the TestResourceResponse_Tasks_0_Item as the provided IfBlock
+func (t *TestResourceResponse_Tasks_0_Item) FromIfBlock(v IfBlock) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeIfBlock performs a merge with any union data inside the TestResourceResponse_Tasks_0_Item, using the provided IfBlock
+func (t *TestResourceResponse_Tasks_0_Item) MergeIfBlock(v IfBlock) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsWhileBlock returns the union data inside the TestResourceResponse_Tasks_0_Item as a WhileBlock
+func (t TestResourceResponse_Tasks_0_Item) AsWhileBlock() (WhileBlock, error) {
+	var body WhileBlock
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromWhileBlock overwrites any union data inside the TestResourceResponse_Tasks_0_Item as the provided WhileBlock
+func (t *TestResourceResponse_Tasks_0_Item) FromWhileBlock(v WhileBlock) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeWhileBlock performs a merge with any union data inside the TestResourceResponse_Tasks_0_Item, using the provided WhileBlock
+func (t *TestResourceResponse_Tasks_0_Item) MergeWhileBlock(v WhileBlock) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t TestResourceResponse_Tasks_0_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *TestResourceResponse_Tasks_0_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsTestResourceResponseTasks0 returns the union data inside the TestResourceResponse_Tasks as a TestResourceResponseTasks0
+func (t TestResourceResponse_Tasks) AsTestResourceResponseTasks0() (TestResourceResponseTasks0, error) {
+	var body TestResourceResponseTasks0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTestResourceResponseTasks0 overwrites any union data inside the TestResourceResponse_Tasks as the provided TestResourceResponseTasks0
+func (t *TestResourceResponse_Tasks) FromTestResourceResponseTasks0(v TestResourceResponseTasks0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTestResourceResponseTasks0 performs a merge with any union data inside the TestResourceResponse_Tasks, using the provided TestResourceResponseTasks0
+func (t *TestResourceResponse_Tasks) MergeTestResourceResponseTasks0(v TestResourceResponseTasks0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTestResourceResponseTasks1 returns the union data inside the TestResourceResponse_Tasks as a TestResourceResponseTasks1
+func (t TestResourceResponse_Tasks) AsTestResourceResponseTasks1() (TestResourceResponseTasks1, error) {
+	var body TestResourceResponseTasks1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTestResourceResponseTasks1 overwrites any union data inside the TestResourceResponse_Tasks as the provided TestResourceResponseTasks1
+func (t *TestResourceResponse_Tasks) FromTestResourceResponseTasks1(v TestResourceResponseTasks1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTestResourceResponseTasks1 performs a merge with any union data inside the TestResourceResponse_Tasks, using the provided TestResourceResponseTasks1
+func (t *TestResourceResponse_Tasks) MergeTestResourceResponseTasks1(v TestResourceResponseTasks1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTestResourceResponseTasks2 returns the union data inside the TestResourceResponse_Tasks as a TestResourceResponseTasks2
+func (t TestResourceResponse_Tasks) AsTestResourceResponseTasks2() (TestResourceResponseTasks2, error) {
+	var body TestResourceResponseTasks2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTestResourceResponseTasks2 overwrites any union data inside the TestResourceResponse_Tasks as the provided TestResourceResponseTasks2
+func (t *TestResourceResponse_Tasks) FromTestResourceResponseTasks2(v TestResourceResponseTasks2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTestResourceResponseTasks2 performs a merge with any union data inside the TestResourceResponse_Tasks, using the provided TestResourceResponseTasks2
+func (t *TestResourceResponse_Tasks) MergeTestResourceResponseTasks2(v TestResourceResponseTasks2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t TestResourceResponse_Tasks) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *TestResourceResponse_Tasks) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

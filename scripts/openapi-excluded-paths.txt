@@ -8,8 +8,9 @@
 /api/v1/telemetry/cli-spans
 /api/v1/telemetry/cli-traces
 
-# These handwritten compatibility endpoints are intentionally hidden from the
-# backend schema.
+# These handwritten compatibility endpoints are intentionally omitted from the
+# generated CLI operation surface. They retain their shared response models and
+# public wrappers; this list prevents duplicate generated transport methods.
 /api/v1/scm/github/configs
 /api/v1/scm/github/configs/push
 /api/v1/workflows/status/cancel/%s

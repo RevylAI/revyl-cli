@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -58,12 +59,29 @@ func runWithAnalytics(cmd *cobra.Command, args []string, run func() error) (err 
 		ui.SetOutputObserver(commandRun.ObserveOutput)
 		defer ui.SetOutputObserver(nil)
 		defer func() {
-			commandRun.Complete(err)
-			commandRun.Flush()
+			panicValue := recover()
+			completeCommandAnalytics(commandRun, err, panicValue != nil)
+			if panicValue != nil {
+				panic(panicValue)
+			}
 		}()
 	}
 
 	return run()
+}
+
+func completeCommandAnalytics(commandRun *analytics.CommandRun, err error, panicked bool) {
+	if commandRun == nil {
+		return
+	}
+	if panicked {
+		// Never capture a raw panic value: it may contain customer input. The
+		// original panic is rethrown immediately after this best-effort fact.
+		commandRun.Complete(errors.New("command panicked"))
+	} else {
+		commandRun.Complete(err)
+	}
+	commandRun.Flush()
 }
 
 func commandDevMode(cmd *cobra.Command) bool {

@@ -2,16 +2,16 @@ package analytics
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
-const (
-	flagAnnotationSafeValue = "revyl.analytics.safe_value"
-)
+const flagAnnotationSafeValue = "revyl.analytics.safe_value"
 
-// Unmarked flags report presence only.
+// Deprecated compatibility hook. Analytics now reports flag names only, but
+// command construction still calls this while downstream integrations migrate.
 func MarkFlagValue(cmd *cobra.Command, name string) {
 	if cmd == nil {
 		return
@@ -39,25 +39,18 @@ func (r *Recorder) commandProps(cmd *cobra.Command, args []string, commandID str
 	if len(args) > 0 {
 		props["positional_args_present"] = true
 	}
-	flagNames, flagValues := changedFlags(cmd)
+	flagNames := changedFlagNames(cmd)
 	if len(flagNames) > 0 {
 		props["flag_names"] = flagNames
-	}
-	if len(flagValues) > 0 {
-		props["flag_values"] = flagValues
 	}
 	return props
 }
 
-func changedFlags(cmd *cobra.Command) ([]string, map[string]interface{}) {
+func changedFlagNames(cmd *cobra.Command) []string {
 	names := map[string]struct{}{}
-	values := map[string]interface{}{}
 	visit := func(flag *pflag.Flag) {
 		if flag != nil && flag.Changed {
 			names[flag.Name] = struct{}{}
-			if capturesFlagValue(flag) {
-				values[flag.Name] = flag.Value.String()
-			}
 		}
 	}
 
@@ -69,9 +62,45 @@ func changedFlags(cmd *cobra.Command) ([]string, map[string]interface{}) {
 		out = append(out, name)
 	}
 	sort.Strings(out)
-	return out, values
+	return out
 }
 
-func capturesFlagValue(flag *pflag.Flag) bool {
-	return flag != nil && len(flag.Annotations[flagAnnotationSafeValue]) > 0
+func commandDiagnosticRedactions(cmd *cobra.Command, args []string) []string {
+	values := map[string]struct{}{}
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			values[value] = struct{}{}
+		}
+	}
+	for _, arg := range args {
+		add(arg)
+	}
+
+	visit := func(flag *pflag.Flag) {
+		if flag == nil || !flag.Changed || flag.Value == nil || flag.Value.Type() == "bool" {
+			return
+		}
+		if sliceValue, ok := flag.Value.(pflag.SliceValue); ok {
+			for _, value := range sliceValue.GetSlice() {
+				add(value)
+			}
+			return
+		}
+		add(flag.Value.String())
+	}
+	cmd.Flags().VisitAll(visit)
+	cmd.InheritedFlags().VisitAll(visit)
+
+	out := make([]string, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if len(out[i]) == len(out[j]) {
+			return out[i] < out[j]
+		}
+		return len(out[i]) > len(out[j])
+	})
+	return out
 }

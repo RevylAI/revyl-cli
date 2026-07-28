@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/sse"
@@ -22,6 +24,53 @@ func TestResolveRunTimeoutUsesRunDefaultSeparateFromConfigDefault(t *testing.T) 
 	got := resolveRunTimeout(nil, cfg, execution.DefaultRunTimeoutSeconds)
 	if got != execution.DefaultRunTimeoutSeconds {
 		t.Fatalf("resolveRunTimeout() = %d, want %d", got, execution.DefaultRunTimeoutSeconds)
+	}
+}
+
+func TestCompletedRunErrorsExcludeFormattedDurations(t *testing.T) {
+	tests := []struct {
+		name              string
+		err               error
+		forbiddenProperty string
+	}{
+		{
+			name: "test",
+			err: completedTestRunError(
+				&execution.RunTestResult{
+					TaskID:   "test-task-123",
+					TestID:   "test-123",
+					Status:   "failed",
+					Duration: "12.4s",
+				},
+				errors.New("test failed"),
+			),
+			forbiddenProperty: "test_duration",
+		},
+		{
+			name: "workflow",
+			err: completedWorkflowRunError(
+				&execution.RunWorkflowResult{
+					TaskID:     "workflow-task-123",
+					WorkflowID: "workflow-123",
+					Status:     "failed",
+					Duration:   "18.2s",
+				},
+				errors.New("workflow failed"),
+			),
+			forbiddenProperty: "workflow_duration",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var completedErr *analytics.CompletedError
+			if !errors.As(test.err, &completedErr) {
+				t.Fatalf("error type = %T, want *analytics.CompletedError", test.err)
+			}
+			if _, ok := completedErr.Completion().Properties[test.forbiddenProperty]; ok {
+				t.Fatalf("completion included formatted %q", test.forbiddenProperty)
+			}
+		})
 	}
 }
 

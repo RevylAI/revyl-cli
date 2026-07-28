@@ -3,6 +3,8 @@ package analytics
 import (
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const maxSanitizedStringLength = 500
@@ -29,8 +31,64 @@ func sanitizeString(value string) string {
 	out = urlPattern.ReplaceAllString(out, "<url>")
 	out = userPathPattern.ReplaceAllString(out, "<path>")
 	out = windowsPathPattern.ReplaceAllString(out, "<path>")
-	if len(out) > maxSanitizedStringLength {
-		out = out[:maxSanitizedStringLength] + "...<truncated>"
+	if utf8.RuneCountInString(out) > maxSanitizedStringLength {
+		out = string([]rune(out)[:maxSanitizedStringLength]) + "...<truncated>"
 	}
 	return out
+}
+
+func sanitizeDiagnosticString(value string, redactions []string) string {
+	for _, redaction := range redactions {
+		value = redactCommandInput(value, redaction)
+	}
+	return sanitizeString(value)
+}
+
+// redactCommandInput redacts an exact command input when it appears as a
+// standalone token. It protects short inputs such as "3" without corrupting
+// unrelated diagnostic text such as "30s".
+func redactCommandInput(value, redaction string) string {
+	if value == "" || redaction == "" {
+		return value
+	}
+
+	var out strings.Builder
+	searchFrom := 0
+	for {
+		offset := strings.Index(value[searchFrom:], redaction)
+		if offset < 0 {
+			out.WriteString(value[searchFrom:])
+			return out.String()
+		}
+
+		start := searchFrom + offset
+		end := start + len(redaction)
+		out.WriteString(value[searchFrom:start])
+		if hasCommandInputBoundary(value, start, end) {
+			out.WriteString("<command-input>")
+		} else {
+			out.WriteString(redaction)
+		}
+		searchFrom = end
+	}
+}
+
+func hasCommandInputBoundary(value string, start, end int) bool {
+	if start > 0 {
+		before, _ := utf8.DecodeLastRuneInString(value[:start])
+		if isCommandInputTokenRune(before) {
+			return false
+		}
+	}
+	if end < len(value) {
+		after, _ := utf8.DecodeRuneInString(value[end:])
+		if isCommandInputTokenRune(after) {
+			return false
+		}
+	}
+	return true
+}
+
+func isCommandInputTokenRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-'
 }

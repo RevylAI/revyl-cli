@@ -1249,11 +1249,10 @@ func completedTestRunError(result *execution.RunTestResult, err error) error {
 		Domain:       "test_run",
 		DomainStatus: failedDomainStatus(result.Status),
 		Properties: map[string]interface{}{
-			"test_task_id":  result.TaskID,
-			"test_id":       result.TestID,
-			"test_status":   strings.TrimSpace(result.Status),
-			"test_success":  result.Success,
-			"test_duration": result.Duration,
+			"test_task_id": result.TaskID,
+			"test_id":      result.TestID,
+			"test_status":  strings.TrimSpace(result.Status),
+			"test_success": result.Success,
 		},
 	})
 }
@@ -1275,7 +1274,6 @@ func completedWorkflowRunError(result *execution.RunWorkflowResult, err error) e
 			"workflow_id":              result.WorkflowID,
 			"workflow_status":          strings.TrimSpace(result.Status),
 			"workflow_success":         result.Success,
-			"workflow_duration":        result.Duration,
 			"workflow_total_tests":     result.TotalTests,
 			"workflow_completed_tests": result.CompletedTests,
 			"workflow_passed_tests":    result.PassedTests,

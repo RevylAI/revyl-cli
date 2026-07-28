@@ -11,8 +11,13 @@ import (
 )
 
 const (
-	maxOutputEvents = 30
-	maxOutputTail   = 20
+	CliCommandStartedEvent   = "cli_command_started"
+	CliCommandCompletedEvent = "cli_command_completed"
+	CliCommandFailedEvent    = "cli_command_failed"
+
+	// Output is buffered but never streamed: only a failing command attaches
+	// its tail, so successful runs contribute no output volume at all.
+	maxOutputTail = 20
 )
 
 type CommandRun struct {
@@ -20,10 +25,11 @@ type CommandRun struct {
 	startedAt time.Time
 	commandID string
 	props     map[string]interface{}
+	complete  sync.Once
 
-	mu          sync.Mutex
-	outputCount int
-	outputTail  []map[string]interface{}
+	mu                   sync.Mutex
+	outputTail           []map[string]interface{}
+	diagnosticRedactions []string
 }
 
 // CommandCompletion describes a command that analytically completed even if it
@@ -73,12 +79,13 @@ func (r *Recorder) StartCommand(cmd *cobra.Command, args []string) *CommandRun {
 		return nil
 	}
 	run := &CommandRun{
-		rec:       r,
-		startedAt: time.Now(),
-		commandID: uuid.NewString(),
+		rec:                  r,
+		startedAt:            time.Now(),
+		commandID:            uuid.NewString(),
+		diagnosticRedactions: commandDiagnosticRedactions(cmd, args),
 	}
 	run.props = r.commandProps(cmd, args, run.commandID)
-	run.capture("cli_command_started", nil)
+	run.capture(CliCommandStartedEvent, nil)
 	return run
 }
 
@@ -86,6 +93,12 @@ func (r *CommandRun) Complete(err error) {
 	if r == nil || !r.rec.Enabled() {
 		return
 	}
+	r.complete.Do(func() {
+		r.completeCommand(err)
+	})
+}
+
+func (r *CommandRun) completeCommand(err error) {
 	props := map[string]interface{}{
 		"duration_ms": time.Since(r.startedAt).Milliseconds(),
 	}
@@ -102,18 +115,20 @@ func (r *CommandRun) Complete(err error) {
 		for key, value := range completion.Properties {
 			props[key] = value
 		}
-		r.capture("cli_command_completed", props)
+		r.capture(CliCommandCompletedEvent, props)
 		return
 	}
 	if err != nil {
 		props["error"] = true
 		props["exit_code"] = 1
-		props["error_message"] = sanitizeString(err.Error())
-		props["output_tail"] = r.outputTailSnapshot()
-		r.capture("cli_command_failed", props)
+		props["error_message"] = sanitizeDiagnosticString(err.Error(), r.diagnosticRedactions)
+		if tail := r.outputTailSnapshot(); len(tail) > 0 {
+			props["output_tail"] = tail
+		}
+		r.capture(CliCommandFailedEvent, props)
 	} else {
 		props["exit_code"] = 0
-		r.capture("cli_command_completed", props)
+		r.capture(CliCommandCompletedEvent, props)
 	}
 }
 
@@ -124,41 +139,29 @@ func (r *CommandRun) Flush() {
 	r.rec.Flush()
 }
 
+// ObserveOutput keeps a bounded, sanitized tail of what the command printed so
+// a failure can carry the context needed to diagnose it. Nothing is captured
+// here — the tail is only attached to cli_command_failed.
 func (r *CommandRun) ObserveOutput(level, message string) {
 	if r == nil || !r.rec.Enabled() {
 		return
 	}
 	level = strings.TrimSpace(level)
-	message = sanitizeString(message)
+	message = sanitizeDiagnosticString(message, r.diagnosticRedactions)
 	if message == "" {
 		return
 	}
 
 	r.mu.Lock()
-	r.outputCount++
-	index := r.outputCount
-	offset := time.Since(r.startedAt).Milliseconds()
-	tailEntry := map[string]interface{}{
+	defer r.mu.Unlock()
+	r.outputTail = append(r.outputTail, map[string]interface{}{
 		"level":     level,
 		"message":   message,
-		"offset_ms": offset,
-	}
-	r.outputTail = append(r.outputTail, tailEntry)
+		"offset_ms": time.Since(r.startedAt).Milliseconds(),
+	})
 	if len(r.outputTail) > maxOutputTail {
 		r.outputTail = r.outputTail[len(r.outputTail)-maxOutputTail:]
 	}
-	shouldCapture := index <= maxOutputEvents
-	r.mu.Unlock()
-
-	if !shouldCapture {
-		return
-	}
-	r.capture("cli_output", map[string]interface{}{
-		"level":     level,
-		"message":   message,
-		"offset_ms": offset,
-		"index":     index,
-	})
 }
 
 func (r *CommandRun) outputTailSnapshot() []map[string]interface{} {

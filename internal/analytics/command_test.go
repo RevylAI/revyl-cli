@@ -2,8 +2,12 @@ package analytics
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
+
+	"github.com/spf13/cobra"
 )
 
 func TestCompleteUsesCompletedErrorForDomainFailure(t *testing.T) {
@@ -71,6 +75,146 @@ func TestCompleteSuccessIncludesZeroExitCode(t *testing.T) {
 	}
 	if got := event.Properties["exit_code"]; got != 0 {
 		t.Fatalf("exit_code = %v, want 0", got)
+	}
+}
+
+func TestCompleteEmitsOnlyOneTerminalEvent(t *testing.T) {
+	rec := testRecorder()
+	run := testCommandRun(rec)
+
+	run.Complete(nil)
+	run.Complete(errors.New("late duplicate completion"))
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if got := len(rec.events); got != 1 {
+		t.Fatalf("terminal event count = %d, want 1", got)
+	}
+	if got := rec.events[0].Event; got != CliCommandCompletedEvent {
+		t.Fatalf("terminal event = %q, want %q", got, CliCommandCompletedEvent)
+	}
+}
+
+func TestObserveOutputEmitsNothingOnItsOwn(t *testing.T) {
+	rec := testRecorder()
+	run := testCommandRun(rec)
+
+	for i := 0; i < 50; i++ {
+		run.ObserveOutput("info", "ordinary progress line")
+	}
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	// Observing output must never stream events; a successful command
+	// contributes no output volume at all.
+	if len(rec.events) != 0 {
+		t.Fatalf("ObserveOutput captured %d events, want 0", len(rec.events))
+	}
+}
+
+func TestFailureTailIsSanitizedAndBounded(t *testing.T) {
+	rec := testRecorder()
+	run := testCommandRun(rec)
+
+	run.ObserveOutput("error", "Authorization: Bearer abcdef0123456789")
+	run.ObserveOutput("error", "contact ops@revyl.ai at https://internal.example.com/x")
+	for i := 0; i < maxOutputTail+10; i++ {
+		run.ObserveOutput("info", "filler line")
+	}
+
+	run.Complete(errors.New("token=hunter2 failed to reach device"))
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.events) != 1 {
+		t.Fatalf("captured %d events, want 1", len(rec.events))
+	}
+	props := rec.events[0].Properties
+
+	message, _ := props["error_message"].(string)
+	if strings.Contains(message, "hunter2") {
+		t.Fatalf("error_message leaked a secret: %q", message)
+	}
+
+	tail, ok := props["output_tail"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("output_tail missing or wrong type: %T", props["output_tail"])
+	}
+	if len(tail) > maxOutputTail {
+		t.Fatalf("output_tail has %d entries, want at most %d", len(tail), maxOutputTail)
+	}
+	for _, entry := range tail {
+		line, _ := entry["message"].(string)
+		for _, leak := range []string{"abcdef0123456789", "ops@revyl.ai", "https://"} {
+			if strings.Contains(line, leak) {
+				t.Fatalf("output_tail leaked %q in %q", leak, line)
+			}
+		}
+	}
+}
+
+func TestFailureDiagnosticsRedactCommandInputs(t *testing.T) {
+	rec := testRecorder()
+	cmd := &cobra.Command{Use: "run <name|id>"}
+	cmd.Flags().String("build", "", "")
+	cmd.Flags().Bool("json", false, "")
+	if err := cmd.Flags().Set("build", "customer-build-123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("json", "true"); err != nil {
+		t.Fatal(err)
+	}
+	run := rec.StartCommand(cmd, []string{"customer-test-name"})
+
+	run.ObserveOutput(
+		"error",
+		"test 'customer-test-name' failed against customer-build-123",
+	)
+	run.Complete(errors.New("customer-test-name was not found"))
+
+	event := lastEvent(t, rec)
+	message, _ := event.Properties["error_message"].(string)
+	if strings.Contains(message, "customer-test-name") {
+		t.Fatalf("error_message leaked a positional value: %q", message)
+	}
+	tail, ok := event.Properties["output_tail"].([]map[string]interface{})
+	if !ok || len(tail) != 1 {
+		t.Fatalf("output_tail missing or wrong type: %T", event.Properties["output_tail"])
+	}
+	line, _ := tail[0]["message"].(string)
+	for _, leak := range []string{"customer-test-name", "customer-build-123"} {
+		if strings.Contains(line, leak) {
+			t.Fatalf("output_tail leaked command input %q in %q", leak, line)
+		}
+	}
+	if strings.Contains(line, "<command-input>") == false {
+		t.Fatalf("output_tail did not preserve a redaction marker: %q", line)
+	}
+}
+
+func TestFailureDiagnosticsKeepUnrelatedShortValuesIntact(t *testing.T) {
+	message := sanitizeDiagnosticString(
+		"simulator timed out after 30s; retry count 3",
+		[]string{"3"},
+	)
+
+	if !strings.Contains(message, "30s") {
+		t.Fatalf("short redaction corrupted an unrelated duration: %q", message)
+	}
+	if strings.Contains(message, "count 3") {
+		t.Fatalf("standalone command input was not redacted: %q", message)
+	}
+}
+
+func TestSanitizeStringTruncatesAtRuneBoundary(t *testing.T) {
+	value := strings.Repeat("🙂", maxSanitizedStringLength+1)
+	sanitized := sanitizeString(value)
+
+	if !utf8.ValidString(sanitized) {
+		t.Fatalf("sanitized value is not valid UTF-8: %q", sanitized)
+	}
+	if !strings.HasSuffix(sanitized, "...<truncated>") {
+		t.Fatalf("sanitized value did not retain truncation marker: %q", sanitized)
 	}
 }
 
