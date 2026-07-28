@@ -6,9 +6,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/analytics"
+	"github.com/revyl/cli/internal/testutil"
 )
 
 func TestCompleteCommandAnalyticsMarksPanicAsFailure(t *testing.T) {
+	testutil.SetHomeDir(t, t.TempDir())
+
 	var captured analytics.TelemetryPayload
 	recorder := analytics.NewWithFlusher(analytics.Config{}, func(payload analytics.TelemetryPayload) {
 		captured = payload
