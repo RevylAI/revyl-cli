@@ -57,6 +57,10 @@ type PRReviewActions struct {
 	// SystemPrompt is extra guidance prepended to proof-of-changes runs.
 	SystemPrompt string `yaml:"system_prompt,omitempty"`
 
+	// ProjectRoot is an optional checkout-relative directory that contains
+	// .revyl/config.yaml for Cursor proof runs (e.g. "ios").
+	ProjectRoot string `yaml:"project_root,omitempty"`
+
 	// Workflows are saved Revyl workflow IDs to run against the preview build.
 	Workflows []string `yaml:"workflows,omitempty"`
 }

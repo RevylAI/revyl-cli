@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -653,13 +652,14 @@ var deviceStartCmd = &cobra.Command{
 			return err
 		}
 		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-			if cfg, cfgErr := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml")); cfgErr == nil {
+			if cfg, projectRoot := loadProjectConfigFromRepoRoot(cwd); cfg != nil {
 				if !cmd.Flags().Changed("timeout") {
 					timeout = config.EffectiveTimeoutSeconds(cfg, timeout)
 				}
 				if cfg.AuthBypass.IsConfigured() {
 					initDevAuthBypass(cfg)
 				}
+				initDevBeforeSession(cfg, projectRoot)
 			}
 		}
 
@@ -747,7 +747,7 @@ var deviceStartCmd = &cobra.Command{
 			}
 		}()
 
-		startOpts := applyAuthBypassSessionDefaults(ctx, mcppkg.StartSessionOptions{
+		startOpts, prepErr := prepareSessionStartOptions(ctx, mcppkg.StartSessionOptions{
 			Platform:           platform,
 			AppID:              appID,
 			BuildVersionID:     buildVersionID,
@@ -760,6 +760,9 @@ var deviceStartCmd = &cobra.Command{
 			DeviceModel:        selectedDeviceModel,
 			OsVersion:          selectedOsVersion,
 		})
+		if prepErr != nil {
+			return prepErr
+		}
 
 		var session *mcppkg.DeviceSession
 		if jsonOutput {
@@ -776,6 +779,7 @@ var deviceStartCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		rememberBeforeSessionBootValues(mgr.WorkDir(), session.SessionID)
 
 		var postLaunchErr error
 		if appLink != "" {

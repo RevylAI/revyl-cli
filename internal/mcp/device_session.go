@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/beforesession"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/ui"
@@ -922,6 +923,12 @@ func (m *DeviceSessionManager) stopSessionAtIndexLocked(ctx context.Context, ind
 		// the idle timer also preserves the manager's eventual-cleanup safety net.
 		m.resetIdleTimerForSessionLocked(index, context.Background())
 		return cancelErr
+	}
+
+	// Drop boot-time before_session secrets once the session is gone so a
+	// later auth refresh cannot reuse another session's token by ID collision.
+	if session != nil {
+		_ = beforesession.ClearSessionValues(m.workDir, session.SessionID)
 	}
 
 	// Remove from map
@@ -2575,6 +2582,11 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		if timer, ok := m.idleTimers[idx]; ok {
 			timer.Stop()
 			delete(m.idleTimers, idx)
+		}
+		// Drop boot-time before_session secrets for sessions that vanished
+		// without StopSession (idle expiry on the backend, crash, etc.).
+		if ls != nil {
+			_ = beforesession.ClearSessionValues(m.workDir, ls.SessionID)
 		}
 		delete(m.sessions, idx)
 		delete(m.ownedSessions, idx)

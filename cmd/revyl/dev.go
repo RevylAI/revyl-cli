@@ -301,11 +301,24 @@ func effectiveDevOpenBrowser(cmd *cobra.Command, configPath string) bool {
 	return true
 }
 
-func withDevStartLaunchVars(opts mcppkg.StartSessionOptions) mcppkg.StartSessionOptions {
+// withDevStartLaunchVars applies --launch-var overrides and then runs the
+// before_session script and auth_bypass defaults for a dev-loop session start.
+//
+// Parameters:
+//   - ctx: Cancellation scope for the before_session script run.
+//   - opts: Session start options assembled by the dev loop.
+//
+// Returns:
+//   - mcppkg.StartSessionOptions: Options ready to pass to StartSession.
+//   - error: A setup failure that must abort the dev loop.
+func withDevStartLaunchVars(
+	ctx context.Context,
+	opts mcppkg.StartSessionOptions,
+) (mcppkg.StartSessionOptions, error) {
 	if len(devStartLaunchVars) > 0 {
 		opts.LaunchVars = append([]string(nil), devStartLaunchVars...)
 	}
-	return applyAuthBypassSessionDefaults(context.Background(), opts)
+	return prepareSessionStartOptions(ctx, opts)
 }
 
 func warnLaunchVarsIgnoredForReusedDevSession() {
@@ -541,6 +554,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if cfg.AuthBypass.IsConfigured() {
 		initDevAuthBypass(cfg)
 	}
+	initDevBeforeSession(cfg, cwd)
 
 	externalTunnel, err := parseExternalTunnelInput(devStartTunnelURL)
 	if err != nil {
@@ -1005,20 +1019,24 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	if session == nil {
 		ui.PrintInfo("Starting cloud device session...")
+		startOpts, prepErr := withDevStartLaunchVars(ctx, mcppkg.StartSessionOptions{
+			Platform:       devicePlatform,
+			AppID:          selectedAppID,
+			BuildVersionID: buildVersionID,
+			AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
+			AppPackage:     strings.TrimSpace(buildDetail.PackageName),
+			AppLink:        startResult.DeepLinkURL,
+			IdleTimeout:    time.Duration(timeout) * time.Second,
+			DeviceRunnerID: strings.TrimSpace(devStartDeviceRunnerID),
+			SkipAppInstall: true,
+		})
+		if prepErr != nil {
+			return prepErr
+		}
 		_, session, err = startDevSessionWithProgress(
 			ctx,
 			deviceMgr,
-			withDevStartLaunchVars(mcppkg.StartSessionOptions{
-				Platform:       devicePlatform,
-				AppID:          selectedAppID,
-				BuildVersionID: buildVersionID,
-				AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
-				AppPackage:     strings.TrimSpace(buildDetail.PackageName),
-				AppLink:        startResult.DeepLinkURL,
-				IdleTimeout:    time.Duration(timeout) * time.Second,
-				DeviceRunnerID: strings.TrimSpace(devStartDeviceRunnerID),
-				SkipAppInstall: true,
-			}),
+			startOpts,
 			30*time.Second,
 			nil,
 		)
@@ -1028,6 +1046,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			}
 			return err
 		}
+		rememberBeforeSessionBootValues(deviceMgr.WorkDir(), session.SessionID)
 		ui.PrintSuccess("Device session ready")
 	}
 
@@ -2354,19 +2373,23 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 
 	if session == nil {
 		ui.PrintInfo("Starting cloud device session...")
+		startOpts, prepErr := withDevStartLaunchVars(ctx, mcppkg.StartSessionOptions{
+			Platform:       devicePlatform,
+			AppID:          appID,
+			BuildVersionID: latestVersion.ID,
+			AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
+			AppPackage:     bundleID,
+			IdleTimeout:    time.Duration(timeout) * time.Second,
+			DeviceRunnerID: strings.TrimSpace(devStartDeviceRunnerID),
+			SkipAppInstall: true,
+		})
+		if prepErr != nil {
+			return prepErr
+		}
 		_, session, err = startDevSessionWithProgress(
 			ctx,
 			deviceMgr,
-			withDevStartLaunchVars(mcppkg.StartSessionOptions{
-				Platform:       devicePlatform,
-				AppID:          appID,
-				BuildVersionID: latestVersion.ID,
-				AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
-				AppPackage:     bundleID,
-				IdleTimeout:    time.Duration(timeout) * time.Second,
-				DeviceRunnerID: strings.TrimSpace(devStartDeviceRunnerID),
-				SkipAppInstall: true,
-			}),
+			startOpts,
 			30*time.Second,
 			nil,
 		)
@@ -2376,6 +2399,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 			}
 			return err
 		}
+		rememberBeforeSessionBootValues(deviceMgr.WorkDir(), session.SessionID)
 	}
 
 	if sessionOwned {
@@ -3506,6 +3530,7 @@ type devStatus struct {
 	RecentRebuilds []devRebuildInfo     `json:"recent_rebuilds,omitempty"`
 	Build          *devloop.BuildStatus `json:"build,omitempty"`
 	AuthBypass     *authBypassStatus    `json:"auth_bypass,omitempty"`
+	BeforeSession  *beforeSessionStatus `json:"before_session,omitempty"`
 	// SeededVersion / InstalledSeed describe a prior build installed
 	// immediately (revyl dev --remote --seed-latest) so the app is interactive
 	// while the fresh remote build is still compiling.
@@ -3794,6 +3819,9 @@ func writeDevStatusSnapshotLocked(statusPath string, ds devStatus) {
 	preserveDevStatusMetadata(statusPath, &ds)
 	if ds.AuthBypass == nil {
 		ds.AuthBypass = devAuthBypass.Status()
+	}
+	if ds.BeforeSession == nil {
+		ds.BeforeSession = devBeforeSession.Status()
 	}
 	data, err := json.MarshalIndent(ds, "", "  ")
 	if err != nil {

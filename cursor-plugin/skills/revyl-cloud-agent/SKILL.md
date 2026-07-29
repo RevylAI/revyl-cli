@@ -51,7 +51,7 @@ Use this skill whenever you are running as a Cursor Cloud/background agent (head
 
 ## Auth Bypass and Secrets
 
-- If the app shows a logged-out state mid-session, re-mint the launch vars with the repo's own mint script (values flow through env only), then `revyl dev auth refresh --json`.
+- If the app shows a logged-out state mid-session but the boot token is still valid, run `revyl dev auth refresh --json` (re-fires the boot deep link; does not remint). If the token itself expired, `revyl dev stop` then `revyl dev` so a fresh mint is applied as launch environment.
 - Never paste launch-var values, tokens, or API keys into code, chat, logs, screenshots, or PRs — reference variable names only. Avoid typing real credentials on-screen; use test variables.
 
 ## Git Hygiene

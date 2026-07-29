@@ -21,8 +21,10 @@ import (
 
 // authBypassRuntime applies a project's auth_bypass config to device sessions:
 // launch vars at session start and the deep link after each app (re)launch.
-// Expiry recovery is agent-driven: re-mint the org launch vars with the repo's
-// own script, then `revyl dev auth refresh` re-fires the deep link.
+// Mid-session recovery re-fires that same deep link via `revyl dev auth
+// refresh` without reminting: launch environment is fixed at boot, so a new
+// token would fail apps that compare the link to REVYL_AUTH_BYPASS_TOKEN.
+// True token expiry requires `revyl dev stop` then a fresh session.
 type authBypassRuntime struct {
 	cfg       *config.AuthBypassConfig
 	mu        sync.RWMutex
@@ -89,7 +91,10 @@ func (r *authBypassRuntime) FireDeepLink(ctx context.Context, requester workerSe
 	if template == "" {
 		return nil
 	}
-	err := openURLAfterLaunch(ctx, requester, sessionIndex, template)
+	// A before_session script may have minted some placeholders locally; those
+	// are substituted here so the link posts as a literal URL, since the
+	// backend can only resolve from org launch variables.
+	err := openURLAfterLaunch(ctx, requester, sessionIndex, applySessionValuesToDeepLink(template))
 	if err != nil {
 		publicError := authBypassPublicError(err)
 		r.setAttemptState("failed", publicError)
@@ -212,11 +217,16 @@ var devAuthCmd = &cobra.Command{
 
 var devAuthRefreshCmd = &cobra.Command{
 	Use:   "refresh",
-	Short: "Re-fire the auth bypass deep link with fresh launch-var values",
-	Long: `Re-resolve the auth_bypass deep link from current org launch-variable values
-and re-open it on the active dev session's device. Use when the app under test
-shows a logged-out state mid-session (expired mint). Re-mint the launch vars
-first with your project's own mint script if the values themselves expired.`,
+	Short: "Re-fire the auth bypass deep link from session boot values",
+	Long: `Re-open the auth_bypass deep link on the active dev session using the same
+launch values applied at session boot. Use when the app under test shows a
+logged-out state mid-session but the boot token is still valid.
+
+Does not remint before_session or org launch variables: launch environment is
+fixed at boot, and apps that compare the deep-link token to
+REVYL_AUTH_BYPASS_TOKEN (or another launch-env gate) reject a newly minted
+value. If the token itself expired, run ` + "`revyl dev stop`" + ` then
+` + "`revyl dev`" + ` so a fresh mint is applied as launch environment.`,
 	Example: `  revyl dev auth refresh
   revyl dev auth refresh --json`,
 	RunE: runDevAuthRefresh,
@@ -270,11 +280,19 @@ func runDevAuthRefresh(cmd *cobra.Command, args []string) error {
 	}
 	initDevAuthBypass(cfg)
 
+	// Reuse boot-time before_session values. Reminting here would put a new
+	// token in the deep link while launch env stays fixed at session boot.
+	initDevBeforeSession(cfg, cwd)
+
 	session, err := resolveSessionFlag(cmd, deviceMgr)
 	if err != nil {
 		return devAuthRefreshError(cmd, "no_session",
 			fmt.Sprintf("no active device session: %v", err),
 			"start one with `revyl dev` or `revyl device start`")
+	}
+	if err := hydrateBeforeSessionForRefresh(deviceMgr.WorkDir(), session.SessionID); err != nil {
+		return devAuthRefreshError(cmd, "before_session_hydrate_failed", err.Error(),
+			"restart_session: run `revyl dev stop` then `revyl dev` so before_session mints again at boot")
 	}
 
 	if err := devAuthBypass.FireDeepLink(cmd.Context(), deviceMgr, session.Index); err != nil {

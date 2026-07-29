@@ -38,6 +38,10 @@ type ProjectConfig struct {
 	// PR automation. Nil/omitted means PR automation is managed in the Revyl UI.
 	PRReview *PRReviewConfig `yaml:"pr_review,omitempty"`
 
+	// BeforeSession contains the repository-local setup step run before every
+	// device session starts. It produces the values auth_bypass consumes.
+	BeforeSession *BeforeSessionConfig `yaml:"before_session,omitempty"`
+
 	// AuthBypass contains the test-only auth bypass contract for the app under
 	// test. When configured, device sessions started by revyl dev and revyl
 	// device start automatically apply the launch vars and fire the deep link
@@ -55,6 +59,47 @@ type ProjectConfig struct {
 // MarkSynced sets the LastSyncedAt timestamp to now (UTC, RFC3339).
 func (c *ProjectConfig) MarkSynced() {
 	c.LastSyncedAt = time.Now().UTC().Format(time.RFC3339)
+}
+
+// DefaultBeforeSessionTimeoutSeconds bounds a before_session script run when
+// the config does not set an explicit timeout.
+const DefaultBeforeSessionTimeoutSeconds = 120
+
+// BeforeSessionConfig declares a repository-local setup step run to completion
+// before every device session starts.
+//
+// The script may print KEY=VALUE lines on stdout. Those become session-scoped
+// launch environment values, so concurrent sessions never share or overwrite
+// each other's minted values. Any other output is ignored, letting the script
+// log freely.
+//
+// Unlike auth_bypass, a failing before_session script is fatal: a session that
+// starts against an unprepared app produces a confident wrong result.
+type BeforeSessionConfig struct {
+	// Script is a path to an executable, resolved against the repository root.
+	// Paths that resolve outside the repository are rejected.
+	Script string `yaml:"script,omitempty"`
+
+	// TimeoutSeconds bounds the script run. Zero means
+	// DefaultBeforeSessionTimeoutSeconds.
+	TimeoutSeconds int `yaml:"timeout_seconds,omitempty"`
+}
+
+// IsConfigured reports whether a before-session script is declared.
+func (b *BeforeSessionConfig) IsConfigured() bool {
+	if b == nil {
+		return false
+	}
+	return strings.TrimSpace(b.Script) != ""
+}
+
+// EffectiveTimeout returns the configured script timeout, falling back to
+// DefaultBeforeSessionTimeoutSeconds when unset or non-positive.
+func (b *BeforeSessionConfig) EffectiveTimeout() time.Duration {
+	if b == nil || b.TimeoutSeconds <= 0 {
+		return DefaultBeforeSessionTimeoutSeconds * time.Second
+	}
+	return time.Duration(b.TimeoutSeconds) * time.Second
 }
 
 // AuthBypassConfig configures the test-only auth bypass contract for the app

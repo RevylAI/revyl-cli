@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestComputeTestChecksum verifies that checksum computation is deterministic
@@ -698,6 +699,76 @@ func TestAuthBypassConfig_Validation(t *testing.T) {
 	}
 	if !(&AuthBypassConfig{DeepLink: "app://auth"}).IsConfigured() {
 		t.Fatal("deep-link-only AuthBypassConfig should be configured")
+	}
+}
+
+func TestLoadProjectConfig_BeforeSessionRoundTrip(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	raw := `project:
+  name: setup-app
+build:
+  system: Xcode
+before_session:
+  script: "./scripts/prepare-test-session.sh"
+  timeout_seconds: 45
+auth_bypass:
+  launch_vars:
+    - E2E_AUTH_TOKEN
+  deep_link: "myapp://auth?token=${E2E_AUTH_TOKEN}"
+`
+	if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := LoadProjectConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig() error = %v", err)
+	}
+	if !cfg.BeforeSession.IsConfigured() {
+		t.Fatal("BeforeSession.IsConfigured() = false, want true")
+	}
+	// The two blocks are siblings and must both survive parsing.
+	if !cfg.AuthBypass.IsConfigured() {
+		t.Fatal("AuthBypass.IsConfigured() = false, want true alongside before_session")
+	}
+
+	if err := WriteProjectConfig(configPath, cfg); err != nil {
+		t.Fatalf("WriteProjectConfig() error = %v", err)
+	}
+	reloaded, err := LoadProjectConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig() after write error = %v", err)
+	}
+	if reloaded.BeforeSession.Script != cfg.BeforeSession.Script {
+		t.Fatalf("Script after round-trip = %q", reloaded.BeforeSession.Script)
+	}
+	if reloaded.BeforeSession.EffectiveTimeout() != 45*time.Second {
+		t.Fatalf("EffectiveTimeout() after round-trip = %v, want 45s",
+			reloaded.BeforeSession.EffectiveTimeout())
+	}
+	if !reloaded.AuthBypass.IsConfigured() {
+		t.Fatal("auth_bypass section did not survive a write round-trip alongside before_session")
+	}
+}
+
+func TestBeforeSessionConfig_Validation(t *testing.T) {
+	var nilCfg *BeforeSessionConfig
+	if nilCfg.IsConfigured() {
+		t.Fatal("nil BeforeSessionConfig should not be configured")
+	}
+	if (&BeforeSessionConfig{}).IsConfigured() {
+		t.Fatal("empty BeforeSessionConfig should not be configured")
+	}
+	if (&BeforeSessionConfig{Script: "   "}).IsConfigured() {
+		t.Fatal("whitespace-only script should not be configured")
+	}
+
+	wantDefault := DefaultBeforeSessionTimeoutSeconds * time.Second
+	if got := nilCfg.EffectiveTimeout(); got != wantDefault {
+		t.Fatalf("nil EffectiveTimeout() = %v, want %v", got, wantDefault)
+	}
+	if got := (&BeforeSessionConfig{Script: "./x.sh"}).EffectiveTimeout(); got != wantDefault {
+		t.Fatalf("unset EffectiveTimeout() = %v, want %v", got, wantDefault)
 	}
 }
 

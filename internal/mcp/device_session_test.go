@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/beforesession"
 )
 
 // ---------------------------------------------------------------------------
@@ -2259,5 +2260,85 @@ func TestResolveIdleTimeout(t *testing.T) {
 	}
 	if got := resolveIdleTimeout(42 * time.Second); got != 42*time.Second {
 		t.Fatalf("resolveIdleTimeout(42s) = %v, want 42s", got)
+	}
+}
+
+// TestSyncSessions_PruneClearsBeforeSessionValues ensures backend reconcile
+// prune drops boot tokens for sessions that vanished without StopSession.
+func TestSyncSessions_PruneClearsBeforeSessionValues(t *testing.T) {
+	workDir := t.TempDir()
+	const (
+		staleSessionID = "stale-sess"
+		otherSessionID = "other-sess"
+	)
+	if err := beforesession.SaveSessionValues(workDir, staleSessionID, map[string]string{
+		"E2E_AUTH_TOKEN": "stale-token",
+	}); err != nil {
+		t.Fatalf("SaveSessionValues(stale) error = %v", err)
+	}
+	if err := beforesession.SaveSessionValues(workDir, otherSessionID, map[string]string{
+		"E2E_AUTH_TOKEN": "other-token",
+	}); err != nil {
+		t.Fatalf("SaveSessionValues(other) error = %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/entity/users/get_user_uuid":
+			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-1","email":"test@example.com","concurrency_limit":1}`))
+		case "/api/v1/execution/device-sessions/active":
+			_, _ = w.Write([]byte(`{"org_id":"org-1","sessions":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	now := time.Now()
+	mgr := &DeviceSessionManager{
+		apiClient:         api.NewClientWithBaseURL("test-api-key", server.URL),
+		workDir:           workDir,
+		sessions:          map[int]*DeviceSession{},
+		ownedSessions:     map[int]bool{0: true},
+		idleTimerDisabled: make(map[int]bool),
+		idleTimers:        make(map[int]*time.Timer),
+		screenAnchors:     make(map[int]*screenAnchorState),
+		activeIndex:       0,
+		nextIndex:         1,
+		orgID:             "org-1",
+		userEmail:         "test@example.com",
+	}
+	mgr.sessions[0] = &DeviceSession{
+		Index:         0,
+		SessionID:     staleSessionID,
+		WorkflowRunID: "wf-stale",
+		Platform:      "ios",
+		StartedAt:     now,
+		LastActivity:  now,
+		IdleTimeout:   5 * time.Minute,
+	}
+
+	if err := mgr.SyncSessions(context.Background()); err != nil {
+		t.Fatalf("SyncSessions() error = %v", err)
+	}
+	if mgr.GetSession(0) != nil {
+		t.Fatal("stale session still present after prune")
+	}
+
+	staleValues, err := beforesession.LoadSessionValues(workDir, staleSessionID)
+	if err != nil {
+		t.Fatalf("LoadSessionValues(stale) error = %v", err)
+	}
+	if len(staleValues) != 0 {
+		t.Fatalf("stale before-session values = %#v, want cleared", staleValues)
+	}
+
+	otherValues, err := beforesession.LoadSessionValues(workDir, otherSessionID)
+	if err != nil {
+		t.Fatalf("LoadSessionValues(other) error = %v", err)
+	}
+	if got := otherValues["E2E_AUTH_TOKEN"]; got != "other-token" {
+		t.Fatalf("other before-session token = %q, want other-token", got)
 	}
 }

@@ -117,8 +117,13 @@ generate:
 	@$(SCRIPTS_DIR)/generate-types.sh
 
 ## check-openapi-allowlist: Fail if runtime API paths are not explicitly reviewed
+# The unit tests run through discover rather than a file path: passing
+# "./scripts/x.py" to -m unittest resolves to an empty module name on the
+# python3 that ships with macOS, failing the pre-commit hook for reasons
+# unrelated to the spec.
 check-openapi-allowlist:
-	@PYTHONPATH=$(SCRIPTS_DIR) python3 -m unittest $(SCRIPTS_DIR)/test_filter_openapi_for_cli.py
+	@PYTHONPATH=$(SCRIPTS_DIR) python3 -m unittest discover \
+		-s $(SCRIPTS_DIR) -p 'test_filter_openapi_for_cli.py'
 	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
 	python3 $(SCRIPTS_DIR)/filter_openapi_for_cli.py \
 		--input openapi.json \

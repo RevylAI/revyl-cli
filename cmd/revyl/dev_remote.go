@@ -179,10 +179,13 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 
 	if session == nil {
 		ui.PrintInfo("Starting cloud device session (build continues in background)...")
-		startOpts := withDevStartLaunchVars(mcppkg.StartSessionOptions{
+		startOpts, prepErr := withDevStartLaunchVars(ctx, mcppkg.StartSessionOptions{
 			Platform:    devicePlatform,
 			IdleTimeout: time.Duration(timeout) * time.Second,
 		})
+		if prepErr != nil {
+			return prepErr
+		}
 		// No app is installed at boot; the post-install launch fires the auth
 		// deep link instead of a boot-time app link.
 		startOpts.AppLink = ""
@@ -199,6 +202,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 			}
 			return err
 		}
+		rememberBeforeSessionBootValues(deviceMgr.WorkDir(), session.SessionID)
 	}
 
 	if sessionOwned {
@@ -455,6 +459,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 			}
 			buildCaches = config.EffectiveBuildCaches(reloaded.Build, reloadedPlat)
 			initDevAuthBypass(reloaded)
+			initDevBeforeSession(reloaded, cwd)
 		}
 
 		buildJob, buildErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd, progressSink)

@@ -213,6 +213,12 @@ const (
 	PlanInfoScheduledBillingPeriodYearly  PlanInfoScheduledBillingPeriod = "yearly"
 )
 
+// Defines values for ProofHarnessKind.
+const (
+	ProofHarnessKindCursor ProofHarnessKind = "cursor"
+	ProofHarnessKindRevyl  ProofHarnessKind = "revyl"
+)
+
 // Defines values for ScmBuildTargetResponsePlatform.
 const (
 	ScmBuildTargetResponsePlatformAndroid ScmBuildTargetResponsePlatform = "android"
@@ -1205,6 +1211,19 @@ type CursorCloudAgentConversationAttributionLaunch struct {
 
 // CursorConnectionType defines model for CursorConnectionType.
 type CursorConnectionType string
+
+// CursorProofHarness A Cursor cloud agent launched against the pull request.
+//
+// Attributes:
+//
+//	kind: Discriminator selecting this harness.
+//	model_id: Cursor model to pin. ``None`` (the default) omits the model
+//	    from the provider request so Cursor applies the account default,
+//	    which also removes any dependency on model-catalog availability.
+type CursorProofHarness struct {
+	Kind    string  `json:"kind"`
+	ModelId *string `json:"model_id"`
+}
 
 // DOMMetadata defines model for DOMMetadata.
 type DOMMetadata struct {
@@ -2450,14 +2469,18 @@ type PlatformTargetConfig struct {
 // Used for the settings-page banner and the PR comment. Persisted into
 // “scm_review_configs.metadata“ via “model_dump(mode="json")“.
 type PrReviewConfigSummary struct {
-	Builds            *[]PrReviewConfigSummaryBuild `json:"builds,omitempty"`
-	Checks            *[]string                     `json:"checks,omitempty"`
-	Enabled           *bool                         `json:"enabled,omitempty"`
-	Preset            *string                       `json:"preset"`
-	PreviewLink       *bool                         `json:"preview_link,omitempty"`
-	ProofOfChanges    *bool                         `json:"proof_of_changes,omitempty"`
-	StrictBuildChecks *bool                         `json:"strict_build_checks,omitempty"`
-	Workflows         *[]string                     `json:"workflows,omitempty"`
+	Builds      *[]PrReviewConfigSummaryBuild `json:"builds,omitempty"`
+	Checks      *[]string                     `json:"checks,omitempty"`
+	Enabled     *bool                         `json:"enabled,omitempty"`
+	Preset      *string                       `json:"preset"`
+	PreviewLink *bool                         `json:"preview_link,omitempty"`
+	ProjectRoot *string                       `json:"project_root"`
+
+	// ProofHarnessKind Closed set of agents that can run a proof of changes.
+	ProofHarnessKind  *ProofHarnessKind `json:"proof_harness_kind,omitempty"`
+	ProofOfChanges    *bool             `json:"proof_of_changes,omitempty"`
+	StrictBuildChecks *bool             `json:"strict_build_checks,omitempty"`
+	Workflows         *[]string         `json:"workflows,omitempty"`
 }
 
 // PrReviewConfigSummaryBuild One enabled preview build in a config summary.
@@ -2468,6 +2491,9 @@ type PrReviewConfigSummaryBuild struct {
 	Platform      string  `json:"platform"`
 	UseExistingCi *bool   `json:"use_existing_ci,omitempty"`
 }
+
+// ProofHarnessKind Closed set of agents that can run a proof of changes.
+type ProofHarnessKind string
 
 // RemoteBuildArchiveSource Archive source previously uploaded through the remote upload-url endpoint.
 type RemoteBuildArchiveSource struct {
@@ -2820,6 +2846,11 @@ type RevokeCLIApiKeyResponse struct {
 	Success bool `json:"success"`
 }
 
+// RevylProofHarness Revyl's own step agent driving a device session (the default).
+type RevylProofHarness struct {
+	Kind string `json:"kind"`
+}
+
 // ScmActions defines model for ScmActions.
 type ScmActions struct {
 	AdaptiveSystemPrompt      *string   `json:"adaptive_system_prompt"`
@@ -2827,7 +2858,18 @@ type ScmActions struct {
 	CuratedWorkflows          *[]string `json:"curated_workflows,omitempty"`
 	NaturalLanguageAssertions *[]string `json:"natural_language_assertions,omitempty"`
 	PreviewLink               *bool     `json:"preview_link,omitempty"`
-	StrictBuildChecks         *bool     `json:"strict_build_checks,omitempty"`
+
+	// ProjectRoot Optional checkout-relative directory containing `.revyl/config.yaml` for Cursor proof runs (e.g. `ios`).
+	ProjectRoot *string `json:"project_root"`
+
+	// ProofHarness Which agent runs the proof of changes.
+	ProofHarness      *ScmActions_ProofHarness `json:"proof_harness,omitempty"`
+	StrictBuildChecks *bool                    `json:"strict_build_checks,omitempty"`
+}
+
+// ScmActions_ProofHarness Which agent runs the proof of changes.
+type ScmActions_ProofHarness struct {
+	union json.RawMessage
 }
 
 // ScmBuildTargetResponse defines model for ScmBuildTargetResponse.
@@ -6792,6 +6834,95 @@ func (t RemoteBuildRequest_Source) MarshalJSON() ([]byte, error) {
 }
 
 func (t *RemoteBuildRequest_Source) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsRevylProofHarness returns the union data inside the ScmActions_ProofHarness as a RevylProofHarness
+func (t ScmActions_ProofHarness) AsRevylProofHarness() (RevylProofHarness, error) {
+	var body RevylProofHarness
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRevylProofHarness overwrites any union data inside the ScmActions_ProofHarness as the provided RevylProofHarness
+func (t *ScmActions_ProofHarness) FromRevylProofHarness(v RevylProofHarness) error {
+	v.Kind = "revyl"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeRevylProofHarness performs a merge with any union data inside the ScmActions_ProofHarness, using the provided RevylProofHarness
+func (t *ScmActions_ProofHarness) MergeRevylProofHarness(v RevylProofHarness) error {
+	v.Kind = "revyl"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCursorProofHarness returns the union data inside the ScmActions_ProofHarness as a CursorProofHarness
+func (t ScmActions_ProofHarness) AsCursorProofHarness() (CursorProofHarness, error) {
+	var body CursorProofHarness
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCursorProofHarness overwrites any union data inside the ScmActions_ProofHarness as the provided CursorProofHarness
+func (t *ScmActions_ProofHarness) FromCursorProofHarness(v CursorProofHarness) error {
+	v.Kind = "cursor"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCursorProofHarness performs a merge with any union data inside the ScmActions_ProofHarness, using the provided CursorProofHarness
+func (t *ScmActions_ProofHarness) MergeCursorProofHarness(v CursorProofHarness) error {
+	v.Kind = "cursor"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ScmActions_ProofHarness) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ScmActions_ProofHarness) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "cursor":
+		return t.AsCursorProofHarness()
+	case "revyl":
+		return t.AsRevylProofHarness()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ScmActions_ProofHarness) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ScmActions_ProofHarness) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

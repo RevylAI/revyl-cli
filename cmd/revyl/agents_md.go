@@ -68,13 +68,16 @@ revyl device report --session-id <session-id> --json
 
 Auth: when .revyl/config.yaml has an auth_bypass section, sessions launch
 authenticated automatically (launch vars + deep link are applied for you). If
-the app ever shows a logged-out state mid-session (expired token), re-mint the
-launch vars with this repo's own mint script (if it has one), then re-fire the
-auth deep link:
+the app ever shows a logged-out state mid-session but the boot token is still
+valid, re-fire the auth deep link (refresh does not remint — launch env is
+fixed at boot):
 
 ` + "```bash" + `
 revyl dev auth refresh
 ` + "```" + `
+
+If the token itself expired, run ` + "`revyl dev stop`" + ` then
+` + "`revyl dev`" + ` so a fresh mint is applied as launch environment.
 
 Stop with ` + "`revyl dev stop`" + ` when done. Never paste launch-var values or
 tokens into code, logs, screenshots, or PRs — reference key names only.

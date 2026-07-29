@@ -149,13 +149,16 @@ auth_bypass:
 `${VAR}` placeholders resolve server-side from launch variables already
 attached to the session; secret values never enter CLI or MCP output.
 The deep link fires automatically after every app (re)launch. If the app ever
-shows a logged-out state mid-session (expired mint), recover by re-minting the
-launch vars with the repo's own mint script (check the repo's AGENTS.md or
-scripts/), then re-firing the deep link with fresh values:
+shows a logged-out state mid-session but the boot token is still valid,
+re-fire that same deep link (refresh does not remint — launch env is fixed at
+boot):
 
 ```bash
 revyl dev auth refresh --json
 ```
+
+If the token itself expired, restart the session (`revyl dev stop` then
+`revyl dev`) so a fresh mint is applied as launch environment.
 
 Manual fallback (no config section yet):
 

@@ -206,7 +206,10 @@ func TestWithDevStartLaunchVarsCopiesLaunchVarsIntoStartOptions(t *testing.T) {
 	t.Cleanup(func() { devStartLaunchVars = orig })
 
 	devStartLaunchVars = []string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"}
-	opts := withDevStartLaunchVars(mcppkg.StartSessionOptions{Platform: "ios"})
+	opts, err := withDevStartLaunchVars(context.Background(), mcppkg.StartSessionOptions{Platform: "ios"})
+	if err != nil {
+		t.Fatalf("withDevStartLaunchVars() error = %v", err)
+	}
 
 	want := []string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"}
 	if fmt.Sprint(opts.LaunchVars) != fmt.Sprint(want) {
@@ -369,10 +372,14 @@ func TestDevStartLaunchVarsReachSessionStartOptions(t *testing.T) {
 	}
 	recorder := &devSessionProgressRecorder{}
 
-	_, _, err := startDevSessionWithProgress(
+	startOpts, err := withDevStartLaunchVars(context.Background(), mcppkg.StartSessionOptions{Platform: "ios"})
+	if err != nil {
+		t.Fatalf("withDevStartLaunchVars() error = %v", err)
+	}
+	_, _, err = startDevSessionWithProgress(
 		context.Background(),
 		starter,
-		withDevStartLaunchVars(mcppkg.StartSessionOptions{Platform: "ios"}),
+		startOpts,
 		80*time.Millisecond,
 		recorder.hooks(),
 	)

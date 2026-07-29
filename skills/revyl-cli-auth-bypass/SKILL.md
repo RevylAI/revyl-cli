@@ -169,9 +169,49 @@ auth_bypass:
 `${VAR}` placeholders resolve server-side from launch variables already
 attached to the device session; secret values never enter CLI or MCP output.
 The deep link re-fires after every app (re)launch. If the app shows a
-logged-out state mid-session (expired mint), re-mint the launch vars with the
-repo's own mint script, then run `revyl dev auth refresh` to re-fire the link
-with fresh values. Mint tokens with a TTL that comfortably covers a dev or
-preview session. This section is also honored by Revyl PR review previews, so
-preview devices open signed in. Verify with a fresh `revyl dev` session and a
+logged-out state mid-session but the boot token is still valid, run
+`revyl dev auth refresh` to re-fire that same deep link — it does not remint.
+Launch environment is fixed at boot, so apps that compare the deep-link token
+to a launch-env gate reject a newly minted value. If the token itself expired,
+run `revyl dev stop` then `revyl dev` so a fresh mint is applied as launch
+environment. Mint tokens with a TTL that comfortably covers a dev or preview
+session. This section is also honored by Revyl PR review previews, so preview
+devices open signed in. Verify with a fresh `revyl dev` session and a
 screenshot.
+
+## Automate the Mint (optional)
+
+If the repo has a mint script, add a `before_session` block so the CLI runs it
+before every session instead of asking someone to refresh launch vars by hand:
+
+```yaml
+before_session:
+  script: "./scripts/prepare-test-session.sh"
+
+auth_bypass:
+  launch_vars: [E2E_AUTH_TOKEN]
+  deep_link: "myapp://auth?token=${E2E_AUTH_TOKEN}"
+```
+
+`before_session` is a sibling of `auth_bypass`, not a field inside it: it
+produces values, `auth_bypass` consumes them. Rules that matter when writing
+the script:
+
+1. Print each minted value as its own `KEY=VALUE` line on stdout. Those values
+   are scoped to the one session, so parallel runs cannot clobber each other.
+   Everything else the script prints is ignored.
+2. Exit non-zero to abort the session. Unlike a deep-link failure, which is
+   only a warning, a setup failure is fatal — an unprepared app produces a
+   confident wrong result.
+3. Keep the script inside the repository and executable (`chmod +x`). Paths
+   resolving outside the repo are rejected, and the run is bounded by
+   `timeout_seconds` (default 120).
+4. Take every deep-link placeholder from the script or none of them. A link
+   that mixes script-minted and org-stored values is rejected at session start,
+   because the backend can only resolve organization launch variables.
+5. Depend only on credentials already in the environment, such as
+   `REVYL_API_KEY`. A coding agent running `revyl device start` in a fresh
+   checkout has no other repo secrets.
+
+Values never appear in CLI output; `revyl dev status` reports the produced key
+names and nothing else.
