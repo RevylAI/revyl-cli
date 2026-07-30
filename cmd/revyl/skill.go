@@ -97,6 +97,7 @@ Revyl ships embedded skills:
 - revyl-cli-create: agents create or refine stable Revyl tests from YAML, source, or successful flows
 - revyl-cli-auth-bypass: agents set up test-only auth bypass across mobile app stacks
 - revyl-cli-auth-bypass-* leaves: platform recipes used after auth-bypass stack detection
+- revyl-cli-optimize-tests for merging granular button-press steps in an existing test into intent-driven instructions when installed by name.
 
 Additional optional and compatibility skills remain available by exact name.
 
@@ -227,6 +228,8 @@ func runSkillList(cmd *cobra.Command, args []string) error {
 	fmt.Println("  revyl-cli-auth-bypass-ios - native iOS leaf recipe")
 	fmt.Println("  revyl-cli-auth-bypass-android - native Android leaf recipe")
 	fmt.Println("  revyl-cli-auth-bypass-flutter - Flutter leaf recipe")
+	fmt.Println("  revyl-cli-optimize-tests - merge granular steps in an existing test into intent-driven instructions")
+
 	fmt.Println()
 	fmt.Println("Use a tool flag only when you need a specific target:")
 	fmt.Println("  revyl skill install --cursor --force")

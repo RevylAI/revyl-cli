@@ -32,6 +32,11 @@ var catalog = []Skill{
 		Content:     skills.RevylCLIAnalyzeContent,
 	},
 	{
+		Name:        skills.RevylCLIOptimizeName,
+		Description: "Optimize existing Revyl tests by merging granular button-press steps into intent-driven instructions.",
+		Content:     skills.RevylCLIOptimizeContent,
+	},
+	{
 		Name:        skills.RevylCLIDevLoopName,
 		Description: "CLI-first dev loop for starting sessions, exploring flows, and converting successful paths into tests.",
 		Content:     skills.RevylCLIDevLoopContent,

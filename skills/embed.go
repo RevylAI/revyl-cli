@@ -10,6 +10,7 @@ const (
 	RevylCLIName                  = "revyl-cli"
 	RevylCLICreateName            = "revyl-cli-create"
 	RevylCLIAnalyzeName           = "revyl-cli-analyze"
+	RevylCLIOptimizeName          = "revyl-cli-optimize-tests"
 	RevylCLIDevLoopName           = "revyl-cli-dev-loop"
 	RevylCLIAuthBypassName        = "revyl-cli-auth-bypass"
 	RevylCLIAuthBypassExpoName    = "revyl-cli-auth-bypass-expo"
@@ -31,6 +32,9 @@ var RevylCLICreateContent string
 
 //go:embed revyl-cli-analyze/SKILL.md
 var RevylCLIAnalyzeContent string
+
+//go:embed revyl-cli-optimize-tests/SKILL.md
+var RevylCLIOptimizeContent string
 
 //go:embed revyl-cli-dev-loop/SKILL.md
 var RevylCLIDevLoopContent string

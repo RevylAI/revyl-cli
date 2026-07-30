@@ -98,8 +98,8 @@ func TestResolveInstallSkillsBothFamilies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveInstallSkills(nil) error = %v", err)
 		}
-		if len(selected) != 14 {
-			t.Fatalf("expected 14 skills when both families selected, got %d", len(selected))
+		if len(selected) != 15 {
+			t.Fatalf("expected 15 skills when both families selected, got %d", len(selected))
 		}
 		var cliCount, mcpCount int
 		for _, sk := range selected {
