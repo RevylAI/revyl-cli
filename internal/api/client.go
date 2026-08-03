@@ -5701,6 +5701,12 @@ type CLIScriptUsageResponse struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"tests"`
+	// Modules holds scripts used only transitively via a module that a test
+	// imports (as opposed to Tests, which is direct script-step usage).
+	Modules []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"modules"`
 	Total int `json:"total"`
 }
 

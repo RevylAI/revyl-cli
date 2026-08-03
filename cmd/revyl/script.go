@@ -462,12 +462,15 @@ func runScriptUsage(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	ui.PrintInfo("Script \"%s\" is used by %d test(s):", scriptName, resp.Total)
+	ui.PrintInfo("Script \"%s\" is used in %d place(s):", scriptName, resp.Total)
 	ui.Println()
 
-	table := ui.NewTable("TEST", "ID")
+	table := ui.NewTable("TYPE", "NAME", "ID")
 	for _, t := range resp.Tests {
-		table.AddRow(t.Name, t.ID[:8])
+		table.AddRow("test", t.Name, t.ID[:8])
+	}
+	for _, m := range resp.Modules {
+		table.AddRow("module", m.Name, m.ID[:8])
 	}
 	table.Render()
 

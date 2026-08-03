@@ -330,6 +330,60 @@ func TestGetScriptUsage(t *testing.T) {
 	}
 }
 
+// TestGetScriptUsageIncludesModules is a REV-384 follow-up: the backend now
+// reports scripts used only transitively via a module (see
+// cognisim_backend/app/routes/test_routes/scripts_xpt.py) in a separate,
+// additive "modules" field. CLIScriptUsageResponse must parse it and
+// re-serialize it, or `revyl scripts usage --json` silently drops module
+// usage from its output — exactly what was observed: total counted module
+// usage but the printed JSON had no "modules" key and only listed direct
+// test usage.
+func TestGetScriptUsageIncludesModules(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{
+			"tests": [{"id": "test-001", "name": "Login Flow"}],
+			"modules": [{"id": "module-001", "name": "Onboarding Module"}],
+			"total": 2
+		}`)
+	}))
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	resp, err := client.GetScriptUsage(context.Background(), "script-001")
+	if err != nil {
+		t.Fatalf("GetScriptUsage: %v", err)
+	}
+
+	if resp.Total != 2 {
+		t.Errorf("GetScriptUsage: expected total 2, got %d", resp.Total)
+	}
+	if len(resp.Tests) != 1 {
+		t.Errorf("GetScriptUsage: expected 1 direct test, got %d", len(resp.Tests))
+	}
+	if len(resp.Modules) != 1 {
+		t.Fatalf("GetScriptUsage: expected 1 module, got %d", len(resp.Modules))
+	}
+	if resp.Modules[0].Name != "Onboarding Module" {
+		t.Errorf("GetScriptUsage: expected module name 'Onboarding Module', got %q", resp.Modules[0].Name)
+	}
+	if resp.Modules[0].ID != "module-001" {
+		t.Errorf("GetScriptUsage: expected module id 'module-001', got %q", resp.Modules[0].ID)
+	}
+
+	// Reproduce exactly what `revyl scripts usage --json` prints: the raw
+	// struct re-marshaled. If CLIScriptUsageResponse has no Modules field,
+	// this step silently drops module usage from the CLI's JSON output even
+	// though the server sent it.
+	data, err := json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent: %v", err)
+	}
+	if !strings.Contains(string(data), `"modules"`) {
+		t.Errorf("revyl scripts usage --json output is missing the \"modules\" key:\n%s", data)
+	}
+}
+
 // --- UpdateTest API client tests ---
 
 func TestUpdateTest(t *testing.T) {
