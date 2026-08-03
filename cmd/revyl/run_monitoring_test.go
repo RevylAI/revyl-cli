@@ -100,7 +100,6 @@ func TestRunTestExec_UsesPollingMonitoringMode(t *testing.T) {
 	originalRunOutputJSON := runOutputJSON
 	originalRunBuildID := runBuildID
 	originalRunLocation := runLocation
-	originalRunHotReload := runHotReload
 	t.Cleanup(func() {
 		runTestExecution = originalRunTestExecution
 		runNoWait = originalRunNoWait
@@ -109,7 +108,6 @@ func TestRunTestExec_UsesPollingMonitoringMode(t *testing.T) {
 		runOutputJSON = originalRunOutputJSON
 		runBuildID = originalRunBuildID
 		runLocation = originalRunLocation
-		runHotReload = originalRunHotReload
 	})
 
 	var monitoringMode sse.MonitoringMode
@@ -126,7 +124,6 @@ func TestRunTestExec_UsesPollingMonitoringMode(t *testing.T) {
 	runOutputJSON = false
 	runBuildID = ""
 	runLocation = ""
-	runHotReload = false
 
 	cmd := newLeafCommand("run", runTestExec)
 	cmd.Flags().Bool("open", false, "")

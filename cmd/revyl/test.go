@@ -214,8 +214,6 @@ func init() {
 	testRunCmd.Flags().BoolVar(&runTestBuild, "build", false, "Build and upload before running test")
 	testRunCmd.Flags().StringVar(&runTestPlatform, "platform", "", "Build platform key or ios/android")
 	testRunCmd.Flags().StringVar(&runLocation, "location", "", "Initial GPS location as lat,lng (e.g. 37.7749,-122.4194)")
-	testRunCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for local dev server")
-	testRunCmd.Flags().StringVar(&runHotReloadProvider, "provider", "", "Hot reload provider (expo, react-native)")
 	testRunCmd.Flags().BoolVar(&runDeviceSelect, "device", false, "Interactively select device model and OS version")
 	testRunCmd.Flags().StringVar(&runDeviceModel, "device-model", "", "Target device model (e.g. \"iPhone 16\")")
 	testRunCmd.Flags().StringVar(&runOsVersion, "os-version", "", "Target OS version (e.g. \"iOS 18.5\")")
@@ -233,8 +231,6 @@ func init() {
 	analytics.MarkFlagValue(testRunCmd, "verbose")
 	analytics.MarkFlagValue(testRunCmd, "build")
 	analytics.MarkFlagValue(testRunCmd, "platform")
-	analytics.MarkFlagValue(testRunCmd, "port")
-	analytics.MarkFlagValue(testRunCmd, "provider")
 	analytics.MarkFlagValue(testRunCmd, "device")
 	analytics.MarkFlagValue(testRunCmd, "orientation")
 	analytics.MarkFlagValue(testRunCmd, "fail-fast")
@@ -252,8 +248,6 @@ func init() {
 	testCreateCmd.Flags().StringVar(&createTestFromFile, "from-file", "", "Create test from YAML file (copies to .revyl/tests/ and pushes)")
 	testCreateCmd.Flags().StringVar(&createTestFromSession, "from-session", "", "Create test from a completed device session")
 	testCreateCmd.Flags().IntVar(&createTestCompileTimeout, "compile-timeout", 120, "Seconds to wait while compiling a session")
-	testCreateCmd.Flags().IntVar(&createTestHotReloadPort, "port", 8081, "Port for local dev server")
-	testCreateCmd.Flags().StringVar(&createTestHotReloadProvider, "provider", "", "Hot reload provider (expo, react-native)")
 	testCreateCmd.Flags().BoolVar(&createTestInteractive, "interactive", false, "Create test interactively with real-time device feedback")
 	testCreateCmd.Flags().StringSliceVar(&createTestModules, "module", nil, "Module name or ID to insert as module_import block (can be repeated)")
 	testCreateCmd.Flags().StringSliceVar(&createTestTags, "tag", nil, "Tag to assign after creation (can be repeated)")
@@ -262,8 +256,6 @@ func init() {
 	analytics.MarkFlagValue(testCreateCmd, "force")
 	analytics.MarkFlagValue(testCreateCmd, "dry-run")
 	analytics.MarkFlagValue(testCreateCmd, "compile-timeout")
-	analytics.MarkFlagValue(testCreateCmd, "port")
-	analytics.MarkFlagValue(testCreateCmd, "provider")
 	analytics.MarkFlagValue(testCreateCmd, "interactive")
 
 	// test rename flags
@@ -276,8 +268,6 @@ func init() {
 	testDeleteCmd.Flags().BoolVar(&deleteLocalOnly, "local-only", false, "Only delete local files, keep remote")
 
 	// test open flags
-	testOpenCmd.Flags().IntVar(&openTestHotReloadPort, "port", 8081, "Port for local dev server")
-	testOpenCmd.Flags().StringVar(&openTestHotReloadProvider, "provider", "", "Hot reload provider (expo, react-native)")
 	testOpenCmd.Flags().BoolVar(&openTestInteractive, "interactive", false, "Edit test interactively with real-time device feedback")
 	testOpenCmd.Flags().BoolVar(&openTestNoOpen, "no-open", false, "Skip opening browser (with --interactive: output URL and wait for Ctrl+C)")
 }

@@ -16,8 +16,6 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/hotreload"
-	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
 	"github.com/revyl/cli/internal/interactive"
 	"github.com/revyl/cli/internal/orgguard"
 	"github.com/revyl/cli/internal/ui"
@@ -36,11 +34,6 @@ var (
 	createTestCompileTimeout int
 	createTestModules        []string
 	createTestTags           []string
-
-	// Hot reload flags for test creation
-	createTestHotReload         bool
-	createTestHotReloadPort     int
-	createTestHotReloadProvider string
 
 	// Interactive mode flag
 	createTestInteractive bool
@@ -145,11 +138,6 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 	// If interactive mode is enabled, use the interactive flow
 	if createTestInteractive {
 		return runCreateTestInteractive(cmd, args)
-	}
-
-	// If hot reload is enabled, use the hot reload flow
-	if createTestHotReload {
-		return runCreateTestWithHotReload(cmd, args)
 	}
 
 	testName := args[0]
@@ -559,291 +547,6 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 	return runTestsPush(cmd, []string{testName})
 }
 
-// runCreateTestWithHotReload creates a test with hot reload enabled.
-//
-// This function:
-//  1. Starts the dev server and creates a backend-owned relay
-//  2. Builds a deep link URL for the dev client
-//  3. Creates the test with a NAVIGATE step as the first task
-//  4. Opens the browser to the test editor
-//  5. Keeps the dev server running until Ctrl+C
-//
-// Parameters:
-//   - cmd: The cobra command being executed
-//   - args: Command line arguments (test name)
-//
-// Returns:
-//   - error: Any error that occurred
-func runCreateTestWithHotReload(cmd *cobra.Command, args []string) error {
-	testName := args[0]
-
-	// Validate test name
-	if err := validateResourceName(testName, "test"); err != nil {
-		ui.PrintError("%v", err)
-		return err
-	}
-
-	ui.PrintBanner(version)
-
-	// Check authentication
-	authMgr := auth.NewManager()
-	creds, err := authMgr.GetCredentials()
-	if err != nil || creds == nil || !creds.HasValidAuth() {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
-	}
-	apiKey, err := authMgr.GetActiveToken()
-	if err != nil || apiKey == "" {
-		ui.PrintError("Not authenticated. Run 'revyl auth login' first.")
-		return fmt.Errorf("not authenticated")
-	}
-
-	// Get current directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-
-	// Load project config (required for hot reload)
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		printProjectNotInitialized()
-		return fmt.Errorf("project not initialized")
-	}
-
-	// Check hot reload configuration
-	if !cfg.HotReload.IsConfigured() {
-		ui.PrintError("Hot reload not configured.")
-		ui.Println()
-		ui.PrintInfo("Hot reload is configured during 'revyl init'.")
-		ui.PrintInfo("Re-run detection:")
-		ui.PrintDim("  revyl init --detect")
-		return fmt.Errorf("hot reload not configured")
-	}
-
-	// Get dev mode flag
-	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(apiKey, devMode)
-
-	// Select provider using registry
-	registry := hotreload.DefaultRegistry()
-	provider, providerCfg, err := registry.SelectProvider(&cfg.HotReload, createTestHotReloadProvider, cwd)
-	if err != nil {
-		ui.PrintError("Failed to select provider: %v", err)
-		return err
-	}
-
-	if providerCfg == nil {
-		ui.PrintError("Provider '%s' is not configured.", provider.Name())
-		ui.Println()
-		ui.PrintInfo("Re-run 'revyl init --detect' to configure hot reload defaults.")
-		return fmt.Errorf("provider not configured")
-	}
-
-	if !provider.IsSupported() {
-		ui.PrintError("%s hot reload is not yet supported.", provider.DisplayName())
-		return fmt.Errorf("%s not supported", provider.Name())
-	}
-
-	// Override port if specified via flag
-	if createTestHotReloadPort != 8081 {
-		providerCfg.Port = createTestHotReloadPort
-	}
-
-	// Determine platform
-	platform := createTestPlatform
-	if platform == "" {
-		// Prompt user to select platform
-		platformOptions := []string{"android", "ios"}
-		idx, err := ui.PromptSelect("Select platform:", platformOptions)
-		if err != nil {
-			return fmt.Errorf("platform selection cancelled: %w", err)
-		}
-		platform = platformOptions[idx]
-	}
-
-	// Auto-detect app_id from config if not provided via flag
-	appID := createTestAppID
-	if appID == "" && cfg.Build.Platforms != nil {
-		if platformCfg, ok := cfg.Build.Platforms[platform]; ok && platformCfg.AppID != "" {
-			appID = platformCfg.AppID
-			ui.PrintInfo("Using app from config: %s", appID)
-		}
-	}
-
-	if err := requireTestAppID(appID, platform); err != nil {
-		return err
-	}
-
-	if repoRoot, rootErr := config.FindRepoRoot(cwd); rootErr == nil {
-		cwd = repoRoot
-	}
-	var tunnelURL, deepLinkURL string
-	var tunnelOK bool
-	explicitCtx := getDevContextFlag(cmd)
-	if explicitCtx != "" {
-		resolvedCtx, resolveErr := resolveDevContextName(cwd, explicitCtx)
-		if resolveErr != nil {
-			return fmt.Errorf("--context %s: %w", explicitCtx, resolveErr)
-		}
-		tunnelURL, deepLinkURL, tunnelOK = loadDevContextTunnel(cwd, resolvedCtx)
-	}
-
-	ctx, cancel := context.WithCancel(cmd.Context())
-	defer cancel()
-
-	var managerCleanup func()
-
-	if tunnelOK {
-		ui.Println()
-		ui.PrintInfo("Reusing hot reload from dev context '%s'", explicitCtx)
-		ui.PrintInfo("Tunnel URL: %s", tunnelURL)
-		ui.PrintInfo("Deep link URL:")
-		ui.PrintDim("  %s", deepLinkURL)
-		ui.Println()
-		managerCleanup = func() {}
-	} else {
-		ui.Println()
-		ui.PrintInfo("Starting hot reload for test creation...")
-		ui.Println()
-
-		manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
-		manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
-		manager.SetTargetPlatform(platform)
-		manager.SetLogCallback(func(msg string) {
-			ui.PrintDim("  %s", msg)
-		})
-
-		result, startErr := manager.Start(ctx)
-		if startErr != nil {
-			ui.PrintError("Failed to start hot reload: %v", startErr)
-			return startErr
-		}
-		managerCleanup = func() { manager.Stop() }
-
-		tunnelURL = result.TunnelURL
-		deepLinkURL = result.DeepLinkURL
-
-		ui.Println()
-		ui.PrintSuccess("Hot reload ready!")
-		ui.Println()
-		ui.PrintInfo("Tunnel URL: %s", tunnelURL)
-		ui.PrintInfo("Deep link URL:")
-		ui.PrintDim("  %s", deepLinkURL)
-		ui.Println()
-	}
-	defer managerCleanup()
-
-	_ = tunnelURL
-
-	tasks := []map[string]interface{}{
-		{
-			"instruction": fmt.Sprintf("Open deep link to connect to dev server: %s", deepLinkURL),
-		},
-	}
-
-	ui.PrintInfo("Creating test '%s' with NAVIGATE step...", testName)
-
-	// Check if test with same name already exists in the organization
-	var existingTestID string
-	testsResp, err := client.ListOrgTests(cmd.Context(), 100, 0)
-	if err == nil {
-		for _, t := range testsResp.Tests {
-			if t.Name == testName {
-				existingTestID = t.ID
-				break
-			}
-		}
-	}
-
-	var testID string
-
-	if existingTestID != "" {
-		if !createTestForce {
-			ui.PrintError("A test named '%s' already exists (id: %s)", testName, existingTestID)
-			ui.Println()
-			ui.PrintInfo("To open the existing test, run:")
-			ui.PrintDim("  revyl test open %s", testName)
-			ui.Println()
-			ui.PrintInfo("Or use --force to update the existing test.")
-			return fmt.Errorf("test already exists")
-		}
-		// Use existing test
-		ui.PrintInfo("Using existing test '%s' (id: %s)", testName, existingTestID)
-		testID = existingTestID
-
-		// Update the test's tasks with the new NAVIGATE step
-		ui.StartSpinner("Updating test with hot reload step...")
-		_, err := client.UpdateTest(cmd.Context(), &api.UpdateTestRequest{
-			TestID: existingTestID,
-			AppID:  appID,
-			Force:  true,
-		})
-		ui.StopSpinner()
-
-		if err != nil {
-			ui.PrintWarning("Failed to update test: %v", err)
-		}
-	} else {
-		// Create test on server
-		ui.StartSpinner("Creating test on server...")
-		createResp, err := createRemoteTest(cmd.Context(), client, cfg, testName, platform, tasks, appID)
-		ui.StopSpinner()
-
-		if err != nil {
-			ui.PrintError("Failed to create test: %v", err)
-			return err
-		}
-		testID = createResp.ID
-		ui.PrintSuccess("Created test: %s (id: %s)", testName, testID)
-	}
-
-	// Save local YAML file
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-	if err := os.MkdirAll(testsDir, 0755); err != nil {
-		ui.PrintWarning("Failed to create tests directory: %v", err)
-	} else {
-		saveLinkedLocalTest(testsDir, testName, testID)
-	}
-
-	// Open browser to test execute page
-	executeURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(devMode), testID)
-
-	ui.Println()
-	if !createTestNoOpen {
-		ui.PrintInfo("Opening test editor...")
-		ui.PrintLink("Test", executeURL)
-		if err := ui.OpenBrowser(executeURL); err != nil {
-			ui.PrintWarning("Could not open browser: %v", err)
-			ui.PrintInfo("Open manually: %s", executeURL)
-		}
-	} else {
-		ui.PrintInfo("Test URL: %s", executeURL)
-	}
-
-	ui.Println()
-	ui.PrintSuccess("Hot reload running. Press Ctrl+C to stop.")
-	ui.Println()
-	ui.PrintInfo("To test hot reload:")
-	ui.PrintDim("  1. Run the test from the browser")
-	ui.PrintDim("  2. The first step will open the deep link")
-	ui.PrintDim("  3. Your app will connect to the local dev server")
-	ui.PrintDim("  4. Make changes locally and see them reflected immediately")
-	ui.Println()
-
-	// Wait for interrupt signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
-
-	ui.Println()
-	ui.PrintInfo("Shutting down hot reload...")
-
-	return nil
-}
-
 // runCreateWorkflow creates a new workflow on the server and adds it to the local config.
 //
 // Parameters:
@@ -1153,18 +856,6 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 		IsSimulation: true,
 	}
 
-	// If hot reload is also enabled, get the deep link URL
-	if createTestHotReload {
-		hotReloadURL, err := getHotReloadURL(cmd, cfg, cwd, platform)
-		if err != nil {
-			ui.PrintWarning("Hot reload setup failed: %v", err)
-			ui.PrintInfo("Continuing without hot reload...")
-		} else {
-			sessionConfig.HotReloadURL = hotReloadURL
-			ui.PrintInfo("Hot reload enabled: %s", hotReloadURL)
-		}
-	}
-
 	session := interactive.NewSession(sessionConfig)
 
 	ctx, cancel := context.WithCancel(cmd.Context())
@@ -1179,46 +870,6 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 	repl := interactive.NewREPL(session)
 
 	return repl.Run(ctx)
-}
-
-// getHotReloadURL starts hot reload and returns the deep link URL.
-func getHotReloadURL(cmd *cobra.Command, cfg *config.ProjectConfig, cwd string, platform string) (string, error) {
-	if !cfg.HotReload.IsConfigured() {
-		return "", fmt.Errorf("hot reload not configured")
-	}
-
-	registry := hotreload.DefaultRegistry()
-	provider, providerCfg, err := registry.SelectProvider(&cfg.HotReload, createTestHotReloadProvider, cwd)
-	if err != nil {
-		return "", err
-	}
-
-	if providerCfg == nil {
-		return "", fmt.Errorf("provider not configured")
-	}
-
-	if !provider.IsSupported() {
-		return "", fmt.Errorf("%s not supported", provider.Name())
-	}
-
-	// Override port if specified
-	if createTestHotReloadPort != 8081 {
-		providerCfg.Port = createTestHotReloadPort
-	}
-
-	manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
-	apiKey, err := getAPIKey()
-	if err == nil && strings.TrimSpace(apiKey) != "" {
-		manager.ConfigureFromHotReloadConfig(&cfg.HotReload, api.NewClient(apiKey))
-	}
-	manager.SetTargetPlatform(platform)
-
-	result, err := manager.Start(cmd.Context())
-	if err != nil {
-		return "", err
-	}
-
-	return result.DeepLinkURL, nil
 }
 
 // resolveModuleForCreate resolves a module name or UUID to an ID and name.

@@ -27,7 +27,6 @@ import (
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/devloop"
 	"github.com/revyl/cli/internal/devpush"
-	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
 	mcppkg "github.com/revyl/cli/internal/mcp"
@@ -56,9 +55,6 @@ var (
 	devStartForceHotReload bool
 	devStartDetach         bool
 	devStartJSON           bool
-
-	devTestRunPlatform    string
-	devTestRunPlatformKey string
 )
 
 var (
@@ -110,47 +106,6 @@ var devStartCmd = &cobra.Command{
 	RunE:  runDevStart,
 }
 
-var devTestCmd = &cobra.Command{
-	Use:               "test",
-	Short:             "Run test commands with hot reload defaults",
-	PersistentPreRunE: enforceOrgBindingMatch,
-}
-
-var devTestRunCmd = &cobra.Command{
-	Use:   "run <name|id>",
-	Short: "Run a test in dev mode (hot reload)",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		runHotReload = true
-		if strings.TrimSpace(devTestRunPlatformKey) != "" {
-			runTestPlatform = strings.TrimSpace(devTestRunPlatformKey)
-		} else {
-			runTestPlatform = strings.TrimSpace(devTestRunPlatform)
-		}
-		return runTestExec(cmd, args)
-	},
-}
-
-var devTestOpenCmd = &cobra.Command{
-	Use:   "open <name>",
-	Short: "Open a test with hot reload defaults",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		openTestHotReload = true
-		return runOpenTest(cmd, args)
-	},
-}
-
-var devTestCreateCmd = &cobra.Command{
-	Use:   "create <name>",
-	Short: "Create a test with hot reload defaults",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		createTestHotReload = true
-		return runCreateTest(cmd, args)
-	},
-}
-
 var (
 	rebuildWait    bool
 	rebuildTimeout int
@@ -199,7 +154,6 @@ func init() {
 	devCmd.AddCommand(devStartCmd)
 	devCmd.AddCommand(devRebuildCmd)
 	devCmd.AddCommand(devStatusCmd)
-	devCmd.AddCommand(devTestCmd)
 	devCmd.AddCommand(devAttachCmd)
 	devCmd.AddCommand(devListCmd)
 	devCmd.AddCommand(devContextUseCmd)
@@ -214,43 +168,6 @@ func init() {
 
 	devStatusCmd.Flags().Bool("wait-ready", false, "Block until the dev loop has a live device session")
 	devStatusCmd.Flags().Int("timeout", 300, "Timeout in seconds (with --wait-ready)")
-
-	devTestCmd.AddCommand(devTestRunCmd)
-	devTestCmd.AddCommand(devTestOpenCmd)
-	devTestCmd.AddCommand(devTestCreateCmd)
-
-	// dev test run flags (hotreload is always enabled in this namespace)
-	devTestRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
-	devTestRunCmd.Flags().StringVarP(&runBuildID, "build-id", "b", "", "Specific build version ID")
-	devTestRunCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after test starts without waiting")
-	devTestRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete")
-	devTestRunCmd.Flags().IntVarP(&runTimeout, "timeout", "t", execution.DefaultRunTimeoutSeconds, "Timeout in seconds")
-	devTestRunCmd.Flags().BoolVar(&runOutputJSON, "json", false, "Output results as JSON")
-	devTestRunCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
-	devTestRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
-	devTestRunCmd.Flags().StringVar(&devTestRunPlatform, "platform", "ios", "Device platform to use (ios or android)")
-	devTestRunCmd.Flags().StringVar(&devTestRunPlatformKey, "platform-key", "", "Explicit build.platforms key for dev client build")
-	devTestRunCmd.Flags().StringVar(&runLocation, "location", "", "Initial GPS location as lat,lng (e.g. 37.7749,-122.4194)")
-	devTestRunCmd.Flags().IntVar(&runHotReloadPort, "port", 8081, "Port for dev server")
-	devTestRunCmd.Flags().StringArrayVar(&runLaunchVars, "launch-var", nil, "Org launch variable key or ID to apply to this run (repeatable)")
-	devTestRunCmd.Flags().StringArrayVar(&runVars, "var", nil, "Runtime variable override as key=value (repeatable, referenced as {{key}})")
-
-	// dev test open flags
-	devTestOpenCmd.Flags().IntVar(&openTestHotReloadPort, "port", 8081, "Port for dev server")
-	devTestOpenCmd.Flags().BoolVar(&openTestInteractive, "interactive", false, "Edit test interactively with real-time device feedback")
-	devTestOpenCmd.Flags().BoolVar(&openTestNoOpen, "no-open", false, "Skip opening browser (with --interactive: output URL and wait for Ctrl+C)")
-
-	// dev test create flags
-	devTestCreateCmd.Flags().StringVar(&createTestPlatform, "platform", "ios", "Target platform (android, ios)")
-	devTestCreateCmd.Flags().StringVar(&createTestAppID, "app", "", "App ID to associate with the test")
-	devTestCreateCmd.Flags().BoolVar(&createTestNoOpen, "no-open", false, "Skip opening browser to test editor")
-	devTestCreateCmd.Flags().BoolVar(&createTestForce, "force", false, "Update existing test if name already exists")
-	devTestCreateCmd.Flags().BoolVar(&createTestDryRun, "dry-run", false, "Show what would be created without creating")
-	devTestCreateCmd.Flags().StringVar(&createTestFromFile, "from-file", "", "Create test from YAML file (copies to .revyl/tests/ and pushes)")
-	devTestCreateCmd.Flags().IntVar(&createTestHotReloadPort, "port", 8081, "Port for dev server")
-	devTestCreateCmd.Flags().BoolVar(&createTestInteractive, "interactive", false, "Create test interactively with real-time device feedback")
-	devTestCreateCmd.Flags().StringSliceVar(&createTestModules, "module", nil, "Module name or ID to insert as module_import block (can be repeated)")
-	devTestCreateCmd.Flags().StringSliceVar(&createTestTags, "tag", nil, "Tag to assign after creation (can be repeated)")
 }
 
 func registerDevStartFlags(cmd *cobra.Command) {
@@ -1715,13 +1632,17 @@ func printNewTerminalHints(ctxName string, sessionIndex int) {
 	ui.PrintDim("  Manage the session:")
 	ui.PrintDim("    revyl dev status                # session state + rebuild history")
 	ui.PrintDim("    revyl dev rebuild               # trigger native rebuild + reinstall")
-	ui.PrintDim("    revyl dev test run <name>       # run a test against this session")
 	ui.PrintDim("    revyl dev list                  # show named contexts")
 	ui.Println()
 	ui.PrintDim("  Interact with the device:")
 	ui.PrintDim("    revyl device tap --target \"Login button\" -s %d    # AI-grounded tap", sessionIndex)
 	ui.PrintDim("    revyl device instruction \"log in and verify\" -s %d  # multi-step AI instruction", sessionIndex)
 	ui.PrintDim("    revyl device screenshot -s %d                       # save a screenshot locally", sessionIndex)
+	ui.PrintDim("    revyl device validation -s %d \"expected outcome\"    # verify a user-visible outcome", sessionIndex)
+	ui.Println()
+	ui.PrintDim("  Promote a verified flow:")
+	ui.PrintDim("    revyl test create <name> --from-session <id>")
+	ui.PrintDim("    revyl test run <name>")
 }
 
 // printDevPreflight renders the structured pre-flight checklist box showing

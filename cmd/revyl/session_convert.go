@@ -43,9 +43,6 @@ func runCreateTestFromSession(cmd *cobra.Command, args []string) error {
 	if createTestInteractive {
 		return fmt.Errorf("--interactive cannot be combined with --from-session")
 	}
-	if createTestHotReload {
-		return fmt.Errorf("hot reload test creation cannot be combined with --from-session")
-	}
 
 	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 

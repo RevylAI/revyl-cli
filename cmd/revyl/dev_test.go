@@ -684,13 +684,16 @@ func TestPrintDevReadyFooter_PrintsInteractionShortcuts(t *testing.T) {
 		"Manage the session:",
 		"revyl dev status",
 		"revyl dev rebuild",
-		"revyl dev test run <name>",
 		"revyl dev list",
 		"Interact with the device:",
 		`revyl device tap --target "Login button" -s 0`,
 		"# AI-grounded tap",
 		`revyl device instruction "log in and verify" -s 0`,
 		"revyl device screenshot -s 0",
+		`revyl device validation -s 0 "expected outcome"`,
+		"Promote a verified flow:",
+		"revyl test create <name> --from-session <id>",
+		"revyl test run <name>",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("output missing %q\noutput:\n%s", expected, output)

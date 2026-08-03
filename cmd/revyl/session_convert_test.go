@@ -103,7 +103,6 @@ func TestRunCreateTestFromSessionCompilesAndCreatesTest(t *testing.T) {
 		createTestModules = nil
 		createTestTags = nil
 		createTestInteractive = false
-		createTestHotReload = false
 	}
 	resetCreateSessionFlags()
 	t.Cleanup(resetCreateSessionFlags)

@@ -4101,11 +4101,6 @@ func printDynamicNextSteps(cfg *config.ProjectConfig, authOK bool, testID string
 		}
 		if cfg.HotReload.IsConfigured() && hasRunnableBuildPlatforms(cfg) {
 			steps = append(steps, ui.NextStep{Label: "Start dev loop:", Command: "revyl dev"})
-			if testAlias != "" {
-				steps = append(steps, ui.NextStep{Label: "Run test in dev loop:", Command: fmt.Sprintf("revyl dev test run %s", testAlias)})
-			} else {
-				steps = append(steps, ui.NextStep{Label: "Run test in dev loop:", Command: "revyl dev test run <name>"})
-			}
 		}
 	} else {
 		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: "revyl test run <name>"})

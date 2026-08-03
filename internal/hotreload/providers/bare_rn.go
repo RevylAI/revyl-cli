@@ -93,7 +93,7 @@ func (b *BareRNDevServer) Start(ctx context.Context) error {
 	}
 
 	if !b.isPortAvailable() {
-		return fmt.Errorf("port %d is already in use. Stop the existing process or use --port to specify a different port\n\nTo kill the process using port %d, run:\n  lsof -ti :%d | xargs kill -9\n\nOr specify a different port:\n  revyl test open <name> --hotreload --port 8082", b.Port, b.Port, b.Port)
+		return fmt.Errorf("port %d is already in use. Stop the existing process or use --port to specify a different port\n\nTo kill the process using port %d, run:\n  lsof -ti :%d | xargs kill -9\n\nOr specify a different port:\n  revyl dev --port 8082", b.Port, b.Port, b.Port)
 	}
 
 	ctx, b.cancel = context.WithCancel(ctx)

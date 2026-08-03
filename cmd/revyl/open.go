@@ -13,18 +13,11 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/hotreload"
-	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
 	"github.com/revyl/cli/internal/interactive"
 	"github.com/revyl/cli/internal/ui"
 )
 
 var (
-	// Hot reload flags for open test
-	openTestHotReload         bool
-	openTestHotReloadPort     int
-	openTestHotReloadProvider string
-
 	// Interactive mode flag
 	openTestInteractive bool
 
@@ -44,11 +37,6 @@ func runOpenTest(cmd *cobra.Command, args []string) error {
 	// If interactive mode is enabled, use the interactive flow
 	if openTestInteractive {
 		return runOpenTestInteractive(cmd, args)
-	}
-
-	// If hot reload is enabled, use the hot reload flow
-	if openTestHotReload {
-		return runOpenTestWithHotReload(cmd, args)
 	}
 
 	testNameOrID := args[0]
@@ -127,215 +115,6 @@ func runOpenTest(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runOpenTestWithHotReload opens a test with hot reload enabled.
-//
-// This function:
-//  1. Resolves the test ID
-//  2. Starts the dev server and creates a backend-owned relay
-//  3. Opens the browser to the test editor
-//  4. Prints the deep link URL for the user to add as a NAVIGATE step
-//  5. Keeps the dev server running until Ctrl+C
-//
-// Parameters:
-//   - cmd: The cobra command being executed
-//   - args: Command line arguments (test name or ID)
-//
-// Returns:
-//   - error: Any error that occurred
-func runOpenTestWithHotReload(cmd *cobra.Command, args []string) error {
-	testNameOrID := args[0]
-
-	ui.PrintBanner(version)
-
-	// Check authentication
-	apiKey, err := getAPIKey()
-	if err != nil {
-		return err
-	}
-
-	// Get current directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-
-	// Load project config (required for hot reload)
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		printProjectNotInitialized()
-		return fmt.Errorf("project not initialized")
-	}
-
-	// Check hot reload configuration
-	if !cfg.HotReload.IsConfigured() {
-		ui.PrintError("Hot reload not configured.")
-		ui.Println()
-		ui.PrintInfo("Hot reload is configured during 'revyl init'.")
-		ui.PrintInfo("Re-run detection:")
-		ui.PrintDim("  revyl init --detect")
-		return fmt.Errorf("hot reload not configured")
-	}
-
-	// Get dev mode flag
-	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(apiKey, devMode)
-
-	// Resolve test ID
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-	var testID string
-	if id, _ := config.GetLocalTestRemoteID(testsDir, testNameOrID); id != "" {
-		testID = id
-	}
-
-	// If not found locally, check if it looks like a UUID or search via API
-	if testID == "" {
-		if looksLikeUUID(testNameOrID) {
-			testID = testNameOrID
-		} else {
-			// Search via API
-			ui.StartSpinner("Searching for test...")
-			testsResp, err := client.ListOrgTests(cmd.Context(), 100, 0)
-			ui.StopSpinner()
-
-			if err != nil {
-				ui.PrintError("Failed to search for test: %v", err)
-				return err
-			}
-
-			for _, t := range testsResp.Tests {
-				if t.Name == testNameOrID {
-					testID = t.ID
-					break
-				}
-			}
-
-			if testID == "" {
-				ui.PrintError("Test '%s' not found", testNameOrID)
-				ui.PrintInfo("Use 'revyl test remote' to list available tests")
-				return fmt.Errorf("test not found")
-			}
-		}
-	}
-
-	// Select provider using registry
-	registry := hotreload.DefaultRegistry()
-	provider, providerCfg, err := registry.SelectProvider(&cfg.HotReload, openTestHotReloadProvider, cwd)
-	if err != nil {
-		ui.PrintError("Failed to select provider: %v", err)
-		return err
-	}
-
-	if providerCfg == nil {
-		ui.PrintError("Provider '%s' is not configured.", provider.Name())
-		ui.Println()
-		ui.PrintInfo("Re-run 'revyl init --detect' to configure hot reload defaults.")
-		return fmt.Errorf("provider not configured")
-	}
-
-	if !provider.IsSupported() {
-		ui.PrintError("%s hot reload is not yet supported.", provider.DisplayName())
-		return fmt.Errorf("%s not supported", provider.Name())
-	}
-
-	// Override port if specified via flag
-	if openTestHotReloadPort != 8081 {
-		providerCfg.Port = openTestHotReloadPort
-	}
-
-	if repoRoot, rootErr := config.FindRepoRoot(cwd); rootErr == nil {
-		cwd = repoRoot
-	}
-	var tunnelURL, deepLinkURL string
-	var tunnelOK bool
-	explicitCtx := getDevContextFlag(cmd)
-	if explicitCtx != "" {
-		resolvedCtx, resolveErr := resolveDevContextName(cwd, explicitCtx)
-		if resolveErr != nil {
-			return fmt.Errorf("--context %s: %w", explicitCtx, resolveErr)
-		}
-		tunnelURL, deepLinkURL, tunnelOK = loadDevContextTunnel(cwd, resolvedCtx)
-	}
-
-	ctx, cancel := context.WithCancel(cmd.Context())
-	defer cancel()
-
-	var managerCleanup func()
-
-	if tunnelOK {
-		ui.Println()
-		ui.PrintInfo("Reusing hot reload from dev context '%s'", explicitCtx)
-		ui.PrintInfo("Tunnel URL: %s", tunnelURL)
-		ui.Println()
-		ui.PrintInfo("Deep link URL (add as NAVIGATE step in your test):")
-		ui.PrintDim("  %s", deepLinkURL)
-		ui.Println()
-		managerCleanup = func() {}
-	} else {
-		ui.Println()
-		ui.PrintInfo("Starting hot reload...")
-		ui.Println()
-
-		manager := hotreload.NewManager(provider.Name(), providerCfg, cwd)
-		manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
-		manager.SetLogCallback(func(msg string) {
-			ui.PrintDim("  %s", msg)
-		})
-
-		result, startErr := manager.Start(ctx)
-		if startErr != nil {
-			ui.PrintError("Failed to start hot reload: %v", startErr)
-			return startErr
-		}
-		managerCleanup = func() { manager.Stop() }
-
-		tunnelURL = result.TunnelURL
-		deepLinkURL = result.DeepLinkURL
-
-		ui.Println()
-		ui.PrintSuccess("Hot reload ready!")
-		ui.Println()
-		ui.PrintInfo("Tunnel URL: %s", tunnelURL)
-		ui.Println()
-		ui.PrintInfo("Deep link URL (add as NAVIGATE step in your test):")
-		ui.PrintDim("  %s", deepLinkURL)
-		ui.Println()
-	}
-	defer managerCleanup()
-
-	// Open browser to test execute page
-	testURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(devMode), testID)
-
-	ui.PrintInfo("Opening test '%s'...", testNameOrID)
-	ui.PrintLink("Test", testURL)
-
-	if err := ui.OpenBrowser(testURL); err != nil {
-		ui.PrintWarning("Could not open browser: %v", err)
-		ui.PrintInfo("Open manually: %s", testURL)
-	}
-
-	ui.Println()
-	ui.PrintSuccess("Hot reload running. Press Ctrl+C to stop.")
-	ui.Println()
-	ui.PrintInfo("To use hot reload:")
-	ui.PrintDim("  1. Add a NAVIGATE step with the deep link URL above")
-	ui.PrintDim("  2. Run the test from the browser")
-	ui.PrintDim("  3. The app will connect to your local dev server")
-	ui.PrintDim("  4. Make changes locally and see them reflected immediately")
-	ui.Println()
-
-	// Wait for interrupt signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
-
-	ui.Println()
-	ui.PrintInfo("Shutting down hot reload...")
-
-	return nil
-}
-
 // runOpenWorkflow opens a workflow in the browser.
 //
 // Parameters:
@@ -409,12 +188,8 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 	}
 
 	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-
-	// Load project config
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
+	if _, err := config.LoadProjectConfig(configPath); err != nil {
 		ui.PrintWarning("Project not initialized. Run 'revyl init' first for full functionality.")
-		cfg = &config.ProjectConfig{}
 	}
 
 	// Get dev mode flag
@@ -483,45 +258,6 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 		IsSimulation: true,
 	}
 
-	// Track hot reload manager for cleanup
-	var hotReloadManager *hotreload.Manager
-
-	// If hot reload is also enabled, get the deep link URL
-	if openTestHotReload && cfg.HotReload.IsConfigured() {
-		registry := hotreload.DefaultRegistry()
-		provider, providerCfg, err := registry.SelectProvider(&cfg.HotReload, openTestHotReloadProvider, cwd)
-		if err == nil && providerCfg != nil && provider.IsSupported() {
-			if openTestHotReloadPort != 8081 {
-				providerCfg.Port = openTestHotReloadPort
-			}
-
-			hotReloadManager = hotreload.NewManager(provider.Name(), providerCfg, cwd)
-			hotReloadManager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
-			hotReloadManager.SetTargetPlatform(test.Platform)
-			hotReloadManager.SetLogCallback(func(msg string) {
-				ui.PrintDim("  %s", msg)
-			})
-
-			result, err := hotReloadManager.Start(cmd.Context())
-			if err == nil {
-				sessionConfig.HotReloadURL = result.DeepLinkURL
-				ui.PrintInfo("Hot reload enabled: %s", result.DeepLinkURL)
-				ui.Println()
-			} else {
-				ui.PrintWarning("Hot reload setup failed: %v", err)
-				hotReloadManager = nil // Clear reference since start failed
-			}
-		}
-	}
-
-	// Ensure hot reload manager is cleaned up on exit
-	if hotReloadManager != nil {
-		defer func() {
-			ui.PrintInfo("Stopping hot reload...")
-			hotReloadManager.Stop()
-		}()
-	}
-
 	session := interactive.NewSession(sessionConfig)
 
 	ctx, cancel := context.WithCancel(cmd.Context())
@@ -532,9 +268,8 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 		return runOpenHeadlessSession(ctx, session)
 	}
 
-	// Create and run REPL with hot reload manager for coordinated cleanup
+	// Create and run REPL
 	repl := interactive.NewREPL(session)
-	repl.SetHotReloadManager(hotReloadManager)
 
 	return repl.Run(ctx)
 }

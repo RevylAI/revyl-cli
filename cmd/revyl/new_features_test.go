@@ -589,34 +589,6 @@ func TestTestRunLocationFlag(t *testing.T) {
 	}
 }
 
-func TestDevTestRunVarFlag(t *testing.T) {
-	var devTestRunCmd *cobra.Command
-	for _, cmd := range rootCmd.Commands() {
-		if cmd.Name() != "dev" {
-			continue
-		}
-		for _, sub := range cmd.Commands() {
-			if sub.Name() != "test" {
-				continue
-			}
-			for _, runSub := range sub.Commands() {
-				if runSub.Name() == "run" {
-					devTestRunCmd = runSub
-					break
-				}
-			}
-			break
-		}
-		break
-	}
-	if devTestRunCmd == nil {
-		t.Fatal("expected 'dev test run' command to exist")
-	}
-	if devTestRunCmd.Flags().Lookup("var") == nil {
-		t.Error("expected --var flag on dev test run")
-	}
-}
-
 // --- Verify API endpoint paths in mock server ---
 
 func TestWorkflowSettingsAPIEndpoints(t *testing.T) {
