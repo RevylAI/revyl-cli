@@ -18,3 +18,8 @@
 # YAML validation uses handwritten CLI transport models and is intentionally
 # omitted from the customer-facing generated model surface.
 /api/v1/tests/yaml/validate-yaml
+
+# Proof-media publishing is a multipart upload, which generates no usable
+# client, so its transport and response model are handwritten wrappers in
+# internal/api.
+/api/v1/reports-v3/sessions/%s/proof-media

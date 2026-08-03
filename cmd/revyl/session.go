@@ -16,6 +16,9 @@ var (
 	sessionShareOutputJSON bool
 	sessionShareOpen       bool
 	sessionShareExpires    string
+
+	sessionPublishOutputJSON bool
+	sessionPublishSessionID  string
 )
 
 // sessionCmd is the parent command for device-session operations.
@@ -25,7 +28,8 @@ var sessionCmd = &cobra.Command{
 	Long: `Work with device sessions.
 
 COMMANDS:
-  share - Generate a public shareable link for a session report`,
+  share   - Generate a public shareable link for a session report
+  publish - Publish an image for a session and get a public URL for it`,
 }
 
 // sessionShareCmd generates a public shareable link for a device session report.
@@ -46,12 +50,40 @@ Examples:
 	RunE: runSessionShare,
 }
 
+// sessionPublishCmd publishes an image for a session and returns a public URL.
+var sessionPublishCmd = &cobra.Command{
+	Use:   "publish <file>",
+	Short: "Publish an image for a session and get a public URL",
+	Long: `Publish an image for a device session and get a public URL for it.
+
+Use this for evidence that has to render for someone who is not signed in, such
+as a screenshot or preview GIF embedded in a pull request comment. A local file
+path in markdown renders as a broken image; the URL returned here does not.
+
+Accepts PNG, JPEG, GIF, and WebP up to 15MB. The file's base name becomes the
+published name, so use plain names like shot.png or preview.gif.
+
+Publishing is a disclosure: the returned URL, and the session's report, become
+readable by anyone who has the link.
+
+Examples:
+  revyl session publish shot.png --session d437c539-8e4d-45cb-aad9-5f88dca32cc7
+  revyl session publish preview.gif --session <sessionId> --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSessionPublish,
+}
+
 func init() {
 	sessionShareCmd.Flags().BoolVar(&sessionShareOutputJSON, "json", false, "Output results as JSON")
 	sessionShareCmd.Flags().BoolVar(&sessionShareOpen, "open", false, "Open shareable link in browser")
 	sessionShareCmd.Flags().StringVar(&sessionShareExpires, "expires", "", "Link expiry, e.g. 24h, 30d, 4w (default: never)")
 
+	sessionPublishCmd.Flags().BoolVar(&sessionPublishOutputJSON, "json", false, "Output results as JSON")
+	sessionPublishCmd.Flags().StringVar(&sessionPublishSessionID, "session", "", "Session id the media belongs to (required)")
+	_ = sessionPublishCmd.MarkFlagRequired("session")
+
 	sessionCmd.AddCommand(sessionShareCmd)
+	sessionCmd.AddCommand(sessionPublishCmd)
 }
 
 // runSessionShare generates a shareable link for a device session report.
@@ -116,6 +148,69 @@ func runSessionShare(cmd *cobra.Command, args []string) error {
 	if sessionShareOpen {
 		ui.OpenBrowser(shareResp.ShareableLink)
 	}
+
+	return nil
+}
+
+// runSessionPublish uploads a local image for a session and prints its public URL.
+func runSessionPublish(cmd *cobra.Command, args []string) error {
+	jsonOutput := sessionPublishOutputJSON
+	if globalJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); globalJSON {
+		jsonOutput = true
+	}
+
+	sessionID := strings.TrimSpace(sessionPublishSessionID)
+	if !looksLikeUUID(sessionID) {
+		ui.PrintError("Invalid session id %q (expected a UUID, e.g. from app.revyl.ai/sessions/<id>)", sessionID)
+		return fmt.Errorf("invalid session id")
+	}
+
+	filePath := strings.TrimSpace(args[0])
+	if filePath == "" {
+		ui.PrintError("Provide the path to the image to publish")
+		return fmt.Errorf("missing file path")
+	}
+
+	apiKey, err := getAPIKey()
+	if err != nil {
+		return err
+	}
+
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+
+	if jsonOutput {
+		ui.SetQuietMode(true)
+		defer ui.SetQuietMode(false)
+	} else {
+		ui.StartSpinner("Publishing media...")
+	}
+
+	published, err := client.PublishSessionProofMedia(cmd.Context(), sessionID, filePath)
+	if !jsonOutput {
+		ui.StopSpinner()
+	}
+
+	if err != nil {
+		ui.PrintError("Failed to publish %s: %v", filePath, err)
+		return err
+	}
+
+	if jsonOutput {
+		output := map[string]interface{}{
+			"session_id": sessionID,
+			"file_name":  published.FileName,
+			"public_url": published.PublicURL,
+		}
+		data, _ := marshalPrettyJSON(output)
+		fmt.Println(string(data))
+		return nil
+	}
+
+	ui.Println()
+	ui.PrintSuccess("Published %s", published.FileName)
+	ui.Println()
+	ui.PrintLink("Public URL", published.PublicURL)
 
 	return nil
 }
