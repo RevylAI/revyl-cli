@@ -33,14 +33,19 @@ after launch.
 Each published plugin release pins one immutable Revyl CLI GitHub Release and
 the SHA-256 checksum for every supported OS and architecture. On MCP startup,
 the launcher selects the matching asset, reuses it only when its checksum
-matches, or downloads it to a temporary file and installs it atomically after
-verification. A corrupt cache entry is repaired on the next online start, and
-a new runtime pin uses a separate versioned cache directory.
+matches, adopts an already-installed Revyl CLI whose checksum matches the same
+pin by copying it into the cache, or downloads it to a temporary file and
+installs it atomically after verification. A corrupt cache entry is repaired on
+the next online start, and a new runtime pin uses a separate versioned cache
+directory.
 
-The first start for a new runtime requires network access to GitHub Releases.
-Bootstrap failures are written only to standard error so MCP output remains
-valid. Developers may select an existing executable with `REVYL_BINARY`;
-normal Marketplace users do not need a separate CLI installation.
+The first start for a new runtime requires network access to GitHub Releases
+unless a checksum-matching Revyl CLI is already installed. Transient download
+failures are retried up to three times with backoff before the launcher reports
+the asset it could not fetch. Bootstrap failures are written only to standard
+error so MCP output remains valid. Developers may select an existing executable
+with `REVYL_BINARY`; normal Marketplace users do not need a separate CLI
+installation.
 
 ## Verify
 

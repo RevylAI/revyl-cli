@@ -187,6 +187,7 @@ func TestPOSIXRuntimeLauncherDownloadsCachesAndRepairs(t *testing.T) {
 	cacheRoot := filepath.Join(fixtureRoot, "cache")
 	environment := environmentWithOverrides(
 		"PATH="+fakeCommands+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"HOME="+filepath.Join(fixtureRoot, "home"),
 		"REVYL_BINARY=",
 		"REVYL_RUNTIME_MANIFEST="+manifestPath,
 		"REVYL_PLUGIN_CACHE_DIR="+cacheRoot,
@@ -283,6 +284,7 @@ func TestPOSIXRuntimeLauncherRejectsMismatchedDownload(t *testing.T) {
 	command.Args = append(command.Args, "mcp", "serve", "--profile", "dev")
 	command.Env = environmentWithOverrides(
 		"PATH="+fakeCommands+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"HOME="+filepath.Join(fixtureRoot, "home"),
 		"REVYL_BINARY=",
 		"REVYL_RUNTIME_MANIFEST="+manifestPath,
 		"REVYL_PLUGIN_CACHE_DIR="+cacheRoot,
@@ -306,6 +308,293 @@ func TestPOSIXRuntimeLauncherRejectsMismatchedDownload(t *testing.T) {
 	cachedRuntime := filepath.Join(cacheRoot, "9.8.7", platform, "revyl")
 	if _, statErr := os.Stat(cachedRuntime); !os.IsNotExist(statErr) {
 		t.Fatalf("mismatched runtime was cached: %v", statErr)
+	}
+}
+
+// adoptionFixture prepares an isolated launcher environment for local-install coverage.
+//
+// Every path is scoped to one t.TempDir(), and the manifest pins a fixture-specific
+// digest, so neither a developer's real Revyl CLI nor their cache can change a result.
+type adoptionFixture struct {
+	Root         string
+	FakeCommands string
+	Home         string
+	CacheRoot    string
+	OutputPath   string
+	manifestPath string
+	platform     string
+}
+
+// newAdoptionFixture creates the isolated directories a launcher run needs.
+//
+// The runtime pin is applied separately because a recording fixture embeds this
+// fixture's output path, so its digest is only known after it is written.
+func newAdoptionFixture(t *testing.T) *adoptionFixture {
+	t.Helper()
+	root := t.TempDir()
+	fixture := &adoptionFixture{
+		Root:         root,
+		FakeCommands: filepath.Join(root, "bin"),
+		Home:         filepath.Join(root, "home"),
+		CacheRoot:    filepath.Join(root, "cache"),
+		OutputPath:   filepath.Join(root, "runtime-output.txt"),
+	}
+	for _, directory := range []string{fixture.FakeCommands, fixture.Home} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatalf("create fixture directory %s: %v", directory, err)
+		}
+	}
+	return fixture
+}
+
+// PinRuntime writes the manifest fixture that pins one expected runtime digest.
+func (fixture *adoptionFixture) PinRuntime(t *testing.T, checksum string) {
+	t.Helper()
+	manifestPath, platform, _ := writePreparedRuntimeManifest(t, fixture.Root, checksum)
+	fixture.manifestPath = manifestPath
+	fixture.platform = platform
+}
+
+// Environment returns the launcher environment plus any test-specific overrides.
+//
+// PATH keeps the standard command directories so the bootstrap can still resolve
+// utilities such as dirname and sed, while the fixture directory shadows curl.
+func (fixture *adoptionFixture) Environment(t *testing.T, overrides ...string) []string {
+	t.Helper()
+	if fixture.manifestPath == "" {
+		t.Fatal("adoption fixture used before PinRuntime")
+	}
+	base := []string{
+		"PATH=" + fixture.FakeCommands + string(os.PathListSeparator) + "/usr/bin:/bin",
+		"HOME=" + fixture.Home,
+		"REVYL_BINARY=",
+		"REVYL_RUNTIME_MANIFEST=" + fixture.manifestPath,
+		"REVYL_PLUGIN_CACHE_DIR=" + fixture.CacheRoot,
+		"REVYL_RUNTIME_OUTPUT=" + fixture.OutputPath,
+	}
+	return environmentWithOverrides(append(base, overrides...)...)
+}
+
+// CachedRuntime returns the versioned cache path the launcher must populate.
+func (fixture *adoptionFixture) CachedRuntime() string {
+	return filepath.Join(fixture.CacheRoot, "9.8.7", fixture.platform, "revyl")
+}
+
+// TestPOSIXRuntimeLauncherAdoptsMatchingPathInstall verifies an offline start from PATH.
+//
+// This is the reported Cloud Agent failure: the release download is unavailable while a
+// byte-identical CLI is already installed.
+func TestPOSIXRuntimeLauncherAdoptsMatchingPathInstall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX launcher coverage")
+	}
+
+	pluginRoot := pluginRootPath(t)
+	fixture := newAdoptionFixture(t)
+	installedRuntime := writeRecordingRuntimeNamed(
+		t,
+		fixture.FakeCommands,
+		"revyl",
+		fixture.OutputPath,
+	)
+	runtimeChecksum := fileSHA256(t, installedRuntime)
+	fixture.PinRuntime(t, runtimeChecksum)
+	writeFakeCurl(t, fixture.FakeCommands, true)
+
+	runRuntimeLauncher(t, pluginRoot, fixture.Environment(t))
+
+	cachedRuntime := fixture.CachedRuntime()
+	if got := fileSHA256(t, cachedRuntime); got != runtimeChecksum {
+		t.Fatalf("adopted cache checksum = %s, want %s", got, runtimeChecksum)
+	}
+	recording := readText(t, fixture.OutputPath)
+	if !recordingContainsExecutable(recording, cachedRuntime) {
+		t.Fatalf("adoption ran %q instead of the cached runtime %q", recording, cachedRuntime)
+	}
+}
+
+// TestPOSIXRuntimeLauncherAdoptsHomeInstall verifies the documented home install location.
+func TestPOSIXRuntimeLauncherAdoptsHomeInstall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX launcher coverage")
+	}
+
+	pluginRoot := pluginRootPath(t)
+	fixture := newAdoptionFixture(t)
+	installDirectory := filepath.Join(fixture.Home, ".revyl", "bin")
+	if err := os.MkdirAll(installDirectory, 0o700); err != nil {
+		t.Fatalf("create home install directory: %v", err)
+	}
+	installedRuntime := writeRecordingRuntimeNamed(
+		t,
+		installDirectory,
+		"revyl",
+		fixture.OutputPath,
+	)
+	runtimeChecksum := fileSHA256(t, installedRuntime)
+	fixture.PinRuntime(t, runtimeChecksum)
+	writeFakeCurl(t, fixture.FakeCommands, true)
+
+	runRuntimeLauncher(t, pluginRoot, fixture.Environment(t))
+
+	if got := fileSHA256(t, fixture.CachedRuntime()); got != runtimeChecksum {
+		t.Fatalf("home-adopted cache checksum = %s, want %s", got, runtimeChecksum)
+	}
+}
+
+// TestPOSIXRuntimeLauncherIgnoresMismatchedLocalInstall protects the checksum trust boundary.
+func TestPOSIXRuntimeLauncherIgnoresMismatchedLocalInstall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX launcher coverage")
+	}
+
+	pluginRoot := pluginRootPath(t)
+	fixture := newAdoptionFixture(t)
+	// The pinned runtime is only reachable over the download path.
+	pinnedRuntime := writeRecordingRuntimeNamed(
+		t,
+		t.TempDir(),
+		"revyl",
+		fixture.OutputPath,
+	)
+	runtimeChecksum := fileSHA256(t, pinnedRuntime)
+	fixture.PinRuntime(t, runtimeChecksum)
+	writeExecutable(
+		t,
+		fixture.FakeCommands,
+		"revyl",
+		"#!/bin/sh\nprintf 'not the pinned runtime\\n'\n",
+	)
+	writeFakeCurl(t, fixture.FakeCommands, false)
+
+	runRuntimeLauncher(
+		t,
+		pluginRoot,
+		fixture.Environment(t, "REVYL_RUNTIME_SOURCE="+pinnedRuntime),
+	)
+
+	cachedRuntime := fixture.CachedRuntime()
+	if got := fileSHA256(t, cachedRuntime); got != runtimeChecksum {
+		t.Fatalf("mismatched install was adopted: cache checksum = %s", got)
+	}
+	recording := readText(t, fixture.OutputPath)
+	if !recordingContainsExecutable(recording, cachedRuntime) {
+		t.Fatalf("launcher ran %q instead of the downloaded runtime %q", recording, cachedRuntime)
+	}
+}
+
+// TestPOSIXRuntimeLauncherRetriesTransientDownloadFailures verifies the bounded retry budget.
+func TestPOSIXRuntimeLauncherRetriesTransientDownloadFailures(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX launcher coverage")
+	}
+
+	pluginRoot := pluginRootPath(t)
+	fixture := newAdoptionFixture(t)
+	sourceRuntime := writeRecordingRuntimeNamed(
+		t,
+		t.TempDir(),
+		"revyl-source",
+		fixture.OutputPath,
+	)
+	runtimeChecksum := fileSHA256(t, sourceRuntime)
+	fixture.PinRuntime(t, runtimeChecksum)
+	counterPath := filepath.Join(t.TempDir(), "attempts.txt")
+	writeFlakyCurl(t, fixture.FakeCommands, counterPath, 2)
+
+	command := runtimeLauncherCommandForTest(pluginRoot)
+	command.Args = append(command.Args, "mcp", "serve", "--profile", "dev")
+	command.Env = fixture.Environment(t, "REVYL_RUNTIME_SOURCE="+sourceRuntime)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+
+	if err := command.Run(); err != nil {
+		t.Fatalf("retried runtime launch failed: %v\n%s", err, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("retry progress corrupted MCP stdout: %q", stdout.String())
+	}
+	if attempts := countLines(t, counterPath); attempts != 3 {
+		t.Fatalf("download attempts = %d, want 3", attempts)
+	}
+	if !strings.Contains(stderr.String(), "retrying in") {
+		t.Fatalf("retry progress missing from stderr: %q", stderr.String())
+	}
+	if got := fileSHA256(t, fixture.CachedRuntime()); got != runtimeChecksum {
+		t.Fatalf("retried download cache checksum = %s, want %s", got, runtimeChecksum)
+	}
+}
+
+// TestPOSIXRuntimeLauncherReportsExhaustedDownloadRetries verifies an observable terminal failure.
+func TestPOSIXRuntimeLauncherReportsExhaustedDownloadRetries(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX launcher coverage")
+	}
+
+	pluginRoot := pluginRootPath(t)
+	fixture := newAdoptionFixture(t)
+	fixture.PinRuntime(t, strings.Repeat("a", 64))
+	counterPath := filepath.Join(t.TempDir(), "attempts.txt")
+	writeFlakyCurl(t, fixture.FakeCommands, counterPath, 99)
+
+	command := runtimeLauncherCommandForTest(pluginRoot)
+	command.Args = append(command.Args, "mcp", "serve", "--profile", "dev")
+	command.Env = fixture.Environment(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+
+	if err := command.Run(); err == nil {
+		t.Fatal("exhausted download retries unexpectedly succeeded")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("exhausted retries corrupted MCP stdout: %q", stdout.String())
+	}
+	if attempts := countLines(t, counterPath); attempts != 3 {
+		t.Fatalf("download attempts = %d, want 3", attempts)
+	}
+	for _, expected := range []string{"after 3 attempts", "REVYL_BINARY", "revyl-"} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("terminal failure stderr %q does not mention %q", stderr.String(), expected)
+		}
+	}
+	if _, err := os.Stat(fixture.CachedRuntime()); !os.IsNotExist(err) {
+		t.Fatalf("failed download left a cached runtime: %v", err)
+	}
+}
+
+// TestRuntimeLauncherScriptsShareResolutionOrder keeps the Windows launcher from drifting.
+//
+// The PowerShell bootstrap has no runner on POSIX CI, so its resolution order is pinned
+// structurally against the POSIX launcher instead.
+func TestRuntimeLauncherScriptsShareResolutionOrder(t *testing.T) {
+	pluginRoot := pluginRootPath(t)
+	posixLauncher := readText(t, filepath.Join(pluginRoot, "hooks", "launch-revyl"))
+	windowsLauncher := readText(t, filepath.Join(pluginRoot, "hooks", "launch-revyl.ps1"))
+
+	for expected, content := range map[string]string{
+		"resolve_installed_runtime": posixLauncher,
+		"adopt_installed_runtime":   posixLauncher,
+		"download_attempt":          posixLauncher,
+		"DOWNLOAD_ATTEMPTS=3":       posixLauncher,
+		"Resolve-InstalledRuntime":  windowsLauncher,
+		"DownloadAttempts = 3":      windowsLauncher,
+	} {
+		if !strings.Contains(content, expected) {
+			t.Errorf("runtime launcher does not define %q", expected)
+		}
+	}
+
+	for _, launcher := range []string{posixLauncher, windowsLauncher} {
+		if !strings.Contains(launcher, "REVYL_BINARY") {
+			t.Error("runtime launcher failure guidance does not name REVYL_BINARY")
+		}
+	}
+	if strings.Contains(posixLauncher, "--tries=2") {
+		t.Error("POSIX launcher lets wget duplicate the shell retry budget")
 	}
 }
 
@@ -352,12 +641,21 @@ func runtimeLauncherCommandForTest(pluginRoot string) *exec.Cmd {
 // writeRecordingRuntime creates a fixture that records its executable and arguments.
 func writeRecordingRuntime(t *testing.T, directory, outputPath string) string {
 	t.Helper()
+	return writeRecordingRuntimeNamed(t, directory, "revyl-fixture", outputPath)
+}
+
+// writeRecordingRuntimeNamed creates a recording fixture under an explicit file name.
+//
+// Adoption coverage needs a fixture discoverable as `revyl` on PATH, so the name is a
+// parameter rather than the default fixture name.
+func writeRecordingRuntimeNamed(t *testing.T, directory, name, outputPath string) string {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		content := "@echo off\r\n" +
 			"> \"%REVYL_RUNTIME_OUTPUT%\" echo executable=%REVYL_MCP_EXECUTABLE%\r\n" +
 			">> \"%REVYL_RUNTIME_OUTPUT%\" echo args=%*\r\n" +
 			"if defined REVYL_API_KEY (>> \"%REVYL_RUNTIME_OUTPUT%\" echo api_key_set=yes) else (>> \"%REVYL_RUNTIME_OUTPUT%\" echo api_key_set=no)\r\n"
-		path := filepath.Join(directory, "revyl.cmd")
+		path := filepath.Join(directory, name+".cmd")
 		if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
 			t.Fatalf("write Windows recording runtime: %v", err)
 		}
@@ -370,7 +668,7 @@ func writeRecordingRuntime(t *testing.T, directory, outputPath string) string {
 		outputPath,
 		outputPath,
 	)
-	return writeExecutable(t, directory, "revyl-fixture", content)
+	return writeExecutable(t, directory, name, content)
 }
 
 // writePreparedRuntimeManifest creates a current-platform manifest fixture.
@@ -479,6 +777,50 @@ done
 cp "$REVYL_RUNTIME_SOURCE" "$destination"
 `
 	writeExecutable(t, directory, "curl", content)
+}
+
+// writeFlakyCurl creates a downloader that fails a fixed number of times before succeeding.
+//
+// Each invocation appends one line to counterPath, so a test can assert the exact
+// attempt count the launcher's retry budget produced.
+func writeFlakyCurl(t *testing.T, directory, counterPath string, failures int) {
+	t.Helper()
+	content := fmt.Sprintf(`#!/bin/sh
+printf 'attempt\n' >> %q
+destination=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output)
+      destination=$2
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ "$(wc -l < %q)" -le %d ]; then
+  printf 'curl: (22) The requested URL returned error: 500\n' >&2
+  exit 22
+fi
+[ -n "$destination" ] || exit 74
+cp "$REVYL_RUNTIME_SOURCE" "$destination"
+`, counterPath, counterPath, failures)
+	writeExecutable(t, directory, "curl", content)
+}
+
+// countLines returns how many lines one fixture counter file recorded.
+func countLines(t *testing.T, path string) int {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read counter %s: %v", path, err)
+	}
+	trimmed := strings.TrimSpace(string(content))
+	if trimmed == "" {
+		return 0
+	}
+	return len(strings.Split(trimmed, "\n"))
 }
 
 // runRuntimeLauncher executes the POSIX bootstrap and requires clean MCP stdout.

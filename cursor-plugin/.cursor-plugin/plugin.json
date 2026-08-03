@@ -2,7 +2,7 @@
   "name": "revyl",
   "displayName": "Revyl",
   "description": "One-install mobile dev loops on cloud iOS/Android devices — run the current app, verify changes with screenshots, and ship with device-backed evidence.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Revyl",
     "email": "support@revyl.ai"

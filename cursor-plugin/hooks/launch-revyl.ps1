@@ -90,7 +90,35 @@ function Test-RuntimeChecksum {
     )
 }
 
-# Invoke-RuntimeDownload downloads one bounded HTTPS artifact.
+# Resolve-InstalledRuntime returns the first installed CLI byte-identical to the pin.
+function Resolve-InstalledRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedChecksum
+    )
+
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    Get-Command `
+        -Name "revyl" `
+        -CommandType Application `
+        -ErrorAction SilentlyContinue |
+        ForEach-Object { $candidates.Add($_.Source) }
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        $candidates.Add((Join-Path $env:USERPROFILE ".revyl\bin\revyl.exe"))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        $candidates.Add((Join-Path $env:LOCALAPPDATA "Revyl\bin\revyl.exe"))
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-RuntimeChecksum -Path $candidate -ExpectedChecksum $ExpectedChecksum) {
+            return (Get-Item -LiteralPath $candidate).FullName
+        }
+    }
+    return $null
+}
+
+# Invoke-RuntimeDownload retries one bounded HTTPS artifact with backoff.
 function Invoke-RuntimeDownload {
     param(
         [Parameter(Mandatory = $true)]
@@ -99,12 +127,33 @@ function Invoke-RuntimeDownload {
         [string] $Destination
     )
 
-    Invoke-WebRequest `
-        -Uri $Uri `
-        -OutFile $Destination `
-        -UseBasicParsing `
-        -UserAgent "revyl-cursor-plugin" `
-        -TimeoutSec 180 | Out-Null
+    $delaySeconds = 1
+    for ($attempt = 1; $attempt -le $script:DownloadAttempts; $attempt++) {
+        try {
+            Invoke-WebRequest `
+                -Uri $Uri `
+                -OutFile $Destination `
+                -UseBasicParsing `
+                -UserAgent "revyl-cursor-plugin" `
+                -TimeoutSec 180 | Out-Null
+            break
+        }
+        catch {
+            Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+            if ($attempt -eq $script:DownloadAttempts) {
+                throw (
+                    "could not download $Uri after $($script:DownloadAttempts) attempts; " +
+                    "install the Revyl CLI or set REVYL_BINARY to an executable Revyl CLI path"
+                )
+            }
+            [Console]::Error.WriteLine(
+                "Revyl plugin runtime: download attempt $attempt of " +
+                "$($script:DownloadAttempts) failed; retrying in ${delaySeconds}s"
+            )
+            Start-Sleep -Seconds $delaySeconds
+            $delaySeconds = $delaySeconds * 2
+        }
+    }
 
     if (
         -not (Test-Path -LiteralPath $Destination -PathType Leaf) -or
@@ -160,6 +209,8 @@ function Invoke-RevylRuntime {
     }
     return $LASTEXITCODE
 }
+
+$script:DownloadAttempts = 3
 
 $temporaryPath = $null
 try {
@@ -246,6 +297,41 @@ try {
 
     if (Test-RuntimeChecksum -Path $runtimeBinary -ExpectedChecksum $expectedChecksum) {
         exit (Invoke-RevylRuntime -BinaryPath $runtimeBinary -Arguments $RevylArguments)
+    }
+
+    # An already-installed CLI is byte-identical to the pinned asset when its digest
+    # matches, so adopting it is equivalent to the download it replaces.
+    $installedBinary = Resolve-InstalledRuntime -ExpectedChecksum $expectedChecksum
+    if ($null -ne $installedBinary) {
+        try {
+            New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null
+            $temporaryPath = Join-Path `
+                -Path $runtimeDirectory `
+                -ChildPath ".revyl.adopt.$PID"
+            Copy-Item `
+                -LiteralPath $installedBinary `
+                -Destination $temporaryPath `
+                -Force
+            if (Test-RuntimeChecksum -Path $temporaryPath -ExpectedChecksum $expectedChecksum) {
+                Install-RuntimeAtomically -Source $temporaryPath -Destination $runtimeBinary
+                $temporaryPath = $null
+                if (Test-RuntimeChecksum -Path $runtimeBinary -ExpectedChecksum $expectedChecksum) {
+                    exit (Invoke-RevylRuntime -BinaryPath $runtimeBinary -Arguments $RevylArguments)
+                }
+            }
+        }
+        catch {
+            # Adoption is best effort; the verified installed binary still runs below.
+        }
+        if ($null -ne $temporaryPath) {
+            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+            $temporaryPath = $null
+        }
+        [Console]::Error.WriteLine(
+            "Revyl plugin runtime: could not populate the plugin cache; " +
+            "running verified $installedBinary"
+        )
+        exit (Invoke-RevylRuntime -BinaryPath $installedBinary -Arguments $RevylArguments)
     }
 
     New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null

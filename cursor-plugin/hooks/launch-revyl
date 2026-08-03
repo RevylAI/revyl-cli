@@ -8,6 +8,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PLUGIN_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 MANIFEST_PATH=${REVYL_RUNTIME_MANIFEST:-"$PLUGIN_DIR/runtime-manifest.json"}
 TEMPORARY_PATH=
+DOWNLOAD_ATTEMPTS=3
 
 # cleanup removes only this process's incomplete download.
 cleanup() {
@@ -34,21 +35,26 @@ manifest_scalar() {
   sed -n "s/^[[:space:]]*\"${key}\"[[:space:]]*:[[:space:]]*\\([^,[:space:]]*\\)[[:space:]]*,\\{0,1\\}[[:space:]]*$/\\1/p" "$MANIFEST_PATH"
 }
 
+# absolute_path prints one path in absolute form without resolving symlinks.
+absolute_path() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *)
+      parent_directory=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd)
+      printf '%s/%s\n' "$parent_directory" "$(basename -- "$1")"
+      ;;
+  esac
+}
+
 # resolve_override returns an explicitly selected executable when configured.
 resolve_override() {
   requested=$1
   if command -v "$requested" >/dev/null 2>&1; then
-    command -v "$requested"
+    absolute_path "$(command -v "$requested")"
     return
   fi
   if [ -f "$requested" ] && [ -x "$requested" ]; then
-    case "$requested" in
-      /*) printf '%s\n' "$requested" ;;
-      *)
-        requested_directory=$(CDPATH= cd -- "$(dirname -- "$requested")" && pwd)
-        printf '%s/%s\n' "$requested_directory" "$(basename -- "$requested")"
-        ;;
-    esac
+    absolute_path "$requested"
     return
   fi
   fail "REVYL_BINARY is not executable: $requested"
@@ -102,8 +108,50 @@ checksum_matches() {
   [ -f "$path" ] && [ "$(sha256_file "$path")" = "$expected" ]
 }
 
-# download fetches one bounded HTTPS resource.
-download() {
+# installed_runtime_candidates lists already-installed Revyl CLI paths in trust order.
+installed_runtime_candidates() {
+  command -v revyl 2>/dev/null || true
+  printf '%s\n' /usr/local/bin/revyl
+  if [ -n "${HOME:-}" ]; then
+    printf '%s\n' "$HOME/.revyl/bin/revyl"
+    printf '%s\n' "$HOME/.local/bin/revyl"
+  fi
+}
+
+# resolve_installed_runtime prints the first installed CLI byte-identical to the pin.
+resolve_installed_runtime() {
+  expected=$1
+  installed_runtime_candidates | while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    { [ -f "$candidate" ] && [ -x "$candidate" ]; } || continue
+    if checksum_matches "$candidate" "$expected"; then
+      absolute_path "$candidate"
+      break
+    fi
+  done
+}
+
+# ensure_runtime_directory creates the private versioned cache directory.
+ensure_runtime_directory() {
+  mkdir -p "$runtime_directory" &&
+    chmod 0700 "$runtime_directory"
+}
+
+# adopt_installed_runtime copies a verified installed CLI into the plugin cache.
+adopt_installed_runtime() {
+  source_binary=$1
+  ensure_runtime_directory || return 1
+  TEMPORARY_PATH="$runtime_directory/.revyl.adopt.$$"
+  cp -- "$source_binary" "$TEMPORARY_PATH" || return 1
+  chmod 0700 "$TEMPORARY_PATH" || return 1
+  checksum_matches "$TEMPORARY_PATH" "$expected_checksum" || return 1
+  mv -f "$TEMPORARY_PATH" "$runtime_binary" || return 1
+  TEMPORARY_PATH=
+  checksum_matches "$runtime_binary" "$expected_checksum"
+}
+
+# download_attempt fetches one bounded HTTPS resource exactly once.
+download_attempt() {
   url=$1
   destination=$2
   if command -v curl >/dev/null 2>&1; then
@@ -117,12 +165,34 @@ download() {
   if command -v wget >/dev/null 2>&1; then
     wget --quiet \
       --timeout=30 \
-      --tries=2 \
+      --tries=1 \
       --output-document="$destination" \
       "$url"
     return
   fi
   fail "curl or wget is required for the first Revyl plugin run"
+}
+
+# download retries one bounded fetch, backing off between transient failures.
+download() {
+  url=$1
+  destination=$2
+  attempt=1
+  delay=1
+  while :; do
+    if download_attempt "$url" "$destination"; then
+      return 0
+    fi
+    rm -f "$destination"
+    if [ "$attempt" -ge "$DOWNLOAD_ATTEMPTS" ]; then
+      return 1
+    fi
+    printf 'Revyl plugin runtime: download attempt %s of %s failed; retrying in %ss\n' \
+      "$attempt" "$DOWNLOAD_ATTEMPTS" "$delay" >&2
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+  done
 }
 
 trap cleanup EXIT HUP INT TERM
@@ -175,11 +245,24 @@ if checksum_matches "$runtime_binary" "$expected_checksum"; then
   run_runtime "$runtime_binary" "$@"
 fi
 
-mkdir -p "$runtime_directory"
-chmod 0700 "$runtime_directory"
+# An already-installed CLI is byte-identical to the pinned asset when its digest
+# matches, so adopting it is equivalent to the download it replaces.
+installed_binary=$(resolve_installed_runtime "$expected_checksum")
+if [ -n "$installed_binary" ]; then
+  if adopt_installed_runtime "$installed_binary"; then
+    run_runtime "$runtime_binary" "$@"
+  fi
+  cleanup
+  TEMPORARY_PATH=
+  printf 'Revyl plugin runtime: could not populate the plugin cache; running verified %s\n' \
+    "$installed_binary" >&2
+  run_runtime "$installed_binary" "$@"
+fi
+
+ensure_runtime_directory
 TEMPORARY_PATH="$runtime_directory/.revyl.download.$$"
 download "$release_base_url/$asset" "$TEMPORARY_PATH" ||
-  fail "could not download $asset for plugin $plugin_version"
+  fail "could not download $asset from $release_base_url/$asset after $DOWNLOAD_ATTEMPTS attempts; install the Revyl CLI or set REVYL_BINARY to an executable Revyl CLI path"
 
 checksum_matches "$TEMPORARY_PATH" "$expected_checksum" ||
   fail "checksum verification failed for $asset"
