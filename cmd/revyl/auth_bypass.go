@@ -197,15 +197,23 @@ func fireAuthBypassAfterLaunch(ctx context.Context, requester workerSessionReque
 }
 
 // applyAuthBypassSessionDefaults merges auth bypass defaults into session start
-// options by adding config launch vars when no explicit flags were provided.
+// options while preserving explicit and inherited launch variables.
 // Session-start callers fire the deep-link template after the app is ready
 // through the worker proxy so secret values never cross into the CLI.
 func applyAuthBypassSessionDefaults(_ context.Context, opts mcppkg.StartSessionOptions) mcppkg.StartSessionOptions {
 	if devAuthBypass == nil {
 		return opts
 	}
-	if len(opts.LaunchVars) == 0 {
-		opts.LaunchVars = devAuthBypass.LaunchVarKeys()
+	seen := make(map[string]struct{}, len(opts.LaunchVars))
+	for _, launchVar := range opts.LaunchVars {
+		seen[launchVar] = struct{}{}
+	}
+	for _, launchVar := range devAuthBypass.LaunchVarKeys() {
+		if _, exists := seen[launchVar]; exists {
+			continue
+		}
+		opts.LaunchVars = append(opts.LaunchVars, launchVar)
+		seen[launchVar] = struct{}{}
 	}
 	return opts
 }

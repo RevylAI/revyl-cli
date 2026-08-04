@@ -202,10 +202,15 @@ func TestRegisterDevStartFlagsPrewarmTimeoutDefault(t *testing.T) {
 }
 
 func TestWithDevStartLaunchVarsCopiesLaunchVarsIntoStartOptions(t *testing.T) {
-	orig := devStartLaunchVars
-	t.Cleanup(func() { devStartLaunchVars = orig })
+	originalLaunchVars := devStartLaunchVars
+	originalDisableInheritedLaunchVars := devDisableInheritedLaunchVars
+	t.Cleanup(func() {
+		devStartLaunchVars = originalLaunchVars
+		devDisableInheritedLaunchVars = originalDisableInheritedLaunchVars
+	})
 
 	devStartLaunchVars = []string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"}
+	devDisableInheritedLaunchVars = true
 	opts, err := withDevStartLaunchVars(context.Background(), mcppkg.StartSessionOptions{Platform: "ios"})
 	if err != nil {
 		t.Fatalf("withDevStartLaunchVars() error = %v", err)
@@ -219,6 +224,42 @@ func TestWithDevStartLaunchVarsCopiesLaunchVarsIntoStartOptions(t *testing.T) {
 	devStartLaunchVars[0] = "MUTATED"
 	if opts.LaunchVars[0] != "REVYL_AUTH_BYPASS_ENABLED" {
 		t.Fatalf("LaunchVars shared backing array; got %v", opts.LaunchVars)
+	}
+	if !opts.DisableInheritedLaunchVars {
+		t.Fatal("DisableInheritedLaunchVars = false, want true")
+	}
+}
+
+func TestValidateLaunchSettingsForSessionReuseRejectsOverrides(t *testing.T) {
+	tests := []struct {
+		name                       string
+		explicitLaunchVars         []string
+		disableInheritedLaunchVars bool
+	}{
+		{name: "explicit launch variable", explicitLaunchVars: []string{"API_URL"}},
+		{name: "inherited launch variables opt-out", disableInheritedLaunchVars: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateLaunchSettingsForSessionReuse(
+				test.explicitLaunchVars,
+				test.disableInheritedLaunchVars,
+			)
+			if err == nil ||
+				!strings.Contains(err.Error(), "stop_dev_loop") ||
+				!strings.Contains(err.Error(), "revyl dev stop") {
+				t.Fatalf("error = %v, want fresh-session remediation", err)
+			}
+		})
+	}
+}
+
+func TestValidateLaunchSettingsForSessionReuseAllowsInheritedDefaults(t *testing.T) {
+	if err := validateLaunchSettingsForSessionReuse(
+		nil,
+		false,
+	); err != nil {
+		t.Fatalf("validateLaunchSettingsForSessionReuse() error = %v", err)
 	}
 }
 

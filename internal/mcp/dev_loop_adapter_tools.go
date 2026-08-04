@@ -119,15 +119,17 @@ func (s *Server) handleStartDevLoopCommand(
 		}, nil
 	}
 	result, err := s.devLoopRunner.Start(ctx, workDir, devloop.StartRequest{
-		Context:        input.Context,
-		Platform:       input.Platform,
-		PlatformKey:    input.PlatformKey,
-		AppID:          input.AppID,
-		BuildVersionID: input.BuildVersionID,
-		Port:           input.Port,
-		TimeoutSeconds: input.Timeout,
-		Remote:         input.Remote,
-		SeedLatest:     input.SeedLatest,
+		Context:                    input.Context,
+		Platform:                   input.Platform,
+		PlatformKey:                input.PlatformKey,
+		AppID:                      input.AppID,
+		BuildVersionID:             input.BuildVersionID,
+		LaunchVars:                 input.LaunchVars,
+		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
+		Port:                       input.Port,
+		TimeoutSeconds:             input.Timeout,
+		Remote:                     input.Remote,
+		SeedLatest:                 input.SeedLatest,
 	})
 	if err != nil {
 		return &mcp.CallToolResult{IsError: true}, DevLoopStartOutput{

@@ -16,6 +16,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
+	"github.com/revyl/cli/internal/launchvars"
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/status"
 )
@@ -55,6 +56,9 @@ type RunTestParams struct {
 	LaunchURL string
 	// LaunchVars are org launch variable keys or IDs to apply to this run.
 	LaunchVars []string
+	// DisableInheritedLaunchVars omits launch variables inherited from the
+	// current process environment.
+	DisableInheritedLaunchVars bool
 	// Location fields for initial GPS location at execution time.
 	Latitude    float64
 	Longitude   float64
@@ -140,7 +144,14 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 
 	// Create client and execute
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
-	launchEnvVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, client, params.LaunchVars)
+	launchVars, err := launchvars.MergeInherited(
+		params.LaunchVars,
+		params.DisableInheritedLaunchVars,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load inherited launch variables: %w", err)
+	}
+	launchEnvVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, client, launchVars)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve launch variables: %w", err)
 	}
@@ -269,6 +280,9 @@ type RunWorkflowParams struct {
 	VariableOverrides map[string]string
 	// LaunchVars are org launch variable keys or IDs applied to every child test.
 	LaunchVars []string
+	// DisableInheritedLaunchVars omits launch variables inherited from the
+	// current process environment.
+	DisableInheritedLaunchVars bool
 	// LaunchEnvVars are inline app launch values applied to every child test.
 	// They override stored launch variables with the same key.
 	LaunchEnvVars  map[string]string
@@ -361,7 +375,14 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 
 	// Create client and execute
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
-	launchEnvVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, client, params.LaunchVars)
+	launchVars, err := launchvars.MergeInherited(
+		params.LaunchVars,
+		params.DisableInheritedLaunchVars,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load inherited launch variables: %w", err)
+	}
+	launchEnvVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, client, launchVars)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve launch variables: %w", err)
 	}

@@ -29,32 +29,34 @@ import (
 	"github.com/revyl/cli/internal/devpush"
 	"github.com/revyl/cli/internal/hotreload"
 	_ "github.com/revyl/cli/internal/hotreload/providers" // Register providers
+	"github.com/revyl/cli/internal/launchvars"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/sigutil"
 	"github.com/revyl/cli/internal/ui"
 )
 
 var (
-	devStartPlatform       string
-	devStartPlatformKey    string
-	devStartAppID          string
-	devStartBuildVerID     string
-	devStartBuild          bool
-	devStartNoBuild        bool
-	devStartRemote         bool
-	devStartSeedLatest     bool
-	devStartTunnelURL      string
-	devStartLaunchVars     []string
-	devStartDeviceRunnerID string
-	devStartPort           int
-	devStartTimeout        int
-	devStartReadyTimeout   int
-	devStartPrewarmTimeout int
-	devStartOpen           bool
-	devStartNoOpen         bool
-	devStartForceHotReload bool
-	devStartDetach         bool
-	devStartJSON           bool
+	devStartPlatform              string
+	devStartPlatformKey           string
+	devStartAppID                 string
+	devStartBuildVerID            string
+	devStartBuild                 bool
+	devStartNoBuild               bool
+	devStartRemote                bool
+	devStartSeedLatest            bool
+	devStartTunnelURL             string
+	devStartLaunchVars            []string
+	devDisableInheritedLaunchVars bool
+	devStartDeviceRunnerID        string
+	devStartPort                  int
+	devStartTimeout               int
+	devStartReadyTimeout          int
+	devStartPrewarmTimeout        int
+	devStartOpen                  bool
+	devStartNoOpen                bool
+	devStartForceHotReload        bool
+	devStartDetach                bool
+	devStartJSON                  bool
 )
 
 var (
@@ -181,6 +183,7 @@ func registerDevStartFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&devStartSeedLatest, "seed-latest", false, "With --remote, install the latest existing build immediately (seed) so the app is interactive within seconds, then hot-swap the fresh build when it lands")
 	cmd.Flags().StringVar(&devStartTunnelURL, "tunnel", "", "Use an external Expo tunnel URL or dev-client deep link instead of the Revyl relay")
 	cmd.Flags().StringArrayVar(&devStartLaunchVars, "launch-var", nil, "Org launch variable key or ID to apply when starting the device session (repeatable)")
+	cmd.Flags().BoolVar(&devDisableInheritedLaunchVars, "no-inherited-launch-vars", false, "Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch variables still apply")
 	cmd.Flags().StringVar(&devStartDeviceRunnerID, "device-runner", "", "Target a specific device runner ID")
 	cmd.Flags().IntVar(&devStartPort, "port", 8081, "Port for local dev server")
 	cmd.Flags().IntVar(&devStartTimeout, "timeout", 300, "Device idle timeout in seconds")
@@ -232,6 +235,7 @@ func withDevStartLaunchVars(
 	ctx context.Context,
 	opts mcppkg.StartSessionOptions,
 ) (mcppkg.StartSessionOptions, error) {
+	opts.DisableInheritedLaunchVars = devDisableInheritedLaunchVars
 	if len(devStartLaunchVars) > 0 {
 		opts.LaunchVars = append([]string(nil), devStartLaunchVars...)
 	}
@@ -239,10 +243,24 @@ func withDevStartLaunchVars(
 }
 
 func warnLaunchVarsIgnoredForReusedDevSession() {
-	if len(devStartLaunchVars) == 0 {
+	if len(devStartLaunchVars) == 0 &&
+		!devDisableInheritedLaunchVars &&
+		!launchvars.HasInherited(devDisableInheritedLaunchVars) {
 		return
 	}
-	ui.PrintWarning("Ignoring --launch-var because revyl dev reused an existing device session; launch vars apply only when a session starts. Run `revyl dev stop` and rerun to apply them.")
+	ui.PrintWarning("Ignoring requested launch-variable settings because revyl dev reused an existing device session; launch variables and opt-outs apply only when a session starts. Run `revyl dev stop` and rerun to apply them.")
+}
+
+func validateLaunchSettingsForSessionReuse(
+	explicitLaunchVars []string,
+	disableInheritedLaunchVars bool,
+) error {
+	if len(explicitLaunchVars) == 0 && !disableInheritedLaunchVars {
+		return nil
+	}
+	return fmt.Errorf(
+		"requested launch-variable settings require a fresh device session; stop the existing loop (`stop_dev_loop` in MCP or `revyl dev stop` in the CLI), then retry",
+	)
 }
 
 const devServerAutoPortSearchSpan = 20
@@ -928,6 +946,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if savedCtx, _ := loadDevContext(cwd, ctxName); savedCtx != nil && savedCtx.SessionID != "" {
 		reuse := tryReuseDevContextSession(ctx, deviceMgr, savedCtx, devicePlatform)
 		if reuse != nil {
+			if err := validateLaunchSettingsForSessionReuse(
+				devStartLaunchVars,
+				devDisableInheritedLaunchVars,
+			); err != nil {
+				return err
+			}
 			session = reuse.Session
 			sessionOwned = reuse.SessionOwned
 			warnLaunchVarsIgnoredForReusedDevSession()
@@ -2286,6 +2310,12 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 	if savedCtx, _ := loadDevContext(cwd, ctxName); savedCtx != nil && savedCtx.SessionID != "" {
 		reuse := tryReuseDevContextSession(ctx, deviceMgr, savedCtx, devicePlatform)
 		if reuse != nil {
+			if err := validateLaunchSettingsForSessionReuse(
+				devStartLaunchVars,
+				devDisableInheritedLaunchVars,
+			); err != nil {
+				return err
+			}
 			session = reuse.Session
 			sessionOwned = reuse.SessionOwned
 			warnLaunchVarsIgnoredForReusedDevSession()

@@ -460,15 +460,16 @@ func (s *Server) registerDeviceTools() {
 
 // StartDeviceSessionInput defines input for start_device_session.
 type StartDeviceSessionInput struct {
-	Platform       string   `json:"platform" jsonschema:"Target platform: ios or android (REQUIRED)"`
-	AppID          string   `json:"app_id,omitempty" jsonschema:"App ID to pre-install"`
-	BuildVersionID string   `json:"build_version_id,omitempty" jsonschema:"Specific build version ID"`
-	AppURL         string   `json:"app_url,omitempty" jsonschema:"URL to download app from (.apk or .ipa). Provide this OR build_version_id."`
-	AppLink        string   `json:"app_link,omitempty" jsonschema:"Deep link URL to launch after app start (optional)."`
-	LaunchVars     []string `json:"launch_vars,omitempty" jsonschema:"Org launch variable keys or IDs to apply to a raw session at boot."`
-	TestID         string   `json:"test_id,omitempty" jsonschema:"Test ID to link session to"`
-	IdleTimeout    int      `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds (default 900)"`
-	NoOpen         bool     `json:"no_open,omitempty" jsonschema:"Skip opening the browser (default: false, browser opens automatically)"`
+	Platform                   string   `json:"platform" jsonschema:"Target platform: ios or android (REQUIRED)"`
+	AppID                      string   `json:"app_id,omitempty" jsonschema:"App ID to pre-install"`
+	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Specific build version ID"`
+	AppURL                     string   `json:"app_url,omitempty" jsonschema:"URL to download app from (.apk or .ipa). Provide this OR build_version_id."`
+	AppLink                    string   `json:"app_link,omitempty" jsonschema:"Deep link URL to launch after app start (optional)."`
+	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Org launch variable keys or IDs to apply to a raw session at boot."`
+	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
+	TestID                     string   `json:"test_id,omitempty" jsonschema:"Test ID to link session to"`
+	IdleTimeout                int      `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds (default 900)"`
+	NoOpen                     bool     `json:"no_open,omitempty" jsonschema:"Skip opening the browser (default: false, browser opens automatically)"`
 }
 
 // StartDeviceSessionOutput defines output for start_device_session.
@@ -503,14 +504,15 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 	}
 	timeout := time.Duration(timeoutSecs) * time.Second
 	idx, session, err := s.sessionMgr.StartSession(ctx, StartSessionOptions{
-		Platform:       platform,
-		AppID:          appID,
-		BuildVersionID: buildVersionID,
-		AppURL:         appURL,
-		AppLink:        normalizeOptionalToolInput(input.AppLink),
-		LaunchVars:     input.LaunchVars,
-		TestID:         input.TestID,
-		IdleTimeout:    timeout,
+		Platform:                   platform,
+		AppID:                      appID,
+		BuildVersionID:             buildVersionID,
+		AppURL:                     appURL,
+		AppLink:                    normalizeOptionalToolInput(input.AppLink),
+		LaunchVars:                 input.LaunchVars,
+		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
+		TestID:                     input.TestID,
+		IdleTimeout:                timeout,
 	})
 	if err != nil {
 		return nil, StartDeviceSessionOutput{Success: false, Error: err.Error()}, nil

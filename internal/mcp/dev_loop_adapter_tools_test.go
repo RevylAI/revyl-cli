@@ -39,6 +39,7 @@ type fakeDevLoopRunner struct {
 	stopWorkDir      string
 	stopContext      string
 	rebuildDelay     time.Duration
+	startRequest     devloop.StartRequest
 	startCallCount   int
 	statusCallCount  int
 	rebuildCallCount int
@@ -57,6 +58,7 @@ func (r *fakeDevLoopRunner) Start(
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.startCallCount++
+	r.startRequest = request
 	return r.startResult, r.startErr
 }
 
@@ -510,7 +512,11 @@ func TestHandleStartDevLoopCommandUsesCanonicalRunner(t *testing.T) {
 	_, output, err := server.handleStartDevLoopCommand(
 		context.Background(),
 		nil,
-		StartDevLoopInput{Remote: true},
+		StartDevLoopInput{
+			Remote:                     true,
+			LaunchVars:                 []string{"API_URL", "AUTH_STATE"},
+			DisableInheritedLaunchVars: true,
+		},
 	)
 	if err != nil {
 		t.Fatalf("handleStartDevLoopCommand(): %v", err)
@@ -520,6 +526,12 @@ func TestHandleStartDevLoopCommandUsesCanonicalRunner(t *testing.T) {
 	}
 	if server.delegatedDevWorkDir != projectDir || server.delegatedDevContext != "default" {
 		t.Fatalf("delegated target = %q, %q", server.delegatedDevWorkDir, server.delegatedDevContext)
+	}
+	if len(runner.startRequest.LaunchVars) != 2 ||
+		runner.startRequest.LaunchVars[0] != "API_URL" ||
+		runner.startRequest.LaunchVars[1] != "AUTH_STATE" ||
+		!runner.startRequest.DisableInheritedLaunchVars {
+		t.Fatalf("start request launch variables = %+v", runner.startRequest)
 	}
 }
 

@@ -233,6 +233,7 @@ func init() {
 	workflowRunCmd.Flags().StringVar(&runLocation, "location", "", "Override GPS location for all tests as lat,lng (e.g. 37.7749,-122.4194)")
 	workflowRunCmd.Flags().StringArrayVar(&runLaunchEnv, "launch-env", nil, "Inline launch environment variable for every test as KEY=VALUE (repeatable; overrides stored launch variables)")
 	workflowRunCmd.Flags().StringArrayVar(&runLaunchVars, "launch-var", nil, "Stored launch variable key or ID to apply to every test (repeatable)")
+	workflowRunCmd.Flags().BoolVar(&runDisableInheritedLaunchVars, "no-inherited-launch-vars", false, "Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch variables still apply")
 	workflowRunCmd.Flags().StringArrayVar(&runVars, "var", nil, "Runtime variable override for all tests as key=value (repeatable, referenced as {{key}})")
 	analytics.MarkFlagValue(workflowRunCmd, "retries")
 	analytics.MarkFlagValue(workflowRunCmd, "no-wait")
@@ -244,6 +245,7 @@ func init() {
 	analytics.MarkFlagValue(workflowRunCmd, "build")
 	analytics.MarkFlagValue(workflowRunCmd, "platform")
 	analytics.MarkFlagValue(workflowRunCmd, "launch-var")
+	analytics.MarkFlagValue(workflowRunCmd, "no-inherited-launch-vars")
 	analytics.MarkFlagValue(workflowRunCmd, "var")
 
 	// workflow delete flags

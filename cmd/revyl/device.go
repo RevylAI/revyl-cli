@@ -606,6 +606,7 @@ var deviceStartCmd = &cobra.Command{
 		appURL, _ := cmd.Flags().GetString("app-url")
 		appLink, _ := cmd.Flags().GetString("app-link")
 		launchVars, _ := cmd.Flags().GetStringArray("launch-var")
+		disableInheritedLaunchVars, _ := cmd.Flags().GetBool("no-inherited-launch-vars")
 		launchEnv, _ := cmd.Flags().GetStringArray("launch-env")
 		launchEnvVars, err := parseLaunchEnvVars(launchEnv)
 		if err != nil {
@@ -748,17 +749,18 @@ var deviceStartCmd = &cobra.Command{
 		}()
 
 		startOpts, prepErr := prepareSessionStartOptions(ctx, mcppkg.StartSessionOptions{
-			Platform:           platform,
-			AppID:              appID,
-			BuildVersionID:     buildVersionID,
-			AppURL:             appURL,
-			LaunchVars:         launchVars,
-			LaunchEnv:          launchEnvVars,
-			InitialLocale:      initialLocale,
-			InitialOrientation: initialOrientation,
-			IdleTimeout:        time.Duration(timeout) * time.Second,
-			DeviceModel:        selectedDeviceModel,
-			OsVersion:          selectedOsVersion,
+			Platform:                   platform,
+			AppID:                      appID,
+			BuildVersionID:             buildVersionID,
+			AppURL:                     appURL,
+			LaunchVars:                 launchVars,
+			DisableInheritedLaunchVars: disableInheritedLaunchVars,
+			LaunchEnv:                  launchEnvVars,
+			InitialLocale:              initialLocale,
+			InitialOrientation:         initialOrientation,
+			IdleTimeout:                time.Duration(timeout) * time.Second,
+			DeviceModel:                selectedDeviceModel,
+			OsVersion:                  selectedOsVersion,
 		})
 		if prepErr != nil {
 			return prepErr
@@ -2951,6 +2953,7 @@ func init() {
 	deviceStartCmd.Flags().String("app-url", "", "Direct app artifact URL (.apk/.ipa/.zip)")
 	deviceStartCmd.Flags().String("app-link", "", "Deep link to launch after app start")
 	deviceStartCmd.Flags().StringArray("launch-var", nil, "Org launch variable key or ID to apply to a raw session (repeatable)")
+	deviceStartCmd.Flags().Bool("no-inherited-launch-vars", false, "Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch variables still apply")
 	deviceStartCmd.Flags().StringArray("launch-env", nil, "Inline launch environment variable as KEY=VALUE applied to the app launch (repeatable; overrides --launch-var)")
 	deviceStartCmd.Flags().String("locale", "", "Initial device locale identifier (e.g. en_US, fr_FR)")
 	deviceStartCmd.Flags().String("orientation", "", "Initial device orientation (portrait or landscape)")

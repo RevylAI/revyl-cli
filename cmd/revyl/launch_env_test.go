@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/spf13/cobra"
 )
 
 // TestParseLaunchEnvVars covers the --launch-env KEY=VALUE parsing used by both
@@ -312,6 +313,26 @@ func TestWorkflowRunSupportsLaunchEnvFlags(t *testing.T) {
 	}
 	if workflowRunCmd.Flags().Lookup("launch-env") == nil {
 		t.Fatal("workflow run is missing --launch-env")
+	}
+	if workflowRunCmd.Flags().Lookup("no-inherited-launch-vars") == nil {
+		t.Fatal("workflow run is missing --no-inherited-launch-vars")
+	}
+}
+
+func TestCloudAgentLaunchVariableOptOutIsAvailableOnRuntimeEntrypoints(
+	t *testing.T,
+) {
+	commands := map[string]*cobra.Command{
+		"test run":     testRunCmd,
+		"dev":          devCmd,
+		"device start": deviceStartCmd,
+	}
+	for name, command := range commands {
+		t.Run(name, func(t *testing.T) {
+			if command.Flags().Lookup("no-inherited-launch-vars") == nil {
+				t.Fatalf("%s is missing --no-inherited-launch-vars", name)
+			}
+		})
 	}
 }
 

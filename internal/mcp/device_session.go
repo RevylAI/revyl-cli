@@ -27,6 +27,7 @@ import (
 	"github.com/revyl/cli/internal/beforesession"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
+	"github.com/revyl/cli/internal/launchvars"
 	"github.com/revyl/cli/internal/ui"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -303,6 +304,9 @@ type StartSessionOptions struct {
 	AppLink    string
 	AppPackage string
 	LaunchVars []string
+	// DisableInheritedLaunchVars omits launch variables inherited from the
+	// current process environment.
+	DisableInheritedLaunchVars bool
 
 	// LaunchEnv holds inline launch environment variables (KEY=VALUE) applied to
 	// the app's launch environment. Merged over LaunchVars; inline takes precedence.
@@ -354,6 +358,15 @@ func (m *DeviceSessionManager) StartSession(
 	if strings.TrimSpace(opts.TestID) != "" && len(launchVars) > 0 {
 		ui.PrintWarning("Ignoring --launch-var for test-backed device start; attached test launch vars will be used")
 		launchVars = nil
+	} else if strings.TrimSpace(opts.TestID) == "" {
+		var err error
+		launchVars, err = launchvars.MergeInherited(
+			launchVars,
+			opts.DisableInheritedLaunchVars,
+		)
+		if err != nil {
+			return -1, nil, err
+		}
 	}
 
 	idleTimeout := resolveIdleTimeout(opts.IdleTimeout)

@@ -51,15 +51,17 @@ const (
 
 // StartRequest contains the focused inputs supported by MCP start_dev_loop.
 type StartRequest struct {
-	Context        string
-	Platform       string
-	PlatformKey    string
-	AppID          string
-	BuildVersionID string
-	Port           int
-	TimeoutSeconds int
-	Remote         bool
-	SeedLatest     bool
+	Context                    string
+	Platform                   string
+	PlatformKey                string
+	AppID                      string
+	BuildVersionID             string
+	LaunchVars                 []string
+	DisableInheritedLaunchVars bool
+	Port                       int
+	TimeoutSeconds             int
+	Remote                     bool
+	SeedLatest                 bool
 }
 
 // BuildStatus describes the latest build without conflating admission and execution.
@@ -269,6 +271,12 @@ func (r *CommandRunner) Start(ctx context.Context, workDir string, request Start
 	args = appendStringFlag(args, "--platform-key", request.PlatformKey)
 	args = appendStringFlag(args, "--app-id", request.AppID)
 	args = appendStringFlag(args, "--build-version-id", request.BuildVersionID)
+	for _, launchVar := range request.LaunchVars {
+		args = appendStringFlag(args, "--launch-var", launchVar)
+	}
+	if request.DisableInheritedLaunchVars {
+		args = append(args, "--no-inherited-launch-vars")
+	}
 	args = appendIntFlag(args, "--port", request.Port)
 	args = appendIntFlag(args, "--timeout", request.TimeoutSeconds)
 	if request.Remote {

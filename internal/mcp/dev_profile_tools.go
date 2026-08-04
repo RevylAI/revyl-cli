@@ -69,16 +69,17 @@ type DevProfileActionOutput struct {
 
 // DeviceSessionInput selects one device-session lifecycle operation.
 type DeviceSessionInput struct {
-	Action         string   `json:"action" jsonschema:"required,Session action: start stop list switch info doctor"`
-	Platform       string   `json:"platform,omitempty" jsonschema:"Platform for start: ios or android."`
-	AppID          string   `json:"app_id,omitempty" jsonschema:"App ID for start."`
-	BuildVersionID string   `json:"build_version_id,omitempty" jsonschema:"Build version ID for start."`
-	AppURL         string   `json:"app_url,omitempty" jsonschema:"Direct app artifact URL for start."`
-	AppLink        string   `json:"app_link,omitempty" jsonschema:"Deep link to open after app launch."`
-	LaunchVars     []string `json:"launch_vars,omitempty" jsonschema:"Organization launch-variable keys or IDs."`
-	Timeout        int      `json:"timeout,omitempty" jsonschema:"Idle timeout in seconds."`
-	SessionIndex   *int     `json:"session_index,omitempty" jsonschema:"Session index for stop switch or info."`
-	All            bool     `json:"all,omitempty" jsonschema:"Stop every session."`
+	Action                     string   `json:"action" jsonschema:"required,Session action: start stop list switch info doctor"`
+	Platform                   string   `json:"platform,omitempty" jsonschema:"Platform for start: ios or android."`
+	AppID                      string   `json:"app_id,omitempty" jsonschema:"App ID for start."`
+	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Build version ID for start."`
+	AppURL                     string   `json:"app_url,omitempty" jsonschema:"Direct app artifact URL for start."`
+	AppLink                    string   `json:"app_link,omitempty" jsonschema:"Deep link to open after app launch."`
+	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Organization launch-variable keys or IDs."`
+	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
+	Timeout                    int      `json:"timeout,omitempty" jsonschema:"Idle timeout in seconds."`
+	SessionIndex               *int     `json:"session_index,omitempty" jsonschema:"Session index for stop switch or info."`
+	All                        bool     `json:"all,omitempty" jsonschema:"Stop every session."`
 }
 
 // registerDevProfileTools registers the focused development and device surface.
@@ -499,7 +500,8 @@ func (s *Server) handleDeviceSession(
 		return dispatchDevProfileAction(ctx, req, action, StartDeviceSessionInput{
 			Platform: input.Platform, AppID: input.AppID, BuildVersionID: input.BuildVersionID,
 			AppURL: input.AppURL, AppLink: input.AppLink, LaunchVars: input.LaunchVars,
-			IdleTimeout: input.Timeout, NoOpen: true,
+			DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
+			IdleTimeout:                input.Timeout, NoOpen: true,
 		}, s.handleStartDeviceSession)
 	case "stop":
 		return dispatchDevProfileAction(ctx, req, action, StopDeviceSessionInput{

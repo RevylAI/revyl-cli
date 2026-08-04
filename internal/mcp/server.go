@@ -920,13 +920,15 @@ Use get_schema for the YAML format reference. The YAML must include the full tes
 
 // RunTestInput defines the input parameters for the run_test tool.
 type RunTestInput struct {
-	TestName       string `json:"test_name" jsonschema:"Test name (alias from .revyl/config.yaml) or UUID"`
-	Retries        int    `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
-	BuildVersionID string `json:"build_version_id,omitempty" jsonschema:"Specific build version ID to test against"`
-	Location       string `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
-	DeviceModel    string `json:"device_model,omitempty" jsonschema:"Override device model (e.g. iPhone 16, Pixel 7)"`
-	OsVersion      string `json:"os_version,omitempty" jsonschema:"Override OS version (e.g. iOS 18.5, Android 14)"`
-	Orientation    string `json:"orientation,omitempty" jsonschema:"Override device orientation (portrait or landscape)"`
+	TestName                   string   `json:"test_name" jsonschema:"Test name (alias from .revyl/config.yaml) or UUID"`
+	Retries                    int      `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
+	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Specific build version ID to test against"`
+	Location                   string   `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
+	DeviceModel                string   `json:"device_model,omitempty" jsonschema:"Override device model (e.g. iPhone 16, Pixel 7)"`
+	OsVersion                  string   `json:"os_version,omitempty" jsonschema:"Override OS version (e.g. iOS 18.5, Android 14)"`
+	Orientation                string   `json:"orientation,omitempty" jsonschema:"Override device orientation (portrait or landscape)"`
+	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Additional organization launch-variable keys or IDs."`
+	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
 }
 
 // RunTestOutput defines the output for the run_test tool.
@@ -1002,15 +1004,17 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 
 	// Parse location if provided
 	params := execution.RunTestParams{
-		TestNameOrID:   input.TestName,
-		Retries:        retries,
-		BuildVersionID: input.BuildVersionID,
-		Timeout:        execution.DefaultRunTimeoutSeconds,
-		DevMode:        s.devMode,
-		OnProgress:     onProgress,
-		DeviceModel:    input.DeviceModel,
-		OsVersion:      input.OsVersion,
-		Orientation:    input.Orientation,
+		TestNameOrID:               input.TestName,
+		Retries:                    retries,
+		BuildVersionID:             input.BuildVersionID,
+		Timeout:                    execution.DefaultRunTimeoutSeconds,
+		DevMode:                    s.devMode,
+		OnProgress:                 onProgress,
+		DeviceModel:                input.DeviceModel,
+		OsVersion:                  input.OsVersion,
+		Orientation:                input.Orientation,
+		LaunchVars:                 input.LaunchVars,
+		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
 	}
 	if input.Location != "" {
 		lat, lng, locErr := parseLocationString(input.Location)
@@ -1069,11 +1073,13 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 
 // RunWorkflowInput defines the input parameters for the run_workflow tool.
 type RunWorkflowInput struct {
-	WorkflowName string `json:"workflow_name" jsonschema:"Workflow name (alias from .revyl/config.yaml) or UUID"`
-	Retries      int    `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
-	IOSAppID     string `json:"ios_app_id,omitempty" jsonschema:"Override iOS app ID for all tests in workflow"`
-	AndroidAppID string `json:"android_app_id,omitempty" jsonschema:"Override Android app ID for all tests in workflow"`
-	Location     string `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
+	WorkflowName               string   `json:"workflow_name" jsonschema:"Workflow name (alias from .revyl/config.yaml) or UUID"`
+	Retries                    int      `json:"retries,omitempty" jsonschema:"Number of retry attempts (1-5)"`
+	IOSAppID                   string   `json:"ios_app_id,omitempty" jsonschema:"Override iOS app ID for all tests in workflow"`
+	AndroidAppID               string   `json:"android_app_id,omitempty" jsonschema:"Override Android app ID for all tests in workflow"`
+	Location                   string   `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
+	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Additional organization launch-variable keys or IDs for every child test."`
+	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
 }
 
 // RunWorkflowOutput defines the output for the run_workflow tool.
@@ -1154,13 +1160,15 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 
 	// Build params with optional overrides
 	wfParams := execution.RunWorkflowParams{
-		WorkflowNameOrID: workflowID,
-		Retries:          retries,
-		Timeout:          execution.DefaultRunTimeoutSeconds,
-		DevMode:          s.devMode,
-		OnProgress:       onProgress,
-		IOSAppID:         input.IOSAppID,
-		AndroidAppID:     input.AndroidAppID,
+		WorkflowNameOrID:           workflowID,
+		Retries:                    retries,
+		Timeout:                    execution.DefaultRunTimeoutSeconds,
+		DevMode:                    s.devMode,
+		OnProgress:                 onProgress,
+		IOSAppID:                   input.IOSAppID,
+		AndroidAppID:               input.AndroidAppID,
+		LaunchVars:                 input.LaunchVars,
+		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
 	}
 	if input.Location != "" {
 		lat, lng, locErr := parseLocationString(input.Location)

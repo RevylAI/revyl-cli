@@ -25,36 +25,38 @@ import (
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/devicetargets"
 	"github.com/revyl/cli/internal/execution"
+	"github.com/revyl/cli/internal/launchvars"
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/ui"
 )
 
 var (
-	runRetries              int
-	runBuildID              string
-	runNoWait               bool
-	runOpen                 bool
-	runTimeout              int
-	runOutputJSON           bool
-	runGitHubActions        bool
-	runVerbose              bool
-	runTestBuild            bool
-	runTestPlatform         string
-	runWorkflowBuild        bool
-	runWorkflowPlatform     string
-	runWorkflowIOSAppID     string
-	runWorkflowAndroidAppID string
-	runWorkflowIOSBuild     string
-	runWorkflowAndroidBuild string
-	runLocation             string
-	runDeviceSelect         bool
-	runDeviceModel          string
-	runOsVersion            string
-	runOrientation          string
-	runFailFast             bool
-	runLaunchEnv            []string
-	runLaunchVars           []string
-	runVars                 []string
+	runRetries                    int
+	runBuildID                    string
+	runNoWait                     bool
+	runOpen                       bool
+	runTimeout                    int
+	runOutputJSON                 bool
+	runGitHubActions              bool
+	runVerbose                    bool
+	runTestBuild                  bool
+	runTestPlatform               string
+	runWorkflowBuild              bool
+	runWorkflowPlatform           string
+	runWorkflowIOSAppID           string
+	runWorkflowAndroidAppID       string
+	runWorkflowIOSBuild           string
+	runWorkflowAndroidBuild       string
+	runLocation                   string
+	runDeviceSelect               bool
+	runDeviceModel                string
+	runOsVersion                  string
+	runOrientation                string
+	runFailFast                   bool
+	runLaunchEnv                  []string
+	runLaunchVars                 []string
+	runDisableInheritedLaunchVars bool
+	runVars                       []string
 )
 
 // minRetries is the minimum allowed retry count.
@@ -452,23 +454,24 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 
 	result, err := runTestExecution(ctx, apiKey, cfg, execution.RunTestParams{
-		TestNameOrID:      testID,
-		Retries:           runRetries,
-		BuildVersionID:    runBuildID,
-		Timeout:           effectiveTimeout,
-		DevMode:           devMode,
-		NoWait:            runNoWait,
-		MonitoringMode:    sse.MonitoringModePolling,
-		Latitude:          lat,
-		Longitude:         lng,
-		HasLocation:       hasLocation,
-		DeviceModel:       deviceModel,
-		OsVersion:         osVersion,
-		Orientation:       runOrientation,
-		FailFast:          failFastPtr,
-		LaunchEnvVars:     launchEnvVars,
-		VariableOverrides: variableOverrides,
-		LaunchVars:        append([]string(nil), runLaunchVars...),
+		TestNameOrID:               testID,
+		Retries:                    runRetries,
+		BuildVersionID:             runBuildID,
+		Timeout:                    effectiveTimeout,
+		DevMode:                    devMode,
+		NoWait:                     runNoWait,
+		MonitoringMode:             sse.MonitoringModePolling,
+		Latitude:                   lat,
+		Longitude:                  lng,
+		HasLocation:                hasLocation,
+		DeviceModel:                deviceModel,
+		OsVersion:                  osVersion,
+		Orientation:                runOrientation,
+		FailFast:                   failFastPtr,
+		LaunchEnvVars:              launchEnvVars,
+		VariableOverrides:          variableOverrides,
+		LaunchVars:                 append([]string(nil), runLaunchVars...),
+		DisableInheritedLaunchVars: runDisableInheritedLaunchVars,
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},
@@ -677,9 +680,17 @@ func queueWorkflowExecution(
 	longitude float64,
 	variableOverrides map[string]string,
 	launchVars []string,
+	disableInheritedLaunchVars bool,
 	launchEnvVars map[string]string,
 ) (*execution.RunWorkflowResult, error) {
 	client := api.NewClientWithDevMode(apiKey, devMode)
+	launchVars, err := launchvars.MergeInherited(
+		launchVars,
+		disableInheritedLaunchVars,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load inherited launch variables: %w", err)
+	}
 	launchEnvVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, client, launchVars)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve launch variables: %w", err)
@@ -1012,6 +1023,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			wfLng,
 			variableOverrides,
 			runLaunchVars,
+			runDisableInheritedLaunchVars,
 			launchEnvVars,
 		)
 		if err != nil {
@@ -1060,21 +1072,22 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	defer stopInterruptHandler()
 
 	result, err := runWorkflowExecution(ctx, apiKey, cfg, execution.RunWorkflowParams{
-		WorkflowNameOrID:  workflowID,
-		Retries:           runRetries,
-		Timeout:           effectiveTimeout,
-		DevMode:           devMode,
-		MonitoringMode:    sse.MonitoringModePolling,
-		IOSAppID:          runWorkflowIOSAppID,
-		AndroidAppID:      runWorkflowAndroidAppID,
-		IOSBuild:          runWorkflowIOSBuild,
-		AndroidBuild:      runWorkflowAndroidBuild,
-		Latitude:          wfLat,
-		Longitude:         wfLng,
-		HasLocation:       wfHasLocation,
-		VariableOverrides: variableOverrides,
-		LaunchVars:        runLaunchVars,
-		LaunchEnvVars:     launchEnvVars,
+		WorkflowNameOrID:           workflowID,
+		Retries:                    runRetries,
+		Timeout:                    effectiveTimeout,
+		DevMode:                    devMode,
+		MonitoringMode:             sse.MonitoringModePolling,
+		IOSAppID:                   runWorkflowIOSAppID,
+		AndroidAppID:               runWorkflowAndroidAppID,
+		IOSBuild:                   runWorkflowIOSBuild,
+		AndroidBuild:               runWorkflowAndroidBuild,
+		Latitude:                   wfLat,
+		Longitude:                  wfLng,
+		HasLocation:                wfHasLocation,
+		VariableOverrides:          variableOverrides,
+		LaunchVars:                 runLaunchVars,
+		DisableInheritedLaunchVars: runDisableInheritedLaunchVars,
+		LaunchEnvVars:              launchEnvVars,
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},

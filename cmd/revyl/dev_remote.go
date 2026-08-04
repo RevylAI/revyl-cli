@@ -156,26 +156,32 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		return err
 	}
 
-	// Kick off the remote build (package + upload + enqueue) concurrently with
-	// device boot + optional seed install so time-to-app-open is not gated on
-	// the source upload. The simulator is watchable within seconds; the fresh
-	// build installs (hot-swap) the moment the artifact lands.
-	triggerCh := make(chan remoteDevBuildTrigger, 1)
-	go func() {
-		job, triggerErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd, nil)
-		triggerCh <- remoteDevBuildTrigger{job: job, err: triggerErr}
-	}()
-
 	var session *mcppkg.DeviceSession
 	sessionOwned := true
 	if savedCtx, _ := loadDevContext(cwd, ctxName); savedCtx != nil && savedCtx.SessionID != "" {
 		reuse := tryReuseDevContextSession(ctx, deviceMgr, savedCtx, devicePlatform)
 		if reuse != nil {
+			if err := validateLaunchSettingsForSessionReuse(
+				devStartLaunchVars,
+				devDisableInheritedLaunchVars,
+			); err != nil {
+				return err
+			}
 			session = reuse.Session
 			sessionOwned = reuse.SessionOwned
 			warnLaunchVarsIgnoredForReusedDevSession()
 		}
 	}
+
+	// Kick off the remote build (package + upload + enqueue) concurrently with
+	// device boot + optional seed install so time-to-app-open is not gated on
+	// the source upload. Validate any reusable session first so rejected launch
+	// settings never enqueue a build.
+	triggerCh := make(chan remoteDevBuildTrigger, 1)
+	go func() {
+		job, triggerErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd, nil)
+		triggerCh <- remoteDevBuildTrigger{job: job, err: triggerErr}
+	}()
 
 	if session == nil {
 		ui.PrintInfo("Starting cloud device session (build continues in background)...")

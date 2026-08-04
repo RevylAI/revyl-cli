@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -187,13 +188,18 @@ func TestApplyAuthBypassSessionDefaults(t *testing.T) {
 		t.Fatalf("AppLink = %q, want post-launch proxy handling", opts.AppLink)
 	}
 
-	// Explicit values win over config.
+	// Explicit values remain additive with config.
 	opts = applyAuthBypassSessionDefaults(context.Background(), mcppkg.StartSessionOptions{
 		LaunchVars: []string{"EXPLICIT_VAR"},
 		AppLink:    "exp+app://dev-client",
 	})
-	if len(opts.LaunchVars) != 1 || opts.LaunchVars[0] != "EXPLICIT_VAR" {
-		t.Fatalf("LaunchVars = %v, want explicit flag to win", opts.LaunchVars)
+	wantLaunchVars := []string{
+		"EXPLICIT_VAR",
+		"REVYL_AUTH_BYPASS_ENABLED",
+		"REVYL_AUTH_BYPASS_TOKEN",
+	}
+	if fmt.Sprint(opts.LaunchVars) != fmt.Sprint(wantLaunchVars) {
+		t.Fatalf("LaunchVars = %v, want %v", opts.LaunchVars, wantLaunchVars)
 	}
 	if opts.AppLink != "exp+app://dev-client" {
 		t.Fatalf("AppLink = %q, want explicit app link to win", opts.AppLink)

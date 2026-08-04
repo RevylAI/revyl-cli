@@ -16,6 +16,13 @@ func TestCommandRunnerDelegatesCanonicalCommands(t *testing.T) {
 	binary := writeFakeRevyl(t, `#!/bin/sh
 case "$*" in
   *"dev --detach"*)
+    case "$*" in
+      *"--launch-var API_URL --launch-var AUTH_STATE --no-inherited-launch-vars"*) ;;
+      *)
+        printf 'missing launch-variable flags: %s\n' "$*" >&2
+        exit 4
+        ;;
+    esac
     printf '%s\n' '{"context":"default","state":"preparing","pid":42,"platform":"ios","session_id":"session-1","session_index":0,"viewer_url":"https://viewer","build":{"status":"running"}}'
     ;;
   *"dev status"*)
@@ -40,8 +47,10 @@ esac
 	runner := &CommandRunner{BinaryPath: binary, DevMode: true}
 
 	start, err := runner.Start(context.Background(), workDir, StartRequest{
-		Platform: "ios",
-		Remote:   true,
+		Platform:                   "ios",
+		LaunchVars:                 []string{"API_URL", "AUTH_STATE"},
+		DisableInheritedLaunchVars: true,
+		Remote:                     true,
 	})
 	if err != nil || start.ViewerURL != "https://viewer" {
 		t.Fatalf("Start() = %+v, %v", start, err)

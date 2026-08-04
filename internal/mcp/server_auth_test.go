@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -271,7 +272,20 @@ func TestDevLoopOutputSchemasPreserveProfileCompatibility(t *testing.T) {
 				t.Fatalf("NewServer(): %v", err)
 			}
 			tools := listServerTools(t, server)
-			startProperties := toolOutputProperties(t, serverToolByName(t, tools, "start_dev_loop"))
+			startTool := serverToolByName(t, tools, "start_dev_loop")
+			requireSchemaPropertyType(
+				t,
+				startTool.InputSchema,
+				"launch_vars",
+				[]any{"null", "array"},
+			)
+			requireSchemaPropertyType(
+				t,
+				startTool.InputSchema,
+				"disable_inherited_launch_vars",
+				"boolean",
+			)
+			startProperties := toolOutputProperties(t, startTool)
 			stopProperties := toolOutputProperties(t, serverToolByName(t, tools, "stop_dev_loop"))
 			if test.nested {
 				requireSchemaProperties(t, startProperties, "outcome", "result")
@@ -444,8 +458,8 @@ func requireSchemaProperties(t *testing.T, properties map[string]json.RawMessage
 	}
 }
 
-// requireSchemaPropertyType verifies every named property has the expected concrete type.
-func requireSchemaPropertyType(t *testing.T, schemaValue any, propertyName, expectedType string) {
+// requireSchemaPropertyType verifies every named property has the expected JSON Schema type value.
+func requireSchemaPropertyType(t *testing.T, schemaValue any, propertyName string, expectedType any) {
 	t.Helper()
 	content, err := json.Marshal(schemaValue)
 	if err != nil {
@@ -464,9 +478,9 @@ func requireSchemaPropertyType(t *testing.T, schemaValue any, propertyName, expe
 			if properties, ok := typed["properties"].(map[string]any); ok {
 				if property, ok := properties[propertyName].(map[string]any); ok {
 					found = true
-					if property["type"] != expectedType {
+					if !reflect.DeepEqual(property["type"], expectedType) {
 						t.Errorf(
-							"schema property %q type = %v, want %q",
+							"schema property %q type = %v, want %v",
 							propertyName,
 							property["type"],
 							expectedType,
