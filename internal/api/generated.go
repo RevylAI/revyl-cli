@@ -699,6 +699,9 @@ type BuildCreateResponse struct {
 
 // BuildFromUrlRequest Request to create a build by ingesting an artifact from a URL (e.g., Expo EAS).
 type BuildFromUrlRequest struct {
+	// FingerprintHash Native dependency fingerprint for compatible artifact reuse
+	FingerprintHash *string `json:"fingerprint_hash"`
+
 	// FromUrl Source URL of the artifact to ingest
 	FromUrl string `json:"from_url"`
 
@@ -3023,13 +3026,21 @@ type ScmProfiles struct {
 	Ios     *ScmPlatformProfile `json:"ios,omitempty"`
 }
 
-// ScriptUsageResponse Response model for script usage lookup
-type ScriptUsageResponse struct {
-	Tests []ScriptUsageTestItem `json:"tests"`
-	Total int                   `json:"total"`
+// ScriptUsageModuleItem A module that uses a specific script as a step, and is itself used by
+// at least one test
+type ScriptUsageModuleItem struct {
+	Id   openapi_types.UUID `json:"id"`
+	Name string             `json:"name"`
 }
 
-// ScriptUsageTestItem A test that uses a specific script
+// ScriptUsageResponse Response model for script usage lookup
+type ScriptUsageResponse struct {
+	Modules []ScriptUsageModuleItem `json:"modules"`
+	Tests   []ScriptUsageTestItem   `json:"tests"`
+	Total   int                     `json:"total"`
+}
+
+// ScriptUsageTestItem A test that uses a specific script directly as a step
 type ScriptUsageTestItem struct {
 	Id   openapi_types.UUID `json:"id"`
 	Name string             `json:"name"`

@@ -24,6 +24,7 @@ func remoteBuildConfigFromResolved(appID uuid.UUID, resolved remoteBuildPlatform
 	return api.BuildConfig{
 		AppId:        appID,
 		Platform:     &platform,
+		Framework:    stringPtrOrNil(resolved.Framework),
 		Image:        stringPtrOrNil(resolved.Image),
 		SourceSubdir: stringPtrOrNil(sourceSubdir),
 		Steps:        &steps,

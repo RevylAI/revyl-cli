@@ -756,6 +756,15 @@ func triggerRemoteDevBuild(
 	if err != nil {
 		return remoteDevBuildJob{}, err
 	}
+	if projectCfg, loadErr := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml")); loadErr == nil {
+		framework := strings.ToLower(strings.TrimSpace(projectCfg.Build.System))
+		if framework == "" {
+			if detected, detectErr := build.Detect(cwd); detectErr == nil {
+				framework = strings.ToLower(detected.System.String())
+			}
+		}
+		triggerReq.Config.Framework = stringPtrOrNil(framework)
+	}
 	timeoutSeconds, err := buildPlatformTimeoutSeconds(platCfg, platformKey)
 	if err != nil {
 		return remoteDevBuildJob{}, err

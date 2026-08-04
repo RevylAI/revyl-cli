@@ -162,6 +162,11 @@ func isExpoProject(dir string) bool {
 	if fileExists(filepath.Join(dir, "eas.json")) {
 		return true
 	}
+	for _, filename := range []string{"app.config.js", "app.config.ts", "app.config.mjs", "app.config.cjs"} {
+		if fileExists(filepath.Join(dir, filename)) {
+			return true
+		}
+	}
 
 	// Check for app.json with expo configuration
 	appJsonPath := filepath.Join(dir, "app.json")
@@ -171,6 +176,11 @@ func isExpoProject(dir string) bool {
 			// Simple check for "expo" key in JSON
 			return strings.Contains(string(content), `"expo"`)
 		}
+	}
+
+	packageJsonPath := filepath.Join(dir, "package.json")
+	if content, err := os.ReadFile(packageJsonPath); err == nil {
+		return strings.Contains(string(content), `"expo"`)
 	}
 
 	return false

@@ -62,6 +62,7 @@ type remoteBuildPlatformConfig struct {
 	Env         map[string]string
 	Secrets     []string
 	Caches      []config.BuildCache
+	Framework   string
 	// TimeoutSeconds is the optional build.platforms.<PlatformKey>.timeout, nil
 	// when unset so the trigger request omits it and the server default applies.
 	TimeoutSeconds *int
@@ -919,6 +920,12 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 				return remoteBuildPlatformConfig{}, err
 			}
 			caches := config.EffectiveBuildCaches(cfg.Build, platCfg)
+			framework := strings.ToLower(strings.TrimSpace(cfg.Build.System))
+			if framework == "" {
+				if detected, detectErr := build.Detect(cwd); detectErr == nil {
+					framework = strings.ToLower(detected.System.String())
+				}
+			}
 			return remoteBuildPlatformConfig{
 				Platform:       devicePlatform,
 				PlatformKey:    key,
@@ -933,6 +940,7 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 				Env:            platCfg.Env,
 				Secrets:        append([]string(nil), platCfg.Secrets...),
 				Caches:         caches,
+				Framework:      framework,
 				TimeoutSeconds: timeoutSeconds,
 			}, nil
 		}
@@ -979,6 +987,7 @@ func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBui
 		Output:         strings.TrimSpace(platBuild.Output),
 		Scheme:         strings.TrimSpace(resolveRemoteBuildScheme(platform, "")),
 		AppID:          appID,
+		Framework:      strings.ToLower(detected.System.String()),
 		TimeoutSeconds: timeoutSeconds,
 	}, nil
 }

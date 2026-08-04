@@ -231,6 +231,38 @@ func TestResolveRemoteBuildPlatformAndroidReadsConfig(t *testing.T) {
 	}
 }
 
+func TestResolveRemoteBuildPlatformDetectsFrameworkWhenConfigOmitsSystem(t *testing.T) {
+	tmp := t.TempDir()
+	configDir := filepath.Join(tmp, ".revyl")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	configYAML := []byte(`project:
+  name: Demo
+build:
+  platforms:
+    android:
+      app_id: app-android
+      command: npx expo run:android
+      output: build/app.apk
+`)
+	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), configYAML, 0o644); err != nil {
+		t.Fatalf("WriteFile(config.yaml): %v", err)
+	}
+	packageJSON := []byte(`{"dependencies":{"expo":"^54.0.0"}}`)
+	if err := os.WriteFile(filepath.Join(tmp, "package.json"), packageJSON, 0o644); err != nil {
+		t.Fatalf("WriteFile(package.json): %v", err)
+	}
+
+	resolved, err := resolveRemoteBuildPlatform(tmp, "android", "")
+	if err != nil {
+		t.Fatalf("resolveRemoteBuildPlatform(): %v", err)
+	}
+	if resolved.Framework != "expo" {
+		t.Fatalf("Framework = %q, want expo", resolved.Framework)
+	}
+}
+
 func TestResolveRemoteBuildPlatformReadsMultipleCommands(t *testing.T) {
 	tmp := t.TempDir()
 	configDir := filepath.Join(tmp, ".revyl")
