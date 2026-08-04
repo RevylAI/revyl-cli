@@ -6454,12 +6454,32 @@ type OrgLaunchVariable struct {
 	OrgID             string `json:"org_id"`
 	Key               string `json:"key"`
 	Value             string `json:"value"`
+	IsSecret          bool   `json:"is_secret"`
 	HasValue          *bool  `json:"has_value,omitempty"`
 	Description       string `json:"description,omitempty"`
 	CreatedBy         string `json:"created_by,omitempty"`
 	CreatedAt         string `json:"created_at,omitempty"`
 	UpdatedAt         string `json:"updated_at,omitempty"`
 	AttachedTestCount int    `json:"attached_test_count,omitempty"`
+}
+
+// UnmarshalJSON keeps launch variables from older API versions secret by
+// default. Those responses predate is_secret and always represented encrypted
+// values, so treating an omitted field as visible could expose them in CLI
+// output or admit them to non-secret-only workflows.
+func (v *OrgLaunchVariable) UnmarshalJSON(data []byte) error {
+	type orgLaunchVariableWire OrgLaunchVariable
+	decoded := orgLaunchVariableWire{IsSecret: true}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*v = OrgLaunchVariable(decoded)
+	return nil
+}
+
+// OrgLaunchVariableWriteOptions controls optional launch-variable write fields.
+type OrgLaunchVariableWriteOptions struct {
+	IsSecret *bool
 }
 
 // OrgLaunchVariablesResponse represents the response from listing org launch variables.
@@ -6575,13 +6595,16 @@ func (c *Client) ListOrgLaunchVariables(ctx context.Context) (*OrgLaunchVariable
 }
 
 // AddOrgLaunchVariable creates a new org launch variable for the authenticated user's org.
-func (c *Client) AddOrgLaunchVariable(ctx context.Context, key, value string, description *string) (*OrgLaunchVariableResponse, error) {
+func (c *Client) AddOrgLaunchVariable(ctx context.Context, key, value string, description *string, opts OrgLaunchVariableWriteOptions) (*OrgLaunchVariableResponse, error) {
 	body := map[string]interface{}{
 		"key":   key,
 		"value": value,
 	}
 	if description != nil {
 		body["description"] = *description
+	}
+	if opts.IsSecret != nil {
+		body["is_secret"] = *opts.IsSecret
 	}
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/variables/org_launch_env", body)
 	if err != nil {
@@ -6597,7 +6620,7 @@ func (c *Client) AddOrgLaunchVariable(ctx context.Context, key, value string, de
 }
 
 // UpdateOrgLaunchVariable updates an existing org launch variable by UUID.
-func (c *Client) UpdateOrgLaunchVariable(ctx context.Context, variableID string, key, value, description *string) (*OrgLaunchVariableResponse, error) {
+func (c *Client) UpdateOrgLaunchVariable(ctx context.Context, variableID string, key, value, description *string, opts OrgLaunchVariableWriteOptions) (*OrgLaunchVariableResponse, error) {
 	body := map[string]interface{}{}
 	if key != nil {
 		body["key"] = *key
@@ -6607,6 +6630,9 @@ func (c *Client) UpdateOrgLaunchVariable(ctx context.Context, variableID string,
 	}
 	if description != nil {
 		body["description"] = *description
+	}
+	if opts.IsSecret != nil {
+		body["is_secret"] = *opts.IsSecret
 	}
 
 	path := fmt.Sprintf("/api/v1/variables/org_launch_env/%s", variableID)

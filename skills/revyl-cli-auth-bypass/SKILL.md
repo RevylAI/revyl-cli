@@ -27,7 +27,7 @@ Gate the handler with Revyl launch variables:
 
 ```bash
 revyl global launch-var create REVYL_AUTH_BYPASS_ENABLED=true
-revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN=<test-only-token>
+revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN=<test-only-token> --secret
 ```
 
 Then start the Revyl session with those launch vars before opening the auth link:
@@ -91,7 +91,7 @@ Create or update launch vars once:
 ```bash
 export REVYL_AUTH_BYPASS_TOKEN="<test-only-token>"
 revyl global launch-var create REVYL_AUTH_BYPASS_ENABLED=true
-revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN="$REVYL_AUTH_BYPASS_TOKEN"
+revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN="$REVYL_AUTH_BYPASS_TOKEN" --secret
 ```
 
 If a launch var already exists, update it instead:

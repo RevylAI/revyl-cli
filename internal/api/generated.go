@@ -201,6 +201,13 @@ const (
 	IosStoreKitConfigRefUpsertRequestScopeTypeTest  IosStoreKitConfigRefUpsertRequestScopeType = "test"
 )
 
+// Defines values for LaunchEnvVarErrorCode.
+const (
+	LaunchEnvVarErrorCodeLaunchVariableInvalid            LaunchEnvVarErrorCode = "launch_variable_invalid"
+	LaunchEnvVarErrorCodeLaunchVariableServiceError       LaunchEnvVarErrorCode = "launch_variable_service_error"
+	LaunchEnvVarErrorCodeLaunchVariableServiceUnavailable LaunchEnvVarErrorCode = "launch_variable_service_unavailable"
+)
+
 // Defines values for PlanInfoBillingPeriod.
 const (
 	PlanInfoBillingPeriodMonthly PlanInfoBillingPeriod = "monthly"
@@ -1981,6 +1988,27 @@ type LLMConfig struct {
 	ReflectionModel *string `json:"reflection_model"`
 }
 
+// LaunchEnvVarErrorCode Stable failure categories for resolving stored launch variables.
+type LaunchEnvVarErrorCode string
+
+// LaunchEnvVarErrorDetail Safe, actionable context for a launch-variable resolution failure.
+type LaunchEnvVarErrorDetail struct {
+	// Code Stable failure categories for resolving stored launch variables.
+	Code            LaunchEnvVarErrorCode `json:"code"`
+	LaunchEnvVarId  *string               `json:"launch_env_var_id"`
+	LaunchEnvVarKey *string               `json:"launch_env_var_key"`
+	Message         string                `json:"message"`
+	Retryable       bool                  `json:"retryable"`
+}
+
+// LaunchEnvVarSnapshotEntry Sanitized immutable launch-variable fact stored on a device session.
+type LaunchEnvVarSnapshotEntry struct {
+	Id       *string `json:"id"`
+	IsSecret *bool   `json:"is_secret,omitempty"`
+	Key      string  `json:"key"`
+	Value    *string `json:"value"`
+}
+
 // LocationConfig GPS location configuration for simulator/emulator.
 type LocationConfig struct {
 	// Latitude GPS latitude coordinate (-90 to 90)
@@ -2232,6 +2260,9 @@ type OrgLaunchEnvVarCreate struct {
 	// Description Description of the variable
 	Description *string `json:"description"`
 
+	// IsSecret Whether the value is encrypted and hidden on reads. Omission defaults to true for compatibility with legacy clients.
+	IsSecret *bool `json:"is_secret,omitempty"`
+
 	// Key Launch variable key
 	Key string `json:"key"`
 
@@ -2274,11 +2305,14 @@ type OrgLaunchEnvVarRow struct {
 	// Description Description
 	Description *string `json:"description"`
 
-	// HasValue Whether an encrypted value is stored for this variable
+	// HasValue Whether a value is stored for this variable
 	HasValue *bool `json:"has_value,omitempty"`
 
 	// Id Unique identifier
 	Id openapi_types.UUID `json:"id"`
+
+	// IsSecret Whether the stored value is encrypted and hidden on reads
+	IsSecret *bool `json:"is_secret,omitempty"`
 
 	// Key Launch variable key
 	Key string `json:"key"`
@@ -2289,7 +2323,7 @@ type OrgLaunchEnvVarRow struct {
 	// UpdatedAt Last update timestamp
 	UpdatedAt time.Time `json:"updated_at"`
 
-	// Value Always null on client-facing responses — launch variable values are write-only and decrypted only server-side at device start.
+	// Value Plaintext value for non-secret launch variables. Secret values are write-only and always returned as null.
 	Value *string `json:"value"`
 }
 
@@ -2297,6 +2331,9 @@ type OrgLaunchEnvVarRow struct {
 type OrgLaunchEnvVarUpdate struct {
 	// Description Updated description
 	Description *string `json:"description"`
+
+	// IsSecret Updated secrecy state; omission preserves the current state
+	IsSecret *bool `json:"is_secret"`
 
 	// Key Updated launch variable key
 	Key *string `json:"key"`
@@ -2747,6 +2784,7 @@ type ReportContextResponse struct {
 	Id                     string                       `json:"id"`
 	LaunchEnvVarIds        *[]string                    `json:"launch_env_var_ids"`
 	LaunchEnvVarKeys       *[]string                    `json:"launch_env_var_keys"`
+	LaunchEnvVarSnapshot   *[]LaunchEnvVarSnapshotEntry `json:"launch_env_var_snapshot"`
 	Locale                 *string                      `json:"locale"`
 	NetworkRequestsPartial *bool                        `json:"network_requests_partial"`
 	NetworkRequestsUrl     *string                      `json:"network_requests_url"`
@@ -3139,13 +3177,16 @@ type StartDeviceInfo struct {
 
 // StartDeviceResponse Structured response for the `start_device` endpoint.
 type StartDeviceResponse struct {
-	Error        *string             `json:"error"`
-	IframeUrl    *string             `json:"iframe_url"`
-	Message      *string             `json:"message"`
-	Platform     string              `json:"platform"`
-	RetryAllowed *bool               `json:"retry_allowed"`
-	SessionId    *openapi_types.UUID `json:"session_id"`
-	Status       AsyncStatus         `json:"status"`
+	Error *string `json:"error"`
+
+	// ErrorDetail Safe, actionable context for a launch-variable resolution failure.
+	ErrorDetail  *LaunchEnvVarErrorDetail `json:"error_detail,omitempty"`
+	IframeUrl    *string                  `json:"iframe_url"`
+	Message      *string                  `json:"message"`
+	Platform     string                   `json:"platform"`
+	RetryAllowed *bool                    `json:"retry_allowed"`
+	SessionId    *openapi_types.UUID      `json:"session_id"`
+	Status       AsyncStatus              `json:"status"`
 
 	// TraceId OpenTelemetry trace ID (32 hex chars, no dashes) for Grafana correlation
 	TraceId       *string             `json:"trace_id"`

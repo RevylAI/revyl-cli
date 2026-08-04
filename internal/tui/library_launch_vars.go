@@ -27,6 +27,7 @@ func fetchLaunchVarsCmd(client *api.Client) tea.Cmd {
 				ID:                v.ID,
 				Key:               v.Key,
 				Value:             v.Value,
+				IsSecret:          v.IsSecret,
 				Description:       v.Description,
 				AttachedTestCount: v.AttachedTestCount,
 			})
@@ -35,17 +36,21 @@ func fetchLaunchVarsCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-func saveLaunchVarCmd(client *api.Client, id, key, value, description string) tea.Cmd {
+func saveLaunchVarCmd(client *api.Client, id, key string, value *string, description string, isSecret bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		desc := description
+		opts := api.OrgLaunchVariableWriteOptions{IsSecret: &isSecret}
 		var err error
 		if id == "" {
-			_, err = client.AddOrgLaunchVariable(ctx, key, value, &desc)
+			if value == nil {
+				return LaunchVarSavedMsg{Err: fmt.Errorf("launch variable value is required")}
+			}
+			_, err = client.AddOrgLaunchVariable(ctx, key, *value, &desc, opts)
 		} else {
-			_, err = client.UpdateOrgLaunchVariable(ctx, id, &key, &value, &desc)
+			_, err = client.UpdateOrgLaunchVariable(ctx, id, &key, value, &desc, opts)
 		}
 		return LaunchVarSavedMsg{Err: err}
 	}
@@ -108,8 +113,6 @@ func handleLibraryLaunchVarsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 			m.selectedLaunchVar = &v
 			m.libraryMode = libModeConfirmDelete
 		}
-	case "v":
-		m.launchVarShowValues = !m.launchVarShowValues
 	}
 	return m, nil
 }
@@ -120,14 +123,20 @@ func libraryLaunchVarsBeginEdit(m hubModel, v *LaunchVarItem) hubModel {
 	if v == nil {
 		m.selectedLaunchVar = nil
 		m.launchVarIsCreating = true
+		m.launchVarIsSecret = false
 		m.launchVarKeyInput.SetValue("")
 		m.launchVarValueInput.SetValue("")
 		m.launchVarDescriptionInput.SetValue("")
 	} else {
 		m.selectedLaunchVar = v
 		m.launchVarIsCreating = false
+		m.launchVarIsSecret = v.IsSecret
 		m.launchVarKeyInput.SetValue(v.Key)
-		m.launchVarValueInput.SetValue(v.Value)
+		if v.IsSecret {
+			m.launchVarValueInput.SetValue(variableSecretMask)
+		} else {
+			m.launchVarValueInput.SetValue(v.Value)
+		}
 		m.launchVarDescriptionInput.SetValue(v.Description)
 	}
 	m.launchVarKeyInput.Focus()
@@ -161,6 +170,30 @@ func handleLibraryLaunchVarsEditKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.
 			m.launchVarDescriptionInput.Focus()
 		}
 		return m, textinput.Blink
+	case "s":
+		if m.launchVarKeyInput.Focused() || m.launchVarValueInput.Focused() || m.launchVarDescriptionInput.Focused() {
+			var cmd tea.Cmd
+			switch m.launchVarEditField {
+			case 0:
+				m.launchVarKeyInput, cmd = m.launchVarKeyInput.Update(msg)
+			case 1:
+				m.launchVarValueInput, cmd = m.launchVarValueInput.Update(msg)
+			default:
+				m.launchVarDescriptionInput, cmd = m.launchVarDescriptionInput.Update(msg)
+			}
+			return m, cmd
+		}
+		fallthrough
+	case "ctrl+s":
+		nextSecret := !m.launchVarIsSecret
+		if !nextSecret && m.selectedLaunchVar != nil && m.selectedLaunchVar.IsSecret && m.launchVarValueInput.Value() == variableSecretMask {
+			m.launchVarValueInput.SetValue("")
+		}
+		if nextSecret && m.selectedLaunchVar != nil && m.selectedLaunchVar.IsSecret && m.launchVarValueInput.Value() == "" {
+			m.launchVarValueInput.SetValue(variableSecretMask)
+		}
+		m.launchVarIsSecret = nextSecret
+		return m, nil
 	case "enter":
 		key := strings.TrimSpace(m.launchVarKeyInput.Value())
 		value := m.launchVarValueInput.Value()
@@ -173,13 +206,22 @@ func handleLibraryLaunchVarsEditKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.
 		if !m.launchVarIsCreating && m.selectedLaunchVar != nil {
 			id = m.selectedLaunchVar.ID
 		}
+		valuePtr := &value
+		if !m.launchVarIsCreating && m.selectedLaunchVar != nil {
+			if m.selectedLaunchVar.IsSecret && !m.launchVarIsSecret && (value == "" || value == variableSecretMask) {
+				return m, nil
+			}
+			if m.selectedLaunchVar.IsSecret && m.launchVarIsSecret && value == variableSecretMask {
+				valuePtr = nil
+			}
+		}
 
 		m.launchVarsLoading = true
 		m.libraryMode = libModeList
 		m.launchVarKeyInput.Blur()
 		m.launchVarValueInput.Blur()
 		m.launchVarDescriptionInput.Blur()
-		return m, saveLaunchVarCmd(m.client, id, key, value, desc)
+		return m, saveLaunchVarCmd(m.client, id, key, valuePtr, desc, m.launchVarIsSecret)
 	default:
 		var cmd tea.Cmd
 		switch m.launchVarEditField {
@@ -194,11 +236,8 @@ func handleLibraryLaunchVarsEditKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.
 	}
 }
 
-func maskLibraryLaunchVarValue(value string) string {
-	if value == "" {
-		return "(empty)"
-	}
-	return strings.Repeat("*", min(max(len(value), 4), 8))
+func maskLibraryLaunchVarValue() string {
+	return "********"
 }
 
 func renderLibraryLaunchVarsBody(m hubModel, innerW int) string {
@@ -229,7 +268,12 @@ func renderLibraryLaunchVarsBody(m hubModel, innerW int) string {
 		b.WriteString(keyLabel + m.launchVarKeyInput.View() + "\n")
 		b.WriteString(valueLabel + m.launchVarValueInput.View() + "\n")
 		b.WriteString(descLabel + m.launchVarDescriptionInput.View() + "\n\n")
-		b.WriteString("  " + dimStyle.Render("tab: switch field  enter: save  esc: cancel") + "\n")
+		secretState := "off"
+		if m.launchVarIsSecret {
+			secretState = "on"
+		}
+		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("Secret: %s", secretState)) + "\n")
+		b.WriteString("  " + dimStyle.Render("tab: switch field  ctrl+s: toggle secret  enter: save  esc: cancel") + "\n")
 		return b.String()
 	}
 
@@ -252,23 +296,21 @@ func renderLibraryLaunchVarsBody(m hubModel, innerW int) string {
 		if i == m.launchVarCursor {
 			cursor = selectedStyle.Render("▸ ")
 		}
-		value := maskLibraryLaunchVarValue(v.Value)
-		if m.launchVarShowValues {
-			value = v.Value
+		value := v.Value
+		secrecy := "plain"
+		if v.IsSecret {
+			value = maskLibraryLaunchVarValue()
+			secrecy = "secret"
 		}
 		meta := dimStyle.Render(fmt.Sprintf("%d tests", v.AttachedTestCount))
 		desc := ""
 		if v.Description != "" {
 			desc = "   " + dimStyle.Render(truncate(v.Description, 24))
 		}
-		b.WriteString(fmt.Sprintf("  %s%s   %s   %s%s\n", cursor, normalStyle.Render(v.Key), dimStyle.Render(truncate(value, 16)), meta, desc))
+		b.WriteString(fmt.Sprintf("  %s%s   %s   %s   %s%s\n", cursor, normalStyle.Render(v.Key), dimStyle.Render(truncate(value, 16)), dimStyle.Render(secrecy), meta, desc))
 	}
 
-	label := "show values"
-	if m.launchVarShowValues {
-		label = "hide values"
-	}
-	b.WriteString("\n  " + dimStyle.Render("v: "+label) + "\n")
+	b.WriteString("\n  " + dimStyle.Render("Non-secret values are visible; secrets stay masked") + "\n")
 	b.WriteString("  " + renderLibraryCLIHint(libTabLaunchVars) + "\n")
 	return b.String()
 }

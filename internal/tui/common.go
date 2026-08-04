@@ -659,6 +659,7 @@ type LaunchVarItem struct {
 	ID                string
 	Key               string
 	Value             string
+	IsSecret          bool
 	Description       string
 	AttachedTestCount int
 }

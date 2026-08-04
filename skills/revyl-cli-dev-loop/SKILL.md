@@ -166,7 +166,7 @@ Manual fallback (no config section yet):
 # One-time setup if the launch vars do not already exist.
 export REVYL_AUTH_BYPASS_TOKEN="<test-only-token>"
 revyl global launch-var create REVYL_AUTH_BYPASS_ENABLED=true
-revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN="$REVYL_AUTH_BYPASS_TOKEN"
+revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN="$REVYL_AUTH_BYPASS_TOKEN" --secret
 
 revyl dev --no-build \
   --launch-var REVYL_AUTH_BYPASS_ENABLED \

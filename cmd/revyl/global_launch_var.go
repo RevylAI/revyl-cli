@@ -14,13 +14,13 @@ import (
 )
 
 var (
-	globalLaunchVarListShowValues bool
-
 	globalLaunchVarCreateDescription string
+	globalLaunchVarCreateSecret      bool
 
 	globalLaunchVarUpdateKey         string
 	globalLaunchVarUpdateValue       string
 	globalLaunchVarUpdateDescription string
+	globalLaunchVarUpdateSecret      bool
 
 	globalLaunchVarDeleteForce bool
 )
@@ -93,21 +93,20 @@ func init() {
 	globalLaunchVarCmd.AddCommand(globalLaunchVarUpdateCmd)
 	globalLaunchVarCmd.AddCommand(globalLaunchVarDeleteCmd)
 
-	globalLaunchVarListCmd.Flags().BoolVar(&globalLaunchVarListShowValues, "show-values", false, "Show unmasked values in list output")
+	globalLaunchVarListCmd.Flags().Bool("show-values", false, "Deprecated: non-secret values are always shown; secret values stay masked")
 	globalLaunchVarCreateCmd.Flags().StringVar(&globalLaunchVarCreateDescription, "description", "", "Optional description")
+	globalLaunchVarCreateCmd.Flags().BoolVar(&globalLaunchVarCreateSecret, "secret", false, "Encrypt the value and hide it from reads")
 	globalLaunchVarUpdateCmd.Flags().StringVar(&globalLaunchVarUpdateKey, "key", "", "New key")
 	globalLaunchVarUpdateCmd.Flags().StringVar(&globalLaunchVarUpdateValue, "value", "", "New value")
 	globalLaunchVarUpdateCmd.Flags().StringVar(&globalLaunchVarUpdateDescription, "description", "", "New description (use empty string to clear)")
+	globalLaunchVarUpdateCmd.Flags().BoolVar(&globalLaunchVarUpdateSecret, "secret", false, "Set secrecy state (use --secret=false for non-secret)")
 	globalLaunchVarDeleteCmd.Flags().BoolVarP(&globalLaunchVarDeleteForce, "force", "f", false, "Skip confirmation prompt")
 }
 
 var launchVarSetupClient = globalVarSetupClientDefault
 
-func maskLaunchVarValue(value string) string {
-	if value == "" {
-		return "(empty)"
-	}
-	return strings.Repeat("*", min(max(len(value), 4), 8))
+func maskLaunchVarValue() string {
+	return "********"
 }
 
 func encodeJSON(v interface{}) error {
@@ -164,23 +163,26 @@ func runGlobalLaunchVarList(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("Launch variables (%d)", len(resp.Result))
 	ui.Println()
 
-	table := ui.NewTable("KEY", "VALUE", "DESCRIPTION", "TESTS", "UPDATED")
+	table := ui.NewTable("KEY", "VALUE", "TYPE", "DESCRIPTION", "TESTS", "UPDATED")
 	table.SetMinWidth(0, 20)
 	table.SetMinWidth(1, 12)
-	table.SetMinWidth(2, 24)
-	table.SetMinWidth(3, 5)
-	table.SetMinWidth(4, 20)
+	table.SetMinWidth(2, 8)
+	table.SetMinWidth(3, 24)
+	table.SetMinWidth(4, 5)
+	table.SetMinWidth(5, 20)
 
 	for _, v := range resp.Result {
-		value := maskLaunchVarValue(v.Value)
-		if globalLaunchVarListShowValues {
-			value = v.Value
+		value := v.Value
+		secrecy := "plain"
+		if v.IsSecret {
+			value = maskLaunchVarValue()
+			secrecy = "secret"
 		}
 		desc := v.Description
 		if desc == "" {
 			desc = "-"
 		}
-		table.AddRow(v.Key, value, desc, fmt.Sprintf("%d", v.AttachedTestCount), v.UpdatedAt)
+		table.AddRow(v.Key, value, secrecy, desc, fmt.Sprintf("%d", v.AttachedTestCount), v.UpdatedAt)
 	}
 
 	table.Render()
@@ -208,7 +210,12 @@ func runGlobalLaunchVarGet(cmd *cobra.Command, args []string) error {
 
 	ui.PrintInfo("Launch variable: %s", variable.Key)
 	ui.PrintDim("  ID:          %s", variable.ID)
-	ui.PrintDim("  Value:       %s", variable.Value)
+	value := variable.Value
+	if variable.IsSecret {
+		value = maskLaunchVarValue()
+	}
+	ui.PrintDim("  Value:       %s", value)
+	ui.PrintDim("  Secret:      %t", variable.IsSecret)
 	if variable.Description != "" {
 		ui.PrintDim("  Description: %s", variable.Description)
 	}
@@ -235,7 +242,13 @@ func runGlobalLaunchVarCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.StartSpinner("Creating launch variable...")
-	resp, err := client.AddOrgLaunchVariable(cmd.Context(), key, value, descPtr)
+	resp, err := client.AddOrgLaunchVariable(
+		cmd.Context(),
+		key,
+		value,
+		descPtr,
+		api.OrgLaunchVariableWriteOptions{IsSecret: &globalLaunchVarCreateSecret},
+	)
 	ui.StopSpinner()
 	if err != nil {
 		ui.PrintError("Failed to create launch variable: %v", err)
@@ -269,6 +282,7 @@ func runGlobalLaunchVarUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var keyPtr, valuePtr, descPtr *string
+	var secretPtr *bool
 	if cmd.Flags().Changed("key") {
 		keyPtr = &globalLaunchVarUpdateKey
 	}
@@ -278,14 +292,24 @@ func runGlobalLaunchVarUpdate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("description") {
 		descPtr = &globalLaunchVarUpdateDescription
 	}
-	if keyPtr == nil && valuePtr == nil && descPtr == nil {
-		err := fmt.Errorf("nothing to update; provide at least one of --key, --value, or --description")
+	if cmd.Flags().Changed("secret") {
+		secretPtr = &globalLaunchVarUpdateSecret
+	}
+	if keyPtr == nil && valuePtr == nil && descPtr == nil && secretPtr == nil {
+		err := fmt.Errorf("nothing to update; provide at least one of --key, --value, --description, or --secret")
 		ui.PrintError("%v", err)
 		return err
 	}
 
 	ui.StartSpinner("Updating launch variable...")
-	resp, err := client.UpdateOrgLaunchVariable(cmd.Context(), variable.ID, keyPtr, valuePtr, descPtr)
+	resp, err := client.UpdateOrgLaunchVariable(
+		cmd.Context(),
+		variable.ID,
+		keyPtr,
+		valuePtr,
+		descPtr,
+		api.OrgLaunchVariableWriteOptions{IsSecret: secretPtr},
+	)
 	ui.StopSpinner()
 	if err != nil {
 		ui.PrintError("Failed to update launch variable: %v", err)

@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -25,6 +28,7 @@ func newLibraryHubModel() hubModel {
 	}
 	m.launchVarItems = []LaunchVarItem{
 		{ID: "lv1", Key: "API_URL", Value: "https://staging.example.com", Description: "shared endpoint", AttachedTestCount: 2},
+		{ID: "lv2", Key: "API_TOKEN", IsSecret: true, Description: "credential", AttachedTestCount: 1},
 	}
 	m.varItems = []VariableItem{
 		{ID: "v1", Name: "API_TOKEN", Value: "abc"},
@@ -399,20 +403,203 @@ func TestLibraryLaunchVarsEditPrefillsExistingValues(t *testing.T) {
 	}
 }
 
-func TestLibraryLaunchVarsToggleValueVisibility(t *testing.T) {
+func TestLibraryLaunchVarsEditPrefillsSecretMask(t *testing.T) {
+	m := newLibraryHubModel()
+	m.libraryTab = libTabLaunchVars
+	m.launchVarItems[0].IsSecret = true
+	m.launchVarItems[0].Value = ""
+	m = sendKey(t, m, "e")
+
+	if !m.launchVarIsSecret {
+		t.Fatal("expected launchVarIsSecret to be true for existing secret")
+	}
+	if m.launchVarValueInput.Value() != variableSecretMask {
+		t.Fatalf("expected secret mask prefilled, got %q", m.launchVarValueInput.Value())
+	}
+}
+
+func TestLibraryLaunchVarsToggleSecret(t *testing.T) {
+	m := newLibraryHubModel()
+	m.libraryTab = libTabLaunchVars
+	m = sendKey(t, m, "n")
+	if m.launchVarIsSecret {
+		t.Fatal("new launch variable should start non-secret")
+	}
+
+	m = sendSpecialKey(t, m, tea.KeyCtrlS)
+	if !m.launchVarIsSecret {
+		t.Fatal("expected ctrl+s to toggle secret on")
+	}
+}
+
+func TestLibraryLaunchVarsAllowsTypingLowercaseSInInputs(t *testing.T) {
+	m := newLibraryHubModel()
+	m.libraryTab = libTabLaunchVars
+	m = sendKey(t, m, "n")
+
+	m = sendKey(t, m, "s")
+	if m.launchVarKeyInput.Value() != "s" {
+		t.Fatalf("expected key input to receive 's', got %q", m.launchVarKeyInput.Value())
+	}
+	if m.launchVarIsSecret {
+		t.Fatal("typing s in key input should not toggle secret")
+	}
+
+	m = sendSpecialKey(t, m, tea.KeyTab)
+	m = sendKey(t, m, "s")
+	if m.launchVarValueInput.Value() != "s" {
+		t.Fatalf("expected value input to receive 's', got %q", m.launchVarValueInput.Value())
+	}
+	if m.launchVarIsSecret {
+		t.Fatal("typing s in value input should not toggle secret")
+	}
+
+	m = sendSpecialKey(t, m, tea.KeyTab)
+	m = sendKey(t, m, "s")
+	if m.launchVarDescriptionInput.Value() != "s" {
+		t.Fatalf("expected description input to receive 's', got %q", m.launchVarDescriptionInput.Value())
+	}
+	if m.launchVarIsSecret {
+		t.Fatal("typing s in description input should not toggle secret")
+	}
+}
+
+func TestLibraryLaunchVarsToggleExistingSecretRequiresReplacement(t *testing.T) {
+	m := newLibraryHubModel()
+	m.libraryTab = libTabLaunchVars
+	m.launchVarItems[0].IsSecret = true
+	m.launchVarItems[0].Value = ""
+	m = sendKey(t, m, "e")
+
+	m = sendSpecialKey(t, m, tea.KeyCtrlS)
+	if m.launchVarIsSecret {
+		t.Fatal("expected secret toggle off")
+	}
+	if m.launchVarValueInput.Value() != "" {
+		t.Fatalf("expected value cleared when converting secret to plaintext, got %q", m.launchVarValueInput.Value())
+	}
+}
+
+func TestLibraryLaunchVarsSaveBlocksSecretToPlaintextWithoutReplacement(t *testing.T) {
+	m := newLibraryHubModelWithClient()
+	m.libraryTab = libTabLaunchVars
+	m.launchVarItems[0].IsSecret = true
+	m.launchVarItems[0].Value = ""
+	m = sendKey(t, m, "e")
+
+	m.launchVarIsSecret = false
+	m.launchVarValueInput.SetValue(variableSecretMask)
+
+	res, cmd := handleLibraryLaunchVarsEditKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	got := res.(hubModel)
+	if cmd != nil {
+		t.Fatal("expected no save command when converting secret to plaintext without a replacement value")
+	}
+	if got.libraryMode != libModeEditing {
+		t.Fatalf("expected to remain in editing mode, got %v", got.libraryMode)
+	}
+}
+
+func TestSaveLaunchVarCmdSendsSecrecy(t *testing.T) {
+	replacement := "replacement"
+	tests := []struct {
+		name      string
+		id        string
+		method    string
+		path      string
+		value     *string
+		isSecret  bool
+		wantValue bool
+	}{
+		{
+			name:      "create secret",
+			method:    http.MethodPost,
+			path:      "/api/v1/variables/org_launch_env",
+			value:     &replacement,
+			isSecret:  true,
+			wantValue: true,
+		},
+		{
+			name:      "preserve secret",
+			id:        "lv1",
+			method:    http.MethodPut,
+			path:      "/api/v1/variables/org_launch_env/lv1",
+			isSecret:  true,
+			wantValue: false,
+		},
+		{
+			name:      "demote with replacement",
+			id:        "lv1",
+			method:    http.MethodPut,
+			path:      "/api/v1/variables/org_launch_env/lv1",
+			value:     &replacement,
+			isSecret:  false,
+			wantValue: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != tt.method {
+					t.Errorf("method = %s, want %s", r.Method, tt.method)
+				}
+				if r.URL.Path != tt.path {
+					t.Errorf("path = %s, want %s", r.URL.Path, tt.path)
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Errorf("decode request body: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if err := json.NewEncoder(w).Encode(map[string]any{
+					"message": "ok",
+					"result": map[string]any{
+						"id":        "lv1",
+						"key":       "API_TOKEN",
+						"is_secret": tt.isSecret,
+					},
+				}); err != nil {
+					t.Errorf("encode response body: %v", err)
+				}
+			}))
+			defer server.Close()
+
+			msg := saveLaunchVarCmd(
+				api.NewClientWithBaseURL("test-key", server.URL),
+				tt.id,
+				"API_TOKEN",
+				tt.value,
+				"credential",
+				tt.isSecret,
+			)()
+			saved, ok := msg.(LaunchVarSavedMsg)
+			if !ok {
+				t.Fatalf("expected LaunchVarSavedMsg, got %T", msg)
+			}
+			if saved.Err != nil {
+				t.Fatalf("save launch variable: %v", saved.Err)
+			}
+			if got := body["is_secret"]; got != tt.isSecret {
+				t.Errorf("is_secret = %v, want %v", got, tt.isSecret)
+			}
+			_, hasValue := body["value"]
+			if hasValue != tt.wantValue {
+				t.Errorf("value present = %v, want %v", hasValue, tt.wantValue)
+			}
+		})
+	}
+}
+
+func TestLibraryLaunchVarsShowPlaintextAndKeepSecretsMasked(t *testing.T) {
 	m := newLibraryHubModel()
 	m.libraryTab = libTabLaunchVars
 	out := renderLibrary(m)
-	if strings.Contains(out, "https://staging.example.com") {
-		t.Fatalf("expected masked values by default, got:\n%s", out)
-	}
-	m = sendKey(t, m, "v")
-	if !m.launchVarShowValues {
-		t.Fatal("expected launchVarShowValues to toggle on")
-	}
-	out = renderLibrary(m)
 	if !strings.Contains(out, "https://staging") {
-		t.Fatalf("expected unmasked value after toggle, got:\n%s", out)
+		t.Fatalf("expected visible non-secret value, got:\n%s", out)
+	}
+	if !strings.Contains(out, "********") {
+		t.Fatalf("expected secret value mask, got:\n%s", out)
 	}
 }
 

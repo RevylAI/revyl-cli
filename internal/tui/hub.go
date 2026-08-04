@@ -219,8 +219,8 @@ type hubModel struct {
 	launchVarsLoading         bool
 	selectedLaunchVar         *LaunchVarItem
 	launchVarIsCreating       bool
+	launchVarIsSecret         bool
 	launchVarEditField        int // 0=key, 1=value, 2=description
-	launchVarShowValues       bool
 	launchVarKeyInput         textinput.Model
 	launchVarValueInput       textinput.Model
 	launchVarDescriptionInput textinput.Model

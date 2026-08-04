@@ -158,3 +158,9 @@ func TestRunGlobalLaunchVarListJSON(t *testing.T) {
 		t.Fatalf("expected JSON output to include API_URL, got %s", output)
 	}
 }
+
+func TestMaskLaunchVarValueDoesNotRevealStoredLengthOrEmptyAPIValue(t *testing.T) {
+	if got := maskLaunchVarValue(); got != "********" {
+		t.Fatalf("maskLaunchVarValue() = %q", got)
+	}
+}

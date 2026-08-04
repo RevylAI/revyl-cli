@@ -21,19 +21,7 @@ func TestListOrgLaunchVariables(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(OrgLaunchVariablesResponse{
-			Message: "ok",
-			Result: []OrgLaunchVariable{
-				{
-					ID:                "11111111-1111-1111-1111-111111111111",
-					OrgID:             "22222222-2222-2222-2222-222222222222",
-					Key:               "API_URL",
-					Value:             "https://staging.example.com",
-					Description:       "shared endpoint",
-					AttachedTestCount: 3,
-				},
-			},
-		})
+		_, _ = w.Write([]byte(`{"message":"ok","result":[{"id":"11111111-1111-1111-1111-111111111111","org_id":"22222222-2222-2222-2222-222222222222","key":"API_URL","value":"https://staging.example.com","description":"shared endpoint","attached_test_count":3}]}`))
 	}))
 	t.Cleanup(server.Close)
 
@@ -47,6 +35,9 @@ func TestListOrgLaunchVariables(t *testing.T) {
 	}
 	if resp.Result[0].Key != "API_URL" {
 		t.Fatalf("expected key API_URL, got %q", resp.Result[0].Key)
+	}
+	if !resp.Result[0].IsSecret {
+		t.Fatal("expected legacy response without is_secret to default to secret")
 	}
 }
 
@@ -79,7 +70,14 @@ func TestAddOrgLaunchVariable(t *testing.T) {
 
 	client := NewClientWithBaseURL("test-key", server.URL)
 	desc := "toggle debug mode"
-	resp, err := client.AddOrgLaunchVariable(context.Background(), "DEBUG", "true", &desc)
+	isSecret := false
+	resp, err := client.AddOrgLaunchVariable(
+		context.Background(),
+		"DEBUG",
+		"true",
+		&desc,
+		OrgLaunchVariableWriteOptions{IsSecret: &isSecret},
+	)
 	if err != nil {
 		t.Fatalf("AddOrgLaunchVariable() error = %v", err)
 	}
@@ -94,6 +92,9 @@ func TestAddOrgLaunchVariable(t *testing.T) {
 	}
 	if seenBody["description"] != "toggle debug mode" {
 		t.Fatalf("expected body description, got %v", seenBody["description"])
+	}
+	if seenBody["is_secret"] != false {
+		t.Fatalf("expected body is_secret=false, got %v", seenBody["is_secret"])
 	}
 }
 
@@ -133,6 +134,7 @@ func TestUpdateOrgLaunchVariable(t *testing.T) {
 		&newKey,
 		&newValue,
 		&newDesc,
+		OrgLaunchVariableWriteOptions{},
 	)
 	if err != nil {
 		t.Fatalf("UpdateOrgLaunchVariable() error = %v", err)

@@ -114,23 +114,27 @@ func runBuildSecretSet(cmd *cobra.Command, args []string) error {
 
 	var stored api.OrgLaunchVariable
 	if exists {
+		secret := true
 		response, updateErr := client.UpdateOrgLaunchVariable(
 			cmd.Context(),
 			existing.ID,
 			nil,
 			&value,
 			nil,
+			api.OrgLaunchVariableWriteOptions{IsSecret: &secret},
 		)
 		if updateErr != nil {
 			return fmt.Errorf("failed to update build secret %q: %w", name, updateErr)
 		}
 		stored = response.Result
 	} else {
+		secret := true
 		response, createErr := client.AddOrgLaunchVariable(
 			cmd.Context(),
 			name,
 			value,
 			nil,
+			api.OrgLaunchVariableWriteOptions{IsSecret: &secret},
 		)
 		if createErr != nil {
 			return fmt.Errorf("failed to create build secret %q: %w", name, createErr)
@@ -158,6 +162,9 @@ func runBuildSecretList(cmd *cobra.Command, args []string) error {
 
 	secrets := make([]buildSecretMetadata, 0, len(response.Result))
 	for _, variable := range response.Result {
+		if !variable.IsSecret {
+			continue
+		}
 		secrets = append(secrets, buildSecretMetadataFromVariable(variable))
 	}
 	sort.Slice(secrets, func(i, j int) bool {
@@ -303,6 +310,12 @@ func findBuildSecret(
 	}
 	for _, variable := range response.Result {
 		if variable.Key == name {
+			if !variable.IsSecret {
+				return api.OrgLaunchVariable{}, false, fmt.Errorf(
+					"%q exists as a non-secret launch variable; rename it or make it secret before using it as a build secret",
+					name,
+				)
+			}
 			return variable, true, nil
 		}
 	}

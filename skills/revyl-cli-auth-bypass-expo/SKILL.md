@@ -29,7 +29,7 @@ Gate the handler with Revyl launch variables:
 
 ```bash
 revyl global launch-var create REVYL_AUTH_BYPASS_ENABLED=true
-revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN=<test-only-token>
+revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN=<test-only-token> --secret
 ```
 
 Then start the Expo dev-client session with those launch vars before opening the auth link:
@@ -60,7 +60,7 @@ revyl skill install --name revyl-cli-auth-bypass-expo --force
 # Create launch vars once per org/environment.
 export REVYL_AUTH_BYPASS_TOKEN="<test-only-token>"
 revyl global launch-var create REVYL_AUTH_BYPASS_ENABLED=true
-revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN="$REVYL_AUTH_BYPASS_TOKEN"
+revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN="$REVYL_AUTH_BYPASS_TOKEN" --secret
 
 # If a key already exists, update its value instead.
 revyl global launch-var update REVYL_AUTH_BYPASS_TOKEN --value "$REVYL_AUTH_BYPASS_TOKEN"

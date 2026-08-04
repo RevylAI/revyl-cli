@@ -36,6 +36,7 @@ func TestRunBuildSecretListNeverPrintsValues(t *testing.T) {
 				ID:          "secret-id",
 				Key:         "EXPO_TOKEN",
 				Value:       secretValue,
+				IsSecret:    true,
 				Description: "Expo build credential",
 				UpdatedAt:   "2026-07-09T12:00:00Z",
 			}},

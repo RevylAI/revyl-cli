@@ -29,7 +29,7 @@ Gate the handler with Revyl launch variables:
 
 ```bash
 revyl global launch-var create REVYL_AUTH_BYPASS_ENABLED=true
-revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN=<test-only-token>
+revyl global launch-var create REVYL_AUTH_BYPASS_TOKEN=<test-only-token> --secret
 ```
 
 ## Files To Add Or Update
