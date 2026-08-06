@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.77-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.78-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -149,17 +149,6 @@ Use the revyl-cli-create skill. Create a checkout smoke test from this flow, val
 ```text
 Use the revyl-cli-auth-bypass skill. Set up test-only auth bypass for this app and verify valid and rejected links on a Revyl device.
 ```
-
-## Cursor Plugin and MCP
-
-The official Revyl Cursor Marketplace plugin is coming soon. It will bundle
-the focused MCP server with mobile-development skills, routing rules, and a
-pinned runtime bootstrap. See **[Revyl for Cursor](cursor-plugin/README.md)**
-for the plugin preview and release status.
-
-Today, connect Cursor through the Revyl CLI. For current Cursor, Claude Code,
-or Codex setup, follow the canonical
-**[MCP setup guide](https://docs.revyl.com/cli/mcp-setup)**.
 
 ## Documentation
 

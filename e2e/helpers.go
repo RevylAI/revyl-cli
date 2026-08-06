@@ -25,7 +25,7 @@ import (
 
 const (
 	prodBackendURL     = "https://backend.revyl.ai"
-	stagingBackendURL  = "https://backend.staging.revyl.ai"
+	stagingBackendURL  = "https://backend-staging.revyl.ai"
 	defaultBackendPort = "8000"
 	portCheckTimeout   = 200 * time.Millisecond
 )

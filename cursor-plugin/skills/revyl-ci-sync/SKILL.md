@@ -21,7 +21,7 @@ Keep a small table in the repo (near the CI config or in the repo's agent docs) 
 
 | CI step | Revyl counterpart |
 |---|---|
-| `node 20.x` setup | `build.platforms.ios.command` env / toolchain |
+| pinned Node setup | `build.platforms.ios.command` env / toolchain |
 | `pod install --repo-update` | same step in the Revyl build command |
 | `EXPO_PUBLIC_*` env vars | `.revyl/config.yaml` build env / launch vars |
 

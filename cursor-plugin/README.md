@@ -1,58 +1,12 @@
 # Revyl for Cursor
 
-Run, verify, and test mobile apps on real cloud iOS and Android devices from
-Cursor. The plugin will bundle Revyl's focused MCP tools, development skills,
-routing rule, and a pinned Revyl runtime bootstrap.
+Source for the Revyl Cursor Marketplace plugin: MCP server, skills, routing
+rule, and pinned Revyl runtime bootstrap.
 
-> **Coming soon:** the official Revyl plugin is not yet available in Cursor
-> Marketplace. Use the current CLI-based Cursor MCP setup in the
-> [MCP setup guide](https://docs.revyl.ai/cli/mcp-setup).
-
-## What the plugin adds
-
-- **MCP server**: 11 focused setup, dev-loop, and device tools with streamed
-  progress, screenshots, grounding, and structured outcomes.
-- **Viewer handoff**: the inline device app offers **Open live device** through
-  the MCP Apps host when supported, with the returned HTTPS viewer link as the
-  portable fallback.
-- **Skills**: `revyl-cloud-agent`, `revyl-mcp-dev-loop`, and `revyl-ci-sync`.
-- **Rule**: routes mobile run, preview, and verification requests to Revyl.
-- **Runtime bootstrap**: downloads and pins the published Revyl CLI runtime
-  declared in `runtime-manifest.json` when the plugin starts MCP.
-
-## Install and configure
-
-Until the Marketplace release, follow the canonical
-**[MCP setup guide](https://docs.revyl.ai/cli/mcp-setup)** to install the Revyl
-CLI, connect Cursor over MCP, authenticate, and configure Cloud Agent secrets.
-The same guide will become the source of truth for Marketplace installation
-after launch.
-
-## Runtime bootstrap
-
-Each published plugin release pins one immutable Revyl CLI GitHub Release and
-the SHA-256 checksum for every supported OS and architecture. On MCP startup,
-the launcher selects the matching asset, reuses it only when its checksum
-matches, adopts an already-installed Revyl CLI whose checksum matches the same
-pin by copying it into the cache, or downloads it to a temporary file and
-installs it atomically after verification. A corrupt cache entry is repaired on
-the next online start, and a new runtime pin uses a separate versioned cache
-directory.
-
-The first start for a new runtime requires network access to GitHub Releases
-unless a checksum-matching Revyl CLI is already installed. Transient download
-failures are retried up to three times with backoff before the launcher reports
-the asset it could not fetch. Bootstrap failures are written only to standard
-error so MCP output remains valid. Developers may select an existing executable
-with `REVYL_BINARY`; normal Marketplace users do not need a separate CLI
-installation.
-
-## Verify
-
-After installing the plugin or completing the current CLI-based MCP setup,
-start a new Cursor Agent chat and ask:
-**"Run this app on a Revyl device."** The agent should return the live viewer
-and device-backed evidence.
+For user-facing plugin information (what it adds, install and configure,
+verify), see the [Revyl Documentation](https://docs.revyl.com/).
+This file is the maintainer-facing source of truth for the release lifecycle
+below; do not duplicate its instructions into published docs.
 
 ## Maintainer release lifecycle
 
