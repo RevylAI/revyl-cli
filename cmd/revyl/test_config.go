@@ -180,9 +180,7 @@ func applyConfigSet(rc map[string]interface{}, field, value string) error {
 func applyConfigUnset(rc map[string]interface{}, field string) error {
 	switch field {
 	case "fail-fast", "fail_fast":
-		// fail_fast has a non-nullable default of false on the backend,
-		// so "unset" means restore the default.
-		rc["fail_fast"] = false
+		delete(rc, "fail_fast")
 	case "location":
 		if em, ok := rc["execution_mode"].(map[string]interface{}); ok {
 			delete(em, "initial_location")
