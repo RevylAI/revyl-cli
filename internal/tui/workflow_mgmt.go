@@ -1368,7 +1368,7 @@ func saveWorkflowOverridesCmd(client *api.Client, workflowID string, wf *api.Wor
 			return WorkflowSettingsSavedMsg{Err: err}
 		}
 		if wf.RunConfig != nil {
-			if err := client.UpdateWorkflowRunConfig(ctx, workflowID, wf.RunConfig); err != nil {
+			if err := client.UpdateWorkflowRunConfig(ctx, workflowID, wf.RunConfig, wf.OverrideRunConfig); err != nil {
 				return WorkflowSettingsSavedMsg{Err: err}
 			}
 		}
