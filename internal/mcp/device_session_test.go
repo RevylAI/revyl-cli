@@ -2042,6 +2042,43 @@ func TestDeviceSessionManager_ResolveTargetForSession_WorkerMissDoesNotFallback(
 	}
 }
 
+func TestDeviceSessionManager_ResolveTargetForSession_RejectsMissingCoordinates(t *testing.T) {
+	t.Parallel()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/execution/device-proxy/wf-missing-coords/resolve_target" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"found":true,"x":111}`))
+	}))
+	defer apiServer.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", apiServer.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "sess-missing-coords",
+				WorkflowRunID: "wf-missing-coords",
+				WorkerBaseURL: "https://worker.example",
+				Platform:      "ios",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+
+	_, err := mgr.ResolveTargetForSession(context.Background(), 0, "Continue button")
+	if err == nil {
+		t.Fatal("expected error for missing resolved coordinate")
+	}
+	if !strings.Contains(err.Error(), "omitted resolved coordinates") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 // TestDeviceSessionManager_ExecuteLiveStepForSession_CancelOnContextDone
 // verifies that when the caller cancels the context while pollStepUntilDone
 // is waiting for a step, the manager:

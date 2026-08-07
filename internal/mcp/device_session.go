@@ -2274,8 +2274,8 @@ type workerResolveTargetRequest struct {
 }
 
 type workerResolveTargetResponse struct {
-	X     int    `json:"x"`
-	Y     int    `json:"y"`
+	X     *int   `json:"x"`
+	Y     *int   `json:"y"`
 	Found bool   `json:"found"`
 	Error string `json:"error,omitempty"`
 }
@@ -2414,10 +2414,13 @@ func (m *DeviceSessionManager) resolveTargetViaWorkerForSession(ctx context.Cont
 		}
 		return nil, fmt.Errorf("%s. Try screenshot() to see the current screen and adjust the target description", errMsg)
 	}
+	if resolvedResp.X == nil || resolvedResp.Y == nil {
+		return nil, fmt.Errorf("worker resolve_target response omitted resolved coordinates")
+	}
 
 	return &ResolvedTarget{
-		X: resolvedResp.X,
-		Y: resolvedResp.Y,
+		X: *resolvedResp.X,
+		Y: *resolvedResp.Y,
 	}, nil
 }
 

@@ -118,7 +118,7 @@ func TestBuildActionResult_UsesTapTargetCoordinates(t *testing.T) {
 		0,
 		0,
 		"Continue button",
-		[]byte(`{"success":true,"x":120,"y":240,"target":"Continue button","latency_ms":52.5}`),
+		[]byte(`{"success":true,"found":true,"x":120,"y":240,"target":"Continue button","latency_ms":52.5}`),
 	)
 
 	if !result.Success {
@@ -132,6 +132,143 @@ func TestBuildActionResult_UsesTapTargetCoordinates(t *testing.T) {
 	}
 	if result.LatencyMs.String() != "52.5" {
 		t.Fatalf("latency = %q, want 52.5", result.LatencyMs.String())
+	}
+}
+
+func TestGroundedTapActionSuccessReturnsResult(t *testing.T) {
+	t.Parallel()
+
+	result, err := buildGroundedTapActionResult(
+		120,
+		240,
+		"Continue button",
+		[]byte(`{"success":true,"action":"tap","latency_ms":12.5}`),
+	)
+
+	if err != nil {
+		t.Fatalf("buildGroundedTapActionResult() error = %v", err)
+	}
+	if !result.Success {
+		t.Fatal("success = false, want true")
+	}
+	if result.X != 120 || result.Y != 240 {
+		t.Fatalf("coords = (%d, %d), want (120, 240)", result.X, result.Y)
+	}
+	if result.Target != "Continue button" {
+		t.Fatalf("target = %q, want Continue button", result.Target)
+	}
+}
+
+func TestGroundedTapActionFailureReturnsCommandError(t *testing.T) {
+	t.Parallel()
+
+	result, err := buildGroundedTapActionResult(
+		120,
+		240,
+		"Continue button",
+		[]byte(`{"success":false,"error":"device tap failed"}`),
+	)
+
+	if result.Success {
+		t.Fatal("success = true, want false when worker reports tap failure")
+	}
+	if err == nil {
+		t.Fatal("buildGroundedTapActionResult() error = nil, want command error")
+	}
+	if !strings.Contains(err.Error(), "device tap failed") {
+		t.Fatalf("error = %q, want worker tap failure", err)
+	}
+}
+
+func TestGroundedTapActionRequiresExplicitSuccess(t *testing.T) {
+	t.Parallel()
+
+	result, err := buildGroundedTapActionResult(
+		120,
+		240,
+		"Remember Me switch",
+		[]byte(`{"action":"tap"}`),
+	)
+
+	if result.Success {
+		t.Fatal("success = true, want false without explicit worker success")
+	}
+	if err == nil || !strings.Contains(err.Error(), "did not confirm success") {
+		t.Fatalf("error = %v, want missing-success error", err)
+	}
+}
+
+func TestGroundedTapActionMalformedWorkerResponseReturnsCommandError(t *testing.T) {
+	t.Parallel()
+
+	result, err := buildGroundedTapActionResult(
+		120,
+		240,
+		"Remember Me switch",
+		[]byte(`not-json`),
+	)
+
+	if result.Success {
+		t.Fatal("success = true, want false for malformed worker response")
+	}
+	if err == nil || !strings.Contains(err.Error(), "invalid worker response") {
+		t.Fatalf("error = %v, want invalid-response error", err)
+	}
+}
+
+func TestCoordinateTapResponseFallbackIsUnchanged(t *testing.T) {
+	t.Parallel()
+
+	result := buildActionResult("tap", 12, 34, "", []byte(`not-json`))
+
+	if !result.Success {
+		t.Fatal("success = false, want coordinate tap request-success fallback")
+	}
+	if result.X != 12 || result.Y != 34 {
+		t.Fatalf("coords = (%d, %d), want (12, 34)", result.X, result.Y)
+	}
+}
+
+func TestAndroidHierarchySupportsGroundedTargetAtCandidate(t *testing.T) {
+	t.Parallel()
+
+	hierarchy := []byte(`<hierarchy><node text="I accept the policy and terms OFF" resource-id="com.example:id/signup_policy_switch" class="android.widget.Switch" bounds="[63,1819][1017,1945]" /></hierarchy>`)
+	testCases := []struct {
+		name   string
+		target string
+		x      int
+		y      int
+		want   bool
+	}{
+		{name: "visible switch", target: "policy switch", x: 945, y: 1884, want: true},
+		{name: "control alias", target: "policy toggle", x: 945, y: 1884, want: true},
+		{name: "hallucinated target", target: "a definitely nonexistent lunar checkout button", x: 945, y: 1884, want: false},
+		{name: "unrelated label", target: "checkout switch", x: 945, y: 1884, want: false},
+		{name: "coordinate outside candidate", target: "policy switch", x: 10, y: 10, want: false},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			got := androidHierarchySupportsTarget(
+				hierarchy,
+				testCase.target,
+				testCase.x,
+				testCase.y,
+			)
+			if got != testCase.want {
+				t.Fatalf("androidHierarchySupportsTarget() = %t, want %t", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestAndroidHierarchyRejectsMalformedPayload(t *testing.T) {
+	t.Parallel()
+
+	if androidHierarchySupportsTarget([]byte(`<hierarchy>`), "policy switch", 945, 1884) {
+		t.Fatal("malformed hierarchy was accepted")
 	}
 }
 

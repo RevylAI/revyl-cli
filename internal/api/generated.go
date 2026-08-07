@@ -170,8 +170,6 @@ const (
 	GrounderTypeMoondream3      GrounderType = "moondream3"
 	GrounderTypeMoondreamCustom GrounderType = "moondream_custom"
 	GrounderTypeNull            GrounderType = "null"
-	GrounderTypeQwen3Vl         GrounderType = "qwen3-vl"
-	GrounderTypeUiTars          GrounderType = "ui-tars"
 	GrounderTypeUnified         GrounderType = "unified"
 )
 
@@ -1604,7 +1602,7 @@ type ExecutionModeConfig struct {
 	// GrounderType Unified grounder configuration that determines both approach and model.
 	//
 	// - UNIFIED: Use instruction LLM for both instruction and grounding (returns coordinates)
-	// - MOONDREAM3/UI_TARS/QWEN3_VL: Two-step with specific grounder model
+	// - MOONDREAM/MOONDREAM3/MOONDREAM_CUSTOM/MODAL_CUSTOM: Two-step grounding
 	// - AUTO: Use GROUNDER_TYPE env var to determine grounder
 	// - NULL: Skip grounding (for testing/debugging)
 	GrounderType *GrounderType `json:"grounder_type,omitempty"`
@@ -1853,7 +1851,7 @@ type GroundResponse struct {
 // GrounderType Unified grounder configuration that determines both approach and model.
 //
 // - UNIFIED: Use instruction LLM for both instruction and grounding (returns coordinates)
-// - MOONDREAM3/UI_TARS/QWEN3_VL: Two-step with specific grounder model
+// - MOONDREAM/MOONDREAM3/MOONDREAM_CUSTOM/MODAL_CUSTOM: Two-step grounding
 // - AUTO: Use GROUNDER_TYPE env var to determine grounder
 // - NULL: Skip grounding (for testing/debugging)
 type GrounderType string
@@ -2992,9 +2990,25 @@ type ScmConfigResponse struct {
 	Preset         string      `json:"preset"`
 	Profiles       ScmProfiles `json:"profiles"`
 	Project        string      `json:"project"`
-	Provider       string      `json:"provider"`
-	RepoFullName   string      `json:"repo_full_name"`
-	SkipDrafts     bool        `json:"skip_drafts"`
+
+	// ProofLaunch Whose authority an unattended proof launch acts under.
+	//
+	// Lives in ``metadata`` rather than ``actions`` for two reasons. ``actions``
+	// feeds ``config_policy_hash``, and proof runs are keyed on that hash, so an
+	// identity there would fork a fresh run every time a different admin saved
+	// settings. ``metadata`` is also written with a preserving ``||`` merge, so a
+	// config-as-code sync cannot silently drop the stored authority.
+	//
+	// Attributes:
+	//     user_id: The human principal stamped server-side from the authenticated
+	//         caller. A client-supplied value is always discarded, since a caller
+	//         must not be able to nominate somebody else's authority.
+	//     authorized_at: When the setting was saved, so an operator can tell a
+	//         stale authorization from a never-authorized repository.
+	ProofLaunch  *ScmProofLaunchAuthority `json:"proof_launch,omitempty"`
+	Provider     string                   `json:"provider"`
+	RepoFullName string                   `json:"repo_full_name"`
+	SkipDrafts   bool                     `json:"skip_drafts"`
 }
 
 // ScmConfigsResponse defines model for ScmConfigsResponse.
@@ -3024,6 +3038,26 @@ type ScmPlatformProfile struct {
 type ScmProfiles struct {
 	Android *ScmPlatformProfile `json:"android,omitempty"`
 	Ios     *ScmPlatformProfile `json:"ios,omitempty"`
+}
+
+// ScmProofLaunchAuthority Whose authority an unattended proof launch acts under.
+//
+// Lives in “metadata“ rather than “actions“ for two reasons. “actions“
+// feeds “config_policy_hash“, and proof runs are keyed on that hash, so an
+// identity there would fork a fresh run every time a different admin saved
+// settings. “metadata“ is also written with a preserving “||“ merge, so a
+// config-as-code sync cannot silently drop the stored authority.
+//
+// Attributes:
+//
+//	user_id: The human principal stamped server-side from the authenticated
+//	    caller. A client-supplied value is always discarded, since a caller
+//	    must not be able to nominate somebody else's authority.
+//	authorized_at: When the setting was saved, so an operator can tell a
+//	    stale authorization from a never-authorized repository.
+type ScmProofLaunchAuthority struct {
+	AuthorizedAt string             `json:"authorized_at"`
+	UserId       openapi_types.UUID `json:"user_id"`
 }
 
 // ScriptUsageModuleItem A module that uses a specific script as a step, and is itself used by
