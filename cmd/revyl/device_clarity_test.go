@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -9,6 +10,24 @@ import (
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/spf13/cobra"
 )
+
+func TestNavigateDevicePreservesURLAndSurfacesWorkerFailure(t *testing.T) {
+	const deepLink = "bug-bazaar://auth?token=long-value&user_id=123"
+	requester := &fakeWorkerSessionRequester{
+		resp: []byte(`{"success":false,"action":"open_url","error":"device rejected deep link"}`),
+	}
+
+	err := navigateDevice(context.Background(), requester, 2, deepLink)
+	if err == nil || err.Error() != "device rejected deep link" {
+		t.Fatalf("navigateDevice() error = %v, want worker failure", err)
+	}
+	if requester.sessionIndex != 2 || requester.path != "/open_url" {
+		t.Fatalf("request target = session %d path %s, want session 2 /open_url", requester.sessionIndex, requester.path)
+	}
+	if requester.body["url"] != deepLink {
+		t.Fatalf("navigate URL = %q, want %q", requester.body["url"], deepLink)
+	}
+}
 
 func newDeviceTestCommand(t *testing.T, devMode bool) *cobra.Command {
 	t.Helper()

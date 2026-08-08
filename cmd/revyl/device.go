@@ -1736,14 +1736,25 @@ var deviceNavigateCmd = &cobra.Command{
 		if url == "" {
 			return fmt.Errorf("URL is required: revyl device navigate <url>")
 		}
-		body := map[string]string{"url": url}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/open_url", body)
-		if err != nil {
+		if err := navigateDevice(cmd.Context(), mgr, session.Index, url); err != nil {
 			return err
 		}
 		jsonOrPrint(cmd, map[string]string{"url": url, "status": "opened"}, fmt.Sprintf("Opened %s", url))
 		return nil
 	},
+}
+
+func navigateDevice(ctx context.Context, requester workerSessionRequester, sessionIndex int, url string) error {
+	respBody, err := requester.WorkerRequestForSession(
+		ctx,
+		sessionIndex,
+		"/open_url",
+		map[string]string{"url": url},
+	)
+	if err != nil {
+		return err
+	}
+	return ensureWorkerActionSucceeded(respBody, "open_url")
 }
 
 var deviceSetLocationCmd = &cobra.Command{

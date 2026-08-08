@@ -147,6 +147,60 @@ func TestMaskEnv(t *testing.T) {
 	}
 }
 
+func TestHandleDeviceNavigatePreservesURLAndSurfacesWorkerFailure(t *testing.T) {
+	const deepLink = "bug-bazaar://auth?token=long-value&user_id=123"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/execution/device-proxy/wf-1/open_url" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode navigate body: %v", err)
+		}
+		if body["url"] != deepLink {
+			t.Fatalf("navigate URL = %q, want %q", body["url"], deepLink)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":false,"action":"open_url","error":"device rejected deep link"}`))
+	}))
+	defer server.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient: api.NewClientWithBaseURL("test-api-key", server.URL),
+		sessions: map[int]*DeviceSession{
+			0: {
+				Index:         0,
+				SessionID:     "session-1",
+				WorkflowRunID: "wf-1",
+				Platform:      "android",
+			},
+		},
+		idleTimers:  make(map[int]*time.Timer),
+		activeIndex: 0,
+	}
+	srv := &Server{sessionMgr: mgr}
+
+	_, output, err := srv.handleDeviceNavigate(
+		context.Background(),
+		nil,
+		DeviceNavigateInput{URL: deepLink},
+	)
+	if err != nil {
+		t.Fatalf("handleDeviceNavigate returned error: %v", err)
+	}
+	if output.Success {
+		t.Fatal("navigate success = true, want false")
+	}
+	if output.URL != deepLink {
+		t.Fatalf("output URL = %q, want %q", output.URL, deepLink)
+	}
+	if output.Error != "device rejected deep link" {
+		t.Fatalf("navigate error = %q, want worker failure", output.Error)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // TestResolveCoords_TargetRequiresSession: When target is provided but no
 // session is active, the grounding path should return a meaningful error.

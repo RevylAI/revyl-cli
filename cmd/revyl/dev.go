@@ -1880,44 +1880,8 @@ func isContextCanceledError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "context canceled")
 }
 
-type workerActionResponse struct {
-	SuccessLower *bool  `json:"success"`
-	SuccessUpper *bool  `json:"Success"`
-	Action       string `json:"action"`
-	Error        string `json:"error"`
-}
-
 func ensureWorkerActionSucceeded(respBody []byte, expectedAction string) error {
-	var resp workerActionResponse
-	if err := json.Unmarshal(respBody, &resp); err != nil {
-		return fmt.Errorf("failed to parse worker %s response: %w", expectedAction, err)
-	}
-
-	if resp.Action != "" && expectedAction != "" && resp.Action != expectedAction {
-		return fmt.Errorf("worker returned action=%q, expected %q", resp.Action, expectedAction)
-	}
-
-	successKnown := false
-	success := false
-	if resp.SuccessLower != nil {
-		successKnown = true
-		success = *resp.SuccessLower
-	}
-	if resp.SuccessUpper != nil {
-		successKnown = true
-		success = *resp.SuccessUpper
-	}
-	if !successKnown {
-		return fmt.Errorf("device action %s returned an unexpected response", expectedAction)
-	}
-	if !success {
-		errMsg := strings.TrimSpace(resp.Error)
-		if errMsg == "" {
-			errMsg = fmt.Sprintf("device action %s failed", expectedAction)
-		}
-		return fmt.Errorf("%s", errMsg)
-	}
-	return nil
+	return mcppkg.EnsureWorkerActionSucceeded(respBody, expectedAction)
 }
 
 type workerInstallMetadata struct {

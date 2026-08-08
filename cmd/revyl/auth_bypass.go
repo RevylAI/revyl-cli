@@ -118,8 +118,11 @@ func openURLAfterLaunch(ctx context.Context, requester workerSessionRequester, s
 		path = "/open_url_template"
 		body = api.DeviceOpenURLTemplateRequest{URLTemplate: value}
 	}
-	_, err := requester.WorkerRequestForSession(ctx, sessionIndex, path, body)
-	return err
+	respBody, err := requester.WorkerRequestForSession(ctx, sessionIndex, path, body)
+	if err != nil {
+		return err
+	}
+	return ensureWorkerActionSucceeded(respBody, "open_url")
 }
 
 // authBypassPublicError converts an internal failure into a secret-free message.

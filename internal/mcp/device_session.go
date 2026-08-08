@@ -1368,6 +1368,47 @@ type WorkerActionResponse struct {
 	InstallMethod string  `json:"install_method,omitempty"`
 }
 
+type workerActionResultEnvelope struct {
+	SuccessLower *bool  `json:"success"`
+	SuccessUpper *bool  `json:"Success"`
+	Action       string `json:"action"`
+	Error        string `json:"error"`
+}
+
+// EnsureWorkerActionSucceeded validates the standard worker action envelope.
+func EnsureWorkerActionSucceeded(respBody []byte, expectedAction string) error {
+	var resp workerActionResultEnvelope
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return fmt.Errorf("failed to parse worker %s response: %w", expectedAction, err)
+	}
+
+	if resp.Action != "" && expectedAction != "" && resp.Action != expectedAction {
+		return fmt.Errorf("worker returned action=%q, expected %q", resp.Action, expectedAction)
+	}
+
+	successKnown := false
+	success := false
+	if resp.SuccessLower != nil {
+		successKnown = true
+		success = *resp.SuccessLower
+	}
+	if resp.SuccessUpper != nil {
+		successKnown = true
+		success = *resp.SuccessUpper
+	}
+	if !successKnown {
+		return fmt.Errorf("device action %s returned an unexpected response", expectedAction)
+	}
+	if !success {
+		errMsg := strings.TrimSpace(resp.Error)
+		if errMsg == "" {
+			errMsg = fmt.Sprintf("device action %s failed", expectedAction)
+		}
+		return errors.New(errMsg)
+	}
+	return nil
+}
+
 // DeviceDownloadFileRequest is the canonical request body for download_file.
 type DeviceDownloadFileRequest struct {
 	URL      string `json:"url"`

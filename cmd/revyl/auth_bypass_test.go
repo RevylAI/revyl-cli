@@ -17,6 +17,7 @@ import (
 type fakeWorkerRequester struct {
 	paths  []string
 	bodies []interface{}
+	resp   []byte
 	err    error
 }
 
@@ -26,7 +27,10 @@ func (f *fakeWorkerRequester) WorkerRequestForSession(ctx context.Context, sessi
 	if f.err != nil {
 		return nil, f.err
 	}
-	return []byte(`{"status":"success"}`), nil
+	if f.resp != nil {
+		return f.resp, nil
+	}
+	return []byte(`{"success":true,"action":"open_url"}`), nil
 }
 
 func withTestAuthBypass(t *testing.T, cfg *config.AuthBypassConfig) *authBypassRuntime {
@@ -56,6 +60,22 @@ func TestAuthBypassDelegatesTemplateResolutionToWorkerProxy(t *testing.T) {
 	status := rt.Status()
 	if status == nil || status.State != "ready" || status.Error != "" {
 		t.Fatalf("Status() = %+v, want ready", status)
+	}
+}
+
+func TestOpenURLAfterLaunchSurfacesWorkerFailure(t *testing.T) {
+	requester := &fakeWorkerRequester{
+		resp: []byte(`{"success":false,"action":"open_url","error":"device rejected deep link"}`),
+	}
+
+	err := openURLAfterLaunch(
+		context.Background(),
+		requester,
+		0,
+		"myapp://revyl-auth?token=test&role=buyer",
+	)
+	if err == nil || err.Error() != "device rejected deep link" {
+		t.Fatalf("openURLAfterLaunch() error = %v, want worker failure", err)
 	}
 }
 

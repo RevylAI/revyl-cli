@@ -2271,8 +2271,11 @@ func (s *Server) handleDeviceNavigate(ctx context.Context, req *mcp.CallToolRequ
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
 	body := map[string]string{"url": input.URL}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", body)
+	respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/open_url", body)
 	if err != nil {
+		return nil, DeviceNavigateOutput{Success: false, URL: input.URL, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	if err := EnsureWorkerActionSucceeded(respBody, "open_url"); err != nil {
 		return nil, DeviceNavigateOutput{Success: false, URL: input.URL, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 	s.sessionMgr.ClearScreenshotAnchor(session.Index)
