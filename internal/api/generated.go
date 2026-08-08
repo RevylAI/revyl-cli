@@ -464,10 +464,6 @@ func (e GrounderType) Valid() bool {
 		return true
 	case GrounderTypeNull:
 		return true
-	case GrounderTypeQwen3Vl:
-		return true
-	case GrounderTypeUiTars:
-		return true
 	case GrounderTypeUnified:
 		return true
 	default:
