@@ -1,0 +1,82 @@
+# Upload a CI-built artifact to Revyl for Cursor (or Revyl) proof.
+#
+# Use this as:
+#   - a follow-on job after your existing build job (needs: + download-artifact), or
+#   - a final step in the same job that already produced the .apk / .app bundle.
+#
+# What this does NOT do:
+#   - No Cursor API key in GitHub
+#   - No device start / proof / PR comment (Cursor Automation or Revyl GitHub
+#     proof handles that after the upload)
+#
+# Secrets: REVYL_API_KEY
+# Vars:    REVYL_ANDROID_APP_ID (or REVYL_IOS_APP_ID for iOS)
+#
+# GitHub Actions GITHUB_* / event metadata is stamped automatically by
+# `revyl build upload` (see revyl-cli/internal/build/metadata.go) so Automations
+# and use_existing_ci can match the build to this commit / PR.
+
+name: Upload for Cursor proof
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  # --- Option A: same job as your build (uncomment / replace the build step) ---
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # -- Your build step here --
+      # - name: Build APK
+      #   run: ./gradlew assembleDebug
+
+      - name: Install Revyl CLI
+        run: |
+          curl -fsSL https://revyl.com/install.sh | sh
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
+
+      - name: Upload build to Revyl
+        run: |
+          revyl build upload \
+            --file ./app/build/outputs/apk/debug/app-debug.apk \
+            --app "$REVYL_ANDROID_APP_ID" \
+            --platform android \
+            --version "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --yes \
+            --json
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+          REVYL_ANDROID_APP_ID: ${{ vars.REVYL_ANDROID_APP_ID }}
+
+  # --- Option B: reusable follow-on job consuming an artifact from another job ---
+  # Uncomment and wire `needs` / artifact names to your build job.
+  #
+  # upload-from-artifact:
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/download-artifact@v4
+  #       with:
+  #         name: app-debug-apk
+  #         path: dist
+  #
+  #     - name: Install Revyl CLI
+  #       run: |
+  #         curl -fsSL https://revyl.com/install.sh | sh
+  #         echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
+  #
+  #     - name: Upload build to Revyl
+  #       run: |
+  #         revyl build upload \
+  #           --file ./dist/app-debug.apk \
+  #           --app "$REVYL_ANDROID_APP_ID" \
+  #           --platform android \
+  #           --version "${{ github.event.pull_request.head.sha || github.sha }}" \
+  #           --yes \
+  #           --json
+  #       env:
+  #         REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+  #         REVYL_ANDROID_APP_ID: ${{ vars.REVYL_ANDROID_APP_ID }}

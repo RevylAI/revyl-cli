@@ -628,7 +628,7 @@ func requireExactSkills(t *testing.T, skillsRoot string) {
 		skillNames = append(skillNames, entry.Name())
 	}
 	slices.Sort(skillNames)
-	expected := []string{"revyl-ci-sync", "revyl-cloud-agent", "revyl-mcp-dev-loop"}
+	expected := []string{"revyl-ci-sync", "revyl-cloud-agent", "revyl-mcp-dev-loop", "revyl-proof-ci"}
 	if !slices.Equal(skillNames, expected) {
 		t.Fatalf("bundled skills = %#v, want %#v", skillNames, expected)
 	}

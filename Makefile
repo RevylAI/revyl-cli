@@ -295,7 +295,7 @@ t: test
 
 # Cursor plugin skill sync
 # Pure-copy skills come from skills/ (source of truth, embedded by embed.go).
-# Authored plugin skills (revyl-dev-loop, revyl-cloud-agent, revyl-ci-sync)
+# Authored plugin skills (revyl-cloud-agent, revyl-ci-sync, revyl-proof-ci)
 # are maintained directly in cursor-plugin/skills/ and are NOT synced.
 .PHONY: sync-cursor-plugin-skills prepare-cursor-plugin-release
 

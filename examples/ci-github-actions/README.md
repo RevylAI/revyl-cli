@@ -19,6 +19,10 @@ Copy-paste workflows for running Revyl tests in GitHub Actions using [RevylAI/re
 | [`deploy-gate.yml`](deploy-gate.yml) | Block deploys on test failure |
 | [`expo-build-test.yml`](expo-build-test.yml) | Expo/EAS build -> upload -> test |
 | [`preview-environment.yml`](preview-environment.yml) | Build -> upload -> cloud device + PR comment with live link |
+| [`upload-for-cursor-proof.yml`](upload-for-cursor-proof.yml) | Upload only — for Cursor Automations / BYO-CI proof (no device in the job) |
+
+For the Cursor Automation that proves the uploaded build, see
+[`../cursor-automation/prove-mobile-pr/`](../cursor-automation/prove-mobile-pr/).
 
 ## Finding your IDs
 
