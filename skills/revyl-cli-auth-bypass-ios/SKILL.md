@@ -25,11 +25,17 @@ Use one app-specific deep link shape:
 myapp://revyl-auth?token=<token>&role=<role>&redirect=<allowlisted-route>
 ```
 
-Revyl launch variables arrive in iOS simulator apps as launch arguments, for example:
+On iOS simulators and physical devices, Revyl environment-variable
+configurations arrive as compatible `-KEY value` launch-argument pairs, for
+example:
 
 ```text
 -REVYL_AUTH_BYPASS_ENABLED true -REVYL_AUTH_BYPASS_TOKEN <token>
 ```
+
+This compatibility encoding is distinct from an **iOS arguments** configuration,
+which contributes raw ordered tokens. The auth-bypass gate below reads the
+environment-variable pairs; do not replace it with an argument set.
 
 ## Files To Add Or Update
 

@@ -175,7 +175,7 @@ setup-merge-drivers:
 setup: setup-merge-drivers
 	@echo "Installing development tools..."
 	go install github.com/air-verse/air@v1.61.7
-	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.4.1
+	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 	go install gotest.tools/gotestsum@v1.13.0
 	brew install watchexec || true

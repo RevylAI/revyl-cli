@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/revyl/cli/internal/launcharguments"
 )
 
 const (
@@ -57,6 +59,8 @@ type StartRequest struct {
 	AppID                      string
 	BuildVersionID             string
 	LaunchVars                 []string
+	LaunchArgSets              []string
+	LaunchArguments            []string
 	DisableInheritedLaunchVars bool
 	Port                       int
 	TimeoutSeconds             int
@@ -265,6 +269,10 @@ type CommandRunner struct {
 
 // Start runs the detached CLI handshake and returns as soon as the viewer is ready.
 func (r *CommandRunner) Start(ctx context.Context, workDir string, request StartRequest) (StartResult, error) {
+	if err := launcharguments.Validate(request.LaunchArguments); err != nil {
+		return StartResult{}, err
+	}
+
 	args := []string{"dev", "--detach", "--json", "--no-open"}
 	args = appendStringFlag(args, "--context", request.Context)
 	args = appendStringFlag(args, "--platform", request.Platform)
@@ -273,6 +281,12 @@ func (r *CommandRunner) Start(ctx context.Context, workDir string, request Start
 	args = appendStringFlag(args, "--build-version-id", request.BuildVersionID)
 	for _, launchVar := range request.LaunchVars {
 		args = appendStringFlag(args, "--launch-var", launchVar)
+	}
+	for _, launchArgSet := range request.LaunchArgSets {
+		args = appendStringFlag(args, "--launch-arg-set", launchArgSet)
+	}
+	for _, launchArgument := range request.LaunchArguments {
+		args = append(args, "--launch-arg", launchArgument)
 	}
 	if request.DisableInheritedLaunchVars {
 		args = append(args, "--no-inherited-launch-vars")

@@ -125,6 +125,8 @@ func (s *Server) handleStartDevLoopCommand(
 		AppID:                      input.AppID,
 		BuildVersionID:             input.BuildVersionID,
 		LaunchVars:                 input.LaunchVars,
+		LaunchArgSets:              input.LaunchArgSets,
+		LaunchArguments:            input.LaunchArguments,
 		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
 		Port:                       input.Port,
 		TimeoutSeconds:             input.Timeout,

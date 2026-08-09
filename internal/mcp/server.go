@@ -928,6 +928,8 @@ type RunTestInput struct {
 	OsVersion                  string   `json:"os_version,omitempty" jsonschema:"Override OS version (e.g. iOS 18.5, Android 14)"`
 	Orientation                string   `json:"orientation,omitempty" jsonschema:"Override device orientation (portrait or landscape)"`
 	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Additional organization launch-variable keys or IDs."`
+	LaunchArgSets              []string `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs."`
+	LaunchArguments            []string `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens in exact order."`
 	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
 }
 
@@ -1014,6 +1016,8 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		OsVersion:                  input.OsVersion,
 		Orientation:                input.Orientation,
 		LaunchVars:                 input.LaunchVars,
+		LaunchArgSets:              input.LaunchArgSets,
+		LaunchArguments:            input.LaunchArguments,
 		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
 	}
 	if input.Location != "" {
@@ -1079,6 +1083,8 @@ type RunWorkflowInput struct {
 	AndroidAppID               string   `json:"android_app_id,omitempty" jsonschema:"Override Android app ID for all tests in workflow"`
 	Location                   string   `json:"location,omitempty" jsonschema:"Override GPS location as lat,lng (e.g. 37.7749,-122.4194)"`
 	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Additional organization launch-variable keys or IDs for every child test."`
+	LaunchArgSets              []string `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs for iOS child tests."`
+	LaunchArguments            []string `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens for iOS child tests."`
 	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
 }
 
@@ -1168,6 +1174,8 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 		IOSAppID:                   input.IOSAppID,
 		AndroidAppID:               input.AndroidAppID,
 		LaunchVars:                 input.LaunchVars,
+		LaunchArgSets:              input.LaunchArgSets,
+		LaunchArguments:            input.LaunchArguments,
 		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
 	}
 	if input.Location != "" {

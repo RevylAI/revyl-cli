@@ -221,6 +221,8 @@ func init() {
 	testRunCmd.Flags().BoolVar(&runFailFast, "fail-fast", false, "Halt the run on the first failed step or validation (overrides the test's stored run_config for this run)")
 	testRunCmd.Flags().StringArrayVar(&runLaunchEnv, "launch-env", nil, "Inline launch environment variable as KEY=VALUE applied to the app launch (repeatable; overrides attached launch vars)")
 	testRunCmd.Flags().StringArrayVar(&runLaunchVars, "launch-var", nil, "Org launch variable key or ID to apply to this run (repeatable)")
+	testRunCmd.Flags().StringArrayVar(&runLaunchArgSets, "launch-arg-set", nil, "Stored iOS argument-set name or ID to apply to this run (repeatable)")
+	testRunCmd.Flags().StringArrayVar(&runLaunchArguments, "launch-arg", nil, "Inline non-secret iOS app argument token (repeatable; order preserved)")
 	testRunCmd.Flags().BoolVar(&runDisableInheritedLaunchVars, "no-inherited-launch-vars", false, "Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch variables still apply")
 	testRunCmd.Flags().StringArrayVar(&runVars, "var", nil, "Runtime variable override as key=value (repeatable, referenced as {{key}})")
 	analytics.MarkFlagValue(testRunCmd, "retries")

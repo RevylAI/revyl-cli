@@ -13,11 +13,13 @@ import (
 	"github.com/revyl/cli/internal/launchvars"
 )
 
-func TestStartSessionAppliesInheritedAndExplicitLaunchVariables(t *testing.T) {
+func TestStartSessionAppliesTypedInheritedAndExplicitLaunchConfigurations(t *testing.T) {
 	const (
-		inheritedID   = "0d60e7e3-6548-476b-91c6-c48b6d620d0e"
-		explicitID    = "37159693-b91e-4e99-a0cb-e8a812387986"
-		workflowRunID = "99999999-9999-4999-8999-999999999991"
+		inheritedEnvID  = "0d60e7e3-6548-476b-91c6-c48b6d620d0e"
+		inheritedArgsID = "11111111-1111-4111-8111-111111111111"
+		explicitEnvID   = "37159693-b91e-4e99-a0cb-e8a812387986"
+		explicitArgsID  = "22222222-2222-4222-8222-222222222222"
+		workflowRunID   = "99999999-9999-4999-8999-999999999991"
 	)
 	var captured struct {
 		LaunchEnvVarIDs []string `json:"launch_env_var_ids"`
@@ -28,8 +30,10 @@ func TestStartSessionAppliesInheritedAndExplicitLaunchVariables(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/variables/org_launch_env":
 			_, _ = w.Write([]byte(
 				`{"message":"ok","result":[` +
-					`{"id":"` + inheritedID + `","key":"AUTH_STATE"},` +
-					`{"id":"` + explicitID + `","key":"API_URL"}` +
+					`{"id":"` + inheritedEnvID + `","key":"AUTH_STATE"},` +
+					`{"id":"` + inheritedArgsID + `","key":"AuthArgs","kind":"ios_arguments"},` +
+					`{"id":"` + explicitEnvID + `","key":"API_URL","kind":"key_value"},` +
+					`{"id":"` + explicitArgsID + `","key":"RouteArgs","kind":"ios_arguments"}` +
 					`]}`,
 			))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
@@ -47,7 +51,10 @@ func TestStartSessionAppliesInheritedAndExplicitLaunchVariables(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv(launchvars.InheritedIDsEnv, inheritedID)
+	t.Setenv(
+		launchvars.InheritedIDsEnv,
+		inheritedEnvID+","+inheritedArgsID,
+	)
 	manager := NewDeviceSessionManager(
 		api.NewClientWithBaseURL("runtime-key", server.URL),
 		t.TempDir(),
@@ -55,8 +62,9 @@ func TestStartSessionAppliesInheritedAndExplicitLaunchVariables(t *testing.T) {
 	index, _, err := manager.StartSession(
 		context.Background(),
 		StartSessionOptions{
-			Platform:   "ios",
-			LaunchVars: []string{"API_URL"},
+			Platform:      "ios",
+			LaunchVars:    []string{"API_URL"},
+			LaunchArgSets: []string{"RouteArgs"},
 		},
 	)
 	if err != nil {
@@ -64,7 +72,7 @@ func TestStartSessionAppliesInheritedAndExplicitLaunchVariables(t *testing.T) {
 	}
 	t.Cleanup(func() { manager.StopIdleTimer(index) })
 
-	want := []string{inheritedID, explicitID}
+	want := []string{inheritedEnvID, inheritedArgsID, explicitEnvID, explicitArgsID}
 	if !reflect.DeepEqual(captured.LaunchEnvVarIDs, want) {
 		t.Fatalf("launch_env_var_ids = %v, want %v", captured.LaunchEnvVarIDs, want)
 	}

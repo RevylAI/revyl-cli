@@ -416,3 +416,56 @@ func TestResolveLaunchVarIDs_RejectsVariableWithoutValue(t *testing.T) {
 		t.Fatalf("ResolveLaunchVarIDs error = %v, want missing-value error", err)
 	}
 }
+
+func TestLaunchConfigurationKindSelectorsRejectWrongFlag(t *testing.T) {
+	t.Parallel()
+	hasValue := true
+	resolver := stubLaunchVarResolver{resp: &api.OrgLaunchVariablesResponse{
+		Result: []api.OrgLaunchVariable{
+			{ID: "env-1", Key: "API_URL", Kind: "key_value", HasValue: &hasValue},
+			{ID: "args-1", Key: "Auth", Kind: "ios_arguments", HasValue: &hasValue},
+		},
+	}}
+
+	_, envErr := ResolveLaunchConfigurationSelection(
+		context.Background(), resolver, nil, nil, []string{"API_URL"},
+	)
+	if envErr == nil || !strings.Contains(envErr.Error(), "use --launch-var") {
+		t.Fatalf("expected environment-kind guidance, got %v", envErr)
+	}
+	_, argsErr := ResolveLaunchConfigurationSelection(
+		context.Background(), resolver, nil, []string{"Auth"}, nil,
+	)
+	if argsErr == nil || !strings.Contains(argsErr.Error(), "use --launch-arg-set") {
+		t.Fatalf("expected argument-kind guidance, got %v", argsErr)
+	}
+}
+
+func TestResolveLaunchConfigurationSelectionPreservesTypedSourceOrder(t *testing.T) {
+	t.Parallel()
+	hasValue := true
+	resolver := stubLaunchVarResolver{resp: &api.OrgLaunchVariablesResponse{
+		Result: []api.OrgLaunchVariable{
+			{ID: "env-inherited", Key: "AUTH_STATE", HasValue: &hasValue},
+			{ID: "args-inherited", Key: "AuthArgs", Kind: "ios_arguments", HasValue: &hasValue},
+			{ID: "env-explicit", Key: "API_URL", Kind: "key_value", HasValue: &hasValue},
+			{ID: "args-explicit", Key: "RouteArgs", Kind: "ios_arguments", HasValue: &hasValue},
+			{ID: "args-explicit-2", Key: "DeepLinkArgs", Kind: "ios_arguments", HasValue: &hasValue},
+		},
+	}}
+
+	ids, err := ResolveLaunchConfigurationSelection(
+		context.Background(),
+		resolver,
+		[]string{"env-inherited", "args-inherited"},
+		[]string{"API_URL"},
+		[]string{"DeepLinkArgs", "RouteArgs", "DeepLinkArgs", "args-inherited"},
+	)
+	if err != nil {
+		t.Fatalf("ResolveLaunchConfigurationSelection() error = %v", err)
+	}
+	want := "env-inherited,args-inherited,env-explicit,args-explicit-2,args-explicit"
+	if strings.Join(ids, ",") != want {
+		t.Fatalf("ResolveLaunchConfigurationSelection() = %v, want %s", ids, want)
+	}
+}

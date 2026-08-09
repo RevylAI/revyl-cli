@@ -466,6 +466,8 @@ type StartDeviceSessionInput struct {
 	AppURL                     string   `json:"app_url,omitempty" jsonschema:"URL to download app from (.apk or .ipa). Provide this OR build_version_id."`
 	AppLink                    string   `json:"app_link,omitempty" jsonschema:"Deep link URL to launch after app start (optional)."`
 	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Org launch variable keys or IDs to apply to a raw session at boot."`
+	LaunchArgSets              []string `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs to apply at boot."`
+	LaunchArguments            []string `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens in exact order."`
 	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
 	TestID                     string   `json:"test_id,omitempty" jsonschema:"Test ID to link session to"`
 	IdleTimeout                int      `json:"idle_timeout,omitempty" jsonschema:"Idle timeout in seconds (default 900)"`
@@ -510,6 +512,8 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 		AppURL:                     appURL,
 		AppLink:                    normalizeOptionalToolInput(input.AppLink),
 		LaunchVars:                 input.LaunchVars,
+		LaunchArgSets:              input.LaunchArgSets,
+		LaunchArguments:            input.LaunchArguments,
 		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
 		TestID:                     input.TestID,
 		IdleTimeout:                timeout,

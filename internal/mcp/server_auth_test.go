@@ -34,6 +34,30 @@ func TestNewServerAcceptsAccessTokenCredentials(t *testing.T) {
 	requireServerTool(t, server, "start_device_session")
 }
 
+func TestLaunchArgumentInputsAreExposedOnMCPLaunchTools(t *testing.T) {
+	prepareServerAuthTest(t)
+	t.Setenv("REVYL_API_KEY", "test-environment-api-key")
+	server, err := NewServer("test", false)
+	if err != nil {
+		t.Fatalf("NewServer(): %v", err)
+	}
+	tools := listServerTools(t, server)
+	for _, toolName := range []string{
+		"start_dev_loop",
+		"start_device_session",
+		"run_test",
+		"run_workflow",
+	} {
+		tool := serverToolByName(t, tools, toolName)
+		requireSchemaPropertyType(
+			t, tool.InputSchema, "launch_arg_sets", []any{"null", "array"},
+		)
+		requireSchemaPropertyType(
+			t, tool.InputSchema, "launch_arguments", []any{"null", "array"},
+		)
+	}
+}
+
 // TestNewServerAcceptsAPIKeyCredentials verifies persistent API-key login starts MCP successfully.
 func TestNewServerAcceptsAPIKeyCredentials(t *testing.T) {
 	prepareServerAuthTest(t)

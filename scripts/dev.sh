@@ -31,7 +31,7 @@ echo "  - air (hot reload)..."
 go install github.com/air-verse/air@latest
 
 echo "  - oapi-codegen (type generation)..."
-go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
+go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0
 
 echo "  - golangci-lint (linting)..."
 go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest

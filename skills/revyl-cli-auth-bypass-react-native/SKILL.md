@@ -98,7 +98,12 @@ Replace `createTestSession`, `navigationRef`, and route names with the app's rea
 
 ## Native Launch Config
 
-Expose only the two Revyl launch variables to JS. On iOS, read simulator launch arguments. On Android, read launch intent extras. If the app already has a native config bridge, extend that instead of adding a new module.
+Expose only the two Revyl environment-variable configurations to JS. On iOS
+simulators and physical devices, read the compatible `-KEY value` pairs from
+`ProcessInfo.processInfo.arguments`. These are distinct from raw tokens supplied
+by an **iOS arguments** configuration. On Android, read launch intent extras. If
+the app already has a native config bridge, extend that instead of adding a new
+module.
 
 ```swift
 func launchValue(_ key: String) -> String? {

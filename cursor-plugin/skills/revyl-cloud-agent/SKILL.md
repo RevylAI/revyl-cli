@@ -51,14 +51,18 @@ Use this skill whenever you are running as a Cursor Cloud/background agent (head
 
 ## Auth Bypass and Secrets
 
-- Selected launch variables apply automatically to fresh raw device, dev, test,
-  and workflow runs. Do not fetch their values or repeat them explicitly.
-- CLI `--launch-var` and MCP `launch_vars` inputs remain additive.
+- Selected launch configurations (environment variables and iOS argument sets)
+  apply automatically to fresh raw device, dev, test, and workflow runs. Do not
+  fetch their payloads or repeat them explicitly.
+- CLI `--launch-var` / `--launch-arg-set` and MCP `launch_vars` /
+  `launch_arg_sets` inputs remain additive.
   `--no-inherited-launch-vars` and `disable_inherited_launch_vars` ignore
   `REVYL_INHERITED_LAUNCH_ENV_VAR_IDS` entirely without disabling
   `.revyl/config.yaml` auth bypass.
 - If the app shows a logged-out state mid-session but the boot token is still valid, run `revyl dev auth refresh --json` (re-fires the boot deep link; does not remint). If the token itself expired, `revyl dev stop` then `revyl dev` so a fresh mint is applied as launch environment.
-- Never paste launch-var values, tokens, or API keys into code, chat, logs, screenshots, or PRs — reference variable names only. Avoid typing real credentials on-screen; use test variables.
+- Never paste launch-configuration payloads, tokens, or API keys into code,
+  chat, logs, screenshots, or PRs — reference configuration names only. Avoid
+  typing real credentials on-screen; use test configurations.
 
 ## Git Hygiene
 

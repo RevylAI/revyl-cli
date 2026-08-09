@@ -53,6 +53,8 @@ type StartDevLoopInput struct {
 	AppID                      string   `json:"app_id,omitempty" jsonschema:"Optional app ID override used to resolve latest build."`
 	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Optional explicit build version ID. Skips latest-build resolution."`
 	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Additional organization launch-variable keys or IDs."`
+	LaunchArgSets              []string `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs."`
+	LaunchArguments            []string `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens in exact order."`
 	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
 	Port                       int      `json:"port,omitempty" jsonschema:"Optional hot reload dev-server port override."`
 	Timeout                    int      `json:"timeout,omitempty" jsonschema:"Device idle timeout in seconds (default 300)."`

@@ -76,6 +76,8 @@ type DeviceSessionInput struct {
 	AppURL                     string   `json:"app_url,omitempty" jsonschema:"Direct app artifact URL for start."`
 	AppLink                    string   `json:"app_link,omitempty" jsonschema:"Deep link to open after app launch."`
 	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Organization launch-variable keys or IDs."`
+	LaunchArgSets              []string `json:"launch_arg_sets,omitempty" jsonschema:"Stored iOS argument-set names or IDs."`
+	LaunchArguments            []string `json:"launch_arguments,omitempty" jsonschema:"Inline non-secret iOS app argument tokens."`
 	DisableInheritedLaunchVars bool     `json:"disable_inherited_launch_vars,omitempty" jsonschema:"Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch_vars still apply."`
 	Timeout                    int      `json:"timeout,omitempty" jsonschema:"Idle timeout in seconds."`
 	SessionIndex               *int     `json:"session_index,omitempty" jsonschema:"Session index for stop switch or info."`
@@ -500,6 +502,7 @@ func (s *Server) handleDeviceSession(
 		return dispatchDevProfileAction(ctx, req, action, StartDeviceSessionInput{
 			Platform: input.Platform, AppID: input.AppID, BuildVersionID: input.BuildVersionID,
 			AppURL: input.AppURL, AppLink: input.AppLink, LaunchVars: input.LaunchVars,
+			LaunchArgSets: input.LaunchArgSets, LaunchArguments: input.LaunchArguments,
 			DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
 			IdleTimeout:                input.Timeout, NoOpen: true,
 		}, s.handleStartDeviceSession)

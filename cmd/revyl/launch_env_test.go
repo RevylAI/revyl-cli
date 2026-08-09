@@ -139,6 +139,19 @@ func TestParseLaunchEnvVars(t *testing.T) {
 	}
 }
 
+func TestGetExactStringArrayFlagPreservesExplicitEmptyValue(t *testing.T) {
+	cmd := &cobra.Command{Use: "test"}
+	cmd.Flags().StringArray("launch-arg", nil, "")
+	if err := cmd.Flags().Parse([]string{"--launch-arg="}); err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	got := getExactStringArrayFlag(cmd, "launch-arg")
+	if len(got) != 1 || got[0] != "" {
+		t.Fatalf("getExactStringArrayFlag() = %#v, want []string{\"\"}", got)
+	}
+}
+
 func TestParseRuntimeVars(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -216,14 +229,18 @@ func TestParseRuntimeVars(t *testing.T) {
 // launch env vars serialize as `launch_env_vars`, and are omitted when unset.
 func TestExecuteTestRequestLaunchEnvWire(t *testing.T) {
 	withVars, err := json.Marshal(&api.ExecuteTestRequest{
-		TestID:        "abc",
-		LaunchEnvVars: map[string]string{"API_URL": "https://x"},
+		TestID:          "abc",
+		LaunchEnvVars:   map[string]string{"API_URL": "https://x"},
+		LaunchArguments: []string{"--route", "sign in"},
 	})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
 	if !strings.Contains(string(withVars), `"launch_env_vars":{"API_URL":"https://x"}`) {
 		t.Errorf("expected launch_env_vars in body, got: %s", withVars)
+	}
+	if !strings.Contains(string(withVars), `"launch_arguments":["--route","sign in"]`) {
+		t.Errorf("expected ordered launch_arguments in body, got: %s", withVars)
 	}
 
 	without, err := json.Marshal(&api.ExecuteTestRequest{TestID: "abc"})
@@ -232,6 +249,9 @@ func TestExecuteTestRequestLaunchEnvWire(t *testing.T) {
 	}
 	if strings.Contains(string(without), "launch_env_vars") {
 		t.Errorf("expected launch_env_vars omitted when unset, got: %s", without)
+	}
+	if strings.Contains(string(without), "launch_arguments") {
+		t.Errorf("expected launch_arguments omitted when unset, got: %s", without)
 	}
 }
 
@@ -284,18 +304,22 @@ func TestExecuteWorkflowRequestVariableOverridesWire(t *testing.T) {
 func TestExecuteWorkflowRequestLaunchEnvWire(t *testing.T) {
 	withVars, err := json.Marshal(&api.ExecuteWorkflowRequest{
 		WorkflowID:      "workflow-123",
-		LaunchEnvVarIds: []string{"launch-1"},
+		LaunchEnvVarIds: []string{"launch-1", "args-1"},
 		LaunchEnvVars:   map[string]string{"API_URL": "https://x"},
+		LaunchArguments: []string{"--route", "sign in"},
 	})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
 	body := string(withVars)
-	if !strings.Contains(body, `"launch_env_var_ids":["launch-1"]`) {
+	if !strings.Contains(body, `"launch_env_var_ids":["launch-1","args-1"]`) {
 		t.Errorf("expected launch_env_var_ids in body, got: %s", body)
 	}
 	if !strings.Contains(body, `"launch_env_vars":{"API_URL":"https://x"}`) {
 		t.Errorf("expected launch_env_vars in body, got: %s", body)
+	}
+	if !strings.Contains(body, `"launch_arguments":["--route","sign in"]`) {
+		t.Errorf("expected ordered launch_arguments in body, got: %s", body)
 	}
 
 	without, err := json.Marshal(&api.ExecuteWorkflowRequest{WorkflowID: "workflow-123"})
@@ -313,6 +337,12 @@ func TestWorkflowRunSupportsLaunchEnvFlags(t *testing.T) {
 	}
 	if workflowRunCmd.Flags().Lookup("launch-env") == nil {
 		t.Fatal("workflow run is missing --launch-env")
+	}
+	if workflowRunCmd.Flags().Lookup("launch-arg-set") == nil {
+		t.Fatal("workflow run is missing --launch-arg-set")
+	}
+	if workflowRunCmd.Flags().Lookup("launch-arg") == nil {
+		t.Fatal("workflow run is missing --launch-arg")
 	}
 	if workflowRunCmd.Flags().Lookup("no-inherited-launch-vars") == nil {
 		t.Fatal("workflow run is missing --no-inherited-launch-vars")
@@ -340,14 +370,18 @@ func TestCloudAgentLaunchVariableOptOutIsAvailableOnRuntimeEntrypoints(
 // inline launch env vars serialize as `env_vars`, and are omitted when unset.
 func TestStartDeviceRequestEnvVarsWire(t *testing.T) {
 	withVars, err := json.Marshal(&api.StartDeviceRequest{
-		Platform: "ios",
-		EnvVars:  map[string]string{"API_URL": "https://x"},
+		Platform:        "ios",
+		EnvVars:         map[string]string{"API_URL": "https://x"},
+		LaunchArguments: []string{"-UITesting", "--route", "sign in"},
 	})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
 	if !strings.Contains(string(withVars), `"env_vars":{"API_URL":"https://x"}`) {
 		t.Errorf("expected env_vars in body, got: %s", withVars)
+	}
+	if !strings.Contains(string(withVars), `"launch_arguments":["-UITesting","--route","sign in"]`) {
+		t.Errorf("expected ordered launch_arguments in body, got: %s", withVars)
 	}
 
 	without, err := json.Marshal(&api.StartDeviceRequest{Platform: "ios"})
@@ -356,6 +390,9 @@ func TestStartDeviceRequestEnvVarsWire(t *testing.T) {
 	}
 	if strings.Contains(string(without), "env_vars") {
 		t.Errorf("expected env_vars omitted when unset, got: %s", without)
+	}
+	if strings.Contains(string(without), "launch_arguments") {
+		t.Errorf("expected launch_arguments omitted when unset, got: %s", without)
 	}
 }
 

@@ -102,7 +102,7 @@ func (s *Server) registerManageTestsTool() {
 		Description: `Manage Revyl tests. Use the "action" param to select an operation.
 
 Actions:
-  run          - Run a test by name or ID. Params: test_name (required), retries, build_version_id, location, device_model, os_version, orientation
+  run          - Run a test by name or ID. Params: test_name (required), retries, build_version_id, location, device_model, os_version, orientation, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
   list         - List tests from .revyl/config.yaml. No params required.
   list_remote  - List all tests in the organization. No params required.
   create       - Create a test from YAML. Params: yaml_content (required), module_names_or_ids
@@ -191,7 +191,7 @@ Actions:
   list          - List all workflows. No params required.
   create        - Create a workflow. Params: name (required)
   delete        - Delete a workflow. Params: workflow_name (required)
-  run           - Run a workflow. Params: workflow_name (required), retries, build_version_id
+  run           - Run a workflow. Params: workflow_name (required), retries, build_version_id, launch_vars, launch_arg_sets, launch_arguments, disable_inherited_launch_vars
   cancel        - Cancel a running workflow. Params: task_id (required)
   add_tests     - Add tests to a workflow. Params: workflow_name (required), test_names (required)
   remove_tests  - Remove tests from a workflow. Params: workflow_name (required), test_names (required)

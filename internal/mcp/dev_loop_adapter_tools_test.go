@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -515,6 +516,8 @@ func TestHandleStartDevLoopCommandUsesCanonicalRunner(t *testing.T) {
 		StartDevLoopInput{
 			Remote:                     true,
 			LaunchVars:                 []string{"API_URL", "AUTH_STATE"},
+			LaunchArgSets:              []string{"AuthArgs", "RouteArgs"},
+			LaunchArguments:            []string{"--route", "sign in"},
 			DisableInheritedLaunchVars: true,
 		},
 	)
@@ -532,6 +535,10 @@ func TestHandleStartDevLoopCommandUsesCanonicalRunner(t *testing.T) {
 		runner.startRequest.LaunchVars[1] != "AUTH_STATE" ||
 		!runner.startRequest.DisableInheritedLaunchVars {
 		t.Fatalf("start request launch variables = %+v", runner.startRequest)
+	}
+	if !slices.Equal(runner.startRequest.LaunchArgSets, []string{"AuthArgs", "RouteArgs"}) ||
+		!slices.Equal(runner.startRequest.LaunchArguments, []string{"--route", "sign in"}) {
+		t.Fatalf("start request launch arguments = %+v", runner.startRequest)
 	}
 }
 

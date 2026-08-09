@@ -234,28 +234,104 @@ func ResolveLaunchVarIDs(
 	resolver LaunchVarResolver,
 	keyOrIDs []string,
 ) ([]string, error) {
-	if len(keyOrIDs) == 0 {
-		return nil, nil
+	return resolveLaunchConfigurationIDs(ctx, resolver, keyOrIDs, "key_value")
+}
+
+// ResolveLaunchConfigurationSelection resolves inherited configurations of
+// either kind, followed by explicit key/value variables and explicit iOS
+// argument sets. The returned IDs preserve that precedence order and are
+// de-duplicated across all three sources.
+func ResolveLaunchConfigurationSelection(
+	ctx context.Context,
+	resolver LaunchVarResolver,
+	inheritedIDs []string,
+	launchVars []string,
+	launchArgumentSets []string,
+) ([]string, error) {
+	inherited, err := resolveLaunchConfigurationIDs(ctx, resolver, inheritedIDs, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve inherited launch configurations: %w", err)
+	}
+	explicitVars, err := ResolveLaunchVarIDs(ctx, resolver, launchVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve launch variables: %w", err)
+	}
+	explicitArgumentSets, err := resolveLaunchConfigurationIDs(
+		ctx,
+		resolver,
+		launchArgumentSets,
+		"ios_arguments",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve iOS argument sets: %w", err)
 	}
 
-	ids := make([]string, 0, len(keyOrIDs))
-	seen := make(map[string]struct{}, len(keyOrIDs))
-	for _, keyOrID := range keyOrIDs {
-		variable, err := ResolveLaunchVar(ctx, resolver, keyOrID)
+	ordered := make([]string, 0, len(inherited)+len(explicitVars)+len(explicitArgumentSets))
+	seen := make(map[string]struct{}, cap(ordered))
+	for _, ids := range [][]string{inherited, explicitVars, explicitArgumentSets} {
+		for _, id := range ids {
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			ordered = append(ordered, id)
+		}
+	}
+	return ordered, nil
+}
+
+func resolveLaunchConfigurationIDs(
+	ctx context.Context,
+	resolver LaunchVarResolver,
+	nameOrIDs []string,
+	expectedKind string,
+) ([]string, error) {
+	ids := make([]string, 0, len(nameOrIDs))
+	seen := make(map[string]struct{}, len(nameOrIDs))
+	for _, nameOrID := range nameOrIDs {
+		configuration, err := ResolveLaunchVar(ctx, resolver, nameOrID)
 		if err != nil {
 			return nil, err
 		}
-		if variable.HasValue != nil && !*variable.HasValue {
+		kind := configuration.Kind
+		if kind == "" {
+			kind = "key_value"
+		}
+		switch {
+		case expectedKind == "key_value" && kind != expectedKind:
 			return nil, fmt.Errorf(
-				"launch variable %q has no stored value",
-				variable.Key,
+				"launch configuration %q is an iOS argument set; use --launch-arg-set",
+				configuration.Key,
+			)
+		case expectedKind == "ios_arguments" && kind != expectedKind:
+			return nil, fmt.Errorf(
+				"launch configuration %q is an environment variable; use --launch-var",
+				configuration.Key,
+			)
+		case kind != "key_value" && kind != "ios_arguments":
+			return nil, fmt.Errorf(
+				"launch configuration %q has unsupported kind %q",
+				configuration.Key,
+				kind,
 			)
 		}
-		if _, ok := seen[variable.ID]; ok {
+		if configuration.HasValue != nil && !*configuration.HasValue {
+			if kind == "ios_arguments" {
+				return nil, fmt.Errorf(
+					"iOS argument set %q has no stored arguments",
+					configuration.Key,
+				)
+			}
+			return nil, fmt.Errorf(
+				"launch variable %q has no stored value",
+				configuration.Key,
+			)
+		}
+		if _, exists := seen[configuration.ID]; exists {
 			continue
 		}
-		seen[variable.ID] = struct{}{}
-		ids = append(ids, variable.ID)
+		seen[configuration.ID] = struct{}{}
+		ids = append(ids, configuration.ID)
 	}
 	return ids, nil
 }

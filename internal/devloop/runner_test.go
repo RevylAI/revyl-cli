@@ -102,6 +102,48 @@ exit 1
 	}
 }
 
+func TestCommandRunnerPreservesExactLaunchArguments(t *testing.T) {
+	t.Setenv("REVYL_BINARY", "")
+	binary := writeFakeRevyl(t, `#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--launch-arg" ]; then
+    shift
+    if [ "$1" != "  padded  " ]; then
+      printf 'launch argument changed: <%s>\n' "$1" >&2
+      exit 3
+    fi
+    printf '%s\n' '{"context":"default","viewer_url":"https://viewer"}'
+    exit 0
+  fi
+  shift
+done
+printf '%s\n' 'missing launch argument' >&2
+exit 2
+`)
+	runner := &CommandRunner{BinaryPath: binary}
+
+	result, err := runner.Start(context.Background(), t.TempDir(), StartRequest{
+		LaunchArguments: []string{"  padded  "},
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if result.ViewerURL != "https://viewer" {
+		t.Fatalf("Start() viewer URL = %q", result.ViewerURL)
+	}
+}
+
+func TestCommandRunnerRejectsEmptyLaunchArgumentBeforeStartingChild(t *testing.T) {
+	runner := &CommandRunner{BinaryPath: filepath.Join(t.TempDir(), "missing-revyl")}
+
+	_, err := runner.Start(context.Background(), t.TempDir(), StartRequest{
+		LaunchArguments: []string{""},
+	})
+	if err == nil || !strings.Contains(err.Error(), "token 1 cannot be empty") {
+		t.Fatalf("Start() error = %v", err)
+	}
+}
+
 func TestCommandRunnerStreamsRebuildProgressFromSingleChild(t *testing.T) {
 	t.Setenv("REVYL_BINARY", "")
 	binary := writeFakeRevyl(t, `#!/bin/sh

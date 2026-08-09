@@ -549,6 +549,24 @@ func (e IosStoreKitConfigRefUpsertRequestScopeType) Valid() bool {
 	}
 }
 
+// Defines values for LaunchConfigurationKind.
+const (
+	LaunchConfigurationKindIosArguments LaunchConfigurationKind = "ios_arguments"
+	LaunchConfigurationKindKeyValue     LaunchConfigurationKind = "key_value"
+)
+
+// Valid indicates whether the value is a known member of the LaunchConfigurationKind enum.
+func (e LaunchConfigurationKind) Valid() bool {
+	switch e {
+	case LaunchConfigurationKindIosArguments:
+		return true
+	case LaunchConfigurationKindKeyValue:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LaunchEnvVarErrorCode.
 const (
 	LaunchEnvVarErrorCodeLaunchVariableInvalid            LaunchEnvVarErrorCode = "launch_variable_invalid"
@@ -2623,6 +2641,9 @@ type LLMConfig struct {
 	ReflectionModel *string `json:"reflection_model,omitempty"`
 }
 
+// LaunchConfigurationKind Stored app-launch configuration payload type.
+type LaunchConfigurationKind string
+
 // LaunchEnvVarErrorCode Stable failure categories for resolving stored launch variables.
 type LaunchEnvVarErrorCode string
 
@@ -2638,10 +2659,14 @@ type LaunchEnvVarErrorDetail struct {
 
 // LaunchEnvVarSnapshotEntry Sanitized immutable launch-variable fact stored on a device session.
 type LaunchEnvVarSnapshotEntry struct {
-	Id       *string `json:"id,omitempty"`
-	IsSecret *bool   `json:"is_secret,omitempty"`
-	Key      string  `json:"key"`
-	Value    *string `json:"value,omitempty"`
+	Arguments *[]string `json:"arguments,omitempty"`
+	Id        *string   `json:"id,omitempty"`
+	IsSecret  *bool     `json:"is_secret,omitempty"`
+	Key       string    `json:"key"`
+
+	// Kind Stored app-launch configuration payload type.
+	Kind  *LaunchConfigurationKind `json:"kind,omitempty"`
+	Value *string                  `json:"value,omitempty"`
 }
 
 // LocationConfig GPS location configuration for simulator/emulator.
@@ -2890,8 +2915,11 @@ type OrgInstallation struct {
 	VerifiedAt            *time.Time         `json:"verified_at,omitempty"`
 }
 
-// OrgLaunchEnvVarCreate Request model for creating an org launch environment variable.
+// OrgLaunchEnvVarCreate Request model for creating an org launch configuration.
 type OrgLaunchEnvVarCreate struct {
+	// Arguments Exact ordered tokens for an iOS argument set
+	Arguments *[]string `json:"arguments,omitempty"`
+
 	// Description Description of the variable
 	Description *string `json:"description,omitempty"`
 
@@ -2901,8 +2929,11 @@ type OrgLaunchEnvVarCreate struct {
 	// Key Launch variable key
 	Key string `json:"key"`
 
+	// Kind Stored app-launch configuration payload type.
+	Kind *LaunchConfigurationKind `json:"kind,omitempty"`
+
 	// Value Launch variable value
-	Value string `json:"value"`
+	Value *string `json:"value,omitempty"`
 }
 
 // OrgLaunchEnvVarDeleteResponse Response model for org launch environment variable deletion.
@@ -2913,7 +2944,7 @@ type OrgLaunchEnvVarDeleteResponse struct {
 	// Message Response message
 	Message string `json:"message"`
 
-	// Result Row model for an org launch environment variable.
+	// Result Row model for an org launch configuration.
 	Result OrgLaunchEnvVarRow `json:"result"`
 }
 
@@ -2922,12 +2953,15 @@ type OrgLaunchEnvVarResponse struct {
 	// Message Response message
 	Message string `json:"message"`
 
-	// Result Row model for an org launch environment variable.
+	// Result Row model for an org launch configuration.
 	Result OrgLaunchEnvVarRow `json:"result"`
 }
 
-// OrgLaunchEnvVarRow Row model for an org launch environment variable.
+// OrgLaunchEnvVarRow Row model for an org launch configuration.
 type OrgLaunchEnvVarRow struct {
+	// Arguments Ordered tokens for a non-secret iOS argument set. Secret argument sets are write-only and always returned as null.
+	Arguments *[]string `json:"arguments,omitempty"`
+
 	// AttachedTestCount Number of tests currently attached to this launch variable
 	AttachedTestCount *int `json:"attached_test_count,omitempty"`
 
@@ -2952,6 +2986,9 @@ type OrgLaunchEnvVarRow struct {
 	// Key Launch variable key
 	Key string `json:"key"`
 
+	// Kind Stored app-launch configuration payload type.
+	Kind *LaunchConfigurationKind `json:"kind,omitempty"`
+
 	// OrgId Organization ID
 	OrgId openapi_types.UUID `json:"org_id"`
 
@@ -2964,6 +3001,9 @@ type OrgLaunchEnvVarRow struct {
 
 // OrgLaunchEnvVarUpdate Request model for updating an org launch environment variable.
 type OrgLaunchEnvVarUpdate struct {
+	// Arguments Replacement exact ordered iOS argument tokens
+	Arguments *[]string `json:"arguments,omitempty"`
+
 	// Description Updated description
 	Description *string `json:"description,omitempty"`
 
@@ -2972,6 +3012,9 @@ type OrgLaunchEnvVarUpdate struct {
 
 	// Key Updated launch variable key
 	Key *string `json:"key,omitempty"`
+
+	// Kind Stored app-launch configuration payload type.
+	Kind *LaunchConfigurationKind `json:"kind,omitempty"`
 
 	// Value Updated launch variable value
 	Value *string `json:"value,omitempty"`
@@ -3831,6 +3874,9 @@ type StartDeviceInfo struct {
 	IdleTimeoutSeconds *int                      `json:"idle_timeout_seconds,omitempty"`
 	IsSimulation       *bool                     `json:"is_simulation,omitempty"`
 
+	// LaunchArguments Explicit iOS app arguments in exact token order
+	LaunchArguments *[]string `json:"launch_arguments,omitempty"`
+
 	// LaunchEnvVarIds Org launch variable IDs selected for a raw device session. Only valid when `test_id` is absent.
 	LaunchEnvVarIds *[]openapi_types.UUID `json:"launch_env_var_ids,omitempty"`
 	OrgId           *openapi_types.UUID   `json:"org_id,omitempty"`
@@ -3954,6 +4000,9 @@ type TaskID struct {
 	// DeviceModel Override the target device model for this execution
 	DeviceModel  *string `json:"device_model,omitempty"`
 	GetDownloads *bool   `json:"get_downloads,omitempty"`
+
+	// LaunchArguments Inline iOS app arguments in exact token order
+	LaunchArguments *[]string `json:"launch_arguments,omitempty"`
 
 	// LaunchEnvVarIds Org launch variable IDs selected for this execution. For mobile test runs, these are merged with the test's attached launch vars.
 	LaunchEnvVarIds *[]openapi_types.UUID `json:"launch_env_var_ids,omitempty"`
@@ -4340,7 +4389,7 @@ type TestRunConfig struct {
 	// ExecutionMode Configuration for execution modes and features.
 	ExecutionMode *ExecutionModeConfig `json:"execution_mode,omitempty"`
 
-	// FailFast When true, the test halts immediately on the first failed validation or non-zero script exit code instead of continuing through remaining steps.
+	// FailFast When true, the test halts immediately on the first failed validation or non-zero script exit code instead of continuing through remaining steps. Unset inherits the test-level value under a workflow override and otherwise behaves as false.
 	FailFast *bool `json:"fail_fast,omitempty"`
 
 	// FallbackTrigger When to trigger cache fallback.
@@ -4987,6 +5036,9 @@ type CognisimSchemasSchemasDeviceSchemaWorkflowInfo struct {
 	//     ios_app: Optional iOS app override configuration.
 	//     android_app: Optional Android app override configuration.
 	BuildConfig *WorkflowAppConfig `json:"build_config,omitempty"`
+
+	// LaunchArguments Inline iOS app arguments in exact token order. Stored argument sets are applied first; these tokens are appended afterward.
+	LaunchArguments *[]string `json:"launch_arguments,omitempty"`
 
 	// LaunchEnvVarIds Org launch variable IDs selected for this workflow execution. They are merged over each child test's attached launch variables.
 	LaunchEnvVarIds *[]openapi_types.UUID `json:"launch_env_var_ids,omitempty"`

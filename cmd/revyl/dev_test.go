@@ -234,15 +234,21 @@ func TestValidateLaunchSettingsForSessionReuseRejectsOverrides(t *testing.T) {
 	tests := []struct {
 		name                       string
 		explicitLaunchVars         []string
+		explicitLaunchArgSets      []string
+		inlineLaunchArguments      []string
 		disableInheritedLaunchVars bool
 	}{
 		{name: "explicit launch variable", explicitLaunchVars: []string{"API_URL"}},
+		{name: "explicit iOS argument set", explicitLaunchArgSets: []string{"AuthArgs"}},
+		{name: "inline iOS argument", inlineLaunchArguments: []string{"--uitesting"}},
 		{name: "inherited launch variables opt-out", disableInheritedLaunchVars: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			err := validateLaunchSettingsForSessionReuse(
 				test.explicitLaunchVars,
+				test.explicitLaunchArgSets,
+				test.inlineLaunchArguments,
 				test.disableInheritedLaunchVars,
 			)
 			if err == nil ||
@@ -256,6 +262,8 @@ func TestValidateLaunchSettingsForSessionReuseRejectsOverrides(t *testing.T) {
 
 func TestValidateLaunchSettingsForSessionReuseAllowsInheritedDefaults(t *testing.T) {
 	if err := validateLaunchSettingsForSessionReuse(
+		nil,
+		nil,
 		nil,
 		false,
 	); err != nil {

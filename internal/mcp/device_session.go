@@ -27,6 +27,7 @@ import (
 	"github.com/revyl/cli/internal/beforesession"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
+	"github.com/revyl/cli/internal/launcharguments"
 	"github.com/revyl/cli/internal/launchvars"
 	"github.com/revyl/cli/internal/ui"
 
@@ -301,9 +302,10 @@ type StartSessionOptions struct {
 	AppURL         string
 
 	// Optional app launch link and package hints.
-	AppLink    string
-	AppPackage string
-	LaunchVars []string
+	AppLink       string
+	AppPackage    string
+	LaunchVars    []string
+	LaunchArgSets []string
 	// DisableInheritedLaunchVars omits launch variables inherited from the
 	// current process environment.
 	DisableInheritedLaunchVars bool
@@ -311,6 +313,9 @@ type StartSessionOptions struct {
 	// LaunchEnv holds inline launch environment variables (KEY=VALUE) applied to
 	// the app's launch environment. Merged over LaunchVars; inline takes precedence.
 	LaunchEnv map[string]string
+
+	// LaunchArguments are inline, non-secret iOS app argument tokens.
+	LaunchArguments []string
 
 	// Optional test/session metadata.
 	TestID string
@@ -347,6 +352,10 @@ func (m *DeviceSessionManager) StartSession(
 	ctx context.Context,
 	opts StartSessionOptions,
 ) (int, *DeviceSession, error) {
+	if err := launcharguments.Validate(opts.LaunchArguments); err != nil {
+		return -1, nil, err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -355,13 +364,13 @@ func (m *DeviceSessionManager) StartSession(
 		return -1, nil, fmt.Errorf("platform must be 'ios' or 'android'")
 	}
 	launchVars := opts.LaunchVars
+	var inheritedLaunchConfigurationIDs []string
 	if strings.TrimSpace(opts.TestID) != "" && len(launchVars) > 0 {
 		ui.PrintWarning("Ignoring --launch-var for test-backed device start; attached test launch vars will be used")
 		launchVars = nil
 	} else if strings.TrimSpace(opts.TestID) == "" {
 		var err error
-		launchVars, err = launchvars.MergeInherited(
-			launchVars,
+		inheritedLaunchConfigurationIDs, err = launchvars.LoadInheritedIDs(
 			opts.DisableInheritedLaunchVars,
 		)
 		if err != nil {
@@ -380,7 +389,13 @@ func (m *DeviceSessionManager) StartSession(
 	if err != nil {
 		return -1, nil, err
 	}
-	resolvedLaunchVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, m.apiClient, launchVars)
+	resolvedLaunchConfigurationIDs, err := startdevice.ResolveLaunchConfigurationSelection(
+		ctx,
+		m.apiClient,
+		inheritedLaunchConfigurationIDs,
+		launchVars,
+		opts.LaunchArgSets,
+	)
 	if err != nil {
 		return -1, nil, err
 	}
@@ -411,11 +426,14 @@ func (m *DeviceSessionManager) StartSession(
 	if resolvedArtifact.AppPackage != "" {
 		req.AppPackage = resolvedArtifact.AppPackage
 	}
-	if len(resolvedLaunchVarIDs) > 0 {
-		req.LaunchEnvVarIds = resolvedLaunchVarIDs
+	if len(resolvedLaunchConfigurationIDs) > 0 {
+		req.LaunchEnvVarIds = resolvedLaunchConfigurationIDs
 	}
 	if len(opts.LaunchEnv) > 0 {
 		req.EnvVars = opts.LaunchEnv
+	}
+	if len(opts.LaunchArguments) > 0 {
+		req.LaunchArguments = append([]string(nil), opts.LaunchArguments...)
 	}
 	initialOrientation := strings.TrimSpace(opts.InitialOrientation)
 	initialLocale := strings.TrimSpace(opts.InitialLocale)

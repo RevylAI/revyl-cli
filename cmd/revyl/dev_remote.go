@@ -163,13 +163,15 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		if reuse != nil {
 			if err := validateLaunchSettingsForSessionReuse(
 				devStartLaunchVars,
+				devStartLaunchArgSets,
+				devStartLaunchArguments,
 				devDisableInheritedLaunchVars,
 			); err != nil {
 				return err
 			}
 			session = reuse.Session
 			sessionOwned = reuse.SessionOwned
-			warnLaunchVarsIgnoredForReusedDevSession()
+			warnInheritedLaunchSettingsIgnoredForReusedDevSession()
 		}
 	}
 

@@ -23,6 +23,7 @@ import (
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/devicetargets"
+	"github.com/revyl/cli/internal/launcharguments"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -753,9 +754,14 @@ var deviceStartCmd = &cobra.Command{
 		buildVersionID, _ := cmd.Flags().GetString("build-version-id")
 		appURL, _ := cmd.Flags().GetString("app-url")
 		appLink, _ := cmd.Flags().GetString("app-link")
-		launchVars, _ := cmd.Flags().GetStringArray("launch-var")
+		launchVars := getExactStringArrayFlag(cmd, "launch-var")
+		launchArgSets := getExactStringArrayFlag(cmd, "launch-arg-set")
+		launchArguments := getExactStringArrayFlag(cmd, "launch-arg")
+		if err := launcharguments.Validate(launchArguments); err != nil {
+			return err
+		}
 		disableInheritedLaunchVars, _ := cmd.Flags().GetBool("no-inherited-launch-vars")
-		launchEnv, _ := cmd.Flags().GetStringArray("launch-env")
+		launchEnv := getExactStringArrayFlag(cmd, "launch-env")
 		launchEnvVars, err := parseLaunchEnvVars(launchEnv)
 		if err != nil {
 			return err
@@ -902,8 +908,10 @@ var deviceStartCmd = &cobra.Command{
 			BuildVersionID:             buildVersionID,
 			AppURL:                     appURL,
 			LaunchVars:                 launchVars,
+			LaunchArgSets:              launchArgSets,
 			DisableInheritedLaunchVars: disableInheritedLaunchVars,
 			LaunchEnv:                  launchEnvVars,
+			LaunchArguments:            launchArguments,
 			InitialLocale:              initialLocale,
 			InitialOrientation:         initialOrientation,
 			IdleTimeout:                time.Duration(timeout) * time.Second,
@@ -969,6 +977,20 @@ var deviceStartCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// getExactStringArrayFlag bypasses pflag's CSV round trip, which collapses a
+// single explicit empty value (for example, --launch-arg=) into an empty slice.
+// The underlying SliceValue retains every token exactly as the user supplied it.
+func getExactStringArrayFlag(cmd *cobra.Command, name string) []string {
+	flag := cmd.Flags().Lookup(name)
+	if flag != nil {
+		if value, ok := flag.Value.(interface{ GetSlice() []string }); ok {
+			return value.GetSlice()
+		}
+	}
+	values, _ := cmd.Flags().GetStringArray(name)
+	return values
 }
 
 var deviceStopCmd = &cobra.Command{
@@ -3138,6 +3160,8 @@ func init() {
 	deviceStartCmd.Flags().String("app-url", "", "Direct app artifact URL (.apk/.ipa/.zip)")
 	deviceStartCmd.Flags().String("app-link", "", "Deep link to launch after app start")
 	deviceStartCmd.Flags().StringArray("launch-var", nil, "Org launch variable key or ID to apply to a raw session (repeatable)")
+	deviceStartCmd.Flags().StringArray("launch-arg-set", nil, "Stored iOS argument-set name or ID to apply (repeatable)")
+	deviceStartCmd.Flags().StringArray("launch-arg", nil, "Inline non-secret iOS app argument token (repeatable; order preserved)")
 	deviceStartCmd.Flags().Bool("no-inherited-launch-vars", false, "Ignore REVYL_INHERITED_LAUNCH_ENV_VAR_IDS entirely; explicit launch variables still apply")
 	deviceStartCmd.Flags().StringArray("launch-env", nil, "Inline launch environment variable as KEY=VALUE applied to the app launch (repeatable; overrides --launch-var)")
 	deviceStartCmd.Flags().String("locale", "", "Initial device locale identifier (e.g. en_US, fr_FR)")

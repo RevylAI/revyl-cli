@@ -48,7 +48,7 @@ export PATH="$HOME/go/bin:$PATH"
 # Check if oapi-codegen is installed
 if ! command -v oapi-codegen &> /dev/null; then
     echo "Error: oapi-codegen not installed"
-    echo "Install with: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest"
+    echo "Install with: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0"
     exit 1
 fi
 

@@ -72,6 +72,20 @@ func TestWsURLToHTTP(t *testing.T) {
 	}
 }
 
+func TestStartSessionRejectsInvalidLaunchArgumentsBeforeAPIWork(t *testing.T) {
+	manager := NewDeviceSessionManager(nil, t.TempDir())
+	index, session, err := manager.StartSession(context.Background(), StartSessionOptions{
+		Platform:        "ios",
+		LaunchArguments: []string{""},
+	})
+	if index != -1 || session != nil {
+		t.Fatalf("StartSession() = (%d, %#v), want (-1, nil)", index, session)
+	}
+	if err == nil || !strings.Contains(err.Error(), "token 1 cannot be empty") {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+}
+
 func TestWorkerHTTPErrorOmitsResponseBody(t *testing.T) {
 	const secret = "resolved-bypass-token"
 	err := &WorkerHTTPError{

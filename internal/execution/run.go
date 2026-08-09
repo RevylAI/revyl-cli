@@ -16,6 +16,7 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
+	"github.com/revyl/cli/internal/launcharguments"
 	"github.com/revyl/cli/internal/launchvars"
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/status"
@@ -56,6 +57,8 @@ type RunTestParams struct {
 	LaunchURL string
 	// LaunchVars are org launch variable keys or IDs to apply to this run.
 	LaunchVars []string
+	// LaunchArgSets are stored iOS argument-set names or IDs.
+	LaunchArgSets []string
 	// DisableInheritedLaunchVars omits launch variables inherited from the
 	// current process environment.
 	DisableInheritedLaunchVars bool
@@ -77,6 +80,8 @@ type RunTestParams struct {
 	// to the app's launch environment for this run. Merged over org launch
 	// variables attached to the test; inline values take precedence.
 	LaunchEnvVars map[string]string
+	// LaunchArguments are non-secret inline iOS app arguments in exact order.
+	LaunchArguments []string
 	// VariableOverrides are test variable values applied to this run. They are
 	// referenced as {{name}} and override test/global variables for that run only.
 	VariableOverrides map[string]string
@@ -122,6 +127,10 @@ type RunTestResult struct {
 //   - *RunTestResult: Execution result with status and report URL
 //   - error: Any error that occurred (nil if result contains error info)
 func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, params RunTestParams) (*RunTestResult, error) {
+	if err := launcharguments.Validate(params.LaunchArguments); err != nil {
+		return nil, err
+	}
+
 	// Resolve test ID from local YAML
 	testID := params.TestNameOrID
 	cwd, cwdErr := os.Getwd()
@@ -144,26 +153,32 @@ func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, para
 
 	// Create client and execute
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
-	launchVars, err := launchvars.MergeInherited(
-		params.LaunchVars,
+	inheritedLaunchConfigurationIDs, err := launchvars.LoadInheritedIDs(
 		params.DisableInheritedLaunchVars,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load inherited launch variables: %w", err)
 	}
-	launchEnvVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, client, launchVars)
+	launchConfigurationIDs, err := startdevice.ResolveLaunchConfigurationSelection(
+		ctx,
+		client,
+		inheritedLaunchConfigurationIDs,
+		params.LaunchVars,
+		params.LaunchArgSets,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve launch variables: %w", err)
+		return nil, err
 	}
 	req := &api.ExecuteTestRequest{
 		TestID:            testID,
 		Retries:           retries,
 		BuildVersionID:    params.BuildVersionID,
 		LaunchURL:         params.LaunchURL,
-		LaunchEnvVarIds:   launchEnvVarIDs,
+		LaunchEnvVarIds:   launchConfigurationIDs,
 		DeviceModel:       params.DeviceModel,
 		OsVersion:         params.OsVersion,
 		LaunchEnvVars:     params.LaunchEnvVars,
+		LaunchArguments:   params.LaunchArguments,
 		VariableOverrides: params.VariableOverrides,
 	}
 	if params.HasLocation || params.Orientation != "" || params.FailFast != nil {
@@ -280,14 +295,17 @@ type RunWorkflowParams struct {
 	VariableOverrides map[string]string
 	// LaunchVars are org launch variable keys or IDs applied to every child test.
 	LaunchVars []string
+	// LaunchArgSets are stored iOS argument-set names or IDs.
+	LaunchArgSets []string
 	// DisableInheritedLaunchVars omits launch variables inherited from the
 	// current process environment.
 	DisableInheritedLaunchVars bool
 	// LaunchEnvVars are inline app launch values applied to every child test.
 	// They override stored launch variables with the same key.
-	LaunchEnvVars  map[string]string
-	MonitoringMode sse.MonitoringMode
-	OnProgress     func(status *sse.WorkflowStatus)
+	LaunchEnvVars   map[string]string
+	LaunchArguments []string
+	MonitoringMode  sse.MonitoringMode
+	OnProgress      func(status *sse.WorkflowStatus)
 	// OnTaskStarted is called immediately after the workflow execution is started.
 	// This provides the task ID early, enabling cancellation before monitoring completes.
 	OnTaskStarted func(taskID string)
@@ -361,6 +379,10 @@ type RunWorkflowResult struct {
 //   - *RunWorkflowResult: Execution result with status and report URL
 //   - error: Any error that occurred (nil if result contains error info)
 func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, params RunWorkflowParams) (*RunWorkflowResult, error) {
+	if err := launcharguments.Validate(params.LaunchArguments); err != nil {
+		return nil, err
+	}
+
 	workflowID := params.WorkflowNameOrID
 
 	// Set defaults
@@ -375,23 +397,29 @@ func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, 
 
 	// Create client and execute
 	client := api.NewClientWithDevMode(apiKey, params.DevMode)
-	launchVars, err := launchvars.MergeInherited(
-		params.LaunchVars,
+	inheritedLaunchConfigurationIDs, err := launchvars.LoadInheritedIDs(
 		params.DisableInheritedLaunchVars,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load inherited launch variables: %w", err)
 	}
-	launchEnvVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, client, launchVars)
+	launchConfigurationIDs, err := startdevice.ResolveLaunchConfigurationSelection(
+		ctx,
+		client,
+		inheritedLaunchConfigurationIDs,
+		params.LaunchVars,
+		params.LaunchArgSets,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve launch variables: %w", err)
+		return nil, err
 	}
 	req := &api.ExecuteWorkflowRequest{
 		WorkflowID:        workflowID,
 		Retries:           retries,
 		VariableOverrides: params.VariableOverrides,
-		LaunchEnvVarIds:   launchEnvVarIDs,
+		LaunchEnvVarIds:   launchConfigurationIDs,
 		LaunchEnvVars:     params.LaunchEnvVars,
+		LaunchArguments:   params.LaunchArguments,
 	}
 	if params.IOSAppID != "" || params.AndroidAppID != "" {
 		req.BuildConfig = &api.WorkflowAppConfig{}

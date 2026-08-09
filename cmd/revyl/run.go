@@ -25,6 +25,7 @@ import (
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/devicetargets"
 	"github.com/revyl/cli/internal/execution"
+	"github.com/revyl/cli/internal/launcharguments"
 	"github.com/revyl/cli/internal/launchvars"
 	"github.com/revyl/cli/internal/sse"
 	"github.com/revyl/cli/internal/ui"
@@ -55,6 +56,8 @@ var (
 	runFailFast                   bool
 	runLaunchEnv                  []string
 	runLaunchVars                 []string
+	runLaunchArgSets              []string
+	runLaunchArguments            []string
 	runDisableInheritedLaunchVars bool
 	runVars                       []string
 )
@@ -471,6 +474,8 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		LaunchEnvVars:              launchEnvVars,
 		VariableOverrides:          variableOverrides,
 		LaunchVars:                 append([]string(nil), runLaunchVars...),
+		LaunchArgSets:              append([]string(nil), runLaunchArgSets...),
+		LaunchArguments:            append([]string(nil), runLaunchArguments...),
 		DisableInheritedLaunchVars: runDisableInheritedLaunchVars,
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
@@ -680,27 +685,39 @@ func queueWorkflowExecution(
 	longitude float64,
 	variableOverrides map[string]string,
 	launchVars []string,
+	launchArgSets []string,
 	disableInheritedLaunchVars bool,
 	launchEnvVars map[string]string,
+	launchArguments []string,
 ) (*execution.RunWorkflowResult, error) {
+	if err := launcharguments.Validate(launchArguments); err != nil {
+		return nil, err
+	}
+
 	client := api.NewClientWithDevMode(apiKey, devMode)
-	launchVars, err := launchvars.MergeInherited(
-		launchVars,
+	inheritedLaunchConfigurationIDs, err := launchvars.LoadInheritedIDs(
 		disableInheritedLaunchVars,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load inherited launch variables: %w", err)
 	}
-	launchEnvVarIDs, err := startdevice.ResolveLaunchVarIDs(ctx, client, launchVars)
+	launchConfigurationIDs, err := startdevice.ResolveLaunchConfigurationSelection(
+		ctx,
+		client,
+		inheritedLaunchConfigurationIDs,
+		launchVars,
+		launchArgSets,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve launch variables: %w", err)
+		return nil, err
 	}
 	req := &api.ExecuteWorkflowRequest{
 		WorkflowID:        workflowID,
 		Retries:           retries,
 		VariableOverrides: variableOverrides,
-		LaunchEnvVarIds:   launchEnvVarIDs,
+		LaunchEnvVarIds:   launchConfigurationIDs,
 		LaunchEnvVars:     launchEnvVars,
+		LaunchArguments:   launchArguments,
 	}
 	if iosAppID != "" || androidAppID != "" {
 		req.BuildConfig = &api.WorkflowAppConfig{}
@@ -1023,8 +1040,10 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			wfLng,
 			variableOverrides,
 			runLaunchVars,
+			runLaunchArgSets,
 			runDisableInheritedLaunchVars,
 			launchEnvVars,
+			runLaunchArguments,
 		)
 		if err != nil {
 			ui.PrintError("Failed to queue workflow: %v", err)
@@ -1045,7 +1064,6 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Use shared execution logic
 	ui.StartSpinner("Starting workflow execution...")
 
 	// Track if we've shown the report link yet
@@ -1086,8 +1104,10 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		HasLocation:                wfHasLocation,
 		VariableOverrides:          variableOverrides,
 		LaunchVars:                 runLaunchVars,
+		LaunchArgSets:              runLaunchArgSets,
 		DisableInheritedLaunchVars: runDisableInheritedLaunchVars,
 		LaunchEnvVars:              launchEnvVars,
+		LaunchArguments:            runLaunchArguments,
 		OnTaskStarted: func(id string) {
 			interruptState.SetTaskID(id)
 		},

@@ -794,6 +794,8 @@ type ExecuteTestRequest struct {
 	// LaunchEnvVars are inline launch environment variables (KEY=VALUE) applied to
 	// the app's launch environment; they override org launch vars attached to the test.
 	LaunchEnvVars map[string]string `json:"launch_env_vars,omitempty"`
+	// LaunchArguments are non-secret inline iOS app arguments in exact token order.
+	LaunchArguments []string `json:"launch_arguments,omitempty"`
 	// VariableOverrides are runtime variable overrides for this execution.
 	VariableOverrides map[string]string `json:"variable_overrides,omitempty"`
 }
@@ -872,6 +874,7 @@ type ExecuteWorkflowRequest struct {
 	VariableOverrides   map[string]string  `json:"variable_overrides,omitempty"`
 	LaunchEnvVarIds     []string           `json:"launch_env_var_ids,omitempty"`
 	LaunchEnvVars       map[string]string  `json:"launch_env_vars,omitempty"`
+	LaunchArguments     []string           `json:"launch_arguments,omitempty"`
 }
 
 // ExecuteWorkflowResponse represents a workflow execution response.
@@ -4027,6 +4030,9 @@ type StartDeviceRequest struct {
 	// app's launch environment. Merged over LaunchEnvVarIds; inline takes precedence.
 	EnvVars map[string]string `json:"env_vars,omitempty"`
 
+	// LaunchArguments are non-secret inline iOS app arguments in exact token order.
+	LaunchArguments []string `json:"launch_arguments,omitempty"`
+
 	// IsSimulation enables simulation mode (streaming without test execution).
 	IsSimulation bool `json:"is_simulation,omitempty"`
 
@@ -6450,17 +6456,19 @@ func (c *Client) DownloadFileFromURL(ctx context.Context, fileURL, destPath stri
 
 // OrgLaunchVariable represents an org-scoped reusable launch variable.
 type OrgLaunchVariable struct {
-	ID                string `json:"id"`
-	OrgID             string `json:"org_id"`
-	Key               string `json:"key"`
-	Value             string `json:"value"`
-	IsSecret          bool   `json:"is_secret"`
-	HasValue          *bool  `json:"has_value,omitempty"`
-	Description       string `json:"description,omitempty"`
-	CreatedBy         string `json:"created_by,omitempty"`
-	CreatedAt         string `json:"created_at,omitempty"`
-	UpdatedAt         string `json:"updated_at,omitempty"`
-	AttachedTestCount int    `json:"attached_test_count,omitempty"`
+	ID                string   `json:"id"`
+	OrgID             string   `json:"org_id"`
+	Key               string   `json:"key"`
+	Kind              string   `json:"kind"`
+	Value             string   `json:"value"`
+	Arguments         []string `json:"arguments,omitempty"`
+	IsSecret          bool     `json:"is_secret"`
+	HasValue          *bool    `json:"has_value,omitempty"`
+	Description       string   `json:"description,omitempty"`
+	CreatedBy         string   `json:"created_by,omitempty"`
+	CreatedAt         string   `json:"created_at,omitempty"`
+	UpdatedAt         string   `json:"updated_at,omitempty"`
+	AttachedTestCount int      `json:"attached_test_count,omitempty"`
 }
 
 // UnmarshalJSON keeps launch variables from older API versions secret by
@@ -6469,7 +6477,7 @@ type OrgLaunchVariable struct {
 // output or admit them to non-secret-only workflows.
 func (v *OrgLaunchVariable) UnmarshalJSON(data []byte) error {
 	type orgLaunchVariableWire OrgLaunchVariable
-	decoded := orgLaunchVariableWire{IsSecret: true}
+	decoded := orgLaunchVariableWire{IsSecret: true, Kind: "key_value"}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
