@@ -177,7 +177,7 @@ func init() {
 	buildCmd.Flags().IntVar(&buildTimeoutSeconds, "timeout", 0, "Remote build timeout in seconds (overrides build.platforms.<platform>.timeout from config when set)")
 	buildCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the build (default: auto-generated)")
 	buildCmd.Flags().BoolVar(&buildDetachFlag, "detach", false, "Queue remote build and return immediately")
-	buildCmd.Flags().BoolVar(&buildNoCacheFlag, "no-cache", false, "Run remote build without restoring or saving configured caches")
+	buildCmd.Flags().BoolVar(&buildNoCacheFlag, "no-cache", false, "Run a cold remote build with all caches disabled")
 	buildCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Do not set this build version as the app's current version")
 	buildCmd.Flags().BoolVar(&buildCommandJSON, "json", false, "Output result as JSON")
 	analytics.MarkFlagValue(buildCmd, "platform")
