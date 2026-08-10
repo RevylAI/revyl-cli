@@ -174,7 +174,6 @@ func init() {
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(workflowCmd)
 	rootCmd.AddCommand(sessionCmd)
-	rootCmd.AddCommand(proofCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(githubCmd)
 	rootCmd.AddCommand(globalCmd)
