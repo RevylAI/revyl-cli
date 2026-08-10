@@ -1393,6 +1393,7 @@ func TestWaitForDevRebuildCompletion_IgnoresRunningSnapshot(t *testing.T) {
 		err     error
 	}
 	var progress []devloop.RebuildProgressEvent
+	runningObserved := make(chan struct{}, 1)
 	resultCh := make(chan waitResult, 1)
 	go func() {
 		rebuild, err := waitForDevRebuildCompletionWithProgress(
@@ -1402,6 +1403,12 @@ func TestWaitForDevRebuildCompletion_IgnoresRunningSnapshot(t *testing.T) {
 			time.Second,
 			func(event devloop.RebuildProgressEvent) {
 				progress = append(progress, event)
+				if event.Status == "running" {
+					select {
+					case runningObserved <- struct{}{}:
+					default:
+					}
+				}
 			},
 		)
 		resultCh <- waitResult{rebuild: rebuild, err: err}
@@ -1417,7 +1424,9 @@ func TestWaitForDevRebuildCompletion_IgnoresRunningSnapshot(t *testing.T) {
 	select {
 	case result := <-resultCh:
 		t.Fatalf("wait returned for running snapshot: rebuild=%#v err=%v", result.rebuild, result.err)
-	case <-time.After(20 * time.Millisecond):
+	case <-runningObserved:
+	case <-time.After(time.Second):
+		t.Fatal("waitForDevRebuildCompletion() did not observe running snapshot")
 	}
 
 	writeDevStatusSnapshot(statusPath, devStatus{

@@ -400,8 +400,21 @@ func buildActionResult(action string, x, y int, target string, workerBody []byte
 	return result
 }
 
+func requireActionSuccess(result ActionResult) error {
+	if result.Success {
+		return nil
+	}
+	actionName := strings.ReplaceAll(result.Action, "_", "-")
+	if result.Error != "" {
+		return fmt.Errorf("device %s failed: %s", actionName, result.Error)
+	}
+	return fmt.Errorf("device %s failed", actionName)
+}
+
 func buildGroundedTapActionResult(x, y int, target string, workerBody []byte) (ActionResult, error) {
 	result := buildActionResult("tap", x, y, "", workerBody)
+	result.X = x
+	result.Y = y
 	result.Target = target
 
 	var workerResponse workerActionResponseFull
@@ -1297,6 +1310,12 @@ var deviceTypeCmd = &cobra.Command{
 		}
 		result := buildActionResult("type", x, y, target, respBody)
 		result.Text = text
+		if err := requireActionSuccess(result); err != nil {
+			if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
+				jsonOrPrint(cmd, result, "")
+			}
+			return err
+		}
 		jsonOrPrint(cmd, result, fmt.Sprintf("Typed '%s' at (%d, %d)", text, x, y))
 		return nil
 	},
@@ -1466,6 +1485,12 @@ var deviceClearTextCmd = &cobra.Command{
 			return err
 		}
 		result := buildActionResult("clear_text", x, y, "", respBody)
+		if err := requireActionSuccess(result); err != nil {
+			if jsonOutput, _ := cmd.Flags().GetBool("json"); jsonOutput {
+				jsonOrPrint(cmd, result, "")
+			}
+			return err
+		}
 		jsonOrPrint(cmd, result, fmt.Sprintf("Cleared text at (%d, %d)", x, y))
 		return nil
 	},

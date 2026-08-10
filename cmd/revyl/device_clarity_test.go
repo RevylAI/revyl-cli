@@ -154,14 +154,37 @@ func TestBuildActionResult_UsesTapTargetCoordinates(t *testing.T) {
 	}
 }
 
-func TestGroundedTapActionSuccessReturnsResult(t *testing.T) {
+func TestRequireActionSuccess_RejectsWorkerFailure(t *testing.T) {
+	t.Parallel()
+
+	for _, action := range []string{"type", "clear_text"} {
+		result := buildActionResult(
+			action,
+			10,
+			20,
+			"",
+			[]byte(`{"success":false,"error":"clear remained populated"}`),
+		)
+
+		err := requireActionSuccess(result)
+		if err == nil {
+			t.Fatalf("requireActionSuccess(%s) error = nil, want non-nil", action)
+		}
+		want := "device " + strings.ReplaceAll(action, "_", "-") + " failed: clear remained populated"
+		if got := err.Error(); got != want {
+			t.Fatalf("requireActionSuccess(%s) = %q, want %q", action, got, want)
+		}
+	}
+}
+
+func TestGroundedTapActionSuccessPreservesResolvedCoordinates(t *testing.T) {
 	t.Parallel()
 
 	result, err := buildGroundedTapActionResult(
 		120,
 		240,
 		"Continue button",
-		[]byte(`{"success":true,"action":"tap","latency_ms":12.5}`),
+		[]byte(`{"success":true,"action":"tap","x":3,"y":4,"latency_ms":12.5}`),
 	)
 
 	if err != nil {

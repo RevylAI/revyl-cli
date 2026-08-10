@@ -1126,7 +1126,10 @@ func TestExpoDeviceLaunchContractTraceRegressionCatchesColdManifestHead(t *testi
 
 func TestExpoDeviceLaunchContractBlocksWhenDeviceHeadShapeDrifts(t *testing.T) {
 	withDiagnosticProbeTimeouts(t, 25*time.Millisecond, 120*time.Millisecond)
-	withExpoManifestDeviceHeadTimeout(t, 25*time.Millisecond)
+	// Windows CI can take longer than 25ms to establish a localhost HTTP
+	// connection. This test verifies response classification, not latency, so
+	// leave enough time for the handler's intentional 404 to reach the client.
+	withExpoManifestDeviceHeadTimeout(t, 250*time.Millisecond)
 
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
@@ -1166,7 +1169,7 @@ func TestExpoDeviceLaunchContractBlocksWhenDeviceHeadShapeDrifts(t *testing.T) {
 	if err != nil || result == nil || !result.AllPassed {
 		t.Fatalf("bundle result = %+v error = %v", result, err)
 	}
-	result, err = WaitForExpoManifestHeadReady(context.Background(), srv.URL, 80*time.Millisecond, 10*time.Millisecond, "ios", nil)
+	result, err = WaitForExpoManifestHeadReady(context.Background(), srv.URL, 500*time.Millisecond, 10*time.Millisecond, "ios", nil)
 	if err == nil {
 		t.Fatal("expected device HEAD readiness to block launch")
 	}
