@@ -23,3 +23,8 @@
 # client, so its transport and response model are handwritten wrappers in
 # internal/api.
 /api/v1/reports-v3/sessions/%s/proof-media
+
+# The proof-comment relay authenticates with a proof-run runtime credential
+# rather than an ordinary API key, so generating it onto the customer-facing
+# client surface would advertise an endpoint no ordinary caller can use.
+/api/v1/scm/proof-runs/comment

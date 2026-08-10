@@ -25,7 +25,7 @@ CMD_DIR := ./cmd/revyl
 BUILD_DIR := ./build
 SCRIPTS_DIR := ./scripts
 
-.PHONY: all build clean test lint fmt deps dev generate check-openapi-allowlist install help check vet-all setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android e2e e2e-quick e2e-device e2e-local
+.PHONY: all build build-linux-amd64 clean test lint fmt deps dev generate check-openapi-allowlist install help check vet-all setup-merge-drivers version bump-patch bump-minor bump-major device-prod-smoke device-prod-smoke-ios device-prod-smoke-android e2e e2e-quick e2e-device e2e-local
 
 ## help: Show this help message
 help:
@@ -61,6 +61,16 @@ build:
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY) $(CMD_DIR)
 	@echo "Built: $(BUILD_DIR)/$(BINARY)"
+
+## build-linux-amd64: Cross-compile linux/amd64 for proof-sandbox dogfood
+## Use with PROOF_SANDBOX_CLI_BINARY=$(PWD)/build/revyl-linux-amd64 on the workflow worker.
+## Modal cannot run the darwin binary from revyl-copenhagen / `make build`.
+build-linux-amd64:
+	@echo "Building $(BINARY) for linux/amd64 (proof-sandbox dogfood)..."
+	@mkdir -p $(BUILD_DIR)
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY)-linux-amd64 $(CMD_DIR)
+	@echo "Built: $(BUILD_DIR)/$(BINARY)-linux-amd64"
+	@echo "Dogfood: export PROOF_SANDBOX_CLI_BINARY=\"$$(cd $(BUILD_DIR) && pwd)/$(BINARY)-linux-amd64\""
 
 ## build-all: Build for all platforms
 build-all:
