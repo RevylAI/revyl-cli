@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run Revyl Workflow
-        uses: RevylAI/revyl-gh-action/run-workflow@v1
+        uses: RevylAI/revyl-gh-action/run-workflow@v2.0.5
         with:
-          workflow-id: "your-workflow-id"   # <-- replace
+          workflow-id: "your-workflow-id" # <-- replace
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
