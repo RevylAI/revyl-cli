@@ -1022,10 +1022,16 @@ func TestHandleDeviceDownloadFile_TrimsURLAndFilename(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestInputValidation_LaunchApp_BundleIDRequired: BundleID field validation.
+// TestInputValidation_LaunchApp_EmptyBundleIDResolvesSession: an omitted
+// bundle_id is no longer rejected up front.
 // ---------------------------------------------------------------------------
 
-func TestInputValidation_LaunchApp_BundleIDRequired(t *testing.T) {
+// TestInputValidation_LaunchApp_EmptyBundleIDResolvesSession asserts that an
+// empty bundle_id gets past input validation and fails only on the real
+// precondition — an actual session. bundle_id used to be required here, which
+// forced callers who could not know the installed bundle to invent one; the
+// worker now resolves it from the session instead.
+func TestInputValidation_LaunchApp_EmptyBundleIDResolvesSession(t *testing.T) {
 	srv := &Server{
 		sessionMgr: &DeviceSessionManager{},
 	}
@@ -1037,10 +1043,46 @@ func TestInputValidation_LaunchApp_BundleIDRequired(t *testing.T) {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
 	if output.Success {
-		t.Fatal("expected Success=false when bundle_id is empty")
+		t.Fatal("expected Success=false with no active session")
 	}
-	if !strings.Contains(output.Error, "bundle_id is required") {
-		t.Errorf("error = %q, want 'bundle_id is required'", output.Error)
+	if strings.Contains(output.Error, "bundle_id is required") {
+		t.Errorf("bundle_id must no longer be required, got %q", output.Error)
+	}
+	if !strings.Contains(output.Error, "no active device sessions") {
+		t.Errorf("error = %q, want the missing-session error", output.Error)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestEnsureWorkerActionSucceeded_Launch*: a failed launch must not read as
+// success just because the transport call worked.
+// ---------------------------------------------------------------------------
+
+// TestEnsureWorkerActionSucceeded_LaunchFailureIsSurfaced pins the envelope
+// contract behind the launch handlers. The worker reports a failed launch as
+// HTTP 200 with success=false, so a handler that inspects only the transport
+// error tells the caller the launch succeeded — and an agent that supplied a
+// bundle id the device lacks never sees the rejection, which is the entire
+// point of validating it.
+func TestEnsureWorkerActionSucceeded_LaunchFailureIsSurfaced(t *testing.T) {
+	body := []byte(`{"success": false, "action": "launch", "latency_ms": 0, ` +
+		`"error": "App com.whop.whop is not installed on this device. Install it ` +
+		`first, or launch one of the installed apps: com.whop.whopapp"}`)
+
+	err := EnsureWorkerActionSucceeded(body, "launch")
+	if err == nil {
+		t.Fatal("expected an error for a success=false launch envelope")
+	}
+	if !strings.Contains(err.Error(), "com.whop.whopapp") {
+		t.Errorf("error must carry the worker's message, got %q", err.Error())
+	}
+}
+
+func TestEnsureWorkerActionSucceeded_LaunchSuccessPasses(t *testing.T) {
+	body := []byte(`{"success": true, "action": "launch", "latency_ms": 12, "error": null}`)
+
+	if err := EnsureWorkerActionSucceeded(body, "launch"); err != nil {
+		t.Fatalf("unexpected error for a successful launch envelope: %v", err)
 	}
 }
 
@@ -1177,4 +1219,39 @@ func TestMCPToolRegistration_Count(t *testing.T) {
 // intPtrHelper returns a pointer to the given int value.
 func intPtrHelper(v int) *int {
 	return &v
+}
+
+// TestLaunchAppInputBundleIDIsOptional pins the contract that made wrong bundle
+// IDs possible. A caller attached to an existing session cannot know which
+// bundle that session installed, so requiring one only produced invented IDs
+// that fail against a healthy device. Omitting it must be valid, and must send
+// no bundle_id so the worker launches the app it actually installed.
+func TestLaunchAppInputBundleIDIsOptional(t *testing.T) {
+	var input LaunchAppInput
+	if err := json.Unmarshal([]byte(`{}`), &input); err != nil {
+		t.Fatalf("launch_app must accept a request with no bundle_id: %v", err)
+	}
+	if input.BundleID != "" {
+		t.Fatalf("expected empty bundle id, got %q", input.BundleID)
+	}
+
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal LaunchAppInput: %v", err)
+	}
+	if strings.Contains(string(encoded), "bundle_id") {
+		t.Fatalf("an empty bundle id must be omitted, got %s", encoded)
+	}
+}
+
+// TestLaunchAppInputKeepsExplicitBundleID confirms a supplied bundle id still
+// round-trips; the worker validates it against the installed set.
+func TestLaunchAppInputKeepsExplicitBundleID(t *testing.T) {
+	var input LaunchAppInput
+	if err := json.Unmarshal([]byte(`{"bundle_id":"com.example.app"}`), &input); err != nil {
+		t.Fatalf("unmarshal LaunchAppInput: %v", err)
+	}
+	if input.BundleID != "com.example.app" {
+		t.Fatalf("expected com.example.app, got %q", input.BundleID)
+	}
 }

@@ -244,7 +244,7 @@ func (s *Server) registerDeviceTools() {
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "launch_app",
-		Description: "Launch an installed app by bundle ID.",
+		Description: "Launch an app on the device. Omit bundle_id to launch the app this session installed — do not guess an ID; a bundle the device does not have is rejected with the list of what is installed.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Launch App",
 			DestructiveHint: boolPtr(true),
@@ -1796,7 +1796,7 @@ func (s *Server) handleInstallApp(ctx context.Context, req *mcp.CallToolRequest,
 // --- Launch App ---
 
 type LaunchAppInput struct {
-	BundleID     string `json:"bundle_id" jsonschema:"App bundle ID to launch (REQUIRED)"`
+	BundleID     string `json:"bundle_id,omitempty" jsonschema:"App bundle ID to launch. Omit to launch the app this session installed — prefer omitting it over guessing an ID."`
 	SessionIndex *int   `json:"session_index,omitempty" jsonschema:"Session index to target. Omit for active session."`
 }
 
@@ -1806,10 +1806,14 @@ type LaunchAppOutput struct {
 	NextSteps []NextStep `json:"next_steps,omitempty"`
 }
 
+// handleLaunchApp launches an app on the session's device.
+//
+// bundle_id is optional on purpose. A caller attached to an existing session
+// has no reliable way to know which bundle that session installed, so
+// requiring one only produces invented IDs that fail against a healthy
+// device. Omitted, the worker launches the app it installed; supplied, the
+// worker rejects it immediately when the device says it is not installed.
 func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, input LaunchAppInput) (*mcp.CallToolResult, LaunchAppOutput, error) {
-	if input.BundleID == "" {
-		return nil, LaunchAppOutput{Success: false, Error: "bundle_id is required (e.g. 'com.example.app'). Use install_app first if not installed."}, nil
-	}
 	sidx := -1
 	if input.SessionIndex != nil {
 		sidx = *input.SessionIndex
@@ -1820,9 +1824,19 @@ func (s *Server) handleLaunchApp(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 	s.sessionMgr.ResetIdleTimer(session.Index)
 
-	body := map[string]string{"bundle_id": input.BundleID}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/launch", body)
+	body := map[string]string{}
+	if bundleID := strings.TrimSpace(input.BundleID); bundleID != "" {
+		body["bundle_id"] = bundleID
+	}
+	respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/launch", body)
 	if err != nil {
+		return nil, LaunchAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	// The worker reports a failed launch as HTTP 200 with success=false, so the
+	// transport error alone is not enough: without this an agent that supplied a
+	// bundle id the device does not have is told the launch succeeded and never
+	// sees the installed-apps rejection.
+	if err := EnsureWorkerActionSucceeded(respBody, "launch"); err != nil {
 		return nil, LaunchAppOutput{Success: false, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 
@@ -2223,8 +2237,13 @@ func (s *Server) handleDeviceOpenApp(ctx context.Context, req *mcp.CallToolReque
 
 	bundleID := ResolveSystemApp(session.Platform, input.App)
 	body := map[string]string{"bundle_id": bundleID}
-	_, err = s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/launch", body)
+	respBody, err := s.sessionMgr.WorkerRequestForSession(ctx, session.Index, "/launch", body)
 	if err != nil {
+		return nil, DeviceOpenAppOutput{Success: false, App: input.App, BundleID: bundleID, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
+	}
+	// Same /launch route, same success=false-on-HTTP-200 envelope: an alias that
+	// resolves to a bundle the device lacks must not report success.
+	if err := EnsureWorkerActionSucceeded(respBody, "launch"); err != nil {
 		return nil, DeviceOpenAppOutput{Success: false, App: input.App, BundleID: bundleID, Error: err.Error(), NextSteps: errorNextSteps(err)}, nil
 	}
 

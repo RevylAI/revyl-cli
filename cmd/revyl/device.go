@@ -1650,8 +1650,16 @@ var deviceInstallCmd = &cobra.Command{
 
 var deviceLaunchCmd = &cobra.Command{
 	Use:   "launch [bundle-id]",
-	Short: "Launch an installed app by bundle ID",
-	Example: `  revyl device launch com.example.app
+	Short: "Launch an app (defaults to the app this session installed)",
+	Long: `Launch an app on the session's device.
+
+The bundle ID is optional. Omitted, the worker launches the app this session
+installed — which is what you want when attaching to a running "revyl dev"
+session, where the installed bundle ID is not something you can know from the
+outside. A bundle ID the device does not have is rejected immediately, listing
+the apps that are installed.`,
+	Example: `  revyl device launch
+  revyl device launch com.example.app
   revyl device launch --bundle-id com.example.app`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -1667,15 +1675,23 @@ var deviceLaunchCmd = &cobra.Command{
 		if len(args) > 0 && args[0] != "" {
 			bundleID = args[0]
 		}
-		if bundleID == "" {
-			return fmt.Errorf("bundle ID is required: revyl device launch <bundle-id> (e.g. 'com.example.app')")
+		bundleID = strings.TrimSpace(bundleID)
+		body := map[string]string{}
+		if bundleID != "" {
+			body["bundle_id"] = bundleID
 		}
-		body := map[string]string{"bundle_id": bundleID}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/launch", body)
+		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/launch", body)
 		if err != nil {
 			return err
 		}
-		jsonOrPrint(cmd, map[string]string{"bundle_id": bundleID, "status": "launched"}, fmt.Sprintf("Launched %s", bundleID))
+		if err := ensureWorkerActionSucceeded(respBody, "launch"); err != nil {
+			return err
+		}
+		launched := bundleID
+		if launched == "" {
+			launched = "session app"
+		}
+		jsonOrPrint(cmd, map[string]string{"bundle_id": bundleID, "status": "launched"}, fmt.Sprintf("Launched %s", launched))
 		return nil
 	},
 }
