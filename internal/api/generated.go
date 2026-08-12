@@ -225,6 +225,36 @@ func (e CloudAgentConversationLaunchSubmissionStatus) Valid() bool {
 	}
 }
 
+// Defines values for CloudAgentConversationOrigin.
+const (
+	CloudAgentConversationOriginExternalProvider              CloudAgentConversationOrigin = "external_provider"
+	CloudAgentConversationOriginRevylAtlasScreen              CloudAgentConversationOrigin = "revyl_atlas_screen"
+	CloudAgentConversationOriginRevylDeviceSession            CloudAgentConversationOrigin = "revyl_device_session"
+	CloudAgentConversationOriginRevylDeviceSessionAtlasScreen CloudAgentConversationOrigin = "revyl_device_session_atlas_screen"
+	CloudAgentConversationOriginRevylTestReport               CloudAgentConversationOrigin = "revyl_test_report"
+	CloudAgentConversationOriginRevylTestReportAtlasScreen    CloudAgentConversationOrigin = "revyl_test_report_atlas_screen"
+)
+
+// Valid indicates whether the value is a known member of the CloudAgentConversationOrigin enum.
+func (e CloudAgentConversationOrigin) Valid() bool {
+	switch e {
+	case CloudAgentConversationOriginExternalProvider:
+		return true
+	case CloudAgentConversationOriginRevylAtlasScreen:
+		return true
+	case CloudAgentConversationOriginRevylDeviceSession:
+		return true
+	case CloudAgentConversationOriginRevylDeviceSessionAtlasScreen:
+		return true
+	case CloudAgentConversationOriginRevylTestReport:
+		return true
+	case CloudAgentConversationOriginRevylTestReportAtlasScreen:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CloudAgentConversationRelatedResourceMatchType.
 const (
 	CloudAgentConversationRelatedResourceMatchTypeChildTestExecution     CloudAgentConversationRelatedResourceMatchType = "child_test_execution"
@@ -724,8 +754,6 @@ const (
 	StepTypePinch           StepType = "pinch"
 	StepTypePlayAudio       StepType = "play_audio"
 	StepTypeScrape          StepType = "scrape"
-	StepTypeScrollDown      StepType = "scroll_down"
-	StepTypeScrollUp        StepType = "scroll_up"
 	StepTypeSelect          StepType = "select"
 	StepTypeSetAppearance   StepType = "set_appearance"
 	StepTypeSetFontSize     StepType = "set_font_size"
@@ -785,10 +813,6 @@ func (e StepType) Valid() bool {
 	case StepTypePlayAudio:
 		return true
 	case StepTypeScrape:
-		return true
-	case StepTypeScrollDown:
-		return true
-	case StepTypeScrollUp:
 		return true
 	case StepTypeSelect:
 		return true
@@ -1639,6 +1663,9 @@ type CloudAgentConversationAttributionSummary struct {
 // CloudAgentConversationLaunchSubmissionStatus Once-only result of submitting the founding launch to its provider.
 type CloudAgentConversationLaunchSubmissionStatus string
 
+// CloudAgentConversationOrigin Bounded origin of a cloud-agent conversation.
+type CloudAgentConversationOrigin string
+
 // CloudAgentConversationRecordedUser defines model for CloudAgentConversationRecordedUser.
 type CloudAgentConversationRecordedUser struct {
 	UserId openapi_types.UUID `json:"user_id"`
@@ -1863,7 +1890,9 @@ type CreditConversion struct {
 
 // CursorCloudAgentConversationAttributionLaunch Launch facts displayed with an ordinary related-resource attribution.
 type CursorCloudAgentConversationAttributionLaunch struct {
-	LaunchConnectionType CursorConnectionType `json:"launch_connection_type"`
+	// ConversationOrigin Bounded origin of a cloud-agent conversation.
+	ConversationOrigin   CloudAgentConversationOrigin `json:"conversation_origin"`
+	LaunchConnectionType CursorConnectionType         `json:"launch_connection_type"`
 
 	// LaunchSubmissionStatus Once-only result of submitting the founding launch to its provider.
 	LaunchSubmissionStatus CloudAgentConversationLaunchSubmissionStatus `json:"launch_submission_status"`
