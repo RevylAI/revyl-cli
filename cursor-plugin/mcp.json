@@ -5,9 +5,7 @@
       "command": "${CURSOR_PLUGIN_ROOT}/hooks/launch-revyl",
       "args": ["mcp", "serve", "--profile", "dev"],
       "env": {
-        "REVYL_PROJECT_DIR": "${workspaceFolder}",
-        "REVYL_API_KEY": "${env:REVYL_API_KEY}",
-        "REVYL_BINARY": "${env:REVYL_BINARY}"
+        "REVYL_PROJECT_DIR": "${workspaceFolder}"
       },
       "_meta": {
         "ideToolIconPath": "./assets/icon.svg"

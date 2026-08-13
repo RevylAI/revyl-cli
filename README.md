@@ -59,13 +59,18 @@ so `uv`, `pipx`, and `pip` do not download executable code at first run.
 Create a free account at [app.revyl.com](https://app.revyl.com), then log in via the CLI:
 
 ```bash
-revyl auth login                        # Browser-based login (stores credentials locally)
+revyl auth login                        # Approve in a browser, then credentials are stored locally
 ```
 
-Or set an API key directly (generate one from your dashboard):
+The CLI prints an approval URL and a short code and waits. Open the URL wherever
+you are signed in — it does not have to be this machine, so the same command
+works over SSH, in a container, and in a cloud agent.
+
+For an unattended machine, use an API key from your dashboard instead:
 
 ```bash
-export REVYL_API_KEY=your-api-key
+revyl auth login --api-key              # Prompts for the key and stores it
+export REVYL_API_KEY=your-api-key       # Or pass it through the environment
 ```
 
 ## Quick Start
@@ -73,7 +78,7 @@ export REVYL_API_KEY=your-api-key
 ```bash
 cd your-app
 revyl doctor                            # Check CLI, auth, connectivity
-revyl auth login                        # Browser-based login (if not already authed)
+revyl auth login                        # Approve in a browser (if not already authed)
 revyl init                              # Guided wizard: build system, apps
 revyl skill install --force             # Install recommended agent skills
 revyl build                             # Build and upload a dev binary

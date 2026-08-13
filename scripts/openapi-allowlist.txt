@@ -97,6 +97,8 @@ POST /api/v1/apps/{app_id}/builds/multipart-upload/resume
 POST /api/v1/apps/{app_id}/builds/multipart-upload/start
 POST /api/v1/apps/{app_id}/builds/upload-session
 POST /api/v1/apps/{app_id}/builds/upload-url
+POST /api/v1/entity/users/cli-device-authorizations
+POST /api/v1/entity/users/cli-device-authorizations/credentials
 POST /api/v1/entity/users/revoke_cli_api_key
 POST /api/v1/execution/api/execute_test_id_async
 POST /api/v1/execution/api/execute_workflow_id_async

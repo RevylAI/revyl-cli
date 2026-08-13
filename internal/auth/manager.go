@@ -34,6 +34,60 @@ func IsUnresolvedAPIKeyEnvironmentValue(value string) bool {
 	return value == unresolvedAPIKeyEnvironmentPlaceholder
 }
 
+// Authentication methods recorded on stored credentials. The value records
+// which flow produced the credential, which is what distinguishes a headless
+// login from a desktop one when diagnosing an environment.
+const (
+	// AuthMethodBrowser is a short-lived access token from a desktop browser login.
+	AuthMethodBrowser = "browser"
+
+	// AuthMethodAPIKey is a key the user pasted in themselves.
+	AuthMethodAPIKey = "api_key"
+
+	// AuthMethodEnvironment is a key supplied through REVYL_API_KEY.
+	AuthMethodEnvironment = "env"
+
+	// AuthMethodBrowserAPIKey is a persistent key minted by a desktop browser login.
+	AuthMethodBrowserAPIKey = "browser_api_key"
+)
+
+// IsPersistentAPIKeyAuthMethod reports whether a method yields a stored,
+// non-expiring API key rather than a token that lapses on its own.
+//
+// Parameters:
+//   - method: The AuthMethod recorded on stored credentials.
+//
+// Returns:
+//   - bool: True when the credential stays valid until it is revoked.
+func IsPersistentAPIKeyAuthMethod(method string) bool {
+	switch method {
+	case AuthMethodAPIKey, AuthMethodEnvironment, AuthMethodBrowserAPIKey:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsInteractiveLoginAuthMethod reports whether a credential came from a login
+// the user performed, as opposed to one supplied by configuration.
+//
+// A 401 means something different for each: a login can expire or be revoked
+// and is worth re-running, while a configured key was simply wrong.
+//
+// Parameters:
+//   - method: The AuthMethod recorded on stored credentials.
+//
+// Returns:
+//   - bool: True when re-running a login is the right recovery.
+func IsInteractiveLoginAuthMethod(method string) bool {
+	switch method {
+	case AuthMethodBrowser, AuthMethodBrowserAPIKey:
+		return true
+	default:
+		return false
+	}
+}
+
 // Credentials represents stored authentication credentials.
 // Supports both browser-based OAuth tokens and API keys.
 type Credentials struct {
@@ -58,7 +112,8 @@ type Credentials struct {
 	// UserID is the user's ID (optional).
 	UserID string `json:"user_id,omitempty"`
 
-	// AuthMethod indicates how the user authenticated ("browser", "api_key", or "browser_api_key").
+	// AuthMethod indicates how the user authenticated; one of the
+	// AuthMethod* constants above.
 	AuthMethod string `json:"auth_method,omitempty"`
 
 	// APIKeyID is the PropelAuth-assigned key ID when a persistent CLI key was created.
@@ -89,6 +144,39 @@ type CredentialResolution struct {
 	Credentials         *Credentials
 	HeadlessCloud       bool
 	CloudContextInvalid bool
+	// APIKeyEnvironment records how REVYL_API_KEY appeared in this process.
+	APIKeyEnvironment APIKeyEnvironmentState
+}
+
+// APIKeyEnvironmentState identifies how REVYL_API_KEY appeared in the environment.
+type APIKeyEnvironmentState string
+
+const (
+	// APIKeyEnvironmentAbsent means no REVYL_API_KEY was set.
+	APIKeyEnvironmentAbsent APIKeyEnvironmentState = "absent"
+	// APIKeyEnvironmentUnresolved means the host passed its literal interpolation syntax.
+	APIKeyEnvironmentUnresolved APIKeyEnvironmentState = "unresolved"
+	// APIKeyEnvironmentPresent means a usable key value was set.
+	APIKeyEnvironmentPresent APIKeyEnvironmentState = "present"
+)
+
+// classifyAPIKeyEnvironment reports how REVYL_API_KEY appeared without exposing it.
+//
+// Parameters:
+//   - rawValue: Exact REVYL_API_KEY value read from the environment.
+//   - configured: Whether the variable was set at all.
+//
+// Returns:
+//   - APIKeyEnvironmentState: Secret-free classification of the environment value.
+func classifyAPIKeyEnvironment(rawValue string, configured bool) APIKeyEnvironmentState {
+	switch {
+	case IsUnresolvedAPIKeyEnvironmentValue(rawValue):
+		return APIKeyEnvironmentUnresolved
+	case !configured || strings.TrimSpace(rawValue) == "":
+		return APIKeyEnvironmentAbsent
+	default:
+		return APIKeyEnvironmentPresent
+	}
 }
 
 // Manager handles credential storage and retrieval.
@@ -239,8 +327,9 @@ func (m *Manager) GetCredentials() (*Credentials, error) {
 //   - CredentialResolution: Active credentials, headless Cloud presence, and Cloud-context error provenance.
 //   - error: Any Cloud-context or credential read error.
 func (m *Manager) ResolveCredentials() (CredentialResolution, error) {
-	envKey := os.Getenv("REVYL_API_KEY")
-	if IsUnresolvedAPIKeyEnvironmentValue(envKey) {
+	envKey, envKeyConfigured := os.LookupEnv("REVYL_API_KEY")
+	apiKeyEnvironment := classifyAPIKeyEnvironment(envKey, envKeyConfigured)
+	if apiKeyEnvironment != APIKeyEnvironmentPresent {
 		envKey = ""
 	}
 
@@ -248,6 +337,7 @@ func (m *Manager) ResolveCredentials() (CredentialResolution, error) {
 	resolution := CredentialResolution{
 		HeadlessCloud:       cloudContext != nil || err != nil,
 		CloudContextInvalid: err != nil,
+		APIKeyEnvironment:   apiKeyEnvironment,
 	}
 
 	// When the env var is set, check whether file creds have a local
@@ -732,7 +822,7 @@ func (m *Manager) SaveBrowserAPIKeyCredentials(result *BrowserAuthResult, apiKey
 		Email:      result.Email,
 		OrgID:      result.OrgID,
 		UserID:     result.UserID,
-		AuthMethod: "browser_api_key",
+		AuthMethod: AuthMethodBrowserAPIKey,
 		APIKeyID:   apiKeyID,
 	}
 	return m.saveUserCredentialsAndClearCloudContext(creds)

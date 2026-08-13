@@ -11,6 +11,14 @@ type Envelope struct {
 	BuildJobID      string `json:"build_job_id,omitempty"`
 	ViewerURL       string `json:"viewer_url,omitempty"`
 	ReportURL       string `json:"report_url,omitempty"`
+
+	// AuthorizationURL is an approval page the user opens to authorize this
+	// client. Present only on authentication failures that a person can resolve.
+	AuthorizationURL string `json:"authorization_url,omitempty"`
+
+	// AuthorizationCode is the short code shown for confirmation on that page.
+	// It is not a secret and is never typed in.
+	AuthorizationCode string `json:"authorization_code,omitempty"`
 }
 
 // Completed returns a successful semantic envelope.

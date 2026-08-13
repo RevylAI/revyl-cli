@@ -60,6 +60,9 @@ type Server struct {
 
 	// Composite tool profile (empty = legacy flat tools)
 	profile Profile
+
+	// Live browser approval offered to a caller with no usable credential.
+	pendingAuth pendingAuthorization
 }
 
 // ServerOption is a functional option for NewServer.
@@ -302,6 +305,7 @@ When in doubt, call device_doctor() -- it checks auth, session, worker, groundin
 		},
 	)
 	s.registerScreenshotAppResource()
+	s.registerAuthAppResource()
 
 	// Register tools
 	if s.profile != "" {

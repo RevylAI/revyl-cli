@@ -40,8 +40,13 @@ if ! command -v revyl >/dev/null 2>&1; then
   REVYL_NO_MODIFY_PATH=1 sh -c 'curl -fsSL https://revyl.com/install.sh | sh'
   export PATH="$HOME/.revyl/bin:$PATH"
 fi
-revyl auth status || revyl auth login --token "$REVYL_API_KEY"
+revyl auth status || revyl auth persist-cloud-env
 ` + "```" + `
+
+persist-cloud-env copies a REVYL_API_KEY already in the environment into the
+credential store, so the key never reaches argv. If it reports no key, run
+"revyl auth login" and post the approval URL it prints as a clickable markdown
+link — the user can approve from any browser.
 
 Dev loop (run from the app directory containing .revyl/config.yaml):
 

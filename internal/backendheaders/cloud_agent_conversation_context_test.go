@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+const validCursorCloudAgentIDFixture = "bc-11111111-1111-4111-8111-111111111111"
+
 func TestSetCloudAgentConversationContext(t *testing.T) {
 	tests := []struct {
 		name                   string
@@ -17,14 +19,26 @@ func TestSetCloudAgentConversationContext(t *testing.T) {
 			name: "missing",
 		},
 		{
-			name:                   "valid",
-			conversationID:         "bc_123-abc.def~ghi",
+			name:                   "cursor cloud agent id",
+			conversationID:         validCursorCloudAgentIDFixture,
 			expectedProvider:       cursorCloudProviderKey,
-			expectedConversationID: "bc_123-abc.def~ghi",
+			expectedConversationID: validCursorCloudAgentIDFixture,
+		},
+		{
+			name:           "desktop chat uuid",
+			conversationID: "76110654-39cb-47d0-ab12-9a4522a15f9e",
+		},
+		{
+			name:           "legacy loose token",
+			conversationID: "bc_123-abc.def~ghi",
 		},
 		{
 			name:           "leading whitespace",
-			conversationID: " bc_123",
+			conversationID: " " + validCursorCloudAgentIDFixture,
+		},
+		{
+			name:           "uppercase",
+			conversationID: "BC-11111111-1111-4111-8111-111111111111",
 		},
 		{
 			name:           "path separator",

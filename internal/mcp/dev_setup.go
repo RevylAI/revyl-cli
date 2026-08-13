@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/revyl/cli/internal/auth"
 )
 
 // SetupProjectState identifies the current Revyl project setup state.
@@ -25,14 +27,27 @@ const (
 // SetupStatusInput is the empty input contract for setup_status.
 type SetupStatusInput struct{}
 
+// SetupEnvironmentSignals reports the secret-free markers behind the environment
+// classification, so a Cloud run can be diagnosed from one tool call without
+// asking the operator to echo variables that may hold a credential.
+type SetupEnvironmentSignals struct {
+	// CloudContextPresent reports a bootstrap-written Cloud context file was read.
+	CloudContextPresent bool `json:"cloud_context_present"`
+	// CloudContextInvalid reports that context existed but could not be parsed.
+	CloudContextInvalid bool `json:"cloud_context_invalid"`
+	// APIKeyEnvironment reports whether REVYL_API_KEY was absent, unresolved, or present.
+	APIKeyEnvironment auth.APIKeyEnvironmentState `json:"api_key_environment"`
+}
+
 // SetupStatusOutput reports whether authentication and project setup are ready.
 type SetupStatusOutput struct {
-	Ready            bool              `json:"ready"`
-	AuthState        SetupAuthState    `json:"auth_state"`
-	ProjectState     SetupProjectState `json:"project_state"`
-	Environment      SetupEnvironment  `json:"environment"`
-	ProjectDirectory string            `json:"project_directory,omitempty"`
-	Remediation      *Remediation      `json:"remediation,omitempty"`
+	Ready            bool                    `json:"ready"`
+	AuthState        SetupAuthState          `json:"auth_state"`
+	ProjectState     SetupProjectState       `json:"project_state"`
+	Environment      SetupEnvironment        `json:"environment"`
+	Signals          SetupEnvironmentSignals `json:"signals"`
+	ProjectDirectory string                  `json:"project_directory,omitempty"`
+	Remediation      *Remediation            `json:"remediation,omitempty"`
 }
 
 // registerSetupStatusTool registers the read-only deferred setup inspection tool.
@@ -70,6 +85,7 @@ func (s *Server) handleSetupStatus(
 		AuthState:        authentication.State,
 		ProjectState:     project.State,
 		Environment:      setupEnvironment(authentication.HeadlessCloud),
+		Signals:          authentication.Signals,
 		ProjectDirectory: project.ProjectDirectory,
 	}
 

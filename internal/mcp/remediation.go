@@ -71,6 +71,11 @@ func (e *projectSetupError) Unwrap() error {
 
 // authenticationRemediation returns the exact supported action for one auth state.
 //
+// The action never depends on guessing whether the runtime has a browser.
+// Login is offered everywhere, and the accompanying message names the
+// unattended alternative, because misclassifying a runtime withdraws a recovery
+// that would have worked.
+//
 // Parameters:
 //   - state: Structured authentication state to remediate.
 //
@@ -78,31 +83,38 @@ func (e *projectSetupError) Unwrap() error {
 //   - *Remediation: Command or environment-variable action, or nil when authenticated.
 func authenticationRemediation(state SetupAuthState) *Remediation {
 	switch state {
-	case authenticationStateRequired, authenticationStateExpired:
+	case authenticationStateRequired, authenticationStateExpired, authenticationStateInvalid:
 		return &Remediation{
 			ActionKind: remediationActionCommand,
 			Command:    revylRemediationCommand("auth", "login"),
 		}
 	case authenticationStateCloudSecretRequired:
-		return &Remediation{
-			ActionKind:      remediationActionEnvironmentVariable,
-			EnvName:         "REVYL_API_KEY",
-			RestartRequired: true,
-		}
+		return cloudSecretRemediation()
 	case authenticationStateCloudContextInvalid:
 		return &Remediation{
 			ActionKind:      remediationActionRestartSession,
 			RestartRequired: true,
 		}
-	case authenticationStateInvalid:
-		return &Remediation{
-			ActionKind: remediationActionCommand,
-			Command:    revylRemediationCommand("auth", "login"),
-		}
 	case authenticationStateAuthenticated:
 		return nil
 	default:
 		return nil
+	}
+}
+
+// cloudSecretRemediation returns the runnable hosted-agent credential bridge.
+//
+// Credentials re-resolve on every tool call, so bridging the secret mid-session
+// takes effect on the next call and needs no restart.
+//
+// Returns:
+//   - *Remediation: Command action that bridges the injected Runtime Secret.
+func cloudSecretRemediation() *Remediation {
+	return &Remediation{
+		ActionKind:      remediationActionCommand,
+		Command:         revylRemediationCommand("auth", "persist-cloud-env"),
+		EnvName:         "REVYL_API_KEY",
+		RestartRequired: false,
 	}
 }
 

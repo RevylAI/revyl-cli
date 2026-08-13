@@ -204,7 +204,7 @@ func (s *Server) handleDevValidation(
 	input DeviceValidationInput,
 ) (*mcp.CallToolResult, DevValidationOutput, error) {
 	if failure := s.refreshDevAuthentication(); failure != nil {
-		return &mcp.CallToolResult{IsError: true}, DevValidationOutput{
+		return authenticationGateResult(failure), DevValidationOutput{
 			Success: false,
 			Outcome: failedAuthenticationOutcome(failure),
 			Error:   failure.Message,
@@ -625,7 +625,7 @@ func devProfileAuthenticationError(
 	action string,
 	failure *devAuthenticationFailure,
 ) (*mcp.CallToolResult, DevProfileActionOutput, error) {
-	return &mcp.CallToolResult{IsError: true}, DevProfileActionOutput{
+	return authenticationGateResult(failure), DevProfileActionOutput{
 		Action: action,
 		Result: map[string]any{
 			"success":    false,

@@ -30,9 +30,11 @@ func sameFilesystemPath(left, right string) bool {
 }
 
 const (
-	hookCommand               = "./hooks/ensure-revyl"
-	runtimeLauncherCommand    = "${CURSOR_PLUGIN_ROOT}/hooks/launch-revyl"
-	runtimeEnvironmentDefault = "${env:REVYL_BINARY}"
+	hookCommand            = "./hooks/ensure-revyl"
+	runtimeLauncherCommand = "${CURSOR_PLUGIN_ROOT}/hooks/launch-revyl"
+	// runtimeOverrideAbsent asserts mcp.json declares no REVYL_BINARY entry, so
+	// Cursor cannot replace an inherited runtime path with an unresolved literal.
+	runtimeOverrideAbsent     = ""
 	runtimeUnavailableMessage = "The Revyl plugin runtime is not ready. Update or reinstall the plugin, or set REVYL_BINARY to an executable Revyl CLI path."
 )
 
@@ -167,7 +169,7 @@ func TestPluginArtifactContract(t *testing.T) {
 	}
 
 	server := pluginMCPServer(t)
-	requireExactMCPServer(t, server, runtimeLauncherCommand, runtimeEnvironmentDefault)
+	requireExactMCPServer(t, server, runtimeLauncherCommand, runtimeOverrideAbsent)
 	requirePluginRelativeFile(t, pluginRoot, server.Meta.IDEToolIconPath)
 	if got, want := filepath.Clean(server.Meta.IDEToolIconPath), filepath.Clean(manifest.Logo); got != want {
 		t.Fatalf("MCP tool icon = %q, want plugin logo %q", server.Meta.IDEToolIconPath, manifest.Logo)
@@ -218,15 +220,20 @@ func TestHookScriptContract(t *testing.T) {
 		if !strings.Contains(content, runtimeUnavailableMessage) {
 			t.Fatalf("%s does not contain runtime guidance", filepath.Base(path))
 		}
+		// The hook may hand over a key the host already injected, but it must
+		// never install software or reach the network to obtain one.
 		for _, forbidden := range []string{
 			"auth status",
+			"auth login",
 			"install.sh",
-			"REVYL_API_KEY",
-			"Cloud Agent",
+			"https://",
 		} {
 			if strings.Contains(content, forbidden) {
-				t.Fatalf("%s contains forbidden bootstrap, auth, or cloud behavior %q", filepath.Base(path), forbidden)
+				t.Fatalf("%s contains forbidden bootstrap or interactive auth behavior %q", filepath.Base(path), forbidden)
 			}
+		}
+		if !strings.Contains(content, "auth persist-cloud-env") {
+			t.Fatalf("%s does not bridge an injected REVYL_API_KEY to the MCP server", filepath.Base(path))
 		}
 	}
 	if !strings.Contains(readText(t, posixPath), "runtime-manifest.json") ||
@@ -316,11 +323,96 @@ func TestHookRuntimeBehavior(t *testing.T) {
 	requireHookOutput(t, malformed, map[string]string{})
 }
 
+// TestHookBridgesInjectedAPIKey verifies the hook hands a host secret to the MCP server.
+//
+// The MCP server is started by Cursor and does not reliably inherit injected
+// Runtime Secrets, so this hook is what makes an unattended agent authenticate
+// at all. The secret must reach the bridge through the environment and never
+// through a command line, which is visible to process listings.
+func TestHookBridgesInjectedAPIKey(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the recording fixture is a POSIX shell script")
+	}
+	hookPath := filepath.Join(pluginRootPath(t), "hooks", "ensure-revyl")
+
+	testCases := []struct {
+		name            string
+		apiKey          string
+		wantBridgeRun   bool
+		wantKeyInEnvira bool
+	}{
+		{name: "injected key", apiKey: testSecret(), wantBridgeRun: true},
+		{name: "absent key", apiKey: "", wantBridgeRun: false},
+		{name: "unresolved placeholder", apiKey: "${env:REVYL_API_KEY}", wantBridgeRun: false},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fakeBin := t.TempDir()
+			recordingPath := filepath.Join(t.TempDir(), "bridge-invocation")
+			selectedBinary := writeRecordingCLI(t, fakeBin, recordingPath)
+			environment := environmentWithOverrides(
+				"PATH="+fakeBin+string(os.PathListSeparator)+"/usr/bin"+string(os.PathListSeparator)+"/bin",
+				"REVYL_BINARY="+selectedBinary,
+				"REVYL_API_KEY="+testCase.apiKey,
+			)
+
+			output := runHook(t, hookPath, `{"hook_event_name":"sessionStart"}`, environment)
+			requireHookOutput(t, output, map[string]string{})
+			requireNoSecret(t, output)
+
+			recording, err := os.ReadFile(recordingPath)
+			if !testCase.wantBridgeRun {
+				if err == nil {
+					t.Fatalf("hook bridged without a usable key: %s", recording)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("hook did not run the credential bridge: %v", err)
+			}
+			if got := string(recording); !strings.Contains(got, "arguments=auth persist-cloud-env") {
+				t.Fatalf("bridge invocation = %q, want the persist-cloud-env subcommand", got)
+			}
+			if strings.Contains(string(recording), "arguments="+testSecret()) ||
+				strings.Contains(string(recording), " "+testSecret()) {
+				t.Fatal("hook passed the API key as a command argument")
+			}
+			if !strings.Contains(string(recording), "api_key_reached_bridge=yes") {
+				t.Fatal("hook did not pass the API key to the bridge through the environment")
+			}
+		})
+	}
+}
+
+// writeRecordingCLI creates a revyl fixture that records how the hook invoked it.
+//
+// Parameters:
+//   - directory: Directory that becomes the fixture's PATH entry.
+//   - recordingPath: File the fixture writes its invocation record to.
+//
+// Returns:
+//   - string: Absolute path to the executable fixture.
+func writeRecordingCLI(t *testing.T, directory, recordingPath string) string {
+	t.Helper()
+	content := "#!/bin/sh\n" +
+		"{\n" +
+		"  printf 'arguments=%s\\n' \"$*\"\n" +
+		"  if [ \"${REVYL_API_KEY:-}\" = '" + testSecret() + "' ]; then\n" +
+		"    printf 'api_key_reached_bridge=yes\\n'\n" +
+		"  else\n" +
+		"    printf 'api_key_reached_bridge=no\\n'\n" +
+		"  fi\n" +
+		"} >'" + recordingPath + "'\n" +
+		"exit 0\n"
+	return writeExecutable(t, directory, "revyl", content)
+}
+
 // TestLocalInstaller verifies isolated copies and live worktree links preserve overrides.
 func TestLocalInstaller(t *testing.T) {
 	pluginRoot := pluginRootPath(t)
 	sourceServer := pluginMCPServer(t)
-	requireExactMCPServer(t, sourceServer, runtimeLauncherCommand, runtimeEnvironmentDefault)
+	requireExactMCPServer(t, sourceServer, runtimeLauncherCommand, runtimeOverrideAbsent)
 
 	t.Run("production command", func(t *testing.T) {
 		localRoot := t.TempDir()
@@ -329,7 +421,7 @@ func TestLocalInstaller(t *testing.T) {
 			"REVYL_BINARY=",
 		))
 		destination := filepath.Join(localRoot, "revyl")
-		requireRealInstalledPlugin(t, destination, runtimeEnvironmentDefault)
+		requireRealInstalledPlugin(t, destination, runtimeOverrideAbsent)
 
 		stalePath := filepath.Join(destination, "stale-file")
 		if err := os.WriteFile(stalePath, []byte("stale"), 0o600); err != nil {
@@ -370,7 +462,7 @@ func TestLocalInstaller(t *testing.T) {
 		)
 		requireHookOutput(t, hookOutput, map[string]string{})
 		sourceAfterInstall := pluginMCPServer(t)
-		requireExactMCPServer(t, sourceAfterInstall, runtimeLauncherCommand, runtimeEnvironmentDefault)
+		requireExactMCPServer(t, sourceAfterInstall, runtimeLauncherCommand, runtimeOverrideAbsent)
 	})
 
 	t.Run("linked worktree command", func(t *testing.T) {
@@ -586,23 +678,26 @@ func requireExactMCPServer(
 	}
 	expectedEnvironment := map[string]string{
 		"REVYL_PROJECT_DIR": "${workspaceFolder}",
-		"REVYL_API_KEY":     "${env:REVYL_API_KEY}",
-		"REVYL_BINARY":      expectedRuntimeOverride,
+	}
+	if expectedRuntimeOverride != runtimeOverrideAbsent {
+		expectedEnvironment["REVYL_BINARY"] = expectedRuntimeOverride
 	}
 	if len(server.Env) != len(expectedEnvironment) {
-		t.Fatalf("MCP env count = %d, want %d", len(server.Env), len(expectedEnvironment))
+		t.Fatalf("MCP env %#v, want exactly %#v", server.Env, expectedEnvironment)
 	}
 	for name, expectedValue := range expectedEnvironment {
 		actualValue := server.Env[name]
 		if actualValue == expectedValue {
 			continue
 		}
-		if name == "REVYL_BINARY" &&
-			expectedValue != runtimeEnvironmentDefault &&
-			sameFilesystemPath(actualValue, expectedValue) {
+		if name == "REVYL_BINARY" && sameFilesystemPath(actualValue, expectedValue) {
 			continue
 		}
 		t.Fatalf("MCP env %q = %q, want %q", name, actualValue, expectedValue)
+	}
+	// An inherited credential must never be replaced by an unresolved literal.
+	if _, declared := server.Env["REVYL_API_KEY"]; declared {
+		t.Fatal("MCP env declares REVYL_API_KEY, which clobbers the inherited credential")
 	}
 	if server.Meta.IDEToolIconPath != "./assets/icon.svg" {
 		t.Fatalf("MCP tool icon = %q, want ./assets/icon.svg", server.Meta.IDEToolIconPath)

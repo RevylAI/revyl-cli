@@ -16,7 +16,7 @@ import (
 	"github.com/revyl/cli/internal/auth"
 )
 
-// TestPersistCloudEnvironmentCommand verifies the hidden command emits structured secret-free output.
+// TestPersistCloudEnvironmentCommand verifies the command emits structured secret-free output.
 func TestPersistCloudEnvironmentCommand(t *testing.T) {
 	const apiKey = "command-output-secret-sentinel"
 	homeDirectory := t.TempDir()
@@ -24,10 +24,11 @@ func TestPersistCloudEnvironmentCommand(t *testing.T) {
 	t.Setenv("USERPROFILE", homeDirectory)
 	t.Setenv("APPDATA", filepath.Join(homeDirectory, "AppData", "Roaming"))
 	t.Setenv("LOCALAPPDATA", filepath.Join(homeDirectory, "AppData", "Local"))
-	t.Setenv(headlessCloudEnvironmentSignal, "1")
 	t.Setenv("REVYL_API_KEY", apiKey)
-	if !authPersistCloudEnvCmd.Hidden {
-		t.Fatal("persist-cloud-env must remain hidden")
+	// The bridge is the documented Cloud remediation, so an agent that reads
+	// `revyl auth --help` must be able to discover it.
+	if authPersistCloudEnvCmd.Hidden {
+		t.Fatal("persist-cloud-env must be discoverable as the Cloud remediation")
 	}
 	if err := authPersistCloudEnvCmd.Args(authPersistCloudEnvCmd, []string{"unexpected"}); err == nil {
 		t.Fatal("persist-cloud-env accepted positional arguments")
@@ -89,7 +90,6 @@ func TestPersistCloudEnvironmentCommandProcess(t *testing.T) {
 		"USERPROFILE",
 		"APPDATA",
 		"LOCALAPPDATA",
-		headlessCloudEnvironmentSignal,
 		"REVYL_API_KEY",
 	)
 	command.Env = append(
@@ -99,7 +99,6 @@ func TestPersistCloudEnvironmentCommandProcess(t *testing.T) {
 		"USERPROFILE="+homeDirectory,
 		"APPDATA="+filepath.Join(homeDirectory, "AppData", "Roaming"),
 		"LOCALAPPDATA="+filepath.Join(homeDirectory, "AppData", "Local"),
-		headlessCloudEnvironmentSignal+"=1",
 		"REVYL_API_KEY="+apiKey,
 	)
 	output, err := command.CombinedOutput()
@@ -154,7 +153,6 @@ func TestPersistCloudAuthenticationContext(t *testing.T) {
 	if err := manager.SaveAPIKeyCredentials("existing-user-key", "user@example.com", "org", "user"); err != nil {
 		t.Fatalf("SaveAPIKeyCredentials() error = %v", err)
 	}
-	t.Setenv(headlessCloudEnvironmentSignal, "1")
 	t.Setenv("REVYL_API_KEY", apiKey)
 
 	result, err := persistCloudAuthenticationContext(manager)
@@ -191,59 +189,88 @@ func TestPersistCloudAuthenticationContext(t *testing.T) {
 	}
 }
 
-// TestPersistCloudAuthenticationContextWithoutKey verifies missing secrets retain Cloud remediation context.
+// TestPersistCloudAuthenticationContextWithoutKey verifies an absent secret fails with a next action.
+//
+// Persisting a keyless context would report success for a state that still
+// cannot authenticate, so the bridge must refuse and name what to do instead.
 func TestPersistCloudAuthenticationContextWithoutKey(t *testing.T) {
 	credentialDirectory := filepath.Join(t.TempDir(), ".revyl")
 	manager := auth.NewManagerWithDir(credentialDirectory)
-	t.Setenv(headlessCloudEnvironmentSignal, "1")
 	t.Setenv("REVYL_API_KEY", "")
 	if err := os.Unsetenv("REVYL_API_KEY"); err != nil {
 		t.Fatalf("Unsetenv() error = %v", err)
 	}
 
-	result, err := persistCloudAuthenticationContext(manager)
-	if err != nil {
-		t.Fatalf("persistCloudAuthenticationContext() error = %v", err)
+	_, err := persistCloudAuthenticationContext(manager)
+	if err == nil {
+		t.Fatal("persistCloudAuthenticationContext() succeeded without a secret to bridge")
 	}
-	if !result.CloudContextPersisted || result.CredentialPersisted || result.Source != "" {
-		t.Fatalf("persistence result = %+v, want Cloud context without credential", result)
-	}
-	credentials, err := manager.GetCredentials()
-	if err != nil {
-		t.Fatalf("GetCredentials() error = %v", err)
-	}
-	if credentials != nil {
-		t.Fatal("missing Runtime Secret unexpectedly produced credentials")
-	}
-	resolution, err := manager.ResolveCredentials()
-	if err != nil {
-		t.Fatalf("ResolveCredentials() error = %v", err)
-	}
-	if !resolution.HeadlessCloud {
-		t.Fatal("missing Runtime Secret did not retain Cloud context")
+	requireNamedNextAction(t, err)
+	if _, statErr := os.Stat(filepath.Join(credentialDirectory, "cloud-runtime.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("failed bridge wrote a Cloud context: %v", statErr)
 	}
 }
 
 // TestPersistCloudAuthenticationContextRejectsPlaceholder verifies unresolved host syntax is never stored as a key.
 func TestPersistCloudAuthenticationContextRejectsPlaceholder(t *testing.T) {
-	manager := auth.NewManagerWithDir(t.TempDir())
-	t.Setenv(headlessCloudEnvironmentSignal, "1")
+	credentialDirectory := filepath.Join(t.TempDir(), ".revyl")
+	manager := auth.NewManagerWithDir(credentialDirectory)
 	t.Setenv("REVYL_API_KEY", "${env:REVYL_API_KEY}")
+
+	_, err := persistCloudAuthenticationContext(manager)
+	if err == nil {
+		t.Fatal("persistCloudAuthenticationContext() accepted an unresolved placeholder")
+	}
+	requireNamedNextAction(t, err)
+	if strings.Contains(err.Error(), "${env:") {
+		t.Fatalf("bridge error echoed the unresolved placeholder: %v", err)
+	}
+}
+
+// TestPersistCloudAuthenticationContextRunsOnAnyHost verifies the bridge has no host gate.
+//
+// The plugin session hook calls this on every host it starts on, and it cannot
+// know whether that host is hosted or a desktop. A gate that guessed would make
+// the hook a no-op exactly where an unattended agent needs it, so the only
+// precondition is a readable key.
+func TestPersistCloudAuthenticationContextRunsOnAnyHost(t *testing.T) {
+	const apiKey = "any-host-secret-sentinel"
+	credentialDirectory := filepath.Join(t.TempDir(), ".revyl")
+	manager := auth.NewManagerWithDir(credentialDirectory)
+	t.Setenv("CURSOR_AGENT", "")
+	t.Setenv("CLOUD_AGENT_ALL_SECRET_NAMES", "")
+	t.Setenv("CLOUD_AGENT_INJECTED_SECRET_NAMES", "")
+	t.Setenv("REVYL_API_KEY", apiKey)
 
 	result, err := persistCloudAuthenticationContext(manager)
 	if err != nil {
-		t.Fatalf("persistCloudAuthenticationContext() error = %v", err)
+		t.Fatalf("persistCloudAuthenticationContext() on an unmarked host: %v", err)
 	}
-	if result.CredentialPersisted || result.Source != "" {
-		t.Fatalf("placeholder result = %+v, want no persisted credential", result)
+	if !result.CredentialPersisted {
+		t.Fatalf("persistence result = %+v, want the key bridged", result)
 	}
+
 	t.Setenv("REVYL_API_KEY", "")
-	resolution, err := manager.ResolveCredentials()
+	credentials, err := manager.GetCredentials()
 	if err != nil {
-		t.Fatalf("ResolveCredentials() error = %v", err)
+		t.Fatalf("GetCredentials() error = %v", err)
 	}
-	if resolution.Credentials != nil || !resolution.HeadlessCloud {
-		t.Fatalf("resolution = %+v, want headless Cloud without credentials", resolution)
+	if credentials == nil || credentials.APIKey != apiKey {
+		t.Fatal("bridged credential was not readable after the environment key went away")
+	}
+}
+
+// requireNamedNextAction asserts a bridge failure tells the operator what to do next.
+//
+// Parameters:
+//   - err: The non-nil error returned by the bridge.
+func requireNamedNextAction(t *testing.T, err error) {
+	t.Helper()
+	message := err.Error()
+	for _, expected := range []string{"REVYL_API_KEY", "revyl auth login"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("bridge error = %q, want it to name %q", message, expected)
+		}
 	}
 }
 
@@ -354,25 +381,5 @@ func TestAuthLogoutClearsCloudAndUserCredentials(t *testing.T) {
 	}
 	if credentialPresentAtCall.Load() || contextPresentAtCall.Load() {
 		t.Fatal("auth logout revoked the user key before clearing both local stores")
-	}
-}
-
-// TestPersistCloudAuthenticationContextRejectsLocalUse verifies the bridge is Cloud-only and secret-free.
-func TestPersistCloudAuthenticationContextRejectsLocalUse(t *testing.T) {
-	const apiKey = "rejected-cloud-secret-sentinel"
-	credentialDirectory := filepath.Join(t.TempDir(), ".revyl")
-	manager := auth.NewManagerWithDir(credentialDirectory)
-	t.Setenv(headlessCloudEnvironmentSignal, "")
-	t.Setenv("REVYL_API_KEY", apiKey)
-
-	_, err := persistCloudAuthenticationContext(manager)
-	if err == nil {
-		t.Fatal("persistCloudAuthenticationContext() succeeded, want validation error")
-	}
-	if strings.Contains(err.Error(), apiKey) {
-		t.Fatal("validation error exposed the API key")
-	}
-	if _, statErr := os.Stat(filepath.Join(credentialDirectory, "cloud-runtime.json")); !os.IsNotExist(statErr) {
-		t.Fatalf("Cloud context exists after rejected persistence: %v", statErr)
 	}
 }

@@ -259,6 +259,12 @@ if [ -n "$installed_binary" ]; then
   run_runtime "$installed_binary" "$@"
 fi
 
+# Callers on a short time budget opt out of the download so they fail fast
+# instead of blocking on the network for a runtime a later run will cache.
+if [ "${REVYL_RUNTIME_NO_DOWNLOAD:-}" = "1" ]; then
+  fail "the pinned Revyl runtime is not cached yet and this invocation may not download it"
+fi
+
 ensure_runtime_directory
 TEMPORARY_PATH="$runtime_directory/.revyl.download.$$"
 download "$release_base_url/$asset" "$TEMPORARY_PATH" ||

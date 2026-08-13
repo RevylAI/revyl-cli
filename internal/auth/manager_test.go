@@ -176,6 +176,108 @@ func TestResolveCredentialsPlaceholderFallsThroughToCloudRuntimeContext(t *testi
 	}
 }
 
+// TestResolveCredentialsIgnoresHostedAgentEnvironmentMarkers covers REV-608.
+//
+// Resolution reports what it actually read, never what it inferred about the
+// host. Guessing the runtime from these markers previously reclassified every
+// Linux desktop user as headless, so their presence must change nothing.
+func TestResolveCredentialsIgnoresHostedAgentEnvironmentMarkers(t *testing.T) {
+	for _, marker := range []string{
+		"CURSOR_AGENT",
+		"CLOUD_AGENT_ALL_SECRET_NAMES",
+		"CLOUD_AGENT_INJECTED_SECRET_NAMES",
+		"REVYL_HEADLESS_CLOUD",
+	} {
+		t.Run(marker, func(t *testing.T) {
+			t.Setenv(marker, "1")
+			if err := os.Unsetenv("REVYL_API_KEY"); err != nil {
+				t.Fatalf("Unsetenv() error = %v", err)
+			}
+			manager := NewManagerWithDir(t.TempDir())
+
+			resolution, err := manager.ResolveCredentials()
+			if err != nil {
+				t.Fatalf("ResolveCredentials() error = %v", err)
+			}
+			if resolution.HeadlessCloud {
+				t.Fatalf("marker %q was treated as a Cloud runtime context", marker)
+			}
+			if resolution.Credentials != nil {
+				t.Fatalf("resolution returned credentials = %+v, want none", resolution.Credentials)
+			}
+			if resolution.APIKeyEnvironment != APIKeyEnvironmentAbsent {
+				t.Fatalf("APIKeyEnvironment = %q, want %q", resolution.APIKeyEnvironment, APIKeyEnvironmentAbsent)
+			}
+		})
+	}
+}
+
+// TestResolveCredentialsClassifiesAPIKeyEnvironment verifies secret-free diagnostics.
+func TestResolveCredentialsClassifiesAPIKeyEnvironment(t *testing.T) {
+	testCases := []struct {
+		name          string
+		configured    bool
+		value         string
+		wantState     APIKeyEnvironmentState
+		wantResolved  bool
+		wantSameValue string
+	}{
+		{
+			name:       "absent",
+			configured: false,
+			wantState:  APIKeyEnvironmentAbsent,
+		},
+		{
+			name:       "blank",
+			configured: true,
+			value:      "   ",
+			wantState:  APIKeyEnvironmentAbsent,
+		},
+		{
+			name:       "unresolved placeholder",
+			configured: true,
+			value:      unresolvedAPIKeyEnvironmentPlaceholder,
+			wantState:  APIKeyEnvironmentUnresolved,
+		},
+		{
+			name:          "present",
+			configured:    true,
+			value:         "environment-key",
+			wantState:     APIKeyEnvironmentPresent,
+			wantResolved:  true,
+			wantSameValue: "environment-key",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if testCase.configured {
+				t.Setenv("REVYL_API_KEY", testCase.value)
+			} else if err := os.Unsetenv("REVYL_API_KEY"); err != nil {
+				t.Fatalf("Unsetenv() error = %v", err)
+			}
+			manager := NewManagerWithDir(t.TempDir())
+
+			resolution, err := manager.ResolveCredentials()
+			if err != nil {
+				t.Fatalf("ResolveCredentials() error = %v", err)
+			}
+			if resolution.APIKeyEnvironment != testCase.wantState {
+				t.Fatalf("APIKeyEnvironment = %q, want %q", resolution.APIKeyEnvironment, testCase.wantState)
+			}
+			if !testCase.wantResolved {
+				if resolution.Credentials != nil {
+					t.Fatalf("credentials = %+v, want none for %q", resolution.Credentials, testCase.wantState)
+				}
+				return
+			}
+			if resolution.Credentials == nil || resolution.Credentials.APIKey != testCase.wantSameValue {
+				t.Fatalf("credentials = %+v, want the exact environment key", resolution.Credentials)
+			}
+		})
+	}
+}
+
 func TestResolveCredentialsDistinguishesCloudContextAndFileErrors(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "")
 

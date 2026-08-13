@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"strings"
 
 	"github.com/revyl/cli/internal/auth"
@@ -24,6 +25,7 @@ type mcpAuthentication struct {
 	State         SetupAuthState
 	Token         string
 	HeadlessCloud bool
+	Signals       SetupEnvironmentSignals
 	LoadError     error
 }
 
@@ -31,6 +33,11 @@ type mcpAuthentication struct {
 type devAuthenticationFailure struct {
 	Code    SetupAuthState
 	Message string
+
+	// Authorization is a live browser approval the user can complete to fix
+	// this failure. Nil when none could be registered, which leaves the failure
+	// reportable but not directly actionable from the card.
+	Authorization *auth.DeviceAuthorization
 }
 
 // resolveMCPAuthentication resolves the active credential and classifies unavailable authentication.
@@ -42,10 +49,16 @@ type devAuthenticationFailure struct {
 //   - mcpAuthentication: Credential state and active token, when available.
 func resolveMCPAuthentication(manager *auth.Manager) mcpAuthentication {
 	resolution, err := manager.ResolveCredentials()
+	signals := SetupEnvironmentSignals{
+		CloudContextPresent: resolution.HeadlessCloud && !resolution.CloudContextInvalid,
+		CloudContextInvalid: resolution.CloudContextInvalid,
+		APIKeyEnvironment:   resolution.APIKeyEnvironment,
+	}
 	if err != nil {
 		return mcpAuthentication{
 			State:         invalidAuthenticationState(resolution.CloudContextInvalid),
 			HeadlessCloud: resolution.HeadlessCloud,
+			Signals:       signals,
 			LoadError:     err,
 		}
 	}
@@ -54,6 +67,7 @@ func resolveMCPAuthentication(manager *auth.Manager) mcpAuthentication {
 		return mcpAuthentication{
 			State:         unavailableAuthenticationState(resolution.HeadlessCloud),
 			HeadlessCloud: resolution.HeadlessCloud,
+			Signals:       signals,
 		}
 	}
 
@@ -64,6 +78,7 @@ func resolveMCPAuthentication(manager *auth.Manager) mcpAuthentication {
 			State:         authenticationStateAuthenticated,
 			Token:         accessToken,
 			HeadlessCloud: resolution.HeadlessCloud,
+			Signals:       signals,
 		}
 	}
 	if apiKey != "" {
@@ -71,17 +86,20 @@ func resolveMCPAuthentication(manager *auth.Manager) mcpAuthentication {
 			State:         authenticationStateAuthenticated,
 			Token:         apiKey,
 			HeadlessCloud: resolution.HeadlessCloud,
+			Signals:       signals,
 		}
 	}
 	if accessToken != "" && credentials.IsExpired() {
 		return mcpAuthentication{
 			State:         authenticationStateExpired,
 			HeadlessCloud: resolution.HeadlessCloud,
+			Signals:       signals,
 		}
 	}
 	return mcpAuthentication{
 		State:         unavailableAuthenticationState(resolution.HeadlessCloud),
 		HeadlessCloud: resolution.HeadlessCloud,
+		Signals:       signals,
 	}
 }
 
@@ -115,6 +133,10 @@ func unavailableAuthenticationState(cloud bool) SetupAuthState {
 
 // refreshDevAuthentication re-resolves credentials and updates the shared API client in place.
 //
+// When the credential is missing rather than structurally broken, it also
+// registers a browser approval so the returned failure is something the user
+// can act on immediately instead of a bare instruction.
+//
 // Returns:
 //   - *devAuthenticationFailure: Structured failure when authentication is unavailable.
 func (s *Server) refreshDevAuthentication() *devAuthenticationFailure {
@@ -126,10 +148,33 @@ func (s *Server) refreshDevAuthentication() *devAuthenticationFailure {
 		return nil
 	}
 
-	return &devAuthenticationFailure{
-		Code:    authentication.State,
-		Message: authenticationFailureMessage(authentication.State),
+	var authorization *auth.DeviceAuthorization
+	if approvalResolves(authentication.State) {
+		// Deliberately not the tool call's context. The approval outlives the
+		// call that surfaced it, so a caller who gives up must not cancel a
+		// registration the next call would have reused.
+		authorization = s.authorizationForGate(context.Background())
 	}
+	return &devAuthenticationFailure{
+		Code:          authentication.State,
+		Message:       authenticationFailureMessage(authentication.State, authorization),
+		Authorization: authorization,
+	}
+}
+
+// approvalResolves reports whether a browser approval would fix this state.
+//
+// A broken Cloud runtime context is not an authorization problem: minting a new
+// key would leave the same unreadable context behind, so offering approval there
+// would send the user down a path that cannot succeed.
+//
+// Parameters:
+//   - state: Structured authentication state.
+//
+// Returns:
+//   - bool: Whether to offer the user an approval.
+func approvalResolves(state SetupAuthState) bool {
+	return state != authenticationStateCloudContextInvalid
 }
 
 // resolveAndApplyDevAuthentication updates the existing API client from current credentials.
@@ -149,27 +194,49 @@ func (s *Server) resolveAndApplyDevAuthentication() mcpAuthentication {
 	return authentication
 }
 
-// authenticationFailureMessage returns a secret-free remediation message for one auth state.
+// authenticationFailureMessage returns a secret-free message naming every
+// recovery available for one auth state.
+//
+// Both recoveries are named rather than one being chosen from an environment
+// guess. Misreading the runtime withdraws a recovery that would have worked,
+// and the two are not interchangeable: a browser login needs a human, while the
+// bridge needs REVYL_API_KEY to be visible to the shell that runs it, which can
+// be true even when the server process cannot see it.
 //
 // Parameters:
 //   - state: Structured authentication state.
+//   - authorization: Live browser approval to name, or nil when none exists.
 //
 // Returns:
 //   - string: Actionable authentication failure message.
-func authenticationFailureMessage(state SetupAuthState) string {
+func authenticationFailureMessage(
+	state SetupAuthState,
+	authorization *auth.DeviceAuthorization,
+) string {
+	if state == authenticationStateCloudContextInvalid {
+		return "Revyl Cloud authentication context is invalid; start a fresh session"
+	}
+
+	problem := "Revyl authentication required"
 	switch state {
 	case authenticationStateExpired:
-		return "Revyl authentication expired; run 'revyl auth login'"
-	case authenticationStateCloudSecretRequired:
-		return "Revyl authentication requires the REVYL_API_KEY Runtime Secret and a new Cloud session"
-	case authenticationStateCloudContextInvalid:
-		return "Revyl Cloud authentication context is invalid; start a fresh Cloud session"
+		problem = "Revyl authentication expired"
 	case authenticationStateInvalid:
-		return "Revyl authentication state is invalid; run 'revyl auth login'"
-	default:
-		return "Revyl authentication required; run 'revyl auth login'"
+		problem = "Revyl authentication state is invalid"
 	}
+
+	recovery := "run 'revyl auth login', " + bridgeRecoverySuffix
+	if instruction := authorizationInstruction(authorization); instruction != "" {
+		recovery = instruction +
+			", run 'revyl auth login' to do the same from a terminal, " +
+			bridgeRecoverySuffix
+	}
+	return problem + "; " + recovery
 }
+
+// bridgeRecoverySuffix names the unattended recovery for an agent that has a
+// Runtime Secret but no human to complete a browser login.
+const bridgeRecoverySuffix = "or 'revyl auth persist-cloud-env' when REVYL_API_KEY is set for this agent"
 
 // failedAuthenticationOutcome converts a gate failure into the shared MCP outcome contract.
 //
@@ -179,5 +246,10 @@ func authenticationFailureMessage(state SetupAuthState) string {
 // Returns:
 //   - outcome.Envelope: Structured, non-retryable authentication failure.
 func failedAuthenticationOutcome(failure *devAuthenticationFailure) outcome.Envelope {
-	return outcome.Failed(string(failure.Code), failure.Message, false)
+	envelope := outcome.Failed(string(failure.Code), failure.Message, false)
+	if failure.Authorization != nil {
+		envelope.AuthorizationURL = failure.Authorization.VerificationURIComplete
+		envelope.AuthorizationCode = failure.Authorization.UserCode
+	}
+	return envelope
 }

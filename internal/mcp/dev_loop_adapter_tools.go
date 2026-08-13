@@ -101,7 +101,7 @@ func (s *Server) handleStartDevLoopCommand(
 	input StartDevLoopInput,
 ) (*mcp.CallToolResult, DevLoopStartOutput, error) {
 	if failure := s.refreshDevAuthentication(); failure != nil {
-		return &mcp.CallToolResult{IsError: true}, DevLoopStartOutput{
+		return authenticationGateResult(failure), DevLoopStartOutput{
 			Success:     false,
 			Outcome:     failedAuthenticationOutcome(failure),
 			Remediation: authenticationRemediation(failure.Code),
@@ -263,7 +263,7 @@ func (s *Server) handleGetDevStatusCommand(
 	input GetDevStatusInput,
 ) (*mcp.CallToolResult, GetDevStatusOutput, error) {
 	if failure := s.refreshDevAuthentication(); failure != nil {
-		return &mcp.CallToolResult{IsError: true}, GetDevStatusOutput{
+		return authenticationGateResult(failure), GetDevStatusOutput{
 			Success:     false,
 			Outcome:     failedAuthenticationOutcome(failure),
 			Remediation: authenticationRemediation(failure.Code),
@@ -300,7 +300,7 @@ func (s *Server) handleStopDevLoopCommand(
 	input CanonicalStopDevLoopInput,
 ) (*mcp.CallToolResult, CanonicalStopDevLoopOutput, error) {
 	if failure := s.refreshDevAuthentication(); failure != nil {
-		return &mcp.CallToolResult{IsError: true}, CanonicalStopDevLoopOutput{
+		return authenticationGateResult(failure), CanonicalStopDevLoopOutput{
 			Success:     false,
 			Outcome:     failedAuthenticationOutcome(failure),
 			Remediation: authenticationRemediation(failure.Code),
@@ -365,7 +365,7 @@ func (s *Server) handleRebuildCommand(
 	input RebuildInput,
 ) (*mcp.CallToolResult, TriggerRebuildOutput, error) {
 	if failure := s.refreshDevAuthentication(); failure != nil {
-		return &mcp.CallToolResult{IsError: true}, TriggerRebuildOutput{
+		return authenticationGateResult(failure), TriggerRebuildOutput{
 			Success:     false,
 			Outcome:     failedAuthenticationOutcome(failure),
 			Remediation: authenticationRemediation(failure.Code),
@@ -417,7 +417,7 @@ func (s *Server) handleWaitForRebuildCommand(
 	input WaitForRebuildInput,
 ) (*mcp.CallToolResult, RebuildOutput, error) {
 	if failure := s.refreshDevAuthentication(); failure != nil {
-		return &mcp.CallToolResult{IsError: true}, RebuildOutput{
+		return authenticationGateResult(failure), RebuildOutput{
 			Success:     false,
 			Outcome:     failedAuthenticationOutcome(failure),
 			Remediation: authenticationRemediation(failure.Code),

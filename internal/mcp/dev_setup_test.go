@@ -155,12 +155,14 @@ func TestDevProfileReportsCloudSecretRequirement(t *testing.T) {
 	if status.AuthState != authenticationStateCloudSecretRequired || status.Environment != setupEnvironmentCloud {
 		t.Fatalf("cloud setup status = %+v", status)
 	}
+	// The bridge re-resolves on the next tool call, so the agent must get a
+	// command it can run now rather than an environment change plus a restart.
 	if status.Remediation == nil ||
-		status.Remediation.ActionKind != remediationActionEnvironmentVariable ||
+		status.Remediation.ActionKind != remediationActionCommand ||
+		status.Remediation.Command != "revyl auth persist-cloud-env" ||
 		status.Remediation.EnvName != "REVYL_API_KEY" ||
-		!status.Remediation.RestartRequired ||
-		status.Remediation.Command != "" {
-		t.Fatalf("cloud remediation = %+v, want Runtime Secret action", status.Remediation)
+		status.Remediation.RestartRequired {
+		t.Fatalf("cloud remediation = %+v, want runnable bridge command", status.Remediation)
 	}
 	startResult := callServerTool(t, server, "start_dev_loop", nil)
 	if !startResult.IsError {
@@ -231,8 +233,9 @@ func TestDevProfileReportsPersistedCloudSecretRequirement(t *testing.T) {
 	if status.AuthState != authenticationStateCloudSecretRequired ||
 		status.Environment != setupEnvironmentCloud ||
 		status.Remediation == nil ||
+		status.Remediation.ActionKind != remediationActionCommand ||
 		status.Remediation.EnvName != "REVYL_API_KEY" ||
-		!status.Remediation.RestartRequired {
+		status.Remediation.RestartRequired {
 		t.Fatalf("persisted missing-secret setup status = %+v", status)
 	}
 }
@@ -481,6 +484,123 @@ func TestPluginRuntimeRemediationsUsePinnedExecutable(t *testing.T) {
 	if projectStatus.Remediation == nil ||
 		projectStatus.Remediation.Command != executableCommand+" init --non-interactive" {
 		t.Fatalf("project remediation = %+v, want plugin runtime executable", projectStatus.Remediation)
+	}
+}
+
+// TestEveryRecoveryStateNamesBothRecoveries is the REV-608 regression.
+//
+// The earlier fix picked one recovery from an environment guess, which
+// withdrew browser login from every Linux desktop user. No credential-recovery
+// state may depend on that guess: each must offer a runnable login and name the
+// unattended bridge, and none may demand a session restart, because credentials
+// re-resolve on the next tool call.
+func TestEveryRecoveryStateNamesBothRecoveries(t *testing.T) {
+	prepareServerAuthTest(t)
+
+	recoveryStates := []SetupAuthState{
+		authenticationStateRequired,
+		authenticationStateExpired,
+		authenticationStateInvalid,
+		authenticationStateCloudSecretRequired,
+	}
+	for _, state := range recoveryStates {
+		t.Run(string(state), func(t *testing.T) {
+			remediation := authenticationRemediation(state)
+			if remediation == nil {
+				t.Fatalf("state %q produced no remediation", state)
+			}
+			if remediation.ActionKind != remediationActionCommand {
+				t.Fatalf("state %q remediation = %+v, want a runnable command", state, remediation)
+			}
+			if remediation.RestartRequired {
+				t.Fatalf("state %q required a restart no recovery needs", state)
+			}
+			// Offering a browser approval must add a recovery, never replace
+			// one: the approval needs a human, and the bridge does not.
+			pending := &auth.DeviceAuthorization{
+				UserCode:                "ABCD-2345",
+				VerificationURIComplete: "https://app.revyl.ai/cli/device?code=ABCD-2345",
+			}
+			for _, authorization := range []*auth.DeviceAuthorization{nil, pending} {
+				message := authenticationFailureMessage(state, authorization)
+				for _, recovery := range []string{"auth login", "auth persist-cloud-env"} {
+					if !strings.Contains(message, recovery) {
+						t.Fatalf("state %q message omitted %q: %q", state, recovery, message)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestRecoveryIsIdenticalOnHostedAndDesktopEnvironments pins the absence of detection.
+//
+// Markers a hosted runtime sets must not change which recovery is offered, so
+// that no future environment can be misread into losing one.
+func TestRecoveryIsIdenticalOnHostedAndDesktopEnvironments(t *testing.T) {
+	prepareServerAuthTest(t)
+
+	desktop := authenticationRemediation(authenticationStateRequired)
+	if desktop == nil || desktop.Command != "revyl auth login" {
+		t.Fatalf("desktop remediation = %+v, want browser login", desktop)
+	}
+
+	for _, marker := range []string{"CURSOR_AGENT", "CLOUD_AGENT_ALL_SECRET_NAMES", "REVYL_HEADLESS_CLOUD"} {
+		t.Run(marker, func(t *testing.T) {
+			t.Setenv(marker, "1")
+			hosted := authenticationRemediation(authenticationStateRequired)
+			if hosted == nil || hosted.Command != desktop.Command {
+				t.Fatalf("marker %q changed remediation to %+v, want %+v", marker, hosted, desktop)
+			}
+		})
+	}
+}
+
+// TestSetupStatusReportsEnvironmentAPIKeyWithoutLeakingIt verifies self-diagnosing output.
+func TestSetupStatusReportsEnvironmentAPIKeyWithoutLeakingIt(t *testing.T) {
+	prepareServerAuthTest(t)
+	const apiKey = "signals-secret-sentinel"
+	t.Setenv("REVYL_API_KEY", apiKey)
+
+	server, err := NewServer("test", false, WithProfile(ProfileDev))
+	if err != nil {
+		t.Fatalf("NewServer() with an environment key: %v", err)
+	}
+	status := decodeStructuredToolResult[SetupStatusOutput](
+		t,
+		callServerTool(t, server, "setup_status", nil),
+	)
+	if status.AuthState != authenticationStateAuthenticated {
+		t.Fatalf("auth state = %q, want authenticated from the environment key", status.AuthState)
+	}
+	if status.Signals.CloudContextPresent {
+		t.Fatal("CloudContextPresent was reported without a context file")
+	}
+	if status.Signals.APIKeyEnvironment != auth.APIKeyEnvironmentPresent {
+		t.Fatalf("api key environment = %q, want present", status.Signals.APIKeyEnvironment)
+	}
+	requireSetupStatusSecretFree(t, status, apiKey)
+}
+
+// TestSetupStatusReportsUnresolvedAPIKeyEnvironment verifies the clobber signature is visible.
+//
+// A host that passes its literal interpolation instead of the secret is the
+// failure this plan removed from mcp.json; when it reappears the diagnostics
+// must name it rather than look like an absent key.
+func TestSetupStatusReportsUnresolvedAPIKeyEnvironment(t *testing.T) {
+	prepareServerAuthTest(t)
+	t.Setenv("REVYL_API_KEY", "${env:REVYL_API_KEY}")
+
+	server, err := NewServer("test", false, WithProfile(ProfileDev))
+	if err != nil {
+		t.Fatalf("NewServer() with an unresolved key: %v", err)
+	}
+	status := decodeStructuredToolResult[SetupStatusOutput](
+		t,
+		callServerTool(t, server, "setup_status", nil),
+	)
+	if status.Signals.APIKeyEnvironment != auth.APIKeyEnvironmentUnresolved {
+		t.Fatalf("api key environment = %q, want unresolved", status.Signals.APIKeyEnvironment)
 	}
 }
 

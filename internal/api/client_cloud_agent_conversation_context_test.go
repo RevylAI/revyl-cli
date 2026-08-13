@@ -8,7 +8,7 @@ import (
 )
 
 func TestClientForwardsCloudAgentConversationContext(t *testing.T) {
-	t.Setenv("CURSOR_CONVERSATION_ID", "bc_123-abc")
+	t.Setenv("CURSOR_CONVERSATION_ID", "bc-11111111-1111-4111-8111-111111111111")
 
 	var receivedProvider string
 	var receivedConversationID string
@@ -40,11 +40,11 @@ func TestClientForwardsCloudAgentConversationContext(t *testing.T) {
 			"cursor_cloud",
 		)
 	}
-	if receivedConversationID != "bc_123-abc" {
+	if receivedConversationID != "bc-11111111-1111-4111-8111-111111111111" {
 		t.Fatalf(
 			"X-Revyl-Cloud-Agent-Provider-Conversation-Id = %q, want %q",
 			receivedConversationID,
-			"bc_123-abc",
+			"bc-11111111-1111-4111-8111-111111111111",
 		)
 	}
 }

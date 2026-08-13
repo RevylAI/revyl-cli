@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-Reports Revyl plugin runtime readiness through Cursor's hook protocol.
+Reports Revyl plugin runtime readiness through Cursor's hook protocol and hands
+any injected API key to the MCP server.
 #>
 
 [CmdletBinding()]
@@ -105,13 +106,67 @@ function Read-HookEventName {
     }
 }
 
+# Publish-EnvironmentApiKey hands a visible REVYL_API_KEY to the MCP server.
+#
+# The server runs as a separate process that does not reliably inherit secrets
+# the host injected into the agent, so an agent can hold a valid key that its
+# own Revyl tools cannot see. This hook does run in the environment that has the
+# key, which makes it the one place able to pass it across. Doing so needs no
+# network, and repeating it rewrites the same protected file from the same
+# input, so every session can run it unconditionally.
+#
+# Failures are deliberately silent: a missing credential surfaces as an
+# actionable authentication state on the first tool call, and a hook that
+# reported it as well would only add noise to sessions that never touch Revyl.
+function Publish-EnvironmentApiKey {
+    param(
+        [AllowEmptyString()]
+        [string] $EventName
+    )
+
+    if (
+        [string]::IsNullOrWhiteSpace($env:REVYL_API_KEY) -or
+        $env:REVYL_API_KEY -eq '${env:REVYL_API_KEY}'
+    ) {
+        return
+    }
+
+    $launcher = Join-Path $script:PluginRoot "hooks/launch-revyl.cmd"
+    if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
+        return
+    }
+
+    # sessionStart has the shorter budget of the two events, so it never waits
+    # for a runtime download. A first run that arrives before the runtime does is
+    # bridged by beforeShellExecution, or by the command the failure names.
+    $previousNoDownload = $env:REVYL_RUNTIME_NO_DOWNLOAD
+    $previousTelemetry = $env:REVYL_TELEMETRY_DISABLED
+    try {
+        $env:REVYL_RUNTIME_NO_DOWNLOAD = if ($EventName -eq "sessionStart") { "1" } else { "" }
+        $env:REVYL_TELEMETRY_DISABLED = "1"
+        & $launcher auth persist-cloud-env *> $null
+    }
+    catch {
+        # The next tool call reports the credential state with a runnable action.
+    }
+    finally {
+        $env:REVYL_RUNTIME_NO_DOWNLOAD = $previousNoDownload
+        $env:REVYL_TELEMETRY_DISABLED = $previousTelemetry
+    }
+}
+
 $eventName = Read-HookEventName
 $supportedEvent = $eventName -in @("beforeShellExecution", "sessionStart")
-$message = if ($supportedEvent -and -not (Test-PluginRuntimeReady)) {
+$runtimeReady = $supportedEvent -and (Test-PluginRuntimeReady)
+$message = if ($supportedEvent -and -not $runtimeReady) {
     $script:RuntimeUnavailableMessage
 }
 else {
     ""
+}
+
+if ($runtimeReady) {
+    Publish-EnvironmentApiKey -EventName $eventName
 }
 
 $response = switch ($eventName) {

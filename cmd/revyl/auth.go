@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -32,9 +33,6 @@ type AuthExpiredError struct {
 	// Inner is the original API error that triggered the expired-session detection.
 	Inner error
 }
-
-// headlessCloudEnvironmentSignal is the provider-neutral Revyl Cloud process marker.
-const headlessCloudEnvironmentSignal = "REVYL_HEADLESS_CLOUD"
 
 // Error returns a user-friendly message instructing re-authentication.
 func (e *AuthExpiredError) Error() string {
@@ -64,7 +62,7 @@ func wrapAuthError(err error) error {
 	if errors.As(err, &apiErr) && apiErr.StatusCode == 401 {
 		mgr := auth.NewManager()
 		creds, _ := mgr.GetCredentials()
-		if creds != nil && (creds.AuthMethod == "browser" || creds.AuthMethod == "browser_api_key") {
+		if creds != nil && auth.IsInteractiveLoginAuthMethod(creds.AuthMethod) {
 			return &AuthExpiredError{Inner: err}
 		}
 	}
@@ -78,13 +76,18 @@ var authCmd = &cobra.Command{
 	Long: `Manage authentication with Revyl.
 
 COMMANDS:
-  login   - Authenticate with Revyl (opens browser by default)
-  logout  - Remove stored credentials
-  status  - Show current authentication status
+  login              - Authenticate with Revyl (browser approval by default)
+  logout             - Remove stored credentials
+  status             - Show current authentication status
+  persist-cloud-env  - Bridge a hosted Cloud agent's injected REVYL_API_KEY
 
 AUTHENTICATION METHODS:
-  Browser (default): Opens your browser to sign in with your Revyl account
-  API Key (--api-key): Manual API key entry for CI/CD or headless environments
+  Device approval (default): Prints a URL you approve in a browser anywhere,
+    so it works the same locally, in a cloud agent, over SSH, or in a container
+  API Key (--api-key): Manual API key entry for CI/CD or unattended machines
+  Loopback browser (--browser): The previous local-port flow, kept for one release
+  Cloud bridge (persist-cloud-env): Reuses a hosted agent's Runtime Secret when
+    nobody is present to approve
 
 CREDENTIALS:
   Credentials are stored in ~/.revyl/credentials.json`,
@@ -96,33 +99,41 @@ var authLoginCmd = &cobra.Command{
 	Short: "Authenticate with Revyl",
 	Long: `Authenticate with Revyl.
 
-By default, opens your browser to sign in with your Revyl account.
-Use --api-key flag for manual API key entry (useful for CI/CD).
+By default, prints an approval URL and waits for you to approve the request in a
+browser. The browser can be anywhere — this machine, or your laptop while the
+CLI runs in a cloud agent, over SSH, or in a container.
 
-BROWSER AUTHENTICATION (default):
-  1. Opens your browser to the Revyl login page
-  2. Sign in with your email/password or SSO
-  3. Authorize the CLI to access your account
-  4. Credentials are automatically saved
+DEVICE APPROVAL (default):
+  1. The CLI registers a request and prints a URL plus a short code
+  2. Open the URL wherever you have a browser and sign in
+  3. Confirm the code matches and approve
+  4. The CLI receives the credential and saves it
 
 API KEY AUTHENTICATION (--api-key):
   1. Get your API key from https://app.revyl.ai/settings/api-keys
   2. Enter the API key when prompted
   3. Credentials are saved to ~/.revyl/credentials.json
 
+LOOPBACK BROWSER (--browser):
+  The previous flow, which opens a browser on this machine and listens on a
+  local port. Kept as an escape hatch for one release.
+
 EXAMPLES:
-  revyl auth login            # Browser-based login (recommended)
+  revyl auth login            # Device approval (works everywhere)
   revyl auth login --api-key  # Manual API key entry
+  revyl auth login --browser  # Legacy loopback browser login
   revyl auth status           # Check authentication status`,
 	Example: `  revyl auth login
   revyl auth login --api-key=rk_xxx
   revyl auth login --api-key
+  revyl auth login --browser
   REVYL_API_KEY=rk_xxx revyl auth status`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ui.PrintBanner(version)
 
 		apiKeyValue, _ := cmd.Flags().GetString("api-key")
 		useAPIKey := cmd.Flags().Changed("api-key")
+		useLoopbackBrowser, _ := cmd.Flags().GetBool("browser")
 		devMode, _ := cmd.Flags().GetBool("dev")
 
 		mgr := auth.NewManager()
@@ -143,7 +154,10 @@ EXAMPLES:
 		if useAPIKey {
 			return loginWithAPIKey(cmd, mgr, devMode, apiKeyValue)
 		}
-		return loginWithBrowser(cmd, mgr, devMode)
+		if useLoopbackBrowser {
+			return loginWithBrowser(cmd, mgr, devMode)
+		}
+		return loginWithDeviceApproval(cmd, mgr, devMode)
 	},
 }
 
@@ -156,10 +170,21 @@ type authPersistCloudEnvironmentOutput struct {
 
 // authPersistCloudEnvCmd imports Cloud context and the injected API key into the shared credential store.
 var authPersistCloudEnvCmd = &cobra.Command{
-	Use:    "persist-cloud-env",
-	Short:  "Persist Cloud context and its injected API key",
-	Hidden: true,
-	Args:   cobra.NoArgs,
+	Use:   "persist-cloud-env",
+	Short: "Bridge a hosted agent's injected REVYL_API_KEY into the credential store",
+	Long: `Bridge a hosted Cloud agent's injected API key into the credential store.
+
+Hosted agents inject REVYL_API_KEY into the shell environment, but the MCP
+server runs as a separate process that may not see it. This command copies the
+key from this shell into ~/.revyl so the MCP server picks it up on its next
+tool call. No restart is required.
+
+This command reads an existing secret; it cannot create one. If no key is
+present, add REVYL_API_KEY as a Runtime Secret and start a fresh agent, or run
+'revyl auth login' on a machine with a browser.`,
+	Example: `  revyl auth persist-cloud-env
+  revyl auth persist-cloud-env --json`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, err := persistCloudAuthenticationContext(auth.NewManager())
 		if err != nil {
@@ -176,44 +201,47 @@ var authPersistCloudEnvCmd = &cobra.Command{
 			return nil
 		}
 
-		if result.CredentialPersisted {
-			ui.PrintSuccess("Persisted Cloud context and the injected API key")
-		} else {
-			ui.PrintSuccess("Persisted Cloud context; REVYL_API_KEY is not configured")
-		}
+		ui.PrintSuccess("Bridged the injected API key into the credential store")
+		ui.PrintDim("The MCP server picks this up on its next tool call; no restart needed")
 		return nil
 	},
 }
 
-// persistCloudAuthenticationContext saves Cloud context and an optional injected key without process arguments.
+// persistCloudAuthenticationContext saves the injected key without process arguments.
+//
+// The command is deliberately environment-agnostic: the only precondition it
+// can verify is the one that matters, that REVYL_API_KEY is readable here.
+// Refusing to run based on a guess about the host would block the plugin's own
+// session hook, which is the caller that makes an agent work unattended.
+// Persisting a context without a key would report success for a state that
+// still cannot authenticate, so an absent key is a hard failure that names the
+// next action.
 //
 // Parameters:
 //   - manager: Credential manager that owns the protected local credential store.
 //
 // Returns:
 //   - authPersistCloudEnvironmentOutput: Secret-free persistence result.
-//   - error: A Cloud-context validation or persistence error; error text never contains the API key.
+//   - error: A missing-key or persistence error; error text never contains the API key.
 func persistCloudAuthenticationContext(manager *auth.Manager) (authPersistCloudEnvironmentOutput, error) {
-	if os.Getenv(headlessCloudEnvironmentSignal) != "1" {
-		return authPersistCloudEnvironmentOutput{}, fmt.Errorf("%s must be set to 1", headlessCloudEnvironmentSignal)
-	}
-
 	apiKey, apiKeyConfigured := os.LookupEnv("REVYL_API_KEY")
 	if auth.IsUnresolvedAPIKeyEnvironmentValue(apiKey) {
 		apiKey = ""
 		apiKeyConfigured = false
 	}
-	if err := manager.SaveCloudRuntimeContext(apiKey, apiKeyConfigured); err != nil {
+	if !apiKeyConfigured || strings.TrimSpace(apiKey) == "" {
+		return authPersistCloudEnvironmentOutput{}, errors.New(
+			"REVYL_API_KEY is not present in this shell, so there is no secret to bridge; add REVYL_API_KEY as a Runtime Secret and start a fresh agent, or run 'revyl auth login' on a machine with a browser",
+		)
+	}
+	if err := manager.SaveCloudRuntimeContext(apiKey, true); err != nil {
 		return authPersistCloudEnvironmentOutput{}, fmt.Errorf("failed to persist Cloud authentication context: %w", err)
 	}
-	result := authPersistCloudEnvironmentOutput{
+	return authPersistCloudEnvironmentOutput{
 		CloudContextPersisted: true,
-		CredentialPersisted:   apiKeyConfigured,
-	}
-	if apiKeyConfigured {
-		result.Source = "REVYL_API_KEY"
-	}
-	return result, nil
+		CredentialPersisted:   true,
+		Source:                "REVYL_API_KEY",
+	}, nil
 }
 
 // loginWithBrowser performs browser-based OAuth authentication.
@@ -269,6 +297,105 @@ func loginWithBrowser(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error
 		return err
 	}
 
+	return completeInteractiveLogin(cmd, mgr, devMode, result)
+}
+
+// loginWithDeviceApproval authenticates through a server-brokered approval.
+//
+// Needs no local listening port and no browser on this machine, so it is the
+// one path that behaves the same on a laptop, in a cloud agent, over SSH, and
+// in a container. The approval URL is opened here when a browser exists and
+// always printed, because printing it is what makes the headless case work.
+//
+// Parameters:
+//   - cmd: The cobra command, used for context and next-step output.
+//   - mgr: The auth manager for storing credentials.
+//   - devMode: Whether to use local development URLs.
+//
+// Returns:
+//   - error: Any error during authorization, denial, or expiry. Cancellation is
+//     reported as a warning rather than an error.
+func loginWithDeviceApproval(cmd *cobra.Command, mgr *auth.Manager, devMode bool) error {
+	backendURL := config.GetBackendURL(devMode)
+	if devMode {
+		ui.PrintInfo("Using local development server: %s", backendURL)
+	}
+
+	clientInstanceID, err := mgr.GetOrCreateClientInstanceID()
+	if err != nil {
+		ui.PrintError("Failed to prepare local CLI identity: %v", err)
+		return err
+	}
+
+	deviceAuth := auth.NewDeviceAuth(auth.DeviceAuthConfig{
+		BackendURL:       backendURL,
+		ClientInstanceID: clientInstanceID,
+		DeviceLabel:      auth.CurrentDeviceLabel(),
+	})
+
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	authorization, err := deviceAuth.CreateAuthorization(ctx)
+	if err != nil {
+		ui.PrintError("Could not start authorization: %v", err)
+		ui.Println()
+		ui.PrintInfo("For an unattended machine, use: revyl auth login --api-key")
+		return err
+	}
+
+	ui.PrintInfo("Open this URL to approve, then confirm the code below:")
+	ui.Println()
+	ui.PrintInfo("  %s", authorization.VerificationURIComplete)
+	ui.PrintInfo("  Code: %s", authorization.UserCode)
+	ui.Println()
+	// Opening the browser is a convenience on a desktop and impossible
+	// elsewhere, so a failure here is not a failure of the login.
+	_ = ui.OpenBrowser(authorization.VerificationURIComplete)
+
+	ui.PrintInfo("Waiting for approval (press Ctrl+C to cancel)...")
+
+	result, err := deviceAuth.WaitForApproval(ctx, authorization)
+	if err != nil {
+		switch {
+		case errors.Is(err, context.Canceled):
+			ui.PrintWarning("Authentication cancelled")
+			return nil
+		case errors.Is(err, auth.ErrDeviceAuthorizationDenied):
+			ui.PrintError("The request was denied")
+			return err
+		case errors.Is(err, auth.ErrDeviceAuthorizationExpired):
+			ui.PrintError("The request expired before it was approved")
+			ui.PrintInfo("Run 'revyl auth login' again to start a new one")
+			return err
+		default:
+			ui.PrintError("Authentication failed: %v", err)
+			return err
+		}
+	}
+
+	return completeInteractiveLogin(cmd, mgr, devMode, result)
+}
+
+// completeInteractiveLogin validates, stores, and reports a fresh credential.
+//
+// Shared by both interactive paths so a device approval and a loopback login
+// produce identical stored credentials and identical next steps.
+//
+// Parameters:
+//   - cmd: The cobra command, used for next-step output.
+//   - mgr: The auth manager for storing credentials.
+//   - devMode: Whether to use local development URLs.
+//   - result: The credential the flow obtained.
+//
+// Returns:
+//   - error: A validation or persistence failure.
+func completeInteractiveLogin(
+	cmd *cobra.Command,
+	mgr *auth.Manager,
+	devMode bool,
+	result *auth.BrowserAuthResult,
+) error {
 	// Validate the token by making a test request
 	ui.PrintInfo("Validating credentials...")
 
@@ -448,7 +575,7 @@ var authLogoutCmd = &cobra.Command{
 			return err
 		}
 
-		if creds != nil && creds.AuthMethod == "browser_api_key" && creds.APIKeyID != "" && creds.APIKey != "" {
+		if creds != nil && auth.IsInteractiveLoginAuthMethod(creds.AuthMethod) && creds.APIKeyID != "" && creds.APIKey != "" {
 			client := api.NewClientWithDevMode(creds.APIKey, devMode)
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
@@ -554,7 +681,7 @@ var authStatusCmd = &cobra.Command{
 			if creds.AuthMethod != "" {
 				result["auth_method"] = creds.AuthMethod
 			}
-			if creds.AuthMethod == "browser_api_key" || creds.AuthMethod == "api_key" || creds.AuthMethod == "env" {
+			if auth.IsPersistentAPIKeyAuthMethod(creds.AuthMethod) {
 				result["expires_in_seconds"] = nil
 				result["expired"] = false
 			} else if creds.ExpiresAt != nil {
@@ -591,14 +718,14 @@ var authStatusCmd = &cobra.Command{
 		// Show auth method
 		if creds.AuthMethod != "" {
 			displayMethod := creds.AuthMethod
-			if creds.AuthMethod == "browser_api_key" {
+			if creds.AuthMethod == auth.AuthMethodBrowserAPIKey {
 				displayMethod = "browser (persistent key)"
 			}
 			ui.PrintInfo("Auth Method: %s", displayMethod)
 		}
 
 		// Show token expiration for browser auth
-		if creds.AuthMethod == "browser_api_key" || creds.AuthMethod == "api_key" || creds.AuthMethod == "env" {
+		if auth.IsPersistentAPIKeyAuthMethod(creds.AuthMethod) {
 			ui.PrintInfo("Token expires: never")
 		} else if creds.ExpiresAt != nil {
 			remaining := time.Until(*creds.ExpiresAt)
@@ -613,7 +740,7 @@ var authStatusCmd = &cobra.Command{
 		token, _ := mgr.GetActiveToken()
 		if len(token) > 12 {
 			maskedToken := token[:8] + "..." + token[len(token)-4:]
-			if creds.AuthMethod == "api_key" || creds.AuthMethod == "env" || creds.AuthMethod == "browser_api_key" {
+			if auth.IsPersistentAPIKeyAuthMethod(creds.AuthMethod) {
 				ui.PrintInfo("API Key: %s", maskedToken)
 			} else {
 				ui.PrintInfo("Token: %s", maskedToken)
@@ -773,6 +900,7 @@ EXAMPLES:
 func init() {
 	authLoginCmd.Flags().String("api-key", "", "API key for headless auth (omit value to be prompted)")
 	authLoginCmd.Flags().Lookup("api-key").NoOptDefVal = "prompt"
+	authLoginCmd.Flags().Bool("browser", false, "Use the legacy loopback browser login instead of device approval")
 
 	authCmd.AddCommand(authLoginCmd)
 	authCmd.AddCommand(authLogoutCmd)

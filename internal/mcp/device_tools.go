@@ -1621,7 +1621,7 @@ type ScreenshotOutput struct {
 
 func (s *Server) handleScreenshot(ctx context.Context, req *mcp.CallToolRequest, input ScreenshotInput) (*mcp.CallToolResult, ScreenshotOutput, error) {
 	if failure := s.refreshDevAuthentication(); failure != nil {
-		return &mcp.CallToolResult{IsError: true}, ScreenshotOutput{
+		return authenticationGateResult(failure), ScreenshotOutput{
 			Success:   false,
 			ErrorCode: string(failure.Code),
 			Error:     failure.Message,
@@ -2274,7 +2274,7 @@ type DeviceNavigateOutput struct {
 
 func (s *Server) handleDeviceNavigate(ctx context.Context, req *mcp.CallToolRequest, input DeviceNavigateInput) (*mcp.CallToolResult, DeviceNavigateOutput, error) {
 	if failure := s.refreshDevAuthentication(); failure != nil {
-		return &mcp.CallToolResult{IsError: true}, DeviceNavigateOutput{
+		return authenticationGateResult(failure), DeviceNavigateOutput{
 			Success:   false,
 			ErrorCode: string(failure.Code),
 			Error:     failure.Message,

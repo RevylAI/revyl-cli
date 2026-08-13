@@ -11,10 +11,17 @@ Use this skill whenever you are running as a Cursor Cloud/background agent (head
 
 - The VM is headless and non-interactive. Prefer the Revyl MCP tools; never
   start the `revyl dev` TUI.
-- Browser login is impossible. Call `start_dev_loop` first; if it returns
-  `cloud_secret_required`, tell the user to add `remediation.env_name` as a
-  Runtime Secret and start a new Cloud session. Never request or accept the key
-  in chat, and do not retry when `restart_required` is true.
+- Prefer the secret bridge over any login an error message also names, because
+  the bridge needs no human and you may be running unattended. Call
+  `start_dev_loop` first; if it returns an authentication state, run
+  `revyl auth persist-cloud-env` once to bridge the injected `REVYL_API_KEY`,
+  then retry.
+- Only if that command reports no key in the environment, hand the decision
+  back: post `outcome.authorization_url` from the failed result as a clickable
+  link so the user can approve from their own browser, and say that adding
+  `REVYL_API_KEY` as a Runtime Secret plus a fresh Cloud session is the fix that
+  survives this VM. Approval works from anywhere, so do not claim browser login
+  is impossible. Never request or accept the key in chat.
 - If `start_dev_loop` returns `project_not_initialized`, run its exact
   remediation command once in the returned working directory, then retry once.
 - **The VM has no Xcode.** Native iOS dev loops must call

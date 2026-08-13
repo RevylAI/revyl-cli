@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"strings"
 )
 
 const (
@@ -14,20 +13,34 @@ const (
 	cursorCloudProviderKey                 = "cursor_cloud"
 )
 
-var validCursorConversationID = regexp.MustCompile(
-	`^[A-Za-z0-9][A-Za-z0-9._~-]{0,254}$`,
+// validCursorCloudAgentID matches the backend Cursor Cloud Agent identity.
+// Desktop Cursor chat UUIDs must not be forwarded as Cloud Agent correlation.
+var validCursorCloudAgentID = regexp.MustCompile(
+	`^bc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
 )
 
-// SetCloudAgentConversationContext adds the available provider conversation context
-// to a request using Revyl's provider-neutral Cloud Agent transport headers.
+// SetCloudAgentConversationContext adds Cursor Cloud Agent correlation headers.
+//
+// Only a real Cloud Agent ID (`bc-<uuid>`) is forwarded. Desktop Cursor chats
+// also set CURSOR_CONVERSATION_ID, but those values are chat UUIDs and must
+// not be claimed as cursor_cloud context.
+//
+// Parameters:
+//   - request: Outbound backend request that may receive correlation headers.
 func SetCloudAgentConversationContext(request *http.Request) {
-	if conversationID := os.Getenv(cursorConversationIDEnv); isValidCursorConversationID(conversationID) {
+	if conversationID := os.Getenv(cursorConversationIDEnv); isValidCursorCloudAgentID(conversationID) {
 		request.Header.Set(cloudAgentProviderHeader, cursorCloudProviderKey)
 		request.Header.Set(cloudAgentProviderConversationIDHeader, conversationID)
 	}
 }
 
-func isValidCursorConversationID(conversationID string) bool {
-	return validCursorConversationID.MatchString(conversationID) &&
-		!strings.Contains(conversationID, "..")
+// isValidCursorCloudAgentID reports whether conversationID is a Cursor Cloud Agent ID.
+//
+// Parameters:
+//   - conversationID: Value of CURSOR_CONVERSATION_ID.
+//
+// Returns:
+//   - bool: True only for the backend-accepted `bc-<uuid>` form.
+func isValidCursorCloudAgentID(conversationID string) bool {
+	return validCursorCloudAgentID.MatchString(conversationID)
 }

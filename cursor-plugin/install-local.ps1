@@ -46,7 +46,11 @@ function Resolve-RevylBinary {
     return [System.IO.Path]::GetFullPath($Command.Source)
 }
 
-# Set-InstalledRuntimeOverride rewrites only the staged Revyl binary override.
+# Set-InstalledRuntimeOverride adds the staged Revyl binary override.
+#
+# The shipped mcp.json declares no REVYL_BINARY entry so Cursor cannot overwrite
+# an inherited value with an unresolved interpolation. Local development still
+# needs an explicit runtime, so the entry is added to the staged copy only.
 function Set-InstalledRuntimeOverride {
     param(
         [Parameter(Mandatory = $true)]
@@ -56,14 +60,12 @@ function Set-InstalledRuntimeOverride {
     )
 
     $McpConfig = Get-Content -LiteralPath $McpPath -Raw | ConvertFrom-Json
-    if (
-        $null -eq $McpConfig.mcpServers.revyl -or
-        $McpConfig.mcpServers.revyl.env.REVYL_BINARY -ne '${env:REVYL_BINARY}'
-    ) {
-        throw "mcp.json has no REVYL_BINARY override to rewrite."
+    if ($null -eq $McpConfig.mcpServers.revyl -or $null -eq $McpConfig.mcpServers.revyl.env) {
+        throw "mcp.json has no revyl server environment to extend."
     }
 
-    $McpConfig.mcpServers.revyl.env.REVYL_BINARY = $SelectedBinary
+    $McpConfig.mcpServers.revyl.env |
+        Add-Member -MemberType NoteProperty -Name "REVYL_BINARY" -Value $SelectedBinary -Force
     $SerializedConfig = $McpConfig | ConvertTo-Json -Depth 100
     $Utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($McpPath, "$SerializedConfig`n", $Utf8WithoutBom)
@@ -148,7 +150,7 @@ function Show-LocalInstallStatus {
         }
     }
 
-    $RuntimeOverride = "unavailable"
+    $RuntimeOverride = "plugin-pinned runtime"
     $McpPath = Join-Path $Destination "mcp.json"
     if (Test-Path -LiteralPath $McpPath -PathType Leaf) {
         $McpConfig = Get-Content -LiteralPath $McpPath -Raw | ConvertFrom-Json

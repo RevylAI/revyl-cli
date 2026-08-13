@@ -1,6 +1,7 @@
 #!/bin/sh
 #
-# Reports plugin runtime readiness without blocking work or installing software.
+# Reports plugin runtime readiness and hands any injected API key to the MCP
+# server, without blocking work or installing software.
 
 RUNTIME_UNAVAILABLE_MESSAGE='The Revyl plugin runtime is not ready. Update or reinstall the plugin, or set REVYL_BINARY to an executable Revyl CLI path.'
 
@@ -91,8 +92,42 @@ runtime_ready() {
   command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1
 }
 
+# bridge_environment_api_key hands a visible REVYL_API_KEY to the MCP server.
+#
+# The server runs as a separate process that does not reliably inherit secrets
+# the host injected into the agent, so an agent can hold a valid key that its
+# own Revyl tools cannot see. This hook does run in the environment that has the
+# key, which makes it the one place able to pass it across. Doing so needs no
+# network, and repeating it rewrites the same protected file from the same
+# input, so every session can run it unconditionally.
+#
+# Failures are deliberately silent: a missing credential surfaces as an
+# actionable authentication state on the first tool call, and a hook that
+# reported it as well would only add noise to sessions that never touch Revyl.
+bridge_environment_api_key() {
+  if [ -z "${REVYL_API_KEY:-}" ] ||
+    [ "$REVYL_API_KEY" = '${env:REVYL_API_KEY}' ]; then
+    return 0
+  fi
+
+  # sessionStart has the shorter budget of the two events, so it never waits for
+  # a runtime download. A first run that arrives before the runtime does is
+  # bridged by beforeShellExecution, or by the command the failure names.
+  no_download=
+  if [ "$EVENT" = sessionStart ]; then
+    no_download=1
+  fi
+
+  REVYL_RUNTIME_NO_DOWNLOAD="$no_download" \
+    REVYL_TELEMETRY_DISABLED=1 \
+    "$PLUGIN_DIR/hooks/launch-revyl" auth persist-cloud-env >/dev/null 2>&1 ||
+    return 0
+}
+
 if ! runtime_ready; then
   emit "$RUNTIME_UNAVAILABLE_MESSAGE"
 fi
+
+bridge_environment_api_key
 
 emit ''

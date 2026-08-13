@@ -37,8 +37,16 @@ revyl version
 revyl test list
 ```
 
-For headless agents, set `REVYL_API_KEY` and run:
+When `revyl auth status` reports no credential:
 
 ```bash
-revyl auth login --api-key "$REVYL_API_KEY"
+# Headless agent with REVYL_API_KEY in the environment. Preferred: the key
+# never reaches argv or the process list.
+revyl auth persist-cloud-env
+
+# A human is available: prints an approval URL to open in any browser.
+revyl auth login
 ```
+
+`revyl auth login --api-key=$REVYL_API_KEY` also works, but the value must use
+the `=` form; a space-separated value is ignored and the CLI prompts instead.

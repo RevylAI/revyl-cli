@@ -100,36 +100,43 @@ resolve_binary() {
   esac
 }
 
-# rewrite_installed_runtime_override changes only the staged binary override.
-rewrite_installed_runtime_override() {
+# set_installed_runtime_override adds the staged binary override.
+#
+# The shipped mcp.json declares no REVYL_BINARY entry so Cursor cannot overwrite
+# an inherited value with an unresolved interpolation. Local development still
+# needs an explicit runtime, so the entry is inserted into the staged copy only.
+set_installed_runtime_override() {
   selected_binary=$1
   mcp_path=$2
   rewritten_path="${mcp_path}.tmp"
 
   REVYL_INSTALLED_BINARY=$selected_binary awk '
     BEGIN {
-      replaced = 0
+      inserted = 0
       escaped = ENVIRON["REVYL_INSTALLED_BINARY"]
       gsub(/\\/, "\\\\", escaped)
       gsub(/"/, "\\\"", escaped)
     }
-    !replaced && $0 ~ /^[[:space:]]*"REVYL_BINARY"[[:space:]]*:[[:space:]]*"\$\{env:REVYL_BINARY\}"[[:space:]]*,*[[:space:]]*$/ {
-      quote_position = index($0, "\"REVYL_BINARY\"")
+    !inserted && $0 ~ /^[[:space:]]*"REVYL_PROJECT_DIR"[[:space:]]*:/ {
+      quote_position = index($0, "\"REVYL_PROJECT_DIR\"")
       indentation = substr($0, 1, quote_position - 1)
-      suffix = ($0 ~ /,[[:space:]]*$/) ? "," : ""
-      printf "%s\"REVYL_BINARY\": \"%s\"%s\n", indentation, escaped, suffix
-      replaced = 1
+      trailing_entry = ($0 ~ /,[[:space:]]*$/) ? "," : ""
+      anchor_line = $0
+      sub(/[[:space:]]*,[[:space:]]*$/, "", anchor_line)
+      printf "%s,\n", anchor_line
+      printf "%s\"REVYL_BINARY\": \"%s\"%s\n", indentation, escaped, trailing_entry
+      inserted = 1
       next
     }
     { print }
     END {
-      if (!replaced) {
+      if (!inserted) {
         exit 42
       }
     }
   ' "$mcp_path" > "$rewritten_path" || {
     rm -f "$rewritten_path"
-    printf '%s\n' "Revyl plugin install failed: mcp.json has no REVYL_BINARY override to rewrite." >&2
+    printf '%s\n' "Revyl plugin install failed: mcp.json has no REVYL_PROJECT_DIR entry to anchor the runtime override." >&2
     return 1
   }
 
@@ -191,7 +198,7 @@ print_status() {
     installed_source=${manifest_target%/.cursor-plugin}
   fi
 
-  runtime_override=unavailable
+  runtime_override="plugin-pinned runtime"
   if [ -f "$DESTINATION/mcp.json" ]; then
     detected_override=$(installed_runtime_override "$DESTINATION/mcp.json")
     if [ -n "$detected_override" ]; then
@@ -282,7 +289,7 @@ if [ "$MANIFEST_NAME" != "$PLUGIN_NAME" ]; then
 fi
 
 if [ -n "$SELECTED_BINARY" ]; then
-  rewrite_installed_runtime_override "$SELECTED_BINARY" "$STAGING/mcp.json"
+  set_installed_runtime_override "$SELECTED_BINARY" "$STAGING/mcp.json"
 fi
 
 replace_destination

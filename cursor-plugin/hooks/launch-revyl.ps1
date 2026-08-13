@@ -334,6 +334,12 @@ try {
         exit (Invoke-RevylRuntime -BinaryPath $installedBinary -Arguments $RevylArguments)
     }
 
+    # Callers on a short time budget opt out of the download so they fail fast
+    # instead of blocking on the network for a runtime a later run will cache.
+    if ($env:REVYL_RUNTIME_NO_DOWNLOAD -eq "1") {
+        throw "the pinned Revyl runtime is not cached yet and this invocation may not download it"
+    }
+
     New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null
     $temporaryPath = Join-Path `
         -Path $runtimeDirectory `

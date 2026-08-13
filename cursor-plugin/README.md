@@ -95,7 +95,9 @@ the linked development install. Confirm the plugin exposes its three skills,
 one routing rule, two hooks, and the focused eleven-tool MCP profile.
 
 Use disposable Cursor profiles to cover clean installation, missing and
-expired authentication, missing or ambiguous project setup, invalid
+expired authentication — including that a blocked tool call returns an
+approval URL and short code, and never the device code behind
+them — missing or ambiguous project setup, invalid
 configuration, upgrade from the previous plugin version, and uninstall.
 Confirm stale plugin files are absent after upgrade and uninstall does not
 delete Revyl credentials. Device-backed and Cursor Cloud checks require
