@@ -26,8 +26,9 @@ var proofCmd = &cobra.Command{
 	Hidden: true,
 	Long: `Report on a Revyl proof-of-changes run.
 
-These commands work only inside a Revyl proof sandbox, where REVYL_API_KEY is a
-credential minted for one pull request.
+These commands work only inside an agent Revyl launched to prove a pull
+request: a Revyl proof sandbox, whose REVYL_API_KEY is minted for that one pull
+request, or a Cursor cloud agent Revyl dispatched for it.
 
 COMMANDS:
   comment - Publish your write-up onto the pull request under proof`,
@@ -43,8 +44,8 @@ Revyl keeps one comment per pull request and renders your markdown inside it,
 so this replaces your previous write-up rather than adding another comment.
 Post early with what you have and post again as you learn more.
 
-Which pull request you are writing to comes from your credential, so there is
-nothing to point this at.
+Which pull request you are writing to comes from the run Revyl launched you for,
+so there is nothing to point this at.
 
 Say what you did and what the app did. Use --problem only when the pull request
 itself is broken, and --blocked when you never got to see it run at all, each in
