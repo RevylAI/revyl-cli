@@ -159,6 +159,27 @@ func (e BuildStepType) Valid() bool {
 	}
 }
 
+// Defines values for CLIDeviceAuthorizationState.
+const (
+	CLIDeviceAuthorizationStateApproved CLIDeviceAuthorizationState = "approved"
+	CLIDeviceAuthorizationStateDenied   CLIDeviceAuthorizationState = "denied"
+	CLIDeviceAuthorizationStatePending  CLIDeviceAuthorizationState = "pending"
+)
+
+// Valid indicates whether the value is a known member of the CLIDeviceAuthorizationState enum.
+func (e CLIDeviceAuthorizationState) Valid() bool {
+	switch e {
+	case CLIDeviceAuthorizationStateApproved:
+		return true
+	case CLIDeviceAuthorizationStateDenied:
+		return true
+	case CLIDeviceAuthorizationStatePending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CacheRetryMode.
 const (
 	CacheRetryModeFullRerun CacheRetryMode = "full_rerun"
@@ -1597,6 +1618,9 @@ type BulkSyncTagsResultItem struct {
 	TestId  string  `json:"test_id"`
 }
 
+// CLIDeviceAuthorizationState Lifecycle of one CLI device authorization.
+type CLIDeviceAuthorizationState string
+
 // CacheRetryMode Cache retry policy for test execution.
 //
 // - NONE: No cache fallback, fail if cached steps fail
@@ -1855,6 +1879,36 @@ type CompiledIntentStep struct {
 
 	// StepType instruction, validation, or manual
 	StepType string `json:"step_type"`
+}
+
+// CreateCLIDeviceAuthorizationRequest Request from an unauthenticated CLI to start browser approval.
+type CreateCLIDeviceAuthorizationRequest struct {
+	// ClientInstanceId Stable per-install CLI identifier used to rotate only this device's key.
+	ClientInstanceId *string `json:"client_instance_id,omitempty"`
+
+	// DeviceLabel Human-readable device label shown on the approval page.
+	DeviceLabel *string `json:"device_label,omitempty"`
+}
+
+// CreateCLIDeviceAuthorizationResponse Pending authorization handed back to the CLI that started it.
+type CreateCLIDeviceAuthorizationResponse struct {
+	// DeviceCode Secret the CLI presents to redeem the credential. Never displayed or logged.
+	DeviceCode string `json:"device_code"`
+
+	// ExpiresIn Seconds until this authorization expires and must be restarted.
+	ExpiresIn int `json:"expires_in"`
+
+	// Interval Minimum seconds the CLI should wait between credential polls.
+	Interval int `json:"interval"`
+
+	// UserCode Short code shown to the user so they can confirm they are approving their own login.
+	UserCode string `json:"user_code"`
+
+	// VerificationUri Approval page to open when the complete URL cannot be used.
+	VerificationUri string `json:"verification_uri"`
+
+	// VerificationUriComplete Approval page with the user code embedded, so one click covers the whole flow.
+	VerificationUriComplete string `json:"verification_uri_complete"`
 }
 
 // CreateModuleRequest Request model for creating a new module
@@ -2310,6 +2364,104 @@ type ExecutionModeConfig struct {
 	SkipAppInstall *bool `json:"skip_app_install,omitempty"`
 }
 
+// ExplorationCancelResponse defines model for ExplorationCancelResponse.
+type ExplorationCancelResponse struct {
+	ExecutionStatus  string `json:"execution_status"`
+	HatchetCancelled bool   `json:"hatchet_cancelled"`
+	RunId            string `json:"run_id"`
+}
+
+// ExplorationLaneConfig defines model for ExplorationLaneConfig.
+type ExplorationLaneConfig struct {
+	AuthInstructions *string `json:"auth_instructions,omitempty"`
+	LaneIndex        int     `json:"lane_index"`
+	Role             *string `json:"role,omitempty"`
+	SeedInstructions *string `json:"seed_instructions,omitempty"`
+}
+
+// ExplorationLaunchRequest defines model for ExplorationLaunchRequest.
+type ExplorationLaunchRequest struct {
+	AuthInstructions   *string                  `json:"auth_instructions,omitempty"`
+	BuildId            *openapi_types.UUID      `json:"build_id,omitempty"`
+	DeviceModel        *string                  `json:"device_model,omitempty"`
+	EnvVars            *map[string]string       `json:"env_vars,omitempty"`
+	IdleTimeoutSeconds *int                     `json:"idle_timeout_seconds,omitempty"`
+	LaneCount          *int                     `json:"lane_count,omitempty"`
+	Lanes              *[]ExplorationLaneConfig `json:"lanes,omitempty"`
+	LaunchEnvVarIds    *[]openapi_types.UUID    `json:"launch_env_var_ids,omitempty"`
+	MaxDurationSeconds *int                     `json:"max_duration_seconds,omitempty"`
+	MaxTurns           *int                     `json:"max_turns,omitempty"`
+	OsVersion          *string                  `json:"os_version,omitempty"`
+	Platform           *string                  `json:"platform,omitempty"`
+
+	// RunConfig Complete configuration for a test run.
+	RunConfig        *TestRunConfig `json:"run_config,omitempty"`
+	SeedInstructions *string        `json:"seed_instructions,omitempty"`
+
+	// SwarmStrategy Swarm allocation strategy; roles are derived programmatically.
+	SwarmStrategy *string `json:"swarm_strategy,omitempty"`
+}
+
+// ExplorationLaunchResponse defines model for ExplorationLaunchResponse.
+type ExplorationLaunchResponse struct {
+	ReportUrl string                 `json:"report_url"`
+	Run       ExplorationRunResponse `json:"run"`
+}
+
+// ExplorationRunReportChild A single exploration lane shaped as a run-report child card.
+type ExplorationRunReportChild struct {
+	AppId         *string    `json:"app_id,omitempty"`
+	AppName       *string    `json:"app_name,omitempty"`
+	CompletedAt   *time.Time `json:"completed_at,omitempty"`
+	DeviceModel   *string    `json:"device_model,omitempty"`
+	Duration      *float32   `json:"duration,omitempty"`
+	ErrorMessage  *string    `json:"error_message,omitempty"`
+	LaneIndex     int        `json:"lane_index"`
+	LaneLabel     string     `json:"lane_label"`
+	LaneRole      *string    `json:"lane_role,omitempty"`
+	Platform      *string    `json:"platform,omitempty"`
+	ReportId      *string    `json:"report_id,omitempty"`
+	SessionId     *string    `json:"session_id,omitempty"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
+	Status        *string    `json:"status,omitempty"`
+	StepCount     *int       `json:"step_count,omitempty"`
+	Success       *bool      `json:"success,omitempty"`
+	TaskId        string     `json:"task_id"`
+	TraceId       *string    `json:"trace_id,omitempty"`
+	WhepUrl       *string    `json:"whep_url,omitempty"`
+	WorkflowRunId *string    `json:"workflow_run_id,omitempty"`
+}
+
+// ExplorationRunReportResponse defines model for ExplorationRunReportResponse.
+type ExplorationRunReportResponse struct {
+	AppName           *string                      `json:"app_name,omitempty"`
+	AppPlatform       *string                      `json:"app_platform,omitempty"`
+	Children          *[]ExplorationRunReportChild `json:"children,omitempty"`
+	CompletedChildren *int                         `json:"completed_children,omitempty"`
+	Progress          *float32                     `json:"progress,omitempty"`
+	Run               ExplorationRunResponse       `json:"run"`
+	TotalChildren     *int                         `json:"total_children,omitempty"`
+}
+
+// ExplorationRunResponse defines model for ExplorationRunResponse.
+type ExplorationRunResponse struct {
+	AppId           string                        `json:"app_id"`
+	AtlasStatus     string                        `json:"atlas_status"`
+	BuildId         *string                       `json:"build_id,omitempty"`
+	CompletedAt     *time.Time                    `json:"completed_at,omitempty"`
+	Config          *map[string]interface{}       `json:"config,omitempty"`
+	CreatedAt       time.Time                     `json:"created_at"`
+	CustomerStatus  string                        `json:"customer_status"`
+	ExecutionStatus string                        `json:"execution_status"`
+	Findings        *[]map[string]interface{}     `json:"findings,omitempty"`
+	Id              string                        `json:"id"`
+	Mode            string                        `json:"mode"`
+	Sessions        *[]ExplorationSessionResponse `json:"sessions,omitempty"`
+	Summary         *map[string]interface{}       `json:"summary,omitempty"`
+	TraceId         *string                       `json:"trace_id,omitempty"`
+	UpdatedAt       time.Time                     `json:"updated_at"`
+}
+
 // ExplorationSessionConfig Per-device-session exploration contract passed from API to worker.
 type ExplorationSessionConfig struct {
 	AtlasContext       *string             `json:"atlas_context,omitempty"`
@@ -2323,6 +2475,19 @@ type ExplorationSessionConfig struct {
 	RunId              openapi_types.UUID  `json:"run_id"`
 	RunSessionId       *openapi_types.UUID `json:"run_session_id,omitempty"`
 	SeedInstructions   *string             `json:"seed_instructions,omitempty"`
+}
+
+// ExplorationSessionResponse defines model for ExplorationSessionResponse.
+type ExplorationSessionResponse struct {
+	AtlasLayerJobId *string                 `json:"atlas_layer_job_id,omitempty"`
+	Id              string                  `json:"id"`
+	LaneIndex       int                     `json:"lane_index"`
+	LaneRole        *string                 `json:"lane_role,omitempty"`
+	ReportId        *string                 `json:"report_id,omitempty"`
+	SessionId       *string                 `json:"session_id,omitempty"`
+	SessionStatus   *string                 `json:"session_status,omitempty"`
+	Summary         *map[string]interface{} `json:"summary,omitempty"`
+	WorkflowRunId   *string                 `json:"workflow_run_id,omitempty"`
 }
 
 // ExtractBuildPackageIdResponse Response model for extracting package ID for a build.
@@ -3238,6 +3403,36 @@ type PrReviewConfigSummaryBuild struct {
 
 // ProofHarnessKind Closed set of agents that can run a proof of changes.
 type ProofHarnessKind string
+
+// RedeemCLIDeviceCredentialRequest Poll from the CLI holding the device code.
+type RedeemCLIDeviceCredentialRequest struct {
+	// DeviceCode Secret issued when the authorization was created.
+	DeviceCode string `json:"device_code"`
+}
+
+// RedeemCLIDeviceCredentialResponse Credential poll result.
+//
+// The credential fields are populated exactly once, on the first poll that
+// observes an approval; every later poll for the same device code fails.
+type RedeemCLIDeviceCredentialResponse struct {
+	// ApiKeyId PropelAuth-assigned key ID, present only on the redeeming poll.
+	ApiKeyId *string `json:"api_key_id,omitempty"`
+
+	// ApiKeyToken Minted CLI credential, present only on the redeeming poll.
+	ApiKeyToken *string `json:"api_key_token,omitempty"`
+
+	// Email Email of the approving user, present only on the redeeming poll.
+	Email *string `json:"email,omitempty"`
+
+	// OrgId Organization the credential belongs to, present only on the redeeming poll.
+	OrgId *string `json:"org_id,omitempty"`
+
+	// State Lifecycle of one CLI device authorization.
+	State CLIDeviceAuthorizationState `json:"state"`
+
+	// UserId Approving user's ID, present only on the redeeming poll.
+	UserId *string `json:"user_id,omitempty"`
+}
 
 // RemoteBuildArchiveSource Archive source previously uploaded through the remote upload-url endpoint.
 type RemoteBuildArchiveSource struct {
@@ -5707,6 +5902,12 @@ type StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostJSONRe
 // CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostJSONRequestBody defines body for CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPost for application/json ContentType.
 type CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostJSONRequestBody = BuildUploadSessionRequest
 
+// CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPostJSONRequestBody defines body for CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPost for application/json ContentType.
+type CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPostJSONRequestBody = CreateCLIDeviceAuthorizationRequest
+
+// RedeemCliDeviceCredentialEndpointApiV1EntityUsersCliDeviceAuthorizationsCredentialsPostJSONRequestBody defines body for RedeemCliDeviceCredentialEndpointApiV1EntityUsersCliDeviceAuthorizationsCredentialsPost for application/json ContentType.
+type RedeemCliDeviceCredentialEndpointApiV1EntityUsersCliDeviceAuthorizationsCredentialsPostJSONRequestBody = RedeemCLIDeviceCredentialRequest
+
 // RevokeCliApiKeyEndpointApiV1EntityUsersRevokeCliApiKeyPostJSONRequestBody defines body for RevokeCliApiKeyEndpointApiV1EntityUsersRevokeCliApiKeyPost for application/json ContentType.
 type RevokeCliApiKeyEndpointApiV1EntityUsersRevokeCliApiKeyPostJSONRequestBody = RevokeCLIApiKeyRequest
 
@@ -5724,6 +5925,9 @@ type GroundElementApiV1ExecutionGroundPostJSONRequestBody = GroundRequest
 
 // StartDeviceApiV1ExecutionStartDevicePostJSONRequestBody defines body for StartDeviceApiV1ExecutionStartDevicePost for application/json ContentType.
 type StartDeviceApiV1ExecutionStartDevicePostJSONRequestBody = StartDeviceInfo
+
+// LaunchExplorationApiV1ExplorationsAppsAppIdPostJSONRequestBody defines body for LaunchExplorationApiV1ExplorationsAppsAppIdPost for application/json ContentType.
+type LaunchExplorationApiV1ExplorationsAppsAppIdPostJSONRequestBody = ExplorationLaunchRequest
 
 // GetUploadUrlApiV1FilesUploadUrlPostJSONRequestBody defines body for GetUploadUrlApiV1FilesUploadUrlPost for application/json ContentType.
 type GetUploadUrlApiV1FilesUploadUrlPostJSONRequestBody = OrgFileUploadRequest

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.84-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.85-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -92,6 +92,7 @@ When you're ready to run outside the dev loop:
 revyl test run login-flow --build       # Build, upload, and run in one step
 revyl workflow create smoke-tests --tests login-flow,checkout
 revyl workflow run smoke-tests          # Run the full workflow
+revyl explore run --platform ios        # Explore the app and build its Atlas map
 ```
 
 YAML-first creation can bootstrap local state without a pre-existing `.revyl/config.yaml`:

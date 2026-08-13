@@ -48,6 +48,8 @@ GET /api/v1/execution/device-sessions/history
 GET /api/v1/execution/device-sessions/{session_id}
 GET /api/v1/execution/device-targets
 GET /api/v1/execution/streaming/worker-connection/{workflow_run_id}
+GET /api/v1/explorations/{run_id}
+GET /api/v1/explorations/{run_id}/report
 GET /api/v1/files/
 GET /api/v1/files/{file_id}/download-url
 GET /api/v1/integrations/github/install-url
@@ -108,6 +110,8 @@ POST /api/v1/execution/device/status/cancel/{workflow_run_id}
 POST /api/v1/execution/ground
 POST /api/v1/execution/start_device
 POST /api/v1/execution/tests/status/cancel/{task_id}
+POST /api/v1/explorations/apps/{app_id}
+POST /api/v1/explorations/{run_id}/cancel
 POST /api/v1/files/upload-url
 POST /api/v1/files/{file_id}/complete-upload
 POST /api/v1/hotreload/relays
@@ -147,4 +151,3 @@ PUT /api/v1/workflows/update_location_config/{workflow_id}
 PUT /api/v1/workflows/update_name/{workflow_id}
 PUT /api/v1/workflows/update_run_config/{workflow_id}
 PUT /api/v1/workflows/update_tests/{workflow_id}
-

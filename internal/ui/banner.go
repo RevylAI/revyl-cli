@@ -74,6 +74,7 @@ func GetCondensedHelp() string {
   %s                Initialize project configuration
   %s     Run a test
   %s  Run a workflow
+  %s   Build an Atlas map
 
 %s
   %s                    List and manage tests
@@ -95,6 +96,7 @@ func GetCondensedHelp() string {
 		purple.Render("revyl init"),
 		purple.Render("revyl test run <name>"),
 		purple.Render("revyl workflow run <name>"),
+		purple.Render("revyl explore run [app]"),
 		purple.Render("Manage:"),
 		purple.Render("revyl test"),
 		purple.Render("revyl workflow"),
@@ -123,6 +125,7 @@ func GetHelpText() string {
   %s      Run a test
   %s   Run a test with build
   %s  Run a workflow
+  %s   Build an Atlas map
 
 %s
   %s      Create a new test
@@ -144,6 +147,7 @@ func GetHelpText() string {
 		purple.Render("revyl test run <name>"),
 		purple.Render("revyl test run <name> --build"),
 		purple.Render("revyl workflow run <name>"),
+		purple.Render("revyl explore run [app]"),
 		purple.Render("More:"),
 		purple.Render("revyl test create <name>"),
 		purple.Render("revyl workflow create <name>"),
