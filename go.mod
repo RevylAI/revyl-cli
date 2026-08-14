@@ -1,6 +1,6 @@
 module github.com/revyl/cli
 
-go 1.25.12
+go 1.26.6
 
 require (
 	github.com/atotto/clipboard v0.1.4
