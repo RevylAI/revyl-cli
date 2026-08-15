@@ -1,6 +1,6 @@
 ---
 name: revyl-cli
-description: Base CLI skill for Revyl command-driven workflows. Use when users want shell-command setup, execution, test authoring, or run triage without MCP tool calls.
+description: Base CLI skill for Revyl command-driven workflows. Use when users want shell-command setup, Atlas understanding, execution, test authoring, or run triage without MCP tool calls.
 ---
 
 # Revyl CLI Skill
@@ -13,11 +13,13 @@ Use this as the default Revyl skill when workflows should be expressed as `revyl
 - Prefer safe defaults and keep moving when `revyl init --detect`, `revyl dev list`, `revyl app list`, screenshots, or reports can answer the question.
 - When Revyl prints a viewer, editor, report, or local app URL, open it in the native browser/tool surface when available: Codex Browser/in-app browser for local URLs, Revyl URLs, screenshots, and page checks; Claude Code `.claude/skills` slash-command discovery plus WebFetch/WebSearch or configured MCP/browser tools; Cursor `.cursor/skills` plus `.cursor/rules/revyl-skills.mdc` and available MCP/browser tools.
 - If no browser tool is exposed, report the URL and verify through `revyl device screenshot`, `revyl device report`, or `revyl test report` instead of claiming browser access.
+- A screenshot URL or local image path is not visual verification. Open and read the image before making claims about visible UI.
 - Confirm before entering sensitive data, submitting forms, uploading files, accepting browser permissions, changing sharing/access, or deleting data.
 
 ## Route to Specific CLI Skills
 
 - Use `revyl-cli-dev-loop` for local dev loop workflows and exploratory path capture.
+- Use `revyl-cli-atlas` for media-grounded questions about an app's screens, graph relationships, journeys, or coverage, including reconciling unexpected evidence through clips, extracted frames, and originating reports.
 - Use `revyl-cli-create` for authoring robust YAML tests.
 - Use `revyl-cli-auth-bypass` for test-only authenticated app state setup.
 - Use `revyl-cli-analyze` for failed run triage.

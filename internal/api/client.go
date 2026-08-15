@@ -3087,14 +3087,10 @@ type AtlasQuery struct {
 	ToTime              string
 	SurfaceScope        string
 	Visibility          string
-	IncludeVariants     bool
+	IncludeVariants     *bool
 	IncludeDetails      *bool
 	IncludeFlows        *bool
 	Limit               int
-	Query               string
-	Direction           string
-	LeftEntityID        string
-	RightEntityID       string
 	IncludeScreenshots  bool
 }
 
@@ -3130,8 +3126,8 @@ func (q AtlasQuery) values() url.Values {
 	if q.Visibility != "" {
 		values.Set("visibility", q.Visibility)
 	}
-	if q.IncludeVariants {
-		values.Set("include_variants", "true")
+	if q.IncludeVariants != nil {
+		values.Set("include_variants", fmt.Sprintf("%t", *q.IncludeVariants))
 	}
 	if q.IncludeDetails != nil {
 		values.Set("include_details", fmt.Sprintf("%t", *q.IncludeDetails))
@@ -3141,18 +3137,6 @@ func (q AtlasQuery) values() url.Values {
 	}
 	if q.Limit > 0 {
 		values.Set("limit", fmt.Sprintf("%d", q.Limit))
-	}
-	if q.Query != "" {
-		values.Set("q", q.Query)
-	}
-	if q.Direction != "" {
-		values.Set("direction", q.Direction)
-	}
-	if q.LeftEntityID != "" {
-		values.Set("left_entity_id", q.LeftEntityID)
-	}
-	if q.RightEntityID != "" {
-		values.Set("right_entity_id", q.RightEntityID)
 	}
 	if q.IncludeScreenshots {
 		values.Set("include_screenshots", "true")
@@ -3179,48 +3163,84 @@ func (c *Client) getAtlas(ctx context.Context, path string, query AtlasQuery) (A
 	return result, nil
 }
 
-func (c *Client) GetAtlasOverview(ctx context.Context, query AtlasQuery) (AtlasResponse, error) {
-	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/overview", url.PathEscape(query.AppID)), query)
-}
-
 func (c *Client) GetAtlasGraph(ctx context.Context, query AtlasQuery) (AtlasResponse, error) {
 	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/graph", url.PathEscape(query.AppID)), query)
+}
+
+func (c *Client) GetAtlasIndex(ctx context.Context, search string, limit, offset int, contentOnly, olapReady bool) (AtlasResponse, error) {
+	values := url.Values{}
+	if search != "" {
+		values.Set("search", search)
+	}
+	values.Set("limit", fmt.Sprintf("%d", limit))
+	values.Set("offset", fmt.Sprintf("%d", offset))
+	values.Set("content_only", fmt.Sprintf("%t", contentOnly))
+	if olapReady {
+		values.Set("olap_ready", "true")
+	}
+	path := "/api/v1/atlas/v2/index?" + values.Encode()
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result AtlasResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) GetAtlasEdgeRuns(
+	ctx context.Context,
+	query AtlasQuery,
+	sourceID, targetID, actionType, actionLabel string,
+	limit int,
+) (AtlasResponse, error) {
+	values := query.values()
+	for _, key := range []string{
+		"include_variants",
+		"include_details",
+		"include_flows",
+		"include_screenshots",
+		"limit",
+	} {
+		values.Del(key)
+	}
+	values.Set("source", sourceID)
+	values.Set("target", targetID)
+	values.Set("action_type", actionType)
+	if actionLabel != "" {
+		values.Set("action_label", actionLabel)
+	}
+	if limit > 0 {
+		values.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	path := fmt.Sprintf(
+		"/api/v1/atlas/v2/apps/%s/edge-runs?%s",
+		url.PathEscape(query.AppID),
+		values.Encode(),
+	)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result AtlasResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (c *Client) GetAtlasStructure(ctx context.Context, query AtlasQuery) (AtlasResponse, error) {
 	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/structure", url.PathEscape(query.AppID)), query)
 }
 
-func (c *Client) GetAtlasEntity(ctx context.Context, query AtlasQuery, entityID string) (AtlasResponse, error) {
-	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/entities/%s", url.PathEscape(query.AppID), url.PathEscape(entityID)), query)
-}
-
 func (c *Client) GetAtlasEntityObservations(ctx context.Context, query AtlasQuery, entityID string) (AtlasResponse, error) {
 	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/entities/%s/observations", url.PathEscape(query.AppID), url.PathEscape(entityID)), query)
 }
 
-func (c *Client) GetAtlasEntityNeighbors(ctx context.Context, query AtlasQuery, entityID string) (AtlasResponse, error) {
-	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/entities/%s/neighbors", url.PathEscape(query.AppID), url.PathEscape(entityID)), query)
-}
-
-func (c *Client) GetAtlasEntityCandidates(ctx context.Context, query AtlasQuery, entityID string) (AtlasResponse, error) {
-	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/entities/%s/candidates", url.PathEscape(query.AppID), url.PathEscape(entityID)), query)
-}
-
 func (c *Client) GetAtlasObservation(ctx context.Context, query AtlasQuery, observationID string) (AtlasResponse, error) {
 	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/observations/%s", url.PathEscape(query.AppID), url.PathEscape(observationID)), query)
-}
-
-func (c *Client) GetAtlasFlows(ctx context.Context, query AtlasQuery) (AtlasResponse, error) {
-	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/flows", url.PathEscape(query.AppID)), query)
-}
-
-func (c *Client) SearchAtlas(ctx context.Context, query AtlasQuery) (AtlasResponse, error) {
-	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/search", url.PathEscape(query.AppID)), query)
-}
-
-func (c *Client) CompareAtlasEntities(ctx context.Context, query AtlasQuery) (AtlasResponse, error) {
-	return c.getAtlas(ctx, fmt.Sprintf("/api/v1/atlas/v2/apps/%s/compare", url.PathEscape(query.AppID)), query)
 }
 
 // CLIPaginatedAppsResponse represents a paginated list of apps.

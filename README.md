@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.86-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.88-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -118,6 +118,7 @@ should focus on one intent:
 revyl skill list
 revyl skill install --force                            # Install recommended skills
 revyl skill install --name revyl-cli-dev-loop --force  # Dev loop + device exploration
+revyl skill install --name revyl-cli-atlas --force     # Visual Atlas understanding
 revyl skill install --name revyl-cli-create --force    # Stable YAML test authoring
 revyl skill install --name revyl-cli-auth-bypass --force # Auth bypass setup
 revyl skill install --name revyl-cli-auth-bypass-expo --force # Expo auth bypass leaf
@@ -135,7 +136,10 @@ revyl skill export --name revyl-cli-create -o SKILL.md
 
 Use `revyl-cli-dev-loop` when you want the agent to start or attach to a generic
 Revyl dev loop, interact with the device, and verify with screenshots or
-reports. Use `revyl-cli-create` when you want the agent to author or refine a
+reports. Use `revyl-cli-atlas` when the agent should explore an app bottom-up as
+a graph, opening relevant screenshots at each node and tracing misunderstood
+connections backward through edge clips and their originating reports. Use
+`revyl-cli-create` when you want the agent to author or refine a
 stable Revyl YAML test, validate it, push it, run it, and iterate from reports.
 Use `revyl-cli-auth-bypass` when the agent should set up test-only auth bypass
 and choose the platform recipe after inspecting the app. Use
@@ -146,6 +150,10 @@ Example prompts:
 
 ```text
 Use the revyl-cli-dev-loop skill. Detect the app stack, start or attach to the Revyl dev loop, keep it running after Dev loop ready, and verify with revyl device screenshot before changing strategy.
+```
+
+```text
+Use the revyl-cli-atlas skill. Start from the app's graph anchors, visually inspect each relevant screen, traverse observed edges in both directions, and investigate misunderstood evidence through its clips and originating reports before answering.
 ```
 
 ```text

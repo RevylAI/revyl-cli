@@ -61,7 +61,7 @@ This is the explicit CLI-only fallback. When the Revyl MCP tools are available,
 load ` + "`revyl-mcp-dev-loop`" + ` and use ` + "`start_dev_loop`" + ` instead.
 Do not run a parallel CLI dev loop alongside an MCP-owned loop.
 
-Use this rule when the user asks Cursor to run the app, verify a change on a device, work with Revyl, mobile cloud devices, revyl dev, Revyl test creation, Revyl run analysis, or test-only auth bypass.
+Use this rule when the user asks Cursor to run the app, verify a change on a device, understand an Atlas, work with Revyl, mobile cloud devices, revyl dev, Revyl test creation, Revyl run analysis, or test-only auth bypass.
 
 The core loop ("make this change and run it"):
 
@@ -75,13 +75,14 @@ The core loop ("make this change and run it"):
 Load the matching installed skill from .cursor/skills:
 
 - revyl-cli-dev-loop for starting or attaching to a Revyl dev loop, interacting with the cloud device, and verifying app behavior.
+- revyl-cli-atlas for media-grounded questions about an app's screens, graph relationships, journeys, or coverage. Open screenshots, watch clips or extract frames, and reconcile misunderstood evidence through its originating report.
 - revyl-cli-create for authoring or refining stable Revyl YAML tests from app source, reports, or successful exploratory sessions.
 - revyl-cli-auth-bypass for setting up test-only authenticated app state across mobile stacks.
 - revyl-cli-analyze for failed run, workflow, or device-session triage when installed by name.
 
 Ask at most 1-3 concise clarification questions only when the repo and Revyl CLI cannot identify the target app, platform, session, URL, or sensitive action. Prefer revyl init --detect, revyl dev list, revyl app list, screenshots, and reports before asking.
 
-When Revyl prints a viewer, editor, report, or local app URL, open it with Cursor MCP/browser tools when Cursor exposes them. If no browser tool is available, report the URL and verify through revyl device screenshot or revyl device report instead of claiming browser access.
+When Revyl prints a viewer, editor, report, local app URL, or Atlas screenshot path, open it with Cursor MCP/browser tools when Cursor exposes them. Merely receiving a screenshot path or URL is not visual verification. If no browser or image tool is available, report the URL or path and verify through revyl device screenshot or revyl device report where applicable instead of claiming browser access.
 
 Never paste launch-var values or tokens into code, logs, screenshots, or PRs — reference key names only.
 `
@@ -94,6 +95,7 @@ var skillCmd = &cobra.Command{
 
 Revyl ships embedded skills:
 - revyl-cli-dev-loop: agents run or attach to revyl dev, observe the app, and act through device commands
+- revyl-cli-atlas: agents inspect Atlas screenshots, transition clips or frames, and originating reports
 - revyl-cli-create: agents create or refine stable Revyl tests from YAML, source, or successful flows
 - revyl-cli-auth-bypass: agents set up test-only auth bypass across mobile app stacks
 - revyl-cli-auth-bypass-* leaves: platform recipes used after auth-bypass stack detection
@@ -108,6 +110,7 @@ EXAMPLES:
   revyl skill install --codex --force
   revyl skill install --claude --force
   revyl skill show --name revyl-cli-dev-loop
+  revyl skill show --name revyl-cli-atlas
   revyl skill install --name revyl-cli-auth-bypass --force
   revyl skill export --name revyl-cli-create -o SKILL.md`,
 }

@@ -18,7 +18,7 @@ type Skill struct {
 var catalog = []Skill{
 	{
 		Name:        skills.RevylCLIName,
-		Description: "Base CLI skill for Revyl command workflows. Routes to CLI create/analyze/dev-loop skills.",
+		Description: "Base CLI skill for Revyl command workflows. Routes to CLI Atlas/create/analyze/dev-loop skills.",
 		Content:     skills.RevylCLIContent,
 	},
 	{
@@ -40,6 +40,11 @@ var catalog = []Skill{
 		Name:        skills.RevylCLIDevLoopName,
 		Description: "CLI-first dev loop for starting sessions, exploring flows, and converting successful paths into tests.",
 		Content:     skills.RevylCLIDevLoopContent,
+	},
+	{
+		Name:        skills.RevylCLIAtlasName,
+		Description: "Explore an app bottom-up through observed screenshots, transition clips, and originating reports.",
+		Content:     skills.RevylCLIAtlasContent,
 	},
 	{
 		Name:        skills.RevylCLIAuthBypassName,
@@ -95,12 +100,14 @@ var catalog = []Skill{
 
 var publicSkillNames = []string{
 	skills.RevylCLIDevLoopName,
+	skills.RevylCLIAtlasName,
 	skills.RevylCLICreateName,
 	skills.RevylCLIAuthBypassName,
 }
 
 var defaultInstallSkillNames = []string{
 	skills.RevylCLIDevLoopName,
+	skills.RevylCLIAtlasName,
 	skills.RevylCLICreateName,
 	skills.RevylCLIAuthBypassName,
 	skills.RevylCLIAuthBypassExpoName,

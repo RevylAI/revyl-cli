@@ -123,6 +123,54 @@ func (e AsyncStatus) Valid() bool {
 	}
 }
 
+// Defines values for AtlasV2IndexAppStatus.
+const (
+	AtlasV2IndexAppStatusEmpty   AtlasV2IndexAppStatus = "empty"
+	AtlasV2IndexAppStatusFailed  AtlasV2IndexAppStatus = "failed"
+	AtlasV2IndexAppStatusReady   AtlasV2IndexAppStatus = "ready"
+	AtlasV2IndexAppStatusRunning AtlasV2IndexAppStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the AtlasV2IndexAppStatus enum.
+func (e AtlasV2IndexAppStatus) Valid() bool {
+	switch e {
+	case AtlasV2IndexAppStatusEmpty:
+		return true
+	case AtlasV2IndexAppStatusFailed:
+		return true
+	case AtlasV2IndexAppStatusReady:
+		return true
+	case AtlasV2IndexAppStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AtlasV2IndexOlapStatusStatus.
+const (
+	AtlasV2IndexOlapStatusStatusNone        AtlasV2IndexOlapStatusStatus = "none"
+	AtlasV2IndexOlapStatusStatusReady       AtlasV2IndexOlapStatusStatus = "ready"
+	AtlasV2IndexOlapStatusStatusRecomputing AtlasV2IndexOlapStatusStatus = "recomputing"
+	AtlasV2IndexOlapStatusStatusStale       AtlasV2IndexOlapStatusStatus = "stale"
+)
+
+// Valid indicates whether the value is a known member of the AtlasV2IndexOlapStatusStatus enum.
+func (e AtlasV2IndexOlapStatusStatus) Valid() bool {
+	switch e {
+	case AtlasV2IndexOlapStatusStatusNone:
+		return true
+	case AtlasV2IndexOlapStatusStatusReady:
+		return true
+	case AtlasV2IndexOlapStatusStatusRecomputing:
+		return true
+	case AtlasV2IndexOlapStatusStatusStale:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BuildConfigPlatform.
 const (
 	BuildConfigPlatformAndroid BuildConfigPlatform = "android"
@@ -1204,6 +1252,43 @@ type AppResponse struct {
 // AsyncStatus defines model for AsyncStatus.
 type AsyncStatus string
 
+// AtlasEdgeClipVideo Presigned video for one run, used by the edge-clip player/run switcher.
+type AtlasEdgeClipVideo struct {
+	ReportId      string   `json:"report_id"`
+	VideoDuration *float32 `json:"video_duration,omitempty"`
+	VideoUrl      *string  `json:"video_url,omitempty"`
+}
+
+// AtlasEdgeRun A single observed run behind a selected map edge (latest first).
+//
+// Powers the transition clip in the edge sidebar: the video timestamps bound
+// the source->target delta so the player can loop just that segment.
+type AtlasEdgeRun struct {
+	ActionDescription *string    `json:"action_description,omitempty"`
+	ActionLabel       *string    `json:"action_label,omitempty"`
+	ActionTarget      *string    `json:"action_target,omitempty"`
+	ActionType        *string    `json:"action_type,omitempty"`
+	ExecutionId       *string    `json:"execution_id,omitempty"`
+	ObservedAt        *time.Time `json:"observed_at,omitempty"`
+	ReportId          *string    `json:"report_id,omitempty"`
+	SessionId         *string    `json:"session_id,omitempty"`
+	SourceActionIndex *int       `json:"source_action_index,omitempty"`
+	SourceStepIndex   *int       `json:"source_step_index,omitempty"`
+	SourceVideoEnd    *float32   `json:"source_video_end,omitempty"`
+	SourceVideoStart  *float32   `json:"source_video_start,omitempty"`
+	TargetVideoEnd    *float32   `json:"target_video_end,omitempty"`
+	TargetVideoStart  *float32   `json:"target_video_start,omitempty"`
+	TestId            *string    `json:"test_id,omitempty"`
+}
+
+// AtlasEdgeRunsResponse defines model for AtlasEdgeRunsResponse.
+type AtlasEdgeRunsResponse struct {
+	// ActiveVideo Presigned video for one run, used by the edge-clip player/run switcher.
+	ActiveVideo *AtlasEdgeClipVideo `json:"active_video,omitempty"`
+	AppId       string              `json:"app_id"`
+	Runs        *[]AtlasEdgeRun     `json:"runs,omitempty"`
+}
+
 // AtlasV2GraphResponse defines model for AtlasV2GraphResponse.
 type AtlasV2GraphResponse struct {
 	AppId         string                    `json:"app_id"`
@@ -1216,6 +1301,81 @@ type AtlasV2GraphResponse struct {
 	Projection    *map[string]interface{}   `json:"projection,omitempty"`
 	Stats         *map[string]interface{}   `json:"stats,omitempty"`
 	Structure     *map[string]interface{}   `json:"structure,omitempty"`
+}
+
+// AtlasV2IndexApp defines model for AtlasV2IndexApp.
+type AtlasV2IndexApp struct {
+	AppId              string                     `json:"app_id"`
+	AppName            string                     `json:"app_name"`
+	DetailsAvailable   *bool                      `json:"details_available,omitempty"`
+	Jobs               *AtlasV2IndexJobs          `json:"jobs,omitempty"`
+	LatestBuildId      *string                    `json:"latest_build_id,omitempty"`
+	LatestBuildVersion *string                    `json:"latest_build_version,omitempty"`
+	Olap               AtlasV2IndexOlapStatus     `json:"olap"`
+	Platform           *string                    `json:"platform,omitempty"`
+	PreviewNodes       *[]AtlasV2IndexPreviewNode `json:"preview_nodes,omitempty"`
+	Stats              *AtlasV2IndexStats         `json:"stats,omitempty"`
+	Status             AtlasV2IndexAppStatus      `json:"status"`
+	TopFlows           *[]AtlasV2IndexFlow        `json:"top_flows,omitempty"`
+	UpdatedAt          *time.Time                 `json:"updated_at,omitempty"`
+}
+
+// AtlasV2IndexAppStatus defines model for AtlasV2IndexApp.Status.
+type AtlasV2IndexAppStatus string
+
+// AtlasV2IndexFlow defines model for AtlasV2IndexFlow.
+type AtlasV2IndexFlow struct {
+	ActionLabel *string   `json:"action_label,omitempty"`
+	Id          string    `json:"id"`
+	Label       string    `json:"label"`
+	NodeLabels  *[]string `json:"node_labels,omitempty"`
+	Support     int       `json:"support"`
+}
+
+// AtlasV2IndexJobs defines model for AtlasV2IndexJobs.
+type AtlasV2IndexJobs struct {
+	Failed  *int `json:"failed,omitempty"`
+	Queued  *int `json:"queued,omitempty"`
+	Running *int `json:"running,omitempty"`
+}
+
+// AtlasV2IndexOlapStatus defines model for AtlasV2IndexOlapStatus.
+type AtlasV2IndexOlapStatus struct {
+	ContractVersion *int                          `json:"contract_version,omitempty"`
+	Ready           *bool                         `json:"ready,omitempty"`
+	RecomputedAt    *time.Time                    `json:"recomputed_at,omitempty"`
+	Status          *AtlasV2IndexOlapStatusStatus `json:"status,omitempty"`
+}
+
+// AtlasV2IndexOlapStatusStatus defines model for AtlasV2IndexOlapStatus.Status.
+type AtlasV2IndexOlapStatusStatus string
+
+// AtlasV2IndexPreviewNode defines model for AtlasV2IndexPreviewNode.
+type AtlasV2IndexPreviewNode struct {
+	EntityId           string  `json:"entity_id"`
+	Label              string  `json:"label"`
+	ScreenshotS3Bucket *string `json:"screenshot_s3_bucket,omitempty"`
+	ScreenshotS3Key    *string `json:"screenshot_s3_key,omitempty"`
+	ScreenshotUrl      *string `json:"screenshot_url,omitempty"`
+	ShotCount          *int    `json:"shot_count,omitempty"`
+}
+
+// AtlasV2IndexResponse defines model for AtlasV2IndexResponse.
+type AtlasV2IndexResponse struct {
+	Apps          *[]AtlasV2IndexApp `json:"apps,omitempty"`
+	Limit         int                `json:"limit"`
+	Offset        int                `json:"offset"`
+	Total         *int               `json:"total,omitempty"`
+	UploadedCount *int               `json:"uploaded_count,omitempty"`
+}
+
+// AtlasV2IndexStats defines model for AtlasV2IndexStats.
+type AtlasV2IndexStats struct {
+	Flows    *int `json:"flows,omitempty"`
+	Reports  *int `json:"reports,omitempty"`
+	Screens  *int `json:"screens,omitempty"`
+	Shots    *int `json:"shots,omitempty"`
+	Variants *int `json:"variants,omitempty"`
 }
 
 // AuthInfo Class that represents authentication information.
@@ -5400,67 +5560,25 @@ type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
 
-// CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGetParams defines parameters for CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGet.
-type CompareAtlasV2EntitiesApiV1AtlasV2AppsAppIdCompareGetParams struct {
-	LeftEntityId       string  `form:"left_entity_id" json:"left_entity_id"`
-	RightEntityId      string  `form:"right_entity_id" json:"right_entity_id"`
-	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
-	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
-}
+// GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams defines parameters for GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGet.
+type GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams struct {
+	// Source Source node entity id
+	Source string `form:"source" json:"source"`
 
-// GetAtlasV2EntityApiV1AtlasV2AppsAppIdEntitiesEntityIdGetParams defines parameters for GetAtlasV2EntityApiV1AtlasV2AppsAppIdEntitiesEntityIdGet.
-type GetAtlasV2EntityApiV1AtlasV2AppsAppIdEntitiesEntityIdGetParams struct {
-	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
-	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// GetAtlasV2EntityCandidatesApiV1AtlasV2AppsAppIdEntitiesEntityIdCandidatesGetParams defines parameters for GetAtlasV2EntityCandidatesApiV1AtlasV2AppsAppIdEntitiesEntityIdCandidatesGet.
-type GetAtlasV2EntityCandidatesApiV1AtlasV2AppsAppIdEntitiesEntityIdCandidatesGetParams struct {
-	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
-	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// GetAtlasV2EntityNeighborsApiV1AtlasV2AppsAppIdEntitiesEntityIdNeighborsGetParams defines parameters for GetAtlasV2EntityNeighborsApiV1AtlasV2AppsAppIdEntitiesEntityIdNeighborsGet.
-type GetAtlasV2EntityNeighborsApiV1AtlasV2AppsAppIdEntitiesEntityIdNeighborsGetParams struct {
-	Direction          *string `form:"direction,omitempty" json:"direction,omitempty"`
-	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
-	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	// Target Target node entity id
+	Target              string  `form:"target" json:"target"`
+	ActionType          string  `form:"action_type" json:"action_type"`
+	ActionLabel         *string `form:"action_label,omitempty" json:"action_label,omitempty"`
+	BuildId             *string `form:"build_id,omitempty" json:"build_id,omitempty"`
+	ReportId            *string `form:"report_id,omitempty" json:"report_id,omitempty"`
+	TestId              *string `form:"test_id,omitempty" json:"test_id,omitempty"`
+	WorkflowExecutionId *string `form:"workflow_execution_id,omitempty" json:"workflow_execution_id,omitempty"`
+	SourceKind          *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+	FromTime            *string `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime              *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	SurfaceScope        *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
+	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
+	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservationsGetParams defines parameters for GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservationsGet.
@@ -5476,20 +5594,6 @@ type GetAtlasV2EntityObservationsApiV1AtlasV2AppsAppIdEntitiesEntityIdObservatio
 	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
 	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGetParams defines parameters for GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGet.
-type GetAtlasV2FlowsApiV1AtlasV2AppsAppIdFlowsGetParams struct {
-	BuildId         *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId        *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId          *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind      *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime        *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime          *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope    *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility      *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams defines parameters for GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGet.
@@ -5525,37 +5629,6 @@ type GetAtlasV2ObservationApiV1AtlasV2AppsAppIdObservationsObservationIdGetParam
 	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
-// GetAtlasV2OverviewApiV1AtlasV2AppsAppIdOverviewGetParams defines parameters for GetAtlasV2OverviewApiV1AtlasV2AppsAppIdOverviewGet.
-type GetAtlasV2OverviewApiV1AtlasV2AppsAppIdOverviewGetParams struct {
-	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
-	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGetParams defines parameters for SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGet.
-type SearchAtlasV2ApiV1AtlasV2AppsAppIdSearchGetParams struct {
-	Q                  string  `form:"q" json:"q"`
-	BuildId            *string `form:"build_id,omitempty" json:"build_id,omitempty"`
-	ReportId           *string `form:"report_id,omitempty" json:"report_id,omitempty"`
-	TestId             *string `form:"test_id,omitempty" json:"test_id,omitempty"`
-	SourceKind         *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	FromTime           *string `form:"from_time,omitempty" json:"from_time,omitempty"`
-	ToTime             *string `form:"to_time,omitempty" json:"to_time,omitempty"`
-	SurfaceScope       *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
-	Visibility         *string `form:"visibility,omitempty" json:"visibility,omitempty"`
-	IncludeVariants    *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
-	IncludeScreenshots *bool   `form:"include_screenshots,omitempty" json:"include_screenshots,omitempty"`
-	Limit              *int    `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
 // GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams defines parameters for GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGet.
 type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
 	BuildId             *string `form:"build_id,omitempty" json:"build_id,omitempty"`
@@ -5569,6 +5642,15 @@ type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
 	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	IncludeVariants     *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
 	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetAtlasV2IndexApiV1AtlasV2IndexGetParams defines parameters for GetAtlasV2IndexApiV1AtlasV2IndexGet.
+type GetAtlasV2IndexApiV1AtlasV2IndexGetParams struct {
+	Limit       *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset      *int    `form:"offset,omitempty" json:"offset,omitempty"`
+	Search      *string `form:"search,omitempty" json:"search,omitempty"`
+	ContentOnly *bool   `form:"content_only,omitempty" json:"content_only,omitempty"`
+	OlapReady   *bool   `form:"olap_ready,omitempty" json:"olap_ready,omitempty"`
 }
 
 // ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostParams defines parameters for ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPost.

@@ -31,7 +31,7 @@ var authBypassLeafSkillNames = []string{
 }
 
 func defaultInstalledSkillNamesForTest() []string {
-	names := []string{"revyl-cli-dev-loop", "revyl-cli-create", "revyl-cli-auth-bypass"}
+	names := []string{"revyl-cli-dev-loop", "revyl-cli-atlas", "revyl-cli-create", "revyl-cli-auth-bypass"}
 	return append(names, authBypassLeafSkillNames...)
 }
 
@@ -69,7 +69,7 @@ func TestPublicSkillListUsesAuthBypassParent(t *testing.T) {
 	for _, sk := range public {
 		got = append(got, sk.Name)
 	}
-	want := []string{"revyl-cli-dev-loop", "revyl-cli-create", "revyl-cli-auth-bypass"}
+	want := []string{"revyl-cli-dev-loop", "revyl-cli-atlas", "revyl-cli-create", "revyl-cli-auth-bypass"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("public skills = %v, want %v", got, want)
 	}
@@ -98,8 +98,8 @@ func TestResolveInstallSkillsBothFamilies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveInstallSkills(nil) error = %v", err)
 		}
-		if len(selected) != 15 {
-			t.Fatalf("expected 15 skills when both families selected, got %d", len(selected))
+		if len(selected) != 16 {
+			t.Fatalf("expected 16 skills when both families selected, got %d", len(selected))
 		}
 		var cliCount, mcpCount int
 		for _, sk := range selected {
@@ -260,6 +260,7 @@ func TestCursorProjectInstallWritesCompanionRule(t *testing.T) {
 		"explicit CLI-only fallback",
 		"revyl-mcp-dev-loop",
 		"revyl-cli-dev-loop",
+		"revyl-cli-atlas",
 		"revyl-cli-create",
 		"revyl-cli-auth-bypass",
 		"revyl device screenshot",
@@ -328,7 +329,28 @@ func TestDefaultInstalledSkillContentIncludesNativeAgentBehavior(t *testing.T) {
 		}
 
 		for _, sk := range selected {
-			for _, want := range []string{"Native Agent Behavior", "open it in the native browser", "Codex Browser", "Claude Code `.claude/skills`", "Cursor `.cursor/skills`", "revyl device screenshot"} {
+			for _, want := range []string{"Native Agent Behavior", "Codex Browser", "Claude Code `.claude/skills`", "Cursor `.cursor/skills`"} {
+				if !strings.Contains(sk.Content, want) {
+					t.Fatalf("%s content did not contain %q", sk.Name, want)
+				}
+			}
+			if sk.Name == "revyl-cli-atlas" {
+				for _, want := range []string{
+					"actually opens and reads the image",
+					"--screenshot-dir",
+					"Do not claim to understand the visible UI",
+					"revyl atlas report <screen-or-observation-id>",
+					"ffmpeg",
+					"exact report that generated that run",
+					"Everything present in Atlas originated in observed run evidence",
+				} {
+					if !strings.Contains(sk.Content, want) {
+						t.Fatalf("%s content did not contain %q", sk.Name, want)
+					}
+				}
+				continue
+			}
+			for _, want := range []string{"open it in the native browser", "revyl device screenshot"} {
 				if !strings.Contains(sk.Content, want) {
 					t.Fatalf("%s content did not contain %q", sk.Name, want)
 				}

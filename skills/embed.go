@@ -12,6 +12,7 @@ const (
 	RevylCLIAnalyzeName           = "revyl-cli-analyze"
 	RevylCLIOptimizeName          = "revyl-cli-optimize-tests"
 	RevylCLIDevLoopName           = "revyl-cli-dev-loop"
+	RevylCLIAtlasName             = "revyl-cli-atlas"
 	RevylCLIAuthBypassName        = "revyl-cli-auth-bypass"
 	RevylCLIAuthBypassExpoName    = "revyl-cli-auth-bypass-expo"
 	RevylCLIAuthBypassRNName      = "revyl-cli-auth-bypass-react-native"
@@ -38,6 +39,9 @@ var RevylCLIOptimizeContent string
 
 //go:embed revyl-cli-dev-loop/SKILL.md
 var RevylCLIDevLoopContent string
+
+//go:embed revyl-cli-atlas/SKILL.md
+var RevylCLIAtlasContent string
 
 //go:embed revyl-cli-auth-bypass/SKILL.md
 var RevylCLIAuthBypassContent string

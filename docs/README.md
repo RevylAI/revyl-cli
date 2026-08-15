@@ -7,3 +7,4 @@ AI-powered mobile testing from your terminal. Create, run, and manage end-to-end
 See [docs.revyl.com](https://docs.revyl.com) for documentation on how to use the Revyl CLI.
 
 - [Explore from the CLI](explore.md)
+- [Understand an app with Atlas](atlas.md)

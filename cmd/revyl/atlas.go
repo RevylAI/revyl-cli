@@ -25,13 +25,12 @@ import (
 var atlasCmd = &cobra.Command{
 	Use:   "atlas",
 	Short: "Inspect app Atlases",
-	Long: `Inspect Revyl Atlas maps from the CLI.
+	Long: `Inspect an app as a media-grounded knowledge graph.
 
 Start with:
   revyl atlas apps
-  revyl atlas map --app "My App"
-  revyl atlas graph --app "My App" --json
-  revyl atlas overview --app "My App"
+  revyl atlas brief --app "My App"
+  revyl atlas graph --app "My App"
   revyl atlas search "checkout error" --app "My App"
   revyl atlas screen <screen-id> --app "My App" --screenshots --screenshot-dir /tmp/atlas-shots`,
 	Args: cobra.NoArgs,
@@ -44,25 +43,32 @@ var atlasAppsCmd = &cobra.Command{
 	RunE:  runAtlasApps,
 }
 
-var atlasOverviewCmd = &cobra.Command{
-	Use:   "overview",
-	Short: "Show an Atlas overview for an app",
-	RunE:  runAtlasOverview,
+var atlasBriefCmd = &cobra.Command{
+	Use:   "brief",
+	Short: "Find graph anchors and evidence to begin exploring",
+	RunE:  runAtlasBrief,
 }
 
 var atlasMapCmd = &cobra.Command{
 	Use:   "map",
-	Short: "Show a top-down Atlas structure summary",
+	Short: "Compatibility alias for the Atlas graph",
 	RunE:  runAtlasMap,
 }
 
 var atlasGraphCmd = &cobra.Command{
 	Use:   "graph",
-	Short: "Show the exact Atlas graph payload used by the frontend",
+	Short: "Traverse the app's flat Atlas knowledge graph",
 	Example: `  revyl atlas graph --app "My App"
   revyl atlas graph --app "My App" --screenshots --json
   revyl atlas graph --app "My App" --screenshot-dir /tmp/atlas-shots --json`,
 	RunE: runAtlasGraph,
+}
+
+var atlasAreaCmd = &cobra.Command{
+	Use:   "area <product-area>",
+	Short: "Inspect a product-area subgraph and its boundary edges",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runAtlasArea,
 }
 
 var atlasOpenCmd = &cobra.Command{
@@ -92,6 +98,15 @@ var atlasObservationCmd = &cobra.Command{
 	RunE:  runAtlasObservation,
 }
 
+var atlasReportCmd = &cobra.Command{
+	Use:   "report <screen-or-observation-id>",
+	Short: "Inspect the report that produced Atlas evidence",
+	Example: `  revyl atlas report <screen-id> --app "My App"
+  revyl atlas report <observation-id> --app "My App" --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAtlasReport,
+}
+
 var atlasNeighborsCmd = &cobra.Command{
 	Use:   "neighbors <screen-id>",
 	Short: "Show neighboring Atlas screens",
@@ -99,18 +114,18 @@ var atlasNeighborsCmd = &cobra.Command{
 	RunE:  runAtlasNeighbors,
 }
 
+var atlasEdgeCmd = &cobra.Command{
+	Use:   "edge <source-screen> <target-screen>",
+	Short: "Inspect one observed transition",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runAtlasEdge,
+}
+
 var atlasSearchCmd = &cobra.Command{
 	Use:   "search <query>",
 	Short: "Search Atlas screens",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runAtlasSearch,
-}
-
-var atlasCandidatesCmd = &cobra.Command{
-	Use:   "candidates <screen-id>",
-	Short: "Show Atlas candidates and match decisions",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runAtlasCandidates,
 }
 
 var (
@@ -128,88 +143,118 @@ var (
 	atlasIncludeVariants     bool
 	atlasLimit               int
 	atlasJSON                bool
-	atlasOpenBrowser         bool
 	atlasDirection           string
 	atlasAppsSearch          string
+	atlasAppsAll             bool
+	atlasEdgeRuns            bool
 	atlasScreenshots         bool
 	atlasScreenshotDir       string
 )
 
-const atlasStructureFetchLimit = 100
+const atlasGraphFetchLimit = 840
 
 func init() {
 	atlasCmd.AddCommand(
 		atlasAppsCmd,
-		atlasOverviewCmd,
+		atlasBriefCmd,
 		atlasMapCmd,
+		atlasAreaCmd,
 		atlasGraphCmd,
 		atlasOpenCmd,
 		atlasScreenCmd,
 		atlasObservationsCmd,
 		atlasObservationCmd,
+		atlasReportCmd,
 		atlasNeighborsCmd,
+		atlasEdgeCmd,
 		atlasSearchCmd,
-		atlasCandidatesCmd,
 	)
 	for _, cmd := range []*cobra.Command{
-		atlasOverviewCmd,
+		atlasBriefCmd,
 		atlasMapCmd,
+		atlasAreaCmd,
 		atlasGraphCmd,
-		atlasOpenCmd,
 		atlasScreenCmd,
+		atlasNeighborsCmd,
+		atlasEdgeCmd,
+		atlasSearchCmd,
+	} {
+		addAtlasScopeFlags(cmd, true)
+		addAtlasOutputFlags(cmd)
+	}
+	addAtlasScopeFlags(atlasReportCmd, true)
+	atlasReportCmd.Flags().BoolVar(&atlasJSON, "json", false, "Output stable JSON")
+	for _, cmd := range []*cobra.Command{
 		atlasObservationsCmd,
 		atlasObservationCmd,
-		atlasNeighborsCmd,
-		atlasSearchCmd,
-		atlasCandidatesCmd,
 	} {
-		cmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
-		cmd.Flags().StringVar(&atlasBuild, "build", "all", "Build id, build version, latest, or all")
-		cmd.Flags().StringVar(&atlasFrom, "from", "", "Start time filter (ISO timestamp)")
-		cmd.Flags().StringVar(&atlasTo, "to", "", "End time filter (ISO timestamp)")
-		cmd.Flags().StringVar(&atlasSince, "since", "", "Relative start time hint, such as 7d (sent as-is if backend supports it)")
-		cmd.Flags().StringVar(&atlasReportID, "report-id", "", "Filter to one report")
-		cmd.Flags().StringVar(&atlasTestID, "test-id", "", "Filter to one test")
-		cmd.Flags().StringVar(&atlasWorkflowExecutionID, "workflow-execution-id", "", "Filter to one workflow execution")
-		cmd.Flags().StringVar(&atlasSourceKind, "source-kind", "", "Filter by Atlas source kind")
-		cmd.Flags().StringVar(&atlasSurfaceScope, "surface-scope", "app", "Surface scope: app, app+system, app+external, all")
-		cmd.Flags().StringVar(&atlasVisibility, "visibility", "included", "Visibility: included or included+excluded_debug")
-		cmd.Flags().BoolVar(&atlasIncludeVariants, "include-variants", false, "Include variant nodes where supported")
-		cmd.Flags().IntVar(&atlasLimit, "limit", 20, "Maximum results to return")
-		cmd.Flags().BoolVar(&atlasJSON, "json", false, "Output raw JSON")
-		cmd.Flags().BoolVar(&atlasOpenBrowser, "open", false, "Open the focused Atlas viewer URL in the browser")
-		cmd.Flags().BoolVar(&atlasScreenshots, "screenshots", false, "Include presigned screenshot URLs for visual inspection")
-		cmd.Flags().StringVar(&atlasScreenshotDir, "screenshot-dir", "", "Download Atlas screenshots into this directory and add local_screenshot_path fields")
+		addAtlasScopeFlags(cmd, false)
+		addAtlasOutputFlags(cmd)
 	}
+	atlasOpenCmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
+	atlasOpenCmd.Flags().StringVar(&atlasBuild, "build", "all", "Build id, build version, latest, or all")
+	atlasOpenCmd.Flags().StringVar(&atlasSince, "since", "", "Product range: 1d, 7d, or 30d")
+	atlasOpenCmd.Flags().BoolVar(&atlasIncludeVariants, "include-variants", false, "Show variant nodes")
 	atlasAppsCmd.Flags().StringVar(&appListPlatform, "platform", "", "Filter by platform (android, ios)")
 	atlasAppsCmd.Flags().StringVar(&atlasAppsSearch, "search", "", "Search by app name")
+	atlasAppsCmd.Flags().BoolVar(&atlasAppsAll, "all", false, "Include apps without available Atlas data")
 	atlasAppsCmd.Flags().BoolVar(&atlasJSON, "json", false, "Output raw JSON")
 	atlasNeighborsCmd.Flags().StringVar(&atlasDirection, "direction", "both", "Neighbor direction: both, in, or out")
-	_ = atlasOverviewCmd.MarkFlagRequired("app")
+	atlasEdgeCmd.Flags().BoolVar(&atlasEdgeRuns, "runs", false, "Include recent raw evidence runs for the transition")
+	_ = atlasBriefCmd.MarkFlagRequired("app")
 	_ = atlasMapCmd.MarkFlagRequired("app")
+	_ = atlasAreaCmd.MarkFlagRequired("app")
 	_ = atlasGraphCmd.MarkFlagRequired("app")
 	_ = atlasOpenCmd.MarkFlagRequired("app")
 	_ = atlasScreenCmd.MarkFlagRequired("app")
 	_ = atlasObservationsCmd.MarkFlagRequired("app")
 	_ = atlasObservationCmd.MarkFlagRequired("app")
+	_ = atlasReportCmd.MarkFlagRequired("app")
 	_ = atlasNeighborsCmd.MarkFlagRequired("app")
+	_ = atlasEdgeCmd.MarkFlagRequired("app")
 	_ = atlasSearchCmd.MarkFlagRequired("app")
-	_ = atlasCandidatesCmd.MarkFlagRequired("app")
+}
+
+func addAtlasScopeFlags(cmd *cobra.Command, includeWorkflow bool) {
+	cmd.Flags().StringVar(&atlasApp, "app", "", "App name or app id")
+	cmd.Flags().StringVar(&atlasBuild, "build", "all", "Build id, build version, latest, or all")
+	cmd.Flags().StringVar(&atlasFrom, "from", "", "Start time filter (ISO timestamp)")
+	cmd.Flags().StringVar(&atlasTo, "to", "", "End time filter (ISO timestamp)")
+	cmd.Flags().StringVar(&atlasSince, "since", "", "Relative start time, such as 7d")
+	cmd.Flags().StringVar(&atlasReportID, "report-id", "", "Filter to one report")
+	cmd.Flags().StringVar(&atlasTestID, "test-id", "", "Filter to one test")
+	if includeWorkflow {
+		cmd.Flags().StringVar(&atlasWorkflowExecutionID, "workflow-execution-id", "", "Filter to one workflow execution")
+	}
+	cmd.Flags().StringVar(&atlasSourceKind, "source-kind", "", "Filter by Atlas source kind")
+	cmd.Flags().StringVar(&atlasSurfaceScope, "surface-scope", "app", "Surface scope: app, app+system, app+external, all")
+	cmd.Flags().StringVar(&atlasVisibility, "visibility", "included", "Visibility: included or included+excluded_debug")
+	cmd.Flags().BoolVar(&atlasIncludeVariants, "include-variants", false, "Include variant nodes")
+	cmd.Flags().IntVar(&atlasLimit, "limit", atlasGraphFetchLimit, "Maximum results to return")
+}
+
+func addAtlasOutputFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&atlasJSON, "json", false, "Output stable JSON")
+	cmd.Flags().BoolVar(&atlasScreenshots, "screenshots", false, "Include signed screenshot URLs")
+	cmd.Flags().StringVar(&atlasScreenshotDir, "screenshot-dir", "", "Download screenshots and add local paths")
 }
 
 func runAtlasGuide(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("Start with one of these:")
 	ui.PrintDim("  revyl atlas apps")
-	ui.PrintDim("  revyl atlas overview --app \"My App\"")
-	ui.PrintDim("  revyl atlas map --app \"My App\"")
-	ui.PrintDim("  revyl atlas graph --app \"My App\" --json")
+	ui.PrintDim("  revyl atlas brief --app \"My App\"")
+	ui.PrintDim("  revyl atlas graph --app \"My App\"")
 	ui.PrintDim("  revyl atlas search \"checkout error\" --app \"My App\"")
 	ui.Println()
-	ui.PrintInfo("Then inspect and traverse:")
-	ui.PrintDim("  revyl atlas screen <screen-id> --app \"My App\" --open")
+	ui.PrintInfo("Then traverse bottom-up from a starting anchor:")
+	ui.PrintDim("  revyl atlas open --app \"My App\"")
 	ui.PrintDim("  revyl atlas screen <screen-id> --app \"My App\" --screenshots --screenshot-dir /tmp/atlas-shots")
-	ui.PrintDim("  revyl atlas observations <screen-id> --app \"My App\"")
+	ui.PrintDim("  revyl atlas observations <screen-id> --app \"My App\" --screenshots --screenshot-dir /tmp/atlas-shots")
+	ui.PrintDim("  revyl atlas report <screen-or-observation-id> --app \"My App\"")
 	ui.PrintDim("  revyl atlas neighbors <screen-id> --app \"My App\"")
+	ui.PrintDim("  revyl atlas edge <source-id> <target-id> --app \"My App\" --runs --json")
+	ui.Println()
+	ui.PrintDim("Treat names and summaries as navigation aids. Open the real screenshots and watch edge video evidence before claiming what the app does.")
 	return nil
 }
 
@@ -227,7 +272,11 @@ func resolveAtlasApp(cmd *cobra.Command, client *api.Client, app string) (*api.A
 		return nil, fmt.Errorf("--app is required")
 	}
 	if parsed, err := uuid.Parse(app); err == nil && strings.EqualFold(app, parsed.String()) {
-		return &api.App{ID: parsed.String(), Name: parsed.String()}, nil
+		resolved, getErr := client.GetApp(cmd.Context(), parsed.String())
+		if getErr != nil {
+			return nil, getErr
+		}
+		return resolved, nil
 	}
 	result, err := client.SearchApps(cmd.Context(), app, "", 10)
 	if err != nil {
@@ -256,7 +305,7 @@ func resolveAtlasApp(cmd *cobra.Command, client *api.Client, app string) (*api.A
 	if len(matches) > 1 {
 		ui.PrintError("App %q is ambiguous. Use one of these exact app ids:", app)
 		for _, match := range matches {
-			ui.PrintDim("  revyl atlas overview --app %s    # %s (%s)", match.ID, match.Name, match.Platform)
+			ui.PrintDim("  revyl atlas brief --app %s    # %s (%s)", match.ID, match.Name, match.Platform)
 		}
 		return nil, fmt.Errorf("ambiguous app")
 	}
@@ -304,6 +353,10 @@ func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api
 	if fromTime == "" && atlasSince != "" {
 		fromTime = atlasSinceToTime(atlasSince)
 	}
+	var includeVariants *bool
+	if cmd.Flags().Changed("include-variants") {
+		includeVariants = &atlasIncludeVariants
+	}
 	return api.AtlasQuery{
 		AppID:               app.ID,
 		BuildID:             buildID,
@@ -315,9 +368,8 @@ func atlasQueryFor(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api
 		ToTime:              atlasTo,
 		SurfaceScope:        atlasSurfaceScope,
 		Visibility:          atlasVisibility,
-		IncludeVariants:     atlasIncludeVariants,
+		IncludeVariants:     includeVariants,
 		Limit:               atlasLimit,
-		Direction:           atlasDirection,
 		IncludeScreenshots:  atlasScreenshots || atlasScreenshotDir != "",
 	}, app, nil
 }
@@ -379,7 +431,6 @@ func printAtlasResponse(cmd *cobra.Command, title string, response api.AtlasResp
 	printAtlasGroups(response["observation_groups"])
 	printAtlasNeighbors(response["neighbors"])
 	printAtlasFlows(response["flows"])
-	printAtlasCandidates(response["candidates"])
 	printAtlasNext(response["next_actions"])
 	printAtlasScreenshotHint(response)
 	return nil
@@ -445,6 +496,12 @@ func materializeAtlasScreenshotsValue(value interface{}, seen map[string]string)
 			}
 		}
 	case []interface{}:
+		for _, child := range typed {
+			if err := materializeAtlasScreenshotsValue(child, seen); err != nil {
+				return err
+			}
+		}
+	case []map[string]interface{}:
 		for _, child := range typed {
 			if err := materializeAtlasScreenshotsValue(child, seen); err != nil {
 				return err
@@ -617,28 +674,9 @@ func printAtlasFlows(value interface{}) {
 	}
 }
 
-func printAtlasCandidates(value interface{}) {
-	items, ok := value.([]interface{})
-	if !ok || len(items) == 0 {
-		return
-	}
-	ui.Println()
-	ui.PrintInfo("Candidates:")
-	for _, raw := range items {
-		item, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		ui.PrintDim("  %s", atlasString(item, "candidate_entity_id"))
-		if screen, _ := item["screen"].(map[string]interface{}); screen != nil {
-			printAtlasScreen(screen)
-		}
-	}
-}
-
 func printAtlasNext(value interface{}) {
-	items, ok := value.([]interface{})
-	if !ok || len(items) == 0 {
+	items := atlasSlice(value)
+	if len(items) == 0 {
 		return
 	}
 	ui.Println()
@@ -674,144 +712,146 @@ func atlasEdgeLabel(value interface{}) string {
 	return "transition"
 }
 
-func maybeOpenAtlas(cmd *cobra.Command, response api.AtlasResponse) {
-	if !atlasOpenBrowser {
-		return
-	}
-	url, _ := response["viewer_url"].(string)
-	if url == "" {
-		if screen, ok := response["screen"].(map[string]interface{}); ok {
-			url, _ = screen["viewer_url"].(string)
-		}
-	}
-	if url == "" {
-		return
-	}
-	ui.PrintInfo("Opening Atlas...")
-	ui.PrintLink("Atlas", url)
-	if err := ui.OpenBrowser(url); err != nil {
-		ui.PrintWarning("Could not open browser: %v", err)
-	}
-}
-
 func runAtlasApps(cmd *cobra.Command, args []string) error {
 	client, err := atlasClient(cmd)
 	if err != nil {
 		return err
 	}
-	result, err := client.SearchApps(cmd.Context(), atlasAppsSearch, appListPlatform, 50)
+	result, err := client.GetAtlasIndex(cmd.Context(), atlasAppsSearch, 250, 0, false, !atlasAppsAll)
 	if err != nil {
 		return err
 	}
-	apps := result.Items
+	if !atlasAppsAll && !atlasIndexSupportsReadiness(result) {
+		return fmt.Errorf("the connected Revyl backend does not support Atlas readiness filtering; update the backend or rerun with --all")
+	}
+	apps := make([]map[string]interface{}, 0)
+	readyCount := 0
+	for _, raw := range atlasSlice(result["apps"]) {
+		item := atlasMap(raw)
+		app, ready := atlasIndexAppContract(item, atlasAppsAll)
+		if ready {
+			readyCount++
+		}
+		if !atlasAppsAll && !ready {
+			continue
+		}
+		platform := atlasString(app, "platform")
+		if appListPlatform != "" && !strings.EqualFold(platform, appListPlatform) {
+			continue
+		}
+		apps = append(apps, app)
+	}
 	if atlasJSONOutput(cmd) {
 		data, _ := json.MarshalIndent(map[string]interface{}{
-			"apps":     apps,
-			"count":    len(apps),
-			"total":    result.Total,
-			"page":     result.Page,
-			"has_next": result.HasNext,
+			"contract":    "atlas_apps.v1",
+			"apps":        apps,
+			"count":       len(apps),
+			"ready_count": readyCount,
+			"total":       atlasInt(result["total"]),
 		}, "", "  ")
 		fmt.Println(string(data))
 		return nil
 	}
-	ui.PrintInfo("Apps (%d shown, %d total):", len(apps), result.Total)
-	for _, app := range apps {
-		ui.PrintDim("  %s  %s (%s)", app.ID, app.Name, app.Platform)
-		ui.PrintDim("    revyl atlas overview --app %s", app.ID)
+	label := "Available Atlas apps"
+	if atlasAppsAll {
+		label = "Atlas apps"
 	}
-	if result.HasNext {
-		ui.PrintDim("  Use revyl app list --search <name> to narrow results.")
+	ui.PrintInfo("%s (%d):", label, len(apps))
+	for _, app := range apps {
+		ui.PrintDim(
+			"  %s  %s (%s)  ready=%t",
+			atlasString(app, "id"),
+			atlasString(app, "name"),
+			atlasString(app, "platform"),
+			atlasBool(app["atlas_ready"]),
+		)
+		ui.PrintDim("    revyl atlas brief --app %s", atlasString(app, "id"))
 	}
 	return nil
 }
 
-func runAtlasOverview(cmd *cobra.Command, args []string) error {
+func atlasIndexSupportsReadiness(result api.AtlasResponse) bool {
+	apps := atlasMaps(result["apps"])
+	if len(apps) == 0 {
+		return atlasInt(result["total"]) == 0
+	}
+	for _, item := range apps {
+		if _, ok := item["olap"]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func atlasIndexAppContract(item map[string]interface{}, includeDetails bool) (map[string]interface{}, bool) {
+	ready := atlasBool(atlasMap(item["olap"])["ready"])
+	app := map[string]interface{}{
+		"id":              atlasString(item, "app_id"),
+		"name":            atlasString(item, "app_name"),
+		"platform":        atlasString(item, "platform"),
+		"atlas_ready":     ready,
+		"latest_build_id": item["latest_build_id"],
+		"latest_version":  item["latest_build_version"],
+		"updated_at":      item["updated_at"],
+	}
+	if includeDetails {
+		app["atlas_status"] = atlasString(item, "status")
+		app["stats"] = item["stats"]
+	}
+	return app, ready
+}
+
+func fetchAtlasAgentGraph(cmd *cobra.Command, client *api.Client) (api.AtlasQuery, *api.App, api.AtlasResponse, error) {
+	query, app, err := atlasQueryFor(cmd, client)
+	if err != nil {
+		return api.AtlasQuery{}, nil, nil, err
+	}
+	query = atlasKnowledgeGraphQuery(query)
+	graph, err := client.GetAtlasGraph(cmd.Context(), query)
+	if err != nil {
+		return api.AtlasQuery{}, nil, nil, err
+	}
+	return query, app, graph, nil
+}
+
+func runAtlasBrief(cmd *cobra.Command, args []string) error {
 	client, err := atlasClient(cmd)
 	if err != nil {
 		return err
 	}
-	query, _, err := atlasQueryFor(cmd, client)
+	_, app, graph, err := fetchAtlasAgentGraph(cmd, client)
 	if err != nil {
 		return err
 	}
-	resp, err := client.GetAtlasOverview(cmd.Context(), query)
-	if err != nil {
+	result := buildAtlasBrief(app, graph)
+	if err := materializeAtlasScreenshots(result["visual_sample"]); err != nil {
 		return err
 	}
-	maybeOpenAtlas(cmd, resp)
-	return printAtlasResponse(cmd, "Atlas overview", resp)
+	return printAtlasContract(cmd, result, printAtlasBrief)
 }
 
 func runAtlasMap(cmd *cobra.Command, args []string) error {
-	client, err := atlasClient(cmd)
-	if err != nil {
-		return err
-	}
-	query, app, err := atlasQueryFor(cmd, client)
-	if err != nil {
-		return err
-	}
-	query = atlasStructureQuery(query)
-	structure, err := client.GetAtlasStructure(cmd.Context(), query)
-	if err != nil {
-		return err
-	}
-	result := buildAtlasStructureMapSummary(app, structure)
-	if err := materializeAtlasScreenshots(result); err != nil {
-		return err
-	}
-	if atlasJSONOutput(cmd) {
-		data, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Println(string(data))
-		return nil
-	}
-	printAtlasMapSummary(result)
-	return nil
+	return runAtlasKnowledgeGraph(cmd)
 }
 
 func runAtlasGraph(cmd *cobra.Command, args []string) error {
-	client, err := atlasClient(cmd)
-	if err != nil {
-		return err
-	}
-	query, _, err := atlasQueryFor(cmd, client)
-	if err != nil {
-		return err
-	}
-	query = atlasFrontendGraphQuery(query)
-	graph, err := client.GetAtlasGraph(cmd.Context(), query)
-	if err != nil {
-		return err
-	}
-	return printAtlasResponse(cmd, "Atlas graph", graph)
+	return runAtlasKnowledgeGraph(cmd)
 }
 
-func runAtlasAudit(cmd *cobra.Command, args []string) error {
+func runAtlasKnowledgeGraph(cmd *cobra.Command) error {
 	client, err := atlasClient(cmd)
 	if err != nil {
 		return err
 	}
-	query, app, err := atlasQueryFor(cmd, client)
+	_, app, graph, err := fetchAtlasAgentGraph(cmd, client)
 	if err != nil {
 		return err
 	}
-	query = atlasStructureQuery(query)
-	structure, err := client.GetAtlasStructure(cmd.Context(), query)
-	if err != nil {
-		return err
-	}
-	result := buildAtlasStructureAuditSummary(app, structure)
+	result := buildAtlasKnowledgeGraph(app, graph)
 	if err := materializeAtlasScreenshots(result); err != nil {
 		return err
 	}
-	if atlasJSONOutput(cmd) {
-		data, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Println(string(data))
-		return nil
-	}
-	printAtlasAuditSummary(result)
-	return nil
+	return printAtlasContract(cmd, result, printAtlasKnowledgeGraph)
 }
 
 func runAtlasArea(cmd *cobra.Command, args []string) error {
@@ -819,38 +859,26 @@ func runAtlasArea(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	query, app, err := atlasQueryFor(cmd, client)
+	_, app, graph, err := fetchAtlasAgentGraph(cmd, client)
 	if err != nil {
 		return err
 	}
-	query = atlasStructureQuery(query)
-	structure, err := client.GetAtlasStructure(cmd.Context(), query)
-	if err != nil {
-		return err
+	result := buildAtlasAreaGraph(app, graph, args[0])
+	if atlasInt(result["screen_count"]) == 0 {
+		return fmt.Errorf("Atlas product area %q was not found; available areas: %s", args[0], strings.Join(atlasStringSlice(result["available_areas"]), ", "))
 	}
-	result := buildAtlasStructureAreaSummary(app, structure, args[0])
 	if err := materializeAtlasScreenshots(result); err != nil {
 		return err
 	}
-	if atlasJSONOutput(cmd) {
-		data, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Println(string(data))
-		return nil
-	}
-	printAtlasAreaSummary(result)
-	return nil
+	return printAtlasContract(cmd, result, printAtlasAreaSummary)
 }
 
-func atlasStructureQuery(query api.AtlasQuery) api.AtlasQuery {
-	if query.Limit < atlasStructureFetchLimit {
-		query.Limit = atlasStructureFetchLimit
+func atlasKnowledgeGraphQuery(query api.AtlasQuery) api.AtlasQuery {
+	if query.Limit < atlasGraphFetchLimit {
+		query.Limit = atlasGraphFetchLimit
 	}
-	return atlasFrontendGraphQuery(query)
-}
-
-func atlasFrontendGraphQuery(query api.AtlasQuery) api.AtlasQuery {
 	includeDetails := false
-	includeFlows := true
+	includeFlows := false
 	query.IncludeDetails = &includeDetails
 	query.IncludeFlows = &includeFlows
 	return query
@@ -867,12 +895,26 @@ func runAtlasOpen(cmd *cobra.Command, args []string) error {
 	}
 	devMode, _ := cmd.Flags().GetBool("dev")
 	base := strings.TrimRight(config.GetAppURL(devMode), "/")
-	url := fmt.Sprintf("%s/apps/%s/atlas", base, query.AppID)
+	viewerURL := fmt.Sprintf("%s/apps/%s/atlas", base, query.AppID)
+	params := url.Values{}
 	if query.BuildID != "" {
-		url += "?buildId=" + query.BuildID
+		params.Set("buildId", query.BuildID)
 	}
-	ui.PrintLink("Atlas", url)
-	return ui.OpenBrowser(url)
+	if atlasSince != "" {
+		rangeValue := strings.ToLower(strings.TrimSpace(atlasSince))
+		if rangeValue != "1d" && rangeValue != "7d" && rangeValue != "30d" {
+			return fmt.Errorf("--since must be 1d, 7d, or 30d when opening the Atlas product")
+		}
+		params.Set("range", rangeValue)
+	}
+	if atlasIncludeVariants {
+		params.Set("includeVariants", "1")
+	}
+	if encoded := params.Encode(); encoded != "" {
+		viewerURL += "?" + encoded
+	}
+	ui.PrintLink("Atlas", viewerURL)
+	return ui.OpenBrowser(viewerURL)
 }
 
 func runAtlasScreen(cmd *cobra.Command, args []string) error {
@@ -880,16 +922,19 @@ func runAtlasScreen(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	query, _, err := atlasQueryFor(cmd, client)
+	_, app, graph, err := fetchAtlasAgentGraph(cmd, client)
 	if err != nil {
 		return err
 	}
-	resp, err := client.GetAtlasEntity(cmd.Context(), query, args[0])
+	node, err := resolveAtlasNode(graph, args[0])
 	if err != nil {
 		return err
 	}
-	maybeOpenAtlas(cmd, resp)
-	return printAtlasResponse(cmd, "Atlas screen", resp)
+	result := buildAtlasScreen(app, graph, node)
+	if err := materializeAtlasScreenshots(result); err != nil {
+		return err
+	}
+	return printAtlasContract(cmd, result, printAtlasScreenContract)
 }
 
 func runAtlasObservations(cmd *cobra.Command, args []string) error {
@@ -905,33 +950,9 @@ func runAtlasObservations(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	resp["contract"] = "atlas_observations.v1"
+	resp["projection"] = atlasEvidenceProjection(query)
 	return printAtlasResponse(cmd, "Atlas observations", resp)
-}
-
-func runAtlasVariants(cmd *cobra.Command, args []string) error {
-	client, err := atlasClient(cmd)
-	if err != nil {
-		return err
-	}
-	query, _, err := atlasQueryFor(cmd, client)
-	if err != nil {
-		return err
-	}
-	screen, err := client.GetAtlasEntity(cmd.Context(), query, args[0])
-	if err != nil {
-		return err
-	}
-	result := buildAtlasVariantSummary(screen, screen)
-	if err := materializeAtlasScreenshots(result); err != nil {
-		return err
-	}
-	if atlasJSONOutput(cmd) {
-		data, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Println(string(data))
-		return nil
-	}
-	printAtlasVariantSummary(result)
-	return nil
 }
 
 func runAtlasObservation(cmd *cobra.Command, args []string) error {
@@ -947,8 +968,148 @@ func runAtlasObservation(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	maybeOpenAtlas(cmd, resp)
+	resp["contract"] = "atlas_observation.v1"
+	resp["projection"] = atlasEvidenceProjection(query)
+	resp["next_actions"] = append(
+		atlasStringSlice(resp["next_actions"]),
+		fmt.Sprintf("revyl atlas report %s --app %s --json", args[0], query.AppID),
+	)
 	return printAtlasResponse(cmd, "Atlas observation", resp)
+}
+
+func runAtlasReport(cmd *cobra.Command, args []string) error {
+	client, err := atlasClient(cmd)
+	if err != nil {
+		return err
+	}
+	query, app, graph, err := fetchAtlasAgentGraph(cmd, client)
+	if err != nil {
+		return err
+	}
+
+	requested := args[0]
+	observationID, resolvedAs, sourceScreen, err := resolveAtlasReportTarget(graph, requested)
+	if err != nil {
+		return err
+	}
+	if resolvedAs == "screen" && observationID == "" {
+		return fmt.Errorf("Atlas screen %s has no representative observation; run 'revyl atlas observations %s --app %s'", atlasScreenLabel(sourceScreen), atlasString(sourceScreen, "id"), query.AppID)
+	}
+
+	observationResponse, err := client.GetAtlasObservation(cmd.Context(), query, observationID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve %q as an Atlas screen or observation: %w", requested, err)
+	}
+	observation := atlasMap(observationResponse["observation"])
+	if len(observation) == 0 {
+		return fmt.Errorf("Atlas observation %s did not include report provenance", observationID)
+	}
+
+	executionID := atlasString(observation, "execution_id")
+	sessionID := atlasString(observation, "session_id")
+	var envelope *api.CLIReportContextEnvelope
+	var reportErr error
+	if executionID != "" {
+		envelope, reportErr = client.GetReportContextByExecution(cmd.Context(), executionID, true, true, false)
+	}
+	if envelope == nil && sessionID != "" {
+		envelope, reportErr = client.GetReportBySession(cmd.Context(), sessionID, true, true, false)
+	}
+	if envelope == nil {
+		if reportErr != nil {
+			return fmt.Errorf("failed to fetch the report for Atlas observation %s: %w", observationID, reportErr)
+		}
+		return fmt.Errorf("Atlas observation %s has no execution or session report reference", observationID)
+	}
+
+	report, err := atlasUserFacingReport(envelope.Raw)
+	if err != nil {
+		return err
+	}
+	result := buildAtlasReportContract(app, graph, requested, resolvedAs, sourceScreen, observation, report)
+	return printAtlasContract(cmd, result, printAtlasReportContract)
+}
+
+func resolveAtlasReportTarget(
+	graph api.AtlasResponse,
+	requested string,
+) (string, string, map[string]interface{}, error) {
+	node, err := resolveAtlasNode(graph, requested)
+	if err == nil {
+		return atlasString(node, "representative_observation_id"), "screen", node, nil
+	}
+	if _, parseErr := uuid.Parse(requested); parseErr == nil {
+		return requested, "observation", nil, nil
+	}
+	return "", "", nil, err
+}
+
+func atlasUserFacingReport(raw json.RawMessage) (map[string]interface{}, error) {
+	data, err := buildUserFacingReportJSON(raw)
+	if err != nil {
+		return nil, err
+	}
+	var report map[string]interface{}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("failed to parse report context: %w", err)
+	}
+	return report, nil
+}
+
+func buildAtlasReportContract(
+	app *api.App,
+	graph api.AtlasResponse,
+	requested string,
+	resolvedAs string,
+	sourceScreen map[string]interface{},
+	observation map[string]interface{},
+	report map[string]interface{},
+) map[string]interface{} {
+	provenance := map[string]interface{}{
+		"observation_id":        observation["observation_id"],
+		"report_id":             observation["report_id"],
+		"execution_id":          observation["execution_id"],
+		"session_id":            observation["session_id"],
+		"test_id":               observation["test_id"],
+		"test_name":             observation["test_name"],
+		"step_index":            observation["step_index"],
+		"action_index":          observation["action_index"],
+		"workflow_execution_id": report["workflow_execution_id"],
+	}
+	result := map[string]interface{}{
+		"contract":   "atlas_report.v1",
+		"app":        atlasAppSummary(app, graph),
+		"projection": map[string]interface{}{"data_source": "evidence"},
+		"requested": map[string]interface{}{
+			"value":       requested,
+			"resolved_as": resolvedAs,
+		},
+		"observation":  observation,
+		"provenance":   provenance,
+		"report":       report,
+		"next_actions": atlasReportNextActions(graph, provenance),
+	}
+	if sourceScreen != nil {
+		result["screen"] = atlasAgentScreen(sourceScreen)
+	}
+	return result
+}
+
+func atlasReportNextActions(graph api.AtlasResponse, provenance map[string]interface{}) []string {
+	appID := atlasString(graph, "app_id")
+	next := make([]string, 0, 4)
+	if reportID := atlasString(provenance, "report_id"); reportID != "" {
+		next = append(next, fmt.Sprintf("revyl atlas graph --app %s --report-id %s --json", appID, reportID))
+	}
+	if executionID := atlasString(provenance, "execution_id"); executionID != "" {
+		next = append(next, fmt.Sprintf("revyl test report %s --json", executionID))
+	} else if sessionID := atlasString(provenance, "session_id"); sessionID != "" {
+		next = append(next, fmt.Sprintf("revyl device report --session-id %s --json", sessionID))
+	}
+	if workflowExecutionID := atlasString(provenance, "workflow_execution_id"); workflowExecutionID != "" {
+		next = append(next, fmt.Sprintf("revyl workflow report %s --json", workflowExecutionID))
+	}
+	return next
 }
 
 func runAtlasNeighbors(cmd *cobra.Command, args []string) error {
@@ -956,15 +1117,16 @@ func runAtlasNeighbors(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	query, _, err := atlasQueryFor(cmd, client)
+	_, app, graph, err := fetchAtlasAgentGraph(cmd, client)
 	if err != nil {
 		return err
 	}
-	resp, err := client.GetAtlasEntityNeighbors(cmd.Context(), query, args[0])
+	node, err := resolveAtlasNode(graph, args[0])
 	if err != nil {
 		return err
 	}
-	return printAtlasResponse(cmd, "Atlas neighbors", resp)
+	result := buildAtlasNeighbors(app, graph, node, atlasDirection)
+	return printAtlasContract(cmd, result, printAtlasNeighborsContract)
 }
 
 func runAtlasSearch(cmd *cobra.Command, args []string) error {
@@ -972,482 +1134,928 @@ func runAtlasSearch(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	query, _, err := atlasQueryFor(cmd, client)
+	_, app, graph, err := fetchAtlasAgentGraph(cmd, client)
 	if err != nil {
 		return err
 	}
-	query.Query = args[0]
-	resp, err := client.SearchAtlas(cmd.Context(), query)
-	if err != nil {
-		return err
-	}
-	return printAtlasResponse(cmd, "Atlas search", resp)
+	result := buildAtlasSearch(app, graph, args[0], atlasLimit)
+	return printAtlasContract(cmd, result, printAtlasSearchContract)
 }
 
-func runAtlasCompare(cmd *cobra.Command, args []string) error {
+func runAtlasEdge(cmd *cobra.Command, args []string) error {
 	client, err := atlasClient(cmd)
 	if err != nil {
 		return err
 	}
-	query, _, err := atlasQueryFor(cmd, client)
+	query, app, graph, err := fetchAtlasAgentGraph(cmd, client)
 	if err != nil {
 		return err
 	}
-	query.LeftEntityID = args[0]
-	query.RightEntityID = args[1]
-	resp, err := client.CompareAtlasEntities(cmd.Context(), query)
+	source, err := resolveAtlasNode(graph, args[0])
 	if err != nil {
 		return err
 	}
-	return printAtlasResponse(cmd, "Atlas compare", resp)
+	target, err := resolveAtlasNode(graph, args[1])
+	if err != nil {
+		return err
+	}
+	result, matches := buildAtlasEdge(app, graph, source, target)
+	if len(matches) == 0 {
+		return fmt.Errorf("no observed transition from %s to %s", atlasScreenLabel(source), atlasScreenLabel(target))
+	}
+	if atlasEdgeRuns {
+		evidence := make([]map[string]interface{}, 0, len(matches))
+		for _, edge := range matches {
+			runs, runsErr := client.GetAtlasEdgeRuns(
+				cmd.Context(),
+				query,
+				atlasString(source, "id"),
+				atlasString(target, "id"),
+				atlasString(edge, "action_type"),
+				atlasString(edge, "action_label"),
+				5,
+			)
+			if runsErr != nil {
+				return runsErr
+			}
+			evidence = append(evidence, map[string]interface{}{
+				"action_type":  atlasString(edge, "action_type"),
+				"action_label": atlasString(edge, "action_label"),
+				"runs":         runs,
+			})
+		}
+		result["evidence"] = evidence
+		result["next_actions"] = append(
+			atlasStringSlice(result["next_actions"]),
+			atlasEdgeReportNextActions(query.AppID, evidence)...,
+		)
+	}
+	return printAtlasContract(cmd, result, printAtlasEdgeContract)
 }
 
-func runAtlasCandidates(cmd *cobra.Command, args []string) error {
-	client, err := atlasClient(cmd)
-	if err != nil {
-		return err
+func atlasEdgeReportNextActions(appID string, evidence []map[string]interface{}) []string {
+	next := make([]string, 0, 3)
+	seen := map[string]bool{}
+	for _, item := range evidence {
+		response := atlasMap(item["runs"])
+		runs := atlasMaps(response["runs"])
+		if len(runs) == 0 {
+			continue
+		}
+		run := runs[0]
+		if reportID := atlasString(run, "report_id"); reportID != "" {
+			command := fmt.Sprintf("revyl atlas graph --app %s --report-id %s --json", appID, reportID)
+			if !seen[command] {
+				next = append(next, command)
+				seen[command] = true
+			}
+		}
+		if executionID := atlasString(run, "execution_id"); executionID != "" {
+			command := fmt.Sprintf("revyl test report %s --json", executionID)
+			if !seen[command] {
+				next = append(next, command)
+				seen[command] = true
+			}
+		} else if sessionID := atlasString(run, "session_id"); sessionID != "" {
+			command := fmt.Sprintf("revyl device report --session-id %s --json", sessionID)
+			if !seen[command] {
+				next = append(next, command)
+				seen[command] = true
+			}
+		}
+		if len(next) >= 3 {
+			break
+		}
 	}
-	query, _, err := atlasQueryFor(cmd, client)
-	if err != nil {
-		return err
-	}
-	resp, err := client.GetAtlasEntityCandidates(cmd.Context(), query, args[0])
-	if err != nil {
-		return err
-	}
-	return printAtlasResponse(cmd, "Atlas candidates", resp)
+	return next
 }
 
-func runAtlasCoverage(cmd *cobra.Command, args []string) error {
-	if strings.TrimSpace(atlasReportID) == "" && len(args) == 1 {
-		atlasReportID = strings.TrimSpace(args[0])
-	}
-	if strings.TrimSpace(atlasReportID) == "" {
-		return fmt.Errorf("report id is required as coverage <report-id> or --report-id")
-	}
-	client, err := atlasClient(cmd)
-	if err != nil {
-		return err
-	}
-	query, app, err := atlasQueryFor(cmd, client)
-	if err != nil {
-		return err
-	}
-	overview, err := client.GetAtlasOverview(cmd.Context(), query)
-	if err != nil {
-		return err
-	}
-	flows, err := client.GetAtlasFlows(cmd.Context(), query)
-	if err != nil {
-		return err
-	}
-	result := buildAtlasCoverageSummary(app, overview, flows, atlasReportID)
-	if err := materializeAtlasScreenshots(result); err != nil {
-		return err
-	}
+func printAtlasContract(cmd *cobra.Command, result map[string]interface{}, printer func(map[string]interface{})) error {
 	if atlasJSONOutput(cmd) {
 		data, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(data))
 		return nil
 	}
-	printAtlasCoverageSummary(result)
+	printer(result)
 	return nil
 }
 
-type atlasIssue struct {
-	Severity string                   `json:"severity"`
-	Title    string                   `json:"title"`
-	Detail   string                   `json:"detail"`
-	Evidence []map[string]interface{} `json:"evidence,omitempty"`
-	Command  string                   `json:"command,omitempty"`
-}
-
-func atlasStructurePayload(response api.AtlasResponse) map[string]interface{} {
-	return atlasMap(response["structure"])
-}
-
-func buildAtlasStructureMapSummary(app *api.App, response api.AtlasResponse) map[string]interface{} {
-	structure := atlasStructurePayload(response)
-	nodes := atlasMaps(structure["nodes"])
-	edges := atlasMaps(structure["edges"])
-	primaryEdges := make([]map[string]interface{}, 0)
-	for _, edge := range edges {
-		if atlasString(edge, "role") == "primary_access" {
-			primaryEdges = append(primaryEdges, edge)
+func buildAtlasBrief(app *api.App, graph api.AtlasResponse) map[string]interface{} {
+	nodes := atlasMaps(graph["nodes"])
+	connectivity := atlasConnectivity(graph)
+	sort.SliceStable(nodes, func(i, j int) bool {
+		left := connectivity[atlasString(nodes[i], "id")]
+		right := connectivity[atlasString(nodes[j], "id")]
+		if left != right {
+			return left > right
 		}
+		return atlasInt(nodes[i]["observation_count"]) > atlasInt(nodes[j]["observation_count"])
+	})
+	anchors := atlasStartingAnchors(graph, nil)
+	stats := atlasGraphStats(graph)
+	name := atlasString(atlasAppSummary(app, graph), "name")
+	if name == "" {
+		name = atlasString(graph, "app_id")
 	}
-	return map[string]interface{}{
-		"app":             atlasAppSummary(app, response),
-		"stats":           atlasMap(response["stats"]),
-		"algorithm":       structure["algorithm"],
-		"roots":           structure["roots"],
-		"spine":           structure["spine"],
-		"structure_nodes": atlasStructureNodes(nodes, atlasLimitOr(len(nodes))),
-		"primary_edges":   atlasStructureEdges(primaryEdges, atlasLimitOr(18)),
-		"signals":         structure["issues"],
-		"metadata":        structure["metadata"],
-		"viewer_url":      response["viewer_url"],
+	result := map[string]interface{}{
+		"contract":                  "atlas_brief.v2",
+		"app":                       atlasAppSummary(app, graph),
+		"summary":                   fmt.Sprintf("%s has %d screens connected by %d observed relationships across %d product areas.", name, atlasInt(stats["nodes"]), atlasInt(stats["edges"]), len(atlasMap(stats["product_areas"]))),
+		"projection":                atlasProjectionContract(graph),
+		"stats":                     stats,
+		"product_areas":             atlasProductAreas(stats),
+		"starting_anchors":          atlasLimitMaps(anchors, 8),
+		"high_connectivity_screens": atlasConnectivityScreens(nodes, connectivity, 10),
+		"visual_sample":             atlasVisualSample(nodes, 6),
+		"curation":                  atlasCurationContract(graph),
 	}
+	appID := atlasString(graph, "app_id")
+	next := []string{fmt.Sprintf("revyl atlas graph --app %s", appID)}
+	if len(anchors) > 0 {
+		id := atlasString(anchors[0], "id")
+		next = append(next,
+			fmt.Sprintf("revyl atlas screen %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", id, appID),
+			fmt.Sprintf("revyl atlas neighbors %s --app %s", id, appID),
+		)
+	}
+	result["next_actions"] = next
+	return result
 }
 
-func buildAtlasStructureAuditSummary(app *api.App, response api.AtlasResponse) map[string]interface{} {
-	structure := atlasStructurePayload(response)
-	issues := atlasSlice(structure["issues"])
-	return map[string]interface{}{
-		"app":          atlasAppSummary(app, response),
-		"summary":      fmt.Sprintf("%d semantic structure signals found", len(issues)),
-		"issues":       issues,
-		"algorithm":    structure["algorithm"],
-		"viewer_url":   response["viewer_url"],
-		"next_actions": []string{fmt.Sprintf("revyl atlas map --app %s", atlasApp)},
+func buildAtlasKnowledgeGraph(app *api.App, graph api.AtlasResponse) map[string]interface{} {
+	allNodes := atlasMaps(graph["nodes"])
+	nodes := allNodes
+	limit := atlasLimitOr(len(nodes))
+	if limit > len(nodes) {
+		limit = len(nodes)
 	}
-}
-
-func buildAtlasStructureAreaSummary(app *api.App, response api.AtlasResponse, area string) map[string]interface{} {
-	structure := atlasStructurePayload(response)
-	nodes := atlasMaps(structure["nodes"])
-	edges := atlasMaps(structure["edges"])
-	want := strings.ToLower(strings.TrimSpace(area))
-	matches := make([]map[string]interface{}, 0)
-	screenIDs := map[string]bool{}
+	nodes = nodes[:limit]
+	returnedNodeIDs := map[string]bool{}
 	for _, node := range nodes {
-		lane := strings.ToLower(atlasString(node, "lane"))
-		label := strings.ToLower(atlasString(node, "label"))
-		if lane == want || strings.Contains(lane, want) || strings.Contains(label, want) {
-			matches = append(matches, node)
-			screenIDs[atlasString(node, "id")] = true
-		}
+		returnedNodeIDs[atlasString(node, "id")] = true
 	}
-	areaEdges := make([]map[string]interface{}, 0)
-	for _, edge := range edges {
-		if atlasString(edge, "role") != "primary_access" {
+	nodeByID := atlasNodeIndex(graph)
+	edges := make([]map[string]interface{}, 0, len(atlasMaps(graph["edges"])))
+	for _, edge := range atlasMaps(graph["edges"]) {
+		if !returnedNodeIDs[atlasString(edge, "source_entity_id")] || !returnedNodeIDs[atlasString(edge, "target_entity_id")] {
 			continue
 		}
-		if screenIDs[atlasString(edge, "source")] || screenIDs[atlasString(edge, "target")] {
-			areaEdges = append(areaEdges, edge)
-		}
+		edges = append(edges, atlasAgentEdge(edge, nodeByID))
 	}
-	return map[string]interface{}{
-		"app":          atlasAppSummary(app, response),
-		"area":         area,
-		"screens":      atlasStructureNodes(matches, atlasLimitOr(20)),
-		"edges":        atlasStructureEdges(areaEdges, atlasLimitOr(20)),
-		"screen_count": len(matches),
-		"edge_count":   len(areaEdges),
-		"algorithm":    structure["algorithm"],
-		"next_actions": atlasAreaNextActions(matches),
-	}
-}
-
-func buildAtlasMapSummary(app *api.App, overview, flows api.AtlasResponse) map[string]interface{} {
-	screens := atlasScreensFrom(overview["top_screens"])
-	stats := atlasMap(overview["stats"])
-	productAreas := atlasProductAreas(stats)
-	flowItems := atlasSlice(flows["flows"])
-	issues := atlasStructuralIssues(screens, stats, flowItems, 5)
-	return map[string]interface{}{
-		"app":           atlasAppSummary(app, overview),
-		"stats":         stats,
-		"product_areas": productAreas,
-		"top_screens":   atlasTopScreens(screens, 10),
-		"top_flows":     atlasTopFlows(flowItems, 8),
-		"signals":       issues,
-		"next_actions":  atlasMapNextActions(issues),
-		"viewer_url":    overview["viewer_url"],
-	}
-}
-
-func buildAtlasAuditSummary(app *api.App, overview, flows api.AtlasResponse) map[string]interface{} {
-	screens := atlasScreensFrom(overview["top_screens"])
-	stats := atlasMap(overview["stats"])
-	flowItems := atlasSlice(flows["flows"])
-	issues := atlasStructuralIssues(screens, stats, flowItems, 20)
-	return map[string]interface{}{
-		"app":          atlasAppSummary(app, overview),
-		"summary":      fmt.Sprintf("%d potential structure signals found", len(issues)),
-		"issues":       issues,
-		"next_actions": atlasMapNextActions(issues),
-		"viewer_url":   overview["viewer_url"],
-	}
-}
-
-func buildAtlasAreaSummary(app *api.App, overview, flows api.AtlasResponse, area string) map[string]interface{} {
-	screens := atlasScreensFrom(overview["top_screens"])
-	want := strings.ToLower(strings.TrimSpace(area))
-	var matches []map[string]interface{}
-	screenIDs := map[string]bool{}
-	for _, screen := range screens {
-		productArea := strings.ToLower(atlasString(screen, "product_area"))
-		label := strings.ToLower(atlasScreenLabel(screen))
-		if productArea == want || strings.Contains(productArea, want) || strings.Contains(label, want) {
-			matches = append(matches, screen)
-			screenIDs[atlasString(screen, "id")] = true
-		}
-	}
-	flowItems := atlasSlice(flows["flows"])
-	var areaFlows []interface{}
-	for _, rawFlow := range flowItems {
-		flow := atlasMap(rawFlow)
-		label := strings.ToLower(atlasString(flow, "label"))
-		if strings.Contains(label, want) || atlasFlowTouchesScreens(flow, screenIDs) {
-			areaFlows = append(areaFlows, flow)
-		}
-	}
-	return map[string]interface{}{
-		"app":          atlasAppSummary(app, overview),
-		"area":         area,
-		"screens":      atlasTopScreens(matches, atlasLimitOr(20)),
-		"flows":        atlasTopFlows(areaFlows, atlasLimitOr(12)),
-		"screen_count": len(matches),
-		"flow_count":   len(areaFlows),
-		"next_actions": atlasAreaNextActions(matches),
-	}
-}
-
-func buildAtlasVariantSummary(screenResp, observations api.AtlasResponse) map[string]interface{} {
-	screen := atlasMap(screenResp["screen"])
-	if len(screen) == 0 {
-		screen = atlasMap(screenResp["entity"])
-	}
-	groups := atlasMap(observations["groups"])
-	if len(groups) == 0 {
-		groups = atlasMap(observations["observation_groups"])
-	}
-	distinct := atlasSlice(groups["distinct"])
-	latest := atlasSlice(groups["latest"])
-	mostCommon := atlasSlice(groups["most_common"])
-	overlays := atlasSlice(groups["overlays"])
-	errors := atlasSlice(groups["errors"])
-	singletons := 0
-	byRelation := map[string]int{}
-	byRole := map[string]int{}
-	for _, rawObs := range distinct {
-		obs := atlasMap(rawObs)
-		relation := atlasString(obs, "relation")
-		if relation == "" {
-			relation = atlasString(obs, "source")
-		}
-		if relation == "" {
-			relation = "unknown"
-		}
-		byRelation[relation]++
-		role := atlasString(obs, "screenshot_role")
-		if role == "" {
-			role = "unknown"
-		}
-		byRole[role]++
-		if atlasInt(obs["observation_count"]) <= 1 {
-			singletons++
-		}
-	}
-	var signals []string
-	variantCount := atlasInt(screen["variant_count"])
-	observationCount := atlasInt(screen["observation_count"])
-	if variantCount >= 8 && variantCount >= observationCount/2 {
-		signals = append(signals, "This screen has many variants relative to observations; it may represent several user-facing states or dynamic content split too aggressively.")
-	}
-	if len(overlays) > 0 {
-		signals = append(signals, "Overlay-like observations are present; check whether they should be contextual states instead of full variants.")
-	}
-	if len(errors) > 0 {
-		signals = append(signals, "Error-state observations are present; verify they remain separate from success/default states.")
-	}
-	return map[string]interface{}{
-		"screen":             screen,
-		"observation_count":  observationCount,
-		"variant_count":      variantCount,
-		"distinct_samples":   atlasObservationSamples(distinct, 8),
-		"latest_samples":     atlasObservationSamples(latest, 5),
-		"most_common":        atlasObservationSamples(mostCommon, 5),
-		"overlays_count":     len(overlays),
-		"errors_count":       len(errors),
-		"singleton_samples":  singletons,
-		"by_relation":        byRelation,
-		"by_screenshot_role": byRole,
-		"signals":            signals,
-		"next_actions": []string{
-			fmt.Sprintf("revyl atlas observations %s --app %s", atlasString(screen, "id"), atlasApp),
-			fmt.Sprintf("revyl atlas neighbors %s --app %s", atlasString(screen, "id"), atlasApp),
-		},
-	}
-}
-
-func buildAtlasCoverageSummary(app *api.App, overview, flows api.AtlasResponse, reportID string) map[string]interface{} {
-	screens := atlasScreensFrom(overview["top_screens"])
-	stats := atlasMap(overview["stats"])
-	flowItems := atlasSlice(flows["flows"])
-	var lowSupport []map[string]interface{}
-	for _, screen := range screens {
-		if atlasInt(screen["observation_count"]) <= 1 {
-			lowSupport = append(lowSupport, screen)
-		}
-	}
-	return map[string]interface{}{
-		"app":                 atlasAppSummary(app, overview),
-		"report_id":           reportID,
-		"stats":               stats,
-		"screens_from_report": atlasTopScreens(screens, atlasLimitOr(20)),
-		"flows_from_report":   atlasTopFlows(flowItems, atlasLimitOr(12)),
-		"low_support_states":  atlasTopScreens(lowSupport, 8),
-		"next_actions": []string{
-			fmt.Sprintf("revyl atlas map --app %s --report-id %s", atlasApp, reportID),
-			fmt.Sprintf("revyl atlas search <query> --app %s --report-id %s", atlasApp, reportID),
-		},
-	}
-}
-
-func atlasStructuralIssues(screens []map[string]interface{}, stats map[string]interface{}, flows []interface{}, limit int) []atlasIssue {
-	var issues []atlasIssue
-	labelGroups := map[string][]map[string]interface{}{}
-	for _, screen := range screens {
-		key := strings.ToLower(strings.TrimSpace(atlasScreenLabel(screen)))
-		if key != "" {
-			labelGroups[key] = append(labelGroups[key], screen)
-		}
-	}
-	for label, group := range labelGroups {
-		if len(group) > 1 {
-			issues = append(issues, atlasIssue{
-				Severity: "review",
-				Title:    fmt.Sprintf("Potential duplicate app screen: %s", label),
-				Detail:   "Multiple Atlas screens share the same user-facing label. If these are only scroll/content differences, the app map may be overstating distinct screens.",
-				Evidence: atlasTopScreens(group, 4),
-				Command:  atlasScreenCommand(group),
-			})
-		}
-	}
-	for _, screen := range screens {
-		obs := atlasInt(screen["observation_count"])
-		variants := atlasInt(screen["variant_count"])
-		if variants >= 8 && (obs == 0 || variants >= obs/2) {
-			issues = append(issues, atlasIssue{
-				Severity: "review",
-				Title:    fmt.Sprintf("High state variation: %s", atlasScreenLabel(screen)),
-				Detail:   "This user-facing area has many variants relative to observations. It may be a complex stateful flow, or similar content states may be split too finely.",
-				Evidence: []map[string]interface{}{atlasScreenBrief(screen)},
-				Command:  fmt.Sprintf("revyl atlas observations %s --app %s", atlasString(screen, "id"), atlasApp),
-			})
-		}
-		if isSystemLikeScreen(screen) {
-			issues = append(issues, atlasIssue{
-				Severity: "info",
-				Title:    fmt.Sprintf("System or device surface observed: %s", atlasScreenLabel(screen)),
-				Detail:   "This was encountered during exploration. It is useful for debugging but may not belong in the primary app journey.",
-				Evidence: []map[string]interface{}{atlasScreenBrief(screen)},
-				Command:  fmt.Sprintf("revyl atlas screen %s --app %s", atlasString(screen, "id"), atlasApp),
-			})
-		}
-	}
-	thinFlows := 0
-	for _, raw := range flows {
-		flow := atlasMap(raw)
-		if atlasInt(flow["support"]) <= 1 {
-			thinFlows++
-		}
-	}
-	if thinFlows > 0 {
-		issues = append(issues, atlasIssue{
-			Severity: "info",
-			Title:    "Low-confidence paths",
-			Detail:   fmt.Sprintf("%d flows have support of one observation path. They are useful, but should be confirmed with more exploration before treating them as stable journeys.", thinFlows),
-			Command:  fmt.Sprintf("revyl atlas map --app %s", atlasApp),
-		})
-	}
-	nodes := atlasInt(stats["nodes"])
-	edges := atlasInt(stats["edges"])
-	if nodes > 3 && edges < nodes-1 {
-		issues = append(issues, atlasIssue{
-			Severity: "review",
-			Title:    "Sparse transition structure",
-			Detail:   fmt.Sprintf("Atlas has %d screens but only %d transitions. The app may be under-explored, or report sequencing may not have produced enough edges.", nodes, edges),
-			Command:  fmt.Sprintf("revyl atlas map --app %s", atlasApp),
-		})
-	}
-	sort.SliceStable(issues, func(i, j int) bool {
-		return issueRank(issues[i].Severity) < issueRank(issues[j].Severity)
+	sort.SliceStable(edges, func(i, j int) bool {
+		left := atlasString(atlasMap(edges[i]["source"]), "name") + "\x00" + atlasString(atlasMap(edges[i]["target"]), "name")
+		right := atlasString(atlasMap(edges[j]["source"]), "name") + "\x00" + atlasString(atlasMap(edges[j]["target"]), "name")
+		return left < right
 	})
-	if limit > 0 && len(issues) > limit {
-		return issues[:limit]
+	appID := atlasString(graph, "app_id")
+	truncated := limit < len(allNodes) || atlasBool(atlasMap(graph["projection"])["truncated"])
+	return map[string]interface{}{
+		"contract":         "atlas_graph.v1",
+		"app":              atlasAppSummary(app, graph),
+		"projection":       atlasProjectionContract(graph),
+		"stats":            atlasGraphStats(graph),
+		"returned":         map[string]interface{}{"nodes": len(nodes), "edges": len(edges)},
+		"truncated":        truncated,
+		"has_more":         truncated,
+		"starting_anchors": atlasStartingAnchors(graph, returnedNodeIDs),
+		"nodes":            atlasAgentScreens(nodes, len(nodes)),
+		"edges":            edges,
+		"curation":         atlasCurationContract(graph),
+		"viewer_url":       graph["viewer_url"],
+		"next_actions": []string{
+			fmt.Sprintf("revyl atlas brief --app %s", appID),
+			fmt.Sprintf("revyl atlas search \"<capability>\" --app %s", appID),
+		},
 	}
-	return issues
 }
 
-func printAtlasMapSummary(result map[string]interface{}) {
+func atlasGraphStats(graph api.AtlasResponse) map[string]interface{} {
+	stats := atlasMap(graph["stats"])
+	return map[string]interface{}{
+		"nodes":         len(atlasMaps(graph["nodes"])),
+		"edges":         len(atlasMaps(graph["edges"])),
+		"observations":  stats["observations"],
+		"product_areas": stats["product_areas"],
+	}
+}
+
+func atlasConnectivity(graph api.AtlasResponse) map[string]int {
+	result := map[string]int{}
+	for _, edge := range atlasMaps(graph["edges"]) {
+		result[atlasString(edge, "source_entity_id")]++
+		result[atlasString(edge, "target_entity_id")]++
+	}
+	return result
+}
+
+func atlasConnectivityScreens(nodes []map[string]interface{}, connectivity map[string]int, limit int) []map[string]interface{} {
+	if limit <= 0 || limit > len(nodes) {
+		limit = len(nodes)
+	}
+	result := make([]map[string]interface{}, 0, limit)
+	for _, node := range nodes[:limit] {
+		screen := atlasAgentScreen(node)
+		screen["connections"] = connectivity[atlasString(node, "id")]
+		result = append(result, screen)
+	}
+	return result
+}
+
+func atlasStartingAnchors(graph api.AtlasResponse, allowedIDs map[string]bool) []map[string]interface{} {
+	nodes := atlasMaps(graph["nodes"])
+	pinnedIDs := map[string]bool{}
+	for _, id := range atlasStringSlice(atlasMap(graph["curation"])["pinned_entry_root_entity_ids"]) {
+		pinnedIDs[id] = true
+	}
+	incoming := map[string]int{}
+	outgoing := map[string]int{}
+	for _, edge := range atlasMaps(graph["edges"]) {
+		if atlasString(edge, "edge_kind") == "hierarchy" {
+			continue
+		}
+		sourceID := atlasString(edge, "source_entity_id")
+		targetID := atlasString(edge, "target_entity_id")
+		if sourceID != "" {
+			outgoing[sourceID]++
+		}
+		if targetID != "" {
+			incoming[targetID]++
+		}
+	}
+	anchors := make([]map[string]interface{}, 0)
+	for _, node := range nodes {
+		id := atlasString(node, "id")
+		if allowedIDs != nil && !allowedIDs[id] {
+			continue
+		}
+		reasons := make([]string, 0, 3)
+		if pinnedIDs[id] {
+			reasons = append(reasons, "curated_entry")
+		}
+		if atlasBool(node["is_entry_point"]) {
+			reasons = append(reasons, "semantic_entry")
+		}
+		if incoming[id] == 0 {
+			reasons = append(reasons, "observed_root")
+		}
+		if len(reasons) == 0 {
+			continue
+		}
+		anchor := atlasAgentScreen(node)
+		anchor["reasons"] = reasons
+		anchor["incoming_edges"] = incoming[id]
+		anchor["outgoing_edges"] = outgoing[id]
+		anchors = append(anchors, anchor)
+	}
+	sort.SliceStable(anchors, func(i, j int) bool {
+		leftReasons := atlasStringSlice(anchors[i]["reasons"])
+		rightReasons := atlasStringSlice(anchors[j]["reasons"])
+		leftRank := atlasAnchorReasonRank(leftReasons)
+		rightRank := atlasAnchorReasonRank(rightReasons)
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		leftConnections := atlasInt(anchors[i]["incoming_edges"]) + atlasInt(anchors[i]["outgoing_edges"])
+		rightConnections := atlasInt(anchors[j]["incoming_edges"]) + atlasInt(anchors[j]["outgoing_edges"])
+		if leftConnections != rightConnections {
+			return leftConnections > rightConnections
+		}
+		leftObservations := atlasInt(anchors[i]["observations"])
+		rightObservations := atlasInt(anchors[j]["observations"])
+		if leftObservations != rightObservations {
+			return leftObservations > rightObservations
+		}
+		return atlasString(anchors[i], "name") < atlasString(anchors[j], "name")
+	})
+	return anchors
+}
+
+func atlasAnchorReasonRank(reasons []string) int {
+	for _, reason := range reasons {
+		if reason == "curated_entry" {
+			return 0
+		}
+	}
+	for _, reason := range reasons {
+		if reason == "observed_root" {
+			return 1
+		}
+	}
+	return 2
+}
+
+func resolveAtlasNode(graph api.AtlasResponse, value string) (map[string]interface{}, error) {
+	want := strings.ToLower(strings.TrimSpace(value))
+	exact := make([]map[string]interface{}, 0)
+	partial := make([]map[string]interface{}, 0)
+	for _, node := range atlasMaps(graph["nodes"]) {
+		id := strings.ToLower(atlasString(node, "id"))
+		name := strings.ToLower(atlasScreenLabel(node))
+		if want == id || want == name {
+			exact = append(exact, node)
+			continue
+		}
+		if strings.Contains(name, want) {
+			partial = append(partial, node)
+		}
+	}
+	matches := exact
+	if len(matches) == 0 {
+		matches = partial
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("Atlas screen %q was not found; run 'revyl atlas search %q --app %s'", value, value, atlasString(graph, "app_id"))
+	}
+	names := make([]string, 0, len(matches))
+	for _, node := range matches {
+		names = append(names, fmt.Sprintf("%s (%s)", atlasScreenLabel(node), atlasString(node, "id")))
+	}
+	return nil, fmt.Errorf("Atlas screen %q is ambiguous: %s", value, strings.Join(names, ", "))
+}
+
+func buildAtlasScreen(app *api.App, graph api.AtlasResponse, node map[string]interface{}) map[string]interface{} {
+	nodeID := atlasString(node, "id")
+	nodeByID := atlasNodeIndex(graph)
+	incoming, outgoing := atlasEdgesForNode(graph, nodeID, nodeByID)
+	return map[string]interface{}{
+		"contract":       "atlas_screen.v2",
+		"app":            atlasAppSummary(app, graph),
+		"projection":     atlasProjectionContract(graph),
+		"screen":         atlasAgentScreen(node),
+		"incoming_count": len(incoming),
+		"outgoing_count": len(outgoing),
+		"incoming":       atlasLimitMaps(incoming, 12),
+		"outgoing":       atlasLimitMaps(outgoing, 12),
+		"next_actions": []string{
+			fmt.Sprintf("revyl atlas observations %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", nodeID, atlasString(graph, "app_id")),
+			fmt.Sprintf("revyl atlas neighbors %s --app %s", nodeID, atlasString(graph, "app_id")),
+		},
+	}
+}
+
+func buildAtlasNeighbors(app *api.App, graph api.AtlasResponse, node map[string]interface{}, direction string) map[string]interface{} {
+	nodeID := atlasString(node, "id")
+	incoming, outgoing := atlasEdgesForNode(graph, nodeID, atlasNodeIndex(graph))
+	if direction == "in" || direction == "inbound" {
+		outgoing = []map[string]interface{}{}
+	}
+	if direction == "out" || direction == "outbound" {
+		incoming = []map[string]interface{}{}
+	}
+	result := map[string]interface{}{
+		"contract":       "atlas_neighbors.v1",
+		"app":            atlasAppSummary(app, graph),
+		"projection":     atlasProjectionContract(graph),
+		"screen":         atlasAgentScreen(node),
+		"incoming_count": len(incoming),
+		"outgoing_count": len(outgoing),
+		"incoming":       incoming,
+		"outgoing":       outgoing,
+	}
+	result["next_actions"] = atlasTraversalNextActions(graph, nodeID, incoming, outgoing)
+	return result
+}
+
+func buildAtlasSearch(app *api.App, graph api.AtlasResponse, query string, limit int) map[string]interface{} {
+	type rankedNode struct {
+		node    map[string]interface{}
+		score   int
+		matched []string
+	}
+	ranked := make([]rankedNode, 0)
+	for _, node := range atlasMaps(graph["nodes"]) {
+		score, matched := atlasNodeSearchScore(node, query)
+		if score > 0 {
+			ranked = append(ranked, rankedNode{node: node, score: score, matched: matched})
+		}
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].score != ranked[j].score {
+			return ranked[i].score > ranked[j].score
+		}
+		return atlasInt(ranked[i].node["observation_count"]) > atlasInt(ranked[j].node["observation_count"])
+	})
+	requestedLimit := limit
+	if limit <= 0 || limit > len(ranked) {
+		limit = len(ranked)
+	}
+	results := make([]map[string]interface{}, 0, limit)
+	for _, match := range ranked[:limit] {
+		item := atlasAgentScreen(match.node)
+		item["relevance"] = match.score
+		item["matched_fields"] = match.matched
+		results = append(results, item)
+	}
+	truncated := atlasBool(atlasMap(graph["projection"])["truncated"]) || (requestedLimit > 0 && requestedLimit < len(ranked))
+	result := map[string]interface{}{
+		"contract":   "atlas_search.v1",
+		"app":        atlasAppSummary(app, graph),
+		"projection": atlasProjectionContract(graph),
+		"query":      query,
+		"count":      len(results),
+		"results":    results,
+		"truncated":  truncated,
+		"has_more":   truncated,
+	}
+	if len(results) > 0 {
+		id := atlasString(results[0], "id")
+		appID := atlasString(graph, "app_id")
+		result["next_actions"] = []string{
+			fmt.Sprintf("revyl atlas screen %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", id, appID),
+			fmt.Sprintf("revyl atlas neighbors %s --app %s", id, appID),
+		}
+	}
+	return result
+}
+
+func buildAtlasEdge(app *api.App, graph api.AtlasResponse, source, target map[string]interface{}) (map[string]interface{}, []map[string]interface{}) {
+	sourceID := atlasString(source, "id")
+	targetID := atlasString(target, "id")
+	nodeByID := atlasNodeIndex(graph)
+	matches := make([]map[string]interface{}, 0)
+	transitions := make([]map[string]interface{}, 0)
+	for _, edge := range atlasMaps(graph["edges"]) {
+		if atlasString(edge, "source_entity_id") != sourceID || atlasString(edge, "target_entity_id") != targetID {
+			continue
+		}
+		matches = append(matches, edge)
+		transitions = append(transitions, atlasAgentEdge(edge, nodeByID))
+	}
+	return map[string]interface{}{
+		"contract":         "atlas_edge.v1",
+		"app":              atlasAppSummary(app, graph),
+		"projection":       atlasProjectionContract(graph),
+		"source":           atlasAgentScreen(source),
+		"target":           atlasAgentScreen(target),
+		"transition_count": len(transitions),
+		"transitions":      transitions,
+		"next_actions": []string{
+			fmt.Sprintf("revyl atlas observations %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", sourceID, atlasString(graph, "app_id")),
+			fmt.Sprintf("revyl atlas observations %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", targetID, atlasString(graph, "app_id")),
+		},
+	}, matches
+}
+
+func atlasTraversalNextActions(graph api.AtlasResponse, nodeID string, incoming, outgoing []map[string]interface{}) []string {
+	appID := atlasString(graph, "app_id")
+	next := []string{
+		fmt.Sprintf("revyl atlas observations %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", nodeID, appID),
+		fmt.Sprintf("revyl atlas report %s --app %s --json", nodeID, appID),
+	}
+	for _, edge := range outgoing {
+		targetID := atlasString(atlasMap(edge["target"]), "id")
+		if targetID == "" || len(next) >= 5 {
+			continue
+		}
+		next = append(next,
+			fmt.Sprintf("revyl atlas screen %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", targetID, appID),
+			fmt.Sprintf("revyl atlas edge %s %s --app %s --runs --json", nodeID, targetID, appID),
+		)
+	}
+	for _, edge := range incoming {
+		sourceID := atlasString(atlasMap(edge["source"]), "id")
+		if sourceID == "" || len(next) >= 5 {
+			continue
+		}
+		next = append(next, fmt.Sprintf("revyl atlas screen %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", sourceID, appID))
+	}
+	if len(next) > 5 {
+		return next[:5]
+	}
+	return next
+}
+
+func atlasNodeIndex(graph api.AtlasResponse) map[string]map[string]interface{} {
+	result := map[string]map[string]interface{}{}
+	for _, node := range atlasMaps(graph["nodes"]) {
+		result[atlasString(node, "id")] = node
+	}
+	return result
+}
+
+func atlasEdgesForNode(graph api.AtlasResponse, nodeID string, nodeByID map[string]map[string]interface{}) ([]map[string]interface{}, []map[string]interface{}) {
+	incoming := make([]map[string]interface{}, 0)
+	outgoing := make([]map[string]interface{}, 0)
+	for _, edge := range atlasMaps(graph["edges"]) {
+		if atlasString(edge, "source_entity_id") == nodeID {
+			outgoing = append(outgoing, atlasAgentEdge(edge, nodeByID))
+		}
+		if atlasString(edge, "target_entity_id") == nodeID {
+			incoming = append(incoming, atlasAgentEdge(edge, nodeByID))
+		}
+	}
+	sort.SliceStable(incoming, func(i, j int) bool {
+		return atlasInt(incoming[i]["observations"]) > atlasInt(incoming[j]["observations"])
+	})
+	sort.SliceStable(outgoing, func(i, j int) bool {
+		return atlasInt(outgoing[i]["observations"]) > atlasInt(outgoing[j]["observations"])
+	})
+	return incoming, outgoing
+}
+
+func atlasNodeSearchScore(node map[string]interface{}, query string) (int, []string) {
+	terms := strings.Fields(strings.ToLower(strings.TrimSpace(query)))
+	if len(terms) == 0 {
+		return 0, nil
+	}
+	fields := []struct {
+		name   string
+		value  string
+		weight int
+	}{
+		{"name", atlasScreenLabel(node), 40},
+		{"description", atlasString(node, "semantic_description"), 16},
+		{"product_area", atlasString(node, "product_area"), 12},
+		{"screen_kind", atlasString(node, "screen_kind"), 10},
+		{"primary_actions", strings.Join(atlasStringSlice(node["primary_actions"]), " "), 14},
+		{"primary_objects", strings.Join(atlasStringSlice(node["primary_objects"]), " "), 14},
+		{"visible_labels", strings.Join(atlasStringSlice(atlasMap(node["semantic_summary"])["visible_labels"]), " "), 8},
+	}
+	matchedSet := map[string]bool{}
+	score := 0
+	for _, term := range terms {
+		termMatched := false
+		for _, field := range fields {
+			value := strings.ToLower(field.value)
+			if strings.Contains(value, term) {
+				termMatched = true
+				matchedSet[field.name] = true
+				score += field.weight
+			}
+		}
+		if !termMatched {
+			return 0, nil
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(query), atlasScreenLabel(node)) {
+		score += 100
+	}
+	matched := make([]string, 0, len(matchedSet))
+	for field := range matchedSet {
+		matched = append(matched, field)
+	}
+	sort.Strings(matched)
+	return score, matched
+}
+
+func atlasProjectionContract(graph api.AtlasResponse) map[string]interface{} {
+	projection := atlasMap(graph["projection"])
+	return map[string]interface{}{
+		"data_source": projection["data_source"],
+	}
+}
+
+func atlasEvidenceProjection(query api.AtlasQuery) map[string]interface{} {
+	return map[string]interface{}{
+		"data_source": "evidence",
+	}
+}
+
+func atlasCurationContract(graph api.AtlasResponse) map[string]interface{} {
+	curation := atlasMap(graph["curation"])
+	return map[string]interface{}{
+		"hidden_screens": len(atlasSlice(curation["hidden_root_entity_ids"])),
+		"pinned_entries": len(atlasSlice(curation["pinned_entry_root_entity_ids"])),
+	}
+}
+
+func atlasAgentScreens(nodes []map[string]interface{}, limit int) []map[string]interface{} {
+	if limit <= 0 || limit > len(nodes) {
+		limit = len(nodes)
+	}
+	result := make([]map[string]interface{}, 0, limit)
+	for _, node := range nodes[:limit] {
+		result = append(result, atlasAgentScreen(node))
+	}
+	return result
+}
+
+func atlasVisualSample(nodes []map[string]interface{}, limit int) []map[string]interface{} {
+	if limit <= 0 || len(nodes) == 0 {
+		return []map[string]interface{}{}
+	}
+	selectedIDs := map[string]bool{}
+	selectedAreas := map[string]bool{}
+	result := make([]map[string]interface{}, 0, min(limit, len(nodes)))
+	appendNode := func(node map[string]interface{}) {
+		id := atlasString(node, "id")
+		if selectedIDs[id] || len(result) >= limit {
+			return
+		}
+		selectedIDs[id] = true
+		result = append(result, atlasAgentScreen(node))
+	}
+	for _, node := range nodes {
+		area := atlasString(node, "product_area")
+		if area == "" || selectedAreas[area] {
+			continue
+		}
+		selectedAreas[area] = true
+		appendNode(node)
+	}
+	for _, node := range nodes {
+		appendNode(node)
+	}
+	return result
+}
+
+func atlasAgentScreen(node map[string]interface{}) map[string]interface{} {
+	result := map[string]interface{}{
+		"id":                            atlasString(node, "id"),
+		"name":                          atlasScreenLabel(node),
+		"description":                   node["semantic_description"],
+		"product_area":                  node["product_area"],
+		"screen_kind":                   node["screen_kind"],
+		"observations":                  atlasInt(node["observation_count"]),
+		"primary_actions":               node["primary_actions"],
+		"primary_objects":               node["primary_objects"],
+		"representative_observation_id": node["representative_observation_id"],
+		"landmarks": map[string]interface{}{
+			"entry":     atlasBool(node["is_entry_point"]),
+			"hub":       atlasBool(node["is_hub"]),
+			"terminal":  atlasBool(node["is_terminal"]),
+			"transient": atlasBool(node["is_transient"]),
+		},
+	}
+	if node["screenshot_url"] != nil {
+		result["screenshot_url"] = node["screenshot_url"]
+	}
+	if node["local_screenshot_path"] != nil {
+		result["local_screenshot_path"] = node["local_screenshot_path"]
+	}
+	return result
+}
+
+func atlasAgentEdge(edge map[string]interface{}, nodeByID map[string]map[string]interface{}) map[string]interface{} {
+	sourceID := atlasString(edge, "source_entity_id")
+	targetID := atlasString(edge, "target_entity_id")
+	actionType := atlasString(edge, "action_type")
+	actionLabel := atlasString(edge, "action_label")
+	label := atlasString(edge, "action_label")
+	if label == "" {
+		label = actionType
+	}
+	relationType := atlasString(edge, "edge_kind")
+	if relationType == "" || relationType == "transition" {
+		relationType = "observed_transition"
+	}
+	return map[string]interface{}{
+		"edge_key":         sourceID + "->" + targetID + "|" + relationType + "|" + actionType + "|" + actionLabel,
+		"label":            label,
+		"source":           atlasScreenReference(nodeByID[sourceID], sourceID),
+		"target":           atlasScreenReference(nodeByID[targetID], targetID),
+		"relation_type":    relationType,
+		"action_type":      actionType,
+		"action_label":     actionLabel,
+		"action_target":    edge["action_target"],
+		"description":      edge["action_description"],
+		"observations":     atlasInt(edge["observation_count"]),
+		"has_test_support": atlasInt(edge["test_support"]) > 0,
+	}
+}
+
+func atlasScreenReference(node map[string]interface{}, fallbackID string) map[string]interface{} {
+	if node == nil {
+		return map[string]interface{}{"id": fallbackID}
+	}
+	return map[string]interface{}{
+		"id":           atlasString(node, "id"),
+		"name":         atlasScreenLabel(node),
+		"product_area": node["product_area"],
+	}
+}
+
+func atlasLimitMaps(items []map[string]interface{}, limit int) []map[string]interface{} {
+	if limit > 0 && len(items) > limit {
+		return items[:limit]
+	}
+	return items
+}
+
+func printAtlasBrief(result map[string]interface{}) {
+	ui.PrintInfo("%s", atlasString(result, "summary"))
+	projection := atlasMap(result["projection"])
+	ui.PrintDim("  source=%s", atlasString(projection, "data_source"))
+	printAtlasProductAreas(result["product_areas"])
+	printAtlasAnchors(result["starting_anchors"])
+	printAtlasNamedList("Highly connected screens", result["high_connectivity_screens"])
+	printAtlasNamedList("Visual evidence sample", result["visual_sample"])
+	ui.Println()
+	ui.PrintDim("Starting anchors are traversal hints, not a parent/child hierarchy. Inspect their screenshots, then follow observed edges in both directions.")
+	printAtlasNext(result["next_actions"])
+}
+
+func printAtlasKnowledgeGraph(result map[string]interface{}) {
 	app := atlasMap(result["app"])
 	stats := atlasMap(result["stats"])
-	ui.PrintInfo("%s Atlas", atlasString(app, "name"))
-	ui.PrintDim("  %d screens, %d edges, %d observations, %d flows",
-		atlasInt(stats["nodes"]), atlasInt(stats["edges"]), atlasInt(stats["observations"]), atlasInt(stats["flows"]))
-	if algorithm := atlasString(result, "algorithm"); algorithm != "" {
-		ui.PrintDim("  structure: %s", algorithm)
+	returned := atlasMap(result["returned"])
+	ui.PrintInfo("%s knowledge graph", atlasString(app, "name"))
+	ui.PrintDim("  %d screens, %d observed relationships, %d observations", atlasInt(stats["nodes"]), atlasInt(stats["edges"]), atlasInt(stats["observations"]))
+	if atlasBool(result["truncated"]) {
+		ui.PrintDim("  response is truncated; increase --limit before treating this as the complete graph")
+	} else if atlasInt(returned["nodes"]) != atlasInt(stats["nodes"]) || atlasInt(returned["edges"]) != atlasInt(stats["edges"]) {
+		ui.PrintDim("  returned %d screens and %d relationships; increase --limit for more", atlasInt(returned["nodes"]), atlasInt(returned["edges"]))
 	}
 	printAtlasURL("Viewer", result["viewer_url"])
-	if _, ok := result["structure_nodes"]; ok {
-		printAtlasStructureTree(result)
-	} else {
-		printAtlasProductAreas(result["product_areas"])
-		printAtlasNamedList("Key screens", result["top_screens"])
-		printAtlasNamedList("Major flows", result["top_flows"])
-		printAtlasIssues("Structure signals", result["signals"])
-	}
-	if _, ok := result["structure_nodes"]; ok {
-		ui.Println()
-		ui.PrintDim("Use --json for raw node ids, edge ids, screenshots, confidence scores, and full structure metadata.")
-		if !atlasIncludeVariants {
-			ui.PrintDim("Use --include-variants to include variant/state nodes in the map.")
-		}
+	printAtlasAnchors(result["starting_anchors"])
+	printAtlasGraphEdges("Connections", result["edges"])
+	ui.Println()
+	ui.PrintDim("No parent, primary path, or preferred journey is inferred. Begin at an anchor, inspect its media, then traverse each relevant edge.")
+	if !atlasIncludeVariants {
+		ui.PrintDim("Use --include-variants when state variants are relevant to the question.")
 	}
 	printAtlasNext(result["next_actions"])
 }
 
-func printAtlasAuditSummary(result map[string]interface{}) {
-	app := atlasMap(result["app"])
-	ui.PrintInfo("%s Atlas audit", atlasString(app, "name"))
-	ui.PrintDim("  %s", result["summary"])
-	printAtlasURL("Viewer", result["viewer_url"])
-	printAtlasIssues("Potential app structure issues", result["issues"])
+func printAtlasScreenContract(result map[string]interface{}) {
+	screen := atlasMap(result["screen"])
+	ui.PrintInfo("%s", atlasString(screen, "name"))
+	ui.PrintDim("  %s / %s  observations=%d", atlasString(screen, "product_area"), atlasString(screen, "screen_kind"), atlasInt(screen["observations"]))
+	if description := atlasString(screen, "description"); description != "" {
+		ui.PrintDim("  %s", description)
+	}
+	printAtlasStringList("Primary actions", screen["primary_actions"])
+	printAtlasNamedList("Incoming transitions", result["incoming"])
+	printAtlasNamedList("Outgoing transitions", result["outgoing"])
+	ui.Println()
+	ui.PrintDim("Open this screen's representative and grouped screenshots before relying on its generated name or summary.")
 	printAtlasNext(result["next_actions"])
+}
+
+func printAtlasReportContract(result map[string]interface{}) {
+	app := atlasMap(result["app"])
+	provenance := atlasMap(result["provenance"])
+	report := atlasMap(result["report"])
+	title := atlasString(report, "test_name")
+	if title == "" {
+		title = atlasString(provenance, "report_id")
+	}
+	if title == "" {
+		title = atlasString(provenance, "observation_id")
+	}
+	ui.PrintInfo("Atlas evidence report: %s", title)
+	ui.PrintDim("  app=%s  observation=%s", atlasString(app, "name"), atlasString(provenance, "observation_id"))
+	if screen := atlasMap(result["screen"]); len(screen) > 0 {
+		ui.PrintDim("  representative screen=%s (%s)", atlasString(screen, "name"), atlasString(screen, "id"))
+	}
+	ui.PrintDim(
+		"  report=%s  execution=%s  session=%s",
+		atlasString(provenance, "report_id"),
+		atlasString(provenance, "execution_id"),
+		atlasString(provenance, "session_id"),
+	)
+	if goal := atlasString(report, "test_goal_summary"); goal != "" {
+		ui.PrintDim("  goal: %s", goal)
+	}
+	if success, ok := report["success"].(bool); ok {
+		ui.PrintDim("  success=%t  steps=%d", success, atlasInt(report["total_steps"]))
+	}
+	ui.Println()
+	ui.PrintDim("Review the originating goal, steps, and actions before classifying unexpected Atlas evidence as a product path, test setup, redirect, or bad observation.")
+	printAtlasNext(result["next_actions"])
+}
+
+func printAtlasNeighborsContract(result map[string]interface{}) {
+	screen := atlasMap(result["screen"])
+	ui.PrintInfo("Neighbors: %s", atlasString(screen, "name"))
+	ui.PrintDim("  %d incoming, %d outgoing", atlasInt(result["incoming_count"]), atlasInt(result["outgoing_count"]))
+	printAtlasNamedList("Incoming", result["incoming"])
+	printAtlasNamedList("Outgoing", result["outgoing"])
+	ui.Println()
+	ui.PrintDim("Traverse one edge at a time. Open each destination screenshot; if a connection is unclear, inspect its run video and work backward from the recorded action.")
+	printAtlasNext(result["next_actions"])
+}
+
+func printAtlasSearchContract(result map[string]interface{}) {
+	ui.PrintInfo("Atlas search: %s (%d matches)", atlasString(result, "query"), atlasInt(result["count"]))
+	printAtlasNamedList("Screens", result["results"])
+	if atlasBool(result["truncated"]) {
+		ui.PrintDim("Search covered a truncated graph or result set; increase --limit before treating these as all matches.")
+	}
+	ui.PrintDim("Search locates candidate nodes; it does not explain the path. Inspect the media, then traverse neighbors.")
+	printAtlasNext(result["next_actions"])
+}
+
+func printAtlasEdgeContract(result map[string]interface{}) {
+	source := atlasMap(result["source"])
+	target := atlasMap(result["target"])
+	ui.PrintInfo("%s -> %s", atlasString(source, "name"), atlasString(target, "name"))
+	printAtlasNamedList("Observed transitions", result["transitions"])
+	evidence := atlasMaps(result["evidence"])
+	if len(evidence) == 0 {
+		ui.PrintDim("  Re-run with --runs --json, then watch the recorded clips before interpreting an unclear connection.")
+	} else {
+		runCount := 0
+		for _, item := range evidence {
+			runCount += len(atlasSlice(item["runs"]))
+		}
+		ui.PrintDim("  recent evidence runs=%d (video details are in JSON output)", runCount)
+	}
+	printAtlasNext(result["next_actions"])
+}
+
+func buildAtlasAreaGraph(app *api.App, graph api.AtlasResponse, area string) map[string]interface{} {
+	nodes := atlasMaps(graph["nodes"])
+	want := strings.ToLower(strings.TrimSpace(area))
+	areaSet := map[string]bool{}
+	for _, node := range nodes {
+		if productArea := atlasString(node, "product_area"); productArea != "" {
+			areaSet[productArea] = true
+		}
+	}
+	availableAreas := make([]string, 0, len(areaSet))
+	for productArea := range areaSet {
+		availableAreas = append(availableAreas, productArea)
+	}
+	sort.Strings(availableAreas)
+	matches := make([]map[string]interface{}, 0)
+	for _, node := range nodes {
+		if strings.EqualFold(atlasString(node, "product_area"), want) {
+			matches = append(matches, node)
+		}
+	}
+	if len(matches) == 0 {
+		for _, node := range nodes {
+			if strings.Contains(strings.ToLower(atlasString(node, "product_area")), want) {
+				matches = append(matches, node)
+			}
+		}
+	}
+	matchedIDs := map[string]bool{}
+	for _, node := range matches {
+		matchedIDs[atlasString(node, "id")] = true
+	}
+	nodeByID := atlasNodeIndex(graph)
+	edges := make([]map[string]interface{}, 0)
+	boundaryEntryIDs := map[string]bool{}
+	internalCount := 0
+	boundaryCount := 0
+	for _, edge := range atlasMaps(graph["edges"]) {
+		sourceID := atlasString(edge, "source_entity_id")
+		targetID := atlasString(edge, "target_entity_id")
+		sourceInside := matchedIDs[sourceID]
+		targetInside := matchedIDs[targetID]
+		if !sourceInside && !targetInside {
+			continue
+		}
+		contract := atlasAgentEdge(edge, nodeByID)
+		scope := "internal"
+		if sourceInside != targetInside {
+			boundaryCount++
+			if targetInside {
+				scope = "inbound_boundary"
+				boundaryEntryIDs[targetID] = true
+			} else {
+				scope = "outbound_boundary"
+			}
+		} else {
+			internalCount++
+		}
+		contract["scope"] = scope
+		edges = append(edges, contract)
+	}
+	anchors := atlasStartingAnchors(graph, matchedIDs)
+	anchorIDs := map[string]bool{}
+	for _, anchor := range anchors {
+		anchorIDs[atlasString(anchor, "id")] = true
+	}
+	for id := range boundaryEntryIDs {
+		if anchorIDs[id] || nodeByID[id] == nil {
+			continue
+		}
+		anchor := atlasAgentScreen(nodeByID[id])
+		anchor["reasons"] = []string{"area_entry"}
+		anchors = append(anchors, anchor)
+	}
+	appID := atlasString(graph, "app_id")
+	return map[string]interface{}{
+		"contract":         "atlas_area.v2",
+		"app":              atlasAppSummary(app, graph),
+		"projection":       atlasProjectionContract(graph),
+		"area":             area,
+		"starting_anchors": anchors,
+		"nodes":            atlasAgentScreens(matches, atlasLimitOr(len(matches))),
+		"edges":            atlasLimitMaps(edges, atlasLimitOr(len(edges))),
+		"screen_count":     len(matches),
+		"edge_count":       len(edges),
+		"internal_edges":   internalCount,
+		"boundary_edges":   boundaryCount,
+		"available_areas":  availableAreas,
+		"next_actions":     atlasAreaNextActionsForApp(matches, appID),
+	}
 }
 
 func printAtlasAreaSummary(result map[string]interface{}) {
 	ui.PrintInfo("Atlas area: %s", result["area"])
-	if _, ok := result["edges"]; ok {
-		ui.PrintDim("  %d screens, %d edges", atlasInt(result["screen_count"]), atlasInt(result["edge_count"]))
-	} else {
-		ui.PrintDim("  %d screens, %d flows", atlasInt(result["screen_count"]), atlasInt(result["flow_count"]))
-	}
-	if _, ok := result["edges"]; ok {
-		printAtlasStructureTree(map[string]interface{}{
-			"structure_nodes": result["screens"],
-			"primary_edges":   result["edges"],
-		})
-	} else {
-		printAtlasNamedList("Screens", result["screens"])
-		printAtlasNamedList("Flows", result["flows"])
-	}
-	printAtlasNext(result["next_actions"])
-}
-
-func printAtlasVariantSummary(result map[string]interface{}) {
-	screen := atlasMap(result["screen"])
-	ui.PrintInfo("Variants: %s", atlasScreenLabel(screen))
-	ui.PrintDim("  %d observations, %d variants", atlasInt(result["observation_count"]), atlasInt(result["variant_count"]))
-	printAtlasStringList("Signals", result["signals"])
-	printAtlasCountMap("By relation", result["by_relation"])
-	printAtlasCountMap("By screenshot role", result["by_screenshot_role"])
-	printAtlasNamedList("Representative samples", result["distinct_samples"])
-	printAtlasNext(result["next_actions"])
-}
-
-func printAtlasCoverageSummary(result map[string]interface{}) {
-	ui.PrintInfo("Atlas report coverage")
-	ui.PrintDim("  report_id=%s", result["report_id"])
-	stats := atlasMap(result["stats"])
-	ui.PrintDim("  %d screens, %d edges, %d observations, %d flows in this filtered view",
-		atlasInt(stats["nodes"]), atlasInt(stats["edges"]), atlasInt(stats["observations"]), atlasInt(stats["flows"]))
-	printAtlasNamedList("Screens mapped from report", result["screens_from_report"])
-	printAtlasNamedList("Flows mapped from report", result["flows_from_report"])
-	printAtlasNamedList("Low-support states", result["low_support_states"])
+	ui.PrintDim("  %d screens, %d internal edges, %d boundary edges", atlasInt(result["screen_count"]), atlasInt(result["internal_edges"]), atlasInt(result["boundary_edges"]))
+	printAtlasAnchors(result["starting_anchors"])
+	printAtlasNamedList("Screens", result["nodes"])
+	printAtlasGraphEdges("Internal and boundary connections", result["edges"])
+	ui.Println()
+	ui.PrintDim("Boundary edges are preserved so the area remains connected to the rest of the app graph.")
 	printAtlasNext(result["next_actions"])
 }
 
@@ -1464,21 +2072,6 @@ func atlasAppSummary(app *api.App, overview api.AtlasResponse) map[string]interf
 	return result
 }
 
-func atlasScreensFrom(value interface{}) []map[string]interface{} {
-	items := atlasSlice(value)
-	screens := make([]map[string]interface{}, 0, len(items))
-	for _, raw := range items {
-		screen := atlasMap(raw)
-		if len(screen) > 0 {
-			screens = append(screens, screen)
-		}
-	}
-	sort.SliceStable(screens, func(i, j int) bool {
-		return atlasInt(screens[i]["observation_count"]) > atlasInt(screens[j]["observation_count"])
-	})
-	return screens
-}
-
 func atlasMaps(value interface{}) []map[string]interface{} {
 	items := atlasSlice(value)
 	out := make([]map[string]interface{}, 0, len(items))
@@ -1487,106 +2080,6 @@ func atlasMaps(value interface{}) []map[string]interface{} {
 		if len(item) > 0 {
 			out = append(out, item)
 		}
-	}
-	return out
-}
-
-func atlasStructureNodes(nodes []map[string]interface{}, limit int) []map[string]interface{} {
-	if limit <= 0 || limit > len(nodes) {
-		limit = len(nodes)
-	}
-	out := make([]map[string]interface{}, 0, limit)
-	for i := 0; i < limit; i++ {
-		node := nodes[i]
-		out = append(out, map[string]interface{}{
-			"id":         atlasString(node, "id"),
-			"label":      atlasString(node, "label"),
-			"role":       atlasString(node, "role"),
-			"parent_id":  atlasString(node, "parent_id"),
-			"rank":       atlasInt(node["rank"]),
-			"lane":       atlasString(node, "lane"),
-			"confidence": node["confidence"],
-			"support":    atlasInt(node["support"]),
-			"flags":      node["issue_flags"],
-		})
-	}
-	return out
-}
-
-func atlasStructureEdges(edges []map[string]interface{}, limit int) []map[string]interface{} {
-	if limit <= 0 || limit > len(edges) {
-		limit = len(edges)
-	}
-	out := make([]map[string]interface{}, 0, limit)
-	for i := 0; i < limit; i++ {
-		edge := edges[i]
-		out = append(out, map[string]interface{}{
-			"source":     atlasString(edge, "source"),
-			"target":     atlasString(edge, "target"),
-			"role":       atlasString(edge, "role"),
-			"label":      atlasString(edge, "label"),
-			"support":    edge["support"],
-			"confidence": edge["confidence"],
-		})
-	}
-	return out
-}
-
-func atlasTopScreens(screens []map[string]interface{}, limit int) []map[string]interface{} {
-	if limit <= 0 || limit > len(screens) {
-		limit = len(screens)
-	}
-	out := make([]map[string]interface{}, 0, limit)
-	for i := 0; i < limit; i++ {
-		out = append(out, atlasScreenBrief(screens[i]))
-	}
-	return out
-}
-
-func atlasScreenBrief(screen map[string]interface{}) map[string]interface{} {
-	return map[string]interface{}{
-		"id":                atlasString(screen, "id"),
-		"label":             atlasScreenLabel(screen),
-		"product_area":      atlasString(screen, "product_area"),
-		"screen_kind":       atlasString(screen, "screen_kind"),
-		"observation_count": atlasInt(screen["observation_count"]),
-		"variant_count":     atlasInt(screen["variant_count"]),
-		"viewer_url":        atlasString(screen, "viewer_url"),
-	}
-}
-
-func atlasTopFlows(flows []interface{}, limit int) []map[string]interface{} {
-	if limit <= 0 || limit > len(flows) {
-		limit = len(flows)
-	}
-	out := make([]map[string]interface{}, 0, limit)
-	for i := 0; i < limit; i++ {
-		flow := atlasMap(flows[i])
-		out = append(out, map[string]interface{}{
-			"id":         atlasString(flow, "id"),
-			"label":      atlasString(flow, "label"),
-			"support":    atlasInt(flow["support"]),
-			"viewer_url": atlasString(flow, "viewer_url"),
-		})
-	}
-	return out
-}
-
-func atlasObservationSamples(observations []interface{}, limit int) []map[string]interface{} {
-	if limit <= 0 || limit > len(observations) {
-		limit = len(observations)
-	}
-	out := make([]map[string]interface{}, 0, limit)
-	for i := 0; i < limit; i++ {
-		obs := atlasMap(observations[i])
-		out = append(out, map[string]interface{}{
-			"observation_id":  atlasString(obs, "observation_id"),
-			"report_id":       atlasString(obs, "report_id"),
-			"relation":        atlasString(obs, "relation"),
-			"screenshot_role": atlasString(obs, "screenshot_role"),
-			"confidence":      obs["confidence"],
-			"viewer_url":      atlasString(obs, "viewer_url"),
-		})
 	}
 	return out
 }
@@ -1605,208 +2098,6 @@ func atlasProductAreas(stats map[string]interface{}) []map[string]interface{} {
 	return out
 }
 
-func printAtlasStructureTree(result map[string]interface{}) {
-	nodes := atlasMaps(result["structure_nodes"])
-	if len(nodes) == 0 {
-		return
-	}
-	edges := atlasMaps(result["primary_edges"])
-	nodeByID := make(map[string]map[string]interface{}, len(nodes))
-	childrenByParent := map[string][]map[string]interface{}{}
-	roots := make([]map[string]interface{}, 0)
-	for _, node := range nodes {
-		id := atlasString(node, "id")
-		if id == "" {
-			continue
-		}
-		nodeByID[id] = node
-	}
-	for _, node := range nodes {
-		parentID := atlasString(node, "parent_id")
-		if parentID == "" || nodeByID[parentID] == nil {
-			if atlasString(node, "role") != "system" {
-				roots = append(roots, node)
-			}
-			continue
-		}
-		childrenByParent[parentID] = append(childrenByParent[parentID], node)
-	}
-	sortAtlasStructureNodes(roots)
-	for parentID := range childrenByParent {
-		sortAtlasStructureNodes(childrenByParent[parentID])
-	}
-	edgeByPair := map[string]map[string]interface{}{}
-	for _, edge := range edges {
-		key := atlasString(edge, "source") + "->" + atlasString(edge, "target")
-		if key != "->" {
-			edgeByPair[key] = edge
-		}
-	}
-
-	ui.Println()
-	ui.PrintInfo("Structure:")
-	printed := 0
-	limit := atlasLimitOr(len(nodes))
-	seen := map[string]bool{}
-	printableCount := 0
-	for _, node := range nodes {
-		if atlasString(node, "role") != "system" {
-			printableCount++
-		}
-	}
-	for _, root := range roots {
-		if printed >= limit {
-			break
-		}
-		printed += printAtlasStructureNode(root, "", true, childrenByParent, edgeByPair, seen, limit-printed)
-	}
-	if printed < printableCount {
-		ui.PrintDim("  ... %d more nodes. Re-run with --limit %d or --json.", printableCount-printed, printableCount)
-	}
-	printAtlasStructureLegend()
-}
-
-func sortAtlasStructureNodes(nodes []map[string]interface{}) {
-	sort.SliceStable(nodes, func(i, j int) bool {
-		leftRank := atlasInt(nodes[i]["rank"])
-		rightRank := atlasInt(nodes[j]["rank"])
-		if leftRank != rightRank {
-			return leftRank < rightRank
-		}
-		leftRole := atlasStructureRoleRank(atlasString(nodes[i], "role"))
-		rightRole := atlasStructureRoleRank(atlasString(nodes[j], "role"))
-		if leftRole != rightRole {
-			return leftRole < rightRole
-		}
-		leftLane := atlasString(nodes[i], "lane")
-		rightLane := atlasString(nodes[j], "lane")
-		if leftLane != rightLane {
-			return leftLane < rightLane
-		}
-		return atlasString(nodes[i], "label") < atlasString(nodes[j], "label")
-	})
-}
-
-func atlasStructureRoleRank(role string) int {
-	switch strings.ToLower(role) {
-	case "root":
-		return 0
-	case "entry":
-		return 1
-	case "primary":
-		return 2
-	case "branch":
-		return 3
-	case "modal", "utility":
-		return 4
-	case "terminal":
-		return 5
-	case "variant":
-		return 6
-	case "system":
-		return 7
-	default:
-		return 8
-	}
-}
-
-func printAtlasStructureNode(
-	node map[string]interface{},
-	prefix string,
-	last bool,
-	childrenByParent map[string][]map[string]interface{},
-	edgeByPair map[string]map[string]interface{},
-	seen map[string]bool,
-	remaining int,
-) int {
-	if remaining < 0 {
-		return 0
-	}
-	id := atlasString(node, "id")
-	if id == "" || seen[id] {
-		return 0
-	}
-	seen[id] = true
-	connector := "- "
-	childPrefix := "  "
-	if prefix != "" {
-		if last {
-			connector = "`- "
-			childPrefix = "   "
-		} else {
-			connector = "|- "
-			childPrefix = "|  "
-		}
-	}
-	ui.PrintDim("%s%s%s%s", prefix, connector, atlasStructureNodeTitle(node), atlasStructureNodeMeta(node))
-	if parentID := atlasString(node, "parent_id"); parentID != "" {
-		edge := edgeByPair[parentID+"->"+id]
-		if label := atlasString(edge, "label"); label != "" {
-			ui.PrintDim("%s%s  via: %s", prefix, childPrefix, atlasShorten(label, 96))
-		}
-	}
-	printed := 1
-	children := childrenByParent[id]
-	for i, child := range children {
-		if printed > remaining {
-			break
-		}
-		printed += printAtlasStructureNode(child, prefix+childPrefix, i == len(children)-1, childrenByParent, edgeByPair, seen, remaining-printed)
-	}
-	return printed
-}
-
-func atlasStructureNodeTitle(node map[string]interface{}) string {
-	label := atlasString(node, "label")
-	if label == "" {
-		label = atlasString(node, "id")
-	}
-	if role := atlasString(node, "role"); role == "root" {
-		return label + " (root)"
-	}
-	return label
-}
-
-func atlasStructureNodeMeta(node map[string]interface{}) string {
-	parts := []string{}
-	if lane := atlasString(node, "lane"); lane != "" {
-		parts = append(parts, lane)
-	}
-	if role := atlasString(node, "role"); role != "" && role != "root" {
-		parts = append(parts, role)
-	}
-	if support := atlasInt(node["support"]); support > 0 {
-		parts = append(parts, fmt.Sprintf("%d shots", support))
-	}
-	if confidence := atlasFloat(node["confidence"]); confidence > 0 && confidence < 0.58 {
-		parts = append(parts, fmt.Sprintf("low confidence %.2f", confidence))
-	}
-	flags := atlasStringSlice(node["flags"])
-	if len(flags) > 0 {
-		parts = append(parts, strings.Join(flags, ", "))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return " [" + strings.Join(parts, "; ") + "]"
-}
-
-func printAtlasStructureLegend() {
-	ui.Println()
-	ui.PrintDim("Legend: weak_parent means Atlas found a path but the parent is inferred from low-confidence evidence such as dismiss/back/close. contextual_state means modal, player, detail, or other non-primary app state.")
-}
-
-func atlasShorten(value string, limit int) string {
-	value = strings.TrimSpace(value)
-	if limit <= 0 || len(value) <= limit {
-		return value
-	}
-	if limit <= 3 {
-		return value[:limit]
-	}
-	return strings.TrimSpace(value[:limit-3]) + "..."
-}
-
 func atlasStringSlice(value interface{}) []string {
 	items := atlasSlice(value)
 	out := make([]string, 0, len(items))
@@ -1818,41 +2109,12 @@ func atlasStringSlice(value interface{}) []string {
 	return out
 }
 
-func atlasFloat(value interface{}) float64 {
-	switch typed := value.(type) {
-	case float64:
-		return typed
-	case float32:
-		return float64(typed)
-	case int:
-		return float64(typed)
-	case int64:
-		return float64(typed)
-	case json.Number:
-		parsed, _ := typed.Float64()
-		return parsed
-	default:
-		return 0
-	}
+func atlasBool(value interface{}) bool {
+	result, _ := value.(bool)
+	return result
 }
 
-func atlasMapNextActions(issues []atlasIssue) []string {
-	var next []string
-	for _, issue := range issues {
-		if issue.Command != "" {
-			next = append(next, issue.Command)
-		}
-		if len(next) >= 5 {
-			break
-		}
-	}
-	if len(next) == 0 {
-		next = append(next, fmt.Sprintf("revyl atlas map --app %s", atlasApp))
-	}
-	return next
-}
-
-func atlasAreaNextActions(screens []map[string]interface{}) []string {
+func atlasAreaNextActionsForApp(screens []map[string]interface{}, appID string) []string {
 	var next []string
 	for _, screen := range screens {
 		if len(next) >= 4 {
@@ -1860,52 +2122,16 @@ func atlasAreaNextActions(screens []map[string]interface{}) []string {
 		}
 		id := atlasString(screen, "id")
 		if id != "" {
-			next = append(next, fmt.Sprintf("revyl atlas screen %s --app %s", id, atlasApp))
+			next = append(next,
+				fmt.Sprintf("revyl atlas screen %s --app %s --screenshots --screenshot-dir /tmp/atlas-shots", id, appID),
+				fmt.Sprintf("revyl atlas neighbors %s --app %s", id, appID),
+			)
 		}
+	}
+	if len(next) > 4 {
+		return next[:4]
 	}
 	return next
-}
-
-func atlasFlowTouchesScreens(flow map[string]interface{}, screenIDs map[string]bool) bool {
-	for _, key := range []string{"screens", "nodes"} {
-		for _, raw := range atlasSlice(flow[key]) {
-			item := atlasMap(raw)
-			if screenIDs[atlasString(item, "id")] || screenIDs[atlasString(item, "entity_id")] {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func atlasScreenCommand(group []map[string]interface{}) string {
-	if len(group) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("revyl atlas screen %s --app %s", atlasString(group[0], "id"), atlasApp)
-}
-
-func isSystemLikeScreen(screen map[string]interface{}) bool {
-	area := strings.ToLower(atlasString(screen, "product_area"))
-	label := strings.ToLower(atlasScreenLabel(screen))
-	return strings.Contains(area, "system") ||
-		strings.Contains(label, "ios_") ||
-		strings.Contains(label, "system") ||
-		strings.Contains(label, "share_sheet") ||
-		strings.Contains(label, "permission")
-}
-
-func issueRank(severity string) int {
-	switch strings.ToLower(severity) {
-	case "critical":
-		return 0
-	case "review":
-		return 1
-	case "info":
-		return 2
-	default:
-		return 3
-	}
 }
 
 func atlasLimitOr(fallback int) int {
@@ -1928,6 +2154,43 @@ func printAtlasProductAreas(value interface{}) {
 	}
 }
 
+func printAtlasAnchors(value interface{}) {
+	anchors := atlasMaps(value)
+	if len(anchors) == 0 {
+		return
+	}
+	ui.Println()
+	ui.PrintInfo("Starting anchors:")
+	for _, anchor := range anchors {
+		reasons := strings.Join(atlasStringSlice(anchor["reasons"]), ", ")
+		ui.PrintDim("  %s  [%s]  in=%d out=%d obs=%d", atlasString(anchor, "name"), reasons, atlasInt(anchor["incoming_edges"]), atlasInt(anchor["outgoing_edges"]), atlasInt(anchor["observations"]))
+		ui.PrintDim("    %s", atlasString(anchor, "id"))
+	}
+}
+
+func printAtlasGraphEdges(title string, value interface{}) {
+	edges := atlasMaps(value)
+	if len(edges) == 0 {
+		return
+	}
+	ui.Println()
+	ui.PrintInfo("%s:", title)
+	for _, edge := range edges {
+		source := atlasMap(edge["source"])
+		target := atlasMap(edge["target"])
+		label := atlasString(edge, "label")
+		if label == "" {
+			label = atlasString(edge, "relation_type")
+		}
+		scope := atlasString(edge, "scope")
+		if scope != "" {
+			scope = " " + scope
+		}
+		ui.PrintDim("  %s --[%s; obs=%d%s]--> %s", atlasString(source, "name"), label, atlasInt(edge["observations"]), scope, atlasString(target, "name"))
+		ui.PrintDim("    %s", atlasString(edge, "edge_key"))
+	}
+}
+
 func printAtlasNamedList(title string, value interface{}) {
 	items := atlasSlice(value)
 	if len(items) == 0 {
@@ -1937,46 +2200,54 @@ func printAtlasNamedList(title string, value interface{}) {
 	ui.PrintInfo("%s:", title)
 	for _, raw := range items {
 		item := atlasMap(raw)
-		label := atlasString(item, "label")
-		if label == "" {
-			label = atlasString(item, "title")
-		}
-		if label == "" {
-			label = atlasString(item, "observation_id")
-		}
-		if label == "" {
-			label = atlasString(item, "id")
-		}
-		if support := atlasInt(item["support"]); support > 0 {
-			ui.PrintDim("  %s  support=%d", label, support)
-		} else if relation := atlasString(item, "relation"); relation != "" {
-			ui.PrintDim("  %s  %s confidence=%v", label, relation, item["confidence"])
-		} else {
-			ui.PrintDim("  %s  obs=%d variants=%d", label, atlasInt(item["observation_count"]), atlasInt(item["variant_count"]))
-		}
+		ui.PrintDim("  %s", atlasNamedListSummary(item))
 		if id := atlasString(item, "id"); id != "" {
 			ui.PrintDim("    %s", id)
 		}
 	}
 }
 
-func printAtlasIssues(title string, value interface{}) {
-	items := atlasSlice(value)
-	if len(items) == 0 {
-		return
+func atlasNamedListSummary(item map[string]interface{}) string {
+	label := atlasString(item, "label")
+	if label == "" {
+		label = atlasString(item, "name")
 	}
-	ui.Println()
-	ui.PrintInfo("%s:", title)
-	for _, raw := range items {
-		item := atlasMap(raw)
-		ui.PrintDim("  [%s] %s", atlasString(item, "severity"), atlasString(item, "title"))
-		if detail := atlasString(item, "detail"); detail != "" {
-			ui.PrintDim("    %s", detail)
-		}
-		if command := atlasString(item, "command"); command != "" {
-			ui.PrintDim("    next: %s", command)
-		}
+	if label == "" {
+		label = atlasString(item, "title")
 	}
+	if label == "" {
+		label = atlasString(item, "observation_id")
+	}
+	if label == "" {
+		label = atlasString(item, "id")
+	}
+	if support := atlasInt(item["support"]); support > 0 {
+		return fmt.Sprintf("%s  support=%d", label, support)
+	}
+	if relation := atlasString(item, "relation"); relation != "" {
+		return fmt.Sprintf("%s  %s confidence=%v", label, relation, item["confidence"])
+	}
+	observationCount, hasObservations := item["observations"]
+	if !hasObservations {
+		observationCount, hasObservations = item["observation_count"]
+	}
+	if connections, hasConnections := item["connections"]; hasConnections {
+		if hasObservations {
+			return fmt.Sprintf("%s  connections=%d obs=%d", label, atlasInt(connections), atlasInt(observationCount))
+		}
+		return fmt.Sprintf("%s  connections=%d", label, atlasInt(connections))
+	}
+	variantCount, hasVariants := item["variant_count"]
+	if hasObservations && hasVariants {
+		return fmt.Sprintf("%s  obs=%d variants=%d", label, atlasInt(observationCount), atlasInt(variantCount))
+	}
+	if hasObservations {
+		return fmt.Sprintf("%s  obs=%d", label, atlasInt(observationCount))
+	}
+	if hasVariants {
+		return fmt.Sprintf("%s  variants=%d", label, atlasInt(variantCount))
+	}
+	return label
 }
 
 func printAtlasStringList(title string, value interface{}) {
@@ -1993,23 +2264,6 @@ func printAtlasStringList(title string, value interface{}) {
 	}
 }
 
-func printAtlasCountMap(title string, value interface{}) {
-	items := atlasCountMap(value)
-	if len(items) == 0 {
-		return
-	}
-	keys := make([]string, 0, len(items))
-	for key := range items {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	ui.Println()
-	ui.PrintInfo("%s:", title)
-	for _, key := range keys {
-		ui.PrintDim("  %s: %d", key, items[key])
-	}
-}
-
 func atlasScreenLabel(item map[string]interface{}) string {
 	label := atlasString(item, "label")
 	if label == "" {
@@ -2022,7 +2276,10 @@ func atlasScreenLabel(item map[string]interface{}) string {
 }
 
 func atlasMap(value interface{}) map[string]interface{} {
-	if item, ok := value.(map[string]interface{}); ok {
+	switch item := value.(type) {
+	case api.AtlasResponse:
+		return map[string]interface{}(item)
+	case map[string]interface{}:
 		return item
 	}
 	return map[string]interface{}{}
@@ -2038,18 +2295,6 @@ func atlasSlice(value interface{}) []interface{} {
 			out = append(out, item)
 		}
 		return out
-	case []atlasIssue:
-		out := make([]interface{}, 0, len(items))
-		for _, item := range items {
-			out = append(out, map[string]interface{}{
-				"severity": item.Severity,
-				"title":    item.Title,
-				"detail":   item.Detail,
-				"evidence": item.Evidence,
-				"command":  item.Command,
-			})
-		}
-		return out
 	case []string:
 		out := make([]interface{}, 0, len(items))
 		for _, item := range items {
@@ -2058,21 +2303,6 @@ func atlasSlice(value interface{}) []interface{} {
 		return out
 	}
 	return nil
-}
-
-func atlasCountMap(value interface{}) map[string]int {
-	switch typed := value.(type) {
-	case map[string]int:
-		return typed
-	case map[string]interface{}:
-		out := map[string]int{}
-		for key, raw := range typed {
-			out[key] = atlasInt(raw)
-		}
-		return out
-	default:
-		return map[string]int{}
-	}
 }
 
 func atlasInt(value interface{}) int {
