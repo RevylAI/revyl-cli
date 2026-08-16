@@ -40,9 +40,13 @@ var proofCommentCmd = &cobra.Command{
 	Short: "Publish your write-up onto the pull request under proof",
 	Long: `Publish your write-up onto the pull request being proved.
 
-Revyl keeps one comment per pull request and renders your markdown inside it,
-so this replaces your previous write-up rather than adding another comment.
-Post early with what you have and post again as you learn more.
+Revyl keeps one comment per pull request and renders
+your markdown inside it, so this replaces your previous write-up rather than
+adding another comment.
+
+Inside a Revyl proof sandbox you may post early with what you have and post
+again as you learn more. A Cursor cloud agent posts once; a later post is
+rejected (HTTP 409).
 
 Which pull request you are writing to comes from the run Revyl launched you for,
 so there is nothing to point this at.

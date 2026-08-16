@@ -169,8 +169,8 @@ func integrationsPushCmd(client *api.Client, repoOverride string) tea.Cmd {
 	}
 }
 
-// runIntegrationsPush loads (scaffolding if needed) and pushes the pr_review
-// config for the current repo.
+// runIntegrationsPush uploads the local config (or empty content when the
+// file is missing) without scaffolding a new pr_review section.
 //
 // Parameters:
 //   - client: The authenticated API client.
@@ -179,7 +179,7 @@ func integrationsPushCmd(client *api.Client, repoOverride string) tea.Cmd {
 // Returns:
 //   - string: A success summary suitable for inline display.
 //   - error: A non-nil error when the repo cannot be resolved, the config
-//     cannot be read/scaffolded, or the backend rejects the config.
+//     cannot be read, or the backend rejects the config.
 func runIntegrationsPush(client *api.Client, repoOverride string) (string, error) {
 	if client == nil {
 		return "", fmt.Errorf("not authenticated")
@@ -194,19 +194,9 @@ func runIntegrationsPush(client *api.Client, repoOverride string) (string, error
 	}
 	configPath := filepath.Join(root, ".revyl", "config.yaml")
 
-	cfg, err := config.LoadProjectConfig(configPath)
+	content, err := prconfig.ReadPushContent(configPath)
 	if err != nil {
-		cfg = &config.ProjectConfig{Project: config.Project{Name: filepath.Base(root)}}
-	}
-	if cfg.PRReview == nil {
-		if err := prconfig.Scaffold(root, configPath, cfg, "", false); err != nil {
-			return "", err
-		}
-	}
-
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read %s: %w", configPath, err)
+		return "", err
 	}
 
 	namespace, project, err := gitremote.ResolveSlug(root, repoOverride)
@@ -222,7 +212,7 @@ func runIntegrationsPush(client *api.Client, repoOverride string) (string, error
 	resp, err := client.PushPRReviewConfig(context.Background(), api.PushPRReviewConfigRequest{
 		Namespace:      namespace,
 		Project:        project,
-		Content:        string(content),
+		Content:        content,
 		ConfigFilePath: relPath,
 	})
 	if err != nil {
@@ -235,7 +225,7 @@ func runIntegrationsPush(client *api.Client, repoOverride string) (string, error
 		}
 		return "", fmt.Errorf("%s", msg)
 	}
-	return fmt.Sprintf("Applied pr_review config to %s/%s", namespace, project), nil
+	return prconfig.PushOutcomeMessage(namespace, project, resp.State.Status), nil
 }
 
 // integrationsIsNotConnected reports whether err indicates GitHub is not

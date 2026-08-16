@@ -2681,6 +2681,12 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		if _, exists := localByID[bs.Id]; exists {
 			continue // already known locally
 		}
+		if isProofOwnedSession(bs.SourceMetadata) {
+			// Proof-run sessions belong to one review run. Discovering them
+			// through the shared scm-adaptive-report identity would let
+			// `revyl device stop` tear down a concurrent proof.
+			continue
+		}
 
 		// Need to resolve worker URL
 		workerBaseURL := ""

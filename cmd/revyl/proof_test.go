@@ -176,3 +176,19 @@ func TestProofCommentRejectsBothOutcomeFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestProofCommentHelpTellsCursorToPostOnce(t *testing.T) {
+	help := proofCommentCmd.Long
+	if strings.Contains(help, "Post early with what you have and post again") {
+		t.Fatal("`revyl proof comment --help` still tells Cursor to post incrementally")
+	}
+	if !strings.Contains(strings.ToLower(help), "one comment per pull request") {
+		t.Fatalf("help = %q, want it to name one comment per pull request", help)
+	}
+	if strings.Contains(help, "one proof comment per platform") {
+		t.Fatal("`revyl proof comment --help` still claims one proof comment per platform")
+	}
+	if !strings.Contains(help, "posts once") {
+		t.Fatalf("help = %q, want it to tell Cursor to post once", help)
+	}
+}

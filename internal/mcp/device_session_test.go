@@ -2393,3 +2393,157 @@ func TestSyncSessions_PruneClearsBeforeSessionValues(t *testing.T) {
 		t.Fatalf("other before-session token = %q, want other-token", got)
 	}
 }
+
+func TestProofReviewRunID(t *testing.T) {
+	t.Parallel()
+
+	runID := "b3cd415d-1111-2222-3333-444444444444"
+	meta := map[string]interface{}{"scm_review_run_id": runID}
+	if got := proofReviewRunID(&meta); got != runID {
+		t.Fatalf("proofReviewRunID() = %q, want %q", got, runID)
+	}
+	if !isProofOwnedSession(&meta) {
+		t.Fatal("isProofOwnedSession(proof metadata) = false, want true")
+	}
+	if got := proofReviewRunID(nil); got != "" {
+		t.Fatalf("proofReviewRunID(nil) = %q, want empty", got)
+	}
+	if isProofOwnedSession(nil) {
+		t.Fatal("isProofOwnedSession(nil) = true, want false")
+	}
+	empty := map[string]interface{}{}
+	if got := proofReviewRunID(&empty); got != "" {
+		t.Fatalf("proofReviewRunID(empty) = %q, want empty", got)
+	}
+	wrongType := map[string]interface{}{"scm_review_run_id": 1}
+	if got := proofReviewRunID(&wrongType); got != "" {
+		t.Fatalf("proofReviewRunID(non-string) = %q, want empty", got)
+	}
+	padded := map[string]interface{}{"scm_review_run_id": "  " + runID + "  "}
+	if got := proofReviewRunID(&padded); got != runID {
+		t.Fatalf("proofReviewRunID(padded) = %q, want %q", got, runID)
+	}
+}
+
+func TestSyncSessions_DoesNotAttachUncachedProofSessions(t *testing.T) {
+	workDir := t.TempDir()
+	var workerLookups atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v1/execution/device-sessions/active":
+			_, _ = w.Write([]byte(`{
+				"org_id":"org-1",
+				"sessions":[
+					{
+						"id":"sibling-proof",
+						"org_id":"org-1",
+						"platform":"android",
+						"source":"cli",
+						"status":"running",
+						"user_email":"scm-adaptive-report@example.com",
+						"workflow_run_id":"wf-sibling",
+						"source_metadata":{"scm_review_run_id":"bc610fc1-0000-0000-0000-000000000001"}
+					},
+					{
+						"id":"ordinary-sess",
+						"org_id":"org-1",
+						"platform":"ios",
+						"source":"cli",
+						"status":"running",
+						"user_email":"scm-adaptive-report@example.com",
+						"workflow_run_id":"wf-ordinary"
+					}
+				]
+			}`))
+		case strings.HasPrefix(r.URL.Path, "/api/v1/execution/streaming/worker-connection/"):
+			workerLookups.Add(1)
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	mgr := &DeviceSessionManager{
+		apiClient:         api.NewClientWithBaseURL("test-api-key", server.URL),
+		workDir:           workDir,
+		sessions:          map[int]*DeviceSession{},
+		ownedSessions:     map[int]bool{},
+		idleTimerDisabled: make(map[int]bool),
+		idleTimers:        make(map[int]*time.Timer),
+		screenAnchors:     make(map[int]*screenAnchorState),
+		activeIndex:       -1,
+		orgID:             "org-1",
+		userEmail:         "scm-adaptive-report@example.com",
+	}
+
+	if err := mgr.SyncSessions(context.Background()); err != nil {
+		t.Fatalf("SyncSessions() error = %v", err)
+	}
+	if mgr.GetSession(0) != nil {
+		t.Fatal("attached a backend session from an empty local cache")
+	}
+	if got := workerLookups.Load(); got != 1 {
+		t.Fatalf("worker lookups = %d, want 1 for the ordinary session only", got)
+	}
+}
+
+func TestSyncSessions_KeepsCachedProofSession(t *testing.T) {
+	workDir := t.TempDir()
+	const proofSessionID = "own-proof"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/execution/device-sessions/active":
+			_, _ = w.Write([]byte(`{
+				"org_id":"org-1",
+				"sessions":[{
+					"id":"own-proof",
+					"org_id":"org-1",
+					"platform":"android",
+					"source":"cli",
+					"status":"running",
+					"user_email":"scm-adaptive-report@example.com",
+					"workflow_run_id":"wf-own",
+					"source_metadata":{"scm_review_run_id":"b3cd415d-0000-0000-0000-000000000001"}
+				}]
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	now := time.Now()
+	mgr := &DeviceSessionManager{
+		apiClient:         api.NewClientWithBaseURL("test-api-key", server.URL),
+		workDir:           workDir,
+		sessions:          map[int]*DeviceSession{},
+		ownedSessions:     map[int]bool{0: true},
+		idleTimerDisabled: make(map[int]bool),
+		idleTimers:        make(map[int]*time.Timer),
+		screenAnchors:     make(map[int]*screenAnchorState),
+		activeIndex:       0,
+		nextIndex:         1,
+		orgID:             "org-1",
+		userEmail:         "scm-adaptive-report@example.com",
+	}
+	mgr.sessions[0] = &DeviceSession{
+		Index:         0,
+		SessionID:     proofSessionID,
+		WorkflowRunID: "wf-own",
+		Platform:      "android",
+		StartedAt:     now,
+		LastActivity:  now,
+		IdleTimeout:   5 * time.Minute,
+	}
+
+	if err := mgr.SyncSessions(context.Background()); err != nil {
+		t.Fatalf("SyncSessions() error = %v", err)
+	}
+	got := mgr.GetSession(0)
+	if got == nil || got.SessionID != proofSessionID {
+		t.Fatal("cached proof session was dropped during sync")
+	}
+}

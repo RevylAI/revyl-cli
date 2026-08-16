@@ -120,6 +120,53 @@ func Scaffold(
 	return config.WriteProjectConfig(configPath, cfg)
 }
 
+// ReadPushContent returns the YAML to upload for `revyl github push`.
+//
+// A missing file becomes an empty string so the backend can revert the repo
+// to UI-managed. An existing file is returned as-is, including when it has
+// no pr_review section.
+//
+// Parameters:
+//   - configPath: Absolute path to .revyl/config.yaml.
+//
+// Returns:
+//   - string: File contents, or empty when the file is missing.
+//   - error: A non-nil error when the file exists but cannot be read.
+func ReadPushContent(configPath string) (string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to read %s: %w", configPath, err)
+	}
+	return string(data), nil
+}
+
+// PushOutcomeMessage returns the success line after a config push.
+//
+// Status `none` is the resulting UI-managed detection state. It covers an
+// actual revert and never-managed / already UI-managed no-ops, so the copy
+// must not claim that settings changed.
+//
+// Parameters:
+//   - namespace: Repository owner.
+//   - project: Repository name.
+//   - status: Detection status from the push API (`managed`, `none`, or `error`).
+//
+// Returns:
+//   - string: Human-readable success text for the CLI or TUI.
+func PushOutcomeMessage(namespace, project, status string) string {
+	if status == "none" {
+		return fmt.Sprintf(
+			"No file-managed pr_review config on %s/%s; settings stay UI-managed. Run 'revyl github init' to scaffold.",
+			namespace,
+			project,
+		)
+	}
+	return fmt.Sprintf("Applied pr_review config to %s/%s", namespace, project)
+}
+
 // BuildBuilds detects (or, when framework is set, forces) the per-platform
 // preview builds for a pr_review config.
 //

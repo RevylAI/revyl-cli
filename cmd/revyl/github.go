@@ -110,6 +110,9 @@ var githubPushCmd = &cobra.Command{
 	Long: `Upload this repo's .revyl/config.yaml and apply its pr_review section to
 Revyl immediately, without waiting for a commit/push to your default branch.
 
+A missing pr_review section (or a missing file) reverts the repo to
+UI-managed settings. Use 'revyl github init' to scaffold a new section.
+
 The repository is resolved from your git origin remote; override it with --repo.
 
 EXAMPLES:
@@ -527,16 +530,16 @@ func runGithubInit(cmd *cobra.Command, args []string) error {
 }
 
 // runGithubPush uploads the local .revyl/config.yaml and applies its pr_review
-// section to Revyl immediately (no commit/push required).
+// section to Revyl immediately (no commit/push required). A missing section
+// or file reverts a previously CLI-managed repo to UI-managed settings.
 //
 // Parameters:
 //   - cmd: The cobra command (used for context and the --dev flag).
 //   - args: Positional args (unused).
 //
 // Returns:
-//   - error: A non-nil error when the config file is missing/lacks a pr_review
-//     section, the repo cannot be resolved, authentication fails, or the
-//     backend rejects the config.
+//   - error: A non-nil error when the repo cannot be resolved, authentication
+//     fails, or the backend rejects the config.
 func runGithubPush(cmd *cobra.Command, args []string) error {
 	client, err := newGithubAPIClient(cmd)
 	if err != nil {
@@ -546,23 +549,6 @@ func runGithubPush(cmd *cobra.Command, args []string) error {
 	configPath, err := projectConfigPath()
 	if err != nil {
 		return err
-	}
-	root := filepath.Dir(filepath.Dir(configPath))
-
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		cfg = &config.ProjectConfig{
-			Project: config.Project{Name: filepath.Base(root)},
-		}
-	}
-
-	if cfg.PRReview == nil {
-		ui.PrintInfo("No pr_review section found in %s; scaffolding one ...", configPath)
-		if err := prconfig.Scaffold(root, configPath, cfg, "", false); err != nil {
-			return err
-		}
-		ui.PrintSuccess("Wrote pr_review config to %s", configPath)
-		ui.Println()
 	}
 
 	return pushPRReviewConfig(cmd.Context(), client, configPath, githubPushRepo)
@@ -587,9 +573,9 @@ func pushPRReviewConfig(
 	configPath string,
 	repoOverride string,
 ) error {
-	content, err := os.ReadFile(configPath)
+	content, err := prconfig.ReadPushContent(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to read %s: %w", configPath, err)
+		return err
 	}
 
 	root := filepath.Dir(filepath.Dir(configPath))
@@ -607,7 +593,7 @@ func pushPRReviewConfig(
 	resp, err := client.PushPRReviewConfig(ctx, api.PushPRReviewConfigRequest{
 		Namespace:      namespace,
 		Project:        project,
-		Content:        string(content),
+		Content:        content,
 		ConfigFilePath: relPath,
 	})
 	if err != nil {
@@ -628,8 +614,8 @@ func pushPRReviewConfig(
 		return fmt.Errorf("config file error")
 	}
 
-	ui.PrintSuccess("Applied pr_review config to %s/%s", namespace, project)
-	if state.Summary != nil && len(state.Summary.Builds) > 0 {
+	ui.PrintSuccess("%s", prconfig.PushOutcomeMessage(namespace, project, state.Status))
+	if state.Status != "none" && state.Summary != nil && len(state.Summary.Builds) > 0 {
 		ui.Println()
 		ui.PrintInfo("Preview builds:")
 		for _, b := range state.Summary.Builds {

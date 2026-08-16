@@ -3963,8 +3963,11 @@ type ScmActions struct {
 	ProjectRoot *string `json:"project_root,omitempty"`
 
 	// ProofHarness Which agent runs the proof of changes.
-	ProofHarness      *ScmActions_ProofHarness `json:"proof_harness,omitempty"`
-	StrictBuildChecks *bool                    `json:"strict_build_checks,omitempty"`
+	ProofHarness *ScmActions_ProofHarness `json:"proof_harness,omitempty"`
+
+	// StatusInPrDescription When true, splice the Revyl preview and proof block into the pull-request description instead of a later comment.
+	StatusInPrDescription *bool `json:"status_in_pr_description,omitempty"`
+	StrictBuildChecks     *bool `json:"strict_build_checks,omitempty"`
 }
 
 // ScmActions_ProofHarness Which agent runs the proof of changes.
@@ -5687,6 +5690,12 @@ type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostParams str
 	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
 
+// GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGetParams defines parameters for GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGet.
+type GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGetParams struct {
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
+}
+
 // GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams defines parameters for GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGet.
 type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
 	Limit                                *int                `form:"limit,omitempty" json:"limit,omitempty"`
@@ -5697,6 +5706,12 @@ type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
 	Search                               *string             `form:"search,omitempty" json:"search,omitempty"`
 	UserId                               *string             `form:"user_id,omitempty" json:"user_id,omitempty"`
 	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
+}
+
+// CancelDeviceApiV1ExecutionDeviceStatusCancelWorkflowRunIdPostParams defines parameters for CancelDeviceApiV1ExecutionDeviceStatusCancelWorkflowRunIdPost.
+type CancelDeviceApiV1ExecutionDeviceStatusCancelWorkflowRunIdPostParams struct {
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
 
 // StartDeviceApiV1ExecutionStartDevicePostParams defines parameters for StartDeviceApiV1ExecutionStartDevicePost.

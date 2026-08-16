@@ -1182,7 +1182,8 @@ func TestExpoDeviceLaunchContractBlocksWhenDeviceHeadShapeDrifts(t *testing.T) {
 }
 
 func TestCheckManifestURLs_ManifestBodyTimeoutDetail(t *testing.T) {
-	withDiagnosticProbeTimeouts(t, 25*time.Millisecond, 50*time.Millisecond)
+	manifestTimeout := 500 * time.Millisecond
+	withDiagnosticProbeTimeouts(t, 25*time.Millisecond, manifestTimeout)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1190,12 +1191,12 @@ func TestCheckManifestURLs_ManifestBodyTimeoutDetail(t *testing.T) {
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
 		}
-		time.Sleep(150 * time.Millisecond)
+		time.Sleep(1500 * time.Millisecond)
 		json.NewEncoder(w).Encode(testExpoManifestForTunnel("http://" + r.Host))
 	}))
 	defer srv.Close()
 
-	c := checkManifestURLsForPlatformWithTimeout(8081, srv.URL, "ios", 50*time.Millisecond)
+	c := checkManifestURLsForPlatformWithTimeout(8081, srv.URL, "ios", manifestTimeout)
 	if c.Passed {
 		t.Fatal("expected manifest body timeout")
 	}
