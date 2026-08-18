@@ -46,29 +46,17 @@ function Resolve-RevylBinary {
     return [System.IO.Path]::GetFullPath($Command.Source)
 }
 
-# Set-InstalledRuntimeOverride adds the staged Revyl binary override.
-#
-# The shipped mcp.json declares no REVYL_BINARY entry so Cursor cannot overwrite
-# an inherited value with an unresolved interpolation. Local development still
-# needs an explicit runtime, so the entry is added to the staged copy only.
-function Set-InstalledRuntimeOverride {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$McpPath,
-        [Parameter(Mandatory = $true)]
-        [string]$SelectedBinary
-    )
-
-    $McpConfig = Get-Content -LiteralPath $McpPath -Raw | ConvertFrom-Json
-    if ($null -eq $McpConfig.mcpServers.revyl -or $null -eq $McpConfig.mcpServers.revyl.env) {
-        throw "mcp.json has no revyl server environment to extend."
+# Get-ReportedRuntimeOverride names the active CLI from the environment, if any.
+function Get-ReportedRuntimeOverride {
+    if ($env:REVYL_BINARY) {
+        try {
+            return Resolve-RevylBinary -RequestedBinary $env:REVYL_BINARY
+        }
+        catch {
+            return $env:REVYL_BINARY
+        }
     }
-
-    $McpConfig.mcpServers.revyl.env |
-        Add-Member -MemberType NoteProperty -Name "REVYL_BINARY" -Value $SelectedBinary -Force
-    $SerializedConfig = $McpConfig | ConvertTo-Json -Depth 100
-    $Utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($McpPath, "$SerializedConfig`n", $Utf8WithoutBom)
+    return "plugin-pinned runtime"
 }
 
 # Test-SourceArtifact validates the maintained plugin before local mutation.
@@ -81,8 +69,10 @@ function Test-SourceArtifact {
     if ($Manifest.name -ne $PluginName) {
         throw "source manifest does not declare the revyl plugin."
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $SourceDirectory "mcp.json") -PathType Leaf)) {
-        throw "source artifact has no mcp.json."
+    foreach ($RelativePath in @("hooks", "skills", "rules")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $SourceDirectory $RelativePath) -PathType Container)) {
+            throw "source artifact has no $RelativePath directory."
+        }
     }
 }
 
@@ -150,14 +140,7 @@ function Show-LocalInstallStatus {
         }
     }
 
-    $RuntimeOverride = "plugin-pinned runtime"
-    $McpPath = Join-Path $Destination "mcp.json"
-    if (Test-Path -LiteralPath $McpPath -PathType Leaf) {
-        $McpConfig = Get-Content -LiteralPath $McpPath -Raw | ConvertFrom-Json
-        if ($McpConfig.mcpServers.revyl.env.REVYL_BINARY) {
-            $RuntimeOverride = [string]$McpConfig.mcpServers.revyl.env.REVYL_BINARY
-        }
-    }
+    $RuntimeOverride = Get-ReportedRuntimeOverride
 
     Write-Output "  Installed: yes"
     Write-Output "  Mode: $InstalledMode"
@@ -213,12 +196,6 @@ try {
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
     if ($Manifest.name -ne $PluginName) {
         throw "staged manifest does not declare the revyl plugin."
-    }
-
-    if ($SelectedBinary) {
-        Set-InstalledRuntimeOverride `
-            -McpPath (Join-Path $Staging "mcp.json") `
-            -SelectedBinary $SelectedBinary
     }
 
     Remove-PluginTree -Path $Previous

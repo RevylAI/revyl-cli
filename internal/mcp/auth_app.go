@@ -234,7 +234,7 @@ func (p *pendingAuthorization) store(authorization *auth.DeviceAuthorization) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.authorization = authorization
-	p.expiresAt = authorization.PollDeadline(time.Now())
+	p.expiresAt = auth.PollDeadline(authorization, time.Now())
 }
 
 // authorizationForGate returns an approval request to offer the user.
@@ -319,7 +319,7 @@ func authorizationInstruction(authorization *auth.DeviceAuthorization) string {
 	}
 	return fmt.Sprintf(
 		"approve at %s (code %s)",
-		authorization.VerificationURIComplete,
+		authorization.VerificationUriComplete,
 		authorization.UserCode,
 	)
 }

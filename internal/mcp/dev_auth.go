@@ -248,7 +248,7 @@ const bridgeRecoverySuffix = "or 'revyl auth persist-cloud-env' when REVYL_API_K
 func failedAuthenticationOutcome(failure *devAuthenticationFailure) outcome.Envelope {
 	envelope := outcome.Failed(string(failure.Code), failure.Message, false)
 	if failure.Authorization != nil {
-		envelope.AuthorizationURL = failure.Authorization.VerificationURIComplete
+		envelope.AuthorizationURL = failure.Authorization.VerificationUriComplete
 		envelope.AuthorizationCode = failure.Authorization.UserCode
 	}
 	return envelope

@@ -213,6 +213,18 @@ func (c *Client) SetAPIKey(apiKey string) {
 	c.apiKey = apiKey
 }
 
+// SetHTTPClient replaces the transport used by subsequent API requests.
+//
+// Parameters:
+//   - client: HTTP client to use. Ignored when nil so callers can pass an
+//     optional override without a constructor change.
+func (c *Client) SetHTTPClient(client *http.Client) {
+	if client == nil {
+		return
+	}
+	c.httpClient = client
+}
+
 // BaseURL returns the resolved backend base URL for this client.
 func (c *Client) BaseURL() string {
 	return c.baseURL

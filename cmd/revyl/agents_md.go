@@ -37,7 +37,7 @@ One-time setup (ephemeral shells may lack the CLI):
 
 ` + "```bash" + `
 if ! command -v revyl >/dev/null 2>&1; then
-  REVYL_NO_MODIFY_PATH=1 sh -c 'curl -fsSL https://revyl.com/install.sh | sh'
+  REVYL_NO_MODIFY_PATH=1 sh -c 'curl -fsSL https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh | sh'
   export PATH="$HOME/.revyl/bin:$PATH"
 fi
 revyl auth status || revyl auth persist-cloud-env

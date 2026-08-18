@@ -33,7 +33,9 @@ type Input struct {
 	MarketplacePath string
 	PluginVersion   string
 	RuntimeVersion  string
+	CLIVersionPath  string
 	ReleaseBaseURL  string
+	Bump            string
 	CheckOnly       bool
 	HTTPClient      *http.Client
 }
@@ -93,7 +95,7 @@ type pluginDocument struct {
 	Skills      string       `json:"skills"`
 	Rules       string       `json:"rules"`
 	Hooks       string       `json:"hooks"`
-	MCPServers  string       `json:"mcpServers"`
+	MCPServers  string       `json:"mcpServers,omitempty"`
 }
 
 type marketplaceOwner struct {
@@ -135,7 +137,11 @@ type preparedFile struct {
 //   - Result: Previous/new version mapping and changed files.
 //   - error: Validation, network, drift, decoding, or atomic write failure.
 func Prepare(ctx context.Context, input Input) (Result, error) {
-	normalizedInput, err := normalizeInput(input)
+	normalizedInput, err := resolveOmittedVersions(input)
+	if err != nil {
+		return Result{}, err
+	}
+	normalizedInput, err = normalizeInput(normalizedInput)
 	if err != nil {
 		return Result{}, err
 	}
@@ -171,7 +177,10 @@ func Prepare(ctx context.Context, input Input) (Result, error) {
 		releaseURL,
 	)
 	if err != nil {
-		return Result{}, err
+		return Result{}, unpublishedRuntimePinError(
+			normalizedInput.RuntimeVersion,
+			err,
+		)
 	}
 	runtimeManifest, err := buildRuntimeManifest(
 		normalizedInput.PluginVersion,
@@ -257,6 +266,153 @@ func Prepare(ctx context.Context, input Input) (Result, error) {
 	return result, nil
 }
 
+// resolveOmittedVersions fills empty plugin/runtime versions from maintained files.
+//
+// Parameters:
+//   - input: Caller-supplied release input. Empty PluginVersion or RuntimeVersion
+//     are replaced from plugin.json and the CLI VERSION file.
+//
+// Returns:
+//   - Input: The same input with resolved semantic versions.
+//   - error: Missing files, invalid current versions, or read failures.
+func resolveOmittedVersions(input Input) (Input, error) {
+	if strings.TrimSpace(input.PluginVersion) == "" {
+		pluginPath := filepath.Join(
+			filepath.Clean(strings.TrimSpace(input.PluginRoot)),
+			".cursor-plugin",
+			"plugin.json",
+		)
+		plugin, _, err := readJSONFile[pluginDocument](pluginPath)
+		if err != nil {
+			return Input{}, fmt.Errorf("read plugin version for default: %w", err)
+		}
+		if input.CheckOnly {
+			input.PluginVersion = plugin.Version
+		} else {
+			nextVersion, err := NextPluginVersion(plugin.Version, input.Bump)
+			if err != nil {
+				return Input{}, err
+			}
+			input.PluginVersion = nextVersion
+		}
+	}
+	if strings.TrimSpace(input.RuntimeVersion) == "" {
+		versionPath := strings.TrimSpace(input.CLIVersionPath)
+		if versionPath == "" {
+			versionPath = "VERSION"
+		}
+		runtimeVersion, err := ReadCLIVersion(versionPath)
+		if err != nil {
+			return Input{}, err
+		}
+		input.RuntimeVersion = runtimeVersion
+	}
+	return input, nil
+}
+
+// ReadCLIVersion returns the published CLI version from a VERSION file.
+//
+// Parameters:
+//   - path: Path to the CLI VERSION file.
+//
+// Returns:
+//   - string: Trimmed semantic version without a leading v.
+//   - error: Read failure or an invalid version string.
+func ReadCLIVersion(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read CLI VERSION: %w", err)
+	}
+	version := strings.TrimPrefix(strings.TrimSpace(string(content)), "v")
+	if !semanticVersionPattern.MatchString(version) {
+		return "", fmt.Errorf("invalid CLI VERSION %q", version)
+	}
+	return version, nil
+}
+
+// NextPluginPatchVersion increments the patch component of a semantic version.
+//
+// Parameters:
+//   - current: The current plugin.json version, optionally with a prerelease suffix.
+//
+// Returns:
+//   - string: major.minor.(patch+1), with any prerelease suffix dropped.
+//   - error: An unparseable current version.
+func NextPluginPatchVersion(current string) (string, error) {
+	major, minor, patch, err := pluginVersionParts(current)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d.%d.%d", major, minor, patch+1), nil
+}
+
+// NextPluginMinorVersion increments the minor component of a semantic version.
+//
+// Parameters:
+//   - current: The current plugin.json version, optionally with a prerelease suffix.
+//
+// Returns:
+//   - string: major.(minor+1).0, with any prerelease suffix dropped.
+//   - error: An unparseable current version.
+func NextPluginMinorVersion(current string) (string, error) {
+	major, minor, _, err := pluginVersionParts(current)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d.%d.0", major, minor+1), nil
+}
+
+// NextPluginMajorVersion increments the major component of a semantic version.
+//
+// Parameters:
+//   - current: The current plugin.json version, optionally with a prerelease suffix.
+//
+// Returns:
+//   - string: (major+1).0.0, with any prerelease suffix dropped.
+//   - error: An unparseable current version.
+func NextPluginMajorVersion(current string) (string, error) {
+	major, _, _, err := pluginVersionParts(current)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d.0.0", major+1), nil
+}
+
+// pluginVersionParts parses major, minor, and patch from a semantic version.
+//
+// Parameters:
+//   - current: The plugin version string, optionally prefixed with v or a prerelease suffix.
+//
+// Returns:
+//   - int: Major version.
+//   - int: Minor version.
+//   - int: Patch version.
+//   - error: An unparseable current version.
+func pluginVersionParts(current string) (int, int, int, error) {
+	current = strings.TrimPrefix(strings.TrimSpace(current), "v")
+	if !semanticVersionPattern.MatchString(current) {
+		return 0, 0, 0, fmt.Errorf("invalid plugin version %q", current)
+	}
+	core, _, _ := strings.Cut(current, "-")
+	parts := strings.Split(core, ".")
+	if len(parts) != 3 {
+		return 0, 0, 0, fmt.Errorf("invalid plugin version %q", current)
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid plugin major in %q: %w", current, err)
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid plugin minor in %q: %w", current, err)
+	}
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid plugin patch in %q: %w", current, err)
+	}
+	return major, minor, patch, nil
+}
+
 // normalizeInput validates required versions, paths, and dependencies.
 func normalizeInput(input Input) (Input, error) {
 	input.PluginRoot = filepath.Clean(strings.TrimSpace(input.PluginRoot))
@@ -308,6 +464,37 @@ func normalizeInput(input Input) (Input, error) {
 	return input, nil
 }
 
+// checksumHTTPError is a non-OK response when fetching checksums.txt.
+type checksumHTTPError struct {
+	StatusCode int
+}
+
+// Error names the checksum fetch status without echoing the URL.
+func (e *checksumHTTPError) Error() string {
+	return fmt.Sprintf("fetch runtime checksums: HTTP %d", e.StatusCode)
+}
+
+// unpublishedRuntimePinError tells the operator to publish the CLI before pinning.
+//
+// Parameters:
+//   - runtimeVersion: CLI semver the plugin tried to pin.
+//   - err: Error from fetchReleaseAssets.
+//
+// Returns:
+//   - error: Actionable copy for missing checksums, otherwise err unchanged.
+func unpublishedRuntimePinError(runtimeVersion string, err error) error {
+	var httpErr *checksumHTTPError
+	if !errors.As(err, &httpErr) {
+		return err
+	}
+	return fmt.Errorf(
+		"CLI runtime v%s is not published yet (checksums.txt HTTP %d); run ./scripts/bump patch, wait for https://github.com/RevylAI/revyl-cli/releases/download/v%s/checksums.txt, then retry ./scripts/bump patch --plugin",
+		runtimeVersion,
+		httpErr.StatusCode,
+		runtimeVersion,
+	)
+}
+
 // fetchReleaseAssets downloads and parses the canonical checksum manifest.
 func fetchReleaseAssets(
 	ctx context.Context,
@@ -330,10 +517,7 @@ func fetchReleaseAssets(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(
-			"fetch runtime checksums: HTTP %d",
-			response.StatusCode,
-		)
+		return nil, &checksumHTTPError{StatusCode: response.StatusCode}
 	}
 
 	limitedBody := io.LimitReader(response.Body, maxChecksumBytes+1)

@@ -1,0 +1,74 @@
+#!/bin/sh
+#
+# Bump the CLI or Cursor plugin semver using the same Makefile targets.
+# Make cannot take --plugin, so this wrapper is the flag interface.
+#
+# Usage:
+#   ./scripts/bump patch
+#   ./scripts/bump patch --plugin
+#   ./scripts/bump minor --plugin
+#   ./scripts/bump major --plugin
+
+set -eu
+
+# usage prints how to bump the CLI or the Cursor plugin.
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/bump <patch|minor|major> [--plugin]
+
+  patch|minor|major  Which semver component to bump
+  --plugin           Bump the Cursor plugin and pin the published CLI VERSION.
+                     Does not touch VERSION. Make equivalent: cursor-plugin-bump-patch
+
+Examples:
+  ./scripts/bump patch           # CLI release
+  ./scripts/bump patch --plugin  # Cursor plugin pin
+EOF
+}
+
+level=
+plugin=0
+
+for argument in "$@"; do
+  case "$argument" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --plugin)
+      plugin=1
+      ;;
+    patch | minor | major)
+      if [ -n "$level" ]; then
+        printf 'bump: refuse combining %s and %s in one invocation\n' "$level" "$argument" >&2
+        usage >&2
+        exit 1
+      fi
+      level=$argument
+      ;;
+    *)
+      printf 'bump: unknown argument %s\n' "$argument" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [ -z "$level" ]; then
+  printf 'bump: missing patch, minor, or major\n' >&2
+  usage >&2
+  exit 1
+fi
+
+script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cli_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
+cd -- "$cli_root"
+
+make_bin=${MAKE:-make}
+target="bump-${level}"
+
+if [ "$plugin" -eq 1 ]; then
+  exec "$make_bin" "cursor-plugin-bump-${level}"
+fi
+
+exec "$make_bin" "$target"

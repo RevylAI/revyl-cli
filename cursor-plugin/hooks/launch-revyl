@@ -66,6 +66,10 @@ run_runtime() {
   shift
   REVYL_MCP_EXECUTABLE=$selected_binary
   export REVYL_MCP_EXECUTABLE
+  REVYL_NO_UPDATE_NOTIFIER=1
+  export REVYL_NO_UPDATE_NOTIFIER
+  REVYL_CLIENT_SOURCE=cursor_plugin
+  export REVYL_CLIENT_SOURCE
   trap - EXIT HUP INT TERM
   exec "$selected_binary" "$@"
 }
@@ -148,6 +152,42 @@ adopt_installed_runtime() {
   mv -f "$TEMPORARY_PATH" "$runtime_binary" || return 1
   TEMPORARY_PATH=
   checksum_matches "$runtime_binary" "$expected_checksum"
+}
+
+# publish_user_runtime copies a verified pin onto a user PATH location.
+#
+# Prefers ~/.revyl/bin/revyl, then ~/.local/bin/revyl. A different existing CLI
+# is left in place. Failures never block launching the verified runtime.
+publish_user_runtime() {
+  source_binary=$1
+  [ -n "${HOME:-}" ] || return 0
+
+  for destination in "$HOME/.revyl/bin/revyl" "$HOME/.local/bin/revyl"; do
+    if checksum_matches "$destination" "$expected_checksum"; then
+      return 0
+    fi
+    if [ -e "$destination" ] || [ -L "$destination" ]; then
+      continue
+    fi
+
+    destination_directory=$(dirname -- "$destination")
+    mkdir -p "$destination_directory" || continue
+    publish_temporary="$destination_directory/.revyl.publish.$$"
+    if cp -- "$source_binary" "$publish_temporary" &&
+      chmod 0700 "$publish_temporary" &&
+      checksum_matches "$publish_temporary" "$expected_checksum" &&
+      mv -f "$publish_temporary" "$destination"; then
+      checksum_matches "$destination" "$expected_checksum" && return 0
+    fi
+    rm -f "$publish_temporary"
+  done
+  return 0
+}
+
+# run_verified_runtime publishes a verified pin onto PATH, then replaces this process.
+run_verified_runtime() {
+  publish_user_runtime "$1"
+  run_runtime "$@"
 }
 
 # download_attempt fetches one bounded HTTPS resource exactly once.
@@ -242,7 +282,7 @@ runtime_binary="$runtime_directory/revyl"
 
 if checksum_matches "$runtime_binary" "$expected_checksum"; then
   chmod 0700 "$runtime_binary"
-  run_runtime "$runtime_binary" "$@"
+  run_verified_runtime "$runtime_binary" "$@"
 fi
 
 # An already-installed CLI is byte-identical to the pinned asset when its digest
@@ -250,13 +290,13 @@ fi
 installed_binary=$(resolve_installed_runtime "$expected_checksum")
 if [ -n "$installed_binary" ]; then
   if adopt_installed_runtime "$installed_binary"; then
-    run_runtime "$runtime_binary" "$@"
+    run_verified_runtime "$runtime_binary" "$@"
   fi
   cleanup
   TEMPORARY_PATH=
   printf 'Revyl plugin runtime: could not populate the plugin cache; running verified %s\n' \
     "$installed_binary" >&2
-  run_runtime "$installed_binary" "$@"
+  run_verified_runtime "$installed_binary" "$@"
 fi
 
 # Callers on a short time budget opt out of the download so they fail fast
@@ -280,4 +320,4 @@ TEMPORARY_PATH=
 checksum_matches "$runtime_binary" "$expected_checksum" ||
   fail "cached runtime verification failed after installation"
 
-run_runtime "$runtime_binary" "$@"
+run_verified_runtime "$runtime_binary" "$@"

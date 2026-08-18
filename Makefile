@@ -218,6 +218,8 @@ version:
 	@echo "$(CURRENT_VERSION)"
 
 ## bump-patch: Bump patch version (e.g. 0.1.1 -> 0.1.2) and sync all version files
+## bump-minor: Bump minor version (e.g. 0.1.1 -> 0.2.0) and sync all version files
+## bump-major: Bump major version (e.g. 0.1.1 -> 1.0.0) and sync all version files
 bump-patch:
 	@OLD="$(CURRENT_VERSION)" ; \
 	MAJOR=$$(echo "$$OLD" | cut -d. -f1) ; \
@@ -226,7 +228,6 @@ bump-patch:
 	NEW="$$MAJOR.$$MINOR.$$((PATCH + 1))" ; \
 	$(MAKE) _set-version OLD="$$OLD" NEW="$$NEW"
 
-## bump-minor: Bump minor version (e.g. 0.1.1 -> 0.2.0) and sync all version files
 bump-minor:
 	@OLD="$(CURRENT_VERSION)" ; \
 	MAJOR=$$(echo "$$OLD" | cut -d. -f1) ; \
@@ -234,7 +235,6 @@ bump-minor:
 	NEW="$$MAJOR.$$((MINOR + 1)).0" ; \
 	$(MAKE) _set-version OLD="$$OLD" NEW="$$NEW"
 
-## bump-major: Bump major version (e.g. 0.1.1 -> 1.0.0) and sync all version files
 bump-major:
 	@OLD="$(CURRENT_VERSION)" ; \
 	MAJOR=$$(echo "$$OLD" | cut -d. -f1) ; \
@@ -307,9 +307,11 @@ t: test
 # Pure-copy skills come from skills/ (source of truth, embedded by embed.go).
 # Authored plugin skills (revyl-cloud-agent, revyl-ci-sync, revyl-proof-ci)
 # are maintained directly in cursor-plugin/skills/ and are NOT synced.
-.PHONY: sync-cursor-plugin-skills prepare-cursor-plugin-release
+.PHONY: sync-cursor-plugin-skills prepare-cursor-plugin-release cursor-plugin-release cursor-plugin-bump-patch cursor-plugin-bump-minor cursor-plugin-bump-major
 
-CURSOR_PLUGIN_COPY_SKILLS := revyl-mcp-dev-loop
+CURSOR_PLUGIN_COPY_SKILLS := \
+	revyl-cli-dev-loop \
+	revyl-cli-auth-bypass
 
 ## sync-cursor-plugin-skills: Regenerate the copied skills under cursor-plugin/skills/
 sync-cursor-plugin-skills:
@@ -321,9 +323,38 @@ sync-cursor-plugin-skills:
 
 ## prepare-cursor-plugin-release: Pin a published CLI runtime into the Cursor plugin
 prepare-cursor-plugin-release:
-	@test -n "$(PLUGIN_VERSION)" || (echo "PLUGIN_VERSION is required" >&2; exit 2)
-	@test -n "$(RUNTIME_VERSION)" || (echo "RUNTIME_VERSION is required" >&2; exit 2)
 	@$(GOCMD) run ./cmd/prepare-cursor-plugin-release \
-		--plugin-version "$(PLUGIN_VERSION)" \
-		--runtime-version "$(RUNTIME_VERSION)" \
+		$(if $(PLUGIN_VERSION),--plugin-version "$(PLUGIN_VERSION)",) \
+		$(if $(RUNTIME_VERSION),--runtime-version "$(RUNTIME_VERSION)",) \
+		$(if $(BUMP),--bump "$(BUMP)",) \
 		$(if $(filter 1 true yes,$(CHECK)),--check,)
+
+## cursor-plugin-release: Sync copied skills, pin the runtime, and verify in one invocation
+cursor-plugin-release:
+	@$(MAKE) sync-cursor-plugin-skills
+	@$(MAKE) prepare-cursor-plugin-release PLUGIN_VERSION="$(PLUGIN_VERSION)" RUNTIME_VERSION="$(RUNTIME_VERSION)" BUMP="$(BUMP)"
+	@$(MAKE) prepare-cursor-plugin-release PLUGIN_VERSION="$(PLUGIN_VERSION)" RUNTIME_VERSION="$(RUNTIME_VERSION)" BUMP="$(BUMP)" CHECK=1
+
+## cursor-plugin-bump-patch: Bump plugin patch (e.g. 0.1.1 -> 0.1.2) and pin VERSION
+cursor-plugin-bump-patch:
+	@$(MAKE) cursor-plugin-release BUMP=patch
+	@$(MAKE) _cursor-plugin-print-next-steps
+
+## cursor-plugin-bump-minor: Bump plugin minor (e.g. 0.1.2 -> 0.2.0) and pin VERSION
+cursor-plugin-bump-minor:
+	@$(MAKE) cursor-plugin-release BUMP=minor
+	@$(MAKE) _cursor-plugin-print-next-steps
+
+## cursor-plugin-bump-major: Bump plugin major (e.g. 0.1.2 -> 1.0.0) and pin VERSION
+cursor-plugin-bump-major:
+	@$(MAKE) cursor-plugin-release BUMP=major
+	@$(MAKE) _cursor-plugin-print-next-steps
+
+# Internal target: print bump-patch-style next steps after a plugin pin write.
+_cursor-plugin-print-next-steps:
+	@PLUGIN_VERSION=$$(sed -n 's/^[[:space:]]*"plugin_version": "\([^"]*\)".*/\1/p' cursor-plugin/runtime-manifest.json | head -1) ; \
+	RUNTIME_VERSION=$$(sed -n 's/^[[:space:]]*"runtime_version": "\([^"]*\)".*/\1/p' cursor-plugin/runtime-manifest.json | head -1) ; \
+	echo "Next steps:" ; \
+	echo "  git add cursor-plugin/.cursor-plugin/plugin.json .cursor-plugin/marketplace.json cursor-plugin/runtime-manifest.json && git commit -m 'chore: bump Cursor plugin to $$PLUGIN_VERSION (runtime $$RUNTIME_VERSION)'" ; \
+	echo "  Merge to main so public RevylAI/revyl-cli updates." ; \
+	echo "  Marketplace re-index is separate and approval-gated."

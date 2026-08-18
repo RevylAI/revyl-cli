@@ -1,75 +1,58 @@
 ---
 name: revyl-cloud-agent
-description: Revyl conventions for Cursor Cloud/background agents - headless VM rules, remote builds, artifact evidence, session cleanup, and PR flow.
+description: Revyl conventions for Cursor Cloud/background agents - CLI install, sign-in, remote builds, artifact evidence, session cleanup, and PR flow.
 ---
 
 # Revyl Cloud Agent Skill
 
-Use this skill whenever you are running as a Cursor Cloud/background agent (headless Linux VM) and working with Revyl. It layers cloud-agent-specific rules on top of `revyl-mcp-dev-loop`; load both.
+Use this skill whenever you are running as a Cursor Cloud/background agent (headless Linux VM) and working with Revyl. Drive devices with the CLI. The plugin does not start MCP.
 
 ## Environment Ground Rules (non-negotiable)
 
-- The VM is headless and non-interactive. Prefer the Revyl MCP tools; never
-  start the `revyl dev` TUI.
-- Prefer the secret bridge over any login an error message also names, because
-  the bridge needs no human and you may be running unattended. Call
-  `start_dev_loop` first; if it returns an authentication state, run
-  `revyl auth persist-cloud-env` once to bridge the injected `REVYL_API_KEY`,
-  then retry.
-- Only if that command reports no key in the environment, hand the decision
-  back: post `outcome.authorization_url` from the failed result as a clickable
-  link so the user can approve from their own browser, and say that adding
-  `REVYL_API_KEY` as a Runtime Secret plus a fresh Cloud session is the fix that
-  survives this VM. Approval works from anywhere, so do not claim browser login
-  is impossible. Never request or accept the key in chat.
-- If `start_dev_loop` returns `project_not_initialized`, run its exact
-  remediation command once in the returned working directory, then retry once.
-- **The VM has no Xcode.** Native iOS dev loops must call
-  `start_dev_loop(remote=true, seed_latest=true)`. Treat Android the same
-  unless the VM demonstrably has the SDK.
+- The VM is headless and non-interactive. Never start the `revyl dev` TUI.
+- Before the first `revyl` command, prepend the user PATH directories the
+  plugin publishes the CLI onto (`~/.revyl/bin`, then `~/.local/bin` if that
+  path already holds a different CLI):
+
+```bash
+export PATH="$HOME/.revyl/bin:$HOME/.local/bin:$PATH"
+```
+The plugin cache is not on PATH. Do not invoke `${CURSOR_PLUGIN_ROOT}` or the
+cached binary as the shell command.
+
+- If a real `REVYL_API_KEY` is in the environment, run `revyl auth persist-cloud-env` once so the key never reaches argv. Never print the key.
+- If that command reports no key, run `revyl auth login` and post the printed approval URL as a clickable markdown link plus the short code, then wait. Optional `REVYL_API_KEY` as a Runtime Secret is the unattended path, not the only path. Never request or accept the key in chat.
+- **The VM has no Xcode.** Native iOS dev loops must use `revyl dev --remote`. Treat Android the same unless the VM demonstrably has the SDK.
 
 ## Session Lifecycle (devices cost money and outlive the VM)
 
-- Cloud device sessions do not die when the VM exits. `stop_dev_loop` (or
-  `device_session(action="stop")`) is mandatory before completion.
-- At the start of a run, use `device_session(action="list")` to check for a
-  suitable existing session. Do not stack new devices on stale ones.
-
-## Session Heartbeat (idle auto-stop is real)
-
-- Reading files and waiting do not count as device activity. During long
-  non-device work, call `get_dev_status` or `screenshot` periodically.
-- If a session drops, inspect `get_dev_status` once, then start a fresh session
-  and re-drive in one pass. One passed validation plus one screenshot is
-  sufficient evidence.
+- Cloud device sessions do not die when the VM exits. `revyl dev stop` is mandatory before completion.
+- At the start of a run, use `revyl dev list` to check for a suitable existing session. Do not stack new devices on stale ones.
 
 ## Bounded Monitoring (never hang the shell)
 
-- Use `get_dev_status` for independent status snapshots.
-- After native changes, call `rebuild`, continue independent work, then call
-  `wait_for_rebuild` with the returned handle and a finite timeout.
+- Use `revyl dev status` for independent status snapshots.
+- After native changes, call `revyl dev rebuild`, continue independent work, then `revyl dev rebuild --wait` with a finite timeout.
 
 ## Artifacts and Evidence
 
-- Post `viewer_url` as a clickable link as soon as `start_dev_loop` returns.
-- The inline Revyl app may offer **Open live device**, which asks the Cursor host to open that URL after a user click. Keep the visible link as the guaranteed fallback when app UI or host navigation is unavailable.
-- Use MCP `screenshot` and `device_validation` results as inline evidence.
-- Never claim the Cloud VM opened a browser or the user's local Cursor Desktop. Automatic Cloud-to-client navigation requires a Cursor host capability; shell browser commands target only the VM.
+- Post `viewer_url` as a clickable markdown link as soon as `revyl dev --detach --json` returns.
+- Use `revyl device screenshot` and `revyl device validation` as evidence.
+- Never claim the Cloud VM opened a browser or the user's local Cursor Desktop.
 
 ## Auth Bypass and Secrets
 
-- Selected launch configurations (environment variables and iOS argument sets)
-  apply automatically to fresh raw device, dev, test, and workflow runs. Do not
-  fetch their payloads or repeat them explicitly.
-- CLI `--launch-var` / `--launch-arg-set` and MCP `launch_vars` /
-  `launch_arg_sets` inputs remain additive.
-  `--no-inherited-launch-vars` and `disable_inherited_launch_vars` ignore
-  `REVYL_INHERITED_LAUNCH_ENV_VAR_IDS` entirely without disabling
-  `.revyl/config.yaml` auth bypass.
-- If the app shows a logged-out state mid-session but the boot token is still valid, run `revyl dev auth refresh --json` (re-fires the boot deep link; does not remint). If the token itself expired, `revyl dev stop` then `revyl dev` so a fresh mint is applied as launch environment.
-- Never paste launch-configuration payloads, tokens, or API keys into code,
-  chat, logs, screenshots, or PRs — reference configuration names only. Avoid
-  typing real credentials on-screen; use test configurations.
+- Selected launch configurations apply automatically to fresh raw device, dev, test, and workflow runs. Do not fetch their payloads or repeat them explicitly.
+- If the app shows a logged-out state mid-session but the boot token is still valid, run `revyl dev auth refresh --json`. If the token itself expired, `revyl dev stop` then `revyl dev` so a fresh mint is applied as launch environment.
+- Never paste launch-configuration payloads, tokens, or API keys into code, chat, logs, screenshots, or PRs.
+
+## Optional custom MCP
+
+Users who add a personal MCP entry with a literal command such as `revyl` or
+`/usr/local/bin/revyl` can install the MCP dev-loop skill by name. Never
+`${CURSOR_PLUGIN_ROOT}` or `${env:...}`. The plugin does not start that server.
+Do not call MCP tools unless that skill is installed and the tools are
+registered.
 
 ## Git Hygiene
 

@@ -65,6 +65,14 @@ func TestPrepareGeneratesPinnedReleaseAndCheckMode(t *testing.T) {
 		}
 	}
 
+	preparedPlugin, err := os.ReadFile(filepath.Join(pluginRoot, ".cursor-plugin", "plugin.json"))
+	if err != nil {
+		t.Fatalf("read prepared plugin.json: %v", err)
+	}
+	if strings.Contains(string(preparedPlugin), `"mcpServers"`) {
+		t.Fatal("prepared plugin.json still declares mcpServers")
+	}
+
 	input.CheckOnly = true
 	checkResult, err := Prepare(context.Background(), input)
 	if err != nil {
@@ -98,6 +106,92 @@ func TestPrepareGeneratesPinnedReleaseAndCheckMode(t *testing.T) {
 	}
 }
 
+func TestNextPluginPatchVersion(t *testing.T) {
+	got, err := NextPluginPatchVersion("0.1.1")
+	if err != nil {
+		t.Fatalf("NextPluginPatchVersion() error = %v", err)
+	}
+	if got != "0.1.2" {
+		t.Fatalf("NextPluginPatchVersion() = %q, want 0.1.2", got)
+	}
+}
+
+func TestNextPluginMinorAndMajorVersion(t *testing.T) {
+	minor, err := NextPluginMinorVersion("0.1.2")
+	if err != nil {
+		t.Fatalf("NextPluginMinorVersion() error = %v", err)
+	}
+	if minor != "0.2.0" {
+		t.Fatalf("NextPluginMinorVersion() = %q, want 0.2.0", minor)
+	}
+	major, err := NextPluginMajorVersion("0.1.2")
+	if err != nil {
+		t.Fatalf("NextPluginMajorVersion() error = %v", err)
+	}
+	if major != "1.0.0" {
+		t.Fatalf("NextPluginMajorVersion() = %q, want 1.0.0", major)
+	}
+}
+
+func TestPrepareResolvesOmittedVersionsAndCheckDoesNotWrite(t *testing.T) {
+	root := t.TempDir()
+	pluginRoot, marketplacePath := writeReleaseFixtures(t, root)
+	versionPath := filepath.Join(root, "VERSION")
+	if err := os.WriteFile(versionPath, []byte("9.8.7\n"), 0o644); err != nil {
+		t.Fatalf("write VERSION: %v", err)
+	}
+	server := newReleaseServer(t, releaseAssetNames)
+	defer server.Close()
+
+	input := Input{
+		PluginRoot:      pluginRoot,
+		MarketplacePath: marketplacePath,
+		CLIVersionPath:  versionPath,
+		ReleaseBaseURL:  server.URL,
+		HTTPClient:      server.Client(),
+	}
+	result, err := Prepare(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Prepare(defaults) error = %v", err)
+	}
+	if result.PreparedPluginVersion != "0.1.1" || result.PreparedRuntimeVersion != "9.8.7" {
+		t.Fatalf("Prepare(defaults) result = %+v", result)
+	}
+
+	pluginPath := filepath.Join(pluginRoot, ".cursor-plugin", "plugin.json")
+	manifestPath := filepath.Join(pluginRoot, runtimeManifestFilename)
+	pluginBefore, err := os.ReadFile(pluginPath)
+	if err != nil {
+		t.Fatalf("read prepared plugin.json: %v", err)
+	}
+	manifestBefore, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read prepared runtime manifest: %v", err)
+	}
+
+	input.CheckOnly = true
+	checkResult, err := Prepare(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Prepare(check defaults) error = %v", err)
+	}
+	if checkResult.PreparedPluginVersion != "0.1.1" ||
+		checkResult.PreparedRuntimeVersion != "9.8.7" ||
+		len(checkResult.ChangedFiles) != 0 {
+		t.Fatalf("Prepare(check defaults) result = %+v", checkResult)
+	}
+	pluginAfter, err := os.ReadFile(pluginPath)
+	if err != nil {
+		t.Fatalf("reread plugin.json: %v", err)
+	}
+	manifestAfter, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("reread runtime manifest: %v", err)
+	}
+	if string(pluginAfter) != string(pluginBefore) || string(manifestAfter) != string(manifestBefore) {
+		t.Fatal("CHECK=1 mutated generator-owned files")
+	}
+}
+
 // TestPrepareRejectsIncompleteRuntimeRelease verifies all platform artifacts are mandatory.
 func TestPrepareRejectsIncompleteRuntimeRelease(t *testing.T) {
 	root := t.TempDir()
@@ -119,7 +213,35 @@ func TestPrepareRejectsIncompleteRuntimeRelease(t *testing.T) {
 	}
 }
 
-// TestParseChecksumsRejectsDuplicateAssets verifies ambiguous manifests fail closed.
+// TestPrepareRejectsUnpublishedRuntimeRelease tells the operator to bump CLI first.
+func TestPrepareRejectsUnpublishedRuntimeRelease(t *testing.T) {
+	root := t.TempDir()
+	pluginRoot, marketplacePath := writeReleaseFixtures(t, root)
+	server := newReleaseServer(t, releaseAssetNames)
+	defer server.Close()
+
+	_, err := Prepare(context.Background(), Input{
+		PluginRoot:      pluginRoot,
+		MarketplacePath: marketplacePath,
+		PluginVersion:   "0.2.0",
+		RuntimeVersion:  "9.9.9",
+		ReleaseBaseURL:  server.URL,
+		HTTPClient:      server.Client(),
+	})
+	if err == nil {
+		t.Fatal("Prepare(unpublished runtime) error = nil")
+	}
+	message := err.Error()
+	for _, fragment := range []string{
+		"CLI runtime v9.9.9 is not published yet",
+		"checksums.txt HTTP 404",
+		"./scripts/bump patch --plugin",
+	} {
+		if !strings.Contains(message, fragment) {
+			t.Fatalf("Prepare(unpublished runtime) error = %q, want %q", message, fragment)
+		}
+	}
+}
 func TestParseChecksumsRejectsDuplicateAssets(t *testing.T) {
 	checksum := strings.Repeat("a", 64)
 	_, err := parseChecksums([]byte(
@@ -187,7 +309,6 @@ func writeReleaseFixtures(t *testing.T, root string) (string, string) {
 		Skills:      "./skills/",
 		Rules:       "./rules/",
 		Hooks:       "./hooks/hooks.json",
-		MCPServers:  "./mcp.json",
 	}
 	marketplace := marketplaceDocument{
 		Name:  "revyl",

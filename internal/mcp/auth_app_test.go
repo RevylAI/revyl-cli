@@ -14,7 +14,7 @@ func pendingFixture() *auth.DeviceAuthorization {
 	return &auth.DeviceAuthorization{
 		DeviceCode:              "device-secret-never-displayed",
 		UserCode:                "ABCD-2345",
-		VerificationURIComplete: "https://app.revyl.ai/cli/device?code=ABCD-2345",
+		VerificationUriComplete: "https://app.revyl.ai/cli/device?code=ABCD-2345",
 		ExpiresIn:               600,
 	}
 }
@@ -73,7 +73,7 @@ func TestGateEnvelopeCarriesTheApproval(t *testing.T) {
 		Code:          authenticationStateRequired,
 		Authorization: authorization,
 	})
-	if envelope.AuthorizationURL != authorization.VerificationURIComplete {
+	if envelope.AuthorizationURL != authorization.VerificationUriComplete {
 		t.Fatalf("envelope URL = %q, want the approval page", envelope.AuthorizationURL)
 	}
 	if envelope.AuthorizationCode != authorization.UserCode {

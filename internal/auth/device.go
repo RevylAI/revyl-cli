@@ -15,8 +15,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/revyl/cli/internal/api"
 )
 
 const (
@@ -50,54 +53,29 @@ var ErrDeviceAuthorizationDenied = errors.New("the authorization request was den
 var ErrDeviceAuthorizationExpired = errors.New("the authorization request expired; run the command again")
 
 // DeviceAuthorization is a pending request the user has yet to decide.
-type DeviceAuthorization struct {
-	// DeviceCode is the secret this CLI redeems with. Never display or log it.
-	DeviceCode string `json:"device_code"`
-
-	// UserCode is the short code the user confirms against the approval page.
-	UserCode string `json:"user_code"`
-
-	// VerificationURI is the approval page without the code embedded.
-	VerificationURI string `json:"verification_uri"`
-
-	// VerificationURIComplete is the approval page with the code embedded, so
-	// one click covers the whole flow.
-	VerificationURIComplete string `json:"verification_uri_complete"`
-
-	// ExpiresIn is how many seconds the request stays open.
-	ExpiresIn int `json:"expires_in"`
-
-	// Interval is the minimum seconds the server wants between polls.
-	Interval int `json:"interval"`
-}
+type DeviceAuthorization = api.CreateCLIDeviceAuthorizationResponse
 
 // PollDeadline returns when this authorization stops being redeemable.
 //
 // Parameters:
+//   - authorization: The pending request returned by CreateAuthorization.
 //   - now: The current time, so callers can control the clock in tests.
 //
 // Returns:
 //   - time.Time: The instant after which polling is pointless.
-func (a DeviceAuthorization) PollDeadline(now time.Time) time.Time {
-	return now.Add(time.Duration(a.ExpiresIn) * time.Second)
+func PollDeadline(authorization *DeviceAuthorization, now time.Time) time.Time {
+	if authorization == nil {
+		return now
+	}
+	return now.Add(time.Duration(authorization.ExpiresIn) * time.Second)
 }
 
 // pollInterval returns the first wait between polls.
-func (a DeviceAuthorization) pollInterval() time.Duration {
-	if a.Interval <= 0 {
+func pollInterval(interval int) time.Duration {
+	if interval <= 0 {
 		return defaultDevicePollInterval
 	}
-	return time.Duration(a.Interval) * time.Second
-}
-
-// deviceCredential is the redemption response from the backend.
-type deviceCredential struct {
-	State       string `json:"state"`
-	APIKeyToken string `json:"api_key_token"`
-	APIKeyID    string `json:"api_key_id"`
-	Email       string `json:"email"`
-	OrgID       string `json:"org_id"`
-	UserID      string `json:"user_id"`
+	return time.Duration(interval) * time.Second
 }
 
 // DeviceAuthConfig configures the device approval flow.
@@ -112,8 +90,27 @@ type DeviceAuthConfig struct {
 	// DeviceLabel is the human-readable label shown on the approval page.
 	DeviceLabel string
 
+	// ClientSource is the bounded launcher that started this login, when known.
+	ClientSource *api.CLIClientSource
+
 	// HTTPClient overrides the transport, primarily for tests.
 	HTTPClient *http.Client
+}
+
+// ClientSourceFromEnv returns the bounded launcher stamped by the plugin hook.
+//
+// Only `cursor_plugin` is accepted. Any other value is treated as ordinary CLI
+// so an unknown or spoofed REVYL_CLIENT_SOURCE cannot change approval copy.
+//
+// Returns:
+//   - *api.CLIClientSource: The cursor_plugin enum when the environment stamps
+//     that source, otherwise nil.
+func ClientSourceFromEnv() *api.CLIClientSource {
+	if strings.TrimSpace(os.Getenv("REVYL_CLIENT_SOURCE")) != string(api.CLIClientSourceCursorPlugin) {
+		return nil
+	}
+	source := api.CLIClientSourceCursorPlugin
+	return &source
 }
 
 // DeviceAuth runs the server-brokered approval flow.
@@ -169,19 +166,22 @@ func sleepOrCancel(ctx context.Context, d time.Duration) error {
 //   - *DeviceAuthorization: The device code, user code, and approval URLs.
 //   - error: A transport error, or a server error that never includes a secret.
 func (d *DeviceAuth) CreateAuthorization(ctx context.Context) (*DeviceAuthorization, error) {
-	body := map[string]string{}
+	body := api.CreateCLIDeviceAuthorizationRequest{}
 	if d.config.ClientInstanceID != "" {
-		body["client_instance_id"] = d.config.ClientInstanceID
+		body.ClientInstanceId = &d.config.ClientInstanceID
 	}
 	if d.config.DeviceLabel != "" {
-		body["device_label"] = d.config.DeviceLabel
+		body.DeviceLabel = &d.config.DeviceLabel
+	}
+	if d.config.ClientSource != nil {
+		body.ClientSource = d.config.ClientSource
 	}
 
 	var authorization DeviceAuthorization
 	if err := d.post(ctx, deviceAuthorizationsPath, body, &authorization); err != nil {
 		return nil, err
 	}
-	if authorization.DeviceCode == "" || authorization.VerificationURIComplete == "" {
+	if authorization.DeviceCode == "" || authorization.VerificationUriComplete == "" {
 		return nil, errors.New("the server returned an unusable authorization request")
 	}
 	return &authorization, nil
@@ -207,8 +207,8 @@ func (d *DeviceAuth) WaitForApproval(
 	ctx context.Context,
 	authorization *DeviceAuthorization,
 ) (*BrowserAuthResult, error) {
-	interval := authorization.pollInterval()
-	deadline := authorization.PollDeadline(time.Now())
+	interval := pollInterval(authorization.Interval)
+	deadline := PollDeadline(authorization, time.Now())
 
 	for {
 		// Checked before waiting so an already-elapsed request costs no delay and
@@ -230,21 +230,21 @@ func (d *DeviceAuth) WaitForApproval(
 		}
 
 		switch credential.State {
-		case "approved":
-			if credential.APIKeyToken == "" {
+		case api.CLIDeviceAuthorizationStateApproved:
+			if credential.ApiKeyToken == nil || *credential.ApiKeyToken == "" {
 				return nil, errors.New("the approval did not include a usable credential")
 			}
 			return &BrowserAuthResult{
-				Token:      credential.APIKeyToken,
-				Email:      credential.Email,
-				OrgID:      credential.OrgID,
-				UserID:     credential.UserID,
-				APIKeyID:   credential.APIKeyID,
+				Token:      *credential.ApiKeyToken,
+				Email:      derefString(credential.Email),
+				OrgID:      derefString(credential.OrgId),
+				UserID:     derefString(credential.UserId),
+				APIKeyID:   derefString(credential.ApiKeyId),
 				AuthMethod: "api_key",
 			}, nil
-		case "denied":
+		case api.CLIDeviceAuthorizationStateDenied:
 			return nil, ErrDeviceAuthorizationDenied
-		case "pending":
+		case api.CLIDeviceAuthorizationStatePending:
 			interval = nextPollInterval(interval)
 		default:
 			return nil, fmt.Errorf("the server reported an unknown authorization state %q", credential.State)
@@ -274,12 +274,13 @@ func nextPollInterval(current time.Duration) time.Duration {
 //   - deviceCode: The secret issued when the authorization was created.
 //
 // Returns:
-//   - *deviceCredential: The observed state, with the credential when approved.
+//   - *api.RedeemCLIDeviceCredentialResponse: The observed state, with the
+//     credential when approved.
 //   - error: ErrDeviceAuthorizationExpired when the server no longer knows this
 //     request, or a transport error.
-func (d *DeviceAuth) redeem(ctx context.Context, deviceCode string) (*deviceCredential, error) {
-	var credential deviceCredential
-	err := d.post(ctx, deviceCredentialsPath, map[string]string{"device_code": deviceCode}, &credential)
+func (d *DeviceAuth) redeem(ctx context.Context, deviceCode string) (*api.RedeemCLIDeviceCredentialResponse, error) {
+	var credential api.RedeemCLIDeviceCredentialResponse
+	err := d.post(ctx, deviceCredentialsPath, api.RedeemCLIDeviceCredentialRequest{DeviceCode: deviceCode}, &credential)
 	if err != nil {
 		var statusErr *deviceStatusError
 		if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
@@ -347,6 +348,14 @@ func (d *DeviceAuth) post(ctx context.Context, path string, body any, out any) e
 		return fmt.Errorf("failed to read the authorization response: %w", err)
 	}
 	return nil
+}
+
+// derefString returns the pointed-to string, or empty when the pointer is nil.
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // decodeDetail extracts a FastAPI error detail, tolerating any other shape.

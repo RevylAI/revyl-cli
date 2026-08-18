@@ -207,6 +207,21 @@ func (e BuildStepType) Valid() bool {
 	}
 }
 
+// Defines values for CLIClientSource.
+const (
+	CLIClientSourceCursorPlugin CLIClientSource = "cursor_plugin"
+)
+
+// Valid indicates whether the value is a known member of the CLIClientSource enum.
+func (e CLIClientSource) Valid() bool {
+	switch e {
+	case CLIClientSourceCursorPlugin:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CLIDeviceAuthorizationState.
 const (
 	CLIDeviceAuthorizationStateApproved CLIDeviceAuthorizationState = "approved"
@@ -1778,6 +1793,9 @@ type BulkSyncTagsResultItem struct {
 	TestId  string  `json:"test_id"`
 }
 
+// CLIClientSource Bounded launcher that started a CLI device-authorization login.
+type CLIClientSource string
+
 // CLIDeviceAuthorizationState Lifecycle of one CLI device authorization.
 type CLIDeviceAuthorizationState string
 
@@ -2045,6 +2063,9 @@ type CompiledIntentStep struct {
 type CreateCLIDeviceAuthorizationRequest struct {
 	// ClientInstanceId Stable per-install CLI identifier used to rotate only this device's key.
 	ClientInstanceId *string `json:"client_instance_id,omitempty"`
+
+	// ClientSource Bounded launcher that started a CLI device-authorization login.
+	ClientSource *CLIClientSource `json:"client_source,omitempty"`
 
 	// DeviceLabel Human-readable device label shown on the approval page.
 	DeviceLabel *string `json:"device_label,omitempty"`
@@ -5649,11 +5670,12 @@ type GetAtlasV2StructureApiV1AtlasV2AppsAppIdStructureGetParams struct {
 
 // GetAtlasV2IndexApiV1AtlasV2IndexGetParams defines parameters for GetAtlasV2IndexApiV1AtlasV2IndexGet.
 type GetAtlasV2IndexApiV1AtlasV2IndexGetParams struct {
-	Limit       *int    `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset      *int    `form:"offset,omitempty" json:"offset,omitempty"`
-	Search      *string `form:"search,omitempty" json:"search,omitempty"`
-	ContentOnly *bool   `form:"content_only,omitempty" json:"content_only,omitempty"`
-	OlapReady   *bool   `form:"olap_ready,omitempty" json:"olap_ready,omitempty"`
+	Limit        *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset       *int    `form:"offset,omitempty" json:"offset,omitempty"`
+	Search       *string `form:"search,omitempty" json:"search,omitempty"`
+	ContentOnly  *bool   `form:"content_only,omitempty" json:"content_only,omitempty"`
+	OlapReady    *bool   `form:"olap_ready,omitempty" json:"olap_ready,omitempty"`
+	SummaryFirst *bool   `form:"summary_first,omitempty" json:"summary_first,omitempty"`
 }
 
 // ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostParams defines parameters for ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPost.

@@ -7,29 +7,34 @@ Copy-paste companion for [PROMPT.md](PROMPT.md). Create the Automation at
 
 | Preference | Trigger | When to use |
 | --- | --- | --- |
-| Preferred | **CI completed** / **Workflow run completed** | Fires after your GitHub Actions (or other CI) finishes. Pair with the upload job in `examples/ci-github-actions/upload-for-cursor-proof.yml` so the Revyl build exists before proof starts. |
-| Fallback | **Pull request pushed** / **Pull request updated** | Use only when a CI-completed trigger is unavailable. Expect occasional "build not found yet" comments until upload finishes; the prompt already brief-waits and retries. |
+| Required | **CI completed** / **Workflow run completed** | Fires after the job that uploads the artifact to Revyl finishes. Scope it to that upload job, not every CI workflow in the repo. |
 
-Scope the preferred trigger to the workflow (or job) that uploads the artifact to Revyl, not every CI workflow in the repo.
+Do not use **Pull request pushed** / **Pull request updated** as the default.
+Those fire before upload finishes and the first comment is "proof was not run."
+PROMPT.md still brief-waits and retries as a backstop.
 
 ## Tools
 
-Enable at least:
+Enable exactly:
 
 | Tool | Purpose |
 | --- | --- |
 | **Comment on pull request** | Create or edit the `## Revyl device proof` comment. Required. |
-| **Revyl MCP** (plugin / `revyl mcp serve`) | List builds, start/stop devices, screenshots, validation when exposed. |
-| Shell / terminal (if offered) | Run `revyl build list`, `revyl device start --build-version-id …`, `session publish` / `session share` when MCP does not cover a step. |
+| Shell / terminal | Install the CLI if missing, then `revyl build list`, `revyl device start --build-version-id …`, `revyl device stop`, `session publish` / `session share`. Required. |
 
-Do **not** rely on `gh` or raw GitHub API tokens for commenting. The native Comment tool posts as the Automation identity.
+Do **not** enable Revyl MCP. Do not call `start_dev_loop` or `list_builds`.
+Do **not** rely on `gh` or raw GitHub API tokens for commenting. The native
+Comment tool posts as the Automation identity.
+
+The desktop plugin pin does not apply to Automation runners. PROMPT.md starts
+with `install.sh` so `revyl` is on PATH.
 
 ## Secrets and variables
 
 | Name | Kind | Required | Notes |
 | --- | --- | --- | --- |
-| `REVYL_API_KEY` | Secret | Yes | Personal or org API key from Revyl **Account → Personal API Keys**. Same key the CI upload job uses is fine. |
-| `REVYL_APP_ID` (or platform-specific app ids) | Variable | Yes | Revyl app UUID that receives CI uploads. Pass into the prompt context / env so the agent can call `revyl build list --app …`. |
+| `REVYL_API_KEY` | Secret | Yes | A Revyl CLI API key from Settings. Same key the CI upload job uses. |
+| `REVYL_APP_ID` | Variable | Yes | Revyl app UUID that receives CI uploads. |
 
 Build secrets (signing keys, Expo tokens, store credentials) stay in **your** CI. This Automation never builds the app and does not need a Cursor API key in GitHub.
 
@@ -41,10 +46,19 @@ Build secrets (signing keys, Expo tokens, store credentials) stay in **your** CI
 
 ## Repository prerequisites
 
-1. CI uploads a simulator `.app` / installable `.apk` with `revyl build upload` so GitHub Actions metadata (`scm_head_sha`, PR number, etc.) is stamped — see `upload-for-cursor-proof.yml`.
-2. Revyl MCP (or CLI on `PATH`) is available to the Automation with `REVYL_API_KEY`.
-3. Optional: `.revyl/config.yaml` with `auth_bypass` / `before_session` when the app needs a signed-in session.
+1. CI uploads a simulator `.app` / `.app.zip` or installable `.apk` with
+   `revyl build upload` and
+   `--version "${{ github.event.pull_request.head.sha || github.sha }}"`
+   so GitHub Actions metadata (`scm_head_sha`, PR number, etc.) is stamped.
+2. CLI on the Automation runner PATH via `install.sh` in PROMPT.md, with
+   `REVYL_API_KEY`.
+3. Paid Cursor plan, and the repo connected in Cursor, so Comment on pull
+   request works.
+4. Optional: `.revyl/config.yaml` with `auth_bypass` / `before_session` when
+   the app needs a signed-in session.
 
 ## Twin path (Revyl GitHub App)
 
-If the team later connects the Revyl GitHub App, the same upload step works with `use_existing_ci: true` and `proof_harness: { kind: cursor }`. Revyl then launches Cursor proof instead of (or in addition to) this Automation. See the Mintlify page `integrations/cursor-proof` and `integrations/github` ("Use your own CI").
+If the team later connects the Revyl GitHub App, the same upload step works
+with `use_existing_ci: true` and `proof_harness: { kind: cursor }`. That is
+not the first-run path. See the Mintlify page `integrations/cursor-proof`.

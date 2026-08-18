@@ -1,10 +1,11 @@
 # Revyl for Cursor
 
-Source for the Revyl Cursor Marketplace plugin: MCP server, skills, routing
-rule, and pinned Revyl runtime bootstrap.
+Source for the Revyl Cursor Marketplace plugin: pinned CLI install hooks,
+skills, and a routing rule.
 
 For user-facing plugin information (what it adds, install and configure,
 verify), see the [Revyl Documentation](https://docs.revyl.com/).
+Operator procedure in the monorepo: `docs/runbooks/cursor-plugin-release.md`.
 This file is the maintainer-facing source of truth for the release lifecycle
 below; do not duplicate its instructions into published docs.
 
@@ -12,7 +13,7 @@ below; do not duplicate its instructions into published docs.
 
 This section is the source of truth for plugin version selection, release
 states, Marketplace submission, and recovery. The
-[MCP setup guide](https://docs.revyl.ai/cli/mcp-setup) remains the
+[plugin guide](https://docs.revyl.ai/integrations/cursor/plugin) remains the
 user-facing installation source.
 
 ### Release states
@@ -31,42 +32,52 @@ user-facing installation source.
 
 ### Choose the release type
 
-The plugin version and CLI runtime version are independent semantic versions:
+The plugin version and CLI runtime version are independent semantic versions.
+Install hooks download the pin in `runtime-manifest.json`, not
+`revyl-cli/VERSION` on the branch. Operator command sequences, including when
+`VERSION` is unpublished and the pin must stay on an existing GitHub Release,
+live in `docs/runbooks/cursor-plugin-release.md`.
 
-- **Plugin-only release:** choose a higher `PLUGIN_VERSION` and retain an
-  already published `RUNTIME_VERSION`. Use this for changes limited to plugin
-  skills, rules, hooks, MCP configuration, assets, or documentation.
-- **Runtime-coupled release:** publish the CLI runtime first, then choose the
-  new runtime and a higher plugin version. The CLI GitHub Release must contain
-  `checksums.txt` and these six assets:
-  `revyl-darwin-amd64`, `revyl-darwin-arm64`, `revyl-linux-amd64`,
+- **Plugin-only release:** choose a higher plugin version and retain an
+  already published runtime. Use this for changes limited to plugin
+  skills, rules, hooks, assets, or documentation.
+- **Runtime-coupled release:** publish the CLI runtime first, then pin that
+  runtime. The CLI GitHub Release must contain `checksums.txt` and these six
+  assets: `revyl-darwin-amd64`, `revyl-darwin-arm64`, `revyl-linux-amd64`,
   `revyl-linux-arm64`, `revyl-windows-amd64.exe`, and
   `revyl-windows-arm64.exe`.
+- **API-coupled release:** production backend and frontend must serve any new
+  endpoints the CLI will call before the CLI GitHub Release exists. Then pin as
+  a runtime-coupled release.
 
-The first Marketplace release follows the runtime-coupled path. Never replace
-assets under an existing runtime tag; publish a new runtime version instead.
+Never replace assets under an existing runtime tag; publish a new runtime
+version instead.
 
 ### Prepare the candidate
 
-If the source `revyl-mcp-dev-loop` skill changed, regenerate its plugin copy
-first:
+From `revyl-cli/`:
 
 ```bash
-make -C revyl-cli sync-cursor-plugin-skills
+./scripts/bump patch --plugin
 ```
 
-After the selected runtime release is available, generate and verify the
-candidate:
+That is the same as `make cursor-plugin-bump-patch`. GNU Make cannot take `--plugin`.
+The command patch-bumps the plugin version (`0.1.1` → `0.1.2`), pins
+`RUNTIME_VERSION` from `revyl-cli/VERSION` unless you override it, syncs copied
+plugin skills, then verifies in the same invocation. It does not touch CLI
+`VERSION`. If `VERSION` has no published GitHub Release yet, pass
+`RUNTIME_VERSION=<published>` so the pin stays on an existing tag. Plugin semver
+and CLI runtime stay independent.
 
 ```bash
-make -C revyl-cli prepare-cursor-plugin-release \
-  PLUGIN_VERSION=<plugin-version> \
-  RUNTIME_VERSION=<runtime-version>
-make -C revyl-cli prepare-cursor-plugin-release \
-  PLUGIN_VERSION=<plugin-version> \
-  RUNTIME_VERSION=<runtime-version> \
-  CHECK=1
+./scripts/bump minor --plugin
+./scripts/bump major --plugin
 ```
+
+`cursor-plugin-bump-patch` / `cursor-plugin-bump-minor` / `cursor-plugin-bump-major`
+remain aliases. Overrides still work: `PLUGIN_VERSION=… RUNTIME_VERSION=… make cursor-plugin-release`.
+`cursor-plugin-release` is the implementation target. `CHECK=1` is
+verify-only and must not write.
 
 Preparation requires network access to the runtime GitHub Release. It
 atomically updates release metadata in these documents; do not hand-edit their
@@ -80,6 +91,14 @@ Confirm the plugin version matches in all three documents,
 `runtime-manifest.json` has `prepared: true`, and all six SHA-256 fields are
 populated.
 
+Marketplace re-index is a later, approval-gated step. It is not part of
+prepare.
+
+Plugin-owned changes (hooks, skills, rules, assets, generator manifests) must
+increase `plugin.json` version. CI fails the PR otherwise. Run
+`./scripts/bump patch --plugin`, or add the `no-plugin-release` label when the
+PR must not cut a pin.
+
 ### Validate the exact candidate
 
 Run from the monorepo root:
@@ -91,18 +110,17 @@ make dogfood-cursor-plugin
 ```
 
 Run **Developer: Reload Window**, then validate the isolated copy rather than
-the linked development install. Confirm the plugin exposes its three skills,
-one routing rule, two hooks, and the focused eleven-tool MCP profile.
+the linked development install. Confirm the plugin exposes its skills, routing
+rule, and two hooks, and that the first `revyl` command can download the pin.
 
 Use disposable Cursor profiles to cover clean installation, missing and
-expired authentication — including that a blocked tool call returns an
-approval URL and short code, and never the device code behind
-them — missing or ambiguous project setup, invalid
-configuration, upgrade from the previous plugin version, and uninstall.
-Confirm stale plugin files are absent after upgrade and uninstall does not
-delete Revyl credentials. Device-backed and Cursor Cloud checks require
-explicit approval for their target environments and must stop every session
-they create.
+expired authentication — including that `revyl auth login` prints an
+approval URL and short code, and never the device code behind them — missing
+or ambiguous project setup, invalid configuration, upgrade from the previous
+plugin version, and uninstall. Confirm stale plugin files are absent after
+upgrade and uninstall does not delete Revyl credentials. Device-backed and
+Cursor Cloud checks require explicit approval for their target environments
+and must stop every session they create.
 
 ### Submit or update the listing
 
@@ -125,7 +143,8 @@ explicit approval for the public target.
 In clean disposable profiles:
 
 1. install at user and workspace scope;
-2. confirm the published components and eleven tools match the candidate;
+2. confirm the published components match the candidate and that hooks can
+   install the pinned CLI;
 3. run one approved device-backed smoke and record the viewer, screenshot,
    semantic result, build state, and final cleanup;
 4. upgrade from the previous published version and confirm stale files are
@@ -137,8 +156,9 @@ state, and credential-free evidence for each release.
 
 ### Recovery
 
-Before publication, correct a bad version or runtime selection by rerunning the
-generator, then repeat `CHECK=1` and every candidate gate. A corrupt cached
+Before publication, correct a bad version or runtime selection by rerunning
+`./scripts/bump patch --plugin` (or `make cursor-plugin-release` with explicit
+versions), then repeat every candidate gate. A corrupt cached
 runtime repairs itself on the next online start after checksum verification.
 
 After publication, treat recovery as a new corrective release:
@@ -158,5 +178,6 @@ and [publisher terms](https://cursor.com/marketplace-publisher-terms)
 procedures instead of relying on a corrective release alone.
 
 [Revyl docs](https://docs.revyl.ai) •
+[Plugin setup](https://docs.revyl.ai/integrations/cursor/plugin) •
 [MCP setup](https://docs.revyl.ai/cli/mcp-setup) •
 [Cursor plugin docs](https://cursor.com/docs/plugins)

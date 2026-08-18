@@ -24,6 +24,12 @@ func TestInstallAgentsMDBlockCreatesFile(t *testing.T) {
 	if !strings.Contains(content, "revyl dev --remote --detach --json") {
 		t.Fatal("AGENTS.md missing the agent dev-loop flow")
 	}
+	if !strings.Contains(content, "https://raw.githubusercontent.com/RevylAI/revyl-cli/main/scripts/install.sh") {
+		t.Fatal("AGENTS.md missing the GitHub raw Cloud installer")
+	}
+	if strings.Contains(content, "https://revyl.com/install.sh") {
+		t.Fatal("AGENTS.md still uses revyl.com/install.sh")
+	}
 }
 
 func TestInstallAgentsMDBlockAppendsToExisting(t *testing.T) {

@@ -52,31 +52,6 @@ var catalog = []Skill{
 		Content:     skills.RevylCLIAuthBypassContent,
 	},
 	{
-		Name:        skills.RevylCLIAuthBypassExpoName,
-		Description: "Expo and Expo Router leaf recipe for test-only auth bypass deep links using Revyl launch variables.",
-		Content:     skills.RevylCLIAuthBypassExpoContent,
-	},
-	{
-		Name:        skills.RevylCLIAuthBypassRNName,
-		Description: "React Native bare leaf recipe for test-only auth bypass deep links using Revyl launch variables.",
-		Content:     skills.RevylCLIAuthBypassRNContent,
-	},
-	{
-		Name:        skills.RevylCLIAuthBypassIOSName,
-		Description: "Native iOS leaf recipe for test-only auth bypass deep links using Revyl launch arguments.",
-		Content:     skills.RevylCLIAuthBypassIOSContent,
-	},
-	{
-		Name:        skills.RevylCLIAuthBypassAndroidName,
-		Description: "Native Android leaf recipe for test-only auth bypass deep links using Revyl launch intent extras.",
-		Content:     skills.RevylCLIAuthBypassAndroidContent,
-	},
-	{
-		Name:        skills.RevylCLIAuthBypassFlutterName,
-		Description: "Flutter leaf recipe for test-only auth bypass deep links using Revyl launch variables.",
-		Content:     skills.RevylCLIAuthBypassFlutterContent,
-	},
-	{
 		Name:        skills.RevylMCPName,
 		Description: "Base MCP skill for Revyl tool orchestration. Routes to MCP create/analyze/dev-loop skills.",
 		Content:     skills.RevylMCPContent,
@@ -105,16 +80,12 @@ var publicSkillNames = []string{
 	skills.RevylCLIAuthBypassName,
 }
 
-var defaultInstallSkillNames = []string{
-	skills.RevylCLIDevLoopName,
-	skills.RevylCLIAtlasName,
-	skills.RevylCLICreateName,
-	skills.RevylCLIAuthBypassName,
-	skills.RevylCLIAuthBypassExpoName,
-	skills.RevylCLIAuthBypassRNName,
-	skills.RevylCLIAuthBypassIOSName,
-	skills.RevylCLIAuthBypassAndroidName,
-	skills.RevylCLIAuthBypassFlutterName,
+var authBypassLeafAliases = []string{
+	"revyl-cli-auth-bypass-expo",
+	"revyl-cli-auth-bypass-react-native",
+	"revyl-cli-auth-bypass-ios",
+	"revyl-cli-auth-bypass-android",
+	"revyl-cli-auth-bypass-flutter",
 }
 
 // All returns a copy of all embedded skills in deterministic install order.
@@ -131,7 +102,15 @@ func Public() []Skill {
 
 // DefaultInstall returns the skills installed by the no-name install path.
 func DefaultInstall() []Skill {
-	return skillsByName(defaultInstallSkillNames)
+	return Public()
+}
+
+// AuthBypassLeafAliases returns retired platform recipe names that resolve to
+// revyl-cli-auth-bypass.
+func AuthBypassLeafAliases() []string {
+	out := make([]string, len(authBypassLeafAliases))
+	copy(out, authBypassLeafAliases)
+	return out
 }
 
 func skillsByName(names []string) []Skill {
@@ -153,9 +132,32 @@ func Names() []string {
 	return names
 }
 
-// Get returns one skill by exact name.
+// canonicalSkillName maps a retired alias to the shipped skill name.
+//
+// Parameters:
+//   - name: Requested skill name, which may be an alias.
+//
+// Returns:
+//   - string: Catalog name to look up.
+func canonicalSkillName(name string) string {
+	for _, alias := range authBypassLeafAliases {
+		if name == alias {
+			return skills.RevylCLIAuthBypassName
+		}
+	}
+	return name
+}
+
+// Get returns one skill by exact name or retired auth-bypass leaf alias.
+//
+// Parameters:
+//   - name: Requested skill name.
+//
+// Returns:
+//   - Skill: Matching catalog entry.
+//   - bool: Whether the name or alias resolved.
 func Get(name string) (Skill, bool) {
-	name = strings.TrimSpace(name)
+	name = canonicalSkillName(strings.TrimSpace(name))
 	for _, sk := range catalog {
 		if sk.Name == name {
 			return sk, true

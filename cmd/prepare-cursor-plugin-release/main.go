@@ -18,6 +18,7 @@ const publicCLIReleaseBaseURL = "https://github.com/RevylAI/revyl-cli/releases/d
 type commandOptions struct {
 	PluginVersion  string
 	RuntimeVersion string
+	Bump           string
 	CheckOnly      bool
 }
 
@@ -32,7 +33,9 @@ func main() {
 			MarketplacePath: ".cursor-plugin/marketplace.json",
 			PluginVersion:   options.PluginVersion,
 			RuntimeVersion:  options.RuntimeVersion,
+			CLIVersionPath:  "VERSION",
 			ReleaseBaseURL:  publicCLIReleaseBaseURL,
+			Bump:            options.Bump,
 			CheckOnly:       options.CheckOnly,
 			HTTPClient:      client,
 		},
@@ -52,6 +55,10 @@ func main() {
 		result.PreparedPluginVersion,
 		result.PreparedRuntimeVersion,
 	)
+	fmt.Println("Generator-owned files:")
+	fmt.Println("  cursor-plugin/.cursor-plugin/plugin.json")
+	fmt.Println("  .cursor-plugin/marketplace.json")
+	fmt.Println("  cursor-plugin/runtime-manifest.json")
 	if len(result.ChangedFiles) == 0 {
 		fmt.Println("Release metadata is current.")
 		return
@@ -62,7 +69,11 @@ func main() {
 	}
 }
 
-// parseFlags reads required versions and optional check-only behavior.
+// parseFlags reads optional versions, bump level, and check-only behavior.
+//
+// Omitted --plugin-version increments plugin.json by --bump (default patch),
+// or keeps the current version during --check. Omitted --runtime-version uses
+// VERSION.
 //
 // Returns:
 //   - commandOptions: Parsed release preparation values.
@@ -80,6 +91,12 @@ func parseFlags() commandOptions {
 		"",
 		"published Revyl CLI semantic version",
 	)
+	flag.StringVar(
+		&options.Bump,
+		"bump",
+		"",
+		"plugin semver component to increment when --plugin-version is omitted (patch, minor, major)",
+	)
 	flag.BoolVar(
 		&options.CheckOnly,
 		"check",
@@ -87,13 +104,5 @@ func parseFlags() commandOptions {
 		"verify generated release metadata without writing",
 	)
 	flag.Parse()
-	if options.PluginVersion == "" || options.RuntimeVersion == "" {
-		fmt.Fprintln(
-			os.Stderr,
-			"--plugin-version and --runtime-version are required",
-		)
-		flag.Usage()
-		os.Exit(2)
-	}
 	return options
 }

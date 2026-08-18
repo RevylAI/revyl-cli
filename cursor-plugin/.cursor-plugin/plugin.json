@@ -1,8 +1,8 @@
 {
   "name": "revyl",
   "displayName": "Revyl",
-  "description": "One-install mobile dev loops on cloud iOS/Android devices — run the current app, verify changes with screenshots, and ship with device-backed evidence.",
-  "version": "0.1.1",
+  "description": "Installs the Revyl CLI and signs you in so Cursor can run and verify mobile apps on cloud devices.",
+  "version": "0.1.4",
   "author": {
     "name": "Revyl",
     "email": "support@revyl.ai"
@@ -16,7 +16,7 @@
     "e2e",
     "ios",
     "android",
-    "mcp",
+    "cli",
     "react-native",
     "expo",
     "flutter"
@@ -24,6 +24,5 @@
   "logo": "assets/icon.svg",
   "skills": "./skills/",
   "rules": "./rules/",
-  "hooks": "./hooks/hooks.json",
-  "mcpServers": "./mcp.json"
+  "hooks": "./hooks/hooks.json"
 }

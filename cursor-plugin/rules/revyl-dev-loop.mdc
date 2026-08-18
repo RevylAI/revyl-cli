@@ -1,5 +1,5 @@
 ---
-description: Route mobile run/preview/device/verify requests to the Revyl dev loop, skills, and MCP tools.
+description: Route mobile run/preview/device/verify requests to the Revyl CLI and skills.
 globs:
 alwaysApply: false
 ---
@@ -9,9 +9,8 @@ alwaysApply: false
 Use this rule when the user asks to run, change, preview, debug, screenshot, or
 verify a mobile app on a Revyl device.
 
-Load `revyl-mcp-dev-loop` and prefer the Revyl MCP `dev` profile. It delegates
-to the canonical CLI behavior while adding state, structured outcomes, and
-inline images. Use shell CLI commands only when MCP is unavailable.
+Drive devices with the Revyl CLI. Load `revyl-cli-dev-loop` for the device loop.
+The plugin does not start MCP. Use shell CLI commands as the default path.
 
 Share the viewer immediately, distinguish device readiness from build success,
 verify through screenshots and semantic validation, and stop owned sessions

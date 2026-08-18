@@ -203,11 +203,90 @@ function Invoke-RevylRuntime {
     )
 
     $env:REVYL_MCP_EXECUTABLE = $BinaryPath
+    $env:REVYL_NO_UPDATE_NOTIFIER = "1"
+    $env:REVYL_CLIENT_SOURCE = "cursor_plugin"
     & $BinaryPath @Arguments
     if ($null -eq $LASTEXITCODE) {
         return 0
     }
     return $LASTEXITCODE
+}
+
+# Publish-UserRuntime copies a verified pin onto a user PATH location.
+#
+# Prefers %USERPROFILE%\.revyl\bin\revyl.exe, then
+# %LOCALAPPDATA%\Revyl\bin\revyl.exe. A different existing CLI is left in
+# place. Failures never block launching the verified runtime.
+function Publish-UserRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $SourceBinary,
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedChecksum
+    )
+
+    $destinations = [System.Collections.Generic.List[string]]::new()
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        $destinations.Add((Join-Path $env:USERPROFILE ".revyl\bin\revyl.exe"))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        $destinations.Add((Join-Path $env:LOCALAPPDATA "Revyl\bin\revyl.exe"))
+    }
+
+    foreach ($destination in $destinations) {
+        if (Test-RuntimeChecksum -Path $destination -ExpectedChecksum $ExpectedChecksum) {
+            return
+        }
+        if (Test-Path -LiteralPath $destination) {
+            continue
+        }
+
+        $publishTemporary = $null
+        try {
+            $destinationDirectory = Split-Path -Parent $destination
+            New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+            $publishTemporary = Join-Path `
+                -Path $destinationDirectory `
+                -ChildPath ".revyl.publish.$PID"
+            Copy-Item `
+                -LiteralPath $SourceBinary `
+                -Destination $publishTemporary `
+                -Force
+            if (Test-RuntimeChecksum -Path $publishTemporary -ExpectedChecksum $ExpectedChecksum) {
+                Install-RuntimeAtomically `
+                    -Source $publishTemporary `
+                    -Destination $destination
+                $publishTemporary = $null
+                if (Test-RuntimeChecksum -Path $destination -ExpectedChecksum $ExpectedChecksum) {
+                    return
+                }
+            }
+        }
+        catch {
+            # Publishing is best effort; the verified runtime still runs.
+        }
+        if ($null -ne $publishTemporary) {
+            Remove-Item -LiteralPath $publishTemporary -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# Invoke-VerifiedRuntime publishes a verified pin onto PATH, then starts it.
+function Invoke-VerifiedRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $BinaryPath,
+        [Parameter(Mandatory = $true)]
+        [string] $ExpectedChecksum,
+        [string[]] $Arguments
+    )
+
+    Publish-UserRuntime `
+        -SourceBinary $BinaryPath `
+        -ExpectedChecksum $ExpectedChecksum
+    return (
+        Invoke-RevylRuntime -BinaryPath $BinaryPath -Arguments $Arguments
+    )
 }
 
 $script:DownloadAttempts = 3
@@ -296,7 +375,12 @@ try {
     $runtimeBinary = Join-Path -Path $runtimeDirectory -ChildPath "revyl.exe"
 
     if (Test-RuntimeChecksum -Path $runtimeBinary -ExpectedChecksum $expectedChecksum) {
-        exit (Invoke-RevylRuntime -BinaryPath $runtimeBinary -Arguments $RevylArguments)
+        exit (
+            Invoke-VerifiedRuntime `
+                -BinaryPath $runtimeBinary `
+                -ExpectedChecksum $expectedChecksum `
+                -Arguments $RevylArguments
+        )
     }
 
     # An already-installed CLI is byte-identical to the pinned asset when its digest
@@ -316,7 +400,12 @@ try {
                 Install-RuntimeAtomically -Source $temporaryPath -Destination $runtimeBinary
                 $temporaryPath = $null
                 if (Test-RuntimeChecksum -Path $runtimeBinary -ExpectedChecksum $expectedChecksum) {
-                    exit (Invoke-RevylRuntime -BinaryPath $runtimeBinary -Arguments $RevylArguments)
+                    exit (
+                        Invoke-VerifiedRuntime `
+                            -BinaryPath $runtimeBinary `
+                            -ExpectedChecksum $expectedChecksum `
+                            -Arguments $RevylArguments
+                    )
                 }
             }
         }
@@ -331,7 +420,12 @@ try {
             "Revyl plugin runtime: could not populate the plugin cache; " +
             "running verified $installedBinary"
         )
-        exit (Invoke-RevylRuntime -BinaryPath $installedBinary -Arguments $RevylArguments)
+        exit (
+            Invoke-VerifiedRuntime `
+                -BinaryPath $installedBinary `
+                -ExpectedChecksum $expectedChecksum `
+                -Arguments $RevylArguments
+        )
     }
 
     # Callers on a short time budget opt out of the download so they fail fast
@@ -356,7 +450,12 @@ try {
         throw "cached runtime verification failed after installation"
     }
 
-    exit (Invoke-RevylRuntime -BinaryPath $runtimeBinary -Arguments $RevylArguments)
+    exit (
+        Invoke-VerifiedRuntime `
+            -BinaryPath $runtimeBinary `
+            -ExpectedChecksum $expectedChecksum `
+            -Arguments $RevylArguments
+    )
 }
 catch {
     Write-BootstrapError -Message $_.Exception.Message

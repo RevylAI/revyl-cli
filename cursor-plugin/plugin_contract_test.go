@@ -30,22 +30,19 @@ func sameFilesystemPath(left, right string) bool {
 }
 
 const (
-	hookCommand            = "./hooks/ensure-revyl"
-	runtimeLauncherCommand = "${CURSOR_PLUGIN_ROOT}/hooks/launch-revyl"
-	// runtimeOverrideAbsent asserts mcp.json declares no REVYL_BINARY entry, so
-	// Cursor cannot replace an inherited runtime path with an unresolved literal.
-	runtimeOverrideAbsent     = ""
+	hookCommand               = "./hooks/ensure-revyl"
 	runtimeUnavailableMessage = "The Revyl plugin runtime is not ready. Update or reinstall the plugin, or set REVYL_BINARY to an executable Revyl CLI path."
+	loginGuidance             = "Run revyl auth login and post the printed approval URL as a clickable markdown link. Wait for approval. REVYL_API_KEY is optional for unattended agents."
+	installOnFirstCommand     = "The Revyl CLI installs on the first revyl command."
 )
 
 type pluginManifest struct {
-	Name       string `json:"name"`
-	Version    string `json:"version"`
-	Logo       string `json:"logo"`
-	Skills     string `json:"skills"`
-	Rules      string `json:"rules"`
-	Hooks      string `json:"hooks"`
-	MCPServers string `json:"mcpServers"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Logo    string `json:"logo"`
+	Skills  string `json:"skills"`
+	Rules   string `json:"rules"`
+	Hooks   string `json:"hooks"`
 }
 
 type marketplaceManifest struct {
@@ -81,22 +78,6 @@ type hookDefinition struct {
 type hooksConfig struct {
 	Version int                         `json:"version"`
 	Hooks   map[string][]hookDefinition `json:"hooks"`
-}
-
-type mcpServerConfig struct {
-	Type    string            `json:"type"`
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
-	Env     map[string]string `json:"env"`
-	Meta    mcpServerMetadata `json:"_meta"`
-}
-
-type mcpServerMetadata struct {
-	IDEToolIconPath string `json:"ideToolIconPath"`
-}
-
-type mcpConfig struct {
-	Servers map[string]mcpServerConfig `json:"mcpServers"`
 }
 
 // TestMarketplaceArtifactContract verifies the public repository manifest resolves to this plugin.
@@ -139,7 +120,7 @@ func TestMarketplaceArtifactContract(t *testing.T) {
 	}
 }
 
-// TestPluginArtifactContract verifies manifests, hooks, skills, rules, and exact MCP settings.
+// TestPluginArtifactContract verifies manifests, hooks, skills, and rules without plugin MCP.
 func TestPluginArtifactContract(t *testing.T) {
 	pluginRoot := pluginRootPath(t)
 	manifest := readJSON[pluginManifest](t, filepath.Join(pluginRoot, ".cursor-plugin", "plugin.json"))
@@ -151,12 +132,18 @@ func TestPluginArtifactContract(t *testing.T) {
 	requireDirectory(t, pluginRoot, manifest.Skills)
 	requireDirectory(t, pluginRoot, manifest.Rules)
 	requireFile(t, pluginRoot, manifest.Hooks)
-	requireFile(t, pluginRoot, manifest.MCPServers)
 	requireFile(t, pluginRoot, "runtime-manifest.json")
 	requireFile(t, pluginRoot, "hooks/launch-revyl")
 	requireFile(t, pluginRoot, "hooks/launch-revyl.cmd")
 	requireFile(t, pluginRoot, "hooks/launch-revyl.ps1")
 	requireExactSkills(t, filepath.Join(pluginRoot, filepath.Clean(manifest.Skills)))
+	if _, err := os.Stat(filepath.Join(pluginRoot, "mcp.json")); !os.IsNotExist(err) {
+		t.Fatalf("plugin still ships mcp.json: %v", err)
+	}
+	pluginJSON := readText(t, filepath.Join(pluginRoot, ".cursor-plugin", "plugin.json"))
+	if strings.Contains(pluginJSON, `"mcpServers"`) {
+		t.Fatal("plugin.json still declares mcpServers")
+	}
 
 	hooks := readJSON[hooksConfig](t, filepath.Join(pluginRoot, filepath.Clean(manifest.Hooks)))
 	if hooks.Version != 1 {
@@ -168,24 +155,87 @@ func TestPluginArtifactContract(t *testing.T) {
 		t.Fatalf("hook event count = %d, want 2", len(hooks.Hooks))
 	}
 
-	server := pluginMCPServer(t)
-	requireExactMCPServer(t, server, runtimeLauncherCommand, runtimeOverrideAbsent)
-	requirePluginRelativeFile(t, pluginRoot, server.Meta.IDEToolIconPath)
-	if got, want := filepath.Clean(server.Meta.IDEToolIconPath), filepath.Clean(manifest.Logo); got != want {
-		t.Fatalf("MCP tool icon = %q, want plugin logo %q", server.Meta.IDEToolIconPath, manifest.Logo)
-	}
-
 	rule := readText(t, filepath.Join(pluginRoot, "rules", "revyl-dev-loop.mdc"))
 	cloudSkill := readText(t, filepath.Join(pluginRoot, "skills", "revyl-cloud-agent", "SKILL.md"))
 	for path, content := range map[string]string{
 		"rules/revyl-dev-loop.mdc":          rule,
 		"skills/revyl-cloud-agent/SKILL.md": cloudSkill,
 	} {
-		if !strings.Contains(content, "`revyl-mcp-dev-loop`") {
-			t.Fatalf("%s does not load revyl-mcp-dev-loop", path)
+		if !strings.Contains(content, "`revyl-cli-dev-loop`") &&
+			!strings.Contains(content, "The plugin does not start MCP") {
+			t.Fatalf("%s does not route to the CLI loop or say the plugin skips MCP", path)
 		}
 		if strings.Contains(content, "`revyl-dev-loop`") {
 			t.Fatalf("%s still loads removed revyl-dev-loop", path)
+		}
+	}
+	if strings.Contains(cloudSkill, "plugin install locations") {
+		t.Fatal("cloud-agent skill still calls curl PATH dirs plugin install locations")
+	}
+	if !strings.Contains(cloudSkill, `export PATH="$HOME/.revyl/bin:$HOME/.local/bin:$PATH"`) {
+		t.Fatal("cloud-agent skill does not prepend the PATH dirs the plugin publishes onto")
+	}
+}
+
+// TestCopiedPluginSkillsMatchSource keeps Makefile-copied skills identical to
+// the embedded skills that make sync-cursor-plugin-skills copies.
+func TestCopiedPluginSkillsMatchSource(t *testing.T) {
+	pluginRoot := pluginRootPath(t)
+	copied := []string{
+		"revyl-cli-dev-loop",
+		"revyl-cli-auth-bypass",
+	}
+	for _, skill := range copied {
+		bundled := readText(t, filepath.Join(pluginRoot, "skills", skill, "SKILL.md"))
+		canonical := readText(t, filepath.Join(pluginRoot, "..", "skills", skill, "SKILL.md"))
+		if bundled != canonical {
+			t.Fatalf("cursor-plugin/skills/%s/SKILL.md must match skills/%s/SKILL.md", skill, skill)
+		}
+	}
+}
+
+// TestProofAutomationPromptMatchesExample keeps the bundled Automation prompt identical
+// to the public examples copy linked from product docs.
+func TestProofAutomationPromptMatchesExample(t *testing.T) {
+	pluginRoot := pluginRootPath(t)
+	bundled := readText(t, filepath.Join(pluginRoot, "skills", "revyl-proof-automation", "PROMPT.md"))
+	canonical := readText(t, filepath.Join(pluginRoot, "..", "examples", "cursor-automation", "prove-mobile-pr", "PROMPT.md"))
+	if bundled != canonical {
+		t.Fatal("cursor-plugin/skills/revyl-proof-automation/PROMPT.md must match examples/cursor-automation/prove-mobile-pr/PROMPT.md")
+	}
+	for _, forbidden := range []string{
+		"Or MCP `list_builds`",
+		"equivalent MCP stop",
+		"Enable **Revyl MCP**",
+	} {
+		if strings.Contains(bundled, forbidden) {
+			t.Fatalf("Automation PROMPT still treats MCP as a runtime path: %q", forbidden)
+		}
+	}
+	if !strings.Contains(bundled, "install.sh") {
+		t.Fatal("Automation PROMPT does not install the CLI on the runner")
+	}
+	skill := readText(t, filepath.Join(pluginRoot, "skills", "revyl-proof-automation", "SKILL.md"))
+	if strings.Contains(skill, "Enable **Revyl MCP**") {
+		t.Fatal("revyl-proof-automation skill still treats MCP as a setup gate")
+	}
+}
+
+// TestMaintainerReleaseLeadsWithPluginBumpPatch verifies the operator bump command is documented.
+func TestMaintainerReleaseLeadsWithPluginBumpPatch(t *testing.T) {
+	pluginRoot := pluginRootPath(t)
+	readme := readText(t, filepath.Join(pluginRoot, "README.md"))
+	if !strings.Contains(readme, "./scripts/bump patch --plugin") {
+		t.Fatal("maintainer README must document ./scripts/bump patch --plugin")
+	}
+	makefile := readText(t, filepath.Join(pluginRoot, "..", "Makefile"))
+	for _, target := range []string{
+		"cursor-plugin-bump-patch:",
+		"cursor-plugin-bump-minor:",
+		"cursor-plugin-bump-major:",
+	} {
+		if !strings.Contains(makefile, target) {
+			t.Fatalf("revyl-cli Makefile missing %s", target)
 		}
 	}
 }
@@ -220,20 +270,20 @@ func TestHookScriptContract(t *testing.T) {
 		if !strings.Contains(content, runtimeUnavailableMessage) {
 			t.Fatalf("%s does not contain runtime guidance", filepath.Base(path))
 		}
-		// The hook may hand over a key the host already injected, but it must
-		// never install software or reach the network to obtain one.
+		if !strings.Contains(content, loginGuidance) {
+			t.Fatalf("%s does not tell the agent to run revyl auth login", filepath.Base(path))
+		}
+		if !strings.Contains(content, "persist-cloud-env") {
+			t.Fatalf("%s does not bridge an injected REVYL_API_KEY", filepath.Base(path))
+		}
 		for _, forbidden := range []string{
 			"auth status",
-			"auth login",
 			"install.sh",
 			"https://",
 		} {
 			if strings.Contains(content, forbidden) {
-				t.Fatalf("%s contains forbidden bootstrap or interactive auth behavior %q", filepath.Base(path), forbidden)
+				t.Fatalf("%s contains forbidden bootstrap behavior %q", filepath.Base(path), forbidden)
 			}
-		}
-		if !strings.Contains(content, "auth persist-cloud-env") {
-			t.Fatalf("%s does not bridge an injected REVYL_API_KEY to the MCP server", filepath.Base(path))
 		}
 	}
 	if !strings.Contains(readText(t, posixPath), "runtime-manifest.json") ||
@@ -252,167 +302,9 @@ func TestHookScriptContract(t *testing.T) {
 	}
 }
 
-// TestHookRuntimeBehavior executes the native hook and verifies fail-open prerequisite reporting.
-func TestHookRuntimeBehavior(t *testing.T) {
-	pluginRoot := pluginRootPath(t)
-	hookPath := filepath.Join(pluginRoot, "hooks", "ensure-revyl")
-	if runtime.GOOS == "windows" {
-		hookPath += ".cmd"
-	}
-
-	isolatedPath := t.TempDir()
-	if runtime.GOOS != "windows" {
-		isolatedPath += string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
-	}
-	unpreparedPluginRoot := t.TempDir()
-	writeUnpreparedRuntimeManifest(t, unpreparedPluginRoot)
-	missingEnvironment := environmentWithOverrides(
-		"PATH="+isolatedPath,
-		"REVYL_BINARY=",
-		"CURSOR_PLUGIN_ROOT="+unpreparedPluginRoot,
-		"REVYL_API_KEY="+testSecret(),
-	)
-	missingSession := runHook(t, hookPath, `{"hook_event_name":"sessionStart"}`, missingEnvironment)
-	requireHookOutput(t, missingSession, map[string]string{"additional_context": runtimeUnavailableMessage})
-	requireNoSecret(t, missingSession)
-
-	missingShell := runHook(t, hookPath, `{"hook_event_name":"beforeShellExecution","command":"revyl dev"}`, missingEnvironment)
-	requireHookOutput(t, missingShell, map[string]string{
-		"permission":    "allow",
-		"agent_message": runtimeUnavailableMessage,
-	})
-	requireNoSecret(t, missingShell)
-
-	// A prepared manifest makes the runtime obtainable on first launch, so the hook
-	// must stay silent even when no Revyl executable is on PATH yet.
-	if runtime.GOOS != "windows" {
-		preparedPluginRoot := t.TempDir()
-		writePreparedRuntimeManifest(t, preparedPluginRoot, strings.Repeat("a", 64))
-		preparedEnvironment := environmentWithOverrides(
-			"PATH="+isolatedPath,
-			"REVYL_BINARY=",
-			"CURSOR_PLUGIN_ROOT="+preparedPluginRoot,
-			"REVYL_API_KEY="+testSecret(),
-		)
-		preparedSession := runHook(t, hookPath, `{"hook_event_name":"sessionStart"}`, preparedEnvironment)
-		requireHookOutput(t, preparedSession, map[string]string{})
-		requireNoSecret(t, preparedSession)
-
-		preparedShell := runHook(t, hookPath, `{"hook_event_name":"beforeShellExecution","command":"revyl dev"}`, preparedEnvironment)
-		requireHookOutput(t, preparedShell, map[string]string{"permission": "allow"})
-		requireNoSecret(t, preparedShell)
-	}
-
-	fakeBin := t.TempDir()
-	fakeCLIPath := fakeBin
-	if runtime.GOOS != "windows" {
-		fakeCLIPath += string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
-	}
-	selectedBinary := writeFakeCLI(t, fakeBin)
-	installedEnvironment := environmentWithOverrides(
-		"PATH="+fakeCLIPath,
-		"REVYL_BINARY="+selectedBinary,
-		"REVYL_API_KEY="+testSecret(),
-	)
-	installedSession := runHook(t, hookPath, `{"hook_event_name":"sessionStart"}`, installedEnvironment)
-	requireHookOutput(t, installedSession, map[string]string{})
-	installedShell := runHook(t, hookPath, `{"hook_event_name":"beforeShellExecution"}`, installedEnvironment)
-	requireHookOutput(t, installedShell, map[string]string{"permission": "allow"})
-
-	malformed := runHook(t, hookPath, `not-json`, installedEnvironment)
-	requireHookOutput(t, malformed, map[string]string{})
-}
-
-// TestHookBridgesInjectedAPIKey verifies the hook hands a host secret to the MCP server.
-//
-// The MCP server is started by Cursor and does not reliably inherit injected
-// Runtime Secrets, so this hook is what makes an unattended agent authenticate
-// at all. The secret must reach the bridge through the environment and never
-// through a command line, which is visible to process listings.
-func TestHookBridgesInjectedAPIKey(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the recording fixture is a POSIX shell script")
-	}
-	hookPath := filepath.Join(pluginRootPath(t), "hooks", "ensure-revyl")
-
-	testCases := []struct {
-		name            string
-		apiKey          string
-		wantBridgeRun   bool
-		wantKeyInEnvira bool
-	}{
-		{name: "injected key", apiKey: testSecret(), wantBridgeRun: true},
-		{name: "absent key", apiKey: "", wantBridgeRun: false},
-		{name: "unresolved placeholder", apiKey: "${env:REVYL_API_KEY}", wantBridgeRun: false},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			fakeBin := t.TempDir()
-			recordingPath := filepath.Join(t.TempDir(), "bridge-invocation")
-			selectedBinary := writeRecordingCLI(t, fakeBin, recordingPath)
-			environment := environmentWithOverrides(
-				"PATH="+fakeBin+string(os.PathListSeparator)+"/usr/bin"+string(os.PathListSeparator)+"/bin",
-				"REVYL_BINARY="+selectedBinary,
-				"REVYL_API_KEY="+testCase.apiKey,
-			)
-
-			output := runHook(t, hookPath, `{"hook_event_name":"sessionStart"}`, environment)
-			requireHookOutput(t, output, map[string]string{})
-			requireNoSecret(t, output)
-
-			recording, err := os.ReadFile(recordingPath)
-			if !testCase.wantBridgeRun {
-				if err == nil {
-					t.Fatalf("hook bridged without a usable key: %s", recording)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("hook did not run the credential bridge: %v", err)
-			}
-			if got := string(recording); !strings.Contains(got, "arguments=auth persist-cloud-env") {
-				t.Fatalf("bridge invocation = %q, want the persist-cloud-env subcommand", got)
-			}
-			if strings.Contains(string(recording), "arguments="+testSecret()) ||
-				strings.Contains(string(recording), " "+testSecret()) {
-				t.Fatal("hook passed the API key as a command argument")
-			}
-			if !strings.Contains(string(recording), "api_key_reached_bridge=yes") {
-				t.Fatal("hook did not pass the API key to the bridge through the environment")
-			}
-		})
-	}
-}
-
-// writeRecordingCLI creates a revyl fixture that records how the hook invoked it.
-//
-// Parameters:
-//   - directory: Directory that becomes the fixture's PATH entry.
-//   - recordingPath: File the fixture writes its invocation record to.
-//
-// Returns:
-//   - string: Absolute path to the executable fixture.
-func writeRecordingCLI(t *testing.T, directory, recordingPath string) string {
-	t.Helper()
-	content := "#!/bin/sh\n" +
-		"{\n" +
-		"  printf 'arguments=%s\\n' \"$*\"\n" +
-		"  if [ \"${REVYL_API_KEY:-}\" = '" + testSecret() + "' ]; then\n" +
-		"    printf 'api_key_reached_bridge=yes\\n'\n" +
-		"  else\n" +
-		"    printf 'api_key_reached_bridge=no\\n'\n" +
-		"  fi\n" +
-		"} >'" + recordingPath + "'\n" +
-		"exit 0\n"
-	return writeExecutable(t, directory, "revyl", content)
-}
-
-// TestLocalInstaller verifies isolated copies and live worktree links preserve overrides.
+// TestLocalInstaller verifies isolated copies and live worktree links without plugin MCP.
 func TestLocalInstaller(t *testing.T) {
 	pluginRoot := pluginRootPath(t)
-	sourceServer := pluginMCPServer(t)
-	requireExactMCPServer(t, sourceServer, runtimeLauncherCommand, runtimeOverrideAbsent)
 
 	t.Run("production command", func(t *testing.T) {
 		localRoot := t.TempDir()
@@ -421,7 +313,7 @@ func TestLocalInstaller(t *testing.T) {
 			"REVYL_BINARY=",
 		))
 		destination := filepath.Join(localRoot, "revyl")
-		requireRealInstalledPlugin(t, destination, runtimeOverrideAbsent)
+		requireRealInstalledPlugin(t, destination)
 
 		stalePath := filepath.Join(destination, "stale-file")
 		if err := os.WriteFile(stalePath, []byte("stale"), 0o600); err != nil {
@@ -449,7 +341,7 @@ func TestLocalInstaller(t *testing.T) {
 		))
 
 		destination := filepath.Join(localRoot, "revyl")
-		requireRealInstalledPlugin(t, destination, selectedBinary)
+		requireRealInstalledPlugin(t, destination)
 		installedHook := filepath.Join(destination, "hooks", "ensure-revyl")
 		if runtime.GOOS == "windows" {
 			installedHook += ".cmd"
@@ -460,9 +352,7 @@ func TestLocalInstaller(t *testing.T) {
 			`{"hook_event_name":"sessionStart"}`,
 			environmentWithOverrides("REVYL_BINARY="),
 		)
-		requireHookOutput(t, hookOutput, map[string]string{})
-		sourceAfterInstall := pluginMCPServer(t)
-		requireExactMCPServer(t, sourceAfterInstall, runtimeLauncherCommand, runtimeOverrideAbsent)
+		requireHookOutput(t, hookOutput, map[string]string{"additional_context": loginGuidance})
 	})
 
 	t.Run("linked worktree command", func(t *testing.T) {
@@ -472,7 +362,6 @@ func TestLocalInstaller(t *testing.T) {
 			t.Fatalf("create linked worktree binary directory: %v", err)
 		}
 		selectedBinary := writeFakeCLI(t, binaryRoot)
-		sourceMCPBefore := readText(t, filepath.Join(pluginRoot, "mcp.json"))
 		runLocalInstaller(
 			t,
 			pluginRoot,
@@ -484,10 +373,10 @@ func TestLocalInstaller(t *testing.T) {
 		)
 
 		destination := filepath.Join(localRoot, "revyl")
-		requireRealInstalledPlugin(t, destination, selectedBinary)
+		requireRealInstalledPlugin(t, destination)
 		requireLinkedPluginDirectories(t, pluginRoot, destination)
-		if sourceMCPAfter := readText(t, filepath.Join(pluginRoot, "mcp.json")); sourceMCPAfter != sourceMCPBefore {
-			t.Fatal("linked installation mutated the source mcp.json")
+		if _, err := os.Stat(filepath.Join(pluginRoot, "mcp.json")); !os.IsNotExist(err) {
+			t.Fatalf("linked installation resurrected mcp.json: %v", err)
 		}
 
 		installedHook := filepath.Join(destination, "hooks", "ensure-revyl")
@@ -502,7 +391,7 @@ func TestLocalInstaller(t *testing.T) {
 			`{"hook_event_name":"sessionStart"}`,
 			environmentWithOverrides("REVYL_BINARY=", "CURSOR_PLUGIN_ROOT="),
 		)
-		requireHookOutput(t, logicalInstallOutput, map[string]string{})
+		requireHookOutput(t, logicalInstallOutput, map[string]string{"additional_context": loginGuidance})
 		explicitInstallOutput := runHook(
 			t,
 			sourceHook,
@@ -512,7 +401,7 @@ func TestLocalInstaller(t *testing.T) {
 				"CURSOR_PLUGIN_ROOT="+destination,
 			),
 		)
-		requireHookOutput(t, explicitInstallOutput, map[string]string{})
+		requireHookOutput(t, explicitInstallOutput, map[string]string{"additional_context": loginGuidance})
 
 		stalePath := filepath.Join(destination, "stale-file")
 		if err := os.WriteFile(stalePath, []byte("stale"), 0o600); err != nil {
@@ -539,13 +428,12 @@ func TestLocalInstaller(t *testing.T) {
 			environmentWithOverrides("CURSOR_PLUGIN_LOCAL_DIR="+localRoot),
 			"--status",
 		)
-		for _, expected := range []string{"Installed: yes", "Mode: link"} {
+		for _, expected := range []string{"Installed: yes", "Mode: link", "plugin-pinned runtime"} {
 			if !strings.Contains(statusOutput, expected) {
 				t.Fatalf("linked status output %q does not contain %q", statusOutput, expected)
 			}
 		}
 		requireStatusPath(t, statusOutput, "Source", nextPluginRoot)
-		requireStatusPath(t, statusOutput, "Revyl binary", selectedBinary)
 	})
 
 	t.Run("linked dry run", func(t *testing.T) {
@@ -588,7 +476,9 @@ func TestInstallerStructuralContract(t *testing.T) {
 			".cursor-plugin",
 			"plugin.json",
 			"REVYL_BINARY",
-			"mcp.json",
+			"hooks",
+			"skills",
+			"rules",
 		} {
 			if !strings.Contains(content, required) {
 				t.Fatalf("%s does not contain required installer contract %q", path, required)
@@ -659,54 +549,6 @@ func requireHookDefinition(t *testing.T, hooks hooksConfig, eventName, matcher s
 	}
 }
 
-// requireExactMCPServer verifies the complete MCP transport command and runtime contract.
-func requireExactMCPServer(
-	t *testing.T,
-	server mcpServerConfig,
-	expectedCommand string,
-	expectedRuntimeOverride string,
-) {
-	t.Helper()
-	if server.Type != "stdio" {
-		t.Fatalf("MCP type = %q, want stdio", server.Type)
-	}
-	if server.Command != expectedCommand && !sameFilesystemPath(server.Command, expectedCommand) {
-		t.Fatalf("MCP command = %q, want %q", server.Command, expectedCommand)
-	}
-	if !slices.Equal(server.Args, []string{"mcp", "serve", "--profile", "dev"}) {
-		t.Fatalf("MCP args = %#v, want dev-profile serve args", server.Args)
-	}
-	expectedEnvironment := map[string]string{
-		"REVYL_PROJECT_DIR": "${workspaceFolder}",
-	}
-	if expectedRuntimeOverride != runtimeOverrideAbsent {
-		expectedEnvironment["REVYL_BINARY"] = expectedRuntimeOverride
-	}
-	if len(server.Env) != len(expectedEnvironment) {
-		t.Fatalf("MCP env %#v, want exactly %#v", server.Env, expectedEnvironment)
-	}
-	for name, expectedValue := range expectedEnvironment {
-		actualValue := server.Env[name]
-		if actualValue == expectedValue {
-			continue
-		}
-		if name == "REVYL_BINARY" && sameFilesystemPath(actualValue, expectedValue) {
-			continue
-		}
-		t.Fatalf("MCP env %q = %q, want %q", name, actualValue, expectedValue)
-	}
-	// An inherited credential must never be replaced by an unresolved literal.
-	if _, declared := server.Env["REVYL_API_KEY"]; declared {
-		t.Fatal("MCP env declares REVYL_API_KEY, which clobbers the inherited credential")
-	}
-	if server.Meta.IDEToolIconPath != "./assets/icon.svg" {
-		t.Fatalf("MCP tool icon = %q, want ./assets/icon.svg", server.Meta.IDEToolIconPath)
-	}
-	if strings.Contains(strings.Join(server.Args, " "), "curl") {
-		t.Fatalf("MCP arguments contain an inline downloader: %#v", server.Args)
-	}
-}
-
 // requireExactSkills verifies the plugin bundles only the supported canonical skill set.
 func requireExactSkills(t *testing.T, skillsRoot string) {
 	t.Helper()
@@ -723,14 +565,21 @@ func requireExactSkills(t *testing.T, skillsRoot string) {
 		skillNames = append(skillNames, entry.Name())
 	}
 	slices.Sort(skillNames)
-	expected := []string{"revyl-ci-sync", "revyl-cloud-agent", "revyl-mcp-dev-loop", "revyl-proof-ci"}
+	expected := []string{
+		"revyl-ci-sync",
+		"revyl-cli-auth-bypass",
+		"revyl-cli-dev-loop",
+		"revyl-cloud-agent",
+		"revyl-proof-automation",
+		"revyl-proof-ci",
+	}
 	if !slices.Equal(skillNames, expected) {
 		t.Fatalf("bundled skills = %#v, want %#v", skillNames, expected)
 	}
 }
 
-// requireRealInstalledPlugin verifies a copied artifact and its selected MCP executable.
-func requireRealInstalledPlugin(t *testing.T, destination, expectedRuntimeOverride string) {
+// requireRealInstalledPlugin verifies a copied artifact without plugin MCP.
+func requireRealInstalledPlugin(t *testing.T, destination string) {
 	t.Helper()
 	info, err := os.Lstat(destination)
 	if err != nil {
@@ -744,12 +593,15 @@ func requireRealInstalledPlugin(t *testing.T, destination, expectedRuntimeOverri
 		t.Fatalf("installed manifest name = %q, want revyl", manifest.Name)
 	}
 	requirePluginRelativeFile(t, destination, manifest.Logo)
-	installedMCP := readJSON[mcpConfig](t, filepath.Join(destination, filepath.Clean(manifest.MCPServers)))
-	server, ok := installedMCP.Servers["revyl"]
-	if !ok {
-		t.Fatal("installed MCP config has no revyl server")
+	requireDirectory(t, destination, "hooks")
+	requireDirectory(t, destination, "skills")
+	requireDirectory(t, destination, "rules")
+	if _, err := os.Stat(filepath.Join(destination, "mcp.json")); !os.IsNotExist(err) {
+		t.Fatalf("installed plugin still ships mcp.json: %v", err)
 	}
-	requireExactMCPServer(t, server, runtimeLauncherCommand, expectedRuntimeOverride)
+	if strings.Contains(readText(t, filepath.Join(destination, ".cursor-plugin", "plugin.json")), `"mcpServers"`) {
+		t.Fatal("installed plugin.json still declares mcpServers")
+	}
 }
 
 // requireLinkedPluginDirectories verifies development surfaces resolve to the worktree.
@@ -946,19 +798,6 @@ func environmentWithOverrides(overrides ...string) []string {
 // testSecret returns a credential-shaped sentinel assembled outside distributable scans.
 func testSecret() string {
 	return "hook-" + "secret-" + "sentinel"
-}
-
-// pluginMCPServer returns the structured Revyl MCP server configuration.
-func pluginMCPServer(t *testing.T) mcpServerConfig {
-	t.Helper()
-	pluginRoot := pluginRootPath(t)
-	manifest := readJSON[pluginManifest](t, filepath.Join(pluginRoot, ".cursor-plugin", "plugin.json"))
-	config := readJSON[mcpConfig](t, filepath.Join(pluginRoot, filepath.Clean(manifest.MCPServers)))
-	server, ok := config.Servers["revyl"]
-	if !ok {
-		t.Fatal("mcp config has no revyl server")
-	}
-	return server
 }
 
 // writeExecutable creates an executable test fixture and returns its path.

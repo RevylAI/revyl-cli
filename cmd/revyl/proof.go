@@ -56,8 +56,8 @@ itself is broken, and --blocked when you never got to see it run at all, each in
 one sentence a reviewer can act on; the write-up carries the detail. They are
 mutually exclusive, and sending neither says you watched the change work.
 
-Images must be URLs from ` + "`revyl session publish`" + `; Revyl drops any
-other image.
+Images must be URLs from ` + "`revyl session publish`" + `; Revyl refuses the
+write-up if any other image is present.
 
 Examples:
   revyl proof comment write-up.md

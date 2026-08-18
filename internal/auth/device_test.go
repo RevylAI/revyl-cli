@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/revyl/cli/internal/api"
 )
 
 // deviceServer records what the CLI sent and replays scripted poll responses.
@@ -114,14 +116,54 @@ func TestCreateAuthorizationSendsDeviceIdentity(t *testing.T) {
 	if authorization.UserCode != "ABCD-2345" {
 		t.Errorf("user code = %q, want ABCD-2345", authorization.UserCode)
 	}
-	if !strings.Contains(authorization.VerificationURIComplete, "code=ABCD-2345") {
-		t.Errorf("complete URI %q should embed the user code", authorization.VerificationURIComplete)
+	if !strings.Contains(authorization.VerificationUriComplete, "code=ABCD-2345") {
+		t.Errorf("complete URI %q should embed the user code", authorization.VerificationUriComplete)
 	}
 	if server.createBody["client_instance_id"] != "client-1" {
 		t.Errorf("client_instance_id = %q, want client-1", server.createBody["client_instance_id"])
 	}
 	if server.createBody["device_label"] != "Work Mac" {
 		t.Errorf("device_label = %q, want Work Mac", server.createBody["device_label"])
+	}
+	if _, ok := server.createBody["client_source"]; ok {
+		t.Errorf("client_source = %q, want omitted for ordinary CLI", server.createBody["client_source"])
+	}
+}
+
+func TestCreateAuthorizationSendsPluginClientSource(t *testing.T) {
+	server := &deviceServer{}
+	httpServer := httptest.NewServer(server.handler())
+	defer httpServer.Close()
+	source := api.CLIClientSourceCursorPlugin
+	auth := NewDeviceAuth(DeviceAuthConfig{
+		BackendURL:       httpServer.URL,
+		ClientInstanceID: "client-1",
+		DeviceLabel:      "Work Mac",
+		ClientSource:     &source,
+	})
+	auth.wait = func(ctx context.Context, _ time.Duration) error { return ctx.Err() }
+
+	if _, err := auth.CreateAuthorization(context.Background()); err != nil {
+		t.Fatalf("CreateAuthorization: %v", err)
+	}
+	if server.createBody["client_source"] != string(api.CLIClientSourceCursorPlugin) {
+		t.Errorf("client_source = %q, want cursor_plugin", server.createBody["client_source"])
+	}
+}
+
+func TestClientSourceFromEnvAcceptsOnlyCursorPlugin(t *testing.T) {
+	t.Setenv("REVYL_CLIENT_SOURCE", string(api.CLIClientSourceCursorPlugin))
+	got := ClientSourceFromEnv()
+	if got == nil || *got != api.CLIClientSourceCursorPlugin {
+		t.Errorf("ClientSourceFromEnv() = %v, want cursor_plugin", got)
+	}
+	t.Setenv("REVYL_CLIENT_SOURCE", "evil")
+	if got := ClientSourceFromEnv(); got != nil {
+		t.Errorf("ClientSourceFromEnv() = %v, want nil for unknown source", got)
+	}
+	t.Setenv("REVYL_CLIENT_SOURCE", "")
+	if got := ClientSourceFromEnv(); got != nil {
+		t.Errorf("ClientSourceFromEnv() = %v, want nil when unset", got)
 	}
 }
 

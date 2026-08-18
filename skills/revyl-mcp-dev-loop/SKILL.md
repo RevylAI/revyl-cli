@@ -1,9 +1,13 @@
 ---
 name: revyl-mcp-dev-loop
-description: MCP dev-first mobile loop for reliable screenshot-observe-action execution and grounded interactions.
+description: Optional MCP dev-first mobile loop for screenshot-observe-action execution. Not started by the Cursor plugin.
 ---
 
 # Revyl MCP Dev Loop Skill
+
+This skill is for users who **opt into** custom MCP. The Cursor plugin does not
+start an MCP server. Add a personal MCP entry with a literal command such as
+`revyl` or `/usr/local/bin/revyl`, never `${...}`.
 
 Use this skill for the full flow:
 1. Start dev loop equivalent.

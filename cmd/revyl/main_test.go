@@ -4,6 +4,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -63,6 +64,63 @@ func TestRootVersionFlagExists(t *testing.T) {
 	rootCmd.InitDefaultVersionFlag()
 	if rootCmd.Flags().Lookup("version") == nil {
 		t.Fatal("expected --version flag to exist on root command")
+	}
+}
+
+func TestVersionCommandPrintsStdoutTemplate(t *testing.T) {
+	var stdout strings.Builder
+	versionCmd.SetOut(&stdout)
+	if err := rootCmd.PersistentFlags().Set("json", "false"); err != nil {
+		t.Fatalf("clear json flag: %v", err)
+	}
+	if err := versionCmd.RunE(versionCmd, nil); err != nil {
+		t.Fatalf("version command: %v", err)
+	}
+	got := stdout.String()
+	want := "revyl version " + version + "\n"
+	if got != want {
+		t.Fatalf("version stdout = %q, want %q", got, want)
+	}
+}
+
+func TestVersionJSONUnchanged(t *testing.T) {
+	var stdout strings.Builder
+	versionCmd.SetOut(&stdout)
+	if err := rootCmd.PersistentFlags().Set("json", "true"); err != nil {
+		t.Fatalf("set json flag: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = rootCmd.PersistentFlags().Set("json", "false")
+	})
+	if err := versionCmd.RunE(versionCmd, nil); err != nil {
+		t.Fatalf("version --json: %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"version"`) {
+		t.Fatalf("version --json stdout = %q, want a version object", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "revyl version ") {
+		t.Fatal("version --json printed the human template")
+	}
+}
+
+func TestShouldSkipVersionCheckForVersionFlagAndMCP(t *testing.T) {
+	rootCmd.InitDefaultVersionFlag()
+	if err := rootCmd.Flags().Set("version", "true"); err != nil {
+		t.Fatalf("set version flag: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = rootCmd.Flags().Set("version", "false")
+	})
+	if !shouldSkipVersionCheck(rootCmd) {
+		t.Fatal("root --version should skip the upgrade notice")
+	}
+
+	mcpServe, _, err := rootCmd.Find([]string{"mcp", "serve"})
+	if err != nil {
+		t.Fatalf("find mcp serve: %v", err)
+	}
+	if !shouldSkipVersionCheck(mcpServe) {
+		t.Fatal("mcp serve should skip the upgrade notice")
 	}
 }
 

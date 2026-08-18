@@ -14,20 +14,21 @@ device, and the Automation comments on the PR.
 
 ## Install
 
-1. **CI upload** — Add a step (or the reusable job in
-   [`../../ci-github-actions/upload-for-cursor-proof.yml`](../../ci-github-actions/upload-for-cursor-proof.yml))
-   so every PR build is uploaded with `revyl build upload --json` and
-   `REVYL_API_KEY`. GitHub Actions metadata is stamped automatically.
-2. **Revyl in Cursor** — Install the Revyl plugin / MCP and set `REVYL_API_KEY`
-   (and your app id) for Automations. See
-   [MCP setup](https://docs.revyl.ai/integrations/mcp-setup).
+1. **CI upload** — Edit the job that already produces a simulator `.app` or
+   installable `.apk`. Add `revyl build upload` only. Do not add a second
+   workflow file. Use
+   `--version "${{ github.event.pull_request.head.sha || github.sha }}"` and
+   secret `REVYL_API_KEY`.
+2. **Revyl in Cursor** — Install the Revyl plugin, run `revyl auth login`,
+   mint a CLI API key from Settings, and add the Automation.
 3. **Create the Automation** at [cursor.com/automations](https://cursor.com/automations):
    - Paste the contents of `PROMPT.md` as the prompt / instructions.
-   - Enable **Comment on pull request** and the **Revyl MCP** tools.
-   - Prefer trigger **CI completed** / **Workflow run completed** on the upload
-     workflow; fall back to **Pull request pushed** if needed (see
-     `AUTOMATION_SPEC.md`).
+   - Enable **Comment on pull request** and **shell**. Do not enable Revyl MCP.
+   - Trigger **CI completed** / **Workflow run completed** on the upload job.
    - Add secret `REVYL_API_KEY` and variable `REVYL_APP_ID`.
+
+The Automation runner installs the CLI with `install.sh`. The desktop plugin
+pin does not apply there.
 
 ## Flow
 

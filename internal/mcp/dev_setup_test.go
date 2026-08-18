@@ -519,7 +519,7 @@ func TestEveryRecoveryStateNamesBothRecoveries(t *testing.T) {
 			// one: the approval needs a human, and the bridge does not.
 			pending := &auth.DeviceAuthorization{
 				UserCode:                "ABCD-2345",
-				VerificationURIComplete: "https://app.revyl.ai/cli/device?code=ABCD-2345",
+				VerificationUriComplete: "https://app.revyl.ai/cli/device?code=ABCD-2345",
 			}
 			for _, authorization := range []*auth.DeviceAuthorization{nil, pending} {
 				message := authenticationFailureMessage(state, authorization)

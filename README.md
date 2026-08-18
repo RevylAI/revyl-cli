@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.89-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.90-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -121,11 +121,6 @@ revyl skill install --name revyl-cli-dev-loop --force  # Dev loop + device explo
 revyl skill install --name revyl-cli-atlas --force     # Visual Atlas understanding
 revyl skill install --name revyl-cli-create --force    # Stable YAML test authoring
 revyl skill install --name revyl-cli-auth-bypass --force # Auth bypass setup
-revyl skill install --name revyl-cli-auth-bypass-expo --force # Expo auth bypass leaf
-revyl skill install --name revyl-cli-auth-bypass-react-native --force # React Native leaf
-revyl skill install --name revyl-cli-auth-bypass-ios --force # Native iOS leaf
-revyl skill install --name revyl-cli-auth-bypass-android --force # Native Android leaf
-revyl skill install --name revyl-cli-auth-bypass-flutter --force # Flutter leaf
 revyl skill install --cursor --force                   # Force Cursor if auto-detect is ambiguous
 revyl skill install --codex --force                    # Force Codex if auto-detect is ambiguous
 revyl skill install --claude --force                   # Force Claude Code if auto-detect is ambiguous
@@ -142,9 +137,8 @@ connections backward through edge clips and their originating reports. Use
 `revyl-cli-create` when you want the agent to author or refine a
 stable Revyl YAML test, validate it, push it, run it, and iterate from reports.
 Use `revyl-cli-auth-bypass` when the agent should set up test-only auth bypass
-and choose the platform recipe after inspecting the app. Use
-`revyl-cli-auth-bypass-*` leaf skills only when the app stack is already known
-or after the parent skill delegates to the matching recipe.
+after inspecting the app. Implement the handler in the detected stack; do not
+install a separate platform skill.
 
 Example prompts:
 

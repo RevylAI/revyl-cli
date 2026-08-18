@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-Reports Revyl plugin runtime readiness through Cursor's hook protocol and hands
-any injected API key to the MCP server.
+Reports Revyl plugin runtime readiness, installs the pinned CLI when allowed,
+and bridges an injected API key or tells the agent how to sign in.
 #>
 
 [CmdletBinding()]
@@ -13,6 +13,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $script:RuntimeUnavailableMessage = "The Revyl plugin runtime is not ready. Update or reinstall the plugin, or set REVYL_BINARY to an executable Revyl CLI path."
+$script:LoginGuidance = "Run revyl auth login and post the printed approval URL as a clickable markdown link. Wait for approval. REVYL_API_KEY is optional for unattended agents."
+$script:InstallOnFirstCommand = "The Revyl CLI installs on the first revyl command."
 
 # Resolve-PluginRoot returns the logical plugin install root for copied or linked hooks.
 function Resolve-PluginRoot {
@@ -32,6 +34,21 @@ function Resolve-PluginRoot {
 
 $script:PluginRoot = Resolve-PluginRoot
 
+# Clear-LiteralInterpolation unsets Cloud values stored as unexpanded text.
+function Clear-LiteralInterpolation {
+    if ($env:REVYL_API_KEY -eq '${env:REVYL_API_KEY}') {
+        Remove-Item -Path Env:REVYL_API_KEY -ErrorAction SilentlyContinue
+    }
+    if ($env:REVYL_BINARY -eq '${env:REVYL_BINARY}') {
+        Remove-Item -Path Env:REVYL_BINARY -ErrorAction SilentlyContinue
+    }
+}
+
+# Test-UsableApiKey reports whether the environment holds a real credential.
+function Test-UsableApiKey {
+    -not [string]::IsNullOrWhiteSpace($env:REVYL_API_KEY)
+}
+
 # Test-ExecutableSelection verifies a command name or executable file.
 function Test-ExecutableSelection {
     param(
@@ -39,10 +56,7 @@ function Test-ExecutableSelection {
         [string] $Selection
     )
 
-    if (
-        [string]::IsNullOrWhiteSpace($Selection) -or
-        $Selection -eq '${env:REVYL_BINARY}'
-    ) {
+    if ([string]::IsNullOrWhiteSpace($Selection)) {
         return $false
     }
     if (Test-Path -LiteralPath $Selection -PathType Leaf) {
@@ -61,20 +75,6 @@ function Test-ExecutableSelection {
 function Test-PluginRuntimeReady {
     if (Test-ExecutableSelection -Selection $env:REVYL_BINARY) {
         return $true
-    }
-
-    try {
-        $mcpPath = Join-Path $script:PluginRoot "mcp.json"
-        if (Test-Path -LiteralPath $mcpPath -PathType Leaf) {
-            $mcp = Get-Content -LiteralPath $mcpPath -Raw | ConvertFrom-Json
-            $configuredBinary = [string] $mcp.mcpServers.revyl.env.REVYL_BINARY
-            if (Test-ExecutableSelection -Selection $configuredBinary) {
-                return $true
-            }
-        }
-    }
-    catch {
-        # A malformed config is reported through the generic readiness message.
     }
 
     try {
@@ -106,94 +106,149 @@ function Read-HookEventName {
     }
 }
 
-# Publish-EnvironmentApiKey hands a visible REVYL_API_KEY to the MCP server.
-#
-# The server runs as a separate process that does not reliably inherit secrets
-# the host injected into the agent, so an agent can hold a valid key that its
-# own Revyl tools cannot see. This hook does run in the environment that has the
-# key, which makes it the one place able to pass it across. Doing so needs no
-# network, and repeating it rewrites the same protected file from the same
-# input, so every session can run it unconditionally.
-#
-# Failures are deliberately silent: a missing credential surfaces as an
-# actionable authentication state on the first tool call, and a hook that
-# reported it as well would only add noise to sessions that never touch Revyl.
-function Publish-EnvironmentApiKey {
+# Invoke-Launcher runs the pinned runtime with the given argv.
+function Invoke-Launcher {
     param(
         [AllowEmptyString()]
-        [string] $EventName
+        [string] $NoDownload,
+        [Parameter(Mandatory = $true)]
+        [string[]] $Arguments
     )
-
-    if (
-        [string]::IsNullOrWhiteSpace($env:REVYL_API_KEY) -or
-        $env:REVYL_API_KEY -eq '${env:REVYL_API_KEY}'
-    ) {
-        return
-    }
 
     $launcher = Join-Path $script:PluginRoot "hooks/launch-revyl.cmd"
     if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
-        return
+        return $false
     }
 
-    # sessionStart has the shorter budget of the two events, so it never waits
-    # for a runtime download. A first run that arrives before the runtime does is
-    # bridged by beforeShellExecution, or by the command the failure names.
     $previousNoDownload = $env:REVYL_RUNTIME_NO_DOWNLOAD
     $previousTelemetry = $env:REVYL_TELEMETRY_DISABLED
+    $previousNotifier = $env:REVYL_NO_UPDATE_NOTIFIER
     try {
-        $env:REVYL_RUNTIME_NO_DOWNLOAD = if ($EventName -eq "sessionStart") { "1" } else { "" }
+        $env:REVYL_RUNTIME_NO_DOWNLOAD = $NoDownload
         $env:REVYL_TELEMETRY_DISABLED = "1"
-        & $launcher auth persist-cloud-env *> $null
+        $env:REVYL_NO_UPDATE_NOTIFIER = "1"
+        & $launcher @Arguments *> $null
+        return $LASTEXITCODE -eq 0
     }
     catch {
-        # The next tool call reports the credential state with a runnable action.
+        return $false
     }
     finally {
         $env:REVYL_RUNTIME_NO_DOWNLOAD = $previousNoDownload
         $env:REVYL_TELEMETRY_DISABLED = $previousTelemetry
+        $env:REVYL_NO_UPDATE_NOTIFIER = $previousNotifier
     }
 }
 
-$eventName = Read-HookEventName
-$supportedEvent = $eventName -in @("beforeShellExecution", "sessionStart")
-$runtimeReady = $supportedEvent -and (Test-PluginRuntimeReady)
-$message = if ($supportedEvent -and -not $runtimeReady) {
-    $script:RuntimeUnavailableMessage
-}
-else {
-    ""
+# Invoke-EnsureRuntime downloads or resolves the pin via a cheap CLI command.
+function Invoke-EnsureRuntime {
+    param(
+        [AllowEmptyString()]
+        [string] $NoDownload
+    )
+
+    Invoke-Launcher -NoDownload $NoDownload -Arguments @("version")
 }
 
-if ($runtimeReady) {
-    Publish-EnvironmentApiKey -EventName $eventName
+# Invoke-PersistKey writes an injected REVYL_API_KEY into the CLI credential store.
+function Invoke-PersistKey {
+    Invoke-Launcher -NoDownload "" -Arguments @("auth", "persist-cloud-env")
 }
 
-$response = switch ($eventName) {
-    "beforeShellExecution" {
-        if ($message) {
-            [pscustomobject] @{
-                permission    = "allow"
-                agent_message = $message
+# Write-HookResponse prints the Cursor hook payload for one event.
+function Write-HookResponse {
+    param(
+        [AllowEmptyString()]
+        [string] $EventName,
+        [AllowEmptyString()]
+        [string] $Message
+    )
+
+    $response = switch ($EventName) {
+        "beforeShellExecution" {
+            if ($Message) {
+                [pscustomobject] @{
+                    permission    = "allow"
+                    agent_message = $Message
+                }
             }
+            else {
+                [pscustomobject] @{ permission = "allow" }
+            }
+            break
         }
-        else {
-            [pscustomobject] @{ permission = "allow" }
+        "sessionStart" {
+            if ($Message) {
+                [pscustomobject] @{ additional_context = $Message }
+            }
+            else {
+                [pscustomobject] @{}
+            }
+            break
         }
-        break
-    }
-    "sessionStart" {
-        if ($message) {
-            [pscustomobject] @{ additional_context = $message }
-        }
-        else {
+        default {
             [pscustomobject] @{}
         }
-        break
     }
-    default {
-        [pscustomobject] @{}
+
+    $response | ConvertTo-Json -Compress
+}
+
+Clear-LiteralInterpolation
+$eventName = Read-HookEventName
+$supportedEvent = $eventName -in @("beforeShellExecution", "sessionStart")
+if (-not $supportedEvent) {
+    Write-HookResponse -EventName $eventName -Message ""
+    exit 0
+}
+
+if (-not (Test-PluginRuntimeReady)) {
+    Write-HookResponse -EventName $eventName -Message $script:RuntimeUnavailableMessage
+    exit 0
+}
+
+$ensureMode = "none"
+$doPersist = $false
+$failMessage = $script:LoginGuidance
+$successMessage = $script:LoginGuidance
+if ($eventName -eq "sessionStart") {
+    if (Test-UsableApiKey) {
+        $ensureMode = "nodownload"
+        $doPersist = $true
+        $failMessage = $script:InstallOnFirstCommand
+        $successMessage = ""
+    }
+}
+else {
+    $ensureMode = "download"
+    if (Test-UsableApiKey) {
+        $doPersist = $true
+        $failMessage = $script:RuntimeUnavailableMessage
+        $successMessage = ""
     }
 }
 
-$response | ConvertTo-Json -Compress
+if ($ensureMode -eq "nodownload") {
+    if (-not (Invoke-EnsureRuntime -NoDownload "1")) {
+        Write-HookResponse -EventName $eventName -Message $failMessage
+        exit 0
+    }
+}
+elseif ($ensureMode -eq "download") {
+    if (-not $doPersist) {
+        $null = Invoke-EnsureRuntime -NoDownload ""
+    }
+    elseif (-not (Invoke-EnsureRuntime -NoDownload "")) {
+        Write-HookResponse -EventName $eventName -Message $failMessage
+        exit 0
+    }
+}
+
+if ($doPersist) {
+    if (-not (Invoke-PersistKey)) {
+        Write-HookResponse -EventName $eventName -Message $failMessage
+        exit 0
+    }
+}
+
+Write-HookResponse -EventName $eventName -Message $successMessage

@@ -103,7 +103,7 @@ func (b *BeforeSessionConfig) EffectiveTimeout() time.Duration {
 }
 
 // AuthBypassConfig configures the test-only auth bypass contract for the app
-// under test (see the revyl-cli-auth-bypass-* skills for the app-side handler).
+// under test (see the revyl-cli-auth-bypass skill for the app-side handler).
 //
 // The contract: org launch variables gate and feed the bypass
 // (e.g. REVYL_AUTH_BYPASS_ENABLED, REVYL_AUTH_BYPASS_TOKEN), and a deep link

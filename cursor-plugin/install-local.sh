@@ -100,47 +100,13 @@ resolve_binary() {
   esac
 }
 
-# set_installed_runtime_override adds the staged binary override.
-#
-# The shipped mcp.json declares no REVYL_BINARY entry so Cursor cannot overwrite
-# an inherited value with an unresolved interpolation. Local development still
-# needs an explicit runtime, so the entry is inserted into the staged copy only.
-set_installed_runtime_override() {
-  selected_binary=$1
-  mcp_path=$2
-  rewritten_path="${mcp_path}.tmp"
-
-  REVYL_INSTALLED_BINARY=$selected_binary awk '
-    BEGIN {
-      inserted = 0
-      escaped = ENVIRON["REVYL_INSTALLED_BINARY"]
-      gsub(/\\/, "\\\\", escaped)
-      gsub(/"/, "\\\"", escaped)
-    }
-    !inserted && $0 ~ /^[[:space:]]*"REVYL_PROJECT_DIR"[[:space:]]*:/ {
-      quote_position = index($0, "\"REVYL_PROJECT_DIR\"")
-      indentation = substr($0, 1, quote_position - 1)
-      trailing_entry = ($0 ~ /,[[:space:]]*$/) ? "," : ""
-      anchor_line = $0
-      sub(/[[:space:]]*,[[:space:]]*$/, "", anchor_line)
-      printf "%s,\n", anchor_line
-      printf "%s\"REVYL_BINARY\": \"%s\"%s\n", indentation, escaped, trailing_entry
-      inserted = 1
-      next
-    }
-    { print }
-    END {
-      if (!inserted) {
-        exit 42
-      }
-    }
-  ' "$mcp_path" > "$rewritten_path" || {
-    rm -f "$rewritten_path"
-    printf '%s\n' "Revyl plugin install failed: mcp.json has no REVYL_PROJECT_DIR entry to anchor the runtime override." >&2
-    return 1
-  }
-
-  mv "$rewritten_path" "$mcp_path"
+# reported_runtime_override names the active CLI from the environment, if any.
+reported_runtime_override() {
+  if [ -n "${REVYL_BINARY:-}" ]; then
+    resolve_binary "$REVYL_BINARY" || printf '%s\n' "$REVYL_BINARY"
+    return
+  fi
+  printf '%s\n' "plugin-pinned runtime"
 }
 
 # manifest_name reads the declared plugin name from one manifest.
@@ -162,20 +128,12 @@ validate_source() {
     fail "source artifact has no .cursor-plugin/plugin.json"
   [ "$(manifest_name "$source_manifest")" = "$PLUGIN_NAME" ] ||
     fail "source manifest does not declare the revyl plugin"
-  [ -f "$SOURCE_DIR/mcp.json" ] ||
-    fail "source artifact has no mcp.json"
-}
-
-# installed_runtime_override reads the local MCP binary selection.
-installed_runtime_override() {
-  mcp_path=$1
-  sed -n '
-    /^[[:space:]]*"REVYL_BINARY"[[:space:]]*:[[:space:]]*"[^"]*"[[:space:]]*,*[[:space:]]*$/ {
-      s/^[[:space:]]*"REVYL_BINARY"[[:space:]]*:[[:space:]]*"\([^"]*\)"[[:space:]]*,*[[:space:]]*$/\1/
-      p
-      q
-    }
-  ' "$mcp_path"
+  [ -d "$SOURCE_DIR/hooks" ] ||
+    fail "source artifact has no hooks directory"
+  [ -d "$SOURCE_DIR/skills" ] ||
+    fail "source artifact has no skills directory"
+  [ -d "$SOURCE_DIR/rules" ] ||
+    fail "source artifact has no rules directory"
 }
 
 # print_status reports the active local install without changing it.
@@ -198,13 +156,7 @@ print_status() {
     installed_source=${manifest_target%/.cursor-plugin}
   fi
 
-  runtime_override="plugin-pinned runtime"
-  if [ -f "$DESTINATION/mcp.json" ]; then
-    detected_override=$(installed_runtime_override "$DESTINATION/mcp.json")
-    if [ -n "$detected_override" ]; then
-      runtime_override=$detected_override
-    fi
-  fi
+  runtime_override=$(reported_runtime_override)
 
   printf '%s\n' "  Installed: yes"
   printf '  Mode: %s\n' "$installed_mode"
@@ -286,10 +238,6 @@ fi
 MANIFEST_NAME=$(manifest_name "$MANIFEST_PATH")
 if [ "$MANIFEST_NAME" != "$PLUGIN_NAME" ]; then
   fail "staged manifest does not declare the revyl plugin"
-fi
-
-if [ -n "$SELECTED_BINARY" ]; then
-  set_installed_runtime_override "$SELECTED_BINARY" "$STAGING/mcp.json"
 fi
 
 replace_destination

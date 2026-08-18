@@ -331,6 +331,7 @@ func loginWithDeviceApproval(cmd *cobra.Command, mgr *auth.Manager, devMode bool
 		BackendURL:       backendURL,
 		ClientInstanceID: clientInstanceID,
 		DeviceLabel:      auth.CurrentDeviceLabel(),
+		ClientSource:     auth.ClientSourceFromEnv(),
 	})
 
 	ctx, cancel := context.WithCancel(cmd.Context())
@@ -346,12 +347,12 @@ func loginWithDeviceApproval(cmd *cobra.Command, mgr *auth.Manager, devMode bool
 
 	ui.PrintInfo("Open this URL to approve, then confirm the code below:")
 	ui.Println()
-	ui.PrintInfo("  %s", authorization.VerificationURIComplete)
+	ui.PrintInfo("  %s", authorization.VerificationUriComplete)
 	ui.PrintInfo("  Code: %s", authorization.UserCode)
 	ui.Println()
 	// Opening the browser is a convenience on a desktop and impossible
 	// elsewhere, so a failure here is not a failure of the login.
-	_ = ui.OpenBrowser(authorization.VerificationURIComplete)
+	_ = ui.OpenBrowser(authorization.VerificationUriComplete)
 
 	ui.PrintInfo("Waiting for approval (press Ctrl+C to cancel)...")
 

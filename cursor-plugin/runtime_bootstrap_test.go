@@ -578,9 +578,13 @@ func TestRuntimeLauncherScriptsShareResolutionOrder(t *testing.T) {
 	for expected, content := range map[string]string{
 		"resolve_installed_runtime": posixLauncher,
 		"adopt_installed_runtime":   posixLauncher,
+		"publish_user_runtime":      posixLauncher,
+		"run_verified_runtime":      posixLauncher,
 		"download_attempt":          posixLauncher,
 		"DOWNLOAD_ATTEMPTS=3":       posixLauncher,
 		"Resolve-InstalledRuntime":  windowsLauncher,
+		"Publish-UserRuntime":       windowsLauncher,
+		"Invoke-VerifiedRuntime":    windowsLauncher,
 		"DownloadAttempts = 3":      windowsLauncher,
 	} {
 		if !strings.Contains(content, expected) {
@@ -591,6 +595,13 @@ func TestRuntimeLauncherScriptsShareResolutionOrder(t *testing.T) {
 	for _, launcher := range []string{posixLauncher, windowsLauncher} {
 		if !strings.Contains(launcher, "REVYL_BINARY") {
 			t.Error("runtime launcher failure guidance does not name REVYL_BINARY")
+		}
+		if !strings.Contains(launcher, "REVYL_NO_UPDATE_NOTIFIER") {
+			t.Error("runtime launcher does not suppress the upgrade notice")
+		}
+		if !strings.Contains(launcher, `REVYL_CLIENT_SOURCE`) ||
+			!strings.Contains(launcher, "cursor_plugin") {
+			t.Error("runtime launcher does not stamp cursor_plugin on device auth")
 		}
 	}
 	if strings.Contains(posixLauncher, "--tries=2") {

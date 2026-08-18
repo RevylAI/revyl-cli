@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/ui"
 )
@@ -58,6 +59,32 @@ var skipVersionCheckCommands = map[string]bool{
 	"update":     true,
 	"version":    true,
 	"completion": true,
+	"mcp":        true,
+}
+
+// shouldSkipVersionCheck reports whether this invocation must not print an upgrade notice.
+//
+// Parameters:
+//   - cmd: The Cobra command currently running, including root `--version`.
+//
+// Returns:
+//   - bool: True when the invoked path is version, mcp, or the root version flag.
+func shouldSkipVersionCheck(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	for current := cmd; current != nil; current = current.Parent() {
+		if skipVersionCheckCommands[current.Name()] {
+			return true
+		}
+	}
+	if versionFlag, err := cmd.Flags().GetBool("version"); err == nil && versionFlag {
+		return true
+	}
+	if versionFlag, err := cmd.Root().Flags().GetBool("version"); err == nil && versionFlag {
+		return true
+	}
+	return false
 }
 
 // startVersionCheck kicks off a background version check (non-blocking).

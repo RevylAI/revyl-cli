@@ -191,4 +191,7 @@ func TestProofCommentHelpTellsCursorToPostOnce(t *testing.T) {
 	if !strings.Contains(help, "posts once") {
 		t.Fatalf("help = %q, want it to tell Cursor to post once", help)
 	}
+	if !strings.Contains(help, "refuses the") {
+		t.Fatalf("help = %q, want it to refuse unpublished images", help)
+	}
 }

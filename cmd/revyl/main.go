@@ -94,14 +94,14 @@ var rootCmd = &cobra.Command{
 		// Skip for commands that already handle versioning or produce
 		// machine-readable output that shouldn't be polluted.
 		jsonOutput, _ := cmd.Flags().GetBool("json")
-		if !quiet && !jsonOutput && !skipVersionCheckCommands[cmd.Name()] {
+		if !quiet && !jsonOutput && !shouldSkipVersionCheck(cmd) {
 			startVersionCheck(version)
 		}
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
 		quiet, _ := cmd.Flags().GetBool("quiet")
 		jsonOutput, _ := cmd.Flags().GetBool("json")
-		if !quiet && !jsonOutput && !skipVersionCheckCommands[cmd.Name()] {
+		if !quiet && !jsonOutput && !shouldSkipVersionCheck(cmd) {
 			printVersionWarning()
 		}
 	},
@@ -320,12 +320,12 @@ var versionCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to marshal version info: %w", err)
 			}
-			fmt.Println(string(data))
+			fmt.Fprintln(cmd.OutOrStdout(), string(data))
 			return nil
 		}
 
 		ui.PrintBanner(version)
-		ui.PrintInfo("Version: %s", version)
+		fmt.Fprintf(cmd.OutOrStdout(), "revyl version %s\n", version)
 		ui.PrintInfo("Commit: %s", commit)
 		ui.PrintInfo("Built: %s", date)
 		return nil

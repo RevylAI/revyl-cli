@@ -22,17 +22,10 @@ func withSkillFamilyFlags(cli bool, mcp bool, fn func()) {
 	fn()
 }
 
-var authBypassLeafSkillNames = []string{
-	"revyl-cli-auth-bypass-expo",
-	"revyl-cli-auth-bypass-react-native",
-	"revyl-cli-auth-bypass-ios",
-	"revyl-cli-auth-bypass-android",
-	"revyl-cli-auth-bypass-flutter",
-}
+var authBypassLeafSkillNames = skillcatalog.AuthBypassLeafAliases()
 
 func defaultInstalledSkillNamesForTest() []string {
-	names := []string{"revyl-cli-dev-loop", "revyl-cli-atlas", "revyl-cli-create", "revyl-cli-auth-bypass"}
-	return append(names, authBypassLeafSkillNames...)
+	return []string{"revyl-cli-dev-loop", "revyl-cli-atlas", "revyl-cli-create", "revyl-cli-auth-bypass"}
 }
 
 func assertInstalledSkills(t *testing.T, baseDir string, names []string) {
@@ -98,8 +91,8 @@ func TestResolveInstallSkillsBothFamilies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveInstallSkills(nil) error = %v", err)
 		}
-		if len(selected) != 16 {
-			t.Fatalf("expected 16 skills when both families selected, got %d", len(selected))
+		if len(selected) != 11 {
+			t.Fatalf("expected 11 skills when both families selected, got %d", len(selected))
 		}
 		var cliCount, mcpCount int
 		for _, sk := range selected {
@@ -137,34 +130,35 @@ func TestResolveInstallSkillsByName(t *testing.T) {
 	})
 }
 
-func TestResolveInstallSkillsByNameIncludesAuthBypassExpo(t *testing.T) {
+func TestResolveInstallSkillsByNameAliasesAuthBypassLeaves(t *testing.T) {
 	withSkillFamilyFlags(false, false, func() {
 		selected, err := resolveInstallSkills([]string{"revyl-cli-auth-bypass-expo"})
 		if err != nil {
 			t.Fatalf("resolveInstallSkills(name) error = %v", err)
 		}
-		if len(selected) != 1 || selected[0].Name != "revyl-cli-auth-bypass-expo" {
-			t.Fatalf("selected = %#v, want only revyl-cli-auth-bypass-expo", selected)
+		if len(selected) != 1 || selected[0].Name != "revyl-cli-auth-bypass" {
+			t.Fatalf("selected = %#v, want only revyl-cli-auth-bypass", selected)
 		}
 		if !strings.Contains(selected[0].Content, "Expo Router") {
 			t.Fatal("expected auth bypass skill content to mention Expo Router")
 		}
-	})
-}
 
-func TestResolveInstallSkillsByNameIncludesAuthBypassLeaves(t *testing.T) {
-	withSkillFamilyFlags(false, false, func() {
 		for _, name := range authBypassLeafSkillNames {
-			selected, err := resolveInstallSkills([]string{name})
+			aliased, err := resolveInstallSkills([]string{name})
 			if err != nil {
 				t.Fatalf("resolveInstallSkills(%q) error = %v", name, err)
 			}
-			if len(selected) != 1 || selected[0].Name != name {
-				t.Fatalf("selected = %#v, want only %s", selected, name)
+			if len(aliased) != 1 || aliased[0].Name != "revyl-cli-auth-bypass" {
+				t.Fatalf("selected = %#v, want revyl-cli-auth-bypass for alias %s", aliased, name)
 			}
-			if !strings.Contains(selected[0].Content, "REVYL_AUTH_BYPASS_TOKEN") {
-				t.Fatalf("%s content did not mention REVYL_AUTH_BYPASS_TOKEN", name)
-			}
+		}
+
+		deduped, err := resolveInstallSkills(append(authBypassLeafSkillNames, "revyl-cli-auth-bypass"))
+		if err != nil {
+			t.Fatalf("resolveInstallSkills(aliases+parent) error = %v", err)
+		}
+		if len(deduped) != 1 || deduped[0].Name != "revyl-cli-auth-bypass" {
+			t.Fatalf("selected = %#v, want one parent skill after alias dedupe", deduped)
 		}
 	})
 }
@@ -178,15 +172,18 @@ func TestResolveInstallSkillsByNameIncludesAuthBypassParent(t *testing.T) {
 		if len(selected) != 1 || selected[0].Name != "revyl-cli-auth-bypass" {
 			t.Fatalf("selected = %#v, want only revyl-cli-auth-bypass", selected)
 		}
+		if !strings.Contains(selected[0].Content, "Implement for the Detected Stack") {
+			t.Fatal("expected parent auth bypass skill to include stack implementation notes")
+		}
 		for _, name := range authBypassLeafSkillNames {
-			if !strings.Contains(selected[0].Content, name) {
-				t.Fatalf("expected parent auth bypass skill content to mention %s", name)
+			if strings.Contains(selected[0].Content, name) {
+				t.Fatalf("parent auth bypass skill still mentions retired leaf %s", name)
 			}
 		}
 	})
 }
 
-func TestInstallSelectedAuthBypassLeafSkills(t *testing.T) {
+func TestInstallSelectedAuthBypassLeafAliasesWritesParent(t *testing.T) {
 	workDir := t.TempDir()
 	target := filepath.Join(workDir, ".codex", "skills")
 
@@ -198,14 +195,44 @@ func TestInstallSelectedAuthBypassLeafSkills(t *testing.T) {
 		t.Fatalf("installSkillsToTargets() error = %v", err)
 	}
 
+	path := filepath.Join(target, "revyl-cli-auth-bypass", "SKILL.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected installed parent skill at %s: %v", path, err)
+	}
+	if !strings.Contains(string(data), "REVYL_AUTH_BYPASS_TOKEN") {
+		t.Fatal("installed parent skill content did not mention REVYL_AUTH_BYPASS_TOKEN")
+	}
 	for _, name := range authBypassLeafSkillNames {
-		path := filepath.Join(target, name, "SKILL.md")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("expected installed skill at %s: %v", path, err)
+		leafPath := filepath.Join(target, name, "SKILL.md")
+		if _, err := os.Stat(leafPath); !os.IsNotExist(err) {
+			t.Fatalf("expected retired leaf %s not to be installed, stat err = %v", name, err)
 		}
-		if !strings.Contains(string(data), "REVYL_AUTH_BYPASS_TOKEN") {
-			t.Fatalf("installed skill content for %s did not mention REVYL_AUTH_BYPASS_TOKEN", name)
+	}
+}
+
+func TestInstallPublicSkillsPrunesAuthBypassLeafDirs(t *testing.T) {
+	workDir := t.TempDir()
+	withWorkingDir(t, workDir)
+	target := filepath.Join(workDir, ".codex", "skills")
+	for _, name := range authBypassLeafSkillNames {
+		dir := filepath.Join(target, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir leaf dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("retired leaf"), 0o644); err != nil {
+			t.Fatalf("write leaf skill: %v", err)
+		}
+	}
+
+	if err := installPublicSkillsForTools([]string{"codex"}, false, true); err != nil {
+		t.Fatalf("installPublicSkillsForTools() error = %v", err)
+	}
+
+	assertInstalledSkills(t, target, defaultInstalledSkillNamesForTest())
+	for _, name := range authBypassLeafSkillNames {
+		if _, err := os.Stat(filepath.Join(target, name, "SKILL.md")); !os.IsNotExist(err) {
+			t.Fatalf("expected pruned leaf %s, stat err = %v", name, err)
 		}
 	}
 }

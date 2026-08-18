@@ -34,14 +34,14 @@ type skillInstallTarget struct {
 	global bool
 }
 
-var legacySkillNames = []string{
+var legacySkillNames = append([]string{
 	"revyl-device",
 	"revyl-dev-loop",
 	"revyl-adhoc-to-test",
 	"revyl-device-dev-loop",
 	"revyl-create",
 	"revyl-analyze",
-}
+}, skillcatalog.AuthBypassLeafAliases()...)
 
 const (
 	skillFamilyCLIPrefix = "revyl-cli"
@@ -181,7 +181,7 @@ to that specific tool's skill directory.
 By default installs to the project-level directory (e.g. .cursor/skills/).
 Use --global to install to the user-level directory instead.
 Cursor Marketplace plugin users do not need this command because the plugin
-already bundles its MCP-first skills and routing rule.
+already bundles its CLI-first skills and routing rule.
 
 EXAMPLES:
   revyl skill install --force
@@ -226,11 +226,6 @@ func runSkillList(cmd *cobra.Command, args []string) error {
 	fmt.Println("  revyl skill install --force")
 	fmt.Println()
 	fmt.Println("Optional by-name skills:")
-	fmt.Println("  revyl-cli-auth-bypass-expo - Expo and Expo Router leaf recipe for auth-bypass implementation")
-	fmt.Println("  revyl-cli-auth-bypass-react-native - React Native bare leaf recipe")
-	fmt.Println("  revyl-cli-auth-bypass-ios - native iOS leaf recipe")
-	fmt.Println("  revyl-cli-auth-bypass-android - native Android leaf recipe")
-	fmt.Println("  revyl-cli-auth-bypass-flutter - Flutter leaf recipe")
 	fmt.Println("  revyl-cli-optimize-tests - merge granular steps in an existing test into intent-driven instructions")
 
 	fmt.Println()
@@ -447,7 +442,7 @@ func resolveInstallSkills(selectedNames []string) ([]skillcatalog.Skill, error) 
 		installCLI := skillInstallCLI
 		installMCP := skillInstallMCP
 
-		// Default behavior: install recommended public skills and bundled leaves.
+		// Default behavior: install recommended public skills.
 		if !installCLI && !installMCP {
 			return skillcatalog.DefaultInstall(), nil
 		}
@@ -463,15 +458,15 @@ func resolveInstallSkills(selectedNames []string) ([]skillcatalog.Skill, error) 
 		if name == "" {
 			continue
 		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
 		sk, ok := skillcatalog.Get(name)
 		if !ok {
 			return nil, fmt.Errorf("unknown skill %q. Available skills: %s", name, available)
 		}
+		if _, ok := seen[sk.Name]; ok {
+			continue
+		}
 		resolved = append(resolved, sk)
-		seen[name] = struct{}{}
+		seen[sk.Name] = struct{}{}
 	}
 
 	if len(resolved) == 0 {
