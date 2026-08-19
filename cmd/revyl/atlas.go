@@ -168,6 +168,7 @@ func init() {
 		atlasNeighborsCmd,
 		atlasEdgeCmd,
 		atlasSearchCmd,
+		newAtlasAnnotationsCommand(),
 	)
 	for _, cmd := range []*cobra.Command{
 		atlasBriefCmd,
@@ -541,12 +542,14 @@ func downloadAtlasScreenshot(rawURL string, seen map[string]string) (string, err
 			return path, nil
 		}
 	}
-	file, err := os.Create(path)
+	contents, err := io.ReadAll(io.LimitReader(resp.Body, (20<<20)+1))
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
-	if _, err := io.Copy(file, io.LimitReader(resp.Body, 20<<20)); err != nil {
+	if len(contents) > 20<<20 {
+		return "", fmt.Errorf("download screenshot: response exceeds 20 MiB")
+	}
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
 		return "", err
 	}
 	seen[rawURL] = path

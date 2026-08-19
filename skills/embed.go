@@ -7,17 +7,18 @@ import (
 const SkillFileName = "SKILL.md"
 
 const (
-	RevylCLIName           = "revyl-cli"
-	RevylCLICreateName     = "revyl-cli-create"
-	RevylCLIAnalyzeName    = "revyl-cli-analyze"
-	RevylCLIOptimizeName   = "revyl-cli-optimize-tests"
-	RevylCLIDevLoopName    = "revyl-cli-dev-loop"
-	RevylCLIAtlasName      = "revyl-cli-atlas"
-	RevylCLIAuthBypassName = "revyl-cli-auth-bypass"
-	RevylMCPName           = "revyl-mcp"
-	RevylMCPCreateName     = "revyl-mcp-create"
-	RevylMCPAnalyzeName    = "revyl-mcp-analyze"
-	RevylMCPDevLoopName    = "revyl-mcp-dev-loop"
+	RevylCLIName            = "revyl-cli"
+	RevylCLICreateName      = "revyl-cli-create"
+	RevylCLIAnalyzeName     = "revyl-cli-analyze"
+	RevylCLIOptimizeName    = "revyl-cli-optimize-tests"
+	RevylCLIDevLoopName     = "revyl-cli-dev-loop"
+	RevylCLIAtlasName       = "revyl-cli-atlas"
+	RevylCLIAtlasReviewName = "revyl-cli-atlas-review"
+	RevylCLIAuthBypassName  = "revyl-cli-auth-bypass"
+	RevylMCPName            = "revyl-mcp"
+	RevylMCPCreateName      = "revyl-mcp-create"
+	RevylMCPAnalyzeName     = "revyl-mcp-analyze"
+	RevylMCPDevLoopName     = "revyl-mcp-dev-loop"
 )
 
 //go:embed revyl-cli/SKILL.md
@@ -37,6 +38,9 @@ var RevylCLIDevLoopContent string
 
 //go:embed revyl-cli-atlas/SKILL.md
 var RevylCLIAtlasContent string
+
+//go:embed revyl-cli-atlas-review/SKILL.md
+var RevylCLIAtlasReviewContent string
 
 //go:embed revyl-cli-auth-bypass/SKILL.md
 var RevylCLIAuthBypassContent string

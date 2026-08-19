@@ -96,6 +96,7 @@ var skillCmd = &cobra.Command{
 Revyl ships embedded skills:
 - revyl-cli-dev-loop: agents run or attach to revyl dev, observe the app, and act through device commands
 - revyl-cli-atlas: agents inspect Atlas screenshots, transition clips or frames, and originating reports
+- revyl-cli-atlas-review: agents manage grounded Atlas feedback after an explicit user request
 - revyl-cli-create: agents create or refine stable Revyl tests from YAML, source, or successful flows
 - revyl-cli-auth-bypass: agents set up test-only auth bypass across mobile app stacks
 - revyl-cli-auth-bypass-* leaves: platform recipes used after auth-bypass stack detection
@@ -111,6 +112,7 @@ EXAMPLES:
   revyl skill install --claude --force
   revyl skill show --name revyl-cli-dev-loop
   revyl skill show --name revyl-cli-atlas
+  revyl skill install --name revyl-cli-atlas-review --force
   revyl skill install --name revyl-cli-auth-bypass --force
   revyl skill export --name revyl-cli-create -o SKILL.md`,
 }

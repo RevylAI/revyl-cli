@@ -91,8 +91,8 @@ func TestResolveInstallSkillsBothFamilies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveInstallSkills(nil) error = %v", err)
 		}
-		if len(selected) != 11 {
-			t.Fatalf("expected 11 skills when both families selected, got %d", len(selected))
+		if len(selected) != 12 {
+			t.Fatalf("expected 12 skills when both families selected, got %d", len(selected))
 		}
 		var cliCount, mcpCount int
 		for _, sk := range selected {
@@ -126,6 +126,21 @@ func TestResolveInstallSkillsByName(t *testing.T) {
 		}
 		if len(selected) != 2 {
 			t.Fatalf("expected duplicate names to be deduped to 2 skills, got %d", len(selected))
+		}
+	})
+}
+
+func TestResolveAtlasReviewLeafByName(t *testing.T) {
+	withSkillFamilyFlags(false, false, func() {
+		selected, err := resolveInstallSkills([]string{"revyl-cli-atlas-review"})
+		if err != nil {
+			t.Fatalf("resolveInstallSkills(name) error = %v", err)
+		}
+		if len(selected) != 1 || selected[0].Name != "revyl-cli-atlas-review" {
+			t.Fatalf("selected = %#v", selected)
+		}
+		if !strings.Contains(selected[0].Content, "explicitly asks") {
+			t.Fatal("expected write authorization boundary in embedded skill")
 		}
 	})
 }

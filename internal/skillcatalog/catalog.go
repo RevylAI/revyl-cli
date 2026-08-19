@@ -47,6 +47,11 @@ var catalog = []Skill{
 		Content:     skills.RevylCLIAtlasContent,
 	},
 	{
+		Name:        skills.RevylCLIAtlasReviewName,
+		Description: "Manage grounded Atlas annotation feedback after an explicit user request.",
+		Content:     skills.RevylCLIAtlasReviewContent,
+	},
+	{
 		Name:        skills.RevylCLIAuthBypassName,
 		Description: "Set up test-only auth bypass across mobile app stacks using Revyl launch variables and device verification.",
 		Content:     skills.RevylCLIAuthBypassContent,

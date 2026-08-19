@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.91-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.92-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -119,6 +119,7 @@ revyl skill list
 revyl skill install --force                            # Install recommended skills
 revyl skill install --name revyl-cli-dev-loop --force  # Dev loop + device exploration
 revyl skill install --name revyl-cli-atlas --force     # Visual Atlas understanding
+revyl skill install --name revyl-cli-atlas-review --force # Requested Atlas feedback changes
 revyl skill install --name revyl-cli-create --force    # Stable YAML test authoring
 revyl skill install --name revyl-cli-auth-bypass --force # Auth bypass setup
 revyl skill install --cursor --force                   # Force Cursor if auto-detect is ambiguous
@@ -134,6 +135,8 @@ Revyl dev loop, interact with the device, and verify with screenshots or
 reports. Use `revyl-cli-atlas` when the agent should explore an app bottom-up as
 a graph, opening relevant screenshots at each node and tracing misunderstood
 connections backward through edge clips and their originating reports. Use
+`revyl-cli-atlas-review` when the user explicitly asks the agent to create or
+manage grounded Atlas annotations. Use
 `revyl-cli-create` when you want the agent to author or refine a
 stable Revyl YAML test, validate it, push it, run it, and iterate from reports.
 Use `revyl-cli-auth-bypass` when the agent should set up test-only auth bypass

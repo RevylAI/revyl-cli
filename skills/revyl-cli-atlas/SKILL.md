@@ -9,6 +9,10 @@ Use this skill whenever a user asks what an app contains, where a capability
 lives, how screens connect, what a screen looks like, or whether Atlas has
 enough evidence to support an answer.
 
+When the user explicitly asks to create, reply to, edit, delete, move, or
+change the status of Atlas feedback, route to `revyl-cli-atlas-review`. Keep
+this inspection skill read-only when feedback mutation was not requested.
+
 Atlas is a graph, not a tree. Screens are nodes and observed relationships are
 edges. Starting anchors help begin exploration, but they do not imply a parent,
 primary route, containment hierarchy, or preferred journey. Build an

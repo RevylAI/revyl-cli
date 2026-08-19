@@ -90,3 +90,55 @@ default:
 ```bash
 revyl skill install --name revyl-cli-atlas --force
 ```
+
+## Agent-authored annotations
+
+Annotations let Codex, Claude Code, Cursor, and human CLI users leave feedback
+on exact screenshot evidence. Every command requires `--app`:
+
+```bash
+revyl atlas annotations list --app <app-id> [--observation <id>] [--status open|resolved|dismissed|closed|all] [--limit 25] [--cursor <cursor>]
+revyl atlas annotations get <thread-id> --app <app-id>
+revyl atlas annotations create --app <app-id> --observation <id> --target "<visible target>" --body "<feedback>"
+revyl atlas annotations move <thread-id> --app <app-id> --target "<visible target>"
+revyl atlas annotations reply <thread-id> --app <app-id> --body-file <path-or-dash>
+revyl atlas annotations edit <comment-id> --app <app-id> --body "<replacement>"
+revyl atlas annotations delete <comment-id> --app <app-id> --yes
+revyl atlas annotations resolve|dismiss|reopen <thread-id> --app <app-id>
+```
+
+`list` returns one bounded page and `next_cursor`; it never downloads every
+page. Create, reply, and edit accept exactly one of `--body` or `--body-file`,
+where `--body-file -` reads stdin. Delete always requires `--yes`; deleting a
+root comment removes the complete thread from Atlas, Feedback, and public
+shares.
+
+Grounding invokes the visual grounding workflow and may incur model latency
+and cost. For an ambiguous target, preview without mutation:
+
+```bash
+revyl atlas annotations create --app <app-id> --observation <id> \
+  --target "the trailing icon in the Password row" --dry-run \
+  --preview-out /tmp/atlas-pin.png --json
+```
+
+Dry-run create prohibits body flags, and `--preview-out` is only valid during a
+dry run. A failed grounding or preview never creates or moves an annotation.
+Move previews the target on the thread's original observation and then applies
+the existing optimistic version check. When `--expected-version` is omitted,
+the CLI reads the current version once; a conflict is returned without retrying
+against newer state.
+
+Create and reply print their UUID request ID to stderr before submission. Save
+it for recovery. A retry with the same ID and the exact same trimmed payload
+returns the original durable result without another create; reusing it with a
+different payload returns `409`. JSON results stay on stdout while warnings,
+progress, request IDs, and recovery guidance stay on stderr. Successful
+grounded creation includes the thread, resolved pixel and normalized anchor,
+focused Atlas URL, request ID, and `idempotent_replay`.
+
+Install the write-capable leaf only for requested feedback work:
+
+```bash
+revyl skill install --name revyl-cli-atlas-review --force
+```
