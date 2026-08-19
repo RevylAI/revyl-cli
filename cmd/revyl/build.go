@@ -48,7 +48,8 @@ This command does not run a build. Use ` + "`revyl build`" + ` to build from sou
   revyl build upload --file ./build/App.app.zip --platform ios --yes
   revyl build upload --url https://artifacts.example.com/app.apk --app <id>
   revyl build upload --url https://artifacts.example.com/app.ipa --header "Authorization: Bearer <token>"
-  revyl build upload --file ./app.apk --version 1.2.3 --no-set-current --json`,
+  revyl build upload --file ./app.apk --version 1.2.3 --no-set-current --json
+  revyl build upload --file ./app.apk --app <id> --preview --json`,
 	RunE: runBuildUpload,
 }
 
@@ -137,6 +138,7 @@ var (
 	buildListJSON             bool
 	buildListBranch           string
 	buildUploadJSON           bool
+	uploadPreviewFlag         bool
 	buildDryRun               bool
 	uploadSchemeFlag          string
 	uploadRemoteFlag          bool
@@ -197,6 +199,7 @@ func init() {
 	buildUploadCmd.Flags().StringVar(&uploadNameFlag, "name", "", "Name for new app (used when creating)")
 	buildUploadCmd.Flags().BoolVarP(&uploadYesFlag, "yes", "y", false, "Automatically confirm prompts (e.g., save to config)")
 	buildUploadCmd.Flags().BoolVar(&buildUploadJSON, "json", false, "Output results as JSON")
+	buildUploadCmd.Flags().BoolVar(&uploadPreviewFlag, "preview", false, "Print a URL that starts a simulator with this build when opened")
 	buildUploadCmd.Flags().StringVarP(&uploadFileFlag, "file", "f", "", "Path to a build artifact to upload directly (skips config-based build)")
 	buildUploadCmd.Flags().StringVar(&uploadURLFlag, "url", "", "URL of a remote artifact to register (Artifactory, S3, GCS, GitHub Actions)")
 	buildUploadCmd.Flags().StringArrayVar(&uploadHeaderFlags, "header", nil, `HTTP header for authenticated URL downloads (repeatable, format "Name: value")`)
@@ -215,6 +218,7 @@ func init() {
 	analytics.MarkFlagValue(buildUploadCmd, "platform")
 	analytics.MarkFlagValue(buildUploadCmd, "yes")
 	analytics.MarkFlagValue(buildUploadCmd, "json")
+	analytics.MarkFlagValue(buildUploadCmd, "preview")
 	analytics.MarkFlagValue(buildUploadCmd, "version")
 	analytics.MarkFlagValue(buildUploadCmd, "no-set-current")
 
@@ -718,20 +722,21 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 	for _, warning := range result.Warnings {
 		ui.PrintWarning("%s", warning)
 	}
+	previewURL := applyUploadPreview(cmd, result.VersionID)
 	ui.Println()
 	ui.PrintDim("To list builds: revyl build list --app %s", appID)
 
 	if buildUploadJSON {
-		outputBuildUploadJSON([]BuildUploadJSONBuild{
-			newBuildUploadJSONBuild(
-				devicePlatform,
-				devicePlatform,
-				appID,
-				artifactPath,
-				0,
-				result,
-			),
-		})
+		outputBuild := newBuildUploadJSONBuild(
+			devicePlatform,
+			devicePlatform,
+			appID,
+			artifactPath,
+			0,
+			result,
+		)
+		outputBuild.PreviewURL = previewURL
+		outputBuildUploadJSON([]BuildUploadJSONBuild{outputBuild})
 	}
 
 	return nil
@@ -935,21 +940,21 @@ func runURLUpload(cmd *cobra.Command, apiKey string) error {
 	if result.PackageName != "" {
 		ui.PrintInfo("Package ID:      %s", result.PackageName)
 	}
+	previewURL := applyUploadPreview(cmd, result.ID)
 	ui.Println()
 	ui.PrintDim("To list builds: revyl build list --app %s", appID)
 
 	if buildUploadJSON {
-		jsonOutput := map[string]interface{}{
-			"platform":     devicePlatform,
-			"app_id":       appID,
-			"version":      result.Version,
-			"version_id":   result.ID,
-			"package_name": result.PackageName,
-			"was_reused":   result.WasReused,
-			"source_url":   uploadURLFlag,
-		}
-		data, _ := json.MarshalIndent(jsonOutput, "", "  ")
-		fmt.Println(string(data))
+		outputURLUploadJSON(urlUploadJSON{
+			Platform:    devicePlatform,
+			AppID:       appID,
+			Version:     result.Version,
+			VersionID:   result.ID,
+			PackageName: result.PackageName,
+			WasReused:   result.WasReused,
+			SourceURL:   uploadURLFlag,
+			PreviewURL:  previewURL,
+		})
 	}
 
 	return nil
@@ -1143,6 +1148,7 @@ type BuildUploadJSONBuild struct {
 	BuildDurationSeconds float64  `json:"build_duration_seconds,omitempty"`
 	PackageID            string   `json:"package_id,omitempty"`
 	Warnings             []string `json:"warnings,omitempty"`
+	PreviewURL           string   `json:"preview_url,omitempty"`
 }
 
 // BuildUploadJSONOutput is the machine-readable payload for build uploads.
