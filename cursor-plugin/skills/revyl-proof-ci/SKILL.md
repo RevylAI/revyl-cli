@@ -22,7 +22,7 @@ only.
 To **create** the scheduled Automation (CI upload + paste-ready prompt), use
 `revyl-proof-automation`. Canonical prompt and triggers also live in
 `revyl-cli/examples/cursor-automation/prove-mobile-pr/` and
-[Cursor proof](https://docs.revyl.ai/integrations/cursor-proof).
+[Cursor proof](https://docs.revyl.ai/guides/cursor-proof).
 
 ## Non-negotiable rules
 

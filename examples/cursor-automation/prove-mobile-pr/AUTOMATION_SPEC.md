@@ -61,4 +61,5 @@ Build secrets (signing keys, Expo tokens, store credentials) stay in **your** CI
 
 If the team later connects the Revyl GitHub App, the same upload step works
 with `use_existing_ci: true` and `proof_harness: { kind: cursor }`. That is
-not the first-run path. See the Mintlify page `integrations/cursor-proof`.
+not the first-run path. See the Mintlify page `guides/cursor-proof` and
+`integrations/github` ("Use your own CI").

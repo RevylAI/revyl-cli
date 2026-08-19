@@ -40,5 +40,5 @@ PR push → your CI builds → revyl build upload → Cursor Automation
 
 ## Related
 
-- Product docs: [Cursor proof without the GitHub App](https://docs.revyl.ai/integrations/cursor-proof)
+- Product docs: [Cursor proof without the GitHub App](https://docs.revyl.ai/guides/cursor-proof)
 - Twin path with Revyl GitHub App: [Use your own CI](https://docs.revyl.ai/integrations/github#use-your-own-ci)

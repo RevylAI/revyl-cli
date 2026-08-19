@@ -6,7 +6,7 @@ description: Set up a Cursor Automation that proves each pull request on a Revyl
 # Revyl Proof Automation Setup
 
 Use this skill to **create** the Cursor Automation and CI upload for
-[Cursor proof (BYO-CI)](https://docs.revyl.ai/integrations/cursor-proof). Do not
+[Cursor proof (BYO-CI)](https://docs.revyl.ai/guides/cursor-proof). Do not
 use it to prove a PR that already has a matching build — that is
 `revyl-proof-ci`.
 
@@ -109,4 +109,4 @@ session.
 
 - Prove a PR that already has a CI-uploaded build: `revyl-proof-ci`
 - Cloud agent hygiene: `revyl-cloud-agent`
-- Docs: [Cursor proof (BYO-CI)](https://docs.revyl.ai/integrations/cursor-proof)
+- Docs: [Cursor proof (BYO-CI)](https://docs.revyl.ai/guides/cursor-proof)
