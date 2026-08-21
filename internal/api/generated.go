@@ -6115,6 +6115,7 @@ type CancelDeviceApiV1ExecutionDeviceStatusCancelWorkflowRunIdPostParams struct 
 // StartDeviceApiV1ExecutionStartDevicePostParams defines parameters for StartDeviceApiV1ExecutionStartDevicePost.
 type StartDeviceApiV1ExecutionStartDevicePostParams struct {
 	XRevylClient                           *string `json:"X-Revyl-Client,omitempty"`
+	XRevylAgent                            *string `json:"X-Revyl-Agent,omitempty"`
 	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
 	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }

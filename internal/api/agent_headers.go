@@ -8,9 +8,10 @@ import (
 
 // Agent attribution header names. The backend device-proxy forwards these to
 // the worker so device actions can be attributed to the invoking agent in
-// reports (rendered as "Agent Step: <name>"). Other backend endpoints ignore
-// them, mirroring how X-CI-* headers are attached globally but only consumed
-// where relevant.
+// reports (rendered as "Agent Step: <name>"), and device start records the
+// agent name on the session for origin analytics. Remaining backend endpoints
+// ignore them, mirroring how X-CI-* headers are attached globally but only
+// consumed where relevant.
 const (
 	headerAgentName      = "X-Revyl-Agent"
 	headerAgentSessionID = "X-Revyl-Agent-Session-Id"
