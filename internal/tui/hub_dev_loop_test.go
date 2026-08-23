@@ -50,8 +50,13 @@ func TestQuickActionsDevLoopPosition(t *testing.T) {
 	if index < 0 {
 		t.Fatalf("expected dev_loop quick action index to exist")
 	}
-	if index != 7 {
-		t.Fatalf("expected dev_loop quick action index to be 7, got %d", index)
+	devicesIndex := findQuickActionIndexByKey("devices")
+	integrationsIndex := findQuickActionIndexByKey("integrations")
+	if devicesIndex < 0 || integrationsIndex < 0 {
+		t.Fatalf("expected devices and integrations quick actions to exist")
+	}
+	if index != devicesIndex+1 || index != integrationsIndex-1 {
+		t.Fatalf("expected dev_loop between devices (%d) and integrations (%d), got %d", devicesIndex, integrationsIndex, index)
 	}
 }
 

@@ -46,8 +46,6 @@ type quickAction struct {
 
 // quickActions is the ordered list of actions on the dashboard.
 var quickActions = []quickAction{
-	{Label: "Create a test", Key: "create", Desc: "Define a new test from YAML", RequiresAuth: true},
-	{Label: "Browse tests", Key: "tests", Desc: "View, sync, and manage tests", RequiresAuth: true},
 	{Label: "Browse workflows", Key: "workflows", Desc: "Create, run, and manage workflows", RequiresAuth: true},
 	{Label: "Manage apps", Key: "apps", Desc: "List, upload, and delete builds", RequiresAuth: true},
 	{Label: "Browse library", Key: "library", Desc: "Modules, launch vars, variables, scripts, and files", RequiresAuth: true},
@@ -57,6 +55,8 @@ var quickActions = []quickAction{
 	{Label: "Integrations", Key: "integrations", Desc: "Connect GitHub and push PR-automation config", RequiresAuth: true},
 	{Label: "Settings", Key: "settings", Desc: "View and edit project defaults", RequiresAuth: false},
 	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard", RequiresAuth: false},
+	{Label: "Create a test", Key: "create", Desc: "Define a new test from YAML", RequiresAuth: true},
+	{Label: "Browse tests", Key: "tests", Desc: "View, sync, and manage tests", RequiresAuth: true},
 }
 
 // dashFocus tracks which section of the dashboard has keyboard focus.
