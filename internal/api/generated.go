@@ -2492,6 +2492,9 @@ type DOMMetadata struct {
 
 // DashboardMetrics Model representing dashboard metrics with week-over-week comparisons.
 type DashboardMetrics struct {
+	// AnalyticsDegraded Whether the eventual-consistency analytics lane was unavailable for this response. When true, execution aggregates and week-over-week comparisons (test_runs, tests_failing_*, avg_test_duration*, success/failure_run_count, workflow_run_count, *_wow) are placeholders rather than measurements, while onboarding, trial, billing, and Atlas facts remain current. Clients must render those analytics as unavailable instead of zero.
+	AnalyticsDegraded *bool `json:"analytics_degraded,omitempty"`
+
 	// AtlasGenerationRunning Whether an Atlas exploration run is currently queued/running. Drives the 'map is building' onboarding state and defers session-based activation while generating.
 	AtlasGenerationRunning *bool `json:"atlas_generation_running,omitempty"`
 

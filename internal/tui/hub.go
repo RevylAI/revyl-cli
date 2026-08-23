@@ -3544,16 +3544,37 @@ func (m hubModel) renderStats() string {
 		return "  " + dimStyle.Render("Loading metrics...") + "\n"
 	}
 	mt := m.metrics
+	// Tests and Workflows are primary-sourced and stay current. Everything
+	// else here is an execution aggregate from the eventual-read lane, so a
+	// degraded response has no measurement to show — rendering the zeroed
+	// placeholders would read as "no runs, 0% failing".
+	degraded := mt.AnalyticsDegraded != nil && *mt.AnalyticsDegraded
 	parts := []string{
-		metricRender("Tests", fmt.Sprintf("%d", mt.TotalTests), mt.TotalTestsWow),
-		metricRender("Workflows", fmt.Sprintf("%d", mt.TotalWorkflows), mt.TotalWorkflowsWow),
+		metricRender("Tests", fmt.Sprintf("%d", mt.TotalTests), wowIfMeasured(mt.TotalTestsWow, degraded)),
+		metricRender("Workflows", fmt.Sprintf("%d", mt.TotalWorkflows), wowIfMeasured(mt.TotalWorkflowsWow, degraded)),
+	}
+	if degraded {
+		parts = append(parts, dimStyle.Render("analytics unavailable"))
+		return "  " + strings.Join(parts, "    ") + "\n"
+	}
+	parts = append(parts,
 		metricRender("Runs", fmt.Sprintf("%d", mt.TestRuns), mt.TestRunsWow),
 		metricRenderFail("Fail", fmt.Sprintf("%.0f%%", mt.TestsFailingPercent), mt.TestsFailingPercent, mt.TestsFailingPercentWow),
-	}
+	)
 	if mt.AvgTestDuration != nil {
 		parts = append(parts, metricRender("Avg", fmt.Sprintf("%.0fs", *mt.AvgTestDuration), mt.AvgTestDurationWow))
 	}
 	return "  " + strings.Join(parts, "    ") + "\n"
+}
+
+// wowIfMeasured drops a week-over-week delta when the analytics lane is
+// degraded. Both operands of every comparison come from that lane, so the
+// delta is not a measurement even when the current value is.
+func wowIfMeasured(wow *float32, degraded bool) *float32 {
+	if degraded {
+		return nil
+	}
+	return wow
 }
 
 // metricRender formats a metric label/value pair with an optional WoW delta arrow.

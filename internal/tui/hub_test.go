@@ -630,3 +630,31 @@ func TestRenderTestList_ShowsAppPickerOverlay(t *testing.T) {
 		t.Error("expected app name 'MyApp' in picker")
 	}
 }
+
+func TestRenderStats_DegradedAnalyticsHidesUnmeasuredValues(t *testing.T) {
+	degraded := true
+	wow := float32(25)
+	m := newHubModel("dev", false)
+	m.metrics = &api.DashboardMetrics{
+		TotalTests:        7,
+		TotalWorkflows:    3,
+		TotalTestsWow:     &wow,
+		TestRuns:          0,
+		AnalyticsDegraded: &degraded,
+	}
+
+	out := m.renderStats()
+
+	if !strings.Contains(out, "analytics unavailable") {
+		t.Fatalf("expected degraded marker, got %q", out)
+	}
+	if !strings.Contains(out, "7") || !strings.Contains(out, "3") {
+		t.Fatalf("expected primary counts to survive degradation, got %q", out)
+	}
+	if strings.Contains(out, "25") {
+		t.Fatalf("expected no week-over-week delta while degraded, got %q", out)
+	}
+	if strings.Contains(out, "Runs") || strings.Contains(out, "Fail") {
+		t.Fatalf("expected placeholder aggregates to be omitted, got %q", out)
+	}
+}
