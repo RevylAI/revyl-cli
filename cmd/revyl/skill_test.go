@@ -306,6 +306,7 @@ func TestCursorProjectInstallWritesCompanionRule(t *testing.T) {
 		"revyl-cli-create",
 		"revyl-cli-auth-bypass",
 		"revyl device screenshot",
+		"session.auth_bypass section",
 	} {
 		if !strings.Contains(rule, want) {
 			t.Fatalf("Cursor rule did not contain %q", want)
@@ -391,6 +392,11 @@ func TestDefaultInstalledSkillContentIncludesNativeAgentBehavior(t *testing.T) {
 					}
 				}
 				continue
+			}
+			if sk.Name == "revyl-cli-create" &&
+				(!strings.Contains(sk.Content, "never creates or migrates") ||
+					!strings.Contains(sk.Content, ".revyl/config.yaml")) {
+				t.Fatal("revyl-cli-create does not describe its canonical config prerequisite")
 			}
 			for _, want := range []string{"open it in the native browser", "revyl device screenshot"} {
 				if !strings.Contains(sk.Content, want) {

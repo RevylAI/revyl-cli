@@ -21,19 +21,20 @@ import (
 	"github.com/revyl/cli/internal/util"
 )
 
-// syncCmd reconciles local project config with upstream state.
+// syncCmd is the deprecated root-level compatibility alias for test sync.
 var syncCmd = &cobra.Command{
-	Use:   "sync",
-	Short: "Sync tests and app links with upstream state",
-	Long: `Synchronize local project state against your Revyl organization.
+	Use:        "sync",
+	Short:      "Sync tests with upstream state",
+	Deprecated: "use \"revyl test sync\" instead",
+	Long: `Synchronize local test definitions against your Revyl organization.
 
-By default, sync reconciles tests and app link mappings in .revyl/config.yaml.
-Remote tests that exist in the org but not locally are imported after
+Remote tests that exist in the organization but not locally are imported after
 confirmation (interactive) or skipped (non-interactive / --skip-import).
+Canonical project configs are never rewritten by test sync.
 
 EXAMPLES:
-  revyl sync                        # Sync tests + app links
-  revyl sync --tests                # Sync tests only
+  revyl sync                        # Sync tests (deprecated alias)
+  revyl sync --tests                # Compatibility no-op; tests are always synced
   revyl sync --workflow "Smoke"     # Sync only tests in this workflow
   revyl sync --skip-import          # Only sync existing local tests, skip remote imports
   revyl sync --non-interactive      # No prompts; deterministic defaults
@@ -43,11 +44,28 @@ EXAMPLES:
   revyl sync --non-interactive
   revyl sync --dry-run --json
   revyl sync --skip-import --prune`,
-	RunE: runSync,
+	Args:    cobra.NoArgs,
+	PreRunE: enforceOrgBindingMatch,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runSync(cmd, args)
+	},
+}
+
+// testSyncCmd is the canonical test-reconciliation command. The --apps flag is
+// retained so old scripted invocations fail with a precise migration error
+// rather than an unknown-flag error.
+var testSyncCmd = &cobra.Command{
+	Use:   "sync",
+	Short: "Reconcile local and remote tests",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runSync(cmd, args)
+	},
 }
 
 func init() {
 	registerSyncFlags(syncCmd)
+	registerSyncFlags(testSyncCmd)
 }
 
 type syncOptions struct {
@@ -94,15 +112,15 @@ type syncFlagValues struct {
 
 func registerSyncFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("tests", false, "Sync tests")
-	cmd.Flags().Bool("apps", false, "Sync build platform app_id links")
+	cmd.Flags().Bool("apps", false, "Deprecated and unsupported; app bindings are managed by build profiles")
 	cmd.Flags().Bool("non-interactive", false, "Disable prompts and apply deterministic defaults")
 	cmd.Flags().Bool("interactive", false, "Force interactive prompts (requires TTY stdin)")
 	cmd.Flags().Bool("prune", false, "Auto-prune stale/deleted mappings")
 	cmd.Flags().Bool("dry-run", false, "Show planned actions without writing files")
 	cmd.Flags().Bool("skip-import", false, "Skip importing remote-only tests (only sync tests already in .revyl/tests/)")
 	cmd.Flags().String("workflow", "", "Only sync tests belonging to this workflow (name or ID)")
-	cmd.Flags().Bool("skip-hotreload-check", false, "Skip validating hotreload platform key mappings")
-	cmd.Flags().Bool("bootstrap", false, "Rebuild config mappings from local YAML _meta.remote_id values (useful after cloning)")
+	cmd.Flags().Bool("skip-hotreload-check", false, "Deprecated compatibility flag; test sync does not inspect hot reload config")
+	cmd.Flags().Bool("bootstrap", false, "Inspect local YAML _meta.remote_id links without authenticating or contacting Revyl")
 }
 
 func readSyncFlags(cmd *cobra.Command) (syncFlagValues, error) {
@@ -161,7 +179,12 @@ func readSyncFlags(cmd *cobra.Command) (syncFlagValues, error) {
 	}, nil
 }
 
-func runSync(cmd *cobra.Command, args []string) error {
+type syncProjectFiles struct {
+	Context  *config.ProjectContext
+	TestsDir string
+}
+
+func runSync(cmd *cobra.Command, _ []string) error {
 	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 	devMode, _ := cmd.Flags().GetBool("dev")
 
@@ -169,14 +192,30 @@ func runSync(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read sync flags: %w", err)
 	}
-
-	runTests := flags.tests
-	runApps := flags.apps
-	if !runTests && !runApps {
-		runTests = true
-		runApps = true
+	if flags.apps {
+		return fmt.Errorf("--apps is no longer supported by test sync; app bindings are managed by project build profiles")
 	}
 
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	if flags.bootstrap {
+		project, projectErr := resolveSyncProjectFiles(cwd)
+		if projectErr != nil {
+			return projectErr
+		}
+		return runBootstrapSync(project.TestsDir, jsonOutput)
+	}
+	if mismatch := detectOrgMismatchForCurrentProject(cmd); mismatch != nil {
+		return mismatch
+	}
+
+	project, err := resolveSyncProjectFiles(cwd)
+	if err != nil {
+		return err
+	}
 	interactiveWanted := true
 	if flags.nonInteractive {
 		interactiveWanted = false
@@ -215,23 +254,6 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		printProjectNotInitialized()
-		return err
-	}
-
-	if flags.bootstrap {
-		return runBootstrap(cfg, configPath, testsDir)
-	}
-
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	useSpinner := !jsonOutput && !opts.Prompt
@@ -246,51 +268,14 @@ func runSync(cmd *cobra.Command, args []string) error {
 		Summary: map[string]int{},
 	}
 
-	changed := false
 	hadError := false
 
-	if runTests {
-		items, domainChanged, domainErr := syncTestsDomain(ctx, client, cfg, testsDir, opts)
-		out.Tests = items
-		if domainChanged {
-			changed = true
-		}
-		if domainErr != nil {
-			hadError = true
-		}
-	}
-
-	if runApps {
-		items, domainChanged, domainErr := syncAppLinksDomain(ctx, client, cfg, opts)
-		out.AppLinks = items
-		if domainChanged {
-			changed = true
-		}
-		if domainErr != nil {
-			hadError = true
-		}
-	}
-
-	if !flags.skipHotReloadChk {
-		items, domainErr := syncHotReloadDomain(ctx, client, cfg)
-		out.HotReloadChecks = items
-		if domainErr != nil {
-			hadError = true
-		}
-	}
-
-	if changed && !opts.DryRun {
-		cfg.MarkSynced()
-		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-			hadError = true
-			out.Tests = append(out.Tests, syncItem{
-				Name:    ".revyl/config.yaml",
-				Status:  "error",
-				Action:  "write",
-				Error:   err.Error(),
-				Message: "failed to persist project config",
-			})
-		}
+	// Test sync is deliberately one domain. --tests remains accepted as a
+	// compatibility no-op while --apps fails during the preflight above.
+	items, _, domainErr := syncTestsDomain(ctx, client, nil, project.TestsDir, opts)
+	out.Tests = items
+	if domainErr != nil {
+		hadError = true
 	}
 
 	if useSpinner {
@@ -310,6 +295,17 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("sync completed with errors")
 	}
 	return nil
+}
+
+// resolveSyncProjectFiles resolves the one canonical project containing cwd.
+// Test synchronization never bootstraps a missing project, reads legacy YAML,
+// or falls back outside the active Git worktree.
+func resolveSyncProjectFiles(cwd string) (*syncProjectFiles, error) {
+	projectContext, err := config.ResolveProjectContext(cwd, "")
+	if err != nil {
+		return nil, actionableLocalConfigError(err)
+	}
+	return &syncProjectFiles{Context: projectContext, TestsDir: projectContext.TestsDir}, nil
 }
 
 func modeLabel(prompt bool) string {
@@ -1084,195 +1080,6 @@ func syncTestsDomain(ctx context.Context, client *api.Client, cfg *config.Projec
 	return items, changed, nil
 }
 
-func syncAppLinksDomain(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, opts syncOptions) ([]syncItem, bool, error) {
-	items := make([]syncItem, 0)
-	changed := false
-	hadErr := false
-
-	platforms := sortedBuildPlatforms(cfg)
-	for _, platformKey := range platforms {
-		platformCfg := cfg.Build.Platforms[platformKey]
-		if platformCfg.AppID == "" {
-			continue
-		}
-
-		expectedPlatform := inferPlatformFromKey(platformKey)
-		item := syncItem{Name: platformKey, ID: platformCfg.AppID, Status: "synced", Action: "none"}
-
-		app, err := client.GetApp(ctx, platformCfg.AppID)
-		if err != nil {
-			if isAPIStatus(err, 404) {
-				item.Status = "stale"
-				action := "keep"
-				if opts.Prune {
-					action = "clear"
-				} else if opts.Prompt {
-					action = promptAppLinkAction(platformKey, expectedPlatform, true)
-					item.Prompted = true
-				}
-				item.Action = action
-				if opts.DryRun {
-					if action != "keep" {
-						item.Action = "would-" + action
-					}
-				} else {
-					if action == "clear" {
-						platformCfg.AppID = ""
-						cfg.Build.Platforms[platformKey] = platformCfg
-						changed = true
-					} else if action == "relink" {
-						appID, appName, rErr := promptRelinkApp(ctx, client, expectedPlatform)
-						if rErr != nil {
-							item.Error = rErr.Error()
-							hadErr = true
-						} else if appID != "" {
-							platformCfg.AppID = appID
-							cfg.Build.Platforms[platformKey] = platformCfg
-							item.Action = "relink"
-							item.Message = fmt.Sprintf("relinked to %s", appName)
-							changed = true
-						}
-					}
-				}
-				items = append(items, item)
-				continue
-			}
-
-			item.Status = "error"
-			item.Action = "validate"
-			item.Error = err.Error()
-			hadErr = true
-			items = append(items, item)
-			continue
-		}
-
-		actualPlatform := strings.ToLower(app.Platform)
-		if expectedPlatform != "" && syncNormalizePlatform(actualPlatform) != syncNormalizePlatform(expectedPlatform) {
-			item.Status = "mismatch"
-			item.Message = fmt.Sprintf("app platform is %s", app.Platform)
-
-			action := "keep"
-			if opts.Prune {
-				action = "clear"
-			} else if opts.Prompt {
-				action = promptAppLinkAction(platformKey, expectedPlatform, false)
-				item.Prompted = true
-			}
-			item.Action = action
-
-			if opts.DryRun {
-				if action != "keep" {
-					item.Action = "would-" + action
-				}
-			} else {
-				if action == "clear" {
-					platformCfg.AppID = ""
-					cfg.Build.Platforms[platformKey] = platformCfg
-					changed = true
-				} else if action == "relink" {
-					appID, appName, rErr := promptRelinkApp(ctx, client, expectedPlatform)
-					if rErr != nil {
-						item.Error = rErr.Error()
-						hadErr = true
-					} else if appID != "" {
-						platformCfg.AppID = appID
-						cfg.Build.Platforms[platformKey] = platformCfg
-						item.Action = "relink"
-						item.Message = fmt.Sprintf("relinked to %s", appName)
-						changed = true
-					}
-				}
-			}
-		} else {
-			item.Status = "synced"
-			item.Action = "none"
-			item.Message = fmt.Sprintf("linked to %s (%s)", app.Name, app.Platform)
-		}
-
-		items = append(items, item)
-	}
-
-	if hadErr {
-		return items, changed, fmt.Errorf("one or more app-link sync actions failed")
-	}
-	return items, changed, nil
-}
-
-func syncHotReloadDomain(ctx context.Context, client *api.Client, cfg *config.ProjectConfig) ([]syncItem, error) {
-	_ = ctx
-	_ = client
-
-	items := make([]syncItem, 0)
-	hadErr := false
-
-	providerNames := make([]string, 0, len(cfg.HotReload.Providers))
-	for name := range cfg.HotReload.Providers {
-		providerNames = append(providerNames, name)
-	}
-	sort.Strings(providerNames)
-
-	for _, providerName := range providerNames {
-		providerCfg := cfg.HotReload.Providers[providerName]
-		if providerCfg == nil {
-			continue
-		}
-
-		if len(providerCfg.PlatformKeys) == 0 {
-			continue
-		}
-
-		targetPlatforms := make([]string, 0, len(providerCfg.PlatformKeys))
-		for platform := range providerCfg.PlatformKeys {
-			targetPlatforms = append(targetPlatforms, platform)
-		}
-		sort.Strings(targetPlatforms)
-
-		for _, targetPlatform := range targetPlatforms {
-			platformKey := strings.TrimSpace(providerCfg.PlatformKeys[targetPlatform])
-			if platformKey == "" {
-				continue
-			}
-
-			item := syncItem{
-				Name:   fmt.Sprintf("%s.%s", providerName, targetPlatform),
-				ID:     platformKey,
-				Status: "ok",
-				Action: "validate",
-			}
-
-			normalizedPlatform := syncNormalizePlatform(targetPlatform)
-			if normalizedPlatform != "ios" && normalizedPlatform != "android" {
-				item.Status = "warning"
-				item.Message = "unknown target platform in platform_keys (expected ios/android)"
-				hadErr = true
-				items = append(items, item)
-				continue
-			}
-
-			platformCfg, ok := cfg.Build.Platforms[platformKey]
-			if !ok {
-				item.Status = "warning"
-				item.Message = "mapped build platform key not found in build.platforms"
-				hadErr = true
-			} else if strings.TrimSpace(platformCfg.AppID) == "" {
-				item.Status = "warning"
-				item.Message = "mapped build platform has no app_id"
-			} else {
-				item.Status = "synced"
-				item.Action = "none"
-				item.Message = fmt.Sprintf("mapped to build.platforms.%s", platformKey)
-			}
-
-			items = append(items, item)
-		}
-	}
-
-	if hadErr {
-		return items, fmt.Errorf("one or more hotreload platform mappings are invalid")
-	}
-	return items, nil
-}
-
 func pullSingleTest(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, testsDir, testName string) error {
 	localTests, err := config.LoadLocalTests(testsDir)
 	if err != nil {
@@ -1323,15 +1130,6 @@ func pushSingleTest(ctx context.Context, client *api.Client, cfg *config.Project
 		}
 	}
 	return nil
-}
-
-func sortedBuildPlatforms(cfg *config.ProjectConfig) []string {
-	keys := make([]string, 0, len(cfg.Build.Platforms))
-	for k := range cfg.Build.Platforms {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func ensureUniqueAlias(base string, localTests map[string]*config.LocalTest) string {
@@ -1414,30 +1212,6 @@ func detachTestLink(_ *config.ProjectConfig, _ string, localTest *config.LocalTe
 	}
 
 	return changed, nil
-}
-
-func inferPlatformFromKey(key string) string {
-	k := strings.ToLower(key)
-	switch {
-	case strings.Contains(k, "ios"):
-		return "ios"
-	case strings.Contains(k, "android"):
-		return "android"
-	default:
-		return ""
-	}
-}
-
-func syncNormalizePlatform(platform string) string {
-	s := strings.ToLower(strings.TrimSpace(platform))
-	switch s {
-	case "ios":
-		return "ios"
-	case "android":
-		return "android"
-	default:
-		return s
-	}
 }
 
 func isAPIStatus(err error, statusCode int) bool {
@@ -1556,96 +1330,49 @@ func promptDuplicateAliasAction(kind, alias, keepAlias string) string {
 	return value
 }
 
-func promptAppLinkAction(platformKey, expectedPlatform string, missing bool) string {
-	msg := fmt.Sprintf("App link for '%s' needs attention.", platformKey)
-	if missing {
-		msg = fmt.Sprintf("App link for '%s' points to a missing app.", platformKey)
-	}
-	if expectedPlatform != "" {
-		msg += fmt.Sprintf(" Expected platform: %s.", expectedPlatform)
-	}
-
-	options := []ui.SelectOption{
-		{Label: "Keep as-is", Value: "keep", Description: "Leave app_id unchanged."},
-		{Label: "Clear app_id", Value: "clear", Description: "Unset this platform app link."},
-		{Label: "Relink app", Value: "relink", Description: "Select another app ID for this platform."},
-	}
-	_, value, err := ui.Select(msg, options, 0)
-	if err != nil {
-		return "keep"
-	}
-	return value
-}
-
-func promptRelinkApp(ctx context.Context, client *api.Client, platform string) (string, string, error) {
-	apps, err := listAppsForPlatform(ctx, client, platform)
-	if err != nil {
-		return "", "", err
-	}
-	if len(apps) == 0 {
-		if platform == "" {
-			return "", "", fmt.Errorf("no apps available for relink")
-		}
-		return "", "", fmt.Errorf("no %s apps available for relink", platform)
-	}
-
-	options := make([]ui.SelectOption, 0, len(apps))
-	for _, app := range apps {
-		options = append(options, ui.SelectOption{
-			Label:       fmt.Sprintf("%s (%s)", app.Name, app.Platform),
-			Value:       app.ID,
-			Description: app.ID,
-		})
-	}
-
-	idx, value, err := ui.Select("Select app to relink:", options, 0)
-	if err != nil {
-		return "", "", err
-	}
-	return value, apps[idx].Name, nil
-}
-
-func listAppsForPlatform(ctx context.Context, client *api.Client, platform string) ([]api.App, error) {
-	page := 1
-	pageSize := 100
-	items := make([]api.App, 0)
-
-	for {
-		resp, err := client.ListApps(ctx, platform, page, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, resp.Items...)
-		if !resp.HasNext {
-			break
-		}
-		page++
-	}
-
-	sort.Slice(items, func(i, j int) bool {
-		if strings.EqualFold(items[i].Name, items[j].Name) {
-			return items[i].ID < items[j].ID
-		}
-		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
-	})
-
-	return items, nil
-}
-
-// runBootstrap verifies local YAML _meta.remote_id links. Local YAML files
+// runBootstrapSync verifies local YAML _meta.remote_id links. Local YAML files
 // in .revyl/tests/ are the sole source of truth; this reports their state.
 //
 // Parameters:
-//   - cfg: The project config (unused, retained for caller compatibility)
-//   - configPath: Path to the config file (unused)
 //   - testsDir: Path to .revyl/tests/ directory
+//   - jsonOutput: Whether to emit only the stable JSON result on stdout
 //
 // Returns:
 //   - error: Any error that occurred
-func runBootstrap(_ *config.ProjectConfig, _, testsDir string) error {
+func runBootstrapSync(testsDir string, jsonOutput bool) error {
 	localTests, err := config.LoadLocalTests(testsDir)
 	if err != nil {
 		return fmt.Errorf("failed to load local tests: %w", err)
+	}
+
+	out := syncOutput{
+		Mode:    "bootstrap",
+		Tests:   make([]syncItem, 0, len(localTests)),
+		Summary: map[string]int{},
+	}
+	aliases := make([]string, 0, len(localTests))
+	for alias := range localTests {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	for _, alias := range aliases {
+		test := localTests[alias]
+		item := syncItem{Name: alias, Status: "local-only", Action: "keep-local"}
+		if test != nil && test.Meta.RemoteID != "" {
+			item.ID = test.Meta.RemoteID
+			item.Status = "linked"
+			item.Action = "verify-link"
+		}
+		out.Tests = append(out.Tests, item)
+	}
+	out.Summary = computeSyncSummary(out)
+	if jsonOutput {
+		data, marshalErr := json.MarshalIndent(out, "", "  ")
+		if marshalErr != nil {
+			return fmt.Errorf("encode bootstrap result: %w", marshalErr)
+		}
+		fmt.Println(string(data))
+		return nil
 	}
 
 	if len(localTests) == 0 {

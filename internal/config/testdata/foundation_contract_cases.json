@@ -1,0 +1,702 @@
+{
+  "authored_configs": [
+    {
+      "name": "minimal_local",
+      "value": {
+        "project": {
+          "id": "10000000-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    {
+      "name": "managed_multi_platform",
+      "value": {
+        "project": {
+          "id": "10000000-0000-4000-8000-000000000002"
+        },
+        "session": {
+          "idle_timeout_seconds": 900,
+          "before_script": {
+            "script_path": "scripts/prepare-session",
+            "timeout_seconds": 45
+          },
+          "auth_bypass": {
+            "launch_vars": ["AUTH_BYPASS_ENABLED", "AUTH_BYPASS_TOKEN"],
+            "deep_link": "fixture://auth"
+          }
+        },
+        "build": {
+          "framework": "expo",
+          "env": {
+            "PUBLIC_FIXTURE_MODE": "1"
+          },
+          "secrets": ["SYNTHETIC_BUILD_TOKEN"],
+          "caches": [
+            {
+              "key": "fixture-dependencies",
+              "paths": ["node_modules"]
+            }
+          ],
+          "profiles": {
+            "development": {
+              "ios": {
+                "app_id": "20000000-0000-4000-8000-000000000001",
+                "setup_commands": ["fixture install"],
+                "build_commands": ["fixture build ios", "fixture package ios"],
+                "output_path": "dist/fixture.app",
+                "image": "fixture-ios-image",
+                "timeout_seconds": 1200,
+                "env": {
+                  "PLATFORM_FIXTURE": "ios"
+                },
+                "secrets": ["SYNTHETIC_SIGNING_REF"],
+                "caches": [
+                  {
+                    "key": "fixture-ios-cache",
+                    "paths": ["ios/DerivedData"]
+                  }
+                ]
+              },
+              "android": {
+                "app_id": "20000000-0000-4000-8000-000000000002",
+                "build_commands": ["fixture build android"]
+              }
+            }
+          }
+        },
+        "pr_review": {
+          "enabled": true,
+          "review_triggers": {
+            "paths": ["apps/mobile/**"],
+            "labels": ["device-proof", "!skip-device-proof"],
+            "drafts": false
+          },
+          "build": {
+            "kind": "revyl",
+            "profile": "development"
+          },
+          "proof_of_changes": {
+            "enabled": true,
+            "harness": {
+              "kind": "cursor",
+              "model_id": "fixture-model"
+            },
+            "system_prompt": "Verify the synthetic fixture flow.",
+            "always_verify": ["The fixture app is visible."]
+          },
+          "workflow_ids": ["30000000-0000-4000-8000-000000000001"],
+          "strict_ci_check": {
+            "build": true
+          }
+        }
+      }
+    },
+    {
+      "name": "external_ci",
+      "value": {
+        "project": {
+          "id": "10000000-0000-4000-8000-000000000003"
+        },
+        "pr_review": {
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": {
+              "ios": "20000000-0000-4000-8000-000000000003"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "effective_recipes": [
+    {
+      "name": "resolved_ios",
+      "value": {
+        "framework": "expo",
+        "setup_commands": ["fixture install"],
+        "build_commands": ["fixture build ios", "fixture package ios"],
+        "selected_project_root": "apps/mobile",
+        "execution_directory": "apps/mobile",
+        "output_path": "dist/fixture.app",
+        "image": "fixture-ios-image",
+        "timeout_seconds": 1200,
+        "env": {
+          "PLATFORM_FIXTURE": "ios",
+          "PUBLIC_FIXTURE_MODE": "1"
+        },
+        "secret_refs": ["SYNTHETIC_BUILD_TOKEN", "SYNTHETIC_SIGNING_REF"],
+        "caches": [
+          {
+            "key": "fixture-dependencies",
+            "paths": ["node_modules"]
+          },
+          {
+            "key": "fixture-ios-cache",
+            "paths": ["ios/DerivedData"]
+          }
+        ]
+      }
+    }
+  ],
+  "normalized_projects": [
+    {
+      "name": "managed_project",
+      "value": {
+        "project_id": "10000000-0000-4000-8000-000000000002",
+        "session": {
+          "idle_timeout_seconds": 900,
+          "before_script": {
+            "script_path": "scripts/prepare-session",
+            "timeout_seconds": 45
+          },
+          "auth_bypass": {
+            "launch_vars": ["AUTH_BYPASS_ENABLED", "AUTH_BYPASS_TOKEN"],
+            "deep_link": "fixture://auth"
+          }
+        },
+        "framework": "expo",
+        "profiles": [
+          {
+            "name": "development",
+            "build_profile_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": "20000000-0000-4000-8000-000000000001",
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": ["fixture install"],
+                  "build_commands": [
+                    "fixture build ios",
+                    "fixture package ios"
+                  ],
+                  "selected_project_root": "apps/mobile",
+                  "execution_directory": "apps/mobile",
+                  "output_path": "dist/fixture.app",
+                  "image": "fixture-ios-image",
+                  "timeout_seconds": 1200,
+                  "env": {
+                    "PLATFORM_FIXTURE": "ios",
+                    "PUBLIC_FIXTURE_MODE": "1"
+                  },
+                  "secret_refs": [
+                    "SYNTHETIC_BUILD_TOKEN",
+                    "SYNTHETIC_SIGNING_REF"
+                  ],
+                  "caches": [
+                    {
+                      "key": "fixture-dependencies",
+                      "paths": ["node_modules"]
+                    }
+                  ]
+                },
+                "build_definition_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+              }
+            ]
+          }
+        ],
+        "review_policy": {
+          "enabled": true,
+          "review_triggers": {
+            "paths": ["apps/mobile/**"],
+            "labels": ["device-proof"],
+            "drafts": false
+          },
+          "build": {
+            "kind": "revyl",
+            "profile": "development"
+          },
+          "workflow_ids": ["30000000-0000-4000-8000-000000000001"],
+          "strict_build_check": true,
+          "review_policy_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "project_configuration_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  ],
+  "configuration_snapshots": [
+    {
+      "name": "git_managed_project",
+      "value": {
+        "project_id": "10000000-0000-4000-8000-000000000002",
+        "org_id": "40000000-0000-4000-8000-000000000001",
+        "scm_repository_id": "50000000-0000-4000-8000-000000000001",
+        "provider": "github",
+        "provider_repository_id": "987654321",
+        "repository_relative_project_root": "apps/mobile",
+        "repository_relative_config_path": "apps/mobile/.revyl/config.yaml",
+        "authority": "git_default_branch",
+        "source": {
+          "kind": "git_default_branch",
+          "resolved_config_commit_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "project_configuration_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "active_build_profile_configuration_ids": [
+          "60000000-0000-4000-8000-000000000001"
+        ]
+      }
+    }
+  ],
+  "review_target_intents": [
+    {
+      "name": "managed",
+      "value": {
+        "kind": "managed",
+        "project_id": "10000000-0000-4000-8000-000000000002",
+        "scm_review_id": "70000000-0000-4000-8000-000000000001",
+        "review_head_sha": "ffffffffffffffffffffffffffffffffffffffff",
+        "source": {
+          "kind": "git_default_branch",
+          "resolved_config_commit_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "repository_relative_project_root": "apps/mobile",
+        "project_configuration_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "app_id": "20000000-0000-4000-8000-000000000001",
+        "platform": "ios",
+        "review_policy": {
+          "enabled": true,
+          "review_triggers": {
+            "paths": [],
+            "labels": [],
+            "drafts": false
+          },
+          "build": {
+            "kind": "revyl",
+            "profile": "development"
+          },
+          "workflow_ids": [],
+          "strict_build_check": true,
+          "review_policy_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "selected_build_profile_id": "80000000-0000-4000-8000-000000000001",
+        "build_profile_configuration_id": "60000000-0000-4000-8000-000000000001",
+        "build_definition_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "build_definition": {
+          "framework": "expo",
+          "setup_commands": ["fixture install"],
+          "build_commands": ["fixture build ios"],
+          "selected_project_root": "apps/mobile",
+          "execution_directory": "apps/mobile",
+          "output_path": "dist/fixture.app",
+          "env": {},
+          "secret_refs": [],
+          "caches": []
+        }
+      }
+    },
+    {
+      "name": "external_ci",
+      "value": {
+        "kind": "external_ci",
+        "project_id": "10000000-0000-4000-8000-000000000003",
+        "scm_review_id": "70000000-0000-4000-8000-000000000001",
+        "review_head_sha": "ffffffffffffffffffffffffffffffffffffffff",
+        "source": {
+          "kind": "manual"
+        },
+        "repository_relative_project_root": ".",
+        "project_configuration_hash": "9999999999999999999999999999999999999999999999999999999999999999",
+        "app_id": "20000000-0000-4000-8000-000000000003",
+        "platform": "ios",
+        "review_policy": {
+          "enabled": true,
+          "review_triggers": {
+            "paths": [],
+            "labels": [],
+            "drafts": false
+          },
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": {
+              "ios": "20000000-0000-4000-8000-000000000003"
+            }
+          },
+          "workflow_ids": [],
+          "strict_build_check": false,
+          "review_policy_hash": "8888888888888888888888888888888888888888888888888888888888888888"
+        }
+      }
+    }
+  ],
+  "provenance": {
+    "jobs": [
+      {
+        "kind": "ordinary",
+        "build_definition_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "kind": "managed_review",
+        "build_definition_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "build_profile_configuration_id": "60000000-0000-4000-8000-000000000001",
+        "review_target_id": "90000000-0000-4000-8000-000000000001"
+      }
+    ],
+    "builds": [
+      {
+        "kind": "ordinary",
+        "build_definition_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "kind": "managed_review",
+        "build_definition_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "build_profile_configuration_id": "60000000-0000-4000-8000-000000000001"
+      },
+      {
+        "kind": "external_upload"
+      }
+    ],
+    "review_build_associations": [
+      {
+        "kind": "managed_review",
+        "review_target_id": "90000000-0000-4000-8000-000000000001",
+        "build_job_id": "a0000000-0000-4000-8000-000000000001",
+        "build_id": "b0000000-0000-4000-8000-000000000001"
+      },
+      {
+        "kind": "external_ci",
+        "review_target_id": "90000000-0000-4000-8000-000000000002",
+        "build_id": "b0000000-0000-4000-8000-000000000002",
+        "ci_run_url": "https://ci.invalid/runs/fixture"
+      }
+    ]
+  },
+  "invalid_contracts": [
+    {
+      "name": "blank_authored_build_command",
+      "contract": "authored_config",
+      "value": {
+        "project": {
+          "id": "10000000-0000-4000-8000-000000000001"
+        },
+        "build": {
+          "framework": "ios",
+          "profiles": {
+            "development": {
+              "ios": {
+                "build_commands": [" "]
+              }
+            }
+          }
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": ["build", "profiles", "development", "ios", "build_commands", "0"]
+      }
+    },
+    {
+      "name": "blank_effective_build_command",
+      "contract": "effective_recipe",
+      "value": {
+        "framework": "ios",
+        "build_commands": ["\t"],
+        "selected_project_root": ".",
+        "execution_directory": "."
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": ["build_commands", "0"]
+      }
+    },
+    {
+      "name": "managed_build_with_external_mapping",
+      "contract": "authored_config",
+      "value": {
+        "project": {
+          "id": "10000000-0000-4000-8000-000000000004"
+        },
+        "build": {
+          "framework": "ios",
+          "profiles": {
+            "development": {
+              "ios": {
+                "build_commands": []
+              }
+            }
+          }
+        },
+        "pr_review": {
+          "build": {
+            "kind": "revyl",
+            "profile": "development",
+            "app_ids": {
+              "ios": "20000000-0000-4000-8000-000000000001"
+            }
+          }
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "extra_forbidden",
+        "path": ["pr_review", "build", "revyl", "app_ids"]
+      }
+    },
+    {
+      "name": "strict_ci_check_without_build",
+      "contract": "authored_config",
+      "value": {
+        "project": {
+          "id": "10000000-0000-4000-8000-000000000001"
+        },
+        "pr_review": {
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": {
+              "ios": "20000000-0000-4000-8000-000000000003"
+            }
+          },
+          "strict_ci_check": {}
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "missing",
+        "path": ["pr_review", "strict_ci_check", "build"]
+      }
+    },
+    {
+      "name": "external_target_with_recipe",
+      "contract": "review_target_intent",
+      "value": {
+        "kind": "external_ci",
+        "project_id": "10000000-0000-4000-8000-000000000003",
+        "scm_review_id": "70000000-0000-4000-8000-000000000001",
+        "review_head_sha": "ffffffffffffffffffffffffffffffffffffffff",
+        "source": {
+          "kind": "manual"
+        },
+        "repository_relative_project_root": ".",
+        "project_configuration_hash": "9999999999999999999999999999999999999999999999999999999999999999",
+        "app_id": "20000000-0000-4000-8000-000000000003",
+        "platform": "ios",
+        "review_policy": {
+          "enabled": true,
+          "review_triggers": {
+            "paths": [],
+            "labels": [],
+            "drafts": false
+          },
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": {
+              "ios": "20000000-0000-4000-8000-000000000003"
+            }
+          },
+          "workflow_ids": [],
+          "strict_build_check": false,
+          "review_policy_hash": "8888888888888888888888888888888888888888888888888888888888888888"
+        },
+        "build_definition_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "extra_forbidden",
+        "path": ["external_ci", "build_definition_hash"]
+      }
+    },
+    {
+      "name": "profile_name_with_outer_whitespace",
+      "contract": "authored_config",
+      "value": {
+        "project": { "id": "10000000-0000-4000-8000-000000000001" },
+        "build": {
+          "framework": "ios",
+          "profiles": { " development ": { "ios": { "build_commands": [] } } }
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": ["build", "profiles"]
+      }
+    },
+    {
+      "name": "noncanonical_cache_path",
+      "contract": "authored_config",
+      "value": {
+        "project": { "id": "10000000-0000-4000-8000-000000000001" },
+        "build": {
+          "framework": "ios",
+          "caches": [
+            { "key": "dependencies", "paths": ["tmp/../node_modules"] }
+          ]
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": ["build", "caches", "0"]
+      }
+    },
+    {
+      "name": "absolute_output_path",
+      "contract": "authored_config",
+      "value": {
+        "project": { "id": "10000000-0000-4000-8000-000000000001" },
+        "build": {
+          "framework": "ios",
+          "profiles": {
+            "development": {
+              "ios": { "build_commands": [], "output_path": "/tmp/app.ipa" }
+            }
+          }
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": ["build", "profiles", "development", "ios", "output_path"]
+      }
+    },
+    {
+      "name": "noncanonical_output_path",
+      "contract": "authored_config",
+      "value": {
+        "project": { "id": "10000000-0000-4000-8000-000000000001" },
+        "build": {
+          "framework": "ios",
+          "profiles": {
+            "development": {
+              "ios": { "build_commands": [], "output_path": "dist/./app.ipa" }
+            }
+          }
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": ["build", "profiles", "development", "ios", "output_path"]
+      }
+    },
+    {
+      "name": "backslash_output_path",
+      "contract": "authored_config",
+      "value": {
+        "project": { "id": "10000000-0000-4000-8000-000000000001" },
+        "build": {
+          "framework": "ios",
+          "profiles": {
+            "development": {
+              "ios": { "build_commands": [], "output_path": "..\\app.ipa" }
+            }
+          }
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": ["build", "profiles", "development", "ios", "output_path"]
+      }
+    },
+    {
+      "name": "nul_output_path",
+      "contract": "authored_config",
+      "value": {
+        "project": { "id": "10000000-0000-4000-8000-000000000001" },
+        "build": {
+          "framework": "ios",
+          "profiles": {
+            "development": {
+              "ios": { "build_commands": [], "output_path": "dist/app\u0000.ipa" }
+            }
+          }
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": ["build", "profiles", "development", "ios", "output_path"]
+      }
+    },
+    {
+      "name": "timeout_exceeds_database_integer",
+      "contract": "authored_config",
+      "value": {
+        "project": { "id": "10000000-0000-4000-8000-000000000001" },
+        "session": { "idle_timeout_seconds": 2147483648 }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "less_than_equal",
+        "path": ["session", "idle_timeout_seconds"]
+      }
+    },
+    {
+      "name": "blank_cursor_model_id",
+      "contract": "authored_config",
+      "value": {
+        "project": { "id": "10000000-0000-4000-8000-000000000001" },
+        "pr_review": {
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": { "ios": "20000000-0000-4000-8000-000000000001" }
+          },
+          "proof_of_changes": {
+            "harness": { "kind": "cursor", "model_id": " " }
+          }
+        }
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": [
+          "pr_review",
+          "proof_of_changes",
+          "harness",
+          "cursor",
+          "model_id"
+        ]
+      }
+    },
+    {
+      "name": "blank_effective_project_root",
+      "contract": "effective_recipe",
+      "value": {
+        "framework": "ios",
+        "build_commands": ["fixture build"],
+        "selected_project_root": " ",
+        "execution_directory": "."
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": ["selected_project_root"]
+      }
+    },
+    {
+      "name": "normalized_recipe_framework_mismatch",
+      "contract": "normalized_project",
+      "value": {
+        "project_id": "10000000-0000-4000-8000-000000000001",
+        "session": {},
+        "framework": "ios",
+        "profiles": [
+          {
+            "name": "development",
+            "build_profile_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+            "configurations": [
+              {
+                "platform": "ios",
+                "recipe": {
+                  "framework": "android",
+                  "build_commands": [],
+                  "selected_project_root": ".",
+                  "execution_directory": "."
+                },
+                "build_definition_hash": "2222222222222222222222222222222222222222222222222222222222222222"
+              }
+            ]
+          }
+        ],
+        "project_configuration_hash": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "expected_error": {
+        "stage": "contract",
+        "code": "value_error",
+        "path": []
+      }
+    }
+  ]
+}

@@ -14,7 +14,7 @@
 #
 # GitHub Actions GITHUB_* / event metadata is stamped automatically by
 # `revyl build upload` (see revyl-cli/internal/build/metadata.go) so Automations
-# and use_existing_ci can match the build to this commit / PR.
+# and a `ci_upload_to_revyl` review policy can match the build to this commit / PR.
 
 name: Upload for Cursor proof
 

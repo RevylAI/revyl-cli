@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/build"
 )
 
 func TestParseXcodeSchemeOverrides(t *testing.T) {
@@ -35,9 +35,9 @@ func TestParseXcodeSchemeOverridesRejectsInvalidFormat(t *testing.T) {
 }
 
 func TestApplyXcodeSchemeOverridesRejectsUnknownPlatformKey(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			Platforms: map[string]config.BuildPlatform{
+	cfg := &initConfigDraft{
+		Build: initBuildDraft{
+			Recipes: map[string]initBuildRecipeDraft{
 				"ios": {},
 			},
 		},
@@ -53,11 +53,11 @@ func TestApplyXcodeSchemeOverridesRejectsUnknownPlatformKey(t *testing.T) {
 }
 
 func TestApplyXcodeSchemeOverridesAppliesSchemeAndCommand(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			Platforms: map[string]config.BuildPlatform{
+	cfg := &initConfigDraft{
+		Build: initBuildDraft{
+			Recipes: map[string]initBuildRecipeDraft{
 				"ios": {
-					Command: "xcodebuild -scheme * -configuration Debug",
+					BuildCommands: []string{"xcodebuild -scheme * -configuration Debug"},
 				},
 			},
 		},
@@ -67,19 +67,19 @@ func TestApplyXcodeSchemeOverridesAppliesSchemeAndCommand(t *testing.T) {
 		t.Fatalf("applyXcodeSchemeOverrides() error = %v", err)
 	}
 
-	platformCfg := cfg.Build.Platforms["ios"]
+	platformCfg := cfg.Build.Recipes["ios"]
 	if platformCfg.Scheme != "MyScheme" {
 		t.Fatalf("platform scheme = %q, want %q", platformCfg.Scheme, "MyScheme")
 	}
-	if !strings.Contains(platformCfg.Command, "-scheme 'MyScheme'") {
-		t.Fatalf("platform command = %q, want to contain %q", platformCfg.Command, "-scheme 'MyScheme'")
+	if !strings.Contains(platformCfg.primaryBuildCommand(), "-scheme 'MyScheme'") {
+		t.Fatalf("platform command = %q, want to contain %q", platformCfg.primaryBuildCommand(), "-scheme 'MyScheme'")
 	}
 }
 
 func TestSetBuildPlatformSchemeReplacesExistingSchemeValue(t *testing.T) {
-	platformCfg := config.BuildPlatform{
-		Command: "xcodebuild -scheme 'OldScheme' -configuration Debug",
-		Scheme:  "OldScheme",
+	platformCfg := initBuildRecipeDraft{
+		BuildCommands: []string{"xcodebuild -scheme 'OldScheme' -configuration Debug"},
+		Scheme:        "OldScheme",
 	}
 
 	updated := setBuildPlatformScheme(platformCfg, "NewScheme")
@@ -87,16 +87,16 @@ func TestSetBuildPlatformSchemeReplacesExistingSchemeValue(t *testing.T) {
 	if updated.Scheme != "NewScheme" {
 		t.Fatalf("updated scheme = %q, want %q", updated.Scheme, "NewScheme")
 	}
-	if !strings.Contains(updated.Command, "-scheme 'NewScheme'") {
-		t.Fatalf("updated command = %q, want to contain %q", updated.Command, "-scheme 'NewScheme'")
+	if !strings.Contains(updated.primaryBuildCommand(), "-scheme 'NewScheme'") {
+		t.Fatalf("updated command = %q, want to contain %q", updated.primaryBuildCommand(), "-scheme 'NewScheme'")
 	}
-	if strings.Contains(updated.Command, "OldScheme") {
-		t.Fatalf("updated command = %q, did not expect old scheme", updated.Command)
+	if strings.Contains(updated.primaryBuildCommand(), "OldScheme") {
+		t.Fatalf("updated command = %q, did not expect old scheme", updated.primaryBuildCommand())
 	}
 }
 
 func TestApplyExpoAppSchemeOverrideUsesExplicitValue(t *testing.T) {
-	providerCfg := &config.ProviderConfig{AppScheme: "old-scheme"}
+	providerCfg := &initProviderDraft{AppScheme: "old-scheme"}
 	applyExpoAppSchemeOverride(providerCfg, "new-scheme", false)
 	if providerCfg.AppScheme != "new-scheme" {
 		t.Fatalf("providerCfg.AppScheme = %q, want %q", providerCfg.AppScheme, "new-scheme")
@@ -104,13 +104,13 @@ func TestApplyExpoAppSchemeOverrideUsesExplicitValue(t *testing.T) {
 }
 
 func TestShouldPromptForXcodeSchemeSkipsPlaceholderPlatform(t *testing.T) {
-	if shouldPromptForXcodeScheme(config.BuildPlatform{}) {
+	if shouldPromptForXcodeScheme(initBuildRecipeDraft{}) {
 		t.Fatal("shouldPromptForXcodeScheme() = true, want false for placeholder platform")
 	}
 
-	buildable := config.BuildPlatform{
-		Command: "cd ios && xcodebuild -project RnBareMinimal.xcodeproj -scheme * -configuration Debug",
-		Output:  "ios/build/Build/Products/Debug-iphonesimulator/RnBareMinimal.app",
+	buildable := initBuildRecipeDraft{
+		BuildCommands: []string{"cd ios && xcodebuild -project RnBareMinimal.xcodeproj -scheme * -configuration Debug"},
+		OutputPath:    "ios/build/Build/Products/Debug-iphonesimulator/RnBareMinimal.app",
 	}
 	if !shouldPromptForXcodeScheme(buildable) {
 		t.Fatal("shouldPromptForXcodeScheme() = false, want true for buildable Xcode platform")
@@ -203,8 +203,8 @@ func TestDescribeBuildPlatformStream(t *testing.T) {
 }
 
 func TestDescribeBuildPlatformLinkIncludesAppNamePattern(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Project: config.Project{Name: "hira-clapton"},
+	cfg := &initConfigDraft{
+		Project: initProjectDraft{Name: "hira-clapton"},
 	}
 
 	got := describeBuildPlatformLink(cfg, "ios-dev")
@@ -215,8 +215,8 @@ func TestDescribeBuildPlatformLinkIncludesAppNamePattern(t *testing.T) {
 }
 
 func TestExpectedInitAppName(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Project: config.Project{Name: "hira-clapton"},
+	cfg := &initConfigDraft{
+		Project: initProjectDraft{Name: "hira-clapton"},
 	}
 
 	if got := expectedInitAppName(cfg, "android-ci"); got != "hira-clapton-android-ci" {
@@ -225,7 +225,7 @@ func TestExpectedInitAppName(t *testing.T) {
 	if got := expectedInitAppName(cfg, ""); got != "" {
 		t.Fatalf("expectedInitAppName() with empty key = %q, want empty", got)
 	}
-	if got := expectedInitAppName(&config.ProjectConfig{}, "ios-dev"); got != "" {
+	if got := expectedInitAppName(&initConfigDraft{}, "ios-dev"); got != "" {
 		t.Fatalf("expectedInitAppName() without project name = %q, want empty", got)
 	}
 }
@@ -253,9 +253,9 @@ func TestDescribeRuntimeDefaultForBuildKey(t *testing.T) {
 }
 
 func TestOrderedBuildPlatformKeysForReview(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			Platforms: map[string]config.BuildPlatform{
+	cfg := &initConfigDraft{
+		Build: initBuildDraft{
+			Recipes: map[string]initBuildRecipeDraft{
 				"android-ci":  {},
 				"ios-ci":      {},
 				"ios-dev":     {},
@@ -274,27 +274,28 @@ func TestOrderedBuildPlatformKeysForReview(t *testing.T) {
 }
 
 func TestPromptBuildSetupReviewWithPromptExpoEditsPlatformConfigs(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System:  "Expo",
-			Command: "top-level-command",
-			Output:  "top-level-output",
-			Platforms: map[string]config.BuildPlatform{
+	cfg := &initConfigDraft{
+		Build: initBuildDraft{
+			DetectedSystem: build.SystemExpo,
+			Framework:      "expo",
+			DefaultCommand: "top-level-command",
+			DefaultOutput:  "top-level-output",
+			Recipes: map[string]initBuildRecipeDraft{
 				"ios-dev": {
-					Command: "ios-dev-command",
-					Output:  "ios-dev-output",
+					BuildCommands: []string{"ios-dev-command"},
+					OutputPath:    "ios-dev-output",
 				},
 				"android-dev": {
-					Command: "android-dev-command",
-					Output:  "android-dev-output",
+					BuildCommands: []string{"android-dev-command"},
+					OutputPath:    "android-dev-output",
 				},
 				"ios-ci": {
-					Command: "ios-ci-command",
-					Output:  "ios-ci-output",
+					BuildCommands: []string{"ios-ci-command"},
+					OutputPath:    "ios-ci-output",
 				},
 				"android-ci": {
-					Command: "android-ci-command",
-					Output:  "android-ci-output",
+					BuildCommands: []string{"android-ci-command"},
+					OutputPath:    "android-ci-output",
 				},
 			},
 		},
@@ -309,11 +310,11 @@ func TestPromptBuildSetupReviewWithPromptExpoEditsPlatformConfigs(t *testing.T) 
 	promptBuildSetupReviewWithPrompt(cfg, promptFn)
 
 	// Top-level is synced from the first platform entry (ios-dev)
-	if cfg.Build.Command != "ios-dev-command-edited" {
-		t.Fatalf("top-level build.command = %q; expected synced from first platform", cfg.Build.Command)
+	if cfg.Build.DefaultCommand != "ios-dev-command-edited" {
+		t.Fatalf("top-level build.command = %q; expected synced from first platform", cfg.Build.DefaultCommand)
 	}
-	if cfg.Build.Output != "ios-dev-output-edited" {
-		t.Fatalf("top-level build.output = %q; expected synced from first platform", cfg.Build.Output)
+	if cfg.Build.DefaultOutput != "ios-dev-output-edited" {
+		t.Fatalf("top-level build.output = %q; expected synced from first platform", cfg.Build.DefaultOutput)
 	}
 
 	wantPrompts := []string{
@@ -327,26 +328,27 @@ func TestPromptBuildSetupReviewWithPromptExpoEditsPlatformConfigs(t *testing.T) 
 	}
 
 	for _, key := range []string{"ios-dev", "android-dev", "ios-ci", "android-ci"} {
-		plat := cfg.Build.Platforms[key]
-		if !strings.HasSuffix(plat.Command, "-edited") {
-			t.Fatalf("%s command = %q, expected edited suffix", key, plat.Command)
+		plat := cfg.Build.Recipes[key]
+		if !strings.HasSuffix(plat.primaryBuildCommand(), "-edited") {
+			t.Fatalf("%s command = %q, expected edited suffix", key, plat.primaryBuildCommand())
 		}
-		if !strings.HasSuffix(plat.Output, "-edited") {
-			t.Fatalf("%s output = %q, expected edited suffix", key, plat.Output)
+		if !strings.HasSuffix(plat.OutputPath, "-edited") {
+			t.Fatalf("%s output = %q, expected edited suffix", key, plat.OutputPath)
 		}
 	}
 }
 
 func TestPromptBuildSetupReviewWithPromptNonExpoUsesTopLevel(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System:  "Xcode",
-			Command: "xcodebuild",
-			Output:  "build/app.tar.gz",
-			Platforms: map[string]config.BuildPlatform{
+	cfg := &initConfigDraft{
+		Build: initBuildDraft{
+			DetectedSystem: build.SystemXcode,
+			Framework:      "ios",
+			DefaultCommand: "xcodebuild",
+			DefaultOutput:  "build/app.tar.gz",
+			Recipes: map[string]initBuildRecipeDraft{
 				"ios": {
-					Command: "xcodebuild -scheme App",
-					Output:  "build/ios.tar.gz",
+					BuildCommands: []string{"xcodebuild -scheme App"},
+					OutputPath:    "build/ios.tar.gz",
 				},
 			},
 		},
@@ -364,31 +366,32 @@ func TestPromptBuildSetupReviewWithPromptNonExpoUsesTopLevel(t *testing.T) {
 	if !reflect.DeepEqual(prompts, wantPrompts) {
 		t.Fatalf("prompts = %v, want %v", prompts, wantPrompts)
 	}
-	if cfg.Build.Platforms["ios"].Command != "xcodebuild -scheme App-edited" {
-		t.Fatalf("platform command = %q, expected edited suffix", cfg.Build.Platforms["ios"].Command)
+	if cfg.Build.Recipes["ios"].primaryBuildCommand() != "xcodebuild -scheme App-edited" {
+		t.Fatalf("platform command = %q, expected edited suffix", cfg.Build.Recipes["ios"].primaryBuildCommand())
 	}
-	if cfg.Build.Platforms["ios"].Output != "build/ios.tar.gz-edited" {
-		t.Fatalf("platform output = %q, expected edited suffix", cfg.Build.Platforms["ios"].Output)
+	if cfg.Build.Recipes["ios"].OutputPath != "build/ios.tar.gz-edited" {
+		t.Fatalf("platform output = %q, expected edited suffix", cfg.Build.Recipes["ios"].OutputPath)
 	}
 	// Top-level is synced from the first (only) platform entry
-	if cfg.Build.Command != "xcodebuild -scheme App-edited" {
-		t.Fatalf("build.command = %q, want synced from platform", cfg.Build.Command)
+	if cfg.Build.DefaultCommand != "xcodebuild -scheme App-edited" {
+		t.Fatalf("build.command = %q, want synced from platform", cfg.Build.DefaultCommand)
 	}
-	if cfg.Build.Output != "build/ios.tar.gz-edited" {
-		t.Fatalf("build.output = %q, want synced from platform", cfg.Build.Output)
+	if cfg.Build.DefaultOutput != "build/ios.tar.gz-edited" {
+		t.Fatalf("build.output = %q, want synced from platform", cfg.Build.DefaultOutput)
 	}
 }
 
 func TestPrintProjectConfigReviewPromptContextNonExpoShowsBuildInfo(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System:  "Gradle (Android)",
-			Command: "./gradlew assembleDebug",
-			Output:  "app/build/outputs/apk/debug/app-debug.apk",
-			Platforms: map[string]config.BuildPlatform{
+	cfg := &initConfigDraft{
+		Build: initBuildDraft{
+			DetectedSystem: build.SystemGradle,
+			Framework:      "android",
+			DefaultCommand: "./gradlew assembleDebug",
+			DefaultOutput:  "app/build/outputs/apk/debug/app-debug.apk",
+			Recipes: map[string]initBuildRecipeDraft{
 				"android": {
-					Command: "./gradlew assembleDebug",
-					Output:  "app/build/outputs/apk/debug/app-debug.apk",
+					BuildCommands: []string{"./gradlew assembleDebug"},
+					OutputPath:    "app/build/outputs/apk/debug/app-debug.apk",
 				},
 			},
 		},
@@ -410,11 +413,12 @@ func TestPrintProjectConfigReviewPromptContextNonExpoShowsBuildInfo(t *testing.T
 }
 
 func TestPrintProjectConfigReviewPromptContextNonExpoFlatBuild(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System:  "Gradle (Android)",
-			Command: "./gradlew assembleDebug",
-			Output:  "app/build/outputs/apk/debug/app-debug.apk",
+	cfg := &initConfigDraft{
+		Build: initBuildDraft{
+			DetectedSystem: build.SystemGradle,
+			Framework:      "android",
+			DefaultCommand: "./gradlew assembleDebug",
+			DefaultOutput:  "app/build/outputs/apk/debug/app-debug.apk",
 		},
 	}
 
@@ -434,12 +438,13 @@ func TestPrintProjectConfigReviewPromptContextNonExpoFlatBuild(t *testing.T) {
 }
 
 func TestPrintProjectConfigReviewPromptContextExpoShowsStreamTable(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System: "Expo",
-			Platforms: map[string]config.BuildPlatform{
-				"ios-dev":     {Command: "npx eas build --platform ios"},
-				"android-dev": {Command: "npx eas build --platform android"},
+	cfg := &initConfigDraft{
+		Build: initBuildDraft{
+			DetectedSystem: build.SystemExpo,
+			Framework:      "expo",
+			Recipes: map[string]initBuildRecipeDraft{
+				"ios-dev":     {BuildCommands: []string{"npx eas build --platform ios"}},
+				"android-dev": {BuildCommands: []string{"npx eas build --platform android"}},
 			},
 		},
 	}
@@ -458,11 +463,12 @@ func TestPrintProjectConfigReviewPromptContextExpoShowsStreamTable(t *testing.T)
 }
 
 func TestPromptBuildSetupReviewWithPromptPrintsInferredDefaultsExplainer(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System:  "Gradle (Android)",
-			Command: "./gradlew assembleDebug",
-			Output:  "app/build/outputs/apk/debug/app-debug.apk",
+	cfg := &initConfigDraft{
+		Build: initBuildDraft{
+			DetectedSystem: build.SystemGradle,
+			Framework:      "android",
+			DefaultCommand: "./gradlew assembleDebug",
+			DefaultOutput:  "app/build/outputs/apk/debug/app-debug.apk",
 		},
 	}
 
@@ -481,17 +487,18 @@ func TestPromptBuildSetupReviewWithPromptPrintsInferredDefaultsExplainer(t *test
 }
 
 func TestSkipBuildSetupForNowClearsConfigButKeepsPlatformKeys(t *testing.T) {
-	cfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System:  "Xcode",
-			Command: "xcodebuild -project App.xcodeproj -scheme App -configuration Debug",
-			Output:  "build/Build/Products/Debug-iphonesimulator/*.app",
-			Platforms: map[string]config.BuildPlatform{
+	cfg := &initConfigDraft{
+		Build: initBuildDraft{
+			DetectedSystem: build.SystemXcode,
+			Framework:      "ios",
+			DefaultCommand: "xcodebuild -project App.xcodeproj -scheme App -configuration Debug",
+			DefaultOutput:  "build/Build/Products/Debug-iphonesimulator/*.app",
+			Recipes: map[string]initBuildRecipeDraft{
 				"ios": {
-					Command: "xcodebuild -project App.xcodeproj -scheme App -configuration Debug",
-					Output:  "build/Build/Products/Debug-iphonesimulator/*.app",
-					Scheme:  "App",
-					AppID:   "app-ios-123",
+					BuildCommands: []string{"xcodebuild -project App.xcodeproj -scheme App -configuration Debug"},
+					OutputPath:    "build/Build/Products/Debug-iphonesimulator/*.app",
+					Scheme:        "App",
+					AppID:         "app-ios-123",
 				},
 			},
 		},
@@ -504,18 +511,18 @@ func TestSkipBuildSetupForNowClearsConfigButKeepsPlatformKeys(t *testing.T) {
 	if !reflect.DeepEqual(keys, []string{"ios"}) {
 		t.Fatalf("placeholder keys = %v, want [ios]", keys)
 	}
-	if cfg.Build.System != "Xcode" {
-		t.Fatalf("build.system = %q, want Xcode", cfg.Build.System)
+	if cfg.Build.DetectedSystem != build.SystemXcode {
+		t.Fatalf("build.system = %q, want Xcode", cfg.Build.DetectedSystem.String())
 	}
-	if cfg.Build.Command != "" || cfg.Build.Output != "" {
+	if cfg.Build.DefaultCommand != "" || cfg.Build.DefaultOutput != "" {
 		t.Fatalf("top-level build config not cleared: %+v", cfg.Build)
 	}
 
-	platformCfg, ok := cfg.Build.Platforms["ios"]
+	platformCfg, ok := cfg.Build.Recipes["ios"]
 	if !ok {
 		t.Fatal("missing ios platform after skip")
 	}
-	if platformCfg.Command != "" || platformCfg.Output != "" || platformCfg.Scheme != "" || platformCfg.AppID != "" {
+	if platformCfg.primaryBuildCommand() != "" || platformCfg.OutputPath != "" || platformCfg.Scheme != "" || platformCfg.AppID != "" {
 		t.Fatalf("platform config not cleared: %+v", platformCfg)
 	}
 }

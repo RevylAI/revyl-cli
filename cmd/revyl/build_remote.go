@@ -24,7 +24,6 @@ import (
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -32,94 +31,54 @@ import (
 var remoteBuildPollInterval = 3 * time.Second
 
 type remoteBuildOptions struct {
-	Platform       string
-	AppID          string
-	Version        string
-	Image          string
-	Env            map[string]string
-	Secrets        []string
-	SetCurrent     bool
-	Clean          bool
-	JSON           bool
-	Wait           bool
-	IncludeDirty   bool
-	CommittedOnly  bool
-	LegacyUpload   bool
-	TimeoutSeconds *int
+	Profile             string
+	ProjectRoot         string
+	Resolved            *remoteBuildPlatformConfig
+	Platform            string
+	AppID               string
+	Version             string
+	Image               string
+	Env                 map[string]string
+	Secrets             []string
+	SetCurrent          bool
+	Clean               bool
+	JSON                bool
+	Wait                bool
+	IncludeDirty        bool
+	CommittedOnly       bool
+	LegacyUpload        bool
+	TimeoutSeconds      *int
+	BuildDefinitionHash string
+	SetFailureStage     func(string)
+}
+
+var errRemoteBuildPollingInterrupted = fmt.Errorf("interrupted while waiting for remote build")
+
+func (opts remoteBuildOptions) markFailureStage(stage string) {
+	if opts.SetFailureStage != nil {
+		opts.SetFailureStage(stage)
+	}
 }
 
 type remoteBuildPlatformConfig struct {
-	Platform    string
-	PlatformKey string
-	Command     string
-	Commands    []string
-	Setup       string
-	Output      string
-	Image       string
-	Scheme      string
-	AppID       string
-	Source      config.BuildSource
-	Env         map[string]string
-	Secrets     []string
-	Caches      []config.BuildCache
-	Framework   string
+	Platform      string
+	PlatformKey   string
+	Command       string
+	Commands      []string
+	Setup         string
+	SetupCommands []string
+	Output        string
+	Image         string
+	Scheme        string
+	AppID         string
+	Source        config.BuildSource
+	Env           map[string]string
+	Secrets       []string
+	Caches        []config.BuildCache
+	Framework     string
 	// TimeoutSeconds is the optional build.platforms.<PlatformKey>.timeout, nil
 	// when unset so the trigger request omits it and the server default applies.
 	TimeoutSeconds *int
-}
-
-// runBuildRemote is retained for older internal callers. The public UX is
-// `revyl build --remote --platform ios|android`.
-func runBuildRemote(cmd *cobra.Command, args []string) error {
-	if v, _ := cmd.Flags().GetBool("json"); v {
-		remoteJSONFlag = true
-	}
-	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
-		remoteJSONFlag = true
-	}
-	if remoteJSONFlag {
-		ui.SetQuietMode(true)
-		defer ui.SetQuietMode(false)
-	}
-
-	apiKey, err := getAPIKey()
-	if err != nil {
-		return err
-	}
-
-	return runRemoteBuildWithOptions(cmd, apiKey, remoteBuildOptions{
-		Platform:      remotePlatformFlag,
-		AppID:         remoteAppFlag,
-		Version:       remoteVersionFlag,
-		SetCurrent:    remoteSetCurrFlag,
-		Clean:         remoteCleanFlag,
-		JSON:          remoteJSONFlag,
-		Wait:          true,
-		IncludeDirty:  !remoteCommittedOnly,
-		CommittedOnly: remoteCommittedOnly,
-	})
-}
-
-// runRemoteBuild packages source, uploads it, triggers a remote build on a
-// Revyl cloud build runner, and polls until completion.
-func runRemoteBuild(cmd *cobra.Command, apiKey string) error {
-	includeDirty, _ := cmd.Flags().GetBool("include-dirty")
-	platform := uploadPlatformFlag
-	if strings.TrimSpace(platform) == "" {
-		platform = "ios"
-	}
-	return runRemoteBuildWithOptions(cmd, apiKey, remoteBuildOptions{
-		Platform:      platform,
-		AppID:         uploadAppFlag,
-		Version:       buildVersion,
-		SetCurrent:    buildSetCurr,
-		Clean:         uploadCleanFlag,
-		JSON:          buildUploadJSON,
-		Wait:          true,
-		IncludeDirty:  includeDirty,
-		CommittedOnly: !includeDirty,
-		LegacyUpload:  true,
-	})
 }
 
 func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBuildOptions) error {
@@ -129,23 +88,20 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	debugOutput := ui.IsDebugMode()
 	interactiveOutput := !opts.JSON
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
+	cwd := strings.TrimSpace(opts.ProjectRoot)
+	var err error
+	if cwd == "" {
+		cwd, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get working directory: %w", err)
+		}
 	}
 
-	resolved, err := resolveRemoteBuildPlatform(cwd, opts.Platform, opts.AppID)
-	if err != nil {
-		if opts.JSON {
-			printRemoteBuildJSON(remoteBuildJSONResult{
-				Status:   "failed",
-				Platform: opts.Platform,
-				Error:    err.Error(),
-				Phase:    "configuration",
-			})
-		}
-		return err
+	opts.markFailureStage("configuration")
+	if opts.Resolved == nil {
+		return fmt.Errorf("remote build requires a resolved project profile and platform")
 	}
+	resolved := *opts.Resolved
 	resolved.Env = mergeRemoteBuildEnv(resolved.Env, opts.Env)
 	resolved.Secrets, err = mergeBuildSecretRefs(resolved.Secrets, opts.Secrets)
 	if err != nil {
@@ -158,6 +114,12 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	// build.platforms.<key>.timeout; both nil means the server default applies.
 	if opts.TimeoutSeconds == nil {
 		opts.TimeoutSeconds = resolved.TimeoutSeconds
+	}
+	if image := strings.TrimSpace(opts.Image); image != "" {
+		resolved.Image = image
+	}
+	if opts.Clean {
+		resolved.Caches = nil
 	}
 	appID, err := uuid.Parse(strings.TrimSpace(resolved.AppID))
 	if err != nil {
@@ -177,6 +139,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	var repoSource *config.BuildSource
 	var sourcePatchKey string
 	if remoteBuildUsesGitSource(resolved.Source) {
+		opts.markFailureStage("source_archive")
 		normalized := normalizeRemoteGitSource(resolved.Source)
 		repoSource = &normalized
 		if debugOutput {
@@ -200,6 +163,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 				if empty {
 					ui.PrintWarning("Working tree is dirty, but no tracked diff was found for the repo-backed source patch.")
 				} else {
+					opts.markFailureStage("source_upload")
 					patchResp, err := uploadRemoteBuildSourceFile(ctx, client, appID, "source.patch", patchPath)
 					if err != nil {
 						return fmt.Errorf("failed to upload repo-backed source patch: %w", err)
@@ -212,6 +176,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 			}
 		}
 	} else {
+		opts.markFailureStage("source_archive")
 		// ── 4. Package source via git archive ────────────────────────
 		if debugOutput {
 			ui.PrintInfo("Packaging source code…")
@@ -267,6 +232,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 			ui.StartSpinner("Uploading to Revyl")
 		}
 		uploadStart := time.Now()
+		opts.markFailureStage("source_upload")
 		uploadResp, err = client.GetRemoteBuildUploadURL(ctx, appID, "source.tar.gz", archiveInfo.Size())
 		if err != nil {
 			if !debugOutput && interactiveOutput {
@@ -301,19 +267,12 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	} else if interactiveOutput {
 		ui.StartSpinner("Triggering remote build job")
 	}
-	setCurrent := opts.SetCurrent
 	source, err := remoteBuildRequestSource(repoSource, uploadedSourceKey(uploadResp), sourcePatchKey)
 	if err != nil {
 		return err
 	}
-	triggerReq := &api.RemoteBuildRequest{
-		Source:       source,
-		Config:       remoteBuildConfigFromResolved(appID, resolved),
-		CleanBuild:   boolPtrOrNil(opts.Clean),
-		Version:      stringPtrOrNil(opts.Version),
-		Image:        stringPtrOrNil(opts.Image),
-		SetAsCurrent: &setCurrent,
-	}
+	opts.markFailureStage("enqueue")
+	triggerReq := newRemoteBuildTriggerRequest(source, appID, resolved, opts)
 	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq, opts.TimeoutSeconds)
 	if !debugOutput && interactiveOutput {
 		ui.StopSpinner()
@@ -337,6 +296,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		if opts.JSON {
 			printRemoteBuildJSON(remoteBuildJSONResult{
 				Status:     "pending",
+				Profile:    opts.Profile,
 				Platform:   resolved.Platform,
 				BuildJobID: jobID,
 				AppID:      resolved.AppID,
@@ -350,10 +310,12 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	// ── 8. Poll for status ───────────────────────────────────────
 	waitCtx, stopWaitSignals := interruptibleBuildWaitContext(ctx)
 	defer stopWaitSignals()
+	opts.markFailureStage("poll")
 	status, err := pollRemoteBuildStatusResult(waitCtx, client, jobID, opts.JSON)
 	if err != nil {
 		if opts.JSON {
 			result := remoteBuildFailureJSON(resolved, jobID, status, err)
+			result.Profile = opts.Profile
 			result.LogEvents = fetchRemoteBuildLogEvents(ctx, client, jobID)
 			printRemoteBuildJSON(result)
 		}
@@ -361,12 +323,12 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	}
 	if opts.JSON {
 		result := remoteBuildSuccessJSON(resolved, jobID, status)
+		result.Profile = opts.Profile
 		result.LogEvents = fetchRemoteBuildLogEvents(ctx, client, jobID)
 		printRemoteBuildJSON(result)
 	}
 
 	if !opts.JSON {
-		cwd, _ := os.Getwd()
 		testsDir := filepath.Join(cwd, ".revyl", "tests")
 		var steps []ui.NextStep
 		steps = append(steps, ui.NextStep{
@@ -388,6 +350,19 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	}
 
 	return nil
+}
+
+func newRemoteBuildTriggerRequest(source api.RemoteBuildRequest_Source, appID uuid.UUID, resolved remoteBuildPlatformConfig, opts remoteBuildOptions) *api.RemoteBuildRequest {
+	setCurrent := opts.SetCurrent
+	return &api.RemoteBuildRequest{
+		BuildDefinitionHash: stringPtrOrNil(opts.BuildDefinitionHash),
+		Source:              source,
+		Config:              remoteBuildConfigFromResolved(appID, resolved),
+		CleanBuild:          boolPtrOrNil(opts.Clean),
+		Version:             stringPtrOrNil(opts.Version),
+		Image:               stringPtrOrNil(resolved.Image),
+		SetAsCurrent:        &setCurrent,
+	}
 }
 
 // parseRemoteBuildEnvOverrides parses repeatable --env KEY=VALUE flags into a
@@ -541,7 +516,7 @@ func remoteBuildPollingInterruptedError(jobID string, jsonMode bool) error {
 			},
 		})
 	}
-	return fmt.Errorf("interrupted while waiting for remote build")
+	return errRemoteBuildPollingInterrupted
 }
 
 func printRemoteBuildQueuedNextSteps(jobID string) {
@@ -798,200 +773,6 @@ func fetchRemoteBuildLogEvents(ctx context.Context, client *api.Client, jobID st
 	return *logs.Events
 }
 
-// detectBuildCommand determines the xcodebuild command for the project.
-//
-// Parameters:
-//   - cwd: Current working directory.
-//   - platform: Target platform (only "ios" currently).
-//
-// Returns:
-//   - buildCmd: Full xcodebuild shell command.
-//   - scheme: Xcode scheme name (may be empty).
-//   - setupCmd: Pre-build setup command (may be empty).
-//   - error: If detection fails.
-func detectBuildCommand(cwd, platform string) (string, string, string, error) {
-	scheme := uploadSchemeFlag
-
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err == nil {
-		platCfg := cfg.Build.Platforms[platform]
-		if platCfg.Command != "" {
-			return platCfg.Command, scheme, platCfg.Setup, nil
-		}
-	}
-
-	detected, err := build.Detect(cwd)
-	if err != nil {
-		return "", "", "", fmt.Errorf("could not detect build system: %w", err)
-	}
-	if detected == nil {
-		return "", "", "", fmt.Errorf("no build system detected in %s", cwd)
-	}
-
-	if platBuild, ok := detected.Platforms[platform]; ok && platBuild.Command != "" {
-		cmd := platBuild.Command
-		if scheme != "" {
-			cmd += fmt.Sprintf(" -scheme %s", scheme)
-		}
-		return cmd, scheme, "", nil
-	}
-
-	if strings.EqualFold(detected.Platform, platform) && detected.Command != "" {
-		cmd := detected.Command
-		if scheme != "" {
-			cmd += fmt.Sprintf(" -scheme %s", scheme)
-		}
-		return cmd, scheme, "", nil
-	}
-
-	return "", "", "", fmt.Errorf(
-		"no %s build configuration found in %s%s. Add build.platforms.%s.command to .revyl/config.yaml or run 'revyl init'",
-		platform, cwd, nestedProjectHint(cwd), platform,
-	)
-}
-
-// resolveAppForRemoteBuild determines the app ID to use for the build,
-// from flag, config, or interactive prompt.
-//
-// Parameters:
-//   - ctx: Cancellation context.
-//   - client: API client.
-//   - platform: Target platform.
-//
-// Returns:
-//   - appID: Resolved app UUID string.
-//   - error: If resolution fails.
-func resolveAppForRemoteBuild(ctx context.Context, client *api.Client, platform string) (string, error) {
-	if uploadAppFlag != "" {
-		return uploadAppFlag, nil
-	}
-
-	cwd, _ := os.Getwd()
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err == nil {
-		platCfg := cfg.Build.Platforms[platform]
-		if platCfg.AppID != "" {
-			return platCfg.AppID, nil
-		}
-	}
-
-	return "", fmt.Errorf("no app specified. Use --app <name-or-id> or configure in .revyl/config.yaml")
-}
-
-func resolveRemoteBuildPlatform(cwd, rawPlatform, appOverride string) (remoteBuildPlatformConfig, error) {
-	platformOrKey := strings.TrimSpace(rawPlatform)
-	if platformOrKey == "" {
-		platformOrKey = "ios"
-	}
-
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, cfgErr := config.LoadProjectConfig(configPath)
-	if cfgErr == nil {
-		key := platformOrKey
-		devicePlatform := platformFromKey(key)
-		if normalized, err := normalizeMobilePlatform(platformOrKey, ""); err == nil {
-			devicePlatform = normalized
-		}
-
-		platCfg, ok := cfg.Build.Platforms[key]
-		if !ok && (devicePlatform == "ios" || devicePlatform == "android") {
-			if picked := pickBestBuildPlatformKey(cfg, devicePlatform); picked != "" {
-				key = picked
-				platCfg = cfg.Build.Platforms[picked]
-				ok = true
-			}
-		}
-		buildCommands := platCfg.BuildCommands()
-		if ok && len(buildCommands) > 0 {
-			if devicePlatform != "ios" && devicePlatform != "android" {
-				return remoteBuildPlatformConfig{}, fmt.Errorf("build.platforms.%s must include ios or android in its key", key)
-			}
-			appID := strings.TrimSpace(appOverride)
-			if appID == "" {
-				appID = strings.TrimSpace(platCfg.AppID)
-			}
-			if appID == "" {
-				return remoteBuildPlatformConfig{}, fmt.Errorf("no app specified. Use --app <id> or configure build.platforms.%s.app_id in .revyl/config.yaml", key)
-			}
-			timeoutSeconds, err := buildPlatformTimeoutSeconds(platCfg, key)
-			if err != nil {
-				return remoteBuildPlatformConfig{}, err
-			}
-			caches := config.EffectiveBuildCaches(cfg.Build, platCfg)
-			framework := strings.ToLower(strings.TrimSpace(cfg.Build.System))
-			if framework == "" {
-				if detected, detectErr := build.Detect(cwd); detectErr == nil {
-					framework = strings.ToLower(detected.System.String())
-				}
-			}
-			return remoteBuildPlatformConfig{
-				Platform:       devicePlatform,
-				PlatformKey:    key,
-				Command:        strings.Join(buildCommands, " && "),
-				Commands:       buildCommands,
-				Setup:          strings.TrimSpace(platCfg.Setup),
-				Output:         strings.TrimSpace(platCfg.Output),
-				Image:          strings.TrimSpace(platCfg.Image),
-				Scheme:         strings.TrimSpace(resolveRemoteBuildScheme(devicePlatform, platCfg.Scheme)),
-				AppID:          appID,
-				Source:         cfg.Build.Source,
-				Env:            platCfg.Env,
-				Secrets:        append([]string(nil), platCfg.Secrets...),
-				Caches:         caches,
-				Framework:      framework,
-				TimeoutSeconds: timeoutSeconds,
-			}, nil
-		}
-	}
-
-	platform, err := normalizeMobilePlatform(platformOrKey, "")
-	if err != nil {
-		return remoteBuildPlatformConfig{}, fmt.Errorf("unknown platform/platform-key %q", platformOrKey)
-	}
-
-	detected, err := build.Detect(cwd)
-	if err != nil {
-		return remoteBuildPlatformConfig{}, fmt.Errorf("could not detect build system: %w", err)
-	}
-	if detected == nil {
-		return remoteBuildPlatformConfig{}, fmt.Errorf("no build system detected in %s", cwd)
-	}
-	platBuild, ok := detected.Platforms[platform]
-	if !ok || strings.TrimSpace(platBuild.Command) == "" {
-		return remoteBuildPlatformConfig{}, fmt.Errorf(
-			"no %s build configuration found in %s%s. Add build.platforms.%s.command to .revyl/config.yaml or run 'revyl init'",
-			platform, cwd, nestedProjectHint(cwd), platform,
-		)
-	}
-	appID := strings.TrimSpace(appOverride)
-	if appID == "" {
-		return remoteBuildPlatformConfig{}, fmt.Errorf("no app specified. Use --app <id> or configure build.platforms.%s.app_id in .revyl/config.yaml", platform)
-	}
-	// Auto-detected builds can still carry a config-only timeout entry.
-	var timeoutSeconds *int
-	if cfgErr == nil {
-		if platCfg, hasCfg := cfg.Build.Platforms[platform]; hasCfg {
-			timeoutSeconds, err = buildPlatformTimeoutSeconds(platCfg, platform)
-			if err != nil {
-				return remoteBuildPlatformConfig{}, err
-			}
-		}
-	}
-	return remoteBuildPlatformConfig{
-		Platform:       platform,
-		PlatformKey:    platform,
-		Command:        strings.TrimSpace(platBuild.Command),
-		Commands:       []string{strings.TrimSpace(platBuild.Command)},
-		Output:         strings.TrimSpace(platBuild.Output),
-		Scheme:         strings.TrimSpace(resolveRemoteBuildScheme(platform, "")),
-		AppID:          appID,
-		Framework:      strings.ToLower(detected.System.String()),
-		TimeoutSeconds: timeoutSeconds,
-	}, nil
-}
-
 func resolveRemoteBuildScheme(platform, configured string) string {
 	if platform != "ios" {
 		return ""
@@ -1023,6 +804,7 @@ func defaultRemoteArtifactType(platform string) string {
 
 type remoteBuildJSONResult struct {
 	Status             string                       `json:"status"`
+	Profile            string                       `json:"profile,omitempty"`
 	Platform           string                       `json:"platform,omitempty"`
 	BuildJobID         string                       `json:"build_job_id,omitempty"`
 	BuildVersionID     string                       `json:"build_version_id,omitempty"`

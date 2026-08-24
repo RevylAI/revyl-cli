@@ -56,8 +56,13 @@ func runWithAnalytics(cmd *cobra.Command, args []string, run func() error) (err 
 
 	commandRun := rec.StartCommand(cmd, args)
 	if commandRun != nil {
+		originalContext := cmd.Context()
+		cmd.SetContext(analytics.ContextWithCommandRun(originalContext, commandRun))
 		ui.SetOutputObserver(commandRun.ObserveOutput)
-		defer ui.SetOutputObserver(nil)
+		defer func() {
+			ui.SetOutputObserver(nil)
+			cmd.SetContext(originalContext)
+		}()
 		defer func() {
 			panicValue := recover()
 			completeCommandAnalytics(commandRun, err, panicValue != nil)

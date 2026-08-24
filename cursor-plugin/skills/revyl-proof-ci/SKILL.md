@@ -17,7 +17,8 @@ only.
 
 - Cursor Automation / Cloud Agent tasked with device proof after CI upload
 - Manual "prove this PR" requests against a BYO-CI build
-- Twin path: Revyl GitHub `use_existing_ci: true` + `proof_harness: { kind: cursor }`
+- Twin path: Revyl GitHub `pr_review.build.kind: ci_upload_to_revyl` plus
+  `pr_review.proof_of_changes.harness.kind: cursor`
 
 To **create** the scheduled Automation (CI upload + paste-ready prompt), use
 `revyl-proof-automation`. Canonical prompt and triggers also live in
@@ -45,11 +46,13 @@ To **create** the scheduled Automation (CI upload + paste-ready prompt), use
    - Brief wait + retry once or twice if CI upload has not landed yet
 
 2. **Start the device on that build**
+
    ```bash
    revyl device start --build-version-id <build-version-id> --json
    ```
-   Run from the directory that owns `.revyl/config.yaml` so auth_bypass /
-   before_session apply.
+
+   Run from the directory that owns `.revyl/config.yaml` so
+   `session.auth_bypass` / `session.before_script` apply.
 
 3. **Exercise the diff**
    - Read the PR diff; verify the behaviour it changes
@@ -57,12 +60,14 @@ To **create** the scheduled Automation (CI upload + paste-ready prompt), use
    - Save a small set of key screenshots locally with descriptive names
 
 4. **Publish evidence**
+
    ```bash
    revyl device stop
    revyl device report --session-id <session-id> --json
    revyl session share <session-id> --json
    revyl session publish <file> --session <session-id> --json
    ```
+
    Use `shareable_link` and each `public_url`. Do not paste short-lived
    `video_url` / `X-Amz-*` links. Do not commit screenshots.
 

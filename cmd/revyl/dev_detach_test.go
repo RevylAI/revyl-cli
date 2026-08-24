@@ -23,6 +23,16 @@ func TestFilterDetachArgs(t *testing.T) {
 	}
 }
 
+func TestProjectDetachArgsPinsResolvedSelectionAndRemovesChdir(t *testing.T) {
+	got := projectDetachArgs([]string{
+		"-C", "apps/old", "dev", "--profile=old", "--platform", "android", "--detach",
+	}, projectDevInvocation{Profile: "development", Platform: "ios"})
+	want := []string{"dev", "--profile", "development", "--platform", "ios"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("projectDetachArgs() = %v, want %v", got, want)
+	}
+}
+
 func TestDevStatusOutputReady(t *testing.T) {
 	if devStatusOutputReady(map[string]interface{}{"running": false}) {
 		t.Fatal("not running should not be ready")
@@ -83,13 +93,12 @@ func TestShouldAutoOpenViewer(t *testing.T) {
 		t.Fatal("omitted defaults.open_browser should auto-open for dev")
 	}
 
-	// Explicit open_browser: false in the project config disables it.
 	cfgYAML := "project:\n  name: x\ndefaults:\n  open_browser: false\n"
 	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if shouldAutoOpenViewer(cmd, dir) {
-		t.Fatal("explicit open_browser: false must disable auto-open")
+	if !shouldAutoOpenViewer(cmd, dir) {
+		t.Fatal("legacy open_browser preference must not control dev behavior")
 	}
 
 	if err := cmd.Flags().Set("open", "true"); err != nil {

@@ -51,6 +51,7 @@ type devCockpitSnapshot struct {
 	Running             bool                 `json:"running"`
 	PID                 int                  `json:"pid,omitempty"`
 	Context             string               `json:"context"`
+	Profile             string               `json:"profile,omitempty"`
 	Platform            string               `json:"platform,omitempty"`
 	PlatformKey         string               `json:"platform_key,omitempty"`
 	Provider            string               `json:"provider,omitempty"`
@@ -402,6 +403,7 @@ func (c *devCockpitServer) snapshot() devCockpitSnapshot {
 		snapshot.ViewerURL = c.viewerURL()
 	}
 	if ctxMeta != nil {
+		snapshot.Profile = strings.TrimSpace(ctxMeta.Profile)
 		snapshot.PlatformKey = strings.TrimSpace(ctxMeta.PlatformKey)
 		snapshot.Provider = strings.TrimSpace(ctxMeta.Provider)
 		snapshot.SessionIndex = ctxMeta.SessionIndex
@@ -546,6 +548,7 @@ func devCockpitAgentContext(snapshot devCockpitSnapshot) string {
 	lines := []string{
 		"Revyl dev context: " + devCockpitDisplayValue(snapshot.Context, "default"),
 		"Session: " + devCockpitDisplayValue(snapshot.SessionID, "none"),
+		"Profile: " + devCockpitDisplayValue(snapshot.Profile, "unknown"),
 		"Platform: " + devCockpitDisplayValue(platform, "unknown"),
 		"Provider: " + devCockpitDisplayValue(snapshot.Provider, "unknown"),
 		"Rebuild command: " + rebuildCommand,

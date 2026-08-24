@@ -21,22 +21,28 @@ Use this skill when the user wants the generic Revyl CLI dev loop instead of MCP
 # Initialize or refresh project detection.
 revyl init --detect
 
-# Start the dev loop for the default platform (iOS is the default).
-revyl dev
+# Start one explicit named recipe when the repo makes it clear.
+revyl dev --profile development --platform ios
 ```
 
-When platform matters, make it explicit:
+When the profile or platform differs, make both explicit:
 
 ```bash
-revyl dev --platform ios
-revyl dev --platform android
+revyl dev --profile development --platform ios
+revyl dev --profile development --platform android
 ```
 
-If detection picks the wrong provider, force the provider during init instead of editing around a bad config:
+Do not invent an active/default profile or platform. Without explicit flags,
+`revyl dev` prefers one unique development-like profile and then only a sole
+eligible choice. If an interactive run prompts, use repository evidence to
+choose. If a non-interactive run reports ambiguity, retry with the exact
+profile/platform from its choices instead of guessing. The selected recipe is
+fixed for the dev context and its rebuilds.
+
+If detection is stale, rerun it from the actual app root before editing the generated profile:
 
 ```bash
-revyl init --provider expo
-revyl init --provider react-native
+revyl init --detect
 ```
 
 In monorepos, run Revyl from the actual app directory, not the workspace root. For example, use `apps/mobile` for an Expo app even if the repo root also has a `.revyl/` directory.
@@ -105,9 +111,10 @@ target the attached context explicitly.
   build, upload or delta-push, reinstall, and relaunch in the cloud session.
   Expo tunnels do not fix these stacks.
 - KMP, Bazel, and other native artifact flows: treat the configured
-  `build.platforms.<key>.output` artifact as the app. Iterate through the
-  configured build command, `revyl dev rebuild --wait`, and device verification.
-- Monorepos: if detection is confused by hoisted dependencies or nested native folders, run from the app directory and force the provider only when needed.
+  `build.profiles.<profile>.<platform>.output_path` artifact as the app. Iterate
+  through that recipe's build commands, `revyl dev rebuild --wait`, and device
+  verification.
+- Monorepos: if detection is confused by hoisted dependencies or nested native folders, run from the app directory containing `.revyl/config.yaml`.
 
 If repeated login slows exploration on any stack, use `revyl-cli-auth-bypass`
 first. It detects the app stack and delegates to the matching platform leaf
@@ -140,9 +147,10 @@ Preferred: configure it once in `.revyl/config.yaml` and every session — cold
 start, rebuild relaunch, reused session — launches authenticated with no flags:
 
 ```yaml
-auth_bypass:
-  launch_vars: [REVYL_AUTH_BYPASS_ENABLED, REVYL_AUTH_BYPASS_TOKEN]
-  deep_link: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home"
+session:
+  auth_bypass:
+    launch_vars: [REVYL_AUTH_BYPASS_ENABLED, REVYL_AUTH_BYPASS_TOKEN]
+    deep_link: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home"
 ```
 
 `${VAR}` placeholders resolve server-side from launch variables already
@@ -201,13 +209,13 @@ soon as the device session is live (the build may still be running behind it).
 # (opened_browser in the handshake; --no-open disables). When opened_browser is
 # false (headless/CI/SSH), always post viewer_url as a clickable link; never
 # open a browser yourself.
-revyl dev --remote --detach --json    # native / rebuild-first stacks
-revyl dev --detach --json             # hot-reload stacks
+revyl dev --profile development --platform ios --remote --detach --json # native/rebuild-first
+revyl dev --profile development --platform ios --detach --json          # hot reload
 
 # Optional: install the latest existing build immediately (seed) so the app is
 # interactive + authenticated within seconds while the fresh build compiles,
 # then it hot-swaps automatically. Best when time-to-first-build is slow.
-revyl dev --remote --seed-latest --detach --json
+revyl dev --profile development --platform ios --remote --seed-latest --detach --json
 
 # Share viewer_url with the user immediately, then monitor the BUILD:
 revyl dev status                      # build_mode=remote; state: building -> idle
@@ -294,7 +302,8 @@ startup on large apps), extend the readiness wait instead of switching
 transports:
 
 ```bash
-revyl dev --platform ios --ready-timeout 120   # seconds; or set REVYL_READY_TIMEOUT
+revyl dev --profile development --platform ios --ready-timeout 120
+# Seconds; alternatively set REVYL_READY_TIMEOUT.
 ```
 
 If relay transport and manifest checks pass but a large Expo app times out on
@@ -302,7 +311,8 @@ the first cold bundle transform, extend the separate prewarm budget (default
 300 seconds, maximum 600):
 
 ```bash
-revyl dev --platform ios --prewarm-timeout 600 # or set REVYL_PREWARM_TIMEOUT
+revyl dev --profile development --platform ios --prewarm-timeout 600
+# Alternatively set REVYL_PREWARM_TIMEOUT.
 ```
 
 Metro inherits your shell environment (for example `EXPO_OFFLINE=1` speeds up
@@ -313,7 +323,7 @@ For Expo manifest readiness timeouts, use diagnostic launch mode before
 switching transports:
 
 ```bash
-revyl dev --platform ios --force-hot-reload
+revyl dev --profile development --platform ios --force-hot-reload
 ```
 
 This still requires Expo startup and Revyl relay transport to succeed. It skips

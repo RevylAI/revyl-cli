@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -42,18 +41,26 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Load project config
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	var projectContext *config.ProjectContext
+	if !deleteRemoteOnly {
+		projectContext, err = config.ResolveProjectContext(cwd, "")
+		if err != nil {
+			return actionableLocalConfigError(err)
+		}
+	}
 
 	// Resolve name to ID
-	testID, testName, err := resolveTestNameOrID(cmd.Context(), client, cfg, nameOrID)
-	if err != nil && !deleteLocalOnly {
-		return err
+	testID, testName := "", nameOrID
+	if !deleteLocalOnly {
+		testID, testName, err = resolveTestNameOrID(cmd.Context(), client, nil, nameOrID)
+		if err != nil {
+			return err
+		}
 	}
 
 	// For local-only, we just need the name
@@ -61,11 +68,16 @@ func runDeleteTest(cmd *cobra.Command, args []string) error {
 		testName = nameOrID
 	}
 
-	localFilePath, pathErr := util.SafeTestPath(filepath.Join(cwd, ".revyl", "tests"), testName)
-	if pathErr != nil {
-		return fmt.Errorf("invalid test name: %w", pathErr)
+	localFilePath := ""
+	localFileExists := false
+	if !deleteRemoteOnly {
+		var pathErr error
+		localFilePath, pathErr = util.SafeTestPath(projectContext.TestsDir, testName)
+		if pathErr != nil {
+			return fmt.Errorf("invalid test name: %w", pathErr)
+		}
+		localFileExists = fileExists(localFilePath)
 	}
-	localFileExists := fileExists(localFilePath)
 
 	// Show what will be deleted
 	if !deleteForce {
@@ -168,16 +180,8 @@ func runDeleteWorkflow(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Load project config
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
-
 	// Resolve name to ID
-	workflowID, workflowName, err := resolveWorkflowID(cmd.Context(), nameOrID, cfg, client)
+	workflowID, workflowName, err := resolveWorkflowID(cmd.Context(), nameOrID, nil, client)
 	if err != nil {
 		return err
 	}
@@ -245,21 +249,29 @@ func runDeleteWorkflow(cmd *cobra.Command, args []string) error {
 }
 
 // resolveTestNameOrID resolves a test name or ID to both values.
-func resolveTestNameOrID(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, nameOrID string) (testID, testName string, err error) {
-	// Check if it's a local test alias
-	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-		testsDir := filepath.Join(cwd, ".revyl", "tests")
-		if id, _ := config.GetLocalTestRemoteID(testsDir, nameOrID); id != "" {
-			return id, nameOrID, nil
-		}
-	}
-
+func resolveTestNameOrID(ctx context.Context, client *api.Client, _ *config.ProjectConfig, nameOrID string) (testID, testName string, err error) {
 	// Check if it looks like a UUID (try to use as ID directly)
 	if looksLikeUUID(nameOrID) {
 		// Verify it exists
 		test, err := client.GetTest(ctx, nameOrID)
 		if err == nil {
 			return nameOrID, test.Name, nil
+		}
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+	projectContext, projectErr := config.ResolveProjectContext(cwd, "")
+	if projectErr == nil {
+		if id, _ := config.GetLocalTestRemoteID(projectContext.TestsDir, nameOrID); id != "" {
+			return id, nameOrID, nil
+		}
+	} else {
+		var configErr *config.ConfigError
+		if !errors.As(projectErr, &configErr) || (configErr.Code != "git_worktree_unavailable" && configErr.Code != "config_not_found") {
+			return "", "", actionableLocalConfigError(projectErr)
 		}
 	}
 

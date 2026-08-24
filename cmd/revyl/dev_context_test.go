@@ -121,6 +121,7 @@ func TestDevContext_RoundTrip(t *testing.T) {
 	original := &DevContext{
 		Name:          "test-ctx",
 		Platform:      "ios",
+		Profile:       "development",
 		PlatformKey:   "ios-dev",
 		Provider:      "expo",
 		SessionID:     "sess-123",
@@ -145,6 +146,12 @@ func TestDevContext_RoundTrip(t *testing.T) {
 	}
 	if loaded.Platform != original.Platform {
 		t.Fatalf("Platform = %q, want %q", loaded.Platform, original.Platform)
+	}
+	if loaded.Profile != original.Profile {
+		t.Fatalf("Profile = %q, want %q", loaded.Profile, original.Profile)
+	}
+	if loaded.PlatformKey != original.PlatformKey {
+		t.Fatalf("PlatformKey = %q, want %q", loaded.PlatformKey, original.PlatformKey)
 	}
 	if loaded.SessionID != original.SessionID {
 		t.Fatalf("SessionID = %q, want %q", loaded.SessionID, original.SessionID)
@@ -603,6 +610,7 @@ func TestDevContext_RoundTrip_ProviderAndOwnership(t *testing.T) {
 	original := &DevContext{
 		Name:         "rebuild-ctx",
 		Platform:     "android",
+		Profile:      "development",
 		PlatformKey:  "android-dev",
 		Provider:     "Gradle",
 		SessionID:    "sess-456",
@@ -621,6 +629,12 @@ func TestDevContext_RoundTrip_ProviderAndOwnership(t *testing.T) {
 	}
 	if loaded.Provider != "Gradle" {
 		t.Fatalf("Provider = %q, want %q", loaded.Provider, "Gradle")
+	}
+	if loaded.Profile != "development" {
+		t.Fatalf("Profile = %q, want %q", loaded.Profile, "development")
+	}
+	if loaded.PlatformKey != "android-dev" {
+		t.Fatalf("PlatformKey = %q, want %q", loaded.PlatformKey, "android-dev")
 	}
 	if loaded.SessionOwned != false {
 		t.Fatalf("SessionOwned = %v, want false", loaded.SessionOwned)

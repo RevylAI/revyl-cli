@@ -4,10 +4,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,7 +19,6 @@ import (
 	"github.com/revyl/cli/internal/backendheaders"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/orgguard"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -36,6 +35,10 @@ type DoctorCheck struct {
 
 	// Details contains additional information (optional).
 	Details string `json:"details,omitempty"`
+
+	nextStepLabel   string
+	nextStepCommand string
+	nextSteps       []ui.NextStep
 }
 
 // DoctorResult contains all diagnostic check results.
@@ -151,46 +154,29 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check 4: Project Configuration
-	projectCheck := checkProjectConfig()
+	projectCheck, project := inspectProjectConfig()
 	result.Checks = append(result.Checks, projectCheck)
 	if projectCheck.Status == "error" {
-		result.Issues++
-		// Project config is optional, don't mark as unhealthy
-	}
-
-	// Check 5: Project/Auth Org Match
-	orgMatchCheck := checkProjectAuthOrgMatch(cmd.Context(), devMode)
-	result.Checks = append(result.Checks, orgMatchCheck)
-	if orgMatchCheck.Status == "error" {
 		result.Healthy = false
 		result.Issues++
-	} else if orgMatchCheck.Status == "warning" {
-		result.Issues++
 	}
 
-	// Check 6: Build System
+	// Check 5: Build System
 	buildCheck := checkBuildSystem()
 	result.Checks = append(result.Checks, buildCheck)
 	// Build system is informational only
 
-	// Check 7: Sync Status (requires project config + optional API client)
-	if projectCheck.Status != "error" && projectCheck.Status != "warning" {
-		// Load config for sync check.
-		cwd, _ := os.Getwd()
-		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-		cfg, cfgErr := config.LoadProjectConfig(configPath)
-		if cfgErr == nil {
-			// Try to create an API client for remote verification.
-			var syncClient *api.Client
-			mgr := auth.NewManager()
-			if token, tokenErr := mgr.GetActiveToken(); tokenErr == nil && token != "" {
-				syncClient = api.NewClientWithDevMode(token, devMode)
-			}
-			syncCheck := checkSyncStatus(cmd.Context(), cfg, syncClient)
-			result.Checks = append(result.Checks, syncCheck)
-			if syncCheck.Status == "warning" {
-				result.Issues++
-			}
+	// Check 6: linked local tests against the remote state when authenticated.
+	if project != nil {
+		var syncClient *api.Client
+		mgr := auth.NewManager()
+		if token, tokenErr := mgr.GetActiveToken(); tokenErr == nil && token != "" {
+			syncClient = api.NewClientWithDevMode(token, devMode)
+		}
+		syncCheck := checkSyncStatus(cmd.Context(), project, syncClient)
+		result.Checks = append(result.Checks, syncCheck)
+		if syncCheck.Status == "warning" {
+			result.Issues++
 		}
 	}
 
@@ -227,70 +213,6 @@ func countDoctorChecks(checks []DoctorCheck, status string) int {
 		}
 	}
 	return count
-}
-
-// checkProjectAuthOrgMatch checks whether the cwd project is bound to the
-// same org as the authenticated account.
-func checkProjectAuthOrgMatch(ctx context.Context, devMode bool) DoctorCheck {
-	check := DoctorCheck{
-		Name:   "Project/Auth Org Match",
-		Status: "ok",
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		check.Status = "warning"
-		check.Message = "Could not resolve current directory"
-		check.Details = "Org mismatch check skipped"
-		return check
-	}
-
-	result := orgguard.Check(ctx, cwd, devMode)
-	if result == nil {
-		check.Status = "warning"
-		check.Message = "Org mismatch check unavailable"
-		check.Details = "Could not determine project/auth org binding state"
-		return check
-	}
-
-	if !result.ConfigExists {
-		check.Status = "warning"
-		check.Message = "No project configuration"
-		check.Details = "No .revyl/config.yaml found in current directory"
-		return check
-	}
-
-	if !result.ConfigParsed {
-		check.Status = "warning"
-		check.Message = "Project config unreadable"
-		check.Details = "Mismatch guard skipped because .revyl/config.yaml could not be parsed"
-		return check
-	}
-
-	if strings.TrimSpace(result.ProjectOrgID) == "" {
-		check.Status = "warning"
-		check.Message = "Project org binding not set"
-		check.Details = "Set project.org_id by running 'revyl init' while authenticated"
-		return check
-	}
-
-	if strings.TrimSpace(result.AuthOrgID) == "" {
-		check.Status = "warning"
-		check.Message = "Could not resolve authenticated organization"
-		check.Details = "Run 'revyl auth login' to refresh credentials"
-		return check
-	}
-
-	if result.Mismatch != nil {
-		check.Status = "warning"
-		check.Message = "Organization mismatch"
-		check.Details = fmt.Sprintf("Project org: %s, auth org: %s\n    Test/workflow and tag mutation commands are blocked until resolved", result.ProjectOrgID, result.AuthOrgID)
-		return check
-	}
-
-	check.Message = "Project and auth organizations match"
-	check.Details = fmt.Sprintf("Organization: %s", result.ProjectOrgID)
-	return check
 }
 
 // checkVersion checks the CLI version against the latest release.
@@ -413,6 +335,11 @@ func checkAPIConnectivity(ctx context.Context, devMode bool) DoctorCheck {
 // Returns:
 //   - DoctorCheck: The check result
 func checkProjectConfig() DoctorCheck {
+	check, _ := inspectProjectConfig()
+	return check
+}
+
+func inspectProjectConfig() (DoctorCheck, *config.ProjectContext) {
 	check := DoctorCheck{
 		Name:   "Project Config",
 		Status: "ok",
@@ -423,35 +350,67 @@ func checkProjectConfig() DoctorCheck {
 		check.Status = "error"
 		check.Message = "Could not get current directory"
 		check.Details = err.Error()
-		return check
+		return check, nil
 	}
 
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, err := config.LoadProjectConfig(configPath)
-
+	project, err := config.ResolveProjectContext(cwd, "")
 	if err != nil {
-		check.Status = "warning"
-		check.Message = "No project configuration"
-		check.Details = "Run 'revyl init' to initialize a project"
-		return check
+		var configErr *config.ConfigError
+		if errors.As(err, &configErr) && configErr.Code == "git_worktree_unavailable" {
+			check.Status = "warning"
+			check.Message = "Not in a Git worktree"
+			check.Details = "Run from the project directory or pass '-C <project-dir>'; for a new repository, run 'git init', then 'revyl init -y'"
+			return check, nil
+		}
+		if errors.As(err, &configErr) && configErr.Code == "config_not_found" {
+			check.Status = "warning"
+			projectRoots, nestedErr := config.FindNestedProjectRoots(cwd)
+			if nestedErr != nil {
+				check.Status = "error"
+				check.Message = "Could not inspect nested projects"
+				check.Details = nestedErr.Error()
+				return check, nil
+			}
+			if len(projectRoots) > 0 {
+				check.Message = "Nested project selection required"
+				commands := make([]string, 0, len(projectRoots))
+				for _, projectRoot := range projectRoots {
+					command := cliRecoveryCommandInDirectory(projectRoot, "doctor")
+					commands = append(commands, command)
+					check.nextSteps = append(check.nextSteps, ui.NextStep{Label: "Check project:", Command: command})
+				}
+				check.Details = "Choose a configured project: " + strings.Join(commands, " or ")
+				return check, nil
+			}
+			check.Message = "No project configuration"
+			pullCommand := cliRecoveryCommand("config", "pull")
+			initCommand := cliRecoveryCommand("init", "-y")
+			check.Details = fmt.Sprintf("Run %q to restore an existing project, or %q to create one", pullCommand, initCommand)
+			check.nextSteps = []ui.NextStep{
+				{Label: "Restore project:", Command: pullCommand},
+				{Label: "Create project:", Command: initCommand},
+			}
+			return check, nil
+		}
+		check.Status = "error"
+		check.Message = "Invalid project configuration"
+		check.Details = actionableLocalConfigError(err).Error()
+		if errors.As(err, &configErr) && (configErr.Code == "legacy_config_requires_migration" || configErr.Code == "mixed_config_formats") {
+			check.nextStepLabel = "Preview migration:"
+			check.nextStepCommand = cliRecoveryCommand("config", "migrate", "--check")
+		}
+		return check, nil
 	}
 
-	check.Message = fmt.Sprintf("Found at %s", configPath)
+	check.Message = fmt.Sprintf("Found at %s", project.ConfigPath)
 
-	// Count configured items
-	var details []string
-	if cfg.Project.Name != "" {
-		details = append(details, fmt.Sprintf("Project: %s", cfg.Project.Name))
-	}
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-	if linkedCount := config.CountLinkedTests(testsDir); linkedCount > 0 {
+	details := []string{fmt.Sprintf("Project ID: %s", project.Authored.Project.ID)}
+	if linkedCount := config.CountLinkedTests(project.TestsDir); linkedCount > 0 {
 		details = append(details, fmt.Sprintf("%d test(s)", linkedCount))
 	}
-	if len(details) > 0 {
-		check.Details = strings.Join(details, ", ")
-	}
+	check.Details = strings.Join(details, ", ")
 
-	return check
+	return check, project
 }
 
 // checkBuildSystem checks if a build system is detected.
@@ -496,7 +455,7 @@ func checkBuildSystem() DoctorCheck {
 		}
 		if !hasConfiguredPlatform {
 			check.Status = "warning"
-			check.Details = "Bazel workspace detected but build.platforms need manual configuration in .revyl/config.yaml"
+			check.Details = "Bazel workspace detected but a platform-oriented build.framework and named build.profiles recipe need manual configuration in .revyl/config.yaml"
 		}
 	case build.SystemKMP:
 		hasConfiguredPlatform := false
@@ -508,7 +467,7 @@ func checkBuildSystem() DoctorCheck {
 		}
 		if !hasConfiguredPlatform {
 			check.Status = "warning"
-			check.Details = "KMP layout detected but native build commands need configuration in .revyl/config.yaml"
+			check.Details = "KMP layout detected but platform-oriented native build.profiles recipes need configuration in .revyl/config.yaml"
 		}
 	}
 
@@ -555,7 +514,13 @@ func printDoctorResults(result DoctorResult) {
 		case check.Name == "Authentication" && check.Status == "error":
 			steps = append(steps, ui.NextStep{Label: "Authenticate:", Command: "revyl auth login"})
 		case check.Name == "Project Config" && (check.Status == "error" || check.Status == "warning"):
-			steps = append(steps, ui.NextStep{Label: "Initialize project:", Command: "revyl init"})
+			if len(check.nextSteps) > 0 {
+				steps = append(steps, check.nextSteps...)
+			} else if check.nextStepCommand != "" {
+				steps = append(steps, ui.NextStep{Label: check.nextStepLabel, Command: check.nextStepCommand})
+			} else {
+				steps = append(steps, ui.NextStep{Label: "Initialize project:", Command: "revyl init"})
+			}
 		case check.Name == "API Connection" && check.Status == "error":
 			steps = append(steps, ui.NextStep{Label: "Test connectivity:", Command: "revyl ping"})
 		}
@@ -683,99 +648,73 @@ func runPing(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// humanizeDuration returns a human-readable duration string.
-//
-// Parameters:
-//   - d: The duration to humanize
-//
-// Returns:
-//   - string: A short human-readable representation (e.g., "just now", "5m", "3h", "7d")
-func humanizeDuration(d time.Duration) string {
-	switch {
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
-	}
-}
-
-// checkSyncStatus verifies that local config is in sync with the server by
-// comparing test and workflow IDs against the remote state.
+// checkSyncStatus verifies canonical local test links against the remote state.
 //
 // Parameters:
 //   - ctx: Context for cancellation
-//   - cfg: The project configuration to verify
+//   - project: The already-resolved canonical project context
 //   - client: Authenticated API client (nil to skip remote verification)
 //
 // Returns:
 //   - DoctorCheck: The check result
-func checkSyncStatus(ctx context.Context, cfg *config.ProjectConfig, client *api.Client) DoctorCheck {
+func checkSyncStatus(ctx context.Context, project *config.ProjectContext, client *api.Client) DoctorCheck {
 	check := DoctorCheck{
 		Name:   "Sync Status",
 		Status: "ok",
 	}
 
-	// Show last synced timestamp.
-	if cfg.LastSyncedAt != "" {
-		syncTime, err := time.Parse(time.RFC3339, cfg.LastSyncedAt)
-		if err == nil {
-			age := time.Since(syncTime)
-			check.Message = fmt.Sprintf("Last synced: %s ago", humanizeDuration(age))
-			if age > 7*24*time.Hour {
-				check.Status = "warning"
-				check.Message = fmt.Sprintf("Config may be stale (last synced %s ago)", humanizeDuration(age))
-				check.Details = "Run 'revyl sync' to refresh"
-			}
-		} else {
-			check.Status = "warning"
-			check.Message = fmt.Sprintf("Invalid last_synced_at timestamp: %s", cfg.LastSyncedAt)
-			check.Details = "Run 'revyl sync' to reset sync tracking"
-		}
-	} else {
-		check.Message = "Never synced"
+	if project == nil {
 		check.Status = "warning"
-		check.Details = "Run 'revyl sync' or 'revyl init' to sync"
-	}
-
-	// If no client, skip remote verification.
-	if client == nil {
+		check.Message = "Project context unavailable"
 		return check
 	}
 
-	var issues []string
+	localTests, err := config.LoadLocalTests(project.TestsDir)
+	if err != nil {
+		check.Status = "warning"
+		check.Message = "Could not read local tests"
+		check.Details = err.Error()
+		return check
+	}
+	linked := 0
+	for _, localTest := range localTests {
+		if localTest != nil && strings.TrimSpace(localTest.Meta.RemoteID) != "" {
+			linked++
+		}
+	}
+	if linked == 0 {
+		check.Message = "No linked local tests"
+		return check
+	}
+	if client == nil {
+		check.Message = fmt.Sprintf("%d linked local test(s)", linked)
+		check.Details = "Remote verification skipped because authentication is unavailable"
+		return check
+	}
 
-	// Compare local tests against remote.
-	cwd, cwdErr := os.Getwd()
-	if cwdErr == nil {
-		testsDir := filepath.Join(cwd, ".revyl", "tests")
-		localTests, ltErr := config.LoadLocalTests(testsDir)
-		if ltErr == nil && len(localTests) > 0 {
-			remoteTests, err := client.ListAllOrgTests(ctx, 200)
-			if err == nil {
-				for name, lt := range localTests {
-					if lt == nil || lt.Meta.RemoteID == "" {
-						continue
-					}
-					found := false
-					for _, rt := range remoteTests {
-						if rt.ID == lt.Meta.RemoteID {
-							found = true
-							break
-						}
-					}
-					if !found {
-						shortID := lt.Meta.RemoteID
-						if len(shortID) > 8 {
-							shortID = shortID[:8]
-						}
-						issues = append(issues, fmt.Sprintf("Test '%s' (%s...) not found on server", name, shortID))
-					}
-				}
+	remoteTests, err := client.ListAllOrgTests(ctx, 200)
+	if err != nil {
+		check.Status = "warning"
+		check.Message = "Could not verify linked tests"
+		check.Details = err.Error()
+		return check
+	}
+	remoteIDs := make(map[string]struct{}, len(remoteTests))
+	for _, remoteTest := range remoteTests {
+		remoteIDs[remoteTest.ID] = struct{}{}
+	}
+
+	var issues []string
+	for name, localTest := range localTests {
+		if localTest == nil || strings.TrimSpace(localTest.Meta.RemoteID) == "" {
+			continue
+		}
+		if _, found := remoteIDs[localTest.Meta.RemoteID]; !found {
+			shortID := localTest.Meta.RemoteID
+			if len(shortID) > 8 {
+				shortID = shortID[:8]
 			}
+			issues = append(issues, fmt.Sprintf("Test '%s' (%s...) not found on server", name, shortID))
 		}
 	}
 
@@ -783,8 +722,8 @@ func checkSyncStatus(ctx context.Context, cfg *config.ProjectConfig, client *api
 		check.Status = "warning"
 		check.Message = fmt.Sprintf("%d sync issue(s) detected", len(issues))
 		check.Details = strings.Join(issues, "\n    ") + "\n    Run 'revyl sync' to reconcile"
-	} else if check.Status == "ok" {
-		check.Message = fmt.Sprintf("In sync (%s)", check.Message)
+	} else {
+		check.Message = fmt.Sprintf("%d linked local test(s) verified", linked)
 	}
 
 	return check

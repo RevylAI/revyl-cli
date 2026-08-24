@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -479,6 +480,15 @@ func withMockClient(t *testing.T, server *httptest.Server) {
 	t.Cleanup(func() { loadConfigAndClient = original })
 
 	tmp := t.TempDir()
+	if output, err := exec.Command("git", "-C", tmp, "init", "--quiet").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	if err := os.MkdirAll(filepath.Join(tmp, ".revyl"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.revyl): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, ".revyl", "config.yaml"), []byte("project:\n  id: 11111111-1111-4111-8111-111111111111\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config.yaml): %v", err)
+	}
 	testsDir := filepath.Join(tmp, ".revyl", "tests")
 	if err := os.MkdirAll(testsDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(.revyl/tests): %v", err)
@@ -523,18 +533,18 @@ func captureStdout(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatalf("os.Pipe: %v", err)
 	}
+	readResult := readCapturedPipe(r)
 	os.Stdout = w
+	defer func() {
+		os.Stdout = old
+		_ = w.Close()
+		_ = r.Close()
+	}()
 
 	fn()
 
-	w.Close()
 	os.Stdout = old
-
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("reading pipe: %v", err)
-	}
-	return string(out)
+	return finishCapturedPipe(t, r, w, readResult, "stdout")
 }
 
 func captureStdoutAndStderr(t *testing.T, fn func()) string {
@@ -547,27 +557,59 @@ func captureStdoutAndStderr(t *testing.T, fn func()) string {
 	}
 	rErr, wErr, err := os.Pipe()
 	if err != nil {
+		_ = rOut.Close()
+		_ = wOut.Close()
 		t.Fatalf("os.Pipe (stderr): %v", err)
 	}
+	outResult := readCapturedPipe(rOut)
+	errResult := readCapturedPipe(rErr)
 	os.Stdout = wOut
 	os.Stderr = wErr
+	defer func() {
+		os.Stdout = origOut
+		os.Stderr = origErr
+		_ = wOut.Close()
+		_ = wErr.Close()
+		_ = rOut.Close()
+		_ = rErr.Close()
+	}()
 
 	fn()
 
-	wOut.Close()
-	wErr.Close()
 	os.Stdout = origOut
 	os.Stderr = origErr
+	out := finishCapturedPipe(t, rOut, wOut, outResult, "stdout")
+	errOutput := finishCapturedPipe(t, rErr, wErr, errResult, "stderr")
+	return out + errOutput
+}
 
-	outBytes, err := io.ReadAll(rOut)
-	if err != nil {
-		t.Fatalf("reading stdout pipe: %v", err)
+type capturedPipeResult struct {
+	output []byte
+	err    error
+}
+
+func readCapturedPipe(r *os.File) <-chan capturedPipeResult {
+	result := make(chan capturedPipeResult, 1)
+	go func() {
+		output, err := io.ReadAll(r)
+		result <- capturedPipeResult{output: output, err: err}
+	}()
+	return result
+}
+
+func finishCapturedPipe(t *testing.T, r, w *os.File, result <-chan capturedPipeResult, stream string) string {
+	t.Helper()
+	if err := w.Close(); err != nil {
+		t.Fatalf("closing %s capture: %v", stream, err)
 	}
-	errBytes, err := io.ReadAll(rErr)
-	if err != nil {
-		t.Fatalf("reading stderr pipe: %v", err)
+	captured := <-result
+	if err := r.Close(); err != nil {
+		t.Fatalf("closing %s reader: %v", stream, err)
 	}
-	return string(outBytes) + string(errBytes)
+	if captured.err != nil {
+		t.Fatalf("reading %s pipe: %v", stream, captured.err)
+	}
+	return string(captured.output)
 }
 
 // newTestCommand creates a minimal cobra root command with the persistent flags

@@ -45,6 +45,14 @@ func newRepoRoot(t *testing.T) string {
 	return root
 }
 
+func testBeforeScript(scriptPath string, timeoutSeconds int) *config.AuthoredBeforeScript {
+	cfg := &config.AuthoredBeforeScript{ScriptPath: &scriptPath}
+	if timeoutSeconds > 0 {
+		cfg.TimeoutSeconds = &timeoutSeconds
+	}
+	return cfg
+}
+
 func TestRun_NotConfiguredIsNoOp(t *testing.T) {
 	result, err := Run(context.Background(), newRepoRoot(t), nil)
 	if err != nil {
@@ -66,9 +74,7 @@ echo "Setting FOO=bar in the app"
 echo "E2E_USER_ID=user-9"
 `)
 
-	result, err := Run(context.Background(), root, &config.BeforeSessionConfig{
-		Script: "./scripts/mint.sh",
-	})
+	result, err := Run(context.Background(), root, testBeforeScript("./scripts/mint.sh", 0))
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -92,9 +98,7 @@ func TestRun_RunsFromRepoRootRegardlessOfWorkingDirectory(t *testing.T) {
 echo "CWD_MARKER=$(pwd)"
 `)
 
-	result, err := Run(context.Background(), root, &config.BeforeSessionConfig{
-		Script: "scripts/pwd.sh",
-	})
+	result, err := Run(context.Background(), root, testBeforeScript("scripts/pwd.sh", 0))
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -112,14 +116,15 @@ echo "backend rejected credential super-secret" >&2
 exit 3
 `)
 
-	_, err := Run(context.Background(), root, &config.BeforeSessionConfig{
-		Script: "./scripts/fail.sh",
-	})
+	_, err := Run(context.Background(), root, testBeforeScript("./scripts/fail.sh", 0))
 	if err == nil {
 		t.Fatal("Run() error = nil, want a fatal setup failure")
 	}
 	if !strings.Contains(err.Error(), "exit 3") {
 		t.Fatalf("Run() error = %q, want the exit code", err)
+	}
+	if !strings.Contains(err.Error(), "session.before_script") || strings.Contains(err.Error(), "before_session") {
+		t.Fatalf("Run() error = %q, want the canonical config field", err)
 	}
 	if strings.Contains(err.Error(), "super-secret") {
 		t.Fatalf("Run() error leaked script output: %q", err)
@@ -131,10 +136,7 @@ func TestRun_TimesOut(t *testing.T) {
 	root := newRepoRoot(t)
 	writeScript(t, root, "scripts/hang.sh", "#!/bin/sh\nsleep 30\n")
 
-	_, err := Run(context.Background(), root, &config.BeforeSessionConfig{
-		Script:         "./scripts/hang.sh",
-		TimeoutSeconds: 1,
-	})
+	_, err := Run(context.Background(), root, testBeforeScript("./scripts/hang.sh", 1))
 	if err == nil {
 		t.Fatal("Run() error = nil, want a timeout")
 	}
@@ -158,9 +160,7 @@ func TestRun_RejectsScriptOutsideRepository(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := Run(context.Background(), root, &config.BeforeSessionConfig{
-				Script: testCase.script,
-			})
+			_, err := Run(context.Background(), root, testBeforeScript(testCase.script, 0))
 			if err == nil {
 				t.Fatal("Run() error = nil, want rejection outside the repository")
 			}
@@ -186,9 +186,7 @@ func TestRun_AllowsScriptElsewhereInGitWorktree(t *testing.T) {
 echo "TOKEN=from-monorepo"
 `)
 
-	result, err := Run(context.Background(), projectRoot, &config.BeforeSessionConfig{
-		Script: "../.ai-skills/ensure.sh",
-	})
+	result, err := Run(context.Background(), projectRoot, testBeforeScript("../.ai-skills/ensure.sh", 0))
 	if err != nil {
 		t.Fatalf("Run() error = %v, want success for in-worktree ../ script", err)
 	}
@@ -210,9 +208,7 @@ func TestRun_RejectsScriptOutsideGitWorktree(t *testing.T) {
 	outside := newRepoRoot(t)
 	writeScript(t, outside, "evil.sh", "#!/bin/sh\necho STOLEN=1\n")
 
-	_, err := Run(context.Background(), projectRoot, &config.BeforeSessionConfig{
-		Script: filepath.Join(outside, "evil.sh"),
-	})
+	_, err := Run(context.Background(), projectRoot, testBeforeScript(filepath.Join(outside, "evil.sh"), 0))
 	if err == nil {
 		t.Fatal("Run() error = nil, want rejection outside the git worktree")
 	}
@@ -231,7 +227,7 @@ func TestRun_RejectsSymlinkEscapingRepository(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	_, err := Run(context.Background(), root, &config.BeforeSessionConfig{Script: "./setup.sh"})
+	_, err := Run(context.Background(), root, testBeforeScript("./setup.sh", 0))
 	if err == nil {
 		t.Fatal("Run() error = nil, want rejection of a symlink out of the repository")
 	}
@@ -261,9 +257,7 @@ func TestRun_RejectsMissingAndNonExecutableScripts(t *testing.T) {
 			if testCase.name == "not executable" && runtime.GOOS == "windows" {
 				t.Skip("Unix execute-bit check is not enforced on Windows")
 			}
-			_, err := Run(context.Background(), root, &config.BeforeSessionConfig{
-				Script: testCase.script,
-			})
+			_, err := Run(context.Background(), root, testBeforeScript(testCase.script, 0))
 			if err == nil || !strings.Contains(err.Error(), testCase.wantMessage) {
 				t.Fatalf("Run() error = %v, want %q", err, testCase.wantMessage)
 			}
@@ -295,9 +289,7 @@ func TestRun_RejectsAmbiguousValueOutput(t *testing.T) {
 			root := newRepoRoot(t)
 			writeScript(t, root, "setup.sh", testCase.body)
 
-			_, err := Run(context.Background(), root, &config.BeforeSessionConfig{
-				Script: "./setup.sh",
-			})
+			_, err := Run(context.Background(), root, testBeforeScript("./setup.sh", 0))
 			if err == nil || !strings.Contains(err.Error(), testCase.wantMessage) {
 				t.Fatalf("Run() error = %v, want %q", err, testCase.wantMessage)
 			}
@@ -313,7 +305,7 @@ func TestRun_PropagatesCallerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := Run(ctx, root, &config.BeforeSessionConfig{Script: "./hang.sh"})
+	_, err := Run(ctx, root, testBeforeScript("./hang.sh", 0))
 	if err == nil || !strings.Contains(err.Error(), "cancelled") {
 		t.Fatalf("Run() error = %v, want a cancellation message", err)
 	}
@@ -379,9 +371,7 @@ func TestRun_RejectsTruncatedStdout(t *testing.T) {
 	// accept a corrupted partial value.
 	writeScript(t, root, "setup.sh", "#!/bin/sh\necho \"E2E_AUTH_TOKEN="+secret+strings.Repeat("x", 80)+"\"\n")
 
-	result, err := Run(context.Background(), root, &config.BeforeSessionConfig{
-		Script: "./setup.sh",
-	})
+	result, err := Run(context.Background(), root, testBeforeScript("./setup.sh", 0))
 	if err == nil {
 		t.Fatal("Run() error = nil, want a truncation failure")
 	}

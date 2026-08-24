@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -77,6 +78,19 @@ func dispatchComposite[I any, O any](
 	}
 	toolResult, out, err := handler(ctx, req, typed)
 	if err != nil {
+		var setupErr *projectSetupError
+		if errors.As(err, &setupErr) {
+			failureOutcome, remediation := projectResolutionFailure(err)
+			return &mcp.CallToolResult{IsError: true}, CompositeOutput{
+				Action: input.Action,
+				Result: map[string]any{
+					"success":     false,
+					"outcome":     failureOutcome,
+					"remediation": remediation,
+					"error":       err.Error(),
+				},
+			}, nil
+		}
 		return toolResult, CompositeOutput{Action: input.Action, Result: nil}, err
 	}
 	encoded, marshalErr := json.Marshal(out)
@@ -445,6 +459,8 @@ func (s *Server) handleManageVariables(ctx context.Context, req *mcp.CallToolReq
 // ---------------------------------------------------------------------------
 
 func (s *Server) registerUtilityTools() {
+	s.registerSetupStatusTool()
+
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "auth_status",
 		Description: "Check current authentication status and return user info.",

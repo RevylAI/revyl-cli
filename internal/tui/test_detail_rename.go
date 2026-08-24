@@ -26,9 +26,7 @@ var reservedTUIResourceNames = map[string]bool{
 }
 
 type testRenamePlan struct {
-	Config                *config.ProjectConfig
 	LocalTests            map[string]*config.LocalTest
-	ConfigPath            string
 	TestsDir              string
 	AliasToRename         string
 	ApplyLocalAliasRename bool
@@ -134,15 +132,12 @@ func buildTestRenamePlan(testID, oldNameOrID, remoteName, newName string) (*test
 		return nil, fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-
-	cfg, cfgErr := config.LoadProjectConfig(configPath)
-	if cfgErr != nil {
-		cfg = &config.ProjectConfig{}
+	project, err := config.ResolveProjectContext(cwd, "")
+	if err != nil {
+		return nil, actionableProjectConfigError(fmt.Errorf("resolve current project: %w", err))
 	}
 
-	localTests, _ := config.LoadLocalTests(testsDir)
+	localTests, _ := config.LoadLocalTests(project.TestsDir)
 	if localTests == nil {
 		localTests = make(map[string]*config.LocalTest)
 	}
@@ -168,10 +163,8 @@ func buildTestRenamePlan(testID, oldNameOrID, remoteName, newName string) (*test
 	}
 
 	plan := &testRenamePlan{
-		Config:        cfg,
 		LocalTests:    localTests,
-		ConfigPath:    configPath,
-		TestsDir:      testsDir,
+		TestsDir:      project.TestsDir,
 		AliasToRename: aliasToRename,
 		LocalAlias:    localAlias,
 	}

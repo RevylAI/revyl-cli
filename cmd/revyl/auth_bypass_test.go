@@ -33,7 +33,7 @@ func (f *fakeWorkerRequester) WorkerRequestForSession(ctx context.Context, sessi
 	return []byte(`{"success":true,"action":"open_url"}`), nil
 }
 
-func withTestAuthBypass(t *testing.T, cfg *config.AuthBypassConfig) *authBypassRuntime {
+func withTestAuthBypass(t *testing.T, cfg *config.AuthoredAuthBypass) *authBypassRuntime {
 	t.Helper()
 	prev := devAuthBypass
 	t.Cleanup(func() { devAuthBypass = prev })
@@ -42,9 +42,10 @@ func withTestAuthBypass(t *testing.T, cfg *config.AuthBypassConfig) *authBypassR
 }
 
 func TestAuthBypassDelegatesTemplateResolutionToWorkerProxy(t *testing.T) {
-	rt := withTestAuthBypass(t, &config.AuthBypassConfig{
-		DeepLink: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home",
-	})
+	rt := withTestAuthBypass(t, testAuthoredAuthBypass(
+		nil,
+		"myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home",
+	))
 	requester := &fakeWorkerRequester{}
 
 	if err := rt.FireDeepLink(context.Background(), requester, 0); err != nil {
@@ -54,7 +55,7 @@ func TestAuthBypassDelegatesTemplateResolutionToWorkerProxy(t *testing.T) {
 		t.Fatalf("worker paths = %v, want one /open_url_template", requester.paths)
 	}
 	body, ok := requester.bodies[0].(api.DeviceOpenURLTemplateRequest)
-	if !ok || body.URLTemplate != rt.cfg.DeepLink {
+	if !ok || body.URLTemplate != authoredAuthBypassDeepLink(rt.cfg) {
 		t.Fatalf("open_url_template body = %#v", requester.bodies[0])
 	}
 	status := rt.Status()
@@ -81,9 +82,7 @@ func TestOpenURLAfterLaunchSurfacesWorkerFailure(t *testing.T) {
 
 func TestAuthBypassFailureRedactsWorkerResponseFromErrorAndStatus(t *testing.T) {
 	const secret = "resolved-bypass-token"
-	rt := withTestAuthBypass(t, &config.AuthBypassConfig{
-		DeepLink: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}",
-	})
+	rt := withTestAuthBypass(t, testAuthoredAuthBypass(nil, "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}"))
 	requester := &fakeWorkerRequester{
 		err: &mcppkg.WorkerHTTPError{
 			StatusCode: 500,
@@ -119,16 +118,14 @@ func TestInitDevAuthBypassClearsRuntimeOnRemoval(t *testing.T) {
 	prev := devAuthBypass
 	t.Cleanup(func() { devAuthBypass = prev })
 
-	initDevAuthBypass(&config.ProjectConfig{
-		AuthBypass: &config.AuthBypassConfig{DeepLink: "myapp://revyl-auth?static=true"},
-	})
+	initDevAuthBypass(testAuthoredAuthBypass(nil, "myapp://revyl-auth?static=true"))
 	if devAuthBypass == nil {
 		t.Fatal("initDevAuthBypass() left runtime nil for a configured section")
 	}
 
 	// A reload whose config no longer configures auth bypass must clear the
 	// previously active runtime so a removed section stops firing.
-	initDevAuthBypass(&config.ProjectConfig{})
+	initDevAuthBypass(nil)
 	if devAuthBypass != nil {
 		t.Fatalf("initDevAuthBypass() = %+v, want nil after auth_bypass removed", devAuthBypass)
 	}
@@ -146,18 +143,16 @@ func TestInitDevAuthBypassPreservesOutcomeWhenConfigIsUnchanged(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			rt := withTestAuthBypass(t, &config.AuthBypassConfig{
-				LaunchVars: []string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"},
-				DeepLink:   "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}",
-			})
+			rt := withTestAuthBypass(t, testAuthoredAuthBypass(
+				[]string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"},
+				"myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}",
+			))
 			rt.setAttemptState(testCase.state, testCase.lastError)
 
-			initDevAuthBypass(&config.ProjectConfig{
-				AuthBypass: &config.AuthBypassConfig{
-					LaunchVars: []string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"},
-					DeepLink:   "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}",
-				},
-			})
+			initDevAuthBypass(testAuthoredAuthBypass(
+				[]string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"},
+				"myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}",
+			))
 
 			if devAuthBypass != rt {
 				t.Fatal("initDevAuthBypass() replaced the runtime for unchanged config")
@@ -171,18 +166,16 @@ func TestInitDevAuthBypassPreservesOutcomeWhenConfigIsUnchanged(t *testing.T) {
 }
 
 func TestInitDevAuthBypassResetsOutcomeWhenConfigChanges(t *testing.T) {
-	rt := withTestAuthBypass(t, &config.AuthBypassConfig{
-		LaunchVars: []string{"REVYL_AUTH_BYPASS_ENABLED"},
-		DeepLink:   "myapp://revyl-auth?mode=old",
-	})
+	rt := withTestAuthBypass(t, testAuthoredAuthBypass(
+		[]string{"REVYL_AUTH_BYPASS_ENABLED"},
+		"myapp://revyl-auth?mode=old",
+	))
 	rt.setAttemptState("ready", "")
 
-	initDevAuthBypass(&config.ProjectConfig{
-		AuthBypass: &config.AuthBypassConfig{
-			LaunchVars: []string{"REVYL_AUTH_BYPASS_ENABLED"},
-			DeepLink:   "myapp://revyl-auth?mode=new",
-		},
-	})
+	initDevAuthBypass(testAuthoredAuthBypass(
+		[]string{"REVYL_AUTH_BYPASS_ENABLED"},
+		"myapp://revyl-auth?mode=new",
+	))
 
 	if devAuthBypass == rt {
 		t.Fatal("initDevAuthBypass() preserved the runtime after config changed")
@@ -194,10 +187,10 @@ func TestInitDevAuthBypassResetsOutcomeWhenConfigChanges(t *testing.T) {
 }
 
 func TestApplyAuthBypassSessionDefaults(t *testing.T) {
-	withTestAuthBypass(t, &config.AuthBypassConfig{
-		LaunchVars: []string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"},
-		DeepLink:   "myapp://revyl-auth?static=true",
-	})
+	withTestAuthBypass(t, testAuthoredAuthBypass(
+		[]string{"REVYL_AUTH_BYPASS_ENABLED", "REVYL_AUTH_BYPASS_TOKEN"},
+		"myapp://revyl-auth?static=true",
+	))
 
 	// Defaults apply when the caller provided nothing.
 	opts := applyAuthBypassSessionDefaults(context.Background(), mcppkg.StartSessionOptions{})
@@ -238,9 +231,7 @@ func TestApplyAuthBypassSessionDefaultsNoConfig(t *testing.T) {
 }
 
 func TestFireAuthBypassAfterLaunchOpensURL(t *testing.T) {
-	withTestAuthBypass(t, &config.AuthBypassConfig{
-		DeepLink: "myapp://revyl-auth?token=${TOKEN}",
-	})
+	withTestAuthBypass(t, testAuthoredAuthBypass(nil, "myapp://revyl-auth?token=${TOKEN}"))
 
 	requester := &fakeWorkerRequester{}
 	fireAuthBypassAfterLaunch(context.Background(), requester, 0)

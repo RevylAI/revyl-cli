@@ -27,9 +27,22 @@ when available.`,
 	Example: `  revyl test validate .revyl/tests/login.yaml
   revyl test validate tests/*.yaml --dev`,
 	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return validateYAMLFilesWithBackend(cmd, args)
-	},
+	RunE: runTestValidate,
+}
+
+func runTestValidate(cmd *cobra.Command, files []string) error {
+	if err := validateYAMLFilesWithBackend(cmd, files); err != nil {
+		return err
+	}
+	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
+	if !jsonOutput {
+		label := "files"
+		if len(files) == 1 {
+			label = "file"
+		}
+		ui.PrintSuccess("Validated %d YAML test %s", len(files), label)
+	}
+	return nil
 }
 
 func validateYAMLFilesWithBackend(cmd *cobra.Command, files []string) error {

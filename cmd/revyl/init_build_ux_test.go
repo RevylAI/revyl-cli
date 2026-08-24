@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -47,8 +46,6 @@ func resetInitGlobals(t *testing.T) {
 	originalDetect := initDetect
 	originalForce := initForce
 	originalNonInteractive := initNonInteractive
-	originalHotReloadAppScheme := initHotReloadAppScheme
-	originalHotReloadProvider := initHotReloadProvider
 	originalXcodeSchemeOverrides := initXcodeSchemeOverrides
 
 	t.Cleanup(func() {
@@ -56,8 +53,6 @@ func resetInitGlobals(t *testing.T) {
 		initDetect = originalDetect
 		initForce = originalForce
 		initNonInteractive = originalNonInteractive
-		initHotReloadAppScheme = originalHotReloadAppScheme
-		initHotReloadProvider = originalHotReloadProvider
 		initXcodeSchemeOverrides = originalXcodeSchemeOverrides
 	})
 
@@ -65,8 +60,6 @@ func resetInitGlobals(t *testing.T) {
 	initDetect = false
 	initForce = false
 	initNonInteractive = false
-	initHotReloadAppScheme = ""
-	initHotReloadProvider = ""
 	initXcodeSchemeOverrides = nil
 }
 
@@ -148,21 +141,6 @@ func resetBuildUploadGlobals(t *testing.T) {
 	uploadCleanFlag = false
 }
 
-func writeBuildUploadProjectConfig(t *testing.T, dir string, cfg *config.ProjectConfig) string {
-	t.Helper()
-
-	configDir := filepath.Join(dir, ".revyl")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(.revyl): %v", err)
-	}
-
-	configPath := filepath.Join(configDir, "config.yaml")
-	if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-		t.Fatalf("WriteProjectConfig(): %v", err)
-	}
-	return configPath
-}
-
 func TestWizardProjectSetupPrintsInferredBuildSettingsForAndroidFixture(t *testing.T) {
 	overrideOpts, err := newInitOverrideOptions(nil, "", false)
 	if err != nil {
@@ -194,6 +172,7 @@ func TestRunInitSkipBuildSetupForNowCreatesPlaceholderPlatforms(t *testing.T) {
 	resetInitGlobals(t)
 
 	workDir := copyInternalAppFixture(t, filepath.Join(repoRootForInitFixtureTests(t), "internal-apps", "android-minimal"), true)
+	gitInitForInitTest(t, workDir)
 	withWorkingDir(t, workDir)
 
 	cmd := &cobra.Command{Use: "init"}
@@ -217,23 +196,22 @@ func TestRunInitSkipBuildSetupForNowCreatesPlaceholderPlatforms(t *testing.T) {
 		t.Fatalf("expected placeholder platform confirmation, got:\n%s", output)
 	}
 
-	cfg, err := config.LoadProjectConfig(filepath.Join(workDir, ".revyl", "config.yaml"))
+	configBytes, err := os.ReadFile(filepath.Join(workDir, ".revyl", "config.yaml"))
 	if err != nil {
-		t.Fatalf("LoadProjectConfig() error = %v", err)
+		t.Fatalf("ReadFile(config.yaml) error = %v", err)
 	}
-
-	if cfg.Build.System != "Gradle (Android)" {
-		t.Fatalf("build.system = %q, want %q", cfg.Build.System, "Gradle (Android)")
+	authored, err := config.ParseAuthoredConfig(configBytes)
+	if err != nil {
+		t.Fatalf("ParseAuthoredConfig() error = %v", err)
 	}
-	if cfg.Build.Command != "" || cfg.Build.Output != "" {
-		t.Fatalf("top-level build config not cleared: %+v", cfg.Build)
+	if authored.Build == nil || authored.Build.Framework != "android" {
+		t.Fatalf("build = %+v, want android framework", authored.Build)
 	}
-
-	platformCfg, ok := cfg.Build.Platforms["android"]
-	if !ok {
-		t.Fatalf("missing android placeholder platform in %+v", cfg.Build.Platforms)
+	platformCfg := authored.Build.Profiles["development"].Android
+	if platformCfg == nil {
+		t.Fatalf("missing android placeholder recipe in %+v", authored.Build.Profiles)
 	}
-	if platformCfg.Command != "" || platformCfg.Output != "" || platformCfg.Scheme != "" || platformCfg.AppID != "" {
+	if platformCfg.BuildCommands == nil || len(*platformCfg.BuildCommands) != 0 || platformCfg.OutputPath != nil || platformCfg.AppID != nil {
 		t.Fatalf("android placeholder platform not cleared: %+v", platformCfg)
 	}
 }
@@ -256,6 +234,7 @@ func TestRunInitSkipBuildSetupForNowDefersHotReloadForPlaceholderProjects(t *tes
 			resetInitGlobals(t)
 
 			workDir := copyInternalAppFixture(t, filepath.Join(repoRootForInitFixtureTests(t), "internal-apps", tt.fixture), true)
+			gitInitForInitTest(t, workDir)
 			withWorkingDir(t, workDir)
 
 			cmd := &cobra.Command{Use: "init"}
@@ -269,20 +248,27 @@ func TestRunInitSkipBuildSetupForNowDefersHotReloadForPlaceholderProjects(t *tes
 				})
 			})
 
-			cfg, err := config.LoadProjectConfig(filepath.Join(workDir, ".revyl", "config.yaml"))
+			configBytes, err := os.ReadFile(filepath.Join(workDir, ".revyl", "config.yaml"))
 			if err != nil {
-				t.Fatalf("LoadProjectConfig() error = %v", err)
+				t.Fatalf("ReadFile(config.yaml) error = %v", err)
 			}
-
-			platformCfg, ok := cfg.Build.Platforms[tt.platform]
-			if !ok {
-				t.Fatalf("missing %s placeholder platform in %+v", tt.platform, cfg.Build.Platforms)
+			authored, err := config.ParseAuthoredConfig(configBytes)
+			if err != nil {
+				t.Fatalf("ParseAuthoredConfig() error = %v", err)
 			}
-			if platformCfg.Command != "" || platformCfg.Output != "" || platformCfg.Scheme != "" || platformCfg.AppID != "" {
+			profile := authored.Build.Profiles["development"]
+			platformCfg := profile.IOS
+			if tt.platform == "android" {
+				platformCfg = profile.Android
+			}
+			if platformCfg == nil {
+				t.Fatalf("missing %s placeholder recipe in %+v", tt.platform, authored.Build.Profiles)
+			}
+			if platformCfg.BuildCommands == nil || len(*platformCfg.BuildCommands) != 0 || platformCfg.OutputPath != nil || platformCfg.AppID != nil {
 				t.Fatalf("%s placeholder platform not cleared: %+v", tt.platform, platformCfg)
 			}
-			if cfg.HotReload.IsConfigured() {
-				t.Fatalf("hot reload should not be configured after skipping build setup for %s", tt.fixture)
+			if strings.Contains(string(configBytes), "hotreload:") {
+				t.Fatalf("canonical config contains retired hotreload state:\n%s", configBytes)
 			}
 
 			if !strings.Contains(output, "Hot reload and live dev setup are deferred until at least one build platform has a build command and artifact path.") {
@@ -295,88 +281,6 @@ func TestRunInitSkipBuildSetupForNowDefersHotReloadForPlaceholderProjects(t *tes
 				t.Fatalf("unexpected revyl dev suggestion in output:\n%s", output)
 			}
 		})
-	}
-}
-
-func TestRunBuildPlaceholderGuidanceListsPlaceholderPlatforms(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("local revyl build config guidance is not reachable on Windows")
-	}
-
-	resetBuildUploadGlobals(t)
-	t.Setenv("REVYL_API_KEY", "test-key")
-	t.Setenv("HOME", t.TempDir())
-
-	tmp := t.TempDir()
-	withWorkingDir(t, tmp)
-
-	writeBuildUploadProjectConfig(t, tmp, &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System: "Gradle (Android)",
-			Platforms: map[string]config.BuildPlatform{
-				"android": {},
-			},
-		},
-	})
-
-	cmd := newBuildTestCommand()
-	output := captureStdoutAndStderr(t, func() {
-		err := runBuild(cmd, nil)
-		if err == nil {
-			t.Fatal("runBuild() error = nil, want placeholder guidance error")
-		}
-	})
-
-	if !strings.Contains(output, "Detected build platforms are present but not configured yet") {
-		t.Fatalf("expected placeholder guidance, got:\n%s", output)
-	}
-	if !strings.Contains(output, "Placeholder platforms: android") {
-		t.Fatalf("expected placeholder platform list, got:\n%s", output)
-	}
-}
-
-func TestRunBuildExplicitPlaceholderPlatformShowsSetupGuidance(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("local revyl build config guidance is not reachable on Windows")
-	}
-
-	resetBuildUploadGlobals(t)
-	t.Setenv("REVYL_API_KEY", "test-key")
-	t.Setenv("HOME", t.TempDir())
-
-	tmp := t.TempDir()
-	withWorkingDir(t, tmp)
-
-	writeBuildUploadProjectConfig(t, tmp, &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System: "Gradle (Android)",
-			Platforms: map[string]config.BuildPlatform{
-				"android": {},
-			},
-		},
-	})
-
-	buildCommandPlatform = "android"
-
-	cmd := newBuildTestCommand()
-	output := captureStdoutAndStderr(t, func() {
-		err := runBuild(cmd, nil)
-		if err == nil {
-			t.Fatal("runBuild() error = nil, want placeholder guidance error")
-		}
-		if !strings.Contains(err.Error(), "not ready yet") {
-			t.Fatalf("error = %q, want placeholder readiness guidance", err.Error())
-		}
-	})
-
-	if strings.Contains(output, "Unknown platform") {
-		t.Fatalf("unexpected unknown-platform output for placeholder platform:\n%s", output)
-	}
-	if !strings.Contains(output, "Build platform android is not ready yet") {
-		t.Fatalf("expected placeholder readiness message, got:\n%s", output)
-	}
-	if !strings.Contains(output, "Finish native setup or add build.platforms.android.command and build.platforms.android.output in .revyl/config.yaml") {
-		t.Fatalf("expected placeholder setup guidance, got:\n%s", output)
 	}
 }
 
@@ -481,14 +385,13 @@ func TestFirstBuildOutcomeTracking(t *testing.T) {
 }
 
 func TestWhatsNextMenuGatingOnBuildOutcome(t *testing.T) {
-	runnableCfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			System: "Bazel",
-			Platforms: map[string]config.BuildPlatform{
+	runnableCfg := &initConfigDraft{
+		Build: initBuildDraft{
+			Recipes: map[string]initBuildRecipeDraft{
 				"android": {
-					Command: "bazel build //app:app -c dbg",
-					Output:  "bazel-bin/app/app.apk",
-					AppID:   "test-app-id",
+					BuildCommands: []string{"bazel build //app:app -c dbg"},
+					OutputPath:    "bazel-bin/app/app.apk",
+					AppID:         "test-app-id",
 				},
 			},
 		},
@@ -496,7 +399,7 @@ func TestWhatsNextMenuGatingOnBuildOutcome(t *testing.T) {
 
 	t.Run("no build attempted allows live dev", func(t *testing.T) {
 		outcome := &firstBuildOutcome{}
-		canStart := hasRunnableBuildPlatforms(runnableCfg) && (!outcome.WasAttempted() || outcome.HasSucceeded())
+		canStart := hasRunnableInitBuild(runnableCfg.Build) && (!outcome.WasAttempted() || outcome.HasSucceeded())
 
 		if !canStart {
 			t.Fatal("live dev should be allowed when no build was attempted but config is runnable")
@@ -507,7 +410,7 @@ func TestWhatsNextMenuGatingOnBuildOutcome(t *testing.T) {
 		outcome := &firstBuildOutcome{}
 		outcome.RecordFailure("android")
 
-		canStart := hasRunnableBuildPlatforms(runnableCfg) && (!outcome.WasAttempted() || outcome.HasSucceeded())
+		canStart := hasRunnableInitBuild(runnableCfg.Build) && (!outcome.WasAttempted() || outcome.HasSucceeded())
 		hasFailedBuilds := outcome.HasFailed()
 
 		if canStart {
@@ -523,7 +426,7 @@ func TestWhatsNextMenuGatingOnBuildOutcome(t *testing.T) {
 		outcome.RecordFailure("ios")
 		outcome.RecordSuccess("android")
 
-		canStart := hasRunnableBuildPlatforms(runnableCfg) && (!outcome.WasAttempted() || outcome.HasSucceeded())
+		canStart := hasRunnableInitBuild(runnableCfg.Build) && (!outcome.WasAttempted() || outcome.HasSucceeded())
 
 		if !canStart {
 			t.Fatal("live dev should be allowed when at least one build succeeded")

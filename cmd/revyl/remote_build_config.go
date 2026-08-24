@@ -13,7 +13,7 @@ import (
 
 func remoteBuildConfigFromResolved(appID uuid.UUID, resolved remoteBuildPlatformConfig) api.BuildConfig {
 	platform := api.BuildConfigPlatform(resolved.Platform)
-	steps := remoteBuildSteps(resolved.Setup, remoteBuildCommands(resolved))
+	steps := remoteBuildStepsFromCommands(remoteBuildSetupCommands(resolved), remoteBuildCommands(resolved))
 	artifacts := remoteBuildArtifacts(defaultRemoteArtifactType(resolved.Platform), resolved.Output)
 
 	sourceSubdir := ""
@@ -35,6 +35,16 @@ func remoteBuildConfigFromResolved(appID uuid.UUID, resolved remoteBuildPlatform
 	}
 }
 
+func remoteBuildSetupCommands(resolved remoteBuildPlatformConfig) []string {
+	commands := append([]string(nil), resolved.SetupCommands...)
+	if len(commands) == 0 {
+		if command := strings.TrimSpace(resolved.Setup); command != "" {
+			commands = []string{command}
+		}
+	}
+	return commands
+}
+
 func remoteBuildCommands(resolved remoteBuildPlatformConfig) []string {
 	commands := append([]string(nil), resolved.Commands...)
 	if len(commands) == 0 {
@@ -52,13 +62,28 @@ func remoteBuildCommands(resolved remoteBuildPlatformConfig) []string {
 }
 
 func remoteBuildSteps(setup string, commands []string) []api.BuildStep {
+	setupCommands := []string{}
+	if strings.TrimSpace(setup) != "" {
+		setupCommands = []string{setup}
+	}
+	return remoteBuildStepsFromCommands(setupCommands, commands)
+}
+
+func remoteBuildStepsFromCommands(setupCommands, commands []string) []api.BuildStep {
 	checkoutName := "checkout"
 	steps := []api.BuildStep{
 		{Type: api.BuildStepTypeCheckout, Name: &checkoutName},
 	}
 
-	if setup = strings.TrimSpace(setup); setup != "" {
+	for index, setup := range setupCommands {
+		setup = strings.TrimSpace(setup)
+		if setup == "" {
+			continue
+		}
 		setupName := "setup"
+		if len(setupCommands) > 1 {
+			setupName = fmt.Sprintf("setup-%d", index+1)
+		}
 		steps = append(steps, api.BuildStep{
 			Type:    api.BuildStepTypeRun,
 			Name:    &setupName,

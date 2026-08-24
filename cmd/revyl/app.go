@@ -3,9 +3,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -135,6 +135,22 @@ func runAppCreate(cmd *cobra.Command, args []string) error {
 		jsonOutput = true
 	}
 
+	// Human app creation preserves the established optional config-binding
+	// prompt. Resolve and strictly validate that config before creating the
+	// remote app so a legacy or malformed file cannot fail only after the
+	// external side effect. JSON creation remains deliberately configless.
+	var projectContext *config.ProjectContext
+	if !jsonOutput {
+		cwd, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			return fmt.Errorf("failed to get current directory: %w", cwdErr)
+		}
+		projectContext, err = resolveOptionalAppProject(cwd)
+		if err != nil {
+			return fmt.Errorf("cannot inspect project config before creating app: %w", err)
+		}
+	}
+
 	// Create API client
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
@@ -169,30 +185,8 @@ func runAppCreate(cmd *cobra.Command, args []string) error {
 	ui.PrintInfo("  Platform:  %s", platform)
 	ui.Println()
 
-	// Offer to save app_id to the matching config platform entry
-	cwd, err := os.Getwd()
-	if err == nil {
-		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-		cfg, cfgErr := config.LoadProjectConfig(configPath)
-
-		if cfgErr == nil && cfg != nil {
-			// Check if there's a matching platform entry
-			if cfg.Build.Platforms != nil {
-				if _, hasPlatform := cfg.Build.Platforms[platform]; hasPlatform {
-					save, promptErr := ui.PromptConfirm(fmt.Sprintf("Save to .revyl/config.yaml for platform '%s'?", platform), true)
-					if promptErr == nil && save {
-						platformCfg := cfg.Build.Platforms[platform]
-						platformCfg.AppID = result.ID
-						cfg.Build.Platforms[platform] = platformCfg
-						if writeErr := config.WriteProjectConfig(configPath, cfg); writeErr != nil {
-							ui.PrintWarning("Failed to save config: %v", writeErr)
-						} else {
-							ui.PrintSuccess("Saved app_id to build.platforms.%s", platform)
-						}
-					}
-				}
-			}
-		}
+	if err := offerSaveAppBinding(projectContext, platform, result.ID); err != nil {
+		ui.PrintWarning("Failed to save config: %v", err)
 	}
 
 	ui.Println()
@@ -328,23 +322,20 @@ func runAppDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Load project config to check for references
+	// Resolve and strictly validate the nearest canonical config before deleting
+	// the remote app. A project without config remains a supported standalone
+	// workflow, but an invalid config must not be discovered only after deletion.
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
-
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, cfgErr := config.LoadProjectConfig(configPath)
-
-	// Check if app is referenced in config
-	var configRefs []string
-	if cfg != nil && cfg.Build.Platforms != nil {
-		for platformName, platformCfg := range cfg.Build.Platforms {
-			if platformCfg.AppID == appID {
-				configRefs = append(configRefs, platformName)
-			}
-		}
+	projectContext, err := resolveOptionalAppProject(cwd)
+	if err != nil {
+		return fmt.Errorf("cannot inspect project config before deleting app: %w", err)
+	}
+	configRefs, configReplacement, err := prepareAppBindingRemoval(projectContext, appID)
+	if err != nil {
+		return fmt.Errorf("cannot prepare project config update before deleting app: %w", err)
 	}
 
 	// Show what will be deleted
@@ -353,7 +344,7 @@ func runAppDelete(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Delete app \"%s\" (%s)?", appName, appID)
 		ui.PrintDim("  - Remote: will delete app and ALL build versions")
 		if len(configRefs) > 0 {
-			ui.PrintDim("  - Config: will remove app_id from platforms: %v", configRefs)
+			ui.PrintDim("  - Config: will remove app_id from profile recipes: %v", configRefs)
 		}
 
 		ui.Println()
@@ -378,19 +369,14 @@ func runAppDelete(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Remove from config
-	if len(configRefs) > 0 && cfgErr == nil {
-		for _, platformName := range configRefs {
-			platformCfg := cfg.Build.Platforms[platformName]
-			platformCfg.AppID = ""
-			cfg.Build.Platforms[platformName] = platformCfg
-		}
-		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
+	// Remove canonical profile bindings only after the remote deletion succeeds.
+	if len(configRefs) > 0 {
+		if err := config.ReplaceConfigAtomically(projectContext.ConfigPath, configReplacement, projectContext.OriginalBytes); err != nil {
 			if !jsonOutput {
 				ui.PrintWarning("Failed to update config: %v", err)
 			}
 		} else if !jsonOutput {
-			ui.PrintSuccess("Removed app_id from config platforms")
+			ui.PrintSuccess("Removed app_id from config profiles")
 		}
 	}
 
@@ -412,6 +398,153 @@ func runAppDelete(cmd *cobra.Command, args []string) error {
 	ui.Println()
 	ui.PrintSuccess("App \"%s\" deleted successfully.", appName)
 	return nil
+}
+
+type projectAppRecipeRef struct {
+	Profile  string
+	Platform string
+}
+
+func (r projectAppRecipeRef) String() string {
+	return r.Profile + "/" + r.Platform
+}
+
+func resolveOptionalAppProject(cwd string) (*config.ProjectContext, error) {
+	projectContext, err := config.ResolveProjectContext(cwd, "")
+	if err == nil {
+		return projectContext, nil
+	}
+	var configErr *config.ConfigError
+	if errors.As(err, &configErr) && (configErr.Code == "git_worktree_unavailable" || configErr.Code == "config_not_found") {
+		return nil, nil
+	}
+	return nil, actionableLocalConfigError(err)
+}
+
+func projectAppRecipeRefs(authored *config.AuthoredConfig, platform, appID string) []projectAppRecipeRef {
+	if authored == nil || authored.Build == nil {
+		return nil
+	}
+	refs := make([]projectAppRecipeRef, 0)
+	for profileName, profile := range authored.Build.Profiles {
+		var recipe *config.AuthoredBuildRecipe
+		switch platform {
+		case "ios":
+			recipe = profile.IOS
+		case "android":
+			recipe = profile.Android
+		}
+		if recipe == nil {
+			continue
+		}
+		if appID != "" && (recipe.AppID == nil || *recipe.AppID != appID) {
+			continue
+		}
+		refs = append(refs, projectAppRecipeRef{Profile: profileName, Platform: platform})
+	}
+	sort.Slice(refs, func(i, j int) bool {
+		if refs[i].Profile == refs[j].Profile {
+			return refs[i].Platform < refs[j].Platform
+		}
+		return refs[i].Profile < refs[j].Profile
+	})
+	return refs
+}
+
+func offerSaveAppBinding(projectContext *config.ProjectContext, platform, appID string) error {
+	if projectContext == nil {
+		return nil
+	}
+	refs := projectAppRecipeRefs(projectContext.Authored, platform, "")
+	if len(refs) == 0 {
+		return nil
+	}
+	selected := refs[0]
+	if len(refs) > 1 {
+		options := make([]string, len(refs))
+		for i, ref := range refs {
+			options[i] = ref.String()
+		}
+		selection, err := ui.PromptSelect("Save to which build profile?", options)
+		if err != nil {
+			return nil
+		}
+		if selection < 0 || selection >= len(refs) {
+			return fmt.Errorf("invalid build profile selection")
+		}
+		selected = refs[selection]
+	}
+	save, err := ui.PromptConfirm(fmt.Sprintf("Save to .revyl/config.yaml for '%s'?", selected), true)
+	if err != nil || !save {
+		return nil
+	}
+	if err := replaceAppBinding(projectContext, selected, appID); err != nil {
+		return err
+	}
+	ui.PrintSuccess("Saved app_id to build.profiles.%s.%s", selected.Profile, selected.Platform)
+	return nil
+}
+
+func replaceAppBinding(projectContext *config.ProjectContext, ref projectAppRecipeRef, appID string) error {
+	authored, err := config.ParseAuthoredConfig(projectContext.OriginalBytes)
+	if err != nil {
+		return err
+	}
+	if authored.Build == nil {
+		return fmt.Errorf("selected build profile is unavailable")
+	}
+	profile, ok := authored.Build.Profiles[ref.Profile]
+	if !ok {
+		return fmt.Errorf("selected build profile is unavailable")
+	}
+	var recipe *config.AuthoredBuildRecipe
+	switch ref.Platform {
+	case "ios":
+		recipe = profile.IOS
+	case "android":
+		recipe = profile.Android
+	default:
+		return fmt.Errorf("unsupported app platform %q", ref.Platform)
+	}
+	if recipe == nil {
+		return fmt.Errorf("selected %s build recipe is unavailable", ref.Platform)
+	}
+	recipe.AppID = &appID
+	authored.Build.Profiles[ref.Profile] = profile
+	replacement, err := config.MarshalCanonicalConfig(*authored)
+	if err != nil {
+		return err
+	}
+	return config.ReplaceConfigAtomically(projectContext.ConfigPath, replacement, projectContext.OriginalBytes)
+}
+
+func prepareAppBindingRemoval(projectContext *config.ProjectContext, appID string) ([]projectAppRecipeRef, []byte, error) {
+	if projectContext == nil || projectContext.Authored == nil || projectContext.Authored.Build == nil {
+		return nil, nil, nil
+	}
+	authored, err := config.ParseAuthoredConfig(projectContext.OriginalBytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	refs := append(projectAppRecipeRefs(authored, "ios", appID), projectAppRecipeRefs(authored, "android", appID)...)
+	sort.Slice(refs, func(i, j int) bool { return refs[i].String() < refs[j].String() })
+	if len(refs) == 0 {
+		return nil, nil, nil
+	}
+	for _, ref := range refs {
+		profile := authored.Build.Profiles[ref.Profile]
+		if ref.Platform == "ios" {
+			profile.IOS.AppID = nil
+		} else {
+			profile.Android.AppID = nil
+		}
+		authored.Build.Profiles[ref.Profile] = profile
+	}
+	replacement, err := config.MarshalCanonicalConfig(*authored)
+	if err != nil {
+		return nil, nil, err
+	}
+	return refs, replacement, nil
 }
 
 // resolveAppNameOrID resolves an app name or ID to both values.

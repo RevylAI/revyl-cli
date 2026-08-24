@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/testutil"
 )
 
@@ -16,8 +17,14 @@ func TestRunCreateTestFromSessionCompilesAndCreatesTest(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
 
 	tmpDir := t.TempDir()
+	gitInitBuildRepository(t, tmpDir)
+	writeProjectBuildConfig(t, tmpDir, "project:\n  id: 11111111-1111-4111-8111-111111111111\n")
+	nestedDir := filepath.Join(tmpDir, "packages", "app")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
 	origWD, _ := os.Getwd()
-	if err := os.Chdir(tmpDir); err != nil {
+	if err := os.Chdir(nestedDir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(origWD) })
@@ -155,5 +162,43 @@ func TestNormalizeCompiledBlockForCreateDoesNotInjectBlankStepDescription(t *tes
 		if _, ok := got["step_description"]; ok {
 			t.Fatalf("normalizeCompiledBlockForCreate(%#v) injected step_description: %#v", tc, got)
 		}
+	}
+}
+
+func TestResolveSessionConvertAppIDUsesUnambiguousCanonicalBinding(t *testing.T) {
+	originalAppID := createTestAppID
+	createTestAppID = ""
+	t.Cleanup(func() { createTestAppID = originalAppID })
+
+	appID := "11111111-1111-4111-8111-111111111111"
+	aggregate := &config.NormalizedProjectAggregate{Profiles: []config.NormalizedBuildProfile{
+		{Name: "development", Configurations: []config.NormalizedPlatformConfiguration{{Platform: "ios", AppID: &appID}}},
+		{Name: "production", Configurations: []config.NormalizedPlatformConfiguration{{Platform: "ios", AppID: &appID}}},
+	}}
+
+	got, err := resolveSessionConvertAppID(aggregate, nil, "ios")
+	if err != nil {
+		t.Fatalf("resolveSessionConvertAppID() error = %v", err)
+	}
+	if got != appID {
+		t.Fatalf("resolveSessionConvertAppID() = %q, want %q", got, appID)
+	}
+}
+
+func TestResolveSessionConvertAppIDRejectsAmbiguousCanonicalBindings(t *testing.T) {
+	originalAppID := createTestAppID
+	createTestAppID = ""
+	t.Cleanup(func() { createTestAppID = originalAppID })
+
+	first := "11111111-1111-4111-8111-111111111111"
+	second := "22222222-2222-4222-8222-222222222222"
+	aggregate := &config.NormalizedProjectAggregate{Profiles: []config.NormalizedBuildProfile{
+		{Name: "development", Configurations: []config.NormalizedPlatformConfiguration{{Platform: "ios", AppID: &first}}},
+		{Name: "production", Configurations: []config.NormalizedPlatformConfiguration{{Platform: "ios", AppID: &second}}},
+	}}
+
+	_, err := resolveSessionConvertAppID(aggregate, nil, "ios")
+	if err == nil || !strings.Contains(err.Error(), "pass --app") {
+		t.Fatalf("resolveSessionConvertAppID() error = %v, want actionable ambiguity", err)
 	}
 }

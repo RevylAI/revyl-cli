@@ -1,0 +1,616 @@
+{
+  "fixture_version": 1,
+  "valid_cases": [
+    {
+      "name": "managed_inheritance_and_defaults",
+      "context": {
+        "repository_relative_project_root": "apps/mobile",
+        "execution_directory": "apps/mobile"
+      },
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  idle_timeout_seconds: 300\n  auth_bypass:\n    launch_vars: [AUTH_TOKEN, AUTH_TOKEN, AUTH_MODE]\nbuild:\n  framework: expo\n  env:\n    GLOBAL: one\n    SHARED: inherited\n  secrets: [TOKEN, TOKEN]\n  caches:\n    - key: dependencies\n      paths: [node_modules]\n    - key: shared\n      paths: [global, global]\n  profiles:\n    production:\n      android:\n        app_id: 33333333-3333-4333-8333-333333333333\n        build_commands: [./gradlew assembleRelease]\n    ios-dev:\n      ios:\n        app_id: 22222222-2222-4222-8222-222222222222\n        setup_commands: [npm ci]\n        build_commands: [npm run ios, npm run ios]\n        output_path: build/app.ipa\n        env:\n          SHARED: recipe\n        secrets: [TOKEN, CERT]\n        caches:\n          - key: shared\n            paths: [ios, global]\npr_review:\n  review_triggers:\n    paths: [apps/**, docs/**, apps/**]\n    labels: [preview]\n  build:\n    kind: revyl\n    profile: ios-dev\n  proof_of_changes:\n    enabled: true\n    harness:\n      kind: cursor\n      model_id: cursor-default\n    always_verify: [login, login, checkout]\n  workflow_ids: [44444444-4444-4444-8444-444444444444, 44444444-4444-4444-8444-444444444444]\n  strict_ci_check:\n    build: true\n",
+      "expected_projection": {
+        "framework": "expo",
+        "profiles": [
+          {
+            "name": "ios-dev",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": "22222222-2222-4222-8222-222222222222",
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": ["npm ci"],
+                  "build_commands": ["npm run ios", "npm run ios"],
+                  "selected_project_root": "apps/mobile",
+                  "execution_directory": "apps/mobile",
+                  "output_path": "build/app.ipa",
+                  "env": { "GLOBAL": "one", "SHARED": "recipe" },
+                  "secret_refs": ["TOKEN", "CERT"],
+                  "caches": [
+                    { "key": "dependencies", "paths": ["node_modules"] },
+                    { "key": "shared", "paths": ["global", "ios"] }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "name": "production",
+            "configurations": [
+              {
+                "platform": "android",
+                "app_id": "33333333-3333-4333-8333-333333333333",
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": [],
+                  "build_commands": ["./gradlew assembleRelease"],
+                  "selected_project_root": "apps/mobile",
+                  "execution_directory": "apps/mobile",
+                  "env": { "GLOBAL": "one", "SHARED": "inherited" },
+                  "secret_refs": ["TOKEN"],
+                  "caches": [
+                    { "key": "dependencies", "paths": ["node_modules"] },
+                    { "key": "shared", "paths": ["global"] }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": {
+          "enabled": true,
+          "review_triggers": {
+            "paths": ["apps/**", "docs/**"],
+            "labels": ["preview"],
+            "drafts": false
+          },
+          "build": { "kind": "revyl", "profile": "ios-dev" },
+          "proof_of_changes": {
+            "enabled": true,
+            "harness": { "kind": "cursor", "model_id": "cursor-default" },
+            "always_verify": ["login", "checkout"]
+          },
+          "workflow_ids": ["44444444-4444-4444-8444-444444444444"],
+          "strict_build_check": true
+        },
+        "session": {
+          "idle_timeout_seconds": 300,
+          "auth_bypass": { "launch_vars": ["AUTH_TOKEN", "AUTH_MODE"] }
+        }
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "ffbb68a2993fd694178b7c5eefbed5ed40e7fe87c269d26fc3789ceb25cbe5e2",
+        "build_profile_hashes": {
+          "ios-dev": "af40aa02f3b6d339a82cb7e27d35714fcdc4e072a6ebca3d15109c8afb8764ce",
+          "production": "c571d73d6a1bdeb65d9cc515190ec71ddc47bb1510fbfe640bbadf98847d8452"
+        },
+        "build_definition_hashes": {
+          "ios-dev:ios": "20d1952680b2d47181f15b1af4d3863b725e8f0232a6d72c3da401ebe69c5392",
+          "production:android": "dca654d8d55502ddd1fb27ab542195f2279a25ea0403c649b2003b7bf3897dbd"
+        },
+        "review_policy_hash": "f02f099ecedd75dbdcfa1d7cb17f3dd9c6e8750f49763277df339591c807de9f"
+      }
+    },
+    {
+      "name": "external_ci_without_local_build",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "pr_review:\n  enabled: false\n  build:\n    kind: ci_upload_to_revyl\n    app_ids:\n      ios: 22222222-2222-4222-8222-222222222222\nproject:\n  id: 11111111-1111-4111-8111-111111111111\n",
+      "expected_projection": {
+        "framework": null,
+        "profiles": [],
+        "review_policy": {
+          "enabled": false,
+          "review_triggers": { "paths": [], "labels": [], "drafts": false },
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": { "ios": "22222222-2222-4222-8222-222222222222" }
+          },
+          "proof_of_changes": null,
+          "workflow_ids": [],
+          "strict_build_check": true
+        },
+        "session": {}
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "7e3b85ad475ea6ef5ba24dee412cc4caadcc76577f252dd7ca74cb4a8933895f",
+        "build_profile_hashes": {},
+        "build_definition_hashes": {},
+        "review_policy_hash": "97793765629374ab5bbedac617eb9bbccbe3ca7e6bcf2085ecaad9576ff1759f"
+      }
+    },
+    {
+      "name": "explicit_legacy_translation",
+      "context": {
+        "repository_relative_project_root": "mobile",
+        "execution_directory": "mobile"
+      },
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Example\ndefaults:\n  timeout: 90\nbefore_session:\n  script: ../scripts/prepare.sh\nbuild:\n  system: expo\n  caches:\n    - key: deps\n      paths: [node_modules]\n  source:\n    type: git\n  no_build: false\n  platforms:\n    ios-dev:\n      app_id: 22222222-2222-4222-8222-222222222222\n      setup: npm ci\n      commands: [npm run ios, npm run ios]\n      output: build/app.ipa\n      scheme: IgnoredInvocationState\n",
+      "expected_projection": {
+        "framework": "expo",
+        "profiles": [
+          {
+            "name": "dev",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": "22222222-2222-4222-8222-222222222222",
+                "recipe": {
+                  "framework": "expo",
+                  "setup_commands": ["npm ci"],
+                  "build_commands": ["npm run ios", "npm run ios"],
+                  "selected_project_root": "mobile",
+                  "execution_directory": "mobile",
+                  "output_path": "build/app.ipa",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": [{ "key": "deps", "paths": ["node_modules"] }]
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null,
+        "session": {
+          "idle_timeout_seconds": 90,
+          "before_script": {
+            "script_path": "../scripts/prepare.sh",
+            "timeout_seconds": 120
+          }
+        }
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "8957d337e2f7623378ef73e0deac623c794e4a28016f799e5eb878268c936887",
+        "build_profile_hashes": {
+          "dev": "5232852da034da56b58ca872304d202b57078aef3dee9943e28189a2397781c4"
+        },
+        "build_definition_hashes": {
+          "dev:ios": "4b7a2bbdfced15dc3ad0e377490270c3a56098cea586a675fb9daa5b52d065fa"
+        },
+        "review_policy_hash": null
+      }
+    },
+    {
+      "name": "canonical_uuid_and_yaml_12_scalars",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'\nbuild:\n  framework: ios\n  env:\n    FLAG: yes\n    COUNT: 01\n    DATE: 2026-08-11\n  profiles:\n    development:\n      ios:\n        app_id: BBBBBBBBBBBB4BBB8BBBBBBBBBBBBBBB\n        build_commands: [fixture build]\npr_review:\n  build:\n    kind: ci_upload_to_revyl\n    app_ids:\n      ios: '{DDDDDDDD-DDDD-4DDD-8DDD-DDDDDDDDDDDD}'\n  workflow_ids: ['urn:uuid:CCCCCCCC-CCCC-4CCC-8CCC-CCCCCCCCCCCC']\n",
+      "expected_project_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "expected_projection": {
+        "framework": "ios",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                "recipe": {
+                  "framework": "ios",
+                  "setup_commands": [],
+                  "build_commands": ["fixture build"],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "env": { "COUNT": "01", "DATE": "2026-08-11", "FLAG": "yes" },
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": {
+          "enabled": true,
+          "review_triggers": { "paths": [], "labels": [], "drafts": false },
+          "build": {
+            "kind": "ci_upload_to_revyl",
+            "app_ids": { "ios": "dddddddd-dddd-4ddd-8ddd-dddddddddddd" }
+          },
+          "proof_of_changes": null,
+          "workflow_ids": ["cccccccc-cccc-4ccc-8ccc-cccccccccccc"],
+          "strict_build_check": true
+        },
+        "session": {}
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "a13fdf9508261d86f9e2e7124d620af098cf02ae177b047da3e0ce0df1a9248e",
+        "build_profile_hashes": {
+          "development": "ebb8542449a10b98aa7ea0f2ff42a9c2c1dc97740a0f264ea5dbcf65649e991c"
+        },
+        "build_definition_hashes": {
+          "development:ios": "e617bca986a3801c5353a68998e64bfa28ddf264aaccad190a1ce36911f0c145"
+        },
+        "review_policy_hash": "17c200f7b5fcaed30f7e18b658ab5e8ad27a1064b3e66599c4a263dc8fd085ea"
+      }
+    },
+    {
+      "name": "legacy_full_surface_defaults_and_root_evidence",
+      "context": {
+        "repository_relative_project_root": "apps/mobile",
+        "execution_directory": "apps/mobile"
+      },
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\ndefaults:\n  timeout: 600\nbefore_session: {}\nauth_bypass: {}\nbuild:\n  system: React Native\n  root: apps/mobile\n  command: npm run build\n  output: dist/app.bin\n  source:\n    subdir: apps/mobile\n  platforms:\n    ios:\n      app_id: 22222222-2222-4222-8222-222222222222\n    android-production:\n      app_id: 33333333-3333-4333-8333-333333333333\n      commands: [./gradlew assemble]\n      output: android/app.apk\npr_review:\n  enabled: true\n  preset: adaptive_report\n  actions:\n    checks: [login]\n    project_root: apps/mobile\n    proof_harness:\n      kind: cursor\n      model_id: fixture-model\n  builds:\n    ios:\n      framework: react_native_ios\n      app: 22222222-2222-4222-8222-222222222222\n      root_dir: apps/mobile\n      build_command: npm run review\n      artifact_path: review/app.ipa\n      secrets: [COMMON_SECRET]\n      env: [IOS_SECRET, COMMON_SECRET]\n",
+      "expected_project_id": "11111111-1111-4111-8111-111111111111",
+      "expected_projection": {
+        "framework": "react_native",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": "22222222-2222-4222-8222-222222222222",
+                "recipe": {
+                  "framework": "react_native",
+                  "setup_commands": [],
+                  "build_commands": [],
+                  "selected_project_root": "apps/mobile",
+                  "execution_directory": "apps/mobile",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          },
+          {
+            "name": "pr-review",
+            "configurations": [
+              {
+                "platform": "ios",
+                "app_id": "22222222-2222-4222-8222-222222222222",
+                "recipe": {
+                  "framework": "react_native",
+                  "setup_commands": [],
+                  "build_commands": ["npm run review"],
+                  "selected_project_root": "apps/mobile",
+                  "execution_directory": "apps/mobile",
+                  "output_path": "review/app.ipa",
+                  "env": {},
+                  "secret_refs": ["COMMON_SECRET", "IOS_SECRET"],
+                  "caches": []
+                }
+              }
+            ]
+          },
+          {
+            "name": "production",
+            "configurations": [
+              {
+                "platform": "android",
+                "app_id": "33333333-3333-4333-8333-333333333333",
+                "recipe": {
+                  "framework": "react_native",
+                  "setup_commands": [],
+                  "build_commands": ["./gradlew assemble"],
+                  "selected_project_root": "apps/mobile",
+                  "execution_directory": "apps/mobile",
+                  "output_path": "android/app.apk",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": {
+          "enabled": true,
+          "review_triggers": { "paths": [], "labels": [], "drafts": false },
+          "build": { "kind": "revyl", "profile": "pr-review" },
+          "proof_of_changes": {
+            "enabled": true,
+            "harness": { "kind": "cursor", "model_id": "fixture-model" },
+            "always_verify": ["login"]
+          },
+          "workflow_ids": [],
+          "strict_build_check": true
+        },
+        "session": {
+          "idle_timeout_seconds": 600,
+          "before_script": { "timeout_seconds": 120 },
+          "auth_bypass": { "launch_vars": [] }
+        }
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "3f4c92cdc030c2e31cc583aab29972e6c5162244cd6713b28fc08a8f8e403b40",
+        "build_profile_hashes": {
+          "development": "943304caf9d7ad5d703c865d428d45c9c55df1fd1a9a89a71b19f374bf2ca9ac",
+          "pr-review": "5e190ae8b35d0de2a7b0b6347dff24950121fb41cd74bfef1b77b342b7179588",
+          "production": "51f59b7d303b3bdab80e433daffc3e38d3926e4ac27923960dc75eca9cfd62dc"
+        },
+        "build_definition_hashes": {
+          "development:ios": "eef3fba8def0ff807911414fbb6dc4506ffecaab3291460edfe96fa61bb57134",
+          "pr-review:ios": "9ecdee14f467a641a5fb0d272865f59509911a0a24a8af300c98b6a8da37ca43",
+          "production:android": "5ebd420e669dc9bc73f18254cd12690aca54cf184085ac1a70f7d2b08d190537"
+        },
+        "review_policy_hash": "378fac8a7da37a8b84729d5cee5a83b159afa2679e52b825f110b8efd15a1605"
+      }
+    },
+    {
+      "name": "legacy_top_level_android_build",
+      "context": {
+        "repository_relative_project_root": ".",
+        "execution_directory": "."
+      },
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\nbuild:\n  system: Gradle (Android)\n  root: ./\n  command: ./gradlew assemble\n  output: app/build/outputs/app.apk\n",
+      "expected_project_id": "11111111-1111-4111-8111-111111111111",
+      "expected_projection": {
+        "framework": "android",
+        "profiles": [
+          {
+            "name": "development",
+            "configurations": [
+              {
+                "platform": "android",
+                "app_id": null,
+                "recipe": {
+                  "framework": "android",
+                  "setup_commands": [],
+                  "build_commands": ["./gradlew assemble"],
+                  "selected_project_root": ".",
+                  "execution_directory": ".",
+                  "output_path": "app/build/outputs/app.apk",
+                  "env": {},
+                  "secret_refs": [],
+                  "caches": []
+                }
+              }
+            ]
+          }
+        ],
+        "review_policy": null,
+        "session": { "idle_timeout_seconds": 1800 }
+      },
+      "expected_hashes": {
+        "project_configuration_hash": "28ad06f4b84f030bacdb14dec7d3264d774a1cbd8835e8193c4eea79999f45b0",
+        "build_profile_hashes": {
+          "development": "14637fb1433d161a62cdbd2b3aa8485026dd336707c9090e24475b6501a4e790"
+        },
+        "build_definition_hashes": {
+          "development:android": "17ee089a5bafcc713e7ce4c0227d5f00fb3a29b1902eda3b6a5cc229bde74f6f"
+        },
+        "review_policy_hash": null
+      }
+    }
+  ],
+  "invalid_cases": [
+    {
+      "name": "duplicate_mapping_key",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  id: 22222222-2222-4222-8222-222222222222\n",
+      "expected_error": {
+        "stage": "yaml_syntax",
+        "code": "duplicate_mapping_key",
+        "path": []
+      }
+    },
+    {
+      "name": "unknown_canonical_field",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nmystery: true\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "unknown_field",
+        "path": ["mystery"]
+      }
+    },
+    {
+      "name": "mixed_formats",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession: {}\ndefaults:\n  timeout: 20\n",
+      "expected_error": {
+        "stage": "classification",
+        "code": "mixed_config_formats",
+        "path": []
+      }
+    },
+    {
+      "name": "missing_required_build_commands",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nbuild:\n  framework: expo\n  profiles:\n    dev:\n      ios:\n        app_id: 22222222-2222-4222-8222-222222222222\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "missing_field",
+        "path": ["build", "profiles", "dev", "ios", "build_commands"]
+      }
+    },
+    {
+      "name": "empty_dotted_build_profile",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nbuild:\n  framework: expo\n  profiles:\n    qa.us: {}\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["build", "profiles", "qa.us"]
+      }
+    },
+    {
+      "name": "environment_secret_collision",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nbuild:\n  framework: expo\n  env:\n    TOKEN: public\n  profiles:\n    dev:\n      ios:\n        build_commands: [build]\n        secrets: [TOKEN]\n",
+      "expected_error": {
+        "stage": "normalization",
+        "code": "environment_secret_collision",
+        "path": ["build", "profiles", "dev", "ios", "env", "TOKEN"]
+      }
+    },
+    {
+      "name": "repository_escape",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\nsession:\n  before_script:\n    script_path: ../../outside.sh\n",
+      "expected_error": {
+        "stage": "normalization",
+        "code": "path_escapes_repository",
+        "path": ["session", "before_script", "script_path"]
+      }
+    },
+    {
+      "name": "project_root_rejects_embedded_newline",
+      "context": {
+        "repository_relative_project_root": "apps/\nmobile",
+        "execution_directory": "apps/mobile"
+      },
+      "yaml": "project: {id: 11111111-1111-4111-8111-111111111111}\n",
+      "expected_error": {
+        "stage": "normalization",
+        "code": "invalid_relative_directory",
+        "path": ["repository_relative_project_root"]
+      }
+    },
+    {
+      "name": "execution_directory_rejects_embedded_carriage_return",
+      "context": {
+        "repository_relative_project_root": "apps/mobile",
+        "execution_directory": "apps/mobile/\rsource"
+      },
+      "yaml": "project: {id: 11111111-1111-4111-8111-111111111111}\n",
+      "expected_error": {
+        "stage": "normalization",
+        "code": "invalid_relative_directory",
+        "path": ["execution_directory"]
+      }
+    },
+    {
+      "name": "yaml_alias_rejected",
+      "yaml": "project: &project\n  id: 11111111-1111-4111-8111-111111111111\ncopy: *project\n",
+      "expected_error": {
+        "stage": "yaml_syntax",
+        "code": "unsupported_yaml_structure",
+        "path": []
+      }
+    },
+    {
+      "name": "nested_unknown_canonical_field",
+      "yaml": "project: {id: 11111111-1111-4111-8111-111111111111}\nbuild:\n  framework: ios\n  profiles:\n    dev:\n      ios:\n        build_commands: [build]\n        mystery: true\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "unknown_field",
+        "path": ["build", "profiles", "dev", "ios", "mystery"]
+      }
+    },
+    {
+      "name": "unsupported_canonical_framework",
+      "yaml": "project: {id: 11111111-1111-4111-8111-111111111111}\nbuild:\n  framework: cordova\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["build", "framework"]
+      }
+    },
+    {
+      "name": "quoted_timeout_is_not_an_integer",
+      "yaml": "project: {id: 11111111-1111-4111-8111-111111111111}\nsession:\n  idle_timeout_seconds: '30'\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["session", "idle_timeout_seconds"]
+      }
+    },
+    {
+      "name": "timeout_exceeds_signed_database_range",
+      "yaml": "project: {id: 11111111-1111-4111-8111-111111111111}\nsession:\n  idle_timeout_seconds: 9223372036854775808\n",
+      "expected_error": {
+        "stage": "contract",
+        "code": "invalid_contract",
+        "path": ["session", "idle_timeout_seconds"]
+      }
+    },
+    {
+      "name": "absolute_before_script",
+      "yaml": "project: {id: 11111111-1111-4111-8111-111111111111}\nsession:\n  before_script:\n    script_path: /tmp/outside.sh\n",
+      "expected_error": {
+        "stage": "normalization",
+        "code": "invalid_before_script_path",
+        "path": ["session", "before_script", "script_path"]
+      }
+    },
+    {
+      "name": "legacy_root_must_match_selected_project",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\nbuild:\n  system: expo_ios\n  root: apps/mobile\n  command: build\n",
+      "expected_error": {
+        "stage": "legacy_translation",
+        "code": "legacy_project_root_mismatch",
+        "path": ["build", "root"]
+      }
+    },
+    {
+      "name": "legacy_container_type_is_not_silently_discarded",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\nbefore_session: ./setup.sh\n",
+      "expected_error": {
+        "stage": "legacy_translation",
+        "code": "legacy_container_invalid",
+        "path": ["before_session"]
+      }
+    },
+    {
+      "name": "retired_legacy_auth_refresh_is_explicitly_unsupported",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\nauth_bypass:\n  refresh_command: ./refresh-token\n",
+      "expected_error": {
+        "stage": "legacy_translation",
+        "code": "legacy_unsupported_field",
+        "path": ["auth_bypass", "refresh_command"]
+      }
+    },
+    {
+      "name": "legacy_top_level_build_platform_ambiguous",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\nbuild:\n  system: Expo\n  command: build\n  output: dist/app\n",
+      "expected_error": {
+        "stage": "legacy_translation",
+        "code": "legacy_platform_ambiguous",
+        "path": ["build", "command"]
+      }
+    },
+    {
+      "name": "legacy_review_profile_collision",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\nbuild:\n  system: expo_ios\n  platforms:\n    ios-pr-review:\n      command: first\npr_review:\n  builds:\n    ios:\n      framework: expo_ios\n      app: 22222222-2222-4222-8222-222222222222\n      build_command: second\n",
+      "expected_error": {
+        "stage": "legacy_translation",
+        "code": "legacy_review_profile_collision",
+        "path": ["pr_review", "builds"]
+      }
+    },
+    {
+      "name": "legacy_review_framework_must_match_project_framework",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\nbuild:\n  system: Flutter\n  platforms:\n    android:\n      command: flutter build apk\npr_review:\n  builds:\n    android:\n      framework: native_android\n      app: 33333333-3333-4333-8333-333333333333\n      build_command: ./gradlew assemble\n",
+      "expected_error": {
+        "stage": "legacy_translation",
+        "code": "legacy_framework_ambiguous",
+        "path": ["pr_review", "builds"]
+      }
+    },
+    {
+      "name": "legacy_smoke_preset_requires_workflow_lookup",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\npr_review:\n  preset: smoke_every_pr\n",
+      "expected_error": {
+        "stage": "legacy_translation",
+        "code": "legacy_server_lookup_required",
+        "path": ["pr_review", "preset"]
+      }
+    },
+    {
+      "name": "empty_legacy_review_is_not_silently_removed",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\npr_review: {}\n",
+      "expected_error": {
+        "stage": "legacy_translation",
+        "code": "legacy_review_build_missing",
+        "path": ["pr_review", "builds"]
+      }
+    },
+    {
+      "name": "empty_legacy_review_platform_is_not_silently_removed",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\npr_review:\n  builds:\n    ios: {}\n",
+      "expected_error": {
+        "stage": "legacy_translation",
+        "code": "legacy_server_lookup_required",
+        "path": ["pr_review", "builds", "ios", "app"]
+      }
+    },
+    {
+      "name": "quoted_legacy_boolean_is_not_coerced",
+      "yaml": "project:\n  id: 11111111-1111-4111-8111-111111111111\n  name: Legacy\npr_review:\n  skip_drafts: 'false'\n",
+      "expected_error": {
+        "stage": "legacy_translation",
+        "code": "legacy_boolean_invalid",
+        "path": ["pr_review", "skip_drafts"]
+      }
+    }
+  ]
+}

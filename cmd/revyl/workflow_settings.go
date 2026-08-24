@@ -4,14 +4,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -156,13 +153,10 @@ func wfSettingsSetupClientDefault(cmd *cobra.Command, nameOrID string) (string, 
 		return "", nil, err
 	}
 
-	cwd, _ := os.Getwd()
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
-
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	workflowID, _, err := resolveWorkflowID(cmd.Context(), nameOrID, cfg, client)
+	workflowID, _, err := resolveWorkflowID(cmd.Context(), nameOrID, nil, client)
 	if err != nil {
 		ui.PrintError("%v", err)
 		return "", nil, fmt.Errorf("workflow not found")

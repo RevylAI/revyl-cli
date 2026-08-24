@@ -502,7 +502,10 @@ func (s *Server) handleStartDeviceSession(ctx context.Context, req *mcp.CallTool
 
 	timeoutSecs := input.IdleTimeout
 	if timeoutSecs <= 0 {
-		timeoutSecs = config.EffectiveTimeoutSeconds(s.config, 900)
+		timeoutSecs = 900
+		if s.project != nil && s.project.Authored.Session != nil && s.project.Authored.Session.IdleTimeoutSeconds != nil {
+			timeoutSecs = *s.project.Authored.Session.IdleTimeoutSeconds
+		}
 	}
 	timeout := time.Duration(timeoutSecs) * time.Second
 	idx, session, err := s.sessionMgr.StartSession(ctx, StartSessionOptions{

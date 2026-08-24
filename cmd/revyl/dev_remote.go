@@ -51,9 +51,6 @@ type remoteDevInstallLauncher interface {
 }
 
 func validateRemoteDevStartFlags() error {
-	if _, err := normalizeMobilePlatform(devStartPlatform, "ios"); err != nil {
-		return err
-	}
 	if devStartNoBuild {
 		return fmt.Errorf("use either --remote or --no-build, not both")
 	}
@@ -76,30 +73,21 @@ func seedRequested() bool {
 // runDevRemoteRebuildOnly starts a native dev loop where all builds run on
 // Revyl's remote build runner and the active device session only handles
 // install, launch, streaming, and interaction.
-func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath, cwd, apiKey, ctxName string) error {
+func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiKey, ctxName string) error {
 	if err := validateRemoteDevStartFlags(); err != nil {
 		return err
+	}
+	cwd := invocation.ProjectRoot
+	platformKey := invocation.Platform
+	devicePlatform := invocation.Platform
+	if strings.TrimSpace(invocation.AppID) == "" {
+		return fmt.Errorf("app_id is required for remote development profile %s/%s", invocation.Profile, invocation.Platform)
 	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	requestedPlatform, _ := normalizeMobilePlatform(devStartPlatform, "ios")
-	platformKey, devicePlatform, err := resolveRebuildLoopPlatform(
-		cfg,
-		requestedPlatform,
-		strings.TrimSpace(devStartPlatformKey),
-		cmd.Flags().Changed("platform"),
-	)
-	if err != nil {
-		return err
-	}
-	platCfg := cfg.Build.Platforms[platformKey]
-	if len(platCfg.BuildCommands()) == 0 {
-		return fmt.Errorf("build.platforms.%s.command or build.platforms.%s.commands is required for revyl dev --remote", platformKey, platformKey)
-	}
-
-	ctxName, err = resolveDevStartContextName(cwd, getDevContextFlag(cmd), devicePlatform)
+	ctxName, err := resolveDevStartContextName(cwd, getDevContextFlag(cmd), devicePlatform)
 	if err != nil {
 		return err
 	}
@@ -107,38 +95,18 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		return nil
 	}
 
-	timeout := devStartTimeout
-	if !cmd.Flags().Changed("timeout") {
-		timeout = config.EffectiveTimeoutSeconds(cfg, timeout)
-	}
-	if timeout <= 0 {
-		timeout = 300
-	}
+	timeout := devIdleTimeoutSeconds(cmd, invocation)
 
-	openBrowser := effectiveDevOpenBrowser(cmd, configPath)
+	openBrowser := effectiveDevOpenBrowser(cmd, invocation.ConfigPath)
 
 	ui.PrintBanner(version)
 	ui.Println()
-	ui.PrintInfo("Remote dev loop (%s / %s)", cfg.Build.System, platformKey)
+	ui.PrintInfo("Remote dev loop (%s / %s/%s)", invocation.Recipe.Framework, invocation.Profile, invocation.Platform)
 	ui.PrintDim("Builds run on a Revyl build runner; this session keeps the device session alive.")
 	ui.Println()
 
-	if strings.TrimSpace(platCfg.AppID) == "" {
-		_, err := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, platformKey, devicePlatform)
-		if err != nil {
-			return err
-		}
-		cfg, err = config.LoadProjectConfig(configPath)
-		if err != nil {
-			return fmt.Errorf("failed to reload config: %w", err)
-		}
-		platCfg = cfg.Build.Platforms[platformKey]
-		if strings.TrimSpace(platCfg.AppID) == "" {
-			return fmt.Errorf("build.platforms.%s.app_id is required", platformKey)
-		}
-	}
-	appID := strings.TrimSpace(platCfg.AppID)
-	buildCaches := config.EffectiveBuildCaches(cfg.Build, platCfg)
+	appID := strings.TrimSpace(invocation.AppID)
+	buildCaches := append([]config.BuildCache(nil), invocation.Recipe.Caches...)
 
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
@@ -181,7 +149,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 	// settings never enqueue a build.
 	triggerCh := make(chan remoteDevBuildTrigger, 1)
 	go func() {
-		job, triggerErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd, nil)
+		job, triggerErr := triggerRemoteDevBuild(ctx, client, invocation, nil)
 		triggerCh <- remoteDevBuildTrigger{job: job, err: triggerErr}
 	}()
 
@@ -236,6 +204,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 
 	devCtx := &DevContext{
 		Name:          ctxName,
+		Profile:       invocation.Profile,
 		Platform:      devicePlatform,
 		PlatformKey:   platformKey,
 		Provider:      "remote-xcode",
@@ -267,6 +236,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 	// known yet (the trigger runs concurrently), so it is filled in later.
 	statusPath := devCtxStatusPath(cwd, ctxName)
 	writeDevStatusRemoteBuildRunning(statusPath, session, viewerURL, devicePlatform, platformKey, "", buildCaches, "", false)
+	setDevStatusSelection(statusPath, invocation)
 	registeredTriggerCh := make(chan remoteDevBuildTrigger, 1)
 	go func() {
 		trigger := <-triggerCh
@@ -442,35 +412,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, conf
 		writeDevStatusRebuildStarted(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, platformKey)
 		progressSink := newDevStatusRemoteBuildProgressSink(statusPath)
 
-		// Reload the project config so edits to build commands, caches, and
-		// auth_bypass take effect without restarting the loop.
-		if reloaded, reloadErr := config.LoadProjectConfig(configPath); reloadErr != nil {
-			result.buildErr = fmt.Errorf("config_invalid: failed to reload %s: %w", configPath, reloadErr)
-			result.elapsed = time.Since(rebuildStart)
-			writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, result)
-			ui.PrintWarning("Rebuild skipped: %v", result.buildErr)
-			printRebuildLoopControls(keybindsEnabled, true)
-			continue
-		} else {
-			reloadedPlat, ok := reloaded.Build.Platforms[platformKey]
-			if !ok || len(reloadedPlat.BuildCommands()) == 0 {
-				result.buildErr = fmt.Errorf("config_invalid: build.platforms.%s no longer has build commands in %s", platformKey, configPath)
-				result.elapsed = time.Since(rebuildStart)
-				writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, result)
-				ui.PrintWarning("Rebuild skipped: %v", result.buildErr)
-				printRebuildLoopControls(keybindsEnabled, true)
-				continue
-			}
-			platCfg = reloadedPlat
-			if newAppID := strings.TrimSpace(reloadedPlat.AppID); newAppID != "" {
-				appID = newAppID
-			}
-			buildCaches = config.EffectiveBuildCaches(reloaded.Build, reloadedPlat)
-			initDevAuthBypass(reloaded)
-			initDevBeforeSession(reloaded, cwd)
-		}
-
-		buildJob, buildErr := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd, progressSink)
+		buildJob, buildErr := triggerRemoteDevBuild(ctx, client, invocation, progressSink)
 		if buildErr == nil {
 			// Surface the live job id while the runner builds.
 			setDevStatusRemoteJobID(statusPath, buildJob.jobID)
@@ -692,23 +634,18 @@ func seedLatestDevBuild(
 func triggerRemoteDevBuild(
 	ctx context.Context,
 	client *api.Client,
-	platCfg config.BuildPlatform,
-	buildCaches []config.BuildCache,
-	platformKey string,
-	devicePlatform string,
-	appID string,
-	cwd string,
+	invocation projectDevInvocation,
 	progressSink remoteDevBuildProgressSink,
 ) (remoteDevBuildJob, error) {
 	start := time.Now()
-	parsedAppID, err := uuid.Parse(strings.TrimSpace(appID))
+	parsedAppID, err := uuid.Parse(strings.TrimSpace(invocation.AppID))
 	if err != nil {
 		return remoteDevBuildJob{}, fmt.Errorf("app id must be a valid UUID: %w", err)
 	}
 	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
 		State: devloop.BuildStatePreparing, Phase: "capacity_check", Message: "Checking remote build capacity",
 	})
-	availability, availabilityErr := client.CheckBuildRunnersAvailable(ctx, devicePlatform)
+	availability, availabilityErr := client.CheckBuildRunnersAvailable(ctx, invocation.Platform)
 	if availabilityErr != nil {
 		ui.PrintWarning("Build capacity preflight unavailable; continuing to authoritative admission: %v", availabilityErr)
 	} else if availability != nil && !availability.Available && availability.RunnerCount >= 0 {
@@ -719,14 +656,14 @@ func triggerRemoteDevBuild(
 		return remoteDevBuildJob{}, fmt.Errorf("build capacity unavailable: %s", reason)
 	}
 	ui.Println()
-	ui.PrintInfo("Remote building %s...", platformKey)
+	ui.PrintInfo("Remote building %s/%s...", invocation.Profile, invocation.Platform)
 	ui.PrintInfo("Packaging current working tree...")
 	ui.PrintDim("  Run from the app subdirectory when using a large monorepo.")
 	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
 		State: devloop.BuildStatePreparing, Phase: "packaging", Message: "Packaging current working tree",
 	})
 
-	archivePath, err := createSourceArchiveIncludingWorkingTree(cwd)
+	archivePath, err := createSourceArchiveIncludingWorkingTree(invocation.ProjectRoot)
 	if err != nil {
 		return remoteDevBuildJob{}, fmt.Errorf("failed to package current working tree: %w", err)
 	}
@@ -758,29 +695,15 @@ func triggerRemoteDevBuild(
 		return remoteDevBuildJob{}, fmt.Errorf("failed to upload source snapshot: %w", err)
 	}
 
-	platform := devicePlatform
-	versionStr := build.GenerateVersionStringForWorkDir(cwd)
-	triggerReq, err := remoteDevTriggerRequest(parsedAppID, uploadResp.SourceKey, platform, versionStr, platCfg, buildCaches)
-	if err != nil {
-		return remoteDevBuildJob{}, err
-	}
-	if projectCfg, loadErr := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml")); loadErr == nil {
-		framework := strings.ToLower(strings.TrimSpace(projectCfg.Build.System))
-		if framework == "" {
-			if detected, detectErr := build.Detect(cwd); detectErr == nil {
-				framework = strings.ToLower(detected.System.String())
-			}
-		}
-		triggerReq.Config.Framework = stringPtrOrNil(framework)
-	}
-	timeoutSeconds, err := buildPlatformTimeoutSeconds(platCfg, platformKey)
+	versionStr := build.GenerateVersionStringForWorkDir(invocation.ProjectRoot)
+	triggerReq, err := remoteDevTriggerRequestFromProject(parsedAppID, uploadResp.SourceKey, versionStr, invocation)
 	if err != nil {
 		return remoteDevBuildJob{}, err
 	}
 	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
 		State: devloop.BuildStatePreparing, Phase: "admission", Message: "Submitting remote build",
 	})
-	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq, timeoutSeconds)
+	triggerResp, err := client.TriggerRemoteBuild(ctx, triggerReq, invocation.Recipe.TimeoutSeconds)
 	if err != nil {
 		return remoteDevBuildJob{}, fmt.Errorf("failed to trigger remote build: %w", err)
 	}
@@ -838,11 +761,44 @@ func runRemoteDevBuild(
 	appID string,
 	cwd string,
 ) (remoteDevBuildResult, error) {
-	job, err := triggerRemoteDevBuild(ctx, client, platCfg, buildCaches, platformKey, devicePlatform, appID, cwd, nil)
+	framework := "xcode"
+	if devicePlatform == "android" {
+		framework = "gradle"
+	}
+	invocation := projectDevInvocation{
+		ProjectRoot: cwd,
+		Platform:    devicePlatform,
+		AppID:       appID,
+		Recipe: config.EffectiveBuildRecipe{
+			BuildCommands: platCfg.BuildCommands(), SetupCommands: []string{strings.TrimSpace(platCfg.Setup)},
+			OutputPath: &platCfg.Output, Framework: framework, Caches: buildCaches,
+		},
+	}
+	job, err := triggerRemoteDevBuild(ctx, client, invocation, nil)
 	if err != nil {
 		return remoteDevBuildResult{}, err
 	}
 	return waitRemoteDevBuild(ctx, client, job, cwd, nil)
+}
+
+func remoteDevTriggerRequestFromProject(
+	appID uuid.UUID,
+	sourceKey string,
+	version string,
+	invocation projectDevInvocation,
+) (*api.RemoteBuildRequest, error) {
+	setCurrent := true
+	source, err := remoteBuildRequestSource(nil, sourceKey, "")
+	if err != nil {
+		return nil, err
+	}
+	resolved := remoteBuildPlatformConfigFromProject(projectBuildInvocationFromDev(invocation))
+	request := &api.RemoteBuildRequest{
+		Source: source, Config: remoteBuildConfigFromResolved(appID, resolved),
+		Version: stringPtrOrNil(version), SetAsCurrent: &setCurrent,
+		BuildDefinitionHash: stringPtrOrNil(invocation.BuildDefinitionHash),
+	}
+	return request, nil
 }
 
 // writeDevStatusRemoteBuildRunning publishes a live session whose initial

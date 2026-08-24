@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -306,26 +305,24 @@ func syncWorkflowTestsCmd(client *api.Client, workflowID string, devMode bool) (
 			return
 		}
 
-		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-		cfg, err := loadOrInitProjectConfigForSync(ctx, client, cwd, configPath)
+		project, err := config.ResolveProjectContext(cwd, "")
 		if err != nil {
-			ch <- WorkflowSyncMsg{Err: fmt.Errorf("failed to prepare project config: %w", err)}
+			ch <- WorkflowSyncMsg{Err: actionableProjectConfigError(fmt.Errorf("resolve current project: %w", err))}
 			return
 		}
 
-		testsDir := filepath.Join(cwd, ".revyl", "tests")
-		localTests, err := config.LoadLocalTests(testsDir)
+		localTests, err := config.LoadLocalTests(project.TestsDir)
 		if err != nil {
 			localTests = make(map[string]*config.LocalTest)
 		}
 
-		resolver := sync.NewResolver(client, cfg, localTests)
+		resolver := sync.NewResolver(client, nil, localTests)
 
 		total := len(wfInfo.TestInfo)
 		synced, conflicts, syncErrors := 0, 0, 0
 
 		for i, ti := range wfInfo.TestInfo {
-			status := syncOneWorkflowTest(ctx, resolver, localTests, testsDir, ti)
+			status := syncOneWorkflowTest(ctx, resolver, localTests, project.TestsDir, ti)
 
 			switch {
 			case strings.HasPrefix(status, "error"):
@@ -342,10 +339,6 @@ func syncWorkflowTestsCmd(client *api.Client, workflowID string, devMode bool) (
 				Current:  i + 1,
 				Total:    total,
 			}
-		}
-
-		if saveErr := persistProjectConfigForSync(configPath, cfg); saveErr != nil {
-			syncErrors++
 		}
 
 		ch <- WorkflowSyncMsg{

@@ -16,8 +16,10 @@ import (
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/auth"
 	"github.com/revyl/cli/internal/config"
+	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/interactive"
 	"github.com/revyl/cli/internal/orgguard"
+	syncpkg "github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
 	yamlPkg "gopkg.in/yaml.v3"
 )
@@ -41,7 +43,6 @@ var (
 	// Workflow creation flags
 	createWorkflowTests  string
 	createWorkflowNoOpen bool
-	createWorkflowNoSync bool
 	createWorkflowDryRun bool
 )
 
@@ -49,7 +50,6 @@ var (
 func createRemoteTest(
 	ctx context.Context,
 	client *api.Client,
-	cfg *config.ProjectConfig,
 	name string,
 	platform string,
 	tasks interface{},
@@ -62,7 +62,7 @@ func createRemoteTest(
 		tasks = []interface{}{}
 	}
 
-	orgID, err := orgguard.ResolveCreateOrgID(ctx, client, cfg)
+	orgID, err := orgguard.ResolveCreateOrgID(ctx, client, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -88,11 +88,11 @@ func requireTestAppID(appID, platform string) error {
 	ui.PrintError("No app configured for platform '%s'.", platform)
 	ui.PrintDim("Every test must be associated with an app.")
 	ui.Println()
-	ui.PrintInfo("Pass --app-id <app-id>, or build and upload to associate one:")
+	ui.PrintInfo("Pass --app <app-id>, or build and upload to associate one:")
 	ui.PrintDim("  revyl build --platform %s", platform)
 	ui.Println()
 	return fmt.Errorf(
-		"a test must be associated with an app: pass --app-id or upload a build for platform %q",
+		"a test must be associated with an app: pass --app or upload a build for platform %q",
 		platform,
 	)
 }
@@ -111,6 +111,23 @@ func saveLinkedLocalTest(testsDir, testName, remoteID string) {
 	default:
 		ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
 	}
+}
+
+// syncCreatedTestYAML pulls the newly created remote definition into the
+// already-resolved canonical project's tests directory. Sync failure remains
+// advisory, matching the established create workflow.
+func syncCreatedTestYAML(ctx context.Context, client *api.Client, testsDir, testName string) {
+	localTests, _ := config.LoadLocalTests(testsDir)
+	if localTests == nil {
+		localTests = make(map[string]*config.LocalTest)
+	}
+	resolver := syncpkg.NewResolver(client, nil, localTests)
+	results, err := resolver.PullFromRemote(ctx, testName, testsDir, true)
+	if err == nil && len(results) > 0 && results[0].Error == nil {
+		ui.PrintDim("  Synced to .revyl/tests/%s.yaml", testName)
+		return
+	}
+	ui.PrintDim("  Run 'revyl test pull %s' to sync test definition", testName)
 }
 
 // runCreateTest creates a new test on the server and adds it to the local config.
@@ -167,16 +184,11 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-
-	// Load or create project config
-	cfg, err := config.LoadProjectConfig(configPath)
+	project, err := config.ResolveProjectContext(cwd, "")
 	if err != nil {
-		ui.PrintWarning("Project not initialized. Run 'revyl init' first for full functionality.")
-		cfg = &config.ProjectConfig{}
+		return actionableLocalConfigError(err)
 	}
-
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	testsDir := project.TestsDir
 
 	// Check if test name already exists as a local YAML file
 	existingLocal, loadErr := config.LoadLocalTest(filepath.Join(testsDir, testName+".yaml"))
@@ -216,14 +228,16 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 		platform = platformOptions[idx]
 	}
 
-	// Auto-detect app_id from config if not provided via flag
+	// Auto-detect app_id when canonical profiles agree on one app for the
+	// selected platform. Distinct profile apps require explicit selection.
 	appID := createTestAppID
-	if appID == "" && cfg.Build.Platforms != nil {
-		if platformCfg, ok := cfg.Build.Platforms[platform]; ok && platformCfg.AppID != "" {
-			appID = platformCfg.AppID
-			if !createTestDryRun {
-				ui.PrintInfo("Using app from config: %s", appID)
-			}
+	if appID == "" {
+		appID, err = execution.ResolveCanonicalConfiguredAppID(project, platform)
+		if err != nil {
+			return fmt.Errorf("%w; pass --app <app-id>", err)
+		}
+		if appID != "" && !createTestDryRun {
+			ui.PrintInfo("Using app from config: %s", appID)
 		}
 	}
 
@@ -309,7 +323,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 				ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
 			}
 		}
-		syncTestYAML(cmd.Context(), client, cfg, testName)
+		syncCreatedTestYAML(cmd.Context(), client, testsDir, testName)
 
 		// Open browser to test execute page unless --no-open is specified
 		executeURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(devMode), existingTestID)
@@ -353,7 +367,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 
 	// Create test on server
 	ui.StartSpinner("Creating test on server...")
-	createResp, err := createRemoteTest(cmd.Context(), client, cfg, testName, platform, tasks, appID)
+	createResp, err := createRemoteTest(cmd.Context(), client, testName, platform, tasks, appID)
 	ui.StopSpinner()
 
 	if err != nil {
@@ -388,7 +402,7 @@ func runCreateTest(cmd *cobra.Command, args []string) error {
 			ui.PrintSuccess("Created .revyl/tests/%s.yaml", testName)
 		}
 	}
-	syncTestYAML(cmd.Context(), client, cfg, testName)
+	syncCreatedTestYAML(cmd.Context(), client, testsDir, testName)
 
 	// Open browser to test execute page unless --no-open is specified
 	executeURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(devMode), createResp.ID)
@@ -462,14 +476,20 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := validateYAMLFilesWithBackend(cmd, []string{createTestFromFile}); err != nil {
-		return err
-	}
-
 	// Get current directory
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+	project, err := config.ResolveProjectContext(cwd, "")
+	if err != nil {
+		return actionableLocalConfigError(err)
+	}
+
+	// Resolve and validate the canonical project before making the backend
+	// validation request or writing the source into the project.
+	if err := validateYAMLFilesWithBackend(cmd, []string{createTestFromFile}); err != nil {
+		return err
 	}
 
 	// Handle dry-run mode
@@ -486,7 +506,7 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 	}
 
 	// Ensure .revyl/tests directory exists
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	testsDir := project.TestsDir
 	if err := os.MkdirAll(testsDir, 0755); err != nil {
 		ui.PrintError("Failed to create tests directory: %v", err)
 		return err
@@ -547,20 +567,60 @@ func runCreateTestFromFile(cmd *cobra.Command, args []string) error {
 	return runTestsPush(cmd, []string{testName})
 }
 
-// runCreateWorkflow creates a new workflow on the server and adds it to the local config.
-//
-// Parameters:
-//   - cmd: The cobra command being executed
-//   - args: Command line arguments (workflow name)
-//
-// Returns:
-//   - error: Any error that occurred during workflow creation
+func resolveWorkflowCreateTestIDs(cwd, rawTests string) ([]string, error) {
+	refs := make([]string, 0)
+	needsLocalAliasResolution := false
+	for _, raw := range strings.Split(rawTests, ",") {
+		ref := strings.TrimSpace(raw)
+		if ref == "" {
+			continue
+		}
+		refs = append(refs, ref)
+		if !looksLikeUUID(ref) {
+			needsLocalAliasResolution = true
+		}
+	}
+	if !needsLocalAliasResolution {
+		return refs, nil
+	}
+
+	project, err := config.ResolveProjectContext(cwd, "")
+	if err != nil {
+		var configErr *config.ConfigError
+		if errors.As(err, &configErr) && (configErr.Code == "git_worktree_unavailable" || configErr.Code == "config_not_found") {
+			// No local project is being consumed. Preserve the configless server
+			// workflow by passing explicit server references through unchanged.
+			return refs, nil
+		}
+		return nil, actionableLocalConfigError(err)
+	}
+
+	resolved := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if id, _ := config.GetLocalTestRemoteID(project.TestsDir, ref); id != "" {
+			resolved = append(resolved, id)
+		} else {
+			resolved = append(resolved, ref)
+		}
+	}
+	return resolved, nil
+}
+
 func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 	workflowName := args[0]
 
 	// Validate workflow name
 	if err := validateResourceName(workflowName, "workflow"); err != nil {
 		ui.PrintError("%v", err)
+		return err
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+	testIDs, err := resolveWorkflowCreateTestIDs(cwd, createWorkflowTests)
+	if err != nil {
 		return err
 	}
 
@@ -589,39 +649,6 @@ func runCreateWorkflow(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to validate API key: %w", err)
 		}
 		creds.UserID = userInfo.UserID
-	}
-
-	// Get current directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-
-	// Load project config (for non-Tests fields)
-	if _, loadErr := config.LoadProjectConfig(configPath); loadErr != nil {
-		ui.PrintWarning("Project not initialized. Run 'revyl init' first for full functionality.")
-	}
-
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-
-	// Parse test IDs from --tests flag
-	var testIDs []string
-	if createWorkflowTests != "" {
-		testNames := strings.Split(createWorkflowTests, ",")
-		for _, name := range testNames {
-			name = strings.TrimSpace(name)
-			if name == "" {
-				continue
-			}
-			// Check if it's a local test alias, otherwise use as-is (assume it's an ID)
-			if id, _ := config.GetLocalTestRemoteID(testsDir, name); id != "" {
-				testIDs = append(testIDs, id)
-			} else {
-				testIDs = append(testIDs, name)
-			}
-		}
 	}
 
 	// Handle dry-run mode
@@ -736,13 +763,9 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-
-	// Load or create project config
-	cfg, err := config.LoadProjectConfig(configPath)
+	project, err := config.ResolveProjectContext(cwd, "")
 	if err != nil {
-		ui.PrintWarning("Project not initialized. Run 'revyl init' first for full functionality.")
-		cfg = &config.ProjectConfig{}
+		return actionableLocalConfigError(err)
 	}
 
 	// Determine platform
@@ -756,11 +779,15 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 		platform = platformOptions[idx]
 	}
 
-	// Auto-detect app_id from config if not provided via flag
+	// Auto-detect app_id when canonical profiles agree on one app for the
+	// selected platform.
 	appID := createTestAppID
-	if appID == "" && cfg.Build.Platforms != nil {
-		if platformCfg, ok := cfg.Build.Platforms[platform]; ok && platformCfg.AppID != "" {
-			appID = platformCfg.AppID
+	if appID == "" {
+		appID, err = execution.ResolveCanonicalConfiguredAppID(project, platform)
+		if err != nil {
+			return fmt.Errorf("%w; pass --app <app-id>", err)
+		}
+		if appID != "" {
 			ui.PrintInfo("Using app from config: %s", appID)
 		}
 	}
@@ -824,7 +851,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 
 		// Create test on server with empty tasks
 		ui.StartSpinner("Creating test on server...")
-		createResp, err := createRemoteTest(cmd.Context(), client, cfg, testName, platform, []interface{}{}, appID)
+		createResp, err := createRemoteTest(cmd.Context(), client, testName, platform, []interface{}{}, appID)
 		ui.StopSpinner()
 
 		if err != nil {
@@ -837,7 +864,7 @@ func runCreateTestInteractive(cmd *cobra.Command, args []string) error {
 	}
 
 	// Save local YAML file
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	testsDir := project.TestsDir
 	if err := os.MkdirAll(testsDir, 0755); err != nil {
 		ui.PrintWarning("Failed to create tests directory: %v", err)
 	} else {

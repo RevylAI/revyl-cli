@@ -403,6 +403,45 @@ func TestParseAPIErrorBodyIncludesValidationErrors(t *testing.T) {
 	if !strings.Contains(got, "body.setup_command: Value error, setup_command must start with an allowed tool: git, bash") {
 		t.Fatalf("error = %q, want field-level validation detail", got)
 	}
+	if len(err.ValidationIssues) != 1 || err.ValidationIssues[0] != (APIValidationIssue{
+		Field:   "body.setup_command",
+		Message: "Value error, setup_command must start with an allowed tool: git, bash",
+		Type:    "value_error",
+	}) {
+		t.Fatalf("ValidationIssues = %#v", err.ValidationIssues)
+	}
+}
+
+func TestParseAPIErrorBodyRetainsStableTopLevelCode(t *testing.T) {
+	err := parseAPIErrorBody(http.StatusConflict, []byte(`{
+		"code":"observed_configuration_changed",
+		"message":"Project configuration operation could not be completed"
+	}`))
+
+	if err.Code != "observed_configuration_changed" {
+		t.Fatalf("Code = %q", err.Code)
+	}
+}
+
+func TestParseAPIErrorBodyPreservesCLIUpgradeRequiredResponse(t *testing.T) {
+	err := parseAPIErrorBody(http.StatusUpgradeRequired, []byte(`{
+		"code":"cli_upgrade_required",
+		"message":"This Revyl CLI version is no longer compatible. Run 'revyl upgrade' and retry."
+	}`))
+
+	if err.StatusCode != http.StatusUpgradeRequired {
+		t.Fatalf("StatusCode = %d", err.StatusCode)
+	}
+	if err.Code != "cli_upgrade_required" {
+		t.Fatalf("Code = %q", err.Code)
+	}
+	wantMessage := "This Revyl CLI version is no longer compatible. Run 'revyl upgrade' and retry."
+	if err.Error() != wantMessage {
+		t.Fatalf("Error() = %q, want %q", err.Error(), wantMessage)
+	}
+	if isRetryableError(nil, err.StatusCode) {
+		t.Fatal("upgrade-required response must not be retried")
+	}
 }
 
 func TestUploadBuild_DoesNotRetryNonRetryableStatus(t *testing.T) {

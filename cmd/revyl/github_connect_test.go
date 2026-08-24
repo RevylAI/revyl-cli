@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -40,6 +41,18 @@ func githubReposServer(t *testing.T, next func() api.GithubRepositoriesResponse)
 		if err := json.NewEncoder(w).Encode(next()); err != nil {
 			t.Fatalf("failed to encode response: %v", err)
 		}
+	}))
+}
+
+func githubReposErrorServer(t *testing.T, statusCode int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/integrations/github/repositories" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		_, _ = w.Write([]byte(`{"message":"request rejected"}`))
 	}))
 }
 
@@ -85,6 +98,20 @@ func TestEnsureGithubConnectedShortCircuitsWhenConnected(t *testing.T) {
 	}
 }
 
+func TestEnsureGithubConnectedExplainsExpiredAuthentication(t *testing.T) {
+	server := githubReposErrorServer(t, http.StatusUnauthorized)
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("expired-key", server.URL)
+	_, err := ensureGithubConnected(context.Background(), client)
+	if err == nil {
+		t.Fatal("ensureGithubConnected() error = nil, want authentication recovery")
+	}
+	if got := err.Error(); got != "Revyl authentication is no longer valid; run 'revyl auth login', then retry 'revyl github connect'" {
+		t.Fatalf("ensureGithubConnected() error = %q", got)
+	}
+}
+
 func TestWaitForGithubInstallationBecomesActive(t *testing.T) {
 	withFastGithubConnectPolling(t, time.Millisecond, 2*time.Second)
 
@@ -124,63 +151,82 @@ func TestWaitForGithubInstallationTimesOut(t *testing.T) {
 	}
 }
 
-func intPtr(v int) *int { return &v }
+func TestWaitForGithubInstallationStopsImmediatelyWhenAuthenticationExpires(t *testing.T) {
+	withFastGithubConnectPolling(t, time.Millisecond, time.Second)
 
-func stringPtr(v string) *string { return &v }
+	server := githubReposErrorServer(t, http.StatusUnauthorized)
+	defer server.Close()
 
-func TestScmConfigIsAutomationEnabled(t *testing.T) {
-	tests := []struct {
-		name string
-		cfg  *api.ScmConfigResponse
-		want bool
-	}{
-		{name: "nil", cfg: nil, want: false},
-		{name: "enabled with neutral install id", cfg: &api.ScmConfigResponse{Enabled: true, InstallationId: stringPtr("1")}, want: true},
-		{name: "enabled with deprecated github install id", cfg: &api.ScmConfigResponse{Enabled: true, GithubInstallationId: intPtr(1)}, want: true},
-		{name: "enabled no install", cfg: &api.ScmConfigResponse{Enabled: true}, want: false},
-		{name: "enabled empty neutral install id", cfg: &api.ScmConfigResponse{Enabled: true, InstallationId: stringPtr("")}, want: false},
-		{name: "installed not enabled", cfg: &api.ScmConfigResponse{GithubInstallationId: intPtr(1)}, want: false},
+	client := api.NewClientWithBaseURL("expired-key", server.URL)
+	_, err := waitForGithubInstallation(context.Background(), client)
+	if err == nil {
+		t.Fatal("waitForGithubInstallation() error = nil, want authentication recovery")
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.cfg.IsAutomationEnabled(); got != tc.want {
-				t.Fatalf("IsAutomationEnabled() = %v, want %v", got, tc.want)
-			}
-		})
+	if got := err.Error(); got != "Revyl authentication is no longer valid; run 'revyl auth login', then retry 'revyl github connect'" {
+		t.Fatalf("waitForGithubInstallation() error = %q", got)
 	}
 }
 
-func TestFindRepoConfig(t *testing.T) {
-	configs := []api.ScmConfigResponse{
-		{RepoFullName: "revyl/app", Enabled: true, GithubInstallationId: intPtr(1)},
-		{RepoFullName: "revyl/web"},
+func TestTerminalGithubInstallationPollingErrorKeepsTransientFailuresPolling(t *testing.T) {
+	tests := []error{
+		context.DeadlineExceeded,
+		&api.APIError{StatusCode: http.StatusInternalServerError},
+		&api.APIError{StatusCode: http.StatusTooManyRequests},
+		&api.APIError{StatusCode: http.StatusRequestTimeout},
 	}
-
-	got := findRepoConfig(configs, "Revyl/App") // case-insensitive
-	if got == nil || !got.IsAutomationEnabled() {
-		t.Fatalf("findRepoConfig() = %+v, want enabled match", got)
-	}
-	if got := findRepoConfig(configs, "revyl/missing"); got != nil {
-		t.Fatalf("findRepoConfig() = %+v, want nil for missing repo", got)
+	for _, err := range tests {
+		if got := terminalGithubInstallationPollingError(err); got != nil {
+			t.Errorf("terminalGithubInstallationPollingError(%v) = %v, want nil", err, got)
+		}
 	}
 }
 
-func TestIsGithubNotConnectedErr(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{name: "forbidden", err: &api.APIError{StatusCode: http.StatusForbidden}, want: true},
-		{name: "not found", err: &api.APIError{StatusCode: http.StatusNotFound}, want: true},
-		{name: "server error", err: &api.APIError{StatusCode: http.StatusInternalServerError}, want: false},
-		{name: "non-api error", err: context.Canceled, want: false},
-		{name: "nil", err: nil, want: false},
+func TestTerminalGithubInstallationPollingErrorExplainsForbiddenRecovery(t *testing.T) {
+	err := terminalGithubInstallationPollingError(&api.APIError{StatusCode: http.StatusForbidden})
+	if err == nil {
+		t.Fatal("terminalGithubInstallationPollingError() = nil, want recovery")
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isGithubNotConnectedErr(tc.err); got != tc.want {
-				t.Fatalf("isGithubNotConnectedErr(%v) = %v, want %v", tc.err, got, tc.want)
+	for _, want := range []string{"revyl auth status", "revyl github connect"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("terminalGithubInstallationPollingError() = %q, want %q", err, want)
+		}
+	}
+}
+
+func TestActionableGithubStatusErrorPreservesStatusRetry(t *testing.T) {
+	err := actionableGithubStatusError(&api.APIError{StatusCode: http.StatusUnauthorized}, "revyl github status")
+	if got := err.Error(); got != "Revyl authentication is no longer valid; run 'revyl auth login', then retry 'revyl github status'" {
+		t.Fatalf("actionableGithubStatusError() = %q", got)
+	}
+}
+
+func TestGithubRepositoryAvailableMatchesExactSlugCaseInsensitively(t *testing.T) {
+	repos := connectedRepos()
+	if !githubRepositoryAvailable(&repos, "REVYL", "APP") {
+		t.Fatal("githubRepositoryAvailable() = false, want true")
+	}
+	if githubRepositoryAvailable(&repos, "revyl", "missing") {
+		t.Fatal("githubRepositoryAvailable() = true for an ungranted repository")
+	}
+}
+
+func TestGithubCommandSurfaceContainsOnlyConnectStatusAndSetup(t *testing.T) {
+	names := make([]string, 0, len(githubCmd.Commands()))
+	for _, command := range githubCmd.Commands() {
+		names = append(names, command.Name())
+	}
+	want := []string{"connect", "status", "setup"}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("github commands = %v, want %v", names, want)
+	}
+}
+
+func TestGithubCommandRejectsRemovedSubcommands(t *testing.T) {
+	for _, removed := range []string{"init", "push"} {
+		t.Run(removed, func(t *testing.T) {
+			err := githubCmd.Args(githubCmd, []string{removed})
+			if err == nil || !strings.Contains(err.Error(), `unknown command "`+removed+`"`) {
+				t.Fatalf("github %s error = %v, want unknown command", removed, err)
 			}
 		})
 	}

@@ -68,7 +68,7 @@ type Result struct {
 //   - ctx: Cancellation scope for the run; a timeout is applied on top of it.
 //   - repoRoot: Absolute path to the Revyl project root, used as the script's
 //     working directory. Script containment is the git worktree root when found.
-//   - cfg: The parsed before_session block. Nil or script-less config is a
+//   - cfg: The canonical before_script block. Nil or script-less config is a
 //     no-op returning an empty result.
 //
 // Returns:
@@ -76,17 +76,18 @@ type Result struct {
 //   - error: An *Error with a secret-free reason when the script cannot be
 //     resolved, times out, exits non-zero, exceeds the stdout capture budget,
 //     or prints malformed output.
-func Run(ctx context.Context, repoRoot string, cfg *config.BeforeSessionConfig) (Result, error) {
-	if !cfg.IsConfigured() {
+func Run(ctx context.Context, repoRoot string, cfg *config.AuthoredBeforeScript) (Result, error) {
+	script := authoredScriptPath(cfg)
+	if script == "" {
 		return Result{}, nil
 	}
 
-	scriptPath, err := resolveScriptPath(repoRoot, cfg.Script)
+	scriptPath, err := resolveScriptPath(repoRoot, script)
 	if err != nil {
 		return Result{}, err
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, cfg.EffectiveTimeout())
+	runCtx, cancel := context.WithTimeout(ctx, authoredScriptTimeout(cfg))
 	defer cancel()
 
 	var stdout, stderr bytes.Buffer
@@ -102,7 +103,7 @@ func Run(ctx context.Context, repoRoot string, cfg *config.BeforeSessionConfig) 
 
 	runErr := cmd.Run()
 	if runErr != nil {
-		return Result{}, runFailure(runCtx, ctx, cfg.Script, runErr)
+		return Result{}, runFailure(runCtx, ctx, script, runErr)
 	}
 
 	// Truncation can cut mid KEY=VALUE line; accepting the partial capture
@@ -110,17 +111,32 @@ func Run(ctx context.Context, repoRoot string, cfg *config.BeforeSessionConfig) 
 	if stdoutWriter.truncated {
 		return Result{}, &Error{
 			Reason: fmt.Sprintf(
-				"before_session script %q produced more than 1MiB of stdout",
-				cfg.Script,
+				"session.before_script %q produced more than 1MiB of stdout",
+				script,
 			),
 		}
 	}
 
-	values, err := parseValues(stdout.String(), cfg.Script)
+	values, err := parseValues(stdout.String(), script)
 	if err != nil {
 		return Result{}, err
 	}
 	return Result{Values: values}, nil
+}
+
+func authoredScriptPath(cfg *config.AuthoredBeforeScript) string {
+	if cfg == nil || cfg.ScriptPath == nil {
+		return ""
+	}
+	return strings.TrimSpace(*cfg.ScriptPath)
+}
+
+func authoredScriptTimeout(cfg *config.AuthoredBeforeScript) time.Duration {
+	timeoutSeconds := config.DefaultBeforeSessionTimeoutSeconds
+	if cfg != nil && cfg.TimeoutSeconds != nil && *cfg.TimeoutSeconds > 0 {
+		timeoutSeconds = *cfg.TimeoutSeconds
+	}
+	return time.Duration(timeoutSeconds) * time.Second
 }
 
 // resolveScriptPath resolves a configured script to an executable file inside
@@ -151,41 +167,41 @@ func resolveScriptPath(projectRoot, script string) (string, error) {
 	// the worktree cannot point the runner at a file outside it.
 	realProjectRoot, err := filepath.EvalSymlinks(projectRoot)
 	if err != nil {
-		return "", &Error{Reason: "before_session could not resolve the repository root"}
+		return "", &Error{Reason: "session.before_script could not resolve the repository root"}
 	}
 	containmentRoot, err := gitWorktreeRoot(realProjectRoot)
 	if err != nil {
-		return "", &Error{Reason: "before_session could not resolve the repository root"}
+		return "", &Error{Reason: "session.before_script could not resolve the repository root"}
 	}
 	realScript, err := filepath.EvalSymlinks(candidate)
 	if err != nil {
 		return "", &Error{
-			Reason: fmt.Sprintf("before_session script %q was not found in the repository", trimmed),
+			Reason: fmt.Sprintf("session.before_script %q was not found in the repository", trimmed),
 		}
 	}
 
 	if realScript != containmentRoot && !strings.HasPrefix(realScript, containmentRoot+string(filepath.Separator)) {
 		return "", &Error{
-			Reason: fmt.Sprintf("before_session script %q resolves outside the repository", trimmed),
+			Reason: fmt.Sprintf("session.before_script %q resolves outside the repository", trimmed),
 		}
 	}
 
 	info, err := os.Stat(realScript)
 	if err != nil {
 		return "", &Error{
-			Reason: fmt.Sprintf("before_session script %q was not found in the repository", trimmed),
+			Reason: fmt.Sprintf("session.before_script %q was not found in the repository", trimmed),
 		}
 	}
 	if info.IsDir() || !info.Mode().IsRegular() {
 		return "", &Error{
-			Reason: fmt.Sprintf("before_session script %q is not a regular file", trimmed),
+			Reason: fmt.Sprintf("session.before_script %q is not a regular file", trimmed),
 		}
 	}
 	// Windows file modes do not carry Unix execute bits, so enforcing 0o111
 	// there rejects every script. Host-native executability is left to exec.
 	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 		return "", &Error{
-			Reason: fmt.Sprintf("before_session script %q is not executable (chmod +x it)", trimmed),
+			Reason: fmt.Sprintf("session.before_script %q is not executable (chmod +x it)", trimmed),
 		}
 	}
 
@@ -230,18 +246,18 @@ func gitWorktreeRoot(projectRoot string) (string, error) {
 func runFailure(runCtx, parentCtx context.Context, script string, err error) error {
 	switch {
 	case parentCtx.Err() != nil:
-		return &Error{Reason: fmt.Sprintf("before_session script %q was cancelled", script)}
+		return &Error{Reason: fmt.Sprintf("session.before_script %q was cancelled", script)}
 	case errors.Is(runCtx.Err(), context.DeadlineExceeded):
-		return &Error{Reason: fmt.Sprintf("before_session script %q timed out", script)}
+		return &Error{Reason: fmt.Sprintf("session.before_script %q timed out", script)}
 	}
 
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		return &Error{
-			Reason: fmt.Sprintf("before_session script %q failed (exit %d)", script, exitErr.ExitCode()),
+			Reason: fmt.Sprintf("session.before_script %q failed (exit %d)", script, exitErr.ExitCode()),
 		}
 	}
-	return &Error{Reason: fmt.Sprintf("before_session script %q could not be run", script)}
+	return &Error{Reason: fmt.Sprintf("session.before_script %q could not be run", script)}
 }
 
 // parseValues extracts KEY=VALUE pairs from script stdout.
@@ -275,7 +291,7 @@ func parseValues(stdout, script string) (map[string]string, error) {
 		if value == "" {
 			return nil, &Error{
 				Reason: fmt.Sprintf(
-					"before_session script %q printed %s with an empty value",
+					"session.before_script %q printed %s with an empty value",
 					script, key,
 				),
 			}
@@ -283,7 +299,7 @@ func parseValues(stdout, script string) (map[string]string, error) {
 		if _, duplicate := values[key]; duplicate {
 			return nil, &Error{
 				Reason: fmt.Sprintf(
-					"before_session script %q printed %s more than once",
+					"session.before_script %q printed %s more than once",
 					script, key,
 				),
 			}

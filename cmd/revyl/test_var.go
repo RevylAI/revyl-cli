@@ -8,14 +8,11 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -148,13 +145,10 @@ func resolveTestClientDefault(cmd *cobra.Command, testNameOrID string) (string, 
 		return "", nil, err
 	}
 
-	cwd, _ := os.Getwd()
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
-
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	testID, _, err := resolveTestID(cmd.Context(), testNameOrID, cfg, client)
+	testID, _, err := resolveTestID(cmd.Context(), testNameOrID, nil, client)
 	if err != nil {
 		ui.PrintError("%v", err)
 		return "", nil, fmt.Errorf("test not found")

@@ -163,8 +163,8 @@ func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode create request: %v", err)
 			}
-			if got := req["org_id"]; got != "org-config" {
-				t.Fatalf("org_id = %v, want org-config", got)
+			if got := req["org_id"]; got != "org-live" {
+				t.Fatalf("org_id = %v, want org-live", got)
 			}
 			if got := req["app_id"]; got != "app-ios" {
 				t.Fatalf("app_id = %v, want app-ios", got)
@@ -183,6 +183,9 @@ func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
 		case "/api/v1/tests/scripts", "/api/v1/modules/list":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"scripts":[],"result":[]}`))
+		case "/api/v1/entity/users/get_user_uuid":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -200,11 +203,7 @@ func TestSyncToRemote_CreateUsesResolvedOrgID(t *testing.T) {
 		},
 	}
 
-	cfg := &config.ProjectConfig{
-		Project: config.Project{OrgID: "org-config"},
-	}
-
-	resolver := NewResolver(client, cfg, map[string]*config.LocalTest{
+	resolver := NewResolver(client, nil, map[string]*config.LocalTest{
 		"login-flow": local,
 	})
 

@@ -46,7 +46,7 @@ func TestDevProfileStartsWithoutCredentials(t *testing.T) {
 	if status.Ready || status.AuthState != authenticationStateRequired {
 		t.Fatalf("setup status = %+v, want local auth required", status)
 	}
-	if status.Environment != setupEnvironmentLocal || status.ProjectState != projectStateNotInitialized {
+	if status.Environment != setupEnvironmentLocal || status.ProjectState != projectStateOutsideGit {
 		t.Fatalf("setup environment/project = %q/%q", status.Environment, status.ProjectState)
 	}
 	if status.Remediation == nil || status.Remediation.ActionKind != remediationActionCommand ||
@@ -428,6 +428,7 @@ func TestDevProfileKeepsNormalFileCredentialsLocal(t *testing.T) {
 // TestSetupStatusReportsProjectInitializationAction verifies authenticated projects receive one exact command.
 func TestSetupStatusReportsProjectInitializationAction(t *testing.T) {
 	prepareServerAuthTest(t)
+	initializeMCPGitFixture(t, os.Getenv("REVYL_PROJECT_DIR"))
 	t.Setenv("REVYL_API_KEY", "environment-api-key")
 	runner := &fakeDevLoopRunner{}
 
@@ -447,9 +448,11 @@ func TestSetupStatusReportsProjectInitializationAction(t *testing.T) {
 	if status.ProjectState != projectStateNotInitialized || status.Remediation == nil {
 		t.Fatalf("project setup status = %+v", status)
 	}
+	canonicalProjectDirectory := canonicalMCPFixturePath(t, os.Getenv("REVYL_PROJECT_DIR"))
 	if status.Remediation.ActionKind != remediationActionCommand ||
-		status.Remediation.Command != "revyl init --non-interactive" ||
-		status.Remediation.WorkingDirectory != os.Getenv("REVYL_PROJECT_DIR") ||
+		status.Remediation.Command != revylRemediationCommand("-C", canonicalProjectDirectory, "config", "pull") ||
+		status.Remediation.AlternativeCommand != revylRemediationCommand("-C", canonicalProjectDirectory, "init", "--non-interactive") ||
+		status.Remediation.WorkingDirectory != canonicalProjectDirectory ||
 		status.Remediation.RestartRequired {
 		t.Fatalf("project remediation = %+v", status.Remediation)
 	}
@@ -470,6 +473,7 @@ func TestSetupStatusReportsProjectInitializationAction(t *testing.T) {
 // TestPluginRuntimeRemediationsUsePinnedExecutable verifies one-install recovery avoids PATH.
 func TestPluginRuntimeRemediationsUsePinnedExecutable(t *testing.T) {
 	prepareServerAuthTest(t)
+	initializeMCPGitFixture(t, os.Getenv("REVYL_PROJECT_DIR"))
 	executablePath := filepath.Join(t.TempDir(), "Revyl Runtime", "revyl")
 	t.Setenv(remediationExecutableEnvironment, executablePath)
 	executableCommand := quoteRemediationExecutable(executablePath)
@@ -482,7 +486,8 @@ func TestPluginRuntimeRemediationsUsePinnedExecutable(t *testing.T) {
 
 	projectStatus := resolveSetupProjectState(os.Getenv("REVYL_PROJECT_DIR"))
 	if projectStatus.Remediation == nil ||
-		projectStatus.Remediation.Command != executableCommand+" init --non-interactive" {
+		projectStatus.Remediation.Command != revylRemediationCommand("-C", canonicalMCPFixturePath(t, os.Getenv("REVYL_PROJECT_DIR")), "config", "pull") ||
+		projectStatus.Remediation.AlternativeCommand != revylRemediationCommand("-C", canonicalMCPFixturePath(t, os.Getenv("REVYL_PROJECT_DIR")), "init", "--non-interactive") {
 		t.Fatalf("project remediation = %+v, want plugin runtime executable", projectStatus.Remediation)
 	}
 }
@@ -604,14 +609,20 @@ func TestSetupStatusReportsUnresolvedAPIKeyEnvironment(t *testing.T) {
 	}
 }
 
-// TestSetupStatusReportsAmbiguousProjectRemediation verifies deterministic project selection guidance.
-func TestSetupStatusReportsAmbiguousProjectRemediation(t *testing.T) {
+// TestSetupStatusUsesNearestProjectConfig verifies canonical lookup ignores descendant configs
+// and selects the nearest ancestor config for an explicit nested working directory.
+func TestSetupStatusUsesNearestProjectConfig(t *testing.T) {
 	prepareServerAuthTest(t)
 	workDir := os.Getenv("REVYL_PROJECT_DIR")
-	alphaRoot := filepath.Join(workDir, "apps", "alpha")
-	zetaRoot := filepath.Join(workDir, "apps", "zeta")
-	writeDevLoopProjectAt(t, zetaRoot)
-	writeDevLoopProjectAt(t, alphaRoot)
+	writeDevLoopProjectAt(t, workDir)
+	canonicalWorkDir := canonicalMCPFixturePath(t, workDir)
+	nestedRoot := filepath.Join(workDir, "apps", "alpha")
+	nestedWorkingDirectory := filepath.Join(nestedRoot, "src")
+	if err := os.MkdirAll(nestedWorkingDirectory, 0o755); err != nil {
+		t.Fatalf("create nested working directory: %v", err)
+	}
+	writeDevLoopConfigAt(t, nestedRoot)
+	writeDevLoopConfigAt(t, filepath.Join(workDir, "apps", "zeta"))
 	runner := &fakeDevLoopRunner{}
 
 	server, err := NewServer(
@@ -630,52 +641,41 @@ func TestSetupStatusReportsAmbiguousProjectRemediation(t *testing.T) {
 		t,
 		callServerTool(t, server, "setup_status", nil),
 	)
-	if unauthenticatedStatus.ProjectState != projectStateAmbiguous ||
+	if unauthenticatedStatus.ProjectState != projectStateInitialized ||
+		unauthenticatedStatus.ProjectDirectory != canonicalWorkDir ||
 		unauthenticatedStatus.Remediation == nil ||
 		unauthenticatedStatus.Remediation.ActionKind != remediationActionCommand {
-		t.Fatalf("unauthenticated ambiguous status = %+v, want auth remediation precedence", unauthenticatedStatus)
+		t.Fatalf("unauthenticated setup status = %+v, want root project plus auth remediation", unauthenticatedStatus)
 	}
 
-	const apiKey = "ambiguous-project-api-key"
+	const apiKey = "nearest-project-api-key"
 	t.Setenv("REVYL_API_KEY", apiKey)
 	status := decodeStructuredToolResult[SetupStatusOutput](
 		t,
 		callServerTool(t, server, "setup_status", nil),
 	)
-	if status.Ready || status.ProjectState != projectStateAmbiguous || status.Remediation == nil {
-		t.Fatalf("ambiguous setup status = %+v", status)
-	}
-	if status.Remediation.ActionKind != remediationActionSelectProjectDir ||
-		status.Remediation.WorkingDirectory != workDir ||
-		status.Remediation.Command != "" ||
-		status.Remediation.EnvName != "" ||
-		status.Remediation.ConfigPath != "" ||
-		status.Remediation.RestartRequired {
-		t.Fatalf("ambiguous remediation = %+v", status.Remediation)
-	}
-	expectedRoots := []string{alphaRoot, zetaRoot}
-	if !slices.Equal(status.Remediation.CandidateRoots, expectedRoots) {
-		t.Fatalf("candidate roots = %v, want %v", status.Remediation.CandidateRoots, expectedRoots)
+	if !status.Ready || status.ProjectState != projectStateInitialized ||
+		status.ProjectDirectory != canonicalWorkDir || status.Remediation != nil {
+		t.Fatalf("ready root setup status = %+v", status)
 	}
 	requireSetupStatusSecretFree(t, status, apiKey)
 
-	startResult := callServerTool(t, server, "start_dev_loop", nil)
-	if !startResult.IsError {
-		t.Fatalf("start_dev_loop result = %+v, want ambiguous project error", startResult)
+	resolved, err := server.resolveValidatedDevProjectDir(nestedWorkingDirectory)
+	if err != nil {
+		t.Fatalf("resolve nearest nested project: %v", err)
 	}
-	start := decodeStructuredToolResult[DevLoopStartOutput](t, startResult)
-	if start.Outcome.OutcomeCode != "project_ambiguous" {
-		t.Fatalf("start outcome = %+v, want project_ambiguous", start.Outcome)
+	canonicalNestedRoot := canonicalMCPFixturePath(t, nestedRoot)
+	if resolved != canonicalNestedRoot {
+		t.Fatalf("nearest nested project = %q, want %q", resolved, canonicalNestedRoot)
 	}
-	requireRemediationParity(t, start.Remediation, status.Remediation)
-	requireJSONSecretFree(t, start, apiKey)
-	requireRunnerStartCalls(t, runner, 0)
 }
 
 // TestSetupStatusReportsInvalidProjectRemediation verifies malformed config repair guidance.
 func TestSetupStatusReportsInvalidProjectRemediation(t *testing.T) {
 	prepareServerAuthTest(t)
 	workDir := os.Getenv("REVYL_PROJECT_DIR")
+	initializeMCPGitFixture(t, workDir)
+	canonicalWorkDir := canonicalMCPFixturePath(t, workDir)
 	revylDir := filepath.Join(workDir, ".revyl")
 	if err := os.MkdirAll(revylDir, 0o755); err != nil {
 		t.Fatalf("create .revyl directory: %v", err)
@@ -708,9 +708,11 @@ func TestSetupStatusReportsInvalidProjectRemediation(t *testing.T) {
 		t.Fatalf("invalid setup status = %+v", status)
 	}
 	if status.Remediation.ActionKind != remediationActionRepairProjectConfig ||
-		status.Remediation.ConfigPath != configPath ||
-		status.Remediation.WorkingDirectory != workDir ||
-		status.Remediation.Command != "" ||
+		status.Remediation.ConfigPath != filepath.Join(canonicalWorkDir, ".revyl", "config.yaml") ||
+		status.Remediation.WorkingDirectory != canonicalWorkDir ||
+		status.Remediation.Command == "" ||
+		status.Remediation.CheckCommand != status.Remediation.Command ||
+		status.Remediation.ApplyCommand != "" ||
 		status.Remediation.EnvName != "" ||
 		len(status.Remediation.CandidateRoots) != 0 ||
 		status.Remediation.RestartRequired {
@@ -942,6 +944,9 @@ func requireRemediationParity(t *testing.T, actual, expected *Remediation) {
 	}
 	if actual.ActionKind != expected.ActionKind ||
 		actual.Command != expected.Command ||
+		actual.AlternativeCommand != expected.AlternativeCommand ||
+		actual.CheckCommand != expected.CheckCommand ||
+		actual.ApplyCommand != expected.ApplyCommand ||
 		actual.EnvName != expected.EnvName ||
 		actual.WorkingDirectory != expected.WorkingDirectory ||
 		!slices.Equal(actual.CandidateRoots, expected.CandidateRoots) ||

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -401,14 +402,18 @@ func runDeviceStartPostLaunchFailureTest(
 	t.Cleanup(func() { devAuthBypass = previousAuthBypass })
 
 	if useAuthBypass {
+		if output, err := exec.Command("git", "init", "--quiet", tmpDir).CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v: %s", err, output)
+		}
 		revylDir := filepath.Join(tmpDir, ".revyl")
 		if err := os.MkdirAll(revylDir, 0o755); err != nil {
 			t.Fatalf("mkdir .revyl: %v", err)
 		}
 		configYAML := `project:
-  name: post-launch-cleanup-test
-auth_bypass:
-  deep_link: "revyl-test://auth?token=${REVYL_AUTH_BYPASS_TOKEN}"
+  id: 11111111-1111-4111-8111-111111111111
+session:
+  auth_bypass:
+    deep_link: "revyl-test://auth?token=${REVYL_AUTH_BYPASS_TOKEN}"
 `
 		if err := os.WriteFile(filepath.Join(revylDir, "config.yaml"), []byte(configYAML), 0o600); err != nil {
 			t.Fatalf("write config.yaml: %v", err)

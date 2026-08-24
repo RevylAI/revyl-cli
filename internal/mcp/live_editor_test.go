@@ -11,15 +11,14 @@ import (
 
 // newTestServerNoTools creates a minimal Server for handler testing
 // without calling registerTools() (which requires the full MCP SDK).
-func newTestServerNoTools(cfg *config.ProjectConfig) *Server {
+func newTestServerNoTools() *Server {
 	return &Server{
-		config:  cfg,
 		workDir: "/tmp/test-project",
 		version: "test",
 	}
 }
 
-func setupTestYAMLDir(t *testing.T, alias, remoteID string) {
+func setupTestYAMLDir(t *testing.T, alias, remoteID string) string {
 	t.Helper()
 	tmp := t.TempDir()
 	testsDir := filepath.Join(tmp, ".revyl", "tests")
@@ -40,13 +39,14 @@ func setupTestYAMLDir(t *testing.T, alias, remoteID string) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	return tmp
 }
 
 func TestOpenTestEditorNoHotReload(t *testing.T) {
-	setupTestYAMLDir(t, "login-flow", "test-uuid-123")
+	testsRoot := setupTestYAMLDir(t, "login-flow", "test-uuid-123")
 
-	cfg := &config.ProjectConfig{}
-	s := newTestServerNoTools(cfg)
+	s := newTestServerNoTools()
+	s.project = &config.ProjectContext{TestsDir: filepath.Join(testsRoot, ".revyl", "tests")}
 	ctx := context.Background()
 
 	_, output, err := s.handleOpenTestEditor(ctx, nil, OpenTestEditorInput{
@@ -74,7 +74,7 @@ func TestOpenTestEditorNoHotReload(t *testing.T) {
 }
 
 func TestOpenTestEditorMissingTestName(t *testing.T) {
-	s := newTestServerNoTools(nil)
+	s := newTestServerNoTools()
 	ctx := context.Background()
 
 	_, output, err := s.handleOpenTestEditor(ctx, nil, OpenTestEditorInput{})
@@ -90,7 +90,7 @@ func TestOpenTestEditorMissingTestName(t *testing.T) {
 }
 
 func TestOpenTestEditorResolvesUUID(t *testing.T) {
-	s := newTestServerNoTools(nil)
+	s := newTestServerNoTools()
 	ctx := context.Background()
 
 	_, output, err := s.handleOpenTestEditor(ctx, nil, OpenTestEditorInput{
@@ -109,10 +109,10 @@ func TestOpenTestEditorResolvesUUID(t *testing.T) {
 }
 
 func TestOpenTestEditorIdempotent(t *testing.T) {
-	setupTestYAMLDir(t, "login-flow", "test-uuid-123")
+	testsRoot := setupTestYAMLDir(t, "login-flow", "test-uuid-123")
 
-	cfg := &config.ProjectConfig{}
-	s := newTestServerNoTools(cfg)
+	s := newTestServerNoTools()
+	s.project = &config.ProjectContext{TestsDir: filepath.Join(testsRoot, ".revyl", "tests")}
 	ctx := context.Background()
 
 	// First call — no hot reload, should succeed
@@ -138,7 +138,7 @@ func TestOpenTestEditorIdempotent(t *testing.T) {
 }
 
 func TestStopHotReloadNoSession(t *testing.T) {
-	s := newTestServerNoTools(nil)
+	s := newTestServerNoTools()
 	ctx := context.Background()
 
 	_, output, err := s.handleStopHotReload(ctx, nil, StopHotReloadInput{})
@@ -154,7 +154,7 @@ func TestStopHotReloadNoSession(t *testing.T) {
 }
 
 func TestHotReloadStatusNoSession(t *testing.T) {
-	s := newTestServerNoTools(nil)
+	s := newTestServerNoTools()
 	ctx := context.Background()
 
 	_, output, err := s.handleHotReloadStatus(ctx, nil, HotReloadStatusInput{})
@@ -170,7 +170,7 @@ func TestHotReloadStatusNoSession(t *testing.T) {
 }
 
 func TestShutdownNoSession(t *testing.T) {
-	s := newTestServerNoTools(nil)
+	s := newTestServerNoTools()
 	// Should not panic when no session is active
 	s.Shutdown()
 }

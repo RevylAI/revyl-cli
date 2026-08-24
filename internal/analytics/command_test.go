@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -45,6 +46,28 @@ func TestCompleteUsesCompletedErrorForDomainFailure(t *testing.T) {
 	}
 }
 
+func TestFailureUsesExplicitSafeDiagnosticWithoutChangingReturnedError(t *testing.T) {
+	recorder := testRecorder()
+	run := testCommandRun(recorder)
+	err := WithSafeDiagnostic(
+		errors.New("profile customer-private-name is invalid"),
+		"project configuration validation failed",
+	)
+
+	run.Complete(err)
+
+	if got := err.Error(); got != "profile customer-private-name is invalid" {
+		t.Fatalf("Error() = %q", got)
+	}
+	event := lastEvent(t, recorder)
+	if event.Event != CliCommandFailedEvent {
+		t.Fatalf("event = %q, want %q", event.Event, CliCommandFailedEvent)
+	}
+	if got := event.Properties["error_message"]; got != "project configuration validation failed" {
+		t.Fatalf("error_message = %q", got)
+	}
+}
+
 func TestCompleteWithoutOverrideKeepsCommandFailure(t *testing.T) {
 	rec := testRecorder()
 	run := testCommandRun(rec)
@@ -75,6 +98,71 @@ func TestCompleteSuccessIncludesZeroExitCode(t *testing.T) {
 	}
 	if got := event.Properties["exit_code"]; got != 0 {
 		t.Fatalf("exit_code = %v, want 0", got)
+	}
+}
+
+func TestCommandContextAddsBoundedTerminalMetadata(t *testing.T) {
+	rec := testRecorder()
+	run := testCommandRun(rec)
+	ctx := ContextWithCommandRun(context.Background(), run)
+
+	SetCommandCompletion(ctx, CommandCompletion{
+		Domain:       "config_migration",
+		DomainStatus: "proposal",
+		Properties: map[string]interface{}{
+			"config_migration_backup_created": false,
+			"entity_id":                       "project-123",
+		},
+	})
+	run.Complete(nil)
+
+	event := lastEvent(t, rec)
+	if got := event.Properties["domain"]; got != "config_migration" {
+		t.Fatalf("domain = %v, want config_migration", got)
+	}
+	if got := event.Properties["domain_status"]; got != "proposal" {
+		t.Fatalf("domain_status = %v, want proposal", got)
+	}
+	if got := event.Properties["config_migration_backup_created"]; got != false {
+		t.Fatalf("config_migration_backup_created = %v, want false", got)
+	}
+	if got := event.Properties["entity_id"]; got != "project-123" {
+		t.Fatalf("entity_id = %v, want project-123", got)
+	}
+}
+
+func TestCommandContextMergesFailureMetadataWithoutRawDetails(t *testing.T) {
+	rec := testRecorder()
+	run := testCommandRun(rec)
+	ctx := ContextWithCommandRun(context.Background(), run)
+
+	SetCommandCompletion(ctx, CommandCompletion{
+		Domain:       "config_migration",
+		DomainStatus: "failed",
+		Properties:   map[string]interface{}{"config_migration_backup_created": true},
+	})
+	SetCommandCompletion(ctx, CommandCompletion{
+		DomainStatus: "failed",
+		Properties:   map[string]interface{}{"config_migration_failure_code": "config_changed_before_write"},
+	})
+	run.ObserveOutput("stderr", "omitted customer.private_field: customer-authored detail")
+	run.Complete(WithSafeDiagnostic(errors.New("/private/customer/config.yaml"), "configuration migration failed"))
+
+	event := lastEvent(t, rec)
+	if got := event.Properties["domain"]; got != "config_migration" {
+		t.Fatalf("domain = %v, want config_migration", got)
+	}
+	if got := event.Properties["config_migration_backup_created"]; got != true {
+		t.Fatalf("config_migration_backup_created = %v, want true", got)
+	}
+	if got := event.Properties["config_migration_failure_code"]; got != "config_changed_before_write" {
+		t.Fatalf("config_migration_failure_code = %v", got)
+	}
+	if got := event.Properties["error_message"]; got != "configuration migration failed" {
+		t.Fatalf("error_message = %v", got)
+	}
+	if _, exists := event.Properties["output_tail"]; exists {
+		t.Fatalf("safe diagnostic failure retained output tail: %#v", event.Properties["output_tail"])
 	}
 }
 

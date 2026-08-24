@@ -43,11 +43,13 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 
-	// Resolve workDir by walking up to find .revyl/ directory.
-	// Falls back to cwd if no .revyl/ ancestor exists (e.g., first run).
 	workDir, _ := os.Getwd()
-	if repoRoot, err := config.FindRepoRoot(workDir); err == nil {
-		workDir = repoRoot
+	project, projectErr := resolveOptionalProjectContext(workDir)
+	if projectErr != nil {
+		return nil, projectErr
+	}
+	if project != nil {
+		workDir = project.ProjectRoot
 	}
 
 	client := api.NewClientWithDevMode(apiKey, devMode)
@@ -792,6 +794,23 @@ var deviceStartCmd = &cobra.Command{
 			return err
 		}
 		appLink = normalizeOptionalDeviceFlagValue(appLink)
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current directory: %w", err)
+		}
+		project, err := resolveOptionalProjectContext(cwd)
+		if err != nil {
+			return err
+		}
+		if project != nil {
+			session := project.Aggregate.Session
+			if !cmd.Flags().Changed("timeout") && session.IdleTimeoutSeconds != nil && *session.IdleTimeoutSeconds > 0 {
+				timeout = *session.IdleTimeoutSeconds
+			}
+			initDevSession(project.ProjectRoot, session)
+		} else {
+			initDevSession(cwd, config.AuthoredSession{})
+		}
 
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
@@ -818,17 +837,6 @@ var deviceStartCmd = &cobra.Command{
 		platform, err = normalizeDeviceStartPlatform(platform)
 		if err != nil {
 			return err
-		}
-		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-			if cfg, projectRoot := loadProjectConfigFromRepoRoot(cwd); cfg != nil {
-				if !cmd.Flags().Changed("timeout") {
-					timeout = config.EffectiveTimeoutSeconds(cfg, timeout)
-				}
-				if cfg.AuthBypass.IsConfigured() {
-					initDevAuthBypass(cfg)
-				}
-				initDevBeforeSession(cfg, projectRoot)
-			}
 		}
 
 		targetCatalog := loadCommandDeviceTargetCatalog(cmd.Context(), cmd)

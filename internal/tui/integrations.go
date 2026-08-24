@@ -2,18 +2,15 @@
 //
 // The integrations screen makes GitHub PR automation first-class from the TUI:
 // it shows live connection status and lets the user install the Revyl GitHub
-// App (browser-initiated) and push their .revyl/config.yaml pr_review config
-// without leaving the terminal. Scope is GitHub-only for now; the screen is a
-// list so other integrations can be added later.
+// App (browser-initiated) or open canonical project settings. Scope is
+// GitHub-only for now; the screen is a list so other integrations can be added
+// later.
 package tui
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,8 +18,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/gitremote"
-	"github.com/revyl/cli/internal/prconfig"
+	"github.com/revyl/cli/internal/projectpublication"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -34,6 +30,8 @@ const (
 	// integrationsPollTimeout bounds how long the connect flow waits for the
 	// browser install before giving up (the user can refresh to continue).
 	integrationsPollTimeout = 3 * time.Minute
+
+	integrationsPublishTimeout = 3 * time.Minute
 )
 
 // integrationAction is a selectable action row on the integrations screen.
@@ -46,7 +44,7 @@ type integrationAction struct {
 // githubIntegrationActions are the actions available for the GitHub row.
 var githubIntegrationActions = []integrationAction{
 	{key: "connect", label: "Connect GitHub", desc: "Install the Revyl GitHub App in your browser"},
-	{key: "push", label: "Push config", desc: "Apply .revyl/config.yaml pr_review now"},
+	{key: "publish", label: "Publish config", desc: "Publish the complete project configuration"},
 	{key: "open", label: "Open dashboard", desc: "Manage GitHub in the web dashboard"},
 }
 
@@ -80,9 +78,10 @@ type IntegrationsConnectCheckMsg struct {
 	Seq   int
 }
 
-// IntegrationsPushDoneMsg carries the result of an inline config push.
-type IntegrationsPushDoneMsg struct {
-	Summary string
+// IntegrationsPublishDoneMsg carries the result of publishing the complete
+// canonical project configuration.
+type IntegrationsPublishDoneMsg struct {
+	Outcome api.ProjectConfigurationReplaceResponseOutcome
 	Err     error
 }
 
@@ -154,95 +153,28 @@ func integrationsConnectCheckCmd(client *api.Client, seq int) tea.Cmd {
 	}
 }
 
-// integrationsPushCmd pushes the local pr_review config to Revyl.
-//
-// Parameters:
-//   - client: The authenticated API client.
-//   - repoOverride: Optional "owner/name" override; empty resolves from git.
-//
-// Returns:
-//   - tea.Cmd: A command producing an IntegrationsPushDoneMsg.
-func integrationsPushCmd(client *api.Client, repoOverride string) tea.Cmd {
+// publishProjectConfigurationCmd resolves and publishes the nearest canonical
+// project config through the same observed-state operation as config push.
+func publishProjectConfigurationCmd(client *api.Client, cwd string) tea.Cmd {
 	return func() tea.Msg {
-		summary, err := runIntegrationsPush(client, repoOverride)
-		return IntegrationsPushDoneMsg{Summary: summary, Err: err}
-	}
-}
-
-// runIntegrationsPush uploads the local config (or empty content when the
-// file is missing) without scaffolding a new pr_review section.
-//
-// Parameters:
-//   - client: The authenticated API client.
-//   - repoOverride: Optional "owner/name" override; empty resolves from git.
-//
-// Returns:
-//   - string: A success summary suitable for inline display.
-//   - error: A non-nil error when the repo cannot be resolved, the config
-//     cannot be read, or the backend rejects the config.
-func runIntegrationsPush(client *api.Client, repoOverride string) (string, error) {
-	if client == nil {
-		return "", fmt.Errorf("not authenticated")
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
-	}
-	root := cwd
-	if repoRoot, findErr := config.FindRepoRoot(cwd); findErr == nil {
-		root = repoRoot
-	}
-	configPath := filepath.Join(root, ".revyl", "config.yaml")
-
-	content, err := prconfig.ReadPushContent(configPath)
-	if err != nil {
-		return "", err
-	}
-
-	namespace, project, err := gitremote.ResolveSlug(root, repoOverride)
-	if err != nil {
-		return "", err
-	}
-
-	relPath := ".revyl/config.yaml"
-	if rel, relErr := filepath.Rel(root, configPath); relErr == nil {
-		relPath = filepath.ToSlash(rel)
-	}
-
-	resp, err := client.PushPRReviewConfig(context.Background(), api.PushPRReviewConfigRequest{
-		Namespace:      namespace,
-		Project:        project,
-		Content:        content,
-		ConfigFilePath: relPath,
-	})
-	if err != nil {
-		return "", err
-	}
-	if resp.State.Status == "error" {
-		msg := resp.State.Error
-		if msg == "" {
-			msg = "config could not be applied"
+		if client == nil {
+			return IntegrationsPublishDoneMsg{Err: fmt.Errorf("not authenticated")}
 		}
-		return "", fmt.Errorf("%s", msg)
+		ctx, cancel := context.WithTimeout(context.Background(), integrationsPublishTimeout)
+		defer cancel()
+		candidate, err := projectpublication.ResolveCandidate(cwd)
+		if err != nil {
+			return IntegrationsPublishDoneMsg{Err: err}
+		}
+		result, err := projectpublication.Publish(ctx, client, *candidate)
+		if err != nil {
+			return IntegrationsPublishDoneMsg{Err: err}
+		}
+		if result == nil {
+			return IntegrationsPublishDoneMsg{Err: fmt.Errorf("server returned no publication result")}
+		}
+		return IntegrationsPublishDoneMsg{Outcome: result.Outcome}
 	}
-	return prconfig.PushOutcomeMessage(namespace, project, resp.State.Status), nil
-}
-
-// integrationsIsNotConnected reports whether err indicates GitHub is not
-// connected / PR automation isn't available (HTTP 403/404).
-//
-// Parameters:
-//   - err: The error returned by a push request.
-//
-// Returns:
-//   - bool: true when err is an HTTP 403 or 404 APIError.
-func integrationsIsNotConnected(err error) bool {
-	var apiErr *api.APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.StatusCode == http.StatusForbidden ||
-			apiErr.StatusCode == http.StatusNotFound
-	}
-	return false
 }
 
 // --- Model transitions ---
@@ -260,8 +192,6 @@ func (m hubModel) enterIntegrationsView() (tea.Model, tea.Cmd) {
 	m.integrationsStatus = ""
 	m.integrationsStatusErr = false
 	m.integrationsConnecting = false
-	m.integrationsBusy = false
-	m.integrationsPushAfterConnect = false
 	if m.client != nil {
 		m.integrationsLoading = true
 		return m, fetchIntegrationsStatusCmd(m.client)
@@ -302,9 +232,9 @@ func handleIntegrationsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r", "R":
 		return m.refreshIntegrationsStatus()
 	case "c":
-		return m.startGithubConnect(false)
+		return m.startGithubConnect()
 	case "p":
-		return m.startGithubPush()
+		return m.startProjectConfigurationPublish()
 	case "o":
 		return m.openIntegrationsDashboard()
 	case "enter":
@@ -313,9 +243,9 @@ func handleIntegrationsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		switch githubIntegrationActions[m.integrationsCursor].key {
 		case "connect":
-			return m.startGithubConnect(false)
-		case "push":
-			return m.startGithubPush()
+			return m.startGithubConnect()
+		case "publish":
+			return m.startProjectConfigurationPublish()
 		case "open":
 			return m.openIntegrationsDashboard()
 		}
@@ -325,7 +255,7 @@ func handleIntegrationsKey(m hubModel, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // refreshIntegrationsStatus re-fetches the GitHub installation status.
 func (m hubModel) refreshIntegrationsStatus() (tea.Model, tea.Cmd) {
-	if m.client == nil {
+	if m.client == nil || m.integrationsPublishing {
 		return m, nil
 	}
 	m.integrationsLoading = true
@@ -334,43 +264,41 @@ func (m hubModel) refreshIntegrationsStatus() (tea.Model, tea.Cmd) {
 	return m, fetchIntegrationsStatusCmd(m.client)
 }
 
-// startGithubConnect begins the browser-initiated install flow. When pushAfter
-// is true (setup), a config push runs once the install becomes active; if the
-// app is already connected, the push runs immediately.
-func (m hubModel) startGithubConnect(pushAfter bool) (tea.Model, tea.Cmd) {
+func (m hubModel) startGithubConnect() (tea.Model, tea.Cmd) {
 	if m.client == nil {
 		return m.requireAuthentication("Connecting GitHub requires authentication.")
 	}
-	if m.integrationsConnecting || m.integrationsBusy {
+	if m.integrationsConnecting || m.integrationsPublishing {
 		return m, nil
 	}
 	if m.integrationsRepos.IsConnected() {
-		if pushAfter {
-			return m.startGithubPush()
-		}
 		m.integrationsStatus = "GitHub is already connected."
 		m.integrationsStatusErr = false
 		return m, nil
 	}
 	m.integrationsConnecting = true
-	m.integrationsPushAfterConnect = pushAfter
 	m.integrationsStatus = "Opening the GitHub App install page in your browser ..."
 	m.integrationsStatusErr = false
 	return m, startIntegrationsConnectCmd(m.client)
 }
 
-// startGithubPush begins an inline config push.
-func (m hubModel) startGithubPush() (tea.Model, tea.Cmd) {
+func (m hubModel) startProjectConfigurationPublish() (tea.Model, tea.Cmd) {
 	if m.client == nil {
-		return m.requireAuthentication("Pushing config requires authentication.")
+		return m.requireAuthentication("Publishing project configuration requires authentication.")
 	}
-	if m.integrationsBusy || m.integrationsConnecting {
+	if m.integrationsLoading || m.integrationsConnecting || m.integrationsPublishing {
 		return m, nil
 	}
-	m.integrationsBusy = true
-	m.integrationsStatus = "Pushing pr_review config ..."
+	cwd, err := os.Getwd()
+	if err != nil {
+		m.integrationsStatus = fmt.Sprintf("Could not resolve project directory: %v", err)
+		m.integrationsStatusErr = true
+		return m, nil
+	}
+	m.integrationsPublishing = true
+	m.integrationsStatus = "Publishing the complete project configuration ..."
 	m.integrationsStatusErr = false
-	return m, integrationsPushCmd(m.client, "")
+	return m, publishProjectConfigurationCmd(m.client, cwd)
 }
 
 // openIntegrationsDashboard opens the web dashboard's GitHub integration page.
@@ -401,7 +329,6 @@ func updateIntegrationsStatus(m hubModel, msg IntegrationsStatusMsg) (tea.Model,
 func updateIntegrationsConnectStarted(m hubModel, msg IntegrationsConnectStartedMsg) (tea.Model, tea.Cmd) {
 	if msg.Err != nil {
 		m.integrationsConnecting = false
-		m.integrationsPushAfterConnect = false
 		m.integrationsStatus = fmt.Sprintf("Could not start GitHub install: %v", msg.Err)
 		m.integrationsStatusErr = true
 		return m, nil
@@ -440,15 +367,10 @@ func updateIntegrationsConnectCheck(m hubModel, msg IntegrationsConnectCheckMsg)
 		m.integrationsRepos = msg.Repos
 		m.integrationsStatus = "GitHub connected."
 		m.integrationsStatusErr = false
-		if m.integrationsPushAfterConnect {
-			m.integrationsPushAfterConnect = false
-			return m.startGithubPush()
-		}
 		return m, nil
 	}
 	if time.Now().After(m.integrationsConnectDeadline) {
 		m.integrationsConnecting = false
-		m.integrationsPushAfterConnect = false
 		m.integrationsStatus = "Timed out waiting for the install. Finish it in the browser, then press r to refresh."
 		m.integrationsStatusErr = true
 		return m, nil
@@ -456,24 +378,19 @@ func updateIntegrationsConnectCheck(m hubModel, msg IntegrationsConnectCheckMsg)
 	return m, integrationsPollTickCmd(msg.Seq)
 }
 
-// updateIntegrationsPushDone applies the result of an inline config push.
-func updateIntegrationsPushDone(m hubModel, msg IntegrationsPushDoneMsg) (tea.Model, tea.Cmd) {
-	m.integrationsBusy = false
+func updateIntegrationsPublishDone(m hubModel, msg IntegrationsPublishDoneMsg) (tea.Model, tea.Cmd) {
+	m.integrationsPublishing = false
 	if msg.Err != nil {
-		if integrationsIsNotConnected(msg.Err) {
-			m.integrationsStatus = "GitHub isn't connected for this repo yet. Press c to connect."
-		} else {
-			m.integrationsStatus = fmt.Sprintf("Push failed: %v", msg.Err)
-		}
+		m.integrationsStatus = fmt.Sprintf("Publish failed: %v", actionableProjectConfigError(msg.Err))
 		m.integrationsStatusErr = true
 		return m, nil
 	}
-	m.integrationsStatus = msg.Summary + " — the dashboard will update automatically."
-	m.integrationsStatusErr = false
-	if m.client != nil {
-		m.integrationsLoading = true
-		return m, fetchIntegrationsStatusCmd(m.client)
+	if msg.Outcome == api.ProjectConfigurationReplaceResponseOutcomeUnchanged {
+		m.integrationsStatus = "Revyl already has this project configuration."
+	} else {
+		m.integrationsStatus = "Published the complete project configuration."
 	}
+	m.integrationsStatusErr = false
 	return m, nil
 }
 
@@ -515,7 +432,9 @@ func renderIntegrations(m hubModel) string {
 		b.WriteString("  " + cur + key + labelStyle.Render(a.label) + actionDescStyle.Render("  "+a.desc) + "\n")
 	}
 
-	if m.integrationsLoading {
+	if m.integrationsPublishing {
+		b.WriteString("\n  " + runningStyle.Render("● ") + normalStyle.Render(m.integrationsStatus) + "\n")
+	} else if m.integrationsLoading {
 		b.WriteString("\n  " + dimStyle.Render("Loading status...") + "\n")
 	} else if m.integrationsConnecting {
 		b.WriteString("\n  " + runningStyle.Render("● ") + normalStyle.Render(m.integrationsStatus) + "\n")
@@ -532,7 +451,8 @@ func renderIntegrations(m hubModel) string {
 		helpKeyRender("↑/↓", "move"),
 		helpKeyRender("enter", "select"),
 		helpKeyRender("c", "connect"),
-		helpKeyRender("p", "push"),
+		helpKeyRender("p", "publish"),
+		helpKeyRender("o", "open"),
 		helpKeyRender("r", "refresh"),
 		helpKeyRender("esc", "back"),
 	}
@@ -545,7 +465,7 @@ func integrationActionHotkey(key string) string {
 	switch key {
 	case "connect":
 		return "c"
-	case "push":
+	case "publish":
 		return "p"
 	case "open":
 		return "o"
@@ -560,7 +480,8 @@ func renderGithubStatusBadge(m hubModel) string {
 	}
 	if m.integrationsRepos.IsConnected() {
 		if m.integrationsRepos.GithubIntegrationEnabled {
-			// Org-level availability; PR automation is enabled per repo via push.
+			// Org-level availability; projects are configured in the dashboard
+			// after canonical publication.
 			return successStyle.Render("connected · PR automation available")
 		}
 		return successStyle.Render("connected")
@@ -578,7 +499,7 @@ func githubStatusDetail(m hubModel) string {
 	}
 	n := len(m.integrationsRepos.Repositories)
 	if n == 1 {
-		return "1 repository accessible · push .revyl/config.yaml with p"
+		return "1 repository accessible · open the dashboard to manage projects"
 	}
-	return fmt.Sprintf("%d repositories accessible · push .revyl/config.yaml with p", n)
+	return fmt.Sprintf("%d repositories accessible · open the dashboard to manage projects", n)
 }

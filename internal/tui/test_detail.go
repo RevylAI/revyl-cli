@@ -6,10 +6,8 @@ package tui
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -94,16 +92,14 @@ func fetchTestDetailCmd(client *api.Client, testID, testName, platform string, d
 			}
 		}
 
-		// Fetch sync status if project config exists
+		// Fetch sync status from the nearest canonical project when available.
 		cwd, cwdErr := os.Getwd()
 		if cwdErr == nil {
-			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-			cfg, cfgErr := config.LoadProjectConfig(configPath)
-			if cfgErr == nil {
-				testsDir := filepath.Join(cwd, ".revyl", "tests")
-				localTests, ltErr := config.LoadLocalTests(testsDir)
+			project, projectErr := config.ResolveProjectContext(cwd, "")
+			if projectErr == nil {
+				localTests, ltErr := config.LoadLocalTests(project.TestsDir)
 				if ltErr == nil {
-					resolver := sync.NewResolver(client, cfg, localTests)
+					resolver := sync.NewResolver(client, nil, localTests)
 					statuses, sErr := resolver.GetAllStatuses(ctx)
 					if sErr == nil {
 						for _, s := range statuses {
@@ -142,19 +138,17 @@ func syncTestActionCmd(client *api.Client, action, testName, testID string, devM
 			return TestSyncActionMsg{Action: action, Err: fmt.Errorf("failed to get working directory: %w", err)}
 		}
 
-		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-		cfg, err := loadOrInitProjectConfigForSync(ctx, client, cwd, configPath)
+		project, err := config.ResolveProjectContext(cwd, "")
 		if err != nil {
-			return TestSyncActionMsg{Action: action, Err: fmt.Errorf("failed to prepare project config: %w", err)}
+			return TestSyncActionMsg{Action: action, Err: actionableProjectConfigError(fmt.Errorf("resolve current project: %w", err))}
 		}
 
-		testsDir := filepath.Join(cwd, ".revyl", "tests")
-		localTests, err := config.LoadLocalTests(testsDir)
+		localTests, err := config.LoadLocalTests(project.TestsDir)
 		if err != nil {
 			return TestSyncActionMsg{Action: action, Err: fmt.Errorf("failed to load local tests: %w", err)}
 		}
 
-		resolver := sync.NewResolver(client, cfg, localTests)
+		resolver := sync.NewResolver(client, nil, localTests)
 
 		// Resolve a stable local key for resolver operations.
 		targetName := testName
@@ -169,7 +163,7 @@ func syncTestActionCmd(client *api.Client, action, testName, testID string, devM
 
 		switch action {
 		case "push":
-			results, sErr := resolver.SyncToRemote(ctx, targetName, testsDir, false)
+			results, sErr := resolver.SyncToRemote(ctx, targetName, project.TestsDir, false)
 			if sErr != nil {
 				return TestSyncActionMsg{Action: action, Err: sErr}
 			}
@@ -182,9 +176,6 @@ func syncTestActionCmd(client *api.Client, action, testName, testID string, devM
 			}
 			if r.Conflict {
 				return TestSyncActionMsg{Action: action, Err: fmt.Errorf("conflict detected")}
-			}
-			if err := persistProjectConfigForSync(configPath, cfg); err != nil {
-				return TestSyncActionMsg{Action: action, Err: err}
 			}
 			return TestSyncActionMsg{Action: action, Result: fmt.Sprintf("Pushed %s → v%d", r.Name, r.NewVersion)}
 
@@ -199,9 +190,9 @@ func syncTestActionCmd(client *api.Client, action, testName, testID string, devM
 				sErr    error
 			)
 			if hasRemoteLink {
-				results, sErr = resolver.PullFromRemote(ctx, targetName, testsDir, false)
+				results, sErr = resolver.PullFromRemote(ctx, targetName, project.TestsDir, false)
 			} else {
-				results, sErr = resolver.ImportRemoteTest(ctx, testID, testName, testsDir, false)
+				results, sErr = resolver.ImportRemoteTest(ctx, testID, testName, project.TestsDir, false)
 			}
 			if sErr != nil {
 				return TestSyncActionMsg{Action: action, Err: sErr}
@@ -212,9 +203,6 @@ func syncTestActionCmd(client *api.Client, action, testName, testID string, devM
 			r := results[0]
 			if r.Error != nil {
 				return TestSyncActionMsg{Action: action, Err: r.Error}
-			}
-			if err := persistProjectConfigForSync(configPath, cfg); err != nil {
-				return TestSyncActionMsg{Action: action, Err: err}
 			}
 			return TestSyncActionMsg{Action: action, Result: fmt.Sprintf("Pulled %s → v%d", r.Name, r.NewVersion)}
 
@@ -231,50 +219,6 @@ func syncTestActionCmd(client *api.Client, action, testName, testID string, devM
 
 		return TestSyncActionMsg{Action: action, Err: fmt.Errorf("unknown sync action: %s", action)}
 	}
-}
-
-func loadOrInitProjectConfigForSync(ctx context.Context, client *api.Client, cwd, configPath string) (*config.ProjectConfig, error) {
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err == nil {
-		return cfg, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) && !os.IsNotExist(err) {
-		return nil, err
-	}
-
-	projectName := filepath.Base(cwd)
-	if projectName == "" || projectName == "." || projectName == string(filepath.Separator) {
-		projectName = "revyl-project"
-	}
-
-	cfg = &config.ProjectConfig{
-		Project: config.Project{
-			Name: projectName,
-		},
-		Build: config.BuildConfig{
-			Platforms: make(map[string]config.BuildPlatform),
-		},
-	}
-	config.ApplyDefaults(cfg)
-
-	if client != nil {
-		userInfo, userErr := client.ValidateAPIKey(ctx)
-		if userErr == nil && userInfo != nil {
-			cfg.Project.OrgID = strings.TrimSpace(userInfo.OrgID)
-		}
-	}
-
-	return cfg, nil
-}
-
-func persistProjectConfigForSync(configPath string, cfg *config.ProjectConfig) error {
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-	if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-		return fmt.Errorf("failed to persist project config: %w", err)
-	}
-	return nil
 }
 
 // deleteTestCmd deletes a test by ID.
@@ -776,7 +720,7 @@ func syncStatusStyle(status string) lipgloss.Style {
 // startTestExecution transitions the hub model to the execution screen for a test.
 // This is a helper that avoids duplicating the pattern across views.
 func startTestExecution(m hubModel, testID, testName string) (tea.Model, tea.Cmd) {
-	em := newExecutionModel(testID, testName, m.apiKey, m.cfg, m.devMode, m.width, m.height)
+	em := newExecutionModel(testID, testName, m.apiKey, m.devMode, m.width, m.height)
 	m.executionModel = &em
 	m.currentView = viewExecution
 	return m, m.executionModel.Init()

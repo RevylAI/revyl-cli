@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"syscall"
@@ -19,4 +20,17 @@ func isProcessAlive(pid int) bool {
 
 func configureDetachedDevCommand(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+}
+
+func configureExpoConfigCommand(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+}
+
+func terminateExpoConfigCommand(cmd *exec.Cmd) {
+	if cmd.Process != nil {
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err == nil || errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		_ = cmd.Process.Kill()
+	}
 }

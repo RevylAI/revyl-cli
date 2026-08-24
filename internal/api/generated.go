@@ -237,6 +237,33 @@ func (e AtlasV2IndexOlapStatusStatus) Valid() bool {
 	}
 }
 
+// Defines values for AuthoredBuildFramework.
+const (
+	AuthoredBuildFrameworkAndroid     AuthoredBuildFramework = "android"
+	AuthoredBuildFrameworkExpo        AuthoredBuildFramework = "expo"
+	AuthoredBuildFrameworkFlutter     AuthoredBuildFramework = "flutter"
+	AuthoredBuildFrameworkIos         AuthoredBuildFramework = "ios"
+	AuthoredBuildFrameworkReactNative AuthoredBuildFramework = "react_native"
+)
+
+// Valid indicates whether the value is a known member of the AuthoredBuildFramework enum.
+func (e AuthoredBuildFramework) Valid() bool {
+	switch e {
+	case AuthoredBuildFrameworkAndroid:
+		return true
+	case AuthoredBuildFrameworkExpo:
+		return true
+	case AuthoredBuildFrameworkFlutter:
+		return true
+	case AuthoredBuildFrameworkIos:
+		return true
+	case AuthoredBuildFrameworkReactNative:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BuildConfigPlatform.
 const (
 	BuildConfigPlatformAndroid BuildConfigPlatform = "android"
@@ -564,6 +591,24 @@ func (e CompileSourceType) Valid() bool {
 	}
 }
 
+// Defines values for ConfigurationAuthority.
+const (
+	ConfigurationAuthorityGitDefaultBranch ConfigurationAuthority = "git_default_branch"
+	ConfigurationAuthorityManual           ConfigurationAuthority = "manual"
+)
+
+// Valid indicates whether the value is a known member of the ConfigurationAuthority enum.
+func (e ConfigurationAuthority) Valid() bool {
+	switch e {
+	case ConfigurationAuthorityGitDefaultBranch:
+		return true
+	case ConfigurationAuthorityManual:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CursorConnectionType.
 const (
 	CursorConnectionTypeOrganizationDefault CursorConnectionType = "organization_default"
@@ -804,6 +849,42 @@ func (e PlanInfoScheduledBillingPeriod) Valid() bool {
 	}
 }
 
+// Defines values for ProjectConfigurationReadResponseState.
+const (
+	ProjectConfigurationReadResponseStateAbsent  ProjectConfigurationReadResponseState = "absent"
+	ProjectConfigurationReadResponseStatePresent ProjectConfigurationReadResponseState = "present"
+)
+
+// Valid indicates whether the value is a known member of the ProjectConfigurationReadResponseState enum.
+func (e ProjectConfigurationReadResponseState) Valid() bool {
+	switch e {
+	case ProjectConfigurationReadResponseStateAbsent:
+		return true
+	case ProjectConfigurationReadResponseStatePresent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectConfigurationReplaceResponseOutcome.
+const (
+	ProjectConfigurationReplaceResponseOutcomeApplied   ProjectConfigurationReplaceResponseOutcome = "applied"
+	ProjectConfigurationReplaceResponseOutcomeUnchanged ProjectConfigurationReplaceResponseOutcome = "unchanged"
+)
+
+// Valid indicates whether the value is a known member of the ProjectConfigurationReplaceResponseOutcome enum.
+func (e ProjectConfigurationReplaceResponseOutcome) Valid() bool {
+	switch e {
+	case ProjectConfigurationReplaceResponseOutcomeApplied:
+		return true
+	case ProjectConfigurationReplaceResponseOutcomeUnchanged:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProofHarnessKind.
 const (
 	ProofHarnessKindCursor ProofHarnessKind = "cursor"
@@ -816,6 +897,24 @@ func (e ProofHarnessKind) Valid() bool {
 	case ProofHarnessKindCursor:
 		return true
 	case ProofHarnessKindRevyl:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RepositoryProjectCatalogRepositoryReportMode.
+const (
+	RepositoryProjectCatalogRepositoryReportModePrComment     RepositoryProjectCatalogRepositoryReportMode = "pr_comment"
+	RepositoryProjectCatalogRepositoryReportModePrDescription RepositoryProjectCatalogRepositoryReportMode = "pr_description"
+)
+
+// Valid indicates whether the value is a known member of the RepositoryProjectCatalogRepositoryReportMode enum.
+func (e RepositoryProjectCatalogRepositoryReportMode) Valid() bool {
+	switch e {
+	case RepositoryProjectCatalogRepositoryReportModePrComment:
+		return true
+	case RepositoryProjectCatalogRepositoryReportModePrDescription:
 		return true
 	default:
 		return false
@@ -1738,6 +1837,147 @@ type AuthInfo struct {
 	UserRole                *string             `json:"user_role,omitempty"`
 }
 
+// AuthoredAuthBypass Optional launch-variable and deep-link auth bypass.
+type AuthoredAuthBypass struct {
+	DeepLink   *string   `json:"deep_link,omitempty"`
+	LaunchVars *[]string `json:"launch_vars,omitempty"`
+}
+
+// AuthoredBeforeScript Optional setup script run before a device session.
+type AuthoredBeforeScript struct {
+	ScriptPath     *string `json:"script_path,omitempty"`
+	TimeoutSeconds *int    `json:"timeout_seconds,omitempty"`
+}
+
+// AuthoredBuild Authored project-level build defaults and named profiles.
+type AuthoredBuild struct {
+	Caches    *[]ProjectBuildCache             `json:"caches,omitempty"`
+	Env       *map[string]string               `json:"env,omitempty"`
+	Framework AuthoredBuildFramework           `json:"framework"`
+	Profiles  *map[string]AuthoredBuildProfile `json:"profiles,omitempty"`
+	Secrets   *[]string                        `json:"secrets,omitempty"`
+}
+
+// AuthoredBuildFramework defines model for AuthoredBuild.Framework.
+type AuthoredBuildFramework string
+
+// AuthoredBuildProfile The optional iOS and Android recipes under one customer-authored name.
+type AuthoredBuildProfile struct {
+	// Android One authored profile/platform recipe before inheritance or defaulting.
+	Android *AuthoredBuildRecipe `json:"android,omitempty"`
+
+	// Ios One authored profile/platform recipe before inheritance or defaulting.
+	Ios *AuthoredBuildRecipe `json:"ios,omitempty"`
+}
+
+// AuthoredBuildRecipe One authored profile/platform recipe before inheritance or defaulting.
+type AuthoredBuildRecipe struct {
+	AppId          *openapi_types.UUID  `json:"app_id,omitempty"`
+	BuildCommands  []string             `json:"build_commands"`
+	Caches         *[]ProjectBuildCache `json:"caches,omitempty"`
+	Env            *map[string]string   `json:"env,omitempty"`
+	Image          *string              `json:"image,omitempty"`
+	OutputPath     *string              `json:"output_path,omitempty"`
+	Secrets        *[]string            `json:"secrets,omitempty"`
+	SetupCommands  *[]string            `json:"setup_commands,omitempty"`
+	TimeoutSeconds *int                 `json:"timeout_seconds,omitempty"`
+}
+
+// AuthoredExternalCIAppIds Platform-to-app expectations for customer CI uploads.
+type AuthoredExternalCIAppIds struct {
+	Android *openapi_types.UUID `json:"android,omitempty"`
+	Ios     *openapi_types.UUID `json:"ios,omitempty"`
+}
+
+// AuthoredExternalCIReviewBuild A non-runnable expectation satisfied by customer CI uploads.
+type AuthoredExternalCIReviewBuild struct {
+	// AppIds Platform-to-app expectations for customer CI uploads.
+	AppIds AuthoredExternalCIAppIds `json:"app_ids"`
+	Kind   string                   `json:"kind"`
+}
+
+// AuthoredManagedReviewBuild A Revyl-managed PR build selecting one named profile.
+type AuthoredManagedReviewBuild struct {
+	Kind    string `json:"kind"`
+	Profile string `json:"profile"`
+}
+
+// AuthoredPRReview Authored project-scoped pull-request automation policy.
+type AuthoredPRReview struct {
+	Build   AuthoredPRReview_Build `json:"build"`
+	Enabled *bool                  `json:"enabled,omitempty"`
+
+	// ProofOfChanges Authored proof-of-changes policy.
+	ProofOfChanges *AuthoredProofOfChanges `json:"proof_of_changes,omitempty"`
+
+	// ReviewTriggers Authored changed-path, label, and draft review filters.
+	ReviewTriggers *AuthoredReviewTriggers `json:"review_triggers,omitempty"`
+
+	// StrictCiCheck Authored strict build-check behavior.
+	StrictCiCheck *AuthoredStrictCICheck `json:"strict_ci_check,omitempty"`
+	WorkflowIds   *[]openapi_types.UUID  `json:"workflow_ids,omitempty"`
+}
+
+// AuthoredPRReview_Build defines model for AuthoredPRReview.Build.
+type AuthoredPRReview_Build struct {
+	union json.RawMessage
+}
+
+// AuthoredProject Authored stable project identity.
+type AuthoredProject struct {
+	Id openapi_types.UUID `json:"id"`
+}
+
+// AuthoredProofOfChanges Authored proof-of-changes policy.
+type AuthoredProofOfChanges struct {
+	AlwaysVerify *[]string                       `json:"always_verify,omitempty"`
+	Enabled      *bool                           `json:"enabled,omitempty"`
+	Harness      *AuthoredProofOfChanges_Harness `json:"harness,omitempty"`
+	SystemPrompt *string                         `json:"system_prompt,omitempty"`
+}
+
+// AuthoredProofOfChanges_Harness defines model for AuthoredProofOfChanges.Harness.
+type AuthoredProofOfChanges_Harness struct {
+	union json.RawMessage
+}
+
+// AuthoredReviewTriggers Authored changed-path, label, and draft review filters.
+type AuthoredReviewTriggers struct {
+	Drafts *bool     `json:"drafts,omitempty"`
+	Labels *[]string `json:"labels,omitempty"`
+	Paths  *[]string `json:"paths,omitempty"`
+}
+
+// AuthoredRevylConfig The closed canonical “.revyl/config.yaml“ shape.
+type AuthoredRevylConfig struct {
+	// Build Authored project-level build defaults and named profiles.
+	Build *AuthoredBuild `json:"build,omitempty"`
+
+	// PrReview Authored project-scoped pull-request automation policy.
+	PrReview *AuthoredPRReview `json:"pr_review,omitempty"`
+
+	// Project Authored stable project identity.
+	Project AuthoredProject `json:"project"`
+
+	// Session Authored project-wide device-session settings.
+	Session *AuthoredSession `json:"session,omitempty"`
+}
+
+// AuthoredSession Authored project-wide device-session settings.
+type AuthoredSession struct {
+	// AuthBypass Optional launch-variable and deep-link auth bypass.
+	AuthBypass *AuthoredAuthBypass `json:"auth_bypass,omitempty"`
+
+	// BeforeScript Optional setup script run before a device session.
+	BeforeScript       *AuthoredBeforeScript `json:"before_script,omitempty"`
+	IdleTimeoutSeconds *int                  `json:"idle_timeout_seconds,omitempty"`
+}
+
+// AuthoredStrictCICheck Authored strict build-check behavior.
+type AuthoredStrictCICheck struct {
+	Build bool `json:"build"`
+}
+
 // BlocksCreationRequest Request model for creating tests from blocks
 type BlocksCreationRequest struct {
 	// Blocks List of test blocks
@@ -2385,6 +2625,9 @@ type CompiledIntentStep struct {
 	// StepType instruction, validation, or manual
 	StepType string `json:"step_type"`
 }
+
+// ConfigurationAuthority Server-derived owner of the current project configuration.
+type ConfigurationAuthority string
 
 // CreateCLIDeviceAuthorizationRequest Request from an unauthenticated CLI to start browser approval.
 type CreateCLIDeviceAuthorizationRequest struct {
@@ -3062,6 +3305,12 @@ type GetWorkflowsWithLastStatusResponse struct {
 	TotalWorkflowsWow *float32 `json:"total_workflows_wow,omitempty"`
 }
 
+// GitDefaultBranchConfigurationSource Accepted default-branch source commit evidence.
+type GitDefaultBranchConfigurationSource struct {
+	Kind                    string `json:"kind"`
+	ResolvedConfigCommitSha string `json:"resolved_config_commit_sha"`
+}
+
 // GitHubInstallUrlResponse defines model for GitHubInstallUrlResponse.
 type GitHubInstallUrlResponse struct {
 	InstallUrl string `json:"install_url"`
@@ -3364,6 +3613,11 @@ type LocationConfig struct {
 
 	// Longitude GPS longitude coordinate (-180 to 180)
 	Longitude float32 `json:"longitude"`
+}
+
+// ManualConfigurationSource Accepted manual writer evidence.
+type ManualConfigurationSource struct {
+	Kind string `json:"kind"`
 }
 
 // MobileTarget Persisted device target for a test (from “test_mobile_targets“).
@@ -3895,6 +4149,165 @@ type PrReviewConfigSummaryBuild struct {
 	UseExistingCi *bool   `json:"use_existing_ci,omitempty"`
 }
 
+// ProjectBuildCache Canonical build-cache meaning shared by configuration contracts.
+type ProjectBuildCache struct {
+	Key   string   `json:"key"`
+	Paths []string `json:"paths"`
+}
+
+// ProjectConfigurationAbsentPrecondition A writer explicitly observed that no project aggregate exists.
+type ProjectConfigurationAbsentPrecondition struct {
+	State string `json:"state"`
+}
+
+// ProjectConfigurationErrorResponse Stable public failure identity without customer-authored values.
+type ProjectConfigurationErrorResponse struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// ProjectConfigurationForbiddenDetail Current authenticated authorization rejection detail.
+type ProjectConfigurationForbiddenDetail struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+}
+
+// ProjectConfigurationForbiddenResponse FastAPI HTTPException envelope used by authorization dependencies.
+type ProjectConfigurationForbiddenResponse struct {
+	// Detail Current authenticated authorization rejection detail.
+	Detail ProjectConfigurationForbiddenDetail `json:"detail"`
+}
+
+// ProjectConfigurationPresentPrecondition A writer observed one exact opaque project aggregate revision.
+type ProjectConfigurationPresentPrecondition struct {
+	ProjectConfigurationHash string `json:"project_configuration_hash"`
+	State                    string `json:"state"`
+}
+
+// ProjectConfigurationReadRequest Repository binding required before returning a project configuration.
+type ProjectConfigurationReadRequest struct {
+	// Locator Untrusted public locator for a repository-relative project root.
+	Locator ProjectConfigurationRepositoryLocator `json:"locator"`
+}
+
+// ProjectConfigurationReadResponse Explicit absent or present state for one verified repository root.
+type ProjectConfigurationReadResponse struct {
+	// Resource Canonical public representation of one persisted project aggregate.
+	Resource *ProjectConfigurationResource         `json:"resource,omitempty"`
+	State    ProjectConfigurationReadResponseState `json:"state"`
+}
+
+// ProjectConfigurationReadResponseState defines model for ProjectConfigurationReadResponse.State.
+type ProjectConfigurationReadResponseState string
+
+// ProjectConfigurationReplaceRequest Complete caller-directed replacement guarded by the observed state.
+type ProjectConfigurationReplaceRequest struct {
+	// Configuration The closed canonical ``.revyl/config.yaml`` shape.
+	Configuration AuthoredRevylConfig `json:"configuration"`
+
+	// Force Allow this replacement while preserving existing default-branch configuration authority
+	Force *bool `json:"force,omitempty"`
+
+	// Locator Untrusted public locator for a repository-relative project root.
+	Locator      ProjectConfigurationRepositoryLocator           `json:"locator"`
+	Precondition ProjectConfigurationReplaceRequest_Precondition `json:"precondition"`
+}
+
+// ProjectConfigurationReplaceRequest_Precondition defines model for ProjectConfigurationReplaceRequest.Precondition.
+type ProjectConfigurationReplaceRequest_Precondition struct {
+	union json.RawMessage
+}
+
+// ProjectConfigurationReplaceResponse Applied or idempotently unchanged canonical aggregate.
+type ProjectConfigurationReplaceResponse struct {
+	Outcome ProjectConfigurationReplaceResponseOutcome `json:"outcome"`
+
+	// Resource Canonical public representation of one persisted project aggregate.
+	Resource ProjectConfigurationResource `json:"resource"`
+}
+
+// ProjectConfigurationReplaceResponseOutcome defines model for ProjectConfigurationReplaceResponse.Outcome.
+type ProjectConfigurationReplaceResponseOutcome string
+
+// ProjectConfigurationRepositoryLocator Untrusted public locator for a repository-relative project root.
+type ProjectConfigurationRepositoryLocator struct {
+	Namespace                     string `json:"namespace"`
+	Provider                      string `json:"provider"`
+	RepositoryName                string `json:"repository_name"`
+	RepositoryRelativeProjectRoot string `json:"repository_relative_project_root"`
+}
+
+// ProjectConfigurationRequestValidationErrorResponse Project-route validation response without customer-authored values.
+type ProjectConfigurationRequestValidationErrorResponse struct {
+	Errors  []ProjectConfigurationRequestValidationIssue `json:"errors"`
+	Message string                                       `json:"message"`
+}
+
+// ProjectConfigurationRequestValidationIssue Sanitized request-validation issue without customer input values.
+type ProjectConfigurationRequestValidationIssue struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+	Type    string `json:"type"`
+}
+
+// ProjectConfigurationResource Canonical public representation of one persisted project aggregate.
+type ProjectConfigurationResource struct {
+	// Authority Server-derived owner of the current project configuration.
+	Authority ConfigurationAuthority `json:"authority"`
+
+	// Configuration The closed canonical ``.revyl/config.yaml`` shape.
+	Configuration                 AuthoredRevylConfig                 `json:"configuration"`
+	Namespace                     string                              `json:"namespace"`
+	ProjectConfigurationHash      string                              `json:"project_configuration_hash"`
+	Provider                      string                              `json:"provider"`
+	RepositoryName                string                              `json:"repository_name"`
+	RepositoryRelativeConfigPath  string                              `json:"repository_relative_config_path"`
+	RepositoryRelativeProjectRoot string                              `json:"repository_relative_project_root"`
+	Source                        ProjectConfigurationResource_Source `json:"source"`
+}
+
+// ProjectConfigurationResource_Source defines model for ProjectConfigurationResource.Source.
+type ProjectConfigurationResource_Source struct {
+	union json.RawMessage
+}
+
+// ProjectConfigurationValidateRequest Candidate configuration and repository binding to validate without writing.
+type ProjectConfigurationValidateRequest struct {
+	// Configuration The closed canonical ``.revyl/config.yaml`` shape.
+	Configuration AuthoredRevylConfig `json:"configuration"`
+
+	// Locator Untrusted public locator for a repository-relative project root.
+	Locator ProjectConfigurationRepositoryLocator `json:"locator"`
+}
+
+// ProjectConfigurationValidateResponse Successful validation plus the current server state observed by the caller.
+type ProjectConfigurationValidateResponse struct {
+	CandidateProjectConfigurationHash string `json:"candidate_project_configuration_hash"`
+
+	// Current Explicit absent or present state for one verified repository root.
+	Current ProjectConfigurationReadResponse `json:"current"`
+	Status  string                           `json:"status"`
+}
+
+// ProjectCursorProofAuthorizationResponse Current server-owned Cursor proof authorization state.
+type ProjectCursorProofAuthorizationResponse struct {
+	Authorized   bool               `json:"authorized"`
+	AuthorizedAt *time.Time         `json:"authorized_at,omitempty"`
+	ProjectId    openapi_types.UUID `json:"project_id"`
+
+	// Repository Safe canonical repository display for one project.
+	Repository ProjectCursorProofRepository `json:"repository"`
+	Required   bool                         `json:"required"`
+}
+
+// ProjectCursorProofRepository Safe canonical repository display for one project.
+type ProjectCursorProofRepository struct {
+	Namespace                     string `json:"namespace"`
+	Provider                      string `json:"provider"`
+	RepositoryName                string `json:"repository_name"`
+	RepositoryRelativeProjectRoot string `json:"repository_relative_project_root"`
+}
+
 // ProofHarnessKind Closed set of agents that can run a proof of changes.
 type ProofHarnessKind string
 
@@ -3972,7 +4385,9 @@ type RemoteBuildPhaseTiming struct {
 
 // RemoteBuildRequest Request body to trigger a remote build.
 type RemoteBuildRequest struct {
-	CleanBuild *bool `json:"clean_build,omitempty"`
+	// BuildDefinitionHash Canonical hash of the resolved build recipe, when available.
+	BuildDefinitionHash *string `json:"build_definition_hash,omitempty"`
+	CleanBuild          *bool   `json:"clean_build,omitempty"`
 
 	// Config Sandbox build configuration stored by the API and used by build jobs.
 	Config BuildConfig `json:"config"`
@@ -4245,6 +4660,39 @@ type ReportContextStepResponse struct {
 	ValidationResult      *bool                          `json:"validation_result,omitempty"`
 	VideoTimestampEnd     *float32                       `json:"video_timestamp_end,omitempty"`
 	VideoTimestampStart   *float32                       `json:"video_timestamp_start,omitempty"`
+}
+
+// RepositoryProjectCatalogItem Stable project locator needed to select its canonical aggregate.
+type RepositoryProjectCatalogItem struct {
+	ProjectId                     openapi_types.UUID `json:"project_id"`
+	RepositoryRelativeConfigPath  string             `json:"repository_relative_config_path"`
+	RepositoryRelativeProjectRoot string             `json:"repository_relative_project_root"`
+}
+
+// RepositoryProjectCatalogQuery Repository identity whose canonical projects a caller may discover.
+type RepositoryProjectCatalogQuery struct {
+	Namespace      string `json:"namespace"`
+	Provider       string `json:"provider"`
+	RepositoryName string `json:"repository_name"`
+}
+
+// RepositoryProjectCatalogRepository Canonical provider display identity for one verified repository.
+type RepositoryProjectCatalogRepository struct {
+	Namespace      string                                       `json:"namespace"`
+	Provider       string                                       `json:"provider"`
+	ReportMode     RepositoryProjectCatalogRepositoryReportMode `json:"report_mode"`
+	RepositoryName string                                       `json:"repository_name"`
+}
+
+// RepositoryProjectCatalogRepositoryReportMode defines model for RepositoryProjectCatalogRepository.ReportMode.
+type RepositoryProjectCatalogRepositoryReportMode string
+
+// RepositoryProjectCatalogResponse Complete bounded canonical project set for a verified repository.
+type RepositoryProjectCatalogResponse struct {
+	Projects []RepositoryProjectCatalogItem `json:"projects"`
+
+	// Repository Canonical provider display identity for one verified repository.
+	Repository RepositoryProjectCatalogRepository `json:"repository"`
 }
 
 // ResolvedBuild Normalized representation of a resolved build artifact.
@@ -6135,6 +6583,18 @@ type GetModuleVersionsApiV1ModulesModuleIdVersionsGetParams struct {
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// ReplaceProjectConfigurationApiV1ProjectsProjectIdConfigurationPutParams defines parameters for ReplaceProjectConfigurationApiV1ProjectsProjectIdConfigurationPut.
+type ReplaceProjectConfigurationApiV1ProjectsProjectIdConfigurationPutParams struct {
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem    *string `json:"X-CI-System,omitempty"`
+}
+
+// PutProjectCursorProofAuthorizationApiV1ProjectsProjectIdCursorProofAuthorizationPutParams defines parameters for PutProjectCursorProofAuthorizationApiV1ProjectsProjectIdCursorProofAuthorizationPut.
+type PutProjectCursorProofAuthorizationApiV1ProjectsProjectIdCursorProofAuthorizationPutParams struct {
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem    *string `json:"X-CI-System,omitempty"`
+}
+
 // GetReportContextByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdContextGetParams defines parameters for GetReportContextByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdContextGet.
 type GetReportContextByExecutionApiV1ReportsV3ReportsByExecutionExecutionIdContextGetParams struct {
 	IncludeSteps    *bool `form:"include_steps,omitempty" json:"include_steps,omitempty"`
@@ -6475,6 +6935,18 @@ type UpdateModuleApiV1ModulesUpdateModuleIdPutJSONRequestBody = UpdateModuleRequ
 
 // RestoreModuleVersionApiV1ModulesModuleIdRestorePostJSONRequestBody defines body for RestoreModuleVersionApiV1ModulesModuleIdRestorePost for application/json ContentType.
 type RestoreModuleVersionApiV1ModulesModuleIdRestorePostJSONRequestBody = ModuleRestoreVersionRequest
+
+// ListRepositoryProjectsApiV1ProjectsCatalogPostJSONRequestBody defines body for ListRepositoryProjectsApiV1ProjectsCatalogPost for application/json ContentType.
+type ListRepositoryProjectsApiV1ProjectsCatalogPostJSONRequestBody = RepositoryProjectCatalogQuery
+
+// ReplaceProjectConfigurationApiV1ProjectsProjectIdConfigurationPutJSONRequestBody defines body for ReplaceProjectConfigurationApiV1ProjectsProjectIdConfigurationPut for application/json ContentType.
+type ReplaceProjectConfigurationApiV1ProjectsProjectIdConfigurationPutJSONRequestBody = ProjectConfigurationReplaceRequest
+
+// ReadProjectConfigurationApiV1ProjectsProjectIdConfigurationReadPostJSONRequestBody defines body for ReadProjectConfigurationApiV1ProjectsProjectIdConfigurationReadPost for application/json ContentType.
+type ReadProjectConfigurationApiV1ProjectsProjectIdConfigurationReadPostJSONRequestBody = ProjectConfigurationReadRequest
+
+// ValidateProjectConfigurationApiV1ProjectsProjectIdConfigurationValidatePostJSONRequestBody defines body for ValidateProjectConfigurationApiV1ProjectsProjectIdConfigurationValidatePost for application/json ContentType.
+type ValidateProjectConfigurationApiV1ProjectsProjectIdConfigurationValidatePostJSONRequestBody = ProjectConfigurationValidateRequest
 
 // StartCompileApiV1RecordingsCompilePostJSONRequestBody defines body for StartCompileApiV1RecordingsCompilePost for application/json ContentType.
 type StartCompileApiV1RecordingsCompilePostJSONRequestBody = CompileRecordingRequest
@@ -7951,6 +8423,184 @@ func (t *ActionBlock_StepType) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsAuthoredManagedReviewBuild returns the union data inside the AuthoredPRReview_Build as a AuthoredManagedReviewBuild
+func (t AuthoredPRReview_Build) AsAuthoredManagedReviewBuild() (AuthoredManagedReviewBuild, error) {
+	var body AuthoredManagedReviewBuild
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthoredManagedReviewBuild overwrites any union data inside the AuthoredPRReview_Build as the provided AuthoredManagedReviewBuild
+func (t *AuthoredPRReview_Build) FromAuthoredManagedReviewBuild(v AuthoredManagedReviewBuild) error {
+	v.Kind = "revyl"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthoredManagedReviewBuild performs a merge with any union data inside the AuthoredPRReview_Build, using the provided AuthoredManagedReviewBuild
+func (t *AuthoredPRReview_Build) MergeAuthoredManagedReviewBuild(v AuthoredManagedReviewBuild) error {
+	v.Kind = "revyl"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAuthoredExternalCIReviewBuild returns the union data inside the AuthoredPRReview_Build as a AuthoredExternalCIReviewBuild
+func (t AuthoredPRReview_Build) AsAuthoredExternalCIReviewBuild() (AuthoredExternalCIReviewBuild, error) {
+	var body AuthoredExternalCIReviewBuild
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthoredExternalCIReviewBuild overwrites any union data inside the AuthoredPRReview_Build as the provided AuthoredExternalCIReviewBuild
+func (t *AuthoredPRReview_Build) FromAuthoredExternalCIReviewBuild(v AuthoredExternalCIReviewBuild) error {
+	v.Kind = "ci_upload_to_revyl"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthoredExternalCIReviewBuild performs a merge with any union data inside the AuthoredPRReview_Build, using the provided AuthoredExternalCIReviewBuild
+func (t *AuthoredPRReview_Build) MergeAuthoredExternalCIReviewBuild(v AuthoredExternalCIReviewBuild) error {
+	v.Kind = "ci_upload_to_revyl"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthoredPRReview_Build) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AuthoredPRReview_Build) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "ci_upload_to_revyl":
+		return t.AsAuthoredExternalCIReviewBuild()
+	case "revyl":
+		return t.AsAuthoredManagedReviewBuild()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AuthoredPRReview_Build) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthoredPRReview_Build) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsRevylProofHarness returns the union data inside the AuthoredProofOfChanges_Harness as a RevylProofHarness
+func (t AuthoredProofOfChanges_Harness) AsRevylProofHarness() (RevylProofHarness, error) {
+	var body RevylProofHarness
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRevylProofHarness overwrites any union data inside the AuthoredProofOfChanges_Harness as the provided RevylProofHarness
+func (t *AuthoredProofOfChanges_Harness) FromRevylProofHarness(v RevylProofHarness) error {
+	v.Kind = "revyl"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeRevylProofHarness performs a merge with any union data inside the AuthoredProofOfChanges_Harness, using the provided RevylProofHarness
+func (t *AuthoredProofOfChanges_Harness) MergeRevylProofHarness(v RevylProofHarness) error {
+	v.Kind = "revyl"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCursorProofHarness returns the union data inside the AuthoredProofOfChanges_Harness as a CursorProofHarness
+func (t AuthoredProofOfChanges_Harness) AsCursorProofHarness() (CursorProofHarness, error) {
+	var body CursorProofHarness
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCursorProofHarness overwrites any union data inside the AuthoredProofOfChanges_Harness as the provided CursorProofHarness
+func (t *AuthoredProofOfChanges_Harness) FromCursorProofHarness(v CursorProofHarness) error {
+	v.Kind = "cursor"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCursorProofHarness performs a merge with any union data inside the AuthoredProofOfChanges_Harness, using the provided CursorProofHarness
+func (t *AuthoredProofOfChanges_Harness) MergeCursorProofHarness(v CursorProofHarness) error {
+	v.Kind = "cursor"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthoredProofOfChanges_Harness) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AuthoredProofOfChanges_Harness) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "cursor":
+		return t.AsCursorProofHarness()
+	case "revyl":
+		return t.AsRevylProofHarness()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AuthoredProofOfChanges_Harness) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthoredProofOfChanges_Harness) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsActionBlock returns the union data inside the BlocksCreationRequest_Blocks_Item as a ActionBlock
 func (t BlocksCreationRequest_Blocks_Item) AsActionBlock() (ActionBlock, error) {
 	var body ActionBlock
@@ -8273,6 +8923,184 @@ func (t PaginatedBuildsWithJobsResponse_Items_Item) MarshalJSON() ([]byte, error
 }
 
 func (t *PaginatedBuildsWithJobsResponse_Items_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsProjectConfigurationAbsentPrecondition returns the union data inside the ProjectConfigurationReplaceRequest_Precondition as a ProjectConfigurationAbsentPrecondition
+func (t ProjectConfigurationReplaceRequest_Precondition) AsProjectConfigurationAbsentPrecondition() (ProjectConfigurationAbsentPrecondition, error) {
+	var body ProjectConfigurationAbsentPrecondition
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromProjectConfigurationAbsentPrecondition overwrites any union data inside the ProjectConfigurationReplaceRequest_Precondition as the provided ProjectConfigurationAbsentPrecondition
+func (t *ProjectConfigurationReplaceRequest_Precondition) FromProjectConfigurationAbsentPrecondition(v ProjectConfigurationAbsentPrecondition) error {
+	v.State = "absent"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeProjectConfigurationAbsentPrecondition performs a merge with any union data inside the ProjectConfigurationReplaceRequest_Precondition, using the provided ProjectConfigurationAbsentPrecondition
+func (t *ProjectConfigurationReplaceRequest_Precondition) MergeProjectConfigurationAbsentPrecondition(v ProjectConfigurationAbsentPrecondition) error {
+	v.State = "absent"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsProjectConfigurationPresentPrecondition returns the union data inside the ProjectConfigurationReplaceRequest_Precondition as a ProjectConfigurationPresentPrecondition
+func (t ProjectConfigurationReplaceRequest_Precondition) AsProjectConfigurationPresentPrecondition() (ProjectConfigurationPresentPrecondition, error) {
+	var body ProjectConfigurationPresentPrecondition
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromProjectConfigurationPresentPrecondition overwrites any union data inside the ProjectConfigurationReplaceRequest_Precondition as the provided ProjectConfigurationPresentPrecondition
+func (t *ProjectConfigurationReplaceRequest_Precondition) FromProjectConfigurationPresentPrecondition(v ProjectConfigurationPresentPrecondition) error {
+	v.State = "present"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeProjectConfigurationPresentPrecondition performs a merge with any union data inside the ProjectConfigurationReplaceRequest_Precondition, using the provided ProjectConfigurationPresentPrecondition
+func (t *ProjectConfigurationReplaceRequest_Precondition) MergeProjectConfigurationPresentPrecondition(v ProjectConfigurationPresentPrecondition) error {
+	v.State = "present"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ProjectConfigurationReplaceRequest_Precondition) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"state"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ProjectConfigurationReplaceRequest_Precondition) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "absent":
+		return t.AsProjectConfigurationAbsentPrecondition()
+	case "present":
+		return t.AsProjectConfigurationPresentPrecondition()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ProjectConfigurationReplaceRequest_Precondition) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ProjectConfigurationReplaceRequest_Precondition) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsManualConfigurationSource returns the union data inside the ProjectConfigurationResource_Source as a ManualConfigurationSource
+func (t ProjectConfigurationResource_Source) AsManualConfigurationSource() (ManualConfigurationSource, error) {
+	var body ManualConfigurationSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromManualConfigurationSource overwrites any union data inside the ProjectConfigurationResource_Source as the provided ManualConfigurationSource
+func (t *ProjectConfigurationResource_Source) FromManualConfigurationSource(v ManualConfigurationSource) error {
+	v.Kind = "manual"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeManualConfigurationSource performs a merge with any union data inside the ProjectConfigurationResource_Source, using the provided ManualConfigurationSource
+func (t *ProjectConfigurationResource_Source) MergeManualConfigurationSource(v ManualConfigurationSource) error {
+	v.Kind = "manual"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGitDefaultBranchConfigurationSource returns the union data inside the ProjectConfigurationResource_Source as a GitDefaultBranchConfigurationSource
+func (t ProjectConfigurationResource_Source) AsGitDefaultBranchConfigurationSource() (GitDefaultBranchConfigurationSource, error) {
+	var body GitDefaultBranchConfigurationSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGitDefaultBranchConfigurationSource overwrites any union data inside the ProjectConfigurationResource_Source as the provided GitDefaultBranchConfigurationSource
+func (t *ProjectConfigurationResource_Source) FromGitDefaultBranchConfigurationSource(v GitDefaultBranchConfigurationSource) error {
+	v.Kind = "git_default_branch"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGitDefaultBranchConfigurationSource performs a merge with any union data inside the ProjectConfigurationResource_Source, using the provided GitDefaultBranchConfigurationSource
+func (t *ProjectConfigurationResource_Source) MergeGitDefaultBranchConfigurationSource(v GitDefaultBranchConfigurationSource) error {
+	v.Kind = "git_default_branch"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ProjectConfigurationResource_Source) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ProjectConfigurationResource_Source) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "git_default_branch":
+		return t.AsGitDefaultBranchConfigurationSource()
+	case "manual":
+		return t.AsManualConfigurationSource()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ProjectConfigurationResource_Source) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ProjectConfigurationResource_Source) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

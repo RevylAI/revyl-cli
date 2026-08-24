@@ -5,50 +5,53 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/gitremote"
-	"github.com/revyl/cli/internal/prconfig"
 	"github.com/revyl/cli/internal/ui"
 )
 
-var (
-	githubInitFramework string
-	githubInitForce     bool
-	githubPushRepo      string
-	githubSetupRepo     string
-)
-
 // githubConnectPollInterval is how often `revyl github connect` re-checks
-// installation status while the user completes the browser install. It is a
-// var (not a const) so tests can shorten it.
+// installation status while the user completes the browser install.
 var githubConnectPollInterval = 3 * time.Second
 
 // githubConnectPollTimeout bounds how long the CLI waits for the browser
-// install to complete before giving up (the user can re-run to continue). It is
-// a var (not a const) so tests can shorten it.
+// install to complete before giving up.
 var githubConnectPollTimeout = 3 * time.Minute
+
+var (
+	ensureGithubSetupConnected = ensureGithubConnected
+	selectGithubSetupApp       = selectOrCreateGithubSetupApp
+	promptGithubSetupSelect    = ui.PromptSelect
+	confirmGithubSetup         = ui.PromptConfirm
+	githubSetupInputTTY        = ui.IsInputTTY
+	validateGithubSetupConfig  = validateResolvedProjectConfiguration
+	publishGithubSetupConfig   = publishResolvedProjectConfiguration
+)
 
 var githubCmd = &cobra.Command{
 	Use:   "github",
-	Short: "Connect GitHub and manage PR automation (config-as-code)",
-	Long: `Connect the Revyl GitHub App and manage PR automation defined in
-.revyl/config.yaml.
+	Short: "Connect GitHub and configure pull request automation",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		return cmd.Help()
+	},
+	Long: `Connect the Revyl GitHub App and configure pull request automation for
+the nearest project declared by .revyl/config.yaml.
 
 Typical first run:
-  revyl github setup     Connect GitHub, scaffold pr_review, and push it
+  revyl github setup
 
-The pr_review section is reconciled by Revyl when pushed (or committed to your
-default branch), becoming the source of truth for preview builds, proof checks,
-and curated workflows on pull requests.`,
+The complete project configuration is published immediately in manual mode.
+After the designated config file is committed to the default branch, Git owns
+the server configuration and local changes must be validated and committed.`,
 }
 
 var githubConnectCmd = &cobra.Command{
@@ -62,114 +65,43 @@ is already installed, this is a no-op.
 
 EXAMPLES:
   revyl github connect`,
+	Args: cobra.NoArgs,
 	RunE: runGithubConnect,
 }
 
 var githubStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show the GitHub App connection status",
-	Long: `Show whether the Revyl GitHub App is connected for your organization,
-how many repositories it can access, and whether PR automation is enabled.
+	Short: "Show GitHub and current-project review status",
+	Long: `Show whether the Revyl GitHub App is connected for your organization
+and, when run under a project configuration, whether pull request
+automation is published for that exact repository-relative project root.
 
 EXAMPLES:
   revyl github status`,
+	Args: cobra.NoArgs,
 	RunE: runGithubStatus,
 }
 
 var githubSetupCmd = &cobra.Command{
 	Use:   "setup",
-	Short: "Connect GitHub, scaffold pr_review, and push it",
-	Long: `One-shot setup for GitHub PR automation.
-
-This connects the Revyl GitHub App (if needed), scaffolds a pr_review section in
-.revyl/config.yaml (if missing), and pushes it to Revyl so PR automation is
-active immediately.
+	Short: "Configure pull request automation for the current project",
+	Long: `Connect GitHub if needed, complete the nearest configured project's
+pr_review configuration, bind only the apps required by that review build
+mode, atomically update the designated .revyl/config.yaml when necessary, and
+publish the complete project configuration.
 
 EXAMPLES:
-  revyl github setup
-  revyl github setup --repo owner/name`,
+  revyl github setup`,
+	Args: cobra.NoArgs,
 	RunE: runGithubSetup,
 }
 
-var githubInitCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Scaffold the pr_review section in .revyl/config.yaml",
-	Long: `Detect this repo's mobile build setup and scaffold a pr_review section
-in .revyl/config.yaml.
-
-EXAMPLES:
-  revyl github init
-  revyl github init --framework expo_ios
-  revyl github init --force`,
-	RunE: runGithubInit,
-}
-
-var githubPushCmd = &cobra.Command{
-	Use:   "push",
-	Short: "Apply .revyl/config.yaml to Revyl without committing",
-	Long: `Upload this repo's .revyl/config.yaml and apply its pr_review section to
-Revyl immediately, without waiting for a commit/push to your default branch.
-
-A missing pr_review section (or a missing file) reverts the repo to
-UI-managed settings. Use 'revyl github init' to scaffold a new section.
-
-The repository is resolved from your git origin remote; override it with --repo.
-
-EXAMPLES:
-  revyl github push
-  revyl github push --repo owner/name`,
-	RunE: runGithubPush,
-}
-
 func init() {
-	githubInitCmd.Flags().StringVar(
-		&githubInitFramework,
-		"framework",
-		"",
-		"Force a build framework (expo_ios, expo_android, react_native_ios, "+
-			"react_native_android, native_ios, native_android)",
-	)
-	githubInitCmd.Flags().BoolVar(
-		&githubInitForce,
-		"force",
-		false,
-		"Overwrite an existing pr_review section",
-	)
-	githubPushCmd.Flags().StringVar(
-		&githubPushRepo,
-		"repo",
-		"",
-		"GitHub repository as owner/name (defaults to the git origin remote)",
-	)
-	githubSetupCmd.Flags().StringVar(
-		&githubSetupRepo,
-		"repo",
-		"",
-		"GitHub repository as owner/name (defaults to the git origin remote)",
-	)
-	githubSetupCmd.Flags().StringVar(
-		&githubInitFramework,
-		"framework",
-		"",
-		"Force a build framework when scaffolding (expo_ios, expo_android, "+
-			"react_native_ios, react_native_android, native_ios, native_android)",
-	)
-	githubCmd.AddCommand(githubConnectCmd)
-	githubCmd.AddCommand(githubStatusCmd)
-	githubCmd.AddCommand(githubInitCmd)
-	githubCmd.AddCommand(githubPushCmd)
-	githubCmd.AddCommand(githubSetupCmd)
+	githubCmd.AddCommand(githubConnectCmd, githubStatusCmd, githubSetupCmd)
 }
 
 // newGithubAPIClient builds an API client for GitHub commands using the active
 // credentials and the global --dev flag.
-//
-// Parameters:
-//   - cmd: The cobra command (used for context and the --dev flag).
-//
-// Returns:
-//   - *api.Client: An authenticated API client.
-//   - error: A non-nil error when the user is not authenticated.
 func newGithubAPIClient(cmd *cobra.Command) (*api.Client, error) {
 	apiKey, err := getAPIKey()
 	if err != nil {
@@ -179,125 +111,433 @@ func newGithubAPIClient(cmd *cobra.Command) (*api.Client, error) {
 	return api.NewClientWithDevMode(apiKey, devMode), nil
 }
 
-// runGithubConnect installs the Revyl GitHub App via the browser and waits for
-// the installation to become active.
-//
-// Parameters:
-//   - cmd: The cobra command (used for context and the --dev flag).
-//   - args: Positional args (unused).
-//
-// Returns:
-//   - error: A non-nil error when authentication fails, the install URL cannot
-//     be fetched, or the installation does not complete before the timeout.
-func runGithubConnect(cmd *cobra.Command, args []string) error {
+func runGithubConnect(cmd *cobra.Command, _ []string) error {
 	client, err := newGithubAPIClient(cmd)
 	if err != nil {
 		return err
 	}
-
 	repos, err := ensureGithubConnected(cmd.Context(), client)
 	if err != nil {
 		return err
 	}
-
 	ui.Println()
 	printGithubStatus(repos)
 	return nil
 }
 
-// runGithubStatus prints the GitHub App connection status for the org.
-//
-// Parameters:
-//   - cmd: The cobra command (used for context and the --dev flag).
-//   - args: Positional args (unused).
-//
-// Returns:
-//   - error: A non-nil error when authentication or the status request fails.
-func runGithubStatus(cmd *cobra.Command, args []string) error {
+func runGithubStatus(cmd *cobra.Command, _ []string) error {
 	client, err := newGithubAPIClient(cmd)
 	if err != nil {
 		return err
 	}
 	repos, err := client.GetGithubRepositories(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to fetch GitHub status: %w", err)
+		return actionableGithubStatusError(err, "revyl github status")
 	}
-
-	// PR automation is configured per repository; only fetch per-repo configs
-	// when the org actually has the feature and an active installation.
+	printGithubStatus(repos)
 	if !repos.IsConnected() || !repos.GithubIntegrationEnabled {
-		printGithubStatus(repos)
 		return nil
 	}
 
-	configs, cfgErr := client.ListGithubScmConfigs(cmd.Context())
-	printGithubStatusDetailed(repos, configs, cfgErr)
+	local, err := resolveLocalProjectConfiguration()
+	if err != nil {
+		ui.PrintWarning("  Current project: %v", actionableLocalConfigError(err))
+		return nil
+	}
+	resolved, err := resolveConnectedProjectConfiguration(local)
+	if err != nil {
+		ui.PrintWarning("  Current project: %v", err)
+		return nil
+	}
+	fullName := resolved.locator.Namespace + "/" + resolved.locator.RepositoryName
+	if !githubRepositoryAvailable(repos, resolved.locator.Namespace, resolved.locator.RepositoryName) {
+		ui.PrintKeyValue("  Current project:", fullName+" — repository access not granted")
+		ui.PrintDim("  Grant this repository to the Revyl GitHub App, then retry.")
+		return nil
+	}
+
+	current, readErr := readRemoteProjectConfiguration(cmd, client, resolved)
+	if readErr != nil {
+		ui.PrintWarning(
+			"  Current project: %v",
+			actionableProjectConfigurationAPIError(
+				cmd.Context(),
+				client,
+				resolved.locator,
+				resolved.local.Authored.Project.ID,
+				readErr,
+				"revyl github status",
+				resolved.local,
+			),
+		)
+		return nil
+	}
+	printGithubProjectStatus(local, fullName, current)
 	return nil
 }
 
-// runGithubSetup connects GitHub (if needed), scaffolds the pr_review section
-// (if missing), and pushes the config so PR automation is active immediately.
-//
-// Parameters:
-//   - cmd: The cobra command (used for context and the --dev flag).
-//   - args: Positional args (unused).
-//
-// Returns:
-//   - error: A non-nil error when any step (connect, scaffold, push) fails.
-func runGithubSetup(cmd *cobra.Command, args []string) error {
+func runGithubSetup(cmd *cobra.Command, _ []string) (returnErr error) {
+	recordGithubSetupOutcome(cmd, "failed")
+	defer func() {
+		if returnErr != nil {
+			// Setup output and errors can contain repository, project, path, or app
+			// identifiers. Preserve the original user-facing error while keeping
+			// centralized failure analytics bounded to the semantic outcome.
+			returnErr = analytics.CompletedWithExitCode(
+				returnErr,
+				analytics.CommandCompletion{Domain: "github_setup", ExitCode: 1},
+			)
+		}
+	}()
+	local, err := resolveLocalProjectConfiguration()
+	if err != nil {
+		return actionableLocalConfigError(err)
+	}
+	resolved, err := resolveConnectedProjectConfiguration(local)
+	if err != nil {
+		return err
+	}
 	client, err := newGithubAPIClient(cmd)
 	if err != nil {
 		return err
 	}
+	return runGithubSetupForProject(cmd, client, local, resolved)
+}
 
-	if _, err := ensureGithubConnected(cmd.Context(), client); err != nil {
-		return err
+func runGithubSetupForProject(
+	cmd *cobra.Command,
+	client *api.Client,
+	local *config.ProjectContext,
+	resolved *resolvedProjectConfiguration,
+) error {
+	if !githubSetupInputTTY() {
+		return fmt.Errorf("revyl github setup requires an interactive terminal; edit the project config directly, run %q, then run %q or commit the designated file when Git-managed", cliRecoveryCommand("config", "validate"), cliRecoveryCommand("config", "push"))
 	}
-
-	configPath, err := projectConfigPath()
+	repos, err := ensureGithubSetupConnected(cmd.Context(), client)
 	if err != nil {
 		return err
 	}
-	root := filepath.Dir(filepath.Dir(configPath))
-
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		cfg = &config.ProjectConfig{
-			Project: config.Project{Name: filepath.Base(root)},
-		}
+	if !repos.GithubIntegrationEnabled {
+		return fmt.Errorf("GitHub pull request automation is not enabled for this organization; contact Revyl to enable it")
 	}
-
-	if cfg.PRReview == nil {
-		ui.Println()
-		ui.PrintInfo("Scaffolding pr_review config from detected builds ...")
-		if err := prconfig.Scaffold(root, configPath, cfg, githubInitFramework, false); err != nil {
-			return err
-		}
-		ui.PrintSuccess("Wrote pr_review config to %s", configPath)
+	if !githubRepositoryAvailable(repos, resolved.locator.Namespace, resolved.locator.RepositoryName) {
+		return fmt.Errorf(
+			"the Revyl GitHub App cannot access %s/%s; grant that repository, then retry",
+			resolved.locator.Namespace,
+			resolved.locator.RepositoryName,
+		)
+	}
+	candidate, changed, err := completeGithubSetupConfiguration(cmd, client, local)
+	if err != nil {
+		return err
+	}
+	canonical, err := config.MarshalCanonicalConfig(candidate)
+	if err != nil {
+		return err
+	}
+	aggregate, err := config.NormalizeAuthoredConfig(candidate, publicationCompilationContext(local))
+	if err != nil {
+		return err
+	}
+	updatedLocal := *local
+	updatedLocal.Authored = &candidate
+	updatedLocal.Aggregate = aggregate
+	updatedResolved, err := resolveConnectedProjectConfiguration(&updatedLocal)
+	if err != nil {
+		return err
+	}
+	validation, err := validateGithubSetupConfig(cmd, client, updatedResolved)
+	if err != nil {
+		return actionableProjectConfigurationAPIError(
+			cmd.Context(),
+			client,
+			updatedResolved.locator,
+			updatedResolved.local.Authored.Project.ID,
+			err,
+			"revyl github setup",
+			updatedResolved.local,
+		)
 	}
 
 	ui.Println()
-	return pushPRReviewConfig(cmd.Context(), client, configPath, githubSetupRepo)
+	ui.PrintInfo("Project: %s/%s (%s)", resolved.locator.Namespace, resolved.locator.RepositoryName, local.RepositoryRelativeProjectRoot)
+	printGithubSetupBuildSummary(candidate.PRReview.Build)
+	if changed {
+		ui.PrintKeyValue("Config file:", local.ConfigPath)
+	} else {
+		ui.PrintDim("The local pr_review configuration is already complete.")
+	}
+	gitManaged := validation.Current.Resource != nil && validation.Current.Resource.Authority == api.ConfigurationAuthorityGitDefaultBranch
+	if gitManaged && !changed {
+		recordGithubSetupOutcome(cmd, "proposal_preserved_for_commit")
+		ui.PrintSuccess("The default-branch configuration is ready")
+		ui.PrintDim("Run %q, then commit the designated .revyl/config.yaml.", cliRecoveryCommand("config", "validate"))
+		return nil
+	}
+	confirmationPrompt := "Publish this complete project configuration to Revyl?"
+	if gitManaged {
+		confirmationPrompt = "Write this complete project configuration for commit?"
+	}
+	confirmed, err := confirmGithubSetup(confirmationPrompt, true)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		recordGithubSetupOutcome(cmd, "declined")
+		ui.PrintDim("GitHub setup cancelled; the local configuration was not changed.")
+		return nil
+	}
+
+	if changed {
+		if err := config.ReplaceConfigAtomically(local.ConfigPath, canonical, local.OriginalBytes); err != nil {
+			return err
+		}
+		updatedLocal.OriginalBytes = canonical
+		ui.PrintSuccess("Updated %s", local.ConfigPath)
+	}
+	if gitManaged {
+		recordGithubSetupOutcome(cmd, "proposal_preserved_for_commit")
+		ui.PrintSuccess("Prepared the default-branch configuration for commit")
+		ui.PrintDim("Run %q, then commit the designated .revyl/config.yaml.", cliRecoveryCommand("config", "validate"))
+		return nil
+	}
+	if err := publishGithubSetupConfig(cmd, client, updatedResolved); err != nil {
+		return err
+	}
+	recordGithubSetupOutcome(cmd, "published")
+	return nil
+}
+
+func recordGithubSetupOutcome(cmd *cobra.Command, status string) {
+	if cmd == nil {
+		return
+	}
+	analytics.SetCommandCompletion(cmd.Context(), analytics.CommandCompletion{
+		Domain:       "github_setup",
+		DomainStatus: status,
+	})
+}
+
+func validateResolvedProjectConfiguration(
+	cmd *cobra.Command,
+	client *api.Client,
+	resolved *resolvedProjectConfiguration,
+) (*api.ProjectConfigurationValidateResponse, error) {
+	return client.ValidateProjectConfiguration(
+		cmd.Context(),
+		resolved.local.Authored.Project.ID,
+		api.ProjectConfigurationValidateRequest{
+			Locator: resolved.locator, Configuration: resolved.authored,
+		},
+	)
+}
+
+func completeGithubSetupConfiguration(
+	cmd *cobra.Command,
+	client *api.Client,
+	local *config.ProjectContext,
+) (config.AuthoredConfig, bool, error) {
+	candidateBytes, err := config.MarshalCanonicalConfig(*local.Authored)
+	if err != nil {
+		return config.AuthoredConfig{}, false, err
+	}
+	candidate, err := config.ParseAuthoredConfig(candidateBytes)
+	if err != nil {
+		return config.AuthoredConfig{}, false, err
+	}
+	changed := false
+
+	if candidate.PRReview == nil {
+		reviewBuild, ciPlatforms, buildErr := promptGithubReviewBuild(*candidate)
+		if buildErr != nil {
+			return config.AuthoredConfig{}, false, buildErr
+		}
+		for _, platform := range ciPlatforms {
+			appID, selectErr := selectGithubSetupApp(cmd, client, local, platform)
+			if selectErr != nil {
+				return config.AuthoredConfig{}, false, fmt.Errorf("select %s app for CI uploads: %w", platform, selectErr)
+			}
+			if platform == "ios" {
+				reviewBuild.AppIDs.IOS = &appID
+			} else {
+				reviewBuild.AppIDs.Android = &appID
+			}
+		}
+		proofEnabled := true
+		candidate.PRReview = &config.AuthoredPRReview{
+			Build: reviewBuild,
+			ProofOfChanges: &config.AuthoredProofOfChanges{
+				Enabled: &proofEnabled,
+				Harness: &config.AuthoredProofHarness{Kind: "revyl"},
+			},
+		}
+		changed = true
+	}
+
+	switch candidate.PRReview.Build.Kind {
+	case "revyl":
+		profileName := *candidate.PRReview.Build.Profile
+		profile := candidate.Build.Profiles[profileName]
+		for _, platform := range []string{"ios", "android"} {
+			recipe := githubProfileRecipe(&profile, platform)
+			if recipe == nil || recipe.AppID != nil {
+				continue
+			}
+			appID, selectErr := selectGithubSetupApp(cmd, client, local, platform)
+			if selectErr != nil {
+				return config.AuthoredConfig{}, false, fmt.Errorf("select %s app for profile %q: %w", platform, profileName, selectErr)
+			}
+			recipe.AppID = &appID
+			changed = true
+		}
+		candidate.Build.Profiles[profileName] = profile
+	case "ci_upload_to_revyl":
+		// Existing CI-upload policies already carry explicit platform app IDs by
+		// contract. New policies receive them in promptGithubReviewBuild.
+	default:
+		return config.AuthoredConfig{}, false, fmt.Errorf("unsupported pr_review build kind %q", candidate.PRReview.Build.Kind)
+	}
+
+	if err := candidate.ValidateContract(); err != nil {
+		return config.AuthoredConfig{}, false, err
+	}
+	if _, err := config.NormalizeAuthoredConfig(*candidate, publicationCompilationContext(local)); err != nil {
+		return config.AuthoredConfig{}, false, err
+	}
+	return *candidate, changed, nil
+}
+
+func promptGithubReviewBuild(authored config.AuthoredConfig) (config.AuthoredReviewBuild, []string, error) {
+	profileNames := []string{}
+	if authored.Build != nil {
+		for name := range authored.Build.Profiles {
+			profileNames = append(profileNames, name)
+		}
+		sort.Strings(profileNames)
+	}
+
+	buildKind := "ci_upload_to_revyl"
+	if len(profileNames) > 0 {
+		selection, err := promptGithubSetupSelect(
+			"How should pull request builds be produced?",
+			[]string{"Build with Revyl from a named profile", "Upload builds from CI"},
+		)
+		if err != nil {
+			return config.AuthoredReviewBuild{}, nil, err
+		}
+		if selection == 0 {
+			buildKind = "revyl"
+		}
+	}
+
+	if buildKind == "revyl" {
+		profileName := profileNames[0]
+		if len(profileNames) > 1 {
+			selection, err := promptGithubSetupSelect("Which build profile should pull requests use?", profileNames)
+			if err != nil {
+				return config.AuthoredReviewBuild{}, nil, err
+			}
+			profileName = profileNames[selection]
+		}
+		return config.AuthoredReviewBuild{Kind: buildKind, Profile: &profileName}, nil, nil
+	}
+
+	selection, err := promptGithubSetupSelect(
+		"Which platforms will CI upload to Revyl?",
+		[]string{"iOS", "Android", "iOS and Android"},
+	)
+	if err != nil {
+		return config.AuthoredReviewBuild{}, nil, err
+	}
+	platforms := [][]string{{"ios"}, {"android"}, {"ios", "android"}}[selection]
+	return config.AuthoredReviewBuild{
+		Kind:   buildKind,
+		AppIDs: &config.AuthoredExternalCIAppIDs{},
+	}, platforms, nil
+}
+
+func githubProfileRecipe(profile *config.AuthoredBuildProfile, platform string) *config.AuthoredBuildRecipe {
+	if platform == "ios" {
+		return profile.IOS
+	}
+	return profile.Android
+}
+
+func selectOrCreateGithubSetupApp(
+	cmd *cobra.Command,
+	client *api.Client,
+	local *config.ProjectContext,
+	platform string,
+) (string, error) {
+	projectName := filepath.Base(local.ProjectRoot)
+	if projectName == "." || projectName == string(filepath.Separator) || projectName == "" {
+		projectName = "project"
+	}
+	return selectOrCreateAppChoice(cmd, client, projectName, platform)
+}
+
+func githubRepositoryAvailable(repos *api.GithubRepositoriesResponse, namespace, repository string) bool {
+	if repos == nil {
+		return false
+	}
+	for _, candidate := range repos.Repositories {
+		if strings.EqualFold(candidate.Owner, namespace) && strings.EqualFold(candidate.Repo, repository) {
+			return true
+		}
+	}
+	return false
+}
+
+func printGithubSetupBuildSummary(build config.AuthoredReviewBuild) {
+	if build.Kind == "revyl" && build.Profile != nil {
+		ui.PrintKeyValue("Review builds:", "Revyl profile "+*build.Profile)
+		return
+	}
+	platforms := []string{}
+	if build.AppIDs != nil {
+		if build.AppIDs.IOS != nil {
+			platforms = append(platforms, "iOS")
+		}
+		if build.AppIDs.Android != nil {
+			platforms = append(platforms, "Android")
+		}
+	}
+	ui.PrintKeyValue("Review builds:", "CI uploads for "+strings.Join(platforms, " and "))
+}
+
+func printGithubProjectStatus(
+	local *config.ProjectContext,
+	fullName string,
+	current *api.ProjectConfigurationReadResponse,
+) {
+	projectLabel := fullName + " (" + local.RepositoryRelativeProjectRoot + ")"
+	if current == nil || current.State == api.ProjectConfigurationReadResponseStateAbsent {
+		ui.PrintKeyValue("  Current project:", projectLabel+" — not published")
+		ui.PrintDim("  Run 'revyl github setup' to configure pull request automation.")
+		return
+	}
+	if current.State != api.ProjectConfigurationReadResponseStatePresent || current.Resource == nil {
+		ui.PrintKeyValue("  Current project:", projectLabel+" — invalid server state")
+		return
+	}
+	status := "not configured"
+	if review := current.Resource.Configuration.PrReview; review != nil {
+		if review.Enabled == nil || *review.Enabled {
+			status = "enabled"
+		} else {
+			status = "configured but disabled"
+		}
+	}
+	ui.PrintKeyValue("  Current project:", projectLabel+" — "+status)
+	ui.PrintKeyValue("  Authority:", string(current.Resource.Authority))
 }
 
 // ensureGithubConnected returns the current installation state, driving the
 // browser install flow when GitHub is not yet connected.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - client: The authenticated API client.
-//
-// Returns:
-//   - *api.GithubRepositoriesResponse: The active installation state.
-//   - error: A non-nil error when the status check, install URL fetch, browser
-//     launch, or the wait-for-active poll fails or times out.
-func ensureGithubConnected(
-	ctx context.Context,
-	client *api.Client,
-) (*api.GithubRepositoriesResponse, error) {
+func ensureGithubConnected(ctx context.Context, client *api.Client) (*api.GithubRepositoriesResponse, error) {
 	repos, err := client.GetGithubRepositories(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch GitHub status: %w", err)
+		return nil, actionableGithubStatusError(err, "revyl github connect")
 	}
 	if repos.IsConnected() {
 		ui.PrintSuccess("GitHub App already connected")
@@ -308,7 +548,6 @@ func ensureGithubConnected(
 	if err != nil {
 		return nil, fmt.Errorf("failed to start GitHub install: %w", err)
 	}
-
 	ui.PrintInfo("Opening the GitHub App install page in your browser ...")
 	if openErr := ui.OpenBrowser(install.InstallURL); openErr != nil {
 		ui.PrintWarning("Could not open a browser automatically.")
@@ -320,28 +559,10 @@ func ensureGithubConnected(
 
 	ui.Println()
 	ui.PrintInfo("Waiting for the installation to complete ...")
-	active, err := waitForGithubInstallation(ctx, client)
-	if err != nil {
-		return nil, err
-	}
-	return active, nil
+	return waitForGithubInstallation(ctx, client)
 }
 
-// waitForGithubInstallation polls installation status until the GitHub App is
-// active or the timeout elapses.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - client: The authenticated API client.
-//
-// Returns:
-//   - *api.GithubRepositoriesResponse: The active installation state.
-//   - error: A non-nil error when the context is cancelled or the timeout is
-//     reached before the installation becomes active.
-func waitForGithubInstallation(
-	ctx context.Context,
-	client *api.Client,
-) (*api.GithubRepositoriesResponse, error) {
+func waitForGithubInstallation(ctx context.Context, client *api.Client) (*api.GithubRepositoriesResponse, error) {
 	deadline := time.Now().Add(githubConnectPollTimeout)
 	ticker := time.NewTicker(githubConnectPollInterval)
 	defer ticker.Stop()
@@ -355,22 +576,46 @@ func waitForGithubInstallation(
 			if err == nil && repos.IsConnected() {
 				return repos, nil
 			}
+			if terminalErr := terminalGithubInstallationPollingError(err); terminalErr != nil {
+				return nil, terminalErr
+			}
 			if time.Now().After(deadline) {
 				return nil, fmt.Errorf(
-					"timed out waiting for the GitHub App install; " +
-						"finish it in the browser, then run 'revyl github status'",
+					"timed out waiting for the GitHub App install; finish it in the browser, then run 'revyl github status'",
 				)
 			}
 		}
 	}
 }
 
-// printGithubStatus prints a concise summary of the installation state. The
-// "PR automation" line reflects the org-level feature gate (availability), not
-// per-repo state — use printGithubStatusDetailed for the per-repo breakdown.
-//
-// Parameters:
-//   - repos: The installation state to summarize.
+func terminalGithubInstallationPollingError(err error) error {
+	var apiErr *api.APIError
+	if !errors.As(err, &apiErr) {
+		return nil
+	}
+	if apiErr.StatusCode < 400 || apiErr.StatusCode >= 500 || apiErr.StatusCode == 408 || apiErr.StatusCode == 429 {
+		return nil
+	}
+	return actionableGithubStatusError(err, "revyl github connect")
+}
+
+func actionableGithubStatusError(err error, retryCommand string) error {
+	var apiErr *api.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.StatusCode {
+		case 401:
+			return fmt.Errorf("Revyl authentication is no longer valid; run 'revyl auth login', then retry '%s'", retryCommand)
+		case 403:
+			return fmt.Errorf("the active Revyl account cannot access GitHub integration status; run 'revyl auth status' to verify the account and organization, then retry '%s'", retryCommand)
+		default:
+			if apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
+				return fmt.Errorf("Revyl rejected the GitHub installation status request; run 'revyl auth status' to verify the active account and organization, then retry '%s'; run 'revyl doctor' if it still fails", retryCommand)
+			}
+		}
+	}
+	return fmt.Errorf("could not fetch GitHub status: %v; retry '%s', then run 'revyl doctor' if it still fails", err, retryCommand)
+}
+
 func printGithubStatus(repos *api.GithubRepositoriesResponse) {
 	if repos == nil || !repos.IsConnected() {
 		ui.PrintWarning("GitHub App not connected")
@@ -382,264 +627,9 @@ func printGithubStatus(repos *api.GithubRepositoriesResponse) {
 	ui.PrintKeyValue("  Repositories:", fmt.Sprintf("%d", len(repos.Repositories)))
 	if repos.GithubIntegrationEnabled {
 		ui.PrintKeyValue("  PR automation:", "available for your org")
-		ui.PrintDim("  Run 'revyl github push' in a repo to enable it there.")
+		ui.PrintDim("  Run 'revyl github setup' in a project to configure it there.")
 	} else {
 		ui.PrintKeyValue("  PR automation:", "not enabled for your org yet")
 		ui.PrintDim("  Contact Revyl to enable PR automation for your org.")
 	}
-}
-
-// printGithubStatusDetailed prints a per-repository PR-automation summary: how
-// many of the accessible repos have automation enabled, plus the status of the
-// repository in the current working directory (when resolvable).
-//
-// Parameters:
-//   - repos: The installation state (for repo access count).
-//   - configs: The per-repo PR-automation configs (may be nil on error).
-//   - cfgErr: A non-nil error when configs could not be loaded.
-func printGithubStatusDetailed(
-	repos *api.GithubRepositoriesResponse,
-	configs *api.ScmConfigsResponse,
-	cfgErr error,
-) {
-	ui.PrintSuccess("GitHub App connected")
-	ui.PrintKeyValue("  Repositories:", fmt.Sprintf("%d", len(repos.Repositories)))
-
-	if cfgErr != nil || configs == nil {
-		ui.PrintKeyValue("  PR automation:", "available for your org")
-		ui.PrintDim("  Could not load per-repo configuration; try 'revyl github status' again.")
-		return
-	}
-
-	enabled := 0
-	for i := range configs.Configs {
-		if configs.Configs[i].IsAutomationEnabled() {
-			enabled++
-		}
-	}
-	ui.PrintKeyValue(
-		"  PR automation:",
-		fmt.Sprintf("enabled on %d of %d repositories", enabled, len(repos.Repositories)),
-	)
-
-	// Best-effort: when run inside a GitHub repo, report that repo's status.
-	namespace, project, err := currentRepoSlug()
-	if err != nil {
-		return
-	}
-	fullName := namespace + "/" + project
-	cfg := findRepoConfig(configs.Configs, fullName)
-	switch {
-	case cfg.IsAutomationEnabled():
-		ui.PrintKeyValue("  This repo:", fullName+" — enabled")
-	case cfg != nil:
-		ui.PrintKeyValue("  This repo:", fullName+" — configured but disabled")
-	default:
-		ui.PrintKeyValue("  This repo:", fullName+" — not configured")
-		ui.PrintDim("  Run 'revyl github push' to enable PR automation here.")
-	}
-}
-
-// currentRepoSlug resolves the GitHub owner/name of the repository in the
-// current working directory from its git origin remote.
-//
-// Returns:
-//   - string: The repository owner/namespace.
-//   - string: The repository name.
-//   - error: A non-nil error when the directory or remote cannot be resolved.
-func currentRepoSlug() (string, string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", "", err
-	}
-	root := cwd
-	if repoRoot, findErr := config.FindRepoRoot(cwd); findErr == nil {
-		root = repoRoot
-	}
-	return gitremote.ResolveSlug(root, "")
-}
-
-// findRepoConfig returns the config matching fullName ("owner/name"), or nil.
-//
-// Parameters:
-//   - configs: The per-repo configs to search.
-//   - fullName: The "owner/name" identity to match (case-insensitive).
-//
-// Returns:
-//   - *api.ScmConfigResponse: The matching config, or nil when none matches.
-func findRepoConfig(configs []api.ScmConfigResponse, fullName string) *api.ScmConfigResponse {
-	for i := range configs {
-		if strings.EqualFold(configs[i].RepoFullName, fullName) {
-			return &configs[i]
-		}
-	}
-	return nil
-}
-
-// runGithubInit scaffolds the pr_review section into .revyl/config.yaml.
-//
-// Parameters:
-//   - cmd: The cobra command (unused).
-//   - args: Positional args (unused).
-//
-// Returns:
-//   - error: A non-nil error when the repo cannot be resolved, the framework
-//     flag is invalid, pr_review already exists without --force, or the config
-//     file cannot be written.
-func runGithubInit(cmd *cobra.Command, args []string) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-	root := cwd
-	if repoRoot, findErr := config.FindRepoRoot(cwd); findErr == nil {
-		root = repoRoot
-	}
-
-	configPath, err := projectConfigPath()
-	if err != nil {
-		return err
-	}
-
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		cfg = &config.ProjectConfig{
-			Project: config.Project{Name: filepath.Base(root)},
-		}
-	}
-
-	if err := prconfig.Scaffold(root, configPath, cfg, githubInitFramework, githubInitForce); err != nil {
-		return err
-	}
-
-	ui.PrintSuccess("Wrote pr_review config to %s", configPath)
-	ui.Println()
-	ui.PrintInfo("Detected builds:")
-	for _, platform := range []string{"ios", "android"} {
-		entry := prconfig.EntryForPlatform(cfg.PRReview.Builds, platform)
-		if entry != nil && entry.Enabled {
-			ui.PrintKeyValue("  "+prconfig.PlatformLabel(platform)+":", entry.Framework)
-		}
-	}
-	ui.Println()
-	ui.PrintInfo("Next steps:")
-	ui.PrintDim("  1. Review %s (set app names and any required env secrets)", configPath)
-	ui.PrintDim("  2. Run 'revyl github push' to apply it now, or")
-	ui.PrintDim("  3. git add .revyl/config.yaml, commit, and merge to your default branch")
-	return nil
-}
-
-// runGithubPush uploads the local .revyl/config.yaml and applies its pr_review
-// section to Revyl immediately (no commit/push required). A missing section
-// or file reverts a previously CLI-managed repo to UI-managed settings.
-//
-// Parameters:
-//   - cmd: The cobra command (used for context and the --dev flag).
-//   - args: Positional args (unused).
-//
-// Returns:
-//   - error: A non-nil error when the repo cannot be resolved, authentication
-//     fails, or the backend rejects the config.
-func runGithubPush(cmd *cobra.Command, args []string) error {
-	client, err := newGithubAPIClient(cmd)
-	if err != nil {
-		return err
-	}
-
-	configPath, err := projectConfigPath()
-	if err != nil {
-		return err
-	}
-
-	return pushPRReviewConfig(cmd.Context(), client, configPath, githubPushRepo)
-}
-
-// pushPRReviewConfig reads the config file and applies its pr_review section to
-// Revyl for the resolved repository.
-//
-// Parameters:
-//   - ctx: Context for cancellation.
-//   - client: The authenticated API client.
-//   - configPath: The .revyl/config.yaml path to upload.
-//   - repoOverride: Optional "owner/name" override for the target repo.
-//
-// Returns:
-//   - error: A non-nil error when the repo cannot be resolved, the file cannot
-//     be read, GitHub is not connected (403/404), or the backend rejects the
-//     config.
-func pushPRReviewConfig(
-	ctx context.Context,
-	client *api.Client,
-	configPath string,
-	repoOverride string,
-) error {
-	content, err := prconfig.ReadPushContent(configPath)
-	if err != nil {
-		return err
-	}
-
-	root := filepath.Dir(filepath.Dir(configPath))
-	namespace, project, err := gitremote.ResolveSlug(root, repoOverride)
-	if err != nil {
-		return err
-	}
-
-	relPath := ".revyl/config.yaml"
-	if rel, relErr := filepath.Rel(root, configPath); relErr == nil {
-		relPath = filepath.ToSlash(rel)
-	}
-
-	ui.PrintInfo("Pushing pr_review config for %s/%s ...", namespace, project)
-	resp, err := client.PushPRReviewConfig(ctx, api.PushPRReviewConfigRequest{
-		Namespace:      namespace,
-		Project:        project,
-		Content:        content,
-		ConfigFilePath: relPath,
-	})
-	if err != nil {
-		if isGithubNotConnectedErr(err) {
-			ui.PrintError("GitHub PR automation isn't available for this repo yet.")
-			ui.PrintDim("  Run 'revyl github connect' to install the Revyl GitHub App,")
-			ui.PrintDim("  and make sure %s/%s is one of the granted repositories.", namespace, project)
-		}
-		return fmt.Errorf("failed to push config: %w", err)
-	}
-
-	state := resp.State
-	if state.Status == "error" {
-		ui.PrintError("Config pushed but could not be applied")
-		if state.Error != "" {
-			ui.PrintDim("  %s", state.Error)
-		}
-		return fmt.Errorf("config file error")
-	}
-
-	ui.PrintSuccess("%s", prconfig.PushOutcomeMessage(namespace, project, state.Status))
-	if state.Status != "none" && state.Summary != nil && len(state.Summary.Builds) > 0 {
-		ui.Println()
-		ui.PrintInfo("Preview builds:")
-		for _, b := range state.Summary.Builds {
-			ui.PrintKeyValue("  "+prconfig.PlatformLabel(b.Platform)+":", b.Framework)
-		}
-	}
-	ui.Println()
-	ui.PrintDim("The repo settings page will update automatically.")
-	return nil
-}
-
-// isGithubNotConnectedErr reports whether err indicates the org has no active
-// GitHub App installation or PR-automation access for the target repo.
-//
-// Parameters:
-//   - err: The error returned by a push/config request.
-//
-// Returns:
-//   - bool: true when the error is an HTTP 403 or 404 APIError.
-func isGithubNotConnectedErr(err error) bool {
-	var apiErr *api.APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.StatusCode == http.StatusForbidden ||
-			apiErr.StatusCode == http.StatusNotFound
-	}
-	return false
 }

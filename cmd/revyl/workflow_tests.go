@@ -5,14 +5,11 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -65,25 +62,22 @@ func init() {
 //   - cfg: The loaded project config (may be nil)
 //   - client: Configured API client
 //   - error: Any error during setup
-func workflowTestsSetupClient(cmd *cobra.Command, workflowNameOrID string) (string, *config.ProjectConfig, *api.Client, error) {
+func workflowTestsSetupClient(cmd *cobra.Command, workflowNameOrID string) (string, *api.Client, error) {
 	apiKey, err := getAPIKey()
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, err
 	}
-
-	cwd, _ := os.Getwd()
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	workflowID, _, err := resolveWorkflowID(cmd.Context(), workflowNameOrID, cfg, client)
+	workflowID, _, err := resolveWorkflowID(cmd.Context(), workflowNameOrID, nil, client)
 	if err != nil {
 		ui.PrintError("%v", err)
-		return "", nil, nil, fmt.Errorf("workflow not found")
+		return "", nil, fmt.Errorf("workflow not found")
 	}
 
-	return workflowID, cfg, client, nil
+	return workflowID, client, nil
 }
 
 // runWorkflowAddTests adds tests to an existing workflow (deduped).
@@ -91,7 +85,7 @@ func runWorkflowAddTests(cmd *cobra.Command, args []string) error {
 	workflowNameOrID := args[0]
 	testNamesOrIDs := args[1:]
 
-	workflowID, cfg, client, err := workflowTestsSetupClient(cmd, workflowNameOrID)
+	workflowID, client, err := workflowTestsSetupClient(cmd, workflowNameOrID)
 	if err != nil {
 		return err
 	}
@@ -119,7 +113,7 @@ func runWorkflowAddTests(cmd *cobra.Command, args []string) error {
 
 	ui.StartSpinner("Resolving tests...")
 	for _, nameOrID := range testNamesOrIDs {
-		testID, _, resolveErr := resolveTestID(cmd.Context(), nameOrID, cfg, client)
+		testID, _, resolveErr := resolveTestID(cmd.Context(), nameOrID, nil, client)
 		if resolveErr != nil {
 			ui.StopSpinner()
 			ui.PrintError("Failed to resolve test '%s': %v", nameOrID, resolveErr)
@@ -162,7 +156,7 @@ func runWorkflowRemoveTests(cmd *cobra.Command, args []string) error {
 	workflowNameOrID := args[0]
 	testNamesOrIDs := args[1:]
 
-	workflowID, cfg, client, err := workflowTestsSetupClient(cmd, workflowNameOrID)
+	workflowID, client, err := workflowTestsSetupClient(cmd, workflowNameOrID)
 	if err != nil {
 		return err
 	}
@@ -181,7 +175,7 @@ func runWorkflowRemoveTests(cmd *cobra.Command, args []string) error {
 	removeSet := make(map[string]bool)
 	ui.StartSpinner("Resolving tests...")
 	for _, nameOrID := range testNamesOrIDs {
-		testID, _, resolveErr := resolveTestID(cmd.Context(), nameOrID, cfg, client)
+		testID, _, resolveErr := resolveTestID(cmd.Context(), nameOrID, nil, client)
 		if resolveErr != nil {
 			ui.StopSpinner()
 			ui.PrintError("Failed to resolve test '%s': %v", nameOrID, resolveErr)
@@ -205,7 +199,7 @@ func runWorkflowRemoveTests(cmd *cobra.Command, args []string) error {
 	// Track which names were actually removed vs not found
 	var removed, notFound []string
 	for _, nameOrID := range testNamesOrIDs {
-		testID, _, _ := resolveTestID(cmd.Context(), nameOrID, cfg, client)
+		testID, _, _ := resolveTestID(cmd.Context(), nameOrID, nil, client)
 		if removedSet[testID] {
 			removed = append(removed, nameOrID)
 		} else {

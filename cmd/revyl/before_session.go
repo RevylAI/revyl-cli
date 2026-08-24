@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -63,7 +62,7 @@ func hydrateBeforeSessionForRefresh(workDir, sessionID string) error {
 // one way only, so the two blocks keep independent failure semantics —
 // auth_bypass stays best-effort, before_session is fatal.
 type beforeSessionRuntime struct {
-	cfg      *config.BeforeSessionConfig
+	cfg      *config.AuthoredBeforeScript
 	repoRoot string
 
 	mu        sync.RWMutex
@@ -89,19 +88,19 @@ var deepLinkPlaceholderPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]{
 // deep link.
 //
 // Parameters:
-//   - cfg: The loaded project config, or nil when none was found.
+//   - cfg: The canonical before_script block, or nil when none was configured.
 //   - repoRoot: Absolute path to the repository root, used as the script's
 //     working directory and containment boundary.
-func initDevBeforeSession(cfg *config.ProjectConfig, repoRoot string) {
-	if cfg == nil || !cfg.BeforeSession.IsConfigured() {
+func initDevBeforeSession(cfg *config.AuthoredBeforeScript, repoRoot string) {
+	if authoredBeforeScriptPath(cfg) == "" {
 		devBeforeSession = nil
 		return
 	}
-	if devBeforeSession.matchesConfig(cfg.BeforeSession, repoRoot) {
+	if devBeforeSession.matchesConfig(cfg, repoRoot) {
 		return
 	}
 	devBeforeSession = &beforeSessionRuntime{
-		cfg:      cfg.BeforeSession,
+		cfg:      cloneAuthoredBeforeScript(cfg),
 		repoRoot: repoRoot,
 		state:    "pending",
 	}
@@ -116,13 +115,13 @@ func initDevBeforeSession(cfg *config.ProjectConfig, repoRoot string) {
 //
 // Returns:
 //   - bool: True when the configurations have equivalent runtime behavior.
-func (r *beforeSessionRuntime) matchesConfig(cfg *config.BeforeSessionConfig, repoRoot string) bool {
+func (r *beforeSessionRuntime) matchesConfig(cfg *config.AuthoredBeforeScript, repoRoot string) bool {
 	if r == nil || r.cfg == nil || cfg == nil {
 		return false
 	}
 	return r.repoRoot == repoRoot &&
-		strings.TrimSpace(r.cfg.Script) == strings.TrimSpace(cfg.Script) &&
-		r.cfg.EffectiveTimeout() == cfg.EffectiveTimeout()
+		authoredBeforeScriptPath(r.cfg) == authoredBeforeScriptPath(cfg) &&
+		authoredBeforeScriptTimeoutSeconds(r.cfg) == authoredBeforeScriptTimeoutSeconds(cfg)
 }
 
 // Run executes the before_session script and records the values it printed.
@@ -228,39 +227,41 @@ func (r *beforeSessionRuntime) Status() *beforeSessionStatus {
 
 	return &beforeSessionStatus{
 		Configured: true,
-		Script:     strings.TrimSpace(r.cfg.Script),
+		Script:     authoredBeforeScriptPath(r.cfg),
 		Keys:       keys,
 		State:      r.state,
 		Error:      r.lastError,
 	}
 }
 
-// loadProjectConfigFromRepoRoot loads .revyl/config.yaml starting from the
-// repository root that contains startDir.
-//
-// `revyl device start` previously read the config from the working directory
-// alone, so invoking it from a subdirectory silently skipped auth bypass and
-// before_session. Resolving the root first matches `revyl dev` and is what
-// lets a cloud agent run the command from anywhere in a checkout.
-//
-// Parameters:
-//   - startDir: Directory to begin the repository-root search from.
-//
-// Returns:
-//   - *config.ProjectConfig: The loaded config, or nil when none was found.
-//     A missing config is normal, so no error is returned.
-//   - string: The directory the config was resolved from, used as the
-//     before_session working directory and containment boundary.
-func loadProjectConfigFromRepoRoot(startDir string) (*config.ProjectConfig, string) {
-	projectRoot := startDir
-	if repoRoot, err := config.FindRepoRoot(startDir); err == nil {
-		projectRoot = repoRoot
+func authoredBeforeScriptPath(cfg *config.AuthoredBeforeScript) string {
+	if cfg == nil || cfg.ScriptPath == nil {
+		return ""
 	}
-	cfg, err := config.LoadProjectConfig(filepath.Join(projectRoot, ".revyl", "config.yaml"))
-	if err != nil {
-		return nil, projectRoot
+	return strings.TrimSpace(*cfg.ScriptPath)
+}
+
+func authoredBeforeScriptTimeoutSeconds(cfg *config.AuthoredBeforeScript) int {
+	if cfg != nil && cfg.TimeoutSeconds != nil && *cfg.TimeoutSeconds > 0 {
+		return *cfg.TimeoutSeconds
 	}
-	return cfg, projectRoot
+	return config.DefaultBeforeSessionTimeoutSeconds
+}
+
+func cloneAuthoredBeforeScript(cfg *config.AuthoredBeforeScript) *config.AuthoredBeforeScript {
+	if cfg == nil {
+		return nil
+	}
+	cloned := &config.AuthoredBeforeScript{}
+	if cfg.ScriptPath != nil {
+		value := *cfg.ScriptPath
+		cloned.ScriptPath = &value
+	}
+	if cfg.TimeoutSeconds != nil {
+		value := *cfg.TimeoutSeconds
+		cloned.TimeoutSeconds = &value
+	}
+	return cloned
 }
 
 // prepareSessionStartOptions runs before_session and folds both its values and
@@ -363,7 +364,7 @@ func validateDeepLinkResolution(values map[string]string) error {
 	if devAuthBypass == nil || len(values) == 0 {
 		return nil
 	}
-	template := strings.TrimSpace(devAuthBypass.cfg.DeepLink)
+	template := authoredAuthBypassDeepLink(devAuthBypass.cfg)
 	if template == "" {
 		return nil
 	}
@@ -381,7 +382,7 @@ func validateDeepLinkResolution(values map[string]string) error {
 	}
 
 	return fmt.Errorf(
-		"auth_bypass.deep_link mixes value sources: %s come from before_session but %s must resolve from org launch variables. "+
+		"session.auth_bypass.deep_link mixes value sources: %s come from session.before_script but %s must resolve from org launch variables. "+
 			"Print every placeholder from the script, or none of them",
 		strings.Join(inline, ", "),
 		strings.Join(orgOnly, ", "),

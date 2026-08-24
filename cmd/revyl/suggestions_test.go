@@ -15,6 +15,7 @@ func createTestRootCmd() *cobra.Command {
 	testCmd.AddCommand(&cobra.Command{Use: "open"})
 	testCmd.AddCommand(&cobra.Command{Use: "run"})
 	testCmd.AddCommand(&cobra.Command{Use: "create"})
+	testCmd.AddCommand(&cobra.Command{Use: "sync"})
 
 	workflowCmd := &cobra.Command{Use: "workflow"}
 	workflowCmd.AddCommand(&cobra.Command{Use: "open"})
@@ -80,11 +81,11 @@ func TestSuggestCorrectCommand(t *testing.T) {
 			wantFound:      true,
 		},
 		{
-			name:           "sync typed under test namespace",
+			name:           "canonical test sync needs no suggestion",
 			unknownCmd:     "sync",
 			allArgs:        []string{"test", "sync"},
-			wantSuggestion: "revyl sync",
-			wantFound:      true,
+			wantSuggestion: "",
+			wantFound:      false,
 		},
 		{
 			name:           "unknown command - no suggestion",

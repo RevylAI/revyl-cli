@@ -3,11 +3,11 @@ package tui
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/config"
 )
 
 func findQuickActionByKey(key string) (quickAction, bool) {
@@ -112,6 +112,8 @@ func TestExecuteQuickAction_DevLoopRequiresAuth(t *testing.T) {
 }
 
 func TestExecuteQuickAction_DevLoopAuthenticated(t *testing.T) {
+	t.Chdir(initializeSettingsGitWorktree(t))
+
 	index := findQuickActionIndexByKey("dev_loop")
 	if index < 0 {
 		t.Fatalf("expected dev_loop quick action index to exist")
@@ -130,7 +132,7 @@ func TestExecuteQuickAction_DevLoopAuthenticated(t *testing.T) {
 	}
 
 	if next.err != nil {
-		if !strings.Contains(next.err.Error(), "not initialized") {
+		if !strings.Contains(next.err.Error(), "revyl init") {
 			t.Fatalf("unexpected pre-validation error: %v", next.err)
 		}
 		if cmd != nil {
@@ -228,7 +230,7 @@ func TestDevLoopExecLastStderrLine(t *testing.T) {
 
 func TestValidateDevLoopPrereqs_NoConfig(t *testing.T) {
 	orig, _ := os.Getwd()
-	tmp := t.TempDir()
+	tmp := initializeSettingsGitWorktree(t)
 	_ = os.Chdir(tmp)
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 
@@ -236,41 +238,39 @@ func TestValidateDevLoopPrereqs_NoConfig(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error when no config exists")
 	}
-	if !strings.Contains(err.Error(), "not initialized") {
-		t.Fatalf("expected 'not initialized' error, got %v", err)
+	if !strings.Contains(err.Error(), "revyl config pull") || !strings.Contains(err.Error(), "revyl init") {
+		t.Fatalf("expected pull-or-init recovery error, got %v", err)
 	}
 }
 
-func writeTestConfig(t *testing.T, dir, content string) {
+func writeDevLoopConfig(t *testing.T, dir, framework string) {
 	t.Helper()
-	revylDir := filepath.Join(dir, ".revyl")
-	if err := os.MkdirAll(revylDir, 0o755); err != nil {
-		t.Fatalf("failed to create .revyl dir: %v", err)
+	authored := canonicalSettingsConfig(300)
+	if framework != "" {
+		commands := []string{"build"}
+		outputPath := "build/app"
+		authored.Build = &config.AuthoredBuild{
+			Framework: framework,
+			Profiles: map[string]config.AuthoredBuildProfile{
+				"development": {
+					IOS: &config.AuthoredBuildRecipe{
+						BuildCommands: &commands,
+						OutputPath:    &outputPath,
+					},
+				},
+			},
+		}
 	}
-	if err := os.WriteFile(filepath.Join(revylDir, "config.yaml"), []byte(content), 0o644); err != nil {
-		t.Fatalf("failed to write config.yaml: %v", err)
-	}
+	writeSettingsConfig(t, dir, authored)
 }
 
 func TestValidateDevLoopPrereqs_ReactNativeProject(t *testing.T) {
 	orig, _ := os.Getwd()
-	tmp := t.TempDir()
+	tmp := initializeSettingsGitWorktree(t)
 	_ = os.Chdir(tmp)
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 
-	writeTestConfig(t, tmp, `
-project:
-  name: "rn-app"
-build:
-  system: ReactNative
-hotreload:
-  default: react-native
-  providers:
-    react-native:
-      port: 8081
-      platform_keys:
-        ios: ios-dev
-`)
+	writeDevLoopConfig(t, tmp, "react_native")
 
 	err := validateDevLoopPrereqs()
 	if err != nil {
@@ -280,16 +280,11 @@ hotreload:
 
 func TestValidateDevLoopPrereqs_NoHotReload(t *testing.T) {
 	orig, _ := os.Getwd()
-	tmp := t.TempDir()
+	tmp := initializeSettingsGitWorktree(t)
 	_ = os.Chdir(tmp)
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 
-	writeTestConfig(t, tmp, `
-project:
-  name: "rn-app"
-build:
-  system: ReactNative
-`)
+	writeDevLoopConfig(t, tmp, "")
 
 	err := validateDevLoopPrereqs()
 	if err == nil {
@@ -302,20 +297,11 @@ build:
 
 func TestValidateDevLoopPrereqs_RebuildOnlyProject(t *testing.T) {
 	orig, _ := os.Getwd()
-	tmp := t.TempDir()
+	tmp := initializeSettingsGitWorktree(t)
 	_ = os.Chdir(tmp)
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 
-	writeTestConfig(t, tmp, `
-project:
-  name: "swift-app"
-build:
-  system: Swift
-  platforms:
-    ios:
-      command: "xcodebuild -scheme MyApp -sdk iphonesimulator"
-      output_path: "build/Build/Products/Debug-iphonesimulator/MyApp.app"
-`)
+	writeDevLoopConfig(t, tmp, "ios")
 
 	err := validateDevLoopPrereqs()
 	if err != nil {

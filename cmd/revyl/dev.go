@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/buildselection"
@@ -37,6 +38,7 @@ import (
 )
 
 var (
+	devStartProfile               string
 	devStartPlatform              string
 	devStartPlatformKey           string
 	devStartAppID                 string
@@ -63,8 +65,9 @@ var (
 )
 
 var (
-	renameDevStatusFile = os.Rename
-	removeDevStatusFile = os.Remove
+	renameDevStatusFile          = os.Rename
+	removeDevStatusFile          = os.Remove
+	devRecipeQuietPeriodInterval = 10 * time.Second
 )
 
 func shouldAttemptHotReloadAutoSetup(cfg *config.ProjectConfig) bool {
@@ -176,8 +179,8 @@ func init() {
 }
 
 func registerDevStartFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&devStartPlatform, "platform", "ios", "Device platform to start (ios or android)")
-	cmd.Flags().StringVar(&devStartPlatformKey, "platform-key", "", "Explicit build.platforms key for the dev client build")
+	cmd.Flags().StringVar(&devStartProfile, "profile", "", "Named build profile to use")
+	cmd.Flags().StringVar(&devStartPlatform, "platform", "", "Device platform to start (ios or android)")
 	cmd.Flags().StringVar(&devStartAppID, "app-id", "", "App ID to resolve latest build from")
 	cmd.Flags().StringVar(&devStartBuildVerID, "build-version-id", "", "Specific build version ID to use")
 	cmd.Flags().BoolVar(&devStartBuild, "build", false, "Force build+upload before starting")
@@ -213,15 +216,12 @@ func registerDevStartFlags(cmd *cobra.Command) {
 //
 // Returns:
 //   - bool: Whether the caller should open the viewer
-func effectiveDevOpenBrowser(cmd *cobra.Command, configPath string) bool {
+func effectiveDevOpenBrowser(cmd *cobra.Command, _ string) bool {
 	if devStartNoOpen {
 		return false
 	}
 	if cmd.Flags().Changed("open") {
 		return devStartOpen
-	}
-	if configured, err := config.LoadExplicitOpenBrowserDefault(configPath); err == nil && configured != nil {
-		return *configured
 	}
 	return true
 }
@@ -424,45 +424,28 @@ func parseExternalTunnelInput(raw string) (externalTunnelInput, error) {
 	}, nil
 }
 
-func inferExpoProviderConfig(provider hotreload.Provider, cwd string) *config.ProviderConfig {
-	info, err := provider.GetProjectInfo(cwd)
-	if err != nil || info == nil {
-		return nil
+func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
+	analyticsProperties := map[string]interface{}{
+		"build_mode": map[bool]string{true: "remote", false: "local"}[devStartRemote],
 	}
-	return provider.GetDefaultConfig(info)
-}
-
-func externalExpoProviderConfig(provider hotreload.Provider, cfg *config.ProjectConfig, cwd string, hasDeepLink bool) (*config.ProviderConfig, error) {
-	var providerCfg *config.ProviderConfig
-	if cfg != nil {
-		providerCfg = cfg.HotReload.GetProviderConfig("expo")
-	}
-	if providerCfg == nil {
-		providerCfg = &config.ProviderConfig{}
-	}
-
-	if strings.TrimSpace(providerCfg.AppScheme) == "" && !hasDeepLink {
-		if inferred := inferExpoProviderConfig(provider, cwd); inferred != nil && strings.TrimSpace(inferred.AppScheme) != "" {
-			copied := *providerCfg
-			copied.AppScheme = strings.TrimSpace(inferred.AppScheme)
-			if copied.Port == 0 {
-				copied.Port = inferred.Port
-			}
-			if copied.PlatformKeys == nil {
-				copied.PlatformKeys = inferred.PlatformKeys
-			}
-			providerCfg = &copied
+	defer func() {
+		completion := analytics.CommandCompletion{
+			Domain:       "dev",
+			DomainStatus: devDomainStatus(returnErr),
+			Properties:   analyticsProperties,
 		}
-	}
-
-	if strings.TrimSpace(providerCfg.AppScheme) == "" && !hasDeepLink {
-		return nil, fmt.Errorf("--tunnel with a raw tunnel URL needs an Expo app scheme; pass the full Expo dev-client deep link instead, or run `revyl init --provider expo`")
-	}
-
-	return providerCfg, nil
-}
-
-func runDevStart(cmd *cobra.Command, args []string) error {
+		if returnErr != nil {
+			completion.ExitCode = 1
+		}
+		analytics.SetCommandCompletion(cmd.Context(), completion)
+		if returnErr != nil {
+			var completedErr *analytics.CompletedError
+			if errors.As(returnErr, &completedErr) {
+				returnErr = analytics.CompletedWithExitCode(returnErr, completion)
+			}
+			returnErr = analytics.WithSafeDiagnostic(returnErr, "dev command failed")
+		}
+	}()
 	if len(args) > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(args, " "))
 	}
@@ -482,27 +465,29 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
-	if repoRoot, rootErr := config.FindRepoRoot(cwd); rootErr == nil {
-		cwd = repoRoot
+	interactive := ui.IsInteractive() && !devStartJSON
+	invocation, err := resolveDevInvocation(
+		cwd,
+		"", // Root PersistentPreRun already applied -C before command execution.
+		strings.TrimSpace(devStartProfile),
+		strings.TrimSpace(devStartPlatform),
+		interactive,
+		ui.Select,
+	)
+	if err != nil {
+		return actionableLocalConfigError(err)
 	}
+	analyticsProperties["build_platform"] = invocation.Platform
+	analyticsProperties["selection_source"] = invocation.SelectionSource
+	cwd = invocation.ProjectRoot
 
 	if devStartDetach && !isDetachedDevChild() {
-		return spawnDetachedDevLoop(cmd, cwd)
+		return spawnDetachedProjectDevLoop(cmd, invocation)
 	}
 
 	ctxName := getDevContextFlag(cmd)
-
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		printProjectNotInitialized()
-		return fmt.Errorf("project not initialized")
-	}
-
-	if cfg.AuthBypass.IsConfigured() {
-		initDevAuthBypass(cfg)
-	}
-	initDevBeforeSession(cfg, cwd)
+	configPath := invocation.ConfigPath
+	initDevSession(invocation.ProjectRoot, invocation.Session)
 
 	externalTunnel, err := parseExternalTunnelInput(devStartTunnelURL)
 	if err != nil {
@@ -513,77 +498,48 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("use either --no-build or --build, not both")
 	}
 	if devStartRemote {
-		return runDevRemoteRebuildOnly(cmd, cfg, configPath, cwd, apiKey, ctxName)
+		if appIDOverride := strings.TrimSpace(devStartAppID); appIDOverride != "" {
+			invocation = invocation.withAppID(appIDOverride)
+		}
+		return runDevRemoteRebuildOnly(cmd, invocation, apiKey, ctxName)
 	}
 
-	noBuild := devStartNoBuild || cfg.Build.NoBuild
-	if noBuild && devStartBuild {
-		noBuild = false
-	}
+	noBuild := devStartNoBuild
 
 	// When --tunnel is provided, the customer manages their own dev server and
 	// tunnel. Skip hot reload auto-setup and the rebuild-only loop entirely.
+	providerName := devHotReloadProvider(invocation.Recipe.Framework)
 	var provider hotreload.Provider
 	var providerCfg *config.ProviderConfig
-	useRebuildOnlyLoop := false
+	useRebuildOnlyLoop := devUsesRebuildLoop(invocation.Recipe.Framework)
 
 	if externalTunnel.tunnelURL != "" {
+		if providerName != "expo" {
+			return fmt.Errorf("--tunnel is only supported for Expo development profiles")
+		}
 		registry := hotreload.DefaultRegistry()
 		provider, err = registry.GetProvider("expo")
 		if err != nil {
 			return fmt.Errorf("--tunnel requires Expo support: %w", err)
 		}
-		providerCfg, err = externalExpoProviderConfig(provider, cfg, cwd, externalTunnel.fromDeepLink)
-		if err != nil {
-			return err
-		}
 	} else {
-		// Determine whether we have a supported hot reload provider. If not,
-		// native projects (Gradle/Xcode/Swift) use a rebuild-only dev loop.
-		if !cfg.HotReload.IsConfigured() {
-			if shouldAttemptHotReloadAutoSetup(cfg) {
-				ui.PrintInfo("Dev mode not configured yet. Setting up...")
-				ui.Println()
-
-				devMode, _ := cmd.Flags().GetBool("dev")
-				var setupClient *api.Client
-				if apiKey != "" {
-					setupClient = api.NewClientWithDevMode(apiKey, devMode)
-				}
-
-				ready := wizardHotReloadSetup(context.Background(), setupClient, cfg, configPath, cwd, false, nil, "")
-				if !ready || !cfg.HotReload.IsConfigured() {
-					if hasOnlyPlaceholderBuildPlatforms(cfg) {
-						return fmt.Errorf("dev mode is not ready yet: configure at least one build.platforms.<key>.command and build.platforms.<key>.output")
-					}
-					ui.PrintError("Could not auto-configure dev mode.")
-					ui.PrintInfo("Try: revyl init --provider expo")
-					return fmt.Errorf("dev mode auto-setup failed")
-				}
-				ui.Println()
-			} else if len(cfg.Build.Platforms) > 0 {
-				useRebuildOnlyLoop = true
-			}
-		}
-
 		if !useRebuildOnlyLoop {
 			registry := hotreload.DefaultRegistry()
-			var selectErr error
-			provider, _, selectErr = registry.SelectProvider(&cfg.HotReload, "", cwd)
-			if selectErr != nil || !provider.IsSupported() {
-				useRebuildOnlyLoop = len(cfg.Build.Platforms) > 0
+			provider, err = registry.GetProvider(providerName)
+			if err != nil {
+				return fmt.Errorf("%s dev mode is not available: %w", providerName, err)
+			}
+			if !provider.IsSupported() {
+				return fmt.Errorf("%s dev mode is not supported", provider.DisplayName())
 			}
 		}
 	}
 
 	if useRebuildOnlyLoop {
-		return runDevRebuildOnly(cmd, cfg, configPath, cwd, apiKey, ctxName)
+		return runDevRebuildOnly(cmd, invocation, apiKey, ctxName)
 	}
 
-	requestedPlatform, err := normalizeMobilePlatform(devStartPlatform, "ios")
-	if err != nil {
-		return err
-	}
+	requestedPlatform := invocation.Platform
 	appIDOverride := strings.TrimSpace(devStartAppID)
 	buildVersionID := strings.TrimSpace(devStartBuildVerID)
 	if buildVersionID != "" && devStartBuild {
@@ -596,28 +552,8 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("use either --app-id or --build-version-id, not both")
 	}
 
-	if externalTunnel.tunnelURL == "" {
-		registry := hotreload.DefaultRegistry()
-		provider, providerCfg, err = registry.SelectProvider(&cfg.HotReload, "", cwd)
-		if err != nil {
-			return fmt.Errorf("dev mode is not configured: %w", err)
-		}
-		if !provider.IsSupported() {
-			return fmt.Errorf("%s dev mode is not yet supported (coming soon)", provider.DisplayName())
-		}
-		if provider.Name() == "expo" && (providerCfg == nil || strings.TrimSpace(providerCfg.AppScheme) == "") {
-			return fmt.Errorf("hotreload.providers.expo.app_scheme is required for Expo dev mode (run `revyl init --provider expo` or `revyl config set hotreload.app-scheme <scheme>`)")
-		}
-	}
-
 	devicePlatform := requestedPlatform
-	platformKey := ""
-	if strings.TrimSpace(devStartPlatformKey) != "" {
-		platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, strings.TrimSpace(devStartPlatformKey), requestedPlatform, noBuild)
-		if err != nil {
-			return err
-		}
-	}
+	platformKey := invocation.Platform
 
 	ctxName, err = resolveDevStartContextName(cwd, getDevContextFlag(cmd), devicePlatform)
 	if err != nil {
@@ -627,61 +563,26 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	timeout := devStartTimeout
-	if !cmd.Flags().Changed("timeout") {
-		timeout = config.EffectiveTimeoutSeconds(cfg, timeout)
-	}
-	if timeout <= 0 {
-		timeout = 300
-	}
+	timeout := devIdleTimeoutSeconds(cmd, invocation)
 
 	openBrowser := effectiveDevOpenBrowser(cmd, configPath)
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	platformCfg := config.BuildPlatform{}
-	if platformKey != "" {
-		cfgForKey, ok := cfg.Build.Platforms[platformKey]
-		if !ok {
-			return fmt.Errorf("build.platforms.%s not found", platformKey)
-		}
-		platformCfg = cfgForKey
+	if appIDOverride != "" {
+		invocation = invocation.withAppID(appIDOverride)
 	}
-
-	selectedAppID := appIDOverride
+	selectedAppID := invocation.AppID
 	buildSelectionSource := ""
 	var selectedVersion *api.BuildVersion
 	if buildVersionID == "" {
 		if selectedAppID == "" {
-			if platformKey == "" {
-				platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, requestedPlatform, requestedPlatform, noBuild)
-				if err != nil {
-					return err
-				}
+			invocation, err = ensureDevApp(cmd, client, invocation)
+			if err != nil {
+				return err
 			}
-			cfgForKey, ok := cfg.Build.Platforms[platformKey]
-			if !ok {
-				return fmt.Errorf("build.platforms.%s not found", platformKey)
-			}
-			platformCfg = cfgForKey
-
-			if strings.TrimSpace(platformCfg.AppID) == "" {
-				ui.PrintWarning("No app_id configured for build.platforms.%s", platformKey)
-				_, err := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, platformKey, devicePlatform)
-				if err != nil {
-					return err
-				}
-				cfg, err = config.LoadProjectConfig(configPath)
-				if err != nil {
-					return fmt.Errorf("failed to reload config after app selection: %w", err)
-				}
-				platformCfg = cfg.Build.Platforms[platformKey]
-				if strings.TrimSpace(platformCfg.AppID) == "" {
-					return fmt.Errorf("build.platforms.%s.app_id is still empty after setup", platformKey)
-				}
-			}
-			selectedAppID = strings.TrimSpace(platformCfg.AppID)
+			selectedAppID = invocation.AppID
 		}
 
 		var source string
@@ -705,21 +606,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if platformKey == "" && !noBuild {
-		resolvedKey, resolvedPlatform, resolveErr := resolveHotReloadBuildPlatform(cfg, providerCfg, requestedPlatform, requestedPlatform, noBuild)
-		if resolveErr == nil {
-			platformKey = resolvedKey
-			devicePlatform = resolvedPlatform
-			if cfgForKey, ok := cfg.Build.Platforms[platformKey]; ok {
-				platformCfg = cfgForKey
-			}
-		} else if appIDOverride != "" || buildVersionID != "" {
-			ui.PrintWarning("Native rebuild controls unavailable: %v", resolveErr)
-		} else {
-			return resolveErr
-		}
-	}
-
 	needsDevBuild := devStartBuild || buildVersionID == ""
 
 	if noBuild {
@@ -736,38 +622,25 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// try to find a local Xcode simulator .app from DerivedData. This avoids
 	// running the full configured build when the developer already built in Xcode.
 	var localSimBuildPath string
-	if needsDevBuild && !devStartBuild && build.IsIOSPlatformKey(requestedPlatform) {
+	if needsDevBuild && !devStartBuild && build.IsIOSPlatformKey(requestedPlatform) && canUseDevPreexistingSimulatorArtifact(invocation) {
 		simBuild := build.FindSimulatorBuild(cwd)
 		if simBuild != nil {
-			if platformKey == "" {
-				platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, requestedPlatform, requestedPlatform, noBuild)
-				if err != nil {
-					return err
-				}
-			}
-			cfgForKey, ok := cfg.Build.Platforms[platformKey]
-			if ok && strings.TrimSpace(cfgForKey.AppID) != "" {
-				localAppID := strings.TrimSpace(cfgForKey.AppID)
+			if selectedAppID != "" {
+				localAppID := selectedAppID
 				ui.PrintInfo("Found local simulator build: %s", filepath.Base(simBuild.Path))
 				if simBuild.IsStale(4 * time.Hour) {
 					ui.PrintWarning("Local simulator build is %s old (built %s)",
 						formatBuildAge(simBuild.Age()), simBuild.ModTime.Format("Mon Jan 2 15:04"))
 				}
 				ui.StartSpinner("Uploading local simulator build...")
-				_, _, uploadErr := uploadExistingArtifact(cmd.Context(), client, simBuild.Path, localAppID, cwd)
+				uploadResult, uploadErr := performLocalArtifactUpload(cmd, projectBuildInvocationFromDev(invocation.withAppID(localAppID)), simBuild.Path, 0, client, true, false)
 				ui.StopSpinner()
 				if uploadErr == nil {
 					needsDevBuild = false
 					selectedAppID = localAppID
 					localSimBuildPath = simBuild.Path
 					ui.PrintSuccess("Uploaded local simulator build")
-					latestVersion, latestErr := client.GetLatestBuildVersion(cmd.Context(), localAppID)
-					if latestErr != nil {
-						return fmt.Errorf("failed to resolve uploaded local build: %w", latestErr)
-					}
-					if latestVersion != nil {
-						buildVersionID = latestVersion.ID
-					}
+					buildVersionID = uploadResult.VersionID
 				} else {
 					ui.PrintDebug("local simulator upload failed, falling back to configured build: %v", uploadErr)
 				}
@@ -779,41 +652,14 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		if appIDOverride != "" {
 			return fmt.Errorf("no builds found for app %s; provide --build-version-id or use config-backed dev flow", appIDOverride)
 		}
-		if platformKey == "" {
-			platformKey, devicePlatform, err = resolveHotReloadBuildPlatform(cfg, providerCfg, requestedPlatform, requestedPlatform, noBuild)
-			if err != nil {
-				return err
-			}
+		ui.PrintInfo("Building and uploading dev client (%s/%s)...", invocation.Profile, invocation.Platform)
+		buildResult, buildErr := performLocalBuild(cmd, projectBuildInvocationFromDev(invocation), apiKey, false, interactive, true, &buildProgress{})
+		if buildErr != nil {
+			return buildErr
 		}
-		cfgForKey, ok := cfg.Build.Platforms[platformKey]
-		if !ok {
-			return fmt.Errorf("build.platforms.%s not found", platformKey)
-		}
-		platformCfg = cfgForKey
-
-		ui.PrintInfo("Building and uploading dev client (%s)...", platformKey)
-		if err := runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platformKey); err != nil {
-			return err
-		}
-
-		cfg, err = config.LoadProjectConfig(configPath)
-		if err != nil {
-			return fmt.Errorf("failed to reload config after build upload: %w", err)
-		}
-		platformCfg = cfg.Build.Platforms[platformKey]
-		if strings.TrimSpace(platformCfg.AppID) == "" {
-			return fmt.Errorf("build.platforms.%s.app_id is missing after build upload", platformKey)
-		}
-		selectedAppID = strings.TrimSpace(platformCfg.AppID)
-
-		latestVersion, latestErr := client.GetLatestBuildVersion(cmd.Context(), selectedAppID)
-		if latestErr != nil {
-			return fmt.Errorf("failed to resolve uploaded build for %s: %w", platformKey, latestErr)
-		}
-		if latestVersion == nil {
-			return fmt.Errorf("build upload finished but no build versions were found for %s", platformKey)
-		}
-		buildVersionID = latestVersion.ID
+		invocation = invocation.withAppID(buildResult.Invocation.AppID)
+		selectedAppID = invocation.AppID
+		buildVersionID = buildResult.Upload.VersionID
 	}
 
 	buildDetail, err := client.GetBuildVersionDownloadURL(cmd.Context(), buildVersionID)
@@ -826,8 +672,15 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		strings.TrimSpace(buildDetail.PackageName),
 	)
 
-	if providerCfg == nil {
-		providerCfg = &config.ProviderConfig{}
+	providerCfg = &config.ProviderConfig{}
+	if provider.Name() == "expo" && !externalTunnel.fromDeepLink {
+		providerCfg, err = expoProviderConfigFromBuildVersionDetail(buildDetail)
+		if err != nil {
+			return fmt.Errorf("read selected build's Expo metadata: %w", err)
+		}
+		if providerCfg == nil {
+			return fmt.Errorf("selected build does not contain Expo dev-client metadata; rerun with --build to create a compatible build")
+		}
 	}
 	if externalTunnel.tunnelURL == "" {
 		explicitPort := cmd.Flags().Changed("port") && devStartPort > 0
@@ -871,7 +724,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		managerProviderName = provider.Name()
 	}
 	manager := hotreload.NewManager(managerProviderName, providerCfg, cwd)
-	manager.ConfigureFromHotReloadConfig(&cfg.HotReload, client)
+	manager.SetAPIClient(client)
 	manager.SetTargetPlatform(devicePlatform)
 	manager.SetForceHotReload(devStartForceHotReload)
 	if cmd.Flags().Changed("ready-timeout") {
@@ -1173,6 +1026,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	devCtx := &DevContext{
 		Name:          ctxName,
+		Profile:       invocation.Profile,
 		Platform:      devicePlatform,
 		PlatformKey:   platformKey,
 		Provider:      provider.Name(),
@@ -1210,6 +1064,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	hrStatusPath := devCtxStatusPath(cwd, ctxName)
 	writeDevStatusIdle(hrStatusPath, session, viewerURL, startResult.TunnelURL, startResult.DeepLinkURL, startResult.Transport, devicePlatform, false)
+	setDevStatusSelection(hrStatusPath, invocation)
 
 	cockpitRebuilds := make(chan struct{}, 1)
 	cockpit, cockpitErr := startDevCockpitForContext(context.Background(), cwd, ctxName, viewerURL, !noBuild && strings.TrimSpace(platformKey) != "", cockpitRebuilds, stopper.RequestStop)
@@ -1375,7 +1230,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			hrCachedManifest != nil,
 			platformKey,
 		)
-		result := devBuildAndDeltaPush(ctx, cancel, cmd, cfg, configPath, apiKey, platformKey, devicePlatform,
+		result := devBuildAndDeltaPush(ctx, cancel, invocation, devicePlatform,
 			bundleID, session, deviceMgr, client, hrTransport, hrCachedManifest, hrManifestPath, cwd, hrPackagerHost, hrPackagerScheme,
 			func(entry devRebuildLogEntry) {
 				appendDevStatusRebuildLog(hrStatusPath, entry, 16)
@@ -1449,7 +1304,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			}
 			bgCtx, bgCancel := context.WithCancel(context.Background())
 			hrBgUploadCancel = bgCancel
-			go backgroundUploadBuild(bgCtx, client, cfg, platformKey, cwd, hrStatusPath)
+			go backgroundUploadBuild(bgCtx, client, invocation, hrStatusPath)
 		}
 
 		ui.Println()
@@ -1457,6 +1312,30 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			ui.PrintDim("  [r] rebuild    [q]/Ctrl+C quit")
 		}
 	}
+}
+
+func canUseDevPreexistingSimulatorArtifact(invocation projectDevInvocation) bool {
+	return strings.TrimSpace(invocation.Recipe.Framework) != "expo"
+}
+
+func devDomainStatus(err error) string {
+	if err == nil {
+		return "completed"
+	}
+	var completedErr *analytics.CompletedError
+	if errors.As(err, &completedErr) {
+		switch completedErr.Completion().DomainStatus {
+		case "cancelled", "failed", "interrupted", "timed_out":
+			return completedErr.Completion().DomainStatus
+		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timed_out"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	return "failed"
 }
 
 func isCIEnvironment() bool {
@@ -2134,30 +2013,56 @@ func maskPresignedURL(rawURL string) string {
 	return rawURL
 }
 
+type devRebuildBuildResolver interface {
+	GetLatestBuildVersion(ctx context.Context, appID string) (*api.BuildVersion, error)
+	GetBuildVersionDownloadURL(ctx context.Context, versionID string) (*api.BuildVersionDetail, error)
+}
+
+func resolveDevRebuildInitialBuild(
+	ctx context.Context,
+	resolver devRebuildBuildResolver,
+	appID string,
+	uploadedVersionID string,
+) (*api.BuildVersion, *api.BuildVersionDetail, error) {
+	versionID := strings.TrimSpace(uploadedVersionID)
+	var selectedVersion *api.BuildVersion
+	if versionID == "" {
+		latestVersion, err := resolver.GetLatestBuildVersion(ctx, appID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not resolve uploaded build: %w", err)
+		}
+		if latestVersion == nil {
+			return nil, nil, fmt.Errorf("no builds found for app %s", appID)
+		}
+		selectedVersion = latestVersion
+		versionID = strings.TrimSpace(latestVersion.ID)
+	} else {
+		selectedVersion = &api.BuildVersion{ID: versionID}
+	}
+
+	buildDetail, err := resolver.GetBuildVersionDownloadURL(ctx, versionID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not resolve build download URL: %w", err)
+	}
+	if strings.TrimSpace(selectedVersion.Version) == "" {
+		selectedVersion.Version = buildDetail.Version
+	}
+	return selectedVersion, buildDetail, nil
+}
+
 // runDevRebuildOnly implements a rebuild-based dev loop for native projects
 // (Gradle, Xcode, Swift) that lack hot reload support. The loop provisions a
 // cloud device, builds and installs the app, then waits for the user to press
 // [r] to rebuild+reinstall or [q]/Ctrl+C to quit.
-func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath, cwd, apiKey, ctxName string) error {
+func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiKey, ctxName string) error {
+	cwd := invocation.ProjectRoot
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	requestedPlatform, err := normalizeMobilePlatform(devStartPlatform, "ios")
-	if err != nil {
-		return err
-	}
-	platformKey, devicePlatform, err := resolveRebuildLoopPlatform(
-		cfg,
-		requestedPlatform,
-		strings.TrimSpace(devStartPlatformKey),
-		cmd.Flags().Changed("platform"),
-	)
-	if err != nil {
-		return err
-	}
-	platCfg := cfg.Build.Platforms[platformKey]
+	platformKey := invocation.Platform
+	devicePlatform := invocation.Platform
 
-	ctxName, err = resolveDevStartContextName(cwd, getDevContextFlag(cmd), devicePlatform)
+	ctxName, err := resolveDevStartContextName(cwd, getDevContextFlag(cmd), devicePlatform)
 	if err != nil {
 		return err
 	}
@@ -2165,39 +2070,26 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		return nil
 	}
 
-	timeout := devStartTimeout
-	if !cmd.Flags().Changed("timeout") {
-		timeout = config.EffectiveTimeoutSeconds(cfg, timeout)
-	}
-	if timeout <= 0 {
-		timeout = 300
-	}
+	timeout := devIdleTimeoutSeconds(cmd, invocation)
 
-	openBrowser := effectiveDevOpenBrowser(cmd, configPath)
+	openBrowser := effectiveDevOpenBrowser(cmd, invocation.ConfigPath)
 
 	ui.PrintBanner(version)
 	ui.Println()
-	ui.PrintInfo("Dev loop (%s / %s)", cfg.Build.System, platformKey)
+	ui.PrintInfo("Dev loop (%s / %s/%s)", invocation.Recipe.Framework, invocation.Profile, invocation.Platform)
 	ui.PrintDim("Press [r] to rebuild + reinstall once the device is ready")
 	ui.Println()
 
 	// Ensure the platform has an app linked.
-	if strings.TrimSpace(platCfg.AppID) == "" {
-		_, err := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, platformKey, devicePlatform)
+	if strings.TrimSpace(invocation.AppID) == "" {
+		invocation, err = ensureDevApp(cmd, client, invocation)
 		if err != nil {
 			return err
 		}
-		cfg, err = config.LoadProjectConfig(configPath)
-		if err != nil {
-			return fmt.Errorf("failed to reload config: %w", err)
-		}
-		platCfg = cfg.Build.Platforms[platformKey]
-		if strings.TrimSpace(platCfg.AppID) == "" {
-			return fmt.Errorf("build.platforms.%s.app_id is required", platformKey)
-		}
 	}
 
-	appID := strings.TrimSpace(platCfg.AppID)
+	appID := strings.TrimSpace(invocation.AppID)
+	uploadedVersionID := ""
 
 	// Only build if explicitly requested or no existing build is available.
 	needsBuild := devStartBuild
@@ -2206,6 +2098,9 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		if existErr != nil || existing == nil {
 			needsBuild = true
 		}
+	}
+	if devStartNoBuild {
+		needsBuild = false
 	}
 
 	// When a build is needed but --build was NOT explicitly requested, try to
@@ -2223,7 +2118,8 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 					formatBuildAge(simBuild.Age()), simBuild.ModTime.Format("Mon Jan 2 15:04"))
 			}
 			ui.StartSpinner("Uploading local simulator build...")
-			_, _, uploadErr := uploadExistingArtifact(cmd.Context(), client, simBuild.Path, appID, cwd)
+			var uploadErr error
+			_, _, uploadedVersionID, uploadErr = uploadExistingArtifact(cmd.Context(), client, simBuild.Path, appID, cwd)
 			ui.StopSpinner()
 			if uploadErr == nil {
 				needsBuild = false
@@ -2238,32 +2134,24 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 
 	if needsBuild {
 		ui.PrintInfo("Building %s...", platformKey)
-		if err := runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platformKey); err != nil {
-			return fmt.Errorf("build failed: %w", err)
+		buildResult, buildErr := performLocalBuild(cmd, projectBuildInvocationFromDev(invocation), apiKey, false, ui.IsInteractive(), true, &buildProgress{})
+		if buildErr != nil {
+			return fmt.Errorf("build failed: %w", buildErr)
 		}
-		reloadedCfg, reloadErr := config.LoadProjectConfig(configPath)
-		if reloadErr != nil {
-			return fmt.Errorf("failed to reload config after build: %w", reloadErr)
-		}
-		cfg = reloadedCfg
-		platCfg = cfg.Build.Platforms[platformKey]
-		appID = strings.TrimSpace(platCfg.AppID)
+		invocation = invocation.withAppID(buildResult.Invocation.AppID)
+		appID = strings.TrimSpace(invocation.AppID)
+		uploadedVersionID = buildResult.Upload.VersionID
 	} else if usedLocalSimBuild {
 		ui.PrintDim("Using local simulator build for initial install")
 	} else if !devStartBuild {
 		ui.PrintDim("Using latest uploaded build (pass --build to force rebuild)")
 	}
 
-	latestVersion, err := client.GetLatestBuildVersion(cmd.Context(), appID)
+	selectedVersion, buildDetail, err := resolveDevRebuildInitialBuild(
+		cmd.Context(), client, appID, uploadedVersionID,
+	)
 	if err != nil {
-		return fmt.Errorf("could not resolve uploaded build: %w", err)
-	}
-	if latestVersion == nil {
-		return fmt.Errorf("no builds found for app %s", appID)
-	}
-	buildDetail, err := client.GetBuildVersionDownloadURL(cmd.Context(), latestVersion.ID)
-	if err != nil {
-		return fmt.Errorf("could not resolve build download URL: %w", err)
+		return err
 	}
 
 	// Provision device.
@@ -2308,7 +2196,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		startOpts, prepErr := withDevStartLaunchVars(ctx, mcppkg.StartSessionOptions{
 			Platform:       devicePlatform,
 			AppID:          appID,
-			BuildVersionID: latestVersion.ID,
+			BuildVersionID: selectedVersion.ID,
 			AppURL:         strings.TrimSpace(buildDetail.DownloadURL),
 			AppPackage:     bundleID,
 			IdleTimeout:    time.Duration(timeout) * time.Second,
@@ -2404,9 +2292,10 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 
 	devCtx := &DevContext{
 		Name:          ctxName,
+		Profile:       invocation.Profile,
 		Platform:      devicePlatform,
 		PlatformKey:   platformKey,
-		Provider:      cfg.Build.System,
+		Provider:      devContextProvider(invocation.Recipe.Framework),
 		SessionID:     session.SessionID,
 		SessionIndex:  session.Index,
 		SessionOwned:  sessionOwned,
@@ -2432,6 +2321,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 
 	statusPath := devCtxStatusPath(cwd, ctxName)
 	writeDevStatusIdle(statusPath, session, viewerURL, "", "", "", devicePlatform, false)
+	setDevStatusSelection(statusPath, invocation)
 
 	cockpitRebuilds := make(chan struct{}, 1)
 	cockpit, cockpitErr := startDevCockpitForContext(context.Background(), cwd, ctxName, viewerURL, strings.TrimSpace(platformKey) != "", cockpitRebuilds, stopper.RequestStop)
@@ -2446,7 +2336,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 	ui.Println()
 	ui.PrintSuccess("Dev loop ready")
 	printDevBrowserLinks(cockpitURL, viewerURL)
-	ui.PrintInfo("Installed build: %s", formatBuildVersionLabel(latestVersion))
+	ui.PrintInfo("Installed build: %s", formatBuildVersionLabel(selectedVersion))
 	if identifier := formatInstalledAppIdentifier(devicePlatform, bundleID); identifier != "" {
 		ui.PrintInfo("Installed app: %s", identifier)
 	}
@@ -2471,7 +2361,11 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 		ui.PrintDim("  Could not load cached manifest: %v", cachedManifestErr)
 	}
 	if cachedManifest == nil {
-		if artPath, artErr := build.ResolveArtifactPath(cwd, platCfg.Output); artErr == nil {
+		outputPath := ""
+		if invocation.Recipe.OutputPath != nil {
+			outputPath = strings.TrimSpace(*invocation.Recipe.OutputPath)
+		}
+		if artPath, artErr := build.ResolveArtifactPath(cwd, outputPath); artErr == nil {
 			if m, mErr := build.BuildManifest(artPath); mErr == nil {
 				cachedManifest = m
 				_ = build.SaveManifest(m, manifestPath)
@@ -2503,7 +2397,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 	defer ticker.Stop()
 
 	// Start file watcher for Flutter projects so Dart file saves auto-trigger rebuilds.
-	isFlutter := build.ParseBuildSystem(cfg.Build.System) == build.SystemFlutter
+	isFlutter := invocation.Recipe.Framework == "flutter"
 	var fileWatchCh <-chan hotreload.FileChangeEvent
 	if isFlutter {
 		fw, fwErr := hotreload.NewFileWatcher(cwd, hotreload.FlutterWatchConfig())
@@ -2572,7 +2466,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 
 		rebuildCount++
 		writeDevStatusRebuildStarted(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, cachedManifest != nil, platformKey)
-		result := devBuildAndDeltaPush(ctx, cancel, cmd, cfg, configPath, apiKey, platformKey, devicePlatform,
+		result := devBuildAndDeltaPush(ctx, cancel, invocation, devicePlatform,
 			bundleID, session, deviceMgr, client, transport, cachedManifest, manifestPath, cwd, "", "",
 			func(entry devRebuildLogEntry) {
 				appendDevStatusRebuildLog(statusPath, entry, 16)
@@ -2629,7 +2523,7 @@ func runDevRebuildOnly(cmd *cobra.Command, cfg *config.ProjectConfig, configPath
 			}
 			bgCtx, bgCancel := context.WithCancel(context.Background())
 			bgUploadCancel = bgCancel
-			go backgroundUploadBuild(bgCtx, client, cfg, platformKey, cwd, statusPath)
+			go backgroundUploadBuild(bgCtx, client, invocation, statusPath)
 		}
 
 		ui.Println()
@@ -3017,15 +2911,97 @@ func formatRebuildTimingSummary(result devRebuildResult) string {
 	return strings.Join(parts, ", ")
 }
 
+func runDevRecipeWithHooks(ctx context.Context, invocation projectDevInvocation, hooks *BuildProgressHooks) BuildProgressResult {
+	result := BuildProgressResult{}
+	started := time.Now()
+	if err := validateLocalSecretEnvironment(invocation.Recipe.SecretRefs); err != nil {
+		result.Err = err
+		result.Duration = time.Since(started)
+		return result
+	}
+	recipeCtx := ctx
+	cancel := func() {}
+	if invocation.Recipe.TimeoutSeconds != nil {
+		recipeCtx, cancel = context.WithTimeout(ctx, time.Duration(*invocation.Recipe.TimeoutSeconds)*time.Second)
+	}
+	defer cancel()
+
+	runner := build.NewRunner(invocation.ProjectRoot)
+	runner.FilterOutput = !ui.IsDebugMode()
+	runCommands := func(stage string, commands []string) error {
+		for index, command := range commands {
+			ui.PrintDim("[%s/%s] %s command %d/%d", invocation.Profile, invocation.Platform, stage, index+1, len(commands))
+			var outputMu sync.Mutex
+			var hookMu sync.Mutex
+			recentLines := make([]string, 0, 5)
+			quietDone := make(chan struct{})
+			quietStopped := make(chan struct{})
+			if hooks != nil && hooks.OnQuietPeriod != nil && devRecipeQuietPeriodInterval > 0 {
+				go func() {
+					defer close(quietStopped)
+					ticker := time.NewTicker(devRecipeQuietPeriodInterval)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-quietDone:
+							return
+						case <-recipeCtx.Done():
+							return
+						case <-ticker.C:
+							outputMu.Lock()
+							lineCount := result.LineCount
+							snapshot := append([]string(nil), recentLines...)
+							outputMu.Unlock()
+							hookMu.Lock()
+							hooks.OnQuietPeriod(lineCount, time.Since(started), snapshot)
+							hookMu.Unlock()
+						}
+					}
+				}()
+			} else {
+				close(quietStopped)
+			}
+			err := runner.RunContext(recipeCtx, command, build.RunOptions{Environment: invocation.Recipe.Env}, func(line string) {
+				outputMu.Lock()
+				result.Output += line + "\n"
+				result.LineCount++
+				recentLines = appendBuildLine(recentLines, line, 5)
+				outputMu.Unlock()
+				if hooks != nil && hooks.OnLine != nil {
+					hookMu.Lock()
+					hooks.OnLine(line)
+					hookMu.Unlock()
+				}
+				ui.PrintDim("  %s", line)
+			})
+			close(quietDone)
+			<-quietStopped
+			if err != nil {
+				if errors.Is(recipeCtx.Err(), context.DeadlineExceeded) {
+					return fmt.Errorf("development recipe timed out: %w", context.DeadlineExceeded)
+				}
+				return fmt.Errorf("%s command %d failed: %w", stage, index+1, err)
+			}
+		}
+		return nil
+	}
+	if err := runCommands("setup", invocation.Recipe.SetupCommands); err != nil {
+		result.Err = err
+	} else {
+		result.Err = runCommands("build", invocation.Recipe.BuildCommands)
+	}
+	result.Duration = time.Since(started)
+	return result
+}
+
 // devBuildAndDeltaPush runs the build, diffs the manifest, and either pushes
 // a delta or falls back to the full S3 upload path. Returns a structured result
 // so the caller can update UI and status files.
 func devBuildAndDeltaPush(
 	ctx context.Context,
 	cancelParent context.CancelFunc,
-	cmd *cobra.Command,
-	cfg *config.ProjectConfig,
-	configPath, apiKey, platformKey, devicePlatform, bundleID string,
+	invocation projectDevInvocation,
+	devicePlatform, bundleID string,
 	session *mcppkg.DeviceSession,
 	deviceMgr *mcppkg.DeviceSessionManager,
 	client *api.Client,
@@ -3038,6 +3014,7 @@ func devBuildAndDeltaPush(
 ) devRebuildResult {
 	result := devRebuildResult{}
 	rebuildStart := time.Now()
+	platformKey := invocation.Platform
 
 	ui.Println()
 	ui.PrintInfo("Rebuilding %s...", platformKey)
@@ -3046,28 +3023,16 @@ func devBuildAndDeltaPush(
 	rebuildCtx, rebuildCancel := context.WithCancel(ctx)
 	go monitorSessionDuringRebuild(rebuildCtx, deviceMgr, session, cancelParent)
 
-	platCfg, ok := cfg.Build.Platforms[platformKey]
-	if !ok {
+	if invocation.Recipe.OutputPath == nil || strings.TrimSpace(*invocation.Recipe.OutputPath) == "" {
 		rebuildCancel()
-		result.buildErr = fmt.Errorf("platform %q not found in config", platformKey)
+		result.buildErr = fmt.Errorf("output_path is required to execute local development recipe %s/%s", invocation.Profile, invocation.Platform)
 		appendAndPublishDevRebuildLog(&result, publishLog, "error", "%v", result.buildErr)
 		result.elapsed = time.Since(rebuildStart)
 		return result
 	}
 
-	buildCommands := platCfg.BuildCommands()
-	if platCfg.Scheme != "" {
-		for i, command := range buildCommands {
-			buildCommands[i] = build.ApplySchemeToCommand(command, platCfg.Scheme)
-		}
-	}
-	buildCommand := strings.Join(buildCommands, " && ")
-	appendAndPublishDevRebuildLog(&result, publishLog, "info", "Build command started: %s", buildCommand)
-
-	runner := build.NewRunner(cwd)
-	runner.FilterOutput = !ui.IsDebugMode()
-
-	progress := RunBuildCommandsWithProgressWithHooks(runner, buildCommands, platformKey, 10*time.Second, &BuildProgressHooks{
+	appendAndPublishDevRebuildLog(&result, publishLog, "info", "Executing immutable recipe for %s/%s", invocation.Profile, invocation.Platform)
+	progress := runDevRecipeWithHooks(ctx, invocation, &BuildProgressHooks{
 		OnLine: func(line string) {
 			appendAndPublishDevRebuildLog(&result, publishLog, "info", "Build: %s", line)
 		},
@@ -3111,7 +3076,7 @@ func devBuildAndDeltaPush(
 		return result
 	}
 
-	artifactPath, artErr := build.ResolveArtifactPath(cwd, platCfg.Output)
+	artifactPath, artErr := build.ResolveArtifactPath(cwd, strings.TrimSpace(*invocation.Recipe.OutputPath))
 	if artErr != nil {
 		result.buildErr = fmt.Errorf("artifact not found after build: %w", artErr)
 		appendAndPublishDevRebuildLog(&result, publishLog, "error", "%v", result.buildErr)
@@ -3216,12 +3181,24 @@ func devBuildAndDeltaPush(
 
 	// Fall back to full S3 upload path — upload the already-built artifact
 	// instead of rebuilding from scratch.
-	appID := strings.TrimSpace(platCfg.AppID)
+	appID := strings.TrimSpace(invocation.AppID)
 	ui.PrintInfo("Uploading full artifact to cloud...")
 	pushStart := time.Now()
-	ui.StartSpinner("Uploading full artifact to cloud...")
 	appendAndPublishDevRebuildLog(&result, publishLog, "info", "Uploading full artifact to cloud")
-	downloadURL, detectedBID, uploadErr := uploadExistingArtifact(ctx, client, artifactPath, appID, cwd)
+	metadata := build.CollectMetadata(invocation.ProjectRoot, strings.Join(invocation.Recipe.BuildCommands, " && "), invocation.Platform, result.buildDuration)
+	if expoMetadata, metadataErr := deriveExpoBuildMetadata(ctx, invocation.ProjectRoot, invocation.Recipe.Framework, invocation.Recipe.Env); metadataErr != nil {
+		result.pushErr = fmt.Errorf("resolve build artifact metadata: %w", metadataErr)
+		result.elapsed = time.Since(rebuildStart)
+		return result
+	} else if expoMetadata != nil {
+		if metadataErr := expoMetadata.attachTo(metadata); metadataErr != nil {
+			result.pushErr = fmt.Errorf("attach build artifact metadata: %w", metadataErr)
+			result.elapsed = time.Since(rebuildStart)
+			return result
+		}
+	}
+	ui.StartSpinner("Uploading full artifact to cloud...")
+	downloadURL, detectedBID, _, uploadErr := uploadExistingArtifactWithMetadata(ctx, client, artifactPath, appID, cwd, metadata)
 	ui.StopSpinner()
 	if uploadErr != nil {
 		result.pushErr = fmt.Errorf("full artifact upload failed: %w", uploadErr)
@@ -3303,14 +3280,13 @@ func devBuildAndDeltaPush(
 //   - platformKey: build platform key (e.g. "ios")
 //   - cwd: working directory for artifact resolution
 //   - statusPath: path to .dev-status.json for updating background_upload_status
-func backgroundUploadBuild(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, platformKey, cwd, statusPath string) {
-	platCfg, ok := cfg.Build.Platforms[platformKey]
-	if !ok {
-		ui.PrintDim("  ✗ Background upload skipped: platform %s not found", platformKey)
+func backgroundUploadBuild(ctx context.Context, client *api.Client, invocation projectDevInvocation, statusPath string) {
+	if invocation.Recipe.OutputPath == nil || strings.TrimSpace(*invocation.Recipe.OutputPath) == "" {
+		ui.PrintDim("  ✗ Background upload skipped: output_path is not configured")
 		return
 	}
 
-	artifactPath, err := build.ResolveArtifactPath(cwd, platCfg.Output)
+	artifactPath, err := build.ResolveArtifactPath(invocation.ProjectRoot, strings.TrimSpace(*invocation.Recipe.OutputPath))
 	if err != nil {
 		ui.PrintDim("  ✗ Background upload skipped: artifact not found")
 		return
@@ -3339,17 +3315,30 @@ func backgroundUploadBuild(ctx context.Context, client *api.Client, cfg *config.
 		return
 	}
 
-	appID := strings.TrimSpace(platCfg.AppID)
+	appID := strings.TrimSpace(invocation.AppID)
 	if appID == "" {
 		ui.PrintDim("  ✗ Background upload skipped: no app_id configured")
 		return
 	}
 
-	versionStr := build.GenerateVersionStringForWorkDir(cwd)
+	versionStr := build.GenerateVersionStringForWorkDir(invocation.ProjectRoot)
+	metadata := build.CollectMetadata(invocation.ProjectRoot, strings.Join(invocation.Recipe.BuildCommands, " && "), invocation.Platform, 0)
+	if expoMetadata, metadataErr := deriveExpoBuildMetadata(ctx, invocation.ProjectRoot, invocation.Recipe.Framework, invocation.Recipe.Env); metadataErr != nil {
+		ui.PrintDim("  ✗ Background upload failed: %v", metadataErr)
+		updateBgUploadStatus(statusPath, "failed")
+		return
+	} else if expoMetadata != nil {
+		if metadataErr := expoMetadata.attachTo(metadata); metadataErr != nil {
+			ui.PrintDim("  ✗ Background upload failed: %v", metadataErr)
+			updateBgUploadStatus(statusPath, "failed")
+			return
+		}
+	}
 	_, uploadErr := client.UploadBuild(ctx, &api.UploadBuildRequest{
 		AppID:    appID,
 		Version:  versionStr,
 		FilePath: uploadPath,
+		Metadata: metadata,
 	})
 	if uploadErr != nil {
 		if ctx.Err() != nil {
@@ -3397,21 +3386,26 @@ func updateBgUploadStatus(statusPath, status string) {
 // Returns:
 //   - downloadURL: presigned URL the worker can fetch from
 //   - bundleID: package name from the uploaded build (may be empty)
+//   - versionID: exact version created by the upload
 //   - error: upload or resolution failure
-func uploadExistingArtifact(ctx context.Context, client *api.Client, artifactPath, appID, cwd string) (downloadURL, bundleID string, err error) {
+func uploadExistingArtifact(ctx context.Context, client *api.Client, artifactPath, appID, cwd string) (downloadURL, bundleID, versionID string, err error) {
+	return uploadExistingArtifactWithMetadata(ctx, client, artifactPath, appID, cwd, nil)
+}
+
+func uploadExistingArtifactWithMetadata(ctx context.Context, client *api.Client, artifactPath, appID, cwd string, metadata map[string]interface{}) (downloadURL, bundleID, versionID string, err error) {
 	uploadPath := artifactPath
 	var tmpZip string
 	if build.IsTarGz(artifactPath) {
 		zipped, extractErr := build.ExtractAppFromTarGz(artifactPath)
 		if extractErr != nil {
-			return "", "", fmt.Errorf("failed to extract app from archive: %w", extractErr)
+			return "", "", "", fmt.Errorf("failed to extract app from archive: %w", extractErr)
 		}
 		tmpZip = zipped
 		uploadPath = zipped
 	} else if build.IsAppBundle(artifactPath) {
 		zipped, zipErr := build.ZipAppBundle(artifactPath)
 		if zipErr != nil {
-			return "", "", fmt.Errorf("failed to zip artifact: %w", zipErr)
+			return "", "", "", fmt.Errorf("failed to zip artifact: %w", zipErr)
 		}
 		tmpZip = zipped
 		uploadPath = zipped
@@ -3425,20 +3419,21 @@ func uploadExistingArtifact(ctx context.Context, client *api.Client, artifactPat
 		AppID:    appID,
 		Version:  versionStr,
 		FilePath: uploadPath,
+		Metadata: metadata,
 	})
 	if uploadErr != nil {
-		return "", "", fmt.Errorf("upload failed: %w", uploadErr)
+		return "", "", "", fmt.Errorf("upload failed: %w", uploadErr)
 	}
 
-	versionID := strings.TrimSpace(uploadResp.VersionID)
+	versionID = strings.TrimSpace(uploadResp.VersionID)
 	if versionID == "" {
-		return "", "", fmt.Errorf("upload succeeded but no build version ID was returned for app %s", appID)
+		return "", "", "", fmt.Errorf("upload succeeded but no build version ID was returned for app %s", appID)
 	}
 	bd, bdErr := client.GetBuildVersionDownloadURL(ctx, versionID)
 	if bdErr != nil {
-		return "", "", fmt.Errorf("could not get download URL: %w", bdErr)
+		return "", "", "", fmt.Errorf("could not get download URL: %w", bdErr)
 	}
-	return strings.TrimSpace(bd.DownloadURL), strings.TrimSpace(bd.PackageName), nil
+	return strings.TrimSpace(bd.DownloadURL), strings.TrimSpace(bd.PackageName), versionID, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -3446,23 +3441,25 @@ func uploadExistingArtifact(ctx context.Context, client *api.Client, artifactPat
 // ---------------------------------------------------------------------------
 
 type devStatus struct {
-	State          string               `json:"state"`
-	PID            int                  `json:"pid"`
-	Platform       string               `json:"platform"`
-	BuildMode      string               `json:"build_mode,omitempty"`
-	SessionID      string               `json:"session_id,omitempty"`
-	ViewerURL      string               `json:"viewer_url,omitempty"`
-	TunnelURL      string               `json:"tunnel_url,omitempty"`
-	DeepLinkURL    string               `json:"deep_link_url,omitempty"`
-	Transport      string               `json:"transport,omitempty"`
-	RelayID        string               `json:"relay_id,omitempty"`
-	DeltaCacheWarm bool                 `json:"delta_cache_warm"`
-	RebuildCount   int                  `json:"rebuild_count"`
-	LastRebuild    *devRebuildInfo      `json:"last_rebuild,omitempty"`
-	RecentRebuilds []devRebuildInfo     `json:"recent_rebuilds,omitempty"`
-	Build          *devloop.BuildStatus `json:"build,omitempty"`
-	AuthBypass     *authBypassStatus    `json:"auth_bypass,omitempty"`
-	BeforeSession  *beforeSessionStatus `json:"before_session,omitempty"`
+	State               string               `json:"state"`
+	PID                 int                  `json:"pid"`
+	Profile             string               `json:"profile,omitempty"`
+	Platform            string               `json:"platform"`
+	BuildDefinitionHash string               `json:"build_definition_hash,omitempty"`
+	BuildMode           string               `json:"build_mode,omitempty"`
+	SessionID           string               `json:"session_id,omitempty"`
+	ViewerURL           string               `json:"viewer_url,omitempty"`
+	TunnelURL           string               `json:"tunnel_url,omitempty"`
+	DeepLinkURL         string               `json:"deep_link_url,omitempty"`
+	Transport           string               `json:"transport,omitempty"`
+	RelayID             string               `json:"relay_id,omitempty"`
+	DeltaCacheWarm      bool                 `json:"delta_cache_warm"`
+	RebuildCount        int                  `json:"rebuild_count"`
+	LastRebuild         *devRebuildInfo      `json:"last_rebuild,omitempty"`
+	RecentRebuilds      []devRebuildInfo     `json:"recent_rebuilds,omitempty"`
+	Build               *devloop.BuildStatus `json:"build,omitempty"`
+	AuthBypass          *authBypassStatus    `json:"auth_bypass,omitempty"`
+	BeforeSession       *beforeSessionStatus `json:"before_session,omitempty"`
 	// SeededVersion / InstalledSeed describe a prior build installed
 	// immediately (revyl dev --remote --seed-latest) so the app is interactive
 	// while the fresh remote build is still compiling.
@@ -3874,6 +3871,14 @@ func updateDevStatusSnapshot(statusPath string, update func(*devStatus) bool) {
 	writeDevStatusSnapshotLocked(statusPath, ds)
 }
 
+func setDevStatusSelection(statusPath string, invocation projectDevInvocation) {
+	updateDevStatusSnapshot(statusPath, func(status *devStatus) bool {
+		status.Profile = strings.TrimSpace(invocation.Profile)
+		status.BuildDefinitionHash = strings.TrimSpace(invocation.BuildDefinitionHash)
+		return true
+	})
+}
+
 // preserveDevStatusMetadata carries runtime metadata across writes in the same dev loop.
 //
 // Parameters:
@@ -3908,6 +3913,12 @@ func preserveDevStatusMetadata(statusPath string, next *devStatus) {
 	}
 	if strings.TrimSpace(next.BuildMode) == "" {
 		next.BuildMode = strings.TrimSpace(current.BuildMode)
+	}
+	if strings.TrimSpace(next.Profile) == "" {
+		next.Profile = strings.TrimSpace(current.Profile)
+	}
+	if strings.TrimSpace(next.BuildDefinitionHash) == "" {
+		next.BuildDefinitionHash = strings.TrimSpace(current.BuildDefinitionHash)
 	}
 	preserveRecentDevRebuilds(current, next)
 	if next.LastRebuild != nil &&
@@ -4798,6 +4809,8 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 	transport := ""
 	relayID := ""
 	buildMode := ""
+	profile := ""
+	buildDefinitionHash := ""
 	state := devContextStateRunning
 	deltaCacheWarm := false
 	rebuildCount := 0
@@ -4810,6 +4823,7 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 	var buildStatus *devloop.BuildStatus
 
 	if ctxMeta != nil {
+		profile = strings.TrimSpace(ctxMeta.Profile)
 		platform = strings.TrimSpace(ctxMeta.Platform)
 		sessionID = strings.TrimSpace(ctxMeta.SessionID)
 		viewerURL = strings.TrimSpace(ctxMeta.ViewerURL)
@@ -4823,6 +4837,12 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 	}
 
 	if ds != nil {
+		if strings.TrimSpace(ds.Profile) != "" {
+			profile = strings.TrimSpace(ds.Profile)
+		}
+		if strings.TrimSpace(ds.BuildDefinitionHash) != "" {
+			buildDefinitionHash = strings.TrimSpace(ds.BuildDefinitionHash)
+		}
 		if strings.TrimSpace(ds.Platform) != "" {
 			platform = strings.TrimSpace(ds.Platform)
 		}
@@ -4870,7 +4890,9 @@ func buildDevStatusOutput(ctxName string, pid int, ctxMeta *DevContext, ds *devS
 		"running":                  true,
 		"pid":                      pid,
 		"context":                  ctxName,
+		"profile":                  profile,
 		"platform":                 platform,
+		"build_definition_hash":    buildDefinitionHash,
 		"session_id":               sessionID,
 		"session_owned":            sessionOwned,
 		"viewer_url":               viewerURL,

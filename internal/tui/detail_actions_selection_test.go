@@ -195,8 +195,13 @@ func TestRenderDetailViews_ShowNumberedActions(t *testing.T) {
 	}
 }
 
-func TestSyncTestActionCmd_PullRemoteOnlyCreatesConfigAndLocalTest(t *testing.T) {
-	tempDir := t.TempDir()
+func TestSyncTestActionCmd_PullRemoteOnlyPreservesCanonicalConfigAndCreatesLocalTest(t *testing.T) {
+	tempDir := initializeSettingsGitWorktree(t)
+	configPath := writeSettingsConfig(t, tempDir, canonicalSettingsConfig(300))
+	beforeConfig, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Chdir(tempDir)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -233,12 +238,12 @@ func TestSyncTestActionCmd_PullRemoteOnlyCreatesConfigAndLocalTest(t *testing.T)
 		t.Fatalf("msg.Result = %q, want pull success", msg.Result)
 	}
 
-	cfg, err := config.LoadProjectConfig(filepath.Join(tempDir, ".revyl", "config.yaml"))
+	afterConfig, err := os.ReadFile(configPath)
 	if err != nil {
-		t.Fatalf("LoadProjectConfig() error = %v", err)
+		t.Fatal(err)
 	}
-	if cfg.Project.OrgID != "org-live" {
-		t.Fatalf("cfg.Project.OrgID = %q, want org-live", cfg.Project.OrgID)
+	if string(afterConfig) != string(beforeConfig) {
+		t.Fatalf("sync rewrote canonical project config\nbefore:\n%s\nafter:\n%s", beforeConfig, afterConfig)
 	}
 	gotID, idErr := config.GetLocalTestRemoteID(filepath.Join(tempDir, ".revyl", "tests"), "checkout-flow")
 	if idErr != nil {
@@ -261,7 +266,8 @@ func TestSyncTestActionCmd_PullRemoteOnlyCreatesConfigAndLocalTest(t *testing.T)
 }
 
 func TestSyncTestActionCmd_PushConflictReturnsError(t *testing.T) {
-	tempDir := t.TempDir()
+	tempDir := initializeSettingsGitWorktree(t)
+	writeSettingsConfig(t, tempDir, canonicalSettingsConfig(300))
 	t.Chdir(tempDir)
 
 	localTest := &config.LocalTest{

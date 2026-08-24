@@ -14,7 +14,6 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -46,6 +45,15 @@ func runCreateTestFromSession(cmd *cobra.Command, args []string) error {
 
 	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
 
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get current directory: %w", err)
+	}
+	project, err := config.ResolveProjectContext(cwd, "")
+	if err != nil {
+		return actionableLocalConfigError(err)
+	}
+
 	apiKey, err := getAPIKey()
 	if err != nil {
 		return err
@@ -53,9 +61,7 @@ func runCreateTestFromSession(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Root().PersistentFlags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	repoRoot := resolveSessionConvertRepoRoot()
-	cfg := loadSessionConvertConfig(repoRoot)
-	testsDir := filepath.Join(repoRoot, ".revyl", "tests")
+	testsDir := project.TestsDir
 
 	session, err := client.GetDeviceSessionByID(cmd.Context(), sessionID)
 	if err != nil {
@@ -67,9 +73,12 @@ func runCreateTestFromSession(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not resolve platform for session %s: pass --platform ios or --platform android", sessionID)
 	}
 
-	appID := resolveSessionConvertAppID(cfg, session, platform)
+	appID, err := resolveSessionConvertAppID(project.Aggregate, session, platform)
+	if err != nil {
+		return err
+	}
 	if appID == "" {
-		return fmt.Errorf("app is required for session conversion: pass --app <app-id> or configure a default %s app in .revyl/config.yaml", platform)
+		return fmt.Errorf("app is required for session conversion: pass --app <app-id> or configure a %s app in a build profile", platform)
 	}
 
 	appName, err := resolveSessionConvertAppName(cmd.Context(), client, session, appID)
@@ -264,25 +273,6 @@ func waitForSessionCompile(ctx context.Context, client *api.Client, jobID string
 	}
 }
 
-func resolveSessionConvertRepoRoot() string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	if root, err := config.FindRepoRoot(cwd); err == nil {
-		return root
-	}
-	return cwd
-}
-
-func loadSessionConvertConfig(repoRoot string) *config.ProjectConfig {
-	cfg, err := config.LoadProjectConfig(filepath.Join(repoRoot, ".revyl", "config.yaml"))
-	if err != nil {
-		return &config.ProjectConfig{}
-	}
-	return cfg
-}
-
 func resolveSessionConvertPlatform(flagValue string, session *api.DeviceSessionDetail) string {
 	if platform := strings.ToLower(strings.TrimSpace(flagValue)); platform != "" {
 		return platform
@@ -296,16 +286,40 @@ func resolveSessionConvertPlatform(flagValue string, session *api.DeviceSessionD
 	return ""
 }
 
-func resolveSessionConvertAppID(cfg *config.ProjectConfig, session *api.DeviceSessionDetail, platform string) string {
+func resolveSessionConvertAppID(aggregate *config.NormalizedProjectAggregate, session *api.DeviceSessionDetail, platform string) (string, error) {
 	if appID := strings.TrimSpace(createTestAppID); appID != "" {
-		return appID
+		return appID, nil
 	}
 	if session != nil {
 		if appID := metadataString(session.SourceMetadata, "app_id"); appID != "" {
-			return appID
+			return appID, nil
 		}
 	}
-	return execution.ResolveConfiguredAppID(cfg, platform)
+	if aggregate == nil {
+		return "", nil
+	}
+
+	configured := map[string]struct{}{}
+	for _, profile := range aggregate.Profiles {
+		for _, configuration := range profile.Configurations {
+			if configuration.Platform != platform || configuration.AppID == nil {
+				continue
+			}
+			if appID := strings.TrimSpace(*configuration.AppID); appID != "" {
+				configured[appID] = struct{}{}
+			}
+		}
+	}
+	if len(configured) == 0 {
+		return "", nil
+	}
+	if len(configured) > 1 {
+		return "", fmt.Errorf("multiple %s apps are configured; pass --app <app-id> for session conversion", platform)
+	}
+	for appID := range configured {
+		return appID, nil
+	}
+	return "", nil
 }
 
 func resolveSessionConvertAppName(ctx context.Context, client *api.Client, session *api.DeviceSessionDetail, appID string) (string, error) {

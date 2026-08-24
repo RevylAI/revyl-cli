@@ -570,7 +570,7 @@ func detectBazel(dir string) (*DetectedBuild, error) {
 
 	if !hasIOS && !hasAndroid {
 		detected.Platforms["ios"] = BuildPlatform{
-			IncompleteReason: "Bazel workspace detected, but no ios/ or android/ directory found. Configure build.platforms manually.",
+			IncompleteReason: "Bazel workspace detected, but no ios/ or android/ directory found. Configure a platform-oriented named build profile manually.",
 		}
 	}
 

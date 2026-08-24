@@ -30,7 +30,6 @@ import (
 	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
-	"github.com/revyl/cli/internal/orgguard"
 	syncpkg "github.com/revyl/cli/internal/sync"
 	"github.com/revyl/cli/internal/ui"
 	"github.com/revyl/cli/internal/util"
@@ -52,7 +51,7 @@ var quickActions = []quickAction{
 	{Label: "Browse tags", Key: "tags", Desc: "Manage test tags and labels", RequiresAuth: true},
 	{Label: "Device sessions", Key: "devices", Desc: "Start, view, and stop cloud devices", RequiresAuth: true},
 	{Label: "Start Dev Loop", Key: "dev_loop", Desc: "Start revyl dev: hot reload + rebuild on cloud device", RequiresAuth: true},
-	{Label: "Integrations", Key: "integrations", Desc: "Connect GitHub and push PR-automation config", RequiresAuth: true},
+	{Label: "Integrations", Key: "integrations", Desc: "Connect GitHub and publish project config", RequiresAuth: true},
 	{Label: "Settings", Key: "settings", Desc: "View and edit project defaults", RequiresAuth: false},
 	{Label: "Open dashboard", Key: "dashboard", Desc: "Open the web dashboard", RequiresAuth: false},
 	{Label: "Create a test", Key: "create", Desc: "Define a new test from YAML", RequiresAuth: true},
@@ -138,8 +137,9 @@ type hubModel struct {
 	deleteTarget    string             // ID of the item pending deletion ("app" or version ID)
 
 	// Help & status state
-	healthChecks  []HealthCheck // results from the last health check
-	healthLoading bool          // whether health checks are currently running
+	healthChecks        []HealthCheck       // results from the last health check
+	healthLoading       bool                // whether health checks are currently running
+	projectConfigStatus projectConfigStatus // cached local config status; refreshed by state transitions
 
 	// Setup guide state (rendered in help screen)
 	setupSteps  []SetupStep
@@ -301,7 +301,6 @@ type hubModel struct {
 	width   int
 	height  int
 	apiKey  string
-	cfg     *config.ProjectConfig
 	client  *api.Client
 	devMode bool
 	authErr error
@@ -315,23 +314,20 @@ type hubModel struct {
 	settingsCursor       int
 	settingsEditing      bool
 	settingsTimeout      int
-	settingsOpenBrowser  bool
 	settingsTimeoutInput textinput.Model
 	settingsConfigPath   string
 	settingsStatus       string
 	settingsStatusError  bool
 
-	// Integrations hub state (GitHub connect + config push)
-	integrationsCursor           int                             // selected action row
-	integrationsLoading          bool                            // status fetch in flight
-	integrationsRepos            *api.GithubRepositoriesResponse // latest GitHub install state
-	integrationsStatus           string                          // inline status/result message
-	integrationsStatusErr        bool                            // whether integrationsStatus is an error
-	integrationsConnecting       bool                            // browser install + poll in progress
-	integrationsPollSeq          int                             // sequence token for the connect poll loop
-	integrationsConnectDeadline  time.Time                       // when the connect poll gives up
-	integrationsPushAfterConnect bool                            // chain a push once connect succeeds (setup)
-	integrationsBusy             bool                            // a push action is running
+	integrationsCursor          int
+	integrationsLoading         bool
+	integrationsRepos           *api.GithubRepositoriesResponse
+	integrationsStatus          string
+	integrationsStatusErr       bool
+	integrationsConnecting      bool
+	integrationsPublishing      bool
+	integrationsPollSeq         int
+	integrationsConnectDeadline time.Time
 
 	// Sub-models
 	executionModel   *executionModel
@@ -431,7 +427,6 @@ func newHubModel(version string, devMode bool) hubModel {
 		wfFilterInput:             wffi,
 		testRenameInput:           trn,
 		settingsTimeout:           config.DefaultTimeoutSeconds,
-		settingsOpenBrowser:       config.DefaultOpenBrowser,
 		settingsTimeoutInput:      sti,
 		deviceStartFilterInput:    dsfi,
 		scriptEditNameInput:       scrEditName,
@@ -443,6 +438,7 @@ func newHubModel(version string, devMode bool) hubModel {
 		launchVarValueInput:       launchVarValue,
 		launchVarDescriptionInput: launchVarDescription,
 		devMode:                   devMode,
+		projectConfigStatus:       currentProjectConfigStatus(),
 	}
 }
 
@@ -504,111 +500,78 @@ func fetchTestsCmd(client *api.Client) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
+		cwd, err := os.Getwd()
+		if err != nil {
+			return TestListMsg{Err: fmt.Errorf("resolve current project: %w", err)}
+		}
+		project, err := config.ResolveProjectContext(cwd, "")
+		if err != nil {
+			return TestListMsg{Err: actionableProjectConfigError(fmt.Errorf("resolve current project: %w", err))}
+		}
+
 		remoteTests, err := client.ListAllOrgTests(ctx, 200)
 		if err != nil {
 			return TestListMsg{Err: fmt.Errorf("failed to fetch tests: %w", err)}
 		}
 
 		items := make([]TestItem, 0, len(remoteTests))
-		warning := ""
 		remoteByID := make(map[string]api.SimpleTest, len(remoteTests))
 		for _, t := range remoteTests {
 			remoteByID[t.ID] = t
 		}
 
-		cwd, cwdErr := os.Getwd()
-		if cwdErr == nil {
-			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-			cfg, cfgErr := config.LoadProjectConfig(configPath)
-			if cfgErr == nil {
-				projectOrgID := strings.TrimSpace(cfg.Project.OrgID)
-				if projectOrgID != "" {
-					userInfo, userErr := client.ValidateAPIKey(ctx)
-					if userErr == nil && userInfo != nil {
-						authOrgID := strings.TrimSpace(userInfo.OrgID)
-						if authOrgID != "" && authOrgID != projectOrgID {
-							warning = (&orgguard.MismatchError{
-								ProjectOrgID: projectOrgID,
-								AuthOrgID:    authOrgID,
-								ConfigPath:   configPath,
-							}).UserMessage()
-						}
-					}
-				}
-
-				testsDir := filepath.Join(cwd, ".revyl", "tests")
-				localTests, lErr := config.LoadLocalTests(testsDir)
-				if lErr != nil {
-					localTests = make(map[string]*config.LocalTest)
-				}
-
-				resolver := syncpkg.NewResolver(client, cfg, localTests)
-				statuses, sErr := resolver.GetAllStatuses(ctx)
-				if sErr == nil {
-					usedRemoteIDs := make(map[string]bool)
-					for _, s := range statuses {
-						item := TestItem{
-							ID:         s.RemoteID,
-							Name:       s.Name,
-							SyncStatus: s.Status.String(),
-							Source:     deriveTestSource(cfg, localTests, s.Name),
-						}
-
-						if lt, ok := localTests[s.Name]; ok && lt != nil {
-							item.Platform = lt.Test.Metadata.Platform
-						}
-						if rt, ok := remoteByID[s.RemoteID]; ok {
-							if item.Platform == "" {
-								item.Platform = rt.Platform
-							}
-							item.Tags = rt.Tags
-							item.AppID = rt.AppID
-							item.AppName = rt.AppName
-							usedRemoteIDs[s.RemoteID] = true
-						} else if s.RemoteID != "" {
-							if lt, ltOK := localTests[s.Name]; ltOK && lt != nil && lt.Meta.RemoteID != "" {
-								item.SyncStatus = "stale"
-								item.RemoteMissing = true
-							}
-						}
-						if item.SyncStatus == "" {
-							item.SyncStatus = "unknown"
-						}
-						items = append(items, item)
-					}
-
-					for _, t := range remoteTests {
-						if usedRemoteIDs[t.ID] {
-							continue
-						}
-						items = append(items, TestItem{
-							ID:         t.ID,
-							Name:       t.Name,
-							Platform:   t.Platform,
-							Tags:       t.Tags,
-							AppID:      t.AppID,
-							AppName:    t.AppName,
-							SyncStatus: "remote-only",
-							Source:     "remote",
-						})
-					}
-				}
-			}
+		localTests, localErr := config.LoadLocalTests(project.TestsDir)
+		if localErr != nil {
+			localTests = make(map[string]*config.LocalTest)
 		}
+		resolver := syncpkg.NewResolver(client, nil, localTests)
+		statuses, syncErr := resolver.GetAllStatuses(ctx)
+		if syncErr == nil {
+			usedRemoteIDs := make(map[string]bool)
+			for _, status := range statuses {
+				item := TestItem{
+					ID:         status.RemoteID,
+					Name:       status.Name,
+					SyncStatus: status.Status.String(),
+					Source:     deriveTestSource(localTests, status.Name),
+				}
+				if localTest, ok := localTests[status.Name]; ok && localTest != nil {
+					item.Platform = localTest.Test.Metadata.Platform
+				}
+				if remoteTest, ok := remoteByID[status.RemoteID]; ok {
+					if item.Platform == "" {
+						item.Platform = remoteTest.Platform
+					}
+					item.Tags = remoteTest.Tags
+					item.AppID = remoteTest.AppID
+					item.AppName = remoteTest.AppName
+					usedRemoteIDs[status.RemoteID] = true
+				} else if status.RemoteID != "" {
+					if localTest, ok := localTests[status.Name]; ok && localTest != nil && localTest.Meta.RemoteID != "" {
+						item.SyncStatus = "stale"
+						item.RemoteMissing = true
+					}
+				}
+				if item.SyncStatus == "" {
+					item.SyncStatus = "unknown"
+				}
+				items = append(items, item)
+			}
 
-		if len(items) == 0 {
-			items = make([]TestItem, len(remoteTests))
-			for i, t := range remoteTests {
-				items[i] = TestItem{
-					ID:         t.ID,
-					Name:       t.Name,
-					Platform:   t.Platform,
-					Tags:       t.Tags,
-					AppID:      t.AppID,
-					AppName:    t.AppName,
+			for _, remoteTest := range remoteTests {
+				if usedRemoteIDs[remoteTest.ID] {
+					continue
+				}
+				items = append(items, TestItem{
+					ID:         remoteTest.ID,
+					Name:       remoteTest.Name,
+					Platform:   remoteTest.Platform,
+					Tags:       remoteTest.Tags,
+					AppID:      remoteTest.AppID,
+					AppName:    remoteTest.AppName,
 					SyncStatus: "remote-only",
 					Source:     "remote",
-				}
+				})
 			}
 		}
 
@@ -621,7 +584,7 @@ func fetchTestsCmd(client *api.Client) tea.Cmd {
 			return nameI < nameJ
 		})
 
-		return TestListMsg{Tests: items, Warning: warning}
+		return TestListMsg{Tests: items}
 	}
 }
 
@@ -973,11 +936,21 @@ func deleteTestFromListCmd(client *api.Client, selected TestItem) tea.Cmd {
 			msg.Err = fmt.Errorf("no authenticated client available")
 			return msg
 		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			msg.Err = fmt.Errorf("resolve current project: %w", err)
+			return msg
+		}
+		project, err := config.ResolveProjectContext(cwd, "")
+		if err != nil {
+			msg.Err = actionableProjectConfigError(fmt.Errorf("resolve current project: %w", err))
+			return msg
+		}
 
 		if selected.ID != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			_, err := client.DeleteTest(ctx, selected.ID)
+			_, err = client.DeleteTest(ctx, selected.ID)
 			if err != nil {
 				var apiErr *api.APIError
 				if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
@@ -991,7 +964,7 @@ func deleteTestFromListCmd(client *api.Client, selected TestItem) tea.Cmd {
 			}
 		}
 
-		localResult := deleteTestLocalArtifacts(selected.Name, selected.ID)
+		localResult := deleteTestLocalArtifacts(project.TestsDir, selected.Name, selected.ID)
 		msg.LocalDeleted = localResult.Deleted
 		if localResult.Warning != "" {
 			if msg.Warning != "" {
@@ -1005,19 +978,11 @@ func deleteTestFromListCmd(client *api.Client, selected TestItem) tea.Cmd {
 	}
 }
 
-func deleteTestLocalArtifacts(testName, testID string) testDeleteLocalResult {
+func deleteTestLocalArtifacts(testsDir, testName, testID string) testDeleteLocalResult {
 	result := testDeleteLocalResult{}
 	if testName == "" && testID == "" {
 		return result
 	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		result.Warning = fmt.Sprintf("failed to resolve working directory: %v", err)
-		return result
-	}
-
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
 
 	candidates := map[string]struct{}{}
 	if testName != "" {
@@ -1268,6 +1233,9 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case HealthCheckMsg:
 		m.healthLoading = false
 		if msg.Err == nil {
+			if msg.ProjectConfigStatus.State != "" {
+				m.projectConfigStatus = msg.ProjectConfigStatus
+			}
 			m.healthChecks = msg.Checks
 			// Clear stale auth warning once checks confirm authentication is valid.
 			for _, check := range msg.Checks {
@@ -1277,10 +1245,11 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			// Derive setup steps from health check results
-			m.setupSteps = deriveSetupSteps(msg.Checks, m.cfg)
+			m.setupSteps = deriveSetupSteps(msg.Checks)
 			if len(m.setupSteps) == 0 {
 				m.setupCursor = 0
-			} else if m.setupCursor >= len(m.setupSteps) {
+			} else if m.setupCursor >= len(m.setupSteps) ||
+				(m.setupSteps[m.setupCursor].Status != "current" && m.setupSteps[m.setupCursor].Status != "hint") {
 				if first := firstActionableStep(m.setupSteps); first >= 0 {
 					m.setupCursor = first
 				} else {
@@ -1773,8 +1742,8 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case IntegrationsConnectCheckMsg:
 		return updateIntegrationsConnectCheck(m, msg)
 
-	case IntegrationsPushDoneMsg:
-		return updateIntegrationsPushDone(m, msg)
+	case IntegrationsPublishDoneMsg:
+		return updateIntegrationsPublishDone(m, msg)
 
 	// --- Workflow management messages ---
 
@@ -1918,7 +1887,7 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// --- Setup guide messages ---
 
 	case SetupActionMsg:
-		if msg.StepIndex == 0 {
+		if msg.Action == setupActionLogin {
 			if msg.Err != nil {
 				m.returnToDashboardAfterAuth = false
 				m.authErr = fmt.Errorf("authentication canceled or failed; press Enter for browser login or 'a' for API key")
@@ -1930,10 +1899,54 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.authErr = nil
 			return m, tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
 		}
+		if msg.Err != nil {
+			m.currentView = viewDashboard
+			m.loading = false
+			m.err = actionableProjectConfigError(msg.Err)
+			return m, nil
+		}
+		m.projectConfigStatus = currentProjectConfigStatus()
 		// Re-run health checks after a setup action completes
 		m.healthLoading = true
 		m.healthChecks = nil
 		return m, runHealthChecksCmd(m.devMode, m.client)
+
+	case ProjectConfigMigrationDoneMsg:
+		m.currentView = viewDashboard
+		m.loading = false
+		status := currentProjectConfigStatus()
+		m.projectConfigStatus = status
+		if msg.Err != nil {
+			if status.Err != nil {
+				m.err = fmt.Errorf("project configuration migration failed (%v): %w", msg.Err, status.Err)
+			} else {
+				m.err = fmt.Errorf("project configuration migration failed; retry with '%s': %w", projectConfigMigrateCommand(status.CommandRoot), msg.Err)
+			}
+			return m, nil
+		}
+		switch status.State {
+		case projectConfigStateConfigured:
+			m.err = nil
+			m.loading = true
+			if m.client != nil {
+				return m, tea.Batch(
+					m.spinner.Tick,
+					fetchTestsCmd(m.client),
+					fetchDashboardMetricsCmd(m.client),
+				)
+			}
+			return m, tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
+		case projectConfigStateLegacy:
+			recovery, _ := projectConfigRecoveryForError(status.Err, status.CommandRoot)
+			recovery.Summary = "Migration was not applied; local configuration remains unchanged"
+			m.err = &projectConfigRecoveryError{cause: status.Err, recovery: recovery}
+		default:
+			m.err = actionableProjectConfigError(status.Err)
+			if m.err == nil {
+				m.err = fmt.Errorf("project configuration is not ready; run '%s'", projectConfigCommand(status.CommandRoot, "config", "validate"))
+			}
+		}
+		return m, nil
 
 	case DevLoopDoneMsg:
 		m.currentView = viewDashboard
@@ -1970,6 +1983,9 @@ func (m hubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleDashboardKey processes key events on the dashboard landing page.
 func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.err != nil {
+		return m.handleErrorDashboardKey(msg)
+	}
 	switch msg.String() {
 	case "q", "ctrl+c", "esc":
 		return m, tea.Quit
@@ -2057,6 +2073,7 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case "R":
+		m.projectConfigStatus = currentProjectConfigStatus()
 		m.loading = true
 		m.err = nil
 		m.authErr = nil
@@ -2082,6 +2099,38 @@ func (m hubModel) handleDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m hubModel) handleErrorDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "ctrl+c", "esc":
+		return m, tea.Quit
+	case "R":
+		m.projectConfigStatus = currentProjectConfigStatus()
+		m.loading = true
+		m.err = nil
+		m.authErr = nil
+		m.metrics = nil
+		m.recentRuns = nil
+		if m.client != nil {
+			return m, tea.Batch(
+				m.spinner.Tick,
+				fetchTestsCmd(m.client),
+				fetchDashboardMetricsCmd(m.client),
+			)
+		}
+		return m, tea.Batch(m.spinner.Tick, authenticateCmd(m.devMode))
+	case "?":
+		m.currentView = viewHelp
+		m.healthLoading = true
+		m.healthChecks = nil
+		return m, runHealthChecksCmd(m.devMode, m.client)
+	case "m", "M":
+		if recovery, ok := projectConfigRecoveryForError(m.err, m.projectConfigStatus.CommandRoot); ok && recovery.Action == setupActionMigrateProject {
+			return m, runProjectConfigMigrationCmd(m.devMode)
+		}
+	}
+	return m, nil
+}
+
 func (m hubModel) commitSettingsTimeoutInput() (hubModel, bool) {
 	timeoutText := strings.TrimSpace(m.settingsTimeoutInput.Value())
 	timeout, err := strconv.Atoi(timeoutText)
@@ -2104,37 +2153,43 @@ func (m hubModel) saveSettings() (hubModel, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.settingsConfigPath == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			m.settingsStatus = fmt.Sprintf("Failed to resolve config path: %v", err)
-			m.settingsStatusError = true
-			return m, nil
-		}
-		m.settingsConfigPath = filepath.Join(cwd, ".revyl", "config.yaml")
-	}
-
-	cfg, err := config.LoadProjectConfig(m.settingsConfigPath)
+	cwd, err := os.Getwd()
 	if err != nil {
-		m.settingsStatus = fmt.Sprintf("Failed to load config: %v", err)
+		m.settingsStatus = fmt.Sprintf("Failed to resolve project directory: %v", err)
 		m.settingsStatusError = true
 		return m, nil
 	}
-
-	openBrowser := m.settingsOpenBrowser
-	cfg.Defaults.OpenBrowser = &openBrowser
-	cfg.Defaults.Timeout = m.settingsTimeout
-
-	if err := config.WriteProjectConfig(m.settingsConfigPath, cfg); err != nil {
+	local, err := config.ResolveProjectContext(cwd, "")
+	if err != nil {
+		m.settingsStatus = fmt.Sprintf("Failed to load project config: %v", actionableProjectConfigError(err))
+		m.settingsStatusError = true
+		return m, nil
+	}
+	m.settingsConfigPath = local.ConfigPath
+	if err := writeCanonicalSettingsTimeout(local, m.settingsTimeout); err != nil {
 		m.settingsStatus = fmt.Sprintf("Failed to save settings: %v", err)
 		m.settingsStatusError = true
 		return m, nil
 	}
 
-	m.cfg = cfg
 	m.settingsStatus = "Settings saved."
 	m.settingsStatusError = false
 	return m, nil
+}
+
+func writeCanonicalSettingsTimeout(local *config.ProjectContext, timeout int) error {
+	authored := *local.Authored
+	session := config.AuthoredSession{}
+	if authored.Session != nil {
+		session = *authored.Session
+	}
+	session.IdleTimeoutSeconds = &timeout
+	authored.Session = &session
+	replacement, err := config.MarshalCanonicalConfig(authored)
+	if err != nil {
+		return err
+	}
+	return config.ReplaceConfigAtomically(local.ConfigPath, replacement, local.OriginalBytes)
 }
 
 func (m hubModel) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -2175,15 +2230,8 @@ func (m hubModel) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down", "j":
-		if m.settingsCursor < 2 {
+		if m.settingsCursor < 1 {
 			m.settingsCursor++
-		}
-		return m, nil
-	case "left", "right", " ":
-		if m.settingsCursor == 0 {
-			m.settingsOpenBrowser = !m.settingsOpenBrowser
-			m.settingsStatus = ""
-			m.settingsStatusError = false
 		}
 		return m, nil
 	case "s":
@@ -2191,15 +2239,10 @@ func (m hubModel) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		switch m.settingsCursor {
 		case 0:
-			m.settingsOpenBrowser = !m.settingsOpenBrowser
-			m.settingsStatus = ""
-			m.settingsStatusError = false
-			return m, nil
-		case 1:
 			m.settingsEditing = true
 			m.settingsTimeoutInput.Focus()
 			return m, textinput.Blink
-		case 2:
+		case 1:
 			return m.saveSettings()
 		}
 	}
@@ -2220,7 +2263,11 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 
 	switch action.Key {
 	case "create":
-		cm := newCreateModel(m.apiKey, m.devMode, m.client, m.cfg, m.width, m.height)
+		cm, err := newCurrentProjectCreateModel(m.apiKey, m.devMode, m.client, m.width, m.height)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
 		m.createModel = &cm
 		m.currentView = viewCreateTest
 		return m, m.createModel.Init()
@@ -2311,22 +2358,25 @@ func (m hubModel) executeQuickAction() (tea.Model, tea.Cmd) {
 		cwd, err := os.Getwd()
 		if err != nil {
 			m.settingsConfigPath = ".revyl/config.yaml"
-		} else {
-			m.settingsConfigPath = filepath.Join(cwd, ".revyl", "config.yaml")
-		}
-
-		cfg := loadCurrentProjectConfig()
-		if cfg != nil {
-			m.cfg = cfg
-			m.settingsOpenBrowser = config.EffectiveOpenBrowser(cfg)
-			m.settingsTimeout = config.EffectiveTimeoutSeconds(cfg, config.DefaultTimeoutSeconds)
-			m.settingsStatus = ""
-			m.settingsStatusError = false
-		} else {
-			m.settingsOpenBrowser = config.DefaultOpenBrowser
 			m.settingsTimeout = config.DefaultTimeoutSeconds
-			m.settingsStatus = "Project config not found. Run 'revyl init' to create .revyl/config.yaml."
+			m.settingsStatus = fmt.Sprintf("Failed to resolve project directory: %v", err)
 			m.settingsStatusError = true
+		} else {
+			local, resolveErr := config.ResolveProjectContext(cwd, "")
+			if resolveErr != nil {
+				m.settingsConfigPath = ".revyl/config.yaml"
+				m.settingsTimeout = config.DefaultTimeoutSeconds
+				m.settingsStatus = fmt.Sprintf("Failed to load project config: %v", actionableProjectConfigError(resolveErr))
+				m.settingsStatusError = true
+			} else {
+				m.settingsConfigPath = local.ConfigPath
+				m.settingsTimeout = config.DefaultTimeoutSeconds
+				if local.Authored.Session != nil && local.Authored.Session.IdleTimeoutSeconds != nil {
+					m.settingsTimeout = *local.Authored.Session.IdleTimeoutSeconds
+				}
+				m.settingsStatus = ""
+				m.settingsStatusError = false
+			}
 		}
 		m.settingsCursor = 0
 		m.settingsEditing = false
@@ -2426,11 +2476,15 @@ func devLoopExecCmd(devMode bool) *exec.Cmd {
 // before launching the subprocess. Returns a user-facing error if any
 // prerequisite is missing, or nil when the dev loop is safe to start.
 func validateDevLoopPrereqs() error {
-	cfg := loadCurrentProjectConfig()
-	if cfg == nil {
-		return fmt.Errorf("project not initialized — run 'revyl init' first")
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolve current project: %w", err)
 	}
-	if !cfg.HotReload.IsConfigured() && len(cfg.Build.Platforms) == 0 {
+	project, err := config.ResolveProjectContext(cwd, "")
+	if err != nil {
+		return actionableProjectConfigError(err)
+	}
+	if project.Authored.Build == nil || len(project.Aggregate.Profiles) == 0 {
 		return fmt.Errorf("dev loop is not configured — run 'revyl init' first")
 	}
 	return nil
@@ -2572,7 +2626,7 @@ func (m hubModel) handleTestListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.err = fmt.Errorf("test '%s' has no remote ID and cannot be run yet", selected.Name)
 					return m, nil
 				}
-				em := newExecutionModel(selected.ID, selected.Name, m.apiKey, m.cfg, m.devMode, m.width, m.height)
+				em := newExecutionModel(selected.ID, selected.Name, m.apiKey, m.devMode, m.width, m.height)
 				m.executionModel = &em
 				m.currentView = viewExecution
 				return m, m.executionModel.Init()
@@ -3146,7 +3200,7 @@ func (m hubModel) selectedAppDisplayName() string {
 }
 
 // deriveTestSource returns a compact source label for a test entry.
-func deriveTestSource(_ *config.ProjectConfig, localTests map[string]*config.LocalTest, name string) string {
+func deriveTestSource(localTests map[string]*config.LocalTest, name string) string {
 	if lt, ok := localTests[name]; ok && lt != nil {
 		return "local"
 	}
@@ -3174,19 +3228,6 @@ func (m hubModel) isLoginOnlyState() bool {
 	return step.Label == "Log in" && (step.Status == "current" || step.Status == "hint")
 }
 
-func loadCurrentProjectConfig() *config.ProjectConfig {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil
-	}
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		return nil
-	}
-	return cfg
-}
-
 // renderErrorDashboard renders the dashboard error state with diagnostics
 // (working directory, config status, auth status) and contextual next-step
 // suggestions so the user knows exactly what to fix.
@@ -3201,7 +3242,12 @@ func (m hubModel) renderErrorDashboard(banner string, innerW int) string {
 	var b strings.Builder
 	b.WriteString(banner + "\n")
 
-	b.WriteString("\n" + errorStyle.Render("  ✗ "+m.err.Error()) + "\n")
+	recovery, hasRecovery := projectConfigRecoveryForStatus(m.projectConfigStatus, m.err)
+	errorMessage := m.err.Error()
+	if len(recovery.CandidateCommands) > 0 {
+		errorMessage = recovery.Summary
+	}
+	b.WriteString("\n" + errorStyle.Render("  ✗ "+errorMessage) + "\n")
 
 	// --- STATUS section ---
 	b.WriteString(sectionStyle.Render("  STATUS") + "\n")
@@ -3222,11 +3268,20 @@ func (m hubModel) renderErrorDashboard(banner string, innerW int) string {
 	}
 	b.WriteString("  " + dimStyle.Render("directory     ") + dirDisplay + "\n")
 
-	cfg := loadCurrentProjectConfig()
-	if cfg != nil {
+	configStatus := m.projectConfigStatus
+	switch configStatus.State {
+	case projectConfigStateConfigured:
 		b.WriteString("  " + dimStyle.Render("config        ") + successStyle.Render("✓") + dimStyle.Render(" .revyl/config.yaml") + "\n")
-	} else {
+	case projectConfigStateLegacy:
+		b.WriteString("  " + dimStyle.Render("config        ") + warningStyle.Render("⚠") + dimStyle.Render(" .revyl/config.yaml found — migration required") + "\n")
+	case projectConfigStateInvalid:
+		b.WriteString("  " + dimStyle.Render("config        ") + warningStyle.Render("⚠") + dimStyle.Render(" .revyl/config.yaml found — invalid") + "\n")
+	case projectConfigStateMissing:
 		b.WriteString("  " + dimStyle.Render("config        ") + warningStyle.Render("✗") + dimStyle.Render(" .revyl/config.yaml not found") + "\n")
+	case projectConfigStateSelection:
+		b.WriteString("  " + dimStyle.Render("config        ") + warningStyle.Render("⚠") + dimStyle.Render(" nested project selection required") + "\n")
+	default:
+		b.WriteString("  " + dimStyle.Render("config        ") + warningStyle.Render("✗") + dimStyle.Render(" unavailable") + "\n")
 	}
 
 	if m.isAuthenticated() {
@@ -3236,19 +3291,33 @@ func (m hubModel) renderErrorDashboard(banner string, innerW int) string {
 	}
 
 	// --- NEXT STEPS section ---
-	errText := m.err.Error()
 	b.WriteString(sectionStyle.Render("  NEXT STEPS") + "\n")
 	b.WriteString("  " + separator(innerW) + "\n")
 
 	switch {
-	case strings.Contains(errText, "not initialized"):
-		b.WriteString("  " + normalStyle.Render("Run ") + selectedStyle.Render("revyl init") + normalStyle.Render(" to detect your build system") + "\n")
-		b.WriteString("  " + normalStyle.Render("and create .revyl/config.yaml — or press ") + selectedStyle.Render("?") + normalStyle.Render(" for") + "\n")
-		b.WriteString("  " + normalStyle.Render("the guided setup wizard.") + "\n")
-	case strings.Contains(errText, "not configured"):
+	case hasRecovery && recovery.Action == setupActionMigrateProject:
+		b.WriteString("  " + normalStyle.Render("Preview dropped, defaulted, and ambiguous fields with:") + "\n")
+		b.WriteString("  " + selectedStyle.Render(recovery.PreviewCommand) + "\n")
+		b.WriteString("  " + normalStyle.Render("Press ") + selectedStyle.Render("m") + normalStyle.Render(" to review the proposal and confirm migration,") + "\n")
+		b.WriteString("  " + normalStyle.Render("or run ") + selectedStyle.Render(recovery.Command) + normalStyle.Render(" directly.") + "\n")
+	case hasRecovery && len(recovery.CandidateCommands) > 0:
+		if len(recovery.CandidateCommands) == 1 {
+			b.WriteString("  " + normalStyle.Render("Open the nested Revyl project with:") + "\n")
+		} else {
+			b.WriteString("  " + normalStyle.Render("Choose a nested Revyl project:") + "\n")
+		}
+		for _, command := range recovery.CandidateCommands {
+			b.WriteString("  " + selectedStyle.Render(command) + "\n")
+		}
+	case hasRecovery && recovery.AlternativeCommand != "":
+		b.WriteString("  " + normalStyle.Render("Run ") + selectedStyle.Render(recovery.Command) + normalStyle.Render(" to restore an existing project,") + "\n")
+		b.WriteString("  " + normalStyle.Render("or run ") + selectedStyle.Render(recovery.AlternativeCommand) + normalStyle.Render(" to create a new one.") + "\n")
+	case hasRecovery:
+		b.WriteString("  " + normalStyle.Render(recovery.Summary+". Run ") + selectedStyle.Render(recovery.Command) + normalStyle.Render(".") + "\n")
+	case strings.Contains(m.err.Error(), "not configured"):
 		b.WriteString("  " + normalStyle.Render("Run ") + selectedStyle.Render("revyl init --detect") + normalStyle.Render(" to re-detect your") + "\n")
 		b.WriteString("  " + normalStyle.Render("build system and configure the dev loop.") + "\n")
-	case strings.Contains(errText, "not authenticated") || strings.Contains(errText, "authentication"):
+	case strings.Contains(m.err.Error(), "not authenticated") || strings.Contains(m.err.Error(), "authentication"):
 		b.WriteString("  " + normalStyle.Render("Press ") + selectedStyle.Render("?") + normalStyle.Render(" then Enter to log in via browser,") + "\n")
 		b.WriteString("  " + normalStyle.Render("or ") + selectedStyle.Render("a") + normalStyle.Render(" for API key authentication.") + "\n")
 	default:
@@ -3256,11 +3325,15 @@ func (m hubModel) renderErrorDashboard(banner string, innerW int) string {
 	}
 
 	b.WriteString("\n  " + separator(innerW) + "\n")
-	keys := []string{
+	keys := []string{}
+	if hasRecovery && recovery.Action == setupActionMigrateProject {
+		keys = append(keys, helpKeyRender("m", "migrate"))
+	}
+	keys = append(keys,
 		helpKeyRender("R", "refresh"),
 		helpKeyRender("?", "help/setup"),
 		helpKeyRender("q", "quit"),
-	}
+	)
 	b.WriteString("  " + strings.Join(keys, "  ") + "\n")
 	return b.String()
 }
@@ -3495,7 +3568,7 @@ func (m hubModel) renderSettings() string {
 	}
 	b.WriteString("  " + dimStyle.Render(configPath) + "\n\n")
 
-	items := []string{"open_browser", "timeout", "Save settings"}
+	items := []string{"session.idle_timeout_seconds", "Save settings"}
 	for i := range items {
 		cur := "  "
 		if i == m.settingsCursor {
@@ -3504,16 +3577,13 @@ func (m hubModel) renderSettings() string {
 
 		switch i {
 		case 0:
-			b.WriteString("  " + cur + dimStyle.Render("open_browser: "))
-			b.WriteString(normalStyle.Render(fmt.Sprintf("%t", m.settingsOpenBrowser)) + "\n")
-		case 1:
-			b.WriteString("  " + cur + dimStyle.Render("timeout:      "))
+			b.WriteString("  " + cur + dimStyle.Render("session.idle_timeout_seconds: "))
 			if m.settingsEditing {
 				b.WriteString(m.settingsTimeoutInput.View() + "\n")
 			} else {
 				b.WriteString(normalStyle.Render(fmt.Sprintf("%d", m.settingsTimeout)) + "\n")
 			}
-		case 2:
+		case 1:
 			b.WriteString("  " + cur + normalStyle.Render("Save settings") + "\n")
 		}
 	}
@@ -3529,7 +3599,7 @@ func (m hubModel) renderSettings() string {
 
 	b.WriteString("\n  " + separator(innerW) + "\n")
 	keys := []string{
-		helpKeyRender("enter", "toggle/edit/save"),
+		helpKeyRender("enter", "edit/save"),
 		helpKeyRender("s", "save"),
 		helpKeyRender("esc", "back"),
 		helpKeyRender("q", "quit"),
@@ -4795,6 +4865,7 @@ func (m hubModel) renderAppDetail() string {
 func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 	return func() tea.Msg {
 		var checks []HealthCheck
+		configStatus := currentProjectConfigStatus()
 
 		// Check 1: Authentication
 		mgr := auth.NewManager()
@@ -4806,7 +4877,7 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 				Message: "Not authenticated — Enter for browser login, or 'a' for API key login",
 			})
 			// Keep the unauthenticated help screen focused on login only.
-			return HealthCheckMsg{Checks: checks}
+			return HealthCheckMsg{Checks: checks, ProjectConfigStatus: configStatus}
 		} else {
 			msg := "Authenticated"
 			if creds.Email != "" {
@@ -4861,46 +4932,42 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 		}
 
 		// Check 3: Project config
-		cwd, cwdErr := os.Getwd()
-		if cwdErr != nil {
+		project := configStatus.Project
+		if configStatus.State == projectConfigStateUnavailable {
 			checks = append(checks, HealthCheck{
 				Name:    "Project Config",
 				Status:  "warning",
 				Message: "Could not determine working directory",
 			})
-		} else {
-			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-			cfg, cfgErr := config.LoadProjectConfig(configPath)
-			if cfgErr != nil {
+		} else if project == nil {
+			if configStatus.Err != nil {
+				code, message := projectConfigHealthDiagnostic(configStatus.Err, configStatus.CommandRoot)
 				checks = append(checks, HealthCheck{
 					Name:    "Project Config",
 					Status:  "warning",
-					Message: "No project config — run 'revyl init'",
-				})
-			} else {
-				parts := []string{}
-				if cfg.Project.Name != "" {
-					parts = append(parts, cfg.Project.Name)
-				}
-				testsDir := filepath.Join(cwd, ".revyl", "tests")
-				if linkedCount := config.CountLinkedTests(testsDir); linkedCount > 0 {
-					parts = append(parts, fmt.Sprintf("%d tests", linkedCount))
-				}
-				msg := "Found"
-				if len(parts) > 0 {
-					msg = strings.Join(parts, ", ")
-				}
-				checks = append(checks, HealthCheck{
-					Name:    "Project Config",
-					Status:  "ok",
-					Message: msg,
+					Code:    code,
+					Message: message,
 				})
 			}
+		} else {
+			parts := []string{"Configured"}
+			if linkedCount := config.CountLinkedTests(project.TestsDir); linkedCount > 0 {
+				parts = append(parts, fmt.Sprintf("%d tests", linkedCount))
+			}
+			checks = append(checks, HealthCheck{
+				Name:    "Project Config",
+				Status:  "ok",
+				Message: strings.Join(parts, ", "),
+			})
 		}
 
 		// Check 4: Build system
-		if cwdErr == nil {
-			detected, detectErr := build.Detect(cwd)
+		if configStatus.State != projectConfigStateUnavailable {
+			detectionRoot := configStatus.WorkingDirectory
+			if project != nil {
+				detectionRoot = project.ProjectRoot
+			}
+			detected, detectErr := build.Detect(detectionRoot)
 			if detectErr != nil || detected.System == build.SystemUnknown {
 				checks = append(checks, HealthCheck{
 					Name:    "Build System",
@@ -4917,19 +4984,8 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 		}
 
 		// Check 5: App linked
-		var appLinked bool
-		if cwdErr == nil {
-			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-			cfg, cfgErr := config.LoadProjectConfig(configPath)
-			if cfgErr == nil && cfg != nil {
-				for _, p := range cfg.Build.Platforms {
-					if p.AppID != "" {
-						appLinked = true
-						break
-					}
-				}
-			}
-		}
+		appIDs := canonicalConfiguredAppIDs(project)
+		appLinked := len(appIDs) > 0
 		if appLinked {
 			checks = append(checks, HealthCheck{
 				Name:    "App Linked",
@@ -4946,34 +5002,28 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 
 		// Check 6: Build uploaded
 		if appLinked && client != nil {
-			configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-			cfg, cfgErr := config.LoadProjectConfig(configPath)
-			if cfgErr == nil && cfg != nil {
-				buildFound := false
-				for _, p := range cfg.Build.Platforms {
-					if p.AppID != "" {
-						bCtx, bCancel := context.WithTimeout(context.Background(), 5*time.Second)
-						versions, bErr := client.ListBuildVersions(bCtx, p.AppID)
-						bCancel()
-						if bErr == nil && len(versions) > 0 {
-							buildFound = true
-							break
-						}
-					}
+			buildFound := false
+			for _, appID := range appIDs {
+				bCtx, bCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				versions, bErr := client.ListBuildVersions(bCtx, appID)
+				bCancel()
+				if bErr == nil && len(versions) > 0 {
+					buildFound = true
+					break
 				}
-				if buildFound {
-					checks = append(checks, HealthCheck{
-						Name:    "Build Uploaded",
-						Status:  "ok",
-						Message: "Build available",
-					})
-				} else {
-					checks = append(checks, HealthCheck{
-						Name:    "Build Uploaded",
-						Status:  "warning",
-						Message: "No builds — run 'revyl build'",
-					})
-				}
+			}
+			if buildFound {
+				checks = append(checks, HealthCheck{
+					Name:    "Build Uploaded",
+					Status:  "ok",
+					Message: "Build available",
+				})
+			} else {
+				checks = append(checks, HealthCheck{
+					Name:    "Build Uploaded",
+					Status:  "warning",
+					Message: "No builds — run 'revyl build'",
+				})
 			}
 		} else if !appLinked {
 			checks = append(checks, HealthCheck{
@@ -4984,9 +5034,8 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 		}
 
 		// Check 7: Tests configured
-		if cwdErr == nil {
-			testsDir := filepath.Join(cwd, ".revyl", "tests")
-			if linkedCount := config.CountLinkedTests(testsDir); linkedCount > 0 {
+		if project != nil {
+			if linkedCount := config.CountLinkedTests(project.TestsDir); linkedCount > 0 {
 				checks = append(checks, HealthCheck{
 					Name:    "Tests Configured",
 					Status:  "ok",
@@ -5001,8 +5050,58 @@ func runHealthChecksCmd(devMode bool, client *api.Client) tea.Cmd {
 			}
 		}
 
-		return HealthCheckMsg{Checks: checks}
+		return HealthCheckMsg{Checks: checks, ProjectConfigStatus: configStatus}
 	}
+}
+
+func projectConfigHealthDiagnostic(err error, workingDirectory string) (string, string) {
+	var configErr *config.ConfigError
+	code := ""
+	var selectionErr *nestedProjectSelectionError
+	if errors.As(err, &selectionErr) {
+		code = "nested_project_selection_required"
+	}
+	if errors.As(err, &configErr) {
+		code = configErr.Code
+	}
+	if recovery, ok := projectConfigRecoveryForError(err, workingDirectory); ok {
+		if len(recovery.CandidateCommands) > 0 {
+			return code, fmt.Sprintf("%s — %s", recovery.Summary, strings.Join(recovery.CandidateCommands, " or "))
+		}
+		if recovery.AlternativeCommand != "" {
+			return code, fmt.Sprintf(
+				"%s — run '%s' to restore an existing project, or '%s' to create a new one",
+				recovery.Summary,
+				recovery.Command,
+				recovery.AlternativeCommand,
+			)
+		}
+		return code, fmt.Sprintf("%s — run '%s'", recovery.Summary, recovery.Command)
+	}
+	return code, fmt.Sprintf("Project config is invalid — run '%s'", projectConfigCommand(workingDirectory, "config", "validate"))
+}
+
+func canonicalConfiguredAppIDs(project *config.ProjectContext) []string {
+	if project == nil || project.Aggregate == nil {
+		return nil
+	}
+	unique := make(map[string]struct{})
+	for _, profile := range project.Aggregate.Profiles {
+		for _, configuration := range profile.Configurations {
+			if configuration.AppID == nil {
+				continue
+			}
+			if appID := strings.TrimSpace(*configuration.AppID); appID != "" {
+				unique[appID] = struct{}{}
+			}
+		}
+	}
+	appIDs := make([]string, 0, len(unique))
+	for appID := range unique {
+		appIDs = append(appIDs, appID)
+	}
+	sort.Strings(appIDs)
+	return appIDs
 }
 
 // handleHelpKey processes key events on the help & status screen.
@@ -5035,7 +5134,7 @@ func (m hubModel) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if step.Label == "Log in" && (step.Status == "current" || step.Status == "hint") {
 				m.returnToDashboardAfterAuth = true
 				return m, tea.ExecProcess(authLoginCmd(true), func(err error) tea.Msg {
-					return SetupActionMsg{StepIndex: 0, Err: err}
+					return SetupActionMsg{Action: setupActionLogin, Err: err}
 				})
 			}
 		}

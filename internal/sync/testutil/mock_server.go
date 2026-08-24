@@ -193,6 +193,12 @@ func (m *MockServer) handler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"scripts": []interface{}{}, "count": 0})
 	case r.Method == "GET" && r.URL.Path == "/api/v1/modules/list":
 		writeJSON(w, http.StatusOK, map[string]interface{}{"message": "ok", "result": []interface{}{}})
+	case r.Method == "GET" && r.URL.Path == "/api/v1/entity/users/get_user_uuid":
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"user_id": "user-test",
+			"org_id":  "org-test",
+			"email":   "test@example.com",
+		})
 	case r.Method == "GET" && r.URL.Path == "/api/v1/apps/":
 		m.handleListApps(w, r)
 	case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/api/v1/variables/"):

@@ -1,14 +1,15 @@
 package main
 
 import (
-	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/revyl/cli/internal/build"
+	"github.com/revyl/cli/internal/config"
 )
 
 func TestWorkspaceRootHintsForExpoMonorepo(t *testing.T) {
@@ -42,34 +43,28 @@ func TestInternalAppOnboardingFixtures(t *testing.T) {
 	}
 
 	tests := []struct {
-		path              string
-		wantBuildSystem   string
-		wantPlatforms     []string
-		wantHotReload     string
-		wantAppScheme     string
-		wantConcreteBuild []string
+		path                      string
+		wantBuildSystem           string
+		wantPlatforms             []string
+		wantConcreteBuild         []string
+		wantCanonicalBuildOmitted bool
 	}{
 		{
 			path:              "bug-bazaar",
 			wantBuildSystem:   "Expo",
 			wantPlatforms:     []string{"android", "ios"},
-			wantHotReload:     "expo",
-			wantAppScheme:     "bug-bazaar",
 			wantConcreteBuild: []string{"android", "ios"},
 		},
 		{
 			path:              filepath.Join("expo-monorepo-hoisted", "apps", "mobile"),
 			wantBuildSystem:   "Expo",
 			wantPlatforms:     []string{"android", "ios"},
-			wantHotReload:     "expo",
-			wantAppScheme:     "expo-monorepo-hoisted",
 			wantConcreteBuild: []string{"android", "ios"},
 		},
 		{
 			path:              "rn-bare-minimal",
 			wantBuildSystem:   "React Native",
 			wantPlatforms:     []string{"android", "ios"},
-			wantHotReload:     "react-native",
 			wantConcreteBuild: []string{"android", "ios"},
 		},
 		{
@@ -91,16 +86,18 @@ func TestInternalAppOnboardingFixtures(t *testing.T) {
 			wantConcreteBuild: []string{"ios"},
 		},
 		{
-			path:              "bazel-minimal",
-			wantBuildSystem:   "Bazel",
-			wantPlatforms:     []string{"android", "ios"},
-			wantConcreteBuild: []string{"android", "ios"},
+			path:                      "bazel-minimal",
+			wantBuildSystem:           "Bazel",
+			wantPlatforms:             []string{"android", "ios"},
+			wantConcreteBuild:         []string{"android", "ios"},
+			wantCanonicalBuildOmitted: true,
 		},
 		{
-			path:              "kmp-minimal",
-			wantBuildSystem:   "Kotlin Multiplatform",
-			wantPlatforms:     []string{"android", "ios"},
-			wantConcreteBuild: []string{"android", "ios"},
+			path:                      "kmp-minimal",
+			wantBuildSystem:           "Kotlin Multiplatform",
+			wantPlatforms:             []string{"android", "ios"},
+			wantConcreteBuild:         []string{"android", "ios"},
+			wantCanonicalBuildOmitted: true,
 		},
 	}
 
@@ -112,52 +109,48 @@ func TestInternalAppOnboardingFixtures(t *testing.T) {
 			revylDir := filepath.Join(workDir, ".revyl")
 			configPath := filepath.Join(revylDir, "config.yaml")
 
-			cfg, err := wizardProjectSetup(workDir, revylDir, configPath, overrideOpts)
+			var cfg *initConfigDraft
+			output := captureStdoutAndStderr(t, func() {
+				cfg, err = wizardProjectSetup(workDir, revylDir, configPath, overrideOpts)
+			})
 			if err != nil {
 				t.Fatalf("wizardProjectSetup(%s) error = %v", tt.path, err)
 			}
+			if tt.wantCanonicalBuildOmitted {
+				if !strings.Contains(output, "Writing project and session configuration only; no build profiles were added.") {
+					t.Fatalf("missing unsupported-framework guidance:\n%s", output)
+				}
+				if strings.Contains(output, "build.platforms") || !strings.Contains(output, "project config") {
+					t.Fatalf("mixed native guidance must use project/profile terminology:\n%s", output)
+				}
+				data, readErr := os.ReadFile(configPath)
+				if readErr != nil {
+					t.Fatalf("ReadFile(config.yaml) error = %v", readErr)
+				}
+				authored, parseErr := config.ParseAuthoredConfig(data)
+				if parseErr != nil {
+					t.Fatalf("ParseAuthoredConfig() error = %v", parseErr)
+				}
+				if authored.Build != nil {
+					t.Fatalf("canonical build = %+v, want omitted", authored.Build)
+				}
+			}
 
-			if cfg.Build.System != tt.wantBuildSystem {
-				t.Fatalf("build.system = %q, want %q", cfg.Build.System, tt.wantBuildSystem)
+			if cfg.Build.DetectedSystem.String() != tt.wantBuildSystem {
+				t.Fatalf("build.system = %q, want %q", cfg.Build.DetectedSystem.String(), tt.wantBuildSystem)
 			}
 
 			for _, platform := range tt.wantPlatforms {
-				if _, ok := cfg.Build.Platforms[platform]; !ok {
-					t.Fatalf("missing platform %q in %+v", platform, cfg.Build.Platforms)
+				if _, ok := cfg.Build.Recipes[platform]; !ok {
+					t.Fatalf("missing platform %q in %+v", platform, cfg.Build.Recipes)
 				}
 			}
 
 			for _, platform := range tt.wantConcreteBuild {
-				got := cfg.Build.Platforms[platform]
-				if got.Command == "" || got.Output == "" {
+				got := cfg.Build.Recipes[platform]
+				if got.primaryBuildCommand() == "" || got.OutputPath == "" {
 					t.Fatalf("platform %q should be concrete, got %+v", platform, got)
 				}
-			}
-
-			ready := wizardHotReloadSetup(context.Background(), nil, cfg, configPath, workDir, false, overrideOpts, "")
-			if tt.wantHotReload == "" {
-				if ready {
-					t.Fatalf("wizardHotReloadSetup(%s) = true, want rebuild-only false", tt.path)
-				}
-				if cfg.HotReload.IsConfigured() {
-					t.Fatalf("hotreload should not be configured for %s", tt.path)
-				}
-				return
-			}
-
-			if !ready {
-				t.Fatalf("wizardHotReloadSetup(%s) = false, want true", tt.path)
-			}
-			if cfg.HotReload.Default != tt.wantHotReload {
-				t.Fatalf("hotreload.default = %q, want %q", cfg.HotReload.Default, tt.wantHotReload)
-			}
-
-			providerCfg := cfg.HotReload.GetProviderConfig(tt.wantHotReload)
-			if providerCfg == nil {
-				t.Fatalf("missing provider config for %s", tt.wantHotReload)
-			}
-			if tt.wantAppScheme != "" && providerCfg.AppScheme != tt.wantAppScheme {
-				t.Fatalf("provider app scheme = %q, want %q", providerCfg.AppScheme, tt.wantAppScheme)
 			}
 		})
 	}

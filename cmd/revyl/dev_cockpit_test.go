@@ -95,6 +95,12 @@ func TestDevCockpitRoutesAndTokenEnforcement(t *testing.T) {
 	if snapshot.Context != "default" {
 		t.Fatalf("context = %q, want default", snapshot.Context)
 	}
+	if snapshot.Profile != "development" {
+		t.Fatalf("profile = %q, want development", snapshot.Profile)
+	}
+	if snapshot.PlatformKey != "ios-dev" {
+		t.Fatalf("platform_key = %q, want ios-dev", snapshot.PlatformKey)
+	}
 	if snapshot.ViewerURL != "https://app.revyl.ai/sessions/sess-123" {
 		t.Fatalf("viewer_url = %q", snapshot.ViewerURL)
 	}
@@ -115,6 +121,9 @@ func TestDevCockpitRoutesAndTokenEnforcement(t *testing.T) {
 	}
 	if !strings.Contains(snapshot.AgentContext, "Revyl dev context: default") {
 		t.Fatalf("agent_context missing context: %q", snapshot.AgentContext)
+	}
+	if !strings.Contains(snapshot.AgentContext, "Profile: development") {
+		t.Fatalf("agent_context missing profile: %q", snapshot.AgentContext)
 	}
 	if !strings.Contains(snapshot.AgentContext, "Rebuild command: revyl dev rebuild --wait --json") {
 		t.Fatalf("agent_context missing rebuild command: %q", snapshot.AgentContext)
@@ -260,6 +269,7 @@ func TestDevCockpitFailureGuidance(t *testing.T) {
 	for _, expected := range []string{
 		"Revyl dev context: default",
 		"Session: sess-123",
+		"Profile: development",
 		"Platform: ios / ios-dev",
 		"Rebuild command: revyl dev rebuild --wait --json",
 		`Latest error: platform "" not found in config`,
@@ -410,6 +420,7 @@ func seedDevCockpitContext(t *testing.T) string {
 	ctxMeta := &DevContext{
 		Name:          "default",
 		Platform:      "ios",
+		Profile:       "development",
 		PlatformKey:   "ios-dev",
 		Provider:      "expo",
 		SessionID:     "sess-123",

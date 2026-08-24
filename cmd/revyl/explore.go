@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -420,15 +419,54 @@ func resolveExploreApp(
 	if err != nil {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
-	projectRoot, err := config.FindProjectRoot(cwd)
+	project, err := config.ResolveProjectContext(cwd, "")
 	if err != nil {
-		return nil, fmt.Errorf("no app supplied and project config could not be resolved: %w", err)
+		return nil, actionableLocalConfigError(err)
 	}
-	cfg, err := config.LoadProjectConfig(filepath.Join(projectRoot, ".revyl", "config.yaml"))
+	return resolveCanonicalConfiguredExploreApp(ctx, client, project, platform)
+}
+
+func resolveCanonicalConfiguredExploreApp(
+	ctx context.Context,
+	client exploreAPI,
+	project *config.ProjectContext,
+	platform string,
+) (*api.App, error) {
+	appID := ""
+	if platform != "" {
+		var err error
+		appID, err = execution.ResolveCanonicalConfiguredAppID(project, platform)
+		if err != nil {
+			return nil, fmt.Errorf("%w; pass --platform %s with an explicit app name or ID", err, platform)
+		}
+		if appID == "" {
+			return nil, fmt.Errorf("no configured app for platform %s; pass an app name or ID", platform)
+		}
+	} else {
+		configured := make(map[string]struct{})
+		for _, profile := range project.Aggregate.Profiles {
+			for _, recipe := range profile.Configurations {
+				if recipe.AppID != nil && strings.TrimSpace(*recipe.AppID) != "" {
+					configured[strings.TrimSpace(*recipe.AppID)] = struct{}{}
+				}
+			}
+		}
+		if len(configured) == 0 {
+			return nil, fmt.Errorf("no configured app found; pass an app name or ID")
+		}
+		if len(configured) > 1 {
+			return nil, fmt.Errorf("multiple configured apps found; pass --platform ios|android or an app name or ID")
+		}
+		for configuredAppID := range configured {
+			appID = configuredAppID
+		}
+	}
+
+	app, err := client.GetApp(ctx, appID)
 	if err != nil {
-		return nil, fmt.Errorf("load project config: %w", err)
+		return nil, fmt.Errorf("resolve configured app %s: %w", appID, err)
 	}
-	return resolveConfiguredExploreApp(ctx, client, cfg, platform)
+	return app, nil
 }
 
 func resolveConfiguredExploreApp(

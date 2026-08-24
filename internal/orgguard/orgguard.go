@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/revyl/cli/internal/api"
@@ -48,12 +47,12 @@ func (e *MismatchError) UserMessage() string {
 	)
 }
 
-// Check resolves org mismatch state for the given working directory.
-//
-// The check is intentionally best-effort and non-blocking by default:
-//   - Missing config, parse failures, missing project org binding, missing auth token,
-//     or auth-org lookup failures all return a non-mismatch result.
-func Check(ctx context.Context, cwd string, devMode bool) *CheckResult {
+// Check resolves the canonical project for the given working directory.
+// Canonical project files intentionally have no client-authored organization
+// binding; project ownership is enforced by the server using project.id.
+// The legacy mismatch result therefore remains empty while source-compatible
+// callers transition away from this pre-canonical helper.
+func Check(_ context.Context, cwd string, _ bool) *CheckResult {
 	result := &CheckResult{}
 
 	if strings.TrimSpace(cwd) == "" {
@@ -64,53 +63,17 @@ func Check(ctx context.Context, cwd string, devMode bool) *CheckResult {
 		cwd = wd
 	}
 
-	cwd = filepath.Clean(cwd)
-	configPath := filepath.Join(cwd, ConfigRelPath)
-	result.ConfigPath = configPath
-
-	if _, err := os.Stat(configPath); err != nil {
-		return result
-	}
-	result.ConfigExists = true
-
-	cfg, err := config.LoadProjectConfig(configPath)
+	fileContext, err := config.ResolveConfigFileContext(cwd, "")
 	if err != nil {
 		return result
 	}
+	result.ConfigPath = fileContext.ConfigPath
+	result.ConfigExists = true
+
+	if _, err := config.ParseAuthoredConfig(fileContext.OriginalBytes); err != nil {
+		return result
+	}
 	result.ConfigParsed = true
-
-	projectOrgID := strings.TrimSpace(cfg.Project.OrgID)
-	result.ProjectOrgID = projectOrgID
-	if projectOrgID == "" {
-		return result
-	}
-
-	mgr := auth.NewManager()
-	token, err := mgr.GetActiveToken()
-	if err != nil || strings.TrimSpace(token) == "" {
-		return result
-	}
-
-	client := api.NewClientWithDevMode(token, devMode)
-	userInfo, err := client.ValidateAPIKey(ctx)
-	if err != nil || userInfo == nil {
-		return result
-	}
-
-	authOrgID := strings.TrimSpace(userInfo.OrgID)
-	result.AuthOrgID = authOrgID
-	if authOrgID == "" {
-		return result
-	}
-
-	if authOrgID != projectOrgID {
-		result.Mismatch = &MismatchError{
-			ProjectOrgID: projectOrgID,
-			AuthOrgID:    authOrgID,
-			ConfigPath:   configPath,
-		}
-	}
-
 	return result
 }
 
@@ -119,7 +82,6 @@ const resolveCreateOrgIDHint = "run 'revyl auth login' to refresh credentials or
 // ResolveCreateOrgID determines which org_id should be sent when creating tests.
 //
 // Resolution order:
-//   - project.org_id from .revyl/config.yaml
 //   - live org_id from ValidateAPIKey using the active token/client
 //   - file-backed credentials org_id from ~/.revyl/credentials.json
 //
@@ -127,13 +89,7 @@ const resolveCreateOrgIDHint = "run 'revyl auth login' to refresh credentials or
 // already block on mismatches should keep doing so; this only resolves the org
 // to include in create requests and returns an actionable error when no org can
 // be determined.
-func ResolveCreateOrgID(ctx context.Context, client *api.Client, cfg *config.ProjectConfig) (string, error) {
-	if cfg != nil {
-		if orgID := strings.TrimSpace(cfg.Project.OrgID); orgID != "" {
-			return orgID, nil
-		}
-	}
-
+func ResolveCreateOrgID(ctx context.Context, client *api.Client, _ *config.ProjectConfig) (string, error) {
 	if client == nil {
 		mgr := auth.NewManager()
 		if creds, err := mgr.GetFileCredentials(); err == nil && creds != nil {

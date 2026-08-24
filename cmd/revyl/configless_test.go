@@ -94,6 +94,8 @@ func TestRunTestsPush_BootstrapsConfigWithoutProjectConfig(t *testing.T) {
 	t.Setenv("REVYL_BACKEND_URL", server.URL)
 
 	tmp := t.TempDir()
+	gitInitBuildRepository(t, tmp)
+	writeProjectBuildConfig(t, tmp, "project:\n  id: 11111111-1111-4111-8111-111111111111\n")
 	withWorkingDir(t, tmp)
 
 	testsDir := filepath.Join(tmp, ".revyl", "tests")
@@ -178,6 +180,8 @@ func TestRunTestsPush_StopsWhenBackendYAMLValidationFails(t *testing.T) {
 	t.Setenv("REVYL_BACKEND_URL", server.URL)
 
 	tmp := t.TempDir()
+	gitInitBuildRepository(t, tmp)
+	writeProjectBuildConfig(t, tmp, "project:\n  id: 11111111-1111-4111-8111-111111111111\n")
 	withWorkingDir(t, tmp)
 	testsDir := filepath.Join(tmp, ".revyl", "tests")
 	if err := os.MkdirAll(testsDir, 0o755); err != nil {
@@ -210,6 +214,8 @@ func TestRunTestsPushDryRun_WorksWithoutProjectConfig(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
 
 	tmp := t.TempDir()
+	gitInitBuildRepository(t, tmp)
+	writeProjectBuildConfig(t, tmp, "project:\n  id: 11111111-1111-4111-8111-111111111111\n")
 	withWorkingDir(t, tmp)
 
 	testsDir := filepath.Join(tmp, ".revyl", "tests")
@@ -233,8 +239,8 @@ func TestRunTestsPushDryRun_WorksWithoutProjectConfig(t *testing.T) {
 		t.Fatalf("runTestsPush() error = %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(tmp, ".revyl", "config.yaml")); !os.IsNotExist(err) {
-		t.Fatalf("config file unexpectedly created during dry-run: %v", err)
+	if _, err := os.Stat(filepath.Join(tmp, ".revyl", "config.yaml")); err != nil {
+		t.Fatalf("canonical config missing after dry-run: %v", err)
 	}
 }
 
@@ -271,12 +277,13 @@ func TestRunTestExec_ResolvesRemoteNameWithoutProjectConfig(t *testing.T) {
 	})
 
 	resolvedID := ""
+	executionResult := &execution.RunTestResult{
+		TaskID:    "task-123",
+		ReportURL: "https://app.example/report/task-123",
+	}
 	runTestExecution = func(ctx context.Context, apiKey string, cfg *config.ProjectConfig, params execution.RunTestParams) (*execution.RunTestResult, error) {
 		resolvedID = params.TestNameOrID
-		return &execution.RunTestResult{
-			TaskID:    "task-123",
-			ReportURL: "https://app.example/report/task-123",
-		}, nil
+		return executionResult, nil
 	}
 	runNoWait = true
 	runOpen = false
@@ -295,5 +302,8 @@ func TestRunTestExec_ResolvesRemoteNameWithoutProjectConfig(t *testing.T) {
 	}
 	if resolvedID != "test-uuid-001" {
 		t.Fatalf("resolved test id = %q, want test-uuid-001", resolvedID)
+	}
+	if executionResult.TestName != "Login Flow" {
+		t.Fatalf("result test name = %q, want Login Flow", executionResult.TestName)
 	}
 }

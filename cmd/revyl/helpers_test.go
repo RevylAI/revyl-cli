@@ -110,6 +110,7 @@ func TestValidateResourceName(t *testing.T) {
 		{name: "reserved word create", input: "create", kind: "test", wantError: true},
 		{name: "reserved word delete", input: "delete", kind: "test", wantError: true},
 		{name: "reserved word list", input: "list", kind: "test", wantError: true},
+		{name: "reserved word sync", input: "sync", kind: "test", wantError: true},
 		{name: "reserved word rename", input: "rename", kind: "test", wantError: true},
 		{name: "reserved word help", input: "help", kind: "test", wantError: true},
 		{name: "workflow kind", input: "smoke-tests", kind: "workflow", wantError: false},
@@ -146,6 +147,8 @@ func TestValidateResourceNameMaxLength(t *testing.T) {
 func TestResolveTestID_PrioritizesAliasAndUUID(t *testing.T) {
 	t.Run("local yaml alias", func(t *testing.T) {
 		tmp := t.TempDir()
+		gitInitBuildRepository(t, tmp)
+		writeProjectBuildConfig(t, tmp, "project:\n  id: 11111111-1111-4111-8111-111111111111\n")
 		testsDir := filepath.Join(tmp, ".revyl", "tests")
 		if err := os.MkdirAll(testsDir, 0o755); err != nil {
 			t.Fatalf("MkdirAll: %v", err)
@@ -242,6 +245,8 @@ func TestResolveTestID_SearchesAllRemotePages(t *testing.T) {
 	defer server.Close()
 
 	client := api.NewClientWithBaseURL("test-key", server.URL)
+	standalone := t.TempDir()
+	withWorkingDir(t, standalone)
 
 	testID, testName, err := resolveTestID(context.Background(), "remote-target", nil, client)
 	if err != nil {

@@ -39,7 +39,14 @@ func printExpoSchemePreflightError(err error) {
 }
 
 func ensureExpoDevClientSchemeForBuild(cwd string, cfg *config.ProjectConfig) (bool, error) {
-	if cfg == nil || !isExpoBuildSystem(cfg.Build.System) {
+	if cfg == nil {
+		return false, nil
+	}
+	return ensureExpoDevClientScheme(cwd, &cfg.Build, &cfg.HotReload)
+}
+
+func ensureExpoDevClientScheme(cwd string, build *config.BuildConfig, hotReload *config.HotReloadConfig) (bool, error) {
+	if build == nil || hotReload == nil || !isExpoBuildSystem(build.System) {
 		return false, nil
 	}
 
@@ -48,7 +55,7 @@ func ensureExpoDevClientSchemeForBuild(cwd string, cfg *config.ProjectConfig) (b
 		return false, err
 	}
 
-	expoCfg := cfg.HotReload.GetProviderConfig("expo")
+	expoCfg := hotReload.GetProviderConfig("expo")
 	revylScheme := ""
 	if expoCfg != nil {
 		revylScheme = strings.TrimSpace(expoCfg.AppScheme)
@@ -59,17 +66,17 @@ func ensureExpoDevClientSchemeForBuild(cwd string, cfg *config.ProjectConfig) (b
 			return false, newExpoSchemeMismatchError(native.scheme, revylScheme)
 		}
 		if revylScheme == "" {
-			if cfg.HotReload.Providers == nil {
-				cfg.HotReload.Providers = make(map[string]*config.ProviderConfig)
+			if hotReload.Providers == nil {
+				hotReload.Providers = make(map[string]*config.ProviderConfig)
 			}
 			if expoCfg == nil {
 				expoCfg = &config.ProviderConfig{}
 			}
 			expoCfg.AppScheme = native.scheme
 			expoCfg.UseExpPrefix = native.useExpPrefix
-			cfg.HotReload.Providers["expo"] = expoCfg
-			if strings.TrimSpace(cfg.HotReload.Default) == "" {
-				cfg.HotReload.Default = "expo"
+			hotReload.Providers["expo"] = expoCfg
+			if strings.TrimSpace(hotReload.Default) == "" {
+				hotReload.Default = "expo"
 			}
 			if native.useExpPrefix {
 				ui.PrintDim("Detected generated Expo dev-client scheme %q from app.json slug and saved it for hot reload.", "exp+"+native.scheme)
@@ -118,7 +125,7 @@ func detectExpoNativeScheme(cwd string) (expoNativeScheme, error) {
 			summary: "Could not read Expo app.json before creating a dev build",
 			details: []string{
 				fmt.Sprintf("Revyl tried to inspect %s to find expo.scheme.", appJSONPath),
-				fmt.Sprintf("Fix the file read error, or pass the scheme explicitly with: revyl init --provider expo --hotreload-app-scheme <scheme>"),
+				"Fix the file read error, or configure a unique scheme in the Expo app config and rerun revyl init --detect",
 			},
 		}
 	}
@@ -190,20 +197,20 @@ func newMissingExpoSchemeError(native expoNativeScheme) *expoSchemePreflightErro
 		details = append(details,
 			"Revyl could not auto-detect it because this project uses app.config.js or app.config.ts.",
 			"Set the same scheme in your Expo config and in Revyl before building:",
-			"  revyl init --provider expo --hotreload-app-scheme myapp-dev",
+			"  configure a unique scheme in the Expo app config, then run revyl init --detect",
 		)
 	} else if native.hasAppJSON {
 		details = append(details,
 			"Add a scheme to app.json before creating the dev build:",
 			`  { "expo": { "scheme": "myapp-dev" } }`,
 			"Then re-run:",
-			"  revyl init --provider expo --hotreload-app-scheme myapp-dev",
+			"  configure a unique scheme in the Expo app config, then run revyl init --detect",
 		)
 	} else {
 		details = append(details,
 			"Revyl could not find app.json to auto-detect expo.scheme.",
 			"Add a scheme to your Expo config and tell Revyl the same value:",
-			"  revyl init --provider expo --hotreload-app-scheme myapp-dev",
+			"  configure a unique scheme in the Expo app config, then run revyl init --detect",
 		)
 	}
 
@@ -224,7 +231,7 @@ func newExpoSchemeMismatchError(nativeScheme, revylScheme string) *expoSchemePre
 		details: []string{
 			fmt.Sprintf("app.json expo.scheme is %q, but .revyl/config.yaml hotreload.providers.expo.app_scheme is %q.", nativeScheme, revylScheme),
 			"These must match so the installed dev client can handle the deep link Revyl opens for hot reload.",
-			fmt.Sprintf("Use one value, then run: revyl init --provider expo --hotreload-app-scheme %s", nativeScheme),
+			fmt.Sprintf("Use one value in the Expo app config (for example %s), then run revyl init --detect", nativeScheme),
 		},
 	}
 }

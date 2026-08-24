@@ -9,13 +9,21 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+)
 
-	"github.com/revyl/cli/internal/build"
-	"github.com/revyl/cli/internal/config"
+type setupAction string
+
+const (
+	setupActionLogin             setupAction = "login"
+	setupActionRetryAPI          setupAction = "retry_api"
+	setupActionInitializeProject setupAction = "initialize_project"
+	setupActionMigrateProject    setupAction = "migrate_project"
+	setupActionLinkApp           setupAction = "link_app"
+	setupActionBuild             setupAction = "build"
+	setupActionCreateTest        setupAction = "create_test"
 )
 
 // deriveSetupSteps maps health check results and project config state to an
@@ -23,11 +31,10 @@ import (
 //
 // Parameters:
 //   - checks: the health check results from runHealthChecksCmd
-//   - cfg: the project config (may be nil if not yet initialized)
 //
 // Returns:
 //   - []SetupStep: ordered setup steps with status derived from checks
-func deriveSetupSteps(checks []HealthCheck, cfg *config.ProjectConfig) []SetupStep {
+func deriveSetupSteps(checks []HealthCheck) []SetupStep {
 	steps := make([]SetupStep, 6)
 
 	// Helper to find a check by name.
@@ -44,62 +51,75 @@ func deriveSetupSteps(checks []HealthCheck, cfg *config.ProjectConfig) []SetupSt
 	authCheck := findCheck("Authentication")
 	authDone := authCheck != nil && authCheck.Status == "ok"
 	if authDone {
-		steps[0] = SetupStep{Label: "Log in", Status: "done", Message: "authenticated"}
+		steps[0] = SetupStep{Label: "Log in", Status: "done", Message: "authenticated", Action: setupActionLogin}
 	} else {
 		// Keep setup focused on authentication until login is complete.
 		return []SetupStep{
-			{Label: "Log in", Status: "current", Message: "enter: browser login  a: API key login"},
+			{Label: "Log in", Status: "current", Message: "enter: browser login  a: API key login", Action: setupActionLogin},
 		}
 	}
 
 	// Step 2: API connectivity
 	apiCheck := findCheck("API Connection")
 	if apiCheck != nil && apiCheck.Status == "ok" {
-		steps[1] = SetupStep{Label: "Connect to API", Status: "done", Message: "connected"}
+		steps[1] = SetupStep{Label: "Connect to API", Status: "done", Message: "connected", Action: setupActionRetryAPI}
 	} else if steps[0].Status != "done" {
-		steps[1] = SetupStep{Label: "Connect to API", Status: "blocked", Message: "requires step 1"}
+		steps[1] = SetupStep{Label: "Connect to API", Status: "blocked", Message: "requires step 1", Action: setupActionRetryAPI}
 	} else {
-		steps[1] = SetupStep{Label: "Connect to API", Status: "current", Message: "press enter to retry"}
+		steps[1] = SetupStep{Label: "Connect to API", Status: "current", Message: "press enter to retry", Action: setupActionRetryAPI}
 	}
 
 	// Step 3: Project config
 	configCheck := findCheck("Project Config")
 	if configCheck != nil && configCheck.Status == "ok" {
-		steps[2] = SetupStep{Label: "Initialize project", Status: "done", Message: "configured"}
+		steps[2] = SetupStep{Label: "Initialize project", Status: "done", Message: "configured", Action: setupActionInitializeProject}
+	} else if configCheck != nil && (configCheck.Code == "legacy_config_requires_migration" || configCheck.Code == "mixed_config_formats") {
+		steps[2] = SetupStep{
+			Label:   "Migrate project config",
+			Status:  "current",
+			Message: "enter: review proposal and confirm",
+			Action:  setupActionMigrateProject,
+		}
+	} else if configCheck != nil && configCheck.Code == "nested_project_selection_required" {
+		steps[2] = SetupStep{
+			Label:   "Select nested project",
+			Status:  "blocked",
+			Message: configCheck.Message,
+		}
 	} else if steps[1].Status != "done" {
-		steps[2] = SetupStep{Label: "Initialize project", Status: "blocked", Message: "requires step 2"}
+		steps[2] = SetupStep{Label: "Initialize project", Status: "blocked", Message: "requires step 2", Action: setupActionInitializeProject}
 	} else {
-		steps[2] = SetupStep{Label: "Initialize project", Status: "current", Message: "press enter to set up"}
+		steps[2] = SetupStep{Label: "Initialize project", Status: "current", Message: "press enter to set up", Action: setupActionInitializeProject}
 	}
 
 	// Step 4: App linked
 	appCheck := findCheck("App Linked")
 	if appCheck != nil && appCheck.Status == "ok" {
-		steps[3] = SetupStep{Label: "Link or create an app", Status: "done", Message: "app linked"}
+		steps[3] = SetupStep{Label: "Link or create an app", Status: "done", Message: "app linked", Action: setupActionLinkApp}
 	} else if steps[2].Status != "done" {
-		steps[3] = SetupStep{Label: "Link or create an app", Status: "blocked", Message: "requires step 3"}
+		steps[3] = SetupStep{Label: "Link or create an app", Status: "blocked", Message: "requires step 3", Action: setupActionLinkApp}
 	} else {
-		steps[3] = SetupStep{Label: "Link or create an app", Status: "current", Message: "press enter to set up"}
+		steps[3] = SetupStep{Label: "Link or create an app", Status: "current", Message: "press enter to set up", Action: setupActionLinkApp}
 	}
 
 	// Step 5: Build uploaded
 	buildCheck := findCheck("Build Uploaded")
 	if buildCheck != nil && buildCheck.Status == "ok" {
-		steps[4] = SetupStep{Label: "Build and upload", Status: "done", Message: "build available"}
+		steps[4] = SetupStep{Label: "Build and upload", Status: "done", Message: "build available", Action: setupActionBuild}
 	} else if steps[3].Status != "done" {
-		steps[4] = SetupStep{Label: "Build and upload", Status: "blocked", Message: "requires step 4"}
+		steps[4] = SetupStep{Label: "Build and upload", Status: "blocked", Message: "requires step 4", Action: setupActionBuild}
 	} else {
-		steps[4] = SetupStep{Label: "Build and upload", Status: "hint", Message: "revyl build --platform <platform>"}
+		steps[4] = SetupStep{Label: "Build and upload", Status: "hint", Message: "revyl build --platform <platform>", Action: setupActionBuild}
 	}
 
 	// Step 6: First test
 	testCheck := findCheck("Tests Configured")
 	if testCheck != nil && testCheck.Status == "ok" {
-		steps[5] = SetupStep{Label: "Create your first test", Status: "done", Message: "tests configured"}
+		steps[5] = SetupStep{Label: "Create your first test", Status: "done", Message: "tests configured", Action: setupActionCreateTest}
 	} else if steps[3].Status != "done" {
-		steps[5] = SetupStep{Label: "Create your first test", Status: "blocked", Message: "requires step 4"}
+		steps[5] = SetupStep{Label: "Create your first test", Status: "blocked", Message: "requires step 4", Action: setupActionCreateTest}
 	} else {
-		steps[5] = SetupStep{Label: "Create your first test", Status: "current", Message: "press enter to create"}
+		steps[5] = SetupStep{Label: "Create your first test", Status: "current", Message: "press enter to create", Action: setupActionCreateTest}
 	}
 
 	return steps
@@ -199,25 +219,28 @@ func executeSetupStep(m hubModel, steps []SetupStep, stepIndex int) (hubModel, t
 		return m, nil
 	}
 
-	switch stepIndex {
-	case 0:
+	switch step.Action {
+	case setupActionLogin:
 		// Step 1: Auth -- shell out to revyl auth login
 		m.returnToDashboardAfterAuth = true
 		return m, tea.ExecProcess(authLoginCmd(false), func(err error) tea.Msg {
-			return SetupActionMsg{StepIndex: 0, Err: err}
+			return SetupActionMsg{Action: setupActionLogin, Err: err}
 		})
 
-	case 1:
+	case setupActionRetryAPI:
 		// Step 2: API -- just re-run health checks
 		m.healthLoading = true
 		m.healthChecks = nil
 		return m, runHealthChecksCmd(m.devMode, m.client)
 
-	case 2:
+	case setupActionInitializeProject:
 		// Step 3: Init project inline
 		return m, initProjectCmd()
 
-	case 3:
+	case setupActionMigrateProject:
+		return m, runProjectConfigMigrationCmd(m.devMode)
+
+	case setupActionLinkApp:
 		// Step 4: Link app -- transition to app list screen
 		m.currentView = viewAppList
 		m.appCursor = 0
@@ -227,15 +250,19 @@ func executeSetupStep(m hubModel, steps []SetupStep, stepIndex int) (hubModel, t
 		}
 		return m, nil
 
-	case 4:
+	case setupActionBuild:
 		// Step 5: Build upload -- hint-only, no inline action.
 		// The hint message already shows the CLI command. This is a no-op
 		// acknowledgement so the user sees the command they need to run.
 		return m, nil
 
-	case 5:
+	case setupActionCreateTest:
 		// Step 6: Create test -- transition to create test screen
-		cm := newCreateModel(m.apiKey, m.devMode, m.client, m.cfg, m.width, m.height)
+		cm, err := newCurrentProjectCreateModel(m.apiKey, m.devMode, m.client, m.width, m.height)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
 		m.createModel = &cm
 		m.currentView = viewCreateTest
 		return m, m.createModel.Init()
@@ -259,47 +286,27 @@ func authLoginCmd(useAPIKey bool) *exec.Cmd {
 	return exec.Command(exe, "auth", "login")
 }
 
-// initProjectCmd creates the .revyl/ directory and config.yaml by detecting the
-// build system in the current working directory.
+// initProjectCmd delegates to the canonical non-interactive init command. That
+// command owns Git-worktree validation, detection, and config persistence.
 //
 // Returns:
 //   - tea.Cmd: command that produces a SetupActionMsg
 func initProjectCmd() tea.Cmd {
 	return func() tea.Msg {
-		cwd, err := os.Getwd()
+		exe, err := os.Executable()
 		if err != nil {
-			return SetupActionMsg{StepIndex: 2, Err: fmt.Errorf("failed to get working directory: %w", err)}
+			exe = "revyl"
 		}
-
-		revylDir := filepath.Join(cwd, ".revyl")
-		if err := os.MkdirAll(revylDir, 0o755); err != nil {
-			return SetupActionMsg{StepIndex: 2, Err: fmt.Errorf("failed to create .revyl directory: %w", err)}
-		}
-		testsDir := filepath.Join(revylDir, "tests")
-		if err := os.MkdirAll(testsDir, 0o755); err != nil {
-			return SetupActionMsg{StepIndex: 2, Err: fmt.Errorf("failed to create tests directory: %w", err)}
-		}
-
-		// Detect build system
-		detected, _ := build.Detect(cwd)
-		cfg := &config.ProjectConfig{}
-		if detected.System != build.SystemUnknown {
-			cfg.Build.System = detected.System.String()
-			cfg.Build.Platforms = make(map[string]config.BuildPlatform)
-			for name, bp := range detected.Platforms {
-				cfg.Build.Platforms[name] = config.BuildPlatform{
-					Command: bp.Command,
-					Output:  bp.Output,
-				}
+		output, err := exec.Command(exe, "init", "--non-interactive").CombinedOutput()
+		if err != nil {
+			detail := strings.TrimSpace(string(output))
+			if detail == "" {
+				detail = err.Error()
 			}
+			return SetupActionMsg{Action: setupActionInitializeProject, Err: fmt.Errorf("project initialization failed: %s", detail)}
 		}
 
-		configPath := filepath.Join(revylDir, "config.yaml")
-		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-			return SetupActionMsg{StepIndex: 2, Err: fmt.Errorf("failed to write config: %w", err)}
-		}
-
-		return SetupActionMsg{StepIndex: 2, Err: nil}
+		return SetupActionMsg{Action: setupActionInitializeProject, Err: nil}
 	}
 }
 

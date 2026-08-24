@@ -1,341 +1,238 @@
-// Package main provides project settings commands for .revyl/config.yaml.
+// Package main provides project configuration commands for .revyl/config.yaml.
 package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/ui"
 )
 
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "View and edit project settings",
-	Long: `View and edit local project settings in .revyl/config.yaml.
+	Short: "Inspect and synchronize project configuration",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		return cmd.Help()
+	},
+	Long: `Inspect, validate, migrate, pull, and publish .revyl/config.yaml.
 
 EXAMPLES:
   revyl config path
   revyl config show
-  revyl config set open-browser false
-  revyl config set timeout 900`,
+  revyl config validate
+  revyl config migrate --check
+  revyl config push
+  revyl config pull
+  revyl config authorize-cursor-proof`,
 }
 
 var configPathCmd = &cobra.Command{
 	Use:   "path",
-	Short: "Show project config path",
+	Short: "Show the selected project config path",
+	Args:  cobra.NoArgs,
 	RunE:  runConfigPath,
 }
 
 var configShowCmd = &cobra.Command{
 	Use:   "show",
-	Short: "Show project settings",
+	Short: "Show the selected project configuration",
+	Args:  cobra.NoArgs,
 	RunE:  runConfigShow,
-}
-
-var configSetCmd = &cobra.Command{
-	Use:   "set <key> <value>",
-	Short: "Set a project setting",
-	Long: `Set a project setting.
-
-Supported keys:
-  open-browser                true|false
-  timeout                     positive integer seconds
-  hotreload.provider          expo|react-native|swift|android
-  hotreload.app-scheme        URL scheme (e.g. myapp)
-  hotreload.port              dev server port (e.g. 8081)
-  hotreload.use-exp-prefix    true|false`,
-	Args: cobra.ExactArgs(2),
-	RunE: runConfigSet,
-}
-
-var configEditCmd = &cobra.Command{
-	Use:   "edit",
-	Short: "Open config in your editor",
-	RunE:  runConfigEdit,
 }
 
 func init() {
 	configCmd.AddCommand(configPathCmd)
 	configCmd.AddCommand(configShowCmd)
-	configCmd.AddCommand(configSetCmd)
-	configCmd.AddCommand(configEditCmd)
 }
 
-func projectConfigPath() (string, error) {
+type configPathOutput struct {
+	Path string `json:"path"`
+}
+
+type configShowOutput struct {
+	Path                          string                `json:"path"`
+	RepositoryRelativeProjectRoot string                `json:"repository_relative_project_root"`
+	Configuration                 config.AuthoredConfig `json:"configuration"`
+}
+
+var resolveLocalConfigFileContext = config.ResolveConfigFileContext
+
+func runConfigPath(cmd *cobra.Command, _ []string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("failed to get current directory: %w", err)
+		return fmt.Errorf("get working directory: %w", err)
 	}
-
-	root := cwd
-	if repoRoot, findErr := config.FindRepoRoot(cwd); findErr == nil {
-		root = repoRoot
+	local, err := resolveLocalConfigFileContext(cwd, "")
+	if err != nil {
+		return actionableLocalConfigError(err)
 	}
-
-	return filepath.Join(root, ".revyl", "config.yaml"), nil
+	if projectConfigurationJSON(cmd) {
+		return json.NewEncoder(os.Stdout).Encode(configPathOutput{Path: local.ConfigPath})
+	}
+	_, err = fmt.Fprintln(os.Stdout, local.ConfigPath)
+	return err
 }
 
-func loadProjectConfigForCommand() (string, *config.ProjectConfig, error) {
-	configPath, err := projectConfigPath()
+func runConfigShow(cmd *cobra.Command, _ []string) error {
+	local, err := resolveLocalProjectConfiguration()
 	if err != nil {
-		return "", nil, err
+		return actionableLocalConfigError(err)
 	}
-
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to load %s: %w\nrun 'revyl init' first", configPath, err)
+	if projectConfigurationJSON(cmd) {
+		return json.NewEncoder(os.Stdout).Encode(configShowOutput{
+			Path:                          local.ConfigPath,
+			RepositoryRelativeProjectRoot: local.RepositoryRelativeProjectRoot,
+			Configuration:                 *local.Authored,
+		})
 	}
-	return configPath, cfg, nil
+	if _, err := os.Stdout.Write(local.OriginalBytes); err != nil {
+		return fmt.Errorf("show project configuration: %w", err)
+	}
+	if len(local.OriginalBytes) == 0 || local.OriginalBytes[len(local.OriginalBytes)-1] != '\n' {
+		_, err = fmt.Fprintln(os.Stdout)
+	}
+	return err
 }
 
-func runConfigPath(cmd *cobra.Command, args []string) error {
-	configPath, err := projectConfigPath()
-	if err != nil {
-		return err
-	}
-	fmt.Println(configPath)
-	return nil
+func actionableLocalConfigError(err error) error {
+	return analytics.WithSafeDiagnostic(
+		actionableLocalConfigMessage(err),
+		"project configuration could not be used",
+	)
 }
 
-func runConfigShow(cmd *cobra.Command, args []string) error {
-	configPath, cfg, err := loadProjectConfigForCommand()
-	if err != nil {
-		return err
-	}
-
-	jsonOutput, _ := cmd.Root().PersistentFlags().GetBool("json")
-	if localJSON, _ := cmd.Flags().GetBool("json"); localJSON {
-		jsonOutput = true
-	}
-
-	openBrowser := config.EffectiveOpenBrowser(cfg)
-	timeout := config.EffectiveTimeoutSeconds(cfg, config.DefaultTimeoutSeconds)
-
-	if jsonOutput {
-		out := map[string]interface{}{
-			"path": configPath,
-			"project": map[string]interface{}{
-				"name":   cfg.Project.Name,
-				"org_id": cfg.Project.OrgID,
-			},
-			"defaults": map[string]interface{}{
-				"open_browser": openBrowser,
-				"timeout":      timeout,
-			},
-		}
-		if cfg.Build.System != "" || len(cfg.Build.Platforms) > 0 {
-			platforms := map[string]interface{}{}
-			for key, plat := range cfg.Build.Platforms {
-				platforms[key] = map[string]interface{}{
-					"app_id":       plat.AppID,
-					"scheme":       plat.Scheme,
-					"output":       plat.Output,
-					"image":        plat.Image,
-					"has_setup":    strings.TrimSpace(plat.Setup) != "",
-					"has_commands": len(plat.BuildCommands()) > 0,
-					"caches":       config.EffectiveBuildCaches(cfg.Build, plat),
-				}
-			}
-			out["build"] = map[string]interface{}{
-				"system":    cfg.Build.System,
-				"no_build":  cfg.Build.NoBuild,
-				"platforms": platforms,
-			}
-		}
-		if cfg.AuthBypass.IsConfigured() {
-			out["auth_bypass"] = map[string]interface{}{
-				"launch_vars": cfg.AuthBypass.LaunchVars,
-				"deep_link":   cfg.AuthBypass.DeepLink,
-			}
-		}
-		if cfg.HotReload.IsConfigured() {
-			hrOut := map[string]interface{}{
-				"default": cfg.HotReload.Default,
-			}
-			if provCfg := cfg.HotReload.GetProviderConfig(cfg.HotReload.Default); provCfg != nil {
-				hrOut["app_scheme"] = provCfg.AppScheme
-				hrOut["port"] = provCfg.GetPort(cfg.HotReload.Default)
-				hrOut["use_exp_prefix"] = provCfg.UseExpPrefix
-				hrOut["platform_keys"] = provCfg.PlatformKeys
-			}
-			out["hotreload"] = hrOut
-		}
-		data, _ := json.MarshalIndent(out, "", "  ")
-		fmt.Println(string(data))
-		return nil
-	}
-
-	ui.PrintInfo("Project config: %s", configPath)
-	ui.Println()
-	ui.PrintInfo("Defaults")
-	ui.PrintKeyValue("  open_browser:", fmt.Sprintf("%t", openBrowser))
-	ui.PrintKeyValue("  timeout:", fmt.Sprintf("%d", timeout))
-
-	if cfg.HotReload.IsConfigured() {
-		ui.Println()
-		ui.PrintInfo("Dev Mode (Hot Reload)")
-		ui.PrintKeyValue("  provider:", cfg.HotReload.Default)
-		if provCfg := cfg.HotReload.GetProviderConfig(cfg.HotReload.Default); provCfg != nil {
-			if provCfg.AppScheme != "" {
-				ui.PrintKeyValue("  app_scheme:", provCfg.AppScheme)
-			}
-			ui.PrintKeyValue("  port:", fmt.Sprintf("%d", provCfg.GetPort(cfg.HotReload.Default)))
-			if provCfg.UseExpPrefix {
-				ui.PrintKeyValue("  use_exp_prefix:", "true")
-			}
-			if len(provCfg.PlatformKeys) > 0 {
-				ui.PrintKeyValue("  platform_keys:", "")
-				for k, v := range provCfg.PlatformKeys {
-					ui.PrintKeyValue("    "+k+":", v)
-				}
-			}
-		}
-	} else {
-		ui.Println()
-		ui.PrintDim("Dev mode not configured. Run: revyl dev")
-	}
-
-	ui.Println()
-	if cfg.Build.System != "" {
-		ui.PrintInfo("Build")
-		ui.PrintKeyValue("  system:", cfg.Build.System)
-		if len(cfg.Build.Platforms) > 0 {
-			ui.PrintKeyValue("  platforms:", "")
-			for name, plat := range cfg.Build.Platforms {
-				appID := plat.AppID
-				if appID == "" {
-					appID = "(none)"
-				}
-				ui.PrintKeyValue("    "+name+":", fmt.Sprintf("app_id=%s", appID))
-			}
-		}
-	}
-
-	if cfg.AuthBypass.IsConfigured() {
-		ui.Println()
-		ui.PrintInfo("Auth bypass")
-		ui.PrintKeyValue("  launch_vars:", strings.Join(cfg.AuthBypass.LaunchVars, ", "))
-		if cfg.AuthBypass.DeepLink != "" {
-			ui.PrintKeyValue("  deep_link:", cfg.AuthBypass.DeepLink)
-		}
-	}
-
-	return nil
-}
-
-func runConfigSet(cmd *cobra.Command, args []string) error {
-	key := strings.TrimSpace(strings.ToLower(args[0]))
-	value := strings.TrimSpace(args[1])
-
-	configPath, cfg, err := loadProjectConfigForCommand()
-	if err != nil {
+func actionableLocalConfigMessage(err error) error {
+	var configError *config.ConfigError
+	if !errors.As(err, &configError) {
 		return err
 	}
 
-	switch key {
-	case "open-browser":
-		lower := strings.ToLower(value)
-		if lower != "true" && lower != "false" {
-			return fmt.Errorf("invalid open-browser value %q (expected true or false)", value)
+	field := ""
+	if len(configError.Path) > 0 {
+		field = fmt.Sprintf(" at %s", strings.Join(configError.Path, "."))
+	} else if configError.Line > 0 && configError.Column > 0 {
+		field = fmt.Sprintf(" at line %d, column %d", configError.Line, configError.Column)
+	} else if configError.Line > 0 {
+		field = fmt.Sprintf(" at line %d", configError.Line)
+	}
+	migrateCheck := cliRecoveryCommand("config", "migrate", "--check")
+	migrate := cliRecoveryCommand("config", "migrate")
+	pull := cliRecoveryCommand("config", "pull")
+	initialize := cliRecoveryCommand("init", "-y")
+	forceInitialize := cliRecoveryCommand("init", "--force", "-y")
+	validate := cliRecoveryCommand("config", "validate")
+	configPath := cliRecoveryCommand("config", "path")
+	configShow := cliRecoveryCommand("config", "show")
+	doctor := cliRecoveryCommand("doctor")
+	switch configError.Code {
+	case "legacy_config_requires_migration", "mixed_config_formats":
+		return fmt.Errorf("local configuration uses a legacy format; run `%s` to preview the conversion, then run `%s`", migrateCheck, migrate)
+	case "config_not_found":
+		if recovery := nestedProjectConfigRecovery(); recovery != "" {
+			return errors.New(recovery)
 		}
-		open := lower == "true"
-		cfg.Defaults.OpenBrowser = &open
+		return fmt.Errorf("no .revyl/config.yaml applies to the current directory; run `%s` to restore an existing Revyl project, or run `%s` to create one", pull, initialize)
+	case "git_worktree_unavailable", "path_outside_git_worktree", "worktree_root_unavailable", "effective_directory_outside_worktree":
+		return fmt.Errorf("the current directory is not a usable Git worktree; run from the project directory or pass '-C <project-dir>'; for a new repository, run 'git init', then %q", initialize)
+	case "effective_directory_unavailable", "effective_directory_not_directory":
+		return fmt.Errorf("the selected project directory is unavailable; pass '-C <project-dir>' with an existing directory, then run %q", validate)
+	case "config_not_regular_file":
+		return fmt.Errorf(".revyl/config.yaml is not a regular file; move the conflicting path aside, then run %q to restore it or %q to create it", pull, initialize)
+	case "config_too_large", "normalized_config_too_large", "canonical_config_too_large":
+		return fmt.Errorf(".revyl/config.yaml is too large to load%s; reduce it below the supported limit, then run %q; to replace it, back it up and run %q", field, validate, forceInitialize)
+	case "invalid_utf8":
+		return fmt.Errorf(".revyl/config.yaml is not valid UTF-8; run %q to locate it, re-save it as UTF-8, then run %q", configPath, validate)
+	case "invalid_yaml", "single_mapping_document_required", "unsupported_yaml_structure", "invalid_mapping_key", "duplicate_mapping_key":
+		return fmt.Errorf(".revyl/config.yaml is not a supported single YAML mapping%s; run %q to locate and repair it, then run %q; to replace it, back it up and run %q", field, configPath, validate, forceInitialize)
+	case "unknown_field":
+		return fmt.Errorf(".revyl/config.yaml contains an unsupported field%s; run %q to locate it, remove that field, then run %q", field, configPath, validate)
+	case "missing_field":
+		return fmt.Errorf(".revyl/config.yaml is missing a required field%s; run `%s` to locate it, add that field, then run `%s`; to replace the file, back it up and run `%s`", field, configPath, validate, forceInitialize)
+	case "invalid_contract":
+		return fmt.Errorf(".revyl/config.yaml contains an invalid value%s; run `%s` to locate it, correct that field, then run `%s`; to replace the file, back it up and run `%s`", field, configPath, validate, forceInitialize)
+	case "config_changed_during_read", "config_changed_before_write", "config_changed_during_write", "test_alias_destination_changed":
+		return fmt.Errorf(".revyl/config.yaml changed while Revyl was using it; wait for the other writer to finish, then run %q and retry the command", validate)
+	case "test_alias_directory_conflict":
+		return fmt.Errorf(".revyl/tests conflicts with the directory required for migrated test aliases; move the conflicting path aside, then run %q and retry %q", migrateCheck, migrate)
+	case "test_alias_directory_unreadable", "test_alias_directory_create_failed":
+		return fmt.Errorf(".revyl/tests could not be read or created; make .revyl readable and writable, then run %q and retry %q", migrateCheck, migrate)
+	case "test_alias_destination_conflict", "test_alias_destination_invalid":
+		return fmt.Errorf("a migrated test alias conflicts with the existing local test%s; move or repair that file, then run %q and retry %q", field, migrateCheck, migrate)
+	case "test_alias_destination_unreadable":
+		return fmt.Errorf("a migrated test alias destination could not be read%s; make that file readable, then run %q and retry %q", field, migrateCheck, migrate)
+	case "test_alias_encode_failed", "test_alias_rollback_failed":
+		return fmt.Errorf("Revyl could not safely materialize the migrated test alias files%s; retry %q, then run %q if it still fails", field, migrate, doctor)
+	case "unknown_or_ineligible_profile":
+		profile := lastConfigErrorPathSegment(configError.Path)
+		return fmt.Errorf("build profile %q is not configured; run %q to list configured profiles, then retry with '--profile <name>' and, when needed, '--platform ios|android'", profile, configShow)
+	case "no_build_profiles":
+		return fmt.Errorf("no build profiles are configured; add a recipe under 'build.profiles.<name>.ios' or 'build.profiles.<name>.android', then run %q", validate)
+	case "no_build_profile_for_platform":
+		platform := lastConfigErrorPathSegment(configError.Path)
+		return fmt.Errorf("no build profile configures platform %q; run %q to list configured recipes, then add that platform recipe or retry with '--platform ios|android'", platform, configShow)
+	case "profile_platform_not_configured":
+		profile, platform := trailingConfigErrorPathSegments(configError.Path)
+		return fmt.Errorf("build profile %q does not configure platform %q; run %q to list configured recipes, then retry with a supported '--profile' and '--platform' pair", profile, platform, configShow)
+	case "environment_secret_collision":
+		name := lastConfigErrorPathSegment(configError.Path)
+		return fmt.Errorf("build variable %q is declared as both plaintext env and an encrypted secret%s; remove one declaration, then run %q", name, field, validate)
+	case "recipe_not_runnable":
+		return fmt.Errorf("the selected build recipe is not runnable%s; add build commands in .revyl/config.yaml, then run %q", field, validate)
+	}
 
-	case "timeout":
-		secs, parseErr := strconv.Atoi(value)
-		if parseErr != nil || secs <= 0 {
-			return fmt.Errorf("invalid timeout value %q (expected positive integer seconds)", value)
-		}
-		cfg.Defaults.Timeout = secs
-
-	case "hotreload.provider":
-		validProviders := map[string]bool{"expo": true, "react-native": true, "swift": true, "android": true}
-		if !validProviders[value] {
-			return fmt.Errorf("invalid provider %q (expected: expo, react-native, swift, android)", value)
-		}
-		cfg.HotReload.Default = value
-
-	case "hotreload.app-scheme":
-		provCfg := ensureActiveProviderConfig(cfg)
-		provCfg.AppScheme = value
-
-	case "hotreload.port":
-		port, parseErr := strconv.Atoi(value)
-		if parseErr != nil || port <= 0 || port > 65535 {
-			return fmt.Errorf("invalid port %q (expected 1-65535)", value)
-		}
-		provCfg := ensureActiveProviderConfig(cfg)
-		provCfg.Port = port
-
-	case "hotreload.use-exp-prefix":
-		lower := strings.ToLower(value)
-		if lower != "true" && lower != "false" {
-			return fmt.Errorf("invalid use-exp-prefix value %q (expected true or false)", value)
-		}
-		provCfg := ensureActiveProviderConfig(cfg)
-		provCfg.UseExpPrefix = lower == "true"
-
+	switch configError.Stage {
+	case "yaml_syntax", "classification", "contract", "normalization", "validation":
+		return fmt.Errorf(".revyl/config.yaml is invalid%s; run %q to locate it, fix the reported field, then run %q; to replace it, back it up and run %q", field, configPath, validate, forceInitialize)
+	case "read":
+		return fmt.Errorf(".revyl/config.yaml could not be read%s; run %q to locate it, make it a readable regular file, then run %q", field, configPath, validate)
+	case "write":
+		return fmt.Errorf(".revyl/config.yaml could not be updated%s; make the file and its .revyl directory writable, then run %q and retry the command", field, validate)
+	case "selection":
+		return fmt.Errorf("the project configuration is ambiguous%s; run %q, then retry with '--profile <name>' and '--platform ios|android'", field, configShow)
+	case "legacy_translation":
+		return fmt.Errorf("the legacy configuration could not be migrated%s; run %q to inspect the conversion, then retry %q", field, migrateCheck, migrate)
 	default:
-		return fmt.Errorf("unsupported key %q\nSupported: open-browser, timeout, hotreload.provider, hotreload.app-scheme, hotreload.port, hotreload.use-exp-prefix", key)
+		return fmt.Errorf("the project configuration could not be used%s; run %q to locate and back it up, then run %q and %q", field, configPath, forceInitialize, validate)
 	}
-
-	if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-		return fmt.Errorf("failed to write config: %w", err)
-	}
-
-	ui.PrintSuccess("Updated %s = %s", key, value)
-	return nil
 }
 
-// ensureActiveProviderConfig returns the ProviderConfig for the active provider,
-// creating it if necessary.
-func ensureActiveProviderConfig(cfg *config.ProjectConfig) *config.ProviderConfig {
-	provider := cfg.HotReload.Default
-	if provider == "" {
-		provider = "expo"
-		cfg.HotReload.Default = provider
+func lastConfigErrorPathSegment(path []string) string {
+	if len(path) == 0 {
+		return ""
 	}
-	if cfg.HotReload.Providers == nil {
-		cfg.HotReload.Providers = make(map[string]*config.ProviderConfig)
-	}
-	provCfg := cfg.HotReload.Providers[provider]
-	if provCfg == nil {
-		provCfg = &config.ProviderConfig{}
-		cfg.HotReload.Providers[provider] = provCfg
-	}
-	return provCfg
+	return path[len(path)-1]
 }
 
-func runConfigEdit(cmd *cobra.Command, args []string) error {
-	configPath, err := projectConfigPath()
+func trailingConfigErrorPathSegments(path []string) (string, string) {
+	if len(path) < 2 {
+		return "", lastConfigErrorPathSegment(path)
+	}
+	return path[len(path)-2], path[len(path)-1]
+}
+
+func nestedProjectConfigRecovery() string {
+	cwd, err := os.Getwd()
 	if err != nil {
-		return err
+		return ""
 	}
-	if _, err := os.Stat(configPath); err != nil {
-		return fmt.Errorf("config not found at %s\nRun 'revyl init' first", configPath)
+	projectRoots, err := config.FindNestedProjectRoots(cwd)
+	if err != nil || len(projectRoots) == 0 {
+		return ""
 	}
-
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = os.Getenv("VISUAL")
+	if len(projectRoots) == 1 {
+		command := fmt.Sprintf("revyl -C %s config path", quoteCLIRecoveryArgument(projectRoots[0]))
+		return fmt.Sprintf("no .revyl/config.yaml applies to the current directory, but a nested Revyl project exists; run %q to select it", command)
 	}
-	if editor == "" {
-		editor = "vi"
+	commands := make([]string, 0, len(projectRoots))
+	for _, root := range projectRoots {
+		commands = append(commands, fmt.Sprintf("revyl -C %s config path", quoteCLIRecoveryArgument(root)))
 	}
-
-	ui.PrintDim("Opening %s in %s...", configPath, editor)
-
-	editorCmd := exec.Command(editor, configPath)
-	editorCmd.Stdin = os.Stdin
-	editorCmd.Stdout = os.Stdout
-	editorCmd.Stderr = os.Stderr
-	return editorCmd.Run()
+	return fmt.Sprintf("no .revyl/config.yaml applies to the current directory; select one nested Revyl project with %s", strings.Join(commands, " or "))
 }

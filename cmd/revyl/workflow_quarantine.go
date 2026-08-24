@@ -3,14 +3,11 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -93,22 +90,19 @@ func init() {
 //   - cfg: The loaded project config (may be nil)
 //   - client: Configured API client
 //   - error: Any error during setup
-func quarantineSetupClient(cmd *cobra.Command, workflowNameOrID string) ([]api.WorkflowTestWithPolicy, *config.ProjectConfig, *api.Client, error) {
+func quarantineSetupClient(cmd *cobra.Command, workflowNameOrID string) ([]api.WorkflowTestWithPolicy, *api.Client, error) {
 	apiKey, err := getAPIKey()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-
-	cwd, _ := os.Getwd()
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	workflowID, _, err := resolveWorkflowID(cmd.Context(), workflowNameOrID, cfg, client)
+	workflowID, _, err := resolveWorkflowID(cmd.Context(), workflowNameOrID, nil, client)
 	if err != nil {
 		ui.PrintError("%v", err)
-		return nil, nil, nil, fmt.Errorf("workflow not found")
+		return nil, nil, fmt.Errorf("workflow not found")
 	}
 
 	ui.StartSpinner("Fetching workflow tests...")
@@ -117,10 +111,10 @@ func quarantineSetupClient(cmd *cobra.Command, workflowNameOrID string) ([]api.W
 
 	if err != nil {
 		ui.PrintError("Failed to fetch workflow tests: %v", err)
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	return workflowTests, cfg, client, nil
+	return workflowTests, client, nil
 }
 
 // findWorkflowTestByName finds the workflow-test entry matching a given test name or ID.
@@ -134,8 +128,8 @@ func quarantineSetupClient(cmd *cobra.Command, workflowNameOrID string) ([]api.W
 //
 // Returns:
 //   - *api.WorkflowTestWithPolicy: The matched workflow test, or nil if not found
-func findWorkflowTestByName(testNameOrID string, workflowTests []api.WorkflowTestWithPolicy, cfg *config.ProjectConfig, client *api.Client, cmd *cobra.Command) *api.WorkflowTestWithPolicy {
-	testID, _, err := resolveTestID(cmd.Context(), testNameOrID, cfg, client)
+func findWorkflowTestByName(testNameOrID string, workflowTests []api.WorkflowTestWithPolicy, client *api.Client, cmd *cobra.Command) *api.WorkflowTestWithPolicy {
+	testID, _, err := resolveTestID(cmd.Context(), testNameOrID, nil, client)
 	if err != nil {
 		return nil
 	}
@@ -153,7 +147,7 @@ func runQuarantineAdd(cmd *cobra.Command, args []string) error {
 	workflowNameOrID := args[0]
 	testNames := args[1:]
 
-	workflowTests, cfg, client, err := quarantineSetupClient(cmd, workflowNameOrID)
+	workflowTests, client, err := quarantineSetupClient(cmd, workflowNameOrID)
 	if err != nil {
 		return err
 	}
@@ -161,7 +155,7 @@ func runQuarantineAdd(cmd *cobra.Command, args []string) error {
 	var quarantined, skipped, notFound []string
 
 	for _, name := range testNames {
-		wt := findWorkflowTestByName(name, workflowTests, cfg, client, cmd)
+		wt := findWorkflowTestByName(name, workflowTests, client, cmd)
 		if wt == nil {
 			notFound = append(notFound, name)
 			continue
@@ -201,7 +195,7 @@ func runQuarantineRemove(cmd *cobra.Command, args []string) error {
 	workflowNameOrID := args[0]
 	testNames := args[1:]
 
-	workflowTests, cfg, client, err := quarantineSetupClient(cmd, workflowNameOrID)
+	workflowTests, client, err := quarantineSetupClient(cmd, workflowNameOrID)
 	if err != nil {
 		return err
 	}
@@ -209,7 +203,7 @@ func runQuarantineRemove(cmd *cobra.Command, args []string) error {
 	var unquarantined, skipped, notFound []string
 
 	for _, name := range testNames {
-		wt := findWorkflowTestByName(name, workflowTests, cfg, client, cmd)
+		wt := findWorkflowTestByName(name, workflowTests, client, cmd)
 		if wt == nil {
 			notFound = append(notFound, name)
 			continue
@@ -248,7 +242,7 @@ func runQuarantineRemove(cmd *cobra.Command, args []string) error {
 func runQuarantineList(cmd *cobra.Command, args []string) error {
 	workflowNameOrID := args[0]
 
-	workflowTests, _, _, err := quarantineSetupClient(cmd, workflowNameOrID)
+	workflowTests, _, err := quarantineSetupClient(cmd, workflowNameOrID)
 	if err != nil {
 		return err
 	}

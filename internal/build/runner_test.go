@@ -2,9 +2,224 @@ package build
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
+
+func TestRunnerRunContextUsesWorkingDirectoryAndInvocationEnvironment(t *testing.T) {
+	workDir := t.TempDir()
+	resolvedWorkDir, err := filepath.EvalSymlinks(workDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", workDir, err)
+	}
+	t.Setenv("REVYL_RUNNER_INHERITED", "parent")
+	t.Setenv("REVYL_RUNNER_UNCHANGED", "unchanged")
+
+	var lines []string
+	runner := NewRunner(workDir)
+	err = runner.RunContext(context.Background(), runnerTestHelperCommand(t, "environment"), RunOptions{
+		Environment: map[string]string{
+			"REVYL_RUNNER_ADDED":     "per-invocation",
+			"REVYL_RUNNER_INHERITED": "override",
+		},
+	}, func(line string) {
+		lines = append(lines, line)
+	})
+	if err != nil {
+		t.Fatalf("RunContext() error = %v", err)
+	}
+
+	if len(lines) != 4 {
+		t.Fatalf("output lines = %q, want working directory and three environment values", lines)
+	}
+	actualWorkDirInfo, err := os.Stat(lines[0])
+	if err != nil {
+		t.Fatalf("stat runner working directory %q: %v", lines[0], err)
+	}
+	resolvedWorkDirInfo, err := os.Stat(resolvedWorkDir)
+	if err != nil {
+		t.Fatalf("stat resolved working directory %q: %v", resolvedWorkDir, err)
+	}
+	if !os.SameFile(actualWorkDirInfo, resolvedWorkDirInfo) {
+		t.Errorf("working directory = %q, want same directory as %q", lines[0], resolvedWorkDir)
+	}
+	wantEnvironment := []string{"unchanged", "override", "per-invocation"}
+	for index, want := range wantEnvironment {
+		if lines[index+1] != want {
+			t.Errorf("environment output line %d = %q, want %q", index, lines[index+1], want)
+		}
+	}
+	if got := os.Getenv("REVYL_RUNNER_INHERITED"); got != "parent" {
+		t.Fatalf("process environment mutated to %q", got)
+	}
+	if _, exists := os.LookupEnv("REVYL_RUNNER_ADDED"); exists {
+		t.Fatal("per-invocation environment leaked into process environment")
+	}
+}
+
+func TestRunnerRunPreservesCompatibility(t *testing.T) {
+	var lines []string
+	if err := NewRunner(t.TempDir()).Run(runnerTestHelperCommand(t, "output"), func(line string) {
+		lines = append(lines, line)
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if strings.Join(lines, ",") != "first,second" {
+		t.Fatalf("Run() output = %q", lines)
+	}
+}
+
+func TestRunnerRunContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	workDir := t.TempDir()
+	started := make(chan struct{})
+	var startedOnce sync.Once
+	result := make(chan error, 1)
+
+	go func() {
+		result <- NewRunner(workDir).RunContext(ctx, runnerTestHelperCommand(t, "started-and-wait"), RunOptions{}, func(line string) {
+			if line == "started" {
+				startedOnce.Do(func() { close(started) })
+			}
+		})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("build command did not start")
+	}
+	cancel()
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("RunContext() error = %v, want context.Canceled", err)
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("RunContext() cancellation reported timeout: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("build command did not stop after cancellation")
+	}
+}
+
+func TestRunnerRunContextTimeout(t *testing.T) {
+	startedAt := time.Now()
+	err := NewRunner(t.TempDir()).RunContext(context.Background(), runnerTestHelperCommand(t, "wait"), RunOptions{
+		Timeout: 50 * time.Millisecond,
+	}, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RunContext() error = %v, want context.DeadlineExceeded", err)
+	}
+	if errors.Is(err, context.Canceled) {
+		t.Fatalf("RunContext() timeout reported cancellation: %v", err)
+	}
+	if !strings.Contains(err.Error(), "50ms") {
+		t.Fatalf("RunContext() error = %q, want configured timeout", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 2*time.Second {
+		t.Fatalf("RunContext() returned after %s, want prompt timeout", elapsed)
+	}
+}
+
+func TestRunnerRunContextUsesEarlierCallerDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	err := NewRunner(t.TempDir()).RunContext(ctx, runnerTestHelperCommand(t, "wait"), RunOptions{
+		Timeout: 5 * time.Second,
+	}, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RunContext() error = %v, want context.DeadlineExceeded", err)
+	}
+	if strings.Contains(err.Error(), "5s") {
+		t.Fatalf("RunContext() attributed caller deadline to configured timeout: %v", err)
+	}
+}
+
+func TestRunnerRunContextDoesNotExposeEnvironmentValuesInErrors(t *testing.T) {
+	const secretValue = "not-for-error-output"
+	err := NewRunner(t.TempDir()).RunContext(context.Background(), runnerTestHelperCommand(t, "failure"), RunOptions{
+		Environment: map[string]string{"REVYL_RUNNER_SECRET": secretValue},
+	}, nil)
+	if err == nil {
+		t.Fatal("RunContext() error = nil, want command failure")
+	}
+	if strings.Contains(err.Error(), secretValue) {
+		t.Fatalf("RunContext() error exposed environment value: %v", err)
+	}
+
+	err = NewRunner(t.TempDir()).RunContext(context.Background(), runnerTestHelperCommand(t, "output"), RunOptions{
+		Environment: map[string]string{"REVYL_RUNNER_SECRET": secretValue + "\x00"},
+	}, nil)
+	if err == nil {
+		t.Fatal("RunContext() error = nil, want invalid environment failure")
+	}
+	if strings.Contains(err.Error(), secretValue) {
+		t.Fatalf("RunContext() validation error exposed environment value: %v", err)
+	}
+}
+
+func runnerTestHelperCommand(t *testing.T, action string) string {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	return quoteRunnerTestShellArgument(executable) + " -test.run=TestRunnerHelperProcess -- " + action
+}
+
+func quoteRunnerTestShellArgument(value string) string {
+	if runtime.GOOS == "windows" {
+		return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func TestRunnerHelperProcess(t *testing.T) {
+	action := ""
+	for index, argument := range os.Args {
+		if argument == "--" && index+1 < len(os.Args) {
+			action = os.Args[index+1]
+			break
+		}
+	}
+	if action == "" {
+		return
+	}
+
+	switch action {
+	case "environment":
+		workingDirectory, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("os.Getwd: %v", err)
+		}
+		_, _ = os.Stdout.WriteString(workingDirectory + "\n")
+		_, _ = os.Stdout.WriteString(os.Getenv("REVYL_RUNNER_UNCHANGED") + "\n")
+		_, _ = os.Stdout.WriteString(os.Getenv("REVYL_RUNNER_INHERITED") + "\n")
+		_, _ = os.Stdout.WriteString(os.Getenv("REVYL_RUNNER_ADDED") + "\n")
+	case "output":
+		_, _ = os.Stdout.WriteString("first\nsecond\n")
+	case "started-and-wait":
+		_, _ = os.Stdout.WriteString("started\n")
+		time.Sleep(30 * time.Second)
+	case "wait":
+		time.Sleep(30 * time.Second)
+	case "failure":
+		_, _ = os.Stderr.WriteString("runner helper failed\n")
+		os.Exit(7)
+	default:
+		t.Fatalf("unknown runner helper action %q", action)
+	}
+	os.Exit(0)
+}
 
 func TestParseBuildToolError_InvalidNpxInvocation(t *testing.T) {
 	stderr := `npm error could not determine executable to run

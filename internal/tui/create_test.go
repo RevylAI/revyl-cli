@@ -62,7 +62,8 @@ func TestCreateTestCmd_UsesSelectedAppAndCreatesEmptyShell(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"test-1","version":1}`))
 		case "/api/v1/entity/users/get_user_uuid":
-			t.Fatalf("unexpected validate call")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-config","email":"test@example.com","concurrency_limit":1}`))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -70,11 +71,7 @@ func TestCreateTestCmd_UsesSelectedAppAndCreatesEmptyShell(t *testing.T) {
 	defer srv.Close()
 
 	client := api.NewClientWithBaseURL("test-key", srv.URL)
-	cfg := &config.ProjectConfig{
-		Project: config.Project{OrgID: "org-config"},
-	}
-
-	msgAny := createTestCmd(client, cfg, "dfa", "ios", "app-ios")()
+	msgAny := createTestCmd(client, "dfa", "ios", "app-ios")()
 	msg, ok := msgAny.(TestCreatedMsg)
 	if !ok {
 		t.Fatalf("expected TestCreatedMsg, got %T", msgAny)
@@ -110,7 +107,7 @@ func TestCreateModel_UpdateResolverFailureReturnsToConfirm(t *testing.T) {
 	defer srv.Close()
 
 	client := api.NewClientWithBaseURL("test-key", srv.URL)
-	msgAny := createTestCmd(client, nil, "dfa", "ios", "app-ios")()
+	msgAny := createTestCmd(client, "dfa", "ios", "app-ios")()
 	msg, ok := msgAny.(TestCreatedMsg)
 	if !ok {
 		t.Fatalf("expected TestCreatedMsg, got %T", msgAny)
@@ -141,11 +138,16 @@ func TestCreateModel_UpdateResolverFailureReturnsToConfirm(t *testing.T) {
 }
 
 func TestCreateModel_AppListPreselectsConfiguredDefaultAndFiltersToRunnableApps(t *testing.T) {
-	m := newCreateModel("token", false, &api.Client{}, &config.ProjectConfig{
-		Build: config.BuildConfig{
-			Platforms: map[string]config.BuildPlatform{
-				"ios": {AppID: "app-default"},
-			},
+	appID := "app-default"
+	m := newCreateModel("token", false, &api.Client{}, &config.ProjectContext{
+		Aggregate: &config.NormalizedProjectAggregate{
+			Profiles: []config.NormalizedBuildProfile{{
+				Name: "development",
+				Configurations: []config.NormalizedPlatformConfiguration{{
+					Platform: "ios",
+					AppID:    &appID,
+				}},
+			}},
 		},
 	}, 80, 24)
 	m.step = stepApp

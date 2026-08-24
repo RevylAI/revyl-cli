@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -53,20 +54,28 @@ func resetSessionRuntimes(t *testing.T) {
 	t.Cleanup(func() { devAuthBypass, devBeforeSession = priorBypass, priorBefore })
 }
 
+func testAuthoredBeforeScript(scriptPath string) *config.AuthoredBeforeScript {
+	return &config.AuthoredBeforeScript{ScriptPath: &scriptPath}
+}
+
+func testAuthoredAuthBypass(launchVars []string, deepLink string) *config.AuthoredAuthBypass {
+	cfg := &config.AuthoredAuthBypass{LaunchVars: append([]string(nil), launchVars...)}
+	if deepLink != "" {
+		cfg.DeepLink = &deepLink
+	}
+	return cfg
+}
+
 func TestPrepareSessionStartOptions_AppliesMintedValuesAsSessionScoped(t *testing.T) {
 	skipBeforeSessionPOSIXShellFixture(t)
 	resetSessionRuntimes(t)
 
 	root := newBeforeSessionRepo(t, "", "#!/bin/sh\necho \"E2E_AUTH_TOKEN=tok-123\"\n")
-	cfg := &config.ProjectConfig{
-		BeforeSession: &config.BeforeSessionConfig{Script: "./setup.sh"},
-		AuthBypass: &config.AuthBypassConfig{
-			LaunchVars: []string{"E2E_AUTH_TOKEN"},
-			DeepLink:   "myapp://auth?token=${E2E_AUTH_TOKEN}",
-		},
-	}
-	initDevAuthBypass(cfg)
-	initDevBeforeSession(cfg, root)
+	initDevAuthBypass(testAuthoredAuthBypass(
+		[]string{"E2E_AUTH_TOKEN"},
+		"myapp://auth?token=${E2E_AUTH_TOKEN}",
+	))
+	initDevBeforeSession(testAuthoredBeforeScript("./setup.sh"), root)
 
 	opts, err := prepareSessionStartOptions(context.Background(), mcppkg.StartSessionOptions{Platform: "ios"})
 	if err != nil {
@@ -87,9 +96,7 @@ func TestPrepareSessionStartOptions_ExplicitLaunchEnvWins(t *testing.T) {
 	resetSessionRuntimes(t)
 
 	root := newBeforeSessionRepo(t, "", "#!/bin/sh\necho \"TOKEN=from-script\"\n")
-	initDevBeforeSession(&config.ProjectConfig{
-		BeforeSession: &config.BeforeSessionConfig{Script: "./setup.sh"},
-	}, root)
+	initDevBeforeSession(testAuthoredBeforeScript("./setup.sh"), root)
 
 	opts, err := prepareSessionStartOptions(context.Background(), mcppkg.StartSessionOptions{
 		Platform:  "ios",
@@ -108,9 +115,7 @@ func TestPrepareSessionStartOptions_ScriptFailureIsFatal(t *testing.T) {
 	resetSessionRuntimes(t)
 
 	root := newBeforeSessionRepo(t, "", "#!/bin/sh\necho \"leaked-token\" >&2\nexit 1\n")
-	initDevBeforeSession(&config.ProjectConfig{
-		BeforeSession: &config.BeforeSessionConfig{Script: "./setup.sh"},
-	}, root)
+	initDevBeforeSession(testAuthoredBeforeScript("./setup.sh"), root)
 
 	_, err := prepareSessionStartOptions(context.Background(), mcppkg.StartSessionOptions{Platform: "ios"})
 	if err == nil {
@@ -129,14 +134,8 @@ func TestPrepareSessionStartOptions_RejectsMixedDeepLinkResolution(t *testing.T)
 	resetSessionRuntimes(t)
 
 	root := newBeforeSessionRepo(t, "", "#!/bin/sh\necho \"INLINE_TOKEN=tok-123\"\n")
-	cfg := &config.ProjectConfig{
-		BeforeSession: &config.BeforeSessionConfig{Script: "./setup.sh"},
-		AuthBypass: &config.AuthBypassConfig{
-			DeepLink: "myapp://auth?token=${INLINE_TOKEN}&env=${ORG_ENV}",
-		},
-	}
-	initDevAuthBypass(cfg)
-	initDevBeforeSession(cfg, root)
+	initDevAuthBypass(testAuthoredAuthBypass(nil, "myapp://auth?token=${INLINE_TOKEN}&env=${ORG_ENV}"))
+	initDevBeforeSession(testAuthoredBeforeScript("./setup.sh"), root)
 
 	_, err := prepareSessionStartOptions(context.Background(), mcppkg.StartSessionOptions{Platform: "ios"})
 	if err == nil {
@@ -144,6 +143,10 @@ func TestPrepareSessionStartOptions_RejectsMixedDeepLinkResolution(t *testing.T)
 	}
 	if !strings.Contains(err.Error(), "INLINE_TOKEN") || !strings.Contains(err.Error(), "ORG_ENV") {
 		t.Fatalf("error = %q, want both placeholder names", err)
+	}
+	if !strings.Contains(err.Error(), "session.auth_bypass.deep_link") ||
+		!strings.Contains(err.Error(), "session.before_script") {
+		t.Fatalf("error = %q, want canonical config fields", err)
 	}
 	if strings.Contains(err.Error(), "tok-123") {
 		t.Fatalf("error leaked a minted value: %q", err)
@@ -155,20 +158,15 @@ func TestPrepareSessionStartOptions_AllowsFullyOrgResolvedDeepLink(t *testing.T)
 	resetSessionRuntimes(t)
 
 	root := newBeforeSessionRepo(t, "", "#!/bin/sh\necho \"UNRELATED=value\"\n")
-	cfg := &config.ProjectConfig{
-		BeforeSession: &config.BeforeSessionConfig{Script: "./setup.sh"},
-		AuthBypass: &config.AuthBypassConfig{
-			DeepLink: "myapp://auth?token=${ORG_TOKEN}",
-		},
-	}
-	initDevAuthBypass(cfg)
-	initDevBeforeSession(cfg, root)
+	deepLink := "myapp://auth?token=${ORG_TOKEN}"
+	initDevAuthBypass(testAuthoredAuthBypass(nil, deepLink))
+	initDevBeforeSession(testAuthoredBeforeScript("./setup.sh"), root)
 
 	if _, err := prepareSessionStartOptions(context.Background(), mcppkg.StartSessionOptions{Platform: "ios"}); err != nil {
 		t.Fatalf("prepareSessionStartOptions() error = %v, want org-only resolution allowed", err)
 	}
 	// Nothing to substitute, so the template goes to the backend unchanged.
-	if got := applySessionValuesToDeepLink(cfg.AuthBypass.DeepLink); got != cfg.AuthBypass.DeepLink {
+	if got := applySessionValuesToDeepLink(deepLink); got != deepLink {
 		t.Fatalf("applySessionValuesToDeepLink() = %q, want the template unchanged", got)
 	}
 }
@@ -178,9 +176,7 @@ func TestApplySessionValuesToDeepLink_SubstitutesFullyInlineTemplate(t *testing.
 	resetSessionRuntimes(t)
 
 	root := newBeforeSessionRepo(t, "", "#!/bin/sh\necho \"E2E_AUTH_TOKEN=tok-123\"\n")
-	initDevBeforeSession(&config.ProjectConfig{
-		BeforeSession: &config.BeforeSessionConfig{Script: "./setup.sh"},
-	}, root)
+	initDevBeforeSession(testAuthoredBeforeScript("./setup.sh"), root)
 	if err := devBeforeSession.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -201,9 +197,7 @@ func TestHydrateBeforeSessionForRefresh_ReusesBootTokenWithoutRemint(t *testing.
 	resetSessionRuntimes(t)
 
 	root := newBeforeSessionRepo(t, "", "#!/bin/sh\necho \"E2E_AUTH_TOKEN=tok-boot\"\n")
-	cfg := &config.ProjectConfig{
-		BeforeSession: &config.BeforeSessionConfig{Script: "./setup.sh"},
-	}
+	cfg := testAuthoredBeforeScript("./setup.sh")
 	initDevBeforeSession(cfg, root)
 	if err := devBeforeSession.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -232,9 +226,7 @@ func TestInitDevBeforeSession_PreservesValuesAcrossUnchangedReload(t *testing.T)
 	resetSessionRuntimes(t)
 
 	root := newBeforeSessionRepo(t, "", "#!/bin/sh\necho \"TOKEN=tok-123\"\n")
-	cfg := &config.ProjectConfig{
-		BeforeSession: &config.BeforeSessionConfig{Script: "./setup.sh"},
-	}
+	cfg := testAuthoredBeforeScript("./setup.sh")
 	initDevBeforeSession(cfg, root)
 	if err := devBeforeSession.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -242,47 +234,82 @@ func TestInitDevBeforeSession_PreservesValuesAcrossUnchangedReload(t *testing.T)
 
 	// A rebuild reloads the config and re-fires the deep link without starting
 	// a new session, so the already-minted values must survive.
-	initDevBeforeSession(&config.ProjectConfig{
-		BeforeSession: &config.BeforeSessionConfig{Script: "./setup.sh"},
-	}, root)
+	initDevBeforeSession(testAuthoredBeforeScript("./setup.sh"), root)
 	if got := devBeforeSession.Values()["TOKEN"]; got != "tok-123" {
 		t.Fatalf("Values()[TOKEN] = %q after unchanged reload, want tok-123", got)
 	}
 
-	initDevBeforeSession(&config.ProjectConfig{}, root)
+	initDevBeforeSession(nil, root)
 	if devBeforeSession != nil {
 		t.Fatal("removing before_session left the runtime active")
 	}
 }
 
-func TestLoadProjectConfigFromRepoRoot_FindsConfigFromSubdirectory(t *testing.T) {
+func TestResolveOptionalProjectContext_FindsNearestConfigFromSubdirectory(t *testing.T) {
 	configYAML := `project:
-  name: setup-app
-build:
-  system: Xcode
-before_session:
-  script: "./setup.sh"
-auth_bypass:
-  launch_vars:
-    - E2E_AUTH_TOKEN
+  id: 11111111-1111-4111-8111-111111111111
+session:
+  before_script:
+    script_path: ./setup.sh
+  auth_bypass:
+    launch_vars:
+      - E2E_AUTH_TOKEN
 `
 	root := newBeforeSessionRepo(t, configYAML, "#!/bin/sh\ntrue\n")
-	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
+	if output, err := exec.Command("git", "init", "--quiet", root).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
 	}
 	nested := filepath.Join(root, "apps", "mobile")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
-	cfg, projectRoot := loadProjectConfigFromRepoRoot(nested)
-	if cfg == nil {
-		t.Fatal("loadProjectConfigFromRepoRoot() = nil, want the config found from a subdirectory")
+	project, err := resolveOptionalProjectContext(nested)
+	if err != nil {
+		t.Fatalf("resolveOptionalProjectContext() error = %v", err)
 	}
-	if projectRoot != root {
-		t.Fatalf("projectRoot = %q, want %q", projectRoot, root)
+	if project == nil {
+		t.Fatal("resolveOptionalProjectContext() = nil, want the nearest config")
 	}
-	if !cfg.BeforeSession.IsConfigured() || !cfg.AuthBypass.IsConfigured() {
-		t.Fatal("config loaded from a subdirectory lost before_session or auth_bypass")
+	if project.ProjectRoot != root {
+		t.Fatalf("projectRoot = %q, want %q", project.ProjectRoot, root)
+	}
+	if authoredBeforeScriptPath(project.Aggregate.Session.BeforeScript) == "" ||
+		!authoredAuthBypassConfigured(project.Aggregate.Session.AuthBypass) {
+		t.Fatal("canonical config lost before_script or auth_bypass")
+	}
+}
+
+func TestResolveOptionalProjectContextRejectsLegacyConfig(t *testing.T) {
+	root := newBeforeSessionRepo(t, `project:
+  name: legacy-app
+build:
+  system: Xcode
+`, "")
+	if output, err := exec.Command("git", "init", "--quiet", root).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+
+	project, err := resolveOptionalProjectContext(root)
+	if err == nil || !strings.Contains(err.Error(), "revyl config migrate") {
+		t.Fatalf("resolveOptionalProjectContext() = (%+v, %v), want migration error", project, err)
+	}
+}
+
+func TestResolveOptionalProjectContextAllowsStandaloneDirectory(t *testing.T) {
+	project, err := resolveOptionalProjectContext(t.TempDir())
+	if err != nil || project != nil {
+		t.Fatalf("resolveOptionalProjectContext() = (%+v, %v), want standalone mode", project, err)
+	}
+}
+
+func TestResolveOptionalProjectContextRejectsConfigOutsideGit(t *testing.T) {
+	root := newBeforeSessionRepo(t, `project:
+  id: 11111111-1111-4111-8111-111111111111
+`, "")
+
+	project, err := resolveOptionalProjectContext(root)
+	if err == nil || project != nil {
+		t.Fatalf("resolveOptionalProjectContext() = (%+v, %v), want Git boundary error", project, err)
 	}
 }

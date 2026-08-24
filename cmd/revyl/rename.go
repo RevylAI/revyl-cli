@@ -3,9 +3,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -32,16 +32,31 @@ func runRenameTest(cmd *cobra.Command, args []string) error {
 	}
 
 	devMode, _ := cmd.Flags().GetBool("dev")
-	_, cfg, client, err := loadConfigAndClient(devMode)
+	_, _, client, err := loadConfigAndClient(devMode)
 	if err != nil {
 		return err
 	}
-	if cfg == nil {
-		cfg = &config.ProjectConfig{}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+	projectContext, err := resolveOptionalRenameProject(cwd)
+	if err != nil {
+		return fmt.Errorf("cannot inspect local project before renaming test: %w", err)
+	}
+	testsDir := ""
+	localTests := make(map[string]*config.LocalTest)
+	if projectContext != nil {
+		testsDir = projectContext.TestsDir
+		localTests, err = config.LoadLocalTests(testsDir)
+		if err != nil {
+			return fmt.Errorf("cannot load local tests before renaming test: %w", err)
+		}
 	}
 
 	if oldNameOrID == "" {
-		selectedID, selectedLabel, selectErr := selectTestRenameTarget(cmd.Context(), cfg, client)
+		selectedID, selectedLabel, selectErr := selectTestRenameTarget(cmd.Context(), testsDir, client)
 		if selectErr != nil {
 			return selectErr
 		}
@@ -49,7 +64,7 @@ func runRenameTest(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Selected test: %s", selectedLabel)
 	}
 
-	testID, _, err := resolveTestID(cmd.Context(), oldNameOrID, cfg, client)
+	testID, _, err := resolveTestID(cmd.Context(), oldNameOrID, nil, client)
 	if err != nil {
 		ui.PrintError("%v", err)
 		return err
@@ -89,13 +104,6 @@ func runRenameTest(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-	localTests, _ := config.LoadLocalTests(testsDir)
 
 	// Build alias map from local YAML files
 	aliasMap := make(map[string]string, len(localTests))
@@ -433,7 +441,7 @@ func printRenamePreview(kind, oldName, newName, id string, applyAliasRename, app
 	ui.Println()
 }
 
-func selectTestRenameTarget(ctx context.Context, cfg *config.ProjectConfig, client *api.Client) (string, string, error) {
+func selectTestRenameTarget(ctx context.Context, testsDir string, client *api.Client) (string, string, error) {
 	ui.StartSpinner("Fetching tests...")
 	resp, err := client.ListOrgTests(ctx, 200, 0)
 	ui.StopSpinner()
@@ -446,8 +454,7 @@ func selectTestRenameTarget(ctx context.Context, cfg *config.ProjectConfig, clie
 
 	// Build aliases from local YAML files
 	aliasesByID := make(map[string][]string)
-	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-		testsDir := filepath.Join(cwd, ".revyl", "tests")
+	if testsDir != "" {
 		localTestsMap, _ := config.LoadLocalTests(testsDir)
 		for alias, lt := range localTestsMap {
 			if lt != nil && lt.Meta.RemoteID != "" {
@@ -506,6 +513,18 @@ func selectTestRenameTarget(ctx context.Context, cfg *config.ProjectConfig, clie
 		}
 	}
 	return selectedID, selectedID, nil
+}
+
+func resolveOptionalRenameProject(cwd string) (*config.ProjectContext, error) {
+	projectContext, err := config.ResolveProjectContext(cwd, "")
+	if err == nil {
+		return projectContext, nil
+	}
+	var configErr *config.ConfigError
+	if errors.As(err, &configErr) && (configErr.Code == "git_worktree_unavailable" || configErr.Code == "config_not_found") {
+		return nil, nil
+	}
+	return nil, actionableLocalConfigError(err)
 }
 
 func aliasesForRemoteID(testAliases map[string]string, testID string) []string {

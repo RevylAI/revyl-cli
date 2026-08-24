@@ -4,15 +4,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/execution"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -25,9 +22,8 @@ var workflowInfoJSON bool
 
 // workflowCmd is the parent command for workflow operations.
 var workflowCmd = &cobra.Command{
-	Use:               "workflow",
-	Short:             "Manage workflows",
-	PersistentPreRunE: enforceOrgBindingMatch,
+	Use:   "workflow",
+	Short: "Manage workflows",
 	Long: `Manage workflows (collections of tests).
 
 For build→run: use "revyl workflow run <name> --build" to build, upload, then run
@@ -70,7 +66,7 @@ EXAMPLES:
 var workflowRunCmd = &cobra.Command{
 	Use:   "run <name|id>",
 	Short: "Run a workflow by name or ID",
-	Long: `Run a workflow by its alias name (from .revyl/config.yaml) or UUID.
+	Long: `Run a workflow by its exact organization name or UUID.
 
 Use --build to build and upload before running.
 Use --ios-app / --android-app to override the app for all tests in the
@@ -158,7 +154,7 @@ EXAMPLES:
 var workflowDeleteCmd = &cobra.Command{
 	Use:   "delete <name|id>",
 	Short: "Delete a workflow",
-	Long:  `Delete a workflow from Revyl and remove config alias.`,
+	Long:  `Delete a workflow from Revyl.`,
 	Example: `  revyl workflow delete smoke-tests
   revyl workflow delete smoke-tests --force`,
 	Args: cobra.ExactArgs(1),
@@ -219,13 +215,15 @@ func init() {
 	// workflow run flags (reuse run.go vars)
 	workflowRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
 	workflowRunCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after workflow starts without waiting")
-	workflowRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete")
+	workflowRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete (default in interactive terminals)")
+	workflowRunCmd.Flags().BoolVar(&runNoOpen, "no-open", false, "Do not open report in browser when complete")
 	workflowRunCmd.Flags().IntVarP(&runTimeout, "timeout", "t", execution.DefaultRunTimeoutSeconds, "Timeout in seconds")
 	workflowRunCmd.Flags().BoolVar(&runOutputJSON, "json", false, "Output results as JSON")
 	workflowRunCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	workflowRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
 	workflowRunCmd.Flags().BoolVar(&runWorkflowBuild, "build", false, "Build and upload before running workflow")
-	workflowRunCmd.Flags().StringVar(&runWorkflowPlatform, "platform", "", "Platform to use (requires --build)")
+	workflowRunCmd.Flags().StringVar(&runWorkflowProfile, "profile", "", "Named build profile (requires --build)")
+	workflowRunCmd.Flags().StringVar(&runWorkflowPlatform, "platform", "", "Build platform: ios or android (requires --build)")
 	workflowRunCmd.Flags().StringVar(&runWorkflowIOSAppID, "ios-app", "", "Override iOS app ID for all tests in workflow")
 	workflowRunCmd.Flags().StringVar(&runWorkflowAndroidAppID, "android-app", "", "Override Android app ID for all tests in workflow")
 	workflowRunCmd.Flags().StringVar(&runWorkflowIOSBuild, "ios-build", "", "Pin a specific iOS build version for all tests (requires --ios-app)")
@@ -240,11 +238,13 @@ func init() {
 	analytics.MarkFlagValue(workflowRunCmd, "retries")
 	analytics.MarkFlagValue(workflowRunCmd, "no-wait")
 	analytics.MarkFlagValue(workflowRunCmd, "open")
+	analytics.MarkFlagValue(workflowRunCmd, "no-open")
 	analytics.MarkFlagValue(workflowRunCmd, "timeout")
 	analytics.MarkFlagValue(workflowRunCmd, "json")
 	analytics.MarkFlagValue(workflowRunCmd, "github-actions")
 	analytics.MarkFlagValue(workflowRunCmd, "verbose")
 	analytics.MarkFlagValue(workflowRunCmd, "build")
+	analytics.MarkFlagValue(workflowRunCmd, "profile")
 	analytics.MarkFlagValue(workflowRunCmd, "platform")
 	analytics.MarkFlagValue(workflowRunCmd, "launch-var")
 	analytics.MarkFlagValue(workflowRunCmd, "no-inherited-launch-vars")
@@ -256,7 +256,6 @@ func init() {
 	// workflow create flags (reuse create.go vars)
 	workflowCreateCmd.Flags().StringVar(&createWorkflowTests, "tests", "", "Comma-separated test names or IDs to include")
 	workflowCreateCmd.Flags().BoolVar(&createWorkflowNoOpen, "no-open", false, "Skip opening browser to workflow editor")
-	workflowCreateCmd.Flags().BoolVar(&createWorkflowNoSync, "no-sync", false, "Skip adding workflow to .revyl/config.yaml")
 	workflowCreateCmd.Flags().BoolVar(&createWorkflowDryRun, "dry-run", false, "Show what would be created without creating")
 
 	workflowRenameCmd.Flags().BoolVar(&workflowRenameNonInteractive, "non-interactive", false, "Disable prompts; requires both positional args")
@@ -367,9 +366,6 @@ func runWorkflowInfo(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cwd, _ := os.Getwd()
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
-
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
@@ -380,7 +376,7 @@ func runWorkflowInfo(cmd *cobra.Command, args []string) error {
 		ui.StartSpinner("Loading workflow info...")
 	}
 
-	workflowID, workflowName, err := resolveWorkflowID(cmd.Context(), args[0], cfg, client)
+	workflowID, workflowName, err := resolveWorkflowID(cmd.Context(), args[0], nil, client)
 	if err != nil {
 		if !jsonOutput {
 			ui.StopSpinner()

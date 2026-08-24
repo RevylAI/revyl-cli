@@ -8,8 +8,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
-	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -39,6 +38,7 @@ const DefaultRunTimeoutSeconds = 60 * 60
 //   - LaunchURL: Optional deep link URL for hot reload mode
 type RunTestParams struct {
 	TestNameOrID   string
+	TestsDir       string
 	Retries        int
 	BuildVersionID string
 	Timeout        int
@@ -126,17 +126,15 @@ type RunTestResult struct {
 // Returns:
 //   - *RunTestResult: Execution result with status and report URL
 //   - error: Any error that occurred (nil if result contains error info)
-func RunTest(ctx context.Context, apiKey string, cfg *config.ProjectConfig, params RunTestParams) (*RunTestResult, error) {
+func RunTest(ctx context.Context, apiKey string, _ *config.ProjectConfig, params RunTestParams) (*RunTestResult, error) {
 	if err := launcharguments.Validate(params.LaunchArguments); err != nil {
 		return nil, err
 	}
 
 	// Resolve test ID from local YAML
 	testID := params.TestNameOrID
-	cwd, cwdErr := os.Getwd()
-	if cwdErr == nil {
-		testsDir := filepath.Join(cwd, ".revyl", "tests")
-		if id, ltErr := config.GetLocalTestRemoteID(testsDir, params.TestNameOrID); ltErr == nil && id != "" {
+	if strings.TrimSpace(params.TestsDir) != "" {
+		if id, ltErr := config.GetLocalTestRemoteID(params.TestsDir, params.TestNameOrID); ltErr == nil && id != "" {
 			testID = id
 		}
 	}
@@ -378,7 +376,7 @@ type RunWorkflowResult struct {
 // Returns:
 //   - *RunWorkflowResult: Execution result with status and report URL
 //   - error: Any error that occurred (nil if result contains error info)
-func RunWorkflow(ctx context.Context, apiKey string, cfg *config.ProjectConfig, params RunWorkflowParams) (*RunWorkflowResult, error) {
+func RunWorkflow(ctx context.Context, apiKey string, _ *config.ProjectConfig, params RunWorkflowParams) (*RunWorkflowResult, error) {
 	if err := launcharguments.Validate(params.LaunchArguments); err != nil {
 		return nil, err
 	}

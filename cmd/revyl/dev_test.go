@@ -1043,6 +1043,92 @@ func TestFormatBuildVersionLabel_PrefersVersionAndID(t *testing.T) {
 	}
 }
 
+type fakeDevRebuildBuildResolver struct {
+	latestVersion       *api.BuildVersion
+	buildDetails        map[string]*api.BuildVersionDetail
+	latestCalls         int
+	requestedVersionIDs []string
+}
+
+func (f *fakeDevRebuildBuildResolver) GetLatestBuildVersion(
+	context.Context,
+	string,
+) (*api.BuildVersion, error) {
+	f.latestCalls++
+	return f.latestVersion, nil
+}
+
+func (f *fakeDevRebuildBuildResolver) GetBuildVersionDownloadURL(
+	_ context.Context,
+	versionID string,
+) (*api.BuildVersionDetail, error) {
+	f.requestedVersionIDs = append(f.requestedVersionIDs, versionID)
+	return f.buildDetails[versionID], nil
+}
+
+func TestResolveDevRebuildInitialBuildPinsNewUploadAcrossConcurrentUploads(t *testing.T) {
+	for _, uploadSource := range []string{"configured build", "local simulator build"} {
+		t.Run(uploadSource, func(t *testing.T) {
+			uploadedVersionID := "uploaded-by-this-command"
+			resolver := &fakeDevRebuildBuildResolver{
+				latestVersion: &api.BuildVersion{ID: "newer-concurrent-upload"},
+				buildDetails: map[string]*api.BuildVersionDetail{
+					uploadedVersionID: {
+						ID:          uploadedVersionID,
+						Version:     "1.2.3",
+						DownloadURL: "https://example.test/uploaded-by-this-command.zip",
+					},
+				},
+			}
+
+			selectedVersion, buildDetail, err := resolveDevRebuildInitialBuild(
+				context.Background(), resolver, "app-id", uploadedVersionID,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resolver.latestCalls != 0 {
+				t.Fatalf("GetLatestBuildVersion() calls = %d, want 0", resolver.latestCalls)
+			}
+			if got := strings.Join(resolver.requestedVersionIDs, ","); got != uploadedVersionID {
+				t.Fatalf("download resolution version = %q, want %q", got, uploadedVersionID)
+			}
+			if selectedVersion.ID != uploadedVersionID {
+				t.Fatalf("selected build version = %q, want %q", selectedVersion.ID, uploadedVersionID)
+			}
+			if buildDetail.DownloadURL != "https://example.test/uploaded-by-this-command.zip" {
+				t.Fatalf("install URL = %q, want this command's uploaded artifact", buildDetail.DownloadURL)
+			}
+		})
+	}
+}
+
+func TestResolveDevRebuildInitialBuildUsesLatestWithoutNewUpload(t *testing.T) {
+	latestVersionID := "latest-existing-build"
+	resolver := &fakeDevRebuildBuildResolver{
+		latestVersion: &api.BuildVersion{ID: latestVersionID, Version: "1.2.2"},
+		buildDetails: map[string]*api.BuildVersionDetail{
+			latestVersionID: {
+				ID:          latestVersionID,
+				DownloadURL: "https://example.test/latest-existing-build.zip",
+			},
+		},
+	}
+
+	selectedVersion, _, err := resolveDevRebuildInitialBuild(
+		context.Background(), resolver, "app-id", "",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolver.latestCalls != 1 {
+		t.Fatalf("GetLatestBuildVersion() calls = %d, want 1", resolver.latestCalls)
+	}
+	if selectedVersion.ID != latestVersionID {
+		t.Fatalf("selected build version = %q, want %q", selectedVersion.ID, latestVersionID)
+	}
+}
+
 func TestTryLaunchInstalledApp_WarnsWithResolvedIdentifier(t *testing.T) {
 	ui.SetQuietMode(false)
 	t.Cleanup(func() {

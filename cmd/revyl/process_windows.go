@@ -3,9 +3,14 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"os/exec"
 	"syscall"
+	"time"
 )
+
+const expoProcessTreeKillTimeout = 2 * time.Second
 
 // isProcessAlive checks whether a single process is running on Windows
 // by opening a handle with PROCESS_QUERY_LIMITED_INFORMATION and checking
@@ -29,4 +34,17 @@ func isProcessAlive(pid int) bool {
 
 func configureDetachedDevCommand(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
+}
+
+func configureExpoConfigCommand(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
+}
+
+func terminateExpoConfigCommand(cmd *exec.Cmd) {
+	if cmd.Process != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), expoProcessTreeKillTimeout)
+		defer cancel()
+		_ = exec.CommandContext(ctx, "taskkill", "/T", "/F", "/PID", fmt.Sprintf("%d", cmd.Process.Pid)).Run()
+		_ = cmd.Process.Kill()
+	}
 }

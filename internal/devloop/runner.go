@@ -53,8 +53,11 @@ const (
 
 // StartRequest contains the focused inputs supported by MCP start_dev_loop.
 type StartRequest struct {
-	Context                    string
-	Platform                   string
+	Context  string
+	Profile  string
+	Platform string
+	// PlatformKey is retained only so older MCP clients decode predictably.
+	// New requests must use Profile; CommandRunner rejects this field.
 	PlatformKey                string
 	AppID                      string
 	BuildVersionID             string
@@ -179,6 +182,7 @@ type StartResult struct {
 	Context       string      `json:"context"`
 	State         string      `json:"state"`
 	PID           int         `json:"pid"`
+	Profile       string      `json:"profile,omitempty"`
 	Platform      string      `json:"platform"`
 	SessionID     string      `json:"session_id"`
 	SessionIndex  int         `json:"session_index"`
@@ -194,6 +198,7 @@ type StatusResult struct {
 	Running           bool                   `json:"running"`
 	Context           string                 `json:"context"`
 	State             string                 `json:"state"`
+	Profile           string                 `json:"profile,omitempty"`
 	Platform          string                 `json:"platform"`
 	BuildMode         string                 `json:"build_mode,omitempty"`
 	SessionID         string                 `json:"session_id"`
@@ -269,14 +274,20 @@ type CommandRunner struct {
 
 // Start runs the detached CLI handshake and returns as soon as the viewer is ready.
 func (r *CommandRunner) Start(ctx context.Context, workDir string, request StartRequest) (StartResult, error) {
+	if err := ValidateStartProfileSelection(request); err != nil {
+		return StartResult{}, err
+	}
 	if err := launcharguments.Validate(request.LaunchArguments); err != nil {
 		return StartResult{}, err
 	}
 
 	args := []string{"dev", "--detach", "--json", "--no-open"}
+	if strings.TrimSpace(workDir) != "" {
+		args = append([]string{"-C", workDir}, args...)
+	}
 	args = appendStringFlag(args, "--context", request.Context)
+	args = appendStringFlag(args, "--profile", request.Profile)
 	args = appendStringFlag(args, "--platform", request.Platform)
-	args = appendStringFlag(args, "--platform-key", request.PlatformKey)
 	args = appendStringFlag(args, "--app-id", request.AppID)
 	args = appendStringFlag(args, "--build-version-id", request.BuildVersionID)
 	for _, launchVar := range request.LaunchVars {
@@ -300,6 +311,18 @@ func (r *CommandRunner) Start(ctx context.Context, workDir string, request Start
 		args = append(args, "--seed-latest")
 	}
 	return runJSON[StartResult](ctx, r, workDir, args)
+}
+
+// ValidateStartProfileSelection rejects the removed flat build-platform selector.
+// PlatformKey remains on StartRequest only so older MCP payloads fail explicitly
+// instead of being silently ignored or reinterpreted as a named profile.
+func ValidateStartProfileSelection(request StartRequest) error {
+	if strings.TrimSpace(request.PlatformKey) == "" {
+		return nil
+	}
+	return fmt.Errorf(
+		"platform_key/--platform-key is no longer supported; use profile/--profile to select a named build profile and platform/--platform to select ios or android",
+	)
 }
 
 // Status reads the canonical dev status snapshot.

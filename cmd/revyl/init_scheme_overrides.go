@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/revyl/cli/internal/build"
-	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -116,7 +115,7 @@ func printProjectConfigReviewContext() {
 	ui.PrintDim("Press Enter on each field to keep the auto-detected default.")
 }
 
-func runProjectConfigReview(cfg *config.ProjectConfig, configPath string, overrideOpts *initOverrideOptions) error {
+func runProjectConfigReview(cfg *initConfigDraft, configPath string, overrideOpts *initOverrideOptions) error {
 	if cfg == nil || overrideOpts == nil || !overrideOpts.AllowInteractivePrompts {
 		return nil
 	}
@@ -130,7 +129,7 @@ func runProjectConfigReview(cfg *config.ProjectConfig, configPath string, overri
 //
 // Parameters:
 //   - cfg: project config used to determine which concepts to include
-func printBuildConceptsBox(cfg *config.ProjectConfig) {
+func printBuildConceptsBox(cfg *initConfigDraft) {
 	if cfg == nil {
 		return
 	}
@@ -142,7 +141,7 @@ func printBuildConceptsBox(cfg *config.ProjectConfig) {
 
 	var entries []conceptEntry
 
-	if isExpoBuildSystem(cfg.Build.System) {
+	if isExpoBuildSystem(cfg.Build.DetectedSystem.String()) {
 		entries = []conceptEntry{
 			{
 				Term: "Build stream",
@@ -227,17 +226,17 @@ func printBuildConceptsBox(cfg *config.ProjectConfig) {
 	ui.PrintBox("How Revyl builds work", b.String())
 }
 
-func printProjectConfigReviewPromptContext(cfg *config.ProjectConfig) {
+func printProjectConfigReviewPromptContext(cfg *initConfigDraft) {
 	if cfg == nil {
 		return
 	}
 
 	printBuildConceptsBox(cfg)
 
-	if isExpoBuildSystem(cfg.Build.System) {
+	if isExpoBuildSystem(cfg.Build.DetectedSystem.String()) {
 		keys := orderedBuildPlatformKeysForReview(cfg)
 		if len(keys) > 0 {
-			mapping := inferHotReloadPlatformKeys(cfg)
+			mapping := inferInitHotReloadRecipeKeys(cfg.Build)
 			ui.Println()
 			ui.PrintDim("Your project has %d build streams. Streams marked ✦ are used by revyl dev.", len(keys))
 			ui.Println()
@@ -248,8 +247,8 @@ func printProjectConfigReviewPromptContext(cfg *config.ProjectConfig) {
 				if mobile == "" {
 					mobile = "custom"
 				}
-				platformCfg := cfg.Build.Platforms[key]
-				buildCommand := strings.TrimSpace(platformCfg.Command)
+				platformCfg := cfg.Build.Recipes[key]
+				buildCommand := strings.TrimSpace(platformCfg.primaryBuildCommand())
 				if buildCommand == "" {
 					buildCommand = "-"
 				}
@@ -268,15 +267,15 @@ func printProjectConfigReviewPromptContext(cfg *config.ProjectConfig) {
 		}
 	} else {
 		ui.Println()
-		if len(cfg.Build.Platforms) > 0 {
+		if len(cfg.Build.Recipes) > 0 {
 			for _, key := range orderedBuildPlatformKeysForReview(cfg) {
-				platformCfg := cfg.Build.Platforms[key]
-				ui.PrintKeyValue(fmt.Sprintf("%s build command", key), strings.TrimSpace(platformCfg.Command))
-				ui.PrintKeyValue(fmt.Sprintf("%s artifact path", key), strings.TrimSpace(platformCfg.Output))
+				platformCfg := cfg.Build.Recipes[key]
+				ui.PrintKeyValue(fmt.Sprintf("%s build command", key), strings.TrimSpace(platformCfg.primaryBuildCommand()))
+				ui.PrintKeyValue(fmt.Sprintf("%s artifact path", key), strings.TrimSpace(platformCfg.OutputPath))
 			}
 		} else {
-			ui.PrintKeyValue("Build command", strings.TrimSpace(cfg.Build.Command))
-			ui.PrintKeyValue("Artifact path", strings.TrimSpace(cfg.Build.Output))
+			ui.PrintKeyValue("Build command", strings.TrimSpace(cfg.Build.DefaultCommand))
+			ui.PrintKeyValue("Artifact path", strings.TrimSpace(cfg.Build.DefaultOutput))
 		}
 	}
 }
@@ -333,7 +332,7 @@ func shortBuildPurpose(key string) string {
 	}
 }
 
-func describeBuildPlatformLink(cfg *config.ProjectConfig, platformKey string) string {
+func describeBuildPlatformLink(cfg *initConfigDraft, platformKey string) string {
 	purpose := describeBuildPlatformStream(platformKey)
 	mobile := strings.TrimSpace(mobilePlatformForBuildKey(platformKey))
 	if mobile == "" {
@@ -347,7 +346,7 @@ func describeBuildPlatformLink(cfg *config.ProjectConfig, platformKey string) st
 	return fmt.Sprintf("%s (mobile: %s, app stream name: %s)", purpose, mobile, appName)
 }
 
-func expectedInitAppName(cfg *config.ProjectConfig, platformKey string) string {
+func expectedInitAppName(cfg *initConfigDraft, platformKey string) string {
 	if cfg == nil {
 		return ""
 	}
@@ -380,11 +379,11 @@ func describeRuntimeDefaultForBuildKey(mapping map[string]string, buildKey strin
 
 type promptWithDefaultFunc func(label, current string) string
 
-func promptBuildSetupReview(cfg *config.ProjectConfig) {
+func promptBuildSetupReview(cfg *initConfigDraft) {
 	promptBuildSetupReviewWithPrompt(cfg, promptStringWithDefault)
 }
 
-func promptBuildSetupReviewWithPrompt(cfg *config.ProjectConfig, promptFn promptWithDefaultFunc) {
+func promptBuildSetupReviewWithPrompt(cfg *initConfigDraft, promptFn promptWithDefaultFunc) {
 	if cfg == nil {
 		return
 	}
@@ -398,8 +397,8 @@ func promptBuildSetupReviewWithPrompt(cfg *config.ProjectConfig, promptFn prompt
 
 	platformKeys := orderedBuildPlatformKeysForReview(cfg)
 	if len(platformKeys) == 0 {
-		cfg.Build.Command = promptFn(initBuildCommandLabel, cfg.Build.Command)
-		cfg.Build.Output = promptFn(initArtifactPathLabel, cfg.Build.Output)
+		cfg.Build.DefaultCommand = promptFn(initBuildCommandLabel, cfg.Build.DefaultCommand)
+		cfg.Build.DefaultOutput = promptFn(initArtifactPathLabel, cfg.Build.DefaultOutput)
 		return
 	}
 
@@ -408,37 +407,37 @@ func promptBuildSetupReviewWithPrompt(cfg *config.ProjectConfig, promptFn prompt
 			ui.Println()
 		}
 		ui.PrintInfo("  %s  ·  %s", platformKey, describeBuildPlatformStream(platformKey))
-		platformCfg := cfg.Build.Platforms[platformKey]
-		platformCfg.Command = promptFn(initBuildCommandLabel, platformCfg.Command)
-		platformCfg.Output = promptFn(initArtifactPathLabel, platformCfg.Output)
-		cfg.Build.Platforms[platformKey] = platformCfg
+		platformCfg := cfg.Build.Recipes[platformKey]
+		platformCfg.setPrimaryBuildCommand(promptFn(initBuildCommandLabel, platformCfg.primaryBuildCommand()))
+		platformCfg.OutputPath = promptFn(initArtifactPathLabel, platformCfg.OutputPath)
+		cfg.Build.Recipes[platformKey] = platformCfg
 	}
 
 	if len(platformKeys) > 0 {
-		first := cfg.Build.Platforms[platformKeys[0]]
-		cfg.Build.Command = first.Command
-		cfg.Build.Output = first.Output
+		first := cfg.Build.Recipes[platformKeys[0]]
+		cfg.Build.DefaultCommand = first.primaryBuildCommand()
+		cfg.Build.DefaultOutput = first.OutputPath
 	}
 }
 
-func orderedBuildPlatformKeysForReview(cfg *config.ProjectConfig) []string {
-	if cfg == nil || len(cfg.Build.Platforms) == 0 {
+func orderedBuildPlatformKeysForReview(cfg *initConfigDraft) []string {
+	if cfg == nil || len(cfg.Build.Recipes) == 0 {
 		return nil
 	}
 
 	priorityOrder := []string{"ios-dev", "android-dev", "ios-ci", "android-ci"}
-	keys := make([]string, 0, len(cfg.Build.Platforms))
-	seen := make(map[string]bool, len(cfg.Build.Platforms))
+	keys := make([]string, 0, len(cfg.Build.Recipes))
+	seen := make(map[string]bool, len(cfg.Build.Recipes))
 
 	for _, key := range priorityOrder {
-		if _, ok := cfg.Build.Platforms[key]; ok {
+		if _, ok := cfg.Build.Recipes[key]; ok {
 			keys = append(keys, key)
 			seen[key] = true
 		}
 	}
 
-	remaining := make([]string, 0, len(cfg.Build.Platforms))
-	for key := range cfg.Build.Platforms {
+	remaining := make([]string, 0, len(cfg.Build.Recipes))
+	for key := range cfg.Build.Recipes {
 		if !seen[key] {
 			remaining = append(remaining, key)
 		}
@@ -503,11 +502,11 @@ func promptHotReloadAppSchemeWithDefault(current string) string {
 	return input
 }
 
-func inferredExpoAppScheme(cfg *config.ProjectConfig) string {
+func inferredExpoAppScheme(cfg *initConfigDraft) string {
 	if cfg == nil {
 		return ""
 	}
-	expoCfg := cfg.HotReload.GetProviderConfig("expo")
+	expoCfg := cfg.HotReload.provider("expo")
 	if expoCfg == nil {
 		return ""
 	}
@@ -543,19 +542,19 @@ func parseXcodeSchemeOverrides(entries []string) (map[string]string, error) {
 	return overrides, nil
 }
 
-func applyXcodeSchemeOverrides(cfg *config.ProjectConfig, overrides map[string]string) error {
+func applyXcodeSchemeOverrides(cfg *initConfigDraft, overrides map[string]string) error {
 	if cfg == nil || len(overrides) == 0 {
 		return nil
 	}
 
-	availableKeys := make([]string, 0, len(cfg.Build.Platforms))
-	for key := range cfg.Build.Platforms {
+	availableKeys := make([]string, 0, len(cfg.Build.Recipes))
+	for key := range cfg.Build.Recipes {
 		availableKeys = append(availableKeys, key)
 	}
 	sort.Strings(availableKeys)
 
 	for platformKey := range overrides {
-		if _, ok := cfg.Build.Platforms[platformKey]; !ok {
+		if _, ok := cfg.Build.Recipes[platformKey]; !ok {
 			available := "(none)"
 			if len(availableKeys) > 0 {
 				available = strings.Join(availableKeys, ", ")
@@ -565,14 +564,14 @@ func applyXcodeSchemeOverrides(cfg *config.ProjectConfig, overrides map[string]s
 	}
 
 	for platformKey, scheme := range overrides {
-		platformCfg := cfg.Build.Platforms[platformKey]
-		cfg.Build.Platforms[platformKey] = setBuildPlatformScheme(platformCfg, scheme)
+		platformCfg := cfg.Build.Recipes[platformKey]
+		cfg.Build.Recipes[platformKey] = setBuildPlatformScheme(platformCfg, scheme)
 	}
 
 	return nil
 }
 
-func promptForXcodeSchemeEdits(cfg *config.ProjectConfig) {
+func promptForXcodeSchemeEdits(cfg *initConfigDraft) {
 	if cfg == nil {
 		return
 	}
@@ -585,7 +584,7 @@ func promptForXcodeSchemeEdits(cfg *config.ProjectConfig) {
 	ui.PrintDim("The Xcode scheme determines which target and build settings to use.")
 
 	for _, platformKey := range schemeKeys {
-		platformCfg := cfg.Build.Platforms[platformKey]
+		platformCfg := cfg.Build.Recipes[platformKey]
 		current := strings.TrimSpace(platformCfg.Scheme)
 
 		prompt := fmt.Sprintf("scheme for %s (press Enter to keep):", platformKey)
@@ -602,18 +601,18 @@ func promptForXcodeSchemeEdits(cfg *config.ProjectConfig) {
 			continue
 		}
 
-		cfg.Build.Platforms[platformKey] = setBuildPlatformScheme(platformCfg, scheme)
+		cfg.Build.Recipes[platformKey] = setBuildPlatformScheme(platformCfg, scheme)
 	}
 }
 
-func xcodeSchemePlatformKeys(cfg *config.ProjectConfig) []string {
+func xcodeSchemePlatformKeys(cfg *initConfigDraft) []string {
 	if cfg == nil {
 		return nil
 	}
 
-	keys := make([]string, 0, len(cfg.Build.Platforms))
-	for key, platformCfg := range cfg.Build.Platforms {
-		command := strings.TrimSpace(platformCfg.Command)
+	keys := make([]string, 0, len(cfg.Build.Recipes))
+	for key, platformCfg := range cfg.Build.Recipes {
+		command := strings.TrimSpace(platformCfg.primaryBuildCommand())
 		if strings.Contains(command, "-scheme ") || strings.TrimSpace(platformCfg.Scheme) != "" {
 			keys = append(keys, key)
 		}
@@ -622,7 +621,7 @@ func xcodeSchemePlatformKeys(cfg *config.ProjectConfig) []string {
 	return keys
 }
 
-func applyExpoAppSchemeOverride(providerCfg *config.ProviderConfig, explicitScheme string, allowInteractiveEdit bool) {
+func applyExpoAppSchemeOverride(providerCfg *initProviderDraft, explicitScheme string, allowInteractiveEdit bool) {
 	if providerCfg == nil {
 		return
 	}
@@ -659,26 +658,26 @@ func applyExpoAppSchemeOverride(providerCfg *config.ProviderConfig, explicitSche
 
 var xcodeSchemeArgPattern = regexp.MustCompile(`-scheme\s+('[^']*'|"[^"]*"|\S+)`)
 
-func setBuildPlatformScheme(platformCfg config.BuildPlatform, scheme string) config.BuildPlatform {
+func setBuildPlatformScheme(platformCfg initBuildRecipeDraft, scheme string) initBuildRecipeDraft {
 	trimmedScheme := strings.TrimSpace(scheme)
 	if trimmedScheme == "" {
 		return platformCfg
 	}
 
 	platformCfg.Scheme = trimmedScheme
-	command := strings.TrimSpace(platformCfg.Command)
+	command := strings.TrimSpace(platformCfg.primaryBuildCommand())
 	if command == "" {
 		return platformCfg
 	}
 
 	if strings.Contains(command, "-scheme *") {
-		platformCfg.Command = build.ApplySchemeToCommand(command, trimmedScheme)
+		platformCfg.setPrimaryBuildCommand(build.ApplySchemeToCommand(command, trimmedScheme))
 		return platformCfg
 	}
 
 	if xcodeSchemeArgPattern.MatchString(command) {
 		templatedCommand := xcodeSchemeArgPattern.ReplaceAllString(command, "-scheme *")
-		platformCfg.Command = build.ApplySchemeToCommand(templatedCommand, trimmedScheme)
+		platformCfg.setPrimaryBuildCommand(build.ApplySchemeToCommand(templatedCommand, trimmedScheme))
 	}
 
 	return platformCfg

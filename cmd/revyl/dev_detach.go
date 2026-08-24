@@ -41,6 +41,7 @@ type devDetachHandshake struct {
 	State        string            `json:"state"`
 	PID          int               `json:"pid"`
 	Platform     string            `json:"platform,omitempty"`
+	Profile      string            `json:"profile,omitempty"`
 	SessionID    string            `json:"session_id,omitempty"`
 	SessionIndex int               `json:"session_index"`
 	ViewerURL    string            `json:"viewer_url,omitempty"`
@@ -103,6 +104,24 @@ func filterDetachArgs(args []string) []string {
 	return filtered
 }
 
+func projectDetachArgs(args []string, invocation projectDevInvocation) []string {
+	filtered := filterDetachArgs(args)
+	result := make([]string, 0, len(filtered)+4)
+	for index := 0; index < len(filtered); index++ {
+		arg := filtered[index]
+		switch {
+		case arg == "-C" || arg == "--chdir" || arg == "--profile" || arg == "--platform":
+			index++
+			continue
+		case strings.HasPrefix(arg, "-C=") || strings.HasPrefix(arg, "--chdir=") ||
+			strings.HasPrefix(arg, "--profile=") || strings.HasPrefix(arg, "--platform="):
+			continue
+		}
+		result = append(result, arg)
+	}
+	return append(result, "--profile", invocation.Profile, "--platform", invocation.Platform)
+}
+
 func devDetachLogPath(cwd string) string {
 	return filepath.Join(cwd, ".revyl", devContextsDir, devDetachContextFile)
 }
@@ -112,6 +131,14 @@ func devDetachLogPath(cwd string) string {
 // machine-readable handshake. Returns once the session is ready (build may
 // still be running in the background).
 func spawnDetachedDevLoop(cmd *cobra.Command, cwd string) error {
+	return spawnDetachedDevLoopWithArgs(cmd, cwd, filterDetachArgs(os.Args[1:]))
+}
+
+func spawnDetachedProjectDevLoop(cmd *cobra.Command, invocation projectDevInvocation) error {
+	return spawnDetachedDevLoopWithArgs(cmd, invocation.ProjectRoot, projectDetachArgs(os.Args[1:], invocation))
+}
+
+func spawnDetachedDevLoopWithArgs(cmd *cobra.Command, cwd string, childArgs []string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to resolve executable for --detach: %w", err)
@@ -128,7 +155,7 @@ func spawnDetachedDevLoop(cmd *cobra.Command, cwd string) error {
 	defer logFile.Close()
 	_, _ = fmt.Fprintf(logFile, "\n--- revyl dev detached %s ---\n", time.Now().UTC().Format(time.RFC3339))
 
-	args := append(filterDetachArgs(os.Args[1:]), "--no-open")
+	args := append(childArgs, "--no-open")
 	child := exec.Command(exe, args...)
 	child.Dir = cwd
 	child.Env = append(os.Environ(), devDetachedEnv+"=1")
@@ -245,6 +272,7 @@ func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, lo
 		State:        "ready",
 		PID:          devCtx.PID,
 		Platform:     devCtx.Platform,
+		Profile:      devCtx.Profile,
 		SessionID:    devCtx.SessionID,
 		SessionIndex: devCtx.SessionIndex,
 		ViewerURL:    devCtx.ViewerURL,

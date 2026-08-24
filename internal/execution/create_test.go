@@ -387,30 +387,28 @@ func TestCreateTest_UsesConfiguredDefaultAppWhenYAMLDoesNotSpecifyBuild(t *testi
 	defer srv.Close()
 
 	client := api.NewClientWithBaseURL("token", srv.URL)
-	cfg := &config.ProjectConfig{
-		Project: config.Project{
-			OrgID: "org-config",
-		},
-		Build: config.BuildConfig{
-			Platforms: map[string]config.BuildPlatform{
-				"ios-dev": {AppID: "app-dev"},
-				"ios-ci":  {AppID: "app-ci"},
-			},
-		},
-		HotReload: config.HotReloadConfig{
-			Providers: map[string]*config.ProviderConfig{
-				"expo": {PlatformKeys: map[string]string{"ios": "ios-dev"}},
+	appID := "app-dev"
+	project := &config.ProjectContext{
+		Aggregate: &config.NormalizedProjectAggregate{
+			Profiles: []config.NormalizedBuildProfile{
+				{
+					Name: "development",
+					Configurations: []config.NormalizedPlatformConfiguration{
+						{Platform: "ios", AppID: &appID},
+					},
+				},
 			},
 		},
 	}
 
-	if got := ResolveConfiguredAppID(cfg, "ios"); got != "app-dev" {
-		t.Fatalf("ResolveConfiguredAppID() = %q, want app-dev", got)
+	if got, err := ResolveCanonicalConfiguredAppID(project, "ios"); err != nil || got != "app-dev" {
+		t.Fatalf("ResolveCanonicalConfiguredAppID() = %q, %v; want app-dev", got, err)
 	}
 
 	req, err := buildCreateTestRequest(context.Background(), client, CreateTestParams{
 		Name:     "dfa",
 		Platform: "ios",
+		OrgID:    "org-live",
 		YAMLContent: `
 test:
   metadata:
@@ -420,12 +418,46 @@ test:
     - type: instructions
       step_description: Open app
 `,
-		Config: cfg,
+		Project: project,
 	})
 	if err != nil {
 		t.Fatalf("buildCreateTestRequest() error = %v", err)
 	}
 	if req.AppID != "app-dev" {
 		t.Fatalf("AppID = %q, want app-dev", req.AppID)
+	}
+}
+
+func TestResolveCanonicalConfiguredAppID_RejectsDistinctProfileApps(t *testing.T) {
+	firstAppID := "app-development"
+	secondAppID := "app-production"
+	project := &config.ProjectContext{
+		Aggregate: &config.NormalizedProjectAggregate{
+			Profiles: []config.NormalizedBuildProfile{
+				{
+					Name: "development",
+					Configurations: []config.NormalizedPlatformConfiguration{
+						{Platform: "ios", AppID: &firstAppID},
+					},
+				},
+				{
+					Name: "production",
+					Configurations: []config.NormalizedPlatformConfiguration{
+						{Platform: "ios", AppID: &secondAppID},
+					},
+				},
+			},
+		},
+	}
+
+	appID, err := ResolveCanonicalConfiguredAppID(project, "ios")
+	if err == nil {
+		t.Fatal("expected explicit-app guidance for distinct profile apps")
+	}
+	if appID != "" {
+		t.Fatalf("app ID = %q, want empty", appID)
+	}
+	if !strings.Contains(err.Error(), "provide an app ID explicitly") {
+		t.Fatalf("error = %v, want explicit app guidance", err)
 	}
 }

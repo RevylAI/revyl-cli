@@ -20,6 +20,61 @@ type Client interface {
 	ListAllWorkflows(ctx context.Context, pageSize int) ([]api.SimpleWorkflow, error)
 }
 
+// BoundedCatalogClient is the API surface required to resolve multiple exact
+// workflow names without accepting a partial organization catalog.
+type BoundedCatalogClient interface {
+	ListWorkflowsBounded(ctx context.Context, pageSize, maxWorkflows int) ([]api.SimpleWorkflow, error)
+}
+
+const (
+	exactNameCatalogPageSize     = 200
+	exactNameCatalogMaxWorkflows = 5000
+)
+
+// ExactNameResolutionErrorKind classifies a batch exact-name resolution
+// failure without requiring callers to inspect or record its human-facing text.
+type ExactNameResolutionErrorKind string
+
+const (
+	ExactNameInvalidInput       ExactNameResolutionErrorKind = "invalid_input"
+	ExactNameCatalogUnavailable ExactNameResolutionErrorKind = "catalog_unavailable"
+	ExactNameCatalogLimit       ExactNameResolutionErrorKind = "catalog_limit_exceeded"
+	ExactNameNotFound           ExactNameResolutionErrorKind = "not_found"
+	ExactNameAmbiguous          ExactNameResolutionErrorKind = "ambiguous"
+	ExactNameInvalidWorkflowID  ExactNameResolutionErrorKind = "invalid_workflow_id"
+)
+
+// ExactNameResolutionError is an actionable, classifiable batch-resolution
+// failure. Name and WorkflowIDs are for direct CLI output; analytics should use
+// Kind rather than recording these organization-specific values.
+type ExactNameResolutionError struct {
+	Kind        ExactNameResolutionErrorKind
+	Name        string
+	WorkflowIDs []string
+	Err         error
+}
+
+func (e *ExactNameResolutionError) Error() string {
+	switch e.Kind {
+	case ExactNameInvalidInput:
+		return "workflow names must not be blank"
+	case ExactNameCatalogUnavailable, ExactNameCatalogLimit:
+		return fmt.Sprintf("failed to load the complete workflow catalog: %v", e.Err)
+	case ExactNameNotFound:
+		return fmt.Sprintf("workflow %q not found\n\nHint: Run 'revyl workflow list' to see all available workflows.", e.Name)
+	case ExactNameAmbiguous:
+		return fmt.Sprintf("multiple workflows named %q found -- use UUID to disambiguate:\n  %s", e.Name, strings.Join(e.WorkflowIDs, "\n  "))
+	case ExactNameInvalidWorkflowID:
+		return fmt.Sprintf("workflow %q has an invalid server ID; contact Revyl support", e.Name)
+	default:
+		return "workflow name resolution failed"
+	}
+}
+
+func (e *ExactNameResolutionError) Unwrap() error {
+	return e.Err
+}
+
 // Resolution is the resolved workflow reference.
 type Resolution struct {
 	ID           string
@@ -70,6 +125,108 @@ func Resolve(ctx context.Context, client Client, ref string) (*Resolution, error
 	}
 
 	return resolveByExactName(ctx, client, ref, false)
+}
+
+// ResolveExactNames resolves a batch of exact, case-sensitive workflow names
+// after enumerating the complete organization catalog once. It fails closed if
+// the catalog exceeds the resolver's explicit safety bound.
+func ResolveExactNames(ctx context.Context, client BoundedCatalogClient, refs []string) (map[string]Resolution, error) {
+	resolved, issues, err := ResolveExactNamesBestEffort(ctx, client, refs)
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range refs {
+		if issue := issues[strings.TrimSpace(ref)]; issue != nil {
+			return nil, issue
+		}
+	}
+	return resolved, nil
+}
+
+// ResolveExactNamesBestEffort resolves every unique exact name from one
+// bounded catalog read while returning name-local failures separately.
+func ResolveExactNamesBestEffort(
+	ctx context.Context,
+	client BoundedCatalogClient,
+	refs []string,
+) (map[string]Resolution, map[string]*ExactNameResolutionError, error) {
+	if client == nil {
+		return nil, nil, &ExactNameResolutionError{Kind: ExactNameInvalidInput}
+	}
+
+	names := make([]string, 0, len(refs))
+	requested := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		name := strings.TrimSpace(ref)
+		if name == "" {
+			return nil, nil, &ExactNameResolutionError{Kind: ExactNameInvalidInput}
+		}
+		if _, seen := requested[name]; seen {
+			continue
+		}
+		requested[name] = struct{}{}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return map[string]Resolution{}, map[string]*ExactNameResolutionError{}, nil
+	}
+
+	workflows, err := client.ListWorkflowsBounded(ctx, exactNameCatalogPageSize, exactNameCatalogMaxWorkflows)
+	if err != nil {
+		kind := ExactNameCatalogUnavailable
+		var limitErr *api.WorkflowCatalogLimitError
+		if errors.As(err, &limitErr) {
+			kind = ExactNameCatalogLimit
+		}
+		return nil, nil, &ExactNameResolutionError{Kind: kind, Err: err}
+	}
+
+	matchesByName := make(map[string][]api.SimpleWorkflow, len(names))
+	for _, workflow := range workflows {
+		name := strings.TrimSpace(workflow.Name)
+		if _, wanted := requested[name]; wanted {
+			matchesByName[name] = append(matchesByName[name], workflow)
+		}
+	}
+
+	resolved := make(map[string]Resolution, len(names))
+	issues := make(map[string]*ExactNameResolutionError)
+	for _, name := range names {
+		matches := matchesByName[name]
+		canonicalIDs := make([]string, 0, len(matches))
+		invalidID := false
+		for _, match := range matches {
+			parsedID, parseErr := uuid.Parse(strings.TrimSpace(match.ID))
+			if parseErr != nil {
+				invalidID = true
+				break
+			}
+			canonicalIDs = append(canonicalIDs, parsedID.String())
+		}
+		if invalidID {
+			issues[name] = &ExactNameResolutionError{Kind: ExactNameInvalidWorkflowID, Name: name}
+			continue
+		}
+		switch len(matches) {
+		case 0:
+			issues[name] = &ExactNameResolutionError{Kind: ExactNameNotFound, Name: name}
+		case 1:
+			resolved[name] = Resolution{
+				ID:    canonicalIDs[0],
+				Name:  matches[0].Name,
+				Input: name,
+			}
+		default:
+			sort.Strings(canonicalIDs)
+			issues[name] = &ExactNameResolutionError{
+				Kind:        ExactNameAmbiguous,
+				Name:        name,
+				WorkflowIDs: canonicalIDs,
+			}
+		}
+	}
+
+	return resolved, issues, nil
 }
 
 func resolveByExactName(ctx context.Context, client Client, ref string, inputWasValidUUID bool) (*Resolution, error) {

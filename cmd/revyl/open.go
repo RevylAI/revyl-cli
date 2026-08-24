@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -47,55 +46,14 @@ func runOpenTest(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Get current directory
-	cwd, err := os.Getwd()
+	devMode, _ := cmd.Flags().GetBool("dev")
+	client := api.NewClientWithDevMode(apiKey, devMode)
+	testID, _, err := resolveTestID(cmd.Context(), testNameOrID, nil, client)
 	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	// Try to resolve name to ID from local YAML
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-	var testID string
-	if id, _ := config.GetLocalTestRemoteID(testsDir, testNameOrID); id != "" {
-		testID = id
-	}
-
-	// If not found in config, check if it looks like a UUID or search via API
-	if testID == "" {
-		// Check if it looks like a UUID (contains dashes and is ~36 chars)
-		if looksLikeUUID(testNameOrID) {
-			testID = testNameOrID
-		} else {
-			// Search via API
-			devMode, _ := cmd.Flags().GetBool("dev")
-			client := api.NewClientWithDevMode(apiKey, devMode)
-
-			ui.StartSpinner("Searching for test...")
-			testsResp, err := client.ListOrgTests(cmd.Context(), 100, 0)
-			ui.StopSpinner()
-
-			if err != nil {
-				ui.PrintError("Failed to search for test: %v", err)
-				return err
-			}
-
-			for _, t := range testsResp.Tests {
-				if t.Name == testNameOrID {
-					testID = t.ID
-					break
-				}
-			}
-
-			if testID == "" {
-				ui.PrintError("Test '%s' not found", testNameOrID)
-				ui.PrintInfo("Use 'revyl test remote' to list available tests")
-				return fmt.Errorf("test not found")
-			}
-		}
+		return err
 	}
 
 	// Open browser (unless --no-open is set)
-	devMode, _ := cmd.Flags().GetBool("dev")
 	testURL := fmt.Sprintf("%s/tests/execute?testUid=%s", config.GetAppURL(devMode), testID)
 
 	if openTestNoOpen {
@@ -181,58 +139,15 @@ func runOpenTestInteractive(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Get current directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	if _, err := config.LoadProjectConfig(configPath); err != nil {
-		ui.PrintWarning("Project not initialized. Run 'revyl init' first for full functionality.")
-	}
-
 	// Get dev mode flag
 	devMode, _ := cmd.Flags().GetBool("dev")
 
 	// Create API client
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Resolve test ID
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-	var testID string
-	if id, _ := config.GetLocalTestRemoteID(testsDir, testNameOrID); id != "" {
-		testID = id
-	}
-
-	// If not found in config, check if it looks like a UUID or search via API
-	if testID == "" {
-		if looksLikeUUID(testNameOrID) {
-			testID = testNameOrID
-		} else {
-			// Search via API
-			ui.StartSpinner("Searching for test...")
-			testsResp, err := client.ListOrgTests(cmd.Context(), 100, 0)
-			ui.StopSpinner()
-
-			if err != nil {
-				ui.PrintError("Failed to search for test: %v", err)
-				return err
-			}
-
-			for _, t := range testsResp.Tests {
-				if t.Name == testNameOrID {
-					testID = t.ID
-					break
-				}
-			}
-
-			if testID == "" {
-				ui.PrintError("Test '%s' not found", testNameOrID)
-				ui.PrintInfo("Use 'revyl test remote' to list available tests")
-				return fmt.Errorf("test not found")
-			}
-		}
+	testID, _, err := resolveTestID(cmd.Context(), testNameOrID, nil, client)
+	if err != nil {
+		return err
 	}
 
 	// Fetch test details

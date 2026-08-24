@@ -5,8 +5,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -26,6 +24,7 @@ import (
 //   - YAMLContent: Optional YAML test definition (if provided, creates with blocks)
 //   - AppID: Optional app ID to associate
 //   - OrgID: Organization ID
+//   - Project: Optional strictly resolved canonical project for app selection
 //   - DevMode: If true, use local development servers
 type CreateTestParams struct {
 	Name             string
@@ -35,9 +34,14 @@ type CreateTestParams struct {
 	OrgID            string
 	ModuleNamesOrIDs []string
 	Tags             []string
-	Config           *config.ProjectConfig
-	AllowEmpty       bool
-	DevMode          bool
+	// Project is the strictly resolved canonical project used for configured
+	// app selection. It may be nil for explicit-app, configless callers.
+	Project *config.ProjectContext
+	// Config is retained for source compatibility. Ordinary creation no longer
+	// reads the legacy project model; callers must pass Project or AppID.
+	Config     *config.ProjectConfig
+	AllowEmpty bool
+	DevMode    bool
 }
 
 // CreateTestResult contains the result of test creation.
@@ -161,7 +165,7 @@ func buildCreateTestRequest(ctx context.Context, client *api.Client, params Crea
 		return nil, fmt.Errorf("test content is required: provide yaml_content or module_names_or_ids, or use open_test_editor for manual authoring")
 	}
 
-	appInfo, err := resolveCreateTestApp(ctx, client, params.Config, platform, params.AppID, testDef.Test.Build.Name)
+	appInfo, err := resolveCreateTestApp(ctx, client, params.Project, platform, params.AppID, testDef.Test.Build.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +177,7 @@ func buildCreateTestRequest(ctx context.Context, client *api.Client, params Crea
 
 	orgID := strings.TrimSpace(params.OrgID)
 	if orgID == "" {
-		resolvedOrgID, err := orgguard.ResolveCreateOrgID(ctx, client, params.Config)
+		resolvedOrgID, err := orgguard.ResolveCreateOrgID(ctx, client, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -191,6 +195,44 @@ func buildCreateTestRequest(ctx context.Context, client *api.Client, params Crea
 		AppID:    appInfo.ID,
 		OrgID:    orgID,
 	}, nil
+}
+
+// ResolveCanonicalConfiguredAppID returns the only app ID configured for a
+// runtime platform across canonical build profiles. Multiple distinct app IDs
+// are intentionally ambiguous: callers must select one explicitly instead of
+// silently choosing a different profile's app.
+func ResolveCanonicalConfiguredAppID(project *config.ProjectContext, runtimePlatform string) (string, error) {
+	if project == nil || project.Aggregate == nil {
+		return "", nil
+	}
+
+	runtimePlatform = normalizeCreatePlatform(runtimePlatform)
+	if runtimePlatform != "ios" && runtimePlatform != "android" {
+		return "", nil
+	}
+
+	appIDs := make(map[string]struct{})
+	for _, profile := range project.Aggregate.Profiles {
+		for _, configuration := range profile.Configurations {
+			if configuration.Platform != runtimePlatform || configuration.AppID == nil {
+				continue
+			}
+			if appID := strings.TrimSpace(*configuration.AppID); appID != "" {
+				appIDs[appID] = struct{}{}
+			}
+		}
+	}
+
+	if len(appIDs) == 0 {
+		return "", nil
+	}
+	if len(appIDs) > 1 {
+		return "", fmt.Errorf("multiple %s apps are configured across build profiles; provide an app ID explicitly", runtimePlatform)
+	}
+	for appID := range appIDs {
+		return appID, nil
+	}
+	return "", nil
 }
 
 // ResolveConfiguredAppID returns the configured default app ID for a runtime platform.
@@ -284,7 +326,7 @@ func resolveCreateTestModule(ctx context.Context, client *api.Client, ref string
 	return "", "", fmt.Errorf("module %q not found; use an exact module name or UUID", ref)
 }
 
-func resolveCreateTestApp(ctx context.Context, client *api.Client, cfg *config.ProjectConfig, platform, explicitAppID, yamlBuildName string) (*api.App, error) {
+func resolveCreateTestApp(ctx context.Context, client *api.Client, project *config.ProjectContext, platform, explicitAppID, yamlBuildName string) (*api.App, error) {
 	explicitAppID = strings.TrimSpace(explicitAppID)
 	yamlBuildName = strings.TrimSpace(yamlBuildName)
 	if yamlBuildName != "" {
@@ -317,7 +359,11 @@ func resolveCreateTestApp(ctx context.Context, client *api.Client, cfg *config.P
 		return appInfo, nil
 	}
 
-	if configuredAppID := ResolveConfiguredAppID(cfg, platform); configuredAppID != "" {
+	configuredAppID, err := ResolveCanonicalConfiguredAppID(project, platform)
+	if err != nil {
+		return nil, err
+	}
+	if configuredAppID != "" {
 		appInfo, err := resolveAppByID(ctx, client, configuredAppID, platform, "configured app")
 		if err != nil {
 			return nil, err
@@ -627,6 +673,7 @@ func CreateWorkflow(ctx context.Context, apiKey string, params CreateWorkflowPar
 //   - DevMode: If true, use local development servers
 type OpenTestEditorParams struct {
 	TestNameOrID string
+	TestsDir     string
 	DevMode      bool
 }
 
@@ -651,10 +698,8 @@ type OpenTestEditorResult struct {
 func OpenTestEditor(_ *config.ProjectConfig, params OpenTestEditorParams) *OpenTestEditorResult {
 	// Resolve test ID from local YAML
 	testID := params.TestNameOrID
-	cwd, err := os.Getwd()
-	if err == nil {
-		testsDir := filepath.Join(cwd, ".revyl", "tests")
-		if id, ltErr := config.GetLocalTestRemoteID(testsDir, params.TestNameOrID); ltErr == nil && id != "" {
+	if strings.TrimSpace(params.TestsDir) != "" {
+		if id, ltErr := config.GetLocalTestRemoteID(params.TestsDir, params.TestNameOrID); ltErr == nil && id != "" {
 			testID = id
 		}
 	}
@@ -699,7 +744,7 @@ type OpenWorkflowEditorResult struct {
 //
 // Returns:
 //   - *OpenWorkflowEditorResult: Result with workflow ID and URL
-func OpenWorkflowEditor(cfg *config.ProjectConfig, params OpenWorkflowEditorParams) *OpenWorkflowEditorResult {
+func OpenWorkflowEditor(_ *config.ProjectConfig, params OpenWorkflowEditorParams) *OpenWorkflowEditorResult {
 	workflowID := params.WorkflowNameOrID
 
 	workflowURL := fmt.Sprintf("%s/workflows/%s", config.GetAppURL(params.DevMode), workflowID)

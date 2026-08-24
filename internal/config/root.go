@@ -85,6 +85,27 @@ func FindProjectRoot(dir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
 	}
+	roots, err := FindNestedProjectRoots(absDir)
+	if err != nil {
+		return "", err
+	}
+	switch len(roots) {
+	case 0:
+		return "", &MissingProjectRootError{WorkingDirectory: absDir}
+	case 1:
+		return roots[0], nil
+	default:
+		return "", &AmbiguousProjectRootsError{WorkingDirectory: absDir, Roots: roots}
+	}
+}
+
+// FindNestedProjectRoots returns initialized projects below dir without
+// searching parent directories or expensive generated dependency trees.
+func FindNestedProjectRoots(dir string) ([]string, error) {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
 	var roots []string
 	walkErr := filepath.WalkDir(absDir, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -112,15 +133,8 @@ func FindProjectRoot(dir string) (string, error) {
 		return nil
 	})
 	if walkErr != nil {
-		return "", fmt.Errorf("search nested Revyl projects: %w", walkErr)
+		return nil, fmt.Errorf("search nested Revyl projects: %w", walkErr)
 	}
 	sort.Strings(roots)
-	switch len(roots) {
-	case 0:
-		return "", &MissingProjectRootError{WorkingDirectory: absDir}
-	case 1:
-		return roots[0], nil
-	default:
-		return "", &AmbiguousProjectRootsError{WorkingDirectory: absDir, Roots: roots}
-	}
+	return roots, nil
 }

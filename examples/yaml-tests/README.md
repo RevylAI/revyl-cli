@@ -31,8 +31,12 @@ This command:
 1. Checks the YAML with the backend validator
 2. Copies it to `.revyl/tests/<name>.yaml`
 3. Creates (or updates) the remote test
-4. Writes `.revyl/config.yaml` if it doesn't exist yet
-5. Stores sync metadata (`_meta.remote_id`, version, checksums) in the local YAML
+4. Stores sync metadata (`_meta.remote_id`, version, checksums) in the local YAML
+
+The selected project must already have a valid `.revyl/config.yaml`. Use
+`revyl config pull` for an existing registered project, `revyl init -y` for a
+new local project, or `revyl config migrate` for a legacy file. Test creation
+never creates or migrates project configuration.
 
 Useful flags:
 
@@ -45,7 +49,7 @@ revyl test create --from-file ./test.yaml --dry-run   # preview without creating
 ### Recommended loop
 
 ```bash
-# 1. Create and bootstrap local state
+# 1. Create the test in an established project
 revyl test create --from-file ./my-test.yaml
 
 # 2. Iterate on the synced file
@@ -75,9 +79,9 @@ Every test file has `test.metadata`, `test.build`, and `test.blocks`:
 test:
   metadata:
     name: my-test
-    platform: ios            # ios or android
+    platform: ios # ios or android
   build:
-    name: my-app-build       # build name in Revyl
+    name: my-app-build # build name in Revyl
   blocks:
     - type: instructions
       step_description: "Tap the Login button"
@@ -87,16 +91,16 @@ test:
 
 ## Block types
 
-| Type | Purpose | Required fields |
-|------|---------|-----------------|
-| `instructions` | Perform an action | `step_description` |
-| `validation` | Assert something is true | `step_description` |
-| `extraction` | Extract data into a variable | `step_description`, `variable_name` |
-| `manual` | Built-in actions (`wait`, `navigate`, `set_location`, `set_orientation`, `set_appearance`, `download_file`, `open_app`, `kill_app`, `go_home`, `end`) | `step_type`; parameter in `step_description` or `file` when required |
-| `if` | Conditional branch | `condition`, `then` (blocks) |
-| `while` | Loop | `condition`, `body` (blocks) |
-| `code_execution` | Run a script | `script` |
-| `module_import` | Reuse a shared module | `module` |
+| Type             | Purpose                                                                                                                                               | Required fields                                                      |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `instructions`   | Perform an action                                                                                                                                     | `step_description`                                                   |
+| `validation`     | Assert something is true                                                                                                                              | `step_description`                                                   |
+| `extraction`     | Extract data into a variable                                                                                                                          | `step_description`, `variable_name`                                  |
+| `manual`         | Built-in actions (`wait`, `navigate`, `set_location`, `set_orientation`, `set_appearance`, `download_file`, `open_app`, `kill_app`, `go_home`, `end`) | `step_type`; parameter in `step_description` or `file` when required |
+| `if`             | Conditional branch                                                                                                                                    | `condition`, `then` (blocks)                                         |
+| `while`          | Loop                                                                                                                                                  | `condition`, `body` (blocks)                                         |
+| `code_execution` | Run a script                                                                                                                                          | `script`                                                             |
+| `module_import`  | Reuse a shared module                                                                                                                                 | `module`                                                             |
 
 Legacy YAML using `code_execution.step_description` as a script UUID or `module_import.module_id` as a module UUID is still accepted for compatibility. New YAML should use `script` and `module`.
 
@@ -143,11 +147,11 @@ checkout          modified    ios        5 minutes ago
 onboarding        outdated    android    1 day ago
 ```
 
-| Status | Meaning |
-|--------|---------|
-| `synced` | Local and remote are identical |
-| `modified` | Local changes not yet pushed |
-| `outdated` | Remote has newer changes |
+| Status       | Meaning                          |
+| ------------ | -------------------------------- |
+| `synced`     | Local and remote are identical   |
+| `modified`   | Local changes not yet pushed     |
+| `outdated`   | Remote has newer changes         |
 | `local-only` | Exists locally but not on remote |
 
 ### Daily workflow
@@ -177,11 +181,11 @@ revyl test push checkout --force
 
 ### Full reconciliation
 
-Reconcile all tests, workflows, and app links at once:
+Reconcile local and remote tests at once:
 
 ```bash
-revyl sync --dry-run              # preview what will change
-revyl sync --tests --prune        # reconcile and clean up stale mappings
+revyl test sync --dry-run         # preview what test sync will change
+revyl test sync --prune           # reconcile and clean up stale test mappings
 ```
 
 ## Using in CI/CD
@@ -251,13 +255,13 @@ test:
 
 ### CI-friendly flags
 
-| Flag | Effect |
-|------|--------|
-| `--json` | Machine-readable JSON output |
-| `--no-wait` | Queue the run and exit without waiting for results |
-| `--quiet` / `-q` | Suppress non-essential output |
-| `--yes` | Skip interactive confirmations |
-| `--force` | Overwrite remote tests without conflict checks |
+| Flag             | Effect                                             |
+| ---------------- | -------------------------------------------------- |
+| `--json`         | Machine-readable JSON output                       |
+| `--no-wait`      | Queue the run and exit without waiting for results |
+| `--quiet` / `-q` | Suppress non-essential output                      |
+| `--yes`          | Skip interactive confirmations                     |
+| `--force`        | Overwrite remote tests without conflict checks     |
 
 ## Examples
 

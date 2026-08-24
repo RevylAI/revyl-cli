@@ -54,12 +54,16 @@ Build secrets (signing keys, Expo tokens, store credentials) stay in **your** CI
    `REVYL_API_KEY`.
 3. Paid Cursor plan, and the repo connected in Cursor, so Comment on pull
    request works.
-4. Optional: `.revyl/config.yaml` with `auth_bypass` / `before_session` when
-   the app needs a signed-in session.
+4. Optional: `.revyl/config.yaml` with `session.auth_bypass` /
+   `session.before_script` when the app needs a signed-in session.
 
 ## Twin path (Revyl GitHub App)
 
 If the team later connects the Revyl GitHub App, the same upload step works
-with `use_existing_ci: true` and `proof_harness: { kind: cursor }`. That is
-not the first-run path. See the Mintlify page `guides/cursor-proof` and
-`integrations/github` ("Use your own CI").
+with `pr_review.build.kind: ci_upload_to_revyl`, an app ID at
+`pr_review.build.app_ids.<platform>`, `pr_review.proof_of_changes.enabled: true`,
+and `pr_review.proof_of_changes.harness.kind: cursor`. Publish that policy under
+manual authority, or merge a Git-owned policy into the repository's default
+branch, then run `revyl config authorize-cursor-proof`. That is not the first-run
+path. See the Mintlify pages `develop/proof-of-changes` and `integrations/github`
+("Use your own CI").

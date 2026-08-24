@@ -17,6 +17,8 @@ func (s *Server) registerDevLoopTools() {
 	}
 	if s.profile == ProfileDev {
 		mcp.AddTool(s.mcpServer, startTool, s.handleStartDevLoopCommand)
+	} else if s.profile == ProfileCore || s.profile == ProfileFull {
+		mcp.AddTool(s.mcpServer, startTool, s.handleStartDevLoopCoreCompat)
 	} else {
 		mcp.AddTool(s.mcpServer, startTool, s.handleStartDevLoopCompat)
 	}
@@ -39,6 +41,8 @@ func (s *Server) registerDevLoopTools() {
 	}
 	if s.profile == ProfileDev {
 		mcp.AddTool(s.mcpServer, stopTool, s.handleStopDevLoopCommand)
+	} else if s.profile == ProfileCore || s.profile == ProfileFull {
+		mcp.AddTool(s.mcpServer, stopTool, s.handleStopDevLoopCoreCompat)
 	} else {
 		mcp.AddTool(s.mcpServer, stopTool, s.handleStopDevLoopCompat)
 	}
@@ -48,8 +52,9 @@ func (s *Server) registerDevLoopTools() {
 type StartDevLoopInput struct {
 	Context                    string   `json:"context,omitempty" jsonschema:"Optional named dev context."`
 	ProjectDir                 string   `json:"project_dir,omitempty" jsonschema:"Optional project or monorepo root. Nested Revyl projects are detected automatically."`
-	Platform                   string   `json:"platform,omitempty" jsonschema:"Target platform for the cloud device (ios or android). Default: ios."`
-	PlatformKey                string   `json:"platform_key,omitempty" jsonschema:"Optional build.platforms key override for resolving the dev build."`
+	Profile                    string   `json:"profile,omitempty" jsonschema:"Optional named build profile. When omitted, Revyl applies deterministic development-profile selection."`
+	Platform                   string   `json:"platform,omitempty" jsonschema:"Optional target platform for the cloud device (ios or android). Revyl infers it when only one eligible recipe remains."`
+	PlatformKey                string   `json:"platform_key,omitempty" jsonschema:"Deprecated and rejected. Use profile to select a named build profile."`
 	AppID                      string   `json:"app_id,omitempty" jsonschema:"Optional app ID override used to resolve latest build."`
 	BuildVersionID             string   `json:"build_version_id,omitempty" jsonschema:"Optional explicit build version ID. Skips latest-build resolution."`
 	LaunchVars                 []string `json:"launch_vars,omitempty" jsonschema:"Additional organization launch-variable keys or IDs."`

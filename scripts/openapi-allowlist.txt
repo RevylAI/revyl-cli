@@ -57,6 +57,7 @@ GET /api/v1/modules/list
 GET /api/v1/modules/{module_id}
 GET /api/v1/modules/{module_id}/tests
 GET /api/v1/modules/{module_id}/versions
+GET /api/v1/projects/{project_id}/cursor-proof-authorization
 GET /api/v1/recordings/compile/{job_id}
 GET /api/v1/reports-v3/reports/by-execution/{execution_id}/context
 GET /api/v1/reports-v3/reports/by-session/{session_id}/context
@@ -125,6 +126,9 @@ POST /api/v1/hotreload/relays
 POST /api/v1/hotreload/relays/{relay_id}/heartbeat
 POST /api/v1/modules/create
 POST /api/v1/modules/{module_id}/restore
+POST /api/v1/projects/catalog
+POST /api/v1/projects/{project_id}/configuration/read
+POST /api/v1/projects/{project_id}/configuration/validate
 POST /api/v1/recordings/compile
 POST /api/v1/report/async-run/generate_shareable_report_link_by_session
 POST /api/v1/report/async-run/generate_shareable_report_link_by_task
@@ -145,6 +149,8 @@ POST /api/v1/workflows/share/unified-report
 PUT /api/v1/files/{file_id}
 PUT /api/v1/files/{file_id}/replace-url
 PUT /api/v1/modules/update/{module_id}
+PUT /api/v1/projects/{project_id}/configuration
+PUT /api/v1/projects/{project_id}/cursor-proof-authorization
 PUT /api/v1/tests/scripts/{script_id}
 PUT /api/v1/tests/update/{test_id}
 PUT /api/v1/variables/custom/update/{variable_id}

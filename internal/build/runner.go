@@ -3,12 +3,16 @@ package build
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mattn/go-isatty"
 )
@@ -31,6 +35,18 @@ type Runner struct {
 	FilterOutput bool
 }
 
+// RunOptions controls one build command invocation without mutating the
+// process-wide environment or runner defaults.
+type RunOptions struct {
+	// Environment replaces inherited environment variables for this invocation.
+	// Unspecified variables continue to inherit from the Revyl process.
+	Environment map[string]string
+
+	// Timeout bounds this invocation. Zero leaves the caller's context as the
+	// only execution bound.
+	Timeout time.Duration
+}
+
 // NewRunner creates a new build runner.
 //
 // Parameters:
@@ -44,12 +60,12 @@ func NewRunner(workDir string) *Runner {
 
 // Run executes a build command and streams output to the callback.
 //
-// SECURITY: The command string is passed to /bin/sh -c and can contain arbitrary
-// shell operators. It originates from the project's .revyl/config.yaml. This is
-// intentional (build commands inherently need shell execution), but means that
-// cloning and building an untrusted repository grants that repo full shell access
-// as the current user. Treat .revyl/config.yaml with the same trust level as a
-// Makefile or package.json script.
+// SECURITY: The command string is passed to the platform shell and can contain
+// arbitrary shell operators. It originates from the project's
+// .revyl/config.yaml. This is intentional (build commands inherently need shell
+// execution), but means that cloning and building an untrusted repository grants
+// that repo full shell access as the current user. Treat .revyl/config.yaml with
+// the same trust level as a Makefile or package.json script.
 //
 // Parameters:
 //   - command: The build command to execute (can include shell operators)
@@ -58,28 +74,71 @@ func NewRunner(workDir string) *Runner {
 // Returns:
 //   - error: Any error that occurred during execution
 func (r *Runner) Run(command string, onOutput func(line string)) error {
-	cmd := exec.Command("/bin/sh", "-c", command)
+	return r.RunContext(context.Background(), command, RunOptions{}, onOutput)
+}
+
+// RunContext executes a build command with cancellation, an optional timeout,
+// and per-invocation environment overrides.
+//
+// Cancellation and timeout errors wrap context.Canceled and
+// context.DeadlineExceeded respectively so command callers can distinguish
+// terminal outcomes with errors.Is. Environment values are passed only to the
+// child process and are not added to runner-generated errors or metadata.
+func (r *Runner) RunContext(ctx context.Context, command string, options RunOptions, onOutput func(line string)) error {
+	if ctx == nil {
+		return fmt.Errorf("build command context is required")
+	}
+	if options.Timeout < 0 {
+		return fmt.Errorf("build command timeout must not be negative")
+	}
+	if err := ctx.Err(); err != nil {
+		return interruptedCommandError(err, 0)
+	}
+
+	commandEnvironment, err := environmentWithOverrides(os.Environ(), options.Environment)
+	if err != nil {
+		return err
+	}
+
+	runCtx := ctx
+	cancel := func() {}
+	if options.Timeout > 0 {
+		runCtx, cancel = context.WithTimeout(ctx, options.Timeout)
+	}
+	defer cancel()
+
+	cmd := newShellCommand(command)
 	cmd.Dir = r.workDir
+	cmd.Env = commandEnvironment
 
 	// In interactive mode (TTY detected), connect stdin/stdout/stderr
 	// directly so interactive prompts (Apple login, etc.) work properly.
 	// We lose the [prefix] output tagging but gain full prompt support.
-	// FilterOutput overrides this to force piped mode for clean output.
 	isTTY := isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd())
-	if r.Interactive && isTTY && !r.FilterOutput {
+	directTerminalIO := r.Interactive && isTTY && !r.FilterOutput
+	// A separate process group lets cancellation clean up descendants. Commands
+	// that read from the controlling terminal must remain in Revyl's foreground
+	// process group or Unix job control can suspend them with SIGTTIN.
+	ownsProcessGroup := false
+	if !directTerminalIO {
+		ownsProcessGroup = configureCommandProcessGroup(cmd)
+	}
+	if directTerminalIO {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("command failed: %w", err)
+		cmdErr, interruptErr, startErr := runCommand(runCtx, cmd, ownsProcessGroup)
+		if startErr != nil {
+			return fmt.Errorf("failed to start command: %w", startErr)
+		}
+		if interruptErr != nil {
+			return interruptedCommandError(interruptErr, invocationTimeoutForError(ctx, interruptErr, options.Timeout))
+		}
+		if cmdErr != nil {
+			return fmt.Errorf("command failed: %w", cmdErr)
 		}
 		return nil
-	}
-
-	// Non-interactive: pipe stdout/stderr for prefixed streaming output.
-	if isTTY {
-		cmd.Stdin = os.Stdin
 	}
 
 	// Create pipes for stdout and stderr
@@ -143,9 +202,19 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	}()
 
 	// Wait for command to complete
-	cmdErr := cmd.Wait()
+	cmdErr, interruptErr := waitForCommand(runCtx, cmd, ownsProcessGroup)
+	if interruptErr != nil {
+		// A terminal-attached command cannot safely own a separate Unix process
+		// group. Closing its pipes still prevents surviving descendants from
+		// keeping cancellation blocked after the shell is terminated.
+		_ = stdout.Close()
+		_ = stderr.Close()
+	}
 	// Wait for goroutines to finish reading all output before accessing stderrLines
 	wg.Wait()
+	if interruptErr != nil {
+		return interruptedCommandError(interruptErr, invocationTimeoutForError(ctx, interruptErr, options.Timeout))
+	}
 
 	if cmdErr != nil {
 		stderrOutput := strings.Join(stderrLines, "\n")
@@ -156,6 +225,80 @@ func (r *Runner) Run(command string, onOutput func(line string)) error {
 	}
 
 	return nil
+}
+
+func invocationTimeoutForError(parentCtx context.Context, interruptErr error, configuredTimeout time.Duration) time.Duration {
+	if configuredTimeout > 0 && errors.Is(interruptErr, context.DeadlineExceeded) && parentCtx.Err() == nil {
+		return configuredTimeout
+	}
+	return 0
+}
+
+func runCommand(ctx context.Context, cmd *exec.Cmd, ownsProcessGroup bool) (commandErr, interruptErr, startErr error) {
+	if err := cmd.Start(); err != nil {
+		return nil, nil, err
+	}
+	commandErr, interruptErr = waitForCommand(ctx, cmd, ownsProcessGroup)
+	return commandErr, interruptErr, nil
+}
+
+func waitForCommand(ctx context.Context, cmd *exec.Cmd, ownsProcessGroup bool) (commandErr, interruptErr error) {
+	waitResult := make(chan error, 1)
+	go func() {
+		waitResult <- cmd.Wait()
+	}()
+
+	select {
+	case commandErr = <-waitResult:
+		return commandErr, nil
+	case <-ctx.Done():
+		terminateCommand(cmd, ownsProcessGroup)
+		<-waitResult
+		return nil, ctx.Err()
+	}
+}
+
+func interruptedCommandError(interruptErr error, configuredTimeout time.Duration) error {
+	if errors.Is(interruptErr, context.Canceled) {
+		return fmt.Errorf("build command canceled: %w", context.Canceled)
+	}
+	if errors.Is(interruptErr, context.DeadlineExceeded) {
+		if configuredTimeout > 0 {
+			return fmt.Errorf("build command timed out after %s: %w", configuredTimeout, context.DeadlineExceeded)
+		}
+		return fmt.Errorf("build command timed out: %w", context.DeadlineExceeded)
+	}
+	return fmt.Errorf("build command interrupted: %w", interruptErr)
+}
+
+func environmentWithOverrides(inherited []string, overrides map[string]string) ([]string, error) {
+	if len(overrides) == 0 {
+		return append([]string(nil), inherited...), nil
+	}
+
+	overrideNames := make([]string, 0, len(overrides))
+	for name, value := range overrides {
+		if name == "" || strings.ContainsAny(name, "=\x00") || strings.ContainsRune(value, '\x00') {
+			return nil, fmt.Errorf("invalid build environment override for %q", name)
+		}
+		overrideNames = append(overrideNames, name)
+	}
+	sort.Strings(overrideNames)
+
+	result := make([]string, 0, len(inherited)+len(overrides))
+	for _, entry := range inherited {
+		name, _, found := strings.Cut(entry, "=")
+		if found {
+			if _, replaced := overrides[name]; replaced {
+				continue
+			}
+		}
+		result = append(result, entry)
+	}
+	for _, name := range overrideNames {
+		result = append(result, name+"="+overrides[name])
+	}
+	return result, nil
 }
 
 // FilterBuildOutputLine returns a display-safe build line when it is useful for normal CLI output.

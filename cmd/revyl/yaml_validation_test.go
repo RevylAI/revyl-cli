@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/revyl/cli/internal/analytics"
@@ -38,8 +39,13 @@ func TestTestValidateCommandUsesBackendValidation(t *testing.T) {
 	if err := testValidateCmd.Args(cmd, []string{path}); err != nil {
 		t.Fatalf("Args() error = %v", err)
 	}
-	if err := testValidateCmd.RunE(cmd, []string{path}); err != nil {
-		t.Fatalf("RunE() error = %v", err)
+	output := captureStdoutAndStderr(t, func() {
+		if err := testValidateCmd.RunE(cmd, []string{path}); err != nil {
+			t.Fatalf("RunE() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, "Validated 1 YAML test file") {
+		t.Fatalf("output = %q, want validation success", output)
 	}
 	if gotReq["validation_type"] != "full_test" {
 		t.Fatalf("validation_type = %v, want full_test", gotReq["validation_type"])

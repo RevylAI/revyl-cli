@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"sync"
@@ -30,7 +31,10 @@ type CommandRun struct {
 	mu                   sync.Mutex
 	outputTail           []map[string]interface{}
 	diagnosticRedactions []string
+	completion           *CommandCompletion
 }
+
+type commandRunContextKey struct{}
 
 // CommandCompletion describes a command that analytically completed even if it
 // intentionally returns a non-zero exit code for callers such as CI.
@@ -44,6 +48,43 @@ type CommandCompletion struct {
 type CompletedError struct {
 	err        error
 	completion CommandCompletion
+}
+
+// SafeDiagnosticError preserves the original error for the user and callers
+// while supplying a bounded diagnostic for command analytics. Use it when an
+// error can contain customer-authored values that generic sanitization cannot
+// reliably recognize.
+type SafeDiagnosticError struct {
+	err        error
+	diagnostic string
+}
+
+func WithSafeDiagnostic(err error, diagnostic string) error {
+	if err == nil {
+		return nil
+	}
+	return &SafeDiagnosticError{err: err, diagnostic: diagnostic}
+}
+
+func (e *SafeDiagnosticError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e *SafeDiagnosticError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func (e *SafeDiagnosticError) safeDiagnostic() string {
+	if e == nil {
+		return ""
+	}
+	return e.diagnostic
 }
 
 func CompletedWithExitCode(err error, completion CommandCompletion) error {
@@ -102,33 +143,107 @@ func (r *CommandRun) completeCommand(err error) {
 	props := map[string]interface{}{
 		"duration_ms": time.Since(r.startedAt).Milliseconds(),
 	}
+	mergeCommandCompletionProperties(props, r.completionSnapshot())
 	var completedErr *CompletedError
 	if errors.As(err, &completedErr) {
 		completion := completedErr.Completion()
 		props["exit_code"] = completion.ExitCode
-		if domain := strings.TrimSpace(completion.Domain); domain != "" {
-			props["domain"] = domain
-		}
-		if status := strings.TrimSpace(completion.DomainStatus); status != "" {
-			props["domain_status"] = status
-		}
-		for key, value := range completion.Properties {
-			props[key] = value
-		}
+		mergeCommandCompletionProperties(props, completion)
 		r.capture(CliCommandCompletedEvent, props)
 		return
 	}
 	if err != nil {
 		props["error"] = true
 		props["exit_code"] = 1
-		props["error_message"] = sanitizeDiagnosticString(err.Error(), r.diagnosticRedactions)
-		if tail := r.outputTailSnapshot(); len(tail) > 0 {
+		diagnostic := err.Error()
+		var safeErr interface{ safeDiagnostic() string }
+		hasSafeDiagnostic := errors.As(err, &safeErr)
+		if hasSafeDiagnostic {
+			diagnostic = safeErr.safeDiagnostic()
+		}
+		props["error_message"] = sanitizeDiagnosticString(diagnostic, r.diagnosticRedactions)
+		if tail := r.outputTailSnapshot(); !hasSafeDiagnostic && len(tail) > 0 {
 			props["output_tail"] = tail
 		}
 		r.capture(CliCommandFailedEvent, props)
 	} else {
 		props["exit_code"] = 0
 		r.capture(CliCommandCompletedEvent, props)
+	}
+}
+
+// ContextWithCommandRun makes bounded terminal metadata available to the
+// command implementation without exposing the recorder or a capture API.
+func ContextWithCommandRun(ctx context.Context, run *CommandRun) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, commandRunContextKey{}, run)
+}
+
+// SetCommandCompletion records bounded domain metadata for the one terminal
+// lifecycle event. Repeated calls merge properties and let the latest status
+// describe the terminal outcome.
+func SetCommandCompletion(ctx context.Context, completion CommandCompletion) {
+	if ctx == nil {
+		return
+	}
+	run, _ := ctx.Value(commandRunContextKey{}).(*CommandRun)
+	if run == nil {
+		return
+	}
+	run.setCompletion(completion)
+}
+
+func (r *CommandRun) setCompletion(completion CommandCompletion) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.completion == nil {
+		copied := copyCommandCompletion(completion)
+		r.completion = &copied
+		return
+	}
+	if domain := strings.TrimSpace(completion.Domain); domain != "" {
+		r.completion.Domain = domain
+	}
+	if status := strings.TrimSpace(completion.DomainStatus); status != "" {
+		r.completion.DomainStatus = status
+	}
+	if completion.ExitCode != 0 {
+		r.completion.ExitCode = completion.ExitCode
+	}
+	if r.completion.Properties == nil && len(completion.Properties) > 0 {
+		r.completion.Properties = map[string]interface{}{}
+	}
+	for key, value := range completion.Properties {
+		r.completion.Properties[key] = value
+	}
+}
+
+func (r *CommandRun) completionSnapshot() CommandCompletion {
+	if r == nil {
+		return CommandCompletion{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.completion == nil {
+		return CommandCompletion{}
+	}
+	return copyCommandCompletion(*r.completion)
+}
+
+func mergeCommandCompletionProperties(props map[string]interface{}, completion CommandCompletion) {
+	if domain := strings.TrimSpace(completion.Domain); domain != "" {
+		props["domain"] = domain
+	}
+	if status := strings.TrimSpace(completion.DomainStatus); status != "" {
+		props["domain_status"] = status
+	}
+	for key, value := range completion.Properties {
+		props[key] = value
 	}
 }
 

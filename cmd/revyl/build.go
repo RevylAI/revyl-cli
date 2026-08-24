@@ -3,13 +3,13 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -24,7 +24,7 @@ import (
 
 // buildCmd is the parent command for build operations.
 var buildCmd = &cobra.Command{
-	Use:   "build [--platform ios|android|<config-key>] [--remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--detach] [--no-cache] [--no-set-current] [--json]",
+	Use:   "build [--profile <name>] [--platform ios|android] [--remote] [--env KEY=VALUE] [--secret NAME] [--timeout <seconds>] [--version <version>] [--detach] [--no-cache] [--no-set-current] [--json]",
 	Short: "Build and manage app builds",
 	Long: `Build the app from source and upload the generated artifact to Revyl.
 
@@ -119,6 +119,7 @@ var (
 	buildSetCurr              bool
 	buildNoSetCurrent         bool
 	buildCommandJSON          bool
+	buildCommandProfile       string
 	buildCommandPlatform      string
 	buildCommandImage         string
 	buildCommandRemote        bool
@@ -171,17 +172,19 @@ func init() {
 	buildUploadCmd.Flags().SortFlags = false
 	buildStatusCmd.Flags().SortFlags = false
 
-	buildCmd.Flags().StringVar(&buildCommandPlatform, "platform", "", "Build platform key from .revyl/config.yaml, e.g. ios, android, ios-dev")
+	buildCmd.Flags().StringVar(&buildCommandProfile, "profile", "", "Named build profile from .revyl/config.yaml")
+	buildCmd.Flags().StringVar(&buildCommandPlatform, "platform", "", "Build platform (ios or android)")
 	buildCmd.Flags().StringVar(&buildCommandImage, "image", "", "Remote build image key, e.g. ios-macos-26-xcode-26.2")
 	buildCmd.Flags().BoolVar(&buildCommandRemote, "remote", false, "Run the build on Revyl cloud build runners")
 	buildCmd.Flags().StringArrayVar(&buildEnvFlags, "env", nil, "Remote build environment override (repeatable: --env KEY=VALUE)")
 	buildCmd.Flags().StringArrayVar(&buildSecretRefFlags, "secret", nil, "Build secret name (repeatable; local builds read the process environment)")
-	buildCmd.Flags().IntVar(&buildTimeoutSeconds, "timeout", 0, "Remote build timeout in seconds (overrides build.platforms.<platform>.timeout from config when set)")
+	buildCmd.Flags().IntVar(&buildTimeoutSeconds, "timeout", 0, "Remote build timeout in seconds (overrides the selected recipe timeout_seconds)")
 	buildCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the build (default: auto-generated)")
 	buildCmd.Flags().BoolVar(&buildDetachFlag, "detach", false, "Queue remote build and return immediately")
 	buildCmd.Flags().BoolVar(&buildNoCacheFlag, "no-cache", false, "Run a cold remote build with all caches disabled")
 	buildCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Do not set this build version as the app's current version")
 	buildCmd.Flags().BoolVar(&buildCommandJSON, "json", false, "Output result as JSON")
+	analytics.MarkFlagValue(buildCmd, "profile")
 	analytics.MarkFlagValue(buildCmd, "platform")
 	analytics.MarkFlagValue(buildCmd, "image")
 	analytics.MarkFlagValue(buildCmd, "version")
@@ -195,7 +198,7 @@ func init() {
 	buildUploadCmd.Flags().StringVar(&buildVersion, "version", "", "Version string for the uploaded artifact (default: auto-generated)")
 	buildUploadCmd.Flags().BoolVar(&buildNoSetCurrent, "no-set-current", false, "Do not set this build version as the app's current version")
 	buildUploadCmd.Flags().StringVar(&uploadAppFlag, "app", "", "App name or ID to upload to")
-	buildUploadCmd.Flags().StringVar(&uploadPlatformFlag, "platform", "", "Mobile platform or build key from .revyl/config.yaml, e.g. ios, android, ios-dev")
+	buildUploadCmd.Flags().StringVar(&uploadPlatformFlag, "platform", "", "Mobile platform (ios or android)")
 	buildUploadCmd.Flags().StringVar(&uploadNameFlag, "name", "", "Name for new app (used when creating)")
 	buildUploadCmd.Flags().BoolVarP(&uploadYesFlag, "yes", "y", false, "Automatically confirm prompts (e.g., save to config)")
 	buildUploadCmd.Flags().BoolVar(&buildUploadJSON, "json", false, "Output results as JSON")
@@ -253,186 +256,7 @@ func init() {
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
-	cmd.SilenceUsage = true
-	jsonOutput := buildCommandJSON
-	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
-		jsonOutput = true
-	}
-	if jsonOutput {
-		ui.SetQuietMode(true)
-		defer ui.SetQuietMode(false)
-	}
-
-	if !buildCommandRemote {
-		if len(buildEnvFlags) > 0 {
-			return fmt.Errorf("--env is only supported with --remote")
-		}
-		if cmd.Flags().Changed("timeout") {
-			return fmt.Errorf("--timeout is only supported with --remote")
-		}
-		if buildDetachFlag {
-			return fmt.Errorf("--detach is only supported with --remote")
-		}
-		if buildNoCacheFlag {
-			return fmt.Errorf("--no-cache is only supported with --remote")
-		}
-		if err := checkLocalBuildSupported(); err != nil {
-			return err
-		}
-	}
-
-	apiKey, err := getAPIKey()
-	if err != nil {
-		return err
-	}
-
-	setCurrent := !buildNoSetCurrent
-	if buildCommandRemote {
-		envOverrides, err := parseRemoteBuildEnvOverrides(buildEnvFlags)
-		if err != nil {
-			return err
-		}
-		platform := strings.TrimSpace(buildCommandPlatform)
-		if platform == "" {
-			platform = "ios"
-		}
-		// Only the --timeout flag resolves here; the per-platform config timeout
-		// is applied in runRemoteBuildWithOptions once the actual platform key
-		// (possibly non-canonical, e.g. ios-release) is known.
-		timeoutSeconds, err := remoteBuildTimeoutFlagSeconds(buildTimeoutSeconds, cmd.Flags().Changed("timeout"))
-		if err != nil {
-			return err
-		}
-		return runRemoteBuildWithOptions(cmd, apiKey, remoteBuildOptions{
-			Platform:       platform,
-			Version:        buildVersion,
-			Image:          strings.TrimSpace(buildCommandImage),
-			Env:            envOverrides,
-			Secrets:        append([]string(nil), buildSecretRefFlags...),
-			SetCurrent:     setCurrent,
-			Clean:          buildNoCacheFlag,
-			JSON:           jsonOutput,
-			Wait:           !buildDetachFlag,
-			IncludeDirty:   true,
-			CommittedOnly:  false,
-			TimeoutSeconds: timeoutSeconds,
-		})
-	}
-
-	return runConfiguredBuild(cmd, apiKey, buildCommandPlatform, buildVersion, setCurrent, jsonOutput)
-}
-
-func runConfiguredBuild(cmd *cobra.Command, apiKey, platform, version string, setCurrent, jsonOutput bool) error {
-	previousVersion := buildVersion
-	previousSetCurrent := buildSetCurr
-	previousJSON := buildUploadJSON
-	previousSkip := buildSkip
-	previousDryRun := buildDryRun
-	previousApp := uploadAppFlag
-	previousName := uploadNameFlag
-	previousYes := uploadYesFlag
-	previousScheme := uploadSchemeFlag
-	previousRequireApp := buildRequireConfiguredApp
-	defer func() {
-		buildVersion = previousVersion
-		buildSetCurr = previousSetCurrent
-		buildUploadJSON = previousJSON
-		buildSkip = previousSkip
-		buildDryRun = previousDryRun
-		uploadAppFlag = previousApp
-		uploadNameFlag = previousName
-		uploadYesFlag = previousYes
-		uploadSchemeFlag = previousScheme
-		buildRequireConfiguredApp = previousRequireApp
-	}()
-
-	buildVersion = version
-	buildSetCurr = setCurrent
-	buildUploadJSON = jsonOutput
-	buildSkip = false
-	buildDryRun = false
-	uploadAppFlag = ""
-	uploadNameFlag = ""
-	uploadYesFlag = false
-	uploadSchemeFlag = ""
-	buildRequireConfiguredApp = true
-
-	return runConfigDrivenBuild(cmd, apiKey, platform)
-}
-
-func runConfigDrivenBuild(cmd *cobra.Command, apiKey, platform string) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		printProjectNotInitialized()
-		return err
-	}
-
-	if platform != "" {
-		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platform)
-	}
-
-	buildablePlatforms := buildablePlatformKeys(cfg)
-
-	hasIOS := false
-	hasAndroid := false
-	for _, platform := range buildablePlatforms {
-		if platform == "ios" {
-			hasIOS = true
-		}
-		if platform == "android" {
-			hasAndroid = true
-		}
-	}
-
-	if hasIOS && hasAndroid {
-		return runConcurrentBuilds(cmd, cfg, configPath, apiKey)
-	}
-
-	platformCount := len(buildablePlatforms)
-	if platformCount == 0 {
-		placeholderKeys := placeholderBuildPlatformKeys(cfg)
-		if len(placeholderKeys) > 0 {
-			ui.PrintError("Detected build platforms are present but not configured yet")
-			ui.PrintInfo("Placeholder platforms: %s", strings.Join(placeholderKeys, ", "))
-			ui.PrintInfo("Finish native setup or add build.platforms.<key>.command and build.platforms.<key>.output in .revyl/config.yaml")
-		} else {
-			ui.PrintError("No runnable build platforms configured")
-			ui.PrintInfo("Configure build.platforms.<key>.command and build.platforms.<key>.output in .revyl/config.yaml")
-		}
-		return fmt.Errorf("no buildable platforms configured")
-	}
-
-	if platformCount == 1 {
-		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, buildablePlatforms[0])
-	}
-
-	platforms := buildablePlatforms
-	if ui.IsInteractive() {
-		options := make([]ui.SelectOption, len(platforms))
-		for i, p := range platforms {
-			options[i] = ui.SelectOption{
-				Label:       p,
-				Value:       p,
-				Description: cfg.Build.Platforms[p].Command,
-			}
-		}
-
-		_, selected, err := ui.Select("Select platform to build:", options, 0)
-		if err != nil {
-			return fmt.Errorf("platform selection: %w", err)
-		}
-		return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, selected)
-	}
-
-	ui.PrintWarning("Multiple platforms configured without --platform flag, using '%s'", platforms[0])
-	ui.PrintInfo("Use --platform to specify which platform to build")
-	return runSinglePlatformBuild(cmd, cfg, configPath, apiKey, platforms[0])
+	return runProjectConfiguredBuild(cmd)
 }
 
 // runBuildUpload executes the build upload command.
@@ -614,38 +438,9 @@ func runDirectFileUpload(cmd *cobra.Command, apiKey string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Resolve app ID: --app flag (name or UUID) → config fallback → interactive prompt.
-	appID := uploadAppFlag
-	if appID != "" && !looksLikeUUID(appID) {
-		resolvedID, _, resolveErr := resolveAppNameOrID(cmd, client, appID)
-		if resolveErr != nil {
-			ui.PrintError("Could not resolve app %q: %v", appID, resolveErr)
-			return resolveErr
-		}
-		appID = resolvedID
-	}
-
-	if appID == "" {
-		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-		if cfg, cfgErr := config.LoadProjectConfig(configPath); cfgErr == nil {
-			if platformKey := pickBestBuildPlatformKey(cfg, devicePlatform); platformKey != "" {
-				appID = cfg.Build.Platforms[platformKey].AppID
-			}
-		}
-	}
-
-	if appID == "" {
-		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-		cfg, cfgErr := config.LoadProjectConfig(configPath)
-		if cfgErr != nil {
-			cfg = &config.ProjectConfig{}
-			cfg.Build.Platforms = make(map[string]config.BuildPlatform)
-		}
-		selectedID, promptErr := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, devicePlatform, devicePlatform)
-		if promptErr != nil {
-			return promptErr
-		}
-		appID = selectedID
+	appID, err := resolveDirectUploadApp(cmd, client, cwd, devicePlatform, ui.IsInteractive() && !buildUploadJSON)
+	if err != nil {
+		return err
 	}
 
 	// Generate version string.
@@ -860,38 +655,9 @@ func runURLUpload(cmd *cobra.Command, apiKey string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	// Resolve app ID: --app flag (name or UUID) -> config fallback -> interactive prompt.
-	appID := uploadAppFlag
-	if appID != "" && !looksLikeUUID(appID) {
-		resolvedID, _, resolveErr := resolveAppNameOrID(cmd, client, appID)
-		if resolveErr != nil {
-			ui.PrintError("Could not resolve app %q: %v", appID, resolveErr)
-			return resolveErr
-		}
-		appID = resolvedID
-	}
-
-	if appID == "" {
-		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-		if cfg, cfgErr := config.LoadProjectConfig(configPath); cfgErr == nil {
-			if platformKey := pickBestBuildPlatformKey(cfg, devicePlatform); platformKey != "" {
-				appID = cfg.Build.Platforms[platformKey].AppID
-			}
-		}
-	}
-
-	if appID == "" {
-		configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-		cfg, cfgErr := config.LoadProjectConfig(configPath)
-		if cfgErr != nil {
-			cfg = &config.ProjectConfig{}
-			cfg.Build.Platforms = make(map[string]config.BuildPlatform)
-		}
-		selectedID, promptErr := selectOrCreateAppForPlatform(cmd, client, cfg, configPath, devicePlatform, devicePlatform)
-		if promptErr != nil {
-			return promptErr
-		}
-		appID = selectedID
+	appID, err := resolveDirectUploadApp(cmd, client, cwd, devicePlatform, ui.IsInteractive() && !buildUploadJSON)
+	if err != nil {
+		return err
 	}
 
 	// Generate version string.
@@ -960,21 +726,128 @@ func runURLUpload(cmd *cobra.Command, apiKey string) error {
 	return nil
 }
 
-// selectOrCreateAppForPlatform prompts the user to select an existing app or create a new one,
-// and saves it to the specified platform in the config.
-//
-// Parameters:
-//   - cmd: The cobra command
-//   - client: The API client
-//   - cfg: The project config
-//   - configPath: Path to the config file
-//   - platformName: The platform name to save the app ID to (empty for no save)
-//   - platform: The target platform
-//
-// Returns:
-//   - string: The selected or created app ID
-//   - error: Any error that occurred
-func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, configPath, platformName, platform string) (string, error) {
+// resolveDirectUploadApp preserves explicit --app/configless uploads while
+// using canonical project/profile resolution for the optional local fallback.
+func resolveDirectUploadApp(cmd *cobra.Command, client *api.Client, cwd, platform string, interactive bool) (string, error) {
+	appID := strings.TrimSpace(uploadAppFlag)
+	if appID != "" {
+		if looksLikeUUID(appID) {
+			return appID, nil
+		}
+		resolvedID, _, err := resolveAppNameOrID(cmd, client, appID)
+		if err != nil {
+			ui.PrintError("Could not resolve app %q: %v", appID, err)
+			return "", err
+		}
+		return resolvedID, nil
+	}
+
+	binding, appID, err := resolveUploadBinding(cwd, platform)
+	if err != nil {
+		return "", actionableLocalConfigError(err)
+	}
+	if appID != "" {
+		return appID, nil
+	}
+	if !interactive {
+		if binding != nil {
+			return "", fmt.Errorf(
+				"no app is configured for %s/%s; pass '--app <name-or-id>' or add 'build.profiles.%s.%s.app_id' to .revyl/config.yaml and run 'revyl config validate'",
+				binding.Profile,
+				platform,
+				binding.Profile,
+				platform,
+			)
+		}
+		return "", fmt.Errorf("no app is configured for %s upload; pass '--app <name-or-id>' or retry in an interactive terminal to select or create an app", platform)
+	}
+	return selectOrCreateUploadApp(cmd, client, binding, platform)
+}
+
+// resolveUploadBinding opportunistically finds a canonical app binding
+// for a direct artifact upload. A missing project is not an error because
+// --file/--url uploads intentionally remain usable outside configured repos.
+// Once a local config is present, however, it must be the strict canonical shape.
+func resolveUploadBinding(cwd, platform string) (*projectBuildInvocation, string, error) {
+	project, err := config.ResolveProjectContext(cwd, "")
+	if err != nil {
+		var configErr *config.ConfigError
+		if errors.As(err, &configErr) && configErr.Stage == "read" &&
+			(configErr.Code == "config_not_found" || configErr.Code == "git_worktree_unavailable") {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+
+	matches := make([]projectBuildInvocation, 0)
+	configuredAppIDs := make(map[string]struct{})
+	for _, profile := range project.Aggregate.Profiles {
+		for _, configuration := range profile.Configurations {
+			if configuration.Platform != platform {
+				continue
+			}
+			appID := ""
+			if configuration.AppID != nil {
+				appID = strings.TrimSpace(*configuration.AppID)
+				if appID != "" {
+					configuredAppIDs[appID] = struct{}{}
+				}
+			}
+			matches = append(matches, projectBuildInvocation{
+				ProjectRoot:         project.ProjectRoot,
+				ConfigPath:          project.ConfigPath,
+				OriginalConfigBytes: append([]byte(nil), project.OriginalBytes...),
+				Profile:             profile.Name,
+				Platform:            platform,
+				AppID:               appID,
+			})
+		}
+	}
+
+	if len(configuredAppIDs) > 1 {
+		return nil, "", fmt.Errorf("multiple app IDs are configured for %s build profiles; pass --app <name-or-id>", platform)
+	}
+	configuredAppID := ""
+	for appID := range configuredAppIDs {
+		configuredAppID = appID
+	}
+	if len(matches) != 1 {
+		return nil, configuredAppID, nil
+	}
+	return &matches[0], configuredAppID, nil
+}
+
+func selectOrCreateUploadApp(cmd *cobra.Command, client *api.Client, binding *projectBuildInvocation, platform string) (string, error) {
+	projectName := ""
+	if binding != nil {
+		projectName = filepath.Base(binding.ProjectRoot)
+	}
+	appID, err := selectOrCreateAppChoice(cmd, client, projectName, platform)
+	if err != nil {
+		return "", err
+	}
+	if binding == nil {
+		return appID, nil
+	}
+
+	save := uploadYesFlag
+	if !save {
+		save, err = ui.PromptConfirm("Save this app to .revyl/config.yaml for future uploads?", true)
+		if err != nil {
+			return appID, nil
+		}
+	}
+	if save {
+		if err := saveBuildAppBinding(*binding, appID); err != nil {
+			ui.PrintWarning("Failed to save config: %v", err)
+		} else {
+			ui.PrintSuccess("Saved to .revyl/config.yaml")
+		}
+	}
+	return appID, nil
+}
+
+func selectOrCreateAppChoice(cmd *cobra.Command, client *api.Client, projectName, platform string) (string, error) {
 	ui.Println()
 	ui.PrintWarning("No app configured for this project.")
 	ui.Println()
@@ -997,7 +870,7 @@ func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 	if len(apps) == 0 {
 		ui.PrintInfo("No existing apps found. Let's create one.")
 		ui.Println()
-		appID, err = createNewApp(cmd, client, cfg, platform)
+		appID, err = createNewApp(cmd, client, projectName, platform)
 		if err != nil {
 			return "", err
 		}
@@ -1015,35 +888,13 @@ func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 		}
 
 		if selection == 0 {
-			appID, err = createNewApp(cmd, client, cfg, platform)
+			appID, err = createNewApp(cmd, client, projectName, platform)
 			if err != nil {
 				return "", err
 			}
 		} else {
 			appID = apps[selection-1].ID
 			ui.PrintSuccess("Selected: %s", apps[selection-1].Name)
-		}
-	}
-
-	// Ask if user wants to save this to config (auto-confirm with --yes flag)
-	save := uploadYesFlag
-	if !save {
-		var err error
-		save, err = ui.PromptConfirm("Save this app to .revyl/config.yaml for future uploads?", true)
-		if err != nil {
-			return appID, nil // Continue even if prompt fails
-		}
-	}
-
-	if save && platformName != "" {
-		// Save to the platform
-		platformCfg := cfg.Build.Platforms[platformName]
-		platformCfg.AppID = appID
-		cfg.Build.Platforms[platformName] = platformCfg
-		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-			ui.PrintWarning("Failed to save config: %v", err)
-		} else {
-			ui.PrintSuccess("Saved to .revyl/config.yaml")
 		}
 	}
 
@@ -1061,7 +912,7 @@ func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *c
 // Returns:
 //   - string: The created app ID
 //   - error: Any error that occurred
-func createNewApp(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, platform string) (string, error) {
+func createNewApp(cmd *cobra.Command, client *api.Client, projectName, platform string) (string, error) {
 	ui.Println()
 	ui.PrintInfo("Creating new app...")
 	ui.Println()
@@ -1069,7 +920,13 @@ func createNewApp(cmd *cobra.Command, client *api.Client, cfg *config.ProjectCon
 	// Use --name flag if provided, otherwise prompt
 	name := uploadNameFlag
 	if name == "" {
-		defaultName := fmt.Sprintf("%s %s", cfg.Project.Name, platform)
+		if strings.TrimSpace(projectName) == "" {
+			projectName = "Revyl"
+			if cwd, cwdErr := os.Getwd(); cwdErr == nil && filepath.Base(cwd) != "." {
+				projectName = filepath.Base(cwd)
+			}
+		}
+		defaultName := fmt.Sprintf("%s %s", projectName, platform)
 		var err error
 		name, err = ui.Prompt(fmt.Sprintf("Name [%s]:", defaultName))
 		if err != nil {
@@ -1116,29 +973,9 @@ func createNewApp(cmd *cobra.Command, client *api.Client, cfg *config.ProjectCon
 	return result.ID, nil
 }
 
-// BuildResult holds the result of a single platform build.
-type BuildResult struct {
-	// Platform is the platform that was built (ios or android).
-	Platform string
-
-	// ArtifactPath is the path to the built artifact.
-	ArtifactPath string
-
-	// Duration is how long the build took.
-	Duration time.Duration
-
-	// AppID is the app ID used for upload.
-	AppID string
-
-	// UploadResult contains the upload response.
-	UploadResult *api.UploadBuildResponse
-
-	// Error is any error that occurred during build or upload.
-	Error error
-}
-
 // BuildUploadJSONBuild represents one uploaded build in machine-readable output.
 type BuildUploadJSONBuild struct {
+	Profile              string   `json:"profile,omitempty"`
 	PlatformKey          string   `json:"platform_key"`
 	Platform             string   `json:"platform"`
 	AppID                string   `json:"app_id"`
@@ -1203,6 +1040,83 @@ func outputBuildUploadJSON(builds []BuildUploadJSONBuild) {
 	fmt.Println(string(data))
 }
 
+func selectOrCreateAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, configPath, platformName, platform string) (string, error) {
+	ui.Println()
+	ui.PrintWarning("No app configured for this project.")
+	ui.Println()
+	ui.PrintDim("An app stores your builds in Revyl so tests can run against them.")
+	ui.Println()
+
+	// Fetch existing apps
+	ui.StartSpinner("Fetching apps...")
+	apps, err := client.ListAllApps(cmd.Context(), platform, 100)
+	ui.StopSpinner()
+
+	if err != nil {
+		ui.PrintError("Failed to fetch apps: %v", err)
+		return "", err
+	}
+
+	var appID string
+
+	// If no existing apps, skip selection and create directly
+	if len(apps) == 0 {
+		ui.PrintInfo("No existing apps found. Let's create one.")
+		ui.Println()
+		appID, err = createNewApp(cmd, client, cfg.Project.Name, platform)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		options := []string{"Create new app"}
+		for _, app := range apps {
+			options = append(options, fmt.Sprintf("%s (%s)", app.Name, app.Platform))
+		}
+
+		// Show selection prompt
+		ui.PrintInfo("Select an app to upload to:")
+		selection, err := ui.PromptSelect("", options)
+		if err != nil {
+			return "", err
+		}
+
+		if selection == 0 {
+			appID, err = createNewApp(cmd, client, cfg.Project.Name, platform)
+			if err != nil {
+				return "", err
+			}
+		} else {
+			appID = apps[selection-1].ID
+			ui.PrintSuccess("Selected: %s", apps[selection-1].Name)
+		}
+	}
+
+	// Ask if user wants to save this to config (auto-confirm with --yes flag)
+	save := uploadYesFlag
+	if !save {
+		var err error
+		save, err = ui.PromptConfirm("Save this app to .revyl/config.yaml for future uploads?", true)
+		if err != nil {
+			return appID, nil // Continue even if prompt fails
+		}
+	}
+
+	if save && platformName != "" {
+		// Save to the platform
+		platformCfg := cfg.Build.Platforms[platformName]
+		platformCfg.AppID = appID
+		cfg.Build.Platforms[platformName] = platformCfg
+		if err := config.WriteProjectConfig(configPath, cfg); err != nil {
+			ui.PrintWarning("Failed to save config: %v", err)
+		} else {
+			ui.PrintSuccess("Saved to .revyl/config.yaml")
+		}
+	}
+
+	return appID, nil
+}
+
+// createNewApp prompts the user to create a new app.
 func buildPlatformUsesCommandList(platformCfg config.BuildPlatform) bool {
 	for _, command := range platformCfg.Commands {
 		if strings.TrimSpace(command) != "" {
@@ -1263,543 +1177,6 @@ func applyFixedBuildCommandToCommands(commands []string, originalJoined, fixedJo
 	}
 	return []string{fixedJoined}
 }
-
-// runConcurrentBuilds builds and uploads both iOS and Android platforms concurrently.
-//
-// Parameters:
-//   - cmd: The cobra command being executed
-//   - cfg: The project configuration
-//   - configPath: Path to the config file
-//   - apiKey: Authentication token for API requests
-//
-// Returns:
-//   - error: Any error that occurred (aggregated from both platforms)
-func runConcurrentBuilds(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, apiKey string) error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	// Validate both platforms exist in config
-	platforms := []string{"ios", "android"}
-	for _, platform := range platforms {
-		if _, ok := cfg.Build.Platforms[platform]; !ok {
-			ui.PrintError("Platform '%s' not found in config", platform)
-			ui.PrintInfo("Available platforms: %v", getPlatformNames(cfg.Build.Platforms))
-			return fmt.Errorf("missing platform: %s", platform)
-		}
-	}
-
-	// Handle dry-run mode early
-	if buildDryRun {
-		ui.PrintBanner(version)
-		ui.PrintInfo("Dry-run mode - showing what would be uploaded:")
-		ui.Println()
-
-		for _, platform := range platforms {
-			platformCfg := cfg.Build.Platforms[platform]
-			versionStr := buildVersion
-			if versionStr == "" {
-				versionStr = build.GenerateVersionStringForWorkDir(cwd)
-			}
-			versionStr = fmt.Sprintf("%s-%s", versionStr, platform)
-
-			ui.PrintInfo("[%s]", platform)
-			ui.PrintInfo("  Configured Build Command:  %s", platformCfg.Command)
-			ui.PrintInfo("  Configured Artifact Path:  %s", platformCfg.Output)
-			ui.PrintInfo("  Build Version:  %s", versionStr)
-			if platformCfg.AppID != "" {
-				ui.PrintInfo("  App ID:         %s", platformCfg.AppID)
-			} else {
-				ui.PrintInfo("  App ID:         (not configured)")
-			}
-			ui.PrintInfo("  Set Current:    %v", buildSetCurr)
-			ui.Println()
-		}
-
-		if !buildUploadJSON {
-			ui.PrintSuccess("Dry-run complete - no changes made")
-		}
-		return nil
-	}
-
-	if !buildSkip && isExpoBuildSystem(cfg.Build.System) {
-		changed, err := ensureExpoDevClientSchemeForBuild(cwd, cfg)
-		if err != nil {
-			printExpoSchemePreflightError(err)
-			return err
-		}
-		if changed {
-			if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-				ui.PrintWarning("Failed to save Expo scheme to config: %v", err)
-			}
-		}
-	}
-
-	// Create API client
-	devMode, _ := cmd.Flags().GetBool("dev")
-	client := api.NewClientWithDevMode(apiKey, devMode)
-
-	// Check and prompt for missing app IDs before starting builds
-	for _, platform := range platforms {
-		// Check platform-level app_id
-		platformCfg := cfg.Build.Platforms[platform]
-		appID := platformCfg.AppID
-
-		if appID == "" {
-			if buildRequireConfiguredApp {
-				return missingConfiguredBuildAppError(platform)
-			}
-			ui.Println()
-			ui.PrintWarning("No app configured for %s", platform)
-			selectedID, err := selectOrCreateAppInteractive(cmd, client, cfg, platform)
-			if err != nil {
-				return err
-			}
-			// Store in platform config
-			platformCfg.AppID = selectedID
-			cfg.Build.Platforms[platform] = platformCfg
-		}
-	}
-
-	// Save updated config with app IDs
-	if err := config.WriteProjectConfig(configPath, cfg); err != nil {
-		ui.PrintWarning("Failed to save config: %v", err)
-	} else {
-		if !buildUploadJSON {
-			ui.PrintSuccess("Saved app IDs to .revyl/config.yaml")
-		}
-	}
-
-	ui.PrintBanner(version)
-	ui.PrintInfo("Building iOS and Android concurrently...")
-	ui.Println()
-
-	if !buildSkip && isExpoBuildSystem(cfg.Build.System) {
-		if ready := ensureExpoEASAuth(cwd); !ready {
-			return formatEASLoginRequiredError()
-		}
-	}
-
-	// Channel to collect results
-	results := make(chan BuildResult, len(platforms))
-	var wg sync.WaitGroup
-
-	// Mutex for synchronized output and shared config access in workers
-	var outputMu sync.Mutex
-
-	// Start concurrent builds
-	for _, platform := range platforms {
-		wg.Add(1)
-		go func(p string) {
-			defer wg.Done()
-			result := buildAndUploadPlatform(cmd, cfg, cwd, client, p, &outputMu, len(platforms) > 1)
-			results <- result
-		}(platform)
-	}
-
-	// Wait for all builds to complete
-	wg.Wait()
-	close(results)
-
-	// Collect and report results
-	ui.Println()
-	ui.PrintInfo("Build Results:")
-	ui.Println()
-
-	var errors []error
-	successfulBuilds := make([]BuildUploadJSONBuild, 0, len(platforms))
-	for result := range results {
-		if result.Error != nil {
-			ui.PrintError("[%s] Failed: %v", result.Platform, result.Error)
-
-			if toolErr, ok := result.Error.(*build.BuildToolError); ok {
-				ui.Println()
-				ui.PrintWarning("How to fix:")
-				ui.Println()
-				for _, line := range strings.Split(toolErr.Guidance, "\n") {
-					ui.PrintDim("  %s", line)
-				}
-				ui.Println()
-			}
-
-			errors = append(errors, fmt.Errorf("%s: %w", result.Platform, result.Error))
-		} else {
-			successfulBuilds = append(successfulBuilds, newBuildUploadJSONBuild(
-				result.Platform,
-				result.Platform,
-				result.AppID,
-				result.ArtifactPath,
-				result.Duration,
-				result.UploadResult,
-			))
-			if !buildUploadJSON {
-				ui.PrintSuccess("[%s] Upload complete!", result.Platform)
-			}
-			ui.PrintInfo("  App:             %s", result.AppID)
-			ui.PrintInfo("  Build Version:   %s", result.UploadResult.Version)
-			ui.PrintInfo("  Build ID:        %s", result.UploadResult.VersionID)
-			if result.UploadResult.PackageID != "" {
-				ui.PrintInfo("  Package ID:      %s", result.UploadResult.PackageID)
-			}
-			for _, warning := range result.UploadResult.Warnings {
-				ui.PrintWarning("  %s", warning)
-			}
-		}
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("%d platform(s) failed", len(errors))
-	}
-
-	if buildUploadJSON {
-		outputBuildUploadJSON(successfulBuilds)
-		return nil
-	}
-
-	// Suggest running a test after successful concurrent builds
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-	if aliases := config.ListLocalTestAliases(testsDir); len(aliases) > 0 {
-		ui.PrintNextSteps([]ui.NextStep{
-			{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", aliases[0])},
-		})
-	} else {
-		ui.PrintNextSteps([]ui.NextStep{
-			{Label: "Create a test:", Command: "revyl test create <name>"},
-		})
-	}
-
-	return nil
-}
-
-// buildAndUploadPlatform builds and uploads a single platform.
-//
-// Parameters:
-//   - cmd: The cobra command
-//   - cfg: The project configuration
-//   - cwd: Current working directory
-//   - client: The API client
-//   - platform: The platform to build (ios or android)
-//   - outputMu: Mutex for synchronized output and shared config access
-//
-// Returns:
-//   - BuildResult: The result of the build and upload
-func buildAndUploadPlatform(cmd *cobra.Command, cfg *config.ProjectConfig, cwd string, client *api.Client, platform string, outputMu *sync.Mutex, concurrent bool) BuildResult {
-	result := BuildResult{Platform: platform}
-
-	outputMu.Lock()
-	platformCfg := cfg.Build.Platforms[platform]
-	outputMu.Unlock()
-	if err := validateLocalBuildSecrets(platform, platformCfg); err != nil {
-		result.Error = err
-		return result
-	}
-	usesCommandList := buildPlatformUsesCommandList(platformCfg)
-	buildCommands := platformCfg.BuildCommands()
-	if normalized, changed := normalizeExpoBuildCommands(cfg.Build.System, buildCommands); changed {
-		buildCommands = normalized
-		platformCfg = setBuildPlatformCommands(platformCfg, buildCommands, usesCommandList)
-		outputMu.Lock()
-		cfg.Build.Platforms[platform] = platformCfg
-		ui.PrintDim("[%s] Updated build command to use npx eas", platform)
-		outputMu.Unlock()
-	}
-	buildCommand := strings.Join(buildCommands, " && ")
-
-	// Apply Xcode scheme: --scheme flag > config scheme > leave as-is
-	scheme := uploadSchemeFlag
-	if scheme == "" {
-		scheme = platformCfg.Scheme
-	}
-	if scheme != "" {
-		for i, command := range buildCommands {
-			buildCommands[i] = build.ApplySchemeToCommand(command, scheme)
-		}
-		buildCommand = strings.Join(buildCommands, " && ")
-	}
-
-	// Validate EAS simulator profile for iOS builds (non-interactive in concurrent mode)
-	if !buildSkip && isExpoBuildSystem(cfg.Build.System) && build.IsIOSPlatformKey(platform) {
-		easCfg, easErr := build.LoadEASConfig(cwd)
-		if easErr == nil && easCfg != nil {
-			vResult := build.ValidateEASSimulatorProfile(easCfg, buildCommand)
-			if !vResult.Valid && !vResult.NoEASConfig && !vResult.ProfileNotFound {
-				outputMu.Lock()
-				ui.PrintWarning("[%s] EAS profile %q does not produce a simulator build.", platform, vResult.ProfileName)
-				ui.PrintDim("  Revyl cloud devices are iOS simulators. The resulting artifact may not work.")
-				if len(vResult.Alternatives) > 0 {
-					ui.PrintInfo("  Compatible profiles: %s", strings.Join(vResult.Alternatives, ", "))
-					ui.PrintInfo("  Update your config: revyl init --force")
-				} else {
-					ui.PrintDim("  %s", build.SimulatorFixSnippet(vResult.ProfileName))
-				}
-				outputMu.Unlock()
-			}
-		}
-	}
-
-	// Build
-	if !buildSkip {
-		outputMu.Lock()
-		ui.PrintDim("[%s] Using configured build command from .revyl/config.yaml", platform)
-		if len(buildCommands) == 1 {
-			ui.PrintInfo("[%s] Building with configured command: %s", platform, buildCommands[0])
-		} else {
-			ui.PrintInfo("[%s] Building with %d configured commands", platform, len(buildCommands))
-		}
-		ui.PrintDim("[%s] Local build step: Revyl will upload after this command creates %s.", platform, platformCfg.Output)
-		outputMu.Unlock()
-
-		startTime := time.Now()
-		runner := build.NewRunner(cwd)
-		runner.Interactive = !concurrent
-
-		var err error
-		for i, command := range buildCommands {
-			if len(buildCommands) > 1 {
-				outputMu.Lock()
-				ui.PrintDim("[%s] Build command %d/%d: %s", platform, i+1, len(buildCommands), command)
-				outputMu.Unlock()
-			}
-			err = runner.Run(command, func(line string) {
-				outputMu.Lock()
-				ui.PrintDim("  [%s] %s", platform, line)
-				outputMu.Unlock()
-			})
-			if err != nil {
-				break
-			}
-		}
-
-		result.Duration = time.Since(startTime)
-
-		if err != nil {
-			if _, ok := err.(*build.BuildToolError); ok {
-				result.Error = err
-			} else {
-				result.Error = fmt.Errorf("build failed: %w", err)
-			}
-			return result
-		}
-
-		outputMu.Lock()
-		if !buildUploadJSON {
-			ui.PrintSuccess("[%s] Build completed in %s", platform, result.Duration.Round(time.Second))
-		}
-		outputMu.Unlock()
-	} else {
-		outputMu.Lock()
-		ui.PrintInfo("[%s] Skipping build step", platform)
-		outputMu.Unlock()
-	}
-
-	// Resolve artifact path
-	outputMu.Lock()
-	ui.PrintDim("[%s] Resolving configured artifact path from .revyl/config.yaml: %s", platform, platformCfg.Output)
-	outputMu.Unlock()
-	artifactPath, err := build.ResolveArtifactPath(cwd, platformCfg.Output)
-	if err != nil {
-		result.Error = fmt.Errorf("configured artifact path not found: %w", err)
-		return result
-	}
-	result.ArtifactPath = artifactPath
-
-	// Get app ID from platform config
-	appID := platformCfg.AppID
-	if buildRequireConfiguredApp && strings.TrimSpace(appID) == "" {
-		result.Error = missingConfiguredBuildAppError(platform)
-		return result
-	}
-	result.AppID = appID
-
-	// Generate version string with platform suffix
-	versionStr := buildVersion
-	if versionStr == "" {
-		versionStr = build.GenerateVersionStringForWorkDir(cwd)
-	}
-	versionStr = fmt.Sprintf("%s-%s", versionStr, platform)
-
-	outputMu.Lock()
-	ui.PrintInfo("[%s] Uploading: %s", platform, filepath.Base(artifactPath))
-	outputMu.Unlock()
-
-	// Convert tar.gz to zip for iOS builds (EAS produces tar.gz)
-	if build.IsTarGz(artifactPath) {
-		outputMu.Lock()
-		ui.PrintInfo("[%s] Extracting .app from tar.gz...", platform)
-		outputMu.Unlock()
-		zipPath, err := build.ExtractAppFromTarGz(artifactPath)
-		if err != nil {
-			result.Error = fmt.Errorf("failed to extract .app from tar.gz: %w", err)
-			return result
-		}
-		defer os.Remove(zipPath) // Clean up temp zip after upload
-		artifactPath = zipPath
-		result.ArtifactPath = artifactPath
-		outputMu.Lock()
-		if !buildUploadJSON {
-			ui.PrintSuccess("[%s] Converted to: %s", platform, filepath.Base(zipPath))
-		}
-		outputMu.Unlock()
-	} else if build.IsAppBundle(artifactPath) {
-		// Zip .app directory for iOS builds (Flutter, React Native, Xcode)
-		outputMu.Lock()
-		ui.PrintInfo("[%s] Zipping .app bundle...", platform)
-		outputMu.Unlock()
-		zipPath, err := build.ZipAppBundle(artifactPath)
-		if err != nil {
-			result.Error = fmt.Errorf("failed to zip .app bundle: %w", err)
-			return result
-		}
-		defer os.Remove(zipPath) // Clean up temp zip after upload
-		artifactPath = zipPath
-		result.ArtifactPath = artifactPath
-		outputMu.Lock()
-		if !buildUploadJSON {
-			ui.PrintSuccess("[%s] Created: %s", platform, filepath.Base(zipPath))
-		}
-		outputMu.Unlock()
-	}
-
-	// Collect metadata
-	metadata := build.CollectMetadata(cwd, buildCommand, platform, result.Duration)
-
-	// Upload
-	uploadResult, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-		AppID:        appID,
-		Version:      versionStr,
-		FilePath:     artifactPath,
-		Metadata:     metadata,
-		SetAsCurrent: buildSetCurr,
-	})
-
-	if err != nil {
-		result.Error = fmt.Errorf("upload failed: %w", err)
-		return result
-	}
-
-	result.UploadResult = uploadResult
-	return result
-}
-
-// selectOrCreateAppInteractive prompts the user to select or create an app for a specific platform.
-//
-// Parameters:
-//   - cmd: The cobra command
-//   - client: The API client
-//   - cfg: The project config
-//   - platform: The target platform
-//
-// Returns:
-//   - string: The selected or created app ID
-//   - error: Any error that occurred
-func selectOrCreateAppInteractive(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, platform string) (string, error) {
-	// Fetch existing apps for this platform
-	ui.StartSpinner(fmt.Sprintf("Fetching %s apps...", platform))
-	apps, err := client.ListAllApps(cmd.Context(), platform, 100)
-	ui.StopSpinner()
-
-	if err != nil {
-		ui.PrintError("Failed to fetch apps: %v", err)
-		return "", err
-	}
-
-	var appID string
-
-	// If no existing apps for this platform, create directly
-	if len(apps) == 0 {
-		ui.PrintInfo("No existing %s apps found. Creating one...", platform)
-		appID, err = createNewAppForPlatform(cmd, client, cfg, platform)
-		if err != nil {
-			return "", err
-		}
-	} else {
-		options := []string{fmt.Sprintf("Create new %s app", platform)}
-		for _, app := range apps {
-			options = append(options, fmt.Sprintf("%s (%s)", app.Name, app.Platform))
-		}
-
-		// Show selection prompt
-		ui.PrintInfo("Select an app for %s:", platform)
-		selection, err := ui.PromptSelect("", options)
-		if err != nil {
-			return "", err
-		}
-
-		if selection == 0 {
-			appID, err = createNewAppForPlatform(cmd, client, cfg, platform)
-			if err != nil {
-				return "", err
-			}
-		} else {
-			appID = apps[selection-1].ID
-			ui.PrintSuccess("Selected: %s", apps[selection-1].Name)
-		}
-	}
-
-	return appID, nil
-}
-
-// createNewAppForPlatform creates a new app for a specific platform.
-//
-// Parameters:
-//   - cmd: The cobra command
-//   - client: The API client
-//   - cfg: The project config
-//   - platform: The target platform
-//
-// Returns:
-//   - string: The created app ID
-//   - error: Any error that occurred
-func createNewAppForPlatform(cmd *cobra.Command, client *api.Client, cfg *config.ProjectConfig, platform string) (string, error) {
-	// Use --name flag if provided, otherwise prompt
-	name := uploadNameFlag
-	if name == "" {
-		defaultName := fmt.Sprintf("%s %s", cfg.Project.Name, platform)
-		var err error
-		name, err = ui.Prompt(fmt.Sprintf("Name [%s]:", defaultName))
-		if err != nil {
-			return "", err
-		}
-		if name == "" {
-			name = defaultName
-		}
-	} else {
-		ui.PrintInfo("Name: %s", name)
-	}
-
-	// Create the app
-	ui.StartSpinner(fmt.Sprintf("Creating %s app...", platform))
-
-	result, err := createOrLinkAppByName(cmd.Context(), client, name, platform)
-
-	ui.StopSpinner()
-
-	if err != nil {
-		ui.PrintError("Failed to create app: %v", err)
-		return "", err
-	}
-
-	if result.LinkedExisting {
-		ui.PrintSuccess("Linked existing app: %s (%s)", result.Name, result.ID)
-	} else {
-		ui.PrintSuccess("Created: %s (%s)", result.Name, result.ID)
-	}
-
-	return result.ID, nil
-}
-
-// runSinglePlatformBuild builds and uploads a single platform.
-//
-// Parameters:
-//   - cmd: The cobra command being executed
-//   - cfg: The project configuration
-//   - configPath: Path to the config file
-//   - apiKey: Authentication token for API requests
-//   - platform: The platform to build
-//
-// Returns:
-//   - error: Any error that occurred during the build/upload process
 func runSinglePlatformBuild(cmd *cobra.Command, cfg *config.ProjectConfig, configPath string, apiKey string, platform string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -2257,7 +1634,7 @@ func listBuildVersions(cmd *cobra.Command, client *api.Client, appID string) err
 	if len(versions) == 0 {
 		if branchFilter != "" {
 			ui.PrintInfo("No builds found for branch %q", branchFilter)
-			ui.PrintDim("Build one with: revyl build --platform <key>")
+			ui.PrintDim("Build one with: revyl build --profile <name> --platform ios|android")
 		} else {
 			ui.PrintInfo("No builds found")
 		}

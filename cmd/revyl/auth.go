@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -808,17 +807,29 @@ func printAuthNextSteps(cmd *cobra.Command) {
 		return
 	}
 
-	cwd, err := os.Getwd()
+	cwd, err := configWorkingDirectory()
 	if err != nil {
 		return
 	}
 
-	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
-	if err != nil || cfg == nil {
-		// No config found - suggest init
-		ui.PrintNextSteps([]ui.NextStep{
-			{Label: "Initialize project:", Command: "revyl init"},
-		})
+	projectContext, err := config.ResolveProjectContext(cwd, "")
+	if err != nil {
+		var configErr *config.ConfigError
+		if errors.As(err, &configErr) {
+			switch configErr.Code {
+			case "legacy_config_requires_migration", "mixed_config_formats":
+				ui.PrintNextSteps([]ui.NextStep{{Label: "Migrate configuration:", Command: cliRecoveryCommand("config", "migrate")}})
+			case "config_not_found":
+				ui.PrintNextSteps([]ui.NextStep{
+					{Label: "Restore existing project:", Command: cliRecoveryCommand("config", "pull")},
+					{Label: "Or initialize a new project:", Command: cliRecoveryCommand("init", "-y")},
+				})
+			case "git_worktree_unavailable":
+				ui.PrintNextSteps([]ui.NextStep{{Label: "Initialize this repository:", Command: gitRecoveryCommand(cwd, "init") + " && " + cliRecoveryCommand("init", "-y")}})
+			default:
+				ui.PrintNextSteps([]ui.NextStep{{Label: "Repair configuration:", Command: cliRecoveryCommand("config", "validate")}})
+			}
+		}
 		return
 	}
 
@@ -826,8 +837,7 @@ func printAuthNextSteps(cmd *cobra.Command) {
 	var steps []ui.NextStep
 
 	// If tests exist, suggest running one
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
-	aliases := config.ListLocalTestAliases(testsDir)
+	aliases := config.ListLocalTestAliases(projectContext.TestsDir)
 	if len(aliases) > 0 {
 		steps = append(steps, ui.NextStep{Label: "Run a test:", Command: fmt.Sprintf("revyl test run %s", aliases[0])})
 	} else {

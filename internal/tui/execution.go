@@ -4,6 +4,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -28,9 +29,6 @@ type executionModel struct {
 
 	// apiKey is the authenticated API key.
 	apiKey string
-
-	// cfg is the project config for alias/build resolution.
-	cfg *config.ProjectConfig
 
 	// devMode indicates whether to use local development servers.
 	devMode bool
@@ -89,19 +87,17 @@ const (
 //   - testID: the UUID of the test to execute
 //   - testName: display name for the header
 //   - apiKey: API key for authentication
-//   - cfg: project config (may be nil)
 //   - devMode: whether to use local development servers
 //   - width: terminal width
 //   - height: terminal height
 //
 // Returns:
 //   - executionModel: the initialized model
-func newExecutionModel(testID, testName, apiKey string, cfg *config.ProjectConfig, devMode bool, width, height int) executionModel {
+func newExecutionModel(testID, testName, apiKey string, devMode bool, width, height int) executionModel {
 	return executionModel{
 		testID:    testID,
 		testName:  testName,
 		apiKey:    apiKey,
-		cfg:       cfg,
 		devMode:   devMode,
 		phase:     phaseStarting,
 		startTime: time.Now(),
@@ -115,8 +111,16 @@ func newExecutionModel(testID, testName, apiKey string, cfg *config.ProjectConfi
 
 // startMonitoredExecutionCmd starts the test execution with real-time SSE progress updates.
 // Unlike startExecutionCmd, this sends incremental progress messages to the TUI.
-func startMonitoredExecutionCmd(testID, testName, apiKey string, cfg *config.ProjectConfig, devMode bool) tea.Cmd {
+func startMonitoredExecutionCmd(testID, testName, apiKey string, devMode bool) tea.Cmd {
 	return func() tea.Msg {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return ExecutionDoneMsg{Err: fmt.Errorf("resolve current project: %w", err)}
+		}
+		if _, err := config.ResolveProjectContext(cwd, ""); err != nil {
+			return ExecutionDoneMsg{Err: actionableProjectConfigError(fmt.Errorf("resolve current project: %w", err))}
+		}
+
 		// First, start the execution
 		client := api.NewClientWithDevMode(apiKey, devMode)
 
@@ -290,7 +294,7 @@ func (m executionModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
 		tickCmd(),
-		startMonitoredExecutionCmd(m.testID, m.testName, m.apiKey, m.cfg, m.devMode),
+		startMonitoredExecutionCmd(m.testID, m.testName, m.apiKey, m.devMode),
 	)
 }
 

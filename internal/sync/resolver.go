@@ -120,7 +120,6 @@ type SyncResult struct {
 // Resolver handles test name resolution and sync operations.
 type Resolver struct {
 	client     *api.Client
-	config     *config.ProjectConfig
 	localTests map[string]*config.LocalTest
 }
 
@@ -133,21 +132,13 @@ type Resolver struct {
 //
 // Returns:
 //   - *Resolver: A new resolver instance
-func NewResolver(client *api.Client, cfg *config.ProjectConfig, localTests map[string]*config.LocalTest) *Resolver {
-	if cfg == nil {
-		cfg = &config.ProjectConfig{}
-	}
-	if cfg.Build.Platforms == nil {
-		cfg.Build.Platforms = make(map[string]config.BuildPlatform)
-	}
-	config.ApplyDefaults(cfg)
+func NewResolver(client *api.Client, _ *config.ProjectConfig, localTests map[string]*config.LocalTest) *Resolver {
 	if localTests == nil {
 		localTests = make(map[string]*config.LocalTest)
 	}
 
 	return &Resolver{
 		client:     client,
-		config:     cfg,
 		localTests: localTests,
 	}
 }
@@ -352,7 +343,7 @@ func (r *Resolver) SyncToRemote(ctx context.Context, testName, testsDir string, 
 
 		if remoteID == "" {
 			if !createOrgIDResolved {
-				createOrgID, createOrgIDErr = orgguard.ResolveCreateOrgID(ctx, r.client, r.config)
+				createOrgID, createOrgIDErr = orgguard.ResolveCreateOrgID(ctx, r.client, nil)
 				createOrgIDResolved = true
 			}
 			if createOrgIDErr != nil {

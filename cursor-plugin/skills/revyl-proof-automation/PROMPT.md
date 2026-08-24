@@ -12,7 +12,7 @@ fi
 revyl auth status
 ```
 
-Resolve Revyl project config from this checkout (`.revyl/config.yaml`). If the Revyl project lives in a nested directory (for example `ios/`), `cd` there before any `revyl device` command so `auth_bypass` and `before_session` apply.
+Resolve Revyl project config from this checkout (`.revyl/config.yaml`). If the Revyl project lives in a nested directory (for example `ios/`), `cd` there before any `revyl device` command so `session.auth_bypass` and `session.before_script` apply.
 
 Your environment carries `REVYL_API_KEY`. The Revyl CLI is authenticated against production. The Revyl app id is available as an Automation variable (for example `REVYL_APP_ID`).
 

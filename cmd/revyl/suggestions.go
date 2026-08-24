@@ -54,16 +54,6 @@ var subcommandMap = map[string][]string{
 //	allArgs: ["--dev", "open", "test", "peptide-view", "--interactive"]
 //	Returns: "revyl --dev test open peptide-view --interactive", true
 func suggestCorrectCommand(unknownCmd string, allArgs []string, rootCmd *cobra.Command) (string, bool) {
-	// Special case: users often try "revyl test sync" / "revyl workflow sync".
-	// Sync is a root command, so suggest it directly.
-	if unknownCmd == "sync" {
-		for _, arg := range allArgs {
-			if arg == "test" || arg == "workflow" || arg == "app" {
-				return "revyl sync", true
-			}
-		}
-	}
-
 	// Users may type legacy forms like "hotreload setup" or "setup hotreload".
 	if unknownCmd == "hotreload" {
 		return "revyl dev", true

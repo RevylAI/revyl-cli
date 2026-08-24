@@ -4,10 +4,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,7 +21,6 @@ import (
 
 	"github.com/revyl/cli/internal/analytics"
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/build"
 	"github.com/revyl/cli/internal/config"
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/devicetargets"
@@ -36,13 +36,16 @@ var (
 	runBuildID                    string
 	runNoWait                     bool
 	runOpen                       bool
+	runNoOpen                     bool
 	runTimeout                    int
 	runOutputJSON                 bool
 	runGitHubActions              bool
 	runVerbose                    bool
 	runTestBuild                  bool
+	runTestProfile                string
 	runTestPlatform               string
 	runWorkflowBuild              bool
+	runWorkflowProfile            string
 	runWorkflowPlatform           string
 	runWorkflowIOSAppID           string
 	runWorkflowAndroidAppID       string
@@ -75,24 +78,75 @@ const (
 
 const workflowBuildVersionValidationMaxPages = 500
 
+// headlessCloudEnvironmentSignal is the provider-neutral Revyl Cloud process marker.
+const headlessCloudEnvironmentSignal = "REVYL_HEADLESS_CLOUD"
+
 var runInterruptExit = os.Exit
 var runTestExecution = execution.RunTest
 var runWorkflowExecution = execution.RunWorkflow
 var runOpenBrowserFn = ui.OpenBrowser
+var runReportBrowserSupportedFn = runReportBrowserSupported
 
-// resolveRunOpen determines whether reports should auto-open.
-// Explicit --open takes precedence over config defaults.
-func resolveRunOpen(cmd *cobra.Command, cfg *config.ProjectConfig, flagValue bool) bool {
+// resolveRunOpen determines whether a completed report should auto-open.
+// Reports open by default only for blocking human-terminal runs. Explicit
+// --no-open wins over --open, and machine/headless invocations never open.
+func resolveRunOpen(cmd *cobra.Command, flagValue bool) bool {
+	if runNoWait || runOutputJSON || runGitHubActions || !runReportBrowserSupportedFn() {
+		return false
+	}
+	if runNoOpen {
+		return false
+	}
 	if cmd != nil && cmd.Flags().Changed("open") {
 		return flagValue
 	}
-	return config.EffectiveOpenBrowser(cfg)
+	return true
+}
+
+func runReportBrowserSupported() bool {
+	if !ui.IsInputTTY() || os.Getenv(headlessCloudEnvironmentSignal) == "1" || os.Getenv("CI") != "" || os.Getenv("SSH_CONNECTION") != "" {
+		return false
+	}
+	if runtime.GOOS == "linux" && os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+		return false
+	}
+	return true
+}
+
+func openCompletedRunReport(reportURL string) {
+	reportURL = strings.TrimSpace(reportURL)
+	if reportURL == "" {
+		return
+	}
+	ui.PrintInfo("Opening report in browser...")
+	if err := runOpenBrowserFn(reportURL); err != nil {
+		ui.PrintWarning("Could not open browser: %v", err)
+	}
 }
 
 // resolveRunTimeout determines the effective test/workflow execution timeout.
 // Project defaults.timeout is reserved for CLI/device session timeouts.
 func resolveRunTimeout(cmd *cobra.Command, cfg *config.ProjectConfig, flagValue int) int {
 	return flagValue
+}
+
+// resolveRunTestProjectContext returns canonical local context when a named test
+// may refer to project YAML. Explicit UUIDs and exact server-name runs remain
+// genuinely configless, but a present malformed or legacy config fails closed.
+func resolveRunTestProjectContext(cwd, nameOrID string) (*config.ProjectContext, error) {
+	if looksLikeUUID(nameOrID) {
+		return nil, nil
+	}
+
+	project, err := config.ResolveProjectContext(cwd, "")
+	if err == nil {
+		return project, nil
+	}
+	var configErr *config.ConfigError
+	if errors.As(err, &configErr) && (configErr.Code == "git_worktree_unavailable" || configErr.Code == "config_not_found") {
+		return nil, nil
+	}
+	return nil, actionableLocalConfigError(err)
 }
 
 type runInterruptState struct {
@@ -223,6 +277,15 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if runRetries < minRetries || runRetries > maxRetries {
 		return fmt.Errorf("--retries must be between %d and %d (got %d)", minRetries, maxRetries, runRetries)
 	}
+	if strings.TrimSpace(runTestProfile) != "" && !runTestBuild {
+		return fmt.Errorf("--profile requires --build")
+	}
+	if strings.TrimSpace(runTestPlatform) != "" && !runTestBuild {
+		return fmt.Errorf("--platform requires --build")
+	}
+	if runTestBuild && strings.TrimSpace(runBuildID) != "" {
+		return fmt.Errorf("--build cannot be used with --build-id")
+	}
 
 	// Honor global --json (root persistent) and local --json
 	if v, _ := cmd.Flags().GetBool("json"); v {
@@ -231,17 +294,22 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	if v, _ := cmd.Root().PersistentFlags().GetBool("json"); v {
 		runOutputJSON = true
 	}
-	// Load project config for alias resolution
-	cwd, _ := os.Getwd()
-	cfg, _, hasProjectConfig, err := loadProjectConfigOrEmpty(cwd)
+	testNameOrID := args[0]
+	cwd := ""
+	if !looksLikeUUID(testNameOrID) || runTestBuild {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("get current directory: %w", err)
+		}
+	}
+	project, err := resolveRunTestProjectContext(cwd, testNameOrID)
 	if err != nil {
 		ui.PrintError("%v", err)
 		return err
 	}
-	effectiveOpen := resolveRunOpen(cmd, cfg, runOpen)
-	effectiveTimeout := resolveRunTimeout(cmd, cfg, runTimeout)
-
-	testNameOrID := args[0]
+	effectiveOpen := resolveRunOpen(cmd, runOpen)
+	effectiveTimeout := resolveRunTimeout(cmd, nil, runTimeout)
 
 	// Check authentication
 	apiKey, err := getAPIKey()
@@ -253,7 +321,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	devMode, _ := cmd.Flags().GetBool("dev")
 
 	validationClient := api.NewClientWithDevMode(apiKey, devMode)
-	testID, _, err := resolveTestID(cmd.Context(), testNameOrID, cfg, validationClient)
+	testID, resolvedTestName, err := resolveTestID(cmd.Context(), testNameOrID, nil, validationClient)
 	if err != nil {
 		ui.PrintError("%v", err)
 		fmt.Fprintln(os.Stderr, "  Run: revyl test list")
@@ -333,94 +401,22 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 	ui.Println()
 
+	effectiveBuildVersionID := strings.TrimSpace(runBuildID)
+
 	// Handle --build flag: build and upload before running test
 	if runTestBuild {
-		if !hasProjectConfig {
-			printProjectNotInitialized()
-			return fmt.Errorf("project not initialized")
-		}
-
-		buildCfg := cfg.Build
-		var platformCfg config.BuildPlatform
-
-		if runTestPlatform != "" {
-			var ok bool
-			platformCfg, ok = cfg.Build.Platforms[runTestPlatform]
-			if !ok {
-				ui.PrintError("Unknown platform: %s", runTestPlatform)
-				return fmt.Errorf("unknown platform: %s", runTestPlatform)
-			}
-			buildCfg.Command = platformCfg.JoinedBuildCommand()
-			buildCfg.Output = platformCfg.Output
-		}
-
-		var buildCommands []string
-		if trimmed := strings.TrimSpace(buildCfg.Command); trimmed != "" {
-			buildCommands = []string{trimmed}
-		}
-		if runTestPlatform != "" {
-			buildCommands = platformCfg.BuildCommands()
-		}
-		if len(buildCommands) == 0 {
-			ui.PrintError("No build command configured for this platform.")
-			fmt.Fprintln(os.Stderr, "  Run: revyl init --force")
-			return fmt.Errorf("no build command")
-		}
-
-		// Step 1: Build
-		ui.PrintBox("Building", buildCfg.Command)
-
-		startTime := time.Now()
-		runner := build.NewRunner(cwd)
-		runner.Interactive = true
-
-		for _, buildCommand := range buildCommands {
-			err = runner.Run(buildCommand, func(line string) {
-				ui.PrintDim("  %s", line)
-			})
-			if err != nil {
-				break
-			}
-		}
-
-		buildDuration := time.Since(startTime)
-
+		invocation, err := resolveBuildContinuation(cwd, runTestProfile, runTestPlatform, runOutputJSON || runGitHubActions)
 		if err != nil {
-			ui.Println()
-			ui.PrintError("Build failed: %v", err)
 			return err
 		}
-
-		ui.PrintSuccess("Build completed in %s", buildDuration.Round(time.Second))
-		ui.Println()
-
-		// Step 2: Upload
-		artifactPath := filepath.Join(cwd, buildCfg.Output)
-		if _, err := os.Stat(artifactPath); os.IsNotExist(err) {
-			ui.PrintError("Build artifact not found: %s", buildCfg.Output)
-			return fmt.Errorf("artifact not found")
-		}
-
-		buildVersionStr := build.GenerateVersionString()
-		metadata := build.CollectMetadata(cwd, buildCfg.Command, runTestPlatform, buildDuration)
-
-		ui.PrintBox("Uploading", filepath.Base(buildCfg.Output))
-
-		client := api.NewClientWithDevMode(apiKey, devMode)
-		result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-			AppID:    platformCfg.AppID,
-			Version:  buildVersionStr,
-			FilePath: artifactPath,
-			Metadata: metadata,
-		})
-
+		buildResult, err := runBuildContinuation(cmd, invocation, apiKey, runOutputJSON || runGitHubActions)
 		if err != nil {
-			ui.PrintError("Upload failed: %v", err)
 			return err
 		}
-
-		ui.PrintSuccess("Uploaded: %s", result.Version)
-		ui.Println()
+		if buildResult.Upload == nil || strings.TrimSpace(buildResult.Upload.VersionID) == "" {
+			return fmt.Errorf("uploaded build did not return a build version ID")
+		}
+		effectiveBuildVersionID = strings.TrimSpace(buildResult.Upload.VersionID)
 	}
 
 	// Use shared execution logic with CLI-specific progress callback
@@ -456,10 +452,15 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		ui.PrintInfo("Fail Fast: %v", v)
 	}
 
-	result, err := runTestExecution(ctx, apiKey, cfg, execution.RunTestParams{
+	testsDir := ""
+	if project != nil {
+		testsDir = project.TestsDir
+	}
+	result, err := runTestExecution(ctx, apiKey, nil, execution.RunTestParams{
 		TestNameOrID:               testID,
+		TestsDir:                   testsDir,
 		Retries:                    runRetries,
-		BuildVersionID:             runBuildID,
+		BuildVersionID:             effectiveBuildVersionID,
 		Timeout:                    effectiveTimeout,
 		DevMode:                    devMode,
 		NoWait:                     runNoWait,
@@ -512,6 +513,9 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		ui.PrintError("Test execution failed: %v", err)
 		return err
 	}
+	if strings.TrimSpace(result.TestName) == "" {
+		result.TestName = resolvedTestName
+	}
 
 	ui.Println()
 
@@ -524,9 +528,6 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 		ui.PrintSuccess("Test queued successfully")
 		ui.PrintInfo("Task ID: %s", result.TaskID)
 		ui.PrintLink("Report", result.ReportURL)
-		if effectiveOpen {
-			runOpenBrowserFn(result.ReportURL)
-		}
 		return nil
 	}
 
@@ -578,8 +579,7 @@ func runTestExec(cmd *cobra.Command, args []string) error {
 	}
 
 	if effectiveOpen {
-		ui.PrintInfo("Opening report in browser...")
-		runOpenBrowserFn(result.ReportURL)
+		openCompletedRunReport(result.ReportURL)
 	}
 
 	if !result.Success {
@@ -769,6 +769,32 @@ func queueWorkflowExecution(
 	}, nil
 }
 
+func validateWorkflowBuildSelectorConflicts(platform, iosAppID, androidAppID, iosBuild, androidBuild string) error {
+	var conflicts []string
+	switch platform {
+	case "ios":
+		if iosAppID != "" {
+			conflicts = append(conflicts, "--ios-app")
+		}
+		if iosBuild != "" {
+			conflicts = append(conflicts, "--ios-build")
+		}
+	case "android":
+		if androidAppID != "" {
+			conflicts = append(conflicts, "--android-app")
+		}
+		if androidBuild != "" {
+			conflicts = append(conflicts, "--android-build")
+		}
+	default:
+		return fmt.Errorf("configured build returned unsupported platform %q", platform)
+	}
+	if len(conflicts) == 0 {
+		return nil
+	}
+	return fmt.Errorf("--build for %s cannot be combined with %s", platform, strings.Join(conflicts, " or "))
+}
+
 // runWorkflowExec executes a workflow using the shared execution package.
 //
 // Parameters:
@@ -782,6 +808,16 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	if runRetries < minRetries || runRetries > maxRetries {
 		return fmt.Errorf("--retries must be between %d and %d (got %d)", minRetries, maxRetries, runRetries)
 	}
+	if strings.TrimSpace(runWorkflowProfile) != "" && !runWorkflowBuild {
+		return fmt.Errorf("--profile requires --build")
+	}
+	if strings.TrimSpace(runWorkflowPlatform) != "" && !runWorkflowBuild {
+		return fmt.Errorf("--platform requires --build")
+	}
+	effectiveIOSAppID := strings.TrimSpace(runWorkflowIOSAppID)
+	effectiveAndroidAppID := strings.TrimSpace(runWorkflowAndroidAppID)
+	effectiveIOSBuild := strings.TrimSpace(runWorkflowIOSBuild)
+	effectiveAndroidBuild := strings.TrimSpace(runWorkflowAndroidBuild)
 
 	// Honor global --json (root persistent) and local --json
 	if v, _ := cmd.Flags().GetBool("json"); v {
@@ -802,18 +838,22 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Load project config for alias resolution
-	cwd, _ := os.Getwd()
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
-	effectiveOpen := resolveRunOpen(cmd, cfg, runOpen)
-	effectiveTimeout := resolveRunTimeout(cmd, cfg, runTimeout)
+	cwd := ""
+	if runWorkflowBuild {
+		cwd, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("get current directory: %w", err)
+		}
+	}
+	effectiveOpen := resolveRunOpen(cmd, runOpen)
+	effectiveTimeout := resolveRunTimeout(cmd, nil, runTimeout)
 
 	// Get dev mode flag
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
 	// Resolve workflow name or UUID via API
-	workflowID, workflowName, err := resolveWorkflowID(cmd.Context(), workflowNameOrID, cfg, client)
+	workflowID, workflowName, err := resolveWorkflowID(cmd.Context(), workflowNameOrID, nil, client)
 	if err != nil {
 		ui.PrintError("%v", err)
 		return err
@@ -831,47 +871,59 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	var buildInvocation *projectBuildInvocation
+	if runWorkflowBuild {
+		invocation, err := resolveBuildContinuation(cwd, runWorkflowProfile, runWorkflowPlatform, runOutputJSON || runGitHubActions)
+		if err != nil {
+			return err
+		}
+		if err := validateWorkflowBuildSelectorConflicts(invocation.Platform, effectiveIOSAppID, effectiveAndroidAppID, effectiveIOSBuild, effectiveAndroidBuild); err != nil {
+			return err
+		}
+		buildInvocation = &invocation
+	}
+
 	// Validate app IDs exist before running
-	if runWorkflowIOSAppID != "" || runWorkflowAndroidAppID != "" {
+	if effectiveIOSAppID != "" || effectiveAndroidAppID != "" {
 		appClient := api.NewClientWithDevMode(apiKey, devMode)
-		if runWorkflowIOSAppID != "" {
+		if effectiveIOSAppID != "" {
 			ui.StartSpinner("Validating iOS app...")
-			_, appErr := appClient.GetApp(cmd.Context(), runWorkflowIOSAppID)
+			_, appErr := appClient.GetApp(cmd.Context(), effectiveIOSAppID)
 			ui.StopSpinner()
 			if appErr != nil {
-				ui.PrintError("iOS app '%s' not found", runWorkflowIOSAppID)
+				ui.PrintError("iOS app '%s' not found", effectiveIOSAppID)
 				return fmt.Errorf("invalid --ios-app ID")
 			}
 		}
-		if runWorkflowAndroidAppID != "" {
+		if effectiveAndroidAppID != "" {
 			ui.StartSpinner("Validating Android app...")
-			_, appErr := appClient.GetApp(cmd.Context(), runWorkflowAndroidAppID)
+			_, appErr := appClient.GetApp(cmd.Context(), effectiveAndroidAppID)
 			ui.StopSpinner()
 			if appErr != nil {
-				ui.PrintError("Android app '%s' not found", runWorkflowAndroidAppID)
+				ui.PrintError("Android app '%s' not found", effectiveAndroidAppID)
 				return fmt.Errorf("invalid --android-app ID")
 			}
 		}
 	}
 
 	// Validate build-version overrides: app-scoped, so they require the matching app.
-	if runWorkflowIOSBuild != "" || runWorkflowAndroidBuild != "" {
+	if effectiveIOSBuild != "" || effectiveAndroidBuild != "" {
 		buildClient := api.NewClientWithDevMode(apiKey, devMode)
-		if runWorkflowIOSBuild != "" {
-			if runWorkflowIOSAppID == "" {
+		if effectiveIOSBuild != "" {
+			if effectiveIOSAppID == "" {
 				ui.PrintError("--ios-build requires --ios-app")
 				return fmt.Errorf("--ios-build requires --ios-app")
 			}
-			if err := validateWorkflowBuildVersion(cmd.Context(), buildClient, runWorkflowIOSAppID, runWorkflowIOSBuild, "iOS"); err != nil {
+			if err := validateWorkflowBuildVersion(cmd.Context(), buildClient, effectiveIOSAppID, effectiveIOSBuild, "iOS"); err != nil {
 				return err
 			}
 		}
-		if runWorkflowAndroidBuild != "" {
-			if runWorkflowAndroidAppID == "" {
+		if effectiveAndroidBuild != "" {
+			if effectiveAndroidAppID == "" {
 				ui.PrintError("--android-build requires --android-app")
 				return fmt.Errorf("--android-build requires --android-app")
 			}
-			if err := validateWorkflowBuildVersion(cmd.Context(), buildClient, runWorkflowAndroidAppID, runWorkflowAndroidBuild, "Android"); err != nil {
+			if err := validateWorkflowBuildVersion(cmd.Context(), buildClient, effectiveAndroidAppID, effectiveAndroidBuild, "Android"); err != nil {
 				return err
 			}
 		}
@@ -884,17 +936,17 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	if runRetries > 1 {
 		ui.PrintInfo("Retries: %d", runRetries)
 	}
-	if runWorkflowIOSAppID != "" {
-		ui.PrintInfo("iOS App Override: %s", runWorkflowIOSAppID)
+	if effectiveIOSAppID != "" {
+		ui.PrintInfo("iOS App Override: %s", effectiveIOSAppID)
 	}
-	if runWorkflowAndroidAppID != "" {
-		ui.PrintInfo("Android App Override: %s", runWorkflowAndroidAppID)
+	if effectiveAndroidAppID != "" {
+		ui.PrintInfo("Android App Override: %s", effectiveAndroidAppID)
 	}
-	if runWorkflowIOSBuild != "" {
-		ui.PrintInfo("iOS Build Override: %s", runWorkflowIOSBuild)
+	if effectiveIOSBuild != "" {
+		ui.PrintInfo("iOS Build Override: %s", effectiveIOSBuild)
 	}
-	if runWorkflowAndroidBuild != "" {
-		ui.PrintInfo("Android Build Override: %s", runWorkflowAndroidBuild)
+	if effectiveAndroidBuild != "" {
+		ui.PrintInfo("Android Build Override: %s", effectiveAndroidBuild)
 	}
 
 	variableOverrides, err := parseRuntimeVars(runVars)
@@ -935,92 +987,23 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 
 	// Handle --build flag: build and upload before running workflow
 	if runWorkflowBuild {
-		if cfg == nil {
-			printProjectNotInitialized()
-			return fmt.Errorf("project not initialized")
-		}
-
-		buildCfg := cfg.Build
-		var platformCfg config.BuildPlatform
-
-		if runWorkflowPlatform != "" {
-			var ok bool
-			platformCfg, ok = cfg.Build.Platforms[runWorkflowPlatform]
-			if !ok {
-				ui.PrintError("Unknown platform: %s", runWorkflowPlatform)
-				return fmt.Errorf("unknown platform: %s", runWorkflowPlatform)
-			}
-			buildCfg.Command = platformCfg.JoinedBuildCommand()
-			buildCfg.Output = platformCfg.Output
-		}
-
-		var buildCommands []string
-		if trimmed := strings.TrimSpace(buildCfg.Command); trimmed != "" {
-			buildCommands = []string{trimmed}
-		}
-		if runWorkflowPlatform != "" {
-			buildCommands = platformCfg.BuildCommands()
-		}
-		if len(buildCommands) == 0 {
-			ui.PrintError("No build command configured for this platform.")
-			fmt.Fprintln(os.Stderr, "  Run: revyl init --force")
-			return fmt.Errorf("no build command")
-		}
-
-		// Step 1: Build
-		ui.PrintBox("Building", buildCfg.Command)
-
-		startTime := time.Now()
-		runner := build.NewRunner(cwd)
-		runner.Interactive = true
-
-		for _, buildCommand := range buildCommands {
-			err = runner.Run(buildCommand, func(line string) {
-				ui.PrintDim("  %s", line)
-			})
-			if err != nil {
-				break
-			}
-		}
-
-		buildDuration := time.Since(startTime)
-
+		buildResult, err := runBuildContinuation(cmd, *buildInvocation, apiKey, runOutputJSON || runGitHubActions)
 		if err != nil {
-			ui.Println()
-			ui.PrintError("Build failed: %v", err)
 			return err
 		}
-
-		ui.PrintSuccess("Build completed in %s", buildDuration.Round(time.Second))
-		ui.Println()
-
-		// Step 2: Upload
-		artifactPath := filepath.Join(cwd, buildCfg.Output)
-		if _, err := os.Stat(artifactPath); os.IsNotExist(err) {
-			ui.PrintError("Build artifact not found: %s", buildCfg.Output)
-			return fmt.Errorf("artifact not found")
+		if buildResult.Upload == nil || strings.TrimSpace(buildResult.Invocation.AppID) == "" || strings.TrimSpace(buildResult.Upload.Version) == "" {
+			return fmt.Errorf("uploaded %s build did not return an app ID and build version", buildResult.Invocation.Platform)
 		}
-
-		buildVersionStr := build.GenerateVersionString()
-		metadata := build.CollectMetadata(cwd, buildCfg.Command, runWorkflowPlatform, buildDuration)
-
-		ui.PrintBox("Uploading", filepath.Base(buildCfg.Output))
-
-		client := api.NewClientWithDevMode(apiKey, devMode)
-		result, err := client.UploadBuild(cmd.Context(), &api.UploadBuildRequest{
-			AppID:    platformCfg.AppID,
-			Version:  buildVersionStr,
-			FilePath: artifactPath,
-			Metadata: metadata,
-		})
-
-		if err != nil {
-			ui.PrintError("Upload failed: %v", err)
-			return err
+		switch buildResult.Invocation.Platform {
+		case "ios":
+			effectiveIOSAppID = strings.TrimSpace(buildResult.Invocation.AppID)
+			effectiveIOSBuild = strings.TrimSpace(buildResult.Upload.Version)
+		case "android":
+			effectiveAndroidAppID = strings.TrimSpace(buildResult.Invocation.AppID)
+			effectiveAndroidBuild = strings.TrimSpace(buildResult.Upload.Version)
+		default:
+			return fmt.Errorf("uploaded build returned unsupported platform %q", buildResult.Invocation.Platform)
 		}
-
-		ui.PrintSuccess("Uploaded: %s", result.Version)
-		ui.Println()
 	}
 
 	if runNoWait {
@@ -1031,10 +1014,10 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			workflowDisplayName,
 			runRetries,
 			devMode,
-			runWorkflowIOSAppID,
-			runWorkflowAndroidAppID,
-			runWorkflowIOSBuild,
-			runWorkflowAndroidBuild,
+			effectiveIOSAppID,
+			effectiveAndroidAppID,
+			effectiveIOSBuild,
+			effectiveAndroidBuild,
 			wfHasLocation,
 			wfLat,
 			wfLng,
@@ -1057,9 +1040,6 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 			ui.PrintSuccess("Workflow queued successfully")
 			ui.PrintInfo("Task ID: %s", queuedResult.TaskID)
 			ui.PrintLink("Report", queuedResult.ReportURL)
-		}
-		if effectiveOpen {
-			runOpenBrowserFn(queuedResult.ReportURL)
 		}
 		return nil
 	}
@@ -1089,16 +1069,16 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	})
 	defer stopInterruptHandler()
 
-	result, err := runWorkflowExecution(ctx, apiKey, cfg, execution.RunWorkflowParams{
+	result, err := runWorkflowExecution(ctx, apiKey, nil, execution.RunWorkflowParams{
 		WorkflowNameOrID:           workflowID,
 		Retries:                    runRetries,
 		Timeout:                    effectiveTimeout,
 		DevMode:                    devMode,
 		MonitoringMode:             sse.MonitoringModePolling,
-		IOSAppID:                   runWorkflowIOSAppID,
-		AndroidAppID:               runWorkflowAndroidAppID,
-		IOSBuild:                   runWorkflowIOSBuild,
-		AndroidBuild:               runWorkflowAndroidBuild,
+		IOSAppID:                   effectiveIOSAppID,
+		AndroidAppID:               effectiveAndroidAppID,
+		IOSBuild:                   effectiveIOSBuild,
+		AndroidBuild:               effectiveAndroidBuild,
 		Latitude:                   wfLat,
 		Longitude:                  wfLng,
 		HasLocation:                wfHasLocation,
@@ -1193,8 +1173,7 @@ func runWorkflowExec(cmd *cobra.Command, args []string) error {
 	}
 
 	if effectiveOpen {
-		ui.PrintInfo("Opening report in browser...")
-		runOpenBrowserFn(result.ReportURL)
+		openCompletedRunReport(result.ReportURL)
 	}
 
 	if !result.Success {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/revyl/cli/internal/analytics"
@@ -24,6 +26,24 @@ func TestResolveRunTimeoutUsesRunDefaultSeparateFromConfigDefault(t *testing.T) 
 	got := resolveRunTimeout(nil, cfg, execution.DefaultRunTimeoutSeconds)
 	if got != execution.DefaultRunTimeoutSeconds {
 		t.Fatalf("resolveRunTimeout() = %d, want %d", got, execution.DefaultRunTimeoutSeconds)
+	}
+}
+
+func TestResolveRunTestProjectContextRejectsLegacyConfig(t *testing.T) {
+	repository := t.TempDir()
+	gitInitBuildRepository(t, repository)
+	writeProjectBuildConfig(t, repository, "project:\n  name: Legacy\n  org_id: org-1\n")
+
+	_, err := resolveRunTestProjectContext(repository, "Login Flow")
+	if err == nil || !strings.Contains(err.Error(), "config migrate") {
+		t.Fatalf("resolveRunTestProjectContext() error = %v, want migration guidance", err)
+	}
+}
+
+func TestResolveRunTestProjectContextKeepsUUIDConfigless(t *testing.T) {
+	project, err := resolveRunTestProjectContext(t.TempDir(), "11111111-1111-4111-8111-111111111111")
+	if err != nil || project != nil {
+		t.Fatalf("resolveRunTestProjectContext() = (%#v, %v), want configless", project, err)
 	}
 }
 
@@ -91,6 +111,8 @@ func TestRunTestExec_UsesPollingMonitoringMode(t *testing.T) {
 	t.Setenv("REVYL_BACKEND_URL", server.URL)
 
 	tmp := t.TempDir()
+	gitInitBuildRepository(t, tmp)
+	writeProjectBuildConfig(t, tmp, "project:\n  id: 11111111-1111-4111-8111-111111111111\n")
 	withWorkingDir(t, tmp)
 
 	originalRunTestExecution := runTestExecution
@@ -111,8 +133,10 @@ func TestRunTestExec_UsesPollingMonitoringMode(t *testing.T) {
 	})
 
 	var monitoringMode sse.MonitoringMode
+	var testsDir string
 	runTestExecution = func(ctx context.Context, apiKey string, cfg *config.ProjectConfig, params execution.RunTestParams) (*execution.RunTestResult, error) {
 		monitoringMode = params.MonitoringMode
+		testsDir = params.TestsDir
 		return &execution.RunTestResult{
 			TaskID:    "task-123",
 			ReportURL: "https://app.example/report/task-123",
@@ -139,6 +163,13 @@ func TestRunTestExec_UsesPollingMonitoringMode(t *testing.T) {
 	}
 	if monitoringMode != sse.MonitoringModePolling {
 		t.Fatalf("MonitoringMode = %q, want %q", monitoringMode, sse.MonitoringModePolling)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(resolvedRoot, ".revyl", "tests"); testsDir != want {
+		t.Fatalf("TestsDir = %q, want %q", testsDir, want)
 	}
 }
 

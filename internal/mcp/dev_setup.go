@@ -22,6 +22,9 @@ const (
 	projectStateNotInitialized SetupProjectState = "not_initialized"
 	projectStateAmbiguous      SetupProjectState = "ambiguous"
 	projectStateInvalid        SetupProjectState = "invalid"
+	projectStateLegacy         SetupProjectState = "legacy_config"
+	projectStateOutsideGit     SetupProjectState = "outside_git"
+	projectStateNested         SetupProjectState = "nested"
 )
 
 // SetupStatusInput is the empty input contract for setup_status.
@@ -54,7 +57,7 @@ type SetupStatusOutput struct {
 func (s *Server) registerSetupStatusTool() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "setup_status",
-		Description: "Report Revyl authentication, project setup, and one exact remediation action when needed.",
+		Description: "Report Revyl authentication, project setup, and exact remediation commands when needed.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:        "Check Revyl Setup",
 			ReadOnlyHint: true,
@@ -79,9 +82,9 @@ func (s *Server) handleSetupStatus(
 	_ SetupStatusInput,
 ) (*mcp.CallToolResult, SetupStatusOutput, error) {
 	authentication := s.resolveAndApplyDevAuthentication()
-	project := resolveSetupProjectState(s.workDir)
+	project := resolveSetupProjectStateForMode(s.workDir, s.devMode)
 	output := SetupStatusOutput{
-		Ready:            authentication.State == authenticationStateAuthenticated && project.State == projectStateInitialized,
+		Ready:            authentication.State == authenticationStateAuthenticated && projectStateHasConfig(project.State),
 		AuthState:        authentication.State,
 		ProjectState:     project.State,
 		Environment:      setupEnvironment(authentication.HeadlessCloud),

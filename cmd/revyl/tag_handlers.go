@@ -4,14 +4,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/revyl/cli/internal/api"
-	"github.com/revyl/cli/internal/config"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -46,15 +43,7 @@ func resolveTagNameOrID(cmd *cobra.Command, client *api.Client, nameOrID string)
 // resolveTestForTag resolves a test name or ID for tag operations.
 // Uses config aliases first, then falls back to API search.
 func resolveTestForTag(cmd *cobra.Command, client *api.Client, nameOrID string) (testID, testName string, err error) {
-	// Load project config for alias resolution
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "."
-	}
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, _ := config.LoadProjectConfig(configPath)
-
-	return resolveTestNameOrID(cmd.Context(), client, cfg, nameOrID)
+	return resolveTestNameOrID(cmd.Context(), client, nil, nameOrID)
 }
 
 // parseTagNames splits a comma-separated tag names string into a slice.

@@ -115,6 +115,7 @@ test:
 
 func TestHandleCreateTest_UsesConfiguredDefaultAppWhenBuildNameIsOmitted(t *testing.T) {
 	testutil.SetHomeDir(t, t.TempDir())
+	configuredAppID := "app-config"
 
 	var createReq map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -143,12 +144,10 @@ func TestHandleCreateTest_UsesConfiguredDefaultAppWhenBuildNameIsOmitted(t *test
 	s := &Server{
 		apiClient: api.NewClientWithBaseURL("test-api-key", srv.URL),
 		workDir:   t.TempDir(),
-		config: &config.ProjectConfig{
-			Build: config.BuildConfig{
-				Platforms: map[string]config.BuildPlatform{
-					"ios": {AppID: "app-config"},
-				},
-			},
+		project: &config.ProjectContext{
+			Authored: &config.AuthoredConfig{Build: &config.AuthoredBuild{Profiles: map[string]config.AuthoredBuildProfile{
+				"development": {IOS: &config.AuthoredBuildRecipe{AppID: &configuredAppID}},
+			}}},
 		},
 	}
 

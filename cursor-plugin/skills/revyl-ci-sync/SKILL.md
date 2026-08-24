@@ -5,7 +5,7 @@ description: Keep a repo's Revyl remote build mirrored with its CI pipeline - up
 
 # Revyl CI Sync Skill
 
-Use this skill when changing CI/build configuration in a repo that also has a Revyl remote build configured (`.revyl/config.yaml` with `build.platforms` or a remote dev loop in use).
+Use this skill when changing CI/build configuration in a repo that also has a Revyl remote build configured (`.revyl/config.yaml` with `build.profiles` or a remote dev loop in use).
 
 ## The Principle
 
@@ -21,7 +21,7 @@ Keep a small table in the repo (near the CI config or in the repo's agent docs) 
 
 | CI step | Revyl counterpart |
 |---|---|
-| pinned Node setup | `build.platforms.ios.command` env / toolchain |
+| pinned Node setup | the selected `build.profiles.<profile>.ios` recipe env / toolchain |
 | `pod install --repo-update` | same step in the Revyl build command |
 | `EXPO_PUBLIC_*` env vars | `.revyl/config.yaml` build env / launch vars |
 

@@ -69,7 +69,7 @@ The core loop ("make this change and run it"):
 2. Monitor: revyl dev status (state building -> idle, last_rebuild.status running -> success) and revyl dev logs --build --follow for remote build output.
 3. Iterate: after each code change run revyl dev rebuild --wait --json.
 4. Verify like a user: revyl device screenshot / revyl device validation -s 0 "<expected outcome>" --json / revyl device report --session-id <id> --json.
-5. Auth: with an auth_bypass section in .revyl/config.yaml the app launches authenticated automatically; if it ever shows a logged-out state but the boot token is still valid, run revyl dev auth refresh (does not remint). If the token itself expired, revyl dev stop then revyl dev.
+5. Auth: with a session.auth_bypass section in .revyl/config.yaml, Revyl applies its configured launch variables at boot and its configured deep link after launch; revyl dev auth refresh re-fires that deep link without reminting. If the token itself expired, revyl dev stop then revyl dev so session.before_script runs again when configured.
 6. Stop with revyl dev stop when done.
 
 Load the matching installed skill from .cursor/skills:

@@ -20,25 +20,34 @@ description: Create robust Revyl E2E tests using CLI commands from app source an
 revyl auth status
 revyl app list --platform <ios|android>
 
-# 2) Create from YAML (bootstraps .revyl/tests/ and config)
+# 2) Establish project config (choose the applicable flow)
+revyl config pull                          # Existing registered project
+# revyl init -y                            # New local project
+# revyl config migrate --check             # Legacy config: inspect first
+# revyl config migrate                     # Legacy config: then convert
+
+# 3) Create from YAML
 revyl test create <test-name> --from-file ./<test-name>.yaml
 
-# 3) Iterate on .revyl/tests/<test-name>.yaml, then push and run
+# 4) Iterate on .revyl/tests/<test-name>.yaml, then push and run
 revyl test push <test-name> --force
 revyl test run <test-name>
 
-# 4) Inspect results and refine
+# 5) Inspect results and refine
 revyl test status <test-name>
 revyl test report <test-name> --json
 ```
 
-YAML-first bootstrap works without an existing `.revyl/config.yaml`:
+YAML-first creation requires the selected project to already have a valid
+`.revyl/config.yaml`:
 
 ```bash
 revyl test create <test-name> --from-file ./test.yaml
 ```
 
-The CLI checks the YAML with backend validation, copies it into `.revyl/tests/`, pushes it, and writes `.revyl/config.yaml` after the remote test is created.
+The CLI checks the YAML with backend validation, copies it into
+`.revyl/tests/`, and pushes it. It never creates or migrates project
+configuration.
 
 If you prefer to scaffold first:
 

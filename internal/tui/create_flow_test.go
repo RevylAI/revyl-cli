@@ -4,8 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,8 +12,33 @@ import (
 	"github.com/revyl/cli/internal/api"
 )
 
-func TestFetchTestsCmd_NoConfigReturnsRemoteTests(t *testing.T) {
-	t.Chdir(t.TempDir())
+func TestFetchTestsCmd_NoConfigFailsBeforeRemoteRead(t *testing.T) {
+	t.Chdir(initializeSettingsGitWorktree(t))
+
+	requestCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		t.Fatalf("remote list should not be requested without a canonical project: %s", r.URL.Path)
+	}))
+	defer srv.Close()
+
+	msgAny := fetchTestsCmd(api.NewClientWithBaseURL("token", srv.URL))()
+	msg, ok := msgAny.(TestListMsg)
+	if !ok {
+		t.Fatalf("message type = %T, want TestListMsg", msgAny)
+	}
+	if msg.Err == nil || !strings.Contains(msg.Err.Error(), "revyl init") {
+		t.Fatalf("msg.Err = %v, want actionable project initialization error", msg.Err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("requestCount = %d, want zero", requestCount)
+	}
+}
+
+func TestFetchTestsCmd_UsesNearestCanonicalProject(t *testing.T) {
+	projectRoot := initializeSettingsGitWorktree(t)
+	writeSettingsConfig(t, projectRoot, canonicalSettingsConfig(300))
+	t.Chdir(projectRoot)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/tests/get_simple_tests" {
@@ -23,9 +46,9 @@ func TestFetchTestsCmd_NoConfigReturnsRemoteTests(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"tests":[{"id":"test-1","name":"dfa","platform":"ios"}],
-			"count":1
-		}`))
+				"tests":[{"id":"test-1","name":"dfa","platform":"ios"}],
+				"count":1
+			}`))
 	}))
 	defer srv.Close()
 
@@ -40,60 +63,16 @@ func TestFetchTestsCmd_NoConfigReturnsRemoteTests(t *testing.T) {
 	if msg.Warning != "" {
 		t.Fatalf("msg.Warning = %q, want empty", msg.Warning)
 	}
-	if len(msg.Tests) != 1 {
-		t.Fatalf("len(msg.Tests) = %d, want 1", len(msg.Tests))
-	}
-	if msg.Tests[0].SyncStatus != "remote-only" {
-		t.Fatalf("syncStatus = %q, want remote-only", msg.Tests[0].SyncStatus)
-	}
-}
-
-func TestFetchTestsCmd_OrgMismatchAddsWarning(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Chdir(tempDir)
-
-	revylDir := filepath.Join(tempDir, ".revyl")
-	if err := os.MkdirAll(revylDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(revylDir, "config.yaml"), []byte(`project:
-  name: demo
-  org_id: org-config
-`), 0o644); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v1/tests/get_simple_tests":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{
-				"tests":[{"id":"test-1","name":"dfa","platform":"ios"}],
-				"count":1
-			}`))
-		case "/api/v1/entity/users/get_user_uuid":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
-		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-
-	msgAny := fetchTestsCmd(api.NewClientWithBaseURL("token", srv.URL))()
-	msg, ok := msgAny.(TestListMsg)
-	if !ok {
-		t.Fatalf("message type = %T, want TestListMsg", msgAny)
-	}
-	if msg.Err != nil {
-		t.Fatalf("msg.Err = %v, want nil", msg.Err)
-	}
-	if !strings.Contains(msg.Warning, `Project is bound to "org-config", current login is "org-live"`) {
-		t.Fatalf("msg.Warning = %q", msg.Warning)
+	if len(msg.Tests) != 1 || msg.Tests[0].ID != "test-1" {
+		t.Fatalf("msg.Tests = %#v, want canonical project test list", msg.Tests)
 	}
 }
 
 func TestUpdateCreate_OpenEditorReturnsToDashboardAndOpensBrowser(t *testing.T) {
+	projectRoot := initializeSettingsGitWorktree(t)
+	writeSettingsConfig(t, projectRoot, canonicalSettingsConfig(300))
+	t.Chdir(projectRoot)
+
 	origOpenBrowserFn := openBrowserFn
 	t.Cleanup(func() { openBrowserFn = origOpenBrowserFn })
 
@@ -195,6 +174,10 @@ func TestUpdateCreate_OpenEditorFailureKeepsManualURL(t *testing.T) {
 }
 
 func TestUpdateCreate_RefreshFailureShowsExplicitError(t *testing.T) {
+	projectRoot := initializeSettingsGitWorktree(t)
+	writeSettingsConfig(t, projectRoot, canonicalSettingsConfig(300))
+	t.Chdir(projectRoot)
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/tests/get_simple_tests" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -240,6 +223,10 @@ func TestUpdateCreate_RefreshFailureShowsExplicitError(t *testing.T) {
 }
 
 func TestUpdateCreate_MissingCreatedTestShowsExplicitError(t *testing.T) {
+	projectRoot := initializeSettingsGitWorktree(t)
+	writeSettingsConfig(t, projectRoot, canonicalSettingsConfig(300))
+	t.Chdir(projectRoot)
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/tests/get_simple_tests" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)

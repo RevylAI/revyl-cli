@@ -21,8 +21,6 @@ import (
 
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
-	"github.com/revyl/cli/internal/hotreload"
-	_ "github.com/revyl/cli/internal/hotreload/providers"
 	mcppkg "github.com/revyl/cli/internal/mcp"
 	"github.com/revyl/cli/internal/ui"
 )
@@ -33,6 +31,7 @@ import (
 // Fields:
 //   - Name: context identifier (e.g. "default", "ios-main")
 //   - Platform: resolved runtime platform ("ios" or "android")
+//   - Profile: selected canonical-config build profile
 //   - PlatformKey: build.platforms key (e.g. "ios-dev")
 //   - Provider: hot reload provider name (e.g. "expo", "react-native", "swift")
 //   - SessionID: primary device session ID
@@ -51,6 +50,7 @@ import (
 type DevContext struct {
 	Name          string    `json:"name"`
 	Platform      string    `json:"platform"`
+	Profile       string    `json:"profile,omitempty"`
 	PlatformKey   string    `json:"platform_key,omitempty"`
 	Provider      string    `json:"provider,omitempty"`
 	SessionID     string    `json:"session_id,omitempty"`
@@ -668,14 +668,19 @@ func getDevContextFlag(cmd *cobra.Command) string {
 	return strings.TrimSpace(val)
 }
 
-// resolveDevCwd resolves the working directory to the repo root.
+// resolveDevCwd resolves the working directory to the nearest canonical
+// project root while preserving genuinely standalone context operations.
 func resolveDevCwd() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current directory: %w", err)
 	}
-	if root, rootErr := config.FindRepoRoot(cwd); rootErr == nil {
-		cwd = root
+	project, err := resolveOptionalProjectContext(cwd)
+	if err != nil {
+		return "", err
+	}
+	if project != nil {
+		return project.ProjectRoot, nil
 	}
 	return cwd, nil
 }
@@ -761,6 +766,14 @@ Examples:
 var devStopAll bool
 
 func runDevAttach(cmd *cobra.Command, args []string) error {
+	effectiveDirectory, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+	project, err := resolveOptionalProjectContext(effectiveDirectory)
+	if err != nil {
+		return err
+	}
 	cwd, err := resolveDevCwd()
 	if err != nil {
 		return err
@@ -842,24 +855,21 @@ func runDevAttach(cmd *cobra.Command, args []string) error {
 		LastActivity: now,
 	}
 
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	if cfg, cfgErr := config.LoadProjectConfig(configPath); cfgErr == nil {
-		if cfg.HotReload.IsConfigured() {
-			registry := hotreload.DefaultRegistry()
-			if prov, provCfg, selErr := registry.SelectProvider(&cfg.HotReload, "", cwd); selErr == nil {
-				ctx.Provider = prov.Name()
-				if provCfg != nil {
-					ctx.Port = provCfg.GetPort(prov.Name())
-				}
-			}
-		} else if cfg.Build.System != "" {
-			ctx.Provider = cfg.Build.System
+	if project != nil {
+		selection, selectionErr := config.ResolveProfilePlatform(*project.Aggregate, "", session.Platform, true)
+		if selectionErr != nil {
+			return selectionErr
 		}
-		for key := range cfg.Build.Platforms {
-			keyLower := strings.ToLower(key)
-			if strings.Contains(keyLower, session.Platform) {
-				ctx.PlatformKey = key
-				break
+		if selection.Resolved != nil {
+			configuration, ok := platformConfiguration(
+				*project.Aggregate,
+				selection.Resolved.Profile,
+				selection.Resolved.Platform,
+			)
+			if ok {
+				ctx.Profile = selection.Resolved.Profile
+				ctx.PlatformKey = selection.Resolved.Platform
+				ctx.Provider = devContextProvider(configuration.Recipe.Framework)
 			}
 		}
 	}
@@ -919,7 +929,7 @@ func runDevList(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	fmt.Printf("  %-3s %-16s %-10s %-10s %-8s %s\n", "", "CONTEXT", "PLATFORM", "STATE", "SESSION", "VIEWER")
+	fmt.Printf("  %-3s %-16s %-16s %-10s %-10s %-8s %s\n", "", "CONTEXT", "PROFILE", "PLATFORM", "STATE", "SESSION", "VIEWER")
 	for _, ctx := range contexts {
 		marker := "  "
 		if ctx.Name == current {
@@ -935,8 +945,8 @@ func runDevList(cmd *cobra.Command, _ []string) error {
 		if !ctx.SessionOwned && ctx.SessionID != "" {
 			ownership = " (attached)"
 		}
-		fmt.Printf("%s %-16s %-10s %-10s %-8s %s%s\n",
-			marker, ctx.Name, ctx.Platform, ctx.State, sessionShort, ctx.ViewerURL, ownership)
+		fmt.Printf("%s %-16s %-16s %-10s %-10s %-8s %s%s\n",
+			marker, ctx.Name, ctx.Profile, ctx.Platform, ctx.State, sessionShort, ctx.ViewerURL, ownership)
 	}
 	ui.Println()
 	ui.PrintDim("* current context. Switch with: revyl dev use <context>")

@@ -49,7 +49,7 @@ func TestDeriveSetupStepsOmitsRemovedPublishSetupStep(t *testing.T) {
 		{Name: "App Linked", Status: "ok"},
 		{Name: "Build Uploaded", Status: "warning"},
 		{Name: "Tests Configured", Status: "warning"},
-	}, nil)
+	})
 
 	for _, step := range steps {
 		if step.Label == "Configure App Store Connect" {

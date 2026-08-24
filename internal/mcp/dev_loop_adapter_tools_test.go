@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -162,15 +164,11 @@ func (r *fakeDevLoopRunner) Stop(
 
 func TestProjectResolutionHandlersReturnStructuredRemediation(t *testing.T) {
 	missingRoot := t.TempDir()
+	initializeMCPGitFixture(t, missingRoot)
 	if err := os.Mkdir(filepath.Join(missingRoot, ".revyl"), 0o755); err != nil {
 		t.Fatalf("create uninitialized .revyl: %v", err)
 	}
-
-	ambiguousRoot := t.TempDir()
-	androidRoot := filepath.Join(ambiguousRoot, "apps", "android")
-	iosRoot := filepath.Join(ambiguousRoot, "apps", "ios")
-	writeDevLoopProjectAt(t, androidRoot)
-	writeDevLoopProjectAt(t, iosRoot)
+	missingRoot = canonicalMCPFixturePath(t, missingRoot)
 
 	type handlerResult struct {
 		toolResult  *mcpsdk.CallToolResult
@@ -264,26 +262,18 @@ func TestProjectResolutionHandlersReturnStructuredRemediation(t *testing.T) {
 		},
 	}
 	scenarios := []struct {
-		name           string
-		workDir        string
-		outcomeCode    string
-		actionKind     RemediationActionKind
-		command        string
-		candidateRoots []string
+		name        string
+		workDir     string
+		outcomeCode string
+		actionKind  RemediationActionKind
+		command     string
 	}{
 		{
 			name:        "project not initialized",
 			workDir:     missingRoot,
 			outcomeCode: "project_not_initialized",
 			actionKind:  remediationActionCommand,
-			command:     "revyl init --non-interactive",
-		},
-		{
-			name:           "project ambiguous",
-			workDir:        ambiguousRoot,
-			outcomeCode:    "project_ambiguous",
-			actionKind:     remediationActionSelectProjectDir,
-			candidateRoots: []string{androidRoot, iosRoot},
+			command:     revylRemediationCommand("-C", missingRoot, "config", "pull"),
 		},
 	}
 
@@ -327,23 +317,8 @@ func TestProjectResolutionHandlersReturnStructuredRemediation(t *testing.T) {
 				if result.remediation.ConfigPath != "" {
 					t.Fatalf("%s config path = %q, want empty", handler.name, result.remediation.ConfigPath)
 				}
-				if len(result.remediation.CandidateRoots) != len(scenario.candidateRoots) {
-					t.Fatalf(
-						"%s candidate roots = %v, want %v",
-						handler.name,
-						result.remediation.CandidateRoots,
-						scenario.candidateRoots,
-					)
-				}
-				for index, candidateRoot := range scenario.candidateRoots {
-					if result.remediation.CandidateRoots[index] != candidateRoot {
-						t.Fatalf(
-							"%s candidate roots = %v, want %v",
-							handler.name,
-							result.remediation.CandidateRoots,
-							scenario.candidateRoots,
-						)
-					}
+				if len(result.remediation.CandidateRoots) != 0 {
+					t.Fatalf("%s candidate roots = %v, want empty", handler.name, result.remediation.CandidateRoots)
 				}
 				runner.mu.Lock()
 				startCalls := runner.startCallCount
@@ -376,6 +351,7 @@ func TestMalformedProjectConfigBlocksSetupSensitiveRunners(t *testing.T) {
 	}
 	if startOutput.Outcome.OutcomeCode != "project_invalid" ||
 		startOutput.Remediation == nil ||
+		startOutput.Remediation.ActionKind != remediationActionRepairProjectConfig ||
 		startOutput.Remediation.ConfigPath != configPath ||
 		startOutput.Remediation.WorkingDirectory != projectDir {
 		t.Fatalf("start invalid remediation = %+v, outcome = %+v", startOutput.Remediation, startOutput.Outcome)
@@ -394,6 +370,7 @@ func TestMalformedProjectConfigBlocksSetupSensitiveRunners(t *testing.T) {
 	}
 	if rebuildOutput.Outcome.OutcomeCode != "project_invalid" ||
 		rebuildOutput.Remediation == nil ||
+		rebuildOutput.Remediation.ActionKind != remediationActionRepairProjectConfig ||
 		rebuildOutput.Remediation.ConfigPath != configPath {
 		t.Fatalf("rebuild invalid remediation = %+v, outcome = %+v", rebuildOutput.Remediation, rebuildOutput.Outcome)
 	}
@@ -514,6 +491,7 @@ func TestHandleStartDevLoopCommandUsesCanonicalRunner(t *testing.T) {
 		context.Background(),
 		nil,
 		StartDevLoopInput{
+			Profile:                    "development",
 			Remote:                     true,
 			LaunchVars:                 []string{"API_URL", "AUTH_STATE"},
 			LaunchArgSets:              []string{"AuthArgs", "RouteArgs"},
@@ -527,6 +505,9 @@ func TestHandleStartDevLoopCommandUsesCanonicalRunner(t *testing.T) {
 	if !output.Success || output.Result.ViewerURL != "https://viewer.example" {
 		t.Fatalf("start output = %+v", output)
 	}
+	if runner.startRequest.Profile != "development" {
+		t.Fatalf("start request profile = %q, want development", runner.startRequest.Profile)
+	}
 	if server.delegatedDevWorkDir != projectDir || server.delegatedDevContext != "default" {
 		t.Fatalf("delegated target = %q, %q", server.delegatedDevWorkDir, server.delegatedDevContext)
 	}
@@ -539,6 +520,81 @@ func TestHandleStartDevLoopCommandUsesCanonicalRunner(t *testing.T) {
 	if !slices.Equal(runner.startRequest.LaunchArgSets, []string{"AuthArgs", "RouteArgs"}) ||
 		!slices.Equal(runner.startRequest.LaunchArguments, []string{"--route", "sign in"}) {
 		t.Fatalf("start request launch arguments = %+v", runner.startRequest)
+	}
+}
+
+func TestHandleStartDevLoopCommandPreservesResolvedProjectInRecoveryCommands(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell fixture is not executable on Windows")
+	}
+	projectDir := writeDevLoopTestProject(t)
+	binaryPath := filepath.Join(t.TempDir(), "revyl")
+	script := `#!/bin/sh
+if [ "$1" != "-C" ] || [ -z "$2" ]; then
+  printf '%s\n' 'missing explicit project root' >&2
+  exit 2
+fi
+printf 'Error: profile is not configured; run "revyl -C %s config show" to list configured profiles\n' "$2" >&2
+exit 1
+`
+	if err := os.WriteFile(binaryPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake revyl: %v", err)
+	}
+	server := &Server{
+		workDir:       projectDir,
+		devLoopRunner: &devloop.CommandRunner{BinaryPath: binaryPath},
+	}
+
+	toolResult, output, err := server.handleStartDevLoopCommand(
+		context.Background(),
+		nil,
+		StartDevLoopInput{Profile: "missing"},
+	)
+	if err != nil {
+		t.Fatalf("handleStartDevLoopCommand(): %v", err)
+	}
+	if toolResult == nil || !toolResult.IsError || output.Success {
+		t.Fatalf("tool result = %+v, output = %+v, want start error", toolResult, output)
+	}
+	want := "revyl -C " + projectDir + " config show"
+	if !strings.Contains(output.Error, want) {
+		t.Fatalf("start error = %q, want project-scoped recovery %q", output.Error, want)
+	}
+}
+
+func TestHandleStartDevLoopCommandRejectsDeprecatedPlatformKey(t *testing.T) {
+	runner := &fakeDevLoopRunner{}
+	server := &Server{devLoopRunner: runner}
+
+	toolResult, output, err := server.handleStartDevLoopCommand(
+		context.Background(),
+		nil,
+		StartDevLoopInput{PlatformKey: "ios-dev"},
+	)
+	if err != nil {
+		t.Fatalf("handleStartDevLoopCommand(): %v", err)
+	}
+	if toolResult == nil || !toolResult.IsError || output.Success {
+		t.Fatalf("tool result = %+v, output = %+v, want compatibility error", toolResult, output)
+	}
+	if output.Outcome.OutcomeCode != "dev_loop_platform_key_removed" || output.Outcome.Retryable {
+		t.Fatalf("outcome = %+v, want non-retryable removed-key failure", output.Outcome)
+	}
+	if !strings.Contains(output.Error, "profile/--profile") {
+		t.Fatalf("error = %q, want actionable profile guidance", output.Error)
+	}
+	if runner.startCallCount != 0 {
+		t.Fatalf("runner start calls = %d, want zero", runner.startCallCount)
+	}
+}
+
+func TestStartDevLoopInputStillDecodesDeprecatedPlatformKey(t *testing.T) {
+	var input StartDevLoopInput
+	if err := json.Unmarshal([]byte(`{"profile":"development","platform_key":"ios-dev"}`), &input); err != nil {
+		t.Fatalf("decode StartDevLoopInput: %v", err)
+	}
+	if input.Profile != "development" || input.PlatformKey != "ios-dev" {
+		t.Fatalf("decoded input = %+v", input)
 	}
 }
 
@@ -1203,17 +1259,27 @@ func writeDevLoopTestProject(t *testing.T) string {
 	t.Helper()
 	projectDir := t.TempDir()
 	writeDevLoopProjectAt(t, projectDir)
-	return projectDir
+	return canonicalMCPFixturePath(t, projectDir)
 }
 
 // writeDevLoopProjectAt creates the minimum initialized project marker used by MCP handlers.
 func writeDevLoopProjectAt(t *testing.T, projectDir string) {
 	t.Helper()
+	initializeMCPGitFixture(t, projectDir)
+	writeDevLoopConfigAt(t, projectDir)
+}
+
+func writeDevLoopConfigAt(t *testing.T, projectDir string) {
+	t.Helper()
 	configDir := filepath.Join(projectDir, ".revyl")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("create .revyl: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte("project:\n  name: fixture\n"), 0o600); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(configDir, "config.yaml"),
+		[]byte("project:\n  id: 11111111-1111-4111-8111-111111111111\n"),
+		0o600,
+	); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 }
@@ -1228,6 +1294,7 @@ func writeDevLoopProjectAt(t *testing.T, projectDir string) {
 func writeInvalidDevLoopProject(t *testing.T) string {
 	t.Helper()
 	projectDir := t.TempDir()
+	initializeMCPGitFixture(t, projectDir)
 	configDir := filepath.Join(projectDir, ".revyl")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("create invalid .revyl: %v", err)
@@ -1235,5 +1302,24 @@ func writeInvalidDevLoopProject(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte("project: [invalid"), 0o600); err != nil {
 		t.Fatalf("write invalid config: %v", err)
 	}
-	return projectDir
+	return canonicalMCPFixturePath(t, projectDir)
+}
+
+func initializeMCPGitFixture(t *testing.T, projectDir string) {
+	t.Helper()
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create Git fixture directory: %v", err)
+	}
+	if output, err := exec.Command("git", "-C", projectDir, "init", "--quiet").CombinedOutput(); err != nil {
+		t.Fatalf("initialize Git fixture: %v: %s", err, output)
+	}
+}
+
+func canonicalMCPFixturePath(t *testing.T, path string) string {
+	t.Helper()
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("canonicalize fixture path %q: %v", path, err)
+	}
+	return canonical
 }

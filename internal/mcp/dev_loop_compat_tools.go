@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/revyl/cli/internal/outcome"
 )
 
 // BuildPreflightInfo preserves the legacy MCP build compatibility schema.
@@ -27,6 +29,21 @@ type StartDevLoopOutput struct {
 	Error              string              `json:"error,omitempty"`
 }
 
+// StartDevLoopCoreOutput adds structured setup recovery to the flat core/full contract.
+type StartDevLoopCoreOutput struct {
+	Success            bool                `json:"success"`
+	SessionIndex       int                 `json:"session_index"`
+	ManualStepRequired bool                `json:"manual_step_required,omitempty"`
+	DeepLinkURL        string              `json:"deep_link_url,omitempty"`
+	ViewerURL          string              `json:"viewer_url,omitempty"`
+	BuildSelection     string              `json:"build_selection,omitempty"`
+	Preflight          *BuildPreflightInfo `json:"preflight,omitempty"`
+	Warnings           []string            `json:"warnings,omitempty"`
+	Outcome            outcome.Envelope    `json:"outcome"`
+	Remediation        *Remediation        `json:"remediation,omitempty"`
+	Error              string              `json:"error,omitempty"`
+}
+
 // StopDevLoopInput preserves the empty legacy stop input schema.
 type StopDevLoopInput struct{}
 
@@ -35,6 +52,15 @@ type StopDevLoopOutput struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Error   string `json:"error,omitempty"`
+}
+
+// StopDevLoopCoreOutput adds structured setup recovery to the flat core/full contract.
+type StopDevLoopCoreOutput struct {
+	Success     bool             `json:"success"`
+	Message     string           `json:"message,omitempty"`
+	Outcome     outcome.Envelope `json:"outcome"`
+	Remediation *Remediation     `json:"remediation,omitempty"`
+	Error       string           `json:"error,omitempty"`
 }
 
 // handleStartDevLoopCompat adapts canonical startup to the legacy flat output.
@@ -59,6 +85,29 @@ func (s *Server) handleStartDevLoopCompat(
 	return toolResult, output, err
 }
 
+func (s *Server) handleStartDevLoopCoreCompat(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input StartDevLoopInput,
+) (*mcp.CallToolResult, StartDevLoopCoreOutput, error) {
+	toolResult, canonical, err := s.handleStartDevLoopCommand(ctx, req, input)
+	output := StartDevLoopCoreOutput{
+		Success:      canonical.Success,
+		SessionIndex: canonical.Result.SessionIndex,
+		ViewerURL:    canonical.Result.ViewerURL,
+		Outcome:      canonical.Outcome,
+		Remediation:  canonical.Remediation,
+		Error:        canonical.Error,
+	}
+	if canonical.Outcome.SessionIndex != nil {
+		output.SessionIndex = *canonical.Outcome.SessionIndex
+	}
+	if output.ViewerURL == "" {
+		output.ViewerURL = canonical.Outcome.ViewerURL
+	}
+	return toolResult, output, err
+}
+
 // handleStopDevLoopCompat adapts canonical cleanup to the legacy flat output.
 func (s *Server) handleStopDevLoopCompat(
 	ctx context.Context,
@@ -69,6 +118,24 @@ func (s *Server) handleStopDevLoopCompat(
 	output := StopDevLoopOutput{
 		Success: canonical.Success,
 		Error:   canonical.Error,
+	}
+	if canonical.Success {
+		output.Message = "Dev loop stopped"
+	}
+	return toolResult, output, err
+}
+
+func (s *Server) handleStopDevLoopCoreCompat(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	input StopDevLoopInput,
+) (*mcp.CallToolResult, StopDevLoopCoreOutput, error) {
+	toolResult, canonical, err := s.handleStopDevLoopCommand(ctx, req, CanonicalStopDevLoopInput{})
+	output := StopDevLoopCoreOutput{
+		Success:     canonical.Success,
+		Outcome:     canonical.Outcome,
+		Remediation: canonical.Remediation,
+		Error:       canonical.Error,
 	}
 	if canonical.Success {
 		output.Message = "Dev loop stopped"

@@ -100,6 +100,29 @@ func (s *Server) handleStartDevLoopCommand(
 	req *mcp.CallToolRequest,
 	input StartDevLoopInput,
 ) (*mcp.CallToolResult, DevLoopStartOutput, error) {
+	startRequest := devloop.StartRequest{
+		Context:                    input.Context,
+		Profile:                    input.Profile,
+		Platform:                   input.Platform,
+		PlatformKey:                input.PlatformKey,
+		AppID:                      input.AppID,
+		BuildVersionID:             input.BuildVersionID,
+		LaunchVars:                 input.LaunchVars,
+		LaunchArgSets:              input.LaunchArgSets,
+		LaunchArguments:            input.LaunchArguments,
+		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
+		Port:                       input.Port,
+		TimeoutSeconds:             input.Timeout,
+		Remote:                     input.Remote,
+		SeedLatest:                 input.SeedLatest,
+	}
+	if err := devloop.ValidateStartProfileSelection(startRequest); err != nil {
+		return &mcp.CallToolResult{IsError: true}, DevLoopStartOutput{
+			Success: false,
+			Outcome: outcome.Failed("dev_loop_platform_key_removed", err.Error(), false),
+			Error:   err.Error(),
+		}, nil
+	}
 	if failure := s.refreshDevAuthentication(); failure != nil {
 		return authenticationGateResult(failure), DevLoopStartOutput{
 			Success:     false,
@@ -118,21 +141,7 @@ func (s *Server) handleStartDevLoopCommand(
 			Error:       err.Error(),
 		}, nil
 	}
-	result, err := s.devLoopRunner.Start(ctx, workDir, devloop.StartRequest{
-		Context:                    input.Context,
-		Platform:                   input.Platform,
-		PlatformKey:                input.PlatformKey,
-		AppID:                      input.AppID,
-		BuildVersionID:             input.BuildVersionID,
-		LaunchVars:                 input.LaunchVars,
-		LaunchArgSets:              input.LaunchArgSets,
-		LaunchArguments:            input.LaunchArguments,
-		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
-		Port:                       input.Port,
-		TimeoutSeconds:             input.Timeout,
-		Remote:                     input.Remote,
-		SeedLatest:                 input.SeedLatest,
-	})
+	result, err := s.devLoopRunner.Start(ctx, workDir, startRequest)
 	if err != nil {
 		return &mcp.CallToolResult{IsError: true}, DevLoopStartOutput{
 			Success: false,
@@ -374,7 +383,7 @@ func (s *Server) handleRebuildCommand(
 	}
 	workDir, contextName, targetErr := s.delegatedDevTarget(input.ProjectDir, input.Context)
 	if targetErr == nil {
-		targetErr = validateDevProjectConfig(workDir)
+		targetErr = validateDevProjectConfigForMode(workDir, s.devMode)
 	}
 	if targetErr != nil {
 		failureOutcome, remediation := projectResolutionFailure(targetErr)

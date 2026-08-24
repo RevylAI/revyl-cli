@@ -193,14 +193,15 @@ Use the app's real variable/global naming conventions. Do not put raw secrets in
 
 ## Persist the Config (final step)
 
-After the app-side handler works, add an `auth_bypass` section to
+After the app-side handler works, add a `session.auth_bypass` section to
 `.revyl/config.yaml` so every `revyl dev` and `revyl device start` session
 launches authenticated automatically — no flags, no manual deep link:
 
 ```yaml
-auth_bypass:
-  launch_vars: [REVYL_AUTH_BYPASS_ENABLED, REVYL_AUTH_BYPASS_TOKEN]
-  deep_link: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home"
+session:
+  auth_bypass:
+    launch_vars: [REVYL_AUTH_BYPASS_ENABLED, REVYL_AUTH_BYPASS_TOKEN]
+    deep_link: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&redirect=/home"
 ```
 
 `${VAR}` placeholders resolve server-side from launch variables already
@@ -218,21 +219,22 @@ screenshot.
 
 ## Automate the Mint (optional)
 
-If the repo has a mint script, add a `before_session` block so the CLI runs it
-before every session instead of asking someone to refresh launch vars by hand:
+If the repo has a mint script, add a `session.before_script` block so the CLI
+runs it before every session instead of asking someone to refresh launch vars
+by hand:
 
 ```yaml
-before_session:
-  script: "./scripts/prepare-test-session.sh"
-
-auth_bypass:
-  launch_vars: [E2E_AUTH_TOKEN]
-  deep_link: "myapp://auth?token=${E2E_AUTH_TOKEN}"
+session:
+  before_script:
+    script_path: "./scripts/prepare-test-session.sh"
+  auth_bypass:
+    launch_vars: [E2E_AUTH_TOKEN]
+    deep_link: "myapp://auth?token=${E2E_AUTH_TOKEN}"
 ```
 
-`before_session` is a sibling of `auth_bypass`, not a field inside it: it
-produces values, `auth_bypass` consumes them. Rules that matter when writing
-the script:
+`before_script` and `auth_bypass` are siblings under `session`:
+`before_script` produces values and `auth_bypass` consumes them. Rules that
+matter when writing the script:
 
 1. Print each minted value as its own `KEY=VALUE` line on stdout. Those values
    are scoped to the one session, so parallel runs cannot clobber each other.

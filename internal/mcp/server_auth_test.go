@@ -159,6 +159,8 @@ func TestCoreProfileToolSchemasAreConcrete(t *testing.T) {
 	for _, tool := range listServerTools(t, server) {
 		requireConcreteToolSchema(t, tool)
 	}
+	setupTool := serverToolByName(t, listServerTools(t, server), "setup_status")
+	requireRemediationSchema(t, setupTool)
 }
 
 // TestDevProfileToolListAndSchemas locks the focused Cursor development surface.
@@ -300,6 +302,18 @@ func TestDevLoopOutputSchemasPreserveProfileCompatibility(t *testing.T) {
 			requireSchemaPropertyType(
 				t,
 				startTool.InputSchema,
+				"profile",
+				"string",
+			)
+			requireSchemaPropertyType(
+				t,
+				startTool.InputSchema,
+				"platform_key",
+				"string",
+			)
+			requireSchemaPropertyType(
+				t,
+				startTool.InputSchema,
 				"launch_vars",
 				[]any{"null", "array"},
 			)
@@ -318,9 +332,16 @@ func TestDevLoopOutputSchemasPreserveProfileCompatibility(t *testing.T) {
 				return
 			}
 			requireSchemaProperties(t, startProperties, "session_index", "viewer_url", "preflight")
-			requireMissingSchemaProperties(t, startProperties, "outcome", "result")
 			requireSchemaProperties(t, stopProperties, "message")
-			requireMissingSchemaProperties(t, stopProperties, "outcome", "result")
+			if test.name == "core" || test.name == "full" {
+				requireSchemaProperties(t, startProperties, "outcome", "remediation")
+				requireSchemaProperties(t, stopProperties, "outcome", "remediation")
+				requireMissingSchemaProperties(t, startProperties, "result")
+				requireMissingSchemaProperties(t, stopProperties, "result")
+				return
+			}
+			requireMissingSchemaProperties(t, startProperties, "outcome", "result", "remediation")
+			requireMissingSchemaProperties(t, stopProperties, "outcome", "result", "remediation")
 		})
 	}
 }
@@ -568,6 +589,9 @@ func requireRemediationSchema(t *testing.T, tool *mcpsdk.Tool) {
 	for _, field := range []string{
 		`"action_kind"`,
 		`"command"`,
+		`"alternative_command"`,
+		`"check_command"`,
+		`"apply_command"`,
 		`"env_name"`,
 		`"working_directory"`,
 		`"candidate_roots"`,

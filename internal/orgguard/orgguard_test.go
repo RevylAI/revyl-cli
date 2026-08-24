@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,6 +52,15 @@ func writeCredentialsFile(t *testing.T, homeDir, content string) string {
 	return path
 }
 
+func initializeGuardGitWorktree(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if output, err := exec.Command("git", "init", "--quiet", root).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	return root
+}
+
 func TestCheck_ConfigMissing(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "dummy")
 	t.Setenv("REVYL_BACKEND_URL", "http://127.0.0.1:1")
@@ -68,14 +78,11 @@ func TestCheck_ConfigMissing(t *testing.T) {
 }
 
 func TestCheck_ProjectOrgUnset(t *testing.T) {
-	srv := newValidateServer(t, "org-a")
-	defer srv.Close()
-
 	t.Setenv("REVYL_API_KEY", "dummy")
-	t.Setenv("REVYL_BACKEND_URL", srv.URL)
+	t.Setenv("REVYL_BACKEND_URL", "http://127.0.0.1:1")
 
-	dir := t.TempDir()
-	writeConfigFile(t, dir, "project:\n  name: demo\n")
+	dir := initializeGuardGitWorktree(t)
+	writeConfigFile(t, dir, "project:\n  id: 11111111-1111-4111-8111-111111111111\n")
 
 	result := Check(context.Background(), dir, false)
 	if result == nil {
@@ -93,13 +100,10 @@ func TestCheck_ProjectOrgUnset(t *testing.T) {
 }
 
 func TestCheck_ConfigParseFailureDoesNotBlock(t *testing.T) {
-	srv := newValidateServer(t, "org-a")
-	defer srv.Close()
-
 	t.Setenv("REVYL_API_KEY", "dummy")
-	t.Setenv("REVYL_BACKEND_URL", srv.URL)
+	t.Setenv("REVYL_BACKEND_URL", "http://127.0.0.1:1")
 
-	dir := t.TempDir()
+	dir := initializeGuardGitWorktree(t)
 	writeConfigFile(t, dir, "project: [\n")
 
 	result := Check(context.Background(), dir, false)
@@ -117,46 +121,36 @@ func TestCheck_ConfigParseFailureDoesNotBlock(t *testing.T) {
 	}
 }
 
-func TestCheck_MismatchDetected(t *testing.T) {
-	srv := newValidateServer(t, "org-b")
-	defer srv.Close()
-
+func TestCheck_LegacyOrgBindingIsNotConsumed(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "dummy")
-	t.Setenv("REVYL_BACKEND_URL", srv.URL)
+	t.Setenv("REVYL_BACKEND_URL", "http://127.0.0.1:1")
 
-	dir := t.TempDir()
-	cfgPath := writeConfigFile(t, dir, "project:\n  name: demo\n  org_id: org-a\n")
+	dir := initializeGuardGitWorktree(t)
+	writeConfigFile(t, dir, "project:\n  name: demo\n  org_id: org-a\n")
 
 	result := Check(context.Background(), dir, false)
 	if result == nil {
 		t.Fatal("result is nil")
 	}
-	if result.Mismatch == nil {
-		t.Fatal("Mismatch = nil, want mismatch")
+	if !result.ConfigExists || result.ConfigParsed {
+		t.Fatalf("config state invalid: exists=%v parsed=%v", result.ConfigExists, result.ConfigParsed)
 	}
-	if result.Mismatch.ProjectOrgID != "org-a" {
-		t.Fatalf("ProjectOrgID = %q, want org-a", result.Mismatch.ProjectOrgID)
-	}
-	if result.Mismatch.AuthOrgID != "org-b" {
-		t.Fatalf("AuthOrgID = %q, want org-b", result.Mismatch.AuthOrgID)
-	}
-	if result.Mismatch.ConfigPath != cfgPath {
-		t.Fatalf("ConfigPath = %q, want %q", result.Mismatch.ConfigPath, cfgPath)
-	}
-	if !strings.Contains(result.Mismatch.UserMessage(), "Project is bound to") {
-		t.Fatalf("unexpected message: %s", result.Mismatch.UserMessage())
+	if result.Mismatch != nil {
+		t.Fatalf("Mismatch = %+v, want nil", result.Mismatch)
 	}
 }
 
-func TestCheck_Match(t *testing.T) {
-	srv := newValidateServer(t, "org-a")
+func TestCheck_CanonicalConfigDoesNotPerformAuthOrgLookup(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected auth-org lookup: %s", r.URL.Path)
+	}))
 	defer srv.Close()
 
 	t.Setenv("REVYL_API_KEY", "dummy")
 	t.Setenv("REVYL_BACKEND_URL", srv.URL)
 
-	dir := t.TempDir()
-	writeConfigFile(t, dir, "project:\n  name: demo\n  org_id: org-a\n")
+	dir := initializeGuardGitWorktree(t)
+	writeConfigFile(t, dir, "project:\n  id: 11111111-1111-4111-8111-111111111111\n")
 
 	result := Check(context.Background(), dir, false)
 	if result == nil {
@@ -165,16 +159,25 @@ func TestCheck_Match(t *testing.T) {
 	if result.Mismatch != nil {
 		t.Fatalf("Mismatch = %+v, want nil", result.Mismatch)
 	}
-	if result.AuthOrgID != "org-a" {
-		t.Fatalf("AuthOrgID = %q, want org-a", result.AuthOrgID)
+	if !result.ConfigExists || !result.ConfigParsed {
+		t.Fatalf("config state invalid: exists=%v parsed=%v", result.ConfigExists, result.ConfigParsed)
+	}
+	if result.AuthOrgID != "" {
+		t.Fatalf("AuthOrgID = %q, want empty", result.AuthOrgID)
 	}
 }
 
-func TestResolveCreateOrgID_PrefersProjectConfig(t *testing.T) {
+func TestResolveCreateOrgID_IgnoresLegacyProjectConfigAndUsesLiveAuth(t *testing.T) {
+	homeDir := t.TempDir()
+	testutil.SetHomeDir(t, homeDir)
 	validateCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/entity/users/get_user_uuid" {
+			t.Fatalf("unexpected validate call: %s", r.URL.Path)
+		}
 		validateCalls++
-		t.Fatalf("unexpected validate call: %s", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-live","email":"test@example.com","concurrency_limit":1}`))
 	}))
 	defer srv.Close()
 
@@ -187,11 +190,11 @@ func TestResolveCreateOrgID_PrefersProjectConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveCreateOrgID() error = %v", err)
 	}
-	if got != "org-config" {
-		t.Fatalf("ResolveCreateOrgID() = %q, want %q", got, "org-config")
+	if got != "org-live" {
+		t.Fatalf("ResolveCreateOrgID() = %q, want %q", got, "org-live")
 	}
-	if validateCalls != 0 {
-		t.Fatalf("validate calls = %d, want 0", validateCalls)
+	if validateCalls != 1 {
+		t.Fatalf("validate calls = %d, want 1", validateCalls)
 	}
 }
 

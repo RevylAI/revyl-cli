@@ -158,20 +158,18 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Load project config
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	project, err := config.ResolveProjectContext(cwd, "")
 	if err != nil {
-		printProjectNotInitialized()
-		return err
+		return actionableLocalConfigError(err)
 	}
 
 	// Load local tests
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	testsDir := project.TestsDir
 	localTests, err := config.LoadLocalTests(testsDir)
 	if err != nil {
 		if !jsonOutput {
@@ -183,7 +181,7 @@ func runTestsList(cmd *cobra.Command, args []string) error {
 	// Fetch remote test info
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
-	resolver := sync.NewResolver(client, cfg, localTests)
+	resolver := sync.NewResolver(client, nil, localTests)
 
 	if !jsonOutput {
 		ui.StartSpinner("Fetching test status...")
@@ -265,17 +263,13 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	cfg, configPath, hadConfig, err := loadProjectConfigOrEmpty(cwd)
+	project, err := resolveSyncProjectFiles(cwd)
 	if err != nil {
 		ui.PrintError("%v", err)
 		return err
 	}
-	if !hadConfig && !testsPushDryRun {
-		ui.PrintInfo("No .revyl/config.yaml found. Bootstrapping from local YAML tests.")
-	}
-
 	// Load local tests
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	testsDir := project.TestsDir
 	localTests, err := config.LoadLocalTests(testsDir)
 	if err != nil {
 		ui.PrintWarning("Could not load local tests: %v", err)
@@ -284,7 +278,7 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
-	resolver := sync.NewResolver(client, cfg, localTests)
+	resolver := sync.NewResolver(client, nil, localTests)
 
 	var testName string
 	if len(args) > 0 {
@@ -372,7 +366,6 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.Println()
-	pushedCount := 0
 	for _, r := range results {
 		if r.Error != nil {
 			ui.PrintError("%s: %v", r.Name, r.Error)
@@ -383,15 +376,6 @@ func runTestsPush(cmd *cobra.Command, args []string) error {
 			if r.TagSyncError != nil {
 				ui.PrintWarning("%s: tags failed to sync: %v", r.Name, r.TagSyncError)
 			}
-			pushedCount++
-		}
-	}
-
-	// Update sync timestamp if any tests were pushed successfully.
-	if pushedCount > 0 {
-		cfg.MarkSynced()
-		if err := writeProjectConfigIfNeeded(configPath, cfg); err != nil {
-			ui.PrintWarning("%v", err)
 		}
 	}
 
@@ -412,14 +396,11 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, err := config.LoadProjectConfig(configPath)
+	project, err := resolveSyncProjectFiles(cwd)
 	if err != nil {
-		printProjectNotInitialized()
-		return err
+		return actionableLocalConfigError(err)
 	}
-
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	testsDir := project.TestsDir
 	localTests, err := config.LoadLocalTests(testsDir)
 	if err != nil {
 		localTests = make(map[string]*config.LocalTest)
@@ -482,7 +463,7 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	resolver := sync.NewResolver(client, cfg, localTests)
+	resolver := sync.NewResolver(client, nil, localTests)
 
 	var testName string
 	if len(args) > 0 {
@@ -557,12 +538,6 @@ func runTestsPull(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Update sync timestamp if any tests were pulled successfully.
-	if pulledCount > 0 {
-		cfg.MarkSynced()
-		_ = config.WriteProjectConfig(configPath, cfg)
-	}
-
 	// If not using --all, hint about it when there might be more tests
 	if !testsPullAll && testName == "" && pulledCount == 0 {
 		ui.Println()
@@ -583,19 +558,17 @@ func runTestsDiff(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Load project config
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	cfg, err := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
+	project, err := config.ResolveProjectContext(cwd, "")
 	if err != nil {
-		printProjectNotInitialized()
-		return err
+		return actionableLocalConfigError(err)
 	}
 
-	testsDir := filepath.Join(cwd, ".revyl", "tests")
+	testsDir := project.TestsDir
 	localTests, err := config.LoadLocalTests(testsDir)
 	if err != nil {
 		localTests = make(map[string]*config.LocalTest)
@@ -603,7 +576,7 @@ func runTestsDiff(cmd *cobra.Command, args []string) error {
 
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
-	resolver := sync.NewResolver(client, cfg, localTests)
+	resolver := sync.NewResolver(client, nil, localTests)
 
 	ui.StartSpinner("Fetching diff...")
 	diff, err := resolver.GetDiff(cmd.Context(), testName)
@@ -870,13 +843,10 @@ func runTestDuplicate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cwd, _ := os.Getwd()
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
-
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	testID, _, err := resolveTestID(cmd.Context(), nameOrID, cfg, client)
+	testID, _, err := resolveTestID(cmd.Context(), nameOrID, nil, client)
 	if err != nil {
 		ui.PrintError("Failed to resolve test: %v", err)
 		return err
@@ -946,13 +916,10 @@ func runTestVersions(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cwd, _ := os.Getwd()
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
-
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	testID, resolvedName, err := resolveTestID(cmd.Context(), nameOrID, cfg, client)
+	testID, resolvedName, err := resolveTestID(cmd.Context(), nameOrID, nil, client)
 	if err != nil {
 		ui.PrintError("Failed to resolve test: %v", err)
 		return err
@@ -1036,13 +1003,10 @@ func runTestRestore(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cwd, _ := os.Getwd()
-	cfg, _ := config.LoadProjectConfig(filepath.Join(cwd, ".revyl", "config.yaml"))
-
 	devMode, _ := cmd.Flags().GetBool("dev")
 	client := api.NewClientWithDevMode(apiKey, devMode)
 
-	testID, resolvedName, err := resolveTestID(cmd.Context(), nameOrID, cfg, client)
+	testID, resolvedName, err := resolveTestID(cmd.Context(), nameOrID, nil, client)
 	if err != nil {
 		ui.PrintError("Failed to resolve test: %v", err)
 		return err

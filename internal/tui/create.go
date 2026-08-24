@@ -4,6 +4,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -53,7 +54,7 @@ type createModel struct {
 	apiKey  string
 	devMode bool
 	client  *api.Client
-	cfg     *config.ProjectConfig
+	project *config.ProjectContext
 
 	// State
 	creating bool
@@ -78,13 +79,13 @@ type createModel struct {
 //   - apiKey: authenticated API key
 //   - devMode: whether to target local dev servers
 //   - client: the API client (may be nil if auth failed)
-//   - cfg: project config for app resolution (may be nil)
+//   - project: canonical project context for configured app resolution
 //   - width: terminal width
 //   - height: terminal height
 //
 // Returns:
 //   - createModel: the initialized model
-func newCreateModel(apiKey string, devMode bool, client *api.Client, cfg *config.ProjectConfig, width, height int) createModel {
+func newCreateModel(apiKey string, devMode bool, client *api.Client, project *config.ProjectContext, width, height int) createModel {
 	ti := textinput.New()
 	ti.Placeholder = "my-test-name"
 	ti.CharLimit = 128
@@ -97,17 +98,29 @@ func newCreateModel(apiKey string, devMode bool, client *api.Client, cfg *config
 		apiKey:    apiKey,
 		devMode:   devMode,
 		client:    client,
-		cfg:       cfg,
+		project:   project,
 		spinner:   newSpinner(),
 		width:     width,
 		height:    height,
 	}
 }
 
+func newCurrentProjectCreateModel(apiKey string, devMode bool, client *api.Client, width, height int) (createModel, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return createModel{}, fmt.Errorf("resolve current project: %w", err)
+	}
+	project, err := config.ResolveProjectContext(cwd, "")
+	if err != nil {
+		return createModel{}, actionableProjectConfigError(err)
+	}
+	return newCreateModel(apiKey, devMode, client, project, width, height), nil
+}
+
 // --- Tea commands ---
 
 // createTestCmd calls the API to create a test.
-func createTestCmd(client *api.Client, cfg *config.ProjectConfig, name, platform, appID string) tea.Cmd {
+func createTestCmd(client *api.Client, name, platform, appID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -116,7 +129,6 @@ func createTestCmd(client *api.Client, cfg *config.ProjectConfig, name, platform
 			Name:       name,
 			Platform:   platform,
 			AppID:      appID,
-			Config:     cfg,
 			AllowEmpty: true,
 		})
 		if err != nil {
@@ -202,7 +214,7 @@ func (m createModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.err = nil
-		if preferredID := execution.ResolveConfiguredAppID(m.cfg, platform); preferredID != "" {
+		if preferredID, err := execution.ResolveCanonicalConfiguredAppID(m.project, platform); err == nil && preferredID != "" {
 			for i, appInfo := range eligibleApps {
 				if appInfo.ID == preferredID {
 					m.appCursor = i
@@ -371,7 +383,7 @@ func (m createModel) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("select an app before creating the test")
 			return m, nil
 		}
-		return m, tea.Batch(m.spinner.Tick, createTestCmd(m.client, m.cfg, name, platform, selectedApp.ID))
+		return m, tea.Batch(m.spinner.Tick, createTestCmd(m.client, name, platform, selectedApp.ID))
 	case "backspace", "n":
 		m.step = stepApp
 		m.err = nil

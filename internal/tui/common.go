@@ -373,13 +373,15 @@ type BuildUploadedMsg struct {
 type HealthCheck struct {
 	Name    string // e.g. "Version", "Authentication"
 	Status  string // "ok", "warning", "error"
+	Code    string // stable local classification used to select a recovery action
 	Message string // human-readable result
 }
 
 // HealthCheckMsg carries results from the async health check command.
 type HealthCheckMsg struct {
-	Checks []HealthCheck
-	Err    error
+	Checks              []HealthCheck
+	ProjectConfigStatus projectConfigStatus
+	Err                 error
 }
 
 // --- Setup guide types ---
@@ -389,12 +391,17 @@ type SetupStep struct {
 	Label   string // display label (e.g. "Log in")
 	Status  string // "done", "current", "blocked", "hint"
 	Message string // contextual message (e.g. "authenticated" or "press enter to set up")
+	Action  setupAction
 }
 
 // SetupActionMsg signals that a setup step action completed.
 type SetupActionMsg struct {
-	StepIndex int
-	Err       error
+	Action setupAction
+	Err    error
+}
+
+type ProjectConfigMigrationDoneMsg struct {
+	Err error
 }
 
 // --- Test detail types ---

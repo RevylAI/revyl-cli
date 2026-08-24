@@ -40,7 +40,8 @@ type Server struct {
 	mcpServer   *mcp.Server
 	apiClient   *api.Client
 	authManager *auth.Manager
-	config      *config.ProjectConfig
+	project     *config.ProjectContext
+	projectErr  error
 	workDir     string
 	version     string
 	devMode     bool
@@ -137,19 +138,16 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 		var err error
 		workDir, err = os.Getwd()
 		if err != nil {
-			workDir = "."
+			return nil, fmt.Errorf("resolve MCP working directory: %w", err)
 		}
 	} else {
 		workDir = filepath.Clean(workDir)
 	}
-	if repoRoot, findErr := config.FindRepoRoot(workDir); findErr == nil {
-		workDir = repoRoot
-	}
 
-	// Try to load project config
-	var cfg *config.ProjectConfig
-	configPath := filepath.Join(workDir, ".revyl", "config.yaml")
-	cfg, _ = config.LoadProjectConfig(configPath)
+	project, projectErr := config.ResolveProjectContext(workDir, "")
+	if projectErr == nil {
+		workDir = project.ProjectRoot
+	}
 
 	binaryPath, err := os.Executable()
 	if err != nil {
@@ -157,7 +155,8 @@ func NewServer(version string, devMode bool, opts ...ServerOption) (*Server, err
 	}
 	s.apiClient = api.NewClientWithDevMode(authentication.Token, devMode)
 	s.authManager = credentialManager
-	s.config = cfg
+	s.project = project
+	s.projectErr = projectErr
 	s.workDir = workDir
 	s.version = version
 	s.devMode = devMode
@@ -315,6 +314,51 @@ When in doubt, call device_doctor() -- it checks auth, session, worker, groundin
 	}
 
 	return s, nil
+}
+
+func (s *Server) requireCanonicalProject() (*config.ProjectContext, error) {
+	if s.project != nil {
+		return s.project, nil
+	}
+	status := resolveSetupProjectStateForMode(s.workDir, s.devMode)
+	if !projectStateHasConfig(status.State) {
+		return nil, &projectSetupError{status: status}
+	}
+	project, err := config.ResolveProjectContext(status.ProjectDirectory, "")
+	if err != nil {
+		return nil, &projectSetupError{status: inspectProjectConfigStateForMode(status.ProjectDirectory, s.devMode)}
+	}
+	return project, nil
+}
+
+func (s *Server) resolveOptionalCanonicalProject() (*config.ProjectContext, error) {
+	if s.project != nil {
+		return s.project, nil
+	}
+	status := resolveSetupProjectStateForMode(s.workDir, s.devMode)
+	if projectStateHasConfig(status.State) {
+		return s.requireCanonicalProject()
+	}
+	if status.State == projectStateNotInitialized ||
+		(status.State == projectStateOutsideGit && localProjectConfigAbsent(s.workDir)) {
+		return nil, nil
+	}
+	return nil, &projectSetupError{status: status}
+}
+
+func (s *Server) resolveCanonicalProject(projectDirectory string) (*config.ProjectContext, error) {
+	if strings.TrimSpace(projectDirectory) == "" || filepath.Clean(projectDirectory) == filepath.Clean(s.workDir) {
+		return s.requireCanonicalProject()
+	}
+	status := resolveSetupProjectStateForMode(projectDirectory, s.devMode)
+	if !projectStateHasConfig(status.State) {
+		return nil, &projectSetupError{status: status}
+	}
+	project, err := config.ResolveProjectContext(status.ProjectDirectory, "")
+	if err != nil {
+		return nil, &projectSetupError{status: inspectProjectConfigStateForMode(status.ProjectDirectory, s.devMode)}
+	}
+	return project, nil
 }
 
 // SetRootCmd sets the root Cobra command for schema generation.
@@ -1024,6 +1068,16 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 		LaunchArguments:            input.LaunchArguments,
 		DisableInheritedLaunchVars: input.DisableInheritedLaunchVars,
 	}
+	project, projectErr := s.resolveOptionalCanonicalProject()
+	if projectErr != nil {
+		if s.profile == ProfileCore || s.profile == ProfileFull {
+			return nil, RunTestOutput{}, projectErr
+		}
+		return nil, RunTestOutput{Success: false, ErrorMessage: projectErr.Error()}, nil
+	}
+	if project != nil {
+		params.TestsDir = project.TestsDir
+	}
 	if input.Location != "" {
 		lat, lng, locErr := parseLocationString(input.Location)
 		if locErr != nil {
@@ -1035,7 +1089,7 @@ func (s *Server) handleRunTest(ctx context.Context, req *mcp.CallToolRequest, in
 	}
 
 	// Use shared execution logic
-	result, err := execution.RunTest(ctx, s.apiClient.GetAPIKey(), s.config, params)
+	result, err := execution.RunTest(ctx, s.apiClient.GetAPIKey(), nil, params)
 	if err != nil {
 		return nil, RunTestOutput{Success: false, ErrorMessage: err.Error()}, nil
 	}
@@ -1193,7 +1247,7 @@ func (s *Server) handleRunWorkflow(ctx context.Context, req *mcp.CallToolRequest
 	}
 
 	// Use shared execution logic
-	result, err := execution.RunWorkflow(ctx, s.apiClient.GetAPIKey(), s.config, wfParams)
+	result, err := execution.RunWorkflow(ctx, s.apiClient.GetAPIKey(), nil, wfParams)
 	if err != nil {
 		return nil, RunWorkflowOutput{Success: false, ErrorMessage: err.Error()}, nil
 	}
@@ -1273,13 +1327,12 @@ type ListTestsOutput struct {
 
 // handleListTests handles the list_tests tool call.
 func (s *Server) handleListTests(ctx context.Context, req *mcp.CallToolRequest, input ListTestsInput) (*mcp.CallToolResult, ListTestsOutput, error) {
-	workDir := input.ProjectDir
-	if workDir == "" {
-		workDir = s.workDir
+	project, err := s.resolveCanonicalProject(input.ProjectDir)
+	if err != nil {
+		return nil, ListTestsOutput{Tests: []TestInfo{}, Workflows: []WorkflowInfo{}}, err
 	}
-
-	configPath := filepath.Join(workDir, ".revyl", "config.yaml")
-	testsDir := filepath.Join(workDir, ".revyl", "tests")
+	configPath := project.ConfigPath
+	testsDir := project.TestsDir
 
 	localTests, ltErr := config.LoadLocalTests(testsDir)
 	if ltErr != nil {
@@ -1410,15 +1463,34 @@ func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest,
 	if mismatchMsg := s.orgMismatchMessage(ctx); mismatchMsg != "" {
 		return nil, CreateTestOutput{Success: false, Error: mismatchMsg}, nil
 	}
+	appID := strings.TrimSpace(input.AppID)
+	projectContext := s.project
+	if appID == "" {
+		if projectContext == nil && !createYAMLHasBuildName(input.YAMLContent) {
+			project, projectErr := s.resolveOptionalCanonicalProject()
+			if projectErr != nil {
+				if s.profile == ProfileCore || s.profile == ProfileFull {
+					return nil, CreateTestOutput{}, projectErr
+				}
+				return nil, CreateTestOutput{Success: false, Error: projectErr.Error()}, nil
+			}
+			projectContext = project
+		}
+		var appErr error
+		appID, appErr = canonicalAppIDForPlatform(projectContext, platform)
+		if appErr != nil {
+			return nil, CreateTestOutput{Success: false, Error: appErr.Error()}, nil
+		}
+	}
 
 	result, err := execution.CreateTest(ctx, s.apiClient.GetAPIKey(), execution.CreateTestParams{
 		Name:             strings.TrimSpace(input.Name),
 		Platform:         platform,
 		YAMLContent:      input.YAMLContent,
-		AppID:            input.AppID,
+		AppID:            appID,
 		ModuleNamesOrIDs: input.ModuleNamesOrIDs,
 		Tags:             input.Tags,
-		Config:           s.config,
+		Config:           nil,
 		DevMode:          false,
 	})
 	if err != nil {
@@ -1431,6 +1503,48 @@ func (s *Server) handleCreateTest(ctx context.Context, req *mcp.CallToolRequest,
 		TestName: result.TestName,
 		TestURL:  result.TestURL,
 	}, nil
+}
+
+func createYAMLHasBuildName(content string) bool {
+	var document struct {
+		Test struct {
+			Build struct {
+				Name string `yaml:"name"`
+			} `yaml:"build"`
+		} `yaml:"test"`
+	}
+	if yamlPkg.Unmarshal([]byte(content), &document) != nil {
+		return false
+	}
+	return strings.TrimSpace(document.Test.Build.Name) != ""
+}
+
+func canonicalAppIDForPlatform(project *config.ProjectContext, platform string) (string, error) {
+	if project == nil || project.Authored == nil || project.Authored.Build == nil {
+		return "", nil
+	}
+	appIDs := make(map[string]struct{})
+	for _, profile := range project.Authored.Build.Profiles {
+		var recipe *config.AuthoredBuildRecipe
+		if platform == "ios" {
+			recipe = profile.IOS
+		} else {
+			recipe = profile.Android
+		}
+		if recipe != nil && recipe.AppID != nil && strings.TrimSpace(*recipe.AppID) != "" {
+			appIDs[strings.TrimSpace(*recipe.AppID)] = struct{}{}
+		}
+	}
+	if len(appIDs) == 0 {
+		return "", nil
+	}
+	if len(appIDs) > 1 {
+		return "", fmt.Errorf("multiple %s apps are configured; provide app_id explicitly", platform)
+	}
+	for appID := range appIDs {
+		return appID, nil
+	}
+	return "", nil
 }
 
 // CreateWorkflowInput defines input for create_workflow tool.
@@ -1632,7 +1746,7 @@ func (s *Server) handleOpenWorkflowEditor(ctx context.Context, req *mcp.CallTool
 		}, nil
 	}
 
-	result := execution.OpenWorkflowEditor(s.config, execution.OpenWorkflowEditorParams{
+	result := execution.OpenWorkflowEditor(nil, execution.OpenWorkflowEditorParams{
 		WorkflowNameOrID: input.WorkflowNameOrID,
 		DevMode:          false,
 	})
@@ -1735,8 +1849,14 @@ func (s *Server) handleDeleteTest(ctx context.Context, req *mcp.CallToolRequest,
 
 	// Resolve name to ID from local YAML
 	testID := input.TestNameOrID
-	testsDir := filepath.Join(s.workDir, ".revyl", "tests")
-	if id, err := config.GetLocalTestRemoteID(testsDir, input.TestNameOrID); err == nil && id != "" {
+	id, resolutionErr := s.localTestRemoteID(input.TestNameOrID)
+	if resolutionErr != nil {
+		if setupErr := s.compositeProjectSetupError(resolutionErr); setupErr != nil {
+			return nil, DeleteTestOutput{}, setupErr
+		}
+		return nil, DeleteTestOutput{Success: false, Error: resolutionErr.Error()}, nil
+	}
+	if id != "" {
 		testID = id
 	}
 
@@ -2505,8 +2625,14 @@ func (s *Server) handleGetTestTags(ctx context.Context, req *mcp.CallToolRequest
 	// Resolve test name to ID from local YAML
 	testID := input.TestNameOrID
 	testName := input.TestNameOrID
-	testsDir := filepath.Join(s.workDir, ".revyl", "tests")
-	if id, ltErr := config.GetLocalTestRemoteID(testsDir, input.TestNameOrID); ltErr == nil && id != "" {
+	id, resolutionErr := s.localTestRemoteID(input.TestNameOrID)
+	if resolutionErr != nil {
+		if setupErr := s.compositeProjectSetupError(resolutionErr); setupErr != nil {
+			return nil, GetTestTagsOutput{}, setupErr
+		}
+		return nil, GetTestTagsOutput{Success: false, Error: resolutionErr.Error()}, nil
+	}
+	if id != "" {
 		testID = id
 	}
 
@@ -2580,8 +2706,14 @@ func (s *Server) handleSetTestTags(ctx context.Context, req *mcp.CallToolRequest
 
 	// Resolve test name to ID from local YAML
 	testID := input.TestNameOrID
-	testsDir := filepath.Join(s.workDir, ".revyl", "tests")
-	if id, ltErr := config.GetLocalTestRemoteID(testsDir, input.TestNameOrID); ltErr == nil && id != "" {
+	id, resolutionErr := s.localTestRemoteID(input.TestNameOrID)
+	if resolutionErr != nil {
+		if setupErr := s.compositeProjectSetupError(resolutionErr); setupErr != nil {
+			return nil, SetTestTagsOutput{}, setupErr
+		}
+		return nil, SetTestTagsOutput{Success: false, Error: resolutionErr.Error()}, nil
+	}
+	if id != "" {
 		testID = id
 	}
 
@@ -2655,8 +2787,14 @@ func (s *Server) handleAddRemoveTestTags(ctx context.Context, req *mcp.CallToolR
 
 	// Resolve test name to ID from local YAML
 	testID := input.TestNameOrID
-	testsDir := filepath.Join(s.workDir, ".revyl", "tests")
-	if id, ltErr := config.GetLocalTestRemoteID(testsDir, input.TestNameOrID); ltErr == nil && id != "" {
+	id, resolutionErr := s.localTestRemoteID(input.TestNameOrID)
+	if resolutionErr != nil {
+		if setupErr := s.compositeProjectSetupError(resolutionErr); setupErr != nil {
+			return nil, AddRemoveTestTagsOutput{}, setupErr
+		}
+		return nil, AddRemoveTestTagsOutput{Success: false, Error: resolutionErr.Error()}, nil
+	}
+	if id != "" {
 		testID = id
 	}
 
@@ -3025,8 +3163,11 @@ func parseLocationString(s string) (float64, float64, error) {
 // resolveTestID resolves a test name or ID to a UUID using local YAML files and API search.
 func (s *Server) resolveTestID(ctx context.Context, nameOrID string) (string, error) {
 	testID := nameOrID
-	testsDir := filepath.Join(s.workDir, ".revyl", "tests")
-	if id, ltErr := config.GetLocalTestRemoteID(testsDir, nameOrID); ltErr == nil && id != "" {
+	id, resolutionErr := s.localTestRemoteID(nameOrID)
+	if resolutionErr != nil {
+		return "", resolutionErr
+	}
+	if id != "" {
 		testID = id
 	}
 	if len(testID) != 36 {
@@ -3042,6 +3183,62 @@ func (s *Server) resolveTestID(ctx context.Context, nameOrID string) (string, er
 		return "", fmt.Errorf("test '%s' not found", nameOrID)
 	}
 	return testID, nil
+}
+
+func (s *Server) localTestRemoteID(name string) (string, error) {
+	if strings.TrimSpace(name) == "" || looksLikeMCPUUID(name) {
+		return "", nil
+	}
+	project := s.project
+	if project == nil {
+		resolved, err := s.resolveOptionalCanonicalProject()
+		if err != nil {
+			return "", err
+		}
+		if resolved == nil {
+			return "", nil
+		}
+		project = resolved
+	}
+	id, err := config.GetLocalTestRemoteID(project.TestsDir, name)
+	if err != nil {
+		return "", nil
+	}
+	return id, nil
+}
+
+func looksLikeMCPUUID(value string) bool {
+	return len(strings.TrimSpace(value)) == 36
+}
+
+func optionalMCPProjectError(err error, workDir string) bool {
+	var configErr *config.ConfigError
+	if !errors.As(err, &configErr) {
+		return false
+	}
+	if configErr.Code == "config_not_found" {
+		return true
+	}
+	if configErr.Code != "git_worktree_unavailable" {
+		return false
+	}
+	return localProjectConfigAbsent(workDir)
+}
+
+func localProjectConfigAbsent(workDir string) bool {
+	_, statErr := os.Lstat(filepath.Join(workDir, ".revyl", "config.yaml"))
+	return errors.Is(statErr, os.ErrNotExist)
+}
+
+func (s *Server) compositeProjectSetupError(err error) error {
+	if s.profile != ProfileCore && s.profile != ProfileFull {
+		return nil
+	}
+	var setupErr *projectSetupError
+	if errors.As(err, &setupErr) {
+		return err
+	}
+	return nil
 }
 
 // resolveWorkflowID resolves a workflow name or ID to a UUID using shared workflow resolution.
@@ -3085,6 +3282,9 @@ func (s *Server) handleListVariables(ctx context.Context, req *mcp.CallToolReque
 
 	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
 	if err != nil {
+		if setupErr := s.compositeProjectSetupError(err); setupErr != nil {
+			return nil, ListVariablesOutput{}, setupErr
+		}
 		return nil, ListVariablesOutput{Success: false, Error: err.Error()}, nil
 	}
 
@@ -3142,6 +3342,9 @@ func (s *Server) handleSetVariable(ctx context.Context, req *mcp.CallToolRequest
 
 	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
 	if err != nil {
+		if setupErr := s.compositeProjectSetupError(err); setupErr != nil {
+			return nil, SetVariableOutput{}, setupErr
+		}
 		return nil, SetVariableOutput{Success: false, Error: err.Error()}, nil
 	}
 
@@ -3193,6 +3396,9 @@ func (s *Server) handleDeleteVariable(ctx context.Context, req *mcp.CallToolRequ
 
 	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
 	if err != nil {
+		if setupErr := s.compositeProjectSetupError(err); setupErr != nil {
+			return nil, DeleteVariableOutput{}, setupErr
+		}
 		return nil, DeleteVariableOutput{Success: false, Error: err.Error()}, nil
 	}
 
@@ -3226,6 +3432,9 @@ func (s *Server) handleDeleteAllVariables(ctx context.Context, req *mcp.CallTool
 
 	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
 	if err != nil {
+		if setupErr := s.compositeProjectSetupError(err); setupErr != nil {
+			return nil, DeleteAllVariablesOutput{}, setupErr
+		}
 		return nil, DeleteAllVariablesOutput{Success: false, Error: err.Error()}, nil
 	}
 
@@ -3512,6 +3721,9 @@ func (s *Server) handleAddTestsToWorkflow(ctx context.Context, req *mcp.CallTool
 	for _, nameOrID := range input.TestNamesOrIDs {
 		testID, err := s.resolveTestID(ctx, nameOrID)
 		if err != nil {
+			if setupErr := s.compositeProjectSetupError(err); setupErr != nil {
+				return nil, AddTestsToWorkflowOutput{}, setupErr
+			}
 			return nil, AddTestsToWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to resolve test '%s': %v", nameOrID, err)}, nil
 		}
 		if existingSet[testID] {
@@ -3588,6 +3800,9 @@ func (s *Server) handleRemoveTestsFromWorkflow(ctx context.Context, req *mcp.Cal
 	for _, nameOrID := range input.TestNamesOrIDs {
 		testID, err := s.resolveTestID(ctx, nameOrID)
 		if err != nil {
+			if setupErr := s.compositeProjectSetupError(err); setupErr != nil {
+				return nil, RemoveTestsFromWorkflowOutput{}, setupErr
+			}
 			return nil, RemoveTestsFromWorkflowOutput{Success: false, Error: fmt.Sprintf("failed to resolve test '%s': %v", nameOrID, err)}, nil
 		}
 		removeSet[testID] = true
@@ -3731,6 +3946,9 @@ func (s *Server) handleUpdateTest(ctx context.Context, req *mcp.CallToolRequest,
 	// Resolve test name to ID
 	testID, err := s.resolveTestID(ctx, input.TestNameOrID)
 	if err != nil {
+		if setupErr := s.compositeProjectSetupError(err); setupErr != nil {
+			return nil, UpdateTestOutput{}, setupErr
+		}
 		return nil, UpdateTestOutput{Success: false, Error: err.Error()}, nil
 	}
 
@@ -4124,130 +4342,87 @@ func (s *Server) handleOpenTestEditor(ctx context.Context, req *mcp.CallToolRequ
 		}, nil
 	}
 
-	// Resolve test ID and editor URL
-	editorResult := execution.OpenTestEditor(s.config, execution.OpenTestEditorParams{
-		TestNameOrID: input.TestNameOrID,
+	// Canonical config does not persist hot-reload provider state. Resolve the
+	// provider directly from the project when this compatibility editor surface
+	// is used; do not synthesize or persist a legacy config adapter.
+	testsDir := ""
+	project := s.project
+	var projectErr error
+	if project == nil && !looksLikeMCPUUID(input.TestNameOrID) {
+		project, projectErr = s.resolveOptionalCanonicalProject()
+		if projectErr != nil {
+			return nil, OpenTestEditorOutput{Success: false, Error: projectErr.Error()}, nil
+		}
+	}
+	if project != nil {
+		testsDir = project.TestsDir
+	}
+	testNameOrID := input.TestNameOrID
+	if localID, resolutionErr := s.localTestRemoteID(input.TestNameOrID); resolutionErr != nil {
+		return nil, OpenTestEditorOutput{Success: false, Error: resolutionErr.Error()}, nil
+	} else if localID != "" {
+		testNameOrID = localID
+	}
+	editorResult := execution.OpenTestEditor(nil, execution.OpenTestEditorParams{
+		TestNameOrID: testNameOrID,
+		TestsDir:     testsDir,
 		DevMode:      false,
 	})
 
 	editorURL := editorResult.TestURL
 	testID := editorResult.TestID
 
-	// Check if hot reload is configured
-	hasHotReload := s.config != nil && s.config.HotReload.IsConfigured()
-
-	if !hasHotReload {
-		// No hot reload config — just open the editor
-		if !input.NoOpen {
-			_ = ui.OpenBrowser(editorURL)
-		}
-		return nil, OpenTestEditorOutput{
-			Success:   true,
-			TestID:    testID,
-			EditorURL: editorURL,
-			HotReload: false,
-		}, nil
-	}
-
-	// Hot reload is configured — manage session state
 	s.hotReloadMu.Lock()
 	defer s.hotReloadMu.Unlock()
-
-	// If already running for the same test, return cached URLs (idempotent)
 	if s.hotReloadManager != nil && s.hotReloadManager.IsRunning() {
 		if s.hotReloadTestID == testID {
-			if !input.NoOpen {
-				_ = ui.OpenBrowser(editorURL)
-			}
 			return nil, OpenTestEditorOutput{
-				Success:       true,
-				TestID:        testID,
-				EditorURL:     editorURL,
-				HotReload:     true,
-				TunnelURL:     s.hotReloadResult.TunnelURL,
-				DeepLinkURL:   s.hotReloadResult.DeepLinkURL,
+				Success: true, TestID: testID, EditorURL: editorURL, HotReload: true,
+				TunnelURL: s.hotReloadResult.TunnelURL, DeepLinkURL: s.hotReloadResult.DeepLinkURL,
 				DevServerPort: s.hotReloadResult.DevServerPort,
 			}, nil
 		}
-		// Running for a different test — stop it first
 		s.hotReloadManager.Stop()
 		s.hotReloadManager = nil
 		s.hotReloadTestID = ""
 		s.hotReloadResult = nil
 	}
 
-	// Select provider
-	registry := hotreload.DefaultRegistry()
-	_, providerCfg, err := registry.SelectProvider(&s.config.HotReload, input.Provider, s.workDir)
-	if err != nil {
-		// Provider selection failed — fall back to editor-only
-		if !input.NoOpen {
-			_ = ui.OpenBrowser(editorURL)
+	setup, setupErr := hotreload.AutoSetup(ctx, s.apiClient, hotreload.SetupOptions{
+		WorkDir:          s.workDir,
+		ExplicitProvider: strings.TrimSpace(input.Provider),
+	})
+	if setupErr == nil {
+		if input.Port > 0 {
+			setup.Config.Port = input.Port
 		}
-		return nil, OpenTestEditorOutput{
-			Success:   true,
-			TestID:    testID,
-			EditorURL: editorURL,
-			HotReload: false,
-			Error:     fmt.Sprintf("hot reload provider selection failed (opening editor only): %v", err),
-		}, nil
-	}
-
-	// Override port if specified
-	if input.Port > 0 {
-		providerCfg.Port = input.Port
-	}
-
-	// Determine provider name for the manager
-	providerName := input.Provider
-	if providerName == "" {
-		providerName = s.config.HotReload.Default
-		if providerName == "" {
-			// Use first configured provider
-			for name := range s.config.HotReload.Providers {
-				providerName = name
-				break
+		manager := hotreload.NewManager(setup.ProviderName, setup.Config, s.workDir)
+		result, startErr := manager.Start(context.Background())
+		if startErr == nil {
+			s.hotReloadManager = manager
+			s.hotReloadTestID = testID
+			s.hotReloadResult = result
+			if !input.NoOpen {
+				_ = ui.OpenBrowser(editorURL)
 			}
+			return nil, OpenTestEditorOutput{
+				Success: true, TestID: testID, EditorURL: editorURL, HotReload: true,
+				TunnelURL: result.TunnelURL, DeepLinkURL: result.DeepLinkURL, DevServerPort: result.DevServerPort,
+			}, nil
 		}
+		setupErr = startErr
 	}
-
-	// Create and start the manager with a background context (survives beyond tool call)
-	manager := hotreload.NewManager(providerName, providerCfg, s.workDir)
-	manager.ConfigureFromHotReloadConfig(&s.config.HotReload, s.apiClient)
-
-	bgCtx := context.Background()
-	result, err := manager.Start(bgCtx)
-	if err != nil {
-		// Hot reload failed to start — fall back to editor-only
-		if !input.NoOpen {
-			_ = ui.OpenBrowser(editorURL)
-		}
-		return nil, OpenTestEditorOutput{
-			Success:   true,
-			TestID:    testID,
-			EditorURL: editorURL,
-			HotReload: false,
-			Error:     fmt.Sprintf("hot reload failed to start (opening editor only): %v", err),
-		}, nil
-	}
-
-	// Store session state
-	s.hotReloadManager = manager
-	s.hotReloadTestID = testID
-	s.hotReloadResult = result
 
 	if !input.NoOpen {
 		_ = ui.OpenBrowser(editorURL)
 	}
 
 	return nil, OpenTestEditorOutput{
-		Success:       true,
-		TestID:        testID,
-		EditorURL:     editorURL,
-		HotReload:     true,
-		TunnelURL:     result.TunnelURL,
-		DeepLinkURL:   result.DeepLinkURL,
-		DevServerPort: result.DevServerPort,
+		Success:   true,
+		TestID:    testID,
+		EditorURL: editorURL,
+		HotReload: false,
+		Error:     fmt.Sprintf("hot reload unavailable (opening editor only): %v", setupErr),
 	}, nil
 }
 

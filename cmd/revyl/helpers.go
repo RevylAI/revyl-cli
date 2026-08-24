@@ -3,9 +3,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,7 +26,7 @@ const maxResourceNameLen = 128
 // because they collide with Cobra's command resolution.
 var reservedNames = map[string]bool{
 	"run": true, "create": true, "delete": true, "open": true, "cancel": true,
-	"list": true, "remote": true, "push": true, "pull": true, "diff": true, "rename": true,
+	"list": true, "remote": true, "push": true, "pull": true, "sync": true, "diff": true, "rename": true,
 	"validate": true, "setup": true, "help": true,
 	"status": true, "history": true, "report": true, "share": true,
 }
@@ -53,6 +53,11 @@ func detectOrgMismatchForCurrentProject(cmd *cobra.Command) *orgguard.MismatchEr
 
 // enforceOrgBindingMatch blocks scoped commands when project/auth org mismatch is detected.
 func enforceOrgBindingMatch(cmd *cobra.Command, args []string) error {
+	if cmd.Name() == "sync" {
+		// Sync performs its preflight inside the analytics-wrapped RunE. Keeping
+		// the inherited guard inert here also lets local-only bootstrap avoid auth.
+		return nil
+	}
 	if mismatch := detectOrgMismatchForCurrentProject(cmd); mismatch != nil {
 		return mismatch
 	}
@@ -175,43 +180,6 @@ func truncatePrefix(s string, max int) string {
 	return s[:max]
 }
 
-func newEmptyProjectConfig() *config.ProjectConfig {
-	cfg := &config.ProjectConfig{
-		Build: config.BuildConfig{
-			Platforms: make(map[string]config.BuildPlatform),
-		},
-	}
-	config.ApplyDefaults(cfg)
-	return cfg
-}
-
-func loadProjectConfigOrEmpty(cwd string) (*config.ProjectConfig, string, bool, error) {
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	if _, err := os.Stat(configPath); err != nil {
-		if os.IsNotExist(err) {
-			return newEmptyProjectConfig(), configPath, false, nil
-		}
-		return nil, configPath, false, fmt.Errorf("failed to inspect project config: %w", err)
-	}
-
-	cfg, err := config.LoadProjectConfig(configPath)
-	if err != nil {
-		return nil, configPath, true, fmt.Errorf("failed to load project config: %w", err)
-	}
-
-	return cfg, configPath, true, nil
-}
-
-func writeProjectConfigIfNeeded(path string, cfg *config.ProjectConfig) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-	if err := config.WriteProjectConfig(path, cfg); err != nil {
-		return fmt.Errorf("failed to write project config: %w", err)
-	}
-	return nil
-}
-
 // looksLikeUUID checks if a string is a syntactically valid UUID.
 //
 // Parameters:
@@ -267,21 +235,32 @@ func parseExpirationFlag(s string) (*int, error) {
 //   - testID: The resolved test UUID
 //   - testName: The display name (alias or API name)
 //   - error: Any error that occurred
-func resolveTestID(ctx context.Context, nameOrID string, cfg *config.ProjectConfig, client *api.Client) (string, string, error) {
-	// 1. Try local YAML _meta.remote_id
-	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-		testsDir := filepath.Join(cwd, ".revyl", "tests")
-		if remoteID, _ := config.GetLocalTestRemoteID(testsDir, nameOrID); remoteID != "" {
-			return remoteID, nameOrID, nil
-		}
-	}
-
-	// 2. Check if it looks like a UUID
+func resolveTestID(ctx context.Context, nameOrID string, _ *config.ProjectConfig, client *api.Client) (string, string, error) {
+	// UUIDs are an explicitly remote identifier and do not consume project
+	// configuration.
 	if looksLikeUUID(nameOrID) {
 		return nameOrID, "", nil
 	}
 
-	// 3. Search via API by name across all pages for larger orgs
+	// A discovered but invalid project configuration is fatal; falling through
+	// could resolve a same-named test in the active organization.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+	projectContext, projectErr := config.ResolveProjectContext(cwd, "")
+	if projectErr == nil {
+		if remoteID, _ := config.GetLocalTestRemoteID(projectContext.TestsDir, nameOrID); remoteID != "" {
+			return remoteID, nameOrID, nil
+		}
+	} else {
+		var configErr *config.ConfigError
+		if !errors.As(projectErr, &configErr) || (configErr.Code != "git_worktree_unavailable" && configErr.Code != "config_not_found") {
+			return "", "", actionableLocalConfigError(projectErr)
+		}
+	}
+
+	// Search via API by name across all pages for larger orgs.
 	ui.StartSpinner("Searching for test...")
 	tests, err := client.ListAllOrgTests(ctx, 200)
 	ui.StopSpinner()
@@ -298,8 +277,8 @@ func resolveTestID(ctx context.Context, nameOrID string, cfg *config.ProjectConf
 
 	// Not found - build helpful error message from local YAML files
 	var availableTests []string
-	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-		availableTests = config.ListLocalTestAliases(filepath.Join(cwd, ".revyl", "tests"))
+	if projectContext != nil {
+		availableTests = config.ListLocalTestAliases(projectContext.TestsDir)
 	}
 	errMsg := fmt.Sprintf("test '%s' not found", nameOrID)
 	if len(availableTests) > 0 {
@@ -402,7 +381,9 @@ func formatAbsoluteTime(isoTimestamp string) string {
 	return isoTimestamp
 }
 
-// loadConfigAndClient is a common helper to authenticate, load config, and create an API client.
+// loadConfigAndClient is a compatibility wrapper that authenticates and creates
+// an API client. Project-local resolution is owned by the operation that needs
+// it; ordinary runtime code must not load the retired ProjectConfig contract.
 //
 // Parameters:
 //   - devMode: Whether dev mode is enabled
@@ -418,29 +399,13 @@ var loadConfigAndClient = func(devMode bool) (string, *config.ProjectConfig, *ap
 		return "", nil, nil, err
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, _ := config.LoadProjectConfig(configPath)
-
-	// --- begin legacy migration (delete block + migrate_test_aliases.go when done) ---
-	if cfg != nil && len(cfg.Tests) > 0 {
-		if n, _ := config.MigrateConfigTestAliases(configPath, cfg); n > 0 {
-			ui.PrintInfo("Migrated %d test alias(es) from config.yaml to .revyl/tests/", n)
-		}
-	}
-	// --- end legacy migration ---
-
 	client := api.NewClientWithDevMode(apiKey, devMode)
-	return apiKey, cfg, client, nil
+	return apiKey, nil, client, nil
 }
 
 // resolveWorkflowID resolves a workflow name or ID to a workflow UUID and display name.
 // Resolution chain: valid UUID lookup → exact API search by name.
-func resolveWorkflowID(ctx context.Context, nameOrID string, cfg *config.ProjectConfig, client *api.Client) (string, string, error) {
+func resolveWorkflowID(ctx context.Context, nameOrID string, _ *config.ProjectConfig, client *api.Client) (string, string, error) {
 	ui.StartSpinner("Searching for workflow...")
 	resolved, err := workflowref.Resolve(ctx, client, nameOrID)
 	ui.StopSpinner()

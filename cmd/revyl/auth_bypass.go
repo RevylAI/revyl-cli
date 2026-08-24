@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -26,7 +25,7 @@ import (
 // token would fail apps that compare the link to REVYL_AUTH_BYPASS_TOKEN.
 // True token expiry requires `revyl dev stop` then a fresh session.
 type authBypassRuntime struct {
-	cfg       *config.AuthBypassConfig
+	cfg       *config.AuthoredAuthBypass
 	mu        sync.RWMutex
 	state     string
 	lastError string
@@ -37,23 +36,23 @@ type authBypassRuntime struct {
 var devAuthBypass *authBypassRuntime
 
 // initDevAuthBypass activates auth bypass handling for this invocation when
-// the project config has an auth_bypass section. Safe to call more than once:
+// the canonical session has an auth_bypass section. Safe to call more than once:
 // a reload whose config no longer configures auth bypass clears any previously
 // active runtime so a removed auth_bypass section stops firing.
-func initDevAuthBypass(cfg *config.ProjectConfig) {
-	if cfg == nil || !cfg.AuthBypass.IsConfigured() {
+func initDevAuthBypass(cfg *config.AuthoredAuthBypass) {
+	if !authoredAuthBypassConfigured(cfg) {
 		devAuthBypass = nil
 		return
 	}
-	if devAuthBypass.matchesConfig(cfg.AuthBypass) {
+	if devAuthBypass.matchesConfig(cfg) {
 		return
 	}
 	state := "configured"
-	if strings.TrimSpace(cfg.AuthBypass.DeepLink) != "" {
+	if authoredAuthBypassDeepLink(cfg) != "" {
 		state = "pending"
 	}
 	devAuthBypass = &authBypassRuntime{
-		cfg:   cfg.AuthBypass,
+		cfg:   cloneAuthoredAuthBypass(cfg),
 		state: state,
 	}
 }
@@ -65,12 +64,12 @@ func initDevAuthBypass(cfg *config.ProjectConfig) {
 //
 // Returns:
 //   - bool: True when the configurations have equivalent runtime behavior.
-func (r *authBypassRuntime) matchesConfig(cfg *config.AuthBypassConfig) bool {
+func (r *authBypassRuntime) matchesConfig(cfg *config.AuthoredAuthBypass) bool {
 	if r == nil || r.cfg == nil || cfg == nil {
 		return false
 	}
 	return slices.Equal(r.cfg.LaunchVars, cfg.LaunchVars) &&
-		strings.TrimSpace(r.cfg.DeepLink) == strings.TrimSpace(cfg.DeepLink)
+		authoredAuthBypassDeepLink(r.cfg) == authoredAuthBypassDeepLink(cfg)
 }
 
 // LaunchVarKeys returns the configured org launch-variable keys.
@@ -87,7 +86,7 @@ func (r *authBypassRuntime) FireDeepLink(ctx context.Context, requester workerSe
 	if r == nil {
 		return nil
 	}
-	template := strings.TrimSpace(r.cfg.DeepLink)
+	template := authoredAuthBypassDeepLink(r.cfg)
 	if template == "" {
 		return nil
 	}
@@ -182,10 +181,33 @@ func (r *authBypassRuntime) Status() *authBypassStatus {
 	return &authBypassStatus{
 		Configured: true,
 		LaunchVars: r.LaunchVarKeys(),
-		DeepLink:   strings.TrimSpace(r.cfg.DeepLink) != "",
+		DeepLink:   authoredAuthBypassDeepLink(r.cfg) != "",
 		State:      r.state,
 		Error:      r.lastError,
 	}
+}
+
+func authoredAuthBypassConfigured(cfg *config.AuthoredAuthBypass) bool {
+	return cfg != nil && (len(cfg.LaunchVars) > 0 || authoredAuthBypassDeepLink(cfg) != "")
+}
+
+func authoredAuthBypassDeepLink(cfg *config.AuthoredAuthBypass) string {
+	if cfg == nil || cfg.DeepLink == nil {
+		return ""
+	}
+	return strings.TrimSpace(*cfg.DeepLink)
+}
+
+func cloneAuthoredAuthBypass(cfg *config.AuthoredAuthBypass) *config.AuthoredAuthBypass {
+	if cfg == nil {
+		return nil
+	}
+	cloned := &config.AuthoredAuthBypass{LaunchVars: append([]string(nil), cfg.LaunchVars...)}
+	if cfg.DeepLink != nil {
+		value := *cfg.DeepLink
+		cloned.DeepLink = &value
+	}
+	return cloned
 }
 
 // fireAuthBypassAfterLaunch re-authenticates the app after a (re)launch or
@@ -233,7 +255,7 @@ var devAuthRefreshCmd = &cobra.Command{
 launch values applied at session boot. Use when the app under test shows a
 logged-out state mid-session but the boot token is still valid.
 
-Does not remint before_session or org launch variables: launch environment is
+Does not remint session.before_script or org launch variables: launch environment is
 fixed at boot, and apps that compare the deep-link token to
 REVYL_AUTH_BYPASS_TOKEN (or another launch-env gate) reject a newly minted
 value. If the token itself expired, run ` + "`revyl dev stop`" + ` then
@@ -264,37 +286,42 @@ func runDevAuthRefresh(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if repoRoot, rootErr := config.FindRepoRoot(cwd); rootErr == nil {
-		cwd = repoRoot
-	}
-	configPath := filepath.Join(cwd, ".revyl", "config.yaml")
-	cfg, err := config.LoadProjectConfig(configPath)
+	project, err := config.ResolveProjectContext(cwd, "")
 	if err != nil {
+		action := fmt.Sprintf("run `%s`, repair the reported field, then retry `%s`", cliRecoveryCommand("config", "validate"), cliRecoveryCommand("dev", "auth", "refresh"))
+		var configErr *config.ConfigError
+		if errors.As(err, &configErr) {
+			switch configErr.Code {
+			case "legacy_config_requires_migration", "mixed_config_formats":
+				action = fmt.Sprintf("run `%s`, then retry `%s`", cliRecoveryCommand("config", "migrate"), cliRecoveryCommand("dev", "auth", "refresh"))
+			case "config_not_found":
+				action = fmt.Sprintf("run `%s` to restore the project or `%s` to create it", cliRecoveryCommand("config", "pull"), cliRecoveryCommand("init", "-y"))
+			}
+		}
 		return devAuthRefreshError(cmd, "no_config",
-			fmt.Sprintf("failed to load %s: %v", configPath, err),
-			"run `revyl init` in the app directory")
+			fmt.Sprintf("failed to load project configuration: %v", actionableLocalConfigError(err)),
+			action)
 	}
-	if !cfg.AuthBypass.IsConfigured() {
+	authoredSession := project.Aggregate.Session
+	if !authoredAuthBypassConfigured(authoredSession.AuthBypass) {
 		return devAuthRefreshError(cmd, "no_auth_bypass",
-			fmt.Sprintf("no auth_bypass section in %s", configPath),
-			"add an auth_bypass section (see the revyl-cli-auth-bypass skill)")
+			fmt.Sprintf("no session.auth_bypass section in %s", project.ConfigPath),
+			"add a session.auth_bypass section (see the revyl-cli-auth-bypass skill)")
 	}
-	if strings.TrimSpace(cfg.AuthBypass.DeepLink) == "" {
+	if authoredAuthBypassDeepLink(authoredSession.AuthBypass) == "" {
 		return devAuthRefreshError(cmd, "no_deep_link",
-			"auth_bypass.deep_link is not set — launch vars apply only at session boot",
+			"session.auth_bypass.deep_link is not set — launch vars apply only at session boot",
 			"restart_session: run `revyl dev stop` then `revyl dev` so the refreshed launch vars apply")
 	}
+	initDevSession(project.ProjectRoot, authoredSession)
 
 	deviceMgr, err := getDeviceSessionMgr(cmd)
 	if err != nil {
 		return err
 	}
-	initDevAuthBypass(cfg)
 
-	// Reuse boot-time before_session values. Reminting here would put a new
+	// Reuse boot-time before_script values. Reminting here would put a new
 	// token in the deep link while launch env stays fixed at session boot.
-	initDevBeforeSession(cfg, cwd)
-
 	session, err := resolveSessionFlag(cmd, deviceMgr)
 	if err != nil {
 		return devAuthRefreshError(cmd, "no_session",
@@ -303,7 +330,7 @@ func runDevAuthRefresh(cmd *cobra.Command, args []string) error {
 	}
 	if err := hydrateBeforeSessionForRefresh(deviceMgr.WorkDir(), session.SessionID); err != nil {
 		return devAuthRefreshError(cmd, "before_session_hydrate_failed", err.Error(),
-			"restart_session: run `revyl dev stop` then `revyl dev` so before_session mints again at boot")
+			"restart_session: run `revyl dev stop` then `revyl dev` so session.before_script runs again at boot")
 	}
 
 	if err := devAuthBypass.FireDeepLink(cmd.Context(), deviceMgr, session.Index); err != nil {

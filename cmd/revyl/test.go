@@ -12,9 +12,8 @@ import (
 
 // testCmd is the parent command for test management operations.
 var testCmd = &cobra.Command{
-	Use:               "test",
-	Short:             "Manage test definitions",
-	PersistentPreRunE: enforceOrgBindingMatch,
+	Use:   "test",
+	Short: "Manage test definitions",
 	Long: `Manage local and remote test definitions.
 
 Use 'revyl test run <name>' to run a test, optionally with --build to build first.
@@ -24,6 +23,7 @@ COMMANDS:
   remote    - List all tests in your organization
   push      - Push local test changes to remote
   pull      - Pull remote test changes to local
+  sync      - Reconcile local and remote tests
   diff      - Show diff between local and remote
   rename    - Rename a test while preserving history
   run       - Run a test (optionally with --build)
@@ -56,7 +56,7 @@ EXAMPLES:
 var testRunCmd = &cobra.Command{
 	Use:   "run <name|id>",
 	Short: "Run a test by name or ID",
-	Long: `Run a test by its alias name (from .revyl/config.yaml) or UUID.
+	Long: `Run a test by its local YAML name from the selected .revyl/tests directory or UUID.
 
 By default runs against the last uploaded build. Use --build to build and
 upload first.
@@ -179,6 +179,7 @@ func init() {
 	testCmd.AddCommand(testsPushCmd)
 	testCmd.AddCommand(testsPullCmd)
 	testCmd.AddCommand(testsDiffCmd)
+	testCmd.AddCommand(testSyncCmd)
 	testCmd.AddCommand(testValidateCmd)
 	// Add action subcommands (noun-first)
 	testCmd.AddCommand(testRunCmd)
@@ -206,13 +207,15 @@ func init() {
 	testRunCmd.Flags().IntVarP(&runRetries, "retries", "r", 1, "Number of retry attempts (1-5)")
 	testRunCmd.Flags().StringVarP(&runBuildID, "build-id", "b", "", "Specific build version ID")
 	testRunCmd.Flags().BoolVar(&runNoWait, "no-wait", false, "Exit after test starts without waiting")
-	testRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete")
+	testRunCmd.Flags().BoolVar(&runOpen, "open", false, "Open report in browser when complete (default in interactive terminals)")
+	testRunCmd.Flags().BoolVar(&runNoOpen, "no-open", false, "Do not open report in browser when complete")
 	testRunCmd.Flags().IntVarP(&runTimeout, "timeout", "t", execution.DefaultRunTimeoutSeconds, "Timeout in seconds")
 	testRunCmd.Flags().BoolVar(&runOutputJSON, "json", false, "Output results as JSON")
 	testRunCmd.Flags().BoolVar(&runGitHubActions, "github-actions", false, "Format output for GitHub Actions")
 	testRunCmd.Flags().BoolVarP(&runVerbose, "verbose", "v", false, "Show detailed monitoring output")
 	testRunCmd.Flags().BoolVar(&runTestBuild, "build", false, "Build and upload before running test")
-	testRunCmd.Flags().StringVar(&runTestPlatform, "platform", "", "Build platform key or ios/android")
+	testRunCmd.Flags().StringVar(&runTestProfile, "profile", "", "Named build profile (requires --build)")
+	testRunCmd.Flags().StringVar(&runTestPlatform, "platform", "", "Build platform: ios or android (requires --build)")
 	testRunCmd.Flags().StringVar(&runLocation, "location", "", "Initial GPS location as lat,lng (e.g. 37.7749,-122.4194)")
 	testRunCmd.Flags().BoolVar(&runDeviceSelect, "device", false, "Interactively select device model and OS version")
 	testRunCmd.Flags().StringVar(&runDeviceModel, "device-model", "", "Target device model (e.g. \"iPhone 16\")")
@@ -228,11 +231,13 @@ func init() {
 	analytics.MarkFlagValue(testRunCmd, "retries")
 	analytics.MarkFlagValue(testRunCmd, "no-wait")
 	analytics.MarkFlagValue(testRunCmd, "open")
+	analytics.MarkFlagValue(testRunCmd, "no-open")
 	analytics.MarkFlagValue(testRunCmd, "timeout")
 	analytics.MarkFlagValue(testRunCmd, "json")
 	analytics.MarkFlagValue(testRunCmd, "github-actions")
 	analytics.MarkFlagValue(testRunCmd, "verbose")
 	analytics.MarkFlagValue(testRunCmd, "build")
+	analytics.MarkFlagValue(testRunCmd, "profile")
 	analytics.MarkFlagValue(testRunCmd, "platform")
 	analytics.MarkFlagValue(testRunCmd, "device")
 	analytics.MarkFlagValue(testRunCmd, "orientation")

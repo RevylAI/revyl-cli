@@ -232,14 +232,23 @@ func (c *Client) BaseURL() string {
 
 // APIError represents an error response from the API.
 type APIError struct {
-	StatusCode int
-	Message    string
-	Detail     string
+	StatusCode       int
+	Code             string
+	Message          string
+	Detail           string
+	ValidationIssues []APIValidationIssue
 	// DetailObject preserves structured `detail` payloads when the backend sends
 	// machine-readable context, such as reports-v3 lookup hints.
 	DetailObject map[string]interface{}
 	// Hint is an optional user-facing suggestion (e.g., "Run 'revyl auth login' to re-authenticate").
 	Hint string
+}
+
+// APIValidationIssue preserves one structured validation failure returned by the API.
+type APIValidationIssue struct {
+	Field   string
+	Message string
+	Type    string
 }
 
 // HotReloadRelayCreateParams provisions a new backend-owned hot reload relay.
@@ -400,6 +409,7 @@ func extractHTMLError(html string) string {
 
 func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 	var errResp struct {
+		Code    string          `json:"code"`
 		Error   string          `json:"error"`
 		Detail  json.RawMessage `json:"detail"`
 		Message string          `json:"message"`
@@ -455,11 +465,18 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 		}
 	}
 
+	validationIssues := make([]APIValidationIssue, 0, len(errResp.Errors))
 	if len(errResp.Errors) > 0 {
 		var parts []string
 		for _, validationErr := range errResp.Errors {
 			part := strings.TrimSpace(validationErr.Message)
 			field := strings.TrimSpace(validationErr.Field)
+			issueType := strings.TrimSpace(validationErr.Type)
+			validationIssues = append(validationIssues, APIValidationIssue{
+				Field:   field,
+				Message: part,
+				Type:    issueType,
+			})
 			if field != "" && part != "" {
 				part = fmt.Sprintf("%s: %s", field, part)
 			} else if field != "" {
@@ -480,11 +497,13 @@ func parseAPIErrorBody(statusCode int, body []byte) *APIError {
 	}
 
 	return &APIError{
-		StatusCode:   statusCode,
-		Message:      message,
-		Detail:       detail,
-		DetailObject: detailObject,
-		Hint:         authHintForStatus(statusCode, message, detail),
+		StatusCode:       statusCode,
+		Code:             errResp.Code,
+		Message:          message,
+		Detail:           detail,
+		ValidationIssues: validationIssues,
+		DetailObject:     detailObject,
+		Hint:             authHintForStatus(statusCode, message, detail),
 	}
 }
 
@@ -3652,8 +3671,26 @@ type SimpleWorkflow struct {
 
 // CLIWorkflowListResponse represents the response from the list workflows endpoint.
 type CLIWorkflowListResponse struct {
-	Workflows []SimpleWorkflow `json:"data"`
-	Count     int              `json:"count"`
+	Workflows  []SimpleWorkflow `json:"data"`
+	Count      int              `json:"count"`
+	HasMore    *bool            `json:"has_more,omitempty"`
+	Limit      *int             `json:"limit,omitempty"`
+	Offset     *int             `json:"offset,omitempty"`
+	TotalCount *int             `json:"total_count,omitempty"`
+}
+
+// WorkflowCatalogLimitError reports that a complete workflow catalog cannot be
+// returned without exceeding the caller's explicit safety bound.
+type WorkflowCatalogLimitError struct {
+	MaxWorkflows int
+	TotalCount   *int
+}
+
+func (e *WorkflowCatalogLimitError) Error() string {
+	if e.TotalCount != nil {
+		return fmt.Sprintf("workflow catalog contains %d workflows, exceeding the limit of %d", *e.TotalCount, e.MaxWorkflows)
+	}
+	return fmt.Sprintf("workflow catalog exceeds the limit of %d workflows", e.MaxWorkflows)
 }
 
 // ListWorkflows retrieves all workflows for the current organization.
@@ -3683,11 +3720,14 @@ func (c *Client) ListWorkflowsPage(ctx context.Context, limit, offset int) (*CLI
 	if limit <= 0 {
 		limit = 200
 	}
+	if limit > 200 {
+		limit = 200
+	}
 	if offset < 0 {
 		offset = 0
 	}
 
-	path := fmt.Sprintf("/api/v1/workflows/get_with_last_status?limit=%d&offset=%d", limit, offset)
+	path := fmt.Sprintf("/api/v1/workflows/get_with_last_status?limit=%d&offset=%d&history_limit=1", limit, offset)
 	resp, err := c.doRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -3706,39 +3746,98 @@ func (c *Client) ListWorkflowsPage(ctx context.Context, limit, offset int) (*CLI
 //
 // Parameters:
 //   - ctx: Context for cancellation
-//   - pageSize: Page size per call (default: 200, max: 500)
+//   - pageSize: Page size per call (default: 200, max: 200)
 //
 // Returns:
 //   - []SimpleWorkflow: All workflows
 //   - error: Any error that occurred
 func (c *Client) ListAllWorkflows(ctx context.Context, pageSize int) ([]SimpleWorkflow, error) {
+	return c.listWorkflows(ctx, pageSize, 0)
+}
+
+// ListWorkflowsBounded retrieves the complete workflow catalog while enforcing
+// an explicit maximum number of workflows. It fails instead of returning a
+// partial catalog when the maximum would be exceeded.
+func (c *Client) ListWorkflowsBounded(ctx context.Context, pageSize, maxWorkflows int) ([]SimpleWorkflow, error) {
+	if maxWorkflows <= 0 {
+		return nil, fmt.Errorf("maximum workflow count must be positive")
+	}
+	return c.listWorkflows(ctx, pageSize, maxWorkflows)
+}
+
+func (c *Client) listWorkflows(ctx context.Context, pageSize, maxWorkflows int) ([]SimpleWorkflow, error) {
 	if pageSize <= 0 {
 		pageSize = 200
 	}
-	if pageSize > 500 {
-		pageSize = 500
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	if maxWorkflows > 0 && pageSize > maxWorkflows {
+		pageSize = maxWorkflows
 	}
 
 	var all []SimpleWorkflow
 	offset := 0
+	const maxCatalogPages = 1000
+	pages := 0
 
 	for {
+		if pages >= maxCatalogPages {
+			return nil, fmt.Errorf("workflow catalog pagination exceeded %d pages", maxCatalogPages)
+		}
+		pages++
 		resp, err := c.ListWorkflowsPage(ctx, pageSize, offset)
 		if err != nil {
 			return nil, err
 		}
-		if resp == nil || len(resp.Workflows) == 0 {
+		if maxWorkflows > 0 && resp != nil && resp.TotalCount != nil && *resp.TotalCount > maxWorkflows {
+			return nil, &WorkflowCatalogLimitError{MaxWorkflows: maxWorkflows, TotalCount: resp.TotalCount}
+		}
+		if resp == nil {
 			break
+		}
+		if resp.TotalCount != nil && *resp.TotalCount < 0 {
+			return nil, fmt.Errorf("workflow catalog returned an invalid negative total_count")
+		}
+		if resp.Offset != nil && *resp.Offset != offset {
+			return nil, fmt.Errorf("workflow catalog returned an unexpected offset")
+		}
+		if len(resp.Workflows) == 0 {
+			if (resp.HasMore != nil && *resp.HasMore) || (resp.TotalCount != nil && offset < *resp.TotalCount) {
+				return nil, fmt.Errorf("workflow catalog pagination ended before all workflows were returned")
+			}
+			break
+		}
+		if maxWorkflows > 0 && len(all)+len(resp.Workflows) > maxWorkflows {
+			return nil, &WorkflowCatalogLimitError{MaxWorkflows: maxWorkflows}
 		}
 
 		all = append(all, resp.Workflows...)
 		offset += len(resp.Workflows)
+		if resp.TotalCount != nil && offset > *resp.TotalCount {
+			return nil, fmt.Errorf("workflow catalog returned more workflows than total_count")
+		}
 
-		if resp.Count > 0 && offset >= resp.Count {
+		if resp.HasMore != nil {
+			if *resp.HasMore {
+				if resp.TotalCount != nil && offset >= *resp.TotalCount {
+					return nil, fmt.Errorf("workflow catalog pagination metadata is inconsistent")
+				}
+			} else {
+				if resp.TotalCount != nil && offset < *resp.TotalCount {
+					return nil, fmt.Errorf("workflow catalog pagination ended before total_count was reached")
+				}
+				break
+			}
+		} else if resp.TotalCount != nil {
+			if offset >= *resp.TotalCount {
+				break
+			}
+		} else if len(resp.Workflows) < pageSize {
 			break
 		}
-		if len(resp.Workflows) < pageSize {
-			break
+		if maxWorkflows > 0 && offset >= maxWorkflows {
+			return nil, &WorkflowCatalogLimitError{MaxWorkflows: maxWorkflows, TotalCount: resp.TotalCount}
 		}
 	}
 

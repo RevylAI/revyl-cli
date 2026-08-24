@@ -16,6 +16,19 @@ func TestCommandRunnerDelegatesCanonicalCommands(t *testing.T) {
 	binary := writeFakeRevyl(t, `#!/bin/sh
 case "$*" in
   *"dev --detach"*)
+	case "$*" in
+	  *"--profile development"*) ;;
+	  *)
+		printf 'missing profile flag: %s\n' "$*" >&2
+		exit 5
+		;;
+	esac
+	case "$*" in
+	  *"--platform-key"*)
+		printf 'deprecated platform-key flag emitted: %s\n' "$*" >&2
+		exit 6
+		;;
+	esac
     case "$*" in
       *"--launch-var API_URL --launch-var AUTH_STATE --no-inherited-launch-vars"*) ;;
       *)
@@ -23,10 +36,10 @@ case "$*" in
         exit 4
         ;;
     esac
-    printf '%s\n' '{"context":"default","state":"preparing","pid":42,"platform":"ios","session_id":"session-1","session_index":0,"viewer_url":"https://viewer","build":{"status":"running"}}'
+	printf '%s\n' '{"context":"default","state":"preparing","pid":42,"profile":"development","platform":"ios","session_id":"session-1","session_index":0,"viewer_url":"https://viewer","build":{"status":"running"}}'
     ;;
   *"dev status"*)
-    printf '%s\n' '{"running":true,"context":"default","state":"building","platform":"ios","build_mode":"remote","session_id":"session-1","session_owned":true,"viewer_url":"https://viewer","last_rebuild_status":"running","last_rebuild":{"started_at":"2026-07-19T10:00:00Z","seq":2,"status":"running","push_mode":"pending","remote_job_id":"job-1","logs":[{"at":"2026-07-19T10:00:01Z","kind":"info","message":"Remote build queued"}]},"build":{"state":"queued","phase":"remote_queue","remote_job_id":"job-1"}}'
+	printf '%s\n' '{"running":true,"context":"default","state":"building","profile":"development","platform":"ios","build_mode":"remote","session_id":"session-1","session_owned":true,"viewer_url":"https://viewer","last_rebuild_status":"running","last_rebuild":{"started_at":"2026-07-19T10:00:00Z","seq":2,"status":"running","push_mode":"pending","remote_job_id":"job-1","logs":[{"at":"2026-07-19T10:00:01Z","kind":"info","message":"Remote build queued"}]},"build":{"state":"queued","phase":"remote_queue","remote_job_id":"job-1"}}'
     ;;
   *"dev rebuild"*)
     if [ -n "$REVYL_INTERNAL_REBUILD_PROGRESS" ] || [ -n "$REVYL_INTERNAL_REBUILD_CONTROL" ] || [ -n "$REVYL_INTERNAL_REBUILD_HANDLE" ]; then
@@ -47,6 +60,7 @@ esac
 	runner := &CommandRunner{BinaryPath: binary, DevMode: true}
 
 	start, err := runner.Start(context.Background(), workDir, StartRequest{
+		Profile:                    "development",
 		Platform:                   "ios",
 		LaunchVars:                 []string{"API_URL", "AUTH_STATE"},
 		DisableInheritedLaunchVars: true,
@@ -58,12 +72,18 @@ esac
 	if start.Build.State != BuildStatePreparing {
 		t.Fatalf("Start() build state = %q, want preparing", start.Build.State)
 	}
+	if start.Profile != "development" {
+		t.Fatalf("Start() profile = %q, want development", start.Profile)
+	}
 	status, err := runner.Status(context.Background(), workDir, "default")
 	if err != nil || !status.Running {
 		t.Fatalf("Status() = %+v, %v", status, err)
 	}
 	if status.BuildMode != "remote" || status.Build.State != BuildStateQueued || status.Build.Phase != "remote_queue" {
 		t.Fatalf("Status() remote build = %+v", status)
+	}
+	if status.Profile != "development" {
+		t.Fatalf("Status() profile = %q, want development", status.Profile)
 	}
 	if status.LastRebuild == nil || status.LastRebuild.Sequence != 2 || len(status.LastRebuild.Logs) != 1 {
 		t.Fatalf("Status() rebuild progress = %+v", status.LastRebuild)
@@ -81,6 +101,45 @@ esac
 	stop, err := runner.Stop(context.Background(), workDir, "default")
 	if err != nil || !stop.Stopped {
 		t.Fatalf("Stop() = %+v, %v", stop, err)
+	}
+}
+
+func TestCommandRunnerRejectsDeprecatedPlatformKeyBeforeStartingChild(t *testing.T) {
+	runner := &CommandRunner{BinaryPath: filepath.Join(t.TempDir(), "missing-revyl")}
+
+	_, err := runner.Start(context.Background(), t.TempDir(), StartRequest{
+		PlatformKey: "ios-dev",
+	})
+	if err == nil {
+		t.Fatal("Start() error = nil, want deprecated platform_key error")
+	}
+	if !strings.Contains(err.Error(), "platform_key/--platform-key is no longer supported") ||
+		!strings.Contains(err.Error(), "profile/--profile") {
+		t.Fatalf("Start() error = %q, want actionable profile guidance", err)
+	}
+}
+
+func TestCommandRunnerScopesStartRecoveryCommandsToResolvedProject(t *testing.T) {
+	t.Setenv("REVYL_BINARY", "")
+	workDir := t.TempDir()
+	binary := writeFakeRevyl(t, `#!/bin/sh
+if [ "$1" != "-C" ] || [ -z "$2" ]; then
+  printf '%s\n' 'missing explicit project root' >&2
+  exit 2
+fi
+project_root="$2"
+printf 'Error: run "revyl -C %s config show" to list configured profiles\n' "$project_root" >&2
+exit 1
+`)
+	runner := &CommandRunner{BinaryPath: binary}
+
+	_, err := runner.Start(context.Background(), workDir, StartRequest{Profile: "missing"})
+	if err == nil {
+		t.Fatal("Start() error = nil")
+	}
+	want := "revyl -C " + workDir + " config show"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("Start() error = %q, want project-scoped recovery %q", err, want)
 	}
 }
 
