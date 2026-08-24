@@ -593,6 +593,27 @@ func TestRemoteOverridesRecomputeHashAndTriggerProvenance(t *testing.T) {
 	}
 }
 
+func TestRemoteBuildWithoutOverridesPreservesResolvedDefinitionHash(t *testing.T) {
+	repository := t.TempDir()
+	gitInitBuildRepository(t, repository)
+	writeProjectBuildConfig(t, repository, projectBuildConfigYAML("development", "android", "build/app.apk", true))
+
+	invocation, err := resolveBuildInvocation(repository, "", "development", "android", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effective, hash, err := applyRemoteBuildOverrides(invocation.Recipe, nil, nil, "", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash != invocation.BuildDefinitionHash {
+		t.Fatalf("effective hash = %q, want resolved hash %q", hash, invocation.BuildDefinitionHash)
+	}
+	if !reflect.DeepEqual(effective, invocation.Recipe) {
+		t.Fatalf("no-op overrides changed recipe: effective=%#v resolved=%#v", effective, invocation.Recipe)
+	}
+}
+
 func TestNoCacheChangesEffectiveHashWhenRecipeCachesAreAlreadyEmpty(t *testing.T) {
 	recipe := config.EffectiveBuildRecipe{
 		BuildCommands: []string{"true"},

@@ -301,9 +301,9 @@ func platformConfiguration(aggregate config.NormalizedProjectAggregate, profileN
 
 func cloneEffectiveBuildRecipe(recipe config.EffectiveBuildRecipe) config.EffectiveBuildRecipe {
 	cloned := recipe
-	cloned.SetupCommands = append([]string(nil), recipe.SetupCommands...)
-	cloned.BuildCommands = append([]string(nil), recipe.BuildCommands...)
-	cloned.SecretRefs = append([]string(nil), recipe.SecretRefs...)
+	cloned.SetupCommands = append([]string{}, recipe.SetupCommands...)
+	cloned.BuildCommands = append([]string{}, recipe.BuildCommands...)
+	cloned.SecretRefs = append([]string{}, recipe.SecretRefs...)
 	cloned.Env = make(map[string]string, len(recipe.Env))
 	for key, value := range recipe.Env {
 		cloned.Env[key] = value
@@ -756,11 +756,15 @@ func applyRemoteBuildOverrides(
 	disableCaches bool,
 ) (config.EffectiveBuildRecipe, string, error) {
 	effective := cloneEffectiveBuildRecipe(recipe)
-	effective.Env = mergeRemoteBuildEnv(effective.Env, envOverrides)
-	var err error
-	effective.SecretRefs, err = mergeBuildSecretRefs(effective.SecretRefs, secretOverrides)
-	if err != nil {
-		return config.EffectiveBuildRecipe{}, "", err
+	if len(envOverrides) > 0 {
+		effective.Env = mergeRemoteBuildEnv(effective.Env, envOverrides)
+	}
+	if len(secretOverrides) > 0 {
+		var err error
+		effective.SecretRefs, err = mergeBuildSecretRefs(effective.SecretRefs, secretOverrides)
+		if err != nil {
+			return config.EffectiveBuildRecipe{}, "", err
+		}
 	}
 	if err := validateBuildEnvSecretCollisions(effective.Env, effective.SecretRefs); err != nil {
 		return config.EffectiveBuildRecipe{}, "", err
