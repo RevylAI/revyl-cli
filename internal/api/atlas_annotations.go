@@ -128,6 +128,47 @@ func (c *Client) CreateGroundedAtlasAnnotationThread(
 	return &result, nil
 }
 
+func (c *Client) DeclareAtlasAnnotationAttachmentUpload(
+	ctx context.Context,
+	appID string,
+	req *AtlasAttachmentUploadRequest,
+) (*AtlasAttachmentUploadResponse, error) {
+	path := fmt.Sprintf(
+		"/api/v1/atlas/v2/apps/%s/annotation-attachments/uploads",
+		url.PathEscape(appID),
+	)
+	resp, err := c.doRequest(ctx, http.MethodPost, path, req)
+	if err != nil {
+		return nil, err
+	}
+	var result AtlasAttachmentUploadResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) CompleteAtlasAnnotationAttachmentUpload(
+	ctx context.Context,
+	appID string,
+	attachmentID string,
+) (*AtlasAttachment, error) {
+	path := fmt.Sprintf(
+		"/api/v1/atlas/v2/apps/%s/annotation-attachments/%s/complete",
+		url.PathEscape(appID),
+		url.PathEscape(attachmentID),
+	)
+	resp, err := c.doRequest(ctx, http.MethodPost, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result AtlasAttachment
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) AddAtlasAnnotationReply(
 	ctx context.Context,
 	appID string,

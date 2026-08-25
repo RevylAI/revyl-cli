@@ -2183,16 +2183,48 @@ func isRetryableUploadStatus(statusCode int) bool {
 	return statusCode == http.StatusRequestTimeout || statusCode == http.StatusTooManyRequests || statusCode >= 500
 }
 
+type UploadHTTPError struct {
+	StatusCode int
+	Code       string
+}
+
+func (e *UploadHTTPError) Error() string {
+	if e.Code != "" {
+		return fmt.Sprintf("upload failed with status %d (%s)", e.StatusCode, e.Code)
+	}
+	return fmt.Sprintf("upload failed with status %d", e.StatusCode)
+}
+
+func safeUploadProviderCode(body []byte) string {
+	var payload struct {
+		Code string `xml:"Code"`
+	}
+	if err := xml.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	code := strings.TrimSpace(payload.Code)
+	if code == "" || len(code) > 64 {
+		return ""
+	}
+	for _, char := range code {
+		if (char < 'a' || char > 'z') &&
+			(char < 'A' || char > 'Z') &&
+			(char < '0' || char > '9') &&
+			char != '_' && char != '-' && char != '.' {
+			return ""
+		}
+	}
+	return code
+}
+
 func formatUploadStatusError(statusCode int, body []byte, readErr error) error {
 	if readErr != nil {
-		return fmt.Errorf("upload failed with status %d (failed to read response: %v)", statusCode, readErr)
+		return fmt.Errorf("%w (response could not be read)", &UploadHTTPError{StatusCode: statusCode})
 	}
-
-	msg := strings.TrimSpace(string(body))
-	if msg == "" {
-		return fmt.Errorf("upload failed with status %d", statusCode)
+	return &UploadHTTPError{
+		StatusCode: statusCode,
+		Code:       safeUploadProviderCode(body),
 	}
-	return fmt.Errorf("upload failed with status %d: %s", statusCode, msg)
 }
 
 // retryUploadAttempts runs attemptFn with the client's retry budget and
@@ -2234,6 +2266,16 @@ func (c *Client) retryUploadAttempts(ctx context.Context, operation string, atte
 }
 
 func (c *Client) uploadFileWithRetry(ctx context.Context, uploadURL, contentType, filePath string, fileSize int64) error {
+	return c.uploadFileWithHeadersAndRetry(
+		ctx,
+		uploadURL,
+		map[string]string{"Content-Type": contentType},
+		filePath,
+		fileSize,
+	)
+}
+
+func (c *Client) uploadFileWithHeadersAndRetry(ctx context.Context, uploadURL string, headers map[string]string, filePath string, fileSize int64) error {
 	return c.retryUploadAttempts(ctx, "upload", func(int) (bool, error) {
 		file, err := os.Open(filePath)
 		if err != nil {
@@ -2245,7 +2287,16 @@ func (c *Client) uploadFileWithRetry(ctx context.Context, uploadURL, contentType
 		if err != nil {
 			return true, fmt.Errorf("failed to create upload request: %w", err)
 		}
-		uploadReq.Header.Set("Content-Type", contentType)
+		for name, value := range headers {
+			if strings.EqualFold(name, "Content-Length") {
+				declaredSize, err := strconv.ParseInt(value, 10, 64)
+				if err != nil || declaredSize != fileSize {
+					return true, fmt.Errorf("signed upload Content-Length does not match the file size")
+				}
+				continue
+			}
+			uploadReq.Header.Set(name, value)
+		}
 		uploadReq.ContentLength = fileSize
 
 		uploadResp, err := c.uploadClient.Do(uploadReq)
@@ -6983,6 +7034,12 @@ func (c *Client) CheckBuildRunnersAvailable(ctx context.Context, platform string
 //   - error on upload failure after retries
 func (c *Client) UploadFileToPresignedURL(ctx context.Context, uploadURL, contentType, filePath string, fileSize int64) error {
 	return c.uploadFileWithRetry(ctx, uploadURL, contentType, filePath, fileSize)
+}
+
+// UploadFileToPresignedURLWithHeaders applies every header returned by the
+// signing endpoint. The exact header set is part of the S3 signature contract.
+func (c *Client) UploadFileToPresignedURLWithHeaders(ctx context.Context, uploadURL string, headers map[string]string, filePath string, fileSize int64) error {
+	return c.uploadFileWithHeadersAndRetry(ctx, uploadURL, headers, filePath, fileSize)
 }
 
 // UploadFileToPresignedPost uploads a file via a presigned S3 POST policy

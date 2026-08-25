@@ -474,6 +474,56 @@ func TestUploadBuild_DoesNotRetryNonRetryableStatus(t *testing.T) {
 	}
 }
 
+func TestUploadFileToPresignedURLWithHeadersAppliesSignedHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q", got)
+		}
+		if got := r.Header.Get("X-Amz-Meta-Test"); got != "signed-value" {
+			t.Fatalf("X-Amz-Meta-Test = %q", got)
+		}
+		if r.ContentLength != 2 {
+			t.Fatalf("ContentLength = %d", r.ContentLength)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	path := filepath.Join(t.TempDir(), "attachment.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClientWithBaseURL("test-key", server.URL)
+	client.uploadClient = server.Client()
+	if err := client.UploadFileToPresignedURLWithHeaders(
+		context.Background(),
+		server.URL,
+		map[string]string{
+			"Content-Type":    "application/json",
+			"X-Amz-Meta-Test": "signed-value",
+		},
+		path,
+		2,
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUploadHTTPErrorDoesNotExposeProviderResponseBody(t *testing.T) {
+	err := formatUploadStatusError(
+		http.StatusForbidden,
+		[]byte("<Signature>secret-signature-material</Signature>"),
+		nil,
+	)
+	if strings.Contains(err.Error(), "secret-signature-material") {
+		t.Fatalf("error exposed provider response body: %q", err)
+	}
+	var uploadHTTPError *UploadHTTPError
+	if !errors.As(err, &uploadHTTPError) || uploadHTTPError.StatusCode != http.StatusForbidden {
+		t.Fatalf("error = %#v, want typed 403", err)
+	}
+}
+
 func TestUploadBuild_FailsAfterRetryExhaustion(t *testing.T) {
 	client, artifactPath, uploadAttempts, completeCalls := testUploadBuildClient(
 		t,

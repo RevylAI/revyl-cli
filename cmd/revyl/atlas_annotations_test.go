@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/spf13/cobra"
 )
 
 func TestAtlasAnnotationsCommandExposesCompleteLifecycle(t *testing.T) {
@@ -27,6 +30,70 @@ func TestAtlasAnnotationsCommandExposesCompleteLifecycle(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing annotation commands: %v", want)
+	}
+}
+
+func TestAnnotationDeleteWarningDistinguishesRootAndReplyBehavior(t *testing.T) {
+	if !strings.Contains(annotationDeleteWarning, "root comment deletion removes the entire thread") {
+		t.Fatalf("delete warning does not explain root deletion: %q", annotationDeleteWarning)
+	}
+	if !strings.Contains(annotationDeleteWarning, "reply deletion removes only that reply") {
+		t.Fatalf("delete warning does not explain reply deletion: %q", annotationDeleteWarning)
+	}
+}
+
+func TestAnnotationAttachmentFlagsAndDeterministicUploadIDs(t *testing.T) {
+	for _, command := range []*cobra.Command{
+		newAtlasAnnotationsCreateCommand(),
+		newAtlasAnnotationsReplyCommand(),
+		newAtlasAnnotationsEditCommand(),
+	} {
+		if command.Flags().Lookup("attach") == nil {
+			t.Fatalf("%s does not expose --attach", command.Name())
+		}
+	}
+	edit := newAtlasAnnotationsEditCommand()
+	if edit.Flags().Lookup("remove-attachment") == nil || edit.Flags().Lookup("clear-attachments") == nil {
+		t.Fatal("edit does not expose attachment removal flags")
+	}
+
+	requestID := "00000000-0000-0000-0000-000000000060"
+	first, err := annotationClientUploadID(requestID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeated, _ := annotationClientUploadID(requestID, 0)
+	second, _ := annotationClientUploadID(requestID, 1)
+	if first != repeated || first == second {
+		t.Fatalf("upload IDs are not deterministic and ordinal-scoped: %s %s %s", first, repeated, second)
+	}
+}
+
+func TestAnnotationAttachmentLimits(t *testing.T) {
+	if got := annotationAttachmentLimit("video/mp4"); got != 64<<20 {
+		t.Fatalf("video attachment limit = %d, want %d", got, int64(64<<20))
+	}
+	if got := annotationAttachmentLimit("image/png"); got != 10<<20 {
+		t.Fatalf("image attachment limit = %d, want %d", got, int64(10<<20))
+	}
+	if got := annotationAttachmentLimit("application/pdf"); got != 25<<20 {
+		t.Fatalf("PDF attachment limit = %d, want %d", got, int64(25<<20))
+	}
+	if got := annotationAttachmentTier("application/octet-stream"); got != "download" {
+		t.Fatalf("generic attachment tier = %q, want download", got)
+	}
+	if got := annotationAttachmentDeclaredSizeBucket((64 << 20) + 1); got != "up_to_128_mib" {
+		t.Fatalf("declared size bucket = %q, want up_to_128_mib", got)
+	}
+}
+
+func TestAnnotationUploadResignUsesTypedHTTPStatus(t *testing.T) {
+	err := fmt.Errorf("upload attempt: %w", &api.UploadHTTPError{StatusCode: http.StatusForbidden})
+	if !annotationUploadNeedsResign(err) {
+		t.Fatal("403 upload error should request a new signature")
+	}
+	if annotationUploadNeedsResign(errors.New("expired status 403")) {
+		t.Fatal("plain error text must not control upload retry behavior")
 	}
 }
 

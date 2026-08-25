@@ -189,6 +189,48 @@ func (e AtlasAnnotationStatus) Valid() bool {
 	}
 }
 
+// Defines values for AtlasAttachmentStatus.
+const (
+	AtlasAttachmentStatusPending AtlasAttachmentStatus = "pending"
+	AtlasAttachmentStatusReady   AtlasAttachmentStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the AtlasAttachmentStatus enum.
+func (e AtlasAttachmentStatus) Valid() bool {
+	switch e {
+	case AtlasAttachmentStatusPending:
+		return true
+	case AtlasAttachmentStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AtlasAttachmentTier.
+const (
+	AtlasAttachmentTierDownload AtlasAttachmentTier = "download"
+	AtlasAttachmentTierImage    AtlasAttachmentTier = "image"
+	AtlasAttachmentTierPdf      AtlasAttachmentTier = "pdf"
+	AtlasAttachmentTierVideo    AtlasAttachmentTier = "video"
+)
+
+// Valid indicates whether the value is a known member of the AtlasAttachmentTier enum.
+func (e AtlasAttachmentTier) Valid() bool {
+	switch e {
+	case AtlasAttachmentTierDownload:
+		return true
+	case AtlasAttachmentTierImage:
+		return true
+	case AtlasAttachmentTierPdf:
+		return true
+	case AtlasAttachmentTierVideo:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AtlasV2IndexAppStatus.
 const (
 	AtlasV2IndexAppStatusEmpty   AtlasV2IndexAppStatus = "empty"
@@ -1541,6 +1583,8 @@ type AtlasAnnotationAuthor struct {
 
 // AtlasAnnotationComment defines model for AtlasAnnotationComment.
 type AtlasAnnotationComment struct {
+	Attachments *[]AtlasAttachment `json:"attachments,omitempty"`
+
 	// Author Author identity for authenticated org members.
 	//
 	// ``user_id`` is the authenticated PropelAuth user id (authorization and
@@ -1559,7 +1603,10 @@ type AtlasAnnotationComment struct {
 
 // AtlasAnnotationCommentEditRequest defines model for AtlasAnnotationCommentEditRequest.
 type AtlasAnnotationCommentEditRequest struct {
-	Body string `json:"body"`
+	AddAttachmentIds    *[]openapi_types.UUID `json:"add_attachment_ids,omitempty"`
+	Body                *string               `json:"body,omitempty"`
+	ClearAttachments    *bool                 `json:"clear_attachments,omitempty"`
+	RemoveAttachmentIds *[]openapi_types.UUID `json:"remove_attachment_ids,omitempty"`
 }
 
 // AtlasAnnotationCommentResponse defines model for AtlasAnnotationCommentResponse.
@@ -1571,11 +1618,12 @@ type AtlasAnnotationCommentResponse struct {
 
 // AtlasAnnotationFeedbackItem defines model for AtlasAnnotationFeedbackItem.
 type AtlasAnnotationFeedbackItem struct {
-	AnchorX  float32 `json:"anchor_x"`
-	AnchorY  float32 `json:"anchor_y"`
-	AppId    string  `json:"app_id"`
-	AppName  *string `json:"app_name,omitempty"`
-	AtlasUrl *string `json:"atlas_url,omitempty"`
+	AnchorX         float32 `json:"anchor_x"`
+	AnchorY         float32 `json:"anchor_y"`
+	AppId           string  `json:"app_id"`
+	AppName         *string `json:"app_name,omitempty"`
+	AtlasUrl        *string `json:"atlas_url,omitempty"`
+	AttachmentCount *int    `json:"attachment_count,omitempty"`
 
 	// Author Author identity for authenticated org members.
 	//
@@ -1622,7 +1670,8 @@ type AtlasAnnotationOriginSurface string
 
 // AtlasAnnotationReplyRequest defines model for AtlasAnnotationReplyRequest.
 type AtlasAnnotationReplyRequest struct {
-	Body string `json:"body"`
+	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
+	Body          string                `json:"body"`
 
 	// ClientRequestId Client-generated UUID making retried submissions idempotent.
 	ClientRequestId *string `json:"client_request_id,omitempty"`
@@ -1676,6 +1725,43 @@ type AtlasAnnotationThreadResponse struct {
 	Thread AtlasAnnotationThread `json:"thread"`
 }
 
+// AtlasAttachment defines model for AtlasAttachment.
+type AtlasAttachment struct {
+	ByteSize     int                 `json:"byte_size"`
+	ContentType  string              `json:"content_type"`
+	Filename     string              `json:"filename"`
+	Height       *int                `json:"height,omitempty"`
+	Id           string              `json:"id"`
+	RenderTier   AtlasAttachmentTier `json:"render_tier"`
+	Url          string              `json:"url"`
+	UrlExpiresAt time.Time           `json:"url_expires_at"`
+	Width        *int                `json:"width,omitempty"`
+}
+
+// AtlasAttachmentStatus defines model for AtlasAttachmentStatus.
+type AtlasAttachmentStatus string
+
+// AtlasAttachmentTier defines model for AtlasAttachmentTier.
+type AtlasAttachmentTier string
+
+// AtlasAttachmentUploadRequest defines model for AtlasAttachmentUploadRequest.
+type AtlasAttachmentUploadRequest struct {
+	ByteSize       int                `json:"byte_size"`
+	ClientUploadId openapi_types.UUID `json:"client_upload_id"`
+	ContentType    string             `json:"content_type"`
+	Filename       string             `json:"filename"`
+}
+
+// AtlasAttachmentUploadResponse defines model for AtlasAttachmentUploadResponse.
+type AtlasAttachmentUploadResponse struct {
+	Attachment      *AtlasAttachment      `json:"attachment,omitempty"`
+	AttachmentId    string                `json:"attachment_id"`
+	Status          AtlasAttachmentStatus `json:"status"`
+	UploadExpiresAt *time.Time            `json:"upload_expires_at,omitempty"`
+	UploadHeaders   *map[string]string    `json:"upload_headers,omitempty"`
+	UploadUrl       *string               `json:"upload_url,omitempty"`
+}
+
 // AtlasEdgeClipVideo Presigned video for one run, used by the edge-clip player/run switcher.
 type AtlasEdgeClipVideo struct {
 	ReportId      string   `json:"report_id"`
@@ -1715,7 +1801,8 @@ type AtlasEdgeRunsResponse struct {
 
 // AtlasGroundedAnnotationThreadCreateRequest defines model for AtlasGroundedAnnotationThreadCreateRequest.
 type AtlasGroundedAnnotationThreadCreateRequest struct {
-	Body string `json:"body"`
+	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
+	Body          string                `json:"body"`
 
 	// ClientRequestId Client-generated UUID making retried submissions idempotent.
 	ClientRequestId string `json:"client_request_id"`
@@ -1911,6 +1998,9 @@ type AuthoredPRReview struct {
 	ProofOfChanges *AuthoredProofOfChanges `json:"proof_of_changes,omitempty"`
 
 	// ReviewTriggers Authored changed-path, label, and draft review filters.
+	//
+	// Explicit ``paths`` globs match repository-root-relative provider paths.
+	// When omitted, repository-bound selection defaults to the project root.
 	ReviewTriggers *AuthoredReviewTriggers `json:"review_triggers,omitempty"`
 
 	// StrictCiCheck Authored strict build-check behavior.
@@ -1942,6 +2032,9 @@ type AuthoredProofOfChanges_Harness struct {
 }
 
 // AuthoredReviewTriggers Authored changed-path, label, and draft review filters.
+//
+// Explicit “paths“ globs match repository-root-relative provider paths.
+// When omitted, repository-bound selection defaults to the project root.
 type AuthoredReviewTriggers struct {
 	Drafts *bool     `json:"drafts,omitempty"`
 	Labels *[]string `json:"labels,omitempty"`
@@ -4745,11 +4838,8 @@ type ScmActions struct {
 	ProjectRoot *string `json:"project_root,omitempty"`
 
 	// ProofHarness Which agent runs the proof of changes.
-	ProofHarness *ScmActions_ProofHarness `json:"proof_harness,omitempty"`
-
-	// StatusInPrDescription When true, splice the Revyl preview and proof block into the pull-request description instead of a later comment.
-	StatusInPrDescription *bool `json:"status_in_pr_description,omitempty"`
-	StrictBuildChecks     *bool `json:"strict_build_checks,omitempty"`
+	ProofHarness      *ScmActions_ProofHarness `json:"proof_harness,omitempty"`
+	StrictBuildChecks *bool                    `json:"strict_build_checks,omitempty"`
 }
 
 // ScmActions_ProofHarness Which agent runs the proof of changes.
@@ -6361,6 +6451,16 @@ type ListAtlasAnnotationFeedbackParamsStatus string
 // ListAtlasAnnotationFeedbackParamsAuthorType defines parameters for ListAtlasAnnotationFeedback.
 type ListAtlasAnnotationFeedbackParamsAuthorType string
 
+// DeclareAtlasAnnotationAttachmentUploadParams defines parameters for DeclareAtlasAnnotationAttachmentUpload.
+type DeclareAtlasAnnotationAttachmentUploadParams struct {
+	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
+}
+
+// CompleteAtlasAnnotationAttachmentUploadParams defines parameters for CompleteAtlasAnnotationAttachmentUpload.
+type CompleteAtlasAnnotationAttachmentUploadParams struct {
+	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
+}
+
 // DeleteAtlasAnnotationCommentParams defines parameters for DeleteAtlasAnnotationComment.
 type DeleteAtlasAnnotationCommentParams struct {
 	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
@@ -6860,6 +6960,9 @@ type StartBuildMultipartUploadApiV1AppsAppIdBuildsMultipartUploadStartPostJSONRe
 
 // CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostJSONRequestBody defines body for CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPost for application/json ContentType.
 type CreateBuildUploadSessionApiV1AppsAppIdBuildsUploadSessionPostJSONRequestBody = BuildUploadSessionRequest
+
+// DeclareAtlasAnnotationAttachmentUploadJSONRequestBody defines body for DeclareAtlasAnnotationAttachmentUpload for application/json ContentType.
+type DeclareAtlasAnnotationAttachmentUploadJSONRequestBody = AtlasAttachmentUploadRequest
 
 // EditAtlasAnnotationCommentJSONRequestBody defines body for EditAtlasAnnotationComment for application/json ContentType.
 type EditAtlasAnnotationCommentJSONRequestBody = AtlasAnnotationCommentEditRequest

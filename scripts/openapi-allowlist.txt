@@ -164,3 +164,5 @@ PUT /api/v1/workflows/update_location_config/{workflow_id}
 PUT /api/v1/workflows/update_name/{workflow_id}
 PUT /api/v1/workflows/update_run_config/{workflow_id}
 PUT /api/v1/workflows/update_tests/{workflow_id}
+POST /api/v1/atlas/v2/apps/{app_id}/annotation-attachments/uploads
+POST /api/v1/atlas/v2/apps/{app_id}/annotation-attachments/{attachment_id}/complete
