@@ -248,12 +248,14 @@ _set-version:
 	@printf "$(NEW)\n" > VERSION
 	@sed -E -i.bak 's/"version": "[0-9]+\.[0-9]+\.[0-9]+"/"version": "$(NEW)"/' npm/package.json && rm -f npm/package.json.bak
 	@sed -E -i.bak 's/^version = "[0-9]+\.[0-9]+\.[0-9]+"/version = "$(NEW)"/' python/pyproject.toml && rm -f python/pyproject.toml.bak
+	@uv lock --project python
 	@sed -E -i.bak 's/^__version__ = "[0-9]+\.[0-9]+\.[0-9]+"/__version__ = "$(NEW)"/' python/revyl/_binary.py && rm -f python/revyl/_binary.py.bak
 	@sed -E -i.bak 's#(img\.shields\.io/badge/version-)[0-9]+\.[0-9]+\.[0-9]+(-[^"]*)#\1$(NEW)\2#' README.md && rm -f README.md.bak
 	@echo "Updated files:"
 	@echo "  VERSION                    $(NEW)"
 	@echo "  npm/package.json           $(NEW)"
 	@echo "  python/pyproject.toml      $(NEW)"
+	@echo "  python/uv.lock             $(NEW)"
 	@echo "  python/revyl/_binary.py    $(NEW)"
 	@echo "  README.md                  $(NEW)"
 	@echo ""
