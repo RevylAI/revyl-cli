@@ -91,8 +91,11 @@ detected iOS and/or Android platforms before any optional interactive onboarding
 Supplying a project ID writes it locally but does not validate, attach, or publish
 it; use `-y` to stop after local config creation. Authenticated interactive setup
 can continue into the same GitHub PR-automation flow as `revyl github setup`, but
-only after the project config has been written. For an existing legacy file,
-preview or perform the local conversion explicitly:
+only after the project config has been written. When the Revyl GitHub App can
+access the repository, committing that valid config to the default branch
+automatically creates or resolves the matching server project. `revyl config push`
+remains the explicit manual publication and recovery path. For an existing legacy
+file, preview or perform the local conversion explicitly:
 
 ```bash
 revyl config migrate --check            # Summarize the migration; do not write
