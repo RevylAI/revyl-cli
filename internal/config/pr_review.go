@@ -108,9 +108,8 @@ type PRReviewBuildEntry struct {
 	// Secrets lists encrypted org build-secret names, never their values.
 	Secrets []string `yaml:"secrets,omitempty"`
 
-	// Caches contains remote-build cache disks for this platform's preview
-	// builds. Omitted or empty means no caching; cache disks are only used when
-	// explicitly configured.
+	// Caches contains configured path caches for this platform's preview builds.
+	// Omitted or empty means no path caching.
 	Caches []BuildCache `yaml:"caches,omitempty"`
 }
 

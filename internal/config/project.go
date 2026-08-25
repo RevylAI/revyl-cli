@@ -382,7 +382,7 @@ type BuildConfig struct {
 	// Source describes where remote build runners should fetch source from.
 	Source BuildSource `yaml:"source,omitempty"`
 
-	// Caches contains cache disks shared across build platforms.
+	// Caches contains configured path caches shared across build platforms.
 	Caches []BuildCache `yaml:"caches,omitempty"`
 
 	// Platforms contains platform-specific build configurations keyed by platform name
@@ -390,12 +390,12 @@ type BuildConfig struct {
 	Platforms map[string]BuildPlatform `yaml:"platforms,omitempty"`
 }
 
-// BuildCache describes one remote build cache disk.
+// BuildCache describes one configured remote-build path cache.
 type BuildCache struct {
 	// Key is the org-local cache key. The backend prefixes it with the org ID.
 	Key string `yaml:"key" json:"key"`
 
-	// Paths are project-relative paths mounted into this cache disk.
+	// Paths are project-relative paths stored in this cache archive.
 	Paths []string `yaml:"paths" json:"paths"`
 }
 
@@ -460,7 +460,7 @@ type BuildPlatform struct {
 	// serialized into project configuration.
 	Secrets []string `yaml:"secrets,omitempty"`
 
-	// Caches contains cache disks used by this platform's remote builds.
+	// Caches contains configured path caches used by this platform's remote builds.
 	Caches []BuildCache `yaml:"caches,omitempty"`
 }
 
@@ -489,7 +489,7 @@ func (p BuildPlatform) JoinedBuildCommand() string {
 	return strings.Join(p.BuildCommands(), " && ")
 }
 
-// EffectiveBuildCaches returns the merged global and platform cache disks.
+// EffectiveBuildCaches returns the merged global and platform path caches.
 func EffectiveBuildCaches(buildCfg BuildConfig, platformCfg BuildPlatform) []BuildCache {
 	var result []BuildCache
 	indexByKey := make(map[string]int)

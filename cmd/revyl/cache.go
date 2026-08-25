@@ -19,9 +19,9 @@ import (
 var cacheCmd = &cobra.Command{
 	Use:   "cache",
 	Short: "Manage remote build caches",
-	Long: `Manage the org's remote build caches (DerivedData, toolchains, codegen).
+	Long: `Manage the org's configured path caches (dependencies, generated files, build outputs).
 
-Caches are keyed disk images restored before each remote build and saved back
+Caches are compressed path archives restored before each remote build and saved back
 on success. Deleting a cache is always safe: the next build runs cold and
 re-uploads a fresh one. Use delete instead of renaming cache keys in
 .revyl/config.yaml when a cache needs to be discarded.`,
