@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -372,6 +374,45 @@ func TestValidateBuildEnvSecretCollisions(t *testing.T) {
 	}
 }
 
+func TestCreateSourceArchivePreservesMonorepoLayout(t *testing.T) {
+	repoRoot := t.TempDir()
+	runGit(t, repoRoot, "init")
+	projectRoot := filepath.Join(repoRoot, "apps", "mobile")
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".revyl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoRoot, "packages", "shared"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(repoRoot, "package.json"), "{}\n")
+	writeFile(t, filepath.Join(projectRoot, ".revyl", "config.yaml"), "project:\n  name: mobile\n")
+	writeFile(t, filepath.Join(projectRoot, "app.json"), "{}\n")
+	writeFile(t, filepath.Join(repoRoot, "packages", "shared", "package.json"), "{}\n")
+	runGit(t, repoRoot, "add", ".")
+	runGit(t, repoRoot, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "fixture")
+
+	archivePath, err := createSourceArchive(repoRoot)
+	if err != nil {
+		t.Fatalf("createSourceArchive(): %v", err)
+	}
+	defer os.Remove(archivePath)
+
+	files := readTarGz(t, archivePath)
+	for _, path := range []string{
+		"package.json",
+		"apps/mobile/.revyl/config.yaml",
+		"apps/mobile/app.json",
+		"packages/shared/package.json",
+	} {
+		if _, ok := files[path]; !ok {
+			t.Fatalf("archive missing %q; files = %v", path, files)
+		}
+	}
+	if _, ok := files["app.json"]; ok {
+		t.Fatal("archive flattened the app subtree into the source root")
+	}
+}
+
 func TestRemoteBuildConfigIncludesSecretReferences(t *testing.T) {
 	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
 	config := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
@@ -386,5 +427,70 @@ func TestRemoteBuildConfigIncludesSecretReferences(t *testing.T) {
 	}
 	if config.Env != nil {
 		t.Fatalf("Env = %#v, want nil", config.Env)
+	}
+}
+
+func TestRemoteBuildConfigIncludesResolvedSourceSubdir(t *testing.T) {
+	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
+	buildConfig := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+		Platform:     "ios",
+		Command:      "xcodebuild",
+		Output:       "build/App.app",
+		SourceSubdir: "apps/mobile",
+	})
+
+	if buildConfig.SourceSubdir == nil || *buildConfig.SourceSubdir != "apps/mobile" {
+		t.Fatalf("SourceSubdir = %#v, want apps/mobile", buildConfig.SourceSubdir)
+	}
+}
+
+func TestRemoteBuildConfigOmitsRepositoryRootSourceSubdir(t *testing.T) {
+	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
+	buildConfig := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+		Platform:     "ios",
+		Command:      "xcodebuild",
+		Output:       "build/App.app",
+		SourceSubdir: ".",
+	})
+
+	if buildConfig.SourceSubdir != nil {
+		t.Fatalf("SourceSubdir = %#v, want nil for repository root", buildConfig.SourceSubdir)
+	}
+}
+
+func TestRemoteBuildConfigExplicitGitSubdirOverridesResolvedProject(t *testing.T) {
+	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
+	buildConfig := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+		Platform:     "android",
+		Command:      "./gradlew assembleRelease",
+		Output:       "build/app.apk",
+		SourceSubdir: "apps/mobile",
+		Source: config.BuildSource{
+			Type:    "git",
+			RepoURL: "https://example.com/example/repository.git",
+			Subdir:  "clients/mobile",
+		},
+	})
+
+	if buildConfig.SourceSubdir == nil || *buildConfig.SourceSubdir != "clients/mobile" {
+		t.Fatalf("SourceSubdir = %#v, want clients/mobile", buildConfig.SourceSubdir)
+	}
+}
+
+func TestRemoteBuildConfigPreservesEmptyExplicitGitSubdir(t *testing.T) {
+	appID := uuid.MustParse("00000000-0000-0000-0000-000000000456")
+	buildConfig := remoteBuildConfigFromResolved(appID, remoteBuildPlatformConfig{
+		Platform:     "ios",
+		Command:      "xcodebuild",
+		Output:       "build/App.app",
+		SourceSubdir: "apps/mobile",
+		Source: config.BuildSource{
+			Type:    "git",
+			RepoURL: "https://example.com/example/repository.git",
+		},
+	})
+
+	if buildConfig.SourceSubdir != nil {
+		t.Fatalf("SourceSubdir = %#v, want nil for an explicit root Git source", buildConfig.SourceSubdir)
 	}
 }

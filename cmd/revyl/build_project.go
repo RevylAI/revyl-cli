@@ -24,6 +24,7 @@ import (
 // exception is the existing post-build prompt that may CAS-bind a selected app.
 type projectBuildInvocation struct {
 	ProjectRoot         string
+	WorktreeRoot        string
 	ConfigPath          string
 	OriginalConfigBytes []byte
 	Profile             string
@@ -136,7 +137,7 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 		ui.Select,
 	)
 	if err != nil {
-		return actionableLocalConfigError(err)
+		return actionableBuildConfigError(err)
 	}
 	analyticsProperties["build_platform"] = invocation.Platform
 	analyticsProperties["selection_source"] = invocation.SelectionSource
@@ -145,6 +146,17 @@ func runProjectConfiguredBuild(cmd *cobra.Command) (returnErr error) {
 		return runProjectRemoteBuild(cmd, invocation, apiKey, jsonOutput, progress)
 	}
 	return runLocalBuild(cmd, invocation, apiKey, jsonOutput, interactive, progress)
+}
+
+func actionableBuildConfigError(err error) error {
+	var configError *config.ConfigError
+	if errors.As(err, &configError) && configError.Code == "config_not_found" {
+		return analytics.WithSafeDiagnostic(
+			errors.New("no .revyl/config.yaml applies to the current directory; run this command from the app root or pass '-C <app-root>'"),
+			"project configuration could not be used",
+		)
+	}
+	return actionableLocalConfigError(err)
 }
 
 func buildDomainStatus(err error, detachedRemote bool) string {
@@ -274,6 +286,7 @@ func resolveBuildInvocation(
 	}
 	return projectBuildInvocation{
 		ProjectRoot:         project.ProjectRoot,
+		WorktreeRoot:        project.WorktreeRoot,
 		ConfigPath:          project.ConfigPath,
 		OriginalConfigBytes: append([]byte(nil), project.OriginalBytes...),
 		Profile:             profile,
@@ -713,9 +726,9 @@ func runProjectRemoteBuild(cmd *cobra.Command, invocation projectBuildInvocation
 	}
 	invocation.Recipe = effectiveRecipe
 	invocation.BuildDefinitionHash = definitionHash
-	resolved := remoteBuildPlatformConfigFromProject(invocation)
+	resolved := remoteBuildPlatformConfigForWorktree(invocation)
 	err = runRemoteBuildWithOptions(cmd, apiKey, remoteBuildOptions{
-		Profile: invocation.Profile, ProjectRoot: invocation.ProjectRoot, Resolved: &resolved,
+		Profile: invocation.Profile, ProjectRoot: invocation.ProjectRoot, WorktreeRoot: invocation.WorktreeRoot, Resolved: &resolved,
 		Platform: invocation.Platform, Version: buildVersion,
 		SetCurrent: !buildNoSetCurrent, Clean: buildNoCacheFlag, JSON: jsonOutput,
 		Wait: !buildDetachFlag, IncludeDirty: true, TimeoutSeconds: effectiveRecipe.TimeoutSeconds,
@@ -810,6 +823,12 @@ func remoteBuildPlatformConfigFromProject(invocation projectBuildInvocation) rem
 		Caches:    append([]config.BuildCache(nil), invocation.Recipe.Caches...),
 		Framework: invocation.Recipe.Framework, TimeoutSeconds: invocation.Recipe.TimeoutSeconds,
 	}
+}
+
+func remoteBuildPlatformConfigForWorktree(invocation projectBuildInvocation) remoteBuildPlatformConfig {
+	resolved := remoteBuildPlatformConfigFromProject(invocation)
+	resolved.SourceSubdir = invocation.Recipe.ExecutionDirectory
+	return resolved
 }
 
 func cloneStringMapForBuild(input map[string]string) map[string]string {

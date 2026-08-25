@@ -16,7 +16,10 @@ func remoteBuildConfigFromResolved(appID uuid.UUID, resolved remoteBuildPlatform
 	steps := remoteBuildStepsFromCommands(remoteBuildSetupCommands(resolved), remoteBuildCommands(resolved))
 	artifacts := remoteBuildArtifacts(defaultRemoteArtifactType(resolved.Platform), resolved.Output)
 
-	sourceSubdir := ""
+	sourceSubdir := strings.Trim(strings.TrimSpace(resolved.SourceSubdir), "/")
+	if sourceSubdir == "." {
+		sourceSubdir = ""
+	}
 	if remoteBuildUsesGitSource(resolved.Source) {
 		sourceSubdir = normalizeRemoteGitSource(resolved.Source).Subdir
 	}

@@ -33,6 +33,7 @@ var remoteBuildPollInterval = 3 * time.Second
 type remoteBuildOptions struct {
 	Profile             string
 	ProjectRoot         string
+	WorktreeRoot        string
 	Resolved            *remoteBuildPlatformConfig
 	Platform            string
 	AppID               string
@@ -72,6 +73,7 @@ type remoteBuildPlatformConfig struct {
 	Scheme        string
 	AppID         string
 	Source        config.BuildSource
+	SourceSubdir  string
 	Env           map[string]string
 	Secrets       []string
 	Caches        []config.BuildCache
@@ -88,13 +90,13 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	debugOutput := ui.IsDebugMode()
 	interactiveOutput := !opts.JSON
 
-	cwd := strings.TrimSpace(opts.ProjectRoot)
-	var err error
-	if cwd == "" {
-		cwd, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
-		}
+	projectRoot := strings.TrimSpace(opts.ProjectRoot)
+	if projectRoot == "" {
+		return fmt.Errorf("remote build requires a resolved project root")
+	}
+	worktreeRoot := strings.TrimSpace(opts.WorktreeRoot)
+	if worktreeRoot == "" {
+		return fmt.Errorf("remote build requires a resolved Git worktree root")
 	}
 
 	opts.markFailureStage("configuration")
@@ -102,6 +104,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		return fmt.Errorf("remote build requires a resolved project profile and platform")
 	}
 	resolved := *opts.Resolved
+	var err error
 	resolved.Env = mergeRemoteBuildEnv(resolved.Env, opts.Env)
 	resolved.Secrets, err = mergeBuildSecretRefs(resolved.Secrets, opts.Secrets)
 	if err != nil {
@@ -151,11 +154,11 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		if debugOutput && normalized.Subdir != "" {
 			ui.PrintInfo("Git subdir: %s", normalized.Subdir)
 		}
-		if dirty, count := checkDirtyTree(cwd); dirty {
+		if dirty, count := checkDirtyTree(worktreeRoot); dirty {
 			if opts.CommittedOnly || !opts.IncludeDirty {
 				ui.PrintWarning("%d file(s) have uncommitted changes and will NOT be included in the remote build.", count)
 			} else {
-				patchPath, empty, err := createRepoBackedSourcePatch(cwd)
+				patchPath, empty, err := createRepoBackedSourcePatch(worktreeRoot)
 				if err != nil {
 					return fmt.Errorf("failed to create repo-backed source patch: %w", err)
 				}
@@ -182,7 +185,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 			ui.PrintInfo("Packaging source code…")
 		}
 
-		if dirty, count := checkDirtyTree(cwd); dirty {
+		if dirty, count := checkDirtyTree(worktreeRoot); dirty {
 			if opts.CommittedOnly || !opts.IncludeDirty {
 				ui.PrintWarning("%d file(s) have uncommitted changes and will NOT be included in the remote build.", count)
 				if opts.LegacyUpload {
@@ -201,9 +204,9 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 		var archivePath string
 		compressStart := time.Now()
 		if opts.IncludeDirty && !opts.CommittedOnly {
-			archivePath, err = createSourceArchiveIncludingWorkingTree(cwd)
+			archivePath, err = createSourceArchiveIncludingWorkingTree(worktreeRoot)
 		} else {
-			archivePath, err = createSourceArchive(cwd)
+			archivePath, err = createSourceArchive(worktreeRoot)
 		}
 		if !debugOutput && interactiveOutput {
 			ui.StopSpinner()
@@ -329,7 +332,7 @@ func runRemoteBuildWithOptions(cmd *cobra.Command, apiKey string, opts remoteBui
 	}
 
 	if !opts.JSON {
-		testsDir := filepath.Join(cwd, ".revyl", "tests")
+		testsDir := filepath.Join(projectRoot, ".revyl", "tests")
 		var steps []ui.NextStep
 		steps = append(steps, ui.NextStep{
 			Label:   "Start a device with this build:",
@@ -970,55 +973,23 @@ func printRemoteBuildJSON(result remoteBuildJSONResult) {
 	_ = enc.Encode(result)
 }
 
-// createSourceArchive runs git archive to create a tar.gz of the project
-// directory at HEAD.  When cwd is a subdirectory of a larger repo (e.g. a
-// monorepo), only the subtree rooted at cwd is archived so the build
-// command finds project files at the archive root.
+// createSourceArchive runs git archive to create a tar.gz of the worktree at HEAD.
 //
 // Parameters:
-//   - cwd: Directory to archive (must be inside a git repo).
+//   - worktreeRoot: Git worktree root to archive.
 //
 // Returns:
 //   - archivePath: Path to the created tar.gz file.
 //   - error: If git archive fails.
-func createSourceArchive(cwd string) (string, error) {
+func createSourceArchive(worktreeRoot string) (string, error) {
 	tmpFile, err := os.CreateTemp("", "revyl-source-*.tar.gz")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tmpFile.Close()
 
-	prefixCmd := exec.Command("git", "rev-parse", "--show-prefix")
-	prefixCmd.Dir = cwd
-	prefixOut, err := prefixCmd.Output()
-	if err != nil {
-		os.Remove(tmpFile.Name())
-		return "", fmt.Errorf("failed to determine git subdirectory: %w", err)
-	}
-	prefix := strings.TrimSpace(string(prefixOut))
-
-	// HEAD:<prefix> archives just the subtree at that path with files at the
-	// root.  When prefix is empty the cwd IS the repo root so plain HEAD works.
-	treeish := "HEAD"
-	if prefix != "" {
-		treeish = "HEAD:" + prefix
-	}
-
-	// Resolve the repo root so git archive resolves tree-ish paths correctly.
-	// Running from a subdirectory causes HEAD:<prefix> to double the path
-	// (e.g. HEAD:sub/dir/ resolved from sub/dir/ becomes sub/dir/sub/dir/),
-	// which silently produces an empty archive in monorepos.
-	toplevelCmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	toplevelCmd.Dir = cwd
-	toplevelOut, err := toplevelCmd.Output()
-	if err != nil {
-		os.Remove(tmpFile.Name())
-		return "", fmt.Errorf("failed to determine git root: %w", err)
-	}
-	repoRoot := strings.TrimSpace(string(toplevelOut))
-
-	cmd := exec.Command("git", "archive", "--format=tar.gz", "-o", tmpFile.Name(), treeish)
-	cmd.Dir = repoRoot
+	cmd := exec.Command("git", "archive", "--format=tar.gz", "-o", tmpFile.Name(), "HEAD")
+	cmd.Dir = worktreeRoot
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

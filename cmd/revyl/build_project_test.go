@@ -46,8 +46,15 @@ func TestResolveBuildInvocationUsesNearestProjectAndNeverMutatesConfig(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	resolvedWorktreeRoot, err := filepath.EvalSymlinks(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if invocation.ProjectRoot != resolvedProjectRoot || invocation.Profile != "development" || invocation.Platform != "android" {
 		t.Fatalf("invocation = %+v", invocation)
+	}
+	if invocation.WorktreeRoot != resolvedWorktreeRoot || invocation.Recipe.ExecutionDirectory != "apps/mobile" {
+		t.Fatalf("source context = %q, %q", invocation.WorktreeRoot, invocation.Recipe.ExecutionDirectory)
 	}
 	if invocation.SelectionSource != "inferred" {
 		t.Fatalf("selection source = %q, want inferred", invocation.SelectionSource)
@@ -77,6 +84,15 @@ func TestPublicBuildResolutionStartsFromAlreadyChangedDirectory(t *testing.T) {
 	}
 	if invocation.ProjectRoot != resolvedProjectRoot {
 		t.Fatalf("project root = %q, want %q", invocation.ProjectRoot, resolvedProjectRoot)
+	}
+}
+
+func TestActionableBuildConfigErrorPointsToAppRoot(t *testing.T) {
+	err := actionableBuildConfigError(&config.ConfigError{Code: "config_not_found"})
+	message := err.Error()
+	if !strings.Contains(message, "run this command from the app root") ||
+		!strings.Contains(message, "-C <app-root>") {
+		t.Fatalf("error = %q", message)
 	}
 }
 
@@ -516,18 +532,19 @@ func TestRemoteBuildConfigFromProjectPreservesOrderedRecipe(t *testing.T) {
 		Platform: "ios",
 		AppID:    "00000000-0000-4000-8000-000000000001",
 		Recipe: config.EffectiveBuildRecipe{
-			Framework:      "expo",
-			SetupCommands:  []string{"bun install", "cd ios && pod install"},
-			BuildCommands:  []string{"bun generate", "xcodebuild"},
-			OutputPath:     &output,
-			Image:          &image,
-			TimeoutSeconds: &timeout,
-			Env:            map[string]string{"MODE": "ci"},
-			SecretRefs:     []string{"EXPO_TOKEN"},
-			Caches:         []config.BuildCache{{Key: "pods", Paths: []string{"ios/Pods"}}},
+			Framework:          "expo",
+			ExecutionDirectory: "apps/mobile",
+			SetupCommands:      []string{"bun install", "cd ios && pod install"},
+			BuildCommands:      []string{"bun generate", "xcodebuild"},
+			OutputPath:         &output,
+			Image:              &image,
+			TimeoutSeconds:     &timeout,
+			Env:                map[string]string{"MODE": "ci"},
+			SecretRefs:         []string{"EXPO_TOKEN"},
+			Caches:             []config.BuildCache{{Key: "pods", Paths: []string{"ios/Pods"}}},
 		},
 	}
-	resolved := remoteBuildPlatformConfigFromProject(invocation)
+	resolved := remoteBuildPlatformConfigForWorktree(invocation)
 	apiConfig := remoteBuildConfigFromResolved(uuid.MustParse(invocation.AppID), resolved)
 	if apiConfig.Steps == nil {
 		t.Fatal("steps are nil")
@@ -541,8 +558,11 @@ func TestRemoteBuildConfigFromProjectPreservesOrderedRecipe(t *testing.T) {
 	if want := []string{"bun install", "cd ios && pod install", "bun generate", "xcodebuild"}; !reflect.DeepEqual(commands, want) {
 		t.Fatalf("commands = %#v, want %#v", commands, want)
 	}
-	if apiConfig.SourceSubdir != nil || apiConfig.Id != nil || apiConfig.Name != nil {
-		t.Fatalf("remote config leaked saved/source identity: %+v", apiConfig)
+	if apiConfig.SourceSubdir == nil || *apiConfig.SourceSubdir != "apps/mobile" {
+		t.Fatalf("source subdir = %#v, want apps/mobile", apiConfig.SourceSubdir)
+	}
+	if apiConfig.Id != nil || apiConfig.Name != nil {
+		t.Fatalf("remote config leaked saved identity: %+v", apiConfig)
 	}
 	if apiConfig.Artifacts == nil || len(*apiConfig.Artifacts) != 1 || (*apiConfig.Artifacts)[0].Path != output {
 		t.Fatalf("artifacts = %#v", apiConfig.Artifacts)
