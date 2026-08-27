@@ -93,9 +93,12 @@ it; use `-y` to stop after local config creation. Authenticated interactive setu
 can continue into the same GitHub PR-automation flow as `revyl github setup`, but
 only after the project config has been written. When the Revyl GitHub App can
 access the repository, committing that valid config to the default branch
-automatically creates or resolves the matching server project. `revyl config push`
-remains the explicit manual publication and recovery path. For an existing legacy
-file, preview or perform the local conversion explicitly:
+reconciles a matching server project or creates a new Git-managed project when
+its `project.id`, project root, and config path are unclaimed and its references
+are valid. Pull requests validate new configs as unpublished bootstrap candidates;
+creation occurs only from the actual merged default-branch commit. `revyl config
+push` remains the explicit manual publication and recovery path. For an existing
+legacy file, preview or perform the local conversion explicitly:
 
 ```bash
 revyl config migrate --check            # Summarize the migration; do not write
