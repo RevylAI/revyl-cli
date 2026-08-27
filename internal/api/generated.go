@@ -1593,20 +1593,24 @@ type AtlasAnnotationComment struct {
 	Author AtlasAnnotationAuthor `json:"author"`
 
 	// Body Plain-text body; null when the comment is a tombstone.
-	Body      *string    `json:"body,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-	Deleted   *bool      `json:"deleted,omitempty"`
-	EditedAt  *time.Time `json:"edited_at,omitempty"`
-	Id        string     `json:"id"`
-	ThreadId  string     `json:"thread_id"`
+	Body      *string                   `json:"body,omitempty"`
+	CreatedAt time.Time                 `json:"created_at"`
+	Deleted   *bool                     `json:"deleted,omitempty"`
+	EditedAt  *time.Time                `json:"edited_at,omitempty"`
+	Id        string                    `json:"id"`
+	Mentions  *[]AtlasAnnotationMention `json:"mentions,omitempty"`
+	ThreadId  string                    `json:"thread_id"`
+	Version   *int                      `json:"version,omitempty"`
 }
 
 // AtlasAnnotationCommentEditRequest defines model for AtlasAnnotationCommentEditRequest.
 type AtlasAnnotationCommentEditRequest struct {
-	AddAttachmentIds    *[]openapi_types.UUID `json:"add_attachment_ids,omitempty"`
-	Body                *string               `json:"body,omitempty"`
-	ClearAttachments    *bool                 `json:"clear_attachments,omitempty"`
-	RemoveAttachmentIds *[]openapi_types.UUID `json:"remove_attachment_ids,omitempty"`
+	AddAttachmentIds    *[]openapi_types.UUID          `json:"add_attachment_ids,omitempty"`
+	Body                *string                        `json:"body,omitempty"`
+	ClearAttachments    *bool                          `json:"clear_attachments,omitempty"`
+	ExpectedVersion     *int                           `json:"expected_version,omitempty"`
+	Mentions            *[]AtlasAnnotationMentionInput `json:"mentions,omitempty"`
+	RemoveAttachmentIds *[]openapi_types.UUID          `json:"remove_attachment_ids,omitempty"`
 }
 
 // AtlasAnnotationCommentResponse defines model for AtlasAnnotationCommentResponse.
@@ -1637,6 +1641,7 @@ type AtlasAnnotationFeedbackItem struct {
 	ObservationId    string                       `json:"observation_id"`
 	ObservedAt       *time.Time                   `json:"observed_at,omitempty"`
 	OriginSurface    AtlasAnnotationOriginSurface `json:"origin_surface"`
+	PreviewMentions  *[]AtlasAnnotationMention    `json:"preview_mentions,omitempty"`
 	PreviewText      *string                      `json:"preview_text,omitempty"`
 	ReplyCount       *int                         `json:"reply_count,omitempty"`
 	ScreenLabel      *string                      `json:"screen_label,omitempty"`
@@ -1657,6 +1662,21 @@ type AtlasAnnotationFeedbackResponse struct {
 	OpenCount   int                           `json:"open_count"`
 }
 
+// AtlasAnnotationMention defines model for AtlasAnnotationMention.
+type AtlasAnnotationMention struct {
+	DisplayName string `json:"display_name"`
+	EndUtf16    int    `json:"end_utf16"`
+	StartUtf16  int    `json:"start_utf16"`
+	UserId      string `json:"user_id"`
+}
+
+// AtlasAnnotationMentionInput defines model for AtlasAnnotationMentionInput.
+type AtlasAnnotationMentionInput struct {
+	EndUtf16   int    `json:"end_utf16"`
+	StartUtf16 int    `json:"start_utf16"`
+	UserId     string `json:"user_id"`
+}
+
 // AtlasAnnotationObservationThreadsResponse defines model for AtlasAnnotationObservationThreadsResponse.
 type AtlasAnnotationObservationThreadsResponse struct {
 	ClosedCount   int                     `json:"closed_count"`
@@ -1674,7 +1694,8 @@ type AtlasAnnotationReplyRequest struct {
 	Body          string                `json:"body"`
 
 	// ClientRequestId Client-generated UUID making retried submissions idempotent.
-	ClientRequestId *string `json:"client_request_id,omitempty"`
+	ClientRequestId *string                        `json:"client_request_id,omitempty"`
+	Mentions        *[]AtlasAnnotationMentionInput `json:"mentions,omitempty"`
 }
 
 // AtlasAnnotationStatus defines model for AtlasAnnotationStatus.
@@ -1805,8 +1826,9 @@ type AtlasGroundedAnnotationThreadCreateRequest struct {
 	Body          string                `json:"body"`
 
 	// ClientRequestId Client-generated UUID making retried submissions idempotent.
-	ClientRequestId string `json:"client_request_id"`
-	Target          string `json:"target"`
+	ClientRequestId string                         `json:"client_request_id"`
+	Mentions        *[]AtlasAnnotationMentionInput `json:"mentions,omitempty"`
+	Target          string                         `json:"target"`
 }
 
 // AtlasGroundedAnnotationThreadCreateResponse defines model for AtlasGroundedAnnotationThreadCreateResponse.
@@ -4070,6 +4092,19 @@ type OrgRepository struct {
 	InstallationId int    `json:"installation_id"`
 	Owner          string `json:"owner"`
 	Repo           string `json:"repo"`
+}
+
+// OrganizationMemberSummary defines model for OrganizationMemberSummary.
+type OrganizationMemberSummary struct {
+	AvatarUrl   *string `json:"avatar_url,omitempty"`
+	DisplayName string  `json:"display_name"`
+	Email       *string `json:"email,omitempty"`
+	UserId      string  `json:"user_id"`
+}
+
+// OrganizationMembersResponse defines model for OrganizationMembersResponse.
+type OrganizationMembersResponse struct {
+	Members []OrganizationMemberSummary `json:"members"`
 }
 
 // OrganizationRepositoriesResponse defines model for OrganizationRepositoriesResponse.
@@ -6445,6 +6480,7 @@ type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 type ListAtlasAnnotationFeedbackParams struct {
 	AppId         *string                                      `form:"app_id,omitempty" json:"app_id,omitempty"`
 	ObservationId *string                                      `form:"observation_id,omitempty" json:"observation_id,omitempty"`
+	ThreadId      *string                                      `form:"thread_id,omitempty" json:"thread_id,omitempty"`
 	Status        *ListAtlasAnnotationFeedbackParamsStatus     `form:"status,omitempty" json:"status,omitempty"`
 	AuthorType    *ListAtlasAnnotationFeedbackParamsAuthorType `form:"author_type,omitempty" json:"author_type,omitempty"`
 	Cursor        *string                                      `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -6474,7 +6510,8 @@ type DeleteAtlasAnnotationCommentParams struct {
 
 // EditAtlasAnnotationCommentParams defines parameters for EditAtlasAnnotationComment.
 type EditAtlasAnnotationCommentParams struct {
-	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
+	XRevylAgent  *string `json:"X-Revyl-Agent,omitempty"`
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
 }
 
 // GetAtlasAnnotationThreadParams defines parameters for GetAtlasAnnotationThread.
@@ -6489,22 +6526,26 @@ type MoveAtlasAnnotationThreadAnchorParams struct {
 
 // DismissAtlasAnnotationThreadParams defines parameters for DismissAtlasAnnotationThread.
 type DismissAtlasAnnotationThreadParams struct {
-	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
+	XRevylAgent  *string `json:"X-Revyl-Agent,omitempty"`
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
 }
 
 // ReopenAtlasAnnotationThreadParams defines parameters for ReopenAtlasAnnotationThread.
 type ReopenAtlasAnnotationThreadParams struct {
-	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
+	XRevylAgent  *string `json:"X-Revyl-Agent,omitempty"`
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
 }
 
 // AddAtlasAnnotationReplyParams defines parameters for AddAtlasAnnotationReply.
 type AddAtlasAnnotationReplyParams struct {
-	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
+	XRevylAgent  *string `json:"X-Revyl-Agent,omitempty"`
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
 }
 
 // ResolveAtlasAnnotationThreadParams defines parameters for ResolveAtlasAnnotationThread.
 type ResolveAtlasAnnotationThreadParams struct {
-	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
+	XRevylAgent  *string `json:"X-Revyl-Agent,omitempty"`
+	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
 }
 
 // GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams defines parameters for GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGet.
@@ -6609,6 +6650,12 @@ type GetAtlasV2IndexApiV1AtlasV2IndexGetParams struct {
 	ContentOnly  *bool   `form:"content_only,omitempty" json:"content_only,omitempty"`
 	OlapReady    *bool   `form:"olap_ready,omitempty" json:"olap_ready,omitempty"`
 	SummaryFirst *bool   `form:"summary_first,omitempty" json:"summary_first,omitempty"`
+}
+
+// ListOrganizationMembersApiV1EntityOrgsMembersGetParams defines parameters for ListOrganizationMembersApiV1EntityOrgsMembersGet.
+type ListOrganizationMembersApiV1EntityOrgsMembersGetParams struct {
+	Q     *string `form:"q,omitempty" json:"q,omitempty"`
+	Limit *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostParams defines parameters for ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPost.

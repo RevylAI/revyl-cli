@@ -47,6 +47,29 @@ changing the payload with that ID is a conflict. Replies use the same recovery
 rule. Repeat `--attach` for up to four files. Edit uses `--attach`, repeatable
 `--remove-attachment`, and `--clear-attachments`; combining clear and attach
 replaces the attachment set, while omitting attachment flags preserves it.
+To mention a human organization member, discover their ID first, then bind a
+local alias to one placeholder in the body:
+
+```bash
+revyl atlas annotations members --app <app-id> --query <name-or-email> --json
+revyl atlas annotations reply <thread-id> --app <app-id> \
+  --body '@{reviewer} can you check this state?' \
+  --mention 'reviewer=<user-id>' --json
+```
+
+Mention the smallest set of relevant stakeholders whose ownership, expertise,
+approval, or action is needed. Good candidates include the owner of the
+affected product or code surface, a designer or engineer needed to answer a
+specific question, and an existing thread participant needed to make a
+decision. Do not mention every organization member for visibility alone. Give
+each mentioned person a concrete reason to engage, and omit the mention when
+the comment is informational and requires no response.
+
+Use the same `@{alias}` and repeatable `--mention alias=user-id` syntax with
+create, reply, and edit, including body-file or stdin input. Bind each alias and
+member once; unresolved placeholder-like text remains literal. The CLI replaces
+bound placeholders with the member's current display name and submits structured
+mention spans. Only human organization members can be mentioned.
 Never automatically retry a version conflict:
 read the current thread and decide against that state. Move always grounds
 against the thread's immutable observation.

@@ -32,12 +32,14 @@ GET /api/v1/apps/{app_id}/builds
 GET /api/v1/atlas/v2/apps/{app_id}/edge-runs
 GET /api/v1/atlas/v2/apps/{app_id}/entities/{entity_id}/observations
 GET /api/v1/atlas/v2/apps/{app_id}/graph
+GET /api/v1/atlas/v2/apps/{app_id}/annotation-comments/{comment_id}
 GET /api/v1/atlas/v2/apps/{app_id}/annotation-threads/{thread_id}
 GET /api/v1/atlas/v2/apps/{app_id}/observations/{observation_id}/annotation-threads
 GET /api/v1/atlas/v2/apps/{app_id}/observations/{observation_id}
 GET /api/v1/atlas/v2/apps/{app_id}/structure
 GET /api/v1/atlas/v2/annotations/feedback
 GET /api/v1/atlas/v2/index
+GET /api/v1/entity/orgs/members
 GET /api/v1/entity/users/get_dashboard_metrics
 GET /api/v1/entity/users/get_user_uuid
 GET /api/v1/execution/billing/plan

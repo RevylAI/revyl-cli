@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 func (c *Client) ListAtlasAnnotationFeedback(
@@ -63,6 +64,27 @@ func (c *Client) GetAtlasAnnotationThread(
 	return &result, nil
 }
 
+func (c *Client) GetAtlasAnnotationComment(
+	ctx context.Context,
+	appID string,
+	commentID string,
+) (*AtlasAnnotationComment, error) {
+	path := fmt.Sprintf(
+		"/api/v1/atlas/v2/apps/%s/annotation-comments/%s",
+		url.PathEscape(appID),
+		url.PathEscape(commentID),
+	)
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result AtlasAnnotationComment
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) ListAtlasObservationAnnotationThreads(
 	ctx context.Context,
 	appID string,
@@ -100,6 +122,28 @@ func (c *Client) PreviewAtlasAnnotationAnchor(
 		return nil, err
 	}
 	var result AtlasAnnotationAnchorPreviewResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) ListAtlasAnnotationMembers(
+	ctx context.Context,
+	query string,
+	limit int,
+) (*OrganizationMembersResponse, error) {
+	values := url.Values{}
+	if strings.TrimSpace(query) != "" {
+		values.Set("q", strings.TrimSpace(query))
+	}
+	values.Set("limit", strconv.Itoa(limit))
+	path := "/api/v1/entity/orgs/members?" + values.Encode()
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result OrganizationMembersResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}

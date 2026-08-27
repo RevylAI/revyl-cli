@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -44,6 +46,7 @@ type annotationCreateOptions struct {
 	dryRun          bool
 	previewOut      string
 	attachments     []string
+	mentions        []string
 	annotationBodyOptions
 }
 
@@ -63,6 +66,7 @@ func newAtlasAnnotationsCommand() *cobra.Command {
 	}
 	command.AddCommand(
 		newAtlasAnnotationsListCommand(),
+		newAtlasAnnotationsMembersCommand(),
 		newAtlasAnnotationsGetCommand(),
 		newAtlasAnnotationsCreateCommand(),
 		newAtlasAnnotationsMoveCommand(),
@@ -73,6 +77,35 @@ func newAtlasAnnotationsCommand() *cobra.Command {
 		newAtlasAnnotationsStatusCommand("dismiss"),
 		newAtlasAnnotationsStatusCommand("reopen"),
 	)
+	return command
+}
+
+func newAtlasAnnotationsMembersCommand() *cobra.Command {
+	var appInput, query string
+	var limit int
+	command := &cobra.Command{
+		Use:   "members",
+		Short: "Find organization members available for annotation mentions",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if limit < 1 || limit > 25 {
+				return fmt.Errorf("--limit must be between 1 and 25")
+			}
+			client, _, err := annotationClientAndApp(cmd, appInput)
+			if err != nil {
+				return err
+			}
+			result, err := client.ListAtlasAnnotationMembers(cmd.Context(), query, limit)
+			if err != nil {
+				return err
+			}
+			return printAnnotationResult(cmd, result)
+		},
+	}
+	command.Flags().StringVar(&appInput, "app", "", "App name or app id")
+	command.Flags().StringVar(&query, "query", "", "Display name, email, or user id")
+	command.Flags().IntVar(&limit, "limit", 25, "Maximum members to return (1-25)")
+	_ = command.MarkFlagRequired("app")
 	return command
 }
 
@@ -192,8 +225,8 @@ func newAtlasAnnotationsCreateCommand() *cobra.Command {
 			if options.previewOut != "" && !options.dryRun {
 				return fmt.Errorf("--preview-out is valid only with --dry-run")
 			}
-			if options.dryRun && (cmd.Flags().Changed("body") || cmd.Flags().Changed("body-file") || len(options.attachments) > 0) {
-				return fmt.Errorf("--dry-run prohibits comment bodies and attachments")
+			if options.dryRun && (cmd.Flags().Changed("body") || cmd.Flags().Changed("body-file") || len(options.attachments) > 0 || len(options.mentions) > 0) {
+				return fmt.Errorf("--dry-run prohibits comment bodies, mentions, and attachments")
 			}
 			client, app, err := annotationClientAndApp(cmd, options.app)
 			if err != nil {
@@ -215,6 +248,10 @@ func newAtlasAnnotationsCreateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			body, mentionInputs, err := resolveAnnotationMentions(cmd.Context(), client, body, options.mentions)
+			if err != nil {
+				return err
+			}
 			requestID, err := resolveAnnotationRequestID(options.clientRequestID)
 			if err != nil {
 				return err
@@ -225,7 +262,7 @@ func newAtlasAnnotationsCreateCommand() *cobra.Command {
 				return annotationMutationErrorWithAttachments(cmd, requestID, attachmentIDStrings, err)
 			}
 			result, err := client.CreateGroundedAtlasAnnotationThread(cmd.Context(), app.ID, options.observation, &api.AtlasGroundedAnnotationThreadCreateRequest{
-				Body: body, ClientRequestId: requestID, Target: strings.TrimSpace(options.target), AttachmentIds: optionalUUIDs(attachmentIDs),
+				Body: body, ClientRequestId: requestID, Target: strings.TrimSpace(options.target), AttachmentIds: optionalUUIDs(attachmentIDs), Mentions: optionalAnnotationMentions(mentionInputs),
 			})
 			if err != nil {
 				return annotationMutationErrorWithAttachments(cmd, requestID, attachmentIDStrings, err)
@@ -244,6 +281,7 @@ func newAtlasAnnotationsCreateCommand() *cobra.Command {
 	command.Flags().BoolVar(&options.dryRun, "dry-run", false, "Ground the target without creating a thread")
 	command.Flags().StringVar(&options.previewOut, "preview-out", "", "Write a marked screenshot during --dry-run")
 	command.Flags().StringSliceVar(&options.attachments, "attach", nil, "Attach a local file (repeatable)")
+	command.Flags().StringArrayVar(&options.mentions, "mention", nil, "Bind an alias to a member user id (alias=user-id, repeatable)")
 	_ = command.MarkFlagRequired("app")
 	return command
 }
@@ -303,7 +341,7 @@ func newAtlasAnnotationsMoveCommand() *cobra.Command {
 
 func newAtlasAnnotationsReplyCommand() *cobra.Command {
 	var appInput, clientRequestID string
-	var attachments []string
+	var attachments, mentions []string
 	bodyOptions := annotationBodyOptions{}
 	command := &cobra.Command{
 		Use:   "reply <thread-id>",
@@ -323,11 +361,15 @@ func newAtlasAnnotationsReplyCommand() *cobra.Command {
 			if err != nil {
 				return annotationMutationError(cmd, requestID, err)
 			}
+			body, mentionInputs, err := resolveAnnotationMentions(cmd.Context(), client, body, mentions)
+			if err != nil {
+				return annotationMutationError(cmd, requestID, err)
+			}
 			attachmentIDs, attachmentIDStrings, err := uploadAnnotationAttachments(cmd.Context(), client, app.ID, requestID, attachments)
 			if err != nil {
 				return annotationMutationErrorWithAttachments(cmd, requestID, attachmentIDStrings, err)
 			}
-			result, err := client.AddAtlasAnnotationReply(cmd.Context(), app.ID, args[0], &api.AtlasAnnotationReplyRequest{Body: body, ClientRequestId: &requestID, AttachmentIds: optionalUUIDs(attachmentIDs)})
+			result, err := client.AddAtlasAnnotationReply(cmd.Context(), app.ID, args[0], &api.AtlasAnnotationReplyRequest{Body: body, ClientRequestId: &requestID, AttachmentIds: optionalUUIDs(attachmentIDs), Mentions: optionalAnnotationMentions(mentionInputs)})
 			if err != nil {
 				return annotationMutationErrorWithAttachments(cmd, requestID, attachmentIDStrings, err)
 			}
@@ -345,13 +387,14 @@ func newAtlasAnnotationsReplyCommand() *cobra.Command {
 	addAnnotationBodyFlags(command, &bodyOptions)
 	command.Flags().StringVar(&clientRequestID, "client-request-id", "", "UUID for idempotent retry recovery")
 	command.Flags().StringSliceVar(&attachments, "attach", nil, "Attach a local file (repeatable)")
+	command.Flags().StringArrayVar(&mentions, "mention", nil, "Bind an alias to a member user id (alias=user-id, repeatable)")
 	_ = command.MarkFlagRequired("app")
 	return command
 }
 
 func newAtlasAnnotationsEditCommand() *cobra.Command {
 	var appInput, clientRequestID string
-	var attachments, removeAttachments []string
+	var attachments, removeAttachments, mentions []string
 	var clearAttachments bool
 	bodyOptions := annotationBodyOptions{}
 	command := &cobra.Command{
@@ -363,7 +406,7 @@ func newAtlasAnnotationsEditCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if body == nil && len(attachments) == 0 && len(removeAttachments) == 0 && !clearAttachments {
+			if body == nil && len(attachments) == 0 && len(removeAttachments) == 0 && !clearAttachments && len(mentions) == 0 {
 				return fmt.Errorf("provide a body or an attachment change")
 			}
 			requestID, err := resolveAnnotationRequestID(clientRequestID)
@@ -375,6 +418,26 @@ func newAtlasAnnotationsEditCommand() *cobra.Command {
 			if err != nil {
 				return annotationMutationError(cmd, requestID, err)
 			}
+			if len(mentions) > 0 && body == nil {
+				return fmt.Errorf("--mention requires --body or --body-file")
+			}
+			mentionInputs := []api.AtlasAnnotationMentionInput{}
+			if body != nil {
+				resolvedBody, resolvedMentions, err := resolveAnnotationMentions(cmd.Context(), client, *body, mentions)
+				if err != nil {
+					return annotationMutationError(cmd, requestID, err)
+				}
+				body = &resolvedBody
+				mentionInputs = resolvedMentions
+			}
+			currentComment, err := client.GetAtlasAnnotationComment(cmd.Context(), app.ID, args[0])
+			if err != nil {
+				return annotationMutationError(cmd, requestID, err)
+			}
+			expectedVersion := 1
+			if currentComment.Version != nil {
+				expectedVersion = *currentComment.Version
+			}
 			attachmentIDs, attachmentIDStrings, err := uploadAnnotationAttachments(cmd.Context(), client, app.ID, requestID, attachments)
 			if err != nil {
 				return annotationMutationErrorWithAttachments(cmd, requestID, attachmentIDStrings, err)
@@ -383,7 +446,7 @@ func newAtlasAnnotationsEditCommand() *cobra.Command {
 			if err != nil {
 				return annotationMutationErrorWithAttachments(cmd, requestID, attachmentIDStrings, err)
 			}
-			comment, err := client.EditAtlasAnnotationComment(cmd.Context(), app.ID, args[0], &api.AtlasAnnotationCommentEditRequest{Body: body, AddAttachmentIds: optionalUUIDs(attachmentIDs), RemoveAttachmentIds: optionalUUIDs(removeIDs), ClearAttachments: optionalBool(clearAttachments)})
+			comment, err := client.EditAtlasAnnotationComment(cmd.Context(), app.ID, args[0], &api.AtlasAnnotationCommentEditRequest{Body: body, AddAttachmentIds: optionalUUIDs(attachmentIDs), RemoveAttachmentIds: optionalUUIDs(removeIDs), ClearAttachments: optionalBool(clearAttachments), ExpectedVersion: &expectedVersion, Mentions: optionalAnnotationMentionsForEdit(mentionInputs, body != nil)})
 			if err != nil {
 				return annotationMutationErrorWithAttachments(cmd, requestID, attachmentIDStrings, err)
 			}
@@ -400,6 +463,7 @@ func newAtlasAnnotationsEditCommand() *cobra.Command {
 	command.Flags().StringSliceVar(&removeAttachments, "remove-attachment", nil, "Remove an attachment id (repeatable)")
 	command.Flags().BoolVar(&clearAttachments, "clear-attachments", false, "Remove every existing attachment before additions")
 	command.Flags().StringVar(&clientRequestID, "client-request-id", "", "UUID used to make attachment uploads retry-safe")
+	command.Flags().StringArrayVar(&mentions, "mention", nil, "Bind an alias to a member user id (alias=user-id, repeatable)")
 	_ = command.MarkFlagRequired("app")
 	return command
 }
@@ -550,6 +614,124 @@ func optionalBool(value bool) *bool {
 		return nil
 	}
 	return &value
+}
+
+func optionalAnnotationMentions(values []api.AtlasAnnotationMentionInput) *[]api.AtlasAnnotationMentionInput {
+	if len(values) == 0 {
+		return nil
+	}
+	return &values
+}
+
+func optionalAnnotationMentionsForEdit(values []api.AtlasAnnotationMentionInput, include bool) *[]api.AtlasAnnotationMentionInput {
+	if !include {
+		return nil
+	}
+	return &values
+}
+
+var annotationMentionAliasPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+type annotationMentionBinding struct {
+	alias  string
+	member api.OrganizationMemberSummary
+	start  int
+	end    int
+}
+
+type pendingAnnotationMentionBinding struct {
+	alias  string
+	userID string
+	start  int
+	end    int
+}
+
+func annotationUTF16Length(value string) int {
+	length := 0
+	for _, character := range value {
+		if character > 0xFFFF {
+			length += 2
+		} else {
+			length++
+		}
+	}
+	return length
+}
+
+func resolveAnnotationMentions(ctx context.Context, client *api.Client, body string, values []string) (string, []api.AtlasAnnotationMentionInput, error) {
+	if len(values) == 0 {
+		return body, nil, nil
+	}
+	if len(values) > 10 {
+		return "", nil, fmt.Errorf("a comment supports at most ten mentions")
+	}
+	pendingBindings := make([]pendingAnnotationMentionBinding, 0, len(values))
+	seenAliases := map[string]bool{}
+	seenUsers := map[string]bool{}
+	for _, value := range values {
+		alias, userID, found := strings.Cut(value, "=")
+		alias = strings.TrimSpace(alias)
+		userID = strings.TrimSpace(userID)
+		if !found || !annotationMentionAliasPattern.MatchString(alias) || userID == "" {
+			return "", nil, fmt.Errorf("invalid --mention %q; expected alias=user-id", value)
+		}
+		if seenAliases[alias] {
+			return "", nil, fmt.Errorf("duplicate mention alias %q", alias)
+		}
+		if seenUsers[userID] {
+			return "", nil, fmt.Errorf("member %q is bound more than once", userID)
+		}
+		placeholder := "@{" + alias + "}"
+		if strings.Count(body, placeholder) != 1 {
+			return "", nil, fmt.Errorf("mention alias %q must appear exactly once as %s", alias, placeholder)
+		}
+		pendingBindings = append(pendingBindings, pendingAnnotationMentionBinding{
+			alias: alias, userID: userID, start: strings.Index(body, placeholder), end: strings.Index(body, placeholder) + len(placeholder),
+		})
+		seenAliases[alias] = true
+		seenUsers[userID] = true
+	}
+
+	bindings := make([]annotationMentionBinding, 0, len(pendingBindings))
+	for _, pending := range pendingBindings {
+		members, err := client.ListAtlasAnnotationMembers(ctx, pending.userID, 25)
+		if err != nil {
+			return "", nil, fmt.Errorf("resolve mention %q: %w", pending.alias, err)
+		}
+		var member *api.OrganizationMemberSummary
+		for index := range members.Members {
+			if members.Members[index].UserId == pending.userID {
+				member = &members.Members[index]
+				break
+			}
+		}
+		if member == nil {
+			return "", nil, fmt.Errorf("mention target %q is not a current organization member", pending.userID)
+		}
+		bindings = append(bindings, annotationMentionBinding{
+			alias: pending.alias, member: *member, start: pending.start, end: pending.end,
+		})
+	}
+	sort.Slice(bindings, func(i, j int) bool { return bindings[i].start < bindings[j].start })
+	var output strings.Builder
+	mentions := make([]api.AtlasAnnotationMentionInput, 0, len(bindings))
+	cursor := 0
+	outputUTF16 := 0
+	for _, binding := range bindings {
+		prefix := body[cursor:binding.start]
+		output.WriteString(prefix)
+		outputUTF16 += annotationUTF16Length(prefix)
+		token := "@" + binding.member.DisplayName
+		startUTF16 := outputUTF16
+		output.WriteString(token)
+		outputUTF16 += annotationUTF16Length(token)
+		mentions = append(mentions, api.AtlasAnnotationMentionInput{
+			UserId: binding.member.UserId, StartUtf16: startUTF16, EndUtf16: outputUTF16,
+		})
+		cursor = binding.end
+	}
+	output.WriteString(body[cursor:])
+	return output.String(), mentions, nil
 }
 
 func parseAnnotationAttachmentIDs(values []string) ([]uuid.UUID, error) {

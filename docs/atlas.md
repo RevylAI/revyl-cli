@@ -98,11 +98,12 @@ on exact screenshot evidence. Every command requires `--app`:
 
 ```bash
 revyl atlas annotations list --app <app-id> [--observation <id>] [--status open|resolved|dismissed|closed|all] [--limit 25] [--cursor <cursor>]
+revyl atlas annotations members --app <app-id> [--query <name-or-email>] [--limit 25] [--json]
 revyl atlas annotations get <thread-id> --app <app-id>
-revyl atlas annotations create --app <app-id> --observation <id> --target "<visible target>" --body "<feedback>" [--attach <path>]...
+revyl atlas annotations create --app <app-id> --observation <id> --target "<visible target>" --body "<feedback>" [--mention alias=user-id]... [--attach <path>]...
 revyl atlas annotations move <thread-id> --app <app-id> --target "<visible target>"
-revyl atlas annotations reply <thread-id> --app <app-id> --body-file <path-or-dash> [--attach <path>]...
-revyl atlas annotations edit <comment-id> --app <app-id> [--body "<replacement>"] [--attach <path>]... [--remove-attachment <id>]... [--clear-attachments]
+revyl atlas annotations reply <thread-id> --app <app-id> --body-file <path-or-dash> [--mention alias=user-id]... [--attach <path>]...
+revyl atlas annotations edit <comment-id> --app <app-id> [--body "<replacement>"] [--mention alias=user-id]... [--attach <path>]... [--remove-attachment <id>]... [--clear-attachments]
 revyl atlas annotations delete <comment-id> --app <app-id> --yes
 revyl atlas annotations resolve|dismiss|reopen <thread-id> --app <app-id>
 ```
@@ -117,6 +118,23 @@ changes. Up to four files may be attached to a comment: images are limited to
 files. Omitting all attachment flags preserves the existing set; an empty list
 is never interpreted as removal. Delete always requires `--yes`; deleting a root comment removes the
 complete thread from Atlas, Feedback, and public shares.
+
+To mention a human organization member, discover their user ID and bind it to
+an alias placed exactly once in the body:
+
+```bash
+revyl atlas annotations members --app <app-id> --query hayden --json
+revyl atlas annotations reply <thread-id> --app <app-id> \
+  --body '@{hayden} can you review this state?' \
+  --mention 'hayden=<user-id>'
+```
+
+The CLI replaces the placeholder with the member's current display name and
+submits UTF-16 mention spans. The same syntax works with `--body-file` and
+stdin. Aliases may contain letters, digits, `_`, and `-`; duplicate aliases or
+members, missing or repeated placeholders, non-members, and more than ten
+mentions are rejected. Edit reads the current comment version once and returns
+a conflict without retrying if another writer wins.
 
 Grounding invokes the visual grounding workflow and may incur model latency
 and cost. For an ambiguous target, preview without mutation:
