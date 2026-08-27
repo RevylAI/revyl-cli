@@ -687,7 +687,9 @@ func TestCreateBuildFromURL_IdempotentReuse(t *testing.T) {
 }
 
 func TestCreateBuildFromURL_BackendFetchFailure(t *testing.T) {
+	var attempts int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
 		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, `{"detail":"Failed to fetch source URL"}`, http.StatusBadGateway)
 	}))
@@ -704,6 +706,9 @@ func TestCreateBuildFromURL_BackendFetchFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "502") && !strings.Contains(err.Error(), "Failed to fetch") {
 		t.Fatalf("error should mention 502 or fetch failure, got: %v", err)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Fatalf("request attempts = %d, want 1", got)
 	}
 }
 

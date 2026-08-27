@@ -2166,7 +2166,9 @@ type CreateBuildFromURLResponse struct {
 func (c *Client) CreateBuildFromURL(ctx context.Context, req *CreateBuildFromURLRequest) (*CreateBuildFromURLResponse, error) {
 	path := fmt.Sprintf("/api/v1/apps/%s/builds/from-url", req.AppID)
 
-	resp, err := c.doRequestWithRetryClient(ctx, http.MethodPost, path, req, c.uploadClient)
+	// A timeout can leave the backend ingest running, so repeating this request
+	// can create concurrent work for the same artifact and version.
+	resp, err := c.doRequestOnceWithClient(ctx, http.MethodPost, path, req, c.uploadClient)
 	if err != nil {
 		return nil, err
 	}
