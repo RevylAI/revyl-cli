@@ -713,7 +713,6 @@ const (
 	GrounderTypeMoondream3      GrounderType = "moondream3"
 	GrounderTypeMoondreamCustom GrounderType = "moondream_custom"
 	GrounderTypeNull            GrounderType = "null"
-	GrounderTypeUnified         GrounderType = "unified"
 )
 
 // Valid indicates whether the value is a known member of the GrounderType enum.
@@ -730,8 +729,6 @@ func (e GrounderType) Valid() bool {
 	case GrounderTypeMoondreamCustom:
 		return true
 	case GrounderTypeNull:
-		return true
-	case GrounderTypeUnified:
 		return true
 	default:
 		return false
@@ -983,15 +980,16 @@ func (e ScmBuildTargetResponsePlatform) Valid() bool {
 
 // Defines values for SessionStatus.
 const (
-	SessionStatusCancelled SessionStatus = "cancelled"
-	SessionStatusCompleted SessionStatus = "completed"
-	SessionStatusFailed    SessionStatus = "failed"
-	SessionStatusQueued    SessionStatus = "queued"
-	SessionStatusRunning   SessionStatus = "running"
-	SessionStatusStarting  SessionStatus = "starting"
-	SessionStatusStopping  SessionStatus = "stopping"
-	SessionStatusTimeout   SessionStatus = "timeout"
-	SessionStatusVerifying SessionStatus = "verifying"
+	SessionStatusCancelled  SessionStatus = "cancelled"
+	SessionStatusCompleted  SessionStatus = "completed"
+	SessionStatusFailed     SessionStatus = "failed"
+	SessionStatusQueued     SessionStatus = "queued"
+	SessionStatusRunning    SessionStatus = "running"
+	SessionStatusStarting   SessionStatus = "starting"
+	SessionStatusStopping   SessionStatus = "stopping"
+	SessionStatusTimeout    SessionStatus = "timeout"
+	SessionStatusValidating SessionStatus = "validating"
+	SessionStatusVerifying  SessionStatus = "verifying"
 )
 
 // Valid indicates whether the value is a known member of the SessionStatus enum.
@@ -1012,6 +1010,8 @@ func (e SessionStatus) Valid() bool {
 	case SessionStatusStopping:
 		return true
 	case SessionStatusTimeout:
+		return true
+	case SessionStatusValidating:
 		return true
 	case SessionStatusVerifying:
 		return true
@@ -2107,12 +2107,12 @@ type BuildArtifactRejectionResponse struct {
 	Detail BuildArtifactRejectionDetail `json:"detail"`
 }
 
-// BuildCache Cache disk definition stored on a sandbox build configuration.
+// BuildCache Cache archive definition stored on a sandbox build configuration.
 type BuildCache struct {
 	// Key Org-local cache key. The build runner prefixes it with the org ID.
 	Key string `json:"key"`
 
-	// Paths Project-relative paths mounted into this cache disk.
+	// Paths Project-relative paths stored in this cache archive.
 	Paths []string `json:"paths"`
 }
 
@@ -3150,7 +3150,10 @@ type ExecuteTestAsyncAPIResponse struct {
 	// Id Execution ID
 	Id      openapi_types.UUID `json:"id"`
 	Message string             `json:"message"`
-	Status  AsyncStatus        `json:"status"`
+
+	// SessionId Idempotent device-session start ID
+	SessionId openapi_types.UUID `json:"session_id"`
+	Status    AsyncStatus        `json:"status"`
 
 	// TaskId Alias for id, for backwards compatibility with older clients.
 	TaskId *string `json:"task_id,omitempty"`
@@ -3181,9 +3184,8 @@ type ExecutionModeConfig struct {
 	// EnableReflection Enable reflection on failed steps
 	EnableReflection *bool `json:"enable_reflection,omitempty"`
 
-	// GrounderType Unified grounder configuration that determines both approach and model.
+	// GrounderType Grounder configuration that determines the grounding model.
 	//
-	// - UNIFIED: Use instruction LLM for both instruction and grounding (returns coordinates)
 	// - MOONDREAM/MOONDREAM3/MOONDREAM_CUSTOM/MODAL_CUSTOM: Two-step grounding
 	// - AUTO: Use GROUNDER_TYPE env var to determine grounder
 	// - NULL: Skip grounding (for testing/debugging)
@@ -3530,9 +3532,8 @@ type GroundResponse struct {
 	Y *int `json:"y,omitempty"`
 }
 
-// GrounderType Unified grounder configuration that determines both approach and model.
+// GrounderType Grounder configuration that determines the grounding model.
 //
-// - UNIFIED: Use instruction LLM for both instruction and grounding (returns coordinates)
 // - MOONDREAM/MOONDREAM3/MOONDREAM_CUSTOM/MODAL_CUSTOM: Two-step grounding
 // - AUTO: Use GROUNDER_TYPE env var to determine grounder
 // - NULL: Skip grounding (for testing/debugging)
@@ -5051,6 +5052,7 @@ type SessionArtifactUploadResponse struct {
 //
 //	QUEUED → STARTING → RUNNING → STOPPING → COMPLETED/FAILED/TIMEOUT/CANCELLED
 //	                            ↘ VERIFYING → STOPPING
+//	                            ↘ VALIDATING → COMPLETED/FAILED
 type SessionStatus string
 
 // ShareableReportBySessionModel Request model for generating a shareable report link by session_id.
@@ -5278,6 +5280,9 @@ type TaskID struct {
 
 	// RunConfig Complete configuration for a test run.
 	RunConfig *TestRunConfig `json:"run_config,omitempty"`
+
+	// SessionId Client-generated device-session ID reused when retrying this exact test start
+	SessionId *openapi_types.UUID `json:"session_id,omitempty"`
 
 	// Source Execution source: ui, cli, api, ci_cd, or workflow. Defaults to 'api' for direct API calls.
 	Source         *string            `json:"source,omitempty"`
@@ -5708,6 +5713,7 @@ type TestStatusResponse struct {
 	// Status flow:
 	//     QUEUED → STARTING → RUNNING → STOPPING → COMPLETED/FAILED/TIMEOUT/CANCELLED
 	//                                 ↘ VERIFYING → STOPPING
+	//                                 ↘ VALIDATING → COMPLETED/FAILED
 	Status             SessionStatus       `json:"status"`
 	StepsCompleted     *int                `json:"steps_completed,omitempty"`
 	Success            *bool               `json:"success,omitempty"`
