@@ -31,7 +31,7 @@ import (
 const (
 	cliTraceIngestPath      = "/api/v1/telemetry/cli-traces"
 	cliSpanIngestPath       = "/api/v1/telemetry/cli-spans"
-	cliTraceExportTimeout   = 500 * time.Millisecond
+	cliTraceExportTimeout   = 3 * time.Second
 	cliTraceSpanName        = "CLI: revyl device start"
 	cliDevTraceSpanName     = "CLI: revyl dev"
 	cliLocalMetroSpanName   = "CLI: hotreload.local_metro_request"
