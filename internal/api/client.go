@@ -925,7 +925,7 @@ type ExecuteWorkflowResponse struct {
 //   - *ExecuteWorkflowResponse: The execution response with task ID
 //   - error: Any error that occurred
 func (c *Client) ExecuteWorkflow(ctx context.Context, req *ExecuteWorkflowRequest) (*ExecuteWorkflowResponse, error) {
-	resp, err := c.doRequest(ctx, "POST", "/api/v1/execution/api/execute_workflow_id_async", req)
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/workflow-executions", req)
 	if err != nil {
 		return nil, err
 	}

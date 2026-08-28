@@ -208,7 +208,7 @@ func TestRunWorkflow_PollingModeCompletesWithoutSSE(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/execution/api/execute_workflow_id_async":
+		case "/api/v1/workflow-executions":
 			if r.Method != http.MethodPost {
 				t.Fatalf("method = %s, want POST", r.Method)
 			}
@@ -352,7 +352,7 @@ func TestRunWorkflow_PinsBuildVersion(t *testing.T) {
 			var captured map[string]interface{}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
-				case "/api/v1/execution/api/execute_workflow_id_async":
+				case "/api/v1/workflow-executions":
 					if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
 						t.Fatalf("decode request body: %v", err)
 					}
@@ -418,7 +418,7 @@ func TestRunWorkflow_SendsVariableOverrides(t *testing.T) {
 	var captured map[string]interface{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v1/execution/api/execute_workflow_id_async":
+		case "/api/v1/workflow-executions":
 			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
 				t.Fatalf("decode request body: %v", err)
 			}
@@ -467,7 +467,7 @@ func TestRunWorkflow_SendsLaunchVars(t *testing.T) {
 		case "/api/v1/variables/org_launch_env":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"message":"ok","result":[{"id":"launch-1","key":"API_URL","value":"https://stored.example"}]}`))
-		case "/api/v1/execution/api/execute_workflow_id_async":
+		case "/api/v1/workflow-executions":
 			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
 				t.Fatalf("decode request body: %v", err)
 			}

@@ -6675,23 +6675,6 @@ type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostParams struct {
 	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
 }
 
-// ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostParams defines parameters for ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPost.
-type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostParams struct {
-	XRevylClient                           *string `json:"X-Revyl-Client,omitempty"`
-	XCISystem                              *string `json:"X-CI-System,omitempty"`
-	XCICommitSHA                           *string `json:"X-CI-Commit-SHA,omitempty"`
-	XCIBranch                              *string `json:"X-CI-Branch,omitempty"`
-	XCIPRNumber                            *int    `json:"X-CI-PR-Number,omitempty"`
-	XCIRunURL                              *string `json:"X-CI-Run-URL,omitempty"`
-	XCIRunID                               *string `json:"X-CI-Run-ID,omitempty"`
-	XCIRepository                          *string `json:"X-CI-Repository,omitempty"`
-	XCIActor                               *string `json:"X-CI-Actor,omitempty"`
-	XCIActorURL                            *string `json:"X-CI-Actor-URL,omitempty"`
-	XCIPRURL                               *string `json:"X-CI-PR-URL,omitempty"`
-	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
-	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
-}
-
 // GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGetParams defines parameters for GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGet.
 type GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGetParams struct {
 	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
@@ -6918,6 +6901,23 @@ type ListTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachmentsGet
 	TestId string `form:"test_id" json:"test_id"`
 }
 
+// QueueWorkflowExecutionApiV1WorkflowExecutionsPostParams defines parameters for QueueWorkflowExecutionApiV1WorkflowExecutionsPost.
+type QueueWorkflowExecutionApiV1WorkflowExecutionsPostParams struct {
+	XRevylClient                           *string `json:"X-Revyl-Client,omitempty"`
+	XCISystem                              *string `json:"X-CI-System,omitempty"`
+	XCICommitSHA                           *string `json:"X-CI-Commit-SHA,omitempty"`
+	XCIBranch                              *string `json:"X-CI-Branch,omitempty"`
+	XCIPRNumber                            *int    `json:"X-CI-PR-Number,omitempty"`
+	XCIRunURL                              *string `json:"X-CI-Run-URL,omitempty"`
+	XCIRunID                               *string `json:"X-CI-Run-ID,omitempty"`
+	XCIRepository                          *string `json:"X-CI-Repository,omitempty"`
+	XCIActor                               *string `json:"X-CI-Actor,omitempty"`
+	XCIActorURL                            *string `json:"X-CI-Actor-URL,omitempty"`
+	XCIPRURL                               *string `json:"X-CI-PR-URL,omitempty"`
+	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
+	XRevylCloudAgentProviderConversationId *string `json:"X-Revyl-Cloud-Agent-Provider-Conversation-Id,omitempty"`
+}
+
 // CreateWorkflowApiV1WorkflowsCreatePostParams defines parameters for CreateWorkflowApiV1WorkflowsCreatePost.
 type CreateWorkflowApiV1WorkflowsCreatePostParams struct {
 	XRevylCloudAgentProvider               *string `json:"X-Revyl-Cloud-Agent-Provider,omitempty"`
@@ -7053,9 +7053,6 @@ type RevokeCliApiKeyEndpointApiV1EntityUsersRevokeCliApiKeyPostJSONRequestBody =
 // ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody defines body for ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPost for application/json ContentType.
 type ExecuteTestIdAsyncApiV1ExecutionApiExecuteTestIdAsyncPostJSONRequestBody = TaskID
 
-// ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONRequestBody defines body for ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPost for application/json ContentType.
-type ExecuteWorkflowIdAsyncApiV1ExecutionApiExecuteWorkflowIdAsyncPostJSONRequestBody = CognisimSchemasSchemasDeviceSchemaWorkflowInfo
-
 // CreateSessionArtifactUploadUrlApiV1ExecutionDeviceSessionsSessionIdArtifactsUploadUrlPostJSONRequestBody defines body for CreateSessionArtifactUploadUrlApiV1ExecutionDeviceSessionsSessionIdArtifactsUploadUrlPost for application/json ContentType.
 type CreateSessionArtifactUploadUrlApiV1ExecutionDeviceSessionsSessionIdArtifactsUploadUrlPostJSONRequestBody = SessionArtifactUploadRequest
 
@@ -7175,6 +7172,9 @@ type ReplaceTestLaunchEnvVarAttachmentsApiV1VariablesOrgLaunchEnvTestAttachments
 
 // UpdateOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvEnvVarIdPutJSONRequestBody defines body for UpdateOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvEnvVarIdPut for application/json ContentType.
 type UpdateOrgLaunchEnvVarApiV1VariablesOrgLaunchEnvEnvVarIdPutJSONRequestBody = OrgLaunchEnvVarUpdate
+
+// QueueWorkflowExecutionApiV1WorkflowExecutionsPostJSONRequestBody defines body for QueueWorkflowExecutionApiV1WorkflowExecutionsPost for application/json ContentType.
+type QueueWorkflowExecutionApiV1WorkflowExecutionsPostJSONRequestBody = CognisimSchemasSchemasDeviceSchemaWorkflowInfo
 
 // CreateWorkflowApiV1WorkflowsCreatePostJSONRequestBody defines body for CreateWorkflowApiV1WorkflowsCreatePost for application/json ContentType.
 type CreateWorkflowApiV1WorkflowsCreatePostJSONRequestBody = WorkflowData

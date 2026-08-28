@@ -34,7 +34,7 @@ func TestQueueWorkflowExecutionMergesTypedInheritedLaunchConfigurations(t *testi
 					`{"id":"` + explicitArgsID + `","key":"RouteArgs","kind":"ios_arguments"}` +
 					`]}`,
 			))
-		case "/api/v1/execution/api/execute_workflow_id_async":
+		case "/api/v1/workflow-executions":
 			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
 				t.Fatalf("decode request body: %v", err)
 			}

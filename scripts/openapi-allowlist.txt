@@ -113,7 +113,7 @@ POST /api/v1/entity/users/cli-device-authorizations
 POST /api/v1/entity/users/cli-device-authorizations/credentials
 POST /api/v1/entity/users/revoke_cli_api_key
 POST /api/v1/execution/api/execute_test_id_async
-POST /api/v1/execution/api/execute_workflow_id_async
+POST /api/v1/workflow-executions
 POST /api/v1/execution/device-proxy/{workflow_run_id}/{action}
 POST /api/v1/execution/device-sessions/{session_id}/artifacts/upload-url
 POST /api/v1/execution/device/status/cancel/{workflow_run_id}

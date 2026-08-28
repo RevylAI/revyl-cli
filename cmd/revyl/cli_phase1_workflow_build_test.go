@@ -337,7 +337,7 @@ func TestRunWorkflowExecNoWaitOutputsQueuedJSON(t *testing.T) {
 		case "/api/v1/workflows/get_with_last_status":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":[{"id":"wf-uuid-001","name":"smoke-tests"}]}`))
-		case "/api/v1/execution/api/execute_workflow_id_async":
+		case "/api/v1/workflow-executions":
 			if r.Method != http.MethodPost {
 				t.Fatalf("execute workflow method = %s, want POST", r.Method)
 			}
@@ -570,7 +570,7 @@ func runWorkflowBuildArtifactCase(t *testing.T, noWait bool) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"uploaded-build-id","version":"uploaded-android-version"}`))
-		case "/api/v1/execution/api/execute_workflow_id_async":
+		case "/api/v1/workflow-executions":
 			if err := json.NewDecoder(r.Body).Decode(&queuedRequest); err != nil {
 				t.Fatalf("Decode workflow request: %v", err)
 			}
