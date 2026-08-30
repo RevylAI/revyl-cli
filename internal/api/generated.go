@@ -5180,7 +5180,10 @@ type StartDeviceInfo struct {
 	Platform        *string               `json:"platform,omitempty"`
 
 	// RunConfig Complete configuration for a test run.
-	RunConfig                    *TestRunConfig      `json:"run_config,omitempty"`
+	RunConfig *TestRunConfig `json:"run_config,omitempty"`
+
+	// ScmPreviewId Optional SCM preview context for an exact build launch. The backend validates the frozen review/build association and applies its session authentication, timeout, and attribution settings.
+	ScmPreviewId                 *openapi_types.UUID `json:"scm_preview_id,omitempty"`
 	SessionId                    *openapi_types.UUID `json:"session_id,omitempty"`
 	StartupSessionStartMonotonic *float32            `json:"startup_session_start_monotonic,omitempty"`
 
