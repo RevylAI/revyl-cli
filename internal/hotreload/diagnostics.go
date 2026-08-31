@@ -119,8 +119,8 @@ func expoDeviceLaunchContract(targetPlatform string) []expoDeviceLaunchContractE
 			Stage:               expoLaunchStageBundlePrewarm,
 			Method:              http.MethodGet,
 			Path:                "{manifest.launchAsset.url}",
-			Headers:             map[string]string{"expo-platform": platform, "Accept": "application/javascript, */*"},
-			ExpectedStatus:      "2xx plus first non-empty body byte",
+			Headers:             map[string]string{"expo-platform": platform, "Accept": "multipart/mixed"},
+			ExpectedStatus:      "2xx plus non-empty body and clean end-of-stream",
 			ResponseStartBudget: expoBundlePrewarmHTTPTimeout,
 			BlocksLaunch:        true,
 		},
@@ -248,7 +248,7 @@ func WaitForExpoManifest(
 }
 
 // WaitForExpoBundlePrewarm fetches the platform-aware Expo manifest once, then
-// proves the selected JS bundle starts flowing through the public relay.
+// proves the selected JS bundle transfers completely through the public relay.
 func WaitForExpoBundlePrewarm(
 	ctx context.Context,
 	localPort int,
@@ -261,9 +261,8 @@ func WaitForExpoBundlePrewarm(
 }
 
 // WaitForExpoBundlePrewarmFromManifest proves the selected JS bundle from an
-// already-validated platform-aware Expo manifest starts flowing through the
-// public relay. It waits for response headers and the first non-empty body byte,
-// then lets the remaining body drain in the background.
+// already-validated platform-aware Expo manifest transfers completely through
+// the public relay using the request shape issued by Expo development clients.
 func WaitForExpoBundlePrewarmFromManifest(
 	ctx context.Context,
 	localPort int,
@@ -806,10 +805,10 @@ func checkExpoBundlePrewarmFromManifestWithTimeout(
 		}
 	}
 
-	return requestExpoBundleFirstByte(ctx, bundleURL.Value, fetched.Platform, expectedHost, localPort, timeout)
+	return requestExpoBundleComplete(ctx, bundleURL.Value, fetched.Platform, expectedHost, localPort, timeout)
 }
 
-func requestExpoBundleFirstByte(
+func requestExpoBundleComplete(
 	ctx context.Context,
 	rawBundleURL string,
 	platform string,
@@ -877,32 +876,28 @@ func requestExpoBundleFirstByte(
 			}
 		}
 
-		readErr := readFirstNonEmptyBodyByte(resp.Body)
-		firstByteAt := time.Since(start).Round(time.Millisecond)
+		bodyBytes, readErr := io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		completedAt := time.Since(start).Round(time.Millisecond)
+		cancel()
 		if readErr != nil {
-			_ = resp.Body.Close()
-			cancel()
 			return DiagnosticCheck{
 				Name:   "Bundle prewarm",
 				Passed: false,
-				Detail: fmt.Sprintf("bundle_body_first_byte platform=%s timeout=%s ttfb=%s first_byte=%s path=%s error=%s", platform, timeout, ttfb, firstByteAt, bundleRequestPath(currentURL), readErr),
+				Detail: fmt.Sprintf("bundle_body_complete platform=%s timeout=%s ttfb=%s completed=%s bytes=%d path=%s error=%s", platform, timeout, ttfb, completedAt, bodyBytes, bundleRequestPath(currentURL), readErr),
 			}
 		}
-		if firstByteAt > timeout {
-			_ = resp.Body.Close()
-			cancel()
+		if bodyBytes == 0 {
 			return DiagnosticCheck{
 				Name:   "Bundle prewarm",
 				Passed: false,
-				Detail: fmt.Sprintf("bundle_body_first_byte platform=%s timeout=%s ttfb=%s first_byte=%s path=%s error=deadline exceeded before first body byte", platform, timeout, ttfb, firstByteAt, bundleRequestPath(currentURL)),
+				Detail: fmt.Sprintf("bundle_body_complete platform=%s timeout=%s ttfb=%s completed=%s bytes=0 path=%s error=empty response body", platform, timeout, ttfb, completedAt, bundleRequestPath(currentURL)),
 			}
 		}
-
-		go drainExpoBundleBody(resp.Body, cancel)
 		return DiagnosticCheck{
 			Name:   "Bundle prewarm",
 			Passed: true,
-			Detail: fmt.Sprintf("OK platform=%s status=%d ttfb=%s first_byte=%s path=%s drain=background bundle_background_drain=started", platform, resp.StatusCode, ttfb, firstByteAt, bundleRequestPath(currentURL)),
+			Detail: fmt.Sprintf("OK platform=%s status=%d ttfb=%s completed=%s bytes=%d path=%s", platform, resp.StatusCode, ttfb, completedAt, bodyBytes, bundleRequestPath(currentURL)),
 		}
 	}
 }
@@ -924,7 +919,7 @@ func doExpoBundleRequest(
 		}, false
 	}
 	req.Header.Set("expo-platform", platform)
-	req.Header.Set("Accept", "application/javascript, */*")
+	req.Header.Set("Accept", "multipart/mixed")
 
 	resp, err := client.Do(req)
 	ttfb := time.Since(start).Round(time.Millisecond)
@@ -940,28 +935,6 @@ func doExpoBundleRequest(
 		}, false
 	}
 	return resp, ttfb, DiagnosticCheck{}, true
-}
-
-func readFirstNonEmptyBodyByte(body io.Reader) error {
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := body.Read(buf)
-		if n > 0 {
-			return nil
-		}
-		if errors.Is(err, io.EOF) {
-			return fmt.Errorf("bundle response ended before first body byte")
-		}
-		if err != nil {
-			return err
-		}
-	}
-}
-
-func drainExpoBundleBody(body io.ReadCloser, cancel context.CancelFunc) {
-	defer cancel()
-	defer body.Close()
-	_, _ = io.Copy(io.Discard, body)
 }
 
 func resolveBundleRedirectURL(

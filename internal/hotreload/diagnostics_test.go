@@ -858,7 +858,10 @@ func TestExpoDeviceLaunchContractCoversBlockingRequestShapes(t *testing.T) {
 	if bundle.Method != http.MethodGet || bundle.Path != "{manifest.launchAsset.url}" || bundle.Headers["expo-platform"] != "android" {
 		t.Fatalf("bundle contract = %+v", bundle)
 	}
-	if bundle.ExpectedStatus != "2xx plus first non-empty body byte" || bundle.ResponseStartBudget != expoBundlePrewarmHTTPTimeout || !bundle.BlocksLaunch {
+	if bundle.Headers["Accept"] != "multipart/mixed" {
+		t.Fatalf("bundle Accept = %q, want multipart/mixed", bundle.Headers["Accept"])
+	}
+	if bundle.ExpectedStatus != "2xx plus non-empty body and clean end-of-stream" || bundle.ResponseStartBudget != expoBundlePrewarmHTTPTimeout || !bundle.BlocksLaunch {
 		t.Fatalf("bundle expected/budget/blocking = %+v", bundle)
 	}
 
@@ -1207,6 +1210,7 @@ func TestCheckManifestURLs_ManifestBodyTimeoutDetail(t *testing.T) {
 
 func TestCheckExpoBundlePrewarm_AllowsSlowBundleHeaders(t *testing.T) {
 	var bundleHeaderPlatform string
+	var bundleAccept string
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -1218,6 +1222,7 @@ func TestCheckExpoBundlePrewarm_AllowsSlowBundleHeaders(t *testing.T) {
 	})
 	mux.HandleFunc("/apps/mobile/index.ts.bundle", func(w http.ResponseWriter, r *http.Request) {
 		bundleHeaderPlatform = r.Header.Get("expo-platform")
+		bundleAccept = r.Header.Get("Accept")
 		time.Sleep(125 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/javascript")
 		w.WriteHeader(http.StatusOK)
@@ -1230,6 +1235,9 @@ func TestCheckExpoBundlePrewarm_AllowsSlowBundleHeaders(t *testing.T) {
 	}
 	if bundleHeaderPlatform != "ios" {
 		t.Fatalf("bundle expo-platform = %q, want ios", bundleHeaderPlatform)
+	}
+	if bundleAccept != "multipart/mixed" {
+		t.Fatalf("bundle Accept = %q, want multipart/mixed", bundleAccept)
 	}
 	if !strings.Contains(c.Detail, "/apps/mobile/index.ts.bundle?platform=ios") {
 		t.Fatalf("detail = %q, expected bundle path", c.Detail)
@@ -1399,7 +1407,7 @@ func TestCheckExpoBundlePrewarm_UsesAndroidPlatform(t *testing.T) {
 	}
 }
 
-func TestCheckExpoBundlePrewarm_FirstBodyByteTimeoutDetail(t *testing.T) {
+func TestCheckExpoBundlePrewarm_BodyCompletionTimeoutDetail(t *testing.T) {
 	server := newExpoDogfoodServer(t, expoDogfoodScenario{
 		bundleFirstByteDelay: 150 * time.Millisecond,
 	})
@@ -1408,22 +1416,46 @@ func TestCheckExpoBundlePrewarm_FirstBodyByteTimeoutDetail(t *testing.T) {
 	if c.Passed {
 		t.Fatal("expected bundle first-byte timeout")
 	}
-	if !strings.Contains(c.Detail, "bundle_body_first_byte") {
-		t.Fatalf("detail = %q, expected first-byte timeout detail", c.Detail)
+	if !strings.Contains(c.Detail, "bundle_body_complete") {
+		t.Fatalf("detail = %q, expected body-completion timeout detail", c.Detail)
 	}
 }
 
-func TestCheckExpoBundlePrewarm_BackgroundDrainsAfterFirstByte(t *testing.T) {
+func TestCheckExpoBundlePrewarm_RequiresCleanEndOfStream(t *testing.T) {
 	server := newExpoDogfoodServer(t, expoDogfoodScenario{
 		bundleNeverEndsAfterFirstByte: true,
 	})
 
 	c := checkExpoBundlePrewarmForPlatformWithTimeout(context.Background(), 8081, server.URL, "ios", 150*time.Millisecond)
-	if !c.Passed {
-		t.Fatalf("expected bundle prewarm to pass after first byte, got %s", c.Detail)
+	if c.Passed {
+		t.Fatalf("expected never-ending bundle to fail, got %s", c.Detail)
 	}
-	if !strings.Contains(c.Detail, "drain=background") {
-		t.Fatalf("detail = %q, expected background drain marker", c.Detail)
+	if !strings.Contains(c.Detail, "bundle_body_complete") {
+		t.Fatalf("detail = %q, expected body-completion marker", c.Detail)
+	}
+}
+
+func TestCheckExpoBundlePrewarm_RejectsTruncatedResponse(t *testing.T) {
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"launchAsset": map[string]string{"url": server.URL + "/index.bundle?platform=ios"},
+		})
+	})
+	mux.HandleFunc("/index.bundle", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "1024")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("truncated"))
+	})
+
+	c := checkExpoBundlePrewarmForPlatformWithTimeout(context.Background(), 8081, server.URL, "ios", 500*time.Millisecond)
+	if c.Passed {
+		t.Fatalf("expected truncated bundle to fail, got %s", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "bundle_body_complete") || !strings.Contains(c.Detail, "unexpected EOF") {
+		t.Fatalf("detail = %q, want truncated body detail", c.Detail)
 	}
 }
 
@@ -1473,7 +1505,7 @@ func TestExpoDogfoodHarnessScenarios(t *testing.T) {
 			timeout:    250 * time.Millisecond,
 			platform:   "ios",
 			wantPassed: true,
-			wantDetail: "first_byte=",
+			wantDetail: "completed=",
 		},
 		{
 			name: "slow first byte fails",
@@ -1483,17 +1515,17 @@ func TestExpoDogfoodHarnessScenarios(t *testing.T) {
 			timeout:    50 * time.Millisecond,
 			platform:   "ios",
 			wantPassed: false,
-			wantDetail: "bundle_body_first_byte",
+			wantDetail: "bundle_body_complete",
 		},
 		{
-			name: "never ending body passes after first byte",
+			name: "never ending body fails without clean eof",
 			scenario: expoDogfoodScenario{
 				bundleNeverEndsAfterFirstByte: true,
 			},
 			timeout:    120 * time.Millisecond,
 			platform:   "ios",
-			wantPassed: true,
-			wantDetail: "drain=background",
+			wantPassed: false,
+			wantDetail: "bundle_body_complete",
 		},
 		{
 			name: "localhost bundle leak fails",

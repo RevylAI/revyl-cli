@@ -79,25 +79,39 @@ func CheckRelayConnectivity(ctx context.Context, apiClient *api.Client) error {
 }
 
 type relayEnvelope struct {
-	Kind         string              `json:"kind"`
-	StreamID     string              `json:"stream_id,omitempty"`
-	Method       string              `json:"method,omitempty"`
-	Path         string              `json:"path,omitempty"`
-	Query        string              `json:"query,omitempty"`
-	Headers      map[string][]string `json:"headers,omitempty"`
-	Traceparent  string              `json:"traceparent,omitempty"`
-	RequestClass string              `json:"request_class,omitempty"`
-	Status       int                 `json:"status,omitempty"`
-	Message      string              `json:"message,omitempty"`
-	BodyChunkB64 string              `json:"body_chunk_b64,omitempty"`
-	Text         string              `json:"text,omitempty"`
-	Binary       bool                `json:"binary,omitempty"`
-	CloseCode    int                 `json:"close_code,omitempty"`
+	Kind           string              `json:"kind"`
+	StreamID       string              `json:"stream_id,omitempty"`
+	Method         string              `json:"method,omitempty"`
+	Path           string              `json:"path,omitempty"`
+	Query          string              `json:"query,omitempty"`
+	Headers        map[string][]string `json:"headers,omitempty"`
+	Traceparent    string              `json:"traceparent,omitempty"`
+	RequestClass   string              `json:"request_class,omitempty"`
+	ResponseWindow int                 `json:"response_window,omitempty"`
+	Status         int                 `json:"status,omitempty"`
+	Message        string              `json:"message,omitempty"`
+	BodyChunkB64   string              `json:"body_chunk_b64,omitempty"`
+	Text           string              `json:"text,omitempty"`
+	Binary         bool                `json:"binary,omitempty"`
+	CloseCode      int                 `json:"close_code,omitempty"`
+}
+
+const maxRelayResponseWindow = 64
+
+func boundedRelayResponseWindow(responseWindow int) int {
+	if responseWindow <= 0 {
+		return 0
+	}
+	if responseWindow > maxRelayResponseWindow {
+		return maxRelayResponseWindow
+	}
+	return responseWindow
 }
 
 type relayHTTPStream struct {
-	bodyWriter *io.PipeWriter
-	cancel     context.CancelFunc
+	bodyWriter      *io.PipeWriter
+	cancel          context.CancelFunc
+	responseCredits chan struct{}
 }
 
 type relayWSStream struct {
@@ -252,6 +266,8 @@ func (r *relayRuntime) handleEnvelope(env relayEnvelope) {
 		r.handleHTTPRequestBody(env)
 	case "http.request.end":
 		r.handleHTTPRequestEnd(env)
+	case "http.response.credit":
+		r.handleHTTPResponseCredit(env)
 	case "ws.start":
 		r.handleWSStart(env)
 	case "ws.message":
@@ -289,8 +305,16 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 	}
 	req.Header = relayHeadersToHTTP(env.Headers)
 
+	responseWindow := boundedRelayResponseWindow(env.ResponseWindow)
+	var responseCredits chan struct{}
+	if responseWindow > 0 {
+		responseCredits = make(chan struct{}, responseWindow)
+		for range responseWindow {
+			responseCredits <- struct{}{}
+		}
+	}
 	r.streamMu.Lock()
-	r.httpStreams[env.StreamID] = &relayHTTPStream{bodyWriter: bodyWriter, cancel: cancel}
+	r.httpStreams[env.StreamID] = &relayHTTPStream{bodyWriter: bodyWriter, cancel: cancel, responseCredits: responseCredits}
 	r.streamMu.Unlock()
 
 	go func() {
@@ -352,6 +376,13 @@ func (r *relayRuntime) handleHTTPRequestStart(env relayEnvelope) {
 		for {
 			n, readErr := resp.Body.Read(buf)
 			if n > 0 {
+				if responseCredits != nil {
+					select {
+					case <-responseCredits:
+					case <-ctx.Done():
+						return
+					}
+				}
 				if firstBodyByte == 0 {
 					firstBodyByte = time.Since(startedAt)
 				}
@@ -447,6 +478,19 @@ func (r *relayRuntime) handleHTTPRequestEnd(env relayEnvelope) {
 		return
 	}
 	_ = stream.bodyWriter.Close()
+}
+
+func (r *relayRuntime) handleHTTPResponseCredit(env relayEnvelope) {
+	r.streamMu.Lock()
+	stream := r.httpStreams[env.StreamID]
+	r.streamMu.Unlock()
+	if stream == nil || stream.responseCredits == nil {
+		return
+	}
+	select {
+	case stream.responseCredits <- struct{}{}:
+	default:
+	}
 }
 
 func (r *relayRuntime) handleWSStart(env relayEnvelope) {

@@ -1,6 +1,7 @@
 package hotreload
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -299,6 +300,27 @@ func TestRelayRuntimeStopDoesNotReportDisconnect(t *testing.T) {
 	case err := <-disconnects:
 		t.Fatalf("intentional stop reported disconnect: %v", err)
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestBoundedRelayResponseWindow(t *testing.T) {
+	tests := []struct {
+		name  string
+		value int
+		want  int
+	}{
+		{name: "negative", value: -1, want: 0},
+		{name: "legacy zero", value: 0, want: 0},
+		{name: "normal", value: 16, want: 16},
+		{name: "maximum", value: maxRelayResponseWindow, want: maxRelayResponseWindow},
+		{name: "oversized", value: 1 << 30, want: maxRelayResponseWindow},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := boundedRelayResponseWindow(test.value); got != test.want {
+				t.Fatalf("boundedRelayResponseWindow(%d) = %d, want %d", test.value, got, test.want)
+			}
+		})
 	}
 }
 
@@ -825,6 +847,90 @@ func TestRelayRuntimeStripsBundleContentLength(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+func TestRelayRuntimeHonorsResponseBodyWindow(t *testing.T) {
+	clientConn, serverConn := newRelayRuntimeTestWebSocket(t)
+	body := bytes.Repeat([]byte("m"), 3*relayChunkSize)
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "multipart/mixed; boundary=metro")
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(localServer.Close)
+	req, err := http.NewRequest(http.MethodGet, localServer.URL, nil)
+	if err != nil {
+		t.Fatalf("parse local URL: %v", err)
+	}
+	_, port, err := net.SplitHostPort(req.URL.Host)
+	if err != nil {
+		t.Fatalf("SplitHostPort() error = %v", err)
+	}
+	var portInt int
+	if _, err := fmt.Sscanf(port, "%d", &portInt); err != nil {
+		t.Fatalf("parse port %q: %v", port, err)
+	}
+
+	runtime := newRelayRuntime(context.Background(), portInt, clientConn, nil, nil, nil, nil)
+	t.Cleanup(runtime.stop)
+	t.Cleanup(func() { _ = serverConn.Close() })
+	runtime.handleHTTPRequestStart(relayEnvelope{
+		Kind:           "http.request.start",
+		StreamID:       "multipart-1",
+		Method:         http.MethodGet,
+		Path:           "/index.bundle",
+		Headers:        map[string][]string{"Accept": {"multipart/mixed"}},
+		RequestClass:   "bundle",
+		ResponseWindow: 1,
+	})
+	runtime.handleHTTPRequestEnd(relayEnvelope{Kind: "http.request.end", StreamID: "multipart-1"})
+
+	envelopes := make(chan relayEnvelope, 8)
+	readErrors := make(chan error, 1)
+	go func() {
+		for {
+			_, payload, readErr := serverConn.ReadMessage()
+			if readErr != nil {
+				readErrors <- readErr
+				return
+			}
+			var env relayEnvelope
+			if unmarshalErr := json.Unmarshal(payload, &env); unmarshalErr != nil {
+				readErrors <- unmarshalErr
+				return
+			}
+			envelopes <- env
+		}
+	}()
+
+	var received []byte
+	for len(received) < len(body) {
+		select {
+		case env := <-envelopes:
+			switch env.Kind {
+			case "http.response.body":
+				chunk, decodeErr := base64.StdEncoding.DecodeString(env.BodyChunkB64)
+				if decodeErr != nil {
+					t.Fatalf("decode body chunk: %v", decodeErr)
+				}
+				received = append(received, chunk...)
+				select {
+				case unexpected := <-envelopes:
+					if unexpected.Kind == "http.response.body" || (unexpected.Kind == "http.response.end" && len(received) < len(body)) {
+						t.Fatalf("received %s before returning response credit", unexpected.Kind)
+					}
+				case <-time.After(25 * time.Millisecond):
+				}
+				runtime.handleEnvelope(relayEnvelope{Kind: "http.response.credit", StreamID: "multipart-1"})
+			}
+		case readErr := <-readErrors:
+			t.Fatalf("ReadMessage() error = %v", readErr)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for relayed multipart body")
+		}
+	}
+	if !bytes.Equal(received, body) {
+		t.Fatalf("relayed body length = %d, want %d", len(received), len(body))
 	}
 }
 
