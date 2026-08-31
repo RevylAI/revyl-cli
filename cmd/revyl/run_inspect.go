@@ -60,7 +60,7 @@ var runSummaryCmd = &cobra.Command{
 }
 
 func runSummaryRun(cmd *cobra.Command, args []string) error {
-	taskID := args[0]
+	taskID := strings.TrimSpace(args[0])
 	report, lines, err := loadRunArtifacts(cmd.Context(), cmd, taskID)
 	if err != nil {
 		return err
@@ -89,7 +89,7 @@ var runStateCmd = &cobra.Command{
 }
 
 func runStateRun(cmd *cobra.Command, args []string) error {
-	taskID := args[0]
+	taskID := strings.TrimSpace(args[0])
 	report, client, err := loadReportOnly(cmd.Context(), cmd, taskID)
 	if err != nil {
 		return err
@@ -254,7 +254,7 @@ var runLogsCmd = &cobra.Command{
 }
 
 func runLogsRun(cmd *cobra.Command, args []string) error {
-	taskID := args[0]
+	taskID := strings.TrimSpace(args[0])
 	report, client, err := loadReportOnly(cmd.Context(), cmd, taskID)
 	if err != nil {
 		return err
@@ -391,7 +391,7 @@ var runNetworkCmd = &cobra.Command{
 }
 
 func runNetworkRun(cmd *cobra.Command, args []string) error {
-	taskID := args[0]
+	taskID := strings.TrimSpace(args[0])
 	report, client, err := loadReportOnly(cmd.Context(), cmd, taskID)
 	if err != nil {
 		return err
@@ -613,7 +613,7 @@ var runPerfCmd = &cobra.Command{
 }
 
 func runPerfRun(cmd *cobra.Command, args []string) error {
-	taskID := args[0]
+	taskID := strings.TrimSpace(args[0])
 	report, client, err := loadReportOnly(cmd.Context(), cmd, taskID)
 	if err != nil {
 		return err
@@ -777,7 +777,7 @@ option. Drag the saved file into https://ui.perfetto.dev to inspect.`,
 }
 
 func runTraceRun(cmd *cobra.Command, args []string) error {
-	taskID := args[0]
+	taskID := strings.TrimSpace(args[0])
 	report, _, err := loadReportOnly(cmd.Context(), cmd, taskID)
 	if err != nil {
 		return err

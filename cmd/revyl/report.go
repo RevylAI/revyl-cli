@@ -94,6 +94,10 @@ Examples:
 // Tries: UUID-like test IDs via history → direct UUID execution/task IDs → test
 // name/alias → latest task.
 func resolveToTaskID(cmd *cobra.Command, nameOrID string, cfg *config.ProjectConfig, client *api.Client, devMode bool) (taskID string, testName string, err error) {
+	// looksLikeUUID accepts surrounding whitespace, so normalize before any
+	// branch can return nameOrID as the identifier a request is built from.
+	nameOrID = strings.TrimSpace(nameOrID)
+
 	// 1. If it looks like a UUID, first preserve test UUID support by resolving
 	// the latest execution from history. Otherwise treat it as the execution/task
 	// candidate directly and let the final reports-v3 fetch surface the real error.

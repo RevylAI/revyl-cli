@@ -71,6 +71,13 @@ func TestLooksLikeUUID(t *testing.T) {
 			input:    "login-flow",
 			expected: false,
 		},
+		{
+			// Padding is accepted here, so every caller that returns the value
+			// it checked must normalize first. See TestResolveToTaskIDTrimsWhitespace.
+			name:     "surrounding whitespace is accepted",
+			input:    "  027b91de-4a21-4bca-acfe-32db2a628f51  ",
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -80,6 +87,49 @@ func TestLooksLikeUUID(t *testing.T) {
 				t.Errorf("looksLikeUUID(%q) = %v, want %v", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+// TestResolveToTaskIDTrimsWhitespace pins the normalization that keeps a padded
+// identifier out of the reports API path. looksLikeUUID trims before parsing, so
+// a padded UUID passes the check; returning the unnormalized value sent the
+// padding on as a path segment, which the backend rejected as a 500.
+func TestResolveToTaskIDTrimsWhitespace(t *testing.T) {
+	const taskUUID = "41f0ddd8-6fb9-4f6e-b05f-437236f9d909"
+
+	// Empty history: the lookup succeeds but finds no execution, so
+	// resolveToTaskID falls through to returning the identifier it was handed.
+	var gotTestIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTestIDs = append(gotTestIDs, r.URL.Query().Get("test_id"))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"items": []interface{}{}})
+	}))
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+
+	inputs := []string{
+		"  " + taskUUID,
+		taskUUID + "   ",
+		"\t" + taskUUID + "\n",
+	}
+	for _, input := range inputs {
+		taskID, _, err := resolveToTaskID(cmd, input, nil, client, false)
+		if err != nil {
+			t.Fatalf("resolveToTaskID(%q) error = %v", input, err)
+		}
+		if taskID != taskUUID {
+			t.Errorf("resolveToTaskID(%q) = %q, want %q", input, taskID, taskUUID)
+		}
+	}
+
+	for _, gotTestID := range gotTestIDs {
+		if gotTestID != taskUUID {
+			t.Errorf("history lookup sent test_id %q, want %q", gotTestID, taskUUID)
+		}
 	}
 }
 
