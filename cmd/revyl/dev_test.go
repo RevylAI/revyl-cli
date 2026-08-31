@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1153,6 +1154,88 @@ func TestTryLaunchInstalledApp_WarnsWithResolvedIdentifier(t *testing.T) {
 	}
 	if requester.sessionIndex != 7 {
 		t.Fatalf("sessionIndex = %d, want 7", requester.sessionIndex)
+	}
+}
+
+func TestLaunchIOSAppAfterDeltaInstallRelaunchesWithPackagerSettings(t *testing.T) {
+	requester := &fakeWorkerSessionRequester{
+		resp: []byte(`{"success":true,"action":"launch"}`),
+	}
+
+	err := launchIOSAppAfterDeltaInstall(
+		context.Background(),
+		requester,
+		7,
+		"ios",
+		"com.example.installed",
+		"com.example.fallback",
+		"hr-abc.relay.revyl.ai:443",
+		"https",
+	)
+	if err != nil {
+		t.Fatalf("launchIOSAppAfterDeltaInstall() error = %v", err)
+	}
+	if requester.sessionIndex != 7 || requester.path != "/launch" {
+		t.Fatalf(
+			"request target = session %d path %s, want session 7 /launch",
+			requester.sessionIndex,
+			requester.path,
+		)
+	}
+	wantBody := map[string]string{
+		"bundle_id":       "com.example.installed",
+		"packager_host":   "hr-abc.relay.revyl.ai:443",
+		"packager_scheme": "https",
+	}
+	if !reflect.DeepEqual(requester.body, wantBody) {
+		t.Fatalf("launch body = %#v, want %#v", requester.body, wantBody)
+	}
+}
+
+func TestLaunchIOSAppAfterDeltaInstallSkipsAndroid(t *testing.T) {
+	requester := &fakeWorkerSessionRequester{}
+
+	err := launchIOSAppAfterDeltaInstall(
+		context.Background(),
+		requester,
+		7,
+		"android",
+		"com.example.app",
+		"",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("launchIOSAppAfterDeltaInstall() error = %v", err)
+	}
+	if requester.path != "" {
+		t.Fatalf("unexpected Android launch request to %s", requester.path)
+	}
+}
+
+func TestLaunchIOSAppAfterDeltaInstallPropagatesLaunchFailure(t *testing.T) {
+	requester := &fakeWorkerSessionRequester{
+		resp: []byte(`{"success":false,"action":"launch","error":"app crashed"}`),
+	}
+
+	err := launchIOSAppAfterDeltaInstall(
+		context.Background(),
+		requester,
+		7,
+		"ios",
+		"",
+		"com.example.fallback",
+		"",
+		"",
+	)
+	if err == nil || !strings.Contains(err.Error(), "app crashed") {
+		t.Fatalf("launchIOSAppAfterDeltaInstall() error = %v, want app crashed", err)
+	}
+	if requester.body["bundle_id"] != "com.example.fallback" {
+		t.Fatalf(
+			"bundle_id = %q, want fallback bundle id",
+			requester.body["bundle_id"],
+		)
 	}
 }
 

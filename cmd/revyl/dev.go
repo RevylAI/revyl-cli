@@ -1961,12 +1961,40 @@ func tryLaunchInstalledApp(
 	packagerScheme string,
 ) {
 	identifier := strings.TrimSpace(appIdentifier)
-	if identifier == "" {
+	if err := launchInstalledApp(
+		ctx,
+		requester,
+		sessionIndex,
+		appIdentifier,
+		packagerHost,
+		packagerScheme,
+	); err != nil {
+		if identifier != "" {
+			ui.PrintWarning(
+				"App install succeeded, but launch failed (%s): %v",
+				formatInstalledAppIdentifier(devicePlatform, identifier),
+				err,
+			)
+			return
+		}
 		ui.PrintWarning(
 			"App install succeeded, but no %s was returned. Skipping explicit launch.",
 			strings.ToLower(appIdentifierLabel(devicePlatform)),
 		)
-		return
+	}
+}
+
+func launchInstalledApp(
+	ctx context.Context,
+	requester workerSessionRequester,
+	sessionIndex int,
+	appIdentifier string,
+	packagerHost string,
+	packagerScheme string,
+) error {
+	identifier := strings.TrimSpace(appIdentifier)
+	if identifier == "" {
+		return fmt.Errorf("app identifier is required to launch the installed app")
 	}
 
 	payload := map[string]string{"bundle_id": identifier}
@@ -1984,24 +2012,42 @@ func tryLaunchInstalledApp(
 		payload,
 	)
 	if err != nil {
-		ui.PrintWarning(
-			"App install succeeded, but launch failed (%s): %v",
-			formatInstalledAppIdentifier(devicePlatform, identifier),
-			err,
-		)
-		return
+		return err
 	}
 	if err := ensureWorkerActionSucceeded(launchResp, "launch"); err != nil {
-		ui.PrintWarning(
-			"App install succeeded, but launch failed (%s): %v",
-			formatInstalledAppIdentifier(devicePlatform, identifier),
-			err,
-		)
-		return
+		return err
 	}
 
 	// A (re)launch starts a fresh app process, so re-authenticate it.
 	fireAuthBypassAfterLaunch(ctx, requester, sessionIndex)
+	return nil
+}
+
+func launchIOSAppAfterDeltaInstall(
+	ctx context.Context,
+	requester workerSessionRequester,
+	sessionIndex int,
+	devicePlatform string,
+	installedBundleID string,
+	fallbackBundleID string,
+	packagerHost string,
+	packagerScheme string,
+) error {
+	if !strings.EqualFold(strings.TrimSpace(devicePlatform), "ios") {
+		return nil
+	}
+	launchID := strings.TrimSpace(installedBundleID)
+	if launchID == "" {
+		launchID = strings.TrimSpace(fallbackBundleID)
+	}
+	return launchInstalledApp(
+		ctx,
+		requester,
+		sessionIndex,
+		launchID,
+		packagerHost,
+		packagerScheme,
+	)
 }
 
 // maskPresignedURL redacts the query string from presigned S3/GCS URLs to
@@ -3168,6 +3214,36 @@ func devBuildAndDeltaPush(
 			result.newBundleID = installResult.BundleID
 			result.filesChanged = len(diff.Changed) + len(diff.Deleted)
 			result.manifest = newManifest
+			if strings.EqualFold(strings.TrimSpace(devicePlatform), "ios") {
+				ui.StartSpinner("Launching app...")
+				appendAndPublishDevRebuildLog(&result, publishLog, "info", "Launching app after delta install")
+				launchErr := launchIOSAppAfterDeltaInstall(
+					ctx,
+					deviceMgr,
+					session.Index,
+					devicePlatform,
+					installResult.BundleID,
+					bundleID,
+					packagerHost,
+					packagerScheme,
+				)
+				ui.StopSpinner()
+				if launchErr != nil {
+					result.pushErr = fmt.Errorf(
+						"delta installed but app launch failed: %w",
+						launchErr,
+					)
+					result.elapsed = time.Since(rebuildStart)
+					appendAndPublishDevRebuildLog(
+						&result,
+						publishLog,
+						"error",
+						"%v",
+						result.pushErr,
+					)
+					return result
+				}
+			}
 			result.elapsed = time.Since(rebuildStart)
 			if result.dataPreserved {
 				appendAndPublishDevRebuildLog(&result, publishLog, "success", "Delta installed; app data preserved")
