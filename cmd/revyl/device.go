@@ -2853,7 +2853,7 @@ var deviceLogsCmd = &cobra.Command{
 	Short: "Poll live device logs from an active session",
 	Long: `Stream live device logs from a device session.
 
-By default, polls continuously (--follow) printing one raw log line per entry
+By default, polls continuously (--follow) printing one captured log line per entry
 (logcat on Android, OSLog/NSLog on iOS). Use --no-follow for a single snapshot.`,
 	Example: `  revyl device logs
   revyl device logs --no-follow
