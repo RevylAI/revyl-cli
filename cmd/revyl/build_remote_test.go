@@ -123,6 +123,42 @@ func TestPollRemoteBuildStatusResultPrintsFailureLogTail(t *testing.T) {
 	}
 }
 
+func TestPrintRemoteBuildConcurrencyWaitIsConcise(t *testing.T) {
+	output := captureStdoutAndStderr(t, printRemoteBuildConcurrencyWait)
+
+	if !strings.Contains(output, remoteBuildConcurrencyWaitMessage) {
+		t.Fatalf("output missing concurrency wait message:\n%s", output)
+	}
+	for _, unwanted := range []string{"another build", "Upgrade", "settings/plans"} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("output contains obsolete text %q:\n%s", unwanted, output)
+		}
+	}
+}
+
+func TestOrganizationConcurrencyWaitRequiresQueuedStatusAndExactPhase(t *testing.T) {
+	phase := "organization_concurrency"
+	waiting := &api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase}
+	if !isOrganizationConcurrencyWait(waiting) {
+		t.Fatal("pending organization_concurrency build should be recognized as waiting for organization capacity")
+	}
+	if got := remoteBuildDisplayStatus(waiting); got != remoteBuildConcurrencyWaitMessage {
+		t.Fatalf("remoteBuildDisplayStatus() = %q, want %q", got, remoteBuildConcurrencyWaitMessage)
+	}
+
+	dispatch := "dispatch"
+	if isOrganizationConcurrencyWait(&api.RemoteBuildStatusResponse{Status: "pending", Phase: &dispatch}) {
+		t.Fatal("normal dispatch queue should not be presented as organization concurrency")
+	}
+	if isOrganizationConcurrencyWait(&api.RemoteBuildStatusResponse{Status: "building", Phase: &phase}) {
+		t.Fatal("building status should not be presented as waiting for organization concurrency")
+	}
+	if remoteBuildDisplayKey(&api.RemoteBuildStatusResponse{Status: "pending", Phase: &phase}) ==
+		remoteBuildDisplayKey(&api.RemoteBuildStatusResponse{Status: "pending", Phase: &dispatch}) {
+		t.Fatal("display state should change when a pending build enters organization concurrency")
+	}
+}
+
 func TestPrintRemoteBuildStatusSummaryPrintsStatusAfterLogs(t *testing.T) {
 	platform := "ios"
 	versionID := "version-1"

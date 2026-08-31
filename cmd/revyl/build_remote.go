@@ -623,6 +623,10 @@ func printRemoteBuildStatusSummary(ctx context.Context, client *api.Client, jobI
 		ui.PrintKeyValue("Version ID:", strings.TrimSpace(*status.VersionId))
 	}
 	ui.PrintKeyValue("Status:", status.Status)
+	if isOrganizationConcurrencyWait(status) {
+		ui.Println()
+		printRemoteBuildConcurrencyWait()
+	}
 }
 
 func printRemoteBuildPhaseTimings(timings *[]api.RemoteBuildPhaseTiming) {
