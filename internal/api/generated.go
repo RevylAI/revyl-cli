@@ -168,6 +168,27 @@ func (e AtlasAnnotationOriginSurface) Valid() bool {
 	}
 }
 
+// Defines values for AtlasAnnotationSeverity.
+const (
+	AtlasAnnotationSeverityBlocker AtlasAnnotationSeverity = "blocker"
+	AtlasAnnotationSeverityIssue   AtlasAnnotationSeverity = "issue"
+	AtlasAnnotationSeverityPolish  AtlasAnnotationSeverity = "polish"
+)
+
+// Valid indicates whether the value is a known member of the AtlasAnnotationSeverity enum.
+func (e AtlasAnnotationSeverity) Valid() bool {
+	switch e {
+	case AtlasAnnotationSeverityBlocker:
+		return true
+	case AtlasAnnotationSeverityIssue:
+		return true
+	case AtlasAnnotationSeverityPolish:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AtlasAnnotationStatus.
 const (
 	AtlasAnnotationStatusDismissed AtlasAnnotationStatus = "dismissed"
@@ -1320,6 +1341,33 @@ func (e ListAtlasAnnotationFeedbackParamsAuthorType) Valid() bool {
 	}
 }
 
+// Defines values for ListAtlasAnnotationFeedbackParamsSeverity.
+const (
+	ListAtlasAnnotationFeedbackParamsSeverityAll     ListAtlasAnnotationFeedbackParamsSeverity = "all"
+	ListAtlasAnnotationFeedbackParamsSeverityBlocker ListAtlasAnnotationFeedbackParamsSeverity = "blocker"
+	ListAtlasAnnotationFeedbackParamsSeverityIssue   ListAtlasAnnotationFeedbackParamsSeverity = "issue"
+	ListAtlasAnnotationFeedbackParamsSeverityNone    ListAtlasAnnotationFeedbackParamsSeverity = "none"
+	ListAtlasAnnotationFeedbackParamsSeverityPolish  ListAtlasAnnotationFeedbackParamsSeverity = "polish"
+)
+
+// Valid indicates whether the value is a known member of the ListAtlasAnnotationFeedbackParamsSeverity enum.
+func (e ListAtlasAnnotationFeedbackParamsSeverity) Valid() bool {
+	switch e {
+	case ListAtlasAnnotationFeedbackParamsSeverityAll:
+		return true
+	case ListAtlasAnnotationFeedbackParamsSeverityBlocker:
+		return true
+	case ListAtlasAnnotationFeedbackParamsSeverityIssue:
+		return true
+	case ListAtlasAnnotationFeedbackParamsSeverityNone:
+		return true
+	case ListAtlasAnnotationFeedbackParamsSeverityPolish:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus.
 const (
 	QueryTestsEndpointApiV1TestsGetTestsGetParamsStatusAll     QueryTestsEndpointApiV1TestsGetTestsGetParamsStatus = "all"
@@ -1683,11 +1731,15 @@ type AtlasAnnotationFeedbackItem struct {
 	ScreenLabel      *string                      `json:"screen_label,omitempty"`
 	ScreenshotHeight int                          `json:"screenshot_height"`
 	ScreenshotWidth  int                          `json:"screenshot_width"`
-	SourceReportUrl  *string                      `json:"source_report_url,omitempty"`
-	Status           AtlasAnnotationStatus        `json:"status"`
-	ThreadId         string                       `json:"thread_id"`
-	ThumbnailUrl     *string                      `json:"thumbnail_url,omitempty"`
-	Version          int                          `json:"version"`
+
+	// Severity Finding severity. Presence marks a thread as a ranked finding;
+	// a thread without severity is a plain conversation.
+	Severity        *AtlasAnnotationSeverity `json:"severity,omitempty"`
+	SourceReportUrl *string                  `json:"source_report_url,omitempty"`
+	Status          AtlasAnnotationStatus    `json:"status"`
+	ThreadId        string                   `json:"thread_id"`
+	ThumbnailUrl    *string                  `json:"thumbnail_url,omitempty"`
+	Version         int                      `json:"version"`
 }
 
 // AtlasAnnotationFeedbackResponse defines model for AtlasAnnotationFeedbackResponse.
@@ -1734,6 +1786,24 @@ type AtlasAnnotationReplyRequest struct {
 	Mentions        *[]AtlasAnnotationMentionInput `json:"mentions,omitempty"`
 }
 
+// AtlasAnnotationSeverity Finding severity. Presence marks a thread as a ranked finding;
+// a thread without severity is a plain conversation.
+type AtlasAnnotationSeverity string
+
+// AtlasAnnotationSeverityChangeRequest Set or clear a thread's severity.
+//
+// “severity: null“ demotes the thread from a ranked finding back to a
+// plain conversation. Guarded by the same optimistic version as status
+// transitions.
+type AtlasAnnotationSeverityChangeRequest struct {
+	// ExpectedVersion Thread version the client last observed; the change is rejected with a conflict when the thread moved past it.
+	ExpectedVersion int `json:"expected_version"`
+
+	// Severity Finding severity. Presence marks a thread as a ranked finding;
+	// a thread without severity is a plain conversation.
+	Severity *AtlasAnnotationSeverity `json:"severity,omitempty"`
+}
+
 // AtlasAnnotationStatus defines model for AtlasAnnotationStatus.
 type AtlasAnnotationStatus string
 
@@ -1763,18 +1833,22 @@ type AtlasAnnotationThread struct {
 	// ``user_id`` is the authenticated PropelAuth user id (authorization and
 	// audit key); ``display_name``/``avatar_url`` are snapshots taken at write
 	// time so attribution survives membership changes.
-	CreatedBy             AtlasAnnotationAuthor        `json:"created_by"`
-	Id                    string                       `json:"id"`
-	LastActivityAt        time.Time                    `json:"last_activity_at"`
-	NodeEntityId          *string                      `json:"node_entity_id,omitempty"`
-	OriginSurface         AtlasAnnotationOriginSurface `json:"origin_surface"`
-	ReplyCount            *int                         `json:"reply_count,omitempty"`
-	ReportId              *string                      `json:"report_id,omitempty"`
-	SourceReportUrl       *string                      `json:"source_report_url,omitempty"`
-	Status                AtlasAnnotationStatus        `json:"status"`
-	StatusChangedAt       *time.Time                   `json:"status_changed_at,omitempty"`
-	StatusChangedByUserId *string                      `json:"status_changed_by_user_id,omitempty"`
-	Version               int                          `json:"version"`
+	CreatedBy      AtlasAnnotationAuthor        `json:"created_by"`
+	Id             string                       `json:"id"`
+	LastActivityAt time.Time                    `json:"last_activity_at"`
+	NodeEntityId   *string                      `json:"node_entity_id,omitempty"`
+	OriginSurface  AtlasAnnotationOriginSurface `json:"origin_surface"`
+	ReplyCount     *int                         `json:"reply_count,omitempty"`
+	ReportId       *string                      `json:"report_id,omitempty"`
+
+	// Severity Finding severity. Presence marks a thread as a ranked finding;
+	// a thread without severity is a plain conversation.
+	Severity              *AtlasAnnotationSeverity `json:"severity,omitempty"`
+	SourceReportUrl       *string                  `json:"source_report_url,omitempty"`
+	Status                AtlasAnnotationStatus    `json:"status"`
+	StatusChangedAt       *time.Time               `json:"status_changed_at,omitempty"`
+	StatusChangedByUserId *string                  `json:"status_changed_by_user_id,omitempty"`
+	Version               int                      `json:"version"`
 }
 
 // AtlasAnnotationThreadResponse defines model for AtlasAnnotationThreadResponse.
@@ -1864,7 +1938,11 @@ type AtlasGroundedAnnotationThreadCreateRequest struct {
 	// ClientRequestId Client-generated UUID making retried submissions idempotent.
 	ClientRequestId string                         `json:"client_request_id"`
 	Mentions        *[]AtlasAnnotationMentionInput `json:"mentions,omitempty"`
-	Target          string                         `json:"target"`
+
+	// Severity Finding severity. Presence marks a thread as a ranked finding;
+	// a thread without severity is a plain conversation.
+	Severity *AtlasAnnotationSeverity `json:"severity,omitempty"`
+	Target   string                   `json:"target"`
 }
 
 // AtlasGroundedAnnotationThreadCreateResponse defines model for AtlasGroundedAnnotationThreadCreateResponse.
@@ -6534,6 +6612,7 @@ type ListAtlasAnnotationFeedbackParams struct {
 	ThreadId      *string                                      `form:"thread_id,omitempty" json:"thread_id,omitempty"`
 	Status        *ListAtlasAnnotationFeedbackParamsStatus     `form:"status,omitempty" json:"status,omitempty"`
 	AuthorType    *ListAtlasAnnotationFeedbackParamsAuthorType `form:"author_type,omitempty" json:"author_type,omitempty"`
+	Severity      *ListAtlasAnnotationFeedbackParamsSeverity   `form:"severity,omitempty" json:"severity,omitempty"`
 	Cursor        *string                                      `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit         *int                                         `form:"limit,omitempty" json:"limit,omitempty"`
 }
@@ -6543,6 +6622,9 @@ type ListAtlasAnnotationFeedbackParamsStatus string
 
 // ListAtlasAnnotationFeedbackParamsAuthorType defines parameters for ListAtlasAnnotationFeedback.
 type ListAtlasAnnotationFeedbackParamsAuthorType string
+
+// ListAtlasAnnotationFeedbackParamsSeverity defines parameters for ListAtlasAnnotationFeedback.
+type ListAtlasAnnotationFeedbackParamsSeverity string
 
 // DeclareAtlasAnnotationAttachmentUploadParams defines parameters for DeclareAtlasAnnotationAttachmentUpload.
 type DeclareAtlasAnnotationAttachmentUploadParams struct {
@@ -6597,6 +6679,11 @@ type AddAtlasAnnotationReplyParams struct {
 type ResolveAtlasAnnotationThreadParams struct {
 	XRevylAgent  *string `json:"X-Revyl-Agent,omitempty"`
 	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
+}
+
+// SetAtlasAnnotationThreadSeverityParams defines parameters for SetAtlasAnnotationThreadSeverity.
+type SetAtlasAnnotationThreadSeverityParams struct {
+	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
 }
 
 // GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams defines parameters for GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGet.
@@ -7085,6 +7172,9 @@ type AddAtlasAnnotationReplyJSONRequestBody = AtlasAnnotationReplyRequest
 
 // ResolveAtlasAnnotationThreadJSONRequestBody defines body for ResolveAtlasAnnotationThread for application/json ContentType.
 type ResolveAtlasAnnotationThreadJSONRequestBody = AtlasAnnotationStatusChangeRequest
+
+// SetAtlasAnnotationThreadSeverityJSONRequestBody defines body for SetAtlasAnnotationThreadSeverity for application/json ContentType.
+type SetAtlasAnnotationThreadSeverityJSONRequestBody = AtlasAnnotationSeverityChangeRequest
 
 // PreviewAtlasAnnotationAnchorJSONRequestBody defines body for PreviewAtlasAnnotationAnchor for application/json ContentType.
 type PreviewAtlasAnnotationAnchorJSONRequestBody = AtlasAnnotationAnchorPreviewRequest

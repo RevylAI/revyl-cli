@@ -20,7 +20,7 @@ func TestAtlasAnnotationsCommandExposesCompleteLifecycle(t *testing.T) {
 	want := map[string]bool{
 		"list": true, "members": true, "get": true, "create": true, "move": true,
 		"reply": true, "edit": true, "delete": true, "resolve": true,
-		"dismiss": true, "reopen": true,
+		"dismiss": true, "reopen": true, "severity": true,
 	}
 	for _, child := range command.Commands() {
 		delete(want, child.Name())
@@ -196,6 +196,76 @@ func TestCreateDryRunRejectsBodyWithoutCallingBackend(t *testing.T) {
 	})
 	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "prohibits") {
 		t.Fatalf("error = %v, want dry-run body rejection", err)
+	}
+}
+
+func TestSeverityCommandAutoFetchesVersionAndSendsValue(t *testing.T) {
+	var patched bool
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodGet && strings.HasSuffix(request.URL.Path, "/annotation-threads/thread-1"):
+			_, _ = response.Write([]byte(`{"thread":{"id":"thread-1","app_id":"app-1","anchor":{"observation_id":"obs-1","x":0.5,"y":0.5,"screenshot_width":100,"screenshot_height":100},"origin_surface":"app_atlas","status":"open","version":7,"created_by":{"user_id":"user-1"},"created_at":"2026-08-01T00:00:00Z","last_activity_at":"2026-08-01T00:00:00Z"}}`))
+		case request.Method == http.MethodPatch && strings.HasSuffix(request.URL.Path, "/annotation-threads/thread-1/severity"):
+			patched = true
+			body := new(bytes.Buffer)
+			_, _ = body.ReadFrom(request.Body)
+			if !strings.Contains(body.String(), `"severity":"blocker"`) || !strings.Contains(body.String(), `"expected_version":7`) {
+				t.Fatalf("severity request body = %s", body.String())
+			}
+			_, _ = response.Write([]byte(`{"thread":{"id":"thread-1","app_id":"app-1","anchor":{"observation_id":"obs-1","x":0.5,"y":0.5,"screenshot_width":100,"screenshot_height":100},"origin_surface":"app_atlas","status":"open","severity":"blocker","version":8,"created_by":{"user_id":"user-1"},"created_at":"2026-08-01T00:00:00Z","last_activity_at":"2026-08-01T00:00:00Z"}}`))
+		default:
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := api.NewClientWithBaseURL("test-key", server.URL)
+	response, err := client.GetAtlasAnnotationThread(context.Background(), "app-1", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	severity := api.AtlasAnnotationSeverityBlocker
+	result, err := client.SetAtlasAnnotationSeverity(context.Background(), "app-1", "thread-1", &api.AtlasAnnotationSeverityChangeRequest{
+		ExpectedVersion: response.Thread.Version,
+		Severity:        &severity,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !patched {
+		t.Fatal("severity PATCH was not sent")
+	}
+	if result.Thread.Severity == nil || *result.Thread.Severity != api.AtlasAnnotationSeverityBlocker {
+		t.Fatalf("severity = %#v", result.Thread.Severity)
+	}
+}
+
+func TestResolveAnnotationSeverityValidatesAndClears(t *testing.T) {
+	command := newAtlasAnnotationsSeverityCommand()
+	if err := command.Flags().Set("severity", "catastrophic"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveAnnotationSeverity(command, "catastrophic", false); err == nil {
+		t.Fatal("expected invalid severity error")
+	}
+	if _, err := resolveAnnotationSeverity(command, "catastrophic", true); err == nil {
+		t.Fatal("expected mutual-exclusion error for --severity with --clear")
+	}
+
+	cleared := newAtlasAnnotationsSeverityCommand()
+	value, err := resolveAnnotationSeverity(cleared, "", true)
+	if err != nil || value != nil {
+		t.Fatalf("clear should resolve to nil severity: value=%v err=%v", value, err)
+	}
+
+	valid := newAtlasAnnotationsSeverityCommand()
+	if err := valid.Flags().Set("severity", "polish"); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := resolveAnnotationSeverity(valid, "polish", false)
+	if err != nil || resolved == nil || *resolved != api.AtlasAnnotationSeverityPolish {
+		t.Fatalf("valid severity mis-resolved: value=%v err=%v", resolved, err)
 	}
 }
 

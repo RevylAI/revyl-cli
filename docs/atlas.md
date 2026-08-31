@@ -97,16 +97,25 @@ Annotations let Codex, Claude Code, Cursor, and human CLI users leave feedback
 on exact screenshot evidence. Every command requires `--app`:
 
 ```bash
-revyl atlas annotations list --app <app-id> [--observation <id>] [--status open|resolved|dismissed|closed|all] [--limit 25] [--cursor <cursor>]
+revyl atlas annotations list --app <app-id> [--observation <id>] [--status open|resolved|dismissed|closed|all] [--severity all|blocker|issue|polish|none] [--limit 25] [--cursor <cursor>]
 revyl atlas annotations members --app <app-id> [--query <name-or-email>] [--limit 25] [--json]
 revyl atlas annotations get <thread-id> --app <app-id>
-revyl atlas annotations create --app <app-id> --observation <id> --target "<visible target>" --body "<feedback>" [--mention alias=user-id]... [--attach <path>]...
+revyl atlas annotations create --app <app-id> --observation <id> --target "<visible target>" --body "<feedback>" [--severity blocker|issue|polish] [--mention alias=user-id]... [--attach <path>]...
 revyl atlas annotations move <thread-id> --app <app-id> --target "<visible target>"
 revyl atlas annotations reply <thread-id> --app <app-id> --body-file <path-or-dash> [--mention alias=user-id]... [--attach <path>]...
 revyl atlas annotations edit <comment-id> --app <app-id> [--body "<replacement>"] [--mention alias=user-id]... [--attach <path>]... [--remove-attachment <id>]... [--clear-attachments]
 revyl atlas annotations delete <comment-id> --app <app-id> --yes
 revyl atlas annotations resolve|dismiss|reopen <thread-id> --app <app-id>
+revyl atlas annotations severity <thread-id> --app <app-id> --severity blocker|issue|polish
+revyl atlas annotations severity <thread-id> --app <app-id> --clear
 ```
+
+Severity marks a thread as a ranked finding (`blocker`, `issue`, or `polish`);
+a thread without severity is a plain conversation. Set it at creation with
+`--severity` or change it later with the `severity` subcommand; `--clear`
+demotes the finding back to a conversation. Severity changes use the same
+optimistic version check as status transitions and never reorder the feedback
+inbox.
 
 `list` returns one bounded page and `next_cursor`; it never downloads every
 page. Create and reply require exactly one of `--body` or `--body-file`, where

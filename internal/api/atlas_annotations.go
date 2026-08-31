@@ -14,6 +14,7 @@ func (c *Client) ListAtlasAnnotationFeedback(
 	appID string,
 	observationID string,
 	status string,
+	severity string,
 	cursor string,
 	limit int,
 ) (*AtlasAnnotationFeedbackResponse, error) {
@@ -24,6 +25,9 @@ func (c *Client) ListAtlasAnnotationFeedback(
 	}
 	if status != "" {
 		values.Set("status", status)
+	}
+	if severity != "" {
+		values.Set("severity", severity)
 	}
 	if cursor != "" {
 		values.Set("cursor", cursor)
@@ -254,6 +258,28 @@ func (c *Client) ChangeAtlasAnnotationStatus(
 		return nil, fmt.Errorf("unsupported annotation status action %q", action)
 	}
 	resp, err := c.doRequest(ctx, http.MethodPost, path, req)
+	if err != nil {
+		return nil, err
+	}
+	var result AtlasAnnotationThreadResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) SetAtlasAnnotationSeverity(
+	ctx context.Context,
+	appID string,
+	threadID string,
+	req *AtlasAnnotationSeverityChangeRequest,
+) (*AtlasAnnotationThreadResponse, error) {
+	path := fmt.Sprintf(
+		"/api/v1/atlas/v2/apps/%s/annotation-threads/%s/severity",
+		url.PathEscape(appID),
+		url.PathEscape(threadID),
+	)
+	resp, err := c.doRequest(ctx, http.MethodPatch, path, req)
 	if err != nil {
 		return nil, err
 	}

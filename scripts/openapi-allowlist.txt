@@ -90,6 +90,7 @@ GET /api/v1/workflows/workflow/{workflow_id}/tests
 PATCH /api/v1/tests/tags/{tag_id}
 PATCH /api/v1/atlas/v2/apps/{app_id}/annotation-comments/{comment_id}
 PATCH /api/v1/atlas/v2/apps/{app_id}/annotation-threads/{thread_id}/anchor
+PATCH /api/v1/atlas/v2/apps/{app_id}/annotation-threads/{thread_id}/severity
 PATCH /api/v1/tests/{test_id}/device-target
 PATCH /api/v1/workflows/workflow-tests/{workflow_test_id}
 POST /api/v1/apps/

@@ -38,8 +38,14 @@ Open the marked preview and verify the pin. Create only after it is correct:
 revyl atlas annotations list --app <app-id> --observation <observation-id> --json
 revyl atlas annotations create --app <app-id> --observation <observation-id> \
   --target "<visible element and location>" --body "<actionable feedback>" \
-  --attach <evidence-path> --json
+  --severity <blocker|issue|polish> --attach <evidence-path> --json
 ```
+
+When the annotation reports a problem, set `--severity`: `blocker` blocks
+shipping, `issue` is wrong but shippable, `polish` is cosmetic. Omit severity
+for questions and discussion; change it later with
+`revyl atlas annotations severity <thread-id> --app <app-id> --severity <value>`
+(or `--clear`).
 
 Save the printed request ID. If transport fails, retry with the same body,
 target, observation, ordered attachment paths, and `--client-request-id`;

@@ -42,6 +42,7 @@ type annotationCreateOptions struct {
 	app             string
 	observation     string
 	target          string
+	severity        string
 	clientRequestID string
 	dryRun          bool
 	previewOut      string
@@ -76,6 +77,7 @@ func newAtlasAnnotationsCommand() *cobra.Command {
 		newAtlasAnnotationsStatusCommand("resolve"),
 		newAtlasAnnotationsStatusCommand("dismiss"),
 		newAtlasAnnotationsStatusCommand("reopen"),
+		newAtlasAnnotationsSeverityCommand(),
 	)
 	return command
 }
@@ -154,7 +156,7 @@ func annotationMutationErrorWithAttachments(cmd *cobra.Command, requestID string
 }
 
 func newAtlasAnnotationsListCommand() *cobra.Command {
-	var appInput, observationID, status, cursor string
+	var appInput, observationID, status, severity, cursor string
 	var limit int
 	command := &cobra.Command{
 		Use:   "list",
@@ -166,6 +168,11 @@ func newAtlasAnnotationsListCommand() *cobra.Command {
 			default:
 				return fmt.Errorf("--status must be open, resolved, dismissed, closed, or all")
 			}
+			switch severity {
+			case "all", "blocker", "issue", "polish", "none":
+			default:
+				return fmt.Errorf("--severity must be all, blocker, issue, polish, or none")
+			}
 			if limit < 1 || limit > 100 {
 				return fmt.Errorf("--limit must be between 1 and 100")
 			}
@@ -173,7 +180,7 @@ func newAtlasAnnotationsListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := client.ListAtlasAnnotationFeedback(cmd.Context(), app.ID, observationID, status, cursor, limit)
+			result, err := client.ListAtlasAnnotationFeedback(cmd.Context(), app.ID, observationID, status, severity, cursor, limit)
 			if err != nil {
 				return err
 			}
@@ -183,6 +190,7 @@ func newAtlasAnnotationsListCommand() *cobra.Command {
 	command.Flags().StringVar(&appInput, "app", "", "App name or app id")
 	command.Flags().StringVar(&observationID, "observation", "", "Filter to an exact observation id")
 	command.Flags().StringVar(&status, "status", "open", "Thread status: open, resolved, dismissed, closed, or all")
+	command.Flags().StringVar(&severity, "severity", "all", "Finding severity filter: all, blocker, issue, polish, or none")
 	command.Flags().IntVar(&limit, "limit", 25, "Maximum threads in this page (1-100)")
 	command.Flags().StringVar(&cursor, "cursor", "", "Opaque cursor returned by a previous page")
 	_ = command.MarkFlagRequired("app")
@@ -225,8 +233,8 @@ func newAtlasAnnotationsCreateCommand() *cobra.Command {
 			if options.previewOut != "" && !options.dryRun {
 				return fmt.Errorf("--preview-out is valid only with --dry-run")
 			}
-			if options.dryRun && (cmd.Flags().Changed("body") || cmd.Flags().Changed("body-file") || len(options.attachments) > 0 || len(options.mentions) > 0) {
-				return fmt.Errorf("--dry-run prohibits comment bodies, mentions, and attachments")
+			if options.dryRun && (cmd.Flags().Changed("body") || cmd.Flags().Changed("body-file") || cmd.Flags().Changed("severity") || len(options.attachments) > 0 || len(options.mentions) > 0) {
+				return fmt.Errorf("--dry-run prohibits comment bodies, severity, mentions, and attachments")
 			}
 			client, app, err := annotationClientAndApp(cmd, options.app)
 			if err != nil {
@@ -243,6 +251,10 @@ func newAtlasAnnotationsCreateCommand() *cobra.Command {
 					}
 				}
 				return printAnnotationResult(cmd, map[string]interface{}{"dry_run": true, "grounding": preview, "preview_path": optionalString(options.previewOut)})
+			}
+			severityValue, err := resolveAnnotationSeverity(cmd, options.severity, false)
+			if err != nil {
+				return err
 			}
 			body, err := readAnnotationBody(cmd, options.annotationBodyOptions)
 			if err != nil {
@@ -262,7 +274,7 @@ func newAtlasAnnotationsCreateCommand() *cobra.Command {
 				return annotationMutationErrorWithAttachments(cmd, requestID, attachmentIDStrings, err)
 			}
 			result, err := client.CreateGroundedAtlasAnnotationThread(cmd.Context(), app.ID, options.observation, &api.AtlasGroundedAnnotationThreadCreateRequest{
-				Body: body, ClientRequestId: requestID, Target: strings.TrimSpace(options.target), AttachmentIds: optionalUUIDs(attachmentIDs), Mentions: optionalAnnotationMentions(mentionInputs),
+				Body: body, ClientRequestId: requestID, Target: strings.TrimSpace(options.target), Severity: severityValue, AttachmentIds: optionalUUIDs(attachmentIDs), Mentions: optionalAnnotationMentions(mentionInputs),
 			})
 			if err != nil {
 				return annotationMutationErrorWithAttachments(cmd, requestID, attachmentIDStrings, err)
@@ -276,6 +288,7 @@ func newAtlasAnnotationsCreateCommand() *cobra.Command {
 	command.Flags().StringVar(&options.app, "app", "", "App name or app id")
 	command.Flags().StringVar(&options.observation, "observation", "", "Exact Atlas observation id")
 	command.Flags().StringVar(&options.target, "target", "", "Visually concrete target on the observation")
+	command.Flags().StringVar(&options.severity, "severity", "", "Finding severity (blocker, issue, or polish)")
 	addAnnotationBodyFlags(command, &options.annotationBodyOptions)
 	command.Flags().StringVar(&options.clientRequestID, "client-request-id", "", "UUID for idempotent retry recovery")
 	command.Flags().BoolVar(&options.dryRun, "dry-run", false, "Ground the target without creating a thread")
@@ -528,6 +541,63 @@ func newAtlasAnnotationsStatusCommand(action string) *cobra.Command {
 	command.Flags().IntVar(&expectedVersion, "expected-version", 0, "Expected thread version")
 	_ = command.MarkFlagRequired("app")
 	return command
+}
+
+func newAtlasAnnotationsSeverityCommand() *cobra.Command {
+	var appInput, severity string
+	var clear bool
+	var expectedVersion int
+	command := &cobra.Command{
+		Use:   "severity <thread-id>",
+		Short: "Set or clear the finding severity on an Atlas annotation thread",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			severityValue, err := resolveAnnotationSeverity(cmd, severity, clear)
+			if err != nil {
+				return err
+			}
+			if !clear && severityValue == nil {
+				return fmt.Errorf("provide --severity <blocker|issue|polish> or --clear")
+			}
+			client, app, err := annotationClientAndApp(cmd, appInput)
+			if err != nil {
+				return err
+			}
+			version := expectedVersion
+			if !cmd.Flags().Changed("expected-version") {
+				current, err := client.GetAtlasAnnotationThread(cmd.Context(), app.ID, args[0])
+				if err != nil {
+					return err
+				}
+				version = current.Thread.Version
+			}
+			result, err := client.SetAtlasAnnotationSeverity(cmd.Context(), app.ID, args[0], &api.AtlasAnnotationSeverityChangeRequest{ExpectedVersion: version, Severity: severityValue})
+			if err != nil {
+				return err
+			}
+			return printAnnotationResult(cmd, result)
+		},
+	}
+	command.Flags().StringVar(&appInput, "app", "", "App name or app id")
+	command.Flags().StringVar(&severity, "severity", "", "Finding severity (blocker, issue, or polish)")
+	command.Flags().BoolVar(&clear, "clear", false, "Clear severity, demoting the finding to a plain conversation")
+	command.Flags().IntVar(&expectedVersion, "expected-version", 0, "Expected thread version")
+	_ = command.MarkFlagRequired("app")
+	return command
+}
+
+func resolveAnnotationSeverity(cmd *cobra.Command, severity string, clear bool) (*api.AtlasAnnotationSeverity, error) {
+	if clear && cmd.Flags().Changed("severity") {
+		return nil, fmt.Errorf("--severity and --clear are mutually exclusive")
+	}
+	if clear || !cmd.Flags().Changed("severity") {
+		return nil, nil
+	}
+	value := api.AtlasAnnotationSeverity(strings.TrimSpace(severity))
+	if !value.Valid() {
+		return nil, fmt.Errorf("invalid --severity %q: use blocker, issue, or polish", severity)
+	}
+	return &value, nil
 }
 
 func addAnnotationBodyFlags(command *cobra.Command, options *annotationBodyOptions) {
