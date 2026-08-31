@@ -1020,6 +1020,24 @@ func (e SessionStatus) Valid() bool {
 	}
 }
 
+// Defines values for StartDeviceInfoSessionRuntime.
+const (
+	StartDeviceInfoSessionRuntimeNativeMac StartDeviceInfoSessionRuntime = "native_mac"
+	StartDeviceInfoSessionRuntimeTart      StartDeviceInfoSessionRuntime = "tart"
+)
+
+// Valid indicates whether the value is a known member of the StartDeviceInfoSessionRuntime enum.
+func (e StartDeviceInfoSessionRuntime) Valid() bool {
+	switch e {
+	case StartDeviceInfoSessionRuntimeNativeMac:
+		return true
+	case StartDeviceInfoSessionRuntimeTart:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for StepType.
 const (
 	StepTypeBack            StepType = "back"
@@ -1122,6 +1140,24 @@ func (e StepType) Valid() bool {
 	case StepTypeValidation:
 		return true
 	case StepTypeWait:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskIDSessionRuntime.
+const (
+	TaskIDSessionRuntimeNativeMac TaskIDSessionRuntime = "native_mac"
+	TaskIDSessionRuntimeTart      TaskIDSessionRuntime = "tart"
+)
+
+// Valid indicates whether the value is a known member of the TaskIDSessionRuntime enum.
+func (e TaskIDSessionRuntime) Valid() bool {
+	switch e {
+	case TaskIDSessionRuntimeNativeMac:
+		return true
+	case TaskIDSessionRuntimeTart:
 		return true
 	default:
 		return false
@@ -4109,7 +4145,7 @@ type OrganizationMembersResponse struct {
 
 // OrganizationRepositoriesResponse defines model for OrganizationRepositoriesResponse.
 type OrganizationRepositoriesResponse struct {
-	GithubIntegrationEnabled bool            `json:"github_integration_enabled"`
+	GithubIntegrationEnabled *bool           `json:"github_integration_enabled,omitempty"`
 	HasAccess                bool            `json:"has_access"`
 	Installation             OrgInstallation `json:"installation"`
 	Repositories             []OrgRepository `json:"repositories"`
@@ -5183,9 +5219,12 @@ type StartDeviceInfo struct {
 	RunConfig *TestRunConfig `json:"run_config,omitempty"`
 
 	// ScmPreviewId Optional SCM preview context for an exact build launch. The backend validates the frozen review/build association and applies its session authentication, timeout, and attribution settings.
-	ScmPreviewId                 *openapi_types.UUID `json:"scm_preview_id,omitempty"`
-	SessionId                    *openapi_types.UUID `json:"session_id,omitempty"`
-	StartupSessionStartMonotonic *float32            `json:"startup_session_start_monotonic,omitempty"`
+	ScmPreviewId *openapi_types.UUID `json:"scm_preview_id,omitempty"`
+	SessionId    *openapi_types.UUID `json:"session_id,omitempty"`
+
+	// SessionRuntime Pin this run to a session runtime. Unset leaves the org allowlist in charge; an explicit value overrides it in both directions.
+	SessionRuntime               *StartDeviceInfoSessionRuntime `json:"session_runtime,omitempty"`
+	StartupSessionStartMonotonic *float32                       `json:"startup_session_start_monotonic,omitempty"`
 
 	// StorekitConfig Resolved iOS StoreKit config snapshot carried to worker launch.
 	StorekitConfig *IosStoreKitConfigSnapshot `json:"storekit_config,omitempty"`
@@ -5198,6 +5237,9 @@ type StartDeviceInfo struct {
 	WorkerWsServer interface{}         `json:"worker_ws_server,omitempty"`
 	WorkflowRunId  *openapi_types.UUID `json:"workflow_run_id,omitempty"`
 }
+
+// StartDeviceInfoSessionRuntime Pin this run to a session runtime. Unset leaves the org allowlist in charge; an explicit value overrides it in both directions.
+type StartDeviceInfoSessionRuntime string
 
 // StartDeviceResponse Structured response for the `start_device` endpoint.
 type StartDeviceResponse struct {
@@ -5322,6 +5364,9 @@ type TaskID struct {
 	// SessionId Client-generated device-session ID reused when retrying this exact test start
 	SessionId *openapi_types.UUID `json:"session_id,omitempty"`
 
+	// SessionRuntime Pin this run to a session runtime. Unset leaves the org allowlist in charge; an explicit value overrides it in both directions.
+	SessionRuntime *TaskIDSessionRuntime `json:"session_runtime,omitempty"`
+
 	// Source Execution source: ui, cli, api, ci_cd, or workflow. Defaults to 'api' for direct API calls.
 	Source         *string            `json:"source,omitempty"`
 	TestEntrypoint *string            `json:"test_entrypoint,omitempty"`
@@ -5330,6 +5375,9 @@ type TaskID struct {
 	// VariableOverrides Runtime variable overrides. These take highest priority over local and global variables.
 	VariableOverrides *map[string]string `json:"variable_overrides,omitempty"`
 }
+
+// TaskIDSessionRuntime Pin this run to a session runtime. Unset leaves the org allowlist in charge; an explicit value overrides it in both directions.
+type TaskIDSessionRuntime string
 
 // TaskMetadata defines model for TaskMetadata.
 type TaskMetadata struct {

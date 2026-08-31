@@ -10,14 +10,13 @@ import (
 	"github.com/revyl/cli/internal/projectpublication"
 )
 
-func connectedReposState(enabled bool) *api.GithubRepositoriesResponse {
+func connectedReposState() *api.GithubRepositoriesResponse {
 	return &api.GithubRepositoriesResponse{
 		Repositories: []api.GithubOrgRepository{
 			{Owner: "revyl", Repo: "app", InstallationID: 1},
 		},
-		Installation:             &api.GithubOrgInstallation{InstallationID: 1, Status: "active"},
-		HasAccess:                true,
-		GithubIntegrationEnabled: enabled,
+		Installation: &api.GithubOrgInstallation{InstallationID: 1, Status: "active"},
+		HasAccess:    true,
 	}
 }
 
@@ -62,13 +61,8 @@ func TestRenderGithubStatusBadge(t *testing.T) {
 			wantSub: "not connected",
 		},
 		{
-			name:    "connected no automation",
-			mutate:  func(m *hubModel) { m.integrationsRepos = connectedReposState(false) },
-			wantSub: "connected",
-		},
-		{
 			name:    "connected with automation",
-			mutate:  func(m *hubModel) { m.integrationsRepos = connectedReposState(true) },
+			mutate:  func(m *hubModel) { m.integrationsRepos = connectedReposState() },
 			wantSub: "PR automation available",
 		},
 	}
@@ -237,7 +231,7 @@ func TestStartGithubConnectSetsConnecting(t *testing.T) {
 func TestStartGithubConnectAlreadyConnectedNoOp(t *testing.T) {
 	m := newHubModel("dev", false)
 	m.client = api.NewClientWithBaseURL("test-key", "http://127.0.0.1:0")
-	m.integrationsRepos = connectedReposState(true)
+	m.integrationsRepos = connectedReposState()
 
 	model, _ := m.startGithubConnect()
 	m = asHub(t, model)
@@ -255,7 +249,7 @@ func TestUpdateIntegrationsConnectCheckStaleSeqIgnored(t *testing.T) {
 	m.integrationsPollSeq = 5
 
 	model, _ := updateIntegrationsConnectCheck(m, IntegrationsConnectCheckMsg{
-		Repos: connectedReposState(true),
+		Repos: connectedReposState(),
 		Seq:   4, // stale
 	})
 	m = asHub(t, model)
@@ -270,7 +264,7 @@ func TestUpdateIntegrationsConnectCheckBecomesActive(t *testing.T) {
 	m.integrationsPollSeq = 2
 
 	model, _ := updateIntegrationsConnectCheck(m, IntegrationsConnectCheckMsg{
-		Repos: connectedReposState(true),
+		Repos: connectedReposState(),
 		Seq:   2,
 	})
 	m = asHub(t, model)

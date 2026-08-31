@@ -479,12 +479,7 @@ func renderGithubStatusBadge(m hubModel) string {
 		return dimStyle.Render("checking...")
 	}
 	if m.integrationsRepos.IsConnected() {
-		if m.integrationsRepos.GithubIntegrationEnabled {
-			// Org-level availability; projects are configured in the dashboard
-			// after canonical publication.
-			return successStyle.Render("connected · PR automation available")
-		}
-		return successStyle.Render("connected")
+		return successStyle.Render("connected · PR automation available")
 	}
 	return warningStyle.Render("not connected")
 }

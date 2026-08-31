@@ -223,10 +223,9 @@ func TestGithubSetupPreparesGitManagedProposalWithoutPublishing(t *testing.T) {
 	originalSlug := resolveProjectRepoSlug
 	ensureGithubSetupConnected = func(context.Context, *api.Client) (*api.GithubRepositoriesResponse, error) {
 		return &api.GithubRepositoriesResponse{
-			Repositories:             []api.GithubOrgRepository{{Owner: "acme", Repo: "mobile"}},
-			Installation:             &api.GithubOrgInstallation{Status: "active"},
-			HasAccess:                true,
-			GithubIntegrationEnabled: true,
+			Repositories: []api.GithubOrgRepository{{Owner: "acme", Repo: "mobile"}},
+			Installation: &api.GithubOrgInstallation{Status: "active"},
+			HasAccess:    true,
 		}, nil
 	}
 	githubSetupInputTTY = func() bool { return true }

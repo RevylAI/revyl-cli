@@ -619,8 +619,6 @@ func actionableProjectConfigurationAPIError(
 			switch {
 			case repositories == nil || !repositories.IsConnected():
 				return fmt.Errorf("Revyl cannot access %s because the GitHub App is not connected for the active account and organization; run %q to verify them, run %q, then retry %q", fullName, authStatus, githubConnect, retryCommand)
-			case !repositories.GithubIntegrationEnabled:
-				return fmt.Errorf("GitHub project integration is not enabled for the active Revyl organization; run %q to verify the organization, contact Revyl if status confirms the org gate, then retry %q", githubStatus, retryCommand)
 			case !githubRepositoryAvailable(repositories, locator.Namespace, locator.RepositoryName):
 				return fmt.Errorf("the Revyl GitHub App is connected but cannot access %s; grant that repository to the existing GitHub App, run %q to verify access, then retry %q", fullName, githubStatus, retryCommand)
 			}

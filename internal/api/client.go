@@ -2889,10 +2889,6 @@ type GithubRepositoriesResponse struct {
 
 	// HasAccess is true when the org has an active GitHub App installation.
 	HasAccess bool `json:"has_access"`
-
-	// GithubIntegrationEnabled gates PR automation (config push). When false,
-	// pushing a pr_review config is rejected with HTTP 403 by the backend.
-	GithubIntegrationEnabled bool `json:"github_integration_enabled"`
 }
 
 // IsConnected reports whether the org has an active GitHub App installation.
@@ -2932,8 +2928,7 @@ func (c *Client) GetGithubInstallURL(ctx context.Context) (*GithubInstallURLResp
 // GetGithubRepositories fetches the GitHub App installation state and visible
 // repositories for the authenticated organization. This endpoint returns HTTP
 // 200 whether or not GitHub is connected, so callers should inspect
-// IsConnected (active install) and GithubIntegrationEnabled (PR automation gate)
-// rather than relying on error status.
+// IsConnected rather than relying on error status.
 //
 // Parameters:
 //   - ctx: Context for cancellation.
@@ -2969,14 +2964,13 @@ func (c *ScmConfigResponse) IsAutomationEnabled() bool {
 }
 
 // ListGithubScmConfigs fetches the per-repository PR-automation configs for the
-// authenticated organization. This is how PR automation is determined per repo
-// (the org-level GithubIntegrationEnabled flag only gates feature access).
+// authenticated organization. This is how PR automation is determined per repo.
 //
 // Parameters:
 //   - ctx: Context for cancellation.
 //
 // Returns:
-//   - *ScmConfigsResponse: Per-repo configs plus org-level gates.
+//   - *ScmConfigsResponse: Per-repo configs plus installation state.
 //   - error: APIError (e.g. 401 when unauthenticated) or a transport error.
 func (c *Client) ListGithubScmConfigs(ctx context.Context) (*ScmConfigsResponse, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/v1/scm/github/configs", nil)

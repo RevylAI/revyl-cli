@@ -61,9 +61,8 @@ func connectedRepos() api.GithubRepositoriesResponse {
 		Repositories: []api.GithubOrgRepository{
 			{Owner: "revyl", Repo: "app", InstallationID: 123},
 		},
-		Installation:             &api.GithubOrgInstallation{InstallationID: 123, Status: "active"},
-		HasAccess:                true,
-		GithubIntegrationEnabled: true,
+		Installation: &api.GithubOrgInstallation{InstallationID: 123, Status: "active"},
+		HasAccess:    true,
 	}
 }
 

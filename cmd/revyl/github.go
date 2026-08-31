@@ -135,7 +135,7 @@ func runGithubStatus(cmd *cobra.Command, _ []string) error {
 		return actionableGithubStatusError(err, "revyl github status")
 	}
 	printGithubStatus(repos)
-	if !repos.IsConnected() || !repos.GithubIntegrationEnabled {
+	if !repos.IsConnected() {
 		return nil
 	}
 
@@ -216,9 +216,6 @@ func runGithubSetupForProject(
 	repos, err := ensureGithubSetupConnected(cmd.Context(), client)
 	if err != nil {
 		return err
-	}
-	if !repos.GithubIntegrationEnabled {
-		return fmt.Errorf("GitHub pull request automation is not enabled for this organization; contact Revyl to enable it")
 	}
 	if !githubRepositoryAvailable(repos, resolved.locator.Namespace, resolved.locator.RepositoryName) {
 		return fmt.Errorf(
@@ -625,11 +622,6 @@ func printGithubStatus(repos *api.GithubRepositoriesResponse) {
 
 	ui.PrintSuccess("GitHub App connected")
 	ui.PrintKeyValue("  Repositories:", fmt.Sprintf("%d", len(repos.Repositories)))
-	if repos.GithubIntegrationEnabled {
-		ui.PrintKeyValue("  PR automation:", "available for your org")
-		ui.PrintDim("  Run 'revyl github setup' in a project to configure it there.")
-	} else {
-		ui.PrintKeyValue("  PR automation:", "not enabled for your org yet")
-		ui.PrintDim("  Contact Revyl to enable PR automation for your org.")
-	}
+	ui.PrintKeyValue("  PR automation:", "available")
+	ui.PrintDim("  Run 'revyl github setup' in a project to configure it there.")
 }

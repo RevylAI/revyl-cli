@@ -578,9 +578,8 @@ func TestConnectedConfigurationCommandsExplainRemovedProjectWithoutAnID(t *testi
 
 func TestConfigPushDistinguishesRepositoryAccessFailures(t *testing.T) {
 	connected := &api.GithubRepositoriesResponse{
-		Installation:             &api.GithubOrgInstallation{Status: "active"},
-		HasAccess:                true,
-		GithubIntegrationEnabled: true,
+		Installation: &api.GithubOrgInstallation{Status: "active"},
+		HasAccess:    true,
 	}
 	for _, test := range []struct {
 		name          string
@@ -590,21 +589,10 @@ func TestConfigPushDistinguishesRepositoryAccessFailures(t *testing.T) {
 		wantSecondary string
 	}{
 		{
-			name: "github app disconnected",
-			github: &api.GithubRepositoriesResponse{
-				GithubIntegrationEnabled: true,
-			},
+			name:          "github app disconnected",
+			github:        &api.GithubRepositoriesResponse{},
 			want:          "revyl github connect",
 			wantSecondary: "revyl auth status",
-		},
-		{
-			name: "github integration disabled for organization",
-			github: &api.GithubRepositoriesResponse{
-				Installation: connected.Installation,
-				HasAccess:    true,
-			},
-			want:          "revyl github status",
-			wantSecondary: "contact Revyl",
 		},
 		{
 			name:   "repository access missing",
@@ -614,9 +602,8 @@ func TestConfigPushDistinguishesRepositoryAccessFailures(t *testing.T) {
 		{
 			name: "different project registered at root",
 			github: &api.GithubRepositoriesResponse{
-				Installation:             connected.Installation,
-				HasAccess:                true,
-				GithubIntegrationEnabled: true,
+				Installation: connected.Installation,
+				HasAccess:    true,
 				Repositories: []api.GithubOrgRepository{{
 					Owner: "acme",
 					Repo:  "mobile",
@@ -671,9 +658,8 @@ func TestProjectConfigurationWrongRootRecoveryUsesRegisteredRoot(t *testing.T) {
 	local.WorktreeRoot = worktreeRoot
 	client := &fakeProjectConfigurationClient{
 		githubResult: &api.GithubRepositoriesResponse{
-			Installation:             &api.GithubOrgInstallation{Status: "active"},
-			HasAccess:                true,
-			GithubIntegrationEnabled: true,
+			Installation: &api.GithubOrgInstallation{Status: "active"},
+			HasAccess:    true,
 			Repositories: []api.GithubOrgRepository{{
 				Owner: "acme",
 				Repo:  "mobile",

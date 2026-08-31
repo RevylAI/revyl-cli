@@ -580,7 +580,7 @@ wheels = [
 
 [[package]]
 name = "revyl"
-version = "0.1.103"
+version = "0.1.104"
 source = { editable = "." }
 
 [package.dev-dependencies]
