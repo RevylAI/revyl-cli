@@ -130,7 +130,7 @@ func newDeviceInstallTestCommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().String("app-url", "", "")
 	cmd.Flags().String("bundle-id", "", "")
 	cmd.Flags().Bool("json", false, "")
-	cmd.Flags().IntP("s", "s", -1, "")
+	registerSessionTargetFlags(cmd)
 	cmd.Flags().Bool("dev", false, "")
 	return cmd
 }
@@ -142,7 +142,7 @@ func newDeviceDownloadFileTestCommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().String("url", "", "")
 	cmd.Flags().String("filename", "", "")
 	cmd.Flags().Bool("json", false, "")
-	cmd.Flags().IntP("s", "s", -1, "")
+	registerSessionTargetFlags(cmd)
 	cmd.Flags().Bool("dev", false, "")
 	return cmd
 }
@@ -151,11 +151,10 @@ func newDeviceReportTestCommand(ctx context.Context) *cobra.Command {
 	cmd := &cobra.Command{}
 	cmd.SetContext(ctx)
 	cmd.Flags().Bool("json", false, "")
-	cmd.Flags().String("session-id", "", "")
 	cmd.Flags().String("artifact", "", "")
 	cmd.Flags().Bool("download", false, "")
 	cmd.Flags().String("output", "", "")
-	cmd.Flags().IntP("s", "s", -1, "")
+	registerSessionTargetFlags(cmd)
 	cmd.Flags().Bool("dev", false, "")
 	return cmd
 }
@@ -337,6 +336,7 @@ func TestDeviceStartCommand_PropagatesAppURLToStartDevice(t *testing.T) {
 
 	const expectedAppURL = "https://artifact.example/trimmed-app.ipa"
 	const workflowRunID = "00000000-0000-0000-0000-000000000001"
+	const sessionID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01"
 
 	var capturedStartReq struct {
 		AppURL string `json:"app_url"`
@@ -349,7 +349,7 @@ func TestDeviceStartCommand_PropagatesAppURLToStartDevice(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
 				t.Fatalf("decode start_device request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
@@ -421,7 +421,7 @@ session:
 	}
 
 	const workflowRunID = "00000000-0000-0000-0000-000000000009"
-	const sessionID = "session-post-launch-failure"
+	const sessionID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa09"
 	const userEmail = "cli-test@example.com"
 
 	var startCalled atomic.Bool
@@ -440,7 +440,7 @@ session:
 			_, _ = w.Write([]byte(`{"org_id":"org-1","sessions":[{"id":"` + sessionID + `","org_id":"org-1","platform":"ios","source":"cli","status":"running","user_email":"` + userEmail + `","workflow_run_id":"` + workflowRunID + `"}]}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/execution/start_device":
 			startCalled.Store(true)
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
@@ -528,7 +528,7 @@ func TestDeviceStartCommand_PostLaunchFailureCleansSessionAndEmitsJSONContract(t
 			if payload.OK || payload.Code != "post_launch_navigation_failed" {
 				t.Fatalf("unexpected failure payload: %+v", payload)
 			}
-			if payload.Session.SessionID != "session-post-launch-failure" || payload.Session.WorkflowRunID != tc.workflowRunID || payload.Session.Index != 0 {
+			if payload.Session.SessionID != "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa09" || payload.Session.WorkflowRunID != tc.workflowRunID || payload.Session.Index != 0 {
 				t.Fatalf("session identity = %+v, want cleanup identifiers", payload.Session)
 			}
 			if !payload.Cleanup.Attempted || !payload.Cleanup.Succeeded || payload.Cleanup.Action != "" {
@@ -544,7 +544,7 @@ func TestDeviceStartCommand_PostLaunchCleanupFailureReturnsSessionForRetry(t *te
 		t.Fatalf("device start error = %v, want cleanup failure", result.RunErr)
 	}
 	for _, identifier := range []string{
-		`session_id="session-post-launch-failure"`,
+		`session_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa09"`,
 		`workflow_run_id="00000000-0000-0000-0000-000000000009"`,
 		"index=0",
 	} {
@@ -555,7 +555,7 @@ func TestDeviceStartCommand_PostLaunchCleanupFailureReturnsSessionForRetry(t *te
 	if result.CancelRequests < 1 {
 		t.Fatalf("cancel requests = %d, want at least 1", result.CancelRequests)
 	}
-	if len(result.Persisted.Sessions) != 1 || result.Persisted.Sessions[0].SessionID != "session-post-launch-failure" {
+	if len(result.Persisted.Sessions) != 1 || result.Persisted.Sessions[0].SessionID != "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa09" {
 		t.Fatalf("persisted sessions = %+v, want failed-cleanup session retained", result.Persisted.Sessions)
 	}
 
@@ -569,7 +569,7 @@ func TestDeviceStartCommand_PostLaunchCleanupFailureReturnsSessionForRetry(t *te
 	if payload.Cleanup.Action != "revyl device stop -s 0" {
 		t.Fatalf("cleanup action = %q, want retry command", payload.Cleanup.Action)
 	}
-	if payload.Session.SessionID != "session-post-launch-failure" || payload.Session.WorkflowRunID == "" {
+	if payload.Session.SessionID != "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa09" || payload.Session.WorkflowRunID == "" {
 		t.Fatalf("session identity = %+v, want cleanup identifiers", payload.Session)
 	}
 }
@@ -615,6 +615,7 @@ func TestDeviceStartCommand_UsesLiveCatalogForValidation(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "test-api-key")
 
 	const workflowRunID = "00000000-0000-0000-0000-000000000002"
+	const sessionID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa02"
 	const expectedDeviceModel = "iPhone 17 Pro Max"
 	const expectedRuntime = "iOS 26.3.1"
 
@@ -632,7 +633,7 @@ func TestDeviceStartCommand_UsesLiveCatalogForValidation(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
 				t.Fatalf("decode start_device request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
@@ -675,6 +676,7 @@ func TestDeviceStartCommand_ResolvesLaunchVarsAndSendsIDs(t *testing.T) {
 	t.Setenv("REVYL_API_KEY", "test-api-key")
 
 	const workflowRunID = "88888888-8888-8888-8888-888888888888"
+	const sessionID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa88"
 
 	var capturedStartReq struct {
 		LaunchEnvVarIds []string `json:"launch_env_var_ids"`
@@ -689,7 +691,7 @@ func TestDeviceStartCommand_ResolvesLaunchVarsAndSendsIDs(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
 				t.Fatalf("decode start_device request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":

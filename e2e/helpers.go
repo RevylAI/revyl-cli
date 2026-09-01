@@ -200,6 +200,21 @@ func uniqueName(prefix string) string {
 // Backend URL and API key are injected via environment.
 func runCLI(t *testing.T, args ...string) CLIResult {
 	t.Helper()
+	return runCLIWithExtraEnv(t, nil, args...)
+}
+
+// runCLIWithExtraEnv executes the CLI with additional KEY=VALUE environment
+// entries layered over the shared test environment.
+//
+// Parameters:
+//   - t: The running test.
+//   - extraEnv: Additional KEY=VALUE entries; later entries win over the base.
+//   - args: CLI arguments.
+//
+// Returns:
+//   - CLIResult: Captured stdout, stderr, and exit code.
+func runCLIWithExtraEnv(t *testing.T, extraEnv []string, args ...string) CLIResult {
+	t.Helper()
 	cmd := exec.Command(revylBin, args...)
 	cmd.Env = append(os.Environ(),
 		"REVYL_BACKEND_URL="+backendURL,
@@ -209,6 +224,7 @@ func runCLI(t *testing.T, args ...string) CLIResult {
 		"DISPLAY=",
 		"PATH="+fakeOpenDir+":"+os.Getenv("PATH"),
 	)
+	cmd.Env = append(cmd.Env, extraEnv...)
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout

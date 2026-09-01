@@ -68,7 +68,7 @@ The core loop ("make this change and run it"):
 1. Start in the background: revyl dev --remote --detach --json (native stacks) or revyl dev --detach --json (hot-reload stacks). It returns JSON with viewer_url as soon as the simulator is watchable — the CLI opens it in the user's browser automatically on local machines (opened_browser in the handshake; --no-open disables). Still share viewer_url as a clickable link immediately (the fallback on cloud VMs); never try to open a browser yourself. The build continues behind it.
 2. Monitor: revyl dev status (state building -> idle, last_rebuild.status running -> success) and revyl dev logs --build --follow for remote build output.
 3. Iterate: after each code change run revyl dev rebuild --wait --json.
-4. Verify like a user: revyl device screenshot / revyl device validation -s 0 "<expected outcome>" --json / revyl device report --session-id <id> --json.
+4. Verify like a user: revyl device screenshot / revyl device validation -s 0 "<expected outcome>" --json / revyl device report --session-id <id> --json. -s accepts a local session index or a server-issued session ID; target by ID (or REVYL_SESSION_ID) whenever more than one session is live, because indexes are local to the project directory and shift under parallel runs.
 5. Auth: with a session.auth_bypass section in .revyl/config.yaml, Revyl applies its configured launch variables at boot and its configured deep link after launch; revyl dev auth refresh re-fires that deep link without reminting. If the token itself expired, revyl dev stop then revyl dev so session.before_script runs again when configured.
 6. Stop with revyl dev stop when done.
 

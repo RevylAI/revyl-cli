@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -263,6 +264,62 @@ func newSessionSyncTestServer(t *testing.T) *httptest.Server {
 			http.NotFound(w, r)
 		}
 	}))
+}
+
+func TestHandleStopDeviceSession_AllHydratesFromBackend(t *testing.T) {
+	var cancelCalls atomic.Int32
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v1/entity/users/get_user_uuid":
+			_, _ = w.Write([]byte(`{"user_id":"user-1","org_id":"org-1","email":"test@example.com","concurrency_limit":1}`))
+		case r.URL.Path == "/api/v1/execution/device-sessions/active":
+			_, _ = w.Write([]byte(`{
+				"org_id":"org-1",
+				"sessions":[
+					{
+						"id":"sess-1",
+						"org_id":"org-1",
+						"platform":"ios",
+						"source":"cli",
+						"status":"running",
+						"workflow_run_id":"55555555-5555-5555-5555-555555555555",
+						"whep_url":"https://stream.revyl.ai/whep/55555555-5555-5555-5555-555555555555",
+						"user_email":"test@example.com",
+						"created_at":"2026-02-19T00:00:00Z",
+						"started_at":"2026-02-19T00:00:00Z"
+					}
+				]
+			}`))
+		case r.URL.Path == "/api/v1/execution/streaming/worker-connection/55555555-5555-5555-5555-555555555555":
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ready","workflow_run_id":"55555555-5555-5555-5555-555555555555","worker_ws_url":"ws://%s/ws/stream?token=test"}`, r.Host)))
+		case r.URL.Path == "/api/v1/execution/device-proxy/55555555-5555-5555-5555-555555555555/health":
+			_, _ = w.Write([]byte(`{"status":"ok","device_connected":true}`))
+		case r.URL.Path == "/api/v1/execution/device/status/cancel/55555555-5555-5555-5555-555555555555":
+			cancelCalls.Add(1)
+			_, _ = w.Write([]byte(`{"success":true,"message":"cancelled","workflow_run_id":"55555555-5555-5555-5555-555555555555"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	mgr := NewDeviceSessionManager(api.NewClientWithBaseURL("test-api-key", apiServer.URL), t.TempDir())
+	srv := &Server{sessionMgr: mgr}
+
+	_, output, err := srv.handleStopDeviceSession(context.Background(), nil, StopDeviceSessionInput{All: true})
+	if err != nil {
+		t.Fatalf("handleStopDeviceSession(all) error = %v", err)
+	}
+	if !output.Success {
+		t.Fatalf("handleStopDeviceSession(all) success = false, error = %q", output.Error)
+	}
+	if cancelCalls.Load() != 1 {
+		t.Fatalf("cancel calls = %d, want 1 after hydrating an empty in-memory map", cancelCalls.Load())
+	}
+	if mgr.SessionCount() != 0 {
+		t.Fatalf("session count after stop-all = %d, want 0", mgr.SessionCount())
+	}
 }
 
 func TestHandleListDeviceSessions_SyncsFromBackend(t *testing.T) {

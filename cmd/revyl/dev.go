@@ -1002,7 +1002,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 
 	// The dev-client link must open first; then authenticate the running app.
 	if !manualDeepLinkRequired {
-		fireAuthBypassAfterLaunch(ctx, deviceMgr, session.Index)
+		fireAuthBypassAfterLaunch(ctx, deviceMgr, session)
 	}
 
 	viewerURL := devSessionViewerURL(session, devMode)
@@ -1135,7 +1135,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 						ctx,
 						manager,
 						deviceMgr,
-						session.Index,
+						session,
 						provider.Name(),
 						devicePlatform,
 						bundleID,
@@ -1473,7 +1473,7 @@ func recoverHotReloadRelayForDevLoop(
 	ctx context.Context,
 	manager *hotreload.Manager,
 	requester workerSessionRequester,
-	sessionIndex int,
+	session *mcppkg.DeviceSession,
 	providerName string,
 	devicePlatform string,
 	bundleID string,
@@ -1482,7 +1482,7 @@ func recoverHotReloadRelayForDevLoop(
 	if err != nil {
 		return nil, err
 	}
-	if err := retargetHotReloadDevice(ctx, requester, sessionIndex, providerName, devicePlatform, bundleID, recovered); err != nil {
+	if err := retargetHotReloadDevice(ctx, requester, session, providerName, devicePlatform, bundleID, recovered); err != nil {
 		return nil, err
 	}
 	return recovered, nil
@@ -1491,7 +1491,7 @@ func recoverHotReloadRelayForDevLoop(
 func retargetHotReloadDevice(
 	ctx context.Context,
 	requester workerSessionRequester,
-	sessionIndex int,
+	session *mcppkg.DeviceSession,
 	providerName string,
 	devicePlatform string,
 	bundleID string,
@@ -1506,7 +1506,7 @@ func retargetHotReloadDevice(
 		if deepLink == "" {
 			return fmt.Errorf("replacement Expo deep link is empty")
 		}
-		resp, err := requester.WorkerRequestForSession(ctx, sessionIndex, "/open_url", map[string]string{"url": deepLink})
+		resp, err := requester.WorkerRequestOnSession(ctx, session, "/open_url", map[string]string{"url": deepLink})
 		if err != nil {
 			return err
 		}
@@ -1523,7 +1523,7 @@ func retargetHotReloadDevice(
 		if packagerHost == "" {
 			return fmt.Errorf("replacement relay URL is not a valid Metro packager host")
 		}
-		resp, err := requester.WorkerRequestForSession(ctx, sessionIndex, "/launch", map[string]string{
+		resp, err := requester.WorkerRequestOnSession(ctx, session, "/launch", map[string]string{
 			"bundle_id":       identifier,
 			"packager_host":   packagerHost,
 			"packager_scheme": packagerScheme,
@@ -1947,14 +1947,17 @@ func formatInstalledAppIdentifier(devicePlatform, identifier string) string {
 	return fmt.Sprintf("%s %s", appIdentifierLabel(devicePlatform), value)
 }
 
+// workerSessionRequester issues worker actions against an already-resolved
+// session. Taking the session rather than its local index lets these helpers
+// serve sessions targeted by durable ID, which carry no local index.
 type workerSessionRequester interface {
-	WorkerRequestForSession(ctx context.Context, sessionIndex int, path string, body interface{}) ([]byte, error)
+	WorkerRequestOnSession(ctx context.Context, session *mcppkg.DeviceSession, path string, body interface{}) ([]byte, error)
 }
 
 func tryLaunchInstalledApp(
 	ctx context.Context,
 	requester workerSessionRequester,
-	sessionIndex int,
+	session *mcppkg.DeviceSession,
 	devicePlatform string,
 	appIdentifier string,
 	packagerHost string,
@@ -1964,7 +1967,7 @@ func tryLaunchInstalledApp(
 	if err := launchInstalledApp(
 		ctx,
 		requester,
-		sessionIndex,
+		session,
 		appIdentifier,
 		packagerHost,
 		packagerScheme,
@@ -1987,7 +1990,7 @@ func tryLaunchInstalledApp(
 func launchInstalledApp(
 	ctx context.Context,
 	requester workerSessionRequester,
-	sessionIndex int,
+	session *mcppkg.DeviceSession,
 	appIdentifier string,
 	packagerHost string,
 	packagerScheme string,
@@ -2005,9 +2008,9 @@ func launchInstalledApp(
 		payload["packager_scheme"] = packagerScheme
 	}
 
-	launchResp, err := requester.WorkerRequestForSession(
+	launchResp, err := requester.WorkerRequestOnSession(
 		ctx,
-		sessionIndex,
+		session,
 		"/launch",
 		payload,
 	)
@@ -2019,14 +2022,14 @@ func launchInstalledApp(
 	}
 
 	// A (re)launch starts a fresh app process, so re-authenticate it.
-	fireAuthBypassAfterLaunch(ctx, requester, sessionIndex)
+	fireAuthBypassAfterLaunch(ctx, requester, session)
 	return nil
 }
 
 func launchIOSAppAfterDeltaInstall(
 	ctx context.Context,
 	requester workerSessionRequester,
-	sessionIndex int,
+	session *mcppkg.DeviceSession,
 	devicePlatform string,
 	installedBundleID string,
 	fallbackBundleID string,
@@ -2043,7 +2046,7 @@ func launchIOSAppAfterDeltaInstall(
 	return launchInstalledApp(
 		ctx,
 		requester,
-		sessionIndex,
+		session,
 		launchID,
 		packagerHost,
 		packagerScheme,
@@ -2322,7 +2325,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	if bundleID == "" {
 		bundleID = extractInstallBundleID(installResp)
 	}
-	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, bundleID, "", "")
+	tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, bundleID, "", "")
 
 	deviceMgr.StopIdleTimer(session.Index)
 
@@ -3220,7 +3223,7 @@ func devBuildAndDeltaPush(
 				launchErr := launchIOSAppAfterDeltaInstall(
 					ctx,
 					deviceMgr,
-					session.Index,
+					session,
 					devicePlatform,
 					installResult.BundleID,
 					bundleID,
@@ -3333,7 +3336,7 @@ func devBuildAndDeltaPush(
 	}
 	ui.StartSpinner("Launching app...")
 	appendAndPublishDevRebuildLog(&result, publishLog, "info", "Launching app")
-	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, launchID, packagerHost, packagerScheme)
+	tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, launchID, packagerHost, packagerScheme)
 	ui.StopSpinner()
 
 	result.manifest = newManifest

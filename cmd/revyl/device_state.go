@@ -33,12 +33,12 @@ var deviceStateListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		body, err := mgr.WorkerRequestForSession(
-			cmd.Context(), session.Index, "/device_state/list", nil,
+		body, err := mgr.WorkerRequestOnSession(
+			cmd.Context(), session, "/device_state/list", nil,
 		)
 		if err != nil {
 			return err
@@ -65,12 +65,12 @@ var deviceStateSnapshotCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		body, err := mgr.WorkerRequestForSession(
-			cmd.Context(), session.Index, "/device_state/snapshot", map[string]any{},
+		body, err := mgr.WorkerRequestOnSession(
+			cmd.Context(), session, "/device_state/snapshot", map[string]any{},
 		)
 		if err != nil {
 			return err
@@ -106,12 +106,12 @@ var deviceStateDiffCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		body, err := mgr.WorkerRequestForSession(
-			cmd.Context(), session.Index, "/device_state/diff",
+		body, err := mgr.WorkerRequestOnSession(
+			cmd.Context(), session, "/device_state/diff",
 			map[string]any{"snapshot_id": since},
 		)
 		if err != nil {
@@ -145,7 +145,7 @@ var deviceStateUserDefaultsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -153,8 +153,8 @@ var deviceStateUserDefaultsCmd = &cobra.Command{
 		if key != "" {
 			reqBody["key"] = key
 		}
-		body, err := mgr.WorkerRequestForSession(
-			cmd.Context(), session.Index, "/device_state/userdefaults", reqBody,
+		body, err := mgr.WorkerRequestOnSession(
+			cmd.Context(), session, "/device_state/userdefaults", reqBody,
 		)
 		if err != nil {
 			return err
@@ -201,7 +201,7 @@ var deviceStateSqliteCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -210,8 +210,8 @@ var deviceStateSqliteCmd = &cobra.Command{
 			"sql":     sql,
 			"params":  params,
 		}
-		body, err := mgr.WorkerRequestForSession(
-			cmd.Context(), session.Index, "/device_state/sqlite/query", reqBody,
+		body, err := mgr.WorkerRequestOnSession(
+			cmd.Context(), session, "/device_state/sqlite/query", reqBody,
 		)
 		if err != nil {
 			return err
@@ -369,8 +369,7 @@ func init() {
 	// Persistent flags shared by every `state` subcommand.
 	deviceStateCmd.PersistentFlags().Bool("json", false,
 		"Emit raw JSON instead of pretty-printed output")
-	deviceStateCmd.PersistentFlags().IntP("s", "s", -1,
-		"Session index to target (-1 for active)")
+	registerPersistentSessionTargetFlags(deviceStateCmd)
 
 	deviceStateDiffCmd.Flags().String("since", "",
 		"Snapshot id returned by a prior `device state snapshot` (required)")

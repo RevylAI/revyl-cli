@@ -2,7 +2,7 @@
   "name": "revyl",
   "displayName": "Revyl",
   "description": "Installs the Revyl CLI and signs you in so Cursor can run and verify mobile apps on cloud devices.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "author": {
     "name": "Revyl",
     "email": "support@revyl.ai"

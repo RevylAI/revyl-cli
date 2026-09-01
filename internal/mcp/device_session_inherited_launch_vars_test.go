@@ -20,6 +20,7 @@ func TestStartSessionAppliesTypedInheritedAndExplicitLaunchConfigurations(t *tes
 		explicitEnvID   = "37159693-b91e-4e99-a0cb-e8a812387986"
 		explicitArgsID  = "22222222-2222-4222-8222-222222222222"
 		workflowRunID   = "99999999-9999-4999-8999-999999999991"
+		sessionID       = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa91"
 	)
 	var captured struct {
 		LaunchEnvVarIDs []string `json:"launch_env_var_ids"`
@@ -40,7 +41,7 @@ func TestStartSessionAppliesTypedInheritedAndExplicitLaunchConfigurations(t *tes
 			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
 				t.Fatalf("decode start-device request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
@@ -82,6 +83,7 @@ func TestStartSessionOptOutKeepsExplicitLaunchVariables(t *testing.T) {
 	const (
 		explicitID    = "37159693-b91e-4e99-a0cb-e8a812387986"
 		workflowRunID = "99999999-9999-4999-8999-999999999992"
+		sessionID     = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa92"
 	)
 	var captured struct {
 		LaunchEnvVarIDs []string `json:"launch_env_var_ids"`
@@ -97,7 +99,7 @@ func TestStartSessionOptOutKeepsExplicitLaunchVariables(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
 				t.Fatalf("decode start-device request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":

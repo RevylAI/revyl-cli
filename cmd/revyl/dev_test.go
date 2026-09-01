@@ -1140,7 +1140,7 @@ func TestTryLaunchInstalledApp_WarnsWithResolvedIdentifier(t *testing.T) {
 		err: fmt.Errorf("launch route unavailable"),
 	}
 	output := captureStdoutAndStderr(t, func() {
-		tryLaunchInstalledApp(context.Background(), requester, 7, "android", "com.example.app", "", "")
+		tryLaunchInstalledApp(context.Background(), requester, testSession(7), "android", "com.example.app", "", "")
 	})
 
 	if !strings.Contains(output, "launch failed") {
@@ -1165,7 +1165,7 @@ func TestLaunchIOSAppAfterDeltaInstallRelaunchesWithPackagerSettings(t *testing.
 	err := launchIOSAppAfterDeltaInstall(
 		context.Background(),
 		requester,
-		7,
+		testSession(7),
 		"ios",
 		"com.example.installed",
 		"com.example.fallback",
@@ -1198,7 +1198,7 @@ func TestLaunchIOSAppAfterDeltaInstallSkipsAndroid(t *testing.T) {
 	err := launchIOSAppAfterDeltaInstall(
 		context.Background(),
 		requester,
-		7,
+		testSession(7),
 		"android",
 		"com.example.app",
 		"",
@@ -1221,7 +1221,7 @@ func TestLaunchIOSAppAfterDeltaInstallPropagatesLaunchFailure(t *testing.T) {
 	err := launchIOSAppAfterDeltaInstall(
 		context.Background(),
 		requester,
-		7,
+		testSession(7),
 		"ios",
 		"",
 		"com.example.fallback",
@@ -1463,14 +1463,14 @@ type fakeWorkerSessionRequester struct {
 	err          error
 }
 
-func (f *fakeWorkerSessionRequester) WorkerRequestForSession(
+func (f *fakeWorkerSessionRequester) WorkerRequestOnSession(
 	ctx context.Context,
-	sessionIndex int,
+	session *mcppkg.DeviceSession,
 	path string,
 	body interface{},
 ) ([]byte, error) {
 	_ = ctx
-	f.sessionIndex = sessionIndex
+	f.sessionIndex = session.Index
 	f.path = path
 	if payload, ok := body.(map[string]string); ok {
 		f.body = payload
@@ -1487,7 +1487,7 @@ func TestRetargetHotReloadDeviceExpoOpensReplacementDeepLink(t *testing.T) {
 		RelayID:     "a-new",
 	}
 
-	if err := retargetHotReloadDevice(context.Background(), requester, 2, "expo", "ios", "com.example.app", result); err != nil {
+	if err := retargetHotReloadDevice(context.Background(), requester, testSession(2), "expo", "ios", "com.example.app", result); err != nil {
 		t.Fatalf("retargetHotReloadDevice() error = %v", err)
 	}
 	if requester.sessionIndex != 2 || requester.path != "/open_url" {
@@ -1506,7 +1506,7 @@ func TestRetargetHotReloadDeviceBareRNIOSRelaunchesWithPackagerHost(t *testing.T
 		RelayID:   "a-new",
 	}
 
-	if err := retargetHotReloadDevice(context.Background(), requester, 1, "react-native", "ios", "com.example.app", result); err != nil {
+	if err := retargetHotReloadDevice(context.Background(), requester, testSession(1), "react-native", "ios", "com.example.app", result); err != nil {
 		t.Fatalf("retargetHotReloadDevice() error = %v", err)
 	}
 	if requester.sessionIndex != 1 || requester.path != "/launch" {
@@ -1528,7 +1528,7 @@ func TestRetargetHotReloadDeviceBareRNAndroidUnsupported(t *testing.T) {
 	err := retargetHotReloadDevice(
 		context.Background(),
 		requester,
-		1,
+		testSession(1),
 		"react-native",
 		"android",
 		"com.example.app",

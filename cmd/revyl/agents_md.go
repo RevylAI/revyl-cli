@@ -71,6 +71,13 @@ revyl device validation -s 0 "<expected user-visible outcome>" --json
 revyl device report --session-id <session-id> --json
 ` + "```" + `
 
+-s takes a local session index or a server-issued session ID; --session-id is
+the explicit spelling and REVYL_SESSION_ID scopes a whole shell for the commands
+that accept -s. ` + "`revyl device stop --all`" + ` ignores that scope and still stops
+every session ` + "`revyl device list`" + ` would show. Indexes only mean anything relative to the
+project directory they were assigned in, so target by session ID whenever more
+than one session is live.
+
 Auth: when .revyl/config.yaml has a session.auth_bypass section, Revyl applies
 its configured launch variables at boot and its configured deep link after
 launch. To re-fire that deep link without reminting, run:

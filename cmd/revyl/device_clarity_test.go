@@ -17,7 +17,7 @@ func TestNavigateDevicePreservesURLAndSurfacesWorkerFailure(t *testing.T) {
 		resp: []byte(`{"success":false,"action":"open_url","error":"device rejected deep link"}`),
 	}
 
-	err := navigateDevice(context.Background(), requester, 2, deepLink)
+	err := navigateDevice(context.Background(), requester, testSession(2), deepLink)
 	if err == nil || err.Error() != "device rejected deep link" {
 		t.Fatalf("navigateDevice() error = %v, want worker failure", err)
 	}
@@ -75,6 +75,20 @@ func TestHumanizeDeviceSessionResolveError_NoSessionAtIndex(t *testing.T) {
 	}
 }
 
+func TestIsNoActiveDeviceSessionError(t *testing.T) {
+	t.Parallel()
+
+	if isNoActiveDeviceSessionError(nil) {
+		t.Fatal("isNoActiveDeviceSessionError(nil) = true, want false")
+	}
+	if !isNoActiveDeviceSessionError(fmt.Errorf("no active device sessions. Start one with 'revyl device start'")) {
+		t.Fatal("empty-session error was not recognized")
+	}
+	if isNoActiveDeviceSessionError(fmt.Errorf("session %s is in terminal state: completed", flowSessionID)) {
+		t.Fatal("terminal-state error was treated as an empty session")
+	}
+}
+
 func TestHumanizeDeviceSessionResolveError_NoActiveSessions(t *testing.T) {
 	t.Parallel()
 
@@ -105,7 +119,7 @@ func TestHumanizeDeviceSessionResolveError_MultipleSessions(t *testing.T) {
 		t.Fatal("humanizeDeviceSessionResolveError() error = nil, want non-nil")
 	}
 	got := err.Error()
-	if !strings.Contains(got, "Specify -s <index> or run 'revyl device list' to see active sessions") {
+	if !strings.Contains(got, "Specify -s <index or session ID> or run 'revyl device list --json' to see active sessions") {
 		t.Fatalf("error = %q, want CLI multi-session guidance", got)
 	}
 	if strings.Contains(got, "session_index") || strings.Contains(got, "list_device_sessions()") {

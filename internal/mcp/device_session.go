@@ -156,12 +156,40 @@ type DeviceSessionManager struct {
 
 	// devMode mirrors the --dev CLI flag for URL construction.
 	devMode bool
+
+	// persistenceDisabled suppresses writes to device-sessions.json. Commands
+	// targeted by a durable session ID run concurrently against a shared
+	// worktree, where a read-modify-write of that file would corrupt the
+	// session list of sibling processes.
+	persistenceDisabled bool
+
+	// removedSessionKeys holds durable keys this process deliberately stopped.
+	// Because persistence merges against whatever is on disk, absence from the
+	// in-memory map cannot by itself mean "delete": it also describes sessions a
+	// sibling process owns. Only keys recorded here are removed from the file.
+	removedSessionKeys map[string]bool
 }
+
+// UnattachedSessionIndex marks a session resolved by durable ID that was never
+// added to the local index map. Index-keyed bookkeeping is a no-op for it.
+const UnattachedSessionIndex = -1
 
 // SetDevMode configures whether the manager generates localhost URLs (true)
 // or production URLs (false) for viewer and report links.
 func (m *DeviceSessionManager) SetDevMode(devMode bool) {
 	m.devMode = devMode
+}
+
+// DisablePersistence stops the manager from writing device-sessions.json.
+//
+// Call this when the caller targets a session by durable ID, so concurrent CLI
+// processes sharing a worktree cannot clobber each other's session list. The
+// manager stays fully usable for issuing device commands; only the local cache
+// write is suppressed.
+func (m *DeviceSessionManager) DisablePersistence() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.persistenceDisabled = true
 }
 
 // NewDeviceSessionManager creates a new session manager.
@@ -255,34 +283,6 @@ func (m *DeviceSessionManager) ensureOrgInfoLocked(ctx context.Context) error {
 	m.orgID = validateResp.OrgID
 	m.userEmail = validateResp.Email
 	return nil
-}
-
-// backendSessionIDByWorkflowRunLocked resolves backend device session ID from workflow run ID.
-// Returns empty string when not resolvable.
-// Caller must hold m.mu.
-func (m *DeviceSessionManager) backendSessionIDByWorkflowRunLocked(ctx context.Context, workflowRunID string) string {
-	if workflowRunID == "" || m.apiClient == nil {
-		return ""
-	}
-	if err := m.ensureOrgInfoLocked(ctx); err != nil {
-		ui.PrintDebug("failed to load org info for workflow/session mapping: %v", err)
-		return ""
-	}
-
-	activeResp, err := m.apiClient.GetActiveDeviceSessions(ctx, m.orgID)
-	if err != nil {
-		ui.PrintDebug("failed to fetch active sessions for workflow/session mapping: %v", err)
-		return ""
-	}
-	for _, s := range activeResp.Sessions {
-		if m.userEmail != "" && s.UserEmail != nil && *s.UserEmail != m.userEmail {
-			continue
-		}
-		if s.WorkflowRunId != nil && *s.WorkflowRunId == workflowRunID {
-			return s.Id
-		}
-	}
-	return ""
 }
 
 // StartSession provisions a new cloud device and adds it to the session map.
@@ -479,6 +479,10 @@ func (m *DeviceSessionManager) StartSession(
 	}
 
 	workflowRunID := resp.WorkflowRunId.String()
+	sessionID := ""
+	if resp.SessionId != nil {
+		sessionID = resp.SessionId.String()
+	}
 	traceID := ""
 	if resp.TraceId != nil {
 		traceID = strings.TrimSpace(*resp.TraceId)
@@ -511,13 +515,16 @@ func (m *DeviceSessionManager) StartSession(
 		case <-time.After(2 * time.Second):
 		}
 	}
-	if !deviceReady {
-		// Device didn't connect in time but the worker exists — still return
-		// the session so the agent can retry or diagnose, but log a warning.
-		// The session is usable; the device may connect shortly after.
-	}
+	// A device that never reported ready is not an error: the worker exists, the
+	// session is addressable, and the device commonly connects moments later.
 
-	sessionID := m.backendSessionIDByWorkflowRunLocked(ctx, workflowRunID)
+	if sessionID == "" {
+		ui.PrintWarning(
+			"Device started but its session ID is not available yet, so this session cannot be "+
+				"targeted by ID (workflow run %s). Run 'revyl device list --json' to look it up.",
+			workflowRunID,
+		)
+	}
 	appURL := config.GetAppURL(m.devMode)
 	viewerURL := ""
 	if sessionID != "" {
@@ -586,6 +593,48 @@ func (m *DeviceSessionManager) StopSession(ctx context.Context, index int) error
 	cancelErr := m.stopSessionAtIndexLocked(ctx, index, session)
 	m.persistSessions()
 	return cancelErr
+}
+
+// StopResolvedSession stops an already-resolved session and releases the device.
+//
+// Sessions resolved by durable ID carry UnattachedSessionIndex and have no entry
+// in the local index map, so they are torn down through the backend directly
+// without disturbing local session state.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - session: The resolved session to stop.
+//
+// Returns:
+//   - error: Any error during teardown.
+func (m *DeviceSessionManager) StopResolvedSession(ctx context.Context, session *DeviceSession) error {
+	if session == nil {
+		return fmt.Errorf("no session resolved to stop")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, tracked := m.sessions[session.Index]; tracked {
+		cancelErr := m.stopSessionAtIndexLocked(ctx, session.Index, session)
+		m.persistSessions()
+		return cancelErr
+	}
+
+	if m.apiClient == nil {
+		return fmt.Errorf("no API client configured")
+	}
+	resp, err := m.apiClient.CancelDevice(ctx, session.WorkflowRunID)
+	if err != nil {
+		ui.PrintDebug("CancelDevice failed for %s: %v", session.WorkflowRunID, err)
+		return fmt.Errorf("backend cancel failed: %w", err)
+	}
+	ui.PrintDebug("CancelDevice succeeded for %s: %s", session.WorkflowRunID, resp.Message)
+
+	// Drop boot-time before_session secrets once the session is gone so a
+	// later auth refresh cannot reuse another session's token by ID collision.
+	_ = beforesession.ClearSessionValues(m.workDir, session.SessionID)
+	return nil
 }
 
 // StopAllSessions stops all active sessions.
@@ -962,6 +1011,11 @@ func (m *DeviceSessionManager) stopSessionAtIndexLocked(ctx context.Context, ind
 		_ = beforesession.ClearSessionValues(m.workDir, session.SessionID)
 	}
 
+	// Record the stop so the merge on the next persist removes this session from
+	// the shared file. Absence from m.sessions alone is ambiguous, since it also
+	// describes sessions owned by a sibling process.
+	m.recordRemovedSessionLocked(session)
+
 	// Remove from map
 	delete(m.sessions, index)
 	delete(m.screenAnchors, index)
@@ -1066,34 +1120,405 @@ func wsURLToHTTP(wsURL string) string {
 	return httpURL
 }
 
-// persistSessions saves the multi-session state to disk.
+// durableSessionKey identifies a session across processes.
+//
+// The local index cannot serve as the merge key: it is a per-process guess that
+// two concurrent starts allocate identically. The server-issued session ID is
+// authoritative, and the workflow run ID covers the window before the backend
+// session row catches up.
+//
+// Parameters:
+//   - session: The session to key.
+//
+// Returns:
+//   - string: A stable cross-process key, or "" when the session carries
+//     neither identifier and therefore cannot be merged safely.
+func durableSessionKey(session *DeviceSession) string {
+	keys := sessionIdentityKeys(session)
+	if len(keys) == 0 {
+		return ""
+	}
+	return keys[0]
+}
+
+// sessionIdentityKeys returns every key a session may already be stored under,
+// most authoritative first.
+//
+// A session's key is not fixed for its lifetime: StartSession persists before
+// the backend session row exists, so the first write lands under the workflow
+// key, and a later SyncSessions backfills SessionID. Matching on the canonical
+// key alone would read that same device as a second, unknown session and write
+// a duplicate row. Callers therefore match on any alias and write under the
+// canonical one.
+//
+// Parameters:
+//   - session: The session to key.
+//
+// Returns:
+//   - []string: The session's aliases, empty when it carries no identifier and
+//     therefore cannot be merged safely.
+func sessionIdentityKeys(session *DeviceSession) []string {
+	if session == nil {
+		return nil
+	}
+	keys := make([]string, 0, 2)
+	if id := strings.TrimSpace(session.SessionID); id != "" {
+		keys = append(keys, id)
+	}
+	if runID := strings.TrimSpace(session.WorkflowRunID); runID != "" {
+		keys = append(keys, "run:"+runID)
+	}
+	return keys
+}
+
+// preserveStoredSessionIdentity copies SessionID and ViewerURL from stored onto
+// local when those fields are empty.
+//
+// Alias matching treats a workflow-only local session as the same device as a
+// stored row that already has a backend ID. Replacing that row wholesale would
+// blank identity a peer already wrote. Non-empty local values still win so a
+// same-process SyncSessions backfill can update the row.
+//
+// Parameters:
+//   - local: The in-memory session that will replace the stored row.
+//   - stored: The row already written to device-sessions.json.
+func preserveStoredSessionIdentity(local, stored *DeviceSession) {
+	if local == nil || stored == nil {
+		return
+	}
+	if strings.TrimSpace(local.SessionID) == "" {
+		local.SessionID = stored.SessionID
+	}
+	if strings.TrimSpace(local.ViewerURL) == "" {
+		local.ViewerURL = stored.ViewerURL
+	}
+}
+
+// persistSessions merges this process's session state into device-sessions.json
+// under a cross-process lock.
+//
+// A whole-file overwrite loses concurrent writers: two parallel `device start`
+// invocations both read next_index, both allocate the same index, and the
+// second write erases the first session. Instead this re-reads the file under
+// the lock, upserts by durable key, keeps indexes already published to other
+// processes, and replaces the file atomically.
+//
+// Failure to persist is degraded, not fatal: the session itself is live on the
+// backend and remains reachable by ID, so this warns rather than returning an
+// error to callers that cannot act on it.
 func (m *DeviceSessionManager) persistSessions() {
-	if m.workDir == "" {
+	if m.workDir == "" || m.persistenceDisabled {
 		return
 	}
 
 	dir := filepath.Join(m.workDir, ".revyl")
 	_ = os.MkdirAll(dir, 0o755)
 
-	sessions := make([]*DeviceSession, 0, len(m.sessions))
-	for _, s := range m.sessions {
-		sessions = append(sessions, s)
+	release, lockErr := lockSessionStore(filepath.Join(dir, "device-sessions.lock"))
+	if lockErr != nil {
+		ui.PrintWarning(
+			"Could not update the local device session list: %v. The session is still reachable by ID; "+
+				"run 'revyl device list' to resync.",
+			lockErr,
+		)
+		return
 	}
+	defer release()
 
-	state := persistedState{
-		Active:    m.activeIndex,
-		NextIdx:   m.nextIndex,
-		OrgID:     m.orgID,
-		UserEmail: m.userEmail,
-		Sessions:  sessions,
-	}
+	merged := m.mergeWithStoredSessionsLocked(dir)
 
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
+		ui.PrintDebug("failed to encode device session state: %v", err)
+		return
+	}
+	if writeErr := writeFileAtomic(filepath.Join(dir, "device-sessions.json"), data); writeErr != nil {
+		ui.PrintDebug("failed to write device session state: %v", writeErr)
 		return
 	}
 
-	_ = os.WriteFile(filepath.Join(dir, "device-sessions.json"), data, 0o600)
+	m.removedSessionKeys = nil
+}
+
+// mergedSession is one device in the merged output. It is addressed by every
+// alias its session has ever been written under, so the same device reached
+// through an old and a new key resolves to one row rather than two.
+type mergedSession struct {
+	session *DeviceSession
+}
+
+// lookupMergedSession finds the record already holding any of these aliases.
+//
+// Parameters:
+//   - byAlias: Alias index built during the merge.
+//   - keys: The aliases to try, most authoritative first.
+//
+// Returns:
+//   - *mergedSession: The matching record, or nil when this device is new to
+//     the merge.
+func lookupMergedSession(byAlias map[string]*mergedSession, keys []string) *mergedSession {
+	for _, key := range keys {
+		if record, ok := byAlias[key]; ok {
+			return record
+		}
+	}
+	return nil
+}
+
+// recordRemovedSessionLocked marks a session as deliberately gone so the next
+// merge deletes it from the shared file. Caller must hold m.mu.
+//
+// Every alias is recorded, not just the canonical one: the row on disk may
+// predate the session's backend ID, and a stop keyed only by that ID would
+// leave the older workflow-keyed row behind.
+//
+// Parameters:
+//   - session: The stopped or backend-pruned session.
+func (m *DeviceSessionManager) recordRemovedSessionLocked(session *DeviceSession) {
+	keys := sessionIdentityKeys(session)
+	if len(keys) == 0 {
+		return
+	}
+	if m.removedSessionKeys == nil {
+		m.removedSessionKeys = make(map[string]bool, len(keys))
+	}
+	for _, key := range keys {
+		m.removedSessionKeys[key] = true
+	}
+}
+
+// sessionRemovedLocked reports whether this process deliberately removed the
+// session, under any alias it may be stored as. Caller must hold m.mu.
+//
+// Parameters:
+//   - session: The session to test.
+//
+// Returns:
+//   - bool: True when a stop or backend prune recorded this device.
+func (m *DeviceSessionManager) sessionRemovedLocked(session *DeviceSession) bool {
+	for _, key := range sessionIdentityKeys(session) {
+		if m.removedSessionKeys[key] {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeWithStoredSessionsLocked reconciles in-memory sessions with the file and
+// returns the state to write. Caller must hold m.mu and the session store lock.
+//
+// Parameters:
+//   - dir: The .revyl directory holding device-sessions.json.
+//
+// Returns:
+//   - persistedState: The merged state, with indexes reconciled in memory too.
+func (m *DeviceSessionManager) mergeWithStoredSessionsLocked(dir string) persistedState {
+	stored := readStoredSessionState(filepath.Join(dir, "device-sessions.json"))
+
+	// Records are matched by any alias but emitted once, so a session whose
+	// SessionID arrived after its first write updates its existing row instead
+	// of adding a second one under the new key.
+	records := make([]*mergedSession, 0, len(stored.Sessions)+len(m.sessions))
+	byAlias := make(map[string]*mergedSession, len(stored.Sessions)+len(m.sessions))
+	takenIndexes := make(map[int]bool, len(stored.Sessions)+len(m.sessions))
+
+	adopt := func(record *mergedSession) {
+		for _, key := range sessionIdentityKeys(record.session) {
+			byAlias[key] = record
+		}
+	}
+
+	// nextFree stays monotonic across processes so a stopped session's index is
+	// never handed to a different session, which would silently retarget a
+	// caller still holding the old number.
+	nextFree := max(stored.NextIdx, m.nextIndex)
+	for _, session := range stored.Sessions {
+		if m.sessionRemovedLocked(session) {
+			continue
+		}
+		keys := sessionIdentityKeys(session)
+		if len(keys) == 0 {
+			continue
+		}
+		if existing, seen := byAlias[keys[0]]; seen {
+			existing.session = session
+			adopt(existing)
+			continue
+		}
+		record := &mergedSession{session: session}
+		records = append(records, record)
+		adopt(record)
+		takenIndexes[session.Index] = true
+		nextFree = max(nextFree, session.Index+1)
+	}
+
+	// This process's view wins for fields it actually has. A session another
+	// process already published keeps its published index, and stored SessionID
+	// / ViewerURL survive an empty local copy so a later persist cannot blank
+	// identity a peer already wrote.
+	local := make([]*DeviceSession, 0, len(m.sessions))
+	for _, session := range m.sessions {
+		local = append(local, session)
+	}
+	sort.Slice(local, func(i, j int) bool { return local[i].Index < local[j].Index })
+
+	remaps := make(map[int]int, len(local))
+	for _, session := range local {
+		if m.sessionRemovedLocked(session) {
+			continue
+		}
+		keys := sessionIdentityKeys(session)
+		if len(keys) == 0 {
+			continue
+		}
+		if existing := lookupMergedSession(byAlias, keys); existing != nil {
+			if existing.session.Index != session.Index {
+				remaps[session.Index] = existing.session.Index
+			}
+			session.Index = existing.session.Index
+			preserveStoredSessionIdentity(session, existing.session)
+			existing.session = session
+			adopt(existing)
+			continue
+		}
+		if takenIndexes[session.Index] {
+			remaps[session.Index] = nextFree
+			session.Index = nextFree
+		}
+		takenIndexes[session.Index] = true
+		nextFree = max(nextFree, session.Index+1)
+		record := &mergedSession{session: session}
+		records = append(records, record)
+		adopt(record)
+	}
+
+	for oldIndex, newIndex := range remaps {
+		m.remapSessionIndexLocked(oldIndex, newIndex)
+	}
+
+	sessions := make([]*DeviceSession, 0, len(records))
+	for _, record := range records {
+		sessions = append(sessions, record.session)
+	}
+	sort.Slice(sessions, func(i, j int) bool { return sessions[i].Index < sessions[j].Index })
+
+	m.nextIndex = nextFree
+	if _, active := m.sessions[m.activeIndex]; !active && m.activeIndex >= 0 {
+		m.activeIndex = -1
+	}
+
+	// Preserve identity written by a peer rather than blanking it: paths that
+	// never call ensureOrgInfo hold empty org fields in memory.
+	orgID := m.orgID
+	if orgID == "" {
+		orgID = stored.OrgID
+	}
+	userEmail := m.userEmail
+	if userEmail == "" {
+		userEmail = stored.UserEmail
+	}
+
+	active := m.activeIndex
+	if active < 0 && stored.Active >= 0 {
+		if _, stillPresent := indexInSessions(sessions, stored.Active); stillPresent {
+			active = stored.Active
+		}
+	}
+
+	return persistedState{
+		Active:    active,
+		NextIdx:   nextFree,
+		OrgID:     orgID,
+		UserEmail: userEmail,
+		Sessions:  sessions,
+	}
+}
+
+// readStoredSessionState reads device-sessions.json, returning an empty state
+// when the file is missing or unreadable.
+func readStoredSessionState(path string) persistedState {
+	var state persistedState
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return persistedState{Active: -1}
+	}
+	if json.Unmarshal(data, &state) != nil {
+		return persistedState{Active: -1}
+	}
+	return state
+}
+
+// indexInSessions reports whether index is present in sessions.
+func indexInSessions(sessions []*DeviceSession, index int) (*DeviceSession, bool) {
+	for _, session := range sessions {
+		if session.Index == index {
+			return session, true
+		}
+	}
+	return nil, false
+}
+
+// writeFileAtomic writes data to path via a temp file and rename, so a reader
+// never observes a partially written session store.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".device-sessions-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		tmp.Close()
+		os.Remove(tmpPath)
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		return err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
+// remapSessionIndexLocked moves a session's index-keyed bookkeeping when the
+// merge reassigns its index. Every per-index map must move together, or the
+// session keeps its idle timer, ownership, and screen anchor under a stale key.
+// Caller must hold m.mu.
+//
+// Parameters:
+//   - oldIndex: The index the session was optimistically assigned.
+//   - newIndex: The index reconciled against the shared store.
+func (m *DeviceSessionManager) remapSessionIndexLocked(oldIndex, newIndex int) {
+	if oldIndex == newIndex {
+		return
+	}
+
+	if session, ok := m.sessions[oldIndex]; ok {
+		delete(m.sessions, oldIndex)
+		m.sessions[newIndex] = session
+	}
+	if owned, ok := m.ownedSessions[oldIndex]; ok {
+		delete(m.ownedSessions, oldIndex)
+		m.ownedSessions[newIndex] = owned
+	}
+	if disabled, ok := m.idleTimerDisabled[oldIndex]; ok {
+		delete(m.idleTimerDisabled, oldIndex)
+		m.idleTimerDisabled[newIndex] = disabled
+	}
+	if timer, ok := m.idleTimers[oldIndex]; ok {
+		delete(m.idleTimers, oldIndex)
+		m.idleTimers[newIndex] = timer
+	}
+	if anchor, ok := m.screenAnchors[oldIndex]; ok {
+		delete(m.screenAnchors, oldIndex)
+		m.screenAnchors[newIndex] = anchor
+	}
+	if m.activeIndex == oldIndex {
+		m.activeIndex = newIndex
+	}
 }
 
 // loadLocalCache reads device-sessions.json from disk into memory.
@@ -1197,6 +1622,8 @@ func (m *DeviceSessionManager) checkSessionStatusOnFailure(session *DeviceSessio
 		return "session was cancelled externally (from browser or another client)"
 	case api.WorkerConnectionResponseStatusFailed:
 		return "session failed on the worker"
+	case api.WorkerConnectionResponseStatusNotReady:
+		return "device is not accepting commands yet (still starting); retry shortly"
 	default:
 		return ""
 	}
@@ -1336,14 +1763,20 @@ func parseWorkerHealth(body []byte) (workerHealthResponse, error) {
 	return health, nil
 }
 
-// applyBackendScreenDimensions copies screen dimensions from an
-// ActiveDeviceSessionItem into a local DeviceSession when they are available.
-func applyBackendScreenDimensions(session *DeviceSession, bs api.ActiveDeviceSessionItem) {
-	if bs.ScreenWidth != nil && *bs.ScreenWidth > 0 {
-		session.ScreenWidth = *bs.ScreenWidth
+// applyBackendScreenDimensions copies backend-reported screen dimensions into a
+// local DeviceSession. Grounded taps scale against these, so a session without
+// them silently falls back to unscaled coordinates.
+//
+// Parameters:
+//   - session: The session to update.
+//   - width: Backend screen width in pixels. Nil or non-positive is ignored.
+//   - height: Backend screen height in pixels. Nil or non-positive is ignored.
+func applyBackendScreenDimensions(session *DeviceSession, width, height *int) {
+	if width != nil && *width > 0 {
+		session.ScreenWidth = *width
 	}
-	if bs.ScreenHeight != nil && *bs.ScreenHeight > 0 {
-		session.ScreenHeight = *bs.ScreenHeight
+	if height != nil && *height > 0 {
+		session.ScreenHeight = *height
 	}
 }
 
@@ -1521,7 +1954,31 @@ func (m *DeviceSessionManager) DownloadFileForSession(
 	index int,
 	req DeviceDownloadFileRequest,
 ) (*WorkerActionResponse, error) {
-	respBody, err := m.WorkerRequestForSession(ctx, index, "/download_file", req)
+	session, err := m.ResolveSession(index)
+	if err != nil {
+		return nil, err
+	}
+	return m.DownloadFileOnSession(ctx, session, req)
+}
+
+// DownloadFileOnSession executes the worker download_file action against a
+// resolved session and returns the structured worker response, including the
+// resolved on-device path.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - session: The resolved target session.
+//   - req: Typed download request.
+//
+// Returns:
+//   - *WorkerActionResponse: The worker result.
+//   - error: Transport or parse failure.
+func (m *DeviceSessionManager) DownloadFileOnSession(
+	ctx context.Context,
+	session *DeviceSession,
+	req DeviceDownloadFileRequest,
+) (*WorkerActionResponse, error) {
+	respBody, err := m.WorkerRequestOnSession(ctx, session, "/download_file", req)
 	if err != nil {
 		return nil, err
 	}
@@ -1551,6 +2008,25 @@ func (m *DeviceSessionManager) InstallAppForSession(
 	return m.InstallAppForSessionWithProgress(ctx, index, req, nil)
 }
 
+// InstallAppOnSession starts an asynchronous install against a resolved session
+// and waits for its terminal result.
+//
+// Parameters:
+//   - ctx: Context controlling install submission, waiting, and polling.
+//   - session: The resolved target session.
+//   - req: Typed app source and install strategy.
+//
+// Returns:
+//   - *WorkerActionResponse: Terminal worker result for a completed or failed install.
+//   - error: Submission, polling, timeout, cancellation, or protocol failure.
+func (m *DeviceSessionManager) InstallAppOnSession(
+	ctx context.Context,
+	session *DeviceSession,
+	req DeviceInstallRequest,
+) (*WorkerActionResponse, error) {
+	return m.InstallAppOnSessionWithProgress(ctx, session, req, nil)
+}
+
 // InstallAppForSessionWithProgress is InstallAppForSession with an optional
 // onStatus callback invoked whenever the worker's install status changes
 // (e.g. "running", "completed"), so callers can surface install progress
@@ -1564,6 +2040,22 @@ func (m *DeviceSessionManager) InstallAppForSessionWithProgress(
 	session, err := m.ResolveSession(index)
 	if err != nil {
 		return nil, err
+	}
+	return m.InstallAppOnSessionWithProgress(ctx, session, req, onStatus)
+}
+
+// InstallAppOnSessionWithProgress is InstallAppOnSession with an optional
+// onStatus callback invoked whenever the worker's install status changes
+// (e.g. "running", "completed"), so callers can surface install progress
+// instead of a silent wait. onStatus may be nil.
+func (m *DeviceSessionManager) InstallAppOnSessionWithProgress(
+	ctx context.Context,
+	session *DeviceSession,
+	req DeviceInstallRequest,
+	onStatus func(status string),
+) (*WorkerActionResponse, error) {
+	if session == nil {
+		return nil, fmt.Errorf("no session resolved for app install")
 	}
 
 	deadline := time.Now().Add(installStartWaitTimeout)
@@ -1782,6 +2274,30 @@ func (m *DeviceSessionManager) ExecuteLiveStepForSession(
 	session, err := m.ResolveSession(index)
 	if err != nil {
 		return nil, err
+	}
+	return m.ExecuteLiveStepOnSession(ctx, session, req)
+}
+
+// ExecuteLiveStepOnSession executes one high-level step against a resolved
+// session, following the same async accept-then-poll contract as
+// ExecuteLiveStepForSession.
+//
+// Parameters:
+//   - ctx: Context controlling submission and polling.
+//   - session: The resolved target session.
+//   - req: The step request; SessionID and WorkflowRunID are filled from the
+//     session when the caller left them empty.
+//
+// Returns:
+//   - *LiveStepResponse: The terminal step result.
+//   - error: Submission, polling, timeout, or protocol failure.
+func (m *DeviceSessionManager) ExecuteLiveStepOnSession(
+	ctx context.Context,
+	session *DeviceSession,
+	req LiveStepRequest,
+) (*LiveStepResponse, error) {
+	if session == nil {
+		return nil, fmt.Errorf("no session resolved for live step execution")
 	}
 
 	if strings.TrimSpace(req.SessionID) == "" {
@@ -2068,6 +2584,28 @@ func (m *DeviceSessionManager) WorkerRequestForSession(ctx context.Context, inde
 	return m.workerRequestForSession(ctx, session, path, body)
 }
 
+// WorkerRequestOnSession sends a worker action to an already-resolved session.
+//
+// Prefer this over WorkerRequestForSession when the caller holds a session
+// reference, since it works for sessions resolved by durable ID that carry
+// UnattachedSessionIndex and therefore have no local index to look up.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - session: The resolved target session.
+//   - path: Worker path (e.g. "/tap").
+//   - body: Request payload, or nil.
+//
+// Returns:
+//   - []byte: Raw worker response body.
+//   - error: Transport, worker, or relay failure.
+func (m *DeviceSessionManager) WorkerRequestOnSession(ctx context.Context, session *DeviceSession, path string, body interface{}) ([]byte, error) {
+	if session == nil {
+		return nil, fmt.Errorf("no session resolved for worker request %s", path)
+	}
+	return m.workerRequestForSession(ctx, session, path, body)
+}
+
 // nonIdempotentPaths lists worker paths whose side-effects make retry unsafe.
 // Retrying these creates duplicate work (e.g. duplicate agent steps).
 var nonIdempotentPaths = map[string]bool{
@@ -2108,6 +2646,9 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 
 			var retryWorkerErr *WorkerHTTPError
 			if errors.As(retryErr, &retryWorkerErr) {
+				if reason := m.checkSessionStatusOnFailure(session); reason != "" {
+					return nil, fmt.Errorf("%w. %s", retryWorkerErr, reason)
+				}
 				return nil, fmt.Errorf(
 					"%w. "+
 						"The device may not be fully connected yet -- wait a few seconds and retry, or call device_doctor() to diagnose",
@@ -2117,6 +2658,9 @@ func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, sess
 			return nil, retryErr
 		}
 		if workerErr.StatusCode >= 500 {
+			if reason := m.checkSessionStatusOnFailure(session); reason != "" {
+				return nil, fmt.Errorf("%w. %s", workerErr, reason)
+			}
 			return nil, fmt.Errorf("%w. Call device_doctor() to check worker health", workerErr)
 		}
 		return nil, workerErr
@@ -2152,6 +2696,19 @@ func (m *DeviceSessionManager) Screenshot(ctx context.Context) ([]byte, error) {
 //   - error: Any error during capture.
 func (m *DeviceSessionManager) ScreenshotForSession(ctx context.Context, index int) ([]byte, error) {
 	return m.WorkerRequestForSession(ctx, index, "/screenshot", nil)
+}
+
+// ScreenshotOnSession captures a screenshot from an already-resolved session.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - session: The resolved target session.
+//
+// Returns:
+//   - []byte: PNG image bytes.
+//   - error: Any error during capture.
+func (m *DeviceSessionManager) ScreenshotOnSession(ctx context.Context, session *DeviceSession) ([]byte, error) {
+	return m.WorkerRequestOnSession(ctx, session, "/screenshot", nil)
 }
 
 // ---------------------------------------------------------------------------
@@ -2250,8 +2807,27 @@ type NetworkPollResponse struct {
 //   - *DeviceLogsPollResponse: Parsed response with new lines and next_cursor.
 //   - error: Any transport or parse error.
 func (m *DeviceSessionManager) PollDeviceLogsForSession(ctx context.Context, index int, cursor string, limit int) (*DeviceLogsPollResponse, error) {
+	session, err := m.ResolveSession(index)
+	if err != nil {
+		return nil, err
+	}
+	return m.PollDeviceLogsOnSession(ctx, session, cursor, limit)
+}
+
+// PollDeviceLogsOnSession fetches incremental device logs from a resolved session.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - session: The resolved target session.
+//   - cursor: Opaque cursor from a previous response ("0" for start).
+//   - limit: Maximum number of log lines to return.
+//
+// Returns:
+//   - *DeviceLogsPollResponse: Parsed response with new lines and next_cursor.
+//   - error: Any transport or parse error.
+func (m *DeviceSessionManager) PollDeviceLogsOnSession(ctx context.Context, session *DeviceSession, cursor string, limit int) (*DeviceLogsPollResponse, error) {
 	path := fmt.Sprintf("/device_logs?cursor=%s&limit=%d", url.QueryEscape(cursor), limit)
-	respBody, err := m.WorkerRequestForSession(ctx, index, path, nil)
+	respBody, err := m.WorkerRequestOnSession(ctx, session, path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2274,8 +2850,27 @@ func (m *DeviceSessionManager) PollDeviceLogsForSession(ctx context.Context, ind
 //   - *PerfPollResponse: Parsed response with new samples, summary, and next_cursor.
 //   - error: Any transport or parse error.
 func (m *DeviceSessionManager) PollPerformanceMetricsForSession(ctx context.Context, index int, cursor string, limit int) (*PerfPollResponse, error) {
+	session, err := m.ResolveSession(index)
+	if err != nil {
+		return nil, err
+	}
+	return m.PollPerformanceMetricsOnSession(ctx, session, cursor, limit)
+}
+
+// PollPerformanceMetricsOnSession fetches incremental perf samples from a resolved session.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - session: The resolved target session.
+//   - cursor: Opaque cursor from a previous response ("0" for start).
+//   - limit: Maximum number of samples to return.
+//
+// Returns:
+//   - *PerfPollResponse: Parsed response with new samples, summary, and next_cursor.
+//   - error: Any transport or parse error.
+func (m *DeviceSessionManager) PollPerformanceMetricsOnSession(ctx context.Context, session *DeviceSession, cursor string, limit int) (*PerfPollResponse, error) {
 	path := fmt.Sprintf("/performance_metrics?cursor=%s&limit=%d", url.QueryEscape(cursor), limit)
-	respBody, err := m.WorkerRequestForSession(ctx, index, path, nil)
+	respBody, err := m.WorkerRequestOnSession(ctx, session, path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2299,13 +2894,34 @@ func (m *DeviceSessionManager) PollPerformanceMetricsForSession(ctx context.Cont
 //   - *NetworkPollResponse: Parsed response with new rows and next_cursor.
 //   - error: Any transport or parse error.
 func (m *DeviceSessionManager) PollNetworkRequestsForSession(ctx context.Context, index int, cursor string, limit int, maxBytes int) (*NetworkPollResponse, error) {
+	session, err := m.ResolveSession(index)
+	if err != nil {
+		return nil, err
+	}
+	return m.PollNetworkRequestsOnSession(ctx, session, cursor, limit, maxBytes)
+}
+
+// PollNetworkRequestsOnSession fetches incremental live network requests from a
+// resolved session.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - session: The resolved target session.
+//   - cursor: Opaque cursor from a previous response ("0" for start).
+//   - limit: Maximum number of request rows to return.
+//   - maxBytes: Maximum encoded payload size to return.
+//
+// Returns:
+//   - *NetworkPollResponse: Parsed response with new rows and next_cursor.
+//   - error: Any transport or parse error.
+func (m *DeviceSessionManager) PollNetworkRequestsOnSession(ctx context.Context, session *DeviceSession, cursor string, limit int, maxBytes int) (*NetworkPollResponse, error) {
 	path := fmt.Sprintf(
 		"/network_requests?cursor=%s&limit=%d&max_bytes=%d",
 		url.QueryEscape(cursor),
 		limit,
 		maxBytes,
 	)
-	respBody, err := m.WorkerRequestForSession(ctx, index, path, nil)
+	respBody, err := m.WorkerRequestOnSession(ctx, session, path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2377,6 +2993,23 @@ func (m *DeviceSessionManager) ResolveTargetForSession(ctx context.Context, inde
 	session, err := m.ResolveSession(index)
 	if err != nil {
 		return nil, err
+	}
+	return m.resolveTargetForSession(ctx, session, target)
+}
+
+// ResolveTargetOnSession grounds a natural-language target on a resolved session.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - session: The resolved target session.
+//   - target: Natural language element description (e.g. "Sign In button").
+//
+// Returns:
+//   - *ResolvedTarget: The resolved coordinates.
+//   - error: If grounding fails or the element is not found.
+func (m *DeviceSessionManager) ResolveTargetOnSession(ctx context.Context, session *DeviceSession, target string) (*ResolvedTarget, error) {
+	if session == nil {
+		return nil, fmt.Errorf("no session resolved for grounding target %q", target)
 	}
 	return m.resolveTargetForSession(ctx, session, target)
 }
@@ -2637,7 +3270,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			if bs.TraceId != nil {
 				ls.TraceID = strings.TrimSpace(*bs.TraceId)
 			}
-			applyBackendScreenDimensions(ls, bs)
+			applyBackendScreenDimensions(ls, bs.ScreenWidth, bs.ScreenHeight)
 			continue
 		}
 		if bs, ok := backendSessionByWorkflow[ls.WorkflowRunID]; ok {
@@ -2646,7 +3279,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			if bs.TraceId != nil {
 				ls.TraceID = strings.TrimSpace(*bs.TraceId)
 			}
-			applyBackendScreenDimensions(ls, bs)
+			applyBackendScreenDimensions(ls, bs.ScreenWidth, bs.ScreenHeight)
 		}
 	}
 	for idx, ls := range m.sessions {
@@ -2663,6 +3296,9 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		if ls != nil {
 			_ = beforesession.ClearSessionValues(m.workDir, ls.SessionID)
 		}
+		// The backend is authoritative about which sessions still exist, so this
+		// pruning must survive the merge instead of being re-read from the file.
+		m.recordRemovedSessionLocked(ls)
 		delete(m.sessions, idx)
 		delete(m.ownedSessions, idx)
 		delete(m.idleTimerDisabled, idx)
@@ -2745,7 +3381,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			LastActivity:  time.Now(),
 			IdleTimeout:   5 * time.Minute,
 		}
-		applyBackendScreenDimensions(session, bs)
+		applyBackendScreenDimensions(session, bs.ScreenWidth, bs.ScreenHeight)
 
 		m.sessions[idx] = session
 		m.resetIdleTimerForSessionLocked(idx, context.Background())
@@ -2806,52 +3442,87 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 		}
 	}
 
-	// Ensure org info for viewer URL construction.
-	if err := m.ensureOrgInfoLocked(ctx); err != nil {
-		return -1, nil, fmt.Errorf("failed to resolve org info: %w", err)
+	session, err := m.resolveSessionByIDLocked(ctx, sessionID)
+	if err != nil {
+		return -1, nil, err
 	}
+
+	idx := m.nextIndex
+	m.nextIndex++
+	session.Index = idx
+
+	m.sessions[idx] = session
+	m.activeIndex = idx
+	m.resetIdleTimerForSessionLocked(idx, ctx)
+	m.persistSessions()
+
+	return idx, session, nil
+}
+
+// ResolveSessionByID resolves a server-issued session ID into a usable session
+// reference without reading or mutating local session state.
+//
+// The returned session carries UnattachedSessionIndex, so it is safe to use for
+// device commands but is not registered in the local index map and is never
+// written to device-sessions.json. This is the parallel-safe targeting path:
+// concurrent CLI processes in one worktree can each drive their own session
+// without racing on the shared cache file.
+//
+// Parameters:
+//   - ctx: Context for cancellation.
+//   - sessionID: The durable device session UUID.
+//
+// Resolution costs a single backend call. Worker liveness is not probed here:
+// the caller's own action is the probe, and checkSessionStatusOnFailure turns a
+// failed action into a specific reason, so the happy path pays nothing for
+// diagnostics it does not need.
+//
+// Returns:
+//   - *DeviceSession: An unattached session reference ready for worker requests.
+//   - error: If the session is unknown, in a terminal state, or still queued
+//     (no workflow run).
+func (m *DeviceSessionManager) ResolveSessionByID(ctx context.Context, sessionID string) (*DeviceSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.apiClient == nil {
+		return nil, fmt.Errorf("no API client configured")
+	}
+	return m.resolveSessionByIDLocked(ctx, sessionID)
+}
+
+// resolveSessionByIDLocked fetches a session by durable ID and builds an
+// unattached DeviceSession for it. It performs no local-state mutation, so both
+// the stateless path and AttachBySessionID can share it, and issues exactly one
+// backend call so per-command targeting stays cheap in parallel batches.
+// Caller must hold m.mu.
+func (m *DeviceSessionManager) resolveSessionByIDLocked(ctx context.Context, sessionID string) (*DeviceSession, error) {
+	shortID := shortPrefix(sessionID, 8)
 
 	// Fetch the session directly by ID.
 	detail, err := m.apiClient.GetDeviceSessionByID(ctx, sessionID)
 	if err != nil {
-		return -1, nil, fmt.Errorf("session not found or not accessible: %w", err)
+		return nil, fmt.Errorf("session not found or not accessible: %w", err)
 	}
 
 	// Verify it's in a usable state.
 	status := strings.ToLower(detail.Status)
 	if status == "completed" || status == "failed" || status == "cancelled" || status == "timeout" {
-		return -1, nil, fmt.Errorf("session %s is in terminal state: %s", sessionID[:min(8, len(sessionID))], detail.Status)
+		return nil, fmt.Errorf("session %s is in terminal state: %s", shortID, detail.Status)
 	}
 
-	// Resolve the worker URL via workflow run ID.
+	// Worker actions are relayed by workflow run ID, so that ID is the only
+	// routing information this path needs. WorkerBaseURL stays empty: its sole
+	// consumer is the direct-HTTP fallback, which is unreachable whenever an
+	// API client and a workflow run ID are both present.
 	if detail.WorkflowRunID == nil || *detail.WorkflowRunID == "" {
-		return -1, nil, fmt.Errorf("session %s has no workflow run ID (may still be queued)", sessionID[:min(8, len(sessionID))])
+		return nil, fmt.Errorf("session %s has no workflow run ID (may still be queued)", shortID)
 	}
 	traceID := ""
 	if detail.TraceID != nil {
 		traceID = strings.TrimSpace(*detail.TraceID)
 	}
 
-	wsResp, wsErr := m.apiClient.GetWorkerWSURL(ctx, *detail.WorkflowRunID)
-	if wsErr != nil {
-		return -1, nil, fmt.Errorf("failed to resolve worker URL: %w", wsErr)
-	}
-
-	workerBaseURL := ""
-	if wsResp.WorkerWsUrl != nil && *wsResp.WorkerWsUrl != "" {
-		workerBaseURL = wsURLToHTTP(*wsResp.WorkerWsUrl)
-	}
-	if workerBaseURL == "" {
-		return -1, nil, fmt.Errorf("worker URL not available for session %s (device may still be starting)", sessionID[:min(8, len(sessionID))])
-	}
-
-	// Health-check the worker.
-	tmpSession := &DeviceSession{WorkerBaseURL: workerBaseURL, WorkflowRunID: *detail.WorkflowRunID, TraceID: traceID}
-	if _, hErr := m.healthCheckSession(tmpSession); hErr != nil {
-		return -1, nil, fmt.Errorf("worker unreachable for session %s: %w", sessionID[:min(8, len(sessionID))], hErr)
-	}
-
-	// Build the session.
 	platform := "unknown"
 	if detail.Platform != nil {
 		platform = *detail.Platform
@@ -2867,15 +3538,11 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 	appURL := config.GetAppURL(m.devMode)
 	viewerURL := fmt.Sprintf("%s/sessions/%s", appURL, url.PathEscape(sessionID))
 
-	idx := m.nextIndex
-	m.nextIndex++
-
 	session := &DeviceSession{
-		Index:         idx,
+		Index:         UnattachedSessionIndex,
 		SessionID:     sessionID,
 		WorkflowRunID: *detail.WorkflowRunID,
 		TraceID:       traceID,
-		WorkerBaseURL: workerBaseURL,
 		ViewerURL:     viewerURL,
 		WhepURL:       detail.WhepURL,
 		Platform:      platform,
@@ -2883,13 +3550,8 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 		LastActivity:  time.Now(),
 		IdleTimeout:   5 * time.Minute,
 	}
-
-	m.sessions[idx] = session
-	m.activeIndex = idx
-	m.resetIdleTimerForSessionLocked(idx, ctx)
-	m.persistSessions()
-
-	return idx, session, nil
+	applyBackendScreenDimensions(session, detail.ScreenWidth, detail.ScreenHeight)
+	return session, nil
 }
 
 // WorkDir returns the working directory used for session persistence.

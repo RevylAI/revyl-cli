@@ -562,6 +562,7 @@ type StopDeviceSessionOutput struct {
 
 func (s *Server) handleStopDeviceSession(ctx context.Context, req *mcp.CallToolRequest, input StopDeviceSessionInput) (*mcp.CallToolResult, StopDeviceSessionOutput, error) {
 	if input.All {
+		s.syncSessionsBestEffort(ctx)
 		if err := s.sessionMgr.StopAllSessions(ctx); err != nil {
 			return nil, StopDeviceSessionOutput{Success: false, Error: err.Error()}, nil
 		}

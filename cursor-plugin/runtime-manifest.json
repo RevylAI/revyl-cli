@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_by": "make -C revyl-cli prepare-cursor-plugin-release",
   "prepared": true,
-  "plugin_version": "0.1.4",
+  "plugin_version": "0.1.5",
   "runtime_version": "0.1.89",
   "release_tag": "v0.1.89",
   "release_base_url": "https://github.com/RevylAI/revyl-cli/releases/download/v0.1.89",

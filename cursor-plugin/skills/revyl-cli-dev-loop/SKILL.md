@@ -141,6 +141,27 @@ worker request completed successfully. In JSON mode, inspect `success` and
 
 During exploration, capture the exact path that worked. Describe actions with visible target language and keep the path at intent level.
 
+### Targeting a session
+
+Commands act on the active session by default. `-s` selects a specific one and
+takes either form: a local index from `revyl device list`, or the server-issued
+`session_id` from `revyl device start --json`. `--session-id <uuid>` is the
+explicit spelling, and `REVYL_SESSION_ID` scopes a whole shell for the commands
+that accept `-s`. `revyl device stop --all` ignores that scope and still stops
+every session `revyl device list` would show. The `revyl dev` commands use
+their dev context instead.
+
+Prefer session IDs whenever more than one session is live. Indexes live in a
+per-project file shared by every CLI process in that directory, and only mean
+anything relative to it; ID-targeted commands resolve from the backend in one
+call and never touch that file.
+
+```bash
+SESSION=$(revyl device start --platform ios --json | jq -r '.session_id')
+revyl device instruction "Open the checkout screen" -s "$SESSION" --json
+revyl device stop -s "$SESSION"
+```
+
 ## Auth Bypass
 
 Preferred: configure it once in `.revyl/config.yaml` and every session — cold
@@ -334,7 +355,7 @@ error, restart Expo/Metro or capture a report.
 Before switching to Expo tunnel fallback, gather device evidence:
 
 ```bash
-revyl device screenshot -s <session-index>
+revyl device screenshot -s <session-index-or-id>
 revyl device report --session-id <session-id> --json
 ```
 

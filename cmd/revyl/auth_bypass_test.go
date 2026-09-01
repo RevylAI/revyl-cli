@@ -21,7 +21,7 @@ type fakeWorkerRequester struct {
 	err    error
 }
 
-func (f *fakeWorkerRequester) WorkerRequestForSession(ctx context.Context, sessionIndex int, path string, body interface{}) ([]byte, error) {
+func (f *fakeWorkerRequester) WorkerRequestOnSession(ctx context.Context, session *mcppkg.DeviceSession, path string, body interface{}) ([]byte, error) {
 	f.paths = append(f.paths, path)
 	f.bodies = append(f.bodies, body)
 	if f.err != nil {
@@ -31,6 +31,11 @@ func (f *fakeWorkerRequester) WorkerRequestForSession(ctx context.Context, sessi
 		return f.resp, nil
 	}
 	return []byte(`{"success":true,"action":"open_url"}`), nil
+}
+
+// testSession returns an attached session reference for worker-request fakes.
+func testSession(index int) *mcppkg.DeviceSession {
+	return &mcppkg.DeviceSession{Index: index, SessionID: "11111111-2222-4333-8444-555555555555"}
 }
 
 func withTestAuthBypass(t *testing.T, cfg *config.AuthoredAuthBypass) *authBypassRuntime {
@@ -48,7 +53,7 @@ func TestAuthBypassDelegatesTemplateResolutionToWorkerProxy(t *testing.T) {
 	))
 	requester := &fakeWorkerRequester{}
 
-	if err := rt.FireDeepLink(context.Background(), requester, 0); err != nil {
+	if err := rt.FireDeepLink(context.Background(), requester, testSession(0)); err != nil {
 		t.Fatalf("FireDeepLink() error = %v", err)
 	}
 	if len(requester.paths) != 1 || requester.paths[0] != "/open_url_template" {
@@ -72,7 +77,7 @@ func TestOpenURLAfterLaunchSurfacesWorkerFailure(t *testing.T) {
 	err := openURLAfterLaunch(
 		context.Background(),
 		requester,
-		0,
+		testSession(0),
 		"myapp://revyl-auth?token=test&role=buyer",
 	)
 	if err == nil || err.Error() != "device rejected deep link" {
@@ -91,7 +96,7 @@ func TestAuthBypassFailureRedactsWorkerResponseFromErrorAndStatus(t *testing.T) 
 		},
 	}
 
-	err := rt.FireDeepLink(context.Background(), requester, 0)
+	err := rt.FireDeepLink(context.Background(), requester, testSession(0))
 	if err == nil {
 		t.Fatal("FireDeepLink() error = nil, want sanitized failure")
 	}
@@ -234,7 +239,7 @@ func TestFireAuthBypassAfterLaunchOpensURL(t *testing.T) {
 	withTestAuthBypass(t, testAuthoredAuthBypass(nil, "myapp://revyl-auth?token=${TOKEN}"))
 
 	requester := &fakeWorkerRequester{}
-	fireAuthBypassAfterLaunch(context.Background(), requester, 0)
+	fireAuthBypassAfterLaunch(context.Background(), requester, testSession(0))
 
 	if len(requester.paths) != 1 || requester.paths[0] != "/open_url_template" {
 		t.Fatalf("worker paths = %v, want one /open_url_template", requester.paths)

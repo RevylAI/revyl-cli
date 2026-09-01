@@ -482,7 +482,7 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 		publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
 			State: devloop.BuildStateLaunching, Phase: "app_launch", Message: "Launching rebuilt app",
 		})
-		tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, bundleID, "", "")
+		tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, bundleID, "", "")
 		result.elapsed = time.Since(rebuildStart)
 		writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, rebuildCount, false, result)
 
@@ -608,7 +608,7 @@ func seedLatestDevBuild(
 
 	// Launch fires the auth bypass deep link (fireAuthBypassAfterLaunch) so the
 	// seeded app lands authenticated without waiting on the fresh build.
-	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, bundleID, "", "")
+	tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, bundleID, "", "")
 
 	return bundleID, strings.TrimSpace(buildDetail.Version), nil
 }
@@ -924,7 +924,7 @@ func installAndLaunchRemoteDevBuild(
 	publishRemoteDevBuildProgress(progressSink, remoteDevBuildProgress{
 		State: devloop.BuildStateLaunching, Phase: "app_launch", Message: "Launching remote build",
 	})
-	tryLaunchInstalledApp(ctx, deviceMgr, session.Index, devicePlatform, *bundleID, "", "")
+	tryLaunchInstalledApp(ctx, deviceMgr, session, devicePlatform, *bundleID, "", "")
 
 	writeDevStatus(statusPath, session, viewerURL, "", "", "", devicePlatform, 0, false, devRebuildResult{
 		buildMode:       "remote",

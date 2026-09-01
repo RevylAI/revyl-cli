@@ -246,6 +246,7 @@ func TestDeviceSessionManager_StartSessionRejectsLaunchVarsForTestBackedStart(t 
 	t.Parallel()
 
 	const workflowRunID = "99999999-9999-9999-9999-999999999999"
+	const sessionID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 	var capturedStartReq struct {
 		TestID          string   `json:"test_id"`
@@ -259,7 +260,7 @@ func TestDeviceSessionManager_StartSessionRejectsLaunchVarsForTestBackedStart(t 
 			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
 				t.Fatalf("decode start_device request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
@@ -1020,6 +1021,7 @@ func TestDeviceSessionManager_StartSession_PropagatesBuildPackageToStartDevice(t
 		downloadURL    = "https://artifact.example/dev-client.ipa"
 		packageName    = "com.example.devclient"
 		workflowRunID  = "00000000-0000-0000-0000-000000000003"
+		sessionID      = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa03"
 	)
 
 	var capturedStartReq struct {
@@ -1038,7 +1040,7 @@ func TestDeviceSessionManager_StartSession_PropagatesBuildPackageToStartDevice(t
 			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
 				t.Fatalf("decode start_device request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
@@ -1086,6 +1088,7 @@ func TestDeviceSessionManager_StartSession_PropagatesDirectAppURLToStartDevice(t
 	const (
 		appURL        = "https://artifact.example/direct-app.ipa"
 		workflowRunID = "00000000-0000-0000-0000-000000000004"
+		sessionID     = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa04"
 	)
 
 	var capturedStartReq struct {
@@ -1099,7 +1102,7 @@ func TestDeviceSessionManager_StartSession_PropagatesDirectAppURLToStartDevice(t
 			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
 				t.Fatalf("decode start_device request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
@@ -1135,7 +1138,10 @@ func TestDeviceSessionManager_StartSession_PropagatesDirectAppURLToStartDevice(t
 func TestDeviceSessionManager_StartSession_PropagatesSkipAppInstall(t *testing.T) {
 	t.Parallel()
 
-	const workflowRunID = "00000000-0000-0000-0000-000000000006"
+	const (
+		workflowRunID = "00000000-0000-0000-0000-000000000006"
+		sessionID     = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa06"
+	)
 
 	var capturedStartReq struct {
 		RunConfig struct {
@@ -1152,7 +1158,7 @@ func TestDeviceSessionManager_StartSession_PropagatesSkipAppInstall(t *testing.T
 			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
 				t.Fatalf("decode start_device request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":
@@ -1191,6 +1197,7 @@ func TestDeviceSessionManager_StartSession_PropagatesDeviceRunnerID(t *testing.T
 	const (
 		deviceRunnerID = "revyl-kendrick-local-android"
 		workflowRunID  = "00000000-0000-0000-0000-000000000005"
+		sessionID      = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa05"
 	)
 
 	var capturedStartReq struct {
@@ -1204,7 +1211,7 @@ func TestDeviceSessionManager_StartSession_PropagatesDeviceRunnerID(t *testing.T
 			if err := json.NewDecoder(r.Body).Decode(&capturedStartReq); err != nil {
 				t.Fatalf("decode start_device request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `"}`))
+			_, _ = w.Write([]byte(`{"workflow_run_id":"` + workflowRunID + `","session_id":"` + sessionID + `"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/streaming/worker-connection/"+workflowRunID:
 			_, _ = w.Write([]byte(`{"status":"ready","workflow_run_id":"` + workflowRunID + `","worker_ws_url":"ws://` + r.Host + `/ws/stream?token=test"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/execution/device-proxy/"+workflowRunID+"/health":

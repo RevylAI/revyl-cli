@@ -58,25 +58,25 @@ func (f *fakeRemoteDevInstaller) InstallAppForSession(
 	return f.results[call], nil
 }
 
-// WorkerRequestForSession records a worker request and returns a successful action.
+// WorkerRequestOnSession records a worker request and returns a successful action.
 //
 // Parameters:
 //   - ctx: Context controlling the fake call.
-//   - sessionIndex: Session index targeted by the caller.
+//   - session: Session targeted by the caller.
 //   - path: Worker endpoint requested by the caller.
 //   - body: Typed request payload sent to the worker.
 //
 // Returns:
 //   - []byte: Successful worker response.
 //   - error: Always nil.
-func (f *fakeRemoteDevInstaller) WorkerRequestForSession(
+func (f *fakeRemoteDevInstaller) WorkerRequestOnSession(
 	ctx context.Context,
-	sessionIndex int,
+	session *mcppkg.DeviceSession,
 	path string,
 	body interface{},
 ) ([]byte, error) {
 	_ = ctx
-	_ = sessionIndex
+	_ = session
 	_ = body
 	f.workerPaths = append(f.workerPaths, path)
 	return []byte(`{"status":"success"}`), nil

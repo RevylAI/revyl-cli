@@ -29,7 +29,19 @@ import (
 )
 
 // getDeviceSessionMgr creates an authenticated DeviceSessionManager for CLI use.
-// Loads persisted sessions from disk and syncs with the backend.
+//
+// When the command targets a single session by durable ID, the manager skips
+// the backend sync and local session cache entirely. That path does not need
+// device-sessions.json, and skipping it keeps parallel CLI processes in one
+// worktree from contending on the shared file. Inventory teardown (`--all`)
+// still hydrates, because StopAllSessions only walks the in-memory map.
+//
+// Parameters:
+//   - cmd: The running command, used for credentials, dev mode, and target.
+//
+// Returns:
+//   - *mcppkg.DeviceSessionManager: A manager ready to resolve the target.
+//   - error: Authentication or project-context failure.
 func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, error) {
 	apiKey := os.Getenv("REVYL_API_KEY")
 	if apiKey == "" {
@@ -57,6 +69,17 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 	sessionMgr := mcppkg.NewDeviceSessionManager(client, workDir)
 	sessionMgr.SetDevMode(devMode)
 
+	// A single-session durable-ID target resolves straight from the backend, so
+	// neither the sync nor the local cache is needed and both are skipped to
+	// keep parallel batches from racing on device-sessions.json. `--all` still
+	// hydrates: it is inventory teardown, not a single-session resolve.
+	if !commandNeedsSessionInventory(cmd) {
+		if target, targetErr := sessionTargetFromCommand(cmd); targetErr == nil && target.ByDurableID() {
+			sessionMgr.DisablePersistence()
+			return sessionMgr, nil
+		}
+	}
+
 	// Sync with backend to discover sessions from other clients.
 	// Non-fatal: if sync fails, we still have local cache.
 	if syncErr := sessionMgr.SyncSessions(cmd.Context()); syncErr != nil {
@@ -68,20 +91,9 @@ func getDeviceSessionMgr(cmd *cobra.Command) (*mcppkg.DeviceSessionManager, erro
 	return sessionMgr, nil
 }
 
-// resolveSessionFlag reads the -s flag and resolves a session.
-// Returns the resolved session. Pass -1 (flag default) for auto-resolution.
-func resolveSessionFlag(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager) (*mcppkg.DeviceSession, error) {
-	sidx, _ := cmd.Flags().GetInt("s")
-	session, err := mgr.ResolveSession(sidx)
-	if err != nil {
-		return nil, humanizeDeviceSessionResolveError(cmd, err)
-	}
-	return session, nil
-}
-
 // resolveTargetOrCoords checks whether --target was provided or --x/--y were
 // explicitly set. Uses cobra's Changed() to distinguish "not provided" from 0.
-func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager, sessionIndex int) (int, int, error) {
+func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager, session *mcppkg.DeviceSession) (int, int, error) {
 	target, _ := cmd.Flags().GetString("target")
 	xChanged := cmd.Flags().Changed("x")
 	yChanged := cmd.Flags().Changed("y")
@@ -97,7 +109,7 @@ func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager,
 	}
 
 	if target != "" {
-		resolved, err := mgr.ResolveTargetForSession(cmd.Context(), sessionIndex, target)
+		resolved, err := mgr.ResolveTargetOnSession(cmd.Context(), session, target)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -556,7 +568,7 @@ func formatDeviceInfoFallback(session *mcppkg.DeviceSession) string {
 	}
 
 	lines := []string{
-		fmt.Sprintf("Session %d: %s", session.Index, session.SessionID),
+		fmt.Sprintf("Session %s", sessionDisplayLabel(session)),
 		fmt.Sprintf("Platform: %s", session.Platform),
 		fmt.Sprintf("Viewer: %s", session.ViewerURL),
 	}
@@ -575,7 +587,7 @@ func executeLiveStepCommand(cmd *cobra.Command, request mcppkg.LiveStepRequest, 
 	if err != nil {
 		return err
 	}
-	session, err := resolveSessionFlag(cmd, mgr)
+	session, err := resolveSessionTarget(cmd, mgr)
 	if err != nil {
 		return err
 	}
@@ -602,7 +614,7 @@ func executeLiveStepCommand(cmd *cobra.Command, request mcppkg.LiveStepRequest, 
 	})
 	defer stopInterruptHandler()
 
-	response, err := mgr.ExecuteLiveStepForSession(ctx, session.Index, request)
+	response, err := mgr.ExecuteLiveStepOnSession(ctx, session, request)
 
 	if interruptState.Cancelled() {
 		ui.Println()
@@ -709,6 +721,15 @@ func deviceCommandPrefix(_ *cobra.Command) string {
 	return "revyl"
 }
 
+// humanizeDeviceSessionResolveError rewrites a session-resolution failure into
+// CLI guidance that names the next useful action.
+//
+// Parameters:
+//   - cmd: The running command, used to derive the public command prefix.
+//   - err: The underlying resolution failure, which may be nil.
+//
+// Returns:
+//   - error: A user-facing error, or nil when err was nil.
 func humanizeDeviceSessionResolveError(cmd *cobra.Command, err error) error {
 	if err == nil {
 		return nil
@@ -716,9 +737,22 @@ func humanizeDeviceSessionResolveError(cmd *cobra.Command, err error) error {
 
 	msg := strings.TrimSpace(err.Error())
 	cmdPrefix := deviceCommandPrefix(cmd)
+	listAction := fmt.Sprintf("run '%s device list --json' to see active sessions and their IDs", cmdPrefix)
 
 	if strings.Contains(msg, "multiple sessions active") {
-		return fmt.Errorf("multiple sessions active. Specify -s <index> or run '%s device list' to see active sessions", cmdPrefix)
+		return fmt.Errorf("multiple sessions active. Specify -s <index or session ID> or %s", listAction)
+	}
+
+	// Durable-ID resolution failures. Each names why the ID is unusable so the
+	// caller can tell "wrong ID" apart from "right ID, wrong time".
+	switch {
+	case strings.Contains(msg, "session not found or not accessible"):
+		return fmt.Errorf("%s. The session ID may be wrong or owned by another organization; %s", msg, listAction)
+	case strings.Contains(msg, "is in terminal state"):
+		return fmt.Errorf("%s. Start a new session with '%s device start', or read results with '%s device report --session-id <id>'",
+			msg, cmdPrefix, cmdPrefix)
+	case strings.Contains(msg, "has no workflow run ID"):
+		return fmt.Errorf("%s. Wait for the device to finish provisioning, then retry; %s", msg, listAction)
 	}
 
 	msg = strings.ReplaceAll(msg,
@@ -735,6 +769,22 @@ func humanizeDeviceSessionResolveError(cmd *cobra.Command, err error) error {
 	)
 
 	return fmt.Errorf("%s", msg)
+}
+
+// isNoActiveDeviceSessionError reports whether a resolve failure is the genuine
+// empty-session case, as opposed to a targeted ID or index that could not be
+// used.
+//
+// Parameters:
+//   - err: The resolution failure, which may already be humanized.
+//
+// Returns:
+//   - bool: True only when the message is the empty-session diagnostic.
+func isNoActiveDeviceSessionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "no active device sessions")
 }
 
 var deviceCmd = &cobra.Command{
@@ -962,9 +1012,9 @@ var deviceStartCmd = &cobra.Command{
 
 		var postLaunchErr error
 		if appLink != "" {
-			postLaunchErr = openURLAfterLaunch(ctx, mgr, session.Index, appLink)
+			postLaunchErr = openURLAfterLaunch(ctx, mgr, session, appLink)
 		} else if devAuthBypass != nil {
-			postLaunchErr = devAuthBypass.FireDeepLink(ctx, mgr, session.Index)
+			postLaunchErr = devAuthBypass.FireDeepLink(ctx, mgr, session)
 		}
 		if postLaunchErr != nil {
 			return handleDeviceStartPostLaunchFailure(cmd, mgr, session, postLaunchErr)
@@ -1016,7 +1066,7 @@ func getExactStringArrayFlag(cmd *cobra.Command, name string) []string {
 
 var deviceStopCmd = &cobra.Command{
 	Use:   "stop",
-	Short: "Stop a device session (-s <index> or --all)",
+	Short: "Stop a device session (-s <index or session ID> or --all)",
 	Example: `  revyl device stop
   revyl device stop --all
   revyl device stop -s 1`,
@@ -1035,18 +1085,16 @@ var deviceStopCmd = &cobra.Command{
 			return nil
 		}
 
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		sessionID := session.SessionID
-		idx := session.Index
 		jsonOutput, _ := cmd.Flags().GetBool("json")
 		if !jsonOutput {
-			ui.PrintInfo("Stopping session %d (%s)...", idx, sessionID)
+			ui.PrintInfo("Stopping session %s...", sessionDisplayLabel(session))
 		}
 
-		cancelErr := mgr.StopSession(cmd.Context(), idx)
+		cancelErr := mgr.StopResolvedSession(cmd.Context(), session)
 		if cancelErr != nil {
 			jsonOrPrint(cmd, map[string]interface{}{"stopped": true, "warning": cancelErr.Error()},
 				"Device session stopped locally.")
@@ -1068,11 +1116,11 @@ var deviceScreenshotCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		imgBytes, err := mgr.ScreenshotForSession(cmd.Context(), session.Index)
+		imgBytes, err := mgr.ScreenshotOnSession(cmd.Context(), session)
 		if err != nil {
 			return err
 		}
@@ -1097,11 +1145,11 @@ var deviceHierarchyCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		respBytes, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/hierarchy", nil)
+		respBytes, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/hierarchy", nil)
 		if err != nil {
 			return err
 		}
@@ -1139,7 +1187,7 @@ var deviceTapCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1150,14 +1198,14 @@ var deviceTapCmd = &cobra.Command{
 			if xChanged || yChanged {
 				return fmt.Errorf("provide --target OR --x/--y, not both")
 			}
-			resolved, err := mgr.ResolveTargetForSession(cmd.Context(), session.Index, target)
+			resolved, err := mgr.ResolveTargetOnSession(cmd.Context(), session, target)
 			if err != nil {
 				return err
 			}
 			if strings.EqualFold(session.Platform, "android") {
-				hierarchy, hierarchyErr := mgr.WorkerRequestForSession(
+				hierarchy, hierarchyErr := mgr.WorkerRequestOnSession(
 					cmd.Context(),
-					session.Index,
+					session,
 					"/hierarchy",
 					nil,
 				)
@@ -1173,9 +1221,9 @@ var deviceTapCmd = &cobra.Command{
 					)
 				}
 			}
-			respBody, err := mgr.WorkerRequestForSession(
+			respBody, err := mgr.WorkerRequestOnSession(
 				cmd.Context(),
-				session.Index,
+				session,
 				"/tap",
 				map[string]interface{}{
 					"x":      resolved.X,
@@ -1199,7 +1247,7 @@ var deviceTapCmd = &cobra.Command{
 			return nil
 		}
 
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session.Index)
+		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
@@ -1207,7 +1255,7 @@ var deviceTapCmd = &cobra.Command{
 		if target != "" {
 			body["target"] = target
 		}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/tap", body)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/tap", body)
 		if err != nil {
 			return err
 		}
@@ -1225,11 +1273,11 @@ var deviceDoubleTapCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session.Index)
+		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
@@ -1238,7 +1286,7 @@ var deviceDoubleTapCmd = &cobra.Command{
 		if target != "" {
 			body["target"] = target
 		}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/double_tap", body)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/double_tap", body)
 		if err != nil {
 			return err
 		}
@@ -1256,11 +1304,11 @@ var deviceLongPressCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session.Index)
+		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
@@ -1273,7 +1321,7 @@ var deviceLongPressCmd = &cobra.Command{
 		if target != "" {
 			body["target"] = target
 		}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/longpress", body)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/longpress", body)
 		if err != nil {
 			return err
 		}
@@ -1294,7 +1342,7 @@ var deviceTypeCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1302,7 +1350,7 @@ var deviceTypeCmd = &cobra.Command{
 		if text == "" {
 			return fmt.Errorf("--text is required")
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session.Index)
+		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
@@ -1312,7 +1360,7 @@ var deviceTypeCmd = &cobra.Command{
 		if target != "" {
 			body["target"] = target
 		}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/input", body)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/input", body)
 		if err != nil {
 			return err
 		}
@@ -1341,7 +1389,7 @@ var deviceSwipeCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1352,7 +1400,7 @@ var deviceSwipeCmd = &cobra.Command{
 		if direction == "" {
 			return fmt.Errorf("direction is required: revyl device swipe <up|down|left|right>")
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session.Index)
+		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
@@ -1365,7 +1413,7 @@ var deviceSwipeCmd = &cobra.Command{
 		if target != "" {
 			body["target"] = target
 		}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/swipe", body)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/swipe", body)
 		if err != nil {
 			return err
 		}
@@ -1385,7 +1433,7 @@ var deviceDragCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1394,7 +1442,7 @@ var deviceDragCmd = &cobra.Command{
 		ex, _ := cmd.Flags().GetInt("end-x")
 		ey, _ := cmd.Flags().GetInt("end-y")
 		body := map[string]int{"start_x": sx, "start_y": sy, "end_x": ex, "end_y": ey}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/drag", body)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/drag", body)
 		if err != nil {
 			return err
 		}
@@ -1414,7 +1462,7 @@ var deviceWaitCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1423,7 +1471,7 @@ var deviceWaitCmd = &cobra.Command{
 			return fmt.Errorf("--duration-ms must be >= 0")
 		}
 		body := map[string]int{"duration_ms": durationMs}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/wait", body)
+		_, err = mgr.WorkerRequestOnSession(cmd.Context(), session, "/wait", body)
 		if err != nil {
 			return err
 		}
@@ -1440,11 +1488,11 @@ var devicePinchCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session.Index)
+		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
@@ -1459,7 +1507,7 @@ var devicePinchCmd = &cobra.Command{
 			"scale":       scale,
 			"duration_ms": durationMs,
 		}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/pinch", body)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/pinch", body)
 		if err != nil {
 			return err
 		}
@@ -1479,16 +1527,16 @@ var deviceClearTextCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		x, y, err := resolveTargetOrCoords(cmd, mgr, session.Index)
+		x, y, err := resolveTargetOrCoords(cmd, mgr, session)
 		if err != nil {
 			return err
 		}
 		body := map[string]int{"x": x, "y": y}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/clear_text", body)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/clear_text", body)
 		if err != nil {
 			return err
 		}
@@ -1512,11 +1560,11 @@ var deviceBackCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/back", nil)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/back", nil)
 		if err != nil {
 			return err
 		}
@@ -1538,7 +1586,7 @@ var deviceKeyCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1560,7 +1608,7 @@ var deviceKeyCmd = &cobra.Command{
 			return fmt.Errorf("--key must be ENTER or BACKSPACE")
 		}
 		body := map[string]string{"key": normalized}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/key", body)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/key", body)
 		if err != nil {
 			return err
 		}
@@ -1578,11 +1626,11 @@ var deviceShakeCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/shake", nil)
+		_, err = mgr.WorkerRequestOnSession(cmd.Context(), session, "/shake", nil)
 		if err != nil {
 			return err
 		}
@@ -1628,7 +1676,7 @@ var deviceInstallCmd = &cobra.Command{
 			bundleID = resolved.AppPackage
 		}
 
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1636,7 +1684,7 @@ var deviceInstallCmd = &cobra.Command{
 		if bundleID != "" {
 			body["bundle_id"] = bundleID
 		}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/install", body)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/install", body)
 		if err != nil {
 			return err
 		}
@@ -1675,7 +1723,7 @@ the apps that are installed.`,
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1688,7 +1736,7 @@ the apps that are installed.`,
 		if bundleID != "" {
 			body["bundle_id"] = bundleID
 		}
-		respBody, err := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/launch", body)
+		respBody, err := mgr.WorkerRequestOnSession(cmd.Context(), session, "/launch", body)
 		if err != nil {
 			return err
 		}
@@ -1712,11 +1760,11 @@ var deviceHomeCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/go_home", nil)
+		_, err = mgr.WorkerRequestOnSession(cmd.Context(), session, "/go_home", nil)
 		if err != nil {
 			return err
 		}
@@ -1733,11 +1781,11 @@ var deviceKillAppCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/kill_app", nil)
+		_, err = mgr.WorkerRequestOnSession(cmd.Context(), session, "/kill_app", nil)
 		if err != nil {
 			return err
 		}
@@ -1757,7 +1805,7 @@ var deviceOpenAppCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1770,7 +1818,7 @@ var deviceOpenAppCmd = &cobra.Command{
 		}
 		bundleID := mcppkg.ResolveSystemApp(session.Platform, appName)
 		body := map[string]string{"bundle_id": bundleID}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/launch", body)
+		_, err = mgr.WorkerRequestOnSession(cmd.Context(), session, "/launch", body)
 		if err != nil {
 			return err
 		}
@@ -1796,7 +1844,7 @@ var deviceNavigateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1807,7 +1855,7 @@ var deviceNavigateCmd = &cobra.Command{
 		if url == "" {
 			return fmt.Errorf("URL is required: revyl device navigate <url>")
 		}
-		if err := navigateDevice(cmd.Context(), mgr, session.Index, url); err != nil {
+		if err := navigateDevice(cmd.Context(), mgr, session, url); err != nil {
 			return err
 		}
 		jsonOrPrint(cmd, map[string]string{"url": url, "status": "opened"}, fmt.Sprintf("Opened %s", url))
@@ -1815,10 +1863,10 @@ var deviceNavigateCmd = &cobra.Command{
 	},
 }
 
-func navigateDevice(ctx context.Context, requester workerSessionRequester, sessionIndex int, url string) error {
-	respBody, err := requester.WorkerRequestForSession(
+func navigateDevice(ctx context.Context, requester workerSessionRequester, session *mcppkg.DeviceSession, url string) error {
+	respBody, err := requester.WorkerRequestOnSession(
 		ctx,
-		sessionIndex,
+		session,
 		"/open_url",
 		map[string]string{"url": url},
 	)
@@ -1836,7 +1884,7 @@ var deviceSetLocationCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1849,7 +1897,7 @@ var deviceSetLocationCmd = &cobra.Command{
 			return fmt.Errorf("--lon must be between -180 and 180, got %f", lon)
 		}
 		body := map[string]float64{"latitude": lat, "longitude": lon}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/set_location", body)
+		_, err = mgr.WorkerRequestOnSession(cmd.Context(), session, "/set_location", body)
 		if err != nil {
 			return err
 		}
@@ -1868,7 +1916,7 @@ var deviceNetworkCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -1882,7 +1930,7 @@ var deviceNetworkCmd = &cobra.Command{
 		}
 		airplaneEnabled := disconnected
 		body := map[string]bool{"enabled": airplaneEnabled}
-		_, err = mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/set_airplane_mode", body)
+		_, err = mgr.WorkerRequestOnSession(cmd.Context(), session, "/set_airplane_mode", body)
 		if err != nil {
 			return err
 		}
@@ -1918,13 +1966,13 @@ var deviceDownloadFileCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
-		response, err := mgr.DownloadFileForSession(
+		response, err := mgr.DownloadFileOnSession(
 			cmd.Context(),
-			session.Index,
+			session,
 			mcppkg.DeviceDownloadFileRequest{
 				URL:      url,
 				Filename: filename,
@@ -1958,17 +2006,21 @@ var deviceReportCmd = &cobra.Command{
 	Short: "View the report for a device session",
 	Long: `View the report for a device session. By default uses the active session.
 
-Use --session-id to fetch a report by session ID directly without needing
-to attach first.
+Use --session-id (or -s with a session ID) to fetch a report by session ID
+directly without needing to attach first.
 
 	Examples:
 	  revyl device report                                          # active session
 	  revyl device report --session-id e2b927a6-723f-4ddb-...      # by ID
+	  revyl device report -s e2b927a6-723f-4ddb-...                # same, shorthand
 	  revyl device report --session-id e2b927a6-723f-... --json    # JSON output
 	  revyl device report --artifact perf                          # print perf artifact URL
 	  revyl device report --artifact network --download            # download network artifact`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		directSessionID, _ := cmd.Flags().GetString("session-id")
+		target, targetErr := sessionTargetFromCommand(cmd)
+		if targetErr != nil {
+			return targetErr
+		}
 		artifactKind, _ := cmd.Flags().GetString("artifact")
 		artifactKind = strings.ToLower(strings.TrimSpace(artifactKind))
 		download, _ := cmd.Flags().GetBool("download")
@@ -1982,17 +2034,20 @@ to attach first.
 			return fmt.Errorf("--artifact is required when using --download or --output")
 		}
 
+		// A report is a pure backend read, so a durable ID skips session
+		// resolution entirely and works for already-finished sessions.
 		var targetSessionID string
-		if directSessionID != "" {
-			targetSessionID = directSessionID
+		if target.ByDurableID() {
+			targetSessionID = target.SessionID
 		} else {
 			mgr, err := getDeviceSessionMgr(cmd)
 			if err != nil {
 				return err
 			}
-			session, err := resolveSessionFlag(cmd, mgr)
+			session, err := mgr.ResolveSession(target.Index)
 			if err != nil {
-				return fmt.Errorf("no active session (use --session-id to specify one directly): %w", err)
+				return fmt.Errorf("no active session (use --session-id to specify one directly): %w",
+					humanizeDeviceSessionResolveError(cmd, err))
 			}
 			targetSessionID = session.SessionID
 		}
@@ -2444,16 +2499,19 @@ var deviceLocalVarDeleteCmd = &cobra.Command{
 
 var deviceInfoCmd = &cobra.Command{
 	Use:   "info",
-	Short: "Show session info (-s <index> for specific session)",
+	Short: "Show session info (-s <index or session ID> for a specific session)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		mgr, err := getDeviceSessionMgr(cmd)
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
-			jsonOrPrint(cmd, map[string]interface{}{"active": false, "total_sessions": mgr.SessionCount()}, "No active device session.")
-			return nil
+			if isNoActiveDeviceSessionError(err) {
+				jsonOrPrint(cmd, map[string]interface{}{"active": false, "total_sessions": mgr.SessionCount()}, "No active device session.")
+				return nil
+			}
+			return err
 		}
 		jsonOrPrint(cmd, session, formatDeviceInfoFallback(session))
 		return nil
@@ -2477,20 +2535,25 @@ var deviceDoctorCmd = &cobra.Command{
 		}
 		checks = append(checks, mcppkg.DiagnosticCheck{Name: "auth", Status: "pass"})
 
-		session, resolveErr := resolveSessionFlag(cmd, mgr)
+		session, resolveErr := resolveSessionTarget(cmd, mgr)
 		if resolveErr != nil || session == nil {
 			total := mgr.SessionCount()
 			detail := "No active session"
-			if total > 0 {
-				detail = fmt.Sprintf("could not resolve (%s). %d session(s) exist", resolveErr.Error(), total)
+			status := "none"
+			if resolveErr != nil && !isNoActiveDeviceSessionError(resolveErr) {
+				status = "fail"
+				detail = resolveErr.Error()
+				if total > 0 {
+					detail = fmt.Sprintf("could not resolve (%s). %d session(s) exist", resolveErr.Error(), total)
+				}
 			}
-			checks = append(checks, mcppkg.DiagnosticCheck{Name: "session", Status: "none", Detail: detail, Fix: "Start a session with 'revyl device start'"})
+			checks = append(checks, mcppkg.DiagnosticCheck{Name: "session", Status: status, Detail: detail, Fix: "Start a session with 'revyl device start'"})
 			allPassed = false
 		} else {
 			sessionDetail := fmt.Sprintf("platform=%s, uptime=%.0fs", session.Platform, time.Since(session.StartedAt).Seconds())
 			checks = append(checks, mcppkg.DiagnosticCheck{Name: "session", Status: "pass", Detail: sessionDetail})
 
-			respBytes, werr := mgr.WorkerRequestForSession(cmd.Context(), session.Index, "/health", nil)
+			respBytes, werr := mgr.WorkerRequestOnSession(cmd.Context(), session, "/health", nil)
 			if werr != nil {
 				checks = append(checks, mcppkg.DiagnosticCheck{Name: "worker", Status: "fail", Detail: werr.Error(), Fix: "Stop and start a new session"})
 				allPassed = false
@@ -2675,7 +2738,7 @@ Use --no-follow for a single snapshot. Columns adapt to the platform:
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -2707,11 +2770,11 @@ Use --no-follow for a single snapshot. Columns adapt to the platform:
 		platform := session.Platform
 
 		if !jsonOutput {
-			ui.PrintInfo("Polling session %d (%s)...", session.Index, platform)
+			ui.PrintInfo("Polling session %s (%s)...", sessionDisplayLabel(session), platform)
 		}
 
 		for {
-			resp, pollErr := pollPerfWithRetry(ctx, mgr, session.Index, cursor, 100)
+			resp, pollErr := pollPerfWithRetry(ctx, mgr, session, cursor, 100)
 			if pollErr != nil {
 				if ctx.Err() != nil {
 					return nil
@@ -2768,7 +2831,7 @@ Use --no-follow for a single snapshot.`,
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -2803,11 +2866,11 @@ Use --no-follow for a single snapshot.`,
 		}
 
 		if !jsonOutput {
-			ui.PrintInfo("Polling session %d (%s)...", session.Index, platform)
+			ui.PrintInfo("Polling session %s (%s)...", sessionDisplayLabel(session), platform)
 		}
 
 		for {
-			resp, pollErr := pollRequestsWithRetry(ctx, mgr, session.Index, cursor, 100, 262144)
+			resp, pollErr := pollRequestsWithRetry(ctx, mgr, session, cursor, 100, 262144)
 			if pollErr != nil {
 				if ctx.Err() != nil {
 					return nil
@@ -2864,7 +2927,7 @@ By default, polls continuously (--follow) printing one captured log line per ent
 		if err != nil {
 			return err
 		}
-		session, err := resolveSessionFlag(cmd, mgr)
+		session, err := resolveSessionTarget(cmd, mgr)
 		if err != nil {
 			return err
 		}
@@ -2895,11 +2958,11 @@ By default, polls continuously (--follow) printing one captured log line per ent
 		platform := session.Platform
 
 		if !jsonOutput {
-			ui.PrintInfo("Polling session %d (%s)...", session.Index, platform)
+			ui.PrintInfo("Polling session %s (%s)...", sessionDisplayLabel(session), platform)
 		}
 
 		for {
-			resp, pollErr := pollLogsWithRetry(ctx, mgr, session.Index, cursor, 200)
+			resp, pollErr := pollLogsWithRetry(ctx, mgr, session, cursor, 200)
 			if pollErr != nil {
 				if ctx.Err() != nil {
 					return nil
@@ -2941,7 +3004,7 @@ By default, polls continuously (--follow) printing one captured log line per ent
 func pollPerfWithRetry(
 	ctx context.Context,
 	mgr *mcppkg.DeviceSessionManager,
-	sessionIndex int,
+	session *mcppkg.DeviceSession,
 	cursor string,
 	limit int,
 ) (*mcppkg.PerfPollResponse, error) {
@@ -2951,7 +3014,7 @@ func pollPerfWithRetry(
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		resp, err := mgr.PollPerformanceMetricsForSession(ctx, sessionIndex, cursor, limit)
+		resp, err := mgr.PollPerformanceMetricsOnSession(ctx, session, cursor, limit)
 		if err == nil {
 			return resp, nil
 		}
@@ -2971,7 +3034,7 @@ func pollPerfWithRetry(
 func pollRequestsWithRetry(
 	ctx context.Context,
 	mgr *mcppkg.DeviceSessionManager,
-	sessionIndex int,
+	session *mcppkg.DeviceSession,
 	cursor string,
 	limit int,
 	maxBytes int,
@@ -2982,7 +3045,7 @@ func pollRequestsWithRetry(
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		resp, err := mgr.PollNetworkRequestsForSession(ctx, sessionIndex, cursor, limit, maxBytes)
+		resp, err := mgr.PollNetworkRequestsOnSession(ctx, session, cursor, limit, maxBytes)
 		if err == nil {
 			return resp, nil
 		}
@@ -3002,7 +3065,7 @@ func pollRequestsWithRetry(
 func pollLogsWithRetry(
 	ctx context.Context,
 	mgr *mcppkg.DeviceSessionManager,
-	sessionIndex int,
+	session *mcppkg.DeviceSession,
 	cursor string,
 	limit int,
 ) (*mcppkg.DeviceLogsPollResponse, error) {
@@ -3012,7 +3075,7 @@ func pollLogsWithRetry(
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		resp, err := mgr.PollDeviceLogsForSession(ctx, sessionIndex, cursor, limit)
+		resp, err := mgr.PollDeviceLogsOnSession(ctx, session, cursor, limit)
 		if err == nil {
 			return resp, nil
 		}
@@ -3195,10 +3258,8 @@ func truncateLiveRequestURL(s string, max int) string {
 }
 
 func init() {
-	// Global -s flag for session selection (added to all action commands)
-	sessionFlag := func(cmd *cobra.Command) {
-		cmd.Flags().IntP("s", "s", -1, "Session index to target (-1 for active)")
-	}
+	// Session targeting (-s / --session-id) for all action commands.
+	sessionFlag := registerSessionTargetFlags
 
 	// Start
 	deviceStartCmd.Flags().String("platform", "", "Platform: ios or android (inferred from --app-id/--build-version-id when omitted, defaults to ios)")
@@ -3463,7 +3524,6 @@ func init() {
 	deviceCmd.AddCommand(deviceReportCmd)
 	sessionFlag(deviceReportCmd)
 	deviceReportCmd.Flags().Bool("json", false, "Output as JSON")
-	deviceReportCmd.Flags().String("session-id", "", "Session ID to fetch report for (bypasses active session)")
 	deviceReportCmd.Flags().String("artifact", "", "Artifact to fetch: perf, network, or trace")
 	deviceReportCmd.Flags().Bool("download", false, "Download the selected artifact to a local file")
 	deviceReportCmd.Flags().String("output", "", "Local output path for --download (defaults to a sensible filename)")

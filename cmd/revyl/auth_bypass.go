@@ -82,7 +82,7 @@ func (r *authBypassRuntime) LaunchVarKeys() []string {
 
 // FireDeepLink asks the existing worker proxy to resolve and open the auth
 // template with launch variables already attached to the session.
-func (r *authBypassRuntime) FireDeepLink(ctx context.Context, requester workerSessionRequester, sessionIndex int) error {
+func (r *authBypassRuntime) FireDeepLink(ctx context.Context, requester workerSessionRequester, session *mcppkg.DeviceSession) error {
 	if r == nil {
 		return nil
 	}
@@ -93,7 +93,7 @@ func (r *authBypassRuntime) FireDeepLink(ctx context.Context, requester workerSe
 	// A before_session script may have minted some placeholders locally; those
 	// are substituted here so the link posts as a literal URL, since the
 	// backend can only resolve from org launch variables.
-	err := openURLAfterLaunch(ctx, requester, sessionIndex, applySessionValuesToDeepLink(template))
+	err := openURLAfterLaunch(ctx, requester, session, applySessionValuesToDeepLink(template))
 	if err != nil {
 		publicError := authBypassPublicError(err)
 		r.setAttemptState("failed", publicError)
@@ -106,7 +106,7 @@ func (r *authBypassRuntime) FireDeepLink(ctx context.Context, requester workerSe
 
 // openURLAfterLaunch opens a literal URL or delegates template resolution to
 // the existing backend worker proxy.
-func openURLAfterLaunch(ctx context.Context, requester workerSessionRequester, sessionIndex int, urlOrTemplate string) error {
+func openURLAfterLaunch(ctx context.Context, requester workerSessionRequester, session *mcppkg.DeviceSession, urlOrTemplate string) error {
 	value := strings.TrimSpace(urlOrTemplate)
 	if value == "" {
 		return nil
@@ -117,7 +117,7 @@ func openURLAfterLaunch(ctx context.Context, requester workerSessionRequester, s
 		path = "/open_url_template"
 		body = api.DeviceOpenURLTemplateRequest{URLTemplate: value}
 	}
-	respBody, err := requester.WorkerRequestForSession(ctx, sessionIndex, path, body)
+	respBody, err := requester.WorkerRequestOnSession(ctx, session, path, body)
 	if err != nil {
 		return err
 	}
@@ -212,11 +212,11 @@ func cloneAuthoredAuthBypass(cfg *config.AuthoredAuthBypass) *config.AuthoredAut
 
 // fireAuthBypassAfterLaunch re-authenticates the app after a (re)launch or
 // session reuse. Warn-only: an auth failure should never kill the dev loop.
-func fireAuthBypassAfterLaunch(ctx context.Context, requester workerSessionRequester, sessionIndex int) {
+func fireAuthBypassAfterLaunch(ctx context.Context, requester workerSessionRequester, session *mcppkg.DeviceSession) {
 	if devAuthBypass == nil {
 		return
 	}
-	if err := devAuthBypass.FireDeepLink(ctx, requester, sessionIndex); err != nil {
+	if err := devAuthBypass.FireDeepLink(ctx, requester, session); err != nil {
 		ui.PrintWarning("%v", err)
 	}
 }
@@ -322,7 +322,7 @@ func runDevAuthRefresh(cmd *cobra.Command, args []string) error {
 
 	// Reuse boot-time before_script values. Reminting here would put a new
 	// token in the deep link while launch env stays fixed at session boot.
-	session, err := resolveSessionFlag(cmd, deviceMgr)
+	session, err := resolveSessionTarget(cmd, deviceMgr)
 	if err != nil {
 		return devAuthRefreshError(cmd, "no_session",
 			fmt.Sprintf("no active device session: %v", err),
@@ -333,7 +333,7 @@ func runDevAuthRefresh(cmd *cobra.Command, args []string) error {
 			"restart_session: run `revyl dev stop` then `revyl dev` so session.before_script runs again at boot")
 	}
 
-	if err := devAuthBypass.FireDeepLink(cmd.Context(), deviceMgr, session.Index); err != nil {
+	if err := devAuthBypass.FireDeepLink(cmd.Context(), deviceMgr, session); err != nil {
 		return devAuthRefreshError(cmd, "deep_link_failed",
 			err.Error(),
 			"check the device session is alive (`revyl dev status`)")
@@ -350,7 +350,7 @@ func runDevAuthRefresh(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	devAuthRefreshCmd.Flags().IntP("s", "s", -1, "Session index to target (-1 for active)")
+	registerSessionTargetFlags(devAuthRefreshCmd)
 	devAuthRefreshCmd.Flags().Bool("json", false, "Output result as JSON")
 	devAuthCmd.AddCommand(devAuthRefreshCmd)
 	devCmd.AddCommand(devAuthCmd)
