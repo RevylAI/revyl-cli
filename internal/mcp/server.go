@@ -1928,7 +1928,9 @@ type RemoteTestInfo struct {
 type ListRemoteTestsOutput struct {
 	Tests []RemoteTestInfo `json:"tests"`
 	Total int              `json:"total"`
-	Error string           `json:"error,omitempty"`
+	// Retained for output-schema compatibility. A failed listing is now a
+	// failed tool call, so this is no longer populated.
+	Error string `json:"error,omitempty"`
 }
 
 // handleListRemoteTests handles the list_remote_tests tool call.
@@ -1940,10 +1942,10 @@ func (s *Server) handleListRemoteTests(ctx context.Context, req *mcp.CallToolReq
 
 	resp, err := s.apiClient.ListOrgTests(ctx, limit, input.Offset)
 	if err != nil {
-		return nil, ListRemoteTestsOutput{
-			Tests: []RemoteTestInfo{},
-			Error: fmt.Sprintf("failed to list remote tests: %v", err),
-		}, nil
+		// Reporting this as an empty list would be indistinguishable from an
+		// organization that genuinely has no tests, so the caller must see a
+		// failed tool call instead.
+		return nil, ListRemoteTestsOutput{}, fmt.Errorf("list remote tests: %w", err)
 	}
 
 	var tests []RemoteTestInfo
@@ -2639,13 +2641,16 @@ func (s *Server) handleGetTestTags(ctx context.Context, req *mcp.CallToolRequest
 	// If not a UUID, try to find by name in remote tests
 	if len(testID) != 36 {
 		testsResp, err := s.apiClient.ListOrgTests(ctx, 100, 0)
-		if err == nil {
-			for _, t := range testsResp.Tests {
-				if t.Name == input.TestNameOrID {
-					testID = t.ID
-					testName = t.Name
-					break
-				}
+		if err != nil {
+			return nil, GetTestTagsOutput{}, fmt.Errorf(
+				"look up test %q: %w", input.TestNameOrID, err,
+			)
+		}
+		for _, t := range testsResp.Tests {
+			if t.Name == input.TestNameOrID {
+				testID = t.ID
+				testName = t.Name
+				break
 			}
 		}
 	}
@@ -2720,12 +2725,15 @@ func (s *Server) handleSetTestTags(ctx context.Context, req *mcp.CallToolRequest
 	// If not a UUID, try to find by name
 	if len(testID) != 36 {
 		testsResp, err := s.apiClient.ListOrgTests(ctx, 100, 0)
-		if err == nil {
-			for _, t := range testsResp.Tests {
-				if t.Name == input.TestNameOrID {
-					testID = t.ID
-					break
-				}
+		if err != nil {
+			return nil, SetTestTagsOutput{}, fmt.Errorf(
+				"look up test %q: %w", input.TestNameOrID, err,
+			)
+		}
+		for _, t := range testsResp.Tests {
+			if t.Name == input.TestNameOrID {
+				testID = t.ID
+				break
 			}
 		}
 	}
@@ -2801,12 +2809,15 @@ func (s *Server) handleAddRemoveTestTags(ctx context.Context, req *mcp.CallToolR
 	// If not a UUID, try to find by name
 	if len(testID) != 36 {
 		testsResp, err := s.apiClient.ListOrgTests(ctx, 100, 0)
-		if err == nil {
-			for _, t := range testsResp.Tests {
-				if t.Name == input.TestNameOrID {
-					testID = t.ID
-					break
-				}
+		if err != nil {
+			return nil, AddRemoveTestTagsOutput{}, fmt.Errorf(
+				"look up test %q: %w", input.TestNameOrID, err,
+			)
+		}
+		for _, t := range testsResp.Tests {
+			if t.Name == input.TestNameOrID {
+				testID = t.ID
+				break
 			}
 		}
 	}
