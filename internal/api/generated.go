@@ -6702,6 +6702,7 @@ type GetAtlasV2EdgeRunsApiV1AtlasV2AppsAppIdEdgeRunsGetParams struct {
 	SourceKind          *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
 	FromTime            *string `form:"from_time,omitempty" json:"from_time,omitempty"`
 	ToTime              *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	RecentBuildLimit    *int    `form:"recent_build_limit,omitempty" json:"recent_build_limit,omitempty"`
 	SurfaceScope        *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
 	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	Limit               *int    `form:"limit,omitempty" json:"limit,omitempty"`
@@ -6731,6 +6732,7 @@ type GetAtlasV2GraphApiV1AtlasV2AppsAppIdGraphGetParams struct {
 	SourceKind          *string `form:"source_kind,omitempty" json:"source_kind,omitempty"`
 	FromTime            *string `form:"from_time,omitempty" json:"from_time,omitempty"`
 	ToTime              *string `form:"to_time,omitempty" json:"to_time,omitempty"`
+	RecentBuildLimit    *int    `form:"recent_build_limit,omitempty" json:"recent_build_limit,omitempty"`
 	SurfaceScope        *string `form:"surface_scope,omitempty" json:"surface_scope,omitempty"`
 	Visibility          *string `form:"visibility,omitempty" json:"visibility,omitempty"`
 	IncludeVariants     *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
