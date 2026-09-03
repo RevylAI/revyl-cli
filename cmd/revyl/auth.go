@@ -848,15 +848,13 @@ func printAuthNextSteps(cmd *cobra.Command) {
 	ui.PrintNextSteps(steps)
 }
 
-// authBillingCmd opens the billing settings page so the user can add a payment
-// method or manage their plan.
+// authBillingCmd opens the billing settings page.
 var authBillingCmd = &cobra.Command{
 	Use:   "billing",
 	Short: "Manage billing and payment method",
 	Long: `Open the Revyl billing page in your browser.
 
-Use this to add a payment method for more free device time, choose a plan,
-or manage billing.
+Use this to add a payment method, choose a plan, or manage billing.
 
 EXAMPLES:
   revyl auth billing          # Open billing page
@@ -883,15 +881,15 @@ EXAMPLES:
 		if err != nil {
 			// If we can't check the plan, just open the page anyway.
 			ui.PrintWarning("Could not check billing status: %v", err)
-		} else if plan.BillingExempt {
-			ui.PrintSuccess("Your organization has an enterprise plan — no action needed")
+		} else if plan.Plan == "billing_exempt" {
+			ui.PrintSuccess("Plan active: Billing Exempt")
 			return nil
 		} else if plan.Plan != "none" && plan.Plan != "" {
 			ui.PrintSuccess("Plan active: %s", plan.DisplayName)
 			ui.PrintInfo("Opening billing settings to manage your plan...")
 		} else {
 			ui.PrintInfo("Opening billing page...")
-			ui.PrintInfo("Add a payment method for more free device time, or choose a plan when you're ready.")
+			ui.PrintInfo("Choose a plan when you need more monthly usage.")
 		}
 
 		appURL := config.GetAppURL(devMode)

@@ -327,6 +327,57 @@ func (e AuthoredBuildFramework) Valid() bool {
 	}
 }
 
+// Defines values for BillingPlanTermsBillingPeriod.
+const (
+	BillingPlanTermsBillingPeriodMonthly BillingPlanTermsBillingPeriod = "monthly"
+	BillingPlanTermsBillingPeriodYearly  BillingPlanTermsBillingPeriod = "yearly"
+)
+
+// Valid indicates whether the value is a known member of the BillingPlanTermsBillingPeriod enum.
+func (e BillingPlanTermsBillingPeriod) Valid() bool {
+	switch e {
+	case BillingPlanTermsBillingPeriodMonthly:
+		return true
+	case BillingPlanTermsBillingPeriodYearly:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BillingPlanTermsPlan.
+const (
+	BillingPlanTermsPlanBillingExempt BillingPlanTermsPlan = "billing_exempt"
+	BillingPlanTermsPlanEnterprise    BillingPlanTermsPlan = "enterprise"
+	BillingPlanTermsPlanFree          BillingPlanTermsPlan = "free"
+	BillingPlanTermsPlanNone          BillingPlanTermsPlan = "none"
+	BillingPlanTermsPlanSolo          BillingPlanTermsPlan = "solo"
+	BillingPlanTermsPlanStarter       BillingPlanTermsPlan = "starter"
+	BillingPlanTermsPlanTeam          BillingPlanTermsPlan = "team"
+)
+
+// Valid indicates whether the value is a known member of the BillingPlanTermsPlan enum.
+func (e BillingPlanTermsPlan) Valid() bool {
+	switch e {
+	case BillingPlanTermsPlanBillingExempt:
+		return true
+	case BillingPlanTermsPlanEnterprise:
+		return true
+	case BillingPlanTermsPlanFree:
+		return true
+	case BillingPlanTermsPlanNone:
+		return true
+	case BillingPlanTermsPlanSolo:
+		return true
+	case BillingPlanTermsPlanStarter:
+		return true
+	case BillingPlanTermsPlanTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BuildConfigPlatform.
 const (
 	BuildConfigPlatformAndroid BuildConfigPlatform = "android"
@@ -885,6 +936,39 @@ func (e PlanInfoBillingPeriod) Valid() bool {
 	case PlanInfoBillingPeriodMonthly:
 		return true
 	case PlanInfoBillingPeriodYearly:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PlanInfoPlan.
+const (
+	PlanInfoPlanBillingExempt PlanInfoPlan = "billing_exempt"
+	PlanInfoPlanEnterprise    PlanInfoPlan = "enterprise"
+	PlanInfoPlanFree          PlanInfoPlan = "free"
+	PlanInfoPlanNone          PlanInfoPlan = "none"
+	PlanInfoPlanSolo          PlanInfoPlan = "solo"
+	PlanInfoPlanStarter       PlanInfoPlan = "starter"
+	PlanInfoPlanTeam          PlanInfoPlan = "team"
+)
+
+// Valid indicates whether the value is a known member of the PlanInfoPlan enum.
+func (e PlanInfoPlan) Valid() bool {
+	switch e {
+	case PlanInfoPlanBillingExempt:
+		return true
+	case PlanInfoPlanEnterprise:
+		return true
+	case PlanInfoPlanFree:
+		return true
+	case PlanInfoPlanNone:
+		return true
+	case PlanInfoPlanSolo:
+		return true
+	case PlanInfoPlanStarter:
+		return true
+	case PlanInfoPlanTeam:
 		return true
 	default:
 		return false
@@ -2047,7 +2131,6 @@ type AtlasV2IndexStats struct {
 type AuthInfo struct {
 	AndroidConcurrencyLimit *int                `json:"android_concurrency_limit,omitempty"`
 	ApiKey                  *string             `json:"api_key,omitempty"`
-	BillingExempt           *bool               `json:"billing_exempt,omitempty"`
 	ConcurrencyLimit        *int                `json:"concurrency_limit,omitempty"`
 	Email                   *string             `json:"email,omitempty"`
 	IosConcurrencyLimit     *int                `json:"ios_concurrency_limit,omitempty"`
@@ -2205,6 +2288,38 @@ type AuthoredSession struct {
 // AuthoredStrictCICheck Authored strict build-check behavior.
 type AuthoredStrictCICheck struct {
 	Build bool `json:"build"`
+}
+
+// BillingPlanTerms defines model for BillingPlanTerms.
+type BillingPlanTerms struct {
+	AutumnPlanId            string                        `json:"autumn_plan_id"`
+	AutumnPlanVersion       *float32                      `json:"autumn_plan_version,omitempty"`
+	BillingPeriod           BillingPlanTermsBillingPeriod `json:"billing_period"`
+	ComputeCreditsUnlimited *bool                         `json:"compute_credits_unlimited,omitempty"`
+
+	// Concurrency Temporary Revyl-owned limit; Autumn will become authoritative.
+	Concurrency            *int                 `json:"concurrency,omitempty"`
+	CreditConversions      *[]CreditConversion  `json:"credit_conversions,omitempty"`
+	IncludedComputeCredits float32              `json:"included_compute_credits"`
+	OverageAmount          *float32             `json:"overage_amount,omitempty"`
+	OverageBillingUnits    *float32             `json:"overage_billing_units,omitempty"`
+	Plan                   BillingPlanTermsPlan `json:"plan"`
+	PriceAmount            *float32             `json:"price_amount,omitempty"`
+	PriceInterval          *string              `json:"price_interval,omitempty"`
+	UsageRates             *[]BillingUsageRate  `json:"usage_rates,omitempty"`
+}
+
+// BillingPlanTermsBillingPeriod defines model for BillingPlanTerms.BillingPeriod.
+type BillingPlanTermsBillingPeriod string
+
+// BillingPlanTermsPlan defines model for BillingPlanTerms.Plan.
+type BillingPlanTermsPlan string
+
+// BillingUsageRate defines model for BillingUsageRate.
+type BillingUsageRate struct {
+	CreditsPerUnit float32 `json:"credits_per_unit"`
+	FeatureId      string  `json:"feature_id"`
+	PricePerUnit   float32 `json:"price_per_unit"`
 }
 
 // BlocksCreationRequest Request model for creating tests from blocks
@@ -2964,7 +3079,7 @@ type DOMMetadata struct {
 
 // DashboardMetrics Model representing dashboard metrics with week-over-week comparisons.
 type DashboardMetrics struct {
-	// AnalyticsDegraded Whether the eventual-consistency analytics lane was unavailable for this response. When true, execution aggregates and week-over-week comparisons (test_runs, tests_failing_*, avg_test_duration*, success/failure_run_count, workflow_run_count, *_wow) are placeholders rather than measurements, while onboarding, trial, billing, and Atlas facts remain current. Clients must render those analytics as unavailable instead of zero.
+	// AnalyticsDegraded Whether the eventual-consistency analytics lane was unavailable for this response. When true, execution aggregates and week-over-week comparisons (test_runs, tests_failing_*, avg_test_duration*, success/failure_run_count, workflow_run_count, *_wow) are placeholders rather than measurements, while onboarding, billing, and Atlas facts remain current. Clients must render those analytics as unavailable instead of zero.
 	AnalyticsDegraded *bool `json:"analytics_degraded,omitempty"`
 
 	// AtlasGenerationRunning Whether an Atlas exploration run is currently queued/running. Drives the 'map is building' onboarding state and defers session-based activation while generating.
@@ -2996,9 +3111,6 @@ type DashboardMetrics struct {
 
 	// HasAtlasMap Whether the org has a renderable Atlas map (any exploration run with atlas_status completed/partial). Own-milestone fact for the atlas onboarding lens.
 	HasAtlasMap *bool `json:"has_atlas_map,omitempty"`
-
-	// HasPaymentMethod Whether the org has a payment method on file in Autumn/Stripe. When true, intermediate state shows upgrade CTA; when false, shows add-card CTA with bonus-session unlock.
-	HasPaymentMethod *bool `json:"has_payment_method,omitempty"`
 
 	// OrgHasApps Whether the org has any user-uploaded apps (controls whether 'upload app' step is shown).
 	OrgHasApps *bool `json:"org_has_apps,omitempty"`
@@ -3035,18 +3147,6 @@ type DashboardMetrics struct {
 
 	// TotalWorkflowsWow Week-over-week percentage change in total workflows (positive = increase)
 	TotalWorkflowsWow *float32 `json:"total_workflows_wow,omitempty"`
-
-	// TrialCardBonusSeconds Trial seconds granted for putting a card on file (CARD_BONUS_SECONDS). Static config value so the frontend can state the concrete reward in add-card CTAs.
-	TrialCardBonusSeconds *int `json:"trial_card_bonus_seconds,omitempty"`
-
-	// TrialIntegrationBonusSeconds Trial seconds granted per connected integration (INTEGRATION_BONUS_SECONDS). Static config value so integration CTAs can state the concrete reward.
-	TrialIntegrationBonusSeconds *int `json:"trial_integration_bonus_seconds,omitempty"`
-
-	// TrialSessionsEarned Free trial session limit earned through checklist completion (includes card-on-file bonus when applicable)
-	TrialSessionsEarned *int `json:"trial_sessions_earned,omitempty"`
-
-	// TrialSessionsUsed Number of trial sessions already consumed by the org.
-	TrialSessionsUsed *int `json:"trial_sessions_used,omitempty"`
 
 	// WorkflowRunCount Total workflow executions for the org (controls workflow slot visibility)
 	WorkflowRunCount *int `json:"workflow_run_count,omitempty"`
@@ -3202,7 +3302,7 @@ type DeviceSessionDetailItem struct {
 	WorkflowRunId             *string                                   `json:"workflow_run_id,omitempty"`
 }
 
-// DiscountItem A reward/discount applied to the customer (from Autumn `rewards.discounts`).
+// DiscountItem defines model for DiscountItem.
 type DiscountItem struct {
 	Code          *string `json:"code,omitempty"`
 	Currency      *string `json:"currency,omitempty"`
@@ -3270,6 +3370,7 @@ type DuplicateTestResponse struct {
 // EntitlementItem defines model for EntitlementItem.
 type EntitlementItem struct {
 	Balance           *float32            `json:"balance,omitempty"`
+	Consumable        *bool               `json:"consumable,omitempty"`
 	Conversions       *[]CreditConversion `json:"conversions,omitempty"`
 	FeatureId         string              `json:"feature_id"`
 	Granted           *float32            `json:"granted,omitempty"`
@@ -4311,24 +4412,38 @@ type PaginatedBuildsWithJobsResponse_Items_Item struct {
 
 // PlanInfo defines model for PlanInfo.
 type PlanInfo struct {
-	BillingExempt          *bool                           `json:"billing_exempt,omitempty"`
-	BillingPeriod          *PlanInfoBillingPeriod          `json:"billing_period,omitempty"`
-	CancelsAt              *int                            `json:"cancels_at,omitempty"`
-	Discounts              *[]DiscountItem                 `json:"discounts,omitempty"`
-	DisplayName            string                          `json:"display_name"`
-	Entitlements           *[]EntitlementItem              `json:"entitlements,omitempty"`
-	FreeCreditLabel        string                          `json:"free_credit_label"`
-	MonthlyBase            float32                         `json:"monthly_base"`
-	PeriodEnd              *int                            `json:"period_end,omitempty"`
+	AvailablePlans  *[]BillingPlanTerms    `json:"available_plans,omitempty"`
+	BillingPeriod   *PlanInfoBillingPeriod `json:"billing_period,omitempty"`
+	CancelsAt       *int                   `json:"cancels_at,omitempty"`
+	CurrentTerms    *BillingPlanTerms      `json:"current_terms,omitempty"`
+	Discounts       *[]DiscountItem        `json:"discounts,omitempty"`
+	DisplayName     string                 `json:"display_name"`
+	Entitlements    *[]EntitlementItem     `json:"entitlements,omitempty"`
+	FreeCreditLabel string                 `json:"free_credit_label"`
+	MonthlyBase     float32                `json:"monthly_base"`
+
+	// PeriodEnd Current subscription billing-period end in Unix milliseconds.
+	PeriodEnd *int `json:"period_end,omitempty"`
+
+	// PeriodStart Current subscription billing-period start in Unix milliseconds.
 	PeriodStart            *int                            `json:"period_start,omitempty"`
-	Plan                   string                          `json:"plan"`
+	Plan                   PlanInfoPlan                    `json:"plan"`
 	PlanStatus             *string                         `json:"plan_status,omitempty"`
 	ScheduledBillingPeriod *PlanInfoScheduledBillingPeriod `json:"scheduled_billing_period,omitempty"`
 	ScheduledPlan          *string                         `json:"scheduled_plan,omitempty"`
+
+	// UsagePeriodEnd Current compute-credit entitlement reset in Unix milliseconds.
+	UsagePeriodEnd *int `json:"usage_period_end,omitempty"`
+
+	// UsagePeriodStart Current compute-credit entitlement-period start in Unix milliseconds.
+	UsagePeriodStart *int `json:"usage_period_start,omitempty"`
 }
 
 // PlanInfoBillingPeriod defines model for PlanInfo.BillingPeriod.
 type PlanInfoBillingPeriod string
+
+// PlanInfoPlan defines model for PlanInfo.Plan.
+type PlanInfoPlan string
 
 // PlanInfoScheduledBillingPeriod defines model for PlanInfo.ScheduledBillingPeriod.
 type PlanInfoScheduledBillingPeriod string
@@ -6851,6 +6966,11 @@ type StartDeviceApiV1ExecutionStartDevicePostParams struct {
 type ListOrgFilesApiV1FilesGetParams struct {
 	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// GetModuleApiV1ModulesModuleIdGetParams defines parameters for GetModuleApiV1ModulesModuleIdGet.
+type GetModuleApiV1ModulesModuleIdGetParams struct {
+	OrgId *openapi_types.UUID `form:"org_id,omitempty" json:"org_id,omitempty"`
 }
 
 // GetModuleVersionsApiV1ModulesModuleIdVersionsGetParams defines parameters for GetModuleVersionsApiV1ModulesModuleIdVersionsGet.

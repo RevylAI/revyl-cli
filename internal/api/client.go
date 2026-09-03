@@ -366,7 +366,7 @@ func authHintForStatus(statusCode int, message, detail string) string {
 		return "Session may have expired. Run 'revyl auth login' to re-authenticate."
 	}
 	if statusCode == 402 {
-		return "Your free device time is used up. Add a payment method for more free time or choose a plan:\n  → revyl auth billing"
+		return "Your workspace has used its included allowance. Choose a plan with more monthly usage:\n  → revyl auth billing"
 	}
 	return ""
 }
@@ -851,7 +851,6 @@ type BillingPlanResponse struct {
 	DisplayName     string  `json:"display_name"`
 	MonthlyBase     float64 `json:"monthly_base"`
 	FreeCreditLabel string  `json:"free_credit_label"`
-	BillingExempt   bool    `json:"billing_exempt"`
 }
 
 // GetBillingPlan returns the org's current billing plan.
