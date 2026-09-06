@@ -934,6 +934,145 @@ func TestRelayRuntimeHonorsResponseBodyWindow(t *testing.T) {
 	}
 }
 
+func TestRelayRuntimeStreamErrorCancelsCreditStarvedMetroRequest(t *testing.T) {
+	clientConn, serverConn := newRelayRuntimeTestWebSocket(t)
+	metroRequestCanceled := make(chan struct{})
+	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/symbolicate":
+			defer close(metroRequestCanceled)
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				t.Error("local Metro response writer does not support flushing")
+				return
+			}
+			chunk := bytes.Repeat([]byte("s"), relayChunkSize)
+			for {
+				if _, err := w.Write(chunk); err != nil {
+					return
+				}
+				flusher.Flush()
+				select {
+				case <-r.Context().Done():
+					return
+				default:
+				}
+			}
+		case "/status":
+			_, _ = w.Write([]byte("ok"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(localServer.Close)
+	localRequest, err := http.NewRequest(http.MethodGet, localServer.URL, nil)
+	if err != nil {
+		t.Fatalf("parse local URL: %v", err)
+	}
+	_, port, err := net.SplitHostPort(localRequest.URL.Host)
+	if err != nil {
+		t.Fatalf("SplitHostPort() error = %v", err)
+	}
+	var portInt int
+	if _, err := fmt.Sscanf(port, "%d", &portInt); err != nil {
+		t.Fatalf("parse port %q: %v", port, err)
+	}
+
+	runtime := newRelayRuntime(context.Background(), portInt, clientConn, nil, nil, nil, nil)
+	runtime.start()
+	t.Cleanup(runtime.stop)
+	t.Cleanup(func() { _ = serverConn.Close() })
+	const responseWindow = 16
+	if err := serverConn.WriteJSON(relayEnvelope{
+		Kind:           "http.request.start",
+		StreamID:       "abandoned-symbolicate",
+		Method:         http.MethodPost,
+		Path:           "/symbolicate",
+		ResponseWindow: responseWindow,
+	}); err != nil {
+		t.Fatalf("write request start: %v", err)
+	}
+	if err := serverConn.WriteJSON(relayEnvelope{Kind: "http.request.end", StreamID: "abandoned-symbolicate"}); err != nil {
+		t.Fatalf("write request end: %v", err)
+	}
+
+	if err := serverConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline() error = %v", err)
+	}
+	bodyEnvelopes := 0
+	for bodyEnvelopes < responseWindow {
+		var env relayEnvelope
+		if err := serverConn.ReadJSON(&env); err != nil {
+			t.Fatalf("read response envelope: %v", err)
+		}
+		if env.Kind == "http.response.body" {
+			bodyEnvelopes++
+		}
+	}
+	if err := serverConn.WriteJSON(relayEnvelope{
+		Kind:     "stream.error",
+		StreamID: "abandoned-symbolicate",
+		Message:  "relay stopped waiting for local response headers",
+	}); err != nil {
+		t.Fatalf("write stream cancellation: %v", err)
+	}
+
+	select {
+	case <-metroRequestCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("credit-starved local Metro request was not canceled")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		runtime.streamMu.Lock()
+		_, registered := runtime.httpStreams["abandoned-symbolicate"]
+		runtime.streamMu.Unlock()
+		if !registered {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("abandoned HTTP stream remained registered in the CLI")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if err := serverConn.WriteJSON(relayEnvelope{
+		Kind:     "http.request.start",
+		StreamID: "recycled-status",
+		Method:   http.MethodGet,
+		Path:     "/status",
+	}); err != nil {
+		t.Fatalf("write recycled request start: %v", err)
+	}
+	if err := serverConn.WriteJSON(relayEnvelope{Kind: "http.request.end", StreamID: "recycled-status"}); err != nil {
+		t.Fatalf("write recycled request end: %v", err)
+	}
+
+	var recycledBody []byte
+	for {
+		var env relayEnvelope
+		if err := serverConn.ReadJSON(&env); err != nil {
+			t.Fatalf("read recycled response: %v", err)
+		}
+		if env.StreamID != "recycled-status" {
+			continue
+		}
+		switch env.Kind {
+		case "http.response.body":
+			chunk, err := base64.StdEncoding.DecodeString(env.BodyChunkB64)
+			if err != nil {
+				t.Fatalf("decode recycled response body: %v", err)
+			}
+			recycledBody = append(recycledBody, chunk...)
+		case "http.response.end":
+			if string(recycledBody) != "ok" {
+				t.Fatalf("recycled response body = %q, want ok", recycledBody)
+			}
+			return
+		}
+	}
+}
+
 func TestRelayRuntimeClassifiesMetro500AsNonFatal(t *testing.T) {
 	clientConn, serverConn := newRelayRuntimeTestWebSocket(t)
 	failures := make(chan RuntimeFailure, 1)
