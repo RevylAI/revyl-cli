@@ -170,24 +170,9 @@ func ResolveDeviceLogsURL(
 }
 
 func readCachedBytes(cacheDir, taskID, filename string) ([]byte, bool) {
-	if cacheDir == "" || taskID == "" || filename == "" {
-		return nil, false
-	}
-	data, err := os.ReadFile(filepath.Join(cacheDir, taskID, filename))
-	if err != nil {
-		return nil, false
-	}
-	return data, true
+	return readRunCacheFile(cacheDir, taskID, filename)
 }
 
 func writeCachedBytes(cacheDir, taskID, filename string, data []byte) {
-	if cacheDir == "" || taskID == "" || filename == "" {
-		return
-	}
-	dir := filepath.Join(cacheDir, taskID)
-	// 0o700/0o600 — artifacts may contain PII (bodies, log lines).
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return
-	}
-	_ = os.WriteFile(filepath.Join(dir, filename), data, 0o600)
+	writeRunCacheFile(cacheDir, taskID, filename, data)
 }

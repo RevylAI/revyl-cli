@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"net"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func TestBrowserAuthGetAuthURLIncludesClientIdentity(t *testing.T) {
@@ -33,5 +35,25 @@ func TestBrowserAuthGetAuthURLIncludesClientIdentity(t *testing.T) {
 	}
 	if got := query.Get("device_label"); got != "Work Mac" {
 		t.Fatalf("device_label query = %q, want %q", got, "Work Mac")
+	}
+}
+
+func TestCallbackServerBoundsHeaderReads(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &callbackServer{
+		listener: listener,
+		resultCh: make(chan *BrowserAuthResult, 1),
+		errCh:    make(chan error, 1),
+	}
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(server.Stop)
+
+	if server.server.ReadHeaderTimeout != 5*time.Second {
+		t.Fatalf("ReadHeaderTimeout = %s", server.server.ReadHeaderTimeout)
 	}
 }

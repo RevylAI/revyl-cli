@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -195,12 +194,16 @@ func runDevRemoteRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation
 	viewerURL := devSessionViewerURL(session, devMode)
 
 	pidPath := devCtxPIDPath(cwd, ctxName)
-	if err := os.MkdirAll(filepath.Dir(pidPath), 0755); err != nil {
+	pidRoot, err := pidPath.openOrCreateDirectory(true)
+	if err != nil {
 		return fmt.Errorf("failed to create dev context directory: %w", err)
 	}
+	defer func() { _ = pidRoot.Close() }()
 	startNonce := time.Now().UnixNano()
-	_ = writeDevCtxPIDFile(pidPath, os.Getpid(), startNonce)
-	defer os.Remove(pidPath)
+	if err := writeDevCtxPIDFileInRoot(pidRoot, devContextPIDFileName, os.Getpid(), startNonce); err != nil {
+		return err
+	}
+	defer func() { _ = pidRoot.Remove(devContextPIDFileName) }()
 
 	devCtx := &DevContext{
 		Name:          ctxName,
@@ -525,7 +528,7 @@ type remoteDevBuildProgressSink func(remoteDevBuildProgress)
 //
 // Returns:
 //   - remoteDevBuildProgressSink: Sink that persists typed progress.
-func newDevStatusRemoteBuildProgressSink(statusPath string) remoteDevBuildProgressSink {
+func newDevStatusRemoteBuildProgressSink(statusPath privateRuntimePath) remoteDevBuildProgressSink {
 	return func(progress remoteDevBuildProgress) {
 		setDevStatusBuildProgress(statusPath, progress.State, progress.Phase, progress.Message)
 	}
@@ -805,7 +808,7 @@ func remoteDevTriggerRequestFromProject(
 // remote build is still running, so status consumers (agents, cockpit,
 // --detach handshakes) can see the device and the build job immediately.
 func writeDevStatusRemoteBuildRunning(
-	statusPath string,
+	statusPath privateRuntimePath,
 	session *mcppkg.DeviceSession,
 	viewerURL string,
 	platform string,
@@ -887,7 +890,7 @@ func installAndLaunchRemoteDevBuild(
 	devicePlatform string,
 	remoteBuild remoteDevBuildResult,
 	bundleID *string,
-	statusPath string,
+	statusPath privateRuntimePath,
 	viewerURL string,
 	progressSink remoteDevBuildProgressSink,
 ) error {

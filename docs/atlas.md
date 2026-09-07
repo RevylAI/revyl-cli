@@ -28,6 +28,13 @@ revyl atlas brief --app "My App" --screenshots --screenshot-dir "$ATLAS_VISUAL_D
 A URL or downloaded path is not visual verification. Open every selected
 `local_screenshot_path` before making claims about visible UI.
 
+Use the returned `local_screenshot_path`; screenshot filenames are opaque.
+On Unix, new screenshot directories use mode `0700` and downloaded or reused
+screenshots use `0600`. Existing output directories keep their permissions.
+On Windows, existing file ACLs are preserved and new files inherit the output
+directory's access controls. Choose a directory restricted to your account
+when downloading private screenshots.
+
 `graph` is the canonical flat contract. It returns `starting_anchors`, `nodes`,
 and the typed edges between returned nodes; it does not select one incoming edge
 as a screen's real parent. Check the top-level `truncated` or `has_more` value

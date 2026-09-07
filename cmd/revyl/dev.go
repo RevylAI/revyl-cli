@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/url"
 	"os"
 	"os/signal"
@@ -65,8 +65,8 @@ var (
 )
 
 var (
-	renameDevStatusFile          = os.Rename
-	removeDevStatusFile          = os.Remove
+	renameDevStatusFile          = (*os.Root).Rename
+	removeDevStatusFile          = (*os.Root).Remove
 	devRecipeQuietPeriodInterval = 10 * time.Second
 )
 
@@ -1017,12 +1017,16 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	}
 
 	pidPath := devCtxPIDPath(cwd, ctxName)
-	if err := os.MkdirAll(filepath.Dir(pidPath), 0755); err != nil {
+	pidRoot, err := pidPath.openOrCreateDirectory(true)
+	if err != nil {
 		return fmt.Errorf("failed to create dev context directory: %w", err)
 	}
+	defer func() { _ = pidRoot.Close() }()
 	startNonce := time.Now().UnixNano()
-	_ = writeDevCtxPIDFile(pidPath, os.Getpid(), startNonce)
-	defer os.Remove(pidPath)
+	if err := writeDevCtxPIDFileInRoot(pidRoot, devContextPIDFileName, os.Getpid(), startNonce); err != nil {
+		return err
+	}
+	defer func() { _ = pidRoot.Remove(devContextPIDFileName) }()
 
 	devCtx := &DevContext{
 		Name:          ctxName,
@@ -1092,7 +1096,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 
 	hrTransport := devpush.NewTransport(client, deviceMgr)
 	hrManifestPath := devCtxManifestPath(cwd, ctxName)
-	hrCachedManifest, manifestLoadErr := build.LoadManifest(hrManifestPath)
+	hrCachedManifest, manifestLoadErr := build.LoadManifest(hrManifestPath.trustedRoot, hrManifestPath.relativePath)
 	if manifestLoadErr != nil {
 		ui.PrintDim("  Could not load cached manifest: %v", manifestLoadErr)
 	}
@@ -1102,7 +1106,7 @@ func runDevStart(cmd *cobra.Command, args []string) (returnErr error) {
 	if hrCachedManifest == nil && localSimBuildPath != "" {
 		if m, mErr := build.BuildManifest(localSimBuildPath); mErr == nil {
 			hrCachedManifest = m
-			_ = build.SaveManifest(m, hrManifestPath)
+			_ = build.SaveManifest(m, hrManifestPath.trustedRoot, hrManifestPath.relativePath)
 			ui.PrintDebug("seeded delta manifest from DerivedData build")
 		}
 	}
@@ -2332,12 +2336,16 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	viewerURL := devSessionViewerURL(session, devMode)
 
 	pidPath := devCtxPIDPath(cwd, ctxName)
-	if err := os.MkdirAll(filepath.Dir(pidPath), 0755); err != nil {
+	pidRoot, err := pidPath.openOrCreateDirectory(true)
+	if err != nil {
 		return fmt.Errorf("failed to create dev context directory: %w", err)
 	}
+	defer func() { _ = pidRoot.Close() }()
 	startNonce := time.Now().UnixNano()
-	_ = writeDevCtxPIDFile(pidPath, os.Getpid(), startNonce)
-	defer os.Remove(pidPath)
+	if err := writeDevCtxPIDFileInRoot(pidRoot, devContextPIDFileName, os.Getpid(), startNonce); err != nil {
+		return err
+	}
+	defer func() { _ = pidRoot.Remove(devContextPIDFileName) }()
 
 	devCtx := &DevContext{
 		Name:          ctxName,
@@ -2405,7 +2413,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 
 	transport := devpush.NewTransport(client, deviceMgr)
 	manifestPath := devCtxManifestPath(cwd, ctxName)
-	cachedManifest, cachedManifestErr := build.LoadManifest(manifestPath)
+	cachedManifest, cachedManifestErr := build.LoadManifest(manifestPath.trustedRoot, manifestPath.relativePath)
 	if cachedManifestErr != nil {
 		ui.PrintDim("  Could not load cached manifest: %v", cachedManifestErr)
 	}
@@ -2417,7 +2425,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 		if artPath, artErr := build.ResolveArtifactPath(cwd, outputPath); artErr == nil {
 			if m, mErr := build.BuildManifest(artPath); mErr == nil {
 				cachedManifest = m
-				_ = build.SaveManifest(m, manifestPath)
+				_ = build.SaveManifest(m, manifestPath.trustedRoot, manifestPath.relativePath)
 			}
 		}
 	}
@@ -2427,7 +2435,7 @@ func runDevRebuildOnly(cmd *cobra.Command, invocation projectDevInvocation, apiK
 	if cachedManifest == nil && localSimBuildPath != "" {
 		if m, mErr := build.BuildManifest(localSimBuildPath); mErr == nil {
 			cachedManifest = m
-			_ = build.SaveManifest(m, manifestPath)
+			_ = build.SaveManifest(m, manifestPath.trustedRoot, manifestPath.relativePath)
 			ui.PrintDebug("seeded delta manifest from DerivedData build")
 		}
 	}
@@ -3056,7 +3064,7 @@ func devBuildAndDeltaPush(
 	client *api.Client,
 	transport devpush.WorkerTransport,
 	cachedManifest *build.AppManifest,
-	manifestPath, cwd string,
+	manifestPath privateRuntimePath, cwd string,
 	packagerHost string,
 	packagerScheme string,
 	publishLog devRebuildLogSink,
@@ -3159,7 +3167,7 @@ func devBuildAndDeltaPush(
 		result.manifest = newManifest
 		result.elapsed = time.Since(rebuildStart)
 		appendAndPublishDevRebuildLog(&result, publishLog, "info", "No native file changes detected; skipping device push")
-		_ = build.SaveManifest(newManifest, manifestPath)
+		_ = build.SaveManifest(newManifest, manifestPath.trustedRoot, manifestPath.relativePath)
 		return result
 	}
 
@@ -3253,7 +3261,7 @@ func devBuildAndDeltaPush(
 			} else {
 				appendAndPublishDevRebuildLog(&result, publishLog, "success", "Delta installed")
 			}
-			_ = build.SaveManifest(newManifest, manifestPath)
+			_ = build.SaveManifest(newManifest, manifestPath.trustedRoot, manifestPath.relativePath)
 			return result
 		}
 	}
@@ -3343,7 +3351,7 @@ func devBuildAndDeltaPush(
 	result.filesChanged = len(diff.Changed) + len(diff.Deleted)
 	result.elapsed = time.Since(rebuildStart)
 	appendAndPublishDevRebuildLog(&result, publishLog, "success", "Full build installed; app data may have been reset")
-	_ = build.SaveManifest(newManifest, manifestPath)
+	_ = build.SaveManifest(newManifest, manifestPath.trustedRoot, manifestPath.relativePath)
 	return result
 }
 
@@ -3359,7 +3367,7 @@ func devBuildAndDeltaPush(
 //   - platformKey: build platform key (e.g. "ios")
 //   - cwd: working directory for artifact resolution
 //   - statusPath: path to .dev-status.json for updating background_upload_status
-func backgroundUploadBuild(ctx context.Context, client *api.Client, invocation projectDevInvocation, statusPath string) {
+func backgroundUploadBuild(ctx context.Context, client *api.Client, invocation projectDevInvocation, statusPath privateRuntimePath) {
 	if invocation.Recipe.OutputPath == nil || strings.TrimSpace(*invocation.Recipe.OutputPath) == "" {
 		ui.PrintDim("  ✗ Background upload skipped: output_path is not configured")
 		return
@@ -3433,7 +3441,7 @@ func backgroundUploadBuild(ctx context.Context, client *api.Client, invocation p
 
 // updateBgUploadStatus patches the background_upload_status field in the
 // dev status file without rewriting other fields.
-func updateBgUploadStatus(statusPath, status string) {
+func updateBgUploadStatus(statusPath privateRuntimePath, status string) {
 	data, err := readDevStatusFile(statusPath)
 	if err != nil {
 		return
@@ -3447,7 +3455,7 @@ func updateBgUploadStatus(statusPath, status string) {
 	if err != nil {
 		return
 	}
-	if err := writeDevStatusFile(statusPath, out, 0644); err != nil {
+	if err := writeDevStatusFile(statusPath, out); err != nil {
 		ui.PrintDim("  Failed to update background upload status: %v", err)
 	}
 }
@@ -3575,7 +3583,7 @@ type devRebuildInfo struct {
 var devStatusWriteMu sync.Mutex
 
 func writeDevStatusIdle(
-	statusPath string,
+	statusPath privateRuntimePath,
 	session *mcppkg.DeviceSession,
 	viewerURL string,
 	tunnelURL string,
@@ -3602,7 +3610,7 @@ func writeDevStatusIdle(
 }
 
 func writeDevStatusRebuildStarted(
-	statusPath string,
+	statusPath privateRuntimePath,
 	session *mcppkg.DeviceSession,
 	viewerURL string,
 	tunnelURL string,
@@ -3652,8 +3660,8 @@ func writeDevStatusRebuildStarted(
 	writeDevStatusSnapshot(statusPath, ds)
 }
 
-func appendDevStatusRebuildLog(statusPath string, entry devRebuildLogEntry, maxEntries int) {
-	if strings.TrimSpace(statusPath) == "" || strings.TrimSpace(entry.Message) == "" {
+func appendDevStatusRebuildLog(statusPath privateRuntimePath, entry devRebuildLogEntry, maxEntries int) {
+	if strings.TrimSpace(statusPath.relativePath) == "" || strings.TrimSpace(entry.Message) == "" {
 		return
 	}
 	if maxEntries <= 0 {
@@ -3686,7 +3694,7 @@ func appendDevStatusRebuildLog(statusPath string, entry devRebuildLogEntry, maxE
 }
 
 func writeDevStatus(
-	statusPath string,
+	statusPath privateRuntimePath,
 	session *mcppkg.DeviceSession,
 	viewerURL string,
 	tunnelURL string,
@@ -3810,7 +3818,7 @@ func firstNonEmptyDevValue(values ...string) string {
 	return ""
 }
 
-func writeDevStatusSnapshot(statusPath string, ds devStatus) {
+func writeDevStatusSnapshot(statusPath privateRuntimePath, ds devStatus) {
 	devStatusWriteMu.Lock()
 	defer devStatusWriteMu.Unlock()
 
@@ -3823,7 +3831,7 @@ func writeDevStatusSnapshot(statusPath string, ds devStatus) {
 // Parameters:
 //   - statusPath: Destination status file path
 //   - ds: Status snapshot to persist
-func writeDevStatusSnapshotLocked(statusPath string, ds devStatus) {
+func writeDevStatusSnapshotLocked(statusPath privateRuntimePath, ds devStatus) {
 	preserveDevStatusMetadata(statusPath, &ds)
 	if ds.AuthBypass == nil {
 		ds.AuthBypass = devAuthBypass.Status()
@@ -3836,87 +3844,73 @@ func writeDevStatusSnapshotLocked(statusPath string, ds devStatus) {
 		ui.PrintDim("  Failed to marshal dev status: %v", err)
 		return
 	}
-	if err := writeDevStatusFile(statusPath, data, 0644); err != nil {
+	if err := writeDevStatusFile(statusPath, data); err != nil {
 		ui.PrintDim("  Failed to write dev status: %v", err)
 	}
 }
 
-func writeDevStatusFile(statusPath string, data []byte, perm fs.FileMode) error {
-	dir := filepath.Dir(statusPath)
-	tmp, err := os.CreateTemp(dir, filepath.Base(statusPath)+".*.tmp")
+func writeDevStatusFile(statusPath privateRuntimePath, data []byte) error {
+	root, err := statusPath.openOrCreateDirectory(true)
 	if err != nil {
 		return err
 	}
-	tmpPath := tmp.Name()
-	defer func() {
-		if tmpPath != "" {
-			_ = removeDevStatusFile(tmpPath)
-		}
-	}()
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := replaceDevStatusFile(tmpPath, statusPath); err != nil {
-		return err
-	}
-	tmpPath = ""
-	return nil
+	defer func() { _ = root.Close() }()
+	return writeDevStatusFileInRoot(root, filepath.Base(statusPath.relativePath), data)
 }
 
-func replaceDevStatusFile(tmp, statusPath string) error {
-	if err := renameDevStatusFile(tmp, statusPath); err == nil {
-		return nil
-	}
-
-	backupPath, err := reserveDevStatusBackupPath(statusPath)
+func writeDevStatusFileInRoot(root *os.Root, name string, data []byte) error {
+	tmpName := name + "." + rand.Text() + ".tmp"
+	tmp, err := root.OpenFile(tmpName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		_ = removeDevStatusFile(tmp)
 		return err
 	}
-	defer removeDevStatusFile(backupPath)
+	defer func() { _ = removeDevStatusFile(root, tmpName) }()
+	if err := writeAndClosePrivateFile(tmp, data); err != nil {
+		return err
+	}
+	return replaceDevStatusFile(root, tmpName, name)
+}
 
+func replaceDevStatusFile(root *os.Root, tmp, name string) error {
+	if err := renameDevStatusFile(root, tmp, name); err == nil {
+		return nil
+	}
+	backupName, err := reserveDevStatusBackupPath(root, name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = removeDevStatusFile(root, backupName) }()
 	movedExisting := false
-	if err := renameDevStatusFile(statusPath, backupPath); err != nil {
+	if err := renameDevStatusFile(root, name, backupName); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			_ = removeDevStatusFile(tmp)
 			return err
 		}
 	} else {
 		movedExisting = true
 	}
-	if err := renameDevStatusFile(tmp, statusPath); err != nil {
+	if err := renameDevStatusFile(root, tmp, name); err != nil {
 		if movedExisting {
-			_ = renameDevStatusFile(backupPath, statusPath)
+			_ = renameDevStatusFile(root, backupName, name)
 		}
-		_ = removeDevStatusFile(tmp)
 		return err
 	}
 	return nil
 }
 
-func reserveDevStatusBackupPath(statusPath string) (string, error) {
-	backup, err := os.CreateTemp(filepath.Dir(statusPath), filepath.Base(statusPath)+".*.bak")
+func reserveDevStatusBackupPath(root *os.Root, name string) (string, error) {
+	backupName := name + "." + rand.Text() + ".bak"
+	backup, err := root.OpenFile(backupName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", err
 	}
-	backupPath := backup.Name()
 	if err := backup.Close(); err != nil {
-		_ = removeDevStatusFile(backupPath)
+		_ = removeDevStatusFile(root, backupName)
 		return "", err
 	}
-	if err := removeDevStatusFile(backupPath); err != nil {
+	if err := removeDevStatusFile(root, backupName); err != nil {
 		return "", err
 	}
-	return backupPath, nil
+	return backupName, nil
 }
 
 // updateDevStatusSnapshot atomically mutates the latest persisted status.
@@ -3928,8 +3922,8 @@ func reserveDevStatusBackupPath(statusPath string) (string, error) {
 // Edge cases:
 //   - Missing or malformed snapshots are left unchanged.
 //   - Returning false from update skips the write.
-func updateDevStatusSnapshot(statusPath string, update func(*devStatus) bool) {
-	if strings.TrimSpace(statusPath) == "" || update == nil {
+func updateDevStatusSnapshot(statusPath privateRuntimePath, update func(*devStatus) bool) {
+	if strings.TrimSpace(statusPath.relativePath) == "" || update == nil {
 		return
 	}
 
@@ -3950,7 +3944,7 @@ func updateDevStatusSnapshot(statusPath string, update func(*devStatus) bool) {
 	writeDevStatusSnapshotLocked(statusPath, ds)
 }
 
-func setDevStatusSelection(statusPath string, invocation projectDevInvocation) {
+func setDevStatusSelection(statusPath privateRuntimePath, invocation projectDevInvocation) {
 	updateDevStatusSnapshot(statusPath, func(status *devStatus) bool {
 		status.Profile = strings.TrimSpace(invocation.Profile)
 		status.BuildDefinitionHash = strings.TrimSpace(invocation.BuildDefinitionHash)
@@ -3966,7 +3960,7 @@ func setDevStatusSelection(statusPath string, invocation projectDevInvocation) {
 //
 // Edge cases:
 //   - Metadata is not copied across different processes or device sessions.
-func preserveDevStatusMetadata(statusPath string, next *devStatus) {
+func preserveDevStatusMetadata(statusPath privateRuntimePath, next *devStatus) {
 	if next == nil {
 		return
 	}
@@ -4079,9 +4073,9 @@ func devRebuildTerminal(rebuild devRebuildInfo) bool {
 //
 // Edge cases:
 //   - Missing, malformed, or terminal status snapshots are left unchanged.
-func setDevStatusRemoteJobID(statusPath, jobID string) {
+func setDevStatusRemoteJobID(statusPath privateRuntimePath, jobID string) {
 	jobID = strings.TrimSpace(jobID)
-	if strings.TrimSpace(statusPath) == "" || jobID == "" {
+	if strings.TrimSpace(statusPath.relativePath) == "" || jobID == "" {
 		return
 	}
 
@@ -4120,7 +4114,7 @@ func setDevStatusRemoteJobID(statusPath, jobID string) {
 // Edge cases:
 //   - Missing, malformed, or terminal status snapshots are left unchanged.
 func setDevStatusBuildProgress(
-	statusPath string,
+	statusPath privateRuntimePath,
 	state devloop.BuildState,
 	phase string,
 	message string,
@@ -4160,7 +4154,7 @@ func setDevStatusBuildProgress(
 // Edge cases:
 //   - Missing or malformed status snapshots are left unchanged.
 //   - Seed metadata is retained even when no running rebuild entry is available.
-func setDevStatusSeedInstalled(statusPath, seededVersion string) {
+func setDevStatusSeedInstalled(statusPath privateRuntimePath, seededVersion string) {
 	seededVersion = strings.TrimSpace(seededVersion)
 	updateDevStatusSnapshot(statusPath, func(ds *devStatus) bool {
 		ds.InstalledSeed = true
@@ -4188,8 +4182,8 @@ func setDevStatusSeedInstalled(statusPath, seededVersion string) {
 	})
 }
 
-func updateDevStatusHotReloadURLs(statusPath string, result *hotreload.StartResult) {
-	if strings.TrimSpace(statusPath) == "" || result == nil {
+func updateDevStatusHotReloadURLs(statusPath privateRuntimePath, result *hotreload.StartResult) {
+	if strings.TrimSpace(statusPath.relativePath) == "" || result == nil {
 		return
 	}
 	data, err := readDevStatusFile(statusPath)
@@ -4210,7 +4204,7 @@ func updateDevStatusHotReloadURLs(statusPath string, result *hotreload.StartResu
 		ui.PrintDim("  Failed to marshal dev status after relay recovery: %v", err)
 		return
 	}
-	if err := writeDevStatusFile(statusPath, out, 0644); err != nil {
+	if err := writeDevStatusFile(statusPath, out); err != nil {
 		ui.PrintDim("  Failed to write dev status after relay recovery: %v", err)
 	}
 }
@@ -4456,7 +4450,7 @@ func validateInternalRebuildHandle(
 //   - error: Timeout, cancellation, supersession, or terminal rebuild failure.
 func waitForInternalRebuildHandle(
 	cmd *cobra.Command,
-	statusPath string,
+	statusPath privateRuntimePath,
 	handle devloop.RebuildHandle,
 ) error {
 	timeout := time.Duration(rebuildTimeout) * time.Second
@@ -4506,7 +4500,7 @@ func waitForInternalRebuildHandle(
 // Returns:
 //   - *devRebuildInfo: New terminal rebuild snapshot
 //   - error: Cancellation or errDevRebuildWaitTimeout
-func waitForDevRebuildCompletion(ctx context.Context, statusPath string, priorSeq int, timeout time.Duration) (*devRebuildInfo, error) {
+func waitForDevRebuildCompletion(ctx context.Context, statusPath privateRuntimePath, priorSeq int, timeout time.Duration) (*devRebuildInfo, error) {
 	return waitForDevRebuildCompletionWithProgress(ctx, statusPath, priorSeq, timeout, nil)
 }
 
@@ -4524,7 +4518,7 @@ func waitForDevRebuildCompletion(ctx context.Context, statusPath string, priorSe
 //   - error: Cancellation or errDevRebuildWaitTimeout.
 func waitForDevRebuildCompletionWithProgress(
 	ctx context.Context,
-	statusPath string,
+	statusPath privateRuntimePath,
 	priorSeq int,
 	timeout time.Duration,
 	onProgress func(devloop.RebuildProgressEvent),
@@ -4546,7 +4540,7 @@ func waitForDevRebuildCompletionWithProgress(
 //   - error: Cancellation, timeout, or supersession.
 func waitForExpectedDevRebuildCompletion(
 	ctx context.Context,
-	statusPath string,
+	statusPath privateRuntimePath,
 	expectedSequence int,
 	timeout time.Duration,
 	onProgress func(devloop.RebuildProgressEvent),
@@ -4564,7 +4558,7 @@ func waitForExpectedDevRebuildCompletion(
 // waitForDevRebuildSequence polls until a newer or exact rebuild reaches terminal state.
 func waitForDevRebuildSequence(
 	ctx context.Context,
-	statusPath string,
+	statusPath privateRuntimePath,
 	priorSeq int,
 	expectedSequence int,
 	timeout time.Duration,
@@ -4746,7 +4740,7 @@ func devRebuildTerminalError(rb *devRebuildInfo) error {
 	return fmt.Errorf("rebuild %s", rb.Status)
 }
 
-func readLastRebuildSeq(statusPath string) int {
+func readLastRebuildSeq(statusPath privateRuntimePath) int {
 	rb := readLastRebuildInfo(statusPath)
 	if rb == nil {
 		return 0
@@ -4761,7 +4755,7 @@ func readLastRebuildSeq(statusPath string) int {
 //
 // Returns:
 //   - *devRebuildInfo: Latest snapshot, or nil when unavailable or malformed
-func readLastRebuildInfo(statusPath string) *devRebuildInfo {
+func readLastRebuildInfo(statusPath privateRuntimePath) *devRebuildInfo {
 	snapshot := readDevStatusSnapshot(statusPath)
 	if snapshot == nil {
 		return nil
@@ -4776,7 +4770,7 @@ func readLastRebuildInfo(statusPath string) *devRebuildInfo {
 //
 // Returns:
 //   - *devStatus: Latest snapshot, or nil when unavailable or malformed.
-func readDevStatusSnapshot(statusPath string) *devStatus {
+func readDevStatusSnapshot(statusPath privateRuntimePath) *devStatus {
 	data, err := readDevStatusFile(statusPath)
 	if err != nil {
 		return nil

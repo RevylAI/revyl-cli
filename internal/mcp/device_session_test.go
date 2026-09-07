@@ -20,6 +20,7 @@ import (
 
 	"github.com/revyl/cli/internal/api"
 	"github.com/revyl/cli/internal/beforesession"
+	"github.com/revyl/cli/internal/testutil"
 )
 
 // ---------------------------------------------------------------------------
@@ -160,6 +161,95 @@ func TestWaitForWorkerURLReturnsTerminalStatus(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Session completed") {
 		t.Fatalf("error = %q, want terminal status message", err.Error())
+	}
+}
+
+func TestWritePNGArtifactUsesPrivatePermissions(t *testing.T) {
+	manager := &DeviceSessionManager{workDir: t.TempDir()}
+	path, err := manager.writePNGArtifact("screenshots/session-1", "screen.png", []byte("png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	directoryInfo, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.AssertPOSIXPermissions(t, directoryInfo, 0o700)
+	testutil.AssertPOSIXPermissions(t, fileInfo, 0o600)
+}
+
+func TestWritePNGArtifactRejectsDirectorySymlinks(t *testing.T) {
+	for _, relativePath := range []string{".revyl", ".revyl/mcp", ".revyl/mcp/screenshots", ".revyl/mcp/screenshots/session-1"} {
+		t.Run(relativePath, func(t *testing.T) {
+			workDir := t.TempDir()
+			outside := t.TempDir()
+			if err := os.Chmod(outside, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(workDir, relativePath)
+			if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, link); err != nil {
+				t.Skipf("symlinks are unavailable: %v", err)
+			}
+			manager := &DeviceSessionManager{workDir: workDir}
+			path, err := manager.writePNGArtifact("screenshots/session-1", "screen.png", []byte("png"))
+			if err == nil || path != "" {
+				t.Fatalf("symlinked artifact directory accepted: path=%q error=%v", path, err)
+			}
+			info, err := os.Stat(outside)
+			if err != nil {
+				t.Fatal(err)
+			}
+			testutil.AssertPOSIXPermissions(t, info, 0o755)
+			entries, err := os.ReadDir(outside)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("outside directory changed: entries=%v error=%v", entries, err)
+			}
+		})
+	}
+}
+
+func TestWritePNGArtifactReplacesExistingFilePrivately(t *testing.T) {
+	workDir := t.TempDir()
+	dir := filepath.Join(workDir, ".revyl", "mcp", "screenshots", "session-1")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "screen.png")
+	if err := os.WriteFile(path, []byte("longer legacy contents"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	staleTempPath := path + ".tmp"
+	if err := os.WriteFile(staleTempPath, []byte("unrelated temporary file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manager := &DeviceSessionManager{workDir: workDir}
+	writtenPath, err := manager.writePNGArtifact("screenshots/session-1", "screen.png", []byte("png"))
+	if err != nil || writtenPath != path {
+		t.Fatalf("artifact replacement: path=%q error=%v", writtenPath, err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil || string(contents) != "png" {
+		t.Fatalf("artifact contents=%q error=%v", contents, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.AssertPOSIXPermissions(t, info, 0o600)
+	contents, err = os.ReadFile(staleTempPath)
+	if err != nil || string(contents) != "unrelated temporary file" {
+		t.Fatalf("stale temporary file changed: contents=%q error=%v", contents, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("temporary artifact leaked: entries=%v error=%v", entries, err)
 	}
 }
 
@@ -2824,5 +2914,39 @@ func TestSyncSessions_KeepsCachedProofSession(t *testing.T) {
 	got := mgr.GetSession(0)
 	if got == nil || got.SessionID != proofSessionID {
 		t.Fatal("cached proof session was dropped during sync")
+	}
+}
+
+func TestLoadAnchorImageRejectsManagedDirectoryRedirect(t *testing.T) {
+	for _, internal := range []bool{false, true} {
+		t.Run(fmt.Sprintf("internal=%v", internal), func(t *testing.T) {
+			workDir := t.TempDir()
+			manager := &DeviceSessionManager{workDir: workDir}
+			path, err := manager.writePNGArtifact("screenshots/session-1", "screen.png", []byte("png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager.screenAnchors = map[int]*screenAnchorState{0: {Token: "anchor", ImagePath: path}}
+			if data, _, err := manager.LoadAnchorImage(0, "anchor"); err != nil || string(data) != "png" {
+				t.Fatalf("disk anchor read failed: %q, %v", data, err)
+			}
+			destination := filepath.Join(t.TempDir(), "redirected")
+			if internal {
+				destination = filepath.Join(workDir, "redirected")
+			}
+			if err := os.Rename(filepath.Join(workDir, ".revyl"), destination); err != nil {
+				t.Fatal(err)
+			}
+			target := destination
+			if internal {
+				target = "redirected"
+			}
+			if err := os.Symlink(target, filepath.Join(workDir, ".revyl")); err != nil {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			if _, _, err := manager.LoadAnchorImage(0, "anchor"); err == nil {
+				t.Fatal("disk anchor read followed directory redirect")
+			}
+		})
 	}
 }

@@ -11,13 +11,14 @@ import (
 	"time"
 
 	"github.com/revyl/cli/internal/devloop"
+	"github.com/revyl/cli/internal/testutil"
 )
 
 // writeDevLogsTestStatus writes a status snapshot for build-job resolution tests.
 func writeDevLogsTestStatus(t *testing.T, cwd, ctxName string, status devStatus) {
 	t.Helper()
 	statusPath := devCtxStatusPath(cwd, ctxName)
-	if err := os.MkdirAll(filepath.Dir(statusPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(statusPath.String()), 0755); err != nil {
 		t.Fatal(err)
 	}
 	writeDevStatusSnapshot(statusPath, status)
@@ -47,47 +48,52 @@ func writeDevLogsTestRunningContext(t *testing.T, cwd, ctxName string) {
 }
 
 func TestWriteDevStatusFileReplacesExistingDestinationAfterRenameFailure(t *testing.T) {
-	statusPath := filepath.Join(t.TempDir(), ".dev-status.json")
-	if err := os.WriteFile(statusPath, []byte("old"), 0644); err != nil {
+	statusPath := testRuntimePath(filepath.Join(t.TempDir(), ".dev-status.json"))
+	if err := os.WriteFile(statusPath.String(), []byte("old"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	originalRename := renameDevStatusFile
 	renameCalls := [][2]string{}
-	renameDevStatusFile = func(oldPath, newPath string) error {
+	renameDevStatusFile = func(root *os.Root, oldPath, newPath string) error {
 		renameCalls = append(renameCalls, [2]string{oldPath, newPath})
-		if len(renameCalls) == 1 && newPath != statusPath {
+		if len(renameCalls) == 1 && newPath != filepath.Base(statusPath.relativePath) {
 			t.Fatalf("rename target = %q, want %q", newPath, statusPath)
 		}
 		if len(renameCalls) == 1 {
 			return errors.New("destination exists")
 		}
-		return originalRename(oldPath, newPath)
+		return originalRename(root, oldPath, newPath)
 	}
 	t.Cleanup(func() {
 		renameDevStatusFile = originalRename
 	})
 
-	if err := writeDevStatusFile(statusPath, []byte(`{"state":"idle"}`), 0644); err != nil {
+	if err := writeDevStatusFile(statusPath, []byte(`{"state":"idle"}`)); err != nil {
 		t.Fatalf("writeDevStatusFile() error = %v", err)
 	}
 	if len(renameCalls) != 3 {
 		t.Fatalf("rename calls = %v, want initial replace, backup, retry", renameCalls)
 	}
-	if renameCalls[1][0] != statusPath || !strings.HasSuffix(renameCalls[1][1], ".bak") {
+	if renameCalls[1][0] != filepath.Base(statusPath.relativePath) || !strings.HasSuffix(renameCalls[1][1], ".bak") {
 		t.Fatalf("backup rename = %v, want existing status moved aside", renameCalls[1])
 	}
-	if renameCalls[2][1] != statusPath {
+	if renameCalls[2][1] != filepath.Base(statusPath.relativePath) {
 		t.Fatalf("retry rename target = %q, want %q", renameCalls[2][1], statusPath)
 	}
-	data, err := os.ReadFile(statusPath)
+	data, err := os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(data) != `{"state":"idle"}` {
 		t.Fatalf("status contents = %q, want replacement", string(data))
 	}
-	backups, err := filepath.Glob(statusPath + ".*.bak")
+	statusInfo, err := os.Stat(statusPath.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.AssertPOSIXPermissions(t, statusInfo, 0o600)
+	backups, err := filepath.Glob(statusPath.String() + ".*.bak")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +165,7 @@ func TestResolveDevBuildJobID_FollowWaitsForRegistration(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for build registration writer")
 	}
-	data, err := os.ReadFile(statusPath)
+	data, err := os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +325,7 @@ func TestSetDevStatusRemoteJobID_PreservesSeedAndLogs(t *testing.T) {
 
 	setDevStatusRemoteJobID(statusPath, "job-123")
 
-	data, err := os.ReadFile(statusPath)
+	data, err := os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +370,7 @@ func TestSetDevStatusSeedInstalled_PreservesRemoteJobAndRebuildState(t *testing.
 
 	setDevStatusSeedInstalled(statusPath, "1.2.3")
 
-	data, err := os.ReadFile(statusPath)
+	data, err := os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatal(err)
 	}

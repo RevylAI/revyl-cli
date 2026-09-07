@@ -3,9 +3,11 @@ package build
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/revyl/cli/internal/privatefs"
 )
 
 // AppManifest records file metadata for a built .app or .apk so subsequent
@@ -248,13 +252,22 @@ func DeltaSize(appPath string, changedFiles []string) int64 {
 // LoadManifest reads a persisted manifest from disk.
 //
 // Parameters:
-//   - path: filesystem path to the JSON manifest file
+//   - trustedRoot: repository root
+//   - relativePath: managed manifest path within the repository
 //
 // Returns:
 //   - *AppManifest: loaded manifest, or nil if the file does not exist
 //   - error: parse error (missing file is not an error)
-func LoadManifest(path string) (*AppManifest, error) {
-	data, err := os.ReadFile(path)
+func LoadManifest(trustedRoot, relativePath string) (*AppManifest, error) {
+	root, err := privatefs.OpenDirectory(trustedRoot, filepath.Dir(relativePath))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	data, err := root.ReadFile(filepath.Base(relativePath))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -272,20 +285,35 @@ func LoadManifest(path string) (*AppManifest, error) {
 //
 // Parameters:
 //   - m: manifest to persist
-//   - path: destination file path
+//   - trustedRoot: repository root
+//   - relativePath: managed destination within the repository
 //
 // Returns:
 //   - error: filesystem error
-func SaveManifest(m *AppManifest, path string) error {
+func SaveManifest(m *AppManifest, trustedRoot, relativePath string) error {
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	root, err := privatefs.CreateDirectory(trustedRoot, filepath.Dir(relativePath))
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	defer func() { _ = root.Close() }()
+	name := filepath.Base(relativePath)
+	tmpName := name + "." + rand.Text() + ".tmp"
+	file, err := root.OpenFile(tmpName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Remove(tmpName) }()
+	if _, err := file.Write(data); err != nil {
+		return errors.Join(err, file.Close())
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return root.Rename(tmpName, name)
 }
 
 // hashManifestFiles computes a deterministic SHA-256 over sorted (path, size,

@@ -253,29 +253,11 @@ func parseJSONLLines(text []byte) ([]DeviceStateLine, error) {
 }
 
 func readCachedJSONL(cacheDir, taskID string) ([]byte, bool) {
-	if cacheDir == "" {
-		return nil, false
-	}
-	path := filepath.Join(cacheDir, taskID, "device_state.jsonl")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false
-	}
-	return data, true
+	return readRunCacheFile(cacheDir, taskID, "device_state.jsonl")
 }
 
 func writeCachedJSONL(cacheDir, taskID string, data []byte) {
-	if cacheDir == "" {
-		return
-	}
-	dir := filepath.Join(cacheDir, taskID)
-	// 0o700 / 0o600 — JSONL may contain PII (user emails, org IDs, vendor
-	// session keys). Matches the perms already used for
-	// .revyl/device-sessions.json.
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return
-	}
-	_ = os.WriteFile(filepath.Join(dir, "device_state.jsonl"), data, 0o600)
+	writeRunCacheFile(cacheDir, taskID, "device_state.jsonl", data)
 }
 
 // DefaultCacheDir returns “~/.revyl/run-cache“ (or empty if HOME

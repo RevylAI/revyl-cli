@@ -138,7 +138,7 @@ func TestPrintDetachHandshake_ReportsOpenedBrowser(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		printDetachHandshake(cmd, t.TempDir(), devCtx, "/tmp/detach.log")
+		printDetachHandshake(cmd, t.TempDir(), devCtx, testRuntimePath("/tmp/detach.log"))
 	})
 
 	var handshake devDetachHandshake
@@ -183,7 +183,7 @@ func TestPrintDetachHandshakeReportsBuildingDuringDetailedBuildPhase(t *testing.
 	)
 
 	output := captureStdout(t, func() {
-		printDetachHandshake(&cobra.Command{Use: "dev"}, cwd, devCtx, "/tmp/detach.log")
+		printDetachHandshake(&cobra.Command{Use: "dev"}, cwd, devCtx, testRuntimePath("/tmp/detach.log"))
 	})
 
 	var handshake devDetachHandshake

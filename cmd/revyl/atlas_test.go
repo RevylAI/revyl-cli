@@ -1,14 +1,20 @@
 package main
 
 import (
+	"crypto/sha1" // #nosec G505 -- fixture for the previous cache filename
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/revyl/cli/internal/api"
+	"github.com/revyl/cli/internal/testutil"
 )
 
 func TestMaterializeAtlasScreenshotsTraversesTypedScreenSlices(t *testing.T) {
@@ -21,6 +27,9 @@ func TestMaterializeAtlasScreenshotsTraversesTypedScreenSlices(t *testing.T) {
 	previousDir := atlasScreenshotDir
 	atlasScreenshotDir = t.TempDir()
 	t.Cleanup(func() { atlasScreenshotDir = previousDir })
+	if err := os.Chmod(atlasScreenshotDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	screen := map[string]interface{}{"screenshot_url": server.URL + "/screen.png"}
 	result := map[string]interface{}{"key_screens": []map[string]interface{}{screen}}
@@ -31,8 +40,157 @@ func TestMaterializeAtlasScreenshotsTraversesTypedScreenSlices(t *testing.T) {
 	if path == "" {
 		t.Fatal("expected local screenshot path")
 	}
-	if _, err := os.Stat(path); err != nil {
+	sum := sha256.Sum256([]byte(server.URL + "/screen.png"))
+	expectedName := fmt.Sprintf("atlas-%x.png", sum[:16])
+	if filepath.Base(path) != expectedName {
+		t.Fatalf("screenshot filename = %q, want %q", filepath.Base(path), expectedName)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
 		t.Fatalf("expected downloaded screenshot: %v", err)
+	}
+	testutil.AssertPOSIXPermissions(t, info, 0o600)
+	directoryInfo, err := os.Stat(atlasScreenshotDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.AssertPOSIXPermissions(t, directoryInfo, 0o755)
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := downloadAtlasScreenshot(server.URL+"/screen.png", map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.AssertPOSIXPermissions(t, info, 0o600)
+}
+
+func TestDownloadAtlasScreenshotRejectsCachedSymlink(t *testing.T) {
+	previousDir := atlasScreenshotDir
+	atlasScreenshotDir = t.TempDir()
+	t.Cleanup(func() { atlasScreenshotDir = previousDir })
+
+	rawURL := "https://example.com/screen.png"
+	sum := sha256.Sum256([]byte(rawURL))
+	cachePath := filepath.Join(
+		atlasScreenshotDir,
+		fmt.Sprintf("atlas-%x.png", sum[:16]),
+	)
+	outsidePath := filepath.Join(t.TempDir(), "outside.png")
+	if err := os.WriteFile(outsidePath, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePath, cachePath); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+
+	if _, err := downloadAtlasScreenshot(rawURL, map[string]string{}); err == nil {
+		t.Fatal("expected cached symlink to be rejected")
+	}
+	contents, err := os.ReadFile(outsidePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "outside" {
+		t.Fatalf("outside contents = %q", contents)
+	}
+	info, err := os.Stat(outsidePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.AssertPOSIXPermissions(t, info, 0o644)
+}
+
+func TestAtlasScreenshotDirectoryPreservesExistingPermissions(t *testing.T) {
+	for _, currentDirectory := range []bool{false, true} {
+		t.Run(fmt.Sprintf("current_directory=%t", currentDirectory), func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Chmod(dir, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.Stat(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			previousDir := atlasScreenshotDir
+			t.Cleanup(func() { atlasScreenshotDir = previousDir })
+			atlasScreenshotDir = dir
+			if currentDirectory {
+				t.Chdir(dir)
+				atlasScreenshotDir = "."
+			}
+			if err := materializeAtlasScreenshots(map[string]interface{}{}); err != nil {
+				t.Fatal(err)
+			}
+			after, err := os.Stat(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before.Mode() != after.Mode() {
+				t.Fatalf("output directory mode changed from %v to %v", before.Mode(), after.Mode())
+			}
+		})
+	}
+}
+
+func TestAtlasCreatesPrivateScreenshotDirectory(t *testing.T) {
+	previousDir := atlasScreenshotDir
+	t.Cleanup(func() { atlasScreenshotDir = previousDir })
+	atlasScreenshotDir = filepath.Join(t.TempDir(), "new", "screenshots")
+	if err := materializeAtlasScreenshots(map[string]interface{}{}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(atlasScreenshotDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.AssertPOSIXPermissions(t, info, 0o700)
+}
+
+func TestAtlasScreenshotCacheHandlesLegacyNamesAndExpiredURLs(t *testing.T) {
+	var requests atomic.Int32
+	var expired atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		if expired.Load() {
+			response.WriteHeader(http.StatusForbidden)
+			return
+		}
+		response.Header().Set("Content-Type", "image/png")
+		_, _ = response.Write([]byte("current screenshot"))
+	}))
+	defer server.Close()
+	previousDir := atlasScreenshotDir
+	t.Cleanup(func() { atlasScreenshotDir = previousDir })
+	atlasScreenshotDir = t.TempDir()
+	rawURL := server.URL + "/screen.png"
+	legacyHash := sha1.Sum([]byte(rawURL)) // #nosec G401 -- fixture for the previous cache filename
+	legacyPath := filepath.Join(atlasScreenshotDir, fmt.Sprintf("atlas-%x.png", legacyHash[:8]))
+	if err := os.WriteFile(legacyPath, []byte("legacy screenshot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path, err := downloadAtlasScreenshot(rawURL, map[string]string{})
+	if err != nil || path == legacyPath || requests.Load() != 1 {
+		t.Fatalf("legacy cache upgrade: path=%s requests=%d error=%v", path, requests.Load(), err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "current screenshot" {
+		t.Fatalf("downloaded screenshot = %q, error=%v", data, err)
+	}
+	expired.Store(true)
+	cachedPath, err := downloadAtlasScreenshot(rawURL, map[string]string{})
+	if err != nil || cachedPath != path || requests.Load() != 1 {
+		t.Fatalf("expired URL cache hit: path=%s requests=%d error=%v", cachedPath, requests.Load(), err)
+	}
+	if _, err := downloadAtlasScreenshot(server.URL+"/uncached.png", map[string]string{}); err == nil {
+		t.Fatal("expected uncached expired URL to fail")
+	}
+	data, err = os.ReadFile(legacyPath)
+	if err != nil || string(data) != "legacy screenshot" {
+		t.Fatalf("legacy screenshot changed: contents=%q error=%v", data, err)
 	}
 }
 

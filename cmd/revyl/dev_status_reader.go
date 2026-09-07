@@ -5,9 +5,7 @@ import (
 	"os"
 )
 
-// readDevStatusFile reads one status snapshot through the platform-specific
-// opener so atomic replacements remain safe while readers are active.
-func readDevStatusFile(statusPath string) ([]byte, error) {
+func readDevStatusFile(statusPath privateRuntimePath) ([]byte, error) {
 	statusFile, err := openDevStatusFile(statusPath)
 	if err != nil {
 		return nil, err
@@ -16,7 +14,12 @@ func readDevStatusFile(statusPath string) ([]byte, error) {
 
 	data, err := io.ReadAll(statusFile)
 	if err != nil {
-		return nil, &os.PathError{Op: "read", Path: statusPath, Err: err}
+		return nil, &os.PathError{Op: "read", Path: statusPath.String(), Err: err}
 	}
 	return data, nil
+}
+
+// os.Root opens Windows files with FILE_SHARE_DELETE so writers can replace an active snapshot.
+func openDevStatusFile(statusPath privateRuntimePath) (*os.File, error) {
+	return openOrCreateManagedRuntimeFile(statusPath, os.O_RDONLY)
 }

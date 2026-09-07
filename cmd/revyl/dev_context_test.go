@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/revyl/cli/internal/testutil"
 )
 
 func setupTestRepo(t *testing.T) string {
@@ -165,6 +167,53 @@ func TestDevContext_RoundTrip(t *testing.T) {
 	if loaded.PID != original.PID {
 		t.Fatalf("PID = %d, want %d", loaded.PID, original.PID)
 	}
+	for _, path := range []string{
+		filepath.Join(root, ".revyl", devContextsDir),
+		devCtxDir(root, original.Name),
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		testutil.AssertPOSIXPermissions(t, info, 0o700)
+	}
+	contextInfo, err := os.Stat(filepath.Join(devCtxDir(root, original.Name), devContextMetaFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.AssertPOSIXPermissions(t, contextInfo, 0o600)
+}
+
+func TestLoadDevContextPreservesExistingPermissions(t *testing.T) {
+	root := setupTestRepo(t)
+	contextDir := devCtxDir(root, "legacy")
+	if err := os.MkdirAll(contextDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	contextPath := filepath.Join(contextDir, devContextMetaFile)
+	if err := os.WriteFile(contextPath, []byte(`{"name":"legacy"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(contextDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(contextPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := loadDevContext(root, "legacy"); err != nil {
+		t.Fatal(err)
+	}
+	directoryInfo, err := os.Stat(contextDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileInfo, err := os.Stat(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.AssertPOSIXPermissions(t, directoryInfo, 0o755)
+	testutil.AssertPOSIXPermissions(t, fileInfo, 0o644)
 }
 
 func TestLoadDevContext_NotFound(t *testing.T) {
@@ -241,11 +290,11 @@ func TestDevCtxPIDFile_RoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "dev.pid")
 	nonce := time.Now().UnixNano()
 
-	if err := writeDevCtxPIDFile(path, 42, nonce); err != nil {
+	if err := writeDevCtxPIDFile(testRuntimePath(path), 42, nonce); err != nil {
 		t.Fatal(err)
 	}
 
-	pid, readNonce := readDevCtxPIDFile(path)
+	pid, readNonce := readDevCtxPIDFile(testRuntimePath(path))
 	if pid != 42 {
 		t.Fatalf("pid = %d, want 42", pid)
 	}
@@ -259,7 +308,7 @@ func TestDevCtxPIDFile_BackwardCompatible(t *testing.T) {
 	path := filepath.Join(dir, "dev.pid")
 	_ = os.WriteFile(path, []byte("12345"), 0644)
 
-	pid, nonce := readDevCtxPIDFile(path)
+	pid, nonce := readDevCtxPIDFile(testRuntimePath(path))
 	if pid != 12345 {
 		t.Fatalf("pid = %d, want 12345", pid)
 	}
@@ -269,7 +318,7 @@ func TestDevCtxPIDFile_BackwardCompatible(t *testing.T) {
 }
 
 func TestDevCtxPIDFile_Missing(t *testing.T) {
-	pid, nonce := readDevCtxPIDFile("/nonexistent/dev.pid")
+	pid, nonce := readDevCtxPIDFile(privateRuntimePath{t.TempDir(), "missing/dev.pid"})
 	if pid != 0 || nonce != 0 {
 		t.Fatalf("expected (0, 0) for missing file, got (%d, %d)", pid, nonce)
 	}
@@ -283,9 +332,9 @@ func TestIsDevCtxProcessAlive_OwnProcess(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dev.pid")
 	nonce := time.Now().UnixNano()
-	_ = writeDevCtxPIDFile(path, os.Getpid(), nonce)
+	_ = writeDevCtxPIDFile(testRuntimePath(path), os.Getpid(), nonce)
 
-	alive, err := isDevCtxProcessAlive(os.Getpid(), nonce, path)
+	alive, err := isDevCtxProcessAlive(os.Getpid(), nonce, testRuntimePath(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,9 +346,9 @@ func TestIsDevCtxProcessAlive_OwnProcess(t *testing.T) {
 func TestIsDevCtxProcessAlive_NonceMismatch(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dev.pid")
-	_ = writeDevCtxPIDFile(path, os.Getpid(), 111)
+	_ = writeDevCtxPIDFile(testRuntimePath(path), os.Getpid(), 111)
 
-	alive, _ := isDevCtxProcessAlive(os.Getpid(), 222, path)
+	alive, _ := isDevCtxProcessAlive(os.Getpid(), 222, testRuntimePath(path))
 	if alive {
 		t.Fatal("expected alive=false when nonce mismatches")
 	}
@@ -308,9 +357,9 @@ func TestIsDevCtxProcessAlive_NonceMismatch(t *testing.T) {
 func TestIsDevCtxProcessAlive_DeadPID(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dev.pid")
-	_ = writeDevCtxPIDFile(path, 999999999, 111)
+	_ = writeDevCtxPIDFile(testRuntimePath(path), 999999999, 111)
 
-	alive, _ := isDevCtxProcessAlive(999999999, 111, path)
+	alive, _ := isDevCtxProcessAlive(999999999, 111, testRuntimePath(path))
 	if alive {
 		t.Fatal("expected alive=false for dead PID")
 	}
@@ -736,7 +785,7 @@ func TestLoadDevContextTunnel_RunningContext(t *testing.T) {
 
 	nonce := time.Now().UnixNano()
 	pidPath := devCtxPIDPath(root, "live-tunnel")
-	dir := filepath.Dir(pidPath)
+	dir := filepath.Dir(pidPath.String())
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}

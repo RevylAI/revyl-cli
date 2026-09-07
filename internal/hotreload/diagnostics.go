@@ -1268,7 +1268,12 @@ func probeWebSocketUpgradePath(hostPort string, useTLS bool, path string) error 
 	dialer := &net.Dialer{Timeout: diagnosticHTTPTimeout}
 	var conn net.Conn
 	if useTLS {
-		conn, err = tls.DialWithDialer(dialer, "tcp", hostPort, &tls.Config{ServerName: host})
+		conn, err = tls.DialWithDialer(
+			dialer,
+			"tcp",
+			hostPort,
+			webSocketDiagnosticTLSConfig(host),
+		)
 	} else {
 		conn, err = dialer.Dial("tcp", hostPort)
 	}
@@ -1310,4 +1315,11 @@ func probeWebSocketUpgradePath(hostPort string, useTLS bool, path string) error 
 		return fmt.Errorf("unexpected response: %s", statusLine)
 	}
 	return nil
+}
+
+func webSocketDiagnosticTLSConfig(host string) *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		ServerName: host,
+	}
 }

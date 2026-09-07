@@ -7,6 +7,7 @@ package mcp
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -30,6 +31,7 @@ import (
 	startdevice "github.com/revyl/cli/internal/device"
 	"github.com/revyl/cli/internal/launcharguments"
 	"github.com/revyl/cli/internal/launchvars"
+	"github.com/revyl/cli/internal/privatefs"
 	"github.com/revyl/cli/internal/ui"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -1013,34 +1015,51 @@ func (m *DeviceSessionManager) LoadAnchorImage(index int, screenToken string) ([
 	if strings.TrimSpace(path) == "" {
 		return nil, "", fmt.Errorf("no image data available for anchor")
 	}
-	data, err := os.ReadFile(path)
+	root := m.artifactRootDirectory()
+	relativePath, err := filepath.Rel(root, path)
 	if err != nil {
 		return nil, path, err
 	}
-	return data, path, nil
+	directoryRoot, err := privatefs.OpenDirectory(root, filepath.Dir(relativePath))
+	if err != nil {
+		return nil, path, err
+	}
+	defer func() { _ = directoryRoot.Close() }()
+	data, err := directoryRoot.ReadFile(filepath.Base(relativePath))
+	return data, path, err
 }
 
-// writePNGArtifact writes bytes to a deterministic location under .revyl/mcp.
-func (m *DeviceSessionManager) writePNGArtifact(relDir, fileName string, imageBytes []byte) (string, error) {
-	root := m.workDir
-	if strings.TrimSpace(root) == "" {
-		root = os.TempDir()
+func (m *DeviceSessionManager) artifactRootDirectory() string {
+	if strings.TrimSpace(m.workDir) == "" {
+		return os.TempDir()
 	}
-	dir := filepath.Join(root, ".revyl", "mcp", relDir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
+	return m.workDir
+}
 
-	finalPath := filepath.Join(dir, fileName)
-	tmpPath := finalPath + ".tmp"
-	if err := os.WriteFile(tmpPath, imageBytes, 0o600); err != nil {
+func (m *DeviceSessionManager) writePNGArtifact(relDir, fileName string, imageBytes []byte) (string, error) {
+	root := m.artifactRootDirectory()
+	directoryRoot, err := privatefs.CreateDirectory(root, filepath.Join(".revyl", "mcp", relDir))
+	if err != nil {
 		return "", err
 	}
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		_ = os.Remove(tmpPath)
+	defer func() { _ = directoryRoot.Close() }()
+
+	tmpName := fileName + "." + rand.Text() + ".tmp"
+	file, err := directoryRoot.OpenFile(tmpName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
 		return "", err
 	}
-	return finalPath, nil
+	defer func() { _ = directoryRoot.Remove(tmpName) }()
+	if _, err := file.Write(imageBytes); err != nil {
+		return "", errors.Join(err, file.Close())
+	}
+	if err := file.Close(); err != nil {
+		return "", err
+	}
+	if err := directoryRoot.Rename(tmpName, fileName); err != nil {
+		return "", err
+	}
+	return filepath.Join(root, ".revyl", "mcp", relDir, fileName), nil
 }
 
 // stopSessionAtIndexLocked stops a specific session without acquiring the lock.
@@ -1509,8 +1528,8 @@ func writeFileAtomic(path string, data []byte) error {
 	}
 	tmpPath := tmp.Name()
 	defer func() {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 	}()
 
 	if _, err := tmp.Write(data); err != nil {

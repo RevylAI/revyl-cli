@@ -1,7 +1,7 @@
 package main
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -472,7 +472,7 @@ func materializeAtlasScreenshots(value interface{}) error {
 	if strings.TrimSpace(atlasScreenshotDir) == "" {
 		return nil
 	}
-	if err := os.MkdirAll(atlasScreenshotDir, 0o755); err != nil {
+	if err := os.MkdirAll(atlasScreenshotDir, 0o700); err != nil {
 		return err
 	}
 	seen := map[string]string{}
@@ -516,11 +516,13 @@ func downloadAtlasScreenshot(rawURL string, seen map[string]string) (string, err
 	if path, ok := seen[rawURL]; ok {
 		return path, nil
 	}
-	sum := sha1.Sum([]byte(rawURL))
+	sum := sha256.Sum256([]byte(rawURL))
 	initialExt := atlasScreenshotExtension(rawURL, "")
-	filename := fmt.Sprintf("atlas-%x%s", sum[:8], initialExt)
+	filename := fmt.Sprintf("atlas-%x%s", sum[:16], initialExt)
 	path := filepath.Join(atlasScreenshotDir, filename)
-	if _, err := os.Stat(path); err == nil {
+	if cached, err := tightenExistingPrivateRuntimeFile(path); err != nil {
+		return "", fmt.Errorf("prepare cached Atlas screenshot: %w", err)
+	} else if cached {
 		seen[rawURL] = path
 		return path, nil
 	}
@@ -535,9 +537,11 @@ func downloadAtlasScreenshot(rawURL string, seen map[string]string) (string, err
 	}
 	finalExt := atlasScreenshotExtension(rawURL, resp.Header.Get("Content-Type"))
 	if finalExt != initialExt {
-		filename = fmt.Sprintf("atlas-%x%s", sum[:8], finalExt)
+		filename = fmt.Sprintf("atlas-%x%s", sum[:16], finalExt)
 		path = filepath.Join(atlasScreenshotDir, filename)
-		if _, err := os.Stat(path); err == nil {
+		if cached, err := tightenExistingPrivateRuntimeFile(path); err != nil {
+			return "", fmt.Errorf("prepare cached Atlas screenshot: %w", err)
+		} else if cached {
 			seen[rawURL] = path
 			return path, nil
 		}
@@ -549,7 +553,7 @@ func downloadAtlasScreenshot(rawURL string, seen map[string]string) (string, err
 	if len(contents) > 20<<20 {
 		return "", fmt.Errorf("download screenshot: response exceeds 20 MiB")
 	}
-	if err := os.WriteFile(path, contents, 0o600); err != nil {
+	if err := writePrivateRuntimeFile(path, contents); err != nil {
 		return "", err
 	}
 	seen[rawURL] = path

@@ -10,8 +10,8 @@ import (
 )
 
 func TestOpenDevStatusFileAllowsAtomicReplacementWhileOpen(t *testing.T) {
-	statusPath := filepath.Join(t.TempDir(), ".dev-status.json")
-	if err := os.WriteFile(statusPath, []byte("old"), 0644); err != nil {
+	statusPath := testRuntimePath(filepath.Join(t.TempDir(), ".dev-status.json"))
+	if err := os.WriteFile(statusPath.String(), []byte("old"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -21,7 +21,7 @@ func TestOpenDevStatusFileAllowsAtomicReplacementWhileOpen(t *testing.T) {
 	}
 	defer openSnapshot.Close()
 
-	if err := writeDevStatusFile(statusPath, []byte("new"), 0644); err != nil {
+	if err := writeDevStatusFile(statusPath, []byte("new")); err != nil {
 		t.Fatalf("writeDevStatusFile() with active reader error = %v", err)
 	}
 

@@ -219,7 +219,7 @@ func TestDevStatusRemoteBuildProgressSinkPreservesRemoteMetadata(t *testing.T) {
 		State: devloop.BuildStateInstalling, Phase: "device_install", Message: "Installing remote build on device",
 	})
 
-	data, err := os.ReadFile(statusPath)
+	data, err := os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestInstallAndLaunchRemoteDevBuildPublishesDeviceProgress(t *testing.T) {
 			duration:  time.Second,
 		},
 		&bundleID,
-		filepath.Join(t.TempDir(), "status.json"),
+		testRuntimePath(filepath.Join(t.TempDir(), "status.json")),
 		"https://example.test/viewer",
 		func(update remoteDevBuildProgress) {
 			progress = append(progress, update)

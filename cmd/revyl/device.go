@@ -1050,7 +1050,7 @@ var deviceScreenshotCmd = &cobra.Command{
 		}
 		out, _ := cmd.Flags().GetString("out")
 		if out != "" {
-			if err := os.WriteFile(out, imgBytes, 0o644); err != nil {
+			if err := writePrivateRuntimeFile(out, imgBytes); err != nil {
 				return err
 			}
 			jsonOrPrint(cmd, map[string]string{"path": out, "bytes": fmt.Sprintf("%d", len(imgBytes))}, fmt.Sprintf("Screenshot saved: %s", out))
@@ -1079,7 +1079,7 @@ var deviceHierarchyCmd = &cobra.Command{
 		}
 		out, _ := cmd.Flags().GetString("out")
 		if out != "" {
-			if err := os.WriteFile(out, respBytes, 0o644); err != nil {
+			if err := writePrivateRuntimeFile(out, respBytes); err != nil {
 				return err
 			}
 			jsonOrPrint(cmd, map[string]string{"path": out, "bytes": fmt.Sprintf("%d", len(respBytes))}, fmt.Sprintf("Hierarchy saved: %s (%d bytes)", out, len(respBytes)))

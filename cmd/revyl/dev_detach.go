@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -122,8 +123,8 @@ func projectDetachArgs(args []string, invocation projectDevInvocation) []string 
 	return append(result, "--profile", invocation.Profile, "--platform", invocation.Platform)
 }
 
-func devDetachLogPath(cwd string) string {
-	return filepath.Join(cwd, ".revyl", devContextsDir, devDetachContextFile)
+func devDetachLogPath(cwd string) privateRuntimePath {
+	return privateRuntimePath{cwd, filepath.Join(".revyl", devContextsDir, devDetachContextFile)}
 }
 
 // spawnDetachedDevLoop re-execs the current invocation as a background
@@ -145,18 +146,24 @@ func spawnDetachedDevLoopWithArgs(cmd *cobra.Command, cwd string, childArgs []st
 	}
 
 	logPath := devDetachLogPath(cwd)
-	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
-		return fmt.Errorf("failed to create dev context directory: %w", err)
-	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFile, err := openOrCreateManagedRuntimeFile(
+		logPath,
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to open detach log %s: %w", logPath, err)
+	}
+	if err := logFile.Chmod(0o600); err != nil {
+		return errors.Join(
+			fmt.Errorf("failed to make detach log private: %w", err),
+			logFile.Close(),
+		)
 	}
 	defer logFile.Close()
 	_, _ = fmt.Fprintf(logFile, "\n--- revyl dev detached %s ---\n", time.Now().UTC().Format(time.RFC3339))
 
 	args := append(childArgs, "--no-open")
-	child := exec.Command(exe, args...)
+	child := exec.Command(exe, args...) // #nosec G204 -- exe is the current Revyl binary
 	child.Dir = cwd
 	child.Env = append(os.Environ(), devDetachedEnv+"=1")
 	child.Stdout = logFile
@@ -210,13 +217,13 @@ func spawnDetachedDevLoopWithArgs(cmd *cobra.Command, cwd string, childArgs []st
 // emitDetachFailure reports a detach failure. In --json mode it emits a
 // structured object on stdout (with the log tail so the agent never has to
 // find the internal detach log); the returned error keeps a non-zero exit.
-func emitDetachFailure(cwd, code, message, logPath string) error {
+func emitDetachFailure(cwd, code, message string, logPath privateRuntimePath) error {
 	if devStartJSON {
 		payload := map[string]interface{}{
 			"ok":       false,
 			"code":     code,
 			"message":  message,
-			"log_path": logPath,
+			"log_path": logPath.String(),
 			"log_tail": detachLogTailLines(logPath, devDetachLogTailOnFail),
 		}
 		data, _ := json.MarshalIndent(payload, "", "  ")
@@ -227,7 +234,7 @@ func emitDetachFailure(cwd, code, message, logPath string) error {
 
 // detachRootCauseFromLog extracts the last error-looking line from the detach
 // log so the real failure surfaces in CLI output instead of only in the file.
-func detachRootCauseFromLog(logPath string) string {
+func detachRootCauseFromLog(logPath privateRuntimePath) string {
 	lines := detachLogTailLines(logPath, devDetachLogTailOnFail)
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
@@ -240,8 +247,8 @@ func detachRootCauseFromLog(logPath string) string {
 	return ""
 }
 
-func detachLogTailLines(logPath string, max int) []string {
-	data, err := os.ReadFile(logPath)
+func detachLogTailLines(logPath privateRuntimePath, max int) []string {
+	data, err := readManagedRuntimeFile(logPath)
 	if err != nil {
 		return nil
 	}
@@ -266,7 +273,7 @@ func findDevContextByPID(cwd string, pid int) *DevContext {
 	return nil
 }
 
-func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, logPath string) {
+func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, logPath privateRuntimePath) {
 	handshake := devDetachHandshake{
 		Context:      devCtx.Name,
 		State:        "ready",
@@ -276,7 +283,7 @@ func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, lo
 		SessionID:    devCtx.SessionID,
 		SessionIndex: devCtx.SessionIndex,
 		ViewerURL:    devCtx.ViewerURL,
-		LogPath:      logPath,
+		LogPath:      logPath.String(),
 	}
 
 	if data, err := readDevStatusFile(devCtxStatusPath(cwd, devCtx.Name)); err == nil {
@@ -322,7 +329,7 @@ func printDetachHandshake(cmd *cobra.Command, cwd string, devCtx *DevContext, lo
 	ui.PrintInfo("Stop with `revyl dev stop`")
 }
 
-func printDetachLogTail(logPath string) {
+func printDetachLogTail(logPath privateRuntimePath) {
 	lines := detachLogTailLines(logPath, devDetachLogTailOnFail)
 	if len(lines) == 0 {
 		return

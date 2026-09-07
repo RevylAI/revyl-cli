@@ -8,7 +8,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +24,7 @@ import (
 	"github.com/revyl/cli/internal/buildselection"
 	"github.com/revyl/cli/internal/config"
 	mcppkg "github.com/revyl/cli/internal/mcp"
+	"github.com/revyl/cli/internal/privatefs"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -97,18 +100,18 @@ func devCtxDir(repoRoot, name string) string {
 }
 
 // devCtxPIDPath returns the PID file path for a context.
-func devCtxPIDPath(repoRoot, name string) string {
-	return filepath.Join(devCtxDir(repoRoot, name), devContextPIDFileName)
+func devCtxPIDPath(repoRoot, name string) privateRuntimePath {
+	return privateRuntimePath{repoRoot, filepath.Join(".revyl", devContextsDir, name, devContextPIDFileName)}
 }
 
 // devCtxStatusPath returns the status file path for a context.
-func devCtxStatusPath(repoRoot, name string) string {
-	return filepath.Join(devCtxDir(repoRoot, name), devContextStatusFile)
+func devCtxStatusPath(repoRoot, name string) privateRuntimePath {
+	return privateRuntimePath{repoRoot, filepath.Join(".revyl", devContextsDir, name, devContextStatusFile)}
 }
 
 // devCtxManifestPath returns the push manifest path for a context.
-func devCtxManifestPath(repoRoot, name string) string {
-	return filepath.Join(devCtxDir(repoRoot, name), devContextManifestFile)
+func devCtxManifestPath(repoRoot, name string) privateRuntimePath {
+	return privateRuntimePath{repoRoot, filepath.Join(".revyl", devContextsDir, name, devContextManifestFile)}
 }
 
 // loadDevContext reads a dev context from disk.
@@ -121,8 +124,11 @@ func devCtxManifestPath(repoRoot, name string) string {
 //   - *DevContext: loaded context, or nil on error
 //   - error: if the file cannot be read or parsed
 func loadDevContext(repoRoot, name string) (*DevContext, error) {
-	path := filepath.Join(devCtxDir(repoRoot, name), devContextMetaFile)
-	data, err := os.ReadFile(path)
+	if err := validateDevContextName(name); err != nil {
+		return nil, err
+	}
+	path := privateRuntimePath{repoRoot, filepath.Join(".revyl", devContextsDir, name, devContextMetaFile)}
+	data, err := readManagedRuntimeFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -142,20 +148,24 @@ func loadDevContext(repoRoot, name string) (*DevContext, error) {
 // Returns:
 //   - error: if the directory cannot be created or the file cannot be written
 func saveDevContext(repoRoot string, ctx *DevContext) error {
-	dir := devCtxDir(repoRoot, ctx.Name)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := validateDevContextName(ctx.Name); err != nil {
 		return err
 	}
+	sessionsRoot, err := privatefs.CreateDirectory(repoRoot, filepath.Join(".revyl", devContextsDir))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = sessionsRoot.Close() }()
+	contextRoot, err := privatefs.CreateDirectoryInRoot(sessionsRoot, ctx.Name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = contextRoot.Close() }()
 	data, err := json.MarshalIndent(ctx, "", "  ")
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, devContextMetaFile)
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
+	return writeDevStatusFileInRoot(contextRoot, devContextMetaFile, data)
 }
 
 // listDevContexts returns all dev contexts in the worktree, sorted by name.
@@ -168,8 +178,15 @@ func saveDevContext(repoRoot string, ctx *DevContext) error {
 //   - []*DevContext: sorted list of contexts (empty slice if none)
 //   - error: if the directory cannot be read (os.IsNotExist returns nil, nil)
 func listDevContexts(repoRoot string) ([]*DevContext, error) {
-	dir := filepath.Join(repoRoot, ".revyl", devContextsDir)
-	entries, err := os.ReadDir(dir)
+	root, err := privatefs.OpenDirectory(repoRoot, filepath.Join(".revyl", devContextsDir))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	entries, err := fs.ReadDir(root.FS(), ".")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -437,8 +454,8 @@ func slugDevContextPart(value string) string {
 
 // readCurrentDevContext reads the current-context marker file.
 func readCurrentDevContext(repoRoot string) (string, error) {
-	path := filepath.Join(repoRoot, ".revyl", devContextsDir, devContextCurrentFile)
-	data, err := os.ReadFile(path)
+	path := privateRuntimePath{repoRoot, filepath.Join(".revyl", devContextsDir, devContextCurrentFile)}
+	data, err := readManagedRuntimeFile(path)
 	if err != nil {
 		return "", err
 	}
@@ -454,12 +471,11 @@ func readCurrentDevContext(repoRoot string) (string, error) {
 // Returns:
 //   - error: if the marker cannot be written
 func setCurrentDevContext(repoRoot, name string) error {
-	dir := filepath.Join(repoRoot, ".revyl", devContextsDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := validateDevContextName(name); err != nil {
 		return err
 	}
-	path := filepath.Join(dir, devContextCurrentFile)
-	return os.WriteFile(path, []byte(name+"\n"), 0644)
+	path := privateRuntimePath{repoRoot, filepath.Join(".revyl", devContextsDir, devContextCurrentFile)}
+	return writeManagedRuntimeFile(path, []byte(name+"\n"))
 }
 
 // isDevCtxProcessAlive checks if a PID belongs to the dev loop that wrote it.
@@ -474,7 +490,7 @@ func setCurrentDevContext(repoRoot, name string) error {
 // Returns:
 //   - bool: true if the process is alive AND the nonce matches
 //   - error: from os.FindProcess or Signal
-func isDevCtxProcessAlive(pid int, startedAtNano int64, pidFilePath string) (bool, error) {
+func isDevCtxProcessAlive(pid int, startedAtNano int64, pidFilePath privateRuntimePath) (bool, error) {
 	if pid <= 0 {
 		return false, nil
 	}
@@ -493,15 +509,27 @@ func isDevCtxProcessAlive(pid int, startedAtNano int64, pidFilePath string) (boo
 
 // writeDevCtxPIDFile writes a PID file with a start-time nonce.
 // Format: "<pid> <unix_nano_nonce>\n"
-func writeDevCtxPIDFile(path string, pid int, nonce int64) error {
-	content := fmt.Sprintf("%d %d", pid, nonce)
-	return os.WriteFile(path, []byte(content), 0644)
+func writeDevCtxPIDFile(path privateRuntimePath, pid int, nonce int64) error {
+	root, err := path.openOrCreateDirectory(true)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return writeDevCtxPIDFileInRoot(root, filepath.Base(path.relativePath), pid, nonce)
+}
+
+func writeDevCtxPIDFileInRoot(root *os.Root, name string, pid int, nonce int64) error {
+	file, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	return writeAndClosePrivateFile(file, []byte(fmt.Sprintf("%d %d", pid, nonce)))
 }
 
 // readDevCtxPIDFile reads a PID file, returning the PID and optional nonce.
 // Backward-compatible with old single-PID format.
-func readDevCtxPIDFile(path string) (pid int, nonce int64) {
-	data, err := os.ReadFile(path)
+func readDevCtxPIDFile(path privateRuntimePath) (pid int, nonce int64) {
+	data, err := readManagedRuntimeFile(path)
 	if err != nil {
 		return 0, 0
 	}
@@ -651,7 +679,7 @@ func loadDevContextTunnel(repoRoot, ctxName string) (tunnelURL, deepLinkURL stri
 //   - repoRoot: worktree root
 //   - ctxName: context name
 func forceCleanupDevContext(repoRoot, ctxName string) {
-	_ = os.Remove(devCtxPIDPath(repoRoot, ctxName))
+	_ = removeManagedRuntimeFile(devCtxPIDPath(repoRoot, ctxName))
 	if ctx, err := loadDevContext(repoRoot, ctxName); err == nil {
 		ctx.State = devContextStateStopped
 		ctx.PID = 0

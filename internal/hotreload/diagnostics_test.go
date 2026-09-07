@@ -3,6 +3,7 @@ package hotreload
 import (
 	"context"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,16 @@ import (
 	"testing"
 	"time"
 )
+
+func TestWebSocketDiagnosticTLSRequiresTLS12(t *testing.T) {
+	config := webSocketDiagnosticTLSConfig("relay.example.test")
+	if config.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("MinVersion = %d, want TLS 1.2", config.MinVersion)
+	}
+	if config.ServerName != "relay.example.test" {
+		t.Fatalf("ServerName = %q", config.ServerName)
+	}
+}
 
 func withDiagnosticProbeTimeouts(t *testing.T, fastTimeout, manifestTimeout time.Duration) {
 	t.Helper()

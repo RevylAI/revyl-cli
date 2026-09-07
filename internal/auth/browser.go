@@ -270,8 +270,9 @@ func (s *callbackServer) Start() error {
 	mux.HandleFunc("/callback", s.handleCallback)
 
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf("127.0.0.1:%d", s.port),
-		Handler: mux,
+		Addr:              fmt.Sprintf("127.0.0.1:%d", s.port),
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	s.wg.Add(1)

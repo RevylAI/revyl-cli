@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/revyl/cli/internal/testutil"
 )
 
 func TestBuildManifest(t *testing.T) {
@@ -171,11 +173,11 @@ func TestSaveLoadManifest(t *testing.T) {
 		},
 	}
 
-	if err := SaveManifest(m, path); err != nil {
+	if err := SaveManifest(m, filepath.Dir(path), filepath.Base(path)); err != nil {
 		t.Fatalf("SaveManifest: %v", err)
 	}
 
-	loaded, err := LoadManifest(path)
+	loaded, err := LoadManifest(filepath.Dir(path), filepath.Base(path))
 	if err != nil {
 		t.Fatalf("LoadManifest: %v", err)
 	}
@@ -188,7 +190,7 @@ func TestSaveLoadManifest(t *testing.T) {
 }
 
 func TestLoadManifest_Missing(t *testing.T) {
-	m, err := LoadManifest("/nonexistent/path")
+	m, err := LoadManifest(t.TempDir(), "nonexistent/path")
 	if err != nil {
 		t.Fatalf("expected nil error for missing file, got %v", err)
 	}
@@ -278,6 +280,25 @@ func TestLargeDeltaFallback(t *testing.T) {
 	if size < 20*1024*1024 {
 		t.Fatalf("expected size > 20MB, got %d", size)
 	}
+}
+
+func TestSaveManifestUsesPrivatePermissions(t *testing.T) {
+	manifestPath := filepath.Join(t.TempDir(), "manifest.json")
+	if err := os.WriteFile(manifestPath+".tmp", []byte("legacy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(manifestPath+".tmp", 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := &AppManifest{Files: map[string]ManifestEntry{}}
+	if err := SaveManifest(manifest, filepath.Dir(manifestPath), filepath.Base(manifestPath)); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.AssertPOSIXPermissions(t, info, 0o600)
 }
 
 func TestParseXcodeBuildErrors(t *testing.T) {

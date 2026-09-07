@@ -1548,7 +1548,7 @@ func TestWaitForDevRebuildCompletion_IgnoresRunningSnapshot(t *testing.T) {
 	devRebuildPollInterval = time.Millisecond
 	t.Cleanup(func() { devRebuildPollInterval = previousInterval })
 
-	statusPath := filepath.Join(t.TempDir(), "status.json")
+	statusPath := testRuntimePath(filepath.Join(t.TempDir(), "status.json"))
 	writeDevStatusSnapshot(statusPath, devStatus{
 		LastRebuild: &devRebuildInfo{
 			Seq:         3,
@@ -1637,7 +1637,7 @@ func TestWaitForDevRebuildCompletion_TimesOut(t *testing.T) {
 	devRebuildPollInterval = time.Millisecond
 	t.Cleanup(func() { devRebuildPollInterval = previousInterval })
 
-	statusPath := filepath.Join(t.TempDir(), "status.json")
+	statusPath := testRuntimePath(filepath.Join(t.TempDir(), "status.json"))
 	writeDevStatusSnapshot(statusPath, devStatus{
 		LastRebuild: &devRebuildInfo{
 			Seq:    2,
@@ -1757,7 +1757,7 @@ func TestWaitForDevRebuildCompletionReturnsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	rebuild, err := waitForDevRebuildCompletion(ctx, filepath.Join(t.TempDir(), "status.json"), 0, time.Second)
+	rebuild, err := waitForDevRebuildCompletion(ctx, testRuntimePath(filepath.Join(t.TempDir(), "status.json")), 0, time.Second)
 
 	if rebuild != nil {
 		t.Fatalf("cancelled rebuild = %#v, want nil", rebuild)
@@ -1771,7 +1771,7 @@ func TestWaitForExpectedDevRebuildCompletionReturnsExistingTerminalResult(t *tes
 	previousInterval := devRebuildPollInterval
 	devRebuildPollInterval = time.Millisecond
 	t.Cleanup(func() { devRebuildPollInterval = previousInterval })
-	statusPath := filepath.Join(t.TempDir(), "status.json")
+	statusPath := testRuntimePath(filepath.Join(t.TempDir(), "status.json"))
 	writeDevStatusSnapshot(statusPath, devStatus{
 		Build: &devloop.BuildStatus{State: devloop.BuildStateSuccess},
 		LastRebuild: &devRebuildInfo{
@@ -1801,7 +1801,7 @@ func TestWaitForExpectedDevRebuildCompletionReturnsRetainedResultAfterNextRebuil
 	previousInterval := devRebuildPollInterval
 	devRebuildPollInterval = time.Millisecond
 	t.Cleanup(func() { devRebuildPollInterval = previousInterval })
-	statusPath := filepath.Join(t.TempDir(), "status.json")
+	statusPath := testRuntimePath(filepath.Join(t.TempDir(), "status.json"))
 	session := &mcppkg.DeviceSession{SessionID: "session-1"}
 	writeDevStatus(
 		statusPath,
@@ -1848,7 +1848,7 @@ func TestWaitForExpectedDevRebuildCompletionRejectsSupersededHandle(t *testing.T
 	previousInterval := devRebuildPollInterval
 	devRebuildPollInterval = time.Millisecond
 	t.Cleanup(func() { devRebuildPollInterval = previousInterval })
-	statusPath := filepath.Join(t.TempDir(), "status.json")
+	statusPath := testRuntimePath(filepath.Join(t.TempDir(), "status.json"))
 	writeDevStatusSnapshot(statusPath, devStatus{
 		LastRebuild: &devRebuildInfo{
 			Seq:         8,
@@ -2020,7 +2020,7 @@ func TestDevRebuildTerminalError(t *testing.T) {
 
 func TestWriteDevStatus_Success(t *testing.T) {
 	dir := t.TempDir()
-	statusPath := dir + "/status.json"
+	statusPath := testRuntimePath(dir + "/status.json")
 
 	session := &mcppkg.DeviceSession{
 		SessionID: "sess-123",
@@ -2051,7 +2051,7 @@ func TestWriteDevStatus_Success(t *testing.T) {
 		result,
 	)
 
-	data, err := os.ReadFile(statusPath)
+	data, err := os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -2106,7 +2106,7 @@ func TestWriteDevStatus_Success(t *testing.T) {
 }
 
 func TestWriteDevStatus_PreservesSeedMetadata(t *testing.T) {
-	statusPath := filepath.Join(t.TempDir(), "status.json")
+	statusPath := testRuntimePath(filepath.Join(t.TempDir(), "status.json"))
 	session := &mcppkg.DeviceSession{SessionID: "sess-seeded"}
 
 	writeDevStatusRemoteBuildRunning(
@@ -2134,7 +2134,7 @@ func TestWriteDevStatus_PreservesSeedMetadata(t *testing.T) {
 	)
 
 	var completed devStatus
-	data, err := os.ReadFile(statusPath)
+	data, err := os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2158,7 +2158,7 @@ func TestWriteDevStatus_PreservesSeedMetadata(t *testing.T) {
 		"ios-dev",
 	)
 	var rebuilding devStatus
-	data, err = os.ReadFile(statusPath)
+	data, err = os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2184,7 +2184,7 @@ func TestWriteDevStatusRemoteBuildRunningPreservesLegacyValues(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			statusPath := filepath.Join(t.TempDir(), "status.json")
+			statusPath := testRuntimePath(filepath.Join(t.TempDir(), "status.json"))
 			writeDevStatusRemoteBuildRunning(
 				statusPath,
 				&mcppkg.DeviceSession{SessionID: "session-1"},
@@ -2197,7 +2197,7 @@ func TestWriteDevStatusRemoteBuildRunningPreservesLegacyValues(t *testing.T) {
 				false,
 			)
 
-			data, err := os.ReadFile(statusPath)
+			data, err := os.ReadFile(statusPath.String())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2230,7 +2230,7 @@ func TestSetDevStatusBuildProgressPreservesLoopState(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			statusPath := filepath.Join(t.TempDir(), "status.json")
+			statusPath := testRuntimePath(filepath.Join(t.TempDir(), "status.json"))
 			writeDevStatusSnapshot(statusPath, devStatus{
 				State: "building",
 				Build: &devloop.BuildStatus{State: devloop.BuildStateBuilding},
@@ -2241,7 +2241,7 @@ func TestSetDevStatusBuildProgressPreservesLoopState(t *testing.T) {
 
 			setDevStatusBuildProgress(statusPath, test.state, test.phase, "Build progress")
 
-			data, err := os.ReadFile(statusPath)
+			data, err := os.ReadFile(statusPath.String())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2260,7 +2260,7 @@ func TestSetDevStatusBuildProgressPreservesLoopState(t *testing.T) {
 }
 
 func TestWriteDevStatus_DoesNotCarrySeedToDifferentSession(t *testing.T) {
-	statusPath := filepath.Join(t.TempDir(), "status.json")
+	statusPath := testRuntimePath(filepath.Join(t.TempDir(), "status.json"))
 	writeDevStatusSnapshot(statusPath, devStatus{
 		PID:            os.Getpid(),
 		SessionID:      "old-session",
@@ -2285,7 +2285,7 @@ func TestWriteDevStatus_DoesNotCarrySeedToDifferentSession(t *testing.T) {
 	)
 
 	var status devStatus
-	data, err := os.ReadFile(statusPath)
+	data, err := os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2299,7 +2299,7 @@ func TestWriteDevStatus_DoesNotCarrySeedToDifferentSession(t *testing.T) {
 
 func TestWriteDevStatusRebuildStarted(t *testing.T) {
 	dir := t.TempDir()
-	statusPath := dir + "/status.json"
+	statusPath := testRuntimePath(dir + "/status.json")
 
 	writeDevStatusRebuildStarted(
 		statusPath,
@@ -2314,7 +2314,7 @@ func TestWriteDevStatusRebuildStarted(t *testing.T) {
 		"ios-dev",
 	)
 
-	data, err := os.ReadFile(statusPath)
+	data, err := os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -2356,7 +2356,7 @@ func TestSanitizeDevRebuildLogMessage(t *testing.T) {
 
 func TestWriteDevStatus_BuildFailure(t *testing.T) {
 	dir := t.TempDir()
-	statusPath := dir + "/status.json"
+	statusPath := testRuntimePath(dir + "/status.json")
 
 	result := devRebuildResult{
 		buildErr:      fmt.Errorf("exit code 65"),
@@ -2369,7 +2369,7 @@ func TestWriteDevStatus_BuildFailure(t *testing.T) {
 
 	writeDevStatus(statusPath, nil, "", "", "", "", "ios", 1, false, result)
 
-	data, err := os.ReadFile(statusPath)
+	data, err := os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -2394,12 +2394,12 @@ func TestWriteDevStatus_BuildFailure(t *testing.T) {
 }
 
 func TestWriteDevStatus_CapacityBlockPreservesLegacyFailure(t *testing.T) {
-	statusPath := filepath.Join(t.TempDir(), "status.json")
+	statusPath := testRuntimePath(filepath.Join(t.TempDir(), "status.json"))
 	writeDevStatus(statusPath, nil, "", "", "", "", "ios", 1, false, devRebuildResult{
 		buildErr: fmt.Errorf("remote build capacity unavailable"),
 	})
 
-	data, err := os.ReadFile(statusPath)
+	data, err := os.ReadFile(statusPath.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2422,7 +2422,7 @@ func TestWriteDevStatus_CapacityBlockPreservesLegacyFailure(t *testing.T) {
 
 func TestWriteDevStatus_Skipped(t *testing.T) {
 	dir := t.TempDir()
-	statusPath := dir + "/status.json"
+	statusPath := testRuntimePath(dir + "/status.json")
 
 	result := devRebuildResult{
 		elapsed:  3 * time.Second,
@@ -2432,7 +2432,7 @@ func TestWriteDevStatus_Skipped(t *testing.T) {
 
 	writeDevStatus(statusPath, nil, "", "", "", "", "ios", 5, true, result)
 
-	data, _ := os.ReadFile(statusPath)
+	data, _ := os.ReadFile(statusPath.String())
 	var ds devStatus
 	_ = json.Unmarshal(data, &ds)
 
