@@ -12,6 +12,7 @@ import (
 func (c *Client) ListAtlasAnnotationFeedback(
 	ctx context.Context,
 	appID string,
+	sessionID string,
 	observationID string,
 	status string,
 	severity string,
@@ -20,6 +21,9 @@ func (c *Client) ListAtlasAnnotationFeedback(
 ) (*AtlasAnnotationFeedbackResponse, error) {
 	values := url.Values{}
 	values.Set("app_id", appID)
+	if sessionID != "" {
+		values.Set("session_id", sessionID)
+	}
 	if observationID != "" {
 		values.Set("observation_id", observationID)
 	}
@@ -52,11 +56,30 @@ func (c *Client) GetAtlasAnnotationThread(
 	appID string,
 	threadID string,
 ) (*AtlasAnnotationThreadResponse, error) {
+	return c.GetAtlasAnnotationThreadForSession(ctx, appID, threadID, "")
+}
+
+func annotationSessionScopedPath(path string, sessionID string) string {
+	if strings.TrimSpace(sessionID) == "" {
+		return path
+	}
+	values := url.Values{}
+	values.Set("session_id", sessionID)
+	return path + "?" + values.Encode()
+}
+
+func (c *Client) GetAtlasAnnotationThreadForSession(
+	ctx context.Context,
+	appID string,
+	threadID string,
+	sessionID string,
+) (*AtlasAnnotationThreadResponse, error) {
 	path := fmt.Sprintf(
 		"/api/v1/atlas/v2/apps/%s/annotation-threads/%s",
 		url.PathEscape(appID),
 		url.PathEscape(threadID),
 	)
+	path = annotationSessionScopedPath(path, sessionID)
 	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
@@ -66,6 +89,46 @@ func (c *Client) GetAtlasAnnotationThread(
 		return nil, err
 	}
 	return &result, nil
+}
+
+// GetAtlasAnnotationThreadScreenshotURL returns the thread's presigned
+// evidence-screenshot URL. Served from the annotation read path, so it works
+// for capture-minted observations with no screen assignment yet ("organizing"
+// state), where the Atlas projection lookup 404s. Hand-written until the
+// generated types pick up the additive screenshot_url field.
+func (c *Client) GetAtlasAnnotationThreadScreenshotURL(
+	ctx context.Context,
+	appID string,
+	threadID string,
+) (string, error) {
+	return c.GetAtlasAnnotationThreadScreenshotURLForSession(ctx, appID, threadID, "")
+}
+
+func (c *Client) GetAtlasAnnotationThreadScreenshotURLForSession(
+	ctx context.Context,
+	appID string,
+	threadID string,
+	sessionID string,
+) (string, error) {
+	path := fmt.Sprintf(
+		"/api/v1/atlas/v2/apps/%s/annotation-threads/%s",
+		url.PathEscape(appID),
+		url.PathEscape(threadID),
+	)
+	path = annotationSessionScopedPath(path, sessionID)
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return "", err
+	}
+	var envelope struct {
+		Thread struct {
+			ScreenshotURL string `json:"screenshot_url"`
+		} `json:"thread"`
+	}
+	if err := parseResponse(resp, &envelope); err != nil {
+		return "", err
+	}
+	return envelope.Thread.ScreenshotURL, nil
 }
 
 func (c *Client) GetAtlasAnnotationComment(
@@ -132,6 +195,26 @@ func (c *Client) PreviewAtlasAnnotationAnchor(
 	return &result, nil
 }
 
+func (c *Client) PreviewSessionAtlasAnnotationAnchor(
+	ctx context.Context,
+	sessionID string,
+	req *AtlasSessionAnnotationAnchorPreviewRequest,
+) (*AtlasSessionAnnotationAnchorPreviewResponse, error) {
+	path := fmt.Sprintf(
+		"/api/v1/atlas/v2/sessions/%s/annotation-anchor-preview",
+		url.PathEscape(sessionID),
+	)
+	resp, err := c.doRequest(ctx, http.MethodPost, path, req)
+	if err != nil {
+		return nil, err
+	}
+	var result AtlasSessionAnnotationAnchorPreviewResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) ListAtlasAnnotationMembers(
 	ctx context.Context,
 	query string,
@@ -148,6 +231,26 @@ func (c *Client) ListAtlasAnnotationMembers(
 		return nil, err
 	}
 	var result OrganizationMembersResponse
+	if err := parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) CreateSessionGroundedAtlasAnnotationThread(
+	ctx context.Context,
+	sessionID string,
+	req *AtlasSessionGroundedAnnotationThreadCreateRequest,
+) (*AtlasGroundedAnnotationThreadCreateResponse, error) {
+	path := fmt.Sprintf(
+		"/api/v1/atlas/v2/sessions/%s/grounded-annotation-threads",
+		url.PathEscape(sessionID),
+	)
+	resp, err := c.doRequest(ctx, http.MethodPost, path, req)
+	if err != nil {
+		return nil, err
+	}
+	var result AtlasGroundedAnnotationThreadCreateResponse
 	if err := parseResponse(resp, &result); err != nil {
 		return nil, err
 	}
@@ -223,11 +326,22 @@ func (c *Client) AddAtlasAnnotationReply(
 	threadID string,
 	req *AtlasAnnotationReplyRequest,
 ) (*AtlasAnnotationCommentResponse, error) {
+	return c.AddAtlasAnnotationReplyForSession(ctx, appID, threadID, "", req)
+}
+
+func (c *Client) AddAtlasAnnotationReplyForSession(
+	ctx context.Context,
+	appID string,
+	threadID string,
+	sessionID string,
+	req *AtlasAnnotationReplyRequest,
+) (*AtlasAnnotationCommentResponse, error) {
 	path := fmt.Sprintf(
 		"/api/v1/atlas/v2/apps/%s/annotation-threads/%s/replies",
 		url.PathEscape(appID),
 		url.PathEscape(threadID),
 	)
+	path = annotationSessionScopedPath(path, sessionID)
 	resp, err := c.doRequest(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return nil, err
@@ -246,6 +360,17 @@ func (c *Client) ChangeAtlasAnnotationStatus(
 	action string,
 	req *AtlasAnnotationStatusChangeRequest,
 ) (*AtlasAnnotationThreadResponse, error) {
+	return c.ChangeAtlasAnnotationStatusForSession(ctx, appID, threadID, "", action, req)
+}
+
+func (c *Client) ChangeAtlasAnnotationStatusForSession(
+	ctx context.Context,
+	appID string,
+	threadID string,
+	sessionID string,
+	action string,
+	req *AtlasAnnotationStatusChangeRequest,
+) (*AtlasAnnotationThreadResponse, error) {
 	var path string
 	switch action {
 	case "resolve":
@@ -257,6 +382,7 @@ func (c *Client) ChangeAtlasAnnotationStatus(
 	default:
 		return nil, fmt.Errorf("unsupported annotation status action %q", action)
 	}
+	path = annotationSessionScopedPath(path, sessionID)
 	resp, err := c.doRequest(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return nil, err
@@ -274,11 +400,22 @@ func (c *Client) SetAtlasAnnotationSeverity(
 	threadID string,
 	req *AtlasAnnotationSeverityChangeRequest,
 ) (*AtlasAnnotationThreadResponse, error) {
+	return c.SetAtlasAnnotationSeverityForSession(ctx, appID, threadID, "", req)
+}
+
+func (c *Client) SetAtlasAnnotationSeverityForSession(
+	ctx context.Context,
+	appID string,
+	threadID string,
+	sessionID string,
+	req *AtlasAnnotationSeverityChangeRequest,
+) (*AtlasAnnotationThreadResponse, error) {
 	path := fmt.Sprintf(
 		"/api/v1/atlas/v2/apps/%s/annotation-threads/%s/severity",
 		url.PathEscape(appID),
 		url.PathEscape(threadID),
 	)
+	path = annotationSessionScopedPath(path, sessionID)
 	resp, err := c.doRequest(ctx, http.MethodPatch, path, req)
 	if err != nil {
 		return nil, err

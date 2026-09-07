@@ -129,6 +129,7 @@ const (
 	AtlasAnnotationAgentKindCodex      AtlasAnnotationAgentKind = "codex"
 	AtlasAnnotationAgentKindCursor     AtlasAnnotationAgentKind = "cursor"
 	AtlasAnnotationAgentKindOther      AtlasAnnotationAgentKind = "other"
+	AtlasAnnotationAgentKindRevyl      AtlasAnnotationAgentKind = "revyl"
 )
 
 // Valid indicates whether the value is a known member of the AtlasAnnotationAgentKind enum.
@@ -142,6 +143,8 @@ func (e AtlasAnnotationAgentKind) Valid() bool {
 		return true
 	case AtlasAnnotationAgentKindOther:
 		return true
+	case AtlasAnnotationAgentKindRevyl:
+		return true
 	default:
 		return false
 	}
@@ -152,6 +155,7 @@ const (
 	AtlasAnnotationOriginSurfaceAppAtlas    AtlasAnnotationOriginSurface = "app_atlas"
 	AtlasAnnotationOriginSurfaceReportAtlas AtlasAnnotationOriginSurface = "report_atlas"
 	AtlasAnnotationOriginSurfaceRevylCli    AtlasAnnotationOriginSurface = "revyl_cli"
+	AtlasAnnotationOriginSurfaceScmProof    AtlasAnnotationOriginSurface = "scm_proof"
 )
 
 // Valid indicates whether the value is a known member of the AtlasAnnotationOriginSurface enum.
@@ -162,6 +166,8 @@ func (e AtlasAnnotationOriginSurface) Valid() bool {
 	case AtlasAnnotationOriginSurfaceReportAtlas:
 		return true
 	case AtlasAnnotationOriginSurfaceRevylCli:
+		return true
+	case AtlasAnnotationOriginSurfaceScmProof:
 		return true
 	default:
 		return false
@@ -246,6 +252,42 @@ func (e AtlasAttachmentTier) Valid() bool {
 	case AtlasAttachmentTierPdf:
 		return true
 	case AtlasAttachmentTierVideo:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AtlasSessionAnnotationAnchorPreviewRequestScreenshotRole.
+const (
+	AtlasSessionAnnotationAnchorPreviewRequestScreenshotRoleAfter  AtlasSessionAnnotationAnchorPreviewRequestScreenshotRole = "after"
+	AtlasSessionAnnotationAnchorPreviewRequestScreenshotRoleBefore AtlasSessionAnnotationAnchorPreviewRequestScreenshotRole = "before"
+)
+
+// Valid indicates whether the value is a known member of the AtlasSessionAnnotationAnchorPreviewRequestScreenshotRole enum.
+func (e AtlasSessionAnnotationAnchorPreviewRequestScreenshotRole) Valid() bool {
+	switch e {
+	case AtlasSessionAnnotationAnchorPreviewRequestScreenshotRoleAfter:
+		return true
+	case AtlasSessionAnnotationAnchorPreviewRequestScreenshotRoleBefore:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRole.
+const (
+	AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRoleAfter  AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRole = "after"
+	AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRoleBefore AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRole = "before"
+)
+
+// Valid indicates whether the value is a known member of the AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRole enum.
+func (e AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRole) Valid() bool {
+	switch e {
+	case AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRoleAfter:
+		return true
+	case AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRoleBefore:
 		return true
 	default:
 		return false
@@ -1728,13 +1770,14 @@ type AtlasAnnotationAnchorPreviewRequest struct {
 
 // AtlasAnnotationAnchorPreviewResponse defines model for AtlasAnnotationAnchorPreviewResponse.
 type AtlasAnnotationAnchorPreviewResponse struct {
-	NormalizedX      float32 `json:"normalized_x"`
-	NormalizedY      float32 `json:"normalized_y"`
-	ObservationId    string  `json:"observation_id"`
-	PixelX           int     `json:"pixel_x"`
-	PixelY           int     `json:"pixel_y"`
-	ScreenshotHeight int     `json:"screenshot_height"`
-	ScreenshotWidth  int     `json:"screenshot_width"`
+	Evidence         *GroundingEvidence `json:"evidence,omitempty"`
+	NormalizedX      float32            `json:"normalized_x"`
+	NormalizedY      float32            `json:"normalized_y"`
+	ObservationId    string             `json:"observation_id"`
+	PixelX           int                `json:"pixel_x"`
+	PixelY           int                `json:"pixel_y"`
+	ScreenshotHeight int                `json:"screenshot_height"`
+	ScreenshotWidth  int                `json:"screenshot_width"`
 }
 
 // AtlasAnnotationAuthor Author identity for authenticated org members.
@@ -1925,6 +1968,9 @@ type AtlasAnnotationThread struct {
 	ReplyCount     *int                         `json:"reply_count,omitempty"`
 	ReportId       *string                      `json:"report_id,omitempty"`
 
+	// ScreenshotUrl Short-lived presigned URL for the pinned evidence screenshot. Served straight from the observation's storage key, so it works for capture-minted observations that have no screen assignment yet (the 'organizing' state).
+	ScreenshotUrl *string `json:"screenshot_url,omitempty"`
+
 	// Severity Finding severity. Presence marks a thread as a ranked finding;
 	// a thread without severity is a plain conversation.
 	Severity              *AtlasAnnotationSeverity `json:"severity,omitempty"`
@@ -2036,6 +2082,62 @@ type AtlasGroundedAnnotationThreadCreateResponse struct {
 	IdempotentReplay *bool                                `json:"idempotent_replay,omitempty"`
 	Thread           AtlasAnnotationThread                `json:"thread"`
 }
+
+// AtlasSessionAnnotationAnchorPreviewRequest defines model for AtlasSessionAnnotationAnchorPreviewRequest.
+type AtlasSessionAnnotationAnchorPreviewRequest struct {
+	// ActionId Pin to a specific report action's screenshot instead of the session's newest capture.
+	ActionId       *openapi_types.UUID                                       `json:"action_id,omitempty"`
+	ScreenshotRole *AtlasSessionAnnotationAnchorPreviewRequestScreenshotRole `json:"screenshot_role,omitempty"`
+	Target         string                                                    `json:"target"`
+}
+
+// AtlasSessionAnnotationAnchorPreviewRequestScreenshotRole defines model for AtlasSessionAnnotationAnchorPreviewRequest.ScreenshotRole.
+type AtlasSessionAnnotationAnchorPreviewRequestScreenshotRole string
+
+// AtlasSessionAnnotationAnchorPreviewResponse defines model for AtlasSessionAnnotationAnchorPreviewResponse.
+type AtlasSessionAnnotationAnchorPreviewResponse struct {
+	AppId            string             `json:"app_id"`
+	Evidence         *GroundingEvidence `json:"evidence,omitempty"`
+	NormalizedX      float32            `json:"normalized_x"`
+	NormalizedY      float32            `json:"normalized_y"`
+	ObservationId    string             `json:"observation_id"`
+	PixelX           int                `json:"pixel_x"`
+	PixelY           int                `json:"pixel_y"`
+	PreviewReceipt   string             `json:"preview_receipt"`
+	ScreenshotHeight int                `json:"screenshot_height"`
+	ScreenshotUrl    string             `json:"screenshot_url"`
+	ScreenshotWidth  int                `json:"screenshot_width"`
+}
+
+// AtlasSessionGroundedAnnotationThreadCreateRequest Create a grounded annotation thread addressed by device session.
+//
+// The caller names the session it is driving and a natural-language visual
+// target; the server resolves the evidence observation (newest screenshot
+// for the session, or for “action_id“/“screenshot_role“ when given), so
+// no Atlas identifiers are required.
+type AtlasSessionGroundedAnnotationThreadCreateRequest struct {
+	// ActionId Pin to a specific report action's screenshot instead of the session's newest capture.
+	ActionId *openapi_types.UUID `json:"action_id,omitempty"`
+	Body     string              `json:"body"`
+
+	// ClientRequestId Client-generated UUID making retried submissions idempotent.
+	ClientRequestId openapi_types.UUID             `json:"client_request_id"`
+	Mentions        *[]AtlasAnnotationMentionInput `json:"mentions,omitempty"`
+
+	// PreviewReceipt Short-lived receipt from the session preview endpoint. When set, creation uses the exact reviewed observation and coordinates.
+	PreviewReceipt *string `json:"preview_receipt,omitempty"`
+
+	// ScreenshotRole Which of the action's screenshots to pin; only applied when action_id is given.
+	ScreenshotRole *AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRole `json:"screenshot_role,omitempty"`
+
+	// Severity Finding severity. Presence marks a thread as a ranked finding;
+	// a thread without severity is a plain conversation.
+	Severity *AtlasAnnotationSeverity `json:"severity,omitempty"`
+	Target   string                   `json:"target"`
+}
+
+// AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRole Which of the action's screenshots to pin; only applied when action_id is given.
+type AtlasSessionGroundedAnnotationThreadCreateRequestScreenshotRole string
 
 // AtlasV2GraphResponse defines model for AtlasV2GraphResponse.
 type AtlasV2GraphResponse struct {
@@ -2297,7 +2399,7 @@ type BillingPlanTerms struct {
 	BillingPeriod           BillingPlanTermsBillingPeriod `json:"billing_period"`
 	ComputeCreditsUnlimited *bool                         `json:"compute_credits_unlimited,omitempty"`
 
-	// Concurrency Temporary Revyl-owned limit; Autumn will become authoritative.
+	// Concurrency Shared device concurrency granted by the plan's Autumn shared_concurrency item; None when the plan grants none.
 	Concurrency            *int                 `json:"concurrency,omitempty"`
 	CreditConversions      *[]CreditConversion  `json:"credit_conversions,omitempty"`
 	IncludedComputeCredits float32              `json:"included_compute_credits"`
@@ -3757,7 +3859,8 @@ type GroundRequest struct {
 // GroundResponse defines model for GroundResponse.
 type GroundResponse struct {
 	// Error Error message if failed
-	Error *string `json:"error,omitempty"`
+	Error    *string            `json:"error,omitempty"`
+	Evidence *GroundingEvidence `json:"evidence,omitempty"`
 
 	// Found Whether the element was located
 	Found *bool `json:"found,omitempty"`
@@ -3775,6 +3878,23 @@ type GroundResponse struct {
 // - AUTO: Use GROUNDER_TYPE env var to determine grounder
 // - NULL: Skip grounding (for testing/debugging)
 type GrounderType string
+
+// GroundingBoundingBox defines model for GroundingBoundingBox.
+type GroundingBoundingBox struct {
+	XMax float32 `json:"x_max"`
+	XMin float32 `json:"x_min"`
+	YMax float32 `json:"y_max"`
+	YMin float32 `json:"y_min"`
+}
+
+// GroundingEvidence defines model for GroundingEvidence.
+type GroundingEvidence struct {
+	BoundingBox               *GroundingBoundingBox `json:"bounding_box,omitempty"`
+	Confidence                float32               `json:"confidence"`
+	Found                     bool                  `json:"found"`
+	MatchedElementDescription *string               `json:"matched_element_description,omitempty"`
+	Reason                    *string               `json:"reason,omitempty"`
+}
 
 // HTTPValidationError defines model for HTTPValidationError.
 type HTTPValidationError struct {
@@ -6722,14 +6842,19 @@ type CreateBuildUploadUrlApiV1AppsAppIdBuildsUploadUrlPostParams struct {
 
 // ListAtlasAnnotationFeedbackParams defines parameters for ListAtlasAnnotationFeedback.
 type ListAtlasAnnotationFeedbackParams struct {
-	AppId         *string                                      `form:"app_id,omitempty" json:"app_id,omitempty"`
-	ObservationId *string                                      `form:"observation_id,omitempty" json:"observation_id,omitempty"`
-	ThreadId      *string                                      `form:"thread_id,omitempty" json:"thread_id,omitempty"`
-	Status        *ListAtlasAnnotationFeedbackParamsStatus     `form:"status,omitempty" json:"status,omitempty"`
-	AuthorType    *ListAtlasAnnotationFeedbackParamsAuthorType `form:"author_type,omitempty" json:"author_type,omitempty"`
-	Severity      *ListAtlasAnnotationFeedbackParamsSeverity   `form:"severity,omitempty" json:"severity,omitempty"`
-	Cursor        *string                                      `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit         *int                                         `form:"limit,omitempty" json:"limit,omitempty"`
+	AppId            *string                                      `form:"app_id,omitempty" json:"app_id,omitempty"`
+	SessionId        *string                                      `form:"session_id,omitempty" json:"session_id,omitempty"`
+	ObservationId    *string                                      `form:"observation_id,omitempty" json:"observation_id,omitempty"`
+	ThreadId         *string                                      `form:"thread_id,omitempty" json:"thread_id,omitempty"`
+	BuildId          *string                                      `form:"build_id,omitempty" json:"build_id,omitempty"`
+	FromTime         *time.Time                                   `form:"from_time,omitempty" json:"from_time,omitempty"`
+	ToTime           *time.Time                                   `form:"to_time,omitempty" json:"to_time,omitempty"`
+	RecentBuildLimit *int                                         `form:"recent_build_limit,omitempty" json:"recent_build_limit,omitempty"`
+	Status           *ListAtlasAnnotationFeedbackParamsStatus     `form:"status,omitempty" json:"status,omitempty"`
+	AuthorType       *ListAtlasAnnotationFeedbackParamsAuthorType `form:"author_type,omitempty" json:"author_type,omitempty"`
+	Severity         *ListAtlasAnnotationFeedbackParamsSeverity   `form:"severity,omitempty" json:"severity,omitempty"`
+	Cursor           *string                                      `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit            *int                                         `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListAtlasAnnotationFeedbackParamsStatus defines parameters for ListAtlasAnnotationFeedback.
@@ -6764,7 +6889,8 @@ type EditAtlasAnnotationCommentParams struct {
 
 // GetAtlasAnnotationThreadParams defines parameters for GetAtlasAnnotationThread.
 type GetAtlasAnnotationThreadParams struct {
-	IncludeVariants *bool `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	IncludeVariants *bool   `form:"include_variants,omitempty" json:"include_variants,omitempty"`
+	SessionId       *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
 // MoveAtlasAnnotationThreadAnchorParams defines parameters for MoveAtlasAnnotationThreadAnchor.
@@ -6774,30 +6900,35 @@ type MoveAtlasAnnotationThreadAnchorParams struct {
 
 // DismissAtlasAnnotationThreadParams defines parameters for DismissAtlasAnnotationThread.
 type DismissAtlasAnnotationThreadParams struct {
+	SessionId    *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 	XRevylAgent  *string `json:"X-Revyl-Agent,omitempty"`
 	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
 }
 
 // ReopenAtlasAnnotationThreadParams defines parameters for ReopenAtlasAnnotationThread.
 type ReopenAtlasAnnotationThreadParams struct {
+	SessionId    *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 	XRevylAgent  *string `json:"X-Revyl-Agent,omitempty"`
 	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
 }
 
 // AddAtlasAnnotationReplyParams defines parameters for AddAtlasAnnotationReply.
 type AddAtlasAnnotationReplyParams struct {
+	SessionId    *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 	XRevylAgent  *string `json:"X-Revyl-Agent,omitempty"`
 	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
 }
 
 // ResolveAtlasAnnotationThreadParams defines parameters for ResolveAtlasAnnotationThread.
 type ResolveAtlasAnnotationThreadParams struct {
+	SessionId    *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 	XRevylAgent  *string `json:"X-Revyl-Agent,omitempty"`
 	XRevylClient *string `json:"X-Revyl-Client,omitempty"`
 }
 
 // SetAtlasAnnotationThreadSeverityParams defines parameters for SetAtlasAnnotationThreadSeverity.
 type SetAtlasAnnotationThreadSeverityParams struct {
+	SessionId   *string `form:"session_id,omitempty" json:"session_id,omitempty"`
 	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
 }
 
@@ -6905,6 +7036,16 @@ type GetAtlasV2IndexApiV1AtlasV2IndexGetParams struct {
 	ContentOnly  *bool   `form:"content_only,omitempty" json:"content_only,omitempty"`
 	OlapReady    *bool   `form:"olap_ready,omitempty" json:"olap_ready,omitempty"`
 	SummaryFirst *bool   `form:"summary_first,omitempty" json:"summary_first,omitempty"`
+}
+
+// PreviewSessionAtlasAnnotationAnchorParams defines parameters for PreviewSessionAtlasAnnotationAnchor.
+type PreviewSessionAtlasAnnotationAnchorParams struct {
+	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
+}
+
+// CreateSessionGroundedAnnotationThreadParams defines parameters for CreateSessionGroundedAnnotationThread.
+type CreateSessionGroundedAnnotationThreadParams struct {
+	XRevylAgent *string `json:"X-Revyl-Agent,omitempty"`
 }
 
 // ListOrganizationMembersApiV1EntityOrgsMembersGetParams defines parameters for ListOrganizationMembersApiV1EntityOrgsMembersGet.
@@ -7303,6 +7444,12 @@ type PreviewAtlasAnnotationAnchorJSONRequestBody = AtlasAnnotationAnchorPreviewR
 
 // CreateGroundedAtlasAnnotationThreadJSONRequestBody defines body for CreateGroundedAtlasAnnotationThread for application/json ContentType.
 type CreateGroundedAtlasAnnotationThreadJSONRequestBody = AtlasGroundedAnnotationThreadCreateRequest
+
+// PreviewSessionAtlasAnnotationAnchorJSONRequestBody defines body for PreviewSessionAtlasAnnotationAnchor for application/json ContentType.
+type PreviewSessionAtlasAnnotationAnchorJSONRequestBody = AtlasSessionAnnotationAnchorPreviewRequest
+
+// CreateSessionGroundedAnnotationThreadJSONRequestBody defines body for CreateSessionGroundedAnnotationThread for application/json ContentType.
+type CreateSessionGroundedAnnotationThreadJSONRequestBody = AtlasSessionGroundedAnnotationThreadCreateRequest
 
 // CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPostJSONRequestBody defines body for CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPost for application/json ContentType.
 type CreateCliDeviceAuthorizationEndpointApiV1EntityUsersCliDeviceAuthorizationsPostJSONRequestBody = CreateCLIDeviceAuthorizationRequest

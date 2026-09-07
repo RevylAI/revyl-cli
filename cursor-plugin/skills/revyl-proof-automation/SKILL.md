@@ -97,8 +97,9 @@ CI builds the app
   → matches Revyl build for the PR head SHA
   → revyl device start --build-version-id …
   → screenshots / validations
+  → revyl report annotations create … (pinned findings, as discovered)
   → session share + publish
-  → ## Revyl device proof comment on the PR
+  → ## Revyl device proof comment on the PR (findings digest + write-up)
 ```
 
 If no matching build exists after a brief wait, it comments that proof was not

@@ -155,6 +155,16 @@ func TestAtlasCommandDoesNotExposeRemovedOpinionatedCommands(t *testing.T) {
 	}
 }
 
+func TestAtlasCommandsDefaultToAllSurfaces(t *testing.T) {
+	flag := atlasGraphCmd.Flags().Lookup("surface-scope")
+	if flag == nil {
+		t.Fatal("Atlas graph command is missing --surface-scope")
+	}
+	if flag.DefValue != "all" {
+		t.Fatalf("surface scope default = %q, want all", flag.DefValue)
+	}
+}
+
 func TestAtlasIndexAppContractHidesBackendIndexDetails(t *testing.T) {
 	app, ready := atlasIndexAppContract(map[string]interface{}{
 		"app_id":   "app-1",

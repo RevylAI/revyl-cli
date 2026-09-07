@@ -285,49 +285,6 @@ func TestCoordinateTapResponseFallbackIsUnchanged(t *testing.T) {
 	}
 }
 
-func TestAndroidHierarchySupportsGroundedTargetAtCandidate(t *testing.T) {
-	t.Parallel()
-
-	hierarchy := []byte(`<hierarchy><node text="I accept the policy and terms OFF" resource-id="com.example:id/signup_policy_switch" class="android.widget.Switch" bounds="[63,1819][1017,1945]" /></hierarchy>`)
-	testCases := []struct {
-		name   string
-		target string
-		x      int
-		y      int
-		want   bool
-	}{
-		{name: "visible switch", target: "policy switch", x: 945, y: 1884, want: true},
-		{name: "control alias", target: "policy toggle", x: 945, y: 1884, want: true},
-		{name: "hallucinated target", target: "a definitely nonexistent lunar checkout button", x: 945, y: 1884, want: false},
-		{name: "unrelated label", target: "checkout switch", x: 945, y: 1884, want: false},
-		{name: "coordinate outside candidate", target: "policy switch", x: 10, y: 10, want: false},
-	}
-
-	for _, testCase := range testCases {
-		testCase := testCase
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-			got := androidHierarchySupportsTarget(
-				hierarchy,
-				testCase.target,
-				testCase.x,
-				testCase.y,
-			)
-			if got != testCase.want {
-				t.Fatalf("androidHierarchySupportsTarget() = %t, want %t", got, testCase.want)
-			}
-		})
-	}
-}
-
-func TestAndroidHierarchyRejectsMalformedPayload(t *testing.T) {
-	t.Parallel()
-
-	if androidHierarchySupportsTarget([]byte(`<hierarchy>`), "policy switch", 945, 1884) {
-		t.Fatal("malformed hierarchy was accepted")
-	}
-}
-
 func TestBuildCodeExecutionLiveStepRequest(t *testing.T) {
 	t.Parallel()
 
@@ -439,6 +396,29 @@ func TestFormatLiveStepFallback_ValidationFalseIsFailure(t *testing.T) {
 
 	if got != "Validation step failed (validation=false)" {
 		t.Fatalf("formatLiveStepFallback() = %q", got)
+	}
+}
+
+func TestCompactLiveStepResponseForOutputRemovesNestedImages(t *testing.T) {
+	t.Parallel()
+
+	response := &mcppkg.LiveStepResponse{
+		Success:  true,
+		StepType: "instruction",
+		StepOutput: json.RawMessage(
+			`{"status":"success","image":"top-level","action_history":[{"action_output":{"image":"nested","label":"kept"}}]}`,
+		),
+	}
+
+	compacted := compactLiveStepResponseForOutput(response)
+	if strings.Contains(string(compacted.StepOutput), "top-level") || strings.Contains(string(compacted.StepOutput), "nested") {
+		t.Fatalf("compacted step output still contains image payloads: %s", compacted.StepOutput)
+	}
+	if !strings.Contains(string(compacted.StepOutput), `"label":"kept"`) {
+		t.Fatalf("compacted step output lost non-image data: %s", compacted.StepOutput)
+	}
+	if !strings.Contains(string(response.StepOutput), "top-level") {
+		t.Fatal("compactLiveStepResponseForOutput mutated the canonical response")
 	}
 }
 

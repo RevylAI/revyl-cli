@@ -110,6 +110,8 @@ POST /api/v1/atlas/v2/apps/{app_id}/annotation-threads/{thread_id}/replies
 POST /api/v1/atlas/v2/apps/{app_id}/annotation-threads/{thread_id}/resolve
 POST /api/v1/atlas/v2/apps/{app_id}/observations/{observation_id}/annotation-anchor-preview
 POST /api/v1/atlas/v2/apps/{app_id}/observations/{observation_id}/grounded-annotation-threads
+POST /api/v1/atlas/v2/sessions/{session_id}/annotation-anchor-preview
+POST /api/v1/atlas/v2/sessions/{session_id}/grounded-annotation-threads
 POST /api/v1/entity/users/cli-device-authorizations
 POST /api/v1/entity/users/cli-device-authorizations/credentials
 POST /api/v1/entity/users/revoke_cli_api_key

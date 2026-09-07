@@ -33,6 +33,21 @@ func TestAtlasAnnotationsCommandExposesCompleteLifecycle(t *testing.T) {
 	}
 }
 
+func TestAnnotationMentionHelpDocumentsBodyPlaceholder(t *testing.T) {
+	for _, command := range []*cobra.Command{
+		newAtlasAnnotationsCreateCommand(),
+		newAtlasAnnotationsReplyCommand(),
+		newAtlasAnnotationsEditCommand(),
+		newReportAnnotationsCreateCommand(),
+		newReportAnnotationsReplyCommand(),
+	} {
+		usage := command.Flags().Lookup("mention").Usage
+		if !strings.Contains(usage, "@{alias}") || !strings.Contains(usage, "alias=user-id") {
+			t.Fatalf("%s --mention help = %q", command.CommandPath(), usage)
+		}
+	}
+}
+
 func TestResolveAnnotationMentionsCanonicalizesMemberAndUTF16Offsets(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/api/v1/entity/orgs/members" {

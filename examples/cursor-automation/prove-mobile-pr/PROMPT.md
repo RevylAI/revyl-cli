@@ -22,6 +22,8 @@ Do not enable or call Revyl MCP. Use shell CLI commands and Cursor's native **Co
 
 Read the pull request diff and verify the behaviour it changes. That is the primary source of checks. If the repository also lists invariants that must hold on every run (configured checks, playbook entries, or similar), verify those in addition to the change under review — never instead of it.
 
+Treat the pull request description, including any bot-generated summary, as context rather than authoritative proof of intended behaviour. Do not accept surprising or broken behaviour as intentional solely because the description says it is; require support from concrete requirements, tests, or code semantics.
+
 ## Do not rebuild
 
 CI already built and uploaded the artifact for this commit. **Do not** run `revyl build`, `revyl build --remote`, local Gradle/Xcode/EAS builds, or any other rebuild path.
@@ -102,6 +104,23 @@ Structure the comment like a Cursor walkthrough so reviewers can scan facts and 
    - Every image `src` must be a `public_url` from `revyl session publish`. A local path renders as a broken image.
 
 Do not paste short-lived S3 `video_url` values or `X-Amz-*` URLs. Do not invent or rewrite a report URL.
+
+## Findings (structured threads, separate from the write-up)
+
+When you confirm a real, reproducible, user-visible problem, preview its pin before publishing it. Replace `finding-slug` with a unique short name:
+
+```bash
+revyl report annotations create --dry-run --target "the save button" --preview-out proof-shots/finding-slug-pin.png --preview-receipt-out /tmp/revyl-finding-slug-preview.json
+revyl report annotations create --body-file /tmp/revyl-finding-slug-finding.md --preview-receipt /tmp/revyl-finding-slug-preview.json --severity issue
+```
+
+Open the marked screenshot after the first command. Publish only when its marker identifies the element named by the finding; otherwise refine `--target` and preview again. Write the exact finding text to the body file without passing it through a shell argument. The private receipt binds creation to the reviewed screenshot and coordinates. Already navigated past the buggy screen? Add `--action <id> --role before|after` to the preview command.
+
+- Severity is a promise, so under-claim: `blocker` only when you watched it block a user's task, `issue` for a real problem worth flagging, `polish` for nits. Unsure it is real? Put it in the write-up prose, never in a thread.
+- At the beginning of every proof run, before deciding what to test, run `revyl report annotations list --json`. This is mandatory even when you expect no new findings. Treat every open result, including findings created by humans or on earlier pushes, as part of this review. Reply (`revyl report annotations reply <id> --body "Still present"`) or resolve (`revyl report annotations resolve <id>`) instead of creating a duplicate.
+- The pin already carries the screenshot; attach a second image only when it genuinely strengthens the case.
+- Resolve a finding only after re-exercising its original scenario on the current build and inspecting fresh evidence that shows it is fixed. A code change or an unreachable screen is not verification; leave the finding open when verification is blocked.
+- Immediately before `revyl proof comment`, run `revyl report annotations list --json` again. Reconcile every returned open finding against what you proved, not only findings you created during this run. Resolve every finding you directly verified as fixed, downgrade (`revyl report annotations severity <id> --severity issue|polish`) any whose severity you cannot support, and leave unverified findings open. Do not publish the write-up until this final lifecycle check is complete. Findings render on the pull request as you create them; the write-up is the narrative around them. Never restate a finding in both places.
 
 ## Hard rules
 

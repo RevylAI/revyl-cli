@@ -228,7 +228,7 @@ func addAtlasScopeFlags(cmd *cobra.Command, includeWorkflow bool) {
 		cmd.Flags().StringVar(&atlasWorkflowExecutionID, "workflow-execution-id", "", "Filter to one workflow execution")
 	}
 	cmd.Flags().StringVar(&atlasSourceKind, "source-kind", "", "Filter by Atlas source kind")
-	cmd.Flags().StringVar(&atlasSurfaceScope, "surface-scope", "app", "Surface scope: app, app+system, app+external, all")
+	cmd.Flags().StringVar(&atlasSurfaceScope, "surface-scope", "all", "Surface scope: all, app, app+system, app+external")
 	cmd.Flags().StringVar(&atlasVisibility, "visibility", "included", "Visibility: included or included+excluded_debug")
 	cmd.Flags().BoolVar(&atlasIncludeVariants, "include-variants", false, "Include variant nodes")
 	cmd.Flags().IntVar(&atlasLimit, "limit", atlasGraphFetchLimit, "Maximum results to return")

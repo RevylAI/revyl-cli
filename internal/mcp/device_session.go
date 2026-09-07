@@ -7,6 +7,7 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -124,6 +125,19 @@ type persistedState struct {
 	Sessions  []*DeviceSession `json:"sessions"`
 }
 
+type sessionCacheIdentity struct {
+	sessionID     string
+	workflowRunID string
+}
+
+type sessionCacheMutation struct {
+	removedSessions []sessionCacheIdentity
+	addedSessions   []*DeviceSession
+	updatedSessions []*DeviceSession
+	updateActive    bool
+	resetNextIndex  bool
+}
+
 type screenAnchorState struct {
 	Token      string
 	ImageBytes []byte
@@ -162,12 +176,6 @@ type DeviceSessionManager struct {
 	// worktree, where a read-modify-write of that file would corrupt the
 	// session list of sibling processes.
 	persistenceDisabled bool
-
-	// removedSessionKeys holds durable keys this process deliberately stopped.
-	// Because persistence merges against whatever is on disk, absence from the
-	// in-memory map cannot by itself mean "delete": it also describes sessions a
-	// sibling process owns. Only keys recorded here are removed from the file.
-	removedSessionKeys map[string]bool
 }
 
 // UnattachedSessionIndex marks a session resolved by durable ID that was never
@@ -531,12 +539,8 @@ func (m *DeviceSessionManager) StartSession(
 		viewerURL = fmt.Sprintf("%s/sessions/%s", appURL, url.PathEscape(sessionID))
 	}
 
-	idx := m.nextIndex
-	m.nextIndex++
-
 	now := time.Now()
 	session := &DeviceSession{
-		Index:         idx,
 		SessionID:     sessionID,
 		WorkflowRunID: workflowRunID,
 		TraceID:       traceID,
@@ -553,6 +557,21 @@ func (m *DeviceSessionManager) StartSession(
 		session.ScreenHeight = lastHealth.ScreenHeight
 	}
 
+	idx, err := m.registerStartedSession(session)
+	if err != nil {
+		_, _ = m.apiClient.CancelDevice(context.Background(), workflowRunID)
+		return -1, nil, fmt.Errorf("device started but session registration failed: %w", err)
+	}
+
+	return idx, session, nil
+}
+
+func (m *DeviceSessionManager) registerStartedSession(session *DeviceSession) (int, error) {
+	previousActiveIndex := m.activeIndex
+	previousNextIndex := m.nextIndex
+	idx := m.nextIndex
+	m.nextIndex++
+	session.Index = idx
 	m.sessions[idx] = session
 	if m.ownedSessions == nil {
 		m.ownedSessions = make(map[int]bool)
@@ -565,12 +584,26 @@ func (m *DeviceSessionManager) StartSession(
 		m.activeIndex = idx
 	}
 
+	if err := m.persistSessionsWithMutation(sessionCacheMutation{
+		addedSessions: []*DeviceSession{session},
+	}); err != nil {
+		delete(m.sessions, idx)
+		delete(m.sessions, session.Index)
+		delete(m.ownedSessions, idx)
+		delete(m.ownedSessions, session.Index)
+		delete(m.idleTimerDisabled, idx)
+		delete(m.idleTimerDisabled, session.Index)
+		m.activeIndex = previousActiveIndex
+		m.nextIndex = previousNextIndex
+		return -1, err
+	}
+
+	idx = session.Index
 	// Use context.Background() for the idle timer so it's not tied to the
 	// caller's request context, which may be cancelled before the timer fires.
 	m.resetIdleTimerForSessionLocked(idx, context.Background())
-	m.persistSessions()
 
-	return idx, session, nil
+	return idx, nil
 }
 
 // StopSession stops a specific session by index and releases the device.
@@ -590,8 +623,13 @@ func (m *DeviceSessionManager) StopSession(ctx context.Context, index int) error
 		return fmt.Errorf("no session at index %d", index)
 	}
 
+	removedSession := sessionCacheIdentityFor(session)
 	cancelErr := m.stopSessionAtIndexLocked(ctx, index, session)
-	m.persistSessions()
+	mutation := sessionCacheMutation{updateActive: cancelErr == nil}
+	if cancelErr == nil {
+		mutation.removedSessions = []sessionCacheIdentity{removedSession}
+	}
+	m.persistSessionsWithMutation(mutation)
 	return cancelErr
 }
 
@@ -616,8 +654,13 @@ func (m *DeviceSessionManager) StopResolvedSession(ctx context.Context, session 
 	defer m.mu.Unlock()
 
 	if _, tracked := m.sessions[session.Index]; tracked {
+		removedSession := sessionCacheIdentityFor(session)
 		cancelErr := m.stopSessionAtIndexLocked(ctx, session.Index, session)
-		m.persistSessions()
+		mutation := sessionCacheMutation{updateActive: cancelErr == nil}
+		if cancelErr == nil {
+			mutation.removedSessions = []sessionCacheIdentity{removedSession}
+		}
+		m.persistSessionsWithMutation(mutation)
 		return cancelErr
 	}
 
@@ -649,15 +692,25 @@ func (m *DeviceSessionManager) StopAllSessions(ctx context.Context) error {
 	defer m.mu.Unlock()
 
 	var firstErr error
+	removedSessions := make([]sessionCacheIdentity, 0, len(m.sessions))
 	for idx, session := range m.sessions {
-		if err := m.stopSessionAtIndexLocked(ctx, idx, session); err != nil && firstErr == nil {
-			firstErr = err
+		identity := sessionCacheIdentityFor(session)
+		if err := m.stopSessionAtIndexLocked(ctx, idx, session); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else {
+			removedSessions = append(removedSessions, identity)
 		}
 	}
 	if len(m.sessions) == 0 {
 		m.nextIndex = 0
 	}
-	m.persistSessions()
+	m.persistSessionsWithMutation(sessionCacheMutation{
+		removedSessions: removedSessions,
+		updateActive:    len(removedSessions) > 0,
+		resetNextIndex:  len(m.sessions) == 0,
+	})
 	return firstErr
 }
 
@@ -667,15 +720,24 @@ func (m *DeviceSessionManager) StopOwnedSessions(ctx context.Context) error {
 	defer m.mu.Unlock()
 
 	var firstErr error
+	removedSessions := make([]sessionCacheIdentity, 0, len(m.ownedSessions))
 	for idx, session := range m.sessions {
 		if !m.ownedSessions[idx] {
 			continue
 		}
-		if err := m.stopSessionAtIndexLocked(ctx, idx, session); err != nil && firstErr == nil {
-			firstErr = err
+		identity := sessionCacheIdentityFor(session)
+		if err := m.stopSessionAtIndexLocked(ctx, idx, session); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else {
+			removedSessions = append(removedSessions, identity)
 		}
 	}
-	m.persistSessions()
+	m.persistSessionsWithMutation(sessionCacheMutation{
+		removedSessions: removedSessions,
+		updateActive:    len(removedSessions) > 0,
+	})
 	return firstErr
 }
 
@@ -720,7 +782,7 @@ func (m *DeviceSessionManager) SetActive(index int) error {
 		return fmt.Errorf("no session at index %d", index)
 	}
 	m.activeIndex = index
-	m.persistSessions()
+	m.persistSessionsWithMutation(sessionCacheMutation{updateActive: true})
 	return nil
 }
 
@@ -823,6 +885,9 @@ func (m *DeviceSessionManager) ResetIdleTimer(index int) {
 
 	session.LastActivity = time.Now()
 	m.resetIdleTimerForSessionLocked(index, context.Background())
+	m.persistSessionsWithMutation(sessionCacheMutation{
+		updatedSessions: []*DeviceSession{session},
+	})
 }
 
 // StopIdleTimer disables manager-owned idle enforcement without stopping the
@@ -1011,11 +1076,6 @@ func (m *DeviceSessionManager) stopSessionAtIndexLocked(ctx context.Context, ind
 		_ = beforesession.ClearSessionValues(m.workDir, session.SessionID)
 	}
 
-	// Record the stop so the merge on the next persist removes this session from
-	// the shared file. Absence from m.sessions alone is ambiguous, since it also
-	// describes sessions owned by a sibling process.
-	m.recordRemovedSessionLocked(session)
-
 	// Remove from map
 	delete(m.sessions, index)
 	delete(m.screenAnchors, index)
@@ -1065,8 +1125,13 @@ func (m *DeviceSessionManager) resetIdleTimerForSessionLocked(index int, ctx con
 			return
 		}
 		if s, ok := m.sessions[index]; ok {
-			_ = m.stopSessionAtIndexLocked(ctx, index, s)
-			m.persistSessions()
+			identity := sessionCacheIdentityFor(s)
+			if err := m.stopSessionAtIndexLocked(ctx, index, s); err == nil {
+				m.persistSessionsWithMutation(sessionCacheMutation{
+					removedSessions: []sessionCacheIdentity{identity},
+					updateActive:    true,
+				})
+			}
 		}
 	})
 }
@@ -1120,342 +1185,319 @@ func wsURLToHTTP(wsURL string) string {
 	return httpURL
 }
 
-// durableSessionKey identifies a session across processes.
-//
-// The local index cannot serve as the merge key: it is a per-process guess that
-// two concurrent starts allocate identically. The server-issued session ID is
-// authoritative, and the workflow run ID covers the window before the backend
-// session row catches up.
-//
-// Parameters:
-//   - session: The session to key.
-//
-// Returns:
-//   - string: A stable cross-process key, or "" when the session carries
-//     neither identifier and therefore cannot be merged safely.
-func durableSessionKey(session *DeviceSession) string {
-	keys := sessionIdentityKeys(session)
-	if len(keys) == 0 {
-		return ""
-	}
-	return keys[0]
-}
-
-// sessionIdentityKeys returns every key a session may already be stored under,
-// most authoritative first.
-//
-// A session's key is not fixed for its lifetime: StartSession persists before
-// the backend session row exists, so the first write lands under the workflow
-// key, and a later SyncSessions backfills SessionID. Matching on the canonical
-// key alone would read that same device as a second, unknown session and write
-// a duplicate row. Callers therefore match on any alias and write under the
-// canonical one.
-//
-// Parameters:
-//   - session: The session to key.
-//
-// Returns:
-//   - []string: The session's aliases, empty when it carries no identifier and
-//     therefore cannot be merged safely.
-func sessionIdentityKeys(session *DeviceSession) []string {
+func sessionCacheIdentityFor(session *DeviceSession) sessionCacheIdentity {
 	if session == nil {
-		return nil
+		return sessionCacheIdentity{}
 	}
-	keys := make([]string, 0, 2)
-	if id := strings.TrimSpace(session.SessionID); id != "" {
-		keys = append(keys, id)
-	}
-	if runID := strings.TrimSpace(session.WorkflowRunID); runID != "" {
-		keys = append(keys, "run:"+runID)
-	}
-	return keys
-}
-
-// preserveStoredSessionIdentity copies SessionID and ViewerURL from stored onto
-// local when those fields are empty.
-//
-// Alias matching treats a workflow-only local session as the same device as a
-// stored row that already has a backend ID. Replacing that row wholesale would
-// blank identity a peer already wrote. Non-empty local values still win so a
-// same-process SyncSessions backfill can update the row.
-//
-// Parameters:
-//   - local: The in-memory session that will replace the stored row.
-//   - stored: The row already written to device-sessions.json.
-func preserveStoredSessionIdentity(local, stored *DeviceSession) {
-	if local == nil || stored == nil {
-		return
-	}
-	if strings.TrimSpace(local.SessionID) == "" {
-		local.SessionID = stored.SessionID
-	}
-	if strings.TrimSpace(local.ViewerURL) == "" {
-		local.ViewerURL = stored.ViewerURL
+	return sessionCacheIdentity{
+		sessionID:     session.SessionID,
+		workflowRunID: session.WorkflowRunID,
 	}
 }
 
-// persistSessions merges this process's session state into device-sessions.json
-// under a cross-process lock.
-//
-// A whole-file overwrite loses concurrent writers: two parallel `device start`
-// invocations both read next_index, both allocate the same index, and the
-// second write erases the first session. Instead this re-reads the file under
-// the lock, upserts by durable key, keeps indexes already published to other
-// processes, and replaces the file atomically.
-//
-// Failure to persist is degraded, not fatal: the session itself is live on the
-// backend and remains reachable by ID, so this warns rather than returning an
-// error to callers that cannot act on it.
-func (m *DeviceSessionManager) persistSessions() {
-	if m.workDir == "" || m.persistenceDisabled {
-		return
+func sessionCacheIdentitiesMatch(left, right sessionCacheIdentity) bool {
+	if left.sessionID != "" && right.sessionID != "" && left.sessionID == right.sessionID {
+		return true
 	}
-
-	dir := filepath.Join(m.workDir, ".revyl")
-	_ = os.MkdirAll(dir, 0o755)
-
-	release, lockErr := lockSessionStore(filepath.Join(dir, "device-sessions.lock"))
-	if lockErr != nil {
-		ui.PrintWarning(
-			"Could not update the local device session list: %v. The session is still reachable by ID; "+
-				"run 'revyl device list' to resync.",
-			lockErr,
-		)
-		return
-	}
-	defer release()
-
-	merged := m.mergeWithStoredSessionsLocked(dir)
-
-	data, err := json.MarshalIndent(merged, "", "  ")
-	if err != nil {
-		ui.PrintDebug("failed to encode device session state: %v", err)
-		return
-	}
-	if writeErr := writeFileAtomic(filepath.Join(dir, "device-sessions.json"), data); writeErr != nil {
-		ui.PrintDebug("failed to write device session state: %v", writeErr)
-		return
-	}
-
-	m.removedSessionKeys = nil
+	return left.workflowRunID != "" && right.workflowRunID != "" && left.workflowRunID == right.workflowRunID
 }
 
-// mergedSession is one device in the merged output. It is addressed by every
-// alias its session has ever been written under, so the same device reached
-// through an old and a new key resolves to one row rather than two.
-type mergedSession struct {
-	session *DeviceSession
-}
-
-// lookupMergedSession finds the record already holding any of these aliases.
-//
-// Parameters:
-//   - byAlias: Alias index built during the merge.
-//   - keys: The aliases to try, most authoritative first.
-//
-// Returns:
-//   - *mergedSession: The matching record, or nil when this device is new to
-//     the merge.
-func lookupMergedSession(byAlias map[string]*mergedSession, keys []string) *mergedSession {
-	for _, key := range keys {
-		if record, ok := byAlias[key]; ok {
-			return record
-		}
-	}
-	return nil
-}
-
-// recordRemovedSessionLocked marks a session as deliberately gone so the next
-// merge deletes it from the shared file. Caller must hold m.mu.
-//
-// Every alias is recorded, not just the canonical one: the row on disk may
-// predate the session's backend ID, and a stop keyed only by that ID would
-// leave the older workflow-keyed row behind.
-//
-// Parameters:
-//   - session: The stopped or backend-pruned session.
-func (m *DeviceSessionManager) recordRemovedSessionLocked(session *DeviceSession) {
-	keys := sessionIdentityKeys(session)
-	if len(keys) == 0 {
-		return
-	}
-	if m.removedSessionKeys == nil {
-		m.removedSessionKeys = make(map[string]bool, len(keys))
-	}
-	for _, key := range keys {
-		m.removedSessionKeys[key] = true
-	}
-}
-
-// sessionRemovedLocked reports whether this process deliberately removed the
-// session, under any alias it may be stored as. Caller must hold m.mu.
-//
-// Parameters:
-//   - session: The session to test.
-//
-// Returns:
-//   - bool: True when a stop or backend prune recorded this device.
-func (m *DeviceSessionManager) sessionRemovedLocked(session *DeviceSession) bool {
-	for _, key := range sessionIdentityKeys(session) {
-		if m.removedSessionKeys[key] {
+func sessionCacheContainsIdentity(identities []sessionCacheIdentity, session *DeviceSession) bool {
+	identity := sessionCacheIdentityFor(session)
+	for _, candidate := range identities {
+		if sessionCacheIdentitiesMatch(candidate, identity) {
 			return true
 		}
 	}
 	return false
 }
 
-// mergeWithStoredSessionsLocked reconciles in-memory sessions with the file and
-// returns the state to write. Caller must hold m.mu and the session store lock.
-//
-// Parameters:
-//   - dir: The .revyl directory holding device-sessions.json.
-//
-// Returns:
-//   - persistedState: The merged state, with indexes reconciled in memory too.
-func (m *DeviceSessionManager) mergeWithStoredSessionsLocked(dir string) persistedState {
-	stored := readStoredSessionState(filepath.Join(dir, "device-sessions.json"))
-
-	// Records are matched by any alias but emitted once, so a session whose
-	// SessionID arrived after its first write updates its existing row instead
-	// of adding a second one under the new key.
-	records := make([]*mergedSession, 0, len(stored.Sessions)+len(m.sessions))
-	byAlias := make(map[string]*mergedSession, len(stored.Sessions)+len(m.sessions))
-	takenIndexes := make(map[int]bool, len(stored.Sessions)+len(m.sessions))
-
-	adopt := func(record *mergedSession) {
-		for _, key := range sessionIdentityKeys(record.session) {
-			byAlias[key] = record
+func mergePersistedSession(existing, local *DeviceSession) {
+	if existing == nil || local == nil {
+		return
+	}
+	if local.SessionID == "" || local.SessionID == local.WorkflowRunID {
+		if existing.SessionID != "" {
+			local.SessionID = existing.SessionID
 		}
 	}
-
-	// nextFree stays monotonic across processes so a stopped session's index is
-	// never handed to a different session, which would silently retarget a
-	// caller still holding the old number.
-	nextFree := max(stored.NextIdx, m.nextIndex)
-	for _, session := range stored.Sessions {
-		if m.sessionRemovedLocked(session) {
-			continue
-		}
-		keys := sessionIdentityKeys(session)
-		if len(keys) == 0 {
-			continue
-		}
-		if existing, seen := byAlias[keys[0]]; seen {
-			existing.session = session
-			adopt(existing)
-			continue
-		}
-		record := &mergedSession{session: session}
-		records = append(records, record)
-		adopt(record)
-		takenIndexes[session.Index] = true
-		nextFree = max(nextFree, session.Index+1)
+	if local.WorkflowRunID == "" {
+		local.WorkflowRunID = existing.WorkflowRunID
 	}
-
-	// This process's view wins for fields it actually has. A session another
-	// process already published keeps its published index, and stored SessionID
-	// / ViewerURL survive an empty local copy so a later persist cannot blank
-	// identity a peer already wrote.
-	local := make([]*DeviceSession, 0, len(m.sessions))
-	for _, session := range m.sessions {
-		local = append(local, session)
+	if local.TraceID == "" {
+		local.TraceID = existing.TraceID
 	}
-	sort.Slice(local, func(i, j int) bool { return local[i].Index < local[j].Index })
+	if local.WorkerBaseURL == "" {
+		local.WorkerBaseURL = existing.WorkerBaseURL
+	}
+	if local.ViewerURL == "" {
+		local.ViewerURL = existing.ViewerURL
+	}
+	if local.WhepURL == nil {
+		local.WhepURL = existing.WhepURL
+	}
+	if local.Platform == "" {
+		local.Platform = existing.Platform
+	}
+	if local.ScreenWidth == 0 {
+		local.ScreenWidth = existing.ScreenWidth
+	}
+	if local.ScreenHeight == 0 {
+		local.ScreenHeight = existing.ScreenHeight
+	}
+	if local.StartedAt.IsZero() {
+		local.StartedAt = existing.StartedAt
+	}
+	if existing.LastActivity.After(local.LastActivity) {
+		local.LastActivity = existing.LastActivity
+	}
+	if local.IdleTimeout == 0 {
+		local.IdleTimeout = existing.IdleTimeout
+	}
+}
 
-	remaps := make(map[int]int, len(local))
-	for _, session := range local {
-		if m.sessionRemovedLocked(session) {
+func persistedSessionIndex(sessions []*DeviceSession, identity sessionCacheIdentity) (int, bool) {
+	for index, session := range sessions {
+		if sessionCacheIdentitiesMatch(sessionCacheIdentityFor(session), identity) {
+			return index, true
+		}
+	}
+	return -1, false
+}
+
+func persistedStateHasIndex(sessions []*DeviceSession, index int) bool {
+	for _, session := range sessions {
+		if session != nil && session.Index == index {
+			return true
+		}
+	}
+	return false
+}
+
+func persistedStateLowestIndex(sessions []*DeviceSession) int {
+	lowest := -1
+	for _, session := range sessions {
+		if session != nil && (lowest < 0 || session.Index < lowest) {
+			lowest = session.Index
+		}
+	}
+	return lowest
+}
+
+func (m *DeviceSessionManager) applyPersistedSessions(
+	sessions []*DeviceSession,
+	activeIndex int,
+	nextIndex int,
+) {
+	previousSessions := m.sessions
+	previousOwned := m.ownedSessions
+	previousDisabled := m.idleTimerDisabled
+	previousAnchors := m.screenAnchors
+	previousTimers := m.idleTimers
+
+	m.sessions = make(map[int]*DeviceSession, len(sessions))
+	m.ownedSessions = make(map[int]bool)
+	m.idleTimerDisabled = make(map[int]bool)
+	m.screenAnchors = make(map[int]*screenAnchorState)
+	m.idleTimers = make(map[int]*time.Timer)
+
+	reusedTimers := make(map[int]bool)
+	timersToReset := make([]int, 0)
+	for _, persisted := range sessions {
+		if persisted == nil {
 			continue
 		}
-		keys := sessionIdentityKeys(session)
-		if len(keys) == 0 {
-			continue
-		}
-		if existing := lookupMergedSession(byAlias, keys); existing != nil {
-			if existing.session.Index != session.Index {
-				remaps[session.Index] = existing.session.Index
+		m.sessions[persisted.Index] = persisted
+		identity := sessionCacheIdentityFor(persisted)
+		for previousIndex, previous := range previousSessions {
+			if !sessionCacheIdentitiesMatch(identity, sessionCacheIdentityFor(previous)) {
+				continue
 			}
-			session.Index = existing.session.Index
-			preserveStoredSessionIdentity(session, existing.session)
-			existing.session = session
-			adopt(existing)
+			if previousOwned[previousIndex] {
+				m.ownedSessions[persisted.Index] = true
+			}
+			if previousDisabled[previousIndex] {
+				m.idleTimerDisabled[persisted.Index] = true
+			}
+			if anchor, ok := previousAnchors[previousIndex]; ok {
+				m.screenAnchors[persisted.Index] = anchor
+			}
+			if timer, ok := previousTimers[previousIndex]; ok {
+				if previousIndex == persisted.Index {
+					m.idleTimers[persisted.Index] = timer
+					reusedTimers[previousIndex] = true
+				} else {
+					timer.Stop()
+					reusedTimers[previousIndex] = true
+					timersToReset = append(timersToReset, persisted.Index)
+				}
+			}
+			break
+		}
+	}
+
+	for previousIndex, timer := range previousTimers {
+		if !reusedTimers[previousIndex] {
+			timer.Stop()
+		}
+	}
+	m.activeIndex = activeIndex
+	m.nextIndex = nextIndex
+	for _, index := range timersToReset {
+		m.resetIdleTimerForSessionLocked(index, context.Background())
+	}
+}
+
+func (m *DeviceSessionManager) persistSessionsWithMutation(mutation sessionCacheMutation) error {
+	if m.workDir == "" || m.persistenceDisabled {
+		return nil
+	}
+
+	dir := filepath.Join(m.workDir, ".revyl")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	release, err := lockSessionStore(filepath.Join(dir, "device-sessions.lock"))
+	if err != nil {
+		return fmt.Errorf("lock device session store: %w", err)
+	}
+	defer release()
+
+	path := filepath.Join(dir, "device-sessions.json")
+	existing := persistedState{Active: -1}
+	hasPersistedState := false
+	// #nosec G304 -- the path uses the local project root and a fixed cache name.
+	if existingData, readErr := os.ReadFile(path); readErr == nil {
+		if json.Unmarshal(existingData, &existing) == nil {
+			hasPersistedState = true
+		} else {
+			existing = persistedState{Active: -1}
+		}
+	}
+	if !hasPersistedState {
+		existing.Active = m.activeIndex
+		existing.NextIdx = m.nextIndex
+		existing.OrgID = m.orgID
+		existing.UserEmail = m.userEmail
+		existing.Sessions = make([]*DeviceSession, 0, len(m.sessions))
+		for _, session := range m.sessions {
+			existing.Sessions = append(existing.Sessions, session)
+		}
+	}
+	desiredActiveIdentity := sessionCacheIdentity{}
+	hasDesiredActive := false
+	if activeSession := m.sessions[m.activeIndex]; activeSession != nil {
+		desiredActiveIdentity = sessionCacheIdentityFor(activeSession)
+		hasDesiredActive = true
+	}
+
+	sessions := make([]*DeviceSession, 0, len(existing.Sessions)+len(m.sessions))
+	for _, session := range existing.Sessions {
+		if session == nil || sessionCacheContainsIdentity(mutation.removedSessions, session) {
 			continue
 		}
-		if takenIndexes[session.Index] {
-			remaps[session.Index] = nextFree
-			session.Index = nextFree
+		sessions = append(sessions, session)
+	}
+
+	nextIndex := max(m.nextIndex, existing.NextIdx)
+	for _, session := range sessions {
+		nextIndex = max(nextIndex, session.Index+1)
+	}
+
+	updatedSessions := append([]*DeviceSession(nil), mutation.updatedSessions...)
+	sort.Slice(updatedSessions, func(i, j int) bool {
+		return updatedSessions[i].Index < updatedSessions[j].Index
+	})
+	for _, local := range updatedSessions {
+		if local == nil || sessionCacheContainsIdentity(mutation.removedSessions, local) {
+			continue
 		}
-		takenIndexes[session.Index] = true
-		nextFree = max(nextFree, session.Index+1)
-		record := &mergedSession{session: session}
-		records = append(records, record)
-		adopt(record)
+		identity := sessionCacheIdentityFor(local)
+		if existingIndex, ok := persistedSessionIndex(sessions, identity); ok {
+			persisted := sessions[existingIndex]
+			mergePersistedSession(persisted, local)
+			local.Index = persisted.Index
+			sessions[existingIndex] = local
+		}
 	}
 
-	for oldIndex, newIndex := range remaps {
-		m.remapSessionIndexLocked(oldIndex, newIndex)
+	addedSessions := append([]*DeviceSession(nil), mutation.addedSessions...)
+	sort.Slice(addedSessions, func(i, j int) bool {
+		return addedSessions[i].Index < addedSessions[j].Index
+	})
+	for _, local := range addedSessions {
+		if local == nil || sessionCacheContainsIdentity(mutation.removedSessions, local) {
+			continue
+		}
+		identity := sessionCacheIdentityFor(local)
+		if existingIndex, ok := persistedSessionIndex(sessions, identity); ok {
+			persisted := sessions[existingIndex]
+			mergePersistedSession(persisted, local)
+			local.Index = persisted.Index
+			sessions[existingIndex] = local
+			continue
+		}
+		assignedIndex := local.Index
+		if assignedIndex < 0 || persistedStateHasIndex(sessions, assignedIndex) {
+			assignedIndex = nextIndex
+			for persistedStateHasIndex(sessions, assignedIndex) {
+				assignedIndex++
+			}
+		}
+		local.Index = assignedIndex
+		nextIndex = max(nextIndex, assignedIndex+1)
+		sessions = append(sessions, local)
 	}
 
-	sessions := make([]*DeviceSession, 0, len(records))
-	for _, record := range records {
-		sessions = append(sessions, record.session)
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].Index < sessions[j].Index
+	})
+	if mutation.resetNextIndex && len(sessions) == 0 {
+		nextIndex = 0
+	} else {
+		for _, session := range sessions {
+			nextIndex = max(nextIndex, session.Index+1)
+		}
 	}
-	sort.Slice(sessions, func(i, j int) bool { return sessions[i].Index < sessions[j].Index })
 
-	m.nextIndex = nextFree
-	if _, active := m.sessions[m.activeIndex]; !active && m.activeIndex >= 0 {
-		m.activeIndex = -1
+	activeIndex := existing.Active
+	if mutation.updateActive || !persistedStateHasIndex(sessions, activeIndex) {
+		activeIndex = -1
+		if hasDesiredActive {
+			if index, ok := persistedSessionIndex(sessions, desiredActiveIdentity); ok {
+				activeIndex = sessions[index].Index
+			}
+		}
+		if activeIndex < 0 {
+			activeIndex = persistedStateLowestIndex(sessions)
+		}
 	}
 
-	// Preserve identity written by a peer rather than blanking it: paths that
-	// never call ensureOrgInfo hold empty org fields in memory.
 	orgID := m.orgID
 	if orgID == "" {
-		orgID = stored.OrgID
+		orgID = existing.OrgID
 	}
 	userEmail := m.userEmail
 	if userEmail == "" {
-		userEmail = stored.UserEmail
+		userEmail = existing.UserEmail
 	}
-
-	active := m.activeIndex
-	if active < 0 && stored.Active >= 0 {
-		if _, stillPresent := indexInSessions(sessions, stored.Active); stillPresent {
-			active = stored.Active
-		}
-	}
-
-	return persistedState{
-		Active:    active,
-		NextIdx:   nextFree,
+	state := persistedState{
+		Active:    activeIndex,
+		NextIdx:   nextIndex,
 		OrgID:     orgID,
 		UserEmail: userEmail,
 		Sessions:  sessions,
 	}
-}
 
-// readStoredSessionState reads device-sessions.json, returning an empty state
-// when the file is missing or unreadable.
-func readStoredSessionState(path string) persistedState {
-	var state persistedState
-	data, err := os.ReadFile(path)
+	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return persistedState{Active: -1}
+		return err
 	}
-	if json.Unmarshal(data, &state) != nil {
-		return persistedState{Active: -1}
+	if err := writeFileAtomic(path, data); err != nil {
+		return err
 	}
-	return state
-}
-
-// indexInSessions reports whether index is present in sessions.
-func indexInSessions(sessions []*DeviceSession, index int) (*DeviceSession, bool) {
-	for _, session := range sessions {
-		if session.Index == index {
-			return session, true
-		}
-	}
-	return nil, false
+	m.applyPersistedSessions(sessions, activeIndex, nextIndex)
+	return nil
 }
 
 // writeFileAtomic writes data to path via a temp file and rename, so a reader
@@ -1483,42 +1525,15 @@ func writeFileAtomic(path string, data []byte) error {
 	return os.Rename(tmpPath, path)
 }
 
-// remapSessionIndexLocked moves a session's index-keyed bookkeeping when the
-// merge reassigns its index. Every per-index map must move together, or the
-// session keeps its idle timer, ownership, and screen anchor under a stale key.
-// Caller must hold m.mu.
-//
-// Parameters:
-//   - oldIndex: The index the session was optimistically assigned.
-//   - newIndex: The index reconciled against the shared store.
-func (m *DeviceSessionManager) remapSessionIndexLocked(oldIndex, newIndex int) {
-	if oldIndex == newIndex {
-		return
+func (m *DeviceSessionManager) persistAllSessionsForBootstrap() {
+	sessions := make([]*DeviceSession, 0, len(m.sessions))
+	for _, session := range m.sessions {
+		sessions = append(sessions, session)
 	}
-
-	if session, ok := m.sessions[oldIndex]; ok {
-		delete(m.sessions, oldIndex)
-		m.sessions[newIndex] = session
-	}
-	if owned, ok := m.ownedSessions[oldIndex]; ok {
-		delete(m.ownedSessions, oldIndex)
-		m.ownedSessions[newIndex] = owned
-	}
-	if disabled, ok := m.idleTimerDisabled[oldIndex]; ok {
-		delete(m.idleTimerDisabled, oldIndex)
-		m.idleTimerDisabled[newIndex] = disabled
-	}
-	if timer, ok := m.idleTimers[oldIndex]; ok {
-		delete(m.idleTimers, oldIndex)
-		m.idleTimers[newIndex] = timer
-	}
-	if anchor, ok := m.screenAnchors[oldIndex]; ok {
-		delete(m.screenAnchors, oldIndex)
-		m.screenAnchors[newIndex] = anchor
-	}
-	if m.activeIndex == oldIndex {
-		m.activeIndex = newIndex
-	}
+	_ = m.persistSessionsWithMutation(sessionCacheMutation{
+		addedSessions: sessions,
+		updateActive:  true,
+	})
 }
 
 // loadLocalCache reads device-sessions.json from disk into memory.
@@ -1567,7 +1582,7 @@ func (m *DeviceSessionManager) loadLocalCache() {
 	m.sessions[0] = &oldSession
 	m.activeIndex = 0
 	m.nextIndex = 1
-	m.persistSessions()
+	m.persistAllSessionsForBootstrap()
 
 	// Clean up old file
 	_ = os.Remove(oldPath)
@@ -1777,6 +1792,16 @@ func applyBackendScreenDimensions(session *DeviceSession, width, height *int) {
 	}
 	if height != nil && *height > 0 {
 		session.ScreenHeight = *height
+	}
+}
+
+func applyBackendLastActivity(session *DeviceSession, bs api.ActiveDeviceSessionItem) {
+	if bs.LastActivityAt == nil {
+		return
+	}
+	lastActivity, err := time.Parse(time.RFC3339Nano, *bs.LastActivityAt)
+	if err == nil && lastActivity.After(session.LastActivity) {
+		session.LastActivity = lastActivity
 	}
 }
 
@@ -2606,6 +2631,29 @@ func (m *DeviceSessionManager) WorkerRequestOnSession(ctx context.Context, sessi
 	return m.workerRequestForSession(ctx, session, path, body)
 }
 
+func (m *DeviceSessionManager) lockInputAction(ctx context.Context, session *DeviceSession) (func(), error) {
+	if m.workDir == "" {
+		return func() {}, nil
+	}
+	if session == nil {
+		return nil, fmt.Errorf("device session is required")
+	}
+	identity := strings.TrimSpace(session.SessionID)
+	if identity == "" {
+		identity = strings.TrimSpace(session.WorkflowRunID)
+	}
+	if identity == "" {
+		return nil, fmt.Errorf("device session has no durable identity")
+	}
+	dir := filepath.Join(m.workDir, ".revyl")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256([]byte(identity))
+	lockName := fmt.Sprintf("device-input-%x.lock", digest[:10])
+	return lockDeviceFile(ctx, filepath.Join(dir, lockName))
+}
+
 // nonIdempotentPaths lists worker paths whose side-effects make retry unsafe.
 // Retrying these creates duplicate work (e.g. duplicate agent steps).
 var nonIdempotentPaths = map[string]bool{
@@ -2616,6 +2664,13 @@ var nonIdempotentPaths = map[string]bool{
 // workerRequestForSession is the internal implementation that sends a worker
 // action request to a given session using the backend relay.
 func (m *DeviceSessionManager) workerRequestForSession(ctx context.Context, session *DeviceSession, path string, body interface{}) ([]byte, error) {
+	if path == "/input" {
+		unlock, err := m.lockInputAction(ctx, session)
+		if err != nil {
+			return nil, fmt.Errorf("serialize device input: %w", err)
+		}
+		defer unlock()
+	}
 	if session != nil {
 		m.ResetIdleTimer(session.Index)
 	}
@@ -3238,6 +3293,9 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		if backendSessions[j].CreatedAt != nil {
 			cj = *backendSessions[j].CreatedAt
 		}
+		if ci.Equal(cj) {
+			return backendSessions[i].Id < backendSessions[j].Id
+		}
 		return ci.Before(cj)
 	})
 
@@ -3271,6 +3329,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 				ls.TraceID = strings.TrimSpace(*bs.TraceId)
 			}
 			applyBackendScreenDimensions(ls, bs.ScreenWidth, bs.ScreenHeight)
+			applyBackendLastActivity(ls, bs)
 			continue
 		}
 		if bs, ok := backendSessionByWorkflow[ls.WorkflowRunID]; ok {
@@ -3280,8 +3339,10 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 				ls.TraceID = strings.TrimSpace(*bs.TraceId)
 			}
 			applyBackendScreenDimensions(ls, bs.ScreenWidth, bs.ScreenHeight)
+			applyBackendLastActivity(ls, bs)
 		}
 	}
+	removedSessions := make([]sessionCacheIdentity, 0)
 	for idx, ls := range m.sessions {
 		if allBackendIDs[ls.SessionID] {
 			continue
@@ -3295,10 +3356,10 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		// without StopSession (idle expiry on the backend, crash, etc.).
 		if ls != nil {
 			_ = beforesession.ClearSessionValues(m.workDir, ls.SessionID)
+			removedSessions = append(removedSessions, sessionCacheIdentityFor(ls))
 		}
 		// The backend is authoritative about which sessions still exist, so this
 		// pruning must survive the merge instead of being re-read from the file.
-		m.recordRemovedSessionLocked(ls)
 		delete(m.sessions, idx)
 		delete(m.ownedSessions, idx)
 		delete(m.idleTimerDisabled, idx)
@@ -3313,6 +3374,7 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 		}
 	}
 
+	addedSessions := make([]*DeviceSession, 0)
 	for _, bs := range backendSessions {
 		if _, exists := localByID[bs.Id]; exists {
 			continue // already known locally
@@ -3382,8 +3444,10 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 			IdleTimeout:   5 * time.Minute,
 		}
 		applyBackendScreenDimensions(session, bs.ScreenWidth, bs.ScreenHeight)
+		applyBackendLastActivity(session, bs)
 
 		m.sessions[idx] = session
+		addedSessions = append(addedSessions, session)
 		m.resetIdleTimerForSessionLocked(idx, context.Background())
 	}
 
@@ -3405,7 +3469,17 @@ func (m *DeviceSessionManager) SyncSessions(ctx context.Context) error {
 	}
 
 	// Step 8: Persist
-	m.persistSessions()
+	updatedSessions := make([]*DeviceSession, 0, len(m.sessions))
+	for _, session := range m.sessions {
+		updatedSessions = append(updatedSessions, session)
+	}
+	m.persistSessionsWithMutation(sessionCacheMutation{
+		removedSessions: removedSessions,
+		addedSessions:   addedSessions,
+		updatedSessions: updatedSessions,
+		updateActive:    true,
+		resetNextIndex:  len(m.sessions) == 0,
+	})
 	return nil
 }
 
@@ -3437,7 +3511,7 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 	for idx, s := range m.sessions {
 		if s.SessionID == sessionID {
 			m.activeIndex = idx
-			m.persistSessions()
+			m.persistSessionsWithMutation(sessionCacheMutation{updateActive: true})
 			return idx, s, nil
 		}
 	}
@@ -3454,7 +3528,11 @@ func (m *DeviceSessionManager) AttachBySessionID(ctx context.Context, sessionID 
 	m.sessions[idx] = session
 	m.activeIndex = idx
 	m.resetIdleTimerForSessionLocked(idx, ctx)
-	m.persistSessions()
+	m.persistSessionsWithMutation(sessionCacheMutation{
+		addedSessions: []*DeviceSession{session},
+		updateActive:  true,
+	})
+	idx = session.Index
 
 	return idx, session, nil
 }

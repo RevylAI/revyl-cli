@@ -3,18 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
-	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -125,124 +120,6 @@ func resolveTargetOrCoords(cmd *cobra.Command, mgr *mcppkg.DeviceSessionManager,
 	return x, y, nil
 }
 
-var (
-	androidBoundsPattern = regexp.MustCompile(`^\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]$`)
-	semanticWordPattern  = regexp.MustCompile(`[a-z0-9]+`)
-	targetContextTokens  = map[string]struct{}{
-		"a": {}, "an": {}, "and": {}, "at": {}, "bottom": {}, "center": {},
-		"click": {}, "find": {}, "i": {}, "in": {}, "left": {}, "locate": {},
-		"lower": {}, "me": {}, "middle": {}, "on": {}, "open": {}, "please": {},
-		"press": {}, "right": {}, "screen": {}, "select": {}, "tap": {},
-		"target": {}, "that": {}, "the": {}, "this": {}, "top": {}, "upper": {},
-		"visible": {},
-	}
-	controlTokenAliases = map[string]string{
-		"btn": "button", "button": "button", "checkbox": "checkbox",
-		"field": "input", "input": "input", "switch": "switch", "toggle": "switch",
-	}
-)
-
-func splitSemanticWords(value string) []string {
-	var separated strings.Builder
-	var previous rune
-	for index, current := range value {
-		if index > 0 && unicode.IsUpper(current) && (unicode.IsLower(previous) || unicode.IsDigit(previous)) {
-			separated.WriteByte(' ')
-		}
-		separated.WriteRune(current)
-		previous = current
-	}
-	return semanticWordPattern.FindAllString(strings.ToLower(separated.String()), -1)
-}
-
-func semanticTokens(value string, includeCompounds bool) map[string]struct{} {
-	words := splitSemanticWords(value)
-	tokens := make(map[string]struct{}, len(words)*2)
-	for _, word := range words {
-		tokens[word] = struct{}{}
-	}
-	if includeCompounds {
-		for index := 0; index+1 < len(words); index++ {
-			tokens[words[index]+words[index+1]] = struct{}{}
-		}
-	}
-	if _, hasEdit := tokens["edit"]; hasEdit {
-		if _, hasText := tokens["text"]; hasText {
-			tokens["input"] = struct{}{}
-		}
-	}
-	for alias, canonical := range controlTokenAliases {
-		if _, ok := tokens[alias]; ok {
-			tokens[canonical] = struct{}{}
-		}
-	}
-	return tokens
-}
-
-func androidHierarchySupportsTarget(hierarchy []byte, target string, x, y int) bool {
-	evidence := map[string]struct{}{}
-	decoder := xml.NewDecoder(strings.NewReader(string(hierarchy)))
-	for {
-		token, err := decoder.Token()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return false
-		}
-		start, ok := token.(xml.StartElement)
-		if !ok || start.Name.Local != "node" {
-			continue
-		}
-
-		attributes := map[string]string{}
-		for _, attribute := range start.Attr {
-			attributes[attribute.Name.Local] = attribute.Value
-		}
-		boundsMatch := androidBoundsPattern.FindStringSubmatch(attributes["bounds"])
-		if boundsMatch == nil {
-			continue
-		}
-		bounds := make([]int, 4)
-		validBounds := true
-		for index := range bounds {
-			parsed, parseErr := strconv.Atoi(boundsMatch[index+1])
-			if parseErr != nil {
-				validBounds = false
-				break
-			}
-			bounds[index] = parsed
-		}
-		if !validBounds || x < bounds[0] || x >= bounds[2] || y < bounds[1] || y >= bounds[3] {
-			continue
-		}
-		for _, attribute := range []string{"text", "content-desc", "resource-id", "class"} {
-			for token := range semanticTokens(attributes[attribute], true) {
-				evidence[token] = struct{}{}
-			}
-		}
-	}
-
-	targetTokens := semanticTokens(target, false)
-	descriptiveCount := 0
-	for token := range targetTokens {
-		if canonical, isControl := controlTokenAliases[token]; isControl {
-			if _, supported := evidence[canonical]; !supported {
-				return false
-			}
-			continue
-		}
-		if _, contextual := targetContextTokens[token]; contextual {
-			continue
-		}
-		descriptiveCount++
-		if _, supported := evidence[token]; !supported {
-			return false
-		}
-	}
-	return descriptiveCount > 0
-}
-
 // jsonOrPrint outputs result as JSON if --json flag is set, otherwise prints the message.
 func jsonOrPrint(cmd *cobra.Command, v interface{}, fallbackMsg string) {
 	jsonOutput, _ := cmd.Flags().GetBool("json")
@@ -251,6 +128,53 @@ func jsonOrPrint(cmd *cobra.Command, v interface{}, fallbackMsg string) {
 		fmt.Println(string(data))
 	} else {
 		ui.PrintInfo("%s", fallbackMsg)
+	}
+}
+
+var liveStepImageFields = map[string]struct{}{
+	"grounding_crop_base64":    {},
+	"image":                    {},
+	"image_base64":             {},
+	"post_action_image":        {},
+	"post_action_image_base64": {},
+	"post_action_tagged_image": {},
+	"screenshot_base64":        {},
+	"tagged_image":             {},
+	"tagged_image_base64":      {},
+}
+
+func compactLiveStepResponseForOutput(response *mcppkg.LiveStepResponse) *mcppkg.LiveStepResponse {
+	if response == nil || len(response.StepOutput) == 0 {
+		return response
+	}
+	var stepOutput any
+	if err := json.Unmarshal(response.StepOutput, &stepOutput); err != nil {
+		return response
+	}
+	removeLiveStepImageFields(stepOutput)
+	compacted, err := json.Marshal(stepOutput)
+	if err != nil {
+		return response
+	}
+	copy := *response
+	copy.StepOutput = compacted
+	return &copy
+}
+
+func removeLiveStepImageFields(value any) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, nested := range typed {
+			if _, remove := liveStepImageFields[key]; remove {
+				delete(typed, key)
+				continue
+			}
+			removeLiveStepImageFields(nested)
+		}
+	case []any:
+		for _, nested := range typed {
+			removeLiveStepImageFields(nested)
+		}
 	}
 }
 
@@ -628,7 +552,7 @@ func executeLiveStepCommand(cmd *cobra.Command, request mcppkg.LiveStepRequest, 
 	if outcomeErr != nil && response != nil {
 		response.Success = false
 	}
-	jsonOrPrint(cmd, response, formatLiveStepFallback(stepLabel, request, response))
+	jsonOrPrint(cmd, compactLiveStepResponseForOutput(response), formatLiveStepFallback(stepLabel, request, response))
 	return outcomeErr
 }
 
@@ -1201,25 +1125,6 @@ var deviceTapCmd = &cobra.Command{
 			resolved, err := mgr.ResolveTargetOnSession(cmd.Context(), session, target)
 			if err != nil {
 				return err
-			}
-			if strings.EqualFold(session.Platform, "android") {
-				hierarchy, hierarchyErr := mgr.WorkerRequestOnSession(
-					cmd.Context(),
-					session,
-					"/hierarchy",
-					nil,
-				)
-				if hierarchyErr != nil {
-					return fmt.Errorf("could not verify grounded target against Android UI hierarchy: %w", hierarchyErr)
-				}
-				if !androidHierarchySupportsTarget(hierarchy, target, resolved.X, resolved.Y) {
-					return fmt.Errorf(
-						"could not verify %q at (%d, %d) against the Android UI hierarchy; no tap was sent",
-						target,
-						resolved.X,
-						resolved.Y,
-					)
-				}
 			}
 			respBody, err := mgr.WorkerRequestOnSession(
 				cmd.Context(),

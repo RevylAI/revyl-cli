@@ -180,7 +180,7 @@ func newAtlasAnnotationsListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			result, err := client.ListAtlasAnnotationFeedback(cmd.Context(), app.ID, observationID, status, severity, cursor, limit)
+			result, err := client.ListAtlasAnnotationFeedback(cmd.Context(), app.ID, "", observationID, status, severity, cursor, limit)
 			if err != nil {
 				return err
 			}
@@ -294,7 +294,7 @@ func newAtlasAnnotationsCreateCommand() *cobra.Command {
 	command.Flags().BoolVar(&options.dryRun, "dry-run", false, "Ground the target without creating a thread")
 	command.Flags().StringVar(&options.previewOut, "preview-out", "", "Write a marked screenshot during --dry-run")
 	command.Flags().StringSliceVar(&options.attachments, "attach", nil, "Attach a local file (repeatable)")
-	command.Flags().StringArrayVar(&options.mentions, "mention", nil, "Bind an alias to a member user id (alias=user-id, repeatable)")
+	command.Flags().StringArrayVar(&options.mentions, "mention", nil, "Bind @{alias} in the body to a member user id (alias=user-id, repeatable)")
 	_ = command.MarkFlagRequired("app")
 	return command
 }
@@ -325,7 +325,7 @@ func newAtlasAnnotationsMoveCommand() *cobra.Command {
 				return err
 			}
 			if options.previewOut != "" {
-				if err := writeAnnotationPreview(cmd, client, app.ID, preview, options.previewOut); err != nil {
+				if err := writeThreadAnnotationPreview(cmd, client, app.ID, args[0], "", preview, options.previewOut); err != nil {
 					return err
 				}
 			}
@@ -400,7 +400,7 @@ func newAtlasAnnotationsReplyCommand() *cobra.Command {
 	addAnnotationBodyFlags(command, &bodyOptions)
 	command.Flags().StringVar(&clientRequestID, "client-request-id", "", "UUID for idempotent retry recovery")
 	command.Flags().StringSliceVar(&attachments, "attach", nil, "Attach a local file (repeatable)")
-	command.Flags().StringArrayVar(&mentions, "mention", nil, "Bind an alias to a member user id (alias=user-id, repeatable)")
+	command.Flags().StringArrayVar(&mentions, "mention", nil, "Bind @{alias} in the body to a member user id (alias=user-id, repeatable)")
 	_ = command.MarkFlagRequired("app")
 	return command
 }
@@ -476,7 +476,7 @@ func newAtlasAnnotationsEditCommand() *cobra.Command {
 	command.Flags().StringSliceVar(&removeAttachments, "remove-attachment", nil, "Remove an attachment id (repeatable)")
 	command.Flags().BoolVar(&clearAttachments, "clear-attachments", false, "Remove every existing attachment before additions")
 	command.Flags().StringVar(&clientRequestID, "client-request-id", "", "UUID used to make attachment uploads retry-safe")
-	command.Flags().StringArrayVar(&mentions, "mention", nil, "Bind an alias to a member user id (alias=user-id, repeatable)")
+	command.Flags().StringArrayVar(&mentions, "mention", nil, "Bind @{alias} in the body to a member user id (alias=user-id, repeatable)")
 	_ = command.MarkFlagRequired("app")
 	return command
 }
@@ -989,8 +989,16 @@ func writeAnnotationPreview(command *cobra.Command, client *api.Client, appID st
 	if screenshotURL == "" {
 		return fmt.Errorf("Atlas observation %s did not include a screenshot URL", preview.ObservationId)
 	}
+	return writeAnnotationPreviewFromScreenshotURL(command.Context(), screenshotURL, preview, outputPath)
+}
+
+func writeAnnotationPreviewFromScreenshotURL(ctx context.Context, screenshotURL string, preview *api.AtlasAnnotationAnchorPreviewResponse, outputPath string) error {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	httpResponse, err := httpClient.Get(screenshotURL)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, screenshotURL, nil)
+	if err != nil {
+		return err
+	}
+	httpResponse, err := httpClient.Do(request)
 	if err != nil {
 		return err
 	}

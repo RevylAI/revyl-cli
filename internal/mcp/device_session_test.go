@@ -7,11 +7,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -83,6 +85,31 @@ func TestStartSessionRejectsInvalidLaunchArgumentsBeforeAPIWork(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "token 1 cannot be empty") {
 		t.Fatalf("StartSession() error = %v", err)
+	}
+}
+
+func TestInputLocksAreScopedToDeviceSession(t *testing.T) {
+	manager := NewDeviceSessionManager(nil, t.TempDir())
+	firstSession := &DeviceSession{SessionID: "session-1"}
+	secondSession := &DeviceSession{SessionID: "session-2"}
+
+	unlockFirst, err := manager.lockInputAction(context.Background(), firstSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlockFirst()
+
+	unlockSecond, err := manager.lockInputAction(context.Background(), secondSession)
+	if err != nil {
+		t.Fatalf("independent session lock should not block: %v", err)
+	}
+	unlockSecond()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err = manager.lockInputAction(ctx, firstSession)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("same-session lock error = %v, want context deadline", err)
 	}
 }
 
@@ -691,12 +718,12 @@ func TestDeviceSessionManager_Persistence(t *testing.T) {
 		IdleTimeout:   5 * time.Minute,
 	}
 
-	mgr.persistSessions()
+	mgr.persistAllSessionsForBootstrap()
 
 	// Verify the file exists
 	sessionPath := filepath.Join(tmpDir, ".revyl", "device-sessions.json")
 	if _, err := os.Stat(sessionPath); os.IsNotExist(err) {
-		t.Fatal("device-sessions.json should exist after persistSessions()")
+		t.Fatal("device-sessions.json should exist after bootstrap persistence")
 	}
 
 	// Read and validate the contents
@@ -747,6 +774,251 @@ func TestDeviceSessionManager_Persistence(t *testing.T) {
 	}
 }
 
+func TestDeviceSessionManager_PersistenceMergesConcurrentActivity(t *testing.T) {
+	tmpDir := t.TempDir()
+	startedAt := time.Now().Add(-time.Hour)
+	firstActivity := startedAt.Add(10 * time.Minute)
+	secondActivity := startedAt.Add(20 * time.Minute)
+	newManager := func() *DeviceSessionManager {
+		return &DeviceSessionManager{
+			workDir:     tmpDir,
+			sessions:    make(map[int]*DeviceSession),
+			idleTimers:  make(map[int]*time.Timer),
+			activeIndex: 0,
+			nextIndex:   2,
+		}
+	}
+	first := newManager()
+	second := newManager()
+	for index, sessionID := range []string{"session-0", "session-1"} {
+		first.sessions[index] = &DeviceSession{Index: index, SessionID: sessionID, StartedAt: startedAt, LastActivity: startedAt}
+		second.sessions[index] = &DeviceSession{Index: index, SessionID: sessionID, StartedAt: startedAt, LastActivity: startedAt}
+	}
+	first.sessions[0].LastActivity = firstActivity
+	first.persistAllSessionsForBootstrap()
+	second.sessions[1].LastActivity = secondActivity
+	second.persistAllSessionsForBootstrap()
+
+	restored := newManager()
+	restored.loadLocalCache()
+	if !restored.sessions[0].LastActivity.Equal(firstActivity) {
+		t.Fatalf("session 0 last activity = %s, want %s", restored.sessions[0].LastActivity, firstActivity)
+	}
+	if !restored.sessions[1].LastActivity.Equal(secondActivity) {
+		t.Fatalf("session 1 last activity = %s, want %s", restored.sessions[1].LastActivity, secondActivity)
+	}
+}
+
+func TestDeviceSessionManager_StaleActivityUpdatePreservesConcurrentSessionAddition(t *testing.T) {
+	tmpDir := t.TempDir()
+	newManager := func() *DeviceSessionManager {
+		return &DeviceSessionManager{
+			workDir:           tmpDir,
+			sessions:          make(map[int]*DeviceSession),
+			ownedSessions:     make(map[int]bool),
+			idleTimerDisabled: make(map[int]bool),
+			idleTimers:        make(map[int]*time.Timer),
+			screenAnchors:     make(map[int]*screenAnchorState),
+			activeIndex:       -1,
+		}
+	}
+
+	seed := newManager()
+	if _, err := seed.registerStartedSession(&DeviceSession{
+		SessionID:     "session-a",
+		WorkflowRunID: "workflow-a",
+		LastActivity:  time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("register seed session: %v", err)
+	}
+
+	stale := newManager()
+	stale.loadLocalCache()
+	other := newManager()
+	other.loadLocalCache()
+	if index, err := other.registerStartedSession(&DeviceSession{
+		SessionID:     "session-b",
+		WorkflowRunID: "workflow-b",
+		LastActivity:  time.Now(),
+	}); err != nil {
+		t.Fatalf("register concurrent session: %v", err)
+	} else if index != 1 {
+		t.Fatalf("concurrent session index = %d, want 1", index)
+	}
+
+	stale.ResetIdleTimer(0)
+
+	restored := newManager()
+	restored.loadLocalCache()
+	if len(restored.sessions) != 2 {
+		t.Fatalf("persisted sessions = %d, want 2", len(restored.sessions))
+	}
+	if restored.sessions[0].SessionID != "session-a" || restored.sessions[1].SessionID != "session-b" {
+		t.Fatalf("persisted sessions = %#v, want session-a and session-b", restored.sessions)
+	}
+}
+
+func TestDeviceSessionManager_StopPreservesConcurrentSessionAddition(t *testing.T) {
+	tmpDir := t.TempDir()
+	newManager := func() *DeviceSessionManager {
+		return &DeviceSessionManager{
+			workDir:           tmpDir,
+			sessions:          make(map[int]*DeviceSession),
+			ownedSessions:     make(map[int]bool),
+			idleTimerDisabled: make(map[int]bool),
+			idleTimers:        make(map[int]*time.Timer),
+			screenAnchors:     make(map[int]*screenAnchorState),
+			activeIndex:       -1,
+		}
+	}
+
+	seed := newManager()
+	if _, err := seed.registerStartedSession(&DeviceSession{
+		SessionID:     "session-a",
+		WorkflowRunID: "workflow-a",
+		LastActivity:  time.Now(),
+	}); err != nil {
+		t.Fatalf("register seed session: %v", err)
+	}
+
+	stale := newManager()
+	stale.loadLocalCache()
+	other := newManager()
+	other.loadLocalCache()
+	if _, err := other.registerStartedSession(&DeviceSession{
+		SessionID:     "session-b",
+		WorkflowRunID: "workflow-b",
+		LastActivity:  time.Now(),
+	}); err != nil {
+		t.Fatalf("register concurrent session: %v", err)
+	}
+
+	if err := stale.StopSession(context.Background(), 0); err != nil {
+		t.Fatalf("stop stale manager session: %v", err)
+	}
+
+	restored := newManager()
+	restored.loadLocalCache()
+	if len(restored.sessions) != 1 {
+		t.Fatalf("persisted sessions = %d, want 1", len(restored.sessions))
+	}
+	if restored.sessions[1] == nil || restored.sessions[1].SessionID != "session-b" {
+		t.Fatalf("persisted sessions = %#v, want only session-b at index 1", restored.sessions)
+	}
+}
+
+func TestDeviceSessionManager_StaleUpdateDoesNotResurrectRemovedSession(t *testing.T) {
+	tmpDir := t.TempDir()
+	newManager := func() *DeviceSessionManager {
+		return &DeviceSessionManager{
+			workDir:           tmpDir,
+			sessions:          make(map[int]*DeviceSession),
+			ownedSessions:     make(map[int]bool),
+			idleTimerDisabled: make(map[int]bool),
+			idleTimers:        make(map[int]*time.Timer),
+			screenAnchors:     make(map[int]*screenAnchorState),
+			activeIndex:       -1,
+		}
+	}
+
+	seed := newManager()
+	for _, identity := range []string{"a", "b"} {
+		if _, err := seed.registerStartedSession(&DeviceSession{
+			SessionID:     "session-" + identity,
+			WorkflowRunID: "workflow-" + identity,
+			LastActivity:  time.Now(),
+		}); err != nil {
+			t.Fatalf("register session %s: %v", identity, err)
+		}
+	}
+
+	stale := newManager()
+	stale.loadLocalCache()
+	remover := newManager()
+	remover.loadLocalCache()
+	if err := remover.StopSession(context.Background(), 1); err != nil {
+		t.Fatalf("stop session-b: %v", err)
+	}
+
+	stale.ResetIdleTimer(0)
+
+	restored := newManager()
+	restored.loadLocalCache()
+	if len(restored.sessions) != 1 || restored.sessions[0].SessionID != "session-a" {
+		t.Fatalf("persisted sessions = %#v, want only session-a", restored.sessions)
+	}
+}
+
+func TestDeviceSessionManager_RegisterStartedSessionAllocatesUniqueConcurrentIndices(t *testing.T) {
+	tmpDir := t.TempDir()
+	newManager := func() *DeviceSessionManager {
+		return &DeviceSessionManager{
+			workDir:           tmpDir,
+			sessions:          make(map[int]*DeviceSession),
+			idleTimers:        make(map[int]*time.Timer),
+			idleTimerDisabled: make(map[int]bool),
+			ownedSessions:     make(map[int]bool),
+			activeIndex:       -1,
+		}
+	}
+
+	managers := []*DeviceSessionManager{newManager(), newManager()}
+	indices := make(chan int, len(managers))
+	errors := make(chan error, len(managers))
+	var workers sync.WaitGroup
+	for index, manager := range managers {
+		workers.Add(1)
+		go func(index int, manager *DeviceSessionManager) {
+			defer workers.Done()
+			assigned, err := manager.registerStartedSession(&DeviceSession{
+				SessionID:    fmt.Sprintf("session-%d", index),
+				LastActivity: time.Now(),
+			})
+			if err != nil {
+				errors <- err
+				return
+			}
+			indices <- assigned
+		}(index, manager)
+	}
+	workers.Wait()
+	close(indices)
+	close(errors)
+	for err := range errors {
+		t.Fatalf("register session: %v", err)
+	}
+
+	assigned := make(map[int]bool)
+	for index := range indices {
+		assigned[index] = true
+	}
+	if len(assigned) != 2 || !assigned[0] || !assigned[1] {
+		t.Fatalf("assigned indices = %v, want 0 and 1", assigned)
+	}
+
+	restored := newManager()
+	restored.loadLocalCache()
+	if len(restored.sessions) != 2 {
+		t.Fatalf("persisted sessions = %d, want 2", len(restored.sessions))
+	}
+}
+
+func TestApplyBackendLastActivityKeepsNewestValue(t *testing.T) {
+	local := time.Now()
+	newer := local.Add(time.Minute).Format(time.RFC3339Nano)
+	session := &DeviceSession{LastActivity: local}
+	applyBackendLastActivity(session, api.ActiveDeviceSessionItem{LastActivityAt: &newer})
+	if !session.LastActivity.Equal(local.Add(time.Minute)) {
+		t.Fatalf("last activity = %s, want backend value", session.LastActivity)
+	}
+
+	older := local.Add(-time.Minute).Format(time.RFC3339Nano)
+	applyBackendLastActivity(session, api.ActiveDeviceSessionItem{LastActivityAt: &older})
+	if !session.LastActivity.Equal(local.Add(time.Minute)) {
+		t.Fatalf("last activity regressed to %s", session.LastActivity)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // TestDeviceSessionManager_Persistence_NoWorkDir: Persistence is a no-op
 // when workDir is empty.
@@ -759,7 +1031,7 @@ func TestDeviceSessionManager_Persistence_NoWorkDir(t *testing.T) {
 		activeIndex: -1,
 	}
 	mgr.sessions[0] = &DeviceSession{Index: 0, SessionID: "no-persist"}
-	mgr.persistSessions() // should not panic
+	mgr.persistAllSessionsForBootstrap() // should not panic
 }
 
 // ---------------------------------------------------------------------------

@@ -313,7 +313,7 @@ func TestDisablePersistence_SuppressesCacheWrites(t *testing.T) {
 	mgr.DisablePersistence()
 
 	mgr.mu.Lock()
-	mgr.persistSessions()
+	mgr.persistAllSessionsForBootstrap()
 	mgr.mu.Unlock()
 
 	if _, err := os.Stat(filepath.Join(workDir, ".revyl", "device-sessions.json")); !os.IsNotExist(err) {

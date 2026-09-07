@@ -78,3 +78,57 @@ func TestGetAtlasEdgeRunsPreservesGraphScope(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAtlasAnnotationMutationsCarrySessionScope(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		invoke func(*Client) error
+	}{
+		{
+			name: "reply", method: http.MethodPost,
+			path: "/api/v1/atlas/v2/apps/app-1/annotation-threads/thread-1/replies",
+			invoke: func(client *Client) error {
+				_, err := client.AddAtlasAnnotationReplyForSession(context.Background(), "app-1", "thread-1", "session-1", &AtlasAnnotationReplyRequest{Body: "Fixed"})
+				return err
+			},
+		},
+		{
+			name: "status", method: http.MethodPost,
+			path: "/api/v1/atlas/v2/apps/app-1/annotation-threads/thread-1/resolve",
+			invoke: func(client *Client) error {
+				_, err := client.ChangeAtlasAnnotationStatusForSession(context.Background(), "app-1", "thread-1", "session-1", "resolve", &AtlasAnnotationStatusChangeRequest{ExpectedVersion: 1})
+				return err
+			},
+		},
+		{
+			name: "severity", method: http.MethodPatch,
+			path: "/api/v1/atlas/v2/apps/app-1/annotation-threads/thread-1/severity",
+			invoke: func(client *Client) error {
+				_, err := client.SetAtlasAnnotationSeverityForSession(context.Background(), "app-1", "thread-1", "session-1", &AtlasAnnotationSeverityChangeRequest{ExpectedVersion: 1})
+				return err
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.Method != test.method || request.URL.Path != test.path {
+					t.Fatalf("request = %s %s, want %s %s", request.Method, request.URL.Path, test.method, test.path)
+				}
+				if actual := request.URL.Query().Get("session_id"); actual != "session-1" {
+					t.Fatalf("session_id = %q, want session-1", actual)
+				}
+				response.Header().Set("Content-Type", "application/json")
+				_, _ = response.Write([]byte(`{}`))
+			}))
+			t.Cleanup(server.Close)
+
+			if err := test.invoke(NewClientWithBaseURL("test-key", server.URL)); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

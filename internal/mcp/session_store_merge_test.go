@@ -44,7 +44,7 @@ func addStoreTestSession(mgr *DeviceSessionManager, index int, sessionID string)
 func persistStoreTestManager(mgr *DeviceSessionManager) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
-	mgr.persistSessions()
+	mgr.persistAllSessionsForBootstrap()
 }
 
 func readStoreTestState(t *testing.T, workDir string) persistedState {
@@ -172,7 +172,10 @@ func TestPersistSessions_RemovesOnlyDeliberatelyStoppedSessions(t *testing.T) {
 	if err := stopper.stopSessionAtIndexLocked(context.Background(), stopIndex, stopSession); err != nil {
 		t.Fatalf("stopSessionAtIndexLocked() error = %v", err)
 	}
-	stopper.persistSessions()
+	stopper.persistSessionsWithMutation(sessionCacheMutation{
+		removedSessions: []sessionCacheIdentity{sessionCacheIdentityFor(stopSession)},
+		updateActive:    true,
+	})
 	stopper.mu.Unlock()
 
 	byID := storeTestSessionIDs(readStoreTestState(t, workDir))
@@ -275,9 +278,11 @@ func TestPersistSessions_StopRemovesRowWrittenBeforeSessionIDArrived(t *testing.
 	stopped := addStoreTestSession(stopper, 0, "session-stopped")
 	stopped.WorkflowRunID = "wf-stopped"
 	stopper.mu.Lock()
-	stopper.recordRemovedSessionLocked(stopped)
 	delete(stopper.sessions, 0)
-	stopper.persistSessions()
+	stopper.persistSessionsWithMutation(sessionCacheMutation{
+		removedSessions: []sessionCacheIdentity{sessionCacheIdentityFor(stopped)},
+		updateActive:    true,
+	})
 	stopper.mu.Unlock()
 
 	state := readStoreTestState(t, workDir)
@@ -314,8 +319,8 @@ func TestPersistSessions_RemapsIndexBookkeepingOnCollision(t *testing.T) {
 	if colliding.sessions[newIndex] != session {
 		t.Fatalf("sessions[%d] does not hold the remapped session", newIndex)
 	}
-	if _, stale := colliding.sessions[0]; stale {
-		t.Fatal("stale sessions[0] left behind after remap")
+	if publishedSession := colliding.sessions[0]; publishedSession == nil || publishedSession.SessionID != "session-published" {
+		t.Fatalf("sessions[0] = %#v, want the already-published peer session", publishedSession)
 	}
 	if !colliding.ownedSessions[newIndex] || colliding.ownedSessions[0] {
 		t.Fatalf("ownedSessions not remapped: %v", colliding.ownedSessions)

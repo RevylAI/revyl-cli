@@ -175,3 +175,45 @@ Install the write-capable leaf only for requested feedback work:
 ```bash
 revyl skill install --name revyl-cli-atlas-review --force
 ```
+
+## Run-native annotations (`revyl report annotations`)
+
+`revyl report annotations` mirrors the `atlas annotations` family but is
+addressed at the caller's current device session instead of Atlas ids:
+`atlas annotations` is observation-addressed, `report annotations` is
+session-addressed. Every verb defaults to the active dev/proof session;
+pass `--session-id` to target a session directly. For list, get, reply,
+status, and severity operations, `--app` is an explicit app-wide escape hatch
+for Atlas administration: it skips session scoping as well as the
+session-to-app lookup. Creation remains session-grounded. Every verb supports
+`--json`.
+
+```bash
+revyl report annotations create --dry-run --target "<visible target>" --preview-out <image-path> --preview-receipt-out <receipt-path> [--action <action-id>] [--role before|after]
+revyl report annotations create --body-file <feedback-path> --preview-receipt <receipt-path> [--severity blocker|issue|polish] [--mention alias=user-id]...
+revyl report annotations list [--status open|resolved|dismissed|closed|all] [--severity all|blocker|issue|polish|none] [--limit 25] [--cursor <cursor>]
+revyl report annotations get <thread-id> [--screenshot-out <path>]
+revyl report annotations reply <thread-id> --body "<reply>" [--mention alias=user-id]... [--attach <path>]...
+revyl report annotations resolve|dismiss|reopen <thread-id> [--expected-version N]
+revyl report annotations severity <thread-id> (--severity blocker|issue|polish|--clear) [--expected-version N]
+```
+
+The dry run resolves the session's newest captured action, grounds the target,
+writes a marked screenshot, and atomically replaces a private receipt file.
+Receipt files use mode `0600` on POSIX systems and inherit the containing
+directory's access controls on Windows. Inspect the marker before creating.
+The second command consumes that receipt, so the thread uses the exact
+observation and coordinates that were reviewed even if the session has
+advanced. `--action` with `--role` selects a specific action's before/after
+capture. Use `--body-file` (or `--body-file -` for stdin) whenever feedback can
+contain shell metacharacters such as `$`; the positional body is retained for
+compatibility. Retrying the same creation with the same request ID returns the
+original thread. Severity and mention syntax match the `atlas annotations`
+commands exactly.
+
+Non-JSON `list` output is one tab-separated row per thread: thread id,
+severity, status, `created_at`, first body line. Normal CLI listing is scoped
+to the selected session; proof-runtime credentials are confined to their SCM
+review and include earlier pushes of the same pull request. `get
+--screenshot-out` downloads the thread's pinned observation screenshot for
+then-vs-now comparison on re-runs.
