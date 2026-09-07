@@ -1125,6 +1125,39 @@ func (e ScmBuildTargetResponsePlatform) Valid() bool {
 	}
 }
 
+// Defines values for SessionHistorySource.
+const (
+	SessionHistorySourceAdaptiveReport SessionHistorySource = "adaptive_report"
+	SessionHistorySourceApi            SessionHistorySource = "api"
+	SessionHistorySourceCiCd           SessionHistorySource = "ci_cd"
+	SessionHistorySourceCli            SessionHistorySource = "cli"
+	SessionHistorySourceExplore        SessionHistorySource = "explore"
+	SessionHistorySourceUi             SessionHistorySource = "ui"
+	SessionHistorySourceWorkflow       SessionHistorySource = "workflow"
+)
+
+// Valid indicates whether the value is a known member of the SessionHistorySource enum.
+func (e SessionHistorySource) Valid() bool {
+	switch e {
+	case SessionHistorySourceAdaptiveReport:
+		return true
+	case SessionHistorySourceApi:
+		return true
+	case SessionHistorySourceCiCd:
+		return true
+	case SessionHistorySourceCli:
+		return true
+	case SessionHistorySourceExplore:
+		return true
+	case SessionHistorySourceUi:
+		return true
+	case SessionHistorySourceWorkflow:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionStatus.
 const (
 	SessionStatusCancelled  SessionStatus = "cancelled"
@@ -5427,6 +5460,9 @@ type SessionArtifactUploadResponse struct {
 	UploadUrl   string `json:"upload_url"`
 }
 
+// SessionHistorySource defines model for SessionHistorySource.
+type SessionHistorySource string
+
 // SessionStatus Device session status - the single source of truth for test execution state.
 //
 // Matches the session_status enum in the database.
@@ -7079,14 +7115,14 @@ type GetActiveDeviceSessionsApiV1ExecutionDeviceSessionsActiveGetParams struct {
 
 // GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams defines parameters for GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGet.
 type GetSessionHistoryApiV1ExecutionDeviceSessionsHistoryGetParams struct {
-	Limit                                *int                `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset                               *int                `form:"offset,omitempty" json:"offset,omitempty"`
-	Source                               *string             `form:"source,omitempty" json:"source,omitempty"`
-	Platform                             *string             `form:"platform,omitempty" json:"platform,omitempty"`
-	Status                               *string             `form:"status,omitempty" json:"status,omitempty"`
-	Search                               *string             `form:"search,omitempty" json:"search,omitempty"`
-	UserId                               *string             `form:"user_id,omitempty" json:"user_id,omitempty"`
-	AttributedToCloudAgentConversationId *openapi_types.UUID `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
+	Limit                                *int                  `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset                               *int                  `form:"offset,omitempty" json:"offset,omitempty"`
+	Source                               *SessionHistorySource `form:"source,omitempty" json:"source,omitempty"`
+	Platform                             *string               `form:"platform,omitempty" json:"platform,omitempty"`
+	Status                               *string               `form:"status,omitempty" json:"status,omitempty"`
+	Search                               *string               `form:"search,omitempty" json:"search,omitempty"`
+	UserId                               *string               `form:"user_id,omitempty" json:"user_id,omitempty"`
+	AttributedToCloudAgentConversationId *openapi_types.UUID   `form:"attributed_to_cloud_agent_conversation_id,omitempty" json:"attributed_to_cloud_agent_conversation_id,omitempty"`
 }
 
 // CancelDeviceApiV1ExecutionDeviceStatusCancelWorkflowRunIdPostParams defines parameters for CancelDeviceApiV1ExecutionDeviceStatusCancelWorkflowRunIdPost.
