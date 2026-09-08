@@ -389,7 +389,15 @@ func waitForDiagnosticChecks(
 	var lastResult *DiagnosticResult
 
 	for {
-		lastResult = runDiagnosticChecks(localPort, tunnelURL, checks)
+		lastResult = &DiagnosticResult{AllPassed: true}
+		for _, check := range checks {
+			result := check(localPort, tunnelURL)
+			lastResult.Checks = append(lastResult.Checks, result)
+			if !result.Passed {
+				lastResult.AllPassed = false
+				break
+			}
+		}
 		if lastResult.AllPassed {
 			return lastResult, nil
 		}
