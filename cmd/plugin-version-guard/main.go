@@ -43,6 +43,7 @@ func usage() string {
 
 Git mode (CI): BASE_SHA, HEAD_SHA, optional PR_LABELS JSON array.
 Test mode: CHANGED_FILES, BASE_PLUGIN_VERSION, HEAD_PLUGIN_VERSION.
+Plugin selection: PLUGIN_HOST=cursor (default) or codex.
 `
 }
 
@@ -54,6 +55,7 @@ Test mode: CHANGED_FILES, BASE_PLUGIN_VERSION, HEAD_PLUGIN_VERSION.
 func guardInputFromEnv() (cursorpluginrelease.GuardInput, error) {
 	input := cursorpluginrelease.GuardInput{
 		LabelsJSON: os.Getenv("PR_LABELS"),
+		PluginHost: os.Getenv("PLUGIN_HOST"),
 	}
 	if _, testMode := os.LookupEnv("CHANGED_FILES"); testMode {
 		input.ChangedFiles = os.Getenv("CHANGED_FILES")
@@ -90,6 +92,9 @@ func guardInputFromEnv() (cursorpluginrelease.GuardInput, error) {
 	input.ChangedFiles = changed
 
 	pluginRelPath := defaultPluginJSONPath
+	if input.PluginHost == "codex" {
+		pluginRelPath = "revyl-cli/plugins/revyl/.codex-plugin/plugin.json"
+	}
 	if override := strings.TrimSpace(os.Getenv("PLUGIN_JSON_PATH")); override != "" {
 		pluginRelPath = override
 	}

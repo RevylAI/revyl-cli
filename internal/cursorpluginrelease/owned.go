@@ -77,6 +77,7 @@ func HasNoPluginReleaseLabel(labelsJSON string) (bool, error) {
 
 // GuardInput is the plugin-version-guard decision input after git or test env.
 type GuardInput struct {
+	PluginHost   string
 	ChangedFiles string
 	BaseVersion  string
 	HeadVersion  string
@@ -98,6 +99,9 @@ type GuardResult struct {
 // Returns:
 //   - GuardResult: Stdout/stderr text and the process exit code.
 func EvaluateGuard(input GuardInput) GuardResult {
+	if input.PluginHost != "" && input.PluginHost != "cursor" && input.PluginHost != "codex" {
+		return GuardResult{ExitCode: 1, Stderr: "::error::PLUGIN_HOST must be cursor or codex.\n"}
+	}
 	skip, err := HasNoPluginReleaseLabel(input.LabelsJSON)
 	if err != nil {
 		return GuardResult{
@@ -112,7 +116,7 @@ func EvaluateGuard(input GuardInput) GuardResult {
 		}
 	}
 
-	owned := pluginOwnedChanges(input.ChangedFiles)
+	owned := pluginOwnedChanges(input.ChangedFiles, input.PluginHost)
 	if len(owned) == 0 {
 		return GuardResult{
 			ExitCode: 0,
@@ -146,8 +150,12 @@ func EvaluateGuard(input GuardInput) GuardResult {
 
 	var stderr strings.Builder
 	stderr.WriteString("::error::Plugin-owned files changed without a plugin version bump.\n")
-	stderr.WriteString("::error::Run: make -C revyl-cli cursor-plugin-bump-patch\n")
-	stderr.WriteString("::error::  or: cd revyl-cli && ./scripts/bump patch --plugin\n")
+	if input.PluginHost == "codex" {
+		stderr.WriteString("::error::Increase revyl-cli/plugins/revyl/.codex-plugin/plugin.json version and run make -C revyl-cli sync-codex-plugin.\n")
+	} else {
+		stderr.WriteString("::error::Run: make -C revyl-cli cursor-plugin-bump-patch\n")
+		stderr.WriteString("::error::  or: cd revyl-cli && ./scripts/bump patch --plugin\n")
+	}
 	stderr.WriteString("::error::Or add the no-plugin-release label if this PR must not cut a plugin pin.\n")
 	stderr.WriteString(fmt.Sprintf(
 		"Plugin version base=%s head=%s\n",
@@ -162,16 +170,36 @@ func EvaluateGuard(input GuardInput) GuardResult {
 }
 
 // pluginOwnedChanges returns owned paths from a newline-separated file list.
-func pluginOwnedChanges(changedFiles string) []string {
+func pluginOwnedChanges(changedFiles, host string) []string {
 	owned := make([]string, 0)
 	for _, path := range strings.Split(changedFiles, "\n") {
 		path = strings.TrimSpace(path)
 		if path == "" {
 			continue
 		}
-		if IsPluginOwnedPath(path) {
+		matches := IsPluginOwnedPath(path)
+		if host == "codex" {
+			matches = isCodexPluginOwnedPath(path)
+		}
+		if matches {
 			owned = append(owned, path)
 		}
 	}
 	return owned
+}
+
+func isCodexPluginOwnedPath(path string) bool {
+	normalized := filepath.ToSlash(strings.TrimSpace(path))
+	if strings.HasSuffix(normalized, "_test.go") || normalized == "revyl-cli/plugins/revyl/README.md" {
+		return false
+	}
+	if normalized == "revyl-cli/.agents/plugins/marketplace.json" {
+		return true
+	}
+	for _, prefix := range []string{"revyl-cli/plugins/revyl/", "revyl-cli/cmd/sync-codex-plugin/"} {
+		if strings.HasPrefix(normalized, prefix) {
+			return true
+		}
+	}
+	return false
 }

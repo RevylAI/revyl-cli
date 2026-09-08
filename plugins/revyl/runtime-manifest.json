@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "generated_by": "make -C revyl-cli sync-codex-plugin",
+  "prepared": true,
+  "plugin_version": "0.1.0",
+  "runtime_version": "0.1.108",
+  "release_tag": "v0.1.108",
+  "release_base_url": "https://github.com/RevylAI/revyl-cli/releases/download/v0.1.108",
+  "darwin_amd64_asset": "revyl-darwin-amd64",
+  "darwin_amd64_sha256": "bb2d9425d69fe47921d18f25fe9474455e774c707682d4e4316d3213a5639c41",
+  "darwin_arm64_asset": "revyl-darwin-arm64",
+  "darwin_arm64_sha256": "e36469f6aa41e12c0af5e37683fffd496d36580d5040af4ace93f54d8b94423b",
+  "linux_amd64_asset": "revyl-linux-amd64",
+  "linux_amd64_sha256": "cc3b7b9cfc866864ba1ce9c6ca64c66ebc4a72d1198fb3c06592b04081c54d80",
+  "linux_arm64_asset": "revyl-linux-arm64",
+  "linux_arm64_sha256": "b18bedc76a0ef9b414547e48375d9a24b4dceb5f317064ab6cb0b8d2697ba95e",
+  "windows_amd64_asset": "revyl-windows-amd64.exe",
+  "windows_amd64_sha256": "66084c95e72e8de0882260bd16739eea0be6682461b3e7f6695cbb5308b115c7",
+  "windows_arm64_asset": "revyl-windows-arm64.exe",
+  "windows_arm64_sha256": "ce52784c084809a8c8bee4e7f449a538431cb67e66add9f139e25865514a6cd5"
+}

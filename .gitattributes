@@ -1,3 +1,12 @@
 skills/** text=auto eol=lf
 cursor-plugin/skills/** text=auto eol=lf
 examples/cursor-automation/** text=auto eol=lf
+/plugins/revyl/** text eol=lf
+/cursor-plugin/install-local.sh text eol=lf
+/cursor-plugin/hooks/ensure-revyl text eol=lf
+/cursor-plugin/hooks/launch-revyl text eol=lf
+/cursor-plugin/hooks/launch-revyl.ps1 text eol=lf
+/cursor-plugin/hooks/launch-revyl.cmd text eol=lf
+/cursor-plugin/assets/icon.svg text eol=lf
+/cursor-plugin/skills/revyl-cli-dev-loop/SKILL.md text eol=lf
+/skills/revyl-cli-dev-loop/SKILL.md text eol=lf

@@ -169,35 +169,15 @@ func Prepare(ctx context.Context, input Input) (Result, error) {
 		return Result{}, errors.New("marketplace must contain exactly the Revyl plugin")
 	}
 
-	releaseTag := "v" + normalizedInput.RuntimeVersion
-	releaseURL := strings.TrimRight(normalizedInput.ReleaseBaseURL, "/") + "/" + releaseTag
-	assets, err := fetchReleaseAssets(
+	runtimeManifest, err := ResolveRuntimeManifest(
 		ctx,
-		normalizedInput.HTTPClient,
-		releaseURL,
-	)
-	if err != nil {
-		return Result{}, unpublishedRuntimePinError(
-			normalizedInput.RuntimeVersion,
-			err,
-		)
-	}
-	runtimeManifest, err := buildRuntimeManifest(
 		normalizedInput.PluginVersion,
 		normalizedInput.RuntimeVersion,
-		releaseURL,
-		assets,
+		normalizedInput.ReleaseBaseURL,
+		normalizedInput.HTTPClient,
 	)
 	if err != nil {
-		return Result{}, err
-	}
-	if err := verifyReleaseAssets(
-		ctx,
-		normalizedInput.HTTPClient,
-		releaseURL,
-		runtimeManifestAssets(runtimeManifest),
-	); err != nil {
-		return Result{}, err
+		return Result{}, unpublishedRuntimePinError(normalizedInput.RuntimeVersion, err)
 	}
 
 	previousPluginVersion := plugin.Version
@@ -495,7 +475,28 @@ func unpublishedRuntimePinError(runtimeVersion string, err error) error {
 	)
 }
 
-// fetchReleaseAssets downloads and parses the canonical checksum manifest.
+func ResolveRuntimeManifest(ctx context.Context, pluginVersion, runtimeVersion, releaseBaseURL string, client *http.Client) (RuntimeManifest, error) {
+	if !semanticVersionPattern.MatchString(pluginVersion) || !semanticVersionPattern.MatchString(runtimeVersion) {
+		return RuntimeManifest{}, errors.New("plugin and runtime versions must be semantic versions")
+	}
+	if client == nil {
+		return RuntimeManifest{}, errors.New("HTTP client is required")
+	}
+	releaseURL := strings.TrimRight(releaseBaseURL, "/") + "/v" + runtimeVersion
+	assets, err := fetchReleaseAssets(ctx, client, releaseURL)
+	if err != nil {
+		return RuntimeManifest{}, err
+	}
+	manifest, err := buildRuntimeManifest(pluginVersion, runtimeVersion, releaseURL, assets)
+	if err != nil {
+		return RuntimeManifest{}, err
+	}
+	if err := verifyReleaseAssets(ctx, client, releaseURL, runtimeManifestAssets(manifest)); err != nil {
+		return RuntimeManifest{}, err
+	}
+	return manifest, nil
+}
+
 func fetchReleaseAssets(
 	ctx context.Context,
 	client *http.Client,

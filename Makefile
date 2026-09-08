@@ -305,6 +305,15 @@ b: build
 ## t: Shortcut for 'make test'
 t: test
 
+.PHONY: sync-codex-plugin check-codex-plugin
+
+sync-codex-plugin:
+	@$(GOCMD) run ./cmd/sync-codex-plugin
+
+check-codex-plugin:
+	@$(GOCMD) run ./cmd/sync-codex-plugin --check
+	@$(GOCMD) test ./cmd/sync-codex-plugin ./plugins/revyl ./cursor-plugin ./internal/cursorpluginrelease
+
 # Cursor plugin skill sync
 # Pure-copy skills come from skills/ (source of truth, embedded by embed.go).
 # Authored plugin skills (revyl-cloud-agent, revyl-ci-sync, revyl-proof-ci)

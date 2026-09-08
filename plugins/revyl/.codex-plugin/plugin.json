@@ -1,0 +1,29 @@
+{
+  "name": "revyl",
+  "version": "0.1.0",
+  "description": "Run mobile changes on Revyl cloud devices and verify them with screenshots and semantic validation through the Revyl CLI.",
+  "author": {
+    "name": "Revyl",
+    "email": "support@revyl.ai"
+  },
+  "homepage": "https://revyl.com",
+  "repository": "https://github.com/RevylAI/revyl-cli",
+  "license": "MIT",
+  "keywords": ["mobile", "ios", "android", "testing", "verification"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Revyl",
+    "shortDescription": "Run and verify mobile apps.",
+    "longDescription": "Use the Revyl CLI to run mobile apps, inspect screenshots, validate behavior, and verify CI-uploaded pull request builds. Requires shell access and Revyl sign-in; does not require MCP or hooks.",
+    "developerName": "Revyl",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://revyl.com",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.svg",
+    "defaultPrompt": [
+      "Run this app on a Revyl device and verify my change.",
+      "Verify this pull request using its CI-uploaded Revyl build."
+    ]
+  }
+}

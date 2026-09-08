@@ -1,0 +1,20 @@
+{
+  "name": "revyl",
+  "interface": {
+    "displayName": "Revyl"
+  },
+  "plugins": [
+    {
+      "name": "revyl",
+      "source": {
+        "source": "local",
+        "path": "./plugins/revyl"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
