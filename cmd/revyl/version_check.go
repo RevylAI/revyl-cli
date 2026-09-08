@@ -44,7 +44,8 @@ type versionCheckResult struct {
 
 var (
 	// versionCheckOnce ensures we only start one background check per invocation.
-	versionCheckOnce sync.Once
+	versionCheckOnce    sync.Once
+	versionCheckStarted bool
 
 	// versionCheckDone is closed when the background check completes.
 	versionCheckDone = make(chan struct{})
@@ -62,16 +63,14 @@ var skipVersionCheckCommands = map[string]bool{
 	"mcp":        true,
 }
 
-// shouldSkipVersionCheck reports whether this invocation must not print an upgrade notice.
-//
-// Parameters:
-//   - cmd: The Cobra command currently running, including root `--version`.
-//
-// Returns:
-//   - bool: True when the invoked path is version, mcp, or the root version flag.
 func shouldSkipVersionCheck(cmd *cobra.Command) bool {
 	if cmd == nil {
 		return false
+	}
+	jsonOutput, _ := cmd.Flags().GetBool("json")
+	quiet, _ := cmd.Flags().GetBool("quiet")
+	if jsonOutput || quiet {
+		return true
 	}
 	for current := cmd; current != nil; current = current.Parent() {
 		if skipVersionCheckCommands[current.Name()] {
@@ -95,11 +94,11 @@ func shouldSkipVersionCheck(cmd *cobra.Command) bool {
 // non-empty value, the check is skipped entirely.
 func startVersionCheck(currentVersion string) {
 	if os.Getenv("REVYL_NO_UPDATE_NOTIFIER") != "" {
-		close(versionCheckDone) // unblock printVersionWarning
 		return
 	}
 
 	versionCheckOnce.Do(func() {
+		versionCheckStarted = true
 		go func() {
 			defer close(versionCheckDone)
 			doVersionCheck(currentVersion)
@@ -158,10 +157,13 @@ func doVersionCheck(currentVersion string) {
 	}
 }
 
-// printVersionWarning prints an update notice to stderr if the background
-// check found a newer version. This is called in PersistentPostRun so the
-// warning appears after the command's normal output.
-func printVersionWarning() {
+func printVersionWarning(cmd *cobra.Command) {
+	if cmd == nil || !versionCheckStarted || shouldSkipVersionCheck(cmd) || os.Getenv("REVYL_NO_UPDATE_NOTIFIER") != "" {
+		return
+	}
+	if ctx := cmd.Context(); ctx != nil && ctx.Err() != nil {
+		return
+	}
 	// Wait for the background check to finish (with a short timeout
 	// so we never block the user for long).
 	select {
@@ -176,6 +178,17 @@ func printVersionWarning() {
 
 	ui.Println()
 	ui.PrintWarning("A new version of Revyl CLI is available: %s (current: %s)", versionCheckOutput.LatestVersion, version)
+	if canPromptForUpgrade() && (versionCheckOutput.InstallMethod == "direct" || versionCheckOutput.InstallMethod == "homebrew") {
+		previousContext := upgradeCmd.Context()
+		upgradeCmd.SetContext(cmd.Context())
+		defer upgradeCmd.SetContext(previousContext)
+		if err := runWithAnalytics(upgradeCmd, nil, func() error {
+			return runPromptedUpgrade(upgradeCmd, *versionCheckOutput)
+		}); err != nil {
+			ui.PrintWarning("Update did not complete: %v", err)
+		}
+		return
+	}
 
 	switch versionCheckOutput.InstallMethod {
 	case "homebrew":

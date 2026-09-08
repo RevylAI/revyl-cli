@@ -174,7 +174,7 @@ func analyticsDisabled() bool {
 	}
 
 	analyticsTest, _ := strconv.ParseBool(strings.TrimSpace(os.Getenv("REVYL_ANALYTICS_TEST")))
-	if strings.HasSuffix(os.Args[0], ".test") && !analyticsTest {
+	if (strings.HasSuffix(os.Args[0], ".test") || strings.HasSuffix(os.Args[0], ".test.exe")) && !analyticsTest {
 		return true
 	}
 	return false

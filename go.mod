@@ -3,6 +3,7 @@ module github.com/revyl/cli
 go 1.26.6
 
 require (
+	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10

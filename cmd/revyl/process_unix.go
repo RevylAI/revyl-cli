@@ -22,11 +22,11 @@ func configureDetachedDevCommand(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
 
-func configureExpoConfigCommand(cmd *exec.Cmd) {
+func configureCommandProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-func terminateExpoConfigCommand(cmd *exec.Cmd) {
+func terminateCommandProcessGroup(cmd *exec.Cmd) {
 	if cmd.Process != nil {
 		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err == nil || errors.Is(err, syscall.ESRCH) {
 			return

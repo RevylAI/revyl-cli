@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -694,13 +696,21 @@ func performSelfUpdate(ctx context.Context, tagName string) (string, error) {
 // Returns:
 //   - error: Non-nil when a brew command exits with a non-zero status.
 func performBrewUpgrade() error {
+	return performBrewUpgradeWithContext(context.Background())
+}
+
+func performBrewUpgradeWithContext(ctx context.Context) error {
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
 	ui.PrintInfo("Updating Homebrew tap...")
 
 	updateCmd := brewCommandRunner("brew", "update")
-	updateCmd.Stdout = os.Stdout
+	updateCmd.Stdout = os.Stderr
 	updateCmd.Stderr = os.Stderr
 
-	if err := updateCmd.Run(); err != nil {
+	if err := runUpgradeProcess(ctx, updateCmd); err != nil {
 		ui.PrintWarning("brew update failed: %v", err)
 		ui.PrintDim("  You can try manually: brew update && brew upgrade revyl")
 		return fmt.Errorf("brew update failed: %w", err)
@@ -710,10 +720,10 @@ func performBrewUpgrade() error {
 	ui.PrintInfo("Upgrading revyl...")
 
 	upgradeCmd := brewCommandRunner("brew", "upgrade", "revyl")
-	upgradeCmd.Stdout = os.Stdout
+	upgradeCmd.Stdout = os.Stderr
 	upgradeCmd.Stderr = os.Stderr
 
-	if err := upgradeCmd.Run(); err != nil {
+	if err := runUpgradeProcess(ctx, upgradeCmd); err != nil {
 		ui.PrintWarning("brew upgrade failed: %v", err)
 		ui.PrintDim("  You can try manually: brew upgrade revyl")
 		return fmt.Errorf("brew upgrade revyl failed: %w", err)

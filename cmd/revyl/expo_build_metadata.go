@@ -127,7 +127,7 @@ func resolveExpoConfigWithTooling(ctx context.Context, projectRoot string, envir
 	command := exec.Command("npx", "expo", "config", "--json")
 	command.Dir = projectRoot
 	command.Env = recipeProcessEnvironment(environment)
-	configureExpoConfigCommand(command)
+	configureCommandProcessGroup(command)
 
 	stdout := boundedCommandOutput{maxBytes: maxExpoConfigOutputBytes}
 	command.Stdout = &stdout
@@ -143,7 +143,7 @@ func resolveExpoConfigWithTooling(ctx context.Context, projectRoot string, envir
 			return nil, err
 		}
 	case <-ctx.Done():
-		terminateExpoConfigCommand(command)
+		terminateCommandProcessGroup(command)
 		<-done
 		return nil, ctx.Err()
 	}

@@ -8,3 +8,4 @@ See [docs.revyl.com](https://docs.revyl.com) for documentation on how to use the
 
 - [Explore from the CLI](explore.md)
 - [Understand an app with Atlas](atlas.md)
+- [Update the CLI](upgrade.md)

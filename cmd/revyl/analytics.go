@@ -93,6 +93,6 @@ func commandDevMode(cmd *cobra.Command) bool {
 	if cmd == nil {
 		return false
 	}
-	devMode, _ := cmd.Flags().GetBool("dev")
-	return devMode
+	devFlag := cmd.Flag("dev")
+	return devFlag != nil && devFlag.Value.String() == "true"
 }

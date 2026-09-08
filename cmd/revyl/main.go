@@ -90,19 +90,8 @@ var rootCmd = &cobra.Command{
 		// per-part retries) through the UI debug printer.
 		api.SetDebugLogger(ui.PrintDebug)
 
-		// Start background version check (non-blocking).
-		// Skip for commands that already handle versioning or produce
-		// machine-readable output that shouldn't be polluted.
-		jsonOutput, _ := cmd.Flags().GetBool("json")
-		if !quiet && !jsonOutput && !shouldSkipVersionCheck(cmd) {
+		if !shouldSkipVersionCheck(cmd) {
 			startVersionCheck(version)
-		}
-	},
-	PersistentPostRun: func(cmd *cobra.Command, args []string) {
-		quiet, _ := cmd.Flags().GetBool("quiet")
-		jsonOutput, _ := cmd.Flags().GetBool("json")
-		if !quiet && !jsonOutput && !shouldSkipVersionCheck(cmd) {
-			printVersionWarning()
 		}
 	},
 }
@@ -115,7 +104,7 @@ var rootCmd = &cobra.Command{
 func Execute() {
 	installAnalytics(rootCmd)
 
-	err := rootCmd.Execute()
+	err := executeWithVersionNotice(rootCmd)
 	if err != nil {
 		// Check if this is an unknown command error and provide suggestions
 		errStr := err.Error()
@@ -139,6 +128,12 @@ func Execute() {
 		}
 		os.Exit(1)
 	}
+}
+
+func executeWithVersionNotice(root *cobra.Command) error {
+	cmd, err := root.ExecuteC()
+	printVersionWarning(cmd)
+	return err
 }
 
 func init() {
