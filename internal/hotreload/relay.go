@@ -869,7 +869,10 @@ func (r *RelayTunnelBackend) connectRuntime(ctx context.Context, localPort int) 
 	if err != nil {
 		return err
 	}
-	dialer := websocket.Dialer{HandshakeTimeout: 30 * time.Second}
+	dialer := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 30 * time.Second,
+	}
 	headers := http.Header{
 		"User-Agent": []string{"revyl-cli-relay"},
 	}
@@ -878,7 +881,7 @@ func (r *RelayTunnelBackend) connectRuntime(ctx context.Context, localPort int) 
 	}
 	conn, _, err := dialer.DialContext(ctx, wsURL, headers)
 	if err != nil {
-		return fmt.Errorf("failed to connect relay websocket: %w", err)
+		return fmt.Errorf("failed to connect relay websocket; check sandbox network permissions, HTTP_PROXY/HTTPS_PROXY, and trusted CA certificates: %w", err)
 	}
 
 	runtime := newRelayRuntime(ctx, localPort, conn, r.client, func(msg string) {

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sync"
 	"time"
@@ -281,12 +282,13 @@ func (c *WorkerWSClient) Connect(ctx context.Context, wsURL string) error {
 
 	// Connect with a dialer that respects the context
 	dialer := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
 		HandshakeTimeout: 30 * time.Second,
 	}
 
 	conn, _, err := dialer.DialContext(ctx, parsedURL.String(), nil)
 	if err != nil {
-		return fmt.Errorf("WebSocket connection failed: %w", err)
+		return fmt.Errorf("WebSocket connection failed; check sandbox network permissions, HTTP_PROXY/HTTPS_PROXY, and trusted CA certificates: %w", err)
 	}
 
 	c.conn = conn
@@ -338,10 +340,13 @@ func (c *WorkerWSClient) Reconnect(ctx context.Context, wsURL string) error {
 		parsedURL.Scheme = "wss"
 	}
 
-	dialer := websocket.Dialer{HandshakeTimeout: 30 * time.Second}
+	dialer := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 30 * time.Second,
+	}
 	conn, _, err := dialer.DialContext(ctx, parsedURL.String(), nil)
 	if err != nil {
-		return fmt.Errorf("WebSocket reconnection failed: %w", err)
+		return fmt.Errorf("WebSocket reconnection failed; check sandbox network permissions, HTTP_PROXY/HTTPS_PROXY, and trusted CA certificates: %w", err)
 	}
 
 	c.mu.Lock()

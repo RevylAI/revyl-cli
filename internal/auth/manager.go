@@ -531,7 +531,12 @@ func (m *Manager) saveUserCredentialsAndClearCloudContext(creds *Credentials) er
 //
 // Returns:
 //   - error: A directory, file-type, permission, write, sync, or rename error.
-func (m *Manager) writePrivateFile(destinationPath string, content []byte) error {
+func (m *Manager) writePrivateFile(destinationPath string, content []byte) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("cannot write private CLI state; use a writable, owner-only directory at %s: %w", m.configDir, err)
+		}
+	}()
 	if err := os.MkdirAll(m.configDir, 0o700); err != nil {
 		return fmt.Errorf("create config directory: %w", err)
 	}

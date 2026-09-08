@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.109-9D61FF" alt="Version" /></a>
+  <a href="https://github.com/RevylAI/revyl-cli/releases"><img src="https://img.shields.io/badge/version-0.1.110-9D61FF" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/RevylAI/homebrew-tap"><img src="https://img.shields.io/badge/brew-RevylAI/tap/revyl-orange" alt="Homebrew" /></a>
   <a href="https://pypi.org/project/revyl/"><img src="https://img.shields.io/pypi/v/revyl" alt="PyPI" /></a>
@@ -56,6 +56,8 @@ so `uv`, `pipx`, and `pip` do not download executable code at first run.
 
 See [Local runtime files](docs/local-runtime-files.md) for managed storage paths,
 permissions, and directory-symlink restrictions.
+
+For a restricted or headless runner, see [Sandboxed environments](docs/sandboxed-environments.md). It covers a writable home and runtime state directory, non-interactive `PATH`, proxy and CA trust, minimum egress, and the boundary between local inspection and authorized cloud actions.
 
 ## Authenticate
 
