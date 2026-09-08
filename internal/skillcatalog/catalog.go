@@ -15,6 +15,10 @@ type Skill struct {
 	Content     string
 }
 
+func (s Skill) Files() ([]skills.File, error) {
+	return skills.Files(s.Name)
+}
+
 var catalog = []Skill{
 	{
 		Name:        skills.RevylCLIName,

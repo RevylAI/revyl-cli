@@ -9,7 +9,7 @@ description: Analyze failed Revyl test, workflow, and device-session reports via
 
 - Ask at most 1-3 concise clarification questions only when the target test, workflow, session, report URL, or sensitive action cannot be inferred from the repo or Revyl CLI.
 - Prefer safe defaults and keep moving when `revyl test list`, `revyl workflow list`, `revyl test report`, `revyl workflow report`, `revyl device report`, screenshots, or reports can answer the question.
-- When Revyl prints a report, viewer, or local app URL, open it in the native browser/tool surface when available: Codex Browser/in-app browser for local URLs, Revyl report/viewer URLs, screenshots, and page checks; Claude Code `.claude/skills` slash-command discovery plus WebFetch/WebSearch or configured MCP/browser tools; Cursor `.cursor/skills` plus `.cursor/rules/revyl-skills.mdc` and available MCP/browser tools.
+- When Revyl prints a report, viewer, or local app URL, open it in the native browser/tool surface when available: Codex Browser/in-app browser for local URLs, Revyl report/viewer URLs, screenshots, and page checks; Claude Code `.claude/skills` compatibility links plus WebFetch/WebSearch or configured MCP/browser tools; Cursor `.cursor/skills` when using `--copy`, otherwise shared `.agents/skills`, plus available MCP/browser tools. Codex also discovers shared `.agents/skills` directly.
 - If no browser tool is exposed, report the URL and verify through `revyl test report`, `revyl workflow report`, or `revyl device report` instead of claiming browser access.
 - Confirm before entering sensitive data, submitting forms, uploading files, accepting browser permissions, changing sharing/access, or deleting data.
 

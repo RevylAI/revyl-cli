@@ -3,11 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,7 +20,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/skillcatalog"
 	"github.com/revyl/cli/internal/testutil"
+	"github.com/revyl/cli/internal/ui"
 )
 
 func TestDetectInstallMethodFromPath(t *testing.T) {
@@ -214,8 +221,6 @@ func TestFetchLatestReleaseFormatsRateLimitErrors(t *testing.T) {
 func TestRunUpgradeDoesNotApplyFetchTimeoutToDownload(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
-	// Avoid running `revyl skill install` against real skill dirs after the
-	// (mocked) upgrade succeeds.
 	t.Setenv("REVYL_NO_POST_UPGRADE_SKILL_INSTALL", "1")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -362,27 +367,24 @@ func TestDiscoverPostUpgradeSkillTargetsUsesExistingProjectAndGlobalDirs(t *test
 	withWorkingDir(t, workDir)
 	testutil.SetHomeDir(t, homeDir)
 
-	if err := os.MkdirAll(filepath.Join(workDir, ".codex", "skills"), 0755); err != nil {
-		t.Fatalf("mkdir project codex skills: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(homeDir, ".claude", "skills"), 0755); err != nil {
-		t.Fatalf("mkdir global claude skills: %v", err)
+	var want []skillInstallTarget
+	for _, global := range []bool{true, false} {
+		for _, tool := range []string{"shared", "cursor", "claude", "codex"} {
+			directory := "." + tool
+			if tool == "shared" {
+				directory = ".agents"
+			}
+			path := filepath.Join(directory, "skills")
+			if global {
+				path = filepath.Join(homeDir, path)
+			}
+			writeUpgradeSkillFixture(t, path, "revyl-cli-dev-loop")
+			want = append(want, skillInstallTarget{tool: tool, path: path, global: global})
+		}
 	}
 
-	targets := discoverPostUpgradeSkillTargets()
-	got := make(map[string]bool, len(targets))
-	for _, target := range targets {
-		got[target.tool] = target.global
-	}
-
-	if global, ok := got["codex"]; !ok || global {
-		t.Fatalf("expected project codex target, got %#v", targets)
-	}
-	if global, ok := got["claude"]; !ok || !global {
-		t.Fatalf("expected global claude target, got %#v", targets)
-	}
-	if _, ok := got["cursor"]; ok {
-		t.Fatalf("did not expect cursor target, got %#v", targets)
+	if targets := discoverPostUpgradeSkillTargets(); !reflect.DeepEqual(targets, want) {
+		t.Fatalf("targets = %#v, want %#v", targets, want)
 	}
 }
 
@@ -391,120 +393,346 @@ func TestDiscoverPostUpgradeSkillTargetsDedupesHomeAsGlobal(t *testing.T) {
 	withWorkingDir(t, homeDir)
 	testutil.SetHomeDir(t, homeDir)
 
-	if err := os.MkdirAll(filepath.Join(homeDir, ".codex", "skills"), 0755); err != nil {
-		t.Fatalf("mkdir home codex skills: %v", err)
+	for _, directory := range []string{".agents", ".cursor", ".claude", ".codex"} {
+		writeUpgradeSkillFixture(t, filepath.Join(homeDir, directory, "skills"), "revyl-cli-dev-loop")
 	}
 
 	targets := discoverPostUpgradeSkillTargets()
-	if len(targets) != 1 {
-		t.Fatalf("targets = %#v, want exactly one", targets)
+	if len(targets) != 4 {
+		t.Fatalf("targets = %#v, want exactly four", targets)
 	}
-	if targets[0].tool != "codex" || !targets[0].global {
-		t.Fatalf("target = %#v, want global codex", targets[0])
-	}
-}
-
-func TestPostUpgradeSkillInstallCommandsGroupsTargetsByScope(t *testing.T) {
-	commands := postUpgradeSkillInstallCommands([]skillInstallTarget{
-		{tool: "codex", global: false},
-		{tool: "cursor", global: true},
-		{tool: "claude", global: true},
-		{tool: "codex", global: false},
-	})
-
-	if len(commands) != 2 {
-		t.Fatalf("commands = %#v, want 2", commands)
-	}
-	if commands[0].global ||
-		commands[0].family != "cli" ||
-		strings.Join(commands[0].tools, ",") != "codex" {
-		t.Fatalf("project command = %#v, want codex", commands[0])
-	}
-	if !commands[1].global ||
-		commands[1].family != "cli" ||
-		strings.Join(commands[1].tools, ",") != "cursor,claude" {
-		t.Fatalf("global command = %#v, want cursor,claude", commands[1])
+	for index, tool := range []string{"shared", "cursor", "claude", "codex"} {
+		if targets[index].tool != tool || !targets[index].global {
+			t.Fatalf("target = %#v, want global %s", targets[index], tool)
+		}
 	}
 }
 
-func TestPostUpgradeSkillInstallCommandsPreservesMCPFamily(t *testing.T) {
+func TestDiscoverPostUpgradeSkillTargetsRecognizesCatalogAndRetiredNames(t *testing.T) {
 	workDir := t.TempDir()
-	skillsDir := filepath.Join(workDir, ".cursor", "skills")
-	if err := os.MkdirAll(
-		filepath.Join(skillsDir, "revyl-mcp-dev-loop"),
-		0o755,
-	); err != nil {
-		t.Fatalf("mkdir MCP skill fixture: %v", err)
-	}
+	withWorkingDir(t, workDir)
+	testutil.SetHomeDir(t, t.TempDir())
+	for _, name := range append(skillcatalog.Names(), legacySkillNames...) {
+		t.Run(name, func(t *testing.T) {
+			skillsDir := filepath.Join(workDir, ".cursor", "skills")
+			writeUpgradeSkillFixture(t, skillsDir, name)
+			t.Cleanup(func() { _ = os.RemoveAll(skillsDir) })
 
-	commands := postUpgradeSkillInstallCommands([]skillInstallTarget{{
-		tool: "cursor",
-		path: skillsDir,
-	}})
-	if len(commands) != 1 ||
-		commands[0].family != "mcp" ||
-		strings.Join(commands[0].tools, ",") != "cursor" {
-		t.Fatalf("MCP refresh commands = %#v", commands)
+			targets := discoverPostUpgradeSkillTargets()
+			if len(targets) != 1 || targets[0].tool != "cursor" || targets[0].global {
+				t.Fatalf("targets = %#v, want project cursor for %s", targets, name)
+			}
+		})
 	}
 }
 
-func TestPostUpgradeSkillInstallCommandsMigratesLegacySkillsAsCLI(t *testing.T) {
-	workDir := t.TempDir()
-	skillsDir := filepath.Join(workDir, ".cursor", "skills")
-	if err := os.MkdirAll(
-		filepath.Join(skillsDir, "revyl-device"),
-		0o755,
-	); err != nil {
-		t.Fatalf("mkdir legacy skill fixture: %v", err)
-	}
+func TestDiscoverPostUpgradeSkillTargetsIgnoresUnrelatedAndIncompleteSkills(t *testing.T) {
+	originalQuietMode := ui.IsQuietMode()
+	ui.SetQuietMode(false)
+	t.Cleanup(func() { ui.SetQuietMode(originalQuietMode) })
 
-	commands := postUpgradeSkillInstallCommands([]skillInstallTarget{{
-		tool: "cursor",
-		path: skillsDir,
-	}})
-	if len(commands) != 1 ||
-		commands[0].family != "cli" ||
-		strings.Join(commands[0].tools, ",") != "cursor" {
-		t.Fatalf("legacy refresh commands = %#v", commands)
-	}
-}
-
-func TestRefreshSkillsAfterSuccessfulUpgradeRunsNewBinaryForExistingTargets(t *testing.T) {
 	workDir := t.TempDir()
 	homeDir := t.TempDir()
 	withWorkingDir(t, workDir)
 	testutil.SetHomeDir(t, homeDir)
+	t.Setenv("REVYL_NO_POST_UPGRADE_SKILL_INSTALL", "")
 
-	if err := os.MkdirAll(filepath.Join(workDir, ".codex", "skills"), 0755); err != nil {
-		t.Fatalf("mkdir project codex skills: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(homeDir, ".claude", "skills"), 0755); err != nil {
-		t.Fatalf("mkdir global claude skills: %v", err)
-	}
-
-	var calls [][]string
-	original := postUpgradeCommandRunner
-	postUpgradeCommandRunner = func(name string, args ...string) *exec.Cmd {
-		call := append([]string{name}, args...)
-		calls = append(calls, call)
-		return exec.Command("true")
-	}
-	t.Cleanup(func() { postUpgradeCommandRunner = original })
-
-	refreshSkillsAfterSuccessfulUpgrade("/tmp/new-revyl")
-
-	want := [][]string{
-		{"/tmp/new-revyl", "skill", "install", "--force", "--cli", "--codex"},
-		{"/tmp/new-revyl", "skill", "install", "--force", "--cli", "--claude", "--global"},
-	}
-	if len(calls) != len(want) {
-		t.Fatalf("calls = %#v, want %#v", calls, want)
-	}
-	for i := range want {
-		if strings.Join(calls[i], "\x00") != strings.Join(want[i], "\x00") {
-			t.Fatalf("call %d = %#v, want %#v", i, calls[i], want[i])
+	for _, root := range []string{workDir, homeDir} {
+		for _, directory := range []string{".agents", ".cursor", ".claude", ".codex"} {
+			skillsDir := filepath.Join(root, directory, "skills")
+			writeUpgradeSkillFixture(t, skillsDir, "unrelated-skill")
+			writeUpgradeSkillFixture(t, skillsDir, "revyl-custom-skill")
+			writeUpgradeSkillFixture(t, skillsDir, "revyl-cli-custom")
+			writeUpgradeSkillFixture(t, skillsDir, "revyl-mcp-custom")
+			if err := os.MkdirAll(filepath.Join(skillsDir, "revyl-cli-dev-loop", "SKILL.md"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(skillsDir, "revyl-device"), 0o755); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
+
+	if targets := discoverPostUpgradeSkillTargets(); len(targets) != 0 {
+		t.Fatalf("targets = %#v, want no Revyl installations", targets)
+	}
+	if output := captureStdoutAndStderr(t, printPostUpgradeSkillGuidance); output != "" {
+		t.Fatalf("guidance = %q, want no output without installed Revyl skills", output)
+	}
+}
+
+func TestPrintPostUpgradeSkillGuidancePreservesSkillsWithoutRunningCommands(t *testing.T) {
+	originalQuietMode := ui.IsQuietMode()
+	ui.SetQuietMode(false)
+	t.Cleanup(func() { ui.SetQuietMode(originalQuietMode) })
+
+	for _, optOut := range []string{"", "1", "false"} {
+		t.Run("opt-out="+optOut, func(t *testing.T) {
+			workDir := t.TempDir()
+			homeDir := t.TempDir()
+			withWorkingDir(t, workDir)
+			testutil.SetHomeDir(t, homeDir)
+			t.Setenv("REVYL_NO_POST_UPGRADE_SKILL_INSTALL", optOut)
+			for _, root := range []string{workDir, homeDir} {
+				for _, directory := range []string{".agents", ".cursor", ".claude", ".codex"} {
+					for _, name := range []string{"revyl-cli-dev-loop", "revyl-mcp-dev-loop", "revyl-device", "revyl-cli-auth-bypass-expo", "unrelated-skill"} {
+						writeUpgradeSkillFixture(t, filepath.Join(root, directory, "skills"), name)
+					}
+				}
+			}
+			beforeProject := snapshotUpgradeSkillTree(t, workDir)
+			beforeGlobal := snapshotUpgradeSkillTree(t, homeDir)
+			originalRunner := brewCommandRunner
+			brewCommandRunner = func(name string, args ...string) *exec.Cmd {
+				t.Fatalf("unexpected command: %s %v", name, args)
+				return nil
+			}
+			t.Cleanup(func() { brewCommandRunner = originalRunner })
+
+			var stdout string
+			stderr := captureStdoutAndStderr(t, func() {
+				stdout = captureStdout(t, printPostUpgradeSkillGuidance)
+			})
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want guidance only on stderr", stdout)
+			}
+			if optOut == "" {
+				if strings.Count(stderr, "revyl skill update") != 1 || !strings.Contains(stderr, "left unchanged") {
+					t.Fatalf("guidance = %q, want one explicit update notice", stderr)
+				}
+				if lines := strings.Count(strings.TrimSpace(stderr), "\n") + 1; lines > 2 {
+					t.Fatalf("guidance has %d lines, want at most two", lines)
+				}
+			} else if stderr != "" {
+				t.Fatalf("guidance = %q, want no output when opted out", stderr)
+			}
+			if !reflect.DeepEqual(snapshotUpgradeSkillTree(t, workDir), beforeProject) {
+				t.Fatal("post-upgrade guidance modified project skills")
+			}
+			if !reflect.DeepEqual(snapshotUpgradeSkillTree(t, homeDir), beforeGlobal) {
+				t.Fatal("post-upgrade guidance modified global skills")
+			}
+		})
+	}
+}
+
+func TestPrintPostUpgradeSkillGuidanceRespectsQuietMode(t *testing.T) {
+	originalQuietMode := ui.IsQuietMode()
+	ui.SetQuietMode(true)
+	t.Cleanup(func() { ui.SetQuietMode(originalQuietMode) })
+
+	workDir := t.TempDir()
+	withWorkingDir(t, workDir)
+	testutil.SetHomeDir(t, t.TempDir())
+	t.Setenv("REVYL_NO_POST_UPGRADE_SKILL_INSTALL", "")
+	writeUpgradeSkillFixture(t, filepath.Join(workDir, ".agents", "skills"), "revyl-cli-dev-loop")
+
+	if output := captureStdoutAndStderr(t, printPostUpgradeSkillGuidance); output != "" {
+		t.Fatalf("guidance = %q, want no output in quiet mode", output)
+	}
+}
+
+func TestRunUpgradeLeavesSkillsUnchanged(t *testing.T) {
+	originalQuietMode := ui.IsQuietMode()
+	ui.SetQuietMode(false)
+	t.Cleanup(func() { ui.SetQuietMode(originalQuietMode) })
+
+	for _, installMethod := range []string{"direct", "homebrew"} {
+		t.Run(installMethod, func(t *testing.T) {
+			workDir := t.TempDir()
+			homeDir := t.TempDir()
+			withWorkingDir(t, workDir)
+			testutil.SetHomeDir(t, homeDir)
+			t.Setenv("REVYL_NO_POST_UPGRADE_SKILL_INSTALL", "")
+			t.Setenv("GITHUB_TOKEN", "")
+			t.Setenv("GH_TOKEN", "")
+			writeUpgradeSkillFixture(t, filepath.Join(workDir, ".agents", "skills"), "revyl-cli-dev-loop")
+			writeUpgradeSkillFixture(t, filepath.Join(workDir, ".cursor", "skills"), "revyl-device")
+			writeUpgradeSkillFixture(t, filepath.Join(homeDir, ".claude", "skills"), "revyl-mcp-dev-loop")
+			beforeProject := snapshotUpgradeSkillTree(t, workDir)
+			beforeGlobal := snapshotUpgradeSkillTree(t, homeDir)
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"tag_name":"v999.0.0"}`))
+			}))
+			defer server.Close()
+			configureGitHubTestRequest(t, server.URL)
+			originalDetect := detectInstallMethodFn
+			originalSelfUpdate := performSelfUpdateFn
+			originalRunner := brewCommandRunner
+			t.Cleanup(func() {
+				detectInstallMethodFn = originalDetect
+				performSelfUpdateFn = originalSelfUpdate
+				brewCommandRunner = originalRunner
+			})
+			detectInstallMethodFn = func() string { return installMethod }
+			selfUpdates := 0
+			performSelfUpdateFn = func(ctx context.Context, tagName string) (string, error) {
+				selfUpdates++
+				return filepath.Join(workDir, "must-not-execute-new-revyl"), nil
+			}
+			var calls [][]string
+			brewCommandRunner = func(name string, args ...string) *exec.Cmd {
+				calls = append(calls, append([]string{name}, args...))
+				return exec.Command(os.Args[0], "-test.run=^$")
+			}
+
+			var upgradeErr error
+			output := captureStdoutAndStderr(t, func() {
+				upgradeErr = runUpgrade(newTestCommand(), nil)
+			})
+			if upgradeErr != nil {
+				t.Fatalf("runUpgrade() error = %v", upgradeErr)
+			}
+			if strings.Count(output, "revyl skill update") != 1 {
+				t.Fatalf("upgrade output = %q, want explicit skill update guidance", output)
+			}
+			if strings.Contains(output, "refresh") || strings.Contains(output, "skill install") {
+				t.Fatalf("upgrade output = %q, want no automatic skill installation attempt", output)
+			}
+			if installMethod == "direct" {
+				if len(calls) != 0 || selfUpdates != 1 {
+					t.Fatalf("runner calls = %v, self updates = %d; want no commands and one self update", calls, selfUpdates)
+				}
+			} else {
+				want := [][]string{{"brew", "update"}, {"brew", "upgrade", "revyl"}}
+				if !reflect.DeepEqual(calls, want) || selfUpdates != 0 {
+					t.Fatalf("runner calls = %v, self updates = %d; want %v and no self update", calls, selfUpdates, want)
+				}
+			}
+			if !reflect.DeepEqual(snapshotUpgradeSkillTree(t, workDir), beforeProject) {
+				t.Fatal("CLI upgrade modified project skills")
+			}
+			if !reflect.DeepEqual(snapshotUpgradeSkillTree(t, homeDir), beforeGlobal) {
+				t.Fatal("CLI upgrade modified global skills")
+			}
+		})
+	}
+}
+
+func TestRunUpgradeCheckAndJSONDoNotUpdateSkills(t *testing.T) {
+	originalQuietMode := ui.IsQuietMode()
+	ui.SetQuietMode(false)
+	t.Cleanup(func() { ui.SetQuietMode(originalQuietMode) })
+
+	for _, jsonOutput := range []bool{false, true} {
+		t.Run(fmt.Sprintf("json=%t", jsonOutput), func(t *testing.T) {
+			workDir := t.TempDir()
+			withWorkingDir(t, workDir)
+			testutil.SetHomeDir(t, t.TempDir())
+			t.Setenv("REVYL_NO_POST_UPGRADE_SKILL_INSTALL", "")
+			t.Setenv("GITHUB_TOKEN", "")
+			t.Setenv("GH_TOKEN", "")
+			writeUpgradeSkillFixture(t, filepath.Join(workDir, ".agents", "skills"), "revyl-cli-dev-loop")
+			before := snapshotUpgradeSkillTree(t, workDir)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"tag_name":"v999.0.0"}`))
+			}))
+			defer server.Close()
+			configureGitHubTestRequest(t, server.URL)
+			originalCheck := upgradeCheckOnly
+			originalJSON := upgradeOutputJSON
+			originalDetect := detectInstallMethodFn
+			originalUpdate := performSelfUpdateFn
+			originalRunner := brewCommandRunner
+			t.Cleanup(func() {
+				upgradeCheckOnly = originalCheck
+				upgradeOutputJSON = originalJSON
+				detectInstallMethodFn = originalDetect
+				performSelfUpdateFn = originalUpdate
+				brewCommandRunner = originalRunner
+			})
+			upgradeCheckOnly = !jsonOutput
+			upgradeOutputJSON = jsonOutput
+			detectInstallMethodFn = func() string { return "direct" }
+			performSelfUpdateFn = func(context.Context, string) (string, error) {
+				t.Fatal("check or JSON mode attempted a self update")
+				return "", nil
+			}
+			brewCommandRunner = func(name string, args ...string) *exec.Cmd {
+				t.Fatalf("unexpected command: %s %v", name, args)
+				return nil
+			}
+			var stdout string
+			var upgradeErr error
+			stderr := captureStdoutAndStderr(t, func() {
+				stdout = captureStdout(t, func() {
+					upgradeErr = runUpgrade(newTestCommand(), nil)
+				})
+			})
+			if upgradeErr != nil {
+				t.Fatalf("runUpgrade() error = %v", upgradeErr)
+			}
+			if strings.Contains(stdout+stderr, "revyl skill update") {
+				t.Fatalf("unexpected skill notice without an upgrade: %s%s", stdout, stderr)
+			}
+			if jsonOutput {
+				var result UpgradeResult
+				if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+					t.Fatalf("invalid JSON result %q: %v", stdout, err)
+				}
+				if !result.UpdateAvailable || stderr != "" {
+					t.Fatalf("result = %#v, stderr = %q; want available update and no stderr", result, stderr)
+				}
+			}
+			if !reflect.DeepEqual(snapshotUpgradeSkillTree(t, workDir), before) {
+				t.Fatal("upgrade check modified skills")
+			}
+		})
+	}
+}
+
+func writeUpgradeSkillFixture(t *testing.T, skillsDir, name string) {
+	t.Helper()
+	skillDir := filepath.Join(skillsDir, name)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, filename := range []string{"SKILL.md", "custom-recipe.md"} {
+		if err := os.WriteFile(filepath.Join(skillDir, filename), []byte("Customized "+name+" "+filename+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func snapshotUpgradeSkillTree(t *testing.T, root string) map[string]string {
+	t.Helper()
+	snapshot := make(map[string]string)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		var content []byte
+		if info.IsDir() || info.Mode().IsRegular() {
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			info, err = file.Stat()
+			if err != nil {
+				return err
+			}
+			if info.Mode().IsRegular() {
+				content, err = io.ReadAll(file)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		snapshot[path] = fmt.Sprintf("%s\x00%s\x00%s", info.Mode(), info.ModTime().UTC().Format(time.RFC3339Nano), content)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot
 }
 
 func configureGitHubTestRequest(t *testing.T, baseURL string) {

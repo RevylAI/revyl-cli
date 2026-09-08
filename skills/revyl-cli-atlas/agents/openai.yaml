@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Atlas"
+  short_description: "Explore app screens and flows through Atlas evidence"
+policy:
+  allow_implicit_invocation: true

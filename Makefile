@@ -317,9 +317,11 @@ CURSOR_PLUGIN_COPY_SKILLS := \
 
 ## sync-cursor-plugin-skills: Regenerate the copied skills under cursor-plugin/skills/
 sync-cursor-plugin-skills:
-	@for s in $(CURSOR_PLUGIN_COPY_SKILLS); do \
+	@set -e; for s in $(CURSOR_PLUGIN_COPY_SKILLS); do \
+		test -f skills/$$s/SKILL.md; \
+		rm -rf cursor-plugin/skills/$$s; \
 		mkdir -p cursor-plugin/skills/$$s; \
-		cp skills/$$s/SKILL.md cursor-plugin/skills/$$s/SKILL.md; \
+		cp -Rp skills/$$s/. cursor-plugin/skills/$$s/; \
 	done
 	@echo "cursor-plugin skills synced"
 

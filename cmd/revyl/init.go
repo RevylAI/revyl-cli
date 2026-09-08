@@ -67,6 +67,7 @@ var (
 	initXcodeSchemeOverrides []string
 	initAuthenticationWizard = wizardAuth
 	continueInitWithGithub   = runGithubSetupAfterInit
+	selectInitAgentTool      = ui.Select
 )
 
 func init() {
@@ -1601,17 +1602,22 @@ func wizardAgentSkillsSetup() (string, bool) {
 		{
 			Label:       "Cursor",
 			Value:       "cursor",
-			Description: "Install recommended Revyl skills into .cursor/skills and .cursor/rules",
+			Description: "Choose Revyl skills in shared .agents/skills storage",
 		},
 		{
 			Label:       "Codex",
 			Value:       "codex",
-			Description: "Install recommended Revyl skills into .codex/skills",
+			Description: "Choose Revyl skills in shared .agents/skills storage",
 		},
 		{
 			Label:       "Claude Code",
 			Value:       "claude",
-			Description: "Install recommended Revyl skills into .claude/skills",
+			Description: "Choose shared Revyl skills with .claude/skills compatibility links",
+		},
+		{
+			Label:       "Claude Code (copy mode)",
+			Value:       "claude-copy",
+			Description: "Use independent .claude/skills packages without symlink permissions",
 		},
 		{
 			Label:       "Skip for now",
@@ -1620,23 +1626,36 @@ func wizardAgentSkillsSetup() (string, bool) {
 		},
 	}
 
-	_, selected, err := ui.Select("Which AI coding tool should Revyl set up?", options, 0)
+	_, selected, err := selectInitAgentTool("Which AI coding tool should Revyl set up?", options, 0)
 	if err != nil {
 		ui.PrintDim("Skipped agent skill setup")
-		ui.PrintDim("Run later: revyl skill install --force")
+		ui.PrintDim("Run later: revyl skill install")
 		return "skipped", false
 	}
 	if selected == "skip" {
 		ui.PrintDim("Skipped agent skill setup")
-		ui.PrintDim("Run later: revyl skill install --force")
+		ui.PrintDim("Run later: revyl skill install")
 		return "skipped", false
 	}
 
+	copyMode := selected == "claude-copy"
+	if copyMode {
+		selected = "claude"
+	}
 	label := agentSkillToolLabel(selected)
-	ui.PrintInfo("Installing public Revyl skills for %s...", label)
-	if err := installPublicSkillsForTools([]string{selected}, false, true); err != nil {
+	skills, err := promptSkillSelection()
+	if err != nil || len(skills) == 0 {
+		ui.PrintDim("Skipped agent skill setup; run revyl skill install later.")
+		return "skipped", false
+	}
+	ui.PrintInfo("Installing selected Revyl skills for %s...", label)
+	if _, err := applySkillInstall(resolveDirectoriesForScope([]string{selected}, false), skills, false, copyMode); err != nil {
 		ui.PrintWarning("Could not install agent skills for %s: %v", label, err)
-		ui.PrintDim("Run manually: revyl skill install --%s --force", selected)
+		retryCommand := "revyl skill install --" + selected
+		if copyMode {
+			retryCommand += " --copy"
+		}
+		ui.PrintDim("Run manually: %s", retryCommand)
 		return label, false
 	}
 	return label, true

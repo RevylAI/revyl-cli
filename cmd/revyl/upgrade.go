@@ -21,6 +21,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/revyl/cli/internal/skillcatalog"
 	"github.com/revyl/cli/internal/ui"
 )
 
@@ -89,10 +90,6 @@ var (
 	// Overridden in tests to avoid running actual brew.
 	brewCommandRunner = exec.Command
 
-	// postUpgradeCommandRunner creates exec.Cmd instances for post-upgrade
-	// commands. Overridden in tests to avoid running a real revyl binary.
-	postUpgradeCommandRunner = exec.Command
-
 	// detectInstallMethodFn resolves the install method. Overridden in tests to
 	// force a deterministic upgrade path without depending on the test binary's
 	// location on disk.
@@ -115,7 +112,8 @@ BEHAVIOR:
   - Homebrew: runs brew update && brew upgrade revyl automatically
   - npm/pip: shows the upgrade command to run
   - Direct downloads: downloads and replaces the binary
-  - After successful Homebrew/direct upgrades, refreshes existing agent skills
+  - Updates only the CLI; existing agent skills are left unchanged
+  - Run revyl skill update separately to update installed skills
 
 FLAGS:
   --check       Only check for updates, don't install
@@ -226,7 +224,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		if err := performBrewUpgrade(); err != nil {
 			return err
 		}
-		refreshSkillsAfterSuccessfulUpgrade("revyl")
+		printPostUpgradeSkillGuidance()
 		printUpgradeNextSteps()
 		return nil
 
@@ -295,11 +293,11 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 		// Perform self-update. Use the root context (no short deadline) so the
 		// download is governed by downloadBinary's own 5-minute client timeout.
-		upgradedBinary, err := performSelfUpdateFn(cmd.Context(), release.TagName)
+		_, err := performSelfUpdateFn(cmd.Context(), release.TagName)
 		if err != nil {
 			return err
 		}
-		refreshSkillsAfterSuccessfulUpgrade(upgradedBinary)
+		printPostUpgradeSkillGuidance()
 		printUpgradeNextSteps()
 		return nil
 	}
@@ -741,61 +739,36 @@ func printUpgradeNextSteps() {
 	})
 }
 
-type postUpgradeSkillInstallCommand struct {
-	global bool
-	tools  []string
-	family string
-}
-
-func refreshSkillsAfterSuccessfulUpgrade(binaryPath string) {
+func printPostUpgradeSkillGuidance() {
 	if os.Getenv("REVYL_NO_POST_UPGRADE_SKILL_INSTALL") != "" {
 		return
 	}
 
-	targets := discoverPostUpgradeSkillTargets()
-	if len(targets) == 0 {
-		ui.Println()
-		ui.PrintDim("No existing AI skill directories found; skipping agent skill refresh.")
+	if len(discoverPostUpgradeSkillTargets()) == 0 {
 		return
 	}
 
-	binaryPath = strings.TrimSpace(binaryPath)
-	if binaryPath == "" {
-		binaryPath = "revyl"
-	}
-
 	ui.Println()
-	ui.PrintInfo("Refreshing Revyl agent skills...")
-
-	for _, installCmd := range postUpgradeSkillInstallCommands(targets) {
-		args := []string{"skill", "install", "--force", "--" + installCmd.family}
-		for _, tool := range installCmd.tools {
-			args = append(args, "--"+tool)
-		}
-		if installCmd.global {
-			args = append(args, "--global")
-		}
-
-		cmd := postUpgradeCommandRunner(binaryPath, args...)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Env = append(os.Environ(), "REVYL_NO_UPDATE_NOTIFIER=1")
-
-		if err := cmd.Run(); err != nil {
-			ui.PrintWarning("Could not refresh agent skills automatically: %v", err)
-			ui.PrintDim("  Run manually: revyl skill install --force")
-		}
-	}
+	ui.PrintInfo("Existing Revyl agent skills were left unchanged.")
+	ui.PrintDim("  To update installed skills, run: revyl skill update")
 }
 
 func discoverPostUpgradeSkillTargets() []skillInstallTarget {
-	targets := make([]skillInstallTarget, 0, len(supportedSkillTools)*2)
+	targets := make([]skillInstallTarget, 0, (len(supportedSkillTools)+1)*2)
 	seenPaths := make(map[string]struct{})
+	knownNames := append(skillcatalog.Names(), legacySkillNames...)
 
 	addTarget := func(toolName string, rawPath string, global bool) {
-		expanded := expandHome(rawPath)
-		info, err := os.Stat(expanded)
-		if err != nil || !info.IsDir() {
+		expanded := filepath.Clean(expandHome(rawPath))
+		hasRevylSkill := false
+		for _, name := range knownNames {
+			info, err := os.Stat(filepath.Join(expanded, name, skillcatalog.SkillFileName))
+			if err == nil && info.Mode().IsRegular() {
+				hasRevylSkill = true
+				break
+			}
+		}
+		if !hasRevylSkill {
 			return
 		}
 
@@ -819,85 +792,23 @@ func discoverPostUpgradeSkillTargets() []skillInstallTarget {
 		})
 	}
 
-	for _, toolName := range supportedSkillTools {
-		dirs := skillDirectories[toolName]
-		if len(dirs) > 1 {
-			addTarget(toolName, dirs[1], true)
+	for _, global := range []bool{true, false} {
+		directoryIndex := 0
+		sharedPath := ".agents/skills"
+		if global {
+			directoryIndex = 1
+			sharedPath = "~/.agents/skills"
 		}
-		if len(dirs) > 0 {
-			addTarget(toolName, dirs[0], false)
+		addTarget("shared", sharedPath, global)
+		for _, toolName := range supportedSkillTools {
+			dirs := skillDirectories[toolName]
+			if directoryIndex < len(dirs) {
+				addTarget(toolName, dirs[directoryIndex], global)
+			}
 		}
 	}
 
 	return targets
-}
-
-func postUpgradeSkillInstallCommands(targets []skillInstallTarget) []postUpgradeSkillInstallCommand {
-	commands := make([]postUpgradeSkillInstallCommand, 0, 4)
-	for _, global := range []bool{false, true} {
-		for _, family := range []string{"cli", "mcp"} {
-			var tools []string
-			seenTools := make(map[string]struct{}, len(targets))
-			for _, target := range targets {
-				if target.global != global ||
-					!targetHasSkillFamily(target, family) {
-					continue
-				}
-				if _, exists := seenTools[target.tool]; exists {
-					continue
-				}
-				seenTools[target.tool] = struct{}{}
-				tools = append(tools, target.tool)
-			}
-			if len(tools) == 0 {
-				continue
-			}
-			commands = append(commands, postUpgradeSkillInstallCommand{
-				global: global,
-				tools:  tools,
-				family: family,
-			})
-		}
-	}
-	return commands
-}
-
-// targetHasSkillFamily reports whether an existing target contains one skill family.
-//
-// Parameters:
-//   - target: Existing project or global agent skill directory.
-//   - family: Revyl skill family name: cli or mcp.
-//
-// Returns:
-//   - bool: Whether that family should be refreshed for the target.
-func targetHasSkillFamily(target skillInstallTarget, family string) bool {
-	entries, err := os.ReadDir(target.path)
-	if err != nil {
-		return family == "cli"
-	}
-
-	hasRevylSkill := false
-	hasCLISkill := false
-	hasMCPSkill := false
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if strings.HasPrefix(name, "revyl-") {
-			hasRevylSkill = true
-		}
-		if strings.HasPrefix(name, skillFamilyCLIPrefix) {
-			hasCLISkill = true
-		}
-		if strings.HasPrefix(name, skillFamilyMCPPrefix) {
-			hasMCPSkill = true
-		}
-	}
-	if family == "mcp" {
-		return hasMCPSkill
-	}
-	return hasCLISkill || (!hasMCPSkill && hasRevylSkill) || !hasRevylSkill
 }
 
 // downloadChecksums downloads and parses the checksums file.

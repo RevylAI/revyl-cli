@@ -30,9 +30,9 @@ then reconcile why it was observed.
 A screenshot URL, local path, semantic name, OCR result, or generated summary
 is not visual understanding. Evidence is grounded only when the agent actually opens and reads the image. Use the available native surface:
 
-- Codex Browser or its image viewer.
-- Claude Code `.claude/skills` plus configured image or browser tools.
-- Cursor `.cursor/skills` plus available MCP or browser tools.
+- Codex Browser or its image viewer, with skills discovered in shared `.agents/skills`.
+- Claude Code `.claude/skills` compatibility links plus configured image or browser tools.
+- Cursor `.cursor/skills` when using `--copy`, otherwise shared `.agents/skills`, plus available MCP or browser tools.
 
 Do not claim to understand the visible UI from metadata alone. Actually open
 and absorb the relevant screenshots before describing visible UI. When an edge

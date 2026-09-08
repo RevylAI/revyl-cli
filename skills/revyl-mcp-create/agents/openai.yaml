@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl MCP Test Authoring"
+  short_description: "Author and validate mobile tests through Revyl MCP"
+policy:
+  allow_implicit_invocation: true

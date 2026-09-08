@@ -206,17 +206,3 @@ func installAgentsMDBlock(projectDir string, force bool) (string, bool, error) {
 	}
 	return path, true, nil
 }
-
-// installAgentsMDForTarget writes the AGENTS.md block for project-scoped skill
-// installs. Global installs have no project directory to anchor to.
-func installAgentsMDForTarget(target skillInstallTarget, force bool) (string, bool, error) {
-	if target.global {
-		return "", false, nil
-	}
-	// target.path is <projectDir>/.<tool>/skills.
-	projectDir := filepath.Dir(filepath.Dir(target.path))
-	if projectDir == "" {
-		projectDir = "."
-	}
-	return installAgentsMDBlock(projectDir, force)
-}

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Test Optimization"
+  short_description: "Simplify mobile test steps without losing coverage"
+policy:
+  allow_implicit_invocation: true

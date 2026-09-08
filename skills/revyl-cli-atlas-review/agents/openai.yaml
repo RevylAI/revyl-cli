@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Atlas Review"
+  short_description: "Manage Atlas feedback only when explicitly requested"
+policy:
+  allow_implicit_invocation: false

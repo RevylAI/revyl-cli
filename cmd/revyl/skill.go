@@ -49,44 +49,6 @@ const (
 	cursorRuleFileName   = "revyl-skills.mdc"
 )
 
-const cursorRuleContent = `---
-description: Use Revyl CLI fallback skills when the Revyl MCP plugin is unavailable.
-globs:
-alwaysApply: false
----
-
-# Revyl CLI-Only Agent Skills
-
-This is the explicit CLI-only fallback. When the Revyl MCP tools are available,
-load ` + "`revyl-mcp-dev-loop`" + ` and use ` + "`start_dev_loop`" + ` instead.
-Do not run a parallel CLI dev loop alongside an MCP-owned loop.
-
-Use this rule when the user asks Cursor to run the app, verify a change on a device, understand an Atlas, work with Revyl, mobile cloud devices, revyl dev, Revyl test creation, Revyl run analysis, or test-only auth bypass.
-
-The core loop ("make this change and run it"):
-
-1. Start in the background: revyl dev --remote --detach --json (native stacks) or revyl dev --detach --json (hot-reload stacks). It returns JSON with viewer_url as soon as the simulator is watchable — the CLI opens it in the user's browser automatically on local machines (opened_browser in the handshake; --no-open disables). Still share viewer_url as a clickable link immediately (the fallback on cloud VMs); never try to open a browser yourself. The build continues behind it.
-2. Monitor: revyl dev status (state building -> idle, last_rebuild.status running -> success) and revyl dev logs --build --follow for remote build output.
-3. Iterate: after each code change run revyl dev rebuild --wait --json.
-4. Verify like a user: revyl device screenshot / revyl device validation -s 0 "<expected outcome>" --json / revyl device report --session-id <id> --json. -s accepts a local session index or a server-issued session ID; target by ID (or REVYL_SESSION_ID) whenever more than one session is live, because indexes are local to the project directory and shift under parallel runs.
-5. Auth: with a session.auth_bypass section in .revyl/config.yaml, Revyl applies its configured launch variables at boot and its configured deep link after launch; revyl dev auth refresh re-fires that deep link without reminting. If the token itself expired, revyl dev stop then revyl dev so session.before_script runs again when configured.
-6. Stop with revyl dev stop when done.
-
-Load the matching installed skill from .cursor/skills:
-
-- revyl-cli-dev-loop for starting or attaching to a Revyl dev loop, interacting with the cloud device, and verifying app behavior.
-- revyl-cli-atlas for media-grounded questions about an app's screens, graph relationships, journeys, or coverage. Open screenshots, watch clips or extract frames, and reconcile misunderstood evidence through its originating report.
-- revyl-cli-create for authoring or refining stable Revyl YAML tests from app source, reports, or successful exploratory sessions.
-- revyl-cli-auth-bypass for setting up test-only authenticated app state across mobile stacks.
-- revyl-cli-analyze for failed run, workflow, or device-session triage when installed by name.
-
-Ask at most 1-3 concise clarification questions only when the repo and Revyl CLI cannot identify the target app, platform, session, URL, or sensitive action. Prefer revyl init --detect, revyl dev list, revyl app list, screenshots, and reports before asking.
-
-When Revyl prints a viewer, editor, report, local app URL, or Atlas screenshot path, open it with Cursor MCP/browser tools when Cursor exposes them. Merely receiving a screenshot path or URL is not visual verification. If no browser or image tool is available, report the URL or path and verify through revyl device screenshot or revyl device report where applicable instead of claiming browser access.
-
-Never paste launch-var values or tokens into code, logs, screenshots, or PRs — reference key names only.
-`
-
 // skillCmd is the parent command for agent skill management.
 var skillCmd = &cobra.Command{
 	Use:   "skill",
@@ -99,21 +61,21 @@ Revyl ships embedded skills:
 - revyl-cli-atlas-review: agents manage grounded Atlas feedback after an explicit user request
 - revyl-cli-create: agents create or refine stable Revyl tests from YAML, source, or successful flows
 - revyl-cli-auth-bypass: agents set up test-only auth bypass across mobile app stacks
-- revyl-cli-auth-bypass-* leaves: platform recipes used after auth-bypass stack detection
+- auth-bypass references: platform recipes loaded only after stack detection
 - revyl-cli-optimize-tests for merging granular button-press steps in an existing test into intent-driven instructions when installed by name.
 
 Additional optional and compatibility skills remain available by exact name.
 
 EXAMPLES:
   revyl skill list
-  revyl skill install --force
-  revyl skill install --cursor --force
-  revyl skill install --codex --force
-  revyl skill install --claude --force
+  revyl skill install
+  revyl skill install --name revyl-cli-dev-loop --cursor
+  revyl skill install --name revyl-cli-create --codex
+  revyl skill install --name revyl-cli-auth-bypass --claude
   revyl skill show --name revyl-cli-dev-loop
   revyl skill show --name revyl-cli-atlas
-  revyl skill install --name revyl-cli-atlas-review --force
-  revyl skill install --name revyl-cli-auth-bypass --force
+  revyl skill install --name revyl-cli-atlas-review
+  revyl skill update
   revyl skill export --name revyl-cli-create -o SKILL.md`,
 }
 
@@ -173,27 +135,26 @@ var (
 var skillInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install Revyl agent skills for your AI coding tool",
-	Long: `Install Revyl agent skills to the appropriate directories
-for your AI coding tool.
+	Long: `Choose and install Revyl agent skill packages.
 
-Without flags, auto-detects which tools are present by checking
-for their configuration directories. With a tool flag, installs
-to that specific tool's skill directory.
+Without skill selectors, opens an interactive picker with no skills selected.
+In scripts, specify --name (or --skill), --cli, --mcp, or --all explicitly.
+--yes skips confirmation, but never selects the entire catalog implicitly.
 
-By default installs to the project-level directory (e.g. .cursor/skills/).
-Use --global to install to the user-level directory instead.
+Packages are shared in .agents/skills, with per-skill Claude compatibility links.
+Cursor and Codex discover the shared directory directly. --copy keeps independent
+packages in each selected agent's directory instead. Use --global for user scope.
+Existing legacy installations are preserved; move them aside before switching to
+shared storage, or use --copy to keep their existing locations.
 Cursor Marketplace plugin users do not need this command because the plugin
 already bundles its CLI-first skills and routing rule.
 
 EXAMPLES:
-  revyl skill install --force
-  revyl skill install --global --force
-  revyl skill install --cursor --force
-  revyl skill install --codex --force
-  revyl skill install --claude --force
-  revyl skill install --name revyl-cli-dev-loop --cursor --force
-  revyl skill install --name revyl-cli-create --codex --force
-  revyl skill install --name revyl-cli-auth-bypass --force`,
+  revyl skill install
+  revyl skill install --name revyl-cli-dev-loop --cursor
+  revyl skill install --skill revyl-cli-create --agent codex --yes
+  revyl skill install --name revyl-cli-auth-bypass --claude --global
+  revyl skill install --all --cursor --yes`,
 	Args: cobra.NoArgs,
 	RunE: runSkillInstall,
 }
@@ -219,23 +180,7 @@ func init() {
 }
 
 func runSkillList(cmd *cobra.Command, args []string) error {
-	fmt.Println("First-class Revyl skills:")
-	for _, s := range skillcatalog.Public() {
-		fmt.Printf("  %s - %s\n", s.Name, s.Description)
-	}
-	fmt.Println()
-	fmt.Println("Install the recommended bundle with:")
-	fmt.Println("  revyl skill install --force")
-	fmt.Println()
-	fmt.Println("Optional by-name skills:")
-	fmt.Println("  revyl-cli-optimize-tests - merge granular steps in an existing test into intent-driven instructions")
-
-	fmt.Println()
-	fmt.Println("Use a tool flag only when you need a specific target:")
-	fmt.Println("  revyl skill install --cursor --force")
-	fmt.Println("  revyl skill install --codex --force")
-	fmt.Println("  revyl skill install --claude --force")
-	return nil
+	return printSkillCatalog(cmd)
 }
 
 // runSkillShow prints a selected embedded SKILL.md to stdout.
@@ -273,166 +218,17 @@ func runSkillExport(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runSkillInstall installs all embedded skills to each resolved target.
 func runSkillInstall(cmd *cobra.Command, args []string) error {
 	return runSkillInstallSelected(cmd, args, skillInstallNames)
 }
 
 func runSkillInstallSelected(cmd *cobra.Command, args []string, selectedNames []string) error {
-	targets := resolveInstallTargets()
-	if len(targets) == 0 {
-		ui.PrintError("No supported AI tools detected.")
-		ui.Println()
-		ui.PrintInfo("Specify a tool explicitly:")
-		ui.PrintDim("  revyl skill install --cursor")
-		ui.PrintDim("  revyl skill install --claude")
-		ui.PrintDim("  revyl skill install --codex")
-		return fmt.Errorf("no install target found")
-	}
-
-	allSkills, err := resolveInstallSkills(selectedNames)
-	if err != nil {
-		return err
-	}
-
-	return installSkillsToTargets(targets, allSkills, skillInstallForce)
+	return installSelectedSkills(cmd, selectedNames)
 }
 
-func installPublicSkillsForTools(tools []string, global bool, force bool) error {
-	targets := resolveDirectoriesForScope(tools, global)
-	if len(targets) == 0 {
-		return fmt.Errorf("no install target found")
-	}
-	return installSkillsToTargets(targets, skillcatalog.DefaultInstall(), force)
-}
-
-func installSkillsToTargets(targets []skillInstallTarget, allSkills []skillcatalog.Skill, force bool) error {
-	var installed []string
-	var skipped []string
-	var companionInstalled []string
-	var companionSkipped []string
-	var installErrors []string
-	var pruned []string
-	var pruneErrors []string
-	installCompanionRule := includesCLISkill(allSkills)
-	removeCompanionRule := includesMCPSkill(allSkills) && !installCompanionRule
-
-	for _, target := range targets {
-		if removeCompanionRule {
-			removedRule, removeErr := removeCursorCLICompanionRule(target)
-			if removeErr != nil {
-				pruneErrors = append(pruneErrors, removeErr.Error())
-			} else if removedRule != "" {
-				pruned = append(pruned, removedRule)
-			}
-		}
-
-		for _, sk := range allSkills {
-			path, wrote, err := installSkillTo(target.path, sk, force)
-			if err != nil {
-				installErrors = append(installErrors, fmt.Sprintf("%s (%s): %v", target.path, sk.Name, err))
-				continue
-			}
-			if wrote {
-				installed = append(installed, path)
-			} else {
-				skipped = append(skipped, path)
-			}
-		}
-
-		if installCompanionRule {
-			rulePath, ruleWrote, err := installCursorCompanionRule(target, force)
-			if err != nil {
-				installErrors = append(installErrors, fmt.Sprintf("%s (cursor rule): %v", target.path, err))
-			} else if rulePath != "" {
-				if ruleWrote {
-					companionInstalled = append(companionInstalled, rulePath)
-				} else {
-					companionSkipped = append(companionSkipped, rulePath)
-				}
-			}
-
-			agentsPath, agentsWrote, err := installAgentsMDForTarget(target, force)
-			if err != nil {
-				installErrors = append(installErrors, fmt.Sprintf("%s (AGENTS.md): %v", target.path, err))
-			} else if agentsPath != "" {
-				if agentsWrote {
-					companionInstalled = append(companionInstalled, agentsPath)
-				} else {
-					companionSkipped = append(companionSkipped, agentsPath)
-				}
-			}
-		}
-
-		removed, errs := pruneLegacySkillDirs(target.path, allSkills)
-		pruned = append(pruned, removed...)
-		pruneErrors = append(pruneErrors, errs...)
-	}
-
-	if len(installed) > 0 {
-		ui.Println()
-		ui.PrintSuccess("Installed Revyl skills:")
-		for _, path := range installed {
-			ui.PrintDim("  %s", path)
-		}
-	}
-
-	if len(companionInstalled) > 0 {
-		ui.Println()
-		ui.PrintSuccess("Installed Revyl companion files:")
-		for _, path := range companionInstalled {
-			ui.PrintDim("  %s", path)
-		}
-	}
-
-	if len(companionSkipped) > 0 {
-		ui.Println()
-		ui.PrintInfo("Already installed companion files (use --force to overwrite):")
-		for _, path := range companionSkipped {
-			ui.PrintDim("  %s", path)
-		}
-	}
-
-	if len(skipped) > 0 {
-		ui.Println()
-		ui.PrintInfo("Already installed (use --force to overwrite):")
-		for _, path := range skipped {
-			ui.PrintDim("  %s", path)
-		}
-	}
-
-	if len(pruned) > 0 {
-		ui.Println()
-		ui.PrintInfo("Removed legacy Revyl skill folders:")
-		for _, path := range pruned {
-			ui.PrintDim("  %s", path)
-		}
-	}
-
-	if len(installErrors) > 0 {
-		ui.Println()
-		ui.PrintWarning("Some installations failed:")
-		for _, e := range installErrors {
-			ui.PrintDim("  %s", e)
-		}
-	}
-
-	if len(pruneErrors) > 0 {
-		ui.Println()
-		ui.PrintWarning("Could not remove some legacy skill folders:")
-		for _, e := range pruneErrors {
-			ui.PrintDim("  %s", e)
-		}
-	}
-
-	if len(installed) == 0 && len(skipped) == 0 && len(companionInstalled) == 0 && len(companionSkipped) == 0 {
-		return fmt.Errorf("all installations failed")
-	}
-
-	ui.Println()
-	ui.PrintInfo("Skills are auto-discovered by your AI agent on startup.")
-	ui.PrintInfo("Restart your IDE if it was already running.")
-	return nil
+func installSkillsToTargets(targets []skillInstallTarget, selected []skillcatalog.Skill, force bool) error {
+	_, err := applySkillInstall(targets, selected, force, false)
+	return err
 }
 
 func resolveInstallSkills(selectedNames []string) ([]skillcatalog.Skill, error) {
@@ -441,14 +237,7 @@ func resolveInstallSkills(selectedNames []string) ([]skillcatalog.Skill, error) 
 	}
 
 	if len(selectedNames) == 0 {
-		installCLI := skillInstallCLI
-		installMCP := skillInstallMCP
-
-		// Default behavior: install recommended public skills.
-		if !installCLI && !installMCP {
-			return skillcatalog.DefaultInstall(), nil
-		}
-		return resolveInstallSkillsByFamily(installCLI, installMCP)
+		return resolveInstallSkillsByFamily(skillInstallCLI, skillInstallMCP)
 	}
 
 	available := strings.Join(skillcatalog.Names(), ", ")
@@ -475,31 +264,6 @@ func resolveInstallSkills(selectedNames []string) ([]skillcatalog.Skill, error) 
 		return nil, fmt.Errorf("no valid skill names provided. Available skills: %s", available)
 	}
 	return resolved, nil
-}
-
-func includesCLISkill(allSkills []skillcatalog.Skill) bool {
-	for _, sk := range allSkills {
-		if strings.HasPrefix(sk.Name, skillFamilyCLIPrefix) {
-			return true
-		}
-	}
-	return false
-}
-
-// includesMCPSkill reports whether one install selection contains MCP skills.
-//
-// Parameters:
-//   - allSkills: Resolved skills selected for installation.
-//
-// Returns:
-//   - bool: Whether at least one MCP-family skill is present.
-func includesMCPSkill(allSkills []skillcatalog.Skill) bool {
-	for _, sk := range allSkills {
-		if strings.HasPrefix(sk.Name, skillFamilyMCPPrefix) {
-			return true
-		}
-	}
-	return false
 }
 
 func resolveInstallSkillsByFamily(includeCLI bool, includeMCP bool) ([]skillcatalog.Skill, error) {
@@ -547,6 +311,11 @@ func addInstallTargetFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&skillInstallCodex, "codex", false, "Install for Codex")
 	cmd.Flags().BoolVar(&skillInstallGlobal, "global", false, "Install to user-level (global) directory instead of project-level")
 	cmd.Flags().BoolVar(&skillInstallForce, "force", false, "Overwrite existing skill installations")
+	cmd.Flags().BoolVar(&skillInstallAll, "all", false, "Explicitly select every CLI and MCP skill")
+	cmd.Flags().BoolVarP(&skillInstallYes, "yes", "y", false, "Skip confirmation without selecting additional skills")
+	cmd.Flags().BoolVar(&skillInstallCopy, "copy", false, "Copy to agent directories instead of using shared storage and links")
+	cmd.Flags().BoolVar(&skillInstallJSON, "json", false, "Output structured JSON without interactive prompts")
+	cmd.Flags().StringSliceVarP(&skillInstallAgents, "agent", "a", nil, "Agent integration(s): cursor, codex, claude-code")
 }
 
 func registerSkillShortcutCommands() {
@@ -570,40 +339,6 @@ func registerSkillShortcutCommands() {
 		skillNameCmd.AddCommand(installOneCmd)
 		skillCmd.AddCommand(skillNameCmd)
 	}
-}
-
-func pruneLegacySkillDirs(baseDir string, selected []skillcatalog.Skill) ([]string, []string) {
-	selectedNames := make(map[string]struct{}, len(selected))
-	for _, sk := range selected {
-		selectedNames[sk.Name] = struct{}{}
-	}
-
-	var removed []string
-	var errs []string
-
-	for _, legacyName := range legacySkillNames {
-		if _, keep := selectedNames[legacyName]; keep {
-			continue
-		}
-
-		legacyDir := filepath.Join(baseDir, legacyName)
-		legacySkillPath := filepath.Join(legacyDir, skillcatalog.SkillFileName)
-		if _, err := os.Stat(legacySkillPath); err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			errs = append(errs, fmt.Sprintf("%s: %v", legacySkillPath, err))
-			continue
-		}
-
-		if err := os.RemoveAll(legacyDir); err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", legacyDir, err))
-			continue
-		}
-		removed = append(removed, legacyDir)
-	}
-
-	return removed, errs
 }
 
 // resolveInstallTargets determines which directories to install the skills to
@@ -683,83 +418,6 @@ func resolveDirectoriesForScope(tools []string, global bool) []skillInstallTarge
 	}
 
 	return targets
-}
-
-// installSkillTo writes the selected SKILL.md file to the given base skill directory.
-// Creates: <baseDir>/<skill-name>/SKILL.md
-func installSkillTo(baseDir string, selected skillcatalog.Skill, force bool) (string, bool, error) {
-	skillDir := filepath.Join(baseDir, selected.Name)
-	skillPath := filepath.Join(skillDir, skillcatalog.SkillFileName)
-
-	if !force {
-		if _, err := os.Stat(skillPath); err == nil {
-			return skillPath, false, nil
-		} else if !os.IsNotExist(err) {
-			return skillPath, false, fmt.Errorf("failed to check existing skill file: %w", err)
-		}
-	}
-
-	if err := os.MkdirAll(skillDir, 0755); err != nil {
-		return skillPath, false, fmt.Errorf("failed to create directory %s: %w", skillDir, err)
-	}
-
-	if err := os.WriteFile(skillPath, []byte(selected.Content), 0644); err != nil {
-		return skillPath, false, fmt.Errorf("failed to write %s: %w", skillPath, err)
-	}
-
-	return skillPath, true, nil
-}
-
-func installCursorCompanionRule(target skillInstallTarget, force bool) (string, bool, error) {
-	if target.tool != "cursor" || target.global {
-		return "", false, nil
-	}
-
-	cursorDir := filepath.Dir(target.path)
-	ruleDir := filepath.Join(cursorDir, "rules")
-	rulePath := filepath.Join(ruleDir, cursorRuleFileName)
-
-	if !force {
-		if _, err := os.Stat(rulePath); err == nil {
-			return rulePath, false, nil
-		} else if !os.IsNotExist(err) {
-			return rulePath, false, fmt.Errorf("failed to check existing Cursor rule: %w", err)
-		}
-	}
-
-	if err := os.MkdirAll(ruleDir, 0755); err != nil {
-		return rulePath, false, fmt.Errorf("failed to create directory %s: %w", ruleDir, err)
-	}
-
-	if err := os.WriteFile(rulePath, []byte(cursorRuleContent), 0644); err != nil {
-		return rulePath, false, fmt.Errorf("failed to write %s: %w", rulePath, err)
-	}
-
-	return rulePath, true, nil
-}
-
-// removeCursorCLICompanionRule removes the CLI-first rule for an MCP-only install.
-//
-// Parameters:
-//   - target: Skill installation target whose sibling rules directory is inspected.
-//
-// Returns:
-//   - string: Removed rule path, or empty when no action was needed.
-//   - error: Filesystem inspection or removal failure.
-func removeCursorCLICompanionRule(target skillInstallTarget) (string, error) {
-	if target.tool != "cursor" || target.global {
-		return "", nil
-	}
-
-	cursorDir := filepath.Dir(target.path)
-	rulePath := filepath.Join(cursorDir, "rules", cursorRuleFileName)
-	if err := os.Remove(rulePath); err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", fmt.Errorf("remove CLI-only Cursor rule %s: %w", rulePath, err)
-	}
-	return rulePath, nil
 }
 
 // expandHome replaces a leading ~ with the user's home directory.

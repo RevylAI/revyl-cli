@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl MCP"
+  short_description: "Choose and run Revyl MCP workflows for mobile apps"
+policy:
+  allow_implicit_invocation: true

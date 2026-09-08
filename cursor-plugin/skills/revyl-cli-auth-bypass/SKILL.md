@@ -1,17 +1,18 @@
 ---
 name: revyl-cli-auth-bypass
 description: Set up test-only auth bypass for Revyl runs across Expo, React Native, native iOS, native Android, and Flutter apps.
+disable-model-invocation: true
 ---
 
 # Revyl Auth Bypass Skill
 
-Use this skill when a Revyl test or dev loop needs to start from an authenticated app state. Detect the app stack, apply the shared safety contract, then implement the handler in that stack. This is app code guidance, not a Revyl authentication shortcut.
+Use this skill only when the user explicitly asks to set up test-only auth bypass for a Revyl test or dev loop. Detect the app stack, apply the shared safety contract, then implement the handler in that stack. This is app code guidance, not a Revyl authentication shortcut.
 
 ## Native Agent Behavior
 
 - Ask at most 1-3 concise clarification questions only when the target app, platform, session, URL scheme, token source, or sensitive action cannot be inferred from the repo or Revyl CLI.
 - Prefer safe defaults and keep moving when `revyl init --detect`, app source, `revyl dev list`, screenshots, or reports can answer the question.
-- When Revyl prints a viewer or local app URL, open it in the native browser/tool surface when available: Codex Browser/in-app browser for local URLs, Revyl viewer URLs, screenshots, and page checks; Claude Code `.claude/skills` slash-command discovery plus WebFetch/WebSearch or configured MCP/browser tools; Cursor `.cursor/skills` plus `.cursor/rules/revyl-skills.mdc` and available MCP/browser tools.
+- When Revyl prints a viewer or local app URL, open it in the native browser/tool surface when available: Codex Browser/in-app browser for local URLs, Revyl viewer URLs, screenshots, and page checks; Claude Code `.claude/skills` compatibility links plus WebFetch/WebSearch or configured MCP/browser tools; Cursor `.cursor/skills` when using `--copy`, otherwise shared `.agents/skills`, plus available MCP/browser tools. Codex also discovers shared `.agents/skills` directly.
 - If no browser tool is exposed, report the URL and verify through `revyl device screenshot` or `revyl device report` instead of claiming browser access.
 - Confirm before entering sensitive data, submitting forms, uploading files, accepting browser permissions, changing sharing/access, or deleting data.
 
@@ -66,50 +67,15 @@ In monorepos, run setup from the actual app directory.
 
 ## Implement for the Detected Stack
 
-Preserve the shared contract. Do not invent a new architecture unless the app cannot support deep links or test-only launch config. For KMP, Bazel, Capacitor/Ionic, Unity, or other less common shapes, use the closest native or framework notes below.
+Preserve the shared contract. Do not invent a new architecture unless the app cannot support deep links or test-only launch config. Read only the reference matching the detected app stack; do not load unrelated platform recipes:
 
-### Expo or Expo Router
+- Expo or Expo Router: [Expo implementation](references/expo.md).
+- React Native bare: [React Native implementation](references/react-native.md).
+- Native iOS: [iOS implementation](references/ios.md).
+- Native Android: [Android implementation](references/android.md).
+- Flutter: [Flutter implementation](references/flutter.md).
 
-- Handle the initial URL and runtime `Linking` URL events near the root layout.
-- For Expo Router, add `app/revyl-auth.tsx` as a backstop that calls the same handler so `myapp://revyl-auth?...` does not land on an unmatched-route screen while the dev client is already running.
-- Managed Expo JS may not receive native launch values automatically. Prefer a small native launch-config bridge or verify the token with a staging backend. Demo fallback tokens are acceptable only for sample apps.
-- Bug Bazaar is the reference shape: root provider, `app/revyl-auth.tsx` backstop, launch-var gate, allowlisted role/redirect handling, and visible accepted/rejected state.
-
-### React Native bare
-
-- Install a `Linking` listener for initial and runtime URLs at the root navigator.
-- Expose `REVYL_AUTH_BYPASS_*` to JS through the app's existing native config bridge when one exists.
-- iOS: read compatible `-KEY value` pairs from `ProcessInfo.processInfo.arguments` (not raw iOS argument tokens).
-- Android: read launch `Intent` string extras.
-- Register `myapp` in iOS `CFBundleURLTypes` and an Android intent filter for `scheme=myapp` `host=revyl-auth`.
-
-### Native iOS
-
-- Register `myapp` in `Info.plist` `CFBundleURLTypes`.
-- Handle `myapp://revyl-auth` from SwiftUI `.onOpenURL` or the app/scene delegate.
-- On simulators and devices, Revyl environment-variable configs arrive as `-KEY value` launch-argument pairs. Read those pairs; do not replace them with an iOS arguments configuration.
-
-```swift
-func launchValue(_ key: String) -> String? {
-    let args = ProcessInfo.processInfo.arguments
-    guard let index = args.firstIndex(of: "-\(key)") else { return nil }
-    let valueIndex = args.index(after: index)
-    return args.indices.contains(valueIndex) ? args[valueIndex] : nil
-}
-```
-
-### Native Android
-
-- Register an intent filter on the activity that receives app links: `scheme=myapp` `host=revyl-auth`.
-- Capture launch extras in `onCreate` before handling links, and handle `onNewIntent`.
-- Revyl launch variables arrive as string extras on the launch intent (`REVYL_AUTH_BYPASS_ENABLED`, `REVYL_AUTH_BYPASS_TOKEN`).
-
-### Flutter
-
-- Handle initial and runtime deep links from the Dart router (use the app's existing package, or `app_links`).
-- Expose `REVYL_AUTH_BYPASS_*` to Dart through a platform channel, or verify the token against a staging backend.
-- iOS: register `myapp` in `ios/Runner/Info.plist`. Android: add the `revyl-auth` intent filter in `android/app/src/main/AndroidManifest.xml`.
-- Native channel sources match the iOS argument pairs and Android intent extras above.
+For KMP, Bazel, Capacitor/Ionic, Unity, or other less common shapes, select only the closest native or framework reference from repo evidence. Every reference uses the shared safety and verification rules below.
 
 ## Implementation Rules
 

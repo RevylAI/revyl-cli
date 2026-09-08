@@ -28,6 +28,10 @@ func defaultInstalledSkillNamesForTest() []string {
 	return []string{"revyl-cli-dev-loop", "revyl-cli-atlas", "revyl-cli-create", "revyl-cli-auth-bypass"}
 }
 
+func installPublicSkillsForTools(tools []string, global bool, force bool) error {
+	return installSkillsToTargets(resolveDirectoriesForScope(tools, global), skillcatalog.Public(), force)
+}
+
 func assertInstalledSkills(t *testing.T, baseDir string, names []string) {
 	t.Helper()
 
@@ -39,19 +43,11 @@ func assertInstalledSkills(t *testing.T, baseDir string, names []string) {
 	}
 }
 
-func TestResolveInstallSkillsDefaultInstallsRecommendedBundle(t *testing.T) {
+func TestResolveInstallSkillsRequiresSelection(t *testing.T) {
 	withSkillFamilyFlags(false, false, func() {
 		selected, err := resolveInstallSkills(nil)
-		if err != nil {
-			t.Fatalf("resolveInstallSkills(nil) error = %v", err)
-		}
-		got := make([]string, 0, len(selected))
-		for _, sk := range selected {
-			got = append(got, sk.Name)
-		}
-		want := defaultInstalledSkillNamesForTest()
-		if strings.Join(got, ",") != strings.Join(want, ",") {
-			t.Fatalf("default skills = %v, want %v", got, want)
+		if err == nil || len(selected) != 0 {
+			t.Fatalf("missing selection installed skills: %v, err=%v", selected, err)
 		}
 	})
 }
@@ -210,7 +206,7 @@ func TestInstallSelectedAuthBypassLeafAliasesWritesParent(t *testing.T) {
 		t.Fatalf("installSkillsToTargets() error = %v", err)
 	}
 
-	path := filepath.Join(target, "revyl-cli-auth-bypass", "SKILL.md")
+	path := filepath.Join(workDir, ".agents", "skills", "revyl-cli-auth-bypass", "SKILL.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("expected installed parent skill at %s: %v", path, err)
@@ -226,7 +222,7 @@ func TestInstallSelectedAuthBypassLeafAliasesWritesParent(t *testing.T) {
 	}
 }
 
-func TestInstallPublicSkillsPrunesAuthBypassLeafDirs(t *testing.T) {
+func TestInstallPublicSkillsPreservesAuthBypassLeafDirs(t *testing.T) {
 	workDir := t.TempDir()
 	withWorkingDir(t, workDir)
 	target := filepath.Join(workDir, ".codex", "skills")
@@ -240,14 +236,17 @@ func TestInstallPublicSkillsPrunesAuthBypassLeafDirs(t *testing.T) {
 		}
 	}
 
-	if err := installPublicSkillsForTools([]string{"codex"}, false, true); err != nil {
-		t.Fatalf("installPublicSkillsForTools() error = %v", err)
+	if err := installPublicSkillsForTools([]string{"codex"}, false, true); err == nil {
+		t.Fatal("expected a legacy alias conflict before shared installation")
 	}
 
-	assertInstalledSkills(t, target, defaultInstalledSkillNamesForTest())
+	if _, err := os.Stat(filepath.Join(workDir, ".agents")); !os.IsNotExist(err) {
+		t.Fatalf("legacy conflict created shared storage: %v", err)
+	}
 	for _, name := range authBypassLeafSkillNames {
-		if _, err := os.Stat(filepath.Join(target, name, "SKILL.md")); !os.IsNotExist(err) {
-			t.Fatalf("expected pruned leaf %s, stat err = %v", name, err)
+		data, err := os.ReadFile(filepath.Join(target, name, "SKILL.md"))
+		if err != nil || string(data) != "retired leaf" {
+			t.Fatalf("legacy leaf %s was modified, err = %v", name, err)
 		}
 	}
 }
@@ -257,9 +256,9 @@ func TestInstallPublicSkillsForToolsWritesDefaultSkills(t *testing.T) {
 		tool      string
 		skillsDir string
 	}{
-		{tool: "cursor", skillsDir: filepath.Join(".cursor", "skills")},
+		{tool: "cursor", skillsDir: filepath.Join(".agents", "skills")},
 		{tool: "claude", skillsDir: filepath.Join(".claude", "skills")},
-		{tool: "codex", skillsDir: filepath.Join(".codex", "skills")},
+		{tool: "codex", skillsDir: filepath.Join(".agents", "skills")},
 	}
 
 	for _, tc := range cases {
@@ -282,7 +281,7 @@ func TestInstallPublicSkillsForToolsWritesDefaultSkills(t *testing.T) {
 	}
 }
 
-func TestCursorProjectInstallWritesCompanionRule(t *testing.T) {
+func TestCursorProjectInstallDoesNotWriteCompanionRule(t *testing.T) {
 	workDir := t.TempDir()
 	withWorkingDir(t, workDir)
 
@@ -291,30 +290,12 @@ func TestCursorProjectInstallWritesCompanionRule(t *testing.T) {
 	}
 
 	rulePath := filepath.Join(workDir, ".cursor", "rules", cursorRuleFileName)
-	data, err := os.ReadFile(rulePath)
-	if err != nil {
-		t.Fatalf("expected Cursor companion rule at %s: %v", rulePath, err)
-	}
-
-	rule := string(data)
-	for _, want := range []string{
-		"alwaysApply: false",
-		"explicit CLI-only fallback",
-		"revyl-mcp-dev-loop",
-		"revyl-cli-dev-loop",
-		"revyl-cli-atlas",
-		"revyl-cli-create",
-		"revyl-cli-auth-bypass",
-		"revyl device screenshot",
-		"session.auth_bypass section",
-	} {
-		if !strings.Contains(rule, want) {
-			t.Fatalf("Cursor rule did not contain %q", want)
-		}
+	if _, err := os.Stat(rulePath); !os.IsNotExist(err) {
+		t.Fatalf("skill installation wrote a Cursor rule: %v", err)
 	}
 }
 
-func TestCursorMCPInstallRemovesCLIOnlyCompanionRule(t *testing.T) {
+func TestCursorMCPInstallPreservesExistingCompanionRule(t *testing.T) {
 	workDir := t.TempDir()
 	withWorkingDir(t, workDir)
 	target := skillInstallTarget{
@@ -322,12 +303,12 @@ func TestCursorMCPInstallRemovesCLIOnlyCompanionRule(t *testing.T) {
 		path: filepath.Join(workDir, ".cursor", "skills"),
 	}
 
-	if err := installPublicSkillsForTools([]string{"cursor"}, false, true); err != nil {
-		t.Fatalf("installPublicSkillsForTools() error = %v", err)
-	}
 	rulePath := filepath.Join(workDir, ".cursor", "rules", cursorRuleFileName)
-	if _, err := os.Stat(rulePath); err != nil {
-		t.Fatalf("expected CLI-only rule before MCP install: %v", err)
+	if err := os.MkdirAll(filepath.Dir(rulePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rulePath, []byte("custom routing rule"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	mcpSkills, err := resolveInstallSkillsByFamily(false, true)
@@ -337,8 +318,9 @@ func TestCursorMCPInstallRemovesCLIOnlyCompanionRule(t *testing.T) {
 	if err := installSkillsToTargets([]skillInstallTarget{target}, mcpSkills, true); err != nil {
 		t.Fatalf("install MCP skills: %v", err)
 	}
-	if _, err := os.Stat(rulePath); !os.IsNotExist(err) {
-		t.Fatalf("CLI-only rule remains after MCP install: %v", err)
+	data, err := os.ReadFile(rulePath)
+	if err != nil || string(data) != "custom routing rule" {
+		t.Fatalf("MCP installation modified existing guidance: %v", err)
 	}
 }
 
@@ -352,7 +334,7 @@ func TestCursorGlobalInstallDoesNotWriteCompanionRule(t *testing.T) {
 		t.Fatalf("installPublicSkillsForTools() error = %v", err)
 	}
 
-	assertInstalledSkills(t, filepath.Join(homeDir, ".cursor", "skills"), defaultInstalledSkillNamesForTest())
+	assertInstalledSkills(t, filepath.Join(homeDir, ".agents", "skills"), defaultInstalledSkillNamesForTest())
 
 	for _, rulePath := range []string{
 		filepath.Join(workDir, ".cursor", "rules", cursorRuleFileName),
@@ -366,7 +348,7 @@ func TestCursorGlobalInstallDoesNotWriteCompanionRule(t *testing.T) {
 
 func TestDefaultInstalledSkillContentIncludesNativeAgentBehavior(t *testing.T) {
 	withSkillFamilyFlags(false, false, func() {
-		selected, err := resolveInstallSkills(nil)
+		selected, err := resolveInstallSkills(defaultInstalledSkillNamesForTest())
 		if err != nil {
 			t.Fatalf("resolveInstallSkills(nil) error = %v", err)
 		}

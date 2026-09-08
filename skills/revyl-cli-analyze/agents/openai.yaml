@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Failure Analysis"
+  short_description: "Diagnose mobile test failures from Revyl CLI reports"
+policy:
+  allow_implicit_invocation: true

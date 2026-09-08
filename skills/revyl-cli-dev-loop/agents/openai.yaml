@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl Dev Loop"
+  short_description: "Build and verify app changes on live mobile devices"
+policy:
+  allow_implicit_invocation: true

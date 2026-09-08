@@ -1,0 +1,5 @@
+interface:
+  display_name: "Revyl MCP Dev Loop"
+  short_description: "Explore and verify mobile apps through Revyl MCP"
+policy:
+  allow_implicit_invocation: true

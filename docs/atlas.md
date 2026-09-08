@@ -95,7 +95,7 @@ Install `revyl-cli-atlas` to make this media-first traversal workflow the agent
 default:
 
 ```bash
-revyl skill install --name revyl-cli-atlas --force
+revyl skill install --name revyl-cli-atlas
 ```
 
 ## Agent-authored annotations
@@ -180,7 +180,7 @@ normalized anchor, focused Atlas URL, request ID, and `idempotent_replay`.
 Install the write-capable leaf only for requested feedback work:
 
 ```bash
-revyl skill install --name revyl-cli-atlas-review --force
+revyl skill install --name revyl-cli-atlas-review
 ```
 
 ## Run-native annotations (`revyl report annotations`)
